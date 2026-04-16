@@ -22,6 +22,13 @@ namespace TianWen.UI.Abstractions
         private const float BaseFontSize = 12f;
 
         public SkyMapState State { get; } = new SkyMapState();
+        private PlannerState? _plannerState;
+        private ITimeProvider? _timeProvider;
+
+        // Cached live viewing time -- refreshed once per second to avoid per-frame GetUtcNow() calls.
+        // GetTimestamp() is a cheap stopwatch read; GetUtcNow() is a heavier system call.
+        private DateTimeOffset _cachedLiveTime;
+        private long _liveTimeRefreshTicks;
         private float _contentHeight;
         private float _contentX;
         private float _contentY;
@@ -37,6 +44,8 @@ namespace TianWen.UI.Abstractions
             ITimeProvider timeProvider)
         {
             BeginFrame();
+            _plannerState = plannerState;
+            _timeProvider = timeProvider;
 
             var db = plannerState.ObjectDb;
             if (db is null)
@@ -57,8 +66,19 @@ namespace TianWen.UI.Abstractions
             var siteLat = plannerState.SiteLatitude;
             var siteLon = plannerState.SiteLongitude;
 
+            // Viewing time: use the planning date (which preserves time-of-day across
+            // date shifts) when set, otherwise live wall-clock time cached with 1s refresh.
+            var nowTicks = timeProvider.GetTimestamp();
+            if (plannerState.PlanningDate is null
+                && timeProvider.GetElapsedTime(_liveTimeRefreshTicks, nowTicks) >= TimeSpan.FromSeconds(1))
+            {
+                _cachedLiveTime = timeProvider.GetUtcNow();
+                _liveTimeRefreshTicks = nowTicks;
+            }
+            var viewingTime = plannerState.PlanningDate?.ToUniversalTime() ?? _cachedLiveTime;
+
             // Initialize view to zenith on first valid site, or re-center on profile switch
-            var site = SiteContext.Create(siteLat, siteLon, timeProvider);
+            var site = SiteContext.Create(siteLat, siteLon, viewingTime);
             if (site.IsValid && (!State.Initialized || siteLat != _lastSiteLat || siteLon != _lastSiteLon))
             {
                 _lastSiteLat = siteLat;
@@ -70,14 +90,8 @@ namespace TianWen.UI.Abstractions
                 State.NeedsRedraw = true;
             }
 
-            // Sky-color-by-time is only valid when viewing "tonight" (PlanningDate null).
-            // On a different date we can't know what time of day the user is inspecting,
-            // so we just show a night sky. A future Stellarium-style time adjuster would
-            // feed an explicit instant in here.
-            var isPlanningTonight = plannerState.PlanningDate is null;
-
             // Delegate pixel rendering to virtual method (overridden by VkSkyMapTab for GPU caching)
-            RenderSkyMap(db, contentRect, fontPath, timeProvider, siteLat, siteLon, isPlanningTonight);
+            RenderSkyMap(db, contentRect, fontPath, viewingTime, siteLat, siteLon);
 
             // Draw text overlays natively (GPU text rendering on top of cached texture)
             var ppr = SkyMapProjection.PixelsPerRadian(contentRect.Height, State.FieldOfViewDeg);
@@ -98,7 +112,7 @@ namespace TianWen.UI.Abstractions
             // Constellation names at boundary centroids (always shown)
             DrawConstellationNames(contentRect, fontPath, fontSize * 0.85f, ppr, cx, cy, site, dimBelowHorizon);
 
-            DrawPlanetLabels(db, timeProvider, siteLat, siteLon, contentRect, fontPath, fontSize, ppr, cx, cy, site, dimBelowHorizon);
+            DrawPlanetLabels(db, viewingTime, siteLat, siteLon, contentRect, fontPath, fontSize, ppr, cx, cy, site, dimBelowHorizon);
 
             // Always render the object overlay pass — when [O] is off, only pinned
             // planner targets are drawn (the user's planned observations should always
@@ -120,7 +134,8 @@ namespace TianWen.UI.Abstractions
                 RenderMountOverlay(mountOverlay, contentRect, dpiScale, fontPath, BaseFontSize, ppr, cx, cy);
             }
 
-            DrawInfoStrip(contentRect, fontPath, fontSize, dpiScale, cx, cy);
+            DrawInfoStrip(contentRect, fontPath, fontSize, dpiScale, cx, cy,
+                viewingTime, plannerState.SiteTimeZone, plannerState.PlanningDate.HasValue);
 
             // Crosshair
             var crossColor = new RGBAColor32(0xFF, 0xFF, 0xFF, 0x40);
@@ -171,12 +186,9 @@ namespace TianWen.UI.Abstractions
         /// </summary>
         protected virtual void RenderSkyMap(
             ICelestialObjectDB db, RectF32 contentRect, string fontPath,
-            ITimeProvider timeProvider, double siteLat, double siteLon,
-            bool isPlanningTonight)
+            DateTimeOffset viewingTime, double siteLat, double siteLon)
         {
-            double sunAltDeg = isPlanningTonight
-                ? State.GetSunAltitudeDegCached(timeProvider.GetUtcNow(), siteLat, siteLon)
-                : double.NaN;
+            double sunAltDeg = State.GetSunAltitudeDegCached(viewingTime, siteLat, siteLon);
             FillRect(contentRect.X, contentRect.Y, contentRect.Width, contentRect.Height,
                 SkyMapState.SkyBackgroundColorForSunAltitude(sunAltDeg));
         }
@@ -356,11 +368,10 @@ namespace TianWen.UI.Abstractions
         }
 
         private void DrawPlanetLabels(
-            ICelestialObjectDB db, ITimeProvider timeProvider, double siteLat, double siteLon,
+            ICelestialObjectDB db, DateTimeOffset viewingTime, double siteLat, double siteLon,
             RectF32 rect, string fontPath, float fontSize, double ppr, float cx, float cy,
             SiteContext site, bool dimBelowHorizon)
         {
-            var now = timeProvider.GetUtcNow();
 
             foreach (var planetIdx in SkyMapRenderer.PlanetIndices)
             {
@@ -368,7 +379,7 @@ namespace TianWen.UI.Abstractions
                 // regular Reduce (which precesses to JNow + applies topocentric correction)
                 // would offset planets ~0.35 deg off the J2000 ecliptic line.
                 if (!TianWen.Lib.Astrometry.VSOP87.VSOP87a.ReduceJ2000(
-                    planetIdx, now,
+                    planetIdx, viewingTime,
                     out var ra, out var dec, out _))
                 {
                     continue;
@@ -398,11 +409,19 @@ namespace TianWen.UI.Abstractions
             }
         }
 
-        private void DrawInfoStrip(RectF32 rect, string fontPath, float fontSize, float dpiScale, float cx, float cy)
+        private static readonly RGBAColor32 TimeShiftColor = new(0x88, 0xCC, 0xFF, 0xFF);
+
+        private void DrawInfoStrip(RectF32 rect, string fontPath, float fontSize, float dpiScale,
+            float cx, float cy, DateTimeOffset viewingTime, TimeSpan siteTimeZone, bool isTimeShifted)
         {
             var stripH = 24f * dpiScale;
             var stripY = rect.Y + rect.Height - stripH;
             FillRect(rect.X, stripY, rect.Width, stripH, InfoPanelBg);
+
+            var localTime = viewingTime.ToOffset(siteTimeZone);
+            var timeText = isTimeShifted
+                ? $"{localTime:yyyy-MM-dd HH:mm}"
+                : $"{localTime:HH:mm:ss}";
 
             var fovText = State.FieldOfViewDeg < 1
                 ? $"FOV: {State.FieldOfViewDeg * 60:F0}'"
@@ -413,6 +432,12 @@ namespace TianWen.UI.Abstractions
             DrawText(info.AsSpan(), fontPath,
                 rect.X + 8, stripY, rect.Width - 16, stripH,
                 fontSize * 0.85f, InfoText, TextAlign.Near, TextAlign.Center);
+
+            // Time display on the right side of the strip -- blue when time-shifted
+            var timeColor = isTimeShifted ? TimeShiftColor : InfoText;
+            DrawText(timeText.AsSpan(), fontPath,
+                rect.X + rect.Width - 160, stripY, 152, stripH,
+                fontSize * 0.85f, timeColor, TextAlign.Far, TextAlign.Center);
         }
 
         // ── Input handling ──
@@ -603,6 +628,21 @@ namespace TianWen.UI.Abstractions
                 case InputKey.Minus:
                     State.MagnitudeLimit = Math.Max(State.MagnitudeLimit - 0.5f, 1f);
                     State.NeedsRedraw = true;
+                    return true;
+                case InputKey.Left when _timeProvider is not null && _plannerState is not null:
+                    PlannerActions.ShiftPlanningDate(_plannerState, _timeProvider, -1);
+                    return true;
+                case InputKey.Right when _timeProvider is not null && _plannerState is not null:
+                    PlannerActions.ShiftPlanningDate(_plannerState, _timeProvider, 1);
+                    return true;
+                case InputKey.Up when _timeProvider is not null && _plannerState is not null:
+                    PlannerActions.ShiftPlanningHours(_plannerState, _timeProvider, 1);
+                    return true;
+                case InputKey.Down when _timeProvider is not null && _plannerState is not null:
+                    PlannerActions.ShiftPlanningHours(_plannerState, _timeProvider, -1);
+                    return true;
+                case InputKey.T when _plannerState is not null:
+                    PlannerActions.ResetPlanningDate(_plannerState);
                     return true;
                 default:
                     return false;

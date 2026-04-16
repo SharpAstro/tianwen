@@ -33,6 +33,18 @@ public static class PlannerActions
     }
 
     /// <summary>
+    /// Shifts the planning time by the given number of hours.
+    /// Sets <see cref="PlannerState.PlanningDate"/> and flags for recomputation.
+    /// </summary>
+    public static void ShiftPlanningHours(PlannerState state, ITimeProvider timeProvider, int hours)
+    {
+        var current = state.PlanningDate ?? timeProvider.System.GetLocalNow();
+        state.PlanningDate = current.AddHours(hours);
+        state.NeedsRecompute = true;
+        state.NeedsRedraw = true;
+    }
+
+    /// <summary>
     /// Resets planning to tonight (current date).
     /// </summary>
     public static void ResetPlanningDate(PlannerState state)

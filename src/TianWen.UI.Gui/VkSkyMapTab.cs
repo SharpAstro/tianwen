@@ -30,8 +30,7 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
 
     protected override void RenderSkyMap(
         ICelestialObjectDB db, RectF32 contentRect, string fontPath,
-        ITimeProvider timeProvider, double siteLat, double siteLon,
-        bool isPlanningTonight)
+        DateTimeOffset viewingTime, double siteLat, double siteLon)
     {
         var mapW = contentRect.Width;
         var mapH = contentRect.Height;
@@ -49,13 +48,10 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
             _pipeline.BuildGeometry(db);
         }
 
-        // Fill background with a sky colour driven by the Sun's current altitude
-        // (matches the planner's twilight zones). Only valid when viewing "tonight";
-        // any other planning date falls back to night. VSOP87a is cached for 10s so
-        // this stays out of the per-frame hot path.
-        double sunAltDeg = isPlanningTonight
-            ? State.GetSunAltitudeDegCached(timeProvider.GetUtcNow(), siteLat, siteLon)
-            : double.NaN;
+        // Fill background with a sky colour driven by the Sun's altitude at the
+        // viewing time (matches the planner's twilight zones). VSOP87a is cached
+        // for 10s so this stays out of the per-frame hot path.
+        double sunAltDeg = State.GetSunAltitudeDegCached(viewingTime, siteLat, siteLon);
         var bg = SkyMapState.SkyBackgroundColorForSunAltitude(sunAltDeg);
         Renderer.FillRectangle(
             new RectInt(
@@ -64,7 +60,7 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
             bg);
 
         // Build site context (needed for UBO horizon clipping and dynamic geometry)
-        var site = SiteContext.Create(siteLat, siteLon, timeProvider);
+        var site = SiteContext.Create(siteLat, siteLon, viewingTime);
 
         // Update UBO with current view + site for horizon clipping. Pass the current
         // frame-in-flight index so each swapchain image gets its own UBO copy and the
