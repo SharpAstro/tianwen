@@ -83,6 +83,7 @@ org. Their source repos live as siblings under the same parent directory (`../`)
 | `Console.Lib` | `../Console.Lib` | RgbaImageRenderer, MarkdownWidget, Sixel, TUI widgets |
 | `FC.SDK` | `../FC.SDK` | Canon DSLR PTP/USB/WiFi SDK |
 | `FITS.Lib` | `../FITS.Lib` | FITS file reading/writing |
+| `SharpAstro.Fonts` | `../Fonts.Lib` | **Transitive** — consumed by DIR.Lib (managed font loader/rasterizer) |
 
 **Local sibling auto-detection** (`Directory.Build.props`): For `DIR.Lib`, `Console.Lib`, and
 `SdlVulkan.Renderer`, the build automatically switches between ProjectReference (when all
@@ -95,6 +96,12 @@ three sibling working copies exist at `../../<repo>/src/<lib>/<lib>.csproj`) and
 - **CI** does not have sibling repos checked out, so it always falls through to PackageReference
   with versions from `Directory.Packages.props`.
 - `FC.SDK` and `FITS.Lib` are not yet wired up — still consumed as PackageReference only.
+- **`Fonts.Lib` (published as `SharpAstro.Fonts`) is a transitive dependency via DIR.Lib.**
+  TianWen has no direct reference to it, but DIR.Lib uses the same local-sibling switch
+  (`UseLocalFontsLib`) to pick between `../../Fonts.Lib/src/SharpAstro.Fonts/...` and the
+  published package. When checking upstream publish status before pushing TianWen, include
+  Fonts.Lib — an unpublished Fonts.Lib commit only matters if DIR.Lib also needs an
+  unpublished commit that depends on it (i.e. multi-repo update in flight).
 
 For libraries without sibling auto-detection, changes require publishing a new NuGet version first.
 For local cross-repo development on those, use local nupkg feeds with bumped versions.
@@ -189,14 +196,13 @@ builder.Services
 
 ### Logger, TimeProvider, and SleepAsync
 
-- `ILogger` and `TimeProvider` are resolved from `IServiceProvider` (not from `IExternal`).
+- `ILogger` and `ITimeProvider` are resolved from `IServiceProvider` (not from `IExternal`).
 - `DeviceDriverBase` resolves both in its constructor via `serviceProvider.GetRequiredService<>()`.
 - Non-driver classes (e.g., `AppSignalHandler`) resolve from SP in their own constructors.
-- **`IExternal.SleepAsync`** must be used instead of `Task.Delay(duration, timeProvider, ct)`
-  in any code exercised by tests with `FakeTimeProvider`. `FakeExternal.SleepAsync` auto-advances
-  fake time; `Task.Delay` with `FakeTimeProvider` hangs waiting for external advancement.
-- Static helpers (`BacklashCompensation`, `GuiderCalibration`) accept `IExternal` for `SleepAsync`.
-- `GuideLoop` takes both `IExternal` (for `SleepAsync`) and `TimeProvider` (for timestamps).
+- **`ITimeProvider.SleepAsync`** must be used instead of `Task.Delay(duration, timeProvider, ct)`
+  in any code. `FakeTimeProvider`'s `SleepAsync` auto-advances fake time; `Task.Delay` with
+  `FakeTimeProvider` hangs waiting for external advancement. All code should be testable.
+- Static helpers (`BacklashCompensation`, `GuiderCalibration`) accept `ITimeProvider` for `SleepAsync`.
 - `LoggerCatchExtensions` (in `TianWen.Lib.Extensions`) provides `ILogger.Catch/CatchAsync`.
 
 ### Device Management
@@ -213,7 +219,7 @@ for supported query parameters and their semantics.
 
 ### Key Abstractions
 
-- `IExternal` — file I/O, serial ports, `SleepAsync` (fake-time-aware delay)
+- `IExternal` — file I/O, serial ports
 - `ISessionFactory` — creates observation sessions with bound devices
 - `IPlateSolverFactory` — plate solving (ASTAP, astrometry.net)
 
