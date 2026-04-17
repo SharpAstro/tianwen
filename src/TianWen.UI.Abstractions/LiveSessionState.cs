@@ -162,6 +162,15 @@ namespace TianWen.UI.Abstractions
         /// <summary>Last preview plate solve result, or null.</summary>
         public PlateSolveResult? PreviewPlateSolveResult { get; set; }
 
+        /// <summary>
+        /// OTA index currently targeted by keyboard shortcuts and mouse clicks in
+        /// preview mode. The GPU tab doesn't need this (each row registers its own
+        /// clickable regions), but TUI keyboard shortcuts (Enter = capture, [/] = step
+        /// exposure, etc.) act on whichever OTA is selected. Clamped against
+        /// <see cref="OtaCount"/> where it's read, so stale values don't crash.
+        /// </summary>
+        public int SelectedPreviewOtaIndex { get; set; }
+
         // --- Derived ---
 
         /// <summary>
