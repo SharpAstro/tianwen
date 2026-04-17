@@ -9,3 +9,6 @@ tmp-data/
 *.local.json
 *.log
 *.local.slnx
+tools/data/
+src/.claude/
+scheduled_tasks.lock

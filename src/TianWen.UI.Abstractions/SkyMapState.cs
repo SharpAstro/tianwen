@@ -106,8 +106,11 @@ namespace TianWen.UI.Abstractions
         /// User-controlled base magnitude limit floor. Brighter = lower number.
         /// Keyboard + / − adjusts this; the effective limit sent to the GPU also
         /// grows as the user zooms in — see <see cref="EffectiveMagnitudeLimit"/>.
+        /// Must stay in sync with the Milky Way bake's <c>--min-mag</c>: stars
+        /// fainter than this limit contribute to the diffuse texture, brighter
+        /// ones are drawn as point sprites. A mismatch produces halos.
         /// </summary>
-        public float MagnitudeLimit { get; set; } = 6.5f;
+        public float MagnitudeLimit { get; set; } = 8.5f;
 
         /// <summary>
         /// FOV-aware magnitude limit (Stellarium-style <c>computeRCMag</c> analogue).
