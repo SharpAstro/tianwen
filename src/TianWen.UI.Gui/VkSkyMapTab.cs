@@ -28,6 +28,12 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
     private readonly List<float> _altAzGridFloats = new(4096);
     private readonly List<float> _fovFloats = new(256);
 
+    // Meridian geometry only depends on LST. LST is cached to 1 s granularity
+    // via SkyMapTab._cachedLiveTime, so 59 out of 60 frames per second have an
+    // identical LST; rebuild + resample the 200-vertex great circle only when
+    // LST actually moves. -1 = not yet built.
+    private double _lastMeridianLst = -1.0;
+
     protected override void RenderSkyMap(
         ICelestialObjectDB db, RectF32 contentRect, string fontPath,
         DateTimeOffset viewingTime, double siteLat, double siteLon)
@@ -77,7 +83,6 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
             renderer.Context.CurrentFrame);
 
         _horizonFloats.Clear();
-        _meridianFloats.Clear();
         _altAzGridFloats.Clear();
         _fovFloats.Clear();
 
@@ -86,9 +91,20 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
             VkSkyMapPipeline.BuildHorizonLine(site, _horizonFloats);
         }
 
-        if (site.IsValid)
+        // Meridian: rebuild only when LST has actually moved. The ring-buffer
+        // write below still happens every frame (the ring recycles offsets
+        // every N frames in flight) but the 200 trig calls + list allocation
+        // stop firing at 60 Hz for no reason.
+        if (site.IsValid && site.LST != _lastMeridianLst)
         {
+            _meridianFloats.Clear();
             VkSkyMapPipeline.BuildMeridianLine(site.LST, _meridianFloats);
+            _lastMeridianLst = site.LST;
+        }
+        else if (!site.IsValid)
+        {
+            _meridianFloats.Clear();
+            _lastMeridianLst = -1.0;
         }
 
         if (State.ShowAltAzGrid && site.IsValid)

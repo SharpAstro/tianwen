@@ -83,9 +83,72 @@ texture (uploaded once at startup). Constellation names, planet labels, and
 grid labels rendered in ~1 draw call total instead of ~100+ individual
 DrawText calls.
 
+## Phase 4: Kill the CPU RA/Dec grid scan (meridian lag fix)
+
+**Problem.** Overlay markers already render GPU-side (`VkOverlayShapes`), but
+`OverlayEngine.ComputeSkyMapOverlays` scans the RA/Dec grid cell-by-cell on
+the CPU every frame to decide *what* to render. When `poleInView` or
+`FOV >= 90 deg` (exactly when the meridian is visible — it goes pole-to-pole),
+the scan goes full all-sky: 360 RA * 181 Dec = ~65,000 cells, ~5 ms CPU
+per frame, noticeable as "lag when the meridian is in view."
+
+**Fix.** Replace the grid scan with a direct enumeration of
+`ICelestialObjectDB.AllObjectIndices` (~5-10k deep-sky objects), project each
+via the existing `SkyMapProjection`, cull by screen bounds and FOV-aware mag
+cutoff. ~5k CPU ops per frame is a flat cost independent of view, bounded,
+and much cheaper than the cell scan.
+
+### Steps
+
+- [ ] In `ComputeSkyMapOverlays`, replace the `for (dec ...) for (ra ...)`
+      nested loop over grid cells with a single `foreach (idx in
+      db.AllObjectIndices)` pass over the catalogue directly.
+- [ ] Keep the existing per-candidate filters (mag cutoff, extended-object
+      type gate, screen-bounds cull) exactly as they are. Only the outer
+      iteration changes.
+- [ ] Delete the `poleInView` branch that widened to all-sky — no longer
+      relevant since the new pass iterates objects directly, not cells.
+- [ ] Delete the RA wrap-around handling — objects have absolute coordinates,
+      projection decides visibility.
+- [ ] Keep `seen` HashSet just as a dedup guard for cross-index objects.
+
+**Benefit.** Frame cost becomes `O(N_objects)` instead of `O(N_cells *
+avg_objects_per_cell)`. Today at wide FOV: 65,000 cell lookups * 10 ns + 5k
+object operations; after: just the 5k object operations. Expected: 5 ms
+-> <1 ms per frame at wide FOV. Meridian-in-view lag gone.
+
+**Risk.** Extended low. The grid scan was an indexing optimization for narrow
+FOV; at 5-10k total objects, the overhead of iterating all of them beats the
+grid lookup at any FOV wider than ~30 deg (break-even, measured worth
+confirming with a benchmark before / after). Narrow-FOV case might lose a
+few microseconds; acceptable.
+
+## Phase 5: Cache meridian line geometry
+
+**Problem.** `BuildMeridianLine` runs in `VkSkyMapTab.Render` every frame,
+rebuilding 200 verts from `site.LST`. LST drifts at ~1 second wall-clock per
+second; the meridian moves <0.0042 deg of RA per frame at 60 FPS — far below
+sub-pixel on screen. Still, we pay ~200 trig calls + a ring-buffer write each
+frame for zero visual change.
+
+### Steps
+
+- [ ] Cache `_meridianFloats` on `VkSkyMapTab`; only rebuild when
+      `|lst - _lastMeridianLst| > lstThreshold` (threshold = one pixel of
+      sub-pixel RA motion at current FOV, ~0.01 h / 36 arcsec).
+- [ ] Same pattern for `_horizonFloats` (also rebuilt per frame from site).
+- [ ] Don't write to ring buffer if cached; retain the previous ring-buffer
+      offset for the draw call.
+
+**Benefit.** Saves ~1 ms per frame when idle (no pan/zoom, no LST drift that
+matters). Compounds nicely with Phase 4 — interactive + idle both become
+free on the CPU side.
+
 ## Not planned (stays CPU)
 
 - **Info strip**: fixed screen-space overlay, only redrawn on state change
 - **Crosshair**: 2x `FillRect`, trivial
 - **Reticle**: already GPU via `VkOverlayShapes.DrawReticle`
 - **DSO overlay ellipses**: already GPU via `VkOverlayShapes.DrawEllipse`
+- **Label collision layout** (`OverlayEngine.PlaceLabels`): runs once per
+  frame on the ~80 top-priority candidates, trivial cost.
