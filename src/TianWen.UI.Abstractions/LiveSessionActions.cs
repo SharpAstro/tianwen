@@ -1,12 +1,23 @@
 using System;
+using System.Collections.Immutable;
+using System.Globalization;
+using System.IO;
+using System.Threading;
+using System.Threading.Tasks;
 using DIR.Lib;
+using Microsoft.Extensions.Logging;
 using TianWen.Lib.Devices;
+using TianWen.Lib.Extensions;
+using TianWen.Lib.Imaging;
 using TianWen.Lib.Sequencing;
 
 namespace TianWen.UI.Abstractions
 {
     /// <summary>
-    /// Static helpers for the live session tab — phase labels, colors, formatting.
+    /// Static helpers for the live session tab — phase labels, colors, formatting,
+    /// plus I/O helpers for preview capture / snapshot / focuser jog. These are
+    /// pure-dependency helpers (no signal bus, no DI container) so they're directly
+    /// testable with fakes.
     /// </summary>
     public static class LiveSessionActions
     {
@@ -131,6 +142,164 @@ namespace TianWen.UI.Abstractions
         public static string FormatFocusHistoryRow(FocusRunRecord record, TimeSpan siteTimeZone)
         {
             return $"{record.Timestamp.ToOffset(siteTimeZone):HH:mm} {record.OtaName} {record.FilterName} {record.BestHfd:F1}\" @{record.BestPosition}";
+        }
+
+        /// <summary>
+        /// Samples camera, focuser, and filter-wheel telemetry for one OTA from hub-connected
+        /// drivers. Driver calls are guarded by <see cref="LoggerCatchExtensions.CatchAsync{T}"/>
+        /// so a single flaky driver call doesn't abort the whole sample.
+        /// </summary>
+        public static async Task<PreviewOTATelemetry> SampleOTATelemetryAsync(
+            IDeviceHub hub, OTAData ota, ILogger logger, CancellationToken ct)
+        {
+            // Camera
+            var ccdTemp = double.NaN;
+            var setpoint = double.NaN;
+            var power = double.NaN;
+            var coolerOn = false;
+            var usesGainValue = false;
+            var usesGainMode = false;
+            short gainMin = 0, gainMax = 0, currentGain = 0;
+            var gainModes = ImmutableArray<string>.Empty;
+            var cameraConnected = hub.TryGetConnectedDriver<ICameraDriver>(ota.Camera, out var camera);
+            if (cameraConnected && camera is not null)
+            {
+                ccdTemp = await logger.CatchAsyncIf(camera.CanGetCCDTemperature, camera.GetCCDTemperatureAsync, ct, double.NaN);
+                power = await logger.CatchAsyncIf(camera.CanGetCoolerPower, camera.GetCoolerPowerAsync, ct, double.NaN);
+                coolerOn = await logger.CatchAsyncIf(camera.CanGetCoolerOn, camera.GetCoolerOnAsync, ct);
+                setpoint = await logger.CatchAsync(camera.GetSetCCDTemperatureAsync, ct, double.NaN);
+                usesGainValue = camera.UsesGainValue;
+                usesGainMode = camera.UsesGainMode;
+                gainMin = camera.GainMin;
+                gainMax = camera.GainMax;
+                currentGain = await logger.CatchAsync(camera.GetGainAsync, ct);
+                if (usesGainMode && camera.Gains is { Count: > 0 } gains)
+                {
+                    gainModes = [.. gains];
+                }
+            }
+
+            // Focuser
+            var focPos = 0;
+            var focTemp = double.NaN;
+            var focMoving = false;
+            var focConnected = false;
+            if (ota.Focuser is { } focUri)
+            {
+                focConnected = hub.TryGetConnectedDriver<IFocuserDriver>(focUri, out var foc);
+                if (focConnected && foc is not null)
+                {
+                    focPos = await logger.CatchAsync(foc.GetPositionAsync, ct);
+                    focTemp = await logger.CatchAsync(foc.GetTemperatureAsync, ct, double.NaN);
+                    focMoving = await logger.CatchAsync(foc.GetIsMovingAsync, ct);
+                }
+            }
+
+            // Filter wheel
+            var filterName = "--";
+            var fwConnected = false;
+            if (ota.FilterWheel is { } fwUri)
+            {
+                fwConnected = hub.TryGetConnectedDriver<IFilterWheelDriver>(fwUri, out var fw);
+                if (fwConnected && fw is not null)
+                {
+                    var filter = await logger.CatchAsync(fw.GetCurrentFilterAsync, ct);
+                    filterName = filter.DisplayName ?? "--";
+                }
+            }
+
+            var camDisplay = hub.TryGetDeviceFromUri(ota.Camera, out var dev) && dev is not null
+                ? dev.DisplayName : ota.Name;
+
+            return new PreviewOTATelemetry(
+                OtaName: ota.Name,
+                CameraDisplayName: camDisplay,
+                CcdTempC: ccdTemp,
+                SetpointC: setpoint,
+                CoolerPowerPct: power,
+                CoolerOn: coolerOn,
+                FocusPosition: focPos,
+                FocuserTempC: focTemp,
+                FocuserIsMoving: focMoving,
+                FilterName: filterName,
+                CameraConnected: cameraConnected,
+                FocuserConnected: focConnected,
+                FilterWheelConnected: fwConnected,
+                UsesGainValue: usesGainValue,
+                UsesGainMode: usesGainMode,
+                GainMin: gainMin,
+                GainMax: gainMax,
+                CurrentGain: currentGain,
+                GainModes: gainModes);
+        }
+
+        /// <summary>
+        /// Captures a single preview frame: applies optional gain / binning, starts the
+        /// exposure, polls until ready, and returns the image. Caller owns the returned
+        /// image's lifetime (must call <see cref="Image.Release"/> when done).
+        /// </summary>
+        public static async Task<Image?> CaptureCameraPreviewAsync(
+            ICameraDriver camera,
+            TimeSpan exposure,
+            short? gain,
+            int binning,
+            ITimeProvider timeProvider,
+            CancellationToken ct)
+        {
+            // Apply gain if user explicitly set one (null = keep camera default).
+            // Both numeric (ZWO/ASCOM) and mode (DSLR ISO) cameras expose SetGainAsync.
+            if (gain.HasValue && (camera.UsesGainValue || camera.UsesGainMode))
+            {
+                try { await camera.SetGainAsync(gain.Value, ct); } catch { }
+            }
+            if (binning > 1)
+            {
+                try { camera.BinX = binning; } catch { }
+            }
+
+            await camera.StartExposureAsync(exposure, FrameType.Light, ct);
+
+            while (!await camera.GetImageReadyAsync(ct))
+            {
+                await timeProvider.SleepAsync(TimeSpan.FromMilliseconds(200), ct);
+            }
+
+            return await camera.GetImageAsync(ct);
+        }
+
+        /// <summary>
+        /// Writes a preview image to a per-date Snapshot folder under the configured image
+        /// output root. Returns the generated file name (not the full path).
+        /// </summary>
+        public static async Task<string> SaveSnapshotAsync(
+            Image image, int otaIndex, IExternal external, ITimeProvider timeProvider)
+        {
+            var utcNow = timeProvider.GetUtcNow();
+            var dateFolderUtc = utcNow.ToString("yyyy-MM-dd", DateTimeFormatInfo.InvariantInfo);
+            var snapshotFolder = Path.Combine(
+                external.ImageOutputFolder.FullName,
+                "Snapshot",
+                dateFolderUtc);
+            Directory.CreateDirectory(snapshotFolder);
+
+            var fileName = external.GetSafeFileName(
+                $"snapshot_{utcNow:yyyy-MM-ddTHH_mm_ss}_OTA{otaIndex + 1}.fits");
+            var filePath = Path.Combine(snapshotFolder, fileName);
+
+            await external.WriteFitsFileAsync(image, filePath);
+            return fileName;
+        }
+
+        /// <summary>
+        /// Moves the focuser by <paramref name="steps"/> relative to its current position.
+        /// Returns the computed absolute target position.
+        /// </summary>
+        public static async Task<int> JogFocuserAsync(IFocuserDriver focuser, int steps, CancellationToken ct)
+        {
+            var currentPos = await focuser.GetPositionAsync(ct);
+            var targetPos = currentPos + steps;
+            await focuser.BeginMoveAsync(targetPos, ct);
+            return targetPos;
         }
     }
 }

@@ -288,7 +288,7 @@ namespace TianWen.UI.Abstractions
                 {
                     try
                     {
-                        var telemetry = await SamplePreviewOTAAsync(hub, capturedOta, _cts.Token);
+                        var telemetry = await LiveSessionActions.SampleOTATelemetryAsync(hub, capturedOta, _logger, _cts.Token);
                         var arr = _liveSessionState.PreviewOTATelemetry;
                         if (capturedIndex < arr.Length)
                         {
@@ -350,71 +350,6 @@ namespace TianWen.UI.Abstractions
                     }
                 }, "PreviewMount");
             }
-        }
-
-        private async Task<PreviewOTATelemetry> SamplePreviewOTAAsync(
-            IDeviceHub hub, OTAData ota, CancellationToken ct)
-        {
-            // Camera
-            var ccdTemp = double.NaN;
-            var setpoint = double.NaN;
-            var power = double.NaN;
-            var coolerOn = false;
-            var cameraConnected = hub.TryGetConnectedDriver<ICameraDriver>(ota.Camera, out var camera);
-            if (cameraConnected && camera is not null)
-            {
-                ccdTemp = await _logger.CatchAsyncIf(camera.CanGetCCDTemperature, camera.GetCCDTemperatureAsync, ct, double.NaN);
-                power = await _logger.CatchAsyncIf(camera.CanGetCoolerPower, camera.GetCoolerPowerAsync, ct, double.NaN);
-                coolerOn = await _logger.CatchAsyncIf(camera.CanGetCoolerOn, camera.GetCoolerOnAsync, ct);
-                setpoint = await _logger.CatchAsync(camera.GetSetCCDTemperatureAsync, ct, double.NaN);
-            }
-
-            // Focuser
-            var focPos = 0;
-            var focTemp = double.NaN;
-            var focMoving = false;
-            var focConnected = false;
-            if (ota.Focuser is { } focUri)
-            {
-                focConnected = hub.TryGetConnectedDriver<IFocuserDriver>(focUri, out var foc);
-                if (focConnected && foc is not null)
-                {
-                    focPos = await _logger.CatchAsync(foc.GetPositionAsync, ct);
-                    focTemp = await _logger.CatchAsync(foc.GetTemperatureAsync, ct, double.NaN);
-                    focMoving = await _logger.CatchAsync(foc.GetIsMovingAsync, ct);
-                }
-            }
-
-            // Filter wheel
-            var filterName = "--";
-            var fwConnected = false;
-            if (ota.FilterWheel is { } fwUri)
-            {
-                fwConnected = hub.TryGetConnectedDriver<IFilterWheelDriver>(fwUri, out var fw);
-                if (fwConnected && fw is not null)
-                {
-                    var filter = await _logger.CatchAsync(fw.GetCurrentFilterAsync, ct);
-                    filterName = filter.DisplayName ?? "--";
-                }
-            }
-
-            var camDisplay = hub.TryGetDeviceFromUri(ota.Camera, out var dev) && dev is not null
-                ? dev.DisplayName : ota.Name;
-
-            return new PreviewOTATelemetry(
-                OtaName: ota.Name,
-                CameraDisplayName: camDisplay,
-                CcdTempC: ccdTemp,
-                SetpointC: setpoint,
-                CoolerPowerPct: power,
-                CoolerOn: coolerOn,
-                FocusPosition: focPos,
-                FocuserTempC: focTemp,
-                FocuserIsMoving: focMoving,
-                FilterName: filterName,
-                CameraConnected: cameraConnected,
-                FocuserConnected: focConnected,
-                FilterWheelConnected: fwConnected);
         }
 
         // De-duplicate the mount-transform-unavailable warning so a misconfigured
@@ -1542,27 +1477,15 @@ namespace TianWen.UI.Abstractions
                 {
                     try
                     {
-                        // Apply gain if supported
-                        if (sig.Gain.HasValue && camera.UsesGainValue)
-                        {
-                            try { await camera.SetGainAsync((short)sig.Gain.Value, cts.Token); } catch { }
-                        }
-                        // Apply binning
-                        if (sig.Binning > 1)
-                        {
-                            try { camera.BinX = sig.Binning; } catch { }
-                        }
+                        var image = await LiveSessionActions.CaptureCameraPreviewAsync(
+                            camera,
+                            TimeSpan.FromSeconds(sig.ExposureSeconds),
+                            sig.Gain is { } g ? (short)g : null,
+                            sig.Binning,
+                            _timeProvider,
+                            cts.Token);
 
-                        var duration = TimeSpan.FromSeconds(sig.ExposureSeconds);
-                        await camera.StartExposureAsync(duration, FrameType.Light, cts.Token);
-
-                        // Poll until image ready
-                        while (!await camera.GetImageReadyAsync(cts.Token))
-                        {
-                            await _timeProvider.SleepAsync(TimeSpan.FromMilliseconds(200), cts.Token);
-                        }
-
-                        if (await ((ICameraDriver)camera).GetImageAsync(cts.Token) is { } image
+                        if (image is not null
                             && sig.OtaIndex < liveSessionState.LastCapturedImages.Length)
                         {
                             liveSessionState.LastCapturedImages[sig.OtaIndex] = image;
@@ -1603,18 +1526,8 @@ namespace TianWen.UI.Abstractions
                 {
                     try
                     {
-                        var dateFolderUtc = _timeProvider.GetUtcNow().ToString("yyyy-MM-dd", DateTimeFormatInfo.InvariantInfo);
-                        var snapshotFolder = Path.Combine(
-                            external.ImageOutputFolder.FullName,
-                            "Snapshot",
-                            dateFolderUtc);
-                        Directory.CreateDirectory(snapshotFolder);
-
-                        var fileName = external.GetSafeFileName(
-                            $"snapshot_{_timeProvider.GetUtcNow():yyyy-MM-ddTHH_mm_ss}_OTA{sig.OtaIndex + 1}.fits");
-                        var filePath = Path.Combine(snapshotFolder, fileName);
-
-                        await external.WriteFitsFileAsync(image, filePath);
+                        var fileName = await LiveSessionActions.SaveSnapshotAsync(
+                            image, sig.OtaIndex, external, _timeProvider);
                         appState.StatusMessage = $"Snapshot saved: {fileName}";
                     }
                     catch (Exception ex)
@@ -1678,9 +1591,7 @@ namespace TianWen.UI.Abstractions
                 {
                     try
                     {
-                        var currentPos = await focuser.GetPositionAsync(cts.Token);
-                        var targetPos = currentPos + sig.Steps;
-                        await focuser.BeginMoveAsync(targetPos, cts.Token);
+                        var targetPos = await LiveSessionActions.JogFocuserAsync(focuser, sig.Steps, cts.Token);
                         appState.StatusMessage = $"Focuser \u2192 {targetPos}";
                     }
                     catch (Exception ex)

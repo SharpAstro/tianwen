@@ -1,3 +1,5 @@
+using System.Collections.Immutable;
+
 namespace TianWen.UI.Abstractions
 {
     /// <summary>
@@ -18,7 +20,13 @@ namespace TianWen.UI.Abstractions
         string FilterName,
         bool CameraConnected,
         bool FocuserConnected,
-        bool FilterWheelConnected)
+        bool FilterWheelConnected,
+        bool UsesGainValue = false,
+        bool UsesGainMode = false,
+        short GainMin = 0,
+        short GainMax = 0,
+        short CurrentGain = 0,
+        ImmutableArray<string> GainModes = default)
     {
         /// <summary>Default instance with NaN temperatures and no connections.</summary>
         public static readonly PreviewOTATelemetry Unknown = new PreviewOTATelemetry(
