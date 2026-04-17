@@ -74,16 +74,20 @@ dotnet test TianWen.Lib.Tests --filter "FullyQualifiedName~Guider|FullyQualified
 ## SharpAstro Sibling Libraries
 
 TianWen depends on several in-house libraries published to nuget.org under the **SharpAstro**
-org. Their source repos live as siblings under the same parent directory (`../`):
+org. Their source repos live as siblings under the same parent directory (`../`). Note that
+csproj layout varies — not every sibling uses the `src/<Lib>/<Lib>.csproj` convention:
 
-| Package | Source Repo | Purpose |
-|---------|-------------|---------|
-| `DIR.Lib` | `../DIR.Lib` | SignalBus, BackgroundTaskTracker, PixelWidgetBase, InputEvent |
-| `SdlVulkan.Renderer` | `../SdlVulkan.Renderer` | SDL3 + Vulkan rendering, font atlas, GLSL pipeline |
-| `Console.Lib` | `../Console.Lib` | RgbaImageRenderer, MarkdownWidget, Sixel, TUI widgets |
-| `FC.SDK` | `../FC.SDK` | Canon DSLR PTP/USB/WiFi SDK |
-| `FITS.Lib` | `../FITS.Lib` | FITS file reading/writing |
-| `SharpAstro.Fonts` | `../Fonts.Lib` | **Transitive** — consumed by DIR.Lib (managed font loader/rasterizer) |
+| Package | Source Repo | csproj path | Auto-detect | Purpose |
+|---------|-------------|-------------|:-----------:|---------|
+| `DIR.Lib` | `../DIR.Lib` | `src/DIR.Lib/DIR.Lib.csproj` | ✅ | SignalBus, BackgroundTaskTracker, PixelWidgetBase, InputEvent |
+| `SdlVulkan.Renderer` | `../SdlVulkan.Renderer` | `src/SdlVulkan.Renderer/SdlVulkan.Renderer.csproj` | ✅ | SDL3 + Vulkan rendering, font atlas, GLSL pipeline |
+| `Console.Lib` | `../Console.Lib` | `src/Console.Lib/Console.Lib.csproj` | ✅ | RgbaImageRenderer, MarkdownWidget, Sixel, TUI widgets |
+| `FITS.Lib` | `../FITS.Lib` | `CSharpFITS/CSharpFITS.csproj` (package name is `FITS.Lib`, not CSharpFITS) | ❌ | FITS file reading/writing |
+| `FC.SDK` | `../FC.SDK` | — | ❌ | Canon DSLR PTP/USB/WiFi SDK |
+| `ZWOptical.SDK` | `../zwo-sdk-nuget` | `ZWOptical.SDK.csproj` (at repo root, not under `src/`) | ❌ | ZWO ASI camera / EAF / EFW native SDK wrappers |
+| `QHYCCD.SDK` | `../QHYCCD.SDK` | `QHYCCD.SDK.csproj` (at repo root, not under `src/`) | ❌ | QHY camera / CFW / QFOC native SDK wrappers |
+| `SharpAstro.Fonts` | `../Fonts.Lib` | `src/SharpAstro.Fonts/SharpAstro.Fonts.csproj` | transitive | Consumed by DIR.Lib (managed font loader/rasterizer) |
+| `TianWen.DAL` | `../TianWen.DAL` | — | ❌ | Data access layer types (e.g., `GuideDirection` enum) |
 
 **Local sibling auto-detection** (`Directory.Build.props`): For `DIR.Lib`, `Console.Lib`, and
 `SdlVulkan.Renderer`, the build automatically switches between ProjectReference (when all
@@ -95,7 +99,9 @@ three sibling working copies exist at `../../<repo>/src/<lib>/<lib>.csproj`) and
 - Override: `dotnet build -p:UseLocalSiblings=false`
 - **CI** does not have sibling repos checked out, so it always falls through to PackageReference
   with versions from `Directory.Packages.props`.
-- `FC.SDK` and `FITS.Lib` are not yet wired up — still consumed as PackageReference only.
+- `FITS.Lib`, `FC.SDK`, `ZWOptical.SDK`, `QHYCCD.SDK`, and `TianWen.DAL` are not yet wired up —
+  still consumed as PackageReference only. For cross-repo development on those, use local nupkg
+  feeds with bumped versions (see `feedback_local_nuget_dev.md`).
 - **`Fonts.Lib` (published as `SharpAstro.Fonts`) is a transitive dependency via DIR.Lib.**
   TianWen has no direct reference to it, but DIR.Lib uses the same local-sibling switch
   (`UseLocalFontsLib`) to pick between `../../Fonts.Lib/src/SharpAstro.Fonts/...` and the
