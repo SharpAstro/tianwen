@@ -155,7 +155,9 @@ internal sealed class TuiEquipmentTab(
             Mode.InlineEdit => " Type filter name  Enter:save  Esc:cancel",
             _ when eqState.IsEditingSite => " Tab:next field  Enter:save  Esc:cancel",
             _ when _pendingDeleteOtaIndex >= 0 => " Press X again to confirm delete, any other key to cancel",
-            _ => " D:discover  E:site  A:add OTA  Enter:assign  \u2190\u2192:adjust  Q:quit"
+            _ when eqState.PendingDisconnectConfirm is not null =>
+                $" {PendingDisconnectPrompt(eqState.PendingDisconnectSafety)}  W:warm+off  F:force  Esc:cancel",
+            _ => " D:discover  E:site  A:add OTA  O:on/off  Enter:assign  \u2190\u2192:adjust  Q:quit"
         };
         _statusBar.Text(statusText);
         _statusBar.RightText(appState.StatusMessage ?? "");
@@ -201,16 +203,7 @@ internal sealed class TuiEquipmentTab(
         items.Add(new EquipmentFieldItem { SectionName = "Profile Devices" });
         foreach (var slot in equipmentContent.GetProfileSlots(data))
         {
-            items.Add(new EquipmentFieldItem
-            {
-                Slot = slot.Slot,
-                SlotLabel = slot.Label,
-                SlotDeviceName = slot.DeviceName,
-                IsSlotActive = slot.IsAssigned,
-                FieldIndex = fieldIdx,
-                IsSelected = fieldIdx == _selectedFieldIndex,
-            });
-            fieldIdx++;
+            items.Add(MakeSlotItem(data, slot, ref fieldIdx));
         }
 
         // -- Per-OTA sections --
@@ -231,16 +224,7 @@ internal sealed class TuiEquipmentTab(
             // Device sub-slots
             foreach (var slot in ota.DeviceSlots)
             {
-                items.Add(new EquipmentFieldItem
-                {
-                    Slot = slot.Slot,
-                    SlotLabel = slot.Label,
-                    SlotDeviceName = slot.DeviceName,
-                    IsSlotActive = slot.IsAssigned,
-                    FieldIndex = fieldIdx,
-                    IsSelected = fieldIdx == _selectedFieldIndex,
-                });
-                fieldIdx++;
+                items.Add(MakeSlotItem(data, slot, ref fieldIdx));
             }
 
             // OTA property steppers
@@ -374,6 +358,46 @@ internal sealed class TuiEquipmentTab(
         {
             _settingsList.ScrollTo(Math.Max(0, selectedListIdx - _settingsList.VisibleRows / 2));
         }
+    }
+
+    /// <summary>
+    /// Short human-readable reason for why a disconnect was held back by the safety
+    /// pre-check. Drives the warning in the status-bar confirm strip.
+    /// </summary>
+    private static string PendingDisconnectPrompt(EquipmentActions.DisconnectSafety safety) => safety switch
+    {
+        EquipmentActions.DisconnectSafety.CoolerOn => "Camera is cooled.",
+        EquipmentActions.DisconnectSafety.Busy => "Camera is busy.",
+        EquipmentActions.DisconnectSafety.BusyAndCool => "Camera is busy and cooled.",
+        EquipmentActions.DisconnectSafety.Unknown => "Camera state unknown.",
+        _ => "Safe to disconnect.",
+    };
+
+    /// <summary>
+    /// Builds a device-slot row with connection state pulled from the hub. Keeps
+    /// BuildSettingsList readable and ensures profile-level and per-OTA slots render
+    /// identically.
+    /// </summary>
+    private EquipmentFieldItem MakeSlotItem(ProfileData data, DeviceSlotRow slot, ref int fieldIdx)
+    {
+        var uri = slot.IsAssigned ? EquipmentActions.GetAssignedDevice(data, slot.Slot) : null;
+        var connected = uri is not null && appState.DeviceHub?.IsConnected(uri) == true;
+        var pending = uri is not null && eqState.PendingTransitions.Contains(uri);
+
+        var item = new EquipmentFieldItem
+        {
+            Slot = slot.Slot,
+            SlotLabel = slot.Label,
+            SlotDeviceName = slot.DeviceName,
+            IsSlotActive = slot.IsAssigned,
+            SlotDeviceUri = uri,
+            IsConnected = connected,
+            IsPending = pending,
+            FieldIndex = fieldIdx,
+            IsSelected = fieldIdx == _selectedFieldIndex,
+        };
+        fieldIdx++;
+        return item;
     }
 
     private EquipmentFieldItem MakePropertyStepper(ref int fieldIdx, string label, string value, Action inc, Action dec)
@@ -664,12 +688,63 @@ internal sealed class TuiEquipmentTab(
             return false;
         }
 
+        // Pending-disconnect confirmation guard. Triggered when DisconnectDeviceSignal's
+        // safety pre-check classifies the device as unsafe to yank (cooled camera, busy
+        // exposure). The handler leaves eqState.PendingDisconnectConfirm set and expects
+        // the UI to offer a warm-then-off, force, or cancel choice.
+        if (eqState.PendingDisconnectConfirm is { } pendingUri)
+        {
+            switch (key)
+            {
+                case InputKey.W:
+                    bus?.Post(new WarmAndDisconnectDeviceSignal(pendingUri));
+                    NeedsRedraw = true;
+                    return false;
+                case InputKey.F:
+                    bus?.Post(new ForceDisconnectDeviceSignal(pendingUri));
+                    NeedsRedraw = true;
+                    return false;
+                case InputKey.Escape:
+                    // PendingDisconnectConfirm controls whether the strip is shown;
+                    // PendingDisconnectSafety is a non-nullable cached classification
+                    // that's only read while the confirm is active, so leaving it
+                    // alone is harmless.
+                    eqState.PendingDisconnectConfirm = null;
+                    NeedsRedraw = true;
+                    return false;
+                default:
+                    // Any other key is ignored while the confirm strip is up; fall through
+                    // so navigation/quit aren't blocked.
+                    break;
+            }
+        }
+
         switch (key)
         {
             case InputKey.D:
                 bus?.Post(new DiscoverDevicesSignal(IncludeFake: (modifiers & InputModifier.Shift) != 0));
                 NeedsRedraw = true;
                 return false;
+
+            case InputKey.O:
+                {
+                    var item = FindSelectedItem();
+                    if (item is { Slot: not null, IsSlotActive: true, SlotDeviceUri: { } slotUri })
+                    {
+                        // Post the opposite of the current hub state. Safety / warm-up
+                        // decisions happen in AppSignalHandler.
+                        if (item.IsConnected)
+                        {
+                            bus?.Post(new DisconnectDeviceSignal(slotUri));
+                        }
+                        else
+                        {
+                            bus?.Post(new ConnectDeviceSignal(slotUri));
+                        }
+                        NeedsRedraw = true;
+                    }
+                    return false;
+                }
 
             case InputKey.E:
                 _editFieldIndex = 0;

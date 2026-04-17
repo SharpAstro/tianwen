@@ -51,6 +51,19 @@ internal sealed class EquipmentFieldItem : IRowFormatter
     /// <summary>Whether this slot has a device assigned (not NoneDevice).</summary>
     public bool IsSlotActive { get; init; }
 
+    /// <summary>URI of the currently-assigned device (null for unassigned slots).
+    /// Used by the connect/disconnect toggle — distinct from <see cref="DeviceUri"/>
+    /// which drives device-setting rows.</summary>
+    public Uri? SlotDeviceUri { get; init; }
+
+    /// <summary>Whether the assigned device is currently connected via the hub.
+    /// Meaningless when <see cref="SlotDeviceUri"/> is null.</summary>
+    public bool IsConnected { get; init; }
+
+    /// <summary>Whether a connect/disconnect transition is in flight — shown as
+    /// "..." on the target segment so the user gets visible feedback.</summary>
+    public bool IsPending { get; init; }
+
     // --- OTA header rows ---
 
     /// <summary>OTA index for OTA headers (-1 for non-OTA rows).</summary>
@@ -154,24 +167,79 @@ internal sealed class EquipmentFieldItem : IRowFormatter
 
     private string FormatSlotRow(int width, ColorMode colorMode)
     {
+        // Layout: "  Label[padded]  DeviceName  [On|Off]  [>]"
+        // The On/Off strip only appears for assigned slots — unassigned rows just
+        // show the assign affordance. Segments are rendered with different SGR
+        // attributes so the "active" side (current connection state) stands out.
         var labelWidth = Math.Max(14, width / 3);
         var paddedLabel = SlotLabel!.Length > labelWidth ? SlotLabel[..(labelWidth - 1)] + "." : SlotLabel;
-        var marker = IsSlotActive ? "\u2705" : "\u274c";
         var name = SlotDeviceName ?? "(none)";
-        var line = $"  {paddedLabel.PadRight(labelWidth)} {marker} {name}  [>]";
 
-        if (line.Length > width)
+        // Reserve space for right-hand actions so the name never collides with them.
+        // "  [On][Off]  [>]" = 2 + 4 + 5 + 2 + 3 = 16 chars max; "  [>]" = 5 chars.
+        var rightReserve = IsSlotActive ? 18 : 6;
+        var nameWidth = Math.Max(4, width - 2 - labelWidth - 1 - rightReserve);
+        var paddedName = name.Length > nameWidth ? name[..(nameWidth - 1)] + "." : name.PadRight(nameWidth);
+
+        string onSeg, offSeg;
+        if (!IsSlotActive)
         {
-            line = line[..width];
+            onSeg = string.Empty;
+            offSeg = string.Empty;
+        }
+        else if (IsPending)
+        {
+            // Pending: target segment shows "…", "you are here" segment stays inert.
+            onSeg = IsConnected ? StyleSegment("On", colorMode, SgrColor.BrightGreen) : StyleSegment("...", colorMode, SgrColor.Yellow);
+            offSeg = IsConnected ? StyleSegment("...", colorMode, SgrColor.Yellow) : StyleSegment("Off", colorMode, SgrColor.BrightRed);
+        }
+        else
+        {
+            onSeg = IsConnected ? StyleSegment("On", colorMode, SgrColor.BrightGreen) : StyleSegment("On", colorMode, SgrColor.White);
+            offSeg = IsConnected ? StyleSegment("Off", colorMode, SgrColor.White) : StyleSegment("Off", colorMode, SgrColor.BrightRed);
         }
 
+        var toggleStrip = IsSlotActive ? $" [{onSeg}|{offSeg}] " : string.Empty;
+        var line = $"  {paddedLabel.PadRight(labelWidth)} {paddedName}{toggleStrip} [>]";
+
+        // Don't truncate inside the styled strip — it would slice off an SGR escape
+        // and corrupt the terminal. Let padding handle the final width.
         if (IsSelected)
         {
             var style = new VtStyle(SgrColor.BrightWhite, SgrColor.Blue);
-            return $"{style.Apply(colorMode)}{line.PadRight(width)}{VtStyle.Reset}";
+            return $"{style.Apply(colorMode)}{line}{VtStyle.Reset}".PadRight(width + VisibleOverhead(line));
         }
 
-        return line.PadRight(width);
+        return line.PadRight(width + VisibleOverhead(line));
+    }
+
+    /// <summary>
+    /// Wraps text in an SGR foreground style. Caller inlines the return value so the
+    /// surrounding line string still reads naturally; counting visible characters in
+    /// a styled line requires <see cref="VisibleOverhead"/>.
+    /// </summary>
+    private static string StyleSegment(string text, ColorMode colorMode, SgrColor fg)
+        => $"{new VtStyle(fg, SgrColor.Black).Apply(colorMode)}{text}{VtStyle.Reset}";
+
+    /// <summary>
+    /// Returns the number of "invisible" characters (SGR escape bytes) in <paramref name="line"/>
+    /// so PadRight can be compensated to target a given visible width.
+    /// </summary>
+    private static int VisibleOverhead(string line)
+    {
+        var overhead = 0;
+        for (var i = 0; i < line.Length; i++)
+        {
+            if (line[i] == '\x1b')
+            {
+                // Skip to end of SGR sequence (terminated by 'm')
+                var j = i + 1;
+                while (j < line.Length && line[j] != 'm') j++;
+                overhead += j - i + 1;
+                i = j;
+            }
+        }
+        return overhead;
     }
 
     private string FormatFilterRow(int width, ColorMode colorMode)
