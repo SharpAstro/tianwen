@@ -6,12 +6,21 @@ Example: /release-lib SdlVulkan.Renderer
 
 ## Library locations
 
+Note csproj paths vary — not every repo uses `src/<Lib>/<Lib>.csproj`:
+
 | Library | NuGet Package | Repo | csproj | CI workflow |
 |---------|---------------|------|--------|-------------|
 | SharpAstro.Fonts | `SharpAstro.Fonts` | `../../sharpastro/Fonts.Lib` | `src/SharpAstro.Fonts/SharpAstro.Fonts.csproj` | `.github/workflows/dotnet.yml` |
 | DIR.Lib | `DIR.Lib` | `../../sharpastro/DIR.Lib` | `src/DIR.Lib/DIR.Lib.csproj` | `.github/workflows/dotnet.yml` |
 | Console.Lib | `Console.Lib` | `../../sharpastro/Console.Lib` | `src/Console.Lib/Console.Lib.csproj` | `.github/workflows/dotnet.yml` |
 | SdlVulkan.Renderer | `SdlVulkan.Renderer` | `../../sharpastro/SdlVulkan.Renderer` | `src/SdlVulkan.Renderer/SdlVulkan.Renderer.csproj` | `.github/workflows/dotnet.yml` |
+| FITS.Lib | `FITS.Lib` | `../../sharpastro/FITS.Lib` | `CSharpFITS/CSharpFITS.csproj` | `.github/workflows/dotnet.yml` |
+| ZWOptical.SDK | `ZWOptical.SDK` | `../../sharpastro/zwo-sdk-nuget` | `ZWOptical.SDK.csproj` (repo root) | `.github/workflows/dotnet.yml` |
+| QHYCCD.SDK | `QHYCCD.SDK` | `../../sharpastro/QHYCCD.SDK` | `QHYCCD.SDK.csproj` (repo root) | `.github/workflows/dotnet.yml` |
+
+`FITS.Lib`, `ZWOptical.SDK`, and `QHYCCD.SDK` are not yet wired for sibling auto-detection
+(consumed as PackageReference only). Their release flow is the same as the others, but
+local in-tree iteration requires a local nupkg feed rather than switching to ProjectReference.
 
 ## Steps for a single library release
 
