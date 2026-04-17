@@ -1377,10 +1377,6 @@ namespace TianWen.UI.Abstractions
             RenderPreviewMountSection(state, rect, fontPath, fontSize, dpiScale, pad, rowH);
         }
 
-        // Common preview exposure times in seconds (astrophotography standard ladder)
-        private static readonly double[] PreviewExposureSteps =
-            [0.1, 0.2, 0.5, 1, 2, 3, 5, 10, 15, 30, 60, 120, 300];
-
         private void RenderPreviewCaptureControls(LiveSessionState state, int otaIndex,
             float x, float y, float w, float progressH, float rowH,
             string fontPath, float fontSize, float smallFs, float dpiScale, ITimeProvider timeProvider)
@@ -1420,23 +1416,13 @@ namespace TianWen.UI.Abstractions
                 _ =>
                 {
                     if (otaIndex >= state.PreviewExposureSeconds.Length) return;
-                    var cur = state.PreviewExposureSeconds[otaIndex];
-                    // Find the next lower step
-                    for (var i = PreviewExposureSteps.Length - 1; i >= 0; i--)
-                    {
-                        if (PreviewExposureSteps[i] < cur - 0.001)
-                        {
-                            state.PreviewExposureSeconds[otaIndex] = PreviewExposureSteps[i];
-                            return;
-                        }
-                    }
-                    state.PreviewExposureSeconds[otaIndex] = PreviewExposureSteps[0];
+                    state.PreviewExposureSeconds[otaIndex] = LiveSessionActions.StepExposure(
+                        state.PreviewExposureSeconds[otaIndex], direction: -1);
                 });
             expX += stepBtnW + 2;
 
-            var expLabel = expSec >= 60 ? $"{expSec / 60:F0}m" : $"{expSec:G4}s";
             var labelW = w - stepBtnW * 2 - 4 - capBtnW - 4 * dpiScale;
-            DrawText($"Exp: {expLabel}", fontPath,
+            DrawText($"Exp: {LiveSessionActions.FormatExposureLabel(expSec)}", fontPath,
                 expX, y, labelW, rowH,
                 smallFs, BodyText, TextAlign.Center, TextAlign.Center);
             expX += labelW + 2;
@@ -1446,17 +1432,8 @@ namespace TianWen.UI.Abstractions
                 _ =>
                 {
                     if (otaIndex >= state.PreviewExposureSeconds.Length) return;
-                    var cur = state.PreviewExposureSeconds[otaIndex];
-                    // Find the next higher step
-                    for (var i = 0; i < PreviewExposureSteps.Length; i++)
-                    {
-                        if (PreviewExposureSteps[i] > cur + 0.001)
-                        {
-                            state.PreviewExposureSeconds[otaIndex] = PreviewExposureSteps[i];
-                            return;
-                        }
-                    }
-                    state.PreviewExposureSeconds[otaIndex] = PreviewExposureSteps[^1];
+                    state.PreviewExposureSeconds[otaIndex] = LiveSessionActions.StepExposure(
+                        state.PreviewExposureSeconds[otaIndex], direction: +1);
                 });
 
             // [Capture] button
@@ -1479,13 +1456,15 @@ namespace TianWen.UI.Abstractions
                 ? state.PreviewOTATelemetry[otaIndex]
                 : PreviewOTATelemetry.Unknown;
 
-            if (tel.UsesGainValue && tel.GainMax > tel.GainMin)
+            // Gain row — numeric (ZWO/ASCOM) and mode (DSLR ISO) share the same layout;
+            // LiveSessionActions picks the right step semantics based on the telemetry.
+            // Bracketed label = camera default; plain = user override (rendered brighter).
+            var hasGainControl = (tel.UsesGainValue && tel.GainMax > tel.GainMin)
+                || (tel.UsesGainMode && tel.GainModes.Length > 0);
+            if (hasGainControl)
             {
-                // Numeric gain (ZWO, ASCOM): [-] value [+]
-                // Bracketed value = camera default, plain value = user override
                 stepBtnY = y + (rowH - stepBtnH) / 2;
                 var gainVal = otaIndex < state.PreviewGain.Length ? state.PreviewGain[otaIndex] : null;
-                var gainStep = Math.Max(1, (tel.GainMax - tel.GainMin) / 20);
 
                 var gx = x;
                 RenderButton("-", gx, stepBtnY, stepBtnW, stepBtnH,
@@ -1493,14 +1472,12 @@ namespace TianWen.UI.Abstractions
                     _ =>
                     {
                         if (otaIndex >= state.PreviewGain.Length) return;
-                        var cur = state.PreviewGain[otaIndex] ?? tel.CurrentGain;
-                        state.PreviewGain[otaIndex] = Math.Max(tel.GainMin, cur - gainStep);
+                        state.PreviewGain[otaIndex] = LiveSessionActions.StepGain(
+                            state.PreviewGain[otaIndex], tel, direction: -1);
                     });
                 gx += stepBtnW + 2;
 
-                var gainLabel = gainVal.HasValue
-                    ? $"Gain: {gainVal.Value}"
-                    : $"Gain: ({tel.CurrentGain})";
+                var gainLabel = LiveSessionActions.FormatGainLabel(gainVal, tel);
                 var gainLabelW = w - stepBtnW * 2 - 4;
                 DrawText(gainLabel, fontPath,
                     gx, y, gainLabelW, rowH,
@@ -1512,47 +1489,8 @@ namespace TianWen.UI.Abstractions
                     _ =>
                     {
                         if (otaIndex >= state.PreviewGain.Length) return;
-                        var cur = state.PreviewGain[otaIndex] ?? tel.CurrentGain;
-                        state.PreviewGain[otaIndex] = Math.Min(tel.GainMax, cur + gainStep);
-                    });
-                y += rowH;
-            }
-            else if (tel.UsesGainMode && tel.GainModes.Length > 0)
-            {
-                // Mode gain (DSLR ISO): [-] mode name [+]
-                stepBtnY = y + (rowH - stepBtnH) / 2;
-                var gainVal = otaIndex < state.PreviewGain.Length ? state.PreviewGain[otaIndex] : null;
-                var modeIdx = gainVal ?? tel.CurrentGain;
-                var modeName = modeIdx >= 0 && modeIdx < tel.GainModes.Length
-                    ? tel.GainModes[modeIdx] : $"#{modeIdx}";
-
-                var gx = x;
-                RenderButton("-", gx, stepBtnY, stepBtnW, stepBtnH,
-                    fontPath, smallFs, stepBg, BodyText, $"GainDec{otaIndex}",
-                    _ =>
-                    {
-                        if (otaIndex >= state.PreviewGain.Length) return;
-                        var cur = state.PreviewGain[otaIndex] ?? tel.CurrentGain;
-                        if (cur > 0) state.PreviewGain[otaIndex] = cur - 1;
-                    });
-                gx += stepBtnW + 2;
-
-                var gainLabel = gainVal.HasValue
-                    ? modeName
-                    : $"({modeName})";
-                var gainLabelW = w - stepBtnW * 2 - 4;
-                DrawText(gainLabel, fontPath,
-                    gx, y, gainLabelW, rowH,
-                    smallFs, gainVal.HasValue ? BodyText : DimText, TextAlign.Center, TextAlign.Center);
-                gx += gainLabelW + 2;
-
-                RenderButton("+", gx, stepBtnY, stepBtnW, stepBtnH,
-                    fontPath, smallFs, stepBg, BodyText, $"GainInc{otaIndex}",
-                    _ =>
-                    {
-                        if (otaIndex >= state.PreviewGain.Length) return;
-                        var cur = state.PreviewGain[otaIndex] ?? tel.CurrentGain;
-                        if (cur < tel.GainModes.Length - 1) state.PreviewGain[otaIndex] = cur + 1;
+                        state.PreviewGain[otaIndex] = LiveSessionActions.StepGain(
+                            state.PreviewGain[otaIndex], tel, direction: +1);
                     });
                 y += rowH;
             }

@@ -301,5 +301,115 @@ namespace TianWen.UI.Abstractions
             await focuser.BeginMoveAsync(targetPos, ct);
             return targetPos;
         }
+
+        /// <summary>
+        /// Standard astrophotography exposure-time ladder in seconds. The preview stepper
+        /// walks this list in both directions; longer exposures (&gt;5 min) are intentionally
+        /// absent since preview mode is for framing / focus checks, not sub-framing.
+        /// </summary>
+        public static readonly ImmutableArray<double> PreviewExposureSteps =
+            [0.1, 0.2, 0.5, 1, 2, 3, 5, 10, 15, 30, 60, 120, 300];
+
+        /// <summary>
+        /// Returns the next value on the <see cref="PreviewExposureSteps"/> ladder above or
+        /// below <paramref name="current"/>. <paramref name="direction"/> &gt; 0 steps up,
+        /// &lt; 0 steps down, 0 returns <paramref name="current"/> unchanged. At the ends
+        /// of the ladder the value clamps to the min / max step.
+        /// </summary>
+        public static double StepExposure(double current, int direction)
+        {
+            var steps = PreviewExposureSteps;
+            if (direction > 0)
+            {
+                for (var i = 0; i < steps.Length; i++)
+                {
+                    if (steps[i] > current + 0.001)
+                    {
+                        return steps[i];
+                    }
+                }
+                return steps[^1];
+            }
+            if (direction < 0)
+            {
+                for (var i = steps.Length - 1; i >= 0; i--)
+                {
+                    if (steps[i] < current - 0.001)
+                    {
+                        return steps[i];
+                    }
+                }
+                return steps[0];
+            }
+            return current;
+        }
+
+        /// <summary>
+        /// Returns the new preview gain for one OTA given the current user-override
+        /// (<paramref name="current"/> — <c>null</c> means "use camera default"),
+        /// the camera capability telemetry, and a signed direction (+1 / -1).
+        /// <para>
+        /// For numeric-gain cameras the step is <c>max(1, (GainMax-GainMin) / 20)</c>,
+        /// clamped to <see cref="PreviewOTATelemetry.GainMin"/> / <see cref="PreviewOTATelemetry.GainMax"/>.
+        /// For mode-gain (DSLR ISO) cameras the step is ±1 index into
+        /// <see cref="PreviewOTATelemetry.GainModes"/>, clamped to the list bounds.
+        /// If the camera supports neither, the effective gain is returned unchanged.
+        /// </para>
+        /// </summary>
+        public static int StepGain(int? current, PreviewOTATelemetry tel, int direction)
+        {
+            // Treat "no override" as starting from whatever the camera reports so the
+            // first click visibly moves off the default instead of jumping to zero.
+            var effective = current ?? tel.CurrentGain;
+
+            if (tel.UsesGainValue && tel.GainMax > tel.GainMin)
+            {
+                var step = Math.Max(1, (tel.GainMax - tel.GainMin) / 20);
+                var next = effective + direction * step;
+                return Math.Clamp(next, tel.GainMin, tel.GainMax);
+            }
+
+            if (tel.UsesGainMode && tel.GainModes.Length > 0)
+            {
+                var next = effective + direction;
+                return Math.Clamp(next, 0, tel.GainModes.Length - 1);
+            }
+
+            return effective;
+        }
+
+        /// <summary>
+        /// Compact label for a preview exposure duration in seconds — shows minutes above
+        /// 60s (e.g. "2m"), seconds with up to 4 significant digits below (e.g. "0.5s", "30s").
+        /// </summary>
+        public static string FormatExposureLabel(double sec)
+            => sec >= 60 ? $"{sec / 60:F0}m" : $"{sec:G4}s";
+
+        /// <summary>
+        /// Label for a preview gain value. <paramref name="gain"/> <c>null</c> means the
+        /// user hasn't overridden the camera default; the returned string wraps the value
+        /// in parentheses so the caller can render it dimly to signal "not overridden".
+        /// <para>
+        /// Returns an empty string for cameras that support neither numeric nor mode gain.
+        /// </para>
+        /// </summary>
+        public static string FormatGainLabel(int? gain, PreviewOTATelemetry tel)
+        {
+            if (tel.UsesGainValue && tel.GainMax > tel.GainMin)
+            {
+                return gain.HasValue
+                    ? $"Gain: {gain.Value}"
+                    : $"Gain: ({tel.CurrentGain})";
+            }
+            if (tel.UsesGainMode && tel.GainModes.Length > 0)
+            {
+                var effective = gain ?? tel.CurrentGain;
+                var modeName = effective >= 0 && effective < tel.GainModes.Length
+                    ? tel.GainModes[effective]
+                    : $"#{effective}";
+                return gain.HasValue ? modeName : $"({modeName})";
+            }
+            return string.Empty;
+        }
     }
 }
