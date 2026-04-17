@@ -335,35 +335,45 @@ namespace TianWen.UI.Abstractions
         private static RGBAColor32 DimmedIf(RGBAColor32 color, bool dim)
             => dim ? new RGBAColor32(color.Red, color.Green, color.Blue, (byte)(color.Alpha * 0.35f)) : color;
 
-        private void DrawConstellationNames(RectF32 rect, string fontPath, float fontSize, double ppr, float cx, float cy,
-            SiteContext site, bool dimBelowHorizon)
-        {
-            // Compute centroid of each constellation from its boundary strips
-            var centroids = new Dictionary<Constellation, (double RaSum, double DecSum, int Count)>();
+        // Cached constellation centroids. ConstellationBoundary.Table is static
+        // so the centroids never change; computing once at first use avoids a
+        // ~300-entry dictionary build + double foreach every frame (especially
+        // noticeable at wide FOV where all ~88 constellations project on-screen).
+        private static (Constellation Constellation, double AvgRA, double AvgDec, string Name)[]? _constellationCentroids;
 
+        private static (Constellation, double, double, string)[] GetConstellationCentroids()
+        {
+            if (_constellationCentroids is not null) return _constellationCentroids;
+
+            var sums = new Dictionary<Constellation, (double RaSum, double DecSum, int Count)>();
             foreach (var b in ConstellationBoundary.Table)
             {
                 var midRA = (b.LowerRA + b.UpperRA) * 0.5;
                 var midDec = b.LowerDec + 2.0; // approximate — offset above lower dec boundary
-
-                if (!centroids.TryGetValue(b.Constellation, out var c))
-                {
-                    c = (0, 0, 0);
-                }
-                centroids[b.Constellation] = (c.RaSum + midRA, c.DecSum + midDec, c.Count + 1);
+                if (!sums.TryGetValue(b.Constellation, out var c)) c = (0, 0, 0);
+                sums[b.Constellation] = (c.RaSum + midRA, c.DecSum + midDec, c.Count + 1);
             }
 
-            foreach (var (constellation, (raSum, decSum, count)) in centroids)
+            var result = new (Constellation, double, double, string)[sums.Count];
+            var i = 0;
+            foreach (var (c, s) in sums)
             {
-                var avgRA = raSum / count;
-                var avgDec = decSum / count;
+                result[i++] = (c, s.RaSum / s.Count, s.DecSum / s.Count, c.ToName());
+            }
+            _constellationCentroids = result;
+            return result;
+        }
 
+        private void DrawConstellationNames(RectF32 rect, string fontPath, float fontSize, double ppr, float cx, float cy,
+            SiteContext site, bool dimBelowHorizon)
+        {
+            foreach (var (_, avgRA, avgDec, name) in GetConstellationCentroids())
+            {
                 if (SkyMapProjection.ProjectWithMatrix(avgRA, avgDec, State.CurrentViewMatrix,
                     ppr, cx, cy, out var sx, out var sy)
                     && sx >= rect.X && sx < rect.X + rect.Width
                     && sy >= rect.Y && sy < rect.Y + rect.Height)
                 {
-                    var name = constellation.ToName();
                     var (tw, _) = Renderer.MeasureText(name, fontPath, fontSize);
                     var belowHorizon = dimBelowHorizon && !site.IsAboveHorizon(avgRA, avgDec);
                     DrawText(name.AsSpan(), fontPath,
