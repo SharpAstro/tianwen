@@ -48,7 +48,7 @@ internal sealed class TuiLiveSessionTab(
 
     private TextBar? _topBar;
     private TextBar? _guideBar;
-    private MarkdownWidget? _infoPanel;
+    private ScrollableList<InfoRowItem>? _infoList;
     private TextBar? _statusBar;
     private TextBar? _previewToolbar;
 
@@ -64,15 +64,14 @@ internal sealed class TuiLiveSessionTab(
 
     private readonly ViewerState _viewerState = new ViewerState();
 
-    // Preview-mode clickable-cell cache. Populated while rendering the info panel,
-    // consumed by RegisterClickableRegions. Each entry is a cell range within
-    // _infoPanel's text (line + column span) plus a click handler; the register
-    // step translates those to pixel coordinates using the widget viewport.
-    private readonly List<(int Line, int ColStart, int ColEnd, Action<InputModifier> OnClick)> _previewButtons = [];
+    // Canonical row list for the info panel. Each frame rebuilds into this list,
+    // then ScrollableList renders. RegisterClickableRegions walks the list to
+    // collect ButtonRegions and translate them into pixel hit-test zones.
+    private readonly List<InfoRowItem> _rows = [];
 
-    [MemberNotNullWhen(true, nameof(_topBar), nameof(_guideBar), nameof(_infoPanel), nameof(_statusBar), nameof(_previewToolbar))]
+    [MemberNotNullWhen(true, nameof(_topBar), nameof(_guideBar), nameof(_infoList), nameof(_statusBar), nameof(_previewToolbar))]
     protected override bool IsReady =>
-        _topBar is not null && _guideBar is not null && _infoPanel is not null && _statusBar is not null && _previewToolbar is not null;
+        _topBar is not null && _guideBar is not null && _infoList is not null && _statusBar is not null && _previewToolbar is not null;
 
     protected override void CreateWidgets(Panel panel)
     {
@@ -86,7 +85,7 @@ internal sealed class TuiLiveSessionTab(
         _topBar = new TextBar(topVp);
         _guideBar = new TextBar(guideVp);
         _statusBar = new TextBar(bottomVp);
-        _infoPanel = new MarkdownWidget(leftVp);
+        _infoList = new ScrollableList<InfoRowItem>(leftVp);
         _previewToolbar = new TextBar(toolbarVp);
 
         // Preview area: Sixel-capable terminals get a Canvas, others get a text fallback
@@ -96,14 +95,14 @@ internal sealed class TuiLiveSessionTab(
             _previewRenderer = new SixelRgbaImageRenderer((uint)canvasPixelSize.Width, (uint)canvasPixelSize.Height);
             _previewCanvas = new Canvas(fillVp, _previewRenderer);
             _previewFallback = null;
-            panel.Add(_topBar).Add(_guideBar).Add(_statusBar).Add(_infoPanel).Add(_previewToolbar).Add(_previewCanvas);
+            panel.Add(_topBar).Add(_guideBar).Add(_statusBar).Add(_infoList).Add(_previewToolbar).Add(_previewCanvas);
         }
         else
         {
             _previewCanvas = null;
             _previewRenderer = null;
             _previewFallback = new MarkdownWidget(fillVp);
-            panel.Add(_topBar).Add(_guideBar).Add(_statusBar).Add(_infoPanel).Add(_previewToolbar).Add(_previewFallback);
+            panel.Add(_topBar).Add(_guideBar).Add(_statusBar).Add(_infoList).Add(_previewToolbar).Add(_previewFallback);
         }
     }
 
@@ -147,8 +146,7 @@ internal sealed class TuiLiveSessionTab(
 
     private void RenderInfoPanel()
     {
-        var sb = new StringBuilder();
-        _previewButtons.Clear();
+        _rows.Clear();
 
         // Preview mode: no session running + profile with OTAs. Render per-OTA
         // telemetry rows with clickable stepper cells + action buttons.
@@ -159,31 +157,30 @@ internal sealed class TuiLiveSessionTab(
             // poll on the very first frame after the tab becomes active. Size them
             // here too so indexing is always safe.
             liveState.ResizePreviewArrays(profileData.OTAs.Length);
-            RenderPreviewPanel(sb, profileData);
+            BuildPreviewRows(profileData);
         }
         else if (liveState.ActiveSession is { } session)
         {
-            RenderCameraStatus(sb, session);
-            RenderMountStatus(sb, session);
+            BuildCameraRows(session);
+            BuildMountRows(session);
         }
         else
         {
-            sb.AppendLine("No session running");
+            _rows.Add(new TextRow("No session running"));
         }
 
-        RenderFocusHistory(sb);
-        RenderExposureLog(sb);
+        BuildFocusHistoryRows();
+        BuildExposureLogRows();
 
-        _infoPanel!.Markdown(sb.ToString());
+        _infoList!.Items(_rows);
     }
 
-    private void RenderPreviewPanel(StringBuilder sb, ProfileData profileData)
+    private void BuildPreviewRows(ProfileData profileData)
     {
         var otas = profileData.OTAs;
         var selectedIdx = Math.Clamp(liveState.SelectedPreviewOtaIndex, 0, otas.Length - 1);
         liveState.SelectedPreviewOtaIndex = selectedIdx; // snap stale value
 
-        var lineNum = 0;
         for (var i = 0; i < otas.Length; i++)
         {
             var capturedIdx = i;
@@ -193,49 +190,45 @@ internal sealed class TuiLiveSessionTab(
                 : PreviewOTATelemetry.Unknown;
 
             // Header — click anywhere on it to select this OTA.
-            var marker = isSelected ? ">" : " ";
             var camName = tel.CameraConnected && !string.IsNullOrEmpty(tel.CameraDisplayName)
                 ? tel.CameraDisplayName : otas[i].Name;
-            sb.AppendLine($"{marker} {i + 1}: {camName}");
-            _previewButtons.Add((lineNum, 0, LeftPanelCols,
+            _rows.Add(new HeadingRow($"{i + 1}: {camName}", isSelected,
                 _ => { liveState.SelectedPreviewOtaIndex = capturedIdx; NeedsRedraw = true; }));
-            lineNum++;
 
             // Temp / cooler
             if (tel.CameraConnected && !double.IsNaN(tel.CcdTempC))
             {
                 var setpoint = !double.IsNaN(tel.SetpointC) ? $" / {tel.SetpointC:F0}\u00b0C" : "";
                 var power = !double.IsNaN(tel.CoolerPowerPct) ? $"  Pwr: {tel.CoolerPowerPct:F0}%" : "";
-                sb.AppendLine($"  T: {tel.CcdTempC:F1}\u00b0C{setpoint}{power}");
+                _rows.Add(new TextRow($"  T: {tel.CcdTempC:F1}\u00b0C{setpoint}{power}"));
             }
             else if (!tel.CameraConnected)
             {
-                sb.AppendLine("  Camera: disconnected");
+                _rows.Add(new TextRow("  Camera: disconnected",
+                    new VtStyle(SgrColor.BrightRed, SgrColor.Black)));
             }
             else
             {
-                sb.AppendLine("  T: --");
+                _rows.Add(new TextRow("  T: --"));
             }
-            lineNum++;
 
             // Focus
             if (tel.FocuserConnected)
             {
                 var tempStr = !double.IsNaN(tel.FocuserTempC) ? $" @ {tel.FocuserTempC:F1}\u00b0C" : "";
                 var movingStr = tel.FocuserIsMoving ? " moving" : "";
-                sb.AppendLine($"  Focus: {tel.FocusPosition}{tempStr}{movingStr}");
+                _rows.Add(new TextRow($"  Focus: {tel.FocusPosition}{tempStr}{movingStr}"));
             }
             else
             {
-                sb.AppendLine("  Focus: (no focuser)");
+                _rows.Add(new TextRow("  Focus: (no focuser)",
+                    new VtStyle(SgrColor.BrightBlack, SgrColor.Black)));
             }
-            lineNum++;
 
             // Filter (only if filter wheel is connected)
             if (tel.FilterWheelConnected)
             {
-                sb.AppendLine($"  Filter: {tel.FilterName}");
-                lineNum++;
+                _rows.Add(new TextRow($"  Filter: {tel.FilterName}"));
             }
 
             // Exposure / capture row — either a progress line or the stepper strip.
@@ -246,48 +239,43 @@ internal sealed class TuiLiveSessionTab(
                 var dur = liveState.PreviewExposureDuration[i];
                 var elapsed = timeProvider.GetUtcNow() - start;
                 var elapsedSec = Math.Min(elapsed.TotalSeconds, dur.TotalSeconds);
-                sb.AppendLine($"  Capturing: {elapsedSec:F0}/{dur.TotalSeconds:F0}s");
-                lineNum++;
+                _rows.Add(new ProgressRow("Capturing", elapsedSec, dur.TotalSeconds));
             }
             else
             {
                 var expSec = i < liveState.PreviewExposureSeconds.Length
                     ? liveState.PreviewExposureSeconds[i] : 5.0;
-                var expLabel = LiveSessionActions.FormatExposureLabel(expSec);
-                // Fixed-width label so stepper cells have predictable column positions.
-                // Layout: "  Exp: [-] LLLLLL [+]  [Capture]"
-                //                       ^7  ^11          ^20
-                var line = $"  Exp: [-] {expLabel,-6} [+]  [Capture]";
-                sb.AppendLine(line);
-                var decCol = 7;   // after "  Exp: "
-                var incCol = 17;  // "[-] LLLLLL "
-                var capCol = 22;  // "[+]  "
-                _previewButtons.Add((lineNum, decCol, decCol + 3, _ =>
-                {
-                    if (capturedIdx < liveState.PreviewExposureSeconds.Length)
+                _rows.Add(new StepperRow(
+                    Label: "Exp",
+                    Value: LiveSessionActions.FormatExposureLabel(expSec),
+                    OnDec: _ =>
                     {
-                        liveState.PreviewExposureSeconds[capturedIdx] = LiveSessionActions.StepExposure(
-                            liveState.PreviewExposureSeconds[capturedIdx], direction: -1);
-                        liveState.SelectedPreviewOtaIndex = capturedIdx;
-                        NeedsRedraw = true;
-                    }
-                }));
-                _previewButtons.Add((lineNum, incCol, incCol + 3, _ =>
-                {
-                    if (capturedIdx < liveState.PreviewExposureSeconds.Length)
+                        if (capturedIdx < liveState.PreviewExposureSeconds.Length)
+                        {
+                            liveState.PreviewExposureSeconds[capturedIdx] = LiveSessionActions.StepExposure(
+                                liveState.PreviewExposureSeconds[capturedIdx], direction: -1);
+                            liveState.SelectedPreviewOtaIndex = capturedIdx;
+                            NeedsRedraw = true;
+                        }
+                    },
+                    OnInc: _ =>
                     {
-                        liveState.PreviewExposureSeconds[capturedIdx] = LiveSessionActions.StepExposure(
-                            liveState.PreviewExposureSeconds[capturedIdx], direction: +1);
+                        if (capturedIdx < liveState.PreviewExposureSeconds.Length)
+                        {
+                            liveState.PreviewExposureSeconds[capturedIdx] = LiveSessionActions.StepExposure(
+                                liveState.PreviewExposureSeconds[capturedIdx], direction: +1);
+                            liveState.SelectedPreviewOtaIndex = capturedIdx;
+                            NeedsRedraw = true;
+                        }
+                    },
+                    ActionLabel: "Capture",
+                    OnAction: _ =>
+                    {
                         liveState.SelectedPreviewOtaIndex = capturedIdx;
-                        NeedsRedraw = true;
-                    }
-                }));
-                _previewButtons.Add((lineNum, capCol, capCol + 9, _ =>
-                {
-                    liveState.SelectedPreviewOtaIndex = capturedIdx;
-                    PostCapture(capturedIdx);
-                }));
-                lineNum++;
+                        PostCapture(capturedIdx);
+                    },
+                    ActionStyle: new VtStyle(SgrColor.BrightWhite, SgrColor.Green),
+                    ValueIsOverride: true));
             }
 
             // Gain stepper (only when camera supports gain AND we're not mid-capture)
@@ -297,34 +285,31 @@ internal sealed class TuiLiveSessionTab(
             {
                 var gainVal = i < liveState.PreviewGain.Length ? liveState.PreviewGain[i] : null;
                 var gainLabel = LiveSessionActions.FormatGainLabel(gainVal, tel);
-                // Layout: "  Gain: [-] LLLLLLLLLL [+]"
-                //                         ^8   ^12
-                var line = $"  Gain: [-] {gainLabel,-10} [+]";
-                sb.AppendLine(line);
                 var capturedTel = tel;
-                var decCol = 8;
-                var incCol = 22;
-                _previewButtons.Add((lineNum, decCol, decCol + 3, _ =>
-                {
-                    if (capturedIdx < liveState.PreviewGain.Length)
+                _rows.Add(new StepperRow(
+                    Label: "Gain",
+                    Value: gainLabel,
+                    OnDec: _ =>
                     {
-                        liveState.PreviewGain[capturedIdx] = LiveSessionActions.StepGain(
-                            liveState.PreviewGain[capturedIdx], capturedTel, direction: -1);
-                        liveState.SelectedPreviewOtaIndex = capturedIdx;
-                        NeedsRedraw = true;
-                    }
-                }));
-                _previewButtons.Add((lineNum, incCol, incCol + 3, _ =>
-                {
-                    if (capturedIdx < liveState.PreviewGain.Length)
+                        if (capturedIdx < liveState.PreviewGain.Length)
+                        {
+                            liveState.PreviewGain[capturedIdx] = LiveSessionActions.StepGain(
+                                liveState.PreviewGain[capturedIdx], capturedTel, direction: -1);
+                            liveState.SelectedPreviewOtaIndex = capturedIdx;
+                            NeedsRedraw = true;
+                        }
+                    },
+                    OnInc: _ =>
                     {
-                        liveState.PreviewGain[capturedIdx] = LiveSessionActions.StepGain(
-                            liveState.PreviewGain[capturedIdx], capturedTel, direction: +1);
-                        liveState.SelectedPreviewOtaIndex = capturedIdx;
-                        NeedsRedraw = true;
-                    }
-                }));
-                lineNum++;
+                        if (capturedIdx < liveState.PreviewGain.Length)
+                        {
+                            liveState.PreviewGain[capturedIdx] = LiveSessionActions.StepGain(
+                                liveState.PreviewGain[capturedIdx], capturedTel, direction: +1);
+                            liveState.SelectedPreviewOtaIndex = capturedIdx;
+                            NeedsRedraw = true;
+                        }
+                    },
+                    ValueIsOverride: gainVal.HasValue));
             }
 
             // Action row: jog (needs focuser) + save/solve (needs a captured image).
@@ -332,43 +317,41 @@ internal sealed class TuiLiveSessionTab(
                 && liveState.LastCapturedImages[i] is not null;
             if (tel.FocuserConnected || hasImage)
             {
-                var actionLine = new StringBuilder("  ");
-                var col = 2;
+                var buttons = new List<ActionRow.Button>();
                 if (tel.FocuserConnected)
                 {
-                    actionLine.Append("[J-50] [J+50]  ");
-                    _previewButtons.Add((lineNum, col, col + 6, _ =>
-                    {
-                        liveState.SelectedPreviewOtaIndex = capturedIdx;
-                        bus.Post(new JogFocuserSignal(capturedIdx, -50));
-                    }));
-                    _previewButtons.Add((lineNum, col + 7, col + 13, _ =>
-                    {
-                        liveState.SelectedPreviewOtaIndex = capturedIdx;
-                        bus.Post(new JogFocuserSignal(capturedIdx, +50));
-                    }));
-                    col += 15;
+                    buttons.Add(new("J-50", _ =>
+                        {
+                            liveState.SelectedPreviewOtaIndex = capturedIdx;
+                            bus.Post(new JogFocuserSignal(capturedIdx, -50));
+                        },
+                        new VtStyle(SgrColor.White, SgrColor.Blue)));
+                    buttons.Add(new("J+50", _ =>
+                        {
+                            liveState.SelectedPreviewOtaIndex = capturedIdx;
+                            bus.Post(new JogFocuserSignal(capturedIdx, +50));
+                        },
+                        new VtStyle(SgrColor.White, SgrColor.Blue)));
                 }
                 if (hasImage)
                 {
-                    actionLine.Append("[Save] [Solve]");
-                    _previewButtons.Add((lineNum, col, col + 6, _ =>
-                    {
-                        liveState.SelectedPreviewOtaIndex = capturedIdx;
-                        bus.Post(new SaveSnapshotSignal(capturedIdx));
-                    }));
-                    _previewButtons.Add((lineNum, col + 7, col + 14, _ =>
-                    {
-                        liveState.SelectedPreviewOtaIndex = capturedIdx;
-                        bus.Post(new PlateSolvePreviewSignal(capturedIdx));
-                    }));
+                    buttons.Add(new("Save", _ =>
+                        {
+                            liveState.SelectedPreviewOtaIndex = capturedIdx;
+                            bus.Post(new SaveSnapshotSignal(capturedIdx));
+                        },
+                        new VtStyle(SgrColor.BrightWhite, SgrColor.Magenta)));
+                    buttons.Add(new("Solve", _ =>
+                        {
+                            liveState.SelectedPreviewOtaIndex = capturedIdx;
+                            bus.Post(new PlateSolvePreviewSignal(capturedIdx));
+                        },
+                        new VtStyle(SgrColor.BrightWhite, SgrColor.Cyan)));
                 }
-                sb.AppendLine(actionLine.ToString());
-                lineNum++;
+                _rows.Add(new ActionRow(buttons));
             }
 
-            sb.AppendLine();
-            lineNum++;
+            _rows.Add(new BlankRow());
         }
     }
 
@@ -382,13 +365,13 @@ internal sealed class TuiLiveSessionTab(
         bus.Post(new TakePreviewSignal(otaIndex, exp, gain, binning));
     }
 
-    private void RenderCameraStatus(StringBuilder sb, ISession session)
+    private void BuildCameraRows(ISession session)
     {
         var cameraStates = liveState.CameraStates;
         for (var i = 0; i < session.Setup.Telescopes.Length; i++)
         {
             var ota = session.Setup.Telescopes[i];
-            sb.AppendLine($"## {ota.Camera.Device.DisplayName}");
+            _rows.Add(new HeadingRow(ota.Camera.Device.DisplayName));
 
             // Cooling info — find latest sample + sparklines for this camera
             var coolingSamples = liveState.CoolingSamples;
@@ -404,18 +387,16 @@ internal sealed class TuiLiveSessionTab(
 
             if (latestSample is { } s)
             {
-                sb.AppendLine($"Sensor: {s.TemperatureC:F0}°C → {s.SetpointTempC:F0}°C  {s.CoolerPowerPercent:F0}%");
-                sb.AppendLine();
+                _rows.Add(new TextRow(
+                    $"Sensor: {s.TemperatureC:F0}\u00b0C \u2192 {s.SetpointTempC:F0}\u00b0C  {s.CoolerPowerPercent:F0}%"));
 
                 // Temperature sparkline (last N samples for this camera)
                 var tempSpark = BuildSparkline(coolingSamples, i, static c => c.TemperatureC);
                 var pwrSpark = BuildSparkline(coolingSamples, i, static c => c.CoolerPowerPercent, 0, 100);
                 if (tempSpark.Length > 0)
                 {
-                    sb.AppendLine($"Temp {tempSpark}");
-                    sb.AppendLine();
-                    sb.AppendLine($"Pwr  {pwrSpark}");
-                    sb.AppendLine();
+                    _rows.Add(new TextRow($"Temp {tempSpark}"));
+                    _rows.Add(new TextRow($"Pwr  {pwrSpark}"));
                 }
             }
 
@@ -424,98 +405,90 @@ internal sealed class TuiLiveSessionTab(
             {
                 var cs = cameraStates[i];
 
-                // Focuser line
                 var focParts = $"Focus: {cs.FocusPosition}";
                 if (!double.IsNaN(cs.FocuserTemperature))
                 {
-                    focParts += $"  ({cs.FocuserTemperature:F1}°C)";
+                    focParts += $"  ({cs.FocuserTemperature:F1}\u00b0C)";
                 }
                 if (cs.FocuserIsMoving)
                 {
                     focParts += "  Moving";
                 }
-                sb.AppendLine(focParts);
-                sb.AppendLine();
+                _rows.Add(new TextRow(focParts));
 
-                // Exposure state with progress bar
                 if (cs.State == CameraState.Exposing)
                 {
                     var elapsed = timeProvider.GetUtcNow() - cs.ExposureStart;
                     var total = cs.SubExposure.TotalSeconds;
                     var elapsedSec = Math.Min(elapsed.TotalSeconds, total);
-                    var progress = total > 0 ? elapsedSec / total : 0;
-                    var filled = (int)(progress * ProgressBarWidth);
-                    var bar = new string('█', filled) + new string('░', ProgressBarWidth - filled);
-                    sb.AppendLine($"{cs.FilterName} #{cs.FrameNumber}  {bar} {elapsedSec:F0}/{total:F0}s");
+                    _rows.Add(new ProgressRow($"{cs.FilterName} #{cs.FrameNumber}", elapsedSec, total));
                 }
                 else if (cs.State is CameraState.Download or CameraState.Reading)
                 {
-                    sb.AppendLine($"Downloading: #{cs.FrameNumber}");
+                    _rows.Add(new TextRow($"Downloading: #{cs.FrameNumber}"));
                 }
                 else
                 {
-                    sb.AppendLine("Idle");
+                    _rows.Add(new TextRow("Idle"));
                 }
-                sb.AppendLine();
             }
 
-            sb.AppendLine();
+            _rows.Add(new BlankRow());
         }
     }
 
-    private void RenderMountStatus(StringBuilder sb, ISession session)
+    private void BuildMountRows(ISession session)
     {
         var ms = liveState.MountState;
         var mountStatus = ms.IsSlewing ? "Slewing" : ms.IsTracking ? "Tracking" : "Idle";
         var pier = ms.PierSide is PointingState.Normal ? "E" : ms.PierSide is PointingState.ThroughThePole ? "W" : "";
-        sb.AppendLine($"## {session.Setup.Mount.Device.DisplayName}  {mountStatus}  {pier}");
+        _rows.Add(new HeadingRow($"{session.Setup.Mount.Device.DisplayName}  {mountStatus}  {pier}"));
+
         var raStr = CoordinateUtils.HoursToHMS(ms.RightAscension, withFrac: false);
         var decStr = CoordinateUtils.DegreesToDMS(ms.Declination, withFrac: false);
-        sb.AppendLine($"RA {raStr}  HA {ms.HourAngle:+0.00;-0.00}h");
-        sb.AppendLine();
-        sb.AppendLine($"Dec {decStr}");
-        sb.AppendLine();
+        _rows.Add(new TextRow($"RA {raStr}  HA {ms.HourAngle:+0.00;-0.00}h"));
+        _rows.Add(new TextRow($"Dec {decStr}"));
+
         if (liveState.ActiveObservation is { Target: var target })
         {
-            sb.AppendLine($"→ {target.Name}");
-            sb.AppendLine();
+            _rows.Add(new TextRow($"\u2192 {target.Name}",
+                new VtStyle(SgrColor.BrightYellow, SgrColor.Black)));
         }
+        _rows.Add(new BlankRow());
     }
 
-    private void RenderFocusHistory(StringBuilder sb)
+    private void BuildFocusHistoryRows()
     {
         var focusHistory = liveState.FocusHistory;
-        if (focusHistory.Length > 0)
+        if (focusHistory.Length == 0) return;
+
+        _rows.Add(new HeadingRow("Focus"));
+        var startIdx = Math.Max(0, focusHistory.Length - 3);
+        for (var i = startIdx; i < focusHistory.Length; i++)
         {
-            sb.AppendLine();
-            sb.AppendLine("## Focus");
-            var startIdx = Math.Max(0, focusHistory.Length - 3);
-            for (var i = startIdx; i < focusHistory.Length; i++)
-            {
-                sb.AppendLine(LiveSessionActions.FormatFocusHistoryRow(focusHistory[i], liveState.SiteTimeZone));
-            }
+            _rows.Add(new TextRow(
+                LiveSessionActions.FormatFocusHistoryRow(focusHistory[i], liveState.SiteTimeZone)));
         }
+        _rows.Add(new BlankRow());
     }
 
-    private void RenderExposureLog(StringBuilder sb)
+    private void BuildExposureLogRows()
     {
-        sb.AppendLine();
-        sb.AppendLine("## Exposures");
+        _rows.Add(new HeadingRow("Exposures"));
         var log = liveState.ExposureLog;
         if (log.Length == 0)
         {
-            sb.AppendLine("No frames yet");
+            _rows.Add(new TextRow("No frames yet",
+                new VtStyle(SgrColor.BrightBlack, SgrColor.Black)));
+            return;
         }
-        else
+        _rows.Add(new TextRow("Time  Target       Filter  HFD   \u2605",
+            new VtStyle(SgrColor.BrightBlack, SgrColor.Black)));
+        var startIdx = Math.Max(0, log.Length - 8);
+        for (var i = startIdx; i < log.Length; i++)
         {
-            sb.AppendLine("Time  Target       Filter  HFD   ★");
-            sb.AppendLine();
-            var startIdx = Math.Max(0, log.Length - 8);
-            for (var i = startIdx; i < log.Length; i++)
-            {
-                sb.AppendLine(LiveSessionActions.FormatExposureLogRow(log[i], liveState.SiteTimeZone));
-                sb.AppendLine();
-            }
+            _rows.Add(new TextRow(
+                LiveSessionActions.FormatExposureLogRow(log[i], liveState.SiteTimeZone)));
         }
     }
 
@@ -610,7 +583,7 @@ internal sealed class TuiLiveSessionTab(
         else if (appState.ActiveProfile?.Data is { OTAs.Length: > 0 })
         {
             // Preview mode: short cheat sheet. Selected-OTA actions.
-            hint = " Tab:OTA  [/]:exp  ,/.:gain  Enter:capture  S:save  P:solve  J/K:focus  Q:quit";
+            hint = " Tab:OTA  ,/.:exp  Shift\u2190/\u2192:gain  Enter:capture  S:save  P:solve  J/K:focus  Q:quit";
         }
         else
         {
@@ -673,30 +646,44 @@ internal sealed class TuiLiveSessionTab(
 
     protected override void RegisterClickableRegions()
     {
-        if (_infoPanel is null || _previewButtons.Count == 0)
+        if (_infoList is null || _rows.Count == 0)
         {
             return;
         }
 
-        var cellSize = _infoPanel.Viewport.CellSize;
-        var offset = _infoPanel.Viewport.Offset;
-        var scrollOffset = _infoPanel.ScrollOffset;
+        var cellSize = _infoList.Viewport.CellSize;
+        var offset = _infoList.Viewport.Offset;
+        // Info panel isn't scrolled programmatically; if it ever is, the list widget
+        // would need a public ScrollOffset getter (currently private) for hit-test
+        // accuracy. Without scrolling, line index == visible-row index.
+        const int scrollOffset = 0;
         var baseX = (float)(offset.Column * cellSize.Width);
         var baseY = (float)(offset.Row * cellSize.Height);
-        var visibleRows = _infoPanel.VisibleRows;
+        var visibleRows = _infoList.VisibleRows;
+        var rowWidth = _infoList.Viewport.Size.Width;
 
-        foreach (var (line, colStart, colEnd, onClick) in _previewButtons)
+        for (var lineIdx = 0; lineIdx < _rows.Count; lineIdx++)
         {
-            var visibleLine = line - scrollOffset;
+            var row = _rows[lineIdx];
+            var buttons = row.Buttons;
+            if (buttons.Count == 0) continue;
+
+            var visibleLine = lineIdx - scrollOffset;
             if (visibleLine < 0 || visibleLine >= visibleRows)
             {
                 continue;
             }
+
             var y = baseY + visibleLine * (float)cellSize.Height;
-            var x = baseX + colStart * (float)cellSize.Width;
-            var w = (colEnd - colStart) * (float)cellSize.Width;
-            Tracker.Register(x, y, w, (float)cellSize.Height,
-                new HitResult.ListItemHit("PreviewBtn", 0), onClick);
+            foreach (var btn in buttons)
+            {
+                var colEnd = Math.Min(btn.ColEnd, rowWidth);
+                if (btn.ColStart >= colEnd) continue;
+                var x = baseX + btn.ColStart * (float)cellSize.Width;
+                var w = (colEnd - btn.ColStart) * (float)cellSize.Width;
+                Tracker.Register(x, y, w, (float)cellSize.Height,
+                    new HitResult.ListItemHit("InfoRow", lineIdx), btn.OnClick);
+            }
         }
     }
 
@@ -802,19 +789,25 @@ internal sealed class TuiLiveSessionTab(
                 NeedsRedraw = true;
                 return true;
 
-            case InputEvent.KeyDown(InputKey.BracketLeft, _) when sel < liveState.PreviewExposureSeconds.Length:
+            // Exposure: , / . (no modifier)
+            case InputEvent.KeyDown(InputKey.Comma, var em1) when (em1 & InputModifier.Shift) == 0
+                && sel < liveState.PreviewExposureSeconds.Length:
                 liveState.PreviewExposureSeconds[sel] = LiveSessionActions.StepExposure(
                     liveState.PreviewExposureSeconds[sel], direction: -1);
                 NeedsRedraw = true;
                 return true;
 
-            case InputEvent.KeyDown(InputKey.BracketRight, _) when sel < liveState.PreviewExposureSeconds.Length:
+            case InputEvent.KeyDown(InputKey.Period, var em2) when (em2 & InputModifier.Shift) == 0
+                && sel < liveState.PreviewExposureSeconds.Length:
                 liveState.PreviewExposureSeconds[sel] = LiveSessionActions.StepExposure(
                     liveState.PreviewExposureSeconds[sel], direction: +1);
                 NeedsRedraw = true;
                 return true;
 
-            case InputEvent.KeyDown(InputKey.Comma, _) when sel < liveState.PreviewGain.Length:
+            // Gain: Shift+Left / Shift+Right (shift distinguishes from any future
+            // plain arrow-key navigation we might add later).
+            case InputEvent.KeyDown(InputKey.Left, var gm1) when (gm1 & InputModifier.Shift) != 0
+                && sel < liveState.PreviewGain.Length:
                 {
                     var tel = sel < liveState.PreviewOTATelemetry.Length
                         ? liveState.PreviewOTATelemetry[sel] : PreviewOTATelemetry.Unknown;
@@ -824,7 +817,8 @@ internal sealed class TuiLiveSessionTab(
                     return true;
                 }
 
-            case InputEvent.KeyDown(InputKey.Period, _) when sel < liveState.PreviewGain.Length:
+            case InputEvent.KeyDown(InputKey.Right, var gm2) when (gm2 & InputModifier.Shift) != 0
+                && sel < liveState.PreviewGain.Length:
                 {
                     var tel = sel < liveState.PreviewOTATelemetry.Length
                         ? liveState.PreviewOTATelemetry[sel] : PreviewOTATelemetry.Unknown;
