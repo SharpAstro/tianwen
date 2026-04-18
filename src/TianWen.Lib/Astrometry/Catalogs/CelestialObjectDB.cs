@@ -303,6 +303,33 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
             mainCatalogs.Add(catToAdd);
         }
 
+        // Second pass: load per-catalog *.shapes.json.lz companion files in
+        // descending-quality order so the best measurement wins for objects that
+        // exist in multiple catalogs. Cross-refs are fully established by the
+        // main Simbad loop above, so ReadCatalogObjectShapesAsync can fan each
+        // entry out to every known catalog variant of the same physical object.
+        // Within a catalog, TryAdd is first-write-wins; across catalogs, the
+        // earlier entry in this list wins on cross-referenced objects.
+        //
+        // Ranking:
+        //   Dobashi 2011 — 7614 entries, modern whole-sky IR+visible survey
+        //   LDN 1962     — 1802 entries, northern bias, sq-deg area (coarser)
+        //   Barnard 1927 — 349  entries, classical, single Diam only
+        //   Ced 1946     — 420  reflection nebulae; different object class, so
+        //                  rarely overlaps with the dark-cloud three above, but
+        //                  has real Dim1 x Dim2 ellipses where data exists
+        var shapeSources = new[]
+        {
+            ("Dobashi", Catalog.Dobashi),
+            ("LDN",     Catalog.LDN),
+            ("Barnard", Catalog.Barnard),
+            ("Ced",     Catalog.Ced),
+        };
+        foreach (var (fileName, cat) in shapeSources)
+        {
+            await ReadCatalogObjectShapesAsync(assembly, manifestNames, fileName, cat, cancellationToken);
+        }
+
         // Wait for Tycho2 data (runs in parallel with CSV + SIMBAD processing)
         await initTycho2DataTask;
 
@@ -1394,6 +1421,58 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
         }
 
         return [];
+    }
+
+    /// <summary>
+    /// Load a per-catalog <c>*.shapes.json.lz</c> companion file if present in
+    /// embedded resources, stamping each <see cref="CelestialObjectShape"/> onto
+    /// the matching catalog index and fanning it out to every known cross-reference
+    /// of the same physical object. Silent no-op when the file does not exist.
+    /// Uses <see cref="Dictionary{TKey,TValue}.TryAdd"/> throughout so higher-
+    /// quality shapes populated earlier (e.g. OpenNGC CSV for NGC/IC, or an
+    /// earlier entry in the shape-source priority list) are never overwritten
+    /// by the coarser circular approximation derived from VizieR area/diameter
+    /// fields. See <c>Get-VizierDarkNebulaShapes.ps1</c>.
+    /// </summary>
+    private async Task<int> ReadCatalogObjectShapesAsync(Assembly assembly, string[] manifestNames, string jsonName, Catalog catToAdd, CancellationToken cancellationToken)
+    {
+        var manifestFileName = manifestNames.FirstOrDefault(p => p.EndsWith("." + jsonName + ".shapes.json.lz"));
+        if (manifestFileName is null || assembly.GetManifestResourceStream(manifestFileName) is not Stream stream)
+        {
+            return 0;
+        }
+
+        using (stream)
+        using (var decompressed = LzipDecoder.DecompressToStream(stream))
+        {
+            var digits = catToAdd.GetNumericalIndexSize();
+            var applied = 0;
+            await foreach (var record in JsonSerializer.DeserializeAsyncEnumerable(decompressed, CatalogObjectShapeJsonSerializerContext.Default.CatalogObjectShape, cancellationToken))
+            {
+                if (record is null) continue;
+                var idx = PrefixedNumericToASCIIPackedInt<CatalogIndex>((ulong)catToAdd, record.Seq, digits);
+                var shape = new CelestialObjectShape((Half)record.Maj, (Half)record.Min, (Half)record.PA);
+                if (_shapesByIndex.TryAdd(idx, shape))
+                {
+                    applied++;
+                }
+                // Fan the shape out to every known cross-reference of the same
+                // physical object so the overlay scan finds the same ellipse
+                // regardless of which catalog variant it happened to visit first.
+                if (_crossIndexLookuptable.TryGetLookupEntries(idx, out IReadOnlyList<CatalogIndex> xrefs))
+                {
+                    for (var i = 0; i < xrefs.Count; i++)
+                    {
+                        var x = xrefs[i];
+                        if (x != default)
+                        {
+                            _shapesByIndex.TryAdd(x, shape);
+                        }
+                    }
+                }
+            }
+            return applied;
+        }
     }
 
     [GeneratedRegex(@"^[A-Za-z]+\s+\d+\s+\d+$", RegexOptions.Compiled | RegexOptions.IgnorePatternWhitespace | RegexOptions.CultureInvariant)]
