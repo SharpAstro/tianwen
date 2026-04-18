@@ -169,7 +169,14 @@ var loop = new SdlEventLoop(sdlWindow, renderer)
 
     OnMouseMove = (x, y) => handlers.HandleInput(new InputEvent.MouseMove(x, y)),
 
-    OnMouseUp = (button) => handlers.HandleInput(new InputEvent.MouseUp(0, 0)),
+    // SDL's OnMouseUp callback delivers only the button — coords come from the
+    // last MouseMove, cached on appState. Without this the click-vs-drag
+    // detection in SkyMapTab compares (0, 0) to the real mouse-down position.
+    OnMouseUp = (button) =>
+    {
+        var (mx, my) = appState.MouseScreenPosition;
+        handlers.HandleInput(new InputEvent.MouseUp(mx, my));
+    },
 
     OnMouseWheel = (scrollY, mx, my) =>
     {

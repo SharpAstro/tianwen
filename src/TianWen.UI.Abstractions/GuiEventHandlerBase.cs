@@ -74,7 +74,7 @@ namespace TianWen.UI.Abstractions
             InputEvent.KeyDown(var key, var modifiers) => HandleKeyDown(key, modifiers),
             InputEvent.MouseDown(var px, var py, _, var mods, var clicks) => HandleMouseDown(px, py, mods, (byte)clicks),
             InputEvent.MouseMove(var px, var py) => HandleMouseMove(px, py),
-            InputEvent.MouseUp(_, _, _) => HandleMouseUp(),
+            InputEvent.MouseUp(var upX, var upY, _) => HandleMouseUp(upX, upY),
             InputEvent.Scroll(var scrollY, _, _, _) => HandleMouseWheel(scrollY),
             InputEvent.TextInput(var text) => HandleTextInput(text),
             InputEvent.Pinch or InputEvent.PinchEnd => _chrome.ActiveTab?.HandleInput(evt) ?? false,
@@ -200,10 +200,10 @@ namespace TianWen.UI.Abstractions
             return true;
         }
 
-        private bool HandleMouseUp()
+        private bool HandleMouseUp(float x, float y)
         {
-            // Forward to active tab first (e.g. live session drag pan release)
-            _chrome.ActiveTab?.HandleInput(new InputEvent.MouseUp(0, 0));
+            // Forward to active tab first (e.g. live session drag pan release, sky-map click-select)
+            _chrome.ActiveTab?.HandleInput(new InputEvent.MouseUp(x, y));
 
             if (_plannerState.DraggingSliderIndex >= 0)
             {
