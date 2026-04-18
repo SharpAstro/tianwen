@@ -128,3 +128,15 @@ public readonly record struct SkyMapSearchCommitSignal;
 /// coordinates; the handler projects to RA/Dec and picks the nearest object.
 /// </summary>
 public readonly record struct SkyMapClickSelectSignal(float ScreenX, float ScreenY);
+
+/// <summary>
+/// Toggle an object in <see cref="PlannerState.Proposals"/> from the sky map
+/// info panel. Unpins if already pinned, otherwise pins. Handler triggers
+/// the usual schedule recompute and persistence.
+/// </summary>
+public readonly record struct SkyMapPinObjectSignal(
+    string Name,
+    double RA,
+    double Dec,
+    TianWen.Lib.Astrometry.Catalogs.CatalogIndex? Index,
+    TianWen.Lib.Astrometry.Catalogs.ObjectType ObjectType);

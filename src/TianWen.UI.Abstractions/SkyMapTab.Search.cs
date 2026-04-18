@@ -13,17 +13,17 @@ namespace TianWen.UI.Abstractions
     /// </summary>
     public partial class SkyMapTab<TSurface>
     {
-        // ── Modal colours (Stellarium-inspired dark chrome) ──
+        // ── Modal colours ──
         private static readonly RGBAColor32 SearchBackdrop   = new(0x00, 0x00, 0x00, 0x80);
         private static readonly RGBAColor32 SearchPanelBg    = new(0x22, 0x22, 0x28, 0xF0);
         private static readonly RGBAColor32 SearchPanelBorder = new(0x50, 0x50, 0x60, 0xFF);
         private static readonly RGBAColor32 SearchHeaderBg   = new(0x30, 0x30, 0x38, 0xFF);
-        private static readonly RGBAColor32 SearchTabActive  = new(0x3A, 0x3A, 0x45, 0xFF);
-        private static readonly RGBAColor32 SearchTabInactive = new(0x20, 0x20, 0x28, 0xFF);
         private static readonly RGBAColor32 SearchRowHover   = new(0xC0, 0x90, 0x30, 0xD0);
         private static readonly RGBAColor32 SearchText       = new(0xDD, 0xDD, 0xDD, 0xFF);
         private static readonly RGBAColor32 SearchDimText    = new(0x80, 0x80, 0x88, 0xFF);
         private static readonly RGBAColor32 SelectionMarker  = new(0xFF, 0xEE, 0x60, 0xFF);
+        private static readonly RGBAColor32 PinButtonBg      = new(0x3A, 0x5A, 0x3A, 0xFF);
+        private static readonly RGBAColor32 UnpinButtonBg    = new(0x5A, 0x3A, 0x3A, 0xFF);
 
         private const float SearchPanelWidth  = 480f;
         private const float SearchPanelHeight = 500f;
@@ -41,6 +41,7 @@ namespace TianWen.UI.Abstractions
         /// so its clickable regions take priority over map drag gestures.
         /// </summary>
         protected void DrawSearchAndInfoPanel(
+            PlannerState plannerState,
             RectF32 contentRect, string fontPath, float dpiScale,
             ICelestialObjectDB db,
             double siteLat, double siteLon,
@@ -52,7 +53,7 @@ namespace TianWen.UI.Abstractions
             // remain visible after the user closes the search window.
             if (State.Search.InfoPanel is { } info)
             {
-                DrawInfoPanel(info, contentRect, fontPath, dpiScale,
+                DrawInfoPanel(plannerState, info, contentRect, fontPath, dpiScale,
                     pixelsPerRadian, cx, cy);
             }
 
@@ -99,19 +100,8 @@ namespace TianWen.UI.Abstractions
             DrawText("X".AsSpan(), fontPath,
                 px + pw - closeW, py, closeW, headerH, fontSize, SearchText, TextAlign.Center, TextAlign.Center);
 
-            // Tab row — Phase 1 only wires Object. Others render dim so the layout
-            // shows the final shape without pretending they work yet.
-            var tabRowY = py + headerH;
-            var tabH = 28f * dpiScale;
-            var tabW = pw / 5f;
-            DrawTab(px + tabW * 0f, tabRowY, tabW, tabH, "Object",   SkyMapSearchTab.Object,   fontPath, fontSize, enabled: true);
-            DrawTab(px + tabW * 1f, tabRowY, tabW, tabH, "SIMBAD",   SkyMapSearchTab.Simbad,   fontPath, fontSize, enabled: false);
-            DrawTab(px + tabW * 2f, tabRowY, tabW, tabH, "Position", SkyMapSearchTab.Position, fontPath, fontSize, enabled: false);
-            DrawTab(px + tabW * 3f, tabRowY, tabW, tabH, "Lists",    SkyMapSearchTab.Lists,    fontPath, fontSize, enabled: false);
-            DrawTab(px + tabW * 4f, tabRowY, tabW, tabH, "Options",  SkyMapSearchTab.Options,  fontPath, fontSize, enabled: false);
-
             // Search input
-            var inputY = tabRowY + tabH + 12f * dpiScale;
+            var inputY = py + headerH + 12f * dpiScale;
             var inputH = 30f * dpiScale;
             var inputPadX = 12f * dpiScale;
             RenderTextInput(State.Search.SearchInput,
@@ -131,19 +121,6 @@ namespace TianWen.UI.Abstractions
             _ = db;
             _ = siteLat; _ = siteLon; _ = viewingTime;
             _ = site;
-        }
-
-        private void DrawTab(float x, float y, float w, float h, string label,
-            SkyMapSearchTab tab, string fontPath, float fontSize, bool enabled)
-        {
-            var active = State.Search.ActiveTab == tab;
-            FillRect(x, y, w, h, active ? SearchTabActive : SearchTabInactive);
-            DrawText(label.AsSpan(), fontPath, x, y, w, h, fontSize,
-                enabled ? SearchText : SearchDimText, TextAlign.Center, TextAlign.Center);
-            if (enabled)
-            {
-                RegisterClickable(x, y, w, h, new HitResult.ButtonHit($"SearchTab:{tab}"));
-            }
         }
 
         private void DrawResults(
@@ -201,12 +178,13 @@ namespace TianWen.UI.Abstractions
         }
 
         private void DrawInfoPanel(
+            PlannerState plannerState,
             in SkyMapInfoPanelData info,
             RectF32 contentRect, string fontPath, float dpiScale,
             double pixelsPerRadian, float cx, float cy)
         {
             var pw = 300f * dpiScale;
-            var ph = 170f * dpiScale;
+            var ph = 205f * dpiScale;
             var px = contentRect.X + 12f * dpiScale;
             var py = contentRect.Y + contentRect.Height - ph - 32f * dpiScale; // above status strip
             var fontSize = 12f * dpiScale;
@@ -265,6 +243,28 @@ namespace TianWen.UI.Abstractions
             DrawText(rtsLine.AsSpan(), fontPath,
                 textX, py + row, textW, rowH, fontSize, SearchText, TextAlign.Near, TextAlign.Center);
 
+            // Pin / Unpin button along the bottom of the panel.
+            // Copy the in-parameter fields into locals so the click lambda can capture
+            // them (can't close over 'in' parameters directly).
+            var pinName = info.Name;
+            var pinRA = info.RA;
+            var pinDec = info.Dec;
+            var pinIndex = info.Index;
+            var pinType = info.ObjType;
+            var isPinned = pinIndex is { } catIdx && IsPinned(plannerState, catIdx);
+            var btnW = 100f * dpiScale;
+            var btnH = 24f * dpiScale;
+            var btnX = px + pw - btnW - 10f * dpiScale;
+            var btnY = py + ph - btnH - 8f * dpiScale;
+            RenderButton(
+                isPinned ? "Unpin" : "Pin",
+                btnX, btnY, btnW, btnH, fontPath, fontSize,
+                isPinned ? UnpinButtonBg : PinButtonBg,
+                SearchText,
+                "SkyMapPinToggle",
+                _ => PostSignal(new SkyMapPinObjectSignal(
+                    pinName, pinRA, pinDec, pinIndex, pinType)));
+
             // Close button — top-right of the info panel.
             var closeSize = 20f * dpiScale;
             RegisterClickable(px + pw - closeSize, py, closeSize, closeSize,
@@ -294,6 +294,18 @@ namespace TianWen.UI.Abstractions
 
         private static string FormatHHMM(DateTimeOffset? t)
             => t is { } dt ? $"{dt.LocalDateTime:HH:mm}" : "--:--";
+
+        // Walk PlannerState.Proposals to see if this catalog index is pinned.
+        // Called once per frame while the info panel is visible — proposals are few
+        // so O(n) is fine. ImmutableArray enumerator is zero-alloc.
+        private static bool IsPinned(PlannerState plannerState, CatalogIndex catIdx)
+        {
+            foreach (var p in plannerState.Proposals)
+            {
+                if (p.Target.CatalogIndex == catIdx) return true;
+            }
+            return false;
+        }
 
         /// <summary>
         /// Handle the F3 shortcut. Call from the tab's key handler.

@@ -1015,6 +1015,53 @@ public static class PlannerActions
     }
 
     /// <summary>
+    /// Toggle-pin a target that originated outside the planner (e.g. sky-map
+    /// click-to-pin). Unpins if already in <see cref="PlannerState.Proposals"/>;
+    /// otherwise scores + profiles it so the planner chart can render its curve,
+    /// then pins. The transform may be null (site not yet resolved) — the pin
+    /// still happens, but without a score the planner falls back to Unknown.
+    /// </summary>
+    public static void TogglePinFromExternal(
+        PlannerState state,
+        ICelestialObjectDB db,
+        Transform? transform,
+        Target target,
+        ObjectType objectType,
+        ObservationPriority priority = ObservationPriority.Normal)
+    {
+        var existingIndex = FindProposalIndex(state.Proposals, target);
+        if (existingIndex >= 0)
+        {
+            state.Proposals = state.Proposals.RemoveAt(existingIndex);
+            RecomputeHandoffSliders(state);
+            state.IsDirty = true;
+            state.NeedsRedraw = true;
+            return;
+        }
+
+        if (transform is not null && !state.ScoredTargets.ContainsKey(target))
+        {
+            var scored = ObservationScheduler.ScoreTarget(target, transform,
+                state.AstroDark, state.AstroTwilight, state.MinHeightAboveHorizon, objectType);
+            state.ScoredTargets[target] = scored;
+
+            if (!state.AltitudeProfiles.ContainsKey(target))
+            {
+                var (astroms, times) = EnsureAstromGrid(state, transform);
+                state.AltitudeProfiles[target] = ComputeFineAltitudeProfileFast(
+                    target, astroms, times, transform.SiteLatitude, transform.SiteLongitude);
+            }
+            PopulateTargetAlias(state, db, target);
+        }
+
+        state.Proposals = state.Proposals.Add(new ProposedObservation(target, objectType, Priority: priority));
+        SortProposalsByPeakTime(state);
+        RecomputeHandoffSliders(state);
+        state.IsDirty = true;
+        state.NeedsRedraw = true;
+    }
+
+    /// <summary>
     /// Cycles the priority of a proposal.
     /// </summary>
     public static void CyclePriority(PlannerState state, int proposalIndex)

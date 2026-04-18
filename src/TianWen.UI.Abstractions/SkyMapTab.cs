@@ -182,7 +182,7 @@ namespace TianWen.UI.Abstractions
 
             // Search modal + info panel — drawn LAST so their clickable regions win
             // hit testing (paint order = z-order).
-            DrawSearchAndInfoPanel(contentRect, fontPath, dpiScale, db,
+            DrawSearchAndInfoPanel(plannerState, contentRect, fontPath, dpiScale, db,
                 siteLat, siteLon, viewingTime, site, ppr, cx, cy);
         }
 

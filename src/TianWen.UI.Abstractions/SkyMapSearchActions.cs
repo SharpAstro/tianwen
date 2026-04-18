@@ -28,7 +28,6 @@ public static class SkyMapSearchActions
     public static void OpenSearch(SkyMapSearchState search, ICelestialObjectDB db)
     {
         search.IsOpen = true;
-        search.ActiveTab = SkyMapSearchTab.Object;
 
         // Build the index once per catalog load. The autocomplete list is
         // canonical + common names — ~200 K entries, enough for live filtering.
