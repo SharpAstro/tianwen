@@ -106,15 +106,22 @@ public static class LookupHelper
     private static bool TryGetLookupEntries<TVal>(in (TVal v1, TVal[]? ext) lookedUpValues, out IReadOnlyList<TVal> combined)
         where TVal : struct, Enum
     {
-        var outputValues = new TVal[(lookedUpValues.v1.Equals(default) ? 0 : 1) + (lookedUpValues.ext?.Length ?? 0)];
-        if (outputValues.Length == 0)
+        // Hot path: empty cells allocated a zero-length array per call. With the
+        // overlay engine scanning ~10 000 cells per frame at wide FOV, that was
+        // GC pressure worth fixing. Use the cached Array.Empty singleton instead.
+        var hasV1 = !lookedUpValues.v1.Equals(default);
+        var extLen = lookedUpValues.ext?.Length ?? 0;
+        var total = (hasV1 ? 1 : 0) + extLen;
+        if (total == 0)
         {
-            combined = outputValues;
+            combined = Array.Empty<TVal>();
             return false;
         }
 
-        outputValues[0] = lookedUpValues.v1;
-        lookedUpValues.ext?.CopyTo(outputValues, 1);
+        var outputValues = new TVal[total];
+        var idx = 0;
+        if (hasV1) outputValues[idx++] = lookedUpValues.v1;
+        lookedUpValues.ext?.CopyTo(outputValues, idx);
         combined = outputValues;
         return true;
     }
