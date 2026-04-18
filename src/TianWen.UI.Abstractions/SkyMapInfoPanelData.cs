@@ -26,6 +26,7 @@ public readonly record struct SkyMapInfoPanelData(
     bool Circumpolar,
     bool NeverRises,
     double? AngularSizeDeg,
+    CelestialObjectShape? Shape,
     CatalogIndex? Index)
 {
     /// <summary>
@@ -38,7 +39,7 @@ public readonly record struct SkyMapInfoPanelData(
         double siteLat, double siteLon,
         DateTimeOffset viewingUtc,
         in SiteContext site,
-        double? angularSizeDeg)
+        CelestialObjectShape? shape)
     {
         var (altDeg, azDeg) = ComputeAltAz(obj.RA, obj.Dec, site);
 
@@ -46,6 +47,16 @@ public readonly record struct SkyMapInfoPanelData(
             obj.RA, obj.Dec, siteLat, siteLon, viewingUtc,
             out var rise, out var transit, out var set,
             out var circumpolar, out var neverRises);
+
+        double? angularSizeDeg = null;
+        if (shape is { } s)
+        {
+            var major = (double)s.MajorAxis;
+            if (!double.IsNaN(major) && major > 0)
+            {
+                angularSizeDeg = major / 60.0;
+            }
+        }
 
         return new SkyMapInfoPanelData(
             Name: obj.DisplayName,
@@ -64,6 +75,7 @@ public readonly record struct SkyMapInfoPanelData(
             Circumpolar: circumpolar,
             NeverRises: neverRises,
             AngularSizeDeg: angularSizeDeg,
+            Shape: shape,
             Index: obj.Index);
     }
 
@@ -102,6 +114,7 @@ public readonly record struct SkyMapInfoPanelData(
             Circumpolar: circumpolar,
             NeverRises: neverRises,
             AngularSizeDeg: null,
+            Shape: null,
             Index: null);
     }
 

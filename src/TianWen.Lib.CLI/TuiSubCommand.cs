@@ -268,13 +268,21 @@ internal class TuiSubCommand(
     private static bool TrySwitchTab(ConsoleInputEvent rawEvt, GuiAppState appState,
         Dictionary<GuiTab, ITuiTab> tabs, ref ITuiTab activeTab, IVirtualTerminal terminal)
     {
+        // F-keys for direct switching; Ctrl+letter as a letter-based mnemonic.
+        // Digit shortcuts (1..5) were removed in favour of the mnemonic bindings.
+        var ctrl = (rawEvt.Modifiers & ConsoleModifiers.Control) != 0;
         var newTab = rawEvt.Key switch
         {
-            ConsoleKey.D1 or ConsoleKey.F1 => GuiTab.Equipment,
-            ConsoleKey.D2 or ConsoleKey.F2 => GuiTab.Planner,
-            ConsoleKey.D3 or ConsoleKey.F3 => GuiTab.Session,
-            ConsoleKey.D4 or ConsoleKey.F4 => GuiTab.LiveSession,
-            ConsoleKey.D5 or ConsoleKey.F5 => GuiTab.Guider,
+            ConsoleKey.F1 => GuiTab.Equipment,
+            ConsoleKey.F2 => GuiTab.Planner,
+            ConsoleKey.F3 => GuiTab.Session,
+            ConsoleKey.F4 => GuiTab.LiveSession,
+            ConsoleKey.F5 => GuiTab.Guider,
+            ConsoleKey.E when ctrl => GuiTab.Equipment,
+            ConsoleKey.P when ctrl => GuiTab.Planner,
+            ConsoleKey.S when ctrl => GuiTab.Session,
+            ConsoleKey.L when ctrl => GuiTab.LiveSession,
+            ConsoleKey.G when ctrl => GuiTab.Guider,
             _ => (GuiTab?)null
         };
 

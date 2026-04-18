@@ -31,12 +31,33 @@ public readonly record struct CelestialObject(
 )
 {
     /// <summary>
-    /// Returns the preferred display name: longest common name if available, otherwise the canonical catalog designation.
-    /// Longest name is typically the most descriptive (e.g. "Eta Carinae Nebula" over "Keyhole Nebula").
+    /// Returns the preferred display name. Prefers IAU proper names over Bayer
+    /// designations over Flamsteed numbers (so "Rigel" beats "bet Ori A" beats
+    /// "19 Ori"); among names of equal priority the longer one wins so DSOs
+    /// still get their descriptive form (e.g. "Eta Carinae Nebula" over "Keyhole").
+    /// Falls back to the canonical catalog designation when there are no common names.
     /// </summary>
     public readonly string DisplayName => CommonNames.Count > 0
-        ? CommonNames.OrderByDescending(n => n.Length).ThenBy(n => n).First()
+        ? CommonNames
+            .OrderBy(NamePriority)
+            .ThenByDescending(n => n.Length)
+            .ThenBy(n => n)
+            .First()
         : Index.ToCanonical();
+
+    /// <summary>
+    /// Priority for a common name (lower = preferred). IAU proper names (capital
+    /// leading letter) outrank Bayer greek-abbreviation designations, which outrank
+    /// Flamsteed numbers, which outrank everything else.
+    /// </summary>
+    public static int NamePriority(string name)
+    {
+        if (name.Length == 0) return 100;
+        if (char.IsAsciiDigit(name[0])) return 3;                         // Flamsteed
+        if (char.IsAsciiLetterLower(name[0]) && name.Contains(' ')) return 2; // Bayer
+        if (char.IsAsciiLetterUpper(name[0])) return 1;                   // IAU proper name
+        return 50;
+    }
 
     private readonly string DebuggerDisplay()
         => $"{Index.ToCanonical()} [{string.Join(",", CommonNames.OrderByDescending(p => p.Length))}] {Constellation.ToIAUAbbreviation()} {ObjectType.ToAbbreviation()} " +

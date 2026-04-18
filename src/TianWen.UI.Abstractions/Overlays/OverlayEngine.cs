@@ -37,24 +37,11 @@ public static class OverlayEngine
     public static bool IsStarType(ObjectType ot) => ot.IsStar;
 
     /// <summary>
-    /// Returns a priority score for a common name (lower = better).
-    /// IAU proper names (e.g. "Sirius") > Bayer (e.g. "eta Ori") > Flamsteed (e.g. "28 Ori") > other.
+    /// Returns a priority score for a common name (lower = better). Delegates to
+    /// <see cref="CelestialObject.NamePriority"/> so label placement and the sky-map
+    /// info panel agree on which name to show.
     /// </summary>
-    public static int GetNamePriority(string name)
-    {
-        if (name.Length == 0) return 100;
-
-        // Flamsteed numbers start with a digit (e.g. "28 Ori")
-        if (char.IsAsciiDigit(name[0])) return 3;
-
-        // Bayer designations start with a Greek letter abbreviation (lowercase, e.g. "eta Ori", "alf CMa")
-        if (char.IsAsciiLetterLower(name[0]) && name.Length > 2 && name.Contains(' ')) return 2;
-
-        // IAU proper name or other named object (e.g. "Sirius", "Whirlpool Galaxy")
-        if (char.IsAsciiLetterUpper(name[0])) return 1;
-
-        return 50;
-    }
+    public static int GetNamePriority(string name) => CelestialObject.NamePriority(name);
 
     /// <summary>
     /// Returns overlay color (R, G, B) based on object type.

@@ -236,6 +236,7 @@ var loop = new SdlEventLoop(sdlWindow, renderer)
         }
 
         return appState.NeedsRedraw || plannerState.NeedsRedraw
+            || guiRenderer.SkyMapState.NeedsRedraw
             || appState.ActiveTextInput is { IsActive: true };
     },
 
@@ -368,6 +369,11 @@ loop.OnPostFrame = () =>
     if (!appState.ShuttingDown && !signalSetRedraw)
     {
         appState.NeedsRedraw = false;
+        // Signals processed during OnPostFrame (e.g. SkyMapClickSelectSignal)
+        // mutate SkyMapState but the current frame already ran. Only clear the
+        // flag when no signal fired this post-frame so the mutation drives the
+        // next render.
+        guiRenderer.SkyMapState.NeedsRedraw = false;
     }
     plannerState.NeedsRedraw = false;
 

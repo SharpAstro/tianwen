@@ -714,6 +714,40 @@ namespace TianWen.UI.Abstractions
                 appState.NeedsRedraw = true;
             });
 
+            bus.Subscribe<ViewInPlannerSignal>(sig =>
+            {
+                // Ensure the target is scored + profiled so the planner list has
+                // something to select. Reuses the same CommitSuggestion path the
+                // planner search uses, so alias population and altitude profile
+                // are consistent across the two entry points.
+                var target = new Target(sig.RA, sig.Dec, sig.Name, sig.Index);
+                if (appState.ActiveProfile is { } prof)
+                {
+                    var transform = TransformFactory.FromProfile(prof, _timeProvider, out _);
+                    if (transform is not null && !plannerState.ScoredTargets.ContainsKey(target))
+                    {
+                        var db = sp.GetRequiredService<ICelestialObjectDB>();
+                        PlannerActions.CommitSuggestion(plannerState, db, transform, sig.Name);
+                    }
+                }
+
+                // Find the target in the filtered list and scroll it into view.
+                var filtered = PlannerActions.GetFilteredTargets(plannerState);
+                for (var i = 0; i < filtered.Count; i++)
+                {
+                    if (filtered[i].Target == target)
+                    {
+                        plannerState.SelectedTargetIndex = i;
+                        OnPlannerEnsureVisible?.Invoke(i);
+                        break;
+                    }
+                }
+
+                appState.ActiveTab = GuiTab.Planner;
+                appState.NeedsRedraw = true;
+                plannerState.NeedsRedraw = true;
+            });
+
             bus.Subscribe<SkyMapPinObjectSignal>(sig =>
             {
                 var target = new Target(sig.RA, sig.Dec, sig.Name, sig.Index);

@@ -77,15 +77,15 @@ namespace TianWen.UI.Gui
         private float StatusBarHeight => BaseStatusBarHeight * DpiScale;
         private float FontSize => BaseFontSize * DpiScale;
 
-        // Sidebar tab definitions
-        private static readonly (string Icon, GuiTab Tab)[] SidebarTabs =
+        // Sidebar tab definitions. Tooltip shows the name + Ctrl+letter shortcut.
+        private static readonly (string Icon, GuiTab Tab, string Tooltip)[] SidebarTabs =
         [
-            ("\U0001F52D", GuiTab.Equipment),    // 🔭 Equipment
-            ("\U0001F4C5", GuiTab.Planner),      // 📅 Planner
-            ("\U0001F30C", GuiTab.SkyMap),        // 🌌 Sky Map
-            ("\U0001F4F7", GuiTab.Session),       // 📷 Session Config
-            ("\U0001F4F8", GuiTab.LiveSession),   // 📸 Live Session
-            ("\U0001F3AF", GuiTab.Guider),        // 🎯 Guider
+            ("\U0001F52D", GuiTab.Equipment,    "Equipment (Ctrl+E)"),
+            ("\U0001F4C5", GuiTab.Planner,      "Planner (Ctrl+P)"),
+            ("\U0001F30C", GuiTab.SkyMap,       "Sky Map (Ctrl+M)"),
+            ("\U0001F4F7", GuiTab.Session,      "Session (Ctrl+S)"),
+            ("\U0001F4F8", GuiTab.LiveSession,  "Live Session (Ctrl+L)"),
+            ("\U0001F3AF", GuiTab.Guider,       "Guider (Ctrl+G)"),
         ];
 
         // Sidebar colors
@@ -208,9 +208,13 @@ namespace TianWen.UI.Gui
 
             var noProfile = appState.ActiveProfile is null;
 
+            // Track hovered tooltip to draw last (over sidebar + any adjacent content).
+            string? hoverTooltip = null;
+            float hoverY = 0f;
+
             for (var i = 0; i < SidebarTabs.Length; i++)
             {
-                var (icon, tab) = SidebarTabs[i];
+                var (icon, tab, tooltip) = SidebarTabs[i];
                 var btnY = startY + i * buttonSize;
                 var isActive = appState.ActiveTab == tab;
                 var isLocked = (noProfile && tab is not GuiTab.Equipment)
@@ -243,7 +247,41 @@ namespace TianWen.UI.Gui
                         new HitResult.ButtonHit($"Tab:{tab}"),
                         _ => { appState.ActiveTab = capturedTab; appState.NeedsRedraw = true; });
                 }
+
+                if (isHover)
+                {
+                    hoverTooltip = tooltip;
+                    hoverY = btnY + buttonSize * 0.5f;
+                }
             }
+
+            if (hoverTooltip is not null && _fontPath is not null)
+            {
+                DrawTooltip(hoverTooltip, sw + 6f, hoverY);
+            }
+        }
+
+        // Tooltip rendered to the right of the sidebar at the hovered tab's vertical
+        // centre. Dark rounded rect + one-line label; z-order is guaranteed by being
+        // called at the end of RenderSidebar (paint-last = top).
+        private void DrawTooltip(string text, float anchorX, float anchorY)
+        {
+            if (_fontPath is null) return;
+            var pad = 6f * DpiScale;
+            var fontSize = FontSize;
+            var (tw, th) = _renderer.MeasureText(text.AsSpan(), _fontPath, fontSize);
+            var w = tw + pad * 2f;
+            var h = th + pad;
+            var x = anchorX;
+            var y = anchorY - h * 0.5f;
+
+            // Border + fill
+            FillRect(x - 1, y - 1, w + 2, h + 2, new RGBAColor32(0x50, 0x50, 0x60, 0xFF));
+            FillRect(x, y, w, h, new RGBAColor32(0x22, 0x22, 0x2C, 0xF0));
+            _renderer.DrawText(text.AsSpan(), _fontPath, fontSize,
+                new RGBAColor32(0xE6, 0xE6, 0xE6, 0xFF),
+                new RectInt(new PointInt((int)(x + w), (int)(y + h)), new PointInt((int)(x + pad), (int)y)),
+                TextAlign.Near, TextAlign.Center);
         }
 
         // -----------------------------------------------------------------------

@@ -235,6 +235,13 @@ namespace TianWen.UI.Abstractions
                 return false;
             }
 
+            // Ctrl + letter tab shortcuts: global, bypass the active text input so
+            // users don't have to defocus search fields to switch tabs.
+            if ((inputModifier & InputModifier.Ctrl) != 0 && TrySwitchTabByShortcut(inputKey))
+            {
+                return true;
+            }
+
             var activeInput = _appState.ActiveTextInput;
             if (activeInput is { IsActive: true })
             {
@@ -242,6 +249,27 @@ namespace TianWen.UI.Abstractions
             }
 
             return false; // Not consumed — let caller route to active tab
+        }
+
+        /// <summary>
+        /// Ctrl+E/P/S/L/M/G tab shortcuts. M = Sky Map, the rest map by first letter.
+        /// </summary>
+        private bool TrySwitchTabByShortcut(InputKey key)
+        {
+            GuiTab? target = key switch
+            {
+                InputKey.E => GuiTab.Equipment,
+                InputKey.P => GuiTab.Planner,
+                InputKey.S => GuiTab.Session,
+                InputKey.L => GuiTab.LiveSession,
+                InputKey.M => GuiTab.SkyMap,
+                InputKey.G => GuiTab.Guider,
+                _ => null
+            };
+            if (target is not { } tab || _appState.ActiveTab == tab) return false;
+            _appState.ActiveTab = tab;
+            _appState.NeedsRedraw = true;
+            return true;
         }
 
         // ===================================================================
