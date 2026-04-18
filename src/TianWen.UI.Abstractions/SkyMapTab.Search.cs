@@ -24,6 +24,7 @@ namespace TianWen.UI.Abstractions
         private static readonly RGBAColor32 SelectionMarker  = new(0xFF, 0xEE, 0x60, 0xFF);
         private static readonly RGBAColor32 PinButtonBg      = new(0x3A, 0x5A, 0x3A, 0xFF);
         private static readonly RGBAColor32 UnpinButtonBg    = new(0x5A, 0x3A, 0x3A, 0xFF);
+        private static readonly RGBAColor32 ViewButtonBg     = new(0x3A, 0x4A, 0x5A, 0xFF);
 
         private const float SearchPanelWidth  = 480f;
         private const float SearchPanelHeight = 500f;
@@ -248,7 +249,7 @@ namespace TianWen.UI.Abstractions
             DrawText(rtsLine.AsSpan(), fontPath,
                 textX, py + row, textW, rowH, fontSize, SearchText, TextAlign.Near, TextAlign.Center);
 
-            // Pin / Unpin button along the bottom of the panel.
+            // Action buttons along the bottom of the panel.
             // Copy the in-parameter fields into locals so the click lambda can capture
             // them (can't close over 'in' parameters directly).
             var pinName = info.Name;
@@ -257,17 +258,31 @@ namespace TianWen.UI.Abstractions
             var pinIndex = info.Index;
             var pinType = info.ObjType;
             var isPinned = pinIndex is { } catIdx && IsPinned(plannerState, catIdx);
-            var btnW = 100f * dpiScale;
+            var btnW = 90f * dpiScale;
             var btnH = 24f * dpiScale;
-            var btnX = px + pw - btnW - 10f * dpiScale;
             var btnY = py + ph - btnH - 8f * dpiScale;
+
+            // Pin / Unpin (right edge).
+            var pinBtnX = px + pw - btnW - 10f * dpiScale;
             RenderButton(
                 isPinned ? "Unpin" : "Pin",
-                btnX, btnY, btnW, btnH, fontPath, fontSize,
+                pinBtnX, btnY, btnW, btnH, fontPath, fontSize,
                 isPinned ? UnpinButtonBg : PinButtonBg,
                 SearchText,
                 "SkyMapPinToggle",
                 _ => PostSignal(new SkyMapPinObjectSignal(
+                    pinName, pinRA, pinDec, pinIndex, pinType)));
+
+            // View-in-Planner (left of the Pin button). Jumps to the planner tab
+            // with this target scored, selected, and scrolled into view.
+            var viewBtnX = pinBtnX - btnW - 8f * dpiScale;
+            RenderButton(
+                "View in Planner",
+                viewBtnX, btnY, btnW, btnH, fontPath, fontSize * 0.9f,
+                ViewButtonBg,
+                SearchText,
+                "SkyMapViewInPlanner",
+                _ => PostSignal(new ViewInPlannerSignal(
                     pinName, pinRA, pinDec, pinIndex, pinType)));
 
             // Close button — top-right of the info panel.
@@ -283,18 +298,117 @@ namespace TianWen.UI.Abstractions
                 px + pw - closeSize, py, closeSize, closeSize, fontSize * 0.9f,
                 SearchDimText, TextAlign.Center, TextAlign.Center);
 
-            // Selection marker on the map itself (crosshair circle at the object).
+            // Selection marker on the map itself. For objects with a known shape
+            // (nebulae, galaxies, clusters) we trace the projected ellipse so the
+            // marker actually hugs the object; for stars and shapeless entries we
+            // fall back to the crosshair circle so there is still a clear indicator.
             if (SkyMapProjection.ProjectWithMatrix(info.RA, info.Dec, State.CurrentViewMatrix,
                 pixelsPerRadian, cx, cy, out var sx, out var sy)
                 && sx >= contentRect.X && sx < contentRect.X + contentRect.Width
                 && sy >= contentRect.Y && sy < contentRect.Y + contentRect.Height)
             {
-                DrawCircle(sx, sy, 14f * dpiScale, SelectionMarker, 1.5f);
-                DrawLine(sx - 18f * dpiScale, sy, sx - 8f * dpiScale, sy, SelectionMarker);
-                DrawLine(sx + 8f * dpiScale, sy, sx + 18f * dpiScale, sy, SelectionMarker);
-                DrawLine(sx, sy - 18f * dpiScale, sx, sy - 8f * dpiScale, SelectionMarker);
-                DrawLine(sx, sy + 8f * dpiScale, sx, sy + 18f * dpiScale, SelectionMarker);
+                if (!TryDrawShapeMarker(info, pixelsPerRadian, sx, sy, dpiScale))
+                {
+                    DrawCircle(sx, sy, 14f * dpiScale, SelectionMarker, 1.5f);
+                    DrawLine(sx - 18f * dpiScale, sy, sx - 8f * dpiScale, sy, SelectionMarker);
+                    DrawLine(sx + 8f * dpiScale, sy, sx + 18f * dpiScale, sy, SelectionMarker);
+                    DrawLine(sx, sy - 18f * dpiScale, sx, sy - 8f * dpiScale, SelectionMarker);
+                    DrawLine(sx, sy + 8f * dpiScale, sx, sy + 18f * dpiScale, SelectionMarker);
+                }
             }
+        }
+
+        // Trace a rotated ellipse approximating the catalog object's shape. Returns
+        // false when there is no usable shape or the projected size is too small to
+        // distinguish from a crosshair — the caller falls back to the circle marker.
+        //
+        // Orientation uses the object's actual sky-projected north/east directions
+        // (sampled via SkyMapProjection) rather than assuming north = screen up.
+        // That stays correct under view rotation (Horizon mode, near-pole pointing)
+        // and under stereographic distortion at edges of the viewport.
+        private bool TryDrawShapeMarker(in SkyMapInfoPanelData info, double pixelsPerRadian,
+            float centerX, float centerY, float dpiScale)
+        {
+            if (info.Shape is not { } shape) return false;
+
+            var majorArcmin = (double)shape.MajorAxis;
+            var minorArcmin = (double)shape.MinorAxis;
+            if (double.IsNaN(majorArcmin) || majorArcmin <= 0) return false;
+
+            var effectiveMinor = double.IsNaN(minorArcmin) || minorArcmin <= 0
+                ? majorArcmin
+                : minorArcmin;
+
+            const double ArcminToRad = Math.PI / (180.0 * 60.0);
+            var semiMajorPx = (float)(majorArcmin * 0.5 * ArcminToRad * pixelsPerRadian);
+            var semiMinorPx = (float)(effectiveMinor * 0.5 * ArcminToRad * pixelsPerRadian);
+
+            if (semiMajorPx < 10f * dpiScale) return false;
+
+            // Sample screen-space north unit vector by projecting a point 1' north
+            // of the object and subtracting the projected centre. We only care about
+            // direction, so magnitude is renormalised. Bail if any projection fails
+            // (object at antipode, etc.) — crosshair fallback still works.
+            if (!SkyMapProjection.ProjectWithMatrix(info.RA, info.Dec, State.CurrentViewMatrix,
+                    pixelsPerRadian, centerX, centerY, out var ox, out var oy)
+                || !SkyMapProjection.ProjectWithMatrix(info.RA, info.Dec + 1.0 / 60.0,
+                    State.CurrentViewMatrix, pixelsPerRadian, centerX, centerY,
+                    out var nx, out var ny))
+            {
+                return false;
+            }
+
+            var dnx = nx - ox;
+            var dny = ny - oy;
+            var nlen = MathF.Sqrt(dnx * dnx + dny * dny);
+            if (nlen < 1e-5f) return false;
+            dnx /= nlen;
+            dny /= nlen;
+
+            // Position angle (degrees, north through east). Rotating the north unit
+            // by +PA (CW on a sky-map viewed from inside the celestial sphere) gives
+            // the major-axis direction. CW on screen = rotation matrix R(-PA) in
+            // standard math; Y-axis is already inverted, so the sign works out to
+            // a regular CCW rotation on screen.
+            var paDeg = (double)shape.PositionAngle;
+            if (double.IsNaN(paDeg)) paDeg = 0;
+            var paRad = double.DegreesToRadians(paDeg);
+            var (sinPa, cosPa) = Math.SinCos(paRad);
+            // Major direction = cos(PA) * north + sin(PA) * east.
+            // East on screen = rotate north by +90 deg (screen CW, which is CCW in
+            // math with Y-inverted): east_screen = (dny, -dnx).
+            var majorX = (float)(cosPa * dnx + sinPa * dny);
+            var majorY = (float)(cosPa * dny - sinPa * dnx);
+            // Minor direction is major rotated +90 deg (same convention):
+            var minorX = majorY;
+            var minorY = -majorX;
+
+            // Trace the ellipse.
+            const int Segments = 36;
+            var prevValid = false;
+            float prevX = 0, prevY = 0;
+            for (var i = 0; i <= Segments; i++)
+            {
+                var theta = i * (2.0 * Math.PI / Segments);
+                var (sinT, cosT) = Math.SinCos(theta);
+                var ex = (float)(semiMajorPx * cosT);
+                var ey = (float)(semiMinorPx * sinT);
+                var plotX = centerX + ex * majorX + ey * minorX;
+                var plotY = centerY + ex * majorY + ey * minorY;
+                if (prevValid)
+                {
+                    DrawLine(prevX, prevY, plotX, plotY, SelectionMarker);
+                }
+                prevX = plotX;
+                prevY = plotY;
+                prevValid = true;
+            }
+
+            // Tiny centre cross so users can still see the centroid for large shapes.
+            var tick = 4f * dpiScale;
+            DrawLine(centerX - tick, centerY, centerX + tick, centerY, SelectionMarker);
+            DrawLine(centerX, centerY - tick, centerX, centerY + tick, SelectionMarker);
+            return true;
         }
 
         private static string FormatHHMM(DateTimeOffset? t)

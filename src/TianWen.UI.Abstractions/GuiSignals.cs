@@ -140,3 +140,15 @@ public readonly record struct SkyMapPinObjectSignal(
     double Dec,
     TianWen.Lib.Astrometry.Catalogs.CatalogIndex? Index,
     TianWen.Lib.Astrometry.Catalogs.ObjectType ObjectType);
+
+/// <summary>
+/// Switch to the Planner tab and scroll the target matching this object into view.
+/// If the object isn't already in <c>TonightsBest</c> / <c>SearchResults</c>, it is
+/// added as a search result so the planner can display it.
+/// </summary>
+public readonly record struct ViewInPlannerSignal(
+    string Name,
+    double RA,
+    double Dec,
+    TianWen.Lib.Astrometry.Catalogs.CatalogIndex? Index,
+    TianWen.Lib.Astrometry.Catalogs.ObjectType ObjectType);

@@ -135,7 +135,7 @@ public static class SkyMapSearchActions
         SlewTo(skyMap, obj.RA, obj.Dec);
         search.InfoPanel = SkyMapInfoPanelData.FromCatalogObject(
             obj, siteLat, siteLon, viewingUtc, site,
-            ResolveAngularSize(db, catIdx));
+            ResolveShape(db, catIdx));
 
         CloseSearch(search);
         return true;
@@ -234,11 +234,14 @@ public static class SkyMapSearchActions
 
         // Stars — only if no DSO matched. Filter by the current visible-magnitude
         // cutoff so we never "select" a Tycho star that isn't drawn on screen.
+        // Hit radius scales with the rendered star size: brighter stars draw
+        // bigger sprites (Stellarium-style pow10 curve) and should be proportionally
+        // easier to click. 1.5x the visual radius is slop room, floored at 20 px.
         if (bestDsoIdx is null)
         {
             var magLimit = skyMap.EffectiveMagnitudeLimit;
-            var starTolSq = (double)ClickToleranceScreenPx * ClickToleranceScreenPx;
-            bestDistSq = starTolSq;
+            var fovDeg = skyMap.FieldOfViewDeg;
+            bestDistSq = double.MaxValue;
             var seenStar = new HashSet<CatalogIndex>();
             foreach (var (probeRa, probeDec) in probes)
             {
@@ -249,7 +252,8 @@ public static class SkyMapSearchActions
                     if (double.IsNaN(o.RA) || double.IsNaN(o.Dec)) continue;
                     // Skip stars below the visible cutoff — same rule the GPU uses.
                     // NaN V_Mag falls through (conservative: assume visible).
-                    if (!Half.IsNaN(o.V_Mag) && (float)o.V_Mag > magLimit) continue;
+                    var vMag = (float)o.V_Mag;
+                    if (!float.IsNaN(vMag) && vMag > magLimit) continue;
                     if (!SkyMapProjection.ProjectWithMatrix(o.RA, o.Dec, viewMatrix, pixelsPerRadian, centerX, centerY,
                             out var sx, out var sy))
                     {
@@ -259,7 +263,12 @@ public static class SkyMapSearchActions
                     var dx = sx - clickScreenX;
                     var dy = sy - clickScreenY;
                     var distSq = dx * dx + dy * dy;
-                    if (distSq < bestDistSq)
+
+                    var starRadius = float.IsNaN(vMag)
+                        ? ClickToleranceScreenPx
+                        : SkyMapProjection.StarRadius(vMag, fovDeg) * 1.5f;
+                    var hitRadius = Math.Max(starRadius, ClickToleranceScreenPx);
+                    if (distSq <= hitRadius * hitRadius && distSq < bestDistSq)
                     {
                         bestDistSq = distSq;
                         bestIdx = idx;
@@ -275,7 +284,7 @@ public static class SkyMapSearchActions
 
         search.InfoPanel = SkyMapInfoPanelData.FromCatalogObject(
             obj, siteLat, siteLon, viewingUtc, site,
-            ResolveAngularSize(db, hit));
+            ResolveShape(db, hit));
         return true;
     }
 
@@ -307,13 +316,8 @@ public static class SkyMapSearchActions
         return false;
     }
 
-    private static double? ResolveAngularSize(ICelestialObjectDB db, CatalogIndex idx)
-    {
-        if (!db.TryGetShape(idx, out var shape)) return null;
-        var majorArcmin = (double)shape.MajorAxis;
-        if (double.IsNaN(majorArcmin) || majorArcmin <= 0) return null;
-        return majorArcmin / 60.0;
-    }
+    private static CelestialObjectShape? ResolveShape(ICelestialObjectDB db, CatalogIndex idx)
+        => db.TryGetShape(idx, out var shape) ? shape : null;
 
     private static int FuzzyMatchScore(string query, string entry)
     {
