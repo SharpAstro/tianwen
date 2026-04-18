@@ -48,7 +48,8 @@ namespace TianWen.UI.Abstractions
 
             // Create shared signal handler (all business logic)
             _signalHandler = new AppSignalHandler(sp, appState, plannerState,
-                chrome.SessionState, chrome.EquipmentState, chrome.LiveSessionState, bus, tracker, cts, external);
+                chrome.SessionState, chrome.EquipmentState, chrome.LiveSessionState,
+                chrome.SkyMapState, bus, tracker, cts, external);
 
             // Wire the ensure-visible callback to the pixel widget's scroll mechanism
             _signalHandler.OnPlannerEnsureVisible = index => chrome.PlannerEnsureVisible(index);
@@ -226,6 +227,14 @@ namespace TianWen.UI.Abstractions
 
         private bool HandleKeyDown(InputKey inputKey, InputModifier inputModifier)
         {
+            // F3 is a global shortcut (open sky-map search). Let it fall through to
+            // the active tab even when a text input is focused — otherwise users would
+            // have to click off the planner search before F3 would work.
+            if (inputKey == InputKey.F3)
+            {
+                return false;
+            }
+
             var activeInput = _appState.ActiveTextInput;
             if (activeInput is { IsActive: true })
             {

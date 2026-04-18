@@ -76,9 +76,11 @@ internal class TuiSubCommand(
         var bus = new SignalBus();
         var tracker = new BackgroundTaskTracker();
         var liveSessionState = new LiveSessionState();
+        // TUI has no sky map tab — pass a standalone state so the shared handler still wires.
+        var skyMapState = new SkyMapState();
 
         // Wire shared business logic
-        var signalHandler = new AppSignalHandler(sp, appState, plannerState, sessionState, eqState, liveSessionState, bus, tracker, cts, external);
+        var signalHandler = new AppSignalHandler(sp, appState, plannerState, sessionState, eqState, liveSessionState, skyMapState, bus, tracker, cts, external);
         signalHandler.OnPlannerEnsureVisible = index =>
         {
             plannerState.SelectedTargetIndex = index;

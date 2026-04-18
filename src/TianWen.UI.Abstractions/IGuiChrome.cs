@@ -26,6 +26,12 @@ public interface IGuiChrome : IPixelWidget
     /// <summary>Live session state (for session monitoring).</summary>
     LiveSessionState LiveSessionState { get; }
 
+    /// <summary>
+    /// Sky-map viewport + search modal state — exposed so <see cref="AppSignalHandler"/>
+    /// can wire F3 search callbacks without reaching into the concrete tab class.
+    /// </summary>
+    SkyMapState SkyMapState { get; }
+
     /// <summary>The signal bus.</summary>
     SignalBus? Bus { get; }
 }

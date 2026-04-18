@@ -4,6 +4,7 @@ using System.IO;
 using System.Numerics;
 using DIR.Lib;
 using Microsoft.Extensions.Logging;
+using TianWen.Lib.Astrometry;
 using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Astrometry.SOFA;
 using TianWen.Lib.Devices;
@@ -15,7 +16,7 @@ namespace TianWen.UI.Abstractions
     /// is delegated to <see cref="RenderSkyMap"/> which the Vulkan subclass overrides
     /// to cache as a GPU texture. Text labels and overlays are drawn natively on top.
     /// </summary>
-    public class SkyMapTab<TSurface>(Renderer<TSurface> renderer) : PixelWidgetBase<TSurface>(renderer)
+    public partial class SkyMapTab<TSurface>(Renderer<TSurface> renderer) : PixelWidgetBase<TSurface>(renderer)
     {
         private static readonly RGBAColor32 InfoPanelBg   = new(0x10, 0x10, 0x1C, 0xE0);
         private static readonly RGBAColor32 InfoText      = new(0xCC, 0xCC, 0xCC, 0xFF);
@@ -96,6 +97,7 @@ namespace TianWen.UI.Abstractions
             _contentWidth = contentRect.Width;
             _contentX = contentRect.X;
             _contentY = contentRect.Y;
+            State.LastContentRect = contentRect;
             var siteLat = plannerState.SiteLatitude;
             var siteLon = plannerState.SiteLongitude;
 
@@ -177,6 +179,11 @@ namespace TianWen.UI.Abstractions
             var crossColor = new RGBAColor32(0xFF, 0xFF, 0xFF, 0x40);
             FillRect(cx - 10, cy, 20, 1, crossColor);
             FillRect(cx, cy - 10, 1, 20, crossColor);
+
+            // Search modal + info panel — drawn LAST so their clickable regions win
+            // hit testing (paint order = z-order).
+            DrawSearchAndInfoPanel(contentRect, fontPath, dpiScale, db,
+                siteLat, siteLon, viewingTime, site, ppr, cx, cy);
         }
 
         /// <summary>
@@ -605,11 +612,18 @@ namespace TianWen.UI.Abstractions
             InputEvent.Pinch(var scale, var px, var py) => HandlePinchZoom(scale, px, py),
             InputEvent.PinchEnd => HandlePinchEnd(),
             InputEvent.MouseDown(var x, var y, _, _, _) => HandleDragStart(x, y),
-            InputEvent.MouseUp(_, _, _) => HandleDragEnd(),
+            InputEvent.MouseUp(var x, var y, _) => HandleMouseUp(x, y),
             InputEvent.MouseMove(var x, var y) when State.IsDragging && !State.IsPinching => HandleDrag(x, y),
             InputEvent.KeyDown(var key, _) => HandleKey(key),
             _ => false
         };
+
+        private bool HandleMouseUp(float x, float y)
+        {
+            // Distinguish a click (emit select signal) from the end of a pan drag.
+            TryEmitClickSelect(x, y);
+            return HandleDragEnd();
+        }
 
         private bool HandlePinchZoom(float scale, float centerX, float centerY)
         {
@@ -682,6 +696,9 @@ namespace TianWen.UI.Abstractions
 
         private bool HandleDragStart(float x, float y)
         {
+            // Modal swallows click-outside via its backdrop region, so this only runs
+            // for clicks on the map itself when the modal is closed.
+            RememberMouseDown(x, y);
             State.IsDragging = true;
             State.DragStart = (x, y);
             State.DragStartCenter = (State.CenterRA, State.CenterDec);
@@ -742,6 +759,13 @@ namespace TianWen.UI.Abstractions
 
         private bool HandleKey(InputKey key)
         {
+            // F3 and (when modal open) arrow-key navigation take priority over
+            // the map toggles below.
+            if (TryHandleSearchKey(key))
+            {
+                return true;
+            }
+
             switch (key)
             {
                 case InputKey.G:
