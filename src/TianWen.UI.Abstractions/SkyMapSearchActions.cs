@@ -162,38 +162,38 @@ public static class SkyMapSearchActions
         var (clickRa, clickDec) = SkyMapProjection.UnprojectWithMatrix(
             clickScreenX, clickScreenY, viewMatrix, pixelsPerRadian, centerX, centerY);
 
-        CatalogIndex? bestIdx = null;
-        var bestDistSq = ClickToleranceScreenPx * ClickToleranceScreenPx;
-        var bestIsDso = false;
-
-        // DSOs first (pref on ties). DeepSkyCoordinateGrid excludes Tycho-2 so this is cheap.
-        foreach (var idx in db.DeepSkyCoordinateGrid[clickRa, clickDec])
+        // Walk a 3x3 window of spatial-index cells around the click. The index
+        // cells are ~1 deg squares; at mid-FOV the click tolerance can span up
+        // to ~1.5 cells, so a single-cell lookup misses objects one cell over.
+        // RA wraps 0..24h; Dec clamps to poles (handled by the index itself).
+        const double CellRaHours = 1.0 / 15.0;   // 4 min of RA = ~1 deg at equator
+        const double CellDecDeg = 1.0;
+        Span<(double Ra, double Dec)> probes = stackalloc (double, double)[9];
+        var k = 0;
+        for (var di = -1; di <= 1; di++)
         {
-            if (!db.TryLookupByIndex(idx, out var o)) continue;
-            if (double.IsNaN(o.RA) || double.IsNaN(o.Dec)) continue;
-            if (!SkyMapProjection.ProjectWithMatrix(o.RA, o.Dec, viewMatrix, pixelsPerRadian, centerX, centerY,
-                    out var sx, out var sy))
+            for (var dj = -1; dj <= 1; dj++)
             {
-                continue;
-            }
-
-            var dx = sx - clickScreenX;
-            var dy = sy - clickScreenY;
-            var distSq = dx * dx + dy * dy;
-            if (distSq < bestDistSq)
-            {
-                bestDistSq = distSq;
-                bestIdx = idx;
-                bestIsDso = true;
+                var probeRa = (clickRa + di * CellRaHours + 24.0) % 24.0;
+                var probeDec = Math.Clamp(clickDec + dj * CellDecDeg, -90.0, 90.0);
+                probes[k++] = (probeRa, probeDec);
             }
         }
 
-        // Stars — only if no DSO matched (the full grid iterates Tycho-2, which
-        // would swamp any DSO in dense fields). Same 20 px tolerance.
-        if (!bestIsDso)
+        // DSOs first. Hit test uses max(ClickTolerancePx, shape major-axis radius)
+        // so clicks inside a large nebula like Eta Carinae / NGC 7000 land on the
+        // nebula instead of a random Tycho star at its edge. Among overlapping DSO
+        // hits we pick the one whose centroid is closest to the click — that way
+        // a small nested object (e.g. M42 inside the Orion Molecular Cloud) wins
+        // over the surrounding extended shape.
+        CatalogIndex? bestDsoIdx = null;
+        var bestDsoDistSq = double.MaxValue;
+        var seenDso = new HashSet<CatalogIndex>();
+        foreach (var (probeRa, probeDec) in probes)
         {
-            foreach (var idx in db.CoordinateGrid[clickRa, clickDec])
+            foreach (var idx in db.DeepSkyCoordinateGrid[probeRa, probeDec])
             {
+                if (!seenDso.Add(idx)) continue;
                 if (!db.TryLookupByIndex(idx, out var o)) continue;
                 if (double.IsNaN(o.RA) || double.IsNaN(o.Dec)) continue;
                 if (!SkyMapProjection.ProjectWithMatrix(o.RA, o.Dec, viewMatrix, pixelsPerRadian, centerX, centerY,
@@ -205,10 +205,65 @@ public static class SkyMapSearchActions
                 var dx = sx - clickScreenX;
                 var dy = sy - clickScreenY;
                 var distSq = dx * dx + dy * dy;
-                if (distSq < bestDistSq)
+
+                // Effective hit radius: click tolerance, extended to the shape's
+                // projected major-axis radius for extended objects. Arcmin -> rad
+                // -> screen px uses the current pixelsPerRadian.
+                var hitRadiusPx = (double)ClickToleranceScreenPx;
+                if (db.TryGetShape(idx, out var shape))
                 {
-                    bestDistSq = distSq;
-                    bestIdx = idx;
+                    var majorArcmin = (double)shape.MajorAxis;
+                    if (majorArcmin > 0)
+                    {
+                        var majorRadiusRad = majorArcmin * Math.PI / (180.0 * 60.0) * 0.5;
+                        var shapeRadiusPx = majorRadiusRad * pixelsPerRadian;
+                        if (shapeRadiusPx > hitRadiusPx) hitRadiusPx = shapeRadiusPx;
+                    }
+                }
+
+                if (distSq <= hitRadiusPx * hitRadiusPx && distSq < bestDsoDistSq)
+                {
+                    bestDsoDistSq = distSq;
+                    bestDsoIdx = idx;
+                }
+            }
+        }
+
+        CatalogIndex? bestIdx = bestDsoIdx;
+        var bestDistSq = bestDsoDistSq;
+
+        // Stars — only if no DSO matched. Filter by the current visible-magnitude
+        // cutoff so we never "select" a Tycho star that isn't drawn on screen.
+        if (bestDsoIdx is null)
+        {
+            var magLimit = skyMap.EffectiveMagnitudeLimit;
+            var starTolSq = (double)ClickToleranceScreenPx * ClickToleranceScreenPx;
+            bestDistSq = starTolSq;
+            var seenStar = new HashSet<CatalogIndex>();
+            foreach (var (probeRa, probeDec) in probes)
+            {
+                foreach (var idx in db.CoordinateGrid[probeRa, probeDec])
+                {
+                    if (!seenStar.Add(idx)) continue;
+                    if (!db.TryLookupByIndex(idx, out var o)) continue;
+                    if (double.IsNaN(o.RA) || double.IsNaN(o.Dec)) continue;
+                    // Skip stars below the visible cutoff — same rule the GPU uses.
+                    // NaN V_Mag falls through (conservative: assume visible).
+                    if (!Half.IsNaN(o.V_Mag) && (float)o.V_Mag > magLimit) continue;
+                    if (!SkyMapProjection.ProjectWithMatrix(o.RA, o.Dec, viewMatrix, pixelsPerRadian, centerX, centerY,
+                            out var sx, out var sy))
+                    {
+                        continue;
+                    }
+
+                    var dx = sx - clickScreenX;
+                    var dy = sy - clickScreenY;
+                    var distSq = dx * dx + dy * dy;
+                    if (distSq < bestDistSq)
+                    {
+                        bestDistSq = distSq;
+                        bestIdx = idx;
+                    }
                 }
             }
         }

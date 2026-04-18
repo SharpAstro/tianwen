@@ -33,8 +33,13 @@ namespace TianWen.UI.Abstractions
         // object); over this = drag-pan. Matches Stellarium and OS conventions.
         private const float ClickDragThresholdPx = 4f;
 
-        // Saved mouse-down position for click-vs-drag detection.
+        // Saved mouse-down position for click-vs-drag detection, plus a flag that
+        // records whether the MouseDown actually reached this tab. Without the flag
+        // a sidebar click (chrome consumes MouseDown) followed by chrome forwarding
+        // MouseUp(0,0) to the now-active tab would fire a spurious click-select on
+        // the top-left corner of the sky map.
         private float _mouseDownX, _mouseDownY;
+        private bool _mouseDownOnMap;
 
         /// <summary>
         /// Draws the search modal and/or the info panel. Called last in <see cref="Render"/>
@@ -357,6 +362,12 @@ namespace TianWen.UI.Abstractions
         {
             if (State.Search.IsOpen) return false;
             if (State.IsPinching) return false;
+            // Gate: only treat this MouseUp as a click if the matching MouseDown
+            // landed on the map. Sidebar / tab-switch clicks don't qualify.
+            var hadDown = _mouseDownOnMap;
+            _mouseDownOnMap = false; // consume the flag regardless of outcome
+
+            if (!hadDown) return false;
 
             var dx = upX - _mouseDownX;
             var dy = upY - _mouseDownY;
@@ -377,6 +388,7 @@ namespace TianWen.UI.Abstractions
         {
             _mouseDownX = x;
             _mouseDownY = y;
+            _mouseDownOnMap = true;
         }
 
         /// <summary>
