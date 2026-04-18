@@ -196,12 +196,31 @@ public static class MilkyWayTextureBaker
             }
             else
             {
-                var tychoBlurred = GaussianBlur(tychoLuminanceFlux, width, height, opts.BlurSigma);
+                // Tycho-2 is a point catalog: each star deposits flux into one
+                // pixel, so without heavy spatial smoothing you get per-star
+                // stippling near the galactic plane where star density still
+                // varies pixel-to-pixel. Radiance is already continuous and
+                // doesn't need as much. Floor Tycho-2's blur at ~3 px so low
+                // user BlurSigma (e.g. GA-picked 0.30 for sharp LMC rim) no
+                // longer exposes the stippling.
+                var tychoBlurSigma = MathF.Max(opts.BlurSigma, 3.0f);
+                var tychoBlurred = GaussianBlur(tychoLuminanceFlux, width, height, tychoBlurSigma);
+
+                // log1p transform for Tycho-2 flux: empty pixels land at 0
+                // (not log(1e-12) = -27) so after normalisation their
+                // single-star jitter stays in the linear-tiny regime rather
+                // than being amplified by ~10x onto a log scale. Scale is
+                // auto-calibrated so the mean-flux pixel maps to log(2).
+                var tychoMean = 0f;
+                for (var i = 0; i < tychoBlurred.Length; i++) tychoMean += tychoBlurred[i];
+                tychoMean /= tychoBlurred.Length;
+                var tychoScale = 1f / MathF.Max(tychoMean, 1e-12f);
                 var tychoLog = new float[tychoBlurred.Length];
                 for (var i = 0; i < tychoBlurred.Length; i++)
                 {
-                    tychoLog[i] = MathF.Log(tychoBlurred[i] + 1e-12f) - MathF.Log(1e-12f);
+                    tychoLog[i] = MathF.Log(1f + tychoBlurred[i] * tychoScale);
                 }
+
                 NormaliseInPlace(radianceLog);
                 NormaliseInPlace(tychoLog);
                 flux = new float[radianceLog.Length];
@@ -224,9 +243,31 @@ public static class MilkyWayTextureBaker
         var bvFluxSmoothed = GaussianBlur(bvFluxForColor, width, height, opts.ColorBlurSigma);
         var bvSumSmoothed = GaussianBlur(bvWeightedSum, width, height, opts.ColorBlurSigma);
         var bv = new float[width * height];
+
+        // Smooth fallback to neutral (B-V = 0.65) in low-flux regions. The raw
+        // ratio bvSum / bvFlux is numerically unstable where bvFlux is near
+        // zero (empty off-plane pixels): a lone Tycho-2 star's B-V leaks into
+        // an otherwise-empty neighbourhood and, amplified by ColorSaturation,
+        // shows up as coloured pepper specks. The fix is a confidence-weighted
+        // blend: pixels with plenty of flux see the true flux-weighted B-V,
+        // pixels with almost none smoothly blend toward 0.65 (solar-type).
+        //
+        // FluxConfidenceFloor is calibrated against the mean lit-pixel flux so
+        // the threshold scales with how bright the catalog is in this bake.
+        var bvFluxMean = 0f;
+        for (var i = 0; i < bvFluxSmoothed.Length; i++) bvFluxMean += bvFluxSmoothed[i];
+        bvFluxMean /= bvFluxSmoothed.Length;
+        // Confidence "reaches 50%" at ~5 % of the all-sky mean flux: any pixel
+        // thinner than that slides toward neutral, keeping saturation-amplified
+        // noise out of the dark regions.
+        var confidenceFloor = MathF.Max(bvFluxMean * 0.05f, 1e-12f);
+
         for (var i = 0; i < bvFluxSmoothed.Length; i++)
         {
-            bv[i] = bvFluxSmoothed[i] > 1e-12f ? bvSumSmoothed[i] / bvFluxSmoothed[i] : 0.65f;
+            var f = bvFluxSmoothed[i];
+            var confidence = f / (f + confidenceFloor);
+            var ratio = f > 1e-12f ? bvSumSmoothed[i] / f : 0.65f;
+            bv[i] = confidence * ratio + (1f - confidence) * 0.65f;
         }
 
         // -------------------------------------------------------------------
