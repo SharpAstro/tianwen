@@ -8,19 +8,19 @@
   "command not found" or "shell killed it". Always read the stderr log (e.g. `gui-stderr.log`) for
   the actual .NET exception + stack trace before drawing conclusions from the exit code.
 
-## Custom Skills (Slash Commands)
+## Custom Skills
 
-Available in `.claude/commands/`:
+Available in `.claude/skills/<name>/SKILL.md` — auto-invocable when the request matches the skill's description, or explicitly via `/<name>`.
 
-| Command | Purpose |
-|---------|---------|
-| `/release-lib <name>` | Release a SharpAstro sibling library to NuGet with full dependency chain |
-| `/sibling-status` | Git status + version across all SharpAstro repos |
-| `/check-ci` | GitHub Actions CI status across all repos |
-| `/bump-version <X.Y>` | Bump TianWen version in all 4 required locations |
-| `/run-gui` | Build and launch the GUI with stderr redirect |
-| `/test-filter <pattern>` | Run tests matching a name pattern |
-| `/tick-todo <text>` | Mark a TODO item done and update CLAUDE.md, PLAN files, and memory |
+| Skill | Purpose |
+|-------|---------|
+| `release-lib` | Release a SharpAstro sibling library to NuGet with full dependency chain |
+| `sibling-status` | Git status + version across all SharpAstro repos |
+| `check-ci` | GitHub Actions CI status across all repos |
+| `bump-version` | Bump TianWen version in all 4 required locations |
+| `run-gui` | Build and launch the GUI with stderr redirect |
+| `test-filter` | Run tests matching a name pattern |
+| `tick-todo` | Mark a TODO item done and update CLAUDE.md, PLAN files, and memory |
 
 ## Project Overview
 

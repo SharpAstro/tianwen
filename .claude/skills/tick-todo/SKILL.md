@@ -1,8 +1,9 @@
-Mark a TODO item as done and update related documentation.
+---
+name: tick-todo
+description: Mark a TODO item done in TODO.md and propagate updates to CLAUDE.md, PLAN-*.md files, and related memory entries. Use when the user asks to tick off, check off, mark done, or close out a TODO item.
+---
 
-Usage: /tick-todo <search text>
-Example: /tick-todo DrawEllipse
-Example: /tick-todo Mosaic panel support
+Usage: `/tick-todo <search text>` or pass the search text as an argument. Examples: `DrawEllipse`, `Mosaic panel support`.
 
 Steps:
 1. Search `TODO.md` for the item matching the given text
@@ -20,5 +21,3 @@ Do NOT commit - let the user review the changes first.
 
 If the search text matches multiple items, show all matches and ask the user
 to clarify which one.
-
-The item to tick off is: $ARGUMENTS

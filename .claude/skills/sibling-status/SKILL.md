@@ -1,4 +1,7 @@
-Show git status, current branch, and last commit across all SharpAstro sibling repos.
+---
+name: sibling-status
+description: Show git status, current branch, last commit, and VersionPrefix across ALL SharpAstro sibling repos (DIR.Lib, Console.Lib, SdlVulkan.Renderer, Fonts.Lib, FITS.Lib, ZWOptical.SDK, QHYCCD.SDK, tianwen). Use when the user asks for status across all repos, which siblings are ahead or dirty, or before a multi-repo release.
+---
 
 All paths in this skill are **relative to the tianwen git root** (not `src/`). Before running
 any commands, cd to the repo root (`git rev-parse --show-toplevel`) so sibling paths resolve
