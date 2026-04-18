@@ -50,6 +50,31 @@ public static class PlannerPersistence
         var dto = await external.TryReadJsonAsync(
             filePath,
             PlannerJsonContext.Default.PlannerSessionDto, logger, ct);
+        var loadedFromPath = filePath;
+
+        if (dto is null)
+        {
+            // Fall back to the most recent prior-day file in the same profile directory.
+            // The filename is keyed by the evening date (AstronomicalEveningDate), so
+            // crossing an evening boundary (e.g. noon) opens a different file. Without
+            // this fallback, users would "lose" their pinned targets every time the
+            // evening key rolled forward to a date that hasn't been saved yet. The
+            // prior-day pins are still perfectly valid — they get matched against
+            // the current object database and re-saved to today's key on the next save.
+            var fallbackPath = FindMostRecentPriorSession(filePath);
+            if (fallbackPath is not null)
+            {
+                dto = await external.TryReadJsonAsync(
+                    fallbackPath,
+                    PlannerJsonContext.Default.PlannerSessionDto, logger, ct);
+                if (dto is not null)
+                {
+                    loadedFromPath = fallbackPath;
+                    logger.LogInformation("PlannerPersistence: no session at {FilePath}, carrying forward from {FallbackPath}",
+                        filePath, fallbackPath);
+                }
+            }
+        }
 
         if (dto is null)
         {
@@ -57,7 +82,7 @@ public static class PlannerPersistence
             return false;
         }
 
-        logger.LogInformation("PlannerPersistence: loaded {Count} proposals from {FilePath}", dto.Proposals.Length, filePath);
+        logger.LogInformation("PlannerPersistence: loaded {Count} proposals from {FilePath}", dto.Proposals.Length, loadedFromPath);
 
         // Site invalidation: if saved site differs by >1° from current, discard
         if (Math.Abs(dto.SiteLatitude - state.SiteLatitude) > SiteInvalidationThreshold
@@ -94,7 +119,7 @@ public static class PlannerPersistence
         var restoredProposals = new List<ProposedObservation>();
         foreach (var p in dto.Proposals)
         {
-            var target = MatchTarget(p, targetLookup, allTargets);
+            var target = MatchTarget(p, targetLookup, allTargets, state.ObjectDb);
             if (target is not null)
             {
                 restoredProposals.Add(new ProposedObservation(
@@ -154,16 +179,17 @@ public static class PlannerPersistence
     private static Target? MatchTarget(
         ProposalDto proposal,
         Dictionary<CatalogIndex, Target> catalogLookup,
-        List<Target> allTargets)
+        List<Target> allTargets,
+        ICelestialObjectDB? objectDb)
     {
-        // Primary: exact CatalogIndex match
+        // Primary: exact CatalogIndex match against TonightsBest + SearchResults
         if (proposal.CatalogIndex.HasValue
             && catalogLookup.TryGetValue((CatalogIndex)proposal.CatalogIndex.Value, out var catalogMatch))
         {
             return catalogMatch;
         }
 
-        // Fallback: name + proximity
+        // Fallback 1: name + proximity against TonightsBest + SearchResults
         foreach (var target in allTargets)
         {
             if (string.Equals(target.Name, proposal.Name, StringComparison.OrdinalIgnoreCase))
@@ -174,6 +200,22 @@ public static class PlannerPersistence
                 {
                     return target;
                 }
+            }
+        }
+
+        // Fallback 2: rebuild the Target from the object database by catalog index.
+        // TonightsBest is scored + capped, so a pinned target that is still valid
+        // can easily fall off its list (e.g. lower altitude on a different evening).
+        // The saved proposal carries its CatalogIndex, Name, RA and Dec — everything
+        // we need to reconstruct a Target. Without this fallback the pin gets dropped
+        // every time it is not in tonight's top-N, and the user sees it "vanish"
+        // across a day rollover even though the save on disk is fine.
+        if (objectDb is not null && proposal.CatalogIndex.HasValue)
+        {
+            var idx = (CatalogIndex)proposal.CatalogIndex.Value;
+            if (objectDb.TryLookupByIndex(idx, out var obj))
+            {
+                return new Target(obj.RA, obj.Dec, proposal.Name, idx);
             }
         }
 
@@ -204,6 +246,40 @@ public static class PlannerPersistence
             MinRatingFilter: state.MinRatingFilter,
             SiteLatitude: state.SiteLatitude,
             SiteLongitude: state.SiteLongitude);
+    }
+
+    /// <summary>
+    /// Returns the path to the newest <c>YYYY-MM-DD.json</c> session file strictly older
+    /// than <paramref name="currentFilePath"/> in the same profile directory, or null
+    /// when none exist. Used on load when the current session's file does not exist yet
+    /// so pinned targets carry forward across evening-date rollovers.
+    /// </summary>
+    private static string? FindMostRecentPriorSession(string currentFilePath)
+    {
+        var dir = Path.GetDirectoryName(currentFilePath);
+        if (string.IsNullOrEmpty(dir) || !Directory.Exists(dir))
+        {
+            return null;
+        }
+
+        var currentName = Path.GetFileNameWithoutExtension(currentFilePath);
+        string? best = null;
+        string? bestName = null;
+        foreach (var path in Directory.EnumerateFiles(dir, "*.json"))
+        {
+            var name = Path.GetFileNameWithoutExtension(path);
+            // Only accept strictly-older YYYY-MM-DD.json siblings (string compare works
+            // for the ISO date format). Skips the current file and any non-date files.
+            if (name.Length != 10 || !DateOnly.TryParse(name, out _)) continue;
+            if (string.CompareOrdinal(name, currentName) >= 0) continue;
+
+            if (bestName is null || string.CompareOrdinal(name, bestName) > 0)
+            {
+                best = path;
+                bestName = name;
+            }
+        }
+        return best;
     }
 
     private static string GetSessionFilePath(Profile profile, PlannerState state, IExternal external, ITimeProvider? timeProvider = null)
