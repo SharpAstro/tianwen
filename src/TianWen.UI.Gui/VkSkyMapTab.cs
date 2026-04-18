@@ -1,11 +1,14 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.Immutable;
+using System.Numerics;
 using DIR.Lib;
 using SdlVulkan.Renderer;
 using TianWen.Lib.Astrometry;
 using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Astrometry.SOFA;
 using TianWen.Lib.Devices;
+using TianWen.Lib.Sequencing;
 using TianWen.UI.Abstractions;
 using TianWen.UI.Abstractions.Overlays;
 using TianWen.UI.Shared;
@@ -28,15 +31,41 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
     private readonly List<float> _altAzGridFloats = new(4096);
     private readonly List<float> _fovFloats = new(256);
 
-    // Meridian geometry only depends on LST. LST is cached to 1 s granularity
-    // via SkyMapTab._cachedLiveTime, so 59 out of 60 frames per second have an
-    // identical LST; rebuild + resample the 200-vertex great circle only when
-    // LST actually moves. -1 = not yet built.
-    private double _lastMeridianLst = -1.0;
+    // Horizon, meridian, and Alt/Az grid are all pure f(site). LST is cached
+    // to 1 s granularity via SkyMapTab._cachedLiveTime, so 59 out of 60 frames
+    // per second have an identical LST; rebuild only when the LST actually
+    // moves or a visibility toggle changes what we need to emit. -1.0 means
+    // "invalid or not yet built" and never collides with a real LST in [0, 24).
+    private (double Lst, bool Horizon, bool AltAz) _lastStaticGeomKey = (-1.0, false, false);
+
+    // DSO overlay scan + label placement are pure f(viewMatrix, FOV, rect-size,
+    // pins, show-all, dpi, db). At wide FOV the scan walks the full 360 deg
+    // grid (hundreds of candidates) and PlaceLabels runs its O(N^2) collision
+    // scan, so caching is a big win when the user is not actively panning.
+    // Cached item screen positions are frozen at build time -- correct because
+    // the view matrix is part of the cache key. Horizon dimming is NOT cached:
+    // it is reapplied per-frame at draw time using each item's RA/Dec because
+    // site.LST ticks independently.
+    private Matrix4x4 _overlayViewKey;
+    private double _overlayFovKey = -1.0;
+    private int _overlayRectWKey, _overlayRectHKey;
+    private float _overlayDpiKey;
+    private bool _overlayShowAllKey;
+    private ImmutableArray<ProposedObservation> _overlayProposalsKey;
+    private ICelestialObjectDB? _overlayDbKey;
+    private List<OverlayItem> _overlayItems = [];
+    private readonly List<(OverlayItem Item, float X, float Y)> _overlayPlacedLabels = [];
+
+    // Sticky "collision vs best-effort" label placement mode. The two modes
+    // disagree about dropped labels and slot overrides, so flipping between
+    // them as items.Count crosses a single threshold causes visible flicker
+    // during touch zoom. Hysteresis: enter collision only below the low-water
+    // mark, leave only above the high-water mark.
+    private bool _useCollisionPlacement;
 
     protected override void RenderSkyMap(
         ICelestialObjectDB db, RectF32 contentRect, string fontPath,
-        DateTimeOffset viewingTime, double siteLat, double siteLon)
+        DateTimeOffset viewingTime, double siteLat, double siteLon, SiteContext site)
     {
         var mapW = contentRect.Width;
         var mapH = contentRect.Height;
@@ -72,9 +101,6 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
                 new PointInt((int)contentRect.X, (int)contentRect.Y)),
             bg);
 
-        // Build site context (needed for UBO horizon clipping and dynamic geometry)
-        var site = SiteContext.Create(siteLat, siteLon, viewingTime);
-
         // Update UBO with current view + site for horizon clipping. Pass the current
         // frame-in-flight index so each swapchain image gets its own UBO copy and the
         // GPU never reads from a buffer the CPU is currently overwriting (the root cause
@@ -82,34 +108,33 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
         _pipeline.UpdateUbo(State, mapW, mapH, contentRect.X, contentRect.Y, site,
             renderer.Context.CurrentFrame);
 
-        _horizonFloats.Clear();
-        _altAzGridFloats.Clear();
         _fovFloats.Clear();
 
-        if (State.ShowHorizon && site.IsValid)
+        // Horizon (120 verts), meridian (200 verts), and Alt/Az grid (~1560 verts)
+        // are all pure f(site). LST is quantized to 1 s via _cachedLiveTime, so
+        // rebuilding 60x/sec wastes ~1880 trig calls per second. Invalidate only
+        // on LST change, site validity change, or visibility toggle.
+        var showHorizon = State.ShowHorizon && site.IsValid;
+        var showAltAz = State.ShowAltAzGrid && site.IsValid;
+        var staticKey = (site.IsValid ? site.LST : -1.0, showHorizon, showAltAz);
+        if (!staticKey.Equals(_lastStaticGeomKey))
         {
-            VkSkyMapPipeline.BuildHorizonLine(site, _horizonFloats);
-        }
-
-        // Meridian: rebuild only when LST has actually moved. The ring-buffer
-        // write below still happens every frame (the ring recycles offsets
-        // every N frames in flight) but the 200 trig calls + list allocation
-        // stop firing at 60 Hz for no reason.
-        if (site.IsValid && site.LST != _lastMeridianLst)
-        {
+            _horizonFloats.Clear();
             _meridianFloats.Clear();
-            VkSkyMapPipeline.BuildMeridianLine(site.LST, _meridianFloats);
-            _lastMeridianLst = site.LST;
-        }
-        else if (!site.IsValid)
-        {
-            _meridianFloats.Clear();
-            _lastMeridianLst = -1.0;
-        }
-
-        if (State.ShowAltAzGrid && site.IsValid)
-        {
-            VkSkyMapPipeline.BuildAltAzGrid(site, _altAzGridFloats);
+            _altAzGridFloats.Clear();
+            if (showHorizon)
+            {
+                VkSkyMapPipeline.BuildHorizonLine(site, _horizonFloats);
+            }
+            if (site.IsValid)
+            {
+                VkSkyMapPipeline.BuildMeridianLine(site.LST, _meridianFloats);
+            }
+            if (showAltAz)
+            {
+                VkSkyMapPipeline.BuildAltAzGrid(site, _altAzGridFloats);
+            }
+            _lastStaticGeomKey = staticKey;
         }
 
         // Sensor FOV rectangle + mosaic panel outlines as GPU line geometry
@@ -174,69 +199,58 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
         float baseFontSize, SiteContext site, bool dimBelowHorizon, PlannerState plannerState,
         bool showAllOverlays)
     {
-        // Build pinned catalog-index set from planner proposals. Targets that have
-        // a CatalogIndex can be matched against the overlay engine's spatial scan;
-        // non-catalog targets (manually typed) would need a separate RA/Dec match
-        // (deferred to a future pass).
-        HashSet<CatalogIndex>? pinnedIndices = null;
         var proposals = plannerState.Proposals;
-        if (proposals.Length > 0)
+        var viewMatrix = State.CurrentViewMatrix;
+        var fov = State.FieldOfViewDeg;
+        var rectW = (int)contentRect.Width;
+        var rectH = (int)contentRect.Height;
+
+        // Cache hit when every input that shapes the computed item list is unchanged.
+        // ImmutableArray<T>.== compares the underlying array by reference, which is
+        // what we want: PlannerState.Proposals is only replaced, never mutated.
+        var cacheHit = ReferenceEquals(db, _overlayDbKey)
+            && viewMatrix.Equals(_overlayViewKey)
+            && fov == _overlayFovKey
+            && rectW == _overlayRectWKey
+            && rectH == _overlayRectHKey
+            && dpiScale == _overlayDpiKey
+            && showAllOverlays == _overlayShowAllKey
+            && proposals == _overlayProposalsKey;
+
+        if (!cacheHit)
         {
-            pinnedIndices = new HashSet<CatalogIndex>();
-            foreach (var p in proposals)
-            {
-                if (p.Target.CatalogIndex is { } idx)
-                {
-                    pinnedIndices.Add(idx);
-                }
-            }
-            if (pinnedIndices.Count == 0) pinnedIndices = null;
+            RebuildOverlayCache(db, contentRect, dpiScale, fontPath, baseFontSize,
+                proposals, showAllOverlays);
+            _overlayDbKey = db;
+            _overlayViewKey = viewMatrix;
+            _overlayFovKey = fov;
+            _overlayRectWKey = rectW;
+            _overlayRectHKey = rectH;
+            _overlayDpiKey = dpiScale;
+            _overlayShowAllKey = showAllOverlays;
+            _overlayProposalsKey = proposals;
         }
 
-        // Skip the full catalog scan entirely when the overlay is off AND there are
-        // no pinned targets to show — avoids iterating ~100k spatial-index cells for
-        // nothing when the user just wants a clean sky map.
-        if (!showAllOverlays && pinnedIndices is null)
-        {
-            return;
-        }
-
-        var items = OverlayEngine.ComputeSkyMapOverlays(
-            State, contentRect, dpiScale, db,
-            (text, size) => Renderer.MeasureText(text.AsSpan(), fontPath, size).Width,
-            baseFontSize,
-            pinnedIndices);
-
-        // When the full overlay is off, strip non-pinned items so only the user's
-        // planned targets remain visible as landmarks.
-        if (!showAllOverlays)
-        {
-            items.RemoveAll(item => !item.IsPinned);
-        }
-
-        if (items.Count == 0)
+        if (_overlayItems.Count == 0)
         {
             return;
         }
 
-        // Draw markers. Pinned items get a bright orange-red halo ring drawn BEFORE
-        // the normal marker so it sits behind as a glow. The halo is 1.5x the normal
-        // marker size at 25% alpha -- visible enough to spot from a distance but
-        // doesn't overpower the actual shape.
-        // Dim overlays at wide FOV so they don't overwhelm the sky map when zoomed out.
-        // Subtle overlay fade at extreme wide FOV only -- natural-size ellipses
-        // already handle the clutter, this just softens the very widest views.
-        var fovAlpha = MathF.Max(MathF.Min(90f / (float)State.FieldOfViewDeg, 1f), 0.4f);
+        // Overlay fade at wide FOV -- keep overlays readable when zoomed out.
+        // At FOV <= 120 there is no fade; between 120 and 180 deg the alpha
+        // falls towards a 0.55 floor. Only affects non-pinned items; pinned
+        // planner targets stay full brightness regardless of zoom.
+        var fovAlpha = MathF.Max(MathF.Min(120f / (float)fov, 1f), 0.55f);
         var pinnedHaloColor = new RGBAColor32(0xFF, 0x60, 0x20, (byte)(0x50 * fovAlpha));
 
-        foreach (var item in items)
+        foreach (var item in _overlayItems)
         {
             var (r, g, b) = item.Color;
             var alpha = dimBelowHorizon && !site.IsAboveHorizon(item.RA, item.Dec) ? 0.35f : 1.0f;
-            // Pinned items stay full brightness regardless of zoom
             if (!item.IsPinned) alpha *= fovAlpha;
 
-            // Pinned halo (drawn first so it's behind the marker)
+            // Pinned halo (drawn first so it's behind the marker). The halo is 1.5x
+            // the normal marker size -- visible from a distance but not overpowering.
             if (item.IsPinned)
             {
                 var haloRadius = 16f * dpiScale;
@@ -280,28 +294,107 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
             }
         }
 
-        // Labels -- shared collision-avoidance with the FITS viewer. Pinned items
-        // already have +100 priority so their labels are placed first and never dropped.
+        // Labels: redraw at cached positions every frame so horizon dimming stays
+        // live. PlaceLabels (O(N^2) collision scan) only runs on cache miss.
         var labelSize = baseFontSize * dpiScale * 0.85f;
         var lineH = labelSize * 1.2f;
-        OverlayEngine.PlaceLabels(items, labelSize, 4f,
-            (text, size) => Renderer.MeasureText(text.AsSpan(), fontPath, size).Width,
-            (item, lx, ly) =>
+        foreach (var (item, lx, ly) in _overlayPlacedLabels)
+        {
+            var (r, g, b) = item.IsPinned ? (1f, 0.44f, 0.19f) : item.Color;
+            var labelAlpha = dimBelowHorizon && !site.IsAboveHorizon(item.RA, item.Dec) ? 0.35f : 1.0f;
+            if (!item.IsPinned) labelAlpha *= fovAlpha;
+            for (var li = 0; li < item.LabelLines.Count; li++)
             {
-                var (r, g, b) = item.IsPinned ? (1f, 0.44f, 0.19f) : item.Color;
-                var labelAlpha = dimBelowHorizon && !site.IsAboveHorizon(item.RA, item.Dec) ? 0.35f : 1.0f;
-                if (!item.IsPinned) labelAlpha *= fovAlpha;
-                for (var li = 0; li < item.LabelLines.Count; li++)
+                var lineAlpha = (li == 0 ? 1.0f : 0.7f) * labelAlpha;
+                var color = RGBAColor32.FromFloat(r, g, b, lineAlpha);
+                Renderer.DrawText(item.LabelLines[li].AsSpan(), fontPath, labelSize, color,
+                    new RectInt(
+                        new PointInt((int)(lx + 200), (int)(ly + (li + 1) * lineH)),
+                        new PointInt((int)lx, (int)(ly + li * lineH))),
+                    TextAlign.Near, TextAlign.Center);
+            }
+        }
+    }
+
+    private void RebuildOverlayCache(
+        ICelestialObjectDB db, RectF32 contentRect, float dpiScale, string fontPath,
+        float baseFontSize, ImmutableArray<ProposedObservation> proposals, bool showAllOverlays)
+    {
+        _overlayItems.Clear();
+        _overlayPlacedLabels.Clear();
+
+        // Build pinned catalog-index set from planner proposals. Targets that have
+        // a CatalogIndex can be matched against the overlay engine's spatial scan;
+        // non-catalog targets (manually typed) would need a separate RA/Dec match
+        // (deferred to a future pass).
+        HashSet<CatalogIndex>? pinnedIndices = null;
+        if (proposals.Length > 0)
+        {
+            pinnedIndices = [];
+            foreach (var p in proposals)
+            {
+                if (p.Target.CatalogIndex is { } idx)
                 {
-                    var lineAlpha = (li == 0 ? 1.0f : 0.7f) * labelAlpha;
-                    var color = RGBAColor32.FromFloat(r, g, b, lineAlpha);
-                    Renderer.DrawText(item.LabelLines[li].AsSpan(), fontPath, labelSize, color,
-                        new RectInt(
-                            new PointInt((int)(lx + 200), (int)(ly + (li + 1) * lineH)),
-                            new PointInt((int)lx, (int)(ly + li * lineH))),
-                        TextAlign.Near, TextAlign.Center);
+                    pinnedIndices.Add(idx);
                 }
-            });
+            }
+            if (pinnedIndices.Count == 0) pinnedIndices = null;
+        }
+
+        // Skip the full catalog scan entirely when the overlay is off AND there are
+        // no pinned targets to show -- avoids iterating ~100k spatial-index cells for
+        // nothing when the user just wants a clean sky map.
+        if (!showAllOverlays && pinnedIndices is null)
+        {
+            return;
+        }
+
+        var items = OverlayEngine.ComputeSkyMapOverlays(
+            State, contentRect, dpiScale, db,
+            (text, size) => Renderer.MeasureText(text.AsSpan(), fontPath, size).Width,
+            baseFontSize,
+            pinnedIndices);
+
+        // When the full overlay is off, strip non-pinned items so only the user's
+        // planned targets remain visible as landmarks.
+        if (!showAllOverlays)
+        {
+            items.RemoveAll(item => !item.IsPinned);
+        }
+
+        _overlayItems = items;
+
+        if (items.Count == 0)
+        {
+            return;
+        }
+
+        // Record placed label positions. Hybrid strategy keyed on candidate count:
+        // under the low-water mark, do the full 4-slot collision scan so overlaps
+        // get resolved; above the high-water mark, flip to Stellarium-style
+        // best-effort (stable per-object slot, no collision check) so the O(N^2)
+        // scan does not dominate per-pan-frame and labels do not shuffle under
+        // active panning. The sticky band between the two marks avoids mode flip-
+        // flopping during touch zoom when items.Count hovers near the threshold.
+        // Pinned items keep +100 priority so they place first within the cap in
+        // either mode.
+        const int collisionEnter = 60; // switch TO collision once count falls here
+        const int collisionExit = 100; // switch FROM collision once count rises here
+        _useCollisionPlacement = _useCollisionPlacement
+            ? items.Count <= collisionExit
+            : items.Count <= collisionEnter;
+
+        var labelSize = baseFontSize * dpiScale * 0.85f;
+        var measureText = (string text, float size) => Renderer.MeasureText(text.AsSpan(), fontPath, size).Width;
+        Action<OverlayItem, float, float> record = (item, lx, ly) => _overlayPlacedLabels.Add((item, lx, ly));
+        if (_useCollisionPlacement)
+        {
+            OverlayEngine.PlaceLabels(items, labelSize, 4f, measureText, record);
+        }
+        else
+        {
+            OverlayEngine.PlaceLabelsBestEffort(items, labelSize, 4f, measureText, record);
+        }
     }
 
     // Mosaic panel outlines are now drawn by the GPU LinePipeline (see BuildFovLines

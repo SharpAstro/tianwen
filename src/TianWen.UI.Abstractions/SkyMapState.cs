@@ -170,6 +170,49 @@ namespace TianWen.UI.Abstractions
             return _cachedSunAltitudeDeg;
         }
 
+        // Planet positions at the current viewingTime. Keyed on the exact
+        // DateTimeOffset — SkyMapTab feeds viewingTime from _cachedLiveTime which
+        // is quantized to 1 s (or jumps in bulk when the planner date shifts),
+        // so bit equality is sufficient for the 59 out of 60 frames per second
+        // that carry an identical viewingTime. Planets move at most ~0.5"/s
+        // (the Moon; planets much slower), so even at 1 deg FOV the per-frame
+        // drift is deeply sub-pixel; 1 s refresh is already over-accurate.
+        private DateTimeOffset _planetCacheTime = DateTimeOffset.MinValue;
+        private readonly (CatalogIndex Index, double RA, double Dec)[] _planetCache
+            = new (CatalogIndex, double, double)[SkyMapRenderer.PlanetIndices.Length];
+        private int _planetCacheCount;
+
+        /// <summary>
+        /// Planet J2000 RA/Dec positions at <paramref name="viewingTime"/>, cached
+        /// until viewingTime changes. Entries for bodies whose VSOP87a reduction
+        /// fails are omitted from the returned span.
+        /// </summary>
+        /// <remarks>
+        /// Uses <see cref="VSOP87a.ReduceJ2000"/>, not <see cref="VSOP87a.Reduce"/>:
+        /// the sky map projects everything in J2000, so the regular precessed +
+        /// topocentric reduction would offset planets ~0.35 deg off the J2000
+        /// ecliptic line.
+        /// </remarks>
+        public ReadOnlySpan<(CatalogIndex Index, double RA, double Dec)> GetPlanetPositionsCached(DateTimeOffset viewingTime)
+        {
+            if (viewingTime == _planetCacheTime)
+            {
+                return _planetCache.AsSpan(0, _planetCacheCount);
+            }
+
+            var count = 0;
+            foreach (var idx in SkyMapRenderer.PlanetIndices)
+            {
+                if (VSOP87a.ReduceJ2000(idx, viewingTime, out var ra, out var dec, out _))
+                {
+                    _planetCache[count++] = (idx, ra, dec);
+                }
+            }
+            _planetCacheCount = count;
+            _planetCacheTime = viewingTime;
+            return _planetCache.AsSpan(0, count);
+        }
+
         /// <summary>
         /// Maps sun altitude to a sky-map background colour, matching the planner's
         /// civil / nautical / astronomical twilight zones but shifted darker so it
