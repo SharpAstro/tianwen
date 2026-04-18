@@ -156,6 +156,7 @@ for (var gen = 0; gen < generations; gen++)
         MilkyWayTextureBaker.Bake(inputs, opts, bgraBuf);
         DescribeCandidate(bgraBuf, width, height, scoreW, scoreH, candidateLuma, candidateR, candidateG, candidateB);
         var fitness = ComputeFitness(candidateLuma, candidateR, candidateG, candidateB, refDescriptor, scoreW, scoreH);
+        fitness += ScoreRegions(candidateLuma, scoreW, scoreH);
         scored[i] = (g, fitness);
     }
 
@@ -200,6 +201,11 @@ for (var i = 0; i < Math.Min(keepTop, populationSize); i++)
     var argsPath = Path.Combine(outputDir, $"candidate_{i:D2}.args.txt");
     File.WriteAllText(argsPath, g.ToCliArgs() + Environment.NewLine);
     Console.WriteLine($"  #{i}: fitness={scored[i].Fitness:F3}  {pngPath}");
+
+    // Per-region diagnostic so the user can see which features the winner
+    // actually distinguishes (LMC blob visible? Coalsack punched through?).
+    DescribeCandidate(bgraBuf, width, height, scoreW, scoreH, candidateLuma, candidateR, candidateG, candidateB);
+    PrintRegionBreakdown(candidateLuma, scoreW, scoreH, $"#{i}");
 }
 Console.WriteLine();
 Console.WriteLine("To rebake the overall best with the production pipeline:");
@@ -365,6 +371,90 @@ static double ComputeFitness(
     return 0.45 * brightScore + 0.30 * darkScore + 0.15 * colorScore + 0.10 * nebulosityBonus;
 }
 
+static (int X, int Y) ProjectToImage(double raHours, double decDeg, int w, int h)
+{
+    // Same projection as MilkyWayTextureBaker: RA=0h at u=0.5, Dec=+90 at v=0.
+    var raRad = raHours * (Math.PI / 12.0);
+    var raSigned = raRad;
+    if (raSigned > Math.PI) raSigned -= 2.0 * Math.PI;
+    var u = raSigned / (2.0 * Math.PI) + 0.5;
+    var v = 0.5 - (decDeg * Math.PI / 180.0) / Math.PI;
+    var x = (int)(u * w);
+    var y = (int)(v * h);
+    if (x < 0) x = 0; else if (x >= w) x = w - 1;
+    if (y < 0) y = 0; else if (y >= h) y = h - 1;
+    return (x, y);
+}
+
+// Square-annulus contrast: mean luma inside (|dx| <= inner && |dy| <= inner)
+// minus mean luma in the ring between inner and outer. Multiplied by the
+// expected sign so both bright and dark features score positive when correct.
+static double RegionContrast(float[] luma, int w, int h, Region region)
+{
+    var (cx, cy) = ProjectToImage(region.RaHours, region.DecDeg, w, h);
+    var inner = region.InnerRadiusPx;
+    var outer = region.OuterRadiusPx;
+
+    double innerSum = 0; int innerCount = 0;
+    double ringSum = 0; int ringCount = 0;
+
+    for (var dy = -outer; dy <= outer; dy++)
+    {
+        var y = cy + dy;
+        if (y < 0 || y >= h) continue;
+        for (var dx = -outer; dx <= outer; dx++)
+        {
+            // RA wrap horizontally so regions near the seam still measure.
+            var x = ((cx + dx) % w + w) % w;
+            var absDx = Math.Abs(dx);
+            var absDy = Math.Abs(dy);
+            var maxAbs = Math.Max(absDx, absDy);
+            var v = luma[y * w + x];
+            if (maxAbs <= inner)
+            {
+                innerSum += v;
+                innerCount++;
+            }
+            else
+            {
+                ringSum += v;
+                ringCount++;
+            }
+        }
+    }
+
+    if (innerCount == 0 || ringCount == 0) return 0.0;
+    var contrast = (innerSum / innerCount) - (ringSum / ringCount);
+    return contrast * region.ExpectedSign;
+}
+
+// Aggregate region bonus. Each region contributes at most ~0.02 to fitness,
+// total cap ~0.18 for 9 regions. tanh saturates so a single over-bright
+// blob can't dominate the score.
+static double ScoreRegions(float[] luma, int w, int h)
+{
+    double total = 0;
+    foreach (var region in Regions.All)
+    {
+        var c = RegionContrast(luma, w, h, region);
+        // k=25 puts tanh in the linear-ish regime up to |contrast|~0.04.
+        total += 0.02 * Math.Tanh(c * 25.0);
+    }
+    return total;
+}
+
+static void PrintRegionBreakdown(float[] luma, int w, int h, string label)
+{
+    Console.WriteLine($"  [{label}] per-region contrast (sign-adjusted, positive = correct direction):");
+    foreach (var region in Regions.All)
+    {
+        var c = RegionContrast(luma, w, h, region);
+        var (px, py) = ProjectToImage(region.RaHours, region.DecDeg, w, h);
+        var marker = c > 0.005 ? "OK " : c < -0.005 ? "BAD" : "---";
+        Console.WriteLine($"    {marker}  {region.Name,-18} @({px,4},{py,4}) contrast={c,+7:F4}  (expect {(region.ExpectedSign > 0 ? "bright" : "dark  ")})");
+    }
+}
+
 static Genes TournamentSelect((Genes Genes, double Fitness)[] scored, Random rng, int k)
 {
     var best = scored[rng.Next(scored.Length)];
@@ -389,6 +479,32 @@ static void WritePng(string path, byte[] bgra, int width, int height)
 // =========================================================================
 
 record ReferenceDescriptor(float[] Luma, float[] R, float[] G, float[] B);
+
+// Curated regions of interest that should be distinguishable in a good
+// Milky Way texture. Coordinates are J2000. Inner/outer radii are in
+// pixels at the 512x256 score resolution (~0.7 deg/px at the equator).
+// Sign = +1 expects center brighter than surrounding ring (LMC/SMC/bulge
+// /star clouds); sign = -1 expects center darker (dark molecular clouds
+// eating into the galactic-plane glow).
+record Region(string Name, double RaHours, double DecDeg, int InnerRadiusPx, int OuterRadiusPx, double ExpectedSign);
+
+static class Regions
+{
+    public static readonly Region[] All =
+    [
+        // Bright features.
+        new("LMC",              5.38,   -69.75, 4, 8,  +1.0),
+        new("SMC",              0.87,   -72.83, 2, 5,  +1.0),
+        new("Galactic Bulge",   17.762, -29.00, 4, 10, +1.0),
+        new("Sgr Star Cloud",   18.283, -18.42, 3, 6,  +1.0),
+        new("Scutum Star Cloud", 18.72, -7.00,  3, 6,  +1.0),
+        new("Cygnus Star Cloud", 20.37, 40.25,  3, 6,  +1.0),
+        // Dark molecular clouds.
+        new("rho Oph Cloud",    16.47,  -24.50, 2, 5,  -1.0),
+        new("Coalsack",         12.833, -62.50, 2, 5,  -1.0),
+        new("Pipe Nebula",      17.55,  -25.50, 2, 5,  -1.0),
+    ];
+}
 
 record Genes(
     float MinMag, float ExtinctionK, float BlurSigma, float ColorBlur,
