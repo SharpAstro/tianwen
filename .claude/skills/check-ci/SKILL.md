@@ -1,4 +1,7 @@
-Check GitHub Actions CI status across all SharpAstro repos.
+---
+name: check-ci
+description: Check GitHub Actions CI status across all SharpAstro repos (DIR.Lib, Console.Lib, SdlVulkan.Renderer, tianwen). Use when the user asks about CI status, build health, latest workflow runs, or whether recent pushes passed.
+---
 
 Use `gh run list` to show the latest CI run status for each repo:
 - `SharpAstro/DIR.Lib`

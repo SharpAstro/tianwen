@@ -1,8 +1,9 @@
-Release a SharpAstro sibling library to NuGet and update TianWen to consume it.
+---
+name: release-lib
+description: Release a SharpAstro sibling library (DIR.Lib, Console.Lib, SdlVulkan.Renderer, Fonts.Lib, FITS.Lib, ZWOptical.SDK, QHYCCD.SDK) to NuGet and update TianWen to consume the new version. Handles the full chain - bump, push, poll NuGet, update downstream Directory.Packages.props. Use when the user asks to release, publish, ship, or cut a NuGet package for a SharpAstro library.
+---
 
-Usage: /release-lib <library-name>
-Example: /release-lib DIR.Lib
-Example: /release-lib SdlVulkan.Renderer
+Usage: `/release-lib <library-name>` (e.g. `/release-lib DIR.Lib` or `/release-lib SdlVulkan.Renderer`).
 
 ## Library locations
 
@@ -127,5 +128,3 @@ do not push them until DIR.Lib's new version is confirmed on NuGet and their
 - The intermediate libraries (Console.Lib, SdlVulkan.Renderer) also have their
   own `Directory.Packages.props` that reference DIR.Lib - these must be updated
   with the exact published DIR.Lib version before their own CI push.
-
-The library to release is: $ARGUMENTS

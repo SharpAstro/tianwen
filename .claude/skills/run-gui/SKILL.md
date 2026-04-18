@@ -1,4 +1,7 @@
-Build and launch the TianWen GUI application.
+---
+name: run-gui
+description: Build and launch the TianWen.UI.Gui application with stderr redirected to gui-stderr.log. Use when the user asks to run, launch, start, or open the TianWen GUI.
+---
 
 Run from the src/ directory with stderr redirected to a log file (captures
 font atlas diagnostics and .NET exceptions without cluttering the terminal):
@@ -14,5 +17,3 @@ via `&` (SDL requires the foreground process).
 After the GUI closes, check `gui-stderr.log` if there were any issues.
 If the process crashes (exit code 127 or 13x), always read the stderr log
 for the actual .NET exception before drawing conclusions from the exit code.
-
-$ARGUMENTS
