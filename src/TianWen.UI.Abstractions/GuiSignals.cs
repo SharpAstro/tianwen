@@ -98,3 +98,33 @@ public readonly record struct PlateSolvePreviewSignal(int OtaIndex = 0);
 /// Only valid when no session is running and the focuser is connected.
 /// </summary>
 public readonly record struct JogFocuserSignal(int OtaIndex, int Steps);
+
+/// <summary>
+/// Open the F3 sky-map search modal. Posted from the sky-map tab's key handler;
+/// subscriber wires up callbacks and lazy-builds the catalog index.
+/// </summary>
+public readonly record struct OpenSkyMapSearchSignal;
+
+/// <summary>
+/// Close the F3 sky-map search modal (Esc, click-outside, or close button).
+/// </summary>
+public readonly record struct CloseSkyMapSearchSignal;
+
+/// <summary>
+/// The search modal text changed — recompute the result list.
+/// Posted from the search input's <c>OnTextChanged</c> callback so filtering
+/// runs on the render thread alongside other signal processing.
+/// </summary>
+public readonly record struct SkyMapSearchQueryChangedSignal;
+
+/// <summary>
+/// Commit the currently-highlighted search result: slew the sky map, populate
+/// the info panel, close the modal.
+/// </summary>
+public readonly record struct SkyMapSearchCommitSignal;
+
+/// <summary>
+/// User clicked on the sky map itself (non-drag). Payload is the pixel
+/// coordinates; the handler projects to RA/Dec and picks the nearest object.
+/// </summary>
+public readonly record struct SkyMapClickSelectSignal(float ScreenX, float ScreenY);

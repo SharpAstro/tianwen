@@ -48,6 +48,7 @@ namespace TianWen.UI.Abstractions
         private readonly ILogger _logger;
         private readonly ITimeProvider _timeProvider;
         private readonly EquipmentTabState _eqState;
+        private readonly SkyMapState _skyMapState;
 
         /// <summary>Set by the host after catalog load to enable autocomplete.</summary>
         public Action<string[]> SetAutoCompleteCache { get; }
@@ -564,6 +565,7 @@ namespace TianWen.UI.Abstractions
             SessionTabState sessionState,
             EquipmentTabState eqState,
             LiveSessionState liveSessionState,
+            SkyMapState skyMapState,
             SignalBus bus,
             BackgroundTaskTracker tracker,
             CancellationTokenSource cts,
@@ -575,6 +577,7 @@ namespace TianWen.UI.Abstractions
             _sessionState = sessionState;
             _eqState = eqState;
             _liveSessionState = liveSessionState;
+            _skyMapState = skyMapState;
             _tracker = tracker;
             _cts = cts;
             _external = external;
@@ -658,6 +661,81 @@ namespace TianWen.UI.Abstractions
                         return false;
                 }
             };
+
+            // ---------------------------------------------------------------
+            // Wire sky-map F3 search
+            // ---------------------------------------------------------------
+            var skySearch = skyMapState.Search;
+
+            skySearch.SearchInput.OnTextChanged = _ =>
+            {
+                var db = sp.GetRequiredService<ICelestialObjectDB>();
+                SkyMapSearchActions.FilterResults(skySearch, db);
+                skyMapState.NeedsRedraw = true;
+                appState.NeedsRedraw = true;
+            };
+
+            skySearch.SearchInput.OnCommit = _ =>
+            {
+                bus.Post(new SkyMapSearchCommitSignal());
+                return Task.CompletedTask;
+            };
+
+            skySearch.SearchInput.OnCancel = () => bus.Post(new CloseSkyMapSearchSignal());
+
+            bus.Subscribe<OpenSkyMapSearchSignal>(_ =>
+            {
+                var db = sp.GetRequiredService<ICelestialObjectDB>();
+                SkyMapSearchActions.OpenSearch(skySearch, db);
+                bus.Post(new ActivateTextInputSignal(skySearch.SearchInput));
+                skyMapState.NeedsRedraw = true;
+                appState.NeedsRedraw = true;
+            });
+
+            bus.Subscribe<CloseSkyMapSearchSignal>(_ =>
+            {
+                SkyMapSearchActions.CloseSearch(skySearch);
+                bus.Post(new DeactivateTextInputSignal());
+                skyMapState.NeedsRedraw = true;
+                appState.NeedsRedraw = true;
+            });
+
+            bus.Subscribe<SkyMapSearchCommitSignal>(_ =>
+            {
+                var db = sp.GetRequiredService<ICelestialObjectDB>();
+                var viewingUtc = plannerState.PlanningDate?.ToUniversalTime() ?? _timeProvider.GetUtcNow();
+                var site = SiteContext.Create(plannerState.SiteLatitude, plannerState.SiteLongitude, viewingUtc);
+                SkyMapSearchActions.CommitResult(
+                    skySearch, skyMapState, db,
+                    plannerState.SiteLatitude, plannerState.SiteLongitude,
+                    viewingUtc, site);
+                bus.Post(new DeactivateTextInputSignal());
+                skyMapState.NeedsRedraw = true;
+                appState.NeedsRedraw = true;
+            });
+
+            bus.Subscribe<SkyMapClickSelectSignal>(sig =>
+            {
+                var rect = skyMapState.LastContentRect;
+                if (rect.Width <= 0 || rect.Height <= 0) return;
+
+                var db = sp.GetRequiredService<ICelestialObjectDB>();
+                var ppr = SkyMapProjection.PixelsPerRadian(rect.Height, skyMapState.FieldOfViewDeg);
+                var cx = rect.X + rect.Width * 0.5f;
+                var cy = rect.Y + rect.Height * 0.5f;
+                var viewingUtc = plannerState.PlanningDate?.ToUniversalTime() ?? _timeProvider.GetUtcNow();
+                var site = SiteContext.Create(plannerState.SiteLatitude, plannerState.SiteLongitude, viewingUtc);
+
+                SkyMapSearchActions.SelectObjectByClick(
+                    skySearch, skyMapState, db,
+                    plannerState.SiteLatitude, plannerState.SiteLongitude,
+                    viewingUtc, site,
+                    sig.ScreenX, sig.ScreenY,
+                    skyMapState.CurrentViewMatrix, ppr, cx, cy);
+
+                skyMapState.NeedsRedraw = true;
+                appState.NeedsRedraw = true;
+            });
 
             // ---------------------------------------------------------------
             // Wire equipment text input callbacks

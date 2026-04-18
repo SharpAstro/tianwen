@@ -89,6 +89,13 @@ namespace TianWen.UI.Abstractions
         /// <summary>Cached view matrix, updated each frame by the rendering layer.</summary>
         public Matrix4x4 CurrentViewMatrix { get; set; } = Matrix4x4.Identity;
 
+        /// <summary>
+        /// Content rectangle from the most recent <see cref="SkyMapTab{TSurface}.Render"/>
+        /// call. Used by out-of-tab signal handlers (e.g. click-select) that need to
+        /// unproject screen coordinates without holding a tab reference.
+        /// </summary>
+        public DIR.Lib.RectF32 LastContentRect { get; set; }
+
         // Drag state
         public bool IsDragging { get; set; }
         public (float X, float Y) DragStart { get; set; }
@@ -134,6 +141,12 @@ namespace TianWen.UI.Abstractions
 
         /// <summary>True when viewport changed and the cached texture must be re-rendered.</summary>
         public bool NeedsRedraw { get; set; } = true;
+
+        /// <summary>
+        /// F3 search modal + info panel state. Owned by the sky map (not cross-component)
+        /// so it lives here rather than on <see cref="PlannerState"/>.
+        /// </summary>
+        public SkyMapSearchState Search { get; } = new();
 
         // Cached sun altitude + the time it was computed at. Sun moves ~0.25 deg/min,
         // which is orders of magnitude slower than our per-frame update rate, so a

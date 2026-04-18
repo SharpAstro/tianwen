@@ -59,6 +59,9 @@ namespace TianWen.UI.Gui
         public LiveSessionState LiveSessionState { get; } = new LiveSessionState();
 
         /// <inheritdoc/>
+        public SkyMapState SkyMapState => _skyMapTab.State;
+
+        /// <inheritdoc/>
         public RectF32 PlannerChartRect => _plannerTab.ChartRect;
 
         /// <inheritdoc/>
