@@ -190,8 +190,10 @@ namespace TianWen.UI.Abstractions
         /// Override in the GPU subclass to draw the <c>[O]</c> object overlay (ellipses
         /// for DSOs, crosses for named stars, plus labels with collision avoidance).
         /// Base implementation is a no-op — the software / TUI fallback does not render
-        /// shape markers. Uses <see cref="Overlays.OverlayEngine.ComputeSkyMapOverlays"/>
-        /// to compute items and <see cref="Overlays.OverlayEngine.PlaceLabels"/> for label
+        /// shape markers. GPU subclasses use
+        /// <see cref="Overlays.OverlayEngine.GatherSkyMapOverlayCandidates"/> +
+        /// <see cref="Overlays.OverlayEngine.ProjectSkyMapCandidatesInto"/> to compute
+        /// per-frame items and <see cref="Overlays.OverlayEngine.PlaceLabels"/> for label
         /// placement, both shared with the FITS viewer.
         /// </summary>
         protected virtual void RenderObjectOverlay(
