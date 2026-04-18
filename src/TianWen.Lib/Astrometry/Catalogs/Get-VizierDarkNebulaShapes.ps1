@@ -1,5 +1,10 @@
 [CmdletBinding()]
-param()
+param(
+    # Merge Dobashi clouds whose centers are within (rep.radius + this value) arcmin
+    # of an already-claimed cluster representative. 20 arcmin collapses the
+    # rho Oph / Aquila Rift / Taurus sub-cores into a handful of super-clouds.
+    [double]$DobashiMergeArcmin = 20.0
+)
 
 # Pulls per-object size information from VizieR source catalogs for the
 # Simbad-derived *.json.lz families that otherwise ship without shape data
@@ -42,17 +47,93 @@ function Save-Shapes {
 }
 
 # ----- Dobashi (J/PASJ/63/S1/table8): 7614 entries, Area in arcmin^2 -----
+# Raw Dobashi entries are tiny (median Maj ~ 5-10 arcmin) so at wide FOV
+# hundreds of them cross the overlay's on-screen pixel threshold and render
+# as indistinguishable speckle even over the baked dust texture. We greedy-
+# cluster them here: sort by diameter descending so the largest clouds seed
+# clusters, absorb any neighbour whose center lies within (rep.radius +
+# DobashiMergeArcmin) of the rep, and emit one shape per cluster keyed to
+# the representative's Seq. Absorbed members drop out of the shape file so
+# the overlay no longer draws them individually.
 function Get-DobashiShapes {
-    $q = Invoke-Vizier 'SELECT Seq, Area FROM "J/PASJ/63/S1/table8"'
+    # The Dobashi table (J/PASJ/63/S1/table8) stores positions as GLON/GLAT.
+    # VizieR's ADQL parser rejects "_RA_icrs"/"_DE_icrs" when named explicitly
+    # (they are VOTable post-processor meta-columns, not real ADQL fields),
+    # but SELECT * brings them through. We just have to accept pulling ~14
+    # columns for 7600 rows -- bandwidth is negligible.
+    $q = Invoke-Vizier 'SELECT * FROM "J/PASJ/63/S1/table8"'
     $iSeq  = $q.ColIdx['Seq']
     $iArea = $q.ColIdx['Area']
-    $out = foreach ($line in $q.Rows) {
+    $iRa   = $q.ColIdx['_RA_icrs']
+    $iDe   = $q.ColIdx['_DE_icrs']
+    if ($iRa -lt 0 -or $iDe -lt 0) { throw "Expected _RA_icrs/_DE_icrs columns, got: $($q.Header -join ',')" }
+
+    $entries = foreach ($line in $q.Rows) {
         $cols = $line -split "`t"
         $seqStr  = $cols[$iSeq].Trim('"', ' ')
         $areaStr = $cols[$iArea].Trim('"', ' ')
+        $raStr   = $cols[$iRa].Trim('"', ' ')
+        $deStr   = $cols[$iDe].Trim('"', ' ')
         if ([string]::IsNullOrWhiteSpace($seqStr) -or [string]::IsNullOrWhiteSpace($areaStr)) { continue }
+        if ([string]::IsNullOrWhiteSpace($raStr) -or [string]::IsNullOrWhiteSpace($deStr)) { continue }
         $diam = 2.0 * [Math]::Sqrt([double]$areaStr / [Math]::PI)
-        [PSCustomObject][ordered]@{ Seq = [int]$seqStr; Maj = [Math]::Round($diam, 2); Min = [Math]::Round($diam, 2); PA = 0 }
+        [PSCustomObject]@{
+            Seq  = [int]$seqStr
+            Diam = $diam
+            Ra   = [double]$raStr
+            Dec  = [double]$deStr
+        }
+    }
+
+    Write-Host ("  Loaded {0} Dobashi rows; clustering at {1:N1} arcmin..." -f $entries.Count, $DobashiMergeArcmin)
+
+    # Sort by diameter descending so largest clouds seed clusters first.
+    $sorted = $entries | Sort-Object -Property Diam -Descending
+    $clusters = [System.Collections.Generic.List[object]]::new()
+
+    foreach ($e in $sorted) {
+        $merged = $false
+        $cosDec = [Math]::Cos($e.Dec * [Math]::PI / 180.0)
+        for ($i = 0; $i -lt $clusters.Count; $i++) {
+            $c = $clusters[$i]
+            # Flat approximation is fine for arcmin-scale comparisons; use
+            # cos(dec) of the ENTRY (not the rep) so entries approaching from
+            # the pole side don't get under-counted.
+            $dRa = ($e.Ra - $c.Ra) * $cosDec * 60.0
+            $dDe = ($e.Dec - $c.Dec) * 60.0
+            $dist = [Math]::Sqrt($dRa * $dRa + $dDe * $dDe)
+            # Merge if entry center sits inside rep's native radius plus the
+            # configured buffer. Using rep.Diam/2 (not cluster.VisualRadius)
+            # prevents unbounded chain-growth where absorbing one entry
+            # progressively widens the next merge envelope.
+            $threshold = $c.RepRadius + $DobashiMergeArcmin
+            if ($dist -le $threshold) {
+                $farEdge = $dist + $e.Diam / 2.0
+                if ($farEdge -gt $c.VisualRadius) { $c.VisualRadius = $farEdge }
+                $c.MemberCount++
+                $merged = $true
+                break
+            }
+        }
+        if (-not $merged) {
+            $clusters.Add([PSCustomObject]@{
+                Seq          = $e.Seq
+                Ra           = $e.Ra
+                Dec          = $e.Dec
+                RepRadius    = $e.Diam / 2.0
+                VisualRadius = $e.Diam / 2.0
+                MemberCount  = 1
+            }) | Out-Null
+        }
+    }
+
+    $mergedCount = ($clusters | Where-Object { $_.MemberCount -gt 1 }).Count
+    $absorbedCount = ($clusters | Measure-Object -Property MemberCount -Sum).Sum - $clusters.Count
+    Write-Host ("  Produced {0} clusters ({1} merged from {2} member absorption, solo {3})" -f $clusters.Count, $mergedCount, $absorbedCount, ($clusters.Count - $mergedCount))
+
+    $out = foreach ($c in $clusters) {
+        $diam = 2.0 * $c.VisualRadius
+        [PSCustomObject][ordered]@{ Seq = $c.Seq; Maj = [Math]::Round($diam, 2); Min = [Math]::Round($diam, 2); PA = 0 }
     }
     Save-Shapes 'Dobashi' @($out)
 }
