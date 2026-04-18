@@ -38,14 +38,24 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
     // "invalid or not yet built" and never collides with a real LST in [0, 24).
     private (double Lst, bool Horizon, bool AltAz) _lastStaticGeomKey = (-1.0, false, false);
 
-    // DSO overlay scan + label placement are pure f(viewMatrix, FOV, rect-size,
-    // pins, show-all, dpi, db). At wide FOV the scan walks the full 360 deg
-    // grid (hundreds of candidates) and PlaceLabels runs its O(N^2) collision
-    // scan, so caching is a big win when the user is not actively panning.
-    // Cached item screen positions are frozen at build time -- correct because
-    // the view matrix is part of the cache key. Horizon dimming is NOT cached:
-    // it is reapplied per-frame at draw time using each item's RA/Dec because
-    // site.LST ticks independently.
+    // DSO overlay is split in two passes:
+    //
+    //   Phase A (heavy): OverlayEngine.GatherSkyMapOverlayCandidates walks the DSO
+    //   spatial grid, filters by magnitude / dark-neb screen size, dedupes cross-
+    //   catalog entries, and builds label lines + priority. Output is a list of
+    //   OverlayCandidate structs that do NOT depend on the current view matrix.
+    //
+    //   Phase B (per-frame): OverlayEngine.ProjectSkyMapCandidatesInto projects each
+    //   candidate through the current view matrix, culls off-screen, and emits
+    //   OverlayItems. Cheap enough to run every frame during active pan.
+    //
+    // The cache key below only invalidates Phase A. At wide FOV (>= 90 deg) the
+    // grid walk's RA/Dec bounds snap to the whole sphere regardless of pan, so
+    // viewMatrix is explicitly dropped from the key -- that's where the sluggish-
+    // at-110-deg frametime came from: the previous single-phase cache rebuilt the
+    // whole list (grid walk + hundreds of List/HashSet allocs) on every mouse-move.
+    // At narrow FOV we keep viewMatrix in the key because the scan bounds depend
+    // on it; at narrow FOV the scan is bounded and rebuild cost is already small.
     private Matrix4x4 _overlayViewKey;
     private double _overlayFovKey = -1.0;
     private int _overlayRectWKey, _overlayRectHKey;
@@ -53,8 +63,13 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
     private bool _overlayShowAllKey;
     private ImmutableArray<ProposedObservation> _overlayProposalsKey;
     private ICelestialObjectDB? _overlayDbKey;
-    private List<OverlayItem> _overlayItems = [];
+    private readonly List<OverlayCandidate> _overlayCandidates = [];
+    private readonly List<OverlayItem> _overlayItems = [];
     private readonly List<(OverlayItem Item, float X, float Y)> _overlayPlacedLabels = [];
+
+    /// <summary>FOV threshold at which the scan bounds become view-matrix independent
+    /// (full-sky sweep). Keep in sync with the branch in <c>GatherSkyMapOverlayCandidates</c>.</summary>
+    private const double WideFovThresholdDeg = 90.0;
 
     // Sticky "collision vs best-effort" label placement mode. The two modes
     // disagree about dropped labels and slot overrides, so flipping between
@@ -187,8 +202,10 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
 
     /// <summary>
     /// Draws the catalog object overlay on top of the cached sky-map texture.
-    /// Reuses <see cref="OverlayEngine.ComputeSkyMapOverlays"/> (same catalog filtering
-    /// / FOV-aware magnitude cutoff as the FITS viewer), <see cref="VkOverlayShapes"/>
+    /// Reuses <see cref="OverlayEngine.GatherSkyMapOverlayCandidates"/> (same catalog
+    /// filtering / FOV-aware magnitude cutoff as the FITS viewer) +
+    /// <see cref="OverlayEngine.ProjectSkyMapCandidatesInto"/> (per-frame projection),
+    /// <see cref="VkOverlayShapes"/>
     /// (same GPU ellipse / cross primitives as <see cref="VkImageRenderer"/>), and
     /// <see cref="OverlayEngine.PlaceLabels"/> (same 4-position collision-avoidance loop
     /// the viewer uses). Below-horizon objects are rendered with dimmed alpha, matching
@@ -205,22 +222,22 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
         var rectW = (int)contentRect.Width;
         var rectH = (int)contentRect.Height;
 
-        // Cache hit when every input that shapes the computed item list is unchanged.
-        // ImmutableArray<T>.== compares the underlying array by reference, which is
-        // what we want: PlannerState.Proposals is only replaced, never mutated.
+        // Phase A cache hit: when FOV >= 90 deg the scan bounds are the whole sphere
+        // so the candidate list is independent of viewMatrix. Below that threshold the
+        // scan bounds are derived from the current view matrix, so it stays in the key.
+        var wideFov = fov >= WideFovThresholdDeg;
         var cacheHit = ReferenceEquals(db, _overlayDbKey)
-            && viewMatrix.Equals(_overlayViewKey)
             && fov == _overlayFovKey
             && rectW == _overlayRectWKey
             && rectH == _overlayRectHKey
             && dpiScale == _overlayDpiKey
             && showAllOverlays == _overlayShowAllKey
-            && proposals == _overlayProposalsKey;
+            && proposals == _overlayProposalsKey
+            && (wideFov || viewMatrix.Equals(_overlayViewKey));
 
         if (!cacheHit)
         {
-            RebuildOverlayCache(db, contentRect, dpiScale, fontPath, baseFontSize,
-                proposals, showAllOverlays);
+            RebuildOverlayCandidates(db, contentRect, dpiScale, proposals, showAllOverlays);
             _overlayDbKey = db;
             _overlayViewKey = viewMatrix;
             _overlayFovKey = fov;
@@ -231,9 +248,43 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
             _overlayProposalsKey = proposals;
         }
 
+        // Phase B: project cached candidates into screen items every frame. This is
+        // the cheap pass (no grid walk, no label building) so pan stays smooth even
+        // when the candidate list has hundreds of entries.
+        _overlayItems.Clear();
+        _overlayPlacedLabels.Clear();
+        if (_overlayCandidates.Count == 0)
+        {
+            return;
+        }
+        OverlayEngine.ProjectSkyMapCandidatesInto(_overlayCandidates, State, contentRect,
+            dpiScale, _overlayItems);
+
         if (_overlayItems.Count == 0)
         {
             return;
+        }
+
+        // Hybrid label-placement strategy keyed on candidate count -- same two modes
+        // as before, but now evaluated against the per-frame projected count. The
+        // sticky band between the low and high water marks avoids mode flip-flopping
+        // during touch zoom when items.Count hovers near the threshold.
+        const int collisionEnter = 60; // switch TO collision once count falls here
+        const int collisionExit = 100; // switch FROM collision once count rises here
+        _useCollisionPlacement = _useCollisionPlacement
+            ? _overlayItems.Count <= collisionExit
+            : _overlayItems.Count <= collisionEnter;
+
+        var placementLabelSize = baseFontSize * dpiScale * 0.85f;
+        var measureText = (string text, float size) => Renderer.MeasureText(text.AsSpan(), fontPath, size).Width;
+        Action<OverlayItem, float, float> record = (item, lx, ly) => _overlayPlacedLabels.Add((item, lx, ly));
+        if (_useCollisionPlacement)
+        {
+            OverlayEngine.PlaceLabels(_overlayItems, placementLabelSize, 4f, measureText, record);
+        }
+        else
+        {
+            OverlayEngine.PlaceLabelsBestEffort(_overlayItems, placementLabelSize, 4f, measureText, record);
         }
 
         // Overlay fade at wide FOV -- keep overlays readable when zoomed out.
@@ -316,12 +367,16 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
         }
     }
 
-    private void RebuildOverlayCache(
-        ICelestialObjectDB db, RectF32 contentRect, float dpiScale, string fontPath,
-        float baseFontSize, ImmutableArray<ProposedObservation> proposals, bool showAllOverlays)
+    /// <summary>
+    /// Rebuilds <see cref="_overlayCandidates"/> via the view-matrix-independent gather
+    /// pass. Called only on cache miss -- per-frame projection and label placement
+    /// happen in <see cref="RenderObjectOverlay"/>, not here.
+    /// </summary>
+    private void RebuildOverlayCandidates(
+        ICelestialObjectDB db, RectF32 contentRect, float dpiScale,
+        ImmutableArray<ProposedObservation> proposals, bool showAllOverlays)
     {
-        _overlayItems.Clear();
-        _overlayPlacedLabels.Clear();
+        _overlayCandidates.Clear();
 
         // Build pinned catalog-index set from planner proposals. Targets that have
         // a CatalogIndex can be matched against the overlay engine's spatial scan;
@@ -349,51 +404,14 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
             return;
         }
 
-        var items = OverlayEngine.ComputeSkyMapOverlays(
-            State, contentRect, dpiScale, db,
-            (text, size) => Renderer.MeasureText(text.AsSpan(), fontPath, size).Width,
-            baseFontSize,
-            pinnedIndices);
+        OverlayEngine.GatherSkyMapOverlayCandidates(
+            State, contentRect, dpiScale, db, pinnedIndices, _overlayCandidates);
 
-        // When the full overlay is off, strip non-pinned items so only the user's
-        // planned targets remain visible as landmarks.
+        // When the full overlay is off, strip non-pinned candidates so only the
+        // user's planned targets remain visible as landmarks.
         if (!showAllOverlays)
         {
-            items.RemoveAll(item => !item.IsPinned);
-        }
-
-        _overlayItems = items;
-
-        if (items.Count == 0)
-        {
-            return;
-        }
-
-        // Record placed label positions. Hybrid strategy keyed on candidate count:
-        // under the low-water mark, do the full 4-slot collision scan so overlaps
-        // get resolved; above the high-water mark, flip to Stellarium-style
-        // best-effort (stable per-object slot, no collision check) so the O(N^2)
-        // scan does not dominate per-pan-frame and labels do not shuffle under
-        // active panning. The sticky band between the two marks avoids mode flip-
-        // flopping during touch zoom when items.Count hovers near the threshold.
-        // Pinned items keep +100 priority so they place first within the cap in
-        // either mode.
-        const int collisionEnter = 60; // switch TO collision once count falls here
-        const int collisionExit = 100; // switch FROM collision once count rises here
-        _useCollisionPlacement = _useCollisionPlacement
-            ? items.Count <= collisionExit
-            : items.Count <= collisionEnter;
-
-        var labelSize = baseFontSize * dpiScale * 0.85f;
-        var measureText = (string text, float size) => Renderer.MeasureText(text.AsSpan(), fontPath, size).Width;
-        Action<OverlayItem, float, float> record = (item, lx, ly) => _overlayPlacedLabels.Add((item, lx, ly));
-        if (_useCollisionPlacement)
-        {
-            OverlayEngine.PlaceLabels(items, labelSize, 4f, measureText, record);
-        }
-        else
-        {
-            OverlayEngine.PlaceLabelsBestEffort(items, labelSize, 4f, measureText, record);
+            _overlayCandidates.RemoveAll(c => !c.IsPinned);
         }
     }
 

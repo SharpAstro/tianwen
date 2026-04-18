@@ -515,40 +515,42 @@ public static class OverlayEngine
     }
 
     /// <summary>
-    /// Computes overlay items for the Sky Map tab. Parallel of <see cref="ComputeOverlays"/>
-    /// but projects via <see cref="SkyMapProjection.ProjectWithMatrix"/> instead of a WCS,
-    /// and derives FOV directly from <see cref="SkyMapState.FieldOfViewDeg"/> rather than
-    /// from per-pixel plate scale. Used for the <c>[O]</c> object overlay on the sky map.
+    /// Computes the arcmin-to-screen-pixels scale factor for a given viewport height
+    /// and FOV. Factored out so candidate gather and per-frame projection agree on
+    /// how big an object of a given angular size should appear.
     /// </summary>
-    /// <param name="state">Current sky map viewport (view matrix, FOV).</param>
-    /// <param name="contentRect">Sky map area in screen pixels.</param>
-    /// <param name="dpiScale">Backing-store DPI scale factor (marker sizes scale with this).</param>
-    /// <param name="db">Celestial object database.</param>
-    /// <param name="measureText">Text width measurement callback.</param>
-    /// <param name="baseFontSize">Base font size before DPI scaling.</param>
-    /// <param name="pinnedCatalogIndices">Catalog indices of pinned planner targets.
-    /// Items in this set bypass the FOV-based magnitude cutoff, get <c>IsPinned = true</c>,
-    /// and receive a boosted <see cref="OverlayItem.LabelPriority"/> so their labels are
-    /// never dropped by the collision-avoidance logic. Pass an empty set when no targets
-    /// are pinned.</param>
-    /// <returns>Sorted list of overlay items (brightest first).</returns>
-    public static List<OverlayItem> ComputeSkyMapOverlays(
+    public static float GetArcminToPixels(float viewportHeightPx, double fovDeg)
+    {
+        var ppr = SkyMapProjection.PixelsPerRadian(viewportHeightPx, fovDeg);
+        return (float)(ppr * Math.PI / (180.0 * 60.0));
+    }
+
+    /// <summary>
+    /// Phase A: walk the spatial grid, filter, dedupe, and build label lines. Produces
+    /// a view-matrix-independent list of <see cref="OverlayCandidate"/>s.
+    /// </summary>
+    /// <remarks>
+    /// At wide FOV (>= 90 deg) the RA/Dec scan bounds are the whole sphere regardless
+    /// of pan angle, so the gathered candidates are a pure function of FOV + rect +
+    /// dpi + pins + DB. The GUI tab caches this list and re-projects every frame,
+    /// which removes the per-pan grid walk and all per-rebuild List/HashSet allocs
+    /// that previously made wide-FOV panning sluggish.
+    /// </remarks>
+    public static void GatherSkyMapOverlayCandidates(
         SkyMapState state,
         RectF32 contentRect,
         float dpiScale,
         ICelestialObjectDB db,
-        Func<string, float, float> measureText,
-        float baseFontSize,
-        IReadOnlySet<CatalogIndex>? pinnedCatalogIndices = null)
+        IReadOnlySet<CatalogIndex>? pinnedCatalogIndices,
+        List<OverlayCandidate> output)
     {
-        var result = new List<OverlayItem>();
+        output.Clear();
 
         if (contentRect.Width <= 0 || contentRect.Height <= 0)
         {
-            return result;
+            return;
         }
 
-        // Projection parameters (must match the GPU vertex shader — see SkyMapProjection.ProjectWithMatrix)
         var viewMatrix = state.CurrentViewMatrix;
         var ppr = SkyMapProjection.PixelsPerRadian(contentRect.Height, state.FieldOfViewDeg);
         var cxView = contentRect.X + contentRect.Width * 0.5f;
@@ -588,7 +590,7 @@ public static class OverlayEngine
 
         if (minRA > maxRA || minDec > maxDec)
         {
-            return result;
+            return;
         }
 
         // RA wraparound: if the projected span straddles 0h/24h, re-scan with shifted RA.
@@ -658,13 +660,9 @@ public static class OverlayEngine
 
         var grid = db.DeepSkyCoordinateGrid;
         var seen = new HashSet<CatalogIndex>();
-        var candidates = new List<(CatalogIndex Index, CelestialObject Obj, float ScreenX, float ScreenY)>();
 
-        // Arcmin -> pixels (same derivation as used later for marker sizing). Hoisted
-        // above the scan loop so the off-screen cull below can expand its margin to
-        // cover large Barnard-class nebulae whose centres may lie well outside the
-        // viewport while their body still intersects it — without this, large shapes
-        // pop in/out as the user pans across them.
+        // Arcmin -> pixels (used for the dark-nebula on-screen-size filter). Pure
+        // function of ppr, so safe to compute in Phase A (view-matrix independent).
         var arcminToPixels = (float)(ppr * Math.PI / (180.0 * 60.0));
 
         // Dark nebulae: once the companion *.shapes.json.lz files are loaded,
@@ -677,6 +675,16 @@ public static class OverlayEngine
 
         var decStep = 1.0;
         var raStep = 1.0 / 15.0;
+
+        // Zoom-equivalent knob for label verbosity. At narrow FOV (zoomed in) we show more
+        // cross-index detail; the viewer's BuildOverlayLabel uses an image-zoom scalar with
+        // the same 0.5/1.0 breakpoints, so map FOV to an equivalent zoom value.
+        var labelZoom = (float)Math.Clamp(10.0 / Math.Max(state.FieldOfViewDeg, 0.5), 0.25, 2.0);
+
+        // Scratch list used so the magnitude sort happens before label/priority
+        // construction -- keeps output in brightest-first order without sorting
+        // OverlayCandidate (which owns a big reference-typed payload).
+        var scratch = new List<(CatalogIndex CatIdx, CelestialObject Obj, bool IsPinned)>();
 
         for (var dec = Math.Floor(minDec); dec <= maxDec; dec += decStep)
         {
@@ -710,10 +718,10 @@ public static class OverlayEngine
                     // Screen-size filter for DarkNeb: hide when on-screen size drops
                     // below ~6 px (illegible anyway). Pinned planner targets bypass
                     // this so the user always sees them. Entries without shape data
-                    // (e.g. Simbad NAME-only, no VizieR match) are hidden entirely —
+                    // (e.g. Simbad NAME-only, no VizieR match) are hidden entirely --
                     // they'd otherwise clutter wide views with placeholder circles.
                     // Pin recognition has to cover obj.Index (canonical), catIdx (the
-                    // spatial-grid key we happened to enter on), AND any cross-refs —
+                    // spatial-grid key we happened to enter on), AND any cross-refs --
                     // otherwise a pinned target indexed under a different catalog
                     // variant than the saved one would get filtered out here.
                     var isPinnedEarly = false;
@@ -778,88 +786,51 @@ public static class OverlayEngine
                         }
                     }
 
-                    // Project through the same view matrix the GPU uses
-                    if (!SkyMapProjection.ProjectWithMatrix(obj.RA, obj.Dec, viewMatrix, ppr,
-                            cxView, cyView, out var screenX, out var screenY))
-                    {
-                        continue;
-                    }
-
-                    // Off-screen cull with generous margin — for large shapes the centre
-                    // may be far outside the viewport while the body still overlaps, so
-                    // extend the margin by the on-screen semi-major axis (see viewer's
-                    // ComputeOverlays for the equivalent WCS-based logic).
-                    var margin = 100f;
-                    if (db.TryGetShape(catIdx, out var earlyShape) && !Half.IsNaN(earlyShape.MajorAxis))
-                    {
-                        var shapeScreenPx = (float)((double)earlyShape.MajorAxis / 2.0 * arcminToPixels) + 50f;
-                        if (shapeScreenPx > margin) margin = shapeScreenPx;
-                    }
-                    if (screenX < contentRect.X - margin || screenX > contentRect.X + contentRect.Width + margin ||
-                        screenY < contentRect.Y - margin || screenY > contentRect.Y + contentRect.Height + margin)
-                    {
-                        continue;
-                    }
-
-                    candidates.Add((catIdx, obj, screenX, screenY));
+                    // Note: no per-candidate projection / off-screen cull here anymore.
+                    // Projection is deferred to ProjectSkyMapCandidatesInto so a drag-pan
+                    // just re-projects cached candidates instead of re-walking the grid.
+                    scratch.Add((catIdx, obj, isPinned));
                 }
             }
         }
 
-        if (candidates.Count == 0)
+        if (scratch.Count == 0)
         {
-            return result;
+            return;
         }
 
-        // Sort by magnitude (brightest first) so collision avoidance favours bright labels
-        candidates.Sort((a, b) =>
+        // Sort by magnitude (brightest first) so collision avoidance downstream
+        // favours bright labels, and tie-break on catalog index so the order is
+        // stable across rebuilds (label slot placement depends on this).
+        scratch.Sort((a, b) =>
         {
             var aMag = Half.IsNaN(a.Obj.V_Mag) ? 99.0 : (double)a.Obj.V_Mag;
             var bMag = Half.IsNaN(b.Obj.V_Mag) ? 99.0 : (double)b.Obj.V_Mag;
-            return aMag.CompareTo(bMag);
+            var c = aMag.CompareTo(bMag);
+            return c != 0 ? c : ((ulong)a.CatIdx).CompareTo((ulong)b.CatIdx);
         });
 
-        // Zoom-equivalent knob for label verbosity. At narrow FOV (zoomed in) we show more
-        // cross-index detail; the viewer's BuildOverlayLabel uses an image-zoom scalar with
-        // the same 0.5/1.0 breakpoints, so map FOV to an equivalent zoom value.
-        var labelZoom = (float)Math.Clamp(10.0 / Math.Max(state.FieldOfViewDeg, 0.5), 0.25, 2.0);
-
-        foreach (var (catIdx, obj, cx, cy) in candidates)
+        foreach (var (catIdx, obj, isPinned) in scratch)
         {
-            var isPinned = pinnedCatalogIndices is not null
-                && obj.Index != default
-                && pinnedCatalogIndices.Contains(obj.Index);
-
-            var color = GetOverlayColor(obj.ObjectType);
-
-            OverlayMarker marker;
+            OverlayCandidateMarker marker;
             if (db.TryGetShape(catIdx, out var shape) &&
                 !Half.IsNaN(shape.MajorAxis) && !Half.IsNaN(shape.MinorAxis))
             {
-                var semiMajPx = (float)((double)shape.MajorAxis / 2.0 * arcminToPixels);
-                var semiMinPx = (float)((double)shape.MinorAxis / 2.0 * arcminToPixels);
-
-                {
-                    // PA via tangent-plane trick: project a small RA/Dec step and measure the
-                    // screen angle. Same technique as ComputeScreenPA but using the sky-map
-                    // projection instead of WCS. Render at natural size even when tiny --
-                    // falling back to a fixed-size circle creates visual noise at wide FOV.
-                    var paScreen = ComputeSkyMapScreenPA(obj.RA, obj.Dec, shape.PositionAngle,
-                        viewMatrix, ppr, cxView, cyView);
-                    marker = new OverlayMarker.Ellipse(Math.Max(semiMajPx, 1f), Math.Max(semiMinPx, 0.5f), paScreen);
-                }
+                marker = new OverlayCandidateMarker.Ellipse(
+                    (float)((double)shape.MajorAxis / 2.0),
+                    (float)((double)shape.MinorAxis / 2.0),
+                    shape.PositionAngle);
             }
             else if (IsStarType(obj.ObjectType))
             {
-                var arm = 6f * dpiScale;
-                marker = new OverlayMarker.Cross(arm);
+                marker = new OverlayCandidateMarker.Cross(6f);
             }
             else
             {
-                var markerRadius = 8f * dpiScale;
-                marker = new OverlayMarker.Circle(markerRadius);
+                marker = new OverlayCandidateMarker.Circle(8f);
             }
 
+            var color = GetOverlayColor(obj.ObjectType);
             var lines = BuildOverlayLabel(obj, catIdx, db, labelZoom);
 
             // Pinned items get a large priority boost so their labels are never
@@ -868,10 +839,9 @@ public static class OverlayEngine
             var priority = ComputeLabelPriority(obj, catIdx, db);
             if (isPinned) priority += 100f;
 
-            result.Add(new OverlayItem
+            output.Add(new OverlayCandidate
             {
-                ScreenX = cx,
-                ScreenY = cy,
+                CatalogIndex = catIdx,
                 RA = obj.RA,
                 Dec = obj.Dec,
                 Color = color,
@@ -882,8 +852,95 @@ public static class OverlayEngine
                 LabelSlotHint = (int)((ulong)catIdx & 3),
             });
         }
+    }
 
-        return result;
+    /// <summary>
+    /// Phase B: project cached <see cref="OverlayCandidate"/>s into <see cref="OverlayItem"/>s
+    /// using the current view matrix + dpi. Cheap (no grid walk, no allocation of label lines
+    /// or priority scores) -- intended to run every frame even during active drag-pan.
+    /// </summary>
+    public static void ProjectSkyMapCandidatesInto(
+        IReadOnlyList<OverlayCandidate> candidates,
+        SkyMapState state,
+        RectF32 contentRect,
+        float dpiScale,
+        List<OverlayItem> output)
+    {
+        output.Clear();
+
+        if (candidates.Count == 0 || contentRect.Width <= 0 || contentRect.Height <= 0)
+        {
+            return;
+        }
+
+        var viewMatrix = state.CurrentViewMatrix;
+        var ppr = SkyMapProjection.PixelsPerRadian(contentRect.Height, state.FieldOfViewDeg);
+        var cxView = contentRect.X + contentRect.Width * 0.5f;
+        var cyView = contentRect.Y + contentRect.Height * 0.5f;
+        var arcminToPixels = (float)(ppr * Math.PI / (180.0 * 60.0));
+
+        foreach (var cand in candidates)
+        {
+            if (!SkyMapProjection.ProjectWithMatrix(cand.RA, cand.Dec, viewMatrix, ppr,
+                    cxView, cyView, out var screenX, out var screenY))
+            {
+                continue;
+            }
+
+            // Off-screen cull with generous margin -- for large shapes the centre
+            // may be far outside the viewport while the body still overlaps, so
+            // extend the margin by the on-screen semi-major axis.
+            var margin = 100f;
+            if (cand.Marker is OverlayCandidateMarker.Ellipse ellipseCand)
+            {
+                var shapeScreenPx = ellipseCand.SemiMajArcmin * arcminToPixels + 50f;
+                if (shapeScreenPx > margin) margin = shapeScreenPx;
+            }
+            if (screenX < contentRect.X - margin || screenX > contentRect.X + contentRect.Width + margin ||
+                screenY < contentRect.Y - margin || screenY > contentRect.Y + contentRect.Height + margin)
+            {
+                continue;
+            }
+
+            OverlayMarker marker;
+            switch (cand.Marker)
+            {
+                case OverlayCandidateMarker.Ellipse e:
+                {
+                    // PA via tangent-plane trick: project a small RA/Dec step and measure the
+                    // screen angle. Render at natural size even when tiny -- falling back to a
+                    // fixed-size circle creates visual noise at wide FOV.
+                    var semiMajPx = e.SemiMajArcmin * arcminToPixels;
+                    var semiMinPx = e.SemiMinArcmin * arcminToPixels;
+                    var paScreen = ComputeSkyMapScreenPA(cand.RA, cand.Dec, e.PositionAngle,
+                        viewMatrix, ppr, cxView, cyView);
+                    marker = new OverlayMarker.Ellipse(MathF.Max(semiMajPx, 1f), MathF.Max(semiMinPx, 0.5f), paScreen);
+                    break;
+                }
+                case OverlayCandidateMarker.Cross c:
+                    marker = new OverlayMarker.Cross(c.ArmPxAtDpi1 * dpiScale);
+                    break;
+                case OverlayCandidateMarker.Circle c:
+                    marker = new OverlayMarker.Circle(c.RadiusPxAtDpi1 * dpiScale);
+                    break;
+                default:
+                    continue;
+            }
+
+            output.Add(new OverlayItem
+            {
+                ScreenX = screenX,
+                ScreenY = screenY,
+                RA = cand.RA,
+                Dec = cand.Dec,
+                Color = cand.Color,
+                Marker = marker,
+                LabelLines = cand.LabelLines,
+                IsPinned = cand.IsPinned,
+                LabelPriority = cand.LabelPriority,
+                LabelSlotHint = cand.LabelSlotHint,
+            });
+        }
     }
 
     /// <summary>
