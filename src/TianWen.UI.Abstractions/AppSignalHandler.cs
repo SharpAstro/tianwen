@@ -714,6 +714,20 @@ namespace TianWen.UI.Abstractions
                 appState.NeedsRedraw = true;
             });
 
+            bus.Subscribe<SkyMapPinObjectSignal>(sig =>
+            {
+                var target = new Target(sig.RA, sig.Dec, sig.Name, sig.Index);
+                var transform = appState.ActiveProfile is { } prof
+                    ? TransformFactory.FromProfile(prof, _timeProvider, out _)
+                    : null;
+                var db = sp.GetRequiredService<ICelestialObjectDB>();
+                PlannerActions.TogglePinFromExternal(
+                    plannerState, db, transform, target, sig.ObjectType);
+                bus.Post(new SavePlannerSessionSignal());
+                skyMapState.NeedsRedraw = true;
+                appState.NeedsRedraw = true;
+            });
+
             bus.Subscribe<SkyMapClickSelectSignal>(sig =>
             {
                 var rect = skyMapState.LastContentRect;

@@ -5,26 +5,8 @@ using TianWen.Lib.Astrometry.Catalogs;
 namespace TianWen.UI.Abstractions;
 
 /// <summary>
-/// Tabs shown in the Stellarium-style sky-map search window.
-/// Phase 1 only wires up <see cref="Object"/>; later phases add the rest.
-/// </summary>
-public enum SkyMapSearchTab
-{
-    /// <summary>Catalog name / designation search (stars, DSOs, planets).</summary>
-    Object,
-    /// <summary>Live SIMBAD online lookup.</summary>
-    Simbad,
-    /// <summary>Manual RA/Dec coordinate entry.</summary>
-    Position,
-    /// <summary>Pinned targets and recent searches.</summary>
-    Lists,
-    /// <summary>Search filters and persistent toggles.</summary>
-    Options,
-}
-
-/// <summary>
-/// One row in the live-filtered Object-tab result list. Carries only what the
-/// renderer needs — the full <see cref="CelestialObject"/> is re-resolved on commit.
+/// One row in the live-filtered result list. Carries only what the renderer
+/// needs — the full <see cref="CelestialObject"/> is re-resolved on commit.
 /// </summary>
 public readonly record struct SkyMapSearchResult(
     string Display,
@@ -43,10 +25,7 @@ public class SkyMapSearchState
     /// <summary>True while the modal is open.</summary>
     public bool IsOpen { get; set; }
 
-    /// <summary>Currently visible tab.</summary>
-    public SkyMapSearchTab ActiveTab { get; set; } = SkyMapSearchTab.Object;
-
-    /// <summary>The search textbox (Object tab).</summary>
+    /// <summary>The search textbox.</summary>
     public TextInputState SearchInput { get; } = new() { Placeholder = "Type object name..." };
 
     /// <summary>
