@@ -26,22 +26,25 @@
 [CmdletBinding()]
 param(
     [int]$Width = 2048,
-    [float]$K = 10.0,
-    # Light blur on the luminance channel. Radiance is already continuous, so
-    # sigma ~1 preserves the fine dust-lane detail that strong extinction
-    # punches through. Only relevant when Tycho-2-only mode is used via
-    # -SkipRadiance (then bump to ~6 to hide salt-and-pepper).
-    [float]$BlurSigma = 1.0,
-    [float]$MinMag = 8.5,
-    [float]$Saturation = 2.0,
-    [float]$Brightness = 0.5,
-    [float]$ColorBlur = 6.0,
-    [float]$Warmth = 0.25,
-    [float]$DustReddening = 0.3,
-    # 1.0 = pure radiance, 0.0 = pure Tycho-2 density. 0.85 is a subtle
-    # Tycho-2 nudge that brings out where stellar bulk concentrates without
-    # introducing the salt-and-pepper.
-    [float]$LuminanceMix = 0.85,
+    # Defaults below are the winning parameters from tools/optimize_milkyway.cs
+    # at fitness 0.926 (region-aware GA vs Stellarium reference, pop=12 gens=15).
+    # See commit log and MilkyWayTextureBaker.cs for what each one does.
+    # Want the classic look? Pass explicit values, e.g. -K 10 -BlurSigma 1.0.
+    [float]$K = 11.80,
+    # Low BlurSigma keeps the radiance channel sharp (LMC/SMC rims, dust lanes
+    # around rho Oph). The baker internally floors Tycho-2's pre-blur at 3 px
+    # so low values here don't re-introduce per-star stippling.
+    [float]$BlurSigma = 0.30,
+    [float]$MinMag = 10.00,
+    [float]$Saturation = 3.20,
+    [float]$Brightness = 0.478,
+    [float]$ColorBlur = 2.64,
+    [float]$Warmth = 0.108,
+    [float]$DustReddening = 0.324,
+    # 1.0 = pure radiance, 0.0 = pure Tycho-2 density. 0.566 lets Tycho-2
+    # push the bulge + star-cloud density cues harder than the default
+    # Planck-dominated 0.85 would.
+    [float]$LuminanceMix = 0.566,
     [switch]$SkipRadiance,
     [switch]$SkipExtinction
 )
