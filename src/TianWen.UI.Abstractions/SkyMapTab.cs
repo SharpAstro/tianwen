@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Numerics;
 using DIR.Lib;
 using Microsoft.Extensions.Logging;
 using TianWen.Lib.Astrometry.Catalogs;
@@ -41,6 +42,32 @@ namespace TianWen.UI.Abstractions
         private float _contentWidth;
         private double _lastSiteLat = double.NaN;
         private double _lastSiteLon = double.NaN;
+
+        // Grid-label edge crossings are a pure f(viewMatrix, FOV, rect, fontSize).
+        // At narrow FOV this costs up to ~6700 CPU projections per frame
+        // (FindEdgeCrossing does 80 projection samples per gridline x dozens of
+        // gridlines). Cache the resolved label (x, y, w, h, text) tuples and
+        // rebuild only when any input changes.
+        private Matrix4x4 _gridLabelsViewKey;
+        private double _gridLabelsFovKey = -1.0;
+        private float _gridLabelsRectXKey;
+        private float _gridLabelsRectYKey;
+        private float _gridLabelsRectWKey;
+        private float _gridLabelsRectHKey;
+        private float _gridLabelsFontSizeKey;
+        private readonly List<(float X, float Y, float W, float H, string Label)> _gridLabelsCache = [];
+
+        // Constellation name placement is pure f(viewMatrix, FOV, rect, fontSize).
+        // ~88 projections + text-measurements per frame. Positions and widths
+        // are cached; horizon dimming is reapplied per-frame at draw time.
+        private Matrix4x4 _constellNamesViewKey;
+        private double _constellNamesFovKey = -1.0;
+        private float _constellNamesRectXKey;
+        private float _constellNamesRectYKey;
+        private float _constellNamesRectWKey;
+        private float _constellNamesRectHKey;
+        private float _constellNamesFontSizeKey;
+        private readonly List<(string Name, double RA, double Dec, float SX, float SY, float TextW)> _constellNamesCache = [];
 
         public void Render(
             PlannerState plannerState,
@@ -96,8 +123,11 @@ namespace TianWen.UI.Abstractions
                 State.NeedsRedraw = true;
             }
 
-            // Delegate pixel rendering to virtual method (overridden by VkSkyMapTab for GPU caching)
-            RenderSkyMap(db, contentRect, fontPath, viewingTime, siteLat, siteLon);
+            // Delegate pixel rendering to virtual method (overridden by VkSkyMapTab for GPU caching).
+            // Pass the already-built SiteContext so the override does not rebuild it — the two
+            // callers (this + VkSkyMapTab.RenderSkyMap) previously produced the same SiteContext
+            // from the same inputs on every frame.
+            RenderSkyMap(db, contentRect, fontPath, viewingTime, siteLat, siteLon, site);
 
             // Draw text overlays natively (GPU text rendering on top of cached texture)
             var ppr = SkyMapProjection.PixelsPerRadian(contentRect.Height, State.FieldOfViewDeg);
@@ -192,7 +222,7 @@ namespace TianWen.UI.Abstractions
         /// </summary>
         protected virtual void RenderSkyMap(
             ICelestialObjectDB db, RectF32 contentRect, string fontPath,
-            DateTimeOffset viewingTime, double siteLat, double siteLon)
+            DateTimeOffset viewingTime, double siteLat, double siteLon, SiteContext site)
         {
             double sunAltDeg = State.GetSunAltitudeDegCached(viewingTime, siteLat, siteLon);
             FillRect(contentRect.X, contentRect.Y, contentRect.Width, contentRect.Height,
@@ -208,6 +238,40 @@ namespace TianWen.UI.Abstractions
         private void DrawGridLabels(RectF32 rect, string fontPath, float fontSize, double ppr, float cx, float cy)
         {
             var fov = State.FieldOfViewDeg;
+            var viewMatrix = State.CurrentViewMatrix;
+
+            var cacheHit = viewMatrix.Equals(_gridLabelsViewKey)
+                && fov == _gridLabelsFovKey
+                && rect.X == _gridLabelsRectXKey
+                && rect.Y == _gridLabelsRectYKey
+                && rect.Width == _gridLabelsRectWKey
+                && rect.Height == _gridLabelsRectHKey
+                && fontSize == _gridLabelsFontSizeKey;
+
+            if (!cacheHit)
+            {
+                RebuildGridLabelsCache(rect, fontSize, ppr, cx, cy, fov);
+                _gridLabelsViewKey = viewMatrix;
+                _gridLabelsFovKey = fov;
+                _gridLabelsRectXKey = rect.X;
+                _gridLabelsRectYKey = rect.Y;
+                _gridLabelsRectWKey = rect.Width;
+                _gridLabelsRectHKey = rect.Height;
+                _gridLabelsFontSizeKey = fontSize;
+            }
+
+            foreach (var (x, y, w, h, label) in _gridLabelsCache)
+            {
+                DrawText(label.AsSpan(), fontPath,
+                    x, y, w, h,
+                    fontSize, GridLabelColor, TextAlign.Near, TextAlign.Near);
+            }
+        }
+
+        private void RebuildGridLabelsCache(RectF32 rect, float fontSize, double ppr, float cx, float cy, double fov)
+        {
+            _gridLabelsCache.Clear();
+
             var raStep = fov switch { < 5 => 0.5, < 15 => 1.0, < 40 => 2.0, < 90 => 3.0, _ => 6.0 };
             var decStep = fov switch { < 5 => 5.0, < 15 => 10.0, < 40 => 15.0, _ => 30.0 };
             var labelH = fontSize * 1.3f;
@@ -222,9 +286,7 @@ namespace TianWen.UI.Abstractions
                     // Place label near the edge crossing, offset inward
                     var textX = edge == Edge.Right ? lx - 45 : lx + margin;
                     var textY = edge == Edge.Bottom ? ly - labelH : ly + margin;
-                    DrawText(label.AsSpan(), fontPath,
-                        textX, textY, 50, labelH,
-                        fontSize, GridLabelColor, TextAlign.Near, TextAlign.Near);
+                    _gridLabelsCache.Add((textX, textY, 50, labelH, label));
                 }
             }
 
@@ -236,9 +298,7 @@ namespace TianWen.UI.Abstractions
                     var label = dec >= 0 ? $"+{dec:F0}\u00B0" : $"{dec:F0}\u00B0";
                     var textX = edge == Edge.Right ? lx - 45 : lx + margin;
                     var textY = edge == Edge.Bottom ? ly - labelH : ly + margin;
-                    DrawText(label.AsSpan(), fontPath,
-                        textX, textY, 50, labelH,
-                        fontSize, GridLabelColor, TextAlign.Near, TextAlign.Near);
+                    _gridLabelsCache.Add((textX, textY, 50, labelH, label));
                 }
             }
         }
@@ -367,6 +427,41 @@ namespace TianWen.UI.Abstractions
         private void DrawConstellationNames(RectF32 rect, string fontPath, float fontSize, double ppr, float cx, float cy,
             SiteContext site, bool dimBelowHorizon)
         {
+            var fov = State.FieldOfViewDeg;
+            var viewMatrix = State.CurrentViewMatrix;
+
+            var cacheHit = viewMatrix.Equals(_constellNamesViewKey)
+                && fov == _constellNamesFovKey
+                && rect.X == _constellNamesRectXKey
+                && rect.Y == _constellNamesRectYKey
+                && rect.Width == _constellNamesRectWKey
+                && rect.Height == _constellNamesRectHKey
+                && fontSize == _constellNamesFontSizeKey;
+
+            if (!cacheHit)
+            {
+                RebuildConstellationNamesCache(rect, fontPath, fontSize, ppr, cx, cy);
+                _constellNamesViewKey = viewMatrix;
+                _constellNamesFovKey = fov;
+                _constellNamesRectXKey = rect.X;
+                _constellNamesRectYKey = rect.Y;
+                _constellNamesRectWKey = rect.Width;
+                _constellNamesRectHKey = rect.Height;
+                _constellNamesFontSizeKey = fontSize;
+            }
+
+            foreach (var (name, ra, dec, sx, sy, tw) in _constellNamesCache)
+            {
+                var belowHorizon = dimBelowHorizon && !site.IsAboveHorizon(ra, dec);
+                DrawText(name.AsSpan(), fontPath,
+                    sx - tw * 0.5f, sy - fontSize * 0.5f, tw + 4, fontSize * 1.2f,
+                    fontSize, DimmedIf(ConstellNameColor, belowHorizon), TextAlign.Center, TextAlign.Center);
+            }
+        }
+
+        private void RebuildConstellationNamesCache(RectF32 rect, string fontPath, float fontSize, double ppr, float cx, float cy)
+        {
+            _constellNamesCache.Clear();
             foreach (var (_, avgRA, avgDec, name) in GetConstellationCentroids())
             {
                 if (SkyMapProjection.ProjectWithMatrix(avgRA, avgDec, State.CurrentViewMatrix,
@@ -375,10 +470,7 @@ namespace TianWen.UI.Abstractions
                     && sy >= rect.Y && sy < rect.Y + rect.Height)
                 {
                     var (tw, _) = Renderer.MeasureText(name, fontPath, fontSize);
-                    var belowHorizon = dimBelowHorizon && !site.IsAboveHorizon(avgRA, avgDec);
-                    DrawText(name.AsSpan(), fontPath,
-                        sx - tw * 0.5f, sy - fontSize * 0.5f, tw + 4, fontSize * 1.2f,
-                        fontSize, DimmedIf(ConstellNameColor, belowHorizon), TextAlign.Center, TextAlign.Center);
+                    _constellNamesCache.Add((name, avgRA, avgDec, sx, sy, tw));
                 }
             }
         }
@@ -389,18 +481,8 @@ namespace TianWen.UI.Abstractions
             SiteContext site, bool dimBelowHorizon)
         {
 
-            foreach (var planetIdx in SkyMapRenderer.PlanetIndices)
+            foreach (var (planetIdx, ra, dec) in State.GetPlanetPositionsCached(viewingTime))
             {
-                // J2000 RA/Dec — the sky map projects everything in J2000, so using the
-                // regular Reduce (which precesses to JNow + applies topocentric correction)
-                // would offset planets ~0.35 deg off the J2000 ecliptic line.
-                if (!TianWen.Lib.Astrometry.VSOP87.VSOP87a.ReduceJ2000(
-                    planetIdx, viewingTime,
-                    out var ra, out var dec, out _))
-                {
-                    continue;
-                }
-
                 if (SkyMapProjection.ProjectWithMatrix(ra, dec, State.CurrentViewMatrix,
                     ppr, cx, cy, out var sx, out var sy)
                     && sx >= rect.X && sx < rect.X + rect.Width

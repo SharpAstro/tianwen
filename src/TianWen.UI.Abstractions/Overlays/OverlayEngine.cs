@@ -666,11 +666,13 @@ public static class OverlayEngine
         // pop in/out as the user pans across them.
         var arcminToPixels = (float)(ppr * Math.PI / (180.0 * 60.0));
 
-        // Dark nebulae dominate wide-FOV overlays (there are hundreds of Barnard
-        // objects, many several degrees across). They only add useful detail at
-        // narrow FOV, so skip them when zoomed out. Keep the threshold matched to
-        // the mag cutoff breakpoints above (>5 deg = Messier-class only).
-        var hideDarkNebulae = state.FieldOfViewDeg > 10.0;
+        // Dark nebulae: once the companion *.shapes.json.lz files are loaded,
+        // Dobashi / Barnard / LDN / Ced all carry natural angular sizes. Filter
+        // them by on-screen pixel size instead of the old binary FOV>10 deg cut,
+        // which flickered a pile of labels in and out as touch zoom crossed the
+        // boundary. The threshold here is in continuous pixel space, so label
+        // appearance fades smoothly with zoom.
+        const float DarkNebulaMinOnScreenPx = 6f;
 
         var decStep = 1.0;
         var raStep = 1.0 / 15.0;
@@ -704,10 +706,42 @@ public static class OverlayEngine
                         continue;
                     }
 
-                    if (hideDarkNebulae && obj.ObjectType == ObjectType.DarkNeb
-                        && !(pinnedCatalogIndices is not null && obj.Index != default && pinnedCatalogIndices.Contains(obj.Index)))
+                    // Screen-size filter for DarkNeb: hide when on-screen size drops
+                    // below ~6 px (illegible anyway). Pinned planner targets bypass
+                    // this so the user always sees them. Entries without shape data
+                    // (e.g. Simbad NAME-only, no VizieR match) are hidden entirely —
+                    // they'd otherwise clutter wide views with placeholder circles.
+                    // Pin recognition has to cover obj.Index (canonical), catIdx (the
+                    // spatial-grid key we happened to enter on), AND any cross-refs —
+                    // otherwise a pinned target indexed under a different catalog
+                    // variant than the saved one would get filtered out here.
+                    var isPinnedEarly = false;
+                    if (pinnedCatalogIndices is not null)
                     {
-                        continue;
+                        if ((obj.Index != default && pinnedCatalogIndices.Contains(obj.Index))
+                            || pinnedCatalogIndices.Contains(catIdx))
+                        {
+                            isPinnedEarly = true;
+                        }
+                        else if (db.TryGetCrossIndices(catIdx, out var xrefs))
+                        {
+                            foreach (var x in xrefs)
+                            {
+                                if (pinnedCatalogIndices.Contains(x)) { isPinnedEarly = true; break; }
+                            }
+                        }
+                    }
+                    if (obj.ObjectType == ObjectType.DarkNeb && !isPinnedEarly)
+                    {
+                        if (!db.TryGetShape(catIdx, out var dnShape) || Half.IsNaN(dnShape.MajorAxis))
+                        {
+                            continue;
+                        }
+                        var dnScreenPx = (float)((double)dnShape.MajorAxis * arcminToPixels);
+                        if (dnScreenPx < DarkNebulaMinOnScreenPx)
+                        {
+                            continue;
+                        }
                     }
 
                     // Cross-catalog dedupe (e.g. HIP/HD/HR for the same star)
@@ -979,6 +1013,81 @@ public static class OverlayEngine
             // If all 4 rotations collided, the label is dropped (no force fallback).
             // Because sorted is priority-ordered, the dropped labels are always the
             // least important ones in a dense region — stable and principled.
+        }
+    }
+
+    /// <summary>
+    /// Stellarium-style best-effort label placement: each item is drawn at the
+    /// slot dictated by its <see cref="OverlayItem.LabelSlotHint"/> (a deterministic
+    /// function of the catalog index), with no inter-label collision check. Labels
+    /// that happen to overlap simply overlap — which is what Stellarium does. The
+    /// advantage is O(N) time and rock-stable placement under panning (the slot is
+    /// a function of the item alone, so it never reshuffles frame-to-frame).
+    /// </summary>
+    /// <remarks>
+    /// The FITS viewer keeps <see cref="PlaceLabels"/> because far fewer objects
+    /// are in frame and overlapping labels materially hurt readability there; on
+    /// the sky map, a full-FOV scan can return hundreds of candidates and the
+    /// O(N^2) collision scan dominates the overlay cost.
+    /// </remarks>
+    public static void PlaceLabelsBestEffort(
+        IReadOnlyList<OverlayItem> items,
+        float labelSize,
+        float labelPad,
+        Func<string, float, float> measureText,
+        Action<OverlayItem, float, float> drawLabelLines,
+        int maxLabels = MaxOverlayLabels)
+    {
+        var sorted = new List<OverlayItem>(items);
+        sorted.Sort((a, b) =>
+        {
+            var c = b.LabelPriority.CompareTo(a.LabelPriority);
+            return c != 0 ? c : a.LabelSlotHint.CompareTo(b.LabelSlotHint);
+        });
+
+        var labelCount = 0;
+        foreach (var item in sorted)
+        {
+            if (labelCount >= maxLabels || item.LabelLines.Count == 0)
+            {
+                break;
+            }
+
+            var maxLineW = 0f;
+            foreach (var line in item.LabelLines)
+            {
+                var w = measureText(line, labelSize);
+                if (w > maxLineW) maxLineW = w;
+            }
+            var lineH = labelSize * 1.2f;
+            var totalH = lineH * item.LabelLines.Count;
+
+            // Slot is a pure function of the catalog index (see OverlayItem.LabelSlotHint),
+            // so a given object always labels on the same side across frames.
+            var slot = item.LabelSlotHint & 3;
+            float lx, ly;
+            switch (slot)
+            {
+                case 1: // left
+                    lx = item.ScreenX - maxLineW - labelPad - 6f;
+                    ly = item.ScreenY - totalH / 2f;
+                    break;
+                case 2: // above
+                    lx = item.ScreenX - maxLineW / 2f;
+                    ly = item.ScreenY - totalH - labelPad - 6f;
+                    break;
+                case 3: // below
+                    lx = item.ScreenX - maxLineW / 2f;
+                    ly = item.ScreenY + labelPad + 6f;
+                    break;
+                default: // 0 = right
+                    lx = item.ScreenX + labelPad + 6f;
+                    ly = item.ScreenY - totalH / 2f;
+                    break;
+            }
+
+            drawLabelLines(item, lx, ly);
+            labelCount++;
         }
     }
 }
