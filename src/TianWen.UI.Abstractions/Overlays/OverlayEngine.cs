@@ -508,6 +508,7 @@ public static class OverlayEngine
                 LabelLines = lines,
                 LabelPriority = ComputeLabelPriority(obj, idx, db),
                 LabelSlotHint = (int)((ulong)idx & 3),
+                StableSortKey = (ulong)idx,
             });
         }
 
@@ -939,6 +940,7 @@ public static class OverlayEngine
                 IsPinned = cand.IsPinned,
                 LabelPriority = cand.LabelPriority,
                 LabelSlotHint = cand.LabelSlotHint,
+                StableSortKey = (ulong)cand.CatalogIndex,
             });
         }
     }
@@ -997,15 +999,18 @@ public static class OverlayEngine
         // Iterate in priority order (high -> low) so bright / named / large
         // objects claim their preferred slot first; lower-priority labels drop
         // silently when they collide. This produces stable placement under
-        // panning — priority is a function of the object alone, not of
+        // panning -- priority is a function of the object alone, not of
         // neighbours, so the relative order never flips frame-to-frame.
-        // Tiebreaker on the reference hash code of the item gives a
-        // deterministic order for exactly-equal priorities.
+        // Tiebreaker on StableSortKey (raw catalog-index bits) keeps equal-priority
+        // items in a deterministic order under List<T>.Sort (QuickSort is unstable).
+        // Without this, bright stars with matching priorities fought over the same
+        // label slot and one would flicker away each frame.
         var sorted = new List<OverlayItem>(items);
         sorted.Sort((a, b) =>
         {
             var c = b.LabelPriority.CompareTo(a.LabelPriority);
-            return c != 0 ? c : a.LabelSlotHint.CompareTo(b.LabelSlotHint);
+            if (c != 0) return c;
+            return a.StableSortKey.CompareTo(b.StableSortKey);
         });
 
         var placedLabels = new List<(float X, float Y, float W, float H)>();
@@ -1100,7 +1105,8 @@ public static class OverlayEngine
         sorted.Sort((a, b) =>
         {
             var c = b.LabelPriority.CompareTo(a.LabelPriority);
-            return c != 0 ? c : a.LabelSlotHint.CompareTo(b.LabelSlotHint);
+            if (c != 0) return c;
+            return a.StableSortKey.CompareTo(b.StableSortKey);
         });
 
         var labelCount = 0;

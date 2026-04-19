@@ -56,4 +56,14 @@ public sealed class OverlayItem
     /// 0 (right-of-marker), preserving the FITS viewer's original behaviour.
     /// </summary>
     public int LabelSlotHint { get; init; }
+
+    /// <summary>
+    /// Full-width stable tiebreaker for sort orderings keyed on <see cref="LabelPriority"/>.
+    /// Typically the raw catalog-index bits -- unique per object, deterministic across
+    /// frames. Without this the 2-bit <see cref="LabelSlotHint"/> is the only tiebreaker
+    /// and many bright stars at wide FOV end up ordering indeterminately under
+    /// <see cref="List{T}.Sort"/> (unstable QuickSort), which manifests as flickering
+    /// labels as the user pans.
+    /// </summary>
+    public ulong StableSortKey { get; init; }
 }
