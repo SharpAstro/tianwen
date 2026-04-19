@@ -5,6 +5,7 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using TianWen.Lib.Connections;
+using TianWen.Lib.Devices.Discovery;
 
 namespace TianWen.Lib.Devices.Skywatcher;
 
@@ -12,7 +13,7 @@ namespace TianWen.Lib.Devices.Skywatcher;
 /// Discovers Skywatcher mounts via serial port enumeration (115200/9600 baud probe)
 /// and WiFi UDP broadcast (:e1\r to 255.255.255.255:11880).
 /// </summary>
-internal class SkywatcherDeviceSource(IExternal external, ILogger<SkywatcherDeviceSource> logger) : IDeviceSource<SkywatcherDevice>
+internal class SkywatcherDeviceSource(IExternal external, ILogger<SkywatcherDeviceSource> logger, IPinnedSerialPortsProvider pinnedPortsProvider) : IDeviceSource<SkywatcherDevice>
 {
     private Dictionary<DeviceType, IReadOnlyList<SkywatcherDevice>> _cachedDevices = new();
 
@@ -31,7 +32,8 @@ internal class SkywatcherDeviceSource(IExternal external, ILogger<SkywatcherDevi
         try
         {
             using var resourceLock = await external.WaitForSerialPortEnumerationAsync(cancellationToken);
-            foreach (var portName in external.EnumerateAvailableSerialPorts(resourceLock))
+            var ports = pinnedPortsProvider.FilterUnpinned(external.EnumerateAvailableSerialPorts(resourceLock), logger);
+            foreach (var portName in ports)
             {
                 var device = await QuerySerialPortAsync(portName, cancellationToken);
                 if (device is not null)
