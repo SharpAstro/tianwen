@@ -177,10 +177,17 @@ internal sealed class EquipmentFieldItem : IRowFormatter
         var paddedLabel = SlotLabel!.Length > labelWidth ? SlotLabel[..(labelWidth - 1)] + "." : SlotLabel;
         var name = SlotDeviceName ?? "(none)";
 
-        // Reserve space for right-hand actions so the name never collides with them.
-        // "  [On][Off]  [>]" = 2 + 4 + 5 + 2 + 3 = 16 chars max; "  [>]" = 5 chars.
-        var rightReserve = IsSlotActive ? 18 : 6;
-        var nameWidth = Math.Max(4, width - 2 - labelWidth - 1 - rightReserve);
+        // Reserve space for the right-hand action strip so names never collide with
+        // it AND the trailing [>] lines up across rows regardless of whether the
+        // toggle strip is rendered. Breakdown:
+        //   " [On|Off] " -> 10 visible chars (always reserved; filled with spaces
+        //                   when the slot has no device assigned)
+        //   " [>]"        -> 4 visible chars
+        // Total: 14. Without this unified reserve the `[>]` column shifted by ~8
+        // chars between toggle rows and non-toggle rows.
+        const int TogglePadWidth = 10;
+        const int RightReserve = TogglePadWidth + 4;
+        var nameWidth = Math.Max(4, width - 2 - labelWidth - 1 - RightReserve);
         var paddedName = name.Length > nameWidth ? name[..(nameWidth - 1)] + "." : name.PadRight(nameWidth);
 
         // The outer row style is what StyleSegment must re-apply after each nested
@@ -210,7 +217,11 @@ internal sealed class EquipmentFieldItem : IRowFormatter
             offSeg = IsConnected ? StyleSegment("Off", colorMode, SgrColor.White, outerStyle) : StyleSegment("Off", colorMode, SgrColor.BrightRed, outerStyle);
         }
 
-        var toggleStrip = IsSlotActive ? $" [{onSeg}|{offSeg}] " : string.Empty;
+        // When there's no device assigned, emit TogglePadWidth spaces so the [>]
+        // lands in the same column as on active rows.
+        var toggleStrip = IsSlotActive
+            ? $" [{onSeg}|{offSeg}] "
+            : new string(' ', TogglePadWidth);
         var line = $"  {paddedLabel.PadRight(labelWidth)} {paddedName}{toggleStrip} [>]";
 
         // Pad the line to produce exactly `width` visible characters by adding
