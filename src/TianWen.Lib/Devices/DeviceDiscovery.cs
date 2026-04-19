@@ -10,7 +10,6 @@ using TianWen.Lib.Devices.Discovery;
 namespace TianWen.Lib.Devices;
 
 internal class DeviceDiscovery(
-    IExternal external,
     ILogger<DeviceDiscovery> logger,
     IEnumerable<IDeviceSource<DeviceBase>> deviceSources,
     ISerialProbeService serialProbeService) : IDeviceDiscovery
