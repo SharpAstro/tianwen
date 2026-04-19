@@ -40,6 +40,13 @@ internal partial class IOptronDeviceSource(IExternal external, ILogger<IOptronDe
 
     private async Task QueryPortAsync(Dictionary<DeviceType, List<IOptronDevice>> devices, string portName, CancellationToken cancellationToken)
     {
+        using var probeScope = logger.BeginScope(new Dictionary<string, object>
+        {
+            ["Port"] = portName,
+            ["Baud"] = IOptronDevice.SGP_BAUD_RATE,
+            ["Source"] = "iOptron",
+        });
+
         var ioTimeout = TimeSpan.FromMilliseconds(500);
         using var cts = new CancellationTokenSource(ioTimeout, timeProvider.System);
         var linkedToken = CancellationTokenSource.CreateLinkedTokenSource(cts.Token, cancellationToken).Token;
