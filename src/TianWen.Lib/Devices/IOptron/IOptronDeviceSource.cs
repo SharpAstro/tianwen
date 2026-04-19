@@ -6,10 +6,11 @@ using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using TianWen.Lib.Connections;
+using TianWen.Lib.Devices.Discovery;
 
 namespace TianWen.Lib.Devices.IOptron;
 
-internal partial class IOptronDeviceSource(IExternal external, ILogger<IOptronDeviceSource> logger, ITimeProvider timeProvider) : IDeviceSource<IOptronDevice>
+internal partial class IOptronDeviceSource(IExternal external, ILogger<IOptronDeviceSource> logger, ITimeProvider timeProvider, IPinnedSerialPortsProvider pinnedPortsProvider) : IDeviceSource<IOptronDevice>
 {
     private Dictionary<DeviceType, List<IOptronDevice>>? _cachedDevices;
 
@@ -22,8 +23,9 @@ internal partial class IOptronDeviceSource(IExternal external, ILogger<IOptronDe
         var devices = new Dictionary<DeviceType, List<IOptronDevice>>();
 
         using var resourceLock = await external.WaitForSerialPortEnumerationAsync(cancellationToken);
+        var ports = pinnedPortsProvider.FilterUnpinned(external.EnumerateAvailableSerialPorts(resourceLock), logger);
 
-        foreach (var portName in external.EnumerateAvailableSerialPorts(resourceLock))
+        foreach (var portName in ports)
         {
             try
             {

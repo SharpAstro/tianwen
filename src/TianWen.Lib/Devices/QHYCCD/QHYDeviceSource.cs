@@ -7,12 +7,13 @@ using System.Threading;
 using System.Threading.Tasks;
 using TianWen.DAL;
 using TianWen.Lib.Connections;
+using TianWen.Lib.Devices.Discovery;
 using QHYCCD.SDK;
 using static QHYCCD.SDK.QHYCamera;
 
 namespace TianWen.Lib.Devices.QHYCCD;
 
-internal class QHYDeviceSource(IExternal external, ILogger<QHYDeviceSource> logger) : IDeviceSource<QHYDevice>
+internal class QHYDeviceSource(IExternal external, ILogger<QHYDeviceSource> logger, IPinnedSerialPortsProvider pinnedPortsProvider) : IDeviceSource<QHYDevice>
 {
     static readonly Dictionary<DeviceType, bool> _supportedDeviceTypes = [];
     private readonly List<QHYDevice> _cameras = [];
@@ -68,8 +69,9 @@ internal class QHYDeviceSource(IExternal external, ILogger<QHYDeviceSource> logg
 
         // Phase 2: probe serial ports for standalone CFWs and QFOC focusers
         using var resourceLock = await external.WaitForSerialPortEnumerationAsync(cancellationToken);
+        var ports = pinnedPortsProvider.FilterUnpinned(external.EnumerateAvailableSerialPorts(resourceLock), logger);
 
-        foreach (var portName in external.EnumerateAvailableSerialPorts(resourceLock))
+        foreach (var portName in ports)
         {
             using var probeScope = logger.BeginScope(new Dictionary<string, object>
             {
