@@ -23,7 +23,8 @@ internal class AscomDeviceIterator : IDeviceSource<AscomDevice>
         using var hklm32 = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, RegistryView.Registry32);
 
         if (hklm32.OpenSubKey(string.Join('\\', "SOFTWARE", "ASCOM", "Platform"), false) is { } platformKey
-            && platformKey.GetValue("PlatformVersion") is string versionString and { Length: > 0 }
+            // Platform <= 6.x writes "PlatformVersion"; Platform 7.x renamed it to "Platform Version" (with a space).
+            && ((platformKey.GetValue("PlatformVersion") ?? platformKey.GetValue("Platform Version")) is string versionString and { Length: > 0 })
             && Version.TryParse(versionString, out var version)
         )
         {
