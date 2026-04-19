@@ -278,6 +278,112 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
         }
         """;
 
+    // ────────────────────────────────────────────────── Overlay ellipse (DSO markers)
+    //
+    // Instanced quads for DSO ellipse / circle markers. Positions are supplied in
+    // window-absolute pixels (output of SkyMapProjection.ProjectWithMatrix on the
+    // CPU), so the vertex shader only needs the UBO's viewportCenter / viewportSize
+    // to convert to NDC -- no view-matrix math, no projection.
+    //
+    // Replaces ~hundreds of individual VkOverlayShapes.DrawEllipse calls (each one
+    // vkCmdDraw + bounds rebuild) with a single instanced draw, and draws the
+    // ellipse correctly rotated (the old axis-aligned bounding-box path threw the
+    // position angle away).
+    //
+    // Per-instance vertex layout (stride = 40 bytes = 10 floats):
+    //   offset  0 : vec2  aCenter    screen pixel center (cx, cy)
+    //   offset  8 : vec2  aSize      semi-major, semi-minor pixel radii
+    //   offset 16 : float aAngle     rotation in radians (screen frame)
+    //   offset 20 : float aThickness stroke width in pixels
+    //   offset 24 : vec4  aColor     RGBA premultipliable
+    private const string OverlayEllipseVertexSource = """
+        #version 450
+
+        layout(location = 0) in vec2  aCorner;    // per-vertex unit quad, [-1, 1]
+        layout(location = 1) in vec2  aCenter;    // per-instance center (window px)
+        layout(location = 2) in vec2  aSize;      // per-instance semi-axes (px)
+        layout(location = 3) in float aAngle;     // per-instance rotation (radians)
+        layout(location = 4) in float aThickness; // per-instance stroke (px)
+        layout(location = 5) in vec4  aColor;     // per-instance color
+
+        layout(set = 0, binding = 0, std140) uniform SkyMapUBO {
+            mat4  viewMatrix;
+            vec2  viewportCenter;
+            float pixelsPerRadian;
+            float magnitudeLimit;
+            float fovDeg;
+            float sinLat;
+            vec2  viewportSize;
+            float cosLat;
+            float sinLST;
+            float cosLST;
+            int   horizonClip;
+        } ubo;
+
+        layout(location = 0) out vec2  vLocal;    // ellipse-local px (pre-rotation)
+        layout(location = 1) out vec2  vSize;     // pass semi-axes through
+        layout(location = 2) out float vThickness;
+        layout(location = 3) out vec4  vColor;
+
+        void main() {
+            // Pad the quad by thickness + 1 px so the ring SDF has antialias headroom.
+            float pad = max(aThickness * 0.75 + 1.0, 1.5);
+            vec2 expanded = aSize + vec2(pad);
+
+            vec2 local = aCorner * expanded;
+
+            // Rotate into screen frame
+            float cs = cos(aAngle);
+            float sn = sin(aAngle);
+            vec2 rotated = vec2(local.x * cs - local.y * sn,
+                                local.x * sn + local.y * cs);
+
+            vec2 screenPos = aCenter + rotated;
+
+            // Same NDC-from-absolute-pixel mapping as the star / line shaders.
+            gl_Position = vec4(
+                (screenPos.x - ubo.viewportCenter.x) / (ubo.viewportSize.x * 0.5),
+                (screenPos.y - ubo.viewportCenter.y) / (ubo.viewportSize.y * 0.5),
+                0.0, 1.0);
+
+            vLocal = local;
+            vSize = aSize;
+            vThickness = aThickness;
+            vColor = aColor;
+        }
+        """;
+
+    private const string OverlayEllipseFragmentSource = """
+        #version 450
+
+        layout(location = 0) in vec2  vLocal;
+        layout(location = 1) in vec2  vSize;
+        layout(location = 2) in float vThickness;
+        layout(location = 3) in vec4  vColor;
+
+        layout(location = 0) out vec4 FragColor;
+
+        void main() {
+            // Axis-aligned ellipse SDF: (x/a)^2 + (y/b)^2 = 1 on the boundary.
+            // Scale by the mean semi-axis to convert the normalised distance back
+            // to an approximate pixel distance from the ring -- good enough for
+            // typical DSO aspect ratios (eccentric shapes get a slightly uneven
+            // stroke, still visually clean at overlay marker sizes).
+            vec2 s = max(vSize, vec2(0.5));
+            vec2 n = vLocal / s;
+            float normDist = sqrt(dot(n, n));
+            float avgR = (s.x + s.y) * 0.5;
+            float pixelDist = abs(normDist - 1.0) * avgR;
+
+            float halfT = max(vThickness * 0.5, 0.5);
+            // Antialiased ring: full alpha inside halfT, fade to 0 over 1 px.
+            float alpha = 1.0 - smoothstep(halfT, halfT + 1.0, pixelDist);
+            if (alpha < 0.01) discard;
+
+            FragColor = vec4(vColor.rgb * alpha, vColor.a * alpha);
+        }
+        """;
+
     // Full-screen quad vertex shader (no vertex input, generates 2 triangles from gl_VertexIndex)
     private const string HorizonFillVertexSource = """
         #version 450
@@ -470,6 +576,7 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
     private VkPipeline _linePipeline;
     private VkPipeline _horizonFillPipeline;
     private VkPipeline _milkyWayPipeline;
+    private VkPipeline _overlayEllipsePipeline;
 
     // Milky Way texture (loaded from disk, may be null if file not present).
     // Uses VkTexture which owns its own descriptor set from the global pool.
@@ -900,6 +1007,57 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
         var offset = (ulong)byteOffset;
         api.vkCmdBindVertexBuffers(cmd, 0, 1, &buf, &offset);
         api.vkCmdDraw(cmd, vertexCount, 1, 0, 0);
+    }
+
+    /// <summary>
+    /// Draws <paramref name="instanceCount"/> DSO overlay ellipses from an instance buffer
+    /// that the caller has populated via <c>ctx.WriteVertices</c>. Each instance is 10
+    /// floats (see <c>OverlayEllipseVertexSource</c>). Binds its own viewport/scissor
+    /// to the sky-map content rect so the NDC math in the vertex shader lines up with
+    /// the UBO's viewportCenter / viewportSize.
+    /// </summary>
+    /// <remarks>
+    /// Callers should restore the full-window viewport after this draw if subsequent
+    /// rendering (e.g. text labels through <c>VkRenderer</c>) expects the default.
+    /// </remarks>
+    public void DrawOverlayEllipses(
+        VkCommandBuffer cmd,
+        float offsetX, float offsetY, float viewportWidth, float viewportHeight,
+        VkBuffer instanceBuffer, uint instanceByteOffset, uint instanceCount)
+    {
+        if (instanceCount == 0 || _overlayEllipsePipeline == VkPipeline.Null)
+        {
+            return;
+        }
+
+        var api = _ctx.DeviceApi;
+
+        VkViewport vp = new()
+        {
+            x = offsetX, y = offsetY,
+            width = viewportWidth, height = viewportHeight,
+            minDepth = 0f, maxDepth = 1f
+        };
+        VkRect2D scissor = new(new VkOffset2D((int)offsetX, (int)offsetY),
+            new VkExtent2D((uint)viewportWidth, (uint)viewportHeight));
+        api.vkCmdSetViewport(cmd, 0, 1, &vp);
+        api.vkCmdSetScissor(cmd, 0, 1, &scissor);
+
+        api.vkCmdBindPipeline(cmd, VkPipelineBindPoint.Graphics, _overlayEllipsePipeline);
+
+        var uboSet = _uboSets[_currentUboFrame];
+        api.vkCmdBindDescriptorSets(cmd, VkPipelineBindPoint.Graphics, _pipelineLayout,
+            0, 1, &uboSet, 0, null);
+
+        var buffers = stackalloc VkBuffer[2];
+        buffers[0] = _quadBuffer;
+        buffers[1] = instanceBuffer;
+        var offsets = stackalloc ulong[2];
+        offsets[0] = 0;
+        offsets[1] = instanceByteOffset;
+        api.vkCmdBindVertexBuffers(cmd, 0, 2, buffers, offsets);
+
+        api.vkCmdDraw(cmd, 6, instanceCount, 0, 0);
     }
 
     // ────────────────────────────────────────────────── Geometry builders
@@ -1647,6 +1805,57 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
 
             _ctx.DeviceApi.vkDestroyShaderModule(mwVertModule);
             _ctx.DeviceApi.vkDestroyShaderModule(mwFragModule);
+
+            // ── Overlay ellipse pipeline: instanced quads with ring SDF ──
+            // Binding 0: quad corners (per-vertex, same buffer as star pipeline), stride 8
+            // Binding 1: ellipse instance data (per-instance), stride 40 bytes
+            var ovVertModule = CompileShaderModule(compiler, OverlayEllipseVertexSource, "skymap_overlay.vert", ShaderKind.VertexShader);
+            var ovFragModule = CompileShaderModule(compiler, OverlayEllipseFragmentSource, "skymap_overlay.frag", ShaderKind.FragmentShader);
+
+            var ovBindings = stackalloc VkVertexInputBindingDescription[2];
+            ovBindings[0] = new VkVertexInputBindingDescription
+            {
+                binding = 0, stride = 2 * sizeof(float), inputRate = VkVertexInputRate.Vertex
+            };
+            ovBindings[1] = new VkVertexInputBindingDescription
+            {
+                binding = 1, stride = 10 * sizeof(float), inputRate = VkVertexInputRate.Instance
+            };
+
+            var ovAttrs = stackalloc VkVertexInputAttributeDescription[6];
+            ovAttrs[0] = new VkVertexInputAttributeDescription // aCorner
+            {
+                location = 0, binding = 0, format = VkFormat.R32G32Sfloat, offset = 0
+            };
+            ovAttrs[1] = new VkVertexInputAttributeDescription // aCenter
+            {
+                location = 1, binding = 1, format = VkFormat.R32G32Sfloat, offset = 0
+            };
+            ovAttrs[2] = new VkVertexInputAttributeDescription // aSize
+            {
+                location = 2, binding = 1, format = VkFormat.R32G32Sfloat, offset = 2 * sizeof(float)
+            };
+            ovAttrs[3] = new VkVertexInputAttributeDescription // aAngle
+            {
+                location = 3, binding = 1, format = VkFormat.R32Sfloat, offset = 4 * sizeof(float)
+            };
+            ovAttrs[4] = new VkVertexInputAttributeDescription // aThickness
+            {
+                location = 4, binding = 1, format = VkFormat.R32Sfloat, offset = 5 * sizeof(float)
+            };
+            ovAttrs[5] = new VkVertexInputAttributeDescription // aColor
+            {
+                location = 5, binding = 1, format = VkFormat.R32G32B32A32Sfloat, offset = 6 * sizeof(float)
+            };
+
+            _overlayEllipsePipeline = CreateGraphicsPipeline(
+                ovVertModule, ovFragModule,
+                ovBindings, 2, ovAttrs, 6,
+                VkPrimitiveTopology.TriangleList,
+                additive: false);
+
+            _ctx.DeviceApi.vkDestroyShaderModule(ovVertModule);
+            _ctx.DeviceApi.vkDestroyShaderModule(ovFragModule);
         }
         finally
         {
@@ -1831,6 +2040,7 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
         if (_starPipeline != VkPipeline.Null) api.vkDestroyPipeline(_starPipeline);
         if (_linePipeline != VkPipeline.Null) api.vkDestroyPipeline(_linePipeline);
         if (_horizonFillPipeline != VkPipeline.Null) api.vkDestroyPipeline(_horizonFillPipeline);
+        if (_overlayEllipsePipeline != VkPipeline.Null) api.vkDestroyPipeline(_overlayEllipsePipeline);
 
         // Pipeline layout
         if (_pipelineLayout != VkPipelineLayout.Null) api.vkDestroyPipelineLayout(_pipelineLayout);
