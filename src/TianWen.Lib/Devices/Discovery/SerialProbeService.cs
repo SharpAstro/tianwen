@@ -10,13 +10,24 @@ using TianWen.Lib.Connections;
 namespace TianWen.Lib.Devices.Discovery;
 
 /// <summary>
+/// Two-stage serial-port discovery:
+/// <list type="number">
+///   <item><b>Verify</b> — for each <see cref="PinnedSerialPort"/> pair from
+///         <see cref="IPinnedSerialPortsProvider"/>, open just that port and run only the
+///         probes whose <see cref="ISerialProbe.MatchesDeviceHosts"/> contain the pinned
+///         URI's host. If a match's identity (scheme + host + path) lines up with the
+///         pinned URI, the port is confirmed still-in-place — published and excluded
+///         from Stage 2. If verification fails (no matching probe, timeout, or identity
+///         mismatch), the port stays in the Stage 2 pool so a cable-swap can be
+///         auto-recovered by the general probe pass.</item>
+///   <item><b>General probe</b> — every registered probe runs against every
+///         non-verified port, grouped by baud (port opened once per baud) and
+///         parallelised across ports.</item>
+/// </list>
 /// Implementation notes:
 /// <list type="bullet">
-///   <item>Each port is processed in its own <see cref="Parallel.ForEachAsync"/> iteration.
-///         Within a port, baud groups are handled sequentially (close between bauds — the
-///         BCL <c>SerialPort</c> baud change while-open is flaky on some USB-serial drivers).</item>
-///   <item>Within a baud group, probes run sequentially on a shared open handle. This is
-///         the key cost saving vs the legacy "each source opens its own port" model.</item>
+///   <item>Within a baud group, probes run sequentially on a shared open handle — the
+///         key cost saving vs the legacy "each source opens its own port" model.</item>
 ///   <item>Per-attempt timeout is implemented via a linked <see cref="CancellationTokenSource"/>;
 ///         <see cref="OperationCanceledException"/> is caught only when the *inner* token
 ///         fired (probe timed out) — outer cancellation always rethrows.</item>
@@ -57,32 +68,130 @@ internal sealed class SerialProbeService(
             ports = external.EnumerateAvailableSerialPorts(portLock);
         }
 
-        var enumeratedCount = ports.Count;
-        ports = pinnedPortsProvider.FilterUnpinned(ports, logger);
+        var pinned = pinnedPortsProvider.GetPinnedPorts();
 
-        logger.LogDebug("Enumerated {EnumeratedCount} serial port(s) ({UnpinnedCount} after pinned filter); {ProbeCount} probe(s) registered.",
-            enumeratedCount, ports.Count, _probes.Length);
+        logger.LogDebug("Enumerated {PortCount} serial port(s); {ProbeCount} probe(s) registered; {PinnedCount} pinned.",
+            ports.Count, _probes.Length, pinned.Count);
 
         if (ports.Count == 0)
         {
             return;
         }
 
-        var parallelism = Math.Min(MaxPortParallelism, ports.Count);
+        // Stage 1: verify pinned ports still hold their expected device.
+        var verifiedPorts = await VerifyPinnedPortsAsync(ports, pinned, cancellationToken);
+
+        // Stage 2: general probing on every port not verified in Stage 1.
+        var portsToProbe = verifiedPorts.Count == 0
+            ? ports
+            : ports.Where(p => !verifiedPorts.Contains(p)).ToArray();
+
+        if (portsToProbe.Count == 0)
+        {
+            return;
+        }
+
+        var parallelism = Math.Min(MaxPortParallelism, portsToProbe.Count);
         await Parallel.ForEachAsync(
-            ports,
+            portsToProbe,
             new ParallelOptions { CancellationToken = cancellationToken, MaxDegreeOfParallelism = parallelism },
-            async (port, ct) => await ProbePortAsync(port, ct));
+            async (port, ct) => await ProbePortAsync(port, probesToRun: _probes, ct));
     }
 
-    private async ValueTask ProbePortAsync(string port, CancellationToken cancellationToken)
+    /// <summary>
+    /// Stage 1 of the algorithm: for every pinned <c>(port, expected URI)</c> pair, run
+    /// the subset of registered probes that can verify that URI's device family. Ports
+    /// whose handshake comes back with the expected identity are excluded from the
+    /// general probe pass (and their match is published). Everything else — including
+    /// ports whose family has no registered probe yet — stays in the general pool.
+    /// </summary>
+    private async ValueTask<HashSet<string>> VerifyPinnedPortsAsync(
+        IReadOnlyList<string> enumeratedPorts,
+        IReadOnlyList<PinnedSerialPort> pinned,
+        CancellationToken cancellationToken)
+    {
+        var verified = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (pinned.Count == 0 || _probes.Length == 0) return verified;
+
+        // Only verify pinned ports that are actually present in this enumeration —
+        // a stale pin (cable unplugged, port number shifted) is nothing to verify.
+        var enumeratedSet = new HashSet<string>(enumeratedPorts, StringComparer.OrdinalIgnoreCase);
+        var candidates = pinned.Where(p => enumeratedSet.Contains(p.Port)).ToArray();
+        if (candidates.Length == 0) return verified;
+
+        var verifyLock = new object();
+        var parallelism = Math.Min(MaxPortParallelism, candidates.Length);
+
+        await Parallel.ForEachAsync(
+            candidates,
+            new ParallelOptions { CancellationToken = cancellationToken, MaxDegreeOfParallelism = parallelism },
+            async (entry, ct) =>
+            {
+                using var portScope = logger.BeginScope(new Dictionary<string, object>
+                {
+                    ["Port"] = entry.Port,
+                    ["Stage"] = "Verify",
+                });
+
+                var matchingProbes = _probes
+                    .Where(p => p.MatchesDeviceHosts.Contains(entry.ExpectedUri.Host, StringComparer.OrdinalIgnoreCase))
+                    .ToArray();
+
+                if (matchingProbes.Length == 0)
+                {
+                    logger.LogDebug("No registered probe can verify {ExpectedUri} — port falls through to general probing.",
+                        entry.ExpectedUri);
+                    return;
+                }
+
+                // Run family-scoped probes on the pinned port, grouped by baud.
+                // If any publishes a match whose identity lines up with the pinned URI,
+                // the port is verified and skipped from Stage 2.
+                await ProbePortAsync(
+                    entry.Port,
+                    probesToRun: matchingProbes,
+                    ct,
+                    onMatch: match =>
+                    {
+                        if (!IdentityMatches(match.DeviceUri, entry.ExpectedUri))
+                        {
+                            logger.LogInformation("Port {Port} responded but identity changed: expected {Expected}, got {Actual} — will rediscover in Stage 2.",
+                                entry.Port, entry.ExpectedUri, match.DeviceUri);
+                            return false;
+                        }
+
+                        lock (verifyLock) verified.Add(entry.Port);
+                        logger.LogInformation("Verified pinned device at {Port}: {Uri}", entry.Port, match.DeviceUri);
+                        return true;
+                    });
+            });
+
+        return verified;
+    }
+
+    /// <summary>
+    /// Two device URIs represent the same device when their scheme (device type), host
+    /// (device source) and path (stable device id) align. Query (port, filter offsets,
+    /// user-edited site) is deliberately ignored — cable movement and user edits drift
+    /// the query, but the identity stays put.
+    /// </summary>
+    private static bool IdentityMatches(Uri a, Uri b)
+        => string.Equals(a.Scheme, b.Scheme, StringComparison.OrdinalIgnoreCase)
+           && string.Equals(a.Host, b.Host, StringComparison.OrdinalIgnoreCase)
+           && string.Equals(a.AbsolutePath, b.AbsolutePath, StringComparison.OrdinalIgnoreCase);
+
+    private async ValueTask ProbePortAsync(
+        string port,
+        IReadOnlyList<ISerialProbe> probesToRun,
+        CancellationToken cancellationToken,
+        Func<SerialProbeMatch, bool>? onMatch = null)
     {
         using var portScope = logger.BeginScope(new Dictionary<string, object> { ["Port"] = port });
 
         // Group by baud rate so each distinct baud opens the port exactly once.
         // Order: most common bauds first (9600) so LX200-style protocols dominate the
         // critical path; rare bauds (28800 iOptron) run after.
-        var baudGroups = _probes
+        var baudGroups = probesToRun
             .GroupBy(p => p.BaudRate)
             .OrderBy(g => BaudSortOrder(g.Key))
             .ThenBy(g => g.Key);
@@ -90,11 +199,15 @@ internal sealed class SerialProbeService(
         foreach (var baudGroup in baudGroups)
         {
             if (cancellationToken.IsCancellationRequested) return;
-            await ProbeBaudGroupAsync(port, baudGroup, cancellationToken);
+            await ProbeBaudGroupAsync(port, baudGroup, cancellationToken, onMatch);
         }
     }
 
-    private async ValueTask ProbeBaudGroupAsync(string port, IGrouping<int, ISerialProbe> baudGroup, CancellationToken cancellationToken)
+    private async ValueTask ProbeBaudGroupAsync(
+        string port,
+        IGrouping<int, ISerialProbe> baudGroup,
+        CancellationToken cancellationToken,
+        Func<SerialProbeMatch, bool>? onMatch)
     {
         var baud = baudGroup.Key;
         using var baudScope = logger.BeginScope(new Dictionary<string, object> { ["Baud"] = baud });
@@ -129,7 +242,7 @@ internal sealed class SerialProbeService(
             foreach (var probe in probesToRun)
             {
                 if (cancellationToken.IsCancellationRequested) return;
-                await RunSingleProbeAsync(port, probe, conn, cancellationToken);
+                await RunSingleProbeAsync(probe, conn, cancellationToken, onMatch);
             }
         }
         finally
@@ -140,7 +253,11 @@ internal sealed class SerialProbeService(
         }
     }
 
-    private async ValueTask RunSingleProbeAsync(string port, ISerialProbe probe, ISerialConnection conn, CancellationToken cancellationToken)
+    private async ValueTask RunSingleProbeAsync(
+        ISerialProbe probe,
+        ISerialConnection conn,
+        CancellationToken cancellationToken,
+        Func<SerialProbeMatch, bool>? onMatch)
     {
         using var probeScope = logger.BeginScope(new Dictionary<string, object> { ["Probe"] = probe.Name });
 
@@ -154,8 +271,15 @@ internal sealed class SerialProbeService(
                 var match = await probe.ProbeAsync(conn, cts.Token);
                 if (match is not null)
                 {
-                    PublishMatch(probe.Name, match);
-                    logger.LogInformation("Match → {DeviceUri}", match.DeviceUri);
+                    // onMatch is the verification gate: returns true to publish, false to
+                    // discard (identity mismatch). In the general pass, onMatch is null,
+                    // so all matches are published unconditionally.
+                    var publish = onMatch?.Invoke(match) ?? true;
+                    if (publish)
+                    {
+                        PublishMatch(probe.Name, match);
+                        logger.LogInformation("Match → {DeviceUri}", match.DeviceUri);
+                    }
                     return;
                 }
 

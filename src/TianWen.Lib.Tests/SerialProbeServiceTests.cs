@@ -18,8 +18,9 @@ namespace TianWen.Lib.Tests;
 
 /// <summary>
 /// Unit tests for <see cref="SerialProbeService"/>. Scenarios focus on scheduling
-/// (per-port × per-baud), result publishing, timeout handling, and exclusivity —
-/// not on real wire protocols (those are covered by source-specific probe tests).
+/// (per-port × per-baud), result publishing, timeout handling, exclusivity, and the
+/// two-tier pinned-port verify-then-fall-through algorithm — not on real wire
+/// protocols (those are covered by source-specific probe tests).
 /// </summary>
 public class SerialProbeServiceTests(ITestOutputHelper output)
 {
@@ -197,50 +198,120 @@ public class SerialProbeServiceTests(ITestOutputHelper output)
             await service.ProbeAllAsync(cts.Token));
     }
 
+    // -- Two-tier (verify + general) pinned-port algorithm -------------------
+
     [Fact]
-    public async Task WithPinnedPortTheProbeServiceSkipsItEntirely()
+    public async Task WithPinnedPortAndMatchingIdentityStage1VerifiesAndSkipsStage2()
     {
+        // Pinned OnStep is still on COM5 — Stage 1 confirms, Stage 2 skips the port.
         var external = new ProbeTestExternal { Ports = ["serial:COM5", "serial:COM6"] };
-        var probe = StubProbe.Sync("AllMatch", baud: 9600,
-            match: (port, _) => new SerialProbeMatch(port, new Uri($"Mount://FakeDevice/{port.Replace(':', '_')}")));
-        var pinned = new StubPinnedPortsProvider("serial:COM5");
+        var probe = StubProbe.Sync("OnStep", baud: 9600,
+            match: (port, _) => new SerialProbeMatch(port, new Uri($"Mount://OnStepDevice/stable-id#OnStep on {port}")),
+            matchesDeviceHosts: ["OnStepDevice"]);
+        var pinned = new StubPinnedPortsProvider(
+            new PinnedSerialPort("serial:COM5", new Uri("Mount://OnStepDevice/stable-id?port=COM5")));
 
         var service = BuildService(external, output, pinned, probe);
         await service.ProbeAllAsync(TestContext.Current.CancellationToken);
 
-        external.OpenCalls.Count.ShouldBe(1, "pinned COM5 must be skipped — only COM6 opened");
-        external.OpenCalls.First().Port.ShouldBe("serial:COM6");
-        service.ResultsFor("AllMatch").ShouldHaveSingleItem();
+        // COM5 opened once for verification (Stage 1), COM6 opened once for general probing (Stage 2).
+        external.OpenCalls.Count.ShouldBe(2);
+        service.ResultsFor("OnStep").Count.ShouldBe(2, "both ports matched the OnStep probe");
+        service.ResultsFor("OnStep").ShouldContain(m => m.Port == "serial:COM5");
+        service.ResultsFor("OnStep").ShouldContain(m => m.Port == "serial:COM6");
     }
 
     [Fact]
-    public async Task WithPinnedPortMatchingIsCaseInsensitive()
+    public async Task WithCableSwapBothDevicesStillDiscoveredViaStage2Fallback()
     {
+        // Two pinned devices — OnStep@COM5, Meade@COM6. User swapped cables so OnStep
+        // is now on COM6, Meade on COM5. Stage 1 verification fails on both pins
+        // (identity mismatch) — ports fall through to Stage 2, which probes with every
+        // registered probe and discovers the true current assignment.
+        var external = new ProbeTestExternal { Ports = ["serial:COM5", "serial:COM6"] };
+
+        var onStep = StubProbe.Sync("OnStep", baud: 9600,
+            match: (port, _) => port == "serial:COM6"
+                ? new SerialProbeMatch(port, new Uri("Mount://OnStepDevice/onstep-id"))
+                : null,
+            matchesDeviceHosts: ["OnStepDevice"]);
+        var meade = StubProbe.Sync("Meade", baud: 9600,
+            match: (port, _) => port == "serial:COM5"
+                ? new SerialProbeMatch(port, new Uri("Mount://MeadeDevice/meade-id"))
+                : null,
+            matchesDeviceHosts: ["MeadeDevice"]);
+
+        var pinned = new StubPinnedPortsProvider(
+            new PinnedSerialPort("serial:COM5", new Uri("Mount://OnStepDevice/onstep-id?port=COM5")),
+            new PinnedSerialPort("serial:COM6", new Uri("Mount://MeadeDevice/meade-id?port=COM6")));
+
+        var service = BuildService(external, output, pinned, onStep, meade);
+        await service.ProbeAllAsync(TestContext.Current.CancellationToken);
+
+        service.ResultsFor("OnStep").ShouldHaveSingleItem().Port.ShouldBe("serial:COM6",
+            "cable swap: OnStep found on the other port via Stage 2");
+        service.ResultsFor("Meade").ShouldHaveSingleItem().Port.ShouldBe("serial:COM5",
+            "cable swap: Meade found on the other port via Stage 2");
+    }
+
+    [Fact]
+    public async Task WithPinnedPortAndNoMatchingProbeFallsThroughToStage2()
+    {
+        // Profile pins a device family whose probe isn't registered yet (pre-migration state).
+        // Verification is impossible → port must still be probed in Stage 2 by whatever
+        // probes are registered.
         var external = new ProbeTestExternal { Ports = ["serial:COM5"] };
-        var probe = StubProbe.Sync("AllMatch", baud: 9600,
-            match: (port, _) => new SerialProbeMatch(port, new Uri("Mount://FakeDevice/cool")));
-        // Pinned set uses lowercase — must still match the mixed-case enumerated form.
-        var pinned = new StubPinnedPortsProvider("serial:com5");
+        var probe = StubProbe.Sync("RegisteredProbe", baud: 9600,
+            match: (port, _) => new SerialProbeMatch(port, new Uri("Focuser://OtherDevice/x")),
+            matchesDeviceHosts: ["OtherDevice"]);
+        var pinned = new StubPinnedPortsProvider(
+            new PinnedSerialPort("serial:COM5", new Uri("Mount://UnknownDevice/lost-device?port=COM5")));
 
         var service = BuildService(external, output, pinned, probe);
         await service.ProbeAllAsync(TestContext.Current.CancellationToken);
 
-        external.OpenCalls.ShouldBeEmpty("case-insensitive match must skip the only port");
+        service.ResultsFor("RegisteredProbe").ShouldHaveSingleItem("Stage 2 ran on the pinned port because Stage 1 couldn't verify");
     }
 
     [Fact]
-    public async Task WithPinnedPortNotEnumeratedOtherPortsStillProbed()
+    public async Task WithPinnedPortAndIdentityMismatchProbeDoesNotPublishFromStage1()
     {
-        // User moved the cable — pinned port no longer exists. Other ports must still probe.
-        var external = new ProbeTestExternal { Ports = ["serial:COM5", "serial:COM6"] };
-        var probe = StubProbe.Sync("AllMatch", baud: 9600,
-            match: (port, _) => new SerialProbeMatch(port, new Uri($"Mount://FakeDevice/{port.Replace(':', '_')}")));
-        var pinned = new StubPinnedPortsProvider("serial:COM99");
+        // Pinned URI says OnStep/id-A at COM5 — but COM5 now reports OnStep/id-B.
+        // Stage 1: probe matches the family (OnStep) but identity differs → no publish,
+        // port falls through. Stage 2 probes COM5 again with the full probe set; the
+        // OnStep probe now matches and publishes once — total of ONE published match.
+        var external = new ProbeTestExternal { Ports = ["serial:COM5"] };
+        var probe = StubProbe.Sync("OnStep", baud: 9600,
+            match: (port, _) => new SerialProbeMatch(port, new Uri("Mount://OnStepDevice/id-B")),
+            matchesDeviceHosts: ["OnStepDevice"]);
+        var pinned = new StubPinnedPortsProvider(
+            new PinnedSerialPort("serial:COM5", new Uri("Mount://OnStepDevice/id-A?port=COM5")));
 
         var service = BuildService(external, output, pinned, probe);
         await service.ProbeAllAsync(TestContext.Current.CancellationToken);
 
-        external.OpenCalls.Count.ShouldBe(2, "stale pin — still probe everything available");
+        var results = service.ResultsFor("OnStep");
+        results.Count.ShouldBe(1, "Stage 1 identity mismatch discards, Stage 2 republishes exactly once");
+        results[0].DeviceUri.AbsolutePath.ShouldBe("/id-B");
+    }
+
+    [Fact]
+    public async Task WithPinnedPortNotEnumeratedSkipsVerificationAndProbesTheRest()
+    {
+        // Stale pin — COM99 doesn't exist in this enumeration. Verification ignores
+        // missing ports and the real ports probe normally.
+        var external = new ProbeTestExternal { Ports = ["serial:COM5", "serial:COM6"] };
+        var probe = StubProbe.Sync("AllMatch", baud: 9600,
+            match: (port, _) => new SerialProbeMatch(port, new Uri($"Mount://FakeDevice/{port.Replace(':', '_')}")),
+            matchesDeviceHosts: ["FakeDevice"]);
+        var pinned = new StubPinnedPortsProvider(
+            new PinnedSerialPort("serial:COM99", new Uri("Mount://FakeDevice/ghost?port=COM99")));
+
+        var service = BuildService(external, output, pinned, probe);
+        await service.ProbeAllAsync(TestContext.Current.CancellationToken);
+
+        external.OpenCalls.Count.ShouldBe(2, "stale pin ignored — COM5 + COM6 probed normally");
+        service.ResultsFor("AllMatch").Count.ShouldBe(2);
     }
 
     // ---- helpers -----------------------------------------------------------
@@ -255,10 +326,10 @@ public class SerialProbeServiceTests(ITestOutputHelper output)
         return new SerialProbeService(external, logger, probes, pinnedProvider);
     }
 
-    private sealed class StubPinnedPortsProvider(params string[] pinned) : IPinnedSerialPortsProvider
+    private sealed class StubPinnedPortsProvider(params PinnedSerialPort[] pinned) : IPinnedSerialPortsProvider
     {
         public static readonly StubPinnedPortsProvider Empty = new();
-        public IReadOnlySet<string> GetPinnedPorts() => new HashSet<string>(pinned, StringComparer.OrdinalIgnoreCase);
+        public IReadOnlyList<PinnedSerialPort> GetPinnedPorts() => pinned;
     }
 
     private sealed class ProbeTestExternal : FakeExternal
@@ -295,7 +366,8 @@ public class SerialProbeServiceTests(ITestOutputHelper output)
         Func<string, CancellationToken, ValueTask<SerialProbeMatch?>> match,
         TimeSpan? budget = null,
         int maxAttempts = 1,
-        ProbeExclusivity exclusivity = ProbeExclusivity.Shared) : ISerialProbe
+        ProbeExclusivity exclusivity = ProbeExclusivity.Shared,
+        IReadOnlyCollection<string>? matchesDeviceHosts = null) : ISerialProbe
     {
         public string Name => name;
         public int BaudRate => baud;
@@ -303,14 +375,16 @@ public class SerialProbeServiceTests(ITestOutputHelper output)
         public ProbeExclusivity Exclusivity => exclusivity;
         public TimeSpan Budget => budget ?? TimeSpan.FromSeconds(1);
         public int MaxAttempts => maxAttempts;
+        public IReadOnlyCollection<string> MatchesDeviceHosts => matchesDeviceHosts ?? [];
 
         public ValueTask<SerialProbeMatch?> ProbeAsync(ISerialConnection conn, CancellationToken cancellationToken)
             => match(((StubSerialConnection)conn).Port, cancellationToken);
 
         /// <summary>Convenience for sync match callbacks — wraps the result in <see cref="ValueTask"/>.</summary>
         public static StubProbe Sync(string name, int baud, Func<string, CancellationToken, SerialProbeMatch?> match,
-            TimeSpan? budget = null, int maxAttempts = 1, ProbeExclusivity exclusivity = ProbeExclusivity.Shared)
-            => new(name, baud, (p, ct) => ValueTask.FromResult(match(p, ct)), budget, maxAttempts, exclusivity);
+            TimeSpan? budget = null, int maxAttempts = 1, ProbeExclusivity exclusivity = ProbeExclusivity.Shared,
+            IReadOnlyCollection<string>? matchesDeviceHosts = null)
+            => new(name, baud, (p, ct) => ValueTask.FromResult(match(p, ct)), budget, maxAttempts, exclusivity, matchesDeviceHosts);
     }
 
     private sealed class StubSerialConnection(string port, int baud, Encoding encoding) : ISerialConnection
