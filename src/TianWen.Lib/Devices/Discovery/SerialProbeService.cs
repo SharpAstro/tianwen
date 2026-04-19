@@ -242,7 +242,7 @@ internal sealed class SerialProbeService(
             foreach (var probe in probesToRun)
             {
                 if (cancellationToken.IsCancellationRequested) return;
-                await RunSingleProbeAsync(probe, conn, cancellationToken, onMatch);
+                await RunSingleProbeAsync(port, probe, conn, cancellationToken, onMatch);
             }
         }
         finally
@@ -254,6 +254,7 @@ internal sealed class SerialProbeService(
     }
 
     private async ValueTask RunSingleProbeAsync(
+        string port,
         ISerialProbe probe,
         ISerialConnection conn,
         CancellationToken cancellationToken,
@@ -268,7 +269,7 @@ internal sealed class SerialProbeService(
 
             try
             {
-                var match = await probe.ProbeAsync(conn, cts.Token);
+                var match = await probe.ProbeAsync(port, conn, cts.Token);
                 if (match is not null)
                 {
                     // onMatch is the verification gate: returns true to publish, false to
