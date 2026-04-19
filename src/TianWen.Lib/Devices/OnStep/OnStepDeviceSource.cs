@@ -109,6 +109,13 @@ internal partial class OnStepDeviceSource(IExternal external, ILogger<OnStepDevi
 
     private async Task QueryPortAsync(Dictionary<DeviceType, List<OnStepDevice>> devices, string portName, CancellationToken cancellationToken)
     {
+        using var probeScope = logger.BeginScope(new Dictionary<string, object>
+        {
+            ["Port"] = portName,
+            ["Baud"] = 9600,
+            ["Source"] = "OnStep",
+        });
+
         var ioTimeout = Debugger.IsAttached ? TimeSpan.FromMinutes(1) : TimeSpan.FromMilliseconds(250);
         using var cts = new CancellationTokenSource(ioTimeout, timeProvider.System);
         var linkedToken = CancellationTokenSource.CreateLinkedTokenSource(cts.Token, cancellationToken).Token;
@@ -245,6 +252,13 @@ internal partial class OnStepDeviceSource(IExternal external, ILogger<OnStepDevi
     /// </summary>
     private async Task QueryWifiHostAsync(Dictionary<DeviceType, List<OnStepDevice>> devices, string instanceName, string ipAddr, int tcpPort, CancellationToken cancellationToken)
     {
+        using var probeScope = logger.BeginScope(new Dictionary<string, object>
+        {
+            ["Transport"] = "TCP",
+            ["Host"] = $"{ipAddr}:{tcpPort}",
+            ["Source"] = "OnStep",
+        });
+
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         cts.CancelAfter(TcpProbeTimeout);
 

@@ -41,6 +41,13 @@ internal partial class MeadeDeviceSource(IExternal external, ILogger<MeadeDevice
 
     private async Task QueryPortAsync(Dictionary<DeviceType, List<MeadeDevice>> devices, string portName, CancellationToken cancellationToken)
     {
+        using var probeScope = logger.BeginScope(new Dictionary<string, object>
+        {
+            ["Port"] = portName,
+            ["Baud"] = 9600,
+            ["Source"] = "Meade",
+        });
+
         var ioTimeout = Debugger.IsAttached ? TimeSpan.FromMinutes(1) : TimeSpan.FromMilliseconds(250);
         using var cts = new CancellationTokenSource(ioTimeout, timeProvider.System);
         var linkedToken = CancellationTokenSource.CreateLinkedTokenSource(cts.Token, cancellationToken).Token;
