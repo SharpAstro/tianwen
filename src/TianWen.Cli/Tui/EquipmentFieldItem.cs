@@ -181,6 +181,15 @@ internal sealed class EquipmentFieldItem : IRowFormatter
         var nameWidth = Math.Max(4, width - 2 - labelWidth - 1 - rightReserve);
         var paddedName = name.Length > nameWidth ? name[..(nameWidth - 1)] + "." : name.PadRight(nameWidth);
 
+        // The outer row style is what StyleSegment must re-apply after each nested
+        // segment -- otherwise its closing `\e[0m` wipes the blue selection background
+        // mid-line and leaves a visible gap until the row ends. Pass the outer style
+        // down so each segment restores both fg (BrightWhite / White) and bg (Blue /
+        // default) on exit.
+        var outerStyle = IsSelected
+            ? new VtStyle(SgrColor.BrightWhite, SgrColor.Blue)
+            : new VtStyle(SgrColor.White, SgrColor.Black);
+
         string onSeg, offSeg;
         if (!IsSlotActive)
         {
@@ -190,13 +199,13 @@ internal sealed class EquipmentFieldItem : IRowFormatter
         else if (IsPending)
         {
             // Pending: target segment shows "…", "you are here" segment stays inert.
-            onSeg = IsConnected ? StyleSegment("On", colorMode, SgrColor.BrightGreen) : StyleSegment("...", colorMode, SgrColor.Yellow);
-            offSeg = IsConnected ? StyleSegment("...", colorMode, SgrColor.Yellow) : StyleSegment("Off", colorMode, SgrColor.BrightRed);
+            onSeg = IsConnected ? StyleSegment("On", colorMode, SgrColor.BrightGreen, outerStyle) : StyleSegment("...", colorMode, SgrColor.Yellow, outerStyle);
+            offSeg = IsConnected ? StyleSegment("...", colorMode, SgrColor.Yellow, outerStyle) : StyleSegment("Off", colorMode, SgrColor.BrightRed, outerStyle);
         }
         else
         {
-            onSeg = IsConnected ? StyleSegment("On", colorMode, SgrColor.BrightGreen) : StyleSegment("On", colorMode, SgrColor.White);
-            offSeg = IsConnected ? StyleSegment("Off", colorMode, SgrColor.White) : StyleSegment("Off", colorMode, SgrColor.BrightRed);
+            onSeg = IsConnected ? StyleSegment("On", colorMode, SgrColor.BrightGreen, outerStyle) : StyleSegment("On", colorMode, SgrColor.White, outerStyle);
+            offSeg = IsConnected ? StyleSegment("Off", colorMode, SgrColor.White, outerStyle) : StyleSegment("Off", colorMode, SgrColor.BrightRed, outerStyle);
         }
 
         var toggleStrip = IsSlotActive ? $" [{onSeg}|{offSeg}] " : string.Empty;
@@ -206,20 +215,20 @@ internal sealed class EquipmentFieldItem : IRowFormatter
         // and corrupt the terminal. Let padding handle the final width.
         if (IsSelected)
         {
-            var style = new VtStyle(SgrColor.BrightWhite, SgrColor.Blue);
-            return $"{style.Apply(colorMode)}{line}{VtStyle.Reset}".PadRight(width + VisibleOverhead(line));
+            return $"{outerStyle.Apply(colorMode)}{line}{VtStyle.Reset}".PadRight(width + VisibleOverhead(line));
         }
 
         return line.PadRight(width + VisibleOverhead(line));
     }
 
     /// <summary>
-    /// Wraps text in an SGR foreground style. Caller inlines the return value so the
-    /// surrounding line string still reads naturally; counting visible characters in
-    /// a styled line requires <see cref="VisibleOverhead"/>.
+    /// Wraps text in an SGR style that overrides the foreground while keeping the
+    /// caller's outer background, then restores the full outer style on exit. The
+    /// caller inlines the return value so the surrounding line still reads naturally;
+    /// counting visible characters in a styled line requires <see cref="VisibleOverhead"/>.
     /// </summary>
-    private static string StyleSegment(string text, ColorMode colorMode, SgrColor fg)
-        => $"{new VtStyle(fg, SgrColor.Black).Apply(colorMode)}{text}{VtStyle.Reset}";
+    private static string StyleSegment(string text, ColorMode colorMode, SgrColor fg, VtStyle restore)
+        => $"{new VtStyle(fg.ToRgba(), restore.Background).Apply(colorMode)}{text}{restore.Apply(colorMode)}";
 
     /// <summary>
     /// Returns the number of "invisible" characters (SGR escape bytes) in <paramref name="line"/>
