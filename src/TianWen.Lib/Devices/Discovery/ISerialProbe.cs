@@ -70,12 +70,14 @@ public interface ISerialProbe
     IReadOnlyCollection<string> MatchesDeviceHosts => [];
 
     /// <summary>
-    /// Run the handshake on an already-open connection. Return a match on success
-    /// (carries the device URI to publish), null on no-match. Exceptions thrown here
+    /// Run the handshake on an already-open connection. <paramref name="port"/> is the
+    /// canonical enumerated form (<c>serial:COM5</c>) and is what the probe should
+    /// stash inside <see cref="SerialProbeMatch.Port"/> and use when building the
+    /// device URI. Return a match on success, null on no-match. Exceptions thrown here
     /// are caught by the service, logged with full <c>port/baud/probe</c> scope, and
     /// treated as no-match — probes should not try to catch-all themselves.
     /// </summary>
-    ValueTask<SerialProbeMatch?> ProbeAsync(ISerialConnection conn, CancellationToken cancellationToken);
+    ValueTask<SerialProbeMatch?> ProbeAsync(string port, ISerialConnection conn, CancellationToken cancellationToken);
 }
 
 /// <summary>
