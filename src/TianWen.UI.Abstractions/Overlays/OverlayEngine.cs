@@ -482,17 +482,17 @@ public static class OverlayEngine
                 }
 
                 var paScreen = ComputeScreenPA(wcs, obj.RA, obj.Dec, shape.PositionAngle);
-                marker = new OverlayMarker.Ellipse(semiMajPx, semiMinPx, paScreen);
+                marker = OverlayMarker.Ellipse(semiMajPx, semiMinPx, paScreen);
             }
             else if (IsStarType(obj.ObjectType))
             {
                 var arm = 6f * layout.DpiScale;
-                marker = new OverlayMarker.Cross(arm);
+                marker = OverlayMarker.Cross(arm);
             }
             else
             {
                 var markerRadius = 8f * layout.DpiScale;
-                marker = new OverlayMarker.Circle(markerRadius);
+                marker = OverlayMarker.Circle(markerRadius);
             }
 
             var lines = BuildOverlayLabel(obj, idx, db, scale);
@@ -915,14 +915,14 @@ public static class OverlayEngine
                     var semiMinPx = e.SemiMinArcmin * arcminToPixels;
                     var paScreen = ComputeSkyMapScreenPA(cand.RA, cand.Dec, e.PositionAngle,
                         viewMatrix, ppr, cxView, cyView);
-                    marker = new OverlayMarker.Ellipse(MathF.Max(semiMajPx, 1f), MathF.Max(semiMinPx, 0.5f), paScreen);
+                    marker = OverlayMarker.Ellipse(MathF.Max(semiMajPx, 1f), MathF.Max(semiMinPx, 0.5f), paScreen);
                     break;
                 }
                 case OverlayCandidateMarker.Cross c:
-                    marker = new OverlayMarker.Cross(c.ArmPxAtDpi1 * dpiScale);
+                    marker = OverlayMarker.Cross(c.ArmPxAtDpi1 * dpiScale);
                     break;
                 case OverlayCandidateMarker.Circle c:
-                    marker = new OverlayMarker.Circle(c.RadiusPxAtDpi1 * dpiScale);
+                    marker = OverlayMarker.Circle(c.RadiusPxAtDpi1 * dpiScale);
                     break;
                 default:
                     continue;

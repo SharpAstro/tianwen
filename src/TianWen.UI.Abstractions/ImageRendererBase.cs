@@ -1034,20 +1034,21 @@ namespace TianWen.UI.Abstractions
             foreach (var item in items)
             {
                 var (r, g, b) = item.Color;
-                switch (item.Marker)
+                var marker = item.Marker;
+                switch (marker.Kind)
                 {
-                    case OverlayMarker.Ellipse ellipse:
+                    case OverlayMarkerKind.Ellipse:
                         DrawEllipseOverlay(item.ScreenX, item.ScreenY,
-                            ellipse.SemiMajorPx, ellipse.SemiMinorPx, ellipse.AngleRad,
+                            marker.SemiMajorPx, marker.SemiMinorPx, marker.AngleRad,
                             FloatToColor(r, g, b, 1.0f), 1.5f);
                         break;
-                    case OverlayMarker.Cross cross:
-                        DrawCrossOverlay(item.ScreenX, item.ScreenY, cross.ArmPx,
+                    case OverlayMarkerKind.Cross:
+                        DrawCrossOverlay(item.ScreenX, item.ScreenY, marker.ArmPx,
                             FloatToColor(r, g, b, 1.0f));
                         break;
-                    case OverlayMarker.Circle circle:
+                    case OverlayMarkerKind.Circle:
                         DrawEllipseOverlay(item.ScreenX, item.ScreenY,
-                            circle.RadiusPx, circle.RadiusPx, 0f,
+                            marker.RadiusPx, marker.RadiusPx, 0f,
                             FloatToColor(r, g, b, 0.9f), 1.5f);
                         break;
                 }
