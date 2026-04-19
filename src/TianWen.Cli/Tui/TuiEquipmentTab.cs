@@ -959,13 +959,10 @@ internal sealed class TuiEquipmentTab(
 
     private void EnterAssignmentMode(AssignTarget slot)
     {
-        if (eqState.DiscoveredDevices.Count == 0)
-        {
-            appState.StatusMessage = "No devices discovered. Press D to discover.";
-            NeedsRedraw = true;
-            return;
-        }
-
+        // Enter the mode unconditionally -- BuildDevicePickerList already renders
+        // a "No devices discovered. Press D to discover." empty state when the
+        // discovery list is empty, which is what the user should actually see.
+        // The previous early-return looked like Enter did nothing.
         eqState.ActiveAssignment = slot;
         _mode = Mode.Assignment;
         _pickerSelectedIndex = 0;
