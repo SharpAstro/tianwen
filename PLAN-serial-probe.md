@@ -264,14 +264,33 @@ discovery loop.
 - [ ] Ship as a separate commit so the logging fix is independently
       reviewable.
 
-### Phase 3 — Profile-pinned skip (independent quick win)
+### Phase 3 — Two-tier pinned-port discovery (verify-then-fall-through)
 
-- [ ] Add `DeviceUri.TryGetSerialPort` helper
-- [ ] In each existing source, before the per-port loop, filter out ports
-      pinned by the active profile (read via `IProfile` or new
-      `IPinnedSerialPorts` service)
-- [ ] Test: starting a re-discovery during a connected session does not touch
-      the connected port
+Naively filtering pinned ports is unsafe: if two pinned devices swap cables
+(e.g., OnStep@COM5 ↔ EAF@COM6), a blanket filter would leave *both*
+undiscoverable. The correct design runs two stages:
+
+- **Stage 1 (verify)**: for each pinned `(port, expected URI)` pair, open
+  only that port and run only the probes whose `MatchesDeviceHosts` claims
+  the expected URI's host. If the match's identity (scheme+host+path) lines
+  up with the pinned URI, the port is verified — match is published and the
+  port is excluded from Stage 2. If verification fails (no matching probe,
+  timeout, or identity mismatch), the port stays in the Stage 2 pool.
+- **Stage 2 (general)**: every registered probe runs against every
+  non-verified port, grouped by baud and parallelised across ports (the
+  original algorithm).
+
+Done:
+- [x] `PinnedSerialPort` record carrying `(Port, ExpectedUri)`
+- [x] `IPinnedSerialPortsProvider.GetPinnedPorts()` returns the pairs
+- [x] `ISerialProbe.MatchesDeviceHosts` opt-in for verification
+- [x] Two-stage algorithm in `SerialProbeService.ProbeAllAsync`
+- [x] `ActiveProfilePinnedSerialPortsProvider` walks every URI slot in
+      `ProfileData` and produces pairs; sentinel ports (wifi/wpd/fake) are
+      filtered at normalisation time
+- [x] GUI composition root replaces the null default with the active-profile
+      provider
+- [x] Cable-swap test: COM5↔COM6 swap both auto-recovered via Stage 2
 
 ### Phase 4 — Migrate one source at a time
 

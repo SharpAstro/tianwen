@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -56,6 +57,17 @@ public interface ISerialProbe
     /// use 2; most use 1.
     /// </summary>
     int MaxAttempts => 1;
+
+    /// <summary>
+    /// Device-URI host names this probe can verify for pinned-port verification
+    /// (see <see cref="ISerialProbeService"/>'s two-tier algorithm). Typically a
+    /// single entry — the name of the <see cref="IDeviceSource{TDevice}"/> host that
+    /// the probe publishes URIs under (e.g. <c>"OnStepDevice"</c>,
+    /// <c>"SkywatcherDevice"</c>). Default empty means the probe doesn't participate
+    /// in verification — pinned ports referencing its family always fall through to
+    /// the general probe pass.
+    /// </summary>
+    IReadOnlyCollection<string> MatchesDeviceHosts => [];
 
     /// <summary>
     /// Run the handshake on an already-open connection. Return a match on success
