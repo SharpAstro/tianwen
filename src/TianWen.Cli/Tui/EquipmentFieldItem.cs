@@ -112,8 +112,10 @@ internal sealed class EquipmentFieldItem : IRowFormatter
             var header = $"\u2500\u2500 {SectionName} \u2500\u2500";
             if (IsOtaHeader)
             {
-                // OTA headers show [A]dd [X] actions
-                var actions = "  [A]dd [X]";
+                // OTA headers show only [X] (delete THIS OTA) -- global Add is already
+                // surfaced by the "+ Add OTA" action row at the bottom and the `A` key
+                // hint in the status bar, so repeating [A]dd per-OTA is just clutter.
+                var actions = "  [X]";
                 var maxHeader = width - actions.Length;
                 if (header.Length > maxHeader)
                 {
@@ -211,14 +213,20 @@ internal sealed class EquipmentFieldItem : IRowFormatter
         var toggleStrip = IsSlotActive ? $" [{onSeg}|{offSeg}] " : string.Empty;
         var line = $"  {paddedLabel.PadRight(labelWidth)} {paddedName}{toggleStrip} [>]";
 
-        // Don't truncate inside the styled strip — it would slice off an SGR escape
-        // and corrupt the terminal. Let padding handle the final width.
+        // Pad the line to produce exactly `width` visible characters by adding
+        // VisibleOverhead(line) extra chars to the pad target (compensating for the
+        // SGR escapes embedded in StyleSegment). The outer-style wrapping below adds
+        // further invisible bytes but does NOT change the visible width, so it must
+        // happen AFTER padding -- otherwise the visible row ends short by the outer
+        // style's byte count and stale content from the previous frame peeks through
+        // at the far right of the viewport (the "ghost [>]" bug).
+        var padded = line.PadRight(width + VisibleOverhead(line));
         if (IsSelected)
         {
-            return $"{outerStyle.Apply(colorMode)}{line}{VtStyle.Reset}".PadRight(width + VisibleOverhead(line));
+            return $"{outerStyle.Apply(colorMode)}{padded}{VtStyle.Reset}";
         }
 
-        return line.PadRight(width + VisibleOverhead(line));
+        return padded;
     }
 
     /// <summary>

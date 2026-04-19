@@ -495,14 +495,19 @@ internal sealed class TuiEquipmentTab(
             for (var i = 0; i < eqState.DiscoveredDevices.Count; i++)
             {
                 var device = eqState.DiscoveredDevices[i];
-                var matches = device.DeviceType == target.ExpectedDeviceType;
                 var assigned = EquipmentActions.IsDeviceAssigned(data, device.DeviceUri);
 
+                // Picker rows reuse the slot-row layout for label + name + chevron, but
+                // they must NOT render the [On|Off] toggle strip -- that's a connected-
+                // device concept and doesn't belong on an assignment picker. Always
+                // pass IsSlotActive=false here. EnterAssignmentMode already pre-selects
+                // the first matching-type device so the user's cursor starts in the
+                // right place.
                 items.Add(new EquipmentFieldItem
                 {
                     SlotLabel = device.DeviceType.ToString(),
                     SlotDeviceName = device.DisplayName + (assigned ? " \u2713" : ""),
-                    IsSlotActive = matches,
+                    IsSlotActive = false,
                     Slot = target, // reuse for type info
                     FieldIndex = i,
                     IsSelected = i == _pickerSelectedIndex,
