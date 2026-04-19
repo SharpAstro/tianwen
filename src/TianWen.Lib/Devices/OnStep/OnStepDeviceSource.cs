@@ -16,21 +16,26 @@ namespace TianWen.Lib.Devices.OnStep;
 /// <summary>
 /// Discovers OnStep / OnStepX mounts via two transports:
 /// <list type="bullet">
-///   <item><description>Serial: enumerates COM/tty ports and probes with <c>:GVP#</c> + <c>:GVN#</c></description></item>
-///   <item><description>WiFi: mDNS scan for <c>_telescope._tcp.local</c> then TCP probe on port 9999</description></item>
+///   <item><description>Serial: handled by <see cref="OnStepSerialProbe"/> inside the central
+///         <see cref="Discovery.ISerialProbeService"/>. This class reads the published matches.</description></item>
+///   <item><description>WiFi: mDNS scan for <c>_telescope._tcp.local</c> then TCP probe on port 9999 —
+///         still implemented here because it uses a different transport and shouldn't compete
+///         with serial-port enumeration for the central probe service's budget.</description></item>
 /// </list>
 /// In both cases the probe matches the OnStep product-name signature (regex <c>^On[-]?Step</c>).
-/// Stable device IDs derive from a UUID stashed in an unused site-name slot for serial mounts,
-/// or from the IP+MAC for WiFi mounts.
+/// Stable device IDs derive from a UUID stashed in an unused site-name slot — the same UUID is
+/// read over serial and TCP, so a mount's deviceId is transport-independent.
 /// </summary>
-internal partial class OnStepDeviceSource(IExternal external, ILogger<OnStepDeviceSource> logger, ITimeProvider timeProvider) : IDeviceSource<OnStepDevice>
+internal partial class OnStepDeviceSource(
+    ILogger<OnStepDeviceSource> logger,
+    Discovery.ISerialProbeService probeService) : IDeviceSource<OnStepDevice>
 {
     private Dictionary<DeviceType, List<OnStepDevice>>? _cachedDevices;
 
     public ValueTask<bool> CheckSupportAsync(CancellationToken cancellationToken) => ValueTask.FromResult(true);
 
-    private static readonly Regex SupportedProductsRegex = GenSupportedProductsRegex();
-    private static readonly ReadOnlyMemory<byte> HashTerminator = "#"u8.ToArray();
+    internal static readonly Regex SupportedProductsRegex = GenSupportedProductsRegex();
+    internal static readonly ReadOnlyMemory<byte> HashTerminator = "#"u8.ToArray();
 
     // mDNS wire constants — same multicast group as Canon, different service name.
     private static readonly IPAddress MdnsMulticast = IPAddress.Parse("224.0.0.251");
@@ -60,29 +65,20 @@ internal partial class OnStepDeviceSource(IExternal external, ILogger<OnStepDevi
     {
         var devices = new Dictionary<DeviceType, List<OnStepDevice>>();
 
-        // Phase 1: serial-port scan
-        try
+        // Serial discovery is owned by OnStepSerialProbe running inside the central
+        // ISerialProbeService (already completed before DiscoverAsync runs). Each match
+        // is a fully-formed OnStepDevice URI — just materialise it.
+        var serialMatches = probeService.ResultsFor("OnStep");
+        if (serialMatches.Count > 0)
         {
-            using var resourceLock = await external.WaitForSerialPortEnumerationAsync(cancellationToken);
-
-            foreach (var portName in external.EnumerateAvailableSerialPorts(resourceLock))
+            var list = devices[DeviceType.Mount] = [];
+            foreach (var match in serialMatches)
             {
-                try
-                {
-                    await QueryPortAsync(devices, portName, cancellationToken);
-                }
-                catch (Exception ex)
-                {
-                    logger.LogWarning(ex, "Failed to query OnStep serial candidate {PortName}", portName);
-                }
+                list.Add(new OnStepDevice(match.DeviceUri));
             }
         }
-        catch (Exception ex)
-        {
-            logger.LogWarning(ex, "OnStep serial enumeration failed");
-        }
 
-        // Phase 2: WiFi via mDNS
+        // WiFi discovery via mDNS — different transport, stays here.
         try
         {
             var mdnsHits = await ScanTelescopeMdnsAsync(MdnsTimeout, cancellationToken);
@@ -107,60 +103,9 @@ internal partial class OnStepDeviceSource(IExternal external, ILogger<OnStepDevi
         Interlocked.Exchange(ref _cachedDevices, devices);
     }
 
-    private async Task QueryPortAsync(Dictionary<DeviceType, List<OnStepDevice>> devices, string portName, CancellationToken cancellationToken)
-    {
-        using var probeScope = logger.BeginScope(new Dictionary<string, object>
-        {
-            ["Port"] = portName,
-            ["Baud"] = 9600,
-            ["Source"] = "OnStep",
-        });
+    internal static string SafeName(string name) => name.Replace('_', '-').Replace('/', '-').Replace(':', '-');
 
-        var ioTimeout = Debugger.IsAttached ? TimeSpan.FromMinutes(1) : TimeSpan.FromMilliseconds(250);
-        using var cts = new CancellationTokenSource(ioTimeout, timeProvider.System);
-        var linkedToken = CancellationTokenSource.CreateLinkedTokenSource(cts.Token, cancellationToken).Token;
-
-        using var serialDevice = await external.OpenSerialDeviceAsync(portName, 9600, Encoding.ASCII, linkedToken);
-
-        var (productName, productNumber, siteNames, uuid) = await TryGetMountInfo(serialDevice, linkedToken)
-            .WaitAsync(ioTimeout, timeProvider.System, cancellationToken);
-        if (productName is not null && productNumber is not null && SupportedProductsRegex.IsMatch(productName))
-        {
-            List<OnStepDevice> deviceList;
-            if (devices.TryGetValue(DeviceType.Mount, out var existingMounts))
-            {
-                deviceList = existingMounts;
-            }
-            else
-            {
-                devices[DeviceType.Mount] = deviceList = [];
-            }
-
-            var portNameWithoutProtoPrefix = ISerialConnection.RemoveProtoPrrefix(portName);
-            string deviceId;
-            if (uuid is { })
-            {
-                deviceId = string.Join('_', SafeName(productName), SafeName(productNumber), uuid);
-            }
-            else
-            {
-                deviceId = string.Join('_',
-                    SafeName(productName),
-                    SafeName(productNumber),
-                    SafeName(string.Join(',', siteNames)),
-                    deviceList.Count + 1,
-                    SafeName(portNameWithoutProtoPrefix)
-                );
-            }
-
-            var device = new OnStepDevice(DeviceType.Mount, deviceId, $"{productName} ({productNumber}) on {portNameWithoutProtoPrefix}", portName);
-            deviceList.Add(device);
-        }
-    }
-
-    private static string SafeName(string name) => name.Replace('_', '-').Replace('/', '-').Replace(':', '-');
-
-    private static async Task<(string? ProductName, string? ProductNumber, List<string> Sites, string? UUID)> TryGetMountInfo(ISerialConnection serialDevice, CancellationToken cancellationToken)
+    internal static async Task<(string? ProductName, string? ProductNumber, List<string> Sites, string? UUID)> TryGetMountInfo(ISerialConnection serialDevice, CancellationToken cancellationToken)
     {
         const string uuidPrefix = "TW@";
         const string unusedSiteName = "<AN UNUSED SITE>";
