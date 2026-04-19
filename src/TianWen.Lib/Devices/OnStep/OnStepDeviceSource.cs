@@ -10,7 +10,6 @@ using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using TianWen.Lib.Connections;
-using TianWen.Lib.Devices.Discovery;
 
 namespace TianWen.Lib.Devices.OnStep;
 
@@ -24,7 +23,7 @@ namespace TianWen.Lib.Devices.OnStep;
 /// Stable device IDs derive from a UUID stashed in an unused site-name slot for serial mounts,
 /// or from the IP+MAC for WiFi mounts.
 /// </summary>
-internal partial class OnStepDeviceSource(IExternal external, ILogger<OnStepDeviceSource> logger, ITimeProvider timeProvider, IPinnedSerialPortsProvider pinnedPortsProvider) : IDeviceSource<OnStepDevice>
+internal partial class OnStepDeviceSource(IExternal external, ILogger<OnStepDeviceSource> logger, ITimeProvider timeProvider) : IDeviceSource<OnStepDevice>
 {
     private Dictionary<DeviceType, List<OnStepDevice>>? _cachedDevices;
 
@@ -65,9 +64,8 @@ internal partial class OnStepDeviceSource(IExternal external, ILogger<OnStepDevi
         try
         {
             using var resourceLock = await external.WaitForSerialPortEnumerationAsync(cancellationToken);
-            var ports = pinnedPortsProvider.FilterUnpinned(external.EnumerateAvailableSerialPorts(resourceLock), logger);
 
-            foreach (var portName in ports)
+            foreach (var portName in external.EnumerateAvailableSerialPorts(resourceLock))
             {
                 try
                 {

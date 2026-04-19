@@ -7,11 +7,10 @@ using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using TianWen.Lib.Connections;
-using TianWen.Lib.Devices.Discovery;
 
 namespace TianWen.Lib.Devices.Meade;
 
-internal partial class MeadeDeviceSource(IExternal external, ILogger<MeadeDeviceSource> logger, ITimeProvider timeProvider, IPinnedSerialPortsProvider pinnedPortsProvider) : IDeviceSource<MeadeDevice>
+internal partial class MeadeDeviceSource(IExternal external, ILogger<MeadeDeviceSource> logger, ITimeProvider timeProvider) : IDeviceSource<MeadeDevice>
 {
     private Dictionary<DeviceType, List<MeadeDevice>>? _cachedDevices;
 
@@ -24,9 +23,8 @@ internal partial class MeadeDeviceSource(IExternal external, ILogger<MeadeDevice
         var devices = new Dictionary<DeviceType, List<MeadeDevice>>();
 
         using var resourceLock = await external.WaitForSerialPortEnumerationAsync(cancellationToken);
-        var ports = pinnedPortsProvider.FilterUnpinned(external.EnumerateAvailableSerialPorts(resourceLock), logger);
 
-        foreach (var portName in ports)
+        foreach (var portName in external.EnumerateAvailableSerialPorts(resourceLock))
         {
             try
             {
