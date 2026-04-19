@@ -840,11 +840,13 @@ public static class OverlayEngine
             var priority = ComputeLabelPriority(obj, catIdx, db);
             if (isPinned) priority += 100f;
 
+            var (ux, uy, uz) = SkyMapState.RaDecToUnitVec(obj.RA, obj.Dec);
             output.Add(new OverlayCandidate
             {
                 CatalogIndex = catIdx,
                 RA = obj.RA,
                 Dec = obj.Dec,
+                UnitVec = new Vector3((float)ux, (float)uy, (float)uz),
                 Color = color,
                 Marker = marker,
                 LabelLines = lines,
@@ -908,14 +910,13 @@ public static class OverlayEngine
             {
                 case OverlayCandidateMarker.Ellipse e:
                 {
-                    // PA via tangent-plane trick: project a small RA/Dec step and measure the
-                    // screen angle. Render at natural size even when tiny -- falling back to a
-                    // fixed-size circle creates visual noise at wide FOV.
+                    // Size is kept in pixels on the OverlayItem for any consumer that still
+                    // uses the CPU draw path. The sky-map GPU pipeline reads arcmin + PA
+                    // directly off the candidate, so AngleRad stays 0 and the per-candidate
+                    // CPU screen-PA computation is skipped.
                     var semiMajPx = e.SemiMajArcmin * arcminToPixels;
                     var semiMinPx = e.SemiMinArcmin * arcminToPixels;
-                    var paScreen = ComputeSkyMapScreenPA(cand.RA, cand.Dec, e.PositionAngle,
-                        viewMatrix, ppr, cxView, cyView);
-                    marker = OverlayMarker.Ellipse(MathF.Max(semiMajPx, 1f), MathF.Max(semiMinPx, 0.5f), paScreen);
+                    marker = OverlayMarker.Ellipse(MathF.Max(semiMajPx, 1f), MathF.Max(semiMinPx, 0.5f), 0f);
                     break;
                 }
                 case OverlayCandidateMarker.Cross c:
@@ -943,37 +944,6 @@ public static class OverlayEngine
                 StableSortKey = (ulong)cand.CatalogIndex,
             });
         }
-    }
-
-    /// <summary>
-    /// Screen position angle for an object on the sky map. Mirrors <see cref="ComputeScreenPA"/>
-    /// but projects via the sky-map view matrix instead of a WCS.
-    /// </summary>
-    private static float ComputeSkyMapScreenPA(double raH, double decDeg, Half paFromNorth,
-        in Matrix4x4 viewMatrix, double ppr, float cxView, float cyView)
-    {
-        if (Half.IsNaN(paFromNorth))
-        {
-            return 0f;
-        }
-
-        var paRad = (double)paFromNorth * Math.PI / 180.0;
-        var offsetDeg = 1.0 / 60.0; // 1 arcmin
-        var dDecDeg = offsetDeg * Math.Cos(paRad);
-        var dRADeg = offsetDeg * Math.Sin(paRad) / Math.Cos(decDeg * Math.PI / 180.0);
-        var dRAH = dRADeg / 15.0;
-
-        if (!SkyMapProjection.ProjectWithMatrix(raH, decDeg, viewMatrix, ppr, cxView, cyView,
-                out var cx, out var cy) ||
-            !SkyMapProjection.ProjectWithMatrix(raH + dRAH, decDeg + dDecDeg, viewMatrix, ppr,
-                cxView, cyView, out var tx, out var ty))
-        {
-            return 0f;
-        }
-
-        var dx = tx - cx;
-        var dy = -(ty - cy); // screen Y is flipped vs. sky-up
-        return MathF.Atan2(dx, dy);
     }
 
     /// <summary>
@@ -1048,7 +1018,6 @@ public static class OverlayEngine
             // fight for position 0 and reshuffle every frame.
             var startSlot = item.LabelSlotHint & 3;
 
-            var placed = false;
             for (var p = 0; p < 4; p++)
             {
                 var posIdx = (startSlot + p) & 3;
@@ -1067,7 +1036,6 @@ public static class OverlayEngine
                 {
                     drawLabelLines(item, lx, ly);
                     placedLabels.Add((lx, ly, maxLineW, totalH));
-                    placed = true;
                     labelCount++;
                     break;
                 }

@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Numerics;
 using TianWen.Lib.Astrometry.Catalogs;
 
 namespace TianWen.UI.Abstractions.Overlays;
@@ -27,6 +28,10 @@ public readonly record struct OverlayCandidate
 
     /// <summary>Declination in degrees (J2000).</summary>
     public required double Dec { get; init; }
+
+    /// <summary>J2000 unit sphere position, cached so the GPU instance buffer can
+    /// feed the vertex shader directly without recomputing sin/cos per frame.</summary>
+    public required Vector3 UnitVec { get; init; }
 
     public required (float R, float G, float B) Color { get; init; }
 
