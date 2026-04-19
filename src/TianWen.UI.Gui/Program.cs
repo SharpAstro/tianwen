@@ -10,6 +10,7 @@ using TianWen.Lib.Logging;
 using TianWen.UI.Abstractions;
 using TianWen.UI.Abstractions.Extensions;
 using TianWen.UI.Gui;
+using TianWen.UI.Shared;
 
 // DI setup
 var services = new ServiceCollection();
@@ -70,13 +71,18 @@ else if (args.Length >= 2 && args[0] is "--active" or "-a")
         (Guid.TryParse(name, out var id) && p.ProfileId == id));
 }
 
-// SDL3 + Vulkan init
-using var sdlWindow = SdlVulkanWindow.Create("\U0001F52D TianWen", 1280, 900);
+// SDL3 + Vulkan init. Install the native-library resolver before the first
+// P/Invoke into SDL3 so a failed DLL load lands in the file logger instead of
+// crashing silently behind a WinExe (no stderr visible to the user).
+NativeLoaderDiagnostics.Install(logger);
 
+using var sdlWindow = NativeLoaderDiagnostics.InitNative(logger, "SDL3 + Vulkan window",
+    () => SdlVulkanWindow.Create("\U0001F52D TianWen", 1280, 900));
 
 sdlWindow.GetSizeInPixels(out var pixW, out var pixH);
 
-var ctx = VulkanContext.Create(sdlWindow.Instance, sdlWindow.Surface, (uint)pixW, (uint)pixH);
+var ctx = NativeLoaderDiagnostics.InitNative(logger, "Vulkan device",
+    () => VulkanContext.Create(sdlWindow.Instance, sdlWindow.Surface, (uint)pixW, (uint)pixH));
 var renderer = new VkRenderer(ctx, (uint)pixW, (uint)pixH);
 
 var bus = new SignalBus();
