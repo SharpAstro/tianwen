@@ -296,28 +296,36 @@ Done:
 
 Order by impact (highest pain → lowest):
 
-- [ ] Skywatcher (two bauds × every port = biggest single saving)
-- [ ] OnStep (slow first-connect benefits most from per-port amortized wait)
-- [ ] Meade (LX200 shares a baud with OnStep — runs in same baud group, free win)
-- [ ] iOptron (different baud, isolated)
-- [ ] QHY CFW3 + QFOC (move both probes from `QHYDeviceSource` Phase 2 into
-      separate `ISerialProbe` classes; the SDK-camera Phase 1 + camera-cable
-      CFW Phase 3 remain on `QHYDeviceSource` because they're not serial)
+- [x] Skywatcher (two bauds × every port = biggest single saving)
+- [x] OnStep (slow first-connect benefits most from per-port amortized wait)
+- [x] Meade (LX200 shares a baud with OnStep — runs in same baud group, free win)
+- [x] iOptron (different baud, isolated)
+- [x] QHY CFW3 + QFOC (moved both probes from `QHYDeviceSource` into separate
+      `ISerialProbe` classes; the SDK-camera Phase 1 + camera-cable CFW
+      Phase 3 remain on `QHYDeviceSource` because they're not serial)
 
-Each migration is one commit:
-1. Add new probe class
-2. Register in DI
-3. Strip per-port loop from `*DeviceSource.DiscoverAsync`
-4. Source's tests still pass (probe behavior unchanged from caller's POV)
+Each migration was one commit:
+1. Added new probe class
+2. Registered in DI via the source's `AddX()` extension
+3. Stripped per-port loop from `*DeviceSource.DiscoverAsync` — source now
+   just reads `probeService.ResultsFor(ProbeName)`
+4. Shared helpers (`TryGetMountInfo`, `SeedFilterParams`, …) promoted to
+   `internal static` so the probe can reuse them
 
 ### Phase 5 — Cleanup
 
-- [ ] Delete `IExternal.WaitForSerialPortEnumerationAsync` callers from
-      individual sources (only `SerialProbeService` needs it now)
-- [ ] Remove the per-source baud constants once probes own them
-- [ ] Audit `External._serialConnections` cache — does it still need to live
-      across discovery cycles? Probably not, since probes always close their
-      handle.
+- [x] Delete `IExternal.WaitForSerialPortEnumerationAsync` / `EnumerateAvailableSerialPorts`
+      callers from individual sources — only `SerialProbeService` and its
+      tests use them now. Verified by grep.
+- [x] Trim unused DI parameters on migrated sources (`IExternal`, `ITimeProvider`
+      dropped where no longer needed). `DeviceDiscovery` trimmed too.
+- [x] Trim unused imports (`System.Diagnostics` in OnStep, `System.Linq` in
+      Skywatcher, etc.)
+- [x] `External._serialConnections` cache kept: still serves live drivers
+      connecting after discovery; probe service's open/close is compatible
+      with the cache's `IsOpen`-then-replace behaviour.
+- [x] Per-source baud constants kept: still referenced by `DeviceBase.ConnectSerialDeviceAsync`
+      as the default when a URI's query has no explicit `?baud=`. Not dead.
 
 ## Risks & open questions
 
