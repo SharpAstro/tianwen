@@ -36,6 +36,7 @@ namespace TianWen.UI.Abstractions
         private static readonly RGBAColor32 SlotNormal       = new RGBAColor32(0x2a, 0x2a, 0x35, 0xff);
         private static readonly RGBAColor32 SlotActive       = new RGBAColor32(0x2a, 0x6b, 0xb8, 0xff);
         private static readonly RGBAColor32 DeviceRowBg      = new RGBAColor32(0x20, 0x20, 0x2c, 0xff);
+        private static readonly RGBAColor32 DeviceRowBgAlt   = new RGBAColor32(0x25, 0x25, 0x33, 0xff);
         private static readonly RGBAColor32 AssignedGreen    = new RGBAColor32(0x40, 0xc0, 0x40, 0xff);
         private static readonly RGBAColor32 DimmedText       = new RGBAColor32(0x60, 0x60, 0x70, 0xff);
         private static readonly RGBAColor32 CreateButton     = new RGBAColor32(0x30, 0x60, 0x90, 0xff);
@@ -43,6 +44,8 @@ namespace TianWen.UI.Abstractions
         private static readonly RGBAColor32 BodyText         = new RGBAColor32(0xcc, 0xcc, 0xcc, 0xff);
         private static readonly RGBAColor32 DimText          = new RGBAColor32(0x88, 0x88, 0x88, 0xff);
         private static readonly RGBAColor32 SeparatorColor   = new RGBAColor32(0x33, 0x33, 0x44, 0xff);
+        private static readonly RGBAColor32 ScrollBarBg      = new RGBAColor32(0x22, 0x22, 0x2a, 0xff);
+        private static readonly RGBAColor32 ScrollBarFg      = new RGBAColor32(0x44, 0x44, 0x55, 0xff);
         private static readonly RGBAColor32 BadgeBg          = new RGBAColor32(0x28, 0x28, 0x38, 0xff);
         private static readonly RGBAColor32 SiteText         = new RGBAColor32(0x99, 0xbb, 0x99, 0xff);
         private static readonly RGBAColor32 OtaHeaderBg      = new RGBAColor32(0x24, 0x24, 0x32, 0xff);
@@ -71,14 +74,30 @@ namespace TianWen.UI.Abstractions
         /// <summary>Background task tracker for async operations. Set by the host.</summary>
         public BackgroundTaskTracker? Tracker { get; set; }
 
+        // Last-rendered device-list rect + visible row count, captured during render so
+        // the Scroll handler knows whether the wheel is over the list and how far it can
+        // scroll before hitting the end.
+        private RectF32 _deviceListRect;
+        private int _deviceListVisibleRows;
 
         public override bool HandleInput(InputEvent evt) => evt switch
         {
             InputEvent.KeyDown(var key, _) when State.FilterNameDropdown.HandleKeyDown(key) => true,
             // ESC dismisses any active selection/confirmation before bubbling to quit
             InputEvent.KeyDown(InputKey.Escape, _) => DismissActiveState(),
+            InputEvent.Scroll(var scrollY, var mouseX, var mouseY, _)
+                when _deviceListRect.Contains(mouseX, mouseY) => HandleDeviceListScroll(scrollY),
             _ => base.HandleInput(evt)
         };
+
+        private bool HandleDeviceListScroll(float scrollY)
+        {
+            var maxOffset = Math.Max(0, State.DiscoveredDevices.Count - _deviceListVisibleRows);
+            var next = Math.Clamp(State.DeviceScrollOffset - (int)scrollY * 3, 0, maxOffset);
+            if (next == State.DeviceScrollOffset) return false;
+            State.DeviceScrollOffset = next;
+            return true;
+        }
 
         /// <summary>
         /// Clears any active selection, assignment mode, confirmation strip, or expanded
@@ -336,7 +355,7 @@ namespace TianWen.UI.Abstractions
                     x, cursor, w, itemH, dpiScale, fontPath, fontSize, padding, arrowW, appState, pd, emojiFontPath);
 
                 // Site info — clickable to edit
-                var site = EquipmentActions.GetSiteFromMount(pd.Mount ?? NoneDevice.Instance.DeviceUri);
+                var site = EquipmentActions.GetSiteFromProfile(pd);
                 if (State.IsEditingSite)
                 {
                     // Show editable lat/lon/elevation fields
@@ -355,6 +374,19 @@ namespace TianWen.UI.Abstractions
                     DrawText("  Elev:".AsSpan(), fontPath, x + padding, cursor, 50f * dpiScale, itemH, fontSize * 0.85f, DimText, TextAlign.Near, TextAlign.Center);
                     RenderTextInput(State.ElevationInput, fieldX + (int)(50f * dpiScale), (int)cursor, fieldW - (int)(50f * dpiScale), fieldH, fontPath, fontSize * 0.9f);
                     cursor += fieldH + 2;
+
+                    // Tie-breaker selector: which side wins on mount connect when both have a site?
+                    DrawText("  Tie:".AsSpan(), fontPath, x + padding, cursor, 50f * dpiScale, itemH, fontSize * 0.85f, DimText, TextAlign.Near, TextAlign.Center);
+                    var tbX = fieldX + (int)(50f * dpiScale);
+                    var tbW = (fieldW - (int)(50f * dpiScale)) / 2 - 2;
+                    var isMountWins = pd.SiteTieBreaker == SiteTieBreaker.Mount;
+                    RenderButton("Mount", tbX, cursor, tbW, buttonH, fontPath, fontSize,
+                        isMountWins ? SlotActive : CreateButton, BodyText, "TieMount",
+                        _ => PostSignal(new UpdateProfileSignal(EquipmentActions.SetSiteTieBreaker(pd, SiteTieBreaker.Mount))));
+                    RenderButton("Profile", tbX + tbW + 4, cursor, tbW, buttonH, fontPath, fontSize,
+                        !isMountWins ? SlotActive : CreateButton, BodyText, "TieProfile",
+                        _ => PostSignal(new UpdateProfileSignal(EquipmentActions.SetSiteTieBreaker(pd, SiteTieBreaker.Profile))));
+                    cursor += buttonH + 2;
 
                     // Save button
                     var saveBtnW = Renderer.MeasureText("Save Site".AsSpan(), fontPath, fontSize).Width + padding * 4f;
@@ -681,8 +713,14 @@ namespace TianWen.UI.Abstractions
 
             FillRect(x + padding, y + headerH - 1f, w - padding * 2f, 1f, SeparatorColor);
 
-            var listTop  = y + headerH + padding / 2f;
-            var listH    = h - headerH - padding - buttonH - padding;
+            var listTop    = y + headerH + padding / 2f;
+            var listBottom = y + h - buttonH - padding;  // top of [Discover] button strip
+            var listH      = listBottom - listTop;        // usable list height
+
+            // Capture the list rect + visible row count so the Scroll handler can
+            // detect wheel-over-list and bound DeviceScrollOffset to the last page.
+            _deviceListRect = new RectF32(x, listTop, w, listH);
+            _deviceListVisibleRows = Math.Max(1, (int)(listH / itemH));
 
             var devices  = State.DiscoveredDevices;
             var data     = appState.ActiveProfile?.Data;
@@ -693,10 +731,17 @@ namespace TianWen.UI.Abstractions
                 ? EquipmentActions.GetAssignedDevice(slotData, activeSlot)
                 : null;
 
+            // Reserve a narrow column on the right for the scrollbar whenever the list
+            // overflows, so row content never overlaps the thumb.
+            var scrollBarWidth = 6f * dpiScale;
+            var totalItems     = devices.Count;
+            var showScrollBar  = totalItems > _deviceListVisibleRows;
+            var rowW           = showScrollBar ? w - scrollBarWidth : w;
+
             for (var i = State.DeviceScrollOffset; i < devices.Count; i++)
             {
                 var rowY = listTop + (i - State.DeviceScrollOffset) * itemH;
-                if (rowY + itemH > y + listH)
+                if (rowY + itemH > listBottom)
                 {
                     break;
                 }
@@ -707,12 +752,14 @@ namespace TianWen.UI.Abstractions
                 // Highlight the device currently in the active slot
                 var isCurrentForSlot = DeviceBase.SameDevice(device.DeviceUri, activeSlotUri);
 
-                // Row background
-                FillRect(x, rowY, w, itemH, isCurrentForSlot ? SlotActive : DeviceRowBg);
+                // Row background — alternate odd/even rows for readability so the On|Off
+                // buttons line up visually with their device. Active-slot highlight wins.
+                var baseBg = (i & 1) == 0 ? DeviceRowBg : DeviceRowBgAlt;
+                FillRect(x, rowY, rowW, itemH, isCurrentForSlot ? SlotActive : baseBg);
                 var capturedIdx = i;
-                RegisterClickable(x, rowY, w, itemH, new HitResult.ListItemHit("Devices", i),
+                RegisterClickable(x, rowY, rowW, itemH, new HitResult.ListItemHit("Devices", i),
                     _ => PostSignal(new AssignDeviceSignal(capturedIdx)));
-                FillRect(x, rowY + itemH - 1f, w, 1f, SeparatorColor);
+                FillRect(x, rowY + itemH - 1f, rowW, 1f, SeparatorColor);
 
                 // Type badge
                 var badgeText = DeviceTypeBadge(device.DeviceType);
@@ -731,7 +778,7 @@ namespace TianWen.UI.Abstractions
 
                 // Device name
                 var nameX = x + badgeW + padding;
-                var nameW = w - badgeW - padding * 2f - rightReserved;
+                var nameW = rowW - badgeW - padding * 2f - rightReserved;
                 DrawText(
                     device.DisplayName.AsSpan(),
                     fontPath,
@@ -739,7 +786,7 @@ namespace TianWen.UI.Abstractions
                     fontSize, textColor, TextAlign.Near, TextAlign.Center);
 
                 // Right-edge columns laid out from the right margin inward.
-                var checkColX  = x + w - padding - checkW;
+                var checkColX  = x + rowW - padding - checkW;
                 var btnColX    = checkColX - padding - connBtnW;
                 var statusColX = btnColX - padding - statusW;
 
@@ -796,7 +843,7 @@ namespace TianWen.UI.Abstractions
                         // into the (now-redundant) device-name area so the action labels fit
                         // comfortably — the user already knows which device they're confirming.
                         var stripX = nameX + nameW * 0.35f;
-                        var stripW = (x + w) - stripX - padding;
+                        var stripW = (x + rowW) - stripX - padding;
 
                         if (DeviceBase.SameDevice(State.PendingForceConfirm, connectUri))
                         {
@@ -830,6 +877,19 @@ namespace TianWen.UI.Abstractions
                         }
                     }
                 }
+            }
+
+            // Scrollbar track + thumb. Thumb height scales with the visible fraction;
+            // position is row-indexed (no smooth sub-row scrolling, per design).
+            if (showScrollBar)
+            {
+                var maxOffset = Math.Max(1, totalItems - _deviceListVisibleRows);
+                var sbX = x + w - scrollBarWidth;
+                FillRect(sbX, listTop, scrollBarWidth, listH, ScrollBarBg);
+
+                var thumbH = Math.Max(20f * dpiScale, listH * _deviceListVisibleRows / (float)totalItems);
+                var thumbY = listTop + (listH - thumbH) * State.DeviceScrollOffset / (float)maxOffset;
+                FillRect(sbX + 1f, thumbY, scrollBarWidth - 2f, thumbH, ScrollBarFg);
             }
 
             // [Discover] button at the bottom of the list area
