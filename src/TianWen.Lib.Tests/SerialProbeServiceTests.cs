@@ -197,13 +197,68 @@ public class SerialProbeServiceTests(ITestOutputHelper output)
             await service.ProbeAllAsync(cts.Token));
     }
 
+    [Fact]
+    public async Task WithPinnedPortTheProbeServiceSkipsItEntirely()
+    {
+        var external = new ProbeTestExternal { Ports = ["serial:COM5", "serial:COM6"] };
+        var probe = StubProbe.Sync("AllMatch", baud: 9600,
+            match: (port, _) => new SerialProbeMatch(port, new Uri($"Mount://FakeDevice/{port.Replace(':', '_')}")));
+        var pinned = new StubPinnedPortsProvider("serial:COM5");
+
+        var service = BuildService(external, output, pinned, probe);
+        await service.ProbeAllAsync(TestContext.Current.CancellationToken);
+
+        external.OpenCalls.Count.ShouldBe(1, "pinned COM5 must be skipped — only COM6 opened");
+        external.OpenCalls.First().Port.ShouldBe("serial:COM6");
+        service.ResultsFor("AllMatch").ShouldHaveSingleItem();
+    }
+
+    [Fact]
+    public async Task WithPinnedPortMatchingIsCaseInsensitive()
+    {
+        var external = new ProbeTestExternal { Ports = ["serial:COM5"] };
+        var probe = StubProbe.Sync("AllMatch", baud: 9600,
+            match: (port, _) => new SerialProbeMatch(port, new Uri("Mount://FakeDevice/cool")));
+        // Pinned set uses lowercase — must still match the mixed-case enumerated form.
+        var pinned = new StubPinnedPortsProvider("serial:com5");
+
+        var service = BuildService(external, output, pinned, probe);
+        await service.ProbeAllAsync(TestContext.Current.CancellationToken);
+
+        external.OpenCalls.ShouldBeEmpty("case-insensitive match must skip the only port");
+    }
+
+    [Fact]
+    public async Task WithPinnedPortNotEnumeratedOtherPortsStillProbed()
+    {
+        // User moved the cable — pinned port no longer exists. Other ports must still probe.
+        var external = new ProbeTestExternal { Ports = ["serial:COM5", "serial:COM6"] };
+        var probe = StubProbe.Sync("AllMatch", baud: 9600,
+            match: (port, _) => new SerialProbeMatch(port, new Uri($"Mount://FakeDevice/{port.Replace(':', '_')}")));
+        var pinned = new StubPinnedPortsProvider("serial:COM99");
+
+        var service = BuildService(external, output, pinned, probe);
+        await service.ProbeAllAsync(TestContext.Current.CancellationToken);
+
+        external.OpenCalls.Count.ShouldBe(2, "stale pin — still probe everything available");
+    }
+
     // ---- helpers -----------------------------------------------------------
 
     private static SerialProbeService BuildService(ProbeTestExternal external, ITestOutputHelper output, params ISerialProbe[] probes)
+        => BuildService(external, output, StubPinnedPortsProvider.Empty, probes);
+
+    private static SerialProbeService BuildService(ProbeTestExternal external, ITestOutputHelper output, IPinnedSerialPortsProvider pinnedProvider, params ISerialProbe[] probes)
     {
         var factory = LoggerFactory.Create(b => b.AddProvider(new XUnitLoggerProvider(output, false)));
         var logger = factory.CreateLogger<SerialProbeService>();
-        return new SerialProbeService(external, logger, probes);
+        return new SerialProbeService(external, logger, probes, pinnedProvider);
+    }
+
+    private sealed class StubPinnedPortsProvider(params string[] pinned) : IPinnedSerialPortsProvider
+    {
+        public static readonly StubPinnedPortsProvider Empty = new();
+        public IReadOnlySet<string> GetPinnedPorts() => new HashSet<string>(pinned, StringComparer.OrdinalIgnoreCase);
     }
 
     private sealed class ProbeTestExternal : FakeExternal

@@ -27,7 +27,8 @@ namespace TianWen.Lib.Devices.Discovery;
 internal sealed class SerialProbeService(
     IExternal external,
     ILogger<SerialProbeService> logger,
-    IEnumerable<ISerialProbe> probes) : ISerialProbeService
+    IEnumerable<ISerialProbe> probes,
+    IPinnedSerialPortsProvider pinnedPortsProvider) : ISerialProbeService
 {
     private readonly ISerialProbe[] _probes = [.. probes];
     private readonly ConcurrentDictionary<string, List<SerialProbeMatch>> _results = new(StringComparer.Ordinal);
@@ -56,8 +57,11 @@ internal sealed class SerialProbeService(
             ports = external.EnumerateAvailableSerialPorts(portLock);
         }
 
-        logger.LogDebug("Enumerated {PortCount} serial port(s); {ProbeCount} probe(s) registered.",
-            ports.Count, _probes.Length);
+        var enumeratedCount = ports.Count;
+        ports = pinnedPortsProvider.FilterUnpinned(ports, logger);
+
+        logger.LogDebug("Enumerated {EnumeratedCount} serial port(s) ({UnpinnedCount} after pinned filter); {ProbeCount} probe(s) registered.",
+            enumeratedCount, ports.Count, _probes.Length);
 
         if (ports.Count == 0)
         {
