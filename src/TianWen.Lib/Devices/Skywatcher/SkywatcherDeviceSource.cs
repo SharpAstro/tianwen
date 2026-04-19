@@ -66,9 +66,12 @@ internal class SkywatcherDeviceSource(IExternal external, ILogger<SkywatcherDevi
 
     private async Task<SkywatcherDevice?> QuerySerialPortAsync(string portName, CancellationToken cancellationToken)
     {
+        using var portScope = logger.BeginScope(new Dictionary<string, object> { ["Port"] = portName, ["Source"] = "Skywatcher" });
+
         // Try 115200 baud first (USB-integrated mounts like EQ6-R), then 9600 (legacy serial adapter)
         foreach (var baud in new[] { SkywatcherProtocol.DEFAULT_USB_BAUD, SkywatcherProtocol.DEFAULT_LEGACY_BAUD })
         {
+            using var baudScope = logger.BeginScope(new Dictionary<string, object> { ["Baud"] = baud });
             try
             {
                 using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -109,11 +112,11 @@ internal class SkywatcherDeviceSource(IExternal external, ILogger<SkywatcherDevi
             }
             catch (OperationCanceledException)
             {
-                // Timeout — try next baud rate
+                logger.LogDebug("Probe timeout after 300ms — trying next baud.");
             }
             catch (Exception ex)
             {
-                logger.LogDebug(ex, "Skywatcher probe failed on {Port} at {Baud} baud", portName, baud);
+                logger.LogDebug(ex, "Probe failed.");
             }
         }
 

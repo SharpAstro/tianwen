@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -11,7 +12,7 @@ using static QHYCCD.SDK.QHYCamera;
 
 namespace TianWen.Lib.Devices.QHYCCD;
 
-internal class QHYDeviceSource(IExternal external) : IDeviceSource<QHYDevice>
+internal class QHYDeviceSource(IExternal external, ILogger<QHYDeviceSource> logger) : IDeviceSource<QHYDevice>
 {
     static readonly Dictionary<DeviceType, bool> _supportedDeviceTypes = [];
     private readonly List<QHYDevice> _cameras = [];
@@ -70,6 +71,13 @@ internal class QHYDeviceSource(IExternal external) : IDeviceSource<QHYDevice>
 
         foreach (var portName in external.EnumerateAvailableSerialPorts(resourceLock))
         {
+            using var probeScope = logger.BeginScope(new Dictionary<string, object>
+            {
+                ["Port"] = portName,
+                ["Baud"] = QHYSerialControlledFilterWheelDriver.CFW_BAUD,
+                ["Source"] = "QHYCFW3",
+            });
+
             try
             {
                 using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -112,11 +120,11 @@ internal class QHYDeviceSource(IExternal external) : IDeviceSource<QHYDevice>
             }
             catch (OperationCanceledException)
             {
-                // Timeout — not a QHYCFW3 on this port
+                logger.LogDebug("Probe timeout — not a QHYCFW3.");
             }
-            catch (Exception)
+            catch (Exception ex)
             {
-                // Skip this port
+                logger.LogDebug(ex, "Probe threw — skipping port.");
             }
         }
 
@@ -202,6 +210,13 @@ internal class QHYDeviceSource(IExternal external) : IDeviceSource<QHYDevice>
     /// </summary>
     private async ValueTask ProbeForQfocAsync(string portName, CancellationToken cancellationToken)
     {
+        using var probeScope = logger.BeginScope(new Dictionary<string, object>
+        {
+            ["Port"] = portName,
+            ["Baud"] = QHYFocuserDriver.QFOC_BAUD,
+            ["Source"] = "QFOC",
+        });
+
         try
         {
             using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -232,11 +247,11 @@ internal class QHYDeviceSource(IExternal external) : IDeviceSource<QHYDevice>
         }
         catch (OperationCanceledException)
         {
-            // Timeout — not a QFOC on this port
+            logger.LogDebug("Probe timeout — not a QFOC.");
         }
-        catch (Exception)
+        catch (Exception ex)
         {
-            // Skip this port
+            logger.LogDebug(ex, "Probe threw — skipping port.");
         }
     }
 
