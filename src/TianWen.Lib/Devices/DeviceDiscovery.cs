@@ -5,10 +5,15 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using TianWen.Lib.Devices.Discovery;
 
 namespace TianWen.Lib.Devices;
 
-internal class DeviceDiscovery(IExternal external, ILogger<DeviceDiscovery> logger, IEnumerable<IDeviceSource<DeviceBase>> deviceSources) : IDeviceDiscovery
+internal class DeviceDiscovery(
+    IExternal external,
+    ILogger<DeviceDiscovery> logger,
+    IEnumerable<IDeviceSource<DeviceBase>> deviceSources,
+    ISerialProbeService serialProbeService) : IDeviceDiscovery
 {
     private volatile bool _initialized;
     private readonly SemaphoreSlim _initSem = new SemaphoreSlim(1, 1);
@@ -67,6 +72,11 @@ internal class DeviceDiscovery(IExternal external, ILogger<DeviceDiscovery> logg
             return;
         }
 
+        // Centralised serial probing runs before per-source discovery so sources can
+        // consume probe matches from ISerialProbeService instead of opening ports
+        // themselves. Safe no-op when no ISerialProbe is registered (Phase 1 default).
+        await RunSerialProbesAsync(cancellationToken);
+
         foreach (var source in _supportedSources)
         {
             if (source.RegisteredDeviceTypes.Contains(type))
@@ -90,6 +100,8 @@ internal class DeviceDiscovery(IExternal external, ILogger<DeviceDiscovery> logg
             return;
         }
 
+        await RunSerialProbesAsync(cancellationToken);
+
         foreach (var source in _supportedSources)
         {
             try
@@ -100,6 +112,22 @@ internal class DeviceDiscovery(IExternal external, ILogger<DeviceDiscovery> logg
             {
                 logger.LogError(e, "Error while discovering devices");
             }
+        }
+    }
+
+    private async ValueTask RunSerialProbesAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            await serialProbeService.ProbeAllAsync(cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception e)
+        {
+            logger.LogError(e, "Serial probe pass failed — continuing with per-source discovery.");
         }
     }
 }

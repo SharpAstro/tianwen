@@ -100,7 +100,7 @@ public class FakeExternal : IExternal
         }
     }
 
-    public IReadOnlyList<string> EnumerateAvailableSerialPorts(ResourceLock resourceLock) => [];
+    public virtual IReadOnlyList<string> EnumerateAvailableSerialPorts(ResourceLock resourceLock) => [];
 
     public ValueTask<ResourceLock> WaitForSerialPortEnumerationAsync(CancellationToken cancellationToken) => ValueTask.FromResult(ResourceLock.AlwaysUnlocked);
 
