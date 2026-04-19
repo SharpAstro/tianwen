@@ -39,9 +39,9 @@ src/
 ├── NuGet.config                   # Package sources
 ├── TianWen.Lib/                   # Core library (net10.0)
 ├── TianWen.Lib.Tests/             # Unit tests (xUnit v3)
-├── TianWen.Lib.CLI/               # CLI application (AOT-published)
-├── TianWen.Lib.Hosting/           # ASP.NET Core Minimal API — REST + WebSocket endpoints
-├── TianWen.Lib.Server/            # Headless server executable (tianwen-server, AOT-published)
+├── TianWen.Cli/               # CLI application (AOT-published)
+├── TianWen.Hosting/           # ASP.NET Core Minimal API — REST + WebSocket endpoints
+├── TianWen.Server/            # Headless server executable (tianwen-server, AOT-published)
 ├── TianWen.UI.Abstractions/       # Widget system, layout, state, shared types
 ├── TianWen.UI.Shared/             # SDL→InputKey mapping, Vulkan FITS pipeline, VkSkyMapPipeline, VkImageRenderer
 ├── TianWen.UI.Gui/                # N.I.N.A.-style integrated GUI (SDL3 + Vulkan)
@@ -432,7 +432,7 @@ and full command reference are in `QfocProtocol.cs` with AOT-safe `QfocJsonConte
 absolute positioning (±1M steps), dual temperature sensors (external NTC + chip), TMC StallGuard,
 12V supply detection.
 
-### Hosting API (`TianWen.Lib.Hosting` + `TianWen.Lib.Server`)
+### Hosting API (`TianWen.Hosting` + `TianWen.Server`)
 
 Headless REST + WebSocket API for remote operation (Raspberry Pi, Touch N Stars mobile UI).
 
@@ -449,7 +449,7 @@ Headless REST + WebSocket API for remote operation (Raspberry Pi, Touch N Stars 
 **Target lifecycle:** Targets are queued via `AddTarget()` before session start, drained into
 `ScheduledObservation[]` when `/session/start` is called. Cannot be modified mid-session.
 
-**Running:** `dotnet run --project TianWen.Lib.Server` or `tianwen-server [--port 1888]`
+**Running:** `dotnet run --project TianWen.Server` or `tianwen-server [--port 1888]`
 
 ### Image Pipeline & Buffer Lifecycle
 
