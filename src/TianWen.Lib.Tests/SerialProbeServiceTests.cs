@@ -377,8 +377,8 @@ public class SerialProbeServiceTests(ITestOutputHelper output)
         public int MaxAttempts => maxAttempts;
         public IReadOnlyCollection<string> MatchesDeviceHosts => matchesDeviceHosts ?? [];
 
-        public ValueTask<SerialProbeMatch?> ProbeAsync(ISerialConnection conn, CancellationToken cancellationToken)
-            => match(((StubSerialConnection)conn).Port, cancellationToken);
+        public ValueTask<SerialProbeMatch?> ProbeAsync(string port, ISerialConnection conn, CancellationToken cancellationToken)
+            => match(port, cancellationToken);
 
         /// <summary>Convenience for sync match callbacks — wraps the result in <see cref="ValueTask"/>.</summary>
         public static StubProbe Sync(string name, int baud, Func<string, CancellationToken, SerialProbeMatch?> match,

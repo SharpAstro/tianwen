@@ -1,18 +1,21 @@
 using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
-using TianWen.Lib.Connections;
+using TianWen.Lib.Devices.Discovery;
 
 namespace TianWen.Lib.Devices.Skywatcher;
 
 /// <summary>
-/// Discovers Skywatcher mounts via serial port enumeration (115200/9600 baud probe)
-/// and WiFi UDP broadcast (:e1\r to 255.255.255.255:11880).
+/// Discovers Skywatcher mounts. Serial probing lives in <see cref="SkywatcherSerialProbeBase"/>
+/// and runs inside <see cref="ISerialProbeService"/>; this source just reads matches the
+/// service has already published. WiFi discovery (UDP broadcast of <c>:e1\r</c> to
+/// 255.255.255.255:11880) stays here because it uses a different transport.
 /// </summary>
-internal class SkywatcherDeviceSource(IExternal external, ILogger<SkywatcherDeviceSource> logger) : IDeviceSource<SkywatcherDevice>
+internal class SkywatcherDeviceSource(ISerialProbeService probeService, ILogger<SkywatcherDeviceSource> logger) : IDeviceSource<SkywatcherDevice>
 {
     private Dictionary<DeviceType, IReadOnlyList<SkywatcherDevice>> _cachedDevices = new();
 
@@ -27,25 +30,14 @@ internal class SkywatcherDeviceSource(IExternal external, ILogger<SkywatcherDevi
     {
         var mounts = new List<SkywatcherDevice>();
 
-        // Serial port discovery
-        try
+        // Serial matches come from the central probe service (populated before DiscoverAsync
+        // runs). Each match's URI already has deviceId + port + baud baked in by the probe.
+        foreach (var match in probeService.ResultsFor("Skywatcher"))
         {
-            using var resourceLock = await external.WaitForSerialPortEnumerationAsync(cancellationToken);
-            foreach (var portName in external.EnumerateAvailableSerialPorts(resourceLock))
-            {
-                var device = await QuerySerialPortAsync(portName, cancellationToken);
-                if (device is not null)
-                {
-                    mounts.Add(device);
-                }
-            }
-        }
-        catch (Exception ex)
-        {
-            logger.LogWarning(ex, "Failed to enumerate serial ports for Skywatcher discovery");
+            mounts.Add(new SkywatcherDevice(match.DeviceUri));
         }
 
-        // WiFi discovery via UDP broadcast
+        // WiFi discovery via UDP broadcast — unchanged, uses a different transport.
         try
         {
             await foreach (var device in DiscoverWiFiAsync(cancellationToken))
@@ -62,65 +54,6 @@ internal class SkywatcherDeviceSource(IExternal external, ILogger<SkywatcherDevi
         {
             [DeviceType.Mount] = mounts
         });
-    }
-
-    private async Task<SkywatcherDevice?> QuerySerialPortAsync(string portName, CancellationToken cancellationToken)
-    {
-        using var portScope = logger.BeginScope(new Dictionary<string, object> { ["Port"] = portName, ["Source"] = "Skywatcher" });
-
-        // Try 115200 baud first (USB-integrated mounts like EQ6-R), then 9600 (legacy serial adapter)
-        foreach (var baud in new[] { SkywatcherProtocol.DEFAULT_USB_BAUD, SkywatcherProtocol.DEFAULT_LEGACY_BAUD })
-        {
-            using var baudScope = logger.BeginScope(new Dictionary<string, object> { ["Baud"] = baud });
-            try
-            {
-                using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-                cts.CancelAfter(TimeSpan.FromMilliseconds(300));
-
-                using var port = await external.OpenSerialDeviceAsync(portName, baud, Encoding.ASCII, cts.Token);
-                if (port is not { IsOpen: true })
-                {
-                    continue;
-                }
-
-                using var @lock = await port.WaitAsync(cts.Token);
-
-                // Send firmware query for RA axis
-                var command = SkywatcherProtocol.BuildCommand('e', '1');
-                if (!await port.TryWriteAsync(command, cts.Token))
-                {
-                    continue;
-                }
-
-                var response = await port.TryReadTerminatedAsync("\r"u8.ToArray(), cts.Token);
-                if (response is null || !SkywatcherProtocol.TryParseResponse(response, out var data))
-                {
-                    continue;
-                }
-
-                if (!SkywatcherProtocol.TryParseFirmwareResponse(data, out var firmware))
-                {
-                    continue;
-                }
-
-                var modelName = firmware.MountModel.DisplayName;
-                var deviceId = $"Skywatcher_{modelName.Replace(' ', '_')}_{firmware.VersionString}_{ISerialConnection.CleanupPortName(portName)}";
-                var displayName = $"Skywatcher {modelName} (FW {firmware.VersionString})";
-
-                port.TryClose();
-                return new SkywatcherDevice(DeviceType.Mount, deviceId, displayName, portName, baud);
-            }
-            catch (OperationCanceledException)
-            {
-                logger.LogDebug("Probe timeout after 300ms — trying next baud.");
-            }
-            catch (Exception ex)
-            {
-                logger.LogDebug(ex, "Probe failed.");
-            }
-        }
-
-        return null;
     }
 
     private async IAsyncEnumerable<SkywatcherDevice> DiscoverWiFiAsync([System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
