@@ -79,8 +79,12 @@ jobs:
       run: dotnet test TianWen.Lib.Tests.Functional -c $BUILD_CONF --no-build
       working-directory: src
 
+  # publish-apps runs in parallel with the test jobs -- dotnet publish is long
+  # on AOT targets (multiple minutes per RID), so gating on tests would block
+  # the matrix unnecessarily. The `release` job below re-gates: binaries only
+  # become a published GitHub Release when both tests AND this matrix succeed.
   publish-apps:
-    needs: [test-unit, test-functional]
+    needs: build
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     strategy:
       fail-fast: false
@@ -107,6 +111,9 @@ jobs:
     - name: Publish TianWen.UI.FitsViewer
       run: dotnet publish src/TianWen.UI.FitsViewer/TianWen.UI.FitsViewer.csproj -r ${{ matrix.rid }} -c Release -p:Version=${VERSION_PREFIX}${VERSION_REV}${VERSION_HASH} -p:FileVersion=${VERSION_PREFIX}.${VERSION_REV} -p:GeneratePackageOnBuild=false
       shell: bash
+    - name: Publish TianWen.UI.Gui
+      run: dotnet publish src/TianWen.UI.Gui/TianWen.UI.Gui.csproj -r ${{ matrix.rid }} -c Release -p:Version=${VERSION_PREFIX}${VERSION_REV}${VERSION_HASH} -p:FileVersion=${VERSION_PREFIX}.${VERSION_REV} -p:GeneratePackageOnBuild=false
+      shell: bash
     - name: Publish TianWen.Server
       run: dotnet publish src/TianWen.Server/TianWen.Server.csproj -r ${{ matrix.rid }} -c Release -p:Version=${VERSION_PREFIX}${VERSION_REV}${VERSION_HASH} -p:FileVersion=${VERSION_PREFIX}.${VERSION_REV} -p:GeneratePackageOnBuild=false
       shell: bash
@@ -116,15 +123,22 @@ jobs:
         path: src/TianWen.Cli/bin/Release/net10.0/${{ matrix.rid }}/publish/
     - uses: actions/upload-artifact@v4
       with:
-        name: tianwen-fits-viewer-${{ matrix.rid }}
+        name: tianwen-fits-${{ matrix.rid }}
         path: src/TianWen.UI.FitsViewer/bin/Release/net10.0/${{ matrix.rid }}/publish/
+    - uses: actions/upload-artifact@v4
+      with:
+        name: tianwen-gui-${{ matrix.rid }}
+        path: src/TianWen.UI.Gui/bin/Release/net10.0/${{ matrix.rid }}/publish/
     - uses: actions/upload-artifact@v4
       with:
         name: tianwen-server-${{ matrix.rid }}
         path: src/TianWen.Server/bin/Release/net10.0/${{ matrix.rid }}/publish/
 
+  # Gating: only ship binaries to a GitHub Release when tests pass AND all
+  # target-platform publishes succeeded.
   release:
-    needs: publish-apps
+    needs: [test-unit, test-functional, publish-apps]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -135,7 +149,7 @@ jobs:
     - name: Create release archives
       run: |
         cd artifacts
-        for dir in tianwen-cli-* tianwen-fits-viewer-*/ tianwen-server-*/; do
+        for dir in tianwen-cli-*/ tianwen-fits-*/ tianwen-gui-*/ tianwen-server-*/; do
           name="${dir%/}"
           tar -czf "../${name}.tar.gz" -C "$dir" .
         done
@@ -147,9 +161,12 @@ jobs:
         generate_release_notes: true
         files: |
           tianwen-cli-*.tar.gz
-          tianwen-fits-viewer-*.tar.gz
+          tianwen-fits-*.tar.gz
+          tianwen-gui-*.tar.gz
           tianwen-server-*.tar.gz
 
+  # NuGet push still gates on tests -- once a version is pushed to nuget.org
+  # we can't take it back, so being on the safer side is worth the serial wait.
   publish-nuget:
     needs: [test-unit, test-functional]
     runs-on: ubuntu-latest
