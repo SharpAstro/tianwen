@@ -280,31 +280,34 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
 
     // ────────────────────────────────────────────────── Overlay ellipse (DSO markers)
     //
-    // Instanced quads for DSO ellipse / circle markers. Positions are supplied in
-    // window-absolute pixels (output of SkyMapProjection.ProjectWithMatrix on the
-    // CPU), so the vertex shader only needs the UBO's viewportCenter / viewportSize
-    // to convert to NDC -- no view-matrix math, no projection.
+    // Instanced quads for DSO ellipse / circle markers. Mirror of the star pipeline:
+    // the instance buffer carries J2000 unit vectors, angular sizes (arcmin), and a
+    // position angle measured from celestial north. The vertex shader stereographic-
+    // projects the center AND a 1 arcmin tip toward north, measures the screen-space
+    // delta to recover the rotation the sky projection induces at that point, then
+    // adds the user-supplied PA. Result: no CPU projection anywhere on the ellipse
+    // path -- hundreds of per-frame CPU projections + atan2 screen-PA calls go away.
     //
-    // Replaces ~hundreds of individual VkOverlayShapes.DrawEllipse calls (each one
-    // vkCmdDraw + bounds rebuild) with a single instanced draw, and draws the
-    // ellipse correctly rotated (the old axis-aligned bounding-box path threw the
-    // position angle away).
+    // Stellarium does the equivalent work on the CPU every frame (see
+    // Nebula::drawHints -- finite-difference screen-PA via two project() calls +
+    // atan2, then CPU-tessellated ellipse loop). The approach below is the natural
+    // instanced-rendering generalisation.
     //
-    // Per-instance vertex layout (stride = 40 bytes = 10 floats):
-    //   offset  0 : vec2  aCenter    screen pixel center (cx, cy)
-    //   offset  8 : vec2  aSize      semi-major, semi-minor pixel radii
-    //   offset 16 : float aAngle     rotation in radians (screen frame)
-    //   offset 20 : float aThickness stroke width in pixels
-    //   offset 24 : vec4  aColor     RGBA premultipliable
+    // Per-instance vertex layout (stride = 44 bytes = 11 floats):
+    //   offset  0 : vec3  aUnitVec       J2000 unit sphere position
+    //   offset 12 : vec2  aSizeArcmin    (semiMajor, semiMinor) in arcminutes
+    //   offset 20 : float aPaFromNorth   radians CCW from celestial north
+    //   offset 24 : float aThickness     stroke width in pixels
+    //   offset 28 : vec4  aColor         RGBA
     private const string OverlayEllipseVertexSource = """
         #version 450
 
-        layout(location = 0) in vec2  aCorner;    // per-vertex unit quad, [-1, 1]
-        layout(location = 1) in vec2  aCenter;    // per-instance center (window px)
-        layout(location = 2) in vec2  aSize;      // per-instance semi-axes (px)
-        layout(location = 3) in float aAngle;     // per-instance rotation (radians)
-        layout(location = 4) in float aThickness; // per-instance stroke (px)
-        layout(location = 5) in vec4  aColor;     // per-instance color
+        layout(location = 0) in vec2  aCorner;       // per-vertex unit quad, [-1, 1]
+        layout(location = 1) in vec3  aUnitVec;      // per-instance J2000 unit vec
+        layout(location = 2) in vec2  aSizeArcmin;   // per-instance semi-axes (arcmin)
+        layout(location = 3) in float aPaFromNorth;  // per-instance PA from north (rad)
+        layout(location = 4) in float aThickness;    // per-instance stroke (px)
+        layout(location = 5) in vec4  aColor;        // per-instance color
 
         layout(set = 0, binding = 0, std140) uniform SkyMapUBO {
             mat4  viewMatrix;
@@ -321,33 +324,66 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
         } ubo;
 
         layout(location = 0) out vec2  vLocal;    // ellipse-local px (pre-rotation)
-        layout(location = 1) out vec2  vSize;     // pass semi-axes through
+        layout(location = 1) out vec2  vSize;     // semi-axes in px (for the SDF)
         layout(location = 2) out float vThickness;
         layout(location = 3) out vec4  vColor;
 
+        PROJECTION_PLACEHOLDER
+
         void main() {
-            // Pad the quad by thickness + 1 px so the ring SDF has antialias headroom.
+            // 1. Project center through view matrix + stereographic (shared with star + line shaders).
+            vec3 camPos = (ubo.viewMatrix * vec4(aUnitVec, 1.0)).xyz;
+            vec3 proj = stereoProject(camPos);
+            if (proj.z <= -0.99) {
+                // Anti-hemisphere: emit a degenerate vertex so the whole instance is culled.
+                gl_Position = vec4(0.0, 0.0, 0.0, 0.0);
+                vLocal = vec2(0.0);
+                vSize = vec2(1.0);
+                vThickness = 0.0;
+                vColor = vec4(0.0);
+                return;
+            }
+            vec2 center = proj.xy;
+
+            // 2. Local north tangent from the unit vector alone. Clamped cosDec avoids the
+            //    pole singularity where cosDec -> 0 would blow up the division.
+            float cosDec = sqrt(max(1e-6, 1.0 - aUnitVec.z * aUnitVec.z));
+            vec3 nTangent = vec3(-aUnitVec.z * aUnitVec.x / cosDec,
+                                 -aUnitVec.z * aUnitVec.y / cosDec,
+                                  cosDec);
+
+            // 3. Project a tip one arcmin north and measure the screen-space angle to it.
+            //    Stellarium uses the same finite-difference trick on the CPU.
+            float stepRad = 2.908882e-4; // 1 arcmin in radians (1 / (60 * 180 / PI))
+            vec3 tipUnit = normalize(aUnitVec + nTangent * stepRad);
+            vec3 tipProj = stereoProject((ubo.viewMatrix * vec4(tipUnit, 1.0)).xyz);
+            vec2 north2d = tipProj.xy - center;
+            // Screen y grows downward, so "up on screen" is -Y; atan(x, -y) gives the
+            // angle of the screen-north direction measured CCW from screen up.
+            float screenNorthAngle = atan(north2d.x, -north2d.y);
+            float totalAngle = screenNorthAngle + aPaFromNorth;
+
+            // 4. Convert arcmin -> pixels using the UBO's pixelsPerRadian.
+            float arcminToPx = ubo.pixelsPerRadian * 0.00029088820866;  // pi / (180 * 60)
+            vec2 sizePx = aSizeArcmin * arcminToPx;
+
+            // 5. Pad quad for the ring SDF antialias + rotate + expand.
             float pad = max(aThickness * 0.75 + 1.0, 1.5);
-            vec2 expanded = aSize + vec2(pad);
-
-            vec2 local = aCorner * expanded;
-
-            // Rotate into screen frame
-            float cs = cos(aAngle);
-            float sn = sin(aAngle);
+            vec2 local = aCorner * (sizePx + vec2(pad));
+            float cs = cos(totalAngle);
+            float sn = sin(totalAngle);
             vec2 rotated = vec2(local.x * cs - local.y * sn,
                                 local.x * sn + local.y * cs);
+            vec2 screenPos = center + rotated;
 
-            vec2 screenPos = aCenter + rotated;
-
-            // Same NDC-from-absolute-pixel mapping as the star / line shaders.
+            // 6. Same NDC-from-absolute-pixel mapping as the star / line shaders.
             gl_Position = vec4(
                 (screenPos.x - ubo.viewportCenter.x) / (ubo.viewportSize.x * 0.5),
                 (screenPos.y - ubo.viewportCenter.y) / (ubo.viewportSize.y * 0.5),
                 0.0, 1.0);
 
             vLocal = local;
-            vSize = aSize;
+            vSize = sizePx;
             vThickness = aThickness;
             vColor = aColor;
         }
@@ -1806,10 +1842,11 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
             _ctx.DeviceApi.vkDestroyShaderModule(mwVertModule);
             _ctx.DeviceApi.vkDestroyShaderModule(mwFragModule);
 
-            // ── Overlay ellipse pipeline: instanced quads with ring SDF ──
+            // ── Overlay ellipse pipeline: instanced quads, GPU projection + ring SDF ──
             // Binding 0: quad corners (per-vertex, same buffer as star pipeline), stride 8
-            // Binding 1: ellipse instance data (per-instance), stride 40 bytes
-            var ovVertModule = CompileShaderModule(compiler, OverlayEllipseVertexSource, "skymap_overlay.vert", ShaderKind.VertexShader);
+            // Binding 1: ellipse instance data (per-instance), stride 44 bytes (11 floats)
+            var ovVert = OverlayEllipseVertexSource.Replace("PROJECTION_PLACEHOLDER", ProjectionGlsl);
+            var ovVertModule = CompileShaderModule(compiler, ovVert, "skymap_overlay.vert", ShaderKind.VertexShader);
             var ovFragModule = CompileShaderModule(compiler, OverlayEllipseFragmentSource, "skymap_overlay.frag", ShaderKind.FragmentShader);
 
             var ovBindings = stackalloc VkVertexInputBindingDescription[2];
@@ -1819,7 +1856,7 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
             };
             ovBindings[1] = new VkVertexInputBindingDescription
             {
-                binding = 1, stride = 10 * sizeof(float), inputRate = VkVertexInputRate.Instance
+                binding = 1, stride = 11 * sizeof(float), inputRate = VkVertexInputRate.Instance
             };
 
             var ovAttrs = stackalloc VkVertexInputAttributeDescription[6];
@@ -1827,25 +1864,25 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
             {
                 location = 0, binding = 0, format = VkFormat.R32G32Sfloat, offset = 0
             };
-            ovAttrs[1] = new VkVertexInputAttributeDescription // aCenter
+            ovAttrs[1] = new VkVertexInputAttributeDescription // aUnitVec
             {
-                location = 1, binding = 1, format = VkFormat.R32G32Sfloat, offset = 0
+                location = 1, binding = 1, format = VkFormat.R32G32B32Sfloat, offset = 0
             };
-            ovAttrs[2] = new VkVertexInputAttributeDescription // aSize
+            ovAttrs[2] = new VkVertexInputAttributeDescription // aSizeArcmin
             {
-                location = 2, binding = 1, format = VkFormat.R32G32Sfloat, offset = 2 * sizeof(float)
+                location = 2, binding = 1, format = VkFormat.R32G32Sfloat, offset = 3 * sizeof(float)
             };
-            ovAttrs[3] = new VkVertexInputAttributeDescription // aAngle
+            ovAttrs[3] = new VkVertexInputAttributeDescription // aPaFromNorth
             {
-                location = 3, binding = 1, format = VkFormat.R32Sfloat, offset = 4 * sizeof(float)
+                location = 3, binding = 1, format = VkFormat.R32Sfloat, offset = 5 * sizeof(float)
             };
             ovAttrs[4] = new VkVertexInputAttributeDescription // aThickness
             {
-                location = 4, binding = 1, format = VkFormat.R32Sfloat, offset = 5 * sizeof(float)
+                location = 4, binding = 1, format = VkFormat.R32Sfloat, offset = 6 * sizeof(float)
             };
             ovAttrs[5] = new VkVertexInputAttributeDescription // aColor
             {
-                location = 5, binding = 1, format = VkFormat.R32G32B32A32Sfloat, offset = 6 * sizeof(float)
+                location = 5, binding = 1, format = VkFormat.R32G32B32A32Sfloat, offset = 7 * sizeof(float)
             };
 
             _overlayEllipsePipeline = CreateGraphicsPipeline(
