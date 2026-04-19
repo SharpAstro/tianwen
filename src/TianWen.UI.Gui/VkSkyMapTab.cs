@@ -67,6 +67,14 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
     private readonly List<OverlayItem> _overlayItems = [];
     private readonly List<(OverlayItem Item, float X, float Y)> _overlayPlacedLabels = [];
 
+    // Per-frame instance buffer for the overlay ellipse pipeline -- 10 floats per
+    // instance (see OverlayEllipseVertexSource for layout). Reused across frames to
+    // stay allocation-free during active pan. Only Ellipse / Circle markers go in
+    // here; Cross markers (used for stars, low count at wide FOV) still use the
+    // per-call DrawCross path.
+    private const int OverlayEllipseFloatsPerInstance = 10;
+    private readonly List<float> _overlayEllipseInstances = new(1024);
+
     /// <summary>FOV threshold at which the scan bounds become view-matrix independent
     /// (full-sky sweep). Keep in sync with the branch in <c>GatherSkyMapOverlayCandidates</c>.</summary>
     private const double WideFovThresholdDeg = 90.0;
@@ -294,54 +302,102 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
         var fovAlpha = MathF.Max(MathF.Min(120f / (float)fov, 1f), 0.55f);
         var pinnedHaloColor = new RGBAColor32(0xFF, 0x60, 0x20, (byte)(0x50 * fovAlpha));
 
+        // Build the per-frame ellipse / circle instance buffer. Cross markers still
+        // use the per-call path below because they're rare at wide FOV and need a
+        // different (rectangle) primitive that isn't worth a second pipeline.
+        _overlayEllipseInstances.Clear();
+        var pinnedHaloR = pinnedHaloColor.Red / 255f;
+        var pinnedHaloG = pinnedHaloColor.Green / 255f;
+        var pinnedHaloB = pinnedHaloColor.Blue / 255f;
+        var pinnedHaloA = pinnedHaloColor.Alpha / 255f;
         foreach (var item in _overlayItems)
         {
             var (r, g, b) = item.Color;
             var alpha = dimBelowHorizon && !site.IsAboveHorizon(item.RA, item.Dec) ? 0.35f : 1.0f;
             if (!item.IsPinned) alpha *= fovAlpha;
 
-            // Pinned halo (drawn first so it's behind the marker). The halo is 1.5x
-            // the normal marker size -- visible from a distance but not overpowering.
+            // Pinned halo (drawn first so it's behind the marker). Halo = 1.5x marker
+            // with a 16-px floor so a pinned planner target is visible at any zoom.
             if (item.IsPinned)
             {
                 var haloRadius = 16f * dpiScale;
                 switch (item.Marker)
                 {
-                    case OverlayMarker.Ellipse ellipse:
-                        haloRadius = MathF.Max(ellipse.SemiMajorPx * 1.5f, haloRadius);
+                    case OverlayMarker.Ellipse halo:
+                        haloRadius = MathF.Max(halo.SemiMajorPx * 1.5f, haloRadius);
                         break;
-                    case OverlayMarker.Circle circle:
-                        haloRadius = MathF.Max(circle.RadiusPx * 1.5f, haloRadius);
+                    case OverlayMarker.Circle haloC:
+                        haloRadius = MathF.Max(haloC.RadiusPx * 1.5f, haloRadius);
                         break;
                 }
-                VkOverlayShapes.DrawEllipse(renderer, dpiScale,
+                AppendEllipseInstance(
                     item.ScreenX, item.ScreenY,
-                    haloRadius, haloRadius, 0f,
-                    pinnedHaloColor, 3f);
+                    haloRadius, haloRadius, 0f, 3f,
+                    pinnedHaloR, pinnedHaloG, pinnedHaloB, pinnedHaloA);
             }
 
-            var color = item.IsPinned
-                ? new RGBAColor32(0xFF, 0x70, 0x30, (byte)(alpha * 255)) // bright orange-red for pinned
-                : RGBAColor32.FromFloat(r, g, b, alpha);
+            float mainR, mainG, mainB, mainA;
+            if (item.IsPinned)
+            {
+                mainR = 1f; mainG = 0x70 / 255f; mainB = 0x30 / 255f; mainA = alpha;
+            }
+            else
+            {
+                mainR = r; mainG = g; mainB = b; mainA = alpha;
+            }
 
             switch (item.Marker)
             {
                 case OverlayMarker.Ellipse ellipse:
-                    VkOverlayShapes.DrawEllipse(renderer, dpiScale,
+                    AppendEllipseInstance(
                         item.ScreenX, item.ScreenY,
-                        ellipse.SemiMajorPx, ellipse.SemiMinorPx, ellipse.AngleRad,
-                        color, 1.5f);
-                    break;
-                case OverlayMarker.Cross cross:
-                    VkOverlayShapes.DrawCross(renderer, dpiScale,
-                        item.ScreenX, item.ScreenY, cross.ArmPx, color);
+                        ellipse.SemiMajorPx, ellipse.SemiMinorPx, ellipse.AngleRad, 1.5f,
+                        mainR, mainG, mainB, mainA);
                     break;
                 case OverlayMarker.Circle circle:
-                    VkOverlayShapes.DrawEllipse(renderer, dpiScale,
+                    AppendEllipseInstance(
                         item.ScreenX, item.ScreenY,
-                        circle.RadiusPx, circle.RadiusPx, 0f,
-                        color, 1.5f);
+                        circle.RadiusPx, circle.RadiusPx, 0f, 1.5f,
+                        mainR, mainG, mainB, mainA);
                     break;
+                case OverlayMarker.Cross cross:
+                    // Keep the per-call rectangle path for crosses (low count at wide FOV,
+                    // different primitive shape -- not a bottleneck).
+                    var crossColor = RGBAColor32.FromFloat(mainR, mainG, mainB, mainA);
+                    VkOverlayShapes.DrawCross(renderer, dpiScale,
+                        item.ScreenX, item.ScreenY, cross.ArmPx, crossColor);
+                    break;
+            }
+        }
+
+        // Single instanced draw for all ellipse + circle markers (including pinned
+        // halos). Replaces one vkCmdDraw per marker -- at wide FOV that's hundreds.
+        if (_overlayEllipseInstances.Count > 0 && _pipeline is { } pipeline)
+        {
+            var ctx = renderer.Context;
+            var span = System.Runtime.InteropServices.CollectionsMarshal.AsSpan(_overlayEllipseInstances);
+            var instByteOffset = ctx.WriteVertices(span);
+            if (instByteOffset != uint.MaxValue)
+            {
+                var instanceCount = (uint)(_overlayEllipseInstances.Count / OverlayEllipseFloatsPerInstance);
+                pipeline.DrawOverlayEllipses(
+                    renderer.CurrentCommandBuffer,
+                    contentRect.X, contentRect.Y, contentRect.Width, contentRect.Height,
+                    ctx.VertexBuffer, instByteOffset, instanceCount);
+
+                // Restore full-window viewport/scissor so subsequent text labels (which
+                // use window-absolute coords via Renderer.DrawText) render correctly.
+                var api = ctx.DeviceApi;
+                var cmd = renderer.CurrentCommandBuffer;
+                Vortice.Vulkan.VkViewport fullVp = new()
+                {
+                    x = 0, y = 0,
+                    width = ctx.SwapchainWidth, height = ctx.SwapchainHeight,
+                    minDepth = 0f, maxDepth = 1f
+                };
+                Vortice.Vulkan.VkRect2D fullScissor = new(0, 0, ctx.SwapchainWidth, ctx.SwapchainHeight);
+                api.vkCmdSetViewport(cmd, 0, 1, &fullVp);
+                api.vkCmdSetScissor(cmd, 0, fullScissor);
             }
         }
 
@@ -554,6 +610,27 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
             floats.Add(corners[i].X); floats.Add(corners[i].Y); floats.Add(corners[i].Z);
             floats.Add(corners[next].X); floats.Add(corners[next].Y); floats.Add(corners[next].Z);
         }
+    }
+
+    /// <summary>
+    /// Appends one DSO overlay ellipse instance to <see cref="_overlayEllipseInstances"/>.
+    /// Layout must match <c>OverlayEllipseVertexSource</c>'s vertex input (10 floats,
+    /// stride 40 bytes: center, size, angle, thickness, rgba).
+    /// </summary>
+    private void AppendEllipseInstance(
+        float cx, float cy, float semiMajor, float semiMinor, float angle, float thickness,
+        float r, float g, float b, float a)
+    {
+        _overlayEllipseInstances.Add(cx);
+        _overlayEllipseInstances.Add(cy);
+        _overlayEllipseInstances.Add(semiMajor);
+        _overlayEllipseInstances.Add(semiMinor);
+        _overlayEllipseInstances.Add(angle);
+        _overlayEllipseInstances.Add(thickness);
+        _overlayEllipseInstances.Add(r);
+        _overlayEllipseInstances.Add(g);
+        _overlayEllipseInstances.Add(b);
+        _overlayEllipseInstances.Add(a);
     }
 
     private static (Vortice.Vulkan.VkBuffer Buffer, uint ByteOffset, uint VertexCount) WriteToRingBuffer(
