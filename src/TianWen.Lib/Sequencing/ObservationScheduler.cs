@@ -842,6 +842,16 @@ internal static class ObservationScheduler
 
     private static double CalculateObjectBonus(in CelestialObject obj, ICelestialObjectDB objectDb)
     {
+        // Dark nebulae are only useful as planning targets when they carry a well-
+        // known common name (e.g. "Ophiuchus Molecular Cloud", "Coalsack"). The raw
+        // Dobashi / LDN / Barnard catalogs otherwise flood "Tonight's Best" with
+        // hundreds of anonymous entries -- visible on the sky map is fine, but no
+        // one plans an observation around "Dobashi 6438".
+        if (obj.ObjectType == ObjectType.DarkNeb && obj.CommonNames.Count == 0)
+        {
+            return 0;
+        }
+
         // Size score (arcmin, log-scaled)
         var sizeScore = 1.0;
         if (objectDb.TryGetShape(obj.Index, out var shape) && (double)shape.MajorAxis > 0)
