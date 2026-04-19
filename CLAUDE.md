@@ -39,13 +39,13 @@ src/
 ├── NuGet.config                   # Package sources
 ├── TianWen.Lib/                   # Core library (net10.0)
 ├── TianWen.Lib.Tests/             # Unit tests (xUnit v3)
-├── TianWen.Cli/               # CLI application (AOT-published)
+├── TianWen.Cli/               # CLI application (AOT-published → `tianwen`)
 ├── TianWen.Hosting/           # ASP.NET Core Minimal API — REST + WebSocket endpoints
-├── TianWen.Server/            # Headless server executable (tianwen-server, AOT-published)
+├── TianWen.Server/            # Headless server executable (AOT-published → `tianwen-server`)
 ├── TianWen.UI.Abstractions/       # Widget system, layout, state, shared types
 ├── TianWen.UI.Shared/             # SDL→InputKey mapping, Vulkan FITS pipeline, VkSkyMapPipeline, VkImageRenderer
-├── TianWen.UI.Gui/                # N.I.N.A.-style integrated GUI (SDL3 + Vulkan)
-├── TianWen.UI.FitsViewer/         # Standalone FITS viewer application
+├── TianWen.UI.Gui/                # N.I.N.A.-style integrated GUI (AOT-published → `tianwen-gui`)
+├── TianWen.UI.FitsViewer/         # Standalone FITS viewer (AOT-published → `tianwen-fits`)
 └── TianWen.UI.Benchmarks/         # BenchmarkDotNet performance tests
 ```
 
@@ -69,7 +69,10 @@ dotnet test TianWen.Lib.Tests --filter "FullyQualifiedName~Guider|FullyQualified
 
 - **.NET 10.0** (`net10.0`) across all projects
 - Nullable reference types enabled globally
-- CLI, Server, and FitsViewer projects have `PublishAot` enabled
+- CLI, Server, FitsViewer, and Gui projects have `PublishAot` enabled. Each sets
+  `<AssemblyName>` to a short lower-case name so the published binaries are
+  `tianwen`, `tianwen-server`, `tianwen-fits`, `tianwen-gui` (not the long
+  project-name form).
 
 ## SharpAstro Sibling Libraries
 
@@ -83,7 +86,7 @@ csproj layout varies — not every sibling uses the `src/<Lib>/<Lib>.csproj` con
 | `SdlVulkan.Renderer` | `../SdlVulkan.Renderer` | `src/SdlVulkan.Renderer/SdlVulkan.Renderer.csproj` | ✅ | SDL3 + Vulkan rendering, font atlas, GLSL pipeline |
 | `Console.Lib` | `../Console.Lib` | `src/Console.Lib/Console.Lib.csproj` | ✅ | RgbaImageRenderer, MarkdownWidget, Sixel, TUI widgets |
 | `FITS.Lib` | `../FITS.Lib` | `CSharpFITS/CSharpFITS.csproj` (package name is `FITS.Lib`, not CSharpFITS) | ❌ | FITS file reading/writing |
-| `FC.SDK` | `../FC.SDK` | — | ❌ | Canon DSLR PTP/USB/WiFi SDK |
+| `FC.SDK` | `../FC.SDK` | `src/FC.SDK/FC.SDK.csproj` | ❌ | Canon DSLR PTP/USB/WiFi SDK |
 | `ZWOptical.SDK` | `../zwo-sdk-nuget` | `ZWOptical.SDK.csproj` (at repo root, not under `src/`) | ❌ | ZWO ASI camera / EAF / EFW native SDK wrappers |
 | `QHYCCD.SDK` | `../QHYCCD.SDK` | `QHYCCD.SDK.csproj` (at repo root, not under `src/`) | ❌ | QHY camera / CFW / QFOC native SDK wrappers |
 | `SharpAstro.Fonts` | `../Fonts.Lib` | `src/SharpAstro.Fonts/SharpAstro.Fonts.csproj` | transitive | Consumed by DIR.Lib (managed font loader/rasterizer) |

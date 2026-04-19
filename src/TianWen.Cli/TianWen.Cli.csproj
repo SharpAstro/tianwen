@@ -5,6 +5,7 @@
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <AssemblyName>tianwen</AssemblyName>
     <PublishAot>true</PublishAot>
     <Platforms>AnyCPU</Platforms>
     <DebugType Condition="'$(Configuration)' == 'Release'">none</DebugType>

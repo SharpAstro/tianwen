@@ -18,7 +18,7 @@ For each repo, show:
 4. Last commit message (one line)
 5. The VersionPrefix (or AssemblyVersion as a fallback) from the repo's main `.csproj`.
    csproj path varies by repo:
-   - `src/<repo>/<repo>.csproj` — DIR.Lib, Console.Lib, SdlVulkan.Renderer, Fonts.Lib (as SharpAstro.Fonts)
+   - `src/<repo>/<repo>.csproj` — DIR.Lib, Console.Lib, SdlVulkan.Renderer, FC.SDK, Fonts.Lib (as SharpAstro.Fonts)
    - `CSharpFITS/CSharpFITS.csproj` — FITS.Lib (package name differs from csproj name)
    - `<repo-root>/<Name>.csproj` — ZWOptical.SDK (in `zwo-sdk-nuget/`), QHYCCD.SDK
    If none of the above patterns match, skip silently — don't guess.
