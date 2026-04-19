@@ -3,7 +3,7 @@ TiānWén (天文)
 
 TianWen is a free, open-source astronomical imaging suite for .NET. It manages cameras, mounts, focusers, filter wheels, and guiders via ASCOM, Alpaca, ZWO, QHYCCD, Meade, Skywatcher, OnStep, and iOptron protocols — with first-class support for multi-OTA (dual rig) setups that are difficult or expensive to achieve with existing software.
 
-It ships as a NuGet library (`TianWen.Lib`), a cross-platform CLI with interactive TUI (`TianWen.Lib.CLI`), a headless REST API server (`TianWen.Lib.Server`) for remote operation via [Touch N Stars](https://github.com/Touch-N-Stars/Touch-N-Stars), a standalone FITS viewer (`TianWen.UI.FitsViewer`), and an integrated N.I.N.A.-style GUI (`TianWen.UI.Gui`).
+It ships as a NuGet library (`TianWen.Lib`), a cross-platform CLI with interactive TUI (`TianWen.Cli`), a headless REST API server (`TianWen.Server`) for remote operation via [Touch N Stars](https://github.com/Touch-N-Stars/Touch-N-Stars), a standalone FITS viewer (`TianWen.UI.FitsViewer`), and an integrated N.I.N.A.-style GUI (`TianWen.UI.Gui`).
 
 ## Features
 
@@ -324,7 +324,7 @@ and `/v2/socket` (PascalCase).
 
 ### CLI
 
-Pre-built native AOT binaries of `TianWen.Lib.CLI` are available from [GitHub Releases](https://github.com/SharpAstro/tianwen/releases):
+Pre-built native AOT binaries of `TianWen.Cli` are available from [GitHub Releases](https://github.com/SharpAstro/tianwen/releases):
 
 | Platform | Architecture | Artifact |
 |----------|-------------|----------|
@@ -337,7 +337,7 @@ Pre-built native AOT binaries of `TianWen.Lib.CLI` are available from [GitHub Re
 
 ### CLI Reference
 
-The `tianwen` CLI (`TianWen.Lib.CLI`) provides non-interactive commands and a full-screen tabbed TUI (`tianwen tui`).
+The `tianwen` CLI (`TianWen.Cli`) provides non-interactive commands and a full-screen tabbed TUI (`tianwen tui`).
 
 #### Global Options
 

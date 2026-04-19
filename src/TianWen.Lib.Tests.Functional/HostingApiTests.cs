@@ -12,8 +12,8 @@ using Microsoft.Extensions.Logging;
 using Shouldly;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Extensions;
-using TianWen.Lib.Hosting;
-using TianWen.Lib.Hosting.Extensions;
+using TianWen.Hosting;
+using TianWen.Hosting.Extensions;
 using TianWen.Lib.Tests;
 using Xunit;
 

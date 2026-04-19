@@ -1,0 +1,28 @@
+using System.Text.Json.Serialization;
+using TianWen.Hosting.Api;
+using TianWen.Hosting.Dto.NinaV2;
+
+namespace TianWen.Hosting.Dto;
+
+/// <summary>
+/// AOT-safe JSON context for ninaAPI v2 compatibility endpoints.
+/// Uses default (PascalCase) property naming to match ninaAPI v2 conventions.
+/// </summary>
+[JsonSerializable(typeof(ResponseEnvelope<string>))]
+[JsonSerializable(typeof(ResponseEnvelope<string[]>))]
+[JsonSerializable(typeof(ResponseEnvelope<NinaCameraInfoDto>))]
+[JsonSerializable(typeof(ResponseEnvelope<NinaMountInfoDto>))]
+[JsonSerializable(typeof(ResponseEnvelope<NinaFocuserInfoDto>))]
+[JsonSerializable(typeof(ResponseEnvelope<NinaFilterWheelInfoDto>))]
+[JsonSerializable(typeof(ResponseEnvelope<NinaGuiderInfoDto>))]
+[JsonSerializable(typeof(ResponseEnvelope<NinaStubInfoDto>))]
+[JsonSerializable(typeof(ResponseEnvelope<NinaWeatherInfoDto>))]
+[JsonSerializable(typeof(ResponseEnvelope<NinaProfileDto>))]
+[JsonSerializable(typeof(ResponseEnvelope<NinaEventDto[]>))]
+[JsonSerializable(typeof(ResponseEnvelope<NinaImageHistoryDto[]>))]
+[JsonSerializable(typeof(ResponseEnvelope<NinaGuideStepDto[]>))]
+[JsonSerializable(typeof(ResponseEnvelope<object>))]
+[JsonSerializable(typeof(ResponseEnvelope<Api.ProfileSummaryDto[]>))]
+[JsonSerializable(typeof(ResponseEnvelope<WebSocketEventDto>))]
+[JsonSourceGenerationOptions(DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
+internal partial class NinaApiJsonContext : JsonSerializerContext { }

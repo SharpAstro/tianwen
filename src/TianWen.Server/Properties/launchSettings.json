@@ -1,0 +1,12 @@
+{
+  "profiles": {
+    "TianWen.Server": {
+      "commandName": "Project",
+      "launchBrowser": true,
+      "environmentVariables": {
+        "ASPNETCORE_ENVIRONMENT": "Development"
+      },
+      "applicationUrl": "https://localhost:53628;http://localhost:53629"
+    }
+  }
+}
