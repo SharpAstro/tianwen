@@ -340,7 +340,7 @@ public class OverlayEngineTests
         var items = OverlayEngine.ComputeOverlays(layout, wcs, db, (_, _) => 50f, 18f);
 
         items.Count.ShouldBeGreaterThanOrEqualTo(1);
-        items[0].Marker.ShouldBeOfType<OverlayMarker.Ellipse>();
+        items[0].Marker.Kind.ShouldBe(OverlayMarkerKind.Ellipse);
         items[0].LabelLines.Count.ShouldBeGreaterThanOrEqualTo(1);
         items[0].Color.ShouldBe((0.0f, 0.8f, 0.8f)); // cyan for galaxies
     }
@@ -360,7 +360,7 @@ public class OverlayEngineTests
         var items = OverlayEngine.ComputeOverlays(layout, wcs, db, (_, _) => 50f, 18f);
 
         items.Count.ShouldBeGreaterThanOrEqualTo(1);
-        items[0].Marker.ShouldBeOfType<OverlayMarker.Cross>();
+        items[0].Marker.Kind.ShouldBe(OverlayMarkerKind.Cross);
         items[0].Color.ShouldBe((1.0f, 1.0f, 1.0f)); // white for stars
     }
 
@@ -377,7 +377,7 @@ public class OverlayEngineTests
         var items = OverlayEngine.ComputeOverlays(layout, wcs, db, (_, _) => 50f, 18f);
 
         items.Count.ShouldBeGreaterThanOrEqualTo(1);
-        items[0].Marker.ShouldBeOfType<OverlayMarker.Circle>();
+        items[0].Marker.Kind.ShouldBe(OverlayMarkerKind.Circle);
     }
 
     [Fact]

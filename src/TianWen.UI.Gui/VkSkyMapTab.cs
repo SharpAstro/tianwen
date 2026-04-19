@@ -316,19 +316,17 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
             var alpha = dimBelowHorizon && !site.IsAboveHorizon(item.RA, item.Dec) ? 0.35f : 1.0f;
             if (!item.IsPinned) alpha *= fovAlpha;
 
+            var marker = item.Marker;
+
             // Pinned halo (drawn first so it's behind the marker). Halo = 1.5x marker
             // with a 16-px floor so a pinned planner target is visible at any zoom.
             if (item.IsPinned)
             {
                 var haloRadius = 16f * dpiScale;
-                switch (item.Marker)
+                if (marker.Kind is OverlayMarkerKind.Ellipse or OverlayMarkerKind.Circle)
                 {
-                    case OverlayMarker.Ellipse halo:
-                        haloRadius = MathF.Max(halo.SemiMajorPx * 1.5f, haloRadius);
-                        break;
-                    case OverlayMarker.Circle haloC:
-                        haloRadius = MathF.Max(haloC.RadiusPx * 1.5f, haloRadius);
-                        break;
+                    // SemiMajorPx holds the radius for Circle too.
+                    haloRadius = MathF.Max(marker.SemiMajorPx * 1.5f, haloRadius);
                 }
                 AppendEllipseInstance(
                     item.ScreenX, item.ScreenY,
@@ -346,26 +344,26 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
                 mainR = r; mainG = g; mainB = b; mainA = alpha;
             }
 
-            switch (item.Marker)
+            switch (marker.Kind)
             {
-                case OverlayMarker.Ellipse ellipse:
+                case OverlayMarkerKind.Ellipse:
                     AppendEllipseInstance(
                         item.ScreenX, item.ScreenY,
-                        ellipse.SemiMajorPx, ellipse.SemiMinorPx, ellipse.AngleRad, 1.5f,
+                        marker.SemiMajorPx, marker.SemiMinorPx, marker.AngleRad, 1.5f,
                         mainR, mainG, mainB, mainA);
                     break;
-                case OverlayMarker.Circle circle:
+                case OverlayMarkerKind.Circle:
                     AppendEllipseInstance(
                         item.ScreenX, item.ScreenY,
-                        circle.RadiusPx, circle.RadiusPx, 0f, 1.5f,
+                        marker.RadiusPx, marker.RadiusPx, 0f, 1.5f,
                         mainR, mainG, mainB, mainA);
                     break;
-                case OverlayMarker.Cross cross:
+                case OverlayMarkerKind.Cross:
                     // Keep the per-call rectangle path for crosses (low count at wide FOV,
                     // different primitive shape -- not a bottleneck).
                     var crossColor = RGBAColor32.FromFloat(mainR, mainG, mainB, mainA);
                     VkOverlayShapes.DrawCross(renderer, dpiScale,
-                        item.ScreenX, item.ScreenY, cross.ArmPx, crossColor);
+                        item.ScreenX, item.ScreenY, marker.ArmPx, crossColor);
                     break;
             }
         }
