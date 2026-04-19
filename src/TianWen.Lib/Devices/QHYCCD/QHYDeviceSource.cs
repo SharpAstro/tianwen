@@ -1,18 +1,16 @@
-using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using TianWen.DAL;
-using TianWen.Lib.Connections;
+using TianWen.Lib.Devices.Discovery;
 using QHYCCD.SDK;
 using static QHYCCD.SDK.QHYCamera;
 
 namespace TianWen.Lib.Devices.QHYCCD;
 
-internal class QHYDeviceSource(IExternal external, ILogger<QHYDeviceSource> logger) : IDeviceSource<QHYDevice>
+internal class QHYDeviceSource(ISerialProbeService probeService) : IDeviceSource<QHYDevice>
 {
     static readonly Dictionary<DeviceType, bool> _supportedDeviceTypes = [];
     private readonly List<QHYDevice> _cameras = [];
@@ -44,16 +42,16 @@ internal class QHYDeviceSource(IExternal external, ILogger<QHYDeviceSource> logg
         => ValueTask.FromResult(_supportedDeviceTypes.Values.Any(v => v));
 
     /// <summary>
-    /// Discovers all QHY devices in three phases:
+    /// Three-phase discovery:
     /// <list type="number">
-    ///   <item>Enumerate cameras via QHY SDK (lightweight — no open/close)</item>
-    ///   <item>Probe serial ports for standalone CFWs (QHYCFW3) and QFOC focusers</item>
-    ///   <item>Open each camera briefly to check for a plugged camera-cable CFW</item>
+    ///   <item>Enumerate cameras via the QHY SDK (lightweight — no open/close).</item>
+    ///   <item>Consume standalone CFW / QFOC matches from <see cref="ISerialProbeService"/> —
+    ///         the actual serial probing runs in <see cref="QhyCfw3SerialProbe"/> and
+    ///         <see cref="QfocSerialProbe"/> before <c>DiscoverAsync</c> is called.</item>
+    ///   <item>Open each camera to check for a plugged camera-cable CFW.</item>
     /// </list>
-    /// This order lets serial probing run while the SDK iterator is not holding camera handles,
-    /// and defers the heavier camera-open-for-CFW check to the end.
     /// </summary>
-    public async ValueTask DiscoverAsync(CancellationToken cancellationToken = default)
+    public ValueTask DiscoverAsync(CancellationToken cancellationToken = default)
     {
         _cameras.Clear();
         _cameraControlledFilterWheels.Clear();
@@ -66,66 +64,14 @@ internal class QHYDeviceSource(IExternal external, ILogger<QHYDeviceSource> logg
             EnumerateCameras();
         }
 
-        // Phase 2: probe serial ports for standalone CFWs and QFOC focusers
-        using var resourceLock = await external.WaitForSerialPortEnumerationAsync(cancellationToken);
-
-        foreach (var portName in external.EnumerateAvailableSerialPorts(resourceLock))
+        // Phase 2: read standalone CFW / QFOC matches published by the central probe service.
+        foreach (var match in probeService.ResultsFor("QHYCFW3"))
         {
-            using var probeScope = logger.BeginScope(new Dictionary<string, object>
-            {
-                ["Port"] = portName,
-                ["Baud"] = QHYSerialControlledFilterWheelDriver.CFW_BAUD,
-                ["Source"] = "QHYCFW3",
-            });
-
-            try
-            {
-                using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-                cts.CancelAfter(TimeSpan.FromMilliseconds(500));
-
-                var port = await external.OpenSerialDeviceAsync(portName, QHYSerialControlledFilterWheelDriver.CFW_BAUD, Encoding.ASCII, cts.Token);
-                if (port is not { IsOpen: true })
-                {
-                    continue;
-                }
-
-                var fwVersion = await QHYSerialControlledFilterWheelDriver.ProbeAsync(port, cts.Token);
-                if (fwVersion is null)
-                {
-                    port.TryClose();
-
-                    // Not a CFW — try probing for a QFOC focuser on this port
-                    await ProbeForQfocAsync(portName, cancellationToken);
-                    continue;
-                }
-
-                var slotCount = await QHYSerialControlledFilterWheelDriver.QuerySlotCountAsync(port, cts.Token);
-                port.TryClose();
-
-                if (slotCount <= 0)
-                {
-                    continue;
-                }
-
-                var portWithoutPrefix = ISerialConnection.RemoveProtoPrrefix(portName);
-                var deviceId = $"QHYCFW3_{portWithoutPrefix}";
-                var displayName = $"QHYCFW3 {slotCount}-Slot (FW {fwVersion}) on {portWithoutPrefix}";
-
-                var filterParams = SeedFilterParams(slotCount);
-                var portParam = $"{DeviceQueryKey.Port.Key}={Uri.EscapeDataString(portName)}";
-                var query = filterParams is { Length: > 0 } ? $"{portParam}&{filterParams}" : portParam;
-                var uri = new Uri($"{DeviceType.FilterWheel}://{typeof(QHYDevice).Name}/{deviceId}?{query}#{displayName}");
-
-                _serialFilterWheels.Add(new QHYDevice(uri));
-            }
-            catch (OperationCanceledException)
-            {
-                logger.LogDebug("Probe timeout — not a QHYCFW3.");
-            }
-            catch (Exception ex)
-            {
-                logger.LogDebug(ex, "Probe threw — skipping port.");
-            }
+            _serialFilterWheels.Add(new QHYDevice(match.DeviceUri));
+        }
+        foreach (var match in probeService.ResultsFor("QFOC"))
+        {
+            _serialFocusers.Add(new QHYDevice(match.DeviceUri));
         }
 
         // Phase 3: open each camera to check for camera-cable CFWs
@@ -133,6 +79,8 @@ internal class QHYDeviceSource(IExternal external, ILogger<QHYDeviceSource> logg
         {
             DiscoverCameraControlledFilterWheels();
         }
+
+        return ValueTask.CompletedTask;
     }
 
     /// <summary>
@@ -205,56 +153,6 @@ internal class QHYDeviceSource(IExternal external, ILogger<QHYDeviceSource> logg
         }
     }
 
-    /// <summary>
-    /// Probes a serial port for a QFOC focuser (Standard or High Precision) using the JSON init command.
-    /// </summary>
-    private async ValueTask ProbeForQfocAsync(string portName, CancellationToken cancellationToken)
-    {
-        using var probeScope = logger.BeginScope(new Dictionary<string, object>
-        {
-            ["Port"] = portName,
-            ["Baud"] = QHYFocuserDriver.QFOC_BAUD,
-            ["Source"] = "QFOC",
-        });
-
-        try
-        {
-            using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            cts.CancelAfter(TimeSpan.FromMilliseconds(1500));
-
-            var port = await external.OpenSerialDeviceAsync(portName, QHYFocuserDriver.QFOC_BAUD, Encoding.ASCII, cts.Token);
-            if (port is not { IsOpen: true })
-            {
-                return;
-            }
-
-            var probeResult = await QHYFocuserDriver.ProbeAsync(port, cts.Token);
-            port.TryClose();
-
-            if (probeResult is not var (firmwareVersion, boardVersion))
-            {
-                return;
-            }
-
-            var portWithoutPrefix = ISerialConnection.RemoveProtoPrrefix(portName);
-            var deviceId = $"QFOC_{portWithoutPrefix}";
-            var displayName = $"QFOC (FW {firmwareVersion}, Board {boardVersion}) on {portWithoutPrefix}";
-
-            var portParam = $"{DeviceQueryKey.Port.Key}={Uri.EscapeDataString(portName)}";
-            var uri = new Uri($"{DeviceType.Focuser}://{typeof(QHYDevice).Name}/{deviceId}?{portParam}#{displayName}");
-
-            _serialFocusers.Add(new QHYDevice(uri));
-        }
-        catch (OperationCanceledException)
-        {
-            logger.LogDebug("Probe timeout — not a QFOC.");
-        }
-        catch (Exception ex)
-        {
-            logger.LogDebug(ex, "Probe threw — skipping port.");
-        }
-    }
-
     public IEnumerable<DeviceType> RegisteredDeviceTypes { get; } = _supportedDeviceTypes
         .Where(p => p.Value)
         .Select(p => p.Key)
@@ -278,8 +176,9 @@ internal class QHYDeviceSource(IExternal external, ILogger<QHYDeviceSource> logg
 
     /// <summary>
     /// Builds query params seeding default filter names from the CFW slot count.
+    /// Shared with <see cref="QhyCfw3SerialProbe"/>.
     /// </summary>
-    private static string? SeedFilterParams(int slotCount)
+    internal static string? SeedFilterParams(int slotCount)
     {
         if (slotCount <= 0)
         {
@@ -293,5 +192,4 @@ internal class QHYDeviceSource(IExternal external, ILogger<QHYDeviceSource> logg
         }
         return string.Join("&", parts);
     }
-
 }

@@ -6,5 +6,7 @@ namespace TianWen.Lib.Extensions;
 
 public static class IOptronServiceCollectionExtensions
 {
-    public static IServiceCollection AddIOptron(this IServiceCollection services) => services.AddDevicSource<IOptronDevice, IOptronDeviceSource>(uri => new IOptronDevice(uri));
+    public static IServiceCollection AddIOptron(this IServiceCollection services) => services
+        .AddDevicSource<IOptronDevice, IOptronDeviceSource>(uri => new IOptronDevice(uri))
+        .AddSerialProbe<IOptronSerialProbe>();
 }
