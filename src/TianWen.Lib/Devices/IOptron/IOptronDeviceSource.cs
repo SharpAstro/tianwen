@@ -1,98 +1,36 @@
-using Microsoft.Extensions.Logging;
-using System;
 using System.Collections.Generic;
-using System.Text;
-using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
-using TianWen.Lib.Connections;
+using TianWen.Lib.Devices.Discovery;
 
 namespace TianWen.Lib.Devices.IOptron;
 
-internal partial class IOptronDeviceSource(IExternal external, ILogger<IOptronDeviceSource> logger, ITimeProvider timeProvider) : IDeviceSource<IOptronDevice>
+/// <summary>
+/// Materialises <see cref="IOptronDevice"/> instances from the serial matches published
+/// by <see cref="IOptronSerialProbe"/> via <see cref="ISerialProbeService"/>.
+/// </summary>
+internal class IOptronDeviceSource(ISerialProbeService probeService) : IDeviceSource<IOptronDevice>
 {
     private Dictionary<DeviceType, List<IOptronDevice>>? _cachedDevices;
 
-    private static readonly ReadOnlyMemory<byte> HashTerminator = "#"u8.ToArray();
-
     public ValueTask<bool> CheckSupportAsync(CancellationToken cancellationToken) => ValueTask.FromResult(true);
 
-    public async ValueTask DiscoverAsync(CancellationToken cancellationToken = default)
+    public ValueTask DiscoverAsync(CancellationToken cancellationToken = default)
     {
         var devices = new Dictionary<DeviceType, List<IOptronDevice>>();
-
-        using var resourceLock = await external.WaitForSerialPortEnumerationAsync(cancellationToken);
-
-        foreach (var portName in external.EnumerateAvailableSerialPorts(resourceLock))
+        var matches = probeService.ResultsFor("iOptron");
+        if (matches.Count > 0)
         {
-            try
+            var list = devices[DeviceType.Mount] = [];
+            foreach (var match in matches)
             {
-                await QueryPortAsync(devices, portName, cancellationToken);
-            }
-            catch (Exception ex)
-            {
-                logger.LogWarning(ex, "Failed to query iOptron device on {PortName}", portName);
+                list.Add(new IOptronDevice(match.DeviceUri));
             }
         }
 
         Interlocked.Exchange(ref _cachedDevices, devices);
+        return ValueTask.CompletedTask;
     }
-
-    private async Task QueryPortAsync(Dictionary<DeviceType, List<IOptronDevice>> devices, string portName, CancellationToken cancellationToken)
-    {
-        using var probeScope = logger.BeginScope(new Dictionary<string, object>
-        {
-            ["Port"] = portName,
-            ["Baud"] = IOptronDevice.SGP_BAUD_RATE,
-            ["Source"] = "iOptron",
-        });
-
-        var ioTimeout = TimeSpan.FromMilliseconds(500);
-        using var cts = new CancellationTokenSource(ioTimeout, timeProvider.System);
-        var linkedToken = CancellationTokenSource.CreateLinkedTokenSource(cts.Token, cancellationToken).Token;
-
-        using var serialDevice = await external.OpenSerialDeviceAsync(portName, IOptronDevice.SGP_BAUD_RATE, Encoding.ASCII, linkedToken);
-
-        using var @lock = await serialDevice.WaitAsync(linkedToken);
-
-        // Stage 1: Send firmware version query
-        if (!await serialDevice.TryWriteAsync(":MRSVE#", linkedToken))
-        {
-            return;
-        }
-
-        var response = await serialDevice.TryReadTerminatedAsync(HashTerminator, linkedToken);
-
-        // Stage 2: Check for SGP identifier (prefix "12" in :RMRVE12xxxxxx#)
-        if (response is null || !SgpFirmwareRegex().IsMatch(response))
-        {
-            return;
-        }
-
-        var fwMatch = SgpFirmwareRegex().Match(response);
-        var firmwareVersion = fwMatch.Groups[1].Value;
-
-        var portNameWithoutProtoPrefix = ISerialConnection.RemoveProtoPrrefix(portName);
-
-        if (!devices.TryGetValue(DeviceType.Mount, out var deviceList))
-        {
-            devices[DeviceType.Mount] = deviceList = [];
-        }
-
-        // Fallback device ID: product_firmware_count_port (no UUID mechanism on SGP)
-        var deviceId = string.Join('_',
-            "SkyGuider-Pro",
-            SafeName(firmwareVersion),
-            deviceList.Count + 1,
-            SafeName(portNameWithoutProtoPrefix)
-        );
-        var displayName = $"iOptron SkyGuider Pro ({firmwareVersion}) on {portNameWithoutProtoPrefix}";
-
-        var device = new IOptronDevice(DeviceType.Mount, deviceId, displayName, portName);
-        deviceList.Add(device);
-    }
-
-    private static string SafeName(string name) => name.Replace('_', '-').Replace('/', '-').Replace(':', '-');
 
     public IEnumerable<DeviceType> RegisteredDeviceTypes => [DeviceType.Mount];
 
@@ -104,10 +42,4 @@ internal partial class IOptronDeviceSource(IExternal external, ILogger<IOptronDe
         }
         return [];
     }
-
-    /// <summary>
-    /// Matches SGP firmware response: :RMRVE12xxxxxx where xxxxxx is the firmware version date.
-    /// </summary>
-    [GeneratedRegex(@"^:RMRVE12(\d{6})$", RegexOptions.CultureInvariant)]
-    private static partial Regex SgpFirmwareRegex();
 }

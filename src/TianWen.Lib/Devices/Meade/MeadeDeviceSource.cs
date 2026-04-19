@@ -1,98 +1,54 @@
-using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
-using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using TianWen.Lib.Connections;
+using TianWen.Lib.Devices.Discovery;
 
 namespace TianWen.Lib.Devices.Meade;
 
-internal partial class MeadeDeviceSource(IExternal external, ILogger<MeadeDeviceSource> logger, ITimeProvider timeProvider) : IDeviceSource<MeadeDevice>
+/// <summary>
+/// Materialises <see cref="MeadeDevice"/> instances from the serial matches published
+/// by <see cref="MeadeSerialProbe"/> via <see cref="ISerialProbeService"/>. The probe
+/// owns the actual wire I/O; this source just adapts the results to the
+/// <see cref="IDeviceSource{TDevice}"/> contract.
+/// </summary>
+internal partial class MeadeDeviceSource(ISerialProbeService probeService) : IDeviceSource<MeadeDevice>
 {
     private Dictionary<DeviceType, List<MeadeDevice>>? _cachedDevices;
 
     public ValueTask<bool> CheckSupportAsync(CancellationToken cancellationToken) => ValueTask.FromResult(true);
 
-    private static readonly Regex SupportedProductsRegex = GenSupportedProductsRegex();
-    private static readonly ReadOnlyMemory<byte> HashTerminator = "#"u8.ToArray();
-    public async ValueTask DiscoverAsync(CancellationToken cancellationToken = default)
+    internal static readonly Regex SupportedProductsRegex = GenSupportedProductsRegex();
+    internal static readonly ReadOnlyMemory<byte> HashTerminator = "#"u8.ToArray();
+
+    public ValueTask DiscoverAsync(CancellationToken cancellationToken = default)
     {
         var devices = new Dictionary<DeviceType, List<MeadeDevice>>();
-
-        using var resourceLock = await external.WaitForSerialPortEnumerationAsync(cancellationToken);
-
-        foreach (var portName in external.EnumerateAvailableSerialPorts(resourceLock))
+        var matches = probeService.ResultsFor("Meade");
+        if (matches.Count > 0)
         {
-            try
+            var list = devices[DeviceType.Mount] = [];
+            foreach (var match in matches)
             {
-                await QueryPortAsync(devices, portName, cancellationToken);
-            }
-            catch (Exception ex)
-            {
-                logger.LogWarning(ex, "Failed to query device {PortName}", portName);
+                list.Add(new MeadeDevice(match.DeviceUri));
             }
         }
 
         Interlocked.Exchange(ref _cachedDevices, devices);
+        return ValueTask.CompletedTask;
     }
 
-    private async Task QueryPortAsync(Dictionary<DeviceType, List<MeadeDevice>> devices, string portName, CancellationToken cancellationToken)
-    {
-        using var probeScope = logger.BeginScope(new Dictionary<string, object>
-        {
-            ["Port"] = portName,
-            ["Baud"] = 9600,
-            ["Source"] = "Meade",
-        });
+    internal static string SafeName(string name) => name.Replace('_', '-').Replace('/', '-').Replace(':', '-');
 
-        var ioTimeout = Debugger.IsAttached ? TimeSpan.FromMinutes(1) : TimeSpan.FromMilliseconds(250);
-        using var cts = new CancellationTokenSource(ioTimeout, timeProvider.System);
-        var linkedToken = CancellationTokenSource.CreateLinkedTokenSource(cts.Token, cancellationToken).Token;
-
-        using var serialDevice = await external.OpenSerialDeviceAsync(portName, 9600, Encoding.ASCII, linkedToken);
-
-        var (productName, productNumber, siteNames, uuid) = await TryGetMountInfo(serialDevice, linkedToken)
-            .WaitAsync(ioTimeout, timeProvider.System, cancellationToken);
-        if (productName is not null && productNumber is not null && SupportedProductsRegex.IsMatch(productName))
-        {
-            List<MeadeDevice> deviceList;
-            if (devices.TryGetValue(DeviceType.Mount, out var existingMounts))
-            {
-                deviceList = existingMounts;
-            }
-            else
-            {
-                devices[DeviceType.Mount] = deviceList = [];
-            }
-
-            var portNameWithoutProtoPrefix = ISerialConnection.RemoveProtoPrrefix(portName);
-            string deviceId;
-            if (uuid is { })
-            {
-                deviceId = string.Join('_', SafeName(productName), SafeName(productNumber), uuid);
-            }
-            else
-            {
-                deviceId = string.Join('_',
-                    SafeName(productName),
-                    SafeName(productNumber),
-                    SafeName(string.Join(',', siteNames)),
-                    deviceList.Count + 1,
-                    SafeName(portNameWithoutProtoPrefix)
-                );
-            }
-
-            var device = new MeadeDevice(DeviceType.Mount, deviceId, $"{productName} ({productNumber}) on {portNameWithoutProtoPrefix}", portName);
-            deviceList.Add(device);
-        }
-    }
-
-    private static string SafeName(string name) => name.Replace('_', '-').Replace('/', '-').Replace(':', '-');
-
-    private static async Task<(string? ProductName, string? ProductNumber, List<string> Sites, string? UUID)> TryGetMountInfo(ISerialConnection serialDevice, CancellationToken cancellationToken)
+    /// <summary>
+    /// LX200 mount-info handshake shared by <see cref="MeadeSerialProbe"/>. Issues
+    /// <c>:GVP#</c>, <c>:GVN#</c>, and the four site-name queries <c>:GM..GP#</c>;
+    /// if a site slot is unused and no UUID is already present, writes a fresh UUID
+    /// into it so subsequent probes have a stable device id independent of the USB port.
+    /// </summary>
+    internal static async Task<(string? ProductName, string? ProductNumber, List<string> Sites, string? UUID)> TryGetMountInfo(ISerialConnection serialDevice, CancellationToken cancellationToken)
     {
         const string uuidPrefix = "TW@";
         const string unusedSiteName = "<AN UNUSED SITE>";
@@ -102,7 +58,7 @@ internal partial class MeadeDeviceSource(IExternal external, ILogger<MeadeDevice
 
         var productName = await TryReadTerminatedAsync(":GVP#");
 
-        if (productName?.TrimEnd() is not { Length: > 1})
+        if (productName?.TrimEnd() is not { Length: > 1 })
         {
             return (null, null, [], null);
         }
@@ -121,7 +77,7 @@ internal partial class MeadeDeviceSource(IExternal external, ILogger<MeadeDevice
             {
                 continue;
             }
-            
+
             if (trimmed.Length is maxSiteLength && trimmed.StartsWith(uuidPrefix))
             {
                 uuid ??= trimmed[uuidPrefix.Length..];
