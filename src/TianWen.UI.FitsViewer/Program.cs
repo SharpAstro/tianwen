@@ -138,10 +138,16 @@ if (initialFilePath is not null)
 }
 
 // --- SDL3 + Vulkan init ---
-using var sdlWindow = SdlVulkanWindow.Create("Fits viewer", 1536, 1080);
+// Install the native-library resolver before the first P/Invoke into SDL3 so a
+// failed DLL load lands in the file logger instead of crashing silently.
+NativeLoaderDiagnostics.Install(logger);
+
+using var sdlWindow = NativeLoaderDiagnostics.InitNative(logger, "SDL3 + Vulkan window",
+    () => SdlVulkanWindow.Create("Fits viewer", 1536, 1080));
 sdlWindow.GetSizeInPixels(out var pixW, out var pixH);
 
-var ctx = VulkanContext.Create(sdlWindow.Instance, sdlWindow.Surface, (uint)pixW, (uint)pixH);
+var ctx = NativeLoaderDiagnostics.InitNative(logger, "Vulkan device",
+    () => VulkanContext.Create(sdlWindow.Instance, sdlWindow.Surface, (uint)pixW, (uint)pixH));
 var renderer = new VkRenderer(ctx, (uint)pixW, (uint)pixH);
 
 var bus = new SignalBus();
