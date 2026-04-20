@@ -496,34 +496,33 @@ internal sealed class TuiEquipmentTab(
 
         var items = new List<EquipmentFieldItem>();
 
-        if (eqState.DiscoveredDevices.Count == 0)
+        // Only show devices of the expected type — the picker is scoped to a single
+        // slot and off-type rows are dead weight (AssignDeviceSignal would reject them
+        // anyway with "Expected X, got Y"). FieldIndex stays the real DiscoveredDevices
+        // index so click/keyboard dispatch still points at the right device.
+        var matchCount = 0;
+        for (var i = 0; i < eqState.DiscoveredDevices.Count; i++)
         {
-            items.Add(new EquipmentFieldItem { SectionName = "No devices discovered" });
-            items.Add(new EquipmentFieldItem { PropertyLabel = "Press D to discover", PropertyValue = "", IsCycleField = true });
-        }
-        else
-        {
-            for (var i = 0; i < eqState.DiscoveredDevices.Count; i++)
-            {
-                var device = eqState.DiscoveredDevices[i];
-                var assigned = EquipmentActions.IsDeviceAssigned(data, device.DeviceUri);
+            var device = eqState.DiscoveredDevices[i];
+            if (device.DeviceType != target.ExpectedDeviceType) continue;
 
-                // Picker rows reuse the slot-row layout for label + name + chevron, but
-                // they must NOT render the [On|Off] toggle strip -- that's a connected-
-                // device concept and doesn't belong on an assignment picker. Always
-                // pass IsSlotActive=false here. EnterAssignmentMode already pre-selects
-                // the first matching-type device so the user's cursor starts in the
-                // right place.
-                items.Add(new EquipmentFieldItem
-                {
-                    SlotLabel = device.DeviceType.ToString(),
-                    SlotDeviceName = device.DisplayName + (assigned ? " \u2713" : ""),
-                    IsSlotActive = false,
-                    Slot = target, // reuse for type info
-                    FieldIndex = i,
-                    IsSelected = i == _pickerSelectedIndex,
-                });
-            }
+            var assigned = EquipmentActions.IsDeviceAssigned(data, device.DeviceUri);
+            items.Add(new EquipmentFieldItem
+            {
+                SlotLabel = device.DeviceType.ToString(),
+                SlotDeviceName = device.DisplayName + (assigned ? " \u2713" : ""),
+                IsSlotActive = false,
+                Slot = target, // reuse for type info
+                FieldIndex = i,
+                IsSelected = i == _pickerSelectedIndex,
+            });
+            matchCount++;
+        }
+
+        if (matchCount == 0)
+        {
+            items.Add(new EquipmentFieldItem { SectionName = $"No {target.ExpectedDeviceType} devices discovered" });
+            items.Add(new EquipmentFieldItem { PropertyLabel = "Press D to discover", PropertyValue = "", IsCycleField = true });
         }
 
         _lastItems = items;
@@ -1000,19 +999,11 @@ internal sealed class TuiEquipmentTab(
                 return false;
 
             case InputKey.Up:
-                if (_pickerSelectedIndex > 0)
-                {
-                    _pickerSelectedIndex--;
-                    NeedsRedraw = true;
-                }
+                if (MovePickerToMatch(-1)) NeedsRedraw = true;
                 return false;
 
             case InputKey.Down:
-                if (_pickerSelectedIndex < eqState.DiscoveredDevices.Count - 1)
-                {
-                    _pickerSelectedIndex++;
-                    NeedsRedraw = true;
-                }
+                if (MovePickerToMatch(+1)) NeedsRedraw = true;
                 return false;
 
             case InputKey.Enter:
@@ -1031,6 +1022,26 @@ internal sealed class TuiEquipmentTab(
                 return false;
         }
 
+        return false;
+    }
+
+    // Advances _pickerSelectedIndex by one VISIBLE row in the given direction (+1 down,
+    // -1 up), skipping devices that don't match the slot's expected type. Returns true
+    // when the cursor actually moved.
+    private bool MovePickerToMatch(int direction)
+    {
+        if (eqState.ActiveAssignment is not { } target) return false;
+        var expected = target.ExpectedDeviceType;
+        var i = _pickerSelectedIndex + direction;
+        while (i >= 0 && i < eqState.DiscoveredDevices.Count)
+        {
+            if (eqState.DiscoveredDevices[i].DeviceType == expected)
+            {
+                _pickerSelectedIndex = i;
+                return true;
+            }
+            i += direction;
+        }
         return false;
     }
 
