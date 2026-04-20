@@ -1,6 +1,5 @@
 using DIR.Lib;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
 using SdlVulkan.Renderer;
 using static SDL3.SDL;
@@ -32,6 +31,7 @@ services
     .AddMeade()
     .AddOnStep()
     .AddIOptron()
+    .AddSkywatcher()
     .AddProfiles()
     .AddFake()
     .AddPHD2()
@@ -42,12 +42,11 @@ services
     .AddDevices()
     .AddSessionFactory()
     .AddFitsViewer()
-    .AddSingleton(sp => new GuiAppState { DeviceHub = sp.GetService<IDeviceHub>() });
-
-// Replace the null default with the GUI's active-profile-aware provider so that
-// any COM port currently referenced by the active profile is excluded from
-// discovery probing. Must come after AddDevices() (which registers the default).
-services.Replace(ServiceDescriptor.Singleton<IPinnedSerialPortsProvider, ActiveProfilePinnedSerialPortsProvider>());
+    .AddSingleton(sp => new GuiAppState { DeviceHub = sp.GetService<IDeviceHub>() })
+    // Profile-aware pinned-port provider: any COM port currently referenced by the
+    // active profile is excluded from discovery probing. Absent this registration,
+    // SerialProbeService falls through to general probing — safe default.
+    .AddSingleton<IPinnedSerialPortsProvider, ActiveProfilePinnedSerialPortsProvider>();
 
 var sp = services.BuildServiceProvider();
 var appState = sp.GetRequiredService<GuiAppState>();
@@ -142,6 +141,22 @@ tracker.Run(() => signalHandler.LoadSessionConfigAsync(backgroundCts.Token), "Lo
 
 if (appState.ActiveProfile is not null)
 {
+    // Legacy migration: earlier builds stored site in the Mount URI query string.
+    // Copy into ProfileData.Site* on first sight so TransformFactory can find it,
+    // then persist so the migration only runs once.
+    if (appState.ActiveProfile.Data is { } migrData)
+    {
+        var (migrated, changed) = EquipmentActions.MigrateSiteFromMountUri(migrData);
+        if (changed)
+        {
+            appState.ActiveProfile = appState.ActiveProfile.WithData(migrated);
+            tracker.Run(() => appState.ActiveProfile!.SaveAsync(external, backgroundCts.Token),
+                "Persist migrated site coordinates");
+            logger.LogInformation("Migrated site coordinates from Mount URI query into ProfileData for profile {ProfileId}.",
+                appState.ActiveProfile.ProfileId);
+        }
+    }
+
     var transform = TransformFactory.FromProfile(appState.ActiveProfile, timeProvider, out _);
     if (transform is not null)
     {

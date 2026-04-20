@@ -14,50 +14,83 @@ internal class DeviceDiscovery(
     IEnumerable<IDeviceSource<DeviceBase>> deviceSources,
     ISerialProbeService serialProbeService) : IDeviceDiscovery
 {
-    private volatile bool _initialized;
+    private readonly IReadOnlyList<IDeviceSource<DeviceBase>> _allSources = [.. deviceSources];
     private readonly SemaphoreSlim _initSem = new SemaphoreSlim(1, 1);
+    private volatile bool _initialized;
     private List<IDeviceSource<DeviceBase>> _supportedSources = [];
 
     public async ValueTask<bool> CheckSupportAsync(CancellationToken cancellationToken)
     {
         if (_initialized)
         {
-            // will be true if we have at least one supported device source
             return _supportedSources.Count > 0;
         }
 
-        var supportedSources = new ConcurrentBag<IDeviceSource<DeviceBase>>();
         using var @lock = await _initSem.AcquireLockAsync(cancellationToken);
-
-        // double check after lock acquisition
         if (_initialized)
         {
             return _supportedSources.Count > 0;
         }
 
+        _supportedSources = await ProbeSupportAsync(_allSources, cancellationToken);
+        _initialized = true;
+        return _supportedSources.Count > 0;
+    }
+
+    /// <summary>
+    /// Re-probes the sources that previously reported "unsupported" so a transient
+    /// startup failure (e.g. network briefly offline when the HTTP-based Open-Meteo
+    /// source first checked reachability) doesn't lock a device family out of the
+    /// picker for the rest of the session. Sources that passed the last check are
+    /// kept as-is. Called from <see cref="DiscoverAsync"/> and
+    /// <see cref="DiscoverOnlyDeviceType"/> so a user-initiated discovery always
+    /// sees the freshest view of what's available.
+    /// </summary>
+    private async ValueTask RefreshUnsupportedAsync(CancellationToken cancellationToken)
+    {
+        if (!_initialized) return;
+
+        var supportedSet = new HashSet<IDeviceSource<DeviceBase>>(_supportedSources);
+        var unsupported = _allSources.Where(s => !supportedSet.Contains(s)).ToList();
+        if (unsupported.Count == 0) return;
+
+        using var @lock = await _initSem.AcquireLockAsync(cancellationToken);
+        var newlySupported = await ProbeSupportAsync(unsupported, cancellationToken);
+        if (newlySupported.Count == 0) return;
+
+        foreach (var s in newlySupported)
+        {
+            supportedSet.Add(s);
+        }
+        _supportedSources = [.. supportedSet];
+        foreach (var s in newlySupported)
+        {
+            logger.LogInformation("Device source {Source} now supports this platform (previously unsupported).", s.GetType().Name);
+        }
+    }
+
+    private async Task<List<IDeviceSource<DeviceBase>>> ProbeSupportAsync(
+        IReadOnlyList<IDeviceSource<DeviceBase>> candidates, CancellationToken cancellationToken)
+    {
+        var supported = new ConcurrentBag<IDeviceSource<DeviceBase>>();
         await Parallel.ForEachAsync(
-            deviceSources,
+            candidates,
             cancellationToken,
-            async (deviceSource, cancellationToken) =>
+            async (deviceSource, ct) =>
             {
                 try
                 {
-                    if (await deviceSource.CheckSupportAsync(cancellationToken))
+                    if (await deviceSource.CheckSupportAsync(ct))
                     {
-                        supportedSources.Add(deviceSource);
+                        supported.Add(deviceSource);
                     }
                 }
                 catch (Exception e)
                 {
                     logger.LogError(e, "Error while checking support for {DeviceSource}", deviceSource.GetType().Name);
                 }
-            }
-        );
-        _ = Interlocked.Exchange(ref _supportedSources, [.. supportedSources]);
-
-        _initialized = true;
-
-        return _supportedSources.Count > 0;
+            });
+        return [.. supported];
     }
 
     public IEnumerable<DeviceType> RegisteredDeviceTypes => _supportedSources.SelectMany(s => s.RegisteredDeviceTypes).ToHashSet();
@@ -70,6 +103,8 @@ internal class DeviceDiscovery(
         {
             return;
         }
+
+        await RefreshUnsupportedAsync(cancellationToken);
 
         // Centralised serial probing runs before per-source discovery so sources can
         // consume probe matches from ISerialProbeService instead of opening ports
@@ -96,7 +131,15 @@ internal class DeviceDiscovery(
     {
         if (!await CheckSupportAsync(cancellationToken))
         {
-            return;
+            // Even if the initial support check found nothing, allow a refresh — a
+            // host that started offline will often be back online by the time the
+            // user clicks Discover.
+            await RefreshUnsupportedAsync(cancellationToken);
+            if (_supportedSources.Count == 0) return;
+        }
+        else
+        {
+            await RefreshUnsupportedAsync(cancellationToken);
         }
 
         await RunSerialProbesAsync(cancellationToken);
