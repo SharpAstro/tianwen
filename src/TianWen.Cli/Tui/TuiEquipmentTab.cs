@@ -665,18 +665,20 @@ internal sealed class TuiEquipmentTab(
     // ----------------------------------------------------------------
 
     public override bool HandleRawMouse(MouseEvent mouse)
+        => RouteMouse(_profileList, mouse) || RouteMouse(_settingsList, mouse);
+
+    private bool RouteMouse<T>(ScrollableList<T>? list, MouseEvent mouse) where T : IRowFormatter
     {
-        if (_profileList is { } pl && pl.HandleMouse(mouse))
-        {
-            NeedsRedraw = true;
-            return true;
-        }
-        if (_settingsList is { } sl && sl.HandleMouse(mouse))
-        {
-            NeedsRedraw = true;
-            return true;
-        }
-        return false;
+        if (list is null || !list.HandleMouse(mouse)) return false;
+        NeedsRedraw = true;
+        return true;
+    }
+
+    private bool RouteWheel<T>(ScrollableList<T>? list, int step, int mx, int my) where T : IRowFormatter
+    {
+        if (list is null || list.HitTest(mx, my) is null || !list.HandleWheel(step)) return false;
+        NeedsRedraw = true;
+        return true;
     }
 
     protected override void RegisterClickableRegions()
@@ -752,20 +754,11 @@ internal sealed class TuiEquipmentTab(
 
         if (evt is InputEvent.Scroll(var delta, var wx, var wy, _))
         {
-            // Route wheel to whichever list the cursor is over. Integer delta rounds
-            // the fractional step to at least 1 row so a slow wheel still moves the list.
+            // Round to at least 1 row so a slow wheel still moves the list.
             var step = (int)Math.Round(delta);
             if (step == 0) step = delta > 0 ? 1 : -1;
-            if (_profileList is { } pl && pl.HitTest((int)wx, (int)wy) is not null && pl.HandleWheel(step))
-            {
-                NeedsRedraw = true;
-                return false;
-            }
-            if (_settingsList is { } sl && sl.HitTest((int)wx, (int)wy) is not null && sl.HandleWheel(step))
-            {
-                NeedsRedraw = true;
-                return false;
-            }
+            _ = RouteWheel(_profileList, step, (int)wx, (int)wy)
+                || RouteWheel(_settingsList, step, (int)wx, (int)wy);
             return false;
         }
 
