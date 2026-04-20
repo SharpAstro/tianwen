@@ -20,6 +20,7 @@ internal sealed class TuiSessionTab(
     private MarkdownWidget? _rightPanel;
     private TextBar? _statusBar;
     private System.Collections.Generic.List<SessionFieldItem> _lastItems = [];
+    private int _lastEnsuredIndex = -1;
 
     [MemberNotNullWhen(true, nameof(_configList), nameof(_rightPanel), nameof(_statusBar))]
     protected override bool IsReady => _configList is not null && _rightPanel is not null && _statusBar is not null;
@@ -130,11 +131,12 @@ internal sealed class TuiSessionTab(
 
         // Scroll to keep selected item visible
         var selectedListIdx = items.FindIndex(i => i.IsSelected);
-        if (selectedListIdx >= 0 && _configList.VisibleRows > 0)
+        if (selectedListIdx >= 0 && selectedListIdx != _lastEnsuredIndex)
         {
-            sessionState.ConfigScrollOffset = Math.Max(0, selectedListIdx - _configList.VisibleRows / 2);
-            _configList.ScrollTo(sessionState.ConfigScrollOffset);
+            _configList.EnsureVisible(selectedListIdx);
+            _lastEnsuredIndex = selectedListIdx;
         }
+        sessionState.ConfigScrollOffset = _configList.ScrollOffset;
 
         // Right panel: shared content model
         _rightPanel.Markdown(SessionContent.FormatRightPanelMarkdown(sessionState, plannerState));
@@ -173,6 +175,16 @@ internal sealed class TuiSessionTab(
                 new HitResult.ListItemHit("ConfigField", item.FieldIndex),
                 _ => { sessionState.SelectedFieldIndex = capturedIdx; });
         }
+    }
+
+    public override bool HandleRawMouse(MouseEvent mouse)
+    {
+        if (_configList is { } list && list.HandleMouse(mouse))
+        {
+            NeedsRedraw = true;
+            return true;
+        }
+        return false;
     }
 
     public override bool HandleInput(InputEvent evt)

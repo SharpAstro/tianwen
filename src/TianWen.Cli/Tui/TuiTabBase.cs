@@ -42,6 +42,12 @@ internal abstract class TuiTabBase : ITuiTab
     public abstract bool HandleInput(InputEvent evt);
 
     /// <summary>
+    /// Raw mouse dispatch for ScrollableList drag handling. Default is a no-op —
+    /// override to route to the tab's list widgets (e.g., <c>_xxxList.HandleMouse(mouse)</c>).
+    /// </summary>
+    public virtual bool HandleRawMouse(MouseEvent mouse) => false;
+
+    /// <summary>
     /// Creates tab-specific widgets from the panel. Called from <see cref="BuildPanel"/>.
     /// The panel already has top/bottom rows reserved.
     /// </summary>
