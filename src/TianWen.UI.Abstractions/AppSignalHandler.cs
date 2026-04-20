@@ -92,9 +92,15 @@ namespace TianWen.UI.Abstractions
         /// </summary>
         public async Task InitializePlannerAsync(Transform transform, CancellationToken cancellationToken)
         {
+            _logger.LogInformation("InitializePlanner: starting");
             var objectDb = _sp.GetRequiredService<ICelestialObjectDB>();
+            var swInit = System.Diagnostics.Stopwatch.StartNew();
             await objectDb.InitDBAsync(cancellationToken);
+            swInit.Stop();
+            _logger.LogInformation("InitializePlanner: catalog ready in {Elapsed}ms; publishing to PlannerState.ObjectDb",
+                swInit.ElapsedMilliseconds);
             _plannerState.ObjectDb = objectDb;
+            _plannerState.NeedsRedraw = true;
             SetAutoCompleteCache(objectDb.CreateAutoCompleteList());
             await PlannerActions.ComputeTonightsBestAsync(
                 _plannerState, objectDb, transform,
@@ -106,6 +112,7 @@ namespace TianWen.UI.Abstractions
             await FetchWeatherForecastAsync(cancellationToken);
             _plannerState.SelectedTargetIndex = 0;
             _plannerState.NeedsRedraw = true;
+            _logger.LogInformation("InitializePlanner: complete");
         }
 
         // Per-camera last-poll timestamps, keyed by URI path (host+path, no query).
@@ -118,6 +125,7 @@ namespace TianWen.UI.Abstractions
         private readonly HashSet<string> _previewTelemetryInFlight = new();
         private long _previewMountLastTicks;
         private bool _previewMountInFlight;
+        private bool _loggedFirstPreviewMountSample;
 
 
         /// <summary>
@@ -334,6 +342,15 @@ namespace TianWen.UI.Abstractions
                     try
                     {
                         var (ms, displayName) = await SamplePreviewMountAsync(hub, mountUri, _cts.Token);
+                        // One-shot diagnostic log the first time a preview mount sample comes
+                        // back. Confirms RA/Dec reads work end-to-end against the driver
+                        // without spamming the log every 2-10 seconds during steady tracking.
+                        if (!_loggedFirstPreviewMountSample)
+                        {
+                            _loggedFirstPreviewMountSample = true;
+                            _logger.LogInformation("Preview mount first sample: RA={RA:F4}h Dec={Dec:F4}° HA={HA:F4}h slewing={Slewing} tracking={Tracking}",
+                                ms.RightAscension, ms.Declination, ms.HourAngle, ms.IsSlewing, ms.IsTracking);
+                        }
                         _liveSessionState.PreviewMountState = ms;
                         if (displayName is not null)
                         {
@@ -829,8 +846,41 @@ namespace TianWen.UI.Abstractions
                     appState.ActiveProfile = updatedSite;
                     eqState.IsEditingSite = false;
                     bus.Post(new DeactivateTextInputSignal());
+                    plannerState.SiteLatitude = sLat;
+                    plannerState.SiteLongitude = sLon;
                     plannerState.NeedsRecompute = true;
                     appState.NeedsRedraw = true;
+
+                    // If the catalog was blocked on a missing site, load it now.
+                    if (plannerState.ObjectDb is null
+                        && TransformFactory.FromProfile(updatedSite, _timeProvider, out _) is { } siteTransform)
+                    {
+                        _tracker.Run(() => InitializePlannerAsync(siteTransform, cts.Token),
+                            "Load catalog after site edit");
+                    }
+
+                    // If a mount is connected and the tie-breaker says Profile wins,
+                    // push the new site to the mount hardware.
+                    if (newSiteData.SiteTieBreaker == SiteTieBreaker.Profile
+                        && appState.DeviceHub is { } hubForPush
+                        && hubForPush.TryGetConnectedDriver<IMountDriver>(newSiteData.Mount, out var mountForPush)
+                        && mountForPush is not null)
+                    {
+                        try
+                        {
+                            await mountForPush.SetSiteLatitudeAsync(sLat, cts.Token);
+                            await mountForPush.SetSiteLongitudeAsync(sLon, cts.Token);
+                            if (sElev is { } elevForPush)
+                            {
+                                await mountForPush.SetSiteElevationAsync(elevForPush, cts.Token);
+                            }
+                        }
+                        catch (Exception pushEx)
+                        {
+                            logger.LogWarning(pushEx, "Failed to push site to connected mount.");
+                        }
+                    }
+
                     await updatedSite.SaveAsync(external, cts.Token);
                 }
                 else
@@ -991,7 +1041,7 @@ namespace TianWen.UI.Abstractions
                 eqState.IsEditingSite = true;
                 if (appState.ActiveProfile?.Data is { } pd)
                 {
-                    var existingSite = EquipmentActions.GetSiteFromMount(pd.Mount);
+                    var existingSite = EquipmentActions.GetSiteFromProfile(pd);
                     if (existingSite.HasValue)
                     {
                         eqState.LatitudeInput.Text = existingSite.Value.Lat.ToString(System.Globalization.CultureInfo.InvariantCulture);
@@ -1138,6 +1188,41 @@ namespace TianWen.UI.Abstractions
 
                     await hub.ConnectAsync(device, cts.Token);
                     appState.StatusMessage = $"Connected: {device.DisplayName}";
+
+                    // Mount connect → reconcile site between mount hardware and profile,
+                    // per SiteTieBreaker. Updates ProfileState + PlannerState; persists
+                    // profile if adopted; pushes to mount if profile wins.
+                    if (device.DeviceType == DeviceType.Mount
+                        && appState.ActiveProfile is { } currentProfile
+                        && currentProfile.Data is { } pdata
+                        && DeviceBase.SameDevice(pdata.Mount, sig.DeviceUri)
+                        && hub.TryGetConnectedDriver<IMountDriver>(sig.DeviceUri, out var mount)
+                        && mount is not null)
+                    {
+                        var outcome = await EquipmentActions.ReconcileSiteOnMountConnectAsync(
+                            pdata, mount, logger, cts.Token);
+                        if (outcome.ProfileChanged)
+                        {
+                            var updated = currentProfile.WithData(outcome.Data);
+                            await updated.SaveAsync(_external, cts.Token);
+                            appState.ActiveProfile = updated;
+                        }
+                        if (outcome.Data.SiteLatitude is { } rlat && outcome.Data.SiteLongitude is { } rlon)
+                        {
+                            plannerState.SiteLatitude = rlat;
+                            plannerState.SiteLongitude = rlon;
+                            plannerState.NeedsRedraw = true;
+
+                            // If the catalog hasn't loaded yet because we previously
+                            // had no site, fire InitializePlannerAsync now.
+                            if (plannerState.ObjectDb is null
+                                && TransformFactory.FromProfile(appState.ActiveProfile!, _timeProvider, out _) is { } rTransform)
+                            {
+                                _tracker.Run(() => InitializePlannerAsync(rTransform, cts.Token),
+                                    "Load catalog after site reconcile");
+                            }
+                        }
+                    }
                 }
                 catch (Exception ex)
                 {

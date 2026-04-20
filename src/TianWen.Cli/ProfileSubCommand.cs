@@ -262,8 +262,8 @@ internal class ProfileSubCommand(
 
                     case DIR.Lib.InputKey.E:
                         // Inline site editing: prompt for lat, lon, elevation
-                        var existingSite = profile.Data?.Mount is { } siteMount
-                            ? EquipmentActions.GetSiteFromMount(siteMount)
+                        var existingSite = profile.Data is { } pdSite
+                            ? EquipmentActions.GetSiteFromProfile(pdSite)
                             : null;
 
                         var latDefault = existingSite?.Lat.ToString(CultureInfo.InvariantCulture) ?? "";
@@ -397,18 +397,7 @@ internal class ProfileSubCommand(
         var lon = parseResult.GetRequiredValue(siteLonOption);
         var elevation = parseResult.GetValue(siteElevOption);
 
-        // Patch the mount URI query params with lat/lon/elevation
-        var mountUri = data.Value.Mount;
-        var query = System.Web.HttpUtility.ParseQueryString(mountUri.Query);
-        query[DeviceQueryKey.Latitude.Key] = lat.ToString(System.Globalization.CultureInfo.InvariantCulture);
-        query[DeviceQueryKey.Longitude.Key] = lon.ToString(System.Globalization.CultureInfo.InvariantCulture);
-        if (elevation.HasValue)
-        {
-            query[DeviceQueryKey.Elevation.Key] = elevation.Value.ToString(System.Globalization.CultureInfo.InvariantCulture);
-        }
-
-        var builder = new UriBuilder(mountUri) { Query = query.ToString() };
-        var newData = data.Value with { Mount = builder.Uri };
+        var newData = EquipmentActions.SetSite(data.Value, lat, lon, elevation);
         await SaveAndListAsync(selectedProfile, newData, parseResult, cancellationToken);
 
         consoleHost.WriteScrollable($"Site set to {lat:F4}°{(lat >= 0 ? "N" : "S")}, {lon:F4}°{(lon >= 0 ? "E" : "W")}{(elevation.HasValue ? $", {elevation.Value:F0}m" : "")}");

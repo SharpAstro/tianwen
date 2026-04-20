@@ -1,4 +1,5 @@
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging.Abstractions;
 using Shouldly;
 using System;
 using System.Diagnostics;
@@ -17,7 +18,7 @@ public class AscomDeviceTests(ITestOutputHelper testOutputHelper)
     [Fact]
     public async Task TestWhenPlatformIsWindowsThatDeviceTypesAreReturned()
     {
-        var deviceIterator = new AscomDeviceIterator();
+        var deviceIterator = new AscomDeviceIterator(NullLogger<AscomDeviceIterator>.Instance);
         var types = deviceIterator.RegisteredDeviceTypes;
 
         if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows) && await deviceIterator.CheckSupportAsync(TestContext.Current.CancellationToken))
@@ -40,7 +41,7 @@ public class AscomDeviceTests(ITestOutputHelper testOutputHelper)
         Assert.SkipUnless(RuntimeInformation.IsOSPlatform(OSPlatform.Windows) && Debugger.IsAttached, "Skipped as this test is only run when on Windows and debugger is attached");
 
         var external = new FakeExternal(testOutputHelper);
-        var deviceIterator = new AscomDeviceIterator();
+        var deviceIterator = new AscomDeviceIterator(NullLogger<AscomDeviceIterator>.Instance);
         var devices = deviceIterator.RegisteredDevices(type);
         var device = devices.FirstOrDefault(e => e.DeviceId == $"ASCOM.Simulator.{type}");
 
@@ -68,7 +69,7 @@ public class AscomDeviceTests(ITestOutputHelper testOutputHelper)
         // given
         var cancellationToken = TestContext.Current.CancellationToken;
         var external = new FakeExternal(testOutputHelper);
-        var deviceIterator = new AscomDeviceIterator();
+        var deviceIterator = new AscomDeviceIterator(NullLogger<AscomDeviceIterator>.Instance);
         var allTelescopes = deviceIterator.RegisteredDevices(DeviceType.Telescope);
         var simTelescopeDevice = allTelescopes.FirstOrDefault(e => e.DeviceId == "ASCOM.Simulator." + DeviceType.Telescope);
 
@@ -92,7 +93,7 @@ public class AscomDeviceTests(ITestOutputHelper testOutputHelper)
         const int channel = 0;
         var cancellationToken = TestContext.Current.CancellationToken;
         var external = new FakeExternal(testOutputHelper);
-        var deviceIterator = new AscomDeviceIterator();
+        var deviceIterator = new AscomDeviceIterator(NullLogger<AscomDeviceIterator>.Instance);
         var allCameras = deviceIterator.RegisteredDevices(DeviceType.Camera);
         var simCameraDevice = allCameras.FirstOrDefault(e => e.DeviceId == "ASCOM.Simulator." + DeviceType.Camera);
 

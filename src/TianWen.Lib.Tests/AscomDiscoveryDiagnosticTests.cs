@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Win32;
 using Shouldly;
 using System;
@@ -168,7 +169,7 @@ public class AscomDiscoveryDiagnosticTests(ITestOutputHelper output)
         Assert.SkipUnless(OperatingSystem.IsWindows(), "ASCOM only on Windows.");
         Assert.SkipUnless(AnyRegistryViewHasAscomPlatform(), "ASCOM Platform not installed in any registry view — nothing to diagnose.");
 
-        var iterator = new AscomDeviceIterator();
+        var iterator = new AscomDeviceIterator(NullLogger<AscomDeviceIterator>.Instance);
         var supported = await iterator.CheckSupportAsync(TestContext.Current.CancellationToken);
 
         output.WriteLine($"AscomDeviceIterator.CheckSupportAsync = {supported}");
@@ -181,7 +182,7 @@ public class AscomDiscoveryDiagnosticTests(ITestOutputHelper output)
         Assert.SkipUnless(OperatingSystem.IsWindows(), "ASCOM only on Windows.");
         Assert.SkipUnless(AnyRegistryViewHasAscomPlatform(), "ASCOM Platform not installed in any registry view.");
 
-        var iterator = new AscomDeviceIterator();
+        var iterator = new AscomDeviceIterator(NullLogger<AscomDeviceIterator>.Instance);
 
         // Discovery is a no-op if CheckSupportAsync returns false, so report that first.
         var supported = await iterator.CheckSupportAsync(TestContext.Current.CancellationToken);

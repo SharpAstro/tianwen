@@ -1,20 +1,18 @@
-using System;
-using System.Globalization;
-using System.Web;
 using TianWen.Lib.Astrometry.SOFA;
 using TianWen.Lib.Devices;
 
 namespace TianWen.UI.Abstractions;
 
 /// <summary>
-/// Creates a <see cref="Transform"/> from a profile's mount URI (latitude, longitude, elevation).
+/// Creates a <see cref="Transform"/> from a profile's stored site coordinates.
 /// Shared between CLI and GUI.
 /// </summary>
 public static class TransformFactory
 {
     /// <summary>
-    /// Creates a Transform from the profile's mount URI query params.
-    /// Returns null with an error message if the profile has no mount or no lat/lon.
+    /// Creates a Transform from <see cref="ProfileData.SiteLatitude"/>, <see cref="ProfileData.SiteLongitude"/>,
+    /// and <see cref="ProfileData.SiteElevation"/>. Returns null with an error message if the
+    /// profile has no mount or no site coordinates configured.
     /// </summary>
     public static Transform? FromProfile(Profile profile, ITimeProvider timeProvider, out string? error)
     {
@@ -26,16 +24,10 @@ public static class TransformFactory
             return null;
         }
 
-        var query = HttpUtility.ParseQueryString(data.Value.Mount.Query);
-        var latStr = query[DeviceQueryKey.Latitude.Key];
-        var lonStr = query[DeviceQueryKey.Longitude.Key];
-        var elevStr = query[DeviceQueryKey.Elevation.Key];
-
-        if (latStr is null || lonStr is null ||
-            !double.TryParse(latStr, CultureInfo.InvariantCulture, out var lat) ||
-            !double.TryParse(lonStr, CultureInfo.InvariantCulture, out var lon))
+        var d = data.Value;
+        if (d.SiteLatitude is not { } lat || d.SiteLongitude is not { } lon)
         {
-            error = "Mount URI does not contain latitude/longitude. Use 'tianwen profile set-site' to configure.";
+            error = "Profile has no site coordinates. Connect a mount to auto-seed, or set them in the Equipment tab.";
             return null;
         }
 
@@ -45,15 +37,11 @@ public static class TransformFactory
             return null;
         }
 
-        var elevation = elevStr is not null && double.TryParse(elevStr, CultureInfo.InvariantCulture, out var elev)
-            ? elev
-            : 0.0;
-
         var transform = new Transform(timeProvider)
         {
             SiteLatitude = lat,
             SiteLongitude = lon,
-            SiteElevation = elevation,
+            SiteElevation = d.SiteElevation ?? 0.0,
             SiteTemperature = 15,
             DateTimeOffset = timeProvider.System.GetLocalNow()
         };

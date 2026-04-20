@@ -42,7 +42,23 @@ internal sealed unsafe class DispatchObject : IDisposable
 
     #region Typed getters
 
-    public bool GetBool(string name) => GetProperty<short>(name) != 0; // VT_BOOL is VARIANT_BOOL (short)
+    public bool GetBool(string name)
+    {
+        // ASCOM returns booleans as VT_BOOL (VARIANT_BOOL). Although its storage is a
+        // 16-bit short, ComVariant.As<short>() refuses VT_BOOL because the variant type
+        // tag is not VT_I2 — reading via As<bool>() uses the bool-specific path which
+        // accepts VT_BOOL natively. (Needed by ASCOM Platform 7 drivers whose
+        // `Connecting` property is reported as VT_BOOL, e.g. ASCOM OmniSim.)
+        var variant = GetPropertyVariant(name);
+        try
+        {
+            return variant.As<bool>();
+        }
+        finally
+        {
+            variant.Dispose();
+        }
+    }
 
     public int GetInt(string name) => GetProperty<int>(name);
 
@@ -168,7 +184,7 @@ internal sealed unsafe class DispatchObject : IDisposable
         try
         {
             var result = InvokeRawWithResult(name, NativeMethods.DISPATCH_METHOD, variants);
-            try { return result.As<short>() != 0; }
+            try { return result.As<bool>(); }  // VT_BOOL — see GetBool comment
             finally { result.Dispose(); }
         }
         finally

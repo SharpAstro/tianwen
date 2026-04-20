@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging;
 using System.Collections.Generic;
 using System.Net.Http;
 using System.Threading;
@@ -10,7 +11,7 @@ namespace TianWen.Lib.Devices.Weather;
 /// Discovery checks reachability via HTTP HEAD; connect re-validates with the actual API
 /// (including API key and version auto-detection).
 /// </summary>
-internal sealed class OpenWeatherMapDeviceSource : IDeviceSource<OpenWeatherMapDevice>
+internal sealed class OpenWeatherMapDeviceSource(ILogger<OpenWeatherMapDeviceSource> logger) : IDeviceSource<OpenWeatherMapDevice>
 {
     private static readonly HttpClient s_httpClient = new HttpClient()
     {
@@ -27,10 +28,12 @@ internal sealed class OpenWeatherMapDeviceSource : IDeviceSource<OpenWeatherMapD
             using var request = new HttpRequestMessage(HttpMethod.Head, "https://api.openweathermap.org");
             using var response = await s_httpClient.SendAsync(request, cancellationToken);
             _reachable = true;
+            logger.LogDebug("OpenWeatherMap reachable: {Status}", (int)response.StatusCode);
         }
-        catch
+        catch (System.Exception ex)
         {
             _reachable = false;
+            logger.LogDebug(ex, "OpenWeatherMap HEAD request failed — device will not appear in the picker");
         }
         return _reachable;
     }
