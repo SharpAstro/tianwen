@@ -154,6 +154,15 @@ internal class TuiSubCommand(
                     continue;
                 }
 
+                // Raw mouse events (including motion/drag) go to the tab first so a
+                // ScrollableList can consume them — the DIR.Lib InputEvent mapping
+                // doesn't carry motion state.
+                if (rawEvt.Mouse is { } rawMouse && activeTab.HandleRawMouse(rawMouse))
+                {
+                    activeTab.NeedsRedraw = true;
+                    continue;
+                }
+
                 // Delegate to active tab first (e.g. Escape deselects slider before quitting)
                 var tabConsumed = false;
                 if (rawEvt.ToInputEvent is { } evt)

@@ -23,6 +23,7 @@ internal sealed class TuiPlannerTab(
     private MarkdownWidget? _detailWidget;
     private Canvas? _canvas;
     private SixelRgbaImageRenderer? _canvasRenderer;
+    private int _lastEnsuredIndex = -1;
 
     [MemberNotNullWhen(true, nameof(_topBar), nameof(_statusBar), nameof(_targetList),
         nameof(_detailWidget), nameof(_canvas), nameof(_canvasRenderer))]
@@ -78,8 +79,12 @@ internal sealed class TuiPlannerTab(
         {
             items[i] = new TargetListItem(targetRows[i]);
         }
-        _targetList.Items(items).Header("Tonight's Best").ScrollTo(
-            Math.Max(0, plannerState.SelectedTargetIndex - _targetList.VisibleRows / 2));
+        _targetList.Items(items).Header("Tonight's Best");
+        if (plannerState.SelectedTargetIndex != _lastEnsuredIndex)
+        {
+            _targetList.EnsureVisible(plannerState.SelectedTargetIndex);
+            _lastEnsuredIndex = plannerState.SelectedTargetIndex;
+        }
 
         // Detail panel
         var detailLines = PlannerDetails.GetLines(plannerState, filteredTargets);
@@ -124,9 +129,12 @@ internal sealed class TuiPlannerTab(
         var offset = targetList.Viewport.Offset;
         var baseX = (float)(offset.Column * cellSize.Width);
         var baseY = (float)(offset.Row * cellSize.Height);
-        var rowW = (float)(targetList.Viewport.Size.Width * cellSize.Width);
+        // Exclude the rightmost column when a scrollbar is drawn so clicks there reach
+        // the list's drag handler rather than the row's click handler.
+        var visibleWidth = targetList.Viewport.Size.Width - (targetList.ItemCount > targetList.VisibleRows ? 1 : 0);
+        var rowW = (float)(visibleWidth * cellSize.Width);
         var rowH = (float)cellSize.Height;
-        var scrollOffset = Math.Max(0, plannerState.SelectedTargetIndex - targetList.VisibleRows / 2);
+        var scrollOffset = targetList.ScrollOffset;
 
         var filteredCount = PlannerActions.GetFilteredTargets(plannerState).Count;
         for (var i = 0; i < targetList.VisibleRows && scrollOffset + i < filteredCount; i++)
@@ -137,6 +145,16 @@ internal sealed class TuiPlannerTab(
                 new HitResult.ListItemHit("TargetList", capturedIdx),
                 _ => { plannerState.SelectedTargetIndex = capturedIdx; });
         }
+    }
+
+    public override bool HandleRawMouse(MouseEvent mouse)
+    {
+        if (_targetList is { } list && list.HandleMouse(mouse))
+        {
+            NeedsRedraw = true;
+            return true;
+        }
+        return false;
     }
 
     public override bool HandleInput(InputEvent evt)

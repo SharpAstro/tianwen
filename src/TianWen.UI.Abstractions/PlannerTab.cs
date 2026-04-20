@@ -39,8 +39,6 @@ namespace TianWen.UI.Abstractions
         private static readonly RGBAColor32 DetailsNameText = new RGBAColor32(0xff, 0xff, 0xff, 0xff);
         private static readonly RGBAColor32 DetailsInfoText = new RGBAColor32(0xaa, 0xaa, 0xaa, 0xff);
         private static readonly RGBAColor32 SeparatorColor  = new RGBAColor32(0x33, 0x33, 0x44, 0xff);
-        private static readonly RGBAColor32 ScrollBarBg     = new RGBAColor32(0x22, 0x22, 0x2a, 0xff);
-        private static readonly RGBAColor32 ScrollBarFg     = new RGBAColor32(0x44, 0x44, 0x55, 0xff);
         private static readonly RGBAColor32 FilterBtnBg     = new RGBAColor32(0x35, 0x35, 0x48, 0xff);
         private static readonly RGBAColor32 ActiveFilterBg  = new RGBAColor32(0x30, 0x50, 0x30, 0xff);
         private static readonly RGBAColor32 FilterBtnText   = new RGBAColor32(0xdd, 0xdd, 0xdd, 0xff);
@@ -65,6 +63,9 @@ namespace TianWen.UI.Abstractions
         private float _searchBarBottom;
         private float _searchBarLeft;
         private float _searchBarWidth;
+        private RectF32 _scrollBarTrackRect;    // captured during render for drag hit-testing
+        private float _scrollBarDpiScale;
+        private ScrollBarDragState _targetScrollDrag;
 
         /// <summary>The filtered target list from the last render pass.</summary>
         public IReadOnlyList<ScoredTarget> FilteredTargets => _lastFilteredTargets;
@@ -213,7 +214,7 @@ namespace TianWen.UI.Abstractions
             RectF32 rect,
             float headerHeight, float itemHeight, float fontSize, float padding)
         {
-            var scrollBarWidth = 6f * dpiScale;
+            var scrollBarWidth = ScrollBar.Width(dpiScale);
             var listW = rect.Width - scrollBarWidth;
             var searchH = (int)(itemHeight * 1.1f);
 
@@ -381,16 +382,11 @@ namespace TianWen.UI.Abstractions
                     fontSize, isSelected ? SelectedText : DimText, TextAlign.Far, TextAlign.Center);
             }
 
-            // Scrollbar thumb
-            if (totalItems > visibleRows && maxScroll > 0)
-            {
-                var sbX = rect.X + listW;
-                FillRect(sbX, _listItemsRect.Y, scrollBarWidth, _listItemsRect.Height, ScrollBarBg);
-
-                var thumbH = Math.Max(20f * dpiScale, _listItemsRect.Height * visibleRows / (float)totalItems);
-                var thumbY = _listItemsRect.Y + (_listItemsRect.Height - thumbH) * ScrollOffset / (float)maxScroll;
-                FillRect(sbX + 1f, thumbY, scrollBarWidth - 2f, thumbH, ScrollBarFg);
-            }
+            var sbX = rect.X + listW;
+            _scrollBarTrackRect = new RectF32(sbX, _listItemsRect.Y, scrollBarWidth, _listItemsRect.Height);
+            _scrollBarDpiScale = dpiScale;
+            ScrollBar.Draw(FillRect, sbX, _listItemsRect.Y, _listItemsRect.Height,
+                totalItems, visibleRows, ScrollOffset, dpiScale);
 
             // Autocomplete dropdown (overlay, painted last so it's on top)
             if (state.Suggestions.Count > 0 && state.SearchInput.IsActive)
@@ -499,19 +495,52 @@ namespace TianWen.UI.Abstractions
         {
             InputEvent.Scroll(var scrollY, var mouseX, var mouseY, _)
                 when _targetListRect.Contains(mouseX, mouseY) => HandleTargetListScroll(scrollY),
-            // Mouse move: redraw for follower overlay. Cheap on GPU (cached chart texture + 2-3 overlay draws).
+            InputEvent.MouseDown(var dx, var dy, _, _, _) when HandleTargetListMouseDown(dx, dy) => true,
+            // Mouse move consumed while dragging the scrollbar, otherwise flags redraw for follower overlay.
+            InputEvent.MouseMove(_, var my) when _targetScrollDrag.IsDragging && HandleTargetListMouseMove(my) => true,
             InputEvent.MouseMove(var mx, var my) => _chartRect.Contains(mx, my),
+            InputEvent.MouseUp(_, _, _) when _targetScrollDrag.IsDragging => HandleTargetListMouseUp(),
             InputEvent.KeyDown(var key, var modifiers) => HandlePlannerKey(key, modifiers),
             _ => false
         };
 
         private bool HandleTargetListScroll(float scrollY)
         {
-            ScrollOffset = Math.Max(0, ScrollOffset - (int)scrollY * 3);
+            ScrollOffset = ScrollBar.HandleWheel(scrollY, ScrollOffset, _lastFilteredTargets.Count, VisibleRows);
             if (_state is not null)
             {
                 _state.NeedsRedraw = true;
             }
+            return true;
+        }
+
+        private bool HandleTargetListMouseDown(float mx, float my)
+        {
+            var next = ScrollBar.HandleMouseDown(
+                ref _targetScrollDrag, mx, my,
+                _scrollBarTrackRect.X, _scrollBarTrackRect.Y, _scrollBarTrackRect.Height,
+                _lastFilteredTargets.Count, VisibleRows, ScrollOffset, _scrollBarDpiScale);
+            if (next is not { } offset) return false;
+            ScrollOffset = offset;
+            if (_state is not null) _state.NeedsRedraw = true;
+            return true;
+        }
+
+        private bool HandleTargetListMouseMove(float my)
+        {
+            var next = ScrollBar.HandleMouseMove(
+                in _targetScrollDrag, my,
+                _scrollBarTrackRect.Y, _scrollBarTrackRect.Height,
+                _lastFilteredTargets.Count, VisibleRows, _scrollBarDpiScale);
+            if (next is not { } offset || offset == ScrollOffset) return false;
+            ScrollOffset = offset;
+            if (_state is not null) _state.NeedsRedraw = true;
+            return true;
+        }
+
+        private bool HandleTargetListMouseUp()
+        {
+            ScrollBar.HandleMouseUp(ref _targetScrollDrag);
             return true;
         }
 

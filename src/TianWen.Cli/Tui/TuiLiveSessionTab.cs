@@ -687,6 +687,16 @@ internal sealed class TuiLiveSessionTab(
         }
     }
 
+    public override bool HandleRawMouse(MouseEvent mouse)
+    {
+        if (_infoList is { } list && list.HandleMouse(mouse))
+        {
+            NeedsRedraw = true;
+            return true;
+        }
+        return false;
+    }
+
     public override bool HandleInput(InputEvent evt)
     {
         // Preview-mode shortcuts (only when no session is running). Handled first so
