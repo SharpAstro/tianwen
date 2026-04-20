@@ -779,6 +779,84 @@ namespace TianWen.UI.Abstractions
                 appState.NeedsRedraw = true;
             });
 
+            bus.Subscribe<SkyMapSlewToObjectSignal>(sig =>
+            {
+                if (liveSessionState.IsRunning)
+                {
+                    appState.StatusMessage = "Cannot slew manually while a session is running";
+                    appState.NeedsRedraw = true;
+                    return;
+                }
+                if (appState.ActiveProfile is not { Data: { } pdata } profile
+                    || pdata.Mount is not { Scheme: not "none" } mountUri)
+                {
+                    appState.StatusMessage = "No mount configured in the active profile";
+                    appState.NeedsRedraw = true;
+                    return;
+                }
+                if (appState.DeviceHub is not { } hub
+                    || !hub.TryGetConnectedDriver<IMountDriver>(mountUri, out var mount)
+                    || mount is null)
+                {
+                    appState.StatusMessage = "Mount is not connected \u2014 connect it from the Equipment tab first";
+                    appState.NeedsRedraw = true;
+                    return;
+                }
+
+                // Two-click confirmation for Sun slew. First click arms, second click
+                // within the window proceeds. Any other interaction silently expires.
+                if (sig.Index == CatalogIndex.Sol)
+                {
+                    var now = _timeProvider.GetUtcNow();
+                    var confirmed = appState.PendingSunSlewIndex == CatalogIndex.Sol
+                                    && appState.PendingSunSlewExpiresAt is { } exp
+                                    && exp > now;
+                    if (!confirmed)
+                    {
+                        appState.PendingSunSlewIndex = CatalogIndex.Sol;
+                        appState.PendingSunSlewExpiresAt = now + TimeSpan.FromSeconds(5);
+                        appState.StatusMessage =
+                            "\u26A0 SUN \u2014 click Goto again within 5s to confirm. Verify a solar filter is installed.";
+                        skyMapState.NeedsRedraw = true;
+                        appState.NeedsRedraw = true;
+                        return;
+                    }
+                    appState.PendingSunSlewIndex = null;
+                    appState.PendingSunSlewExpiresAt = null;
+                }
+
+                var minAlt = System.Math.Max((int)plannerState.MinHeightAboveHorizon, 1);
+                var capturedMount = mount;
+                var capturedSig = sig;
+                var capturedProfile = profile;
+                tracker.Run(async () =>
+                {
+                    try
+                    {
+                        var (post, msg) = await MountActions.SlewToJ2000Async(
+                            capturedMount, capturedSig.Name, capturedSig.RA, capturedSig.Dec, capturedSig.Index,
+                            profile: capturedProfile, timeProvider: _timeProvider,
+                            minAboveHorizonDegrees: minAlt, logger: logger,
+                            cancellationToken: cts.Token);
+                        var severity = post == SlewPostCondition.Slewing
+                            ? NotificationSeverity.Info
+                            : NotificationSeverity.Warning;
+                        appState.AppendNotification(_timeProvider.GetUtcNow(), severity, msg);
+                    }
+                    catch (Exception ex)
+                    {
+                        logger.LogWarning(ex, "Slew to {Name} failed", capturedSig.Name);
+                        appState.AppendNotification(_timeProvider.GetUtcNow(),
+                            NotificationSeverity.Error, $"Slew failed: {ex.Message}");
+                    }
+                    finally
+                    {
+                        skyMapState.NeedsRedraw = true;
+                        appState.NeedsRedraw = true;
+                    }
+                }, $"Goto {sig.Name}");
+            });
+
             bus.Subscribe<SkyMapClickSelectSignal>(sig =>
             {
                 var rect = skyMapState.LastContentRect;

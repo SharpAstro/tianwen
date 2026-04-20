@@ -152,3 +152,17 @@ public readonly record struct ViewInPlannerSignal(
     double Dec,
     TianWen.Lib.Astrometry.Catalogs.CatalogIndex? Index,
     TianWen.Lib.Astrometry.Catalogs.ObjectType ObjectType);
+
+/// <summary>
+/// Goto: command the active profile's connected mount to slew to this object's
+/// J2000 coordinates. Handler picks Solar/Lunar tracking from <c>Index</c> with
+/// fallback to Sidereal, enforces <c>PlannerState.MinHeightAboveHorizon</c> (min 1),
+/// and refuses when a session is running or the mount is not connected.
+/// A two-click confirmation is required for <c>CatalogIndex.Sol</c>.
+/// </summary>
+public readonly record struct SkyMapSlewToObjectSignal(
+    string Name,
+    double RA,
+    double Dec,
+    TianWen.Lib.Astrometry.Catalogs.CatalogIndex? Index,
+    TianWen.Lib.Astrometry.Catalogs.ObjectType ObjectType);
