@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging;
 using System.Collections.Generic;
 using System.Net.Http;
 using System.Threading;
@@ -10,7 +11,7 @@ namespace TianWen.Lib.Devices.Weather;
 /// Discovery checks reachability via HTTP HEAD; connect re-validates with a real API call.
 /// No API key needed.
 /// </summary>
-internal sealed class OpenMeteoDeviceSource : IDeviceSource<OpenMeteoDevice>
+internal sealed class OpenMeteoDeviceSource(ILogger<OpenMeteoDeviceSource> logger) : IDeviceSource<OpenMeteoDevice>
 {
     private static readonly HttpClient s_httpClient = new HttpClient()
     {
@@ -27,10 +28,12 @@ internal sealed class OpenMeteoDeviceSource : IDeviceSource<OpenMeteoDevice>
             using var request = new HttpRequestMessage(HttpMethod.Head, "https://api.open-meteo.com");
             using var response = await s_httpClient.SendAsync(request, cancellationToken);
             _reachable = true;
+            logger.LogDebug("Open-Meteo reachable: {Status}", (int)response.StatusCode);
         }
-        catch
+        catch (System.Exception ex)
         {
             _reachable = false;
+            logger.LogDebug(ex, "Open-Meteo HEAD request failed — device will not appear in the picker");
         }
         return _reachable;
     }

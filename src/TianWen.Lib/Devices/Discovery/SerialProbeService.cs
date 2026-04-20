@@ -39,7 +39,7 @@ internal sealed class SerialProbeService(
     IExternal external,
     ILogger<SerialProbeService> logger,
     IEnumerable<ISerialProbe> probes,
-    IPinnedSerialPortsProvider pinnedPortsProvider) : ISerialProbeService
+    IPinnedSerialPortsProvider? pinnedPortsProvider = null) : ISerialProbeService
 {
     private readonly ISerialProbe[] _probes = [.. probes];
     private readonly ConcurrentDictionary<string, List<SerialProbeMatch>> _results = new(StringComparer.Ordinal);
@@ -68,7 +68,7 @@ internal sealed class SerialProbeService(
             ports = external.EnumerateAvailableSerialPorts(portLock);
         }
 
-        var pinned = pinnedPortsProvider.GetPinnedPorts();
+        var pinned = pinnedPortsProvider?.GetPinnedPorts() ?? [];
 
         logger.LogDebug("Enumerated {PortCount} serial port(s); {ProbeCount} probe(s) registered; {PinnedCount} pinned.",
             ports.Count, _probes.Length, pinned.Count);

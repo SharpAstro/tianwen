@@ -80,7 +80,7 @@ public class EquipmentContent(IDeviceHub? registry = null)
     /// </summary>
     public string? GetSiteLabel(ProfileData data)
     {
-        var site = EquipmentActions.GetSiteFromMount(data.Mount ?? NoneDevice.Instance.DeviceUri);
+        var site = EquipmentActions.GetSiteFromProfile(data);
         if (!site.HasValue)
         {
             return null;

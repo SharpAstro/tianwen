@@ -8,9 +8,10 @@ namespace TianWen.Lib.Devices.Discovery;
 /// verification probe on each pinned port before falling back to general probing —
 /// see <see cref="ISerialProbeService"/> for the two-tier algorithm.
 /// <para>
-/// Hosts (GUI / TUI / Server) register their own implementation. The default
-/// <see cref="NullPinnedSerialPortsProvider"/> returns an empty list — the safe
-/// behaviour for hosts without a notion of "active profile".
+/// Optional: hosts with a notion of "active profile" (GUI / TUI / Server) register
+/// their own implementation. If no provider is registered, <see cref="SerialProbeService"/>
+/// treats the pinned list as empty and goes straight to general probing — the safe
+/// behaviour for hosts without profile awareness.
 /// </para>
 /// </summary>
 public interface IPinnedSerialPortsProvider
@@ -22,10 +23,4 @@ public interface IPinnedSerialPortsProvider
     /// the verification pass.
     /// </summary>
     IReadOnlyList<PinnedSerialPort> GetPinnedPorts();
-}
-
-/// <summary>Safe default for hosts without profile awareness.</summary>
-internal sealed class NullPinnedSerialPortsProvider : IPinnedSerialPortsProvider
-{
-    public IReadOnlyList<PinnedSerialPort> GetPinnedPorts() => [];
 }

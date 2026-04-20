@@ -306,16 +306,7 @@ internal abstract partial class SgpMountDriverBase<TDevice>(TDevice device, ISer
     private double _siteElevation = double.NaN;
 
     public ValueTask<double> GetSiteLatitudeAsync(CancellationToken cancellationToken)
-    {
-        if (double.IsNaN(_siteLatitude))
-        {
-            if (double.TryParse(_device.Query.QueryValue(DeviceQueryKey.Latitude), out var lat))
-            {
-                _siteLatitude = lat;
-            }
-        }
-        return ValueTask.FromResult(_siteLatitude);
-    }
+        => ValueTask.FromResult(_siteLatitude);
 
     public ValueTask SetSiteLatitudeAsync(double latitude, CancellationToken cancellationToken)
     {
@@ -324,16 +315,7 @@ internal abstract partial class SgpMountDriverBase<TDevice>(TDevice device, ISer
     }
 
     public ValueTask<double> GetSiteLongitudeAsync(CancellationToken cancellationToken)
-    {
-        if (double.IsNaN(_siteLongitude))
-        {
-            if (double.TryParse(_device.Query.QueryValue(DeviceQueryKey.Longitude), out var lon))
-            {
-                _siteLongitude = lon;
-            }
-        }
-        return ValueTask.FromResult(_siteLongitude);
-    }
+        => ValueTask.FromResult(_siteLongitude);
 
     public ValueTask SetSiteLongitudeAsync(double longitude, CancellationToken cancellationToken)
     {

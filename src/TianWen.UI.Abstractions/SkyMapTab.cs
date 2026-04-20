@@ -86,9 +86,21 @@ namespace TianWen.UI.Abstractions
             {
                 FillRect(contentRect.X, contentRect.Y, contentRect.Width, contentRect.Height,
                     new RGBAColor32(0x06, 0x06, 0x10, 0xFF));
-                DrawText("Loading star catalog...".AsSpan(), fontPath,
+
+                // Distinguish "catalog is loading" from "catalog isn't loading because
+                // we have no site coordinates". The latter is blocked until the user
+                // connects a mount or edits the site manually.
+                var hasSite = plannerState.SiteLatitude is not double.NaN
+                    && plannerState.SiteLongitude is not double.NaN
+                    && !double.IsNaN(plannerState.SiteLatitude)
+                    && !double.IsNaN(plannerState.SiteLongitude);
+                var message = hasSite
+                    ? "Loading star catalog..."
+                    : "No site coordinates.\nConnect a mount to auto-seed, or set the site manually in the Equipment tab.";
+
+                DrawText(message.AsSpan(), fontPath,
                     contentRect.X, contentRect.Y + contentRect.Height * 0.45f,
-                    contentRect.Width, 30,
+                    contentRect.Width, 60,
                     BaseFontSize * dpiScale, InfoText, TextAlign.Center, TextAlign.Center);
                 return;
             }

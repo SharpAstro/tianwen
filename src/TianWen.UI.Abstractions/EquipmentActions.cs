@@ -87,16 +87,135 @@ public static class EquipmentActions
         => data with { OAG_OTA_Index = otaIndex };
 
     public static ProfileData SetSite(ProfileData data, double lat, double lon, double? elevation = null)
+        => data with { SiteLatitude = lat, SiteLongitude = lon, SiteElevation = elevation };
+
+    public static ProfileData SetSiteTieBreaker(ProfileData data, SiteTieBreaker tieBreaker)
+        => data with { SiteTieBreaker = tieBreaker };
+
+    /// <summary>
+    /// Outcome of <see cref="ReconcileSiteOnMountConnectAsync"/>.
+    /// <paramref name="Data"/> is the (possibly updated) <see cref="ProfileData"/>.
+    /// <paramref name="ProfileChanged"/> is true when the caller should persist the profile.
+    /// <paramref name="MountPushed"/> is true when the mount hardware was updated from the profile.
+    /// <paramref name="WinnerSource"/> describes where the effective site came from
+    /// for logging purposes; null when no site was available anywhere.
+    /// </summary>
+    public readonly record struct SiteReconcileResult(
+        ProfileData Data,
+        bool ProfileChanged,
+        bool MountPushed,
+        string? WinnerSource);
+
+    /// <summary>
+    /// Reconcile site coordinates between the connected mount hardware and the
+    /// stored profile. The tie-breaker (<see cref="ProfileData.SiteTieBreaker"/>)
+    /// only matters when both sides report a value and they differ:
+    /// the winner's site is written to the loser (profile → persisted,
+    /// mount → pushed via SetSite*Async). When only one side has a value the
+    /// other side is populated unconditionally.
+    /// </summary>
+    public static async ValueTask<SiteReconcileResult> ReconcileSiteOnMountConnectAsync(
+        ProfileData data,
+        TianWen.Lib.Devices.IMountDriver mount,
+        ILogger? logger,
+        CancellationToken cancellationToken)
     {
-        var query = HttpUtility.ParseQueryString(data.Mount.Query);
-        query[DeviceQueryKey.Latitude.Key] = lat.ToString(CultureInfo.InvariantCulture);
-        query[DeviceQueryKey.Longitude.Key] = lon.ToString(CultureInfo.InvariantCulture);
-        if (elevation.HasValue)
+        // Mount returns NaN (Skywatcher/iOptron default) when site has never been
+        // pushed and the mount doesn't report one. ASCOM drivers typically return 0.
+        var mountLatRaw = await mount.GetSiteLatitudeAsync(cancellationToken);
+        var mountLonRaw = await mount.GetSiteLongitudeAsync(cancellationToken);
+        var mountElevRaw = await mount.GetSiteElevationAsync(cancellationToken);
+        var mountHas = !double.IsNaN(mountLatRaw) && !double.IsNaN(mountLonRaw)
+                       && !(mountLatRaw == 0 && mountLonRaw == 0);
+        var profileHas = data.SiteLatitude is not null && data.SiteLongitude is not null;
+
+        if (!mountHas && !profileHas)
         {
-            query[DeviceQueryKey.Elevation.Key] = elevation.Value.ToString(CultureInfo.InvariantCulture);
+            return new SiteReconcileResult(data, false, false, null);
         }
-        var builder = new UriBuilder(data.Mount) { Query = query.ToString() };
-        return data with { Mount = builder.Uri };
+
+        if (mountHas && !profileHas)
+        {
+            logger?.LogInformation("Site reconcile: mount reports {Lat}/{Lon} (profile empty) — adopting into profile.",
+                mountLatRaw, mountLonRaw);
+            double? elev = double.IsNaN(mountElevRaw) ? null : mountElevRaw;
+            var updated = data with { SiteLatitude = mountLatRaw, SiteLongitude = mountLonRaw, SiteElevation = elev };
+            return new SiteReconcileResult(updated, ProfileChanged: true, MountPushed: false, WinnerSource: "mount");
+        }
+
+        if (profileHas && !mountHas)
+        {
+            logger?.LogInformation("Site reconcile: profile has {Lat}/{Lon} (mount empty) — pushing to mount.",
+                data.SiteLatitude, data.SiteLongitude);
+            await mount.SetSiteLatitudeAsync(data.SiteLatitude!.Value, cancellationToken);
+            await mount.SetSiteLongitudeAsync(data.SiteLongitude!.Value, cancellationToken);
+            if (data.SiteElevation is { } elevation)
+            {
+                await mount.SetSiteElevationAsync(elevation, cancellationToken);
+            }
+            return new SiteReconcileResult(data, ProfileChanged: false, MountPushed: true, WinnerSource: "profile");
+        }
+
+        // Both sides have a site. Apply the tie-breaker.
+        var winner = data.SiteTieBreaker;
+        if (winner == SiteTieBreaker.Mount)
+        {
+            double? mountElev = double.IsNaN(mountElevRaw) ? null : mountElevRaw;
+            if (data.SiteLatitude != mountLatRaw || data.SiteLongitude != mountLonRaw || data.SiteElevation != mountElev)
+            {
+                logger?.LogInformation("Site reconcile (tie=Mount): mount {MLat}/{MLon} replaces profile {PLat}/{PLon}.",
+                    mountLatRaw, mountLonRaw, data.SiteLatitude, data.SiteLongitude);
+                var updated = data with { SiteLatitude = mountLatRaw, SiteLongitude = mountLonRaw, SiteElevation = mountElev };
+                return new SiteReconcileResult(updated, ProfileChanged: true, MountPushed: false, WinnerSource: "mount");
+            }
+            return new SiteReconcileResult(data, false, false, WinnerSource: "mount");
+        }
+        else
+        {
+            if (data.SiteLatitude != mountLatRaw || data.SiteLongitude != mountLonRaw
+                || (data.SiteElevation is { } pe && !double.IsNaN(mountElevRaw) && pe != mountElevRaw))
+            {
+                logger?.LogInformation("Site reconcile (tie=Profile): profile {PLat}/{PLon} pushed to mount (was {MLat}/{MLon}).",
+                    data.SiteLatitude, data.SiteLongitude, mountLatRaw, mountLonRaw);
+                await mount.SetSiteLatitudeAsync(data.SiteLatitude!.Value, cancellationToken);
+                await mount.SetSiteLongitudeAsync(data.SiteLongitude!.Value, cancellationToken);
+                if (data.SiteElevation is { } elevation)
+                {
+                    await mount.SetSiteElevationAsync(elevation, cancellationToken);
+                }
+                return new SiteReconcileResult(data, ProfileChanged: false, MountPushed: true, WinnerSource: "profile");
+            }
+            return new SiteReconcileResult(data, false, false, WinnerSource: "profile");
+        }
+    }
+
+    /// <summary>
+    /// One-shot migration of site coordinates from the legacy Mount URI query
+    /// string (<c>?latitude=…&amp;longitude=…&amp;elevation=…</c>) into
+    /// <see cref="ProfileData.SiteLatitude"/> etc. Returns the updated
+    /// <see cref="ProfileData"/> and a flag indicating whether anything changed.
+    /// When the profile already has <see cref="ProfileData.SiteLatitude"/> set
+    /// the URI query is ignored — profile wins for migration.
+    /// </summary>
+    public static (ProfileData Data, bool Changed) MigrateSiteFromMountUri(ProfileData data)
+    {
+        if (data.SiteLatitude is not null || data.SiteLongitude is not null) return (data, false);
+        if (data.Mount == NoneDevice.Instance.DeviceUri) return (data, false);
+
+        var query = HttpUtility.ParseQueryString(data.Mount.Query);
+        var latStr = query[DeviceQueryKey.Latitude.Key];
+        var lonStr = query[DeviceQueryKey.Longitude.Key];
+        var elevStr = query[DeviceQueryKey.Elevation.Key];
+
+        if (latStr is null || lonStr is null
+            || !double.TryParse(latStr, CultureInfo.InvariantCulture, out var lat)
+            || !double.TryParse(lonStr, CultureInfo.InvariantCulture, out var lon))
+        {
+            return (data, false);
+        }
+
+        double? elev = elevStr is not null && double.TryParse(elevStr, CultureInfo.InvariantCulture, out var e) ? e : null;
+        return (data with { SiteLatitude = lat, SiteLongitude = lon, SiteElevation = elev }, true);
     }
 
     /// <summary>
@@ -722,28 +841,10 @@ public static class EquipmentActions
     }
 
     /// <summary>
-    /// Extracts site coordinates from a mount URI, if present.
+    /// Extracts site coordinates from <see cref="ProfileData"/>, if present.
     /// </summary>
-    public static (double Lat, double Lon, double? Elev)? GetSiteFromMount(Uri mountUri)
-    {
-        if (mountUri == NoneDevice.Instance.DeviceUri)
-        {
-            return null;
-        }
-
-        var query = HttpUtility.ParseQueryString(mountUri.Query);
-        var latStr = query[DeviceQueryKey.Latitude.Key];
-        var lonStr = query[DeviceQueryKey.Longitude.Key];
-        var elevStr = query[DeviceQueryKey.Elevation.Key];
-
-        if (latStr is not null && lonStr is not null &&
-            double.TryParse(latStr, CultureInfo.InvariantCulture, out var lat) &&
-            double.TryParse(lonStr, CultureInfo.InvariantCulture, out var lon))
-        {
-            double? elev = elevStr is not null && double.TryParse(elevStr, CultureInfo.InvariantCulture, out var e) ? e : null;
-            return (lat, lon, elev);
-        }
-
-        return null;
-    }
+    public static (double Lat, double Lon, double? Elev)? GetSiteFromProfile(ProfileData data)
+        => data.SiteLatitude is { } lat && data.SiteLongitude is { } lon
+            ? (lat, lon, data.SiteElevation)
+            : null;
 }

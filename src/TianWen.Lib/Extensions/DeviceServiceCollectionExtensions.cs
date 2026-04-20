@@ -16,7 +16,6 @@ public static class DeviceServiceCollectionExtensions
     public static IServiceCollection AddDevices(this IServiceCollection services) => services
         .AddDeviceType(uri => new NoneDevice(uri))
         .AddSingleton<IDeviceHub, DeviceHub>()
-        .AddSingleton<IPinnedSerialPortsProvider, NullPinnedSerialPortsProvider>()
         .AddSingleton<ISerialProbeService, SerialProbeService>()
         .AddSingleton<IDeviceDiscovery, DeviceDiscovery>();
 
