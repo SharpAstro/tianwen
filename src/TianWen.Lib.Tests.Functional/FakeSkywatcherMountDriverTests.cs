@@ -252,17 +252,17 @@ public class FakeSkywatcherMountDriverTests(ITestOutputHelper output)
     #region Site
 
     [Fact(Timeout = 60_000)]
-    public async Task GivenMountWithLatLongInUriThenSiteReturnsThem()
+    public async Task GivenSkywatcherMountWhenSiteIsPushedThenGetSiteReturnsIt()
     {
         var ct = TestContext.Current.CancellationToken;
-        var (mount, _) = CreateMount(latitude: 48.2, longitude: 16.3);
+        var (mount, _) = CreateMount();
         await mount.ConnectAsync(ct);
 
-        var lat = await mount.GetSiteLatitudeAsync(ct);
-        var lon = await mount.GetSiteLongitudeAsync(ct);
+        await mount.SetSiteLatitudeAsync(48.2, ct);
+        await mount.SetSiteLongitudeAsync(16.3, ct);
 
-        lat.ShouldBe(48.2, 0.01);
-        lon.ShouldBe(16.3, 0.01);
+        (await mount.GetSiteLatitudeAsync(ct)).ShouldBe(48.2, 0.01);
+        (await mount.GetSiteLongitudeAsync(ct)).ShouldBe(16.3, 0.01);
     }
 
     #endregion
