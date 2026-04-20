@@ -24,6 +24,7 @@ namespace TianWen.UI.Gui
         private readonly VkSkyMapTab _skyMapTab;
         private readonly VkLiveSessionTab _liveSessionTab;
         private readonly GuiderTab<VulkanContext> _guiderTab;
+        private readonly VkNotificationsTab _notificationsTab;
         private readonly VkMiniViewerWidget _guiderMiniViewer;
         private readonly VkMiniViewerWidget _miniViewer;
         private string? _fontPath;
@@ -80,12 +81,13 @@ namespace TianWen.UI.Gui
         // Sidebar tab definitions. Tooltip shows the name + Ctrl+letter shortcut.
         private static readonly (string Icon, GuiTab Tab, string Tooltip)[] SidebarTabs =
         [
-            ("\U0001F52D", GuiTab.Equipment,    "Equipment (Ctrl+E)"),
-            ("\U0001F4C5", GuiTab.Planner,      "Planner (Ctrl+P)"),
-            ("\U0001F30C", GuiTab.SkyMap,       "Sky Map (Ctrl+M)"),
-            ("\U0001F4F7", GuiTab.Session,      "Session (Ctrl+S)"),
-            ("\U0001F4F8", GuiTab.LiveSession,  "Live Session (Ctrl+L)"),
-            ("\U0001F3AF", GuiTab.Guider,       "Guider (Ctrl+G)"),
+            ("\U0001F52D", GuiTab.Equipment,     "Equipment (Ctrl+E)"),
+            ("\U0001F4C5", GuiTab.Planner,       "Planner (Ctrl+P)"),
+            ("\U0001F30C", GuiTab.SkyMap,        "Sky Map (Ctrl+M)"),
+            ("\U0001F4F7", GuiTab.Session,       "Session (Ctrl+S)"),
+            ("\U0001F4F8", GuiTab.LiveSession,   "Live Session (Ctrl+L)"),
+            ("\U0001F3AF", GuiTab.Guider,        "Guider (Ctrl+G)"),
+            ("\U0001F514", GuiTab.Notifications, "Notifications (Ctrl+N)"),
         ];
 
         // Sidebar colors
@@ -119,6 +121,7 @@ namespace TianWen.UI.Gui
             _liveSessionTab = new VkLiveSessionTab(renderer) { Bus = bus, MiniViewer = _miniViewer };
             _guiderMiniViewer = new VkMiniViewerWidget(renderer);
             _guiderTab = new GuiderTab<VulkanContext>(renderer) { Bus = bus, GuideCameraViewer = _guiderMiniViewer };
+            _notificationsTab = new VkNotificationsTab(renderer) { Bus = bus };
             ResolveFontPath();
         }
 
@@ -152,6 +155,7 @@ namespace TianWen.UI.Gui
             _skyMapTab.FrameCount++;
             _liveSessionTab.FrameCount++;
             _guiderTab.FrameCount++;
+            _notificationsTab.FrameCount++;
 
             ActiveTab = appState.ActiveTab switch
             {
@@ -161,6 +165,7 @@ namespace TianWen.UI.Gui
                 GuiTab.SkyMap => _skyMapTab,
                 GuiTab.LiveSession => _liveSessionTab,
                 GuiTab.Guider => _guiderTab,
+                GuiTab.Notifications => _notificationsTab,
                 _ => null
             };
 
@@ -382,15 +387,44 @@ namespace TianWen.UI.Gui
                     FontSize, StatusText, TextAlign.Far, TextAlign.Center);
             }
 
-            // Status message — shown to the right of the profile name, left of the date area
+            // Status message — placed after the profile name (measured, not assumed) and
+            // bounded by the date-arrow region to the right. Over-long messages are
+            // truncated with an ellipsis so they don't overlap the profile or date text.
+            // Full history will live in the Notifications tab (future).
             if (appState.StatusMessage is { Length: > 0 } msg)
             {
-                var msgX = SidebarWidth + 6f + w * 0.06f;
-                var msgW = w * 0.28f;
-                DrawText(msg.AsSpan(), _fontPath,
+                var msgFontSize = FontSize * 0.85f;
+                var (profW, _) = _renderer.MeasureText(profileName.AsSpan(), _fontPath, FontSize);
+                var msgX = SidebarWidth + 6f + profW + 16f;
+                // Date block begins at centerX = w * 0.35f — leave a 6px gap before it.
+                var msgW = System.Math.Max(w * 0.35f - msgX - 6f, 50f);
+                var displayMsg = TruncateToFit(msg, msgW, msgFontSize);
+                DrawText(displayMsg.AsSpan(), _fontPath,
                     msgX, 0, msgW, sbh,
-                    FontSize * 0.85f, new RGBAColor32(0xff, 0xcc, 0x66, 0xff), TextAlign.Center, TextAlign.Center);
+                    msgFontSize, new RGBAColor32(0xff, 0xcc, 0x66, 0xff), TextAlign.Near, TextAlign.Center);
             }
+        }
+
+        // Truncate with ellipsis so the string fits within maxWidth at the given font size.
+        // Binary-search the longest prefix that, with the ellipsis appended, still fits.
+        private string TruncateToFit(string text, float maxWidth, float fontSize)
+        {
+            if (_fontPath is null) return text;
+            var (fullWidth, _) = _renderer.MeasureText(text.AsSpan(), _fontPath, fontSize);
+            if (fullWidth <= maxWidth) return text;
+
+            const string Ellipsis = "\u2026";
+            var lo = 0;
+            var hi = text.Length;
+            while (lo < hi)
+            {
+                var mid = (lo + hi + 1) / 2;
+                var candidate = string.Concat(text.AsSpan(0, mid), Ellipsis);
+                var (cw, _) = _renderer.MeasureText(candidate.AsSpan(), _fontPath, fontSize);
+                if (cw <= maxWidth) lo = mid;
+                else hi = mid - 1;
+            }
+            return lo == 0 ? Ellipsis : string.Concat(text.AsSpan(0, lo), Ellipsis);
         }
 
         // -----------------------------------------------------------------------
@@ -458,6 +492,11 @@ namespace TianWen.UI.Gui
                 case GuiTab.Guider:
                     _guiderTab.Render(LiveSessionState, contentRect, DpiScale,
                         _fontPath ?? "monospace", timeProvider);
+                    break;
+
+                case GuiTab.Notifications:
+                    _notificationsTab.Render(appState, contentRect, DpiScale,
+                        _fontPath ?? "monospace");
                     break;
 
                 default:

@@ -264,10 +264,15 @@ namespace TianWen.UI.Abstractions
                 InputKey.L => GuiTab.LiveSession,
                 InputKey.M => GuiTab.SkyMap,
                 InputKey.G => GuiTab.Guider,
+                InputKey.N => GuiTab.Notifications,
                 _ => null
             };
             if (target is not { } tab || _appState.ActiveTab == tab) return false;
             _appState.ActiveTab = tab;
+            if (tab == GuiTab.Notifications)
+            {
+                _appState.UnreadNotificationCount = 0;
+            }
             _appState.NeedsRedraw = true;
             return true;
         }

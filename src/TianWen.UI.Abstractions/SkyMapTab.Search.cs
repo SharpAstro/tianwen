@@ -25,6 +25,8 @@ namespace TianWen.UI.Abstractions
         private static readonly RGBAColor32 PinButtonBg      = new(0x3A, 0x5A, 0x3A, 0xFF);
         private static readonly RGBAColor32 UnpinButtonBg    = new(0x5A, 0x3A, 0x3A, 0xFF);
         private static readonly RGBAColor32 ViewButtonBg     = new(0x3A, 0x4A, 0x5A, 0xFF);
+        private static readonly RGBAColor32 GotoButtonBg     = new(0x5A, 0x3A, 0x5A, 0xFF);
+        private static readonly RGBAColor32 GotoDisabledBg   = new(0x38, 0x38, 0x3C, 0xFF);
 
         private const float SearchPanelWidth  = 480f;
         private const float SearchPanelHeight = 500f;
@@ -189,7 +191,8 @@ namespace TianWen.UI.Abstractions
             RectF32 contentRect, string fontPath, float dpiScale,
             double pixelsPerRadian, float cx, float cy)
         {
-            var pw = 300f * dpiScale;
+            // Widened from 300 to fit three action buttons (Goto / View / Pin).
+            var pw = 320f * dpiScale;
             var ph = 205f * dpiScale;
             var px = contentRect.X + 12f * dpiScale;
             var py = contentRect.Y + contentRect.Height - ph - 32f * dpiScale; // above status strip
@@ -283,6 +286,21 @@ namespace TianWen.UI.Abstractions
                 SearchText,
                 "SkyMapViewInPlanner",
                 _ => PostSignal(new ViewInPlannerSignal(
+                    pinName, pinRA, pinDec, pinIndex, pinType)));
+
+            // Goto (left of View-in-Planner). Slews the connected mount to the
+            // object. Grayed when the target never rises from the current site;
+            // the handler is still the source of truth for the actual horizon /
+            // connection gate.
+            var gotoBtnX = viewBtnX - btnW - 8f * dpiScale;
+            var canGoto = !info.NeverRises;
+            RenderButton(
+                "Goto",
+                gotoBtnX, btnY, btnW, btnH, fontPath, fontSize,
+                canGoto ? GotoButtonBg : GotoDisabledBg,
+                SearchText,
+                "SkyMapGoto",
+                _ => PostSignal(new SkyMapSlewToObjectSignal(
                     pinName, pinRA, pinDec, pinIndex, pinType)));
 
             // Close button — top-right of the info panel.
