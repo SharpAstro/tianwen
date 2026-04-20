@@ -171,6 +171,8 @@ internal sealed class TuiEquipmentTab(
 
     private void BuildProfileList()
     {
+        if (_profileList is not { } profileList) return;
+
         var items = new List<ProfilePickerItem>();
         var activeId = appState.ActiveProfile?.ProfileId;
         var idx = 0;
@@ -191,16 +193,18 @@ internal sealed class TuiEquipmentTab(
             idx++;
         }
 
-        _profileList!.Items([.. items]).Header("Profiles");
+        profileList.Items(items).Header("Profiles");
         if (_profileSelectedIndex != _lastEnsuredProfileIndex)
         {
-            _profileList.EnsureVisible(_profileSelectedIndex);
+            profileList.EnsureVisible(_profileSelectedIndex);
             _lastEnsuredProfileIndex = _profileSelectedIndex;
         }
     }
 
     private void BuildSettingsList(ProfileData data)
     {
+        if (_settingsList is not { } settingsList) return;
+
         var items = new List<EquipmentFieldItem>();
         var fieldIdx = 0;
 
@@ -355,13 +359,13 @@ internal sealed class TuiEquipmentTab(
 
         _fieldCount = fieldIdx;
         _lastItems = items;
-        _settingsList!.Items([.. items]).Header("Equipment");
+        settingsList.Items(items).Header("Equipment");
 
         // Scroll to keep selected item visible
         var selectedListIdx = items.FindIndex(i => i.IsSelected);
         if (selectedListIdx >= 0 && selectedListIdx != _lastEnsuredSettingsIndex)
         {
-            _settingsList.EnsureVisible(selectedListIdx);
+            settingsList.EnsureVisible(selectedListIdx);
             _lastEnsuredSettingsIndex = selectedListIdx;
         }
     }
@@ -484,6 +488,7 @@ internal sealed class TuiEquipmentTab(
 
     private void BuildDevicePickerList(ProfileData data)
     {
+        if (_settingsList is not { } settingsList) return;
         if (eqState.ActiveAssignment is not { } target)
         {
             return;
@@ -521,12 +526,13 @@ internal sealed class TuiEquipmentTab(
             }
         }
 
-        _settingsList!.Items([.. items]).Header($"Assign {target.ExpectedDeviceType}");
+        _lastItems = items;
+        settingsList.Items(items).Header($"Assign {target.ExpectedDeviceType}");
 
         // Scroll picker
         if (_pickerSelectedIndex >= 0 && _pickerSelectedIndex != _lastEnsuredPickerIndex)
         {
-            _settingsList.EnsureVisible(_pickerSelectedIndex);
+            settingsList.EnsureVisible(_pickerSelectedIndex);
             _lastEnsuredPickerIndex = _pickerSelectedIndex;
         }
     }
@@ -673,8 +679,96 @@ internal sealed class TuiEquipmentTab(
         return false;
     }
 
+    protected override void RegisterClickableRegions()
+    {
+        // Left panel: clicking a profile row selects and switches to it.
+        if (_profileList is { } pl && _cachedProfiles.Count > 0)
+        {
+            var (bx, by, rowW, rowH) = GetRowGeometry(pl);
+            var count = _cachedProfiles.Count;
+            for (var i = 0; i < pl.VisibleRows && pl.ScrollOffset + i < count; i++)
+            {
+                var capturedIdx = pl.ScrollOffset + i;
+                var y = by + (1 + i) * rowH; // +1 for header row
+                Tracker.Register(bx, y, rowW, rowH,
+                    new HitResult.ListItemHit("Profile", capturedIdx),
+                    _ =>
+                    {
+                        _profileSelectedIndex = capturedIdx;
+                        SwitchToSelectedProfile();
+                        NeedsRedraw = true;
+                    });
+            }
+        }
+
+        // Right panel: clicking a row selects its field (browse) or device (picker).
+        if (_settingsList is { } sl && _lastItems.Count > 0)
+        {
+            var (bx, by, rowW, rowH) = GetRowGeometry(sl);
+            for (var i = 0; i < sl.VisibleRows && sl.ScrollOffset + i < _lastItems.Count; i++)
+            {
+                var item = _lastItems[sl.ScrollOffset + i];
+                if (item.FieldIndex < 0) continue; // skip section headers
+                var capturedIdx = item.FieldIndex;
+                var y = by + (1 + i) * rowH;
+                Tracker.Register(bx, y, rowW, rowH,
+                    new HitResult.ListItemHit("EquipField", capturedIdx),
+                    _ =>
+                    {
+                        if (_mode == Mode.Assignment) _pickerSelectedIndex = capturedIdx;
+                        else _selectedFieldIndex = capturedIdx;
+                        NeedsRedraw = true;
+                    });
+            }
+        }
+    }
+
+    // Computes (baseX, baseY, rowWidth, rowHeight) for a list, excluding the
+    // scrollbar column from the clickable width so drag/click on the track
+    // reaches ScrollableList.HandleMouse instead of triggering a row-select.
+    private static (float BaseX, float BaseY, float RowW, float RowH) GetRowGeometry<T>(
+        ScrollableList<T> list) where T : IRowFormatter
+    {
+        var vp = list.Viewport;
+        var cell = vp.CellSize;
+        var bx = (float)(vp.Offset.Column * cell.Width);
+        var by = (float)(vp.Offset.Row * cell.Height);
+        var cols = vp.Size.Width - (list.ItemCount > list.VisibleRows ? 1 : 0);
+        var rowW = (float)(cols * cell.Width);
+        var rowH = (float)cell.Height;
+        return (bx, by, rowW, rowH);
+    }
+
     public override bool HandleInput(InputEvent evt)
     {
+        if (evt is InputEvent.MouseUp(var mx, var my, MouseButton.Left))
+        {
+            if (Tracker.HitTestAndDispatch(mx, my) is not null)
+            {
+                NeedsRedraw = true;
+            }
+            return false;
+        }
+
+        if (evt is InputEvent.Scroll(var delta, var wx, var wy, _))
+        {
+            // Route wheel to whichever list the cursor is over. Integer delta rounds
+            // the fractional step to at least 1 row so a slow wheel still moves the list.
+            var step = (int)Math.Round(delta);
+            if (step == 0) step = delta > 0 ? 1 : -1;
+            if (_profileList is { } pl && pl.HitTest((int)wx, (int)wy) is not null && pl.HandleWheel(step))
+            {
+                NeedsRedraw = true;
+                return false;
+            }
+            if (_settingsList is { } sl && sl.HitTest((int)wx, (int)wy) is not null && sl.HandleWheel(step))
+            {
+                NeedsRedraw = true;
+                return false;
+            }
+            return false;
+        }
+
         if (evt is not InputEvent.KeyDown(var key, var modifiers))
         {
             return false;
