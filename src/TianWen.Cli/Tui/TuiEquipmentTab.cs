@@ -64,6 +64,12 @@ internal sealed class TuiEquipmentTab(
     /// <summary>Selected index in the profile picker.</summary>
     private int _profileSelectedIndex;
 
+    // Last-applied selection indices. EnsureVisible is only called when the selection
+    // moves — otherwise a drag-scroll would be instantly snapped back on the next render.
+    private int _lastEnsuredProfileIndex = -1;
+    private int _lastEnsuredSettingsIndex = -1;
+    private int _lastEnsuredPickerIndex = -1;
+
     [MemberNotNullWhen(true, nameof(_profileList), nameof(_settingsList), nameof(_siteBar), nameof(_statusBar))]
     protected override bool IsReady =>
         _profileList is not null && _settingsList is not null && _siteBar is not null && _statusBar is not null;
@@ -186,11 +192,10 @@ internal sealed class TuiEquipmentTab(
         }
 
         _profileList!.Items([.. items]).Header("Profiles");
-
-        // Scroll to keep selected visible
-        if (_profileSelectedIndex >= 0 && _profileList.VisibleRows > 0)
+        if (_profileSelectedIndex != _lastEnsuredProfileIndex)
         {
-            _profileList.ScrollTo(Math.Max(0, _profileSelectedIndex - _profileList.VisibleRows / 2));
+            _profileList.EnsureVisible(_profileSelectedIndex);
+            _lastEnsuredProfileIndex = _profileSelectedIndex;
         }
     }
 
@@ -354,9 +359,10 @@ internal sealed class TuiEquipmentTab(
 
         // Scroll to keep selected item visible
         var selectedListIdx = items.FindIndex(i => i.IsSelected);
-        if (selectedListIdx >= 0 && _settingsList.VisibleRows > 0)
+        if (selectedListIdx >= 0 && selectedListIdx != _lastEnsuredSettingsIndex)
         {
-            _settingsList.ScrollTo(Math.Max(0, selectedListIdx - _settingsList.VisibleRows / 2));
+            _settingsList.EnsureVisible(selectedListIdx);
+            _lastEnsuredSettingsIndex = selectedListIdx;
         }
     }
 
@@ -518,9 +524,10 @@ internal sealed class TuiEquipmentTab(
         _settingsList!.Items([.. items]).Header($"Assign {target.ExpectedDeviceType}");
 
         // Scroll picker
-        if (_pickerSelectedIndex >= 0 && _settingsList.VisibleRows > 0)
+        if (_pickerSelectedIndex >= 0 && _pickerSelectedIndex != _lastEnsuredPickerIndex)
         {
-            _settingsList.ScrollTo(Math.Max(0, _pickerSelectedIndex - _settingsList.VisibleRows / 2));
+            _settingsList.EnsureVisible(_pickerSelectedIndex);
+            _lastEnsuredPickerIndex = _pickerSelectedIndex;
         }
     }
 
@@ -651,6 +658,21 @@ internal sealed class TuiEquipmentTab(
     // Input handling — state machine
     // ----------------------------------------------------------------
 
+    public override bool HandleRawMouse(MouseEvent mouse)
+    {
+        if (_profileList is { } pl && pl.HandleMouse(mouse))
+        {
+            NeedsRedraw = true;
+            return true;
+        }
+        if (_settingsList is { } sl && sl.HandleMouse(mouse))
+        {
+            NeedsRedraw = true;
+            return true;
+        }
+        return false;
+    }
+
     public override bool HandleInput(InputEvent evt)
     {
         if (evt is not InputEvent.KeyDown(var key, var modifiers))
@@ -755,7 +777,7 @@ internal sealed class TuiEquipmentTab(
                 _editFieldIndex = 0;
                 if (appState.ActiveProfile?.Data is { } pd)
                 {
-                    var site = pd.Mount is { } mount ? EquipmentActions.GetSiteFromMount(mount) : null;
+                    var site = EquipmentActions.GetSiteFromProfile(pd);
                     if (site.HasValue)
                     {
                         eqState.LatitudeInput.Activate(site.Value.Lat.ToString(CultureInfo.InvariantCulture));
@@ -912,6 +934,13 @@ internal sealed class TuiEquipmentTab(
                     bus?.Post(new AssignDeviceSignal(_pickerSelectedIndex));
                     ExitAssignmentMode();
                 }
+                return false;
+
+            case InputKey.D:
+                // Mirrors the Browse-mode D binding — the assignment picker advertises
+                // "Press D to discover" when it's empty, so the key must be live here too.
+                bus?.Post(new DiscoverDevicesSignal(IncludeFake: (modifiers & InputModifier.Shift) != 0));
+                NeedsRedraw = true;
                 return false;
         }
 

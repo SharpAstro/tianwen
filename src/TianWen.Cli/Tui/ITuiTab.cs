@@ -26,4 +26,12 @@ internal interface ITuiTab
     /// Handles an input event. Returns true if the TUI should quit.
     /// </summary>
     bool HandleInput(InputEvent evt);
+
+    /// <summary>
+    /// Routes a raw Console.Lib <see cref="MouseEvent"/> to the tab before it's mapped
+    /// to a DIR.Lib <see cref="InputEvent"/>. Tabs with a <see cref="ScrollableList{T}"/>
+    /// override this to forward the event to the list so drag / click-on-track works;
+    /// the default is a no-op. Returns true when the event was consumed.
+    /// </summary>
+    bool HandleRawMouse(MouseEvent mouse) => false;
 }

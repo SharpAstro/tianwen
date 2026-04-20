@@ -44,8 +44,6 @@ namespace TianWen.UI.Abstractions
         private static readonly RGBAColor32 BodyText         = new RGBAColor32(0xcc, 0xcc, 0xcc, 0xff);
         private static readonly RGBAColor32 DimText          = new RGBAColor32(0x88, 0x88, 0x88, 0xff);
         private static readonly RGBAColor32 SeparatorColor   = new RGBAColor32(0x33, 0x33, 0x44, 0xff);
-        private static readonly RGBAColor32 ScrollBarBg      = new RGBAColor32(0x22, 0x22, 0x2a, 0xff);
-        private static readonly RGBAColor32 ScrollBarFg      = new RGBAColor32(0x44, 0x44, 0x55, 0xff);
         private static readonly RGBAColor32 BadgeBg          = new RGBAColor32(0x28, 0x28, 0x38, 0xff);
         private static readonly RGBAColor32 SiteText         = new RGBAColor32(0x99, 0xbb, 0x99, 0xff);
         private static readonly RGBAColor32 OtaHeaderBg      = new RGBAColor32(0x24, 0x24, 0x32, 0xff);
@@ -78,7 +76,10 @@ namespace TianWen.UI.Abstractions
         // the Scroll handler knows whether the wheel is over the list and how far it can
         // scroll before hitting the end.
         private RectF32 _deviceListRect;
+        private RectF32 _scrollBarTrackRect;    // captured during render for HandleMouseDown
+        private float _scrollBarDpiScale;
         private int _deviceListVisibleRows;
+        private ScrollBarDragState _deviceScrollDrag;
 
         public override bool HandleInput(InputEvent evt) => evt switch
         {
@@ -87,15 +88,47 @@ namespace TianWen.UI.Abstractions
             InputEvent.KeyDown(InputKey.Escape, _) => DismissActiveState(),
             InputEvent.Scroll(var scrollY, var mouseX, var mouseY, _)
                 when _deviceListRect.Contains(mouseX, mouseY) => HandleDeviceListScroll(scrollY),
+            InputEvent.MouseDown(var mx, var my, _, _, _) => HandleDeviceListMouseDown(mx, my),
+            InputEvent.MouseMove(_, var my) when _deviceScrollDrag.IsDragging => HandleDeviceListMouseMove(my),
+            InputEvent.MouseUp(_, _, _) when _deviceScrollDrag.IsDragging => HandleDeviceListMouseUp(),
             _ => base.HandleInput(evt)
         };
 
         private bool HandleDeviceListScroll(float scrollY)
         {
-            var maxOffset = Math.Max(0, State.DiscoveredDevices.Count - _deviceListVisibleRows);
-            var next = Math.Clamp(State.DeviceScrollOffset - (int)scrollY * 3, 0, maxOffset);
+            var next = ScrollBar.HandleWheel(scrollY, State.DeviceScrollOffset,
+                State.DiscoveredDevices.Count, _deviceListVisibleRows);
             if (next == State.DeviceScrollOffset) return false;
             State.DeviceScrollOffset = next;
+            return true;
+        }
+
+        private bool HandleDeviceListMouseDown(float mx, float my)
+        {
+            var next = ScrollBar.HandleMouseDown(
+                ref _deviceScrollDrag, mx, my,
+                _scrollBarTrackRect.X, _scrollBarTrackRect.Y, _scrollBarTrackRect.Height,
+                State.DiscoveredDevices.Count, _deviceListVisibleRows,
+                State.DeviceScrollOffset, _scrollBarDpiScale);
+            if (next is not { } offset) return false;
+            State.DeviceScrollOffset = offset;
+            return true;
+        }
+
+        private bool HandleDeviceListMouseMove(float my)
+        {
+            var next = ScrollBar.HandleMouseMove(
+                in _deviceScrollDrag, my,
+                _scrollBarTrackRect.Y, _scrollBarTrackRect.Height,
+                State.DiscoveredDevices.Count, _deviceListVisibleRows, _scrollBarDpiScale);
+            if (next is not { } offset || offset == State.DeviceScrollOffset) return false;
+            State.DeviceScrollOffset = offset;
+            return true;
+        }
+
+        private bool HandleDeviceListMouseUp()
+        {
+            ScrollBar.HandleMouseUp(ref _deviceScrollDrag);
             return true;
         }
 
@@ -733,10 +766,8 @@ namespace TianWen.UI.Abstractions
 
             // Reserve a narrow column on the right for the scrollbar whenever the list
             // overflows, so row content never overlaps the thumb.
-            var scrollBarWidth = 6f * dpiScale;
-            var totalItems     = devices.Count;
-            var showScrollBar  = totalItems > _deviceListVisibleRows;
-            var rowW           = showScrollBar ? w - scrollBarWidth : w;
+            var totalItems = devices.Count;
+            var rowW       = ScrollBar.ContentWidth(w, totalItems, _deviceListVisibleRows, dpiScale);
 
             for (var i = State.DeviceScrollOffset; i < devices.Count; i++)
             {
@@ -879,18 +910,11 @@ namespace TianWen.UI.Abstractions
                 }
             }
 
-            // Scrollbar track + thumb. Thumb height scales with the visible fraction;
-            // position is row-indexed (no smooth sub-row scrolling, per design).
-            if (showScrollBar)
-            {
-                var maxOffset = Math.Max(1, totalItems - _deviceListVisibleRows);
-                var sbX = x + w - scrollBarWidth;
-                FillRect(sbX, listTop, scrollBarWidth, listH, ScrollBarBg);
-
-                var thumbH = Math.Max(20f * dpiScale, listH * _deviceListVisibleRows / (float)totalItems);
-                var thumbY = listTop + (listH - thumbH) * State.DeviceScrollOffset / (float)maxOffset;
-                FillRect(sbX + 1f, thumbY, scrollBarWidth - 2f, thumbH, ScrollBarFg);
-            }
+            var sbX = x + w - ScrollBar.Width(dpiScale);
+            _scrollBarTrackRect = new RectF32(sbX, listTop, ScrollBar.Width(dpiScale), listH);
+            _scrollBarDpiScale = dpiScale;
+            ScrollBar.Draw(FillRect, sbX, listTop, listH,
+                totalItems, _deviceListVisibleRows, State.DeviceScrollOffset, dpiScale);
 
             // [Discover] button at the bottom of the list area
             var discoverBtnY = y + h - buttonH - padding;
