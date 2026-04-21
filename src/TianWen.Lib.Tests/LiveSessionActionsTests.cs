@@ -59,7 +59,7 @@ public class LiveSessionActionsTests(ITestOutputHelper output)
         await LiveSessionActions.CaptureCameraPreviewAsync(
             camera, TimeSpan.FromSeconds(1), gain: null, binning: 1, timeProvider, TestContext.Current.CancellationToken);
 
-        await camera.DidNotReceiveWithAnyArgs().SetGainAsync(default, default);
+        await camera.DidNotReceiveWithAnyArgs().SetGainAsync(default, Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -109,7 +109,7 @@ public class LiveSessionActionsTests(ITestOutputHelper output)
         await LiveSessionActions.CaptureCameraPreviewAsync(
             camera, TimeSpan.FromSeconds(1), gain: 100, binning: 1, timeProvider, TestContext.Current.CancellationToken);
 
-        await camera.DidNotReceiveWithAnyArgs().SetGainAsync(default, default);
+        await camera.DidNotReceiveWithAnyArgs().SetGainAsync(default, Arg.Any<CancellationToken>());
     }
 
     [Fact]

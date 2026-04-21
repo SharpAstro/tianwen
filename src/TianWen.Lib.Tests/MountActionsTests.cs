@@ -39,7 +39,7 @@ public class MountActionsTests
         post.ShouldBe(SlewPostCondition.SlewNotPossible);
         msg.ShouldBe("Mount is not connected");
         await mount.DidNotReceiveWithAnyArgs().EnsureTrackingAsync(Arg.Any<TrackingSpeed>(), Arg.Any<CancellationToken>());
-        await mount.DidNotReceiveWithAnyArgs().BeginSlewRaDecAsync(default, default, default);
+        await mount.DidNotReceiveWithAnyArgs().BeginSlewRaDecAsync(default, default, Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -54,7 +54,7 @@ public class MountActionsTests
         post.ShouldBe(SlewPostCondition.SlewNotPossible);
         msg.ShouldContain("does not support async slewing");
         await mount.DidNotReceiveWithAnyArgs().EnsureTrackingAsync(Arg.Any<TrackingSpeed>(), Arg.Any<CancellationToken>());
-        await mount.DidNotReceiveWithAnyArgs().BeginSlewRaDecAsync(default, default, default);
+        await mount.DidNotReceiveWithAnyArgs().BeginSlewRaDecAsync(default, default, Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -117,7 +117,7 @@ public class MountActionsTests
 
         post.ShouldBe(SlewPostCondition.TargetBelowHorizonLimit);
         msg.ShouldBe("M31 is below the horizon limit (20\u00B0)");
-        await mount.DidNotReceiveWithAnyArgs().BeginSlewRaDecAsync(default, default, default);
+        await mount.DidNotReceiveWithAnyArgs().BeginSlewRaDecAsync(default, default, Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -131,7 +131,7 @@ public class MountActionsTests
 
         post.ShouldBe(SlewPostCondition.SlewNotPossible);
         msg.ShouldContain("destination pier side");
-        await mount.DidNotReceiveWithAnyArgs().BeginSlewRaDecAsync(default, default, default);
+        await mount.DidNotReceiveWithAnyArgs().BeginSlewRaDecAsync(default, default, Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -148,7 +148,7 @@ public class MountActionsTests
         post.ShouldBe(SlewPostCondition.SlewNotPossible);
         msg.ShouldStartWith("Cannot slew to M31");
         msg.ShouldContain("transform failed");
-        await mount.DidNotReceiveWithAnyArgs().BeginSlewRaDecAsync(default, default, default);
+        await mount.DidNotReceiveWithAnyArgs().BeginSlewRaDecAsync(default, default, Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -222,7 +222,7 @@ public class MountActionsTests
         post.ShouldBe(SlewPostCondition.SlewNotPossible);
         msg.ShouldContain("parked");
         msg.ShouldContain("mount refused unpark");
-        await mount.DidNotReceiveWithAnyArgs().BeginSlewRaDecAsync(default, default, default);
+        await mount.DidNotReceiveWithAnyArgs().BeginSlewRaDecAsync(default, default, Arg.Any<CancellationToken>());
     }
 
     // ── Helpers ──

@@ -17,7 +17,7 @@ namespace TianWen.Lib.Devices.Canon;
 /// Device source for Canon DSLR cameras.
 /// Discovers cameras via WPD (Windows), USB (LibUsbDotNet), and WiFi (mDNS + PTP/IP).
 /// </summary>
-internal sealed class CanonDeviceSource(IExternal external, ILogger<CanonDeviceSource> logger) : IDeviceSource<CanonDevice>
+internal sealed class CanonDeviceSource(ILogger<CanonDeviceSource> logger) : IDeviceSource<CanonDevice>
 {
     private static readonly IPAddress MdnsMulticast = IPAddress.Parse("224.0.0.251");
     private const int MdnsPort = 5353;
