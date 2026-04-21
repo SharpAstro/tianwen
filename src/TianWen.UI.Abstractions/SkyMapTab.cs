@@ -184,6 +184,11 @@ namespace TianWen.UI.Abstractions
                 RenderMountOverlay(mountOverlay, contentRect, dpiScale, fontPath, BaseFontSize, ppr, cx, cy);
             }
 
+            // NCP/SCP/Zenith reticles (clickable goto targets) and N/S/E/W horizon
+            // cardinal labels. Drawn on top of the mount reticle so the user can always
+            // click a pole or zenith to slew, even if the mount happens to overlap.
+            RenderFixedPointMarkers(contentRect, dpiScale, fontPath, BaseFontSize, ppr, cx, cy, site);
+
             DrawInfoStrip(contentRect, fontPath, fontSize, dpiScale, cx, cy,
                 viewingTime, plannerState.SiteTimeZone, plannerState.PlanningDate.HasValue);
 
@@ -234,6 +239,20 @@ namespace TianWen.UI.Abstractions
         protected virtual void RenderMountOverlay(
             SkyMapMountOverlay mountOverlay, RectF32 contentRect, float dpiScale,
             string fontPath, float baseFontSize, double ppr, float cx, float cy)
+        {
+        }
+
+        /// <summary>
+        /// Override in the GPU subclass to draw fixed-frame reticles (NCP, SCP, Zenith)
+        /// and horizon cardinal labels (N, S, E, W). The pole/zenith reticles are
+        /// clickable — click posts a <see cref="SkyMapSlewToObjectSignal"/> with the
+        /// marker's current J2000 RA/Dec. Horizon-relative markers (Zenith, cardinals)
+        /// should be gated on <see cref="SkyMapMode.Horizon"/> and <c>site.IsValid</c>.
+        /// Base implementation is a no-op.
+        /// </summary>
+        protected virtual void RenderFixedPointMarkers(
+            RectF32 contentRect, float dpiScale, string fontPath, float baseFontSize,
+            double ppr, float cx, float cy, SiteContext site)
         {
         }
 
