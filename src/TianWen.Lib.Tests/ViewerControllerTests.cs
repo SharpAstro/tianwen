@@ -52,7 +52,7 @@ public class ViewerControllerTests
         var (controller, state, cache, _, _) = CreateSut();
 
         // Extract a real test FITS file so we can create a genuine AstroImageDocument
-        var testFitsPath = await SharedTestData.ExtractGZippedFitsFileAsync("PlateSolveTestFile");
+        var testFitsPath = await SharedTestData.ExtractGZippedFitsFileAsync("PlateSolveTestFile", TestContext.Current.CancellationToken);
         cache.GetOrLoadAsync(Arg.Any<string>(), Arg.Any<DebayerAlgorithm>(), Arg.Any<CancellationToken>())
             .Returns(callInfo => AstroImageDocument.OpenAsync(testFitsPath, DebayerAlgorithm.AHD, CancellationToken.None));
 
@@ -85,6 +85,7 @@ public class ViewerControllerTests
         await WaitForLoadAsync(controller);
 
         controller.Document.ShouldBeNull();
+        state.StatusMessage.ShouldNotBeNull();
         state.StatusMessage.ShouldContain("Failed to open");
     }
 
@@ -107,7 +108,7 @@ public class ViewerControllerTests
         controller.HandleFileRequest(CancellationToken.None);
 
         // Wait for the Task.Run to actually call GetOrLoadAsync (fixes CI race)
-        (await loadStarted.WaitAsync(TimeSpan.FromSeconds(5))).ShouldBeTrue();
+        (await loadStarted.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken)).ShouldBeTrue();
         controller.IsLoadPending.ShouldBeTrue();
 
         // Set a new request while the first is still pending
@@ -115,7 +116,7 @@ public class ViewerControllerTests
         controller.HandleFileRequest(CancellationToken.None);
 
         // Only one call to cache (the first one)
-        cache.Received(1).GetOrLoadAsync(Arg.Any<string>(), Arg.Any<DebayerAlgorithm>(), Arg.Any<CancellationToken>());
+        await cache.Received(1).GetOrLoadAsync(Arg.Any<string>(), Arg.Any<DebayerAlgorithm>(), Arg.Any<CancellationToken>());
 
         // Clean up — complete the pending task to avoid unobserved exceptions
         tcs.SetResult(null);
@@ -134,7 +135,7 @@ public class ViewerControllerTests
         controller.HandleToolbarAction(ToolbarAction.Open, reverse: false, CancellationToken.None);
 
         // Wait for background task
-        await Task.Delay(200);
+        await Task.Delay(200, TestContext.Current.CancellationToken);
         controller.ReleaseCompletedTasks();
 
         await dialog.Received(1).PickAsync(
