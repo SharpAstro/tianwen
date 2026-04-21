@@ -191,6 +191,7 @@ namespace TianWen.UI.Gui
         {
             _miniViewer.Dispose();
             _viewerTab.Dispose();
+            _plannerTab.Dispose();
             // VkRenderer is owned by the caller; do not dispose here.
         }
 
