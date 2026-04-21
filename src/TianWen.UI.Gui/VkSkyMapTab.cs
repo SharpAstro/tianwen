@@ -578,6 +578,145 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
             TextAlign.Center, TextAlign.Center);
     }
 
+    // Color palette for fixed-frame markers
+    private static readonly RGBAColor32 _poleColor    = new(0x80, 0xC8, 0xFF, 0xE0); // pale cyan  - celestial poles
+    private static readonly RGBAColor32 _zenithColor  = new(0xFF, 0xD0, 0x80, 0xE0); // warm amber - local zenith
+    private static readonly RGBAColor32 _cardinalColor = new(0xFF, 0xFF, 0xFF, 0xE0); // white     - ordinary cardinals
+    private static readonly RGBAColor32 _cardinalNorthColor = new(0xFF, 0xB0, 0xB0, 0xE0); // soft red - north orientation marker
+
+    /// <summary>
+    /// Draws clickable reticles for NCP, SCP, and Zenith (each posts a slew signal on
+    /// click) plus non-clickable N/S/E/W horizon labels for orientation. Zenith and the
+    /// cardinal labels only render in horizon mode with a valid site; the poles are
+    /// always shown since they are frame-independent.
+    /// </summary>
+    protected override void RenderFixedPointMarkers(
+        RectF32 contentRect, float dpiScale, string fontPath, float baseFontSize,
+        double ppr, float cx, float cy, SiteContext site)
+    {
+        var fontSize = baseFontSize * dpiScale;
+        var lineH = fontSize * 1.2f;
+        var viewMatrix = State.CurrentViewMatrix;
+
+        // North Celestial Pole (Dec=+90). Use Dec slightly off 90 for slew to dodge
+        // mount drivers that reject exactly-polar targets; RA is arbitrary at the pole.
+        DrawFixedMarker(contentRect, dpiScale, fontPath, fontSize, lineH, ppr, cx, cy,
+            ux: 0.0, uy: 0.0, uz: 1.0, label: "NCP", color: _poleColor,
+            slewName: "North Celestial Pole", slewRA: 0.0, slewDec: 89.999, hitTag: "NCP");
+
+        // South Celestial Pole (Dec=-90).
+        DrawFixedMarker(contentRect, dpiScale, fontPath, fontSize, lineH, ppr, cx, cy,
+            ux: 0.0, uy: 0.0, uz: -1.0, label: "SCP", color: _poleColor,
+            slewName: "South Celestial Pole", slewRA: 0.0, slewDec: -89.999, hitTag: "SCP");
+
+        // Zenith, N/S/E/W are only meaningful with a valid site in horizon mode.
+        // In equatorial mode the horizon itself isn't drawn, so cardinal labels
+        // would land arbitrarily across the sphere.
+        if (!site.IsValid || State.Mode != SkyMapMode.Horizon)
+            return;
+
+        // Zenith unit vector = (cosLat*cosLST, cosLat*sinLST, sinLat) - matches the
+        // "up" reference used by SkyMapState.ComputeViewMatrix in horizon mode.
+        var (sinLST, cosLST) = Math.SinCos(site.LST * (Math.PI / 12.0));
+        var zx = site.CosLat * cosLST;
+        var zy = site.CosLat * sinLST;
+        var zz = site.SinLat;
+        // Zenith RA=LST, Dec=latitude (Alt=90 degenerate case collapses to these).
+        DrawFixedMarker(contentRect, dpiScale, fontPath, fontSize, lineH, ppr, cx, cy,
+            ux: zx, uy: zy, uz: zz, label: "Zenith", color: _zenithColor,
+            slewName: "Zenith", slewRA: site.LST, slewDec: double.RadiansToDegrees(Math.Asin(site.SinLat)),
+            hitTag: "Zenith");
+
+        // N/S/E/W horizon labels - orientation only, no slew handler. Skip the reticle
+        // circle, just drop a letter at the projected horizon point.
+        DrawHorizonCardinalLabel(contentRect, fontPath, fontSize * 1.1f, ppr, cx, cy, site,
+            azDeg: 0.0, label: "N", color: _cardinalNorthColor);
+        DrawHorizonCardinalLabel(contentRect, fontPath, fontSize * 1.1f, ppr, cx, cy, site,
+            azDeg: 90.0, label: "E", color: _cardinalColor);
+        DrawHorizonCardinalLabel(contentRect, fontPath, fontSize * 1.1f, ppr, cx, cy, site,
+            azDeg: 180.0, label: "S", color: _cardinalColor);
+        DrawHorizonCardinalLabel(contentRect, fontPath, fontSize * 1.1f, ppr, cx, cy, site,
+            azDeg: 270.0, label: "W", color: _cardinalColor);
+    }
+
+    /// <summary>
+    /// Projects a unit vector, draws a small reticle + label, and registers a clickable
+    /// hit region that posts a <see cref="SkyMapSlewToObjectSignal"/> on click.
+    /// </summary>
+    private void DrawFixedMarker(
+        RectF32 contentRect, float dpiScale, string fontPath, float fontSize, float lineH,
+        double ppr, float cx, float cy,
+        double ux, double uy, double uz,
+        string label, RGBAColor32 color,
+        string slewName, double slewRA, double slewDec, string hitTag)
+    {
+        if (!SkyMapProjection.ProjectUnitVec(ux, uy, uz, State.CurrentViewMatrix, ppr, cx, cy,
+                out var sx, out var sy))
+        {
+            return;
+        }
+
+        // Off-screen cull with the same margin used by the mount reticle.
+        const float margin = 60f;
+        if (sx < contentRect.X - margin || sx > contentRect.X + contentRect.Width + margin
+            || sy < contentRect.Y - margin || sy > contentRect.Y + contentRect.Height + margin)
+        {
+            return;
+        }
+
+        VkOverlayShapes.DrawReticle(renderer, dpiScale,
+            sx, sy, radius: 10f, armLength: 16f, gap: 5f,
+            color: color, thickness: 1.5f);
+
+        DrawReticleLabel(label, fontPath, fontSize, color, sx, sy + 14f * dpiScale, lineH);
+
+        // 36x36 clickable box centered on the reticle; post the slew signal directly
+        // so the click bypasses the catalog-search info panel path.
+        var hitSize = 36f * dpiScale;
+        var capturedName = slewName;
+        var capturedRA = slewRA;
+        var capturedDec = slewDec;
+        RegisterClickable(sx - hitSize * 0.5f, sy - hitSize * 0.5f, hitSize, hitSize,
+            new HitResult.ButtonHit($"SkyMapFixedMarker:{hitTag}"),
+            _ => PostSignal(new SkyMapSlewToObjectSignal(
+                capturedName, capturedRA, capturedDec,
+                Index: null, ObjectType: ObjectType.Unknown)));
+    }
+
+    /// <summary>
+    /// Draws a single horizon cardinal label (N/E/S/W) at Alt=0 for the given azimuth.
+    /// Non-clickable - slewing to a point on the horizon isn't a useful goto target.
+    /// </summary>
+    private void DrawHorizonCardinalLabel(
+        RectF32 contentRect, string fontPath, float fontSize,
+        double ppr, float cx, float cy, SiteContext site,
+        double azDeg, string label, RGBAColor32 color)
+    {
+        // Convert Alt=0, Az=azDeg to RA/Dec, then to a J2000 unit vector for projection.
+        VkSkyMapPipeline.AltAzToRaDec(altDeg: 0.0, azDeg: azDeg, site, out var raHours, out var decDeg);
+        var (ux, uy, uz) = SkyMapState.RaDecToUnitVec(raHours, decDeg);
+
+        if (!SkyMapProjection.ProjectUnitVec(ux, uy, uz, State.CurrentViewMatrix, ppr, cx, cy,
+                out var sx, out var sy))
+        {
+            return;
+        }
+
+        const float margin = 20f;
+        if (sx < contentRect.X - margin || sx > contentRect.X + contentRect.Width + margin
+            || sy < contentRect.Y - margin || sy > contentRect.Y + contentRect.Height + margin)
+        {
+            return;
+        }
+
+        var (textW, textH) = Renderer.MeasureText(label.AsSpan(), fontPath, fontSize);
+        Renderer.DrawText(label.AsSpan(), fontPath, fontSize, color,
+            new RectInt(
+                new PointInt((int)(sx + textW * 0.5f + 2), (int)(sy + textH * 0.5f)),
+                new PointInt((int)(sx - textW * 0.5f - 2), (int)(sy - textH * 0.5f))),
+            TextAlign.Center, TextAlign.Center);
+    }
+
     /// <summary>
     /// Builds GPU line-list geometry for a sensor FOV rectangle at the given RA/Dec center.
     /// Computes 4 corner unit vectors via tangent-plane offsets (pole-safe, no RA/Dec

@@ -1565,7 +1565,7 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
     /// <summary>
     /// Convert horizontal coordinates (Alt, Az in degrees) to equatorial (RA in hours, Dec in degrees).
     /// </summary>
-    private static void AltAzToRaDec(
+    public static void AltAzToRaDec(
         double altDeg, double azDeg,
         Lib.Astrometry.SOFA.SiteContext site,
         out double raHours, out double decDeg)
