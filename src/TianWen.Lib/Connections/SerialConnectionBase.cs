@@ -35,6 +35,9 @@ internal abstract class SerialConnectionBase : ISerialConnection
     /// </summary>
     public Encoding Encoding { get; }
 
+    /// <inheritdoc />
+    public bool LogVerbose { get; set; }
+
     public ValueTask<ResourceLock> WaitAsync(CancellationToken cancellationToken) => _semaphore.AcquireLockAsync(cancellationToken);
 
     /// <summary>
@@ -52,9 +55,15 @@ internal abstract class SerialConnectionBase : ISerialConnection
         try
         {
             await _stream.WriteAsync(message, cancellationToken).ConfigureAwait(false);
-#if DEBUG
-            _logger.LogTrace("--> {Message}", Encoding.GetString(message.Span).ReplaceNonPrintableWithHex());
-#endif
+            if (LogVerbose)
+            {
+                _logger.LogInformation("{Port} --> {Message}", DisplayName,
+                    Encoding.GetString(message.Span).ReplaceNonPrintableWithHex());
+            }
+            else
+            {
+                _logger.LogTrace("--> {Message}", Encoding.GetString(message.Span).ReplaceNonPrintableWithHex());
+            }
         }
         catch (Exception ex)
         {
@@ -113,11 +122,19 @@ internal abstract class SerialConnectionBase : ISerialConnection
                 }
             } while (bytesRead < message.Length);
 
-#if DEBUG
-            // output log including the terminator
-            var decodedResponseMsg = Encoding.GetString(message.Span[..(bytesRead+1)]);
-            _logger.LogTrace("<-- {Response}", decodedResponseMsg);
-#endif
+            // Log with the terminator so e.g. LX200 "On-Step#" reads as the wire bytes.
+            var responseForLog = terminatorIndex >= 0
+                ? Encoding.GetString(message.Span[..(bytesRead + 1)])
+                : Encoding.GetString(message.Span[..bytesRead]);
+            if (LogVerbose)
+            {
+                _logger.LogInformation("{Port} <-- {Response}", DisplayName,
+                    responseForLog.ReplaceNonPrintableWithHex());
+            }
+            else
+            {
+                _logger.LogTrace("<-- {Response}", responseForLog);
+            }
             if (terminatorIndex < 0)
             {
                 _logger.LogWarning("Terminator (any of {Terminators}) not found in message from serial device on serial port {Port}",
@@ -167,9 +184,15 @@ internal abstract class SerialConnectionBase : ISerialConnection
         try
         {
             await _stream.ReadExactlyAsync(message, cancellationToken);
-#if DEBUG
-            _logger.LogTrace("<-- {Response} ({Length})", Encoding.GetString(message.Span), message.Length);
-#endif
+            if (LogVerbose)
+            {
+                _logger.LogInformation("{Port} <-- {Response} ({Length})", DisplayName,
+                    Encoding.GetString(message.Span).ReplaceNonPrintableWithHex(), message.Length);
+            }
+            else
+            {
+                _logger.LogTrace("<-- {Response} ({Length})", Encoding.GetString(message.Span), message.Length);
+            }
             return true;
         }
         catch (Exception ex)
