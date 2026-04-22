@@ -25,6 +25,10 @@ public class CelestialObjectDBBenchmarkTests(ITestOutputHelper output)
         failed.ShouldBe(0);
         processed.ShouldBeGreaterThan(13000);
         output.WriteLine($"DB initialization: {sw.Elapsed.TotalMilliseconds:F1}ms ({processed} entries processed)");
+        foreach (var (phase, elapsed) in db.LastInitPhaseTimings)
+        {
+            output.WriteLine($"  {phase,-30} {elapsed.TotalMilliseconds,8:F1}ms");
+        }
         sw.Elapsed.TotalSeconds.ShouldBeLessThan(20, $"DB initialization took {sw.Elapsed.TotalSeconds:F1}s, expected < 20s");
     }
 
