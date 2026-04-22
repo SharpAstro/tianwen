@@ -102,13 +102,19 @@ internal class ZWODeviceSource : IDeviceSource<ZWODevice>
             {
                 try
                 {
+                    // ZWOptical.SDK returns null from SerialNumber / CustomId when
+                    // the underlying 8-byte ZWO_ID is not a valid printable ASCII
+                    // identifier (e.g. uninitialized / factory-default / binary).
                     var deviceId = deviceInfo.SerialNumber is { Length: > 0 } sn ? sn
                         : deviceInfo.IsUSB3Device && deviceInfo.CustomId is { Length: > 0 } cid ? cid
                         : deviceInfo.Name;
 
                     var extraQuery = seedQueryParams?.Invoke(deviceInfo);
                     var queryPart = extraQuery is { Length: > 0 } ? $"?{extraQuery}" : "";
-                    var uri = new Uri($"{deviceType}://{typeof(ZWODevice).Name}/{deviceId}{queryPart}#{deviceInfo.Name}");
+                    // Escape both the deviceId and the fragment — even a valid ASCII
+                    // id can contain '/', spaces, or other URI-unsafe characters (and
+                    // product names definitely have spaces).
+                    var uri = new Uri($"{deviceType}://{typeof(ZWODevice).Name}/{Uri.EscapeDataString(deviceId)}{queryPart}#{Uri.EscapeDataString(deviceInfo.Name)}");
                     yield return new ZWODevice(uri);
 
                     ids.Add(deviceInfo.ID);
