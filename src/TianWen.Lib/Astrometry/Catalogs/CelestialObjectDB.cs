@@ -28,7 +28,7 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
     // Used by the sky-map planet renderer to give each body its characteristic colour.
     private static readonly Dictionary<CatalogIndex, (ObjectType ObjType, string[] CommonNames, Half VMag, Half BVColor)> _predefinedObjects = new()
     {
-        [CatalogIndex.Sol]     = (ObjectType.Star,   ["Sun", "Sol"],    (Half)(-26.74), (Half)0.65),
+        [CatalogIndex.Sol]     = (ObjectType.Star,    ["Sun", "Sol"],    (Half)(-26.74), (Half)0.65),
         [CatalogIndex.Mercury] = (ObjectType.Planet,  ["Mercury"],       (Half)(-0.36),  (Half)0.93),
         [CatalogIndex.Venus]   = (ObjectType.Planet,  ["Venus"],         (Half)(-4.14),  (Half)0.82),
         [CatalogIndex.Earth]   = (ObjectType.Planet,  ["Earth"],         HalfUndefined,  (Half)0.2),
@@ -273,7 +273,7 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
         var totalFailed = 0;
 
         phaseSw.Restart();
-        var initTycho2DataTask = Task.Run(() => ReadEmbeddedTycho2DataAsync(assembly, manifestNames));
+        var initTycho2DataTask = Task.Run(() => ReadEmbeddedTycho2DataAsync(assembly, manifestNames), cancellationToken);
         // (Tycho2 runs in the background; we'll record its duration when we join below.)
 
         // Start HR's SIMBAD parse on the thread pool too - HR is the heaviest SIMBAD

@@ -1,3 +1,8 @@
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+using Shouldly;
 using System;
 using System.Diagnostics.CodeAnalysis;
 using System.Linq;
@@ -5,16 +10,9 @@ using System.Net;
 using System.Net.Http;
 using System.Text.Json;
 using System.Threading.Tasks;
-using Microsoft.AspNetCore.Builder;
-using Microsoft.AspNetCore.Hosting;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Logging;
-using Shouldly;
+using TianWen.Hosting.Extensions;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Extensions;
-using TianWen.Hosting;
-using TianWen.Hosting.Extensions;
-using TianWen.Lib.Tests;
 using Xunit;
 
 namespace TianWen.Lib.Tests.Functional;
@@ -36,14 +34,10 @@ public class HostingApiTests(ITestOutputHelper outputHelper) : IAsyncLifetime
         builder.WebHost.UseUrls("http://127.0.0.1:0");
 
         builder.Logging.ClearProviders();
-
+        var fakeExternal = new FakeExternal(outputHelper, System.IO.Directory.CreateTempSubdirectory("tw_" + Guid.NewGuid().ToString("D")));
         // Register TianWen services with fake devices (mirrors CLI registration chain)
-        builder.Services.AddSingleton<IExternal>(sp =>
-        {
-            var dir = System.IO.Directory.CreateDirectory(
-                System.IO.Path.Combine(System.IO.Path.GetTempPath(), Guid.NewGuid().ToString("D")));
-            return new FakeExternal(outputHelper, dir);
-        });
+        builder.Services.AddSingleton<IExternal>(fakeExternal);
+        builder.Services.AddSingleton<ITimeProvider>(fakeExternal.TimeProvider);
         builder.Services.AddAstrometry();
         builder.Services.AddFake();
         builder.Services.AddDevices();

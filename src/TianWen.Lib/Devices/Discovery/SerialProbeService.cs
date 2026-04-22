@@ -48,9 +48,10 @@ internal sealed class SerialProbeService : ISerialProbeService
     // and we bail as fast as each probe's timeout lets us.
     internal static readonly double[] DefaultPassBudgetMultipliers = [1.0, 2.0];
 
-    private readonly IExternal external;
-    private readonly ILogger<SerialProbeService> logger;
-    private readonly IPinnedSerialPortsProvider? pinnedPortsProvider;
+    private readonly ITimeProvider _timeProvider;
+    private readonly IExternal _external;
+    private readonly ILogger<SerialProbeService> _logger;
+    private readonly IPinnedSerialPortsProvider? _pinnedPortsProvider;
     private readonly ISerialProbe[] _probes;
     private readonly double[] _probePassMultipliers;
     private readonly ConcurrentDictionary<string, List<SerialProbeMatch>> _results = new(StringComparer.Ordinal);
@@ -61,15 +62,17 @@ internal sealed class SerialProbeService : ISerialProbeService
     private const int MaxPortParallelism = 4;
 
     public SerialProbeService(
+        ITimeProvider timeProvider,
         IExternal external,
         ILogger<SerialProbeService> logger,
         IEnumerable<ISerialProbe> probes,
         IPinnedSerialPortsProvider? pinnedPortsProvider = null,
         IReadOnlyList<double>? passBudgetMultipliers = null)
     {
-        this.external = external;
-        this.logger = logger;
-        this.pinnedPortsProvider = pinnedPortsProvider;
+        _timeProvider = timeProvider;
+        _external = external;
+        _logger = logger;
+        _pinnedPortsProvider = pinnedPortsProvider;
         _probes = [.. probes];
         _probePassMultipliers = passBudgetMultipliers is { Count: > 0 }
             ? [.. passBudgetMultipliers]
@@ -85,19 +88,19 @@ internal sealed class SerialProbeService : ISerialProbeService
 
         if (_probes.Length == 0)
         {
-            logger.LogDebug("No serial probes registered — skipping.");
+            _logger.LogDebug("No serial probes registered — skipping.");
             return;
         }
 
         IReadOnlyList<string> ports;
-        using (var portLock = await external.WaitForSerialPortEnumerationAsync(cancellationToken))
+        using (var portLock = await _external.WaitForSerialPortEnumerationAsync(cancellationToken))
         {
-            ports = external.EnumerateAvailableSerialPorts(portLock);
+            ports = _external.EnumerateAvailableSerialPorts(portLock);
         }
 
-        var pinned = pinnedPortsProvider?.GetPinnedPorts() ?? [];
+        var pinned = _pinnedPortsProvider?.GetPinnedPorts() ?? [];
 
-        logger.LogDebug("Enumerated {PortCount} serial port(s); {ProbeCount} probe(s) registered; {PinnedCount} pinned.",
+        _logger.LogDebug("Enumerated {PortCount} serial port(s); {ProbeCount} probe(s) registered; {PinnedCount} pinned.",
             ports.Count, _probes.Length, pinned.Count);
 
         if (ports.Count == 0)
@@ -134,12 +137,12 @@ internal sealed class SerialProbeService : ISerialProbeService
             var passNum = passIdx + 1;
             if (passNum == 1)
             {
-                logger.LogInformation("Probe pass 1: {Count} port(s), {Probes} probe(s) at declared budget.",
+                _logger.LogInformation("Probe pass 1: {Count} port(s), {Probes} probe(s) at declared budget.",
                     remainingPorts.Count, _probes.Length);
             }
             else
             {
-                logger.LogInformation("Probe pass {Pass}: retrying {Count} unmatched port(s) at {Mult}x budget.",
+                _logger.LogInformation("Probe pass {Pass}: retrying {Count} unmatched port(s) at {Mult}x budget.",
                     passNum, remainingPorts.Count, mult);
             }
 
@@ -212,7 +215,7 @@ internal sealed class SerialProbeService : ISerialProbeService
             new ParallelOptions { CancellationToken = cancellationToken, MaxDegreeOfParallelism = parallelism },
             async (entry, ct) =>
             {
-                using var portScope = logger.BeginScope(new Dictionary<string, object>
+                using var portScope = _logger.BeginScope(new Dictionary<string, object>
                 {
                     ["Port"] = entry.Port,
                     ["Stage"] = "Verify",
@@ -224,7 +227,7 @@ internal sealed class SerialProbeService : ISerialProbeService
 
                 if (matchingProbes.Length == 0)
                 {
-                    logger.LogDebug("No registered probe can verify {ExpectedUri} — port falls through to general probing.",
+                    _logger.LogDebug("No registered probe can verify {ExpectedUri} — port falls through to general probing.",
                         entry.ExpectedUri);
                     return;
                 }
@@ -240,13 +243,13 @@ internal sealed class SerialProbeService : ISerialProbeService
                     {
                         if (!IdentityMatches(match.DeviceUri, entry.ExpectedUri))
                         {
-                            logger.LogInformation("Port {Port} responded but identity changed: expected {Expected}, got {Actual} — will rediscover in Stage 2.",
+                            _logger.LogInformation("Port {Port} responded but identity changed: expected {Expected}, got {Actual} — will rediscover in Stage 2.",
                                 entry.Port, entry.ExpectedUri, match.DeviceUri);
                             return false;
                         }
 
                         lock (verifyLock) verified.Add(entry.Port);
-                        logger.LogInformation("Verified pinned device at {Port}: {Uri}", entry.Port, match.DeviceUri);
+                        _logger.LogInformation("Verified pinned device at {Port}: {Uri}", entry.Port, match.DeviceUri);
                         return true;
                     });
             });
@@ -273,14 +276,14 @@ internal sealed class SerialProbeService : ISerialProbeService
         double budgetMultiplier = 1.0,
         bool isolatePerProbe = false)
     {
-        using var portScope = logger.BeginScope(new Dictionary<string, object> { ["Port"] = port });
+        using var portScope = _logger.BeginScope(new Dictionary<string, object> { ["Port"] = port });
 
         // One user-visible line per port so the operator can tell what discovery is
         // actually doing — the Try* serial reads underneath are noisy on normal
         // probe timeouts (port close aborts the pending read) and have been moved
         // to Debug, so the Info-level story needs to live here instead.
         // Tag each probe in the log with its framing so the ordering is self-explanatory.
-        logger.LogInformation("Probing {Port}: {Probes}", port,
+        _logger.LogInformation("Probing {Port}: {Probes}", port,
             string.Join(", ", probesToRun.Select(p => $"{p.Name}@{p.BaudRate}({p.Framing})")));
 
         // Group by baud rate so each distinct baud opens the port exactly once.
@@ -294,20 +297,20 @@ internal sealed class SerialProbeService : ISerialProbeService
         foreach (var baudGroup in baudGroups)
         {
             if (cancellationToken.IsCancellationRequested) return;
-            await ProbeBaudGroupAsync(port, baudGroup, cancellationToken, onMatch, budgetMultiplier, isolatePerProbe);
+            await ProbeBaudGroupAsync(port, baudGroup, onMatch, budgetMultiplier, isolatePerProbe, cancellationToken);
         }
     }
 
     private async ValueTask ProbeBaudGroupAsync(
         string port,
         IGrouping<int, ISerialProbe> baudGroup,
-        CancellationToken cancellationToken,
         Func<SerialProbeMatch, bool>? onMatch,
         double budgetMultiplier = 1.0,
-        bool isolatePerProbe = false)
+        bool isolatePerProbe = false,
+        CancellationToken cancellationToken = default)
     {
         var baud = baudGroup.Key;
-        using var baudScope = logger.BeginScope(new Dictionary<string, object> { ["Baud"] = baud });
+        using var baudScope = _logger.BeginScope(new Dictionary<string, object> { ["Baud"] = baud });
 
         // Secondary sort within a baud group: framed protocols first (exit cleanly on
         // their terminator), then brace-framed (QFOC JSON), then unframed last (QHYCFW3
@@ -351,18 +354,19 @@ internal sealed class SerialProbeService : ISerialProbeService
                 if (isolateEachProbe)
                 {
                     conn = await TryOpenAsync();
-                    if (conn is null) continue;
                 }
+
+                if (conn is null) continue;
 
                 try
                 {
-                    await RunSingleProbeAsync(port, probe, conn!, cancellationToken, onMatch, budgetMultiplier);
+                    await RunSingleProbeAsync(port, probe, conn, onMatch, budgetMultiplier, cancellationToken);
                 }
                 finally
                 {
                     if (isolateEachProbe)
                     {
-                        TryCloseWithLog(conn!);
+                        TryCloseWithLog(conn);
                         conn = null;
                     }
                 }
@@ -383,14 +387,14 @@ internal sealed class SerialProbeService : ISerialProbeService
         {
             try
             {
-                var c = await external.OpenSerialDeviceAsync(port, baud, encoding, cancellationToken);
+                var c = await _external.OpenSerialDeviceAsync(port, baud, encoding, cancellationToken);
                 // Log the exact handshake at Info during probes; drivers opening the
                 // same port for session use do not touch this flag.
                 c.LogVerbose = true;
                 // Open/close framing at Info so every exchange in the log is visibly
                 // bracketed by the baud rate it ran at — otherwise the baud only
-                // shows up inside a logger scope, which most formatters drop.
-                logger.LogInformation("{Port} opened @ {Baud} baud", port, baud);
+                // shows up inside a _logger scope, which most formatters drop.
+                _logger.LogInformation("{Port} opened @ {Baud} baud", port, baud);
                 return c;
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -399,7 +403,7 @@ internal sealed class SerialProbeService : ISerialProbeService
             }
             catch (Exception ex)
             {
-                logger.LogDebug(ex, "Failed to open port at {Baud} baud — skipping.", baud);
+                _logger.LogDebug(ex, "Failed to open port at {Baud} baud — skipping.", baud);
                 return null;
             }
         }
@@ -407,7 +411,7 @@ internal sealed class SerialProbeService : ISerialProbeService
         void TryCloseWithLog(ISerialConnection c)
         {
             c.TryClose();
-            logger.LogInformation("{Port} closed (was @ {Baud} baud)", port, baud);
+            _logger.LogInformation("{Port} closed (was @ {Baud} baud)", port, baud);
         }
     }
 
@@ -415,13 +419,16 @@ internal sealed class SerialProbeService : ISerialProbeService
         string port,
         ISerialProbe probe,
         ISerialConnection conn,
-        CancellationToken cancellationToken,
         Func<SerialProbeMatch, bool>? onMatch,
-        double budgetMultiplier = 1.0)
+        double budgetMultiplier = 1.0,
+        CancellationToken cancellationToken = default)
     {
-        using var probeScope = logger.BeginScope(new Dictionary<string, object> { ["Probe"] = probe.Name });
 
-        // Tag the shared connection so the External logger's "COM5 --> ..." / "<-- ..."
+        var budget = TimeSpan.FromMilliseconds(probe.Budget.TotalMilliseconds * budgetMultiplier);
+
+        using var probeScope = _logger.BeginScope(new Dictionary<string, object> { ["Probe"] = probe.Name, ["Budget"] = budget });
+
+        // Tag the shared connection so the External _logger's "COM5 --> ..." / "<-- ..."
         // lines are attributed to this probe. Connection.VerboseTag is read on each
         // write/read; clearing it on exit leaves the handle in an untagged state for
         // the next probe (which sets its own tag on entry).
@@ -436,18 +443,16 @@ internal sealed class SerialProbeService : ISerialProbeService
         // PowerShell handshake: every exchange starts clean.
         conn.DiscardInBuffer();
 
-        var budget = TimeSpan.FromMilliseconds(probe.Budget.TotalMilliseconds * budgetMultiplier);
-
         try
         {
             for (var attempt = 1; attempt <= probe.MaxAttempts; attempt++)
             {
-                using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-                cts.CancelAfter(budget);
-
+                using var cts = new CancellationTokenSource(budget, _timeProvider.System);
+                using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, cts.Token);
+ 
                 try
                 {
-                    var match = await probe.ProbeAsync(port, conn, cts.Token);
+                    var match = await probe.ProbeAsync(port, conn, linkedCts.Token);
                     if (match is not null)
                     {
                         // onMatch is the verification gate: returns true to publish, false to
@@ -457,7 +462,7 @@ internal sealed class SerialProbeService : ISerialProbeService
                         if (publish)
                         {
                             PublishMatch(probe.Name, match);
-                            logger.LogInformation("Match -> {DeviceUri}", match.DeviceUri);
+                            _logger.LogInformation("Match -> {DeviceUri}", match.DeviceUri);
                         }
                         return;
                     }
@@ -467,7 +472,7 @@ internal sealed class SerialProbeService : ISerialProbeService
                 }
                 catch (OperationCanceledException) when (cts.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
                 {
-                    logger.LogDebug("Timeout after {Budget}ms (attempt {Attempt}/{Max}).",
+                    _logger.LogDebug("Timeout after {Budget}ms (attempt {Attempt}/{Max}).",
                         budget.TotalMilliseconds, attempt, probe.MaxAttempts);
                     // Fall through to next attempt, if any.
                 }
@@ -477,7 +482,7 @@ internal sealed class SerialProbeService : ISerialProbeService
                 }
                 catch (Exception ex)
                 {
-                    logger.LogWarning(ex, "Probe threw - treating as no-match.");
+                    _logger.LogWarning(ex, "Probe threw - treating as no-match.");
                     return;
                 }
             }

@@ -12,7 +12,7 @@ namespace TianWen.Lib.Devices.Discovery;
 /// <para>
 /// Call order is: <see cref="ProbeAllAsync"/> (owned by <see cref="IDeviceDiscovery"/>),
 /// then per-source <c>DiscoverAsync</c> reads results. Every log line emitted during
-/// probing carries <c>port</c>, <c>baud</c>, and <c>probe</c> in logger scope so
+/// probing carries <c>port</c>, <c>baud</c>, and <c>probe</c> in _logger scope so
 /// timeouts can be attributed to the probe that owns them.
 /// </para>
 /// </summary>

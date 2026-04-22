@@ -10,6 +10,7 @@ using System.Runtime.CompilerServices;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Connections;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Imaging;
@@ -62,9 +63,11 @@ public class FakeExternal : IExternal
     public ILogger AppLogger { get; }
 
     /// <summary>Optional catalog DB for tests. Set explicitly when catalog-based star rendering is needed.</summary>
-    public TianWen.Lib.Astrometry.Catalogs.ICelestialObjectDB? CelestialObjectDB { get; set; }
+    public ICelestialObjectDB? CelestialObjectDB { get; set; }
 
-    public ValueTask<TianWen.Lib.Astrometry.Catalogs.ICelestialObjectDB> GetCelestialObjectDBAsync(CancellationToken cancellationToken = default)
+    internal FakeTimeProviderWrapper TimeProvider => _timeProvider;
+
+    public ValueTask<ICelestialObjectDB> GetCelestialObjectDBAsync(CancellationToken cancellationToken = default)
         => CelestialObjectDB is { } db
             ? ValueTask.FromResult(db)
             : throw new InvalidOperationException("CelestialObjectDB not configured in FakeExternal");
@@ -106,7 +109,7 @@ public class FakeExternal : IExternal
 
     /// <summary>
     /// Builds a minimal <see cref="IServiceProvider"/> that resolves <see cref="IExternal"/> and <see cref="ITimeProvider"/>.
-    /// Use when constructing <see cref="TianWen.Lib.Sequencing.ControllableDeviceBase{TDriver}"/> subclasses in tests.
+    /// Use when constructing <see cref="Sequencing.ControllableDeviceBase{TDriver}"/> subclasses in tests.
     /// </summary>
     public IServiceProvider BuildServiceProvider() =>
         new ServiceCollection()

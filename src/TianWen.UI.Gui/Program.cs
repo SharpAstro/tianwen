@@ -2,16 +2,17 @@ using DIR.Lib;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using SdlVulkan.Renderer;
-using static SDL3.SDL;
+using TianWen.Lib;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Devices.Discovery;
 using TianWen.Lib.Extensions;
-using TianWen.Lib.Sequencing;
 using TianWen.Lib.Logging;
+using TianWen.Lib.Sequencing;
 using TianWen.UI.Abstractions;
 using TianWen.UI.Abstractions.Extensions;
 using TianWen.UI.Gui;
 using TianWen.UI.Shared;
+using static SDL3.SDL;
 
 // DI setup
 var services = new ServiceCollection();
@@ -101,9 +102,11 @@ var guiRenderer = new VkGuiRenderer(renderer, (uint)pixW, (uint)pixH, bus, logge
 var cts = new CancellationTokenSource();
 var tracker = new BackgroundTaskTracker();
 var lastWindowTitle = "\U0001F52D TianWen";
-var handlers = new GuiEventHandlers(sp, appState, plannerState, guiRenderer, cts, external, tracker);
-handlers.GetClipboardText = GetClipboardText;
-handlers.SetClipboardText = text => SetClipboardText(text);
+var handlers = new GuiEventHandlers(sp, appState, plannerState, guiRenderer, cts, external, tracker)
+{
+    GetClipboardText = GetClipboardText,
+    SetClipboardText = text => SetClipboardText(text)
+};
 
 // Signal subscriptions — text input activation/deactivation via SDL
 bus.Subscribe<ActivateTextInputSignal>(sig =>
@@ -496,9 +499,3 @@ renderer.Dispose();
 ctx.Dispose();
 
 return 0;
-
-// --- Helper extension ---
-static class TaskExtensions
-{
-    public static async Task<TResult> Let<T, TResult>(this T self, Func<T, Task<TResult>> func) => await func(self);
-}

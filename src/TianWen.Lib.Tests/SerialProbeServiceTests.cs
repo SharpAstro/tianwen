@@ -1,4 +1,3 @@
-using DotNext.Threading;
 using Meziantou.Extensions.Logging.Xunit.v3;
 using Microsoft.Extensions.Logging;
 using Shouldly;
@@ -10,7 +9,6 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using TianWen.Lib.Connections;
-using TianWen.Lib.Devices;
 using TianWen.Lib.Devices.Discovery;
 using Xunit;
 
@@ -379,7 +377,7 @@ public class SerialProbeServiceTests(ITestOutputHelper output)
     {
         var factory = LoggerFactory.Create(b => b.AddProvider(new XUnitLoggerProvider(output, false)));
         var logger = factory.CreateLogger<SerialProbeService>();
-        return new SerialProbeService(external, logger, probes, pinnedProvider, passBudgetMultipliers);
+        return new SerialProbeService(external.TimeProvider, external, logger, probes, pinnedProvider, passBudgetMultipliers);
     }
 
     private sealed class StubPinnedPortsProvider(params PinnedSerialPort[] pinned) : IPinnedSerialPortsProvider
@@ -388,10 +386,8 @@ public class SerialProbeServiceTests(ITestOutputHelper output)
         public IReadOnlyList<PinnedSerialPort> GetPinnedPorts() => pinned;
     }
 
-    private sealed class ProbeTestExternal : FakeExternal
+    private sealed class ProbeTestExternal(ITestOutputHelper? output = null) : FakeExternal(output ?? NullTestOutputHelper.Instance)
     {
-        public ProbeTestExternal(ITestOutputHelper? output = null) : base(output ?? NullTestOutputHelper.Instance) { }
-
         public List<string> Ports { get; set; } = [];
         public ConcurrentBag<(string Port, int Baud)> OpenCalls { get; } = [];
 

@@ -9,6 +9,7 @@ using Microsoft.Extensions.DependencyInjection;
 using TianWen.Hosting.Api;
 using TianWen.Hosting.Api.NinaV2;
 using TianWen.Hosting.WebSocket;
+using TianWen.Lib.Devices;
 
 namespace TianWen.Hosting.Extensions;
 
