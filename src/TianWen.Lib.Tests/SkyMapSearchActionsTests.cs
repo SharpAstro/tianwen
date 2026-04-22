@@ -111,8 +111,8 @@ public class SkyMapSearchActionsTests
 
         public int CopyTycho2Stars(Span<TianWen.Lib.Astrometry.Catalogs.Tycho2StarLite> destination, int startIndex = 0) => 0;
 
-        public System.Threading.Tasks.Task<(int Processed, int Failed)> InitDBAsync(System.Threading.CancellationToken cancellationToken)
-            => System.Threading.Tasks.Task.FromResult((0, 0));
+        public System.Threading.Tasks.Task InitDBAsync(System.Threading.CancellationToken cancellationToken)
+            => System.Threading.Tasks.Task.CompletedTask;
 
         public bool TryGetCrossIndices(TianWen.Lib.Astrometry.Catalogs.CatalogIndex idx,
             out System.Collections.Generic.IReadOnlySet<TianWen.Lib.Astrometry.Catalogs.CatalogIndex> crossIndices)

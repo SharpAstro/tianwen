@@ -25,7 +25,7 @@ public interface ICelestialObjectDB
 
     IReadOnlySet<Catalog> Catalogs { get; }
 
-    Task<(int Processed, int Failed)> InitDBAsync(CancellationToken cancellationToken);
+    Task InitDBAsync(CancellationToken cancellationToken);
 
     IReadOnlyCollection<string> CommonNames { get; }
 

@@ -561,10 +561,10 @@ public class OverlayEngineTests
         public IRaDecIndex CoordinateGrid => _grid;
         public IRaDecIndex DeepSkyCoordinateGrid => _grid;
 
-        public System.Threading.Tasks.Task<(int Processed, int Failed)> InitDBAsync(
+        public System.Threading.Tasks.Task InitDBAsync(
             System.Threading.CancellationToken cancellationToken)
         {
-            return System.Threading.Tasks.Task.FromResult((0, 0));
+            return System.Threading.Tasks.Task.CompletedTask;
         }
 
         public bool TryGetCrossIndices(CatalogIndex catalogIndex, out IReadOnlySet<CatalogIndex> crossIndices)

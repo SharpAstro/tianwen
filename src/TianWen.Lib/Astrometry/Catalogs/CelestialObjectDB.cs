@@ -68,6 +68,12 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
     public IReadOnlyList<(string Phase, TimeSpan Elapsed)> LastInitPhaseTimings => _lastInitPhaseTimings;
     private readonly List<(string Phase, TimeSpan Elapsed)> _lastInitPhaseTimings = new(24);
 
+    /// <summary>Entry count successfully processed in the last <see cref="InitDBAsync"/>.</summary>
+    public int LastInitProcessed { get; private set; }
+
+    /// <summary>Entry count that failed to parse in the last <see cref="InitDBAsync"/>.</summary>
+    public int LastInitFailed { get; private set; }
+
     public CelestialObjectDB() { }
 
     public IReadOnlyCollection<string> CommonNames => _objectsByCommonName.Keys;
@@ -249,14 +255,16 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
     }
 
     /// <inheritdoc/>
-    public async Task<(int Processed, int Failed)> InitDBAsync(CancellationToken cancellationToken)
+    public async Task InitDBAsync(CancellationToken cancellationToken)
     {
         if (_isInitialized)
         {
-            return (0, 0);
+            return;
         }
 
         _lastInitPhaseTimings.Clear();
+        LastInitProcessed = 0;
+        LastInitFailed = 0;
         var phaseSw = new Stopwatch();
 
         var assembly = typeof(CelestialObjectDB).Assembly;
@@ -313,14 +321,38 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
             ("Cl", Catalog.Melotte),
             ("Cl", Catalog.Collinder)
         };
-        foreach (var (fileName, catToAdd) in simbadCatalogs)
+        // Depth-1 prefetch pipeline: while the main thread merges file N, exactly
+        // ONE background task decompresses + JSON-parses file N+1. This overlaps
+        // LZ decompress (CPU-bound, stateless) with merge (dict mutations, must be
+        // serial), without piling 14 concurrent tasks onto the thread pool. That
+        // matters for cold-start UX (14 tasks all JITing async state machines at
+        // once adds tens of ms per task vs a single warmed path), and leaves CPU
+        // headroom for Tycho2's own multi-threaded LZ decode running in parallel.
+        Task<List<SimbadCatalogDto>?>? nextParseTask = simbadCatalogs.Length > 0
+            ? ParseSimbadFileAsync(assembly, manifestNames, simbadCatalogs[0].Item1, cancellationToken)
+            : null;
+        for (var i = 0; i < simbadCatalogs.Length; i++)
         {
+            var (fileName, catToAdd) = simbadCatalogs[i];
+            // Kick off parse of the NEXT file before we do this file's merge.
+            var prefetchTask = (i + 1 < simbadCatalogs.Length)
+                ? ParseSimbadFileAsync(assembly, manifestNames, simbadCatalogs[i + 1].Item1, cancellationToken)
+                : null;
+
             var perFileSw = Stopwatch.StartNew();
-            var (processed, failed) = await ReadEmbeddedLzippedJsonDataFileAsync(assembly, manifestNames, fileName, catToAdd, mainCatalogs, cancellationToken);
-            totalProcessed += processed;
-            totalFailed += failed;
+            var records = await nextParseTask!;
+            if (records is not null)
+            {
+                var (processed, failed) = MergeSimbadRecords(records, catToAdd, mainCatalogs);
+                totalProcessed += processed;
+                totalFailed += failed;
+            }
+            // mainCatalogs growth stays load-bearing: cross-ref recording for
+            // entry N+1 depends on catalogs 0..N being visible here.
             mainCatalogs.Add(catToAdd);
             _lastInitPhaseTimings.Add(($"simbad:{fileName}:{catToAdd}", perFileSw.Elapsed));
+
+            nextParseTask = prefetchTask;
         }
         _lastInitPhaseTimings.Add(("simbad-total", phaseSw.Elapsed));
 
@@ -371,7 +403,8 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
         _lastInitPhaseTimings.Add(("hd-hip-cross", phaseSw.Elapsed));
 
         _isInitialized = true;
-        return (totalProcessed, totalFailed);
+        LastInitProcessed = totalProcessed;
+        LastInitFailed = totalFailed;
     }
 
     private async Task ReadEmbeddedTycho2DataAsync(Assembly assembly, string[] manifestNames)
@@ -1176,7 +1209,50 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
 
     static readonly Regex ClusterMemberPattern = ClusterMemberPatternGen();
 
-    private async Task<(int Processed, int Failed)> ReadEmbeddedLzippedJsonDataFileAsync(Assembly assembly, string[] manifestNames, string jsonName, Catalog catToAdd, HashSet<Catalog> mainCatalogs, CancellationToken cancellationToken)
+    /// <summary>
+    /// Stage 1 of SIMBAD loading: decompress the <c>.{name}.json.lz</c> embedded
+    /// resource and JSON-deserialize it into a record list. Stateless per file, so
+    /// many files can run in parallel on the thread pool without touching the
+    /// shared dicts.
+    /// </summary>
+    private static async Task<List<SimbadCatalogDto>?> ParseSimbadFileAsync(Assembly assembly, string[] manifestNames, string jsonName, CancellationToken cancellationToken)
+    {
+        var manifestFileName = manifestNames.FirstOrDefault(p => p.EndsWith("." + jsonName + ".json.lz"));
+        if (manifestFileName is null || assembly.GetManifestResourceStream(manifestFileName) is not Stream stream)
+        {
+            return null;
+        }
+
+        // Eager byte-array decompression (instead of LzipDecoder.DecompressToStream's
+        // lazy wrapper) so the thread-pool task genuinely finishes its decompress work
+        // before handing off; that way when we await the task in the merge loop, all
+        // CPU-bound work is done and the JSON parse stream reads from memory.
+        byte[] decompressed;
+        using (stream)
+        {
+            decompressed = await Task.Run(() => LzipDecoder.Decompress(stream), cancellationToken);
+        }
+
+        using var ms = new MemoryStream(decompressed);
+        var records = new List<SimbadCatalogDto>(capacity: 4096);
+        await foreach (var record in JsonSerializer.DeserializeAsyncEnumerable(ms, SimbadCatalogDtoJsonSerializerContext.Default.SimbadCatalogDto, cancellationToken))
+        {
+            if (record is not null)
+            {
+                records.Add(record);
+            }
+        }
+        return records;
+    }
+
+    /// <summary>
+    /// Stage 2 of SIMBAD loading: merge a pre-parsed record list into the shared
+    /// dictionaries. Must be called serially (in the original file order) because
+    /// it reads from and mutates the shared <c>_objectsByIndex</c> +
+    /// <c>_crossIndexLookuptable</c>, and because <paramref name="mainCatalogs"/>
+    /// grows across iterations.
+    /// </summary>
+    private (int Processed, int Failed) MergeSimbadRecords(IReadOnlyList<SimbadCatalogDto> records, Catalog catToAdd, HashSet<Catalog> mainCatalogs)
     {
         const string NAME_CAT_PREFIX = "NAME ";
         const string NAME_IAU_CAT_PREFIX = "NAME-IAU ";
@@ -1186,26 +1262,13 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
         var processed = 0;
         var failed = 0;
 
-        var manifestFileName = manifestNames.FirstOrDefault(p => p.EndsWith("." + jsonName + ".json.lz"));
-        if (manifestFileName is null || assembly.GetManifestResourceStream(manifestFileName) is not Stream stream)
-        {
-            return (processed, failed);
-        }
-
-        using var decompressed = LzipDecoder.DecompressToStream(stream);
-
         // Reuse collections across records to reduce allocations
         var catToAddIdxs = new SortedSet<CatalogIndex>();
         var relevantIds = new Dictionary<Catalog, CatalogIndex[]>();
         var commonNames = new HashSet<string>(8);
 
-        await foreach (var record in JsonSerializer.DeserializeAsyncEnumerable(decompressed, SimbadCatalogDtoJsonSerializerContext.Default.SimbadCatalogDto, cancellationToken))
+        foreach (var record in records)
         {
-            if (record is null)
-            {
-                continue;
-            }
-
             catToAddIdxs.Clear();
             relevantIds.Clear();
             commonNames.Clear();
