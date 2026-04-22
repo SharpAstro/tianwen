@@ -229,19 +229,19 @@ internal sealed class SerialProbeService(
         // Mixing encodings within a baud group is unusual — if it comes up, split probes.
         var encoding = probesToRun[0].Encoding;
 
-        ISerialConnection? conn;
-        try
+        // Probe isolation: when multiple probes share a baud group we close+reopen
+        // between each one, so a rejected command on probe N cannot leave bytes in
+        // the device-side buffer that concatenate into probe N+1's exchange. Cost
+        // is roughly one extra serial open (~50-200ms on USB bridges) per shared
+        // probe slot — worth it for correctness. Single-probe groups skip this and
+        // keep the original open-once semantics.
+        var isolateEachProbe = probesToRun.Length > 1;
+
+        ISerialConnection? conn = null;
+        if (!isolateEachProbe)
         {
-            conn = await external.OpenSerialDeviceAsync(port, baud, encoding, cancellationToken);
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-            throw;
-        }
-        catch (Exception ex)
-        {
-            logger.LogDebug(ex, "Failed to open port at {Baud} baud — skipping baud group.", baud);
-            return;
+            conn = await TryOpenAsync();
+            if (conn is null) return;
         }
 
         try
@@ -249,14 +249,54 @@ internal sealed class SerialProbeService(
             foreach (var probe in probesToRun)
             {
                 if (cancellationToken.IsCancellationRequested) return;
-                await RunSingleProbeAsync(port, probe, conn, cancellationToken, onMatch);
+
+                if (isolateEachProbe)
+                {
+                    conn = await TryOpenAsync();
+                    if (conn is null) continue;
+                }
+
+                try
+                {
+                    await RunSingleProbeAsync(port, probe, conn!, cancellationToken, onMatch);
+                }
+                finally
+                {
+                    if (isolateEachProbe)
+                    {
+                        conn!.TryClose();
+                        conn = null;
+                    }
+                }
             }
         }
         finally
         {
-            // Close before reopening at the next baud. Reliability on USB-serial bridges
-            // is better with close+reopen than with mid-stream BaudRate mutation.
-            conn.TryClose();
+            // Single-probe groups only: close the shared connection on exit. Reopen
+            // at the next baud because USB-serial bridges react badly to mid-stream
+            // BaudRate mutation.
+            conn?.TryClose();
+        }
+
+        async ValueTask<ISerialConnection?> TryOpenAsync()
+        {
+            try
+            {
+                var c = await external.OpenSerialDeviceAsync(port, baud, encoding, cancellationToken);
+                // Log the exact handshake at Info during probes; drivers opening the
+                // same port for session use do not touch this flag.
+                c.LogVerbose = true;
+                return c;
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                logger.LogDebug(ex, "Failed to open port at {Baud} baud — skipping.", baud);
+                return null;
+            }
         }
     }
 

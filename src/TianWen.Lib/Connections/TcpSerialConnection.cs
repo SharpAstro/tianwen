@@ -108,6 +108,9 @@ internal sealed class TcpSerialConnection : ISerialConnection
 
     public Encoding Encoding { get; }
 
+    /// <inheritdoc />
+    public bool LogVerbose { get; set; }
+
     public bool TryClose()
     {
         IsOpen = false;
@@ -137,6 +140,11 @@ internal sealed class TcpSerialConnection : ISerialConnection
         try
         {
             await _stream.WriteAsync(data, cancellationToken);
+            if (LogVerbose)
+            {
+                _logger.LogInformation("{EndPoint} --> {Message}", _remoteEndPoint,
+                    Encoding.GetString(data.Span).ReplaceNonPrintableWithHex());
+            }
             return true;
         }
         catch (Exception ex) when (ex is IOException or SocketException or ObjectDisposedException)
@@ -165,8 +173,14 @@ internal sealed class TcpSerialConnection : ISerialConnection
                     {
                         var len = i - _readBufferStart;
                         var result = Encoding.GetString(_readBuffer, _readBufferStart, len);
+                        var term = (char)_readBuffer[i];
                         _readBufferStart = i + 1; // consume terminator
                         CompactBufferIfEmpty();
+                        if (LogVerbose)
+                        {
+                            _logger.LogInformation("{EndPoint} <-- {Response}", _remoteEndPoint,
+                                (result + term).ReplaceNonPrintableWithHex());
+                        }
                         return result;
                     }
                 }
