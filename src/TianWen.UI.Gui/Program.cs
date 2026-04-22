@@ -165,7 +165,8 @@ if (appState.ActiveProfile is not null)
     }
     else
     {
-        appState.StatusMessage = "Set site coordinates in Equipment tab";
+        appState.AppendNotification(timeProvider.GetUtcNow(),
+            NotificationSeverity.Warning, "Set site coordinates in Equipment tab");
     }
 }
 
@@ -280,7 +281,8 @@ void RequestQuit()
         // Already shutting down — refuse to quit while warm-up is in progress.
         // Same pattern as SessionPhase.Finalising: cameras must complete their
         // thermal ramp for sensor safety.
-        appState.StatusMessage = "Warming cameras\u2026 please wait";
+        appState.AppendNotification(timeProvider.GetUtcNow(),
+            NotificationSeverity.Warning, "Warming cameras\u2026 please wait");
         appState.NeedsRedraw = true;
         return;
     }
@@ -290,7 +292,8 @@ void RequestQuit()
     // During Finalising, can't do anything — just wait (warmup must complete)
     if (liveState.Phase is SessionPhase.Finalising)
     {
-        appState.StatusMessage = "Warming cameras\u2026 please wait";
+        appState.AppendNotification(timeProvider.GetUtcNow(),
+            NotificationSeverity.Warning, "Warming cameras\u2026 please wait");
         appState.NeedsRedraw = true;
         return;
     }
@@ -355,9 +358,11 @@ void RequestQuit()
         // Keep loop alive to show Finalise / warm-up progress
         appState.ShuttingDown = true;
         appState.ShutdownComplete = false;
-        appState.StatusMessage = cameraCount > 0
+        var shutdownMsg = cameraCount > 0
             ? $"Disconnecting {cameraCount} camera{(cameraCount == 1 ? "" : "s")}\u2026"
             : "Shutting down\u2026";
+        appState.AppendNotification(timeProvider.GetUtcNow(),
+            NotificationSeverity.Info, shutdownMsg);
         appState.NeedsRedraw = true;
     }
     else
