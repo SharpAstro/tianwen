@@ -301,15 +301,42 @@ internal class AscomTelescopeDriver : AscomDeviceDriverBase, IMountDriver
 
     public bool CanMoveAxis(TelescopeAxis axis) => SafeGet(() => _telescope.CanMoveAxis((int)axis), false);
 
-    // TODO: implement axis rates
     public IReadOnlyList<AxisRate> AxisRates(TelescopeAxis axis)
+        => SafeGet(() => ReadAxisRates(axis), Array.Empty<AxisRate>());
+
+    private IReadOnlyList<AxisRate> ReadAxisRates(TelescopeAxis axis)
     {
-        throw new NotImplementedException();
+        // ASCOM ITelescope.AxisRates(axis) returns an IAxisRates collection:
+        //   Count                 — int
+        //   Item(i)  (1-indexed)  — IRate { Minimum, Maximum }
+        using var rates = _telescope.AxisRates((int)axis);
+        var count = rates.GetInt("Count");
+        if (count <= 0)
+        {
+            return [];
+        }
+
+        var result = new AxisRate[count];
+        for (int i = 1; i <= count; i++)
+        {
+            using var rate = rates.GetPropertyDispatch("Item", i);
+            result[i - 1] = new AxisRate(rate.GetDouble("Minimum"), rate.GetDouble("Maximum"));
+        }
+        return result;
     }
 
     public ValueTask MoveAxisAsync(TelescopeAxis axis, double rate, CancellationToken cancellationToken)
     {
-        throw new NotImplementedException();
+        if (!Connected)
+        {
+            throw new InvalidOperationException($"Failed to execute {nameof(MoveAxisAsync)} connected={Connected}");
+        }
+        // Rate == 0 means "stop the axis" and is always permitted; any non-zero rate requires CanMoveAxis.
+        if (rate != 0.0 && !CanMoveAxis(axis))
+        {
+            throw new InvalidOperationException($"Driver does not support MoveAxis on {axis}");
+        }
+        return SafeValueTask(() => _telescope.MoveAxis((int)axis, rate));
     }
 
     public ValueTask<double> GetTargetRightAscensionAsync(CancellationToken cancellationToken)

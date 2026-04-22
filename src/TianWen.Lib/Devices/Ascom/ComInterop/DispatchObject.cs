@@ -238,6 +238,63 @@ internal sealed unsafe class DispatchObject : IDisposable
         }
     }
 
+    /// <summary>
+    /// Invokes a method that returns an IDispatch object (e.g. <c>AxisRates(axis)</c> → <c>IAxisRates</c>).
+    /// Returns a new <see cref="DispatchObject"/> wrapping the sub-dispatch; the caller owns and must dispose it.
+    /// </summary>
+    public DispatchObject InvokeMethodDispatch(string name, params object[] args)
+    {
+        var variants = ArgsToVariants(args);
+        try
+        {
+            var result = InvokeRawWithResult(name, NativeMethods.DISPATCH_METHOD, variants);
+            try { return UnwrapDispatch(name, result); }
+            finally { result.Dispose(); }
+        }
+        finally
+        {
+            DisposeVariants(variants);
+        }
+    }
+
+    /// <summary>
+    /// Reads a parameterized property that returns an IDispatch object (e.g. <c>Item(index)</c> on an
+    /// ASCOM collection → <c>IRate</c>). Collection default properties use <see cref="NativeMethods.DISPATCH_PROPERTYGET"/>.
+    /// </summary>
+    public DispatchObject GetPropertyDispatch(string name, params object[] args)
+    {
+        var variants = ArgsToVariants(args);
+        try
+        {
+            var result = InvokeRawWithResult(name, NativeMethods.DISPATCH_PROPERTYGET, variants);
+            try { return UnwrapDispatch(name, result); }
+            finally { result.Dispose(); }
+        }
+        finally
+        {
+            DisposeVariants(variants);
+        }
+    }
+
+    private static DispatchObject UnwrapDispatch(string name, ComVariant variant)
+    {
+        if (variant.VarType is not (VarEnum.VT_DISPATCH or VarEnum.VT_UNKNOWN))
+        {
+            throw new InvalidOperationException(
+                $"'{name}' returned VARIANT type {variant.VarType}; expected VT_DISPATCH or VT_UNKNOWN");
+        }
+
+        // VT_DISPATCH and VT_UNKNOWN store a raw interface pointer in the variant union.
+        // DispatchObject's nint constructor AddRefs, so the pointer survives the caller's
+        // VariantClear on the source variant.
+        var pUnk = variant.GetRawDataRef<nint>();
+        if (pUnk == 0)
+        {
+            throw new InvalidOperationException($"'{name}' returned a null dispatch object");
+        }
+        return new DispatchObject(pUnk);
+    }
+
     #endregion
 
     #region Core IDispatch calls via vtable
