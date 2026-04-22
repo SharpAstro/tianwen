@@ -51,28 +51,71 @@ public class SerialProbeServiceTests(ITestOutputHelper output)
     [Fact]
     public async Task WithTwoProbesSameBaudPortIsOpenedOnce()
     {
+        // Single-pass ladder so we're asserting the pass-1 shared-handle path.
+        // Pass-2 per-probe isolation is covered by a dedicated test below.
         var external = new ProbeTestExternal { Ports = ["serial:COM5"] };
         var a = StubProbe.Sync("OnStep", baud: 9600, match: (_, _) => null);
         var b = StubProbe.Sync("Meade", baud: 9600, match: (_, _) => null);
-        var service = BuildService(external, output, a, b);
+        var service = BuildService(external, output, StubPinnedPortsProvider.Empty,
+            passBudgetMultipliers: [1.0], a, b);
 
         await service.ProbeAllAsync(TestContext.Current.CancellationToken);
 
-        external.OpenCalls.Count.ShouldBe(1, "two probes sharing baud 9600 must share one open handle");
+        external.OpenCalls.Count.ShouldBe(1, "two probes sharing baud 9600 must share one open handle on pass 1");
         external.OpenCalls.First().Baud.ShouldBe(9600);
     }
 
     [Fact]
     public async Task WithTwoProbesDifferentBaudPortIsOpenedPerBaud()
     {
+        // Single-pass ladder — pass 2 retry for unmatched ports is tested separately.
         var external = new ProbeTestExternal { Ports = ["serial:COM5"] };
         var a = StubProbe.Sync("Skywatcher115k", baud: 115200, match: (_, _) => null);
         var b = StubProbe.Sync("OnStep", baud: 9600, match: (_, _) => null);
-        var service = BuildService(external, output, a, b);
+        var service = BuildService(external, output, StubPinnedPortsProvider.Empty,
+            passBudgetMultipliers: [1.0], a, b);
 
         await service.ProbeAllAsync(TestContext.Current.CancellationToken);
 
         external.OpenCalls.Count.ShouldBe(2, "different bauds → port opened once per baud");
+    }
+
+    [Fact]
+    public async Task WithTwoProbesSameBaudAndNoMatchPass2IsolatesEachProbe()
+    {
+        // Two probes, same baud, both return no-match on both passes.
+        //   Pass 1: shared handle -> 1 open
+        //   Pass 2: per-probe isolation (because probesToRun.Length > 1) -> 2 more opens
+        // Total 3 opens. This encodes the ladder contract: pass 1 is fast and shared;
+        // pass 2 escalates to isolation for ports that didn't match pass 1.
+        var external = new ProbeTestExternal { Ports = ["serial:COM5"] };
+        var a = StubProbe.Sync("OnStep", baud: 9600, match: (_, _) => null);
+        var b = StubProbe.Sync("Meade", baud: 9600, match: (_, _) => null);
+        var service = BuildService(external, output, StubPinnedPortsProvider.Empty,
+            passBudgetMultipliers: [1.0, 2.0], a, b);
+
+        await service.ProbeAllAsync(TestContext.Current.CancellationToken);
+
+        external.OpenCalls.Count.ShouldBe(3,
+            "pass 1 shared-handle (1 open) + pass 2 per-probe isolation (2 opens) = 3");
+    }
+
+    [Fact]
+    public async Task WithMatchOnPass1PortIsNotReopenedOnPass2()
+    {
+        // Warm responder: matches on pass 1. Pass 2 must skip this port entirely.
+        var external = new ProbeTestExternal { Ports = ["serial:COM5"] };
+        var a = StubProbe.Sync("OnStep", baud: 9600,
+            match: (port, _) => new SerialProbeMatch(port, new Uri("Mount://OnStep/warm")));
+        var b = StubProbe.Sync("Meade", baud: 9600, match: (_, _) => null);
+        var service = BuildService(external, output, StubPinnedPortsProvider.Empty,
+            passBudgetMultipliers: [1.0, 2.0], a, b);
+
+        await service.ProbeAllAsync(TestContext.Current.CancellationToken);
+
+        external.OpenCalls.Count.ShouldBe(1,
+            "pass 1 shared-handle opens once; matched port is excluded from pass 2");
+        service.ResultsFor("OnStep").ShouldHaveSingleItem();
     }
 
     [Fact]
@@ -320,10 +363,23 @@ public class SerialProbeServiceTests(ITestOutputHelper output)
         => BuildService(external, output, StubPinnedPortsProvider.Empty, probes);
 
     private static SerialProbeService BuildService(ProbeTestExternal external, ITestOutputHelper output, IPinnedSerialPortsProvider pinnedProvider, params ISerialProbe[] probes)
+        => BuildService(external, output, pinnedProvider, passBudgetMultipliers: null, probes);
+
+    /// <summary>
+    /// Overload that pins the budget-multiplier ladder. Tests focused on pass-1
+    /// semantics (shared-handle, per-baud opening, retry count) pass
+    /// <c>[1.0]</c> so pass 2's per-probe reopen does not double-count port opens.
+    /// </summary>
+    private static SerialProbeService BuildService(
+        ProbeTestExternal external,
+        ITestOutputHelper output,
+        IPinnedSerialPortsProvider pinnedProvider,
+        IReadOnlyList<double>? passBudgetMultipliers,
+        params ISerialProbe[] probes)
     {
         var factory = LoggerFactory.Create(b => b.AddProvider(new XUnitLoggerProvider(output, false)));
         var logger = factory.CreateLogger<SerialProbeService>();
-        return new SerialProbeService(external, logger, probes, pinnedProvider);
+        return new SerialProbeService(external, logger, probes, pinnedProvider, passBudgetMultipliers);
     }
 
     private sealed class StubPinnedPortsProvider(params PinnedSerialPort[] pinned) : IPinnedSerialPortsProvider
