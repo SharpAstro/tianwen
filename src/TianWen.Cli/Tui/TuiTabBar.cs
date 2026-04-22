@@ -9,7 +9,7 @@ namespace TianWen.Cli.Tui;
 /// </summary>
 internal sealed class TuiTabBar(ITerminalViewport viewport)
 {
-    // Label carries the Ctrl+letter mnemonic; F-keys (F1..F5) also switch tabs.
+    // Label carries the Ctrl+letter mnemonic; F-keys (F1..F6) also switch tabs.
     private static readonly (string Label, GuiTab Tab)[] Tabs =
     [
         ("^E Equip", GuiTab.Equipment),
@@ -17,6 +17,7 @@ internal sealed class TuiTabBar(ITerminalViewport viewport)
         ("^S Session", GuiTab.Session),
         ("^L Live", GuiTab.LiveSession),
         ("^G Guider", GuiTab.Guider),
+        ("^N Notif", GuiTab.Notifications),
     ];
 
     private readonly TextBar _bar = new TextBar(viewport);

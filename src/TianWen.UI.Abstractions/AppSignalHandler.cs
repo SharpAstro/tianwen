@@ -501,13 +501,15 @@ namespace TianWen.UI.Abstractions
                     }
                     else
                     {
-                        _appState.StatusMessage = "Set site coordinates in Equipment tab";
+                        _appState.AppendNotification(_timeProvider.GetUtcNow(),
+                            NotificationSeverity.Warning, "Set site coordinates in Equipment tab");
                     }
                 }
                 catch (Exception ex)
                 {
                     _logger.LogWarning(ex, "Recompute failed");
-                    _appState.StatusMessage = $"Recompute failed: {ex.InnerException?.Message ?? ex.Message}";
+                    _appState.AppendNotification(_timeProvider.GetUtcNow(),
+                        NotificationSeverity.Error, $"Recompute failed: {ex.InnerException?.Message ?? ex.Message}");
                 }
                 finally
                 {
@@ -783,14 +785,16 @@ namespace TianWen.UI.Abstractions
             {
                 if (liveSessionState.IsRunning)
                 {
-                    appState.StatusMessage = "Cannot slew manually while a session is running";
+                    appState.AppendNotification(_timeProvider.GetUtcNow(),
+                        NotificationSeverity.Warning, "Cannot slew manually while a session is running");
                     appState.NeedsRedraw = true;
                     return;
                 }
                 if (appState.ActiveProfile is not { Data: { } pdata } profile
                     || pdata.Mount is not { Scheme: not "none" } mountUri)
                 {
-                    appState.StatusMessage = "No mount configured in the active profile";
+                    appState.AppendNotification(_timeProvider.GetUtcNow(),
+                        NotificationSeverity.Warning, "No mount configured in the active profile");
                     appState.NeedsRedraw = true;
                     return;
                 }
@@ -798,7 +802,8 @@ namespace TianWen.UI.Abstractions
                     || !hub.TryGetConnectedDriver<IMountDriver>(mountUri, out var mount)
                     || mount is null)
                 {
-                    appState.StatusMessage = "Mount is not connected \u2014 connect it from the Equipment tab first";
+                    appState.AppendNotification(_timeProvider.GetUtcNow(),
+                        NotificationSeverity.Warning, "Mount is not connected \u2014 connect it from the Equipment tab first");
                     appState.NeedsRedraw = true;
                     return;
                 }
@@ -963,7 +968,8 @@ namespace TianWen.UI.Abstractions
                 }
                 else
                 {
-                    appState.StatusMessage = "Invalid coordinates (lat: -90..90, lon: -180..180)";
+                    appState.AppendNotification(_timeProvider.GetUtcNow(),
+                        NotificationSeverity.Warning, "Invalid coordinates (lat: -90..90, lon: -180..180)");
                 }
             };
 
@@ -1084,14 +1090,17 @@ namespace TianWen.UI.Abstractions
                 catch (Exception ex)
                 {
                     logger.LogWarning(ex, "Device discovery failed");
-                    appState.StatusMessage = "Discovery failed";
+                    appState.AppendNotification(_timeProvider.GetUtcNow(),
+                        NotificationSeverity.Error, "Discovery failed");
                 }
                 finally
                 {
                     eqState.IsDiscovering = false;
-                    appState.StatusMessage = eqState.DiscoveredDevices.Count > 0
-                        ? $"Found {eqState.DiscoveredDevices.Count} devices"
-                        : null;
+                    if (eqState.DiscoveredDevices.Count > 0)
+                    {
+                        appState.AppendNotification(_timeProvider.GetUtcNow(),
+                            NotificationSeverity.Info, $"Found {eqState.DiscoveredDevices.Count} devices");
+                    }
                     appState.NeedsRedraw = true;
                 }
             });
@@ -1153,7 +1162,8 @@ namespace TianWen.UI.Abstractions
 
                     if (device.DeviceType != target.ExpectedDeviceType)
                     {
-                        appState.StatusMessage = $"Expected {target.ExpectedDeviceType}, got {device.DeviceType}";
+                        appState.AppendNotification(_timeProvider.GetUtcNow(),
+                            NotificationSeverity.Warning, $"Expected {target.ExpectedDeviceType}, got {device.DeviceType}");
                         return;
                     }
 
@@ -1206,7 +1216,8 @@ namespace TianWen.UI.Abstractions
                             try
                             {
                                 await hub.DisconnectAsync(prevSlotUri, cts.Token);
-                                appState.StatusMessage = $"Previous {target.ExpectedDeviceType} disconnected";
+                                appState.AppendNotification(_timeProvider.GetUtcNow(),
+                                    NotificationSeverity.Info, $"Previous {target.ExpectedDeviceType} disconnected");
                             }
                             catch (Exception ex)
                             {
@@ -1216,7 +1227,8 @@ namespace TianWen.UI.Abstractions
                         else
                         {
                             // Don't yank a cold/busy camera silently — leave it for the user.
-                            appState.StatusMessage = $"Previous {target.ExpectedDeviceType} left connected ({safety}). Click Off on its row to warm up.";
+                            appState.AppendNotification(_timeProvider.GetUtcNow(),
+                                NotificationSeverity.Warning, $"Previous {target.ExpectedDeviceType} left connected ({safety}). Click Off on its row to warm up.");
                         }
                         appState.NeedsRedraw = true;
                     }
@@ -1227,7 +1239,8 @@ namespace TianWen.UI.Abstractions
             {
                 if (appState.DeviceHub is not { } hub)
                 {
-                    appState.StatusMessage = "Device hub unavailable";
+                    appState.AppendNotification(_timeProvider.GetUtcNow(),
+                        NotificationSeverity.Warning, "Device hub unavailable");
                     return;
                 }
 
@@ -1260,12 +1273,14 @@ namespace TianWen.UI.Abstractions
 
                     if (device is null)
                     {
-                        appState.StatusMessage = "Cannot resolve device URI for connect";
+                        appState.AppendNotification(_timeProvider.GetUtcNow(),
+                            NotificationSeverity.Warning, "Cannot resolve device URI for connect");
                         return;
                     }
 
                     await hub.ConnectAsync(device, cts.Token);
-                    appState.StatusMessage = $"Connected: {device.DisplayName}";
+                    appState.AppendNotification(_timeProvider.GetUtcNow(),
+                        NotificationSeverity.Info, $"Connected: {device.DisplayName}");
 
                     // Mount connect → reconcile site between mount hardware and profile,
                     // per SiteTieBreaker. Updates ProfileState + PlannerState; persists
@@ -1305,7 +1320,8 @@ namespace TianWen.UI.Abstractions
                 catch (Exception ex)
                 {
                     logger.LogWarning(ex, "Connect failed for {Uri}", sig.DeviceUri);
-                    appState.StatusMessage = $"Connect failed: {ex.Message}";
+                    appState.AppendNotification(_timeProvider.GetUtcNow(),
+                        NotificationSeverity.Error, $"Connect failed: {ex.Message}");
                 }
                 finally
                 {
@@ -1343,12 +1359,14 @@ namespace TianWen.UI.Abstractions
                 try
                 {
                     await hub.DisconnectAsync(sig.DeviceUri, cts.Token);
-                    appState.StatusMessage = "Device disconnected";
+                    appState.AppendNotification(_timeProvider.GetUtcNow(),
+                        NotificationSeverity.Info, "Device disconnected");
                 }
                 catch (Exception ex)
                 {
                     logger.LogWarning(ex, "Disconnect failed for {Uri}", sig.DeviceUri);
-                    appState.StatusMessage = $"Disconnect failed: {ex.Message}";
+                    appState.AppendNotification(_timeProvider.GetUtcNow(),
+                        NotificationSeverity.Error, $"Disconnect failed: {ex.Message}");
                 }
                 finally
                 {
@@ -1376,13 +1394,15 @@ namespace TianWen.UI.Abstractions
                 try
                 {
                     await hub.DisconnectAsync(sig.DeviceUri, cts.Token);
-                    appState.StatusMessage = "Device force-disconnected (no warm-up)";
+                    appState.AppendNotification(_timeProvider.GetUtcNow(),
+                        NotificationSeverity.Info, "Device force-disconnected (no warm-up)");
                     logger.LogWarning("Force-disconnect of {Uri} (bypassed safety check)", sig.DeviceUri);
                 }
                 catch (Exception ex)
                 {
                     logger.LogWarning(ex, "Force-disconnect failed for {Uri}", sig.DeviceUri);
-                    appState.StatusMessage = $"Force-disconnect failed: {ex.Message}";
+                    appState.AppendNotification(_timeProvider.GetUtcNow(),
+                        NotificationSeverity.Error, $"Force-disconnect failed: {ex.Message}");
                 }
                 finally
                 {
@@ -1409,16 +1429,19 @@ namespace TianWen.UI.Abstractions
                 try
                 {
                     await EquipmentActions.WarmAndDisconnectAsync(hub, sig.DeviceUri, _logger, cts.Token);
-                    appState.StatusMessage = "Camera warmed and disconnected";
+                    appState.AppendNotification(_timeProvider.GetUtcNow(),
+                        NotificationSeverity.Info, "Camera warmed and disconnected");
                 }
                 catch (OperationCanceledException)
                 {
-                    appState.StatusMessage = "Warm-up cancelled";
+                    appState.AppendNotification(_timeProvider.GetUtcNow(),
+                        NotificationSeverity.Warning, "Warm-up cancelled");
                 }
                 catch (Exception ex)
                 {
                     logger.LogWarning(ex, "Warm-and-disconnect failed for {Uri}", sig.DeviceUri);
-                    appState.StatusMessage = $"Warm-up failed: {ex.Message}";
+                    appState.AppendNotification(_timeProvider.GetUtcNow(),
+                        NotificationSeverity.Error, $"Warm-up failed: {ex.Message}");
                 }
                 finally
                 {
@@ -1432,20 +1455,23 @@ namespace TianWen.UI.Abstractions
                 if (appState.DeviceHub is not { } hub) return;
                 if (!hub.TryGetConnectedDriver<TianWen.Lib.Devices.ICameraDriver>(sig.DeviceUri, out var camera))
                 {
-                    appState.StatusMessage = "Camera not connected";
+                    appState.AppendNotification(_timeProvider.GetUtcNow(),
+                        NotificationSeverity.Warning, "Camera not connected");
                     return;
                 }
                 try
                 {
                     await camera.SetSetCCDTemperatureAsync(sig.SetpointC, cts.Token);
                     if (camera.CanSetCoolerOn) await camera.SetCoolerOnAsync(true, cts.Token);
-                    appState.StatusMessage = $"Cooling to {sig.SetpointC:F1}\u00b0C";
+                    appState.AppendNotification(_timeProvider.GetUtcNow(),
+                        NotificationSeverity.Info, $"Cooling to {sig.SetpointC:F1}\u00b0C");
                     appState.NeedsRedraw = true;
                 }
                 catch (Exception ex)
                 {
                     logger.LogWarning(ex, "SetCoolerSetpoint failed for {Uri}", sig.DeviceUri);
-                    appState.StatusMessage = $"Cooler setpoint failed: {ex.Message}";
+                    appState.AppendNotification(_timeProvider.GetUtcNow(),
+                        NotificationSeverity.Error, $"Cooler setpoint failed: {ex.Message}");
                 }
             });
 
@@ -1459,13 +1485,19 @@ namespace TianWen.UI.Abstractions
                 try
                 {
                     await EquipmentActions.WarmAndCoolerOffAsync(hub, sig.DeviceUri, _logger, cts.Token);
-                    appState.StatusMessage = "Camera warmed; cooler off";
+                    appState.AppendNotification(_timeProvider.GetUtcNow(),
+                        NotificationSeverity.Info, "Camera warmed; cooler off");
                 }
-                catch (OperationCanceledException) { appState.StatusMessage = "Warm-up cancelled"; }
+                catch (OperationCanceledException)
+                {
+                    appState.AppendNotification(_timeProvider.GetUtcNow(),
+                        NotificationSeverity.Warning, "Warm-up cancelled");
+                }
                 catch (Exception ex)
                 {
                     logger.LogWarning(ex, "Warm-and-cooler-off failed for {Uri}", sig.DeviceUri);
-                    appState.StatusMessage = $"Warm-up failed: {ex.Message}";
+                    appState.AppendNotification(_timeProvider.GetUtcNow(),
+                        NotificationSeverity.Error, $"Warm-up failed: {ex.Message}");
                 }
                 finally { appState.NeedsRedraw = true; }
             });
@@ -1480,13 +1512,15 @@ namespace TianWen.UI.Abstractions
                 try
                 {
                     if (camera.CanSetCoolerOn) await camera.SetCoolerOnAsync(false, cts.Token);
-                    appState.StatusMessage = "Cooler off";
+                    appState.AppendNotification(_timeProvider.GetUtcNow(),
+                        NotificationSeverity.Info, "Cooler off");
                     appState.NeedsRedraw = true;
                 }
                 catch (Exception ex)
                 {
                     logger.LogWarning(ex, "SetCoolerOff failed for {Uri}", sig.DeviceUri);
-                    appState.StatusMessage = $"Cooler off failed: {ex.Message}";
+                    appState.AppendNotification(_timeProvider.GetUtcNow(),
+                        NotificationSeverity.Error, $"Cooler off failed: {ex.Message}");
                 }
             });
 
@@ -1581,19 +1615,22 @@ namespace TianWen.UI.Abstractions
             {
                 if (liveSessionState.IsRunning)
                 {
-                    appState.StatusMessage = "Session already running";
+                    appState.AppendNotification(_timeProvider.GetUtcNow(),
+                        NotificationSeverity.Warning, "Session already running");
                     return;
                 }
 
                 if (appState.ActiveProfile is not { } profile)
                 {
-                    appState.StatusMessage = "No profile selected";
+                    appState.AppendNotification(_timeProvider.GetUtcNow(),
+                        NotificationSeverity.Warning, "No profile selected");
                     return;
                 }
 
                 if (plannerState.Proposals is not { Length: > 0 })
                 {
-                    appState.StatusMessage = "No targets — pin targets in the Planner first";
+                    appState.AppendNotification(_timeProvider.GetUtcNow(),
+                        NotificationSeverity.Warning, "No targets \u2014 pin targets in the Planner first");
                     return;
                 }
 
@@ -1619,7 +1656,8 @@ namespace TianWen.UI.Abstractions
                     var transform = TransformFactory.FromProfile(profile, _timeProvider, out var transformError);
                     if (transform is null)
                     {
-                        appState.StatusMessage = "Cannot determine site location from profile";
+                        appState.AppendNotification(_timeProvider.GetUtcNow(),
+                            NotificationSeverity.Warning, "Cannot determine site location from profile");
                         liveSessionState.IsRunning = false;
                         return;
                     }
@@ -1638,7 +1676,8 @@ namespace TianWen.UI.Abstractions
 
                     if (sessionState.Schedule is not { Count: > 0 } schedule)
                     {
-                        appState.StatusMessage = "Failed to build schedule from proposals";
+                        appState.AppendNotification(_timeProvider.GetUtcNow(),
+                            NotificationSeverity.Error, "Failed to build schedule from proposals");
                         liveSessionState.IsRunning = false;
                         return;
                     }
@@ -1676,7 +1715,8 @@ namespace TianWen.UI.Abstractions
 
                     liveSessionState.ActiveSession = session;
                     liveSessionState.SiteTimeZone = plannerState.SiteTimeZone;
-                    appState.StatusMessage = "Session started";
+                    appState.AppendNotification(_timeProvider.GetUtcNow(),
+                        NotificationSeverity.Info, "Session started");
                     appState.NeedsRedraw = true;
 
                     // RunAsync includes Finalise — run as tracked background task so:
@@ -1696,26 +1736,36 @@ namespace TianWen.UI.Abstractions
                         {
                             liveSessionState.IsRunning = false;
                             liveSessionState.NeedsRedraw = true;
-                            appState.StatusMessage = liveSessionState.Phase switch
+                            var (phaseMsg, phaseSeverity) = liveSessionState.Phase switch
                             {
-                                SessionPhase.Complete => "Session complete",
-                                SessionPhase.Aborted => "Session aborted",
-                                SessionPhase.Failed => "Session failed",
-                                _ => null
+                                SessionPhase.Complete => ("Session complete", NotificationSeverity.Info),
+                                SessionPhase.Aborted => ("Session aborted", NotificationSeverity.Warning),
+                                SessionPhase.Failed => ("Session failed", NotificationSeverity.Error),
+                                _ => (null, NotificationSeverity.Info)
                             };
+                            if (phaseMsg is not null)
+                            {
+                                appState.AppendNotification(_timeProvider.GetUtcNow(), phaseSeverity, phaseMsg);
+                            }
+                            else
+                            {
+                                appState.StatusMessage = null;
+                            }
                             appState.NeedsRedraw = true;
                         }
                     }, "Session run");
                 }
                 catch (OperationCanceledException)
                 {
-                    appState.StatusMessage = "Session cancelled";
+                    appState.AppendNotification(_timeProvider.GetUtcNow(),
+                        NotificationSeverity.Warning, "Session cancelled");
                     liveSessionState.IsRunning = false;
                 }
                 catch (Exception ex)
                 {
                     logger.LogError(ex, "Failed to start session");
-                    appState.StatusMessage = $"Session failed: {ex.Message}";
+                    appState.AppendNotification(_timeProvider.GetUtcNow(),
+                        NotificationSeverity.Error, $"Session failed: {ex.Message}");
                     liveSessionState.IsRunning = false;
                 }
             });
@@ -1736,12 +1786,14 @@ namespace TianWen.UI.Abstractions
             {
                 if (liveSessionState.IsRunning)
                 {
-                    appState.StatusMessage = "Session is running \u2014 preview unavailable";
+                    appState.AppendNotification(_timeProvider.GetUtcNow(),
+                        NotificationSeverity.Warning, "Session is running \u2014 preview unavailable");
                     return;
                 }
                 if (appState.ActiveProfile?.Data is not { OTAs: var otas } || sig.OtaIndex >= otas.Length)
                 {
-                    appState.StatusMessage = "Invalid OTA index";
+                    appState.AppendNotification(_timeProvider.GetUtcNow(),
+                        NotificationSeverity.Warning, "Invalid OTA index");
                     return;
                 }
                 if (appState.DeviceHub is not { } hub) return;
@@ -1749,7 +1801,8 @@ namespace TianWen.UI.Abstractions
                 var ota = otas[sig.OtaIndex];
                 if (!hub.TryGetConnectedDriver<ICameraDriver>(ota.Camera, out var camera) || camera is null)
                 {
-                    appState.StatusMessage = "Camera not connected";
+                    appState.AppendNotification(_timeProvider.GetUtcNow(),
+                        NotificationSeverity.Warning, "Camera not connected");
                     return;
                 }
 
@@ -1778,17 +1831,20 @@ namespace TianWen.UI.Abstractions
                             && sig.OtaIndex < liveSessionState.LastCapturedImages.Length)
                         {
                             liveSessionState.LastCapturedImages[sig.OtaIndex] = image;
-                            appState.StatusMessage = $"Preview captured: OTA {sig.OtaIndex + 1}";
+                            appState.AppendNotification(_timeProvider.GetUtcNow(),
+                                NotificationSeverity.Info, $"Preview captured: OTA {sig.OtaIndex + 1}");
                         }
                     }
                     catch (OperationCanceledException)
                     {
-                        appState.StatusMessage = "Preview cancelled";
+                        appState.AppendNotification(_timeProvider.GetUtcNow(),
+                            NotificationSeverity.Warning, "Preview cancelled");
                     }
                     catch (Exception ex)
                     {
                         logger.LogWarning(ex, "Preview capture failed for OTA {Index}", sig.OtaIndex);
-                        appState.StatusMessage = $"Preview failed: {ex.Message}";
+                        appState.AppendNotification(_timeProvider.GetUtcNow(),
+                            NotificationSeverity.Error, $"Preview failed: {ex.Message}");
                     }
                     finally
                     {
@@ -1807,7 +1863,8 @@ namespace TianWen.UI.Abstractions
                 if (sig.OtaIndex >= liveSessionState.LastCapturedImages.Length) return;
                 if (liveSessionState.LastCapturedImages[sig.OtaIndex] is not { } image)
                 {
-                    appState.StatusMessage = "No preview image to save";
+                    appState.AppendNotification(_timeProvider.GetUtcNow(),
+                        NotificationSeverity.Warning, "No preview image to save");
                     return;
                 }
 
@@ -1817,12 +1874,14 @@ namespace TianWen.UI.Abstractions
                     {
                         var fileName = await LiveSessionActions.SaveSnapshotAsync(
                             image, sig.OtaIndex, external, _timeProvider);
-                        appState.StatusMessage = $"Snapshot saved: {fileName}";
+                        appState.AppendNotification(_timeProvider.GetUtcNow(),
+                            NotificationSeverity.Info, $"Snapshot saved: {fileName}");
                     }
                     catch (Exception ex)
                     {
                         logger.LogWarning(ex, "Snapshot save failed");
-                        appState.StatusMessage = $"Snapshot failed: {ex.Message}";
+                        appState.AppendNotification(_timeProvider.GetUtcNow(),
+                            NotificationSeverity.Error, $"Snapshot failed: {ex.Message}");
                     }
                     finally
                     {
@@ -1837,7 +1896,8 @@ namespace TianWen.UI.Abstractions
                 if (sig.OtaIndex >= liveSessionState.LastCapturedImages.Length) return;
                 if (liveSessionState.LastCapturedImages[sig.OtaIndex] is not { } image)
                 {
-                    appState.StatusMessage = "No preview image to solve";
+                    appState.AppendNotification(_timeProvider.GetUtcNow(),
+                        NotificationSeverity.Warning, "No preview image to solve");
                     return;
                 }
 
@@ -1850,14 +1910,23 @@ namespace TianWen.UI.Abstractions
                         var solver = sp.GetRequiredService<IPlateSolverFactory>();
                         var result = await solver.SolveImageAsync(image, cancellationToken: cts.Token);
                         liveSessionState.PreviewPlateSolveResult = result;
-                        appState.StatusMessage = result.Solution is { } wcs
-                            ? $"Solved: RA {wcs.CenterRA:F3}h Dec {wcs.CenterDec:F2}\u00B0"
-                            : "Plate solve failed \u2014 no match";
+                        if (result.Solution is { } wcs)
+                        {
+                            appState.AppendNotification(_timeProvider.GetUtcNow(),
+                                NotificationSeverity.Info,
+                                $"Solved: RA {wcs.CenterRA:F3}h Dec {wcs.CenterDec:F2}\u00B0");
+                        }
+                        else
+                        {
+                            appState.AppendNotification(_timeProvider.GetUtcNow(),
+                                NotificationSeverity.Warning, "Plate solve failed \u2014 no match");
+                        }
                     }
                     catch (Exception ex)
                     {
                         logger.LogWarning(ex, "Preview plate solve failed");
-                        appState.StatusMessage = $"Plate solve error: {ex.Message}";
+                        appState.AppendNotification(_timeProvider.GetUtcNow(),
+                            NotificationSeverity.Error, $"Plate solve error: {ex.Message}");
                     }
                     finally
                     {
@@ -1881,12 +1950,14 @@ namespace TianWen.UI.Abstractions
                     try
                     {
                         var targetPos = await LiveSessionActions.JogFocuserAsync(focuser, sig.Steps, cts.Token);
-                        appState.StatusMessage = $"Focuser \u2192 {targetPos}";
+                        appState.AppendNotification(_timeProvider.GetUtcNow(),
+                            NotificationSeverity.Info, $"Focuser \u2192 {targetPos}");
                     }
                     catch (Exception ex)
                     {
                         logger.LogWarning(ex, "Focuser jog failed for OTA {Index}", sig.OtaIndex);
-                        appState.StatusMessage = $"Focuser jog failed: {ex.Message}";
+                        appState.AppendNotification(_timeProvider.GetUtcNow(),
+                            NotificationSeverity.Error, $"Focuser jog failed: {ex.Message}");
                     }
                     finally
                     {

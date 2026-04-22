@@ -109,6 +109,7 @@ internal class TuiSubCommand(
             [GuiTab.Session] = new TuiSessionTab(appState, sessionState, plannerState, bus),
             [GuiTab.LiveSession] = new TuiLiveSessionTab(appState, liveSessionState, terminal, consoleHost.TimeProvider, bus),
             [GuiTab.Guider] = new TuiGuiderTab(appState, liveSessionState, terminal, fontPath, consoleHost.TimeProvider),
+            [GuiTab.Notifications] = new TuiNotificationsTab(appState),
         };
 
         // BuildScheduleSignal is now handled inside AppSignalHandler — no host-level subscription needed
@@ -256,6 +257,7 @@ internal class TuiSubCommand(
                         GuiTab.Session => "Session",
                         GuiTab.LiveSession => liveSessionState.IsRunning ? $"Live \u2014 {LiveSessionActions.PhaseLabel(liveSessionState.Phase)}" : "Live",
                         GuiTab.Guider => "Guider",
+                        GuiTab.Notifications => "Notifications",
                         _ => ""
                     };
                     var profileName = appState.ActiveProfile?.DisplayName ?? "No profile";
@@ -287,11 +289,13 @@ internal class TuiSubCommand(
             ConsoleKey.F3 => GuiTab.Session,
             ConsoleKey.F4 => GuiTab.LiveSession,
             ConsoleKey.F5 => GuiTab.Guider,
+            ConsoleKey.F6 => GuiTab.Notifications,
             ConsoleKey.E when ctrl => GuiTab.Equipment,
             ConsoleKey.P when ctrl => GuiTab.Planner,
             ConsoleKey.S when ctrl => GuiTab.Session,
             ConsoleKey.L when ctrl => GuiTab.LiveSession,
             ConsoleKey.G when ctrl => GuiTab.Guider,
+            ConsoleKey.N when ctrl => GuiTab.Notifications,
             _ => (GuiTab?)null
         };
 
