@@ -51,6 +51,6 @@
     <PackageVersion Include="StbImageWriteSharp" Version="1.16.7" />
     <!-- Other packages -->
     <PackageVersion Include="QHYCCD.SDK" Version="1.0.21" />
-    <PackageVersion Include="ZWOptical.SDK" Version="4.1.561" />
+    <PackageVersion Include="ZWOptical.SDK" Version="4.2.571" />
   </ItemGroup>
 </Project>
