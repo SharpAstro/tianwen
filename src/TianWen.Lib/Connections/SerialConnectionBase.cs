@@ -131,7 +131,12 @@ internal abstract class SerialConnectionBase : ISerialConnection
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error while reading response from serial device on serial port {Port}", DisplayName);
+            // Try* contract: failures are signalled via the return value. The
+            // catch-all here is dominated by "I/O aborted" from SerialStream.EndRead
+            // when the port is closed mid-read (normal probe-timeout cleanup), and
+            // by the caller's own cancellation. Keep the diagnostic at Debug so
+            // logs stay readable during discovery.
+            _logger.LogDebug(ex, "TryReadTerminatedRawAsync failed on {Port}", DisplayName);
 
             return -1;
         }
@@ -169,7 +174,9 @@ internal abstract class SerialConnectionBase : ISerialConnection
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error while reading response from serial device on serial port {Port}", DisplayName);
+            // See TryReadTerminatedRawAsync: Try* contract + normal probe-close semantics
+            // means we report failure via the bool return; log body stays at Debug.
+            _logger.LogDebug(ex, "TryReadExactlyRawAsync failed on {Port}", DisplayName);
 
             return false;
         }
