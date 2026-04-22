@@ -1,4 +1,5 @@
 ﻿using Microsoft.Extensions.Logging;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.IO.Ports;
@@ -33,6 +34,22 @@ internal sealed class SerialConnection(string portName, int baud, Encoding encod
     public override bool IsOpen => _port.IsOpen;
 
     public override string DisplayName => _port.PortName;
+
+    /// <inheritdoc />
+    public override void DiscardInBuffer()
+    {
+        // SerialPort.DiscardInBuffer can throw InvalidOperationException if the port
+        // was closed concurrently (race with TryClose). Swallow that — best-effort.
+        if (!_port.IsOpen) return;
+        try
+        {
+            _port.DiscardInBuffer();
+        }
+        catch (InvalidOperationException)
+        {
+            // port closed between the IsOpen check and the native call — ignore.
+        }
+    }
 
     /// <summary>
     /// Closes the serial port if it is open

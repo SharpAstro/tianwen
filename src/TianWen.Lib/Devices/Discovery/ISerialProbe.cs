@@ -32,6 +32,19 @@ public interface ISerialProbe
     int BaudRate { get; }
 
     /// <summary>
+    /// How this probe's response is delimited on the wire. Within a baud group, probes
+    /// are sorted by <see cref="ProbeFraming"/> so framed protocols run first and
+    /// <see cref="ProbeFraming.Unframed"/> probes (fixed-length reads, no terminator)
+    /// run last. Rationale: an unframed read that times out or over-reads can leave
+    /// bytes in the device-side buffer that contaminate the next probe's response.
+    /// Keeping the unframed probe at the tail means only it ever has to deal with
+    /// stale bytes, and every framed probe before it exits cleanly on its terminator.
+    /// Default <see cref="ProbeFraming.Unframed"/> — the conservative choice for new
+    /// probes that haven't declared their framing.
+    /// </summary>
+    ProbeFraming Framing => ProbeFraming.Unframed;
+
+    /// <summary>
     /// Encoding used for ASCII/text-based writes and reads. Binary probes typically
     /// use <see cref="Encoding.ASCII"/> — the encoding only matters when the probe
     /// calls string-based overloads on <see cref="ISerialConnection"/>.
@@ -90,4 +103,29 @@ public enum ProbeExclusivity
 
     /// <summary>Claims the baud group exclusively — sibling probes are skipped on that port.</summary>
     ExclusiveBaud,
+}
+
+/// <summary>
+/// Response framing of an <see cref="ISerialProbe"/>. The enum value doubles as a
+/// sort priority within a baud group (lower = runs earlier). Ordering is chosen so
+/// framed protocols — which exit cleanly on a terminator byte — run before unframed
+/// probes that can over-read and leave stale bytes behind for the next probe.
+/// </summary>
+public enum ProbeFraming
+{
+    /// <summary>Response is terminated by <c>#</c> (LX200 family: Meade, OnStep, iOptron).</summary>
+    HashTerminated = 0,
+
+    /// <summary>Response is terminated by <c>\r</c> (Skywatcher).</summary>
+    CarriageReturnTerminated = 1,
+
+    /// <summary>Response is terminated by <c>}</c> (QFOC JSON).</summary>
+    BraceTerminated = 2,
+
+    /// <summary>
+    /// No byte terminator — the probe reads a fixed byte count (e.g. QHYCFW3 "VRS"
+    /// returns exactly 8 bytes). Runs last because a timed-out or over-read fixed-length
+    /// read can desync the buffer for any probe that runs after it on the same handle.
+    /// </summary>
+    Unframed = 99,
 }

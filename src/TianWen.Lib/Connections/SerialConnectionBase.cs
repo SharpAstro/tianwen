@@ -38,6 +38,9 @@ internal abstract class SerialConnectionBase : ISerialConnection
     /// <inheritdoc />
     public bool LogVerbose { get; set; }
 
+    /// <inheritdoc />
+    public string? VerboseTag { get; set; }
+
     public ValueTask<ResourceLock> WaitAsync(CancellationToken cancellationToken) => _semaphore.AcquireLockAsync(cancellationToken);
 
     /// <summary>
@@ -50,6 +53,13 @@ internal abstract class SerialConnectionBase : ISerialConnection
         return true;
     }
 
+    /// <summary>
+    /// Base no-op; concrete serial transports (e.g. <see cref="SerialConnection"/>)
+    /// override this to discard the native receive buffer before the next probe
+    /// sends a command on the shared handle.
+    /// </summary>
+    public virtual void DiscardInBuffer() { }
+
     public async ValueTask<bool> TryWriteAsync(ReadOnlyMemory<byte> message, CancellationToken cancellationToken)
     {
         try
@@ -57,8 +67,16 @@ internal abstract class SerialConnectionBase : ISerialConnection
             await _stream.WriteAsync(message, cancellationToken).ConfigureAwait(false);
             if (LogVerbose)
             {
-                _logger.LogInformation("{Port} --> {Message}", DisplayName,
-                    Encoding.GetString(message.Span).ReplaceNonPrintableWithHex());
+                var rendered = Encoding.GetString(message.Span).ReplaceNonPrintableWithHex();
+                var tag = VerboseTag;
+                if (!string.IsNullOrEmpty(tag))
+                {
+                    _logger.LogInformation("{Port} [{Tag}] --> {Message}", DisplayName, tag, rendered);
+                }
+                else
+                {
+                    _logger.LogInformation("{Port} --> {Message}", DisplayName, rendered);
+                }
             }
             else
             {
@@ -128,8 +146,16 @@ internal abstract class SerialConnectionBase : ISerialConnection
                 : Encoding.GetString(message.Span[..bytesRead]);
             if (LogVerbose)
             {
-                _logger.LogInformation("{Port} <-- {Response}", DisplayName,
-                    responseForLog.ReplaceNonPrintableWithHex());
+                var rendered = responseForLog.ReplaceNonPrintableWithHex();
+                var tag = VerboseTag;
+                if (!string.IsNullOrEmpty(tag))
+                {
+                    _logger.LogInformation("{Port} [{Tag}] <-- {Response}", DisplayName, tag, rendered);
+                }
+                else
+                {
+                    _logger.LogInformation("{Port} <-- {Response}", DisplayName, rendered);
+                }
             }
             else
             {
@@ -152,7 +178,21 @@ internal abstract class SerialConnectionBase : ISerialConnection
             // catch-all here is dominated by "I/O aborted" from SerialStream.EndRead
             // when the port is closed mid-read (normal probe-timeout cleanup), and
             // by the caller's own cancellation. Keep the diagnostic at Debug so
-            // logs stay readable during discovery.
+            // logs stay readable during discovery, but when verbose probing is on
+            // also emit a tagged Info line so the operator sees the "no response"
+            // side of each handshake (otherwise the log shows only --> writes).
+            if (LogVerbose)
+            {
+                var tag = VerboseTag;
+                if (!string.IsNullOrEmpty(tag))
+                {
+                    _logger.LogInformation("{Port} [{Tag}] <-- (no response: {Reason})", DisplayName, tag, ex.GetType().Name);
+                }
+                else
+                {
+                    _logger.LogInformation("{Port} <-- (no response: {Reason})", DisplayName, ex.GetType().Name);
+                }
+            }
             _logger.LogDebug(ex, "TryReadTerminatedRawAsync failed on {Port}", DisplayName);
 
             return -1;
@@ -186,8 +226,16 @@ internal abstract class SerialConnectionBase : ISerialConnection
             await _stream.ReadExactlyAsync(message, cancellationToken);
             if (LogVerbose)
             {
-                _logger.LogInformation("{Port} <-- {Response} ({Length})", DisplayName,
-                    Encoding.GetString(message.Span).ReplaceNonPrintableWithHex(), message.Length);
+                var rendered = Encoding.GetString(message.Span).ReplaceNonPrintableWithHex();
+                var tag = VerboseTag;
+                if (!string.IsNullOrEmpty(tag))
+                {
+                    _logger.LogInformation("{Port} [{Tag}] <-- {Response} ({Length})", DisplayName, tag, rendered, message.Length);
+                }
+                else
+                {
+                    _logger.LogInformation("{Port} <-- {Response} ({Length})", DisplayName, rendered, message.Length);
+                }
             }
             else
             {
@@ -198,7 +246,21 @@ internal abstract class SerialConnectionBase : ISerialConnection
         catch (Exception ex)
         {
             // See TryReadTerminatedRawAsync: Try* contract + normal probe-close semantics
-            // means we report failure via the bool return; log body stays at Debug.
+            // means we report failure via the bool return; log body stays at Debug. When
+            // verbose probing is on, also emit a tagged Info line so each --> write has
+            // a matching <-- outcome in the operator log.
+            if (LogVerbose)
+            {
+                var tag = VerboseTag;
+                if (!string.IsNullOrEmpty(tag))
+                {
+                    _logger.LogInformation("{Port} [{Tag}] <-- (no response: {Reason})", DisplayName, tag, ex.GetType().Name);
+                }
+                else
+                {
+                    _logger.LogInformation("{Port} <-- (no response: {Reason})", DisplayName, ex.GetType().Name);
+                }
+            }
             _logger.LogDebug(ex, "TryReadExactlyRawAsync failed on {Port}", DisplayName);
 
             return false;

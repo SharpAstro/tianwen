@@ -111,6 +111,9 @@ internal sealed class TcpSerialConnection : ISerialConnection
     /// <inheritdoc />
     public bool LogVerbose { get; set; }
 
+    /// <inheritdoc />
+    public string? VerboseTag { get; set; }
+
     public bool TryClose()
     {
         IsOpen = false;
@@ -124,6 +127,34 @@ internal sealed class TcpSerialConnection : ISerialConnection
             // best-effort close — caller doesn't care about cleanup faults
         }
         return true;
+    }
+
+    /// <inheritdoc />
+    public void DiscardInBuffer()
+    {
+        // Drop any unread bytes we've already fetched, plus anything sitting in
+        // the socket's OS-level receive queue. TcpClient.Available is the number
+        // of bytes immediately readable without blocking — draining while it is
+        // non-zero clears stale frames left by the prior probe. Best-effort;
+        // swallow transport faults so a mid-discovery disconnect still lets the
+        // next probe run (it will fail cleanly on its own next write/read).
+        _readBufferStart = 0;
+        _readBufferEnd = 0;
+
+        if (!IsOpen) return;
+        try
+        {
+            Span<byte> scratch = stackalloc byte[256];
+            while (_client.Available > 0)
+            {
+                var n = _stream.Read(scratch);
+                if (n <= 0) break;
+            }
+        }
+        catch (Exception ex) when (ex is IOException or SocketException or ObjectDisposedException)
+        {
+            // connection died while draining - let subsequent read/write report it.
+        }
     }
 
     public void Dispose() => TryClose();
@@ -142,8 +173,16 @@ internal sealed class TcpSerialConnection : ISerialConnection
             await _stream.WriteAsync(data, cancellationToken);
             if (LogVerbose)
             {
-                _logger.LogInformation("{EndPoint} --> {Message}", _remoteEndPoint,
-                    Encoding.GetString(data.Span).ReplaceNonPrintableWithHex());
+                var rendered = Encoding.GetString(data.Span).ReplaceNonPrintableWithHex();
+                var tag = VerboseTag;
+                if (!string.IsNullOrEmpty(tag))
+                {
+                    _logger.LogInformation("{EndPoint} [{Tag}] --> {Message}", _remoteEndPoint, tag, rendered);
+                }
+                else
+                {
+                    _logger.LogInformation("{EndPoint} --> {Message}", _remoteEndPoint, rendered);
+                }
             }
             return true;
         }
@@ -178,8 +217,16 @@ internal sealed class TcpSerialConnection : ISerialConnection
                         CompactBufferIfEmpty();
                         if (LogVerbose)
                         {
-                            _logger.LogInformation("{EndPoint} <-- {Response}", _remoteEndPoint,
-                                (result + term).ReplaceNonPrintableWithHex());
+                            var rendered = (result + term).ReplaceNonPrintableWithHex();
+                            var tag = VerboseTag;
+                            if (!string.IsNullOrEmpty(tag))
+                            {
+                                _logger.LogInformation("{EndPoint} [{Tag}] <-- {Response}", _remoteEndPoint, tag, rendered);
+                            }
+                            else
+                            {
+                                _logger.LogInformation("{EndPoint} <-- {Response}", _remoteEndPoint, rendered);
+                            }
                         }
                         return result;
                     }
@@ -193,6 +240,10 @@ internal sealed class TcpSerialConnection : ISerialConnection
         }
         catch (Exception ex) when (ex is IOException or SocketException or ObjectDisposedException)
         {
+            if (LogVerbose)
+            {
+                LogVerboseReadFailure(ex);
+            }
             _logger.LogWarning(ex, "TCP read (terminated) failed from {EndPoint}", _remoteEndPoint);
             IsOpen = false;
             return null;
@@ -236,9 +287,26 @@ internal sealed class TcpSerialConnection : ISerialConnection
         }
         catch (Exception ex) when (ex is IOException or SocketException or ObjectDisposedException)
         {
+            if (LogVerbose)
+            {
+                LogVerboseReadFailure(ex);
+            }
             _logger.LogWarning(ex, "TCP read (exact) failed from {EndPoint}", _remoteEndPoint);
             IsOpen = false;
             return null;
+        }
+    }
+
+    private void LogVerboseReadFailure(Exception ex)
+    {
+        var tag = VerboseTag;
+        if (!string.IsNullOrEmpty(tag))
+        {
+            _logger.LogInformation("{EndPoint} [{Tag}] <-- (no response: {Reason})", _remoteEndPoint, tag, ex.GetType().Name);
+        }
+        else
+        {
+            _logger.LogInformation("{EndPoint} <-- (no response: {Reason})", _remoteEndPoint, ex.GetType().Name);
         }
     }
 

@@ -20,6 +20,9 @@ internal sealed partial class IOptronSerialProbe : ISerialProbe
     public int BaudRate => IOptronDevice.SGP_BAUD_RATE;
     public Encoding Encoding => Encoding.ASCII;
     public ProbeExclusivity Exclusivity => ProbeExclusivity.Shared;
+    // SGP responses end in '#'. (Alone in the 28800-baud group, but the declaration
+    // keeps the probe consistent with the rest of the registry.)
+    public ProbeFraming Framing => ProbeFraming.HashTerminated;
     public TimeSpan Budget => TimeSpan.FromMilliseconds(500);
     public int MaxAttempts => 1;
 

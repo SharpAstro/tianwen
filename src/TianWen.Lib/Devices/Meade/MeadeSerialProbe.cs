@@ -21,6 +21,8 @@ internal sealed class MeadeSerialProbe : ISerialProbe
     public int BaudRate => 9600;
     public Encoding Encoding => Encoding.ASCII;
     public ProbeExclusivity Exclusivity => ProbeExclusivity.Shared;
+    // LX200 responses end in '#'.
+    public ProbeFraming Framing => ProbeFraming.HashTerminated;
     public TimeSpan Budget => TimeSpan.FromMilliseconds(500);
     public int MaxAttempts => 1;
 

@@ -19,6 +19,8 @@ internal sealed class QfocSerialProbe : ISerialProbe
     public int BaudRate => QHYFocuserDriver.QFOC_BAUD;
     public Encoding Encoding => Encoding.ASCII;
     public ProbeExclusivity Exclusivity => ProbeExclusivity.Shared;
+    // JSON response is terminated by '}' — QHYFocuserDriver reads with TryReadTerminatedAsync.
+    public ProbeFraming Framing => ProbeFraming.BraceTerminated;
     public TimeSpan Budget => TimeSpan.FromMilliseconds(1500);
     public int MaxAttempts => 1;
 

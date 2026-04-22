@@ -23,6 +23,8 @@ internal abstract class SkywatcherSerialProbeBase : ISerialProbe
     public abstract int BaudRate { get; }
     public Encoding Encoding => Encoding.ASCII;
     public ProbeExclusivity Exclusivity => ProbeExclusivity.Shared;
+    // Skywatcher AxisProtocol responses end in '\r'.
+    public ProbeFraming Framing => ProbeFraming.CarriageReturnTerminated;
     public TimeSpan Budget => TimeSpan.FromMilliseconds(300);
     public int MaxAttempts => 1;
 

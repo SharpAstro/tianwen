@@ -279,8 +279,9 @@ internal sealed class SerialProbeService : ISerialProbeService
         // actually doing — the Try* serial reads underneath are noisy on normal
         // probe timeouts (port close aborts the pending read) and have been moved
         // to Debug, so the Info-level story needs to live here instead.
+        // Tag each probe in the log with its framing so the ordering is self-explanatory.
         logger.LogInformation("Probing {Port}: {Probes}", port,
-            string.Join(", ", probesToRun.Select(p => $"{p.Name}@{p.BaudRate}")));
+            string.Join(", ", probesToRun.Select(p => $"{p.Name}@{p.BaudRate}({p.Framing})")));
 
         // Group by baud rate so each distinct baud opens the port exactly once.
         // Order: most common bauds first (9600) so LX200-style protocols dominate the
@@ -308,7 +309,15 @@ internal sealed class SerialProbeService : ISerialProbeService
         var baud = baudGroup.Key;
         using var baudScope = logger.BeginScope(new Dictionary<string, object> { ["Baud"] = baud });
 
-        var probesInGroup = baudGroup.ToArray();
+        // Secondary sort within a baud group: framed protocols first (exit cleanly on
+        // their terminator), then brace-framed (QFOC JSON), then unframed last (QHYCFW3
+        // "VRS" uses fixed-length reads). Rationale: a fixed-length read that over-reads
+        // or times out can leave stale bytes in the device-side buffer that contaminate
+        // the next probe's response on the shared handle. Keeping unframed probes at
+        // the tail means only the last probe in the group has to tolerate stale bytes,
+        // and every probe before it can trust its terminator. Stable sort so insertion
+        // order is preserved between probes with equal framing (OrderBy is stable).
+        var probesInGroup = baudGroup.OrderBy(p => p.Framing).ToArray();
 
         // If any probe in this baud group is ExclusiveBaud, it runs alone. First-registration wins.
         var exclusive = Array.Find(probesInGroup, p => p.Exclusivity == ProbeExclusivity.ExclusiveBaud);
@@ -399,48 +408,70 @@ internal sealed class SerialProbeService : ISerialProbeService
     {
         using var probeScope = logger.BeginScope(new Dictionary<string, object> { ["Probe"] = probe.Name });
 
+        // Tag the shared connection so the External logger's "COM5 --> ..." / "<-- ..."
+        // lines are attributed to this probe. Connection.VerboseTag is read on each
+        // write/read; clearing it on exit leaves the handle in an untagged state for
+        // the next probe (which sets its own tag on entry).
+        var previousTag = conn.VerboseTag;
+        conn.VerboseTag = probe.Name;
+
+        // Drop stale bytes the previous probe may have left in the receive buffer.
+        // Without this, e.g. leftover bytes from an unframed QHYCFW3 read can end
+        // with a '#' that the next LX200 probe's TryReadTerminated matches instantly,
+        // parsing garbage as a response and exiting in <1 ms instead of waiting for
+        // the real reply. Matches the DiscardInBuffer() pattern in a from-scratch
+        // PowerShell handshake: every exchange starts clean.
+        conn.DiscardInBuffer();
+
         var budget = TimeSpan.FromMilliseconds(probe.Budget.TotalMilliseconds * budgetMultiplier);
 
-        for (var attempt = 1; attempt <= probe.MaxAttempts; attempt++)
+        try
         {
-            using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            cts.CancelAfter(budget);
-
-            try
+            for (var attempt = 1; attempt <= probe.MaxAttempts; attempt++)
             {
-                var match = await probe.ProbeAsync(port, conn, cts.Token);
-                if (match is not null)
+                using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                cts.CancelAfter(budget);
+
+                try
                 {
-                    // onMatch is the verification gate: returns true to publish, false to
-                    // discard (identity mismatch). In the general pass, onMatch is null,
-                    // so all matches are published unconditionally.
-                    var publish = onMatch?.Invoke(match) ?? true;
-                    if (publish)
+                    var match = await probe.ProbeAsync(port, conn, cts.Token);
+                    if (match is not null)
                     {
-                        PublishMatch(probe.Name, match);
-                        logger.LogInformation("Match → {DeviceUri}", match.DeviceUri);
+                        // onMatch is the verification gate: returns true to publish, false to
+                        // discard (identity mismatch). In the general pass, onMatch is null,
+                        // so all matches are published unconditionally.
+                        var publish = onMatch?.Invoke(match) ?? true;
+                        if (publish)
+                        {
+                            PublishMatch(probe.Name, match);
+                            logger.LogInformation("Match -> {DeviceUri}", match.DeviceUri);
+                        }
+                        return;
                     }
+
+                    // Null = no match at the protocol level; no point retrying.
                     return;
                 }
-
-                // Null = no match at the protocol level; no point retrying.
-                return;
+                catch (OperationCanceledException) when (cts.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+                {
+                    logger.LogDebug("Timeout after {Budget}ms (attempt {Attempt}/{Max}).",
+                        budget.TotalMilliseconds, attempt, probe.MaxAttempts);
+                    // Fall through to next attempt, if any.
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    logger.LogWarning(ex, "Probe threw - treating as no-match.");
+                    return;
+                }
             }
-            catch (OperationCanceledException) when (cts.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
-            {
-                logger.LogDebug("Timeout after {Budget}ms (attempt {Attempt}/{Max}).",
-                    budget.TotalMilliseconds, attempt, probe.MaxAttempts);
-                // Fall through to next attempt, if any.
-            }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-            {
-                throw;
-            }
-            catch (Exception ex)
-            {
-                logger.LogWarning(ex, "Probe threw — treating as no-match.");
-                return;
-            }
+        }
+        finally
+        {
+            conn.VerboseTag = previousTag;
         }
     }
 

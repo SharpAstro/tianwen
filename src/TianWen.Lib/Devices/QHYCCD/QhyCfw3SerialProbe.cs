@@ -18,6 +18,9 @@ internal sealed class QhyCfw3SerialProbe : ISerialProbe
     public int BaudRate => QHYSerialControlledFilterWheelDriver.CFW_BAUD;
     public Encoding Encoding => Encoding.ASCII;
     public ProbeExclusivity Exclusivity => ProbeExclusivity.Shared;
+    // VRS is fixed-length (8 bytes, no terminator) so this probe runs last within its
+    // baud group — see ProbeFraming.Unframed docs for why.
+    public ProbeFraming Framing => ProbeFraming.Unframed;
     public TimeSpan Budget => TimeSpan.FromMilliseconds(500);
     public int MaxAttempts => 1;
 

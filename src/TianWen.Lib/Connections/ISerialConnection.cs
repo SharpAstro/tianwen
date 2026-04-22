@@ -41,7 +41,24 @@ public interface ISerialConnection : IDisposable
     /// </summary>
     bool LogVerbose { get => false; set { } }
 
+    /// <summary>
+    /// Optional label included in the verbose log lines so mixed-probe traffic on a
+    /// shared handle is self-identifying (e.g. <c>COM5 [OnStep] --> :GVP#</c>). The
+    /// probe service sets this to the active probe's name around each handshake and
+    /// clears it afterwards. Null or empty prints the untagged format. Default-interface
+    /// setter is a no-op so in-memory fakes don't need a backing field.
+    /// </summary>
+    string? VerboseTag { get => null; set { } }
+
     bool TryClose();
+
+    /// <summary>
+    /// Discards any bytes sitting in the receive buffer. Called by the probe service
+    /// between probes on a shared handle so one protocol's response (or timed-out
+    /// partial read) cannot contaminate the next probe's read. Default-interface
+    /// implementation is a no-op for fakes and connections that don't buffer.
+    /// </summary>
+    void DiscardInBuffer() { }
 
     ValueTask<ResourceLock> WaitAsync(CancellationToken cancellationToken);
 
