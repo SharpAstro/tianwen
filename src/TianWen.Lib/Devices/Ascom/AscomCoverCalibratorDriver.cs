@@ -16,7 +16,13 @@ internal class AscomCoverCalibratorDriver : AscomDeviceDriverBase, ICoverDriver
         _coverCalibrator = new AscomDispatchCoverCalibrator(_dispatchDevice.Dispatch);
     }
 
-    public int MaxBrightness => _coverCalibrator.MaxBrightness;
+    protected override ValueTask<bool> InitDeviceAsync(CancellationToken cancellationToken)
+    {
+        MaxBrightness = SafeGet(() => _coverCalibrator.MaxBrightness, 0);
+        return ValueTask.FromResult(true);
+    }
+
+    public int MaxBrightness { get; private set; }
 
     public async Task BeginCalibratorOn(int brightness, CancellationToken cancellationToken = default)
     {
@@ -34,34 +40,25 @@ internal class AscomCoverCalibratorDriver : AscomDeviceDriverBase, ICoverDriver
         }
         else
         {
-            _coverCalibrator.CalibratorOn(brightness);
+            SafeDo(() => _coverCalibrator.CalibratorOn(brightness));
         }
     }
 
     public Task BeginCalibratorOff(CancellationToken cancellationToken = default)
-    {
-        _coverCalibrator.CalibratorOff();
-        return Task.CompletedTask;
-    }
+        => SafeTask(() => _coverCalibrator.CalibratorOff());
 
     public ValueTask<int> GetBrightnessAsync(CancellationToken cancellationToken = default)
-        => ValueTask.FromResult(_coverCalibrator.Brightness);
+        => ValueTask.FromResult(SafeGet(() => _coverCalibrator.Brightness, 0));
 
     public ValueTask<CoverStatus> GetCoverStateAsync(CancellationToken cancellationToken = default)
-        => ValueTask.FromResult(Connected ? (CoverStatus)_coverCalibrator.CoverState : CoverStatus.Unknown);
+        => ValueTask.FromResult(Connected ? SafeGet(() => (CoverStatus)_coverCalibrator.CoverState, CoverStatus.Unknown) : CoverStatus.Unknown);
 
     public ValueTask<CalibratorStatus> GetCalibratorStateAsync(CancellationToken cancellationToken = default)
-        => ValueTask.FromResult(Connected ? (CalibratorStatus)_coverCalibrator.CalibratorState : CalibratorStatus.Unknown);
+        => ValueTask.FromResult(Connected ? SafeGet(() => (CalibratorStatus)_coverCalibrator.CalibratorState, CalibratorStatus.Unknown) : CalibratorStatus.Unknown);
 
     public Task BeginClose(CancellationToken cancellationToken = default)
-    {
-        _coverCalibrator.CloseCover();
-        return Task.CompletedTask;
-    }
+        => SafeTask(() => _coverCalibrator.CloseCover());
 
     public Task BeginOpen(CancellationToken cancellationToken = default)
-    {
-        _coverCalibrator.OpenCover();
-        return Task.CompletedTask;
-    }
+        => SafeTask(() => _coverCalibrator.OpenCover());
 }

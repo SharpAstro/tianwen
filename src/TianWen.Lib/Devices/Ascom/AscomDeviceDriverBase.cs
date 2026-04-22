@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Logging;
 using System;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 using System.Threading;
@@ -22,13 +23,77 @@ internal abstract class AscomDeviceDriverBase(AscomDevice device, IServiceProvid
 
     protected readonly AscomDispatchDevice _dispatchDevice = new(device.DeviceId);
 
-    public override string Name => _dispatchDevice.Name;
+    public override string Name => SafeGet(() => _dispatchDevice.Name, _device.DisplayName);
 
-    public override string? Description => _dispatchDevice.Description;
+    public override string? Description => SafeGet(() => _dispatchDevice.Description, null);
 
-    public override string? DriverInfo => _dispatchDevice.DriverInfo;
+    public override string? DriverInfo => SafeGet(() => _dispatchDevice.DriverInfo, null);
 
-    public override string? DriverVersion => _dispatchDevice.DriverVersion;
+    public override string? DriverVersion => SafeGet(() => _dispatchDevice.DriverVersion, null);
+
+    // ASCOM drivers routinely throw COMException for unimplemented members, partially-connected
+    // hubs, or transient hardware faults. Any such exception escaping to AOT's unhandled-exception
+    // handler fail-fasts the process (STATUS_STACK_BUFFER_OVERRUN 0xc0000409). Every COM property/
+    // method call in a driver subclass goes through one of these three helpers.
+    protected T SafeGet<T>(Func<T> read, T fallback, [CallerMemberName] string? member = null)
+    {
+        try
+        {
+            return read();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "ASCOM {DeviceId} {Member} threw {Type}: {Msg}",
+                _device.DeviceId, member, ex.GetType().Name, ex.Message);
+            return fallback;
+        }
+    }
+
+    protected void SafeDo(Action op, [CallerMemberName] string? member = null)
+    {
+        try
+        {
+            op();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "ASCOM {DeviceId} {Member} threw {Type}: {Msg}",
+                _device.DeviceId, member, ex.GetType().Name, ex.Message);
+        }
+    }
+
+    // Async-facing COM invoke: never throws sync; faults the returned task on COM failure so
+    // `await` sees the error (but the call-site expression — e.g. `return SafeTask(...)` —
+    // can't escape with an unhandled sync throw out of a Task-returning method).
+    protected Task SafeTask(Action op, [CallerMemberName] string? member = null)
+    {
+        try
+        {
+            op();
+            return Task.CompletedTask;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "ASCOM {DeviceId} {Member} threw {Type}: {Msg}",
+                _device.DeviceId, member, ex.GetType().Name, ex.Message);
+            return Task.FromException(ex);
+        }
+    }
+
+    protected ValueTask SafeValueTask(Action op, [CallerMemberName] string? member = null)
+    {
+        try
+        {
+            op();
+            return ValueTask.CompletedTask;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "ASCOM {DeviceId} {Member} threw {Type}: {Msg}",
+                _device.DeviceId, member, ex.GetType().Name, ex.Message);
+            return ValueTask.FromException(ex);
+        }
+    }
 
     protected override async Task<(bool Success, int ConnectionId, AscomDeviceInfo DeviceInfo)> DoConnectDeviceAsync(CancellationToken cancellationToken)
     {

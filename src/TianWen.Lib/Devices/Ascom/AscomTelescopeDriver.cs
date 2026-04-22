@@ -27,18 +27,20 @@ internal class AscomTelescopeDriver : AscomDeviceDriverBase, IMountDriver
         // For now we support the standard rates
         _trackingSpeeds = [TrackingSpeed.Sidereal, TrackingSpeed.Lunar, TrackingSpeed.Solar, TrackingSpeed.King];
 
-        CanSetTracking = _telescope.CanSetTracking;
-        CanSetSideOfPier = _telescope.CanSetPierSide;
-        CanPark = _telescope.CanPark;
-        CanUnpark = _telescope.CanUnpark;
-        CanSetPark = _telescope.CanSetPark;
-        CanSlew = _telescope.CanSlew;
-        CanSlewAsync = _telescope.CanSlewAsync;
-        CanSync = _telescope.CanSync;
-        CanPulseGuide = _telescope.CanPulseGuide;
-        CanSetRightAscensionRate = _telescope.CanSetRightAscensionRate;
-        CanSetDeclinationRate = _telescope.CanSetDeclinationRate;
-        CanSetGuideRates = _telescope.CanSetGuideRates;
+        CanSetTracking = SafeGet(() => _telescope.CanSetTracking, false);
+        CanSetSideOfPier = SafeGet(() => _telescope.CanSetPierSide, false);
+        CanPark = SafeGet(() => _telescope.CanPark, false);
+        CanUnpark = SafeGet(() => _telescope.CanUnpark, false);
+        CanSetPark = SafeGet(() => _telescope.CanSetPark, false);
+        CanSlew = SafeGet(() => _telescope.CanSlew, false);
+        CanSlewAsync = SafeGet(() => _telescope.CanSlewAsync, false);
+        CanSync = SafeGet(() => _telescope.CanSync, false);
+        CanPulseGuide = SafeGet(() => _telescope.CanPulseGuide, false);
+        CanSetRightAscensionRate = SafeGet(() => _telescope.CanSetRightAscensionRate, false);
+        CanSetDeclinationRate = SafeGet(() => _telescope.CanSetDeclinationRate, false);
+        CanSetGuideRates = SafeGet(() => _telescope.CanSetGuideRates, false);
+
+        EquatorialSystem = SafeGet(() => (EquatorialCoordinateType)_telescope.EquatorialSystem, EquatorialCoordinateType.Topocentric);
 
         return ValueTask.FromResult(true);
     }
@@ -47,12 +49,11 @@ internal class AscomTelescopeDriver : AscomDeviceDriverBase, IMountDriver
     {
         if (CanSlewAsync)
         {
-            _telescope.SlewToCoordinatesAsync(ra, dec);
-            return ValueTask.CompletedTask;
+            return SafeValueTask(() => _telescope.SlewToCoordinatesAsync(ra, dec));
         }
         else
         {
-            throw new InvalidOperationException($"Failed to execute {nameof(AbortSlewAsync)} connected={Connected} initialized={_telescope is not null}");
+            throw new InvalidOperationException($"Failed to execute {nameof(BeginSlewRaDecAsync)} connected={Connected} initialized={_telescope is not null}");
         }
     }
 
@@ -62,7 +63,7 @@ internal class AscomTelescopeDriver : AscomDeviceDriverBase, IMountDriver
     {
         if (Connected)
         {
-            return ValueTask.FromResult((TrackingSpeed)_telescope.TrackingRate);
+            return ValueTask.FromResult(SafeGet(() => (TrackingSpeed)_telescope.TrackingRate, TrackingSpeed.Sidereal));
         }
         else
         {
@@ -71,18 +72,19 @@ internal class AscomTelescopeDriver : AscomDeviceDriverBase, IMountDriver
     }
 
     public ValueTask SetTrackingSpeedAsync(TrackingSpeed value, CancellationToken cancellationToken)
-    {
-        _telescope.TrackingRate = (int)value;
-        return ValueTask.CompletedTask;
-    }
+        => SafeValueTask(() => _telescope.TrackingRate = (int)value);
 
-    public ValueTask<bool> AtHomeAsync(CancellationToken cancellationToken) => ValueTask.FromResult(_telescope.AtHome);
+    public ValueTask<bool> AtHomeAsync(CancellationToken cancellationToken)
+        => ValueTask.FromResult(SafeGet(() => _telescope.AtHome, false));
 
-    public ValueTask<bool> AtParkAsync(CancellationToken cancellationToken) => ValueTask.FromResult(_telescope.AtPark);
+    public ValueTask<bool> AtParkAsync(CancellationToken cancellationToken)
+        => ValueTask.FromResult(SafeGet(() => _telescope.AtPark, false));
 
-    public ValueTask<bool> IsSlewingAsync(CancellationToken cancellationToken) => ValueTask.FromResult(_telescope.Slewing);
+    public ValueTask<bool> IsSlewingAsync(CancellationToken cancellationToken)
+        => ValueTask.FromResult(SafeGet(() => _telescope.Slewing, false));
 
-    public ValueTask<double> GetSiderealTimeAsync(CancellationToken cancellationToken) => ValueTask.FromResult(_telescope.SiderealTime);
+    public ValueTask<double> GetSiderealTimeAsync(CancellationToken cancellationToken)
+        => ValueTask.FromResult(SafeGet(() => _telescope.SiderealTime, double.NaN));
 
     public async ValueTask<double> GetHourAngleAsync(CancellationToken cancellationToken)
     {
@@ -94,16 +96,7 @@ internal class AscomTelescopeDriver : AscomDeviceDriverBase, IMountDriver
     public bool TimeIsSetByUs { get; private set; }
 
     public ValueTask<DateTime?> TryGetUTCDateFromMountAsync(CancellationToken cancellationToken)
-    {
-        try
-        {
-            return ValueTask.FromResult(Connected ? _telescope.UTCDate : null as DateTime?);
-        }
-        catch
-        {
-            return default;
-        }
-    }
+        => ValueTask.FromResult(Connected ? SafeGet(() => (DateTime?)_telescope.UTCDate, null) : null);
 
     public ValueTask SetUTCDateAsync(DateTime value, CancellationToken cancellationToken)
     {
@@ -125,7 +118,7 @@ internal class AscomTelescopeDriver : AscomDeviceDriverBase, IMountDriver
     }
 
     public ValueTask<bool> IsTrackingAsync(CancellationToken cancellationToken)
-        => ValueTask.FromResult(_telescope.Tracking);
+        => ValueTask.FromResult(SafeGet(() => _telescope.Tracking, false));
 
     public ValueTask SetTrackingAsync(bool value, CancellationToken cancellationToken)
     {
@@ -135,9 +128,7 @@ internal class AscomTelescopeDriver : AscomDeviceDriverBase, IMountDriver
             {
                 throw new InvalidOperationException("Driver does not support setting tracking");
             }
-            _telescope.Tracking = value;
-
-            return ValueTask.CompletedTask;
+            return SafeValueTask(() => _telescope.Tracking = value);
         }
         else
         {
@@ -170,14 +161,13 @@ internal class AscomTelescopeDriver : AscomDeviceDriverBase, IMountDriver
     public bool CanSetGuideRates { get; private set; }
 
     public ValueTask<PointingState> GetSideOfPierAsync(CancellationToken cancellationToken)
-        => ValueTask.FromResult((PointingState)_telescope.SideOfPier);
+        => ValueTask.FromResult(SafeGet(() => (PointingState)_telescope.SideOfPier, PointingState.Unknown));
 
     public ValueTask SetSideOfPierAsync(PointingState value, CancellationToken cancellationToken)
     {
         if (CanSetSideOfPier)
         {
-            _telescope.SideOfPier = (int)value;
-            return ValueTask.CompletedTask;
+            return SafeValueTask(() => _telescope.SideOfPier = (int)value);
         }
         else
         {
@@ -186,84 +176,69 @@ internal class AscomTelescopeDriver : AscomDeviceDriverBase, IMountDriver
     }
 
     public ValueTask<PointingState> DestinationSideOfPierAsync(double ra, double dec, CancellationToken cancellationToken)
-        => ValueTask.FromResult((PointingState)_telescope.DestinationSideOfPier(ra, dec));
+        => ValueTask.FromResult(SafeGet(() => (PointingState)_telescope.DestinationSideOfPier(ra, dec), PointingState.Unknown));
 
-    public EquatorialCoordinateType EquatorialSystem => (EquatorialCoordinateType)_telescope.EquatorialSystem;
+    public EquatorialCoordinateType EquatorialSystem { get; private set; } = EquatorialCoordinateType.Topocentric;
 
-    public ValueTask<AlignmentMode> GetAlignmentAsync(CancellationToken cancellationToken) => ValueTask.FromResult((AlignmentMode)_telescope.AlignmentMode);
+    public ValueTask<AlignmentMode> GetAlignmentAsync(CancellationToken cancellationToken)
+        => ValueTask.FromResult(SafeGet(() => (AlignmentMode)_telescope.AlignmentMode, AlignmentMode.GermanPolar));
 
-    public ValueTask<double> GetRightAscensionAsync(CancellationToken cancellationToken) => ValueTask.FromResult(_telescope.RightAscension);
+    public ValueTask<double> GetRightAscensionAsync(CancellationToken cancellationToken)
+        => ValueTask.FromResult(SafeGet(() => _telescope.RightAscension, double.NaN));
 
-    public ValueTask<double> GetDeclinationAsync(CancellationToken cancellationToken) => ValueTask.FromResult(_telescope.Declination);
+    public ValueTask<double> GetDeclinationAsync(CancellationToken cancellationToken)
+        => ValueTask.FromResult(SafeGet(() => _telescope.Declination, double.NaN));
 
-    public ValueTask<double> GetSiteElevationAsync(CancellationToken cancellationToken) => ValueTask.FromResult(_telescope.SiteElevation);
+    public ValueTask<double> GetSiteElevationAsync(CancellationToken cancellationToken)
+        => ValueTask.FromResult(SafeGet(() => _telescope.SiteElevation, double.NaN));
 
     public ValueTask SetSiteElevationAsync(double value, CancellationToken cancellationToken)
-    {
-        _telescope.SiteElevation = value;
-        return ValueTask.CompletedTask;
-    }
+        => SafeValueTask(() => _telescope.SiteElevation = value);
 
-    public ValueTask<double> GetSiteLatitudeAsync(CancellationToken cancellationToken) => ValueTask.FromResult(_telescope.SiteLatitude);
+    public ValueTask<double> GetSiteLatitudeAsync(CancellationToken cancellationToken)
+        => ValueTask.FromResult(SafeGet(() => _telescope.SiteLatitude, double.NaN));
 
     public ValueTask SetSiteLatitudeAsync(double value, CancellationToken cancellationToken)
-    {
-        _telescope.SiteLatitude = value;
-        return ValueTask.CompletedTask;
-    }
+        => SafeValueTask(() => _telescope.SiteLatitude = value);
 
-    public ValueTask<double> GetSiteLongitudeAsync(CancellationToken cancellationToken) => ValueTask.FromResult(_telescope.SiteLongitude);
+    public ValueTask<double> GetSiteLongitudeAsync(CancellationToken cancellationToken)
+        => ValueTask.FromResult(SafeGet(() => _telescope.SiteLongitude, double.NaN));
 
     public ValueTask SetSiteLongitudeAsync(double value, CancellationToken cancellationToken)
-    {
-        _telescope.SiteLongitude = value;
-        return ValueTask.CompletedTask;
-    }
+        => SafeValueTask(() => _telescope.SiteLongitude = value);
 
-    public ValueTask<bool> IsPulseGuidingAsync(CancellationToken cancellationToken) => ValueTask.FromResult(_telescope.IsPulseGuiding);
+    public ValueTask<bool> IsPulseGuidingAsync(CancellationToken cancellationToken)
+        => ValueTask.FromResult(SafeGet(() => _telescope.IsPulseGuiding, false));
 
     public ValueTask<double> GetRightAscensionRateAsync(CancellationToken cancellationToken)
-        => ValueTask.FromResult(_telescope.RightAscensionRate);
+        => ValueTask.FromResult(SafeGet(() => _telescope.RightAscensionRate, 0.0));
 
     public ValueTask SetRightAscensionRateAsync(double value, CancellationToken cancellationToken)
-    {
-        _telescope.RightAscensionRate = value;
-        return ValueTask.CompletedTask;
-    }
+        => SafeValueTask(() => _telescope.RightAscensionRate = value);
 
     public ValueTask<double> GetDeclinationRateAsync(CancellationToken cancellationToken)
-        => ValueTask.FromResult(_telescope.DeclinationRate);
+        => ValueTask.FromResult(SafeGet(() => _telescope.DeclinationRate, 0.0));
 
     public ValueTask SetDeclinationRateAsync(double value, CancellationToken cancellationToken)
-    {
-        _telescope.DeclinationRate = value;
-        return ValueTask.CompletedTask;
-    }
+        => SafeValueTask(() => _telescope.DeclinationRate = value);
 
     public ValueTask<double> GetGuideRateRightAscensionAsync(CancellationToken cancellationToken)
-        => ValueTask.FromResult(_telescope.GuideRateRightAscension);
+        => ValueTask.FromResult(SafeGet(() => _telescope.GuideRateRightAscension, double.NaN));
 
     public ValueTask SetGuideRateRightAscensionAsync(double value, CancellationToken cancellationToken)
-    {
-        _telescope.GuideRateRightAscension = value;
-        return ValueTask.CompletedTask;
-    }
+        => SafeValueTask(() => _telescope.GuideRateRightAscension = value);
 
     public ValueTask<double> GetGuideRateDeclinationAsync(CancellationToken cancellationToken)
-        => ValueTask.FromResult(_telescope.GuideRateDeclination);
+        => ValueTask.FromResult(SafeGet(() => _telescope.GuideRateDeclination, double.NaN));
 
     public ValueTask SetGuideRateDeclinationAsync(double value, CancellationToken cancellationToken)
-    {
-        _telescope.GuideRateDeclination = value;
-        return ValueTask.CompletedTask;
-    }
+        => SafeValueTask(() => _telescope.GuideRateDeclination = value);
 
     public ValueTask ParkAsync(CancellationToken cancellationToken)
     {
         if (Connected && CanPark)
         {
-            _telescope.Park();
-            return ValueTask.CompletedTask;
+            return SafeValueTask(() => _telescope.Park());
         }
         else
         {
@@ -275,8 +250,7 @@ internal class AscomTelescopeDriver : AscomDeviceDriverBase, IMountDriver
     {
         if (Connected && CanUnpark)
         {
-            _telescope.Unpark();
-            return ValueTask.CompletedTask;
+            return SafeValueTask(() => _telescope.Unpark());
         }
         else
         {
@@ -288,8 +262,7 @@ internal class AscomTelescopeDriver : AscomDeviceDriverBase, IMountDriver
     {
         if (Connected && CanPulseGuide)
         {
-            _telescope.PulseGuide((int)direction, (int)duration.TotalMilliseconds);
-            return ValueTask.CompletedTask;
+            return SafeValueTask(() => _telescope.PulseGuide((int)direction, (int)duration.TotalMilliseconds));
         }
         else
         {
@@ -306,7 +279,7 @@ internal class AscomTelescopeDriver : AscomDeviceDriverBase, IMountDriver
             && !await AtParkAsync(cancellationToken)
             && await DestinationSideOfPierAsync(ra, dec, cancellationToken) == await GetSideOfPierAsync(cancellationToken))
         {
-            _telescope.SyncToCoordinates(ra, dec);
+            SafeDo(() => _telescope.SyncToCoordinates(ra, dec));
         }
         else
         {
@@ -318,8 +291,7 @@ internal class AscomTelescopeDriver : AscomDeviceDriverBase, IMountDriver
     {
         if (Connected)
         {
-            _telescope.AbortSlew();
-            return ValueTask.CompletedTask;
+            return SafeValueTask(() => _telescope.AbortSlew());
         }
         else
         {
@@ -327,7 +299,7 @@ internal class AscomTelescopeDriver : AscomDeviceDriverBase, IMountDriver
         }
     }
 
-    public bool CanMoveAxis(TelescopeAxis axis) => _telescope.CanMoveAxis((int)axis);
+    public bool CanMoveAxis(TelescopeAxis axis) => SafeGet(() => _telescope.CanMoveAxis((int)axis), false);
 
     // TODO: implement axis rates
     public IReadOnlyList<AxisRate> AxisRates(TelescopeAxis axis)

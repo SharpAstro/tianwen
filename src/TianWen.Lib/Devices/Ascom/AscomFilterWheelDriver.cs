@@ -12,29 +12,36 @@ namespace TianWen.Lib.Devices.Ascom;
 internal class AscomFilterWheelDriver : AscomDeviceDriverBase, IFilterWheelDriver
 {
     private readonly AscomDispatchFilterWheel _filterWheel;
+    private string[] _names = [];
+    private int[] _focusOffsets = [];
 
     internal AscomFilterWheelDriver(AscomDevice device, IServiceProvider sp) : base(device, sp)
     {
         _filterWheel = new AscomDispatchFilterWheel(_dispatchDevice.Dispatch);
     }
 
-    string[] Names => _filterWheel.Names;
+    protected override ValueTask<bool> InitDeviceAsync(CancellationToken cancellationToken)
+    {
+        // Slot metadata is hardware-fixed; cache it here so the Filters accessor — which the UI
+        // reads frequently — doesn't re-dispatch through COM on every render.
+        _names = SafeGet(() => _filterWheel.Names, []);
+        _focusOffsets = SafeGet(() => _filterWheel.FocusOffsets, []);
+        return ValueTask.FromResult(true);
+    }
 
-    int[] FocusOffsets => _filterWheel.FocusOffsets;
-
-    public ValueTask<int> GetPositionAsync(CancellationToken cancellationToken = default) => ValueTask.FromResult((int)_filterWheel.Position);
+    public ValueTask<int> GetPositionAsync(CancellationToken cancellationToken = default)
+        => ValueTask.FromResult(SafeGet(() => (int)_filterWheel.Position, -1));
 
     public Task BeginMoveAsync(int position, CancellationToken cancellationToken = default)
     {
         if (Filters is { Count: > 0 } filters && position is >= 0 and <= short.MaxValue && position < filters.Count)
         {
-            _filterWheel.Position = (short)position;
+            return SafeTask(() => _filterWheel.Position = (short)position);
         }
         else
         {
             throw new InvalidOperationException($"Cannot change filter wheel position to {position}");
         }
-        return Task.CompletedTask;
     }
 
     public IReadOnlyList<InstalledFilter> Filters
@@ -42,21 +49,17 @@ internal class AscomFilterWheelDriver : AscomDeviceDriverBase, IFilterWheelDrive
         get
         {
             var query = _device.Query;
-
-            // Determine slot count: COM driver is authoritative, URI params as fallback
-            var names = Names;
-            var offsets = FocusOffsets;
-            var slotCount = names.Length;
+            var slotCount = _names.Length;
 
             var filters = new List<InstalledFilter>(slotCount);
             for (var i = 0; i < slotCount; i++)
             {
                 // URI query params override COM values per slot (profile is source of truth)
                 var uriName = query[DeviceQueryKeyExtensions.FilterKey(i + 1)];
-                var name = uriName ?? names[i];
+                var name = uriName ?? _names[i];
                 var offset = int.TryParse(query[DeviceQueryKeyExtensions.FilterOffsetKey(i + 1)], out var o)
                     ? o
-                    : (i < offsets.Length ? offsets[i] : 0);
+                    : (i < _focusOffsets.Length ? _focusOffsets[i] : 0);
                 filters.Add(new InstalledFilter(name, offset));
             }
 

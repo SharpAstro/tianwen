@@ -18,46 +18,43 @@ internal class AscomFocuserDriver : AscomDeviceDriverBase, IFocuserDriver
 
     protected override ValueTask<bool> InitDeviceAsync(CancellationToken cancellationToken)
     {
-        TempCompAvailable = _focuser.TempCompAvailable;
+        // Cache immutable hardware capabilities — avoids a COM round-trip per property read
+        // and, more importantly, avoids each read being another place a hung hub can throw.
+        TempCompAvailable = SafeGet(() => _focuser.TempCompAvailable, false);
+        Absolute = SafeGet(() => _focuser.Absolute, false);
+        MaxIncrement = SafeGet(() => _focuser.MaxIncrement, int.MaxValue);
+        MaxStep = SafeGet(() => _focuser.MaxStep, int.MaxValue);
 
-        try
-        {
-            StepSize = _focuser.StepSize is double stepSize && !double.IsNaN(stepSize) ? stepSize : double.NaN;
-            CanGetStepSize = !double.IsNaN(StepSize);
-        }
-        catch
-        {
-            StepSize = double.NaN;
-            CanGetStepSize = false;
-        }
+        StepSize = SafeGet(() => _focuser.StepSize, double.NaN);
+        CanGetStepSize = !double.IsNaN(StepSize);
 
         return ValueTask.FromResult(true);
     }
 
     public ValueTask<int> GetPositionAsync(CancellationToken cancellationToken = default)
-        => ValueTask.FromResult(Connected && Absolute ? _focuser.Position : int.MinValue);
+        => ValueTask.FromResult(Connected && Absolute ? SafeGet(() => _focuser.Position, int.MinValue) : int.MinValue);
 
-    public bool Absolute => _focuser.Absolute;
+    public bool Absolute { get; private set; }
 
     public ValueTask<bool> GetIsMovingAsync(CancellationToken cancellationToken = default)
-        => ValueTask.FromResult(Connected && _focuser.IsMoving);
+        => ValueTask.FromResult(Connected && SafeGet(() => _focuser.IsMoving, false));
 
-    public int MaxIncrement => _focuser.MaxIncrement;
+    public int MaxIncrement { get; private set; } = int.MaxValue;
 
-    public int MaxStep => _focuser.MaxStep;
+    public int MaxStep { get; private set; } = int.MaxValue;
 
     public double StepSize { get; private set; } = double.NaN;
 
     public bool CanGetStepSize { get; private set; }
 
     public ValueTask<bool> GetTempCompAsync(CancellationToken cancellationToken = default)
-        => ValueTask.FromResult(Connected && TempCompAvailable && _focuser.TempComp);
+        => ValueTask.FromResult(Connected && TempCompAvailable && SafeGet(() => _focuser.TempComp, false));
 
     public ValueTask SetTempCompAsync(bool value, CancellationToken cancellationToken = default)
     {
         if (Connected && TempCompAvailable)
         {
-            _focuser.TempComp = value;
+            return SafeValueTask(() => _focuser.TempComp = value);
         }
         return ValueTask.CompletedTask;
     }
@@ -69,7 +66,7 @@ internal class AscomFocuserDriver : AscomDeviceDriverBase, IFocuserDriver
     public int BacklashStepsOut { get; set; } = -1;
 
     public ValueTask<double> GetTemperatureAsync(CancellationToken cancellationToken = default)
-        => ValueTask.FromResult(Connected ? _focuser.Temperature : double.NaN);
+        => ValueTask.FromResult(Connected ? SafeGet(() => _focuser.Temperature, double.NaN) : double.NaN);
 
     public Task BeginMoveAsync(int position, CancellationToken cancellationToken = default)
     {
@@ -85,12 +82,8 @@ internal class AscomFocuserDriver : AscomDeviceDriverBase, IFocuserDriver
         {
             throw new ArgumentOutOfRangeException(nameof(position), position, $"Relative position must be between -{MaxIncrement} and {MaxIncrement}");
         }
-        else
-        {
-            _focuser.Move(position);
-        }
 
-        return Task.CompletedTask;
+        return SafeTask(() => _focuser.Move(position));
     }
 
     public async Task BeginHaltAsync(CancellationToken cancellationToken = default)
@@ -101,7 +94,7 @@ internal class AscomFocuserDriver : AscomDeviceDriverBase, IFocuserDriver
         }
         else if (await GetIsMovingAsync(cancellationToken))
         {
-            _focuser.Halt();
+            SafeDo(() => _focuser.Halt());
         }
     }
 }
