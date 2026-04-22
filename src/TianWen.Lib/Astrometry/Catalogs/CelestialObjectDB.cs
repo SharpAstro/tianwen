@@ -305,7 +305,8 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
             Catalog.HD
         };
 
-        var simbadCatalogs = new[] {
+        (string FileName, Catalog Cat)[] simbadCatalogs =
+        [
             ("HR", Catalog.HR),
             ("GUM", Catalog.GUM),
             ("RCW", Catalog.RCW),
@@ -319,8 +320,8 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
             ("DG", Catalog.DG),
             ("HH", Catalog.HH),
             ("Cl", Catalog.Melotte),
-            ("Cl", Catalog.Collinder)
-        };
+            ("Cl", Catalog.Collinder),
+        ];
         // Depth-1 prefetch pipeline: while the main thread merges file N, exactly
         // ONE background task decompresses + JSON-parses file N+1. This overlaps
         // LZ decompress (CPU-bound, stateless) with merge (dict mutations, must be
@@ -329,14 +330,14 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
         // once adds tens of ms per task vs a single warmed path), and leaves CPU
         // headroom for Tycho2's own multi-threaded LZ decode running in parallel.
         Task<List<SimbadCatalogDto>?>? nextParseTask = simbadCatalogs.Length > 0
-            ? ParseSimbadFileAsync(assembly, manifestNames, simbadCatalogs[0].Item1, cancellationToken)
+            ? ParseSimbadFileAsync(assembly, manifestNames, simbadCatalogs[0].FileName, cancellationToken)
             : null;
         for (var i = 0; i < simbadCatalogs.Length; i++)
         {
             var (fileName, catToAdd) = simbadCatalogs[i];
             // Kick off parse of the NEXT file before we do this file's merge.
             var prefetchTask = (i + 1 < simbadCatalogs.Length)
-                ? ParseSimbadFileAsync(assembly, manifestNames, simbadCatalogs[i + 1].Item1, cancellationToken)
+                ? ParseSimbadFileAsync(assembly, manifestNames, simbadCatalogs[i + 1].FileName, cancellationToken)
                 : null;
 
             var perFileSw = Stopwatch.StartNew();
@@ -371,13 +372,13 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
         //   Ced 1946     — 420  reflection nebulae; different object class, so
         //                  rarely overlaps with the dark-cloud three above, but
         //                  has real Dim1 x Dim2 ellipses where data exists
-        var shapeSources = new[]
-        {
+        (string FileName, Catalog Cat)[] shapeSources =
+        [
             ("Dobashi", Catalog.Dobashi),
             ("LDN",     Catalog.LDN),
             ("Barnard", Catalog.Barnard),
             ("Ced",     Catalog.Ced),
-        };
+        ];
         phaseSw.Restart();
         foreach (var (fileName, cat) in shapeSources)
         {
