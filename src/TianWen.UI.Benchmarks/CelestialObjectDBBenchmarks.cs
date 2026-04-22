@@ -60,8 +60,8 @@ public class CelestialObjectDBBenchmarks
     public async Task<int> InitDB()
     {
         var db = new CelestialObjectDB();
-        var (processed, _) = await db.InitDBAsync(default);
-        return processed;
+        await db.InitDBAsync(default);
+        return db.LastInitProcessed;
     }
 
     [Benchmark]

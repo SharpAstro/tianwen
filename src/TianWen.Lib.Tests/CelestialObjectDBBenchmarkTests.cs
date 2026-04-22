@@ -18,13 +18,13 @@ public class CelestialObjectDBBenchmarkTests(ITestOutputHelper output)
         var sw = Stopwatch.StartNew();
 
         // when
-        var (processed, failed) = await db.InitDBAsync(TestContext.Current.CancellationToken);
+        await db.InitDBAsync(TestContext.Current.CancellationToken);
         sw.Stop();
 
         // then
-        failed.ShouldBe(0);
-        processed.ShouldBeGreaterThan(13000);
-        output.WriteLine($"DB initialization: {sw.Elapsed.TotalMilliseconds:F1}ms ({processed} entries processed)");
+        db.LastInitFailed.ShouldBe(0);
+        db.LastInitProcessed.ShouldBeGreaterThan(13000);
+        output.WriteLine($"DB initialization: {sw.Elapsed.TotalMilliseconds:F1}ms ({db.LastInitProcessed} entries processed)");
         foreach (var (phase, elapsed) in db.LastInitPhaseTimings)
         {
             output.WriteLine($"  {phase,-30} {elapsed.TotalMilliseconds,8:F1}ms");
@@ -108,9 +108,9 @@ public class CelestialObjectDBBenchmarkTests(ITestOutputHelper output)
         // given — measure initialization cost per entry
         var db = new CelestialObjectDB();
         var initSw = Stopwatch.StartNew();
-        var (processed, _) = await db.InitDBAsync(TestContext.Current.CancellationToken);
+        await db.InitDBAsync(TestContext.Current.CancellationToken);
         initSw.Stop();
-        var initNsPerEntry = initSw.Elapsed.TotalNanoseconds / processed;
+        var initNsPerEntry = initSw.Elapsed.TotalNanoseconds / db.LastInitProcessed;
 
         var indices = new[]
         {

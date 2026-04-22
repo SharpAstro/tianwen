@@ -15,29 +15,24 @@ namespace TianWen.Lib.Tests;
 [Collection("Scheduling")]
 public class TonightsBestTests
 {
-    private static ICelestialObjectDB? _cachedDB;
+    private static CelestialObjectDB? _cachedDB;
     private static readonly SemaphoreSlim _sem = new SemaphoreSlim(1, 1);
-    private static int _processed;
-    private static int _failed;
 
     private static async Task<ICelestialObjectDB> InitDBAsync()
     {
-        _failed.ShouldBe(0);
-
-        if (_cachedDB is ICelestialObjectDB db && _processed > 0)
+        if (_cachedDB is { LastInitProcessed: > 0 } cached)
         {
-            return db;
+            cached.LastInitFailed.ShouldBe(0);
+            return cached;
         }
         await _sem.WaitAsync();
         try
         {
-            (_processed, _failed) = await (_cachedDB = new CelestialObjectDB()).InitDBAsync(
-                cancellationToken: TestContext.Current.CancellationToken);
-
-            _processed.ShouldBeGreaterThan(13000);
-            _failed.ShouldBe(0);
-
-            return _cachedDB;
+            var db = _cachedDB = new CelestialObjectDB();
+            await db.InitDBAsync(TestContext.Current.CancellationToken);
+            db.LastInitProcessed.ShouldBeGreaterThan(13000);
+            db.LastInitFailed.ShouldBe(0);
+            return db;
         }
         finally
         {
