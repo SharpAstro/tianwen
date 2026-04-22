@@ -49,6 +49,17 @@ internal sealed class SerialProbeService(
     // probes hold the lock for up to Budget each.
     private const int MaxPortParallelism = 4;
 
+    // Ladder of per-pass budget multipliers applied to each ISerialProbe.Budget.
+    // Rationale: "everyone gets a chance first" — pass 1 runs every probe on every
+    // port at the declared budget, then only the ports that produced no match get a
+    // pass 2 at the extended budget. Cold ESP32 devices (OnStep WiFi controllers,
+    // ~1-2s boot) are caught without making every warm probe wait the long timeout.
+    //
+    // Dead ports pay the extra pass cost, but dead serial ports are cheap — a port
+    // that never produced a match in pass 1 is very likely still empty in pass 2,
+    // and we bail as fast as each probe's timeout lets us.
+    private static readonly double[] _probePassMultipliers = [1.0, 2.0];
+
     public IReadOnlyList<SerialProbeMatch> ResultsFor(string probeName)
         => _results.TryGetValue(probeName, out var list) ? list.ToArray() : [];
 
@@ -81,21 +92,72 @@ internal sealed class SerialProbeService(
         // Stage 1: verify pinned ports still hold their expected device.
         var verifiedPorts = await VerifyPinnedPortsAsync(ports, pinned, cancellationToken);
 
-        // Stage 2: general probing on every port not verified in Stage 1.
-        var portsToProbe = verifiedPorts.Count == 0
+        // Stage 2: general probing on every port not verified in Stage 1, with a
+        // ladder pass — each pass runs all probes on all still-unmatched ports at
+        // a fraction (or multiple) of each probe's declared Budget. Cold devices
+        // that miss the first pass get a retry at a longer budget without any
+        // warm probe paying the cost.
+        var initialPorts = verifiedPorts.Count == 0
             ? ports
             : ports.Where(p => !verifiedPorts.Contains(p)).ToArray();
 
-        if (portsToProbe.Count == 0)
+        if (initialPorts.Count == 0)
         {
             return;
         }
 
-        var parallelism = Math.Min(MaxPortParallelism, portsToProbe.Count);
-        await Parallel.ForEachAsync(
-            portsToProbe,
-            new ParallelOptions { CancellationToken = cancellationToken, MaxDegreeOfParallelism = parallelism },
-            async (port, ct) => await ProbePortAsync(port, probesToRun: _probes, ct));
+        IReadOnlyList<string> remainingPorts = [.. initialPorts];
+        for (var passIdx = 0; passIdx < _probePassMultipliers.Length; passIdx++)
+        {
+            if (remainingPorts.Count == 0 || cancellationToken.IsCancellationRequested)
+            {
+                break;
+            }
+
+            var mult = _probePassMultipliers[passIdx];
+            var passNum = passIdx + 1;
+            if (passNum == 1)
+            {
+                logger.LogInformation("Probe pass 1: {Count} port(s), {Probes} probe(s) at declared budget.",
+                    remainingPorts.Count, _probes.Length);
+            }
+            else
+            {
+                logger.LogInformation("Probe pass {Pass}: retrying {Count} unmatched port(s) at {Mult}x budget.",
+                    passNum, remainingPorts.Count, mult);
+            }
+
+            var parallelism = Math.Min(MaxPortParallelism, remainingPorts.Count);
+            var passMult = mult;
+            await Parallel.ForEachAsync(
+                remainingPorts,
+                new ParallelOptions { CancellationToken = cancellationToken, MaxDegreeOfParallelism = parallelism },
+                async (port, ct) => await ProbePortAsync(port, _probes, ct, budgetMultiplier: passMult));
+
+            // Drop ports that produced any match from subsequent passes.
+            var matched = GetPortsWithAnyMatch();
+            remainingPorts = [.. remainingPorts.Where(p => !matched.Contains(p))];
+        }
+    }
+
+    /// <summary>
+    /// Snapshot of ports that have at least one match published across all probe
+    /// names. Used to decide which ports still need another pass.
+    /// </summary>
+    private HashSet<string> GetPortsWithAnyMatch()
+    {
+        var matched = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var list in _results.Values)
+        {
+            lock (list)
+            {
+                foreach (var m in list)
+                {
+                    matched.Add(m.Port);
+                }
+            }
+        }
+        return matched;
     }
 
     /// <summary>
@@ -184,7 +246,8 @@ internal sealed class SerialProbeService(
         string port,
         IReadOnlyList<ISerialProbe> probesToRun,
         CancellationToken cancellationToken,
-        Func<SerialProbeMatch, bool>? onMatch = null)
+        Func<SerialProbeMatch, bool>? onMatch = null,
+        double budgetMultiplier = 1.0)
     {
         using var portScope = logger.BeginScope(new Dictionary<string, object> { ["Port"] = port });
 
@@ -206,7 +269,7 @@ internal sealed class SerialProbeService(
         foreach (var baudGroup in baudGroups)
         {
             if (cancellationToken.IsCancellationRequested) return;
-            await ProbeBaudGroupAsync(port, baudGroup, cancellationToken, onMatch);
+            await ProbeBaudGroupAsync(port, baudGroup, cancellationToken, onMatch, budgetMultiplier);
         }
     }
 
@@ -214,7 +277,8 @@ internal sealed class SerialProbeService(
         string port,
         IGrouping<int, ISerialProbe> baudGroup,
         CancellationToken cancellationToken,
-        Func<SerialProbeMatch, bool>? onMatch)
+        Func<SerialProbeMatch, bool>? onMatch,
+        double budgetMultiplier = 1.0)
     {
         var baud = baudGroup.Key;
         using var baudScope = logger.BeginScope(new Dictionary<string, object> { ["Baud"] = baud });
@@ -258,7 +322,7 @@ internal sealed class SerialProbeService(
 
                 try
                 {
-                    await RunSingleProbeAsync(port, probe, conn!, cancellationToken, onMatch);
+                    await RunSingleProbeAsync(port, probe, conn!, cancellationToken, onMatch, budgetMultiplier);
                 }
                 finally
                 {
@@ -305,14 +369,17 @@ internal sealed class SerialProbeService(
         ISerialProbe probe,
         ISerialConnection conn,
         CancellationToken cancellationToken,
-        Func<SerialProbeMatch, bool>? onMatch)
+        Func<SerialProbeMatch, bool>? onMatch,
+        double budgetMultiplier = 1.0)
     {
         using var probeScope = logger.BeginScope(new Dictionary<string, object> { ["Probe"] = probe.Name });
+
+        var budget = TimeSpan.FromMilliseconds(probe.Budget.TotalMilliseconds * budgetMultiplier);
 
         for (var attempt = 1; attempt <= probe.MaxAttempts; attempt++)
         {
             using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            cts.CancelAfter(probe.Budget);
+            cts.CancelAfter(budget);
 
             try
             {
@@ -337,7 +404,7 @@ internal sealed class SerialProbeService(
             catch (OperationCanceledException) when (cts.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
             {
                 logger.LogDebug("Timeout after {Budget}ms (attempt {Attempt}/{Max}).",
-                    probe.Budget.TotalMilliseconds, attempt, probe.MaxAttempts);
+                    budget.TotalMilliseconds, attempt, probe.MaxAttempts);
                 // Fall through to next attempt, if any.
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
