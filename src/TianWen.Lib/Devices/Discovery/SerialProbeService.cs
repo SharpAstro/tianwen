@@ -129,10 +129,17 @@ internal sealed class SerialProbeService(
 
             var parallelism = Math.Min(MaxPortParallelism, remainingPorts.Count);
             var passMult = mult;
+            // Pass 1 uses the fast shared-connection path (one open per baud
+            // group, probes run in sequence on the same handle) — optimal when
+            // the device responds cleanly. Pass 2 escalates to close+reopen per
+            // probe so stale bytes left by a rejected pass-1 command on probe N
+            // can't concatenate into probe N+1's exchange on pass 2.
+            var isolatePerProbe = passIdx > 0;
             await Parallel.ForEachAsync(
                 remainingPorts,
                 new ParallelOptions { CancellationToken = cancellationToken, MaxDegreeOfParallelism = parallelism },
-                async (port, ct) => await ProbePortAsync(port, _probes, ct, budgetMultiplier: passMult));
+                async (port, ct) => await ProbePortAsync(port, _probes, ct,
+                    budgetMultiplier: passMult, isolatePerProbe: isolatePerProbe));
 
             // Drop ports that produced any match from subsequent passes.
             var matched = GetPortsWithAnyMatch();
@@ -247,7 +254,8 @@ internal sealed class SerialProbeService(
         IReadOnlyList<ISerialProbe> probesToRun,
         CancellationToken cancellationToken,
         Func<SerialProbeMatch, bool>? onMatch = null,
-        double budgetMultiplier = 1.0)
+        double budgetMultiplier = 1.0,
+        bool isolatePerProbe = false)
     {
         using var portScope = logger.BeginScope(new Dictionary<string, object> { ["Port"] = port });
 
@@ -269,7 +277,7 @@ internal sealed class SerialProbeService(
         foreach (var baudGroup in baudGroups)
         {
             if (cancellationToken.IsCancellationRequested) return;
-            await ProbeBaudGroupAsync(port, baudGroup, cancellationToken, onMatch, budgetMultiplier);
+            await ProbeBaudGroupAsync(port, baudGroup, cancellationToken, onMatch, budgetMultiplier, isolatePerProbe);
         }
     }
 
@@ -278,7 +286,8 @@ internal sealed class SerialProbeService(
         IGrouping<int, ISerialProbe> baudGroup,
         CancellationToken cancellationToken,
         Func<SerialProbeMatch, bool>? onMatch,
-        double budgetMultiplier = 1.0)
+        double budgetMultiplier = 1.0,
+        bool isolatePerProbe = false)
     {
         var baud = baudGroup.Key;
         using var baudScope = logger.BeginScope(new Dictionary<string, object> { ["Baud"] = baud });
@@ -293,13 +302,13 @@ internal sealed class SerialProbeService(
         // Mixing encodings within a baud group is unusual — if it comes up, split probes.
         var encoding = probesToRun[0].Encoding;
 
-        // Probe isolation: when multiple probes share a baud group we close+reopen
-        // between each one, so a rejected command on probe N cannot leave bytes in
-        // the device-side buffer that concatenate into probe N+1's exchange. Cost
-        // is roughly one extra serial open (~50-200ms on USB bridges) per shared
-        // probe slot — worth it for correctness. Single-probe groups skip this and
-        // keep the original open-once semantics.
-        var isolateEachProbe = probesToRun.Length > 1;
+        // Probe isolation: close+reopen between probes so a rejected command on
+        // probe N cannot leave bytes in the device-side buffer that concatenate
+        // into probe N+1's exchange. Only engaged on pass 2 (isolatePerProbe) and
+        // only when >1 probe shares the baud group — pass 1 keeps the fast
+        // shared-handle path for clean responders, and pass 2 escalates to
+        // isolation for the ports that didn't match pass 1 anyway.
+        var isolateEachProbe = isolatePerProbe && probesToRun.Length > 1;
 
         ISerialConnection? conn = null;
         if (!isolateEachProbe)
