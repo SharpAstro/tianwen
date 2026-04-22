@@ -1,0 +1,65 @@
+<Project>
+
+  <!--
+    App-local VC++ runtime deployment for WinExe publishes (FitsViewer, Gui).
+    Saves end users on minimal Windows installs from needing the VC++ redist
+    installer for SDL3.dll to load.
+
+    - Runs only on `dotnet publish` (hooked to ComputeFilesToPublish).
+    - Picks arch from $(RuntimeIdentifier): win-x64 -> x64, win-arm64 -> arm64.
+    - Resolves VS install via $(VCToolsRedistDir) (set inside a Developer prompt)
+      or vswhere (works with plain `dotnet publish`, CI included).
+    - Globs Microsoft.VC*.CRT so it works across toolsets (VC143 in VS2022,
+      VC145 in VS18, etc.).
+    - Microsoft's redist license explicitly permits app-local distribution of
+      these DLLs; see redist.txt next to them in the VS install.
+  -->
+
+  <Target Name="IncludeVCRuntimeOnPublish"
+          BeforeTargets="ComputeFilesToPublish"
+          Condition="'$(RuntimeIdentifier)' != '' AND $(RuntimeIdentifier.StartsWith('win'))"
+          DependsOnTargets="_ResolveVCToolsRedistDir">
+
+    <PropertyGroup>
+      <_VCRedistArch>x64</_VCRedistArch>
+      <_VCRedistArch Condition="$(RuntimeIdentifier.EndsWith('arm64'))">arm64</_VCRedistArch>
+    </PropertyGroup>
+
+    <ItemGroup>
+      <_VCRedistFile Include="$(VCToolsRedistDir)$(_VCRedistArch)\Microsoft.VC*.CRT\vcruntime140.dll" />
+      <_VCRedistFile Include="$(VCToolsRedistDir)$(_VCRedistArch)\Microsoft.VC*.CRT\vcruntime140_1.dll" />
+      <_VCRedistFile Include="$(VCToolsRedistDir)$(_VCRedistArch)\Microsoft.VC*.CRT\msvcp140.dll" />
+
+      <ResolvedFileToPublish Include="@(_VCRedistFile)">
+        <RelativePath>%(Filename)%(Extension)</RelativePath>
+        <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+      </ResolvedFileToPublish>
+    </ItemGroup>
+
+    <Warning Text="VC++ runtime DLLs not found under '$(VCToolsRedistDir)$(_VCRedistArch)'. App-local redist will be missing from the $(RuntimeIdentifier) publish output; end users on minimal Windows installs will need the VC++ redist installer."
+             Condition="'@(_VCRedistFile)' == ''" />
+
+    <Message Importance="high"
+             Text="Publishing $([System.IO.Path]::GetFileName('%(_VCRedistFile.Identity)')) from VC++ $(_VCRedistArch) redist to $(PublishDir)"
+             Condition="'@(_VCRedistFile)' != ''" />
+  </Target>
+
+  <Target Name="_ResolveVCToolsRedistDir"
+          Condition="'$(VCToolsRedistDir)' == ''">
+
+    <Exec Command="&quot;$(MSBuildProgramFiles32)\Microsoft Visual Studio\Installer\vswhere.exe&quot; -latest -products * -requires Microsoft.VisualCpp.Tools.Core -property installationPath"
+          ConsoleToMSBuild="true" StandardOutputImportance="low">
+      <Output TaskParameter="ConsoleOutput" PropertyName="_VSInstallPath" />
+    </Exec>
+
+    <ReadLinesFromFile File="$(_VSInstallPath)\VC\Auxiliary\Build\Microsoft.VCRedistVersion.default.txt"
+                       Condition="'$(_VSInstallPath)' != '' AND Exists('$(_VSInstallPath)\VC\Auxiliary\Build\Microsoft.VCRedistVersion.default.txt')">
+      <Output TaskParameter="Lines" PropertyName="_VCRedistVersion" />
+    </ReadLinesFromFile>
+
+    <PropertyGroup Condition="'$(_VSInstallPath)' != '' AND '$(_VCRedistVersion)' != ''">
+      <VCToolsRedistDir>$(_VSInstallPath)\VC\Redist\MSVC\$(_VCRedistVersion.Trim())\</VCToolsRedistDir>
+    </PropertyGroup>
+  </Target>
+
+</Project>

@@ -48,4 +48,6 @@
     <ProjectReference Include="..\TianWen.Lib\TianWen.Lib.csproj" />
   </ItemGroup>
 
+  <Import Project="..\VCRuntimeRedist.targets" />
+
 </Project>
