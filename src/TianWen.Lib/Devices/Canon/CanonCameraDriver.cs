@@ -275,6 +275,33 @@ internal sealed class CanonCameraDriver : ICameraDriver
             Logger.LogDebug(ex, "Could not read current ISO from Canon camera");
         }
 
+        // Apply astrophotography-friendly defaults. Each setter is best-effort — older
+        // bodies reject some properties (returns non-OK EdsError), and a single
+        // unsupported one must not fail the connect. Logged at Info on success so the
+        // user can see in the log which defaults took effect.
+        //
+        // SaveTo=Host:        images download to host, not SD card (session-length safe)
+        // AutoPowerOff=0:     disable the 30-min sleep that would kill unattended runs
+        // AFMode=ManualFocus: prevent AF hunting on dark sky between exposures
+        // HighIsoNR=Disable:  in-camera NR is wrong for stacking; calibrate in post
+        await TrySetAsync(
+            () => _camera.SetSaveToAsync(EdsSaveTo.Host, cancellationToken),
+            "SaveTo=Host");
+        await TrySetAsync(
+            () => _camera.SetAutoPowerOffAsync(0, cancellationToken),
+            "AutoPowerOff=disabled");
+        await TrySetAsync(
+            () => _camera.SetAFModeAsync(EdsAFMode.ManualFocus, cancellationToken),
+            "AFMode=ManualFocus");
+        await TrySetAsync(
+            () => _camera.SetHighIsoNRAsync(EdsHighIsoNR.Disable, cancellationToken),
+            "HighIsoNR=Disable");
+
+        // Long-exposure NR lives in Custom Functions on Canon DSLRs, not as a direct
+        // PTP property. Leaving it on doubles every sub (in-camera dark subtraction);
+        // proper calibration frames give better results anyway.
+        await DisableLongExposureNRAsync(cancellationToken);
+
         // Enable mirror lockup for astrophotography (reduces vibration during exposures)
         try
         {
@@ -580,6 +607,74 @@ internal sealed class CanonCameraDriver : ICameraDriver
     private void OnObjectAdded(object? sender, CanonObjectAddedEventArgs e)
     {
         _objectAddedTcs?.TrySetResult(e.ObjectHandle);
+    }
+
+    /// <summary>Applies a Canon setter, logging Info on OK and Debug on reject.</summary>
+    private async ValueTask TrySetAsync(Func<Task<EdsError>> setter, string name)
+    {
+        try
+        {
+            var result = await setter();
+            if (result is EdsError.OK)
+            {
+                Logger.LogInformation("Canon {Setting} applied", name);
+            }
+            else
+            {
+                Logger.LogDebug("Canon {Setting} rejected: {Error}", name, result);
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogDebug(ex, "Canon {Setting} failed", name);
+        }
+    }
+
+    /// <summary>
+    /// Reads the C.Fn block, flips Long Exposure NR to Off using whichever of the
+    /// known per-generation function IDs (6D-class or Rebel-class) is present on this
+    /// body, and writes it back. Silent no-op if the ID isn't found or the camera
+    /// doesn't expose a C.Fn block.
+    /// </summary>
+    private async ValueTask DisableLongExposureNRAsync(CancellationToken ct)
+    {
+        if (_camera is null)
+        {
+            return;
+        }
+
+        try
+        {
+            var (err, block) = await _camera.GetCustomFunctionBlockAsync(ct);
+            if (err is not EdsError.OK || block is null)
+            {
+                Logger.LogDebug("Canon LongExposureNR: C.Fn block read failed ({Error})", err);
+                return;
+            }
+
+            var offValue = (uint)EdsLongExposureNR.Off;
+            var patched = block.SetValue(CanonCustomFunctionId.LongExposureNR_6D, offValue)
+                       || block.SetValue(CanonCustomFunctionId.LongExposureNR_Rebel, offValue);
+            if (!patched)
+            {
+                Logger.LogDebug("Canon LongExposureNR: C.Fn ID not present on this body");
+                return;
+            }
+
+            var writeErr = await _camera.SetCustomFunctionBlockAsync(block, ct);
+            if (writeErr is EdsError.OK)
+            {
+                Logger.LogInformation("Canon LongExposureNR=Off applied");
+            }
+            else
+            {
+                Logger.LogDebug("Canon LongExposureNR write rejected: {Error}", writeErr);
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogDebug(ex, "Canon LongExposureNR disable failed");
+        }
     }
 
     private static uint FindClosestTv(TimeSpan duration)
