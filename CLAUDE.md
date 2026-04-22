@@ -237,6 +237,14 @@ for supported query parameters and their semantics.
 `Session` (`TianWen.Lib/Sequencing/Session.cs`) is the central orchestrator for semi-automated
 image capturing. It drives the entire observation workflow and is the most vital piece of the library.
 
+**Single-mount / multi-OTA invariant.** `Setup.Telescopes` is plural for dual- / triple-saddle
+rigs (side-by-side + piggyback setups), but there is exactly **one** `Setup.Mount`. All OTAs
+ride that mount, so they share pointing and therefore share the current target at all times.
+The session never images two OTAs on two different targets — it can't, one mount. What
+multi-OTA buys us is parallel capture (each OTA has its own camera, filter wheel, and focuser)
+and per-OTA focus / filter / baseline state. Any future "branch" or "re-order" logic in the
+observation loop must operate on the OTA set as a single unit.
+
 **RunAsync workflow** (in order):
 1. `InitialisationAsync` — connect devices, validate setup
 2. `WaitUntilTenMinutesBeforeAmateurAstroTwilightEndsAsync` — timing
