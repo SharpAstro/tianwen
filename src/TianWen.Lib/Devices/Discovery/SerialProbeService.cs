@@ -35,21 +35,9 @@ namespace TianWen.Lib.Devices.Discovery;
 ///         returns a snapshot.</item>
 /// </list>
 /// </summary>
-internal sealed class SerialProbeService(
-    IExternal external,
-    ILogger<SerialProbeService> logger,
-    IEnumerable<ISerialProbe> probes,
-    IPinnedSerialPortsProvider? pinnedPortsProvider = null) : ISerialProbeService
+internal sealed class SerialProbeService : ISerialProbeService
 {
-    private readonly ISerialProbe[] _probes = [.. probes];
-    private readonly ConcurrentDictionary<string, List<SerialProbeMatch>> _results = new(StringComparer.Ordinal);
-
-    // Bound by number of physical USB-serial bridges a hobbyist typically has; higher
-    // parallelism has diminishing returns and risks thread-pool starvation when
-    // probes hold the lock for up to Budget each.
-    private const int MaxPortParallelism = 4;
-
-    // Ladder of per-pass budget multipliers applied to each ISerialProbe.Budget.
+    // Default ladder of per-pass budget multipliers applied to each ISerialProbe.Budget.
     // Rationale: "everyone gets a chance first" — pass 1 runs every probe on every
     // port at the declared budget, then only the ports that produced no match get a
     // pass 2 at the extended budget. Cold ESP32 devices (OnStep WiFi controllers,
@@ -58,7 +46,35 @@ internal sealed class SerialProbeService(
     // Dead ports pay the extra pass cost, but dead serial ports are cheap — a port
     // that never produced a match in pass 1 is very likely still empty in pass 2,
     // and we bail as fast as each probe's timeout lets us.
-    private static readonly double[] _probePassMultipliers = [1.0, 2.0];
+    internal static readonly double[] DefaultPassBudgetMultipliers = [1.0, 2.0];
+
+    private readonly IExternal external;
+    private readonly ILogger<SerialProbeService> logger;
+    private readonly IPinnedSerialPortsProvider? pinnedPortsProvider;
+    private readonly ISerialProbe[] _probes;
+    private readonly double[] _probePassMultipliers;
+    private readonly ConcurrentDictionary<string, List<SerialProbeMatch>> _results = new(StringComparer.Ordinal);
+
+    // Bound by number of physical USB-serial bridges a hobbyist typically has; higher
+    // parallelism has diminishing returns and risks thread-pool starvation when
+    // probes hold the lock for up to Budget each.
+    private const int MaxPortParallelism = 4;
+
+    public SerialProbeService(
+        IExternal external,
+        ILogger<SerialProbeService> logger,
+        IEnumerable<ISerialProbe> probes,
+        IPinnedSerialPortsProvider? pinnedPortsProvider = null,
+        IReadOnlyList<double>? passBudgetMultipliers = null)
+    {
+        this.external = external;
+        this.logger = logger;
+        this.pinnedPortsProvider = pinnedPortsProvider;
+        _probes = [.. probes];
+        _probePassMultipliers = passBudgetMultipliers is { Count: > 0 }
+            ? [.. passBudgetMultipliers]
+            : DefaultPassBudgetMultipliers;
+    }
 
     public IReadOnlyList<SerialProbeMatch> ResultsFor(string probeName)
         => _results.TryGetValue(probeName, out var list) ? list.ToArray() : [];
