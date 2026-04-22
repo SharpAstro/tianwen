@@ -253,11 +253,17 @@ var loop = new SdlEventLoop(sdlWindow, renderer)
             return true; // always redraw during shutdown
         }
 
-        // Redraw periodically (every ~500ms) when session is running on the Live tab
-        if (guiRenderer.LiveSessionState.IsRunning && appState.ActiveTab is GuiTab.LiveSession or GuiTab.Guider)
+        // Redraw periodically on the Live Session / Guider tabs so the clock ticks.
+        // 500ms while a session is running (progress bars, phase status); 1s in preview
+        // mode (clock only) — otherwise the only periodic redraw trigger is the 2s
+        // preview-telemetry poll, which shows up as a visible 2s tick on the clock.
+        if (appState.ActiveTab is GuiTab.LiveSession or GuiTab.Guider)
         {
             var now = timeProvider.GetTimestamp();
-            if (timeProvider.GetElapsedTime(_lastSessionRedrawTimestamp, now) >= TimeSpan.FromMilliseconds(500))
+            var interval = guiRenderer.LiveSessionState.IsRunning
+                ? TimeSpan.FromMilliseconds(500)
+                : TimeSpan.FromSeconds(1);
+            if (timeProvider.GetElapsedTime(_lastSessionRedrawTimestamp, now) >= interval)
             {
                 _lastSessionRedrawTimestamp = now;
                 return true;
