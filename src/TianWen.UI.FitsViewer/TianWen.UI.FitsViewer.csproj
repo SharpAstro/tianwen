@@ -31,4 +31,6 @@
     <ProjectReference Include="..\TianWen.UI.Shared\TianWen.UI.Shared.csproj" />
   </ItemGroup>
 
+  <Import Project="..\VCRuntimeRedist.targets" />
+
 </Project>
