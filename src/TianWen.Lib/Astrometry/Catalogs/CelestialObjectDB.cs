@@ -2,6 +2,7 @@
 using System.Buffers.Binary;
 using System.Collections.Generic;
 using System.Collections.Immutable;
+using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.IO;
@@ -58,6 +59,14 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
     private HashSet<CatalogIndex>? _catalogIndicesCache;
     private HashSet<Catalog>? _completeCatalogCache;
     private volatile bool _isInitialized;
+
+    /// <summary>
+    /// Per-phase wall-clock timings captured during the last <see cref="InitDBAsync"/>
+    /// call. Ordered by completion time. Populated fresh on every init; useful for
+    /// benchmarks and diagnostics. Empty before first init.
+    /// </summary>
+    public IReadOnlyList<(string Phase, TimeSpan Elapsed)> LastInitPhaseTimings => _lastInitPhaseTimings;
+    private readonly List<(string Phase, TimeSpan Elapsed)> _lastInitPhaseTimings = new(24);
 
     public CelestialObjectDB() { }
 
@@ -247,12 +256,17 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
             return (0, 0);
         }
 
+        _lastInitPhaseTimings.Clear();
+        var phaseSw = new Stopwatch();
+
         var assembly = typeof(CelestialObjectDB).Assembly;
         var manifestNames = assembly.GetManifestResourceNames();
         var totalProcessed = 0;
         var totalFailed = 0;
 
+        phaseSw.Restart();
         var initTycho2DataTask = Task.Run(() => ReadEmbeddedTycho2DataAsync(assembly, manifestNames));
+        // (Tycho2 runs in the background; we'll record its duration when we join below.)
 
         foreach (var predefined in _predefinedObjects)
         {
@@ -264,14 +278,18 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
             AddCommonNameIndex(predefined.Key, commonNames);
             totalProcessed++;
         }
+        _lastInitPhaseTimings.Add(("predefined", phaseSw.Elapsed));
 
+        phaseSw.Restart();
         foreach (var csvName in new[] { "NGC", "NGC.addendum" })
         {
             var (processed, failed) = ReadEmbeddedLzCsvData(assembly, manifestNames, csvName, cancellationToken);
             totalProcessed += processed;
             totalFailed += failed;
         }
+        _lastInitPhaseTimings.Add(("ngc-csv", phaseSw.Elapsed));
 
+        phaseSw.Restart();
         // Compute mainCatalogs once before SIMBAD processing (avoids re-scanning 13K+ keys per file)
         var mainCatalogs = new HashSet<Catalog>(new HashSet<CatalogIndex>(_objectsByIndex.Keys).Select(idx => idx.ToCatalog()))
         {
@@ -297,11 +315,14 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
         };
         foreach (var (fileName, catToAdd) in simbadCatalogs)
         {
+            var perFileSw = Stopwatch.StartNew();
             var (processed, failed) = await ReadEmbeddedLzippedJsonDataFileAsync(assembly, manifestNames, fileName, catToAdd, mainCatalogs, cancellationToken);
             totalProcessed += processed;
             totalFailed += failed;
             mainCatalogs.Add(catToAdd);
+            _lastInitPhaseTimings.Add(($"simbad:{fileName}:{catToAdd}", perFileSw.Elapsed));
         }
+        _lastInitPhaseTimings.Add(("simbad-total", phaseSw.Elapsed));
 
         // Second pass: load per-catalog *.shapes.json.lz companion files in
         // descending-quality order so the best measurement wins for objects that
@@ -325,21 +346,29 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
             ("Barnard", Catalog.Barnard),
             ("Ced",     Catalog.Ced),
         };
+        phaseSw.Restart();
         foreach (var (fileName, cat) in shapeSources)
         {
             await ReadCatalogObjectShapesAsync(assembly, manifestNames, fileName, cat, cancellationToken);
         }
+        _lastInitPhaseTimings.Add(("shapes", phaseSw.Elapsed));
 
         // Wait for Tycho2 data (runs in parallel with CSV + SIMBAD processing)
+        phaseSw.Restart();
         await initTycho2DataTask;
+        _lastInitPhaseTimings.Add(("tycho2-join", phaseSw.Elapsed));
 
+        phaseSw.Restart();
         // Load cross-ref multi-json files (modifies shared _crossIndexLookuptable, must be sequential)
         LoadCrossRefMultiJson(assembly, manifestNames, "hip_to_tyc_multi", Catalog.HIP, Catalog.HIP.GetNumericalIndexSize(), _hipToTyc);
         LoadCrossRefMultiJson(assembly, manifestNames, "hd_to_tyc_multi", Catalog.HD, Catalog.HD.GetNumericalIndexSize(), _hdToTyc);
+        _lastInitPhaseTimings.Add(("cross-ref-json", phaseSw.Elapsed));
 
+        phaseSw.Restart();
         // Build cross-indices between HD and HIP via shared TYC stars
         // (must happen after all catalog loading so HIP cross-refs to HR, vdB etc. are present)
         BuildHdHipCrossIndicesViaTyc();
+        _lastInitPhaseTimings.Add(("hd-hip-cross", phaseSw.Elapsed));
 
         _isInitialized = true;
         return (totalProcessed, totalFailed);
