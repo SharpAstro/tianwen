@@ -276,6 +276,13 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
         var initTycho2DataTask = Task.Run(() => ReadEmbeddedTycho2DataAsync(assembly, manifestNames));
         // (Tycho2 runs in the background; we'll record its duration when we join below.)
 
+        // Start HR's SIMBAD parse on the thread pool too - HR is the heaviest SIMBAD
+        // file (~200ms to decompress + parse) and by launching it now, it can run
+        // alongside the predefined-object loop and NGC CSV parsing on the main thread.
+        // By the time the SIMBAD merge loop begins, HR records are typically ready to
+        // merge immediately.
+        var hrParseTask = ParseSimbadFileAsync(assembly, manifestNames, "HR", cancellationToken);
+
         foreach (var predefined in _predefinedObjects)
         {
             var cat = predefined.Key.ToCatalog();
@@ -329,9 +336,15 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
         // matters for cold-start UX (14 tasks all JITing async state machines at
         // once adds tens of ms per task vs a single warmed path), and leaves CPU
         // headroom for Tycho2's own multi-threaded LZ decode running in parallel.
-        Task<List<SimbadCatalogDto>?>? nextParseTask = simbadCatalogs.Length > 0
-            ? ParseSimbadFileAsync(assembly, manifestNames, simbadCatalogs[0].FileName, cancellationToken)
-            : null;
+        // HR's parse was kicked off up front (see the hrParseTask assignment near the
+        // Tycho2 launch). If the list ever changes to not start with HR, we fall back
+        // to just parsing the new [0] entry normally.
+        Task<List<SimbadCatalogDto>?>? nextParseTask = simbadCatalogs.Length switch
+        {
+            0 => null,
+            _ when simbadCatalogs[0].FileName == "HR" => hrParseTask,
+            _ => ParseSimbadFileAsync(assembly, manifestNames, simbadCatalogs[0].FileName, cancellationToken),
+        };
         for (var i = 0; i < simbadCatalogs.Length; i++)
         {
             var (fileName, catToAdd) = simbadCatalogs[i];
@@ -443,7 +456,7 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
             throw new InvalidOperationException("HIP→TYC and HD→TYC cross-reference data must be loaded before building HD↔HIP cross-indices.");
         }
 
-        // Build TYC → HIP reverse index
+        // Build TYC → HIP reverse index (single pass, no shared-dict contention).
         var tycToHip = new Dictionary<CatalogIndex, CatalogIndex>(hipToTyc.Length / 2);
         for (int i = 0; i < hipToTyc.Length; i++)
         {
@@ -455,42 +468,174 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
             }
         }
 
-        // For each HD → TYC, check if the TYC also maps to a HIP; if so, link HD ↔ HIP
-        // and propagate to all existing cross-indices of both
-        for (int i = 0; i < hdToTyc.Length; i++)
+        // Accumulate all cross-ref additions into a delta dict, then bulk-merge at
+        // the end. The old incremental path called _crossIndexLookuptable.
+        // AddLookupEntry ~2M times (each HD entry → 2 base adds + 2×N propagation
+        // adds), and the extension-array realloc in AppendToArray makes the total
+        // cost O(edges²) per key. Bulk-merging once per key collapses that to O(n).
+        // Parallelise the scan: read-only access to tycToHip, _objectsByIndex,
+        // and pre-existing entries in _crossIndexLookuptable. Per-thread write
+        // targets (newObjects, edgeDelta) are merged serially afterwards, so
+        // there's no shared-state contention during the scan itself.
+        var partitions = Math.Min(Environment.ProcessorCount, 8);
+        var chunkSize = (hdToTyc.Length + partitions - 1) / partitions;
+        var perThread = new (List<(CatalogIndex HdIndex, CelestialObject Obj)> NewObjects,
+                             Dictionary<CatalogIndex, HashSet<CatalogIndex>> EdgeDelta,
+                             int MatchCount)[partitions];
+
+        Parallel.For(0, partitions, p =>
         {
-            var tycIndex = hdToTyc[i];
-            if (tycIndex != 0 && tycToHip.TryGetValue(tycIndex, out var hipIndex))
+            var start = p * chunkSize;
+            var end = Math.Min(start + chunkSize, hdToTyc.Length);
+            var newObjs = new List<(CatalogIndex, CelestialObject)>(capacity: 16_384);
+            var delta = new Dictionary<CatalogIndex, HashSet<CatalogIndex>>(1 << 14);
+            var matches = 0;
+
+            for (int i = start; i < end; i++)
             {
+                var tycIndex = hdToTyc[i];
+                if (tycIndex == 0 || !tycToHip.TryGetValue(tycIndex, out var hipIndex))
+                {
+                    continue;
+                }
+                matches++;
                 var hdIndex = PrefixedNumericToASCIIPackedInt<CatalogIndex>((ulong)Catalog.HD, i + 1, Catalog.HD.GetNumericalIndexSize());
 
-                // Ensure HD entry is in _objectsByIndex with TYC coordinates for spatial indexing
-                if (!_objectsByIndex.ContainsKey(hdIndex) && TryGetTycho2RaDec(tycIndex, out var ra, out var dec, out var vMag, out var bv)
+                if (!_objectsByIndex.ContainsKey(hdIndex)
+                    && TryGetTycho2RaDec(tycIndex, out var ra, out var dec, out var vMag, out var bv)
                     && ConstellationBoundary.TryFindConstellation(ra, dec, out var constellation))
                 {
-                    // Try to inherit object type from HIP entry or its cross-refs (e.g., HR with CStar type)
                     var objType = GetInheritedObjectType(hipIndex);
                     var hdObj = new CelestialObject(hdIndex, objType, ra, dec, constellation, vMag, HalfUndefined, (Half)bv, EmptyNameSet);
-                    _objectsByIndex[hdIndex] = hdObj;
-                    AddCommonNameAndPosIndices(hdObj);
+                    newObjs.Add((hdIndex, hdObj));
                 }
 
-                _crossIndexLookuptable.AddLookupEntry(hdIndex, hipIndex);
-                _crossIndexLookuptable.AddLookupEntry(hipIndex, hdIndex);
+                AddEdge(delta, hdIndex, hipIndex);
+                AddEdge(delta, hipIndex, hdIndex);
 
-                // Propagate HD to all existing cross-refs of HIP (e.g., HR, vdB)
-                if (_crossIndexLookuptable.TryGetLookupEntries(hipIndex, out var hipCross))
+                if (_crossIndexLookuptable.TryGetValue(hipIndex, out var hipCross))
                 {
-                    foreach (var ci in hipCross)
+                    if (!hipCross.i1.Equals(default(CatalogIndex)) && !hipCross.i1.Equals(hdIndex))
                     {
-                        if (ci != hdIndex)
+                        AddEdge(delta, hipCross.i1, hdIndex);
+                        AddEdge(delta, hdIndex, hipCross.i1);
+                    }
+                    if (hipCross.ext is { } ext)
+                    {
+                        foreach (var ci in ext)
                         {
-                            _crossIndexLookuptable.AddLookupEntry(ci, hdIndex);
-                            _crossIndexLookuptable.AddLookupEntry(hdIndex, ci);
+                            if (!ci.Equals(hdIndex))
+                            {
+                                AddEdge(delta, ci, hdIndex);
+                                AddEdge(delta, hdIndex, ci);
+                            }
                         }
                     }
                 }
             }
+            perThread[p] = (newObjs, delta, matches);
+        });
+
+        // Serial merge: HD object inserts + spatial index + consolidated edge delta.
+        var edgeDelta = perThread[0].EdgeDelta;
+        foreach (var (hdIndex, hdObj) in perThread[0].NewObjects)
+        {
+            _objectsByIndex[hdIndex] = hdObj;
+            AddCommonNameAndPosIndices(hdObj);
+        }
+        for (var p = 1; p < perThread.Length; p++)
+        {
+            foreach (var (hdIndex, hdObj) in perThread[p].NewObjects)
+            {
+                _objectsByIndex[hdIndex] = hdObj;
+                AddCommonNameAndPosIndices(hdObj);
+            }
+            foreach (var (key, values) in perThread[p].EdgeDelta)
+            {
+                if (!edgeDelta.TryGetValue(key, out var existing))
+                {
+                    edgeDelta[key] = values;
+                }
+                else
+                {
+                    existing.UnionWith(values);
+                }
+            }
+        }
+
+        // Single-pass bulk merge: one tuple build + one dict write per affected key.
+        foreach (var (key, newValues) in edgeDelta)
+        {
+            MergeEdgesBulk(_crossIndexLookuptable, key, newValues);
+        }
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static void AddEdge(Dictionary<CatalogIndex, HashSet<CatalogIndex>> edges, CatalogIndex from, CatalogIndex to)
+    {
+        if (!edges.TryGetValue(from, out var targets))
+        {
+            edges[from] = targets = new HashSet<CatalogIndex>();
+        }
+        targets.Add(to);
+    }
+
+    /// <summary>
+    /// Unions <paramref name="newValues"/> into the (v1, ext[]) tuple at
+    /// <paramref name="key"/>, materialising the final ext array once instead of
+    /// appending item-by-item (which would re-allocate the ext array N times).
+    /// Preserves the existing v1 anchor when the key already exists — callers of
+    /// TryLookupByIndex walk v1 first, and several tests assert that the FIRST
+    /// inserted cross-ref (e.g. HIP for a vdB entry) stays the primary target.
+    /// </summary>
+    private static void MergeEdgesBulk(
+        Dictionary<CatalogIndex, (CatalogIndex i1, CatalogIndex[]? ext)> dict,
+        CatalogIndex key,
+        HashSet<CatalogIndex> newValues)
+    {
+        if (newValues.Count == 0)
+        {
+            return;
+        }
+
+        if (dict.TryGetValue(key, out var existing))
+        {
+            // Build the new ext[] = union(newValues, existing.ext), minus i1.
+            var extSet = new HashSet<CatalogIndex>(newValues);
+            extSet.Remove(existing.i1);
+            if (existing.ext is { } existingExt)
+            {
+                foreach (var v in existingExt) extSet.Add(v);
+            }
+
+            if (extSet.Count == 0)
+            {
+                // All newValues were duplicates of existing.i1 — nothing to do.
+                return;
+            }
+
+            var ext = new CatalogIndex[extSet.Count];
+            var idx = 0;
+            foreach (var v in extSet) ext[idx++] = v;
+            dict[key] = (existing.i1, ext);
+        }
+        else
+        {
+            using var enumerator = newValues.GetEnumerator();
+            enumerator.MoveNext();
+            var v1 = enumerator.Current;
+            if (newValues.Count == 1)
+            {
+                dict[key] = (v1, null);
+                return;
+            }
+            var ext = new CatalogIndex[newValues.Count - 1];
+            var idx = 0;
+            while (enumerator.MoveNext())
+            {
+                ext[idx++] = enumerator.Current;
+            }
+            dict[key] = (v1, ext);
         }
     }
 
