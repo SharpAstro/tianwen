@@ -188,6 +188,13 @@ internal sealed class SerialProbeService(
     {
         using var portScope = logger.BeginScope(new Dictionary<string, object> { ["Port"] = port });
 
+        // One user-visible line per port so the operator can tell what discovery is
+        // actually doing — the Try* serial reads underneath are noisy on normal
+        // probe timeouts (port close aborts the pending read) and have been moved
+        // to Debug, so the Info-level story needs to live here instead.
+        logger.LogInformation("Probing {Port}: {Probes}", port,
+            string.Join(", ", probesToRun.Select(p => $"{p.Name}@{p.BaudRate}")));
+
         // Group by baud rate so each distinct baud opens the port exactly once.
         // Order: most common bauds first (9600) so LX200-style protocols dominate the
         // critical path; rare bauds (28800 iOptron) run after.
