@@ -38,6 +38,35 @@ public abstract record class DeviceBase(Uri DeviceUri)
     public string DeviceClass => DeviceUri.Host;
 
     /// <summary>
+    /// Short vendor / transport moniker shown in the equipment device list
+    /// (e.g. "ASCOM", "ZWO", "Canon", "OnStep"). Default strips the conventional
+    /// "Device" suffix from the type name; override in subclasses where case
+    /// or aliasing matters ("Ascom" -> "ASCOM", "IOptron" -> "iOptron", etc.).
+    /// </summary>
+    [JsonIgnore]
+    public virtual string Source
+    {
+        get
+        {
+            var typeName = GetType().Name;
+            return typeName switch
+            {
+                "AscomDevice" => "ASCOM",
+                "IOptronDevice" => "iOptron",
+                "OpenPHD2GuiderDevice" => "PHD2",
+                "BuiltInGuiderDevice" => "Built-in",
+                "ManualFilterWheelDevice" => "Manual",
+                "OpenMeteoDevice" => "Open-Meteo",
+                "OpenWeatherMapDevice" => "OpenWeather",
+                "NoneDevice" => "",
+                _ => typeName.EndsWith("Device", StringComparison.Ordinal)
+                    ? typeName[..^"Device".Length]
+                    : typeName,
+            };
+        }
+    }
+
+    /// <summary>
     /// Configurable settings for this device, described as URI query parameter descriptors.
     /// The equipment tab iterates these to render a generic settings pane.
     /// Override in subclasses to declare device-specific settings.

@@ -807,14 +807,30 @@ namespace TianWen.UI.Abstractions
                 // Even when not assigned we keep the layout stable so name widths don't jitter.
                 var rightReserved = padding + checkW + padding + connBtnW + padding + statusW;
 
-                // Device name
+                // Device name + source moniker. The source tells the user at a glance
+                // whether this discovered row is e.g. ASCOM vs native ZWO vs Canon vs
+                // OnStep, which otherwise is only implied by the display name (and not
+                // always — "EQ6-R Pro" could be reached via Skywatcher-native, ASCOM,
+                // or Alpaca, all with the same friendly name).
                 var nameX = x + badgeW + padding;
-                var nameW = rowW - badgeW - padding * 2f - rightReserved;
+                var sourceText = device.Source;
+                var sourceW = string.IsNullOrEmpty(sourceText)
+                    ? 0f
+                    : Renderer.MeasureText(sourceText.AsSpan(), fontPath, fontSize * 0.75f).Width + padding;
+                var nameW = rowW - badgeW - padding * 2f - rightReserved - sourceW;
                 DrawText(
                     device.DisplayName.AsSpan(),
                     fontPath,
                     nameX, rowY, nameW, itemH,
                     fontSize, textColor, TextAlign.Near, TextAlign.Center);
+                if (sourceW > 0f)
+                {
+                    DrawText(
+                        sourceText.AsSpan(),
+                        fontPath,
+                        nameX + nameW, rowY, sourceW, itemH,
+                        fontSize * 0.75f, DimmedText, TextAlign.Near, TextAlign.Center);
+                }
 
                 // Right-edge columns laid out from the right margin inward.
                 var checkColX  = x + rowW - padding - checkW;
