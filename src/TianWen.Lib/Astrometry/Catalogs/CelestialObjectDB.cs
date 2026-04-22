@@ -283,6 +283,15 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
         // merge immediately.
         var hrParseTask = ParseSimbadFileAsync(assembly, manifestNames, "HR", cancellationToken);
 
+        // Same trick for the NGC CSVs: LZ-decompress them in the background so that
+        // when the main thread reaches the NGC-CSV merge phase, the bytes are ready
+        // and only the (synchronous, main-thread-only) CSV-to-dict merge runs there.
+        var ngcDecompressTasks = new[]
+        {
+            DecompressCsvAsync(assembly, manifestNames, "NGC", cancellationToken),
+            DecompressCsvAsync(assembly, manifestNames, "NGC.addendum", cancellationToken),
+        };
+
         foreach (var predefined in _predefinedObjects)
         {
             var cat = predefined.Key.ToCatalog();
@@ -296,9 +305,14 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
         _lastInitPhaseTimings.Add(("predefined", phaseSw.Elapsed));
 
         phaseSw.Restart();
-        foreach (var csvName in new[] { "NGC", "NGC.addendum" })
+        // Merge in declared order - NGC first (baseline entries), then NGC.addendum
+        // (overrides / extras). Each task's decompress already happened in parallel
+        // with the predefined-object loop, so what runs here is just the CSV-to-dict
+        // merge which must stay serial because it mutates _objectsByIndex.
+        foreach (var decompressTask in ngcDecompressTasks)
         {
-            var (processed, failed) = ReadEmbeddedLzCsvData(assembly, manifestNames, csvName, cancellationToken);
+            var bytes = await decompressTask;
+            var (processed, failed) = MergeLzCsvData(bytes, cancellationToken);
             totalProcessed += processed;
             totalFailed += failed;
         }
@@ -1206,7 +1220,31 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
         return false;
     }
 
-    private (int Processed, int Failed) ReadEmbeddedLzCsvData(Assembly assembly, string[] manifestNames, string csvName, CancellationToken cancellationToken)
+    /// <summary>
+    /// Stage 1 of NGC CSV loading: LZ-decompress the embedded .{name}.csv.lz
+    /// resource. Stateless and CPU-bound, safe to run on the thread pool in
+    /// parallel with other work (predefined objects, HR SIMBAD parse, Tycho2).
+    /// </summary>
+    private static async Task<byte[]?> DecompressCsvAsync(Assembly assembly, string[] manifestNames, string csvName, CancellationToken cancellationToken)
+    {
+        var manifestFileName = manifestNames.FirstOrDefault(p => p.EndsWith("." + csvName + ".csv.lz"));
+        if (manifestFileName is null || assembly.GetManifestResourceStream(manifestFileName) is not Stream stream)
+        {
+            return null;
+        }
+
+        using (stream)
+        {
+            return await Task.Run(() => LzipDecoder.Decompress(stream), cancellationToken);
+        }
+    }
+
+    /// <summary>
+    /// Stage 2 of NGC CSV loading: run the CSV reader over pre-decompressed bytes
+    /// and merge into the shared dicts. Must stay on the main thread because it
+    /// mutates _objectsByIndex / _crossIndexLookuptable.
+    /// </summary>
+    private (int Processed, int Failed) MergeLzCsvData(byte[]? decompressed, CancellationToken cancellationToken)
     {
         const string NGC = nameof(NGC);
         const string IC = nameof(IC);
@@ -1214,16 +1252,12 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
 
         int processed = 0;
         int failed = 0;
-        var manifestFileName = manifestNames.FirstOrDefault(p => p.EndsWith("." + csvName + ".csv.lz"));
-        if (manifestFileName is null || assembly.GetManifestResourceStream(manifestFileName) is not Stream stream)
+        if (decompressed is null)
         {
             return (processed, failed);
         }
 
-        using var decompressed = LzipDecoder.DecompressToStream(stream);
-        var csvText = decompressed.TryGetBuffer(out var buffer) && buffer is { Array.Length: > 0 }
-            ? new UTF8Encoding(false).GetString(buffer.Array, buffer.Offset, buffer.Count)
-            : new UTF8Encoding(false).GetString(decompressed.ToArray());
+        var csvText = new UTF8Encoding(false).GetString(decompressed);
         var csvReader = new CsvFieldReader(csvText, ';');
 
         while (!cancellationToken.IsCancellationRequested && csvReader.Read())
