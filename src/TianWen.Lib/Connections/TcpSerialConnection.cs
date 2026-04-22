@@ -300,15 +300,21 @@ internal sealed class TcpSerialConnection : ISerialConnection
     private void LogVerboseReadFailure(Exception ex)
     {
         var tag = VerboseTag;
+        var reason = SanitizeReason(ex);
         if (!string.IsNullOrEmpty(tag))
         {
-            _logger.LogInformation("{EndPoint} [{Tag}] <-- (no response: {Reason})", _remoteEndPoint, tag, ex.GetType().Name);
+            _logger.LogInformation("{EndPoint} [{Tag}] <-- (no response: {ExceptionType}: {Reason})", _remoteEndPoint, tag, ex.GetType().Name, reason);
         }
         else
         {
-            _logger.LogInformation("{EndPoint} <-- (no response: {Reason})", _remoteEndPoint, ex.GetType().Name);
+            _logger.LogInformation("{EndPoint} <-- (no response: {ExceptionType}: {Reason})", _remoteEndPoint, ex.GetType().Name, reason);
         }
     }
+
+    // Squash newlines/trailing whitespace so the one-line-per-exchange format holds
+    // even when the underlying socket/stream message is multi-line.
+    private static string SanitizeReason(Exception ex)
+        => ex.Message.TrimEnd().Replace("\r\n", " ").Replace('\n', ' ').Replace('\r', ' ');
 
     public async ValueTask<bool> TryReadExactlyRawAsync(Memory<byte> message, CancellationToken cancellationToken)
     {

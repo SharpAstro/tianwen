@@ -362,7 +362,7 @@ internal sealed class SerialProbeService : ISerialProbeService
                 {
                     if (isolateEachProbe)
                     {
-                        conn!.TryClose();
+                        TryCloseWithLog(conn!);
                         conn = null;
                     }
                 }
@@ -373,7 +373,10 @@ internal sealed class SerialProbeService : ISerialProbeService
             // Single-probe groups only: close the shared connection on exit. Reopen
             // at the next baud because USB-serial bridges react badly to mid-stream
             // BaudRate mutation.
-            conn?.TryClose();
+            if (conn is not null)
+            {
+                TryCloseWithLog(conn);
+            }
         }
 
         async ValueTask<ISerialConnection?> TryOpenAsync()
@@ -384,6 +387,10 @@ internal sealed class SerialProbeService : ISerialProbeService
                 // Log the exact handshake at Info during probes; drivers opening the
                 // same port for session use do not touch this flag.
                 c.LogVerbose = true;
+                // Open/close framing at Info so every exchange in the log is visibly
+                // bracketed by the baud rate it ran at — otherwise the baud only
+                // shows up inside a logger scope, which most formatters drop.
+                logger.LogInformation("{Port} opened @ {Baud} baud", port, baud);
                 return c;
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -395,6 +402,12 @@ internal sealed class SerialProbeService : ISerialProbeService
                 logger.LogDebug(ex, "Failed to open port at {Baud} baud — skipping.", baud);
                 return null;
             }
+        }
+
+        void TryCloseWithLog(ISerialConnection c)
+        {
+            c.TryClose();
+            logger.LogInformation("{Port} closed (was @ {Baud} baud)", port, baud);
         }
     }
 

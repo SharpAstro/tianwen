@@ -184,13 +184,14 @@ internal abstract class SerialConnectionBase : ISerialConnection
             if (LogVerbose)
             {
                 var tag = VerboseTag;
+                var reason = SanitizeReason(ex);
                 if (!string.IsNullOrEmpty(tag))
                 {
-                    _logger.LogInformation("{Port} [{Tag}] <-- (no response: {Reason})", DisplayName, tag, ex.GetType().Name);
+                    _logger.LogInformation("{Port} [{Tag}] <-- (no response: {ExceptionType}: {Reason})", DisplayName, tag, ex.GetType().Name, reason);
                 }
                 else
                 {
-                    _logger.LogInformation("{Port} <-- (no response: {Reason})", DisplayName, ex.GetType().Name);
+                    _logger.LogInformation("{Port} <-- (no response: {ExceptionType}: {Reason})", DisplayName, ex.GetType().Name, reason);
                 }
             }
             _logger.LogDebug(ex, "TryReadTerminatedRawAsync failed on {Port}", DisplayName);
@@ -252,13 +253,14 @@ internal abstract class SerialConnectionBase : ISerialConnection
             if (LogVerbose)
             {
                 var tag = VerboseTag;
+                var reason = SanitizeReason(ex);
                 if (!string.IsNullOrEmpty(tag))
                 {
-                    _logger.LogInformation("{Port} [{Tag}] <-- (no response: {Reason})", DisplayName, tag, ex.GetType().Name);
+                    _logger.LogInformation("{Port} [{Tag}] <-- (no response: {ExceptionType}: {Reason})", DisplayName, tag, ex.GetType().Name, reason);
                 }
                 else
                 {
-                    _logger.LogInformation("{Port} <-- (no response: {Reason})", DisplayName, ex.GetType().Name);
+                    _logger.LogInformation("{Port} <-- (no response: {ExceptionType}: {Reason})", DisplayName, ex.GetType().Name, reason);
                 }
             }
             _logger.LogDebug(ex, "TryReadExactlyRawAsync failed on {Port}", DisplayName);
@@ -268,4 +270,10 @@ internal abstract class SerialConnectionBase : ISerialConnection
     }
 
     public void Dispose() => _ = TryClose();
+
+    // Squash newlines/trailing whitespace — IOException.Message from SerialStream is
+    // often multi-line ("The I/O operation has been aborted...\r\n"), which shreds
+    // the one-line-per-exchange probe log.
+    private static string SanitizeReason(Exception ex)
+        => ex.Message.TrimEnd().Replace("\r\n", " ").Replace('\n', ' ').Replace('\r', ' ');
 }
