@@ -120,15 +120,21 @@ public class SerialProbeServiceTests(ITestOutputHelper output)
     public async Task WithProbeThatTimesOutLogsTimeoutAndReturnsNoMatch()
     {
         var external = new ProbeTestExternal { Ports = ["serial:COM5"] };
+        // Stub awaits on ct indefinitely — the probe "times out" only when the
+        // budget CTS (fake-time driven) cancels the linked token. Task.Delay
+        // with Timeout.InfiniteTimeSpan schedules no timer, so the wait is
+        // purely cancellation-driven and the pump controls when it unblocks.
         var probe = new StubProbe("Slow", baud: 9600, budget: TimeSpan.FromMilliseconds(50),
             match: async (_, ct) =>
             {
-                await Task.Delay(TimeSpan.FromSeconds(30), ct);
+                await Task.Delay(Timeout.InfiniteTimeSpan, ct);
                 return (SerialProbeMatch?)null;
             });
         var service = BuildService(external, output, probe);
 
-        await service.ProbeAllAsync(TestContext.Current.CancellationToken);
+        var probeTask = service.ProbeAllAsync(TestContext.Current.CancellationToken);
+        await PumpFakeTimeUntilCompleteAsync(external.TimeProvider, probeTask, TestContext.Current.CancellationToken);
+        await probeTask;
 
         service.ResultsFor("Slow").ShouldBeEmpty();
     }
@@ -144,17 +150,44 @@ public class SerialProbeServiceTests(ITestOutputHelper output)
                 var attempt = Interlocked.Increment(ref attempts);
                 if (attempt == 1)
                 {
-                    await Task.Delay(TimeSpan.FromSeconds(30), ct);
+                    // See note above: wait for cancellation, not real time.
+                    await Task.Delay(Timeout.InfiniteTimeSpan, ct);
                     return (SerialProbeMatch?)null;
                 }
                 return new SerialProbeMatch(port, new Uri("Focuser://FakeDevice/retried"));
             });
         var service = BuildService(external, output, probe);
 
-        await service.ProbeAllAsync(TestContext.Current.CancellationToken);
+        var probeTask = service.ProbeAllAsync(TestContext.Current.CancellationToken);
+        await PumpFakeTimeUntilCompleteAsync(external.TimeProvider, probeTask, TestContext.Current.CancellationToken);
+        await probeTask;
 
         attempts.ShouldBe(2);
         service.ResultsFor("Retrier").ShouldHaveSingleItem();
+    }
+
+    /// <summary>
+    /// Advances the fake clock in small steps, yielding real time between steps
+    /// so the probe's thread-pool continuations can observe cancellation and
+    /// make forward progress. Caps at 5 fake-seconds and 10 real-seconds so a
+    /// genuinely hung probe fails the test instead of hanging the whole run.
+    /// </summary>
+    private static async Task PumpFakeTimeUntilCompleteAsync(
+        FakeTimeProviderWrapper timeProvider,
+        ValueTask probeTask,
+        CancellationToken cancellationToken)
+    {
+        using var realCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        realCts.CancelAfter(TimeSpan.FromSeconds(10));
+
+        var pumped = TimeSpan.Zero;
+        var maxPump = TimeSpan.FromSeconds(5);
+        while (!probeTask.IsCompleted && pumped < maxPump && !realCts.IsCancellationRequested)
+        {
+            timeProvider.Advance(TimeSpan.FromMilliseconds(25));
+            pumped += TimeSpan.FromMilliseconds(25);
+            await Task.Delay(2, realCts.Token);
+        }
     }
 
     [Fact]
