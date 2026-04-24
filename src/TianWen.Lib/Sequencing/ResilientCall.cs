@@ -54,6 +54,34 @@ internal static class ResilientCall
         }, options, cancellationToken, onReconnect).ConfigureAwait(false);
     }
 
+    /// <summary>
+    /// <see cref="Task{T}"/>-returning overload. Drivers mix Task and ValueTask returns;
+    /// this is a thin trampoline so callers don't have to wrap every <c>Task&lt;T&gt;</c>
+    /// call site in <c>new ValueTask&lt;T&gt;(...)</c>.
+    /// </summary>
+    public static ValueTask<T> InvokeAsync<T>(
+        IDeviceDriver driver,
+        Func<CancellationToken, Task<T>> op,
+        ResilientCallOptions options,
+        CancellationToken cancellationToken,
+        Action<IDeviceDriver>? onReconnect = null)
+        => InvokeCoreAsync(driver, ct => new ValueTask<T>(op(ct)), options, cancellationToken, onReconnect);
+
+    /// <summary><see cref="Task"/>-returning (void) overload.</summary>
+    public static async ValueTask InvokeAsync(
+        IDeviceDriver driver,
+        Func<CancellationToken, Task> op,
+        ResilientCallOptions options,
+        CancellationToken cancellationToken,
+        Action<IDeviceDriver>? onReconnect = null)
+    {
+        await InvokeCoreAsync<object?>(driver, async ct =>
+        {
+            await op(ct).ConfigureAwait(false);
+            return null;
+        }, options, cancellationToken, onReconnect).ConfigureAwait(false);
+    }
+
     private static async ValueTask<T> InvokeCoreAsync<T>(
         IDeviceDriver driver,
         Func<CancellationToken, ValueTask<T>> op,

@@ -47,7 +47,10 @@ internal partial record Session
             double hourAngleAtSlewTime;
             try
             {
-                (var postCondition, hourAngleAtSlewTime) = await mount.Driver.BeginSlewToTargetAsync(observation.Target, Configuration.MinHeightAboveHorizon, cancellationToken).ConfigureAwait(false);
+                (var postCondition, hourAngleAtSlewTime) = await ResilientCall.InvokeAsync(
+                    mount.Driver,
+                    ct => mount.Driver.BeginSlewToTargetAsync(observation.Target, Configuration.MinHeightAboveHorizon, ct),
+                    ResilientCallOptions.NonIdempotentAction, cancellationToken).ConfigureAwait(false);
                 if (postCondition is SlewPostCondition.SlewNotPossible or SlewPostCondition.TargetBelowHorizonLimit)
                 {
                     var maxWait = Configuration.MaxWaitForRisingTarget ?? TimeSpan.FromMinutes(15);
@@ -63,8 +66,10 @@ internal partial record Session
                         await _timeProvider.SleepAsync(waitTime, cancellationToken);
 
                         // Retry slew after waiting
-                        (postCondition, hourAngleAtSlewTime) = await mount.Driver.BeginSlewToTargetAsync(
-                            observation.Target, Configuration.MinHeightAboveHorizon, cancellationToken).ConfigureAwait(false);
+                        (postCondition, hourAngleAtSlewTime) = await ResilientCall.InvokeAsync(
+                            mount.Driver,
+                            ct => mount.Driver.BeginSlewToTargetAsync(observation.Target, Configuration.MinHeightAboveHorizon, ct),
+                            ResilientCallOptions.NonIdempotentAction, cancellationToken).ConfigureAwait(false);
                     }
 
                     // Still not available — try spare targets, then advance
@@ -76,7 +81,10 @@ internal partial record Session
                                 observation.Target, postCondition, spare.Target);
                             observation = spare;
 
-                            (postCondition, hourAngleAtSlewTime) = await mount.Driver.BeginSlewToTargetAsync(spare.Target, Configuration.MinHeightAboveHorizon, cancellationToken).ConfigureAwait(false);
+                            (postCondition, hourAngleAtSlewTime) = await ResilientCall.InvokeAsync(
+                                mount.Driver,
+                                ct => mount.Driver.BeginSlewToTargetAsync(spare.Target, Configuration.MinHeightAboveHorizon, ct),
+                                ResilientCallOptions.NonIdempotentAction, cancellationToken).ConfigureAwait(false);
                             if (postCondition is SlewPostCondition.SlewNotPossible or SlewPostCondition.TargetBelowHorizonLimit)
                             {
                                 _ = AdvanceObservation();
@@ -126,7 +134,10 @@ internal partial record Session
             }
 
             _currentActivity = $"Starting guider on {observation.Target.Name}\u2026";
-            var guidingSuccess = await guider.Driver.StartGuidingLoopAsync(Configuration.GuidingTries, cancellationToken).ConfigureAwait(false);
+            var guidingSuccess = await ResilientCall.InvokeAsync(
+                guider.Driver,
+                ct => guider.Driver.StartGuidingLoopAsync(Configuration.GuidingTries, ct),
+                ResilientCallOptions.NonIdempotentAction, cancellationToken).ConfigureAwait(false);
 
             if (cancellationToken.IsCancellationRequested)
             {
@@ -151,7 +162,10 @@ internal partial record Session
                     _logger.LogWarning("Auto-focus did not converge for all telescopes on new target, proceeding.");
                 }
 
-                await guider.Driver.StartGuidingLoopAsync(Configuration.GuidingTries, cancellationToken).ConfigureAwait(false);
+                await ResilientCall.InvokeAsync(
+                    guider.Driver,
+                    ct => guider.Driver.StartGuidingLoopAsync(Configuration.GuidingTries, ct),
+                    ResilientCallOptions.NonIdempotentAction, cancellationToken).ConfigureAwait(false);
             }
 
             var imageLoopStart = await GetMountUtcNowAsync(cancellationToken);
@@ -327,7 +341,10 @@ internal partial record Session
             {
                 var guiderRestartedSuccess =
                     await CatchAsync(guider.Driver.ConnectAsync, cancellationToken) &&
-                    await guider.Driver.StartGuidingLoopAsync(Configuration.GuidingTries, cancellationToken);
+                    await ResilientCall.InvokeAsync(
+                        guider.Driver,
+                        ct => guider.Driver.StartGuidingLoopAsync(Configuration.GuidingTries, ct),
+                        ResilientCallOptions.NonIdempotentAction, cancellationToken);
 
                 if (cancellationToken.IsCancellationRequested)
                 {
@@ -379,7 +396,10 @@ internal partial record Session
                     var subExposureSec = (int)Math.Ceiling(currentEntry.SubExposure.TotalSeconds);
                     currentSubExposuresSec[i] = subExposureSec;
                     var frameExpTime = TimeSpan.FromSeconds(subExposureSec);
-                    expStartTimes[i] = await camerDriver.StartExposureAsync(frameExpTime, cancellationToken: cancellationToken);
+                    expStartTimes[i] = await ResilientCall.InvokeAsync(
+                        camerDriver,
+                        ct => camerDriver.StartExposureAsync(frameExpTime, cancellationToken: ct),
+                        ResilientCallOptions.NonIdempotentAction, cancellationToken);
                     expTicks[i] = subExposureSec / tickSec;
                     filterFrameCounters[i]++;
                     var frameNo = ++frameNumbers[i];
@@ -419,7 +439,9 @@ internal partial record Session
                     var polled = TimeSpan.Zero;
                     do // wait for image loop
                     {
-                        if (await camDriver.GetImageAsync(cancellationToken) is { Width: > 0, Height: > 0 } image)
+                        if (await ResilientCall.InvokeAsync(
+                                camDriver, camDriver.GetImageAsync,
+                                ResilientCallOptions.IdempotentRead, cancellationToken) is { Width: > 0, Height: > 0 } image)
                         {
                             imageFetchSuccess[i] = true;
                             _cameraStates[i] = _cameraStates[i] with { State = Devices.CameraState.Download };
@@ -545,7 +567,9 @@ internal partial record Session
                             // Nearly done — wait for it to finish and save the frame
                             _logger.LogInformation("Waiting for exposure on camera #{CameraNumber} to finish ({Remaining:F0}s remaining).", i + 1, remaining.TotalSeconds);
                             await _timeProvider.SleepAsync(remaining > TimeSpan.Zero ? remaining : TimeSpan.Zero, cancellationToken);
-                            if (await camDriver.GetImageAsync(cancellationToken) is { Width: > 0, Height: > 0 } image)
+                            if (await ResilientCall.InvokeAsync(
+                                    camDriver, camDriver.GetImageAsync,
+                                    ResilientCallOptions.IdempotentRead, cancellationToken) is { Width: > 0, Height: > 0 } image)
                             {
                                 imageWriteQueue.Enqueue(new QueuedImageWrite(image, observation, expStartTimes[i], frameNumbers[i], total, i));
                             }
@@ -661,7 +685,10 @@ internal partial record Session
                                 SetBaselineForCurrentObservation(baselines);
                             }
 
-                            await guider.Driver.StartGuidingLoopAsync(Configuration.GuidingTries, cancellationToken).ConfigureAwait(false);
+                            await ResilientCall.InvokeAsync(
+                                guider.Driver,
+                                ct => guider.Driver.StartGuidingLoopAsync(Configuration.GuidingTries, ct),
+                                ResilientCallOptions.NonIdempotentAction, cancellationToken).ConfigureAwait(false);
                             break; // restart imaging loop after refocus
                         }
 
@@ -703,7 +730,10 @@ internal partial record Session
                     if (shouldDither)
                     {
                         _ditherPending = true;
-                        if (await guider.Driver.DitherWaitAsync(Configuration.DitherPixel, Configuration.SettlePixel, Configuration.SettleTime, WriteQueuedImagesToFitsFilesAsync, cancellationToken).ConfigureAwait(false))
+                        if (await ResilientCall.InvokeAsync(
+                                guider.Driver,
+                                ct => guider.Driver.DitherWaitAsync(Configuration.DitherPixel, Configuration.SettlePixel, Configuration.SettleTime, WriteQueuedImagesToFitsFilesAsync, ct),
+                                ResilientCallOptions.NonIdempotentAction, cancellationToken).ConfigureAwait(false))
                         {
                             _logger.LogInformation("Dithering using \"{GuiderName}\" succeeded.", guider.Driver);
                         }
@@ -823,7 +853,10 @@ internal partial record Session
         _logger.LogInformation("Telescope #{TelescopeNumber}: switching filter to {Filter} (position {Position}).",
             telescopeIndex + 1, targetFilter.Filter, targetFilterPosition);
 
-        await filterWheelDriver.BeginMoveAsync(targetFilterPosition, cancellationToken);
+        await ResilientCall.InvokeAsync(
+            filterWheelDriver,
+            ct => filterWheelDriver.BeginMoveAsync(targetFilterPosition, ct),
+            ResilientCallOptions.AbsoluteMove, cancellationToken);
 
         // Poll until the wheel reports it has arrived (position != -1 and equals target)
         while (!cancellationToken.IsCancellationRequested)
@@ -919,8 +952,10 @@ internal partial record Session
                     ResilientCallOptions.IdempotentRead, cancellationToken).ConfigureAwait(false);
             }
 
-            var (postCondition, _) = await mount.Driver.BeginSlewToTargetAsync(
-                slewTarget, Configuration.MinHeightAboveHorizon, cancellationToken).ConfigureAwait(false);
+            var (postCondition, _) = await ResilientCall.InvokeAsync(
+                mount.Driver,
+                ct => mount.Driver.BeginSlewToTargetAsync(slewTarget, Configuration.MinHeightAboveHorizon, ct),
+                ResilientCallOptions.NonIdempotentAction, cancellationToken).ConfigureAwait(false);
 
             if (postCondition is not SlewPostCondition.Slewing)
             {
@@ -953,7 +988,10 @@ internal partial record Session
                 }
 
                 _logger.LogInformation("Meridian flip: restarting guiding for {Target}.", observation.Target);
-                if (!await guider.Driver.StartGuidingLoopAsync(Configuration.GuidingTries, cancellationToken).ConfigureAwait(false))
+                if (!await ResilientCall.InvokeAsync(
+                        guider.Driver,
+                        ct => guider.Driver.StartGuidingLoopAsync(Configuration.GuidingTries, ct),
+                        ResilientCallOptions.NonIdempotentAction, cancellationToken).ConfigureAwait(false))
                 {
                     _logger.LogError("Meridian flip: failed to restart guider after flip for {Target}.", observation.Target);
                     return MeridianFlipResult.Failed;
@@ -1057,7 +1095,10 @@ internal partial record Session
             }
 
             var testExposure = TimeSpan.FromSeconds(Math.Min(baseline.Exposure.TotalSeconds, 5));
-            await camera.StartExposureAsync(testExposure, cancellationToken: cancellationToken);
+            await ResilientCall.InvokeAsync(
+                camera,
+                ct => camera.StartExposureAsync(testExposure, cancellationToken: ct),
+                ResilientCallOptions.NonIdempotentAction, cancellationToken);
             await _timeProvider.SleepAsync(testExposure + TimeSpan.FromSeconds(2), cancellationToken);
 
             if (!await camera.GetImageReadyAsync(cancellationToken))
@@ -1065,7 +1106,9 @@ internal partial record Session
                 continue;
             }
 
-            var image = await ((ICameraDriver)camera).GetImageAsync(cancellationToken);
+            var image = await ResilientCall.InvokeAsync(
+                camera, ((ICameraDriver)camera).GetImageAsync,
+                ResilientCallOptions.IdempotentRead, cancellationToken);
             if (image is null)
             {
                 continue;

@@ -385,7 +385,10 @@ internal partial record Session
             // Move may have been started during previous iteration's download overlap
             if (!await focuser.GetIsMovingAsync(cancellationToken))
             {
-                await focuser.BeginMoveAsync(targetPos, cancellationToken);
+                await ResilientCall.InvokeAsync(
+                    focuser,
+                    ct => focuser.BeginMoveAsync(targetPos, ct),
+                    ResilientCallOptions.AbsoluteMove, cancellationToken);
             }
             while (await focuser.GetIsMovingAsync(cancellationToken) && !cancellationToken.IsCancellationRequested)
             {
@@ -406,7 +409,10 @@ internal partial record Session
                     focTemp, FocuserIsMoving: false);
             }
 
-            await camera.StartExposureAsync(autoFocusExposure, cancellationToken: cancellationToken);
+            await ResilientCall.InvokeAsync(
+                camera,
+                ct => camera.StartExposureAsync(autoFocusExposure, cancellationToken: ct),
+                ResilientCallOptions.NonIdempotentAction, cancellationToken);
 
             // Pipeline optimization: start moving focuser to next position while camera downloads
             var nextPos = (i + 1 < stepCount) ? startPos + (i + 1) * stepSize : -1;
@@ -415,13 +421,18 @@ internal partial record Session
             var moveStarted = false;
             while (image is null && retries++ < 100 && !cancellationToken.IsCancellationRequested)
             {
-                image = await camera.GetImageAsync(cancellationToken);
+                image = await ResilientCall.InvokeAsync(
+                    camera, camera.GetImageAsync,
+                    ResilientCallOptions.IdempotentRead, cancellationToken);
                 if (image is null)
                 {
                     // Start moving to next position during download (overlap)
                     if (!moveStarted && nextPos >= 0 && retries > 5)
                     {
-                        await focuser.BeginMoveAsync(nextPos, cancellationToken);
+                        await ResilientCall.InvokeAsync(
+                            focuser,
+                            ct => focuser.BeginMoveAsync(nextPos, ct),
+                            ResilientCallOptions.AbsoluteMove, cancellationToken);
                         moveStarted = true;
                     }
                     await _timeProvider.SleepAsync(TimeSpan.FromMilliseconds(100), cancellationToken);
@@ -513,13 +524,18 @@ internal partial record Session
 
             // Take a verification exposure at best focus to get baseline HFD
             camera.FocusPosition = bestPos;
-            await camera.StartExposureAsync(TimeSpan.FromSeconds(2), cancellationToken: cancellationToken);
+            await ResilientCall.InvokeAsync(
+                camera,
+                ct => camera.StartExposureAsync(TimeSpan.FromSeconds(2), cancellationToken: ct),
+                ResilientCallOptions.NonIdempotentAction, cancellationToken);
 
             Image? verifyImage = null;
             var retries = 0;
             while (verifyImage is null && retries++ < 100 && !cancellationToken.IsCancellationRequested)
             {
-                verifyImage = await camera.GetImageAsync(cancellationToken);
+                verifyImage = await ResilientCall.InvokeAsync(
+                    camera, camera.GetImageAsync,
+                    ResilientCallOptions.IdempotentRead, cancellationToken);
                 if (verifyImage is null)
                 {
                     await _timeProvider.SleepAsync(TimeSpan.FromMilliseconds(100), cancellationToken);

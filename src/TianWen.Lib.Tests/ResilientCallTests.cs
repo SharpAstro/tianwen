@@ -178,16 +178,19 @@ public class ResilientCallTests
         // We approximate by flipping Connected to false before the retry.
         var reconnects = 0;
 
-        var result = await ResilientCall.InvokeAsync(
-            driver, async ct =>
+        async ValueTask<int> DisconnectThenOpAsync(CancellationToken ct)
+        {
+            // After the first throw, mark disconnected so the retry reconnects.
+            if (driver.OpCalls == 0)
             {
-                // After the first throw, mark disconnected so the retry reconnects.
-                if (driver.OpCalls == 0)
-                {
-                    await driver.DisconnectAsync(ct);
-                }
-                return await driver.OpAsync(ct);
-            }, ResilientCallOptions.IdempotentRead, TestContext.Current.CancellationToken,
+                await driver.DisconnectAsync(ct);
+            }
+            return await driver.OpAsync(ct);
+        }
+
+        var result = await ResilientCall.InvokeAsync(
+            driver, DisconnectThenOpAsync,
+            ResilientCallOptions.IdempotentRead, TestContext.Current.CancellationToken,
             onReconnect: _ => reconnects++);
 
         result.ShouldBe(2);
@@ -203,9 +206,11 @@ public class ResilientCallTests
         var driver = new FakeFlakyDriver(time);
         cts.Cancel();
 
+        static ValueTask<int> AlwaysThrowCancel(CancellationToken ct) => throw new OperationCanceledException(ct);
+
         await Should.ThrowAsync<OperationCanceledException>(async () =>
             await ResilientCall.InvokeAsync(
-                driver, _ => throw new OperationCanceledException(cts.Token),
+                driver, AlwaysThrowCancel,
                 ResilientCallOptions.IdempotentRead, cts.Token));
 
         // No reconnect, no retry — cancellation is immediate.
