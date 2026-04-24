@@ -14,11 +14,15 @@ namespace TianWen.Lib.Devices.OnStep;
 /// the mount-resident UUID produces the same deviceId across transports, so the same profile
 /// entry survives a USB ↔ WiFi switch.
 /// <para>
-/// Cold-start tolerance: OnStep ESP32 controllers can take ~1–2s to respond on first
-/// connect after a cold boot (the "Teesek mount" scenario). Budget is 1.5s — generous
-/// enough to catch a warm controller with margin but not so long that a dead port
-/// dominates discovery. <see cref="MaxAttempts"/> is 1 by default; bumping to 2 would
-/// roughly double per-port cost for dead ports to cover the rare >1.5s cold start.
+/// Cold-start tolerance: OnStep ESP32 controllers can take ~500ms–1s to respond on first
+/// connect after a cold boot. The INDI-documented first-query quirk (first LX200 "get
+/// product" returns a bare "0" without the '#' terminator) is now absorbed by the Meade
+/// probe running ahead of us in the framed-protocol sort order, and a late-arriving '0'
+/// is caught by the post-probe drain in <c>SerialProbeService.RunSingleProbeAsync</c>.
+/// With that cleaned up, 800ms is enough to catch a warm controller and a reasonably
+/// fast cold boot; the pass-2 budget-multiplier ladder (2× = 1.6s) still covers the
+/// rare stubborn cold start. <see cref="MaxAttempts"/> is 1 — per-port retries are
+/// handled by the two-pass ladder, not in-probe.
 /// </para>
 /// </summary>
 internal sealed class OnStepSerialProbe : ISerialProbe
@@ -29,7 +33,7 @@ internal sealed class OnStepSerialProbe : ISerialProbe
     public ProbeExclusivity Exclusivity => ProbeExclusivity.Shared;
     // LX200 responses end in '#'.
     public ProbeFraming Framing => ProbeFraming.HashTerminated;
-    public TimeSpan Budget => TimeSpan.FromMilliseconds(1500);
+    public TimeSpan Budget => TimeSpan.FromMilliseconds(800);
     public int MaxAttempts => 1;
 
     private static readonly IReadOnlyCollection<string> _hosts = [nameof(OnStepDevice)];

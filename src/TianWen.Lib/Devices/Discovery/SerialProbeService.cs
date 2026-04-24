@@ -489,6 +489,14 @@ internal sealed class SerialProbeService : ISerialProbeService
         }
         finally
         {
+            // Post-probe drain: capture any bytes that arrived DURING or AFTER
+            // this probe's cancellation (the OnStep ":GVP# → 0 without #" quirk
+            // is the canonical case — the '0' shows up just after we time out
+            // waiting for the '#'). Doing it here, before the VerboseTag reset,
+            // attributes the drained-bytes log line to the probe that actually
+            // triggered them rather than the next probe in line.
+            try { conn.DiscardInBuffer(); }
+            catch (Exception ex) { _logger.LogDebug(ex, "Post-probe drain failed on {Port} [{Probe}]", port, probe.Name); }
             conn.VerboseTag = previousTag;
         }
     }

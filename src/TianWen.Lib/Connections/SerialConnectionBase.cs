@@ -13,7 +13,7 @@ internal abstract class SerialConnectionBase : ISerialConnection
 {
     private readonly SemaphoreSlim _semaphore;
     private readonly Stream _stream;
-    private readonly ILogger _logger;
+    protected readonly ILogger _logger;
 
     public SerialConnectionBase(Encoding encoding, ILogger logger)
     {
@@ -56,9 +56,34 @@ internal abstract class SerialConnectionBase : ISerialConnection
     /// <summary>
     /// Base no-op; concrete serial transports (e.g. <see cref="SerialConnection"/>)
     /// override this to discard the native receive buffer before the next probe
-    /// sends a command on the shared handle.
+    /// sends a command on the shared handle. Overrides should read any pending
+    /// bytes first (via <see cref="LogDrained"/>) so the operator can see what
+    /// the device actually sent — e.g. OnStep's unterminated "0" left over from
+    /// a prior LX200 probe's timeout — before the bytes are discarded.
     /// </summary>
     public virtual void DiscardInBuffer() { }
+
+    /// <summary>
+    /// Emits a one-line-per-drain Info entry describing bytes pulled from the
+    /// receive buffer by <see cref="DiscardInBuffer"/>. Called by concrete
+    /// transports before they issue the native discard. Silent when the buffer
+    /// is empty or verbose probe logging is off.
+    /// </summary>
+    protected void LogDrained(ReadOnlySpan<byte> bytes)
+    {
+        if (bytes.IsEmpty || !LogVerbose) return;
+
+        var rendered = Encoding.GetString(bytes).ReplaceNonPrintableWithHex();
+        var tag = VerboseTag;
+        if (!string.IsNullOrEmpty(tag))
+        {
+            _logger.LogInformation("{Port} [{Tag}] <-- (drained {Count} byte(s): {Bytes})", DisplayName, tag, bytes.Length, rendered);
+        }
+        else
+        {
+            _logger.LogInformation("{Port} <-- (drained {Count} byte(s): {Bytes})", DisplayName, bytes.Length, rendered);
+        }
+    }
 
     public async ValueTask<bool> TryWriteAsync(ReadOnlyMemory<byte> message, CancellationToken cancellationToken)
     {
@@ -181,19 +206,7 @@ internal abstract class SerialConnectionBase : ISerialConnection
             // logs stay readable during discovery, but when verbose probing is on
             // also emit a tagged Info line so the operator sees the "no response"
             // side of each handshake (otherwise the log shows only --> writes).
-            if (LogVerbose)
-            {
-                var tag = VerboseTag;
-                var reason = SanitizeReason(ex);
-                if (!string.IsNullOrEmpty(tag))
-                {
-                    _logger.LogInformation("{Port} [{Tag}] <-- (no response: {ExceptionType}: {Reason})", DisplayName, tag, ex.GetType().Name, reason);
-                }
-                else
-                {
-                    _logger.LogInformation("{Port} <-- (no response: {ExceptionType}: {Reason})", DisplayName, ex.GetType().Name, reason);
-                }
-            }
+            LogReadFailure(ex);
             _logger.LogDebug(ex, "TryReadTerminatedRawAsync failed on {Port}", DisplayName);
 
             return -1;
@@ -250,19 +263,7 @@ internal abstract class SerialConnectionBase : ISerialConnection
             // means we report failure via the bool return; log body stays at Debug. When
             // verbose probing is on, also emit a tagged Info line so each --> write has
             // a matching <-- outcome in the operator log.
-            if (LogVerbose)
-            {
-                var tag = VerboseTag;
-                var reason = SanitizeReason(ex);
-                if (!string.IsNullOrEmpty(tag))
-                {
-                    _logger.LogInformation("{Port} [{Tag}] <-- (no response: {ExceptionType}: {Reason})", DisplayName, tag, ex.GetType().Name, reason);
-                }
-                else
-                {
-                    _logger.LogInformation("{Port} <-- (no response: {ExceptionType}: {Reason})", DisplayName, ex.GetType().Name, reason);
-                }
-            }
+            LogReadFailure(ex);
             _logger.LogDebug(ex, "TryReadExactlyRawAsync failed on {Port}", DisplayName);
 
             return false;
@@ -271,9 +272,44 @@ internal abstract class SerialConnectionBase : ISerialConnection
 
     public void Dispose() => _ = TryClose();
 
+    /// <summary>
+    /// Formats a read failure as a single tagged "no response" Info line when verbose
+    /// logging is on. Carries HResult (Win32 error, e.g. 0x800703E3 =
+    /// ERROR_OPERATION_ABORTED from a cancelled overlapped SerialStream read),
+    /// current IsOpen state (distinguishes "CTS cancelled our read" from "port was
+    /// closed under us"), and inner-exception type+message so caller cancellation
+    /// vs driver-level abort is decidable from the log alone.
+    /// </summary>
+    private void LogReadFailure(Exception ex)
+    {
+        if (!LogVerbose) return;
+
+        var tag = VerboseTag;
+        var reason = SanitizeReason(ex);
+        var inner = ex.InnerException is { } ie
+            ? $"{ie.GetType().Name}: {SanitizeReasonString(ie.Message)}"
+            : "-";
+        var portIsOpen = IsOpen;
+
+        if (!string.IsNullOrEmpty(tag))
+        {
+            _logger.LogInformation(
+                "{Port} [{Tag}] <-- (no response: {ExceptionType}: {Reason}; HResult=0x{HResult:X8}; IsOpen={IsOpen}; Inner={Inner})",
+                DisplayName, tag, ex.GetType().Name, reason, ex.HResult, portIsOpen, inner);
+        }
+        else
+        {
+            _logger.LogInformation(
+                "{Port} <-- (no response: {ExceptionType}: {Reason}; HResult=0x{HResult:X8}; IsOpen={IsOpen}; Inner={Inner})",
+                DisplayName, ex.GetType().Name, reason, ex.HResult, portIsOpen, inner);
+        }
+    }
+
     // Squash newlines/trailing whitespace — IOException.Message from SerialStream is
     // often multi-line ("The I/O operation has been aborted...\r\n"), which shreds
     // the one-line-per-exchange probe log.
-    private static string SanitizeReason(Exception ex)
-        => ex.Message.TrimEnd().Replace("\r\n", " ").Replace('\n', ' ').Replace('\r', ' ');
+    private static string SanitizeReason(Exception ex) => SanitizeReasonString(ex.Message);
+
+    private static string SanitizeReasonString(string message)
+        => message.TrimEnd().Replace("\r\n", " ").Replace('\n', ' ').Replace('\r', ' ');
 }

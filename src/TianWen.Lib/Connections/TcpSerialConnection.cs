@@ -135,9 +135,15 @@ internal sealed class TcpSerialConnection : ISerialConnection
         // Drop any unread bytes we've already fetched, plus anything sitting in
         // the socket's OS-level receive queue. TcpClient.Available is the number
         // of bytes immediately readable without blocking — draining while it is
-        // non-zero clears stale frames left by the prior probe. Best-effort;
+        // non-zero clears stale frames left by the prior probe. Log each chunk
+        // so the operator can see what the device actually sent (e.g. an OnStep
+        // TCP target's unterminated "0" after a :GVP# timeout). Best-effort;
         // swallow transport faults so a mid-discovery disconnect still lets the
         // next probe run (it will fail cleanly on its own next write/read).
+        if (_readBufferEnd > _readBufferStart)
+        {
+            LogDrained(_readBuffer.AsSpan(_readBufferStart, _readBufferEnd - _readBufferStart));
+        }
         _readBufferStart = 0;
         _readBufferEnd = 0;
 
@@ -145,15 +151,34 @@ internal sealed class TcpSerialConnection : ISerialConnection
         try
         {
             Span<byte> scratch = stackalloc byte[256];
-            while (_client.Available > 0)
+            var drained = 0;
+            while (_client.Available > 0 && drained < 4096)
             {
                 var n = _stream.Read(scratch);
                 if (n <= 0) break;
+                LogDrained(scratch[..n]);
+                drained += n;
             }
         }
         catch (Exception ex) when (ex is IOException or SocketException or ObjectDisposedException)
         {
             // connection died while draining - let subsequent read/write report it.
+        }
+    }
+
+    private void LogDrained(ReadOnlySpan<byte> bytes)
+    {
+        if (bytes.IsEmpty || !LogVerbose) return;
+
+        var rendered = Encoding.GetString(bytes).ReplaceNonPrintableWithHex();
+        var tag = VerboseTag;
+        if (!string.IsNullOrEmpty(tag))
+        {
+            _logger.LogInformation("{EndPoint} [{Tag}] <-- (drained {Count} byte(s): {Bytes})", _remoteEndPoint, tag, bytes.Length, rendered);
+        }
+        else
+        {
+            _logger.LogInformation("{EndPoint} <-- (drained {Count} byte(s): {Bytes})", _remoteEndPoint, bytes.Length, rendered);
         }
     }
 
@@ -301,20 +326,31 @@ internal sealed class TcpSerialConnection : ISerialConnection
     {
         var tag = VerboseTag;
         var reason = SanitizeReason(ex);
+        var inner = ex.InnerException is { } ie
+            ? $"{ie.GetType().Name}: {SanitizeReasonString(ie.Message)}"
+            : "-";
+        var isOpen = IsOpen;
+
         if (!string.IsNullOrEmpty(tag))
         {
-            _logger.LogInformation("{EndPoint} [{Tag}] <-- (no response: {ExceptionType}: {Reason})", _remoteEndPoint, tag, ex.GetType().Name, reason);
+            _logger.LogInformation(
+                "{EndPoint} [{Tag}] <-- (no response: {ExceptionType}: {Reason}; HResult=0x{HResult:X8}; IsOpen={IsOpen}; Inner={Inner})",
+                _remoteEndPoint, tag, ex.GetType().Name, reason, ex.HResult, isOpen, inner);
         }
         else
         {
-            _logger.LogInformation("{EndPoint} <-- (no response: {ExceptionType}: {Reason})", _remoteEndPoint, ex.GetType().Name, reason);
+            _logger.LogInformation(
+                "{EndPoint} <-- (no response: {ExceptionType}: {Reason}; HResult=0x{HResult:X8}; IsOpen={IsOpen}; Inner={Inner})",
+                _remoteEndPoint, ex.GetType().Name, reason, ex.HResult, isOpen, inner);
         }
     }
 
     // Squash newlines/trailing whitespace so the one-line-per-exchange format holds
     // even when the underlying socket/stream message is multi-line.
-    private static string SanitizeReason(Exception ex)
-        => ex.Message.TrimEnd().Replace("\r\n", " ").Replace('\n', ' ').Replace('\r', ' ');
+    private static string SanitizeReason(Exception ex) => SanitizeReasonString(ex.Message);
+
+    private static string SanitizeReasonString(string message)
+        => message.TrimEnd().Replace("\r\n", " ").Replace('\n', ' ').Replace('\r', ' ');
 
     public async ValueTask<bool> TryReadExactlyRawAsync(Memory<byte> message, CancellationToken cancellationToken)
     {
