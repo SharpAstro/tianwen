@@ -28,5 +28,20 @@ public record struct SessionConfiguration(
     double MosaicMargin = 0.1,
     float ConditionDeteriorationThreshold = 0.5f,
     TimeSpan? ConditionRecoveryTimeout = null,
-    bool WarmCamerasOnSessionEnd = true
+    bool WarmCamerasOnSessionEnd = true,
+    /// <summary>
+    /// Per-device reconnect-attempt count that trips escalation. When any one
+    /// driver's fault counter reaches this threshold, the observation loop
+    /// returns <c>ImageLoopNextAction.DeviceUnrecoverable</c> and the session
+    /// finalises cleanly. The counter decays by one for every
+    /// <c>DeviceFaultDecayFrames</c> successful frames so a bad hour on one
+    /// night doesn't poison the next.
+    /// </summary>
+    int DeviceFaultEscalationThreshold = 5,
+    /// <summary>
+    /// Number of successful frames before the per-device fault counter decays
+    /// by one. Set to <c>0</c> to disable decay (counter only resets on
+    /// explicit recovery).
+    /// </summary>
+    int DeviceFaultDecayFrames = 10
 );

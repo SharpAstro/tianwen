@@ -41,7 +41,7 @@ internal partial record Session
 
         _currentActivity = "Waiting for slew to complete\u2026";
         _logger.LogInformation("RoughFocus: waiting for slew to complete...");
-        if (!await ResilientCall.InvokeAsync(
+        if (!await ResilientInvokeAsync(
                 mount.Driver,
                 ct => mount.Driver.WaitForSlewCompleteAsync(PollDeviceStatesAsync, ct),
                 ResilientCallOptions.IdempotentRead, cancellationToken).ConfigureAwait(false))
@@ -52,10 +52,10 @@ internal partial record Session
         }
 
         // Update camera targets with current mount position for FITS headers and synthetic star rendering
-        var zenithRa = await ResilientCall.InvokeAsync(
+        var zenithRa = await ResilientInvokeAsync(
             mount.Driver, mount.Driver.GetRightAscensionAsync,
             ResilientCallOptions.IdempotentRead, cancellationToken);
-        var zenithDec = await ResilientCall.InvokeAsync(
+        var zenithDec = await ResilientInvokeAsync(
             mount.Driver, mount.Driver.GetDeclinationAsync,
             ResilientCallOptions.IdempotentRead, cancellationToken);
         var zenithTarget = new Target(zenithRa, zenithDec, "Zenith", null);
@@ -67,7 +67,7 @@ internal partial record Session
             // Sync camera's FocusPosition from the focuser so defocus-dependent rendering is correct
             if (Setup.Telescopes[i].Focuser?.Driver is { Connected: true } foc)
             {
-                cam.FocusPosition = await ResilientCall.InvokeAsync(
+                cam.FocusPosition = await ResilientInvokeAsync(
                     foc, foc.GetPositionAsync,
                     ResilientCallOptions.IdempotentRead, cancellationToken);
             }
@@ -176,7 +176,7 @@ internal partial record Session
 
                 slewTime = await GetMountUtcNowAsync(cancellationToken);
 
-                if (!await ResilientCall.InvokeAsync(
+                if (!await ResilientInvokeAsync(
                         mount.Driver,
                         ct => mount.Driver.WaitForSlewCompleteAsync(PollDeviceStatesAsync, ct),
                         ResilientCallOptions.IdempotentRead, cancellationToken).ConfigureAwait(false))
@@ -358,7 +358,7 @@ internal partial record Session
 
         var autoFocusExposure = TimeSpan.FromSeconds(2);
         var currentGain = await camera.GetGainAsync(cancellationToken);
-        var currentPos = await ResilientCall.InvokeAsync(
+        var currentPos = await ResilientInvokeAsync(
             focuser, focuser.GetPositionAsync,
             ResilientCallOptions.IdempotentRead, cancellationToken);
         var range = Configuration.AutoFocusRange;
@@ -385,7 +385,7 @@ internal partial record Session
             // Move may have been started during previous iteration's download overlap
             if (!await focuser.GetIsMovingAsync(cancellationToken))
             {
-                await ResilientCall.InvokeAsync(
+                await ResilientInvokeAsync(
                     focuser,
                     ct => focuser.BeginMoveAsync(targetPos, ct),
                     ResilientCallOptions.AbsoluteMove, cancellationToken);
@@ -409,7 +409,7 @@ internal partial record Session
                     focTemp, FocuserIsMoving: false);
             }
 
-            await ResilientCall.InvokeAsync(
+            await ResilientInvokeAsync(
                 camera,
                 ct => camera.StartExposureAsync(autoFocusExposure, cancellationToken: ct),
                 ResilientCallOptions.NonIdempotentAction, cancellationToken);
@@ -421,7 +421,7 @@ internal partial record Session
             var moveStarted = false;
             while (image is null && retries++ < 100 && !cancellationToken.IsCancellationRequested)
             {
-                image = await ResilientCall.InvokeAsync(
+                image = await ResilientInvokeAsync(
                     camera, camera.GetImageAsync,
                     ResilientCallOptions.IdempotentRead, cancellationToken);
                 if (image is null)
@@ -429,7 +429,7 @@ internal partial record Session
                     // Start moving to next position during download (overlap)
                     if (!moveStarted && nextPos >= 0 && retries > 5)
                     {
-                        await ResilientCall.InvokeAsync(
+                        await ResilientInvokeAsync(
                             focuser,
                             ct => focuser.BeginMoveAsync(nextPos, ct),
                             ResilientCallOptions.AbsoluteMove, cancellationToken);
@@ -511,7 +511,7 @@ internal partial record Session
         if (sampleMap.TryGetBestFocusSolution(out var solution, out _, out _))
         {
             var bestPos = Math.Clamp((int)Math.Round(solution.Value.BestFocus), 0, focuser.MaxStep);
-            var currentPosNow = await ResilientCall.InvokeAsync(
+            var currentPosNow = await ResilientInvokeAsync(
                 focuser, focuser.GetPositionAsync,
                 ResilientCallOptions.IdempotentRead, cancellationToken);
 
@@ -524,7 +524,7 @@ internal partial record Session
 
             // Take a verification exposure at best focus to get baseline HFD
             camera.FocusPosition = bestPos;
-            await ResilientCall.InvokeAsync(
+            await ResilientInvokeAsync(
                 camera,
                 ct => camera.StartExposureAsync(TimeSpan.FromSeconds(2), cancellationToken: ct),
                 ResilientCallOptions.NonIdempotentAction, cancellationToken);
@@ -533,7 +533,7 @@ internal partial record Session
             var retries = 0;
             while (verifyImage is null && retries++ < 100 && !cancellationToken.IsCancellationRequested)
             {
-                verifyImage = await ResilientCall.InvokeAsync(
+                verifyImage = await ResilientInvokeAsync(
                     camera, camera.GetImageAsync,
                     ResilientCallOptions.IdempotentRead, cancellationToken);
                 if (verifyImage is null)
@@ -624,10 +624,10 @@ internal partial record Session
         }
 
         // Plate solve using mount's current position as search origin
-        var mountRa = await ResilientCall.InvokeAsync(
+        var mountRa = await ResilientInvokeAsync(
             mount.Driver, mount.Driver.GetRightAscensionAsync,
             ResilientCallOptions.IdempotentRead, cancellationToken);
-        var mountDec = await ResilientCall.InvokeAsync(
+        var mountDec = await ResilientInvokeAsync(
             mount.Driver, mount.Driver.GetDeclinationAsync,
             ResilientCallOptions.IdempotentRead, cancellationToken);
         var searchOrigin = new WCS(mountRa, mountDec);
@@ -696,7 +696,7 @@ internal partial record Session
             var (postCondition, _) = await mount.Driver.BeginSlewToTargetAsync(target, Configuration.MinHeightAboveHorizon, cancellationToken).ConfigureAwait(false);
             if (postCondition is SlewPostCondition.Slewing)
             {
-                await ResilientCall.InvokeAsync(
+                await ResilientInvokeAsync(
                     mount.Driver,
                     ct => mount.Driver.WaitForSlewCompleteAsync(PollDeviceStatesAsync, ct),
                     ResilientCallOptions.IdempotentRead, cancellationToken).ConfigureAwait(false);
@@ -717,10 +717,10 @@ internal partial record Session
         Astrometry.PlateSolve.PlateSolveResult result;
         try
         {
-            var mountRa = await ResilientCall.InvokeAsync(
+            var mountRa = await ResilientInvokeAsync(
                 mount.Driver, mount.Driver.GetRightAscensionAsync,
                 ResilientCallOptions.IdempotentRead, cancellationToken);
-            var mountDec = await ResilientCall.InvokeAsync(
+            var mountDec = await ResilientInvokeAsync(
                 mount.Driver, mount.Driver.GetDeclinationAsync,
                 ResilientCallOptions.IdempotentRead, cancellationToken);
             result = await guider.Driver.PlateSolveGuiderImageAsync(PlateSolver,

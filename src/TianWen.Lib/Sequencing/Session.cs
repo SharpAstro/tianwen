@@ -36,6 +36,14 @@ internal partial record Session(
     private int _totalFramesWritten;
     private long _totalExposureTimeTicks;
 
+    // Per-driver fault accumulator. Incremented by ResilientCall via its
+    // onReconnect callback; decremented in the imaging loop after every
+    // DeviceFaultDecayFrames successful frames. When any driver crosses
+    // Configuration.DeviceFaultEscalationThreshold, the observation loop
+    // trips DeviceUnrecoverable and finalises cleanly.
+    private readonly ConcurrentDictionary<IDeviceDriver, int> _driverFaultCounts = new();
+    private int _framesSinceLastFaultDecay;
+
     // --- Observable session surface ---
     private volatile SessionPhase _phase;
     private volatile string? _currentActivity;
