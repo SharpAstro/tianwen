@@ -195,6 +195,22 @@ internal partial record Session
         }
     }
 
+    /// <summary>
+    /// Capability-gated variant of <see cref="PollDriverReadAsync{T}"/>. When
+    /// <paramref name="capable"/> is <see langword="false"/> (driver reports it
+    /// doesn't support this read), returns <paramref name="fallback"/> without
+    /// calling <paramref name="op"/> and without touching failure counters.
+    /// </summary>
+    internal ValueTask<T> PollDriverReadAsyncIf<T>(
+        IDeviceDriver driver,
+        bool capable,
+        Func<CancellationToken, ValueTask<T>> op,
+        T fallback,
+        CancellationToken cancellationToken) where T : struct
+        => capable
+            ? PollDriverReadAsync(driver, op, fallback, cancellationToken)
+            : ValueTask.FromResult(fallback);
+
     /// <summary>Current consecutive-poll-failure count for diagnostics / tests.</summary>
     internal int GetConsecutivePollFailures(IDeviceDriver driver)
         => _consecutivePollFailures.TryGetValue(driver, out var count) ? count : 0;

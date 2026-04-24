@@ -110,10 +110,13 @@ internal partial record Session
                 var camera = Setup.Telescopes[i].Camera;
                 coolingStates[i] = await camera.Driver.CoolToSetpointAsync(desiredSetpointTemp, thresPower, direction, coolingStates[i], cancellationToken);
 
-                // Record cooling sample for the live session graph
-                var ccdTemp = await _logger.CatchAsync(camera.Driver.GetCCDTemperatureAsync, cancellationToken, double.NaN);
-                var setpoint = await _logger.CatchAsyncIf(camera.Driver.CanSetCCDTemperature, camera.Driver.GetSetCCDTemperatureAsync, cancellationToken, double.NaN);
-                var power = await _logger.CatchAsyncIf(camera.Driver.CanGetCoolerPower, camera.Driver.GetCoolerPowerAsync, cancellationToken, double.NaN);
+                // Record cooling sample for the live session graph. These run every
+                // rampInterval (15 s) for the whole ramp (20-30 min typical), so a USB
+                // drop here is exactly the kind of silent cumulative failure that
+                // PollDriverReadAsync is designed for.
+                var ccdTemp = await PollDriverReadAsync(camera.Driver, camera.Driver.GetCCDTemperatureAsync, double.NaN, cancellationToken);
+                var setpoint = await PollDriverReadAsyncIf(camera.Driver, camera.Driver.CanSetCCDTemperature, camera.Driver.GetSetCCDTemperatureAsync, double.NaN, cancellationToken);
+                var power = await PollDriverReadAsyncIf(camera.Driver, camera.Driver.CanGetCoolerPower, camera.Driver.GetCoolerPowerAsync, double.NaN, cancellationToken);
                 if (!double.IsNaN(ccdTemp))
                 {
                     _coolingSamples.Enqueue(new CoolingSample(_timeProvider.GetUtcNow(), i, ccdTemp, double.IsNaN(setpoint) ? 0 : setpoint, double.IsNaN(power) ? 0 : power));

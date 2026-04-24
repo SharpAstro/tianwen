@@ -154,4 +154,37 @@ public class SessionFaultCounterTests(ITestOutputHelper output)
         result.ShouldBe(123.0);
         ctx.Session.GetConsecutivePollFailures(ctx.Mount).ShouldBe(0);
     }
+
+    [Fact]
+    public async Task GivenIncapableDriverWhenPollDriverReadAsyncIfThenReturnsFallbackWithoutCallingOp()
+    {
+        var ctx = await SessionTestHelper.CreateSessionAsync(output, cancellationToken: TestContext.Current.CancellationToken);
+
+        var calls = 0;
+        ValueTask<double> CountedOp(CancellationToken _)
+        {
+            calls++;
+            return ValueTask.FromResult(42.0);
+        }
+
+        var result = await ctx.Session.PollDriverReadAsyncIf(
+            ctx.Mount, capable: false, CountedOp, fallback: -1.0, TestContext.Current.CancellationToken);
+
+        result.ShouldBe(-1.0);
+        calls.ShouldBe(0);
+        ctx.Session.GetConsecutivePollFailures(ctx.Mount).ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task GivenCapableDriverWhenPollDriverReadAsyncIfThenCallsOp()
+    {
+        var ctx = await SessionTestHelper.CreateSessionAsync(output, cancellationToken: TestContext.Current.CancellationToken);
+
+        static ValueTask<double> Succeeding(CancellationToken _) => ValueTask.FromResult(77.0);
+
+        var result = await ctx.Session.PollDriverReadAsyncIf(
+            ctx.Mount, capable: true, Succeeding, fallback: -1.0, TestContext.Current.CancellationToken);
+
+        result.ShouldBe(77.0);
+    }
 }
