@@ -92,7 +92,10 @@ internal partial record Session
                 }
                 else if (postCondition is SlewPostCondition.Slewing)
                 {
-                    if (!await mount.Driver.WaitForSlewCompleteAsync(PollDeviceStatesAsync, cancellationToken).ConfigureAwait(false))
+                    if (!await ResilientCall.InvokeAsync(
+                            mount.Driver,
+                            ct => mount.Driver.WaitForSlewCompleteAsync(PollDeviceStatesAsync, ct),
+                            ResilientCallOptions.IdempotentRead, cancellationToken).ConfigureAwait(false))
                     {
                         _logger.LogError("Failed to complete slewing of mount {Mount}", mount);
 
@@ -101,7 +104,9 @@ internal partial record Session
 
                     // Recompute hour angle now that the mount is pointing at the target
                     // (BeginSlewToTargetAsync returns the pre-slew HA, which may be on a different pier side)
-                    hourAngleAtSlewTime = await mount.Driver.GetHourAngleAsync(cancellationToken);
+                    hourAngleAtSlewTime = await ResilientCall.InvokeAsync(
+                        mount.Driver, mount.Driver.GetHourAngleAsync,
+                        ResilientCallOptions.IdempotentRead, cancellationToken);
 
                     // Iterative plate-solve + sync + reslew centering
                     if (!await CenterOnTargetAsync(observation.Target, 0, thresholdArcmin: 1.0, maxAttempts: 3, cancellationToken))
@@ -802,7 +807,9 @@ internal partial record Session
         int targetFilterPosition,
         CancellationToken cancellationToken)
     {
-        var currentPosition = await filterWheelDriver.GetPositionAsync(cancellationToken);
+        var currentPosition = await ResilientCall.InvokeAsync(
+            filterWheelDriver, filterWheelDriver.GetPositionAsync,
+            ResilientCallOptions.IdempotentRead, cancellationToken);
         if (currentPosition == targetFilterPosition)
         {
             return;
@@ -821,7 +828,9 @@ internal partial record Session
         // Poll until the wheel reports it has arrived (position != -1 and equals target)
         while (!cancellationToken.IsCancellationRequested)
         {
-            var pos = await filterWheelDriver.GetPositionAsync(cancellationToken);
+            var pos = await ResilientCall.InvokeAsync(
+                filterWheelDriver, filterWheelDriver.GetPositionAsync,
+                ResilientCallOptions.IdempotentRead, cancellationToken);
             if (pos == targetFilterPosition)
             {
                 break;
@@ -847,7 +856,9 @@ internal partial record Session
             var delta = targetFilter.Position - refOffset;
             if (delta != 0)
             {
-                var currentFocusPos = await focuserDriver.GetPositionAsync(cancellationToken);
+                var currentFocusPos = await ResilientCall.InvokeAsync(
+                    focuserDriver, focuserDriver.GetPositionAsync,
+                    ResilientCallOptions.IdempotentRead, cancellationToken);
                 var targetFocusPos = currentFocusPos + delta;
 
                 _logger.LogInformation("Telescope #{TelescopeNumber}: applying focus offset {Delta} steps for filter {Filter} (pos {From} -> {To}).",
@@ -902,7 +913,10 @@ internal partial record Session
             // Ensure no slew is in progress before starting the flip slew
             if (await CatchAsync(mount.Driver.IsSlewingAsync, cancellationToken))
             {
-                await mount.Driver.WaitForSlewCompleteAsync(PollDeviceStatesAsync, cancellationToken).ConfigureAwait(false);
+                await ResilientCall.InvokeAsync(
+                    mount.Driver,
+                    ct => mount.Driver.WaitForSlewCompleteAsync(PollDeviceStatesAsync, ct),
+                    ResilientCallOptions.IdempotentRead, cancellationToken).ConfigureAwait(false);
             }
 
             var (postCondition, _) = await mount.Driver.BeginSlewToTargetAsync(
@@ -914,13 +928,18 @@ internal partial record Session
                 continue;
             }
 
-            if (!await mount.Driver.WaitForSlewCompleteAsync(PollDeviceStatesAsync, cancellationToken).ConfigureAwait(false))
+            if (!await ResilientCall.InvokeAsync(
+                    mount.Driver,
+                    ct => mount.Driver.WaitForSlewCompleteAsync(PollDeviceStatesAsync, ct),
+                    ResilientCallOptions.IdempotentRead, cancellationToken).ConfigureAwait(false))
             {
                 _logger.LogError("Meridian flip: slew did not complete on attempt {Attempt}.", attempt);
                 continue;
             }
 
-            var newHourAngle = await mount.Driver.GetHourAngleAsync(cancellationToken);
+            var newHourAngle = await ResilientCall.InvokeAsync(
+                mount.Driver, mount.Driver.GetHourAngleAsync,
+                ResilientCallOptions.IdempotentRead, cancellationToken);
             _logger.LogInformation("Meridian flip: slew complete, HA={NewHA:F4}h (attempt {Attempt}).", newHourAngle, attempt);
 
             // Verify the HA is now positive (west of meridian) — the flip actually happened

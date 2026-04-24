@@ -41,7 +41,10 @@ internal partial record Session
 
         _currentActivity = "Waiting for slew to complete\u2026";
         _logger.LogInformation("RoughFocus: waiting for slew to complete...");
-        if (!await mount.Driver.WaitForSlewCompleteAsync(PollDeviceStatesAsync, cancellationToken).ConfigureAwait(false))
+        if (!await ResilientCall.InvokeAsync(
+                mount.Driver,
+                ct => mount.Driver.WaitForSlewCompleteAsync(PollDeviceStatesAsync, ct),
+                ResilientCallOptions.IdempotentRead, cancellationToken).ConfigureAwait(false))
         {
             _logger.LogError("Failed to complete slewing of mount {Mount}", mount);
 
@@ -49,8 +52,12 @@ internal partial record Session
         }
 
         // Update camera targets with current mount position for FITS headers and synthetic star rendering
-        var zenithRa = await mount.Driver.GetRightAscensionAsync(cancellationToken);
-        var zenithDec = await mount.Driver.GetDeclinationAsync(cancellationToken);
+        var zenithRa = await ResilientCall.InvokeAsync(
+            mount.Driver, mount.Driver.GetRightAscensionAsync,
+            ResilientCallOptions.IdempotentRead, cancellationToken);
+        var zenithDec = await ResilientCall.InvokeAsync(
+            mount.Driver, mount.Driver.GetDeclinationAsync,
+            ResilientCallOptions.IdempotentRead, cancellationToken);
         var zenithTarget = new Target(zenithRa, zenithDec, "Zenith", null);
         for (var i = 0; i < Setup.Telescopes.Length; i++)
         {
@@ -60,7 +67,9 @@ internal partial record Session
             // Sync camera's FocusPosition from the focuser so defocus-dependent rendering is correct
             if (Setup.Telescopes[i].Focuser?.Driver is { Connected: true } foc)
             {
-                cam.FocusPosition = await foc.GetPositionAsync(cancellationToken);
+                cam.FocusPosition = await ResilientCall.InvokeAsync(
+                    foc, foc.GetPositionAsync,
+                    ResilientCallOptions.IdempotentRead, cancellationToken);
             }
         }
 
@@ -164,10 +173,13 @@ internal partial record Session
             if (await GetMountUtcNowAsync(cancellationToken) - slewTime > distMeridian)
             {
                 await mount.Driver.BeginSlewToZenithAsync(distMeridian, cancellationToken).ConfigureAwait(false);
-                
+
                 slewTime = await GetMountUtcNowAsync(cancellationToken);
 
-                if (!await mount.Driver.WaitForSlewCompleteAsync(PollDeviceStatesAsync, cancellationToken).ConfigureAwait(false))
+                if (!await ResilientCall.InvokeAsync(
+                        mount.Driver,
+                        ct => mount.Driver.WaitForSlewCompleteAsync(PollDeviceStatesAsync, ct),
+                        ResilientCallOptions.IdempotentRead, cancellationToken).ConfigureAwait(false))
                 {
                     _logger.LogError("Failed to complete slewing of mount {Mount}", mount);
 
@@ -346,7 +358,9 @@ internal partial record Session
 
         var autoFocusExposure = TimeSpan.FromSeconds(2);
         var currentGain = await camera.GetGainAsync(cancellationToken);
-        var currentPos = await focuser.GetPositionAsync(cancellationToken);
+        var currentPos = await ResilientCall.InvokeAsync(
+            focuser, focuser.GetPositionAsync,
+            ResilientCallOptions.IdempotentRead, cancellationToken);
         var range = Configuration.AutoFocusRange;
         var stepCount = Configuration.AutoFocusStepCount;
         var stepSize = range / (stepCount - 1);
@@ -486,7 +500,9 @@ internal partial record Session
         if (sampleMap.TryGetBestFocusSolution(out var solution, out _, out _))
         {
             var bestPos = Math.Clamp((int)Math.Round(solution.Value.BestFocus), 0, focuser.MaxStep);
-            var currentPosNow = await focuser.GetPositionAsync(cancellationToken);
+            var currentPosNow = await ResilientCall.InvokeAsync(
+                focuser, focuser.GetPositionAsync,
+                ResilientCallOptions.IdempotentRead, cancellationToken);
 
             _currentActivity = $"#{telescopeIndex + 1} Moving to best focus ({bestPos})";
             _logger.LogInformation("Auto-focus telescope #{TelescopeNumber}: best focus at position {BestFocus} (A={A:F2}, B={B:F2}, error={Error:F4}).",
@@ -592,8 +608,12 @@ internal partial record Session
         }
 
         // Plate solve using mount's current position as search origin
-        var mountRa = await mount.Driver.GetRightAscensionAsync(cancellationToken);
-        var mountDec = await mount.Driver.GetDeclinationAsync(cancellationToken);
+        var mountRa = await ResilientCall.InvokeAsync(
+            mount.Driver, mount.Driver.GetRightAscensionAsync,
+            ResilientCallOptions.IdempotentRead, cancellationToken);
+        var mountDec = await ResilientCall.InvokeAsync(
+            mount.Driver, mount.Driver.GetDeclinationAsync,
+            ResilientCallOptions.IdempotentRead, cancellationToken);
         var searchOrigin = new WCS(mountRa, mountDec);
 
         var result = await PlateSolver.SolveImageAsync(image, searchOrigin: searchOrigin, searchRadius: 10, cancellationToken: cancellationToken);
@@ -660,7 +680,10 @@ internal partial record Session
             var (postCondition, _) = await mount.Driver.BeginSlewToTargetAsync(target, Configuration.MinHeightAboveHorizon, cancellationToken).ConfigureAwait(false);
             if (postCondition is SlewPostCondition.Slewing)
             {
-                await mount.Driver.WaitForSlewCompleteAsync(PollDeviceStatesAsync, cancellationToken).ConfigureAwait(false);
+                await ResilientCall.InvokeAsync(
+                    mount.Driver,
+                    ct => mount.Driver.WaitForSlewCompleteAsync(PollDeviceStatesAsync, ct),
+                    ResilientCallOptions.IdempotentRead, cancellationToken).ConfigureAwait(false);
             }
         }
 
@@ -678,9 +701,15 @@ internal partial record Session
         Astrometry.PlateSolve.PlateSolveResult result;
         try
         {
+            var mountRa = await ResilientCall.InvokeAsync(
+                mount.Driver, mount.Driver.GetRightAscensionAsync,
+                ResilientCallOptions.IdempotentRead, cancellationToken);
+            var mountDec = await ResilientCall.InvokeAsync(
+                mount.Driver, mount.Driver.GetDeclinationAsync,
+                ResilientCallOptions.IdempotentRead, cancellationToken);
             result = await guider.Driver.PlateSolveGuiderImageAsync(PlateSolver,
-                await mount.Driver.GetRightAscensionAsync(cancellationToken),
-                await mount.Driver.GetDeclinationAsync(cancellationToken),
+                mountRa,
+                mountDec,
                 plateSolveTimeout,
                 10d,
                 cancellationToken
