@@ -8,9 +8,9 @@ Status of every `PLAN-*.md` in the repo root, cross-checked against the codebase
 | [PLAN-skymap-milkyway](PLAN-skymap-milkyway.md) | **DONE ~75%** |
 | [PLAN-skymap-gpu-overlays](PLAN-skymap-gpu-overlays.md) | **PARTIAL ~35%** |
 | [PLAN-tui-live-session-parity](PLAN-tui-live-session-parity.md) | **PARTIAL ~20%** |
-| [PLAN-first-light-resilience](PLAN-first-light-resilience.md) | **PARTIAL** (meta-plan only) |
-| [PLAN-driver-resilience](PLAN-driver-resilience.md) | **NOT STARTED** |
-| [PLAN-fov-obstruction-detection](PLAN-fov-obstruction-detection.md) | **NOT STARTED** (gated) |
+| [PLAN-first-light-resilience](PLAN-first-light-resilience.md) | **PARTIAL** (1 of 3 sub-plans shipped on branch) |
+| [PLAN-driver-resilience](PLAN-driver-resilience.md) | **DONE ~95%** (branch `driver-resilience`, 6 commits, unmerged) |
+| [PLAN-fov-obstruction-detection](PLAN-fov-obstruction-detection.md) | **NOT STARTED** (unblocked by driver-resilience merge) |
 | [PLAN-catalog-binary-format](PLAN-catalog-binary-format.md) | **NOT STARTED** |
 
 ---
@@ -61,14 +61,33 @@ Status of every `PLAN-*.md` in the repo root, cross-checked against the codebase
 - Sub-plan 3 (site horizon mask): **NOT STARTED** — explicitly deferred.
 - Cross-cutting conventions (`ITimeProvider.SleepAsync`, Device/Phase logger scopes, `SessionConfiguration` XML docs): in place from prior work, but the new wrappers that would use them haven't been written.
 
-## PLAN-driver-resilience — NOT STARTED
+## PLAN-driver-resilience — DONE ~95%
 
-- Phase 1 (`ResilientCall` helper): **NOT STARTED** — `src/TianWen.Lib/Sequencing/ResilientCall.cs` does not exist; no `ResilientCallOptions` anywhere.
-- Phase 2 (hot-path audit / wrapping): **NOT STARTED** — `Session.Imaging.cs`, `Session.Focus.cs` still contain unwrapped driver calls.
-- Phase 3 (in-flight exposure handling): **NOT STARTED** — `ImagingLoopResult` has only `AdvanceToNextObservation`, `RepeatCurrentObservation`, `BreakObservationLoop`; required `DeviceUnrecoverable` variant absent.
-- Phase 4 (escalation boundary / fault counter): **NOT STARTED** — no `DeviceFaultEscalationThreshold` in `SessionConfiguration`, no fault-counter dictionary in `Session.cs`.
-- Phase 5 (proactive reconnect from `PollDeviceStatesAsync`): **NOT STARTED** — `CatchAsync` is still the sole error-handling mechanism.
-- Tests (`ResilientCallTests`, `FakeFlakyDriver`): **NOT STARTED**.
+Shipped on branch `driver-resilience` as 6 commits (PR-B1..B6). See
+[`ARCH-driver-resilience.md`](ARCH-driver-resilience.md) for the full architecture
+with mermaid state diagrams.
+
+- Phase 1 (`ResilientCall` helper): **DONE** — `src/TianWen.Lib/Sequencing/ResilientCall.cs` +
+  `ResilientCallOptions.cs` + 11 tests. Presets: `IdempotentRead`, `NonIdempotentAction`,
+  `AbsoluteMove`. PR-B1 `1ce1d56`.
+- Phase 2 (hot-path audit / wrapping): **DONE** — idempotent reads (PR-B2 `be911f4`) and
+  non-idempotent actions (PR-B3 `b1f02ba`) in `Session.Imaging.cs` and `Session.Focus.cs`.
+  Uniform via `Session.ResilientInvokeAsync` which auto-wires `OnDriverReconnect`.
+- Phase 3 (in-flight exposure handling): **PARTIAL** — `ImageLoopNextAction.DeviceUnrecoverable`
+  added + escalation short-circuit wired. The explicit "GetImageAsync empty after
+  reconnect → re-issue StartExposure without counting the frame" detector is not yet
+  implemented; mechanical reconnect-counting is in place so two consecutive lost frames
+  would trip the fault counter naturally.
+- Phase 4 (escalation boundary / fault counter): **DONE** — `SessionConfiguration.DeviceFaultEscalationThreshold` (default 5) and `DeviceFaultDecayFrames` (default 10),
+  `_driverFaultCounts` dict on Session, `OnDriverReconnect` / `DecayFaultCountersOnFrameSuccess` /
+  `TryFindEscalatedDriver` helpers + 5 tests. PR-B4 `db7ba83`.
+- Phase 5 (proactive reconnect from `PollDeviceStatesAsync`): **DONE** — new `PollDriverReadAsync` +
+  `PollDriverReadAsyncIf` helpers track consecutive failures and fire one-shot `ConnectAsync`
+  at threshold 3 + 4 tests. PR-B5 `1374cbb`. Also applied to cooling ramp polls in PR-B6 `20394c3`.
+- Tests: **DONE** — `ResilientCallTests` (11) + `SessionFaultCounterTests` (11) = 22 new tests.
+  1672 unit + 78 functional session tests pass.
+
+Not shipped: lost-frame detector (Phase 3 optional extension). Everything else is in.
 
 ## PLAN-fov-obstruction-detection — NOT STARTED
 
@@ -92,9 +111,11 @@ Correctly gated on driver-resilience (per `PLAN-first-light-resilience.md`).
 
 ## Bottom line
 
-- **Shipped or nearly shipped:** serial-probe.
+- **Shipped or nearly shipped:** serial-probe (merged), driver-resilience (branch, unmerged).
 - **Substantially advanced:** milkyway (Phases 1-2 done, 3-4 scaffolded).
 - **Partially started:** skymap-gpu-overlays (Phase 1 + cache hit), tui-live-session-parity (preview mount section + partial abort flow).
-- **Essentially untouched:** driver-resilience, fov-obstruction-detection, catalog-binary-format, first-light-resilience sub-plans.
+- **Essentially untouched:** fov-obstruction-detection, catalog-binary-format.
 
-**Critical path:** the driver-resilience chain is the unblocker. Three plans (first-light-resilience, fov-obstruction-detection, and driver-resilience itself) all wait on it.
+**Critical path update:** driver-resilience landed on the `driver-resilience` branch
+(6 commits, 22 new tests). Once merged, fov-obstruction-detection is unblocked and
+first-light-resilience is effectively 1-of-3 sub-plans shipped.

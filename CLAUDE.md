@@ -264,6 +264,30 @@ with altitude-ladder filter sequencing, write FITS, check duration/altitude/pier
 perform meridian flip if needed (with smart ≤30s wait / >30s abort — see code comments),
 detect focus drift via HFD regression, dither at filter batch boundaries.
 
+### Driver resilience on the hot path
+
+All driver calls reachable from the session hot path (`ObservationLoopAsync`, `ImagingLoopAsync`,
+`PerformMeridianFlipAsync`, `RoughFocusAsync`, `AutoFocusAsync`, `CenterOnTargetAsync`,
+`CoolCamerasToSetpointAsync`) go through `Session.ResilientInvokeAsync(...)` — a thin wrapper
+over `ResilientCall.InvokeAsync` that auto-passes `OnDriverReconnect` as the fault callback.
+See [`ARCH-driver-resilience.md`](ARCH-driver-resilience.md) for the full architecture.
+
+- **Never introduce a raw `await driver.X(...)` on the session hot path.** Grep PRs for regressions.
+- **Pick the preset deliberately:** `IdempotentRead` for status/position polls (3 attempts, exponential
+  backoff + inter-retry reconnect), `NonIdempotentAction` for slew/exposure/dither (1 attempt,
+  pre-reconnect only), `AbsoluteMove` for focuser / filter-wheel moves (2 attempts, target is
+  absolute so re-issue is safe).
+- **Telemetry polls go through `PollDriverReadAsync` / `PollDriverReadAsyncIf`** (capability-gated).
+  These count consecutive per-driver failures and fire a one-shot proactive reconnect at the
+  threshold, so by the time the next exposure is issued the reconnect is already in flight.
+- **Escalation:** every reconnect bumps `_driverFaultCounts[driver]`; successful frames decay it.
+  When any driver crosses `SessionConfiguration.DeviceFaultEscalationThreshold` (default 5),
+  `ImagingLoopAsync` returns `ImageLoopNextAction.DeviceUnrecoverable` and the session finalises
+  cleanly.
+- **`CatchAsync` is still correct** for best-effort predicate decisions (`IsSlewingAsync`,
+  `IsTrackingAsync`), FITS header metadata reads, and every finaliser step — anywhere the caller
+  handles fallback correctly and a retry storm would be worse than silent degradation.
+
 ### Neural Guider
 
 `NeuralGuideModel` (`TianWen.Lib/Devices/Guider/NeuralGuideModel.cs`) is a tiny hand-rolled
