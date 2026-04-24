@@ -44,6 +44,13 @@ internal partial record Session(
     private readonly ConcurrentDictionary<IDeviceDriver, int> _driverFaultCounts = new();
     private int _framesSinceLastFaultDecay;
 
+    // Consecutive failed telemetry polls per driver. Reset on success. After
+    // PROACTIVE_RECONNECT_THRESHOLD failures in a row, PollDriverReadAsync
+    // kicks off a ConnectAsync so reconnect is already in flight by the time
+    // the next exposure/slew is issued.
+    private readonly ConcurrentDictionary<IDeviceDriver, int> _consecutivePollFailures = new();
+    private const int PROACTIVE_RECONNECT_THRESHOLD = 3;
+
     // --- Observable session surface ---
     private volatile SessionPhase _phase;
     private volatile string? _currentActivity;
@@ -166,9 +173,9 @@ internal partial record Session(
 
             if (telescope.Focuser?.Driver is { Connected: true } focuser)
             {
-                focPos = await CatchAsync(focuser.GetPositionAsync, cancellationToken, focPos);
-                focTemp = await CatchAsync(focuser.GetTemperatureAsync, cancellationToken, focTemp);
-                focMoving = await CatchAsync(focuser.GetIsMovingAsync, cancellationToken, focMoving);
+                focPos = await PollDriverReadAsync(focuser, focuser.GetPositionAsync, focPos, cancellationToken);
+                focTemp = await PollDriverReadAsync(focuser, focuser.GetTemperatureAsync, focTemp, cancellationToken);
+                focMoving = await PollDriverReadAsync(focuser, focuser.GetIsMovingAsync, focMoving, cancellationToken);
             }
 
             if (focPos != current.FocusPosition || focTemp != current.FocuserTemperature || focMoving != current.FocuserIsMoving)
@@ -187,12 +194,12 @@ internal partial record Session(
         if (mount.Connected)
         {
             _mountState = new MountState(
-                RightAscension: await CatchAsync(mount.GetRightAscensionAsync, cancellationToken, _mountState.RightAscension),
-                Declination: await CatchAsync(mount.GetDeclinationAsync, cancellationToken, _mountState.Declination),
-                HourAngle: await CatchAsync(mount.GetHourAngleAsync, cancellationToken, _mountState.HourAngle),
-                PierSide: await CatchAsync(mount.GetSideOfPierAsync, cancellationToken, _mountState.PierSide),
-                IsSlewing: await CatchAsync(mount.IsSlewingAsync, cancellationToken, _mountState.IsSlewing),
-                IsTracking: await CatchAsync(mount.IsTrackingAsync, cancellationToken, _mountState.IsTracking));
+                RightAscension: await PollDriverReadAsync(mount, mount.GetRightAscensionAsync, _mountState.RightAscension, cancellationToken),
+                Declination: await PollDriverReadAsync(mount, mount.GetDeclinationAsync, _mountState.Declination, cancellationToken),
+                HourAngle: await PollDriverReadAsync(mount, mount.GetHourAngleAsync, _mountState.HourAngle, cancellationToken),
+                PierSide: await PollDriverReadAsync(mount, mount.GetSideOfPierAsync, _mountState.PierSide, cancellationToken),
+                IsSlewing: await PollDriverReadAsync(mount, mount.IsSlewingAsync, _mountState.IsSlewing, cancellationToken),
+                IsTracking: await PollDriverReadAsync(mount, mount.IsTrackingAsync, _mountState.IsTracking, cancellationToken));
         }
     }
 

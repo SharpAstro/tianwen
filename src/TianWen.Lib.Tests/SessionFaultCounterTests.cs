@@ -1,4 +1,7 @@
 using Shouldly;
+using System;
+using System.IO;
+using System.Threading;
 using System.Threading.Tasks;
 using TianWen.Lib.Sequencing;
 using Xunit;
@@ -83,5 +86,72 @@ public class SessionFaultCounterTests(ITestOutputHelper output)
         ctx.Session.GetFaultCount(ctx.Camera).ShouldBe(1);
         ctx.Session.GetFaultCount(ctx.Focuser).ShouldBe(5);
         ctx.Session.TryFindEscalatedDriver().ShouldBe(ctx.Focuser);
+    }
+
+    [Fact]
+    public async Task GivenFailingPollWhenBelowThresholdThenReturnsFallbackAndIncrementsCounter()
+    {
+        var ctx = await SessionTestHelper.CreateSessionAsync(output, cancellationToken: TestContext.Current.CancellationToken);
+
+        static ValueTask<double> Failing(CancellationToken _) => throw new IOException("simulated poll fault");
+
+        var result = await ctx.Session.PollDriverReadAsync(ctx.Mount, Failing, fallback: 42.0, TestContext.Current.CancellationToken);
+
+        result.ShouldBe(42.0);
+        ctx.Session.GetConsecutivePollFailures(ctx.Mount).ShouldBe(1);
+        // Below threshold (3), proactive reconnect not yet fired.
+        ctx.Session.GetFaultCount(ctx.Mount).ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task GivenFailingPollWhenThresholdCrossedThenTriggersProactiveReconnect()
+    {
+        var ctx = await SessionTestHelper.CreateSessionAsync(output, cancellationToken: TestContext.Current.CancellationToken);
+
+        static ValueTask<double> Failing(CancellationToken _) => throw new IOException("simulated poll fault");
+
+        for (var i = 0; i < 3; i++)
+        {
+            await ctx.Session.PollDriverReadAsync(ctx.Mount, Failing, fallback: 0.0, TestContext.Current.CancellationToken);
+        }
+
+        ctx.Session.GetConsecutivePollFailures(ctx.Mount).ShouldBe(3);
+        // Proactive reconnect fired exactly once on the threshold crossing.
+        ctx.Session.GetFaultCount(ctx.Mount).ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task GivenFailingPollRepeatedlyBeyondThresholdWhenPollingThenOnlyOneProactiveReconnect()
+    {
+        var ctx = await SessionTestHelper.CreateSessionAsync(output, cancellationToken: TestContext.Current.CancellationToken);
+
+        static ValueTask<double> Failing(CancellationToken _) => throw new IOException("simulated poll fault");
+
+        // 5 failures in a row — threshold is 3, so reconnect should fire once, not thrice.
+        for (var i = 0; i < 5; i++)
+        {
+            await ctx.Session.PollDriverReadAsync(ctx.Mount, Failing, fallback: 0.0, TestContext.Current.CancellationToken);
+        }
+
+        ctx.Session.GetConsecutivePollFailures(ctx.Mount).ShouldBe(5);
+        ctx.Session.GetFaultCount(ctx.Mount).ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task GivenSuccessAfterFailuresWhenPollingThenCounterResets()
+    {
+        var ctx = await SessionTestHelper.CreateSessionAsync(output, cancellationToken: TestContext.Current.CancellationToken);
+
+        static ValueTask<double> Failing(CancellationToken _) => throw new IOException("simulated poll fault");
+        static ValueTask<double> Succeeding(CancellationToken _) => ValueTask.FromResult(123.0);
+
+        await ctx.Session.PollDriverReadAsync(ctx.Mount, Failing, fallback: 0.0, TestContext.Current.CancellationToken);
+        await ctx.Session.PollDriverReadAsync(ctx.Mount, Failing, fallback: 0.0, TestContext.Current.CancellationToken);
+        ctx.Session.GetConsecutivePollFailures(ctx.Mount).ShouldBe(2);
+
+        var result = await ctx.Session.PollDriverReadAsync(ctx.Mount, Succeeding, fallback: 0.0, TestContext.Current.CancellationToken);
+
+        result.ShouldBe(123.0);
+        ctx.Session.GetConsecutivePollFailures(ctx.Mount).ShouldBe(0);
     }
 }

@@ -129,4 +129,73 @@ internal partial record Session
         }
         return null;
     }
+
+    /// <summary>
+    /// Telemetry-poll read that tolerates transient faults AND triggers a proactive
+    /// reconnect after <see cref="PROACTIVE_RECONNECT_THRESHOLD"/> consecutive
+    /// failures. Returns <paramref name="fallback"/> on failure (the poll is always
+    /// best-effort).
+    /// <para>
+    /// Why proactive: plain <c>CatchAsync</c> swallows failures forever, so a dropped
+    /// USB cable silently freezes the telemetry strip until the next exposure. By
+    /// counting consecutive failures here and firing <c>ConnectAsync</c> at the
+    /// threshold, by the time the imaging loop issues the next exposure the reconnect
+    /// is already in flight — and <see cref="ResilientCall"/>'s own pre-reconnect
+    /// check sees a connected driver instead of racing a dead handle.
+    /// </para>
+    /// </summary>
+    internal async ValueTask<T> PollDriverReadAsync<T>(
+        IDeviceDriver driver,
+        Func<CancellationToken, ValueTask<T>> op,
+        T fallback,
+        CancellationToken cancellationToken) where T : struct
+    {
+        try
+        {
+            var result = await op(cancellationToken);
+            _consecutivePollFailures.TryRemove(driver, out _);
+            return result;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            var failures = _consecutivePollFailures.AddOrUpdate(driver, 1, static (_, c) => c + 1);
+            _logger.LogDebug(ex, "Telemetry poll for {Device} failed (consecutive: {Count}): {Message}",
+                driver.Name, failures, ex.Message);
+
+            // Only fire on the exact threshold crossing, not every subsequent failure.
+            // The counter stays above threshold until one poll succeeds, so a failed
+            // reconnect won't cause a storm of retries on every poll tick.
+            if (failures == PROACTIVE_RECONNECT_THRESHOLD)
+            {
+                _logger.LogWarning(
+                    "Telemetry poll for {Device} failed {Count} consecutive times; triggering proactive reconnect.",
+                    driver.Name, failures);
+                OnDriverReconnect(driver);
+                try
+                {
+                    await driver.ConnectAsync(cancellationToken);
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (Exception reconnectEx)
+                {
+                    _logger.LogWarning(reconnectEx,
+                        "Proactive reconnect for {Device} threw {Type}: {Message}.",
+                        driver.Name, reconnectEx.GetType().Name, reconnectEx.Message);
+                }
+            }
+
+            return fallback;
+        }
+    }
+
+    /// <summary>Current consecutive-poll-failure count for diagnostics / tests.</summary>
+    internal int GetConsecutivePollFailures(IDeviceDriver driver)
+        => _consecutivePollFailures.TryGetValue(driver, out var count) ? count : 0;
 }
