@@ -71,9 +71,14 @@ public static class PlannerActions
         state.CachedAstromGrid = null;
         var (astroms, times) = EnsureAstromGrid(state, transform);
 
-        // Re-score all existing targets using the shared grids
+        // Build new scored / profile dicts locally, then swap atomically at the end
+        // so readers on the render thread never observe a partially-cleared or
+        // partially-populated Dictionary (classic "Collection was modified" race).
+        // Seed ScoredTargets from the existing snapshot so cached entries for
+        // off-list targets (e.g. externally pinned) survive the date shift.
+        var scoredBuilder = state.ScoredTargets.ToBuilder();
+        var profilesBuilder = ImmutableDictionary.CreateBuilder<Target, List<(DateTimeOffset Time, double Alt)>>();
         var rescored = new List<ScoredTarget>();
-        state.AltitudeProfiles.Clear();
 
         foreach (var old in state.TonightsBest)
         {
@@ -81,24 +86,28 @@ public static class PlannerActions
                 astroDark, astroTwilight, state.MinHeightAboveHorizon, transform.SiteLongitude,
                 old.ObjectType);
             rescored.Add(scored);
-            state.ScoredTargets[old.Target] = scored;
-            state.AltitudeProfiles[old.Target] = ComputeFineAltitudeProfileFast(
+            scoredBuilder[old.Target] = scored;
+            profilesBuilder[old.Target] = ComputeFineAltitudeProfileFast(
                 old.Target, astroms, times, transform.SiteLatitude, transform.SiteLongitude);
         }
 
         // Also recompute profiles for search results / proposals not in TonightsBest
         foreach (var s in state.SearchResults)
         {
-            if (!state.AltitudeProfiles.ContainsKey(s.Target))
+            if (!profilesBuilder.ContainsKey(s.Target))
             {
                 var scored = ObservationScheduler.ScoreTarget(s.Target, astroms, times,
                     astroDark, astroTwilight, state.MinHeightAboveHorizon, transform.SiteLongitude,
                     s.ObjectType);
-                state.ScoredTargets[s.Target] = scored;
-                state.AltitudeProfiles[s.Target] = ComputeFineAltitudeProfileFast(
+                scoredBuilder[s.Target] = scored;
+                profilesBuilder[s.Target] = ComputeFineAltitudeProfileFast(
                     s.Target, astroms, times, transform.SiteLatitude, transform.SiteLongitude);
             }
         }
+
+        // Atomic reference swap — readers either see the old dict or the new one.
+        state.ScoredTargets = scoredBuilder.ToImmutable();
+        state.AltitudeProfiles = profilesBuilder.ToImmutable();
 
         // Sort by score descending (same as TonightsBest ordering) and replace the
         // TonightsBest reference atomically — readers on the render thread either see
@@ -150,12 +159,15 @@ public static class PlannerActions
 
         state.TonightsBest = tonightsBest;
 
-        // Score all targets for elevation profiles
-        state.ScoredTargets.Clear();
+        // Score all targets for elevation profiles — build into a local builder then
+        // swap the state reference atomically so render-thread readers never see a
+        // cleared-then-rebuilding Dictionary.
+        var scoredBuilder = ImmutableDictionary.CreateBuilder<Target, ScoredTarget>();
         foreach (var scored in tonightsBest)
         {
-            state.ScoredTargets[scored.Target] = scored;
+            scoredBuilder[scored.Target] = scored;
         }
+        state.ScoredTargets = scoredBuilder.ToImmutable();
 
         // Compute fine altitude profiles and cross-index aliases for the top targets
         Report("Computing altitude profiles...");
@@ -164,15 +176,18 @@ public static class PlannerActions
         state.CachedAstromGrid = null;
         var (gridAstroms, gridTimes) = EnsureAstromGrid(state, transform);
 
-        state.AltitudeProfiles.Clear();
-        state.TargetAliases.Clear();
+        var profilesBuilder = ImmutableDictionary.CreateBuilder<Target, List<(DateTimeOffset Time, double Alt)>>();
+        // Reset aliases atomically before the loop; PopulateTargetAlias does per-entry
+        // SetItem swaps (fine at this frequency — ~100 targets, O(log n) per set).
+        state.TargetAliases = ImmutableDictionary<Target, string>.Empty;
         foreach (var scored in tonightsBest)
         {
-            state.AltitudeProfiles[scored.Target] = ComputeFineAltitudeProfileFast(
+            profilesBuilder[scored.Target] = ComputeFineAltitudeProfileFast(
                 scored.Target, gridAstroms, gridTimes,
                 transform.SiteLatitude, transform.SiteLongitude);
             PopulateTargetAlias(state, objectDb, scored.Target);
         }
+        state.AltitudeProfiles = profilesBuilder.ToImmutable();
 
         // Recompute handoff sliders for any existing proposals
         RecomputeHandoffSliders(state);
@@ -614,11 +629,12 @@ public static class PlannerActions
             if (!state.AltitudeProfiles.ContainsKey(target))
             {
                 var (ga, gt) = EnsureAstromGrid(state, transform);
-                state.AltitudeProfiles[target] = ComputeFineAltitudeProfileFast(
-                    target, ga, gt, transform.SiteLatitude, transform.SiteLongitude);
+                state.AltitudeProfiles = state.AltitudeProfiles.SetItem(target,
+                    ComputeFineAltitudeProfileFast(
+                        target, ga, gt, transform.SiteLatitude, transform.SiteLongitude));
             }
 
-            state.ScoredTargets[target] = scored;
+            state.ScoredTargets = state.ScoredTargets.SetItem(target, scored);
             state.SearchResults = state.SearchResults.Add(scored);
             PopulateTargetAlias(state, objectDb, target);
         }
@@ -731,11 +747,12 @@ public static class PlannerActions
         if (!state.AltitudeProfiles.ContainsKey(target))
         {
             var (ga2, gt2) = EnsureAstromGrid(state, transform);
-            state.AltitudeProfiles[target] = ComputeFineAltitudeProfileFast(
-                target, ga2, gt2, transform.SiteLatitude, transform.SiteLongitude);
+            state.AltitudeProfiles = state.AltitudeProfiles.SetItem(target,
+                ComputeFineAltitudeProfileFast(
+                    target, ga2, gt2, transform.SiteLatitude, transform.SiteLongitude));
         }
 
-        state.ScoredTargets[target] = scored;
+        state.ScoredTargets = state.ScoredTargets.SetItem(target, scored);
         state.SearchResults = state.SearchResults.Add(scored);
         PopulateTargetAlias(state, objectDb, target);
         state.NeedsRedraw = true;
@@ -905,7 +922,7 @@ public static class PlannerActions
 
         if (parts.Count > 0)
         {
-            state.TargetAliases[target] = string.Join(", ", parts.Take(8));
+            state.TargetAliases = state.TargetAliases.SetItem(target, string.Join(", ", parts.Take(8)));
         }
     }
 
@@ -1043,13 +1060,14 @@ public static class PlannerActions
         {
             var scored = ObservationScheduler.ScoreTarget(target, transform,
                 state.AstroDark, state.AstroTwilight, state.MinHeightAboveHorizon, objectType);
-            state.ScoredTargets[target] = scored;
+            state.ScoredTargets = state.ScoredTargets.SetItem(target, scored);
 
             if (!state.AltitudeProfiles.ContainsKey(target))
             {
                 var (astroms, times) = EnsureAstromGrid(state, transform);
-                state.AltitudeProfiles[target] = ComputeFineAltitudeProfileFast(
-                    target, astroms, times, transform.SiteLatitude, transform.SiteLongitude);
+                state.AltitudeProfiles = state.AltitudeProfiles.SetItem(target,
+                    ComputeFineAltitudeProfileFast(
+                        target, astroms, times, transform.SiteLatitude, transform.SiteLongitude));
             }
             PopulateTargetAlias(state, db, target);
         }

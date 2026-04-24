@@ -64,11 +64,20 @@ public class PlannerState
     /// <summary>Minimum altitude above horizon in degrees.</summary>
     public byte MinHeightAboveHorizon { get; set; } = 20;
 
-    /// <summary>Fine-grained altitude profiles per target (for chart rendering).</summary>
-    public Dictionary<Target, List<(DateTimeOffset Time, double Alt)>> AltitudeProfiles { get; set; } = [];
+    /// <summary>Fine-grained altitude profiles per target (for chart rendering).
+    /// <para>
+    /// Immutable so the render thread and the background planner recompute can read /
+    /// replace without racing. Writers build a new dict (via builder for bulk rebuilds,
+    /// or <see cref="ImmutableDictionary{TKey, TValue}.SetItem"/> for single-entry
+    /// updates) and assign the property in one atomic reference update.
+    /// </para></summary>
+    public ImmutableDictionary<Target, List<(DateTimeOffset Time, double Alt)>> AltitudeProfiles { get; set; }
+        = ImmutableDictionary<Target, List<(DateTimeOffset Time, double Alt)>>.Empty;
 
-    /// <summary>Scored targets keyed by Target (for elevation profile access).</summary>
-    public Dictionary<Target, ScoredTarget> ScoredTargets { get; set; } = [];
+    /// <summary>Scored targets keyed by Target (for elevation profile access).
+    /// Immutable (same rationale as <see cref="AltitudeProfiles"/>).</summary>
+    public ImmutableDictionary<Target, ScoredTarget> ScoredTargets { get; set; }
+        = ImmutableDictionary<Target, ScoredTarget>.Empty;
 
     /// <summary>Number of pinned (proposed) targets at the top of the filtered list.</summary>
     public int PinnedCount { get; set; }
@@ -94,8 +103,10 @@ public class PlannerState
     /// <summary>Original slider time when selection started, for Escape-to-revert.</summary>
     public DateTimeOffset? SelectedSliderOriginalTime { get; set; }
 
-    /// <summary>Cross-index aliases for targets (e.g. "Also: NGC 224, UGC 454").</summary>
-    public Dictionary<Target, string> TargetAliases { get; set; } = [];
+    /// <summary>Cross-index aliases for targets (e.g. "Also: NGC 224, UGC 454").
+    /// Immutable (same rationale as <see cref="AltitudeProfiles"/>).</summary>
+    public ImmutableDictionary<Target, string> TargetAliases { get; set; }
+        = ImmutableDictionary<Target, string>.Empty;
 
     /// <summary>Minimum star rating filter (0 = show all, 3 = 3★+, 4 = 4★+, 5 = 5★ only).</summary>
     public float MinRatingFilter { get; set; } = 0f;
