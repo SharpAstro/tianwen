@@ -59,6 +59,7 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
     private HashSet<CatalogIndex>? _catalogIndicesCache;
     private HashSet<Catalog>? _completeCatalogCache;
     private volatile bool _isInitialized;
+    private readonly SemaphoreSlim _initLock = new(1, 1);
 
     /// <summary>
     /// Per-phase wall-clock timings captured during the last <see cref="InitDBAsync"/>
@@ -262,6 +263,29 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
             return;
         }
 
+        // Serialize concurrent first-time callers. Without this, two parallel
+        // InitDBAsync calls (e.g. InitializePlanner + a Recompute tick that also
+        // lands in ComputeTonightsBestAsync) both see _isInitialized=false, both
+        // enter, and both mutate _objectsByIndex in parallel -> "Collection was
+        // modified" from HashSet<CatalogIndex>(_objectsByIndex.Keys) in one of them.
+        await _initLock.WaitAsync(cancellationToken);
+        try
+        {
+            if (_isInitialized)
+            {
+                return;
+            }
+
+            await InitDBCoreAsync(cancellationToken);
+        }
+        finally
+        {
+            _initLock.Release();
+        }
+    }
+
+    private async Task InitDBCoreAsync(CancellationToken cancellationToken)
+    {
         _lastInitPhaseTimings.Clear();
         LastInitProcessed = 0;
         LastInitFailed = 0;
