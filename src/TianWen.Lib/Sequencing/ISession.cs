@@ -111,5 +111,8 @@ public interface ISession : IAsyncDisposable
     /// <summary>Fired after each plate solve attempt completes (success or failure).</summary>
     event EventHandler<PlateSolveCompletedEventArgs>? PlateSolveCompleted;
 
+    /// <summary>Fired after the FOV-obstruction scout completes (success, transparency, or skip).</summary>
+    event EventHandler<ScoutCompletedEventArgs>? ScoutCompleted;
+
     Task RunAsync(CancellationToken cancellationToken);
 }

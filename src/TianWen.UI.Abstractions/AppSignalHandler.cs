@@ -1778,6 +1778,36 @@ namespace TianWen.UI.Abstractions
                         NotificationSeverity.Info, "Session started");
                     appState.NeedsRedraw = true;
 
+                    // Surface FOV-obstruction scout decisions in the notification feed.
+                    // The scout is a 30-90s opaque pause between centering and guider start;
+                    // without this the user sees nothing until the next phase ticks.
+                    // Healthy outcomes are silent (the common case shouldn't spam toasts).
+                    session.ScoutCompleted += (_, e) =>
+                    {
+                        var (msg, severity) = (e.Classification, e.Outcome) switch
+                        {
+                            (ScoutClassification.Healthy, _) => (null, NotificationSeverity.Info),
+                            (ScoutClassification.Transparency, _) =>
+                                ($"Scout on {e.Target.Name}: low transparency \u2014 proceeding (recovery loop will engage if it persists).",
+                                 NotificationSeverity.Info),
+                            (ScoutClassification.Obstruction, ScoutOutcome.Proceed) =>
+                                ($"Scout on {e.Target.Name}: obstruction cleared during wait \u2014 imaging now.",
+                                 NotificationSeverity.Info),
+                            (ScoutClassification.Obstruction, ScoutOutcome.Advance) =>
+                                ($"Scout on {e.Target.Name}: FOV obstructed (~{string.Join("/", e.StarCountsPerOTA)} stars vs baseline)"
+                                 + (e.EstimatedClearIn is { } c
+                                     ? $", clears in {c.TotalMinutes:F0} min \u2014 advancing to next target."
+                                     : " with no usable clear time \u2014 advancing to next target."),
+                                 NotificationSeverity.Warning),
+                            _ => (null, NotificationSeverity.Info)
+                        };
+                        if (msg is not null)
+                        {
+                            appState.AppendNotification(_timeProvider.GetUtcNow(), severity, msg);
+                            appState.NeedsRedraw = true;
+                        }
+                    };
+
                     // RunAsync includes Finalise — run as tracked background task so:
                     // 1. UI stays responsive (signal handler returns immediately)
                     // 2. DrainAsync at shutdown waits for Finalise to complete

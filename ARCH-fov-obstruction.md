@@ -218,10 +218,39 @@ the classifier's `expectedStars <= 0` check skipped both cases identically.
   enough stars in low-density fields. The classifier's sqrt(exposure ratio)
   scaling means changing scout duration doesn't break the comparison.
 
+## User-visible surface
+
+The scout has three observable channels in addition to the file log:
+
+1. **`Session.CurrentActivity`** — set to `"Scouting <target>…"` at the start of
+   `RunObstructionScoutAsync`. The live session UI's chrome activity line picks
+   this up automatically (no per-call wiring), so the previously-opaque 30-90s
+   pause between centering and guider start now shows progress.
+2. **`Session.ScoutCompleted` event** — fires once per scout invocation with
+   `(Target, Classification, EstimatedClearIn, Outcome, StarCountsPerOTA)`.
+   Fires AFTER any wait-then-retry resolves, so consumers see the final
+   routing decision, not intermediate states. Mirrors `PlateSolveCompleted`.
+3. **WebSocket broadcast** — `EventBroadcaster` (TianWen.Hosting) subscribes to
+   `ScoutCompleted` and emits `SCOUT-COMPLETED` to all connected clients with
+   the same payload. Available on `/api/v1/events` (native) and `/v2/socket`
+   (ninaAPI shim).
+
+In the GUI, `AppSignalHandler.StartSessionSignal` subscribes to the event and
+routes to `appState.AppendNotification` per outcome:
+
+| Classification | Outcome | Severity | Message |
+|---|---|---|---|
+| Healthy | Proceed | (none — silent) | — |
+| Transparency | Proceed | Info | "Scout on X: low transparency — proceeding (recovery loop will engage if it persists)." |
+| Obstruction | Proceed (cleared during wait) | Info | "Scout on X: obstruction cleared during wait — imaging now." |
+| Obstruction | Advance | Warning | "Scout on X: FOV obstructed (~N/M stars vs baseline), clears in T min — advancing to next target." |
+
+Healthy is silent because it's the common case — toasting on every scout
+success would be noise. The other paths all happen rarely and warrant a user-
+visible record so unattended-session reviewers can see what happened overnight.
+
 ## Not shipped on this branch
 
-- **`ScoutCompletedEventArgs` UI event.** Plan flagged optional for v1.
-  The live-session UI does not currently see scout frames or scout decisions.
 - **`SaveScoutFrames` FITS write path.** Config key exists for future debugging
   but always discards (matches the false default).
 - **Per-OTA `ScoutExposure`.** Currently global; per-OTA gain/filter means a

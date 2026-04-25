@@ -7,12 +7,12 @@ namespace TianWen.Lib.Sequencing;
 /// after centering and before guider/exposure commitment, to detect a fixed FOV
 /// obstruction (tree, building, neighbour's roof) early.
 /// </summary>
-internal readonly record struct ScoutResult(
+public readonly record struct ScoutResult(
     FrameMetrics[] Metrics,
     ScoutClassification Classification,
     TimeSpan? EstimatedClearIn);
 
-internal enum ScoutClassification
+public enum ScoutClassification
 {
     /// <summary>Star count meets the healthy band; proceed to imaging.</summary>
     Healthy,
@@ -29,7 +29,7 @@ internal enum ScoutClassification
 /// observation loop. Maps the scout classification + trajectory check onto a binary
 /// "proceed with this target" vs. "advance to next observation" choice.
 /// </summary>
-internal enum ScoutOutcome
+public enum ScoutOutcome
 {
     /// <summary>Scout passed (or wait completed and re-scout passed) — start guider and image.</summary>
     Proceed,

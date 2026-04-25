@@ -34,6 +34,8 @@ internal partial record Session
     internal async ValueTask<ScoutOutcome?> RunObstructionScoutAsync(
         ScheduledObservation observation, CancellationToken cancellationToken)
     {
+        _currentActivity = $"Scouting {observation.Target.Name}\u2026";
+
         // Defence in depth: if the scout itself blows up (driver fault that ResilientCall +
         // the per-frame retry both couldn't recover, ephemeris transform unavailable,
         // anything unexpected), don't let it kill the session. Default to Proceed and let
@@ -51,9 +53,32 @@ internal partial record Session
                 "Scout: ScoutAndProbeAsync threw for {Target}; proceeding with imaging "
                 + "(in-flight deterioration check will catch real obstructions).",
                 observation.Target);
+            FireScoutCompleted(observation.Target, ScoutClassification.Healthy,
+                estimatedClearIn: null, outcome: ScoutOutcome.Proceed,
+                metrics: System.Array.Empty<FrameMetrics>());
             return ScoutOutcome.Proceed;
         }
 
+        // Event fires AFTER ResolveOutcome so the UI sees the final routing decision, not
+        // an intermediate "Obstruction → wait-then-retry → Healthy → Proceed" pair.
+        var outcome = await ResolveOutcome(scoutResult, observation, cancellationToken);
+        FireScoutCompleted(observation.Target, scoutResult.Classification,
+            scoutResult.EstimatedClearIn, outcome, scoutResult.Metrics);
+        return outcome;
+    }
+
+    private void FireScoutCompleted(Target target, ScoutClassification classification,
+        TimeSpan? estimatedClearIn, ScoutOutcome outcome, FrameMetrics[] metrics)
+    {
+        var starCounts = new int[metrics.Length];
+        for (var i = 0; i < metrics.Length; i++) starCounts[i] = metrics[i].StarCount;
+        ScoutCompleted?.Invoke(this, new ScoutCompletedEventArgs(
+            target, classification, estimatedClearIn, outcome, starCounts));
+    }
+
+    private async ValueTask<ScoutOutcome> ResolveOutcome(
+        ScoutResult scoutResult, ScheduledObservation observation, CancellationToken cancellationToken)
+    {
         switch (scoutResult.Classification)
         {
             case ScoutClassification.Healthy:

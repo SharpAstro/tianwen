@@ -67,6 +67,7 @@ internal sealed class EventBroadcaster(
         session.PhaseChanged += OnPhaseChanged;
         session.FrameWritten += OnFrameWritten;
         session.PlateSolveCompleted += OnPlateSolveCompleted;
+        session.ScoutCompleted += OnScoutCompleted;
     }
 
     private void UnsubscribeFromSession(ISession session)
@@ -74,6 +75,7 @@ internal sealed class EventBroadcaster(
         session.PhaseChanged -= OnPhaseChanged;
         session.FrameWritten -= OnFrameWritten;
         session.PlateSolveCompleted -= OnPlateSolveCompleted;
+        session.ScoutCompleted -= OnScoutCompleted;
     }
 
     private void OnPhaseChanged(object? sender, SessionPhaseChangedEventArgs e)
@@ -123,6 +125,22 @@ internal sealed class EventBroadcaster(
                 ["ElapsedMs"] = record.Elapsed.TotalMilliseconds,
                 ["DetectedStars"] = record.DetectedStars,
                 ["MatchedStars"] = record.MatchedStars
+            }
+        });
+    }
+
+    private void OnScoutCompleted(object? sender, ScoutCompletedEventArgs e)
+    {
+        _ = BroadcastSafeAsync(new WebSocketEventDto
+        {
+            Event = "SCOUT-COMPLETED",
+            Data = new Dictionary<string, object?>
+            {
+                ["TargetName"] = e.Target.Name,
+                ["Classification"] = e.Classification.ToString(),
+                ["Outcome"] = e.Outcome.ToString(),
+                ["EstimatedClearInSeconds"] = e.EstimatedClearIn?.TotalSeconds,
+                ["StarCountsPerOTA"] = e.StarCountsPerOTA
             }
         });
     }

@@ -113,6 +113,7 @@ internal partial record Session(
     public event EventHandler<SessionPhaseChangedEventArgs>? PhaseChanged;
     public event EventHandler<FrameWrittenEventArgs>? FrameWritten;
     public event EventHandler<PlateSolveCompletedEventArgs>? PlateSolveCompleted;
+    public event EventHandler<ScoutCompletedEventArgs>? ScoutCompleted;
 
     /// <summary>
     /// Per-observation, per-telescope baseline metrics for focus drift and environmental anomaly detection.

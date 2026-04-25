@@ -254,6 +254,51 @@ public class SessionScoutAndProbeTests(ITestOutputHelper output)
     }
 
     [Fact(Timeout = 60_000)]
+    public async Task GivenScoutCompletesWhenRunObstructionScoutThenScoutCompletedEventFires()
+    {
+        // The scout writes to the log but the GUI / hosting / WebSocket clients all consume
+        // the ScoutCompleted event. Without it, the user sees a 30-90s opaque pause between
+        // centering and guider start with no explanation. Assert the event fires with the
+        // correct outcome + classification + payload.
+        var ct = TestContext.Current.CancellationToken;
+        var observations = new[] { Obs(3.79, 24.1, "M45 prev"), Obs(3.79, 24.1, "M45 next") };
+        using var ctx = await CreateScoutSessionAsync(observations, cancellationToken: ct);
+
+        ctx.Camera.CloudCoverage = 0; // healthy field
+
+        ctx.Session.SetBaselineForObservationForTest(0,
+        [
+            new FrameMetrics(StarCount: 30, MedianHfd: 2.5f, MedianFwhm: 3.0f,
+                Exposure: TimeSpan.FromSeconds(2), Gain: 0),
+        ]);
+        ctx.Session.AdvanceObservationForTest();
+        ctx.Session.AdvanceObservationForTest();
+
+        var target = ctx.Session.ActiveObservation!.Target;
+        await ctx.Mount.BeginSlewRaDecAsync(target.RA, target.Dec, ct);
+        while (await ctx.Mount.IsSlewingAsync(ct))
+        {
+            await ctx.TimeProvider.SleepAsync(TimeSpan.FromMilliseconds(50), ct);
+        }
+
+        ScoutCompletedEventArgs? captured = null;
+        ctx.Session.ScoutCompleted += (_, e) => captured = e;
+
+        await RunScoutWithTimePumpAsync(ctx, async ct2 =>
+        {
+            var outcome = await ctx.Session.RunObstructionScoutAsync(ctx.Session.ActiveObservation!, ct2);
+            outcome.ShouldBe(ScoutOutcome.Proceed);
+        }, ct);
+
+        captured.ShouldNotBeNull();
+        captured!.Target.Name.ShouldBe(target.Name);
+        captured.Classification.ShouldBe(ScoutClassification.Healthy);
+        captured.Outcome.ShouldBe(ScoutOutcome.Proceed);
+        captured.StarCountsPerOTA.Length.ShouldBe(1); // single OTA test setup
+        captured.EstimatedClearIn.ShouldBeNull(); // healthy → no trajectory estimate
+    }
+
+    [Fact(Timeout = 60_000)]
     public async Task GivenScoutThrowsWhenRunObstructionScoutThenProceeds()
     {
         // Defence-in-depth: if ScoutAndProbeAsync itself throws (driver fault that all
