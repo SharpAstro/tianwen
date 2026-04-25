@@ -11,15 +11,26 @@ what isn't, and in what order we tackle it**.
 1. [`PLAN-driver-resilience.md`](PLAN-driver-resilience.md) — per-call
    reconnect + retry + fault-counter escalation. Wraps hot-path driver
    calls so a USB hiccup, COM fault, or TCP drop doesn't end the session.
+   **Status: SHIPPED (merged to main).** See [`ARCH-driver-resilience.md`](ARCH-driver-resilience.md).
 2. [`PLAN-fov-obstruction-detection.md`](PLAN-fov-obstruction-detection.md) —
    predictive scout frame + altitude-nudge disambiguation + trajectory-aware
    wait decision, so a target behind a tree is detected fast and either
-   waited out or skipped cleanly.
+   waited out or skipped cleanly. **Status: SHIPPED on branch
+   `fov-obstruction-detection`.** See [`ARCH-fov-obstruction.md`](ARCH-fov-obstruction.md).
+   **Known gaps not closed by v1** (detail in the plan + arch doc):
+   - First observation of the night returns `Healthy` unconditionally
+     (no prior baseline to compare against).
+   - Guider calibration slew (`Session.Lifecycle.cs:19`) is not scouted —
+     tracked as TODO L147.
+   - Guider field is not exposured separately (imaging-OTA only).
 3. *(optional backlog)* `PLAN-site-horizon-mask.md` — static per-azimuth
    horizon profile so the scheduler can pre-reject known-obstructed targets
    at plan-build time instead of rediscovering them at runtime. Only spin
    this up if sub-plans 1+2 in production still show too many runtime scout
-   trips against known obstructions.
+   trips against known obstructions. The first-observation-of-the-night gap
+   in sub-plan 2 is one of the strongest arguments for actually shipping this:
+   a static horizon mask catches obstructions *before* the night begins, so it
+   doesn't need a prior baseline.
 
 ## Goal
 

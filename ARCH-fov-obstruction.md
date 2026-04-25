@@ -173,6 +173,32 @@ won't gain altitude, so there's no point walking the lookahead loop forward.
 - **Per-OTA `ScoutExposure`.** Currently global; per-OTA gain/filter means a
   10s LUM frame is not equivalent to a 10s Ha frame. Plan flagged as revisit.
 
+## Known limitations (gaps the scout does *not* close)
+
+Three first-light scenarios where an obstruction can still bite because the
+scout's preconditions aren't met. Detail in
+[`PLAN-fov-obstruction-detection.md`](PLAN-fov-obstruction-detection.md)
+"Known limitations" section.
+
+1. **First observation of the night** — no prior baseline → scout returns
+   `Healthy` unconditionally. Detection falls back to the in-flight
+   condition-deterioration check inside the imaging loop, which only fires
+   after guider start + several full-length exposures.
+2. **Guider calibration slew** (`Session.Lifecycle.cs:19`) — scout is not
+   invoked before `CalibrateGuiderAsync` slews to `(HA=30min east, Dec=0°)`.
+   TODO item L147 ("slew slightly above/below 0° dec to avoid trees") tracks
+   this gap separately.
+3. **Guider field vs. imaging field** — scout exposures run on imaging OTAs
+   only. Side-by-side guide scopes with their own obstructions are not
+   covered. OAGs are fine because the fields coincide.
+
+Closing (1) needs an absolute star-count oracle (catalog-derived or
+cross-session cache); closing (2) needs `RunObstructionScoutAsync` to be
+called from `CalibrateGuiderAsync` (and inherits problem (1)); closing (3)
+needs the scout to optionally exposure the guide camera. Lowest-risk path is
+(2) → (1) → (3) in priority order if first-light operational data shows
+these biting.
+
 ## Commit
 
 - `fb4d0c3` — FOV obstruction detection: scout + altitude-nudge + trajectory wait

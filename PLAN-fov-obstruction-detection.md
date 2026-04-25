@@ -187,6 +187,51 @@ internal enum ScoutClassification
   line from accumulated scout failures). Future work; requires a persisted
   map structure.
 
+## Known limitations of the shipped scout
+
+Three places where an obstruction can still bite a session because the scout's
+preconditions aren't met:
+
+1. **First observation of the night.** The classifier compares scout star
+   counts to the previous observation's baseline (exposure-scaled). For the
+   first observation there is no prior baseline, so `ScoutAndProbeAsync`
+   returns `Healthy` unconditionally. A target behind a tree at the very start
+   of the night will not be detected until the existing in-flight
+   condition-deterioration check trips inside `ImagingLoopAsync` — which
+   means we've already burned guider-start + several full-length exposures.
+2. **Guider calibration slew.** `CalibrateGuiderAsync`
+   (`Session.Lifecycle.cs:19`) slews to `(HA = 30 min east, Dec = 0°)` for
+   guider calibration. The scout is not invoked here. If trees block the
+   eastern horizon at Dec 0, calibration will fail (or produce poor
+   calibration) without an obstruction-classified retry. This is what TODO
+   item L147 ("slew slightly above/below 0 declination to avoid trees") is
+   about — separate from the imaging-loop scout.
+3. **Guider field vs. imaging field.** The scout exposures run on
+   `Setup.Telescopes[i].Camera`, never on the guide camera. For
+   side-by-side guide scopes, an obstruction that only blocks the guide
+   scope's field (or only blocks the imaging OTAs') will not be flagged
+   correctly. For OAGs the fields coincide, so this is moot.
+
+What would need to change to fix each:
+
+- (1) needs an absolute "expected star count" oracle that doesn't rely on a
+  prior baseline — either a per-target catalog-derived expectation, or a
+  cross-session per-(galactic latitude × peak magnitude) cache. The plan
+  already flags this as the "Risk: expected-star-count model is hard"
+  bullet; the v1 decision was to start with last-target baseline only.
+- (2) needs `RunObstructionScoutAsync` (or a thin variant) called from
+  `CalibrateGuiderAsync` *before* `BeginSlewHourAngleDecAsync`, gated on
+  scout-pass. Same scout machinery, different phase. Adds the same first-of-
+  the-night problem from (1) since calibration is necessarily before any
+  baseline exists.
+- (3) needs the scout to optionally exposure the guide camera and apply the
+  same classifier. For most setups the imaging OTAs will fail first
+  (similar field, larger aperture), so this is the lowest-priority of the
+  three.
+
+The above are deliberate v1 trade-offs, not bugs — but anyone touching the
+scout in v2 should weigh them before adding more orthogonal features.
+
 ## Memory updates after landing
 
 Replace the content of `project_fov_obstruction_detection.md` with a pointer
