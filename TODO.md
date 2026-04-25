@@ -138,8 +138,8 @@
 ## Sequencing / Session
 
 - [ ] Baseline HFD per-target: key by observation index (not telescope index), smart refocus-on-target-change — skip refocus when recent focus is good, establish new baseline from median of first N frames; `AlwaysRefocusOnNewTarget` config option
-- [ ] FOV obstruction detection: compare first-frame metrics against previous target's baseline; if anomalous, nudge mount up by one frame radius — if metrics recover, exit imaging loop for this target (tree/building in FOV)
-- [ ] OnStep mount driver: extend `MeadeLX200ProtocolMountDriverBase` with `:GX`/`:SX` commands, native pier side, park/unpark, `FakeOnStepSerialDevice` for testing
+- [x] FOV obstruction detection: compare first-frame metrics against previous target's baseline; if anomalous, nudge mount up by one frame radius — if metrics recover, exit imaging loop for this target (tree/building in FOV) — `Session.Imaging.Obstruction.cs` `ScoutAndProbeAsync` + `NudgeTestAsync` + `EstimateObstructionClearTimeAsync`; trajectory-aware wait if obstruction will clear in `<= ObstructionClearFractionOfRemaining`. See `PLAN-fov-obstruction-detection.md` + `ARCH-fov-obstruction.md`.
+- [x] OnStep mount driver: extend `MeadeLX200ProtocolMountDriverBase` with `:GX`/`:SX` commands, native pier side, park/unpark, `FakeOnStepSerialDevice` for testing — `OnStepMountDriver<TDevice>` shipped using `:GU#` (bundled status), `:Gm#` (pier), `:hP-:hR-:hQ` (park 0/1), `:Te/:Td` (tracking on/off), `:TK/:TS` (rates). Serial + WiFi (`TcpSerialConnection` + mDNS `_telescope._tcp.local`). Follow-ups tracked at line 237 below.
 - [ ] Faster imaging loop tick: reduce to `GCD/6` clamped `[1s, 5s]` — fix `FakeMeadeLX200SerialDevice` slew timer interleaving (immediate axis positioning instead of 100ms step timer)
 - [ ] `SessionFactory.Create(proposals)` hardcodes `defaultObservationTime = 30min` — should use planner's computed windows (handoff slider positions) or at least divide the dark window evenly among targets
 - [ ] Gracefully stop a session (`HostedSession.cs:39`)
@@ -154,9 +154,9 @@
 - [x] Stop exposures before meridian flip (if we can, and if there are any) — `PerformMeridianFlipAsync` stops guider, waits for slew completion, smart exposure handling (<30s wait / >30s abort)
 - [x] Stop guiding, flip, resync, verify, and restart guiding — `PerformMeridianFlipAsync` stops capture, re-slews with RA offset, verifies HA flipped positive, restarts guiding loop
 - [ ] Make FITS output path template configurable (`Session.IO.cs:16`) — frame type already in path as `{target}/{date}/{filter}/{frameType}/`
-- [ ] FOV obstruction detection: if first frames on a new target show HFD way higher or star count way lower than previous target's baseline, nudge mount up in altitude by one frame radius and re-check — if metrics recover, something is blocking the FOV (tree, building); make this a new imaging loop exit condition
+- [x] FOV obstruction detection: if first frames on a new target show HFD way higher or star count way lower than previous target's baseline, nudge mount up in altitude by one frame radius and re-check — if metrics recover, something is blocking the FOV (tree, building); make this a new imaging loop exit condition — duplicate of above, both shipped together
 - [x] Switch `ImagingLoopAsync` to `PeriodicTimer` instead of hand-rolled sleep/overslept timing
-- [ ] Device disconnect resilience in imaging loop — when mount/camera/guider disconnects, attempt reconnect with backoff instead of immediately advancing to next observation; only bail after N retries or timeout
+- [x] Device disconnect resilience in imaging loop — when mount/camera/guider disconnects, attempt reconnect with backoff instead of immediately advancing to next observation; only bail after N retries or timeout — `ResilientCall` wrapper + `Session.ErrorHandling.ResilientInvokeAsync` + per-driver fault counter + `DeviceUnrecoverable` escalation. See `PLAN-driver-resilience.md` + `ARCH-driver-resilience.md`.
 - [x] Altitude check distinguishes rising vs setting targets — `EstimateTimeUntilTargetRisesAsync` samples altitude at 5-min intervals; if rising and within `MaxWaitForRisingTarget` (default 15 min), waits then retries slew; otherwise tries spare targets then advances
 - [x] Write `FOCALLEN` and `FOCUSPOS` to FITS output headers (currently read on load but never written)
 - [x] Write `DATAMIN` to FITS output headers (only `DATAMAX` was written)

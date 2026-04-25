@@ -31,7 +31,9 @@ flowchart TD
     Spare -->|no| Advance[AdvanceObservation]
     Slew -->|Slewing| WaitSlew[WaitForSlewCompleteAsync<br/>IdempotentRead]
     WaitSlew --> Center[CenterOnTarget: plate-solve + sync + reslew]
-    Center --> Guide[StartGuidingLoop<br/>NonIdempotent]
+    Center --> Scout[RunObstructionScoutAsync ✦<br/>scout + nudge + clear-time]
+    Scout -->|Proceed| Guide[StartGuidingLoop<br/>NonIdempotent]
+    Scout -->|Advance| Advance
     Guide --> Imaging[ImagingLoopAsync<br/>expose, dither, check conditions,<br/>meridian flip if needed]
 
     Imaging -->|AdvanceToNextObservation| Advance
@@ -50,6 +52,9 @@ flowchart TD
 
 ✱ = new escalation exit added by PR-B4. All driver calls along the highlighted
 arrows are wrapped via `ResilientInvokeAsync`.
+
+✦ = predictive FOV obstruction probe added on branch `fov-obstruction-detection`.
+Detail in [`ARCH-fov-obstruction.md`](ARCH-fov-obstruction.md).
 
 ## ResilientCall.InvokeAsync
 
