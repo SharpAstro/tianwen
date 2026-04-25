@@ -1218,7 +1218,146 @@ public static class PlannerActions
     }
 
     /// <summary>
+    /// Returns proposals with <see cref="ProposedObservation.ObservationTime"/> populated from
+    /// the planner's per-target window: each pinned target's slot between its handoff sliders
+    /// (or the dark-window edges for the first/last target), then clipped to when the target
+    /// is at or above <see cref="PlannerState.MinHeightAboveHorizon"/> (the horizon-cut slice).
+    /// <para>
+    /// User-set <c>ObservationTime</c> (non-null) is preserved — only nulls are filled in. So
+    /// <c>defaultObservationTime</c> in <see cref="BuildSchedule"/> becomes a true fallback,
+    /// only firing when neither the user nor the planner has a window for the target.
+    /// </para>
+    /// <para>
+    /// Slider order matches the peak-time ordering produced by <see cref="GetFilteredTargets"/>,
+    /// not the raw <see cref="PlannerState.Proposals"/> order — keep the two in sync.
+    /// </para>
+    /// </summary>
+    public static ImmutableArray<ProposedObservation> ApplyHandoffWindows(PlannerState state)
+    {
+        var proposals = state.Proposals;
+        if (proposals.IsEmpty)
+        {
+            return proposals;
+        }
+
+        // Filtered list is in peak-time order; HandoffSliders[i] is the boundary between
+        // filtered[i] and filtered[i+1]. Calling GetFilteredTargets refreshes PinnedCount.
+        var filtered = GetFilteredTargets(state);
+        var pinnedCount = state.PinnedCount;
+        if (pinnedCount == 0)
+        {
+            return proposals;
+        }
+
+        // Per-target window duration map: target → (visible time within slider window)
+        var windowByTarget = new Dictionary<Target, TimeSpan>(pinnedCount);
+        for (var i = 0; i < pinnedCount; i++)
+        {
+            var target = filtered[i].Target;
+
+            var windowStart = i == 0
+                ? state.AstroDark
+                : i - 1 < state.HandoffSliders.Count ? state.HandoffSliders[i - 1] : state.AstroDark;
+            var windowEnd = i >= pinnedCount - 1 || i >= state.HandoffSliders.Count
+                ? state.AstroTwilight
+                : state.HandoffSliders[i];
+
+            windowByTarget[target] = ComputeVisibleTimeInWindow(
+                target, windowStart, windowEnd, state.MinHeightAboveHorizon, state.AltitudeProfiles);
+        }
+
+        var builder = ImmutableArray.CreateBuilder<ProposedObservation>(proposals.Length);
+        foreach (var p in proposals)
+        {
+            if (p.ObservationTime is null
+                && windowByTarget.TryGetValue(p.Target, out var w)
+                && w > TimeSpan.Zero)
+            {
+                builder.Add(p with { ObservationTime = w });
+            }
+            else
+            {
+                builder.Add(p);
+            }
+        }
+        return builder.ToImmutable();
+    }
+
+    /// <summary>
+    /// Sums the time within <c>[windowStart, windowEnd]</c> during which <paramref name="target"/>'s
+    /// altitude is at or above <paramref name="minAlt"/>. Walks the sampled altitude profile and
+    /// linearly interpolates each segment, including the horizon-crossing point so the result
+    /// is correct down to the sample resolution (~15 min) regardless of where the rise/set
+    /// transition lands inside a sample interval.
+    /// <para>
+    /// Returns <c>windowEnd - windowStart</c> when no profile exists for the target — keeps a
+    /// freshly-pinned target without a recomputed profile from collapsing to zero allocation.
+    /// </para>
+    /// </summary>
+    public static TimeSpan ComputeVisibleTimeInWindow(
+        Target target,
+        DateTimeOffset windowStart,
+        DateTimeOffset windowEnd,
+        byte minAlt,
+        ImmutableDictionary<Target, List<(DateTimeOffset Time, double Alt)>> profiles)
+    {
+        if (windowEnd <= windowStart)
+        {
+            return TimeSpan.Zero;
+        }
+
+        if (!profiles.TryGetValue(target, out var profile) || profile.Count < 2)
+        {
+            return windowEnd - windowStart;
+        }
+
+        var total = TimeSpan.Zero;
+        for (var k = 0; k < profile.Count - 1; k++)
+        {
+            var (t0, a0) = profile[k];
+            var (t1, a1) = profile[k + 1];
+
+            // Skip segments entirely outside the window
+            if (t1 <= windowStart) continue;
+            if (t0 >= windowEnd) break;
+
+            // Clip segment to window and interpolate the boundary altitudes
+            var clipStart = t0 < windowStart ? windowStart : t0;
+            var clipEnd = t1 > windowEnd ? windowEnd : t1;
+            var span = (t1 - t0).TotalSeconds;
+            if (span <= 0) continue;
+
+            var altStart = a0 + (a1 - a0) * ((clipStart - t0).TotalSeconds / span);
+            var altEnd = a0 + (a1 - a0) * ((clipEnd - t0).TotalSeconds / span);
+
+            var clipDuration = clipEnd - clipStart;
+
+            if (altStart >= minAlt && altEnd >= minAlt)
+            {
+                total += clipDuration;
+            }
+            else if (altStart >= minAlt && altEnd < minAlt)
+            {
+                // Setting through the cut — accumulate up to crossing
+                var f = (minAlt - altStart) / (altEnd - altStart);
+                total += TimeSpan.FromSeconds(clipDuration.TotalSeconds * f);
+            }
+            else if (altStart < minAlt && altEnd >= minAlt)
+            {
+                // Rising through the cut — accumulate from crossing to end
+                var f = (minAlt - altStart) / (altEnd - altStart);
+                total += TimeSpan.FromSeconds(clipDuration.TotalSeconds * (1 - f));
+            }
+            // else: both below the cut — nothing to add
+        }
+
+        return total;
+    }
+
+    /// <summary>
     /// Runs the scheduler on current proposals and stores the result on <paramref name="sessionState"/>.
+    /// Per-target observation windows come from <see cref="ApplyHandoffWindows"/>;
+    /// <paramref name="defaultObservationTime"/> is only the fallback for proposals without a slider window.
     /// </summary>
     public static void BuildSchedule(
         PlannerState state,
@@ -1238,9 +1377,13 @@ public static class PlannerActions
             return;
         }
 
-        // Schedule all pinned proposals via the automatic scheduler
+        // Project per-target slider windows into ProposedObservation.ObservationTime so the
+        // scheduler honours the handoff layout instead of falling back to defaultObservationTime
+        // for every target.
+        var proposalsWithWindows = ApplyHandoffWindows(state);
+
         sessionState.Schedule = ObservationScheduler.Schedule(
-            state.Proposals.ToArray(),
+            proposalsWithWindows.AsSpan(),
             transform,
             state.AstroDark,
             state.AstroTwilight,
