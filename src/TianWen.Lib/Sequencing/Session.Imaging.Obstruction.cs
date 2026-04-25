@@ -34,7 +34,25 @@ internal partial record Session
     internal async ValueTask<ScoutOutcome?> RunObstructionScoutAsync(
         ScheduledObservation observation, CancellationToken cancellationToken)
     {
-        var scoutResult = await ScoutAndProbeAsync(observation, cancellationToken);
+        // Defence in depth: if the scout itself blows up (driver fault that ResilientCall +
+        // the per-frame retry both couldn't recover, ephemeris transform unavailable,
+        // anything unexpected), don't let it kill the session. Default to Proceed and let
+        // the imaging loop's existing condition-deterioration check be the safety net for
+        // real environmental problems. Cancellation still propagates.
+        ScoutResult scoutResult;
+        try
+        {
+            scoutResult = await ScoutAndProbeAsync(observation, cancellationToken);
+        }
+        catch (OperationCanceledException) { throw; }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex,
+                "Scout: ScoutAndProbeAsync threw for {Target}; proceeding with imaging "
+                + "(in-flight deterioration check will catch real obstructions).",
+                observation.Target);
+            return ScoutOutcome.Proceed;
+        }
 
         switch (scoutResult.Classification)
         {
@@ -301,13 +319,61 @@ internal partial record Session
     }
 
     /// <summary>
-    /// Single-shot scout exposure helper. Mirrors the recipe used by
-    /// <see cref="WaitForConditionRecoveryAsync"/>: abort any in-progress exposure,
-    /// shoot at the configured scout duration, run star detection on the result,
-    /// release the buffer. Returns <see cref="FrameMetrics"/>.<c>default</c> on any
-    /// failure path so the caller's classifier sees an "invalid" metric.
+    /// Scout exposure helper. Mirrors the recipe used by
+    /// <see cref="WaitForConditionRecoveryAsync"/> with an additional result-level retry on
+    /// top of <see cref="ResilientCall"/>: a single-frame transient (cosmic ray noise spike,
+    /// brief cloud puff, transient driver fault that <c>NonIdempotentAction</c>'s 1-attempt
+    /// budget can't recover) shouldn't be enough to flip a healthy target to "Obstruction →
+    /// Advance". Up to <see cref="MaxScoutAttempts"/> attempts; first valid result wins.
+    /// <para>
+    /// On failure (still no valid metric after all attempts) the returned
+    /// <see cref="FrameMetrics"/> is <c>default</c> with <c>Exposure = 0</c>, which the
+    /// classifier skips. On a successful exposure that legitimately yielded zero stars (target
+    /// fully obstructed), the returned metric preserves <c>Exposure</c> so the classifier can
+    /// distinguish "took the exposure, found nothing" (obstruction signal) from "exposure
+    /// didn't happen" (transient fault — skip).
+    /// </para>
     /// </summary>
+    private const int MaxScoutAttempts = 2;
+
     private async ValueTask<FrameMetrics> TakeScoutFrameAsync(
+        int telescopeIndex, TimeSpan scoutExposure, CancellationToken cancellationToken)
+    {
+        for (var attempt = 1; attempt <= MaxScoutAttempts; attempt++)
+        {
+            try
+            {
+                var metrics = await TakeScoutFrameOnceAsync(telescopeIndex, scoutExposure, cancellationToken);
+
+                // Two distinct "not valid" cases reach this branch:
+                //   - metrics.Exposure == 0 (default) → exposure never ran (image-ready timeout,
+                //     null image after retries) — retry the whole exposure.
+                //   - metrics.Exposure > 0 with StarCount <= 3 → exposure ran but yielded few/no
+                //     stars. Could be real obstruction OR a single-frame transient (cosmic ray
+                //     spike, brief cloud puff). Retry once to disambiguate before letting the
+                //     nudge test draw a conclusion.
+                if (metrics.IsValid || attempt == MaxScoutAttempts)
+                {
+                    return metrics;
+                }
+
+                _logger.LogWarning(
+                    "Scout frame attempt {Attempt}/{Max} on OTA #{Ota} produced invalid metrics "
+                    + "(StarCount={Stars}, Exposure={Exposure}); retrying once.",
+                    attempt, MaxScoutAttempts, telescopeIndex + 1, metrics.StarCount, metrics.Exposure);
+            }
+            catch (OperationCanceledException) { throw; }
+            catch (Exception ex) when (attempt < MaxScoutAttempts)
+            {
+                _logger.LogWarning(ex,
+                    "Scout frame attempt {Attempt}/{Max} on OTA #{Ota} threw; retrying once.",
+                    attempt, MaxScoutAttempts, telescopeIndex + 1);
+            }
+        }
+        return default;
+    }
+
+    private async ValueTask<FrameMetrics> TakeScoutFrameOnceAsync(
         int telescopeIndex, TimeSpan scoutExposure, CancellationToken cancellationToken)
     {
         var camera = Setup.Telescopes[telescopeIndex].Camera.Driver;
@@ -349,6 +415,17 @@ internal partial record Session
         {
             var stars = await image.FindStarsAsync(0, snrMin: 10, maxStars: 200, cancellationToken: cancellationToken);
             var gain = await camera.GetGainAsync(cancellationToken);
+
+            // Preserve exposure on 0-star results — see TakeScoutFrameAsync rationale.
+            // FrameMetrics.FromStarList returns default(FrameMetrics) when stars.Count == 0,
+            // which collapses Exposure to TimeSpan.Zero and looks identical to "exposure
+            // never ran". Build the metric directly when we know the exposure completed.
+            if (stars.Count == 0)
+            {
+                return new FrameMetrics(StarCount: 0, MedianHfd: 0, MedianFwhm: 0,
+                    Exposure: scoutExposure, Gain: gain);
+            }
+
             return FrameMetrics.FromStarList(stars, scoutExposure, gain, image.Width, image.Height);
         }
         finally

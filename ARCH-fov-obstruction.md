@@ -123,6 +123,55 @@ which is well within a 60-min observation window.
 The "setting target" early exit is critical: a target near or past meridian
 won't gain altitude, so there's no point walking the lookahead loop forward.
 
+## Resilience layering — how the scout composes with `ResilientCall`
+
+Two distinct layers, each handling a different failure class:
+
+**Layer 1: `ResilientCall` (per primitive driver call)** — wraps every driver call
+inside `TakeScoutFrameOnceAsync`:
+
+| Call | Preset | Behaviour on transient |
+|---|---|---|
+| `StartExposureAsync` | `NonIdempotentAction` | 1 attempt, pre-reconnect only (re-issuing would double-expose) |
+| `GetImageAsync` | `IdempotentRead` | 3 attempts, exponential backoff + reconnect |
+| `GetGainAsync` | `IdempotentRead` | retried |
+
+Catches USB hiccup, COM fault, ASCOM throw — anything classified as a transient
+exception. Rethrows hard errors and exhausted retries.
+
+**Layer 2: scout-level retry (per frame outcome)** — `TakeScoutFrameAsync` wraps
+`TakeScoutFrameOnceAsync` in a 2-attempt loop. Retries when:
+
+- The whole exposure pipeline threw (Layer 1 exhausted) — second attempt may
+  succeed once the driver has reconnected.
+- The exposure ran but yielded an invalid metric (StarCount ≤ 3 from cosmic ray
+  noise, brief cloud puff, sensor glitch) — second attempt disambiguates real
+  obstruction (still bad on retake) from transient (good on retake).
+
+Cost: one extra ~10s exposure per affected OTA. Benefit: a single bad frame
+doesn't flip a healthy target to "Obstruction → Advance".
+
+**Layer 3: caller-level fallback** — `RunObstructionScoutAsync` wraps
+`ScoutAndProbeAsync` in a try/catch. On any exception that escapes Layers 1+2,
+the loop returns `Proceed` and lets the imaging loop's existing
+condition-deterioration check handle real environmental problems. Defence in
+depth: a scout that fails entirely shouldn't end the night.
+
+### `Exposure = 0` as the "scout never ran" sentinel
+
+`FrameMetrics.FromStarList` returns `default(FrameMetrics)` (Exposure = 0) when
+the star list is empty. The scout takes a different path: when an exposure ran
+to completion and yielded zero stars (real obstruction signal), it builds the
+metric directly with `StarCount = 0, Exposure = scoutExposure`. The classifier
+then distinguishes:
+
+- `Exposure == 0` → exposure never ran (transient fault — skip OTA, don't judge).
+- `Exposure > 0, StarCount == 0` → exposure ran, found nothing (real obstruction
+  signal — flag).
+
+Without this, a fully-blocked target was silently classified as `Healthy` because
+the classifier's `expectedStars <= 0` check skipped both cases identically.
+
 ## SessionConfiguration knobs
 
 | Field | Default | Purpose |

@@ -158,6 +158,91 @@ public class SessionScoutAndProbeTests(ITestOutputHelper output)
         }, ct);
     }
 
+    [Fact(Timeout = 60_000)]
+    public async Task GivenZeroStarScoutAfterRealExposureWhenClassifyThenObstruction()
+    {
+        // Bug fix regression: TakeScoutFrameAsync now preserves Exposure on 0-star results
+        // (FrameMetrics.FromStarList collapses to default(FrameMetrics) which the classifier
+        // would silently skip). With the fix, a fully-blocked target produces a metric with
+        // Exposure > 0 and StarCount = 0, which the classifier flags as Obstruction (worst
+        // ratio = 0). Without the fix, this would have been Healthy. The test exercises the
+        // direct classifier path because driving the full ScoutAndProbeAsync to a 0-star
+        // result requires a CloudCoverage that varies between scout and nudge.
+        var ct = TestContext.Current.CancellationToken;
+        using var ctx = await CreateScoutSessionAsync(SessionTestHelper.DefaultScheduledObservations, cancellationToken: ct);
+
+        // Scout: legitimately took a 2s exposure, found 0 stars (target behind tree)
+        var scout = new[]
+        {
+            new FrameMetrics(StarCount: 0, MedianHfd: 0, MedianFwhm: 0,
+                Exposure: TimeSpan.FromSeconds(2), Gain: 0),
+        };
+        var baseline = new[]
+        {
+            new FrameMetrics(StarCount: 100, MedianHfd: 2.5f, MedianFwhm: 3.0f,
+                Exposure: TimeSpan.FromSeconds(2), Gain: 0),
+        };
+
+        var (classification, ratio) = ctx.Session.ClassifyAgainstBaseline(scout, baseline);
+
+        classification.ShouldBe(ScoutClassification.Obstruction);
+        ratio.ShouldBe(0f, tolerance: 0.001f);
+    }
+
+    [Fact(Timeout = 60_000)]
+    public async Task GivenFailedScoutExposureWhenClassifyThenSkippedNotObstruction()
+    {
+        // Inverse of the above: when the scout exposure didn't actually run (default
+        // FrameMetrics with Exposure = 0), the classifier should treat it as inconclusive
+        // — NOT as 0 stars / obstruction. Otherwise a single transient driver fault would
+        // skip a healthy target.
+        var ct = TestContext.Current.CancellationToken;
+        using var ctx = await CreateScoutSessionAsync(SessionTestHelper.DefaultScheduledObservations, cancellationToken: ct);
+
+        var scout = new[] { default(FrameMetrics) }; // exposure never ran
+        var baseline = new[]
+        {
+            new FrameMetrics(StarCount: 100, MedianHfd: 2.5f, MedianFwhm: 3.0f,
+                Exposure: TimeSpan.FromSeconds(2), Gain: 0),
+        };
+
+        var (classification, _) = ctx.Session.ClassifyAgainstBaseline(scout, baseline);
+
+        classification.ShouldBe(ScoutClassification.Healthy); // inconclusive → benefit of the doubt
+    }
+
+    [Fact(Timeout = 60_000)]
+    public async Task GivenScoutThrowsWhenRunObstructionScoutThenProceeds()
+    {
+        // Defence-in-depth: if ScoutAndProbeAsync itself throws (driver fault that all
+        // retries failed, ephemeris transform unavailable, anything unexpected),
+        // RunObstructionScoutAsync must default to Proceed — not bubble the exception
+        // up to Session.RunAsync's outer catch and end the night.
+        // Simulate by disconnecting the camera before running the scout: GetCameraStateAsync
+        // throws on a disconnected fake camera, ResilientCall's NonIdempotent retry budget
+        // is 1, and the retry inside TakeScoutFrameAsync also exhausts its single retry.
+        var ct = TestContext.Current.CancellationToken;
+        var observations = new[] { Obs(3.79, 24.1, "M45 prev"), Obs(3.79, 24.1, "M45 next") };
+        using var ctx = await CreateScoutSessionAsync(observations, cancellationToken: ct);
+
+        ctx.Session.SetBaselineForObservationForTest(0,
+        [
+            new FrameMetrics(StarCount: 50, MedianHfd: 2.5f, MedianFwhm: 3.0f,
+                Exposure: TimeSpan.FromSeconds(2), Gain: 0),
+        ]);
+        ctx.Session.AdvanceObservationForTest();
+        ctx.Session.AdvanceObservationForTest();
+
+        // Disconnect the camera so subsequent driver calls throw
+        await ctx.Camera.DisconnectAsync(ct);
+
+        await RunScoutWithTimePumpAsync(ctx, async ct2 =>
+        {
+            var outcome = await ctx.Session.RunObstructionScoutAsync(ctx.Session.ActiveObservation!, ct2);
+            outcome.ShouldBe(ScoutOutcome.Proceed); // session lives; imaging loop will catch real issues
+        }, ct);
+    }
+
     [Fact(Timeout = 30_000)]
     public async Task GivenRisingTargetWhenEstimateObstructionClearTimeThenReturnsPositive()
     {
