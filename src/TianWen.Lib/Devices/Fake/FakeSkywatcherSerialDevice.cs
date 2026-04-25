@@ -121,13 +121,18 @@ internal class FakeSkywatcherSerialDevice : ISerialConnection
             {
                 if (_decGotoMode)
                 {
-                    // Goto: move toward target, stop when reached
+                    // Goto: move toward target, stop when reached.
+                    // On arrival we both stop the axis and clear _decGotoMode — leaving
+                    // the goto flag set after the slew completes makes the next status
+                    // query report Dec as "not tracking" (same convention as RA), and
+                    // matches the post-arrival state the RA branch maintains.
                     var slewRate = (double)DEFAULT_CPR / 360.0 * 3.0;
                     var delta = _targetDecSteps - _posDec;
                     if (Math.Abs(delta) < slewRate * elapsedSeconds)
                     {
                         _posDec = _targetDecSteps;
                         _decRunning = false;
+                        _decGotoMode = false;
                     }
                     else
                     {

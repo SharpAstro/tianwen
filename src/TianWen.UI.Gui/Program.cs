@@ -232,12 +232,21 @@ var loop = new SdlEventLoop(sdlWindow, renderer)
     {
         // Recompute targets when site/date changes (shared logic in AppSignalHandler)
         signalHandler.CheckRecompute();
-        // Sample camera cooler/temperature telemetry while the equipment tab is visible.
-        // Internally rate-limited per-camera so calling every frame is cheap.
-        signalHandler.PollCameraTelemetry();
-        // Sample preview telemetry (camera/focuser/mount) while live session tab is visible
-        // and no session is running. Internally rate-limited.
-        signalHandler.PollPreviewTelemetry();
+        // Skip telemetry / preview polls during shutdown: they're pointless while we're
+        // disconnecting, and they spawn short-lived tracker tasks that race with the
+        // long-running warm/disconnect task. The shutdown banner shows the first pending
+        // task when only one is active, falling back to "(N tasks)" otherwise — without
+        // this gate the count flips 1 <-> 2 every 2s and the banner flickers between
+        // "Shutting down... Disconnecting <camera>" and "Shutting down... (2 tasks)".
+        if (!appState.ShuttingDown)
+        {
+            // Sample camera cooler/temperature telemetry while the equipment tab is visible.
+            // Internally rate-limited per-camera so calling every frame is cheap.
+            signalHandler.PollCameraTelemetry();
+            // Sample preview telemetry (camera/focuser/mount) while live session tab is visible
+            // and no session is running. Internally rate-limited.
+            signalHandler.PollPreviewTelemetry();
+        }
 
         // During shutdown, show progress and signal ready to stop
         if (appState.ShuttingDown)
@@ -256,11 +265,12 @@ var loop = new SdlEventLoop(sdlWindow, renderer)
             return true; // always redraw during shutdown
         }
 
-        // Redraw periodically on the Live Session / Guider tabs so the clock ticks.
-        // 500ms while a session is running (progress bars, phase status); 1s in preview
-        // mode (clock only) — otherwise the only periodic redraw trigger is the 2s
-        // preview-telemetry poll, which shows up as a visible 2s tick on the clock.
-        if (appState.ActiveTab is GuiTab.LiveSession or GuiTab.Guider)
+        // Redraw periodically on the Live Session / Guider / Sky Map tabs so the
+        // clock and live time-dependent overlays tick smoothly. 500ms while a session
+        // is running (progress bars, phase status); 1s in preview / sky-map mode
+        // (clock + sky-map LST advance) — otherwise the only periodic redraw trigger
+        // is the 2s preview-telemetry poll, which shows up as a visible 2s tick.
+        if (appState.ActiveTab is GuiTab.LiveSession or GuiTab.Guider or GuiTab.SkyMap)
         {
             var now = timeProvider.GetTimestamp();
             var interval = guiRenderer.LiveSessionState.IsRunning

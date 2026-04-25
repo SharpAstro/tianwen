@@ -189,5 +189,50 @@ namespace TianWen.UI.Abstractions
 
             return (SlewPostCondition.Slewing, $"Slewing to {name}{rateNote}{parkedNote}{noParkSupportNote}");
         }
+
+        /// <summary>
+        /// Polls <see cref="IMountDriver.IsSlewingAsync"/> until it returns false (slew complete),
+        /// the timeout expires, or the token is cancelled. Returns a user-facing status string
+        /// suitable for an <c>Info</c>-severity notification ("Reached M31") or a <c>Warning</c>
+        /// for the timeout / fault paths. The caller is responsible for posting the notification.
+        /// </summary>
+        public enum SlewCompletion { Reached, TimedOut, PollFailed }
+
+        public static async Task<(SlewCompletion Result, string StatusMessage)> AwaitSlewCompletionAsync(
+            IMountDriver mount,
+            string name,
+            ITimeProvider timeProvider,
+            TimeSpan? timeout = null,
+            TimeSpan? pollInterval = null,
+            ILogger? logger = null,
+            CancellationToken cancellationToken = default)
+        {
+            var deadline = timeProvider.GetUtcNow() + (timeout ?? TimeSpan.FromMinutes(5));
+            var interval = pollInterval ?? TimeSpan.FromMilliseconds(500);
+
+            while (timeProvider.GetUtcNow() < deadline)
+            {
+                await timeProvider.SleepAsync(interval, cancellationToken);
+                try
+                {
+                    if (!await mount.IsSlewingAsync(cancellationToken))
+                    {
+                        return (SlewCompletion.Reached, $"Reached {name}");
+                    }
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    logger?.LogWarning(ex, "Slew completion poll failed for {Target}", name);
+                    return (SlewCompletion.PollFailed,
+                        $"Slew status check failed for {name}: {ex.Message}");
+                }
+            }
+            return (SlewCompletion.TimedOut,
+                $"Slew to {name} did not complete within {(timeout ?? TimeSpan.FromMinutes(5)).TotalMinutes:F0} min");
+        }
     }
 }

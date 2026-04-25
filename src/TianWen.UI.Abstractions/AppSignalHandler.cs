@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Globalization;
@@ -116,15 +117,23 @@ namespace TianWen.UI.Abstractions
         }
 
         // Per-camera last-poll timestamps, keyed by URI path (host+path, no query).
+        // UI-thread-only; never touched from tracker continuations.
         private readonly Dictionary<string, long> _telemetryLastSampleTicks = new();
         // In-flight poll task per camera path, prevents overlapping samples.
-        private readonly HashSet<string> _telemetryInFlight = new();
+        // Touched from both the UI thread (Add) and tracker continuations (Remove),
+        // so it MUST be a concurrent collection — a plain HashSet/Dictionary will
+        // crash with IndexOutOfRangeException on a bucket-array race.
+        private readonly ConcurrentDictionary<string, byte> _telemetryInFlight = new();
 
-        // Preview-mode poll state (mirrors _telemetryLastSampleTicks pattern)
+        // Preview-mode poll state (mirrors _telemetryLastSampleTicks pattern;
+        // also UI-thread-only — never touched from tracker continuations).
         private readonly Dictionary<string, long> _previewTelemetryLastTicks = new();
-        private readonly HashSet<string> _previewTelemetryInFlight = new();
+        private readonly ConcurrentDictionary<string, byte> _previewTelemetryInFlight = new();
         private long _previewMountLastTicks;
-        private bool _previewMountInFlight;
+        // 0 = idle, 1 = poll in flight. Uses Interlocked because the UI thread checks
+        // and sets it before kicking off the tracker task, and the tracker continuation
+        // clears it on completion — same UI/background split as the telemetry sets.
+        private int _previewMountInFlight;
         private bool _loggedFirstPreviewMountSample;
 
 
@@ -149,7 +158,7 @@ namespace TianWen.UI.Abstractions
                 if (driver is not TianWen.Lib.Devices.ICameraDriver) continue;
                 var key = uri.GetLeftPart(UriPartial.Path);
 
-                if (_telemetryInFlight.Contains(key)) continue;
+                if (_telemetryInFlight.ContainsKey(key)) continue;
                 if (_telemetryLastSampleTicks.TryGetValue(key, out var lastTicks)
                     && _timeProvider.GetElapsedTime(lastTicks, nowTicks) < sampleInterval)
                 {
@@ -157,7 +166,7 @@ namespace TianWen.UI.Abstractions
                 }
 
                 _telemetryLastSampleTicks[key] = nowTicks;
-                _telemetryInFlight.Add(key);
+                _telemetryInFlight.TryAdd(key, 0);
                 var capturedUri = uri;
                 _tracker.Run(async () =>
                 {
@@ -181,7 +190,7 @@ namespace TianWen.UI.Abstractions
                     }
                     finally
                     {
-                        _telemetryInFlight.Remove(key);
+                        _telemetryInFlight.TryRemove(key, out _);
                     }
                 }, $"Telemetry {key}");
             }
@@ -250,11 +259,12 @@ namespace TianWen.UI.Abstractions
         {
             if (_liveSessionState.IsRunning) return;
 
-            // Preview polling drives the Live Session tab AND the Sky Map tab (for the
-            // mount-position reticle overlay). Any tab that displays live mount / focuser
-            // state should be added here rather than spinning up a parallel poll path —
-            // two concurrent polls on the same serial mount would race the port.
-            if (_appState.ActiveTab is not (GuiTab.LiveSession or GuiTab.SkyMap)) return;
+            // Preview polling drives the Live Session tab, the Sky Map tab (for the
+            // mount-position reticle overlay), and the Equipment tab (for the mount
+            // status expander). Any tab that displays live mount / focuser state should
+            // be added here rather than spinning up a parallel poll path — two concurrent
+            // polls on the same serial mount would race the port.
+            if (_appState.ActiveTab is not (GuiTab.LiveSession or GuiTab.SkyMap or GuiTab.Equipment)) return;
             if (_appState.ActiveProfile?.Data is not { OTAs: { Length: > 0 } otas } profileData) return;
             if (_appState.DeviceHub is not { } hub) return;
 
@@ -273,7 +283,7 @@ namespace TianWen.UI.Abstractions
                 var ota = otas[i];
                 var key = ota.Camera.GetLeftPart(UriPartial.Path);
 
-                if (_previewTelemetryInFlight.Contains(key)) continue;
+                if (_previewTelemetryInFlight.ContainsKey(key)) continue;
 
                 var prevTelemetry = i < _liveSessionState.PreviewOTATelemetry.Length
                     ? _liveSessionState.PreviewOTATelemetry[i]
@@ -288,7 +298,7 @@ namespace TianWen.UI.Abstractions
                 }
 
                 _previewTelemetryLastTicks[key] = nowTicks;
-                _previewTelemetryInFlight.Add(key);
+                _previewTelemetryInFlight.TryAdd(key, 0);
 
                 var capturedOta = ota;
                 var capturedIndex = i;
@@ -313,7 +323,7 @@ namespace TianWen.UI.Abstractions
                     }
                     finally
                     {
-                        _previewTelemetryInFlight.Remove(key);
+                        _previewTelemetryInFlight.TryRemove(key, out _);
                     }
                 }, $"PreviewTelemetry OTA{capturedIndex}");
             }
@@ -330,12 +340,11 @@ namespace TianWen.UI.Abstractions
                     ? TimeSpan.FromSeconds(10)
                     : TimeSpan.FromSeconds(2);
 
-            if (!_previewMountInFlight
-                && _timeProvider.GetElapsedTime(_previewMountLastTicks, nowTicks) >= mountInterval
-                && profileData.Mount is { Scheme: not "none" } mountUri)
+            if (_timeProvider.GetElapsedTime(_previewMountLastTicks, nowTicks) >= mountInterval
+                && profileData.Mount is { Scheme: not "none" } mountUri
+                && Interlocked.CompareExchange(ref _previewMountInFlight, 1, 0) == 0)
             {
                 _previewMountLastTicks = nowTicks;
-                _previewMountInFlight = true;
 
                 _tracker.Run(async () =>
                 {
@@ -364,7 +373,7 @@ namespace TianWen.UI.Abstractions
                     }
                     finally
                     {
-                        _previewMountInFlight = false;
+                        Interlocked.Exchange(ref _previewMountInFlight, 0);
                     }
                 }, "PreviewMount");
             }
@@ -847,6 +856,28 @@ namespace TianWen.UI.Abstractions
                             ? NotificationSeverity.Info
                             : NotificationSeverity.Warning;
                         appState.AppendNotification(_timeProvider.GetUtcNow(), severity, msg);
+                        skyMapState.NeedsRedraw = true;
+                        appState.NeedsRedraw = true;
+
+                        // Follow up with a "Reached <name>" / "Slew timed out" notification when
+                        // the mount actually stops slewing, so the status bar isn't permanently
+                        // stuck on the kick-off "Slewing to ..." message.
+                        if (post == SlewPostCondition.Slewing)
+                        {
+                            var (completion, completionMsg) = await MountActions.AwaitSlewCompletionAsync(
+                                capturedMount, capturedSig.Name, _timeProvider,
+                                logger: logger, cancellationToken: cts.Token);
+                            var completionSeverity = completion == MountActions.SlewCompletion.Reached
+                                ? NotificationSeverity.Info
+                                : NotificationSeverity.Warning;
+                            appState.AppendNotification(_timeProvider.GetUtcNow(), completionSeverity, completionMsg);
+                        }
+                    }
+                    catch (OperationCanceledException oce)
+                    {
+                        // Shutdown / explicit cancel — no notification needed, but log so a
+                        // mid-slew abort is still traceable in the file logger.
+                        logger.LogDebug(oce, "Slew to {Name} cancelled", capturedSig.Name);
                     }
                     catch (Exception ex)
                     {
@@ -881,6 +912,18 @@ namespace TianWen.UI.Abstractions
                     sig.ScreenX, sig.ScreenY,
                     skyMapState.CurrentViewMatrix, ppr, cx, cy);
 
+                skyMapState.NeedsRedraw = true;
+                appState.NeedsRedraw = true;
+            });
+
+            bus.Subscribe<SkyMapShowFixedPointInfoSignal>(sig =>
+            {
+                var viewingUtc = plannerState.PlanningDate?.ToUniversalTime() ?? _timeProvider.GetUtcNow();
+                var site = SiteContext.Create(plannerState.SiteLatitude, plannerState.SiteLongitude, viewingUtc);
+                skySearch.InfoPanel = SkyMapInfoPanelData.FromPosition(
+                    sig.Name, sig.RaHours, sig.DecDeg,
+                    plannerState.SiteLatitude, plannerState.SiteLongitude,
+                    viewingUtc, site);
                 skyMapState.NeedsRedraw = true;
                 appState.NeedsRedraw = true;
             });
@@ -1235,6 +1278,22 @@ namespace TianWen.UI.Abstractions
                 }
             });
 
+            bus.Subscribe<ConnectAllDevicesSignal>(_ =>
+            {
+                if (appState.ActiveProfile?.Data is not { } pdata) return;
+                if (appState.DeviceHub is not { } hub) return;
+
+                // Fan out to per-device ConnectDeviceSignal so each connect goes through
+                // the same in-flight gate, notification, and safety paths as a manual
+                // click. Skip URIs that the hub already considers connected — connecting
+                // an already-connected URI just churns PendingTransitions without effect.
+                foreach (var uri in pdata.AssignedDeviceUris)
+                {
+                    if (hub.IsConnected(uri)) continue;
+                    bus.Post(new ConnectDeviceSignal(uri));
+                }
+            });
+
             bus.Subscribe<ConnectDeviceSignal>(async sig =>
             {
                 if (appState.DeviceHub is not { } hub)
@@ -1244,7 +1303,7 @@ namespace TianWen.UI.Abstractions
                     return;
                 }
 
-                if (!eqState.PendingTransitions.Add(sig.DeviceUri))
+                if (!eqState.PendingTransitions.TryAdd(sig.DeviceUri, 0))
                 {
                     return; // transition already in flight
                 }
@@ -1325,7 +1384,7 @@ namespace TianWen.UI.Abstractions
                 }
                 finally
                 {
-                    eqState.PendingTransitions.Remove(sig.DeviceUri);
+                    eqState.PendingTransitions.TryRemove(sig.DeviceUri, out _);
                     appState.NeedsRedraw = true;
                 }
             });
@@ -1350,7 +1409,7 @@ namespace TianWen.UI.Abstractions
                     return;
                 }
 
-                if (!eqState.PendingTransitions.Add(sig.DeviceUri))
+                if (!eqState.PendingTransitions.TryAdd(sig.DeviceUri, 0))
                 {
                     return;
                 }
@@ -1370,7 +1429,7 @@ namespace TianWen.UI.Abstractions
                 }
                 finally
                 {
-                    eqState.PendingTransitions.Remove(sig.DeviceUri);
+                    eqState.PendingTransitions.TryRemove(sig.DeviceUri, out _);
                     appState.NeedsRedraw = true;
                 }
             });
@@ -1385,7 +1444,7 @@ namespace TianWen.UI.Abstractions
                 // Bypass the safety pre-check. Caller already passed two-stage confirmation.
                 eqState.PendingDisconnectConfirm = null;
                 eqState.PendingForceConfirm = null;
-                if (!eqState.PendingTransitions.Add(sig.DeviceUri))
+                if (!eqState.PendingTransitions.TryAdd(sig.DeviceUri, 0))
                 {
                     return;
                 }
@@ -1406,7 +1465,7 @@ namespace TianWen.UI.Abstractions
                 }
                 finally
                 {
-                    eqState.PendingTransitions.Remove(sig.DeviceUri);
+                    eqState.PendingTransitions.TryRemove(sig.DeviceUri, out _);
                     appState.NeedsRedraw = true;
                 }
             });
@@ -1420,7 +1479,7 @@ namespace TianWen.UI.Abstractions
 
                 eqState.PendingDisconnectConfirm = null;
                 eqState.PendingForceConfirm = null;
-                if (!eqState.PendingTransitions.Add(sig.DeviceUri))
+                if (!eqState.PendingTransitions.TryAdd(sig.DeviceUri, 0))
                 {
                     return;
                 }
@@ -1445,7 +1504,7 @@ namespace TianWen.UI.Abstractions
                 }
                 finally
                 {
-                    eqState.PendingTransitions.Remove(sig.DeviceUri);
+                    eqState.PendingTransitions.TryRemove(sig.DeviceUri, out _);
                     appState.NeedsRedraw = true;
                 }
             });

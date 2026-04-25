@@ -235,8 +235,29 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
         await SendCommandAsync('K', '1', null, cancellationToken);
         await SendCommandAsync('K', '2', null, cancellationToken);
 
+        // Refresh cached encoder positions from the mount before computing the delta.
+        // Without this, _posRa / _posDec may be stale (only updated on Get*Async reads),
+        // and a stale value that happens to match the target produces delta=0 in
+        // SlewAxisToAsync, which silently no-ops the slew — exactly the "sometimes
+        // doesn't react" symptom.
+        var raResp = await SendAndReceiveAsync('j', '1', null, cancellationToken);
+        if (SkywatcherProtocol.TryParseResponse(raResp, out var raData) && raData.Length >= 6)
+        {
+            _posRa = SkywatcherProtocol.DecodePosition(raData.AsSpan(0, 6));
+        }
+        var decResp = await SendAndReceiveAsync('j', '2', null, cancellationToken);
+        if (SkywatcherProtocol.TryParseResponse(decResp, out var decData) && decData.Length >= 6)
+        {
+            _posDec = SkywatcherProtocol.DecodePosition(decData.AsSpan(0, 6));
+        }
+
         var targetRaSteps = RaToSteps(ra);
         var targetDecSteps = DecToSteps(dec);
+
+        Logger.LogInformation(
+            "BeginSlewRaDec: target RA={RaH:F4}h Dec={Dec:F4} | RA steps {CurRa}->{TgtRa} (delta {DRa}) | Dec steps {CurDec}->{TgtDec} (delta {DDec})",
+            ra, dec, _posRa, targetRaSteps, targetRaSteps - _posRa,
+            _posDec, targetDecSteps, targetDecSteps - _posDec);
 
         // Slew RA axis
         await SlewAxisToAsync('1', _posRa, targetRaSteps, cancellationToken);
@@ -249,6 +270,7 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
         var delta = targetSteps - currentSteps;
         if (delta == 0)
         {
+            Logger.LogInformation("SlewAxis {Axis}: delta=0, skipping (current already matches target)", axis);
             return;
         }
 
@@ -455,19 +477,40 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
     public ValueTask<double> GetSiteLatitudeAsync(CancellationToken cancellationToken)
         => ValueTask.FromResult(_siteLatitude);
 
-    public ValueTask SetSiteLatitudeAsync(double latitude, CancellationToken cancellationToken)
+    public async ValueTask SetSiteLatitudeAsync(double latitude, CancellationToken cancellationToken)
     {
         _siteLatitude = latitude;
-        return ValueTask.CompletedTask;
+        await MaybeSyncToPoleAfterSiteSetAsync(cancellationToken);
     }
 
     public ValueTask<double> GetSiteLongitudeAsync(CancellationToken cancellationToken)
         => ValueTask.FromResult(_siteLongitude);
 
-    public ValueTask SetSiteLongitudeAsync(double longitude, CancellationToken cancellationToken)
+    public async ValueTask SetSiteLongitudeAsync(double longitude, CancellationToken cancellationToken)
     {
         _siteLongitude = longitude;
-        return ValueTask.CompletedTask;
+        await MaybeSyncToPoleAfterSiteSetAsync(cancellationToken);
+    }
+
+    /// <summary>
+    /// If the encoder is still at raw home (0,0) — i.e. the user just connected and the
+    /// mount has not been moved — push a sync to (LST, ±90°) so the driver reports a
+    /// sensible "parked at the pole" position. The original DoConnectDeviceAsync init
+    /// also runs this block, but at that stage <c>_siteLatitude</c> is still NaN
+    /// (profile-driven reconcile pushes lat/lon AFTER connect), so the sync gets skipped
+    /// and the mount is reported as Dec=+90 / HA=6h regardless of hemisphere.
+    /// Triggering it here picks up the moment when site coords actually land.
+    /// </summary>
+    private async ValueTask MaybeSyncToPoleAfterSiteSetAsync(CancellationToken cancellationToken)
+    {
+        if (!Connected) return;
+        if (_cprRa == 0 || _cprDec == 0) return;
+        if (double.IsNaN(_siteLatitude) || double.IsNaN(_siteLongitude)) return;
+        if (_posRa != 0 || _posDec != 0) return;
+
+        var poleDec = _siteLatitude >= 0 ? 90.0 : -90.0;
+        var lst = await GetSiderealTimeAsync(cancellationToken);
+        await SyncRaDecAsync(lst, poleDec, cancellationToken);
     }
 
     public ValueTask<double> GetSiteElevationAsync(CancellationToken cancellationToken)

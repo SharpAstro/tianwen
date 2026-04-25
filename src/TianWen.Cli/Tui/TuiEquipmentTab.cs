@@ -392,7 +392,7 @@ internal sealed class TuiEquipmentTab(
     {
         var uri = slot.IsAssigned ? EquipmentActions.GetAssignedDevice(data, slot.Slot) : null;
         var connected = uri is not null && appState.DeviceHub?.IsConnected(uri) == true;
-        var pending = uri is not null && eqState.PendingTransitions.Contains(uri);
+        var pending = uri is not null && eqState.PendingTransitions.ContainsKey(uri);
 
         var item = new EquipmentFieldItem
         {

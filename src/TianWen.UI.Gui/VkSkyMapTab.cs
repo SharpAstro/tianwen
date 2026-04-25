@@ -640,8 +640,12 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
     }
 
     /// <summary>
-    /// Projects a unit vector, draws a small reticle + label, and registers a clickable
-    /// hit region that posts a <see cref="SkyMapSlewToObjectSignal"/> on click.
+    /// Projects a unit vector, draws a small reticle + label, and registers a
+    /// clickable hit region that posts a <see cref="SkyMapShowFixedPointInfoSignal"/>.
+    /// The signal opens the standard sky-map info panel (with its Goto button) for
+    /// the marker's coordinates — clicking the marker itself never slews. This
+    /// mirrors the catalog click-select behaviour: clicks select, the Goto button
+    /// is the only path to a slew.
     /// </summary>
     private void DrawFixedMarker(
         RectF32 contentRect, float dpiScale, string fontPath, float fontSize, float lineH,
@@ -670,17 +674,17 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
 
         DrawReticleLabel(label, fontPath, fontSize, color, sx, sy + 14f * dpiScale, lineH);
 
-        // 36x36 clickable box centered on the reticle; post the slew signal directly
-        // so the click bypasses the catalog-search info panel path.
+        // 36x36 clickable box centered on the reticle. Open the info panel rather than
+        // slewing directly — same UX rule as the rest of the map (click selects, Goto
+        // button slews).
         var hitSize = 36f * dpiScale;
         var capturedName = slewName;
         var capturedRA = slewRA;
         var capturedDec = slewDec;
         RegisterClickable(sx - hitSize * 0.5f, sy - hitSize * 0.5f, hitSize, hitSize,
             new HitResult.ButtonHit($"SkyMapFixedMarker:{hitTag}"),
-            _ => PostSignal(new SkyMapSlewToObjectSignal(
-                capturedName, capturedRA, capturedDec,
-                Index: null, ObjectType: ObjectType.Unknown)));
+            _ => PostSignal(new SkyMapShowFixedPointInfoSignal(
+                capturedName, capturedRA, capturedDec)));
     }
 
     /// <summary>

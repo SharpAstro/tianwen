@@ -1,5 +1,6 @@
 using System;
 using DIR.Lib;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Sequencing;
@@ -29,8 +30,14 @@ public class EquipmentTabState
     /// Device URIs whose connect/disconnect transition is currently in flight.
     /// Both segments of the On|Off button are disabled while a URI is in this set
     /// to prevent rapid double-clicks issuing competing transitions.
+    /// <para>
+    /// <b>Thread safety:</b> mutated from async signal handlers whose continuations
+    /// run on thread pool threads after <c>await</c>, and read from the render thread
+    /// during hit testing. Must be a concurrent collection — a <c>HashSet</c> would
+    /// crash with <c>IndexOutOfRangeException</c> on a bucket-array race.
+    /// </para>
     /// </summary>
-    public HashSet<Uri> PendingTransitions { get; } = new();
+    public ConcurrentDictionary<Uri, byte> PendingTransitions { get; } = new();
 
     /// <summary>
     /// First-stage disconnect confirmation: when set, the row for this URI shows
@@ -55,8 +62,13 @@ public class EquipmentTabState
     /// Populated by <c>AppSignalHandler.PollCameraTelemetry</c> on the equipment tab's
     /// per-frame tick while the camera is hub-connected. Drives the per-camera cooler
     /// graph + readout in the expanded camera control panel.
+    /// <para>
+    /// <b>Thread safety:</b> the dictionary is mutated by per-camera tracker continuations
+    /// (one per URI) and read by the render thread, so must be a concurrent collection.
+    /// The <see cref="CameraTelemetryBuffer"/> values are themselves internally locked.
+    /// </para>
     /// </summary>
-    public Dictionary<string, CameraTelemetryBuffer> CameraTelemetry { get; } = new();
+    public ConcurrentDictionary<string, CameraTelemetryBuffer> CameraTelemetry { get; } = new();
 
     /// <summary>Per-camera setpoint input shared across cameras (camera URI path → text input state).</summary>
     public Dictionary<string, TextInputState> CameraSetpointInputs { get; } = new();

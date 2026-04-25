@@ -20,6 +20,15 @@ public readonly record struct AssignDeviceSignal(int DeviceIndex);
 /// <summary>Connect a device via the device hub (out-of-session).</summary>
 public readonly record struct ConnectDeviceSignal(System.Uri DeviceUri);
 
+/// <summary>
+/// Connect every assigned device in the active profile that is currently
+/// resolvable by the device hub or appears in the discovery cache. The handler
+/// fans out to per-URI <see cref="ConnectDeviceSignal"/> dispatch — bulk action
+/// composed from the existing single-device flow rather than a parallel one,
+/// so PendingTransitions / notifications stay consistent.
+/// </summary>
+public readonly record struct ConnectAllDevicesSignal;
+
 /// <summary>Disconnect a device via the device hub (out-of-session).
 /// The handler safety-checks first; for an unsafe device it sets a confirmation
 /// state instead of disconnecting immediately.</summary>
@@ -166,3 +175,16 @@ public readonly record struct SkyMapSlewToObjectSignal(
     double Dec,
     TianWen.Lib.Astrometry.Catalogs.CatalogIndex? Index,
     TianWen.Lib.Astrometry.Catalogs.ObjectType ObjectType);
+
+/// <summary>
+/// Open the sky-map info panel for a non-catalog fixed point (NCP / SCP / Zenith).
+/// Handler builds <see cref="SkyMapInfoPanelData"/> via
+/// <see cref="SkyMapInfoPanelData.FromPosition"/> and assigns it to
+/// <c>SkyMapSearchState.InfoPanel</c> so the standard panel renders with a Goto
+/// button. Slewing always goes through that button — clicking the marker on the
+/// map only opens the panel, never slews directly.
+/// </summary>
+public readonly record struct SkyMapShowFixedPointInfoSignal(
+    string Name,
+    double RaHours,
+    double DecDeg);

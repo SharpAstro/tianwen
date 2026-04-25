@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
+using System.Linq;
 using System.Threading.Tasks;
 using DIR.Lib;
 using TianWen.Lib.Devices;
@@ -194,7 +195,8 @@ namespace TianWen.UI.Abstractions
             RectF32 contentRect,
             float dpiScale,
             string fontPath,
-            string? emojiFontPath = null)
+            string? emojiFontPath = null,
+            LiveSessionState? liveSessionState = null)
         {
             // Clear clickable regions from previous frame
             BeginFrame();
@@ -214,7 +216,7 @@ namespace TianWen.UI.Abstractions
                 return;
             }
 
-            RenderProfileView(appState, contentRect, dpiScale, fontPath, emojiFontPath);
+            RenderProfileView(appState, contentRect, dpiScale, fontPath, emojiFontPath, liveSessionState);
 
             // Dropdown overlay — rendered absolutely last so it paints on top of everything
             var fontSize = BaseFontSize * dpiScale;
@@ -315,7 +317,8 @@ namespace TianWen.UI.Abstractions
             GuiAppState appState,
             RectF32 contentRect,
             float dpiScale, string fontPath,
-            string? emojiFontPath = null)
+            string? emojiFontPath = null,
+            LiveSessionState? liveSessionState = null)
         {
             var profilePanelW = BaseProfilePanelWidth * dpiScale;
             var bottomBarH    = BaseBottomBarHeight * dpiScale;
@@ -327,7 +330,7 @@ namespace TianWen.UI.Abstractions
 
             // Left: profile panel
             FillRect(profileRect.X, profileRect.Y, profileRect.Width, profileRect.Height, ProfilePanelBg);
-            RenderProfilePanel(appState, profileRect, dpiScale, fontPath, emojiFontPath);
+            RenderProfilePanel(appState, profileRect, dpiScale, fontPath, emojiFontPath, liveSessionState);
 
             // Vertical separator
             FillRect(deviceListRect.X, deviceListRect.Y, 1f, deviceListRect.Height, SeparatorColor);
@@ -349,7 +352,8 @@ namespace TianWen.UI.Abstractions
             GuiAppState appState,
             RectF32 rect,
             float dpiScale, string fontPath,
-            string? emojiFontPath = null)
+            string? emojiFontPath = null,
+            LiveSessionState? liveSessionState = null)
         {
             var fontSize   = BaseFontSize * dpiScale;
             var padding    = BasePadding * dpiScale;
@@ -386,6 +390,10 @@ namespace TianWen.UI.Abstractions
                 cursor = RenderProfileSlot(
                     "Mount", pd.Mount, new AssignTarget.ProfileLevel("Mount"),
                     x, cursor, w, itemH, dpiScale, fontPath, fontSize, padding, arrowW, appState, pd, emojiFontPath);
+
+                // Live mount status expander (RA/Dec/IsSlewing/IsTracking) — only when hub-connected.
+                cursor = RenderMountTelemetryIfAny(appState, pd.Mount, liveSessionState,
+                    x, cursor, w, itemH, dpiScale, fontPath, fontSize, padding);
 
                 // Site info — clickable to edit
                 var site = EquipmentActions.GetSiteFromProfile(pd);
@@ -597,13 +605,17 @@ namespace TianWen.UI.Abstractions
                     cursor += padding / 2f;
                 }
 
-                // [+ Add OTA] button — only if there is room
+                // [+ Add OTA] button (left) and [Connect All] (right) on a shared row.
+                // Connect All is hidden when the profile has no assigned devices, and
+                // greyed when any URI isn't yet discovered or a transition is pending.
                 var addOtaBtnY = cursor;
                 var addOtaBtnW = 120f * dpiScale;
                 if (addOtaBtnY + buttonH < y + h - padding)
                 {
                     RenderButton("+ Add OTA", x + padding, addOtaBtnY, addOtaBtnW, buttonH, fontPath, fontSize, CreateButton, BodyText, "AddOta",
                         _ => PostSignal(new AddOtaSignal()));
+
+                    RenderConnectAllButton(appState, pd, x, addOtaBtnY, w, buttonH, dpiScale, fontPath, fontSize, padding);
                 }
             }
             else
@@ -854,7 +866,7 @@ namespace TianWen.UI.Abstractions
                 var reach = EquipmentActions.GetReachability(data, appState.DeviceHub, devices, device.DeviceUri);
                 {
                     var connectUriForPending = EquipmentActions.FindAssignedUri(data, device.DeviceUri) ?? device.DeviceUri;
-                    var pending = State.PendingTransitions.Contains(connectUriForPending);
+                    var pending = State.PendingTransitions.ContainsKey(connectUriForPending);
 
                     // Status indicator (display only — answers "is hardware reachable right now?").
                     // Drawn as a filled square via FillRect so it renders regardless of font coverage.
@@ -1685,6 +1697,194 @@ namespace TianWen.UI.Abstractions
                     fontSize * 0.8f, DimText, TextAlign.Center, TextAlign.Center);
             }
             cursor += graphH + padding * 0.5f;
+
+            return cursor;
+        }
+
+        /// <summary>
+        /// Renders the bulk "Connect All" action on the right side of the row that hosts
+        /// the [+ Add OTA] button. No-ops when the profile has no assigned devices.
+        /// <para>
+        /// Enable rules:
+        /// <list type="bullet">
+        ///   <item>All assigned URIs must be either already hub-connected, hub-known, or
+        ///   present in <see cref="EquipmentTabState.DiscoveredDevices"/>.</item>
+        ///   <item>At least one assigned URI must not yet be connected (otherwise nothing to do).</item>
+        ///   <item>No transition may be in flight (avoid spawning a second connect on top of one).</item>
+        /// </list>
+        /// </para>
+        /// </summary>
+        private void RenderConnectAllButton(
+            GuiAppState appState, ProfileData pd,
+            float x, float btnY, float w, float buttonH,
+            float dpiScale, string fontPath, float fontSize, float padding)
+        {
+            var assigned = new List<Uri>();
+            foreach (var u in pd.AssignedDeviceUris) assigned.Add(u);
+            if (assigned.Count == 0) return;
+
+            var hub = appState.DeviceHub;
+            var allDiscoverable = true;
+            var anyNotConnected = false;
+            var anyPending = false;
+            foreach (var u in assigned)
+            {
+                var connected = hub?.IsConnected(u) == true;
+                if (!connected) anyNotConnected = true;
+                if (State.PendingTransitions.ContainsKey(u)) anyPending = true;
+
+                var resolvable = (hub is not null && hub.TryGetDeviceFromUri(u, out _))
+                    || connected
+                    || State.DiscoveredDevices.Any(d => DeviceBase.SameDevice(d.DeviceUri, u));
+                if (!resolvable) allDiscoverable = false;
+            }
+
+            var enabled = allDiscoverable && anyNotConnected && !anyPending;
+            string label;
+            if (!anyNotConnected) label = "All Connected";
+            else if (anyPending) label = "Connecting\u2026";
+            else if (!allDiscoverable) label = "Discover first";
+            else label = "Connect All";
+
+            var bg = enabled ? CreateButton : EditButtonBg;
+            // Width fitted to the label so a long "Discover first" doesn't push past the panel
+            // edge, but with a sensible minimum so a short "Connect All" stays a reasonable click target.
+            var measured = Renderer.MeasureText(label.AsSpan(), fontPath, fontSize).Width + padding * 4f;
+            var minBtnW = 110f * dpiScale;
+            var btnW = Math.Max(measured, minBtnW);
+            var btnX = x + w - padding - btnW;
+            FillRect(btnX, btnY, btnW, buttonH, bg);
+            DrawText(label.AsSpan(), fontPath,
+                btnX, btnY, btnW, buttonH,
+                fontSize * 0.95f, BodyText, TextAlign.Center, TextAlign.Center);
+            if (enabled)
+            {
+                RegisterClickable(btnX, btnY, btnW, buttonH,
+                    new HitResult.ButtonHit("ConnectAll"),
+                    _ => PostSignal(new ConnectAllDevicesSignal()));
+            }
+        }
+
+        /// <summary>
+        /// Renders the mount status panel (RA/Dec/Slewing/Tracking) for the given mount URI,
+        /// but only when the mount is currently hub-connected. Hidden otherwise.
+        /// State comes from <see cref="LiveSessionState.PreviewMountState"/>, which is populated
+        /// by <c>AppSignalHandler.PollPreviewTelemetry</c> while the equipment / sky-map / live-session
+        /// tabs are visible. The expander gives the user a visible answer to "is the mount tracking?"
+        /// without having to leave the equipment tab.
+        /// </summary>
+        private float RenderMountTelemetryIfAny(
+            GuiAppState appState,
+            Uri? mountUri,
+            LiveSessionState? liveSessionState,
+            float x, float cursor, float w, float itemH,
+            float dpiScale, string fontPath, float fontSize, float padding)
+        {
+            if (mountUri is null || mountUri == NoneDevice.Instance.DeviceUri) return cursor;
+            if (appState.DeviceHub is not { } hub || !hub.IsConnected(mountUri)) return cursor;
+            if (liveSessionState is null) return cursor;
+
+            var key = mountUri.GetLeftPart(UriPartial.Path);
+            var rowH = itemH * 0.9f;
+            var headerKey = $"MountStatus_{key}";
+            var paneKey = $"MountStatusPane:{key}";
+            var isOpen = State.ExpandedDeviceSettingsUri == paneKey;
+            var headerLabel = isOpen ? "    Mount Status [-]" : "    Mount Status [+]";
+
+            FillRect(x + padding, cursor, w - padding * 2f, rowH, FilterTableBg);
+            RegisterClickable(x + padding, cursor, w - padding * 2f, rowH, new HitResult.ButtonHit(headerKey),
+                _ => State.ExpandedDeviceSettingsUri = isOpen ? null : paneKey);
+            DrawText(headerLabel.AsSpan(), fontPath,
+                x + padding * 2f, cursor, w - padding * 4f, rowH,
+                fontSize * 0.85f, HeaderText, TextAlign.Near, TextAlign.Center);
+            cursor += rowH;
+
+            if (!isOpen) return cursor;
+
+            // Snapshot the mount state once — the field is published atomically via Interlocked.Exchange.
+            var ms = liveSessionState.PreviewMountState;
+
+            // ---- Status badge row: Slewing | Tracking | Idle, colour-coded.
+            var badgeRowH = rowH;
+            var rowX = x + padding;
+            var rowW = w - padding * 2f;
+            FillRect(rowX, cursor, rowW, badgeRowH, FilterRowAlt);
+
+            string statusLabel;
+            RGBAColor32 statusColor;
+            if (ms.IsSlewing)
+            {
+                statusLabel = "Slewing";
+                statusColor = new RGBAColor32(0xff, 0xc8, 0x66, 0xff); // amber
+            }
+            else if (ms.IsTracking)
+            {
+                statusLabel = "Tracking";
+                statusColor = new RGBAColor32(0x66, 0xdd, 0x66, 0xff); // green
+            }
+            else
+            {
+                statusLabel = "Idle";
+                statusColor = DimText;
+            }
+
+            var labelW = 80f * dpiScale;
+            DrawText("    Status:".AsSpan(), fontPath,
+                rowX, cursor, labelW, badgeRowH,
+                fontSize * 0.85f, DimText, TextAlign.Near, TextAlign.Center);
+            DrawText(statusLabel.AsSpan(), fontPath,
+                rowX + labelW, cursor, rowW - labelW, badgeRowH,
+                fontSize * 0.95f, statusColor, TextAlign.Near, TextAlign.Center);
+            cursor += badgeRowH;
+
+            // ---- Coordinate readout row: 3 cells (RA / Dec / HA) ----
+            var coordRowH = rowH;
+            FillRect(rowX, cursor, rowW, coordRowH, FilterTableBg);
+
+            string FormatRa(double hours)
+            {
+                if (double.IsNaN(hours)) return "—";
+                var h = (int)hours;
+                var mFloat = (hours - h) * 60.0;
+                var m = (int)mFloat;
+                var s = (mFloat - m) * 60.0;
+                return $"{h:00}h{m:00}m{s:00.0}s";
+            }
+            string FormatDec(double deg)
+            {
+                if (double.IsNaN(deg)) return "—";
+                var sign = deg < 0 ? "-" : "+";
+                deg = Math.Abs(deg);
+                var d = (int)deg;
+                var mFloat = (deg - d) * 60.0;
+                var m = (int)mFloat;
+                var s = (mFloat - m) * 60.0;
+                return $"{sign}{d:00}\u00b0{m:00}'{s:00.0}\"";
+            }
+            string FormatHa(double hours)
+            {
+                if (double.IsNaN(hours)) return "—";
+                var sign = hours < 0 ? "-" : "+";
+                hours = Math.Abs(hours);
+                var h = (int)hours;
+                var m = (int)((hours - h) * 60.0);
+                return $"{sign}{h:00}h{m:00}m";
+            }
+
+            var raStr = $"RA: {FormatRa(ms.RightAscension)}";
+            var decStr = $"Dec: {FormatDec(ms.Declination)}";
+            var haStr = $"HA: {FormatHa(ms.HourAngle)}";
+            var cellW = rowW / 3f;
+            var cellPad = padding;
+            var cellFs = fontSize * 0.85f;
+            var inner = cellW - cellPad;
+            var ra = TruncateToWidth(raStr, fontPath, cellFs, inner);
+            var dc = TruncateToWidth(decStr, fontPath, cellFs, inner);
+            var ha = TruncateToWidth(haStr, fontPath, cellFs, inner);
+            DrawText(ra.AsSpan(), fontPath, rowX + cellPad,                  cursor, inner, coordRowH, cellFs, BodyText, TextAlign.Near, TextAlign.Center);
+            DrawText(dc.AsSpan(), fontPath, rowX + cellW + cellPad,          cursor, inner, coordRowH, cellFs, BodyText, TextAlign.Near, TextAlign.Center);
+            DrawText(ha.AsSpan(), fontPath, rowX + cellW * 2f + cellPad,     cursor, inner, coordRowH, cellFs, BodyText, TextAlign.Near, TextAlign.Center);
+            cursor += coordRowH + padding * 0.5f;
 
             return cursor;
         }

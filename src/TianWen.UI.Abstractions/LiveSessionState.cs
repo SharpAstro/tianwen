@@ -117,8 +117,23 @@ namespace TianWen.UI.Abstractions
         /// </summary>
         public ImmutableArray<PreviewOTATelemetry> PreviewOTATelemetry { get; set; } = [];
 
-        /// <summary>Mount telemetry for preview mode (RA/Dec/tracking). Default when no mount connected.</summary>
-        public MountState PreviewMountState { get; set; }
+        /// <summary>Mount telemetry for preview mode (RA/Dec/tracking). Default when no mount connected.
+        /// <para>
+        /// <b>Thread safety:</b> <see cref="MountState"/> is a record struct of ~50 bytes; an
+        /// unsynchronised cross-thread write/read can tear (mix fields from two consecutive
+        /// values). The poll continuation runs on a thread pool thread; the render thread reads
+        /// per frame. We box the value in a small reference holder so the publish is a single
+        /// atomic reference write via <see cref="Interlocked.Exchange{T}(ref T, T)"/> — readers
+        /// see one consistent snapshot, no lock on the render hot path.
+        /// </para>
+        /// </summary>
+        private sealed record MountStateHolder(MountState Value);
+        private MountStateHolder _previewMountStateHolder = new(default);
+        public MountState PreviewMountState
+        {
+            get => Volatile.Read(ref _previewMountStateHolder).Value;
+            set => Interlocked.Exchange(ref _previewMountStateHolder, new MountStateHolder(value));
+        }
 
         /// <summary>Resolved mount display name for preview mode.</summary>
         public string? PreviewMountDisplayName { get; set; }

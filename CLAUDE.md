@@ -531,6 +531,53 @@ was modified; enumeration operation may not execute."` under real load — even 
 single `foreach` racing with one `Add()` on a different thread is enough.
 `Dictionary<K, V>` has the same hazard; treat it the same way where shared.
 
+### "Claim slot" + ring/buffer state in `AppSignalHandler`
+
+A separate hazard class from the shared-collection-on-UI-state one above:
+**state used to gate background tasks**. The pattern is "UI thread checks +
+sets a flag, kicks off `_tracker.Run(...)`, and the tracker continuation clears
+the flag". The clearing runs on a thread pool thread (no SynchronizationContext
+in the SDL/Vulkan event loop), so the gating state is mutated from two
+different threads even when the rest of the lambda looks single-threaded.
+
+This crashes with `IndexOutOfRangeException` inside `HashSet<T>.Add` /
+`Dictionary<K, V>` internals — exactly what happens to bucket arrays when
+`Add` and `Remove` race.
+
+**Patterns:**
+
+| Use case | Wrong | Right |
+|---|---|---|
+| Per-key in-flight set | `HashSet<TKey>` with `Add` / `Remove` | `ConcurrentDictionary<TKey, byte>` with `TryAdd(k, 0)` / `TryRemove(k, out _)` |
+| Per-key value buffers (telemetry, history, etc.) | `Dictionary<TKey, T>` | `ConcurrentDictionary<TKey, T>` (and the `T` itself must be thread-safe if it's mutated) |
+| Single-flag in-flight gate | `bool _busy` with `if (!_busy) { _busy = true; ...; _busy = false; }` | `int _busy` with `if (Interlocked.CompareExchange(ref _busy, 1, 0) == 0) { ...; Interlocked.Exchange(ref _busy, 0); }` |
+| Internally-mutable "ring buffer" / accumulator value | unguarded `_ring`/`_count`/`_head` | wrap mutating + reading methods in a single `lock (_gate)`; readers return a snapshot array, not a lazy `IEnumerable` (lazy enumeration exposes mid-update state) |
+| Large `record struct` published cross-thread | unguarded auto-property `set` | back the property with a private field + `lock` in the getter and setter (struct writes > pointer-size aren't atomic and can tear field-by-field) |
+
+**Async-signal-handler subtlety.** `bus.Subscribe<T>(async sig => { ... })`
+runs the **synchronous prefix** (everything up to the first `await`) on the
+bus-drain thread (UI), but every continuation after `await` runs on a thread
+pool thread. The "claim slot" pattern is therefore split across two threads
+even when the source code reads as one straight-line method:
+
+```csharp
+// runs on UI thread
+if (!eqState.PendingTransitions.TryAdd(uri, 0)) return;
+try { await hub.ConnectAsync(...); }   // <- continuation jumps to thread pool here
+finally { eqState.PendingTransitions.TryRemove(uri, out _); }   // thread pool
+```
+
+Anything else on `eqState` / `appState` / etc. that you touch in the `finally`
+or after an `await` follows the same rule.
+
+**Telemetry-poll-only state can stay non-concurrent** if it is genuinely only
+written from the per-frame poll method — e.g. last-tick `Dictionary<string, long>`s
+that the tracker continuation never touches. Mark those clearly in a comment so
+a future edit doesn't accidentally move the write into the continuation.
+
+Canonical example: see `AppSignalHandler.PollCameraTelemetry` (telemetry
+in-flight set + `_eqState.CameraTelemetry`) and `EquipmentTabState.PendingTransitions`.
+
 ### Code Quality Guidelines
 
 - **Reduced allocations**: prefer `MemoryMarshal`, `stackalloc`, `ArrayPool<T>`, and `Span<T>` over allocating new arrays. Use `ReadOnlySpan<T>` for read-only views.

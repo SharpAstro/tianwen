@@ -1,5 +1,5 @@
 using System;
-using System.Collections.Generic;
+using System.Collections.Immutable;
 
 namespace TianWen.UI.Abstractions;
 
@@ -18,42 +18,49 @@ public readonly record struct CameraTelemetrySample(
 
 /// <summary>
 /// Fixed-capacity ring buffer of recent <see cref="CameraTelemetrySample"/>s for
-/// one camera URI. The newest sample is always at index <see cref="Count"/>-1
-/// in chronological order.
+/// one camera URI. The newest sample is always last in <see cref="InOrder"/>.
+/// <para>
+/// <b>Thread safety:</b> backed by an <see cref="ImmutableArray{T}"/> with lock-free
+/// CAS-loop updates via <see cref="ImmutableInterlocked.Update{T}(ref ImmutableArray{T}, Func{ImmutableArray{T}, ImmutableArray{T}})"/>.
+/// Readers (render thread, every frame) snapshot <c>_samples</c> in a single
+/// reference read; concurrent writes never tear the snapshot. Multiple concurrent
+/// writers are also safe — the CAS retries on conflict.
+/// </para>
 /// </summary>
 public sealed class CameraTelemetryBuffer
 {
-    private readonly CameraTelemetrySample[] _ring;
-    private int _head; // index where the next sample will be written
-    private int _count;
+    private readonly int _capacity;
+    private ImmutableArray<CameraTelemetrySample> _samples = [];
 
     public CameraTelemetryBuffer(int capacity = 240) // ~8 minutes at 2s sampling
     {
         if (capacity < 1) throw new ArgumentOutOfRangeException(nameof(capacity));
-        _ring = new CameraTelemetrySample[capacity];
+        _capacity = capacity;
     }
 
-    public int Capacity => _ring.Length;
-    public int Count => _count;
+    public int Capacity => _capacity;
+    public int Count => _samples.Length;
 
     public void Add(CameraTelemetrySample sample)
     {
-        _ring[_head] = sample;
-        _head = (_head + 1) % _ring.Length;
-        if (_count < _ring.Length) _count++;
+        ImmutableInterlocked.Update(
+            ref _samples,
+            static (current, args) =>
+                current.Length < args.cap
+                    ? current.Add(args.sample)
+                    : current.RemoveAt(0).Add(args.sample),
+            (cap: _capacity, sample));
     }
 
-    /// <summary>Reads the buffer in chronological order (oldest first, newest last).</summary>
-    public IEnumerable<CameraTelemetrySample> InOrder()
+    /// <summary>Returns the buffer in chronological order (oldest first, newest last).</summary>
+    public ImmutableArray<CameraTelemetrySample> InOrder() => _samples;
+
+    public CameraTelemetrySample? Latest
     {
-        if (_count == 0) yield break;
-        var start = (_head - _count + _ring.Length) % _ring.Length;
-        for (var i = 0; i < _count; i++)
+        get
         {
-            yield return _ring[(start + i) % _ring.Length];
+            var s = _samples;
+            return s.Length == 0 ? null : s[^1];
         }
     }
-
-    public CameraTelemetrySample? Latest =>
-        _count == 0 ? null : _ring[(_head - 1 + _ring.Length) % _ring.Length];
 }
