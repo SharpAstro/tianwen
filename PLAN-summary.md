@@ -1,6 +1,6 @@
 # Plan Implementation Summary
 
-Status of every `PLAN-*.md` in the repo root, cross-checked against the codebase on 2026-04-24.
+Status of every `PLAN-*.md` in the repo root, cross-checked against the codebase on 2026-04-25.
 
 | Plan | Status |
 |------|--------|
@@ -8,9 +8,9 @@ Status of every `PLAN-*.md` in the repo root, cross-checked against the codebase
 | [PLAN-skymap-milkyway](PLAN-skymap-milkyway.md) | **DONE ~75%** |
 | [PLAN-skymap-gpu-overlays](PLAN-skymap-gpu-overlays.md) | **PARTIAL ~35%** |
 | [PLAN-tui-live-session-parity](PLAN-tui-live-session-parity.md) | **PARTIAL ~20%** |
-| [PLAN-first-light-resilience](PLAN-first-light-resilience.md) | **PARTIAL** (1 of 3 sub-plans shipped on branch) |
-| [PLAN-driver-resilience](PLAN-driver-resilience.md) | **DONE ~95%** (branch `driver-resilience`, 6 commits, unmerged) |
-| [PLAN-fov-obstruction-detection](PLAN-fov-obstruction-detection.md) | **NOT STARTED** (unblocked by driver-resilience merge) |
+| [PLAN-first-light-resilience](PLAN-first-light-resilience.md) | **DONE** (2 of 3 sub-plans shipped; sub-plan 3 deferred) |
+| [PLAN-driver-resilience](PLAN-driver-resilience.md) | **DONE** (merged to main as 6 PRs + ARCH doc) |
+| [PLAN-fov-obstruction-detection](PLAN-fov-obstruction-detection.md) | **DONE ~95%** (branch `fov-obstruction-detection`, 11 new tests) |
 | [PLAN-catalog-binary-format](PLAN-catalog-binary-format.md) | **NOT STARTED** |
 
 ---
@@ -89,15 +89,18 @@ with mermaid state diagrams.
 
 Not shipped: lost-frame detector (Phase 3 optional extension). Everything else is in.
 
-## PLAN-fov-obstruction-detection — NOT STARTED
+## PLAN-fov-obstruction-detection — DONE ~95%
 
-Correctly gated on driver-resilience (per `PLAN-first-light-resilience.md`).
+Shipped on branch `fov-obstruction-detection` after driver-resilience merged to main.
 
-- Phase 1 (scout frame + compare): **NOT STARTED** — no `Session.Imaging.Obstruction.cs`, no `ScoutAndProbeAsync`, `ScoutResult`, `ScoutClassification`.
-- Phase 2 (altitude-nudge disambiguation): **NOT STARTED** — no `NudgeTestAsync`; `ObstructionNudgeRadii` config key absent.
-- Phase 3 (trajectory-aware wait): **NOT STARTED** — no `EstimateClearTimeAsync`; no `ObstructionClearFractionOfRemaining`.
-- Phase 4 (integration with recovery loop): **NOT STARTED** — existing `WaitForConditionRecoveryAsync` unchanged; no scout call before it in `ObservationLoopAsync`.
-- Supporting config (`ScoutExposure`, `SaveScoutFrames`, ...): **NOT STARTED** — none present in `SessionConfiguration`.
+- Phase 1 (scout frame + compare): **DONE** — `ScoutResult`, `ScoutClassification`, `ScoutOutcome` in `src/TianWen.Lib/Sequencing/ScoutResult.cs`; `ScoutAndProbeAsync`, `ClassifyAgainstBaseline`, `TakeScoutFrameAsync`, `TryGetPreviousObservationBaseline` in `src/TianWen.Lib/Sequencing/Session.Imaging.Obstruction.cs`. Star-count classifier scales by `sqrt(exposure_ratio)` so a 10s scout vs. a 120s baseline compares correctly.
+- Phase 2 (altitude-nudge disambiguation): **DONE** — `NudgeTestAsync` slews +N×half-FOV in declination, scouts again, and re-slews back in `finally` regardless of result. `ComputeWidestHalfFovDeg` derives nudge from camera pixel scale × focal length × NumX × BinX.
+- Phase 3 (trajectory-aware wait): **DONE** — `EstimateObstructionClearTimeAsync` projects the target's natural altitude forward in 2-min steps until it reaches `current_alt + nudge_deg`, capped at 2 h lookahead. Returns `null` for setting targets.
+- Phase 4 (integration with recovery loop): **DONE** — `RunObstructionScoutAsync` wraps the scout result + clear-time policy and returns `ScoutOutcome.Proceed` / `ScoutOutcome.Advance`. Wired into `ObservationLoopAsync` between `CenterOnTargetAsync` and `StartGuidingLoopAsync`. Transparency classification falls through to the existing `WaitForConditionRecoveryAsync`.
+- Supporting config: **DONE** — `ScoutExposure`, `ObstructionStarCountRatioHealthy/Severe`, `ObstructionNudgeRadii`, `ObstructionClearFractionOfRemaining`, `SaveScoutFrames` added to `SessionConfiguration` with XML docs and sensible defaults.
+- Tests: **DONE** — `SessionScoutClassifierTests` (6 unit tests for `ClassifyAgainstBaseline` + `ComputeWidestHalfFovDeg`) + `SessionScoutAndProbeTests` (5 functional tests covering first-observation, healthy, transparency-no-recovery, rising-target clear time, setting-target null clear time). All 1678 unit + 83 functional Session tests pass.
+
+Not shipped: scout frames are not yet emitted via a `ScoutCompletedEventArgs` for the live-session UI (plan flagged as optional v1). `SaveScoutFrames` config key exists but no FITS write path yet (always discards, matching the false default).
 
 ## PLAN-catalog-binary-format — NOT STARTED
 
@@ -111,11 +114,11 @@ Correctly gated on driver-resilience (per `PLAN-first-light-resilience.md`).
 
 ## Bottom line
 
-- **Shipped or nearly shipped:** serial-probe (merged), driver-resilience (branch, unmerged).
+- **Shipped:** serial-probe (merged), driver-resilience (merged), fov-obstruction-detection (branch, unmerged).
 - **Substantially advanced:** milkyway (Phases 1-2 done, 3-4 scaffolded).
 - **Partially started:** skymap-gpu-overlays (Phase 1 + cache hit), tui-live-session-parity (preview mount section + partial abort flow).
-- **Essentially untouched:** fov-obstruction-detection, catalog-binary-format.
+- **Essentially untouched:** catalog-binary-format. Site horizon mask (sub-plan 3 of first-light-resilience) deferred until operational data warrants it.
 
-**Critical path update:** driver-resilience landed on the `driver-resilience` branch
-(6 commits, 22 new tests). Once merged, fov-obstruction-detection is unblocked and
-first-light-resilience is effectively 1-of-3 sub-plans shipped.
+**First-light-resilience status:** 2 of 3 sub-plans shipped (driver resilience + FOV obstruction).
+Sub-plan 3 (static azimuth horizon mask) is intentionally deferred — only spin up if 1+2
+in production show too many runtime scout trips against known obstructions.

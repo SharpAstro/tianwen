@@ -139,6 +139,14 @@ internal partial record Session(
     /// </summary>
     internal int AdvanceObservationForTest() => AdvanceObservation();
 
+    /// <summary>
+    /// Seeds a baseline for a specific observation index. Used by FOV obstruction tests
+    /// to set up the "previous target's baseline" referenced by <c>ScoutAndProbeAsync</c>
+    /// without running the full prior observation through the imaging loop.
+    /// </summary>
+    internal void SetBaselineForObservationForTest(int obsIndex, FrameMetrics[] baseline)
+        => _baselineByObservation[obsIndex] = baseline;
+
     private void SetPhase(SessionPhase newPhase)
     {
         var old = _phase;

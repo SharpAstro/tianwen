@@ -133,6 +133,20 @@ internal partial record Session
                 continue;
             }
 
+            // FOV obstruction probe: predictive scout + altitude nudge BEFORE guider/exposure
+            // commitment. Catches "behind a tree" cases that would otherwise burn through
+            // auto-focus + several full-length exposures before the deterioration check trips.
+            // First observation has no previous baseline → ScoutAndProbeAsync returns Healthy.
+            if (await RunObstructionScoutAsync(observation, cancellationToken) is { } scoutDecision)
+            {
+                if (scoutDecision == ScoutOutcome.Advance)
+                {
+                    _ = AdvanceObservation();
+                    continue;
+                }
+                // ScoutOutcome.Proceed → fall through to guider start
+            }
+
             _currentActivity = $"Starting guider on {observation.Target.Name}\u2026";
             var guidingSuccess = await ResilientInvokeAsync(
                 guider.Driver,
