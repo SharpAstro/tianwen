@@ -212,6 +212,48 @@ public class SessionScoutAndProbeTests(ITestOutputHelper output)
     }
 
     [Fact(Timeout = 60_000)]
+    public async Task GivenFirstScoutAttemptThrowsThenSecondSucceedsWhenScoutAndProbeThenHealthy()
+    {
+        // Layer 2 recovery path: TakeScoutFrameAsync's 2-attempt retry loop catches a
+        // transient IOException on attempt 1, retries, and the second attempt produces
+        // a valid metric. Without the retry, this would have bubbled past
+        // ResilientCall's NonIdempotentAction (1 attempt only) and either crashed or
+        // returned default metrics.
+        var ct = TestContext.Current.CancellationToken;
+        var observations = new[] { Obs(3.79, 24.1, "M45 prev"), Obs(3.79, 24.1, "M45 next") };
+        using var ctx = await CreateScoutSessionAsync(observations, cancellationToken: ct);
+
+        ctx.Camera.CloudCoverage = 0; // clear sky on the successful attempt
+
+        ctx.Session.SetBaselineForObservationForTest(0,
+        [
+            new FrameMetrics(StarCount: 30, MedianHfd: 2.5f, MedianFwhm: 3.0f,
+                Exposure: TimeSpan.FromSeconds(2), Gain: 0),
+        ]);
+
+        ctx.Session.AdvanceObservationForTest();
+        ctx.Session.AdvanceObservationForTest();
+
+        var target = ctx.Session.ActiveObservation!.Target;
+        await ctx.Mount.BeginSlewRaDecAsync(target.RA, target.Dec, ct);
+        while (await ctx.Mount.IsSlewingAsync(ct))
+        {
+            await ctx.TimeProvider.SleepAsync(TimeSpan.FromMilliseconds(50), ct);
+        }
+
+        // Script: first StartExposureAsync throws IOException (transient), second succeeds
+        ctx.Camera.TransientStartExposureFailures = 1;
+
+        await RunScoutWithTimePumpAsync(ctx, async ct2 =>
+        {
+            var result = await ctx.Session.ScoutAndProbeAsync(ctx.Session.ActiveObservation!, ct2);
+            output.WriteLine($"Result: {result.Classification}, scout stars: {result.Metrics[0].StarCount}");
+            result.Classification.ShouldBe(ScoutClassification.Healthy);
+            ctx.Camera.TransientStartExposureFailures.ShouldBe(0); // counter exhausted exactly once
+        }, ct);
+    }
+
+    [Fact(Timeout = 60_000)]
     public async Task GivenScoutThrowsWhenRunObstructionScoutThenProceeds()
     {
         // Defence-in-depth: if ScoutAndProbeAsync itself throws (driver fault that all

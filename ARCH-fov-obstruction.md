@@ -125,7 +125,12 @@ won't gain altitude, so there's no point walking the lookahead loop forward.
 
 ## Resilience layering — how the scout composes with `ResilientCall`
 
-Two distinct layers, each handling a different failure class:
+This is the canonical worked example of the three-layer composite-retry pattern
+described in [`ARCH-driver-resilience.md`](ARCH-driver-resilience.md) "Composite
+operations: layering retry on top of `ResilientCall`". Read that section first
+for the abstract pattern; this section is the scout-specific instantiation.
+
+Three distinct layers, each handling a different failure class:
 
 **Layer 1: `ResilientCall` (per primitive driver call)** — wraps every driver call
 inside `TakeScoutFrameOnceAsync`:

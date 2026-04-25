@@ -520,6 +520,15 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver
     /// </summary>
     public double CloudCoverage { get; set; }
 
+    /// <summary>
+    /// Test seam: when &gt; 0, the next <see cref="StartExposureAsync"/> call throws
+    /// <see cref="System.IO.IOException"/> (classified as transient by
+    /// <c>ResilientCall</c>) and decrements the counter. Use to script
+    /// "first attempt fails, second succeeds" scenarios for verifying
+    /// <c>TakeScoutFrameAsync</c>'s Layer 2 retry recovers correctly.
+    /// </summary>
+    internal int TransientStartExposureFailures;
+
     // Async-primary members
     public ValueTask<bool> GetImageReadyAsync(CancellationToken cancellationToken = default)
     {
@@ -592,6 +601,16 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver
 
     public ValueTask<DateTimeOffset> StartExposureAsync(TimeSpan duration, FrameType frameType = FrameType.Light, CancellationToken cancellationToken = default)
     {
+        // Test seam: simulate a transient driver fault (USB bump, COM glitch).
+        // ResilientCall classifies IOException as transient, so it triggers the
+        // appropriate retry/reconnect path depending on the call's preset.
+        if (Interlocked.Decrement(ref TransientStartExposureFailures) >= 0)
+        {
+            throw new System.IO.IOException("Simulated transient camera fault (test seam).");
+        }
+        // Decrement went below 0 — clamp to 0 so steady state stays at 0.
+        Interlocked.CompareExchange(ref TransientStartExposureFailures, 0, -1);
+
         var minDuration = TimeSpan.FromSeconds(ExposureResolution);
         var intentedDuration = duration < minDuration ? minDuration : duration;
 
