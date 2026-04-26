@@ -12,7 +12,7 @@ Reference behaviour: <https://www.sharpcap.co.uk/sharpcap/features/polar-alignme
 
 ## Preconditions (gating)
 
-The polar-alignment tab/action is **only enabled** when:
+The polar-alignment toolbar toggle in the live preview is **only enabled** when:
 
 1. **Mount is manually connected** (i.e. the user is *not* in a running
    `Session`; we don't co-opt session resources mid-run).
@@ -538,45 +538,55 @@ logic. Records of (rate, duration) live on the session struct.
   Subscribe lambdas only **route**: dispatch to a new
   `PolarAlignmentActions` static helper (mirror `EquipmentActions`,
   `PlannerActions`). Math + I/O lives in `PolarAlignmentSession`.
-- `src/TianWen.UI.Gui/Tabs/VkPolarAlignmentTab.cs` — new tab:
-  - Top bar: capture source dropdown (auto-picked, runner-up shown in
-    grey + tooltip explaining the ranking), Δ-RA dropdown (30/45/60/90°),
-    Start/Cancel buttons.
-  - Live frame view (re-uses `VkImageRenderer`'s FITS pipeline if main cam,
-    or guider's image surface if guider). Overlays driven by
-    `LiveSolveResult.PolarOverlay` and the extended WCS-grid shader
-    (`WcsGridMode.PolarAlignment`):
-    - **5'/15'/30' concentric error rings** centred on `RefractedPolePx`,
-      green stroke, ring labels along the right side.
-    - **True pole cross** (`+`, white, labelled "NCP/SCP (True)") at
-      `TruePolePx`.
-    - **Refracted pole cross** (`+`, green, labelled "NCP/SCP (Refracted)")
-      at `RefractedPolePx`. Rings centre here.
-    - **Current rotation-axis marker** (filled circle + ring) at
-      `CurrentAxisPx`, colour ramping green→yellow→red as it crosses
-      the 5'/15'/30' thresholds.
-    - **Detected stars** (existing TianWen star overlay) — yellow squares
-      for solve-matched, red for saturated.
-    - **Off-sensor edge arrow** + arcmin label when `CurrentAxisPx` falls
+- **No new tab.** Polar alignment is a third **mode** of the existing
+  `LiveSessionTab` alongside *preview* and *session*. The image surface,
+  WCS pipeline, OTA selector (`#1`/`#2` buttons at `LiveSessionTab.cs:270-284`),
+  star overlay, and FITS preview are all already wired — polar mode just
+  contributes additional annotations to the renderer plus a small
+  side-panel of polar-specific UI. Keeping the routine in-tab means the
+  user stays in the same context they were already in (looking at a live
+  preview frame), and we don't duplicate ~half a tab's worth of plumbing.
+  Mode toggle: a "Polar Align" button on the live-view toolbar enabled
+  when preconditions hold (manual mount + site + solver + capture source).
+  Clicking flips `LiveSessionState.Mode = PolarAlign`; clicking again or
+  pressing Cancel returns to preview mode.
+- `src/TianWen.UI.Abstractions/LiveSessionState.cs` additions for polar
+  mode (gated behind the `Mode` enum so they don't pollute preview/session
+  state):
+  - `PolarAlignmentPhase Phase` (`Idle`, `ProbingExposure`, `Frame1`,
+    `Rotating`, `Frame2`, `Refining`, `Aligned`, `RestoringMount`)
+  - `LiveSolveResult? LastSolve` — atomic replacement per CLAUDE.md
+  - `string? PolarStatusMessage` — orange instruction line
+  - `TwoFrameSolveResult? PhaseAResult` — kept for the chord-angle sanity
+    readout and the locked exposure indicator
+  All `ImmutableArray`-backed if collection-typed, atomic property
+  replacement on writes — the PolarAlignmentSession runs on a thread-pool
+  task and writes complete each refine tick; the render thread snapshots.
+- `LiveSessionTab` polar-mode rendering (additive, gated on `Mode`):
+  - **Toolbar**: shows "Polar Align" toggle button; when active, also
+    shows Δ-RA dropdown (30/45/60/90°) and Start/Cancel.
+  - **Image surface**: same `VkImageRenderer`. Polar mode adds a
+    `WcsAnnotation` (composed from `LiveSolveResult.PolarOverlay`) on top
+    of the standard WCS grid + star overlay:
+    - 5'/15'/30' rings around the refracted pole.
+    - True-pole cross (`+`, white) and refracted-pole cross (`+`, green).
+    - Current rotation-axis marker (filled circle + ring), colour ramping
+      green→yellow→red across the ring thresholds.
+    - Off-sensor edge arrow + arcmin label when the axis marker falls
       outside the frame.
-    - **Direction hint badges**: "Alt: ↑ 1'48"" and "Az: ← 4'12"" beside
-      the axis marker (or pinned to a corner if it's off-sensor).
-    - **Status / instruction text** overlay (orange) for "Press 'Next'
-      before rotating the RA axis" / "Refining…" / "Aligned ✓".
-  - Error gauge sidebar: two horizontal needles (azError, altError), each
-    with a coloured zone (green < 1', yellow 1-5', red > 5'); arcmin
-    readout; a trend arrow above each.
-  - Exposure indicator: shows the locked exposure picked by the ramp
-    (e.g. "200 ms · 23 stars matched") so the user knows at a glance
-    whether the chosen optics are working well.
-  - Status line: "Probing exposure (250 ms)…", "Frame 1/2 ✓", "Rotating",
-    "Frame 2/2 ✓", "Refining (1.2 Hz)", "Done — restoring mount".
-- `src/TianWen.UI.Abstractions/PolarAlignmentTabState.cs` — new state class
-  exposing the latest `LiveSolveResult` as an immutable snapshot. **Use
-  `ImmutableArray` and atomic property replacement** per CLAUDE.md.
-- `src/TianWen.UI.Gui/Tabs/VkPolarAlignmentTab.cs` and a corresponding
-  `TuiPolarAlignmentTab.cs` (TUI gets text gauges instead of graphical
-  needles; same state class).
+    - All via the generic `WcsAnnotationLayer` from Phase 3a — no
+      polar-specific shader code.
+  - **Side panel** (replaces the session-specific panels when polar mode
+    is active): two error needles (Az / Alt arcmin, green<1', yellow 1-5',
+    red>5'), trend arrows, exposure indicator
+    ("200 ms · 23 stars matched"), status line ("Probing exposure
+    (250 ms)…", "Frame 1/2 ✓", "Rotating", "Refining (1.2 Hz)",
+    "Aligned ✓ — click Done"), direction-hint badges
+    ("Alt: ↑ 1'48"", "Az: ← 4'12""), `IsSettled` / `IsAligned` LEDs.
+- The TUI version (`TuiLiveSessionTab`) follows the same pattern: a
+  third mode that swaps in a text panel rendering the same state.
+  No annotation layer (text-only); ASCII arrow toward the target offset
+  ("axis 47' off-frame ↗"), text gauges, status line.
 
 ## Phasing
 
@@ -585,8 +595,8 @@ logic. Records of (rate, duration) live on the session struct.
 | **1** | `PolarAxisSolver` math + tests | Unit tests with synthetic rotations |
 | **2** | `PolarAlignmentSession` orchestrator + `ICaptureSource` shims + adaptive exposure ramp + auto-selection ranking + axis reverse-restore | Functional test using `FakeMountDriver` + `FakeCameraDriver` (synthetic star field with known mount pole offset, ramp picks shortest exposure that yields ≥15 stars, reverse restores within arcmin) |
 | **3a** | Generic `WcsAnnotationLayer` in `TianWen.UI.Shared`: data-driven `SkyMarker` + `SkyRing` + `SkyEdge` inputs, fragment-shader render alongside existing WCS grid. Reusable by FITS viewer / live preview / mosaic composer / polar alignment. | Visual smoke test in FITS viewer |
-| **3b** | GUI tab (`VkPolarAlignmentTab`) + signals + actions: builds a `WcsAnnotation` from `LiveSolveResult` (two pole crosses + 3 rings around refracted pole + axis marker + direction hints) and hands it to the layer. No polar-specific code in the renderer. | Manual GUI test |
-| **4** | TUI tab parity (text reticle: ASCII arrow toward target offset) | Manual TUI test |
+| **3b** | Polar-align mode wired into existing `LiveSessionTab` (no new tab): mode toggle, signals, `PolarAlignmentActions` helper, side-panel widgets, polar mode contributes `WcsAnnotation` to the layer. Reuses image surface + OTA selector + WCS pipeline. | Manual GUI test |
+| **4** | Polar mode parity in `TuiLiveSessionTab`: text gauges + ASCII arrow + status line, same `LiveSessionState` fields. | Manual TUI test |
 | **5** | PHD2 path verified end-to-end with `Save Images` enabled | Manual real-rig test |
 
 Phases 1-2 are pure code + tests, mergeable independently. Phase 3 is the
