@@ -15,10 +15,12 @@ using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Astrometry.PlateSolve;
 using TianWen.Lib.Astrometry.SOFA;
 using TianWen.Lib.Devices;
+using TianWen.Lib.Devices.Guider;
 using TianWen.Lib.Devices.Weather;
 using TianWen.Lib.Extensions;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Sequencing;
+using TianWen.Lib.Sequencing.PolarAlignment;
 
 namespace TianWen.UI.Abstractions
 {
@@ -1886,6 +1888,225 @@ namespace TianWen.UI.Abstractions
             {
                 liveSessionState.SessionCts?.Cancel();
                 liveSessionState.ShowAbortConfirm = false;
+                liveSessionState.NeedsRedraw = true;
+                appState.NeedsRedraw = true;
+            });
+
+            // ---------------------------------------------------------------
+            // Polar alignment signals
+            // ---------------------------------------------------------------
+
+            bus.Subscribe<StartPolarAlignmentSignal>(sig =>
+            {
+                if (liveSessionState.IsRunning)
+                {
+                    appState.AppendNotification(_timeProvider.GetUtcNow(),
+                        NotificationSeverity.Warning, "Session is running \u2014 polar alignment unavailable");
+                    return;
+                }
+                if (liveSessionState.PolarAlignmentCts is not null)
+                {
+                    appState.AppendNotification(_timeProvider.GetUtcNow(),
+                        NotificationSeverity.Warning, "Polar alignment already running");
+                    return;
+                }
+                if (appState.ActiveProfile?.Data is not { } profileData || profileData.OTAs.Length == 0)
+                {
+                    appState.AppendNotification(_timeProvider.GetUtcNow(),
+                        NotificationSeverity.Warning, "No profile / OTA configured");
+                    return;
+                }
+                if (appState.DeviceHub is not { } hub)
+                {
+                    appState.AppendNotification(_timeProvider.GetUtcNow(),
+                        NotificationSeverity.Warning, "Device hub not available");
+                    return;
+                }
+                if (!hub.TryGetConnectedDriver<IMountDriver>(profileData.Mount, out var mount) || mount is null)
+                {
+                    appState.AppendNotification(_timeProvider.GetUtcNow(),
+                        NotificationSeverity.Warning, "Mount not connected \u2014 connect a mount first");
+                    return;
+                }
+                if (profileData.SiteLatitude is not { } lat || profileData.SiteLongitude is not { } lon)
+                {
+                    appState.AppendNotification(_timeProvider.GetUtcNow(),
+                        NotificationSeverity.Warning, "Site location not configured for this profile");
+                    return;
+                }
+                var solverFactory = sp.GetRequiredService<IPlateSolverFactory>();
+
+                // Build the capture source. Two paths:
+                //  (a) UseGuider=true  -> wrap the connected IGuider; needs guider camera
+                //                         pixel size + profile-recorded guider focal length.
+                //                         The orchestrator will also stop any in-progress
+                //                         guiding before starting (handled via the guider
+                //                         driver's StopCaptureAsync below).
+                //  (b) UseGuider=false -> wrap the OTA's main camera (default).
+                ICaptureSource source;
+                IGuider? activeGuider = null;
+                if (sig.UseGuider)
+                {
+                    if (!hub.TryGetConnectedDriver<IGuider>(profileData.Guider, out var guider) || guider is null)
+                    {
+                        appState.AppendNotification(_timeProvider.GetUtcNow(),
+                            NotificationSeverity.Warning, "Guider not connected \u2014 connect a guider or untoggle Use Guider");
+                        return;
+                    }
+                    if (profileData.GuiderCamera is not { } guideCamUri
+                        || !hub.TryGetConnectedDriver<ICameraDriver>(guideCamUri, out var guideCam)
+                        || guideCam is null)
+                    {
+                        appState.AppendNotification(_timeProvider.GetUtcNow(),
+                            NotificationSeverity.Warning, "Guider camera not connected \u2014 cannot determine pixel scale");
+                        return;
+                    }
+                    if (profileData.GuiderFocalLength is not { } guiderFlMm || guiderFlMm <= 0)
+                    {
+                        appState.AppendNotification(_timeProvider.GetUtcNow(),
+                            NotificationSeverity.Warning, "Guider focal length not set in profile \u2014 required for plate scale");
+                        return;
+                    }
+
+                    // Aperture isn't strictly recorded for guide scopes; assume f/4 if absent
+                    // (a typical 50mm/200mm-ish mini guider). Used only for ranking heuristics
+                    // and a UI hint string.
+                    var guiderApertureMm = guiderFlMm / 4.0;
+                    source = new GuiderCaptureSource(
+                        guider,
+                        displayName: $"Guider \u2014 {guider.Name}",
+                        focalLengthMm: guiderFlMm,
+                        apertureMm: guiderApertureMm,
+                        pixelSizeMicrons: guideCam.PixelSizeX,
+                        external,
+                        logger);
+                    activeGuider = guider;
+                }
+                else
+                {
+                    var otaIndex = sig.OtaIndex >= 0 && sig.OtaIndex < profileData.OTAs.Length
+                        ? sig.OtaIndex
+                        : 0;
+                    var ota = profileData.OTAs[otaIndex];
+                    if (!hub.TryGetConnectedDriver<ICameraDriver>(ota.Camera, out var camera) || camera is null)
+                    {
+                        appState.AppendNotification(_timeProvider.GetUtcNow(),
+                            NotificationSeverity.Warning, $"OTA #{otaIndex + 1} camera not connected");
+                        return;
+                    }
+                    source = new MainCameraCaptureSource(
+                        camera,
+                        displayName: $"OTA #{otaIndex + 1} \u2014 {ota.Name}",
+                        focalLengthMm: ota.FocalLength,
+                        apertureMm: ota.Aperture ?? Math.Max(1, ota.FocalLength / 5),
+                        _timeProvider,
+                        logger);
+                }
+
+                // Refraction inputs: prefer connected weather device, then standard atmosphere.
+                double pressureHPa = 1010.0;
+                double temperatureC = 10.0;
+                if (profileData.Weather is { } weatherUri
+                    && hub.TryGetConnectedDriver<IWeatherDriver>(weatherUri, out var weather)
+                    && weather is not null)
+                {
+                    if (!double.IsNaN(weather.Pressure)) pressureHPa = weather.Pressure;
+                    if (!double.IsNaN(weather.Temperature)) temperatureC = weather.Temperature;
+                }
+
+                var site = new PolarAlignmentSite(
+                    LatitudeDeg: lat,
+                    LongitudeDeg: lon,
+                    ElevationM: profileData.SiteElevation ?? 0,
+                    PressureHPa: pressureHPa,
+                    TemperatureC: temperatureC);
+
+                var config = PolarAlignmentConfiguration.Default with { RotationDeg = sig.DeltaRaDeg };
+
+                var polarCts = CancellationTokenSource.CreateLinkedTokenSource(cts.Token);
+                liveSessionState.PolarAlignmentCts = polarCts;
+                liveSessionState.Mode = LiveSessionMode.PolarAlign;
+                liveSessionState.PolarPhase = PolarAlignmentPhase.Idle;
+                liveSessionState.PolarStatusMessage = "Starting polar alignment\u2026";
+                liveSessionState.PolarPhaseAResult = null;
+                liveSessionState.LastPolarSolve = null;
+                liveSessionState.NeedsRedraw = true;
+                appState.NeedsRedraw = true;
+
+                tracker.Run(async () =>
+                {
+                    var session = new PolarAlignmentSession(
+                        external, mount, source, solverFactory,
+                        _timeProvider, logger, site, config);
+                    try
+                    {
+                        // If the guider was looping/calibrating/guiding from a prior session,
+                        // stop it cleanly first. PHD2's LoopAsync (used inside GuiderCaptureSource)
+                        // will refuse if the app is mid-calibration. Best-effort — failure here
+                        // is logged but doesn't fail the routine; the orchestrator's first frame
+                        // will surface the real problem with a useful message.
+                        if (activeGuider is not null)
+                        {
+                            try
+                            {
+                                await activeGuider.StopCaptureAsync(TimeSpan.FromSeconds(10), polarCts.Token);
+                            }
+                            catch (Exception ex)
+                            {
+                                logger.LogWarning(ex, "PolarAlignment: guider StopCaptureAsync before run failed");
+                            }
+                        }
+
+                        await PolarAlignmentActions.RunAsync(session, liveSessionState, logger, polarCts.Token);
+                    }
+                    catch (OperationCanceledException ex)
+                    {
+                        logger.LogInformation(ex, "Polar alignment routine cancelled");
+                    }
+                    catch (Exception ex)
+                    {
+                        logger.LogError(ex, "Polar alignment routine failed");
+                        liveSessionState.PolarPhase = PolarAlignmentPhase.Failed;
+                        liveSessionState.PolarStatusMessage = $"Polar alignment error: {ex.Message}";
+                        appState.AppendNotification(_timeProvider.GetUtcNow(),
+                            NotificationSeverity.Error, $"Polar alignment failed: {ex.Message}");
+                    }
+                    finally
+                    {
+                        // ReverseAxisBack / Park / LeaveInPlace runs here.
+                        liveSessionState.PolarPhase = PolarAlignmentPhase.RestoringMount;
+                        liveSessionState.NeedsRedraw = true;
+                        try { await session.DisposeAsync(); }
+                        catch (Exception ex) { logger.LogWarning(ex, "PolarAlignmentSession dispose failed"); }
+                        liveSessionState.PolarAlignmentCts = null;
+                        polarCts.Dispose();
+                        // Drop back into preview mode unless the user already swapped tabs.
+                        if (liveSessionState.Mode == LiveSessionMode.PolarAlign)
+                        {
+                            liveSessionState.Mode = LiveSessionMode.Preview;
+                        }
+                        liveSessionState.PolarPhase = PolarAlignmentPhase.Idle;
+                        liveSessionState.NeedsRedraw = true;
+                        appState.NeedsRedraw = true;
+                    }
+                }, "PolarAlignment");
+            });
+
+            bus.Subscribe<CancelPolarAlignmentSignal>(_ =>
+            {
+                liveSessionState.PolarAlignmentCts?.Cancel();
+                liveSessionState.PolarStatusMessage = "Cancelling\u2026";
+                liveSessionState.NeedsRedraw = true;
+                appState.NeedsRedraw = true;
+            });
+
+            bus.Subscribe<DonePolarAlignmentSignal>(_ =>
+            {
+                // Done is the same exit path as Cancel: stop the refine loop, let the
+                // session's DisposeAsync apply the configured OnDone behaviour
+                // (ReverseAxisBack by default).
+                liveSessionState.PolarAlignmentCts?.Cancel();
+                liveSessionState.PolarStatusMessage = "Restoring mount\u2026";
                 liveSessionState.NeedsRedraw = true;
                 appState.NeedsRedraw = true;
             });

@@ -215,6 +215,16 @@ namespace TianWen.UI.Abstractions
         public CancellationTokenSource? PolarAlignmentCts { get; set; }
 
         /// <summary>
+        /// Source preference for the next polar-alignment run started from the toolbar:
+        /// false = main camera at <see cref="MiniViewerState.SelectedCameraIndex"/>,
+        /// true = the connected guider (PHD2 or built-in). Toggled by the small "G"
+        /// button next to the "PA" toolbar button. Persists across runs within a
+        /// session so a user with a guide-cam-only setup doesn't have to re-toggle
+        /// every time. Authoritatively re-validated by the signal handler.
+        /// </summary>
+        public bool PolarAlignUseGuider { get; set; }
+
+        /// <summary>
         /// OTA index currently targeted by keyboard shortcuts and mouse clicks in
         /// preview mode. The GPU tab doesn't need this (each row registers its own
         /// clickable regions), but TUI keyboard shortcuts (Enter = capture, [/] = step

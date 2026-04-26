@@ -13,6 +13,7 @@ using TianWen.Cli.View;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Sequencing;
+using TianWen.Lib.Sequencing.PolarAlignment;
 using TianWen.UI.Abstractions;
 
 namespace TianWen.Cli.Tui;
@@ -148,9 +149,17 @@ internal sealed class TuiLiveSessionTab(
     {
         _rows.Clear();
 
+        // Polar alignment mode: replaces the preview / session per-OTA panel
+        // entirely with the polar-specific status + gauges. Reuses the same
+        // LiveSessionState fields (PolarPhase, PolarPhaseAResult, LastPolarSolve)
+        // that the GPU tab reads, so the underlying routine drives both UIs.
+        if (!liveState.IsRunning && liveState.Mode == LiveSessionMode.PolarAlign)
+        {
+            BuildPolarRows();
+        }
         // Preview mode: no session running + profile with OTAs. Render per-OTA
         // telemetry rows with clickable stepper cells + action buttons.
-        if (!liveState.IsRunning
+        else if (!liveState.IsRunning
             && appState.ActiveProfile?.Data is { OTAs.Length: > 0 } profileData)
         {
             // Arrays are sized on telemetry poll; render can race ahead of the first
@@ -363,6 +372,144 @@ internal sealed class TuiLiveSessionTab(
         var binning = otaIndex < liveState.PreviewBinning.Length
             ? liveState.PreviewBinning[otaIndex] : (short)1;
         bus.Post(new TakePreviewSignal(otaIndex, exp, gain, binning));
+    }
+
+    /// <summary>
+    /// Polar-align mode side panel: phase header, status message, locked-exposure /
+    /// chord-Δ readouts (Phase A complete), error gauges + ASCII direction arrows
+    /// from the latest <see cref="LiveSolveResult"/>, Settled / Aligned LEDs, and
+    /// Cancel / Done buttons. Mirrors the GPU side panel; no annotation overlay
+    /// (TUI is text-only).
+    /// </summary>
+    private void BuildPolarRows()
+    {
+        var srcLabel = liveState.PolarAlignUseGuider ? "Guider" : "Main";
+        _rows.Add(new HeadingRow($"Polar Alignment ({srcLabel})", IsSelected: true));
+
+        var (phaseLabel, phaseStyle) = liveState.PolarPhase switch
+        {
+            PolarAlignmentPhase.Idle => ("IDLE", new VtStyle(SgrColor.BrightBlack, SgrColor.Black)),
+            PolarAlignmentPhase.ProbingExposure => ("PROBING", new VtStyle(SgrColor.BrightWhite, SgrColor.Cyan)),
+            PolarAlignmentPhase.Rotating => ("ROTATING", new VtStyle(SgrColor.Black, SgrColor.BrightYellow)),
+            PolarAlignmentPhase.Frame2 => ("FRAME 2", new VtStyle(SgrColor.BrightWhite, SgrColor.Cyan)),
+            PolarAlignmentPhase.Refining => ("REFINING", new VtStyle(SgrColor.BrightWhite, SgrColor.Green)),
+            PolarAlignmentPhase.Aligned => ("ALIGNED \u2713", new VtStyle(SgrColor.Black, SgrColor.BrightGreen)),
+            PolarAlignmentPhase.RestoringMount => ("RESTORING", new VtStyle(SgrColor.Black, SgrColor.BrightYellow)),
+            PolarAlignmentPhase.Failed => ("FAILED", new VtStyle(SgrColor.BrightWhite, SgrColor.Red)),
+            _ => ("?", new VtStyle(SgrColor.White, SgrColor.Black)),
+        };
+        _rows.Add(new TextRow($"  Phase: {phaseLabel}", phaseStyle));
+
+        if (liveState.PolarStatusMessage is { Length: > 0 } status)
+        {
+            _rows.Add(new TextRow($"  {status}"));
+        }
+
+        // Phase A locked exposure + chord-angle sanity readout once Phase A succeeded.
+        if (liveState.PolarPhaseAResult is { Success: true } phaseA)
+        {
+            _rows.Add(new BlankRow());
+            _rows.Add(new TextRow(
+                $"  Locked exp: {phaseA.LockedExposure.TotalMilliseconds:F0}ms  "
+                + $"({phaseA.StarsMatchedFrame1}/{phaseA.StarsMatchedFrame2} \u2605)"));
+
+            var chordObsArcsec = phaseA.ChordAngleObservedRad * 180.0 / Math.PI * 3600.0;
+            var chordPredArcsec = phaseA.ChordAnglePredictedRad * 180.0 / Math.PI * 3600.0;
+            var chordDiff = Math.Abs(chordObsArcsec - chordPredArcsec);
+            var chordStyle = chordDiff < 5
+                ? new VtStyle(SgrColor.BrightGreen, SgrColor.Black)
+                : chordDiff < 30
+                    ? new VtStyle(SgrColor.BrightYellow, SgrColor.Black)
+                    : new VtStyle(SgrColor.BrightRed, SgrColor.Black);
+            _rows.Add(new TextRow($"  Chord \u0394: {chordDiff:F1}\u2033", chordStyle));
+        }
+
+        // Live refine gauges + direction hints + LEDs.
+        if (liveState.LastPolarSolve is { } solve)
+        {
+            _rows.Add(new BlankRow());
+
+            const double radToArcmin = 60.0 * 180.0 / Math.PI;
+            var azArcmin = solve.SmoothedAzErrorRad * radToArcmin;
+            var altArcmin = solve.SmoothedAltErrorRad * radToArcmin;
+
+            // Az gauge: bracketed band centred on zero, character needle at the offset.
+            _rows.Add(new TextRow($"  Az  {BuildErrorBar(azArcmin)} {azArcmin:+0.0;-0.0}\u2032",
+                ErrorBarStyle(azArcmin)));
+            _rows.Add(new TextRow($"  Alt {BuildErrorBar(altArcmin)} {altArcmin:+0.0;-0.0}\u2032",
+                ErrorBarStyle(altArcmin)));
+
+            // Direction hints — ASCII arrows so they render on every terminal,
+            // including the ones that swallow the rich Unicode codepoints.
+            var azHint = azArcmin >= 0 ? "-> East" : "<- West";
+            var altHint = altArcmin >= 0 ? "^ Up" : "v Down";
+            _rows.Add(new TextRow($"  Push: Az {azHint} {Math.Abs(azArcmin):F1}\u2032   "
+                + $"Alt {altHint} {Math.Abs(altArcmin):F1}\u2032"));
+
+            _rows.Add(new BlankRow());
+            _rows.Add(new TextRow(
+                $"  {solve.ExposureUsed.TotalMilliseconds:F0}ms  {solve.StarsMatched} \u2605"
+                + (solve.ConsecutiveFailedSolves > 0 ? $"  ({solve.ConsecutiveFailedSolves} fail)" : "")));
+
+            // Settled / Aligned LEDs.
+            _rows.Add(new TextRow(
+                $"  Settled: {(solve.IsSettled ? "[*]" : "[ ]")}    "
+                + $"Aligned: {(solve.IsAligned ? "[*]" : "[ ]")}",
+                solve.IsAligned && solve.IsSettled
+                    ? new VtStyle(SgrColor.BrightGreen, SgrColor.Black)
+                    : new VtStyle(SgrColor.White, SgrColor.Black)));
+        }
+
+        _rows.Add(new BlankRow());
+
+        // Cancel / Done as an ActionRow so click handlers register naturally.
+        var canCancel = liveState.PolarPhase != PolarAlignmentPhase.Idle;
+        var canDone = liveState.PolarPhase == PolarAlignmentPhase.Aligned
+            || (liveState.PolarPhase == PolarAlignmentPhase.Refining
+                && liveState.LastPolarSolve is { IsSettled: true, IsAligned: true });
+
+        var buttons = new List<ActionRow.Button>();
+        if (canCancel)
+        {
+            buttons.Add(new("Cancel", _ => bus.Post(new CancelPolarAlignmentSignal()),
+                new VtStyle(SgrColor.BrightWhite, SgrColor.Red)));
+        }
+        if (canDone)
+        {
+            buttons.Add(new("Done", _ => bus.Post(new DonePolarAlignmentSignal()),
+                new VtStyle(SgrColor.BrightWhite, SgrColor.Green)));
+        }
+        if (buttons.Count > 0)
+        {
+            _rows.Add(new ActionRow(buttons));
+        }
+    }
+
+    /// <summary>
+    /// Build a fixed-width text gauge: 21 cells centred on zero, '#' at the
+    /// scaled needle position. Full-scale is +/-30 arcmin (matches the GPU
+    /// side panel so both UIs convey the same magnitude at a glance).
+    /// </summary>
+    private static string BuildErrorBar(double arcmin)
+    {
+        const int Half = 10;
+        const double FullScaleArcmin = 30.0;
+        var clamped = Math.Clamp(arcmin, -FullScaleArcmin, FullScaleArcmin);
+        var pos = (int)Math.Round(clamped / FullScaleArcmin * Half);
+
+        Span<char> cells = stackalloc char[Half * 2 + 1];
+        cells.Fill('-');
+        cells[Half] = '|';
+        cells[Half + pos] = '#';
+        return $"[{new string(cells)}]";
+    }
+
+    private static VtStyle ErrorBarStyle(double arcmin)
+    {
+        var abs = Math.Abs(arcmin);
+        return abs < 1.0 ? new VtStyle(SgrColor.BrightGreen, SgrColor.Black)
+            : abs < 5.0 ? new VtStyle(SgrColor.BrightYellow, SgrColor.Black)
+            : new VtStyle(SgrColor.BrightRed, SgrColor.Black);
     }
 
     private void BuildCameraRows(ISession session)
@@ -580,10 +727,16 @@ internal sealed class TuiLiveSessionTab(
         {
             hint = " Escape:abort";
         }
+        else if (liveState.Mode == LiveSessionMode.PolarAlign)
+        {
+            var src = liveState.PolarAlignUseGuider ? "Guider" : "Main";
+            hint = $" Escape:cancel polar align ({src})  (Done button above)";
+        }
         else if (appState.ActiveProfile?.Data is { OTAs.Length: > 0 })
         {
             // Preview mode: short cheat sheet. Selected-OTA actions.
-            hint = " Tab:OTA  ,/.:exp  Shift\u2190/\u2192:gain  Enter:capture  S:save  P:solve  J/K:focus  Q:quit";
+            var srcHint = liveState.PolarAlignUseGuider ? "Guider" : "Main";
+            hint = $" Tab:OTA  ,/.:exp  Shift\u2190/\u2192:gain  Enter:capture  S:save  P:solve  Shift+P:polar({srcHint})  Shift+G:source  J/K:focus  Q:quit";
         }
         else
         {
@@ -699,6 +852,22 @@ internal sealed class TuiLiveSessionTab(
 
     public override bool HandleInput(InputEvent evt)
     {
+        // Polar-align mode: Esc cancels the routine instead of falling through to
+        // the abort-confirmation strip (which is a session-only concept). Done is
+        // surfaced as a button on the side panel rather than a keybind because
+        // accidentally pressing Enter while gauges show "aligned" should not
+        // commit-and-restore — the click is a deliberate confirmation.
+        if (!liveState.IsRunning && liveState.Mode == LiveSessionMode.PolarAlign)
+        {
+            switch (evt)
+            {
+                case InputEvent.KeyDown(InputKey.Escape, _):
+                    bus.Post(new CancelPolarAlignmentSignal());
+                    NeedsRedraw = true;
+                    return false;
+            }
+        }
+
         // Preview-mode shortcuts (only when no session is running). Handled first so
         // they don't get swallowed by the viewer keybindings below.
         if (!liveState.IsRunning && HandlePreviewInput(evt))
@@ -845,6 +1014,38 @@ internal sealed class TuiLiveSessionTab(
             case InputEvent.KeyDown(InputKey.S, _) when sel < liveState.LastCapturedImages.Length
                 && liveState.LastCapturedImages[sel] is not null:
                 bus.Post(new SaveSnapshotSignal(sel));
+                return true;
+
+            // Shift+P: toggle polar-align mode (start a routine on the selected
+            // OTA, or cancel one already running). Plain P plate-solves the
+            // current preview frame, so the modifier disambiguates. The polar
+            // source (main camera vs guider) is read from
+            // <see cref="LiveSessionState.PolarAlignUseGuider"/>, toggled via
+            // Shift+G below.
+            case InputEvent.KeyDown(InputKey.P, var pmod) when (pmod & InputModifier.Shift) != 0:
+                if (liveState.Mode == LiveSessionMode.PolarAlign)
+                {
+                    bus.Post(new CancelPolarAlignmentSignal());
+                }
+                else
+                {
+                    bus.Post(new StartPolarAlignmentSignal(
+                        OtaIndex: sel,
+                        DeltaRaDeg: 60.0,
+                        UseGuider: liveState.PolarAlignUseGuider));
+                }
+                NeedsRedraw = true;
+                return true;
+
+            // Shift+G: toggle polar-align capture source between main camera and
+            // guider. No effect while the routine is running (mid-run swap would
+            // invalidate the v1 anchor frame).
+            case InputEvent.KeyDown(InputKey.G, var gmod) when (gmod & InputModifier.Shift) != 0:
+                if (liveState.Mode != LiveSessionMode.PolarAlign)
+                {
+                    liveState.PolarAlignUseGuider = !liveState.PolarAlignUseGuider;
+                    NeedsRedraw = true;
+                }
                 return true;
 
             case InputEvent.KeyDown(InputKey.P, _) when sel < liveState.LastCapturedImages.Length

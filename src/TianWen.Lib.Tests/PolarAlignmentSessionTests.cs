@@ -3,6 +3,7 @@ using NSubstitute;
 using Shouldly;
 using System;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.Threading;
 using System.Threading.Tasks;
 using TianWen.Lib.Astrometry;
@@ -193,6 +194,76 @@ namespace TianWen.Lib.Tests
             reverseCount.ShouldBeGreaterThan(0, "reverse-restore must run even after frame-2 exhaustion");
         }
 
+        [Fact]
+        public async Task SolveAsync_WhenSourceSuppliesFailureReason_SurfacesItVerbatim()
+        {
+            var mount = BuildMockMount();
+            var ext = Substitute.For<IExternal>();
+            var solver = Substitute.For<IPlateSolver>();
+            var time = new FakeTimeProviderWrapper();
+
+            // Source returns Success=false on every rung with a structured reason —
+            // exactly what GuiderCaptureSource does when PHD2 'Save Images' is disabled.
+            const string SourceReason = "Guider produced no frame on disk \u2014 enable 'Save Images' in PHD2.";
+            var source = new FailingCaptureSource(SourceReason);
+
+            var config = PolarAlignmentConfiguration.Default with
+            {
+                RotationDeg = 60.0, SettleSeconds = 0, MaxFrame2Retries = 0
+            };
+
+            await using var session = new PolarAlignmentSession(
+                ext, mount, source, solver, time, NullLogger.Instance, TestSite, config);
+
+            var result = await session.SolveAsync(CancellationToken.None);
+
+            result.Success.ShouldBeFalse();
+            result.FailureReason.ShouldBe(SourceReason);
+        }
+
+        [Fact]
+        public async Task RefineAsync_PopulatesOverlay_WithTruePoleAndAxisSkyPositions()
+        {
+            var mount = BuildMockMount();
+            var ext = Substitute.For<IExternal>();
+            var solver = Substitute.For<IPlateSolver>();
+            var time = new FakeTimeProviderWrapper();
+            var source = new SyntheticAxisCaptureSource(GroundTruthAxis, deltaRad: 60.0 * DEGREES2RADIANS);
+
+            var config = PolarAlignmentConfiguration.Default with
+            {
+                RotationDeg = 60.0, SettleSeconds = 0, MaxFrame2Retries = 0,
+                SmoothingWindow = 1
+            };
+
+            await using var session = new PolarAlignmentSession(
+                ext, mount, source, solver, time, NullLogger.Instance, TestSite, config);
+            (await session.SolveAsync(CancellationToken.None)).Success.ShouldBeTrue();
+
+            using var ctsLoop = new CancellationTokenSource();
+            LiveSolveResult? firstTick = null;
+            await foreach (var tick in session.RefineAsync(ctsLoop.Token))
+            {
+                firstTick = tick;
+                ctsLoop.Cancel();
+                break;
+            }
+
+            firstTick.ShouldNotBeNull();
+            var overlay = firstTick.Value.Overlay.ShouldNotBeNull();
+
+            // True pole sits at J2000 (RA=0h, Dec=+90 for the northern test site).
+            overlay.TruePoleRaHours.ShouldBe(0.0);
+            overlay.TruePoleDecDeg.ShouldBe(90.0);
+            overlay.Hemisphere.ShouldBe(Hemisphere.North);
+
+            // Axis recovered close to ground truth (RA=6h, Dec=89), sub-arcsec on synthetic input.
+            overlay.AxisRaHours.ShouldBeInRange(5.99, 6.01);
+            overlay.AxisDecDeg.ShouldBeInRange(88.99, 89.01);
+
+            overlay.RingRadiiArcmin.ShouldBe(ImmutableArray.Create(5f, 15f, 30f));
+        }
+
         // --- helpers ---
 
         private static IMountDriver BuildMockMount()
@@ -254,6 +325,25 @@ namespace TianWen.Lib.Tests
                     Success: true, Wcs: null, WcsCenter: v2,
                     StarsMatched: 25, ExposureUsed: exposure, FitsPath: null));
             }
+        }
+
+        /// <summary>
+        /// Minimal source that fails every capture with a structured reason — used to
+        /// pin the orchestrator's failure-reason propagation behaviour (Phase 5: PHD2
+        /// 'Save Images' disabled message must reach the user).
+        /// </summary>
+        private sealed class FailingCaptureSource(string reason) : ICaptureSource
+        {
+            public string DisplayName => "FailingSource";
+            public double FocalLengthMm => 200;
+            public double ApertureMm => 50;
+            public double PixelSizeMicrons => 3.0;
+
+            public ValueTask<CaptureAndSolveResult> CaptureAndSolveAsync(TimeSpan exposure, IPlateSolver solver, CancellationToken ct) =>
+                ValueTask.FromResult(new CaptureAndSolveResult(
+                    Success: false, Wcs: null, WcsCenter: default,
+                    StarsMatched: 0, ExposureUsed: exposure, FitsPath: null,
+                    FailureReason: reason));
         }
     }
 }

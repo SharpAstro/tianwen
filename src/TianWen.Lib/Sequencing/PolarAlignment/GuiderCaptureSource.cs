@@ -77,7 +77,8 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
             if (!await _guider.LoopAsync(loopTimeout, ct))
             {
                 _logger.LogWarning("GuiderCaptureSource: LoopAsync did not complete within {Timeout}", loopTimeout);
-                return new CaptureAndSolveResult(false, null, default, 0, exposure, null);
+                return new CaptureAndSolveResult(false, null, default, 0, exposure, null,
+                    FailureReason: $"Guider did not produce a frame within {loopTimeout.TotalSeconds:F0}s.");
             }
 
             string? fitsPath = null;
@@ -88,12 +89,14 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
             catch (GuiderException ex)
             {
                 _logger.LogWarning(ex, "GuiderCaptureSource: SaveImageAsync threw — PHD2 'Save Images' may be disabled");
-                return new CaptureAndSolveResult(false, null, default, 0, exposure, null);
+                return new CaptureAndSolveResult(false, null, default, 0, exposure, null,
+                    FailureReason: "Guider rejected save-image request \u2014 enable 'Save Images' in the PHD2 profile.");
             }
             if (string.IsNullOrEmpty(fitsPath))
             {
                 _logger.LogWarning("GuiderCaptureSource: SaveImageAsync returned no path — enable 'Save Images' in PHD2 profile");
-                return new CaptureAndSolveResult(false, null, default, 0, exposure, null);
+                return new CaptureAndSolveResult(false, null, default, 0, exposure, null,
+                    FailureReason: "Guider produced no frame on disk \u2014 enable 'Save Images' in the PHD2 profile.");
             }
 
             try

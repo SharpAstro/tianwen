@@ -71,11 +71,16 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
     /// shorter than requested if the source clamped against an internal max.</param>
     /// <param name="FitsPath">Path to the saved FITS frame, or null if the
     /// source did not save one (e.g. main-camera mode with frame-saving disabled).</param>
+    /// <param name="FailureReason">Optional human-readable reason when
+    /// <see cref="Success"/> is false. Lets sources surface configuration-class
+    /// errors (e.g. PHD2 "Save Images" disabled) the orchestrator can show to the
+    /// user instead of its generic "plate solve failed at every rung" message.</param>
     internal readonly record struct CaptureAndSolveResult(
         bool Success,
         WCS? Wcs,
         Vec3 WcsCenter,
         int StarsMatched,
         System.TimeSpan ExposureUsed,
-        string? FitsPath);
+        string? FitsPath,
+        string? FailureReason = null);
 }

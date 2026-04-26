@@ -4,6 +4,8 @@ using DIR.Lib;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Sequencing;
+using TianWen.Lib.Sequencing.PolarAlignment;
+using TianWen.UI.Abstractions.Overlays;
 
 namespace TianWen.UI.Abstractions
 {
@@ -133,6 +135,15 @@ namespace TianWen.UI.Abstractions
             // Center: mini viewer — rendered FIRST so panels paint over any overflow
             if (viewerW > 100 && MiniViewer is { } viewer)
             {
+                // Polar mode publishes a refreshed WcsAnnotation each frame from the
+                // latest live solve so the renderer can overlay the pole crosses,
+                // 5'/15'/30' rings, and axis CircledCross on the live frame. Cleared
+                // when polar mode exits so the annotation doesn't leak into preview.
+                viewer.State.Annotation = state.Mode == LiveSessionMode.PolarAlign
+                    && state.LastPolarSolve is { Overlay: { } overlay }
+                    ? PolarAnnotationBuilder.Build(overlay)
+                    : WcsAnnotation.Empty;
+
                 // Check if a new frame arrived for the selected camera
                 var images = state.LastCapturedImages;
                 var selectedIdx = viewer.State.SelectedCameraIndex;
@@ -266,6 +277,66 @@ namespace TianWen.UI.Abstractions
                 boostActive ? activeBg : inactiveBg, BodyText, "ViewerBoost",
                 _ => { vs.CycleBoost(); });
             x += btnW * 0.8f + pad;
+
+            // [PA] — polar alignment toggle (preview mode only). Active = currently
+            // running, gated = preconditions not satisfied (mount + site + OTA).
+            // The signal handler authoritatively re-validates before starting; this
+            // gating is purely UX so the user gets a clear "why" without a toast.
+            if (State is { } liveState && !liveState.IsRunning)
+            {
+                var polarActive = liveState.Mode == LiveSessionMode.PolarAlign;
+                var (polarEnabled, polarReason) = EvaluatePolarPreconditions(liveState);
+                var polarBg = polarActive ? new RGBAColor32(0x44, 0xaa, 0x66, 0xff)
+                    : polarEnabled ? new RGBAColor32(0x44, 0x66, 0x88, 0xff)
+                    : new RGBAColor32(0x33, 0x33, 0x3a, 0xff);
+                var polarFg = polarEnabled || polarActive ? BodyText : DimText;
+                RenderButton("PA", x, btnY, btnW * 0.8f, btnH, fontPath, btnFs,
+                    polarBg, polarFg, "PolarAlign",
+                    _ =>
+                    {
+                        if (liveState.Mode == LiveSessionMode.PolarAlign)
+                        {
+                            PostSignal(new CancelPolarAlignmentSignal());
+                        }
+                        else if (polarEnabled)
+                        {
+                            var idx = vs.SelectedCameraIndex >= 0 ? vs.SelectedCameraIndex : 0;
+                            PostSignal(new StartPolarAlignmentSignal(
+                                OtaIndex: idx,
+                                DeltaRaDeg: 60.0,
+                                UseGuider: liveState.PolarAlignUseGuider));
+                        }
+                        else
+                        {
+                            // Reflect the precondition reason into the status panel so
+                            // the user understands why the click did nothing.
+                            liveState.PolarStatusMessage = polarReason;
+                            liveState.NeedsRedraw = true;
+                        }
+                    });
+                x += btnW * 0.8f + pad;
+
+                // [G] — polar alignment source toggle: lit = use guider as capture
+                // source instead of the main OTA camera. The PA click above reads
+                // this flag so the user picks once and the choice sticks. Disabled
+                // (no flip) while the routine is already running — switching mid-run
+                // would invalidate the Phase A v1 anchor frame.
+                var guiderActive = liveState.PolarAlignUseGuider;
+                var guiderBg = guiderActive
+                    ? new RGBAColor32(0xaa, 0x88, 0x44, 0xff)
+                    : new RGBAColor32(0x2a, 0x2a, 0x35, 0xff);
+                RenderButton("G", x, btnY, btnW * 0.6f, btnH, fontPath, btnFs,
+                    guiderBg, BodyText, "PolarAlignSource",
+                    _ =>
+                    {
+                        if (!polarActive)
+                        {
+                            liveState.PolarAlignUseGuider = !liveState.PolarAlignUseGuider;
+                            liveState.NeedsRedraw = true;
+                        }
+                    });
+                x += btnW * 0.6f + pad;
+            }
 
             // OTA selector buttons (right-aligned) — works in both session and preview mode
             var otaButtonCount = State?.OtaCount ?? 0;
@@ -1578,6 +1649,12 @@ namespace TianWen.UI.Abstractions
             // Separator on left edge
             FillRect(rect.X, rect.Y, 1, rect.Height, SeparatorColor);
 
+            if (!state.IsRunning && state.Mode == LiveSessionMode.PolarAlign)
+            {
+                RenderPolarSidePanel(state, rect, fontPath, fontSize, pad, rowH);
+                return;
+            }
+
             if (!state.IsRunning)
             {
                 // Preview mode: show header + plate solve result if available
@@ -1727,6 +1804,218 @@ namespace TianWen.UI.Abstractions
             DrawText("Abort session? Press Enter to confirm, Escape to cancel", fontPath,
                 contentRect.X, stripY, contentRect.Width, stripH,
                 fontSize, AbortText, TextAlign.Center, TextAlign.Center);
+        }
+
+        // -----------------------------------------------------------------------
+        // Polar alignment: precondition gating + side panel
+        // -----------------------------------------------------------------------
+
+        /// <summary>
+        /// Surface-level precondition check for the toolbar PA button. Mirrors the
+        /// authoritative check in <c>AppSignalHandler.StartPolarAlignmentSignal</c> —
+        /// the handler re-validates and returns its own notifications so this is
+        /// purely a UX hint about whether the click will succeed.
+        /// </summary>
+        private static (bool Enabled, string Reason) EvaluatePolarPreconditions(LiveSessionState state)
+        {
+            // Routine already running -> the PA button becomes a Cancel; the caller
+            // handles that via the "active" branch. Treat as enabled here.
+            if (state.Mode == LiveSessionMode.PolarAlign)
+            {
+                return (true, "Cancel polar alignment");
+            }
+            if (state.OtaCount == 0)
+            {
+                return (false, "Polar align: no OTA configured");
+            }
+            if (string.IsNullOrEmpty(state.PreviewMountDisplayName))
+            {
+                return (false, "Polar align: connect a mount first");
+            }
+            return (true, "Start polar alignment");
+        }
+
+        /// <summary>
+        /// Side panel for polar-align mode: status pill, error needles, exposure
+        /// indicator, IsSettled / IsAligned LEDs, direction-hint badges, Cancel /
+        /// Done buttons. Replaces the right-hand exposure-log panel while
+        /// <see cref="LiveSessionMode.PolarAlign"/> is active.
+        /// </summary>
+        private void RenderPolarSidePanel(LiveSessionState state, RectF32 rect, string fontPath,
+            float fontSize, float pad, float rowH)
+        {
+            var x0 = rect.X + pad;
+            var w = rect.Width - pad * 2;
+
+            // Header — append the active capture-source so the user knows whether
+            // they are looking through the main OTA or the guider when reading errors.
+            var sourceLabel = state.PolarAlignUseGuider ? "Guider" : "Main";
+            DrawText($"Polar Alignment ({sourceLabel})", fontPath,
+                x0, rect.Y, w, rowH,
+                fontSize, HeaderText, TextAlign.Near, TextAlign.Center);
+
+            // Phase pill
+            var phaseY = rect.Y + rowH + pad;
+            var (phaseLabel, phaseColor) = state.PolarPhase switch
+            {
+                PolarAlignmentPhase.Idle => ("IDLE", DimText),
+                PolarAlignmentPhase.ProbingExposure => ("PROBING", StatusSolving),
+                PolarAlignmentPhase.Rotating => ("ROTATING", StatusSlewing),
+                PolarAlignmentPhase.Frame2 => ("FRAME 2", StatusSolving),
+                PolarAlignmentPhase.Refining => ("REFINING", StatusTracking),
+                PolarAlignmentPhase.Aligned => ("ALIGNED", new RGBAColor32(0x44, 0xff, 0x44, 0xff)),
+                PolarAlignmentPhase.RestoringMount => ("RESTORING", StatusSlewing),
+                PolarAlignmentPhase.Failed => ("FAILED", AbortBg),
+                _ => ("?", DimText)
+            };
+            FillRect(x0, phaseY, w, rowH, phaseColor);
+            DrawText(phaseLabel, fontPath,
+                x0, phaseY, w, rowH,
+                fontSize * 0.95f, BrightText, TextAlign.Center, TextAlign.Center);
+
+            var y = phaseY + rowH + pad;
+
+            // Status message
+            if (state.PolarStatusMessage is { Length: > 0 } status)
+            {
+                var statusH = rowH * 2;
+                DrawText(status, fontPath,
+                    x0, y, w, statusH,
+                    fontSize * 0.8f, BodyText, TextAlign.Near, TextAlign.Near);
+                y += statusH + pad;
+            }
+
+            // Phase A info: locked exposure + chord-angle sanity readout
+            if (state.PolarPhaseAResult is { Success: true } phaseA)
+            {
+                var lockedMs = phaseA.LockedExposure.TotalMilliseconds;
+                DrawText(
+                    $"Locked: {lockedMs:F0}ms  ({phaseA.StarsMatchedFrame1}/{phaseA.StarsMatchedFrame2} stars)",
+                    fontPath,
+                    x0, y, w, rowH,
+                    fontSize * 0.78f, DimText, TextAlign.Near, TextAlign.Center);
+                y += rowH;
+
+                var chordObsArcsec = phaseA.ChordAngleObservedRad * 180.0 / Math.PI * 3600.0;
+                var chordPredArcsec = phaseA.ChordAnglePredictedRad * 180.0 / Math.PI * 3600.0;
+                var chordDiff = Math.Abs(chordObsArcsec - chordPredArcsec);
+                var chordColor = chordDiff < 5 ? StatusTracking : chordDiff < 30 ? StatusSlewing : AbortBg;
+                DrawText($"Chord \u0394: {chordDiff:F1}\u2033", fontPath,
+                    x0, y, w, rowH,
+                    fontSize * 0.78f, chordColor, TextAlign.Near, TextAlign.Center);
+                y += rowH + pad;
+            }
+
+            // Live solve gauges (Az / Alt error needles)
+            if (state.LastPolarSolve is { } solve)
+            {
+                y = RenderPolarErrorGauges(state, solve, x0, y, w, rowH, fontPath, fontSize, pad);
+            }
+
+            // Cancel / Done buttons (bottom of panel)
+            var buttonY = rect.Y + rect.Height - rowH * 2 - pad * 2;
+            var halfW = (w - pad) / 2;
+            var canCancel = state.Mode == LiveSessionMode.PolarAlign && state.PolarPhase != PolarAlignmentPhase.Idle;
+            var canDone = state.PolarPhase == PolarAlignmentPhase.Aligned
+                || (state.PolarPhase == PolarAlignmentPhase.Refining && state.LastPolarSolve is { IsSettled: true, IsAligned: true });
+
+            RenderButton("Cancel", x0, buttonY, halfW, rowH * 1.5f,
+                fontPath, fontSize * 0.9f,
+                canCancel ? AbortBg : new RGBAColor32(0x33, 0x33, 0x3a, 0xff),
+                canCancel ? AbortText : DimText,
+                "PolarCancel",
+                _ => { if (canCancel) PostSignal(new CancelPolarAlignmentSignal()); });
+
+            RenderButton("Done", x0 + halfW + pad, buttonY, halfW, rowH * 1.5f,
+                fontPath, fontSize * 0.9f,
+                canDone ? new RGBAColor32(0x44, 0xaa, 0x66, 0xff) : new RGBAColor32(0x33, 0x33, 0x3a, 0xff),
+                canDone ? BrightText : DimText,
+                "PolarDone",
+                _ => { if (canDone) PostSignal(new DonePolarAlignmentSignal()); });
+        }
+
+        private float RenderPolarErrorGauges(
+            LiveSessionState state,
+            LiveSolveResult solve,
+            float x0, float y, float w, float rowH, string fontPath, float fontSize, float pad)
+        {
+            const double radToArcmin = 60.0 * 180.0 / Math.PI;
+            var azArcmin = solve.SmoothedAzErrorRad * radToArcmin;
+            var altArcmin = solve.SmoothedAltErrorRad * radToArcmin;
+
+            DrawText("Az error", fontPath,
+                x0, y, w, rowH,
+                fontSize * 0.8f, DimText, TextAlign.Near, TextAlign.Center);
+            y = RenderErrorBar(azArcmin, x0, y + rowH, w, rowH * 0.6f, fontPath, fontSize);
+            y += pad;
+
+            DrawText("Alt error", fontPath,
+                x0, y, w, rowH,
+                fontSize * 0.8f, DimText, TextAlign.Near, TextAlign.Center);
+            y = RenderErrorBar(altArcmin, x0, y + rowH, w, rowH * 0.6f, fontPath, fontSize);
+            y += pad;
+
+            // Direction hint badges (where to push the knobs).
+            var azHint = azArcmin >= 0 ? "\u2192 East" : "\u2190 West";
+            var altHint = altArcmin >= 0 ? "\u2191 Up" : "\u2193 Down";
+            DrawText($"Az: {azHint} {Math.Abs(azArcmin):F1}\u2032", fontPath,
+                x0, y, w, rowH,
+                fontSize * 0.85f, BodyText, TextAlign.Near, TextAlign.Center);
+            y += rowH;
+            DrawText($"Alt: {altHint} {Math.Abs(altArcmin):F1}\u2032", fontPath,
+                x0, y, w, rowH,
+                fontSize * 0.85f, BodyText, TextAlign.Near, TextAlign.Center);
+            y += rowH + pad;
+
+            // Exposure / star indicator
+            DrawText(
+                $"{solve.ExposureUsed.TotalMilliseconds:F0}ms  {solve.StarsMatched} stars"
+                + (solve.ConsecutiveFailedSolves > 0 ? $"  ({solve.ConsecutiveFailedSolves} fail)" : ""),
+                fontPath,
+                x0, y, w, rowH,
+                fontSize * 0.78f, DimText, TextAlign.Near, TextAlign.Center);
+            y += rowH;
+
+            // IsSettled / IsAligned LEDs
+            var ledY = y;
+            var ledSize = rowH * 0.6f;
+            var settledColor = solve.IsSettled ? StatusTracking : DimText;
+            var alignedColor = solve.IsAligned ? new RGBAColor32(0x44, 0xff, 0x44, 0xff) : DimText;
+            FillRect(x0, ledY + (rowH - ledSize) / 2, ledSize, ledSize, settledColor);
+            DrawText("Settled", fontPath,
+                x0 + ledSize + pad, ledY, w - ledSize - pad, rowH,
+                fontSize * 0.8f, BodyText, TextAlign.Near, TextAlign.Center);
+            ledY += rowH;
+            FillRect(x0, ledY + (rowH - ledSize) / 2, ledSize, ledSize, alignedColor);
+            DrawText("Aligned", fontPath,
+                x0 + ledSize + pad, ledY, w - ledSize - pad, rowH,
+                fontSize * 0.8f, BodyText, TextAlign.Near, TextAlign.Center);
+            return ledY + rowH;
+        }
+
+        private float RenderErrorBar(double arcmin, float x, float y, float w, float h, string fontPath, float fontSize)
+        {
+            // Centred zero-line bar; needle position scaled to a +/- 30' span (clamped).
+            FillRect(x, y, w, h, GraphBg);
+            var midX = x + w / 2;
+            FillRect(midX, y, 1, h, SeparatorColor);
+
+            const double FullScaleArcmin = 30.0;
+            var clamped = Math.Clamp(arcmin, -FullScaleArcmin, FullScaleArcmin);
+            var fraction = (float)(clamped / FullScaleArcmin);
+
+            var absArcmin = Math.Abs(arcmin);
+            var color = absArcmin < 1.0 ? StatusTracking
+                : absArcmin < 5.0 ? StatusSlewing
+                : AbortBg;
+            var needleX = midX + fraction * (w / 2);
+            var needleW = Math.Max(2f, h * 0.25f);
+            FillRect(needleX - needleW / 2, y, needleW, h, color);
+
+            DrawText($"{arcmin:+0.0;-0.0}\u2032", fontPath,
+                x, y, w, h,
+                fontSize * 0.8f, BrightText, TextAlign.Center, TextAlign.Center);
+            return y + h;
         }
     }
 }

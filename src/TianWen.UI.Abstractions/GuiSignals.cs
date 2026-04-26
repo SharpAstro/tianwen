@@ -78,10 +78,20 @@ public readonly record struct StartSessionSignal;
 /// Begin the SharpCap-style polar-alignment routine on the manually-connected
 /// mount. Switches the live view into <see cref="LiveSessionMode.PolarAlign"/>.
 /// </summary>
-/// <param name="OtaIndex">Which OTA's camera to use as the capture source. Defaults
-/// to the auto-pick from <c>CaptureSourceRanker</c> when -1.</param>
+/// <param name="OtaIndex">Which OTA's camera to use as the capture source when
+/// <paramref name="UseGuider"/> is false. Defaults to the auto-pick from
+/// <c>CaptureSourceRanker</c> when -1. Ignored when <paramref name="UseGuider"/>
+/// is true.</param>
 /// <param name="DeltaRaDeg">RA-axis rotation angle in degrees (typically 60 or 90).</param>
-public readonly record struct StartPolarAlignmentSignal(int OtaIndex = -1, double DeltaRaDeg = 60.0);
+/// <param name="UseGuider">If true, use the connected guider (built-in or PHD2)
+/// as the capture source instead of the main camera. PHD2 requires <c>Save Images</c>
+/// to be enabled in its profile — failure to find a saved frame surfaces as a
+/// failure reason on Phase A. Selected by the user via a separate UI toggle so
+/// the choice is explicit; the auto-ranker remains a future enhancement.</param>
+public readonly record struct StartPolarAlignmentSignal(
+    int OtaIndex = -1,
+    double DeltaRaDeg = 60.0,
+    bool UseGuider = false);
 
 /// <summary>
 /// Cancel an in-flight polar-alignment routine. The orchestrator's reverse-axis

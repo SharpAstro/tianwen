@@ -81,7 +81,10 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
             var probe = await AdaptiveExposureRamp.ProbeAsync(_source, _solver, _config.ExposureRamp, _config.MinStarsForSolve, ct);
             if (!probe.Success)
             {
-                return Failed($"Plate solve failed at every exposure rung up to {_config.ExposureRamp[^1].TotalSeconds:F1}s — check focus, dew, light pollution.");
+                // Source-supplied reason (e.g. "PHD2 Save Images disabled") wins over the
+                // generic "no solve at any rung" message — the user gets actionable text.
+                return Failed(probe.FailureReason
+                    ?? $"Plate solve failed at every exposure rung up to {_config.ExposureRamp[^1].TotalSeconds:F1}s — check focus, dew, light pollution.");
             }
             _v1 = probe.WcsCenter;
             _lockedExposureSeconds = probe.ExposureUsed.TotalSeconds;
@@ -139,7 +142,8 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
             if (!frame2.Success)
             {
                 _phaseACompleted = true; // record so reverse-restore still runs
-                return Failed($"Frame 2 plate solve failed after {maxFrame2Attempts} attempts at locked exposure {probe.ExposureUsed.TotalMilliseconds:F0}ms — check that the mount has settled and stars are still in frame.");
+                return Failed(frame2.FailureReason
+                    ?? $"Frame 2 plate solve failed after {maxFrame2Attempts} attempts at locked exposure {probe.ExposureUsed.TotalMilliseconds:F0}ms — check that the mount has settled and stars are still in frame.");
             }
 
             // --- Recover axis + decompose against apparent pole ---
@@ -237,6 +241,30 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
                 int failedRun = consecutiveFailures;
                 consecutiveFailures = 0; // reset on success
 
+                // Populate the overlay so the GUI can render pole crosses, rings, and
+                // axis marker via the generic WcsAnnotationLayer without re-doing any
+                // SOFA math. Refraction-corrected pole position is *not* yet recovered
+                // here (would require inverse SOFA topo->J2000); v1 reuses the true
+                // pole as the ring centre, which superimposes the two crosses but
+                // keeps the gauges (which use the refraction-aware az/alt errors)
+                // numerically correct. Phase 4 polish.
+                double trueRa = 0.0;
+                double trueDec = _hemisphere == Hemisphere.North ? 90.0 : -90.0;
+                var (axisRa, axisDec) = PolarAxisSolver.UnitVecToRaDec(axis);
+                var azArcmin = azErr * 180.0 / Math.PI * 60.0;
+                var altArcmin = altErr * 180.0 / Math.PI * 60.0;
+                var overlay = new PolarOverlay(
+                    TruePoleRaHours: trueRa,
+                    TruePoleDecDeg: trueDec,
+                    RefractedPoleRaHours: trueRa,
+                    RefractedPoleDecDeg: trueDec,
+                    AxisRaHours: axisRa,
+                    AxisDecDeg: axisDec,
+                    RingRadiiArcmin: System.Collections.Immutable.ImmutableArray.Create(5f, 15f, 30f),
+                    AzErrorArcmin: azArcmin,
+                    AltErrorArcmin: altArcmin,
+                    Hemisphere: _hemisphere);
+
                 yield return new LiveSolveResult(
                     StarsMatched: solve.StarsMatched,
                     ExposureUsed: solve.ExposureUsed,
@@ -249,7 +277,7 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
                     IsAligned: isAligned,
                     ConsecutiveFailedSolves: failedRun,
                     AxisJ2000: axis,
-                    Overlay: null); // overlay pixel projection is the GUI's responsibility
+                    Overlay: overlay);
             }
         }
 

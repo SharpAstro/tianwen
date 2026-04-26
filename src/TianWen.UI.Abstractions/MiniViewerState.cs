@@ -1,4 +1,5 @@
 using TianWen.Lib.Imaging;
+using TianWen.UI.Abstractions.Overlays;
 
 namespace TianWen.UI.Abstractions;
 
@@ -7,6 +8,16 @@ namespace TianWen.UI.Abstractions;
 /// </summary>
 public sealed class MiniViewerState
 {
+    /// <summary>
+    /// Caller-driven sky-position annotations rendered through the live frame's WCS.
+    /// Reset to <see cref="WcsAnnotation.Empty"/> when the consumer (polar alignment,
+    /// plate-solve overlay, mosaic composer) is no longer interested. Mirrors the
+    /// <see cref="Overlays.WcsAnnotation"/> primitive on <see cref="ImageRendererBase{TSurface}.Annotation"/>;
+    /// the viewer pipeline reads it each frame and projects markers + rings via the
+    /// active <see cref="Lib.Astrometry.WCS"/>.
+    /// </summary>
+    public WcsAnnotation Annotation { get; set; } = WcsAnnotation.Empty;
+
     /// <summary>Which camera index to display (0-based). -1 = auto (first available).</summary>
     public int SelectedCameraIndex { get; set; } = -1;
 
