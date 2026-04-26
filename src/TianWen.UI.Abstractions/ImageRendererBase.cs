@@ -97,6 +97,15 @@ namespace TianWen.UI.Abstractions
         /// </summary>
         public DotNext.Threading.AsyncLazy<ICelestialObjectDB>? CelestialObjectDB { get; set; }
 
+        /// <summary>
+        /// Caller-driven sky-position annotations rendered through the active WCS.
+        /// Defaults to <see cref="WcsAnnotation.Empty"/>; consumers (polar-alignment
+        /// mode, mosaic composer, plate-solve verification, etc.) push annotations
+        /// in to overlay markers + rings on the live frame. Reset to
+        /// <see cref="WcsAnnotation.Empty"/> when the consumer is done.
+        /// </summary>
+        public WcsAnnotation Annotation { get; set; } = WcsAnnotation.Empty;
+
         // -----------------------------------------------------------------------
         // Base layout constants (at 1x scale)
         // -----------------------------------------------------------------------
@@ -359,6 +368,14 @@ namespace TianWen.UI.Abstractions
             if (state.ShowOverlays && document?.Wcs is { HasCDMatrix: true } overlayWcs && CelestialObjectDB?.Value?.Value is { } db)
             {
                 RenderOverlays(state, overlayWcs, db);
+            }
+
+            // Caller-driven sky annotations (polar alignment, plate-solve verification,
+            // target markers, mosaic panel boundaries...). Generic primitive — the
+            // renderer doesn't know what the markers represent.
+            if (!Annotation.IsEmpty && document?.Wcs is { HasCDMatrix: true } annotationWcs)
+            {
+                RenderWcsAnnotation(state, annotationWcs);
             }
 
             if (state.ShowHistogram && document is not null)
@@ -1063,6 +1080,98 @@ namespace TianWen.UI.Abstractions
                     var (r, g, b) = item.Color;
                     DrawOverlayLabelLines(item.LabelLines, lx, ly, lineH, labelSize, r, g, b);
                 });
+        }
+
+        /// <summary>
+        /// Render the caller-supplied <see cref="WcsAnnotation"/> through the active
+        /// WCS using the renderer's existing primitives. Generic — knows nothing
+        /// about polar alignment, plate-solve verification, etc.; just iterates the
+        /// annotation list, projects each item via <see cref="WcsAnnotationLayer"/>,
+        /// dispatches to <see cref="DrawCrossOverlay"/> or
+        /// <see cref="DrawEllipseOverlay"/>.
+        /// </summary>
+        private void RenderWcsAnnotation(ViewerState state, WCS wcs)
+        {
+            if (ImageWidth <= 0 || ImageHeight <= 0) return;
+
+            var fileListW = state.ShowFileList ? FileListWidth : 0;
+            var panelW = state.ShowInfoPanel ? InfoPanelWidth : 0;
+            var areaW = (float)(Width - fileListW - panelW);
+            var areaH = (float)(Height - ToolbarHeight - StatusBarHeight);
+
+            var layout = new ViewportLayout(
+                WindowWidth: Width,
+                WindowHeight: Height,
+                ImageWidth: ImageWidth,
+                ImageHeight: ImageHeight,
+                Zoom: state.Zoom,
+                PanOffset: state.PanOffset,
+                AreaLeft: fileListW,
+                AreaTop: ToolbarHeight,
+                AreaWidth: areaW,
+                AreaHeight: areaH,
+                DpiScale: DpiScale);
+
+            var labelSize = FontSize * 0.85f;
+            var labelPad = 4f;
+
+            // Rings drawn first so marker glyphs draw on top of them.
+            if (!Annotation.Rings.IsDefaultOrEmpty)
+            {
+                foreach (var ring in Annotation.Rings)
+                {
+                    if (WcsAnnotationLayer.ProjectRing(ring, wcs, layout) is not { } placement) continue;
+                    if (placement.RadiusScreenPx < 1f) continue;
+                    DrawEllipseOverlay(placement.ScreenX, placement.ScreenY,
+                        placement.RadiusScreenPx, placement.RadiusScreenPx, 0f,
+                        ring.Color, thickness: 1.5f);
+                    if (!string.IsNullOrEmpty(ring.Label))
+                    {
+                        DrawText(ring.Label,
+                            placement.ScreenX + placement.RadiusScreenPx + labelPad,
+                            placement.ScreenY - labelSize * 0.5f,
+                            labelSize,
+                            ring.Color.Red / 255f, ring.Color.Green / 255f, ring.Color.Blue / 255f);
+                    }
+                }
+            }
+
+            if (!Annotation.Markers.IsDefaultOrEmpty)
+            {
+                foreach (var marker in Annotation.Markers)
+                {
+                    if (WcsAnnotationLayer.ProjectMarker(marker, wcs, layout) is not { } placement) continue;
+
+                    switch (marker.Glyph)
+                    {
+                        case SkyMarkerGlyph.Cross:
+                            DrawCrossOverlay(placement.ScreenX, placement.ScreenY, marker.SizePx, marker.Color);
+                            break;
+                        case SkyMarkerGlyph.Dot:
+                            DrawEllipseOverlay(placement.ScreenX, placement.ScreenY,
+                                marker.SizePx, marker.SizePx, 0f, marker.Color, thickness: 0f);
+                            break;
+                        case SkyMarkerGlyph.Circle:
+                            DrawEllipseOverlay(placement.ScreenX, placement.ScreenY,
+                                marker.SizePx, marker.SizePx, 0f, marker.Color, thickness: 1.5f);
+                            break;
+                        case SkyMarkerGlyph.CircledCross:
+                            DrawEllipseOverlay(placement.ScreenX, placement.ScreenY,
+                                marker.SizePx, marker.SizePx, 0f, marker.Color, thickness: 1.5f);
+                            DrawCrossOverlay(placement.ScreenX, placement.ScreenY, marker.SizePx * 0.6f, marker.Color);
+                            break;
+                    }
+
+                    if (!string.IsNullOrEmpty(marker.Label))
+                    {
+                        DrawText(marker.Label,
+                            placement.ScreenX + marker.SizePx + labelPad,
+                            placement.ScreenY - labelSize * 0.5f,
+                            labelSize,
+                            marker.Color.Red / 255f, marker.Color.Green / 255f, marker.Color.Blue / 255f);
+                    }
+                }
+            }
         }
 
         private void DrawOverlayLabelLines(IReadOnlyList<string> lines, float x, float y, float lineH, float fontSize, float r, float g, float b)
