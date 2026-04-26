@@ -40,7 +40,14 @@ The polar-alignment tab/action is **only enabled** when:
       reference stars and more refraction-resilient at low pole altitudes.
    4. Tie-break: prefer **main camera** over guider (no PHD2 RPC latency,
       no `Save Images` configuration dependency).
-   5. UI surfaces the chosen source and the runner-up; user can override.
+   5. **UI integration: reuse the live-view OTA selector**
+      (`SelectedCameraIndex` on the viewer state, drawn as the
+      `#1`/`#2`/... buttons at `LiveSessionTab.cs:270-284`). The ranker
+      provides the *initial default* selection when the polar-alignment
+      panel opens; clicking a different OTA button rebinds the routine to
+      that camera. No separate dropdown — one OTA-selection control across
+      the entire live view. The runner-up is still displayed in the
+      polar-alignment panel header as a hint ("auto-pick: #1, runner-up: #2").
 5. **Mount can slew freely** in RA — no tracking-only mounts; we need at
    minimum a `BeginSlewToCoordinatesAsync` to apply the calibration delta.
 
