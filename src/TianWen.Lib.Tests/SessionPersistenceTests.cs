@@ -55,7 +55,6 @@ public class SessionPersistenceTests(ITestOutputHelper output)
                 DitherEveryNthFrame: 7,
                 SettleTime: TimeSpan.FromSeconds(15),
                 GuidingTries: 5,
-                MeasureBacklashIfUnknown: false,
                 AutoFocusRange: 300,
                 AutoFocusStepCount: 11,
                 FocusDriftThreshold: 1.15f,
@@ -88,7 +87,6 @@ public class SessionPersistenceTests(ITestOutputHelper output)
         c.DitherEveryNthFrame.ShouldBe(7);
         c.SettleTime.ShouldBe(TimeSpan.FromSeconds(15));
         c.GuidingTries.ShouldBe(5);
-        c.MeasureBacklashIfUnknown.ShouldBeFalse();
         c.AutoFocusRange.ShouldBe(300);
         c.AutoFocusStepCount.ShouldBe(11);
         c.FocusDriftThreshold.ShouldBe(1.15f);

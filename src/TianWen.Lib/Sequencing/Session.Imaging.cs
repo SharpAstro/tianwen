@@ -932,9 +932,10 @@ internal partial record Session
                 _logger.LogInformation("Telescope #{TelescopeNumber}: applying focus offset {Delta} steps for filter {Filter} (pos {From} -> {To}).",
                     telescopeIndex + 1, delta, targetFilter.Filter, currentFocusPos, targetFocusPos);
 
+                var (filterBacklashIn, filterBacklashOut) = GetEffectiveBacklash(focuserDriver);
                 await BacklashCompensation.MoveWithCompensationAsync(
                     focuserDriver, targetFocusPos, currentFocusPos,
-                    focuserDriver.BacklashStepsIn, focuserDriver.BacklashStepsOut,
+                    filterBacklashIn, filterBacklashOut,
                     telescope.FocusDirection, _timeProvider, cancellationToken);
             }
         }

@@ -1825,6 +1825,29 @@ namespace TianWen.UI.Abstractions
                         {
                             liveSessionState.IsRunning = false;
                             liveSessionState.NeedsRedraw = true;
+
+                            // Mirror per-focuser backlash EWMAs back into the active profile's
+                            // focuser URIs so the next session bootstraps from last night's value.
+                            // The Session sidecar (BacklashHistory) keeps the same data with sample
+                            // count + timestamp; the URI mirror is so drivers can read it on connect
+                            // without going through the Session.
+                            try
+                            {
+                                if (appState.ActiveProfile is { } activeProfile)
+                                {
+                                    var updated = await EquipmentActions.SaveBacklashEstimatesIfChangedAsync(
+                                        session, activeProfile, external, CancellationToken.None);
+                                    if (!ReferenceEquals(updated, activeProfile))
+                                    {
+                                        appState.ActiveProfile = updated;
+                                    }
+                                }
+                            }
+                            catch (Exception ex)
+                            {
+                                logger.LogWarning(ex, "Failed to mirror backlash estimates into profile at session end");
+                            }
+
                             var (phaseMsg, phaseSeverity) = liveSessionState.Phase switch
                             {
                                 SessionPhase.Complete => ("Session complete", NotificationSeverity.Info),

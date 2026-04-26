@@ -2,6 +2,7 @@ using System;
 using System.Collections.Immutable;
 using System.Threading;
 using System.Threading.Tasks;
+using TianWen.Lib.Astrometry.Focus;
 using TianWen.Lib.Devices.Guider;
 using TianWen.Lib.Imaging;
 
@@ -93,6 +94,15 @@ public interface ISession : IAsyncDisposable
 
     /// <summary>Per-camera latest frame metrics (star count, HFD, FWHM). One per OTA.</summary>
     FrameMetrics[] LastFrameMetrics { get; }
+
+    /// <summary>
+    /// Snapshot of inferred backlash EWMA per focuser, keyed by the focuser device URI.
+    /// Updated opportunistically by AutoFocusAsync via <see cref="BacklashEstimator.InferFromVerification"/>.
+    /// Consumers (UI / hosting) read this on session end and mirror the values back into
+    /// the focuser URI on the active profile so drivers seed from it on the next connect.
+    /// Empty until the first AutoFocus run produces a high-confidence sample.
+    /// </summary>
+    ImmutableDictionary<Uri, BacklashEstimateRecord> FocuserBacklashEstimates { get; }
 
     /// <summary>
     /// Path to the most recently written FITS file, or null if no frames written yet.

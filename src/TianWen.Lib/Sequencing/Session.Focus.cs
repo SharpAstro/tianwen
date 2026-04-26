@@ -16,6 +16,158 @@ namespace TianWen.Lib.Sequencing;
 internal partial record Session
 {
     /// <summary>
+    /// Returns the per-direction backlash to use for the next BacklashCompensation move.
+    /// Prefers the per-focuser EWMA (sized by <see cref="BACKLASH_OVERSHOOT_SAFETY"/>) once
+    /// we have at least one inferred sample; otherwise falls back to whatever the driver
+    /// reports (URI seed). Negative driver values fall through to a generous default
+    /// derived from AutoFocusRange so day-one moves still overshoot enough.
+    /// </summary>
+    private (int In, int Out) GetEffectiveBacklash(IFocuserDriver focuser)
+    {
+        // Default seed if neither EWMA nor URI provides a usable value: 2 V-curve step-sizes,
+        // generous enough to mask typical SCT mirror flop on the first run.
+        var defaultSeed = Math.Max(20, 2 * Configuration.AutoFocusRange / Math.Max(2, Configuration.AutoFocusStepCount - 1));
+
+        var hasEwma = _focuserBacklashEstimates.TryGetValue(focuser, out var ewma);
+
+        int Apply(int driverValue, int ewmaValue)
+        {
+            if (hasEwma && ewmaValue > 0)
+            {
+                return (int)Math.Round(ewmaValue * BACKLASH_OVERSHOOT_SAFETY);
+            }
+            return driverValue >= 0 ? driverValue : defaultSeed;
+        }
+
+        return (Apply(focuser.BacklashStepsIn, ewma?.EwmaIn ?? 0),
+                Apply(focuser.BacklashStepsOut, ewma?.EwmaOut ?? 0));
+    }
+
+    /// <summary>
+    /// Loads the persisted backlash EWMA for <paramref name="focuser"/> from the sidecar
+    /// JSON if we haven't already this session. Idempotent and cheap on the hot path —
+    /// guarded by <see cref="_focuserBacklashLoaded"/>.
+    /// </summary>
+    private async ValueTask LoadBacklashHistoryIfNeededAsync(IFocuserDriver focuser, DeviceBase focuserDevice, CancellationToken cancellationToken)
+    {
+        if (!_focuserBacklashLoaded.TryAdd(focuser, true))
+        {
+            return;
+        }
+
+        var loaded = await BacklashHistoryPersistence.TryLoadAsync(External, focuserDevice.DeviceId, cancellationToken);
+        if (loaded is not null)
+        {
+            _focuserBacklashEstimates[focuser] = loaded;
+            _logger.LogInformation(
+                "Backlash history loaded for focuser {FocuserId}: ewma in={EwmaIn} out={EwmaOut}, samples={Samples}, last updated {LastUpdated:O}.",
+                focuserDevice.DeviceId, loaded.EwmaIn, loaded.EwmaOut, loaded.Samples, loaded.LastUpdatedUtc);
+        }
+    }
+
+    /// <summary>
+    /// Returns the overshoot magnitude (one direction) that <see cref="BacklashCompensation.MoveWithCompensationAsync"/>
+    /// would apply for a move from <paramref name="currentPos"/> to <paramref name="targetPos"/>.
+    /// Returns 0 when the move is in the preferred direction (no overshoot performed).
+    /// </summary>
+    private static int ComputeOvershootForMove(int currentPos, int targetPos, int backlashIn, int backlashOut, FocusDirection focusDir)
+    {
+        if (targetPos == currentPos)
+        {
+            return 0;
+        }
+        var movingPositive = targetPos > currentPos;
+        var approachingFromPreferred = movingPositive == focusDir.PreferredDirectionIsPositive;
+        if (approachingFromPreferred)
+        {
+            return 0;
+        }
+        return movingPositive ? backlashOut : backlashIn;
+    }
+
+    /// <summary>
+    /// Runs <see cref="BacklashEstimator.InferFromVerification"/> against the verification
+    /// exposure HFD and folds the result into the per-focuser EWMA. Skips low-confidence
+    /// samples (HFD too close to predicted minimum) so a clean focus run doesn't drift the
+    /// estimate. Persists the updated EWMA to the sidecar JSON so the next session bootstraps
+    /// from the same value.
+    /// </summary>
+    private async ValueTask UpdateBacklashEstimateFromVerificationAsync(
+        IFocuserDriver focuser,
+        DeviceBase focuserDevice,
+        FocusSolution solution,
+        int bestPos,
+        int currentPosBeforeMove,
+        double verifyHfd,
+        int overshootUsed,
+        FocusDirection focusDir,
+        int telescopeIndex,
+        CancellationToken cancellationToken)
+    {
+        // Minimum confidence below which we treat the inference as noise and skip the EWMA update.
+        const float MinConfidence = 0.3f;
+
+        var (bInferred, confidence, mechanicalPos) = BacklashEstimator.InferFromVerification(
+            solution, bestPos, verifyHfd, overshootUsed, focusDir);
+
+        if (bInferred is null)
+        {
+            // Either no overshoot was performed (final move was direct) or verification was at the
+            // hyperbola minimum (overshoot was sufficient — no usable signal but a healthy outcome).
+            return;
+        }
+
+        if (confidence < MinConfidence)
+        {
+            _logger.LogDebug("Auto-focus telescope #{TelescopeNumber}: backlash inference {B} steps with low confidence {Confidence:F2} — skipping EWMA update.",
+                telescopeIndex + 1, bInferred.Value, confidence);
+            return;
+        }
+
+        // Determine which direction this measurement applies to. The overshoot only ran on
+        // the non-preferred-direction move; whether that move was "in" or "out" is what
+        // tells us which of the two backlash values we just measured. The other direction's
+        // EWMA is preserved.
+        var movingPositive = bestPos > currentPosBeforeMove;
+        var measuredIn = !movingPositive;
+
+        var prior = _focuserBacklashEstimates.GetValueOrDefault(focuser);
+        var samples = prior?.Samples ?? 0;
+
+        var updatedIn = measuredIn
+            ? BacklashEstimator.UpdateEwma(prior?.EwmaIn ?? 0, bInferred.Value, samples)
+            : prior?.EwmaIn ?? 0;
+        var updatedOut = !measuredIn
+            ? BacklashEstimator.UpdateEwma(prior?.EwmaOut ?? 0, bInferred.Value, samples)
+            : prior?.EwmaOut ?? 0;
+
+        var record = new BacklashEstimateRecord(
+            EwmaIn: updatedIn,
+            EwmaOut: updatedOut,
+            Samples: samples + 1,
+            LastUpdatedUtc: _timeProvider.GetUtcNow());
+
+        _focuserBacklashEstimates[focuser] = record;
+
+        _logger.LogInformation(
+            "Auto-focus telescope #{TelescopeNumber}: backlash inferred={Inferred} steps {Direction} (mechanical pos={Mech:F0}, overshoot used={Overshoot}, confidence={Confidence:F2}); EWMA in={EwmaIn} out={EwmaOut} after {Samples} samples; next overshoot in={NextIn} out={NextOut}.",
+            telescopeIndex + 1, bInferred.Value, measuredIn ? "in" : "out", mechanicalPos, overshootUsed, confidence,
+            updatedIn, updatedOut, record.Samples,
+            (int)Math.Round(updatedIn * BACKLASH_OVERSHOOT_SAFETY),
+            (int)Math.Round(updatedOut * BACKLASH_OVERSHOOT_SAFETY));
+
+        // Persist async — don't fail the focus run if the disk write blows up.
+        try
+        {
+            await BacklashHistoryPersistence.SaveAsync(External, focuserDevice.DeviceId, record, cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogWarning(ex, "Failed to persist backlash history for focuser {FocuserId}; in-memory EWMA still updated.", focuserDevice.DeviceId);
+        }
+    }
+
+    /// <summary>
     /// Rough focus in this context is defined as: at least 15 stars can be detected by plate-solving when doing a short, high-gain exposure.
     /// Assumes that zenith is visible, which should hopefully be the default for most setups.
     /// </summary>
@@ -358,6 +510,11 @@ internal partial record Session
 
         var autoFocusExposure = TimeSpan.FromSeconds(2);
         var currentGain = await camera.GetGainAsync(cancellationToken);
+
+        // Bootstrap per-focuser EWMA from disk on first encounter so the very first move
+        // of the session uses last-night's overshoot estimate, not the URI seed.
+        await LoadBacklashHistoryIfNeededAsync(focuser, telescope.Focuser!.Device, cancellationToken);
+
         var currentPos = await ResilientInvokeAsync(
             focuser, focuser.GetPositionAsync,
             ResilientCallOptions.IdempotentRead, cancellationToken);
@@ -374,8 +531,9 @@ internal partial record Session
 
         // Move to start position with backlash compensation
         var focusDir = telescope.FocusDirection;
+        var (backlashIn, backlashOut) = GetEffectiveBacklash(focuser);
         await BacklashCompensation.MoveWithCompensationAsync(
-            focuser, startPos, currentPos, focuser.BacklashStepsIn, focuser.BacklashStepsOut, focusDir, _timeProvider, cancellationToken);
+            focuser, startPos, currentPos, backlashIn, backlashOut, focusDir, _timeProvider, cancellationToken);
 
         // Scan from start to end (always moving outward — no backlash needed)
         for (var i = 0; i < stepCount && !cancellationToken.IsCancellationRequested; i++)
@@ -519,8 +677,10 @@ internal partial record Session
             _logger.LogInformation("Auto-focus telescope #{TelescopeNumber}: best focus at position {BestFocus} (A={A:F2}, B={B:F2}, error={Error:F4}).",
                 telescopeIndex + 1, bestPos, solution.Value.A, solution.Value.B, solution.Value.Error);
 
+            var (effBacklashIn, effBacklashOut) = GetEffectiveBacklash(focuser);
+            var overshootUsed = ComputeOvershootForMove(currentPosNow, bestPos, effBacklashIn, effBacklashOut, focusDir);
             await BacklashCompensation.MoveWithCompensationAsync(
-                focuser, bestPos, currentPosNow, focuser.BacklashStepsIn, focuser.BacklashStepsOut, focusDir, _timeProvider, cancellationToken);
+                focuser, bestPos, currentPosNow, effBacklashIn, effBacklashOut, focusDir, _timeProvider, cancellationToken);
 
             // Take a verification exposure at best focus to get baseline HFD
             camera.FocusPosition = bestPos;
@@ -560,6 +720,11 @@ internal partial record Session
                         _logger.LogWarning("Auto-focus telescope #{TelescopeNumber}: verification HFD is {Ratio:F0}% worse than expected, focus result may be unreliable.",
                             telescopeIndex + 1, (hfdRatio - 1) * 100);
                     }
+
+                    await UpdateBacklashEstimateFromVerificationAsync(
+                        focuser, telescope.Focuser!.Device, solution.Value,
+                        bestPos, currentPosNow, baseline.MedianHfd, overshootUsed, focusDir, telescopeIndex,
+                        cancellationToken);
 
                     AppendFocusRunRecord(telescopeIndex, telescope, filterWheelDriver, preFocusFilterPosition, bestPos, baseline.MedianHfd, sampleMap, solution.Value.A, solution.Value.B);
                     return (true, baseline);

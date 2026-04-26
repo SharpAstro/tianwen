@@ -318,6 +318,19 @@ doc comments for full details.
 - Refractive + non-zero offsets: focus on luminance, apply delta via `BacklashCompensation`
 - Refractive + no offsets: focus directly on the scheduled filter
 
+**Backlash auto-tuning**: every successful AutoFocus opportunistically infers per-direction
+backlash from the verification exposure (no separate measurement routine — based on the
+cloudynights "no need to measure backlash, just overshoot enough" approach). The hyperbola
+fit predicts the HFD at `bestPos`; the verification frame measures actual HFD at the
+mechanical position the focuser actually landed on. Inverting the fit (`Hyperbola.StepsToFocus`)
+gives the lag, and `B = currentOvershoot + lag`. Per-focuser EWMA (α=0.3) is sized to
+`B × 1.5` for the next overshoot. State persists to `Profiles/BacklashHistory/<focuserDeviceId>.json`
+(EWMA + sample count + timestamp) and the rounded values mirror back to the focuser URI's
+`focuserBacklashIn` / `focuserBacklashOut` query keys at session-end so drivers seed from
+them on the next connect. Wire-up: `BacklashEstimator`, `BacklashHistoryPersistence`,
+`Session.Focus.GetEffectiveBacklash` / `UpdateBacklashEstimateFromVerificationAsync`,
+`EquipmentActions.SaveBacklashEstimatesIfChangedAsync`.
+
 ### Mosaic Support
 
 `MosaicGenerator` computes panel grids with configurable overlap/margin. Panels ordered by

@@ -233,11 +233,6 @@ namespace TianWen.UI.Abstractions
                         c => FormatNullableTimeSpan(c.ConditionRecoveryTimeout),
                         c => c with { ConditionRecoveryTimeout = StepNullableTimeSpan(c.ConditionRecoveryTimeout, TimeSpan.FromMinutes(5), TimeSpan.FromMinutes(15), true) },
                         c => c with { ConditionRecoveryTimeout = StepNullableTimeSpan(c.ConditionRecoveryTimeout, TimeSpan.FromMinutes(5), TimeSpan.FromMinutes(15), false) }),
-                    new ConfigFieldDescriptor(
-                        "Meas. Backlash", ConfigFieldKind.BoolToggle, "",
-                        c => c.MeasureBacklashIfUnknown ? "ON" : "OFF",
-                        c => c with { MeasureBacklashIfUnknown = !c.MeasureBacklashIfUnknown },
-                        c => c with { MeasureBacklashIfUnknown = !c.MeasureBacklashIfUnknown }),
                 ]),
             ];
         }

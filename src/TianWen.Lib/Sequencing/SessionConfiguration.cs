@@ -15,7 +15,6 @@ public record struct SessionConfiguration(
     int GuidingTries,
     double SiteLatitude = double.NaN,
     double SiteLongitude = double.NaN,
-    bool MeasureBacklashIfUnknown = true,
     int AutoFocusRange = 200,
     int AutoFocusStepCount = 9,
     float FocusDriftThreshold = 1.07f,

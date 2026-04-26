@@ -116,5 +116,36 @@ public static class DeviceQueryKeyExtensions
     extension(Uri uri)
     {
         public string? QueryValue(DeviceQueryKey key) => HttpUtility.ParseQueryString(uri.Query)[key.Key];
+
+        /// <summary>
+        /// Returns a copy of <paramref name="uri"/> with the given query keys upserted (added when
+        /// missing, replaced when present). Other query keys are preserved unchanged. Pass
+        /// <c>null</c> as a value to remove the key. Useful for writing back driver-discovered
+        /// or session-inferred state (filter focus offsets, backlash estimates, ...) without
+        /// disturbing user-edited keys on the same URI.
+        /// </summary>
+        public Uri WithQueryValues(params ReadOnlySpan<(string Key, string? Value)> updates)
+        {
+            if (updates.Length == 0)
+            {
+                return uri;
+            }
+
+            var query = HttpUtility.ParseQueryString(uri.Query);
+            foreach (var (key, value) in updates)
+            {
+                if (value is null)
+                {
+                    query.Remove(key);
+                }
+                else
+                {
+                    query[key] = value;
+                }
+            }
+
+            var builder = new UriBuilder(uri) { Query = query.ToQueryString() };
+            return builder.Uri;
+        }
     }
 }

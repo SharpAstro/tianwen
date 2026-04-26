@@ -6,6 +6,7 @@ using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Threading;
 using System.Threading.Tasks;
+using TianWen.Lib.Astrometry.Focus;
 using TianWen.Lib.Astrometry.PlateSolve;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Devices.Guider;
@@ -51,6 +52,21 @@ internal partial record Session(
     private readonly ConcurrentDictionary<IDeviceDriver, int> _consecutivePollFailures = new();
     private const int PROACTIVE_RECONNECT_THRESHOLD = 3;
 
+    // Per-focuser EWMA of inferred backlash (in steps), measured opportunistically
+    // from the verification exposure that AutoFocus already takes. Updated by
+    // BacklashEstimator after each successful AutoFocus run; consumed by
+    // GetEffectiveBacklash to size overshoot on the next BacklashCompensation move.
+    // Sample count gates over-confidence on the first noisy night.
+    // Bootstrapped from BacklashHistoryPersistence on first encounter; persisted back
+    // to the sidecar JSON after every EWMA update. The actual values also flow back to
+    // the focuser URI at session end via the snapshot exposed on ISession.
+    private readonly ConcurrentDictionary<IFocuserDriver, BacklashEstimateRecord> _focuserBacklashEstimates = new();
+    private readonly ConcurrentDictionary<IFocuserDriver, bool> _focuserBacklashLoaded = new();
+
+    // Safety multiplier on the EWMA to size the overshoot — stay comfortably above
+    // the estimate so a slightly-noisy sample doesn't produce a wing on the next run.
+    private const double BACKLASH_OVERSHOOT_SAFETY = 1.5;
+
     // --- Observable session surface ---
     private volatile SessionPhase _phase;
     private volatile string? _currentActivity;
@@ -85,6 +101,26 @@ internal partial record Session(
 
     public FrameMetrics[] LastFrameMetrics => _lastFrameMetrics;
     private FrameMetrics[] _lastFrameMetrics = [];
+
+    public ImmutableDictionary<Uri, BacklashEstimateRecord> FocuserBacklashEstimates
+    {
+        get
+        {
+            // Build a URI-keyed snapshot from the driver-keyed dictionary by walking the Setup.
+            // Setup is small (≤ a few telescopes); this is only called at session-end so the
+            // O(N) walk is fine vs. carrying a parallel URI-keyed dictionary on every update.
+            var builder = ImmutableDictionary.CreateBuilder<Uri, BacklashEstimateRecord>();
+            foreach (var telescope in Setup.Telescopes)
+            {
+                if (telescope.Focuser is { Driver: { } driver, Device: { } device }
+                    && _focuserBacklashEstimates.TryGetValue(driver, out var record))
+                {
+                    builder[device.DeviceUri] = record;
+                }
+            }
+            return builder.ToImmutable();
+        }
+    }
 
     /// <summary>Per-camera frame metrics history for drift detection regression. Last N results per OTA.</summary>
     internal CircularBuffer<FrameMetrics>[] FrameMetricsHistory => _frameMetricsHistory;
