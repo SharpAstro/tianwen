@@ -310,21 +310,82 @@ move the marker into the bullseye.
    "Az: ← 4'12"" so the user knows which knob to turn even when the
    marker is off-frame. See "Correction buttons / direction hints" below.
 
-**Re-using TianWen's WCS grid pipeline**. The fragment-shader-based WCS
-grid overlay (`WcsGridOverlay`, see CLAUDE.md "FITS Viewer / GPU Stretch"
-— "WCS coordinate grid overlay rendered in the fragment shader with
-per-pixel TAN deprojection") already has everything needed: per-pixel
-sky-coord lookup, line-list rendering, label placement. The polar overlay
-extends it with one new mode `WcsGridMode.PolarAlignment` that:
-- Suppresses the normal RA/Dec grid lines.
-- Draws great-circle small-radius rings around `P_apparent` at the
-  configured radii — same geometry as a parallel of declination, but
-  centred on `P_apparent` instead of the J2000 pole.
-- Draws the four pole/axis markers via a tiny additional vertex/index
-  buffer, each as a 12 px screen-space cross+label.
+**Generic WCS annotation primitive — not a polar-specific shader mode**.
+The shader extension we add for polar alignment is a *general-purpose
+sky-annotation layer* that lives alongside the existing WCS grid in
+`VkImageRenderer`, useful far beyond this routine:
 
-No new shader pipeline needed; we add ring-radius and pole-position
-uniforms to the existing grid UBO.
+- **FITS viewer**: highlight plate-solve catalog matches as crosses,
+  draw a search-radius ring around a clicked target, mark the frame
+  centre and known asterisms.
+- **Live session preview**: drop a target marker at the scheduled
+  observation centre, ring the dither circle, mark the current pier
+  side's safety-zone boundary.
+- **Plate-solve verification**: cross-mark the solver's reported centre
+  versus the mount-reported pointing to surface sync errors at a glance.
+- **Mosaic composer**: draw the next panel boundary plus its centre
+  cross while the user adjusts the panel grid.
+- **Polar alignment**: composes from the same primitives — two pole
+  crosses (true + refracted) plus rings around the refracted pole plus
+  one rotation-axis marker.
+
+**API: data-driven, not mode-driven.** Define a single immutable input
+type that the shader consumes, and let any caller fill it:
+
+```csharp
+public readonly record struct WcsAnnotation(
+    ImmutableArray<SkyMarker> Markers,    // crosses / dots / labels at sky positions
+    ImmutableArray<SkyRing> Rings,        // concentric circles of arcmin radius around a sky position
+    ImmutableArray<SkyEdge> Edges);       // optional: line segments between two sky positions
+
+public readonly record struct SkyMarker(
+    double RaHours, double DecDeg,
+    MarkerGlyph Glyph,    // Cross | Dot | CircledCross | Square
+    Vector4 Color,
+    string? Label,
+    float SizePx);
+
+public readonly record struct SkyRing(
+    double CenterRaHours, double CenterDecDeg,
+    float RadiusArcmin,
+    Vector4 Color,
+    string? Label);
+```
+
+The polar-alignment tab builds:
+```csharp
+new WcsAnnotation(
+    Markers: [
+        new(0, ±90, Cross, White, "NCP (True)" / "SCP (True)", 12),
+        new(P_apparent_ra, P_apparent_dec, Cross, Green, "NCP (Refracted)" / "SCP (Refracted)", 12),
+        new(axisRa, axisDec, CircledCross, ColorByDistance(axisErrorArcmin), null, 8),
+    ],
+    Rings: [
+        new(P_apparent_ra, P_apparent_dec, 5,  GreenFaint, "5'"),
+        new(P_apparent_ra, P_apparent_dec, 15, GreenFaint, "15'"),
+        new(P_apparent_ra, P_apparent_dec, 30, GreenFaint, "30'"),
+    ],
+    Edges: []);
+```
+
+Other consumers feed in their own marker/ring sets and get the same
+fragment-shader rendering for free. The renderer doesn't know what
+"polar alignment" is — it just projects each (RA, Dec) through the
+current frame's WCS, draws crosses/dots in screen-space, and for rings
+walks N=64 great-circle points around the centre at the requested arcmin
+radius and emits a closed line strip. Labels go through the existing
+glyph batcher.
+
+**Implementation lives in `TianWen.UI.Shared`** alongside `VkImageRenderer`,
+not in any polar-alignment-specific file. Its name is `WcsAnnotationLayer`
+(or similar — a primitive, not a feature). Polar alignment is one
+caller; FITS viewer and live preview are obvious next callers; nothing
+in the shader code is polar-specific.
+
+The existing `WcsGridOverlay` (RA/Dec grid lines) is a sibling of this
+layer, not a parent. They both live behind the same WCS pixel-to-world
+infrastructure and run as separate draw passes on the same uniform
+buffer. Either or both can be enabled per frame.
 
 **Off-sensor handling**. If the rotation-axis marker is way off-sensor
 (initial misalignment > FOV / 2), draw an edge arrow pointing toward it
@@ -334,22 +395,23 @@ marker enters the sensor, switch to the in-sensor circle.
 **Computation**:
 - `P_true` and `P_apparent` are computed once per live solve (refraction
   changes slowly; recompute on each frame is cheap, no caching needed).
-- `A_live` updates per solve; live frame WCS gives the pixel projection
-  for free.
-- All published via `LiveSolveResult.PolarOverlay` (an immutable record):
+- `A_live` updates per solve.
+- All published via `LiveSolveResult.PolarOverlay` as **sky positions
+  only** — pixel projection happens in the renderer:
   ```csharp
-  internal readonly record struct PolarOverlay(
-      Vector2 TruePolePx,
-      Vector2 RefractedPolePx,
-      Vector2 CurrentAxisPx,
+  public readonly record struct PolarOverlay(
+      double TruePoleRaHours,    double TruePoleDecDeg,
+      double RefractedPoleRaHours, double RefractedPoleDecDeg,
+      double AxisRaHours,        double AxisDecDeg,
       ImmutableArray<float> RingRadiiArcmin,
       double AzErrorArcmin,
       double AltErrorArcmin,
       Hemisphere Hemisphere);
   ```
-  GUI and TUI consume it via the existing tab state. TUI degenerates
-  into a text panel: "NCP-R at (320, 240) | axis at (412, 198) | Az 4'12"
-  E, Alt 1'48" S".
+  The GUI tab maps this to a `WcsAnnotation` (three `SkyMarker`s + N
+  `SkyRing`s) and hands it to `WcsAnnotationLayer`. The TUI ignores
+  the layer entirely and renders a text panel: "NCP-R at RA=12.3h
+  Dec=89.6° | axis at RA=11.9h Dec=88.4° | Az 4'12" E, Alt 1'48" S".
 
 ### Correction buttons / direction hints
 
@@ -522,7 +584,8 @@ logic. Records of (rate, duration) live on the session struct.
 |------|------|------|
 | **1** | `PolarAxisSolver` math + tests | Unit tests with synthetic rotations |
 | **2** | `PolarAlignmentSession` orchestrator + `ICaptureSource` shims + adaptive exposure ramp + auto-selection ranking + axis reverse-restore | Functional test using `FakeMountDriver` + `FakeCameraDriver` (synthetic star field with known mount pole offset, ramp picks shortest exposure that yields ≥15 stars, reverse restores within arcmin) |
-| **3** | GUI tab (`VkPolarAlignmentTab`) + signals + actions + pole-centric overlay (extend WCS grid shader with `PolarAlignment` mode + ring/pole markers + axis marker + direction hints) | Manual GUI test |
+| **3a** | Generic `WcsAnnotationLayer` in `TianWen.UI.Shared`: data-driven `SkyMarker` + `SkyRing` + `SkyEdge` inputs, fragment-shader render alongside existing WCS grid. Reusable by FITS viewer / live preview / mosaic composer / polar alignment. | Visual smoke test in FITS viewer |
+| **3b** | GUI tab (`VkPolarAlignmentTab`) + signals + actions: builds a `WcsAnnotation` from `LiveSolveResult` (two pole crosses + 3 rings around refracted pole + axis marker + direction hints) and hands it to the layer. No polar-specific code in the renderer. | Manual GUI test |
 | **4** | TUI tab parity (text reticle: ASCII arrow toward target offset) | Manual TUI test |
 | **5** | PHD2 path verified end-to-end with `Save Images` enabled | Manual real-rig test |
 

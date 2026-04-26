@@ -1,5 +1,5 @@
 using System;
-using System.Numerics;
+using System.Collections.Immutable;
 using TianWen.Lib.Astrometry;
 
 namespace TianWen.Lib.Sequencing.PolarAlignment
@@ -101,27 +101,40 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
         PolarOverlay? Overlay);
 
     /// <summary>
-    /// Pixel-space data the GUI/TUI consume to draw the pole-centric reticle:
-    /// the two pole crosses (true vs apparent), the live rotation-axis marker,
-    /// and the concentric error rings. All positions are in sensor pixels.
+    /// Sky-coordinate data the GUI consumes to drive the pole-centric reticle.
+    /// All positions are in J2000 (RA hours / Dec degrees) — the renderer
+    /// projects to sensor pixels via the live frame's WCS, so this record
+    /// stays decoupled from any specific image surface or pipeline.
+    ///
+    /// The polar-alignment tab translates this record into a generic
+    /// <c>WcsAnnotation</c> (sky markers + sky rings) consumed by the
+    /// reusable <c>WcsAnnotationLayer</c> in <c>TianWen.UI.Shared</c> —
+    /// the same layer used by the FITS viewer for plate-solve overlays,
+    /// the live preview for target markers, and the mosaic composer for
+    /// next-panel boundaries. No polar-specific code in the renderer.
     /// </summary>
-    /// <param name="TruePolePx">True (J2000) celestial pole projected onto the
-    /// live frame in sensor pixels. Drawn as a white "+".</param>
-    /// <param name="RefractedPolePx">Apparent (refracted) pole — the bullseye
-    /// the user is steering toward. Drawn as a green "+".</param>
-    /// <param name="CurrentAxisPx">Where the recovered mount RA-axis
-    /// currently lands on the sensor. Drawn as the moving marker.</param>
-    /// <param name="RingRadiiArcmin">Concentric error-ring radii in arcmin
-    /// (default {5, 15, 30}). The shader projects each through the WCS to
-    /// draw on-sensor circles centred on <see cref="RefractedPolePx"/>.</param>
+    /// <param name="TruePoleRaHours">True (J2000) celestial pole RA. By
+    /// convention 0 — the J2000 pole is at RA=0h, Dec=±90°.</param>
+    /// <param name="TruePoleDecDeg">+90 (north) or -90 (south).</param>
+    /// <param name="RefractedPoleRaHours">Apparent pole RA at this instant
+    /// after the refraction transform — usually very close to the true
+    /// pole's RA but non-zero when projected back through topocentric az/alt.</param>
+    /// <param name="RefractedPoleDecDeg">Apparent pole declination.</param>
+    /// <param name="AxisRaHours">Current mount RA-axis direction in J2000.</param>
+    /// <param name="AxisDecDeg">Current mount RA-axis declination in J2000.</param>
+    /// <param name="RingRadiiArcmin">Concentric error-ring radii (default
+    /// {5, 15, 30}) drawn around the refracted pole.</param>
     /// <param name="AzErrorArcmin">Cached arcmin error component for direction-hint badge.</param>
     /// <param name="AltErrorArcmin">Cached arcmin error component for direction-hint badge.</param>
     /// <param name="Hemisphere">Which pole the routine targets (drives label NCP vs SCP).</param>
     public readonly record struct PolarOverlay(
-        Vector2 TruePolePx,
-        Vector2 RefractedPolePx,
-        Vector2 CurrentAxisPx,
-        System.Collections.Immutable.ImmutableArray<float> RingRadiiArcmin,
+        double TruePoleRaHours,
+        double TruePoleDecDeg,
+        double RefractedPoleRaHours,
+        double RefractedPoleDecDeg,
+        double AxisRaHours,
+        double AxisDecDeg,
+        ImmutableArray<float> RingRadiiArcmin,
         double AzErrorArcmin,
         double AltErrorArcmin,
         Hemisphere Hemisphere);
