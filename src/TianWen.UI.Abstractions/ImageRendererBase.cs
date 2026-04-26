@@ -1131,7 +1131,7 @@ namespace TianWen.UI.Abstractions
                             placement.ScreenX + placement.RadiusScreenPx + labelPad,
                             placement.ScreenY - labelSize * 0.5f,
                             labelSize,
-                            ring.Color.Red / 255f, ring.Color.Green / 255f, ring.Color.Blue / 255f);
+                            ring.Color.RedF, ring.Color.GreenF, ring.Color.BlueF);
                     }
                 }
             }
@@ -1168,7 +1168,7 @@ namespace TianWen.UI.Abstractions
                             placement.ScreenX + marker.SizePx + labelPad,
                             placement.ScreenY - labelSize * 0.5f,
                             labelSize,
-                            marker.Color.Red / 255f, marker.Color.Green / 255f, marker.Color.Blue / 255f);
+                            marker.Color.RedF, marker.Color.GreenF, marker.Color.BlueF);
                     }
                 }
             }

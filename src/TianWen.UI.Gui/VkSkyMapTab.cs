@@ -309,10 +309,10 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
         // projection or atan2 screen-angle math here. Cross markers are drawn on the
         // per-item CPU path below (rectangle primitive, few stars at wide FOV).
         _overlayEllipseInstances.Clear();
-        var pinnedHaloR = pinnedHaloColor.Red / 255f;
-        var pinnedHaloG = pinnedHaloColor.Green / 255f;
-        var pinnedHaloB = pinnedHaloColor.Blue / 255f;
-        var pinnedHaloA = pinnedHaloColor.Alpha / 255f;
+        var pinnedHaloR = pinnedHaloColor.RedF;
+        var pinnedHaloG = pinnedHaloColor.GreenF;
+        var pinnedHaloB = pinnedHaloColor.BlueF;
+        var pinnedHaloA = pinnedHaloColor.AlphaF;
 
         // The shader scales arcmin -> px using the UBO's pixelsPerRadian, so any
         // marker whose size was defined in screen pixels (circles, pinned halos) has
