@@ -7,6 +7,7 @@ using TianWen.Lib.Astrometry.PlateSolve;
 using TianWen.Lib.Devices.Guider;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Sequencing;
+using TianWen.Lib.Sequencing.PolarAlignment;
 
 namespace TianWen.UI.Abstractions
 {
@@ -20,6 +21,14 @@ namespace TianWen.UI.Abstractions
 
         /// <summary>Whether a session is currently running.</summary>
         public bool IsRunning { get; set; }
+
+        /// <summary>
+        /// Which mode the live view is in: <see cref="LiveSessionMode.Preview"/>,
+        /// <see cref="LiveSessionMode.Session"/>, or <see cref="LiveSessionMode.PolarAlign"/>.
+        /// Mutually exclusive — Session and PolarAlign can't both be active. Drives panel
+        /// visibility, polling cadences, and the toolbar button states.
+        /// </summary>
+        public LiveSessionMode Mode { get; set; } = LiveSessionMode.Preview;
 
         /// <summary>CTS for cancelling the running session (linked to app-level CTS).</summary>
         public CancellationTokenSource? SessionCts { get; set; }
@@ -176,6 +185,34 @@ namespace TianWen.UI.Abstractions
 
         /// <summary>Last preview plate solve result, or null.</summary>
         public PlateSolveResult? PreviewPlateSolveResult { get; set; }
+
+        // --- Polar alignment mode telemetry (populated when Mode == PolarAlign) ---
+
+        /// <summary>Current phase of the polar-alignment routine. Drives the side-panel status line.</summary>
+        public PolarAlignmentPhase PolarPhase { get; set; }
+
+        /// <summary>
+        /// Phase A two-frame solve result (axis recovery + chord-angle sanity).
+        /// Null until Phase A completes; remains set throughout Phase B for the
+        /// locked-exposure indicator and the chord-angle verification readout.
+        /// </summary>
+        public TwoFrameSolveResult? PolarPhaseAResult { get; set; }
+
+        /// <summary>
+        /// Latest live refinement tick. Atomic reference replacement so the render thread
+        /// always sees a consistent snapshot — the orchestrator runs on a thread pool task.
+        /// </summary>
+        public LiveSolveResult? LastPolarSolve { get; set; }
+
+        /// <summary>
+        /// Free-form status message shown in the side panel ("Press Next before rotating
+        /// the RA axis", "Refining (1.2 Hz)", "Aligned within 1' — click Done", or the
+        /// failure reason from <see cref="TwoFrameSolveResult.FailureReason"/>).
+        /// </summary>
+        public string? PolarStatusMessage { get; set; }
+
+        /// <summary>CTS for cancelling an in-flight polar-alignment routine.</summary>
+        public CancellationTokenSource? PolarAlignmentCts { get; set; }
 
         /// <summary>
         /// OTA index currently targeted by keyboard shortcuts and mouse clicks in

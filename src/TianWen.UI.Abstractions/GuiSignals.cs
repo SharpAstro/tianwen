@@ -74,6 +74,27 @@ public readonly record struct SaveSessionConfigSignal;
 /// <summary>Start a new session from the current profile, config, and schedule.</summary>
 public readonly record struct StartSessionSignal;
 
+/// <summary>
+/// Begin the SharpCap-style polar-alignment routine on the manually-connected
+/// mount. Switches the live view into <see cref="LiveSessionMode.PolarAlign"/>.
+/// </summary>
+/// <param name="OtaIndex">Which OTA's camera to use as the capture source. Defaults
+/// to the auto-pick from <c>CaptureSourceRanker</c> when -1.</param>
+/// <param name="DeltaRaDeg">RA-axis rotation angle in degrees (typically 60 or 90).</param>
+public readonly record struct StartPolarAlignmentSignal(int OtaIndex = -1, double DeltaRaDeg = 60.0);
+
+/// <summary>
+/// Cancel an in-flight polar-alignment routine. The orchestrator's reverse-axis
+/// restore (per <c>PolarAlignmentOnDone</c>) still runs on disposal.
+/// </summary>
+public readonly record struct CancelPolarAlignmentSignal;
+
+/// <summary>
+/// User clicked Done after the routine reached <see cref="PolarAlignmentPhase.Aligned"/>.
+/// Triggers the configured on-done behaviour (reverse-axis / park / leave-in-place).
+/// </summary>
+public readonly record struct DonePolarAlignmentSignal;
+
 /// <summary>Request abort — shows confirmation strip in the live session tab.</summary>
 public readonly record struct RequestAbortSessionSignal;
 
