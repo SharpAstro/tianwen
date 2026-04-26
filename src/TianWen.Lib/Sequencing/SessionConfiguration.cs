@@ -76,5 +76,25 @@ public record struct SessionConfiguration(
     /// When <c>true</c>, scout frames are written to disk for debugging. Default <c>false</c>:
     /// scout frames are taken, analysed for star count, then released without a FITS write.
     /// </summary>
-    bool SaveScoutFrames = false
+    bool SaveScoutFrames = false,
+    /// <summary>
+    /// Minutes <em>before</em> meridian crossing where the OTA / cables / focuser physically
+    /// risk hitting the pier. Tracking is paused on entry and resumed only after the obstruction
+    /// has cleared (HA &gt;= <see cref="MeridianFlipEarliestMinutesAfter"/>). Default <c>0</c>
+    /// = no obstruction zone (refractor-on-tripod, side-by-side rigs with clean clearance).
+    /// Typical SCT-on-pier values: 5-10 min.
+    /// </summary>
+    double MeridianFlipObstructionZoneMinutesBefore = 0,
+    /// <summary>
+    /// Earliest acceptable hour angle (in minutes past meridian) at which a flip may be commanded.
+    /// Below this, the loop continues imaging on the east side. Default <c>5</c> min.
+    /// </summary>
+    double MeridianFlipEarliestMinutesAfter = 5,
+    /// <summary>
+    /// Latest hour angle (in minutes past meridian) at which a flip is still allowed before the
+    /// rig is considered past its tracking limit. Equal to
+    /// <see cref="MeridianFlipEarliestMinutesAfter"/> = single fixed flip point; larger = an
+    /// opportunistic window in which the flip can happen between exposures. Default <c>10</c> min.
+    /// </summary>
+    double MeridianFlipLatestMinutesAfter = 10
 );

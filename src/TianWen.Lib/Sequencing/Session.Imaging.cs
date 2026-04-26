@@ -45,6 +45,7 @@ internal partial record Session
             }
 
             double hourAngleAtSlewTime;
+            var pierSideAtSlewTime = PointingState.Unknown;
             try
             {
                 (var postCondition, hourAngleAtSlewTime) = await ResilientInvokeAsync(
@@ -116,6 +117,10 @@ internal partial record Session
                         mount.Driver, mount.Driver.GetHourAngleAsync,
                         ResilientCallOptions.IdempotentRead, cancellationToken);
 
+                    // Capture pier side baseline so the imaging-loop flip state machine can later
+                    // detect an out-of-band flip (firmware auto-flip past limit, handbox, :MNe/:MNw).
+                    pierSideAtSlewTime = await CatchAsync(mount.Driver.GetSideOfPierAsync, cancellationToken, PointingState.Unknown);
+
                     // Iterative plate-solve + sync + reslew centering
                     if (!await CenterOnTargetAsync(observation.Target, 0, thresholdArcmin: 1.0, maxAttempts: 3, cancellationToken))
                     {
@@ -183,7 +188,7 @@ internal partial record Session
             }
 
             var imageLoopStart = await GetMountUtcNowAsync(cancellationToken);
-            var imageLoopResult = await ImagingLoopAsync(observation, hourAngleAtSlewTime, cancellationToken).ConfigureAwait(false);
+            var imageLoopResult = await ImagingLoopAsync(observation, hourAngleAtSlewTime, pierSideAtSlewTime, cancellationToken).ConfigureAwait(false);
             if (imageLoopResult is ImageLoopNextAction.AdvanceToNextObservation)
             {
                 _ = AdvanceObservation();
@@ -213,10 +218,12 @@ internal partial record Session
     /// </summary>
     /// <param name="observation">Observation to image.</param>
     /// <param name="hourAngleAtSlewTime">provide hour angle current as of start of session, used to calculate meridian flip.</param>
+    /// <param name="pierSideAtSlewTime">Pier side reported by the mount at slew completion. Defaults to <see cref="PointingState.Unknown"/>
+    /// which disables out-of-band-flip detection — direct test callers without a real mount can omit this.</param>
     /// <param name="cancellationToken"></param>
     /// <returns>loop result</returns>
     /// <exception cref="InvalidOperationException"></exception>
-    internal async ValueTask<ImageLoopNextAction> ImagingLoopAsync(ScheduledObservation observation, double hourAngleAtSlewTime, CancellationToken cancellationToken)
+    internal async ValueTask<ImageLoopNextAction> ImagingLoopAsync(ScheduledObservation observation, double hourAngleAtSlewTime, PointingState pierSideAtSlewTime = PointingState.Unknown, CancellationToken cancellationToken = default)
     {
         var guider = Setup.Guider;
         var mount = Setup.Mount;
@@ -567,8 +574,44 @@ internal partial record Session
                 break; // falls through to return AdvanceToNextObservation
             }
 
-            if (!await CatchAsync(mount.Driver.IsSlewingAsync, cancellationToken)
-                && !await mount.Driver.IsOnSamePierSideAsync(hourAngleAtSlewTime, cancellationToken))
+            // Observe + decide flip action.
+            // For AcrossMeridian targets: composite check (obstruction zone + HA window + pier change) —
+            //   trust observed state so a firmware auto-flip / handbox / track-past-meridian all work.
+            // For non-AcrossMeridian targets: keep the legacy HA-jump detection — if the pier side
+            //   changes unexpectedly, abort the target.
+            var flipAction = FlipAction.Continue;
+            if (!await CatchAsync(mount.Driver.IsSlewingAsync, cancellationToken))
+            {
+                if (observation.AcrossMeridian)
+                {
+                    var currentHA = await CatchAsync(mount.Driver.GetHourAngleAsync, cancellationToken, double.NaN);
+                    var currentPier = await CatchAsync(mount.Driver.GetSideOfPierAsync, cancellationToken, PointingState.Unknown);
+                    var pierSideChanged = pierSideAtSlewTime != PointingState.Unknown
+                        && currentPier != PointingState.Unknown
+                        && currentPier != pierSideAtSlewTime;
+
+                    if (!double.IsNaN(currentHA))
+                    {
+                        flipAction = MeridianFlipDecision.DecideFlipAction(currentHA, pierSideChanged, Configuration);
+                    }
+                }
+                else if (!await mount.Driver.IsOnSamePierSideAsync(hourAngleAtSlewTime, cancellationToken))
+                {
+                    // Out-of-band pier-side change for a target that wasn't supposed to cross — abort.
+                    flipAction = FlipAction.CommandFlip;
+                }
+            }
+
+            if (flipAction is FlipAction.WaitForObstructionClear)
+            {
+                _logger.LogInformation(
+                    "Obstruction zone entered for {Target}: pausing exposure starts until HA clears the {ObsMin:F1}-min pre-meridian zone.",
+                    observation.Target, Configuration.MeridianFlipObstructionZoneMinutesBefore);
+                // Skip the exposure-start block by short-circuiting to the next tick.
+                continue;
+            }
+
+            if (flipAction is FlipAction.CommandFlip or FlipAction.AlreadyFlipped)
             {
                 // write all images before stopping
                 await WriteQueuedImagesToFitsFilesAsync();
@@ -615,12 +658,19 @@ internal partial record Session
 
                 if (observation.AcrossMeridian)
                 {
-                    // TODO: detect auto-flipping mounts (e.g. iOptron CEM) where the mount
-                    // already flipped physically — skip re-slew, just plate solve and restart guiding
-                    var flipResult = await PerformMeridianFlipAsync(observation, cancellationToken);
+                    var flipResult = await PerformMeridianFlipAsync(
+                        observation,
+                        alreadyFlipped: flipAction is FlipAction.AlreadyFlipped,
+                        cancellationToken);
                     if (flipResult.Success)
                     {
                         hourAngleAtSlewTime = flipResult.HourAngle;
+                        // Update the pier-side baseline so the next out-of-band-flip detection
+                        // compares against where we are now, not where we were three flips ago.
+                        if (flipResult.PierSide != PointingState.Unknown)
+                        {
+                            pierSideAtSlewTime = flipResult.PierSide;
+                        }
 
                         // Reverse the altitude ladder: target is now descending
                         filterAscending = false;
@@ -947,10 +997,14 @@ internal partial record Session
     /// has flipped (retries if needed), then restarts guiding.
     /// After a GEM flip the DEC guide axis is reversed; the guider is responsible for detecting
     /// the flip and adjusting its calibration accordingly (e.g., PHD2's "reverse Dec after flip").
+    /// When <paramref name="alreadyFlipped"/> is <c>true</c> the re-slew is skipped — the mount
+    /// has already physically flipped (firmware auto-flip past limit, handbox press, or a prior
+    /// <c>:MNe</c>/<c>:MNw</c>) and we just need to plate-solve recenter and restart the guider.
     /// </summary>
-    /// <returns>A <see cref="MeridianFlipResult"/> indicating success and the post-flip hour angle.</returns>
+    /// <returns>A <see cref="MeridianFlipResult"/> indicating success, the post-flip hour angle, and observed pier side.</returns>
     private async ValueTask<MeridianFlipResult> PerformMeridianFlipAsync(
         ScheduledObservation observation,
+        bool alreadyFlipped,
         CancellationToken cancellationToken)
     {
         const int maxFlipAttempts = 3;
@@ -959,8 +1013,14 @@ internal partial record Session
         var mount = Setup.Mount;
         var guider = Setup.Guider;
 
-        _logger.LogInformation("Meridian flip: stopping guider for {Target}.", observation.Target);
+        _logger.LogInformation("Meridian flip: stopping guider for {Target} (alreadyFlipped={AlreadyFlipped}).", observation.Target, alreadyFlipped);
         await guider.Driver.StopCaptureAsync(TimeSpan.FromSeconds(15), cancellationToken).ConfigureAwait(false);
+
+        if (alreadyFlipped)
+        {
+            // Mount already on the new pier side — skip the re-slew; just centre + restart guider.
+            return await CompleteMeridianFlipAsync(observation, cancellationToken);
+        }
 
         // Wait for any ongoing slew to complete before attempting the flip
         while (await CatchAsync(mount.Driver.IsSlewingAsync, cancellationToken) && !cancellationToken.IsCancellationRequested)
@@ -1016,25 +1076,7 @@ internal partial record Session
             // Verify the HA is now positive (west of meridian) — the flip actually happened
             if (newHourAngle > 0)
             {
-                // Iterative plate-solve centering after flip
-                _currentActivity = $"Centering on {observation.Target.Name} after flip\u2026";
-                if (!await CenterOnTargetAsync(observation.Target, 0, thresholdArcmin: 1.0, maxAttempts: 5, cancellationToken))
-                {
-                    _logger.LogWarning("Meridian flip: centering did not converge, proceeding with current pointing.");
-                }
-
-                _logger.LogInformation("Meridian flip: restarting guiding for {Target}.", observation.Target);
-                if (!await ResilientInvokeAsync(
-                        guider.Driver,
-                        ct => guider.Driver.StartGuidingLoopAsync(Configuration.GuidingTries, ct),
-                        ResilientCallOptions.NonIdempotentAction, cancellationToken).ConfigureAwait(false))
-                {
-                    _logger.LogError("Meridian flip: failed to restart guider after flip for {Target}.", observation.Target);
-                    return MeridianFlipResult.Failed;
-                }
-
-                _logger.LogInformation("Meridian flip: completed successfully for {Target}, HA={NewHA:F4}h.", observation.Target, newHourAngle);
-                return new MeridianFlipResult(true, newHourAngle);
+                return await CompleteMeridianFlipAsync(observation, cancellationToken);
             }
 
             _logger.LogWarning("Meridian flip: HA={NewHA:F4}h still east of meridian after attempt {Attempt}, retrying with larger offset.",
@@ -1043,6 +1085,44 @@ internal partial record Session
 
         _logger.LogError("Meridian flip: failed after {MaxAttempts} attempts for {Target}.", maxFlipAttempts, observation.Target);
         return MeridianFlipResult.Failed;
+    }
+
+    /// <summary>
+    /// Post-flip work shared between the commanded-flip and already-flipped paths:
+    /// observe HA + pier side, plate-solve recenter, restart guiding.
+    /// </summary>
+    private async ValueTask<MeridianFlipResult> CompleteMeridianFlipAsync(
+        ScheduledObservation observation,
+        CancellationToken cancellationToken)
+    {
+        var mount = Setup.Mount;
+        var guider = Setup.Guider;
+
+        var newHourAngle = await ResilientInvokeAsync(
+            mount.Driver, mount.Driver.GetHourAngleAsync,
+            ResilientCallOptions.IdempotentRead, cancellationToken);
+        var newPierSide = await CatchAsync(mount.Driver.GetSideOfPierAsync, cancellationToken, PointingState.Unknown);
+
+        // Iterative plate-solve centering after flip
+        _currentActivity = $"Centering on {observation.Target.Name} after flip\u2026";
+        if (!await CenterOnTargetAsync(observation.Target, 0, thresholdArcmin: 1.0, maxAttempts: 5, cancellationToken))
+        {
+            _logger.LogWarning("Meridian flip: centering did not converge, proceeding with current pointing.");
+        }
+
+        _logger.LogInformation("Meridian flip: restarting guiding for {Target}.", observation.Target);
+        if (!await ResilientInvokeAsync(
+                guider.Driver,
+                ct => guider.Driver.StartGuidingLoopAsync(Configuration.GuidingTries, ct),
+                ResilientCallOptions.NonIdempotentAction, cancellationToken).ConfigureAwait(false))
+        {
+            _logger.LogError("Meridian flip: failed to restart guider after flip for {Target}.", observation.Target);
+            return MeridianFlipResult.Failed;
+        }
+
+        _logger.LogInformation("Meridian flip: completed successfully for {Target}, HA={NewHA:F4}h, PierSide={PierSide}.",
+            observation.Target, newHourAngle, newPierSide);
+        return new MeridianFlipResult(true, newHourAngle, newPierSide);
     }
 
     /// <summary>

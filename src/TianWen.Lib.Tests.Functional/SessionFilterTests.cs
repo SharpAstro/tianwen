@@ -97,7 +97,7 @@ public class SessionFilterTests(ITestOutputHelper output)
         var observation = ctx.Session.ActiveObservation!;
         var hourAngle = await mount.GetHourAngleAsync(ct);
         ctx.TimeProvider.ExternalTimePump = true;
-        var loopTask = Task.Run(async () => await ctx.Session.ImagingLoopAsync(observation, hourAngle, ct), ct);
+        var loopTask = Task.Run(async () => await ctx.Session.ImagingLoopAsync(observation, hourAngle, cancellationToken: ct), ct);
 
         var pumpIncrement = TimeSpan.FromSeconds(5);
         var maxFakeTime = TimeSpan.FromHours(4);
@@ -202,7 +202,7 @@ public class SessionFilterTests(ITestOutputHelper output)
 
         var observation = ctx.Session.ActiveObservation!;
         var hourAngle = await mount.GetHourAngleAsync(ct);
-        var loopTask = Task.Run(async () => await ctx.Session.ImagingLoopAsync(observation, hourAngle, ct), ct);
+        var loopTask = Task.Run(async () => await ctx.Session.ImagingLoopAsync(observation, hourAngle, cancellationToken: ct), ct);
 
         for (var i = 0; i < 30 && !loopTask.IsCompleted && !ct.IsCancellationRequested; i++)
         {

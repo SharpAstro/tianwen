@@ -96,7 +96,7 @@ public class SessionImagingTests(ITestOutputHelper output)
 
         // when — run imaging loop on thread pool, pump fake time cooperatively
         ctx.TimeProvider.ExternalTimePump = true;
-        var imagingTask = Task.Run(async () => await ctx.Session.ImagingLoopAsync(observation, hourAngle, ct));
+        var imagingTask = Task.Run(async () => await ctx.Session.ImagingLoopAsync(observation, hourAngle, cancellationToken: ct));
 
         var pumpIncrement = TimeSpan.FromSeconds(5);
         var maxFakeTime = TimeSpan.FromHours(4);
@@ -168,7 +168,7 @@ public class SessionImagingTests(ITestOutputHelper output)
 
         // when — run imaging loop on thread pool, pump fake time cooperatively
         ctx.TimeProvider.ExternalTimePump = true;
-        var imagingTask = Task.Run(async () => await ctx.Session.ImagingLoopAsync(observation, hourAngle, ct));
+        var imagingTask = Task.Run(async () => await ctx.Session.ImagingLoopAsync(observation, hourAngle, cancellationToken: ct));
 
         var pumpIncrement = TimeSpan.FromSeconds(5);
         var maxFakeTime = TimeSpan.FromHours(4);
@@ -296,7 +296,7 @@ public class SessionImagingTests(ITestOutputHelper output)
         // when — run imaging loop, defocus after baseline is established
         var defocused = false;
         ctx.TimeProvider.ExternalTimePump = true;
-        var imagingTask = Task.Run(async () => await ctx.Session.ImagingLoopAsync(observation, hourAngle, ct));
+        var imagingTask = Task.Run(async () => await ctx.Session.ImagingLoopAsync(observation, hourAngle, cancellationToken: ct));
 
         var pumpIncrement = TimeSpan.FromSeconds(5);
         var maxFakeTime = TimeSpan.FromHours(4);
@@ -384,7 +384,7 @@ public class SessionImagingTests(ITestOutputHelper output)
 
         // when — run imaging loop, pump fake time cooperatively
         ctx.TimeProvider.ExternalTimePump = true;
-        var imagingTask = Task.Run(async () => await ctx.Session.ImagingLoopAsync(observation, hourAngle, ct));
+        var imagingTask = Task.Run(async () => await ctx.Session.ImagingLoopAsync(observation, hourAngle, cancellationToken: ct));
 
         var pumpIncrement = TimeSpan.FromSeconds(5);
         var maxFakeTime = TimeSpan.FromHours(4);
@@ -458,7 +458,7 @@ public class SessionImagingTests(ITestOutputHelper output)
         var cloudsInjected = false;
         var cloudsCleared = false;
         ctx.TimeProvider.ExternalTimePump = true;
-        var imagingTask = Task.Run(async () => await ctx.Session.ImagingLoopAsync(observation, hourAngle, ct));
+        var imagingTask = Task.Run(async () => await ctx.Session.ImagingLoopAsync(observation, hourAngle, cancellationToken: ct));
 
         var pumpIncrement = TimeSpan.FromSeconds(5);
         var maxFakeTime = TimeSpan.FromHours(4);

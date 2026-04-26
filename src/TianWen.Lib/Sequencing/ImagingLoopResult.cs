@@ -1,4 +1,6 @@
-﻿namespace TianWen.Lib.Sequencing;
+﻿using TianWen.Lib.Devices;
+
+namespace TianWen.Lib.Sequencing;
 
 enum ImageLoopNextAction
 {
@@ -14,7 +16,7 @@ enum ImageLoopNextAction
     DeviceUnrecoverable
 }
 
-internal readonly record struct MeridianFlipResult(bool Success, double HourAngle)
+internal readonly record struct MeridianFlipResult(bool Success, double HourAngle, PointingState PierSide)
 {
-    public static readonly MeridianFlipResult Failed = new(false, double.NaN);
+    public static readonly MeridianFlipResult Failed = new(false, double.NaN, PointingState.Unknown);
 }
