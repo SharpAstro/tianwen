@@ -1,0 +1,77 @@
+using System;
+using System.Collections.Immutable;
+
+namespace TianWen.Lib.Sequencing.PolarAlignment
+{
+    /// <summary>
+    /// Tunables for the polar-alignment routine. Kept separate from
+    /// <see cref="SessionConfiguration"/> because the routine runs *outside*
+    /// of any imaging session — it manipulates a manually-connected mount
+    /// directly and never enters the imaging loop.
+    /// </summary>
+    /// <param name="ExposureRamp">Exposure ladder tried in order until a plate
+    /// solve succeeds with at least <see cref="MinStarsForSolve"/> matched stars.
+    /// Defaults to <see cref="AdaptiveExposureRamp.DefaultRamp"/>.</param>
+    /// <param name="MinStarsForSolve">Minimum matched stars to accept a plate
+    /// solve as valid. 15 matches the existing <c>InitialRoughFocusAsync</c>
+    /// gate.</param>
+    /// <param name="RotationDeg">Phase A RA-axis rotation in degrees. SharpCap
+    /// defaults to 90; we default to 60 because shorter rotations give the
+    /// user more leeway to start near the meridian without crossing it during
+    /// the rotation.</param>
+    /// <param name="SettleSeconds">Mount-settle wait between the rotation
+    /// command finishing and the second-frame capture starting.</param>
+    /// <param name="TargetAccuracyArcmin">Convergence threshold for Phase B —
+    /// when both az and alt errors fall below this, the panel signals "done".</param>
+    /// <param name="OnDone">What to do with the mount when the user clicks
+    /// Done or Cancel: reverse-axis the original rotation (default), park, or
+    /// leave in place.</param>
+    /// <param name="SaveFrames">If true, copy each captured FITS to a per-run
+    /// folder for offline analysis. Default false (frames live in temp).</param>
+    /// <param name="MaxFrame2Retries">Maximum retries for the Phase A second
+    /// frame after a failed plate solve. The user has likely just bumped the
+    /// rig or the mount hasn't settled — give them a few attempts before
+    /// failing the routine. Each retry waits <see cref="SettleSeconds"/>.</param>
+    /// <param name="SmoothingWindow">Number of recent solves used by the
+    /// refinement smoother to compute the EWMA-smoothed error and the
+    /// "settled" flag. Larger = smoother readout but slower to react.</param>
+    /// <param name="SettleSigmaArcmin">Standard-deviation threshold (arcmin)
+    /// of the smoothing window's error magnitude below which the routine
+    /// reports "settled" (user has stopped moving the knobs). Independent of
+    /// whether the alignment itself is below <see cref="TargetAccuracyArcmin"/>.</param>
+    public readonly record struct PolarAlignmentConfiguration(
+        ImmutableArray<TimeSpan> ExposureRamp,
+        int MinStarsForSolve = 15,
+        double RotationDeg = 60.0,
+        double SettleSeconds = 5.0,
+        double TargetAccuracyArcmin = 1.0,
+        PolarAlignmentOnDone OnDone = PolarAlignmentOnDone.ReverseAxisBack,
+        bool SaveFrames = false,
+        int MaxFrame2Retries = 3,
+        int SmoothingWindow = 5,
+        double SettleSigmaArcmin = 0.5)
+    {
+        /// <summary>
+        /// Default configuration: <see cref="AdaptiveExposureRamp.DefaultRamp"/>
+        /// + the documented defaults above. Use as a starting point and override
+        /// with <c>with</c> expressions where needed.
+        /// </summary>
+        public static PolarAlignmentConfiguration Default { get; } =
+            new(AdaptiveExposureRamp.DefaultRamp);
+    }
+
+    /// <summary>
+    /// What the routine should do with the mount when the user clicks Done or Cancel.
+    /// </summary>
+    public enum PolarAlignmentOnDone
+    {
+        /// <summary>Reverse-axis the recorded Phase-A rotation (rate, duration). Default.</summary>
+        ReverseAxisBack = 0,
+
+        /// <summary>Issue <c>ParkAsync</c> after the routine completes.</summary>
+        Park = 1,
+
+        /// <summary>Leave the mount where it is after refinement (user is OK with current pose).</summary>
+        LeaveInPlace = 2,
+    }
+}

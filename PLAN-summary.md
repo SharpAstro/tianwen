@@ -10,8 +10,9 @@ Status of every `PLAN-*.md` in the repo root, cross-checked against the codebase
 | [PLAN-tui-live-session-parity](PLAN-tui-live-session-parity.md) | **PARTIAL ~20%** |
 | [PLAN-first-light-resilience](PLAN-first-light-resilience.md) | **DONE** (2 of 3 sub-plans shipped; sub-plan 3 deferred) |
 | [PLAN-driver-resilience](PLAN-driver-resilience.md) | **DONE** (merged to main as 6 PRs + ARCH doc) |
-| [PLAN-fov-obstruction-detection](PLAN-fov-obstruction-detection.md) | **DONE ~95%** (branch `fov-obstruction-detection`, 11 new tests) |
+| [PLAN-fov-obstruction-detection](PLAN-fov-obstruction-detection.md) | **DONE** (merged to main; scout UI/WebSocket surfacing, single-frame retry, Layer-2 recovery test all shipped) |
 | [PLAN-catalog-binary-format](PLAN-catalog-binary-format.md) | **NOT STARTED** |
+| [PLAN-polar-alignment](PLAN-polar-alignment.md) | **NOT STARTED** (drafted 2026-04-26) |
 
 ---
 
