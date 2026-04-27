@@ -484,6 +484,7 @@ internal sealed class CanonCameraDriver : ICameraDriver
     // --- Image metadata (set by session controller) ---
     public string? Telescope { get; set; }
     public int FocalLength { get; set; }
+    public int? Aperture { get; set; }
     public double? Latitude { get; set; }
     public double? Longitude { get; set; }
     public Filter Filter { get; set; }

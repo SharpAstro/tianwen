@@ -81,6 +81,7 @@ public partial class Image
         var pedestal = hdu.Header.GetFloatValue("PEDESTAL", 0f);
         var pixelScale = hdu.Header.GetFloatValue("PIXSCALE", hdu.Header.GetFloatValue("SCALE", float.NaN));
         var focalLength = hdu.Header.GetIntValue("FOCALLEN", -1);
+        var aperture = hdu.Header.GetIntValue("APTDIA", -1);
         var focusPos = hdu.Header.GetIntValue("FOCUSPOS", hdu.Header.GetIntValue("FOCPOS", -1));
         var filterName = hdu.Header.GetStringValue("FILTER");
         var ccdTemp = hdu.Header.GetFloatValue("CCD-TEMP", float.NaN);
@@ -204,7 +205,8 @@ public partial class Image
             Offset: camOffset,
             SetCCDTemperature: setCCDTemp,
             ElectronsPerADU: egain,
-            SWCreator: swCreator
+            SWCreator: swCreator,
+            Aperture: aperture
         );
         image = new Image(imgChannels, bitDepth, maxValue, minValue, pedestal, imageMeta);
         wcs = WCS.FromHeader(hdu.Header);
@@ -317,6 +319,18 @@ public partial class Image
         if (imageMeta.FocalLength > 0)
         {
             AddHeaderValueIfHasValue("FOCALLEN", imageMeta.FocalLength, "mm");
+        }
+        if (imageMeta.Aperture > 0)
+        {
+            AddHeaderValueIfHasValue("APTDIA", imageMeta.Aperture, "mm");
+        }
+        if (!double.IsNaN(imageMeta.DerivedApertureAreaCm2))
+        {
+            AddHeaderValueIfHasValue("APTAREA", imageMeta.DerivedApertureAreaCm2, "cm^2");
+        }
+        if (!double.IsNaN(imageMeta.DerivedFRatio))
+        {
+            AddHeaderValueIfHasValue("FOCRATIO", imageMeta.DerivedFRatio, "f-ratio");
         }
         if (!double.IsNaN(imageMeta.DerivedPixelScale))
         {

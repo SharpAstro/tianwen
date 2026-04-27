@@ -7,6 +7,16 @@ using TianWen.Lib.Astrometry.PlateSolve;
 namespace TianWen.Lib.Sequencing.PolarAlignment
 {
     /// <summary>
+    /// Per-rung progress emitted by <see cref="AdaptiveExposureRamp.ProbeAsync"/> so
+    /// the GUI / TUI can surface "Probing 200ms (rung 3/8)" instead of a static
+    /// "Probing exposure..." while ASTAP chews through 5-10 seconds per attempt.
+    /// </summary>
+    /// <param name="Exposure">Exposure being tried right now.</param>
+    /// <param name="RungIndex">Zero-based index in the ramp.</param>
+    /// <param name="RungCount">Total rungs in the ramp.</param>
+    public readonly record struct ProbeProgress(TimeSpan Exposure, int RungIndex, int RungCount);
+
+    /// <summary>
     /// Adaptive exposure ramp for the polar-alignment routine: tries each
     /// exposure in <see cref="DefaultRamp"/> until a plate solve succeeds with
     /// at least <paramref name="minStarsMatched"/> matched stars, then locks
@@ -55,12 +65,15 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
             IPlateSolver solver,
             ImmutableArray<TimeSpan> ramp,
             int minStarsMatched,
-            CancellationToken ct)
+            CancellationToken ct,
+            IProgress<ProbeProgress>? progress = null)
         {
             CaptureAndSolveResult last = default;
-            foreach (var exposure in ramp)
+            for (var i = 0; i < ramp.Length; i++)
             {
                 ct.ThrowIfCancellationRequested();
+                var exposure = ramp[i];
+                progress?.Report(new ProbeProgress(exposure, i, ramp.Length));
                 last = await source.CaptureAndSolveAsync(exposure, solver, ct);
                 if (last.Success && last.StarsMatched >= minStarsMatched)
                 {

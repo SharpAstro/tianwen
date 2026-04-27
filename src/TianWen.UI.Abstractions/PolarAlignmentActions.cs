@@ -46,10 +46,20 @@ namespace TianWen.UI.Abstractions
             state.PolarStatusMessage = "Probing exposure...";
             state.NeedsRedraw = true;
 
+            // Per-rung progress: surface "Probing 200ms (rung 3/8)" as the ramp
+            // walks so the user knows the routine is making forward motion during
+            // the multi-second per-rung ASTAP solve attempts. Without this the
+            // panel sits on "Probing exposure..." for ~50s and looks stuck.
+            var progress = new Progress<ProbeProgress>(p =>
+            {
+                state.PolarStatusMessage = $"Probing {p.Exposure.TotalMilliseconds:F0}ms (rung {p.RungIndex + 1}/{p.RungCount})";
+                state.NeedsRedraw = true;
+            });
+
             TwoFrameSolveResult phaseA;
             try
             {
-                phaseA = await session.SolveAsync(ct);
+                phaseA = await session.SolveAsync(ct, progress);
             }
             catch (OperationCanceledException)
             {

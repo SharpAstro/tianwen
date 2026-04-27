@@ -28,6 +28,7 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
         private readonly IExternal _external;
         private readonly ILogger _logger;
         private readonly string _frameFolder;
+        private readonly Func<CancellationToken, ValueTask<(double RaHours, double DecDeg)?>>? _searchOriginAsync;
 
         public string DisplayName { get; }
         public double FocalLengthMm { get; }
@@ -40,6 +41,11 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
         /// each captured frame; pass an <see cref="IExternal"/>-resolved per-run
         /// scratch directory.
         /// </summary>
+        /// <param name="searchOriginAsync">Optional callback resolving the
+        /// current mount pointing before each capture. Passed as
+        /// <c>searchOrigin</c> to <see cref="IPlateSolver.SolveFileAsync"/> so
+        /// the built-in <c>CatalogPlateSolver</c> can attempt a match (it is
+        /// not a blind solver) and ASTAP solves much faster.</param>
         public GuiderCaptureSource(
             IGuider guider,
             string displayName,
@@ -47,7 +53,8 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
             double apertureMm,
             double pixelSizeMicrons,
             IExternal external,
-            ILogger logger)
+            ILogger logger,
+            Func<CancellationToken, ValueTask<(double RaHours, double DecDeg)?>>? searchOriginAsync = null)
         {
             _guider = guider;
             DisplayName = displayName;
@@ -56,6 +63,7 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
             PixelSizeMicrons = pixelSizeMicrons;
             _external = external;
             _logger = logger;
+            _searchOriginAsync = searchOriginAsync;
             _frameFolder = Path.Combine(Path.GetTempPath(), "TianWen", "PolarAlignment", DateTime.UtcNow.ToString("yyyyMMdd_HHmmss"));
             Directory.CreateDirectory(_frameFolder);
         }
@@ -99,9 +107,29 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
                     FailureReason: "Guider produced no frame on disk \u2014 enable 'Save Images' in the PHD2 profile.");
             }
 
+            WCS? searchOrigin = null;
+            if (_searchOriginAsync is not null
+                && await _searchOriginAsync(ct).ConfigureAwait(false) is { } origin)
+            {
+                searchOrigin = new WCS(origin.RaHours, origin.DecDeg);
+            }
+
             try
             {
-                var solveResult = await solver.SolveFileAsync(fitsPath, cancellationToken: ct);
+                PlateSolveResult solveResult;
+                try
+                {
+                    solveResult = await solver.SolveFileAsync(fitsPath, searchOrigin: searchOrigin, cancellationToken: ct);
+                }
+                catch (PlateSolverException ex)
+                {
+                    // Mirrors the Main-camera path: a per-frame solve failure on a short
+                    // ramp rung is normal — let the ramp advance instead of bombing the
+                    // routine. The orchestrator's "no rung solved" message will fire if
+                    // every rung fails.
+                    _logger.LogDebug(ex, "GuiderCaptureSource: plate solver threw at exposure {Exposure}ms — ramp will try next rung", exposure.TotalMilliseconds);
+                    return new CaptureAndSolveResult(false, null, default, 0, exposure, fitsPath);
+                }
                 if (solveResult.Solution is { } wcs)
                 {
                     var centre = PolarAxisSolver.RaDecToUnitVec(wcs.CenterRA, wcs.CenterDec);

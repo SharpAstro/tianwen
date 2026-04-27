@@ -278,17 +278,17 @@ namespace TianWen.UI.Abstractions
                 _ => { vs.CycleBoost(); });
             x += btnW * 0.8f + pad;
 
-            // [PA] — polar alignment toggle (preview mode only). Active = currently
-            // running, gated = preconditions not satisfied (mount + site + OTA).
-            // The signal handler authoritatively re-validates before starting; this
-            // gating is purely UX so the user gets a clear "why" without a toast.
+            // [PA] — polar alignment toggle (preview mode only). Lit (activeBg) when
+            // a routine is currently running, otherwise inactiveBg — same colour
+            // scheme as [Fit]/[1:1]/[T]/[B] for visual consistency. Disabled state
+            // (preconditions unmet) keeps inactiveBg + DimText so the button still
+            // reads as clickable but obviously not currently armed; the signal
+            // handler re-validates and reports the missing piece.
             if (State is { } liveState && !liveState.IsRunning)
             {
                 var polarActive = liveState.Mode == LiveSessionMode.PolarAlign;
                 var (polarEnabled, polarReason) = EvaluatePolarPreconditions(liveState);
-                var polarBg = polarActive ? new RGBAColor32(0x44, 0xaa, 0x66, 0xff)
-                    : polarEnabled ? new RGBAColor32(0x44, 0x66, 0x88, 0xff)
-                    : new RGBAColor32(0x33, 0x33, 0x3a, 0xff);
+                var polarBg = polarActive ? activeBg : inactiveBg;
                 var polarFg = polarEnabled || polarActive ? BodyText : DimText;
                 RenderButton("PA", x, btnY, btnW * 0.8f, btnH, fontPath, btnFs,
                     polarBg, polarFg, "PolarAlign",
@@ -320,11 +320,10 @@ namespace TianWen.UI.Abstractions
                 // source instead of the main OTA camera. The PA click above reads
                 // this flag so the user picks once and the choice sticks. Disabled
                 // (no flip) while the routine is already running — switching mid-run
-                // would invalidate the Phase A v1 anchor frame.
+                // would invalidate the Phase A v1 anchor frame. Same active/inactive
+                // colour scheme as [Fit]/[1:1]/[T]/[B] for visual consistency.
                 var guiderActive = liveState.PolarAlignUseGuider;
-                var guiderBg = guiderActive
-                    ? new RGBAColor32(0xaa, 0x88, 0x44, 0xff)
-                    : new RGBAColor32(0x2a, 0x2a, 0x35, 0xff);
+                var guiderBg = guiderActive ? activeBg : inactiveBg;
                 RenderButton("G", x, btnY, btnW * 0.6f, btnH, fontPath, btnFs,
                     guiderBg, BodyText, "PolarAlignSource",
                     _ =>

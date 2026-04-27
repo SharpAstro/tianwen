@@ -327,7 +327,8 @@ public interface ICameraDriver : IDeviceDriver
                 TargetRA: Target?.RA ?? double.NaN,
                 TargetDec: Target?.Dec ?? double.NaN,
                 ElectronsPerADU: egain,
-                SWCreator: External.SWCreator
+                SWCreator: External.SWCreator,
+                Aperture: Aperture ?? -1
             )
         );
 
@@ -347,6 +348,13 @@ public interface ICameraDriver : IDeviceDriver
     string? Telescope { get; set; }
 
     int FocalLength { get; set; }
+
+    /// <summary>
+    /// Effective objective aperture diameter in mm. Denormalised onto the
+    /// camera so FITS writers and synthetic-frame renderers don't have to walk
+    /// back to the OTA. <c>null</c> = unknown.
+    /// </summary>
+    int? Aperture { get; set; }
 
     double? Latitude { get; set; }
 

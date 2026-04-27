@@ -75,10 +75,15 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
         /// exposure, recover the mount axis, and decompose against the
         /// apparent pole.
         /// </summary>
-        public async ValueTask<TwoFrameSolveResult> SolveAsync(CancellationToken ct)
+        /// <param name="ct">Cancellation token.</param>
+        /// <param name="rampProgress">Optional reporter for ramp progress —
+        /// the GUI / TUI subscribes so the side panel can show "Probing 200ms
+        /// (rung 3/8)" instead of a static message during the multi-second
+        /// ASTAP retries.</param>
+        public async ValueTask<TwoFrameSolveResult> SolveAsync(CancellationToken ct, IProgress<ProbeProgress>? rampProgress = null)
         {
             // --- Frame 1 with adaptive exposure ramp ---
-            var probe = await AdaptiveExposureRamp.ProbeAsync(_source, _solver, _config.ExposureRamp, _config.MinStarsForSolve, ct);
+            var probe = await AdaptiveExposureRamp.ProbeAsync(_source, _solver, _config.ExposureRamp, _config.MinStarsForSolve, ct, rampProgress);
             if (!probe.Success)
             {
                 // Source-supplied reason (e.g. "PHD2 Save Images disabled") wins over the

@@ -27,6 +27,7 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
         private readonly ICameraDriver _camera;
         private readonly ITimeProvider _timeProvider;
         private readonly ILogger _logger;
+        private readonly Func<CancellationToken, ValueTask<Target?>>? _refreshTargetAsync;
         private readonly TimeSpan _imageReadyPollInterval = TimeSpan.FromMilliseconds(50);
 
         public string DisplayName { get; }
@@ -42,13 +43,22 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
         /// <c>OTA.FocalLength</c> / <c>OTA.Aperture</c> / camera pixel size at
         /// the call site.
         /// </summary>
+        /// <param name="refreshTargetAsync">Optional callback invoked before each
+        /// <see cref="ICameraDriver.StartExposureAsync"/> to refresh
+        /// <see cref="ICameraDriver.Target"/> with the current pointing. Real
+        /// cameras include the result in FITS headers; fake cameras use it to
+        /// render real catalog stars (so plate solvers can match them) — without
+        /// this, polar alignment on a FakeCameraDriver runs against a random
+        /// synthetic field that no solver can match. Pass null on real-only
+        /// setups to keep whatever Target the camera was previously assigned.</param>
         public MainCameraCaptureSource(
             ICameraDriver camera,
             string displayName,
             double focalLengthMm,
             double apertureMm,
             ITimeProvider timeProvider,
-            ILogger logger)
+            ILogger logger,
+            Func<CancellationToken, ValueTask<Target?>>? refreshTargetAsync = null)
         {
             _camera = camera;
             DisplayName = displayName;
@@ -58,6 +68,7 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
             PixelSizeMicrons = camera.PixelSizeX;
             _timeProvider = timeProvider;
             _logger = logger;
+            _refreshTargetAsync = refreshTargetAsync;
         }
 
         public async ValueTask<CaptureAndSolveResult> CaptureAndSolveAsync(
@@ -69,6 +80,25 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
             {
                 _logger.LogWarning("MainCameraCaptureSource: camera not connected");
                 return new CaptureAndSolveResult(false, null, default, 0, exposure, null);
+            }
+
+            // Refresh the camera's Target to the current mount pointing before
+            // exposing — drives the FakeCameraDriver synthetic-catalog render path
+            // (Phase A frame 2 captures at a different RA after the rotation, so
+            // a one-shot stamp before the routine isn't enough). On real cameras
+            // this just feeds the FITS header.
+            //
+            // The refreshed pointing is also fed into the plate solver as a
+            // search origin: the built-in CatalogPlateSolver requires a hint to
+            // attempt a match (it's not a blind solver), and even ASTAP solves
+            // dramatically faster with one. The mount already knows where it's
+            // pointing — withholding that from the solver makes no sense.
+            WCS? searchOrigin = null;
+            if (_refreshTargetAsync is not null
+                && await _refreshTargetAsync(ct).ConfigureAwait(false) is { } refreshed)
+            {
+                _camera.Target = refreshed;
+                searchOrigin = new WCS(refreshed.RA, refreshed.Dec);
             }
 
             await _camera.StartExposureAsync(exposure, FrameType.Light, ct);
@@ -94,7 +124,20 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
 
             try
             {
-                var solveResult = await solver.SolveImageAsync(image, cancellationToken: ct);
+                PlateSolveResult solveResult;
+                try
+                {
+                    solveResult = await solver.SolveImageAsync(image, searchOrigin: searchOrigin, cancellationToken: ct);
+                }
+                catch (PlateSolverException ex)
+                {
+                    // Per-frame solve failure (no stars, ASTAP exit-1, etc.) is the expected
+                    // outcome of an under-exposed first rung in the adaptive exposure ramp.
+                    // Return Success=false so the ramp moves to the next rung instead of
+                    // crashing the whole routine on the very first 100ms attempt.
+                    _logger.LogDebug(ex, "MainCameraCaptureSource: plate solver threw at exposure {Exposure}ms — ramp will try next rung", exposure.TotalMilliseconds);
+                    return new CaptureAndSolveResult(false, null, default, 0, exposure, null);
+                }
                 if (solveResult.Solution is { } wcs)
                 {
                     var centre = PolarAxisSolver.RaDecToUnitVec(wcs.CenterRA, wcs.CenterDec);

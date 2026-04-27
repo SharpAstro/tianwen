@@ -500,6 +500,7 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver
 
     public string? Telescope { get; set; }
     public int FocalLength { get; set; }
+    public int? Aperture { get; set; }
     public double? Latitude { get; set; }
     public double? Longitude { get; set; }
     public Filter Filter { get; set; } = Filter.Unknown;
@@ -687,9 +688,22 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver
 
                         if (CelestialObjectDB is { } db && Target is { } target && FocalLength > 0)
                         {
-                            // Magnitude cutoff: brighter limit for shorter exposures
-                            // ~mag 8 at 1s, ~mag 10 at 10s, ~mag 12 at 120s
-                            var magCutoff = Math.Min(12.0, 7.0 + 2.5 * Math.Log10(Math.Max(exposureSec, 0.1)));
+                            // Limiting magnitude scales as collecting area (D^2) and
+                            // exposure time. Standard photon-counting form, calibrated
+                            // against amateur CMOS observations:
+                            //   m_lim = 2 + 5*log10(D_mm) + 2.5*log10(t_sec)
+                            // (50mm at 1s -> ~mag 10.5; 200mm at 10s -> ~mag 16.)
+                            // Aperture is denormalised onto the camera in Session.Lifecycle
+                            // and the polar-alignment AppSignalHandler. Without it, fall
+                            // back to the legacy exposure-only formula so unit tests that
+                            // construct FakeCameraDriver standalone still get sensible
+                            // (if conservative) star counts.
+                            // Cap at 15 to bound frame-render time and stay within the
+                            // catalog's reliable density region.
+                            var safeExposure = Math.Max(exposureSec, 0.1);
+                            var magCutoff = Aperture is int apertureMm and > 0
+                                ? Math.Min(15.0, 2.0 + 5.0 * Math.Log10(apertureMm) + 2.5 * Math.Log10(safeExposure))
+                                : Math.Min(12.0, 7.0 + 2.5 * Math.Log10(safeExposure));
                             var stars = SyntheticStarFieldRenderer.ProjectCatalogStars(
                                 target.RA, target.Dec, FocalLength, PixelSizeX, imgWidth, imgHeight, db, magCutoff);
                             var cloudSeed = _frameRng.Next();

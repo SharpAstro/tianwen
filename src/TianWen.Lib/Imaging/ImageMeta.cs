@@ -58,6 +58,7 @@ namespace TianWen.Lib.Imaging;
 /// <param name="TargetDec">Target declination in degrees (FITS: OBJCTDEC, DEC). NaN if unknown.</param>
 /// <param name="ElectronsPerADU">Electrons per ADU (system gain) (FITS: EGAIN). NaN if unknown.</param>
 /// <param name="SWCreator">Software that created the image (FITS: SWCREATE). Empty if unset.</param>
+/// <param name="Aperture">Effective objective aperture diameter in mm (FITS: APTDIA). -1 if unknown.</param>
 public record struct ImageMeta(
     string Instrument,
     DateTimeOffset ExposureStartTime,
@@ -85,7 +86,8 @@ public record struct ImageMeta(
     double TargetRA = double.NaN,
     double TargetDec = double.NaN,
     float ElectronsPerADU = float.NaN,
-    string SWCreator = ""
+    string SWCreator = "",
+    int Aperture = -1
 )
 {
     /// <summary>
@@ -94,4 +96,24 @@ public record struct ImageMeta(
     /// </summary>
     public readonly double DerivedPixelScale =>
         Astrometry.CoordinateUtils.PixelScaleArcsec(PixelSizeX, FocalLength);
+
+    /// <summary>
+    /// F-ratio derived from <see cref="FocalLength"/> and <see cref="Aperture"/>
+    /// (FITS: FOCRATIO). NaN if either is unknown.
+    /// </summary>
+    public readonly double DerivedFRatio =>
+        FocalLength > 0 && Aperture > 0
+            ? (double)FocalLength / Aperture
+            : double.NaN;
+
+    /// <summary>
+    /// Aperture collecting area in cm^2 derived from <see cref="Aperture"/>
+    /// (FITS: APTAREA). NaN if aperture is unknown. Treats the aperture as an
+    /// unobstructed circle; refractors and reflectors with central obstruction
+    /// are slightly over-reported, which is the common FITS convention.
+    /// </summary>
+    public readonly double DerivedApertureAreaCm2 =>
+        Aperture > 0
+            ? Math.PI * 0.25 * (Aperture / 10.0) * (Aperture / 10.0)
+            : double.NaN;
 }

@@ -257,6 +257,10 @@ internal partial record Session
             {
                 camera.Driver.FocalLength = telescope.FocalLength;
             }
+            if (camera.Driver.Aperture is null or <= 0 && telescope.Aperture is int apertureMm and > 0)
+            {
+                camera.Driver.Aperture = apertureMm;
+            }
             camera.Driver.Latitude ??= await mount.Driver.GetSiteLatitudeAsync(cancellationToken);
             camera.Driver.Longitude ??= await mount.Driver.GetSiteLongitudeAsync(cancellationToken);
         }

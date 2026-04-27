@@ -1000,6 +1000,8 @@ internal abstract class DALCameraDriver<TDevice, TDeviceInfo> : DALDeviceDriverB
 
     public int FocalLength { get; set; } = -1;
 
+    public int? Aperture { get; set; }
+
     public int FocusPosition { get; set; } = -1;
 
     public Filter Filter { get; set; } = Filter.Unknown;

@@ -15,6 +15,7 @@ using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Astrometry.PlateSolve;
 using TianWen.Lib.Astrometry.SOFA;
 using TianWen.Lib.Devices;
+using TianWen.Lib.Devices.Fake;
 using TianWen.Lib.Devices.Guider;
 using TianWen.Lib.Devices.Weather;
 using TianWen.Lib.Extensions;
@@ -1972,6 +1973,13 @@ namespace TianWen.UI.Abstractions
                     // (a typical 50mm/200mm-ish mini guider). Used only for ranking heuristics
                     // and a UI hint string.
                     var guiderApertureMm = guiderFlMm / 4.0;
+                    var guiderMount = mount;
+                    Func<CancellationToken, ValueTask<(double RaHours, double DecDeg)?>> guiderSearchOrigin = async tok =>
+                    {
+                        var ra = await guiderMount.GetRightAscensionAsync(tok).ConfigureAwait(false);
+                        var dec = await guiderMount.GetDeclinationAsync(tok).ConfigureAwait(false);
+                        return (ra, dec);
+                    };
                     source = new GuiderCaptureSource(
                         guider,
                         displayName: $"Guider \u2014 {guider.Name}",
@@ -1979,7 +1987,8 @@ namespace TianWen.UI.Abstractions
                         apertureMm: guiderApertureMm,
                         pixelSizeMicrons: guideCam.PixelSizeX,
                         external,
-                        logger);
+                        logger,
+                        searchOriginAsync: guiderSearchOrigin);
                     activeGuider = guider;
                 }
                 else
@@ -1994,13 +2003,46 @@ namespace TianWen.UI.Abstractions
                             NotificationSeverity.Warning, $"OTA #{otaIndex + 1} camera not connected");
                         return;
                     }
+
+                    // Denormalise OTA optics + site onto the camera so FITS headers and
+                    // (for FakeCameraDriver) catalog star rendering have what they need.
+                    // Same pattern as Session.Lifecycle.cs:254-261. Polar alignment runs
+                    // outside a Session so we have to do it here.
+                    if (camera.FocalLength <= 0) camera.FocalLength = ota.FocalLength;
+                    if (camera.Aperture is null or <= 0 && ota.Aperture is int otaAperture and > 0)
+                    {
+                        camera.Aperture = otaAperture;
+                    }
+                    camera.Telescope ??= ota.Name;
+                    camera.Latitude ??= lat;
+                    camera.Longitude ??= lon;
+
+                    // FakeCameraDriver renders real catalog stars (so plate solvers can
+                    // actually match the synthetic frame) only when its CelestialObjectDB
+                    // is wired and Target is set. Wire DB once here; Target is refreshed
+                    // per-capture below via the refresh callback so frame 2 (post-rotation)
+                    // gets the rotated-to coordinates.
+                    if (camera is FakeCameraDriver fakeCamera)
+                    {
+                        fakeCamera.CelestialObjectDB ??= sp.GetRequiredService<ICelestialObjectDB>();
+                    }
+
+                    var capturedMount = mount;
+                    Func<CancellationToken, ValueTask<Target?>> refreshTarget = async tok =>
+                    {
+                        var ra = await capturedMount.GetRightAscensionAsync(tok).ConfigureAwait(false);
+                        var dec = await capturedMount.GetDeclinationAsync(tok).ConfigureAwait(false);
+                        return new Target(ra, dec, "Polar Align", null);
+                    };
+
                     source = new MainCameraCaptureSource(
                         camera,
                         displayName: $"OTA #{otaIndex + 1} \u2014 {ota.Name}",
                         focalLengthMm: ota.FocalLength,
                         apertureMm: ota.Aperture ?? Math.Max(1, ota.FocalLength / 5),
                         _timeProvider,
-                        logger);
+                        logger,
+                        refreshTargetAsync: refreshTarget);
                 }
 
                 // Refraction inputs: prefer connected weather device, then standard atmosphere.
