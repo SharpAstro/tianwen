@@ -5,6 +5,10 @@ on:
     branches: [ main ]
   pull_request:
     branches: [ main ]
+  # publish-apps + release are gated on workflow_dispatch only -- LFS bandwidth
+  # makes it too expensive to publish all six AOT RIDs on every push to main.
+  # Trigger via the /release-tianwen skill (gh workflow run dotnet.yml).
+  workflow_dispatch:
 
 env:
   VERSION_PREFIX: 4.2.${{ github.run_number }}
@@ -16,13 +20,33 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v6
       with:
         submodules: recursive
-        lfs: true
-    - uses: actions/setup-dotnet@v4
+        lfs: false
+    # Narrow LFS pull: build needs catalog .lz (TianWen.Lib EmbeddedResource),
+    # milkyway .lz (Gui Content) and fonts .ttf (Gui Content). Skipping test
+    # fixtures (*.fits.gz) saves ~120 MB per pull -- they're only needed by
+    # the test jobs, not for compilation or the .nupkg artifact.
+    - name: Compute LFS cache key
+      id: lfs-key
+      run: |
+        # Pointer file content (OID + size) changes only when the underlying
+        # LFS object changes, so a pointer-hash key reliably identifies which
+        # set of LFS objects we'd be pulling. Cache hit -> no LFS bandwidth.
+        HASH=$(git ls-files '*.lz' '*.ttf' | xargs cat | sha256sum | cut -c1-16)
+        echo "key=lfs-build-${HASH}" >> $GITHUB_OUTPUT
+    - uses: actions/cache@v5
+      with:
+        path: .git/lfs
+        key: ${{ steps.lfs-key.outputs.key }}
+    - name: Fetch required LFS objects
+      run: git lfs pull --include="*.lz,*.ttf"
+    - uses: actions/setup-dotnet@v5
       with:
         dotnet-version: 10.0.x
+        cache: true
+        cache-dependency-path: src/Directory.Packages.props
     - name: Restore dependencies
       run: dotnet restore
       working-directory: src
@@ -30,7 +54,7 @@ jobs:
       run: dotnet build -c $BUILD_CONF --no-restore -p:Version=${VERSION_PREFIX}${VERSION_REV}${VERSION_HASH} -p:FileVersion=${VERSION_PREFIX}.${VERSION_REV} -p:ContinuousIntegrationBuild=true
       working-directory: src
     - name: Upload NuGet package
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       with:
         name: nuget-packages
         path: '**/*.nupkg'
@@ -40,15 +64,38 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
-    - name: Install fonts for ImageMagick
-      run: sudo apt-get update && sudo apt-get install -y ghostscript fonts-urw-base35 fontconfig && fc-cache -f
-    - uses: actions/checkout@v4
+    # cache-apt-pkgs-action installs the listed packages (apt-get install behind
+    # the scenes) but caches /var/cache/apt by `version` key. First run pays
+    # the full ~80 MB; subsequent runs restore in ~2s. fc-cache still runs to
+    # rebuild the local fontconfig index.
+    - uses: SharpAstro/cache-apt-pkgs-action@v1
+      with:
+        packages: ghostscript fonts-urw-base35 fontconfig
+        version: 1.0
+    - name: Rebuild fontconfig cache
+      run: fc-cache -f
+    - uses: actions/checkout@v6
       with:
         submodules: recursive
-        lfs: true
-    - uses: actions/setup-dotnet@v4
+        lfs: false
+    # Narrow LFS pull: tests need catalogs (.lz), fonts (.ttf), and FITS test
+    # fixtures (.fits.gz) embedded in TianWen.Lib.Tests.dll.
+    - name: Compute LFS cache key
+      id: lfs-key
+      run: |
+        HASH=$(git ls-files '*.lz' '*.ttf' '*.fits.gz' | xargs cat | sha256sum | cut -c1-16)
+        echo "key=lfs-tests-${HASH}" >> $GITHUB_OUTPUT
+    - uses: actions/cache@v5
+      with:
+        path: .git/lfs
+        key: ${{ steps.lfs-key.outputs.key }}
+    - name: Fetch required LFS objects
+      run: git lfs pull --include="*.lz,*.ttf,*.fits.gz"
+    - uses: actions/setup-dotnet@v5
       with:
         dotnet-version: 10.0.x
+        cache: true
+        cache-dependency-path: src/Directory.Packages.props
     - name: Restore dependencies
       run: dotnet restore
       working-directory: src
@@ -63,15 +110,33 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
-    - name: Install astrometry.net
-      run: sudo apt-get update && sudo apt-get install -y astrometry.net astrometry-data-2mass-08-19
-    - uses: actions/checkout@v4
+    # astrometry-data-2mass-08-19 alone is ~1 GB. Caching saves ~30-60s and a
+    # fair chunk of network on every run.
+    - uses: SharpAstro/cache-apt-pkgs-action@v1
+      with:
+        packages: astrometry.net astrometry-data-2mass-08-19
+        version: 1.0
+    - uses: actions/checkout@v6
       with:
         submodules: recursive
-        lfs: true
-    - uses: actions/setup-dotnet@v4
+        lfs: false
+    # Narrow LFS pull: same as test-unit -- catalogs, fonts, FITS fixtures.
+    - name: Compute LFS cache key
+      id: lfs-key
+      run: |
+        HASH=$(git ls-files '*.lz' '*.ttf' '*.fits.gz' | xargs cat | sha256sum | cut -c1-16)
+        echo "key=lfs-tests-${HASH}" >> $GITHUB_OUTPUT
+    - uses: actions/cache@v5
+      with:
+        path: .git/lfs
+        key: ${{ steps.lfs-key.outputs.key }}
+    - name: Fetch required LFS objects
+      run: git lfs pull --include="*.lz,*.ttf,*.fits.gz"
+    - uses: actions/setup-dotnet@v5
       with:
         dotnet-version: 10.0.x
+        cache: true
+        cache-dependency-path: src/Directory.Packages.props
     - name: Restore dependencies
       run: dotnet restore
       working-directory: src
@@ -86,9 +151,13 @@ jobs:
   # on AOT targets (multiple minutes per RID), so gating on tests would block
   # the matrix unnecessarily. The `release` job below re-gates: binaries only
   # become a published GitHub Release when both tests AND this matrix succeed.
+  #
+  # Trigger: workflow_dispatch only (six AOT publishes pull LFS six times,
+  # which used to blow through the 1 GB/month free tier on every push to main).
+  # Use the /release-tianwen skill to invoke a release.
   publish-apps:
     needs: build
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    if: github.event_name == 'workflow_dispatch'
     strategy:
       fail-fast: false
       matrix:
@@ -102,13 +171,33 @@ jobs:
 
     runs-on: ${{ matrix.os }}
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v6
       with:
         submodules: recursive
-        lfs: true
-    - uses: actions/setup-dotnet@v4
+        lfs: false
+    # Narrow LFS pull: AOT publish needs catalogs (TianWen.Lib EmbeddedResource),
+    # fonts and milkyway texture (TianWen.UI.Gui Content). No FITS fixtures --
+    # publish never builds the test projects.
+    # Same key as the build job since they pull the same set of LFS objects --
+    # the build cache populates and the publish matrix restores from it.
+    - name: Compute LFS cache key
+      id: lfs-key
+      shell: bash
+      run: |
+        HASH=$(git ls-files '*.lz' '*.ttf' | xargs cat | sha256sum | cut -c1-16)
+        echo "key=lfs-build-${HASH}" >> $GITHUB_OUTPUT
+    - uses: actions/cache@v5
+      with:
+        path: .git/lfs
+        key: ${{ steps.lfs-key.outputs.key }}
+    - name: Fetch required LFS objects
+      shell: bash
+      run: git lfs pull --include="*.lz,*.ttf"
+    - uses: actions/setup-dotnet@v5
       with:
         dotnet-version: 10.0.x
+        cache: true
+        cache-dependency-path: src/Directory.Packages.props
     - name: Publish TianWen.Cli
       run: dotnet publish src/TianWen.Cli/TianWen.Cli.csproj -r ${{ matrix.rid }} -c Release -p:Version=${VERSION_PREFIX}${VERSION_REV}${VERSION_HASH} -p:FileVersion=${VERSION_PREFIX}.${VERSION_REV} -p:GeneratePackageOnBuild=false
       shell: bash
@@ -121,33 +210,34 @@ jobs:
     - name: Publish TianWen.Server
       run: dotnet publish src/TianWen.Server/TianWen.Server.csproj -r ${{ matrix.rid }} -c Release -p:Version=${VERSION_PREFIX}${VERSION_REV}${VERSION_HASH} -p:FileVersion=${VERSION_PREFIX}.${VERSION_REV} -p:GeneratePackageOnBuild=false
       shell: bash
-    - uses: actions/upload-artifact@v4
+    - uses: actions/upload-artifact@v7
       with:
         name: tianwen-cli-${{ matrix.rid }}
         path: src/TianWen.Cli/bin/Release/net10.0/${{ matrix.rid }}/publish/
-    - uses: actions/upload-artifact@v4
+    - uses: actions/upload-artifact@v7
       with:
         name: tianwen-fits-${{ matrix.rid }}
         path: src/TianWen.UI.FitsViewer/bin/Release/net10.0/${{ matrix.rid }}/publish/
-    - uses: actions/upload-artifact@v4
+    - uses: actions/upload-artifact@v7
       with:
         name: tianwen-gui-${{ matrix.rid }}
         path: src/TianWen.UI.Gui/bin/Release/net10.0/${{ matrix.rid }}/publish/
-    - uses: actions/upload-artifact@v4
+    - uses: actions/upload-artifact@v7
       with:
         name: tianwen-server-${{ matrix.rid }}
         path: src/TianWen.Server/bin/Release/net10.0/${{ matrix.rid }}/publish/
 
   # Gating: only ship binaries to a GitHub Release when tests pass AND all
-  # target-platform publishes succeeded.
+  # target-platform publishes succeeded. Workflow_dispatch only -- piggybacks
+  # off publish-apps, which is also dispatch-gated.
   release:
     needs: [test-unit, test-functional, publish-apps]
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
-    - uses: actions/download-artifact@v4
+    - uses: actions/download-artifact@v8
       with:
         path: artifacts
     - name: Create release archives
@@ -158,7 +248,7 @@ jobs:
           tar -czf "../${name}.tar.gz" -C "$dir" .
         done
     - name: Create GitHub Release
-      uses: softprops/action-gh-release@v2
+      uses: SharpAstro/action-gh-release@v3
       with:
         tag_name: v${{ env.VERSION_PREFIX }}
         name: v${{ env.VERSION_PREFIX }}
@@ -177,7 +267,7 @@ jobs:
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     steps:
     - name: Download NuGet packages
-      uses: actions/download-artifact@v4
+      uses: actions/download-artifact@v8
       with:
         name: nuget-packages
     - name: Push NuGet package

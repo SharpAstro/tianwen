@@ -15,6 +15,7 @@ Available in `.claude/skills/<name>/SKILL.md` — auto-invocable when the reques
 | Skill | Purpose |
 |-------|---------|
 | `release-lib` | Release a SharpAstro sibling library to NuGet with full dependency chain |
+| `release-tianwen` | Cut a TianWen binary release (workflow_dispatch + GitHub Release with .tar.gz assets) |
 | `sibling-status` | Git status + version across all SharpAstro repos |
 | `check-ci` | GitHub Actions CI status across all repos |
 | `bump-version` | Bump TianWen version in all 4 required locations |

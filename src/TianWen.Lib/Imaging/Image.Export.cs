@@ -64,6 +64,15 @@ public partial class Image
             result = firstChannel;
         }
 
+        // ZIP (Deflate) is lossless and typically halves the on-disk size of
+        // 32-bit float TIFFs. Without this, libtiff defaults to no compression
+        // and a 4Kx4K RGB frame is ~192 MB. Settings.Compression is the
+        // encoder-side knob; the read-only Compression property reflects the
+        // source. Set on the combined result as well because Combine() produces
+        // a new image with default (Undefined) compression regardless of the
+        // source channels' settings.
+        result.Settings.Compression = CompressionMethod.Zip;
+
         return result;
 
         MagickImage ChannelToImage(int channel)
@@ -75,6 +84,7 @@ public partial class Image
                 Endian = BitConverter.IsLittleEndian ? Endian.LSB : Endian.MSB,
                 ColorType = ColorType.Grayscale
             };
+            image.Settings.Compression = CompressionMethod.Zip;
 
             // Scale channel data into reusable buffer (SIMD-accelerated)
             MultiplyScalar(GetChannelSpan(channel), scale, buffer);
