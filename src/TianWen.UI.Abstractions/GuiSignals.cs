@@ -82,7 +82,7 @@ public readonly record struct StartSessionSignal;
 /// <paramref name="UseGuider"/> is false. Defaults to the auto-pick from
 /// <c>CaptureSourceRanker</c> when -1. Ignored when <paramref name="UseGuider"/>
 /// is true.</param>
-/// <param name="DeltaRaDeg">RA-axis rotation angle in degrees (typically 60 or 90).</param>
+/// <param name="DeltaRaDeg">RA-axis rotation angle in degrees (typically 45-90).</param>
 /// <param name="UseGuider">If true, use the connected guider (built-in or PHD2)
 /// as the capture source instead of the main camera. PHD2 requires <c>Save Images</c>
 /// to be enabled in its profile — failure to find a saved frame surfaces as a
@@ -90,7 +90,7 @@ public readonly record struct StartSessionSignal;
 /// the choice is explicit; the auto-ranker remains a future enhancement.</param>
 public readonly record struct StartPolarAlignmentSignal(
     int OtaIndex = -1,
-    double DeltaRaDeg = 60.0,
+    double DeltaRaDeg = 45.0,
     bool UseGuider = false);
 
 /// <summary>
@@ -98,6 +98,20 @@ public readonly record struct StartPolarAlignmentSignal(
 /// restore (per <c>PolarAlignmentOnDone</c>) still runs on disposal.
 /// </summary>
 public readonly record struct CancelPolarAlignmentSignal;
+
+/// <summary>
+/// Test-only: nudge the connected fake Skywatcher mount's simulated topocentric
+/// (az, alt) misalignment by the given delta in arcminutes. No-op for any
+/// non-fake mount driver. Used by the polar-align refining UI to simulate the
+/// observer twisting the alt/az adjustment knobs without leaving the GUI --
+/// the next plate solve picks up the new pointing and the smoothed errors
+/// converge toward zero.
+/// </summary>
+/// <param name="DeltaAzArcmin">Signed change in azimuth misalignment (arcminutes).</param>
+/// <param name="DeltaAltArcmin">Signed change in altitude misalignment (arcminutes).</param>
+public readonly record struct NudgeFakeMountMisalignmentSignal(
+    double DeltaAzArcmin,
+    double DeltaAltArcmin);
 
 /// <summary>
 /// User clicked Done after the routine reached <see cref="PolarAlignmentPhase.Aligned"/>.

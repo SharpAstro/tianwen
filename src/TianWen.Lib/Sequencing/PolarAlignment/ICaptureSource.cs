@@ -49,7 +49,7 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
         ValueTask<CaptureAndSolveResult> CaptureAndSolveAsync(
             System.TimeSpan exposure,
             IPlateSolver solver,
-            CancellationToken ct);
+            CancellationToken ct = default);
     }
 
     /// <summary>

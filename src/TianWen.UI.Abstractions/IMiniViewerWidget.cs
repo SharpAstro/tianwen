@@ -1,4 +1,5 @@
 using DIR.Lib;
+using TianWen.Lib.Astrometry;
 using TianWen.Lib.Imaging;
 
 namespace TianWen.UI.Abstractions;
@@ -24,6 +25,15 @@ public interface IMiniViewerWidget
     /// upload textures on the next <see cref="Render"/> call or asynchronously.
     /// </summary>
     void QueueImage(Image image);
+
+    /// <summary>
+    /// Optional plate-solved WCS for the current frame. When non-null and
+    /// <see cref="MiniViewerState.ShowGrid"/> is true, the renderer overlays
+    /// an RA/Dec coordinate grid using the same shader path the FITS viewer
+    /// uses. Caller is responsible for clearing this when the active image
+    /// no longer matches the solve (e.g., a new exposure invalidates the WCS).
+    /// </summary>
+    WCS? Wcs { get; set; }
 
     /// <summary>
     /// Renders the current image with toolbar into the given rectangle.

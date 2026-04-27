@@ -143,6 +143,17 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
             vec2 sky = pixelToSky(pixel);
             float ra  = sky.x;
             float dec = sky.y;
+            // Distance from celestial pole, in radians (= colatitude).
+            // Within ~5 arcmin of the pole, suppress grid lines: meridians all
+            // converge to a single point and the inner declination circles get
+            // arbitrarily small, creating a green moire that hides the sky.
+            // The CPU-side WcsAnnotationLayer draws the pole crosshair + a 30'
+            // reference ring on top, both well outside this 5' suppression
+            // radius so they sit visibly inside the active grid.
+            float poleDist = 1.5707963 - abs(dec);
+            if (poleDist < 0.00145) {
+                return 0.0;
+            }
             float raGrid  = ra  / ubo.gridSpacingRA;
             float decGrid = dec / ubo.gridSpacingDec;
             float raFrac  = abs(raGrid  - round(raGrid))  * ubo.gridSpacingRA;
@@ -227,9 +238,9 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
                     float grid = gridIntensity(pixel);
                     vec3 gridColor = vec3(0.0, 0.8, 0.0);
                     FragColor = vec4(
-                        mix(r, gridColor.r, grid * 0.7),
-                        mix(r, gridColor.g, grid * 0.7),
-                        mix(r, gridColor.b, grid * 0.7),
+                        mix(r, gridColor.r, grid * 0.45),
+                        mix(r, gridColor.g, grid * 0.45),
+                        mix(r, gridColor.b, grid * 0.45),
                         1.0);
                 } else {
                     FragColor = vec4(r, r, r, 1.0);
@@ -275,10 +286,10 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
                 vec2 pixel = vec2(vTexCoord.x * ubo.imageSize.x + 1.0,
                                  vTexCoord.y * ubo.imageSize.y + 1.0);
                 float grid = gridIntensity(pixel);
-                vec3 gridColor = vec3(0.0, 0.8, 0.0);
-                r = mix(r, gridColor.r, grid * 0.7);
-                g = mix(g, gridColor.g, grid * 0.7);
-                b = mix(b, gridColor.b, grid * 0.7);
+                vec3 gridColor = vec3(0.55, 0.85, 0.95);
+                r = mix(r, gridColor.r, grid * 0.45);
+                g = mix(g, gridColor.g, grid * 0.45);
+                b = mix(b, gridColor.b, grid * 0.45);
             }
 
             FragColor = vec4(r, g, b, 1.0);

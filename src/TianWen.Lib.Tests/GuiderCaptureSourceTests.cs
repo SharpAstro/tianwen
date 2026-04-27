@@ -42,7 +42,7 @@ namespace TianWen.Lib.Tests
             var solver = Substitute.For<IPlateSolver>();
 
             var result = await MakeSource(guider).CaptureAndSolveAsync(
-                TimeSpan.FromSeconds(1), solver, CancellationToken.None);
+                TimeSpan.FromSeconds(1), solver, ct: CancellationToken.None);
 
             result.Success.ShouldBeFalse();
             await guider.DidNotReceive().LoopAsync(Arg.Any<TimeSpan>(), Arg.Any<CancellationToken>());
@@ -58,7 +58,7 @@ namespace TianWen.Lib.Tests
             var solver = Substitute.For<IPlateSolver>();
 
             var result = await MakeSource(guider).CaptureAndSolveAsync(
-                TimeSpan.FromSeconds(1), solver, CancellationToken.None);
+                TimeSpan.FromSeconds(1), solver, ct: CancellationToken.None);
 
             result.Success.ShouldBeFalse();
             result.FailureReason.ShouldNotBeNull().ShouldContain("did not produce a frame");
@@ -76,7 +76,7 @@ namespace TianWen.Lib.Tests
             var solver = Substitute.For<IPlateSolver>();
 
             var result = await MakeSource(guider).CaptureAndSolveAsync(
-                TimeSpan.FromSeconds(1), solver, CancellationToken.None);
+                TimeSpan.FromSeconds(1), solver, ct: CancellationToken.None);
 
             result.Success.ShouldBeFalse();
             result.FailureReason.ShouldNotBeNull().ShouldContain("Save Images");
@@ -94,7 +94,7 @@ namespace TianWen.Lib.Tests
             var solver = Substitute.For<IPlateSolver>();
 
             var result = await MakeSource(guider).CaptureAndSolveAsync(
-                TimeSpan.FromSeconds(1), solver, CancellationToken.None);
+                TimeSpan.FromSeconds(1), solver, ct: CancellationToken.None);
 
             result.Success.ShouldBeFalse();
             result.FailureReason.ShouldNotBeNull().ShouldContain("Save Images");

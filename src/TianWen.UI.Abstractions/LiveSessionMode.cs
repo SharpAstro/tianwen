@@ -29,28 +29,4 @@ namespace TianWen.UI.Abstractions
         Session = 1,
         PolarAlign = 2,
     }
-
-    /// <summary>
-    /// Where the polar-alignment routine is in its lifecycle. Drives the
-    /// status line and the side-panel button states (Start/Cancel/Done).
-    /// </summary>
-    public enum PolarAlignmentPhase
-    {
-        /// <summary>Mode active but routine not yet started; waiting for the user to click Start.</summary>
-        Idle = 0,
-        /// <summary>Adaptive exposure ramp running on frame 1.</summary>
-        ProbingExposure = 1,
-        /// <summary>Frame 1 capture complete, mount rotating about the RA axis.</summary>
-        Rotating = 2,
-        /// <summary>Mount settle wait + frame 2 capture (with retries).</summary>
-        Frame2 = 3,
-        /// <summary>Phase A solve complete; live refinement loop running.</summary>
-        Refining = 4,
-        /// <summary>Both <c>IsSettled</c> and <c>IsAligned</c> true; awaiting the user's Done click.</summary>
-        Aligned = 5,
-        /// <summary>Reverse-axis restore in progress after Done / Cancel.</summary>
-        RestoringMount = 6,
-        /// <summary>Routine failed (Phase A) — last <see cref="LiveSessionState.PolarStatusMessage"/> contains the reason.</summary>
-        Failed = 7,
-    }
 }

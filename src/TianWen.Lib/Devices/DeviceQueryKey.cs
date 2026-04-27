@@ -29,6 +29,8 @@ public enum DeviceQueryKey
     FocuserBacklashIn,
     FocuserBacklashOut,
     ApiKey,
+    PolarMisalignmentAzArcmin,
+    PolarMisalignmentAltArcmin,
 }
 
 public static class DeviceQueryKeyExtensions
@@ -75,6 +77,8 @@ public static class DeviceQueryKeyExtensions
             DeviceQueryKey.FocuserBacklashIn => "focuserBacklashIn",
             DeviceQueryKey.FocuserBacklashOut => "focuserBacklashOut",
             DeviceQueryKey.ApiKey => "apiKey",
+            DeviceQueryKey.PolarMisalignmentAzArcmin => "polarMisalignmentAzArcmin",
+            DeviceQueryKey.PolarMisalignmentAltArcmin => "polarMisalignmentAltArcmin",
             _ => key.ToString().ToLowerInvariant()
         };
     }

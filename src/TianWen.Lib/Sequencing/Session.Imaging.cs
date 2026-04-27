@@ -416,9 +416,20 @@ internal partial record Session
                         await SwitchFilterIfNeededAsync(i, filterWheelDriver, currentEntry.FilterPosition, cancellationToken);
                     }
 
-                    // set denormalized parameters so that the image driver can write proper headers in the image file
-                    camerDriver.FocusPosition = await CatchAsync(async ct => telescope.Focuser?.Driver is { Connected: true } focuserDriver ? await focuserDriver.GetPositionAsync(ct) : -1, cancellationToken, -1);
-                    camerDriver.Filter = await CatchAsync(async ct => telescope.FilterWheel?.Driver is { Connected: true } fwDriver ? (await fwDriver.GetCurrentFilterAsync(ct)).Filter : Filter.Unknown, cancellationToken, Filter.Unknown);
+                    // Stamp per-exposure FITS denorm fields (focuser position, filter)
+                    // via the shared helper -- same path used by polar alignment and the
+                    // live preview button so the three never drift on FITS metadata.
+                    // Target/site/optics are managed separately by Session.Lifecycle and
+                    // the scheduled-observation logic, so we skip those args here.
+                    await CameraExposureActions.StampDenormAsync(
+                        camerDriver,
+                        otaName: telescope.Name,
+                        focalLengthMm: telescope.FocalLength,
+                        apertureMm: telescope.Aperture,
+                        focuser: telescope.Focuser?.Driver,
+                        filterWheel: telescope.FilterWheel?.Driver,
+                        logger: _logger,
+                        ct: cancellationToken).ConfigureAwait(false);
 
                     var subExposureSec = (int)Math.Ceiling(currentEntry.SubExposure.TotalSeconds);
                     currentSubExposuresSec[i] = subExposureSec;

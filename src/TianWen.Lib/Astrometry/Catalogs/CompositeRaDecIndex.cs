@@ -7,6 +7,20 @@ namespace TianWen.Lib.Astrometry.Catalogs;
 
 internal sealed class CompositeRaDecIndex(RaDecIndex primary, Tycho2RaDecIndex? tycho2) : IRaDecIndex
 {
+    /// <summary>
+    /// Underlying primary (deep-sky) index. Exposed so callers like
+    /// <see cref="PlateSolve.CatalogPlateSolver"/> can build polar-cap queries
+    /// that bypass the per-cell composite enumeration.
+    /// </summary>
+    internal RaDecIndex Primary => primary;
+
+    /// <summary>
+    /// Underlying Tycho-2 index, if loaded. Exposed so the plate solver can
+    /// take its <see cref="Tycho2RaDecIndex.EnumerateStarsInDecBand"/> fast path
+    /// for queries that span all 24 h of RA near the celestial poles.
+    /// </summary>
+    internal Tycho2RaDecIndex? Tycho2 => tycho2;
+
     public IReadOnlyCollection<CatalogIndex> this[double ra, double dec]
     {
         [MethodImpl(MethodImplOptions.AggressiveInlining)]

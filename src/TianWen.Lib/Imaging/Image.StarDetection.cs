@@ -56,11 +56,92 @@ public partial class Image
     /// </summary>
     /// <param name="channel">Channel</param>
     /// <param name="snrMin">S/N ratio threshold for star detection</param>
-    /// <param name="maxStars"></param>
+    /// <param name="maxStars">Upper-bound target for the retry loop. The first detection pass
+    /// runs at a high threshold; if fewer than <paramref name="maxStars"/> stars
+    /// are found and <paramref name="maxRetries"/> remain, the threshold is
+    /// lowered and the entire 61 MP frame is rescanned. On a 9576x6388 frame
+    /// each pass costs ~30 s, so a <paramref name="maxStars"/> ceiling that's
+    /// far above the actual star density triples wall time for nothing.</param>
+    /// <param name="minStars">Early-termination threshold: stop retrying as
+    /// soon as <c>starList.Count &gt;= minStars</c>. Callers that only need
+    /// a handful of well-detected stars (plate solving needs ~6, focus
+    /// monitoring needs ~30) should set this far below
+    /// <paramref name="maxStars"/>. Default is <c>-1</c> which keeps the
+    /// historical behaviour (terminate only when <paramref name="maxStars"/>
+    /// is reached or retries run out).</param>
     /// <param name="maxRetries"></param>
     /// <returns></returns>
+    // Last-call StarList cache. Plate-solve / save-snapshot / re-solve all hit
+    // FindStarsAsync on the same Image with the same params; on a 61 MP polar
+    // frame each call costs ~30 s. Cache key includes detection params so a
+    // call with different SNR / maxStars / retries doesn't return stale data.
+    // Single-slot cache (not a dictionary) -- the typical pattern is "called
+    // twice with identical args"; multiple keys aren't a real workload.
+    private readonly SemaphoreSlim _starListCacheLock = new(1, 1);
+    private (int Channel, float SnrMin, int MaxStars, int MinStars, int MaxRetries) _starListCacheKey;
+    private StarList? _starListCacheValue;
+
+    /// <summary>
+    /// Discards any cached <see cref="StarList"/>. Useful if a caller mutates
+    /// the underlying pixel data after a previous detection (rare; pixel data
+    /// is treated as immutable in practice, but explicit invalidation is
+    /// cheaper than reasoning about it).
+    /// </summary>
+    public void InvalidateStarListCache()
+    {
+        _starListCacheLock.Wait();
+        try
+        {
+            _starListCacheValue = null;
+        }
+        finally
+        {
+            _starListCacheLock.Release();
+        }
+    }
+
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-    public virtual async Task<StarList> FindStarsAsync(int channel, float snrMin = 20f, int maxStars = 500, int maxRetries = 2, CancellationToken cancellationToken = default)
+    public virtual async Task<StarList> FindStarsAsync(int channel, float snrMin = 20f, int maxStars = 500, int minStars = -1, int maxRetries = 2, CancellationToken cancellationToken = default)
+    {
+        // Default minStars to maxStars preserves the historical behaviour
+        // (retries until maxStars is reached). New callers should set minStars
+        // to whatever they actually need -- plate-solver wants ~30, focus
+        // wants ~30, an overlay browser wants 200.
+        if (minStars < 0)
+        {
+            minStars = maxStars;
+        }
+
+        // Cached-result fast path: lock-free first check. The fields are
+        // assigned together under the lock below, so a torn read just falls
+        // through to the slow path -- no correctness hazard.
+        var key = (channel, snrMin, maxStars, minStars, maxRetries);
+        if (_starListCacheValue is { } fastCached && _starListCacheKey.Equals(key))
+        {
+            return fastCached;
+        }
+
+        await _starListCacheLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            if (_starListCacheValue is { } cached && _starListCacheKey.Equals(key))
+            {
+                return cached;
+            }
+
+            var result = await DetectStarsAsync(channel, snrMin, maxStars, minStars, maxRetries, cancellationToken).ConfigureAwait(false);
+            _starListCacheValue = result;
+            _starListCacheKey = key;
+            return result;
+        }
+        finally
+        {
+            _starListCacheLock.Release();
+        }
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
+    private async Task<StarList> DetectStarsAsync(int channel, float snrMin, int maxStars, int minStars, int maxRetries, CancellationToken cancellationToken)
     {
         // ChunkSize = row band height each parallel task processes, matching the max star radius
         // (HfdFactor * BoxRadius) so no star can span two non-adjacent chunks. Decoupled from
@@ -78,7 +159,7 @@ public partial class Image
         {
             // debayer to mono
             var monoImage = await DebayerAsync(DebayerAlgorithm.BilinearMono, cancellationToken: cancellationToken);
-            return await monoImage.FindStarsAsync(channel, snrMin, maxStars, maxRetries, cancellationToken);
+            return await monoImage.FindStarsAsync(channel, snrMin, maxStars, minStars, maxRetries, cancellationToken);
         }
 
         var (background, star_level, noise_level, hist_threshold) = Background(channel);
@@ -154,7 +235,7 @@ public partial class Image
                 retries--;
                 detection_level = MathF.Max(6.999f * noise_level, MathF.Min(30 * noise_level, detection_level * 6.999f / 30)); /* very high -> 30 -> 7 -> stop.  Or  60 -> 14 -> 7.0. Or for very short exposures 3.5 -> stop */
             }
-        } while (starList.Count < maxStars && retries > 0);/* reduce detection level till enough stars are found. Note that faint stars have less positional accuracy */
+        } while (starList.Count < minStars && retries > 0);/* reduce detection level till enough stars are found. Note that faint stars have less positional accuracy */
 
         return new StarList(starList, img_star_area);
     }

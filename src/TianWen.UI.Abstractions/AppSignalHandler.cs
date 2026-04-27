@@ -2004,45 +2004,66 @@ namespace TianWen.UI.Abstractions
                         return;
                     }
 
-                    // Denormalise OTA optics + site onto the camera so FITS headers and
-                    // (for FakeCameraDriver) catalog star rendering have what they need.
-                    // Same pattern as Session.Lifecycle.cs:254-261. Polar alignment runs
-                    // outside a Session so we have to do it here.
-                    if (camera.FocalLength <= 0) camera.FocalLength = ota.FocalLength;
-                    if (camera.Aperture is null or <= 0 && ota.Aperture is int otaAperture and > 0)
+                    // Resolve focuser / filter wheel; the capture source's per-frame
+                    // CameraExposureActions.StampDenormAsync call handles all denorm
+                    // (telescope, focal length, aperture, site, focuser, filter, Target,
+                    // catalog DB) -- shared with Session.Imaging and the live preview
+                    // path so the three never drift.
+                    IFocuserDriver? otaFocuser = null;
+                    if (ota.Focuser is { } focuserUri
+                        && hub.TryGetConnectedDriver<IFocuserDriver>(focuserUri, out var focuserDriver))
                     {
-                        camera.Aperture = otaAperture;
+                        otaFocuser = focuserDriver;
                     }
-                    camera.Telescope ??= ota.Name;
-                    camera.Latitude ??= lat;
-                    camera.Longitude ??= lon;
-
-                    // FakeCameraDriver renders real catalog stars (so plate solvers can
-                    // actually match the synthetic frame) only when its CelestialObjectDB
-                    // is wired and Target is set. Wire DB once here; Target is refreshed
-                    // per-capture below via the refresh callback so frame 2 (post-rotation)
-                    // gets the rotated-to coordinates.
-                    if (camera is FakeCameraDriver fakeCamera)
+                    IFilterWheelDriver? otaFilterWheel = null;
+                    if (ota.FilterWheel is { } fwUri
+                        && hub.TryGetConnectedDriver<IFilterWheelDriver>(fwUri, out var fwDriver))
                     {
-                        fakeCamera.CelestialObjectDB ??= sp.GetRequiredService<ICelestialObjectDB>();
+                        otaFilterWheel = fwDriver;
                     }
 
-                    var capturedMount = mount;
-                    Func<CancellationToken, ValueTask<Target?>> refreshTarget = async tok =>
-                    {
-                        var ra = await capturedMount.GetRightAscensionAsync(tok).ConfigureAwait(false);
-                        var dec = await capturedMount.GetDeclinationAsync(tok).ConfigureAwait(false);
-                        return new Target(ra, dec, "Polar Align", null);
-                    };
-
+                    // Publish each captured probe frame into the shared
+                    // LastCapturedImages slot so the live mini viewer renders
+                    // the live frame during the multi-rung ramp -- without
+                    // this the user stares at a black panel for the entire
+                    // 5-30s solve and assumes the routine is hung. The
+                    // callback transfers ownership of the Image to the UI
+                    // (capture source skips Release), so we keep the previous
+                    // slot's image around until it gets replaced; nothing
+                    // else holds a strong reference to it after the next
+                    // assignment, so the buffer pool reclaims naturally.
+                    var publishOtaIndex = otaIndex;
                     source = new MainCameraCaptureSource(
                         camera,
                         displayName: $"OTA #{otaIndex + 1} \u2014 {ota.Name}",
                         focalLengthMm: ota.FocalLength,
                         apertureMm: ota.Aperture ?? Math.Max(1, ota.FocalLength / 5),
-                        _timeProvider,
-                        logger,
-                        refreshTargetAsync: refreshTarget);
+                        otaName: ota.Name,
+                        focuser: otaFocuser,
+                        filterWheel: otaFilterWheel,
+                        mount: mount,
+                        targetName: "Polar Align",
+                        catalogDb: sp.GetRequiredService<ICelestialObjectDB>(),
+                        timeProvider: _timeProvider,
+                        logger: logger,
+                        onFrameCaptured: img =>
+                        {
+                            if (publishOtaIndex < liveSessionState.LastCapturedImages.Length)
+                            {
+                                liveSessionState.LastCapturedImages[publishOtaIndex] = img;
+                                liveSessionState.NeedsRedraw = true;
+                            }
+                        },
+                        // Each rotation/probe solve refreshes the preview WCS so
+                        // the mini viewer's grid + WCS-anchored markers track
+                        // the live field as it sweeps past the pole. Failed
+                        // solves still publish (Solution=null) so a stale grid
+                        // doesn't linger on a frame the WCS no longer fits.
+                        onFrameSolved: result =>
+                        {
+                            liveSessionState.PreviewPlateSolveResult = result;
+                            liveSessionState.NeedsRedraw = true;
+                        });
                 }
 
                 // Refraction inputs: prefer connected weather device, then standard atmosphere.
@@ -2136,8 +2157,43 @@ namespace TianWen.UI.Abstractions
 
             bus.Subscribe<CancelPolarAlignmentSignal>(_ =>
             {
+                // The Cancel button itself flips to an amber "Cancelling..." state
+                // while PolarAlignmentCts.IsCancellationRequested is true, and the
+                // phase pill carries the technical "RESTORING" badge as the mount
+                // reverses, so a third copy on the status line would be redundant.
                 liveSessionState.PolarAlignmentCts?.Cancel();
-                liveSessionState.PolarStatusMessage = "Cancelling\u2026";
+                liveSessionState.NeedsRedraw = true;
+                appState.NeedsRedraw = true;
+            });
+
+            bus.Subscribe<NudgeFakeMountMisalignmentSignal>(sig =>
+            {
+                // Test path: nudges the simulated misalignment on a fake
+                // Skywatcher mount and shows the new value in the status line.
+                // For any real (or non-Skywatcher fake) mount, the keys can't
+                // turn physical knobs, so we surface a one-line hint instead
+                // of silently swallowing the input -- otherwise pressing arrows
+                // on a real-mount setup looks broken.
+                var profile = appState.ActiveProfile?.Data;
+                if (profile?.Mount is not { } mountUri || appState.DeviceHub is not { } hub)
+                {
+                    return;
+                }
+                if (!hub.TryGetConnectedDriver<IMountDriver>(mountUri, out var mount) || mount is null)
+                {
+                    return;
+                }
+                if (mount is TianWen.Lib.Devices.Fake.FakeSkywatcherMountDriver fake)
+                {
+                    fake.NudgeMisalignment(sig.DeltaAzArcmin, sig.DeltaAltArcmin);
+                    var (az, alt) = fake.CurrentMisalignment;
+                    liveSessionState.PolarStatusMessage =
+                        $"Sim misalignment: Az {az:+0.0;-0.0;0}', Alt {alt:+0.0;-0.0;0}'";
+                }
+                else
+                {
+                    liveSessionState.PolarStatusMessage = "Adjust the mount's alt/az knobs to refine";
+                }
                 liveSessionState.NeedsRedraw = true;
                 appState.NeedsRedraw = true;
             });
@@ -2181,6 +2237,28 @@ namespace TianWen.UI.Abstractions
                     return;
                 }
 
+                // Resolve the OTA's other devices for per-capture FITS denorm. Mount is
+                // optional (preview can fire without one) but unlocks Target stamping
+                // and FakeCameraDriver synthetic-catalog rendering when present.
+                IFocuserDriver? previewFocuser = null;
+                if (ota.Focuser is { } pFocUri
+                    && hub.TryGetConnectedDriver<IFocuserDriver>(pFocUri, out var pFocDrv))
+                {
+                    previewFocuser = pFocDrv;
+                }
+                IFilterWheelDriver? previewFilterWheel = null;
+                if (ota.FilterWheel is { } pFwUri
+                    && hub.TryGetConnectedDriver<IFilterWheelDriver>(pFwUri, out var pFwDrv))
+                {
+                    previewFilterWheel = pFwDrv;
+                }
+                IMountDriver? previewMount = null;
+                if (appState.ActiveProfile?.Data is { Mount: var mountUri }
+                    && hub.TryGetConnectedDriver<IMountDriver>(mountUri, out var pMountDrv))
+                {
+                    previewMount = pMountDrv;
+                }
+
                 // Mark capturing
                 if (sig.OtaIndex < liveSessionState.PreviewCapturing.Length)
                 {
@@ -2194,6 +2272,23 @@ namespace TianWen.UI.Abstractions
                 {
                     try
                     {
+                        // Stamp denorm fields before exposing -- shared with Session.Imaging
+                        // and polar alignment so the live preview's FITS headers (and the
+                        // FakeCameraDriver's synthetic-catalog rendering) match the other
+                        // capture paths exactly.
+                        await CameraExposureActions.StampDenormAsync(
+                            camera,
+                            ota.Name,
+                            ota.FocalLength,
+                            ota.Aperture,
+                            previewFocuser,
+                            previewFilterWheel,
+                            previewMount,
+                            targetName: previewMount is not null ? "Preview" : null,
+                            catalogDb: sp.GetRequiredService<ICelestialObjectDB>(),
+                            logger: logger,
+                            ct: cts.Token).ConfigureAwait(false);
+
                         var image = await LiveSessionActions.CaptureCameraPreviewAsync(
                             camera,
                             TimeSpan.FromSeconds(sig.ExposureSeconds),
@@ -2275,6 +2370,21 @@ namespace TianWen.UI.Abstractions
                         NotificationSeverity.Warning, "No preview image to solve");
                     return;
                 }
+                // Drop duplicate clicks: if a solve is already running for this OTA,
+                // ignore. The button is rendered as "Solving…" with no click handler,
+                // but a stray hit before the redraw could still fire the signal.
+                if (sig.OtaIndex < liveSessionState.PreviewPlateSolving.Length
+                    && liveSessionState.PreviewPlateSolving[sig.OtaIndex])
+                {
+                    return;
+                }
+
+                if (sig.OtaIndex < liveSessionState.PreviewPlateSolving.Length)
+                {
+                    liveSessionState.PreviewPlateSolving[sig.OtaIndex] = true;
+                }
+                liveSessionState.NeedsRedraw = true;
+                appState.NeedsRedraw = true;
 
                 tracker.Run(async () =>
                 {
@@ -2283,7 +2393,19 @@ namespace TianWen.UI.Abstractions
                         appState.StatusMessage = "Plate solving\u2026";
                         appState.NeedsRedraw = true;
                         var solver = sp.GetRequiredService<IPlateSolverFactory>();
-                        var result = await solver.SolveImageAsync(image, cancellationToken: cts.Token);
+
+                        // Feed the captured frame's pointing into the solver as a search
+                        // origin. The built-in CatalogPlateSolver isn't a blind solver and
+                        // ASTAP converges dramatically faster with a hint -- without one,
+                        // we get the "imageDim=null searchOrigin=null" log and both solvers
+                        // give up on a 9576x6388 frame. The pointing was stamped into
+                        // ImageMeta when the frame was captured (CameraExposureActions
+                        // .StampDenormAsync writes camera.Target before each exposure).
+                        WCS? searchOrigin = !double.IsNaN(image.ImageMeta.TargetRA)
+                                            && !double.IsNaN(image.ImageMeta.TargetDec)
+                            ? new WCS(image.ImageMeta.TargetRA, image.ImageMeta.TargetDec)
+                            : null;
+                        var result = await solver.SolveImageAsync(image, searchOrigin: searchOrigin, cancellationToken: cts.Token);
                         liveSessionState.PreviewPlateSolveResult = result;
                         if (result.Solution is { } wcs)
                         {
@@ -2305,6 +2427,11 @@ namespace TianWen.UI.Abstractions
                     }
                     finally
                     {
+                        if (sig.OtaIndex < liveSessionState.PreviewPlateSolving.Length)
+                        {
+                            liveSessionState.PreviewPlateSolving[sig.OtaIndex] = false;
+                        }
+                        liveSessionState.NeedsRedraw = true;
                         appState.NeedsRedraw = true;
                     }
                 }, "PreviewPlateSolve");

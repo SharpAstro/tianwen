@@ -30,12 +30,52 @@ namespace TianWen.UI.Abstractions.Overlays
         private static readonly RGBAColor32 TruePoleColor = new(0xff, 0xff, 0xff, 0xff);
         private static readonly RGBAColor32 RefractedPoleColor = new(0x44, 0xff, 0x88, 0xff);
         private static readonly RGBAColor32 RingColor = new(0x44, 0xcc, 0x66, 0x88);
+        // Brighter, more opaque ring for the J2000 preview overlay -- it's the
+        // only ring on screen during rotation, so it must read clearly against
+        // the dimmed grid (the regular RingColor is tuned for the busier
+        // 5'/15'/30' triple stack of the post-Phase-A overlay).
+        private static readonly RGBAColor32 PreviewRingColor = new(0x88, 0xff, 0xaa, 0xee);
 
         // Axis marker tri-band colour ramp keyed off arcmin error magnitude.
         // Matches the 5'/15' ring boundaries (last band shows red beyond 15').
         private static readonly RGBAColor32 AxisGreen = new(0x44, 0xff, 0x44, 0xff);
         private static readonly RGBAColor32 AxisYellow = new(0xff, 0xcc, 0x33, 0xff);
         private static readonly RGBAColor32 AxisRed = new(0xff, 0x44, 0x44, 0xff);
+
+        /// <summary>
+        /// Minimal "preview" annotation shown during polar-align mode before the
+        /// first probe frame solves. Just the J2000 celestial pole as a crosshair
+        /// labelled NCP/SCP plus one 30' reference ring -- enough to anchor the
+        /// user's eye on the actual pole while the rotation phase runs and the
+        /// WCS grid sweeps past. Hemisphere is read off the WCS center Dec sign;
+        /// when the camera is genuinely far from any pole the crosshair will be
+        /// off-frame, which is fine -- the annotation simply doesn't render.
+        /// </summary>
+        public static WcsAnnotation BuildJ2000PolePreview(double centerDecDeg)
+        {
+            var hemisphere = centerDecDeg >= 0 ? Hemisphere.North : Hemisphere.South;
+            var poleLabel = hemisphere == Hemisphere.North ? "NCP" : "SCP";
+            var poleDec = hemisphere == Hemisphere.North ? 90.0 : -90.0;
+
+            var markers = ImmutableArray.Create(
+                new SkyMarker(
+                    RaHours: 0.0,
+                    DecDeg: poleDec,
+                    Glyph: SkyMarkerGlyph.Cross,
+                    Color: TruePoleColor,
+                    Label: $"{poleLabel} (J2000)",
+                    SizePx: 32f));
+
+            var rings = ImmutableArray.Create(
+                new SkyRing(
+                    CenterRaHours: 0.0,
+                    CenterDecDeg: poleDec,
+                    RadiusArcmin: 30f,
+                    Color: PreviewRingColor,
+                    Label: "30'"));
+
+            return new WcsAnnotation(markers, rings);
+        }
 
         /// <summary>Build the annotation. Caller hands the result to the renderer.</summary>
         public static WcsAnnotation Build(in PolarOverlay overlay)

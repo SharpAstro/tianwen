@@ -8,6 +8,7 @@ using TianWen.Lib.Devices.Discovery;
 using TianWen.Lib.Extensions;
 using TianWen.Lib.Logging;
 using TianWen.Lib.Sequencing;
+using TianWen.Lib.Sequencing.PolarAlignment;
 using TianWen.UI.Abstractions;
 using TianWen.UI.Abstractions.Extensions;
 using TianWen.UI.Gui;
@@ -267,13 +268,18 @@ var loop = new SdlEventLoop(sdlWindow, renderer)
 
         // Redraw periodically on the Live Session / Guider / Sky Map tabs so the
         // clock and live time-dependent overlays tick smoothly. 500ms while a session
-        // is running (progress bars, phase status); 1s in preview / sky-map mode
-        // (clock + sky-map LST advance) — otherwise the only periodic redraw trigger
-        // is the 2s preview-telemetry poll, which shows up as a visible 2s tick.
+        // OR a polar-alignment routine is running (progress bars, per-rung "Probing
+        // 200ms (3/8)" status, axis-error needles, locked-exposure indicator); 1s in
+        // plain preview / sky-map mode (clock + sky-map LST advance) -- otherwise the
+        // only periodic redraw trigger is the 2s preview-telemetry poll, which shows
+        // up as a visible 2s tick.
         if (appState.ActiveTab is GuiTab.LiveSession or GuiTab.Guider or GuiTab.SkyMap)
         {
             var now = timeProvider.GetTimestamp();
-            var interval = guiRenderer.LiveSessionState.IsRunning
+            var liveState = guiRenderer.LiveSessionState;
+            var inPolarRoutine = liveState.Mode == LiveSessionMode.PolarAlign
+                && liveState.PolarPhase != PolarAlignmentPhase.Idle;
+            var interval = liveState.IsRunning || inPolarRoutine
                 ? TimeSpan.FromMilliseconds(500)
                 : TimeSpan.FromSeconds(1);
             if (timeProvider.GetElapsedTime(_lastSessionRedrawTimestamp, now) >= interval)
@@ -283,8 +289,13 @@ var loop = new SdlEventLoop(sdlWindow, renderer)
             }
         }
 
+        // Live-session / planner state changes (progress callbacks fired from
+        // the thread pool, etc.) push their redraw flag here -- treat them as
+        // first-class triggers so per-rung polar status updates surface within
+        // a frame instead of waiting for the periodic tick to catch them.
         return appState.NeedsRedraw || plannerState.NeedsRedraw
             || guiRenderer.SkyMapState.NeedsRedraw
+            || guiRenderer.LiveSessionState.NeedsRedraw
             || appState.ActiveTextInput is { IsActive: true };
     },
 
@@ -426,6 +437,11 @@ loop.OnPostFrame = () =>
         // flag when no signal fired this post-frame so the mutation drives the
         // next render.
         guiRenderer.SkyMapState.NeedsRedraw = false;
+        // Same contract for the live-session flag: the polar progress callback
+        // (running on a thread-pool continuation) sets this from outside the
+        // frame, so we have to consume it once we've actually rendered, or it
+        // would re-trigger the redraw loop on every iteration.
+        guiRenderer.LiveSessionState.NeedsRedraw = false;
     }
     plannerState.NeedsRedraw = false;
 

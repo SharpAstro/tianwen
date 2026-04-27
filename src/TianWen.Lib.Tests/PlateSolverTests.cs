@@ -500,4 +500,122 @@ public class PlateSolverTests(ITestOutputHelper output)
         Array.Sort(sorted);
         return sorted[sorted.Length / 2];
     }
+
+    /// <summary>
+    /// Manual diagnostic: time <see cref="Image.FindStarsAsync"/> on a saved
+    /// snapshot to chase the production-vs-benchmark discrepancy. The synthetic
+    /// FindStarsBenchmarks finishes in ~157 ms on a 9576x6388 frame; production
+    /// polar-align previews against the same sensor size were burning >88 s of
+    /// FindStarsAsync wall time. Running this against the FITS the user
+    /// captured pinpoints the difference. Skipped automatically when the
+    /// snapshot path doesn't exist (i.e. on CI / other dev machines).
+    /// </summary>
+    [Fact(Skip = "Manual diagnostic — run by hand against a locally-saved FITS to time FindStarsAsync stages.")]
+    public async Task DiagnoseFindStarsAsyncOnSavedSnapshot()
+    {
+        var snapshotPath = @"C:\Users\SebastianGodelet\Pictures\TianWen\Snapshot\2026-04-27\snapshot_2026-04-27T03_48_06_OTA1.fits";
+        if (!System.IO.File.Exists(snapshotPath))
+        {
+            output.WriteLine($"Skipping: snapshot {snapshotPath} not present on this machine.");
+            return;
+        }
+
+        var swLoad = Stopwatch.StartNew();
+        Image.TryReadFitsFile(snapshotPath, out var image, out _).ShouldBeTrue();
+        image.ShouldNotBeNull();
+        output.WriteLine($"Loaded {image.Width}x{image.Height} ({image.ChannelCount} ch, {image.BitDepth}, min={image.MinValue:F0} max={image.MaxValue:F0}) in {swLoad.Elapsed.TotalMilliseconds:F0} ms");
+        output.WriteLine($"Meta: PixelSizeX={image.ImageMeta.PixelSizeX} um, FocalLength={image.ImageMeta.FocalLength} mm, BinX={image.ImageMeta.BinX}, SensorType={image.ImageMeta.SensorType}");
+
+        var sw = Stopwatch.StartNew();
+        var bg = image.Background(0);
+        output.WriteLine($"Background(0): bg={bg.Item1:F1} starLevel={bg.Item2:F1} noise={bg.Item3:F2} histThr={bg.Item4:F1}  in {sw.Elapsed.TotalMilliseconds:F0} ms");
+        output.WriteLine($"  Detection level start = max(3.5*noise, starLevel) = {Math.Max(3.5f * bg.Item3, bg.Item2):F1}");
+
+        // Plate-solver path: snrMin=5, maxStars=500, default 2 retries.
+        sw.Restart();
+        var stars = await image.FindStarsAsync(0, snrMin: 5f, maxStars: 500);
+        output.WriteLine($"FindStarsAsync(snrMin=5, maxStars=500, retries=2) -> {stars.Count} stars in {sw.Elapsed.TotalMilliseconds:F0} ms");
+
+        // Same but no retry -- isolates the cost of the retry loop.
+        sw.Restart();
+        var stars0r = await image.FindStarsAsync(0, snrMin: 5f, maxStars: 500, maxRetries: 0);
+        output.WriteLine($"FindStarsAsync(snrMin=5, maxStars=500, retries=0) -> {stars0r.Count} stars in {sw.Elapsed.TotalMilliseconds:F0} ms");
+
+        // Higher SNR threshold -- isolates the cost of low-threshold AnalyseStar calls.
+        sw.Restart();
+        var stars10 = await image.FindStarsAsync(0, snrMin: 10f, maxStars: 500);
+        output.WriteLine($"FindStarsAsync(snrMin=10, maxStars=500, retries=2) -> {stars10.Count} stars in {sw.Elapsed.TotalMilliseconds:F0} ms");
+
+        // Tiny maxStars -- if the retry loop is the bottleneck, this should terminate fast.
+        sw.Restart();
+        var stars50 = await image.FindStarsAsync(0, snrMin: 5f, maxStars: 50);
+        output.WriteLine($"FindStarsAsync(snrMin=5, maxStars=50, retries=2) -> {stars50.Count} stars in {sw.Elapsed.TotalMilliseconds:F0} ms");
+
+        // Plate-solver path with new minStars early-termination.
+        // Cache invalidated each call so we measure the cold path, not the cache.
+        image.InvalidateStarListCache();
+        sw.Restart();
+        var stars50min = await image.FindStarsAsync(0, snrMin: 5f, maxStars: 500, minStars: 50);
+        output.WriteLine($"FindStarsAsync(snrMin=5, maxStars=500, minStars=50, retries=2) -> {stars50min.Count} stars in {sw.Elapsed.TotalMilliseconds:F0} ms");
+
+        // Cache hit: same params, second call should be near-zero.
+        sw.Restart();
+        var stars50cached = await image.FindStarsAsync(0, snrMin: 5f, maxStars: 500, minStars: 50);
+        output.WriteLine($"FindStarsAsync(... cached) -> {stars50cached.Count} stars in {sw.Elapsed.TotalMilliseconds:F0} ms");
+    }
+
+    /// <summary>
+    /// Regression test for the polar-cap fast path in
+    /// <see cref="Tycho2RaDecIndex.EnumerateStarsInDecBand"/>. The legacy per-cell
+    /// path triggered when CatalogPlateSolver queried a polar cap was scanning
+    /// the same handful of polar GSC regions hundreds of times -- a single
+    /// plate solve at the SCP took ~5 minutes in production. The fast path
+    /// dedupes the regions and walks each one's binary entries once, returning
+    /// the same set of stars in well under a second.
+    /// </summary>
+    [Theory(Timeout = 30_000)]
+    [Trait("Category", "Perf")]
+    [InlineData(-90.0, -85.0, "SCP cap")]
+    [InlineData(85.0, 90.0, "NCP cap")]
+    [InlineData(-89.5, -89.0, "Near-SCP narrow band")]
+    public async Task GivenPolarDecBand_WhenEnumeratingTycho2_ThenCompletesInUnderHalfASecond(
+        double minDec, double maxDec, string label)
+    {
+        var cancellationToken = TestContext.Current.CancellationToken;
+        var db = await InitDBAsync(cancellationToken);
+
+        var composite = db.CoordinateGrid as CompositeRaDecIndex;
+        composite.ShouldNotBeNull("expected CelestialObjectDB to expose a CompositeRaDecIndex");
+        var tycho2 = composite.Tycho2;
+        tycho2.ShouldNotBeNull("expected Tycho-2 catalog to be loaded for the polar-cap fast path test");
+
+        // Warm up: first call pays JIT + initial cache fill.
+        _ = tycho2.EnumerateStarsInDecBand(minDec, maxDec).Take(1).ToList();
+
+        var sw = Stopwatch.StartNew();
+        var stars = tycho2.EnumerateStarsInDecBand(minDec, maxDec).ToList();
+        sw.Stop();
+
+        output.WriteLine($"{label}: {stars.Count} Tycho-2 entries in [{minDec:F1}, {maxDec:F1}] in {sw.Elapsed.TotalMilliseconds:F0} ms");
+
+        // Polar caps are the slowest case; even there, dedup-and-scan-once
+        // should land well under half a second on a developer laptop. The
+        // pre-fix per-cell path took ~30+ seconds for the same inputs.
+        sw.Elapsed.TotalMilliseconds.ShouldBeLessThan(500,
+            $"polar dec-band enumeration regressed: {label} took {sw.Elapsed.TotalMilliseconds:F0} ms");
+
+        // Sanity: the SCP/NCP caps should contain plenty of Tycho-2 stars
+        // (Octans/Polaris regions). 100 is conservative.
+        stars.Count.ShouldBeGreaterThan(100, $"{label} should contain >100 Tycho-2 entries");
+
+        // Correctness: every returned entry should land within the dec band.
+        // We can't easily re-read the binary here, but we can confirm via the
+        // db lookup by-index path.
+        foreach (var idx in stars.Take(50))
+        {
+            db.TryLookupByIndex(idx, out var obj).ShouldBeTrue();
+            ((double)obj.Dec).ShouldBeGreaterThanOrEqualTo(minDec - 0.01);
+            ((double)obj.Dec).ShouldBeLessThanOrEqualTo(maxDec + 0.01);
+        }
+    }
 }

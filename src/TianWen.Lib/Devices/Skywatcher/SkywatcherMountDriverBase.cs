@@ -44,6 +44,20 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
     private bool _isTracking;
     private bool _isParked;
 
+    /// <summary>
+    /// Most recent RA encoder reading (steps from home), refreshed by
+    /// <see cref="GetRightAscensionAsync"/> via the protocol's <c>j 1</c>
+    /// query. Subclasses (notably <c>FakeSkywatcherMountDriver</c> for
+    /// polar-misalignment simulation) read this to recover the pure
+    /// encoder angle without the LST-drift contamination that
+    /// <c>StepsToRa</c> introduces.
+    /// </summary>
+    protected int PosRa => _posRa;
+
+    /// <summary>RA-axis counts per revolution (steps for 360deg). Zero
+    /// before <c>InitDeviceAsync</c> queries the controller.</summary>
+    protected uint CprRa => _cprRa;
+
     // Guide state
     private int _guideSpeedIndex = 2; // default 0.5x sidereal
 
@@ -147,7 +161,7 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
 
     #region Position
 
-    public async ValueTask<double> GetRightAscensionAsync(CancellationToken cancellationToken)
+    public virtual async ValueTask<double> GetRightAscensionAsync(CancellationToken cancellationToken)
     {
         var response = await SendAndReceiveAsync('j', '1', null, cancellationToken);
         if (SkywatcherProtocol.TryParseResponse(response, out var data) && data.Length >= 6)
@@ -157,7 +171,7 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
         return StepsToRa(_posRa);
     }
 
-    public async ValueTask<double> GetDeclinationAsync(CancellationToken cancellationToken)
+    public virtual async ValueTask<double> GetDeclinationAsync(CancellationToken cancellationToken)
     {
         var response = await SendAndReceiveAsync('j', '2', null, cancellationToken);
         if (SkywatcherProtocol.TryParseResponse(response, out var data) && data.Length >= 6)

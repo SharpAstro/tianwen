@@ -16,9 +16,10 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
     /// solve as valid. 15 matches the existing <c>InitialRoughFocusAsync</c>
     /// gate.</param>
     /// <param name="RotationDeg">Phase A RA-axis rotation in degrees. SharpCap
-    /// defaults to 90; we default to 60 because shorter rotations give the
+    /// defaults to 90; we default to 45 because shorter rotations give the
     /// user more leeway to start near the meridian without crossing it during
-    /// the rotation.</param>
+    /// the rotation, and 45 deg is enough to recover the cone half-angle to
+    /// sub-arcmin accuracy in practice.</param>
     /// <param name="SettleSeconds">Mount-settle wait between the rotation
     /// command finishing and the second-frame capture starting.</param>
     /// <param name="TargetAccuracyArcmin">Convergence threshold for Phase B —
@@ -42,7 +43,7 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
     public readonly record struct PolarAlignmentConfiguration(
         ImmutableArray<TimeSpan> ExposureRamp,
         int MinStarsForSolve = 15,
-        double RotationDeg = 60.0,
+        double RotationDeg = 45.0,
         double SettleSeconds = 5.0,
         double TargetAccuracyArcmin = 1.0,
         PolarAlignmentOnDone OnDone = PolarAlignmentOnDone.ReverseAxisBack,

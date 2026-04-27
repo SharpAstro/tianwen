@@ -47,6 +47,23 @@ internal class FakeSkywatcherSerialDevice : ISerialConnection
     private int _decDirection;
     private bool _raGotoMode; // true=goto (move to H/S target), false=tracking/guide (constant speed)
     private bool _decGotoMode;
+    // High-speed-mode flag, captured from the latest G command's mode byte (bit 1
+    // cleared = high-speed, set = low-speed). The driver inflates the I T1 preset
+    // by highSpeedRatio (16x) when high-speed is selected; the fake must reverse
+    // that scaling when decoding T1 -> deg/sec, otherwise MoveAxisAsync at any
+    // rate above 2x sidereal arrives as 1/16 of the requested speed (polar-align
+    // 60deg rotation at 3deg/s should take ~20s but ran for ~5min before the fix).
+    private bool _raHighSpeed;
+    private bool _decHighSpeed;
+
+    // Constant-speed slew rate captured from the most recent ':I' (T1 preset)
+    // command, in degrees-per-second. The simulation integrates at this rate
+    // when the axis is running in non-goto, non-tracking mode -- without it
+    // MoveAxisAsync(rate=4deg/s) was a no-op in the fake (the axis stayed put,
+    // breaking polar-alignment Phase A which relies on a 60deg RA delta to
+    // recover the mount axis). Zero means "no slew rate captured yet".
+    private double _raSlewDegPerSec;
+    private double _decSlewDegPerSec;
 
     // Guide speed
     private int _guideSpeedIndex = 2; // 0-4
@@ -90,12 +107,26 @@ internal class FakeSkywatcherSerialDevice : ISerialConnection
         {
             var elapsedSeconds = (double)elapsedTicks / _timeProvider.TimestampFrequency;
 
-            // Simulate tracking: advance RA at sidereal rate
+            // Simulate tracking: advance RA at sidereal rate when in tracking
+            // mode (G mode bit cleared by tracking-rate path). For constant-
+            // speed MoveAxis slews, _raTracking is set true by the J command's
+            // current logic but the requested rate from the I command exceeds
+            // sidereal, so we prefer _raSlewDegPerSec when set: the user's
+            // MoveAxisAsync(rate) actually moves the axis at that rate.
             if (_raRunning && _raTracking)
             {
-                // Sidereal rate in steps/sec = CPR / 86164.0905 (sidereal day seconds)
-                var stepsPerSec = (double)DEFAULT_CPR / 86164.0905;
-                _posRa += (int)(stepsPerSec * elapsedSeconds);
+                double stepsPerSec;
+                if (_raSlewDegPerSec > 0)
+                {
+                    stepsPerSec = _raSlewDegPerSec * (double)DEFAULT_CPR / 360.0;
+                }
+                else
+                {
+                    // Sidereal rate in steps/sec = CPR / 86164.0905 (sidereal day seconds)
+                    stepsPerSec = (double)DEFAULT_CPR / 86164.0905;
+                }
+                var direction = _raDirection == 0 ? 1.0 : -1.0;
+                _posRa += (int)(direction * stepsPerSec * elapsedSeconds);
             }
 
             // Simulate goto slew: move toward target, auto-start tracking when done
@@ -283,14 +314,16 @@ internal class FakeSkywatcherSerialDevice : ISerialConnection
                 {
                     // payload: 2-char hex mode byte + 1-char direction
                     // mode bit 0: 0=goto, 1=constant-speed (tracking/guide)
+                    // mode bit 1: 0=high-speed, 1=low-speed
                     // direction: 0=forward, 1=reverse
                     if (payload.Length >= 3)
                     {
                         var modeByte = byte.Parse(payload.AsSpan(0, 2), NumberStyles.HexNumber, CultureInfo.InvariantCulture);
-                        var isGoto = (modeByte & 0x01) == 0; // bit 0: 0=goto, 1=tracking/slew
+                        var isGoto = (modeByte & 0x01) == 0;
+                        var isHighSpeed = (modeByte & 0x02) == 0;
                         var dir = payload[2] - '0';
-                        if (axis == '1') { _raGotoMode = isGoto; _raDirection = dir; }
-                        else { _decGotoMode = isGoto; _decDirection = dir; }
+                        if (axis == '1') { _raGotoMode = isGoto; _raDirection = dir; _raHighSpeed = isHighSpeed; }
+                        else { _decGotoMode = isGoto; _decDirection = dir; _decHighSpeed = isHighSpeed; }
                     }
                     _responseBuffer.Append("=\r");
                     break;
@@ -328,7 +361,27 @@ internal class FakeSkywatcherSerialDevice : ISerialConnection
 
                 case 'I': // Step period (T1 preset / speed)
                 {
-                    // Just acknowledge — speed is implied by timer simulation
+                    // T1 = tmrFreq * 360 / speed / cpr  (* highSpeedRatio if high-speed)
+                    // Inverting: speed = tmrFreq * 360 / (cpr * T1) [* highSpeedRatio
+                    // when the most recent G command set high-speed mode]. Without the
+                    // high-speed factor, MoveAxisAsync at slew rates (>2x sidereal)
+                    // arrives at the simulation 16x too slow -- the polar-alignment
+                    // 60deg rotation took ~5min instead of the expected ~20s.
+                    if (payload.Length >= 6)
+                    {
+                        var t1 = (uint)SkywatcherProtocol.DecodeUInt24(payload.AsSpan(0, 6));
+                        if (t1 > 0)
+                        {
+                            var degPerSec = (double)DEFAULT_TMR_FREQ * 360.0 / (DEFAULT_CPR * (double)t1);
+                            var isHighSpeed = axis == '1' ? _raHighSpeed : _decHighSpeed;
+                            if (isHighSpeed)
+                            {
+                                degPerSec *= DEFAULT_HIGH_SPEED_RATIO;
+                            }
+                            if (axis == '1') _raSlewDegPerSec = degPerSec;
+                            else if (axis == '2') _decSlewDegPerSec = degPerSec;
+                        }
+                    }
                     _responseBuffer.Append("=\r");
                     break;
                 }
@@ -355,10 +408,14 @@ internal class FakeSkywatcherSerialDevice : ISerialConnection
                     {
                         _raRunning = false;
                         _raTracking = false;
+                        _raSlewDegPerSec = 0;
+                        _raHighSpeed = false;
                     }
                     if (axis == '2' || axis == '3')
                     {
                         _decRunning = false;
+                        _decSlewDegPerSec = 0;
+                        _decHighSpeed = false;
                     }
                     _responseBuffer.Append("=\r");
                     break;
@@ -370,10 +427,14 @@ internal class FakeSkywatcherSerialDevice : ISerialConnection
                     {
                         _raRunning = false;
                         _raTracking = false;
+                        _raSlewDegPerSec = 0;
+                        _raHighSpeed = false;
                     }
                     if (axis == '2' || axis == '3')
                     {
                         _decRunning = false;
+                        _decSlewDegPerSec = 0;
+                        _decHighSpeed = false;
                     }
                     _responseBuffer.Append("=\r");
                     break;
