@@ -74,7 +74,33 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
                 ct.ThrowIfCancellationRequested();
                 var exposure = ramp[i];
                 progress?.Report(new ProbeProgress(exposure, i, ramp.Length));
-                last = await source.CaptureAndSolveAsync(exposure, solver, ct);
+
+                // Per-rung deadline so a single under-exposed frame can't strand
+                // the ramp on rung 1/8 chasing noise inside the plate solver.
+                // Budget = 5x exposure + 5s overhead, capped at 30s -- generous
+                // enough that a 5s rung with a real catalog match completes,
+                // tight enough that a 100ms rung with no stars times out within
+                // ~6s and the next rung gets its turn. The user-supplied token
+                // still cancels the whole routine; we only short-circuit the
+                // current rung here.
+                var rungBudget = exposure * 5 + TimeSpan.FromSeconds(5);
+                if (rungBudget > TimeSpan.FromSeconds(30))
+                {
+                    rungBudget = TimeSpan.FromSeconds(30);
+                }
+                using var rungCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                rungCts.CancelAfter(rungBudget);
+                try
+                {
+                    last = await source.CaptureAndSolveAsync(exposure, solver, ct: rungCts.Token);
+                }
+                catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+                {
+                    // Rung timeout -- record a synthetic failure and move on.
+                    last = new CaptureAndSolveResult(false, null, default, 0, exposure, null,
+                        FailureReason: $"Rung {exposure.TotalMilliseconds:F0}ms timed out after {rungBudget.TotalSeconds:F0}s");
+                }
+
                 if (last.Success && last.StarsMatched >= minStarsMatched)
                 {
                     return last;

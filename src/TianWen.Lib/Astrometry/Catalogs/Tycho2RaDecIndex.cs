@@ -105,6 +105,86 @@ internal sealed class Tycho2RaDecIndex
         return null;
     }
 
+    /// <summary>
+    /// Polar-cap fast path: returns all Tycho-2 stars in a Dec band (full RA),
+    /// scanning each overlapping GSC region's binary entries exactly once.
+    ///
+    /// The general per-cell path (<see cref="GetStarsInCell"/>) is O(cells x
+    /// stars-in-overlapping-regions) — when the search radius covers the full
+    /// 24h of RA at the pole the same polar GSC regions get linearly re-scanned
+    /// hundreds of times and one CatalogPlateSolver invocation explodes from
+    /// seconds to minutes. By collecting the unique regions across the Dec band
+    /// and walking each region's entries once with a Dec-only filter, this
+    /// drops to O(unique-regions x entries) — typically 100x faster near
+    /// |Dec| = 90°. Mirrors the polar-pan optimisation in commit 69c7266.
+    /// </summary>
+    /// <param name="minDec">Lower Dec bound in degrees (inclusive).</param>
+    /// <param name="maxDec">Upper Dec bound in degrees (inclusive).</param>
+    internal IEnumerable<CatalogIndex> EnumerateStarsInDecBand(double minDec, double maxDec)
+    {
+        if (maxDec < minDec)
+        {
+            yield break;
+        }
+
+        var minDecIdx = Math.Clamp((int)Math.Floor(minDec + 90.0), 0, DecGridSize - 1);
+        var maxDecIdx = Math.Clamp((int)Math.Ceiling(maxDec + 90.0), 0, DecGridSize - 1);
+
+        // Collect every unique GSC region that overlaps any cell in the Dec band.
+        // Polar caps typically yield only a handful of regions; the dedup is what
+        // makes this fast.
+        var seenRegions = new HashSet<ushort>();
+        for (int decIdx = minDecIdx; decIdx <= maxDecIdx; decIdx++)
+        {
+            for (int raIdx = 0; raIdx < RaGridSize; raIdx++)
+            {
+                if (_gscRegionsPerCell[raIdx, decIdx] is { } regions)
+                {
+                    foreach (var tyc1 in regions)
+                    {
+                        seenRegions.Add(tyc1);
+                    }
+                }
+            }
+        }
+
+        const int entrySize = 13;
+        var minDecF = (float)minDec;
+        var maxDecF = (float)maxDec;
+
+        foreach (var tyc1 in seenRegions)
+        {
+            var gscIdx = tyc1 - 1;
+            if (gscIdx < 0 || gscIdx >= _streamCount)
+            {
+                continue;
+            }
+
+            GetRegionOffsets(gscIdx, out var startOffset, out var endOffset);
+            var entryCount = (endOffset - startOffset) / entrySize;
+
+            for (int i = 0; i < entryCount; i++)
+            {
+                var pos = startOffset + i * entrySize;
+                // Re-slice the array per-iteration -- can't preserve a Span<byte>
+                // across the yield boundary (compiler captures locals into the
+                // state machine and Span isn't ref-storable).
+                var entryDec = BinaryPrimitives.ReadSingleLittleEndian(_tycho2Data.AsSpan(pos + 7, 4));
+
+                if (entryDec < minDecF || entryDec > maxDecF)
+                {
+                    continue;
+                }
+
+                var tyc2 = BinaryPrimitives.ReadUInt16LittleEndian(_tycho2Data.AsSpan(pos, 2));
+                var tyc3 = _tycho2Data[pos + 2];
+
+                var encoded = EncodeTyc2CatalogIndex(Catalog.Tycho2, tyc1, tyc2, tyc3);
+                yield return AbbreviationToCatalogIndex(encoded, isBase91Encoded: true);
+            }
+        }
+    }
+
     internal List<CatalogIndex> GetStarsInCell(double ra, double dec)
     {
         var result = new List<CatalogIndex>();

@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Linq;
 using System.Threading;
+using DIR.Lib;
 using TianWen.Lib.Astrometry.PlateSolve;
 using TianWen.Lib.Devices.Guider;
 using TianWen.Lib.Imaging;
@@ -150,6 +151,11 @@ namespace TianWen.UI.Abstractions
         /// <summary>Whether a preview exposure is currently in progress (per OTA index).</summary>
         public bool[] PreviewCapturing { get; set; } = [];
 
+        /// <summary>Whether a preview plate-solve is currently running for this OTA.
+        /// Used to disable the [Solve] button (rendered as "Solving…") so the user
+        /// can't queue duplicate solves while one is grinding through ASTAP.</summary>
+        public bool[] PreviewPlateSolving { get; set; } = [];
+
         /// <summary>Preview capture start time per OTA, used for progress computation.</summary>
         public DateTimeOffset[] PreviewCaptureStart { get; set; } = [];
 
@@ -245,6 +251,15 @@ namespace TianWen.UI.Abstractions
 
         // --- UI state ---
 
+        /// <summary>
+        /// Dropdown attached to the top-strip mode pill (Preview / Polar Align).
+        /// Drives mode switching when no session is running -- selecting Polar Align
+        /// posts <c>StartPolarAlignmentSignal</c>, selecting Preview while polar is
+        /// active posts <c>CancelPolarAlignmentSignal</c>. Hidden during sessions
+        /// (the pill becomes the read-only phase indicator).
+        /// </summary>
+        public DropdownMenuState ModeDropdown { get; } = new();
+
         /// <summary>Needs redraw flag for TUI integration.</summary>
         public bool NeedsRedraw { get; set; } = true;
 
@@ -269,6 +284,7 @@ namespace TianWen.UI.Abstractions
             }
 
             PreviewCapturing = new bool[otaCount];
+            PreviewPlateSolving = new bool[otaCount];
             PreviewCaptureStart = new DateTimeOffset[otaCount];
             PreviewExposureDuration = new TimeSpan[otaCount];
             PreviewExposureSeconds = Enumerable.Repeat(5.0, otaCount).ToArray();

@@ -476,6 +476,32 @@ public static class EquipmentActions
             return;
         }
 
+        // Skip the ramp entirely when the cooler was never on -- the whole
+        // point of the ramp is condensation-mitigation as the sensor returns
+        // to ambient, and a never-cooled camera has nothing to mitigate. The
+        // previous implementation walked the full 30-step / 30s loop with a
+        // 25C heat-sink fallback whenever GetHeatsinkTemperature was
+        // unsupported, producing ~2.5 minutes of "Warming cameras..." per
+        // camera against fakes / drivers without thermal telemetry.
+        if (camera.CanGetCoolerOn)
+        {
+            bool coolerOn;
+            try { coolerOn = await camera.GetCoolerOnAsync(cancellationToken); }
+            catch (Exception ex)
+            {
+                // If we can't read the cooler state, fall through to the ramp
+                // -- safer to over-wait than to thermal-shock a real sensor.
+                logger.LogWarning(ex, "GetCoolerOnAsync failed for {Uri}; running warm-up ramp defensively", deviceUri);
+                coolerOn = true;
+            }
+            if (!coolerOn)
+            {
+                logger.LogInformation("Camera cooler is off for {Uri}; skipping warm-up ramp", deviceUri);
+                if (disconnectAfter) await hub.DisconnectAsync(deviceUri, cancellationToken);
+                return;
+            }
+        }
+
         // Determine target temperature: heat-sink if available, else +25°C.
         double target = 25.0;
         if (camera.CanGetHeatsinkTemperature)

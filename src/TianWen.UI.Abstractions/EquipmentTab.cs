@@ -395,6 +395,10 @@ namespace TianWen.UI.Abstractions
                 cursor = RenderMountTelemetryIfAny(appState, pd.Mount, liveSessionState,
                     x, cursor, w, itemH, dpiScale, fontPath, fontSize, padding);
 
+                // Mount-driver settings (e.g. Fake Skywatcher polar misalignment knobs)
+                cursor = RenderDeviceSettingsIfAny(appState, pd, pd.Mount, "Mount Settings",
+                    x, cursor, w, itemH, dpiScale, fontPath, fontSize, padding);
+
                 // Site info — clickable to edit
                 var site = EquipmentActions.GetSiteFromProfile(pd);
                 if (State.IsEditingSite)

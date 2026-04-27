@@ -137,12 +137,30 @@ namespace TianWen.UI.Abstractions
             {
                 // Polar mode publishes a refreshed WcsAnnotation each frame from the
                 // latest live solve so the renderer can overlay the pole crosses,
-                // 5'/15'/30' rings, and axis CircledCross on the live frame. Cleared
-                // when polar mode exits so the annotation doesn't leak into preview.
-                viewer.State.Annotation = state.Mode == LiveSessionMode.PolarAlign
-                    && state.LastPolarSolve is { Overlay: { } overlay }
-                    ? PolarAnnotationBuilder.Build(overlay)
-                    : WcsAnnotation.Empty;
+                // 5'/15'/30' rings, and axis CircledCross on the live frame. Before
+                // the first Phase A solve completes (LastPolarSolve still null),
+                // fall back to the lightweight "J2000 pole preview" so the user
+                // already sees the crosshair + 30' ring while the rotation runs.
+                // Cleared when polar mode exits so the annotation doesn't leak.
+                if (state.Mode == LiveSessionMode.PolarAlign)
+                {
+                    if (state.LastPolarSolve is { Overlay: { } overlay })
+                    {
+                        viewer.State.Annotation = PolarAnnotationBuilder.Build(overlay);
+                    }
+                    else if (state.PreviewPlateSolveResult?.Solution is { } wcs)
+                    {
+                        viewer.State.Annotation = PolarAnnotationBuilder.BuildJ2000PolePreview(wcs.CenterDec);
+                    }
+                    else
+                    {
+                        viewer.State.Annotation = WcsAnnotation.Empty;
+                    }
+                }
+                else
+                {
+                    viewer.State.Annotation = WcsAnnotation.Empty;
+                }
 
                 // Check if a new frame arrived for the selected camera
                 var images = state.LastCapturedImages;
@@ -169,6 +187,22 @@ namespace TianWen.UI.Abstractions
                 {
                     _displayedImage = latestImage;
                     viewer.QueueImage(latestImage);
+                    // A fresh frame invalidates any prior solve until the user
+                    // requests a new plate solve. Without this, the grid would
+                    // be drawn over a frame the WCS doesn't actually describe.
+                    viewer.Wcs = null;
+                }
+
+                // Bind the live preview's plate-solve result whenever the displayed
+                // frame is the one that produced it. The signal handler stores the
+                // solve into LiveSessionState; we just hand it down to the renderer
+                // so the GLSL grid path can switch on without a separate plumbing
+                // pass each frame.
+                if (state.PreviewPlateSolveResult?.Solution is { } solveWcs
+                    && _displayedImage is not null
+                    && ReferenceEquals(_displayedImage, latestImage))
+                {
+                    viewer.Wcs = solveWcs;
                 }
 
                 // Image area (below where toolbar will go)
@@ -217,6 +251,23 @@ namespace TianWen.UI.Abstractions
             if (state.ShowAbortConfirm)
             {
                 RenderAbortConfirm(contentRect, fontPath, fs * 1.1f, dpiScale);
+            }
+
+            // Mode dropdown overlay -- rendered LAST so its hit regions win paint-order
+            // hit testing. Backdrop closes on click-outside. Width and anchor are set
+            // by the trigger inside RenderTopStrip.
+            if (state.ModeDropdown.IsOpen)
+            {
+                var dropdownBg = new RGBAColor32(0x22, 0x22, 0x30, 0xff);
+                var highlight  = new RGBAColor32(0x44, 0x66, 0x99, 0xff);
+                var border     = new RGBAColor32(0x44, 0x44, 0x55, 0xff);
+                RenderDropdownMenu(state.ModeDropdown, fontPath, fs,
+                    bgColor: dropdownBg,
+                    highlightColor: highlight,
+                    textColor: BodyText,
+                    borderColor: border,
+                    viewportWidth: Renderer.Width,
+                    viewportHeight: Renderer.Height);
             }
         }
 
@@ -278,59 +329,23 @@ namespace TianWen.UI.Abstractions
                 _ => { vs.CycleBoost(); });
             x += btnW * 0.8f + pad;
 
-            // [PA] — polar alignment toggle (preview mode only). Lit (activeBg) when
-            // a routine is currently running, otherwise inactiveBg — same colour
-            // scheme as [Fit]/[1:1]/[T]/[B] for visual consistency. Disabled state
-            // (preconditions unmet) keeps inactiveBg + DimText so the button still
-            // reads as clickable but obviously not currently armed; the signal
-            // handler re-validates and reports the missing piece.
-            if (State is { } liveState && !liveState.IsRunning)
+            // [G] -- WCS coordinate grid overlay. Enabled only once the preview frame
+            // has been plate-solved (we need a WCS to project RA/Dec lines). Lit when
+            // active. Polar-alignment mode switching now lives on the top-strip mode
+            // pill dropdown -- the toolbar stays focused on viewer chrome.
+            if (State is { } liveState && MiniViewer is { State: { } miniState })
             {
-                var polarActive = liveState.Mode == LiveSessionMode.PolarAlign;
-                var (polarEnabled, polarReason) = EvaluatePolarPreconditions(liveState);
-                var polarBg = polarActive ? activeBg : inactiveBg;
-                var polarFg = polarEnabled || polarActive ? BodyText : DimText;
-                RenderButton("PA", x, btnY, btnW * 0.8f, btnH, fontPath, btnFs,
-                    polarBg, polarFg, "PolarAlign",
-                    _ =>
-                    {
-                        if (liveState.Mode == LiveSessionMode.PolarAlign)
-                        {
-                            PostSignal(new CancelPolarAlignmentSignal());
-                        }
-                        else if (polarEnabled)
-                        {
-                            var idx = vs.SelectedCameraIndex >= 0 ? vs.SelectedCameraIndex : 0;
-                            PostSignal(new StartPolarAlignmentSignal(
-                                OtaIndex: idx,
-                                DeltaRaDeg: 60.0,
-                                UseGuider: liveState.PolarAlignUseGuider));
-                        }
-                        else
-                        {
-                            // Reflect the precondition reason into the status panel so
-                            // the user understands why the click did nothing.
-                            liveState.PolarStatusMessage = polarReason;
-                            liveState.NeedsRedraw = true;
-                        }
-                    });
-                x += btnW * 0.8f + pad;
-
-                // [G] — polar alignment source toggle: lit = use guider as capture
-                // source instead of the main OTA camera. The PA click above reads
-                // this flag so the user picks once and the choice sticks. Disabled
-                // (no flip) while the routine is already running — switching mid-run
-                // would invalidate the Phase A v1 anchor frame. Same active/inactive
-                // colour scheme as [Fit]/[1:1]/[T]/[B] for visual consistency.
-                var guiderActive = liveState.PolarAlignUseGuider;
-                var guiderBg = guiderActive ? activeBg : inactiveBg;
+                var hasWcs = liveState.PreviewPlateSolveResult?.Solution is not null;
+                var gridActive = miniState.ShowGrid;
+                var gridBg = gridActive ? activeBg : inactiveBg;
+                var gridFg = hasWcs || gridActive ? BodyText : DimText;
                 RenderButton("G", x, btnY, btnW * 0.6f, btnH, fontPath, btnFs,
-                    guiderBg, BodyText, "PolarAlignSource",
+                    gridBg, gridFg, "ViewerGrid",
                     _ =>
                     {
-                        if (!polarActive)
+                        if (hasWcs)
                         {
-                            liveState.PolarAlignUseGuider = !liveState.PolarAlignUseGuider;
+                            miniState.ShowGrid = !miniState.ShowGrid;
                             liveState.NeedsRedraw = true;
                         }
                     });
@@ -394,6 +409,37 @@ namespace TianWen.UI.Abstractions
                     state.ShowAbortConfirm = true;
                     state.NeedsRedraw = true;
                     return true;
+
+                // Polar-align fake-mount jog: arrow keys nudge simulated (az, alt)
+                // misalignment by 1' (5' with Shift). Az on Left/Right, Alt on
+                // Up/Down. Only active in PolarAlign mode so the keys are free
+                // for other purposes elsewhere. The signal is a no-op when the
+                // connected mount isn't a FakeSkywatcherMountDriver, so this
+                // is safe to leave wired up unconditionally.
+                case InputEvent.KeyDown(InputKey.Left, var ml) when state.Mode == LiveSessionMode.PolarAlign:
+                {
+                    var step = (ml & InputModifier.Shift) != 0 ? 5.0 : 1.0;
+                    PostSignal(new NudgeFakeMountMisalignmentSignal(-step, 0));
+                    return true;
+                }
+                case InputEvent.KeyDown(InputKey.Right, var mr) when state.Mode == LiveSessionMode.PolarAlign:
+                {
+                    var step = (mr & InputModifier.Shift) != 0 ? 5.0 : 1.0;
+                    PostSignal(new NudgeFakeMountMisalignmentSignal(+step, 0));
+                    return true;
+                }
+                case InputEvent.KeyDown(InputKey.Up, var mu) when state.Mode == LiveSessionMode.PolarAlign:
+                {
+                    var step = (mu & InputModifier.Shift) != 0 ? 5.0 : 1.0;
+                    PostSignal(new NudgeFakeMountMisalignmentSignal(0, +step));
+                    return true;
+                }
+                case InputEvent.KeyDown(InputKey.Down, var md) when state.Mode == LiveSessionMode.PolarAlign:
+                {
+                    var step = (md & InputModifier.Shift) != 0 ? 5.0 : 1.0;
+                    PostSignal(new NudgeFakeMountMisalignmentSignal(0, -step));
+                    return true;
+                }
 
                 case InputEvent.Scroll(var scrollY, var mx, var my, _) when MiniViewer is { State: { ZoomToFit: false } vs }:
                 {
@@ -489,12 +535,71 @@ namespace TianWen.UI.Abstractions
 
             if (!state.IsRunning)
             {
-                // PREVIEW pill
-                var previewPillColor = new RGBAColor32(0x55, 0x33, 0x88, 0xff); // purple
-                FillRect(rect.X + pad, rect.Y + pad, pillW, pillH, previewPillColor);
-                DrawText("PREVIEW", fontPath,
-                    rect.X + pad, rect.Y, pillW, rect.Height,
+                // Mode pill -- doubles as a dropdown trigger so the user can switch
+                // between Preview and Polar Align without hunting for a separate
+                // toolbar button. The polar-align entry posts the standard signal
+                // (re-validated by AppSignalHandler); selecting Preview while polar
+                // is active posts a Cancel. Caret hint indicates the click affordance.
+                var inPolar = state.Mode == LiveSessionMode.PolarAlign;
+                var modePillColor = inPolar
+                    ? StatusSolving                                    // cyan while PA running
+                    : new RGBAColor32(0x55, 0x33, 0x88, 0xff);         // purple for plain Preview
+                var pillLabel = inPolar ? "POLAR \u25BE" : "PREVIEW \u25BE";
+                var pillX = rect.X + pad;
+                var pillY = rect.Y + pad;
+                FillRect(pillX, pillY, pillW, pillH, modePillColor);
+                DrawText(pillLabel, fontPath,
+                    pillX, rect.Y, pillW, rect.Height,
                     fontSize * 0.9f, AbortText, TextAlign.Center, TextAlign.Center);
+
+                // Click-to-open: anchor the dropdown directly under the pill.
+                var dropdown = state.ModeDropdown;
+                RegisterClickable(pillX, pillY, pillW, pillH, new HitResult.ButtonHit("ModePill"),
+                    _ =>
+                    {
+                        if (dropdown.IsOpen)
+                        {
+                            dropdown.Close();
+                            return;
+                        }
+                        dropdown.Open(
+                            pillX, pillY + pillH, pillW,
+                            ImmutableArray.Create("Preview", "Polar Align"),
+                            (idx, _) =>
+                            {
+                                if (idx == 0 && inPolar)
+                                {
+                                    PostSignal(new CancelPolarAlignmentSignal());
+                                }
+                                else if (idx == 1 && !inPolar)
+                                {
+                                    var (polarEnabled, polarReason) = EvaluatePolarPreconditions(state);
+                                    if (polarEnabled)
+                                    {
+                                        var miniIdx = MiniViewer?.State.SelectedCameraIndex ?? -1;
+                                        var otaIdx = miniIdx >= 0 ? miniIdx : 0;
+                                        // Auto-enable the WCS grid in polar mode -- once the first
+                                        // probe frame plate-solves, the grid will appear and the
+                                        // user can see meridians converging on the celestial pole
+                                        // alongside the configured-axis ring (no extra click needed).
+                                        if (MiniViewer?.State is { } ms)
+                                        {
+                                            ms.ShowGrid = true;
+                                        }
+                                        PostSignal(new StartPolarAlignmentSignal(
+                                            OtaIndex: otaIdx,
+                                            DeltaRaDeg: 45.0,
+                                            UseGuider: state.PolarAlignUseGuider));
+                                    }
+                                    else
+                                    {
+                                        state.PolarStatusMessage = polarReason;
+                                        state.NeedsRedraw = true;
+                                    }
+                                }
+                            });
+                        state.NeedsRedraw = true;
+                    });
 
                 // Current time (right side)
                 var timeText = timeProvider.GetUtcNow().ToOffset(state.SiteTimeZone).ToString("HH:mm:ss");
@@ -1506,12 +1611,19 @@ namespace TianWen.UI.Abstractions
                         state.PreviewExposureSeconds[otaIndex], direction: +1);
                 });
 
-            // [Capture] button
-            var captureBtnColor = new RGBAColor32(0x33, 0x66, 0x33, 0xff);
+            // [Capture] button -- disabled while polar alignment is running so the
+            // user can't fire a manual exposure that would interleave with the
+            // PolarAlignmentSession's own captures (different frame settings, breaks
+            // the two-frame solve / refine cadence).
+            var polarActive = state.Mode == LiveSessionMode.PolarAlign;
+            var captureBtnColor = polarActive
+                ? new RGBAColor32(0x33, 0x33, 0x33, 0xff)
+                : new RGBAColor32(0x33, 0x66, 0x33, 0xff);
+            var captureBtnText = polarActive ? DimText : BrightText;
             RenderButton("Capture", x + w - capBtnW, y, capBtnW, rowH * 0.9f,
-                fontPath, smallFs, captureBtnColor, BrightText,
+                fontPath, smallFs, captureBtnColor, captureBtnText,
                 $"PreviewCapture{otaIndex}",
-                _ =>
+                polarActive ? null : _ =>
                 {
                     var exp = otaIndex < state.PreviewExposureSeconds.Length
                         ? state.PreviewExposureSeconds[otaIndex] : 5.0;
@@ -1577,10 +1689,17 @@ namespace TianWen.UI.Abstractions
                     fontPath, smallFs, saveBtnColor, BrightText,
                     $"PreviewSave{otaIndex}",
                     _ => PostSignal(new SaveSnapshotSignal(otaIndex)));
-                RenderButton("Solve", x + halfW + 4 * dpiScale, y, halfW, rowH * 0.9f,
-                    fontPath, smallFs, solveBtnColor, BrightText,
+                var solving = otaIndex < state.PreviewPlateSolving.Length
+                    && state.PreviewPlateSolving[otaIndex];
+                var solveLabel = solving ? "Solving\u2026" : "Solve";
+                var solveBg = solving
+                    ? new RGBAColor32(0x33, 0x33, 0x33, 0xff)
+                    : solveBtnColor;
+                var solveText = solving ? DimText : BrightText;
+                RenderButton(solveLabel, x + halfW + 4 * dpiScale, y, halfW, rowH * 0.9f,
+                    fontPath, smallFs, solveBg, solveText,
                     $"PreviewSolve{otaIndex}",
-                    _ => PostSignal(new PlateSolvePreviewSignal(otaIndex)));
+                    solving ? null : _ => PostSignal(new PlateSolvePreviewSignal(otaIndex)));
             }
         }
 
@@ -1846,15 +1965,57 @@ namespace TianWen.UI.Abstractions
             var x0 = rect.X + pad;
             var w = rect.Width - pad * 2;
 
-            // Header — append the active capture-source so the user knows whether
-            // they are looking through the main OTA or the guider when reading errors.
-            var sourceLabel = state.PolarAlignUseGuider ? "Guider" : "Main";
-            DrawText($"Polar Alignment ({sourceLabel})", fontPath,
+            // Header
+            DrawText("Polar Alignment", fontPath,
                 x0, rect.Y, w, rowH,
                 fontSize, HeaderText, TextAlign.Near, TextAlign.Center);
 
+            // Source toggle: [Main | Guider] -- moved here from the toolbar G button
+            // so the choice lives next to its consumers (the polar side panel).
+            // Switching mid-run would invalidate the Phase A v1 anchor frame, so the
+            // buttons are inert (DimText) while polar is actually running; users can
+            // still preview which source is active.
+            var sourceY = rect.Y + rowH;
+            var sourceLabelW = w * 0.30f;
+            var srcBtnW = (w - sourceLabelW) / 2f;
+            var canSwitchSource = state.PolarPhase == PolarAlignmentPhase.Idle
+                || state.PolarPhase == PolarAlignmentPhase.Failed;
+            DrawText("Source", fontPath,
+                x0, sourceY, sourceLabelW, rowH,
+                fontSize * 0.8f, DimText, TextAlign.Near, TextAlign.Center);
+            var activeSrcBg = new RGBAColor32(0x44, 0x66, 0x99, 0xff);
+            var inactiveSrcBg = new RGBAColor32(0x2a, 0x2a, 0x35, 0xff);
+            var srcFg = canSwitchSource ? BodyText : DimText;
+
+            RenderButton("Main",
+                x0 + sourceLabelW, sourceY + 2, srcBtnW - 2, rowH - 4,
+                fontPath, fontSize * 0.85f,
+                state.PolarAlignUseGuider ? inactiveSrcBg : activeSrcBg,
+                srcFg, "PolarSrcMain",
+                _ =>
+                {
+                    if (canSwitchSource && state.PolarAlignUseGuider)
+                    {
+                        state.PolarAlignUseGuider = false;
+                        state.NeedsRedraw = true;
+                    }
+                });
+            RenderButton("Guider",
+                x0 + sourceLabelW + srcBtnW, sourceY + 2, srcBtnW - 2, rowH - 4,
+                fontPath, fontSize * 0.85f,
+                state.PolarAlignUseGuider ? activeSrcBg : inactiveSrcBg,
+                srcFg, "PolarSrcGuider",
+                _ =>
+                {
+                    if (canSwitchSource && !state.PolarAlignUseGuider)
+                    {
+                        state.PolarAlignUseGuider = true;
+                        state.NeedsRedraw = true;
+                    }
+                });
+
             // Phase pill
-            var phaseY = rect.Y + rowH + pad;
+            var phaseY = sourceY + rowH + pad;
             var (phaseLabel, phaseColor) = state.PolarPhase switch
             {
                 PolarAlignmentPhase.Idle => ("IDLE", DimText),
@@ -1911,17 +2072,34 @@ namespace TianWen.UI.Abstractions
                 y = RenderPolarErrorGauges(state, solve, x0, y, w, rowH, fontPath, fontSize, pad);
             }
 
-            // Cancel / Done buttons (bottom of panel)
+            // Cancel / Done buttons (bottom of panel). The Cancel button gates on
+            // three states: idle (greyed), active (red, clickable), and
+            // cancellation-in-flight (amber, disabled, "Cancelling..." label).
+            // The intermediate state covers the gap between the user's click and
+            // the session's RestoringMount cleanup completing -- otherwise a
+            // mash of repeated clicks could fire multiple Cancel signals or the
+            // user wouldn't know the request was actually picked up.
             var buttonY = rect.Y + rect.Height - rowH * 2 - pad * 2;
             var halfW = (w - pad) / 2;
-            var canCancel = state.Mode == LiveSessionMode.PolarAlign && state.PolarPhase != PolarAlignmentPhase.Idle;
+            var cancelInFlight = state.PolarAlignmentCts is { IsCancellationRequested: true };
+            var canCancel = state.Mode == LiveSessionMode.PolarAlign
+                && state.PolarPhase != PolarAlignmentPhase.Idle
+                && !cancelInFlight;
             var canDone = state.PolarPhase == PolarAlignmentPhase.Aligned
                 || (state.PolarPhase == PolarAlignmentPhase.Refining && state.LastPolarSolve is { IsSettled: true, IsAligned: true });
 
-            RenderButton("Cancel", x0, buttonY, halfW, rowH * 1.5f,
+            // Amber for "in progress" -- distinct from the active red and the
+            // disabled grey so the state is unambiguous at a glance.
+            var cancellingBg = new RGBAColor32(0xc4, 0x8a, 0x2c, 0xff);
+            var (cancelLabel, cancelBg, cancelFg) = cancelInFlight
+                ? ("Cancelling\u2026", cancellingBg, BrightText)
+                : canCancel
+                    ? ("Cancel", AbortBg, AbortText)
+                    : ("Cancel", new RGBAColor32(0x33, 0x33, 0x3a, 0xff), DimText);
+
+            RenderButton(cancelLabel, x0, buttonY, halfW, rowH * 1.5f,
                 fontPath, fontSize * 0.9f,
-                canCancel ? AbortBg : new RGBAColor32(0x33, 0x33, 0x3a, 0xff),
-                canCancel ? AbortText : DimText,
+                cancelBg, cancelFg,
                 "PolarCancel",
                 _ => { if (canCancel) PostSignal(new CancelPolarAlignmentSignal()); });
 

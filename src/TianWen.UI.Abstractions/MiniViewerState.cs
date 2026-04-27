@@ -25,6 +25,15 @@ public sealed class MiniViewerState
     public float Zoom { get; set; } = 1.0f;
     public (float X, float Y) PanOffset { get; set; }
 
+    /// <summary>
+    /// Toggle for the WCS coordinate-grid overlay drawn on top of the live
+    /// preview. Only meaningful when the host has supplied a WCS to the
+    /// renderer (typically <c>PreviewPlateSolveResult.Solution</c>). The
+    /// shader path is no-op when no WCS is bound, so leaving this enabled
+    /// across solve attempts is safe.
+    /// </summary>
+    public bool ShowGrid { get; set; }
+
     public StretchMode StretchMode { get; set; } = StretchMode.Unlinked;
     public int StretchPresetIndex { get; set; }
     public StretchParameters StretchParameters { get; set; } = StretchParameters.Default;

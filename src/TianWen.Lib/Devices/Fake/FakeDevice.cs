@@ -6,6 +6,7 @@ using System.Text;
 using System.Text.Json.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Web;
 using TianWen.Lib;
 using TianWen.Lib.Connections;
 
@@ -36,6 +37,27 @@ public record FakeDevice(Uri DeviceUri) : DeviceBase(DeviceUri)
             format: "F1", suffix: "\""),
     ];
 
+    // Polar-misalignment knobs. Only honoured by FakeSkywatcherMountDriver (port=SkyWatcher),
+    // which has the encoder model the polar-align routine needs. The visibility predicate
+    // hides the rows for the other fake mount stacks (LX200, OnStep, SGP, default) where
+    // these keys would silently be ignored.
+    private static bool IsFakeSkywatcherMount(Uri uri) =>
+        string.Equals(HttpUtility.ParseQueryString(uri.Query)[DeviceQueryKey.Port.Key], "SkyWatcher", StringComparison.OrdinalIgnoreCase);
+
+    private static readonly ImmutableArray<DeviceSettingDescriptor> MountSettings =
+    [
+        DeviceSettingHelper.FloatSetting(
+            DeviceQueryKey.PolarMisalignmentAzArcmin.Key, "Polar Az Err",
+            defaultValue: 30.0, min: -180.0, max: 180.0, step: 1.0,
+            format: "F1", suffix: "'",
+            isVisible: IsFakeSkywatcherMount),
+        DeviceSettingHelper.FloatSetting(
+            DeviceQueryKey.PolarMisalignmentAltArcmin.Key, "Polar Alt Err",
+            defaultValue: -10.0, min: -180.0, max: 180.0, step: 1.0,
+            format: "F1", suffix: "'",
+            isVisible: IsFakeSkywatcherMount),
+    ];
+
     private static readonly ImmutableArray<DeviceSettingDescriptor> FocuserSettings =
     [
         DeviceSettingHelper.IntSetting(
@@ -60,6 +82,7 @@ public record FakeDevice(Uri DeviceUri) : DeviceBase(DeviceUri)
     {
         DeviceType.Camera => CameraSettings,
         DeviceType.Focuser => FocuserSettings,
+        DeviceType.Mount => MountSettings,
         _ => [],
     };
 

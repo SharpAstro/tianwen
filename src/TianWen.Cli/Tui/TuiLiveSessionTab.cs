@@ -1031,7 +1031,7 @@ internal sealed class TuiLiveSessionTab(
                 {
                     bus.Post(new StartPolarAlignmentSignal(
                         OtaIndex: sel,
-                        DeltaRaDeg: 60.0,
+                        DeltaRaDeg: 45.0,
                         UseGuider: liveState.PolarAlignUseGuider));
                 }
                 NeedsRedraw = true;

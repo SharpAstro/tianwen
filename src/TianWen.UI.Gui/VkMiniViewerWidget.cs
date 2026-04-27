@@ -3,6 +3,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using DIR.Lib;
 using SdlVulkan.Renderer;
+using TianWen.Lib.Astrometry;
 using TianWen.Lib.Imaging;
 using TianWen.UI.Abstractions;
 using TianWen.UI.Shared;
@@ -16,6 +17,18 @@ namespace TianWen.UI.Gui;
 /// </summary>
 public sealed unsafe class VkMiniViewerWidget : IMiniViewerWidget, IDisposable
 {
+    /// <summary>
+    /// Grid spacing options in arcseconds, fine to coarse. Mirrors the table in
+    /// <c>ImageRendererBase</c> so the live preview's grid uses the same tick
+    /// cadence as the FITS viewer.
+    /// </summary>
+    private static readonly double[] GridSpacingsArcsec =
+    [
+        1, 2, 5, 10, 15, 30,
+        60, 120, 300, 600, 900, 1800,
+        3600, 7200, 18000, 36000, 90000, 180000,
+    ];
+
     private readonly VkRenderer _renderer;
     private readonly VkFitsImagePipeline _fitsPipeline;
 
@@ -40,6 +53,8 @@ public sealed unsafe class VkMiniViewerWidget : IMiniViewerWidget, IDisposable
     public bool HasImage => _currentImage is not null || _pendingImage is not null;
 
     public MiniViewerState State { get; } = new MiniViewerState();
+
+    public WCS? Wcs { get; set; }
 
     public void QueueImage(Image image)
     {
@@ -126,6 +141,97 @@ public sealed unsafe class VkMiniViewerWidget : IMiniViewerWidget, IDisposable
         // Use pedestal as background estimate for boost midpoint
         var bgLevel = stretchStats.Length > 0 ? stretchStats[0].Pedestal : 0.25f;
 
+        // Compute the effective draw rect first so the grid spacing heuristic
+        // can use the visible image-pixel range (= rect / zoom). Pulled out of the
+        // per-mode branches below.
+        float drawX, drawY, drawW, drawH;
+        if (State.ZoomToFit)
+        {
+            var imgAspect = (float)_uploadedImageWidth / _uploadedImageHeight;
+            var rectAspect = rect.Width / rect.Height;
+            if (imgAspect > rectAspect)
+            {
+                drawW = rect.Width;
+                drawH = rect.Width / imgAspect;
+            }
+            else
+            {
+                drawH = rect.Height;
+                drawW = rect.Height * imgAspect;
+            }
+            drawX = rect.X + (rect.Width - drawW) / 2;
+            drawY = rect.Y + (rect.Height - drawH) / 2;
+        }
+        else
+        {
+            drawW = _uploadedImageWidth * State.Zoom;
+            drawH = _uploadedImageHeight * State.Zoom;
+            drawX = rect.X + (rect.Width - drawW) / 2 + State.PanOffset.X;
+            drawY = rect.Y + (rect.Height - drawH) / 2 + State.PanOffset.Y;
+        }
+
+        // WCS grid uniforms -- mirrors VkImageRenderer.RenderImageQuad's grid path.
+        // Picks a tick spacing that keeps ~3-8 lines on screen and converts the
+        // CD matrix into the radian-scaled form the shader expects.
+        bool gridEnabled = State.ShowGrid && Wcs is not null;
+        float gridSpacingRA = 0f, gridSpacingDec = 0f, gridLineWidth = 0f;
+        float crPix1 = 0f, crPix2 = 0f, crValRA = 0f, crValDec = 0f;
+        Span<float> cdMatrix = stackalloc float[4];
+
+        if (gridEnabled && Wcs is { } gw)
+        {
+            var pixelScaleArcsec = gw.PixelScaleArcsec;
+            var effectiveZoom = drawW / _uploadedImageWidth;
+            var viewImagePixels = MathF.Min(rect.Width, rect.Height) / Math.Max(effectiveZoom, 0.0001f);
+            var viewArcsec = viewImagePixels * pixelScaleArcsec;
+            var spacingArcsec = GridSpacingsArcsec[^1];
+            foreach (var candidate in GridSpacingsArcsec)
+            {
+                if (candidate >= viewArcsec / 8.0)
+                {
+                    spacingArcsec = candidate;
+                    break;
+                }
+            }
+
+            var spacingRad = (float)(spacingArcsec / 3600.0 * (Math.PI / 180.0));
+            var spacingRArad = (float)(spacingArcsec / 3600.0 / 15.0 * (Math.PI / 12.0));
+            // RA spacing is in radians of RA. Near the poles, an arc of S arcsec on
+            // the sky spans ~S/cos(dec) of RA, so without this 1/cos(dec) scaling
+            // we render meridians ~100x too dense at e.g. dec = -89.4 deg and the
+            // image becomes a green moire pattern. Floor at cos = 0.05 (= dec ~87
+            // deg) so we don't blow up exactly at the pole.
+            var cosCenterDec = Math.Max(Math.Cos(gw.CenterDec * Math.PI / 180.0), 0.05);
+            gridSpacingRA = spacingRArad / (float)cosCenterDec;
+            gridSpacingDec = spacingRad;
+            gridLineWidth = (float)(1.5 * pixelScaleArcsec / Math.Max(effectiveZoom, 0.0001f) / 3600.0 * (Math.PI / 180.0));
+
+            crPix1 = (float)gw.CRPix1;
+            crPix2 = (float)gw.CRPix2;
+            crValRA = (float)(gw.CenterRA * (Math.PI / 12.0));
+            crValDec = (float)(gw.CenterDec * (Math.PI / 180.0));
+
+            // Decompose the CD matrix into a clean (rotation, isotropic scale)
+            // form before handing to the shader. Plate solvers fit a free 2x2
+            // affine, so the raw CD almost always carries a few percent of
+            // anisotropic scale + skew baked in from least-squares noise.
+            // Per-pixel inverse projection through that skewed CD renders
+            // constant-Dec lines as visible ellipses (not circles) and the
+            // grid wobbles solve-to-solve as the noise components fluctuate.
+            // Polar-rotation factor M = U V^T from the SVD UΣV^T is the
+            // closest pure rotation to CD; geometric-mean scale = sqrt|det CD|
+            // (= PixelScaleArcsec). Recombining gives an orthogonal+isotropic
+            // CD' that produces concentric grid circles and stable rendering.
+            var degToRad = (float)(Math.PI / 180.0);
+            var pxScaleDeg = pixelScaleArcsec / 3600.0;
+            var (cd11Clean, cd12Clean, cd21Clean, cd22Clean) =
+                DecomposeToCleanCD(gw.CD1_1, gw.CD1_2, gw.CD2_1, gw.CD2_2, pxScaleDeg);
+            cdMatrix[0] = (float)cd11Clean * degToRad;
+            cdMatrix[1] = (float)cd21Clean * degToRad;
+            cdMatrix[2] = (float)cd12Clean * degToRad;
+            cdMatrix[3] = (float)cd22Clean * degToRad;
+        }
+
         var cmd = _renderer.CurrentCommandBuffer;
 
         _fitsPipeline.UpdateStretchUBO(
@@ -142,52 +248,20 @@ public sealed unsafe class VkMiniViewerWidget : IMiniViewerWidget, IDisposable
             midtones: (stretch.Midtones.R, stretch.Midtones.G, stretch.Midtones.B),
             highlights: (stretch.Highlights.R, stretch.Highlights.G, stretch.Highlights.B),
             rescale: (stretch.Rescale.R, stretch.Rescale.G, stretch.Rescale.B),
-            gridEnabled: false,
-            gridSpacingRA: 0f,
-            gridSpacingDec: 0f,
-            gridLineWidth: 0f,
+            gridEnabled: gridEnabled,
+            gridSpacingRA: gridSpacingRA,
+            gridSpacingDec: gridSpacingDec,
+            gridLineWidth: gridLineWidth,
             imageW: _uploadedImageWidth,
             imageH: _uploadedImageHeight,
-            crPix1: 0f,
-            crPix2: 0f,
-            crValRA: 0f,
-            crValDec: 0f,
-            cdMatrix: ReadOnlySpan<float>.Empty,
+            crPix1: crPix1,
+            crPix2: crPix2,
+            crValRA: crValRA,
+            crValDec: crValDec,
+            cdMatrix: cdMatrix,
             imageSource: _imageSource,
             bayerOffsetX: _bayerOffsetX,
             bayerOffsetY: _bayerOffsetY);
-
-        // Compute draw rect based on zoom mode
-        float drawX, drawY, drawW, drawH;
-
-        if (State.ZoomToFit)
-        {
-            // Fit to rect preserving aspect ratio
-            var imgAspect = (float)_uploadedImageWidth / _uploadedImageHeight;
-            var rectAspect = rect.Width / rect.Height;
-
-            if (imgAspect > rectAspect)
-            {
-                drawW = rect.Width;
-                drawH = rect.Width / imgAspect;
-            }
-            else
-            {
-                drawH = rect.Height;
-                drawW = rect.Height * imgAspect;
-            }
-
-            drawX = rect.X + (rect.Width - drawW) / 2;
-            drawY = rect.Y + (rect.Height - drawH) / 2;
-        }
-        else
-        {
-            // 1:1 or custom zoom — image pixels × zoom, centered + pan
-            drawW = _uploadedImageWidth * State.Zoom;
-            drawH = _uploadedImageHeight * State.Zoom;
-            drawX = rect.X + (rect.Width - drawW) / 2 + State.PanOffset.X;
-            drawY = rect.Y + (rect.Height - drawH) / 2 + State.PanOffset.Y;
-        }
 
         // Set scissor to clip image to the viewport rect
         var api = _renderer.Surface.DeviceApi;
@@ -215,6 +289,36 @@ public sealed unsafe class VkMiniViewerWidget : IMiniViewerWidget, IDisposable
             extent = new VkExtent2D { width = windowWidth, height = windowHeight }
         };
         api.vkCmdSetScissor(cmd, 0, 1, &fullScissor);
+    }
+
+    /// <summary>
+    /// Strip skew + anisotropic scale from a plate-solved CD matrix and return
+    /// the closest pure-rotation x isotropic-scale matrix. Uses the polar
+    /// decomposition: any 2x2 M can be written as Q*S where Q is orthogonal
+    /// and S is symmetric positive-definite. We discard S (the scale/skew
+    /// part) and replace it with isotropic scale = sqrt|det M|, so the result
+    /// is geomScale * Q -- ortho rotation at the same overall pixel scale as
+    /// the original. The orthogonal factor of the polar decomposition for a
+    /// 2x2 matrix [a b; c d] is found via the sum a+d (for sign-correct
+    /// rotation) and angle atan2(c-b, a+d).
+    /// </summary>
+    internal static (double CD11, double CD12, double CD21, double CD22)
+        DecomposeToCleanCD(double cd11, double cd12, double cd21, double cd22, double geomScaleDeg)
+    {
+        var det = cd11 * cd22 - cd12 * cd21;
+        var sign = det >= 0 ? 1.0 : -1.0;
+        // Effective rotation angle (atan2 form is robust through the wraps).
+        // For determinant > 0 the orthogonal factor is a pure rotation.
+        // For determinant < 0 the image is mirrored; we apply the sign to CD22
+        // so the reconstructed matrix matches the original orientation/parity.
+        var theta = Math.Atan2(cd21 - sign * cd12, cd11 + sign * cd22);
+        var c = Math.Cos(theta);
+        var s = Math.Sin(theta);
+        return (
+            CD11: geomScaleDeg * c,
+            CD12: -geomScaleDeg * s * sign,
+            CD21: geomScaleDeg * s,
+            CD22: geomScaleDeg * c * sign);
     }
 
     public void Dispose()

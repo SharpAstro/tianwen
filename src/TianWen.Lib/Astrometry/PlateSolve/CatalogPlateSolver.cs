@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -41,8 +42,10 @@ namespace TianWen.Lib.Astrometry.PlateSolve;
 /// valid <c>searchOrigin</c>; blind solving (no search hint) is not supported and returns
 /// <c>null</c>.</para>
 /// </summary>
-internal sealed class CatalogPlateSolver(ICelestialObjectDB db) : IPlateSolver
+internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger<CatalogPlateSolver>? logger = null) : IPlateSolver
 {
+    private readonly ILogger? _logger = logger;
+
     const int MinStarsForMatch = 6;
 
     public string Name => "Catalog plate solver";
@@ -119,15 +122,68 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db) : IPlateSolver
         var searchRadiusDeg = searchRadius ?? Math.Max(fov.width, fov.height) * 0.75;
 
         // Query catalog stars within search radius
+        var stageSw = Stopwatch.StartNew();
         var catalogCoords = QueryCatalogStarsInRegion(origin, searchRadiusDeg);
+        _logger?.LogDebug("CatalogPlateSolver: catalog query {Count} stars in {Ms}ms (Dec={Dec:F2}°, R={R:F2}°)",
+            catalogCoords.Count, stageSw.Elapsed.TotalMilliseconds, origin.CenterDec, searchRadiusDeg);
         _catalogStars = catalogCoords.Count;
         if (catalogCoords.Count < MinStarsForMatch)
         {
             return Result(empty);
         }
 
-        // Detect stars in image
-        var detectedStars = await image.FindStarsAsync(0, snrMin: 5f, maxStars: 500, cancellationToken: cancellationToken);
+        // Downsample heavily oversampled frames to ~1.5"/px before star
+        // detection. Plate solving doesn't need sub-arcsec centroid accuracy --
+        // catalog projections are already arcsec-scale via the WCS fit -- but
+        // FindStarsAsync's per-pass cost scales with pixel count. A 0.97"/px
+        // 9576x6388 polar preview binned 2x drops to 4788x3194 and runs ~4x
+        // faster per pass. Centroid coords come back in binned pixel space, so
+        // we scale them back to original-image pixels before matching.
+        var detectionImage = image;
+        var detectionScale = 1;
+        const double TargetPixelScaleArcsec = 1.5;
+        if (dim.PixelScale > 0 && dim.PixelScale < TargetPixelScaleArcsec)
+        {
+            // Round (not floor) so a 0.97"/px image gets binned 2x to 1.94"/px.
+            // floor(1.5/0.97) = 1 = no bin -- we'd never trigger on
+            // sub-arcsec/px setups that need it most.
+            detectionScale = (int)Math.Round(TargetPixelScaleArcsec / dim.PixelScale);
+            if (detectionScale > 1)
+            {
+                stageSw.Restart();
+                detectionImage = image.Downsample(detectionScale);
+                _logger?.LogDebug("CatalogPlateSolver: downsampled {SrcW}x{SrcH} -> {DstW}x{DstH} (factor {Factor}, target {Target}\"/px) in {Ms}ms",
+                    image.Width, image.Height, detectionImage.Width, detectionImage.Height, detectionScale, TargetPixelScaleArcsec, stageSw.Elapsed.TotalMilliseconds);
+            }
+        }
+
+        // Detect stars in image. minStars=50 short-circuits the do-while retry
+        // loop in FindStarsAsync as soon as we have enough stars to attempt
+        // matching (MinStarsForMatch is 6; 50 is comfortable redundancy). On
+        // synthetic SCP frames the first pass already yields >200 stars, so
+        // the retry loop never fires.
+        stageSw.Restart();
+        var detectedStars = await detectionImage.FindStarsAsync(0, snrMin: 5f, maxStars: 500, minStars: 50, cancellationToken: cancellationToken);
+        _logger?.LogDebug("CatalogPlateSolver: FindStarsAsync detected {Count} stars in {Ms}ms ({W}x{H})",
+            detectedStars.Count, stageSw.Elapsed.TotalMilliseconds, detectionImage.Width, detectionImage.Height);
+
+        // Scale centroids back to original-image pixel space if we downsampled.
+        // (factor*x + factor/2 - 0.5) puts the binned-pixel centre back to
+        // the centre of its original block.
+        if (detectionScale > 1)
+        {
+            var halfBlock = detectionScale / 2.0f - 0.5f;
+            var rescaled = new System.Collections.Concurrent.ConcurrentBag<ImagedStar>();
+            foreach (var s in detectedStars)
+            {
+                rescaled.Add(s with
+                {
+                    XCentroid = s.XCentroid * detectionScale + halfBlock,
+                    YCentroid = s.YCentroid * detectionScale + halfBlock,
+                });
+            }
+            detectedStars = new StarList(rescaled);
+        }
         _detectedStars = detectedStars.Count;
         if (detectedStars.Count < MinStarsForMatch)
         {
@@ -144,12 +200,15 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db) : IPlateSolver
         var cy = image.Height / 2.0;
 
         // Try both orientations in parallel; pick the one with lower re-projection error
+        stageSw.Restart();
         var stdTask = Task.Run(() => TrySolveWithProximityMatching(detectedStars, catalogCoords, origin, pixelScaleRad, cx, cy, dim, xSign: 1.0));
         var mirrorTask = Task.Run(() => TrySolveWithProximityMatching(detectedStars, catalogCoords, origin, pixelScaleRad, cx, cy, dim, xSign: -1.0));
         await Task.WhenAll(stdTask, mirrorTask);
 
         var std = stdTask.Result;
         var mirror = mirrorTask.Result;
+        _logger?.LogDebug("CatalogPlateSolver: matching iterations std={StdMatched}/{StdIter} mirror={MirrorMatched}/{MirrorIter} in {Ms}ms",
+            std.MatchedStars, std.Iterations, mirror.MatchedStars, mirror.Iterations, stageSw.Elapsed.TotalMilliseconds);
 
         // Validate each by re-projecting bright catalog stars through the WCS
         var stdError = std.Wcs is { } ws ? ReProjectionError(ws, catalogCoords, detectedStars) : double.MaxValue;
@@ -428,14 +487,55 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db) : IPlateSolver
         var minDec = Math.Max(-90.0, centerDec - radiusDeg);
         var maxDec = Math.Min(90.0, centerDec + radiusDeg);
 
-        // Grid cells are 1/15 hour in RA and 1° in Dec
-        const double raCellSize = 1.0 / 15.0;
-
         var seen = new HashSet<CatalogIndex>();
 
-        for (var cellRA = Math.Floor(minRA / raCellSize) * raCellSize + raCellSize * 0.5;
+        // Polar-cap fast path: when the query covers the full 24h of RA the
+        // per-cell scan re-walks the same handful of polar GSC regions hundreds
+        // of times -- 200+ seconds for a single solve at the SCP. Detect this
+        // case (cosDecl threshold matches the radiusRA = 24 branch above) and
+        // delegate to Tycho2RaDecIndex.EnumerateStarsInDecBand, which scans each
+        // unique region's binary entries exactly once. Mirrors the polar-pan
+        // optimisation in commit 69c7266 ("Sky map pan: 5x faster when the pole
+        // is in view"). Falls back to the per-cell path when Tycho-2 isn't
+        // loaded or when we're not at the pole.
+        if (cosDecl <= 0.01 && db.CoordinateGrid is CompositeRaDecIndex { Tycho2: { } tycho2 } composite)
+        {
+            // Deep-sky polar cells (cheap: a few dozen Dec cells x 360 RA cells,
+            // most empty -- the primary index uses Array.Empty for empty cells).
+            const double raCellSize = 1.0 / 15.0;
+            for (var cellRA = raCellSize * 0.5; cellRA < 24.0; cellRA += raCellSize)
+            {
+                for (var cellDec = Math.Floor(minDec) + 0.5; cellDec <= maxDec; cellDec += 1.0)
+                {
+                    foreach (var idx in composite.Primary[cellRA, cellDec])
+                    {
+                        if (seen.Add(idx) && db.TryLookupByIndex(idx, out var obj) && obj.ObjectType is ObjectType.Star)
+                        {
+                            result.Add((obj.RA, obj.Dec, Half.IsNaN(obj.V_Mag) ? 99.0 : (double)obj.V_Mag));
+                        }
+                    }
+                }
+            }
+
+            // Tycho-2 entries via the dec-band enumerator (regions deduped, single linear scan).
+            foreach (var idx in tycho2.EnumerateStarsInDecBand(minDec, maxDec))
+            {
+                if (seen.Add(idx) && db.TryLookupByIndex(idx, out var obj) && obj.ObjectType is ObjectType.Star)
+                {
+                    result.Add((obj.RA, obj.Dec, Half.IsNaN(obj.V_Mag) ? 99.0 : (double)obj.V_Mag));
+                }
+            }
+
+            return result;
+        }
+
+        // General path: per-cell scan with cos(dec)-divided RA range.
+        // Grid cells are 1/15 hour in RA and 1° in Dec
+        const double raCellSizeGeneral = 1.0 / 15.0;
+
+        for (var cellRA = Math.Floor(minRA / raCellSizeGeneral) * raCellSizeGeneral + raCellSizeGeneral * 0.5;
              cellRA <= maxRA;
-             cellRA += raCellSize)
+             cellRA += raCellSizeGeneral)
         {
             var queryRA = ConditionRA(cellRA);
             for (var cellDec = Math.Floor(minDec) + 0.5; cellDec <= maxDec; cellDec += 1.0)

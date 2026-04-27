@@ -71,7 +71,7 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
         public async ValueTask<CaptureAndSolveResult> CaptureAndSolveAsync(
             TimeSpan exposure,
             IPlateSolver solver,
-            CancellationToken ct)
+            CancellationToken ct = default)
         {
             if (!_guider.Connected)
             {

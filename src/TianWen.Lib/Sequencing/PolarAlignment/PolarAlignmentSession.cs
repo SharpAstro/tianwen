@@ -80,7 +80,15 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
         /// the GUI / TUI subscribes so the side panel can show "Probing 200ms
         /// (rung 3/8)" instead of a static message during the multi-second
         /// ASTAP retries.</param>
-        public async ValueTask<TwoFrameSolveResult> SolveAsync(CancellationToken ct, IProgress<ProbeProgress>? rampProgress = null)
+        /// <param name="phaseProgress">Optional reporter for Phase A
+        /// sub-phase transitions (rotation, settle, frame 2). Without this,
+        /// the UI status panel sits on the last probe-ramp message for the
+        /// 15-30 seconds of rotation + settle + frame-2 capture and looks
+        /// hung even though the orchestrator is making forward progress.</param>
+        public async ValueTask<TwoFrameSolveResult> SolveAsync(
+            CancellationToken ct,
+            IProgress<ProbeProgress>? rampProgress = null,
+            IProgress<PolarPhaseUpdate>? phaseProgress = null)
         {
             // --- Frame 1 with adaptive exposure ramp ---
             var probe = await AdaptiveExposureRamp.ProbeAsync(_source, _solver, _config.ExposureRamp, _config.MinStarsForSolve, ct, rampProgress);
@@ -107,10 +115,25 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
             double signedRate = _config.RotationDeg >= 0 ? rateDegPerSec : -rateDegPerSec;
             double rotationDurationSec = Math.Abs(_config.RotationDeg) / rateDegPerSec;
 
+            // Initial Rotating report carries total angle + rate so the UI can
+            // show "Rotating 60deg at 4.0deg/s (~15s)" instead of an opaque
+            // status line.
+            phaseProgress?.Report(new PolarPhaseUpdate(
+                PolarAlignmentPhase.Rotating,
+                $"Rotating {_config.RotationDeg:F0}\u00B0 at {rateDegPerSec:F1}\u00B0/s (~{rotationDurationSec:F0}s)"));
+
             var startTimestamp = _timeProvider.GetTimestamp();
             await _mount.MoveAxisAsync(TelescopeAxis.Primary, signedRate, ct);
             try
             {
+                // Wait the full rotation through SleepAsync so the call advances
+                // fake time in tests. An earlier "capture-during-rotation" loop
+                // here gave a SharpCap-style live preview while the mount slewed,
+                // but it spun infinitely under FakeTimeProvider (synthetic
+                // captures return instantly, and time never advances on its own).
+                // With the SelectRotationRate fix the whole rotation is ~15s on
+                // a Skywatcher, so the lost UX is small. Re-add a decoupled
+                // background capture loop later if it matters.
                 await _timeProvider.SleepAsync(TimeSpan.FromSeconds(rotationDurationSec), ct);
             }
             finally
@@ -126,15 +149,19 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
             // between each attempt before giving up.
             if (_config.SettleSeconds > 0)
             {
+                phaseProgress?.Report(new PolarPhaseUpdate(
+                    PolarAlignmentPhase.Rotating,
+                    $"Settling {_config.SettleSeconds:F0}s..."));
                 await _timeProvider.SleepAsync(TimeSpan.FromSeconds(_config.SettleSeconds), ct);
             }
+            phaseProgress?.Report(new PolarPhaseUpdate(PolarAlignmentPhase.Frame2));
             CaptureAndSolveResult frame2 = default;
             int frame2Attempts = 0;
             int maxFrame2Attempts = Math.Max(1, _config.MaxFrame2Retries + 1);
             while (frame2Attempts < maxFrame2Attempts)
             {
                 ct.ThrowIfCancellationRequested();
-                frame2 = await _source.CaptureAndSolveAsync(probe.ExposureUsed, _solver, ct);
+                frame2 = await _source.CaptureAndSolveAsync(probe.ExposureUsed, _solver, ct: ct);
                 if (frame2.Success && frame2.StarsMatched >= _config.MinStarsForSolve) break;
                 frame2Attempts++;
                 _logger.LogInformation("PolarAlignment: frame 2 attempt {Attempt}/{Max} did not solve, settling and retrying",
@@ -347,38 +374,31 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
 
         /// <summary>
         /// Pick a sensible RA-axis rate from the mount's <c>AxisRates</c> list.
-        /// Strategy:
-        /// 1. If the list has &gt;= 2 discrete rates (Min == Max per entry), pick rates[Length - 2]
-        ///    (one below max — avoids mechanical wobble at top speed).
-        /// 2. If a contiguous range is reported (Max &gt; Min on any entry), pick 0.7 * Max.
-        /// 3. If neither, fall back to 8 deg/s (well below any mount that supports MoveAxis).
-        /// Returns 0 if the list is empty or the maximum reported rate is non-positive.
+        /// Strategy: take the highest rate <= 5 deg/s (a generous cap that any
+        /// real GEM tolerates without wobble), otherwise 0.7 * max. Polar
+        /// alignment wants the rotation finished quickly -- the previous
+        /// "second-from-top discrete rate" heuristic locked Skywatcher to its
+        /// 32x-sidereal entry (0.13 deg/s), turning a 45 deg rotation into a
+        /// 5 minute wait when the mount actually supports 3 deg/s slews.
         /// </summary>
         internal static double SelectRotationRate(IReadOnlyList<AxisRate> rates)
         {
-            if (rates is null || rates.Count == 0) return 8.0;
+            const double SafeCapDegPerSec = 5.0;
+            if (rates is null || rates.Count == 0) return 3.0;
 
-            // Detect whether the list is purely discrete (every entry has Min == Max).
-            bool allDiscrete = true;
+            double maxBelowCap = 0;
             double maxRate = 0;
             foreach (var r in rates)
             {
-                if (Math.Abs(r.Maximum - r.Mininum) > 1e-9) allDiscrete = false;
                 if (r.Maximum > maxRate) maxRate = r.Maximum;
+                if (r.Maximum <= SafeCapDegPerSec && r.Maximum > maxBelowCap)
+                {
+                    maxBelowCap = r.Maximum;
+                }
             }
             if (maxRate <= 0) return 0;
-
-            if (allDiscrete && rates.Count >= 2)
-            {
-                // Sort ascending by Maximum and pick second-from-top.
-                var sorted = new List<double>(rates.Count);
-                foreach (var r in rates) sorted.Add(r.Maximum);
-                sorted.Sort();
-                return sorted[sorted.Count - 2];
-            }
-
-            // Continuous range or single discrete entry -> 70% of max.
-            return Math.Min(maxRate, 0.7 * maxRate);
+            if (maxBelowCap > 0) return maxBelowCap;
+            return Math.Min(SafeCapDegPerSec, 0.7 * maxRate);
         }
     }
 

@@ -56,10 +56,31 @@ namespace TianWen.UI.Abstractions
                 state.NeedsRedraw = true;
             });
 
+            // Phase-A sub-phase transitions: the ramp finishes in seconds but
+            // the rotation + settle + frame-2 leg of Phase A takes another
+            // 15-30s. Without these reports, the UI sits on the last "Probing
+            // 200ms (4/8)" message for that whole time and the user can't tell
+            // whether the routine is alive or hung. Each transition flips the
+            // phase pill (PROBING -> ROTATING -> FRAME 2) and rewrites the
+            // status line. Rotation re-emits ~4 times/sec with elapsed/total
+            // so the user gets a live countdown.
+            var phaseProgress = new Progress<PolarPhaseUpdate>(update =>
+            {
+                state.PolarPhase = update.Phase;
+                state.PolarStatusMessage = update.Detail
+                    ?? update.Phase switch
+                    {
+                        PolarAlignmentPhase.Rotating => "Rotating RA axis...",
+                        PolarAlignmentPhase.Frame2 => "Capturing frame 2...",
+                        _ => state.PolarStatusMessage,
+                    };
+                state.NeedsRedraw = true;
+            });
+
             TwoFrameSolveResult phaseA;
             try
             {
-                phaseA = await session.SolveAsync(ct, progress);
+                phaseA = await session.SolveAsync(ct, progress, phaseProgress);
             }
             catch (OperationCanceledException)
             {

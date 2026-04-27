@@ -206,8 +206,10 @@ namespace TianWen.Lib.Tests
         // --- SelectRotationRate ---
 
         [Fact]
-        public void GivenDiscreteRateListWhenSelectThenSecondHighest()
+        public void GivenDiscreteRateListWhenSelectThenHighestUnderFiveDegPerSec()
         {
+            // Mixed list with entries above and below the 5 deg/s safety cap.
+            // Want the largest rate <= 5 (= 2.0), not the second-from-top (8.0).
             var rates = new[]
             {
                 new TianWen.Lib.Devices.AxisRate(0.5),
@@ -216,30 +218,58 @@ namespace TianWen.Lib.Tests
                 new TianWen.Lib.Devices.AxisRate(20.0)
             };
             var picked = PolarAlignmentSession.SelectRotationRate(rates);
-            picked.ShouldBe(8.0); // one below max
+            picked.ShouldBe(2.0);
         }
 
         [Fact]
-        public void GivenContinuousRangeWhenSelectThenSeventyPercentOfMax()
+        public void GivenSkywatcherStyleRatesWhenSelectThenPicksThreeDegPerSec()
         {
+            // Skywatcher publishes [.125x, 1x, 8x, 16x, 32x sidereal, 3.0 deg/s].
+            // The old "second-from-top" policy locked the routine to 32x sidereal
+            // (~0.13 deg/s), making a 45 deg rotation take ~5 minutes. Verify the
+            // new policy picks the actual fast slew entry.
+            const double siderealDegPerSec = 15.04108 / 3600.0;
+            var rates = new[]
+            {
+                new TianWen.Lib.Devices.AxisRate(siderealDegPerSec * 0.125),
+                new TianWen.Lib.Devices.AxisRate(siderealDegPerSec),
+                new TianWen.Lib.Devices.AxisRate(siderealDegPerSec * 8),
+                new TianWen.Lib.Devices.AxisRate(siderealDegPerSec * 16),
+                new TianWen.Lib.Devices.AxisRate(siderealDegPerSec * 32),
+                new TianWen.Lib.Devices.AxisRate(3.0)
+            };
+            PolarAlignmentSession.SelectRotationRate(rates).ShouldBe(3.0);
+        }
+
+        [Fact]
+        public void GivenContinuousRangeAboveCapWhenSelectThenCapAtFiveDegPerSec()
+        {
+            // Continuous range up to 30 deg/s -> cap at 5 (anything above is
+            // mechanical territory we don't want to push during polar align).
             var rates = new[] { new TianWen.Lib.Devices.AxisRate(0.001, 30.0) };
-            var picked = PolarAlignmentSession.SelectRotationRate(rates);
-            picked.ShouldBe(21.0, 0.001); // 0.7 * 30
+            PolarAlignmentSession.SelectRotationRate(rates).ShouldBe(5.0, 0.001);
         }
 
         [Fact]
-        public void GivenSingleDiscreteRateWhenSelectThenSeventyPercentOfMax()
+        public void GivenSingleDiscreteRateAboveCapWhenSelectThenCapAtFiveDegPerSec()
         {
+            // Single discrete rate > 5 deg/s -> cap at 5.
             var rates = new[] { new TianWen.Lib.Devices.AxisRate(15.0) };
-            var picked = PolarAlignmentSession.SelectRotationRate(rates);
-            picked.ShouldBe(15.0 * 0.7, 0.001);
+            PolarAlignmentSession.SelectRotationRate(rates).ShouldBe(5.0, 0.001);
         }
 
         [Fact]
-        public void GivenEmptyRatesWhenSelectThenFallbackEightDegreesPerSec()
+        public void GivenSingleDiscreteRateUnderCapWhenSelectThenPickThatRate()
+        {
+            var rates = new[] { new TianWen.Lib.Devices.AxisRate(2.5) };
+            PolarAlignmentSession.SelectRotationRate(rates).ShouldBe(2.5, 0.001);
+        }
+
+        [Fact]
+        public void GivenEmptyRatesWhenSelectThenFallbackThreeDegreesPerSec()
         {
             var rates = System.Array.Empty<TianWen.Lib.Devices.AxisRate>();
-            PolarAlignmentSession.SelectRotationRate(rates).ShouldBe(8.0);
+            PolarAlignmentSession.SelectRotationRate(rates).ShouldBe(3.0);
         }
 
         // --- Helper fakes ---
@@ -257,7 +287,7 @@ namespace TianWen.Lib.Tests
             public double ApertureMm => 50;
             public double PixelSizeMicrons => 3.0;
 
-            public ValueTask<CaptureAndSolveResult> CaptureAndSolveAsync(TimeSpan exposure, IPlateSolver solver, CancellationToken ct)
+            public ValueTask<CaptureAndSolveResult> CaptureAndSolveAsync(TimeSpan exposure, IPlateSolver solver, CancellationToken ct = default)
             {
                 ct.ThrowIfCancellationRequested();
                 if (AttemptCount >= _script.Count)
@@ -279,7 +309,7 @@ namespace TianWen.Lib.Tests
             public double ApertureMm { get; } = apertureMm;
             public double PixelSizeMicrons { get; } = pixelSizeMicrons;
 
-            public ValueTask<CaptureAndSolveResult> CaptureAndSolveAsync(TimeSpan exposure, IPlateSolver solver, CancellationToken ct)
+            public ValueTask<CaptureAndSolveResult> CaptureAndSolveAsync(TimeSpan exposure, IPlateSolver solver, CancellationToken ct = default)
                 => throw new NotSupportedException();
         }
 
