@@ -53,6 +53,8 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
         // RefineAsync to translate live frame drift into a fresh axis without
         // re-rotating the mount. See LiveAxisRefiner for the math.
         private PolarAxisSolver.LiveAxisRefiner _refiner;
+        private double _lastLoggedWcsCenterRA;
+        private double _lastLoggedWcsCenterDec;
 
         public PolarAlignmentSession(
             IExternal external,
@@ -388,6 +390,8 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
                     }
                     outcome = fastPath ? "fast" : "full";
 
+                    _lastLoggedWcsCenterRA = wcs.CenterRA;
+                    _lastLoggedWcsCenterDec = wcs.CenterDec;
                     var wcsCenter = PolarAxisSolver.RaDecToUnitVec(wcs.CenterRA, wcs.CenterDec);
                     // Jacobian-linearised live tracker: dv = wcsCenter - v2_baseline,
                     // dA = J^+ * dv, A_current = normalise(A0 + dA). Replaces the prior
@@ -458,7 +462,7 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
                     // SmoothingWindow correctly: if raw is +/-3' then a window of 5
                     // (default) lags the user but still leaks visible noise to the GUI.
                     _logger.LogInformation(
-                        "PolarAlignment refine iter: capture={CaptureMs:F0}ms fast={FastMs:F1}ms full={FullMs:F0}ms seed={SeedMs:F0}ms total={TotalMs:F0}ms outcome={Outcome} rawAz={RawAzArcmin:F2}' rawAlt={RawAltArcmin:F2}' smAz={SmAzArcmin:F2}' smAlt={SmAltArcmin:F2}'",
+                        "PolarAlignment refine iter: capture={CaptureMs:F0}ms fast={FastMs:F1}ms full={FullMs:F0}ms seed={SeedMs:F0}ms total={TotalMs:F0}ms outcome={Outcome} rawAz={RawAzArcmin:F2}' rawAlt={RawAltArcmin:F2}' smAz={SmAzArcmin:F2}' smAlt={SmAltArcmin:F2}' wcsRA={WcsRA:F4}h wcsDec={WcsDec:F4}deg",
                         captureElapsed.TotalMilliseconds,
                         fastElapsed.TotalMilliseconds,
                         fullElapsed.TotalMilliseconds,
@@ -468,7 +472,9 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
                         yieldResult?.AzErrorRad * 180.0 / Math.PI * 60.0 ?? double.NaN,
                         yieldResult?.AltErrorRad * 180.0 / Math.PI * 60.0 ?? double.NaN,
                         yieldResult?.SmoothedAzErrorRad * 180.0 / Math.PI * 60.0 ?? double.NaN,
-                        yieldResult?.SmoothedAltErrorRad * 180.0 / Math.PI * 60.0 ?? double.NaN);
+                        yieldResult?.SmoothedAltErrorRad * 180.0 / Math.PI * 60.0 ?? double.NaN,
+                        _lastLoggedWcsCenterRA,
+                        _lastLoggedWcsCenterDec);
                 }
 
                 if (yieldResult is { } r)
