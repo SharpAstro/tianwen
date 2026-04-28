@@ -2084,7 +2084,10 @@ namespace TianWen.UI.Abstractions
                     PressureHPa: pressureHPa,
                     TemperatureC: temperatureC);
 
-                var config = PolarAlignmentConfiguration.Default with { RotationDeg = sig.DeltaRaDeg };
+                // Setup-panel path supplies the full configuration. Toolbar /
+                // legacy callers leave Configuration null and pin only
+                // DeltaRaDeg; fall back to Default for everything else.
+                var config = sig.Configuration ?? (PolarAlignmentConfiguration.Default with { RotationDeg = sig.DeltaRaDeg });
 
                 var polarCts = CancellationTokenSource.CreateLinkedTokenSource(cts.Token);
                 liveSessionState.PolarAlignmentCts = polarCts;

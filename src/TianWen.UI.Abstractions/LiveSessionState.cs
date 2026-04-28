@@ -231,6 +231,18 @@ namespace TianWen.UI.Abstractions
         public bool PolarAlignUseGuider { get; set; }
 
         /// <summary>
+        /// Working copy of the polar-alignment configuration the user is editing
+        /// in the setup panel (visible when <see cref="LiveSessionMode.PolarAlign"/>
+        /// is active and <see cref="PolarPhase"/> is <c>Idle</c>). The Start
+        /// button posts a snapshot of this through
+        /// <c>StartPolarAlignmentSignal.Configuration</c>; the signal handler
+        /// uses that value verbatim. Persists across mode switches within a
+        /// session, so a user iterating on settings doesn't have to re-enter
+        /// them on each Cancel + restart.
+        /// </summary>
+        public PolarAlignmentConfiguration PolarSetupConfig { get; set; } = PolarAlignmentConfiguration.Default;
+
+        /// <summary>
         /// OTA index currently targeted by keyboard shortcuts and mouse clicks in
         /// preview mode. The GPU tab doesn't need this (each row registers its own
         /// clickable regions), but TUI keyboard shortcuts (Enter = capture, [/] = step

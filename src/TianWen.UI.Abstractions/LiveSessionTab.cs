@@ -569,27 +569,45 @@ namespace TianWen.UI.Abstractions
                             {
                                 if (idx == 0 && inPolar)
                                 {
-                                    PostSignal(new CancelPolarAlignmentSignal());
+                                    if (state.PolarAlignmentCts is null && state.PolarPhase == PolarAlignmentPhase.Idle)
+                                    {
+                                        // Setup phase: no routine running, just flip back
+                                        // to Preview without going through the cancel
+                                        // signal (which would try to abort a non-existent
+                                        // CTS and leave the user in an awkward "cancelling
+                                        // forever" state).
+                                        state.Mode = LiveSessionMode.Preview;
+                                        state.PolarStatusMessage = "";
+                                        state.NeedsRedraw = true;
+                                    }
+                                    else
+                                    {
+                                        PostSignal(new CancelPolarAlignmentSignal());
+                                    }
                                 }
                                 else if (idx == 1 && !inPolar)
                                 {
                                     var (polarEnabled, polarReason) = EvaluatePolarPreconditions(state);
                                     if (polarEnabled)
                                     {
-                                        var miniIdx = MiniViewer?.State.SelectedCameraIndex ?? -1;
-                                        var otaIdx = miniIdx >= 0 ? miniIdx : 0;
-                                        // Auto-enable the WCS grid in polar mode -- once the first
-                                        // probe frame plate-solves, the grid will appear and the
-                                        // user can see meridians converging on the celestial pole
-                                        // alongside the configured-axis ring (no extra click needed).
+                                        // Switch into PolarAlign mode but DON'T fire
+                                        // StartPolarAlignmentSignal yet -- the setup panel
+                                        // (rendered in PolarPhase.Idle) lets the user review
+                                        // / edit the configuration before committing. The
+                                        // panel's Start button posts the signal with
+                                        // state.PolarSetupConfig as the captured config.
                                         if (MiniViewer?.State is { } ms)
                                         {
+                                            // Auto-enable the WCS grid -- once the first probe
+                                            // frame plate-solves, the grid will appear and the
+                                            // user sees meridians converging on the celestial
+                                            // pole alongside the configured-axis ring.
                                             ms.ShowGrid = true;
                                         }
-                                        PostSignal(new StartPolarAlignmentSignal(
-                                            OtaIndex: otaIdx,
-                                            DeltaRaDeg: 45.0,
-                                            UseGuider: state.PolarAlignUseGuider));
+                                        state.Mode = LiveSessionMode.PolarAlign;
+                                        state.PolarPhase = PolarAlignmentPhase.Idle;
+                                        state.PolarStatusMessage = "Configure and click Start";
+                                        state.NeedsRedraw = true;
                                     }
                                     else
                                     {
@@ -2014,6 +2032,16 @@ namespace TianWen.UI.Abstractions
                     }
                 });
 
+            // Setup phase: routine not yet started -> render the configuration
+            // form + Start button instead of the running-phase status / gauges.
+            // The Start button posts StartPolarAlignmentSignal with a snapshot
+            // of state.PolarSetupConfig as the captured Configuration.
+            if (state.PolarPhase == PolarAlignmentPhase.Idle && state.PolarAlignmentCts is null)
+            {
+                RenderPolarSetupRows(state, rect, x0, sourceY + rowH + pad, w, rowH, fontPath, fontSize, pad);
+                return;
+            }
+
             // Phase pill
             var phaseY = sourceY + rowH + pad;
             var (phaseLabel, phaseColor) = state.PolarPhase switch
@@ -2109,6 +2137,224 @@ namespace TianWen.UI.Abstractions
                 canDone ? BrightText : DimText,
                 "PolarDone",
                 _ => { if (canDone) PostSignal(new DonePolarAlignmentSignal()); });
+        }
+
+        /// <summary>
+        /// Setup-phase rendering: numeric +/- rows for the headline polar-align
+        /// tunables, an "On done" cycle button, a "Save frames" toggle, and a
+        /// prominent Start button. Posts <c>StartPolarAlignmentSignal</c> with
+        /// the captured <c>state.PolarSetupConfig</c> when the user clicks Start.
+        /// </summary>
+        private void RenderPolarSetupRows(
+            LiveSessionState state, RectF32 rect,
+            float x0, float y, float w, float rowH, string fontPath, float fontSize, float pad)
+        {
+            var labelW = w * 0.42f;
+            var btnW = (w - labelW) / 4f;
+            var valW = (w - labelW) / 2f;
+            var smallFs = fontSize * 0.78f;
+
+            // ---- Rotation (DeltaRaDeg) ---------------------------------------
+            y = RenderConfigRow(
+                "Rotation", $"{state.PolarSetupConfig.RotationDeg:F0}\u00B0",
+                x0, y, labelW, btnW, valW, rowH, fontPath, smallFs, pad,
+                "PolarSetupRotMinus",
+                () =>
+                {
+                    var v = state.PolarSetupConfig.RotationDeg - 15.0;
+                    state.PolarSetupConfig = state.PolarSetupConfig with { RotationDeg = Math.Max(15.0, v) };
+                    state.NeedsRedraw = true;
+                },
+                "PolarSetupRotPlus",
+                () =>
+                {
+                    var v = state.PolarSetupConfig.RotationDeg + 15.0;
+                    state.PolarSetupConfig = state.PolarSetupConfig with { RotationDeg = Math.Min(180.0, v) };
+                    state.NeedsRedraw = true;
+                });
+
+            // ---- Settle (SettleSeconds) --------------------------------------
+            y = RenderConfigRow(
+                "Settle", $"{state.PolarSetupConfig.SettleSeconds:F0}s",
+                x0, y, labelW, btnW, valW, rowH, fontPath, smallFs, pad,
+                "PolarSetupSettleMinus",
+                () =>
+                {
+                    var v = state.PolarSetupConfig.SettleSeconds - 1.0;
+                    state.PolarSetupConfig = state.PolarSetupConfig with { SettleSeconds = Math.Max(0.0, v) };
+                    state.NeedsRedraw = true;
+                },
+                "PolarSetupSettlePlus",
+                () =>
+                {
+                    var v = state.PolarSetupConfig.SettleSeconds + 1.0;
+                    state.PolarSetupConfig = state.PolarSetupConfig with { SettleSeconds = Math.Min(30.0, v) };
+                    state.NeedsRedraw = true;
+                });
+
+            // ---- Target accuracy (TargetAccuracyArcmin) ----------------------
+            y = RenderConfigRow(
+                "Target acc", $"{state.PolarSetupConfig.TargetAccuracyArcmin:F1}\u2032",
+                x0, y, labelW, btnW, valW, rowH, fontPath, smallFs, pad,
+                "PolarSetupAccMinus",
+                () =>
+                {
+                    var v = state.PolarSetupConfig.TargetAccuracyArcmin - 0.5;
+                    state.PolarSetupConfig = state.PolarSetupConfig with { TargetAccuracyArcmin = Math.Max(0.5, v) };
+                    state.NeedsRedraw = true;
+                },
+                "PolarSetupAccPlus",
+                () =>
+                {
+                    var v = state.PolarSetupConfig.TargetAccuracyArcmin + 0.5;
+                    state.PolarSetupConfig = state.PolarSetupConfig with { TargetAccuracyArcmin = Math.Min(10.0, v) };
+                    state.NeedsRedraw = true;
+                });
+
+            // ---- Min stars for solve -----------------------------------------
+            y = RenderConfigRow(
+                "Min stars", $"{state.PolarSetupConfig.MinStarsForSolve}",
+                x0, y, labelW, btnW, valW, rowH, fontPath, smallFs, pad,
+                "PolarSetupMinStarsMinus",
+                () =>
+                {
+                    var v = state.PolarSetupConfig.MinStarsForSolve - 5;
+                    state.PolarSetupConfig = state.PolarSetupConfig with { MinStarsForSolve = Math.Max(5, v) };
+                    state.NeedsRedraw = true;
+                },
+                "PolarSetupMinStarsPlus",
+                () =>
+                {
+                    var v = state.PolarSetupConfig.MinStarsForSolve + 5;
+                    state.PolarSetupConfig = state.PolarSetupConfig with { MinStarsForSolve = Math.Min(100, v) };
+                    state.NeedsRedraw = true;
+                });
+
+            // ---- Re-seed interval (RefineFullSolveInterval) ------------------
+            // 0 reads as "off" -- the orchestrator skips the periodic full-solve
+            // re-seed and relies entirely on the residual-spike fallback.
+            var reseedText = state.PolarSetupConfig.RefineFullSolveInterval <= 0
+                ? "off"
+                : $"{state.PolarSetupConfig.RefineFullSolveInterval}";
+            y = RenderConfigRow(
+                "Re-seed every", reseedText,
+                x0, y, labelW, btnW, valW, rowH, fontPath, smallFs, pad,
+                "PolarSetupReseedMinus",
+                () =>
+                {
+                    var v = state.PolarSetupConfig.RefineFullSolveInterval - 10;
+                    state.PolarSetupConfig = state.PolarSetupConfig with { RefineFullSolveInterval = Math.Max(0, v) };
+                    state.NeedsRedraw = true;
+                },
+                "PolarSetupReseedPlus",
+                () =>
+                {
+                    var v = state.PolarSetupConfig.RefineFullSolveInterval + 10;
+                    state.PolarSetupConfig = state.PolarSetupConfig with { RefineFullSolveInterval = Math.Min(200, v) };
+                    state.NeedsRedraw = true;
+                });
+
+            y += pad;
+
+            // ---- On-done cycle (ReverseAxisBack / Park / LeaveInPlace) -------
+            var onDoneLabel = state.PolarSetupConfig.OnDone switch
+            {
+                PolarAlignmentOnDone.ReverseAxisBack => "Reverse",
+                PolarAlignmentOnDone.Park => "Park",
+                PolarAlignmentOnDone.LeaveInPlace => "Leave",
+                _ => "?"
+            };
+            DrawText("On done", fontPath, x0, y, labelW, rowH, smallFs, DimText, TextAlign.Near, TextAlign.Center);
+            RenderButton(onDoneLabel, x0 + labelW, y + 2, w - labelW, rowH - 4,
+                fontPath, smallFs,
+                new RGBAColor32(0x44, 0x66, 0x99, 0xff), BodyText,
+                "PolarSetupOnDone",
+                _ =>
+                {
+                    var next = state.PolarSetupConfig.OnDone switch
+                    {
+                        PolarAlignmentOnDone.ReverseAxisBack => PolarAlignmentOnDone.Park,
+                        PolarAlignmentOnDone.Park => PolarAlignmentOnDone.LeaveInPlace,
+                        _ => PolarAlignmentOnDone.ReverseAxisBack,
+                    };
+                    state.PolarSetupConfig = state.PolarSetupConfig with { OnDone = next };
+                    state.NeedsRedraw = true;
+                });
+            y += rowH;
+
+            // ---- Save frames toggle ------------------------------------------
+            var saveLabel = state.PolarSetupConfig.SaveFrames ? "On" : "Off";
+            var saveBg = state.PolarSetupConfig.SaveFrames
+                ? new RGBAColor32(0x44, 0x66, 0x99, 0xff)
+                : new RGBAColor32(0x2a, 0x2a, 0x35, 0xff);
+            DrawText("Save frames", fontPath, x0, y, labelW, rowH, smallFs, DimText, TextAlign.Near, TextAlign.Center);
+            RenderButton(saveLabel, x0 + labelW, y + 2, w - labelW, rowH - 4,
+                fontPath, smallFs, saveBg, BodyText,
+                "PolarSetupSaveFrames",
+                _ =>
+                {
+                    state.PolarSetupConfig = state.PolarSetupConfig with { SaveFrames = !state.PolarSetupConfig.SaveFrames };
+                    state.NeedsRedraw = true;
+                });
+
+            // ---- Start button (anchored at panel bottom, full width) ---------
+            // Cancel-back-to-Preview lives above Start so the Start button sits
+            // in the muscle-memory location for "primary action" (bottom).
+            var buttonY = rect.Y + rect.Height - rowH * 3 - pad * 3;
+            RenderButton("Cancel", x0, buttonY, w, rowH * 1.2f,
+                fontPath, fontSize * 0.85f,
+                new RGBAColor32(0x33, 0x33, 0x3a, 0xff), DimText,
+                "PolarSetupBack",
+                _ =>
+                {
+                    state.Mode = LiveSessionMode.Preview;
+                    state.PolarStatusMessage = "";
+                    state.NeedsRedraw = true;
+                });
+            buttonY += rowH * 1.2f + pad;
+
+            // Authoritative pre-flight check mirrors EvaluatePolarPreconditions;
+            // disabled-grey button gives the user a hint without burying them
+            // in the side panel's status line.
+            var (canStart, _) = EvaluatePolarPreconditions(state);
+            var startBg = canStart ? new RGBAColor32(0x44, 0xaa, 0x66, 0xff) : new RGBAColor32(0x33, 0x33, 0x3a, 0xff);
+            var startFg = canStart ? BrightText : DimText;
+            RenderButton("Start", x0, buttonY, w, rowH * 1.6f,
+                fontPath, fontSize,
+                startBg, startFg,
+                "PolarSetupStart",
+                _ =>
+                {
+                    if (!canStart) return;
+                    var miniIdx = MiniViewer?.State.SelectedCameraIndex ?? -1;
+                    var otaIdx = miniIdx >= 0 ? miniIdx : 0;
+                    PostSignal(new StartPolarAlignmentSignal(
+                        OtaIndex: otaIdx,
+                        DeltaRaDeg: state.PolarSetupConfig.RotationDeg,
+                        UseGuider: state.PolarAlignUseGuider,
+                        Configuration: state.PolarSetupConfig));
+                });
+        }
+
+        /// <summary>
+        /// One row of the polar-align setup form: dim label + [-] + value display +
+        /// [+]. Returns the y-cursor advanced past the row.
+        /// </summary>
+        private float RenderConfigRow(
+            string label, string valueText,
+            float x0, float y, float labelW, float btnW, float valW, float rowH,
+            string fontPath, float fontSize, float pad,
+            string minusAction, Action onMinus,
+            string plusAction, Action onPlus)
+        {
+            DrawText(label, fontPath, x0, y, labelW, rowH, fontSize, DimText, TextAlign.Near, TextAlign.Center);
+            var btnBg = new RGBAColor32(0x2a, 0x2a, 0x35, 0xff);
+            RenderButton("-", x0 + labelW, y + 2, btnW - 2, rowH - 4,
+                fontPath, fontSize, btnBg, BodyText, minusAction, _ => onMinus());
+            DrawText(valueText, fontPath, x0 + labelW + btnW, y, valW, rowH, fontSize, BrightText, TextAlign.Center, TextAlign.Center);
+            RenderButton("+", x0 + labelW + btnW + valW, y + 2, btnW - 2, rowH - 4,
+                fontPath, fontSize, btnBg, BodyText, plusAction, _ => onPlus());
+            return y + rowH;
         }
 
         private float RenderPolarErrorGauges(

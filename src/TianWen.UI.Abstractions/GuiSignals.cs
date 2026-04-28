@@ -1,4 +1,5 @@
 using TianWen.Lib.Devices;
+using TianWen.Lib.Sequencing.PolarAlignment;
 
 namespace TianWen.UI.Abstractions;
 
@@ -88,10 +89,17 @@ public readonly record struct StartSessionSignal;
 /// to be enabled in its profile — failure to find a saved frame surfaces as a
 /// failure reason on Phase A. Selected by the user via a separate UI toggle so
 /// the choice is explicit; the auto-ranker remains a future enhancement.</param>
+/// <param name="Configuration">Optional full configuration captured from the
+/// setup panel. When null, the signal handler falls back to
+/// <see cref="PolarAlignmentConfiguration.Default"/> with <paramref name="DeltaRaDeg"/>
+/// applied as <c>RotationDeg</c> -- preserves the legacy "fire from toolbar
+/// with rotation only" behaviour while letting the live-view setup panel
+/// surface every tunable.</param>
 public readonly record struct StartPolarAlignmentSignal(
     int OtaIndex = -1,
     double DeltaRaDeg = 45.0,
-    bool UseGuider = false);
+    bool UseGuider = false,
+    PolarAlignmentConfiguration? Configuration = null);
 
 /// <summary>
 /// Cancel an in-flight polar-alignment routine. The orchestrator's reverse-axis
