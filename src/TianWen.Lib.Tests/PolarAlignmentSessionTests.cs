@@ -298,6 +298,9 @@ namespace TianWen.Lib.Tests
             /// <summary>Number of times frame-2 capture should fail before succeeding.</summary>
             public int Frame2InitialFailures { get; set; }
 
+            public ValueTask<CaptureResult> CaptureAsync(TimeSpan exposure, CancellationToken ct = default)
+                => throw new NotSupportedException("SyntheticAxisCaptureSource exercises CaptureAndSolveAsync only");
+
             public ValueTask<CaptureAndSolveResult> CaptureAndSolveAsync(TimeSpan exposure, IPlateSolver solver, CancellationToken ct = default)
             {
                 CaptureCount++;
@@ -338,6 +341,12 @@ namespace TianWen.Lib.Tests
             public double FocalLengthMm => 200;
             public double ApertureMm => 50;
             public double PixelSizeMicrons => 3.0;
+
+            public ValueTask<CaptureResult> CaptureAsync(TimeSpan exposure, CancellationToken ct = default) =>
+                ValueTask.FromResult(new CaptureResult(
+                    Success: false, Image: null, OwnershipTransferredToUi: false,
+                    SearchOrigin: null, ExposureUsed: exposure, FitsPath: null,
+                    FailureReason: reason));
 
             public ValueTask<CaptureAndSolveResult> CaptureAndSolveAsync(TimeSpan exposure, IPlateSolver solver, CancellationToken ct = default) =>
                 ValueTask.FromResult(new CaptureAndSolveResult(

@@ -287,6 +287,9 @@ namespace TianWen.Lib.Tests
             public double ApertureMm => 50;
             public double PixelSizeMicrons => 3.0;
 
+            public ValueTask<CaptureResult> CaptureAsync(TimeSpan exposure, CancellationToken ct = default)
+                => throw new NotSupportedException("ScriptedCaptureSource exercises CaptureAndSolveAsync only");
+
             public ValueTask<CaptureAndSolveResult> CaptureAndSolveAsync(TimeSpan exposure, IPlateSolver solver, CancellationToken ct = default)
             {
                 ct.ThrowIfCancellationRequested();
@@ -308,6 +311,9 @@ namespace TianWen.Lib.Tests
             public double FocalLengthMm { get; } = focalLengthMm;
             public double ApertureMm { get; } = apertureMm;
             public double PixelSizeMicrons { get; } = pixelSizeMicrons;
+
+            public ValueTask<CaptureResult> CaptureAsync(TimeSpan exposure, CancellationToken ct = default)
+                => throw new NotSupportedException();
 
             public ValueTask<CaptureAndSolveResult> CaptureAndSolveAsync(TimeSpan exposure, IPlateSolver solver, CancellationToken ct = default)
                 => throw new NotSupportedException();
