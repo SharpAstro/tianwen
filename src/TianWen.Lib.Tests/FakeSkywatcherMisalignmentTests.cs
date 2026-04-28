@@ -6,6 +6,7 @@ using TianWen.Lib.Astrometry;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Devices.Fake;
 using Xunit;
+using Xunit.v3;
 using static TianWen.Lib.Astrometry.Constants;
 
 namespace TianWen.Lib.Tests
@@ -156,6 +157,85 @@ namespace TianWen.Lib.Tests
             // routine itself can resolve from real plate solves (~30arcsec).
             azBackArcmin.ShouldBe(azErrArcmin, tolerance: 1.0);
             altBackArcmin.ShouldBe(altErrArcmin, tolerance: 1.0);
+        }
+
+        /// <summary>
+        /// Characterises the "GUI Az error grows as the user dials sim toward
+        /// 0" bug observed in the live polar-refining flow. Phase A captures
+        /// v1 at encoder=K with sim X_init; user turns polar knobs (sim drops
+        /// toward 0) without moving the encoder; live refines feed v_now into
+        /// <see cref="PolarAxisSolver.TryRecoverAxis"/> against the stale v1.
+        /// Result: the recovered axis is a fictitious "rotation axis between
+        /// stale v1 and current v_now" that diverges from the real mount
+        /// axis as the misalignment shrinks.
+        ///
+        /// At encoder=0 the bug is hidden because <see cref="FakeSkywatcherMountDriver.ApplyPolarMisalignment"/>
+        /// returns the celestial pole regardless of axis, so v1 doesn't
+        /// depend on the Phase A sim. Pin encoder1 = pi/4 (HA=3h, matching
+        /// the user's screenshot) to make v1 sim-dependent and surface the
+        /// staleness.
+        ///
+        /// Fix path: periodic mini-Phase-A inside RefineAsync to refresh v1.
+        /// Until that lands the test asserts only the first iteration (where
+        /// v1 was captured fresh at the same sim as v_now) and prints the
+        /// rest as characterisation output.
+        /// </summary>
+        [Fact]
+        public void GivenSimMisalignmentDecreasesDuringRefiningWhenRecoverAxisThenErrorTracksCurrentSim()
+        {
+            var hemisphere = Hemisphere.South;
+            var deltaRad = Math.PI / 3; // 60deg Phase A rotation
+            var timeProvider = TimeProviderAt(TestUtc);
+
+            // _v1 is captured at the user's parked encoder position -- HA=3h was
+            // the value in the GUI screenshot, so use that (45deg = pi/4 rad).
+            // At non-zero encoder, ApplyPolarMisalignment depends on the axis,
+            // so v1's J2000 direction is set by the sim that was active during
+            // Phase A. Using encoder=0 hides this dependency and the bug.
+            const double encoder1Rad = Math.PI / 4; // HA=3h equivalent
+            var axisInitial = FakeSkywatcherMountDriver.TopocentricMisalignmentToJ2000Axis(
+                SiteLatDeg, SiteLonDeg, SiteElevM, TestUtc,
+                azErrArcmin: 60.0, altErrArcmin: 0.0, hemisphere, timeProvider);
+            var (ra1, dec1) = FakeSkywatcherMountDriver.ApplyPolarMisalignment(axisInitial, hemisphere, encoder1Rad);
+            var v1 = PolarAxisSolver.RaDecToUnitVec(ra1, dec1);
+
+            // Refine iterations: sim is brought from 60' down to 0', encoder stays
+            // at encoder1+delta the whole time (no further RA-axis rotation during
+            // refining; only polar knobs move, which change the axis but not encoder).
+            const double encoder2Rad = encoder1Rad + Math.PI / 3;
+            ReadOnlySpan<double> simSequence = [60.0, 45.0, 30.0, 15.0, 0.0];
+
+            foreach (var simAzArcmin in simSequence)
+            {
+                var axisCurrent = FakeSkywatcherMountDriver.TopocentricMisalignmentToJ2000Axis(
+                    SiteLatDeg, SiteLonDeg, SiteElevM, TestUtc,
+                    azErrArcmin: simAzArcmin, altErrArcmin: 0.0, hemisphere, timeProvider);
+                var (ra2, dec2) = FakeSkywatcherMountDriver.ApplyPolarMisalignment(axisCurrent, hemisphere, encoder2Rad);
+                var vNow = PolarAxisSolver.RaDecToUnitVec(ra2, dec2);
+
+                var ok = PolarAxisSolver.TryRecoverAxis(v1, vNow, deltaRad, out var axisRecovered, out _);
+                ok.ShouldBeTrue($"sim={simAzArcmin}': TryRecoverAxis returned false (degenerate v1==v_now).");
+
+                var (azErrRad, altErrRad) = PolarAxisSolver.DecomposeAxisError(
+                    axisRecovered, hemisphere,
+                    SiteLatDeg, SiteLonDeg, SiteElevM,
+                    sitePressureHPa: 1010.0, siteTempC: 10.0, utc: TestUtc);
+
+                var azErrArcmin = azErrRad * RADIANS2DEGREES * 60.0;
+                var altErrArcmin = altErrRad * RADIANS2DEGREES * 60.0;
+                TestContext.Current.TestOutputHelper?.WriteLine(
+                    $"sim Az={simAzArcmin,5:F1}'  ->  recovered Az={azErrArcmin,7:F2}'  Alt={altErrArcmin,7:F2}'");
+
+                // First iteration: v1 captured at the same sim as v_now -> recovery
+                // is exact. Subsequent iterations have stale v1 and recovery diverges;
+                // those are characterised by the WriteLine above, not asserted, until
+                // the periodic-mini-Phase-A fix lands.
+                if (simAzArcmin == simSequence[0])
+                {
+                    azErrArcmin.ShouldBe(simAzArcmin, tolerance: 1.0);
+                    altErrArcmin.ShouldBe(0.0, tolerance: 1.0);
+                }
+            }
         }
     }
 }
