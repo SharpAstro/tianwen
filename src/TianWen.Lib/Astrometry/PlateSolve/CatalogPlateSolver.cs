@@ -246,13 +246,31 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger<CatalogP
                 return MakeResult(null);
             }
 
-            // Match tolerance shrinks with each iteration.
-            // Scale by average inter-star spacing to avoid false matches in dense fields.
+            // Match tolerance shrinks geometrically with each iteration so the
+            // final WCS converges to sub-pixel precision instead of plateauing
+            // at ~3% of diagonal (~345 px on IMX455 / ~520 arcsec at 1.5"/px),
+            // which left the polar-refining plate solve picking up spurious
+            // anchor matches and produced visible jitter on the displayed
+            // (Az, Alt) error. Schedule:
+            //   iter 0: 10% diag (blind, mount pointing may be 45deg off)
+            //   iter 1: 3%  diag (post first WCS estimate, large slack ok)
+            //   iter 2: 1%  diag
+            //   iter 3: 0.3% diag
+            //   iter 4+: 0.1% diag (sub-pixel; only true matches survive)
+            // Scale by average inter-star spacing to keep dense fields (>500
+            // stars) from overlapping multiple catalog candidates per detection.
             var diagonal = Math.Sqrt(dim.Width * dim.Width + dim.Height * dim.Height);
             var avgSpacing = Math.Sqrt((double)dim.Width * dim.Height / Math.Max(projected.Count, 1));
-            var matchTolerance = (float)Math.Min(
-                diagonal * (iteration == 0 ? 0.1 : 0.03),
-                avgSpacing * (iteration == 0 ? 3.0 : 2.0));
+            var diagFraction = iteration switch
+            {
+                0 => 0.10,
+                1 => 0.03,
+                2 => 0.01,
+                3 => 0.003,
+                _ => 0.001,
+            };
+            var spacingFraction = iteration == 0 ? 3.0 : iteration == 1 ? 2.0 : iteration == 2 ? 1.0 : 0.5;
+            var matchTolerance = (float)Math.Min(diagonal * diagFraction, avgSpacing * spacingFraction);
 
             // Rank detected stars by flux (brightest first) for brightness-aware matching.
             var rankedDetected = new List<ImagedStar>(detectedStars);
