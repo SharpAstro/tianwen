@@ -183,6 +183,7 @@ bus.Post(new DiscoverDevicesSignal(IncludeFake: includeFakeOnStartup));
 
 // --- Main event loop via SdlEventLoop ---
 var _lastSessionRedrawTimestamp = timeProvider.GetTimestamp();
+long _lastSlowFrameLogTimestamp = 0;
 
 var loop = new SdlEventLoop(sdlWindow, renderer)
 {
@@ -299,7 +300,27 @@ var loop = new SdlEventLoop(sdlWindow, renderer)
             || appState.ActiveTextInput is { IsActive: true };
     },
 
-    OnRender = () => guiRenderer.Render(appState, plannerState, viewerState, timeProvider),
+    OnRender = () =>
+    {
+        var renderStart = System.Diagnostics.Stopwatch.GetTimestamp();
+        guiRenderer.Render(appState, plannerState, viewerState, timeProvider);
+        var renderElapsed = System.Diagnostics.Stopwatch.GetElapsedTime(renderStart);
+
+        // Only log frames that take meaningfully long, and rate-limit to once per
+        // ~250ms so we don't drown SEQ during sustained slowness. The threshold is
+        // 20ms (~50fps target); below that the user can't perceive the cost.
+        if (renderElapsed.TotalMilliseconds > 20.0)
+        {
+            var nowTicks = timeProvider.GetTimestamp();
+            if (timeProvider.GetElapsedTime(_lastSlowFrameLogTimestamp, nowTicks).TotalMilliseconds > 250.0)
+            {
+                _lastSlowFrameLogTimestamp = nowTicks;
+                logger.LogInformation(
+                    "Slow frame: render={RenderMs:F1}ms tab={ActiveTab}",
+                    renderElapsed.TotalMilliseconds, appState.ActiveTab);
+            }
+        }
+    },
 
 };
 
