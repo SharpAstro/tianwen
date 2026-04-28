@@ -1,7 +1,9 @@
 using System;
 using System.Collections.Immutable;
+using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
 using TianWen.Lib.Astrometry.PlateSolve;
 
 namespace TianWen.Lib.Sequencing.PolarAlignment
@@ -66,7 +68,8 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
             ImmutableArray<TimeSpan> ramp,
             int minStarsMatched,
             CancellationToken ct,
-            IProgress<ProbeProgress>? progress = null)
+            IProgress<ProbeProgress>? progress = null,
+            ILogger? logger = null)
         {
             CaptureAndSolveResult last = default;
             for (var i = 0; i < ramp.Length; i++)
@@ -90,6 +93,8 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
                 }
                 using var rungCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
                 rungCts.CancelAfter(rungBudget);
+
+                var rungStart = Stopwatch.GetTimestamp();
                 try
                 {
                     last = await source.CaptureAndSolveAsync(exposure, solver, ct: rungCts.Token);
@@ -100,6 +105,12 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
                     last = new CaptureAndSolveResult(false, null, default, 0, exposure, null,
                         FailureReason: $"Rung {exposure.TotalMilliseconds:F0}ms timed out after {rungBudget.TotalSeconds:F0}s");
                 }
+                var rungElapsed = Stopwatch.GetElapsedTime(rungStart);
+
+                logger?.LogInformation(
+                    "PolarAlignment probe rung {RungIndex}/{RungCount} exposure={ExposureMs:F0}ms elapsed={ElapsedMs:F0}ms success={Success} stars={StarsMatched}",
+                    i + 1, ramp.Length, exposure.TotalMilliseconds, rungElapsed.TotalMilliseconds,
+                    last.Success, last.StarsMatched);
 
                 if (last.Success && last.StarsMatched >= minStarsMatched)
                 {

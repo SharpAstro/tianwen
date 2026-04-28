@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
@@ -91,7 +92,7 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
             IProgress<PolarPhaseUpdate>? phaseProgress = null)
         {
             // --- Frame 1 with adaptive exposure ramp ---
-            var probe = await AdaptiveExposureRamp.ProbeAsync(_source, _solver, _config.ExposureRamp, _config.MinStarsForSolve, ct, rampProgress);
+            var probe = await AdaptiveExposureRamp.ProbeAsync(_source, _solver, _config.ExposureRamp, _config.MinStarsForSolve, ct, rampProgress, _logger);
             if (!probe.Success)
             {
                 // Source-supplied reason (e.g. "PHD2 Save Images disabled") wins over the
@@ -252,10 +253,22 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
 
             while (!ct.IsCancellationRequested)
             {
+                // Per-iteration stage timings -- logged at end of iteration so we can see
+                // whether sluggishness is in capture (exposure wall-time + render + transfer),
+                // fast incremental refine (~ms), full plate solve (catalog match / external
+                // process, can be hundreds of ms to seconds), or post-fallback re-seed.
+                var iterStart = Stopwatch.GetTimestamp();
+                TimeSpan captureElapsed = TimeSpan.Zero;
+                TimeSpan fastElapsed = TimeSpan.Zero;
+                TimeSpan fullElapsed = TimeSpan.Zero;
+                TimeSpan seedElapsed = TimeSpan.Zero;
+
                 CaptureResult capture;
                 try
                 {
+                    var captureStart = Stopwatch.GetTimestamp();
                     capture = await _source.CaptureAsync(lockedExposure, ct);
+                    captureElapsed = Stopwatch.GetElapsedTime(captureStart);
                 }
                 catch (OperationCanceledException)
                 {
@@ -265,10 +278,14 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
                 if (!capture.Success || capture.Image is not { } image)
                 {
                     consecutiveFailures++;
+                    _logger.LogInformation(
+                        "PolarAlignment refine iter: capture={CaptureMs:F0}ms total={TotalMs:F0}ms outcome=capture-failed",
+                        captureElapsed.TotalMilliseconds, Stopwatch.GetElapsedTime(iterStart).TotalMilliseconds);
                     continue;
                 }
 
                 LiveSolveResult? yieldResult = null;
+                string outcome = "no-solve";
                 try
                 {
                     WCS? refinedWcs = null;
@@ -284,7 +301,9 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
                     bool periodicReseed = fullSolveInterval > 0 && fastRefinesSinceFullSolve >= fullSolveInterval;
                     if (_config.UseIncrementalSolver && incremental.IsSeeded && !periodicReseed)
                     {
+                        var fastStart = Stopwatch.GetTimestamp();
                         var fast = incremental.Refine(image, ct);
+                        fastElapsed = Stopwatch.GetElapsedTime(fastStart);
                         if (fast is { Solution: { } w } fr && fr.MatchedStars >= _config.MinStarsForSolve)
                         {
                             refinedWcs = w;
@@ -301,9 +320,11 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
                     {
                         try
                         {
+                            var fullStart = Stopwatch.GetTimestamp();
                             var full = await _solver.SolveImageAsync(image,
                                 searchOrigin: capture.SearchOrigin,
                                 cancellationToken: ct);
+                            fullElapsed = Stopwatch.GetElapsedTime(fullStart);
                             if (full.Solution is { } fullWcs && full.MatchedStars >= _config.MinStarsForSolve)
                             {
                                 refinedWcs = fullWcs;
@@ -318,7 +339,9 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
                                 // use the result.
                                 if (_config.UseIncrementalSolver)
                                 {
+                                    var seedStart = Stopwatch.GetTimestamp();
                                     _ = await incremental.SeedAsync(image, fullWcs, ct);
+                                    seedElapsed = Stopwatch.GetElapsedTime(seedStart);
                                 }
                                 fastRefinesSinceFullSolve = 0;
                             }
@@ -342,8 +365,10 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
                     if (refinedWcs is not { } wcs)
                     {
                         consecutiveFailures++;
+                        outcome = "no-solve";
                         continue;
                     }
+                    outcome = fastPath ? "fast" : "full";
 
                     var wcsCenter = PolarAxisSolver.RaDecToUnitVec(wcs.CenterRA, wcs.CenterDec);
                     if (!PolarAxisSolver.TryRecoverAxis(_v1, wcsCenter, absDelta, out var axis, out _))
@@ -351,6 +376,7 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
                         // Live geometry briefly ill-conditioned (knob mid-turn through
                         // an axis-aligned position). Same handling as a solve failure.
                         consecutiveFailures++;
+                        outcome = "axis-recover-failed";
                         continue;
                     }
                     var (azErr, altErr) = PolarAxisSolver.DecomposeAxisError(
@@ -408,6 +434,18 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
                     {
                         image.Release();
                     }
+
+                    // Per-iteration timing log -- runs whether we yielded a result, hit
+                    // a continue path (no-solve / axis-recover-failed), or threw. Use
+                    // Information level so it shows up in SEQ without enabling Debug.
+                    _logger.LogInformation(
+                        "PolarAlignment refine iter: capture={CaptureMs:F0}ms fast={FastMs:F1}ms full={FullMs:F0}ms seed={SeedMs:F0}ms total={TotalMs:F0}ms outcome={Outcome}",
+                        captureElapsed.TotalMilliseconds,
+                        fastElapsed.TotalMilliseconds,
+                        fullElapsed.TotalMilliseconds,
+                        seedElapsed.TotalMilliseconds,
+                        Stopwatch.GetElapsedTime(iterStart).TotalMilliseconds,
+                        outcome);
                 }
 
                 if (yieldResult is { } r)
