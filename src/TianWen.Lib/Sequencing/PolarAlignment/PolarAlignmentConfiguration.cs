@@ -13,10 +13,16 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
     /// solve succeeds with at least <see cref="MinStarsForSolve"/> matched stars.
     /// Defaults to <see cref="AdaptiveExposureRamp.DefaultRamp"/>.</param>
     /// <param name="MinStarsForSolve">Minimum matched stars to accept a Phase B
-    /// (refining) plate solve as valid. Refining runs at higher cadence and the
-    /// per-frame chord arc is already known from Phase A, so we don't need a
-    /// strict floor here -- a few stars are enough to keep the live readout
-    /// alive.</param>
+    /// (refining) plate solve as valid, AND the relaxed-threshold gate the
+    /// adaptive exposure ramp uses to pick the live-refine exposure rung.
+    /// Refining runs at higher cadence and the per-frame chord arc is already
+    /// known from Phase A, so we don't need a strict floor here. Default 25:
+    /// going lower (e.g. 10) lets the ramp pick a sub-second rung but the
+    /// IncrementalSolver loses anchors fast at short exposures (Phase A's
+    /// seed frame has 60+ stars at 5 s; a 200 ms refine has 25-30 detected
+    /// but only ~5-10 catalog-matched, below the fallback solve threshold)
+    /// causing a "no-solve" cascade. 25 keeps the ramp at 500 ms-1 s
+    /// typically, where the fast path stays seeded reliably.</param>
     /// <param name="RotationMinStars">Minimum matched stars to accept a Phase A
     /// (rotation) plate solve. The Phase A axis recovery runs end-to-end
     /// geometry on a single (v1, v2) pair, so each pose's plate-solve precision
