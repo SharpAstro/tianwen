@@ -54,6 +54,16 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
     /// useful as an A/B-test bypass when chasing math regressions, or as a
     /// safe fallback on a setup where the incremental anchor tracking is
     /// unreliable.</param>
+    /// <param name="ReferenceFrameAverages">Number of plate solves to average
+    /// at each Phase A reference pose (v1 before rotation, v2 after rotation
+    /// + settle). Each capture's WCS centre is summed as a J2000 unit vector
+    /// and renormalised; per-frame plate-solve noise of sigma_raw shrinks to
+    /// sigma_raw / sqrt(N). The Phase A axis recovery and the
+    /// <see cref="PolarAxisSolver.LiveAxisRefiner"/> v2 baseline both feed
+    /// off these references, so a clean reference is the floor of how tight
+    /// the live-refining readout can ever be. Default 5: at typical 100-500ms
+    /// exposures this adds ~0.5-2.5s per pose to Phase A and reduces
+    /// reference noise by ~2.2x. Set 1 to disable (single solve per pose).</param>
     public readonly record struct PolarAlignmentConfiguration(
         ImmutableArray<TimeSpan> ExposureRamp,
         int MinStarsForSolve = 15,
@@ -63,10 +73,11 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
         PolarAlignmentOnDone OnDone = PolarAlignmentOnDone.ReverseAxisBack,
         bool SaveFrames = false,
         int MaxFrame2Retries = 3,
-        int SmoothingWindow = 5,
+        int SmoothingWindow = 15,
         double SettleSigmaArcmin = 0.5,
         int RefineFullSolveInterval = 30,
-        bool UseIncrementalSolver = true)
+        bool UseIncrementalSolver = true,
+        int ReferenceFrameAverages = 5)
     {
         /// <summary>
         /// Default configuration: <see cref="AdaptiveExposureRamp.DefaultRamp"/>
