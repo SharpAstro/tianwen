@@ -1197,23 +1197,29 @@ namespace TianWen.UI.Abstractions
                         placement.EndScreenX, placement.EndScreenY,
                         arrow.Color, arrow.ThicknessPx);
 
-                    // Two-segment arrowhead: angle off the shaft direction at
-                    // the head endpoint. 30deg legs match SharpCap's look.
-                    var headLen = arrow.HeadSizePx;
-                    var ux = dx / len;
-                    var uy = dy / len;
-                    const float headAngle = 0.5236f; // 30 degrees in radians
-                    var ca = MathF.Cos(headAngle);
-                    var sa = MathF.Sin(headAngle);
-                    // Two unit vectors rotated +/-headAngle from the *reverse*
-                    // shaft direction; scale by head length to produce the
-                    // two head-leg endpoints.
-                    var leg1X = placement.EndScreenX - headLen * (ca * ux - sa * uy);
-                    var leg1Y = placement.EndScreenY - headLen * (sa * ux + ca * uy);
-                    var leg2X = placement.EndScreenX - headLen * (ca * ux + sa * uy);
-                    var leg2Y = placement.EndScreenY - headLen * (-sa * ux + ca * uy);
-                    DrawLineOverlay(placement.EndScreenX, placement.EndScreenY, leg1X, leg1Y, arrow.Color, arrow.ThicknessPx);
-                    DrawLineOverlay(placement.EndScreenX, placement.EndScreenY, leg2X, leg2Y, arrow.Color, arrow.ThicknessPx);
+                    // HeadSizePx <= 0 -> bare line segment, no arrowhead.
+                    // Used by the polar-align cross meridians (4 radial line
+                    // segments from refracted pole to outer ring).
+                    if (arrow.HeadSizePx > 0f)
+                    {
+                        // Two-segment arrowhead: angle off the shaft direction at
+                        // the head endpoint. 30deg legs match SharpCap's look.
+                        var headLen = arrow.HeadSizePx;
+                        var ux = dx / len;
+                        var uy = dy / len;
+                        const float headAngle = 0.5236f; // 30 degrees in radians
+                        var ca = MathF.Cos(headAngle);
+                        var sa = MathF.Sin(headAngle);
+                        // Two unit vectors rotated +/-headAngle from the *reverse*
+                        // shaft direction; scale by head length to produce the
+                        // two head-leg endpoints.
+                        var leg1X = placement.EndScreenX - headLen * (ca * ux - sa * uy);
+                        var leg1Y = placement.EndScreenY - headLen * (sa * ux + ca * uy);
+                        var leg2X = placement.EndScreenX - headLen * (ca * ux + sa * uy);
+                        var leg2Y = placement.EndScreenY - headLen * (-sa * ux + ca * uy);
+                        DrawLineOverlay(placement.EndScreenX, placement.EndScreenY, leg1X, leg1Y, arrow.Color, arrow.ThicknessPx);
+                        DrawLineOverlay(placement.EndScreenX, placement.EndScreenY, leg2X, leg2Y, arrow.Color, arrow.ThicknessPx);
+                    }
 
                     if (!string.IsNullOrEmpty(arrow.Label))
                     {

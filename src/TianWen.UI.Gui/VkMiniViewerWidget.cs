@@ -173,6 +173,13 @@ public sealed unsafe class VkMiniViewerWidget : IMiniViewerWidget, IDisposable
         // WCS grid uniforms -- mirrors VkImageRenderer.RenderImageQuad's grid path.
         // Picks a tick spacing that keeps ~3-8 lines on screen and converts the
         // CD matrix into the radian-scaled form the shader expects.
+        // NB: PolarAlignSparseGrid was originally going to override the
+        // shader's RA spacing here so polar mode showed only a sparse grid,
+        // but the polar-overlay's own ring/cross primitives don't render
+        // until the live-solve WCS gets bound to viewer.Wcs in
+        // LiveSessionTab (which currently doesn't happen during refine).
+        // Until that wiring lands, keep the shader grid as the user's only
+        // visible reference and leave the flag dormant.
         bool gridEnabled = State.ShowGrid && Wcs is not null;
         float gridSpacingRA = 0f, gridSpacingDec = 0f, gridLineWidth = 0f;
         float crPix1 = 0f, crPix2 = 0f, crValRA = 0f, crValDec = 0f;

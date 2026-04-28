@@ -76,15 +76,41 @@ namespace TianWen.Lib.Tests
         }
 
         [Fact]
-        public void Build_DefaultsToFiveFifteenThirtyArcminRings_WhenOverlayHasNone()
+        public void Build_DefaultsToFourRingsAtSharpCapCadence_WhenOverlayHasNone()
         {
             var overlay = MakeOverlay(rings: default);
 
             var annotation = PolarAnnotationBuilder.Build(overlay);
 
+            // Mirrors SharpCap's 5'/15'/30'/45' ring set so the user gets the
+            // same coarse-to-fine readout cadence; the 45' outer ring also
+            // defines where the cross meridians terminate.
             var radii = annotation.Rings.Select(r => r.RadiusArcmin).ToArray();
-            radii.ShouldBe([5f, 15f, 30f]);
-            annotation.Rings.Select(r => r.Label).ShouldBe(["5'", "15'", "30'"]);
+            radii.ShouldBe([5f, 15f, 30f, 45f]);
+            annotation.Rings.Select(r => r.Label).ShouldBe(["5'", "15'", "30'", "45'"]);
+        }
+
+        [Fact]
+        public void Build_EmitsFourCrossMeridiansFromPoleToOuterRing()
+        {
+            var overlay = MakeOverlay(rings: ImmutableArray.Create(5f, 15f, 30f, 45f));
+
+            var annotation = PolarAnnotationBuilder.Build(overlay);
+
+            // 4 cross meridians at 0h/6h/12h/18h, no correction arrow attached.
+            annotation.Arrows.Length.ShouldBe(4);
+            var endRas = annotation.Arrows.Select(a => a.EndRaHours).OrderBy(x => x).ToArray();
+            endRas.ShouldBe(new[] { 0.0, 6.0, 12.0, 18.0 });
+
+            // All meridians start at the refracted pole (89.95 in MakeOverlay default).
+            foreach (var arrow in annotation.Arrows)
+            {
+                arrow.StartDecDeg.ShouldBe(89.95);
+                // End sits at outer-ring radius (45' = 0.75 deg) below pole for north.
+                arrow.EndDecDeg.ShouldBe(89.95 - 0.75, tolerance: 1e-9);
+                // No arrowhead -- bare line segments.
+                arrow.HeadSizePx.ShouldBe(0f);
+            }
         }
 
         [Fact]
@@ -132,14 +158,19 @@ namespace TianWen.Lib.Tests
         }
 
         [Fact]
-        public void Build_NoCorrectionArrow_ProducesThreeMarkersAndNoArrows()
+        public void Build_NoCorrectionArrow_ProducesThreeMarkersAndCrossMeridiansOnly()
         {
             var overlay = MakeOverlay(); // CorrectionArrow null by default.
 
             var annotation = PolarAnnotationBuilder.Build(overlay);
 
             annotation.Markers.Length.ShouldBe(3);
-            annotation.Arrows.IsDefaultOrEmpty.ShouldBeTrue("no correction supplied -> no arrow emitted");
+            // 4 cross meridians, no correction arrow.
+            annotation.Arrows.Length.ShouldBe(4);
+            foreach (var arrow in annotation.Arrows)
+            {
+                arrow.HeadSizePx.ShouldBe(0f, "cross meridians have no arrowhead");
+            }
         }
 
         [Fact]
@@ -159,12 +190,16 @@ namespace TianWen.Lib.Tests
             annotation.Markers[3].DecDeg.ShouldBe(61.0);
             annotation.Markers[3].Glyph.ShouldBe(SkyMarkerGlyph.Circle);
 
-            annotation.Arrows.Length.ShouldBe(1);
-            annotation.Arrows[0].StartRaHours.ShouldBe(1.0);
-            annotation.Arrows[0].EndRaHours.ShouldBe(1.5);
+            // 4 cross meridians + 1 correction arrow = 5 arrows total. The
+            // correction arrow is appended last so it draws on top.
+            annotation.Arrows.Length.ShouldBe(5);
+            var correction = annotation.Arrows[4];
+            correction.StartRaHours.ShouldBe(1.0);
+            correction.EndRaHours.ShouldBe(1.5);
+            correction.HeadSizePx.ShouldBeGreaterThan(0f, "correction arrow has an arrowhead");
             // Arrow and reticle share the same yellow palette so the user
             // reads them as a single hint pair.
-            annotation.Arrows[0].Color.ShouldBe(annotation.Markers[3].Color);
+            correction.Color.ShouldBe(annotation.Markers[3].Color);
         }
 
         [Fact]
