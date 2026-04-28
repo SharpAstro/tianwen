@@ -2296,6 +2296,22 @@ namespace TianWen.UI.Abstractions
                     state.PolarSetupConfig = state.PolarSetupConfig with { SaveFrames = !state.PolarSetupConfig.SaveFrames };
                     state.NeedsRedraw = true;
                 });
+            y += rowH;
+
+            // ---- Incremental-solver toggle (diagnostic / safe fallback) ------
+            var incLabel = state.PolarSetupConfig.UseIncrementalSolver ? "On" : "Off";
+            var incBg = state.PolarSetupConfig.UseIncrementalSolver
+                ? new RGBAColor32(0x44, 0x66, 0x99, 0xff)
+                : new RGBAColor32(0x2a, 0x2a, 0x35, 0xff);
+            DrawText("Incremental", fontPath, x0, y, labelW, rowH, smallFs, DimText, TextAlign.Near, TextAlign.Center);
+            RenderButton(incLabel, x0 + labelW, y + 2, w - labelW, rowH - 4,
+                fontPath, smallFs, incBg, BodyText,
+                "PolarSetupUseIncremental",
+                _ =>
+                {
+                    state.PolarSetupConfig = state.PolarSetupConfig with { UseIncrementalSolver = !state.PolarSetupConfig.UseIncrementalSolver };
+                    state.NeedsRedraw = true;
+                });
 
             // ---- Start button (anchored at panel bottom, full width) ---------
             // Cancel-back-to-Preview lives above Start so the Start button sits

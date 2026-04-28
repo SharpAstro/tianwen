@@ -282,7 +282,7 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
                     // full-solve interval is hit so the next branch can
                     // refresh the anchor list against drift.
                     bool periodicReseed = fullSolveInterval > 0 && fastRefinesSinceFullSolve >= fullSolveInterval;
-                    if (incremental.IsSeeded && !periodicReseed)
+                    if (_config.UseIncrementalSolver && incremental.IsSeeded && !periodicReseed)
                     {
                         var fast = incremental.Refine(image, ct);
                         if (fast is { Solution: { } w } fr && fr.MatchedStars >= _config.MinStarsForSolve)
@@ -312,8 +312,14 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
                                 // the fast path. Seed failure (too few stars)
                                 // leaves IsSeeded false; we'll just keep
                                 // running full solves until conditions
-                                // improve.
-                                _ = await incremental.SeedAsync(image, fullWcs, ct);
+                                // improve. Skip seeding when the user has
+                                // disabled the incremental path -- avoids the
+                                // SeedAsync star-detect cost when we'd never
+                                // use the result.
+                                if (_config.UseIncrementalSolver)
+                                {
+                                    _ = await incremental.SeedAsync(image, fullWcs, ct);
+                                }
                                 fastRefinesSinceFullSolve = 0;
                             }
                         }
