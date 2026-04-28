@@ -66,7 +66,7 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
     /// reference noise by ~2.2x. Set 1 to disable (single solve per pose).</param>
     public readonly record struct PolarAlignmentConfiguration(
         ImmutableArray<TimeSpan> ExposureRamp,
-        int MinStarsForSolve = 15,
+        int MinStarsForSolve = 40,
         double RotationDeg = 45.0,
         double SettleSeconds = 5.0,
         double TargetAccuracyArcmin = 1.0,
