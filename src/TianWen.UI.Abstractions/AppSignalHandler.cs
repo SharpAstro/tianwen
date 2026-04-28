@@ -2050,6 +2050,14 @@ namespace TianWen.UI.Abstractions
                         {
                             if (publishOtaIndex < liveSessionState.LastCapturedImages.Length)
                             {
+                                // Release the previous frame before replacing it,
+                                // otherwise its ChannelBuffer ref never drops and the
+                                // camera can't recycle -- a 60MP polar refine at a
+                                // few Hz leaks hundreds of MB / second. The UI render
+                                // thread may briefly read recycled pixels during the
+                                // swap (one frame of flicker, worst case); paying that
+                                // for a bounded heap is the right trade.
+                                liveSessionState.LastCapturedImages[publishOtaIndex]?.Release();
                                 liveSessionState.LastCapturedImages[publishOtaIndex] = img;
                                 liveSessionState.NeedsRedraw = true;
                             }
@@ -2303,6 +2311,10 @@ namespace TianWen.UI.Abstractions
                         if (image is not null
                             && sig.OtaIndex < liveSessionState.LastCapturedImages.Length)
                         {
+                            // Release the previous slot's image before replacing -- otherwise
+                            // its ChannelBuffer ref never drops and the camera can't recycle
+                            // (mirrors the polar-refine onFrameCaptured leak fix).
+                            liveSessionState.LastCapturedImages[sig.OtaIndex]?.Release();
                             liveSessionState.LastCapturedImages[sig.OtaIndex] = image;
                             appState.AppendNotification(_timeProvider.GetUtcNow(),
                                 NotificationSeverity.Info, $"Preview captured: OTA {sig.OtaIndex + 1}");

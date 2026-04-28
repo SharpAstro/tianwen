@@ -112,22 +112,45 @@ namespace TianWen.Lib.Astrometry.PlateSolve
                 return 0;
             }
 
-            // Detect stars at the same SNR floor we use for the per-frame ROI
-            // gate; the seed list and refine survival list need to be drawn
-            // from the same population. maxStars caps the per-frame work and
-            // is sized so the affine fit has comfortable redundancy.
-            var stars = await image.FindStarsAsync(0, snrMin: SnrThreshold, maxStars: MaxAnchors, minStars: MinAnchors, cancellationToken: ct).ConfigureAwait(false);
+            // Detect stars on a downsampled view to match the per-pass cost
+            // CatalogPlateSolver pays. A 60MP polar-align frame at 0.97"/px
+            // runs FindStarsAsync ~4x faster when binned 2x to 1.94"/px, and
+            // we don't need sub-arcsec centroid accuracy for ROI-anchor
+            // priors -- the per-frame Refine re-centroids in a small box at
+            // native resolution. Centroids come back in binned space; scale
+            // them to original-image coords before projecting through the WCS.
+            const double TargetPixelScaleArcsec = 1.5;
+            var dim = image.GetImageDim();
+            var detectionScale = 1;
+            var detectionImage = image;
+            if (dim is { PixelScale: > 0 } d && d.PixelScale < TargetPixelScaleArcsec)
+            {
+                detectionScale = (int)Math.Round(TargetPixelScaleArcsec / d.PixelScale);
+                if (detectionScale > 1)
+                {
+                    detectionImage = image.Downsample(detectionScale);
+                }
+            }
+
+            var stars = await detectionImage.FindStarsAsync(0, snrMin: SnrThreshold, maxStars: MaxAnchors, minStars: MinAnchors, cancellationToken: ct).ConfigureAwait(false);
+
+            // (factor*x + factor/2 - 0.5) puts the binned-pixel centre back to
+            // the centre of its original block. Mirrors CatalogPlateSolver's
+            // rescale step.
+            var halfBlock = detectionScale > 1 ? detectionScale / 2.0f - 0.5f : 0f;
 
             var anchors = new List<Anchor>(stars.Count);
             foreach (var s in stars)
             {
+                var nativeX = detectionScale > 1 ? s.XCentroid * detectionScale + halfBlock : s.XCentroid;
+                var nativeY = detectionScale > 1 ? s.YCentroid * detectionScale + halfBlock : s.YCentroid;
                 // FindStars uses 0-based pixel coords; WCS is 1-based (FITS
                 // convention). Add 1 for the projection, store the 0-based
                 // pixel coord for the anchor.
-                var sky = wcs.PixelToSky(s.XCentroid + 1.0, s.YCentroid + 1.0);
+                var sky = wcs.PixelToSky(nativeX + 1.0, nativeY + 1.0);
                 if (sky is { } pos)
                 {
-                    anchors.Add(new Anchor(s.XCentroid, s.YCentroid, pos.RA, pos.Dec, s.Flux));
+                    anchors.Add(new Anchor(nativeX, nativeY, pos.RA, pos.Dec, s.Flux));
                 }
             }
 
@@ -140,7 +163,7 @@ namespace TianWen.Lib.Astrometry.PlateSolve
 
             _wcs = wcs;
             _anchors = anchors;
-            _logger?.LogDebug("IncrementalSolver: seeded with {Count} anchors", anchors.Count);
+            _logger?.LogDebug("IncrementalSolver: seeded with {Count} anchors (detection scale {Scale}x)", anchors.Count, detectionScale);
             return anchors.Count;
         }
 
