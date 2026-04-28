@@ -48,6 +48,12 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
     /// disable (fast path only -- not recommended for long sessions).
     /// Default 30: at typical capture cadence (~2-5 Hz) the full solve fires
     /// every 6-15 s, barely visible to the user but enough to bound drift.</param>
+    /// <param name="UseIncrementalSolver">When true (default), Phase B uses the
+    /// fast ROI-centroid + affine refit path between full-solve re-seeds.
+    /// When false, every refinement tick runs a full hinted plate solve --
+    /// useful as an A/B-test bypass when chasing math regressions, or as a
+    /// safe fallback on a setup where the incremental anchor tracking is
+    /// unreliable.</param>
     public readonly record struct PolarAlignmentConfiguration(
         ImmutableArray<TimeSpan> ExposureRamp,
         int MinStarsForSolve = 15,
@@ -59,7 +65,8 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
         int MaxFrame2Retries = 3,
         int SmoothingWindow = 5,
         double SettleSigmaArcmin = 0.5,
-        int RefineFullSolveInterval = 30)
+        int RefineFullSolveInterval = 30,
+        bool UseIncrementalSolver = true)
     {
         /// <summary>
         /// Default configuration: <see cref="AdaptiveExposureRamp.DefaultRamp"/>
