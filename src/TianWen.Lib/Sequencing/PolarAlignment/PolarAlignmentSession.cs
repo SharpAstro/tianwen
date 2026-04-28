@@ -233,83 +233,161 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
             var smoother = new RefinementSmoother(_config.SmoothingWindow, _config.SettleSigmaArcmin);
             int consecutiveFailures = 0;
 
+            // Incremental solver: ROI-centroid + affine refit at <20ms per
+            // frame vs ~700ms for a full hinted solve on a 60MP frame. First
+            // iteration runs the full solve and seeds; subsequent iterations
+            // try Refine() first and fall back to the full solve on null
+            // (residual spike, too few anchors). The full-solve fallback
+            // re-seeds so the fast path resumes on the next tick.
+            var incremental = new IncrementalSolver(_logger);
+
             while (!ct.IsCancellationRequested)
             {
-                CaptureAndSolveResult solve;
+                CaptureResult capture;
                 try
                 {
-                    solve = await _source.CaptureAndSolveAsync(lockedExposure, _solver, ct);
+                    capture = await _source.CaptureAsync(lockedExposure, ct);
                 }
                 catch (OperationCanceledException)
                 {
                     yield break;
                 }
 
-                // Tolerance for transient failures: the user may have bumped the rig,
-                // a cloud may have rolled in, the star count may have briefly dipped
-                // below the threshold during a knob turn. Just count and skip — the
-                // smoother carries the previous good value forward, the gauges hold
-                // steady, and the GUI surfaces the streak via ConsecutiveFailedSolves.
-                if (!solve.Success || solve.StarsMatched < _config.MinStarsForSolve)
+                if (!capture.Success || capture.Image is not { } image)
                 {
                     consecutiveFailures++;
                     continue;
                 }
 
-                if (!PolarAxisSolver.TryRecoverAxis(_v1, solve.WcsCenter, absDelta, out var axis, out _))
+                LiveSolveResult? yieldResult = null;
+                try
                 {
-                    // Live geometry briefly ill-conditioned (knob mid-turn through
-                    // an axis-aligned position). Same handling as a solve failure.
-                    consecutiveFailures++;
-                    continue;
+                    WCS? refinedWcs = null;
+                    int starsMatched = 0;
+                    bool fastPath = false;
+
+                    // Fast path: ROI centroid + affine refit. Returns null on
+                    // residual spike (knob nudge too large, anchor list lost)
+                    // or insufficient surviving anchors -- caller falls
+                    // through to the full solve.
+                    if (incremental.IsSeeded)
+                    {
+                        var fast = incremental.Refine(image, ct);
+                        if (fast is { Solution: { } w } fr && fr.MatchedStars >= _config.MinStarsForSolve)
+                        {
+                            refinedWcs = w;
+                            starsMatched = fr.MatchedStars;
+                            fastPath = true;
+                        }
+                    }
+
+                    // Fallback: full hinted solve. Runs on the cold start, on
+                    // any frame where Refine returned null, and (implicitly)
+                    // any time the incremental solver was reset.
+                    if (refinedWcs is null)
+                    {
+                        try
+                        {
+                            var full = await _solver.SolveImageAsync(image,
+                                searchOrigin: capture.SearchOrigin,
+                                cancellationToken: ct);
+                            if (full.Solution is { } fullWcs && full.MatchedStars >= _config.MinStarsForSolve)
+                            {
+                                refinedWcs = fullWcs;
+                                starsMatched = full.MatchedStars;
+                                // Re-seed so the next iteration goes through
+                                // the fast path. Seed failure (too few stars)
+                                // leaves IsSeeded false; we'll just keep
+                                // running full solves until conditions
+                                // improve.
+                                _ = await incremental.SeedAsync(image, fullWcs, ct);
+                            }
+                        }
+                        catch (PlateSolverException ex)
+                        {
+                            _logger.LogDebug(ex, "PolarAlignment refining: full solve threw");
+                        }
+                        catch (OperationCanceledException)
+                        {
+                            yield break;
+                        }
+                    }
+
+                    if (refinedWcs is not { } wcs)
+                    {
+                        consecutiveFailures++;
+                        continue;
+                    }
+
+                    var wcsCenter = PolarAxisSolver.RaDecToUnitVec(wcs.CenterRA, wcs.CenterDec);
+                    if (!PolarAxisSolver.TryRecoverAxis(_v1, wcsCenter, absDelta, out var axis, out _))
+                    {
+                        // Live geometry briefly ill-conditioned (knob mid-turn through
+                        // an axis-aligned position). Same handling as a solve failure.
+                        consecutiveFailures++;
+                        continue;
+                    }
+                    var (azErr, altErr) = PolarAxisSolver.DecomposeAxisError(
+                        axis, _hemisphere,
+                        _site.LatitudeDeg, _site.LongitudeDeg, _site.ElevationM,
+                        _site.PressureHPa, _site.TemperatureC, _timeProvider.GetUtcNow());
+
+                    var (smAz, smAlt, isSettled) = smoother.Update(azErr, altErr);
+                    bool isAligned = Math.Abs(smAz) < targetAccuracyRad && Math.Abs(smAlt) < targetAccuracyRad;
+                    int failedRun = consecutiveFailures;
+                    consecutiveFailures = 0; // reset on success
+
+                    // Populate the overlay so the GUI can render pole crosses, rings, and
+                    // axis marker via the generic WcsAnnotationLayer without re-doing any
+                    // SOFA math. Refraction-corrected pole position is *not* yet recovered
+                    // here (would require inverse SOFA topo->J2000); v1 reuses the true
+                    // pole as the ring centre, which superimposes the two crosses but
+                    // keeps the gauges (which use the refraction-aware az/alt errors)
+                    // numerically correct. Phase 4 polish.
+                    double trueRa = 0.0;
+                    double trueDec = _hemisphere == Hemisphere.North ? 90.0 : -90.0;
+                    var (axisRa, axisDec) = PolarAxisSolver.UnitVecToRaDec(axis);
+                    var azArcmin = azErr * 180.0 / Math.PI * 60.0;
+                    var altArcmin = altErr * 180.0 / Math.PI * 60.0;
+                    var overlay = new PolarOverlay(
+                        TruePoleRaHours: trueRa,
+                        TruePoleDecDeg: trueDec,
+                        RefractedPoleRaHours: trueRa,
+                        RefractedPoleDecDeg: trueDec,
+                        AxisRaHours: axisRa,
+                        AxisDecDeg: axisDec,
+                        RingRadiiArcmin: System.Collections.Immutable.ImmutableArray.Create(5f, 15f, 30f),
+                        AzErrorArcmin: azArcmin,
+                        AltErrorArcmin: altArcmin,
+                        Hemisphere: _hemisphere);
+
+                    yieldResult = new LiveSolveResult(
+                        StarsMatched: starsMatched,
+                        ExposureUsed: capture.ExposureUsed,
+                        FitsPath: capture.FitsPath,
+                        AzErrorRad: azErr,
+                        AltErrorRad: altErr,
+                        SmoothedAzErrorRad: smAz,
+                        SmoothedAltErrorRad: smAlt,
+                        IsSettled: isSettled,
+                        IsAligned: isAligned,
+                        ConsecutiveFailedSolves: failedRun,
+                        AxisJ2000: axis,
+                        Overlay: overlay);
+                    _ = fastPath; // surface in telemetry/diagnostics later if needed
                 }
-                var (azErr, altErr) = PolarAxisSolver.DecomposeAxisError(
-                    axis, _hemisphere,
-                    _site.LatitudeDeg, _site.LongitudeDeg, _site.ElevationM,
-                    _site.PressureHPa, _site.TemperatureC, _timeProvider.GetUtcNow());
+                finally
+                {
+                    if (!capture.OwnershipTransferredToUi)
+                    {
+                        image.Release();
+                    }
+                }
 
-                var (smAz, smAlt, isSettled) = smoother.Update(azErr, altErr);
-                bool isAligned = Math.Abs(smAz) < targetAccuracyRad && Math.Abs(smAlt) < targetAccuracyRad;
-                int failedRun = consecutiveFailures;
-                consecutiveFailures = 0; // reset on success
-
-                // Populate the overlay so the GUI can render pole crosses, rings, and
-                // axis marker via the generic WcsAnnotationLayer without re-doing any
-                // SOFA math. Refraction-corrected pole position is *not* yet recovered
-                // here (would require inverse SOFA topo->J2000); v1 reuses the true
-                // pole as the ring centre, which superimposes the two crosses but
-                // keeps the gauges (which use the refraction-aware az/alt errors)
-                // numerically correct. Phase 4 polish.
-                double trueRa = 0.0;
-                double trueDec = _hemisphere == Hemisphere.North ? 90.0 : -90.0;
-                var (axisRa, axisDec) = PolarAxisSolver.UnitVecToRaDec(axis);
-                var azArcmin = azErr * 180.0 / Math.PI * 60.0;
-                var altArcmin = altErr * 180.0 / Math.PI * 60.0;
-                var overlay = new PolarOverlay(
-                    TruePoleRaHours: trueRa,
-                    TruePoleDecDeg: trueDec,
-                    RefractedPoleRaHours: trueRa,
-                    RefractedPoleDecDeg: trueDec,
-                    AxisRaHours: axisRa,
-                    AxisDecDeg: axisDec,
-                    RingRadiiArcmin: System.Collections.Immutable.ImmutableArray.Create(5f, 15f, 30f),
-                    AzErrorArcmin: azArcmin,
-                    AltErrorArcmin: altArcmin,
-                    Hemisphere: _hemisphere);
-
-                yield return new LiveSolveResult(
-                    StarsMatched: solve.StarsMatched,
-                    ExposureUsed: solve.ExposureUsed,
-                    FitsPath: solve.FitsPath,
-                    AzErrorRad: azErr,
-                    AltErrorRad: altErr,
-                    SmoothedAzErrorRad: smAz,
-                    SmoothedAltErrorRad: smAlt,
-                    IsSettled: isSettled,
-                    IsAligned: isAligned,
-                    ConsecutiveFailedSolves: failedRun,
-                    AxisJ2000: axis,
-                    Overlay: overlay);
+                if (yieldResult is { } r)
+                {
+                    yield return r;
+                }
             }
         }
 

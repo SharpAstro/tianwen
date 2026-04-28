@@ -214,8 +214,15 @@ namespace TianWen.Lib.Astrometry.PlateSolve
 
             // Update WCS: CRPix_new = M(CRPix_old). CD_new = CD_old * L_col^-1
             // where L_col is the linear part of M in column-vector convention.
-            // See class doc for the derivation.
-            var newWcs = ApplyAffineToWcs(prevWcs, M);
+            // See class doc for the derivation. Then canonicalise so CRPix is
+            // back at the frame centre and CenterRA/CenterDec is the sky at
+            // that pixel -- matches what CatalogPlateSolver emits, so
+            // downstream consumers reading wcs.CenterRA / wcs.CenterDec (e.g.
+            // PolarAlignmentSession's frame-centre unit vector derivation)
+            // see consistent values across the full-solve and incremental
+            // paths.
+            var shifted = ApplyAffineToWcs(prevWcs, M);
+            var newWcs = CanonicaliseToFrameCentre(shifted, image.Width, image.Height);
 
             // Update anchors: replace each surviving anchor's image-pixel coord
             // with the just-observed centroid so the next Refine works from
@@ -269,6 +276,37 @@ namespace TianWen.Lib.Astrometry.PlateSolve
                 CD1_2 = prev.CD1_1 * Minv.M21 + prev.CD1_2 * Minv.M22,
                 CD2_1 = prev.CD2_1 * Minv.M11 + prev.CD2_2 * Minv.M12,
                 CD2_2 = prev.CD2_1 * Minv.M21 + prev.CD2_2 * Minv.M22,
+            };
+        }
+
+        /// <summary>
+        /// Canonicalise a WCS by moving CRPix back to the (1-based) frame
+        /// centre and updating CenterRA / CenterDec to the sky position at
+        /// that pixel. The CD matrix is left unchanged: locally near the
+        /// frame centre the projection is well-approximated as linear, so
+        /// the gnomonic re-tangenting error is well below the centroid
+        /// noise for sub-pixel CRPix shifts. Downstream consumers can then
+        /// read wcs.CenterRA / wcs.CenterDec as the frame-centre sky
+        /// without having to know which solver produced the WCS.
+        /// </summary>
+        private static WCS CanonicaliseToFrameCentre(WCS wcs, int width, int height)
+        {
+            var fcX = (width + 1) / 2.0;
+            var fcY = (height + 1) / 2.0;
+            var fcSky = wcs.PixelToSky(fcX, fcY);
+            if (fcSky is not { } pos)
+            {
+                // Should never happen with a valid CD matrix and sane CRPix --
+                // if it does, return the un-canonicalised WCS so the caller at
+                // least has the CRPix-shifted result to fall back on.
+                return wcs;
+            }
+            return wcs with
+            {
+                CenterRA = pos.RA,
+                CenterDec = pos.Dec,
+                CRPix1 = fcX,
+                CRPix2 = fcY,
             };
         }
 
