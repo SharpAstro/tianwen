@@ -51,7 +51,8 @@ namespace TianWen.Lib.Tests
             {
                 RotationDeg = 60.0,
                 SettleSeconds = 0, // skip settle in test
-                MaxFrame2Retries = 0
+                MaxFrame2Retries = 0,
+                ReferenceFrameAverages = 1, // synthetic source returns v1/v2 on call-count basis; averaging confuses it
             };
 
             await using var session = new PolarAlignmentSession(
@@ -82,7 +83,8 @@ namespace TianWen.Lib.Tests
             var config = PolarAlignmentConfiguration.Default with
             {
                 RotationDeg = 60.0, SettleSeconds = 0, MaxFrame2Retries = 0,
-                OnDone = PolarAlignmentOnDone.ReverseAxisBack
+                OnDone = PolarAlignmentOnDone.ReverseAxisBack,
+                ReferenceFrameAverages = 1,
             };
 
             var session = new PolarAlignmentSession(ext, mount, source, solver, time, NullLogger.Instance, TestSite, config);
@@ -120,7 +122,8 @@ namespace TianWen.Lib.Tests
             var config = PolarAlignmentConfiguration.Default with
             {
                 RotationDeg = 60.0, SettleSeconds = 0, MaxFrame2Retries = 0,
-                OnDone = PolarAlignmentOnDone.LeaveInPlace
+                OnDone = PolarAlignmentOnDone.LeaveInPlace,
+                ReferenceFrameAverages = 1,
             };
 
             var session = new PolarAlignmentSession(ext, mount, source, solver, time, NullLogger.Instance, TestSite, config);
@@ -150,7 +153,8 @@ namespace TianWen.Lib.Tests
 
             var config = PolarAlignmentConfiguration.Default with
             {
-                RotationDeg = 60.0, SettleSeconds = 0, MaxFrame2Retries = 3
+                RotationDeg = 60.0, SettleSeconds = 0, MaxFrame2Retries = 3,
+                ReferenceFrameAverages = 1,
             };
 
             await using var session = new PolarAlignmentSession(
@@ -177,7 +181,8 @@ namespace TianWen.Lib.Tests
 
             var config = PolarAlignmentConfiguration.Default with
             {
-                RotationDeg = 60.0, SettleSeconds = 0, MaxFrame2Retries = 2
+                RotationDeg = 60.0, SettleSeconds = 0, MaxFrame2Retries = 2,
+                ReferenceFrameAverages = 1,
             };
 
             var session = new PolarAlignmentSession(ext, mount, source, solver, time, NullLogger.Instance, TestSite, config);
@@ -209,7 +214,8 @@ namespace TianWen.Lib.Tests
 
             var config = PolarAlignmentConfiguration.Default with
             {
-                RotationDeg = 60.0, SettleSeconds = 0, MaxFrame2Retries = 0
+                RotationDeg = 60.0, SettleSeconds = 0, MaxFrame2Retries = 0,
+                ReferenceFrameAverages = 1,
             };
 
             await using var session = new PolarAlignmentSession(
@@ -242,7 +248,8 @@ namespace TianWen.Lib.Tests
             var config = PolarAlignmentConfiguration.Default with
             {
                 RotationDeg = 60.0, SettleSeconds = 0, MaxFrame2Retries = 0,
-                SmoothingWindow = 1
+                SmoothingWindow = 1,
+                ReferenceFrameAverages = 1,
             };
 
             await using var session = new PolarAlignmentSession(
