@@ -76,4 +76,29 @@ public class SyntheticStarFieldBenchmarks
             offsetX: 0.5, offsetY: 0.5,
             starCount: 50, seed: 42,
             dest: _largeDest);
+
+    // Stage-split: starCount=0 isolates the sky-background fill loop
+    // (the suspected hot path: 61M pixels x Random.NextDouble each).
+    // Subtract from Render_Large_9576x6388 to get the 50-star rasterise cost.
+    [Benchmark]
+    public float[,] Render_Large_NoStars() =>
+        SyntheticStarFieldRenderer.Render(
+            width: 9576, height: 6388,
+            defocusSteps: 0,
+            offsetX: 0.5, offsetY: 0.5,
+            starCount: 0, seed: 42,
+            dest: _largeDest);
+
+    // Stage-split: zero sky + zero readnoise leaves the bg loop running
+    // but the inner expression collapses to (float)0. Tells us how much of
+    // the bg loop is Random.NextDouble vs the float store / 2D-array stride.
+    [Benchmark]
+    public float[,] Render_Large_ZeroSky() =>
+        SyntheticStarFieldRenderer.Render(
+            width: 9576, height: 6388,
+            defocusSteps: 0,
+            offsetX: 0.5, offsetY: 0.5,
+            skyBackground: 0.0, readNoise: 0.0,
+            starCount: 0, seed: 42,
+            dest: _largeDest);
 }
