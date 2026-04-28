@@ -241,6 +241,15 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
             // re-seeds so the fast path resumes on the next tick.
             var incremental = new IncrementalSolver(_logger);
 
+            // Periodic re-seed: every Nth successful refine forces a full
+            // hinted solve (instead of the fast path) to refresh the anchor
+            // list against drift / changing exposure conditions and reset any
+            // accumulated affine-fit floating-point error. Counter ticks only
+            // on successful fast-path refines; fallback solves already act as
+            // implicit re-seeds and reset the counter to 0 on their own.
+            int fastRefinesSinceFullSolve = 0;
+            int fullSolveInterval = Math.Max(0, _config.RefineFullSolveInterval);
+
             while (!ct.IsCancellationRequested)
             {
                 CaptureResult capture;
@@ -269,8 +278,11 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
                     // Fast path: ROI centroid + affine refit. Returns null on
                     // residual spike (knob nudge too large, anchor list lost)
                     // or insufficient surviving anchors -- caller falls
-                    // through to the full solve.
-                    if (incremental.IsSeeded)
+                    // through to the full solve. Skipped when the periodic
+                    // full-solve interval is hit so the next branch can
+                    // refresh the anchor list against drift.
+                    bool periodicReseed = fullSolveInterval > 0 && fastRefinesSinceFullSolve >= fullSolveInterval;
+                    if (incremental.IsSeeded && !periodicReseed)
                     {
                         var fast = incremental.Refine(image, ct);
                         if (fast is { Solution: { } w } fr && fr.MatchedStars >= _config.MinStarsForSolve)
@@ -282,8 +294,9 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
                     }
 
                     // Fallback: full hinted solve. Runs on the cold start, on
-                    // any frame where Refine returned null, and (implicitly)
-                    // any time the incremental solver was reset.
+                    // any frame where Refine returned null, and on the
+                    // periodic-reseed tick. Seeds afterwards so the next
+                    // tick goes through the fast path; resets the counter.
                     if (refinedWcs is null)
                     {
                         try
@@ -301,6 +314,7 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
                                 // running full solves until conditions
                                 // improve.
                                 _ = await incremental.SeedAsync(image, fullWcs, ct);
+                                fastRefinesSinceFullSolve = 0;
                             }
                         }
                         catch (PlateSolverException ex)
@@ -311,6 +325,12 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
                         {
                             yield break;
                         }
+                    }
+                    else if (fastPath)
+                    {
+                        // Successful fast-path refine: tick the counter so the
+                        // next periodic re-seed eventually fires.
+                        fastRefinesSinceFullSolve++;
                     }
 
                     if (refinedWcs is not { } wcs)

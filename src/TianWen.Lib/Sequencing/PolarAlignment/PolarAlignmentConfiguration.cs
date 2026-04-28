@@ -40,6 +40,14 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
     /// of the smoothing window's error magnitude below which the routine
     /// reports "settled" (user has stopped moving the knobs). Independent of
     /// whether the alignment itself is below <see cref="TargetAccuracyArcmin"/>.</param>
+    /// <param name="RefineFullSolveInterval">Every Nth refinement frame runs a
+    /// full hinted plate solve and re-seeds the incremental solver, instead
+    /// of using the fast ROI-centroid path. Refreshes the anchor list against
+    /// drift, picks up new bright stars that have rotated into the field, and
+    /// resets accumulated affine-fit floating-point error. Set to 0 to
+    /// disable (fast path only -- not recommended for long sessions).
+    /// Default 30: at typical capture cadence (~2-5 Hz) the full solve fires
+    /// every 6-15 s, barely visible to the user but enough to bound drift.</param>
     public readonly record struct PolarAlignmentConfiguration(
         ImmutableArray<TimeSpan> ExposureRamp,
         int MinStarsForSolve = 15,
@@ -50,7 +58,8 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
         bool SaveFrames = false,
         int MaxFrame2Retries = 3,
         int SmoothingWindow = 5,
-        double SettleSigmaArcmin = 0.5)
+        double SettleSigmaArcmin = 0.5,
+        int RefineFullSolveInterval = 30)
     {
         /// <summary>
         /// Default configuration: <see cref="AdaptiveExposureRamp.DefaultRamp"/>
