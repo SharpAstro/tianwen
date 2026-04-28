@@ -206,9 +206,11 @@ public class IncrementalSolverTests(ITestOutputHelper output)
         var refined = result.Value.Solution;
         refined.ShouldNotBeNull();
 
-        refined.Value.CRPix1.ShouldBe(wcs.CRPix1, tolerance: 0.5);
-        refined.Value.CRPix2.ShouldBe(wcs.CRPix2, tolerance: 0.5);
-        // CD matrix should be essentially unchanged on an identical frame.
+        // Identical frame: the canonicalised WCS should match the seed WCS
+        // within centroid noise. Verify by checking that PixelToSky(centre)
+        // returns the same sky coords.
+        refined.Value.CenterRA.ShouldBe(wcs.CenterRA, tolerance: 1e-5);
+        refined.Value.CenterDec.ShouldBe(wcs.CenterDec, tolerance: 1e-5);
         refined.Value.CD1_1.ShouldBe(wcs.CD1_1, tolerance: 1e-6);
         refined.Value.CD2_2.ShouldBe(wcs.CD2_2, tolerance: 1e-6);
         output.WriteLine($"Refine matched {result.Value.MatchedStars} anchors in {result.Value.Elapsed.TotalMilliseconds:F1} ms");
@@ -219,7 +221,7 @@ public class IncrementalSolverTests(ITestOutputHelper output)
     [InlineData(0f, 3.0f)]    // 3 px shift in Y only
     [InlineData(2.5f, -1.5f)] // diagonal sub-integer shift (typical knob nudge magnitude)
     [InlineData(-4.0f, 2.0f)] // negative-X mixed shift
-    public async Task GivenSeed_WhenRefiningShiftedFrame_ThenCRPixMovesByShift(float dx, float dy)
+    public async Task GivenSeed_WhenRefiningShiftedFrame_ThenWcsTracksShift(float dx, float dy)
     {
         var solver = new IncrementalSolver();
         var seedFrame = RenderFrame();
@@ -235,14 +237,23 @@ public class IncrementalSolverTests(ITestOutputHelper output)
         var refined = result.Value.Solution;
         refined.ShouldNotBeNull();
 
-        // Sub-pixel accuracy: the centroid is photon-noise limited but the
-        // affine fit averages 30+ anchors so the recovered shift should land
-        // within 0.5 px of the truth. The pole-error gauges in the polar-align
-        // routine are ~5 arcmin = ~200 px scale; 0.5 px slack here is ~1 arcsec
-        // and well below the alignment accuracy gate.
-        refined.Value.CRPix1.ShouldBe(wcs.CRPix1 + dx, tolerance: 0.5);
-        refined.Value.CRPix2.ShouldBe(wcs.CRPix2 + dy, tolerance: 0.5);
-        output.WriteLine($"Shift ({dx}, {dy}): recovered CRPix delta = ({refined.Value.CRPix1 - wcs.CRPix1:F2}, {refined.Value.CRPix2 - wcs.CRPix2:F2}); {result.Value.MatchedStars} anchors matched in {result.Value.Elapsed.TotalMilliseconds:F1} ms");
+        // Verify via reprojection: the seed-frame centre sky should now project
+        // to the shifted pixel (frameCenter + (dx, dy)) under the refined WCS.
+        // CRPix is canonicalised back to frame centre, so we can't use a CRPix
+        // delta check; reprojection is the real invariant we care about
+        // (it's what the orchestrator uses for axis recovery).
+        var seedCentreSky = wcs.PixelToSky(wcs.CRPix1, wcs.CRPix2);
+        seedCentreSky.ShouldNotBeNull();
+        var (ra, dec) = seedCentreSky.Value;
+        var predicted = refined.Value.SkyToPixel(ra, dec);
+        predicted.ShouldNotBeNull();
+        var (px, py) = predicted.Value;
+        // Sub-pixel accuracy: centroid is photon-noise limited but the affine
+        // fit averages ~30 anchors. 0.5 px is roughly 1 arcsec at our scale,
+        // well below the polar-align gates.
+        px.ShouldBe(wcs.CRPix1 + dx, tolerance: 0.5);
+        py.ShouldBe(wcs.CRPix2 + dy, tolerance: 0.5);
+        output.WriteLine($"Shift ({dx}, {dy}): seed-centre sky projects to ({px - wcs.CRPix1:F2}, {py - wcs.CRPix2:F2}) px shift; {result.Value.MatchedStars} anchors matched in {result.Value.Elapsed.TotalMilliseconds:F1} ms");
     }
 
     [Fact]
@@ -279,6 +290,10 @@ public class IncrementalSolverTests(ITestOutputHelper output)
         var wcs = MakeKnownWcs();
         await solver.SeedAsync(seedFrame, wcs, TestContext.Current.CancellationToken);
 
+        var seedCentreSky = wcs.PixelToSky(wcs.CRPix1, wcs.CRPix2);
+        seedCentreSky.ShouldNotBeNull();
+        var (seedRa, seedDec) = seedCentreSky.Value;
+
         float cumulativeX = 0;
         float cumulativeY = 0;
         for (int step = 1; step <= 8; step++)
@@ -290,10 +305,14 @@ public class IncrementalSolverTests(ITestOutputHelper output)
 
             result.ShouldNotBeNull($"Step {step} should still refine successfully (cumulative shift {cumulativeX}, {cumulativeY})");
             var refined = result.Value.Solution!.Value;
-            refined.CRPix1.ShouldBe(wcs.CRPix1 + cumulativeX, tolerance: 0.7,
-                $"Step {step}: CRPix1 drift exceeds tolerance");
-            refined.CRPix2.ShouldBe(wcs.CRPix2 + cumulativeY, tolerance: 0.7,
-                $"Step {step}: CRPix2 drift exceeds tolerance");
+            // The seed-frame centre sky should now project to the cumulative shifted pixel.
+            var predicted = refined.SkyToPixel(seedRa, seedDec);
+            predicted.ShouldNotBeNull();
+            var (px, py) = predicted.Value;
+            px.ShouldBe(wcs.CRPix1 + cumulativeX, tolerance: 0.7,
+                $"Step {step}: X drift exceeds tolerance");
+            py.ShouldBe(wcs.CRPix2 + cumulativeY, tolerance: 0.7,
+                $"Step {step}: Y drift exceeds tolerance");
         }
         output.WriteLine($"Tracked 8 sequential 1px nudges to total ({cumulativeX}, {cumulativeY}) without losing the anchor list.");
     }

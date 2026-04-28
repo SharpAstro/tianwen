@@ -226,9 +226,18 @@ namespace TianWen.Lib.Tests
         {
             var mount = BuildMockMount();
             var ext = Substitute.For<IExternal>();
-            var solver = Substitute.For<IPlateSolver>();
             var time = new FakeTimeProviderWrapper();
             var source = new SyntheticAxisCaptureSource(GroundTruthAxis, deltaRad: 60.0 * DEGREES2RADIANS);
+
+            // Phase B uses CaptureAsync + IPlateSolver. The substitute solver
+            // returns a WCS whose CenterRA / CenterDec map back to the
+            // synthetic v2 unit vector that Phase A would have produced. No CD
+            // matrix on the synthetic WCS so the IncrementalSolver stays
+            // unseeded and the orchestrator runs the full-solve path each
+            // tick -- behaviour matches the pre-incremental test contract.
+            var v2 = PolarAxisSolver.Rotate(SyntheticAxisCaptureSource.SeedV1, GroundTruthAxis, 60.0 * DEGREES2RADIANS);
+            var (v2Ra, v2Dec) = PolarAxisSolver.UnitVecToRaDec(v2);
+            var solver = new SyntheticPlateSolver(new WCS(v2Ra, v2Dec), matchedStars: 25);
 
             var config = PolarAlignmentConfiguration.Default with
             {
@@ -286,7 +295,7 @@ namespace TianWen.Lib.Tests
         /// </summary>
         private sealed class SyntheticAxisCaptureSource(Vec3 groundTruthAxis, double deltaRad) : ICaptureSource
         {
-            private static readonly Vec3 InitialV1 = PolarAxisSolver.RaDecToUnitVec(0.0, 60.0); // arbitrary
+            internal static readonly Vec3 SeedV1 = PolarAxisSolver.RaDecToUnitVec(0.0, 60.0); // arbitrary
 
             public string DisplayName => "Synthetic";
             public double FocalLengthMm => 200;
@@ -299,7 +308,17 @@ namespace TianWen.Lib.Tests
             public int Frame2InitialFailures { get; set; }
 
             public ValueTask<CaptureResult> CaptureAsync(TimeSpan exposure, CancellationToken ct = default)
-                => throw new NotSupportedException("SyntheticAxisCaptureSource exercises CaptureAndSolveAsync only");
+            {
+                ct.ThrowIfCancellationRequested();
+                // Refinement-loop only: returns a stub mono image. The paired
+                // SyntheticPlateSolver supplies the actual WCS; the
+                // IncrementalSolver stays unseeded because the synthetic WCS
+                // has no CD matrix.
+                var stub = Image.FromChannel(new float[2, 2], maxValue: 1f, minValue: 0f);
+                return ValueTask.FromResult(new CaptureResult(
+                    Success: true, Image: stub, OwnershipTransferredToUi: false,
+                    SearchOrigin: null, ExposureUsed: exposure, FitsPath: null));
+            }
 
             public ValueTask<CaptureAndSolveResult> CaptureAndSolveAsync(TimeSpan exposure, IPlateSolver solver, CancellationToken ct = default)
             {
@@ -310,7 +329,7 @@ namespace TianWen.Lib.Tests
                 {
                     // Frame 1 always solves at the first ramp rung.
                     return ValueTask.FromResult(new CaptureAndSolveResult(
-                        Success: true, Wcs: null, WcsCenter: InitialV1,
+                        Success: true, Wcs: null, WcsCenter: SeedV1,
                         StarsMatched: 25, ExposureUsed: exposure, FitsPath: null));
                 }
 
@@ -323,11 +342,27 @@ namespace TianWen.Lib.Tests
                         StarsMatched: 0, ExposureUsed: exposure, FitsPath: null));
                 }
 
-                var v2 = PolarAxisSolver.Rotate(InitialV1, groundTruthAxis, deltaRad);
+                var v2 = PolarAxisSolver.Rotate(SeedV1, groundTruthAxis, deltaRad);
                 return ValueTask.FromResult(new CaptureAndSolveResult(
                     Success: true, Wcs: null, WcsCenter: v2,
                     StarsMatched: 25, ExposureUsed: exposure, FitsPath: null));
             }
+        }
+
+        /// <summary>
+        /// Test plate solver that returns a fixed WCS regardless of input.
+        /// Pairs with <see cref="SyntheticAxisCaptureSource"/>'s CaptureAsync
+        /// to drive Phase B without a real solver.
+        /// </summary>
+        private sealed class SyntheticPlateSolver(WCS wcs, int matchedStars) : IPlateSolver
+        {
+            public string Name => "SyntheticPlateSolver";
+            public float Priority => 1.0f;
+            public ValueTask<bool> CheckSupportAsync(CancellationToken cancellationToken = default) => ValueTask.FromResult(true);
+            public Task<PlateSolveResult> SolveFileAsync(string fitsFile, ImageDim? imageDim = null, float range = 0.03f, WCS? searchOrigin = null, double? searchRadius = null, CancellationToken cancellationToken = default)
+                => Task.FromResult(new PlateSolveResult(wcs, TimeSpan.FromMilliseconds(1)) { MatchedStars = matchedStars });
+            public Task<PlateSolveResult> SolveImageAsync(Image image, ImageDim? imageDim = null, float range = 0.03f, WCS? searchOrigin = null, double? searchRadius = null, CancellationToken cancellationToken = default)
+                => Task.FromResult(new PlateSolveResult(wcs, TimeSpan.FromMilliseconds(1)) { MatchedStars = matchedStars });
         }
 
         /// <summary>
