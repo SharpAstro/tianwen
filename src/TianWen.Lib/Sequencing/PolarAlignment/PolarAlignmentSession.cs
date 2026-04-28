@@ -138,7 +138,16 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
             IProgress<PolarPhaseUpdate>? phaseProgress = null)
         {
             // --- Frame 1 with adaptive exposure ramp ---
-            var probe = await AdaptiveExposureRamp.ProbeAsync(_source, _solver, _config.ExposureRamp, _config.MinStarsForSolve, ct, rampProgress, _logger);
+            // Phase A locks the strict RotationMinStars rung (axis-recovery
+            // precision floor); Phase B refining gets the shortest rung that
+            // already cleared MinStarsForSolve, so the live readout updates at
+            // ~1Hz instead of ~0.2Hz when the strict threshold takes 5s. The
+            // probe walks the ramp once and returns both rungs in one pass.
+            var probeResult = await AdaptiveExposureRamp.ProbeAsync(
+                _source, _solver, _config.ExposureRamp,
+                _config.RotationMinStars, _config.MinStarsForSolve,
+                ct, rampProgress, _logger);
+            var probe = probeResult.Final;
             if (!probe.Success)
             {
                 // Source-supplied reason (e.g. "PHD2 Save Images disabled") wins over the
@@ -147,7 +156,10 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
                     ?? $"Plate solve failed at every exposure rung up to {_config.ExposureRamp[^1].TotalSeconds:F1}s — check focus, dew, light pollution.");
             }
             _v1 = await AverageWcsAsync(probe.WcsCenter, probe.ExposureUsed, ct);
-            _lockedExposureSeconds = probe.ExposureUsed.TotalSeconds;
+            // Refining uses the *shorter* rung so the user sees the readout
+            // react quickly to knob turns; Phase A's strict-threshold rung
+            // (probe.ExposureUsed) is only used for v1/v2 averaging here.
+            _lockedExposureSeconds = probeResult.RefineExposure.TotalSeconds;
 
             // --- RA-axis rotation via raw MoveAxis (bypasses pointing model) ---
             if (!_mount.CanMoveAxis(TelescopeAxis.Primary))
@@ -209,7 +221,7 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
             {
                 ct.ThrowIfCancellationRequested();
                 frame2 = await _source.CaptureAndSolveAsync(probe.ExposureUsed, _solver, ct: ct);
-                if (frame2.Success && frame2.StarsMatched >= _config.MinStarsForSolve) break;
+                if (frame2.Success && frame2.StarsMatched >= _config.RotationMinStars) break;
                 frame2Attempts++;
                 _logger.LogInformation("PolarAlignment: frame 2 attempt {Attempt}/{Max} did not solve, settling and retrying",
                     frame2Attempts, maxFrame2Attempts);
@@ -249,6 +261,16 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
 
             var observedChord = PolarAxisSolver.ChordAngle(_v1, v2Averaged);
             var predictedChord = PolarAxisSolver.PredictedChordAngle(Math.Abs(deltaRad), coneRad);
+            // Independent measurement of the rotation that actually happened
+            // between the two solves. Sign carries the actual direction so a
+            // negative-rate command lines up with a negative measured value.
+            var measuredRotationRad = PolarAxisSolver.MeasuredRotationAroundAxis(_v1, v2Averaged, axis);
+            var rotationDeltaArcsec = (measuredRotationRad - deltaRad) * 180.0 / Math.PI * 3600.0;
+            _logger.LogInformation(
+                "PolarAlignment Phase A: commanded={CommandedDeg:F3}deg measured={MeasuredDeg:F3}deg delta={DeltaArcsec:F1}arcsec",
+                deltaRad * 180.0 / Math.PI,
+                measuredRotationRad * 180.0 / Math.PI,
+                rotationDeltaArcsec);
 
             // Seed the live-refining tracker with the Phase A state. RefineAsync uses
             // this to translate per-iteration WCS drift into a fresh axis without
@@ -274,7 +296,9 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
                 ChordAnglePredictedRad: predictedChord,
                 LockedExposure: probe.ExposureUsed,
                 StarsMatchedFrame1: probe.StarsMatched,
-                StarsMatchedFrame2: frame2.StarsMatched);
+                StarsMatchedFrame2: frame2.StarsMatched,
+                CommandedRotationRad: deltaRad,
+                MeasuredRotationRad: measuredRotationRad);
         }
 
         /// <summary>
@@ -476,6 +500,22 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
                     var (axisRa, axisDec) = PolarAxisSolver.UnitVecToRaDec(axis);
                     var azArcmin = azErr * 180.0 / Math.PI * 60.0;
                     var altArcmin = altErr * 180.0 / Math.PI * 60.0;
+
+                    // SharpCap-style correction arrow: rotation R that maps
+                    // the recovered axis onto the (refraction-corrected --
+                    // currently same as true) pole, applied to the live frame
+                    // centre. The arrow head shows where any sky point at the
+                    // frame centre would land if the user finished the
+                    // alignment. As axis -> pole the arrow length -> 0; the
+                    // user's UX is "shrink the arrow to nothing".
+                    PolarCorrectionArrow? correctionArrow = null;
+                    var poleVec = PolarAxisSolver.RaDecToUnitVec(trueRa, trueDec);
+                    var startVec = wcsCenterRaw; // anchor in same J2000 frame as the live solve
+                    if (TryBuildCorrectionArrow(axis, poleVec, startVec, out var arrow))
+                    {
+                        correctionArrow = arrow;
+                    }
+
                     var overlay = new PolarOverlay(
                         TruePoleRaHours: trueRa,
                         TruePoleDecDeg: trueDec,
@@ -486,7 +526,8 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
                         RingRadiiArcmin: System.Collections.Immutable.ImmutableArray.Create(5f, 15f, 30f),
                         AzErrorArcmin: azArcmin,
                         AltErrorArcmin: altArcmin,
-                        Hemisphere: _hemisphere);
+                        Hemisphere: _hemisphere,
+                        CorrectionArrow: correctionArrow);
 
                     yieldResult = new LiveSolveResult(
                         StarsMatched: starsMatched,
@@ -611,6 +652,67 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
             _logger.LogInformation("PolarAlignment: averaged WCS over {Count}/{Target} solves at {Exposure}ms",
                 count, target, exposure.TotalMilliseconds);
             return new Vec3(sumX / len, sumY / len, sumZ / len);
+        }
+
+        /// <summary>
+        /// Compute the SharpCap-style correction arrow: rotate
+        /// <paramref name="anchor"/> by the rotation that takes
+        /// <paramref name="axis"/> onto <paramref name="pole"/>, and emit a
+        /// (start, end) sky-coord pair. Returns false when the axis already
+        /// sits on the pole (rotation angle &lt; 1 arcsec, sub-pixel arrow)
+        /// or when the rotation axis is degenerate (axis collinear with pole
+        /// — same condition).
+        /// </summary>
+        internal static bool TryBuildCorrectionArrow(in Vec3 axis, in Vec3 pole, in Vec3 anchor, out PolarCorrectionArrow arrow)
+        {
+            // Rotation that takes `axis` onto `pole`: axis r = (axis x pole) / |...|,
+            // angle omega = acos(axis . pole). Apply to the anchor via Rodrigues.
+            var dot = Math.Clamp(Vec3.Dot(axis, pole), -1.0, 1.0);
+            var omega = Math.Acos(dot);
+            const double minOmegaRad = 4.85e-6; // 1 arcsec — sub-pixel for any sane polar-align FOV
+            if (omega < minOmegaRad)
+            {
+                arrow = default;
+                return false;
+            }
+
+            var crossX = axis.Y * pole.Z - axis.Z * pole.Y;
+            var crossY = axis.Z * pole.X - axis.X * pole.Z;
+            var crossZ = axis.X * pole.Y - axis.Y * pole.X;
+            var crossLen = Math.Sqrt(crossX * crossX + crossY * crossY + crossZ * crossZ);
+            if (crossLen < 1e-12)
+            {
+                // Degenerate: axis parallel/antiparallel to pole. Parallel
+                // is the early-exit above; antiparallel means a 180deg
+                // rotation with ill-defined direction (won't happen in
+                // practice — the axis is always in the same hemisphere as
+                // the pole during polar alignment).
+                arrow = default;
+                return false;
+            }
+            var rx = crossX / crossLen;
+            var ry = crossY / crossLen;
+            var rz = crossZ / crossLen;
+
+            var c = Math.Cos(omega);
+            var s = Math.Sin(omega);
+            var oneMinusC = 1.0 - c;
+
+            // Rodrigues' formula: v_rot = v*c + (r x v)*s + r*(r . v)*(1 - c).
+            var rDotV = rx * anchor.X + ry * anchor.Y + rz * anchor.Z;
+            var rxv_X = ry * anchor.Z - rz * anchor.Y;
+            var rxv_Y = rz * anchor.X - rx * anchor.Z;
+            var rxv_Z = rx * anchor.Y - ry * anchor.X;
+            var ex = anchor.X * c + rxv_X * s + rx * rDotV * oneMinusC;
+            var ey = anchor.Y * c + rxv_Y * s + ry * rDotV * oneMinusC;
+            var ez = anchor.Z * c + rxv_Z * s + rz * rDotV * oneMinusC;
+            var endLen = Math.Sqrt(ex * ex + ey * ey + ez * ez);
+            var end = new Vec3(ex / endLen, ey / endLen, ez / endLen);
+
+            var (startRa, startDec) = PolarAxisSolver.UnitVecToRaDec(anchor);
+            var (endRa, endDec) = PolarAxisSolver.UnitVecToRaDec(end);
+            arrow = new PolarCorrectionArrow(startRa, startDec, endRa, endDec);
+            return true;
         }
 
         private async ValueTask ReverseAxisAsync()

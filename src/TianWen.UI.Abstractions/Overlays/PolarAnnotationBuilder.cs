@@ -17,9 +17,9 @@ namespace TianWen.UI.Abstractions.Overlays
     /// <item>True-pole cross (white) labelled "NCP/SCP (True)".</item>
     /// <item>Refracted-pole cross (green) labelled "NCP/SCP (Refracted)" — the
     /// refraction-corrected target the rotation axis should hit.</item>
-    /// <item>Current rotation-axis marker (CircledCross, colour ramping
-    /// green/yellow/red as the total error magnitude crosses the ring
-    /// thresholds).</item>
+    /// <item>Current rotation-axis crosshair (red, plain Cross glyph at 32px) --
+    /// "center of rotation": where the camera sweeps around as the RA encoder
+    /// turns. The user nudges polar knobs to walk this onto the refracted pole.</item>
     /// <item>5'/15'/30' rings (faint green) around the refracted pole.</item>
     /// </list>
     /// </summary>
@@ -36,11 +36,19 @@ namespace TianWen.UI.Abstractions.Overlays
         // 5'/15'/30' triple stack of the post-Phase-A overlay).
         private static readonly RGBAColor32 PreviewRingColor = new(0x88, 0xff, 0xaa, 0xee);
 
-        // Axis marker tri-band colour ramp keyed off arcmin error magnitude.
-        // Matches the 5'/15' ring boundaries (last band shows red beyond 15').
-        private static readonly RGBAColor32 AxisGreen = new(0x44, 0xff, 0x44, 0xff);
-        private static readonly RGBAColor32 AxisYellow = new(0xff, 0xcc, 0x33, 0xff);
-        private static readonly RGBAColor32 AxisRed = new(0xff, 0x44, 0x44, 0xff);
+        // Center-of-rotation crosshair: bright red at full opacity. Always red,
+        // not ramped by error magnitude -- the *colour* shouldn't carry the
+        // alignment-progress signal, the *distance* between this crosshair and
+        // the refracted-pole cross does. Red was chosen to read clearly against
+        // the green WCS grid + ring overlay without colour-blind ambiguity.
+        private static readonly RGBAColor32 CenterOfRotationColor = new(0xff, 0x44, 0x44, 0xff);
+
+        // Bright yellow for the SharpCap-style correction-direction arrow and
+        // its target reticle: distinct from the red center-of-rotation
+        // crosshair (so the user reads "yellow = action you should take" vs
+        // "red = where the axis is right now") and from the green pole/ring
+        // palette.
+        private static readonly RGBAColor32 CorrectionArrowColor = new(0xff, 0xff, 0x55, 0xff);
 
         /// <summary>
         /// Minimal "preview" annotation shown during polar-align mode before the
@@ -82,35 +90,43 @@ namespace TianWen.UI.Abstractions.Overlays
         {
             var poleLabel = overlay.Hemisphere == Hemisphere.North ? "NCP" : "SCP";
 
-            var totalArcmin = System.Math.Sqrt(
-                overlay.AzErrorArcmin * overlay.AzErrorArcmin
-                + overlay.AltErrorArcmin * overlay.AltErrorArcmin);
-            var axisColor = totalArcmin <= 5.0 ? AxisGreen
-                : totalArcmin <= 15.0 ? AxisYellow
-                : AxisRed;
-
-            var markers = ImmutableArray.Create(
-                new SkyMarker(
-                    RaHours: overlay.TruePoleRaHours,
-                    DecDeg: overlay.TruePoleDecDeg,
-                    Glyph: SkyMarkerGlyph.Cross,
-                    Color: TruePoleColor,
-                    Label: $"{poleLabel} (True)",
-                    SizePx: 12f),
-                new SkyMarker(
-                    RaHours: overlay.RefractedPoleRaHours,
-                    DecDeg: overlay.RefractedPoleDecDeg,
-                    Glyph: SkyMarkerGlyph.Cross,
-                    Color: RefractedPoleColor,
-                    Label: $"{poleLabel} (Refracted)",
-                    SizePx: 12f),
-                new SkyMarker(
-                    RaHours: overlay.AxisRaHours,
-                    DecDeg: overlay.AxisDecDeg,
-                    Glyph: SkyMarkerGlyph.CircledCross,
-                    Color: axisColor,
+            // Three reference markers: true pole, refracted pole, current axis.
+            // The correction arrow's target reticle (when present) is appended
+            // as a fourth Circle marker so the user can see the destination
+            // even if the renderer skips the arrow shaft (sub-pixel or
+            // off-screen endpoint).
+            var markersBuilder = ImmutableArray.CreateBuilder<SkyMarker>(overlay.CorrectionArrow is null ? 3 : 4);
+            markersBuilder.Add(new SkyMarker(
+                RaHours: overlay.TruePoleRaHours,
+                DecDeg: overlay.TruePoleDecDeg,
+                Glyph: SkyMarkerGlyph.Cross,
+                Color: TruePoleColor,
+                Label: $"{poleLabel} (True)",
+                SizePx: 12f));
+            markersBuilder.Add(new SkyMarker(
+                RaHours: overlay.RefractedPoleRaHours,
+                DecDeg: overlay.RefractedPoleDecDeg,
+                Glyph: SkyMarkerGlyph.Cross,
+                Color: RefractedPoleColor,
+                Label: $"{poleLabel} (Refracted)",
+                SizePx: 12f));
+            markersBuilder.Add(new SkyMarker(
+                RaHours: overlay.AxisRaHours,
+                DecDeg: overlay.AxisDecDeg,
+                Glyph: SkyMarkerGlyph.Cross,
+                Color: CenterOfRotationColor,
+                Label: "Center of rotation",
+                SizePx: 32f));
+            if (overlay.CorrectionArrow is { } arrow)
+            {
+                markersBuilder.Add(new SkyMarker(
+                    RaHours: arrow.EndRaHours,
+                    DecDeg: arrow.EndDecDeg,
+                    Glyph: SkyMarkerGlyph.Circle,
+                    Color: CorrectionArrowColor,
                     Label: null,
-                    SizePx: 10f));
+                    SizePx: 16f));
+            }
 
             var radii = overlay.RingRadiiArcmin.IsDefaultOrEmpty
                 ? ImmutableArray.Create(5f, 15f, 30f)
@@ -127,7 +143,24 @@ namespace TianWen.UI.Abstractions.Overlays
                     Label: $"{radius:F0}'"));
             }
 
-            return new WcsAnnotation(markers, ringsBuilder.ToImmutable());
+            ImmutableArray<SkyArrow> arrows = default;
+            if (overlay.CorrectionArrow is { } a)
+            {
+                // Single yellow arrow tail-to-head; the target reticle marker
+                // above sits on top of the head, so the user sees "drag this
+                // star into that circle".
+                arrows = ImmutableArray.Create(new SkyArrow(
+                    StartRaHours: a.StartRaHours,
+                    StartDecDeg: a.StartDecDeg,
+                    EndRaHours: a.EndRaHours,
+                    EndDecDeg: a.EndDecDeg,
+                    Color: CorrectionArrowColor,
+                    Label: null,
+                    ThicknessPx: 2f,
+                    HeadSizePx: 12f));
+            }
+
+            return new WcsAnnotation(markersBuilder.ToImmutable(), ringsBuilder.ToImmutable(), arrows);
         }
     }
 }

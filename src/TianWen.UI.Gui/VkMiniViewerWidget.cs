@@ -202,7 +202,16 @@ public sealed unsafe class VkMiniViewerWidget : IMiniViewerWidget, IDisposable
             // image becomes a green moire pattern. Floor at cos = 0.05 (= dec ~87
             // deg) so we don't blow up exactly at the pole.
             var cosCenterDec = Math.Max(Math.Cos(gw.CenterDec * Math.PI / 180.0), 0.05);
-            gridSpacingRA = spacingRArad / (float)cosCenterDec;
+            // Polar-align mode: lock RA step to 12h (= pi rad) regardless of
+            // FOV / cos(dec) compensation. With cos(dec)~0 near the pole the
+            // autoscaled meridians otherwise pile into a green moire that
+            // hides the overlay rings; pi rad gives 2 meridians (0h / 12h)
+            // forming a single diameter line, providing rotation-orientation
+            // context without overwhelming the alignment cues. Dec auto-scale
+            // is preserved -- those concentric circles are useful here.
+            gridSpacingRA = State.PolarAlignSparseGrid
+                ? (float)Math.PI
+                : spacingRArad / (float)cosCenterDec;
             gridSpacingDec = spacingRad;
             gridLineWidth = (float)(1.5 * pixelScaleArcsec / Math.Max(effectiveZoom, 0.0001f) / 3600.0 * (Math.PI / 180.0));
 

@@ -233,6 +233,9 @@ public sealed class VkViewerTab : ImageRendererBase<VulkanContext>, IDisposable
         _renderer.FillRectangle(vRect, color);
     }
 
+    protected override void DrawLineOverlay(float x0, float y0, float x1, float y1, RGBAColor32 color, float thickness)
+        => _renderer.DrawLine(x0, y0, x1, y1, color, Math.Max(1, (int)(thickness * DpiScale)));
+
     public void Dispose()
     {
         _fitsPipeline.Dispose();

@@ -131,6 +131,46 @@ namespace TianWen.Lib.Astrometry
             2.0 * Math.Asin(Math.Min(1.0, Math.Sin(0.5 * deltaRad) * Math.Sin(coneHalfAngleRad)));
 
         /// <summary>
+        /// Signed rotation angle about <paramref name="axis"/> that takes
+        /// <paramref name="v1"/> to <paramref name="v2"/>. Both inputs are
+        /// projected onto the plane perpendicular to the axis, then the
+        /// angle between the projections is read using the right-hand rule
+        /// (sign comes from cross(v1_perp, v2_perp) · axis).
+        ///
+        /// This is the *measured* mount rotation between the two plate-solves,
+        /// independent of the commanded (rate * elapsed) value the orchestrator
+        /// uses for the geometric solve. Comparing the two flags rate-error
+        /// or sidereal contamination of the rotation duration estimate. Returns
+        /// 0 when either projection is degenerate (axis pointing through v1 or v2).
+        /// </summary>
+        public static double MeasuredRotationAroundAxis(in Vec3 v1, in Vec3 v2, in Vec3 axis)
+        {
+            var v1DotA = Vec3.Dot(v1, axis);
+            var v2DotA = Vec3.Dot(v2, axis);
+            var v1PerpX = v1.X - v1DotA * axis.X;
+            var v1PerpY = v1.Y - v1DotA * axis.Y;
+            var v1PerpZ = v1.Z - v1DotA * axis.Z;
+            var v2PerpX = v2.X - v2DotA * axis.X;
+            var v2PerpY = v2.Y - v2DotA * axis.Y;
+            var v2PerpZ = v2.Z - v2DotA * axis.Z;
+
+            var v1PerpLenSq = v1PerpX * v1PerpX + v1PerpY * v1PerpY + v1PerpZ * v1PerpZ;
+            var v2PerpLenSq = v2PerpX * v2PerpX + v2PerpY * v2PerpY + v2PerpZ * v2PerpZ;
+            if (v1PerpLenSq < 1e-18 || v2PerpLenSq < 1e-18) return 0.0;
+
+            var dot = v1PerpX * v2PerpX + v1PerpY * v2PerpY + v1PerpZ * v2PerpZ;
+
+            // Right-hand sense: sign(cross(v1_perp, v2_perp) . axis) gives the
+            // sign of the rotation that takes v1 -> v2 around `axis`.
+            var crossX = v1PerpY * v2PerpZ - v1PerpZ * v2PerpY;
+            var crossY = v1PerpZ * v2PerpX - v1PerpX * v2PerpZ;
+            var crossZ = v1PerpX * v2PerpY - v1PerpY * v2PerpX;
+            var crossDotAxis = crossX * axis.X + crossY * axis.Y + crossZ * axis.Z;
+
+            return Math.Atan2(crossDotAxis, dot);
+        }
+
+        /// <summary>
         /// Live-refining axis tracker. Phase A produces (axis A0, v1, v2, delta);
         /// during refining the user adjusts polar knobs which moves the physical
         /// RA axis but leaves the encoder fixed. The (v1, v_now, delta) pair

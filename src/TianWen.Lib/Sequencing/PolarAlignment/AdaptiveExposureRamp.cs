@@ -50,28 +50,37 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
         /// <summary>
         /// Walk the ramp until one rung produces a plate solve with at least
         /// <paramref name="minStarsMatched"/> matched stars. Returns the
-        /// successful result; the caller is expected to lock the returned
-        /// <see cref="CaptureAndSolveResult.ExposureUsed"/> for subsequent captures.
+        /// successful result plus, separately, the shortest rung that already
+        /// cleared the relaxed <paramref name="minStarsRefine"/> threshold —
+        /// Phase A wants the strict threshold (axis-recovery precision floor),
+        /// but Phase B refining can run on a much shorter exposure since the
+        /// per-frame chord arc is already nailed down by Phase A.
         /// </summary>
         /// <param name="source">Capture source that produces FITS+WCS for one exposure.</param>
         /// <param name="solver">Plate solver to invoke (typically the active <see cref="IPlateSolverFactory"/>).</param>
         /// <param name="ramp">Exposure ramp to try, shortest first. Pass <see cref="DefaultRamp"/>
         /// or a profile-specific override.</param>
-        /// <param name="minStarsMatched">Star-match threshold for "solve good enough".
-        /// Default 15 (matches <c>InitialRoughFocusAsync</c>'s star-count gate).</param>
+        /// <param name="minStarsMatched">Strict threshold: Phase A locks here.</param>
+        /// <param name="minStarsRefine">Relaxed threshold for Phase B refining.
+        /// Pass a value &lt;= <paramref name="minStarsMatched"/>. The first rung
+        /// that clears this is returned in <see cref="ProbeResult.RefineExposure"/>;
+        /// Phase B then runs at that shorter exposure. Pass -1 to disable
+        /// (RefineExposure mirrors the strict-threshold rung).</param>
         /// <param name="ct">Cancellation token.</param>
-        /// <returns>The first successful capture-and-solve result, or the last
-        /// failed attempt if every rung was tried (caller checks <see cref="CaptureAndSolveResult.Success"/>).</returns>
-        public static async ValueTask<CaptureAndSolveResult> ProbeAsync(
+        /// <param name="progress">Optional progress reporter for the side panel.</param>
+        /// <param name="logger">Optional logger.</param>
+        public static async ValueTask<ProbeResult> ProbeAsync(
             ICaptureSource source,
             IPlateSolver solver,
             ImmutableArray<TimeSpan> ramp,
             int minStarsMatched,
+            int minStarsRefine,
             CancellationToken ct,
             IProgress<ProbeProgress>? progress = null,
             ILogger? logger = null)
         {
             CaptureAndSolveResult last = default;
+            TimeSpan? refineExposure = null;
             for (var i = 0; i < ramp.Length; i++)
             {
                 ct.ThrowIfCancellationRequested();
@@ -112,12 +121,37 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
                     i + 1, ramp.Length, exposure.TotalMilliseconds, rungElapsed.TotalMilliseconds,
                     last.Success, last.StarsMatched);
 
+                // Track the first rung that clears the relaxed (refining)
+                // threshold; we keep walking the ramp afterwards because Phase A
+                // still needs a stricter solve, but Phase B will use this rung.
+                if (refineExposure is null && minStarsRefine > 0
+                    && last.Success && last.StarsMatched >= minStarsRefine)
+                {
+                    refineExposure = exposure;
+                }
+
                 if (last.Success && last.StarsMatched >= minStarsMatched)
                 {
-                    return last;
+                    return new ProbeResult(last, refineExposure ?? exposure);
                 }
             }
-            return last;
+            return new ProbeResult(last, refineExposure ?? last.ExposureUsed);
         }
+    }
+
+    /// <summary>
+    /// Two-tier probe outcome: the strict-threshold capture used by Phase A
+    /// for axis recovery, plus the (potentially shorter) exposure that already
+    /// cleared the refining threshold for use in Phase B.
+    /// </summary>
+    /// <param name="Final">Strict-threshold capture-and-solve result; check
+    /// <see cref="CaptureAndSolveResult.Success"/> before consuming.</param>
+    /// <param name="RefineExposure">Shortest rung in the ramp that hit the
+    /// relaxed refining threshold; falls back to <see cref="CaptureAndSolveResult.ExposureUsed"/>
+    /// from <paramref name="Final"/> when no shorter rung qualified.</param>
+    internal readonly record struct ProbeResult(
+        CaptureAndSolveResult Final,
+        TimeSpan RefineExposure)
+    {
     }
 }

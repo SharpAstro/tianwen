@@ -28,6 +28,15 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
     /// for the first frame; reused for frame 2 and the entire refine loop.</param>
     /// <param name="StarsMatchedFrame1">Solved-star count in frame 1.</param>
     /// <param name="StarsMatchedFrame2">Solved-star count in frame 2.</param>
+    /// <param name="CommandedRotationRad">Rotation angle the orchestrator
+    /// asked the mount to perform (= rate × elapsed wall-clock). Drives the
+    /// recovery math.</param>
+    /// <param name="MeasuredRotationRad">Actual rotation angle around the
+    /// recovered axis as measured by the two plate solves: signed angle
+    /// between v1 and v2 projected onto the plane perpendicular to the axis.
+    /// Compare against <paramref name="CommandedRotationRad"/> to flag mount
+    /// rate error / wobble / sidereal-contamination of the elapsed-time
+    /// estimate. Mismatch >~30 arcsec is suspicious.</param>
     public readonly record struct TwoFrameSolveResult(
         bool Success,
         string? FailureReason,
@@ -38,7 +47,9 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
         double ChordAnglePredictedRad,
         TimeSpan LockedExposure,
         int StarsMatchedFrame1,
-        int StarsMatchedFrame2)
+        int StarsMatchedFrame2,
+        double CommandedRotationRad = 0,
+        double MeasuredRotationRad = 0)
     {
         /// <summary>Convenience: total angular axis-error magnitude in arcmin (sky distance).</summary>
         public double TotalErrorArcmin
@@ -127,6 +138,14 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
     /// <param name="AzErrorArcmin">Cached arcmin error component for direction-hint badge.</param>
     /// <param name="AltErrorArcmin">Cached arcmin error component for direction-hint badge.</param>
     /// <param name="Hemisphere">Which pole the routine targets (drives label NCP vs SCP).</param>
+    /// <param name="CorrectionArrow">Optional SharpCap-style "follow this
+    /// arrow" hint: a sky-coordinate arrow pointing from a reference point
+    /// (currently the live frame's WCS centre) to the same point rotated by
+    /// the corrective rotation that takes the recovered axis onto the
+    /// refracted pole. The renderer projects both endpoints through the live
+    /// WCS and draws a line + arrowhead + a target reticle marker at the
+    /// head. Null when the corrective rotation is too small to render
+    /// (arrow would be sub-pixel).</param>
     public readonly record struct PolarOverlay(
         double TruePoleRaHours,
         double TruePoleDecDeg,
@@ -137,5 +156,22 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
         ImmutableArray<float> RingRadiiArcmin,
         double AzErrorArcmin,
         double AltErrorArcmin,
-        Hemisphere Hemisphere);
+        Hemisphere Hemisphere,
+        PolarCorrectionArrow? CorrectionArrow = null);
+
+    /// <summary>
+    /// One sky-coordinate arrow describing the polar-correction direction.
+    /// Tail = where a chosen visual anchor (frame centre / bright star)
+    /// currently sits. Head = where that same anchor would land if the
+    /// corrective rotation (recovered axis -> refracted pole) were applied.
+    /// </summary>
+    /// <param name="StartRaHours">Tail RA in hours.</param>
+    /// <param name="StartDecDeg">Tail Dec in degrees.</param>
+    /// <param name="EndRaHours">Head RA in hours.</param>
+    /// <param name="EndDecDeg">Head Dec in degrees.</param>
+    public readonly record struct PolarCorrectionArrow(
+        double StartRaHours,
+        double StartDecDeg,
+        double EndRaHours,
+        double EndDecDeg);
 }

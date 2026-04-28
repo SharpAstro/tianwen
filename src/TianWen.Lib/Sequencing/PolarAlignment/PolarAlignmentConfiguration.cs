@@ -12,9 +12,18 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
     /// <param name="ExposureRamp">Exposure ladder tried in order until a plate
     /// solve succeeds with at least <see cref="MinStarsForSolve"/> matched stars.
     /// Defaults to <see cref="AdaptiveExposureRamp.DefaultRamp"/>.</param>
-    /// <param name="MinStarsForSolve">Minimum matched stars to accept a plate
-    /// solve as valid. 15 matches the existing <c>InitialRoughFocusAsync</c>
-    /// gate.</param>
+    /// <param name="MinStarsForSolve">Minimum matched stars to accept a Phase B
+    /// (refining) plate solve as valid. Refining runs at higher cadence and the
+    /// per-frame chord arc is already known from Phase A, so we don't need a
+    /// strict floor here -- a few stars are enough to keep the live readout
+    /// alive.</param>
+    /// <param name="RotationMinStars">Minimum matched stars to accept a Phase A
+    /// (rotation) plate solve. The Phase A axis recovery runs end-to-end
+    /// geometry on a single (v1, v2) pair, so each pose's plate-solve precision
+    /// directly sets the floor on the recovered axis -- well worth holding out
+    /// for a longer exposure to clear this rung. Default 50; keep above
+    /// <see cref="MinStarsForSolve"/> so the starts-then-refines lifecycle has
+    /// progressively looser gates.</param>
     /// <param name="RotationDeg">Phase A RA-axis rotation in degrees. SharpCap
     /// defaults to 90; we default to 45 because shorter rotations give the
     /// user more leeway to start near the meridian without crossing it during
@@ -77,7 +86,8 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
         double SettleSigmaArcmin = 0.5,
         int RefineFullSolveInterval = 30,
         bool UseIncrementalSolver = true,
-        int ReferenceFrameAverages = 5)
+        int ReferenceFrameAverages = 5,
+        int RotationMinStars = 50)
     {
         /// <summary>
         /// Default configuration: <see cref="AdaptiveExposureRamp.DefaultRamp"/>

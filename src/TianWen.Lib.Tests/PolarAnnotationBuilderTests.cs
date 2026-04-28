@@ -21,7 +21,8 @@ namespace TianWen.Lib.Tests
             double azArcmin = 0,
             double altArcmin = 0,
             Hemisphere hemisphere = Hemisphere.North,
-            ImmutableArray<float> rings = default)
+            ImmutableArray<float> rings = default,
+            PolarCorrectionArrow? correctionArrow = null)
         {
             return new PolarOverlay(
                 TruePoleRaHours: 0.0,
@@ -33,7 +34,8 @@ namespace TianWen.Lib.Tests
                 RingRadiiArcmin: rings,
                 AzErrorArcmin: azArcmin,
                 AltErrorArcmin: altArcmin,
-                Hemisphere: hemisphere);
+                Hemisphere: hemisphere,
+                CorrectionArrow: correctionArrow);
         }
 
         [Fact]
@@ -55,11 +57,11 @@ namespace TianWen.Lib.Tests
             annotation.Markers[1].Glyph.ShouldBe(SkyMarkerGlyph.Cross);
             annotation.Markers[1].Label.ShouldBe("NCP (Refracted)");
 
-            // Axis marker as CircledCross at the recovered axis sky position.
+            // Center-of-rotation crosshair (red, plain Cross) at the recovered axis.
             annotation.Markers[2].RaHours.ShouldBe(6.0);
             annotation.Markers[2].DecDeg.ShouldBe(89.0);
-            annotation.Markers[2].Glyph.ShouldBe(SkyMarkerGlyph.CircledCross);
-            annotation.Markers[2].Label.ShouldBeNull();
+            annotation.Markers[2].Glyph.ShouldBe(SkyMarkerGlyph.Cross);
+            annotation.Markers[2].Label.ShouldBe("Center of rotation");
         }
 
         [Fact]
@@ -115,36 +117,68 @@ namespace TianWen.Lib.Tests
         }
 
         [Fact]
-        public void Build_AxisColorRampsGreenWhenWithinFiveArcmin()
+        public void Build_CenterOfRotationCrosshair_IsAlwaysRed_RegardlessOfErrorMagnitude()
         {
-            var overlay = MakeOverlay(azArcmin: 2.0, altArcmin: 1.0); // total ~2.2'
-            var green = new RGBAColor32(0x44, 0xff, 0x44, 0xff);
-
-            var annotation = PolarAnnotationBuilder.Build(overlay);
-
-            annotation.Markers[2].Color.ShouldBe(green);
-        }
-
-        [Fact]
-        public void Build_AxisColorRampsYellowWhenBetweenFiveAndFifteenArcmin()
-        {
-            var overlay = MakeOverlay(azArcmin: 8.0, altArcmin: 4.0); // total ~8.9'
-            var yellow = new RGBAColor32(0xff, 0xcc, 0x33, 0xff);
-
-            var annotation = PolarAnnotationBuilder.Build(overlay);
-
-            annotation.Markers[2].Color.ShouldBe(yellow);
-        }
-
-        [Fact]
-        public void Build_AxisColorRampsRedWhenBeyondFifteenArcmin()
-        {
-            var overlay = MakeOverlay(azArcmin: 20.0, altArcmin: 10.0); // total ~22.4'
+            // Color no longer ramps with error magnitude -- the *distance*
+            // between the red crosshair and the refracted-pole cross now
+            // carries the alignment-progress signal, not the colour.
             var red = new RGBAColor32(0xff, 0x44, 0x44, 0xff);
+            foreach (var (az, alt) in new[] { (2.0, 1.0), (8.0, 4.0), (20.0, 10.0) })
+            {
+                var overlay = MakeOverlay(azArcmin: az, altArcmin: alt);
+                var annotation = PolarAnnotationBuilder.Build(overlay);
+                annotation.Markers[2].Color.ShouldBe(red, $"az={az} alt={alt}");
+            }
+        }
+
+        [Fact]
+        public void Build_NoCorrectionArrow_ProducesThreeMarkersAndNoArrows()
+        {
+            var overlay = MakeOverlay(); // CorrectionArrow null by default.
 
             var annotation = PolarAnnotationBuilder.Build(overlay);
 
-            annotation.Markers[2].Color.ShouldBe(red);
+            annotation.Markers.Length.ShouldBe(3);
+            annotation.Arrows.IsDefaultOrEmpty.ShouldBeTrue("no correction supplied -> no arrow emitted");
+        }
+
+        [Fact]
+        public void Build_WithCorrectionArrow_AppendsYellowArrowAndTargetReticle()
+        {
+            var arrow = new PolarCorrectionArrow(
+                StartRaHours: 1.0, StartDecDeg: 60.0,
+                EndRaHours: 1.5, EndDecDeg: 61.0);
+            var overlay = MakeOverlay(correctionArrow: arrow);
+
+            var annotation = PolarAnnotationBuilder.Build(overlay);
+
+            // 4 markers: true pole, refracted pole, axis, plus the yellow
+            // target reticle at the arrow head.
+            annotation.Markers.Length.ShouldBe(4);
+            annotation.Markers[3].RaHours.ShouldBe(1.5);
+            annotation.Markers[3].DecDeg.ShouldBe(61.0);
+            annotation.Markers[3].Glyph.ShouldBe(SkyMarkerGlyph.Circle);
+
+            annotation.Arrows.Length.ShouldBe(1);
+            annotation.Arrows[0].StartRaHours.ShouldBe(1.0);
+            annotation.Arrows[0].EndRaHours.ShouldBe(1.5);
+            // Arrow and reticle share the same yellow palette so the user
+            // reads them as a single hint pair.
+            annotation.Arrows[0].Color.ShouldBe(annotation.Markers[3].Color);
+        }
+
+        [Fact]
+        public void Build_CenterOfRotationCrosshair_IsLargerThanPoleCrosses_ForVisibility()
+        {
+            var overlay = MakeOverlay();
+
+            var annotation = PolarAnnotationBuilder.Build(overlay);
+
+            // True/refracted poles are 12px reference markers; the center-of-
+            // rotation crosshair is the user's primary alignment target, so it
+            // gets a meaningfully larger glyph (32px).
+            annotation.Markers[2].SizePx.ShouldBeGreaterThan(annotation.Markers[0].SizePx);
+            annotation.Markers[2].SizePx.ShouldBeGreaterThan(annotation.Markers[1].SizePx);
         }
     }
 }

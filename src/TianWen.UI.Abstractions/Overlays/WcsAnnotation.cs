@@ -16,12 +16,13 @@ namespace TianWen.UI.Abstractions.Overlays
     /// </summary>
     public readonly record struct WcsAnnotation(
         ImmutableArray<SkyMarker> Markers,
-        ImmutableArray<SkyRing> Rings)
+        ImmutableArray<SkyRing> Rings,
+        ImmutableArray<SkyArrow> Arrows = default)
     {
-        public static readonly WcsAnnotation Empty = new([], []);
+        public static readonly WcsAnnotation Empty = new([], [], []);
 
         public bool IsEmpty =>
-            (Markers.IsDefaultOrEmpty) && (Rings.IsDefaultOrEmpty);
+            Markers.IsDefaultOrEmpty && Rings.IsDefaultOrEmpty && Arrows.IsDefaultOrEmpty;
     }
 
     /// <summary>
@@ -58,6 +59,31 @@ namespace TianWen.UI.Abstractions.Overlays
         float RadiusArcmin,
         RGBAColor32 Color,
         string? Label);
+
+    /// <summary>
+    /// Directed arrow drawn from one sky position to another, projected
+    /// through the WCS at render time. Used by the polar-alignment overlay
+    /// to point toward where a bright star (or, for our first pass, the
+    /// frame centre) needs to move to bring the rotation axis onto the
+    /// refracted pole — a SharpCap-style "follow this arrow" hint.
+    /// </summary>
+    /// <param name="StartRaHours">Tail RA in hours.</param>
+    /// <param name="StartDecDeg">Tail Dec in degrees.</param>
+    /// <param name="EndRaHours">Head RA in hours (where the user should drive the start point).</param>
+    /// <param name="EndDecDeg">Head Dec in degrees.</param>
+    /// <param name="Color">Stroke colour with alpha.</param>
+    /// <param name="Label">Optional label drawn near the head; null suppresses.</param>
+    /// <param name="ThicknessPx">Line thickness in screen pixels.</param>
+    /// <param name="HeadSizePx">Arrow-head leg length in screen pixels.</param>
+    public readonly record struct SkyArrow(
+        double StartRaHours,
+        double StartDecDeg,
+        double EndRaHours,
+        double EndDecDeg,
+        RGBAColor32 Color,
+        string? Label,
+        float ThicknessPx,
+        float HeadSizePx);
 
     /// <summary>
     /// Visual style for a <see cref="SkyMarker"/>. Each style maps to one of
