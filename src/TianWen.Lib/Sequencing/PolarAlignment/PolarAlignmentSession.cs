@@ -105,7 +105,7 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
                 return Failed(probe.FailureReason
                     ?? $"Plate solve failed at every exposure rung up to {_config.ExposureRamp[^1].TotalSeconds:F1}s — check focus, dew, light pollution.");
             }
-            _v1 = probe.WcsCenter;
+            _v1 = await AverageWcsAsync(probe.WcsCenter, probe.ExposureUsed, ct);
             _lockedExposureSeconds = probe.ExposureUsed.TotalSeconds;
 
             // --- RA-axis rotation via raw MoveAxis (bypasses pointing model) ---
@@ -184,12 +184,18 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
                     ?? $"Frame 2 plate solve failed after {maxFrame2Attempts} attempts at locked exposure {probe.ExposureUsed.TotalMilliseconds:F0}ms — check that the mount has settled and stars are still in frame.");
             }
 
+            // Average frame 2 over ReferenceFrameAverages additional captures so
+            // the v2 baseline used by the live tracker has sigma reduced by ~sqrt(N).
+            // The Phase A axis recovery and the LiveAxisRefiner both consume this
+            // value, so a clean reference is the floor for the live readout.
+            var v2Averaged = await AverageWcsAsync(frame2.WcsCenter, frame2.ExposureUsed, ct);
+
             // --- Recover axis + decompose against apparent pole ---
             var deltaRad = _phaseARotationRate * _phaseARotationElapsed.TotalSeconds * (Math.PI / 180.0);
             // Use absolute delta for the geometric solve; sign goes into the right-hand-rule
             // axis direction the math returns (which we ignore for pole projection — we only
             // need the line, not the sign).
-            if (!PolarAxisSolver.TryRecoverAxis(_v1, frame2.WcsCenter, Math.Abs(deltaRad), out var axis, out var coneRad))
+            if (!PolarAxisSolver.TryRecoverAxis(_v1, v2Averaged, Math.Abs(deltaRad), out var axis, out var coneRad))
             {
                 _phaseACompleted = true;
                 return Failed("Axis recovery ill-conditioned — try a larger rotation or different starting position.");
@@ -200,7 +206,7 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
                 _site.LatitudeDeg, _site.LongitudeDeg, _site.ElevationM,
                 _site.PressureHPa, _site.TemperatureC, _timeProvider.GetUtcNow());
 
-            var observedChord = PolarAxisSolver.ChordAngle(_v1, frame2.WcsCenter);
+            var observedChord = PolarAxisSolver.ChordAngle(_v1, v2Averaged);
             var predictedChord = PolarAxisSolver.PredictedChordAngle(Math.Abs(deltaRad), coneRad);
 
             // Seed the live-refining tracker with the Phase A state. RefineAsync uses
@@ -208,7 +214,7 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
             // re-rotating the mount, fixing the "GUI shows 60' when sim moves to 0,0"
             // bug that came from running TryRecoverAxis with a stale v1.
             _refiner = new PolarAxisSolver.LiveAxisRefiner(
-                _v1, frame2.WcsCenter, axis, _hemisphere, Math.Abs(deltaRad));
+                _v1, v2Averaged, axis, _hemisphere, Math.Abs(deltaRad));
 
             _phaseACompleted = true;
             return new TwoFrameSolveResult(
@@ -446,17 +452,23 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
                         image.Release();
                     }
 
-                    // Per-iteration timing log -- runs whether we yielded a result, hit
-                    // a continue path (no-solve / axis-recover-failed), or threw. Use
-                    // Information level so it shows up in SEQ without enabling Debug.
+                    // Per-iteration timing + raw axis-error log -- the rawAz/rawAlt
+                    // values let us see how noisy the plate-solve / Jacobian inverse
+                    // pipeline is before the EWMA smoother, which is critical to size
+                    // SmoothingWindow correctly: if raw is +/-3' then a window of 5
+                    // (default) lags the user but still leaks visible noise to the GUI.
                     _logger.LogInformation(
-                        "PolarAlignment refine iter: capture={CaptureMs:F0}ms fast={FastMs:F1}ms full={FullMs:F0}ms seed={SeedMs:F0}ms total={TotalMs:F0}ms outcome={Outcome}",
+                        "PolarAlignment refine iter: capture={CaptureMs:F0}ms fast={FastMs:F1}ms full={FullMs:F0}ms seed={SeedMs:F0}ms total={TotalMs:F0}ms outcome={Outcome} rawAz={RawAzArcmin:F2}' rawAlt={RawAltArcmin:F2}' smAz={SmAzArcmin:F2}' smAlt={SmAltArcmin:F2}'",
                         captureElapsed.TotalMilliseconds,
                         fastElapsed.TotalMilliseconds,
                         fullElapsed.TotalMilliseconds,
                         seedElapsed.TotalMilliseconds,
                         Stopwatch.GetElapsedTime(iterStart).TotalMilliseconds,
-                        outcome);
+                        outcome,
+                        yieldResult?.AzErrorRad * 180.0 / Math.PI * 60.0 ?? double.NaN,
+                        yieldResult?.AltErrorRad * 180.0 / Math.PI * 60.0 ?? double.NaN,
+                        yieldResult?.SmoothedAzErrorRad * 180.0 / Math.PI * 60.0 ?? double.NaN,
+                        yieldResult?.SmoothedAltErrorRad * 180.0 / Math.PI * 60.0 ?? double.NaN);
                 }
 
                 if (yieldResult is { } r)
@@ -488,6 +500,57 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
                 case PolarAlignmentOnDone.LeaveInPlace:
                     break;
             }
+        }
+
+        /// <summary>
+        /// Take <c>ReferenceFrameAverages - 1</c> additional plate solves at the
+        /// same exposure as <paramref name="firstSample"/> and return the unit
+        /// vector of the component-wise mean of all WCS centres. Each solve's
+        /// noise sigma_raw shrinks by ~sqrt(N) in the averaged result; for the
+        /// Phase A reference poses this drives the floor of how tight the
+        /// live-refining readout can ever be.
+        /// </summary>
+        private async ValueTask<Vec3> AverageWcsAsync(Vec3 firstSample, TimeSpan exposure, CancellationToken ct)
+        {
+            int target = Math.Max(1, _config.ReferenceFrameAverages);
+            if (target == 1) return firstSample;
+
+            double sumX = firstSample.X, sumY = firstSample.Y, sumZ = firstSample.Z;
+            int count = 1;
+            int extras = target - 1;
+
+            for (int i = 0; i < extras; i++)
+            {
+                ct.ThrowIfCancellationRequested();
+                CaptureAndSolveResult extra;
+                try
+                {
+                    extra = await _source.CaptureAndSolveAsync(exposure, _solver, ct: ct);
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogDebug(ex, "PolarAlignment: averaging extra capture {Index}/{Total} threw -- skipping", i + 1, extras);
+                    continue;
+                }
+
+                if (extra.Success)
+                {
+                    var v = extra.WcsCenter;
+                    sumX += v.X;
+                    sumY += v.Y;
+                    sumZ += v.Z;
+                    count++;
+                }
+            }
+
+            var len = Math.Sqrt(sumX * sumX + sumY * sumY + sumZ * sumZ);
+            _logger.LogInformation("PolarAlignment: averaged WCS over {Count}/{Target} solves at {Exposure}ms",
+                count, target, exposure.TotalMilliseconds);
+            return new Vec3(sumX / len, sumY / len, sumZ / len);
         }
 
         private async ValueTask ReverseAxisAsync()

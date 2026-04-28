@@ -26,11 +26,35 @@ public static class StatisticsHelper
         {
             return values[0];
         }
-        
+
         values.Sort();
 
         int mid = values.Length / 2;
         return values.Length % 2 != 0 ? values[mid] : (values[mid] + values[mid - 1]) / 2;
+    }
+
+    /// <summary>
+    /// Double-precision <see cref="Median(Span{float})"/>. Sorts in place;
+    /// returns <see cref="double.NaN"/> for an empty span. Used by the polar-
+    /// alignment smoother where samples are radians and float quantisation
+    /// would coarsen the readout below the routine's arcmin target.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
+    public static double Median(Span<double> values)
+    {
+        if (values.Length == 0)
+        {
+            return double.NaN;
+        }
+        else if (values.Length == 1)
+        {
+            return values[0];
+        }
+
+        values.Sort();
+
+        int mid = values.Length / 2;
+        return (values.Length & 1) != 0 ? values[mid] : 0.5 * (values[mid] + values[mid - 1]);
     }
 
     /// <summary>

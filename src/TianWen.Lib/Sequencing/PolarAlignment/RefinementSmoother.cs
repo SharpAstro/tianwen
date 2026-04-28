@@ -1,4 +1,5 @@
 using System;
+using TianWen.Lib.Stat;
 
 namespace TianWen.Lib.Sequencing.PolarAlignment
 {
@@ -89,6 +90,25 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
                 }
                 varAz /= _window; varAlt /= _window;
                 settled = Math.Sqrt(varAz) < _settleSigmaRad && Math.Sqrt(varAlt) < _settleSigmaRad;
+            }
+
+            // When the user has stopped turning knobs (Settled), swap from EWMA to
+            // per-axis median over the window. Median is robust to plate-solve
+            // outliers (a single bad full-solve doesn't pull the readout) and at
+            // N samples reduces independent-noise variance by ~1/N -- e.g. raw
+            // +/-3' shrinks to roughly +/-0.8' at N=15. While the user is
+            // actively adjusting, EWMA is preferred: it tracks knob motion
+            // responsively whereas median lags the median-position-in-window
+            // (~window/2 iterations behind).
+            if (settled && _samplesSeen >= _window)
+            {
+                // Copy the ring buffer because StatisticsHelper.Median sorts in place
+                // and we need the original order for the next variance calc.
+                Span<double> azCopy = stackalloc double[_window];
+                Span<double> altCopy = stackalloc double[_window];
+                _bufAz.AsSpan(0, _window).CopyTo(azCopy);
+                _bufAlt.AsSpan(0, _window).CopyTo(altCopy);
+                return (StatisticsHelper.Median(azCopy), StatisticsHelper.Median(altCopy), true);
             }
 
             return (_ewmaAz, _ewmaAlt, settled);
