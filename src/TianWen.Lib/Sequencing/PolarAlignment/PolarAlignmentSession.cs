@@ -53,8 +53,47 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
         // RefineAsync to translate live frame drift into a fresh axis without
         // re-rotating the mount. See LiveAxisRefiner for the math.
         private PolarAxisSolver.LiveAxisRefiner _refiner;
+        // Reference UTC for the J2000 frame the refiner was seeded in. The
+        // mount axis is fixed in topo, so its J2000 representation rotates at
+        // sidereal rate (~0.25'/sec). To keep the Jacobian recovery consistent
+        // we rotate every live wcs centre back into _referenceUtc's J2000
+        // frame before subtracting v2_baseline -- otherwise even with sim
+        // unchanged, dv accumulates a spurious sidereal offset that the
+        // recovery interprets as fictitious axis drift (~7' over 30s at
+        // typical sim magnitudes).
+        private DateTimeOffset _referenceUtc;
         private double _lastLoggedWcsCenterRA;
         private double _lastLoggedWcsCenterDec;
+
+        // 2 * pi / sidereal day in seconds. Used to de-rotate live wcs centres
+        // back into the reference UTC's J2000 frame; see _referenceUtc.
+        private const double SiderealRateRadPerSec = 2.0 * Math.PI / 86164.0905;
+
+        /// <summary>
+        /// Rotate <paramref name="v"/> around the J2000 z-axis (celestial pole)
+        /// by the sidereal-rate angle corresponding to (<paramref name="captureTime"/>
+        /// - <paramref name="referenceTime"/>). Used to bring a live WCS centre
+        /// into the J2000 frame at <paramref name="referenceTime"/> so the
+        /// (v_now - v2_baseline) subtraction in <see cref="PolarAxisSolver.LiveAxisRefiner"/>
+        /// only reflects real axis change, not Earth rotation.
+        /// </summary>
+        private static Vec3 SiderealNormalise(in Vec3 v, DateTimeOffset captureTime, DateTimeOffset referenceTime)
+        {
+            var diffSeconds = (captureTime - referenceTime).TotalSeconds;
+            if (Math.Abs(diffSeconds) < 1e-3) return v;
+            // Negative because we want to UNDO the rotation that has happened
+            // between referenceTime and captureTime: v at captureTime is what
+            // a topo-fixed direction looks like in J2000 after rotating
+            // (sidereal_rate * diffSeconds) around the pole; rotating by the
+            // opposite angle puts it back at the reference frame.
+            var rot = -SiderealRateRadPerSec * diffSeconds;
+            var c = Math.Cos(rot);
+            var s = Math.Sin(rot);
+            return new Vec3(
+                c * v.X - s * v.Y,
+                s * v.X + c * v.Y,
+                v.Z);
+        }
 
         public PolarAlignmentSession(
             IExternal external,
@@ -217,6 +256,12 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
             // bug that came from running TryRecoverAxis with a stale v1.
             _refiner = new PolarAxisSolver.LiveAxisRefiner(
                 _v1, v2Averaged, axis, _hemisphere, Math.Abs(deltaRad));
+            // Anchor the J2000 frame at v2's capture time so RefineAsync can de-rotate
+            // each live wcs centre back into this frame (mount axis is fixed in topo,
+            // not J2000, so its J2000 representation drifts at sidereal rate; without
+            // this normalisation the live readout accumulates ~0.25'/sec of fictitious
+            // drift even when the user isn't moving the polar knobs).
+            _referenceUtc = _timeProvider.GetUtcNow();
 
             _phaseACompleted = true;
             return new TwoFrameSolveResult(
@@ -392,7 +437,12 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
 
                     _lastLoggedWcsCenterRA = wcs.CenterRA;
                     _lastLoggedWcsCenterDec = wcs.CenterDec;
-                    var wcsCenter = PolarAxisSolver.RaDecToUnitVec(wcs.CenterRA, wcs.CenterDec);
+                    var wcsCenterRaw = PolarAxisSolver.RaDecToUnitVec(wcs.CenterRA, wcs.CenterDec);
+                    // De-rotate the live frame back into the reference J2000 frame
+                    // anchored at Phase A. Without this, mount axis fixed in topo
+                    // appears to drift at sidereal rate in J2000, and the Jacobian
+                    // recovery converts that drift into fictitious axis offset.
+                    var wcsCenter = SiderealNormalise(wcsCenterRaw, _timeProvider.GetUtcNow(), _referenceUtc);
                     // Jacobian-linearised live tracker: dv = wcsCenter - v2_baseline,
                     // dA = J^+ * dv, A_current = normalise(A0 + dA). Replaces the prior
                     // per-iteration TryRecoverAxis(_v1, wcsCenter, delta) call which was
@@ -400,10 +450,14 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
                     // changed between v1 capture and the live frame, breaking the
                     // single-rotation-pair assumption). See LiveAxisRefiner XML doc.
                     var axis = _refiner.RefineAxis(wcsCenter);
+                    // Decompose against the SAME J2000 frame the refiner was seeded
+                    // in (Phase A's UTC). The recovered axis is in that frame; using
+                    // current UTC for J2000->topo would re-introduce the sidereal
+                    // drift we just removed via SiderealNormalise.
                     var (azErr, altErr) = PolarAxisSolver.DecomposeAxisError(
                         axis, _hemisphere,
                         _site.LatitudeDeg, _site.LongitudeDeg, _site.ElevationM,
-                        _site.PressureHPa, _site.TemperatureC, _timeProvider.GetUtcNow());
+                        _site.PressureHPa, _site.TemperatureC, _referenceUtc);
 
                     var (smAz, smAlt, isSettled) = smoother.Update(azErr, altErr);
                     bool isAligned = Math.Abs(smAz) < targetAccuracyRad && Math.Abs(smAlt) < targetAccuracyRad;

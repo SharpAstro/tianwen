@@ -488,6 +488,52 @@ namespace TianWen.Lib.Tests
             }
         }
 
+        /// <summary>
+        /// End-to-end Phase A math: sim (azErr, altErr) -> axis -> v1/v2 ->
+        /// TryRecoverAxis -> DecomposeAxisError -> reported (azErr, altErr).
+        /// Should round-trip to within sub-arcmin (refraction asymmetry only).
+        /// If the GUI shows 40' when sim is configured to 30' the bug must be
+        /// outside the math -- in the data path that connects FakeSkywatcher's
+        /// configured offset to the orchestrator's Phase A inputs.
+        /// </summary>
+        [Theory]
+        [InlineData(30.0, 0.0)]
+        [InlineData(0.0, 30.0)]
+        [InlineData(30.0, -10.0)]
+        [InlineData(-45.0, 60.0)]
+        public void GivenSimMisalignmentWhenFullPhaseAMathThenRoundTripsConfiguredOffset(double simAzArcmin, double simAltArcmin)
+        {
+            var hemisphere = Hemisphere.South;
+            var timeProvider = TimeProviderAt(TestUtc);
+            var deltaRad = Math.PI / 4; // 45deg phase A rotation
+
+            var axis = FakeSkywatcherMountDriver.TopocentricMisalignmentToJ2000Axis(
+                SiteLatDeg, SiteLonDeg, SiteElevM, TestUtc,
+                simAzArcmin, simAltArcmin, hemisphere, timeProvider);
+
+            const double encoder1Rad = 0.0;
+            const double encoder2Rad = Math.PI / 4;
+            var (ra1, dec1) = FakeSkywatcherMountDriver.ApplyPolarMisalignment(axis, hemisphere, encoder1Rad);
+            var (ra2, dec2) = FakeSkywatcherMountDriver.ApplyPolarMisalignment(axis, hemisphere, encoder2Rad);
+            var v1 = PolarAxisSolver.RaDecToUnitVec(ra1, dec1);
+            var v2 = PolarAxisSolver.RaDecToUnitVec(ra2, dec2);
+
+            var ok = PolarAxisSolver.TryRecoverAxis(v1, v2, deltaRad, out var axisRecovered, out _);
+            ok.ShouldBeTrue();
+
+            var (azErrRad, altErrRad) = PolarAxisSolver.DecomposeAxisError(
+                axisRecovered, hemisphere,
+                SiteLatDeg, SiteLonDeg, SiteElevM,
+                sitePressureHPa: 1010.0, siteTempC: 10.0, utc: TestUtc);
+
+            var azArcmin = azErrRad * RADIANS2DEGREES * 60.0;
+            var altArcmin = altErrRad * RADIANS2DEGREES * 60.0;
+            TestContext.Current.TestOutputHelper?.WriteLine(
+                $"sim ({simAzArcmin,5:F1}', {simAltArcmin,5:F1}')  ->  reported ({azArcmin,7:F2}', {altArcmin,7:F2}')");
+            azArcmin.ShouldBe(simAzArcmin, tolerance: 1.0);
+            altArcmin.ShouldBe(simAltArcmin, tolerance: 1.0);
+        }
+
         // Project v and h onto plane perp to axis; signed angle between them around axis.
         private static double SolveThetaFromV(in Vec3 v, in Vec3 axis, in Vec3 h)
         {
