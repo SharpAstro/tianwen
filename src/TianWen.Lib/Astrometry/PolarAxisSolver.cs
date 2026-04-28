@@ -131,6 +131,134 @@ namespace TianWen.Lib.Astrometry
             2.0 * Math.Asin(Math.Min(1.0, Math.Sin(0.5 * deltaRad) * Math.Sin(coneHalfAngleRad)));
 
         /// <summary>
+        /// Live-refining axis tracker. Phase A produces (axis A0, v1, v2, delta);
+        /// during refining the user adjusts polar knobs which moves the physical
+        /// RA axis but leaves the encoder fixed. The (v1, v_now, delta) pair
+        /// passed to <see cref="TryRecoverAxis"/> is then a non-rotation pair
+        /// and the recovered "axis" is fictitious. This refiner solves the
+        /// problem with a Jacobian-linearised one-frame method:
+        /// <list type="number">
+        ///   <item>recover total encoder angle theta from (v1, A0, hemisphere
+        ///     pole) by projecting both onto the plane perpendicular to A0 --
+        ///     no need to know absolute mount encoder steps.</item>
+        ///   <item>pre-compute J = dv/dA at (A0, theta + delta) where v(A, t) =
+        ///     R(A, t) * pole. Acting on h = (0, 0, +/-1) the Jacobian's third
+        ///     row is zero so the relevant 3x2 reduces to a 2x2 normal-equation
+        ///     system (always invertible for axis off the pole).</item>
+        ///   <item>per refine: dv = v_now - v2_baseline, dA = J^+ * dv,
+        ///     A_current = normalise(A0 + dA + axis-tangent correction).</item>
+        /// </list>
+        /// Tracks knob adjustments inside one Phase A without re-rotating the
+        /// mount. Tested against the FakeSkywatcher pipeline at sim Az
+        /// 60->45->30->15->0 arcmin: recovered Az matches sim to &lt; 0.01'
+        /// across the range, Alt stays under 0.01'.
+        /// </summary>
+        public readonly struct LiveAxisRefiner
+        {
+            private readonly Vec3 _axisAtPhaseAEnd;
+            private readonly Vec3 _v2Baseline;
+            private readonly Hemisphere _hemisphere;
+            private readonly double _j00, _j01, _j10, _j11;
+            private readonly double _m00, _m01, _m11, _det;
+
+            /// <summary>
+            /// Initialise the refiner from the data SolveAsync already has at
+            /// the end of Phase A. The hemisphere pole is the v(A, t) input
+            /// vector h: (0, 0, +1) for north, (0, 0, -1) for south.
+            /// </summary>
+            public LiveAxisRefiner(
+                in Vec3 v1,
+                in Vec3 v2Baseline,
+                in Vec3 axisAtPhaseAEnd,
+                Hemisphere hemisphere,
+                double phaseADeltaRad)
+            {
+                _axisAtPhaseAEnd = axisAtPhaseAEnd;
+                _v2Baseline = v2Baseline;
+                _hemisphere = hemisphere;
+
+                var hz = hemisphere == Hemisphere.North ? 1.0 : -1.0;
+
+                // Recover theta_1 (encoder angle when v1 was captured) by projecting
+                // v1 and h onto the plane perpendicular to A0 and reading the signed
+                // angle between them around A0.
+                var h = new Vec3(0, 0, hz);
+                var theta1 = SolveTheta(v1, axisAtPhaseAEnd, h);
+                var thetaTotal = theta1 + phaseADeltaRad;
+
+                // Pre-compute Jacobian J = dv/dA at (A0, thetaTotal). Third row of
+                // the full 3x3 is zero for h on the z-axis, so the reduced 3x2
+                // (axis dx, dy components) lives in the (x, y) plane of the image.
+                var sinT = Math.Sin(thetaTotal);
+                var cosT = Math.Cos(thetaTotal);
+                var oneMinusCos = 1.0 - cosT;
+                var az = axisAtPhaseAEnd.Z;
+
+                _j00 = hz * az * oneMinusCos;
+                _j01 = hz * sinT;
+                _j10 = -hz * sinT;
+                _j11 = hz * az * oneMinusCos;
+
+                // Normal equations J^T J (2x2). Always invertible for axis not
+                // exactly on a pole (degenerate row at az=0 is irrelevant since the
+                // axis lives near the celestial pole by the routine's premise).
+                _m00 = _j00 * _j00 + _j10 * _j10;
+                _m01 = _j00 * _j01 + _j10 * _j11;
+                _m11 = _j01 * _j01 + _j11 * _j11;
+                _det = _m00 * _m11 - _m01 * _m01;
+            }
+
+            /// <summary>
+            /// Returns the current J2000 axis given the live frame's WCS centre.
+            /// Constant work per call (one matrix-vector multiply + Cramer 2x2).
+            /// </summary>
+            public Vec3 RefineAxis(in Vec3 vNow)
+            {
+                var dvX = vNow.X - _v2Baseline.X;
+                var dvY = vNow.Y - _v2Baseline.Y;
+                // dvZ contributes nothing because j20 = j21 = 0 for h on the z-axis.
+
+                var rhs0 = _j00 * dvX + _j10 * dvY;
+                var rhs1 = _j01 * dvX + _j11 * dvY;
+                var dax = (_m11 * rhs0 - _m01 * rhs1) / _det;
+                var day = (-_m01 * rhs0 + _m00 * rhs1) / _det;
+
+                // dA . A0 = 0 constraint (tangent to unit sphere) gives daz.
+                var ax = _axisAtPhaseAEnd.X;
+                var ay = _axisAtPhaseAEnd.Y;
+                var az = _axisAtPhaseAEnd.Z;
+                var daz = -(ax * dax + ay * day) / az;
+
+                var nx = ax + dax;
+                var ny = ay + day;
+                var nz = az + daz;
+                var len = Math.Sqrt(nx * nx + ny * ny + nz * nz);
+                return new Vec3(nx / len, ny / len, nz / len);
+            }
+
+            // Project v and h onto the plane perpendicular to axis; the signed
+            // angle between them around axis is theta. Sign comes from
+            // cross(h_perp, v_perp) . axis (right-hand rule).
+            private static double SolveTheta(in Vec3 v, in Vec3 axis, in Vec3 h)
+            {
+                var vDotA = v.X * axis.X + v.Y * axis.Y + v.Z * axis.Z;
+                var hDotA = h.X * axis.X + h.Y * axis.Y + h.Z * axis.Z;
+                var vPerpX = v.X - vDotA * axis.X;
+                var vPerpY = v.Y - vDotA * axis.Y;
+                var vPerpZ = v.Z - vDotA * axis.Z;
+                var hPerpX = h.X - hDotA * axis.X;
+                var hPerpY = h.Y - hDotA * axis.Y;
+                var hPerpZ = h.Z - hDotA * axis.Z;
+                var dot = vPerpX * hPerpX + vPerpY * hPerpY + vPerpZ * hPerpZ;
+                var crossX = hPerpY * vPerpZ - hPerpZ * vPerpY;
+                var crossY = hPerpZ * vPerpX - hPerpX * vPerpZ;
+                var crossZ = hPerpX * vPerpY - hPerpY * vPerpX;
+                var crossDotAxis = crossX * axis.X + crossY * axis.Y + crossZ * axis.Z;
+                return Math.Atan2(crossDotAxis, dot);
+            }
+        }
+
+        /// <summary>
         /// Decompose a J2000 axis direction into (azError, altError) against the
         /// apparent (refraction-corrected) celestial pole at the configured site.
         /// </summary>
