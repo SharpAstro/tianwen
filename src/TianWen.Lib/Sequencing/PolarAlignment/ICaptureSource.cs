@@ -2,6 +2,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using TianWen.Lib.Astrometry;
 using TianWen.Lib.Astrometry.PlateSolve;
+using TianWen.Lib.Imaging;
 
 namespace TianWen.Lib.Sequencing.PolarAlignment
 {
@@ -41,6 +42,27 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
         double PixelScaleArcsecPerPx => 206.265 * PixelSizeMicrons / System.Math.Max(FocalLengthMm, 1.0);
 
         /// <summary>
+        /// Capture a single frame at the requested exposure without running a
+        /// plate solver. Used by the incremental-solver hot path during
+        /// refinement: the orchestrator centroids in small ROIs around the
+        /// previous matched-star list and refits the affine, only falling back
+        /// to <see cref="CaptureAndSolveAsync"/> on residual spike.
+        /// </summary>
+        /// <remarks>
+        /// Ownership: <see cref="CaptureResult.Image"/> is loaned to the caller
+        /// (mutate at your peril -- the camera buffer is shared until the
+        /// caller releases). If <see cref="CaptureResult.OwnershipTransferredToUi"/>
+        /// is true the source has already handed the image to a UI consumer
+        /// (via the source's <c>onFrameCaptured</c> callback) and the caller
+        /// MUST NOT call <see cref="Image.Release"/>; if false the caller MUST
+        /// release after it is done reading. Mirrors the existing transfer
+        /// rule in <see cref="CaptureAndSolveAsync"/>.
+        /// </remarks>
+        ValueTask<CaptureResult> CaptureAsync(
+            System.TimeSpan exposure,
+            CancellationToken ct = default);
+
+        /// <summary>
         /// Capture a single frame at the requested exposure and run the supplied
         /// plate solver against it. Returns whether the solve succeeded along
         /// with the WCS, matched-star count, and the actual exposure used (which
@@ -51,6 +73,46 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
             IPlateSolver solver,
             CancellationToken ct = default);
     }
+
+    /// <summary>
+    /// Outcome of a capture-only operation. Mirrors
+    /// <see cref="CaptureAndSolveResult"/> but carries the raw
+    /// <see cref="Image"/> instead of a solver result, so the orchestrator can
+    /// run an alternative solver (e.g. an incremental ROI-centroid + affine
+    /// refit) against the same captured frame.
+    /// </summary>
+    /// <param name="Success">True iff a frame was successfully captured. A
+    /// failed capture (camera disconnected, exposure timed out, guider didn't
+    /// produce a frame) returns Success=false with <see cref="FailureReason"/>
+    /// populated.</param>
+    /// <param name="Image">The captured frame as an in-memory image. Null on
+    /// failure or for sources that only produce a file (e.g. PHD2 with a
+    /// FITS-on-disk path); see <see cref="FitsPath"/>. Ownership semantics are
+    /// described on <see cref="ICaptureSource.CaptureAsync"/>.</param>
+    /// <param name="OwnershipTransferredToUi">When true the source has already
+    /// handed <see cref="Image"/> to a UI consumer via its
+    /// <c>onFrameCaptured</c> callback and the caller MUST NOT release it. The
+    /// UI owns the buffer until the next frame replaces it.</param>
+    /// <param name="SearchOrigin">Mount-reported pointing at capture time, ready
+    /// to feed into <see cref="IPlateSolver.SolveImageAsync"/> as the search
+    /// hint. Null if the source has no mount or the mount couldn't be queried.</param>
+    /// <param name="ExposureUsed">Actual exposure taken (may differ from the
+    /// requested duration if the source clamped against an internal max).</param>
+    /// <param name="FitsPath">Path to the captured frame on disk, populated by
+    /// guider sources (PHD2 "Save Images") and null for in-memory main-camera
+    /// captures. Lets file-based solvers run via
+    /// <see cref="IPlateSolver.SolveFileAsync"/> without a re-encode.</param>
+    /// <param name="FailureReason">Optional human-readable reason when
+    /// <see cref="Success"/> is false. Surface to the user via the orchestrator
+    /// (e.g. PHD2 "Save Images" disabled).</param>
+    internal readonly record struct CaptureResult(
+        bool Success,
+        Image? Image,
+        bool OwnershipTransferredToUi,
+        WCS? SearchOrigin,
+        System.TimeSpan ExposureUsed,
+        string? FitsPath,
+        string? FailureReason = null);
 
     /// <summary>
     /// Outcome of a single capture-and-solve attempt by an

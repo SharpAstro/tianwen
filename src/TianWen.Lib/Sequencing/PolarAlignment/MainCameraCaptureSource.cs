@@ -126,15 +126,14 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
             _onFrameSolved = onFrameSolved;
         }
 
-        public async ValueTask<CaptureAndSolveResult> CaptureAndSolveAsync(
+        public async ValueTask<CaptureResult> CaptureAsync(
             TimeSpan exposure,
-            IPlateSolver solver,
             CancellationToken ct = default)
         {
             if (!_camera.Connected)
             {
                 _logger.LogWarning("MainCameraCaptureSource: camera not connected");
-                return new CaptureAndSolveResult(false, null, default, 0, exposure, null);
+                return new CaptureResult(false, null, false, null, exposure, null);
             }
 
             // Stamp denorm fields (telescope, focal length, aperture, site,
@@ -181,15 +180,15 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
             if (image is null)
             {
                 _logger.LogWarning("MainCameraCaptureSource: GetImageAsync returned null after exposure {Exposure}ms", exposure.TotalMilliseconds);
-                return new CaptureAndSolveResult(false, null, default, 0, exposure, null);
+                return new CaptureResult(false, null, false, searchOrigin, exposure, null);
             }
 
-            // Publish the frame to the UI BEFORE solving so the live preview
-            // updates as each rung fires -- the solver call below can take
-            // 5-30s on an underexposed early rung, and a stale black frame in
-            // the mini viewer makes the routine feel hung. With the callback
-            // wired, ownership of the image transfers to the consumer; we must
-            // not call Release() on it ourselves once it's been published.
+            // Publish the frame to the UI BEFORE the orchestrator solves it so
+            // the live preview updates as each rung fires -- a solver call can
+            // take 5-30s on an underexposed early rung, and a stale black
+            // frame in the mini viewer makes the routine feel hung. With the
+            // callback wired, ownership of the image transfers to the
+            // consumer; the caller of CaptureAsync MUST NOT release it.
             var transferredOwnership = false;
             if (_onFrameCaptured is { } cb)
             {
@@ -200,10 +199,30 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
                 }
                 catch (Exception ex)
                 {
-                    // Don't let a UI bug abort the polar routine -- log and fall
-                    // through to the original release-on-finally path.
+                    // Don't let a UI bug abort the polar routine -- log and let
+                    // the caller take the regular release-after-use path.
                     _logger.LogWarning(ex, "MainCameraCaptureSource: onFrameCaptured callback threw -- continuing without preview publish");
                 }
+            }
+
+            return new CaptureResult(
+                Success: true,
+                Image: image,
+                OwnershipTransferredToUi: transferredOwnership,
+                SearchOrigin: searchOrigin,
+                ExposureUsed: exposure,
+                FitsPath: null);
+        }
+
+        public async ValueTask<CaptureAndSolveResult> CaptureAndSolveAsync(
+            TimeSpan exposure,
+            IPlateSolver solver,
+            CancellationToken ct = default)
+        {
+            var capture = await CaptureAsync(exposure, ct).ConfigureAwait(false);
+            if (!capture.Success || capture.Image is not { } image)
+            {
+                return new CaptureAndSolveResult(false, null, default, 0, exposure, null, capture.FailureReason);
             }
 
             try
@@ -211,7 +230,7 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
                 PlateSolveResult solveResult;
                 try
                 {
-                    solveResult = await solver.SolveImageAsync(image, searchOrigin: searchOrigin, cancellationToken: ct);
+                    solveResult = await solver.SolveImageAsync(image, searchOrigin: capture.SearchOrigin, cancellationToken: ct);
                 }
                 catch (PlateSolverException ex)
                 {
@@ -251,7 +270,7 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
             }
             finally
             {
-                if (!transferredOwnership)
+                if (!capture.OwnershipTransferredToUi)
                 {
                     image.Release();
                     _camera.ReleaseImageData();

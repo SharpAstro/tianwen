@@ -7,6 +7,7 @@ using TianWen.Lib.Astrometry;
 using TianWen.Lib.Astrometry.PlateSolve;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Devices.Guider;
+using TianWen.Lib.Imaging;
 
 namespace TianWen.Lib.Sequencing.PolarAlignment
 {
@@ -68,15 +69,14 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
             Directory.CreateDirectory(_frameFolder);
         }
 
-        public async ValueTask<CaptureAndSolveResult> CaptureAndSolveAsync(
+        public async ValueTask<CaptureResult> CaptureAsync(
             TimeSpan exposure,
-            IPlateSolver solver,
             CancellationToken ct = default)
         {
             if (!_guider.Connected)
             {
                 _logger.LogWarning("GuiderCaptureSource: guider not connected");
-                return new CaptureAndSolveResult(false, null, default, 0, exposure, null);
+                return new CaptureResult(false, null, false, null, exposure, null);
             }
 
             // LoopAsync drives the guider through one capture cycle. Timeout matches
@@ -85,11 +85,11 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
             if (!await _guider.LoopAsync(loopTimeout, ct))
             {
                 _logger.LogWarning("GuiderCaptureSource: LoopAsync did not complete within {Timeout}", loopTimeout);
-                return new CaptureAndSolveResult(false, null, default, 0, exposure, null,
+                return new CaptureResult(false, null, false, null, exposure, null,
                     FailureReason: $"Guider did not produce a frame within {loopTimeout.TotalSeconds:F0}s.");
             }
 
-            string? fitsPath = null;
+            string? fitsPath;
             try
             {
                 fitsPath = await _guider.SaveImageAsync(_frameFolder, ct);
@@ -97,13 +97,13 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
             catch (GuiderException ex)
             {
                 _logger.LogWarning(ex, "GuiderCaptureSource: SaveImageAsync threw — PHD2 'Save Images' may be disabled");
-                return new CaptureAndSolveResult(false, null, default, 0, exposure, null,
+                return new CaptureResult(false, null, false, null, exposure, null,
                     FailureReason: "Guider rejected save-image request \u2014 enable 'Save Images' in the PHD2 profile.");
             }
             if (string.IsNullOrEmpty(fitsPath))
             {
                 _logger.LogWarning("GuiderCaptureSource: SaveImageAsync returned no path — enable 'Save Images' in PHD2 profile");
-                return new CaptureAndSolveResult(false, null, default, 0, exposure, null,
+                return new CaptureResult(false, null, false, null, exposure, null,
                     FailureReason: "Guider produced no frame on disk \u2014 enable 'Save Images' in the PHD2 profile.");
             }
 
@@ -114,12 +114,50 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
                 searchOrigin = new WCS(origin.RaHours, origin.DecDeg);
             }
 
+            // Eagerly load the saved FITS into memory so the incremental-solver
+            // path can run ROI centroid + affine refit against it. The
+            // file-based solve path (CaptureAndSolveAsync below) still uses
+            // SolveFileAsync against the path to avoid a re-encode. A failed
+            // load doesn't fail the capture -- the file is still on disk and
+            // the orchestrator can solve against it; only the incremental
+            // fast path is unavailable.
+            Image? image = null;
+            if (!Image.TryReadFitsFile(fitsPath, out image))
+            {
+                _logger.LogDebug("GuiderCaptureSource: failed to load saved FITS {Path}", fitsPath);
+            }
+
+            return new CaptureResult(
+                Success: true,
+                Image: image,
+                OwnershipTransferredToUi: false,
+                SearchOrigin: searchOrigin,
+                ExposureUsed: exposure,
+                FitsPath: fitsPath);
+        }
+
+        public async ValueTask<CaptureAndSolveResult> CaptureAndSolveAsync(
+            TimeSpan exposure,
+            IPlateSolver solver,
+            CancellationToken ct = default)
+        {
+            var capture = await CaptureAsync(exposure, ct).ConfigureAwait(false);
+            if (!capture.Success)
+            {
+                return new CaptureAndSolveResult(false, null, default, 0, exposure, capture.FitsPath, capture.FailureReason);
+            }
+
+            // Success implies FitsPath populated by CaptureAsync; the file path
+            // is the canonical artifact for guider sources (image is a lazy
+            // optimisation for the incremental path).
+            var fitsPath = capture.FitsPath!;
+
             try
             {
                 PlateSolveResult solveResult;
                 try
                 {
-                    solveResult = await solver.SolveFileAsync(fitsPath, searchOrigin: searchOrigin, cancellationToken: ct);
+                    solveResult = await solver.SolveFileAsync(fitsPath, searchOrigin: capture.SearchOrigin, cancellationToken: ct);
                 }
                 catch (PlateSolverException ex)
                 {
@@ -145,6 +183,7 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
             }
             finally
             {
+                capture.Image?.Release();
                 // Clean up unless the orchestrator explicitly opts in to keeping frames
                 // (a future SaveFrames toggle moves them to a permanent folder before this).
                 if (File.Exists(fitsPath))
