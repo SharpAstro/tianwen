@@ -136,6 +136,12 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
                 return new CaptureResult(false, null, false, null, exposure, null);
             }
 
+            // Per-stage timing -- the polar-refine RefineAsync log shows the total
+            // capture time but not where the 4-5x exposure-time overhead comes
+            // from. Stamp / poll-wait / get-image / callback cover the whole hot
+            // path; whichever is largest is the next perf target.
+            var stampStart = System.Diagnostics.Stopwatch.GetTimestamp();
+
             // Stamp denorm fields (telescope, focal length, aperture, site,
             // focuser, filter, Target from current mount pointing, catalog DB)
             // before each exposure -- the per-frame Target refresh is what
@@ -154,6 +160,7 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
                 _catalogDb,
                 _logger,
                 ct).ConfigureAwait(false);
+            var stampElapsed = System.Diagnostics.Stopwatch.GetElapsedTime(stampStart);
 
             // Search-origin hint for the plate solver. Built-in
             // CatalogPlateSolver isn't a blind solver and ASTAP is
@@ -167,6 +174,7 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
             // Poll for image-ready. Time budget is exposure + 5s for download/digest.
             // The driver may extend the actual exposure (e.g. CMOS rolling shutter),
             // so we pad rather than fail strictly at exposure end.
+            var pollStart = System.Diagnostics.Stopwatch.GetTimestamp();
             var timeout = exposure + TimeSpan.FromSeconds(5);
             var deadline = _timeProvider.GetTimestamp() + (long)(timeout.TotalSeconds * _timeProvider.TimestampFrequency);
             while (_timeProvider.GetTimestamp() < deadline)
@@ -175,8 +183,11 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
                 if (await _camera.GetImageReadyAsync(ct)) break;
                 await _timeProvider.SleepAsync(_imageReadyPollInterval, ct);
             }
+            var pollElapsed = System.Diagnostics.Stopwatch.GetElapsedTime(pollStart);
 
+            var getImageStart = System.Diagnostics.Stopwatch.GetTimestamp();
             var image = await _camera.GetImageAsync(ct);
+            var getImageElapsed = System.Diagnostics.Stopwatch.GetElapsedTime(getImageStart);
             if (image is null)
             {
                 _logger.LogWarning("MainCameraCaptureSource: GetImageAsync returned null after exposure {Exposure}ms", exposure.TotalMilliseconds);
@@ -189,6 +200,7 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
             // frame in the mini viewer makes the routine feel hung. With the
             // callback wired, ownership of the image transfers to the
             // consumer; the caller of CaptureAsync MUST NOT release it.
+            var cbStart = System.Diagnostics.Stopwatch.GetTimestamp();
             var transferredOwnership = false;
             if (_onFrameCaptured is { } cb)
             {
@@ -204,6 +216,12 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
                     _logger.LogWarning(ex, "MainCameraCaptureSource: onFrameCaptured callback threw -- continuing without preview publish");
                 }
             }
+            var cbElapsed = System.Diagnostics.Stopwatch.GetElapsedTime(cbStart);
+
+            _logger.LogInformation(
+                "MainCameraCaptureSource: exposure={ExposureMs:F0}ms stamp={StampMs:F0}ms poll={PollMs:F0}ms getImage={GetImageMs:F0}ms callback={CbMs:F0}ms",
+                exposure.TotalMilliseconds, stampElapsed.TotalMilliseconds,
+                pollElapsed.TotalMilliseconds, getImageElapsed.TotalMilliseconds, cbElapsed.TotalMilliseconds);
 
             return new CaptureResult(
                 Success: true,

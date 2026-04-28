@@ -1,5 +1,8 @@
 using System;
 using System.Collections.Generic;
+using System.Numerics.Tensors;
+using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using TianWen.DAL;
@@ -741,18 +744,19 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver
                             cloudCoverage: CloudCoverage, cloudSeed: cloudSeed, dest: dest);
                     }
 
-                    // Compute actual min/max of the rendered data
-                    var dataMax = 0f;
-                    var dataMin = float.MaxValue;
-                    for (var y = 0; y < array.GetLength(0); y++)
-                    {
-                        for (var x = 0; x < array.GetLength(1); x++)
-                        {
-                            var val = array[y, x];
-                            if (val > dataMax) dataMax = val;
-                            if (val < dataMin) dataMin = val;
-                        }
-                    }
+                    // Compute actual min/max of the rendered data. Vectorised via
+                    // TensorPrimitives + a flat span -- the previous nested
+                    // multidim-array loop spent ~400ms on a 61MP IMX455 frame
+                    // (entirely scalar, with multi-dim bounds checks per index)
+                    // and was the dominant cost on the StopExposureCore callback
+                    // path, dwarfing the renderer itself. Reinterpret the
+                    // float[,] as a flat ref float to side-step the missing
+                    // generic GetArrayDataReference overload for multi-dim.
+                    ref var firstByte = ref MemoryMarshal.GetArrayDataReference(array);
+                    ref var firstFloat = ref Unsafe.As<byte, float>(ref firstByte);
+                    var flatSpan = MemoryMarshal.CreateReadOnlySpan(ref firstFloat, imgHeight * imgWidth);
+                    var dataMin = TensorPrimitives.Min(flatSpan);
+                    var dataMax = TensorPrimitives.Max(flatSpan);
 
                     _channelBuffer = new ChannelBuffer(array, onRelease: recycled => _freeBuffers.Add(recycled));
                     _lastImageData = new Imaging.Channel(array, Filter, dataMin, dataMax, 0);
