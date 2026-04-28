@@ -199,6 +199,13 @@ namespace TianWen.UI.Abstractions
         protected abstract void DrawCrossOverlay(float cx, float cy, float armLength, RGBAColor32 color);
 
         /// <summary>
+        /// Draws a straight line between two screen positions. Used by the
+        /// polar-alignment overlay's correction-direction arrow shaft (the
+        /// arrowhead is composed from two additional line segments).
+        /// </summary>
+        protected abstract void DrawLineOverlay(float x0, float y0, float x1, float y1, RGBAColor32 color, float thickness);
+
+        /// <summary>
         /// Called when the viewport is resized.
         /// </summary>
         protected abstract void OnResize(uint width, uint height);
@@ -1169,6 +1176,52 @@ namespace TianWen.UI.Abstractions
                             placement.ScreenY - labelSize * 0.5f,
                             labelSize,
                             marker.Color.RedF, marker.Color.GreenF, marker.Color.BlueF);
+                    }
+                }
+            }
+
+            if (!Annotation.Arrows.IsDefaultOrEmpty)
+            {
+                foreach (var arrow in Annotation.Arrows)
+                {
+                    if (WcsAnnotationLayer.ProjectArrow(arrow, wcs, layout) is not { } placement) continue;
+
+                    var dx = placement.EndScreenX - placement.StartScreenX;
+                    var dy = placement.EndScreenY - placement.StartScreenY;
+                    var len = MathF.Sqrt(dx * dx + dy * dy);
+                    // Skip degenerate arrows (start and end project to ~same
+                    // pixel) -- a single dot would carry no direction info.
+                    if (len < 1f) continue;
+
+                    DrawLineOverlay(placement.StartScreenX, placement.StartScreenY,
+                        placement.EndScreenX, placement.EndScreenY,
+                        arrow.Color, arrow.ThicknessPx);
+
+                    // Two-segment arrowhead: angle off the shaft direction at
+                    // the head endpoint. 30deg legs match SharpCap's look.
+                    var headLen = arrow.HeadSizePx;
+                    var ux = dx / len;
+                    var uy = dy / len;
+                    const float headAngle = 0.5236f; // 30 degrees in radians
+                    var ca = MathF.Cos(headAngle);
+                    var sa = MathF.Sin(headAngle);
+                    // Two unit vectors rotated +/-headAngle from the *reverse*
+                    // shaft direction; scale by head length to produce the
+                    // two head-leg endpoints.
+                    var leg1X = placement.EndScreenX - headLen * (ca * ux - sa * uy);
+                    var leg1Y = placement.EndScreenY - headLen * (sa * ux + ca * uy);
+                    var leg2X = placement.EndScreenX - headLen * (ca * ux + sa * uy);
+                    var leg2Y = placement.EndScreenY - headLen * (-sa * ux + ca * uy);
+                    DrawLineOverlay(placement.EndScreenX, placement.EndScreenY, leg1X, leg1Y, arrow.Color, arrow.ThicknessPx);
+                    DrawLineOverlay(placement.EndScreenX, placement.EndScreenY, leg2X, leg2Y, arrow.Color, arrow.ThicknessPx);
+
+                    if (!string.IsNullOrEmpty(arrow.Label))
+                    {
+                        DrawText(arrow.Label,
+                            placement.EndScreenX + labelPad,
+                            placement.EndScreenY - labelSize * 0.5f,
+                            labelSize,
+                            arrow.Color.RedF, arrow.Color.GreenF, arrow.Color.BlueF);
                     }
                 }
             }

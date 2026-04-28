@@ -250,9 +250,11 @@ namespace TianWen.Lib.Tests
         public void GivenJacobianRecoveryWhenSimChangesDuringRefiningThenAxisTracksCurrentSim()
         {
             var hemisphere = Hemisphere.South;
-            var deltaRad = Math.PI / 3;
             var timeProvider = TimeProviderAt(TestUtc);
 
+            // delta is implicit in the encoder1->encoder2 step (pi/3); kept that
+            // way because the Jacobian here is parameterised on encoder2Rad
+            // (= encoder1 + delta), not delta itself.
             const double encoder1Rad = Math.PI / 4;
             const double encoder2Rad = encoder1Rad + Math.PI / 3;
             const double simAzInitial = 60.0;

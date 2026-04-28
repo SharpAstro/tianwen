@@ -209,6 +209,9 @@ public sealed class VkImageRenderer : ImageRendererBase<VulkanContext>, IDisposa
     protected override void DrawCrossOverlay(float cx, float cy, float armLength, RGBAColor32 color)
         => VkOverlayShapes.DrawCross(_renderer, DpiScale, cx, cy, armLength, color);
 
+    protected override void DrawLineOverlay(float x0, float y0, float x1, float y1, RGBAColor32 color, float thickness)
+        => _renderer.DrawLine(x0, y0, x1, y1, color, Math.Max(1, (int)(thickness * DpiScale)));
+
     public void Dispose()
     {
         _fitsPipeline.Dispose();

@@ -62,6 +62,26 @@ namespace TianWen.UI.Abstractions.Overlays
                 IsOnScreen: IsOnImage(imgPx.X, imgPx.Y, layout));
         }
 
+        /// <summary>
+        /// Project a sky-to-sky arrow through the WCS to two screen-space
+        /// points. Returns null if either endpoint cannot be projected
+        /// (behind the tangent plane).
+        /// </summary>
+        public static ArrowPlacement? ProjectArrow(in SkyArrow arrow, in WCS wcs, in ViewportLayout layout)
+        {
+            if (wcs.SkyToPixel(arrow.StartRaHours, arrow.StartDecDeg) is not { } startPx) return null;
+            if (wcs.SkyToPixel(arrow.EndRaHours, arrow.EndDecDeg) is not { } endPx) return null;
+            var (sx0, sy0) = ImageToScreen(startPx.X, startPx.Y, layout);
+            var (sx1, sy1) = ImageToScreen(endPx.X, endPx.Y, layout);
+            return new ArrowPlacement(
+                StartScreenX: (float)sx0,
+                StartScreenY: (float)sy0,
+                EndScreenX: (float)sx1,
+                EndScreenY: (float)sy1,
+                IsStartOnScreen: IsOnImage(startPx.X, startPx.Y, layout),
+                IsEndOnScreen: IsOnImage(endPx.X, endPx.Y, layout));
+        }
+
         /// <summary>Map an image-pixel position to screen pixels via the layout.</summary>
         public static (double X, double Y) ImageToScreen(double imgX, double imgY, in ViewportLayout layout)
         {
@@ -97,4 +117,16 @@ namespace TianWen.UI.Abstractions.Overlays
     /// <param name="IsOnScreen">Whether the centre falls within image bounds.
     /// Note: the ring may still be partially visible even when its centre is off-screen.</param>
     public readonly record struct RingPlacement(float ScreenX, float ScreenY, float RadiusScreenPx, bool IsOnScreen);
+
+    /// <summary>
+    /// Projected screen geometry for a <see cref="SkyArrow"/>: tail and head
+    /// in screen pixels plus per-endpoint clip flags for the renderer.
+    /// </summary>
+    public readonly record struct ArrowPlacement(
+        float StartScreenX,
+        float StartScreenY,
+        float EndScreenX,
+        float EndScreenY,
+        bool IsStartOnScreen,
+        bool IsEndOnScreen);
 }

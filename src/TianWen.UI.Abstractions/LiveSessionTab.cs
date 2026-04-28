@@ -156,10 +156,15 @@ namespace TianWen.UI.Abstractions
                     {
                         viewer.State.Annotation = WcsAnnotation.Empty;
                     }
+                    // Sparse grid (12h RA step -> 2 meridians) keeps the polar
+                    // overlay readable; the regular auto-scaled grid is too
+                    // dense at the pole and hides the rings + crosshair.
+                    viewer.State.PolarAlignSparseGrid = true;
                 }
                 else
                 {
                     viewer.State.Annotation = WcsAnnotation.Empty;
+                    viewer.State.PolarAlignSparseGrid = false;
                 }
 
                 // Check if a new frame arrived for the selected camera
