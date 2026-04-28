@@ -48,6 +48,11 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
         private double _phaseARotationRate;     // deg/s, signed (positive = forward)
         private TimeSpan _phaseARotationElapsed; // wall-clock, used for symmetric reverse
         private bool _phaseACompleted;
+        // Live-refining state: the Jacobian-linearised axis tracker is seeded
+        // at the end of SolveAsync from (v1, v2, A0, delta) and used by
+        // RefineAsync to translate live frame drift into a fresh axis without
+        // re-rotating the mount. See LiveAxisRefiner for the math.
+        private PolarAxisSolver.LiveAxisRefiner _refiner;
 
         public PolarAlignmentSession(
             IExternal external,
@@ -197,6 +202,13 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
 
             var observedChord = PolarAxisSolver.ChordAngle(_v1, frame2.WcsCenter);
             var predictedChord = PolarAxisSolver.PredictedChordAngle(Math.Abs(deltaRad), coneRad);
+
+            // Seed the live-refining tracker with the Phase A state. RefineAsync uses
+            // this to translate per-iteration WCS drift into a fresh axis without
+            // re-rotating the mount, fixing the "GUI shows 60' when sim moves to 0,0"
+            // bug that came from running TryRecoverAxis with a stale v1.
+            _refiner = new PolarAxisSolver.LiveAxisRefiner(
+                _v1, frame2.WcsCenter, axis, _hemisphere, Math.Abs(deltaRad));
 
             _phaseACompleted = true;
             return new TwoFrameSolveResult(
@@ -371,14 +383,13 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
                     outcome = fastPath ? "fast" : "full";
 
                     var wcsCenter = PolarAxisSolver.RaDecToUnitVec(wcs.CenterRA, wcs.CenterDec);
-                    if (!PolarAxisSolver.TryRecoverAxis(_v1, wcsCenter, absDelta, out var axis, out _))
-                    {
-                        // Live geometry briefly ill-conditioned (knob mid-turn through
-                        // an axis-aligned position). Same handling as a solve failure.
-                        consecutiveFailures++;
-                        outcome = "axis-recover-failed";
-                        continue;
-                    }
+                    // Jacobian-linearised live tracker: dv = wcsCenter - v2_baseline,
+                    // dA = J^+ * dv, A_current = normalise(A0 + dA). Replaces the prior
+                    // per-iteration TryRecoverAxis(_v1, wcsCenter, delta) call which was
+                    // mathematically wrong once the user adjusted polar knobs (axis
+                    // changed between v1 capture and the live frame, breaking the
+                    // single-rotation-pair assumption). See LiveAxisRefiner XML doc.
+                    var axis = _refiner.RefineAxis(wcsCenter);
                     var (azErr, altErr) = PolarAxisSolver.DecomposeAxisError(
                         axis, _hemisphere,
                         _site.LatitudeDeg, _site.LongitudeDeg, _site.ElevationM,
