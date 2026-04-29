@@ -97,6 +97,11 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
     /// <param name="Overlay">Pixel-space data for the GUI's pole-centric
     /// reticle; null if the WCS could not project the pole onto the sensor
     /// (e.g. severe initial misalignment + narrow FOV).</param>
+    /// <param name="Wcs">The plate-solve WCS this tick produced. The host
+    /// publishes this as the live preview WCS so the GUI's mini-viewer can
+    /// project the polar overlay (rings, axis crosshair, cross meridians,
+    /// correction arrow) through the *current* refine pose's WCS instead of
+    /// a stale Phase-A solve. Null on failed-solve ticks.</param>
     public readonly record struct LiveSolveResult(
         int StarsMatched,
         TimeSpan ExposureUsed,
@@ -109,7 +114,8 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
         bool IsAligned,
         int ConsecutiveFailedSolves,
         Vec3 AxisJ2000,
-        PolarOverlay? Overlay);
+        PolarOverlay? Overlay,
+        WCS? Wcs = null);
 
     /// <summary>
     /// Sky-coordinate data the GUI consumes to drive the pole-centric reticle.

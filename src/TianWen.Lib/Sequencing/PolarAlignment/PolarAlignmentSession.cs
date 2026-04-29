@@ -541,7 +541,8 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
                         IsAligned: isAligned,
                         ConsecutiveFailedSolves: failedRun,
                         AxisJ2000: axis,
-                        Overlay: overlay);
+                        Overlay: overlay,
+                        Wcs: wcs);
                     _ = fastPath; // surface in telemetry/diagnostics later if needed
                 }
                 finally

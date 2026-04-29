@@ -103,7 +103,12 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
                 using var rungCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
                 rungCts.CancelAfter(rungBudget);
 
+                logger?.LogInformation(
+                    "PolarAlignment probe rung {RungIndex}/{RungCount} START exposure={ExposureMs:F0}ms budget={BudgetMs:F0}ms",
+                    i + 1, ramp.Length, exposure.TotalMilliseconds, rungBudget.TotalMilliseconds);
+
                 var rungStart = Stopwatch.GetTimestamp();
+                bool timedOut = false;
                 try
                 {
                     last = await source.CaptureAndSolveAsync(exposure, solver, ct: rungCts.Token);
@@ -111,15 +116,22 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
                 catch (OperationCanceledException) when (!ct.IsCancellationRequested)
                 {
                     // Rung timeout -- record a synthetic failure and move on.
+                    timedOut = true;
                     last = new CaptureAndSolveResult(false, null, default, 0, exposure, null,
                         FailureReason: $"Rung {exposure.TotalMilliseconds:F0}ms timed out after {rungBudget.TotalSeconds:F0}s");
                 }
                 var rungElapsed = Stopwatch.GetElapsedTime(rungStart);
 
+                // Distinguish "completed past budget" from "timed out" -- if the
+                // capture-source / plate solver ignores the cancellation token,
+                // elapsed > budget but timedOut == false; that's the diagnostic
+                // signal that some downstream layer is swallowing the token.
                 logger?.LogInformation(
-                    "PolarAlignment probe rung {RungIndex}/{RungCount} exposure={ExposureMs:F0}ms elapsed={ElapsedMs:F0}ms success={Success} stars={StarsMatched}",
+                    "PolarAlignment probe rung {RungIndex}/{RungCount} DONE exposure={ExposureMs:F0}ms elapsed={ElapsedMs:F0}ms budget={BudgetMs:F0}ms timedOut={TimedOut} budgetOverrun={Overrun} success={Success} stars={StarsMatched} reason={Reason}",
                     i + 1, ramp.Length, exposure.TotalMilliseconds, rungElapsed.TotalMilliseconds,
-                    last.Success, last.StarsMatched);
+                    rungBudget.TotalMilliseconds, timedOut,
+                    !timedOut && rungElapsed > rungBudget,
+                    last.Success, last.StarsMatched, last.FailureReason ?? "");
 
                 // Track the first rung that clears the relaxed (refining)
                 // threshold; we keep walking the ramp afterwards because Phase A

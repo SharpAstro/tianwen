@@ -201,8 +201,8 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger<CatalogP
 
         // Try both orientations in parallel; pick the one with lower re-projection error
         stageSw.Restart();
-        var stdTask = Task.Run(() => TrySolveWithProximityMatching(detectedStars, catalogCoords, origin, pixelScaleRad, cx, cy, dim, xSign: 1.0));
-        var mirrorTask = Task.Run(() => TrySolveWithProximityMatching(detectedStars, catalogCoords, origin, pixelScaleRad, cx, cy, dim, xSign: -1.0));
+        var stdTask = Task.Run(() => TrySolveWithProximityMatching(detectedStars, catalogCoords, origin, pixelScaleRad, cx, cy, dim, xSign: 1.0, cancellationToken), cancellationToken);
+        var mirrorTask = Task.Run(() => TrySolveWithProximityMatching(detectedStars, catalogCoords, origin, pixelScaleRad, cx, cy, dim, xSign: -1.0, cancellationToken), cancellationToken);
         await Task.WhenAll(stdTask, mirrorTask);
 
         var std = stdTask.Result;
@@ -225,7 +225,8 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger<CatalogP
         double cx,
         double cy,
         ImageDim dim,
-        double xSign
+        double xSign,
+        CancellationToken cancellationToken
     )
     {
         var currentOrigin = origin;
@@ -240,6 +241,20 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger<CatalogP
         // Iteratively refine: project → match → fit affine → update WCS → repeat
         for (int iteration = 0; iteration < 10; iteration++)
         {
+            // Cooperative cancellation per iteration: the inner detRank x catRank
+            // loop is O(n^2) and on dense fields each iteration can run ~1 s.
+            // Without this, AdaptiveExposureRamp.ProbeAsync's per-rung
+            // CancelAfter fires but cancellation doesn't propagate until this
+            // iteration finishes naturally -- elapsed wall-clock can run
+            // 5-10 s past the budget on a tight rung. Clean exit (return
+            // null result) instead of throw -- the caller already treats a
+            // null Solution as "ramp moves to next rung", and exceptions are
+            // only worth raising when there's no other way out.
+            if (cancellationToken.IsCancellationRequested)
+            {
+                return MakeResult(null);
+            }
+
             var projected = ProjectCatalogStars(catalogCoords, currentOrigin, pixelScaleRad, cx, cy, dim, xSign);
             if (projected.Count < MinStarsForMatch)
             {
@@ -293,6 +308,15 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger<CatalogP
 
             for (int detRank = 0; detRank < maxDetectedForMatching; detRank++)
             {
+                // Mid-iteration cancellation: at IMX455 size with hundreds of
+                // detections × hundreds of projections, a single iter 0 can
+                // run several seconds. Polling every 64 detections caps the
+                // overrun at a few hundred ms past budget.
+                if ((detRank & 63) == 0 && cancellationToken.IsCancellationRequested)
+                {
+                    return MakeResult(null);
+                }
+
                 var det = rankedDetected[detRank];
                 var bestScore = matchTolerance;
                 ImagedStar? bestMatch = null;
