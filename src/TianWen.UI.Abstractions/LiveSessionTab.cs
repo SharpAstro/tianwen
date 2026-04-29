@@ -2441,6 +2441,22 @@ namespace TianWen.UI.Abstractions
             // knob nudges land within one solve cycle (~250ms). The smoothed
             // values are still consumed by the IsSettled / IsAligned latches
             // -- the gauge needs responsiveness, the latches need stability.
+            // Stale solve (lost lock near pole, FOV slewed away from catalog
+            // window): NaN errors / null WCS. Surface a "Solve lost" badge
+            // and skip the gauge so the user knows the readout isn't tracking
+            // their knob nudges anymore.
+            if (solve.Wcs is null || double.IsNaN(solve.AzErrorRad))
+            {
+                DrawText($"Solve lost ({solve.ConsecutiveFailedSolves} fail)",
+                    fontPath, x0, y, w, rowH,
+                    fontSize * 0.85f, AbortBg, TextAlign.Near, TextAlign.Center);
+                y += rowH + pad;
+                DrawText("Move mount slightly off pole and re-solve",
+                    fontPath, x0, y, w, rowH,
+                    fontSize * 0.78f, DimText, TextAlign.Near, TextAlign.Center);
+                y += rowH + pad;
+                return y;
+            }
             var azArcmin = solve.AzErrorRad * radToArcmin;
             var altArcmin = solve.AltErrorRad * radToArcmin;
 

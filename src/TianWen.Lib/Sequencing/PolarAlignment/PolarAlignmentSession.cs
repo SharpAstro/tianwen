@@ -496,8 +496,29 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
                     {
                         consecutiveFailures++;
                         outcome = "no-solve";
-                        continue;
+                        // Emit a stale marker so the GUI can grey-out the
+                        // gauge instead of pretending the last solve's
+                        // values are still current. NaN errors signal
+                        // "lost lock"; the orchestration helper skips the
+                        // PreviewPlateSolveResult refresh when Wcs is null
+                        // so the WCS grid keeps the last good projection.
+                        yieldResult = new LiveSolveResult(
+                            StarsMatched: 0,
+                            ExposureUsed: lockedExposure,
+                            FitsPath: capture.FitsPath,
+                            AzErrorRad: double.NaN,
+                            AltErrorRad: double.NaN,
+                            SmoothedAzErrorRad: double.NaN,
+                            SmoothedAltErrorRad: double.NaN,
+                            IsSettled: false,
+                            IsAligned: false,
+                            ConsecutiveFailedSolves: consecutiveFailures,
+                            AxisJ2000: default,
+                            Overlay: null,
+                            Wcs: null);
                     }
+                    else
+                    {
                     outcome = fastPath ? "fast" : "full";
 
                     _lastLoggedWcsCenterRA = wcs.CenterRA;
@@ -606,6 +627,7 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
                         Overlay: overlay,
                         Wcs: wcs);
                     _ = fastPath; // surface in telemetry/diagnostics later if needed
+                    }
                 }
                 finally
                 {
