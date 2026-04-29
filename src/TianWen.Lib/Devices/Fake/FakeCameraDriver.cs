@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
 using System.Numerics.Tensors;
@@ -691,34 +692,64 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver
 
                         if (CelestialObjectDB is { } db && Target is { } target && FocalLength > 0)
                         {
-                            // Limiting magnitude scales as collecting area (D^2) and
-                            // exposure time. Standard photon-counting form, calibrated
-                            // against amateur CMOS observations:
-                            //   m_lim = 2 + 5*log10(D_mm) + 2.5*log10(t_sec)
-                            // (50mm at 1s -> ~mag 10.5; 200mm at 10s -> ~mag 16.)
-                            // Aperture is denormalised onto the camera in Session.Lifecycle
-                            // and the polar-alignment AppSignalHandler. Without it, fall
-                            // back to the legacy exposure-only formula so unit tests that
-                            // construct FakeCameraDriver standalone still get sensible
-                            // (if conservative) star counts.
-                            // Cap at 15 to bound frame-render time and stay within the
-                            // catalog's reliable density region.
-                            var safeExposure = Math.Max(exposureSec, 0.1);
-                            var magCutoff = Aperture is int apertureMm and > 0
-                                ? Math.Min(15.0, 2.0 + 5.0 * Math.Log10(apertureMm) + 2.5 * Math.Log10(safeExposure))
-                                : Math.Min(12.0, 7.0 + 2.5 * Math.Log10(safeExposure));
+                            // Synth flux scales with collecting area (aperture^2)
+                            // referenced to a 50mm light bucket -- a 200mm f/3 OTA
+                            // collects 16x more photons than a 50mm mini-guider at
+                            // the same exposure. The magnitude cutoff is then SNR-
+                            // derived: include exactly the stars whose peak per-
+                            // pixel ADU clears FindStarsAsync's snrMin=5 detection
+                            // floor (matched with the renderer's defaults: FWHM=2px,
+                            // readNoise=5). This keeps "stars in the synth" aligned
+                            // with "stars the detector can find" -- the previous
+                            // photon-budget formula projected mag-15 stars at 5s/
+                            // 200mm and gave the catalog plate solver 1600+
+                            // candidates against ~30 detections, blowing the
+                            // proximity matcher's tolerance and timing rungs out.
+                            // Aperture is denormalised onto the camera in
+                            // Session.Lifecycle and the polar-alignment
+                            // AppSignalHandler. Without it, scale=1.0 (50mm) and
+                            // existing standalone FakeCameraDriver tests keep
+                            // their previous brightness budget.
+                            var apertureScale = Aperture is int apertureMm and > 0
+                                ? Math.Pow(apertureMm / 50.0, 2.0)
+                                : 1.0;
+                            var magCutoff = Math.Min(15.0,
+                                SyntheticStarFieldRenderer.DetectabilityMagCutoff(
+                                    apertureScale, exposureSec));
                             var stars = SyntheticStarFieldRenderer.ProjectCatalogStars(
                                 target.RA, target.Dec, FocalLength, PixelSizeX, imgWidth, imgHeight, db, magCutoff);
+                            // Cap synth at the brightest N projections regardless of cutoff.
+                            // Without this, dense polar fields at long exposure / 200mm f/3
+                            // dump 600+ stars into the synth -- many of them saturated and
+                            // overlapping -- and FindStarsAsync's deblending hits a
+                            // super-linear wall: the IMX455 polar bench measured 14-29 s
+                            // wall-clock vs 157 ms for the 50mm baseline, which blows
+                            // every per-rung budget. 150 brightest is plenty for
+                            // CatalogPlateSolver (it caps detections at maxStars=500
+                            // and matching converges with 30+ matches) and bounds
+                            // detector work to the same scale as the 50mm test rig.
+                            const int MaxSynthStars = 150;
+                            if (stars.Count > MaxSynthStars)
+                            {
+                                stars.Sort(static (a, b) => a.Magnitude.CompareTo(b.Magnitude));
+                                stars.RemoveRange(MaxSynthStars, stars.Count - MaxSynthStars);
+                            }
+                            // Diagnostic: confirm aperture / scale / cutoff / cap during synth render.
+                            Logger.LogInformation(
+                                "FakeCamera synth: aperture={Aperture} focal={FocalLength} t={ExposureSec:F3}s scale={Scale:F2} magCutoff={Cutoff:F2} stars={Stars}",
+                                Aperture, FocalLength, exposureSec, apertureScale, magCutoff, stars.Count);
                             var cloudSeed = _frameRng.Next();
                             var starSpan = System.Runtime.InteropServices.CollectionsMarshal.AsSpan(stars);
                             array = SensorType is Imaging.SensorType.RGGB
                                 ? SyntheticStarFieldRenderer.RenderBayer(imgWidth, imgHeight, defocus, starSpan,
                                     offsetX: TotalStarOffset.X, offsetY: TotalStarOffset.Y,
-                                    exposureSeconds: exposureSec, noiseSeed: _frameRng.Next(), dest: dest)
+                                    exposureSeconds: exposureSec, noiseSeed: _frameRng.Next(),
+                                    apertureScaleFactor: apertureScale, dest: dest)
                                 : SyntheticStarFieldRenderer.Render(imgWidth, imgHeight, defocus,
                                     stars: starSpan, offsetX: TotalStarOffset.X, offsetY: TotalStarOffset.Y,
                                     exposureSeconds: exposureSec, noiseSeed: _frameRng.Next(),
-                                    cloudCoverage: CloudCoverage, cloudSeed: cloudSeed, dest: dest);
+                                    cloudCoverage: CloudCoverage, cloudSeed: cloudSeed,
+                                    apertureScaleFactor: apertureScale, dest: dest);
                         }
                         else
                         {

@@ -284,9 +284,10 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
                 }
                 var solveElapsed = System.Diagnostics.Stopwatch.GetElapsedTime(solveStart);
                 _logger.LogInformation(
-                    "MainCameraCaptureSource.CaptureAndSolve: exposure={ExposureMs:F0}ms capture={CaptureMs:F0}ms solve={SolveMs:F0}ms solved={Solved} matched={Matched}",
+                    "MainCameraCaptureSource.CaptureAndSolve: exposure={ExposureMs:F0}ms capture={CaptureMs:F0}ms solve={SolveMs:F0}ms solved={Solved} detected={Detected} projected={Projected} matched={Matched} catalog={Catalog} iters={Iters}",
                     exposure.TotalMilliseconds, captureElapsed.TotalMilliseconds, solveElapsed.TotalMilliseconds,
-                    solveResult.Solution is not null, solveResult.MatchedStars);
+                    solveResult.Solution is not null, solveResult.DetectedStars, solveResult.ProjectedStars,
+                    solveResult.MatchedStars, solveResult.CatalogStars, solveResult.Iterations);
 
                 // Publish the solve result whether successful or not so the
                 // UI's WCS-anchored chrome (grid, sky markers) tracks the live

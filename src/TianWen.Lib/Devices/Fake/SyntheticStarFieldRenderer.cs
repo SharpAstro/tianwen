@@ -245,6 +245,7 @@ internal static class SyntheticStarFieldRenderer
         double cloudCoverage = 0.0,
         int cloudSeed = 77,
         double cloudGlow = 200.0,
+        double apertureScaleFactor = 1.0,
         float[,]? dest = null)
     {
         if (stars.IsEmpty)
@@ -270,13 +271,21 @@ internal static class SyntheticStarFieldRenderer
         FillBackground(data, height, width, skyLevel, readNoise,
             seed: noiseSeed ?? (seed + 1));
 
-        // Build star array from catalog projections with offset applied
+        // Build star array from catalog projections with offset applied.
+        // Flux scales with collecting area (aperture^2), referenced to the
+        // legacy 50mm reference aperture: a 200mm OTA at f/3 gathers 16x more
+        // photons than a 50mm mini-guider at the same exposure, so a mag-10
+        // star is bright on the bigger scope and invisible on the smaller one
+        // at 100ms. Without this, the synth would draw mag-12 stars below the
+        // detection floor regardless of aperture, and FindStarsAsync would
+        // hand the plate solver 30 detections against 600 projected catalog
+        // stars - the lopsided ratio that drove rungs 3+ to time out.
         var psfRadius = (int)Math.Ceiling(sigma * 4);
         var starArray = new (double X, double Y, double Flux)[stars.Length];
         for (var s = 0; s < stars.Length; s++)
         {
             var star = stars[s];
-            var flux = 10000.0 * Math.Pow(10, -0.4 * (star.Magnitude - 5.0)) * exposureSeconds;
+            var flux = 10000.0 * Math.Pow(10, -0.4 * (star.Magnitude - 5.0)) * exposureSeconds * apertureScaleFactor;
             starArray[s] = (star.PixelX + offsetX, star.PixelY + offsetY, flux);
         }
 
@@ -346,6 +355,41 @@ internal static class SyntheticStarFieldRenderer
         }
 
         return data;
+    }
+
+    /// <summary>
+    /// SNR-derived faintest magnitude that will produce a peak per-pixel value above
+    /// <paramref name="snrThreshold"/> * <paramref name="readNoise"/>, i.e. the same
+    /// threshold <see cref="Imaging.Image.FindStarsAsync"/> uses to decide whether a
+    /// candidate is a real star (snrMin = 5 by default). Picking the synth's magnitude
+    /// cutoff from the same condition keeps "stars I render" aligned with "stars the
+    /// detector can find" — without it the synth happily draws mag-12 stars at SNR<<1
+    /// and the catalog plate solver gets handed 600 projected vs 30 detected,
+    /// quadrupling its match-search work for no actual signal.
+    /// </summary>
+    /// <param name="apertureScaleFactor">Collecting-area scale, (apertureMm/50)^2.
+    /// 1.0 = legacy 50mm reference (backwards-compatible default for tests that
+    /// don't set Aperture).</param>
+    /// <param name="exposureSeconds">Exposure time in seconds.</param>
+    /// <param name="fwhmPixels">Star PSF FWHM in pixels (in-focus value; matches
+    /// <c>hyperbolaA</c> in the renderer overloads).</param>
+    /// <param name="readNoise">Read noise sigma in ADU.</param>
+    /// <param name="snrThreshold">SNR floor matching the detector. Default 5
+    /// matches FindStarsAsync's snrMin.</param>
+    /// <returns>Faintest visual magnitude that clears the detection floor.</returns>
+    public static double DetectabilityMagCutoff(
+        double apertureScaleFactor,
+        double exposureSeconds,
+        double fwhmPixels = 2.0,
+        double readNoise = 5.0,
+        double snrThreshold = 5.0)
+    {
+        var sigma = fwhmPixels / 2.3548;
+        var peakFactor = 1.0 / (Math.PI * 2.0 * sigma * sigma); // peak ADU per unit total flux
+        var fluxNormalizer = 10000.0 * Math.Max(exposureSeconds, 1e-3) * Math.Max(apertureScaleFactor, 1e-6);
+        var minPeak = snrThreshold * readNoise;
+        var minFlux = minPeak / peakFactor;
+        return 5.0 - 2.5 * Math.Log10(minFlux / fluxNormalizer);
     }
 
     /// <summary>
@@ -765,6 +809,7 @@ internal static class SyntheticStarFieldRenderer
         double hyperbolaB = 50.0,
         int bayerOffsetX = 0,
         int bayerOffsetY = 0,
+        double apertureScaleFactor = 1.0,
         float[,]? dest = null)
     {
         var data = dest ?? new float[height, width];
@@ -810,7 +855,7 @@ internal static class SyntheticStarFieldRenderer
             var star = stars[s];
             var starX = star.PixelX + offsetX;
             var starY = star.PixelY + offsetY;
-            var flux = 10000.0 * Math.Pow(10, -0.4 * (star.Magnitude - 5.0)) * exposureSeconds;
+            var flux = 10000.0 * Math.Pow(10, -0.4 * (star.Magnitude - 5.0)) * exposureSeconds * apertureScaleFactor;
             var normalization = flux / (Math.PI * sigma2x2);
             var (rRatio, gRatio, bRatio) = BMinusVToRGB(star.BMinusV);
             ReadOnlySpan<double> channelRatios = [rRatio, gRatio, bRatio];
