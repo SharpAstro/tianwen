@@ -94,31 +94,54 @@ actually sees.
 
 ## Two concrete next steps
 
-### (1) Loosen quad tolerance + use validated fit (5-10 min job)
+### (1) Loosen quad tolerance + use validated fit — DONE
 
-In `IncrementalSolver.RefineAsync` (`TianWen.Lib/Astrometry/PlateSolve/IncrementalSolver.cs`):
+Implemented: `IncrementalSolver.RefineAsync` now calls
+`seedStars.FindOffsetAndRotationWithRetryAsync(liveSorted, minimumCount: 6,
+solutionTolerance: 1e-2f)` instead of a fixed `quadTolerance=0.008f` gate.
+The retry method sweeps quad tolerance from 0.0001 upward and returns the
+first affine that passes `Matrix3x2Helper.Decompose` validation
+(mirror-flip / non-uniform-scale / skew rejection).
 
-```csharp
-var refTable = await seedStars.FindFitAsync(liveSorted, minimumCount: 6, quadTolerance: 0.008f);
-```
+Second bug found while debugging the GUI repro: `MatchedStars` was being
+set to `refTable.Count` = matched **quad pairs** (typically 6-12), but the
+caller's `RefineMinStars >= 25` gate (sized for the catalog plate solver
+where the count is "stars matched to catalog") rejected every fast-path
+success. Fix: report `MatchedStars = stars.Count` (detected stars in the
+live frame). The Decompose validator is the actual correctness check; the
+star-count gate just keeps the caller compatible across both solver types.
 
-Replace with a wider tolerance + use `FindOffsetAndRotationAsync` so the
-solution-validator (`Matrix3x2Helper.Decompose`) rejects bad fits via
-non-uniform-scale / skew / mirror-flip checks instead of relying purely
-on the quad-tolerance gate:
+Validation: full TianWen.Lib.Tests run (1830 passed, 17 pre-existing skips).
+GUI repro at sim=(30,-10) → (0,0), Dec=-89.97:
 
-```csharp
-// Looser quad gate, validated solution. The decomposed-affine validator
-// rejects mirror flips / non-uniform scales / skews, so we can afford a
-// permissive quad tolerance to actually hit at high |Dec|.
-var (M, _) = await seedStars.FindOffsetAndRotationWithRetryAsync(liveSorted, minimumCount: 6, solutionTolerance: 1e-2f);
-if (M is null) { /* fallback */ }
-// Use M directly; skip the inner FitAffineTransform call.
-```
+| | Before | After |
+|---|---|---|
+| `outcome=fast` | 0 | 50 |
+| `outcome=full` | 28 | 2 |
+| `outcome=no-solve` | 16 | 1 |
 
-This is the production approach used in stacking — `FindOffsetAndRotationWithRetryAsync`
-sweeps the tolerance from 0.0001 upward until it finds a valid solution.
-Worth trying first because it's a tiny diff.
+Gauge converges to smAz=0.62', smAlt=-0.94' at sim=(0,0) — sub-arcmin,
+stable. Original "bouncing 1-5'" symptom is gone.
+
+### (1b) Follow-up: fast path is slower than full solve (~1.2 s vs 0.85 s)
+
+The retry sweep starts at `quadTolerance=0.0001` and steps up by 0.0001
+(doubling step size every 10 iters). For polar-align where the seed and
+live frames share scale + nearly-shared rotation, the tight starting
+tolerance burns ~50 iterations of `FindFit` before hitting the actual
+range that converges (typically 0.005-0.05).
+
+Two cheap wins worth trying:
+- Bias the retry's start tolerance higher (0.005f) for the polar-align
+  caller — `SortedStarList.FindOffsetAndRotationWithRetryAsync` could take
+  a `startTolerance` parameter, or the IncrementalSolver could call
+  `FindFit` directly in a tighter loop tuned for stacking-similar fields.
+- Cache the previous frame's resolved tolerance in `IncrementalSolver` and
+  start each refine sweep at `prev × 0.5` to skip the front of the sweep
+  on steady-state frames.
+
+This is a perf win, not a correctness fix — the routine is now functional
+and the gauge is stable. Park if the wall-clock latency is acceptable.
 
 ### (2) Median the recovered axis vector, not the WCS center (15 min job)
 
