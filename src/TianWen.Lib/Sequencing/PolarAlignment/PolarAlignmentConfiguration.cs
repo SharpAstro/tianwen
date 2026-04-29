@@ -73,17 +73,19 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
     /// disable (fast path only -- not recommended for long sessions).
     /// Default 30: at typical capture cadence (~2-5 Hz) the full solve fires
     /// every 6-15 s, barely visible to the user but enough to bound drift.</param>
-    /// <param name="UseIncrementalSolver">When true, Phase B uses the fast
-    /// ROI-centroid + affine refit path between full-solve re-seeds. When
-    /// false (default), every refinement tick runs a full hinted plate
-    /// solve. The fast path's affine refit accumulates a systematic ~5-10'
-    /// bias in the recovered axis between full re-seeds (visible in real
-    /// runs at sim=(0,0) where the gauge would read "non-zero settled"
-    /// because the fast path's WCS centre drifted away from the true topo-
-    /// fixed pose). For a routine where the user is staring at a gauge that
-    /// must read 0 to mean 0, ~1 Hz of full-solve tick beats ~5 Hz of fast
-    /// path with cumulative bias; the precision floor is set by per-frame
-    /// plate-solve noise, not by frame rate.</param>
+    /// <param name="UseIncrementalSolver">When true (default), Phase B uses
+    /// quad-pattern star-list alignment against the *frozen* seed reference
+    /// between full-solve re-seeds. Each live frame's stars are matched to
+    /// the seed frame's pre-built star quads, an affine is fit in pixel
+    /// space, and the seed WCS is composed with that affine -- so the live
+    /// WCS is sub-pixel precise per frame and drift-free across many frames
+    /// (every Refine independently aligns to the seed, no compounding bias
+    /// through a chain of prev-WCS updates). Falls back to the full hinted
+    /// plate solver on quad-match failure (too few quads, ambiguous pattern,
+    /// large knob displacement). When false, every refinement tick runs a
+    /// full hinted plate solve -- ~5-10x slower but uses no quad
+    /// infrastructure, useful as an A/B test bypass when chasing math
+    /// regressions.</param>
     /// <param name="ReferenceFrameAverages">Number of plate solves to average
     /// at each Phase A reference pose (v1 before rotation, v2 after rotation
     /// + settle). Each capture's WCS centre is summed as a J2000 unit vector
@@ -106,7 +108,7 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
         int SmoothingWindow = 15,
         double SettleSigmaArcmin = 0.5,
         int RefineFullSolveInterval = 30,
-        bool UseIncrementalSolver = false,
+        bool UseIncrementalSolver = true,
         int ReferenceFrameAverages = 5,
         int RotationMinStars = 50,
         int RefineMinStars = 25)

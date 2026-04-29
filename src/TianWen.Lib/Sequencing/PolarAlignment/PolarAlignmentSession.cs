@@ -460,7 +460,7 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
                     if (_config.UseIncrementalSolver && incremental.IsSeeded && !periodicReseed)
                     {
                         var fastStart = Stopwatch.GetTimestamp();
-                        var fast = incremental.Refine(image, ct);
+                        var fast = await incremental.RefineAsync(image, ct);
                         fastElapsed = Stopwatch.GetElapsedTime(fastStart);
                         if (fast is { Solution: { } w } fr && fr.MatchedStars >= _config.RefineMinStars)
                         {

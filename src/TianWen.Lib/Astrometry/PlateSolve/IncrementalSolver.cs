@@ -55,47 +55,44 @@ namespace TianWen.Lib.Astrometry.PlateSolve
         private readonly ITimeProvider? _timeProvider = timeProvider;
         private DateTimeOffset _seedUtc;
 
-        // Sidereal angular velocity in J2000 (rad/s). Used to advance the
-        // refined WCS centre forward from seed time to current time so it
-        // matches what a real plate solver would return at the live capture
-        // moment. Without this, downstream consumers calling
-        // <c>SiderealNormalise(wcsRaw, t_now, t_ref)</c> on the
-        // IncrementalSolver's output get a double-correction: the refined WCS
-        // is already implicitly anchored at seed-time J2000 (because anchors'
-        // sky RA/Dec are frozen at seed), so sidereal-back-rotating from "now"
-        // introduces 7+'-magnitude bias at typical Phase B durations.
-        private const double SiderealRateRadPerSec = 2.0 * Math.PI / 86164.0905;
+        // Frozen-seed star-list alignment state. Each Refine reads the
+        // current frame's stars and aligns them to *the seed frame's stars*
+        // via quad-pattern matching, NOT to the previous Refine's output.
+        // This breaks the drift-accumulation chain that the prior ROI +
+        // affine-on-prev-WCS approach had: every refine is now an
+        // independent affine fit against the same seed reference, so the
+        // worst-case error per frame is the per-frame plate-noise floor
+        // (sub-pixel) and there is no compounding bias over time.
+        private SortedStarList? _seedSortedStars;
+        private WCS? _seedWcs;
+        private int _seedDetectionScale = 1;
 
-        /// <summary>
-        /// Half-extent of the ROI box used for centroid refinement. 5 gives an
-        /// 11x11-pixel window -- comfortably wider than typical HFD * 2 even on
-        /// poor seeing, and still sub-millisecond per anchor.
-        /// </summary>
-        public int RoiHalfSize { get; init; } = 5;
-
-        /// <summary>SNR floor for keeping an anchor through Refine. Below this the anchor is dropped.</summary>
+        /// <summary>SNR floor for star detection in both seed and live frames.</summary>
         public float SnrThreshold { get; init; } = 5f;
 
-        /// <summary>Lower bound on surviving anchors. Below this Refine returns null and forces a fallback.</summary>
+        /// <summary>Lower bound on detected stars per frame. Below this the seed/refine returns null and forces a fallback.</summary>
         public int MinAnchors { get; init; } = 10;
 
-        /// <summary>RMS residual ceiling (in pixels) for an accepted refine. Above this Refine returns null.</summary>
-        public double MaxRmsResidualPx { get; init; } = 2.0;
+        /// <summary>
+        /// Star cap for both seed and live detection. Quad matching builds
+        /// O(N^4 / 24) quads per list and compares them pairwise across the
+        /// two lists, so the cost grows quickly with N -- but we also need
+        /// enough stars to have robust quads (the matcher needs >= 6 quad
+        /// matches to fit an affine, and most quad pairs near the pole share
+        /// distance invariants only loosely). 200 is a good compromise: at
+        /// IMX455-class fields we typically detect ~100-150 stars per frame
+        /// so we cap rarely, and the per-frame match cost stays under 50 ms.
+        /// </summary>
+        public int MaxAnchors { get; init; } = 200;
 
-        /// <summary>Anchor cap at seed time -- 50 keeps the per-frame ROI work under ~5 ms even on a low-end CPU.</summary>
-        public int MaxAnchors { get; init; } = 50;
+        /// <summary>True iff a successful <see cref="SeedAsync"/> has happened and the solver can <see cref="RefineAsync"/>.</summary>
+        public bool IsSeeded => _seedWcs is { HasCDMatrix: true } && _seedSortedStars is { } s && s.Count >= MinAnchors;
 
-        private WCS? _wcs;
-        private List<Anchor> _anchors = [];
+        /// <summary>Detected-star count from the most recent seed (diagnostics).</summary>
+        public int AnchorCount => _seedSortedStars?.Count ?? 0;
 
-        /// <summary>True iff a successful <see cref="SeedAsync"/> has happened and the solver can <see cref="Refine"/>.</summary>
-        public bool IsSeeded => _wcs is { } w && w.HasCDMatrix && _anchors.Count >= MinAnchors;
-
-        /// <summary>Anchor count from the most recent seed (diagnostics).</summary>
-        public int AnchorCount => _anchors.Count;
-
-        /// <summary>The current WCS estimate -- updated on each successful Refine, null until first seed.</summary>
-        public WCS? CurrentWcs => _wcs;
+        /// <summary>The seed WCS that all live refines align against -- never mutated.</summary>
+        public WCS? CurrentWcs => _seedWcs;
 
         /// <summary>
         /// Reset the internal state. Call after a slew / meridian flip /
@@ -103,8 +100,9 @@ namespace TianWen.Lib.Astrometry.PlateSolve
         /// </summary>
         public void Reset()
         {
-            _wcs = null;
-            _anchors.Clear();
+            _seedWcs = null;
+            _seedSortedStars?.Dispose();
+            _seedSortedStars = null;
         }
 
         /// <summary>
@@ -127,12 +125,12 @@ namespace TianWen.Lib.Astrometry.PlateSolve
             }
 
             // Detect stars on a downsampled view to match the per-pass cost
-            // CatalogPlateSolver pays. A 60MP polar-align frame at 0.97"/px
-            // runs FindStarsAsync ~4x faster when binned 2x to 1.94"/px, and
-            // we don't need sub-arcsec centroid accuracy for ROI-anchor
-            // priors -- the per-frame Refine re-centroids in a small box at
-            // native resolution. Centroids come back in binned space; scale
-            // them to original-image coords before projecting through the WCS.
+            // CatalogPlateSolver pays. Centroids come back in binned space;
+            // we keep them in binned coords throughout (seed + every Refine
+            // detect at the same scale) so quad-distance invariants are
+            // directly comparable. The CD matrix lives in native-pixel units,
+            // so when we apply the affine to the seed WCS we scale CRPix
+            // back up by detectionScale.
             const double TargetPixelScaleArcsec = 1.5;
             var dim = image.GetImageDim();
             var detectionScale = 1;
@@ -146,145 +144,131 @@ namespace TianWen.Lib.Astrometry.PlateSolve
                 }
             }
 
-            var stars = await detectionImage.FindStarsAsync(0, snrMin: SnrThreshold, maxStars: MaxAnchors, minStars: MinAnchors, logger: _logger, cancellationToken: ct).ConfigureAwait(false);
+            var stars = await detectionImage.FindStarsAsync(
+                0, snrMin: SnrThreshold,
+                maxStars: MaxAnchors, minStars: MinAnchors,
+                logger: _logger, cancellationToken: ct).ConfigureAwait(false);
 
-            // (factor*x + factor/2 - 0.5) puts the binned-pixel centre back to
-            // the centre of its original block. Mirrors CatalogPlateSolver's
-            // rescale step.
-            var halfBlock = detectionScale > 1 ? detectionScale / 2.0f - 0.5f : 0f;
-
-            var anchors = new List<Anchor>(stars.Count);
-            foreach (var s in stars)
+            if (stars.Count < MinAnchors)
             {
-                var nativeX = detectionScale > 1 ? s.XCentroid * detectionScale + halfBlock : s.XCentroid;
-                var nativeY = detectionScale > 1 ? s.YCentroid * detectionScale + halfBlock : s.YCentroid;
-                // FindStars uses 0-based pixel coords; WCS is 1-based (FITS
-                // convention). Add 1 for the projection, store the 0-based
-                // pixel coord for the anchor.
-                var sky = wcs.PixelToSky(nativeX + 1.0, nativeY + 1.0);
-                if (sky is { } pos)
-                {
-                    anchors.Add(new Anchor(nativeX, nativeY, pos.RA, pos.Dec, s.Flux));
-                }
-            }
-
-            if (anchors.Count < MinAnchors)
-            {
-                _logger?.LogDebug("IncrementalSolver: seed yielded only {Count} anchors (min {Min}) -- staying on full-solve path", anchors.Count, MinAnchors);
+                _logger?.LogDebug("IncrementalSolver: seed yielded only {Count} stars (min {Min}) -- staying on full-solve path", stars.Count, MinAnchors);
                 Reset();
-                return anchors.Count;
+                return stars.Count;
             }
 
-            _wcs = wcs;
-            _anchors = anchors;
-            // Stamp seed time so subsequent Refine() calls can sidereal-
-            // forward-rotate the WCS centre from seed-time J2000 (which is
-            // what the anchor list represents) to capture-time J2000 (which
-            // is what a real plate solver would emit). Falls back to
-            // DateTimeOffset.MinValue when no time provider is wired in --
-            // safe because the forward rotation is only applied when the
-            // provider is non-null.
+            // Pre-build the seed quads (deferred until first FindFitAsync
+            // call, but worth doing now so the first live Refine doesn't pay
+            // a one-shot cost while the user is staring at the gauge).
+            var seedSorted = new SortedStarList(stars);
+            _ = await seedSorted.FindQuadsAsync(ct).ConfigureAwait(false);
+
+            // Drop any prior seed before swapping in the new one.
+            _seedSortedStars?.Dispose();
+            _seedSortedStars = seedSorted;
+            _seedWcs = wcs;
+            _seedDetectionScale = detectionScale;
+            // Stamp seed time so callers (PolarAlignmentSession) can correlate
+            // the seed reference frame with the live refine timestamps when
+            // building the sidereal-normalised reference frame.
             _seedUtc = _timeProvider?.GetUtcNow() ?? default;
-            _logger?.LogDebug("IncrementalSolver: seeded with {Count} anchors (detection scale {Scale}x)", anchors.Count, detectionScale);
-            return anchors.Count;
+            _logger?.LogDebug("IncrementalSolver: seeded with {Count} stars (detection scale {Scale}x)", stars.Count, detectionScale);
+            return stars.Count;
         }
 
         /// <summary>
-        /// Run one differential refinement step. ROI-centroids each anchor in
-        /// <paramref name="image"/>, fits an affine from old to new positions,
-        /// applies the affine to the seed WCS to recover the current frame's
-        /// WCS. Returns null on insufficient anchors, singular fit, or RMS
-        /// residual above <see cref="MaxRmsResidualPx"/> -- caller should fall
-        /// back to a full hinted solve and reseed.
+        /// Run one differential refinement step against the *frozen* seed
+        /// reference (NOT against the previous Refine's output). Detects
+        /// stars in the live frame, builds quad invariants, matches them
+        /// against the seed's pre-built quads via <see cref="StarReferenceTable.FindFit"/>,
+        /// fits an affine in pixel space, and composes that affine with the
+        /// seed WCS to produce the live WCS. Drift-free by construction:
+        /// every Refine independently aligns to the same seed reference, so
+        /// per-frame plate-noise sets the precision floor with no
+        /// accumulation across many frames.
         /// </summary>
-        public PlateSolveResult? Refine(Image image, CancellationToken ct = default)
+        public async ValueTask<PlateSolveResult?> RefineAsync(Image image, CancellationToken ct = default)
         {
-            if (_wcs is not { } prevWcs || _anchors.Count < MinAnchors)
+            if (_seedWcs is not { } seedWcs || _seedSortedStars is not { } seedStars)
             {
                 return null;
             }
 
             var sw = Stopwatch.StartNew();
 
-            // ROI-centroid each anchor in the new frame. The anchor's previous
-            // pixel coord is the prior; the field shifts only by the user's
-            // knob nudge (sub-pixel to a few pixels), so a small box is enough.
-            var oldVecs = new List<Vector2>(_anchors.Count);
-            var newVecs = new List<Vector2>(_anchors.Count);
-            var survivingIndexes = new List<int>(_anchors.Count);
-            for (int i = 0; i < _anchors.Count; i++)
+            // Detect stars in the live frame at the SAME downsample factor
+            // the seed used. Star-quad invariants only match across frames
+            // captured at identical pixel scales, since Dist1 is in absolute
+            // pixels. Using the seed's detection scale also keeps the per-
+            // frame cost predictable.
+            var detectionImage = image;
+            if (_seedDetectionScale > 1)
             {
-                ct.ThrowIfCancellationRequested();
-                var a = _anchors[i];
-                if (TryRoiCentroid(image, a.ImgX, a.ImgY, RoiHalfSize, SnrThreshold, out var newX, out var newY))
-                {
-                    oldVecs.Add(new Vector2((float)a.ImgX, (float)a.ImgY));
-                    newVecs.Add(new Vector2((float)newX, (float)newY));
-                    survivingIndexes.Add(i);
-                }
+                detectionImage = image.Downsample(_seedDetectionScale);
             }
 
-            if (survivingIndexes.Count < MinAnchors)
+            var stars = await detectionImage.FindStarsAsync(
+                0, snrMin: SnrThreshold,
+                maxStars: MaxAnchors, minStars: MinAnchors,
+                logger: _logger, cancellationToken: ct).ConfigureAwait(false);
+
+            if (stars.Count < MinAnchors)
             {
-                _logger?.LogDebug("IncrementalSolver: only {Count} anchors survived ROI gate (min {Min})", survivingIndexes.Count, MinAnchors);
+                _logger?.LogDebug("IncrementalSolver: live frame yielded only {Count} stars (min {Min}) -- falling back", stars.Count, MinAnchors);
                 return null;
             }
 
-            // Fit affine M: pixel_new = Vector2.Transform(pixel_old, M).
-            var fit = Matrix3x2.FitAffineTransform(CollectionsMarshal.AsSpan(oldVecs), CollectionsMarshal.AsSpan(newVecs));
-            if (fit is not { } M || !Matrix3x2.Invert(M, out _))
+            using var liveSorted = new SortedStarList(stars);
+
+            // Quad-pattern matching: ASTAP-style geometric matching of star
+            // quads via 6 normalised pairwise distances. Returns the matched
+            // pair table (seed positions <- dest, live positions <- source).
+            var refTable = await seedStars.FindFitAsync(liveSorted, minimumCount: 6, quadTolerance: 0.008f).ConfigureAwait(false);
+            if (refTable is null || refTable.Count < 3)
             {
-                _logger?.LogDebug("IncrementalSolver: affine fit singular");
+                _logger?.LogDebug("IncrementalSolver: quad match failed ({Count} pairs) -- falling back", refTable?.Count ?? 0);
                 return null;
             }
 
-            // RMS residual sanity gate. Above MaxRmsResidualPx the field has
-            // moved more than a small knob-nudge would explain (e.g. the user
-            // bumped the rig hard, or a cloud blanked half the anchors and the
-            // few that survived are noise). Force a fallback.
-            double sumSqResidual = 0;
-            for (int i = 0; i < oldVecs.Count; i++)
+            // FitAffineTransform returns M mapping seed pixels -> live pixels.
+            // ApplyAffineToWcs treats its input as "old -> new", composing
+            // with the seed WCS to produce a WCS on the live frame.
+            if (refTable.FitAffineTransform() is not { } M || !Matrix3x2.Invert(M, out _))
             {
-                var transformed = Vector2.Transform(oldVecs[i], M);
-                var dx = transformed.X - newVecs[i].X;
-                var dy = transformed.Y - newVecs[i].Y;
-                sumSqResidual += dx * dx + dy * dy;
-            }
-            var rms = Math.Sqrt(sumSqResidual / oldVecs.Count);
-            if (rms > MaxRmsResidualPx)
-            {
-                _logger?.LogDebug("IncrementalSolver: RMS residual {Rms:F2} px exceeds ceiling {Ceiling:F2} px -- falling back", rms, MaxRmsResidualPx);
+                _logger?.LogDebug("IncrementalSolver: quad-matched affine singular -- falling back");
                 return null;
             }
 
-            // Update WCS: CRPix_new = M(CRPix_old). CD_new = CD_old * L_col^-1
-            // where L_col is the linear part of M in column-vector convention.
-            // See class doc for the derivation. Then canonicalise so CRPix is
-            // back at the frame centre and CenterRA/CenterDec is the sky at
-            // that pixel -- matches what CatalogPlateSolver emits, so
-            // downstream consumers reading wcs.CenterRA / wcs.CenterDec (e.g.
-            // PolarAlignmentSession's frame-centre unit vector derivation)
-            // see consistent values across the full-solve and incremental
-            // paths.
-            var shifted = ApplyAffineToWcs(prevWcs, M);
+            // Transition from binned-pixel space (where the affine was fit)
+            // to native-pixel space (where the seed WCS lives). The CD matrix
+            // and CRPix in seedWcs are native-pixel units; the affine M is
+            // binned-pixel. Compose: native_new = scale * M * (native_old /
+            // scale) = scaled affine. For our purposes the linear part of M
+            // is dimensionless (rotation + uniform scale ~1) so we can apply
+            // M directly to the native-scale CRPix, but the translation
+            // component must scale by detectionScale. Folding it together
+            // with Matrix3x2 stays clean if we represent the scaling around
+            // the seed's CRPix.
+            var Mscaled = M;
+            if (_seedDetectionScale > 1)
+            {
+                // Translation column (M31, M32) of M is in binned pixels.
+                // Scale it back to native pixels. Linear part of M (M11,
+                // M12, M21, M22) is dimensionless and stays unchanged: a
+                // rotation/scale in binned space is the same rotation/scale
+                // in native space.
+                Mscaled = new Matrix3x2(
+                    M.M11, M.M12,
+                    M.M21, M.M22,
+                    M.M31 * _seedDetectionScale, M.M32 * _seedDetectionScale);
+            }
+
+            var shifted = ApplyAffineToWcs(seedWcs, Mscaled);
             var newWcs = CanonicaliseToFrameCentre(shifted, image.Width, image.Height);
-
-            // Update anchors: replace each surviving anchor's image-pixel coord
-            // with the just-observed centroid so the next Refine works from
-            // the latest positions. J2000 RA/Dec is unchanged; the catalog
-            // doesn't move between frames.
-            for (int i = 0; i < survivingIndexes.Count; i++)
-            {
-                var idx = survivingIndexes[i];
-                var n = newVecs[i];
-                _anchors[idx] = _anchors[idx] with { ImgX = n.X, ImgY = n.Y };
-            }
-            _wcs = newWcs;
 
             return new PlateSolveResult(newWcs, sw.Elapsed)
             {
-                MatchedStars = survivingIndexes.Count,
-                DetectedStars = survivingIndexes.Count,
+                MatchedStars = refTable.Count,
+                DetectedStars = stars.Count,
                 Iterations = 1,
             };
         }
@@ -355,95 +339,5 @@ namespace TianWen.Lib.Astrometry.PlateSolve
             };
         }
 
-        /// <summary>
-        /// Background-subtracted weighted centroid in a (2*halfSize+1)^2 box
-        /// around (cx, cy). Returns false if the box would step outside the
-        /// image, if the peak SNR is below <paramref name="snrFloor"/>, or if
-        /// the weighted-sum denominator is non-positive (saturated all-bg
-        /// region).
-        /// </summary>
-        private static bool TryRoiCentroid(Image image, double cx, double cy, int halfSize, float snrFloor, out double newCx, out double newCy)
-        {
-            newCx = 0;
-            newCy = 0;
-
-            int x0 = (int)Math.Round(cx) - halfSize;
-            int y0 = (int)Math.Round(cy) - halfSize;
-            int x1 = x0 + 2 * halfSize;
-            int y1 = y0 + 2 * halfSize;
-            if (x0 < 0 || y0 < 0 || x1 >= image.Width || y1 >= image.Height)
-            {
-                return false;
-            }
-
-            int n = (2 * halfSize + 1) * (2 * halfSize + 1);
-            Span<float> pixels = stackalloc float[n];
-            int idx = 0;
-            float maxVal = float.MinValue;
-            for (int y = y0; y <= y1; y++)
-            {
-                for (int x = x0; x <= x1; x++)
-                {
-                    var v = image[0, y, x];
-                    pixels[idx++] = v;
-                    if (v > maxVal) maxVal = v;
-                }
-            }
-
-            // Background = 25th percentile of the box. Stable against a single
-            // bright peak and one or two bad pixels; cheap on a small ROI.
-            Span<float> sorted = stackalloc float[n];
-            pixels.CopyTo(sorted);
-            sorted.Sort();
-            float bg = sorted[n / 4];
-
-            // Noise = MAD around the background, scaled by 1.4826 to approximate
-            // a Gaussian sigma. Cheap and robust for sub-arcsec PSFs where the
-            // ROI tail is dominated by sky photon noise.
-            Span<float> dev = stackalloc float[n];
-            for (int i = 0; i < n; i++)
-            {
-                dev[i] = MathF.Abs(sorted[i] - bg);
-            }
-            dev.Sort();
-            float mad = dev[n / 2];
-            float noise = MathF.Max(mad * 1.4826f, 1e-3f);
-
-            float snr = (maxVal - bg) / noise;
-            if (snr < snrFloor)
-            {
-                return false;
-            }
-
-            // Weighted centroid using bg-subtracted pixels. Negative values
-            // (bg fluctuations) are clipped to zero so they don't pull the
-            // centroid off the peak.
-            double sumWX = 0, sumWY = 0, sumW = 0;
-            idx = 0;
-            for (int y = y0; y <= y1; y++)
-            {
-                for (int x = x0; x <= x1; x++)
-                {
-                    var v = pixels[idx++] - bg;
-                    if (v <= 0) continue;
-                    sumWX += v * x;
-                    sumWY += v * y;
-                    sumW += v;
-                }
-            }
-            if (sumW <= 0) return false;
-
-            newCx = sumWX / sumW;
-            newCy = sumWY / sumW;
-            return true;
-        }
-
-        /// <summary>
-        /// One anchor: image pixel coord (0-based, matches FindStars), J2000
-        /// (RA, Dec) projected through the seed WCS, and seed-time flux for
-        /// future weighted-fit support. RA/Dec stay constant -- only the
-        /// pixel coords are updated as the field shifts.
-        /// </summary>
-        private readonly record struct Anchor(double ImgX, double ImgY, double RaHours, double DecDeg, float Flux);
     }
 }
