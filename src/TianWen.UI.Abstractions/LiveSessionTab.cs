@@ -2437,8 +2437,12 @@ namespace TianWen.UI.Abstractions
             float x0, float y, float w, float rowH, string fontPath, float fontSize, float pad)
         {
             const double radToArcmin = 60.0 * 180.0 / Math.PI;
-            var azArcmin = solve.SmoothedAzErrorRad * radToArcmin;
-            var altArcmin = solve.SmoothedAltErrorRad * radToArcmin;
+            // Use raw (per-frame) errors on the gauge so the user sees their
+            // knob nudges land within one solve cycle (~250ms). The smoothed
+            // values are still consumed by the IsSettled / IsAligned latches
+            // -- the gauge needs responsiveness, the latches need stability.
+            var azArcmin = solve.AzErrorRad * radToArcmin;
+            var altArcmin = solve.AltErrorRad * radToArcmin;
 
             DrawText("Az error", fontPath,
                 x0, y, w, rowH,
