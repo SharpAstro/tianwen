@@ -34,20 +34,6 @@ public sealed class MiniViewerState
     /// </summary>
     public bool ShowGrid { get; set; }
 
-    /// <summary>
-    /// When true, the WCS grid is rendered with a sparse-meridian cadence
-    /// (12h RA step → only 2 meridians visible) so the polar-alignment
-    /// overlay's concentric rings + axis crosshair stay readable instead of
-    /// drowning in a moire of converging lines near the pole. Dec circles
-    /// remain auto-scaled — they are the useful complement to the 5'/15'/30'
-    /// rings the polar overlay overlays on top.
-    ///
-    /// Set by the polar-alignment routine while it's active; cleared by the
-    /// host when the routine ends. Has no effect when <see cref="ShowGrid"/>
-    /// is false or no WCS is bound.
-    /// </summary>
-    public bool PolarAlignSparseGrid { get; set; }
-
     public StretchMode StretchMode { get; set; } = StretchMode.Unlinked;
     public int StretchPresetIndex { get; set; }
     public StretchParameters StretchParameters { get; set; } = StretchParameters.Default;

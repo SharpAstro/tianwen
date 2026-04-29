@@ -173,13 +173,6 @@ public sealed unsafe class VkMiniViewerWidget : IMiniViewerWidget, IDisposable
         // WCS grid uniforms -- mirrors VkImageRenderer.RenderImageQuad's grid path.
         // Picks a tick spacing that keeps ~3-8 lines on screen and converts the
         // CD matrix into the radian-scaled form the shader expects.
-        // NB: PolarAlignSparseGrid was originally going to override the
-        // shader's RA spacing here so polar mode showed only a sparse grid,
-        // but the polar-overlay's own ring/cross primitives don't render
-        // until the live-solve WCS gets bound to viewer.Wcs in
-        // LiveSessionTab (which currently doesn't happen during refine).
-        // Until that wiring lands, keep the shader grid as the user's only
-        // visible reference and leave the flag dormant.
         bool gridEnabled = State.ShowGrid && Wcs is not null;
         float gridSpacingRA = 0f, gridSpacingDec = 0f, gridLineWidth = 0f;
         float crPix1 = 0f, crPix2 = 0f, crValRA = 0f, crValDec = 0f;
@@ -209,16 +202,7 @@ public sealed unsafe class VkMiniViewerWidget : IMiniViewerWidget, IDisposable
             // image becomes a green moire pattern. Floor at cos = 0.05 (= dec ~87
             // deg) so we don't blow up exactly at the pole.
             var cosCenterDec = Math.Max(Math.Cos(gw.CenterDec * Math.PI / 180.0), 0.05);
-            // Polar-align mode: lock RA step to 12h (= pi rad) regardless of
-            // FOV / cos(dec) compensation. With cos(dec)~0 near the pole the
-            // autoscaled meridians otherwise pile into a green moire that
-            // hides the overlay rings; pi rad gives 2 meridians (0h / 12h)
-            // forming a single diameter line, providing rotation-orientation
-            // context without overwhelming the alignment cues. Dec auto-scale
-            // is preserved -- those concentric circles are useful here.
-            gridSpacingRA = State.PolarAlignSparseGrid
-                ? (float)Math.PI
-                : spacingRArad / (float)cosCenterDec;
+            gridSpacingRA = spacingRArad / (float)cosCenterDec;
             gridSpacingDec = spacingRad;
             gridLineWidth = (float)(1.5 * pixelScaleArcsec / Math.Max(effectiveZoom, 0.0001f) / 3600.0 * (Math.PI / 180.0));
 

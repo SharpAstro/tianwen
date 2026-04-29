@@ -2,6 +2,7 @@ using Microsoft.Extensions.Logging;
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using TianWen.Lib.Astrometry.PlateSolve;
 using TianWen.Lib.Sequencing.PolarAlignment;
 
 namespace TianWen.UI.Abstractions
@@ -110,6 +111,21 @@ namespace TianWen.UI.Abstractions
                 await foreach (var live in session.RefineAsync(ct))
                 {
                     state.LastPolarSolve = live;
+                    // Refresh PreviewPlateSolveResult with the live refine WCS so
+                    // the GUI's mini-viewer.Wcs binding (in LiveSessionTab) tracks
+                    // the *current* refine pose. Without this the WCS stays frozen
+                    // at whatever Phase A's last source.CaptureAndSolveAsync
+                    // callback published, and the polar overlay (rings, axis
+                    // crosshair, cross meridians, correction arrow) projects
+                    // through a stale WCS -- markers land in the wrong pixels or
+                    // off-frame, so the user thinks the overlay never rendered.
+                    if (live.Wcs is { } liveWcs)
+                    {
+                        state.PreviewPlateSolveResult = new PlateSolveResult(liveWcs, TimeSpan.Zero)
+                        {
+                            MatchedStars = live.StarsMatched,
+                        };
+                    }
                     if (live.IsAligned && live.IsSettled && state.PolarPhase != PolarAlignmentPhase.Aligned)
                     {
                         state.PolarPhase = PolarAlignmentPhase.Aligned;

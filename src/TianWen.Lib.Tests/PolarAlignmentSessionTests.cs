@@ -383,8 +383,18 @@ namespace TianWen.Lib.Tests
 
             using var ctsLoop = new CancellationTokenSource();
             var observed = new List<(double azArcmin, double altArcmin)>();
+            var observedWcsCenters = new List<(double ra, double dec)>();
             await foreach (var tick in session.RefineAsync(ctsLoop.Token))
             {
+                // Lock in: the orchestrator must surface the live solve's WCS
+                // on every successful tick. The host (LiveSessionTab via
+                // PolarAlignmentActions) propagates it to the mini-viewer's
+                // PreviewPlateSolveResult so the polar overlay's sky->pixel
+                // projection tracks the *current* refine pose; without this
+                // the overlay projects through a stale Phase-A WCS and the
+                // markers land off-screen.
+                tick.Wcs.ShouldNotBeNull("RefineAsync must surface the live WCS so the host can rebind viewer.Wcs each tick");
+                observedWcsCenters.Add((tick.Wcs.Value.CenterRA, tick.Wcs.Value.CenterDec));
                 var azArcmin = tick.AzErrorRad * RADIANS2DEGREES * 60.0;
                 var altArcmin = tick.AltErrorRad * RADIANS2DEGREES * 60.0;
                 observed.Add((azArcmin, altArcmin));

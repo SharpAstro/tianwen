@@ -237,28 +237,43 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
             IPlateSolver solver,
             CancellationToken ct = default)
         {
+            var captureStart = System.Diagnostics.Stopwatch.GetTimestamp();
             var capture = await CaptureAsync(exposure, ct).ConfigureAwait(false);
+            var captureElapsed = System.Diagnostics.Stopwatch.GetElapsedTime(captureStart);
             if (!capture.Success || capture.Image is not { } image)
             {
+                _logger.LogInformation(
+                    "MainCameraCaptureSource.CaptureAndSolve: exposure={ExposureMs:F0}ms capture={CaptureMs:F0}ms (capture failed, no solve attempted)",
+                    exposure.TotalMilliseconds, captureElapsed.TotalMilliseconds);
                 return new CaptureAndSolveResult(false, null, default, 0, exposure, null, capture.FailureReason);
             }
 
             try
             {
                 PlateSolveResult solveResult;
+                var solveStart = System.Diagnostics.Stopwatch.GetTimestamp();
                 try
                 {
                     solveResult = await solver.SolveImageAsync(image, searchOrigin: capture.SearchOrigin, cancellationToken: ct);
                 }
                 catch (PlateSolverException ex)
                 {
+                    var solveElapsedFail = System.Diagnostics.Stopwatch.GetElapsedTime(solveStart);
                     // Per-frame solve failure (no stars, ASTAP exit-1, etc.) is the expected
                     // outcome of an under-exposed first rung in the adaptive exposure ramp.
                     // Return Success=false so the ramp moves to the next rung instead of
                     // crashing the whole routine on the very first 100ms attempt.
-                    _logger.LogDebug(ex, "MainCameraCaptureSource: plate solver threw at exposure {Exposure}ms — ramp will try next rung", exposure.TotalMilliseconds);
+                    _logger.LogInformation(
+                        "MainCameraCaptureSource.CaptureAndSolve: exposure={ExposureMs:F0}ms capture={CaptureMs:F0}ms solve={SolveMs:F0}ms (PlateSolverException -- ramp will try next rung)",
+                        exposure.TotalMilliseconds, captureElapsed.TotalMilliseconds, solveElapsedFail.TotalMilliseconds);
+                    _logger.LogDebug(ex, "MainCameraCaptureSource: plate solver threw at exposure {Exposure}ms", exposure.TotalMilliseconds);
                     return new CaptureAndSolveResult(false, null, default, 0, exposure, null);
                 }
+                var solveElapsed = System.Diagnostics.Stopwatch.GetElapsedTime(solveStart);
+                _logger.LogInformation(
+                    "MainCameraCaptureSource.CaptureAndSolve: exposure={ExposureMs:F0}ms capture={CaptureMs:F0}ms solve={SolveMs:F0}ms solved={Solved} matched={Matched}",
+                    exposure.TotalMilliseconds, captureElapsed.TotalMilliseconds, solveElapsed.TotalMilliseconds,
+                    solveResult.Solution is not null, solveResult.MatchedStars);
 
                 // Publish the solve result whether successful or not so the
                 // UI's WCS-anchored chrome (grid, sky markers) tracks the live
