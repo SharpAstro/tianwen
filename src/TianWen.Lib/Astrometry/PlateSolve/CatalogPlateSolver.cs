@@ -141,19 +141,25 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger<CatalogP
         // we scale them back to original-image pixels before matching.
         var detectionImage = image;
         var detectionScale = 1;
-        const double TargetPixelScaleArcsec = 1.5;
-        if (dim.PixelScale > 0 && dim.PixelScale < TargetPixelScaleArcsec)
+        // Integer-tenths comparison: pixelScale * 10 vs 15 dodges the
+        // floating-point edge where round(1.5 / 1.293) collapses to 1 and
+        // leaves the 600mm/3.76um polar preview running FindStars on the
+        // full 9576x6388 frame -- ~5 s wall-clock, which blows the polar
+        // ramp's 5.5 s rung-1 budget. With this gate, anything finer than
+        // 1.5"/px gets binned to ~1.5-3.0"/px (still well above seeing,
+        // still plenty for plate-solving centroid accuracy).
+        const int TargetPixelScaleX10 = 15;
+        var pixelScaleX10 = (int)Math.Round(dim.PixelScale * 10);
+        if (pixelScaleX10 > 0 && pixelScaleX10 < TargetPixelScaleX10)
         {
-            // Round (not floor) so a 0.97"/px image gets binned 2x to 1.94"/px.
-            // floor(1.5/0.97) = 1 = no bin -- we'd never trigger on
-            // sub-arcsec/px setups that need it most.
-            detectionScale = (int)Math.Round(TargetPixelScaleArcsec / dim.PixelScale);
+            // Ceiling so finer-than-target inputs always get at least 2x bin.
+            detectionScale = (TargetPixelScaleX10 + pixelScaleX10 - 1) / pixelScaleX10;
             if (detectionScale > 1)
             {
                 stageSw.Restart();
                 detectionImage = image.Downsample(detectionScale);
                 _logger?.LogDebug("CatalogPlateSolver: downsampled {SrcW}x{SrcH} -> {DstW}x{DstH} (factor {Factor}, target {Target}\"/px) in {Ms}ms",
-                    image.Width, image.Height, detectionImage.Width, detectionImage.Height, detectionScale, TargetPixelScaleArcsec, stageSw.Elapsed.TotalMilliseconds);
+                    image.Width, image.Height, detectionImage.Width, detectionImage.Height, detectionScale, TargetPixelScaleX10 / 10.0, stageSw.Elapsed.TotalMilliseconds);
             }
         }
 
