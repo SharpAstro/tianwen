@@ -155,7 +155,8 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
                 return Failed(probe.FailureReason
                     ?? $"Plate solve failed at every exposure rung up to {_config.ExposureRamp[^1].TotalSeconds:F1}s — check focus, dew, light pollution.");
             }
-            _v1 = await AverageWcsAsync(probe.WcsCenter, probe.ExposureUsed, ct);
+            var (v1Center, v1AvgMatched) = await AverageWcsAsync(probe.WcsCenter, probe.StarsMatched, probe.ExposureUsed, ct);
+            _v1 = v1Center;
             // Refining uses the *shorter* rung so the user sees the readout
             // react quickly to knob turns; Phase A's strict-threshold rung
             // (probe.ExposureUsed) is only used for v1/v2 averaging here.
@@ -241,7 +242,7 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
             // the v2 baseline used by the live tracker has sigma reduced by ~sqrt(N).
             // The Phase A axis recovery and the LiveAxisRefiner both consume this
             // value, so a clean reference is the floor for the live readout.
-            var v2Averaged = await AverageWcsAsync(frame2.WcsCenter, frame2.ExposureUsed, ct);
+            var (v2Averaged, v2AvgMatched) = await AverageWcsAsync(frame2.WcsCenter, frame2.StarsMatched, frame2.ExposureUsed, ct);
 
             // --- Recover axis + decompose against apparent pole ---
             var deltaRad = _phaseARotationRate * _phaseARotationElapsed.TotalSeconds * (Math.PI / 180.0);
@@ -295,8 +296,8 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
                 ChordAngleObservedRad: observedChord,
                 ChordAnglePredictedRad: predictedChord,
                 LockedExposure: probe.ExposureUsed,
-                StarsMatchedFrame1: probe.StarsMatched,
-                StarsMatchedFrame2: frame2.StarsMatched,
+                StarsMatchedFrame1: v1AvgMatched,
+                StarsMatchedFrame2: v2AvgMatched,
                 CommandedRotationRad: deltaRad,
                 MeasuredRotationRad: measuredRotationRad);
         }
@@ -319,9 +320,17 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
             var deltaRad = _phaseARotationRate * _phaseARotationElapsed.TotalSeconds * (Math.PI / 180.0);
             var absDelta = Math.Abs(deltaRad);
             var targetAccuracyRad = _config.TargetAccuracyArcmin * Math.PI / (180.0 * 60.0);
+            // Hysteresis on the aligned->refining transition: once aligned,
+            // require the smoothed error to exceed 1.5x the target accuracy
+            // before flipping back to refining. Without this the UI flickers
+            // between "Aligned" and "Refining" pills when the user holds the
+            // knob at the threshold boundary -- 0.9' / 0.1' jiggling above
+            // and below 1.0'.
+            var exitAlignedRad = targetAccuracyRad * 1.5;
 
             var smoother = new RefinementSmoother(_config.SmoothingWindow, _config.SettleSigmaArcmin);
             int consecutiveFailures = 0;
+            bool alignedLatch = false;
 
             // Incremental solver: ROI-centroid + affine refit at <20ms per
             // frame vs ~700ms for a full hinted solve on a 60MP frame. First
@@ -407,11 +416,28 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
                     // tick goes through the fast path; resets the counter.
                     if (refinedWcs is null)
                     {
+                        // After a streak of failures, the user has probably
+                        // moved far enough (knob nudge, mount slew, near-pole
+                        // pose) that the cached searchOrigin is wrong. Drop
+                        // the hint and reset incremental anchors so the next
+                        // successful full solve re-seeds from a clean slate.
+                        // The full solver is then unbounded (slower, but it's
+                        // the only path back to baseline fast cadence).
+                        const int RescanAfterFailures = 3;
+                        var blindRescan = consecutiveFailures >= RescanAfterFailures;
+                        if (blindRescan && incremental.IsSeeded)
+                        {
+                            incremental.Reset();
+                            _logger.LogInformation(
+                                "PolarAlignment refine: {Count} consecutive failures -- resetting incremental anchors and dropping search hint for blind full solve",
+                                consecutiveFailures);
+                        }
+
                         try
                         {
                             var fullStart = Stopwatch.GetTimestamp();
                             var full = await _solver.SolveImageAsync(image,
-                                searchOrigin: capture.SearchOrigin,
+                                searchOrigin: blindRescan ? null : capture.SearchOrigin,
                                 cancellationToken: ct);
                             fullElapsed = Stopwatch.GetElapsedTime(fullStart);
                             if (full.Solution is { } fullWcs && full.MatchedStars >= _config.MinStarsForSolve)
@@ -484,7 +510,28 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
                         _site.PressureHPa, _site.TemperatureC, _referenceUtc);
 
                     var (smAz, smAlt, isSettled) = smoother.Update(azErr, altErr);
-                    bool isAligned = Math.Abs(smAz) < targetAccuracyRad && Math.Abs(smAlt) < targetAccuracyRad;
+                    var absSmAz = Math.Abs(smAz);
+                    var absSmAlt = Math.Abs(smAlt);
+                    // Schmitt-trigger style hysteresis: enter "aligned" only
+                    // when both smoothed errors are inside targetAccuracy;
+                    // exit only when either exceeds 1.5x. Removes the
+                    // flip-flop between "Aligned" / "Refining" right at the
+                    // threshold boundary.
+                    if (alignedLatch)
+                    {
+                        if (absSmAz > exitAlignedRad || absSmAlt > exitAlignedRad)
+                        {
+                            alignedLatch = false;
+                        }
+                    }
+                    else
+                    {
+                        if (absSmAz < targetAccuracyRad && absSmAlt < targetAccuracyRad)
+                        {
+                            alignedLatch = true;
+                        }
+                    }
+                    bool isAligned = alignedLatch;
                     int failedRun = consecutiveFailures;
                     consecutiveFailures = 0; // reset on success
 
@@ -612,13 +659,14 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
         /// Phase A reference poses this drives the floor of how tight the
         /// live-refining readout can ever be.
         /// </summary>
-        private async ValueTask<Vec3> AverageWcsAsync(Vec3 firstSample, TimeSpan exposure, CancellationToken ct)
+        private async ValueTask<(Vec3 Center, int AvgStarsMatched)> AverageWcsAsync(Vec3 firstSample, int firstStarsMatched, TimeSpan exposure, CancellationToken ct)
         {
             int target = Math.Max(1, _config.ReferenceFrameAverages);
-            if (target == 1) return firstSample;
+            if (target == 1) return (firstSample, firstStarsMatched);
 
             double sumX = firstSample.X, sumY = firstSample.Y, sumZ = firstSample.Z;
             int count = 1;
+            int sumMatched = firstStarsMatched;
             int extras = target - 1;
 
             for (int i = 0; i < extras; i++)
@@ -645,6 +693,7 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
                     sumX += v.X;
                     sumY += v.Y;
                     sumZ += v.Z;
+                    sumMatched += extra.StarsMatched;
                     count++;
                 }
             }
@@ -652,7 +701,7 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
             var len = Math.Sqrt(sumX * sumX + sumY * sumY + sumZ * sumZ);
             _logger.LogInformation("PolarAlignment: averaged WCS over {Count}/{Target} solves at {Exposure}ms",
                 count, target, exposure.TotalMilliseconds);
-            return new Vec3(sumX / len, sumY / len, sumZ / len);
+            return (new Vec3(sumX / len, sumY / len, sumZ / len), sumMatched / count);
         }
 
         /// <summary>

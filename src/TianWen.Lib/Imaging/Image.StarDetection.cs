@@ -5,6 +5,7 @@ using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
 using static TianWen.Lib.Stat.StatisticsHelper;
 
 namespace TianWen.Lib.Imaging;
@@ -101,7 +102,7 @@ public partial class Image
     }
 
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-    public virtual async Task<StarList> FindStarsAsync(int channel, float snrMin = 20f, int maxStars = 500, int minStars = -1, int maxRetries = 2, CancellationToken cancellationToken = default)
+    public virtual async Task<StarList> FindStarsAsync(int channel, float snrMin = 20f, int maxStars = 500, int minStars = -1, int maxRetries = 2, ILogger? logger = null, CancellationToken cancellationToken = default)
     {
         // Default minStars to maxStars preserves the historical behaviour
         // (retries until maxStars is reached). New callers should set minStars
@@ -129,7 +130,7 @@ public partial class Image
                 return cached;
             }
 
-            var result = await DetectStarsAsync(channel, snrMin, maxStars, minStars, maxRetries, cancellationToken).ConfigureAwait(false);
+            var result = await DetectStarsAsync(channel, snrMin, maxStars, minStars, maxRetries, logger, cancellationToken).ConfigureAwait(false);
             _starListCacheValue = result;
             _starListCacheKey = key;
             return result;
@@ -140,8 +141,18 @@ public partial class Image
         }
     }
 
+    // Per-pass counters for FindStarsAsync diagnostics. Heap-allocated only
+    // when a logger is supplied so the hot path stays branch-free for
+    // production (no-logger) callers. Atomically accumulated once per chunk.
+    private sealed class FindStarsPassCounters
+    {
+        public long ThresholdHits;
+        public long AnalyseStarCalls;
+        public long Accepted;
+    }
+
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-    private async Task<StarList> DetectStarsAsync(int channel, float snrMin, int maxStars, int minStars, int maxRetries, CancellationToken cancellationToken)
+    private async Task<StarList> DetectStarsAsync(int channel, float snrMin, int maxStars, int minStars, int maxRetries, ILogger? logger, CancellationToken cancellationToken)
     {
         // ChunkSize = row band height each parallel task processes, matching the max star radius
         // (HfdFactor * BoxRadius) so no star can span two non-adjacent chunks. Decoupled from
@@ -159,16 +170,27 @@ public partial class Image
         {
             // debayer to mono
             var monoImage = await DebayerAsync(DebayerAlgorithm.BilinearMono, cancellationToken: cancellationToken);
-            return await monoImage.FindStarsAsync(channel, snrMin, maxStars, minStars, maxRetries, cancellationToken);
+            return await monoImage.FindStarsAsync(channel, snrMin, maxStars, minStars, maxRetries, logger, cancellationToken);
         }
 
+        var bgStart = logger is not null ? Stopwatch.GetTimestamp() : 0L;
         var (background, star_level, noise_level, hist_threshold) = Background(channel);
+        if (logger is not null)
+        {
+            var bgElapsed = Stopwatch.GetElapsedTime(bgStart);
+            logger.LogDebug(
+                "Image.FindStarsAsync: Background channel={Channel} bg={Bg:F3} starLevel={StarLevel:F3} noise={Noise:F3} histThreshold={HistThreshold:F3} in {Ms:F1}ms",
+                channel, background, star_level, noise_level, hist_threshold, bgElapsed.TotalMilliseconds);
+        }
 
         var detection_level = MathF.Max(3.5f * noise_level, star_level); /* level above background. Start with a high value */
         var retries = maxRetries;
 
         if (background >= hist_threshold || background <= 0)  /* abnormal file */
         {
+            logger?.LogDebug(
+                "Image.FindStarsAsync: abnormal frame -- bg={Bg:F3} histThreshold={HistThreshold:F3}, returning empty StarList",
+                background, hist_threshold);
             return new StarList([]);
         }
 
@@ -182,14 +204,24 @@ public partial class Image
         var halfChunkCount = (int)Math.Ceiling(height * HalfChunkSizeInv);
         var parallelOptions = new ParallelOptions { MaxDegreeOfParallelism = Environment.ProcessorCount * 4, CancellationToken = cancellationToken };
 
+        var passNumber = 0;
         do
         {
+            passNumber++;
+            var passCounters = logger is not null ? new FindStarsPassCounters() : null;
+            var passStart = logger is not null ? Stopwatch.GetTimestamp() : 0L;
+            var passDetectionLevel = detection_level;
+
             for (var i = 0; i <= 1; i++)
             {
                 await Parallel.ForAsync(0, halfChunkCount, parallelOptions, async (halfChunk, cancellationToken) =>
                 {
                     await Task.Run(() =>
                     {
+                        // Per-chunk thread-local counters: bumped only via plain ++,
+                        // so the hot path stays scalar-register cheap. Atomically
+                        // folded into the shared PassCounters once at chunk end.
+                        long localHits = 0, localCalls = 0, localAccepted = 0;
                         var chunk = 2 * halfChunk + i;
                         var chunkEnd = Math.Min(height, (chunk + 1) * ChunkSize);
                         for (var fitsY = chunk * ChunkSize; fitsY < chunkEnd; fitsY++)
@@ -202,27 +234,48 @@ public partial class Image
                                 {
                                     img_star_area[fitsY, fitsX] = true; /* ignore NaN values */
                                 }
-                                else if (value - background > detection_level
-                                    && !img_star_area[fitsY, fitsX]
-                                    && AnalyseStar(channel, fitsX, fitsY, BoxRadius, out var star)
-                                    && star.HFD is > 0.8f and <= BoxRadius * 2 /* at least 2 pixels in size */
-                                    && star.SNR >= snrMin
-                                )
+                                else if (value - background > detection_level)
                                 {
-                                    starList.Add(star);
-                                    var scaledHfd = HfdFactor * star.HFD;
-                                    var r = (int)MathF.Round(scaledHfd); /* radius for marking star area, factor 1.5 is chosen emperiacally. */
-                                    var xc_offset = (int)MathF.Round(star.XCentroid - scaledHfd); /* star center as integer */
-                                    var yc_offset = (int)MathF.Round(star.YCentroid - scaledHfd);
+                                    localHits++;
+                                    if (!img_star_area[fitsY, fitsX])
+                                    {
+                                        localCalls++;
+                                        if (AnalyseStar(channel, fitsX, fitsY, BoxRadius, out var star)
+                                            && star.HFD is > 0.8f and <= BoxRadius * 2 /* at least 2 pixels in size */
+                                            && star.SNR >= snrMin)
+                                        {
+                                            localAccepted++;
+                                            starList.Add(star);
+                                            var scaledHfd = HfdFactor * star.HFD;
+                                            var r = (int)MathF.Round(scaledHfd); /* radius for marking star area, factor 1.5 is chosen emperiacally. */
+                                            var xc_offset = (int)MathF.Round(star.XCentroid - scaledHfd); /* star center as integer */
+                                            var yc_offset = (int)MathF.Round(star.YCentroid - scaledHfd);
 
-                                    var mask = StarMasks[Math.Clamp(r - 1, 0, StarMasks.Length - 1)];
+                                            var mask = StarMasks[Math.Clamp(r - 1, 0, StarMasks.Length - 1)];
 
-                                    img_star_area.SetRegionClipped(yc_offset, xc_offset, mask);
+                                            img_star_area.SetRegionClipped(yc_offset, xc_offset, mask);
+                                        }
+                                    }
                                 }
                             }
                         }
+                        if (passCounters is not null)
+                        {
+                            Interlocked.Add(ref passCounters.ThresholdHits, localHits);
+                            Interlocked.Add(ref passCounters.AnalyseStarCalls, localCalls);
+                            Interlocked.Add(ref passCounters.Accepted, localAccepted);
+                        }
                     }, cancellationToken);
                 });
+            }
+
+            if (passCounters is not null)
+            {
+                var passElapsed = Stopwatch.GetElapsedTime(passStart);
+                logger!.LogDebug(
+                    "Image.FindStarsAsync: pass={Pass} detectionLevel={DL:F3} thresholdHits={Hits} analyseStarCalls={Calls} accepted={Accepted} cumulative={Cum} retriesRemaining={Retries} in {Ms:F0}ms",
+                    passNumber, passDetectionLevel, passCounters.ThresholdHits, passCounters.AnalyseStarCalls,
+                    passCounters.Accepted, starList.Count, retries, passElapsed.TotalMilliseconds);
             }
 
             /* In principle not required. Try again with lower detection level */

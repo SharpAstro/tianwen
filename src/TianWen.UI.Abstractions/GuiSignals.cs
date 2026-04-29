@@ -162,6 +162,12 @@ public readonly record struct PlateSolvePreviewSignal(int OtaIndex = 0);
 public readonly record struct JogFocuserSignal(int OtaIndex, int Steps);
 
 /// <summary>
+/// Move the focuser to an absolute target position. Only valid when no session
+/// is running and the focuser is connected.
+/// </summary>
+public readonly record struct GotoFocuserSignal(int OtaIndex, int TargetPosition);
+
+/// <summary>
 /// Open the F3 sky-map search modal. Posted from the sky-map tab's key handler;
 /// subscriber wires up callbacks and lazy-builds the catalog index.
 /// </summary>

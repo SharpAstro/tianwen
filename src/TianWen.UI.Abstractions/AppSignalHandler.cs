@@ -2483,6 +2483,37 @@ namespace TianWen.UI.Abstractions
                 }, $"JogFocuser OTA{sig.OtaIndex}");
             });
 
+            bus.Subscribe<GotoFocuserSignal>(sig =>
+            {
+                if (liveSessionState.IsRunning) return;
+                if (appState.ActiveProfile?.Data is not { OTAs: var otas } || sig.OtaIndex >= otas.Length) return;
+                if (appState.DeviceHub is not { } hub) return;
+
+                var ota = otas[sig.OtaIndex];
+                if (ota.Focuser is not { } focUri) return;
+                if (!hub.TryGetConnectedDriver<IFocuserDriver>(focUri, out var focuser) || focuser is null) return;
+
+                tracker.Run(async () =>
+                {
+                    try
+                    {
+                        await focuser.BeginMoveAsync(sig.TargetPosition, cts.Token);
+                        appState.AppendNotification(_timeProvider.GetUtcNow(),
+                            NotificationSeverity.Info, $"Focuser \u2192 {sig.TargetPosition}");
+                    }
+                    catch (Exception ex)
+                    {
+                        logger.LogWarning(ex, "Focuser goto failed for OTA {Index}", sig.OtaIndex);
+                        appState.AppendNotification(_timeProvider.GetUtcNow(),
+                            NotificationSeverity.Error, $"Focuser goto failed: {ex.Message}");
+                    }
+                    finally
+                    {
+                        appState.NeedsRedraw = true;
+                    }
+                }, $"GotoFocuser OTA{sig.OtaIndex}");
+            });
+
             // ---------------------------------------------------------------
             // Local helpers captured by closures above
             // ---------------------------------------------------------------

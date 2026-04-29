@@ -314,7 +314,20 @@ namespace TianWen.UI.Abstractions
             {
                 LastCapturedImages = new Image?[otaCount];
             }
+
+            if (FocuserGotoInputs.Length != otaCount)
+            {
+                FocuserGotoInputs = [.. Enumerable.Range(0, otaCount).Select(_ =>
+                    new TextInputState { Placeholder = "step" })];
+            }
         }
+
+        /// <summary>
+        /// Per-OTA "goto position" input fields for the focuser. Pre-populated
+        /// with the current focuser step on first render so the user can edit
+        /// instead of typing the whole number.
+        /// </summary>
+        public ImmutableArray<TextInputState> FocuserGotoInputs { get; set; } = ImmutableArray<TextInputState>.Empty;
 
         /// <summary>
         /// Polls the active session and updates cached fields. Call once per frame.

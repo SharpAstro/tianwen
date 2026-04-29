@@ -38,6 +38,15 @@ public sealed class MiniViewerState
     public int StretchPresetIndex { get; set; }
     public StretchParameters StretchParameters { get; set; } = StretchParameters.Default;
 
+    /// <summary>
+    /// When true, the mini viewer keeps the stretch stats it computed on the
+    /// first uploaded frame (until image dims change) and skips the per-frame
+    /// 61M-pixel histogram. Polar alignment turns this on so the rung-to-rung
+    /// brightness swings during Phase A probing don't pulse the auto-stretch,
+    /// and so the refining loop's UI thread isn't pegged by the histogram.
+    /// </summary>
+    public bool FreezeStretchStats { get; set; }
+
     public float CurvesBoost { get; set; }
     public int CurvesBoostIndex { get; set; }
     public static readonly float[] CurvesBoostPresets = [0f, 0.25f, 0.50f, 1.0f, 1.5f];
