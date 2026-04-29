@@ -718,22 +718,6 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver
                                     apertureScale, exposureSec));
                             var stars = SyntheticStarFieldRenderer.ProjectCatalogStars(
                                 target.RA, target.Dec, FocalLength, PixelSizeX, imgWidth, imgHeight, db, magCutoff);
-                            // Cap synth at the brightest N projections regardless of cutoff.
-                            // Without this, dense polar fields at long exposure / 200mm f/3
-                            // dump 600+ stars into the synth -- many of them saturated and
-                            // overlapping -- and FindStarsAsync's deblending hits a
-                            // super-linear wall: the IMX455 polar bench measured 14-29 s
-                            // wall-clock vs 157 ms for the 50mm baseline, which blows
-                            // every per-rung budget. 150 brightest is plenty for
-                            // CatalogPlateSolver (it caps detections at maxStars=500
-                            // and matching converges with 30+ matches) and bounds
-                            // detector work to the same scale as the 50mm test rig.
-                            const int MaxSynthStars = 150;
-                            if (stars.Count > MaxSynthStars)
-                            {
-                                stars.Sort(static (a, b) => a.Magnitude.CompareTo(b.Magnitude));
-                                stars.RemoveRange(MaxSynthStars, stars.Count - MaxSynthStars);
-                            }
                             // Diagnostic: confirm aperture / scale / cutoff / cap during synth render.
                             Logger.LogInformation(
                                 "FakeCamera synth: aperture={Aperture} focal={FocalLength} t={ExposureSec:F3}s scale={Scale:F2} magCutoff={Cutoff:F2} stars={Stars}",
