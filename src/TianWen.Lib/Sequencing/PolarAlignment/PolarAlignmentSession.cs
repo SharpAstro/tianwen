@@ -138,16 +138,17 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
             IProgress<PolarPhaseUpdate>? phaseProgress = null)
         {
             // --- Frame 1 with adaptive exposure ramp ---
-            // Phase A locks the strict RotationMinStars rung (axis-recovery
-            // precision floor); Phase B refining gets the shortest rung that
-            // already cleared MinStarsForSolve, so the live readout updates at
-            // ~1Hz instead of ~0.2Hz when the strict threshold takes 5s. The
-            // probe walks the ramp once and returns both rungs in one pass.
-            var probeResult = await AdaptiveExposureRamp.ProbeAsync(
+            // Single-threshold ramp: lock on the first rung that hits
+            // MinStarsForSolve and use that exposure for both Phase A
+            // averaging and Phase B refining. With aperture-scaled synth +
+            // real catalog rendering, even short rungs give plenty of stars,
+            // so picking one rung end-to-end is as good as the old strict /
+            // relaxed two-tier and avoids walking past a perfectly-good
+            // shorter rung in search of "more" stars.
+            var probe = await AdaptiveExposureRamp.ProbeAsync(
                 _source, _solver, _config.ExposureRamp,
-                _config.RotationMinStars, _config.MinStarsForSolve,
+                _config.MinStarsForSolve,
                 ct, rampProgress, _logger);
-            var probe = probeResult.Final;
             if (!probe.Success)
             {
                 // Source-supplied reason (e.g. "PHD2 Save Images disabled") wins over the
@@ -157,10 +158,7 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
             }
             var (v1Center, v1AvgMatched) = await AverageWcsAsync(probe.WcsCenter, probe.StarsMatched, probe.ExposureUsed, ct);
             _v1 = v1Center;
-            // Refining uses the *shorter* rung so the user sees the readout
-            // react quickly to knob turns; Phase A's strict-threshold rung
-            // (probe.ExposureUsed) is only used for v1/v2 averaging here.
-            _lockedExposureSeconds = probeResult.RefineExposure.TotalSeconds;
+            _lockedExposureSeconds = probe.ExposureUsed.TotalSeconds;
 
             // --- RA-axis rotation via raw MoveAxis (bypasses pointing model) ---
             if (!_mount.CanMoveAxis(TelescopeAxis.Primary))

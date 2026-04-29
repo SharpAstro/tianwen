@@ -99,8 +99,7 @@ public class PolarAlignmentRampIntegrationTests(ITestOutputHelper output)
 
         var result = await AdaptiveExposureRamp.ProbeAsync(
             source, solver, ramp,
-            minStarsMatched: 50,   // Phase A's strict threshold
-            minStarsRefine: 10,    // Phase B's relaxed threshold
+            minStarsMatched: 40,
             ct, progress: null, logger: logger);
 
         // The result is whatever the ramp settled on. The hard requirement is
@@ -110,16 +109,15 @@ public class PolarAlignmentRampIntegrationTests(ITestOutputHelper output)
         // test passes silently; if it doesn't, we still completed all 8
         // rungs and the per-rung log shows where time was spent.
         output.WriteLine(
-            "Probe result: success={0} starsMatched={1} exposure={2:F0}ms refineExposure={3:F0}ms",
-            result.Final.Success, result.Final.StarsMatched,
-            result.Final.ExposureUsed.TotalMilliseconds,
-            result.RefineExposure.TotalMilliseconds);
+            "Probe result: success={0} starsMatched={1} exposure={2:F0}ms",
+            result.Success, result.StarsMatched,
+            result.ExposureUsed.TotalMilliseconds);
 
         // Sanity: at least one rung must have produced a non-zero star count.
         // If every rung returned 0 stars, either the synth-render or the
         // plate-solve pipeline is broken at this pointing -- which is the
         // user-visible "ramp times out at every rung" symptom.
-        result.Final.StarsMatched.ShouldBeGreaterThan(0,
+        result.StarsMatched.ShouldBeGreaterThan(0,
             "Every rung returned 0 stars -- synth render or plate solve is broken");
     }
 }
