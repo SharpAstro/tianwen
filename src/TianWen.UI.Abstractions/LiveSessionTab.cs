@@ -157,10 +157,17 @@ namespace TianWen.UI.Abstractions
                     {
                         viewer.State.Annotation = WcsAnnotation.Empty;
                     }
+                    // Probe rungs ramp 100ms -> 5000ms; the 50x exposure swing
+                    // would whip the auto-stretch through wildly different
+                    // mid-tones each frame and pulse the histogram (300ms)
+                    // on the UI thread for every push. Pin stretch on first
+                    // frame and reuse for the whole polar-align session.
+                    viewer.State.FreezeStretchStats = true;
                 }
                 else
                 {
                     viewer.State.Annotation = WcsAnnotation.Empty;
+                    viewer.State.FreezeStretchStats = false;
                 }
 
                 // Check if a new frame arrived for the selected camera
