@@ -74,10 +74,12 @@ namespace TianWen.UI.Abstractions.Overlays
                     Label: $"{poleLabel} (J2000)",
                     SizePx: 32f));
 
-            // Mirror the post-Phase-A 4-ring set so the long Phase A wait
-            // isn't visually empty. The shader's WCS grid layers the
-            // meridian/parallel reference on top -- no overlay cross needed.
-            var ringRadii = new[] { 5f, 15f, 30f, 45f };
+            // Single 30' reference ring during Phase A. The 4-ring set used
+            // post-Phase-A is too busy here -- on long-focal-length OTAs the
+            // 45' ring extends past the image rect and reads as overlapping
+            // the side panel. The shader's WCS grid still layers
+            // meridian/parallel reference on top.
+            var ringRadii = new[] { 30f };
             var rings = ImmutableArray.CreateBuilder<SkyRing>(ringRadii.Length);
             foreach (var r in ringRadii)
             {

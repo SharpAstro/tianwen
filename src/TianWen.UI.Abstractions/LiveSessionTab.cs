@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Immutable;
+using System.Threading.Tasks;
 using DIR.Lib;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Imaging;
@@ -1489,6 +1490,11 @@ namespace TianWen.UI.Abstractions
                             fontSize, tel.FocuserIsMoving ? StatusSlewing : BodyText, TextAlign.Near, TextAlign.Center);
                         y += rowH;
 
+                        // Capture index once for both the jog button closures
+                        // (5 buttons) and the goto-position row's OnCommit /
+                        // Go button below.
+                        var capturedI = i;
+
                         // Jog buttons row: [<<] [<] position [>] [>>]
                         if (y < maxY)
                         {
@@ -1496,7 +1502,6 @@ namespace TianWen.UI.Abstractions
                             var jogBtnW = 32f * dpiScale;
                             var jogBtnH = rowH * 0.85f;
                             var jogBtnY2 = y + (rowH - jogBtnH) / 2;
-                            var capturedI = i;
                             var jogX = px + pad;
 
                             // Coarse in (<<)
@@ -1529,6 +1534,50 @@ namespace TianWen.UI.Abstractions
                                 fontPath, smallFs, jogBg, BodyText, $"FocCoarseOut{capturedI}",
                                 _ => PostSignal(new JogFocuserSignal(capturedI, 100)));
 
+                            y += rowH;
+                        }
+
+                        // Goto-position row: numeric input pre-filled with the
+                        // current focuser step + a "Go" button. Posts
+                        // GotoFocuserSignal which routes to focuser.BeginMoveAsync.
+                        // The input is parsed as int on commit; non-numeric
+                        // values are ignored silently.
+                        if (y < maxY && capturedI < state.FocuserGotoInputs.Length)
+                        {
+                            var input = state.FocuserGotoInputs[capturedI];
+                            // Refresh placeholder/text to current position when
+                            // not actively being edited so the user always sees
+                            // a sensible starting value to tweak.
+                            if (!input.IsActive && string.IsNullOrEmpty(input.Text))
+                            {
+                                input.Text = tel.FocusPosition.ToString();
+                                input.CursorPos = input.Text.Length;
+                            }
+                            input.OnCommit = text =>
+                            {
+                                if (int.TryParse(text, out var pos))
+                                {
+                                    PostSignal(new GotoFocuserSignal(capturedI, pos));
+                                }
+                                return Task.CompletedTask;
+                            };
+
+                            var jogBg = new RGBAColor32(0x2a, 0x2a, 0x3a, 0xff);
+                            var rowBtnH = rowH * 0.85f;
+                            var rowBtnY = y + (rowH - rowBtnH) / 2;
+                            var goBtnW = 32f * dpiScale;
+                            var inputW = textW - goBtnW - 4f;
+                            RenderTextInput(input, (int)(px + pad), (int)rowBtnY,
+                                (int)inputW, (int)rowBtnH, fontPath, smallFs);
+                            RenderButton("Go", px + pad + inputW + 4f, rowBtnY, goBtnW, rowBtnH,
+                                fontPath, smallFs, jogBg, BodyText, $"FocGoto{capturedI}",
+                                _ =>
+                                {
+                                    if (int.TryParse(input.Text, out var pos))
+                                    {
+                                        PostSignal(new GotoFocuserSignal(capturedI, pos));
+                                    }
+                                });
                             y += rowH;
                         }
                     }

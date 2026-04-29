@@ -531,36 +531,38 @@ public class PlateSolverTests(ITestOutputHelper output)
         output.WriteLine($"Background(0): bg={bg.Item1:F1} starLevel={bg.Item2:F1} noise={bg.Item3:F2} histThr={bg.Item4:F1}  in {sw.Elapsed.TotalMilliseconds:F0} ms");
         output.WriteLine($"  Detection level start = max(3.5*noise, starLevel) = {Math.Max(3.5f * bg.Item3, bg.Item2):F1}");
 
+        var ct = TestContext.Current.CancellationToken;
+
         // Plate-solver path: snrMin=5, maxStars=500, default 2 retries.
         sw.Restart();
-        var stars = await image.FindStarsAsync(0, snrMin: 5f, maxStars: 500);
+        var stars = await image.FindStarsAsync(0, snrMin: 5f, maxStars: 500, cancellationToken: ct);
         output.WriteLine($"FindStarsAsync(snrMin=5, maxStars=500, retries=2) -> {stars.Count} stars in {sw.Elapsed.TotalMilliseconds:F0} ms");
 
         // Same but no retry -- isolates the cost of the retry loop.
         sw.Restart();
-        var stars0r = await image.FindStarsAsync(0, snrMin: 5f, maxStars: 500, maxRetries: 0);
+        var stars0r = await image.FindStarsAsync(0, snrMin: 5f, maxStars: 500, maxRetries: 0, cancellationToken: ct);
         output.WriteLine($"FindStarsAsync(snrMin=5, maxStars=500, retries=0) -> {stars0r.Count} stars in {sw.Elapsed.TotalMilliseconds:F0} ms");
 
         // Higher SNR threshold -- isolates the cost of low-threshold AnalyseStar calls.
         sw.Restart();
-        var stars10 = await image.FindStarsAsync(0, snrMin: 10f, maxStars: 500);
+        var stars10 = await image.FindStarsAsync(0, snrMin: 10f, maxStars: 500, cancellationToken: ct);
         output.WriteLine($"FindStarsAsync(snrMin=10, maxStars=500, retries=2) -> {stars10.Count} stars in {sw.Elapsed.TotalMilliseconds:F0} ms");
 
         // Tiny maxStars -- if the retry loop is the bottleneck, this should terminate fast.
         sw.Restart();
-        var stars50 = await image.FindStarsAsync(0, snrMin: 5f, maxStars: 50);
+        var stars50 = await image.FindStarsAsync(0, snrMin: 5f, maxStars: 50, cancellationToken: ct);
         output.WriteLine($"FindStarsAsync(snrMin=5, maxStars=50, retries=2) -> {stars50.Count} stars in {sw.Elapsed.TotalMilliseconds:F0} ms");
 
         // Plate-solver path with new minStars early-termination.
         // Cache invalidated each call so we measure the cold path, not the cache.
         image.InvalidateStarListCache();
         sw.Restart();
-        var stars50min = await image.FindStarsAsync(0, snrMin: 5f, maxStars: 500, minStars: 50);
+        var stars50min = await image.FindStarsAsync(0, snrMin: 5f, maxStars: 500, minStars: 50, cancellationToken: ct);
         output.WriteLine($"FindStarsAsync(snrMin=5, maxStars=500, minStars=50, retries=2) -> {stars50min.Count} stars in {sw.Elapsed.TotalMilliseconds:F0} ms");
 
         // Cache hit: same params, second call should be near-zero.
         sw.Restart();
-        var stars50cached = await image.FindStarsAsync(0, snrMin: 5f, maxStars: 500, minStars: 50);
+        var stars50cached = await image.FindStarsAsync(0, snrMin: 5f, maxStars: 500, minStars: 50, cancellationToken: ct);
         output.WriteLine($"FindStarsAsync(... cached) -> {stars50cached.Count} stars in {sw.Elapsed.TotalMilliseconds:F0} ms");
     }
 

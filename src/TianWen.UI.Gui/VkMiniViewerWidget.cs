@@ -6,6 +6,7 @@ using SdlVulkan.Renderer;
 using TianWen.Lib.Astrometry;
 using TianWen.Lib.Imaging;
 using TianWen.UI.Abstractions;
+using TianWen.UI.Abstractions.Overlays;
 using TianWen.UI.Shared;
 using Vortice.Vulkan;
 
@@ -41,7 +42,12 @@ public sealed unsafe class VkMiniViewerWidget : IMiniViewerWidget, IDisposable
     private int _bayerOffsetX;
     private int _bayerOffsetY;
 
-    // Cached stretch stats — recomputed only when image dimensions change
+    // Cached stretch stats. Recomputed only when image dimensions change,
+    // the cache is empty, or State.FreezeStretchStats is false (preview /
+    // FITS viewer paths). Polar align sets FreezeStretchStats = true so
+    // exposures across the probe rung ramp (100ms -> 5000ms) and the
+    // refining loop don't all retrigger the 300ms-cold full-frame histogram
+    // -- the first frame's stretch is locked in for the rest of the run.
     private ChannelStretchStats[]? _cachedStretchStats;
 
     public VkMiniViewerWidget(VkRenderer renderer)
@@ -111,15 +117,26 @@ public sealed unsafe class VkMiniViewerWidget : IMiniViewerWidget, IDisposable
         _uploadedImageWidth = image.Width;
         _uploadedImageHeight = image.Height;
 
-        // Compute stretch stats from channel 0 (works for raw and debayered)
-        if (_cachedStretchStats is null || _cachedStretchStats.Length != _uploadedChannelCount)
+        // Compute stretch stats from channel 0 (works for raw and debayered).
+        // Recompute when dims change OR (the cache is empty) OR the consumer
+        // hasn't asked for stats freezing. Polar align sets
+        // State.FreezeStretchStats = true so exposures changing per probe
+        // rung don't retrigger the 300ms full-frame histogram on the render
+        // thread.
+        var dimsChanged = _cachedStretchStats is null
+            || _cachedStretchStats.Length != _uploadedChannelCount;
+        var hasNoCache = _cachedStretchStats is null;
+        if (dimsChanged || hasNoCache || !State.FreezeStretchStats)
         {
-            _cachedStretchStats = new ChannelStretchStats[_uploadedChannelCount];
-        }
-        var (ped, med, mad) = image.GetPedestralMedianAndMADScaledToUnit(0);
-        for (var c = 0; c < _cachedStretchStats.Length; c++)
-        {
-            _cachedStretchStats[c] = new ChannelStretchStats(ped, med, mad);
+            if (dimsChanged)
+            {
+                _cachedStretchStats = new ChannelStretchStats[_uploadedChannelCount];
+            }
+            var (ped, med, mad) = image.GetPedestralMedianAndMADScaledToUnit(0);
+            for (var c = 0; c < _cachedStretchStats!.Length; c++)
+            {
+                _cachedStretchStats[c] = new ChannelStretchStats(ped, med, mad);
+            }
         }
 
         _currentImage = image;
@@ -282,6 +299,27 @@ public sealed unsafe class VkMiniViewerWidget : IMiniViewerWidget, IDisposable
             projW: windowWidth,
             projH: windowHeight);
 
+        // WcsAnnotation overlay (polar-align cross/refracted-pole/axis-crosshair/
+        // rings/correction arrow). Mirrors the FITS viewer path in
+        // ImageRendererBase.RenderWcsAnnotation but skips text labels -- the side
+        // panel already shows numeric Az/Alt errors and the rings carry their own
+        // size cue from the spacing. Only draws if a WCS is bound (otherwise
+        // sky-to-pixel projection is undefined) and the annotation is non-empty.
+        if (Wcs is { HasCDMatrix: true } annotationWcs && !State.Annotation.IsEmpty)
+        {
+            // Tighten the scissor to the actual image draw rect so projected
+            // markers / rings clip to the image -- otherwise long-FL frames
+            // render rings that extend past the image quad into the
+            // letterbox or side-panel-adjacent area.
+            var imgScissor = new VkRect2D
+            {
+                offset = new VkOffset2D { x = Math.Max(0, (int)drawX), y = Math.Max(0, (int)drawY) },
+                extent = new VkExtent2D { width = (uint)Math.Max(0, drawW), height = (uint)Math.Max(0, drawH) }
+            };
+            api.vkCmdSetScissor(cmd, 0, 1, &imgScissor);
+            DrawWcsAnnotationOverlay(annotationWcs, drawX, drawY, drawW, drawH, rect);
+        }
+
         // Restore full-window scissor
         var fullScissor = new VkRect2D
         {
@@ -289,6 +327,117 @@ public sealed unsafe class VkMiniViewerWidget : IMiniViewerWidget, IDisposable
             extent = new VkExtent2D { width = windowWidth, height = windowHeight }
         };
         api.vkCmdSetScissor(cmd, 0, 1, &fullScissor);
+    }
+
+    /// <summary>
+    /// Project the bound <see cref="WcsAnnotation"/> through the current frame's
+    /// WCS and draw rings, marker glyphs, and arrows on top of the image. The
+    /// scissor at call time is the viewer rect (set by the caller) so projected
+    /// markers outside the image quad are clipped out naturally.
+    /// </summary>
+    private void DrawWcsAnnotationOverlay(WCS wcs, float drawX, float drawY, float drawW, float drawH, RectF32 viewRect)
+    {
+        var zoom = drawW / Math.Max(_uploadedImageWidth, 1);
+
+        // ViewportLayout's ImageOffsetX/Y formula is
+        //   AreaLeft + (AreaWidth - DrawWidth) / 2 + PanOffset.X
+        // The image was already drawn at (drawX, drawY) with size (drawW, drawH).
+        // Reconstruct an equivalent layout by passing AreaLeft = drawX,
+        // AreaWidth = drawW (so the centring term zeroes out) and zero pan.
+        var layout = new ViewportLayout(
+            WindowWidth: viewRect.Width,
+            WindowHeight: viewRect.Height,
+            ImageWidth: _uploadedImageWidth,
+            ImageHeight: _uploadedImageHeight,
+            Zoom: zoom,
+            PanOffset: (0f, 0f),
+            AreaLeft: drawX,
+            AreaTop: drawY,
+            AreaWidth: drawW,
+            AreaHeight: drawH,
+            DpiScale: 1f);
+
+        var annotation = State.Annotation;
+
+        // Rings first so marker glyphs render on top.
+        if (!annotation.Rings.IsDefaultOrEmpty)
+        {
+            foreach (var ring in annotation.Rings)
+            {
+                if (WcsAnnotationLayer.ProjectRing(ring, wcs, layout) is not { } placement) continue;
+                if (placement.RadiusScreenPx < 1f) continue;
+                VkOverlayShapes.DrawEllipse(_renderer, dpiScale: 1f,
+                    placement.ScreenX, placement.ScreenY,
+                    placement.RadiusScreenPx, placement.RadiusScreenPx, angleRad: 0f,
+                    ring.Color, thickness: 1.5f);
+            }
+        }
+
+        if (!annotation.Markers.IsDefaultOrEmpty)
+        {
+            foreach (var marker in annotation.Markers)
+            {
+                if (WcsAnnotationLayer.ProjectMarker(marker, wcs, layout) is not { } placement) continue;
+                switch (marker.Glyph)
+                {
+                    case SkyMarkerGlyph.Cross:
+                        VkOverlayShapes.DrawCross(_renderer, dpiScale: 1f,
+                            placement.ScreenX, placement.ScreenY, marker.SizePx, marker.Color);
+                        break;
+                    case SkyMarkerGlyph.Dot:
+                        VkOverlayShapes.DrawEllipse(_renderer, dpiScale: 1f,
+                            placement.ScreenX, placement.ScreenY,
+                            marker.SizePx, marker.SizePx, angleRad: 0f, marker.Color, thickness: 0f);
+                        break;
+                    case SkyMarkerGlyph.Circle:
+                        VkOverlayShapes.DrawEllipse(_renderer, dpiScale: 1f,
+                            placement.ScreenX, placement.ScreenY,
+                            marker.SizePx, marker.SizePx, angleRad: 0f, marker.Color, thickness: 1.5f);
+                        break;
+                    case SkyMarkerGlyph.CircledCross:
+                        VkOverlayShapes.DrawEllipse(_renderer, dpiScale: 1f,
+                            placement.ScreenX, placement.ScreenY,
+                            marker.SizePx, marker.SizePx, angleRad: 0f, marker.Color, thickness: 1.5f);
+                        VkOverlayShapes.DrawCross(_renderer, dpiScale: 1f,
+                            placement.ScreenX, placement.ScreenY, marker.SizePx * 0.6f, marker.Color);
+                        break;
+                }
+            }
+        }
+
+        if (!annotation.Arrows.IsDefaultOrEmpty)
+        {
+            foreach (var arrow in annotation.Arrows)
+            {
+                if (WcsAnnotationLayer.ProjectArrow(arrow, wcs, layout) is not { } placement) continue;
+                var dx = placement.EndScreenX - placement.StartScreenX;
+                var dy = placement.EndScreenY - placement.StartScreenY;
+                var len = MathF.Sqrt(dx * dx + dy * dy);
+                if (len < 1f) continue; // sub-pixel arrow carries no direction info
+
+                var thickness = Math.Max(1, (int)arrow.ThicknessPx);
+                _renderer.DrawLine(placement.StartScreenX, placement.StartScreenY,
+                    placement.EndScreenX, placement.EndScreenY, arrow.Color, thickness);
+
+                // Two-segment arrowhead at 30deg off the shaft. HeadSizePx <= 0
+                // means caller wants a bare segment (e.g. polar cross meridians).
+                if (arrow.HeadSizePx > 0f)
+                {
+                    var headLen = arrow.HeadSizePx;
+                    var ux = dx / len;
+                    var uy = dy / len;
+                    const float headAngle = 0.5236f; // 30deg
+                    var ca = MathF.Cos(headAngle);
+                    var sa = MathF.Sin(headAngle);
+                    var leg1X = placement.EndScreenX - headLen * (ca * ux - sa * uy);
+                    var leg1Y = placement.EndScreenY - headLen * (sa * ux + ca * uy);
+                    var leg2X = placement.EndScreenX - headLen * (ca * ux + sa * uy);
+                    var leg2Y = placement.EndScreenY - headLen * (-sa * ux + ca * uy);
+                    _renderer.DrawLine(placement.EndScreenX, placement.EndScreenY, leg1X, leg1Y, arrow.Color, thickness);
+                    _renderer.DrawLine(placement.EndScreenX, placement.EndScreenY, leg2X, leg2Y, arrow.Color, thickness);
+                }
+            }
+        }
     }
 
     /// <summary>

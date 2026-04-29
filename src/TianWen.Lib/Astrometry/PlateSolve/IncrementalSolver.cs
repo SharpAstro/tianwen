@@ -132,7 +132,7 @@ namespace TianWen.Lib.Astrometry.PlateSolve
                 }
             }
 
-            var stars = await detectionImage.FindStarsAsync(0, snrMin: SnrThreshold, maxStars: MaxAnchors, minStars: MinAnchors, cancellationToken: ct).ConfigureAwait(false);
+            var stars = await detectionImage.FindStarsAsync(0, snrMin: SnrThreshold, maxStars: MaxAnchors, minStars: MinAnchors, logger: _logger, cancellationToken: ct).ConfigureAwait(false);
 
             // (factor*x + factor/2 - 0.5) puts the binned-pixel centre back to
             // the centre of its original block. Mirrors CatalogPlateSolver's

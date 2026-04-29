@@ -28,8 +28,8 @@ public partial class Image
         // FindOffsetAndRotation needs minStars correspondences for a stable
         // affine fit; pass that all the way through so the retry loop terminates
         // as soon as we have enough.
-        var starList1Task = FindStarsAsync(channel, snrMin, maxStars, minStars, maxRetries, cancellationToken);
-        var starList2Task = other.FindStarsAsync(otherChannel, snrMin, maxStars, minStars, maxRetries, cancellationToken);
+        var starList1Task = FindStarsAsync(channel, snrMin, maxStars, minStars, maxRetries, cancellationToken: cancellationToken);
+        var starList2Task = other.FindStarsAsync(otherChannel, snrMin, maxStars, minStars, maxRetries, cancellationToken: cancellationToken);
 
         var starLists = await Task.WhenAll(starList1Task, starList2Task);
 

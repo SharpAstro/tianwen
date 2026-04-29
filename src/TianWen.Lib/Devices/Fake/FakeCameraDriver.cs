@@ -82,11 +82,15 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver
     private ITimer? _exposureTimer;
 
     /// <summary>
-    /// The true best focus position from the focuser. Set by test setup or Session
-    /// to enable synthetic star field rendering with defocus-dependent PSF.
-    /// When null, produces empty images (legacy behavior).
+    /// Ground-truth focuser step position used by the synthetic star renderer
+    /// to compute defocus (and therefore PSF FWHM). Defaults to 1000 to match
+    /// <see cref="FakeFocuserDriver"/>'s default base best focus, so a vanilla
+    /// fake-camera + fake-focuser pair lands on sharp frames once the focuser
+    /// reaches step 1000 (initial position is 980 -- jog +20 or use the goto
+    /// input). AutoFocus tests override this explicitly to verify the V-curve
+    /// fit converges back from a deliberately-drifted FocusPosition.
     /// </summary>
-    public int? TrueBestFocus { get; set; }
+    public int TrueBestFocus { get; set; } = 1000;
 
     // Cooling simulation
     private double _ccdTemperature = 20.0;
@@ -685,73 +689,67 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver
                     }
 
                     float[,] array;
-                    if (TrueBestFocus is { } bestFocus)
-                    {
-                        var defocus = Math.Abs(FocusPosition - bestFocus);
-                        var exposureSec = current.IntendedDuration.TotalSeconds;
+                    var exposureSec = current.IntendedDuration.TotalSeconds;
+                    // Defocus = |FocusPosition - TrueBestFocus|. FocusPosition <= 0
+                    // means the focuser was never wired up (e.g. guide camera
+                    // with no dedicated focuser); render in perfect focus.
+                    var defocus = FocusPosition <= 0 ? 0 : Math.Abs(FocusPosition - TrueBestFocus);
 
-                        if (CelestialObjectDB is { } db && Target is { } target && FocalLength > 0)
-                        {
-                            // Synth flux scales with collecting area (aperture^2)
-                            // referenced to a 50mm light bucket -- a 200mm f/3 OTA
-                            // collects 16x more photons than a 50mm mini-guider at
-                            // the same exposure. The magnitude cutoff is then SNR-
-                            // derived: include exactly the stars whose peak per-
-                            // pixel ADU clears FindStarsAsync's snrMin=5 detection
-                            // floor (matched with the renderer's defaults: FWHM=2px,
-                            // readNoise=5). This keeps "stars in the synth" aligned
-                            // with "stars the detector can find" -- the previous
-                            // photon-budget formula projected mag-15 stars at 5s/
-                            // 200mm and gave the catalog plate solver 1600+
-                            // candidates against ~30 detections, blowing the
-                            // proximity matcher's tolerance and timing rungs out.
-                            // Aperture is denormalised onto the camera in
-                            // Session.Lifecycle and the polar-alignment
-                            // AppSignalHandler. Without it, scale=1.0 (50mm) and
-                            // existing standalone FakeCameraDriver tests keep
-                            // their previous brightness budget.
-                            var apertureScale = Aperture is int apertureMm and > 0
-                                ? Math.Pow(apertureMm / 50.0, 2.0)
-                                : 1.0;
-                            var magCutoff = Math.Min(15.0,
-                                SyntheticStarFieldRenderer.DetectabilityMagCutoff(
-                                    apertureScale, exposureSec));
-                            var stars = SyntheticStarFieldRenderer.ProjectCatalogStars(
-                                target.RA, target.Dec, FocalLength, PixelSizeX, imgWidth, imgHeight, db, magCutoff);
-                            // Diagnostic: confirm aperture / scale / cutoff / cap during synth render.
-                            Logger.LogInformation(
-                                "FakeCamera synth: aperture={Aperture} focal={FocalLength} t={ExposureSec:F3}s scale={Scale:F2} magCutoff={Cutoff:F2} stars={Stars}",
-                                Aperture, FocalLength, exposureSec, apertureScale, magCutoff, stars.Count);
-                            var cloudSeed = _frameRng.Next();
-                            var starSpan = System.Runtime.InteropServices.CollectionsMarshal.AsSpan(stars);
-                            array = SensorType is Imaging.SensorType.RGGB
-                                ? SyntheticStarFieldRenderer.RenderBayer(imgWidth, imgHeight, defocus, starSpan,
-                                    offsetX: TotalStarOffset.X, offsetY: TotalStarOffset.Y,
-                                    exposureSeconds: exposureSec, noiseSeed: _frameRng.Next(),
-                                    apertureScaleFactor: apertureScale, dest: dest)
-                                : SyntheticStarFieldRenderer.Render(imgWidth, imgHeight, defocus,
-                                    stars: starSpan, offsetX: TotalStarOffset.X, offsetY: TotalStarOffset.Y,
-                                    exposureSeconds: exposureSec, noiseSeed: _frameRng.Next(),
-                                    cloudCoverage: CloudCoverage, cloudSeed: cloudSeed,
-                                    apertureScaleFactor: apertureScale, dest: dest);
-                        }
-                        else
-                        {
-                            var cloudSeed = _frameRng.Next();
-                            // No catalog — random stars, can't do meaningful Bayer colors
-                            array = SyntheticStarFieldRenderer.Render(imgWidth, imgHeight, defocus,
+                    if (CelestialObjectDB is { } db && Target is { } target && FocalLength > 0)
+                    {
+                        // Synth flux scales with collecting area (aperture^2)
+                        // referenced to a 50mm light bucket -- a 200mm f/3 OTA
+                        // collects 16x more photons than a 50mm mini-guider at
+                        // the same exposure. The magnitude cutoff is then SNR-
+                        // derived: include exactly the stars whose peak per-
+                        // pixel ADU clears FindStarsAsync's snrMin=5 detection
+                        // floor (matched with the renderer's defaults: FWHM=2px,
+                        // readNoise=5). This keeps "stars in the synth" aligned
+                        // with "stars the detector can find" -- the previous
+                        // photon-budget formula projected mag-15 stars at 5s/
+                        // 200mm and gave the catalog plate solver 1600+
+                        // candidates against ~30 detections, blowing the
+                        // proximity matcher's tolerance and timing rungs out.
+                        // Aperture is denormalised onto the camera in
+                        // Session.Lifecycle and the polar-alignment
+                        // AppSignalHandler. Without it, scale=1.0 (50mm) and
+                        // existing standalone FakeCameraDriver tests keep
+                        // their previous brightness budget.
+                        var apertureScale = Aperture is int apertureMm and > 0
+                            ? Math.Pow(apertureMm / 50.0, 2.0)
+                            : 1.0;
+                        var magCutoff = Math.Min(15.0,
+                            SyntheticStarFieldRenderer.DetectabilityMagCutoff(
+                                apertureScale, exposureSec));
+                        var stars = SyntheticStarFieldRenderer.ProjectCatalogStars(
+                            target.RA, target.Dec, FocalLength, PixelSizeX, imgWidth, imgHeight, db, magCutoff);
+                        // Diagnostic: confirm aperture / scale / cutoff / cap during synth render.
+                        Logger.LogInformation(
+                            "FakeCamera synth: aperture={Aperture} focal={FocalLength} t={ExposureSec:F3}s defocus={Defocus} scale={Scale:F2} magCutoff={Cutoff:F2} placedStars={Stars}",
+                            Aperture, FocalLength, exposureSec, defocus, apertureScale, magCutoff, stars.Count);
+                        var cloudSeed = _frameRng.Next();
+                        var starSpan = System.Runtime.InteropServices.CollectionsMarshal.AsSpan(stars);
+                        array = SensorType is Imaging.SensorType.RGGB
+                            ? SyntheticStarFieldRenderer.RenderBayer(imgWidth, imgHeight, defocus, starSpan,
                                 offsetX: TotalStarOffset.X, offsetY: TotalStarOffset.Y,
                                 exposureSeconds: exposureSec, noiseSeed: _frameRng.Next(),
-                                cloudCoverage: CloudCoverage, cloudSeed: cloudSeed, dest: dest);
-                        }
+                                apertureScaleFactor: apertureScale, dest: dest)
+                            : SyntheticStarFieldRenderer.Render(imgWidth, imgHeight, defocus,
+                                stars: starSpan, offsetX: TotalStarOffset.X, offsetY: TotalStarOffset.Y,
+                                exposureSeconds: exposureSec, noiseSeed: _frameRng.Next(),
+                                cloudCoverage: CloudCoverage, cloudSeed: cloudSeed,
+                                apertureScaleFactor: apertureScale, dest: dest);
                     }
                     else
                     {
-                        // No TrueBestFocus explicitly set — if FocusPosition was never set
-                        // by a focuser (e.g. guide camera with no dedicated focuser), render
-                        // in perfect focus. Otherwise use default best focus of 1000.
-                        var defocus = FocusPosition <= 0 ? 0 : Math.Abs(FocusPosition - 1000);
-                        var exposureSec = current.IntendedDuration.TotalSeconds;
+                        // No catalog binding -- random star field. Logged at Debug
+                        // because legacy guide-cam / unit-test scenarios fall
+                        // here intentionally; it's only suspect inside a
+                        // session/polar-align flow that *should* have wired up
+                        // a catalog.
+                        Logger.LogDebug(
+                            "FakeCamera synth: no catalog binding (catalogDb={HasDb} target={HasTarget} focalLen={FocalLength}) -- rendering 50 random stars",
+                            CelestialObjectDB is not null, Target is not null, FocalLength);
                         var cloudSeed = _frameRng.Next();
                         array = SyntheticStarFieldRenderer.Render(imgWidth, imgHeight, defocusSteps: defocus,
                             offsetX: TotalStarOffset.X, offsetY: TotalStarOffset.Y,
