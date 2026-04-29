@@ -6,6 +6,7 @@ using System.Numerics;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
+using TianWen.Lib.Devices;
 using TianWen.Lib.Imaging;
 
 namespace TianWen.Lib.Astrometry.PlateSolve
@@ -48,9 +49,22 @@ namespace TianWen.Lib.Astrometry.PlateSolve
     /// state (anchor list + previous WCS) and can't be exposed as a stateless
     /// solver. The polar-align orchestrator owns the instance.
     /// </remarks>
-    internal sealed class IncrementalSolver(ILogger? logger = null)
+    internal sealed class IncrementalSolver(ILogger? logger = null, ITimeProvider? timeProvider = null)
     {
         private readonly ILogger? _logger = logger;
+        private readonly ITimeProvider? _timeProvider = timeProvider;
+        private DateTimeOffset _seedUtc;
+
+        // Sidereal angular velocity in J2000 (rad/s). Used to advance the
+        // refined WCS centre forward from seed time to current time so it
+        // matches what a real plate solver would return at the live capture
+        // moment. Without this, downstream consumers calling
+        // <c>SiderealNormalise(wcsRaw, t_now, t_ref)</c> on the
+        // IncrementalSolver's output get a double-correction: the refined WCS
+        // is already implicitly anchored at seed-time J2000 (because anchors'
+        // sky RA/Dec are frozen at seed), so sidereal-back-rotating from "now"
+        // introduces 7+'-magnitude bias at typical Phase B durations.
+        private const double SiderealRateRadPerSec = 2.0 * Math.PI / 86164.0905;
 
         /// <summary>
         /// Half-extent of the ROI box used for centroid refinement. 5 gives an
@@ -163,6 +177,14 @@ namespace TianWen.Lib.Astrometry.PlateSolve
 
             _wcs = wcs;
             _anchors = anchors;
+            // Stamp seed time so subsequent Refine() calls can sidereal-
+            // forward-rotate the WCS centre from seed-time J2000 (which is
+            // what the anchor list represents) to capture-time J2000 (which
+            // is what a real plate solver would emit). Falls back to
+            // DateTimeOffset.MinValue when no time provider is wired in --
+            // safe because the forward rotation is only applied when the
+            // provider is non-null.
+            _seedUtc = _timeProvider?.GetUtcNow() ?? default;
             _logger?.LogDebug("IncrementalSolver: seeded with {Count} anchors (detection scale {Scale}x)", anchors.Count, detectionScale);
             return anchors.Count;
         }

@@ -158,6 +158,15 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
             }
             var (v1Center, v1AvgMatched) = await AverageWcsAsync(probe.WcsCenter, probe.StarsMatched, probe.ExposureUsed, ct);
             _v1 = v1Center;
+            // Stamp v1 capture time so the v2 sample (captured ~16 s later
+            // after rotation + settle) can be sidereal-normalised back into
+            // v1's J2000 frame before the geometric axis recovery. Without
+            // this, the topo-fixed mount axis (whose J2000 representation
+            // rotates with sidereal motion) introduces a 4-5' bias in the
+            // recovered axis at typical Phase A durations -- visible to the
+            // user as "gauge reads non-zero even though sim misalignment is
+            // exactly 0,0".
+            var v1CaptureUtc = _timeProvider.GetUtcNow();
             _lockedExposureSeconds = probe.ExposureUsed.TotalSeconds;
 
             // --- RA-axis rotation via raw MoveAxis (bypasses pointing model) ---
@@ -241,48 +250,84 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
             // The Phase A axis recovery and the LiveAxisRefiner both consume this
             // value, so a clean reference is the floor for the live readout.
             var (v2Averaged, v2AvgMatched) = await AverageWcsAsync(frame2.WcsCenter, frame2.StarsMatched, frame2.ExposureUsed, ct);
+            var v2CaptureUtc = _timeProvider.GetUtcNow();
 
             // --- Recover axis + decompose against apparent pole ---
             var deltaRad = _phaseARotationRate * _phaseARotationElapsed.TotalSeconds * (Math.PI / 180.0);
+            // Sidereal-normalise v2 back to v1's J2000 frame. The mount RA-axis
+            // is fixed in TOPO; its J2000 representation rotates around the
+            // celestial pole at sidereal rate. v1 and v2 are captured ~16 s
+            // apart (v1 averaging + 15 s rotation + settle + v2 averaging),
+            // so v2 in raw J2000 is ~4' off where it would be if Earth had
+            // not rotated. TryRecoverAxis assumes axis is fixed in the same
+            // frame for both v1 and v2, so we have to undo the J2000 drift
+            // here -- otherwise the chord arc between v1 and the un-corrected
+            // v2 includes the sidereal contribution and the recovered cone
+            // half-angle / axis direction is biased by ~5' at lat=-37 with a
+            // 47 deg rotation. That bias is then "frozen in" for the live
+            // refiner and surfaces as a residual gauge reading even when the
+            // user has dialed the actual misalignment all the way to zero.
+            var v2InV1Frame = SiderealNormalise(v2Averaged, v2CaptureUtc, v1CaptureUtc);
             // Use absolute delta for the geometric solve; sign goes into the right-hand-rule
             // axis direction the math returns (which we ignore for pole projection — we only
             // need the line, not the sign).
-            if (!PolarAxisSolver.TryRecoverAxis(_v1, v2Averaged, Math.Abs(deltaRad), out var axis, out var coneRad))
+            if (!PolarAxisSolver.TryRecoverAxis(_v1, v2InV1Frame, Math.Abs(deltaRad), out var axis, out var coneRad))
             {
                 _phaseACompleted = true;
                 return Failed("Axis recovery ill-conditioned — try a larger rotation or different starting position.");
             }
 
+            // The recovered axis lives in v1's J2000 frame (since both inputs
+            // to TryRecoverAxis were in that frame). Decompose against the
+            // apparent pole at v1's UTC, not "now" -- otherwise we'd be asking
+            // SOFA where a J2000 vector projects in a topocentric frame that
+            // doesn't correspond to when the vector was sampled, and the (az,
+            // alt) outputs would re-introduce the sidereal drift we just
+            // removed.
             var (azErr, altErr) = PolarAxisSolver.DecomposeAxisError(
                 axis, _hemisphere,
                 _site.LatitudeDeg, _site.LongitudeDeg, _site.ElevationM,
-                _site.PressureHPa, _site.TemperatureC, _timeProvider.GetUtcNow());
+                _site.PressureHPa, _site.TemperatureC, v1CaptureUtc);
 
-            var observedChord = PolarAxisSolver.ChordAngle(_v1, v2Averaged);
+            var observedChord = PolarAxisSolver.ChordAngle(_v1, v2InV1Frame);
             var predictedChord = PolarAxisSolver.PredictedChordAngle(Math.Abs(deltaRad), coneRad);
             // Independent measurement of the rotation that actually happened
             // between the two solves. Sign carries the actual direction so a
             // negative-rate command lines up with a negative measured value.
-            var measuredRotationRad = PolarAxisSolver.MeasuredRotationAroundAxis(_v1, v2Averaged, axis);
+            var measuredRotationRad = PolarAxisSolver.MeasuredRotationAroundAxis(_v1, v2InV1Frame, axis);
             var rotationDeltaArcsec = (measuredRotationRad - deltaRad) * 180.0 / Math.PI * 3600.0;
+            var (axisRaH, axisDecD) = PolarAxisSolver.UnitVecToRaDec(axis);
+            var (v1RaH, v1DecD) = PolarAxisSolver.UnitVecToRaDec(_v1);
+            var (v2RaH, v2DecD) = PolarAxisSolver.UnitVecToRaDec(v2InV1Frame);
             _logger.LogInformation(
-                "PolarAlignment Phase A: commanded={CommandedDeg:F3}deg measured={MeasuredDeg:F3}deg delta={DeltaArcsec:F1}arcsec",
+                "PolarAlignment Phase A: commanded={CommandedDeg:F3}deg measured={MeasuredDeg:F3}deg delta={DeltaArcsec:F1}arcsec hemi={Hemi} siteLat={Lat:F3} v1=(RA={V1Ra:F4}h,Dec={V1Dec:F4}deg) v2=(RA={V2Ra:F4}h,Dec={V2Dec:F4}deg) axis=(RA={AxisRa:F4}h,Dec={AxisDec:F4}deg) coneDeg={ConeDeg:F3} initialAz={AzArcmin:F2}arcmin initialAlt={AltArcmin:F2}arcmin",
                 deltaRad * 180.0 / Math.PI,
                 measuredRotationRad * 180.0 / Math.PI,
-                rotationDeltaArcsec);
+                rotationDeltaArcsec,
+                _hemisphere, _site.LatitudeDeg,
+                v1RaH, v1DecD, v2RaH, v2DecD,
+                axisRaH, axisDecD,
+                coneRad * 180.0 / Math.PI,
+                azErr * 180.0 / Math.PI * 60.0,
+                altErr * 180.0 / Math.PI * 60.0);
 
             // Seed the live-refining tracker with the Phase A state. RefineAsync uses
             // this to translate per-iteration WCS drift into a fresh axis without
             // re-rotating the mount, fixing the "GUI shows 60' when sim moves to 0,0"
             // bug that came from running TryRecoverAxis with a stale v1.
             _refiner = new PolarAxisSolver.LiveAxisRefiner(
-                _v1, v2Averaged, axis, _hemisphere, Math.Abs(deltaRad));
-            // Anchor the J2000 frame at v2's capture time so RefineAsync can de-rotate
-            // each live wcs centre back into this frame (mount axis is fixed in topo,
-            // not J2000, so its J2000 representation drifts at sidereal rate; without
-            // this normalisation the live readout accumulates ~0.25'/sec of fictitious
-            // drift even when the user isn't moving the polar knobs).
-            _referenceUtc = _timeProvider.GetUtcNow();
+                _v1, v2InV1Frame, axis, _hemisphere, Math.Abs(deltaRad));
+            // Anchor the J2000 frame at v1's capture time -- the same frame
+            // we already sidereal-normalised v2 into, the same frame the axis
+            // was recovered in. RefineAsync's SiderealNormalise(wcsRaw, now,
+            // referenceUtc) then takes any subsequent live wcs back to that
+            // common frame, so the (v_now - v2Baseline) subtraction inside
+            // the live tracker only reflects real axis change, not Earth
+            // rotation. Earlier this was set to "now" (effectively v2's
+            // capture time), which mismatched both v1 and the recovered axis
+            // by sidereal*(t_v2 - t_v1) ~= 4', producing the residual gauge
+            // reading the user saw at sim=(0, 0).
+            _referenceUtc = v1CaptureUtc;
 
             _phaseACompleted = true;
             return new TwoFrameSolveResult(
@@ -336,7 +381,7 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
             // try Refine() first and fall back to the full solve on null
             // (residual spike, too few anchors). The full-solve fallback
             // re-seeds so the fast path resumes on the next tick.
-            var incremental = new IncrementalSolver(_logger);
+            var incremental = new IncrementalSolver(_logger, _timeProvider);
 
             // Periodic re-seed: every Nth successful refine forces a full
             // hinted solve (instead of the fast path) to refresh the anchor
@@ -417,7 +462,7 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
                         var fastStart = Stopwatch.GetTimestamp();
                         var fast = incremental.Refine(image, ct);
                         fastElapsed = Stopwatch.GetElapsedTime(fastStart);
-                        if (fast is { Solution: { } w } fr && fr.MatchedStars >= _config.MinStarsForSolve)
+                        if (fast is { Solution: { } w } fr && fr.MatchedStars >= _config.RefineMinStars)
                         {
                             refinedWcs = w;
                             starsMatched = fr.MatchedStars;
@@ -455,7 +500,7 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
                                 searchOrigin: blindRescan ? null : capture.SearchOrigin,
                                 cancellationToken: ct);
                             fullElapsed = Stopwatch.GetElapsedTime(fullStart);
-                            if (full.Solution is { } fullWcs && full.MatchedStars >= _config.MinStarsForSolve)
+                            if (full.Solution is { } fullWcs && full.MatchedStars >= _config.RefineMinStars)
                             {
                                 refinedWcs = fullWcs;
                                 starsMatched = full.MatchedStars;
