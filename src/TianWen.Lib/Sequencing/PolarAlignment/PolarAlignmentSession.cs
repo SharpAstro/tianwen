@@ -377,8 +377,25 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
                 {
                     consecutiveFailures++;
                     _logger.LogInformation(
-                        "PolarAlignment refine iter: capture={CaptureMs:F0}ms total={TotalMs:F0}ms outcome=capture-failed",
-                        captureElapsed.TotalMilliseconds, Stopwatch.GetElapsedTime(iterStart).TotalMilliseconds);
+                        "PolarAlignment refine iter: capture={CaptureMs:F0}ms total={TotalMs:F0}ms outcome=capture-failed fails={Fails}",
+                        captureElapsed.TotalMilliseconds, Stopwatch.GetElapsedTime(iterStart).TotalMilliseconds, consecutiveFailures);
+                    // Backoff so capture-failure storms don't peg the CPU in a
+                    // tight while(!ct).Capture loop. Without this, a 0ms capture
+                    // failure (e.g. fake camera with a stale settings race, real
+                    // camera dropped frame) re-enters the loop immediately and
+                    // logs ~thousands of "capture-failed total=0ms" lines per
+                    // second until conditions clear. Sleep one locked-exposure
+                    // tick per failure -- matches the cadence we'd be running
+                    // on success so the user perceives "skipped frame" not
+                    // "frozen UI".
+                    try
+                    {
+                        await _timeProvider.SleepAsync(lockedExposure, ct);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        yield break;
+                    }
                     continue;
                 }
 
