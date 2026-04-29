@@ -157,12 +157,14 @@ namespace TianWen.UI.Abstractions
                     {
                         viewer.State.Annotation = WcsAnnotation.Empty;
                     }
-                    // Probe rungs ramp 100ms -> 5000ms; the 50x exposure swing
-                    // would whip the auto-stretch through wildly different
-                    // mid-tones each frame and pulse the histogram (300ms)
-                    // on the UI thread for every push. Pin stretch on first
-                    // frame and reuse for the whole polar-align session.
-                    viewer.State.FreezeStretchStats = true;
+                    // Freeze stretch only while refining: probe rungs ramp
+                    // exposure 50x (100ms -> 5000ms) and the stretch must
+                    // track each rung. Once locked at one exposure for the
+                    // refining loop the stretch is stable, so we freeze to
+                    // skip the per-frame 300ms histogram on the UI thread.
+                    viewer.State.FreezeStretchStats = state.PolarPhase
+                        is PolarAlignmentPhase.Refining
+                        or PolarAlignmentPhase.Aligned;
                 }
                 else
                 {

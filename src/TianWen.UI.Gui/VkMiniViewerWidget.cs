@@ -44,11 +44,12 @@ public sealed unsafe class VkMiniViewerWidget : IMiniViewerWidget, IDisposable
 
     // Cached stretch stats. Recomputed only when image dimensions change,
     // the cache is empty, or State.FreezeStretchStats is false (preview /
-    // FITS viewer paths). Polar align sets FreezeStretchStats = true so
-    // exposures across the probe rung ramp (100ms -> 5000ms) and the
-    // refining loop don't all retrigger the 300ms-cold full-frame histogram
-    // -- the first frame's stretch is locked in for the rest of the run.
+    // FITS viewer paths). Polar align flips FreezeStretchStats on at the
+    // ProbingExposure -> Refining transition; the next frame after that
+    // edge gets one fresh recompute, then the cache is reused for the
+    // rest of the refine loop.
     private ChannelStretchStats[]? _cachedStretchStats;
+    private bool _previousFreezeStretchStats;
 
     public VkMiniViewerWidget(VkRenderer renderer)
     {
@@ -118,15 +119,16 @@ public sealed unsafe class VkMiniViewerWidget : IMiniViewerWidget, IDisposable
         _uploadedImageHeight = image.Height;
 
         // Compute stretch stats from channel 0 (works for raw and debayered).
-        // Recompute when dims change OR (the cache is empty) OR the consumer
-        // hasn't asked for stats freezing. Polar align sets
-        // State.FreezeStretchStats = true so exposures changing per probe
-        // rung don't retrigger the 300ms full-frame histogram on the render
-        // thread.
+        // Recompute on (a) dims change (b) empty cache (c) freeze disabled
+        // (the regular preview path) (d) freeze just turned on -- one-shot
+        // refresh so the cached stretch reflects the new exposure regime,
+        // not whatever the last probing rung captured. After (d), subsequent
+        // frames hit the freeze and reuse the cache.
         var dimsChanged = _cachedStretchStats is null
             || _cachedStretchStats.Length != _uploadedChannelCount;
         var hasNoCache = _cachedStretchStats is null;
-        if (dimsChanged || hasNoCache || !State.FreezeStretchStats)
+        var freezeEdgeOn = State.FreezeStretchStats && !_previousFreezeStretchStats;
+        if (dimsChanged || hasNoCache || !State.FreezeStretchStats || freezeEdgeOn)
         {
             if (dimsChanged)
             {
@@ -138,6 +140,7 @@ public sealed unsafe class VkMiniViewerWidget : IMiniViewerWidget, IDisposable
                 _cachedStretchStats[c] = new ChannelStretchStats(ped, med, mad);
             }
         }
+        _previousFreezeStretchStats = State.FreezeStretchStats;
 
         _currentImage = image;
     }

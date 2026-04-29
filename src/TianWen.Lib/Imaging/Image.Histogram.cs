@@ -19,7 +19,7 @@ public partial class Image
     /// <param name="thresholdPct">The percentage of the maximum pixel value to use as the upper limit for the histogram. Default is 91%.</param>
     /// <param name="calcStats">If true calculate further statistics like median and MAD</param>
     /// <returns>historgram values</returns>
-    public ImageHistogram Histogram(int channel, byte thresholdPct = 91, bool ignoreBlack = true, bool calcStats = false, bool removePedestral = false)
+    public ImageHistogram Histogram(int channel, byte thresholdPct = 91, bool ignoreBlack = true, bool calcStats = false, bool removePedestral = false, int pixelStride = 1)
     {
         var (channelCount, width, height) = Shape;
 
@@ -85,9 +85,15 @@ public partial class Image
         var pedestralAdjustValue = removePedestral ? MinValue * scaleFactor : 0f;
         var channelData = data[channel];
 
-        for (var h = 0; h <= height - 1; h++)
+        // pixelStride > 1 subsamples on a fixed grid (every Nth row, every Nth
+        // column). Bins remain dense enough for median/MAD on a 9576x6388
+        // frame even at stride=8 (~950k samples), and the histogram cost
+        // drops 64x. Used by the live mini viewer where the stretch only
+        // needs aggregate statistics, not exact per-pixel histograms.
+        var stride = Math.Max(1, pixelStride);
+        for (var h = 0; h <= height - 1; h += stride)
         {
-            for (var w = 0; w <= width - 1; w++)
+            for (var w = 0; w <= width - 1; w += stride)
             {
                 var rawValue = channelData[h, w];
                 if (!float.IsNaN(rawValue))
