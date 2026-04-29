@@ -71,7 +71,17 @@ public partial class Image
 
         var hist_total = 0u;
         var count = 1; /* prevent divide by zero */
-        var total_value = 0f;
+        // Accumulate as double, not float: a 61 MP IMX455 frame with sky ~12 ADU
+        // gives a true sum of ~732 M, but float32's 24-bit mantissa quantises
+        // increments below 16 once the accumulator passes ~256 M, so successive
+        // += 12 rounds to 0 and total_value saturates at ~268 M. The resulting
+        // mean was 4.39 instead of 12, which dragged Background()'s mode search
+        // range to bins 1-4 (all empty), forced the fallback-to-mean path, and
+        // pushed every sky pixel above the FindStars detection threshold ->
+        // 12 M AnalyseStar candidates per pass on the polar-align IMX455
+        // bench. Double accumulator has 53-bit mantissa -- ULP at 1 G is 1e-7,
+        // so single-ADU increments stay exact for any sane image size.
+        var total_value = 0.0;
         var pedestralAdjustValue = removePedestral ? MinValue * scaleFactor : 0f;
         var channelData = data[channel];
 
@@ -98,7 +108,7 @@ public partial class Image
             }
         }
 
-        var hist_mean = 1.0f / count * total_value;
+        var hist_mean = (float)(total_value / count);
 
         float? median, mad;
         if (calcStats)
