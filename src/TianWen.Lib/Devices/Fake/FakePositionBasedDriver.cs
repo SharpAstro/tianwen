@@ -36,7 +36,14 @@ internal abstract class FakePositionBasedDriver(FakeDevice fakeDevice, IServiceP
 
             Interlocked.Exchange(ref _movingTimer, movingTimer)?.Dispose();
 
-            movingTimer.Change(TimeSpan.FromMilliseconds(50), TimeSpan.FromMilliseconds(100));
+            // 5ms per step = 200 steps/sec. The previous 100ms (10 steps/sec)
+            // made GUI focuser jog feel laggy: a `>` button click fires a
+            // +10 jog that took a full second to walk to its target one step
+            // at a time -- the user sees +1 and assumes the button only
+            // increments by 1. Real focusers run on the order of 100-500
+            // steps/sec; tests use FakeTimeProvider so wall-time cadence
+            // doesn't affect them.
+            movingTimer.Change(TimeSpan.FromMilliseconds(5), TimeSpan.FromMilliseconds(5));
 
         }
 
