@@ -46,7 +46,7 @@ namespace TianWen.Lib.Tests
             // Capture source synthesises v1 at "any RA position", then v2 = Rotate(v1, GroundTruthAxis, delta).
             // We don't simulate the mount's actual RA — it's enough that the camera reports a v2
             // consistent with a clean rotation around the ground-truth axis.
-            var source = new SyntheticAxisCaptureSource(GroundTruthAxis, deltaRad: 60.0 * DEGREES2RADIANS);
+            var source = new SyntheticAxisCaptureSource(GroundTruthAxis, deltaRad: 60.0 * DEGREES2RADIANS, timeProvider: time);
 
             var config = PolarAlignmentConfiguration.Default with
             {
@@ -54,6 +54,7 @@ namespace TianWen.Lib.Tests
                 SettleSeconds = 0, // skip settle in test
                 MaxFrame2Retries = 0,
                 ReferenceFrameAverages = 1,
+                MinStarsForSolve = 25, // align with synthetic solver's matched-stars output (ramp + Phase B gates)
                 RotationMinStars = 25, // align with synthetic solver's matched-stars output // synthetic source returns v1/v2 on call-count basis; averaging confuses it
             };
 
@@ -90,13 +91,14 @@ namespace TianWen.Lib.Tests
             var ext = Substitute.For<IExternal>();
             var solver = Substitute.For<IPlateSolver>();
             var time = new FakeTimeProviderWrapper();
-            var source = new SyntheticAxisCaptureSource(GroundTruthAxis, deltaRad: 60.0 * DEGREES2RADIANS);
+            var source = new SyntheticAxisCaptureSource(GroundTruthAxis, deltaRad: 60.0 * DEGREES2RADIANS, timeProvider: time);
 
             var config = PolarAlignmentConfiguration.Default with
             {
                 RotationDeg = 60.0, SettleSeconds = 0, MaxFrame2Retries = 0,
                 OnDone = PolarAlignmentOnDone.ReverseAxisBack,
                 ReferenceFrameAverages = 1,
+                MinStarsForSolve = 25, // align with synthetic solver's matched-stars output (ramp + Phase B gates)
                 RotationMinStars = 25, // align with synthetic solver's matched-stars output
             };
 
@@ -130,13 +132,14 @@ namespace TianWen.Lib.Tests
             var ext = Substitute.For<IExternal>();
             var solver = Substitute.For<IPlateSolver>();
             var time = new FakeTimeProviderWrapper();
-            var source = new SyntheticAxisCaptureSource(GroundTruthAxis, deltaRad: 60.0 * DEGREES2RADIANS);
+            var source = new SyntheticAxisCaptureSource(GroundTruthAxis, deltaRad: 60.0 * DEGREES2RADIANS, timeProvider: time);
 
             var config = PolarAlignmentConfiguration.Default with
             {
                 RotationDeg = 60.0, SettleSeconds = 0, MaxFrame2Retries = 0,
                 OnDone = PolarAlignmentOnDone.LeaveInPlace,
                 ReferenceFrameAverages = 1,
+                MinStarsForSolve = 25, // align with synthetic solver's matched-stars output (ramp + Phase B gates)
                 RotationMinStars = 25, // align with synthetic solver's matched-stars output
             };
 
@@ -169,6 +172,7 @@ namespace TianWen.Lib.Tests
             {
                 RotationDeg = 60.0, SettleSeconds = 0, MaxFrame2Retries = 3,
                 ReferenceFrameAverages = 1,
+                MinStarsForSolve = 25, // align with synthetic solver's matched-stars output (ramp + Phase B gates)
                 RotationMinStars = 25, // align with synthetic solver's matched-stars output
             };
 
@@ -198,6 +202,7 @@ namespace TianWen.Lib.Tests
             {
                 RotationDeg = 60.0, SettleSeconds = 0, MaxFrame2Retries = 2,
                 ReferenceFrameAverages = 1,
+                MinStarsForSolve = 25, // align with synthetic solver's matched-stars output (ramp + Phase B gates)
                 RotationMinStars = 25, // align with synthetic solver's matched-stars output
             };
 
@@ -232,6 +237,7 @@ namespace TianWen.Lib.Tests
             {
                 RotationDeg = 60.0, SettleSeconds = 0, MaxFrame2Retries = 0,
                 ReferenceFrameAverages = 1,
+                MinStarsForSolve = 25, // align with synthetic solver's matched-stars output (ramp + Phase B gates)
                 RotationMinStars = 25, // align with synthetic solver's matched-stars output
             };
 
@@ -250,7 +256,7 @@ namespace TianWen.Lib.Tests
             var mount = BuildMockMount();
             var ext = Substitute.For<IExternal>();
             var time = new FakeTimeProviderWrapper();
-            var source = new SyntheticAxisCaptureSource(GroundTruthAxis, deltaRad: 60.0 * DEGREES2RADIANS);
+            var source = new SyntheticAxisCaptureSource(GroundTruthAxis, deltaRad: 60.0 * DEGREES2RADIANS, timeProvider: time);
 
             // Phase B uses CaptureAsync + IPlateSolver. The substitute solver
             // returns a WCS whose CenterRA / CenterDec map back to the
@@ -260,13 +266,14 @@ namespace TianWen.Lib.Tests
             // tick -- behaviour matches the pre-incremental test contract.
             var v2 = PolarAxisSolver.Rotate(SyntheticAxisCaptureSource.SeedV1, GroundTruthAxis, 60.0 * DEGREES2RADIANS);
             var (v2Ra, v2Dec) = PolarAxisSolver.UnitVecToRaDec(v2);
-            var solver = new SyntheticPlateSolver(new WCS(v2Ra, v2Dec), matchedStars: 25);
+            var solver = new SyntheticPlateSolver(new WCS(v2Ra, v2Dec), matchedStars: 25, timeProvider: time);
 
             var config = PolarAlignmentConfiguration.Default with
             {
                 RotationDeg = 60.0, SettleSeconds = 0, MaxFrame2Retries = 0,
                 SmoothingWindow = 1,
                 ReferenceFrameAverages = 1,
+                MinStarsForSolve = 25, // align with synthetic solver's matched-stars output (ramp + Phase B gates)
                 RotationMinStars = 25, // align with synthetic solver's matched-stars output
             };
 
@@ -417,6 +424,205 @@ namespace TianWen.Lib.Tests
             }
         }
 
+        /// <summary>
+        /// Symmetric test to <see cref="RefineAsync_TracksSimSweep_OverFiveTicks"/>
+        /// but exercising the *alt* component instead of az. The original
+        /// sweep test only varied azimuth; a regression that breaks alt
+        /// tracking (e.g. a sign or scale bug in the J2000-axis to (az, alt)
+        /// projection) wouldn't surface there.
+        ///
+        /// User-reported regression case: at sim Az=30', Alt=-10', recovered
+        /// axis tracked az 1:1 (30 -> 0 reported correctly) but alt only
+        /// tracked half (-10 -> -5 reported). This test catches that pattern.
+        /// </summary>
+        [Fact]
+        public async Task RefineAsync_TracksAltSimSweep_OverFiveTicks()
+        {
+            const double siteLatDeg = -37.5;
+            const double siteLonDeg = 145.9;
+            const double siteElevM = 50.0;
+            var testUtc = new DateTimeOffset(2026, 4, 27, 10, 0, 0, TimeSpan.Zero);
+            var site = new PolarAlignmentSite(
+                LatitudeDeg: siteLatDeg, LongitudeDeg: siteLonDeg, ElevationM: siteElevM,
+                PressureHPa: 1010.0, TemperatureC: 10.0);
+            const Hemisphere hemisphere = Hemisphere.South;
+
+            var time = new FakeTimeProviderWrapper(testUtc);
+            var mount = BuildMockMount();
+            var ext = Substitute.For<IExternal>();
+
+            const double encoder1Rad = Math.PI / 4;
+            const double rotationDeg = 60.0;
+            const double simInitialAlt = 60.0; // pure alt initial misalignment
+            var deltaRad = rotationDeg * Math.PI / 180.0;
+
+            var axisInitial = FakeSkywatcherMountDriver.TopocentricMisalignmentToJ2000Axis(
+                siteLatDeg, siteLonDeg, siteElevM, testUtc,
+                azErrArcmin: 0.0, altErrArcmin: simInitialAlt, hemisphere, time);
+            var (ra1, dec1) = FakeSkywatcherMountDriver.ApplyPolarMisalignment(axisInitial, hemisphere, encoder1Rad);
+            var v1 = PolarAxisSolver.RaDecToUnitVec(ra1, dec1);
+            var (ra2, dec2) = FakeSkywatcherMountDriver.ApplyPolarMisalignment(axisInitial, hemisphere, encoder1Rad + deltaRad);
+            var v2 = PolarAxisSolver.RaDecToUnitVec(ra2, dec2);
+
+            double[] simSequence = [60.0, 45.0, 30.0, 15.0, 0.0];
+            var refineWcsSequence = new List<WCS>(simSequence.Length);
+            foreach (var simAlt in simSequence)
+            {
+                var axisI = FakeSkywatcherMountDriver.TopocentricMisalignmentToJ2000Axis(
+                    siteLatDeg, siteLonDeg, siteElevM, testUtc,
+                    azErrArcmin: 0.0, altErrArcmin: simAlt, hemisphere, time);
+                var (raNow, decNow) = FakeSkywatcherMountDriver.ApplyPolarMisalignment(axisI, hemisphere, encoder1Rad + deltaRad);
+                refineWcsSequence.Add(new WCS(raNow, decNow));
+            }
+
+            var source = new ScriptedTwoFrameSource(v1, v2, matchedStars: 25);
+            var solver = new ScriptedPlateSolver(refineWcsSequence, matchedStars: 25);
+
+            var config = PolarAlignmentConfiguration.Default with
+            {
+                RotationDeg = rotationDeg,
+                SettleSeconds = 0,
+                MaxFrame2Retries = 0,
+                ReferenceFrameAverages = 1,
+                RotationMinStars = 25,
+                MinStarsForSolve = 25,
+                SmoothingWindow = 1,
+                UseIncrementalSolver = false,
+                RefineFullSolveInterval = 0,
+            };
+
+            await using var session = new PolarAlignmentSession(
+                ext, mount, source, solver, time, NullLogger.Instance, site, config);
+
+            (await session.SolveAsync(CancellationToken.None)).Success.ShouldBeTrue();
+
+            using var ctsLoop = new CancellationTokenSource();
+            var observed = new List<(double azArcmin, double altArcmin)>();
+            await foreach (var tick in session.RefineAsync(ctsLoop.Token))
+            {
+                tick.Wcs.ShouldNotBeNull();
+                var azArcmin = tick.AzErrorRad * RADIANS2DEGREES * 60.0;
+                var altArcmin = tick.AltErrorRad * RADIANS2DEGREES * 60.0;
+                observed.Add((azArcmin, altArcmin));
+                TestContext.Current.TestOutputHelper?.WriteLine(
+                    $"sim Alt={simSequence[observed.Count - 1],5:F1}'  ->  reported Az={azArcmin,7:F2}'  Alt={altArcmin,7:F2}'");
+                if (observed.Count >= simSequence.Length)
+                {
+                    ctsLoop.Cancel();
+                    break;
+                }
+            }
+
+            observed.Count.ShouldBe(simSequence.Length);
+            for (int i = 0; i < simSequence.Length; i++)
+            {
+                observed[i].altArcmin.ShouldBe(simSequence[i], tolerance: 2.0,
+                    $"tick {i}: sim Alt={simSequence[i]:F1}' but reported {observed[i].altArcmin:F2}'");
+                observed[i].azArcmin.ShouldBe(0.0, tolerance: 2.0,
+                    $"tick {i}: pure-Alt sim should give Az~0 but reported {observed[i].azArcmin:F2}'");
+            }
+        }
+
+        /// <summary>
+        /// Combined az+alt sweep: user starts at sim Az=30', Alt=-10' and
+        /// adjusts both knobs simultaneously down to (0, 0). This is the
+        /// exact case the GUI surfaced as a 53%-of-expected alt undertracking
+        /// while az tracked at 107%. If the bug is pure live-refiner math, this
+        /// test will show it independent of plate-solve noise.
+        /// </summary>
+        [Fact]
+        public async Task RefineAsync_TracksCombinedAzAltSweep_OverFiveTicks()
+        {
+            const double siteLatDeg = -37.5;
+            const double siteLonDeg = 145.9;
+            const double siteElevM = 50.0;
+            var testUtc = new DateTimeOffset(2026, 4, 27, 10, 0, 0, TimeSpan.Zero);
+            var site = new PolarAlignmentSite(
+                LatitudeDeg: siteLatDeg, LongitudeDeg: siteLonDeg, ElevationM: siteElevM,
+                PressureHPa: 1010.0, TemperatureC: 10.0);
+            const Hemisphere hemisphere = Hemisphere.South;
+
+            var time = new FakeTimeProviderWrapper(testUtc);
+            var mount = BuildMockMount();
+            var ext = Substitute.For<IExternal>();
+
+            const double encoder1Rad = Math.PI / 4;
+            const double rotationDeg = 47.289; // matches the actual GUI run
+            const double simInitialAz = 30.0;
+            const double simInitialAlt = -10.0;
+            var deltaRad = rotationDeg * Math.PI / 180.0;
+
+            var axisInitial = FakeSkywatcherMountDriver.TopocentricMisalignmentToJ2000Axis(
+                siteLatDeg, siteLonDeg, siteElevM, testUtc,
+                azErrArcmin: simInitialAz, altErrArcmin: simInitialAlt, hemisphere, time);
+            var (ra1, dec1) = FakeSkywatcherMountDriver.ApplyPolarMisalignment(axisInitial, hemisphere, encoder1Rad);
+            var v1 = PolarAxisSolver.RaDecToUnitVec(ra1, dec1);
+            var (ra2, dec2) = FakeSkywatcherMountDriver.ApplyPolarMisalignment(axisInitial, hemisphere, encoder1Rad + deltaRad);
+            var v2 = PolarAxisSolver.RaDecToUnitVec(ra2, dec2);
+
+            // Linear sweep from (30, -10) -> (0, 0) in 5 ticks.
+            (double az, double alt)[] simSequence =
+                [(30.0, -10.0), (22.5, -7.5), (15.0, -5.0), (7.5, -2.5), (0.0, 0.0)];
+            var refineWcsSequence = new List<WCS>(simSequence.Length);
+            foreach (var (simAz, simAlt) in simSequence)
+            {
+                var axisI = FakeSkywatcherMountDriver.TopocentricMisalignmentToJ2000Axis(
+                    siteLatDeg, siteLonDeg, siteElevM, testUtc,
+                    azErrArcmin: simAz, altErrArcmin: simAlt, hemisphere, time);
+                var (raNow, decNow) = FakeSkywatcherMountDriver.ApplyPolarMisalignment(axisI, hemisphere, encoder1Rad + deltaRad);
+                refineWcsSequence.Add(new WCS(raNow, decNow));
+            }
+
+            var source = new ScriptedTwoFrameSource(v1, v2, matchedStars: 25);
+            var solver = new ScriptedPlateSolver(refineWcsSequence, matchedStars: 25);
+
+            var config = PolarAlignmentConfiguration.Default with
+            {
+                RotationDeg = rotationDeg,
+                SettleSeconds = 0,
+                MaxFrame2Retries = 0,
+                ReferenceFrameAverages = 1,
+                RotationMinStars = 25,
+                MinStarsForSolve = 25,
+                SmoothingWindow = 1,
+                UseIncrementalSolver = false,
+                RefineFullSolveInterval = 0,
+            };
+
+            await using var session = new PolarAlignmentSession(
+                ext, mount, source, solver, time, NullLogger.Instance, site, config);
+
+            (await session.SolveAsync(CancellationToken.None)).Success.ShouldBeTrue();
+
+            using var ctsLoop = new CancellationTokenSource();
+            var observed = new List<(double azArcmin, double altArcmin)>();
+            await foreach (var tick in session.RefineAsync(ctsLoop.Token))
+            {
+                tick.Wcs.ShouldNotBeNull();
+                var azArcmin = tick.AzErrorRad * RADIANS2DEGREES * 60.0;
+                var altArcmin = tick.AltErrorRad * RADIANS2DEGREES * 60.0;
+                observed.Add((azArcmin, altArcmin));
+                TestContext.Current.TestOutputHelper?.WriteLine(
+                    $"sim ({simSequence[observed.Count - 1].az,5:F1}',{simSequence[observed.Count - 1].alt,6:F1}')  " +
+                    $"->  reported Az={azArcmin,7:F2}'  Alt={altArcmin,7:F2}'");
+                if (observed.Count >= simSequence.Length)
+                {
+                    ctsLoop.Cancel();
+                    break;
+                }
+            }
+
+            observed.Count.ShouldBe(simSequence.Length);
+            for (int i = 0; i < simSequence.Length; i++)
+            {
+                var (expAz, expAlt) = simSequence[i];
+                observed[i].azArcmin.ShouldBe(expAz, tolerance: 2.0,
+                    $"tick {i}: sim Az={expAz:F1}' but reported {observed[i].azArcmin:F2}'");
+                observed[i].altArcmin.ShouldBe(expAlt, tolerance: 2.0,
+                    $"tick {i}: sim Alt={expAlt:F1}' but reported {observed[i].altArcmin:F2}'");
+            }
+        }
+
         [Fact]
         public void TryBuildCorrectionArrow_AxisOnPole_ReturnsFalse()
         {
@@ -472,9 +678,21 @@ namespace TianWen.Lib.Tests
         /// ground-truth axis. Lets us drive the orchestrator end-to-end without
         /// needing real plate solving or pixel rendering.
         /// </summary>
-        private sealed class SyntheticAxisCaptureSource(Vec3 groundTruthAxis, double deltaRad) : ICaptureSource
+        private sealed class SyntheticAxisCaptureSource : ICaptureSource
         {
             internal static readonly Vec3 SeedV1 = PolarAxisSolver.RaDecToUnitVec(0.0, 60.0); // arbitrary
+
+            private readonly Vec3 _groundTruthAxis;
+            private readonly double _deltaRad;
+            private readonly ITimeProvider? _timeProvider;
+            private DateTimeOffset _v1CaptureUtc;
+
+            public SyntheticAxisCaptureSource(Vec3 groundTruthAxis, double deltaRad, ITimeProvider? timeProvider = null)
+            {
+                _groundTruthAxis = groundTruthAxis;
+                _deltaRad = deltaRad;
+                _timeProvider = timeProvider;
+            }
 
             public string DisplayName => "Synthetic";
             public double FocalLengthMm => 200;
@@ -507,6 +725,7 @@ namespace TianWen.Lib.Tests
                 if (CaptureCount == 1)
                 {
                     // Frame 1 always solves at the first ramp rung.
+                    if (_timeProvider is { } tp1) _v1CaptureUtc = tp1.GetUtcNow();
                     return ValueTask.FromResult(new CaptureAndSolveResult(
                         Success: true, Wcs: null, WcsCenter: SeedV1,
                         StarsMatched: 25, ExposureUsed: exposure, FitsPath: null));
@@ -521,11 +740,41 @@ namespace TianWen.Lib.Tests
                         StarsMatched: 0, ExposureUsed: exposure, FitsPath: null));
                 }
 
-                var v2 = PolarAxisSolver.Rotate(SeedV1, groundTruthAxis, deltaRad);
+                // v2 in v1's J2000 frame is a pure rotation of v1 around the
+                // (J2000) ground-truth axis. Real life: the mount's RA-axis is
+                // mechanically fixed in TOPO, so its J2000 representation
+                // rotates with sidereal motion between v1 and v2 captures.
+                // Apply that forward sidereal rotation here so the routine's
+                // sidereal-back-correction in Phase A is exercised faithfully
+                // -- otherwise the test would falsely pass against a routine
+                // that ignores the J2000-axis drift (the bug the user surfaced
+                // as a residual gauge reading at sim=0,0).
+                var v2InV1Frame = PolarAxisSolver.Rotate(SeedV1, _groundTruthAxis, _deltaRad);
+                Vec3 v2;
+                if (_timeProvider is { } tp2)
+                {
+                    var dt = (tp2.GetUtcNow() - _v1CaptureUtc).TotalSeconds;
+                    var rot = SiderealRateRadPerSec * dt;
+                    var c = Math.Cos(rot);
+                    var s = Math.Sin(rot);
+                    v2 = new Vec3(
+                        c * v2InV1Frame.X - s * v2InV1Frame.Y,
+                        s * v2InV1Frame.X + c * v2InV1Frame.Y,
+                        v2InV1Frame.Z);
+                }
+                else
+                {
+                    v2 = v2InV1Frame;
+                }
                 return ValueTask.FromResult(new CaptureAndSolveResult(
                     Success: true, Wcs: null, WcsCenter: v2,
                     StarsMatched: 25, ExposureUsed: exposure, FitsPath: null));
             }
+
+            // Standard sidereal rate in J2000 RA (rad/s). Match constant in
+            // PolarAlignmentSession.SiderealNormalise; declared internal there
+            // so we redeclare locally rather than bleeding it through public API.
+            private const double SiderealRateRadPerSec = 7.2921159e-5;
         }
 
         /// <summary>
@@ -533,15 +782,51 @@ namespace TianWen.Lib.Tests
         /// Pairs with <see cref="SyntheticAxisCaptureSource"/>'s CaptureAsync
         /// to drive Phase B without a real solver.
         /// </summary>
-        private sealed class SyntheticPlateSolver(WCS wcs, int matchedStars) : IPlateSolver
+        private sealed class SyntheticPlateSolver : IPlateSolver
         {
+            private readonly WCS _wcsAnchor;
+            private readonly int _matchedStars;
+            private readonly ITimeProvider? _timeProvider;
+            private readonly DateTimeOffset _anchorUtc;
+            private const double SiderealRateRadPerSec = 7.2921159e-5;
+
+            public SyntheticPlateSolver(WCS wcs, int matchedStars, ITimeProvider? timeProvider = null)
+            {
+                _wcsAnchor = wcs;
+                _matchedStars = matchedStars;
+                _timeProvider = timeProvider;
+                _anchorUtc = timeProvider?.GetUtcNow() ?? default;
+            }
+
             public string Name => "SyntheticPlateSolver";
             public float Priority => 1.0f;
             public ValueTask<bool> CheckSupportAsync(CancellationToken cancellationToken = default) => ValueTask.FromResult(true);
+
+            // The stored WCS represents a topo-fixed pose at _anchorUtc. To
+            // mimic real plate-solver behaviour, every call returns the WCS
+            // sidereal-forward-rotated to "now". The orchestrator's
+            // SiderealNormalise(now -> referenceUtc) then unwinds the drift,
+            // so axis recovery and live refining stay anchored in the reference
+            // J2000 frame regardless of how much fake time has elapsed.
+            private WCS WcsAtNow()
+            {
+                if (_timeProvider is not { } tp) return _wcsAnchor;
+                var dt = (tp.GetUtcNow() - _anchorUtc).TotalSeconds;
+                if (Math.Abs(dt) < 1e-3) return _wcsAnchor;
+                var rotRad = SiderealRateRadPerSec * dt;
+                // Forward sidereal rotation around +Z (NCP) shifts RA by exactly
+                // rotRad in radians. Dec is invariant (rotation around the pole).
+                var raRad = _wcsAnchor.CenterRA * Math.PI / 12.0 + rotRad;
+                // Wrap to [0, 2pi).
+                raRad %= 2.0 * Math.PI;
+                if (raRad < 0) raRad += 2.0 * Math.PI;
+                return _wcsAnchor with { CenterRA = raRad * 12.0 / Math.PI };
+            }
+
             public Task<PlateSolveResult> SolveFileAsync(string fitsFile, ImageDim? imageDim = null, float range = 0.03f, WCS? searchOrigin = null, double? searchRadius = null, CancellationToken cancellationToken = default)
-                => Task.FromResult(new PlateSolveResult(wcs, TimeSpan.FromMilliseconds(1)) { MatchedStars = matchedStars });
+                => Task.FromResult(new PlateSolveResult(WcsAtNow(), TimeSpan.FromMilliseconds(1)) { MatchedStars = _matchedStars });
             public Task<PlateSolveResult> SolveImageAsync(Image image, ImageDim? imageDim = null, float range = 0.03f, WCS? searchOrigin = null, double? searchRadius = null, CancellationToken cancellationToken = default)
-                => Task.FromResult(new PlateSolveResult(wcs, TimeSpan.FromMilliseconds(1)) { MatchedStars = matchedStars });
+                => Task.FromResult(new PlateSolveResult(WcsAtNow(), TimeSpan.FromMilliseconds(1)) { MatchedStars = _matchedStars });
         }
 
         /// <summary>

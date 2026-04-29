@@ -12,17 +12,27 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
     /// <param name="ExposureRamp">Exposure ladder tried in order until a plate
     /// solve succeeds with at least <see cref="MinStarsForSolve"/> matched stars.
     /// Defaults to <see cref="AdaptiveExposureRamp.DefaultRamp"/>.</param>
-    /// <param name="MinStarsForSolve">Minimum matched stars to accept a Phase B
-    /// (refining) plate solve as valid, AND the relaxed-threshold gate the
-    /// adaptive exposure ramp uses to pick the live-refine exposure rung.
-    /// Refining runs at higher cadence and the per-frame chord arc is already
-    /// known from Phase A, so we don't need a strict floor here. Default 25:
-    /// going lower (e.g. 10) lets the ramp pick a sub-second rung but the
-    /// IncrementalSolver loses anchors fast at short exposures (Phase A's
-    /// seed frame has 60+ stars at 5 s; a 200 ms refine has 25-30 detected
-    /// but only ~5-10 catalog-matched, below the fallback solve threshold)
-    /// causing a "no-solve" cascade. 25 keeps the ramp at 500 ms-1 s
-    /// typically, where the fast path stays seeded reliably.</param>
+    /// <param name="MinStarsForSolve">Minimum matched stars the adaptive
+    /// exposure ramp uses to pick the rung that locks both Phase A and
+    /// Phase B. Default 40: at 50 mm aperture / f/4 we get 50-100 stars
+    /// matched on a 100-500 ms rung in a clean field, so 40 is a robust
+    /// "this rung is reliable for the rest of the routine" gate. Note this
+    /// is *not* the in-loop refining accept threshold -- once the ramp has
+    /// settled, the live-refining loop accepts any valid plate solve down
+    /// to <see cref="RefineMinStars"/> matched stars, since we already have
+    /// a seeded incremental anchor and the catalog matcher's internal
+    /// RANSAC is the authoritative correctness check.</param>
+    /// <param name="RefineMinStars">Minimum matched stars to accept a
+    /// Phase B (refining) plate solve as valid. Decoupled from
+    /// <see cref="MinStarsForSolve"/> because the ramp probe wants a
+    /// robust gate ("pick an exposure that gives plenty of headroom") while
+    /// the refine accept just wants "did the matcher return a valid
+    /// solution?". The catalog plate solver has internal RANSAC that
+    /// rejects bad fits; gating again on a high matched-star count throws
+    /// away valid solves when the pose drifts to a corner of the catalog
+    /// (e.g. Dec near -90 where matching can drop from 80 to 25 over a few
+    /// arcmin of pose change). Default 25: low enough to accept transient
+    /// dips, high enough that pure-noise "matches" can't pass.</param>
     /// <param name="RotationMinStars">Minimum matched stars to accept a Phase A
     /// (rotation) plate solve. The Phase A axis recovery runs end-to-end
     /// geometry on a single (v1, v2) pair, so each pose's plate-solve precision
@@ -63,12 +73,17 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
     /// disable (fast path only -- not recommended for long sessions).
     /// Default 30: at typical capture cadence (~2-5 Hz) the full solve fires
     /// every 6-15 s, barely visible to the user but enough to bound drift.</param>
-    /// <param name="UseIncrementalSolver">When true (default), Phase B uses the
-    /// fast ROI-centroid + affine refit path between full-solve re-seeds.
-    /// When false, every refinement tick runs a full hinted plate solve --
-    /// useful as an A/B-test bypass when chasing math regressions, or as a
-    /// safe fallback on a setup where the incremental anchor tracking is
-    /// unreliable.</param>
+    /// <param name="UseIncrementalSolver">When true, Phase B uses the fast
+    /// ROI-centroid + affine refit path between full-solve re-seeds. When
+    /// false (default), every refinement tick runs a full hinted plate
+    /// solve. The fast path's affine refit accumulates a systematic ~5-10'
+    /// bias in the recovered axis between full re-seeds (visible in real
+    /// runs at sim=(0,0) where the gauge would read "non-zero settled"
+    /// because the fast path's WCS centre drifted away from the true topo-
+    /// fixed pose). For a routine where the user is staring at a gauge that
+    /// must read 0 to mean 0, ~1 Hz of full-solve tick beats ~5 Hz of fast
+    /// path with cumulative bias; the precision floor is set by per-frame
+    /// plate-solve noise, not by frame rate.</param>
     /// <param name="ReferenceFrameAverages">Number of plate solves to average
     /// at each Phase A reference pose (v1 before rotation, v2 after rotation
     /// + settle). Each capture's WCS centre is summed as a J2000 unit vector
@@ -91,9 +106,10 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
         int SmoothingWindow = 15,
         double SettleSigmaArcmin = 0.5,
         int RefineFullSolveInterval = 30,
-        bool UseIncrementalSolver = true,
+        bool UseIncrementalSolver = false,
         int ReferenceFrameAverages = 5,
-        int RotationMinStars = 50)
+        int RotationMinStars = 50,
+        int RefineMinStars = 25)
     {
         /// <summary>
         /// Default configuration: <see cref="AdaptiveExposureRamp.DefaultRamp"/>

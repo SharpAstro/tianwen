@@ -222,11 +222,40 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger<CatalogP
         _logger?.LogDebug("CatalogPlateSolver: matching iterations std={StdMatched}/{StdIter} mirror={MirrorMatched}/{MirrorIter} in {Ms}ms",
             std.MatchedStars, std.Iterations, mirror.MatchedStars, mirror.Iterations, stageSw.Elapsed.TotalMilliseconds);
 
-        // Validate each by re-projecting bright catalog stars through the WCS
-        var stdError = std.Wcs is { } ws ? ReProjectionError(ws, catalogCoords, detectedStars) : double.MaxValue;
-        var mirrorError = mirror.Wcs is { } wm ? ReProjectionError(wm, catalogCoords, detectedStars) : double.MaxValue;
+        // Pick the parity. Match count is the *primary* signal: if one attempt
+        // has dramatically more matched stars, it's the right answer regardless
+        // of what re-projection error says. The tiebreaker case (close match
+        // counts) is where re-projection error legitimately discriminates.
+        //
+        // Why this matters: TrySolveWithProximityMatching's early-return case
+        // (match count drops below MinStarsForMatch in iter > 0) returns the
+        // *previous iteration's* CD matrix as a "best effort" WCS with only
+        // the failed iter's match count. ReProjectionError computed against
+        // such a WCS can fortuitously be low (the WCS is in the right ballpark,
+        // and there are 80+ detected stars on the frame, so projecting 20
+        // bright catalog candidates almost always hits *some* nearby detected
+        // star). That used to flip the parity at Dec near -90 deg, picking
+        // std=3-matched garbage over mirror=30-matched correct.
+        SolveAttempt winner;
+        if (std.MatchedStars >= 2 * Math.Max(mirror.MatchedStars, 1))
+        {
+            winner = std;
+        }
+        else if (mirror.MatchedStars >= 2 * Math.Max(std.MatchedStars, 1))
+        {
+            winner = mirror;
+        }
+        else
+        {
+            // Close in match count -- both parities found roughly the same set.
+            // Re-projection error then picks the one whose CD matrix actually
+            // projects bright catalog stars onto detected stars.
+            var stdError = std.Wcs is { } ws ? ReProjectionError(ws, catalogCoords, detectedStars) : double.MaxValue;
+            var mirrorError = mirror.Wcs is { } wm ? ReProjectionError(wm, catalogCoords, detectedStars) : double.MaxValue;
+            winner = stdError <= mirrorError ? std : mirror;
+        }
 
-        return Result(stdError <= mirrorError ? std : mirror);
+        return Result(winner);
     }
 
     private SolveAttempt TrySolveWithProximityMatching(
@@ -363,7 +392,13 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger<CatalogP
             if (matchedDetected.Count < MinStarsForMatch)
             {
                 projectedCount = projected.Count;
-                matchedCount = matchedDetected.Count;
+                // When we return iteration N's WCS as a best-effort fallback,
+                // report peakMatchCount (the support for that WCS) instead of
+                // the failed iter's match count. Otherwise the parity tiebreak
+                // sees "WCS exists but only 3 matched" and a downstream
+                // MatchedStars gate rejects an otherwise-fine WCS that was
+                // built from peakMatchCount inliers.
+                matchedCount = iteration > 0 ? peakMatchCount : matchedDetected.Count;
                 iterCount = iteration + 1;
                 return MakeResult(iteration > 0 ? AttachCDMatrix(currentOrigin, hasMinv ? lastMinv : default(Matrix3x2?), pixelScaleRad, cx, cy, dim, xSign) : null);
             }
