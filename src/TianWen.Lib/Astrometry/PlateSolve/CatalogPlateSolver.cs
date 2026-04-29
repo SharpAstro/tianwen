@@ -161,9 +161,15 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger<CatalogP
         // loop in FindStarsAsync as soon as we have enough stars to attempt
         // matching (MinStarsForMatch is 6; 50 is comfortable redundancy). On
         // synthetic SCP frames the first pass already yields >200 stars, so
-        // the retry loop never fires.
+        // the retry loop never fires. maxRetries=0 caps wall-clock on the
+        // failure path: when an under-exposed polar-align rung has only a
+        // handful of detectable stars, FindStarsAsync's two extra passes (at
+        // progressively lower SNR) can't conjure more stars out of nothing
+        // and just burn 2 x ~1-2 s on the un-binned IMX455 image, blowing
+        // through the rung budget. Without retries, a starved frame returns
+        // its few real stars and the ramp moves on.
         stageSw.Restart();
-        var detectedStars = await detectionImage.FindStarsAsync(0, snrMin: 5f, maxStars: 500, minStars: 50, cancellationToken: cancellationToken);
+        var detectedStars = await detectionImage.FindStarsAsync(0, snrMin: 5f, maxStars: 500, minStars: 50, maxRetries: 0, cancellationToken: cancellationToken);
         _logger?.LogDebug("CatalogPlateSolver: FindStarsAsync detected {Count} stars in {Ms}ms ({W}x{H})",
             detectedStars.Count, stageSw.Elapsed.TotalMilliseconds, detectionImage.Width, detectionImage.Height);
 

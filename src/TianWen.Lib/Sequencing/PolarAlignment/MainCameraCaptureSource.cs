@@ -269,6 +269,19 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
                     _logger.LogDebug(ex, "MainCameraCaptureSource: plate solver threw at exposure {Exposure}ms", exposure.TotalMilliseconds);
                     return new CaptureAndSolveResult(false, null, default, 0, exposure, null);
                 }
+                catch (OperationCanceledException)
+                {
+                    // Cancellation propagated from FindStarsAsync / Parallel.ForAsync
+                    // inside the catalog plate solver. Log the wall-clock so the
+                    // caller (ramp diagnostic) can see how far past budget we
+                    // unwound, then re-throw -- the ramp's per-rung handler
+                    // converts OCE into a synthetic failure result.
+                    var solveElapsedCancel = System.Diagnostics.Stopwatch.GetElapsedTime(solveStart);
+                    _logger.LogInformation(
+                        "MainCameraCaptureSource.CaptureAndSolve: exposure={ExposureMs:F0}ms capture={CaptureMs:F0}ms solve={SolveMs:F0}ms CANCELLED",
+                        exposure.TotalMilliseconds, captureElapsed.TotalMilliseconds, solveElapsedCancel.TotalMilliseconds);
+                    throw;
+                }
                 var solveElapsed = System.Diagnostics.Stopwatch.GetElapsedTime(solveStart);
                 _logger.LogInformation(
                     "MainCameraCaptureSource.CaptureAndSolve: exposure={ExposureMs:F0}ms capture={CaptureMs:F0}ms solve={SolveMs:F0}ms solved={Solved} matched={Matched}",
