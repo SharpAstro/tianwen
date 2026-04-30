@@ -30,6 +30,15 @@ internal class FakeSkywatcherMountDriver(FakeDevice device, IServiceProvider ser
     /// </summary>
     private double _altErrArcmin = ParseDoubleQuery(device, DeviceQueryKey.PolarMisalignmentAltArcmin.Key, defaultValue: -10.0);
 
+    // Deterministic RNG for nudge jitter -- seeded so a given URI replay
+    // produces the same trajectory across runs. Real polar-align knobs have
+    // backlash + finger feel that means a "1' adjustment" is rarely exactly 1';
+    // we model that, AND it conveniently keeps the user from landing exactly on
+    // (0, 0). At the singularity MisalignmentEnabled flips false and the base
+    // SkyWatcher driver returns the perfect-pole pointing, where RA atan2 is
+    // ill-conditioned and the catalog plate solver loses lock.
+    private readonly Random _nudgeJitter = new(12345);
+
     /// <summary>
     /// Apply a delta to the configured topocentric (az, alt) misalignment in
     /// arcminutes. Used by the polar-align refining UI to simulate the user
@@ -38,11 +47,23 @@ internal class FakeSkywatcherMountDriver(FakeDevice device, IServiceProvider ser
     /// <see cref="GetDeclinationAsync"/> call picks up the new values via the
     /// existing per-call SOFA recompute -- no driver reconnect needed.
     /// </summary>
+    /// <remarks>
+    /// Each delta is multiplied by a small random factor in [0.85, 1.05]:
+    /// requesting 1' typically applies ~0.95'. Models real knob backlash /
+    /// finger feel and avoids the (0, 0) pole singularity that would
+    /// otherwise stall plate-solving when the user drags the slider exactly
+    /// to zero. With per-axis independent jitter the chance of both coords
+    /// landing within MisalignmentEnabled's 1e-3 threshold is effectively
+    /// zero so the live tracker never flips off the misaligned-pointing
+    /// path mid-refine.
+    /// </remarks>
     internal void NudgeMisalignment(double dAzArcmin, double dAltArcmin)
     {
-        _azErrArcmin += dAzArcmin;
-        _altErrArcmin += dAltArcmin;
+        _azErrArcmin += dAzArcmin * NudgeFactor();
+        _altErrArcmin += dAltArcmin * NudgeFactor();
     }
+
+    private double NudgeFactor() => 0.85 + _nudgeJitter.NextDouble() * 0.20;
 
     /// <summary>Current (az, alt) misalignment in arcminutes -- read-only snapshot.</summary>
     internal (double AzArcmin, double AltArcmin) CurrentMisalignment => (_azErrArcmin, _altErrArcmin);
