@@ -63,6 +63,8 @@ public sealed unsafe class VkMiniViewerWidget : IMiniViewerWidget, IDisposable
 
     public WCS? Wcs { get; set; }
 
+    public string? FontPath { get; set; }
+
     public void QueueImage(Image image)
     {
         _pendingImage = image;
@@ -362,6 +364,12 @@ public sealed unsafe class VkMiniViewerWidget : IMiniViewerWidget, IDisposable
 
         var annotation = State.Annotation;
 
+        // Label sizing mirrors the FITS viewer's RenderWcsAnnotation so the
+        // mini viewer reads consistently with the standalone viewer. labelPad
+        // separates the label from the glyph it describes.
+        const float labelSize = 11f;
+        const float labelPad = 4f;
+
         // Rings first so marker glyphs render on top.
         if (!annotation.Rings.IsDefaultOrEmpty)
         {
@@ -372,7 +380,14 @@ public sealed unsafe class VkMiniViewerWidget : IMiniViewerWidget, IDisposable
                 VkOverlayShapes.DrawEllipse(_renderer, dpiScale: 1f,
                     placement.ScreenX, placement.ScreenY,
                     placement.RadiusScreenPx, placement.RadiusScreenPx, angleRad: 0f,
-                    ring.Color, thickness: 1.5f);
+                    ring.Color, thickness: 1.0f);
+                if (!string.IsNullOrEmpty(ring.Label) && FontPath is { } ringFont)
+                {
+                    DrawAnnotationLabel(ring.Label, ringFont,
+                        placement.ScreenX + placement.RadiusScreenPx + labelPad,
+                        placement.ScreenY,
+                        labelSize, ring.Color);
+                }
             }
         }
 
@@ -395,15 +410,22 @@ public sealed unsafe class VkMiniViewerWidget : IMiniViewerWidget, IDisposable
                     case SkyMarkerGlyph.Circle:
                         VkOverlayShapes.DrawEllipse(_renderer, dpiScale: 1f,
                             placement.ScreenX, placement.ScreenY,
-                            marker.SizePx, marker.SizePx, angleRad: 0f, marker.Color, thickness: 1.5f);
+                            marker.SizePx, marker.SizePx, angleRad: 0f, marker.Color, thickness: 1.0f);
                         break;
                     case SkyMarkerGlyph.CircledCross:
                         VkOverlayShapes.DrawEllipse(_renderer, dpiScale: 1f,
                             placement.ScreenX, placement.ScreenY,
-                            marker.SizePx, marker.SizePx, angleRad: 0f, marker.Color, thickness: 1.5f);
+                            marker.SizePx, marker.SizePx, angleRad: 0f, marker.Color, thickness: 1.0f);
                         VkOverlayShapes.DrawCross(_renderer, dpiScale: 1f,
                             placement.ScreenX, placement.ScreenY, marker.SizePx * 0.6f, marker.Color);
                         break;
+                }
+                if (!string.IsNullOrEmpty(marker.Label) && FontPath is { } markerFont)
+                {
+                    DrawAnnotationLabel(marker.Label, markerFont,
+                        placement.ScreenX + marker.SizePx + labelPad,
+                        placement.ScreenY,
+                        labelSize, marker.Color);
                 }
             }
         }
@@ -439,8 +461,34 @@ public sealed unsafe class VkMiniViewerWidget : IMiniViewerWidget, IDisposable
                     _renderer.DrawLine(placement.EndScreenX, placement.EndScreenY, leg1X, leg1Y, arrow.Color, thickness);
                     _renderer.DrawLine(placement.EndScreenX, placement.EndScreenY, leg2X, leg2Y, arrow.Color, thickness);
                 }
+
+                if (!string.IsNullOrEmpty(arrow.Label) && FontPath is { } arrowFont)
+                {
+                    DrawAnnotationLabel(arrow.Label, arrowFont,
+                        placement.EndScreenX + labelPad,
+                        placement.EndScreenY,
+                        labelSize, arrow.Color);
+                }
             }
         }
+    }
+
+    /// <summary>
+    /// Draw a short annotation label (ring radius, marker name) near a glyph.
+    /// Anchored on its left edge at <paramref name="anchorX"/>, vertically
+    /// centred on <paramref name="anchorY"/>. The text is rendered with
+    /// <see cref="TextAlign.Near"/> horizontal alignment so the caller's
+    /// padding-from-glyph is honoured exactly.
+    /// </summary>
+    private void DrawAnnotationLabel(string text, string fontPath, float anchorX, float anchorY,
+        float fontSize, RGBAColor32 color)
+    {
+        var (textW, textH) = _renderer.MeasureText(text.AsSpan(), fontPath, fontSize);
+        _renderer.DrawText(text.AsSpan(), fontPath, fontSize, color,
+            new RectInt(
+                new PointInt((int)(anchorX + textW + 2), (int)(anchorY + textH * 0.5f)),
+                new PointInt((int)anchorX, (int)(anchorY - textH * 0.5f))),
+            TextAlign.Near, TextAlign.Center);
     }
 
     /// <summary>

@@ -670,6 +670,13 @@ namespace TianWen.UI.Gui
             {
                 _fontPath = resolved;
             }
+
+            // Propagate to mini viewers so their WCS-annotation overlay can
+            // draw ring / marker labels with the same face the rest of the
+            // GUI uses. Set after _fontPath resolves so we hand them a valid
+            // path (mini viewer skips label drawing when null).
+            _miniViewer.FontPath = _fontPath;
+            _guiderMiniViewer.FontPath = _fontPath;
         }
     }
 }
