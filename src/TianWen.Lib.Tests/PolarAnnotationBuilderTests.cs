@@ -22,7 +22,8 @@ namespace TianWen.Lib.Tests
             double altArcmin = 0,
             Hemisphere hemisphere = Hemisphere.North,
             ImmutableArray<float> rings = default,
-            PolarCorrectionArrow? correctionArrow = null)
+            PolarCorrectionArrow? correctionArrow = null,
+            double lstHours = double.NaN)
         {
             return new PolarOverlay(
                 TruePoleRaHours: 0.0,
@@ -35,7 +36,8 @@ namespace TianWen.Lib.Tests
                 AzErrorArcmin: azArcmin,
                 AltErrorArcmin: altArcmin,
                 Hemisphere: hemisphere,
-                CorrectionArrow: correctionArrow);
+                CorrectionArrow: correctionArrow,
+                LSTHours: lstHours);
         }
 
         [Fact]
@@ -170,6 +172,59 @@ namespace TianWen.Lib.Tests
             // Arrow and reticle share the same yellow palette so the user
             // reads them as a single hint pair.
             annotation.Arrows[0].Color.ShouldBe(annotation.Markers[3].Color);
+        }
+
+        [Fact]
+        public void Build_WithLSTHours_AddsMeridianAndPrimeVerticalArrows()
+        {
+            // LST=10h, southern hemi -> meridian at RA=10h going from
+            // refracted pole (Dec=-89.95) toward zenith (less-negative Dec
+            // = -88.95 at 1deg sample).
+            var overlay = MakeOverlay(hemisphere: Hemisphere.South, lstHours: 10.0);
+
+            var annotation = PolarAnnotationBuilder.Build(overlay);
+
+            annotation.Arrows.Length.ShouldBe(2);
+
+            // Meridian: constant RA = LST, labelled "Alt" (axis the alt knob moves).
+            annotation.Arrows[0].StartRaHours.ShouldBe(10.0);
+            annotation.Arrows[0].EndRaHours.ShouldBe(10.0);
+            annotation.Arrows[0].StartDecDeg.ShouldBe(-89.95);
+            annotation.Arrows[0].EndDecDeg.ShouldBe(-88.95, tolerance: 1e-9);
+            annotation.Arrows[0].HeadSizePx.ShouldBe(0f, "meridian is a bare line, no arrowhead");
+            annotation.Arrows[0].Label.ShouldBe("Alt");
+
+            // Prime vertical: 90deg east of meridian -> RA=LST+6h.
+            annotation.Arrows[1].StartRaHours.ShouldBe(16.0);
+            annotation.Arrows[1].EndRaHours.ShouldBe(16.0);
+            annotation.Arrows[1].Label.ShouldBe("Az");
+        }
+
+        [Fact]
+        public void Build_LSTHoursNaN_OmitsMeridianArrows()
+        {
+            // Default LSTHours = NaN -> meridian skipped. Existing callers
+            // that don't supply LST keep the no-arrow behaviour.
+            var overlay = MakeOverlay(); // lstHours defaults to NaN.
+
+            var annotation = PolarAnnotationBuilder.Build(overlay);
+
+            annotation.Arrows.IsDefaultOrEmpty.ShouldBeTrue("no LST -> no meridian overlay");
+        }
+
+        [Fact]
+        public void Build_LSTHoursAndCorrectionArrow_EmitsBothMeridianAndCorrection()
+        {
+            var corrArrow = new PolarCorrectionArrow(
+                StartRaHours: 1.0, StartDecDeg: 60.0,
+                EndRaHours: 1.5, EndDecDeg: 61.0);
+            var overlay = MakeOverlay(lstHours: 10.0, correctionArrow: corrArrow);
+
+            var annotation = PolarAnnotationBuilder.Build(overlay);
+
+            // 2 meridian arrows + 1 correction arrow.
+            annotation.Arrows.Length.ShouldBe(3);
+            annotation.Arrows[2].HeadSizePx.ShouldBeGreaterThan(0f, "correction arrow has arrowhead");
         }
 
         [Fact]

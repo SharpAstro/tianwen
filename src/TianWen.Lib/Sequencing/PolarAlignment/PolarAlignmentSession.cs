@@ -644,6 +644,14 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
                         correctionArrow = arrow;
                     }
 
+                    // LST at frame capture for the meridian overlay. The
+                    // renderer draws a great-circle line of constant RA=LST
+                    // through the apparent pole; perpendicular at LST+6h is
+                    // the prime-vertical / azimuth-knob axis. Together they
+                    // give the user a "which knob = which direction" cue.
+                    var lstHours = TianWen.Lib.Astrometry.SOFA.Transform
+                        .CalculateLocalSiderealTime(_timeProvider.GetUtcNow().UtcDateTime, _site.LongitudeDeg);
+
                     var overlay = new PolarOverlay(
                         TruePoleRaHours: trueRa,
                         TruePoleDecDeg: trueDec,
@@ -655,7 +663,8 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
                         AzErrorArcmin: azArcmin,
                         AltErrorArcmin: altArcmin,
                         Hemisphere: _hemisphere,
-                        CorrectionArrow: correctionArrow);
+                        CorrectionArrow: correctionArrow,
+                        LSTHours: lstHours);
 
                     yieldResult = new LiveSolveResult(
                         StarsMatched: starsMatched,

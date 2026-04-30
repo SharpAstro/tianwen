@@ -50,6 +50,12 @@ namespace TianWen.UI.Abstractions.Overlays
         // palette.
         private static readonly RGBAColor32 CorrectionArrowColor = new(0xff, 0xff, 0x55, 0xff);
 
+        // Faint cyan for the meridian + prime-vertical reference lines through
+        // the apparent pole. Subordinate to the green ring palette (lower
+        // alpha) so they read as "background reticle" not as primary error
+        // indicators -- they communicate orientation, not magnitude.
+        private static readonly RGBAColor32 MeridianColor = new(0x66, 0xcc, 0xff, 0x99);
+
         /// <summary>
         /// Minimal "preview" annotation shown during polar-align mode before the
         /// first probe frame solves. Just the J2000 celestial pole as a crosshair
@@ -156,13 +162,55 @@ namespace TianWen.UI.Abstractions.Overlays
                     Label: $"{radius:F0}'"));
             }
 
+            // Meridian + prime-vertical reference lines through the apparent
+            // pole. The meridian is the great circle of constant RA = LST;
+            // perpendicular at LST + 6h is the prime vertical. Both project
+            // as straight lines on a TAN tangent plane near the pole, so a
+            // 1deg sample along each is enough to render the orientation.
+            // Sign on the Dec offset points "away from the pole toward the
+            // zenith" -- positive for north hemi (Dec=+90 -> +89), negative
+            // for south (Dec=-90 -> -89). The two lines form a + cross at
+            // the pole telling the user which direction their az / alt knobs
+            // displace the rotation axis.
+            //
+            // Stored as bare line segments (HeadSizePx = 0) so the renderer
+            // draws a plain line, no arrowhead.
+            ImmutableArray<SkyArrow>.Builder arrowsBuilder = ImmutableArray.CreateBuilder<SkyArrow>();
+            if (!double.IsNaN(overlay.LSTHours))
+            {
+                var poleSign = overlay.Hemisphere == Hemisphere.North ? -1.0 : 1.0;
+                var meridianRa = overlay.LSTHours;
+                var primeVerticalRa = (meridianRa + 6.0) % 24.0;
+                var endDec = overlay.RefractedPoleDecDeg + poleSign * 1.0;
+
+                // Meridian: vertical line through pole + zenith (alt knob axis).
+                arrowsBuilder.Add(new SkyArrow(
+                    StartRaHours: meridianRa,
+                    StartDecDeg: overlay.RefractedPoleDecDeg,
+                    EndRaHours: meridianRa,
+                    EndDecDeg: endDec,
+                    Color: MeridianColor,
+                    Label: "Alt",
+                    ThicknessPx: 1f,
+                    HeadSizePx: 0f));
+                // Prime vertical: perpendicular at the pole (az knob axis).
+                arrowsBuilder.Add(new SkyArrow(
+                    StartRaHours: primeVerticalRa,
+                    StartDecDeg: overlay.RefractedPoleDecDeg,
+                    EndRaHours: primeVerticalRa,
+                    EndDecDeg: endDec,
+                    Color: MeridianColor,
+                    Label: "Az",
+                    ThicknessPx: 1f,
+                    HeadSizePx: 0f));
+            }
+
             // Optional SharpCap-style yellow correction arrow: shaft + 12px
             // head + a target reticle marker (added above) at the head so the
             // user sees "drag this star into that circle".
-            ImmutableArray<SkyArrow> arrows = default;
             if (overlay.CorrectionArrow is { } a)
             {
-                arrows = ImmutableArray.Create(new SkyArrow(
+                arrowsBuilder.Add(new SkyArrow(
                     StartRaHours: a.StartRaHours,
                     StartDecDeg: a.StartDecDeg,
                     EndRaHours: a.EndRaHours,
@@ -173,7 +221,7 @@ namespace TianWen.UI.Abstractions.Overlays
                     HeadSizePx: 12f));
             }
 
-            return new WcsAnnotation(markersBuilder.ToImmutable(), ringsBuilder.ToImmutable(), arrows);
+            return new WcsAnnotation(markersBuilder.ToImmutable(), ringsBuilder.ToImmutable(), arrowsBuilder.ToImmutable());
         }
     }
 }

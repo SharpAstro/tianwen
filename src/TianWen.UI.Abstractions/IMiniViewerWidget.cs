@@ -36,6 +36,15 @@ public interface IMiniViewerWidget
     WCS? Wcs { get; set; }
 
     /// <summary>
+    /// Optional font path used by the WCS-annotation overlay to render
+    /// ring / marker labels. When null the renderer skips label drawing
+    /// (the rest of the overlay still draws). Caller (live session tab)
+    /// sets this from its own font-resolution path so mini viewer text
+    /// and side-panel text use the same face.
+    /// </summary>
+    string? FontPath { get; set; }
+
+    /// <summary>
     /// Renders the current image with toolbar into the given rectangle.
     /// No-op if <see cref="HasImage"/> is false.
     /// </summary>

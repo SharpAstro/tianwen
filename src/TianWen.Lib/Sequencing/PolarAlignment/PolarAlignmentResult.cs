@@ -152,6 +152,12 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
     /// WCS and draws a line + arrowhead + a target reticle marker at the
     /// head. Null when the corrective rotation is too small to render
     /// (arrow would be sub-pixel).</param>
+    /// <param name="LSTHours">Local sidereal time at frame capture, hours.
+    /// Used by the renderer to draw a meridian indicator (great circle of
+    /// constant RA = LST) through the apparent pole. The meridian's
+    /// projected direction tells the user which axis their altitude knob
+    /// adjusts; the perpendicular (LST + 6h) is the prime-vertical / azimuth
+    /// knob axis. When NaN the renderer skips the meridian overlay.</param>
     public readonly record struct PolarOverlay(
         double TruePoleRaHours,
         double TruePoleDecDeg,
@@ -163,7 +169,8 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
         double AzErrorArcmin,
         double AltErrorArcmin,
         Hemisphere Hemisphere,
-        PolarCorrectionArrow? CorrectionArrow = null);
+        PolarCorrectionArrow? CorrectionArrow = null,
+        double LSTHours = double.NaN);
 
     /// <summary>
     /// One sky-coordinate arrow describing the polar-correction direction.
