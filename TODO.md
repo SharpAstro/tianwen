@@ -38,6 +38,7 @@
 - [x] Guider graph: show dither events (markers/shading) — yellow dashed vertical lines at dither events, dim yellow settling shading
 - [x] Guider tab: keep looping guide camera frames during centering/slewing — call `LoopAsync` when not guiding so the guide camera feed stays live. Currently the guide loop stops during centering and the tab shows "Waiting for guider"
 - [x] Guider tab: show calibration frames — render guide camera during calibration phase with star position and profile. Remaining: star movement vectors, step count, and calibration progress overlay
+- [ ] Guider: adaptive image-ready polling — sleep until near the expected end of exposure (N − `ImageReadyPollInterval`), then poll every 10ms, and in the final ~10ms poll every 1ms. Avoids wasting CPU on long sleeps while minimising latency at exposure end. Applies to `BuiltInGuiderDriver.CaptureGuideFrameAsync` and any other image-ready poll loop
 - [ ] Fake camera: apply mount tracking drift as pixel offset to star positions — `SyntheticStarFieldRenderer` produces a fixed star field so pulse guide corrections are invisible, causing `GuiderCalibration` to never converge (zero displacement). Need to read accumulated RA/Dec drift from `FakeMountDriver` and translate to pixel shift
 - [x] Guider tab: guide camera image + crosshair (done). Remaining: star close-up + 1D intensity profile
   - [x] Add to `IDeviceDependentGuider`: `Image? LastGuideFrame`, `(float,float)? GuideStarPosition`, `float? GuideStarSNR`, `float? GuideStarHFD`
