@@ -724,7 +724,7 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver
                         var stars = SyntheticStarFieldRenderer.ProjectCatalogStars(
                             target.RA, target.Dec, FocalLength, PixelSizeX, imgWidth, imgHeight, db, magCutoff);
                         // Diagnostic: confirm aperture / scale / cutoff / cap during synth render.
-                        Logger.LogInformation(
+                        Logger.LogDebug(
                             "FakeCamera synth: aperture={Aperture} focal={FocalLength} t={ExposureSec:F3}s defocus={Defocus} scale={Scale:F2} magCutoff={Cutoff:F2} placedStars={Stars}",
                             Aperture, FocalLength, exposureSec, defocus, apertureScale, magCutoff, stars.Count);
                         var cloudSeed = _frameRng.Next();
