@@ -124,6 +124,12 @@ public interface IExternal
     }
 
     /// <summary>
+    /// Interval between polls when waiting for camera image readiness.
+    /// Default is 50ms. Override for testing or low-latency hardware.
+    /// </summary>
+    TimeSpan ImageReadyPollInterval => TimeSpan.FromMilliseconds(50);
+
+    /// <summary>
     /// TODO: Actually ensure that FITS library writes async
     /// </summary>
     /// <param name="image"></param>
