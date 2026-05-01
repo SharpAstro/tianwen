@@ -1,6 +1,7 @@
 using Shouldly;
 using System;
 using System.Collections.Specialized;
+using System.Threading;
 using System.Threading.Tasks;
 using TianWen.DAL;
 using TianWen.Lib.Devices;
@@ -14,6 +15,8 @@ public class FakeSkywatcherMountDriverTests(ITestOutputHelper output)
     private (FakeSkywatcherMountDriver mount, FakeExternal external) CreateMount(
         double latitude = 48.2,
         double longitude = 16.3,
+        double azMisalignmentArcmin = 0.0,
+        double altMisalignmentArcmin = 0.0,
         DateTimeOffset? now = null)
     {
         var external = new FakeExternal(output, now: now ?? new DateTimeOffset(2025, 6, 15, 22, 0, 0, TimeSpan.Zero));
@@ -21,9 +24,26 @@ public class FakeSkywatcherMountDriverTests(ITestOutputHelper output)
         {
             { "port", "SkyWatcher" },
             { "latitude", latitude.ToString() },
-            { "longitude", longitude.ToString() }
+            { "longitude", longitude.ToString() },
+            { "polarMisalignmentAzArcmin", azMisalignmentArcmin.ToString() },
+            { "polarMisalignmentAltArcmin", altMisalignmentArcmin.ToString() }
         });
         var mount = new FakeSkywatcherMountDriver(device, external.BuildServiceProvider());
+        return (mount, external);
+    }
+
+    private async Task<(FakeSkywatcherMountDriver mount, FakeExternal external)> CreateConnectedMountAsync(
+        CancellationToken ct,
+        double latitude = 48.2,
+        double longitude = 16.3,
+        double azMisalignmentArcmin = 0.0,
+        double altMisalignmentArcmin = 0.0,
+        DateTimeOffset? now = null)
+    {
+        var (mount, external) = CreateMount(latitude, longitude, azMisalignmentArcmin, altMisalignmentArcmin, now);
+        await mount.ConnectAsync(ct);
+        await mount.SetSiteLatitudeAsync(latitude, ct);
+        await mount.SetSiteLongitudeAsync(longitude, ct);
         return (mount, external);
     }
 
@@ -125,8 +145,7 @@ public class FakeSkywatcherMountDriverTests(ITestOutputHelper output)
     public async Task GivenConnectedMountWhenSyncedThenPositionUpdated()
     {
         var ct = TestContext.Current.CancellationToken;
-        var (mount, _) = CreateMount();
-        await mount.ConnectAsync(ct);
+        var (mount, _) = await CreateConnectedMountAsync(ct);
 
         await mount.SyncRaDecAsync(12.5, 45.0, ct);
 
