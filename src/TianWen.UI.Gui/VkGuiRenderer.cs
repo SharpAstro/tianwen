@@ -661,14 +661,15 @@ namespace TianWen.UI.Gui
             if (File.Exists(bundled))
             {
                 _fontPath = bundled;
-                return;
             }
-
-            // Fall back to system fonts
-            var resolved = FontResolver.ResolveSystemFont();
-            if (resolved.Length > 0)
+            else
             {
-                _fontPath = resolved;
+                // Fall back to system fonts
+                var resolved = FontResolver.ResolveSystemFont();
+                if (resolved.Length > 0)
+                {
+                    _fontPath = resolved;
+                }
             }
 
             // Propagate to mini viewers so their WCS-annotation overlay can

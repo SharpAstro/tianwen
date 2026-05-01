@@ -272,8 +272,15 @@ namespace TianWen.UI.Abstractions
         /// </summary>
         public DropdownMenuState ModeDropdown { get; } = new();
 
-        /// <summary>Needs redraw flag for TUI integration.</summary>
-        public bool NeedsRedraw { get; set; } = true;
+        /// <summary>Needs redraw flag, set from thread-pool callbacks and consumed
+        /// by the render loop. Backed by <see cref="Interlocked.Exchange(ref int, int)"/>
+        /// so a concurrent set-true cannot be silently overwritten by the post-frame clear.</summary>
+        private int _needsRedraw = 1;
+        public bool NeedsRedraw
+        {
+            get => Volatile.Read(ref _needsRedraw) != 0;
+            set => Interlocked.Exchange(ref _needsRedraw, value ? 1 : 0);
+        }
 
         /// <summary>Whether the abort confirmation strip is showing.</summary>
         public bool ShowAbortConfirm { get; set; }
