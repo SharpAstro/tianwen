@@ -339,7 +339,7 @@ internal class FakeGuider(FakeDevice fakeDevice, IServiceProvider serviceProvide
             if (_camera is { Connected: true } camera)
             {
                 var exposureTime = TimeSpan.FromSeconds(2);
-                _lastLoopFrame = await BuiltInGuiderDriver.CaptureGuideFrameAsync(camera, exposureTime, TimeProvider, cancellationToken);
+                _lastLoopFrame = await BuiltInGuiderDriver.CaptureGuideFrameAsync(camera, exposureTime, TimeProvider, External.ImageReadyPollInterval, cancellationToken);
 
                 // Start the unified capture loop in background
                 _loopCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -363,6 +363,7 @@ internal class FakeGuider(FakeDevice fakeDevice, IServiceProvider serviceProvide
         {
             var exposureTime = TimeSpan.FromSeconds(2);
             var ext = TimeProvider;
+            var pollInterval = External.ImageReadyPollInterval;
 
             // Phase 1: Loop capture — expose and store frames until guiding starts
             while (!ct.IsCancellationRequested)
@@ -384,7 +385,7 @@ internal class FakeGuider(FakeDevice fakeDevice, IServiceProvider serviceProvide
                 }
 
                 _lastLoopFrame?.Release();
-                var frame = await BuiltInGuiderDriver.CaptureGuideFrameAsync(camera, exposureTime, ext, ct);
+                var frame = await BuiltInGuiderDriver.CaptureGuideFrameAsync(camera, exposureTime, ext, pollInterval, ct);
                 _lastLoopFrame = frame;
             }
 
@@ -392,7 +393,7 @@ internal class FakeGuider(FakeDevice fakeDevice, IServiceProvider serviceProvide
             while (!TryCompleteSettle() && CurrentState is GuiderState.Settling && !ct.IsCancellationRequested)
             {
                 _lastLoopFrame?.Release();
-                var settleFrame = await BuiltInGuiderDriver.CaptureGuideFrameAsync(camera, exposureTime, ext, ct);
+                var settleFrame = await BuiltInGuiderDriver.CaptureGuideFrameAsync(camera, exposureTime, ext, pollInterval, ct);
                 _lastLoopFrame = settleFrame;
             }
 
@@ -400,7 +401,7 @@ internal class FakeGuider(FakeDevice fakeDevice, IServiceProvider serviceProvide
 
             // Phase 2: Guided capture — acquire guide star, then run GuideLoop
             var tracker = new GuiderCentroidTracker(maxStars: 1);
-            var initFrame = await BuiltInGuiderDriver.CaptureGuideFrameAsync(camera, exposureTime, ext, ct);
+            var initFrame = await BuiltInGuiderDriver.CaptureGuideFrameAsync(camera, exposureTime, ext, pollInterval, ct);
             _lastLoopFrame = initFrame;
             tracker.ProcessFrame(initFrame.GetChannelArray(0));
             tracker.SetLockPosition();
@@ -421,7 +422,7 @@ internal class FakeGuider(FakeDevice fakeDevice, IServiceProvider serviceProvide
             await guideLoop.RunAsync(
                 async token =>
                 {
-                    var f = await BuiltInGuiderDriver.CaptureGuideFrameAsync(camera, exposureTime, ext, token);
+                    var f = await BuiltInGuiderDriver.CaptureGuideFrameAsync(camera, exposureTime, ext, pollInterval, token);
                     _lastLoopFrame = f; // same ref as GuideLoop.LastFrame — no extra Release needed
                     return f;
                 },

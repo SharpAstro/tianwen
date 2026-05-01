@@ -38,7 +38,7 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
         private readonly ILogger _logger;
         private readonly Action<Image>? _onFrameCaptured;
         private readonly Action<PlateSolveResult>? _onFrameSolved;
-        private readonly TimeSpan _imageReadyPollInterval = TimeSpan.FromMilliseconds(50);
+        private readonly TimeSpan _imageReadyPollInterval;
 
         public string DisplayName { get; }
         public double FocalLengthMm { get; }
@@ -102,6 +102,7 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
             string targetName,
             ICelestialObjectDB? catalogDb,
             ITimeProvider timeProvider,
+            TimeSpan imageReadyPollInterval,
             ILogger logger,
             Action<Image>? onFrameCaptured = null,
             Action<PlateSolveResult>? onFrameSolved = null)
@@ -121,6 +122,7 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
             // Square-pixel cameras are universal in this domain; X is enough.
             PixelSizeMicrons = camera.PixelSizeX;
             _timeProvider = timeProvider;
+            _imageReadyPollInterval = imageReadyPollInterval > TimeSpan.Zero ? imageReadyPollInterval : TimeSpan.FromMilliseconds(50);
             _logger = logger;
             _onFrameCaptured = onFrameCaptured;
             _onFrameSolved = onFrameSolved;

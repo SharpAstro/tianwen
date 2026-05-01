@@ -2045,6 +2045,7 @@ namespace TianWen.UI.Abstractions
                         targetName: "Polar Align",
                         catalogDb: sp.GetRequiredService<ICelestialObjectDB>(),
                         timeProvider: _timeProvider,
+                        imageReadyPollInterval: _external.ImageReadyPollInterval,
                         logger: logger,
                         onFrameCaptured: img =>
                         {

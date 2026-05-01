@@ -90,6 +90,7 @@ public class PolarAlignmentRampIntegrationTests(ITestOutputHelper output)
             targetName: "SCP",
             catalogDb: db,
             timeProvider: timeProvider,
+            imageReadyPollInterval: TimeSpan.FromMilliseconds(50),
             logger: logger);
 
         var solver = new CatalogPlateSolver(db);

@@ -352,7 +352,7 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
 
         var tracker = new GuiderCentroidTracker(maxStars: 1);
         _calibrationTracker = tracker;
-        var frame = await CaptureGuideFrameAsync(camera, exposureTime, TimeProvider, ct);
+        var frame = await CaptureGuideFrameAsync(camera, exposureTime, TimeProvider, External.ImageReadyPollInterval, ct);
         _lastFrame = frame;
         tracker.ProcessFrame(frame.GetChannelArray(0));
 
@@ -365,9 +365,10 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
         }
 
         var timeProvider = TimeProvider;
+        var pollInterval = External.ImageReadyPollInterval;
         async ValueTask<Image> CaptureFrame(CancellationToken token)
         {
-            var f = await CaptureGuideFrameAsync(camera, exposureTime, timeProvider, token);
+            var f = await CaptureGuideFrameAsync(camera, exposureTime, timeProvider, pollInterval, token);
             _lastFrame = f;
             return f;
         }
@@ -402,7 +403,7 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
         var exposureTime = await ExposureTimeAsync(ct);
         var tracker = new GuiderCentroidTracker(maxStars: 1);
         _calibrationTracker = tracker;
-        var frame = await CaptureGuideFrameAsync(camera, exposureTime, TimeProvider, ct);
+        var frame = await CaptureGuideFrameAsync(camera, exposureTime, TimeProvider, External.ImageReadyPollInterval, ct);
         _lastFrame = frame;
         tracker.ProcessFrame(frame.GetChannelArray(0));
 
@@ -413,9 +414,10 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
         }
 
         var timeProvider = TimeProvider;
+        var pollInterval = External.ImageReadyPollInterval;
         async ValueTask<Image> CaptureFrame(CancellationToken token)
         {
-            var f = await CaptureGuideFrameAsync(camera, exposureTime, timeProvider, token);
+            var f = await CaptureGuideFrameAsync(camera, exposureTime, timeProvider, pollInterval, token);
             _lastFrame = f;
             return f;
         }
@@ -502,10 +504,11 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
             // Acquire guide star and set lock position
             var tracker = new GuiderCentroidTracker(maxStars: 1);
             var timeProvider = TimeProvider;
+            var pollInterval = External.ImageReadyPollInterval;
             async ValueTask<Image> CaptureFrame(CancellationToken token)
-                => await CaptureGuideFrameAsync(camera, exposureTime, timeProvider, token);
+                => await CaptureGuideFrameAsync(camera, exposureTime, timeProvider, pollInterval, token);
 
-            var frame = await CaptureGuideFrameAsync(camera, exposureTime, TimeProvider, ct);
+            var frame = await CaptureGuideFrameAsync(camera, exposureTime, TimeProvider, External.ImageReadyPollInterval, ct);
             tracker.ProcessFrame(frame.GetChannelArray(0));
             tracker.SetLockPosition();
 
@@ -589,14 +592,14 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
     /// The returned <see cref="Image"/> holds a <see cref="ChannelBuffer"/> ref —
     /// caller must call <see cref="Image.Release"/> when done to allow buffer reuse.
     /// </summary>
-    internal static async ValueTask<Image> CaptureGuideFrameAsync(ICameraDriver camera, TimeSpan exposure, ITimeProvider timeProvider, CancellationToken ct)
+    internal static async ValueTask<Image> CaptureGuideFrameAsync(ICameraDriver camera, TimeSpan exposure, ITimeProvider timeProvider, TimeSpan imageReadyPollInterval, CancellationToken ct)
     {
         await camera.StartExposureAsync(exposure, FrameType.Light, ct);
 
         // Poll until image is ready
         while (!await camera.GetImageReadyAsync(ct))
         {
-            await timeProvider.SleepAsync(TimeSpan.FromMilliseconds(50), ct);
+            await timeProvider.SleepAsync(imageReadyPollInterval, ct);
         }
 
         return await camera.GetImageAsync(ct) ?? throw new GuiderException("Failed to capture guide frame — no image data");
