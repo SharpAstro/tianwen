@@ -199,18 +199,21 @@ internal class FakeSkywatcherMountDriver(FakeDevice device, IServiceProvider ser
             sitePressure: sitePressureHPa, siteTemp: siteTempC);
 
         // Misaligned axis topocentric = pole + offset. arcmin -> degrees.
-        var axisAzDeg = poleAzDeg + azErrArcmin / 60.0;
+        var axisAzDeg = (poleAzDeg + azErrArcmin / 60.0) % 360.0;
+        if (axisAzDeg < 0.0) axisAzDeg += 360.0;
         var axisAltDeg = poleAltDeg + altErrArcmin / 60.0;
 
         // Convert axis topocentric -> J2000 with refraction OFF (axis is a
-        // mechanical orientation, not a sky observation). Transform's
-        // refraction is gated on pressure/temp being non-NaN, so we leave
-        // them at their default NaN to skip refraction on this path.
+        // mechanical orientation, not a sky observation). Transform.Refraction
+        // defaults to false, which is what we want. SiteTemperature must still
+        // be set because the AzEl→J2000 path requires all four site params to
+        // be non-NaN before it will attempt the conversion at all.
         var transform = new Transform(timeProvider);
         transform.JulianDateUTC = utc1 + utc2;
         transform.SiteLatitude = siteLatDeg;
         transform.SiteLongitude = siteLonDeg;
         transform.SiteElevation = siteElevM;
+        transform.SiteTemperature = siteTempC;
         transform.SetAzimuthElevation(axisAzDeg, axisAltDeg);
         return PolarAxisSolver.RaDecToUnitVec(transform.RAJ2000, transform.DecJ2000);
     }
