@@ -10,7 +10,7 @@ using TianWen.Lib.Imaging;
 namespace TianWen.UI.Benchmarks;
 
 /// <summary>
-/// Compares <see cref="IncrementalSolver.Refine"/> against the existing
+/// Compares <see cref="IncrementalSolver.RefineAsync"/> against the existing
 /// full-solve path on a polar-align-shaped frame. The handoff target was
 /// "<![CDATA[<20 ms per refine vs ~700 ms for a full hinted solve]]>"; this
 /// bench gives us a calibrated number to ship.
@@ -118,14 +118,14 @@ public class IncrementalSolverBenchmarks
     }
 
     [Benchmark]
-    public PlateSolveResult? Refine_Small_1280x960() =>
-        _smallSolver.Refine(_smallRefineFrame);
+    public async Task<PlateSolveResult?> Refine_Small_1280x960() =>
+        await _smallSolver.RefineAsync(_smallRefineFrame);
 
     [Benchmark]
-    public PlateSolveResult? Refine_Medium_4096x4096() =>
-        _mediumSolver.Refine(_mediumRefineFrame);
+    public async Task<PlateSolveResult?> Refine_Medium_4096x4096() =>
+        await _mediumSolver.RefineAsync(_mediumRefineFrame);
 
     [Benchmark]
-    public PlateSolveResult? Refine_Large_9576x6388() =>
-        _largeSolver.Refine(_largeRefineFrame);
+    public async Task<PlateSolveResult?> Refine_Large_9576x6388() =>
+        await _largeSolver.RefineAsync(_largeRefineFrame);
 }
