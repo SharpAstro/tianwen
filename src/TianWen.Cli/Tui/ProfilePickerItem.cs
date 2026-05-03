@@ -14,10 +14,9 @@ internal sealed class ProfilePickerItem : IRowFormatter
     /// <summary>Whether this profile is the currently active one.</summary>
     public bool IsActive { get; init; }
 
-    /// <summary>Whether this row is highlighted (keyboard selection).</summary>
-    public bool IsSelected { get; init; }
+    public string FormatRow(int width, ColorMode colorMode) => FormatRow(width, colorMode, isSelected: false);
 
-    public string FormatRow(int width, ColorMode colorMode)
+    public string FormatRow(int width, ColorMode colorMode, bool isSelected)
     {
         var marker = IsActive ? "\u25b6 " : "  ";
         var name = Profile.DisplayName;
@@ -28,7 +27,7 @@ internal sealed class ProfilePickerItem : IRowFormatter
             line = line[..(width - 1)] + "\u2026";
         }
 
-        if (IsSelected)
+        if (isSelected)
         {
             var style = new VtStyle(SgrColor.BrightWhite, SgrColor.Blue);
             return $"{style.Apply(colorMode)}{line.PadRight(width)}{VtStyle.Reset}";

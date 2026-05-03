@@ -34,15 +34,6 @@ internal sealed class TuiEquipmentTab(
     /// <summary>Tracks which field is active during site editing: 0=lat, 1=lon, 2=elev.</summary>
     private int _editFieldIndex;
 
-    /// <summary>Selected field index in the settings list.</summary>
-    private int _selectedFieldIndex;
-
-    /// <summary>Total editable field count.</summary>
-    private int _fieldCount;
-
-    /// <summary>Selected index in the device picker (reuses _settingsList viewport).</summary>
-    private int _pickerSelectedIndex;
-
     /// <summary>OTA index pending deletion confirmation (-1 = none).</summary>
     private int _pendingDeleteOtaIndex = -1;
 
@@ -61,14 +52,11 @@ internal sealed class TuiEquipmentTab(
     /// <summary>Whether profiles have been loaded at least once.</summary>
     private bool _profilesLoaded;
 
-    /// <summary>Selected index in the profile picker.</summary>
-    private int _profileSelectedIndex;
+    /// <summary>The mode the settings list was last built for. Used to reset the cursor on mode transitions.</summary>
+    private Mode _lastBuiltMode = Mode.Browse;
 
-    // Last-applied selection indices. EnsureVisible is only called when the selection
-    // moves — otherwise a drag-scroll would be instantly snapped back on the next render.
-    private int _lastEnsuredProfileIndex = -1;
-    private int _lastEnsuredSettingsIndex = -1;
-    private int _lastEnsuredPickerIndex = -1;
+    /// <summary>Saved settings-list cursor row index, captured when entering Assignment mode and restored on exit.</summary>
+    private int _savedBrowseCursor;
 
     [MemberNotNullWhen(true, nameof(_profileList), nameof(_settingsList), nameof(_siteBar), nameof(_statusBar))]
     protected override bool IsReady =>
@@ -175,6 +163,7 @@ internal sealed class TuiEquipmentTab(
 
         var items = new List<ProfilePickerItem>();
         var activeId = appState.ActiveProfile?.ProfileId;
+        var activeIdx = -1;
         var idx = 0;
 
         foreach (var profile in _cachedProfiles)
@@ -184,20 +173,20 @@ internal sealed class TuiEquipmentTab(
             {
                 Profile = profile,
                 IsActive = isActive,
-                IsSelected = idx == _profileSelectedIndex,
             });
-            if (isActive && _profileSelectedIndex < 0)
+            if (isActive)
             {
-                _profileSelectedIndex = idx;
+                activeIdx = idx;
             }
             idx++;
         }
 
+        // Items() clamps the cursor; if we have no cursor yet (first build) snap to active.
+        var firstBuild = profileList.ItemCount == 0 && items.Count > 0;
         profileList.Items(items).Header("Profiles");
-        if (_profileSelectedIndex != _lastEnsuredProfileIndex)
+        if (firstBuild && activeIdx >= 0)
         {
-            profileList.EnsureVisible(_profileSelectedIndex);
-            _lastEnsuredProfileIndex = _profileSelectedIndex;
+            profileList.MoveTo(activeIdx);
         }
     }
 
@@ -277,7 +266,6 @@ internal sealed class TuiEquipmentTab(
                 PropertyValue = otaData.OpticalDesign.ToString(),
                 IsCycleField = true,
                 FieldIndex = fieldIdx,
-                IsSelected = fieldIdx == _selectedFieldIndex,
                 Increment = () =>
                 {
                     var idx = Array.IndexOf(designs, otaData.OpticalDesign);
@@ -306,7 +294,6 @@ internal sealed class TuiEquipmentTab(
                         FilterOffset = filter.Position,
                         OtaIndex = i,
                         FieldIndex = fieldIdx,
-                        IsSelected = fieldIdx == _selectedFieldIndex,
                         // Left/Right adjusts offset
                         Increment = () =>
                         {
@@ -352,21 +339,24 @@ internal sealed class TuiEquipmentTab(
         {
             ActionLabel = "+ Add OTA",
             FieldIndex = fieldIdx,
-            IsSelected = fieldIdx == _selectedFieldIndex,
             Increment = () => bus?.Post(new AddOtaSignal()),
         });
         fieldIdx++;
 
-        _fieldCount = fieldIdx;
         _lastItems = items;
         settingsList.Items(items).Header("Equipment");
 
-        // Scroll to keep selected item visible
-        var selectedListIdx = items.FindIndex(i => i.IsSelected);
-        if (selectedListIdx >= 0 && selectedListIdx != _lastEnsuredSettingsIndex)
+        // Returning from Assignment mode -> restore the saved browse cursor.
+        if (_lastBuiltMode == Mode.Assignment)
         {
-            settingsList.EnsureVisible(selectedListIdx);
-            _lastEnsuredSettingsIndex = selectedListIdx;
+            _lastBuiltMode = Mode.Browse;
+            settingsList.MoveTo(_savedBrowseCursor);
+            SnapPastHeaders(settingsList, +1);
+        }
+        else if (settingsList.Selected is { FieldIndex: < 0 })
+        {
+            // First build (or boundary correction) -> land on the first content row.
+            SnapPastHeaders(settingsList, +1);
         }
     }
 
@@ -404,20 +394,18 @@ internal sealed class TuiEquipmentTab(
             IsConnected = connected,
             IsPending = pending,
             FieldIndex = fieldIdx,
-            IsSelected = fieldIdx == _selectedFieldIndex,
         };
         fieldIdx++;
         return item;
     }
 
-    private EquipmentFieldItem MakePropertyStepper(ref int fieldIdx, string label, string value, Action inc, Action dec)
+    private static EquipmentFieldItem MakePropertyStepper(ref int fieldIdx, string label, string value, Action inc, Action dec)
     {
         var item = new EquipmentFieldItem
         {
             PropertyLabel = label,
             PropertyValue = value,
             FieldIndex = fieldIdx,
-            IsSelected = fieldIdx == _selectedFieldIndex,
             Increment = inc,
             Decrement = dec,
         };
@@ -463,7 +451,6 @@ internal sealed class TuiEquipmentTab(
                 Setting = setting,
                 DeviceUri = workingUri,
                 FieldIndex = fieldIdx,
-                IsSelected = fieldIdx == _selectedFieldIndex,
                 Increment = () =>
                 {
                     var current = _editingUris[capturedKey];
@@ -514,7 +501,6 @@ internal sealed class TuiEquipmentTab(
                 IsSlotActive = false,
                 Slot = target, // reuse for type info
                 FieldIndex = i,
-                IsSelected = i == _pickerSelectedIndex,
             });
             matchCount++;
         }
@@ -528,11 +514,12 @@ internal sealed class TuiEquipmentTab(
         _lastItems = items;
         settingsList.Items(items).Header($"Assign {target.ExpectedDeviceType}");
 
-        // Scroll picker
-        if (_pickerSelectedIndex >= 0 && _pickerSelectedIndex != _lastEnsuredPickerIndex)
+        // Entering Assignment mode -> save the browse cursor and start at row 0
+        // (which is the first matching device, since the list is filtered).
+        if (_lastBuiltMode != Mode.Assignment)
         {
-            settingsList.EnsureVisible(_pickerSelectedIndex);
-            _lastEnsuredPickerIndex = _pickerSelectedIndex;
+            _lastBuiltMode = Mode.Assignment;
+            settingsList.MoveTo(0);
         }
     }
 
@@ -610,7 +597,6 @@ internal sealed class TuiEquipmentTab(
         {
             _cachedProfiles = await consoleHost.ListDevicesAsync<Profile>(
                 DeviceType.Profile, DeviceDiscoveryOption.Force, default);
-            _profileSelectedIndex = FindActiveProfileIndex();
             NeedsRedraw = true;
         }
         catch
@@ -619,43 +605,18 @@ internal sealed class TuiEquipmentTab(
         }
     }
 
-    private int FindActiveProfileIndex()
-    {
-        var activeId = appState.ActiveProfile?.ProfileId;
-        if (activeId is null)
-        {
-            return 0;
-        }
-
-        var idx = 0;
-        foreach (var p in _cachedProfiles)
-        {
-            if (p.ProfileId == activeId)
-            {
-                return idx;
-            }
-            idx++;
-        }
-        return 0;
-    }
-
     private void SwitchToSelectedProfile()
     {
-        var idx = 0;
-        foreach (var profile in _cachedProfiles)
+        if (_profileList?.Selected is not { } picked) return;
+
+        if (picked.Profile.ProfileId != appState.ActiveProfile?.ProfileId)
         {
-            if (idx == _profileSelectedIndex)
-            {
-                if (profile.ProfileId != appState.ActiveProfile?.ProfileId)
-                {
-                    appState.ActiveProfile = profile;
-                    _editingUris.Clear();
-                    _selectedFieldIndex = 0;
-                    appState.NeedsRedraw = true;
-                }
-                return;
-            }
-            idx++;
+            appState.ActiveProfile = picked.Profile;
+            _editingUris.Clear();
+            // The settings list rebuilds against the new profile next render; reset
+            // the cursor target so we land on the first content row.
+            _settingsList?.MoveTo(0);
+            appState.NeedsRedraw = true;
         }
     }
 
@@ -664,7 +625,24 @@ internal sealed class TuiEquipmentTab(
     // ----------------------------------------------------------------
 
     public override bool HandleRawMouse(MouseEvent mouse)
-        => RouteMouse(_profileList, mouse) || RouteMouse(_settingsList, mouse);
+    {
+        if (RouteMouse(_profileList, mouse))
+        {
+            return true;
+        }
+        if (RouteMouse(_settingsList, mouse))
+        {
+            // ScrollableList moves cursor on click; if the click landed on a
+            // section header, snap to the next content row so the highlight is
+            // never stuck on a non-interactive row.
+            if (_settingsList is { } sl && sl.Selected is { FieldIndex: < 0 })
+            {
+                SnapPastHeaders(sl, +1);
+            }
+            return true;
+        }
+        return false;
+    }
 
     private bool RouteMouse<T>(ScrollableList<T>? list, MouseEvent mouse) where T : IRowFormatter
     {
@@ -680,9 +658,32 @@ internal sealed class TuiEquipmentTab(
         return true;
     }
 
+    /// <summary>
+    /// Walks the cursor past any section / OTA-header rows in the given direction
+    /// (+1 or -1). On boundary, reverses direction once. No-op when the cursor
+    /// already sits on a content row.
+    /// </summary>
+    private static void SnapPastHeaders(ScrollableList<EquipmentFieldItem> list, int direction)
+    {
+        var dir = direction == 0 ? +1 : direction;
+        var reversed = false;
+        while (list.Selected is { FieldIndex: < 0 })
+        {
+            if (!list.MoveCursor(dir))
+            {
+                if (reversed) break;
+                dir = -dir;
+                reversed = true;
+            }
+        }
+    }
+
     protected override void RegisterClickableRegions()
     {
-        // Left panel: clicking a profile row selects and switches to it.
+        // Left panel: clicking a profile row selects and switches to it. The list's
+        // own HandleMouse moved the cursor on MouseDown; the tracker callback fires
+        // on MouseUp and adds the side-effect (switch active profile). We re-issue
+        // MoveTo so a drag-release (down on row A, up on row B) still ends up on B.
         if (_profileList is { } pl && _cachedProfiles.Count > 0)
         {
             var (bx, by, rowW, rowH) = GetRowGeometry(pl);
@@ -695,33 +696,18 @@ internal sealed class TuiEquipmentTab(
                     new HitResult.ListItemHit("Profile", capturedIdx),
                     _ =>
                     {
-                        _profileSelectedIndex = capturedIdx;
+                        pl.MoveTo(capturedIdx);
                         SwitchToSelectedProfile();
                         NeedsRedraw = true;
                     });
             }
         }
 
-        // Right panel: clicking a row selects its field (browse) or device (picker).
-        if (_settingsList is { } sl && _lastItems.Count > 0)
-        {
-            var (bx, by, rowW, rowH) = GetRowGeometry(sl);
-            for (var i = 0; i < sl.VisibleRows && sl.ScrollOffset + i < _lastItems.Count; i++)
-            {
-                var item = _lastItems[sl.ScrollOffset + i];
-                if (item.FieldIndex < 0) continue; // skip section headers
-                var capturedIdx = item.FieldIndex;
-                var y = by + (1 + i) * rowH;
-                Tracker.Register(bx, y, rowW, rowH,
-                    new HitResult.ListItemHit("EquipField", capturedIdx),
-                    _ =>
-                    {
-                        if (_mode == Mode.Assignment) _pickerSelectedIndex = capturedIdx;
-                        else _selectedFieldIndex = capturedIdx;
-                        NeedsRedraw = true;
-                    });
-            }
-        }
+        // Right panel: ScrollableList's built-in HandleMouse moves its own cursor
+        // on click — no tracker registration needed for cursor-only effects. We
+        // still need a tracker hit for header rows (so HandleRawMouse can snap
+        // past them), but since header rows have FieldIndex < 0, they're excluded
+        // here exactly as before.
     }
 
     // Computes (baseX, baseY, rowWidth, rowHeight) for a list, excluding the
@@ -897,35 +883,33 @@ internal sealed class TuiEquipmentTab(
 
             // Profile picker navigation (Ctrl+Up/Down)
             case InputKey.Up when (modifiers & InputModifier.Ctrl) != 0:
-                if (_profileSelectedIndex > 0)
+                if (_profileList is { } plUp && plUp.MoveCursor(-1))
                 {
-                    _profileSelectedIndex--;
                     SwitchToSelectedProfile();
                     NeedsRedraw = true;
                 }
                 return false;
 
             case InputKey.Down when (modifiers & InputModifier.Ctrl) != 0:
-                if (_profileSelectedIndex < _cachedProfiles.Count - 1)
+                if (_profileList is { } plDn && plDn.MoveCursor(+1))
                 {
-                    _profileSelectedIndex++;
                     SwitchToSelectedProfile();
                     NeedsRedraw = true;
                 }
                 return false;
 
             case InputKey.Up:
-                if (_selectedFieldIndex > 0)
+                if (_settingsList is { } slUp && slUp.MoveCursor(-1))
                 {
-                    _selectedFieldIndex--;
+                    SnapPastHeaders(slUp, -1);
                     NeedsRedraw = true;
                 }
                 return false;
 
             case InputKey.Down:
-                if (_selectedFieldIndex < _fieldCount - 1)
+                if (_settingsList is { } slDn && slDn.MoveCursor(+1))
                 {
-                    _selectedFieldIndex++;
+                    SnapPastHeaders(slDn, +1);
                     NeedsRedraw = true;
                 }
                 return false;
@@ -999,17 +983,19 @@ internal sealed class TuiEquipmentTab(
                 return false;
 
             case InputKey.Up:
-                if (MovePickerToMatch(-1)) NeedsRedraw = true;
+                if (_settingsList?.MoveCursor(-1) == true) NeedsRedraw = true;
                 return false;
 
             case InputKey.Down:
-                if (MovePickerToMatch(+1)) NeedsRedraw = true;
+                if (_settingsList?.MoveCursor(+1) == true) NeedsRedraw = true;
                 return false;
 
             case InputKey.Enter:
-                if (_pickerSelectedIndex >= 0 && _pickerSelectedIndex < eqState.DiscoveredDevices.Count)
+                // The picker list is filtered to matching devices only; FieldIndex
+                // on each row is the original DiscoveredDevices index.
+                if (_settingsList?.Selected is { FieldIndex: >= 0 } picked)
                 {
-                    bus?.Post(new AssignDeviceSignal(_pickerSelectedIndex));
+                    bus?.Post(new AssignDeviceSignal(picked.FieldIndex));
                     ExitAssignmentMode();
                 }
                 return false;
@@ -1022,26 +1008,6 @@ internal sealed class TuiEquipmentTab(
                 return false;
         }
 
-        return false;
-    }
-
-    // Advances _pickerSelectedIndex by one VISIBLE row in the given direction (+1 down,
-    // -1 up), skipping devices that don't match the slot's expected type. Returns true
-    // when the cursor actually moved.
-    private bool MovePickerToMatch(int direction)
-    {
-        if (eqState.ActiveAssignment is not { } target) return false;
-        var expected = target.ExpectedDeviceType;
-        var i = _pickerSelectedIndex + direction;
-        while (i >= 0 && i < eqState.DiscoveredDevices.Count)
-        {
-            if (eqState.DiscoveredDevices[i].DeviceType == expected)
-            {
-                _pickerSelectedIndex = i;
-                return true;
-            }
-            i += direction;
-        }
         return false;
     }
 
@@ -1097,18 +1063,10 @@ internal sealed class TuiEquipmentTab(
         // The previous early-return looked like Enter did nothing.
         eqState.ActiveAssignment = slot;
         _mode = Mode.Assignment;
-        _pickerSelectedIndex = 0;
-
-        // Pre-select first matching device
-        for (var i = 0; i < eqState.DiscoveredDevices.Count; i++)
-        {
-            if (eqState.DiscoveredDevices[i].DeviceType == slot.ExpectedDeviceType)
-            {
-                _pickerSelectedIndex = i;
-                break;
-            }
-        }
-
+        // Save the browse-mode cursor row so ExitAssignmentMode can restore it.
+        // Pre-selection of the first matching device happens in BuildDevicePickerList
+        // by snapping the cursor to row 0 of the (already filtered) list.
+        _savedBrowseCursor = _settingsList?.CursorIndex ?? 0;
         NeedsRedraw = true;
     }
 
@@ -1164,17 +1122,20 @@ internal sealed class TuiEquipmentTab(
 
     private EquipmentFieldItem? FindSelectedItem()
     {
-        var idx = _selectedFieldIndex;
-        return idx >= 0 ? _lastItems.Find(i => i.FieldIndex == idx) : null;
+        // The settings-list cursor IS the selection; Selected returns null when the
+        // list is empty and a header item (FieldIndex < 0) when the cursor is parked
+        // on a non-content row, both of which we want to skip.
+        return _settingsList?.Selected is { FieldIndex: >= 0 } sel ? sel : null;
     }
 
     /// <summary>
-    /// Finds the OTA index for the nearest OTA header at or above the current selection.
+    /// Finds the OTA index for the nearest OTA header at or above the current cursor.
     /// </summary>
     private int FindNearestOtaIndex()
     {
-        var selectedPos = _lastItems.FindIndex(it => it.FieldIndex == _selectedFieldIndex);
-        for (var i = selectedPos; i >= 0; i--)
+        if (_settingsList is not { } sl) return -1;
+        var pos = sl.CursorIndex;
+        for (var i = pos; i >= 0 && i < _lastItems.Count; i--)
         {
             if (_lastItems[i].IsOtaHeader && _lastItems[i].OtaIndex >= 0)
             {

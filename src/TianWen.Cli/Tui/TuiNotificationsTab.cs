@@ -81,38 +81,30 @@ internal sealed class TuiNotificationsTab(GuiAppState appState) : TuiTabBase
     {
         if (!IsReady) return false;
 
-        switch (key)
+        // Up/Down/PageUp/PageDown/Home/End all delegate to the list's cursor.
+        // The cursor auto-scrolls so the focused row stays visible.
+        var page = System.Math.Max(1, _list.VisibleRows - 1);
+        var moved = key switch
         {
-            case InputKey.Up:
-                if (_list.HandleWheel(1)) NeedsRedraw = true;
-                return false;
+            InputKey.Up => _list.MoveCursor(-1),
+            InputKey.Down => _list.MoveCursor(+1),
+            InputKey.PageUp => _list.MoveCursor(-page),
+            InputKey.PageDown => _list.MoveCursor(+page),
+            InputKey.Home => _list.MoveTo(0),
+            InputKey.End => _list.MoveTo(int.MaxValue),
+            _ => false,
+        };
+        if (moved)
+        {
+            NeedsRedraw = true;
+            return false;
+        }
 
-            case InputKey.Down:
-                if (_list.HandleWheel(-1)) NeedsRedraw = true;
-                return false;
-
-            case InputKey.PageUp:
-                if (_list.HandleWheel(System.Math.Max(1, _list.VisibleRows - 1))) NeedsRedraw = true;
-                return false;
-
-            case InputKey.PageDown:
-                if (_list.HandleWheel(-System.Math.Max(1, _list.VisibleRows - 1))) NeedsRedraw = true;
-                return false;
-
-            case InputKey.Home:
-                _list.ScrollTo(0);
-                NeedsRedraw = true;
-                return false;
-
-            case InputKey.End:
-                _list.ScrollTo(int.MaxValue);
-                NeedsRedraw = true;
-                return false;
-
-            case InputKey.C:
-                appState.ClearNotifications();
-                NeedsRedraw = true;
-                return false;
+        if (key == InputKey.C)
+        {
+            appState.ClearNotifications();
+            NeedsRedraw = true;
+            return false;
         }
         return false;
     }

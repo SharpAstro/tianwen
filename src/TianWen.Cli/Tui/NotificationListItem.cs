@@ -16,7 +16,9 @@ internal sealed class NotificationListItem(NotificationEntry entry) : IRowFormat
     private static readonly VtStyle WarnStyle = new(SgrColor.BrightYellow, SgrColor.Black);
     private static readonly VtStyle ErrorStyle = new(SgrColor.BrightRed, SgrColor.Black);
 
-    public string FormatRow(int width, ColorMode colorMode)
+    public string FormatRow(int width, ColorMode colorMode) => FormatRow(width, colorMode, isSelected: false);
+
+    public string FormatRow(int width, ColorMode colorMode, bool isSelected)
     {
         var ts = entry.When.ToLocalTime().ToString("HH:mm:ss");
         var (tag, sevStyle) = entry.Severity switch
@@ -34,6 +36,16 @@ internal sealed class NotificationListItem(NotificationEntry entry) : IRowFormat
             : msgBudget > 1 ? entry.Message[..(msgBudget - 1)] + '\u2026' : entry.Message[..msgBudget];
 
         var reset = VtStyle.Reset;
+        if (isSelected)
+        {
+            // Cursor row: paint the whole row on a blue background so the user can see
+            // which entry is focused. The severity tag keeps its bright fg so the
+            // INFO/WARN/ERR colour-coding is still legible against the highlight.
+            var selStyle = new VtStyle(SgrColor.BrightWhite, SgrColor.Blue);
+            var line = $" {ts}  [{tag}]  {msg}";
+            return $"{selStyle.Apply(colorMode)}{line.PadRight(width)}{reset}";
+        }
+
         return
             $"{DimStyle.Apply(colorMode)} {ts}{reset}"
             + $"  {sevStyle.Apply(colorMode)}[{tag}]{reset}"

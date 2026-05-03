@@ -20,9 +20,6 @@ internal sealed class EquipmentFieldItem : IRowFormatter
     /// <summary>Flat index among editable fields (for selection tracking). -1 for headers.</summary>
     public int FieldIndex { get; init; } = -1;
 
-    /// <summary>Whether this field is currently selected.</summary>
-    public bool IsSelected { get; init; }
-
     /// <summary>Increment callback.</summary>
     public Action? Increment { get; init; }
 
@@ -104,7 +101,9 @@ internal sealed class EquipmentFieldItem : IRowFormatter
     /// <summary>Action label (e.g. "+ Add OTA").</summary>
     public string? ActionLabel { get; init; }
 
-    public string FormatRow(int width, ColorMode colorMode)
+    public string FormatRow(int width, ColorMode colorMode) => FormatRow(width, colorMode, isSelected: false);
+
+    public string FormatRow(int width, ColorMode colorMode, bool isSelected)
     {
         // Section header
         if (SectionName is not null)
@@ -131,7 +130,7 @@ internal sealed class EquipmentFieldItem : IRowFormatter
         if (ActionLabel is not null)
         {
             var actionLine = $"  {ActionLabel}";
-            if (IsSelected)
+            if (isSelected)
             {
                 var style = new VtStyle(SgrColor.BrightGreen, SgrColor.Black);
                 return $"{style.Apply(colorMode)}{actionLine.PadRight(width)}{VtStyle.Reset}";
@@ -143,31 +142,31 @@ internal sealed class EquipmentFieldItem : IRowFormatter
         // Device slot row
         if (SlotLabel is not null && Slot is not null)
         {
-            return FormatSlotRow(width, colorMode);
+            return FormatSlotRow(width, colorMode, isSelected);
         }
 
         // Filter row
         if (FilterIndex > 0 && FilterName is not null)
         {
-            return FormatFilterRow(width, colorMode);
+            return FormatFilterRow(width, colorMode, isSelected);
         }
 
         // Property stepper row
         if (PropertyLabel is not null)
         {
-            return FormatPropertyRow(width, colorMode);
+            return FormatPropertyRow(width, colorMode, isSelected);
         }
 
         // Device setting row (original)
         if (Setting is { } setting && DeviceUri is not null)
         {
-            return FormatSettingRow(setting, width, colorMode);
+            return FormatSettingRow(setting, width, colorMode, isSelected);
         }
 
         return "".PadRight(width);
     }
 
-    private string FormatSlotRow(int width, ColorMode colorMode)
+    private string FormatSlotRow(int width, ColorMode colorMode, bool isSelected)
     {
         // Layout: "  Label[padded]  DeviceName  [On|Off]  [>]"
         // The On/Off strip only appears for assigned slots — unassigned rows just
@@ -195,7 +194,7 @@ internal sealed class EquipmentFieldItem : IRowFormatter
         // mid-line and leaves a visible gap until the row ends. Pass the outer style
         // down so each segment restores both fg (BrightWhite / White) and bg (Blue /
         // default) on exit.
-        var outerStyle = IsSelected
+        var outerStyle = isSelected
             ? new VtStyle(SgrColor.BrightWhite, SgrColor.Blue)
             : new VtStyle(SgrColor.White, SgrColor.Black);
 
@@ -232,7 +231,7 @@ internal sealed class EquipmentFieldItem : IRowFormatter
         // style's byte count and stale content from the previous frame peeks through
         // at the far right of the viewport (the "ghost [>]" bug).
         var padded = line.PadRight(width + VisibleOverhead(line));
-        if (IsSelected)
+        if (isSelected)
         {
             return $"{outerStyle.Apply(colorMode)}{padded}{VtStyle.Reset}";
         }
@@ -270,7 +269,7 @@ internal sealed class EquipmentFieldItem : IRowFormatter
         return overhead;
     }
 
-    private string FormatFilterRow(int width, ColorMode colorMode)
+    private string FormatFilterRow(int width, ColorMode colorMode, bool isSelected)
     {
         var offsetStr = FilterOffset >= 0 ? $"+{FilterOffset}" : $"{FilterOffset}";
         var line = $"    {FilterIndex,2}  {FilterName!.PadRight(16)} [\u2190] {offsetStr,5} [\u2192]";
@@ -280,7 +279,7 @@ internal sealed class EquipmentFieldItem : IRowFormatter
             line = line[..width];
         }
 
-        if (IsSelected)
+        if (isSelected)
         {
             var style = new VtStyle(SgrColor.BrightWhite, SgrColor.Blue);
             return $"{style.Apply(colorMode)}{line.PadRight(width)}{VtStyle.Reset}";
@@ -289,7 +288,7 @@ internal sealed class EquipmentFieldItem : IRowFormatter
         return line.PadRight(width);
     }
 
-    private string FormatPropertyRow(int width, ColorMode colorMode)
+    private string FormatPropertyRow(int width, ColorMode colorMode, bool isSelected)
     {
         var controlStr = IsCycleField
             ? $"  [{PropertyValue}]"
@@ -304,7 +303,7 @@ internal sealed class EquipmentFieldItem : IRowFormatter
             line = line[..width];
         }
 
-        if (IsSelected)
+        if (isSelected)
         {
             var style = new VtStyle(SgrColor.BrightWhite, SgrColor.Blue);
             return $"{style.Apply(colorMode)}{line.PadRight(width)}{VtStyle.Reset}";
@@ -313,7 +312,7 @@ internal sealed class EquipmentFieldItem : IRowFormatter
         return line.PadRight(width);
     }
 
-    private string FormatSettingRow(DeviceSettingDescriptor setting, int width, ColorMode colorMode)
+    private string FormatSettingRow(DeviceSettingDescriptor setting, int width, ColorMode colorMode, bool isSelected)
     {
         var label = setting.Label;
         var value = setting.FormatValue(DeviceUri!);
@@ -336,7 +335,7 @@ internal sealed class EquipmentFieldItem : IRowFormatter
             line = line[..width];
         }
 
-        if (IsSelected)
+        if (isSelected)
         {
             var style = new VtStyle(SgrColor.BrightWhite, SgrColor.Blue);
             return $"{style.Apply(colorMode)}{line.PadRight(width)}{VtStyle.Reset}";
