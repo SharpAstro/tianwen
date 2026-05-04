@@ -307,13 +307,14 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
         // merge immediately.
         var hrParseTask = ParseSimbadFileAsync(assembly, manifestNames, "HR", cancellationToken);
 
-        // Same trick for the NGC CSVs: LZ-decompress them in the background so that
-        // when the main thread reaches the NGC-CSV merge phase, the bytes are ready
-        // and only the (synchronous, main-thread-only) CSV-to-dict merge runs there.
+        // Same trick for the NGC catalogs: LZ-decompress them in the background so that
+        // when the main thread reaches the NGC merge phase, the bytes are ready and only
+        // the (synchronous, main-thread-only) merge runs there. DecompressNgcAsync prefers
+        // the ASCII-separated .gs.lz and falls back to the legacy .csv.lz.
         var ngcDecompressTasks = new[]
         {
-            DecompressCsvAsync(assembly, manifestNames, "NGC", cancellationToken),
-            DecompressCsvAsync(assembly, manifestNames, "NGC.addendum", cancellationToken),
+            DecompressNgcAsync(assembly, manifestNames, "NGC", cancellationToken),
+            DecompressNgcAsync(assembly, manifestNames, "NGC.addendum", cancellationToken),
         };
 
         foreach (var predefined in _predefinedObjects)
@@ -331,12 +332,14 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
         phaseSw.Restart();
         // Merge in declared order - NGC first (baseline entries), then NGC.addendum
         // (overrides / extras). Each task's decompress already happened in parallel
-        // with the predefined-object loop, so what runs here is just the CSV-to-dict
-        // merge which must stay serial because it mutates _objectsByIndex.
+        // with the predefined-object loop, so what runs here is just the merge which
+        // must stay serial because it mutates _objectsByIndex.
         foreach (var decompressTask in ngcDecompressTasks)
         {
-            var bytes = await decompressTask;
-            var (processed, failed) = MergeLzCsvData(bytes, cancellationToken);
+            var (bytes, isGs) = await decompressTask;
+            var (processed, failed) = isGs
+                ? MergeNgcGsData(bytes, cancellationToken)
+                : MergeLzCsvData(bytes, cancellationToken);
             totalProcessed += processed;
             totalFailed += failed;
         }
@@ -1249,31 +1252,40 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
     /// resource. Stateless and CPU-bound, safe to run on the thread pool in
     /// parallel with other work (predefined objects, HR SIMBAD parse, Tycho2).
     /// </summary>
-    private static async Task<byte[]?> DecompressCsvAsync(Assembly assembly, string[] manifestNames, string csvName, CancellationToken cancellationToken)
+    private static async Task<(byte[]? Bytes, bool IsGs)> DecompressNgcAsync(Assembly assembly, string[] manifestNames, string ngcName, CancellationToken cancellationToken)
     {
-        var manifestFileName = manifestNames.FirstOrDefault(p => p.EndsWith("." + csvName + ".csv.lz"));
-        if (manifestFileName is null || assembly.GetManifestResourceStream(manifestFileName) is not Stream stream)
+        // Prefer the ASCII-separated *.gs.lz produced by tools/preprocess-catalog.ps1;
+        // fall back to *.csv.lz for catalogs that have not been migrated yet.
+        var gsManifest = manifestNames.FirstOrDefault(p => p.EndsWith("." + ngcName + ".gs.lz"));
+        if (gsManifest is not null && assembly.GetManifestResourceStream(gsManifest) is { } gsStream)
         {
-            return null;
+            using (gsStream)
+            {
+                return (await Task.Run(() => LzipDecoder.Decompress(gsStream), cancellationToken), true);
+            }
         }
 
-        using (stream)
+        var csvManifest = manifestNames.FirstOrDefault(p => p.EndsWith("." + ngcName + ".csv.lz"));
+        if (csvManifest is null || assembly.GetManifestResourceStream(csvManifest) is not Stream csvStream)
         {
-            return await Task.Run(() => LzipDecoder.Decompress(stream), cancellationToken);
+            return (null, false);
+        }
+
+        using (csvStream)
+        {
+            return (await Task.Run(() => LzipDecoder.Decompress(csvStream), cancellationToken), false);
         }
     }
 
     /// <summary>
     /// Stage 2 of NGC CSV loading: run the CSV reader over pre-decompressed bytes
     /// and merge into the shared dicts. Must stay on the main thread because it
-    /// mutates _objectsByIndex / _crossIndexLookuptable.
+    /// mutates _objectsByIndex / _crossIndexLookuptable. Used only when the
+    /// embedded resource is the legacy <c>*.csv.lz</c> form; the new
+    /// <c>*.gs.lz</c> path goes through <see cref="MergeNgcGsData"/>.
     /// </summary>
     private (int Processed, int Failed) MergeLzCsvData(byte[]? decompressed, CancellationToken cancellationToken)
     {
-        const string NGC = nameof(NGC);
-        const string IC = nameof(IC);
-        const string M = nameof(M);
-
         int processed = 0;
         int failed = 0;
         if (decompressed is null)
@@ -1291,115 +1303,102 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
                 && objectTypeAbbr is { Length: > 0 }
                 && csvReader.TryGetField("RA", out var raHMS)
                 && csvReader.TryGetField("Dec", out var decDMS)
-                && csvReader.TryGetFieldString("Const", out var constAbbr)
-                && TryGetCleanedUpCatalogName(entryName, out var indexEntry)
-            )
+                && csvReader.TryGetFieldString("Const", out var constAbbr))
             {
-                var objectType = AbbreviationToEnumMember<OpenNGCObjectType>(objectTypeAbbr.ToString()).ToObjectType();
-                var @const = AbbreviationToEnumMember<Constellation>(constAbbr);
+                csvReader.TryGetFieldString("V-Mag", out var vmagStr);
+                csvReader.TryGetFieldString("SurfBr", out var surfBrStr);
+                csvReader.TryGetFieldString("MajAx", out var majAxStr);
+                csvReader.TryGetFieldString("MinAx", out var minAxStr);
+                csvReader.TryGetFieldString("PosAng", out var posAngStr);
+                csvReader.TryGetFieldString("M", out var messierSuffix);
+                csvReader.TryGetFieldString("NGC", out var ngcSuffix);
+                csvReader.TryGetFieldString("IC", out var icSuffix);
+                csvReader.TryGetFieldString("Common names", out var commonNamesRaw);
+                csvReader.TryGetFieldString("Identifiers", out var identifiersRaw);
 
-                var vmag = csvReader.TryGetField("V-Mag", out var vmagSpan)
-                    && Half.TryParse(vmagSpan, NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out var vmagFloat)
-                    ? vmagFloat
-                    : HalfUndefined;
+                // CSV stores Common names / Identifiers as comma-separated, trim-on-read.
+                var commonNames = string.IsNullOrWhiteSpace(commonNamesRaw)
+                    ? null
+                    : commonNamesRaw.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+                var identifiers = string.IsNullOrEmpty(identifiersRaw)
+                    ? null
+                    : identifiersRaw.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 
-                var surfaceBrightness = csvReader.TryGetField("SurfBr", out var surfaceBrightnessSpan)
-                    && Half.TryParse(surfaceBrightnessSpan, NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out var surfaceBrightnessFloat)
-                    ? surfaceBrightnessFloat
-                    : HalfUndefined;
-
-                IReadOnlySet<string> commonNames;
-                if (csvReader.TryGetFieldString("Common names", out var commonNamesEntry) && !string.IsNullOrWhiteSpace(commonNamesEntry))
+                if (MergeNgcRow(entryName!, objectTypeAbbr.ToString(), raHMS.ToString(), decDMS.ToString(), constAbbr!,
+                        vmagStr ?? "", surfBrStr ?? "", majAxStr ?? "", minAxStr ?? "", posAngStr ?? "",
+                        messierSuffix ?? "", ngcSuffix ?? "", icSuffix ?? "",
+                        commonNames, identifiers))
                 {
-                    commonNames = new HashSet<string>(commonNamesEntry.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
+                    processed++;
                 }
                 else
                 {
-                    commonNames = EmptyNameSet;
+                    failed++;
                 }
+            }
+            else
+            {
+                failed++;
+            }
+        }
 
-                if (csvReader.TryGetField("MajAx", out var majAxSpan)
-                    && Half.TryParse(majAxSpan, NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out var majAx)
-                    && csvReader.TryGetField("MinAx", out var minAxSpan)
-                    && Half.TryParse(minAxSpan, NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out var minAx))
-                {
-                    var posAng = csvReader.TryGetField("PosAng", out var posAngSpan)
-                        && Half.TryParse(posAngSpan, NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out var posAngFloat)
-                        ? posAngFloat
-                        : HalfUndefined;
+        return (processed, failed);
+    }
 
-                    _shapesByIndex[indexEntry] = new CelestialObjectShape(majAx, minAx, posAng);
-                }
+    /// <summary>
+    /// Stage 2 of NGC loading from the ASCII-separated <c>*.gs.lz</c> format.
+    /// Field layout (matches <c>tools/preprocess-catalog.ps1</c> Encode-Ngc):
+    /// Name | Type | RA | Dec | Const | VMag | SurfBr | MajAx | MinAx | PosAng |
+    /// M | NGC | IC | CommonNames(US-joined) | Identifiers(US-joined).
+    /// </summary>
+    private (int Processed, int Failed) MergeNgcGsData(byte[]? decompressed, CancellationToken cancellationToken)
+    {
+        int processed = 0;
+        int failed = 0;
+        if (decompressed is null)
+        {
+            return (processed, failed);
+        }
 
-                var ra = HMSToHours(raHMS.ToString());
-                var dec = DMSToDegree(decDMS.ToString());
-                var obj = _objectsByIndex[indexEntry] = new CelestialObject(
-                    indexEntry,
-                    objectType,
-                    ra,
-                    dec,
-                    @const,
-                    vmag,
-                    surfaceBrightness,
-                    HalfUndefined,
-                    commonNames
-                );
+        foreach (var recMem in IO.AsciiRecordReader.EnumerateRecords(decompressed))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var rec = recMem.Span;
+            if (rec.IsEmpty) continue;
 
-                if (objectType == ObjectType.Duplicate)
-                {
-                    // Duplicates are stored in _objectsByIndex for cross-reference resolution
-                    // but NOT added to the spatial grid — only the primary entry belongs there.
-                    AddCommonNameIndex(obj.Index, obj.CommonNames);
-                    // when the entry is a duplicate, use the cross lookup table to list the entries it duplicates
-                    if (csvReader.TryGetFieldString(NGC, out var ngcSuffix) && TryGetCleanedUpCatalogName(NGC + ngcSuffix, out var ngcIndexEntry))
-                    {
-                        _crossIndexLookuptable.AddLookupEntry(indexEntry, ngcIndexEntry);
-                    }
-                    if (csvReader.TryGetFieldString(M, out var messierSuffix) && TryGetCleanedUpCatalogName(M + messierSuffix, out var messierIndexEntry))
-                    {
-                        _crossIndexLookuptable.AddLookupEntry(indexEntry, messierIndexEntry);
-                    }
-                    if (csvReader.TryGetFieldString(IC, out var icSuffix) && TryGetCleanedUpCatalogName(IC + icSuffix, out var icIndexEntry))
-                    {
-                        _crossIndexLookuptable.AddLookupEntry(indexEntry, icIndexEntry);
-                    }
-                }
-                else
-                {
-                    AddCommonNameAndPosIndices(obj);
+            var name      = IO.AsciiRecordReader.ReadString(IO.AsciiRecordReader.TakeField(ref rec));
+            var type      = IO.AsciiRecordReader.ReadString(IO.AsciiRecordReader.TakeField(ref rec));
+            var ra        = IO.AsciiRecordReader.ReadString(IO.AsciiRecordReader.TakeField(ref rec));
+            var dec       = IO.AsciiRecordReader.ReadString(IO.AsciiRecordReader.TakeField(ref rec));
+            var constAbbr = IO.AsciiRecordReader.ReadString(IO.AsciiRecordReader.TakeField(ref rec));
+            var vmag      = IO.AsciiRecordReader.ReadString(IO.AsciiRecordReader.TakeField(ref rec));
+            var surfBr    = IO.AsciiRecordReader.ReadString(IO.AsciiRecordReader.TakeField(ref rec));
+            var majAx     = IO.AsciiRecordReader.ReadString(IO.AsciiRecordReader.TakeField(ref rec));
+            var minAx     = IO.AsciiRecordReader.ReadString(IO.AsciiRecordReader.TakeField(ref rec));
+            var posAng    = IO.AsciiRecordReader.ReadString(IO.AsciiRecordReader.TakeField(ref rec));
+            var mSuf      = IO.AsciiRecordReader.ReadString(IO.AsciiRecordReader.TakeField(ref rec));
+            var ngcSuf    = IO.AsciiRecordReader.ReadString(IO.AsciiRecordReader.TakeField(ref rec));
+            var icSuf     = IO.AsciiRecordReader.ReadString(IO.AsciiRecordReader.TakeField(ref rec));
+            var commons   = IO.AsciiRecordReader.ReadStringArray(IO.AsciiRecordReader.TakeField(ref rec));
+            // Identifiers is the last field; TakeField returns the whole remainder.
+            var idents    = IO.AsciiRecordReader.ReadStringArray(IO.AsciiRecordReader.TakeField(ref rec));
 
-                    if (csvReader.TryGetFieldString(IC, out var icSuffix) && TryGetCleanedUpCatalogName(IC + icSuffix, out var icIndexEntry) && indexEntry != icIndexEntry)
-                    {
-                        _crossIndexLookuptable.AddLookupEntry(icIndexEntry, indexEntry);
-                        _crossIndexLookuptable.AddLookupEntry(indexEntry, icIndexEntry);
-                    }
-                    if (csvReader.TryGetFieldString(M, out var messierSuffix) && TryGetCleanedUpCatalogName(M + messierSuffix, out var messierIndexEntry) && indexEntry != messierIndexEntry)
-                    {
-                        // Adds Messier to NGC/IC entry lookup, but only if its not a duplicate
-                        _crossIndexLookuptable.AddLookupEntry(messierIndexEntry, indexEntry);
-                        _crossIndexLookuptable.AddLookupEntry(indexEntry, messierIndexEntry);
-                        AddCommonNameIndex(messierIndexEntry, commonNames);
-                    }
+            // Required-field validation matches the CSV path: Name and Type must be
+            // non-empty; RA / Dec / Const may be blank (HMSToHours/DMSToDegree handle
+            // empty strings and a few NGC "NonEx" rows legitimately have no coords).
+            if (string.IsNullOrEmpty(name) || string.IsNullOrEmpty(type))
+            {
+                failed++;
+                continue;
+            }
 
-                    if (csvReader.TryGetFieldString("Identifiers", out var identifiersEntry) && identifiersEntry is { Length: > 0 })
-                    {
-                        var identifiers = identifiersEntry.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-                        foreach (var identifier in identifiers)
-                        {
-                            if (identifier[0] is 'C' or 'M' or 'U' or 'S'
-                                && identifier.Length >= 2
-                                && (identifier[1] is 'G' or 'H' or 'e' or 'l' or 'r' or ' ' || char.IsDigit(identifier[1]))
-                                && TryGetCleanedUpCatalogName(identifier, out var crossCatIdx)
-                                && IsCrossCat(crossCatIdx.ToCatalog())
-                            )
-                            {
-                                _crossIndexLookuptable.AddLookupEntry(crossCatIdx, indexEntry);
-                                _crossIndexLookuptable.AddLookupEntry(indexEntry, crossCatIdx);
-                            }
-                        }
-                    }
-                }
-
+            // Empty array on missing optional collections (matches CSV path's null-handling).
+            if (MergeNgcRow(name, type, ra, dec, constAbbr,
+                    vmag, surfBr, majAx, minAx, posAng,
+                    mSuf, ngcSuf, icSuf,
+                    commons.Length == 0 ? null : commons,
+                    idents.Length == 0 ? null : idents))
+            {
                 processed++;
             }
             else
@@ -1409,6 +1408,105 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
         }
 
         return (processed, failed);
+    }
+
+    /// <summary>
+    /// Single-source-of-truth per-row merge for NGC (CSV + gs paths). All fields
+    /// are pre-resolved as strings; numeric fields use empty-string for missing.
+    /// <paramref name="commonNames"/> / <paramref name="identifiers"/> are
+    /// already comma-split (CSV path) or US-split (gs path) and trim-cleaned.
+    /// Returns true on a row that successfully merged, false on validation fail.
+    /// </summary>
+    private bool MergeNgcRow(
+        string entryName, string objectTypeAbbr, string raHMS, string decDMS, string constAbbr,
+        string vmagStr, string surfBrStr, string majAxStr, string minAxStr, string posAngStr,
+        string messierSuffix, string ngcSuffix, string icSuffix,
+        string[]? commonNamesArr, string[]? identifiers)
+    {
+        if (!TryGetCleanedUpCatalogName(entryName, out var indexEntry))
+        {
+            return false;
+        }
+
+        var objectType = AbbreviationToEnumMember<OpenNGCObjectType>(objectTypeAbbr).ToObjectType();
+        var @const = AbbreviationToEnumMember<Constellation>(constAbbr);
+
+        var vmag = Half.TryParse(vmagStr, NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out var vmagFloat)
+            ? vmagFloat : HalfUndefined;
+        var surfaceBrightness = Half.TryParse(surfBrStr, NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out var sbFloat)
+            ? sbFloat : HalfUndefined;
+
+        IReadOnlySet<string> commonNames = commonNamesArr is { Length: > 0 }
+            ? new HashSet<string>(commonNamesArr)
+            : EmptyNameSet;
+
+        if (Half.TryParse(majAxStr, NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out var majAx)
+            && Half.TryParse(minAxStr, NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out var minAx))
+        {
+            var posAng = Half.TryParse(posAngStr, NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out var posAngFloat)
+                ? posAngFloat : HalfUndefined;
+            _shapesByIndex[indexEntry] = new CelestialObjectShape(majAx, minAx, posAng);
+        }
+
+        var ra = HMSToHours(raHMS);
+        var dec = DMSToDegree(decDMS);
+        var obj = _objectsByIndex[indexEntry] = new CelestialObject(
+            indexEntry, objectType, ra, dec, @const, vmag, surfaceBrightness, HalfUndefined, commonNames);
+
+        if (objectType == ObjectType.Duplicate)
+        {
+            // Duplicates are stored in _objectsByIndex for cross-reference resolution
+            // but NOT added to the spatial grid — only the primary entry belongs there.
+            AddCommonNameIndex(obj.Index, obj.CommonNames);
+            // when the entry is a duplicate, use the cross lookup table to list the entries it duplicates
+            if (ngcSuffix.Length > 0 && TryGetCleanedUpCatalogName("NGC" + ngcSuffix, out var ngcIndexEntry))
+            {
+                _crossIndexLookuptable.AddLookupEntry(indexEntry, ngcIndexEntry);
+            }
+            if (messierSuffix.Length > 0 && TryGetCleanedUpCatalogName("M" + messierSuffix, out var messierIndexEntry))
+            {
+                _crossIndexLookuptable.AddLookupEntry(indexEntry, messierIndexEntry);
+            }
+            if (icSuffix.Length > 0 && TryGetCleanedUpCatalogName("IC" + icSuffix, out var icIndexEntry))
+            {
+                _crossIndexLookuptable.AddLookupEntry(indexEntry, icIndexEntry);
+            }
+        }
+        else
+        {
+            AddCommonNameAndPosIndices(obj);
+
+            if (icSuffix.Length > 0 && TryGetCleanedUpCatalogName("IC" + icSuffix, out var icIndexEntry) && indexEntry != icIndexEntry)
+            {
+                _crossIndexLookuptable.AddLookupEntry(icIndexEntry, indexEntry);
+                _crossIndexLookuptable.AddLookupEntry(indexEntry, icIndexEntry);
+            }
+            if (messierSuffix.Length > 0 && TryGetCleanedUpCatalogName("M" + messierSuffix, out var messierIndexEntry) && indexEntry != messierIndexEntry)
+            {
+                // Adds Messier to NGC/IC entry lookup, but only if its not a duplicate
+                _crossIndexLookuptable.AddLookupEntry(messierIndexEntry, indexEntry);
+                _crossIndexLookuptable.AddLookupEntry(indexEntry, messierIndexEntry);
+                AddCommonNameIndex(messierIndexEntry, commonNames);
+            }
+
+            if (identifiers is { Length: > 0 })
+            {
+                foreach (var identifier in identifiers)
+                {
+                    if (identifier.Length >= 2
+                        && identifier[0] is 'C' or 'M' or 'U' or 'S'
+                        && (identifier[1] is 'G' or 'H' or 'e' or 'l' or 'r' or ' ' || char.IsDigit(identifier[1]))
+                        && TryGetCleanedUpCatalogName(identifier, out var crossCatIdx)
+                        && IsCrossCat(crossCatIdx.ToCatalog()))
+                    {
+                        _crossIndexLookuptable.AddLookupEntry(crossCatIdx, indexEntry);
+                        _crossIndexLookuptable.AddLookupEntry(indexEntry, crossCatIdx);
+                    }
+                }
+            }
+        }
+
+        return true;
     }
 
     static readonly Regex ClusterMemberPattern = ClusterMemberPatternGen();

@@ -49,6 +49,8 @@
     <EmbeddedResource Remove="Astrometry/Catalogs/DG.json.lz" />
     <EmbeddedResource Remove="Astrometry/Catalogs/HH.json.lz" />
     <EmbeddedResource Remove="Astrometry/Catalogs/Cl.json.lz" />
+    <EmbeddedResource Remove="Astrometry/Catalogs/NGC.csv.lz" />
+    <EmbeddedResource Remove="Astrometry/Catalogs/NGC.addendum.csv.lz" />
     <CatalogPreprocess Include="Astrometry/Catalogs/HR.json.lz">
       <OutputPath>Astrometry/Catalogs/HR.gs.lz</OutputPath>
     </CatalogPreprocess>
@@ -87,6 +89,12 @@
     </CatalogPreprocess>
     <CatalogPreprocess Include="Astrometry/Catalogs/Cl.json.lz">
       <OutputPath>Astrometry/Catalogs/Cl.gs.lz</OutputPath>
+    </CatalogPreprocess>
+    <CatalogPreprocess Include="Astrometry/Catalogs/NGC.csv.lz">
+      <OutputPath>Astrometry/Catalogs/NGC.gs.lz</OutputPath>
+    </CatalogPreprocess>
+    <CatalogPreprocess Include="Astrometry/Catalogs/NGC.addendum.csv.lz">
+      <OutputPath>Astrometry/Catalogs/NGC.addendum.gs.lz</OutputPath>
     </CatalogPreprocess>
     <None Include="../../README.md" Pack="true" PackagePath="/" />
     <None Include="../../LICENSE" Pack="True" PackagePath="/" />
