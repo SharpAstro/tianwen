@@ -1,6 +1,6 @@
 # Plan Implementation Summary
 
-Status of every `PLAN-*.md` in the repo root, cross-checked against the codebase on 2026-04-25.
+Status of every `PLAN-*.md` in the repo root, cross-checked against the codebase on 2026-05-04.
 
 | Plan | Status |
 |------|--------|
@@ -11,8 +11,8 @@ Status of every `PLAN-*.md` in the repo root, cross-checked against the codebase
 | [PLAN-first-light-resilience](PLAN-first-light-resilience.md) | **DONE** (2 of 3 sub-plans shipped; sub-plan 3 deferred) |
 | [PLAN-driver-resilience](PLAN-driver-resilience.md) | **DONE** (merged to main as 6 PRs + ARCH doc) |
 | [PLAN-fov-obstruction-detection](PLAN-fov-obstruction-detection.md) | **DONE** (merged to main; scout UI/WebSocket surfacing, single-frame retry, Layer-2 recovery test all shipped) |
-| [PLAN-catalog-binary-format](PLAN-catalog-binary-format.md) | **NOT STARTED** |
-| [PLAN-polar-alignment](PLAN-polar-alignment.md) | **NOT STARTED** (drafted 2026-04-26) |
+| [PLAN-catalog-binary-format](PLAN-catalog-binary-format.md) | **PARTIAL ~20%** (Option D pipeline + HR shipped; remaining catalogs pending) |
+| [PLAN-polar-alignment](PLAN-polar-alignment.md) | **DONE ~85%** (Phases 1-5 shipped; refraction-corrected apparent pole + live pressure/temperature still pending) |
 
 ---
 
@@ -103,22 +103,44 @@ Shipped on branch `fov-obstruction-detection` after driver-resilience merged to 
 
 Not shipped: scout frames are not yet emitted via a `ScoutCompletedEventArgs` for the live-session UI (plan flagged as optional v1). `SaveScoutFrames` config key exists but no FITS write path yet (always discards, matching the false default).
 
-## PLAN-catalog-binary-format — NOT STARTED
+## PLAN-polar-alignment — DONE ~85%
 
-- Option A recommendation (MessagePack): **NOT STARTED** — no `MessagePack` NuGet dependency in `Directory.Packages.props`; grep returns zero hits outside the plan file.
-- Build-time preprocessor (`TianWen.CatalogPreprocess`): **NOT STARTED** — no such project or MSBuild target.
-- Runtime reader changes: **NOT STARTED** — `CelestialObjectDB` still uses `JsonSerializer.DeserializeAsyncEnumerable` + `SimbadCatalogDto`. All 25 embedded catalog resources remain `.json.lz` / `.csv.lz`; zero `.msgpack.lz`.
-- Incremental rollout (HR SIMBAD, NGC CSV, ...): **NOT STARTED**.
+Shipped on `main` between 2026-04-26 and 2026-05-01 (~50 commits).
+
+- Phase 1 (`PolarAxisSolver` math + tests): **DONE** — `src/TianWen.Lib/Astrometry/PolarAxisSolver.cs` + `PolarAxisSolverTests` + `PolarAlignmentHelpersTests`. Two-frame chord geometry with chord-angle sanity check (`6f345a3`).
+- Phase 2 (`PolarAlignmentSession` orchestrator + capture sources + ramp + integration tests): **DONE** — `src/TianWen.Lib/Sequencing/PolarAlignment/PolarAlignmentSession.cs`, concrete `ICaptureSource` shims for main camera and PHD2, `PolarAlignmentSessionTests` + `PolarAlignmentRampIntegrationTests`. Adaptive exposure ramp with collapsed two-tier threshold (`37f538f`), backoff on capture failure (`fca6024`), `MinStarsForSolve` tightened to 25 (`fda1be7`), axis reverse-restore on dispose (`6f345a3`, `56941b8`).
+- Phase 3a (generic `WcsAnnotationLayer`): **DONE** — `src/TianWen.UI.Abstractions/Overlays/PolarAnnotationBuilder.cs` + reusable `SkyMarker`/`SkyRing`/`SkyEdge` primitives, contributed to live preview alongside the existing WCS grid (`06e926e`, `667cb55`).
+- Phase 3b (polar-align mode in `LiveSessionTab`): **DONE** — mode toggle, signals, `PolarAlignmentActions` helper, side-panel widgets, ring labels, meridian + prime-vertical lines, raw-error display, polar-adjuster knob jitter (`4d45462`, `d3c81a3`, `345c910`, `9666359`).
+- Phase 4 (TUI parity): **DONE** — text gauges + ASCII arrow + status line driven by the same `LiveSessionState` fields (`4d45462`).
+- Phase 5 (PHD2 path): **DONE** — `Save Images` integration verified end-to-end (`4d45462`).
+- Refinement loop extras (beyond plan): `IncrementalSolver` fast path with frozen-seed quad matching + adaptive quad tolerance (`c261a8b`, `9e1a371`, `56d9e82`, `6ea03b7`), Jacobian live tracker (`b72ab8f`), sidereal-time normalisation (`7d51671`), reference-frame averaging (`570e4d9`), live WCS binding + CT fix (`03a0e73`), aperture-aware optics (`bbe3d54`), per-stage timing instrumentation (`a2ce471`).
+
+Not shipped (TODO.md lines 142, 146):
+- **Refraction-corrected apparent pole.** `PolarAlignmentSession.cs:658-659` literally sets `RefractedPoleRaHours: trueRa` / `RefractedPoleDecDeg: trueDec` — the apparent-pole rings draw on the true pole. Decomposition gauges already use refraction-aware math (correct numbers), only the overlay center is stale. Matters most at lat ≤ 35°.
+- **Live site pressure/temperature.** `IMountDriver.cs:395-396` still hardcodes `SitePressure = 1010`, `SiteTemperature = 10`. Same fix unblocks both polar-alignment refraction and the long-standing pressure/temp TODO.
+
+## PLAN-catalog-binary-format — PARTIAL ~20%
+
+Plan updated 2026-05-04 to lead with **Option D** (ASCII-separated text +
+`tools/preprocess-catalog.ps1` MSBuild step) instead of Option A (MessagePack).
+Tycho2 stays untouched.
+
+- Option D preprocessor (`tools/preprocess-catalog.ps1`): **DONE** — pwsh script reads `*.json.lz`, parses, re-emits with `0x1D`/`0x1E`/`0x1F` separators (G17 doubles, invariant culture), shells to `lzip -9` for `*.gs.lz` output.
+- MSBuild `<Exec>` target: **DONE** — `<CatalogPreprocess>` items in `TianWen.Lib.csproj`, batched `Inputs="@(...)" Outputs="@(...->...)"` so the preprocessor only re-runs when the source `.json.lz` is newer than the `.gs.lz`.
+- Runtime reader changes: **DONE for HR** — `AsciiRecordReader` (`src/TianWen.Lib/IO/AsciiRecordReader.cs`) provides `EnumerateRecords` / `TakeField` / `ReadDouble` / `ReadNullableDouble` / `ReadStringArray` over `ReadOnlySpan<byte>`. `ParseSimbadGsAsync` decodes SIMBAD records. `ParseSimbadFileAsync` prefers `.gs.lz` if present and falls back to `.json.lz` otherwise — incremental rollout works without touching unmigrated callers.
+- Shared `AsciiRecordReader` helper: **DONE**.
+- Incremental rollout: HR shipped (1 of 14 SIMBAD catalogs); NGC CSV + remaining SIMBAD files + cross-ref JSONs still on the legacy path.
+- Tests: **DONE for HR** — 8 unit tests in `AsciiRecordReaderTests` (record split, field take, G17 double round-trip, nullable double, sub-array). Existing 340 `CelestialObjectDBTests` already exercise HR end-to-end via the migrated path.
 - Secondary lookup speed improvement (`ArrayPool` BFS / frozen-dict transitive closure): **NOT STARTED**.
 
 ---
 
 ## Bottom line
 
-- **Shipped:** serial-probe (merged), driver-resilience (merged), fov-obstruction-detection (branch, unmerged).
+- **Shipped:** serial-probe (merged), driver-resilience (merged), fov-obstruction-detection (merged), polar-alignment (merged, refraction polish pending).
 - **Substantially advanced:** milkyway (Phases 1-2 done, 3-4 scaffolded).
-- **Partially started:** skymap-gpu-overlays (Phase 1 + cache hit), tui-live-session-parity (preview mount section + partial abort flow).
-- **Essentially untouched:** catalog-binary-format. Site horizon mask (sub-plan 3 of first-light-resilience) deferred until operational data warrants it.
+- **Partially started:** skymap-gpu-overlays (Phase 1 + cache hit), tui-live-session-parity (preview mount section + partial abort flow), catalog-binary-format (Option D pipeline + HR shipped, remaining catalogs pending).
+- **Essentially untouched:** site horizon mask (sub-plan 3 of first-light-resilience) deferred until operational data warrants it.
 
 **First-light-resilience status:** 2 of 3 sub-plans shipped (driver resilience + FOV obstruction).
 Sub-plan 3 (static azimuth horizon mask) is intentionally deferred — only spin up if 1+2

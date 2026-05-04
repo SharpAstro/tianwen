@@ -1,4 +1,6 @@
-# CLAUDE.md - TianWen Project Guide
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 - Always use extended thinking when analyzing bugs or designing architecture or when refactoring.
 - When running python temp scripts, always use python not python3
@@ -7,6 +9,17 @@
 - **Exit codes 127 and 13x from GUI / CLI / Server processes mean the .NET process crashed**, not
   "command not found" or "shell killed it". Always read the stderr log (e.g. `gui-stderr.log`) for
   the actual .NET exception + stack trace before drawing conclusions from the exit code.
+
+## Project Tracking Docs
+
+Canonical project state lives in repo-root markdown files — read these before starting non-trivial work:
+
+| File | Purpose |
+|------|---------|
+| `PLAN-summary.md` | Current status of every `PLAN-*.md` (DONE / PARTIAL / NOT STARTED) cross-checked against the codebase |
+| `PLAN-*.md` | Per-feature implementation plans with phasing tables (e.g. `PLAN-polar-alignment.md`, `PLAN-catalog-binary-format.md`) |
+| `ARCH-*.md` | Architecture deep-dives with mermaid diagrams (e.g. `ARCH-driver-resilience.md`, `ARCH-fov-obstruction.md`) |
+| `TODO.md` | Working list of unchecked tasks grouped by area (Sequencing, Imaging, Drivers, ...) |
 
 ## Custom Skills
 
@@ -20,12 +33,13 @@ Available in `.claude/skills/<name>/SKILL.md` — auto-invocable when the reques
 | `check-ci` | GitHub Actions CI status across all repos |
 | `bump-version` | Bump TianWen version in all 4 required locations |
 | `run-gui` | Build and launch the GUI with stderr redirect |
+| `run-tui` | Build and launch the CLI TUI in a new console window with stderr redirect |
 | `test-filter` | Run tests matching a name pattern |
 | `tick-todo` | Mark a TODO item done and update CLAUDE.md, PLAN files, and memory |
 
 ## Project Overview
 
-TianWen is a .NET library for astronomical device management, image processing, and astrometry. It supports cameras, mounts, focusers, filter wheels, and guiders via ASCOM, INDI, ZWO, QHYCCD, Meade, and Skywatcher protocols. Published as a NuGet package (`TianWen.Lib`).
+TianWen is a .NET library for astronomical device management, image processing, and astrometry. It supports cameras, mounts, focusers, filter wheels, and guiders via ASCOM, Alpaca (HTTP), ZWO, QHYCCD, Meade LX200, Skywatcher, OnStep (serial + WiFi/mDNS), iOptron SkyGuider Pro, PHD2, and a built-in guider. Published as a NuGet package (`TianWen.Lib`), plus four AOT-published binaries (`tianwen` CLI, `tianwen-server` headless, `tianwen-gui`, `tianwen-fits`).
 
 Repository: https://github.com/SharpAstro/tianwen
 
@@ -39,10 +53,11 @@ src/
 ├── .editorconfig                  # Code style rules
 ├── NuGet.config                   # Package sources
 ├── TianWen.Lib/                   # Core library (net10.0)
-├── TianWen.Lib.Tests/             # Unit tests (xUnit v3)
-├── TianWen.Cli/               # CLI application (AOT-published → `tianwen`)
-├── TianWen.Hosting/           # ASP.NET Core Minimal API — REST + WebSocket endpoints
-├── TianWen.Server/            # Headless server executable (AOT-published → `tianwen-server`)
+├── TianWen.Lib.Tests/             # Unit tests (xUnit v3) — math, drivers in isolation, helpers
+├── TianWen.Lib.Tests.Functional/  # Functional/integration tests — Session loops with FakeTimeProvider
+├── TianWen.Cli/                   # CLI application (AOT-published → `tianwen`)
+├── TianWen.Hosting/               # ASP.NET Core Minimal API — REST + WebSocket endpoints
+├── TianWen.Server/                # Headless server executable (AOT-published → `tianwen-server`)
 ├── TianWen.UI.Abstractions/       # Widget system, layout, state, shared types
 ├── TianWen.UI.Shared/             # SDL→InputKey mapping, Vulkan FITS pipeline, VkSkyMapPipeline, VkImageRenderer
 ├── TianWen.UI.Gui/                # N.I.N.A.-style integrated GUI (AOT-published → `tianwen-gui`)
@@ -231,7 +246,10 @@ for supported query parameters and their semantics.
 
 - `IExternal` — file I/O, serial ports
 - `ISessionFactory` — creates observation sessions with bound devices
-- `IPlateSolverFactory` — plate solving (ASTAP, astrometry.net)
+- `IPlateSolverFactory` — selects between three solvers in priority order:
+  - `CatalogPlateSolver` — built-in, requires only ~6 matched stars, no external dep, used by polar alignment refine loop
+  - `AstapPlateSolver` — wraps the ASTAP CLI (`astap_cli`); needs ~44 stars in the search window
+  - `AstrometryNetPlateSolver` — wraps `solve-field`; slower fallback
 
 ### Session (Most Critical Class)
 
@@ -337,6 +355,74 @@ them on the next connect. Wire-up: `BacklashEstimator`, `BacklashHistoryPersiste
 `MosaicGenerator` computes panel grids with configurable overlap/margin. Panels ordered by
 RA ascending (column-first) so eastern panels are imaged first — at most one GEM flip per
 mosaic cycle. See class XML doc comments for panel generation math and scheduling details.
+
+### Observation Scheduler
+
+`ObservationScheduler` (`TianWen.Lib/Sequencing/Scheduling/`) turns user-supplied
+`ProposedObservation` records into a `ScheduledObservationTree` of concrete
+`ScheduledObservation`s the session loop consumes:
+
+- **Night window** — `CalculateNightWindow` walks an Amateur → Nautical → 24h-polar twilight
+  fallback chain so high-latitude / polar-night sites still get a usable window.
+- **Scoring** — `ScoreTarget` integrates altitude above the configured horizon across time
+  bins, extracts an optimal-imaging window per target.
+- **Allocation** — `Schedule` sorts by `ObservationPriority` (High / Normal / Low / Spare)
+  then score, allocates time bins, attaches per-slot **spare targets** so the session loop
+  has an immediate fallback when the primary is blocked / below horizon.
+- **Default resolution** — gain / offset / exposure resolved 3-tier: explicit on the
+  proposal → camera URI query keys (`gain=`, `offset=`) → `SessionConfiguration.Default*`.
+- **Filter plan** — `FilterPlanBuilder.BuildAutoFilterPlan` produces the altitude-ladder
+  ordering consumed by the imaging loop.
+- **Mosaic linkage** — proposals sharing a `MosaicGroupId` are scheduled contiguously with
+  RA-ascending order so meridian-flip count is minimised.
+
+The session loop respects `ScheduledObservation.Start` / `Duration`; `TimeSpan.MaxValue`
+means "as long as possible, bounded by night-end".
+
+### FOV Obstruction Scout
+
+Before each target's main exposure run, `Session.Imaging.Obstruction.cs::ScoutAndProbeAsync`
+takes a short scout frame and classifies it against the previous observation's baseline
+(star count scaled by `sqrt(exposure_ratio)`):
+
+- **Healthy** → proceed with imaging.
+- **Possibly obstructed** → `NudgeTestAsync` slews +N×half-FOV in declination, scouts again,
+  and re-slews back; if metrics recover, the FOV is blocked (tree, building, dome edge).
+- **Recoverable trajectory** → `EstimateObstructionClearTimeAsync` projects the target's
+  altitude forward; if the obstruction will clear within
+  `ObstructionClearFractionOfRemaining`, wait, otherwise advance.
+- **Transparency drop** (no nudge recovery) → falls through to the existing
+  `WaitForConditionRecoveryAsync`.
+
+The scout is OTA-imaging-only and runs after centering; first-observation-of-night has no
+baseline yet, so an absolute oracle is still TODO. Driven by `SessionConfiguration.Scout*`
+keys. See `ARCH-fov-obstruction.md` for diagrams.
+
+### Polar Alignment
+
+`PolarAlignmentSession` (`TianWen.Lib/Sequencing/PolarAlignment/`) is a SharpCap-style
+two-frame plate-solve routine that runs **outside** of `Session.RunAsync` against a
+manually-connected mount. The user opens the polar-align mode of `LiveSessionTab`:
+
+- **Phase A** — `SolveAsync` captures + solves at P1, runs a raw-axis `MoveAxisAsync`
+  rotation by Δ (no goto, to bypass pointing models), captures + solves P2.
+  `PolarAxisSolver` recovers the mount's RA-axis from the chord geometry. Decomposes
+  against the (refraction-aware) apparent pole into az/alt errors in arcminutes.
+- **Phase B** — `RefineAsync` runs a live-update loop while the user adjusts the polar
+  knobs. Uses `IncrementalSolver` (frozen-seed quad matching) for sub-second refines,
+  with periodic full-solve re-seeding. Jacobian-based live error tracker.
+- **Capture sources** — main camera, built-in guider camera, or PHD2 (PHD2 path
+  requires `Save Images` enabled).
+- **UI** — overlay primitives (`SkyMarker` / `SkyRing` / `SkyEdge`) drawn via the
+  generic `WcsAnnotationLayer` over the live preview, plus `PolarAnnotationBuilder`
+  for the pole rings + meridian + prime-vertical lines + correction arrow.
+- **Out of session.** Reuses the live-view OTA selector. Reverses the Phase-A
+  rotation on dispose so the mount is left near its pre-routine pose.
+
+See `PLAN-polar-alignment.md` for full math + algorithm. Two known gaps: the apparent-pole
+overlay is currently drawn on the *true* pole (refraction-aware decomposition is correct,
+overlay center is stale), and `IMountDriver.cs:395-396` still hardcodes site
+pressure/temperature.
 
 ### FITS Viewer / GPU Stretch
 

@@ -1414,13 +1414,24 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
     static readonly Regex ClusterMemberPattern = ClusterMemberPatternGen();
 
     /// <summary>
-    /// Stage 1 of SIMBAD loading: decompress the <c>.{name}.json.lz</c> embedded
-    /// resource and JSON-deserialize it into a record list. Stateless per file, so
-    /// many files can run in parallel on the thread pool without touching the
-    /// shared dicts.
+    /// Stage 1 of SIMBAD loading: decompress an embedded SIMBAD catalog and
+    /// parse it into a record list. Stateless per file, so many files can run
+    /// in parallel on the thread pool without touching the shared dicts.
     /// </summary>
+    /// <remarks>
+    /// Prefers the ASCII-separated <c>.gs.lz</c> format (produced by
+    /// <c>tools/preprocess-catalog.ps1</c>) when an embedded resource matches;
+    /// falls back to the legacy <c>.json.lz</c> path for catalogs that have not
+    /// yet been migrated. See <c>PLAN-catalog-binary-format.md</c>.
+    /// </remarks>
     private static async Task<List<SimbadCatalogDto>?> ParseSimbadFileAsync(Assembly assembly, string[] manifestNames, string jsonName, CancellationToken cancellationToken)
     {
+        var gsManifest = manifestNames.FirstOrDefault(p => p.EndsWith("." + jsonName + ".gs.lz"));
+        if (gsManifest is not null && assembly.GetManifestResourceStream(gsManifest) is { } gsStream)
+        {
+            return await ParseSimbadGsAsync(gsStream, cancellationToken);
+        }
+
         var manifestFileName = manifestNames.FirstOrDefault(p => p.EndsWith("." + jsonName + ".json.lz"));
         if (manifestFileName is null || assembly.GetManifestResourceStream(manifestFileName) is not Stream stream)
         {
@@ -1445,6 +1456,39 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
             {
                 records.Add(record);
             }
+        }
+        return records;
+    }
+
+    /// <summary>
+    /// Decode a SIMBAD <c>.gs.lz</c> stream into <see cref="SimbadCatalogDto"/>
+    /// records. Field order is fixed: MainId | ObjType | Ra | Dec | VMag | BMinusV | Ids.
+    /// </summary>
+    private static async Task<List<SimbadCatalogDto>> ParseSimbadGsAsync(Stream gsStream, CancellationToken cancellationToken)
+    {
+        byte[] decompressed;
+        using (gsStream)
+        {
+            decompressed = await Task.Run(() => LzipDecoder.Decompress(gsStream), cancellationToken);
+        }
+
+        var records = new List<SimbadCatalogDto>(capacity: 4096);
+        foreach (var recMem in IO.AsciiRecordReader.EnumerateRecords(decompressed))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var rec = recMem.Span;
+            if (rec.IsEmpty) continue;
+
+            var mainId  = IO.AsciiRecordReader.ReadString(IO.AsciiRecordReader.TakeField(ref rec));
+            var objType = IO.AsciiRecordReader.ReadString(IO.AsciiRecordReader.TakeField(ref rec));
+            var ra      = IO.AsciiRecordReader.ReadDouble(IO.AsciiRecordReader.TakeField(ref rec));
+            var dec     = IO.AsciiRecordReader.ReadDouble(IO.AsciiRecordReader.TakeField(ref rec));
+            var vmag    = IO.AsciiRecordReader.ReadNullableDouble(IO.AsciiRecordReader.TakeField(ref rec));
+            var bmv     = IO.AsciiRecordReader.ReadNullableDouble(IO.AsciiRecordReader.TakeField(ref rec));
+            // Last field is Ids — TakeField returns the whole remainder when no trailing RS.
+            var ids     = IO.AsciiRecordReader.ReadStringArray(IO.AsciiRecordReader.TakeField(ref rec));
+
+            records.Add(new SimbadCatalogDto(mainId, ids, objType, ra, dec, vmag, bmv));
         }
         return records;
     }

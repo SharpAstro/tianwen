@@ -33,10 +33,27 @@
     <None Remove="Astrometry/Catalogs/tmp-data/**" />
     <EmbeddedResource Remove="Astrometry/Catalogs/*.json" />
     <EmbeddedResource Include="Astrometry/Catalogs/*.lz" WithCulture="false" />
+    <!-- Catalogs migrated to the ASCII-separated .gs.lz format: keep the .json.lz on
+         disk as preprocessor input but exclude it from the assembly so only the
+         faster path ships. See PLAN-catalog-binary-format.md. -->
+    <EmbeddedResource Remove="Astrometry/Catalogs/HR.json.lz" />
+    <CatalogPreprocess Include="Astrometry/Catalogs/HR.json.lz">
+      <OutputPath>Astrometry/Catalogs/HR.gs.lz</OutputPath>
+    </CatalogPreprocess>
     <None Include="../../README.md" Pack="true" PackagePath="/" />
     <None Include="../../LICENSE" Pack="True" PackagePath="/" />
     <None Include="../.editorconfig" Link=".editorconfig" />
   </ItemGroup>
+
+  <!-- Convert source .json.lz catalogs to the ASCII-separated .gs.lz format consumed
+       by AsciiRecordReader at runtime. Re-runs only when an input is newer than its
+       output. See tools/preprocess-catalog.ps1 + PLAN-catalog-binary-format.md. -->
+  <Target Name="PreprocessCatalogs"
+          BeforeTargets="AssignTargetPaths"
+          Inputs="@(CatalogPreprocess)"
+          Outputs="@(CatalogPreprocess->'%(OutputPath)')">
+    <Exec Command="pwsh -NoProfile -File &quot;$(MSBuildThisFileDirectory)..\..\tools\preprocess-catalog.ps1&quot; -Input &quot;%(CatalogPreprocess.FullPath)&quot; -Output &quot;$(MSBuildThisFileDirectory)%(CatalogPreprocess.OutputPath)&quot;" />
+  </Target>
 
   <ItemGroup>
     <ProjectReference Include="..\TianWen.Lib.SourceGenerators\TianWen.Lib.SourceGenerators.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
