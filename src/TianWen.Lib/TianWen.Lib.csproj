@@ -37,8 +37,56 @@
          disk as preprocessor input but exclude it from the assembly so only the
          faster path ships. See PLAN-catalog-binary-format.md. -->
     <EmbeddedResource Remove="Astrometry/Catalogs/HR.json.lz" />
+    <EmbeddedResource Remove="Astrometry/Catalogs/GUM.json.lz" />
+    <EmbeddedResource Remove="Astrometry/Catalogs/RCW.json.lz" />
+    <EmbeddedResource Remove="Astrometry/Catalogs/LDN.json.lz" />
+    <EmbeddedResource Remove="Astrometry/Catalogs/Dobashi.json.lz" />
+    <EmbeddedResource Remove="Astrometry/Catalogs/Sh.json.lz" />
+    <EmbeddedResource Remove="Astrometry/Catalogs/Barnard.json.lz" />
+    <EmbeddedResource Remove="Astrometry/Catalogs/Ced.json.lz" />
+    <EmbeddedResource Remove="Astrometry/Catalogs/CG.json.lz" />
+    <EmbeddedResource Remove="Astrometry/Catalogs/vdB.json.lz" />
+    <EmbeddedResource Remove="Astrometry/Catalogs/DG.json.lz" />
+    <EmbeddedResource Remove="Astrometry/Catalogs/HH.json.lz" />
+    <EmbeddedResource Remove="Astrometry/Catalogs/Cl.json.lz" />
     <CatalogPreprocess Include="Astrometry/Catalogs/HR.json.lz">
       <OutputPath>Astrometry/Catalogs/HR.gs.lz</OutputPath>
+    </CatalogPreprocess>
+    <CatalogPreprocess Include="Astrometry/Catalogs/GUM.json.lz">
+      <OutputPath>Astrometry/Catalogs/GUM.gs.lz</OutputPath>
+    </CatalogPreprocess>
+    <CatalogPreprocess Include="Astrometry/Catalogs/RCW.json.lz">
+      <OutputPath>Astrometry/Catalogs/RCW.gs.lz</OutputPath>
+    </CatalogPreprocess>
+    <CatalogPreprocess Include="Astrometry/Catalogs/LDN.json.lz">
+      <OutputPath>Astrometry/Catalogs/LDN.gs.lz</OutputPath>
+    </CatalogPreprocess>
+    <CatalogPreprocess Include="Astrometry/Catalogs/Dobashi.json.lz">
+      <OutputPath>Astrometry/Catalogs/Dobashi.gs.lz</OutputPath>
+    </CatalogPreprocess>
+    <CatalogPreprocess Include="Astrometry/Catalogs/Sh.json.lz">
+      <OutputPath>Astrometry/Catalogs/Sh.gs.lz</OutputPath>
+    </CatalogPreprocess>
+    <CatalogPreprocess Include="Astrometry/Catalogs/Barnard.json.lz">
+      <OutputPath>Astrometry/Catalogs/Barnard.gs.lz</OutputPath>
+    </CatalogPreprocess>
+    <CatalogPreprocess Include="Astrometry/Catalogs/Ced.json.lz">
+      <OutputPath>Astrometry/Catalogs/Ced.gs.lz</OutputPath>
+    </CatalogPreprocess>
+    <CatalogPreprocess Include="Astrometry/Catalogs/CG.json.lz">
+      <OutputPath>Astrometry/Catalogs/CG.gs.lz</OutputPath>
+    </CatalogPreprocess>
+    <CatalogPreprocess Include="Astrometry/Catalogs/vdB.json.lz">
+      <OutputPath>Astrometry/Catalogs/vdB.gs.lz</OutputPath>
+    </CatalogPreprocess>
+    <CatalogPreprocess Include="Astrometry/Catalogs/DG.json.lz">
+      <OutputPath>Astrometry/Catalogs/DG.gs.lz</OutputPath>
+    </CatalogPreprocess>
+    <CatalogPreprocess Include="Astrometry/Catalogs/HH.json.lz">
+      <OutputPath>Astrometry/Catalogs/HH.gs.lz</OutputPath>
+    </CatalogPreprocess>
+    <CatalogPreprocess Include="Astrometry/Catalogs/Cl.json.lz">
+      <OutputPath>Astrometry/Catalogs/Cl.gs.lz</OutputPath>
     </CatalogPreprocess>
     <None Include="../../README.md" Pack="true" PackagePath="/" />
     <None Include="../../LICENSE" Pack="True" PackagePath="/" />
