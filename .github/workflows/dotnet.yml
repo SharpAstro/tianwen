@@ -23,10 +23,11 @@ jobs:
     # The PreprocessCatalogs MSBuild target shells out to `lzip` to produce
     # the *.gs.lz embedded resources from *.json.lz sources. *.gs.lz is
     # gitignored, so a fresh checkout must regenerate it during build.
-    - uses: SharpAstro/cache-apt-pkgs-action@v1
-      with:
-        packages: lzip
-        version: 1.0
+    # Plain apt-get install (not cache-apt-pkgs-action): on cache-hit runs
+    # the action restored files but didn't re-run dpkg, so `lzip` was not on
+    # PATH. The package is tiny (~50KB), caching saves trivial time.
+    - name: Install lzip
+      run: sudo apt-get update && sudo apt-get install -y lzip
     - uses: actions/checkout@v6
       with:
         submodules: recursive
