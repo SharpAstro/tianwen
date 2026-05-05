@@ -49,7 +49,7 @@ public class HdHipCrossSnapshotTests(ITestOutputHelper output)
         // (e.g. a new field on CelestialObject that the apply path forgets to populate)
         // INDEPENDENTLY of whether the embedded snapshot is fresh.
         var live = new CelestialObjectDB { ForceLiveHdHipCrossWithCapture = true };
-        await live.InitDBAsync(TestContext.Current.CancellationToken);
+        await live.InitDBAsync(cancellationToken: TestContext.Current.CancellationToken);
         live.LastHdHipCrossSnapshot.ShouldNotBeNull("Live capture path produced no snapshot");
 
         var snapshot = live.LastHdHipCrossSnapshot!;
@@ -60,7 +60,7 @@ public class HdHipCrossSnapshotTests(ITestOutputHelper output)
         // path, otherwise it'll go through live compute (and the comparison degenerates to
         // self-equality, which is still useful as a smoke test).
         var applied = new CelestialObjectDB();
-        await applied.InitDBAsync(TestContext.Current.CancellationToken);
+        await applied.InitDBAsync(cancellationToken: TestContext.Current.CancellationToken);
 
         // Spot-check 64 HD indices from the captured snapshot. We don't compare every one of
         // ~89K because building two full catalogues here already costs ~3 s in unit tests;

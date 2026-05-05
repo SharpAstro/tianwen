@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Build-time tool: bake CelestialObjectDB's SIMBAD merge phase output into
+    src/TianWen.Lib/Astrometry/Catalogs/simbad_merge.bin.gz so cold-start init can
+    apply the snapshot directly (~30 to 50 ms) instead of re-parsing 14 SIMBAD
+    catalogs and running the merge loop (~200 ms). Sibling of precompute-hd-hip-cross.
+    See PLAN-catalog-binary-format.md section 2B and tools/precompute-simbad-merge.ps1.
+
+    Not part of the solution; not packed; not shipped. Invoke via dotnet run with
+    project path, or via the wrapper script.
+  -->
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <AssemblyName>PrecomputeSimbadMerge</AssemblyName>
+    <RootNamespace>PrecomputeSimbadMerge</RootNamespace>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <IsAotCompatible>false</IsAotCompatible>
+    <GeneratePackageOnBuild>false</GeneratePackageOnBuild>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\TianWen.Lib\TianWen.Lib.csproj" />
+  </ItemGroup>
+
+</Project>

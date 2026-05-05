@@ -99,7 +99,7 @@ namespace TianWen.UI.Abstractions
             _logger.LogInformation("InitializePlanner: starting");
             var objectDb = _sp.GetRequiredService<ICelestialObjectDB>();
             var swInit = System.Diagnostics.Stopwatch.StartNew();
-            await objectDb.InitDBAsync(cancellationToken);
+            await objectDb.InitDBAsync(cancellationToken: cancellationToken);
             swInit.Stop();
             _logger.LogInformation("InitializePlanner: catalog ready in {Elapsed}ms; publishing to PlannerState.ObjectDb",
                 swInit.ElapsedMilliseconds);

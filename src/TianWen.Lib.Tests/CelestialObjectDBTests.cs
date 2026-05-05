@@ -25,7 +25,10 @@ public class CelestialObjectDBTests
         try
         {
             var db = _cachedDB = new CelestialObjectDB();
-            await db.InitDBAsync(TestContext.Current.CancellationToken);
+            // Tests built on this shared cache poke Tycho-2 features (CoordinateGrid,
+            // plate solver, sky map) — wait for the bulk decode so every consumer sees a
+            // fully-loaded DB regardless of which test runs first.
+            await db.InitDBAsync(waitForTycho2BulkLoad: true, cancellationToken: TestContext.Current.CancellationToken);
             db.LastInitProcessed.ShouldBeGreaterThan(13000);
             db.LastInitFailed.ShouldBe(0);
             return db;

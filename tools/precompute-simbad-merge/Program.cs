@@ -1,19 +1,18 @@
 using System;
 using System.Diagnostics;
 using System.IO;
-using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
 using TianWen.Lib.Astrometry.Catalogs;
 
-namespace PrecomputeHdHipCross;
+namespace PrecomputeSimbadMerge;
 
-// Runs CelestialObjectDB.InitDBAsync with ForceLiveHdHipCrossWithCapture=true so the
-// hd-hip-cross phase produces a HdHipCrossSnapshot, then writes it (alongside the input
+// Runs CelestialObjectDB.InitDBAsync with ForceLiveSimbadMergeWithCapture=true so the
+// SIMBAD merge phase produces a SimbadMergeSnapshot, then writes it (alongside the input
 // hash) to the requested output path as a gzipped blob.
 //
 // Usage:
-//   dotnet run --project tools/precompute-hd-hip-cross -- --output <path>
+//   dotnet run --project tools/precompute-simbad-merge -- --output <path>
 //
 // The output path is overwritten atomically (temp + rename) so a half-baked snapshot
 // can never leak onto disk if the tool crashes mid-write.
@@ -24,24 +23,24 @@ internal static class Program
         var output = ParseOutputArg(args);
         if (output is null)
         {
-            Console.Error.WriteLine("usage: precompute-hd-hip-cross --output <path>");
+            Console.Error.WriteLine("usage: precompute-simbad-merge --output <path>");
             return 2;
         }
 
         var sw = Stopwatch.StartNew();
-        var db = new CelestialObjectDB { ForceLiveHdHipCrossWithCapture = true };
+        var db = new CelestialObjectDB { ForceLiveSimbadMergeWithCapture = true };
         await db.InitDBAsync(cancellationToken: CancellationToken.None);
 
-        if (db.LastHdHipCrossSnapshot is not { } snapshot)
+        if (db.LastSimbadMergeSnapshot is not { } snapshot)
         {
-            Console.Error.WriteLine("ERROR: InitDBAsync completed but LastHdHipCrossSnapshot is null. " +
-                "Check that ForceLiveHdHipCrossWithCapture is honoured by the build of TianWen.Lib being referenced.");
+            Console.Error.WriteLine("ERROR: InitDBAsync completed but LastSimbadMergeSnapshot is null. " +
+                "Check that ForceLiveSimbadMergeWithCapture is honoured by the build of TianWen.Lib being referenced.");
             return 1;
         }
 
         var assembly = typeof(CelestialObjectDB).Assembly;
         var manifestNames = assembly.GetManifestResourceNames();
-        var inputHash = HdHipCrossInputHasher.Compute(assembly, manifestNames);
+        var inputHash = SimbadMergeInputHasher.Compute(assembly, manifestNames);
 
         Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(output))!);
         var tmp = output + ".tmp";
@@ -49,12 +48,8 @@ internal static class Program
         {
             using (var fs = File.Create(tmp))
             {
-                HdHipCrossSnapshotIo.Write(fs, inputHash, snapshot);
+                SimbadMergeSnapshotIo.Write(fs, inputHash, snapshot);
             }
-            // Atomic-ish on Windows: File.Move overwrites if the target is on the same volume
-            // and Windows supports rename-replace as a single MoveFileEx call. Good enough for
-            // a build-time tool; if it ever races with a TianWen.Lib build the target would
-            // either be the old snapshot (acceptable, runtime hash-checks) or the new one.
             File.Move(tmp, output, overwrite: true);
         }
         catch
@@ -65,7 +60,7 @@ internal static class Program
 
         var sizeBytes = new FileInfo(output).Length;
         Console.Out.WriteLine(
-            $"hd-hip-cross snapshot: {snapshot.HdEntries.Length} HD entries + {snapshot.Edges.Length} edges -> {output} ({sizeBytes:N0} bytes) in {sw.Elapsed.TotalSeconds:F1}s");
+            $"simbad-merge snapshot: {snapshot.Objects.Length} objects + {snapshot.Edges.Length} edges -> {output} ({sizeBytes:N0} bytes) in {sw.Elapsed.TotalSeconds:F1}s");
         DumpInitTimings(db);
         return 0;
     }

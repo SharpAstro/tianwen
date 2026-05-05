@@ -43,7 +43,7 @@ internal class External(
         // Double-checked lazy init — InitDBAsync is idempotent but expensive
         if (_dbInitTask is null or { IsCompleted: false })
         {
-            _dbInitTask ??= celestialObjectDB.InitDBAsync(cancellationToken);
+            _dbInitTask ??= celestialObjectDB.InitDBAsync(cancellationToken: cancellationToken);
             await _dbInitTask;
         }
         return celestialObjectDB;

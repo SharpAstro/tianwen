@@ -29,7 +29,8 @@ public class TonightsBestTests
         try
         {
             var db = _cachedDB = new CelestialObjectDB();
-            await db.InitDBAsync(TestContext.Current.CancellationToken);
+            // Tonight's-best computation reads CoordinateGrid (Tycho-2 spatial index).
+            await db.InitDBAsync(waitForTycho2BulkLoad: true, cancellationToken: TestContext.Current.CancellationToken);
             db.LastInitProcessed.ShouldBeGreaterThan(13000);
             db.LastInitFailed.ShouldBe(0);
             return db;

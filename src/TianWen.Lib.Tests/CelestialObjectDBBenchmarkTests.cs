@@ -18,7 +18,7 @@ public class CelestialObjectDBBenchmarkTests(ITestOutputHelper output)
         var sw = Stopwatch.StartNew();
 
         // when
-        await db.InitDBAsync(TestContext.Current.CancellationToken);
+        await db.InitDBAsync(cancellationToken: TestContext.Current.CancellationToken);
         sw.Stop();
 
         // then
@@ -37,7 +37,7 @@ public class CelestialObjectDBBenchmarkTests(ITestOutputHelper output)
     {
         // given
         var db = new CelestialObjectDB();
-        await db.InitDBAsync(TestContext.Current.CancellationToken);
+        await db.InitDBAsync(cancellationToken: TestContext.Current.CancellationToken);
 
         var indices = new[]
         {
@@ -74,7 +74,7 @@ public class CelestialObjectDBBenchmarkTests(ITestOutputHelper output)
     {
         // given
         var db = new CelestialObjectDB();
-        await db.InitDBAsync(TestContext.Current.CancellationToken);
+        await db.InitDBAsync(cancellationToken: TestContext.Current.CancellationToken);
 
         var names = new[] { "Pleiades", "Orion Nebula", "Carina Nebula", "Ran", "Electra", "Keyhole" };
 
@@ -108,7 +108,7 @@ public class CelestialObjectDBBenchmarkTests(ITestOutputHelper output)
         // given — measure initialization cost per entry
         var db = new CelestialObjectDB();
         var initSw = Stopwatch.StartNew();
-        await db.InitDBAsync(TestContext.Current.CancellationToken);
+        await db.InitDBAsync(cancellationToken: TestContext.Current.CancellationToken);
         initSw.Stop();
         var initNsPerEntry = initSw.Elapsed.TotalNanoseconds / db.LastInitProcessed;
 

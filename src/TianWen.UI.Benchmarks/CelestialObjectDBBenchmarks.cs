@@ -27,7 +27,11 @@ public class CelestialObjectDBBenchmarks
     public async Task Setup()
     {
         _db = new CelestialObjectDB();
-        await _db.InitDBAsync(default);
+        // The lookup benchmarks below probe NGC/M/HIP/HR/vdB only — none hit the Tycho-2
+        // binary directly — so the default fast-path init (Tycho-2 bulk in background) is
+        // sufficient for setup. Tests that exercise CoordinateGrid / CopyTycho2Stars need
+        // waitForTycho2BulkLoad: true.
+        await _db.InitDBAsync();
 
         // Direct-lookup indices: common bright targets and stars across catalogs.
         _lookupIndices =
@@ -52,15 +56,30 @@ public class CelestialObjectDBBenchmarks
     }
 
     /// <summary>
-    /// Baseline: cost of a one-shot DB initialisation. This is not a per-op
-    /// benchmark; comparing Lookup/CrossIndex/Name to this tells us how close
-    /// steady-state lookups approach the theoretical per-entry insertion cost.
+    /// Default-path init: Tycho-2 bulk decode runs in the background and is NOT awaited
+    /// before InitDBAsync returns. This is the cost the typical caller sees (Planner,
+    /// session bootstrap). Compare against <see cref="InitDB_FullyLoaded"/> to see how
+    /// much wall time the deferred Tycho-2 decode buys.
     /// </summary>
-    [Benchmark]
+    [Benchmark(Baseline = true)]
     public async Task<int> InitDB()
     {
         var db = new CelestialObjectDB();
-        await db.InitDBAsync(default);
+        await db.InitDBAsync();
+        return db.LastInitProcessed;
+    }
+
+    /// <summary>
+    /// Full init: also awaits the bulk Tycho-2 decode before returning. This is what
+    /// callers that touch CoordinateGrid / CopyTycho2Stars / Tycho-2 spatial queries
+    /// pay if they choose to gate startup on the data instead of awaiting
+    /// EnsureTycho2DataLoadedAsync at the call site.
+    /// </summary>
+    [Benchmark]
+    public async Task<int> InitDB_FullyLoaded()
+    {
+        var db = new CelestialObjectDB();
+        await db.InitDBAsync(waitForTycho2BulkLoad: true);
         return db.LastInitProcessed;
     }
 

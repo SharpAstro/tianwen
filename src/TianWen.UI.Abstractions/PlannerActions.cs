@@ -151,7 +151,7 @@ public static class PlannerActions
 
         Report("Scanning catalog for tonight's best targets...");
 
-        await objectDb.InitDBAsync(ct);
+        await objectDb.InitDBAsync(cancellationToken: ct);
 
         var tonightsBest = ObservationScheduler.TonightsBest(objectDb, transform, minHeightAboveHorizon)
             .Take(100)

@@ -34,7 +34,8 @@ public class PlateSolverTests(ITestOutputHelper output)
                 return db2;
             }
             var newDb = new CelestialObjectDB();
-            await newDb.InitDBAsync(cancellationToken: cancellationToken);
+            // Plate solving queries CoordinateGrid which composes the Tycho-2 spatial index.
+            await newDb.InitDBAsync(waitForTycho2BulkLoad: true, cancellationToken: cancellationToken);
             _cachedDB = newDb;
             return newDb;
         }

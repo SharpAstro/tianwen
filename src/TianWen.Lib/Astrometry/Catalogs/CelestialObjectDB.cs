@@ -58,6 +58,17 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
     private CatalogIndex[]? _hipToTyc;
     private CatalogIndex[]? _hdToTyc;
 
+    /// <summary>
+    /// Background task that decompresses the ~21 MB <c>tyc2.bin.lz</c> + bounds and builds
+    /// <see cref="_tycho2RaDecIndex"/>. Kicked off during init, intentionally NOT awaited
+    /// before <see cref="InitDBAsync"/> returns (unless the caller passes
+    /// <c>waitForTycho2BulkLoad: true</c>). Runtime callers that touch <see cref="_tycho2Data"/>
+    /// or <see cref="_tycho2RaDecIndex"/> must <c>await</c> <see cref="EnsureTycho2DataLoadedAsync"/>
+    /// first. Set exactly once per instance — re-entry into <see cref="InitDBAsync"/> after
+    /// successful init returns early without restarting it.
+    /// </summary>
+    private Task? _tycho2BulkLoadTask;
+
     private HashSet<CatalogIndex>? _catalogIndicesCache;
     private HashSet<Catalog>? _completeCatalogCache;
     private volatile bool _isInitialized;
@@ -86,6 +97,14 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
     /// Has no effect at runtime where this flag stays false.
     /// </summary>
     internal bool ForceLiveHdHipCrossWithCapture { get; init; }
+
+    /// <summary>
+    /// Build-time hook for <c>tools/precompute-simbad-merge</c>. When true, init forces the
+    /// live SIMBAD merge loop (skipping any embedded snapshot) and captures the post-merge
+    /// delta into <see cref="LastSimbadMergeSnapshot"/> for serialisation. Has no effect at
+    /// runtime where this flag stays false.
+    /// </summary>
+    internal bool ForceLiveSimbadMergeWithCapture { get; init; }
 
     public IReadOnlyCollection<string> CommonNames => _objectsByCommonName.Keys;
 
@@ -266,10 +285,18 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
     }
 
     /// <inheritdoc/>
-    public async Task InitDBAsync(CancellationToken cancellationToken)
+    public async Task InitDBAsync(bool waitForTycho2BulkLoad = false, CancellationToken cancellationToken = default)
     {
         if (_isInitialized)
         {
+            // Re-entry contract: if the caller wants the bulk Tycho-2 data ready and we
+            // already initialised on a prior call (with or without that wait), join the
+            // background decode here without restarting it. Idempotent — the underlying
+            // task is created exactly once per instance.
+            if (waitForTycho2BulkLoad)
+            {
+                await EnsureTycho2DataLoadedAsync(cancellationToken);
+            }
             return;
         }
 
@@ -283,10 +310,14 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
         {
             if (_isInitialized)
             {
+                if (waitForTycho2BulkLoad)
+                {
+                    await EnsureTycho2DataLoadedAsync(cancellationToken);
+                }
                 return;
             }
 
-            await InitDBCoreAsync(cancellationToken);
+            await InitDBCoreAsync(waitForTycho2BulkLoad, cancellationToken);
         }
         finally
         {
@@ -294,7 +325,7 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
         }
     }
 
-    private async Task InitDBCoreAsync(CancellationToken cancellationToken)
+    private async Task InitDBCoreAsync(bool waitForTycho2BulkLoad, CancellationToken cancellationToken)
     {
         _lastInitPhaseTimings.Clear();
         LastInitProcessed = 0;
@@ -306,16 +337,35 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
         var totalProcessed = 0;
         var totalFailed = 0;
 
+        // Probe for the SIMBAD merge snapshot up front so we can skip pre-starting
+        // hrParseTask + the SIMBAD prefetch pipeline entirely on the apply path. Embedded
+        // resource lookup is a manifest scan, no I/O. ForceLiveSimbadMergeWithCapture
+        // (precompute path) bypasses the snapshot apply attempt.
+        var simbadSnapshotResource = ForceLiveSimbadMergeWithCapture
+            ? null
+            : manifestNames.FirstOrDefault(n => n.EndsWith(".simbad_merge.bin.gz", StringComparison.Ordinal));
+
         phaseSw.Restart();
-        var initTycho2DataTask = Task.Run(() => ReadEmbeddedTycho2DataAsync(assembly, manifestNames), cancellationToken);
-        // (Tycho2 runs in the background; we'll record its duration when we join below.)
+        // Split the Tycho-2 read into two tasks. The hot one (HIP/HD→TYC cross-ref arrays,
+        // ~1.2 MB compressed) is cheap to decompress and is needed inline by the cross-ref
+        // multi-json loader and the live hd-hip-cross fallback; we await it at the
+        // tycho2-cross-ref-join phase. The bulk one (tyc2.bin.lz ~21 MB + bounds + spatial
+        // index, ~200-400 ms) is NOT on init's critical path when the Phase 2A snapshot
+        // applies cleanly; it stays in `_tycho2BulkLoadTask` for runtime callers
+        // (sky map / plate solver) to await via EnsureTycho2DataLoadedAsync().
+        var tycho2CrossRefTask = Task.Run(() => ReadTycho2CrossRefArrays(assembly, manifestNames), cancellationToken);
+        _tycho2BulkLoadTask = Task.Run(() => ReadTycho2Bulk(assembly, manifestNames), cancellationToken);
 
         // Start HR's SIMBAD parse on the thread pool too - HR is the heaviest SIMBAD
         // file (~200ms to decompress + parse) and by launching it now, it can run
         // alongside the predefined-object loop and NGC CSV parsing on the main thread.
         // By the time the SIMBAD merge loop begins, HR records are typically ready to
         // merge immediately.
-        var hrParseTask = ParseSimbadFileAsync(assembly, manifestNames, "HR", cancellationToken);
+        // Skip pre-starting if a SIMBAD snapshot is embedded — the apply path won't need
+        // HR's parse; on hash miss the live fallback path starts the parse synchronously.
+        Task<List<SimbadCatalogDto>?>? hrParseTask = simbadSnapshotResource is null
+            ? ParseSimbadFileAsync(assembly, manifestNames, "HR", cancellationToken)
+            : null;
 
         // Same trick for the NGC catalogs: LZ-decompress them in the background so that
         // when the main thread reaches the NGC merge phase, the bytes are ready and only
@@ -356,68 +406,88 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
         _lastInitPhaseTimings.Add(("ngc-csv", phaseSw.Elapsed));
 
         phaseSw.Restart();
-        // Compute mainCatalogs once before SIMBAD processing (avoids re-scanning 13K+ keys per file)
-        var mainCatalogs = new HashSet<Catalog>(new HashSet<CatalogIndex>(_objectsByIndex.Keys).Select(idx => idx.ToCatalog()))
-        {
-            Catalog.HIP,
-            Catalog.HD
-        };
+        // Fast path: apply embedded simbad_merge.bin.gz snapshot if its input hash matches
+        // the embedded SIMBAD/NGC catalog inputs; otherwise fall back to live parse + merge.
+        // See PLAN-catalog-binary-format.md § 2B.
+        PreSimbadCaptureState? preSimbadState = null;
+        var simbadAppliedFromSnapshot = simbadSnapshotResource is not null
+            && await TryApplySimbadMergeSnapshotFromEmbeddedAsync(assembly, manifestNames, simbadSnapshotResource);
 
-        (string FileName, Catalog Cat)[] simbadCatalogs =
-        [
-            ("HR", Catalog.HR),
-            ("GUM", Catalog.GUM),
-            ("RCW", Catalog.RCW),
-            ("LDN", Catalog.LDN),
-            ("Dobashi", Catalog.Dobashi),
-            ("Sh", Catalog.Sharpless),
-            ("Barnard", Catalog.Barnard),
-            ("Ced", Catalog.Ced),
-            ("CG", Catalog.CG),
-            ("vdB", Catalog.vdB),
-            ("DG", Catalog.DG),
-            ("HH", Catalog.HH),
-            ("Cl", Catalog.Melotte),
-            ("Cl", Catalog.Collinder),
-        ];
-        // Depth-1 prefetch pipeline: while the main thread merges file N, exactly
-        // ONE background task decompresses + JSON-parses file N+1. This overlaps
-        // LZ decompress (CPU-bound, stateless) with merge (dict mutations, must be
-        // serial), without piling 14 concurrent tasks onto the thread pool. That
-        // matters for cold-start UX (14 tasks all JITing async state machines at
-        // once adds tens of ms per task vs a single warmed path), and leaves CPU
-        // headroom for Tycho2's own multi-threaded LZ decode running in parallel.
-        // HR's parse was kicked off up front (see the hrParseTask assignment near the
-        // Tycho2 launch). If the list ever changes to not start with HR, we fall back
-        // to just parsing the new [0] entry normally.
-        Task<List<SimbadCatalogDto>?>? nextParseTask = simbadCatalogs.Length switch
+        if (!simbadAppliedFromSnapshot)
         {
-            0 => null,
-            _ when simbadCatalogs[0].FileName == "HR" => hrParseTask,
-            _ => ParseSimbadFileAsync(assembly, manifestNames, simbadCatalogs[0].FileName, cancellationToken),
-        };
-        for (var i = 0; i < simbadCatalogs.Length; i++)
-        {
-            var (fileName, catToAdd) = simbadCatalogs[i];
-            // Kick off parse of the NEXT file before we do this file's merge.
-            var prefetchTask = (i + 1 < simbadCatalogs.Length)
-                ? ParseSimbadFileAsync(assembly, manifestNames, simbadCatalogs[i + 1].FileName, cancellationToken)
-                : null;
-
-            var perFileSw = Stopwatch.StartNew();
-            var records = await nextParseTask!;
-            if (records is not null)
+            if (ForceLiveSimbadMergeWithCapture)
             {
-                var (processed, failed) = MergeSimbadRecords(records, catToAdd, mainCatalogs);
-                totalProcessed += processed;
-                totalFailed += failed;
+                preSimbadState = CapturePreSimbadState();
             }
-            // mainCatalogs growth stays load-bearing: cross-ref recording for
-            // entry N+1 depends on catalogs 0..N being visible here.
-            mainCatalogs.Add(catToAdd);
-            _lastInitPhaseTimings.Add(($"simbad:{fileName}:{catToAdd}", perFileSw.Elapsed));
 
-            nextParseTask = prefetchTask;
+            // Compute mainCatalogs once before SIMBAD processing (avoids re-scanning 13K+ keys per file)
+            var mainCatalogs = new HashSet<Catalog>(new HashSet<CatalogIndex>(_objectsByIndex.Keys).Select(idx => idx.ToCatalog()))
+            {
+                Catalog.HIP,
+                Catalog.HD
+            };
+
+            (string FileName, Catalog Cat)[] simbadCatalogs =
+            [
+                ("HR", Catalog.HR),
+                ("GUM", Catalog.GUM),
+                ("RCW", Catalog.RCW),
+                ("LDN", Catalog.LDN),
+                ("Dobashi", Catalog.Dobashi),
+                ("Sh", Catalog.Sharpless),
+                ("Barnard", Catalog.Barnard),
+                ("Ced", Catalog.Ced),
+                ("CG", Catalog.CG),
+                ("vdB", Catalog.vdB),
+                ("DG", Catalog.DG),
+                ("HH", Catalog.HH),
+                ("Cl", Catalog.Melotte),
+                ("Cl", Catalog.Collinder),
+            ];
+            // Depth-1 prefetch pipeline: while the main thread merges file N, exactly
+            // ONE background task decompresses + JSON-parses file N+1. This overlaps
+            // LZ decompress (CPU-bound, stateless) with merge (dict mutations, must be
+            // serial), without piling 14 concurrent tasks onto the thread pool. That
+            // matters for cold-start UX (14 tasks all JITing async state machines at
+            // once adds tens of ms per task vs a single warmed path), and leaves CPU
+            // headroom for Tycho2's own multi-threaded LZ decode running in parallel.
+            // HR's parse was kicked off up front (see the hrParseTask assignment near the
+            // Tycho2 launch) UNLESS a SIMBAD snapshot was embedded — in that case the
+            // hash check here failed, so we start it synchronously now.
+            Task<List<SimbadCatalogDto>?>? nextParseTask = simbadCatalogs.Length switch
+            {
+                0 => null,
+                _ when simbadCatalogs[0].FileName == "HR" => hrParseTask ?? ParseSimbadFileAsync(assembly, manifestNames, "HR", cancellationToken),
+                _ => ParseSimbadFileAsync(assembly, manifestNames, simbadCatalogs[0].FileName, cancellationToken),
+            };
+            for (var i = 0; i < simbadCatalogs.Length; i++)
+            {
+                var (fileName, catToAdd) = simbadCatalogs[i];
+                // Kick off parse of the NEXT file before we do this file's merge.
+                var prefetchTask = (i + 1 < simbadCatalogs.Length)
+                    ? ParseSimbadFileAsync(assembly, manifestNames, simbadCatalogs[i + 1].FileName, cancellationToken)
+                    : null;
+
+                var perFileSw = Stopwatch.StartNew();
+                var records = await nextParseTask!;
+                if (records is not null)
+                {
+                    var (processed, failed) = MergeSimbadRecords(records, catToAdd, mainCatalogs);
+                    totalProcessed += processed;
+                    totalFailed += failed;
+                }
+                // mainCatalogs growth stays load-bearing: cross-ref recording for
+                // entry N+1 depends on catalogs 0..N being visible here.
+                mainCatalogs.Add(catToAdd);
+                _lastInitPhaseTimings.Add(($"simbad:{fileName}:{catToAdd}", perFileSw.Elapsed));
+
+                nextParseTask = prefetchTask;
+            }
+
+            if (preSimbadState is { } pre)
+            {
+                LastSimbadMergeSnapshot = EmitSimbadMergeSnapshot(pre);
+            }
         }
         _lastInitPhaseTimings.Add(("simbad-total", phaseSw.Elapsed));
 
@@ -450,10 +520,13 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
         }
         _lastInitPhaseTimings.Add(("shapes", phaseSw.Elapsed));
 
-        // Wait for Tycho2 data (runs in parallel with CSV + SIMBAD processing)
+        // Wait for the small cross-ref arrays only — the bulk tyc2.bin.lz decode keeps
+        // running in the background and only blocks init if the Phase 2A snapshot apply
+        // misses (live BuildHdHipCrossIndicesViaTyc needs _tycho2Data) or the caller asked
+        // to wait for it explicitly.
         phaseSw.Restart();
-        await initTycho2DataTask;
-        _lastInitPhaseTimings.Add(("tycho2-join", phaseSw.Elapsed));
+        await tycho2CrossRefTask;
+        _lastInitPhaseTimings.Add(("tycho2-cross-ref-join", phaseSw.Elapsed));
 
         phaseSw.Restart();
         // Load cross-ref multi-json files (modifies shared _crossIndexLookuptable, must be sequential)
@@ -469,22 +542,59 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
         // PLAN-catalog-binary-format.md § 2A.
         if (ForceLiveHdHipCrossWithCapture)
         {
+            // Live build needs _tycho2Data + _tycho2RaDecIndex; the bulk task is in flight.
+            await EnsureTycho2DataLoadedAsync(cancellationToken);
             BuildHdHipCrossIndicesViaTyc(captureSnapshot: true);
         }
         else if (!await TryApplyHdHipCrossSnapshotFromEmbeddedAsync(assembly, manifestNames))
         {
+            // Snapshot stale/missing/malformed -> fall back to live compute, which needs the
+            // full Tycho-2 binary. Block here until the background bulk decode finishes.
+            await EnsureTycho2DataLoadedAsync(cancellationToken);
             BuildHdHipCrossIndicesViaTyc();
         }
         _lastInitPhaseTimings.Add(("hd-hip-cross", phaseSw.Elapsed));
+
+        // Optional: gate init completion on the bulk Tycho-2 load. Default false — runtime
+        // callers that need this data will await EnsureTycho2DataLoadedAsync themselves.
+        // Set true when the caller wants InitDBAsync to return only after every bit of
+        // catalog state is materialised (e.g. a precompute tool, or a test that immediately
+        // queries Tycho-2 spatial state without going through an async pre-step).
+        if (waitForTycho2BulkLoad)
+        {
+            phaseSw.Restart();
+            await EnsureTycho2DataLoadedAsync(cancellationToken);
+            _lastInitPhaseTimings.Add(("tycho2-bulk-wait", phaseSw.Elapsed));
+        }
 
         _isInitialized = true;
         LastInitProcessed = totalProcessed;
         LastInitFailed = totalFailed;
     }
 
-    private async Task ReadEmbeddedTycho2DataAsync(Assembly assembly, string[] manifestNames)
+    /// <summary>
+    /// Hot phase: decompresses the small (~1.2 MB) HIP→TYC and HD→TYC cross-reference arrays.
+    /// Awaited inline by <see cref="InitDBCoreAsync"/> at the <c>tycho2-join</c> phase because
+    /// the very next step (<c>LoadCrossRefMultiJson</c>) reads <see cref="_hipToTyc"/> and
+    /// <see cref="_hdToTyc"/> to merge multi-target rows. Runs in ~30-50 ms warm.
+    /// </summary>
+    private void ReadTycho2CrossRefArrays(Assembly assembly, string[] manifestNames)
     {
-        // 1. Load tyc2.bin.lz binary data
+        _hipToTyc = LoadCrossRefBinFile(assembly, manifestNames, "hip_to_tyc");
+        _hdToTyc = LoadCrossRefBinFile(assembly, manifestNames, "hd_to_tyc");
+    }
+
+    /// <summary>
+    /// Bulk phase: decompresses the ~21 MB Tycho-2 binary catalog plus its GSC region bounds
+    /// and builds <see cref="_tycho2RaDecIndex"/>. Costs ~200-400 ms (multi-member parallel
+    /// lzip decode, dominated by raw decompression). NOT on <see cref="InitDBAsync"/>'s
+    /// critical path: kicked off in the background and only awaited when (a) the caller asked
+    /// for <c>waitForTycho2BulkLoad</c>, (b) the Phase 2A snapshot apply path failed and we
+    /// fall back to <see cref="BuildHdHipCrossIndicesViaTyc"/> (which needs <c>_tycho2Data</c>),
+    /// or (c) a runtime caller invokes <see cref="EnsureTycho2DataLoadedAsync"/>.
+    /// </summary>
+    private void ReadTycho2Bulk(Assembly assembly, string[] manifestNames)
+    {
         var tyc2Manifest = manifestNames.FirstOrDefault(p => p.EndsWith(".tyc2.bin.lz"));
         if (tyc2Manifest is null || assembly.GetManifestResourceStream(tyc2Manifest) is not Stream tyc2Stream)
         {
@@ -492,23 +602,30 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
         }
 
         _tycho2Data = LzipDecoder.Decompress(tyc2Stream);
-
         _tycho2StreamCount = BinaryPrimitives.ReadInt32LittleEndian(_tycho2Data);
 
-        // 2. Load GSC region bounding boxes and build spatial index
         var boundsManifest = manifestNames.FirstOrDefault(p => p.EndsWith(".tyc2_gsc_bounds.bin.lz"));
         if (boundsManifest is not null && assembly.GetManifestResourceStream(boundsManifest) is Stream boundsStream)
         {
             var boundsData = LzipDecoder.Decompress(boundsStream);
             _tycho2RaDecIndex = new Tycho2RaDecIndex(_tycho2Data, _tycho2StreamCount, boundsData);
         }
-
-        // 3. Load HIP → TYC cross-reference (binary only; multi-json modifies shared state, done after await)
-        _hipToTyc = LoadCrossRefBinFile(assembly, manifestNames, "hip_to_tyc");
-
-        // 4. Load HD → TYC cross-reference (binary only)
-        _hdToTyc = LoadCrossRefBinFile(assembly, manifestNames, "hd_to_tyc");
     }
+
+    /// <summary>
+    /// Awaits the background Tycho-2 bulk load (<c>tyc2.bin.lz</c> + GSC bounds + spatial
+    /// index). Callers that read <see cref="CoordinateGrid"/>, <see cref="CopyTycho2Stars"/>,
+    /// or any Tycho-2 spatial query must <c>await</c> this before accessing those APIs;
+    /// otherwise the data may not be available yet (the lookups silently no-op when
+    /// <see cref="_tycho2Data"/> is null).
+    /// <para>
+    /// Cheap to call repeatedly: the underlying task is started exactly once during
+    /// <see cref="InitDBAsync"/>. <see cref="Task.WaitAsync(CancellationToken)"/> abandons
+    /// the wait on cancellation but does not cancel the underlying decode.
+    /// </para>
+    /// </summary>
+    public Task EnsureTycho2DataLoadedAsync(CancellationToken cancellationToken = default)
+        => _tycho2BulkLoadTask is { } t ? t.WaitAsync(cancellationToken) : Task.CompletedTask;
 
     /// <summary>
     /// Snapshot of the state mutated by the most recent <see cref="BuildHdHipCrossIndicesViaTyc"/>
@@ -517,6 +634,29 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
     /// Null until live compute runs (or after a successful apply-from-snapshot init).
     /// </summary>
     internal HdHipCrossSnapshot? LastHdHipCrossSnapshot { get; private set; }
+
+    /// <summary>
+    /// Snapshot of the SIMBAD merge phase delta. Populated during the precompute path
+    /// (<see cref="ForceLiveSimbadMergeWithCapture"/>); consumed by
+    /// <c>tools/precompute-simbad-merge</c> to bake <c>simbad_merge.bin.gz</c>. Null at
+    /// runtime when the snapshot apply path runs successfully.
+    /// </summary>
+    internal SimbadMergeSnapshot? LastSimbadMergeSnapshot { get; private set; }
+
+    /// <summary>
+    /// Cheap capture of the dict shape that the SIMBAD merge phase will mutate. Storing
+    /// CommonNames count is sufficient because SIMBAD only ever ADDS names via
+    /// <c>UpdateObjectCommonNames</c> (UnionWith); a count change is therefore a reliable
+    /// "this entry was touched" signal. For <c>_crossIndexLookuptable</c> and
+    /// <c>_objectsByCommonName</c> the (i1, ext.Length) pair is sufficient for the same reason:
+    /// <c>AddLookupEntry</c> never mutates i1 once set and only appends to ext.
+    /// </summary>
+    private sealed class PreSimbadCaptureState
+    {
+        public Dictionary<CatalogIndex, int> ObjectsCommonNamesCount = new();
+        public Dictionary<CatalogIndex, (CatalogIndex i1, int extLen)> CrossIndexShape = new();
+        public Dictionary<string, (CatalogIndex i1, int extLen)> CommonNameShape = new();
+    }
 
     private void BuildHdHipCrossIndicesViaTyc(bool captureSnapshot = false)
     {
@@ -764,6 +904,203 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
         ApplyHdHipCrossSnapshot(snapshot);
         _lastInitPhaseTimings.Add(("hd-hip-cross-snapshot:apply", subSw.Elapsed - beforeApply));
         _lastInitPhaseTimings.Add(("hd-hip-cross-snapshot:applied", subSw.Elapsed));
+        return true;
+    }
+
+    /// <summary>
+    /// Snapshot the post-NGC, pre-SIMBAD shape of <see cref="_objectsByIndex"/> +
+    /// <see cref="_crossIndexLookuptable"/>. Used by the capture path
+    /// (<see cref="ForceLiveSimbadMergeWithCapture"/>) to compute the SIMBAD-only delta
+    /// after the live merge runs. Cheap: ~13 K + ~5 K dict scans, no value cloning.
+    /// </summary>
+    private PreSimbadCaptureState CapturePreSimbadState()
+    {
+        var state = new PreSimbadCaptureState
+        {
+            ObjectsCommonNamesCount = new Dictionary<CatalogIndex, int>(_objectsByIndex.Count),
+            CrossIndexShape = new Dictionary<CatalogIndex, (CatalogIndex, int)>(_crossIndexLookuptable.Count),
+            CommonNameShape = new Dictionary<string, (CatalogIndex, int)>(_objectsByCommonName.Count),
+        };
+        foreach (var (key, obj) in _objectsByIndex)
+        {
+            state.ObjectsCommonNamesCount[key] = obj.CommonNames.Count;
+        }
+        foreach (var (key, tuple) in _crossIndexLookuptable)
+        {
+            state.CrossIndexShape[key] = (tuple.i1, tuple.ext?.Length ?? 0);
+        }
+        foreach (var (name, tuple) in _objectsByCommonName)
+        {
+            state.CommonNameShape[name] = (tuple.i1, tuple.ext?.Length ?? 0);
+        }
+        return state;
+    }
+
+    /// <summary>
+    /// Diffs the post-SIMBAD-merge state against <paramref name="pre"/> and emits a
+    /// <see cref="SimbadMergeSnapshot"/> containing every key the SIMBAD merge added
+    /// or modified. Diff signal: CommonNames count for objects (SIMBAD only adds names),
+    /// (i1, ext.Length) for cross-ref tuples (AddLookupEntry never mutates i1 once set
+    /// and only appends to ext).
+    /// </summary>
+    private SimbadMergeSnapshot EmitSimbadMergeSnapshot(PreSimbadCaptureState pre)
+    {
+        var objBuilder = ImmutableArray.CreateBuilder<SimbadObjectSnapshot>();
+        foreach (var (key, obj) in _objectsByIndex)
+        {
+            var preCount = pre.ObjectsCommonNamesCount.TryGetValue(key, out var c) ? c : -1;
+            if (preCount == obj.CommonNames.Count)
+            {
+                continue;
+            }
+            ImmutableArray<string> names;
+            if (obj.CommonNames.Count == 0)
+            {
+                names = ImmutableArray<string>.Empty;
+            }
+            else
+            {
+                var nb = ImmutableArray.CreateBuilder<string>(obj.CommonNames.Count);
+                foreach (var n in obj.CommonNames)
+                {
+                    nb.Add(n);
+                }
+                names = nb.MoveToImmutable();
+            }
+            objBuilder.Add(new SimbadObjectSnapshot(
+                obj.Index, obj.ObjectType, obj.Constellation,
+                obj.RA, obj.Dec, obj.V_Mag, obj.SurfaceBrightness, obj.BMinusV,
+                names));
+        }
+
+        var edgeBuilder = ImmutableArray.CreateBuilder<EdgeSnapshot>();
+        foreach (var (key, tuple) in _crossIndexLookuptable)
+        {
+            var nowExtLen = tuple.ext?.Length ?? 0;
+            if (pre.CrossIndexShape.TryGetValue(key, out var preShape)
+                && preShape.i1.Equals(tuple.i1)
+                && preShape.extLen == nowExtLen)
+            {
+                continue;
+            }
+            var ext = tuple.ext is { } extArr
+                ? ImmutableCollectionsMarshal.AsImmutableArray((CatalogIndex[])extArr.Clone())
+                : ImmutableArray<CatalogIndex>.Empty;
+            edgeBuilder.Add(new EdgeSnapshot(key, tuple.i1, ext));
+        }
+
+        var nmBuilder = ImmutableArray.CreateBuilder<NameMappingSnapshot>();
+        foreach (var (name, tuple) in _objectsByCommonName)
+        {
+            var nowExtLen = tuple.ext?.Length ?? 0;
+            if (pre.CommonNameShape.TryGetValue(name, out var preShape)
+                && preShape.i1.Equals(tuple.i1)
+                && preShape.extLen == nowExtLen)
+            {
+                continue;
+            }
+            var ext = tuple.ext is { } extArr
+                ? ImmutableCollectionsMarshal.AsImmutableArray((CatalogIndex[])extArr.Clone())
+                : ImmutableArray<CatalogIndex>.Empty;
+            nmBuilder.Add(new NameMappingSnapshot(name, tuple.i1, ext));
+        }
+
+        return new SimbadMergeSnapshot(objBuilder.DrainToImmutable(), edgeBuilder.DrainToImmutable(), nmBuilder.DrainToImmutable());
+    }
+
+    /// <summary>
+    /// Fast-path replacement for the SIMBAD merge loop: applies a precomputed snapshot
+    /// directly to <see cref="_objectsByIndex"/>, <see cref="_crossIndexLookuptable"/>,
+    /// <see cref="_objectsByCommonName"/>, and <see cref="_raDecIndex"/>. Caller is
+    /// responsible for hash-verifying the snapshot against the embedded catalog inputs
+    /// before calling.
+    /// </summary>
+    internal void ApplySimbadMergeSnapshot(SimbadMergeSnapshot snapshot)
+    {
+        foreach (var obj in snapshot.Objects)
+        {
+            IReadOnlySet<string> commonNames = obj.CommonNames.IsDefaultOrEmpty
+                ? EmptyNameSet
+                : new HashSet<string>(obj.CommonNames);
+
+            var ce = new CelestialObject(
+                obj.Index, obj.ObjType, obj.Ra, obj.Dec, obj.Constellation,
+                obj.VMag, obj.SurfaceBrightness, obj.BvColor, commonNames);
+            _objectsByIndex[obj.Index] = ce;
+
+            // _raDecIndex.Add is idempotent (AddElementIfNotExist), so calling it for keys
+            // that already exist (NGC entries that SIMBAD only updated common names on) is
+            // safe — no duplicates. The NaN guard mirrors the live PopulateSimbadStarEntries
+            // / MergeSimbadRecords code paths that gate on ConstellationBoundary.TryFindConstellation.
+            if (obj.ObjType is not ObjectType.Duplicate
+                && !double.IsNaN(obj.Ra) && !double.IsNaN(obj.Dec))
+            {
+                _raDecIndex.Add(ce);
+            }
+        }
+
+        foreach (var edge in snapshot.Edges)
+        {
+            // Empty Ext serialises as null in the live dict shape: the (i1, null) form is the
+            // single-entry sentinel in _crossIndexLookuptable.
+            var extArr = edge.Ext.IsDefaultOrEmpty ? null : edge.Ext.ToArray();
+            _crossIndexLookuptable[edge.Key] = (edge.V1, extArr);
+        }
+
+        // _objectsByCommonName mappings: dict-overwrite with the captured (v1, ext[]).
+        // The captured value is the FULL post-SIMBAD-merge tuple, which already includes any
+        // pre-SIMBAD entries (added by NGC merge or predefined), so overwrite is correct.
+        foreach (var nm in snapshot.NameMappings)
+        {
+            var extArr = nm.Ext.IsDefaultOrEmpty ? null : nm.Ext.ToArray();
+            _objectsByCommonName[nm.Name] = (nm.V1, extArr);
+        }
+    }
+
+    /// <summary>
+    /// Looks for an embedded <c>simbad_merge.bin.gz</c> resource, hash-verifies it against
+    /// the embedded SIMBAD/NGC catalog inputs, and applies it on hit. Returns false if the
+    /// resource is malformed or stale — caller is expected to fall back to the live merge
+    /// path. Caller passes the resource manifest name discovered up-front so the apply path
+    /// only runs when there is a snapshot to try.
+    /// </summary>
+    private async Task<bool> TryApplySimbadMergeSnapshotFromEmbeddedAsync(Assembly assembly, string[] manifestNames, string snapshotResource)
+    {
+        var subSw = Stopwatch.StartNew();
+
+        // Hash the SIMBAD/NGC inputs (~1 MB) in parallel with the snapshot read+decode.
+        // SIMBAD inputs are small but SHA-256 still benefits from running off-thread.
+        var hashTask = Task.Run(() => SimbadMergeInputHasher.Compute(assembly, manifestNames));
+
+        SimbadMergeSnapshot snapshot;
+        byte[] storedHash;
+        try
+        {
+            using var stream = assembly.GetManifestResourceStream(snapshotResource)
+                ?? throw new InvalidOperationException("Simbad snapshot resource stream was null.");
+            snapshot = SimbadMergeSnapshotIo.Read(stream, out storedHash);
+        }
+        catch (Exception ex) when (ex is InvalidDataException or InvalidOperationException or IOException)
+        {
+            _lastInitPhaseTimings.Add(("simbad-snapshot:malformed", subSw.Elapsed));
+            await hashTask;
+            return false;
+        }
+        var readElapsed = subSw.Elapsed;
+        _lastInitPhaseTimings.Add(("simbad-snapshot:read", readElapsed));
+
+        var expectedHash = await hashTask;
+        _lastInitPhaseTimings.Add(("simbad-snapshot:hash", subSw.Elapsed - readElapsed));
+        if (!storedHash.AsSpan().SequenceEqual(expectedHash))
+        {
+            _lastInitPhaseTimings.Add(("simbad-snapshot:stale", subSw.Elapsed));
+            return false;
+        }
+
+        var beforeApply = subSw.Elapsed;
+        ApplySimbadMergeSnapshot(snapshot);
+        _lastInitPhaseTimings.Add(("simbad-snapshot:apply", subSw.Elapsed - beforeApply));
+        _lastInitPhaseTimings.Add(("simbad-snapshot:applied", subSw.Elapsed));
         return true;
     }
 

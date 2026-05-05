@@ -34,7 +34,8 @@ public class SyntheticCatalogProjectionTests(ITestOutputHelper output)
         {
             if (_cachedDB is { } db2) return db2;
             var newDb = new CelestialObjectDB();
-            await newDb.InitDBAsync(cancellationToken: cancellationToken);
+            // Synthetic catalog projection enumerates CoordinateGrid (Tycho-2 included).
+            await newDb.InitDBAsync(waitForTycho2BulkLoad: true, cancellationToken: cancellationToken);
             _cachedDB = newDb;
             return newDb;
         }

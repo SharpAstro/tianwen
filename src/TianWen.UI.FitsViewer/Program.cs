@@ -114,7 +114,7 @@ if (inputArg is not null)
 var celestialObjectDB = new DotNext.Threading.AsyncLazy<TianWen.Lib.Astrometry.Catalogs.ICelestialObjectDB>(async (ct) =>
 {
     var db = sp.GetRequiredService<TianWen.Lib.Astrometry.Catalogs.ICelestialObjectDB>();
-    await db.InitDBAsync(ct);
+    await db.InitDBAsync(cancellationToken: ct);
     return db;
 });
 

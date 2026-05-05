@@ -7,3 +7,4 @@
 [assembly: InternalsVisibleTo("TianWen.UI.Gui")]
 [assembly: InternalsVisibleTo("TianWen.UI.Shared")]
 [assembly: InternalsVisibleTo("PrecomputeHdHipCross")]
+[assembly: InternalsVisibleTo("PrecomputeSimbadMerge")]

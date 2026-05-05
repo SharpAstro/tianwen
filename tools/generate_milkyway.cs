@@ -93,7 +93,10 @@ var sw = Stopwatch.StartNew();
 
 using var sp = new ServiceCollection().AddAstrometry().BuildServiceProvider();
 var db = sp.GetRequiredService<ICelestialObjectDB>();
-var (processed, failed) = await db.InitDBAsync(CancellationToken.None);
+// MilkyWayTextureBaker bins Tycho-2 photometry — wait for the bulk decode.
+await db.InitDBAsync(waitForTycho2BulkLoad: true);
+var processed = db.LastInitProcessed;
+var failed = db.LastInitFailed;
 Console.WriteLine($"Catalog loaded in {sw.Elapsed.TotalSeconds:F1}s ({processed} processed, {failed} failed)");
 
 sw.Restart();

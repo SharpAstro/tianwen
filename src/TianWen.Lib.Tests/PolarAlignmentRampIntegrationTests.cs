@@ -40,7 +40,8 @@ public class PolarAlignmentRampIntegrationTests(ITestOutputHelper output)
         {
             if (_cachedDB is { } db2) return db2;
             var newDb = new CelestialObjectDB();
-            await newDb.InitDBAsync(cancellationToken: ct);
+            // Polar alignment runs the plate solver, which queries CoordinateGrid (Tycho-2).
+            await newDb.InitDBAsync(waitForTycho2BulkLoad: true, cancellationToken: ct);
             _cachedDB = newDb;
             return newDb;
         }

@@ -562,10 +562,17 @@ public class OverlayEngineTests
         public IRaDecIndex DeepSkyCoordinateGrid => _grid;
 
         public System.Threading.Tasks.Task InitDBAsync(
-            System.Threading.CancellationToken cancellationToken)
+            bool waitForTycho2BulkLoad = false,
+            System.Threading.CancellationToken cancellationToken = default)
         {
             return System.Threading.Tasks.Task.CompletedTask;
         }
+
+        public System.Threading.Tasks.Task EnsureTycho2DataLoadedAsync(System.Threading.CancellationToken cancellationToken = default)
+            => System.Threading.Tasks.Task.CompletedTask;
+
+        public int LastInitProcessed => 0;
+        public int LastInitFailed => 0;
 
         public bool TryGetCrossIndices(CatalogIndex catalogIndex, out IReadOnlySet<CatalogIndex> crossIndices)
         {

@@ -17,7 +17,9 @@ public class RaDecIndexBenchmarks
     public async Task Setup()
     {
         var db = new CelestialObjectDB();
-        await db.InitDBAsync(default);
+        // CoordinateGrid composes the Tycho-2 spatial index — wait for the bulk load so
+        // the benchmark exercises the full grid rather than the deep-sky-only fallback.
+        await db.InitDBAsync(waitForTycho2BulkLoad: true);
 
         _primaryIndex = db.PrimaryRaDecIndex;
         _compositeIndex = db.CoordinateGrid;

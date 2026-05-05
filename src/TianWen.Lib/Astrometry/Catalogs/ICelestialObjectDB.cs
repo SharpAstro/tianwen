@@ -25,7 +25,36 @@ public interface ICelestialObjectDB
 
     IReadOnlySet<Catalog> Catalogs { get; }
 
-    Task InitDBAsync(CancellationToken cancellationToken);
+    /// <summary>
+    /// Build all in-memory catalog indices from embedded resources. Idempotent: subsequent
+    /// calls return immediately once the first init succeeded.
+    /// <para>
+    /// The ~21 MB Tycho-2 binary catalog is decompressed in the background and is NOT awaited
+    /// before this returns by default. Callers that need it (sky map, plate solver, anything
+    /// touching <see cref="CoordinateGrid"/> / <see cref="CopyTycho2Stars"/>) must
+    /// <c>await</c> <see cref="EnsureTycho2DataLoadedAsync"/> first. Pass
+    /// <paramref name="waitForTycho2BulkLoad"/>=<c>true</c> to make init block until the bulk
+    /// Tycho-2 data is ready (precompute tools, tests that probe Tycho-2 state synchronously).
+    /// </para>
+    /// </summary>
+    Task InitDBAsync(bool waitForTycho2BulkLoad = false, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Awaits the background Tycho-2 bulk-load task started by <see cref="InitDBAsync"/>.
+    /// Cheap to call repeatedly — the underlying decode runs at most once per instance.
+    /// </summary>
+    Task EnsureTycho2DataLoadedAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Number of catalog entries successfully processed in the last <see cref="InitDBAsync"/>.
+    /// Diagnostic surface for tooling and tests.
+    /// </summary>
+    int LastInitProcessed { get; }
+
+    /// <summary>
+    /// Number of catalog entries that failed to parse in the last <see cref="InitDBAsync"/>.
+    /// </summary>
+    int LastInitFailed { get; }
 
     IReadOnlyCollection<string> CommonNames { get; }
 

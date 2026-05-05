@@ -22,7 +22,7 @@ public class TonightsBestBenchmarks
     public async Task Setup()
     {
         _db = new CelestialObjectDB();
-        await _db.InitDBAsync(default);
+        await _db.InitDBAsync();
 
         _viennaSummer = new Transform(SystemTimeProvider.Instance)
         {

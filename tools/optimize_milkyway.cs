@@ -120,7 +120,8 @@ Console.WriteLine("Loading Tycho-2 catalog + Planck radiance + Planck dust opaci
 var sw = Stopwatch.StartNew();
 using var sp = new ServiceCollection().AddAstrometry().BuildServiceProvider();
 var db = sp.GetRequiredService<ICelestialObjectDB>();
-await db.InitDBAsync(CancellationToken.None);
+// MilkyWayBakerInputs.LoadAsync streams Tycho-2 stars; wait for the bulk decode.
+await db.InitDBAsync(waitForTycho2BulkLoad: true);
 var inputs = await MilkyWayBakerInputs.LoadAsync(db, width, height, luminancePath, dustPath, CancellationToken.None);
 Console.WriteLine($"Loaded {inputs.Stars.Length} stars in {sw.Elapsed.TotalSeconds:F1}s");
 
