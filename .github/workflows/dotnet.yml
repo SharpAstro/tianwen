@@ -24,11 +24,10 @@ jobs:
     # resources from *.json.lz / *.csv.lz sources. The pwsh script shells out
     # to `lzip -dc` to decompress the .lz inputs, then writes the .gs.gz output
     # via .NET GZipStream. *.gs.gz is gitignored, so a fresh checkout must
-    # regenerate it during build.
-    - uses: SharpAstro/cache-apt-pkgs-action@v1
-      with:
-        packages: lzip
-        version: 1.0
+    # regenerate it during build. lzip is tiny (~80 KB) so a direct apt install
+    # is simpler than caching.
+    - name: Install lzip
+      run: sudo apt-get update && sudo apt-get install -y lzip
     - uses: actions/checkout@v6
       with:
         submodules: recursive
