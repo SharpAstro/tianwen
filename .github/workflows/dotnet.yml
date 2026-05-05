@@ -20,14 +20,10 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-    # The PreprocessCatalogs MSBuild target shells out to `lzip` to produce
-    # the *.gs.lz embedded resources from *.json.lz sources. *.gs.lz is
-    # gitignored, so a fresh checkout must regenerate it during build.
-    # Plain apt-get install (not cache-apt-pkgs-action): on cache-hit runs
-    # the action restored files but didn't re-run dpkg, so `lzip` was not on
-    # PATH. The package is tiny (~50KB), caching saves trivial time.
-    - name: Install lzip
-      run: sudo apt-get update && sudo apt-get install -y lzip
+    # The PreprocessCatalogs MSBuild target produces the *.gs.gz embedded
+    # resources from *.json.lz / *.csv.lz sources via pure pwsh + .NET
+    # GZipStream (no external binaries needed). *.gs.gz is gitignored, so a
+    # fresh checkout must regenerate it during build.
     - uses: actions/checkout@v6
       with:
         submodules: recursive
@@ -61,7 +57,7 @@ jobs:
     - name: Build
       run: dotnet build -c $BUILD_CONF --no-restore -p:Version=${VERSION_PREFIX}${VERSION_REV}${VERSION_HASH} -p:FileVersion=${VERSION_PREFIX}.${VERSION_REV} -p:ContinuousIntegrationBuild=true
       working-directory: src
-    # Share the preprocessed catalog .gs.lz files with the test + publish jobs
+    # Share the preprocessed catalog .gs.gz files with the test + publish jobs
     # so they don't need lzip installed (esp. publish-apps, which runs on a
     # cross-platform matrix). Downstream jobs download into the same path and
     # rely on file mtime > *.json.lz mtime to skip the PreprocessCatalogs target.
@@ -69,7 +65,7 @@ jobs:
       uses: actions/upload-artifact@v7
       with:
         name: preprocessed-catalogs
-        path: src/TianWen.Lib/Astrometry/Catalogs/*.gs.lz
+        path: src/TianWen.Lib/Astrometry/Catalogs/*.gs.gz
         retention-days: 1
     - name: Upload NuGet package
       uses: actions/upload-artifact@v7
@@ -109,16 +105,17 @@ jobs:
         key: ${{ steps.lfs-key.outputs.key }}
     - name: Fetch required LFS objects
       run: git lfs pull --include="*.lz,*.ttf,*.fits.gz"
-    # Pull in the .gs.lz preprocessed catalogs from the build job so we don't
-    # need lzip installed here. Touch them to be newer than .json.lz so
-    # MSBuild's Inputs/Outputs check skips the PreprocessCatalogs target.
+    # Pull in the .gs.gz preprocessed catalogs from the build job so the
+    # preprocess-catalog.ps1 script doesn't have to re-run here. Touch them to
+    # be newer than .json.lz so MSBuild's Inputs/Outputs check skips the
+    # PreprocessCatalogs target.
     - name: Download preprocessed catalogs
       uses: actions/download-artifact@v6
       with:
         name: preprocessed-catalogs
         path: src/TianWen.Lib/Astrometry/Catalogs/
     - name: Refresh preprocessed catalog mtimes
-      run: touch src/TianWen.Lib/Astrometry/Catalogs/*.gs.lz
+      run: touch src/TianWen.Lib/Astrometry/Catalogs/*.gs.gz
     - uses: actions/setup-dotnet@v5
       with:
         dotnet-version: 10.0.x
@@ -166,7 +163,7 @@ jobs:
         name: preprocessed-catalogs
         path: src/TianWen.Lib/Astrometry/Catalogs/
     - name: Refresh preprocessed catalog mtimes
-      run: touch src/TianWen.Lib/Astrometry/Catalogs/*.gs.lz
+      run: touch src/TianWen.Lib/Astrometry/Catalogs/*.gs.gz
     - uses: actions/setup-dotnet@v5
       with:
         dotnet-version: 10.0.x
@@ -228,8 +225,9 @@ jobs:
     - name: Fetch required LFS objects
       shell: bash
       run: git lfs pull --include="*.lz,*.ttf"
-    # Same artifact pattern as the test jobs -- avoids needing lzip on the
-    # multi-platform publish matrix (Windows / Linux / macOS).
+    # Same artifact pattern as the test jobs -- avoids re-running the
+    # preprocess-catalog.ps1 script on the multi-platform publish matrix
+    # (Windows / Linux / macOS).
     - name: Download preprocessed catalogs
       uses: actions/download-artifact@v6
       with:
@@ -240,7 +238,7 @@ jobs:
     - name: Refresh preprocessed catalog mtimes
       shell: pwsh
       run: |
-        Get-ChildItem -Path src/TianWen.Lib/Astrometry/Catalogs/ -Filter *.gs.lz |
+        Get-ChildItem -Path src/TianWen.Lib/Astrometry/Catalogs/ -Filter *.gs.gz |
           ForEach-Object { $_.LastWriteTime = Get-Date }
     - uses: actions/setup-dotnet@v5
       with:

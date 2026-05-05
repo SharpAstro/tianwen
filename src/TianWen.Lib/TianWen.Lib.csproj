@@ -33,7 +33,8 @@
     <None Remove="Astrometry/Catalogs/tmp-data/**" />
     <EmbeddedResource Remove="Astrometry/Catalogs/*.json" />
     <EmbeddedResource Include="Astrometry/Catalogs/*.lz" WithCulture="false" />
-    <!-- Catalogs migrated to the ASCII-separated .gs.lz format: keep the .json.lz on
+    <EmbeddedResource Include="Astrometry/Catalogs/*.gz" WithCulture="false" />
+    <!-- Catalogs migrated to the ASCII-separated .gs.gz format: keep the .json.lz on
          disk as preprocessor input but exclude it from the assembly so only the
          faster path ships. See PLAN-catalog-binary-format.md. -->
     <EmbeddedResource Remove="Astrometry/Catalogs/HR.json.lz" />
@@ -52,56 +53,56 @@
     <EmbeddedResource Remove="Astrometry/Catalogs/NGC.csv.lz" />
     <EmbeddedResource Remove="Astrometry/Catalogs/NGC.addendum.csv.lz" />
     <CatalogPreprocess Include="Astrometry/Catalogs/HR.json.lz">
-      <OutputPath>Astrometry/Catalogs/HR.gs.lz</OutputPath>
+      <OutputPath>Astrometry/Catalogs/HR.gs.gz</OutputPath>
     </CatalogPreprocess>
     <CatalogPreprocess Include="Astrometry/Catalogs/GUM.json.lz">
-      <OutputPath>Astrometry/Catalogs/GUM.gs.lz</OutputPath>
+      <OutputPath>Astrometry/Catalogs/GUM.gs.gz</OutputPath>
     </CatalogPreprocess>
     <CatalogPreprocess Include="Astrometry/Catalogs/RCW.json.lz">
-      <OutputPath>Astrometry/Catalogs/RCW.gs.lz</OutputPath>
+      <OutputPath>Astrometry/Catalogs/RCW.gs.gz</OutputPath>
     </CatalogPreprocess>
     <CatalogPreprocess Include="Astrometry/Catalogs/LDN.json.lz">
-      <OutputPath>Astrometry/Catalogs/LDN.gs.lz</OutputPath>
+      <OutputPath>Astrometry/Catalogs/LDN.gs.gz</OutputPath>
     </CatalogPreprocess>
     <CatalogPreprocess Include="Astrometry/Catalogs/Dobashi.json.lz">
-      <OutputPath>Astrometry/Catalogs/Dobashi.gs.lz</OutputPath>
+      <OutputPath>Astrometry/Catalogs/Dobashi.gs.gz</OutputPath>
     </CatalogPreprocess>
     <CatalogPreprocess Include="Astrometry/Catalogs/Sh.json.lz">
-      <OutputPath>Astrometry/Catalogs/Sh.gs.lz</OutputPath>
+      <OutputPath>Astrometry/Catalogs/Sh.gs.gz</OutputPath>
     </CatalogPreprocess>
     <CatalogPreprocess Include="Astrometry/Catalogs/Barnard.json.lz">
-      <OutputPath>Astrometry/Catalogs/Barnard.gs.lz</OutputPath>
+      <OutputPath>Astrometry/Catalogs/Barnard.gs.gz</OutputPath>
     </CatalogPreprocess>
     <CatalogPreprocess Include="Astrometry/Catalogs/Ced.json.lz">
-      <OutputPath>Astrometry/Catalogs/Ced.gs.lz</OutputPath>
+      <OutputPath>Astrometry/Catalogs/Ced.gs.gz</OutputPath>
     </CatalogPreprocess>
     <CatalogPreprocess Include="Astrometry/Catalogs/CG.json.lz">
-      <OutputPath>Astrometry/Catalogs/CG.gs.lz</OutputPath>
+      <OutputPath>Astrometry/Catalogs/CG.gs.gz</OutputPath>
     </CatalogPreprocess>
     <CatalogPreprocess Include="Astrometry/Catalogs/vdB.json.lz">
-      <OutputPath>Astrometry/Catalogs/vdB.gs.lz</OutputPath>
+      <OutputPath>Astrometry/Catalogs/vdB.gs.gz</OutputPath>
     </CatalogPreprocess>
     <CatalogPreprocess Include="Astrometry/Catalogs/DG.json.lz">
-      <OutputPath>Astrometry/Catalogs/DG.gs.lz</OutputPath>
+      <OutputPath>Astrometry/Catalogs/DG.gs.gz</OutputPath>
     </CatalogPreprocess>
     <CatalogPreprocess Include="Astrometry/Catalogs/HH.json.lz">
-      <OutputPath>Astrometry/Catalogs/HH.gs.lz</OutputPath>
+      <OutputPath>Astrometry/Catalogs/HH.gs.gz</OutputPath>
     </CatalogPreprocess>
     <CatalogPreprocess Include="Astrometry/Catalogs/Cl.json.lz">
-      <OutputPath>Astrometry/Catalogs/Cl.gs.lz</OutputPath>
+      <OutputPath>Astrometry/Catalogs/Cl.gs.gz</OutputPath>
     </CatalogPreprocess>
     <CatalogPreprocess Include="Astrometry/Catalogs/NGC.csv.lz">
-      <OutputPath>Astrometry/Catalogs/NGC.gs.lz</OutputPath>
+      <OutputPath>Astrometry/Catalogs/NGC.gs.gz</OutputPath>
     </CatalogPreprocess>
     <CatalogPreprocess Include="Astrometry/Catalogs/NGC.addendum.csv.lz">
-      <OutputPath>Astrometry/Catalogs/NGC.addendum.gs.lz</OutputPath>
+      <OutputPath>Astrometry/Catalogs/NGC.addendum.gs.gz</OutputPath>
     </CatalogPreprocess>
     <None Include="../../README.md" Pack="true" PackagePath="/" />
     <None Include="../../LICENSE" Pack="True" PackagePath="/" />
     <None Include="../.editorconfig" Link=".editorconfig" />
   </ItemGroup>
 
-  <!-- Convert source .json.lz catalogs to the ASCII-separated .gs.lz format consumed
+  <!-- Convert source .json.lz catalogs to the ASCII-separated .gs.gz format consumed
        by AsciiRecordReader at runtime. Re-runs only when an input is newer than its
        output. See tools/preprocess-catalog.ps1 + PLAN-catalog-binary-format.md. -->
   <Target Name="PreprocessCatalogs"

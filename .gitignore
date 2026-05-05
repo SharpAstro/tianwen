@@ -15,6 +15,6 @@ scheduled_tasks.lock
 
 # Catalog preprocessor output: derived from src/TianWen.Lib/Astrometry/Catalogs/*.json.lz
 # via tools/preprocess-catalog.ps1. Built locally by the PreprocessCatalogs MSBuild
-# target (requires `lzip`) and on CI by the `build` job, then shared with downstream
-# jobs as the `preprocessed-catalogs` artifact. See PLAN-catalog-binary-format.md.
-src/TianWen.Lib/Astrometry/Catalogs/*.gs.lz
+# target (pure .NET, no external binaries) and on CI by the `build` job, then shared
+# with downstream jobs as the `preprocessed-catalogs` artifact. See PLAN-catalog-binary-format.md.
+src/TianWen.Lib/Astrometry/Catalogs/*.gs.gz

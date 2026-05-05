@@ -2,7 +2,7 @@
 .SYNOPSIS
 Convert a SIMBAD JSON or NGC CSV catalog (lzip-compressed) into the
 ASCII-separated text format consumed by AsciiRecordReader at runtime,
-lzip-compressed as .gs.lz.
+gzip-compressed as .gs.gz.
 
 .DESCRIPTION
 Reads a `*.json.lz` (SIMBAD shape) or `*.csv.lz` (NGC shape) and re-emits a
@@ -25,14 +25,21 @@ guarantee round-trip. NGC numerics are kept as their original CSV string
 form (Half.TryParse handles them at read time). Nullable / empty cells are
 emitted as the empty string.
 
-The output is written via lzip -9 to <Output>, e.g.:
-  HR.json.lz  -> HR.gs.lz
-  NGC.csv.lz  -> NGC.gs.lz
+The output is written via .NET GZipStream (CompressionLevel.Optimal) to
+<Output>, e.g.:
+  HR.json.lz  -> HR.gs.gz
+  NGC.csv.lz  -> NGC.gs.gz
+
+Gzip was picked over lzip after benchmarking the catalog payloads end-to-end
+(see CatalogCompressionBenchmarks): the BCL GZipStream decoder runs ~7-8x
+faster than the managed LzipDecoder for ~30% larger compressed bytes.
+On a ~1 MB total payload that's +344 KB on disk for ~35 ms saved at cold
+start, and avoids shipping the lzip binary in the build chain.
 
 .EXAMPLE
 pwsh -NoProfile -File tools/preprocess-catalog.ps1 `
     -Input src/TianWen.Lib/Astrometry/Catalogs/HR.json.lz `
-    -Output src/TianWen.Lib/Astrometry/Catalogs/HR.gs.lz
+    -Output src/TianWen.Lib/Astrometry/Catalogs/HR.gs.gz
 #>
 [CmdletBinding()]
 param(
@@ -207,29 +214,24 @@ $summary =
     elseif ($lower.EndsWith('.csv.lz')) { Encode-Ngc -InputPath $InputPath -sb $sb }
     else { throw "Unrecognized input extension on '$InputPath' (expected .json.lz or .csv.lz)." }
 
-# Write UTF-8 (no BOM) to a temp .gs file, then lzip -9 to produce .gs.lz next to it.
-$tempGs = [System.IO.Path]::GetTempFileName() + '.gs'
+# Compress raw UTF-8 bytes straight into $OutputPath via .NET GZipStream. No
+# temp file, no external lzip binary -- the runtime reads back through
+# System.IO.Compression.GZipStream, so encoder + decoder match one-to-one.
+$bytes = [System.Text.Encoding]::UTF8.GetBytes($sb.ToString())
+
+$outDir = Split-Path -Parent $OutputPath
+if ($outDir -and -not (Test-Path $outDir)) { New-Item -ItemType Directory -Force -Path $outDir | Out-Null }
+
+$outFs = [System.IO.File]::Create($OutputPath)
 try {
-    $bytes = [System.Text.Encoding]::UTF8.GetBytes($sb.ToString())
-    [System.IO.File]::WriteAllBytes($tempGs, $bytes)
-
-    # lzip writes <input>.lz next to the input. Move it to $OutputPath.
-    & lzip -9 -f -- $tempGs
-    if ($LASTEXITCODE -ne 0) { throw "lzip -9 failed (exit $LASTEXITCODE)" }
-    $producedLz = "$tempGs.lz"
-    if (-not (Test-Path $producedLz)) { throw "lzip did not produce $producedLz" }
-
-    $outDir = Split-Path -Parent $OutputPath
-    if ($outDir -and -not (Test-Path $outDir)) { New-Item -ItemType Directory -Force -Path $outDir | Out-Null }
-    Move-Item -LiteralPath $producedLz -Destination $OutputPath -Force
-
-    $inSize  = (Get-Item -LiteralPath $InputPath).Length
-    $rawSize = $bytes.Length
-    $outSize = (Get-Item -LiteralPath $OutputPath).Length
-    Write-Host ("preprocess-catalog: {0} -> {1}: {2:N0} records, {3:N0}->{4:N0} raw bytes, {5:N0}->{6:N0} LZ bytes" `
-        -f (Split-Path -Leaf $InputPath), (Split-Path -Leaf $OutputPath), $summary.Count, $summary.RawTextLength, $rawSize, $inSize, $outSize)
+    $gzip = [System.IO.Compression.GZipStream]::new($outFs, [System.IO.Compression.CompressionLevel]::Optimal)
+    try { $gzip.Write($bytes, 0, $bytes.Length) }
+    finally { $gzip.Dispose() }
 }
-finally {
-    if (Test-Path $tempGs) { Remove-Item -LiteralPath $tempGs -Force -ErrorAction SilentlyContinue }
-    if (Test-Path "$tempGs.lz") { Remove-Item -LiteralPath "$tempGs.lz" -Force -ErrorAction SilentlyContinue }
-}
+finally { $outFs.Dispose() }
+
+$inSize  = (Get-Item -LiteralPath $InputPath).Length
+$rawSize = $bytes.Length
+$outSize = (Get-Item -LiteralPath $OutputPath).Length
+Write-Host ("preprocess-catalog: {0} -> {1}: {2:N0} records, {3:N0}->{4:N0} raw bytes, {5:N0}->{6:N0} compressed bytes" `
+    -f (Split-Path -Leaf $InputPath), (Split-Path -Leaf $OutputPath), $summary.Count, $summary.RawTextLength, $rawSize, $inSize, $outSize)
