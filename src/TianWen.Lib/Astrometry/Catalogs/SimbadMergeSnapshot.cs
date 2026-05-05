@@ -50,8 +50,12 @@ internal sealed record SimbadMergeSnapshot(
     /// / <c>PopulateSimbadStarEntries</c>) changes in a way that would alter the snapshot output
     /// for the same input bytes. Mixed into the input hash so old snapshots invalidate even if
     /// the embedded resources are byte-identical.
+    ///
+    /// v3: input hasher decompresses .gs.gz before hashing so the input hash is invariant to
+    /// gzip-encoder differences across platforms / .NET versions (a Linux CI rebake of the
+    /// .gs.gz files now matches a Windows local bake at the hash level).
     /// </summary>
-    public const uint AlgorithmVersion = 2;
+    public const uint AlgorithmVersion = 3;
 }
 
 /// <summary>
@@ -427,8 +431,14 @@ internal static class SimbadMergeInputHasher
 
                 var manifest = FindManifest(manifestNames, inputSuffix)
                     ?? throw new InvalidOperationException($"Embedded resource not found while computing simbad-merge input hash: {inputSuffix}");
-                using var stream = assembly.GetManifestResourceStream(manifest)
+                using var rawStream = assembly.GetManifestResourceStream(manifest)
                     ?? throw new InvalidOperationException($"GetManifestResourceStream returned null for {manifest}");
+
+                // Hash the *decompressed* gzip content so the input hash is invariant to gzip
+                // encoder differences across platforms (Windows local bake vs Linux CI rebake
+                // produce different .gs.gz bytes for the same logical content). All Inputs are
+                // .gs.gz; wrap unconditionally.
+                using var stream = new GZipStream(rawStream, CompressionMode.Decompress);
 
                 int read;
                 while ((read = stream.Read(rentedBuf, 0, rentedBuf.Length)) > 0)

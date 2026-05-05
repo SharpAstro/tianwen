@@ -37,8 +37,12 @@ internal sealed record HdHipCrossSnapshot(
     /// changes in a way that would alter the snapshot (e.g. new fields on <see cref="CelestialObject"/>,
     /// changed inheritance rules in <see cref="CelestialObjectDB.GetInheritedObjectType"/>). Mixed
     /// into the input hash so old snapshots invalidate even if the embedded resources are byte-identical.
+    ///
+    /// v2: input hasher decompresses .gs.gz before hashing so the hash is invariant to
+    /// gzip-encoder differences across platforms / .NET versions. .bin.lz / .json.lz inputs
+    /// keep being hashed raw — they ship as LFS-tracked immutable bytes.
     /// </summary>
-    public const uint AlgorithmVersion = 1;
+    public const uint AlgorithmVersion = 2;
 }
 
 internal readonly record struct HdEntrySnapshot(
@@ -296,8 +300,15 @@ internal static class HdHipCrossInputHasher
 
                 var manifest = FindManifest(manifestNames, inputSuffix)
                     ?? throw new InvalidOperationException($"Embedded resource not found while computing hd-hip-cross input hash: {inputSuffix}");
-                using var stream = assembly.GetManifestResourceStream(manifest)
+                using var rawStream = assembly.GetManifestResourceStream(manifest)
                     ?? throw new InvalidOperationException($"GetManifestResourceStream returned null for {manifest}");
+
+                // Hash the *decompressed* content for .gs.gz so the input hash is invariant to
+                // gzip-encoder output differences across platforms / .NET versions. .lz inputs
+                // stay raw — they ship as LFS-tracked immutable bytes.
+                using Stream stream = inputSuffix.EndsWith(".gs.gz", StringComparison.Ordinal)
+                    ? new GZipStream(rawStream, CompressionMode.Decompress)
+                    : rawStream;
 
                 int read;
                 while ((read = stream.Read(rentedBuf, 0, rentedBuf.Length)) > 0)
