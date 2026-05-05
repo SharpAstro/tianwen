@@ -11,7 +11,7 @@ Status of every `PLAN-*.md` in the repo root, cross-checked against the codebase
 | [PLAN-first-light-resilience](PLAN-first-light-resilience.md) | **DONE** (2 of 3 sub-plans shipped; sub-plan 3 deferred) |
 | [PLAN-driver-resilience](PLAN-driver-resilience.md) | **DONE** (merged to main as 6 PRs + ARCH doc) |
 | [PLAN-fov-obstruction-detection](PLAN-fov-obstruction-detection.md) | **DONE** (merged to main; scout UI/WebSocket surfacing, single-frame retry, Layer-2 recovery test all shipped) |
-| [PLAN-catalog-binary-format](PLAN-catalog-binary-format.md) | **PARTIAL ~20%** (Option D pipeline + HR shipped; remaining catalogs pending) |
+| [PLAN-catalog-binary-format](PLAN-catalog-binary-format.md) | **PARTIAL ~70%** (Option D shipped end-to-end + gzip swap; Phase 2 pre-bake not started) |
 | [PLAN-polar-alignment](PLAN-polar-alignment.md) | **DONE ~85%** (Phases 1-5 shipped; refraction-corrected apparent pole + live pressure/temperature still pending) |
 
 ---
@@ -119,19 +119,37 @@ Not shipped (TODO.md lines 142, 146):
 - **Refraction-corrected apparent pole.** `PolarAlignmentSession.cs:658-659` literally sets `RefractedPoleRaHours: trueRa` / `RefractedPoleDecDeg: trueDec` — the apparent-pole rings draw on the true pole. Decomposition gauges already use refraction-aware math (correct numbers), only the overlay center is stale. Matters most at lat ≤ 35°.
 - **Live site pressure/temperature.** `IMountDriver.cs:395-396` still hardcodes `SitePressure = 1010`, `SiteTemperature = 10`. Same fix unblocks both polar-alignment refraction and the long-standing pressure/temp TODO.
 
-## PLAN-catalog-binary-format — PARTIAL ~20%
+## PLAN-catalog-binary-format — PARTIAL ~70%
 
-Plan updated 2026-05-04 to lead with **Option D** (ASCII-separated text +
-`tools/preprocess-catalog.ps1` MSBuild step) instead of Option A (MessagePack).
-Tycho2 stays untouched.
+Plan now leads with **Option D** (ASCII-separated text + `tools/preprocess-catalog.ps1`
+MSBuild step) instead of Option A (MessagePack). Tycho2 stays untouched (parallel
+multi-member lzip already optimal — gzip would lose parallelism, see plan doc).
 
-- Option D preprocessor (`tools/preprocess-catalog.ps1`): **DONE** — pwsh script reads `*.json.lz`, parses, re-emits with `0x1D`/`0x1E`/`0x1F` separators (G17 doubles, invariant culture), shells to `lzip -9` for `*.gs.lz` output.
-- MSBuild `<Exec>` target: **DONE** — `<CatalogPreprocess>` items in `TianWen.Lib.csproj`, batched `Inputs="@(...)" Outputs="@(...->...)"` so the preprocessor only re-runs when the source `.json.lz` is newer than the `.gs.lz`.
-- Runtime reader changes: **DONE for HR** — `AsciiRecordReader` (`src/TianWen.Lib/IO/AsciiRecordReader.cs`) provides `EnumerateRecords` / `TakeField` / `ReadDouble` / `ReadNullableDouble` / `ReadStringArray` over `ReadOnlySpan<byte>`. `ParseSimbadGsAsync` decodes SIMBAD records. `ParseSimbadFileAsync` prefers `.gs.lz` if present and falls back to `.json.lz` otherwise — incremental rollout works without touching unmigrated callers.
+**Phase 1 (Option D format migration) — SHIPPED end-to-end (2026-05-04):**
+
+- Option D preprocessor (`tools/preprocess-catalog.ps1`): **DONE** — pwsh script reads `*.json.lz` / `*.csv.lz`, parses, re-emits with `0x1D`/`0x1E`/`0x1F` separators (G17 doubles, invariant culture), gzip-compresses to `*.gs.gz` via `System.IO.Compression.GZipStream` (Optimal). Encoder + decoder match one-to-one, no external lzip binary needed.
+- MSBuild `<Exec>` target: **DONE** — `<CatalogPreprocess>` items in `TianWen.Lib.csproj`, batched `Inputs="@(...)" Outputs="@(...->...)"` so the preprocessor only re-runs when the source `.json.lz` is newer than the `.gs.gz`.
+- Runtime reader: **DONE** — `AsciiRecordReader` (`src/TianWen.Lib/IO/AsciiRecordReader.cs`) provides `EnumerateRecords` / `TakeField` / `ReadDouble` / `ReadNullableDouble` / `ReadStringArray` over `ReadOnlySpan<byte>`. `ParseSimbadGsAsync` + `MergeNgcGsData` decode the migrated catalogs.
 - Shared `AsciiRecordReader` helper: **DONE**.
-- Incremental rollout: HR shipped (1 of 14 SIMBAD catalogs); NGC CSV + remaining SIMBAD files + cross-ref JSONs still on the legacy path.
-- Tests: **DONE for HR** — 8 unit tests in `AsciiRecordReaderTests` (record split, field take, G17 double round-trip, nullable double, sub-array). Existing 340 `CelestialObjectDBTests` already exercise HR end-to-end via the migrated path.
+- Catalog rollout: **DONE** — all 13 SIMBAD catalogs (HR, GUM, RCW, LDN, Dobashi, Sh, Barnard, Ced, CG, vdB, DG, HH, Cl) and both NGC (NGC, NGC.addendum) shipped on the `.gs.gz` path.
+- Compression swap (lzip → gzip on `.gs` files): **DONE** — bench showed BCL GZipStream is 4-8× faster on small single-stream payloads, +2.3 % on size (1,001 KB → 1,024 KB embedded).
+- Tests: **DONE** — 1,841 unit tests pass against the migrated format; `CelestialObjectDBBenchmarkTests` prints per-phase breakdown.
 - Secondary lookup speed improvement (`ArrayPool` BFS / frozen-dict transitive closure): **NOT STARTED**.
+
+**Phase 1 numbers (post-migration, post-gzip):**
+
+| Build | First `InitDBAsync` |
+|---|---|
+| Release + warm runtime (test bench) | **716–906 ms** (run-to-run variance) |
+| Debug + cold disk + cold JIT (GUI cold launch) | **2,411 ms** |
+
+The hot phases are now dict-mutation work, not parse work — what Phase 2 is for.
+
+**Phase 2 (pre-bake init state) — 2A SHIPPED:**
+
+- 2A SHIPPED (2026-05-05): `tools/precompute-hd-hip-cross/` bakes the post-`BuildHdHipCrossIndicesViaTyc` state into `hd_hip_cross.bin.gz` (~2.4 MB embedded). Runtime apply takes ~110 ms (parallel SHA-256 input hash + gzip read + dict mutation) vs ~460 ms live compute. Net saving: ~350 ms on the hd-hip-cross phase. CI guards in `HdHipCrossSnapshotTests` catch staleness + algorithm-vs-snapshot drift. Re-bake via `pwsh tools/precompute-hd-hip-cross.ps1`.
+- 2B: Pre-bake SIMBAD merge state — same pattern, ~150 ms target. Reuses 2A's binary format.
+- 2C: Lookup-speed BFS pooling (small follow-up).
 
 ---
 

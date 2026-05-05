@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Build-time tool: bake CelestialObjectDB.BuildHdHipCrossIndicesViaTyc's output into
+    src/TianWen.Lib/Astrometry/Catalogs/hd_hip_cross.bin.gz so cold-start init can apply
+    the snapshot directly (~30 to 50 ms) instead of recomputing it (~280 ms). See
+    PLAN-catalog-binary-format.md section 2A and tools/precompute-hd-hip-cross.ps1.
+
+    Not part of the solution; not packed; not shipped. Invoke via dotnet run with
+    project path, or via the wrapper script.
+  -->
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <AssemblyName>PrecomputeHdHipCross</AssemblyName>
+    <RootNamespace>PrecomputeHdHipCross</RootNamespace>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <IsAotCompatible>false</IsAotCompatible>
+    <GeneratePackageOnBuild>false</GeneratePackageOnBuild>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\TianWen.Lib\TianWen.Lib.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -6,9 +6,11 @@ using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.IO;
+using System.IO.Compression;
 using System.Linq;
 using System.Reflection;
 using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -76,6 +78,14 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
     public int LastInitFailed { get; private set; }
 
     public CelestialObjectDB() { }
+
+    /// <summary>
+    /// Build-time hook for <c>tools/precompute-hd-hip-cross</c>. When true, init forces the
+    /// live <see cref="BuildHdHipCrossIndicesViaTyc"/> path (skipping any embedded snapshot)
+    /// and captures the result into <see cref="LastHdHipCrossSnapshot"/> for serialisation.
+    /// Has no effect at runtime where this flag stays false.
+    /// </summary>
+    internal bool ForceLiveHdHipCrossWithCapture { get; init; }
 
     public IReadOnlyCollection<string> CommonNames => _objectsByCommonName.Keys;
 
@@ -310,7 +320,7 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
         // Same trick for the NGC catalogs: LZ-decompress them in the background so that
         // when the main thread reaches the NGC merge phase, the bytes are ready and only
         // the (synchronous, main-thread-only) merge runs there. DecompressNgcAsync prefers
-        // the ASCII-separated .gs.lz and falls back to the legacy .csv.lz.
+        // the ASCII-separated .gs.gz and falls back to the legacy .csv.lz.
         var ngcDecompressTasks = new[]
         {
             DecompressNgcAsync(assembly, manifestNames, "NGC", cancellationToken),
@@ -453,8 +463,18 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
 
         phaseSw.Restart();
         // Build cross-indices between HD and HIP via shared TYC stars
-        // (must happen after all catalog loading so HIP cross-refs to HR, vdB etc. are present)
-        BuildHdHipCrossIndicesViaTyc();
+        // (must happen after all catalog loading so HIP cross-refs to HR, vdB etc. are present).
+        // Fast path: apply embedded hd_hip_cross.bin.gz snapshot if its input hash matches
+        // the embedded catalog inputs; otherwise fall back to live compute. See
+        // PLAN-catalog-binary-format.md § 2A.
+        if (ForceLiveHdHipCrossWithCapture)
+        {
+            BuildHdHipCrossIndicesViaTyc(captureSnapshot: true);
+        }
+        else if (!await TryApplyHdHipCrossSnapshotFromEmbeddedAsync(assembly, manifestNames))
+        {
+            BuildHdHipCrossIndicesViaTyc();
+        }
         _lastInitPhaseTimings.Add(("hd-hip-cross", phaseSw.Elapsed));
 
         _isInitialized = true;
@@ -490,12 +510,22 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
         _hdToTyc = LoadCrossRefBinFile(assembly, manifestNames, "hd_to_tyc");
     }
 
-    private void BuildHdHipCrossIndicesViaTyc()
+    /// <summary>
+    /// Snapshot of the state mutated by the most recent <see cref="BuildHdHipCrossIndicesViaTyc"/>
+    /// call. Captured opportunistically during the live path; consumed by the precompute tool
+    /// (<c>tools/precompute-hd-hip-cross</c>) to bake the result into <c>hd_hip_cross.bin.gz</c>.
+    /// Null until live compute runs (or after a successful apply-from-snapshot init).
+    /// </summary>
+    internal HdHipCrossSnapshot? LastHdHipCrossSnapshot { get; private set; }
+
+    private void BuildHdHipCrossIndicesViaTyc(bool captureSnapshot = false)
     {
         if (_hipToTyc is not { } hipToTyc || _hdToTyc is not { } hdToTyc)
         {
             throw new InvalidOperationException("HIP→TYC and HD→TYC cross-reference data must be loaded before building HD↔HIP cross-indices.");
         }
+
+        var subSw = Stopwatch.StartNew();
 
         // Build TYC → HIP reverse index (single pass, no shared-dict contention).
         var tycToHip = new Dictionary<CatalogIndex, CatalogIndex>(hipToTyc.Length / 2);
@@ -508,6 +538,8 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
                 tycToHip[tycIndex] = hipIndex;
             }
         }
+        _lastInitPhaseTimings.Add(("hd-hip-cross:tycToHip", subSw.Elapsed));
+        subSw.Restart();
 
         // Accumulate all cross-ref additions into a delta dict, then bulk-merge at
         // the end. The old incremental path called _crossIndexLookuptable.
@@ -576,6 +608,8 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
             }
             perThread[p] = (newObjs, delta, matches);
         });
+        _lastInitPhaseTimings.Add(("hd-hip-cross:scan", subSw.Elapsed));
+        subSw.Restart();
 
         // Serial merge: HD object inserts + spatial index + consolidated edge delta.
         var edgeDelta = perThread[0].EdgeDelta;
@@ -604,11 +638,133 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
             }
         }
 
+        _lastInitPhaseTimings.Add(("hd-hip-cross:objects+union", subSw.Elapsed));
+        subSw.Restart();
+
         // Single-pass bulk merge: one tuple build + one dict write per affected key.
         foreach (var (key, newValues) in edgeDelta)
         {
             MergeEdgesBulk(_crossIndexLookuptable, key, newValues);
         }
+        _lastInitPhaseTimings.Add(("hd-hip-cross:bulk-merge", subSw.Elapsed));
+
+        if (captureSnapshot)
+        {
+            // Capture the post-merge final tuple per affected key plus the new HD entries.
+            // This is O(touched-keys + N), runs after the bulk merge, and is only paid in the
+            // build-time precompute path — not at runtime.
+            subSw.Restart();
+            var hdBuilder = ImmutableArray.CreateBuilder<HdEntrySnapshot>();
+            for (var p = 0; p < perThread.Length; p++)
+            {
+                foreach (var (hdIndex, hdObj) in perThread[p].NewObjects)
+                {
+                    hdBuilder.Add(new HdEntrySnapshot(
+                        hdObj.Index, hdObj.ObjectType, hdObj.Constellation,
+                        hdObj.RA, hdObj.Dec, hdObj.V_Mag, hdObj.BMinusV));
+                }
+            }
+
+            var edgeBuilder = ImmutableArray.CreateBuilder<EdgeSnapshot>(edgeDelta.Count);
+            foreach (var key in edgeDelta.Keys)
+            {
+                if (_crossIndexLookuptable.TryGetValue(key, out var finalTuple))
+                {
+                    var ext = finalTuple.ext is { } extArr
+                        ? ImmutableCollectionsMarshal.AsImmutableArray((CatalogIndex[])extArr.Clone())
+                        : ImmutableArray<CatalogIndex>.Empty;
+                    edgeBuilder.Add(new EdgeSnapshot(key, finalTuple.i1, ext));
+                }
+            }
+
+            LastHdHipCrossSnapshot = new HdHipCrossSnapshot(hdBuilder.DrainToImmutable(), edgeBuilder.DrainToImmutable());
+            _lastInitPhaseTimings.Add(("hd-hip-cross:capture", subSw.Elapsed));
+        }
+    }
+
+    /// <summary>
+    /// Fast-path replacement for <see cref="BuildHdHipCrossIndicesViaTyc"/>: applies a
+    /// precomputed snapshot directly to <see cref="_objectsByIndex"/>, <see cref="_raDecIndex"/>,
+    /// and <see cref="_crossIndexLookuptable"/>. Caller is responsible for hash-verifying the
+    /// snapshot against the embedded catalog inputs before calling.
+    ///
+    /// <para>End state matches what <see cref="BuildHdHipCrossIndicesViaTyc"/> would have produced,
+    /// modulo the determinism guarantees described on <see cref="HdHipCrossSnapshot"/>.</para>
+    /// </summary>
+    internal void ApplyHdHipCrossSnapshot(HdHipCrossSnapshot snapshot)
+    {
+        foreach (var hd in snapshot.HdEntries)
+        {
+            var obj = new CelestialObject(hd.Index, hd.ObjType, hd.Ra, hd.Dec, hd.Constellation, hd.VMag, HalfUndefined, hd.BvColor, EmptyNameSet);
+            _objectsByIndex[hd.Index] = obj;
+            AddCommonNameAndPosIndices(obj);
+        }
+
+        foreach (var edge in snapshot.Edges)
+        {
+            // Empty Ext serialises as null in the live dict shape: the (i1, null) form is the
+            // single-entry sentinel in _crossIndexLookuptable. Only allocate an array when there
+            // are actual ext entries.
+            var extArr = edge.Ext.IsDefaultOrEmpty ? null : edge.Ext.ToArray();
+            _crossIndexLookuptable[edge.Key] = (edge.V1, extArr);
+        }
+    }
+
+    /// <summary>
+    /// Looks for an embedded <c>hd_hip_cross.bin.gz</c> resource, hash-verifies it against
+    /// the embedded catalog inputs, and applies it on hit. Returns false if the resource is
+    /// missing, malformed, or stale — caller is expected to fall back to the live compute
+    /// path. Per-path timings are added to <see cref="_lastInitPhaseTimings"/> so cold-start
+    /// telemetry shows which branch ran.
+    /// </summary>
+    private async Task<bool> TryApplyHdHipCrossSnapshotFromEmbeddedAsync(Assembly assembly, string[] manifestNames)
+    {
+        var subSw = Stopwatch.StartNew();
+        var snapshotResource = manifestNames.FirstOrDefault(n => n.EndsWith(".hd_hip_cross.bin.gz", StringComparison.Ordinal));
+        if (snapshotResource is null)
+        {
+            _lastInitPhaseTimings.Add(("hd-hip-cross-snapshot:missing", subSw.Elapsed));
+            return false;
+        }
+
+        // Compute the input hash in parallel with snapshot read+decode: both touch ~22 MB of
+        // embedded resource data and SHA-256 is CPU-bound enough to saturate a core. On a
+        // representative cold start the snapshot read takes ~50 ms and the hash ~50 ms;
+        // overlapping them shaves ~30-40 ms off the apply path.
+        var hashTask = Task.Run(() => HdHipCrossInputHasher.Compute(assembly, manifestNames));
+
+        HdHipCrossSnapshot snapshot;
+        byte[] storedHash;
+        try
+        {
+            using var stream = assembly.GetManifestResourceStream(snapshotResource)
+                ?? throw new InvalidOperationException("Snapshot resource stream was null.");
+            snapshot = HdHipCrossSnapshotIo.Read(stream, out storedHash);
+        }
+        catch (Exception ex) when (ex is InvalidDataException or InvalidOperationException or IOException)
+        {
+            // Treat any decode failure as "stale": fall back to live compute. Debug-time safety
+            // net; in CI the snapshot is rebuilt so a malformed embedded resource is a packaging bug.
+            _lastInitPhaseTimings.Add(("hd-hip-cross-snapshot:malformed", subSw.Elapsed));
+            await hashTask;  // observe to avoid unobserved-task warnings
+            return false;
+        }
+        var readElapsed = subSw.Elapsed;
+        _lastInitPhaseTimings.Add(("hd-hip-cross-snapshot:read", readElapsed));
+
+        var expectedHash = await hashTask;
+        _lastInitPhaseTimings.Add(("hd-hip-cross-snapshot:hash", subSw.Elapsed - readElapsed));
+        if (!storedHash.AsSpan().SequenceEqual(expectedHash))
+        {
+            _lastInitPhaseTimings.Add(("hd-hip-cross-snapshot:stale", subSw.Elapsed));
+            return false;
+        }
+
+        var beforeApply = subSw.Elapsed;
+        ApplyHdHipCrossSnapshot(snapshot);
+        _lastInitPhaseTimings.Add(("hd-hip-cross-snapshot:apply", subSw.Elapsed - beforeApply));
+        _lastInitPhaseTimings.Add(("hd-hip-cross-snapshot:applied", subSw.Elapsed));
+        return true;
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -1248,20 +1404,21 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
     }
 
     /// <summary>
-    /// Stage 1 of NGC CSV loading: LZ-decompress the embedded .{name}.csv.lz
-    /// resource. Stateless and CPU-bound, safe to run on the thread pool in
-    /// parallel with other work (predefined objects, HR SIMBAD parse, Tycho2).
+    /// Stage 1 of NGC loading: decompress the embedded .{name}.gs.gz (preferred)
+    /// or legacy .{name}.csv.lz resource. Stateless and CPU-bound, safe to run on
+    /// the thread pool in parallel with other work (predefined objects, HR SIMBAD
+    /// parse, Tycho2).
     /// </summary>
     private static async Task<(byte[]? Bytes, bool IsGs)> DecompressNgcAsync(Assembly assembly, string[] manifestNames, string ngcName, CancellationToken cancellationToken)
     {
-        // Prefer the ASCII-separated *.gs.lz produced by tools/preprocess-catalog.ps1;
+        // Prefer the ASCII-separated *.gs.gz produced by tools/preprocess-catalog.ps1;
         // fall back to *.csv.lz for catalogs that have not been migrated yet.
-        var gsManifest = manifestNames.FirstOrDefault(p => p.EndsWith("." + ngcName + ".gs.lz"));
+        var gsManifest = manifestNames.FirstOrDefault(p => p.EndsWith("." + ngcName + ".gs.gz"));
         if (gsManifest is not null && assembly.GetManifestResourceStream(gsManifest) is { } gsStream)
         {
             using (gsStream)
             {
-                return (await Task.Run(() => LzipDecoder.Decompress(gsStream), cancellationToken), true);
+                return (await Task.Run(() => DecompressGzipToBytes(gsStream), cancellationToken), true);
             }
         }
 
@@ -1278,11 +1435,25 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
     }
 
     /// <summary>
+    /// Read a gzip-compressed input stream fully into a managed byte[] using the
+    /// BCL GZipStream decoder. Used for the *.gs.gz catalog payloads. Caller owns
+    /// <paramref name="src"/>; <c>leaveOpen: true</c> avoids double-disposing
+    /// when the call site already wraps it in a <c>using</c>.
+    /// </summary>
+    private static byte[] DecompressGzipToBytes(Stream src)
+    {
+        using var gz = new GZipStream(src, CompressionMode.Decompress, leaveOpen: true);
+        using var ms = new MemoryStream();
+        gz.CopyTo(ms);
+        return ms.ToArray();
+    }
+
+    /// <summary>
     /// Stage 2 of NGC CSV loading: run the CSV reader over pre-decompressed bytes
     /// and merge into the shared dicts. Must stay on the main thread because it
     /// mutates _objectsByIndex / _crossIndexLookuptable. Used only when the
     /// embedded resource is the legacy <c>*.csv.lz</c> form; the new
-    /// <c>*.gs.lz</c> path goes through <see cref="MergeNgcGsData"/>.
+    /// <c>*.gs.gz</c> path goes through <see cref="MergeNgcGsData"/>.
     /// </summary>
     private (int Processed, int Failed) MergeLzCsvData(byte[]? decompressed, CancellationToken cancellationToken)
     {
@@ -1346,7 +1517,7 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
     }
 
     /// <summary>
-    /// Stage 2 of NGC loading from the ASCII-separated <c>*.gs.lz</c> format.
+    /// Stage 2 of NGC loading from the ASCII-separated <c>*.gs.gz</c> format.
     /// Field layout (matches <c>tools/preprocess-catalog.ps1</c> Encode-Ngc):
     /// Name | Type | RA | Dec | Const | VMag | SurfBr | MajAx | MinAx | PosAng |
     /// M | NGC | IC | CommonNames(US-joined) | Identifiers(US-joined).
@@ -1517,14 +1688,14 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
     /// in parallel on the thread pool without touching the shared dicts.
     /// </summary>
     /// <remarks>
-    /// Prefers the ASCII-separated <c>.gs.lz</c> format (produced by
+    /// Prefers the ASCII-separated <c>.gs.gz</c> format (produced by
     /// <c>tools/preprocess-catalog.ps1</c>) when an embedded resource matches;
     /// falls back to the legacy <c>.json.lz</c> path for catalogs that have not
     /// yet been migrated. See <c>PLAN-catalog-binary-format.md</c>.
     /// </remarks>
     private static async Task<List<SimbadCatalogDto>?> ParseSimbadFileAsync(Assembly assembly, string[] manifestNames, string jsonName, CancellationToken cancellationToken)
     {
-        var gsManifest = manifestNames.FirstOrDefault(p => p.EndsWith("." + jsonName + ".gs.lz"));
+        var gsManifest = manifestNames.FirstOrDefault(p => p.EndsWith("." + jsonName + ".gs.gz"));
         if (gsManifest is not null && assembly.GetManifestResourceStream(gsManifest) is { } gsStream)
         {
             return await ParseSimbadGsAsync(gsStream, cancellationToken);
@@ -1559,7 +1730,7 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
     }
 
     /// <summary>
-    /// Decode a SIMBAD <c>.gs.lz</c> stream into <see cref="SimbadCatalogDto"/>
+    /// Decode a SIMBAD <c>.gs.gz</c> stream into <see cref="SimbadCatalogDto"/>
     /// records. Field order is fixed: MainId | ObjType | Ra | Dec | VMag | BMinusV | Ids.
     /// </summary>
     private static async Task<List<SimbadCatalogDto>> ParseSimbadGsAsync(Stream gsStream, CancellationToken cancellationToken)
@@ -1567,7 +1738,7 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
         byte[] decompressed;
         using (gsStream)
         {
-            decompressed = await Task.Run(() => LzipDecoder.Decompress(gsStream), cancellationToken);
+            decompressed = await Task.Run(() => DecompressGzipToBytes(gsStream), cancellationToken);
         }
 
         var records = new List<SimbadCatalogDto>(capacity: 4096);
