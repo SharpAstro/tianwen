@@ -21,9 +21,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     # The PreprocessCatalogs MSBuild target produces the *.gs.gz embedded
-    # resources from *.json.lz / *.csv.lz sources via pure pwsh + .NET
-    # GZipStream (no external binaries needed). *.gs.gz is gitignored, so a
-    # fresh checkout must regenerate it during build.
+    # resources from *.json.lz / *.csv.lz sources. The pwsh script shells out
+    # to `lzip -dc` to decompress the .lz inputs, then writes the .gs.gz output
+    # via .NET GZipStream. *.gs.gz is gitignored, so a fresh checkout must
+    # regenerate it during build.
+    - uses: SharpAstro/cache-apt-pkgs-action@v1
+      with:
+        packages: lzip
+        version: 1.0
     - uses: actions/checkout@v6
       with:
         submodules: recursive

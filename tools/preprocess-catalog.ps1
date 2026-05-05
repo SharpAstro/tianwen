@@ -30,11 +30,15 @@ The output is written via .NET GZipStream (CompressionLevel.Optimal) to
   HR.json.lz  -> HR.gs.gz
   NGC.csv.lz  -> NGC.gs.gz
 
-Gzip was picked over lzip after benchmarking the catalog payloads end-to-end
-(see CatalogCompressionBenchmarks): the BCL GZipStream decoder runs ~7-8x
-faster than the managed LzipDecoder for ~30% larger compressed bytes.
-On a ~1 MB total payload that's +344 KB on disk for ~35 ms saved at cold
-start, and avoids shipping the lzip binary in the build chain.
+Gzip was picked over lzip for the *output* after benchmarking the catalog
+payloads end-to-end (see CatalogCompressionBenchmarks): the BCL GZipStream
+decoder runs ~7-8x faster than the managed LzipDecoder for ~30% larger
+compressed bytes. On a ~1 MB total payload that's +344 KB on disk for ~35 ms
+saved at cold start.
+
+Note the *input* .lz files are still decompressed by shelling out to `lzip -dc`,
+so a working `lzip` binary must be on PATH at build time. Local Windows boxes
+get this via the lzip CLI; CI installs it via SharpAstro/cache-apt-pkgs-action.
 
 .EXAMPLE
 pwsh -NoProfile -File tools/preprocess-catalog.ps1 `
@@ -215,8 +219,9 @@ $summary =
     else { throw "Unrecognized input extension on '$InputPath' (expected .json.lz or .csv.lz)." }
 
 # Compress raw UTF-8 bytes straight into $OutputPath via .NET GZipStream. No
-# temp file, no external lzip binary -- the runtime reads back through
-# System.IO.Compression.GZipStream, so encoder + decoder match one-to-one.
+# temp file -- the runtime reads back through System.IO.Compression.GZipStream,
+# so encoder + decoder match one-to-one. (Input .lz decompression above does
+# still shell out to `lzip -dc`; output .gs.gz emission stays managed.)
 $bytes = [System.Text.Encoding]::UTF8.GetBytes($sb.ToString())
 
 $outDir = Split-Path -Parent $OutputPath
