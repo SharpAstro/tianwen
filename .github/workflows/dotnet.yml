@@ -33,23 +33,25 @@ jobs:
         submodules: recursive
         lfs: false
     # Narrow LFS pull: build needs catalog .lz (TianWen.Lib EmbeddedResource),
-    # milkyway .lz (Gui Content) and fonts .ttf (Gui Content). Skipping test
-    # fixtures (*.fits.gz) saves ~120 MB per pull -- they're only needed by
-    # the test jobs, not for compilation or the .nupkg artifact.
+    # milkyway .lz (Gui Content), fonts .ttf (Gui Content), and the prebaked
+    # snapshot .bin.gz files (TianWen.Lib EmbeddedResource - if missing, the
+    # LFS pointer text gets embedded and runtime gzip read fails). Skipping
+    # test fixtures (*.fits.gz) saves ~120 MB per pull -- they're only needed
+    # by the test jobs, not for compilation or the .nupkg artifact.
     - name: Compute LFS cache key
       id: lfs-key
       run: |
         # Pointer file content (OID + size) changes only when the underlying
         # LFS object changes, so a pointer-hash key reliably identifies which
         # set of LFS objects we'd be pulling. Cache hit -> no LFS bandwidth.
-        HASH=$(git ls-files '*.lz' '*.ttf' | xargs cat | sha256sum | cut -c1-16)
+        HASH=$(git ls-files '*.lz' '*.ttf' '*.bin.gz' | xargs cat | sha256sum | cut -c1-16)
         echo "key=lfs-build-${HASH}" >> $GITHUB_OUTPUT
     - uses: actions/cache@v5
       with:
         path: .git/lfs
         key: ${{ steps.lfs-key.outputs.key }}
     - name: Fetch required LFS objects
-      run: git lfs pull --include="*.lz,*.ttf"
+      run: git lfs pull --include="*.lz,*.ttf,*.bin.gz"
     - uses: actions/setup-dotnet@v5
       with:
         dotnet-version: 10.0.x
@@ -101,14 +103,14 @@ jobs:
     - name: Compute LFS cache key
       id: lfs-key
       run: |
-        HASH=$(git ls-files '*.lz' '*.ttf' '*.fits.gz' | xargs cat | sha256sum | cut -c1-16)
+        HASH=$(git ls-files '*.lz' '*.ttf' '*.bin.gz' '*.fits.gz' | xargs cat | sha256sum | cut -c1-16)
         echo "key=lfs-tests-${HASH}" >> $GITHUB_OUTPUT
     - uses: actions/cache@v5
       with:
         path: .git/lfs
         key: ${{ steps.lfs-key.outputs.key }}
     - name: Fetch required LFS objects
-      run: git lfs pull --include="*.lz,*.ttf,*.fits.gz"
+      run: git lfs pull --include="*.lz,*.ttf,*.bin.gz,*.fits.gz"
     # Pull in the .gs.gz preprocessed catalogs from the build job so the
     # preprocess-catalog.ps1 script doesn't have to re-run here. Touch them to
     # be newer than .json.lz so MSBuild's Inputs/Outputs check skips the
@@ -153,14 +155,14 @@ jobs:
     - name: Compute LFS cache key
       id: lfs-key
       run: |
-        HASH=$(git ls-files '*.lz' '*.ttf' '*.fits.gz' | xargs cat | sha256sum | cut -c1-16)
+        HASH=$(git ls-files '*.lz' '*.ttf' '*.bin.gz' '*.fits.gz' | xargs cat | sha256sum | cut -c1-16)
         echo "key=lfs-tests-${HASH}" >> $GITHUB_OUTPUT
     - uses: actions/cache@v5
       with:
         path: .git/lfs
         key: ${{ steps.lfs-key.outputs.key }}
     - name: Fetch required LFS objects
-      run: git lfs pull --include="*.lz,*.ttf,*.fits.gz"
+      run: git lfs pull --include="*.lz,*.ttf,*.bin.gz,*.fits.gz"
     - name: Download preprocessed catalogs
       uses: actions/download-artifact@v6
       with:
@@ -220,7 +222,7 @@ jobs:
       id: lfs-key
       shell: bash
       run: |
-        HASH=$(git ls-files '*.lz' '*.ttf' | xargs cat | sha256sum | cut -c1-16)
+        HASH=$(git ls-files '*.lz' '*.ttf' '*.bin.gz' | xargs cat | sha256sum | cut -c1-16)
         echo "key=lfs-build-${HASH}" >> $GITHUB_OUTPUT
     - uses: actions/cache@v5
       with:
@@ -228,7 +230,7 @@ jobs:
         key: ${{ steps.lfs-key.outputs.key }}
     - name: Fetch required LFS objects
       shell: bash
-      run: git lfs pull --include="*.lz,*.ttf"
+      run: git lfs pull --include="*.lz,*.ttf,*.bin.gz"
     # Same artifact pattern as the test jobs -- avoids re-running the
     # preprocess-catalog.ps1 script on the multi-platform publish matrix
     # (Windows / Linux / macOS).
