@@ -196,11 +196,11 @@ public class SimbadMergeSnapshotTests(ITestOutputHelper output)
     [InlineData("NGC7000", "C020")]               // North America: NGC <-> Caldwell
     [InlineData("M045", "Mel022")]                // Pleiades: Messier <-> Melotte
     [InlineData("HIP011767", "HD008890")]         // Polaris: HIP <-> HD
-    public void GivenCrossReferencedObject_WhenLookingUpEitherIdentifier_ThenBothResolveBidirectionally(
+    public async Task GivenCrossReferencedObject_WhenLookingUpEitherIdentifier_ThenBothResolveBidirectionally(
         string idA, string idB)
     {
         var db = new CelestialObjectDB();
-        db.InitDBAsync(cancellationToken: TestContext.Current.CancellationToken).GetAwaiter().GetResult();
+        await db.InitDBAsync(cancellationToken: TestContext.Current.CancellationToken);
 
         CatalogUtils.TryGetCleanedUpCatalogName(idA, out var indexA).ShouldBeTrue($"Failed to parse '{idA}'");
         CatalogUtils.TryGetCleanedUpCatalogName(idB, out var indexB).ShouldBeTrue($"Failed to parse '{idB}'");
@@ -239,10 +239,10 @@ public class SimbadMergeSnapshotTests(ITestOutputHelper output)
     [InlineData("Andromeda Galaxy", new[] { "NGC0224", "M031" })]
     [InlineData("Orion Nebula", new[] { "NGC1976", "M042" })]
     [InlineData("Cave Nebula", new[] { "C009", "Ced0201", "DG0179" })]
-    public void GivenPopularNickname_WhenResolving_ThenEveryAssociatedCatalogIndexIsListed(string name, string[] expectedIds)
+    public async Task GivenPopularNickname_WhenResolving_ThenEveryAssociatedCatalogIndexIsListed(string name, string[] expectedIds)
     {
         var db = new CelestialObjectDB();
-        db.InitDBAsync(cancellationToken: TestContext.Current.CancellationToken).GetAwaiter().GetResult();
+        await db.InitDBAsync(cancellationToken: TestContext.Current.CancellationToken);
 
         db.TryResolveCommonName(name, out var matches).ShouldBeTrue($"Common name '{name}' not resolvable");
         var matchSet = new HashSet<CatalogIndex>(matches);
