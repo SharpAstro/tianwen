@@ -1662,7 +1662,14 @@ namespace TianWen.UI.Abstractions
                     ViewerActions.CycleStretchPreset(state, reverse: true);
                     return true;
                 case InputKey.B:
-                    ViewerActions.CycleCurvesBoost(state);
+                    if (shift)
+                    {
+                        ViewerActions.CycleCurvesMode(state);
+                    }
+                    else
+                    {
+                        ViewerActions.CycleCurvesBoost(state);
+                    }
                     return true;
                 case InputKey.G:
                     state.ShowGrid = !state.ShowGrid;
@@ -1715,13 +1722,24 @@ namespace TianWen.UI.Abstractions
 
         private void TryStartColorCalibration(ViewerState state)
         {
-            if (_document?.IsPlateSolved == true && _document.Stars is { Count: > 0 } && CelestialObjectDB is { IsValueCreated: true } db)
+            if (_document?.IsPlateSolved == true && _document.Stars is { Count: > 0 } && CelestialObjectDB is { IsValueCreated: true } db
+                && _document.ColorCalibration is null)
             {
-                state.ColorCalibrationEnabled = true;
+                state.StatusMessage = "Calibrating color...";
+                state.NeedsRedraw = true;
                 _ = Task.Run(async () =>
                 {
                     var cdb = await db.WithCancellation(CancellationToken.None);
                     await _document.ComputeColorCalibrationAsync(cdb);
+                    if (_document.ColorCalibration is not null)
+                    {
+                        state.ColorCalibrationEnabled = true;
+                        state.StatusMessage = null;
+                    }
+                    else
+                    {
+                        state.StatusMessage = "Color calibration: too few matches";
+                    }
                     state.NeedsRedraw = true;
                 });
             }

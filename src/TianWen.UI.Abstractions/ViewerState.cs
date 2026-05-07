@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using TianWen.Lib.Imaging;
 
 namespace TianWen.UI.Abstractions;
@@ -17,6 +18,12 @@ public sealed class ViewerState
 
     /// <summary>Curves boost amount applied in the display shader (0.0 = off, up to 1.0).</summary>
     public float CurvesBoost { get; set; }
+
+    /// <summary>Curve mode: 0 = power-law boost, 1 = Fritsch-Carlson spline LUT.</summary>
+    public int CurvesMode { get; set; }
+
+    /// <summary>36 floats (33 knots + 3 pad) for the spline LUT. Empty when using boost mode.</summary>
+    public ImmutableArray<float> CurveData { get; set; } = [];
 
     /// <summary>Index into <see cref="CurvesBoostPresets"/>.</summary>
     public int CurvesBoostIndex { get; set; }

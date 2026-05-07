@@ -82,6 +82,20 @@ public static class ViewerActions
         state.StatusMessage = state.CurvesBoost > 0f ? $"Curves Boost: {state.CurvesBoost:P0}" : "Curves Boost: Off";
     }
 
+    /// <summary>Cycles between power-law boost (mode 0) and spline LUT (mode 1).</summary>
+    public static void CycleCurvesMode(ViewerState state)
+    {
+        state.CurvesMode = state.CurvesMode == 0 ? 1 : 0;
+        if (state.CurvesMode == 1 && state.CurveData.IsDefault)
+        {
+            // Use an S-curve preset: lift shadows, preserve mids, compress highlights
+            var spline = new FritschCarlsonSpline([(0f, 0f), (0.15f, 0.22f), (0.4f, 0.5f), (0.7f, 0.72f), (1f, 1f)]);
+            state.CurveData = spline.ComputeKnots33();
+        }
+        state.NeedsRedraw = true;
+        state.StatusMessage = state.CurvesMode == 1 ? "Curve: Spline LUT" : "Curve: Boost";
+    }
+
     public static void CycleHdr(ViewerState state, bool reverse = false)
     {
         var len = ViewerState.HdrPresets.Length;
@@ -384,7 +398,14 @@ public static class ViewerActions
                 CycleDebayerAlgorithm(state, reverse);
                 return true;
             case ToolbarAction.CurvesBoost:
-                CycleCurvesBoost(state, reverse);
+                if (reverse)
+                {
+                    CycleCurvesMode(state);
+                }
+                else
+                {
+                    CycleCurvesBoost(state);
+                }
                 return true;
             case ToolbarAction.Hdr:
                 CycleHdr(state, reverse);

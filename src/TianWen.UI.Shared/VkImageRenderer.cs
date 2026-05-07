@@ -147,6 +147,8 @@ public sealed class VkImageRenderer : ImageRendererBase<VulkanContext>, IDisposa
             highlights: (stretch.Highlights.R, stretch.Highlights.G, stretch.Highlights.B),
             rescale: (stretch.Rescale.R, stretch.Rescale.G, stretch.Rescale.B),
             whiteBalance: (stretch.WhiteBalance.R, stretch.WhiteBalance.G, stretch.WhiteBalance.B),
+            curvesMode: state.CurvesMode,
+            curveData: state.CurveData.AsSpan(),
             gridEnabled: gridEnabled,
             gridSpacingRA: gridSpacingRA,
             gridSpacingDec: gridSpacingDec,
