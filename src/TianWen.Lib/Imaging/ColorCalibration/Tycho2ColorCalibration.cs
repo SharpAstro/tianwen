@@ -191,10 +191,12 @@ public static class Tycho2ColorCalibration
         for (var i = 0; i < photometry.Count; i++)
         {
             var m = photometry[i];
-            var scale = (float)(m.ExpectedG / m.ObservedG); // normalise by green
-            rRatios[i] = (float)(m.ObservedR * scale / m.ExpectedR);
+            // WB multiplier = expected / observed, normalised so green = 1
+            // wR = (expectedR / observedR) * (observedG / expectedG)
+            var norm = (float)(m.ObservedG / m.ExpectedG);
+            rRatios[i] = (float)(m.ExpectedR / m.ObservedR * norm);
             gRatios[i] = 1f;
-            bRatios[i] = (float)(m.ObservedB * scale / m.ExpectedB);
+            bRatios[i] = (float)(m.ExpectedB / m.ObservedB * norm);
         }
 
         Array.Sort(rRatios);
