@@ -484,58 +484,36 @@ public sealed class AstroImageDocument
     }
 
     /// <summary>
-    /// Computes color calibration. Tries Tycho-2 photometric matching first (requires plate
-    /// solve), falls back to star-masked gray-world on background pixels.
+    /// Computes Tycho-2 photometric color calibration. Requires plate-solved WCS and detected stars.
+    /// Returns the number of matched stars (0 if calibration failed or wasn't attempted).
     /// </summary>
-    public async Task ComputeColorCalibrationAsync(ICelestialObjectDB db, CancellationToken cancellationToken = default)
+    public async Task<int> ComputeColorCalibrationAsync(ICelestialObjectDB db, CancellationToken cancellationToken = default)
     {
-        if (ColorCalibration.HasValue) return;
-        if (Stars is not { Count: >= 5 } starList) return;
+        if (ColorCalibration.HasValue) return 0;
+        if (Stars is not { Count: >= 5 } starList) return 0;
+        if (Wcs is not { } wcs || !IsPlateSolved) return 0;
 
-        // Primary: Tycho-2 photometric calibration (needs plate solve + DB)
-        if (Wcs is { } wcs && IsPlateSolved)
+        await db.EnsureTycho2DataLoadedAsync(cancellationToken);
+
+        var calibrateImage = UnstretchedImage;
+        if (calibrateImage.ChannelCount < 3 && calibrateImage.ImageMeta.SensorType is SensorType.RGGB)
         {
-            await db.EnsureTycho2DataLoadedAsync(cancellationToken);
-
-            var image = UnstretchedImage;
-            if (image.ChannelCount < 3 && image.ImageMeta.SensorType is SensorType.RGGB)
-            {
-                image = await image.DebayerAsync(DebayerAlgorithm, cancellationToken: cancellationToken);
-            }
-
-            if (image.ChannelCount >= 3)
-            {
-                var result = await Task.Run(() =>
-                    Tycho2ColorCalibration.ComputeWhiteBalance(image, starList, wcs, db, minStars: 5),
-                    cancellationToken);
-
-                if (result is { } wb)
-                {
-                    ColorCalibration = (wb.R, wb.G, wb.B);
-                    return;
-                }
-            }
+            calibrateImage = await calibrateImage.DebayerAsync(DebayerAlgorithm, cancellationToken: cancellationToken);
         }
 
-        // Fallback: star-masked channel median ratios (gray-world, no WCS needed)
-        var calImage = UnstretchedImage;
-        if (calImage.ChannelCount < 3 && calImage.ImageMeta.SensorType is SensorType.RGGB)
+        if (calibrateImage.ChannelCount < 3) return 0;
+
+        var result = await Task.Run(() =>
+            Tycho2ColorCalibration.ComputeWhiteBalance(calibrateImage, starList, wcs, db, minStars: 5),
+            cancellationToken);
+
+        if (result is { } wb)
         {
-            calImage = await calImage.DebayerAsync(DebayerAlgorithm, cancellationToken: cancellationToken);
+            ColorCalibration = (wb.R, wb.G, wb.B);
+            return wb.MatchCount;
         }
 
-        if (calImage.ChannelCount < 3 || starList.StarMask is null) return;
-        var mask = starList.StarMask.Value;
-
-        (_, var medR, _) = calImage.GetStarMaskedMedianAndMADScaledToUnit(0, mask);
-        (_, var medG, _) = calImage.GetStarMaskedMedianAndMADScaledToUnit(1, mask);
-        (_, var medB, _) = calImage.GetStarMaskedMedianAndMADScaledToUnit(2, mask);
-
-        if (medG <= 1e-7f) return;
-
-        var wbR = Math.Clamp(medG / Math.Max(medR, 1e-7f), 0.1f, 10f);
-        var wbB = Math.Clamp(medG / Math.Max(medB, 1e-7f), 0.1f, 10f);
-        ColorCalibration = (wbR, 1f, wbB);
+        return 0;
     }
 
     /// <summary>
