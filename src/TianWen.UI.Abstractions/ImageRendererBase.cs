@@ -1738,14 +1738,16 @@ namespace TianWen.UI.Abstractions
                         ? await lazy.WithCancellation(CancellationToken.None)
                         : null!;
                     var matched = await _document.ComputeColorCalibrationAsync(db);
-                    if (_document.ColorCalibration is not null)
+                    if (_document.ColorCalibration is { } wb)
                     {
                         state.ColorCalibrationEnabled = true;
                         if (state.StretchMode is StretchMode.Unlinked)
                         {
                             state.StretchMode = StretchMode.Linked;
                         }
-                        state.StatusMessage = matched > 0 ? $"Calibrated ({matched} Tycho-2 stars)" : null;
+                        state.StatusMessage = matched > 0
+                            ? $"WB ({matched}★): R={wb.Item1:F2} G=1.00 B={wb.Item3:F2}"
+                            : null;
                     }
                     else
                     {

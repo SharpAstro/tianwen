@@ -523,9 +523,11 @@ public sealed class AstroImageDocument
         if (result is { } wb)
         {
             ColorCalibration = (wb.R, wb.G, wb.B);
+            System.Diagnostics.Debug.WriteLine($"[ColorCal] {wb.MatchCount} stars: wbR={wb.R:F3} wbG={wb.G:F3} wbB={wb.B:F3}  perChStats=({PerChannelStats[0].Median:F4},{PerChannelStats[1].Median:F4},{PerChannelStats[2].Median:F4})");
             return wb.MatchCount;
         }
 
+        System.Diagnostics.Debug.WriteLine("[ColorCal] Failed — not enough Tycho-2 matches");
         return 0;
     }
 
