@@ -231,6 +231,34 @@ public static class Tycho2ColorCalibration
     };
 
     /// <summary>
+    /// Computes per-channel white balance multipliers from observed and expected channel values.
+    /// Exposed for testing. wbR = median((expectedR/observedR) / (expectedG/observedG)), etc.
+    /// </summary>
+    internal static (float R, float G, float B) ComputeMultipliers(
+        ReadOnlySpan<float> obsR, ReadOnlySpan<float> obsG, ReadOnlySpan<float> obsB,
+        ReadOnlySpan<float> expR, ReadOnlySpan<float> expG, ReadOnlySpan<float> expB)
+    {
+        var n = obsR.Length;
+        var rRatios = new float[n];
+        var bRatios = new float[n];
+
+        for (var i = 0; i < n; i++)
+        {
+            if (obsG[i] <= 0 || expG[i] <= 0) continue;
+            var norm = obsG[i] / expG[i];
+            rRatios[i] = expR[i] / obsR[i] * norm;
+            bRatios[i] = expB[i] / obsB[i] * norm;
+        }
+
+        Array.Sort(rRatios);
+        Array.Sort(bRatios);
+
+        var wbR = Math.Clamp(rRatios[n / 2], 0.1f, 10f);
+        var wbB = Math.Clamp(bRatios[n / 2], 0.1f, 10f);
+        return (wbR, 1f, wbB);
+    }
+
+    /// <summary>
     /// Computes per-channel white balance multipliers via robust median of observed/expected ratios.
     /// </summary>
     private static (float R, float G, float B) ComputeMultipliers(List<StarMatch> photometry)
