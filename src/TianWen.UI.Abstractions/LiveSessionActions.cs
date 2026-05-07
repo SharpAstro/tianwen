@@ -167,7 +167,7 @@ namespace TianWen.UI.Abstractions
                 ccdTemp = await logger.CatchAsyncIf(camera.CanGetCCDTemperature, camera.GetCCDTemperatureAsync, ct, double.NaN);
                 power = await logger.CatchAsyncIf(camera.CanGetCoolerPower, camera.GetCoolerPowerAsync, ct, double.NaN);
                 coolerOn = await logger.CatchAsyncIf(camera.CanGetCoolerOn, camera.GetCoolerOnAsync, ct);
-                setpoint = await logger.CatchAsync(camera.GetSetCCDTemperatureAsync, ct, double.NaN);
+                setpoint = await logger.CatchAsyncIf(camera.CanSetCCDTemperature, camera.GetSetCCDTemperatureAsync, ct, double.NaN);
                 usesGainValue = camera.UsesGainValue;
                 usesGainMode = camera.UsesGainMode;
                 gainMin = camera.GainMin;
