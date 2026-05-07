@@ -345,12 +345,33 @@ public sealed class AstroImageDocument
             }
         }
 
-        var uniforms = ComputeStretchUniforms(mode, new StretchParameters(factor, clipping), stats, luma, UnstretchedImage.MaxValue);
+        // Adjust stats for white balance: after WB, each channel's median/MAD
+        // is scaled by the WB multiplier. Compensate so MTF parameters are correct.
         if (ColorCalibration is { } wb)
         {
-            uniforms = uniforms with { WhiteBalance = wb };
+            stats = AdjustStatsForWB(stats, wb);
+            luma = luma is { } l ? AdjustStatsForWB([l], wb)[0] : null;
+        }
+
+        var uniforms = ComputeStretchUniforms(mode, new StretchParameters(factor, clipping), stats, luma, UnstretchedImage.MaxValue);
+        if (ColorCalibration is { } wb2)
+        {
+            uniforms = uniforms with { WhiteBalance = wb2 };
         }
         return uniforms;
+    }
+
+    private static ChannelStretchStats[] AdjustStatsForWB(ChannelStretchStats[] stats, (float R, float G, float B) wb)
+    {
+        var wbArr = new[] { wb.R, wb.G, wb.B };
+        var adjusted = new ChannelStretchStats[stats.Length];
+        for (var i = 0; i < stats.Length; i++)
+        {
+            var w = i < wbArr.Length ? wbArr[i] : 1f;
+            var s = stats[i];
+            adjusted[i] = new ChannelStretchStats(s.Pedestal, s.Median * w, s.Mad * w);
+        }
+        return adjusted;
     }
 
     /// <summary>
@@ -495,16 +516,8 @@ public sealed class AstroImageDocument
 
         await db.EnsureTycho2DataLoadedAsync(cancellationToken);
 
-        var calibrateImage = UnstretchedImage;
-        if (calibrateImage.ChannelCount < 3 && calibrateImage.ImageMeta.SensorType is SensorType.RGGB)
-        {
-            calibrateImage = await calibrateImage.DebayerAsync(DebayerAlgorithm, cancellationToken: cancellationToken);
-        }
-
-        if (calibrateImage.ChannelCount < 3) return 0;
-
         var result = await Task.Run(() =>
-            Tycho2ColorCalibration.ComputeWhiteBalance(calibrateImage, starList, wcs, db, minStars: 5),
+            Tycho2ColorCalibration.ComputeWhiteBalance(UnstretchedImage, starList, wcs, db, minStars: 5),
             cancellationToken);
 
         if (result is { } wb)

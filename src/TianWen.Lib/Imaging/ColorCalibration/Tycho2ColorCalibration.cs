@@ -25,7 +25,7 @@ public static class Tycho2ColorCalibration
     /// Computes per-channel white balance multipliers by matching detected stars to
     /// Tycho-2 and comparing observed photometry to B-V predicted colors.
     /// </summary>
-    /// <param name="image">Unstretched image (typically 3-channel RGB, must be plate-solved).</param>
+    /// <param name="image">Unstretched image (3-channel RGB, or 1-channel Bayer).</param>
     /// <param name="stars">Detected stars with centroids.</param>
     /// <param name="wcs">Plate-solve WCS solution.</param>
     /// <param name="db">Initialised celestial object database.</param>
@@ -44,7 +44,7 @@ public static class Tycho2ColorCalibration
         float maxMagDiff = 1.5f,
         int minStars = 5)
     {
-        if (image.ChannelCount < 3) return null;
+        if (image.ChannelCount < 3 && image.ImageMeta.SensorType is not SensorType.RGGB) return null;
 
         var matches = MatchStars(stars, wcs, db, matchRadiusArcsec, maxMagDiff);
         if (matches.Count < minStars) return null;
@@ -123,11 +123,14 @@ public static class Tycho2ColorCalibration
 
     /// <summary>
     /// Extracts per-channel aperture photometry for each matched star.
+    /// For Bayer (RGGB) images, samples raw sub-pixels to capture the true sensor
+    /// channel response including the 2x green oversampling bias.
     /// </summary>
     private static List<StarMatch> ExtractPhotometry(
         Image image, List<(ImagedStar Star, CelestialObject Tycho)> matches, int apertureRadius)
     {
         var (channelCount, width, height) = image.Shape;
+        var isBayer = channelCount == 1 && image.ImageMeta.SensorType is SensorType.RGGB;
         var result = new List<StarMatch>(matches.Count);
 
         foreach (var (star, tycho) in matches)
@@ -137,8 +140,9 @@ public static class Tycho2ColorCalibration
             var annulusOuter = apertureRadius + 5;
 
             var obsR = 0.0; var obsG = 0.0; var obsB = 0.0;
-            var apPixels = 0; var bgPixels = 0;
+            var apR = 0; var apG = 0; var apB = 0;
             var bgR = 0.0; var bgG = 0.0; var bgB = 0.0;
+            var bgRc = 0; var bgGc = 0; var bgBc = 0;
 
             for (var y = (int)(cy - annulusOuter); y <= (int)(cy + annulusOuter); y++)
             {
@@ -148,36 +152,83 @@ public static class Tycho2ColorCalibration
                     var dx = x - cx; var dy = y - cy;
                     var dist = Math.Sqrt(dx * dx + dy * dy);
 
-                    if (float.IsNaN(image[0, y, x])) continue;
+                    var isAp = dist <= apertureRadius;
+                    var isBg = !isAp && dist >= annulusInner && dist <= annulusOuter;
+                    if (!isAp && !isBg) continue;
 
-                    if (dist <= apertureRadius)
+                    if (isBayer)
                     {
-                        obsR += image[0, y, x]; obsG += image[1, y, x]; obsB += image[2, y, x];
-                        apPixels++;
+                        var v = image[0, y, x];
+                        if (float.IsNaN(v)) continue;
+                        var ch = BayerChannel(x, y);
+                        if (isAp) { AddChannel(ch, v, ref obsR, ref obsG, ref obsB, ref apR, ref apG, ref apB); }
+                        else { AddChannel(ch, v, ref bgR, ref bgG, ref bgB, ref bgRc, ref bgGc, ref bgBc); }
                     }
-                    else if (dist >= annulusInner && dist <= annulusOuter)
+                    else
                     {
-                        bgR += image[0, y, x]; bgG += image[1, y, x]; bgB += image[2, y, x];
-                        bgPixels++;
+                        if (float.IsNaN(image[0, y, x])) continue;
+                        if (isAp)
+                        {
+                            obsR += image[0, y, x]; obsG += image[1, y, x]; obsB += image[2, y, x];
+                            apR++;
+                        }
+                        else
+                        {
+                            bgR += image[0, y, x]; bgG += image[1, y, x]; bgB += image[2, y, x];
+                            bgRc++;
+                        }
                     }
                 }
             }
 
+            var apPixels = isBayer ? apR + apG + apB : apR;
+            var bgPixels = isBayer ? bgRc + bgGc + bgBc : bgRc;
             if (apPixels < 3 || bgPixels < 5) continue;
 
-            var bgPerPixelR = bgR / bgPixels; var bgPerPixelG = bgG / bgPixels; var bgPerPixelB = bgB / bgPixels;
-            var netR = obsR - bgPerPixelR * apPixels;
-            var netG = obsG - bgPerPixelG * apPixels;
-            var netB = obsB - bgPerPixelB * apPixels;
-            if (netR <= 0 || netG <= 0 || netB <= 0) continue;
-
-            var (expR, expG, expB) = SyntheticStarFieldRenderer.BMinusVToRGB((double)tycho.BMinusV);
-
-            result.Add(new StarMatch(netR, netG, netB, expR, expG, expB, (double)tycho.V_Mag));
+            if (isBayer)
+            {
+                var netR = obsR - (bgR / Math.Max(bgRc, 1)) * apR;
+                var netG = obsG - (bgG / Math.Max(bgGc, 1)) * apG;
+                var netB = obsB - (bgB / Math.Max(bgBc, 1)) * apB;
+                if (netR <= 0 || netG <= 0 || netB <= 0) continue;
+                var (expR, expG, expB) = SyntheticStarFieldRenderer.BMinusVToRGB((double)tycho.BMinusV);
+                result.Add(new StarMatch(netR, netG, netB, expR, expG, expB, (double)tycho.V_Mag));
+            }
+            else
+            {
+                var bgPerPixelR = bgR / bgPixels; var bgPerPixelG = bgG / bgPixels; var bgPerPixelB = bgB / bgPixels;
+                var netR = obsR - bgPerPixelR * apPixels;
+                var netG = obsG - bgPerPixelG * apPixels;
+                var netB = obsB - bgPerPixelB * apPixels;
+                if (netR <= 0 || netG <= 0 || netB <= 0) continue;
+                var (expR, expG, expB) = SyntheticStarFieldRenderer.BMinusVToRGB((double)tycho.BMinusV);
+                result.Add(new StarMatch(netR, netG, netB, expR, expG, expB, (double)tycho.V_Mag));
+            }
         }
 
         return result;
     }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static void AddChannel(int ch, double v, ref double r, ref double g, ref double b, ref int rc, ref int gc, ref int bc)
+    {
+        switch (ch)
+        {
+            case 0: r += v; rc++; break;
+            case 1: g += v; gc++; break;
+            case 2: b += v; bc++; break;
+        }
+    }
+
+    /// <summary>Returns 0=R, 1=G, 2=B for an RGGB Bayer pixel.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static int BayerChannel(int x, int y) => ((y & 1) << 1) | (x & 1) switch
+    {
+        0 when (y & 1) == 0 => 0, // R at even, even
+        1 when (y & 1) == 0 => 1, // G at odd, even
+        0 when (y & 1) == 1 => 1, // G at even, odd
+        _ => 2,                    // B at odd, odd
+    };
 
     /// <summary>
     /// Computes per-channel white balance multipliers via robust median of observed/expected ratios.
@@ -202,12 +253,8 @@ public static class Tycho2ColorCalibration
         Array.Sort(rRatios);
         Array.Sort(bRatios);
 
-        var wbR = rRatios[photometry.Count / 2];
-        var wbG = 1f;
-        var wbB = bRatios[photometry.Count / 2];
-
-        var max = Math.Max(wbR, Math.Max(wbG, wbB));
-        if (max <= 0) max = 1f;
-        return (wbR / max, wbG / max, wbB / max);
+        var wbR = Math.Clamp(rRatios[photometry.Count / 2], 0.1f, 10f);
+        var wbB = Math.Clamp(bRatios[photometry.Count / 2], 0.1f, 10f);
+        return (wbR, 1f, wbB);
     }
 }
