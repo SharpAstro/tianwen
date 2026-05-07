@@ -6,7 +6,7 @@
 - [x] Cache altitude chart as texture — only re-render the mouse follower overlay on hover, not the entire chart. Currently 20% GPU on mouse hover due to full chart redraw per frame
 - [x] TianWen.Hosting remote API — ASP.NET Core Minimal API + WebSocket for headless Raspi operation. Multi-OTA native routes (`/api/v1/ota/{index}/camera/info`) with ninaAPI v2 compatibility shim (`/v2/api/*` → OTA[0]) so Touch N Stars works for single-scope setups. All 4 phases complete: read-only state, control, ninaAPI shim (equipment info/control, sequence, images, WebSocket, device lifecycle, guider graph, move-axis), profile CRUD + pending target queue. `tianwen-server` headless executable published as AOT binary for all platforms
 - [ ] PlayerOne Astronomy / ToupTek / SVBony native drivers — these vendors use ZWO-compatible SDKs with different library prefixes (PlayerOne: `PlayerOneCamera`, ToupTek: `toupcam`/`starshootg`, SVBony: `SVBCameraSDK`). Investigate sharing `ZWODeviceSource`/`ZWOCameraDriver` infrastructure with a pluggable SDK shim rather than duplicating per vendor. NINA uses a `ToupTekAlike` pattern for this family. Cameras, filter wheels, and focusers where applicable
-- [ ] Catalog cold-start Phase 2 (pre-bake init state) — see `PLAN-catalog-binary-format.md` § Phase 2. **2A SHIPPED 2026-05-05:** `tools/precompute-hd-hip-cross/` bakes the post-`BuildHdHipCrossIndicesViaTyc` state into `hd_hip_cross.bin.gz`; runtime apply takes ~110 ms vs ~460 ms live (~350 ms saved). Two CI guards in `HdHipCrossSnapshotTests` (freshness + apply-vs-live state). Run `tools/precompute-hd-hip-cross.ps1` to re-bake when catalog inputs change. **2B remaining:** same pattern for SIMBAD merge state (~150 ms target).
+- [ ] Catalog cold-start Phase 2 (pre-bake init state) — see `PLAN-catalog-binary-format.md` § Phase 2. **2A SHIPPED 2026-05-05:** `hd_hip_cross.bin.gz` snapshot (~350 ms saved). **2B SHIPPED 2026-05-05:** `simbad_merge.bin.gz` snapshot (~180 ms saved). **2C deferred:** Tycho-2 bulk load; BFS pooling not started.
 
 ## Flaky CI Tests
 
@@ -149,7 +149,7 @@
 - [ ] Faster imaging loop tick: reduce to `GCD/6` clamped `[1s, 5s]` — fix `FakeMeadeLX200SerialDevice` slew timer interleaving (immediate axis positioning instead of 100ms step timer)
 - [x] `SessionFactory.Create(proposals)` hardcodes `defaultObservationTime = 30min` — should use planner's computed windows (handoff slider positions) or at least divide the dark window evenly among targets — `PlannerActions.ApplyHandoffWindows` (and `ComputeVisibleTimeInWindow` helper) now projects each pinned target's handoff slider window into `ProposedObservation.ObservationTime`, clipped to when the target is at or above `MinHeightAboveHorizon`. Wired into `BuildSchedule`; `defaultObservationTime` becomes a true fallback for proposals without a slider/profile.
 - [x] Gracefully stop a session (`HostedSession.cs:39`) — `Session.RunAsync`'s `try/finally` (`Session.cs:288-300`) always runs `Finalise(CancellationToken.None)` (park mount, warm cameras, close covers) when the session token is cancelled. `HostedSession.StopAsync` cancels the token then disposes — gracefulness happens via the cancellation finally path. (The inline TODO comment at `HostedSession.cs:112` is now stale — should be removed.)
-- [ ] Wait until 5 min to astro dark, and/or implement `IExternal.IsPolarAligned` (`Session.cs:61`) — first half done: `WaitUntilTenMinutesBeforeAmateurAstroTwilightEndsAsync` runs at `Session.cs:260` before cooling/focus/calibration. `IsPolarAligned` half still open.
+- [x] Wait until 5 min to astro dark — `WaitUntilTenMinutesBeforeAmateurAstroTwilightEndsAsync` runs at `Session.cs:260` before cooling/focus/calibration. `IsPolarAligned` check removed (TianWen has its own polar alignment now, no need to gate on an external flag).
 - [ ] Maybe slew slightly above/below 0 declination to avoid trees, etc. (`Session.Lifecycle.cs:19` — guider calibration slew). NOT covered by `ScoutAndProbeAsync` because the scout is OTA-imaging-only, runs after centering, and requires a prior-observation baseline. See `PLAN-fov-obstruction-detection.md` "Known limitations" section for what would need to change to unify these.
 - [x] Plate solve, sync, and re-slew after initial slew — `PlateSolveAndSyncAsync` called after slew in `ObservationLoopAsync` and `InitialRoughFocusAsync`
 - [x] ~~Wait until target rises again instead of skipping~~ — replaced by spare target fallback in observation loop, todo
@@ -274,7 +274,10 @@ Learnings from PixInsight Statistical Stretch (SetiAstro, v2.3).
 - [x] Luma-only stretch mode (Rec. 709 luminance, stretch Y, scale RGB by Y'/Y)
 - [x] HDR compression in GPU shader (Hermite soft-knee, `uHdrAmount`/`uHdrKnee` uniforms)
 - [ ] Normalize after stretch — `x / max(x)` to fill full [0,1] range
-- [ ] Iterative convergence — multiple stretch iterations until median converges to target
+- [x] Iterative convergence — `Image.ConvergeStretchFactor` bisects stretchFactor using histogram until post-stretch median converges to target (0.25). Gated by `AstroImageDocument.UseIterativeConvergence`
+- [x] Star-masked background extraction — `GetStarMaskedMedianAndMADScaledToUnit` recomputes median/MAD excluding star pixels after detection; `StarMaskedStats`/`StarMaskedLumaStats` preferred in `ComputeStretchUniforms`
+- [x] Tycho-2 photometric color calibration — `Tycho2ColorCalibration.ComputeWhiteBalance` matches detected stars to Tycho-2, extracts aperture photometry, computes WB multipliers; flows through GPU UBO and CPU path
+- [x] Fritsch-Carlson spline curves — `FritschCarlsonSpline` struct with monotonic cubic Hermite interpolation; `applyCurveLUT` in GLSL shader via 33-knot UBO; `ApplyCurveLut` CPU path
 - [ ] Luma blend — smoothly blend between linked and luma-only results
 
 ## FITS Viewer

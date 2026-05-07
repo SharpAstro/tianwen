@@ -377,4 +377,105 @@ public partial class Image
 
         return v;
     }
+
+    /// <summary>
+    /// Applies a LUT-based curve to a stretched pixel value via linear interpolation.
+    /// Use <see cref="FritschCarlsonSpline"/> to build the LUT.
+    /// </summary>
+    public static float ApplyCurveLut(float v, ReadOnlySpan<float> lut)
+    {
+        var idx = v * (lut.Length - 1);
+        var i = (int)idx;
+        var frac = idx - i;
+        if (i >= lut.Length - 1) return lut[^1];
+        if (i < 0) return lut[0];
+        return lut[i] * (1f - frac) + lut[i + 1] * frac;
+    }
+
+    /// <summary>
+    /// Iteratively adjusts <c>stretchFactor</c> until the post-stretch median of the histogram
+    /// converges to <paramref name="targetMedian"/>. Uses bisection over the histogram bins
+    /// — each bin's midpoint value is fed through <see cref="StretchValue"/> with the current
+    /// trial parameters, and the cumulative count walk finds the post-stretch median.
+    /// </summary>
+    /// <param name="histogram">Pre-computed histogram for the channel or luma.</param>
+    /// <param name="pedestal">Pedestal value as returned by <c>GetPedestralMedianAndMADScaledToUnit</c>.</param>
+    /// <param name="median">Median value as returned by <c>GetPedestralMedianAndMADScaledToUnit</c>.</param>
+    /// <param name="mad">MAD value as returned by <c>GetPedestralMedianAndMADScaledToUnit</c>.</param>
+    /// <param name="initialFactor">User-requested stretch factor (clamped to [0.001, 0.5]).</param>
+    /// <param name="targetMedian">Desired post-stretch median (default 0.25, PixInsight STF convention).</param>
+    /// <param name="maxIterations">Maximum bisection iterations (default 20).</param>
+    /// <param name="tolerance">Convergence tolerance on the post-stretch median (default 0.005).</param>
+    /// <returns>The converged stretch factor and corresponding midtones value.</returns>
+    public static (double ConvergedFactor, double ConvergedMidtones) ConvergeStretchFactor(
+        ImageHistogram histogram,
+        float pedestal, float median, float mad,
+        double initialFactor,
+        double shadowsClipping = -3d,
+        double targetMedian = 0.25,
+        int maxIterations = 20,
+        double tolerance = 0.005)
+    {
+        var bins = histogram.Histogram;
+        var binMax = (float)(histogram.RescaledMaxValue ?? 65535f);
+        var invBinMax = 1f / binMax;
+        float totalF = histogram.Total;
+        var halfTotal = totalF * 0.5f;
+
+        // Bisection bounds for stretchFactor
+        var lo = 0.001;
+        var hi = 0.5;
+        var factor = Math.Clamp(initialFactor, lo, hi);
+        double midtones = 0;
+
+        // Pre-compute normalized bin-centre values [0,1]
+        var binValues = new float[bins.Length];
+        for (var i = 0; i < bins.Length; i++)
+        {
+            binValues[i] = (i + 0.5f) * invBinMax;
+        }
+
+        for (var iter = 0; iter < maxIterations; iter++)
+        {
+            var (shadows, m, highlights, rescale) = ComputeStretchParameters(median, mad, factor, shadowsClipping);
+            midtones = m;
+
+            // Walk histogram bins, accumulate stretched counts to find post-stretch median
+            var cumulative = 0f;
+            var medianIdx = -1;
+            for (var i = 0; i < bins.Length; i++)
+            {
+                cumulative += bins[i];
+                if (cumulative >= halfTotal)
+                {
+                    medianIdx = i;
+                    break;
+                }
+            }
+
+            if (medianIdx < 0) break;
+
+            // Compute the stretched value at the median bin
+            var binNorm = binValues[medianIdx];
+            var stretchedMedian = StretchValue(binNorm, /*normFactor*/1f, pedestal, shadows, m, rescale);
+
+            if (Math.Abs(stretchedMedian - targetMedian) <= tolerance)
+            {
+                return (factor, midtones);
+            }
+
+            // Bisect: if post-stretch median is too bright, we need LESS stretch (higher factor pushes midtones right)
+            if (stretchedMedian > targetMedian)
+            {
+                lo = factor;
+            }
+            else
+            {
+                hi = factor;
+            }
+            factor = (lo + hi) * 0.5;
+        }
+
+        return (factor, midtones);
+    }
 }

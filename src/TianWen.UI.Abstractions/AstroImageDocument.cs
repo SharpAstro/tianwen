@@ -7,8 +7,10 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using TianWen.Lib.Astrometry;
+using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Astrometry.PlateSolve;
 using TianWen.Lib.Imaging;
+using TianWen.Lib.Imaging.ColorCalibration;
 using TianWen.Lib.Stat;
 
 namespace TianWen.UI.Abstractions;
@@ -68,6 +70,12 @@ public sealed class AstroImageDocument
     /// <summary>Luminance background from the unstretched image (pedestal-subtracted).</summary>
     public float LumaBackground { get; private set; }
 
+    /// <summary>Per-channel stretch stats recomputed with star mask exclusion. Only available after star detection.</summary>
+    public ChannelStretchStats[]? StarMaskedStats { get; private set; }
+
+    /// <summary>Luminance stretch stats recomputed with star mask exclusion. Only available after star detection.</summary>
+    public ChannelStretchStats? StarMaskedLumaStats { get; private set; }
+
     /// <summary>Detected stars: <c>null</c> while detection is in progress, empty on failure/no stars, populated on success.</summary>
     public StarList? Stars { get; set; }
 
@@ -79,6 +87,15 @@ public sealed class AstroImageDocument
 
     /// <summary>Time taken for star detection.</summary>
     public TimeSpan StarDetectionDuration { get; private set; }
+
+    /// <summary>White balance multipliers from Tycho-2 color calibration. null until computed.</summary>
+    public (float R, float G, float B)? ColorCalibration { get; private set; }
+
+    /// <summary>When true, the stretch factor is iteratively adjusted so the post-stretch median converges to <see cref="ConvergenceTarget"/>.</summary>
+    public bool UseIterativeConvergence { get; set; }
+
+    /// <summary>Target post-stretch median for iterative convergence (default 0.25, PixInsight STF convention).</summary>
+    public double ConvergenceTarget { get; set; } = 0.25;
 
     /// <summary>Whether the image appears to be already stretched (e.g. processed TIFF). When true, STF should be disabled by default.</summary>
     public bool IsPreStretched { get; }
@@ -304,7 +321,31 @@ public sealed class AstroImageDocument
     /// Computes stretch shader uniforms for the current stretch mode and parameters.
     /// </summary>
     public StretchUniforms ComputeStretchUniforms(StretchMode mode, StretchParameters parameters)
-        => ComputeStretchUniforms(mode, parameters, PerChannelStats, LumaStats, UnstretchedImage.MaxValue);
+    {
+        var stats = StarMaskedStats ?? PerChannelStats;
+        var luma = StarMaskedLumaStats ?? LumaStats;
+        var factor = parameters.Factor;
+        var clipping = parameters.ShadowsClipping;
+
+        if (UseIterativeConvergence)
+        {
+            var convStats = luma ?? stats[0];
+            var hist = ChannelStatistics.Length > 0 ? ChannelStatistics[0] : null;
+            if (hist is not null)
+            {
+                (factor, _) = Image.ConvergeStretchFactor(
+                    hist, convStats.Pedestal, convStats.Median, convStats.Mad,
+                    factor, clipping, ConvergenceTarget);
+            }
+        }
+
+        var uniforms = ComputeStretchUniforms(mode, new StretchParameters(factor, clipping), stats, luma, UnstretchedImage.MaxValue);
+        if (ColorCalibration is { } wb)
+        {
+            uniforms = uniforms with { WhiteBalance = wb };
+        }
+        return uniforms;
+    }
 
     /// <summary>
     /// Computes stretch shader uniforms from stats directly — no <see cref="AstroImageDocument"/> needed.
@@ -407,6 +448,53 @@ public sealed class AstroImageDocument
             var (perChannelBg, lumaBg) = UnstretchedImage.ScanBackgroundRegion(pedestals, squareSize: 48, stars.StarMask);
             PerChannelBackground = perChannelBg;
             LumaBackground = lumaBg;
+
+            // Recompute stretch stats with star mask exclusion
+            if (stars.StarMask is { } mask)
+            {
+                var imageChannelCount = UnstretchedImage.ChannelCount;
+                var maskedStats = new ChannelStretchStats[PerChannelStats.Length];
+                for (var c = 0; c < maskedStats.Length; c++)
+                {
+                    if (c < imageChannelCount)
+                    {
+                        var (p, m, madd) = UnstretchedImage.GetStarMaskedMedianAndMADScaledToUnit(c, mask);
+                        maskedStats[c] = new ChannelStretchStats(p, m, madd);
+                    }
+                    else
+                    {
+                        // Bayer images replicate channel 0 stats to all 3 RGB slots
+                        maskedStats[c] = maskedStats[0];
+                    }
+                }
+                StarMaskedStats = maskedStats;
+
+                if (LumaStats is not null)
+                {
+                    StarMaskedLumaStats = maskedStats[0];
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Computes Tycho-2 photometric color calibration. Requires plate-solved WCS and detected stars.
+    /// </summary>
+    public async Task ComputeColorCalibrationAsync(ICelestialObjectDB db, CancellationToken cancellationToken = default)
+    {
+        if (ColorCalibration.HasValue) return;
+        if (Wcs is not { } wcs || !IsPlateSolved) return;
+        if (Stars is not { Count: >= 5 }) return;
+
+        await db.EnsureTycho2DataLoadedAsync(cancellationToken);
+
+        var result = await Task.Run(() =>
+            Tycho2ColorCalibration.ComputeWhiteBalance(UnstretchedImage, Stars, wcs, db, minStars: 5),
+            cancellationToken);
+
+        if (result is { } wb)
+        {
+            ColorCalibration = (wb.R, wb.G, wb.B);
         }
     }
 

@@ -19,9 +19,9 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
 
     /// <summary>
     /// std140 StretchUBO — see field layout in struct definition below.
-    /// Total: 192 bytes.
+    /// Total: 352 bytes (192 base + 16 whiteBalance + 144 curveData).
     /// </summary>
-    private const int StretchUboSize = 192;
+    private const int StretchUboSize = 352;
 
     /// <summary>
     /// std140 HistogramUBO — 4 x int/float fields = 16 bytes.
@@ -56,7 +56,7 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
             float curvesMidpoint;   // offset  16
             float hdrAmount;        // offset  20
             float hdrKnee;          // offset  24
-            float _pad0;            // offset  28
+            int   curvesMode;       // offset  28: 0=boost, 1=spline LUT
             vec4  pedestal;         // offset  32  (xyz = pedestal RGB, w = pad)
             vec4  shadows;          // offset  48  (xyz = shadows RGB,  w = pad)
             vec4  midtones;         // offset  64  (xyz = midtones RGB, w = pad)
@@ -74,6 +74,8 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
             // mat2 stored as 2 vec4 columns (std140 mat2 = 2 x vec4 = 32 bytes)
             vec4  cdCol0;           // offset 160
             vec4  cdCol1;           // offset 176
+            vec4  whiteBalance;     // offset 192  (xyz = WB multipliers, w = pad)
+            vec4  curveData[9];     // offset 208  (36 floats = 33 knots + 3 pad)
         } ubo;
 
         layout(set = 1, binding = 0) uniform sampler2D uChannel0;
@@ -90,6 +92,7 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
 
         float stretchChannel(float raw, int ch) {
             float norm = raw * ubo.normFactor - ubo.pedestal[ch];
+            norm = max(norm * ubo.whiteBalance[ch], 0.0);
             float rescaled = (norm - ubo.shadows[ch]) * ubo.rescale[ch];
             return mtf(ubo.midtones[ch], rescaled);
         }
@@ -110,6 +113,20 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
             } else {
                 return v;
             }
+        }
+
+        float applyCurveLUT(float v) {
+            float idx = v * 32.0;
+            int i = int(idx);
+            float frac = idx - float(i);
+            i = clamp(i, 0, 31);
+            int vi = i / 4;
+            int ci = i % 4;
+            int vj = (i + 1) / 4;
+            int cj = (i + 1) % 4;
+            float vi0 = ubo.curveData[vi][ci];
+            float vi1 = ubo.curveData[vj][cj];
+            return mix(vi0, vi1, frac);
         }
 
         float applyHdr(float v, float amount, float knee) {
@@ -226,7 +243,9 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
                 if (ubo.stretchMode >= 1) {
                     r = stretchChannel(r, 0);
                 }
-                if (ubo.curvesBoost > 0.0) {
+                if (ubo.curvesMode == 1) {
+                    r = applyCurveLUT(r);
+                } else if (ubo.curvesBoost > 0.0) {
                     r = applyCurve(r, ubo.curvesBoost);
                 }
                 if (ubo.hdrAmount > 0.0) {
@@ -257,9 +276,9 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
                 float nr = r * ubo.normFactor;
                 float ng = g * ubo.normFactor;
                 float nb = b * ubo.normFactor;
-                float prr = nr - ubo.pedestal[0];
-                float prg = ng - ubo.pedestal[1];
-                float prb = nb - ubo.pedestal[2];
+                float prr = max((nr - ubo.pedestal[0]) * ubo.whiteBalance[0], 0.0);
+                float prg = max((ng - ubo.pedestal[1]) * ubo.whiteBalance[1], 0.0);
+                float prb = max((nb - ubo.pedestal[2]) * ubo.whiteBalance[2], 0.0);
                 float Ynorm = 0.2126 * prr + 0.7152 * prg + 0.0722 * prb;
                 float rescaled = (Ynorm - ubo.shadows.x) * ubo.rescale.x;
                 float Yp = mtf(ubo.midtones.x, rescaled);
@@ -271,7 +290,11 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
                 b = clamp(prb * scale, 0.0, 1.0);
             }
 
-            if (ubo.curvesBoost > 0.0) {
+            if (ubo.curvesMode == 1) {
+                r = applyCurveLUT(r);
+                g = applyCurveLUT(g);
+                b = applyCurveLUT(b);
+            } else if (ubo.curvesBoost > 0.0) {
                 r = applyCurve(r, ubo.curvesBoost);
                 g = applyCurve(g, ubo.curvesBoost);
                 b = applyCurve(b, ubo.curvesBoost);
@@ -492,6 +515,9 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
         float imageW, float imageH, float crPix1, float crPix2,
         float crValRA, float crValDec,
         ReadOnlySpan<float> cdMatrix,
+        (float R, float G, float B) whiteBalance = default,
+        int curvesMode = 0,
+        ReadOnlySpan<float> curveData = default,
         ImageSource imageSource = ImageSource.ProcessedChannels,
         int bayerOffsetX = 0, int bayerOffsetY = 0)
     {
@@ -504,7 +530,7 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
         WriteFloat(p, 16, curvesMidpoint);
         WriteFloat(p, 20, hdrAmount);
         WriteFloat(p, 24, hdrKnee);
-        WriteFloat(p, 28, 0f);                  // _pad0
+        WriteInt(p, 28, curvesMode);
 
         // pedestal (vec4 at offset 32)
         WriteFloat(p, 32, pedestal.R);
@@ -573,6 +599,18 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
         WriteFloat(p, 180, cd11);
         WriteFloat(p, 184, 0f);
         WriteFloat(p, 188, 0f);
+
+        // whiteBalance (vec4 at offset 192)
+        WriteFloat(p, 192, whiteBalance.R);
+        WriteFloat(p, 196, whiteBalance.G);
+        WriteFloat(p, 200, whiteBalance.B);
+        WriteFloat(p, 204, 0f);
+
+        // curveData[9] at offset 208 (36 floats, only first 33 are meaningful)
+        for (var i = 0; i < 36 && i < curveData.Length; i++)
+        {
+            WriteFloat(p, 208 + i * 4, curveData[i]);
+        }
     }
 
     /// <summary>

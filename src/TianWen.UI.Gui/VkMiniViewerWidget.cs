@@ -270,6 +270,7 @@ public sealed unsafe class VkMiniViewerWidget : IMiniViewerWidget, IDisposable
             midtones: (stretch.Midtones.R, stretch.Midtones.G, stretch.Midtones.B),
             highlights: (stretch.Highlights.R, stretch.Highlights.G, stretch.Highlights.B),
             rescale: (stretch.Rescale.R, stretch.Rescale.G, stretch.Rescale.B),
+            whiteBalance: (stretch.WhiteBalance.R, stretch.WhiteBalance.G, stretch.WhiteBalance.B),
             gridEnabled: gridEnabled,
             gridSpacingRA: gridSpacingRA,
             gridSpacingDec: gridSpacingDec,

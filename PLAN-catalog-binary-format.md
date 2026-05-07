@@ -32,6 +32,11 @@ wire size is small; the cost is the JSON/CSV parse step on top, not the LZ).
 > (`hd-hip-cross-snapshot:stale` / `:malformed`) and falls back to live compute,
 > so init stays correct even if the embedded snapshot rots between releases.
 >
+> **Phase 2B also SHIPPED** (2026-05-05): `tools/precompute-simbad-merge.ps1` bakes the
+> post-SIMBAD-merge state into `simbad_merge.bin.gz` (~754 KB embedded). Skips ~180 ms
+> of parse + dict-mutation work across 14 catalogs. Same hash-verify-then-apply pattern
+> + CI guards (`SimbadMergeSnapshotTests`). Re-bake via `pwsh tools/precompute-simbad-merge.ps1`.
+>
 > Real-life cold-start (post-migration, post-gzip):
 >
 > | Build | First `InitDBAsync` |

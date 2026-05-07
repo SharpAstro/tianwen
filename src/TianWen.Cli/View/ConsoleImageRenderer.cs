@@ -114,12 +114,12 @@ internal sealed class ConsoleImageRenderer
                     }
                     else if (stretch.Mode is not StretchMode.None)
                     {
-                        rv = Image.StretchValue(rv, stretch.NormFactor, stretch.Pedestal.R, stretch.Shadows.R,
-                            stretch.Midtones.R, stretch.Rescale.R);
-                        gv = Image.StretchValue(gv, stretch.NormFactor, stretch.Pedestal.G, stretch.Shadows.G,
-                            stretch.Midtones.G, stretch.Rescale.G);
-                        bv = Image.StretchValue(bv, stretch.NormFactor, stretch.Pedestal.B, stretch.Shadows.B,
-                            stretch.Midtones.B, stretch.Rescale.B);
+                        var nr = Math.Max((rv * stretch.NormFactor - stretch.Pedestal.R) * stretch.WhiteBalance.R, 0f);
+                        var ng = Math.Max((gv * stretch.NormFactor - stretch.Pedestal.G) * stretch.WhiteBalance.G, 0f);
+                        var nb = Math.Max((bv * stretch.NormFactor - stretch.Pedestal.B) * stretch.WhiteBalance.B, 0f);
+                        rv = Image.StretchValue(nr, 1f, 0f, stretch.Shadows.R, stretch.Midtones.R, stretch.Rescale.R);
+                        gv = Image.StretchValue(ng, 1f, 0f, stretch.Shadows.G, stretch.Midtones.G, stretch.Rescale.G);
+                        bv = Image.StretchValue(nb, 1f, 0f, stretch.Shadows.B, stretch.Midtones.B, stretch.Rescale.B);
                     }
 
                     if (curvesBoost > 0)
@@ -139,8 +139,8 @@ internal sealed class ConsoleImageRenderer
 
                     if (stretch.Mode is not StretchMode.None)
                     {
-                        v = Image.StretchValue(v, stretch.NormFactor, stretch.Pedestal.R, stretch.Shadows.R,
-                            stretch.Midtones.R, stretch.Rescale.R);
+                        var nv = Math.Max((v * stretch.NormFactor - stretch.Pedestal.R) * stretch.WhiteBalance.R, 0f);
+                        v = Image.StretchValue(nv, 1f, 0f, stretch.Shadows.R, stretch.Midtones.R, stretch.Rescale.R);
                     }
 
                     if (curvesBoost > 0)

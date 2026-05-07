@@ -16,15 +16,15 @@ project them via the UBO view matrix.
 
 ### Steps
 
-- [ ] Add a `_mosaicLineFloats` list to `VkSkyMapTab` (like `_horizonFloats`)
-- [ ] In `RenderMosaicPanels`, compute the 4 unit-vector corners per panel
+- [x] Add a `_mosaicLineFloats` list to `VkSkyMapTab` (like `_horizonFloats`)
+- [x] In `RenderMosaicPanels`, compute the 4 unit-vector corners per panel
       (reuse the tangent-plane offset math from `DrawFovQuadrilateral`) and
       append 8 line segments (4 edges x 2 vertices) to the float list
-- [ ] Do the same for the sensor FOV rectangle (mount overlay)
-- [ ] Write to the ring buffer via `WriteToRingBuffer` and draw with
+- [x] Do the same for the sensor FOV rectangle (mount overlay)
+- [x] Write to the ring buffer via `WriteToRingBuffer` and draw with
       `DrawLineBuffer` + a distinct push-constant color (red, like now)
-- [ ] Remove the CPU `DrawFovQuadrilateral` method and the `DrawLine` calls
-- [ ] The vertex shader handles stereographic projection automatically -
+- [x] Remove the CPU `DrawFovQuadrilateral` method and the `DrawLine` calls
+- [x] The vertex shader handles stereographic projection automatically -
       panels tilt correctly with the grid at all declinations, including poles
 
 **Benefit**: eliminates ~20 CPU `DrawLine` calls per frame (4 per panel x
@@ -133,11 +133,11 @@ frame for zero visual change.
 
 ### Steps
 
-- [ ] Cache `_meridianFloats` on `VkSkyMapTab`; only rebuild when
+- [x] Cache `_meridianFloats` on `VkSkyMapTab`; only rebuild when
       `|lst - _lastMeridianLst| > lstThreshold` (threshold = one pixel of
       sub-pixel RA motion at current FOV, ~0.01 h / 36 arcsec).
-- [ ] Same pattern for `_horizonFloats` (also rebuilt per frame from site).
-- [ ] Don't write to ring buffer if cached; retain the previous ring-buffer
+- [x] Same pattern for `_horizonFloats` (also rebuilt per frame from site).
+- [x] Don't write to ring buffer if cached; retain the previous ring-buffer
       offset for the draw call.
 
 **Benefit.** Saves ~1 ms per frame when idle (no pan/zoom, no LST drift that

@@ -228,6 +228,66 @@ public partial class Image
     }
 
     /// <summary>
+    /// Like <see cref="GetPedestralMedianAndMADScaledToUnit"/> but excludes pixels masked by
+    /// <paramref name="starMask"/>. Subsamples with <paramref name="pixelStride"/> for speed;
+    /// fallback to full-pixel median/MAD when too few samples remain.
+    /// </summary>
+    public (float Pedestral, float Median, float MAD) GetStarMaskedMedianAndMADScaledToUnit(
+        int channel, BitMatrix starMask, int pixelStride = 4)
+    {
+        var (channelCount, width, height) = Shape;
+        if (channel >= channelCount)
+        {
+            throw new ArgumentOutOfRangeException(nameof(channel));
+        }
+
+        var pedestal = MinValue / MaxValue;
+        var maxSamples = ((width / pixelStride) + 1) * ((height / pixelStride) + 1);
+        var samples = new float[maxSamples];
+        var count = 0;
+        var channelData = data[channel];
+
+        for (var y = 0; y < height; y += pixelStride)
+        {
+            for (var x = 0; x < width; x += pixelStride)
+            {
+                var v = channelData[y, x];
+                if (float.IsNaN(v)) continue;
+                if (starMask[y, x]) continue;
+                if (v <= MinValue) continue;
+                samples[count++] = v;
+            }
+        }
+
+        if (count < 100)
+        {
+            return GetPedestralMedianAndMADScaledToUnit(channel);
+        }
+
+        Array.Sort(samples, 0, count);
+        var median = samples[count / 2];
+
+        // MAD: median of absolute deviations from median
+        var madSamples = new float[count];
+        for (var i = 0; i < count; i++)
+        {
+            madSamples[i] = MathF.Abs(samples[i] - median);
+        }
+        Array.Sort(madSamples);
+        var mad = madSamples[count / 2];
+
+        var invMax = 1f / MaxValue;
+        var unitMedian = median * invMax;
+        var unitMad = mad * invMax;
+        if (unitMad < invMax * 0.5f)
+        {
+            unitMad = invMax * 0.5f;
+        }
+
+        return (pedestal, unitMedian, unitMad);
+    }
+
+    /// <summary>
     /// get background and star level from peek histogram
     /// </summary>
     /// <returns>background and star level</returns>

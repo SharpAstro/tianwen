@@ -58,6 +58,9 @@ public sealed class ViewerState
     /// <summary>Whether deep-sky object overlays (galaxy ellipses, markers, labels) are visible.</summary>
     public bool ShowOverlays { get; set; }
 
+    /// <summary>Whether Tycho-2 photometric color calibration is active.</summary>
+    public bool ColorCalibrationEnabled { get; set; }
+
     /// <summary>Whether detected star circles are visible.</summary>
     public bool ShowStarOverlay { get; set; }
 

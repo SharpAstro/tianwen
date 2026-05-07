@@ -40,6 +40,8 @@
 
 using System;
 using System.Collections.Generic;
+using System.Threading;
+using System.Threading.Tasks;
 using DIR.Lib;
 using TianWen.Lib.Astrometry;
 using TianWen.Lib.Astrometry.PlateSolve;
@@ -167,6 +169,7 @@ namespace TianWen.UI.Abstractions
             ("Grid", ToolbarAction.Grid, 4),
             ("Objects", ToolbarAction.Overlays, 4),
             ("Stars", ToolbarAction.Stars, 4),
+            ("Calibrate", ToolbarAction.ColorCalibrate, 4),
         ];
 
         // -----------------------------------------------------------------------
@@ -509,6 +512,7 @@ namespace TianWen.UI.Abstractions
             ToolbarAction.Grid => document?.Wcs is { HasCDMatrix: true },
             ToolbarAction.Overlays => document?.Wcs is { HasCDMatrix: true } && CelestialObjectDB?.IsValueCreated == true,
             ToolbarAction.Stars => document?.Stars is { Count: > 0 },
+            ToolbarAction.ColorCalibrate => document?.IsPlateSolved == true && document?.Stars is { Count: > 0 },
             ToolbarAction.PlateSolve => document is not null && !document.IsPlateSolved,
             ToolbarAction.ZoomFit or ToolbarAction.ZoomActual => document is not null,
             _ => true,
@@ -527,6 +531,7 @@ namespace TianWen.UI.Abstractions
                 ToolbarAction.Grid => state.ShowGrid,
                 ToolbarAction.Overlays => state.ShowOverlays,
                 ToolbarAction.Stars => state.ShowStarOverlay,
+                ToolbarAction.ColorCalibrate => state.ColorCalibrationEnabled,
                 ToolbarAction.ZoomFit => state.ZoomToFit,
                 ToolbarAction.ZoomActual => !state.ZoomToFit && MathF.Abs(state.Zoom - 1f) < 0.001f,
                 _ => false,
@@ -1685,6 +1690,9 @@ namespace TianWen.UI.Abstractions
                 case InputKey.F:
                     ViewerActions.ZoomToFit(state);
                     return true;
+                case InputKey.W:
+                    TryStartColorCalibration(state);
+                    return true;
                 case InputKey.R:
                     ViewerActions.ZoomToActual(state);
                     return true;
@@ -1702,6 +1710,20 @@ namespace TianWen.UI.Abstractions
                     return true;
                 default:
                     return false;
+            }
+        }
+
+        private void TryStartColorCalibration(ViewerState state)
+        {
+            if (_document?.IsPlateSolved == true && _document.Stars is { Count: > 0 } && CelestialObjectDB is { IsValueCreated: true } db)
+            {
+                state.ColorCalibrationEnabled = true;
+                _ = Task.Run(async () =>
+                {
+                    var cdb = await db.WithCancellation(CancellationToken.None);
+                    await _document.ComputeColorCalibrationAsync(cdb);
+                    state.NeedsRedraw = true;
+                });
             }
         }
 
@@ -1730,6 +1752,10 @@ namespace TianWen.UI.Abstractions
             if (hit is HitResult.ButtonHit { Action: var action } && Enum.TryParse<ToolbarAction>(action, out var toolbarAction))
             {
                 ViewerActions.HandleToolbarAction(state, _document, toolbarAction);
+                if (toolbarAction is ToolbarAction.ColorCalibrate)
+                {
+                    TryStartColorCalibration(state);
+                }
                 return true;
             }
 

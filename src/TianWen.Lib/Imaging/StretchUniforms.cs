@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Immutable;
 
 namespace TianWen.Lib.Imaging;
 
@@ -15,6 +16,14 @@ public readonly record struct StretchUniforms(
     (float R, float G, float B) Highlights,
     (float R, float G, float B) Rescale)
 {
+    /// <summary>Per-channel white balance multipliers from Tycho-2 color calibration. Default (1,1,1) = no adjustment.</summary>
+    public (float R, float G, float B) WhiteBalance { get; init; } = (1f, 1f, 1f);
+
+    /// <summary>Curve mode: 0 = power-law boost (ApplyBoost), 1 = Fritsch-Carlson spline LUT.</summary>
+    public int CurvesMode { get; init; }
+
+    /// <summary>36 floats packed as 9 vec4s (33 knots + 3 pad) for the Fritsch-Carlson LUT. Empty when mode=0.</summary>
+    public ImmutableArray<float> CurveData { get; init; } = [];
     /// <summary>
     /// Computes the post-stretch background level by stretching the measured
     /// background values through <see cref="Image.StretchValue"/> — the same pipeline as the GLSL shader.

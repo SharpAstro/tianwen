@@ -1,6 +1,6 @@
 # Plan Implementation Summary
 
-Status of every `PLAN-*.md` in the repo root, cross-checked against the codebase on 2026-05-04.
+Status of every `PLAN-*.md` in the repo root, cross-checked against the codebase on 2026-05-07.
 
 | Plan | Status |
 |------|--------|
@@ -11,7 +11,7 @@ Status of every `PLAN-*.md` in the repo root, cross-checked against the codebase
 | [PLAN-first-light-resilience](PLAN-first-light-resilience.md) | **DONE** (2 of 3 sub-plans shipped; sub-plan 3 deferred) |
 | [PLAN-driver-resilience](PLAN-driver-resilience.md) | **DONE** (merged to main as 6 PRs + ARCH doc) |
 | [PLAN-fov-obstruction-detection](PLAN-fov-obstruction-detection.md) | **DONE** (merged to main; scout UI/WebSocket surfacing, single-frame retry, Layer-2 recovery test all shipped) |
-| [PLAN-catalog-binary-format](PLAN-catalog-binary-format.md) | **PARTIAL ~70%** (Option D shipped end-to-end + gzip swap; Phase 2 pre-bake not started) |
+| [PLAN-catalog-binary-format](PLAN-catalog-binary-format.md) | **PARTIAL ~85%** (Option D + Phase 2A + 2B shipped; Phase 2C Tycho-2 bulk load deferred) |
 | [PLAN-polar-alignment](PLAN-polar-alignment.md) | **DONE ~85%** (Phases 1-5 shipped; refraction-corrected apparent pole + live pressure/temperature still pending) |
 
 ---
@@ -119,7 +119,7 @@ Not shipped (TODO.md lines 142, 146):
 - **Refraction-corrected apparent pole.** `PolarAlignmentSession.cs:658-659` literally sets `RefractedPoleRaHours: trueRa` / `RefractedPoleDecDeg: trueDec` — the apparent-pole rings draw on the true pole. Decomposition gauges already use refraction-aware math (correct numbers), only the overlay center is stale. Matters most at lat ≤ 35°.
 - **Live site pressure/temperature.** `IMountDriver.cs:395-396` still hardcodes `SitePressure = 1010`, `SiteTemperature = 10`. Same fix unblocks both polar-alignment refraction and the long-standing pressure/temp TODO.
 
-## PLAN-catalog-binary-format — PARTIAL ~70%
+## PLAN-catalog-binary-format — PARTIAL ~85%
 
 Plan now leads with **Option D** (ASCII-separated text + `tools/preprocess-catalog.ps1`
 MSBuild step) instead of Option A (MessagePack). Tycho2 stays untouched (parallel
@@ -148,8 +148,8 @@ The hot phases are now dict-mutation work, not parse work — what Phase 2 is fo
 **Phase 2 (pre-bake init state) — 2A SHIPPED:**
 
 - 2A SHIPPED (2026-05-05): `tools/precompute-hd-hip-cross/` bakes the post-`BuildHdHipCrossIndicesViaTyc` state into `hd_hip_cross.bin.gz` (~2.4 MB embedded). Runtime apply takes ~110 ms (parallel SHA-256 input hash + gzip read + dict mutation) vs ~460 ms live compute. Net saving: ~350 ms on the hd-hip-cross phase. CI guards in `HdHipCrossSnapshotTests` catch staleness + algorithm-vs-snapshot drift. Re-bake via `pwsh tools/precompute-hd-hip-cross.ps1`.
-- 2B: Pre-bake SIMBAD merge state — same pattern, ~150 ms target. Reuses 2A's binary format.
-- 2C: Lookup-speed BFS pooling (small follow-up).
+	- 2B SHIPPED (2026-05-05): `tools/precompute-simbad-merge.ps1` bakes the post-SIMBAD-merge state into `simbad_merge.bin.gz` (~754 KB embedded). Runtime apply skips ~180 ms of parse + dict-mutation work across 14 catalogs. Same hash-verify-then-apply pattern as 2A. CI guards in `SimbadMergeSnapshotTests` (commit `8da9b16`). Re-bake via `pwsh tools/precompute-simbad-merge.ps1`.
+	- 2C: Tycho-2 bulk load **deferred**; BFS pooling for secondary lookups also not started.
 
 ---
 
@@ -157,7 +157,7 @@ The hot phases are now dict-mutation work, not parse work — what Phase 2 is fo
 
 - **Shipped:** serial-probe (merged), driver-resilience (merged), fov-obstruction-detection (merged), polar-alignment (merged, refraction polish pending).
 - **Substantially advanced:** milkyway (Phases 1-2 done, 3-4 scaffolded).
-- **Partially started:** skymap-gpu-overlays (Phase 1 + cache hit), tui-live-session-parity (preview mount section + partial abort flow), catalog-binary-format (Option D pipeline + HR shipped, remaining catalogs pending).
+- **Partially started:** skymap-gpu-overlays (Phase 1 + cache hit), tui-live-session-parity (preview mount section + partial abort flow), catalog-binary-format (Option D + Phase 2A + 2B shipped; 2C deferred).
 - **Essentially untouched:** site horizon mask (sub-plan 3 of first-light-resilience) deferred until operational data warrants it.
 
 **First-light-resilience status:** 2 of 3 sub-plans shipped (driver resilience + FOV obstruction).

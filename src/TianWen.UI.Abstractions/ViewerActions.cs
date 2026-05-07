@@ -401,6 +401,10 @@ public static class ViewerActions
                 state.ShowStarOverlay = !state.ShowStarOverlay;
                 state.NeedsRedraw = true;
                 return true;
+            case ToolbarAction.ColorCalibrate:
+                state.ColorCalibrationEnabled = !state.ColorCalibrationEnabled;
+                state.NeedsRedraw = true;
+                return true;
             case ToolbarAction.ZoomFit:
                 ZoomToFit(state);
                 return true;

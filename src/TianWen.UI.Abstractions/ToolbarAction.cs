@@ -19,4 +19,5 @@ public enum ToolbarAction
     Overlays,
     PlateSolve,
     Stars,
+    ColorCalibrate,
 }
