@@ -1734,6 +1734,12 @@ namespace TianWen.UI.Abstractions
                     if (_document.ColorCalibration is not null)
                     {
                         state.ColorCalibrationEnabled = true;
+                        // Color-balanced channels should be stretched together —
+                        // unlinked stretch would re-introduce per-channel imbalance
+                        if (state.StretchMode is StretchMode.Unlinked)
+                        {
+                            state.StretchMode = StretchMode.Linked;
+                        }
                         state.StatusMessage = null;
                     }
                     else
