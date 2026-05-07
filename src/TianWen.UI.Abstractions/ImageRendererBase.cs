@@ -1746,7 +1746,7 @@ namespace TianWen.UI.Abstractions
                             state.StretchMode = StretchMode.Linked;
                         }
                         state.StatusMessage = matched > 0
-                            ? $"WB ({matched}★): R={wb.Item1:F2} G=1.00 B={wb.Item3:F2}"
+                            ? $"WB ({matched}★): R={wb.Item1:F3} G=1.000 B={wb.Item3:F3}"
                             : null;
                     }
                     else

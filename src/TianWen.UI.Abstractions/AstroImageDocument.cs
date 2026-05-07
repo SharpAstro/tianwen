@@ -499,15 +499,33 @@ public sealed class AstroImageDocument
             Tycho2ColorCalibration.ComputeWhiteBalance(UnstretchedImage, starList, wcs, db, minStars: 5),
             cancellationToken);
 
-        if (result is { } wb)
+        if (result is not { } wb)
         {
-            ColorCalibration = (wb.R, wb.G, wb.B);
-            System.Diagnostics.Debug.WriteLine($"[ColorCal] {wb.MatchCount} stars: wbR={wb.R:F3} wbG={wb.G:F3} wbB={wb.B:F3}  perChStats=({PerChannelStats[0].Median:F4},{PerChannelStats[1].Median:F4},{PerChannelStats[2].Median:F4})");
-            return wb.MatchCount;
+            System.Diagnostics.Debug.WriteLine("[ColorCal] Failed — not enough Tycho-2 matches");
+            return 0;
         }
 
-        System.Diagnostics.Debug.WriteLine("[ColorCal] Failed — not enough Tycho-2 matches");
-        return 0;
+        // Complement Tycho-2 (star-based) with background WB (star-masked channel medians).
+        // Tycho-2 balances star colors; background WB neutralises sky glow / sensor bias
+        // that affects the background but not individual stars.
+        var (tychoR, tychoG, tychoB) = (wb.R, wb.G, wb.B);
+        if (StarMaskedStats is { Length: >= 3 } sm
+            && sm[0].Median > 1e-7f && sm[1].Median > 1e-7f && sm[2].Median > 1e-7f)
+        {
+            var bgR = Math.Clamp(sm[1].Median / sm[0].Median, 0.3f, 3f);
+            var bgB = Math.Clamp(sm[1].Median / sm[2].Median, 0.3f, 3f);
+            tychoR *= bgR;
+            tychoB *= bgB;
+            tychoG = 1f;
+            System.Diagnostics.Debug.WriteLine($"[ColorCal] {wb.MatchCount} stars: tycho=({wb.R:F3},{wb.G:F3},{wb.B:F3}) bg=({bgR:F3},1,{bgB:F3}) combined=({tychoR:F3},1,{tychoB:F3})");
+        }
+        else
+        {
+            System.Diagnostics.Debug.WriteLine($"[ColorCal] {wb.MatchCount} stars: tycho=({wb.R:F3},{wb.G:F3},{wb.B:F3}) (no bg stats)");
+        }
+
+        ColorCalibration = (tychoR, tychoG, tychoB);
+        return wb.MatchCount;
     }
 
     /// <summary>
