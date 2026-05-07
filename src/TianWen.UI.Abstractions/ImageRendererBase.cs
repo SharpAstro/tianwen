@@ -513,7 +513,7 @@ namespace TianWen.UI.Abstractions
             ToolbarAction.Overlays => document?.Wcs is { HasCDMatrix: true } && CelestialObjectDB?.IsValueCreated == true,
             ToolbarAction.Stars => document?.Stars is { Count: > 0 },
             ToolbarAction.ColorCalibrate => document?.IsPlateSolved == true
-                && document?.Stars is { Count: > 0 }
+                && document?.Stars is { Count: >= 5 }
                 && (document.UnstretchedImage.ChannelCount >= 3
                     || document.UnstretchedImage.ImageMeta.SensorType is SensorType.RGGB),
             ToolbarAction.PlateSolve => document is not null && !document.IsPlateSolved,
@@ -1725,20 +1725,22 @@ namespace TianWen.UI.Abstractions
 
         private void TryStartColorCalibration(ViewerState state)
         {
-            if (_document?.IsPlateSolved == true && _document.Stars is { Count: > 0 } && CelestialObjectDB is { IsValueCreated: true } db
-                && _document.ColorCalibration is null)
+            if (_document?.Stars is { Count: >= 5 }
+                && _document.ColorCalibration is null
+                && (_document.UnstretchedImage.ChannelCount >= 3
+                    || _document.UnstretchedImage.ImageMeta.SensorType is SensorType.RGGB))
             {
                 state.StatusMessage = "Calibrating color...";
                 state.NeedsRedraw = true;
                 _ = Task.Run(async () =>
                 {
-                    var cdb = await db.WithCancellation(CancellationToken.None);
-                    await _document.ComputeColorCalibrationAsync(cdb);
+                    var db = CelestialObjectDB is { IsValueCreated: true } lazy
+                        ? await lazy.WithCancellation(CancellationToken.None)
+                        : null!;
+                    await _document.ComputeColorCalibrationAsync(db);
                     if (_document.ColorCalibration is not null)
                     {
                         state.ColorCalibrationEnabled = true;
-                        // Color-balanced channels should be stretched together —
-                        // unlinked stretch would re-introduce per-channel imbalance
                         if (state.StretchMode is StretchMode.Unlinked)
                         {
                             state.StretchMode = StretchMode.Linked;
@@ -1747,7 +1749,7 @@ namespace TianWen.UI.Abstractions
                     }
                     else
                     {
-                        state.StatusMessage = "Color calibration: too few matches";
+                        state.StatusMessage = "Color calibration failed";
                     }
                     state.NeedsRedraw = true;
                 });
