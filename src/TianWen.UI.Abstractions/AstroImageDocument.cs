@@ -494,8 +494,15 @@ public sealed class AstroImageDocument
 
         await db.EnsureTycho2DataLoadedAsync(cancellationToken);
 
+        // Bayer images are 1-channel — debayer to RGB before photometry extraction
+        var calibrateImage = UnstretchedImage;
+        if (calibrateImage.ChannelCount < 3 && calibrateImage.ImageMeta.SensorType is SensorType.RGGB)
+        {
+            calibrateImage = await calibrateImage.DebayerAsync(DebayerAlgorithm, cancellationToken: cancellationToken);
+        }
+
         var result = await Task.Run(() =>
-            Tycho2ColorCalibration.ComputeWhiteBalance(UnstretchedImage, Stars, wcs, db, minStars: 5),
+            Tycho2ColorCalibration.ComputeWhiteBalance(calibrateImage, Stars, wcs, db, minStars: 5),
             cancellationToken);
 
         if (result is { } wb)

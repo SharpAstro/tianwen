@@ -514,7 +514,8 @@ namespace TianWen.UI.Abstractions
             ToolbarAction.Stars => document?.Stars is { Count: > 0 },
             ToolbarAction.ColorCalibrate => document?.IsPlateSolved == true
                 && document?.Stars is { Count: > 0 }
-                && document.UnstretchedImage.ChannelCount >= 3,
+                && (document.UnstretchedImage.ChannelCount >= 3
+                    || document.UnstretchedImage.ImageMeta.SensorType is SensorType.RGGB),
             ToolbarAction.PlateSolve => document is not null && !document.IsPlateSolved,
             ToolbarAction.ZoomFit or ToolbarAction.ZoomActual => document is not null,
             _ => true,
