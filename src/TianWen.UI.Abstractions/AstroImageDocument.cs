@@ -322,13 +322,19 @@ public sealed class AstroImageDocument
     /// </summary>
     public StretchUniforms ComputeStretchUniforms(StretchMode mode, StretchParameters parameters)
     {
-        var stats = StarMaskedStats ?? PerChannelStats;
-        var luma = StarMaskedLumaStats ?? LumaStats;
+        var stats = PerChannelStats;
+        var luma = LumaStats;
         var factor = parameters.Factor;
         var clipping = parameters.ShadowsClipping;
 
-        if (UseIterativeConvergence)
+        if (UseIterativeConvergence && StarMaskedStats is { } masked)
         {
+            // Star-masked stats have a lower median (stars excluded), so a fixed
+            // stretchFactor under-stretches. Convergence compensates by adjusting
+            // the factor to hit the target median regardless of which stats are used.
+            stats = masked;
+            luma = StarMaskedLumaStats ?? luma;
+
             var convStats = luma ?? stats[0];
             var hist = ChannelStatistics.Length > 0 ? ChannelStatistics[0] : null;
             if (hist is not null)
