@@ -518,13 +518,15 @@ public sealed class AstroImageDocument
     private static (float R, float G, float B)? ComputeSkyBackgroundWB(Image image, BitMatrix starMask)
     {
         var (_, width, height) = image.Shape;
+        var x0 = width / 20; var x1 = width - x0;   // skip 5% border
+        var y0 = height / 20; var y1 = height - y0;
         var maxSamples = width * height / 16;
         var sr = new float[maxSamples]; var sg = new float[maxSamples]; var sb = new float[maxSamples];
         var yBuf = new float[maxSamples];
         var n = 0;
 
-        for (var y = 0; y < height && n < maxSamples; y += 4)
-            for (var x = 0; x < width && n < maxSamples; x += 4)
+        for (var y = y0; y < y1 && n < maxSamples; y += 4)
+            for (var x = x0; x < x1 && n < maxSamples; x += 4)
             {
                 if (starMask[y, x]) continue;
                 var r = image[0, y, x]; var g = image[1, y, x]; var b = image[2, y, x];
