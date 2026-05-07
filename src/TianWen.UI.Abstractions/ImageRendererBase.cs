@@ -512,8 +512,8 @@ namespace TianWen.UI.Abstractions
             ToolbarAction.Grid => document?.Wcs is { HasCDMatrix: true },
             ToolbarAction.Overlays => document?.Wcs is { HasCDMatrix: true } && CelestialObjectDB?.IsValueCreated == true,
             ToolbarAction.Stars => document?.Stars is { Count: > 0 },
-            ToolbarAction.ColorCalibrate => document?.IsPlateSolved == true
-                && document?.Stars is { Count: >= 5 }
+            ToolbarAction.ColorCalibrate => document?.Stars is { Count: >= 5 }
+                && document.Stars.StarMask is not null
                 && (document.UnstretchedImage.ChannelCount >= 3
                     || document.UnstretchedImage.ImageMeta.SensorType is SensorType.RGGB),
             ToolbarAction.PlateSolve => document is not null && !document.IsPlateSolved,

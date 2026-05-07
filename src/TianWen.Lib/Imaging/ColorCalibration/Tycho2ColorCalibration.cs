@@ -253,8 +253,14 @@ public static class Tycho2ColorCalibration
         Array.Sort(rRatios);
         Array.Sort(bRatios);
 
-        var wbR = Math.Clamp(rRatios[n / 2], 0.1f, 10f);
-        var wbB = Math.Clamp(bRatios[n / 2], 0.1f, 10f);
+        // Trim top/bottom 20% to reject outliers before taking median
+        var trim = n / 5;
+        var wbR = Math.Clamp(rRatios[n / 2], rRatios[trim], rRatios[n - 1 - trim]);
+        var wbB = Math.Clamp(bRatios[n / 2], bRatios[trim], bRatios[n - 1 - trim]);
+        // Clamp to reasonable range — values outside [0.5, 2.0] indicate sensor/model
+        // mismatch rather than correctable color cast
+        wbR = Math.Clamp(wbR, 0.5f, 2.0f);
+        wbB = Math.Clamp(wbB, 0.5f, 2.0f);
         return (wbR, 1f, wbB);
     }
 

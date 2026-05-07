@@ -6,6 +6,7 @@ using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using TianWen.Lib;
 using TianWen.Lib.Astrometry;
 using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Astrometry.PlateSolve;
@@ -491,20 +492,64 @@ public sealed class AstroImageDocument
     {
         if (ColorCalibration.HasValue) return (0, null);
         if (Stars is not { Count: >= 5 } starList) return (0, "Need ≥5 stars");
-        if (Wcs is not { } wcs || !IsPlateSolved) return (0, "Need plate solve");
+        if (starList.StarMask is not { } mask) return (0, "No star mask");
 
-        await db.EnsureTycho2DataLoadedAsync(cancellationToken);
+        var calibrateImage = UnstretchedImage;
+        if (calibrateImage.ChannelCount < 3 && calibrateImage.ImageMeta.SensorType is SensorType.RGGB)
+            calibrateImage = await calibrateImage.DebayerAsync(DebayerAlgorithm, cancellationToken: cancellationToken);
 
-        var result = await Task.Run(() =>
-            Tycho2ColorCalibration.ComputeWhiteBalance(UnstretchedImage, starList, wcs, db, minStars: 5),
-            cancellationToken);
+        if (calibrateImage.ChannelCount < 3) return (0, "Need color image");
 
-        if (result is not { } wb)
-            return (0, "Too few Tycho-2 matches");
+        var wb = await Task.Run(() => ComputeSkyBackgroundWB(calibrateImage, mask), cancellationToken);
 
-        ColorCalibration = (wb.R, wb.G, wb.B);
-        var diag = $"{wb.MatchCount}★ ty=({wb.R:F3},{wb.G:F3},{wb.B:F3})";
-        return (wb.MatchCount, diag);
+        if (wb is not { } w)
+            return (0, "No valid bg samples");
+
+        ColorCalibration = (w.R, w.G, w.B);
+        var diag = $"skyBg R={w.R:F3} B={w.B:F3}";
+        return (1, diag);
+    }
+
+    /// <summary>
+    /// Samples the darkest 10% of non-star pixels to find the true sky background color.
+    /// Stars and nebulae are brighter and get excluded by the percentile threshold,
+    /// so only true sky background contributes to the color estimate.
+    /// </summary>
+    private static (float R, float G, float B)? ComputeSkyBackgroundWB(Image image, BitMatrix starMask)
+    {
+        var (_, width, height) = image.Shape;
+        var maxSamples = width * height / 16;
+        var sr = new float[maxSamples]; var sg = new float[maxSamples]; var sb = new float[maxSamples];
+        var yBuf = new float[maxSamples];
+        var n = 0;
+
+        for (var y = 0; y < height && n < maxSamples; y += 4)
+            for (var x = 0; x < width && n < maxSamples; x += 4)
+            {
+                if (starMask[y, x]) continue;
+                var r = image[0, y, x]; var g = image[1, y, x]; var b = image[2, y, x];
+                if (float.IsNaN(r) || float.IsNaN(g) || float.IsNaN(b)) continue;
+                yBuf[n] = 0.2126f * r + 0.7152f * g + 0.0722f * b;
+                sr[n] = r; sg[n] = g; sb[n] = b;
+                n++;
+            }
+
+        if (n < 100) return null;
+
+        // Sort by luminance to find darkest 10% pixel indices
+        var idx = new int[n]; for (var i = 0; i < n; i++) idx[i] = i;
+        Array.Sort(yBuf, idx, 0, n);
+        var k = Math.Max(n / 10, 10);
+
+        // Collect RGB values of darkest k pixels and median-filter
+        var darkR = new float[k]; var darkG = new float[k]; var darkB = new float[k];
+        for (var i = 0; i < k; i++) { darkR[i] = sr[idx[i]]; darkG[i] = sg[idx[i]]; darkB[i] = sb[idx[i]]; }
+        Array.Sort(darkR); Array.Sort(darkG); Array.Sort(darkB);
+
+        var medR = darkR[k / 2]; var medG = darkG[k / 2]; var medB = darkB[k / 2];
+        if (medG <= 1e-7f) return null;
+
+        return (Math.Clamp(medG / medR, 0.5f, 2f), 1f, Math.Clamp(medG / medB, 0.5f, 2f));
     }
 
     /// <summary>
