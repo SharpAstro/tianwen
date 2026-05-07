@@ -487,11 +487,11 @@ public sealed class AstroImageDocument
     /// Computes Tycho-2 photometric color calibration. Requires plate-solved WCS and detected stars.
     /// Returns the number of matched stars (0 if calibration failed or wasn't attempted).
     /// </summary>
-    public async Task<int> ComputeColorCalibrationAsync(ICelestialObjectDB db, CancellationToken cancellationToken = default)
+    public async Task<(int MatchCount, string? Diag)> ComputeColorCalibrationAsync(ICelestialObjectDB db, CancellationToken cancellationToken = default)
     {
-        if (ColorCalibration.HasValue) return 0;
-        if (Stars is not { Count: >= 5 } starList) return 0;
-        if (Wcs is not { } wcs || !IsPlateSolved) return 0;
+        if (ColorCalibration.HasValue) return (0, null);
+        if (Stars is not { Count: >= 5 } starList) return (0, "Need ≥5 stars");
+        if (Wcs is not { } wcs || !IsPlateSolved) return (0, "Need plate solve");
 
         await db.EnsureTycho2DataLoadedAsync(cancellationToken);
 
@@ -500,15 +500,10 @@ public sealed class AstroImageDocument
             cancellationToken);
 
         if (result is not { } wb)
-        {
-            System.Diagnostics.Debug.WriteLine("[ColorCal] Failed — not enough Tycho-2 matches");
-            return 0;
-        }
+            return (0, "Too few Tycho-2 matches");
 
-        // Complement Tycho-2 (star-based) with background WB (star-masked channel medians).
-        // Tycho-2 balances star colors; background WB neutralises sky glow / sensor bias
-        // that affects the background but not individual stars.
         var (tychoR, tychoG, tychoB) = (wb.R, wb.G, wb.B);
+        string? diag = null;
         if (StarMaskedStats is { Length: >= 3 } sm
             && sm[0].Median > 1e-7f && sm[1].Median > 1e-7f && sm[2].Median > 1e-7f)
         {
@@ -517,15 +512,15 @@ public sealed class AstroImageDocument
             tychoR *= bgR;
             tychoB *= bgB;
             tychoG = 1f;
-            Console.Error.WriteLine($"[ColorCal] {wb.MatchCount}★ tycho=({wb.R:F4},{wb.G:F4},{wb.B:F4}) bgMed=({sm[0].Median:F4},{sm[1].Median:F4},{sm[2].Median:F4}) bgWB=({bgR:F4},1,{bgB:F4}) final=({tychoR:F4},1,{tychoB:F4})");
+            diag = $"{wb.MatchCount}★ ty=({wb.R:F3},{wb.G:F3},{wb.B:F3}) bg=({bgR:F3},1,{bgB:F3})";
         }
         else
         {
-            Console.Error.WriteLine($"[ColorCal] {wb.MatchCount}★ tycho=({wb.R:F4},{wb.G:F4},{wb.B:F4}) bgMed=N/A sm={StarMaskedStats?.Length ?? 0}ch");
+            diag = $"{wb.MatchCount}★ ty=({wb.R:F3},{wb.G:F3},{wb.B:F3}) noBgStats";
         }
 
         ColorCalibration = (tychoR, tychoG, tychoB);
-        return wb.MatchCount;
+        return (wb.MatchCount, diag);
     }
 
     /// <summary>

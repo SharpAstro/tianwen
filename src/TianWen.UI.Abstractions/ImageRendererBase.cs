@@ -1737,7 +1737,7 @@ namespace TianWen.UI.Abstractions
                     var db = CelestialObjectDB is { IsValueCreated: true } lazy
                         ? await lazy.WithCancellation(CancellationToken.None)
                         : null!;
-                    var matched = await _document.ComputeColorCalibrationAsync(db);
+                    var (matched, diag) = await _document.ComputeColorCalibrationAsync(db);
                     if (_document.ColorCalibration is { } wb)
                     {
                         state.ColorCalibrationEnabled = true;
@@ -1745,13 +1745,15 @@ namespace TianWen.UI.Abstractions
                         {
                             state.StretchMode = StretchMode.Linked;
                         }
+                        System.Console.Error.WriteLine($"[ColorCal] {diag}");
                         state.StatusMessage = matched > 0
                             ? $"WB ({matched}★): R={wb.Item1:F3} G=1.000 B={wb.Item3:F3}"
                             : null;
                     }
                     else
                     {
-                        state.StatusMessage = "Calibration failed — not enough Tycho-2 matches";
+                        System.Console.Error.WriteLine($"[ColorCal] FAIL: {diag}");
+                        state.StatusMessage = $"Calibration failed: {diag}";
                     }
                     state.NeedsRedraw = true;
                 });
