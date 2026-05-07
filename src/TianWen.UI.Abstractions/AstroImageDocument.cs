@@ -517,11 +517,11 @@ public sealed class AstroImageDocument
             tychoR *= bgR;
             tychoB *= bgB;
             tychoG = 1f;
-            System.Diagnostics.Debug.WriteLine($"[ColorCal] {wb.MatchCount} stars: tycho=({wb.R:F3},{wb.G:F3},{wb.B:F3}) bg=({bgR:F3},1,{bgB:F3}) combined=({tychoR:F3},1,{tychoB:F3})");
+            Console.Error.WriteLine($"[ColorCal] {wb.MatchCount}★ tycho=({wb.R:F4},{wb.G:F4},{wb.B:F4}) bgMed=({sm[0].Median:F4},{sm[1].Median:F4},{sm[2].Median:F4}) bgWB=({bgR:F4},1,{bgB:F4}) final=({tychoR:F4},1,{tychoB:F4})");
         }
         else
         {
-            System.Diagnostics.Debug.WriteLine($"[ColorCal] {wb.MatchCount} stars: tycho=({wb.R:F3},{wb.G:F3},{wb.B:F3}) (no bg stats)");
+            Console.Error.WriteLine($"[ColorCal] {wb.MatchCount}★ tycho=({wb.R:F4},{wb.G:F4},{wb.B:F4}) bgMed=N/A sm={StarMaskedStats?.Length ?? 0}ch");
         }
 
         ColorCalibration = (tychoR, tychoG, tychoB);
