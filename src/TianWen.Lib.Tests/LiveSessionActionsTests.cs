@@ -231,6 +231,7 @@ public class LiveSessionActionsTests(ITestOutputHelper output)
         camera.CanGetCCDTemperature.Returns(true);
         camera.CanGetCoolerPower.Returns(true);
         camera.CanGetCoolerOn.Returns(true);
+        camera.CanSetCCDTemperature.Returns(true);
         camera.GetCCDTemperatureAsync(Arg.Any<CancellationToken>()).Returns(ValueTask.FromResult(-9.5));
         camera.GetCoolerPowerAsync(Arg.Any<CancellationToken>()).Returns(ValueTask.FromResult(42.0));
         camera.GetCoolerOnAsync(Arg.Any<CancellationToken>()).Returns(ValueTask.FromResult(true));
