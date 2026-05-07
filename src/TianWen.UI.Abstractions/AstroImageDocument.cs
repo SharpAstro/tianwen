@@ -502,24 +502,8 @@ public sealed class AstroImageDocument
         if (result is not { } wb)
             return (0, "Too few Tycho-2 matches");
 
-        var (tychoR, tychoG, tychoB) = (wb.R, wb.G, wb.B);
-        string? diag = null;
-        if (StarMaskedStats is { Length: >= 3 } sm
-            && sm[0].Median > 1e-7f && sm[1].Median > 1e-7f && sm[2].Median > 1e-7f)
-        {
-            var bgR = Math.Clamp(sm[1].Median / sm[0].Median, 0.3f, 3f);
-            var bgB = Math.Clamp(sm[1].Median / sm[2].Median, 0.3f, 3f);
-            tychoR *= bgR;
-            tychoB *= bgB;
-            tychoG = 1f;
-            diag = $"{wb.MatchCount}★ ty=({wb.R:F3},{wb.G:F3},{wb.B:F3}) bg=({bgR:F3},1,{bgB:F3})";
-        }
-        else
-        {
-            diag = $"{wb.MatchCount}★ ty=({wb.R:F3},{wb.G:F3},{wb.B:F3}) noBgStats";
-        }
-
-        ColorCalibration = (tychoR, tychoG, tychoB);
+        ColorCalibration = (wb.R, wb.G, wb.B);
+        var diag = $"{wb.MatchCount}★ ty=({wb.R:F3},{wb.G:F3},{wb.B:F3})";
         return (wb.MatchCount, diag);
     }
 
