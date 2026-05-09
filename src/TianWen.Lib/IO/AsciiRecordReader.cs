@@ -121,5 +121,39 @@ namespace TianWen.Lib.IO
             }
             return result;
         }
+
+        /// <summary>
+        /// Splits <paramref name="field"/> by <see cref="UnitSeparator"/> and parses
+        /// each segment as an invariant-culture double. Empty input yields an empty array.
+        /// </summary>
+        public static double[] ReadDoubleArray(ReadOnlySpan<byte> field)
+        {
+            if (field.IsEmpty)
+            {
+                return [];
+            }
+
+            var count = 1;
+            for (var i = 0; i < field.Length; i++)
+            {
+                if (field[i] == UnitSeparator) count++;
+            }
+
+            var result = new double[count];
+            var slot = 0;
+            var cursor = field;
+            while (true)
+            {
+                var idx = cursor.IndexOf(UnitSeparator);
+                if (idx < 0)
+                {
+                    result[slot] = ReadDouble(cursor);
+                    break;
+                }
+                result[slot++] = ReadDouble(cursor[..idx]);
+                cursor = cursor[(idx + 1)..];
+            }
+            return result;
+        }
     }
 }

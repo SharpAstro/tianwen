@@ -282,6 +282,8 @@ internal abstract class DALCameraDriver<TDevice, TDeviceInfo> : DALDeviceDriverB
 
     public FrameType LastExposureFrameType => _exposureData?.FrameType ?? FrameType.None;
 
+    public virtual string? SensorModelName => _deviceInfo.SensorModel;
+
     public SensorType SensorType { get; private set; }
 
     public int BayerOffsetX { get; private set; } = int.MinValue;

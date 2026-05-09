@@ -11,7 +11,8 @@ namespace TianWen.Lib.Imaging.ColorCalibration;
 /// Photometric color calibration against the Tycho-2 catalog.
 /// Matches detected stars to Tycho-2 entries via WCS coordinates, extracts aperture
 /// photometry from the unstretched image, compares observed RGB ratios to expected
-/// blackbody ratios from B-V, and computes per-channel white balance multipliers.
+/// ratios from B-V (blackbody) or Pickles SED + system throughput, and computes
+/// per-channel white balance multipliers.
 /// </summary>
 public static class Tycho2ColorCalibration
 {
@@ -21,19 +22,14 @@ public static class Tycho2ColorCalibration
         double ExpectedR, double ExpectedG, double ExpectedB,
         double Magnitude);
 
+    // Delegate type for computing expected RGB from a stellar B-V colour index.
+    // Used by ExtractPhotometry to support both blackbody and SED-based approaches.
+    private delegate (double R, double G, double B) ExpectedColorFunc(double bv);
+
     /// <summary>
     /// Computes per-channel white balance multipliers by matching detected stars to
     /// Tycho-2 and comparing observed photometry to B-V predicted colors.
     /// </summary>
-    /// <param name="image">Unstretched image (3-channel RGB, or 1-channel Bayer).</param>
-    /// <param name="stars">Detected stars with centroids.</param>
-    /// <param name="wcs">Plate-solve WCS solution.</param>
-    /// <param name="db">Initialised celestial object database.</param>
-    /// <param name="apertureRadius">Aperture radius in pixels for photometry.</param>
-    /// <param name="matchRadiusArcsec">Maximum angular separation for a valid match.</param>
-    /// <param name="maxMagDiff">Maximum magnitude difference for a valid match.</param>
-    /// <param name="minStars">Minimum number of matched stars required to return a result.</param>
-    /// <returns>White balance (R, G, B) multipliers normalised so max = 1, or null if insufficient matches.</returns>
     public static (float R, float G, float B, int MatchCount)? ComputeWhiteBalance(
         Image image,
         StarList stars,
@@ -49,11 +45,81 @@ public static class Tycho2ColorCalibration
         var matches = MatchStars(stars, wcs, db, matchRadiusArcsec, maxMagDiff);
         if (matches.Count < minStars) return null;
 
-        var photometry = ExtractPhotometry(image, matches, apertureRadius);
+        var photometry = ExtractPhotometry(image, matches, apertureRadius,
+            bv => SyntheticStarFieldRenderer.BMinusVToRGB(bv));
         if (photometry.Count < minStars) return null;
 
         var (wbR, wbG, wbB) = ComputeMultipliers(photometry);
         return (wbR, wbG, wbB, photometry.Count);
+    }
+
+    /// <summary>
+    /// Spectrophotometric color calibration: matches detected stars to Tycho-2,
+    /// maps each star's B-V to the closest Pickles stellar SED, integrates the SED
+    /// through the per-channel system throughput curves to compute expected R/G/B
+    /// ratios, then fits per-channel white balance multipliers from the observed
+    /// aperture photometry.
+    /// </summary>
+    /// <param name="image">Unstretched RGB or Bayer image.</param>
+    /// <param name="stars">Detected stars with centroids.</param>
+    /// <param name="wcs">Plate-solve WCS solution.</param>
+    /// <param name="db">Initialised celestial object database.</param>
+    /// <param name="tsysR">System throughput for the red channel (QE × filter × CFA).</param>
+    /// <param name="tsysG">System throughput for the green channel.</param>
+    /// <param name="tsysB">System throughput for the blue channel.</param>
+    /// <returns>White balance (R, G, B) multipliers, or null if insufficient matches.</returns>
+    public static (float R, float G, float B, int MatchCount)? ComputeSpectrophotometricWhiteBalance(
+        Image image,
+        StarList stars,
+        WCS wcs,
+        ICelestialObjectDB db,
+        FilterCurve tsysR, FilterCurve tsysG, FilterCurve tsysB,
+        int apertureRadius = 6,
+        float matchRadiusArcsec = 5.0f,
+        float maxMagDiff = 1.5f,
+        int minStars = 5)
+    {
+        if (image.ChannelCount < 3 && image.ImageMeta.SensorType is not SensorType.RGGB) return null;
+
+        // Ensure SED database is loaded
+        if (!FilterCurveDatabase.IsLoaded) return null;
+
+        var matches = MatchStars(stars, wcs, db, matchRadiusArcsec, maxMagDiff);
+        if (matches.Count < minStars) return null;
+
+        var photometry = ExtractPhotometry(image, matches, apertureRadius,
+            bv => ComputeExpectedRgbFromSed(bv, tsysR, tsysG, tsysB));
+        if (photometry.Count < minStars) return null;
+
+        var (wbR, wbG, wbB) = ComputeMultipliers(photometry);
+        return (wbR, wbG, wbB, photometry.Count);
+    }
+
+    /// <summary>
+    /// Maps a B-V colour index to expected per-channel RGB via the closest
+    /// Pickles SED integrated through the system throughput curves.
+    /// Normalised so that the maximum channel = 1.0.
+    /// </summary>
+    private static (double R, double G, double B) ComputeExpectedRgbFromSed(
+        double bv, FilterCurve tsysR, FilterCurve tsysG, FilterCurve tsysB)
+    {
+        if (!FilterCurveDatabase.TryGetSedByBv(bv, out var sed))
+            // Fall back to blackbody if SED lookup fails
+            return SyntheticStarFieldRenderer.BMinusVToRGB(bv);
+
+        var fluxR = FilterCurve.IntegrateSedThroughput(sed, tsysR);
+        var fluxG = FilterCurve.IntegrateSedThroughput(sed, tsysG);
+        var fluxB = FilterCurve.IntegrateSedThroughput(sed, tsysB);
+
+        if (fluxG <= 0)
+            return SyntheticStarFieldRenderer.BMinusVToRGB(bv);
+
+        // Normalise so max channel = 1.0 (consistent with BMinusVToRGB convention)
+        var r = fluxR / fluxG;
+        var g = 1.0;
+        var b = fluxB / fluxG;
+        var max = Math.Max(r, Math.Max(g, b));
+        return (r / max, g / max, b / max);
     }
 
     /// <summary>
@@ -127,7 +193,8 @@ public static class Tycho2ColorCalibration
     /// channel response including the 2x green oversampling bias.
     /// </summary>
     private static List<StarMatch> ExtractPhotometry(
-        Image image, List<(ImagedStar Star, CelestialObject Tycho)> matches, int apertureRadius)
+        Image image, List<(ImagedStar Star, CelestialObject Tycho)> matches, int apertureRadius,
+        ExpectedColorFunc expectedColor)
     {
         var (channelCount, width, height) = image.Shape;
         var isBayer = channelCount == 1 && image.ImageMeta.SensorType is SensorType.RGGB;
@@ -191,7 +258,7 @@ public static class Tycho2ColorCalibration
                 var netG = obsG - (bgG / Math.Max(bgGc, 1)) * apG;
                 var netB = obsB - (bgB / Math.Max(bgBc, 1)) * apB;
                 if (netR <= 0 || netG <= 0 || netB <= 0) continue;
-                var (expR, expG, expB) = SyntheticStarFieldRenderer.BMinusVToRGB((double)tycho.BMinusV);
+                var (expR, expG, expB) = expectedColor((double)tycho.BMinusV);
                 result.Add(new StarMatch(netR, netG, netB, expR, expG, expB, (double)tycho.V_Mag));
             }
             else
@@ -201,7 +268,7 @@ public static class Tycho2ColorCalibration
                 var netG = obsG - bgPerPixelG * apPixels;
                 var netB = obsB - bgPerPixelB * apPixels;
                 if (netR <= 0 || netG <= 0 || netB <= 0) continue;
-                var (expR, expG, expB) = SyntheticStarFieldRenderer.BMinusVToRGB((double)tycho.BMinusV);
+                var (expR, expG, expB) = expectedColor((double)tycho.BMinusV);
                 result.Add(new StarMatch(netR, netG, netB, expR, expG, expB, (double)tycho.V_Mag));
             }
         }

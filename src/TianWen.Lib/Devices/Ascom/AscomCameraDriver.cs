@@ -310,6 +310,12 @@ internal class AscomCameraDriver : AscomDeviceDriverBase, ICameraDriver
 
     public SensorType SensorType => Connected ? SafeGet(() => (SensorType)_camera.SensorType, SensorType.Unknown) : SensorType.Unknown;
 
+    /// <summary>
+    /// ASCOM doesn't expose sensor die model natively — use the camera name.
+    /// <see cref="FilterCurveDatabase.TryMatchSensor"/> can resolve e.g. "ZWO ASI533MC Pro" → "IMX533".
+    /// </summary>
+    public string? SensorModelName => Name;
+
     public int BayerOffsetX => SafeGet(() => (int)_camera.BayerOffsetX, 0);
 
     public int BayerOffsetY => SafeGet(() => (int)_camera.BayerOffsetY, 0);

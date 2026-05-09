@@ -39,7 +39,7 @@ namespace TianWen.Lib.Imaging;
 /// <param name="PixelSizeY">Physical pixel height in micrometers (FITS: YPIXSZ).</param>
 /// <param name="FocalLength">Effective focal length in mm (FITS: FOCALLEN). -1 if unknown.</param>
 /// <param name="FocusPos">Focuser position in steps (FITS: FOCUSPOS, FOCPOS). -1 if unknown.</param>
-/// <param name="Filter">Active filter during capture (FITS: FILTER).</param>
+/// <param name="Filter">Active filter during capture (FITS: FILTCLAS — coarse; FILTER — full name via <see cref="Imaging.Filter.FilterNameForFits"/>).</param>
 /// <param name="BinX">Horizontal binning factor (FITS: XBINNING).</param>
 /// <param name="BinY">Vertical binning factor (FITS: YBINNING).</param>
 /// <param name="CCDTemperature">Measured sensor temperature in Celsius (FITS: CCD-TEMP). NaN if unavailable.</param>
@@ -59,6 +59,7 @@ namespace TianWen.Lib.Imaging;
 /// <param name="ElectronsPerADU">Electrons per ADU (system gain) (FITS: EGAIN). NaN if unknown.</param>
 /// <param name="SWCreator">Software that created the image (FITS: SWCREATE). Empty if unset.</param>
 /// <param name="Aperture">Effective objective aperture diameter in mm (FITS: APTDIA). -1 if unknown.</param>
+/// <param name="SensorModel">Sensor die model, e.g. "IMX533" (FITS: SENSOR). Empty if unknown.</param>
 public record struct ImageMeta(
     string Instrument,
     DateTimeOffset ExposureStartTime,
@@ -87,7 +88,8 @@ public record struct ImageMeta(
     double TargetDec = double.NaN,
     float ElectronsPerADU = float.NaN,
     string SWCreator = "",
-    int Aperture = -1
+    int Aperture = -1,
+    string SensorModel = ""
 )
 {
     /// <summary>
