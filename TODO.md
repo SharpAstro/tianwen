@@ -277,6 +277,8 @@ Learnings from PixInsight Statistical Stretch (SetiAstro, v2.3).
 - [x] Iterative convergence — `Image.ConvergeStretchFactor` bisects stretchFactor using histogram until post-stretch median converges to target (0.25). Gated by `AstroImageDocument.UseIterativeConvergence`
 - [x] Star-masked background extraction — `GetStarMaskedMedianAndMADScaledToUnit` recomputes median/MAD excluding star pixels after detection; `StarMaskedStats`/`StarMaskedLumaStats` preferred in `ComputeStretchUniforms`
 - [x] Tycho-2 photometric color calibration — `Tycho2ColorCalibration.ComputeWhiteBalance` matches detected stars to Tycho-2, extracts aperture photometry, computes WB multipliers; flows through GPU UBO and CPU path
+- [x] SPCC spectrophotometric color calibration — `Tycho2ColorCalibration.ComputeSpectrophotometricWhiteBalance` integrates Pickles SED × system throughput (QE × CFA × filter) per matched star, fits WB multipliers; `AstroImageDocument.ComputeSpccColorCalibrationAsync` surfaces to viewer; `W` key tries SPCC first, falls back to sky-bg method
+- [x] Background neutralization (pivot1 mode) — `BackgroundNeutralization.ComputeGains` ports SETI Astro Suite Pro's highlight-protecting neutralization; uses existing `ScanBackgroundRegion` for dark-region sampling; GPU shader applies `out = norm * g + (1-g)` before white balance; `N` key toggle, toolbar button
 - [x] Fritsch-Carlson spline curves — `FritschCarlsonSpline` struct with monotonic cubic Hermite interpolation; `applyCurveLUT` in GLSL shader via 33-knot UBO; `ApplyCurveLut` CPU path
 - [ ] Luma blend — smoothly blend between linked and luma-only results
 
@@ -290,6 +292,8 @@ Learnings from PixInsight Statistical Stretch (SetiAstro, v2.3).
 - [x] Annotation overlay (object names from catalogs when plate-solved)
 - [x] Star detection overlay: `FitsDocument.DetectStarsAsync()` runs as background task,
       draws HFD-sized green circles, shows count/HFR/FWHM in status bar (S key toggle)
+- [x] Background neutralization toggle: N key and toolbar `NeutBg` button — computes pivot1 gains from `ScanBackgroundRegion` and applies via GPU shader
+- [x] SPCC color calibration via W key — tries spectrophotometric (Pickles SED + system throughput) first, falls back to sky-background method; toolbar `SPCC` button
 - [x] Clip star overlay circles to image viewport + fix centroid alignment (+0.5px offset)
 - [ ] Remember last opened folder and recent images across sessions
 - [ ] Continuous image advance when holding arrow keys (advance every ~1 second while pressed)

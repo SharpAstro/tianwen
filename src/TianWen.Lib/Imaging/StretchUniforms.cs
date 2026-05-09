@@ -19,6 +19,10 @@ public readonly record struct StretchUniforms(
     /// <summary>Per-channel white balance multipliers from Tycho-2 color calibration. Default (1,1,1) = no adjustment.</summary>
     public (float R, float G, float B) WhiteBalance { get; init; } = (1f, 1f, 1f);
 
+    /// <summary>Per-channel background neutralization gains from pivot1 background sampling. Default (1,1,1) = no adjustment.
+    /// GPU applies: out = norm * g + (1-g) per channel, which neutralizes the background to the mean of its per-channel medians.</summary>
+    public (float R, float G, float B) BackgroundNeutralization { get; init; } = (1f, 1f, 1f);
+
     /// <summary>Curve mode: 0 = power-law boost (ApplyBoost), 1 = Fritsch-Carlson spline LUT.</summary>
     public int CurvesMode { get; init; }
 

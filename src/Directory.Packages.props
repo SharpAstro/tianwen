@@ -50,7 +50,8 @@
     <!-- Image encoding -->
     <PackageVersion Include="StbImageWriteSharp" Version="1.16.7" />
     <!-- Other packages -->
-    <PackageVersion Include="QHYCCD.SDK" Version="1.0.21" />
-    <PackageVersion Include="ZWOptical.SDK" Version="4.2.571" />
+    <PackageVersion Include="QHYCCD.SDK" Version="1.0.31" />
+    <PackageVersion Include="TianWen.DAL" Version="2.0.181" />
+    <PackageVersion Include="ZWOptical.SDK" Version="4.2.581" />
   </ItemGroup>
 </Project>

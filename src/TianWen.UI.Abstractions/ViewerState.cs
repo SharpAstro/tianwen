@@ -68,6 +68,9 @@ public sealed class ViewerState
     /// <summary>Whether Tycho-2 photometric color calibration is active.</summary>
     public bool ColorCalibrationEnabled { get; set; }
 
+    /// <summary>Whether background neutralization (pivot1 mode) is active.</summary>
+    public bool BackgroundNeutralizationEnabled { get; set; }
+
     /// <summary>Whether detected star circles are visible.</summary>
     public bool ShowStarOverlay { get; set; }
 

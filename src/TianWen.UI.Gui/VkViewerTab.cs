@@ -142,6 +142,7 @@ public sealed class VkViewerTab : ImageRendererBase<VulkanContext>, IDisposable
             highlights: (stretch.Highlights.R, stretch.Highlights.G, stretch.Highlights.B),
             rescale: (stretch.Rescale.R, stretch.Rescale.G, stretch.Rescale.B),
             whiteBalance: (stretch.WhiteBalance.R, stretch.WhiteBalance.G, stretch.WhiteBalance.B),
+            bgNeutralization: (stretch.BackgroundNeutralization.R, stretch.BackgroundNeutralization.G, stretch.BackgroundNeutralization.B),
             curvesMode: state.CurvesMode,
             curveData: state.CurveData.AsSpan(),
             gridEnabled: gridEnabled,

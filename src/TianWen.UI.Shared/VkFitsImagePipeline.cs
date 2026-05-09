@@ -19,9 +19,9 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
 
     /// <summary>
     /// std140 StretchUBO — see field layout in struct definition below.
-    /// Total: 352 bytes (192 base + 16 whiteBalance + 144 curveData).
+    /// Total: 368 bytes (192 base + 16 whiteBalance + 16 bgNeutralization + 144 curveData).
     /// </summary>
-    private const int StretchUboSize = 352;
+    private const int StretchUboSize = 368;
 
     /// <summary>
     /// std140 HistogramUBO — 4 x int/float fields = 16 bytes.
@@ -74,8 +74,9 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
             // mat2 stored as 2 vec4 columns (std140 mat2 = 2 x vec4 = 32 bytes)
             vec4  cdCol0;           // offset 160
             vec4  cdCol1;           // offset 176
-            vec4  whiteBalance;     // offset 192  (xyz = WB multipliers, w = pad)
-            vec4  curveData[9];     // offset 208  (36 floats = 33 knots + 3 pad)
+            vec4  whiteBalance;        // offset 192  (xyz = WB multipliers, w = pad)
+            vec4  bgNeutralization;    // offset 208  (xyz = neutralization gains, w = pad)
+            vec4  curveData[9];        // offset 224  (36 floats = 33 knots + 3 pad)
         } ubo;
 
         layout(set = 1, binding = 0) uniform sampler2D uChannel0;
@@ -92,6 +93,8 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
 
         float stretchChannel(float raw, int ch) {
             float norm = raw * ubo.normFactor - ubo.pedestal[ch];
+            // Background neutralization: out = norm * g + (1-g)
+            norm = norm * ubo.bgNeutralization[ch] + (1.0 - ubo.bgNeutralization[ch]);
             norm = max(norm * ubo.whiteBalance[ch], 0.0);
             float rescaled = (norm - ubo.shadows[ch]) * ubo.rescale[ch];
             return mtf(ubo.midtones[ch], rescaled);
@@ -516,6 +519,7 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
         float crValRA, float crValDec,
         ReadOnlySpan<float> cdMatrix,
         (float R, float G, float B) whiteBalance = default,
+        (float R, float G, float B) bgNeutralization = default,
         int curvesMode = 0,
         ReadOnlySpan<float> curveData = default,
         ImageSource imageSource = ImageSource.ProcessedChannels,
@@ -606,10 +610,16 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
         WriteFloat(p, 200, whiteBalance.B);
         WriteFloat(p, 204, 0f);
 
-        // curveData[9] at offset 208 (36 floats, only first 33 are meaningful)
+        // bgNeutralization (vec4 at offset 208)
+        WriteFloat(p, 208, bgNeutralization.R);
+        WriteFloat(p, 212, bgNeutralization.G);
+        WriteFloat(p, 216, bgNeutralization.B);
+        WriteFloat(p, 220, 0f);
+
+        // curveData[9] at offset 224 (36 floats, only first 33 are meaningful)
         for (var i = 0; i < 36 && i < curveData.Length; i++)
         {
-            WriteFloat(p, 208 + i * 4, curveData[i]);
+            WriteFloat(p, 224 + i * 4, curveData[i]);
         }
     }
 

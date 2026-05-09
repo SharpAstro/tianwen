@@ -20,4 +20,6 @@ public enum ToolbarAction
     PlateSolve,
     Stars,
     ColorCalibrate,
+    BackgroundNeutralize,
+    SpccCalibrate,
 }

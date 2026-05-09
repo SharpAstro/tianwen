@@ -92,6 +92,9 @@ public sealed class AstroImageDocument
     /// <summary>White balance multipliers from Tycho-2 color calibration. null until computed.</summary>
     public (float R, float G, float B)? ColorCalibration { get; private set; }
 
+    /// <summary>Background neutralization gains from pivot1 sampling (1,1,1) = no neutralization.</summary>
+    public (float R, float G, float B)? BackgroundNeutralization { get; set; }
+
     /// <summary>When true, the stretch factor is iteratively adjusted so the post-stretch median converges to <see cref="ConvergenceTarget"/>.</summary>
     public bool UseIterativeConvergence { get; set; }
 
@@ -351,6 +354,10 @@ public sealed class AstroImageDocument
         {
             uniforms = uniforms with { WhiteBalance = wb };
         }
+        if (BackgroundNeutralization is { } bn)
+        {
+            uniforms = uniforms with { BackgroundNeutralization = bn };
+        }
         return uniforms;
     }
 
@@ -508,6 +515,60 @@ public sealed class AstroImageDocument
         ColorCalibration = (w.R, w.G, w.B);
         var diag = $"skyBg R={w.R:F3} B={w.B:F3}";
         return (1, diag);
+    }
+
+    /// <summary>
+    /// Computes background neutralization gains from the darkest spatial region.
+    /// Results flow through the GPU shader as <see cref="StretchUniforms.BackgroundNeutralization"/>.
+    /// </summary>
+    public (float R, float G, float B)? ComputeBackgroundNeutralization()
+    {
+        if (PerChannelBackground is not { Length: >= 3 } bg)
+            return null;
+
+        var gains = Lib.Imaging.BackgroundNeutralization.ComputeGains(bg);
+        if (Math.Abs(gains.R - 1f) < 0.001f && Math.Abs(gains.G - 1f) < 0.001f && Math.Abs(gains.B - 1f) < 0.001f)
+            return null; // effectively no neutralization needed
+
+        BackgroundNeutralization = gains;
+        return gains;
+    }
+
+    /// <summary>
+    /// Computes spectrophotometric color calibration via Pickles SEDs + system throughput.
+    /// Falls back to sky-background method if SPCC can't run (no plate solve, no filter data).
+    /// </summary>
+    public async Task<(int MatchCount, string? Diag)> ComputeSpccColorCalibrationAsync(
+        ICelestialObjectDB db, CancellationToken cancellationToken = default)
+    {
+        if (ColorCalibration.HasValue) return (0, null);
+        if (Stars is not { Count: >= 3 } starList) return (0, "Need ≥3 stars");
+        if (Wcs is not { HasCDMatrix: true } wcs) return (0, "Need plate-solved WCS");
+        if (!FilterCurveDatabase.IsLoaded) return (0, "Filter curve DB not loaded");
+
+        var calibrateImage = UnstretchedImage;
+        if (calibrateImage.ChannelCount < 3 && calibrateImage.ImageMeta.SensorType is SensorType.RGGB)
+            calibrateImage = await calibrateImage.DebayerAsync(DebayerAlgorithm, cancellationToken: cancellationToken);
+
+        if (calibrateImage.ChannelCount < 3) return (0, "Need color image");
+
+        var meta = calibrateImage.ImageMeta;
+        var channels = await Task.Run(() => FilterCurveDatabase.BuildChannelThroughputs(meta), cancellationToken);
+        if (channels is null)
+            return (0, $"No throughput for {meta.Instrument}/{meta.SensorModel}/{meta.Filter.FilterNameForFits}");
+        var (tsysR, tsysG, tsysB) = channels.Value;
+
+        var result = await Task.Run(() =>
+            Tycho2ColorCalibration.ComputeSpectrophotometricWhiteBalance(
+                calibrateImage, starList, wcs, db, tsysR, tsysG, tsysB, minStars: 3),
+            cancellationToken);
+
+        if (result is not { } r)
+            return (0, "Insufficient SPCC matches");
+
+        ColorCalibration = (r.R, r.G, r.B);
+        var diag = $"SPCC R={r.R:F3} B={r.B:F3} ({r.MatchCount} stars)";
+        return (r.MatchCount, diag);
     }
 
     /// <summary>

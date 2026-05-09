@@ -426,6 +426,14 @@ public static class ViewerActions
                 state.ColorCalibrationEnabled = !state.ColorCalibrationEnabled;
                 state.NeedsRedraw = true;
                 return true;
+            case ToolbarAction.BackgroundNeutralize:
+                state.BackgroundNeutralizationEnabled = !state.BackgroundNeutralizationEnabled;
+                state.NeedsRedraw = true;
+                return true;
+            case ToolbarAction.SpccCalibrate:
+                state.ColorCalibrationEnabled = !state.ColorCalibrationEnabled;
+                state.NeedsRedraw = true;
+                return true;
             case ToolbarAction.ZoomFit:
                 ZoomToFit(state);
                 return true;

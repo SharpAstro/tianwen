@@ -170,6 +170,8 @@ namespace TianWen.UI.Abstractions
             ("Objects", ToolbarAction.Overlays, 4),
             ("Stars", ToolbarAction.Stars, 4),
             ("Calibrate", ToolbarAction.ColorCalibrate, 4),
+            ("NeutBg", ToolbarAction.BackgroundNeutralize, 4),
+            ("SPCC", ToolbarAction.SpccCalibrate, 4),
         ];
 
         // -----------------------------------------------------------------------
@@ -516,6 +518,13 @@ namespace TianWen.UI.Abstractions
                 && document.Stars.StarMask is not null
                 && (document.UnstretchedImage.ChannelCount >= 3
                     || document.UnstretchedImage.ImageMeta.SensorType is SensorType.RGGB),
+            ToolbarAction.BackgroundNeutralize => document?.PerChannelBackground is { Length: >= 3 }
+                && (document.UnstretchedImage.ChannelCount >= 3
+                    || document.UnstretchedImage.ImageMeta.SensorType is SensorType.RGGB),
+            ToolbarAction.SpccCalibrate => document?.Stars is { Count: >= 3 }
+                && document.IsPlateSolved
+                && (document.UnstretchedImage.ChannelCount >= 3
+                    || document.UnstretchedImage.ImageMeta.SensorType is SensorType.RGGB),
             ToolbarAction.PlateSolve => document is not null && !document.IsPlateSolved,
             ToolbarAction.ZoomFit or ToolbarAction.ZoomActual => document is not null,
             _ => true,
@@ -535,6 +544,8 @@ namespace TianWen.UI.Abstractions
                 ToolbarAction.Overlays => state.ShowOverlays,
                 ToolbarAction.Stars => state.ShowStarOverlay,
                 ToolbarAction.ColorCalibrate => state.ColorCalibrationEnabled,
+                ToolbarAction.BackgroundNeutralize => state.BackgroundNeutralizationEnabled,
+                ToolbarAction.SpccCalibrate => state.ColorCalibrationEnabled,
                 ToolbarAction.ZoomFit => state.ZoomToFit,
                 ToolbarAction.ZoomActual => !state.ZoomToFit && MathF.Abs(state.Zoom - 1f) < 0.001f,
                 _ => false,
@@ -565,6 +576,8 @@ namespace TianWen.UI.Abstractions
                 ToolbarAction.Stars when document?.Stars is null => "Stars...",
                 ToolbarAction.Stars when document?.Stars is { Count: > 0 } s => $"Stars: {s.Count}",
                 ToolbarAction.Stars => "Stars: 0",
+                ToolbarAction.BackgroundNeutralize when state.BackgroundNeutralizationEnabled => "NeutBg: ON",
+                ToolbarAction.SpccCalibrate when state.ColorCalibrationEnabled => $"SPCC: {document?.ColorCalibration?.R:F2}/{document?.ColorCalibration?.B:F2}",
                 ToolbarAction.PlateSolve when state.IsPlateSolving => "Solving...",
                 ToolbarAction.PlateSolve when document?.IsPlateSolved == true => "Solved",
                 _ => baseLabel,
@@ -1383,6 +1396,8 @@ namespace TianWen.UI.Abstractions
                 "+/-: Stretch factor",
                 "C: Cycle channel",
                 "D: Cycle debayer",
+                "W: Color calibrate (SPCC)",
+                "N: Toggle neut. background",
                 "H: Cycle HDR",
                 "G: Toggle grid",
                 "V/Shift+V: Histogram/Log",
@@ -1700,6 +1715,9 @@ namespace TianWen.UI.Abstractions
                 case InputKey.F:
                     ViewerActions.ZoomToFit(state);
                     return true;
+                case InputKey.N:
+                    TryToggleBackgroundNeutralization(state);
+                    return true;
                 case InputKey.W:
                     TryStartColorCalibration(state);
                     return true;
@@ -1737,7 +1755,11 @@ namespace TianWen.UI.Abstractions
                     var db = CelestialObjectDB is { IsValueCreated: true } lazy
                         ? await lazy.WithCancellation(CancellationToken.None)
                         : null!;
-                    var (matched, diag) = await _document.ComputeColorCalibrationAsync(db);
+
+                    // Try SPCC first, fall back to sky-background method
+                    var (matched, diag) = await _document.ComputeSpccColorCalibrationAsync(db);
+                    if (matched <= 0)
+                        (matched, diag) = await _document.ComputeColorCalibrationAsync(db);
                     if (_document.ColorCalibration is { } wb)
                     {
                         state.ColorCalibrationEnabled = true;
@@ -1757,6 +1779,25 @@ namespace TianWen.UI.Abstractions
                     }
                     state.NeedsRedraw = true;
                 });
+            }
+        }
+
+        private void TryToggleBackgroundNeutralization(ViewerState state)
+        {
+            if (state.BackgroundNeutralizationEnabled)
+            {
+                _document!.BackgroundNeutralization = null;
+                state.BackgroundNeutralizationEnabled = false;
+                state.NeedsRedraw = true;
+                return;
+            }
+
+            var gains = _document?.ComputeBackgroundNeutralization();
+            if (gains is { } g)
+            {
+                state.BackgroundNeutralizationEnabled = true;
+                state.NeedsRedraw = true;
+                System.Console.Error.WriteLine($"[BgNeut] R={g.R:F3} G={g.G:F3} B={g.B:F3}");
             }
         }
 
@@ -1785,9 +1826,13 @@ namespace TianWen.UI.Abstractions
             if (hit is HitResult.ButtonHit { Action: var action } && Enum.TryParse<ToolbarAction>(action, out var toolbarAction))
             {
                 ViewerActions.HandleToolbarAction(state, _document, toolbarAction);
-                if (toolbarAction is ToolbarAction.ColorCalibrate)
+                if (toolbarAction is ToolbarAction.ColorCalibrate or ToolbarAction.SpccCalibrate)
                 {
                     TryStartColorCalibration(state);
+                }
+                else if (toolbarAction is ToolbarAction.BackgroundNeutralize)
+                {
+                    TryToggleBackgroundNeutralization(state);
                 }
                 return true;
             }
