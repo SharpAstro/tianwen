@@ -152,12 +152,15 @@ jobs:
     # Upload test temp output (cpu.tiff / gpu.tiff / diff.tiff and other test
     # fixtures) when tests fail, so CPU/GPU divergences in GpuStretchPipelineTests
     # can be diagnosed without re-running CI to add diagnostics.
-    - name: Upload test temp output on failure
+    - name: Upload GPU stretch test output on failure
       if: failure()
       uses: actions/upload-artifact@v7
       with:
-        name: test-unit-temp-output
-        path: /tmp/TianWen.Lib.Tests/
+        name: gpu-stretch-test-output
+        # Narrow to just the GpuStretchPipelineTests subdir -- /tmp/TianWen.Lib.Tests/
+        # aggregates outputs from every test in the suite (>2 GB on a full failure run);
+        # this slice is ~15 MB (cpu.tiff + gpu.tiff + diff.tiff per case).
+        path: /tmp/TianWen.Lib.Tests/*/GpuStretchPipelineTests/
         if-no-files-found: ignore
         retention-days: 7
 

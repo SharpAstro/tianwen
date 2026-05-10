@@ -163,6 +163,23 @@ public sealed class GpuStretchPipelineTests(ITestOutputHelper output)
 
         cpuRgba.Length.ShouldBe(gpuRgba.Length);
 
+        // Sample a handful of pixels at known offsets so we can tell at a glance whether the
+        // GPU output is the clear color everywhere (== shader never ran / textures sampled 0)
+        // or something more interesting like a partial render. The first pixel is the
+        // top-left of the framebuffer; the centre pixel sits where most of the SPCC starfield
+        // signal accumulates; the last pixel is the bottom-right.
+        Span<int> samplePixels = stackalloc int[] {
+            0,
+            (Width / 2) + (Height / 2) * Width,
+            (Width * Height) - 1,
+        };
+        for (var s = 0; s < samplePixels.Length; s++)
+        {
+            var px = samplePixels[s];
+            var i = px * 4;
+            output.WriteLine($"  px[{px}]: cpu=({cpuRgba[i]},{cpuRgba[i+1]},{cpuRgba[i+2]},{cpuRgba[i+3]})  gpu=({gpuRgba[i]},{gpuRgba[i+1]},{gpuRgba[i+2]},{gpuRgba[i+3]})");
+        }
+
         // Save both for visual inspection (helpful when the assertion fires).
         var testDir = SharedTestData.CreateTempTestOutputDir(nameof(GpuStretchPipelineTests));
         await WriteTiffAsync(cpuRgba, Width, Height, System.IO.Path.Combine(testDir, "cpu.tiff"), ct);
