@@ -62,28 +62,25 @@ public class StretchTests_NewPipeline(ITestOutputHelper output)
             doc.UseIterativeConvergence = true;
         }
 
-        var stretchMode = mode == "luma" ? StretchMode.Luma : StretchMode.Linked;
-        // shadowsClipping=-3 matches the production default (StretchParameters.Default). For
-        // converged cases on this nebula-dense Vela fixture the star-masked MAD is huge and
-        // -3 over-clips the dynamic range — but that's an issue with masked-stats vs nebula
-        // mosaic content, not with these test parameters; using a milder clipping here would
-        // hide a real upstream behaviour.
-        var uniforms = doc.ComputeStretchUniforms(stretchMode, new StretchParameters(0.15, -3));
-
+        // Set ColorCalibration on the doc BEFORE computing uniforms so the static method can
+        // scale the per-channel stats by WB and derive shadows/midtones/rescale in the
+        // post-WB coordinate space. Setting WhiteBalance via `with` after the fact would only
+        // change the shader uniform but leave shadows un-adjusted, clamping post-WB-reduced
+        // channels (e.g. B with wb<1) below shadow and tinting the output.
         if (applyWb)
         {
-            // Use the production sky-background WB algorithm (AstroImageDocument.
+            // Production sky-background WB algorithm (AstroImageDocument.
             // ComputeColorCalibrationAsync -> ComputeSkyBackgroundWB): samples the darkest 10%
             // of non-star pixels and returns (medG/medR, 1, medG/medB) clamped to [0.5, 2.0].
-            // For Hα-dominated narrowband Vela this reduces R; for blue-cast images it would
-            // reduce B. The `db` parameter is unused on the sky-bg path so we pass null.
+            // The `db` parameter is unused on the sky-bg path so we pass null.
             var (matchCount, diag) = await doc.ComputeColorCalibrationAsync(null!, ct);
-            output.WriteLine($"WB (sky-bg): matchCount={matchCount} diag={diag}");
-            if (doc.ColorCalibration is { } wb)
-            {
-                uniforms = uniforms with { WhiteBalance = wb };
-            }
+            output.WriteLine($"WB (sky-bg): matchCount={matchCount} diag={diag}  ColorCalibration={doc.ColorCalibration}");
         }
+
+        var stretchMode = mode == "luma" ? StretchMode.Luma : StretchMode.Linked;
+        // shadowsClipping=-3 matches the production default (StretchParameters.Default).
+        var uniforms = doc.ComputeStretchUniforms(stretchMode, new StretchParameters(0.15, -3));
+
         if (applyBgNeut)
         {
             // Real gains for this fixture are near-identity (~1, 1, 1) because Vela's

@@ -349,11 +349,7 @@ public sealed class AstroImageDocument
             }
         }
 
-        var uniforms = ComputeStretchUniforms(mode, new StretchParameters(factor, clipping), stats, luma, UnstretchedImage.MaxValue);
-        if (ColorCalibration is { } wb)
-        {
-            uniforms = uniforms with { WhiteBalance = wb };
-        }
+        var uniforms = ComputeStretchUniforms(mode, new StretchParameters(factor, clipping), stats, luma, UnstretchedImage.MaxValue, ColorCalibration);
         if (BackgroundNeutralization is { } bn)
         {
             uniforms = uniforms with { BackgroundNeutralization = bn };
@@ -363,8 +359,20 @@ public sealed class AstroImageDocument
 
     /// <summary>
     /// Computes stretch shader uniforms from stats directly — no <see cref="AstroImageDocument"/> needed.
+    /// When <paramref name="whiteBalance"/> is non-null, per-channel stats are scaled by the WB
+    /// multipliers before deriving shadows/midtones/rescale, so the shadow clip lands in the
+    /// same coordinate space as the post-WB norm in the GLSL stretch loop. Without this
+    /// adjustment, channels reduced by WB (e.g. B with wb=0.94) would have their post-WB norm
+    /// fall below the un-adjusted shadow and clamp to zero, tinting the bg toward the boosted
+    /// channels.
     /// </summary>
-    public static StretchUniforms ComputeStretchUniforms(StretchMode mode, StretchParameters parameters, ChannelStretchStats[] perChannelStats, ChannelStretchStats? lumaStats, float imageMaxValue)
+    public static StretchUniforms ComputeStretchUniforms(
+        StretchMode mode,
+        StretchParameters parameters,
+        ChannelStretchStats[] perChannelStats,
+        ChannelStretchStats? lumaStats,
+        float imageMaxValue,
+        (float R, float G, float B)? whiteBalance = null)
     {
         if (mode is StretchMode.None)
         {
@@ -374,10 +382,15 @@ public sealed class AstroImageDocument
         var normFactor = imageMaxValue > 1.0f + float.Epsilon ? 1f / imageMaxValue : 1f;
         var factor = parameters.Factor;
         var clipping = parameters.ShadowsClipping;
+        var wb = whiteBalance ?? (1f, 1f, 1f);
 
         if (mode is StretchMode.Luma && lumaStats is { } luma)
         {
-            var (s, m, h, r) = Image.ComputeStretchParameters(luma.Median, luma.Mad, factor, clipping);
+            // Luma stretch uses Rec.709 luminance over the WB-adjusted channels; scale luma
+            // median/mad by the Rec.709-weighted WB so the luma stretch aligns with the actual
+            // luminance values produced post-WB.
+            var lumaWb = 0.2126f * wb.R + 0.7152f * wb.G + 0.0722f * wb.B;
+            var (s, m, h, r) = Image.ComputeStretchParameters(luma.Median * lumaWb, luma.Mad * lumaWb, factor, clipping);
 
             // Use per-channel pedestals for background subtraction (avoids green cast from RGGB)
             // but luma-derived midtone/shadows/rescale for consistent stretch across channels
@@ -393,7 +406,8 @@ public sealed class AstroImageDocument
                 Shadows: ((float)s, (float)s, (float)s),
                 Midtones: ((float)m, (float)m, (float)m),
                 Highlights: ((float)h, (float)h, (float)h),
-                Rescale: ((float)r, (float)r, (float)r));
+                Rescale: ((float)r, (float)r, (float)r))
+            { WhiteBalance = wb };
         }
 
         // Linked or unlinked
@@ -408,9 +422,12 @@ public sealed class AstroImageDocument
             ch2 = ch0;
         }
 
-        var p0 = Image.ComputeStretchParameters(ch0.Median, ch0.Mad, factor, clipping);
-        var p1 = Image.ComputeStretchParameters(ch1.Median, ch1.Mad, factor, clipping);
-        var p2 = Image.ComputeStretchParameters(ch2.Median, ch2.Mad, factor, clipping);
+        // WB scales each channel's value range linearly: post-WB_median = wb * pre-WB_median,
+        // post-WB_mad = wb * pre-WB_mad. Compute stretch params from those scaled stats so
+        // shadows/rescale/midtones are consistent with the post-WB norm the shader sees.
+        var p0 = Image.ComputeStretchParameters(ch0.Median * wb.R, ch0.Mad * wb.R, factor, clipping);
+        var p1 = Image.ComputeStretchParameters(ch1.Median * wb.G, ch1.Mad * wb.G, factor, clipping);
+        var p2 = Image.ComputeStretchParameters(ch2.Median * wb.B, ch2.Mad * wb.B, factor, clipping);
 
         return new StretchUniforms(
             Mode: mode,
@@ -419,7 +436,8 @@ public sealed class AstroImageDocument
             Shadows: ((float)p0.Shadows, (float)p1.Shadows, (float)p2.Shadows),
             Midtones: ((float)p0.Midtones, (float)p1.Midtones, (float)p2.Midtones),
             Highlights: ((float)p0.Highlights, (float)p1.Highlights, (float)p2.Highlights),
-            Rescale: ((float)p0.Rescale, (float)p1.Rescale, (float)p2.Rescale));
+            Rescale: ((float)p0.Rescale, (float)p1.Rescale, (float)p2.Rescale))
+        { WhiteBalance = wb };
     }
 
     /// <summary>
