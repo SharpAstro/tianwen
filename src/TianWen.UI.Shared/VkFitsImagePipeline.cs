@@ -276,11 +276,16 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
             }
 
             // RGB path
-            if (ubo.stretchMode == 1) {
+            // stretchMode values are the C# StretchMode enum cast to int:
+            //   0 = None (passthrough), 1 = Linked, 2 = Unlinked, 3 = Luma.
+            // Linked and Unlinked both use per-channel stretchChannel; the difference is
+            // already encoded in the per-channel uniforms (Linked replicates channel 0,
+            // Unlinked uses each channel's own stats). Luma is its own pipeline.
+            if (ubo.stretchMode == 1 || ubo.stretchMode == 2) {
                 r = stretchChannel(r, 0);
                 g = stretchChannel(g, 1);
                 b = stretchChannel(b, 2);
-            } else if (ubo.stretchMode == 2) {
+            } else if (ubo.stretchMode == 3) {
                 float nr = r * ubo.normFactor;
                 float ng = g * ubo.normFactor;
                 float nb = b * ubo.normFactor;

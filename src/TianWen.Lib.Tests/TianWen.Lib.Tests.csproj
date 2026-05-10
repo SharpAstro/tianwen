@@ -5,6 +5,9 @@
     <Nullable>enable</Nullable>
     <IsPackable>false</IsPackable>
     <Platforms>AnyCPU</Platforms>
+    <!-- GpuStretchPipelineTests.RenderViaOffscreenGpu uses Vortice.Vulkan's VkInstanceCreateInfo
+         which requires unsafe pointer handling for vkCreateInstance. -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 
   <ItemGroup>
@@ -52,6 +55,10 @@
   <ItemGroup>
     <ProjectReference Include="..\TianWen.Lib\TianWen.Lib.csproj" />
     <ProjectReference Include="..\TianWen.UI.Abstractions\TianWen.UI.Abstractions.csproj" />
+    <!-- Pulls in VkFitsImagePipeline + SdlVulkan.Renderer for the GPU offscreen
+         pipeline test (GpuStretchPipelineTests). Vulkan native libs are loaded
+         lazily on the first Vulkan call; tests skip if the runtime is unavailable. -->
+    <ProjectReference Include="..\TianWen.UI.Shared\TianWen.UI.Shared.csproj" />
   </ItemGroup>
 
   <ItemGroup>
