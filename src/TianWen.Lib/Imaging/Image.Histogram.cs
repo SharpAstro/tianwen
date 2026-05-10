@@ -277,11 +277,23 @@ public partial class Image
         var mad = madSamples[count / 2];
 
         var invMax = 1f / MaxValue;
-        var unitMedian = median * invMax;
+        // Return median in pedestal-subtracted unit-scaled space, matching
+        // GetPedestralMedianAndMADScaledToUnit's convention. The stretch loop computes
+        // `norm = raw * normFactor - pedestal` and then `rescaled = (norm - shadows) * rescale`,
+        // so shadows (= median + ...) MUST be in pedestal-subtracted space too. Returning the
+        // raw median caused shadows to land at the actual sky-pixel value (~0.029), well above
+        // the post-pedestal norm (~0.001), which clamped every below-median pixel to 0.
+        var unitMedian = (median - MinValue) * invMax;
         var unitMad = mad * invMax;
-        if (unitMad < invMax * 0.5f)
+        // Floor MAD at half a 16-bit bin width in unit-scaled space (~7.6e-6). The previous
+        // formula `invMax * 0.5f` collapsed to 0.5 after ScaleFloatValuesToUnitInPlace set
+        // MaxValue=1 -> half the dynamic range, which then drove convergence to a degenerate
+        // state with shadows at -2.19 and a flat mid-grey output. Using a fixed bin-width
+        // floor stays correct regardless of normalisation state.
+        const float MinUnitMad = 0.5f / 65535f;
+        if (unitMad < MinUnitMad)
         {
-            unitMad = invMax * 0.5f;
+            unitMad = MinUnitMad;
         }
 
         return (pedestal, unitMedian, unitMad);
