@@ -1,10 +1,17 @@
 using ImageMagick;
 using Shouldly;
+using System;
 using System.Collections.Immutable;
 using System.Diagnostics;
 using System.IO;
+using System.Threading;
 using System.Threading.Tasks;
+using TianWen.Lib.Astrometry;
+using TianWen.Lib.Astrometry.Catalogs;
+using TianWen.Lib.Astrometry.PlateSolve;
+using TianWen.Lib.Devices.Fake;
 using TianWen.Lib.Imaging;
+using TianWen.Lib.Imaging.ColorCalibration;
 using TianWen.UI.Abstractions;
 using Xunit;
 
@@ -140,4 +147,161 @@ public class StretchTests_NewPipeline(ITestOutputHelper output)
     }
 
     private static string Triple((float R, float G, float B) v) => $"R={v.R:F4} G={v.G:F4} B={v.B:F4}";
+
+    // Cache the catalog DB across all SPCC runs in this assembly — InitDBAsync waits for the
+    // Tycho-2 bulk load (~seconds) which dominates wall-clock when run cold.
+    private static ICelestialObjectDB? _cachedDb;
+    private static readonly SemaphoreSlim _dbSem = new(1, 1);
+
+    private static async Task<ICelestialObjectDB> InitDbAsync(CancellationToken ct)
+    {
+        if (_cachedDb is { } cached) return cached;
+        await _dbSem.WaitAsync(ct);
+        try
+        {
+            if (_cachedDb is { } cached2) return cached2;
+            var db = new CelestialObjectDB();
+            // SPCC + plate-solving both query CoordinateGrid which needs Tycho-2 fully loaded.
+            await db.InitDBAsync(waitForTycho2BulkLoad: true, cancellationToken: ct);
+            _cachedDb = db;
+            return db;
+        }
+        finally
+        {
+            _dbSem.Release();
+        }
+    }
+
+    /// <summary>
+    /// End-to-end SPCC (spectrophotometric color calibration): synthesise a star field at a
+    /// known sky position by projecting Tycho-2 stars and rendering them through Sony CFA
+    /// per-pixel colouring, construct a matching WCS, run star detection, then drive SPCC
+    /// through <see cref="AstroImageDocument.ComputeSpccColorCalibrationAsync"/> which integrates
+    /// Pickles SEDs through (IMX533 QE x Sony CFA) per channel and fits per-channel WB from
+    /// real catalog photometry. The resulting WB is applied to <see cref="StretchUniforms"/>
+    /// and rendered through <see cref="Image.RenderStretchedRgba"/> to a TIFF.
+    ///
+    /// Synthesis route is used rather than the Vela fixture because Vela has no FITS-embedded
+    /// WCS and no pixel-scale headers; SPCC genuinely needs an accurate WCS to match catalog
+    /// stars within ~5 arcsec.
+    /// </summary>
+    [Fact]
+    public async Task GivenSyntheticStarFieldWhenSpccCalibratedThenWritesTiff()
+    {
+        var ct = TestContext.Current.CancellationToken;
+
+        // Heavyweight init: catalog DB + filter/SED database. Both are cached process-wide.
+        var loadFilterDb = FilterCurveDatabase.LoadAsync(ct);
+        var dbTask = InitDbAsync(ct);
+        await loadFilterDb;
+        var db = await dbTask;
+
+        // M45 (Pleiades) — open cluster with a few hundred Tycho-2 stars in a 2-deg field.
+        // Plenty of bright matches for SPCC photometry.
+        const double targetRA = 3.79f;          // hours
+        const double targetDec = 24.10f;        // degrees
+        const int focalLengthMm = 400;          // typical small APO
+        const float pixelSizeUm = 3.76f;        // IMX533 native pixel
+        const int width = 1280;
+        const int height = 1024;
+        const int gain = 100;
+        const float exposureSeconds = 60f;
+
+        // Project real Tycho-2 stars onto the sensor. ProjectCatalogStars uses the same gnomonic
+        // (TAN) maths the WCS will invert below, so star pixel positions are pixel-accurate.
+        var projected = SyntheticStarFieldRenderer.ProjectCatalogStars(
+            targetRA, targetDec, focalLengthMm, pixelSizeUm, width, height, db, magnitudeCutoff: 12.0);
+        output.WriteLine($"Projected {projected.Count} catalog stars into the synthetic field");
+        projected.Count.ShouldBeGreaterThan(15, "M45 field should yield enough Tycho-2 stars (default cutoff mag 12) for SPCC");
+
+        // RenderBayer applies BMinusVToRGB (blackbody approximation) per star and modulates the
+        // CFA pattern accordingly, so debayering produces stars whose per-channel flux ratios
+        // genuinely vary by spectral type. SPCC measures those ratios and compares against
+        // Pickles SEDs integrated through (IMX533 QE x Sony CFA) — different model, different
+        // throughput shape, so the fitted WB compensates for the mismatch (i.e., is non-trivial).
+        var bayerData = SyntheticStarFieldRenderer.RenderBayer(
+            width, height,
+            defocusSteps: 0,
+            stars: projected.ToArray().AsSpan(),
+            exposureSeconds: exposureSeconds,
+            apertureScaleFactor: (130.0 / 50.0) * (130.0 / 50.0));   // 130mm aperture vs 50mm reference
+
+        // Wrap the float[height,width] mosaic as a normalized Image with full Sony OSC metadata.
+        var maxAdu = 65535f;
+        var imageMeta = new ImageMeta(
+            Instrument: "Synthetic",
+            ExposureStartTime: DateTimeOffset.UtcNow,
+            ExposureDuration: TimeSpan.FromSeconds(exposureSeconds),
+            FrameType: FrameType.Light,
+            Telescope: "Synthetic 130mm APO",
+            PixelSizeX: pixelSizeUm,
+            PixelSizeY: pixelSizeUm,
+            FocalLength: focalLengthMm,
+            FocusPos: 0,
+            Filter: Filter.None,
+            BinX: 1, BinY: 1,
+            CCDTemperature: -10,
+            SensorType: SensorType.RGGB,
+            BayerOffsetX: 0, BayerOffsetY: 0,
+            RowOrder: RowOrder.TopDown,
+            Latitude: 0f, Longitude: 0f,
+            Gain: (short)gain,
+            Aperture: 130,
+            SensorModel: "IMX533");
+        var bayerImage = new Image([bayerData], BitDepth.Int16, maxValue: maxAdu, minValue: 0f, pedestal: 0f, imageMeta);
+
+        // Construct a WCS that exactly inverts the projection used to render. CD matrix is in
+        // degrees-per-pixel; both diagonal entries are negative because the synth uses the
+        // standard astronomical convention (East left, North up = pixel Y decreasing northwards).
+        var pixelScaleArcsec = (pixelSizeUm * 1e-3) / focalLengthMm * 206264.806;
+        var pixelScaleDeg = pixelScaleArcsec / 3600.0;
+        var wcs = new WCS(targetRA, targetDec)
+        {
+            CRPix1 = width / 2.0 + 1,    // 1-based FITS pixel of the projection centre
+            CRPix2 = height / 2.0 + 1,
+            CD1_1 = -pixelScaleDeg,
+            CD1_2 = 0,
+            CD2_1 = 0,
+            CD2_2 = -pixelScaleDeg,
+        };
+        wcs.HasCDMatrix.ShouldBeTrue();
+        output.WriteLine($"Synthetic WCS: center=({wcs.CenterRA:F4}h, {wcs.CenterDec:F3}°)  scale={pixelScaleArcsec:F3}\"/px");
+
+        var doc = await AstroImageDocument.CreateFromImageAsync(bayerImage, DebayerAlgorithm.AHD, wcs, filePath: "synthetic.fits", ct);
+        doc.IsPlateSolved.ShouldBeTrue();
+
+        var sw = Stopwatch.StartNew();
+        await doc.DetectStarsAsync(ct);
+        sw.Stop();
+        output.WriteLine($"Star detection: {doc.Stars?.Count ?? 0} stars in {sw.Elapsed.TotalMilliseconds:F0}ms");
+        (doc.Stars?.Count ?? 0).ShouldBeGreaterThan(20, "synthetic field should yield enough detections for SPCC");
+
+        // Drive the SPCC pipeline through the document — uses BuildChannelThroughputs (IMX533 QE x
+        // Sony CFA per channel) + Tycho2ColorCalibration.ComputeSpectrophotometricWhiteBalance.
+        var (matchCount, diag) = await doc.ComputeSpccColorCalibrationAsync(db, ct);
+        output.WriteLine($"SPCC: matchCount={matchCount}  diag={diag}  ColorCalibration={(doc.ColorCalibration is { } c ? $"({c.R:F4},{c.G:F4},{c.B:F4})" : "null")}");
+        doc.ColorCalibration.ShouldNotBeNull("SPCC should fit non-trivial WB on the synthetic Sony OSC field");
+
+        var uniforms = doc.ComputeStretchUniforms(StretchMode.Linked, new StretchParameters(0.15, -3));
+        output.WriteLine($"Stretch uniforms: WB={Triple(uniforms.WhiteBalance)}");
+
+        // RenderStretchedRgba needs 3-channel input; debayer the Bayer mosaic before rendering.
+        // (The doc keeps the raw Bayer for SPCC photometry; the rendered TIFF reflects the
+        // GPU's bilinear-debayer-then-stretch path via an AHD CPU debayer for parity.)
+        var debayered = await doc.UnstretchedImage.DebayerAsync(DebayerAlgorithm.AHD, cancellationToken: ct);
+        var rgba = new byte[debayered.Width * debayered.Height * 4];
+        debayered.RenderStretchedRgba(uniforms, rgba);
+
+        var settings = new PixelReadSettings((uint)debayered.Width, (uint)debayered.Height, StorageType.Char, PixelMapping.RGBA);
+        using var magick = new MagickImage(rgba, settings);
+        magick.Settings.Compression = CompressionMethod.Zip;
+
+        var testDir = SharedTestData.CreateTempTestOutputDir(
+            TestContext.Current.TestClass?.TestClassSimpleName ?? nameof(StretchTests_NewPipeline));
+        var outPath = Path.Combine(testDir, "synthetic_M45_09_spcc.tiff");
+        var bytes = magick.ToByteArray(MagickFormat.Tiff);
+        await File.WriteAllBytesAsync(outPath, bytes, ct);
+        output.WriteLine($"Wrote {bytes.Length} bytes -> {outPath}");
+    }
+
 }
