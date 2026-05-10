@@ -471,6 +471,86 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
     // ------------------------------------------------------------------ Public API
 
     /// <summary>
+    /// Reads back the first <paramref name="count"/> floats of channel slot
+    /// <paramref name="channel"/> into <paramref name="destination"/>. Diagnostic helper used
+    /// by tests to confirm whether texture upload actually placed data on the GPU. Blocks
+    /// on a one-shot command buffer + queue idle (slow -- not for production hot paths).
+    /// </summary>
+    public unsafe void ReadbackChannelFirstFloats(int channel, Span<float> destination)
+    {
+        if ((uint)channel >= ChannelCount)
+            throw new ArgumentOutOfRangeException(nameof(channel));
+        if (_channelWidth[channel] == 0 || _channelHeight[channel] == 0)
+            throw new InvalidOperationException("Channel texture has no data uploaded.");
+
+        var api = _ctx.DeviceApi;
+        var count = destination.Length;
+        var byteSize = (ulong)(count * sizeof(float));
+
+        // Host-visible scratch buffer (separate from _stagingBuffer to avoid trampling it).
+        VkBufferCreateInfo bufCI = new()
+        {
+            size = byteSize,
+            usage = VkBufferUsageFlags.TransferDst,
+            sharingMode = VkSharingMode.Exclusive
+        };
+        api.vkCreateBuffer(&bufCI, null, out var scratch).CheckResult();
+        try
+        {
+            api.vkGetBufferMemoryRequirements(scratch, out var memReqs);
+            VkMemoryAllocateInfo allocInfo = new()
+            {
+                allocationSize = memReqs.size,
+                memoryTypeIndex = _ctx.FindMemoryType(memReqs.memoryTypeBits,
+                    VkMemoryPropertyFlags.HostVisible | VkMemoryPropertyFlags.HostCoherent)
+            };
+            api.vkAllocateMemory(&allocInfo, null, out var scratchMem).CheckResult();
+            try
+            {
+                api.vkBindBufferMemory(scratch, scratchMem, 0);
+
+                // Copy only as many rows as needed to satisfy `count` texels.
+                var width = (uint)_channelWidth[channel];
+                var height = (uint)Math.Min(_channelHeight[channel], (int)Math.Ceiling((double)count / _channelWidth[channel]));
+
+                _ctx.ExecuteOneShot(cmd =>
+                {
+                    TransitionImageLayout(cmd, _channelImages[channel],
+                        VkImageLayout.ShaderReadOnlyOptimal, VkImageLayout.TransferSrcOptimal);
+
+                    VkBufferImageCopy region = new()
+                    {
+                        bufferOffset = 0,
+                        bufferRowLength = 0,
+                        bufferImageHeight = 0,
+                        imageSubresource = new VkImageSubresourceLayers(VkImageAspectFlags.Color, 0, 0, 1),
+                        imageOffset = new VkOffset3D(0, 0, 0),
+                        imageExtent = new VkExtent3D(width, height, 1)
+                    };
+                    api.vkCmdCopyImageToBuffer(cmd, _channelImages[channel],
+                        VkImageLayout.TransferSrcOptimal, scratch, 1, &region);
+
+                    TransitionImageLayout(cmd, _channelImages[channel],
+                        VkImageLayout.TransferSrcOptimal, VkImageLayout.ShaderReadOnlyOptimal);
+                });
+
+                void* mapped;
+                api.vkMapMemory(scratchMem, 0, byteSize, 0, &mapped);
+                new ReadOnlySpan<float>(mapped, count).CopyTo(destination);
+                api.vkUnmapMemory(scratchMem);
+            }
+            finally
+            {
+                api.vkFreeMemory(scratchMem);
+            }
+        }
+        finally
+        {
+            api.vkDestroyBuffer(scratch);
+        }
+    }
+
+    /// <summary>
     /// Uploads a R32_SFLOAT 2D image into channel slot <paramref name="channel"/> (0-based).
     /// Creates or recreates the texture if dimensions changed.
     /// </summary>
@@ -1254,6 +1334,20 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
             barrier.srcAccessMask = 0;
             barrier.dstAccessMask = VkAccessFlags.ShaderRead;
             srcStage = VkPipelineStageFlags.TopOfPipe;
+            dstStage = VkPipelineStageFlags.FragmentShader;
+        }
+        else if (oldLayout == VkImageLayout.ShaderReadOnlyOptimal && newLayout == VkImageLayout.TransferSrcOptimal)
+        {
+            barrier.srcAccessMask = VkAccessFlags.ShaderRead;
+            barrier.dstAccessMask = VkAccessFlags.TransferRead;
+            srcStage = VkPipelineStageFlags.FragmentShader;
+            dstStage = VkPipelineStageFlags.Transfer;
+        }
+        else if (oldLayout == VkImageLayout.TransferSrcOptimal && newLayout == VkImageLayout.ShaderReadOnlyOptimal)
+        {
+            barrier.srcAccessMask = VkAccessFlags.TransferRead;
+            barrier.dstAccessMask = VkAccessFlags.ShaderRead;
+            srcStage = VkPipelineStageFlags.Transfer;
             dstStage = VkPipelineStageFlags.FragmentShader;
         }
         else

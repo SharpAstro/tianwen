@@ -283,6 +283,20 @@ public sealed class GpuStretchPipelineTests(ITestOutputHelper output)
         pipeline.UploadChannelTexture(debayered.GetChannelSpan(1), 1, debayered.Width, debayered.Height);
         pipeline.UploadChannelTexture(debayered.GetChannelSpan(2), 2, debayered.Width, debayered.Height);
 
+        // Readback the first 16 floats of each channel as a sanity check for the upload. If
+        // the GPU output is solid black but the readback returns the source data correctly,
+        // the bug is downstream of the texture (draw / shader / descriptor). If the readback
+        // returns zeros, the upload itself failed silently on this driver.
+        Span<float> probe = stackalloc float[16];
+        for (var ch = 0; ch < 3; ch++)
+        {
+            pipeline.ReadbackChannelFirstFloats(ch, probe);
+            var srcSpan = debayered.GetChannelSpan(ch);
+            var srcFirst = srcSpan.Length > 0 ? srcSpan[0] : 0f;
+            var srcMid = srcSpan.Length > 1280 * 512 + 640 ? srcSpan[1280 * 512 + 640] : 0f;
+            _formatDiagBag.Add($"channel {ch}: src first/mid = {srcFirst:G6} / {srcMid:G6}, readback first 4 = [{probe[0]:G6}, {probe[1]:G6}, {probe[2]:G6}, {probe[3]:G6}]");
+        }
+
         renderer.BeginOffscreenFrame(new RGBAColor32(0, 0, 0, 255)).ShouldBeTrue();
         var cmd = renderer.CurrentCommandBuffer;
 
