@@ -63,17 +63,26 @@ public class StretchTests_NewPipeline(ITestOutputHelper output)
         }
 
         var stretchMode = mode == "luma" ? StretchMode.Luma : StretchMode.Linked;
-        // shadowsClipping=-1 (mild) instead of -3 (aggressive). For non-converged Vela the masked
-        // MAD is tiny so this barely moves shadows, but for converged cases (which use star-masked
-        // MAD that's huge on the nebula-dominated Vela frame) -3 drove shadows to -2.2 and
-        // compressed all dynamic range into a flat mid-gray. -1 keeps shadows near 0.
-        var uniforms = doc.ComputeStretchUniforms(stretchMode, new StretchParameters(0.15, -1));
+        // shadowsClipping=-3 matches the production default (StretchParameters.Default). For
+        // converged cases on this nebula-dense Vela fixture the star-masked MAD is huge and
+        // -3 over-clips the dynamic range — but that's an issue with masked-stats vs nebula
+        // mosaic content, not with these test parameters; using a milder clipping here would
+        // hide a real upstream behaviour.
+        var uniforms = doc.ComputeStretchUniforms(stretchMode, new StretchParameters(0.15, -3));
 
         if (applyWb)
         {
-            // Synthetic WB: boost red+blue, leave green as anchor — the absolute values don't
-            // matter; the test just needs a non-identity multiplier so the WB code path runs.
-            uniforms = uniforms with { WhiteBalance = (1.4f, 1.0f, 1.2f) };
+            // Use the production sky-background WB algorithm (AstroImageDocument.
+            // ComputeColorCalibrationAsync -> ComputeSkyBackgroundWB): samples the darkest 10%
+            // of non-star pixels and returns (medG/medR, 1, medG/medB) clamped to [0.5, 2.0].
+            // For Hα-dominated narrowband Vela this reduces R; for blue-cast images it would
+            // reduce B. The `db` parameter is unused on the sky-bg path so we pass null.
+            var (matchCount, diag) = await doc.ComputeColorCalibrationAsync(null!, ct);
+            output.WriteLine($"WB (sky-bg): matchCount={matchCount} diag={diag}");
+            if (doc.ColorCalibration is { } wb)
+            {
+                uniforms = uniforms with { WhiteBalance = wb };
+            }
         }
         if (applyBgNeut)
         {
