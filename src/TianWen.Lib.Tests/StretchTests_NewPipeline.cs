@@ -63,7 +63,11 @@ public class StretchTests_NewPipeline(ITestOutputHelper output)
         }
 
         var stretchMode = mode == "luma" ? StretchMode.Luma : StretchMode.Linked;
-        var uniforms = doc.ComputeStretchUniforms(stretchMode, new StretchParameters(0.15, -3));
+        // shadowsClipping=-1 (mild) instead of -3 (aggressive). For non-converged Vela the masked
+        // MAD is tiny so this barely moves shadows, but for converged cases (which use star-masked
+        // MAD that's huge on the nebula-dominated Vela frame) -3 drove shadows to -2.2 and
+        // compressed all dynamic range into a flat mid-gray. -1 keeps shadows near 0.
+        var uniforms = doc.ComputeStretchUniforms(stretchMode, new StretchParameters(0.15, -1));
 
         if (applyWb)
         {
@@ -218,7 +222,7 @@ public class StretchTests_NewPipeline(ITestOutputHelper output)
         // Plenty of bright matches for SPCC photometry.
         const double targetRA = 3.79f;          // hours
         const double targetDec = 24.10f;        // degrees
-        const int focalLengthMm = 400;          // typical small APO
+        const int focalLengthMm = 200;          // wider FOV -> more stars per frame
         const float pixelSizeUm = 3.76f;        // IMX533 native pixel
         const int width = 1280;
         const int height = 1024;
@@ -237,11 +241,14 @@ public class StretchTests_NewPipeline(ITestOutputHelper output)
         // genuinely vary by spectral type. SPCC measures those ratios and compares against
         // Pickles SEDs integrated through (IMX533 QE x Sony CFA) — different model, different
         // throughput shape, so the fitted WB compensates for the mismatch (i.e., is non-trivial).
+        // hyperbolaA=4 gives an ~4-pixel FWHM PSF — bigger stars are more visible at thumbnail
+        // resolution and easier to inspect than 1.5-pixel pinpoints.
         var bayerData = SyntheticStarFieldRenderer.RenderBayer(
             width, height,
             defocusSteps: 0,
             stars: projected.ToArray().AsSpan(),
             exposureSeconds: exposureSeconds,
+            hyperbolaA: 4.0,
             apertureScaleFactor: (130.0 / 50.0) * (130.0 / 50.0));   // 130mm aperture vs 50mm reference
 
         // Wrap the float[height,width] mosaic as a normalized Image with full Sony OSC metadata.
@@ -302,9 +309,12 @@ public class StretchTests_NewPipeline(ITestOutputHelper output)
 
         // Synthesis bg is highly uniform (deterministic shot noise) so MAD is tiny -> default
         // stretch sets midtones near 0 -> MTF saturates everything to white. Enable iterative
-        // convergence so the post-stretch median lands at the target (0.25) regardless.
+        // convergence so the post-stretch median lands at the target. ConvergenceTarget=0.15
+        // (vs default 0.25) gives a darker sky with brighter relative stars — better visual
+        // contrast for a sparse-star synthesis where most pixels are bg.
         doc.UseIterativeConvergence = true;
-        var uniforms = doc.ComputeStretchUniforms(StretchMode.Linked, new StretchParameters(0.15, -3));
+        doc.ConvergenceTarget = 0.15;
+        var uniforms = doc.ComputeStretchUniforms(StretchMode.Linked, new StretchParameters(0.15, -1));
         output.WriteLine($"Stretch uniforms: WB={Triple(uniforms.WhiteBalance)}");
 
         // RenderStretchedRgba needs 3-channel input; debayer the Bayer mosaic before rendering.
