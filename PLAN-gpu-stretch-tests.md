@@ -190,9 +190,171 @@ mesa-vulkan-drivers install is verified, but allow the existing
 the rest is mechanical once the offscreen ctx works in our test
 infrastructure.
 
-## Out of scope
+## Out of scope (this plan)
 
-- Histogram pipeline (`VkHistogramPipeline` rendering) -- separate test.
+- Histogram pipeline (`VkFitsImagePipeline.RecordHistogramDraw`) -- separate test.
 - Sky map pipeline tests -- separate plan.
 - WCS grid, debayer-shader, channel-view modes -- can be added later in
   the same fixture.
+
+---
+
+## Followups: other GPU offscreen comp test candidates
+
+After Phase 1 caught a real production bug (GLSL `stretchMode == 2` for
+Luma vs C# `StretchMode.Unlinked == 2`), it's worth surveying every GPU
+pipeline that has a CPU equivalent or algorithmic check. Each candidate
+below could plug into the same `OffscreenGpuContext` fixture.
+
+### A. Bayer demosaic (`debayerBilinear` in image fragment shader)
+
+GPU: `VkFitsImagePipeline.cs:188-226` -- the shader does an inline
+bilinear demosaic when `imageSource == 2 (RawBayer)`.
+
+CPU: `Image.DebayerAsync(DebayerAlgorithm.BilinearMono)` (existing).
+
+Test: feed a small RGGB mosaic, render via GPU with imageSource=RawBayer,
+compare to CPU bilinear debayer + `RenderStretchedRgba`. Stretch
+parameters identity so demosaic is the only variable.
+
+Value: Bayer images are common in OSC astrophotography. Confirms the GPU
+demosaic produces the same colors the CPU does.
+
+Effort: ~half a day. Same fixture, new test theory cases.
+
+### B. Histogram pipeline (`VkFitsImagePipeline.RecordHistogramDraw`)
+
+GPU: `VkFitsImagePipeline.cs:325-376` -- renders R/G/B histograms as
+overlapping coloured bars.
+
+CPU equivalent: synth histogram from a known image stat array; render as
+RGBA bytes via `RgbaImageRenderer.FillRectangle` per bin.
+
+Test: upload a contrived histogram (e.g. spike in middle bin), render
+GPU + render CPU equivalent, compare buffers.
+
+Value: Lower-priority -- histogram rendering rarely changes and visual
+inspection in the viewer catches issues. But quick to add.
+
+Effort: ~half a day.
+
+### C. WCS grid overlay (`gridIntensity` in image fragment shader)
+
+GPU: `VkFitsImagePipeline.cs:142-185` -- gnomonic-deprojected RA/Dec grid
+mixed into the rendered image at fragment level.
+
+CPU equivalent: `WCS.PixelToSky` per pixel + classify "near grid line"
+the same way the shader does.
+
+Test: small image with hand-crafted WCS, render GPU + CPU classifier,
+compare grid mask.
+
+Value: Currently the WCS-grid path has no test coverage at all. Catches
+regressions in the gnomonic projection math.
+
+Effort: 1 day -- need to mirror the `gridIntensity` GLSL into a CPU
+helper which is only used by tests.
+
+### D. `VkRenderer` primitives vs `RgbaImageRenderer`
+
+`SdlVulkan.Renderer/VkRenderer.cs` overrides `Renderer<TSurface>` from
+DIR.Lib with FillRectangle/DrawRectangle/FillEllipse/DrawEllipse/
+DrawCircle/FillCircle/DrawLine. CPU implementation is `RgbaImageRenderer`
+in DIR.Lib. The abstract contract is "produces the same pixel output."
+
+Test: for each primitive, render via offscreen GPU and via RGBA-buffer
+CPU renderer at the same coordinates, compare RGBA bytes (with
+anti-aliasing tolerance for ellipse/line edges).
+
+Value: HIGH. These primitives back the planner, FITS viewer chrome,
+sky map labels, guider graphs, V-curves -- visual regressions here would
+be widespread. DIR.Lib already has CPU benchmarks; GPU comp closes the
+loop on "do they actually agree on pixels".
+
+Effort: ~2 days. Lots of cases to enumerate; needs a per-primitive
+tolerance heuristic since GPU AA differs from CPU midpoint algorithms.
+
+This test could live in DIR.Lib's own test project or in the renderer
+sibling repo (`SdlVulkan.Renderer.Tests`); the GPU offscreen helper
+needs to be reusable across repos.
+
+### E. Sky map star rendering (`VkSkyMapPipeline.cs` Star pipeline)
+
+GPU: instanced quads with Gaussian PSF in fragment shader, stereographic
+projection in vertex shader. Inputs: per-instance `(RA, Dec, magnitude)`.
+
+CPU equivalent: not directly -- the closest thing is
+`SyntheticStarFieldRenderer.Render` which uses a different projection
+(gnomonic / TAN) and a different PSF formula.
+
+Test: hard. Would need to first port the stereographic projection to a
+CPU helper, then render PSFs the same way the shader does.
+
+Value: Sky map is one of the highest-traffic GPU pipelines but also the
+most complex to mirror. The bigger payoff is migrating sky-map-related
+GPU code to share helpers with `SyntheticStarFieldRenderer`.
+
+Effort: 3-5 days for a proper comparison; not worth doing until the
+sky-map-gpu-overlays plan ships and the projection / PSF code is
+already shared.
+
+### F. Sky map line rendering (constellation lines, RA/Dec grid)
+
+GPU: `VkSkyMapPipeline` Line pipeline -- great-circle lines tessellated
+on CPU + drawn as line list.
+
+CPU equivalent: deterministic line list output; could just compare the
+generated vertex buffer rather than the rasterised pixels.
+
+Test: feed a known constellation, dump the GPU vertex buffer (no
+rasterisation), assert line count + endpoints. No offscreen needed.
+
+Value: Catches line-tessellation regressions in `BuildConstellationBuffers`
+without needing GPU pixel comparison. Cheaper than full offscreen test.
+
+Effort: ~half a day. Doesn't need the offscreen fixture.
+
+### G. Milky Way fullscreen quad (`MilkyWayFragmentSource`)
+
+GPU: full-screen quad sampling a baked Milky Way texture, alpha-faded
+by sun altitude.
+
+CPU equivalent: trivial -- it's a textured quad with a single
+multiplicative fade. The interesting part is the texture bake (already
+covered by `MilkyWayTextureBaker` tests).
+
+Test value: low. The shader is a single multiply.
+
+Effort: skip.
+
+### H. Overlay ellipses (galaxy markers in sky map)
+
+GPU: `OverlayEllipsePipeline` -- rotated quad with ring shader, used
+for galaxy ellipse markers.
+
+CPU equivalent: `RgbaImageRenderer.DrawEllipse` (with rotation -- needs
+an oriented variant).
+
+Test: same as D (primitives) but specifically for the rotated-ring
+shader. Could fold into D.
+
+Value: Medium. Catches ring-thickness / rotation-matrix regressions.
+
+Effort: ~half a day. Folded into D.
+
+---
+
+### Recommendation
+
+Order by value-per-day:
+
+1. **D (primitives)** -- highest value, broadest coverage, ~2 days.
+2. **A (Bayer demosaic)** -- direct extension of Phase 1, ~half a day.
+3. **F (line tessellation)** -- cheap, no GPU needed, ~half a day.
+4. **B (histogram)** -- nice to have, ~half a day.
+5. **C (WCS grid)** -- only if CPU mirror written for free elsewhere.
+6. **E (sky map stars)** -- defer until projection code is shared.
+7. **G (milky way)** -- skip.
+
+Total ballpark for items 1-4: ~3.5 days. Each could be its own commit on
+top of the GPU offscreen infrastructure shipped in Phase 1.
