@@ -149,6 +149,17 @@ jobs:
     - name: Unit Tests
       run: dotnet test TianWen.Lib.Tests -c $BUILD_CONF --no-build
       working-directory: src
+    # Upload test temp output (cpu.tiff / gpu.tiff / diff.tiff and other test
+    # fixtures) when tests fail, so CPU/GPU divergences in GpuStretchPipelineTests
+    # can be diagnosed without re-running CI to add diagnostics.
+    - name: Upload test temp output on failure
+      if: failure()
+      uses: actions/upload-artifact@v7
+      with:
+        name: test-unit-temp-output
+        path: /tmp/TianWen.Lib.Tests/
+        if-no-files-found: ignore
+        retention-days: 7
 
   test-functional:
     needs: build

@@ -186,13 +186,27 @@ public sealed class GpuStretchPipelineTests(ITestOutputHelper output)
         var pixelsExceedingTolerance = 0;
         const int PerPixelTolerance = 4;
 
+        // Per-channel breakdown: a wild divergence with one channel close to 0 and another
+        // large is the smoking gun for R/B swizzle; uniform large diffs across all three
+        // channels point at gamma/sRGB encoding instead.
+        Span<long> perChannelSum = stackalloc long[3];
+        Span<int> perChannelMax = stackalloc int[3];
+        Span<long> perChannelCpuSum = stackalloc long[3];
+        Span<long> perChannelGpuSum = stackalloc long[3];
+
         for (var i = 0; i < cpuRgba.Length; i += 4)
         {
             for (var c = 0; c < 3; c++)
             {
-                var d = Math.Abs(cpuRgba[i + c] - gpuRgba[i + c]);
+                var cpuByte = cpuRgba[i + c];
+                var gpuByte = gpuRgba[i + c];
+                var d = Math.Abs(cpuByte - gpuByte);
                 absDiffSum += d;
+                perChannelSum[c] += d;
+                perChannelCpuSum[c] += cpuByte;
+                perChannelGpuSum[c] += gpuByte;
                 if (d > maxDiff) maxDiff = d;
+                if (d > perChannelMax[c]) perChannelMax[c] = d;
                 if (d > PerPixelTolerance) pixelsExceedingTolerance++;
             }
         }
@@ -200,6 +214,14 @@ public sealed class GpuStretchPipelineTests(ITestOutputHelper output)
         var meanDiff = absDiffSum / (double)(pixelCount * 3);
         var outlierFraction = pixelsExceedingTolerance / (double)(pixelCount * 3);
         output.WriteLine($"CPU vs GPU diff: mean={meanDiff:F3} bytes  max={maxDiff} bytes  outliers (>{PerPixelTolerance})={outlierFraction:P3}");
+        for (var c = 0; c < 3; c++)
+        {
+            var label = c switch { 0 => "R", 1 => "G", _ => "B" };
+            var meanC = perChannelSum[c] / (double)pixelCount;
+            var cpuMeanC = perChannelCpuSum[c] / (double)pixelCount;
+            var gpuMeanC = perChannelGpuSum[c] / (double)pixelCount;
+            output.WriteLine($"  {label}: mean diff={meanC:F3}  max={perChannelMax[c]}  cpuMean={cpuMeanC:F1}  gpuMean={gpuMeanC:F1}");
+        }
 
         // Tolerances per the plan: mean abs diff < 1.0, max <= 4 (relaxed to 8 for first
         // smoke run -- mediump float in shader vs C# double for MTF can produce up to a
