@@ -18,3 +18,11 @@ scheduled_tasks.lock
 # target (pure .NET, no external binaries) and on CI by the `build` job, then shared
 # with downstream jobs as the `preprocessed-catalogs` artifact. See PLAN-catalog-binary-format.md.
 src/TianWen.Lib/Astrometry/Catalogs/*.gs.gz
+
+# SASP filter/sensor/SED data is produced by tools/import-sasp-data (downloads
+# SASP_data.fits from setiastro/setiastrosuitepro on GitHub). Unlike the catalog
+# .gs.gz files there's no committed .json.lz source to regenerate from, so these
+# three files ARE tracked in git -- exempt from the wildcard above.
+!src/TianWen.Lib/Astrometry/Catalogs/filter_curves.gs.gz
+!src/TianWen.Lib/Astrometry/Catalogs/sensor_qe.gs.gz
+!src/TianWen.Lib/Astrometry/Catalogs/pickles_sed.gs.gz
