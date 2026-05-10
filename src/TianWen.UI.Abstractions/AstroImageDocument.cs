@@ -343,9 +343,17 @@ public sealed class AstroImageDocument
             var hist = ChannelStatistics.Length > 0 ? ChannelStatistics[0] : null;
             if (hist is not null)
             {
+                // For luma convergence the WB scalar is the Rec.709-weighted average; for
+                // channel-0 fallback it's wb.R. The per-channel rendering scales stats
+                // by the same factor inside ComputeStretchUniforms, so convergence and
+                // rendering operate in matched coordinate spaces.
+                var wbScalar = ColorCalibration is { } wb
+                    ? (luma is not null ? 0.2126f * wb.R + 0.7152f * wb.G + 0.0722f * wb.B : wb.R)
+                    : 1f;
+
                 (factor, _) = Image.ConvergeStretchFactor(
                     hist, convStats.Pedestal, convStats.Median, convStats.Mad,
-                    factor, clipping, ConvergenceTarget);
+                    factor, clipping, ConvergenceTarget, whiteBalance: wbScalar);
             }
         }
 

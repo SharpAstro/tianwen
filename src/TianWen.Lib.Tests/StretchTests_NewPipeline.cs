@@ -313,14 +313,31 @@ public class StretchTests_NewPipeline(ITestOutputHelper output)
         output.WriteLine($"SPCC: matchCount={matchCount}  diag={diag}  ColorCalibration={(doc.ColorCalibration is { } cc ? $"({cc.R:F4},{cc.G:F4},{cc.B:F4})" : "null")}");
         doc.ColorCalibration.ShouldNotBeNull("SPCC should fit non-trivial WB on the synthetic Sony OSC field");
 
-        // Synthesis bg is highly uniform (deterministic shot noise) so MAD is tiny -> default
-        // stretch sets midtones near 0 -> MTF saturates everything to white. Enable iterative
-        // convergence so the post-stretch median lands at the target. ConvergenceTarget=0.15
-        // (vs default 0.25) gives a darker sky with brighter relative stars — better visual
-        // contrast for a sparse-star synthesis where most pixels are bg.
+        // Verify the SPCC fit is sane: clamps to [0.5, 2.0] (Tycho2ColorCalibration.ComputeMultipliers),
+        // green is normalised to 1, and the result is non-trivial (not identity (1,1,1)) since the
+        // synth applied per-star B-V via blackbody while SPCC measures via Pickles SED through
+        // (IMX533 QE x Sony CFA) — different models produce a meaningful WB.
+        var wb = doc.ColorCalibration!.Value;
+        wb.G.ShouldBe(1f, 1e-4f, "green channel is the WB anchor");
+        wb.R.ShouldBeInRange(0.5f, 2f, "red WB clamped to algorithm bounds");
+        wb.B.ShouldBeInRange(0.5f, 2f, "blue WB clamped to algorithm bounds");
+        (Math.Abs(wb.R - 1f) + Math.Abs(wb.B - 1f)).ShouldBeGreaterThan(0.02f,
+            "SPCC should produce non-identity WB on a synthesis where the model differs from BMinusVToRGB");
+        // Synth bg is very slightly blue (R=0.073, G=0.092, B=0.101) and stars span B-V values
+        // skewing toward the red end via Pickles SEDs vs blackbody — net SPCC effect should be
+        // boosting R and reducing B (or close to it). A WB that does the opposite means the
+        // photometry path is mis-aligned.
+        wb.R.ShouldBeGreaterThan(1f, "SPCC on this synthesis should boost the underexposed-red channel");
+        wb.B.ShouldBeLessThan(1f, "SPCC on this synthesis should reduce the over-blue channel");
+
+        // Synthesis has near-uniform bg (deterministic shot noise -> tiny MAD), default stretch
+        // would saturate everything to white. Convergence finds the stretchFactor that puts the
+        // post-stretch median at ConvergenceTarget. Use Luma mode so convergence (which runs on
+        // luma stats with Rec.709-weighted WB) and rendering (which uses the same luma stretch
+        // applied to all channels via Y'/Y scaling) are in matching coordinate spaces.
         doc.UseIterativeConvergence = true;
         doc.ConvergenceTarget = 0.15;
-        var uniforms = doc.ComputeStretchUniforms(StretchMode.Linked, new StretchParameters(0.15, -1));
+        var uniforms = doc.ComputeStretchUniforms(StretchMode.Luma, new StretchParameters(0.15, -3));
         output.WriteLine($"Stretch uniforms: WB={Triple(uniforms.WhiteBalance)}");
 
         // RenderStretchedRgba needs 3-channel input; debayer the Bayer mosaic before rendering.
@@ -337,10 +354,15 @@ public class StretchTests_NewPipeline(ITestOutputHelper output)
         var rgba = new byte[debayered.Width * debayered.Height * 4];
         debayered.RenderStretchedRgba(uniforms, rgba);
 
-        // Diagnostic: byte range. Star fields render mostly dark with bright peaks; uniform-bright
-        // would indicate the stretch saturated everything.
+        // Per-channel byte stats. After WB+convergence the rendered bg should be roughly
+        // colour-neutral (R/G/B means within a few % of each other) — that's the whole point
+        // of WB. A persistent colour cast in the rendered output means WB and the stretch
+        // params are derived in mismatched coordinate spaces.
         byte minByte = 255, maxByte = 0;
         long sum = 0;
+        Span<long> chSum = stackalloc long[3];
+        Span<int> chMin = stackalloc int[3] { 255, 255, 255 };
+        Span<int> chMax = stackalloc int[3] { 0, 0, 0 };
         for (var i = 0; i < rgba.Length; i += 4)
         {
             for (var c = 0; c < 3; c++)
@@ -349,9 +371,39 @@ public class StretchTests_NewPipeline(ITestOutputHelper output)
                 if (b < minByte) minByte = b;
                 if (b > maxByte) maxByte = b;
                 sum += b;
+                chSum[c] += b;
+                if (b < chMin[c]) chMin[c] = b;
+                if (b > chMax[c]) chMax[c] = b;
             }
         }
         var avg = sum / (double)(rgba.Length / 4 * 3);
+        var pixelCount = rgba.Length / 4;
+        var rMean = chSum[0] / (double)pixelCount;
+        var gMean = chSum[1] / (double)pixelCount;
+        var bMean = chSum[2] / (double)pixelCount;
+        output.WriteLine($"Per-channel byte means: R={rMean:F2}  G={gMean:F2}  B={bMean:F2}");
+        output.WriteLine($"Per-channel byte ranges: R=[{chMin[0]},{chMax[0]}]  G=[{chMin[1]},{chMax[1]}]  B=[{chMin[2]},{chMax[2]}]");
+
+        // SPCC fits WB to make STAR colours match expected SED-through-throughput ratios; it
+        // does NOT promise a colour-neutral background. For the synthetic field, stars use a
+        // blackbody approximation (BMinusVToRGB) while SPCC measures via Pickles SED through
+        // (IMX533 QE x Sony CFA) — different models, so the fitted WB compensates for stars
+        // and may slightly amplify the bg cast. (To neutralise the bg you'd run
+        // ComputeColorCalibrationAsync sky-bg WB instead.) We therefore assert:
+        //   * Each channel has signal in both shadows and highlights (no clamp-to-black/white).
+        //   * The post-stretch ratios stay within 2x — gross failures (e.g. pure red, pure
+        //     yellow, channel completely zeroed) breach this.
+        var maxMean = Math.Max(rMean, Math.Max(gMean, bMean));
+        var minMean = Math.Min(rMean, Math.Min(gMean, bMean));
+        rMean.ShouldBeGreaterThan(5.0, "R channel signal should not collapse to black");
+        gMean.ShouldBeGreaterThan(5.0, "G channel signal should not collapse to black");
+        bMean.ShouldBeGreaterThan(5.0, "B channel signal should not collapse to black");
+        (maxMean / Math.Max(minMean, 1.0)).ShouldBeLessThan(2.0,
+            $"Post-stretch channel means within 2x of each other. Got R={rMean:F1} G={gMean:F1} B={bMean:F1}");
+        // Both chMin and chMax populated -> stretch produced full dynamic range, not flat.
+        chMax[0].ShouldBeGreaterThan(chMin[0] + 50, "R channel needs dynamic range");
+        chMax[1].ShouldBeGreaterThan(chMin[1] + 50, "G channel needs dynamic range");
+        chMax[2].ShouldBeGreaterThan(chMin[2] + 50, "B channel needs dynamic range");
         output.WriteLine($"RGB byte range: [{minByte}, {maxByte}]  mean: {avg:F2}");
 
         var testDir = SharedTestData.CreateTempTestOutputDir(

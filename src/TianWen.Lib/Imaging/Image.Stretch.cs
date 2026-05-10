@@ -570,6 +570,12 @@ public partial class Image
     /// <param name="targetMedian">Desired post-stretch median (default 0.25, PixInsight STF convention).</param>
     /// <param name="maxIterations">Maximum bisection iterations (default 20).</param>
     /// <param name="tolerance">Convergence tolerance on the post-stretch median (default 0.005).</param>
+    /// <param name="whiteBalance">If non-1, the convergence operates in WB-scaled space:
+    /// median/mad/binNorm are all multiplied by this factor before deriving shadows and
+    /// computing the post-stretch median. Use the per-channel WB or, for luma convergence,
+    /// the Rec.709-weighted WB scalar. Without this, convergence finds a factor X assuming
+    /// pre-WB shadow positions, but the per-channel rendering then applies WB-scaled stats —
+    /// each channel's actual post-stretch median ends up offset from the target.</param>
     /// <returns>The converged stretch factor and corresponding midtones value.</returns>
     public static (double ConvergedFactor, double ConvergedMidtones) ConvergeStretchFactor(
         ImageHistogram histogram,
@@ -578,7 +584,8 @@ public partial class Image
         double shadowsClipping = -3d,
         double targetMedian = 0.25,
         int maxIterations = 20,
-        double tolerance = 0.005)
+        double tolerance = 0.005,
+        float whiteBalance = 1f)
     {
         var bins = histogram.Histogram;
         var binMax = (float)(histogram.RescaledMaxValue ?? 65535f);
@@ -586,22 +593,26 @@ public partial class Image
         float totalF = histogram.Total;
         var halfTotal = totalF * 0.5f;
 
+        // Apply WB to convergence stats so shadow/midtones/rescale match the post-WB rendering.
+        var wbMedian = median * whiteBalance;
+        var wbMad = mad * whiteBalance;
+
         // Bisection bounds for stretchFactor
         var lo = 0.001;
         var hi = 0.5;
         var factor = Math.Clamp(initialFactor, lo, hi);
         double midtones = 0;
 
-        // Pre-compute normalized bin-centre values [0,1]
+        // Pre-compute normalized bin-centre values [0,1] in post-WB space.
         var binValues = new float[bins.Length];
         for (var i = 0; i < bins.Length; i++)
         {
-            binValues[i] = (i + 0.5f) * invBinMax;
+            binValues[i] = (i + 0.5f) * invBinMax * whiteBalance;
         }
 
         for (var iter = 0; iter < maxIterations; iter++)
         {
-            var (shadows, m, highlights, rescale) = ComputeStretchParameters(median, mad, factor, shadowsClipping);
+            var (shadows, m, highlights, rescale) = ComputeStretchParameters(wbMedian, wbMad, factor, shadowsClipping);
             midtones = m;
 
             // Walk histogram bins, accumulate stretched counts to find post-stretch median
