@@ -119,10 +119,15 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
         }
 
         float applyCurveLUT(float v) {
+            // 33 knots at i/32 for i in 0..32. Mirrors Image.ApplyCurveLut on the CPU side:
+            // v in [0,1] -> idx in [0,32] -> floor to i in [0,31] -> mix(curveData[i],
+            // curveData[i+1], idx-i). The previous implementation clamped i AFTER computing
+            // frac, which produced an off-by-one at v=1.0 (returned knot 32 instead of 33).
+            // min(31) keeps i in [0,31] and lets frac=1 cleanly select knot 33 at v=1.0.
+            v = clamp(v, 0.0, 1.0);
             float idx = v * 32.0;
-            int i = int(idx);
+            int i = min(int(idx), 31);
             float frac = idx - float(i);
-            i = clamp(i, 0, 31);
             int vi = i / 4;
             int ci = i % 4;
             int vj = (i + 1) / 4;
