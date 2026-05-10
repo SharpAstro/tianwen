@@ -879,14 +879,29 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
 
     private void CreateSampler()
     {
+        // R32_SFLOAT is NOT mandatorily filterable per the Vulkan spec -- the
+        // `SAMPLED_IMAGE_FILTER_LINEAR_BIT` feature flag is optional for 32-bit float
+        // formats. Hardware desktop GPUs (NVIDIA/AMD/Intel) advertise it; Mesa lavapipe
+        // (software rasterizer, used in CI without a GPU) does not. Sampling with a
+        // linear filter on a format that doesn't support it is undefined behavior, and on
+        // lavapipe the sampler silently returns 0 -- which surfaces as a fully-black
+        // viewer instead of a stretched FITS image. Query and adapt at sampler creation
+        // time.
+        _ctx.InstanceApi.vkGetPhysicalDeviceFormatProperties(
+            _ctx.PhysicalDevice, VkFormat.R32Sfloat, out var floatProps);
+        var linearSupported = (floatProps.optimalTilingFeatures
+            & VkFormatFeatureFlags.SampledImageFilterLinear) != 0;
+        var minFilter = linearSupported ? VkFilter.Linear : VkFilter.Nearest;
+        var mipmapMode = linearSupported ? VkSamplerMipmapMode.Linear : VkSamplerMipmapMode.Nearest;
+
         VkSamplerCreateInfo samplerCI = new()
         {
             magFilter = VkFilter.Nearest,
-            minFilter = VkFilter.Linear,
+            minFilter = minFilter,
             addressModeU = VkSamplerAddressMode.ClampToEdge,
             addressModeV = VkSamplerAddressMode.ClampToEdge,
             addressModeW = VkSamplerAddressMode.ClampToEdge,
-            mipmapMode = VkSamplerMipmapMode.Linear,
+            mipmapMode = mipmapMode,
             maxLod = 1.0f
         };
         _ctx.DeviceApi.vkCreateSampler(&samplerCI, null, out _linearSampler).CheckResult();
