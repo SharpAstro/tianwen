@@ -509,9 +509,13 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
             {
                 api.vkBindBufferMemory(scratch, scratchMem, 0);
 
-                // Copy only as many rows as needed to satisfy `count` texels.
-                var width = (uint)_channelWidth[channel];
-                var height = (uint)Math.Min(_channelHeight[channel], (int)Math.Ceiling((double)count / _channelWidth[channel]));
+                // Clamp copy extent so the GPU writes exactly `count` texels into the
+                // scratch buffer -- a full row (`_channelWidth` texels) would overflow our
+                // tiny scratch buffer. Hardware drivers tolerate the overflow silently;
+                // lavapipe segfaults the process and tanks the rest of the test suite.
+                var width = (uint)Math.Min(count, _channelWidth[channel]);
+                var rowsNeeded = (int)Math.Ceiling((double)count / Math.Max(width, 1));
+                var height = (uint)Math.Min(_channelHeight[channel], Math.Max(rowsNeeded, 1));
 
                 _ctx.ExecuteOneShot(cmd =>
                 {
