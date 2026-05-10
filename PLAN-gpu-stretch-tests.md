@@ -95,15 +95,17 @@ reusable as-is.
   `StretchTests_NewPipeline.GivenSyntheticStarFieldWhenSpccCalibratedThenWritesTiff`
   through both CPU and GPU paths, assert byte-mean-difference < 1.0.
 
-### Phase 2 -- Skip-when-unavailable + CI driver install (0.5 day)
+### Phase 2 -- Skip-when-unavailable + CI driver install (0.5 day) [DONE]
 
-- Wrap Vulkan init in try/catch; on failure, `Assert.Skip("Vulkan unavailable")`
-  with a clear diagnostic listing the underlying error.
-- CI workflow update: add `mesa-vulkan-drivers libvulkan1 vulkan-tools` to
-  the `cache-apt-pkgs-action` package list in the test-unit job. Mesa
-  ships `lavapipe` (software rasterizer) which is fast enough for our
-  ~1280x1024 test images and runs without a GPU. Validation: `vulkaninfo
-  --summary` should list at least one ICD.
+- [x] Wrap Vulkan init in try/catch; on failure, `Assert.Skip("Vulkan unavailable")`
+  with a clear diagnostic listing the underlying error. (Shipped in Phase 1
+  via `IsVulkanInitFailure` in `GpuStretchPipelineTests.cs`.)
+- [x] CI workflow update: add `mesa-vulkan-drivers libvulkan1 vulkan-tools` to
+  the `cache-apt-pkgs-action` package list in the `test-unit` job, and bump
+  `version: 1.0 -> 1.1` to invalidate the apt cache. Mesa ships `lavapipe`
+  (software rasterizer) which is fast enough for our ~1280x1024 test images
+  and runs without a GPU. Added a `vulkaninfo --summary` diagnostic step
+  before the build so the ICD list appears in the build log.
 - Document expected behaviour:
   - Local Windows: native GPU driver (NVIDIA/AMD/Intel) handles it -> hardware path.
   - Local Linux: Mesa drivers if installed; otherwise lavapipe.

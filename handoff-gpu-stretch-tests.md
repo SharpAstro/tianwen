@@ -116,11 +116,14 @@ here next session.
 
 ### CI
 
-- **Phase 2 of `PLAN-gpu-stretch-tests.md`** — install
-  `mesa-vulkan-drivers libvulkan1 vulkan-tools` in the `test-unit` CI
-  job so the GPU smoke test runs on Linux runners against lavapipe (the
-  software rasterizer), instead of always skipping. Also ensure
-  Vortice.ShaderCompiler is happy on lavapipe.
+- **Phase 2 of `PLAN-gpu-stretch-tests.md`** — [DONE in this session]
+  `mesa-vulkan-drivers libvulkan1 vulkan-tools` added to the `test-unit`
+  CI job's `cache-apt-pkgs-action` package list, version bumped to 1.1.
+  Added a `vulkaninfo --summary` diagnostic step that runs before
+  `dotnet test` so the ICD list shows up in the build log. The test
+  itself already had the Phase-2 skip wrapper from Phase 1
+  (`IsVulkanInitFailure` -> `Assert.Skip`). Verify on next CI run that
+  lavapipe is picked up and the GPU smoke test runs rather than skipping.
 
 - **Flaky meridian-flip test** —
   `SessionObservationLoopTests.GivenAcrossMeridianTargetWhenHACrossesDeadbandThenFlipAndContinueImaging`

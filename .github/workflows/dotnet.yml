@@ -88,12 +88,25 @@ jobs:
     # the scenes) but caches /var/cache/apt by `version` key. First run pays
     # the full ~80 MB; subsequent runs restore in ~2s. fc-cache still runs to
     # rebuild the local fontconfig index.
+    #
+    # mesa-vulkan-drivers + libvulkan1 + vulkan-tools provide a software Vulkan
+    # stack (Mesa lavapipe) so GpuStretchPipelineTests can run end-to-end
+    # against the offscreen renderer instead of always Assert.Skip-ing. The
+    # GitHub-hosted ubuntu runner has no GPU, so the Vulkan loader auto-picks
+    # the lavapipe ICD. Bump `version` whenever this package list changes -- it
+    # controls the apt cache key.
     - uses: SharpAstro/cache-apt-pkgs-action@v1
       with:
-        packages: ghostscript fonts-urw-base35 fontconfig
-        version: 1.0
+        packages: ghostscript fonts-urw-base35 fontconfig mesa-vulkan-drivers libvulkan1 vulkan-tools
+        version: 1.1
     - name: Rebuild fontconfig cache
       run: fc-cache -f
+    # Sanity-check that the Vulkan loader can enumerate at least one ICD before
+    # the unit-test step. If this fails or lists 0 ICDs, GpuStretchPipelineTests
+    # will skip rather than fail -- but the diagnostic in the build log saves a
+    # round trip when debugging.
+    - name: Vulkan ICD summary
+      run: vulkaninfo --summary || true
     - uses: actions/checkout@v6
       with:
         submodules: recursive
