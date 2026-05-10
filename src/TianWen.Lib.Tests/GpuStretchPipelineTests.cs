@@ -328,6 +328,29 @@ public sealed class GpuStretchPipelineTests(ITestOutputHelper output)
         pipeline.RecordImageDraw(cmd, ctx, 0, 0, Width, Height, Width, Height);
         renderer.EndOffscreenFrame();
 
+        // Capture key UBO fields *after* UpdateStretchUBO ran. The UBO is host-coherent so
+        // these reads reflect exactly what the GPU read during draw. If any of these are
+        // unexpectedly zero on lavapipe vs hardware, the GPU did NOT see the values we
+        // believed UpdateStretchUBO wrote.
+        Span<byte> uboBytes = stackalloc byte[256];
+        pipeline.ReadStretchUboBytes(uboBytes);
+        var channelCount = System.Runtime.InteropServices.MemoryMarshal.Read<int>(uboBytes[0..]);
+        var stretchMode = System.Runtime.InteropServices.MemoryMarshal.Read<int>(uboBytes[4..]);
+        var normFactor = System.Runtime.InteropServices.MemoryMarshal.Read<float>(uboBytes[8..]);
+        var imgSource = System.Runtime.InteropServices.MemoryMarshal.Read<int>(uboBytes[152..]);
+        var pedR = System.Runtime.InteropServices.MemoryMarshal.Read<float>(uboBytes[32..]);
+        var pedG = System.Runtime.InteropServices.MemoryMarshal.Read<float>(uboBytes[36..]);
+        var pedB = System.Runtime.InteropServices.MemoryMarshal.Read<float>(uboBytes[40..]);
+        var shR  = System.Runtime.InteropServices.MemoryMarshal.Read<float>(uboBytes[48..]);
+        var midR = System.Runtime.InteropServices.MemoryMarshal.Read<float>(uboBytes[64..]);
+        var resR = System.Runtime.InteropServices.MemoryMarshal.Read<float>(uboBytes[96..]);
+        var wbR  = System.Runtime.InteropServices.MemoryMarshal.Read<float>(uboBytes[192..]);
+        var wbG  = System.Runtime.InteropServices.MemoryMarshal.Read<float>(uboBytes[196..]);
+        var wbB  = System.Runtime.InteropServices.MemoryMarshal.Read<float>(uboBytes[200..]);
+        _formatDiagBag.Add($"UBO @draw: channelCount={channelCount} stretchMode={stretchMode} imgSource={imgSource} normFactor={normFactor:G6}");
+        _formatDiagBag.Add($"UBO @draw: pedestal=({pedR:G6},{pedG:G6},{pedB:G6}) shadows.r={shR:G6} mid.r={midR:G6} rescale.r={resR:G6}");
+        _formatDiagBag.Add($"UBO @draw: whiteBalance=({wbR:G6},{wbG:G6},{wbB:G6})");
+
         return ctx.ReadbackOffscreenRgba();
     }
 

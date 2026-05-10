@@ -606,6 +606,16 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
         RawBayer = 2,
     }
 
+    /// <summary>
+    /// Diagnostic: copies the entire stretch UBO contents into <paramref name="destination"/>.
+    /// The UBO is host-visible host-coherent, so this is just a host-to-host memcpy --
+    /// it reflects exactly what the GPU will read at draw time.
+    /// </summary>
+    public unsafe void ReadStretchUboBytes(Span<byte> destination)
+    {
+        new ReadOnlySpan<byte>(_stretchUboMapped, Math.Min(destination.Length, StretchUboSize)).CopyTo(destination);
+    }
+
     public void UpdateStretchUBO(
         VkCommandBuffer cmd,
         int channelCount, int stretchMode, float normFactor,
