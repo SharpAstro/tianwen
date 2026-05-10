@@ -393,6 +393,170 @@ public partial class Image
     }
 
     /// <summary>
+    /// CPU mirror of the GLSL <c>stretchChannel()</c> function — single source of truth for the
+    /// per-channel stretch pipeline (pedestal subtract -> bg neutralization -> WB -> MTF). Both
+    /// the Vulkan fragment shader and CPU consumers (<c>ConsoleImageRenderer</c>, headless
+    /// renderers, tests) must produce the same result for the same <see cref="StretchUniforms"/>.
+    /// </summary>
+    public static float StretchChannelCpu(float raw, int channel, in StretchUniforms u)
+    {
+        var ped = PickChannel(u.Pedestal, channel);
+        var bn = PickChannel(u.BackgroundNeutralization, channel);
+        var wb = PickChannel(u.WhiteBalance, channel);
+        var sh = PickChannel(u.Shadows, channel);
+        var mt = PickChannel(u.Midtones, channel);
+        var re = PickChannel(u.Rescale, channel);
+
+        var norm = raw * u.NormFactor - ped;
+        // Background neutralization: out = norm * g + (1 - g)
+        norm = norm * bn + (1f - bn);
+        norm = MathF.Max(norm * wb, 0f);
+        return StretchValue(norm, 1f, 0f, sh, mt, re);
+    }
+
+    /// <summary>
+    /// CPU mirror of the GLSL Luma stretch path (<c>stretchMode == 2</c>). Per-channel pedestal
+    /// subtract + WB -> Rec.709 luma -> MTF -> scale all channels by Y'/Y. Matches the GLSL
+    /// exactly, including the omission of background neutralization (which is only applied in
+    /// the per-channel Linked/Unlinked path).
+    /// </summary>
+    public static (float R, float G, float B) StretchLumaPixelCpu(float r, float g, float b, in StretchUniforms u)
+    {
+        var nr = r * u.NormFactor;
+        var ng = g * u.NormFactor;
+        var nb = b * u.NormFactor;
+        var prr = MathF.Max((nr - u.Pedestal.R) * u.WhiteBalance.R, 0f);
+        var prg = MathF.Max((ng - u.Pedestal.G) * u.WhiteBalance.G, 0f);
+        var prb = MathF.Max((nb - u.Pedestal.B) * u.WhiteBalance.B, 0f);
+        var yNorm = LumaR * prr + LumaG * prg + LumaB * prb;
+        var rescaled = (yNorm - u.Shadows.R) * u.Rescale.R;
+        var yPrime = (float)MidtonesTransferFunction(u.Midtones.R, rescaled);
+        var scale = yNorm > 1e-7f ? yPrime / yNorm : 0f;
+        var maxCh = MathF.Max(prr, MathF.Max(prg, prb));
+        if (scale > 0f && maxCh > 1e-7f) scale = MathF.Min(scale, 1f / maxCh);
+        return (
+            Math.Clamp(prr * scale, 0f, 1f),
+            Math.Clamp(prg * scale, 0f, 1f),
+            Math.Clamp(prb * scale, 0f, 1f));
+    }
+
+    /// <summary>
+    /// CPU mirror of the GLSL <c>applyHdr()</c> soft-knee compression. Above <paramref name="knee"/>,
+    /// values are compressed via <c>knee + range * t / (1 + amount * t)</c>.
+    /// </summary>
+    public static float ApplyHdr(float v, float amount, float knee)
+    {
+        if (v <= knee) return v;
+        var range = 1f - knee;
+        var t = (v - knee) / range;
+        return knee + range * t / (1f + amount * t);
+    }
+
+    private static float PickChannel((float R, float G, float B) v, int ch) => ch switch
+    {
+        0 => v.R,
+        1 => v.G,
+        _ => v.B,
+    };
+
+    /// <summary>
+    /// CPU mirror of the full GLSL fragment shader (image path) — renders this image into an RGBA
+    /// buffer at native resolution. Used by tests and headless renderers that cannot use the GPU.
+    /// The pipeline order matches GLSL exactly: stretch (per-channel or luma) -> curves
+    /// (LUT or boost) -> HDR -> clamp to [0, 1] -> byte. For Bayer images, debayer first via
+    /// <see cref="DebayerAsync"/>.
+    /// </summary>
+    /// <param name="u">Stretch parameters from <c>AstroImageDocument.ComputeStretchUniforms</c>.</param>
+    /// <param name="rgba32">Output buffer, length = Width * Height * 4 (RGBA bytes).</param>
+    /// <param name="curvesBoost">Power-law boost amount; ignored when <paramref name="curvesMode"/> is 1.</param>
+    /// <param name="curvesMode">0 = power-law boost, 1 = Fritsch-Carlson LUT.</param>
+    /// <param name="curveLut">33-entry LUT used when <paramref name="curvesMode"/> is 1.</param>
+    /// <param name="curvesMidpoint">Background midpoint for power-law boost.</param>
+    /// <param name="hdrAmount">HDR knee-compression amount; 0 = off.</param>
+    /// <param name="hdrKnee">HDR knee point.</param>
+    public void RenderStretchedRgba(
+        in StretchUniforms u,
+        Span<byte> rgba32,
+        float curvesBoost = 0f,
+        int curvesMode = 0,
+        ReadOnlySpan<float> curveLut = default,
+        float curvesMidpoint = 0.25f,
+        float hdrAmount = 0f,
+        float hdrKnee = 0.8f)
+    {
+        var (channelCount, width, height) = Shape;
+        var pixelCount = width * height;
+        if (rgba32.Length < pixelCount * 4)
+            throw new ArgumentException($"rgba32 length ({rgba32.Length}) too small for {width}x{height} ({pixelCount * 4} bytes needed)", nameof(rgba32));
+
+        var isColor = channelCount >= 3;
+        var ch0 = GetChannelSpan(0);
+        var ch1 = isColor ? GetChannelSpan(1) : default;
+        var ch2 = isColor ? GetChannelSpan(2) : default;
+        var hasLut = curvesMode == 1 && !curveLut.IsEmpty;
+
+        for (var i = 0; i < pixelCount; i++)
+        {
+            float rOut, gOut, bOut;
+
+            if (isColor)
+            {
+                var rRaw = ch0[i];
+                var gRaw = ch1[i];
+                var bRaw = ch2[i];
+
+                if (u.Mode is StretchMode.Luma)
+                {
+                    (rOut, gOut, bOut) = StretchLumaPixelCpu(rRaw, gRaw, bRaw, u);
+                }
+                else if (u.Mode is StretchMode.None)
+                {
+                    // GLSL Mode==None passes texture sample through unmodified
+                    rOut = rRaw; gOut = gRaw; bOut = bRaw;
+                }
+                else
+                {
+                    rOut = StretchChannelCpu(rRaw, 0, u);
+                    gOut = StretchChannelCpu(gRaw, 1, u);
+                    bOut = StretchChannelCpu(bRaw, 2, u);
+                }
+            }
+            else
+            {
+                var raw = ch0[i];
+                rOut = u.Mode is StretchMode.None ? raw : StretchChannelCpu(raw, 0, u);
+                gOut = bOut = rOut;
+            }
+
+            if (hasLut)
+            {
+                rOut = ApplyCurveLut(rOut, curveLut);
+                gOut = ApplyCurveLut(gOut, curveLut);
+                bOut = ApplyCurveLut(bOut, curveLut);
+            }
+            else if (curvesBoost > 0f)
+            {
+                rOut = ApplyBoost(rOut, curvesBoost, curvesMidpoint);
+                gOut = ApplyBoost(gOut, curvesBoost, curvesMidpoint);
+                bOut = ApplyBoost(bOut, curvesBoost, curvesMidpoint);
+            }
+
+            if (hdrAmount > 0f)
+            {
+                rOut = ApplyHdr(rOut, hdrAmount, hdrKnee);
+                gOut = ApplyHdr(gOut, hdrAmount, hdrKnee);
+                bOut = ApplyHdr(bOut, hdrAmount, hdrKnee);
+            }
+
+            var o = i * 4;
+            rgba32[o] = (byte)(Math.Clamp(rOut, 0f, 1f) * 255f);
+            rgba32[o + 1] = (byte)(Math.Clamp(gOut, 0f, 1f) * 255f);
+            rgba32[o + 2] = (byte)(Math.Clamp(bOut, 0f, 1f) * 255f);
+            rgba32[o + 3] = 255;
+        }
+    }
+
+    /// <summary>
     /// Iteratively adjusts <c>stretchFactor</c> until the post-stretch median of the histogram
     /// converges to <paramref name="targetMedian"/>. Uses bisection over the histogram bins
     /// — each bin's midpoint value is fed through <see cref="StretchValue"/> with the current

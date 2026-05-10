@@ -115,18 +115,20 @@ public readonly struct FritschCarlsonSpline
         return builder.MoveToImmutable();
     }
 
-    /// <summary>Pre-computes 33 uniformly-spaced control knots for GPU packing (9 vec4s).</summary>
+    /// <summary>
+    /// Pre-computes 33 uniformly-spaced control knots at <c>i/32</c> for <c>i = 0..32</c>.
+    /// Both <see cref="Image.ApplyCurveLut"/> (CPU) and the GLSL <c>applyCurveLUT</c> function
+    /// expect this exact 33-knot layout: the divisor is 32 (= lut.Length - 1) so a normalized
+    /// input <c>v in [0, 1]</c> maps to <c>idx = v * 32</c>. The GPU packs these 33 floats into
+    /// 9 std140 vec4 slots (= 36 floats); the trailing 3 slots are left at zero by the UBO
+    /// upload loop and never read by the shader.
+    /// </summary>
     public ImmutableArray<float> ComputeKnots33()
     {
         var builder = ImmutableArray.CreateBuilder<float>(33);
         for (var i = 0; i < 33; i++)
         {
             builder.Add(Evaluate(i / 32f));
-        }
-        // Pad to 36 floats (9 vec4s)
-        for (var i = 33; i < 36; i++)
-        {
-            builder.Add(builder[32]);
         }
         return builder.MoveToImmutable();
     }

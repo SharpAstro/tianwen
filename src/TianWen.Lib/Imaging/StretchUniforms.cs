@@ -26,7 +26,9 @@ public readonly record struct StretchUniforms(
     /// <summary>Curve mode: 0 = power-law boost (ApplyBoost), 1 = Fritsch-Carlson spline LUT.</summary>
     public int CurvesMode { get; init; }
 
-    /// <summary>36 floats packed as 9 vec4s (33 knots + 3 pad) for the Fritsch-Carlson LUT. Empty when mode=0.</summary>
+    /// <summary>33 Fritsch-Carlson knots at <c>i/32</c> for <c>i = 0..32</c>. The GPU uploads
+    /// these into 9 std140 vec4 slots (the trailing 3 floats stay zero and are never read by
+    /// the shader). Empty when <see cref="CurvesMode"/> is 0.</summary>
     public ImmutableArray<float> CurveData { get; init; } = [];
     /// <summary>
     /// Computes the post-stretch background level by stretching the measured

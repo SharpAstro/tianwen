@@ -22,7 +22,8 @@ public sealed class ViewerState
     /// <summary>Curve mode: 0 = power-law boost, 1 = Fritsch-Carlson spline LUT.</summary>
     public int CurvesMode { get; set; }
 
-    /// <summary>36 floats (33 knots + 3 pad) for the spline LUT. Empty when using boost mode.</summary>
+    /// <summary>33 Fritsch-Carlson knots for the spline LUT (see <see cref="StretchUniforms.CurveData"/>).
+    /// Empty when using boost mode.</summary>
     public ImmutableArray<float> CurveData { get; set; } = [];
 
     /// <summary>Index into <see cref="CurvesBoostPresets"/>.</summary>

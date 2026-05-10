@@ -76,7 +76,7 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
             vec4  cdCol1;           // offset 176
             vec4  whiteBalance;        // offset 192  (xyz = WB multipliers, w = pad)
             vec4  bgNeutralization;    // offset 208  (xyz = neutralization gains, w = pad)
-            vec4  curveData[9];        // offset 224  (36 floats = 33 knots + 3 pad)
+            vec4  curveData[9];        // offset 224  (33 knots packed into 9 vec4s; last 3 floats unused)
         } ubo;
 
         layout(set = 1, binding = 0) uniform sampler2D uChannel0;
@@ -616,8 +616,9 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
         WriteFloat(p, 216, bgNeutralization.B);
         WriteFloat(p, 220, 0f);
 
-        // curveData[9] at offset 224 (36 floats, only first 33 are meaningful)
-        for (var i = 0; i < 36 && i < curveData.Length; i++)
+        // curveData[9] = 33 knots packed into 9 std140 vec4 slots. Trailing 3 floats stay
+        // zero (UBO is zero-initialized in CreateMappedBuffer) and are never read by the shader.
+        for (var i = 0; i < 33 && i < curveData.Length; i++)
         {
             WriteFloat(p, 224 + i * 4, curveData[i]);
         }
