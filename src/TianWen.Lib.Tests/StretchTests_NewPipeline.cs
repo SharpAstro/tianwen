@@ -40,7 +40,7 @@ public class StretchTests_NewPipeline(ITestOutputHelper output)
     [InlineData("linked", true,  true,  true,  0, 0f, "05_wb_bgneut_converged")]
     [InlineData("linked", true,  true,  true,  1, 0f, "06_wb_bgneut_converged_curveLut")]
     [InlineData("linked", true,  true,  true,  1, 0.8f, "07_wb_bgneut_converged_curveLut_hdr")]
-    [InlineData("luma",   true,  false, false, 0, 0f, "08_luma_wb")]
+    [InlineData("luma",   true,  false, true,  0, 0f, "08_luma_wb")]
     public async Task GivenColorFitsWhenRenderingThroughCpuPipelineThenWritesTiff(
         string mode, bool applyWb, bool applyBgNeut, bool useConvergence,
         int curvesMode, float hdrAmount, string label)
@@ -112,6 +112,68 @@ public class StretchTests_NewPipeline(ITestOutputHelper output)
         output.WriteLine($"  Midtones = {Triple(uniforms.Midtones)}");
         output.WriteLine($"  Rescale  = {Triple(uniforms.Rescale)}");
 
+        // ---------- StretchUniforms field assertions ----------
+        // NormFactor: 1 because doc.UnstretchedImage is normalised by ScaleFloatValuesToUnitInPlace.
+        uniforms.NormFactor.ShouldBe(1f, 1e-4f);
+        // Pedestal: matches the per-channel pedestal stat. For Vela it's MinValue/MaxValue ≈ 0.029.
+        uniforms.Pedestal.R.ShouldBe(doc.PerChannelStats[0].Pedestal, 1e-6f);
+        uniforms.Pedestal.G.ShouldBe(doc.PerChannelStats[1].Pedestal, 1e-6f);
+        uniforms.Pedestal.B.ShouldBe(doc.PerChannelStats[2].Pedestal, 1e-6f);
+        // Shadows clipped via shadowsClipping=-3, so they should be slightly below the channel
+        // medians (or in converged mode possibly above 0 from the WB-scaled stats).
+        AssertChannel(uniforms.Shadows, "Shadows", v => v.ShouldBeLessThan(0.5f));
+        // Midtones in (0, 1). MTF is degenerate at the endpoints.
+        AssertChannel(uniforms.Midtones, "Midtones", v => v.ShouldBeInRange(0f, 1f));
+        // Rescale > 0 (must be finite, monotonic-positive). Typical values are 0.3–1.5.
+        AssertChannel(uniforms.Rescale, "Rescale", v => v.ShouldBeGreaterThan(0f));
+        AssertChannel(uniforms.Rescale, "Rescale", v => float.IsFinite(v).ShouldBeTrue());
+
+        // ---------- WhiteBalance assertions ----------
+        if (applyWb)
+        {
+            // Real WB came from ComputeColorCalibrationAsync (sky-bg). For Vela the dark sky is
+            // already nearly neutral so gains hover near identity but should be set non-default.
+            uniforms.WhiteBalance.G.ShouldBe(1f, 1e-3f, "G is the WB anchor");
+            uniforms.WhiteBalance.R.ShouldBeInRange(0.5f, 2f, "R clamped to algorithm bounds");
+            uniforms.WhiteBalance.B.ShouldBeInRange(0.5f, 2f, "B clamped to algorithm bounds");
+            doc.ColorCalibration.HasValue.ShouldBeTrue("doc tracks the same calibration");
+            uniforms.WhiteBalance.R.ShouldBe(doc.ColorCalibration!.Value.R, 1e-5f);
+            uniforms.WhiteBalance.B.ShouldBe(doc.ColorCalibration!.Value.B, 1e-5f);
+        }
+        else
+        {
+            uniforms.WhiteBalance.ShouldBe((1f, 1f, 1f), "WB defaults to identity");
+        }
+
+        // ---------- BackgroundNeutralization assertions ----------
+        if (applyBgNeut)
+        {
+            // Pivot1 gains: clamped to [0, 10], green normalised toward 1, all >0.
+            AssertChannel(uniforms.BackgroundNeutralization, "BgNeut", v => v.ShouldBeInRange(0f, 10f));
+            // For Vela's near-neutral bg the gains hover near identity (sub-1% deviation).
+            AssertChannel(uniforms.BackgroundNeutralization, "BgNeut", v => Math.Abs(v - 1f).ShouldBeLessThan(0.5f));
+        }
+        else
+        {
+            uniforms.BackgroundNeutralization.ShouldBe((1f, 1f, 1f), "bgNeut defaults to identity");
+        }
+
+        // ---------- Curve LUT assertions ----------
+        if (curvesMode == 1)
+        {
+            curveKnots.IsDefault.ShouldBeFalse("curve LUT must be populated when curvesMode==1");
+            curveKnots.Length.ShouldBe(33, "33 knots packed into 9 std140 vec4 slots");
+            curveKnots[0].ShouldBe(0f, 1e-4f, "S-curve preset starts at (0,0)");
+            curveKnots[^1].ShouldBe(1f, 1e-4f, "S-curve preset ends at (1,1)");
+            // Monotonic non-decreasing -- Fritsch-Carlson guarantees this.
+            for (var i = 1; i < curveKnots.Length; i++)
+            {
+                curveKnots[i].ShouldBeGreaterThanOrEqualTo(curveKnots[i - 1] - 1e-4f,
+                    $"curve LUT must be monotonic non-decreasing at index {i}");
+            }
+        }
+
+        // ---------- Render ----------
         var rgba = new byte[img.Width * img.Height * 4];
         var sw = Stopwatch.StartNew();
         img.RenderStretchedRgba(
@@ -123,12 +185,12 @@ public class StretchTests_NewPipeline(ITestOutputHelper output)
         sw.Stop();
         output.WriteLine($"RenderStretchedRgba ({img.Width}x{img.Height}): {sw.Elapsed}");
 
-        // Sanity: bytes should vary across the image. Not all-zero (broken pipeline produces no
-        // signal) and not all-255 (broken clamp). Brightness varies wildly across legitimate
-        // stretches (convergence on this fixture is dark by design — midtones -> 0.9996),
-        // so the assertion can't be "must be bright"; it's "must have signal".
+        // ---------- Per-channel byte stats ----------
         byte minByte = 255, maxByte = 0;
         long sum = 0;
+        Span<long> chSum = stackalloc long[3];
+        Span<int> chMin = stackalloc int[3] { 255, 255, 255 };
+        Span<int> chMax = stackalloc int[3] { 0, 0, 0 };
         for (var i = 0; i < rgba.Length; i += 4)
         {
             for (var c = 0; c < 3; c++)
@@ -137,17 +199,51 @@ public class StretchTests_NewPipeline(ITestOutputHelper output)
                 if (b < minByte) minByte = b;
                 if (b > maxByte) maxByte = b;
                 sum += b;
+                chSum[c] += b;
+                if (b < chMin[c]) chMin[c] = b;
+                if (b > chMax[c]) chMax[c] = b;
             }
         }
         var avg = sum / (double)(rgba.Length / 4 * 3);
+        var pixelCount = rgba.Length / 4;
+        var rMean = chSum[0] / (double)pixelCount;
+        var gMean = chSum[1] / (double)pixelCount;
+        var bMean = chSum[2] / (double)pixelCount;
         output.WriteLine($"RGB byte range: [{minByte}, {maxByte}]  mean: {avg:F2}");
+        output.WriteLine($"  per-channel means: R={rMean:F2} G={gMean:F2} B={bMean:F2}");
+        output.WriteLine($"  per-channel ranges: R=[{chMin[0]},{chMax[0]}] G=[{chMin[1]},{chMax[1]}] B=[{chMin[2]},{chMax[2]}]");
+
+        // Pipeline produced signal — not all-zero, not all-255, varies across the frame.
         maxByte.ShouldBeGreaterThan((byte)0, "pipeline produced pure black — no signal");
         minByte.ShouldBeLessThan((byte)255, "pipeline produced pure white — clamp broken or all pixels saturated");
         (maxByte - minByte).ShouldBeGreaterThan(10, "RGB output should have some dynamic range");
+        // Each channel has signal (not collapsed to 0 or saturated to 255) — catches per-channel
+        // bugs like the WB-shadow-mismatch which zeroed a single channel.
+        rMean.ShouldBeGreaterThan(0.5, "R channel signal should not collapse");
+        gMean.ShouldBeGreaterThan(0.5, "G channel signal should not collapse");
+        bMean.ShouldBeGreaterThan(0.5, "B channel signal should not collapse");
+        rMean.ShouldBeLessThan(254.5, "R channel should not be fully saturated");
+        gMean.ShouldBeLessThan(254.5, "G channel should not be fully saturated");
+        bMean.ShouldBeLessThan(254.5, "B channel should not be fully saturated");
+
+        // ---------- HDR knee assertion ----------
+        if (hdrAmount > 0f)
+        {
+            // applyHdr compresses values above the knee. With hdrAmount>0, the max channel byte
+            // should be < 255 (knee compression caps the brightest pixels below pure white).
+            maxByte.ShouldBeLessThan((byte)252, "HDR knee compression should cap the brightest pixels");
+        }
 
         var testDir = SharedTestData.CreateTempTestOutputDir(
             TestContext.Current.TestClass?.TestClassSimpleName ?? nameof(StretchTests_NewPipeline));
         await WriteRgbaAsync(rgba, img.Width, img.Height, testDir, $"{Fixture}_{label}", ct);
+
+        static void AssertChannel((float R, float G, float B) v, string name, Action<float> check)
+        {
+            check(v.R);
+            check(v.G);
+            check(v.B);
+        }
     }
 
     private static string Triple((float R, float G, float B) v) => $"R={v.R:F4} G={v.G:F4} B={v.B:F4}";
