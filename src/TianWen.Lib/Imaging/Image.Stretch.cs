@@ -628,14 +628,19 @@ public partial class Image
                 return (factor, midtones);
             }
 
-            // Bisect: if post-stretch median is too bright, we need LESS stretch (higher factor pushes midtones right)
+            // Bisect. The post-stretch median is monotonically *increasing* in stretchFactor for
+            // typical (median<0.5) astro images: at factor=0.001 the MTF midtones value collapses
+            // to ~1 and output goes to 0; at factor=0.5 midtones=0.5 (identity) and output is the
+            // rescaled value. So:
+            //   too bright (stretchedMedian > target)  ->  factor too HIGH  ->  bisect lower (hi = factor)
+            //   too dim   (stretchedMedian < target)   ->  factor too LOW   ->  bisect upper (lo = factor)
             if (stretchedMedian > targetMedian)
             {
-                lo = factor;
+                hi = factor;
             }
             else
             {
-                hi = factor;
+                lo = factor;
             }
             factor = (lo + hi) * 0.5;
         }

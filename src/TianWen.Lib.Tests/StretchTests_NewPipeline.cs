@@ -73,14 +73,16 @@ public class StretchTests_NewPipeline(ITestOutputHelper output)
         }
         if (applyBgNeut)
         {
-            // Report the real gains for diagnostic, but apply synthetic non-identity gains —
-            // the Vela fixture has uniform per-channel background so ComputeGains returns
-            // (1,1,1). The test wants to exercise the code path with a visible effect.
-            var realGains = BackgroundNeutralization.ComputeGains(doc.PerChannelBackground);
-            output.WriteLine($"BG-neut gains (computed): R={realGains.R:F3} G={realGains.G:F3} B={realGains.B:F3}");
-            var syntheticGains = (R: 0.85f, G: 1.05f, B: 0.95f);
-            uniforms = uniforms with { BackgroundNeutralization = syntheticGains };
-            output.WriteLine($"BG-neut gains (applied):  R={syntheticGains.R:F3} G={syntheticGains.G:F3} B={syntheticGains.B:F3}");
+            // Real gains for this fixture are near-identity (~1, 1, 1) because Vela's
+            // per-channel pedestal-subtracted backgrounds are nearly equal — that's what bg
+            // neutralization should look like on a clean fixture. Inventing larger non-identity
+            // gains here is a trap: the pivot1 formula `out = norm * g + (1 - g)` breaks when g
+            // doesn't come from the actual bg level (drives bg pixels negative -> clamped to 0
+            // -> green channel zeroed -> magenta output). We use real gains so the output is
+            // visually correct; the bgneut code path still runs end-to-end.
+            var gains = BackgroundNeutralization.ComputeGains(doc.PerChannelBackground);
+            uniforms = uniforms with { BackgroundNeutralization = gains };
+            output.WriteLine($"BG-neut gains: R={gains.R:F4} G={gains.G:F4} B={gains.B:F4}");
         }
 
         ImmutableArray<float> curveKnots = default;
@@ -133,20 +135,36 @@ public class StretchTests_NewPipeline(ITestOutputHelper output)
         minByte.ShouldBeLessThan((byte)255, "pipeline produced pure white — clamp broken or all pixels saturated");
         (maxByte - minByte).ShouldBeGreaterThan(10, "RGB output should have some dynamic range");
 
-        // Wrap RGBA bytes as a MagickImage and write TIFF for visual inspection.
-        var settings = new PixelReadSettings((uint)img.Width, (uint)img.Height, StorageType.Char, PixelMapping.RGBA);
-        using var magick = new MagickImage(rgba, settings);
-        magick.Settings.Compression = CompressionMethod.Zip;
-
         var testDir = SharedTestData.CreateTempTestOutputDir(
             TestContext.Current.TestClass?.TestClassSimpleName ?? nameof(StretchTests_NewPipeline));
-        var outPath = Path.Combine(testDir, $"{Fixture}_{label}.tiff");
-        var bytes = magick.ToByteArray(MagickFormat.Tiff);
-        await File.WriteAllBytesAsync(outPath, bytes, ct);
-        output.WriteLine($"Wrote {bytes.Length} bytes -> {outPath}");
+        await WriteRgbaAsync(rgba, img.Width, img.Height, testDir, $"{Fixture}_{label}", ct);
     }
 
     private static string Triple((float R, float G, float B) v) => $"R={v.R:F4} G={v.G:F4} B={v.B:F4}";
+
+    /// <summary>
+    /// Writes an RGBA byte buffer as both lossless ZIP-compressed TIFF (archival; preserves
+    /// every byte for diff-against-GLSL) and JPEG quality-90 (easier to view in any image
+    /// browser and shows the visible result of the pipeline).
+    /// </summary>
+    private async Task WriteRgbaAsync(byte[] rgba, int width, int height, string testDir, string namePrefix, CancellationToken ct)
+    {
+        var settings = new PixelReadSettings((uint)width, (uint)height, StorageType.Char, PixelMapping.RGBA);
+        using var magick = new MagickImage(rgba, settings);
+
+        var tiffPath = Path.Combine(testDir, $"{namePrefix}.tiff");
+        magick.Settings.Compression = CompressionMethod.Zip;
+        var tiffBytes = magick.ToByteArray(MagickFormat.Tiff);
+        await File.WriteAllBytesAsync(tiffPath, tiffBytes, ct);
+
+        var jpegPath = Path.Combine(testDir, $"{namePrefix}.jpg");
+        magick.Quality = 90;
+        var jpegBytes = magick.ToByteArray(MagickFormat.Jpeg);
+        await File.WriteAllBytesAsync(jpegPath, jpegBytes, ct);
+
+        output.WriteLine($"Wrote {tiffBytes.Length} bytes -> {tiffPath}");
+        output.WriteLine($"Wrote {jpegBytes.Length} bytes -> {jpegPath}");
+    }
 
     // Cache the catalog DB across all SPCC runs in this assembly — InitDBAsync waits for the
     // Tycho-2 bulk load (~seconds) which dominates wall-clock when run cold.
@@ -279,9 +297,13 @@ public class StretchTests_NewPipeline(ITestOutputHelper output)
         // Drive the SPCC pipeline through the document — uses BuildChannelThroughputs (IMX533 QE x
         // Sony CFA per channel) + Tycho2ColorCalibration.ComputeSpectrophotometricWhiteBalance.
         var (matchCount, diag) = await doc.ComputeSpccColorCalibrationAsync(db, ct);
-        output.WriteLine($"SPCC: matchCount={matchCount}  diag={diag}  ColorCalibration={(doc.ColorCalibration is { } c ? $"({c.R:F4},{c.G:F4},{c.B:F4})" : "null")}");
+        output.WriteLine($"SPCC: matchCount={matchCount}  diag={diag}  ColorCalibration={(doc.ColorCalibration is { } cc ? $"({cc.R:F4},{cc.G:F4},{cc.B:F4})" : "null")}");
         doc.ColorCalibration.ShouldNotBeNull("SPCC should fit non-trivial WB on the synthetic Sony OSC field");
 
+        // Synthesis bg is highly uniform (deterministic shot noise) so MAD is tiny -> default
+        // stretch sets midtones near 0 -> MTF saturates everything to white. Enable iterative
+        // convergence so the post-stretch median lands at the target (0.25) regardless.
+        doc.UseIterativeConvergence = true;
         var uniforms = doc.ComputeStretchUniforms(StretchMode.Linked, new StretchParameters(0.15, -3));
         output.WriteLine($"Stretch uniforms: WB={Triple(uniforms.WhiteBalance)}");
 
@@ -289,19 +311,36 @@ public class StretchTests_NewPipeline(ITestOutputHelper output)
         // (The doc keeps the raw Bayer for SPCC photometry; the rendered TIFF reflects the
         // GPU's bilinear-debayer-then-stretch path via an AHD CPU debayer for parity.)
         var debayered = await doc.UnstretchedImage.DebayerAsync(DebayerAlgorithm.AHD, cancellationToken: ct);
+        output.WriteLine($"Debayered image: {debayered.Width}x{debayered.Height}x{debayered.ChannelCount}  MaxValue={debayered.MaxValue:F4}  MinValue={debayered.MinValue:F4}");
+        for (var c = 0; c < debayered.ChannelCount; c++)
+        {
+            var (ped, med, mad) = debayered.GetPedestralMedianAndMADScaledToUnit(c);
+            output.WriteLine($"  Ch{c}: pedestal={ped:F6} median={med:F6} mad={mad:F6}");
+        }
+
         var rgba = new byte[debayered.Width * debayered.Height * 4];
         debayered.RenderStretchedRgba(uniforms, rgba);
 
-        var settings = new PixelReadSettings((uint)debayered.Width, (uint)debayered.Height, StorageType.Char, PixelMapping.RGBA);
-        using var magick = new MagickImage(rgba, settings);
-        magick.Settings.Compression = CompressionMethod.Zip;
+        // Diagnostic: byte range. Star fields render mostly dark with bright peaks; uniform-bright
+        // would indicate the stretch saturated everything.
+        byte minByte = 255, maxByte = 0;
+        long sum = 0;
+        for (var i = 0; i < rgba.Length; i += 4)
+        {
+            for (var c = 0; c < 3; c++)
+            {
+                var b = rgba[i + c];
+                if (b < minByte) minByte = b;
+                if (b > maxByte) maxByte = b;
+                sum += b;
+            }
+        }
+        var avg = sum / (double)(rgba.Length / 4 * 3);
+        output.WriteLine($"RGB byte range: [{minByte}, {maxByte}]  mean: {avg:F2}");
 
         var testDir = SharedTestData.CreateTempTestOutputDir(
             TestContext.Current.TestClass?.TestClassSimpleName ?? nameof(StretchTests_NewPipeline));
-        var outPath = Path.Combine(testDir, "synthetic_M45_09_spcc.tiff");
-        var bytes = magick.ToByteArray(MagickFormat.Tiff);
-        await File.WriteAllBytesAsync(outPath, bytes, ct);
-        output.WriteLine($"Wrote {bytes.Length} bytes -> {outPath}");
+        await WriteRgbaAsync(rgba, debayered.Width, debayered.Height, testDir, "synthetic_M45_09_spcc", ct);
     }
 
 }
