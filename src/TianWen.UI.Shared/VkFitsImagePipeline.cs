@@ -411,6 +411,17 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
 
     // Shared sampler
     private VkSampler _linearSampler;
+    private VkFormatFeatureFlags _r32SfloatOptimalTilingFeatures;
+    private bool _r32SfloatLinearFilterSupported;
+
+    /// <summary>
+    /// The format feature flags advertised by the physical device for
+    /// <see cref="VkFormat.R32Sfloat"/>'s optimal tiling, captured at sampler creation.
+    /// Exposed for diagnostics: lavapipe historically returns 0 samples when linear
+    /// filtering is requested without `SampledImageFilterLinear` support.
+    /// </summary>
+    public VkFormatFeatureFlags R32SfloatOptimalTilingFeatures => _r32SfloatOptimalTilingFeatures;
+    public bool R32SfloatLinearFilterSupported => _r32SfloatLinearFilterSupported;
 
     // Channel textures (3x R32_SFLOAT 2D)
     private readonly VkImage[] _channelImages = new VkImage[ChannelCount];
@@ -891,6 +902,9 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
             _ctx.PhysicalDevice, VkFormat.R32Sfloat, out var floatProps);
         var linearSupported = (floatProps.optimalTilingFeatures
             & VkFormatFeatureFlags.SampledImageFilterLinear) != 0;
+        // Exposed via the public property below so tests can verify which branch was taken.
+        _r32SfloatOptimalTilingFeatures = floatProps.optimalTilingFeatures;
+        _r32SfloatLinearFilterSupported = linearSupported;
         var minFilter = linearSupported ? VkFilter.Linear : VkFilter.Nearest;
         var mipmapMode = linearSupported ? VkSamplerMipmapMode.Linear : VkSamplerMipmapMode.Nearest;
 

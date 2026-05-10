@@ -39,6 +39,10 @@ public sealed class GpuStretchPipelineTests(ITestOutputHelper output)
     private static ICelestialObjectDB? _cachedDb;
     private static readonly SemaphoreSlim _dbSem = new(1, 1);
 
+    // Lines collected from inside the offscreen-GPU helper that we want to surface via
+    // ITestOutputHelper after the helper returns.
+    private readonly System.Collections.Concurrent.ConcurrentBag<string> _formatDiagBag = [];
+
     private static async Task<ICelestialObjectDB> InitDbAsync(CancellationToken ct)
     {
         if (_cachedDb is { } cached) return cached;
@@ -158,6 +162,8 @@ public sealed class GpuStretchPipelineTests(ITestOutputHelper output)
             Assert.Skip($"Vulkan runtime not available on this host ({ex.Message})");
             return;
         }
+        foreach (var line in _formatDiagBag)
+            output.WriteLine(line);
 
         // -------- Compare --------
 
@@ -253,7 +259,7 @@ public sealed class GpuStretchPipelineTests(ITestOutputHelper output)
     /// given image + uniforms, and reads back the rendered RGBA bytes. Throws on Vulkan init
     /// failure (caller catches via <see cref="IsVulkanInitFailure"/> and skips the test).
     /// </summary>
-    private static unsafe byte[] RenderViaOffscreenGpu(Image debayered, in StretchUniforms u)
+    private unsafe byte[] RenderViaOffscreenGpu(Image debayered, in StretchUniforms u)
     {
         vkInitialize().CheckResult();
 
@@ -265,6 +271,13 @@ public sealed class GpuStretchPipelineTests(ITestOutputHelper output)
         using var ctx = VulkanContext.CreateOffscreen(instance, Width, Height);
         using var renderer = new VkRenderer(ctx, Width, Height);
         using var pipeline = new VkFitsImagePipeline(ctx);
+
+        // Diagnostics for the CPU/GPU divergence we hit on Mesa lavapipe: R32_SFLOAT's
+        // optimalTilingFeatures tells us whether linear filtering, sampling, and even basic
+        // sampled-image usage are supported. The pipeline's CreateSampler downgrades to
+        // Nearest filter if linear isn't advertised.
+        _formatDiagBag.Add($"R32_SFLOAT optimalTilingFeatures = {pipeline.R32SfloatOptimalTilingFeatures}");
+        _formatDiagBag.Add($"R32_SFLOAT linear filter supported: {pipeline.R32SfloatLinearFilterSupported}");
 
         pipeline.UploadChannelTexture(debayered.GetChannelSpan(0), 0, debayered.Width, debayered.Height);
         pipeline.UploadChannelTexture(debayered.GetChannelSpan(1), 1, debayered.Width, debayered.Height);
