@@ -341,6 +341,16 @@ Learnings from PixInsight Statistical Stretch (SetiAstro, v2.3).
   file a Mesa bug upstream. The bug is now confirmed to be either a Mesa lavapipe-x86_64
   bug or implementation-defined behavior we depend on -- not a spec violation our
   validation layer can detect.
+
+  **Mesa-latest update (2026-05-11)**: ran `.github/workflows/test-mesa-latest.yml` against
+  `ppa:kisak/kisak-mesa` (Mesa 26.0.6 / LLVM 20.1.8 / x86_64 256-bit lavapipe). The bug is
+  still present but with a different signature: instead of full clear-color framebuffer,
+  the GPU now renders ~96% of pixels correctly with ~4% per-pixel divergence (e.g.
+  DrawRectangle_ThickStroke: GPU mean=127.50 vs CPU mean=132.85, outFrac(>16)=4.199 %;
+  Histogram_SpikeAt_R100 still has the R-spike column black at py=0). Mesa moved from
+  "completely broken codegen" to "partial codegen errors" between 25.2.8 and 26.0.6 -- the
+  exact LLVM JIT path is regressed but not fully broken. Conclusion: still worth filing
+  upstream Mesa bug (the min-repro + before/after artifacts are reusable).
 - [ ] Luma blend — smoothly blend between linked and luma-only results
 - [ ] Per-channel convergence — `ConvergeStretchFactor` runs once on luma stats; for Linked/Unlinked the converged factor is approximate per channel (still uses single factor with per-channel WB-scaled stats). Per-channel convergence would tighten the post-stretch median per channel; bigger refactor (factor becomes a triple).
 
