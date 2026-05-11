@@ -9,6 +9,12 @@ name: Test Mesa Latest
 # or the Actions UI) does NOT also trigger publish-apps / release in dotnet.yml.
 on:
   workflow_dispatch:
+  # Also fire on push when the workflow file itself changes -- workflow_dispatch
+  # requires the workflow to be on the default branch, and stretch-improvements
+  # hasn't been merged yet. Remove this trigger after merge.
+  push:
+    branches: [stretch-improvements]
+    paths: ['.github/workflows/test-mesa-latest.yml']
 
 env:
   VERSION_PREFIX: 4.2.${{ github.run_number }}
