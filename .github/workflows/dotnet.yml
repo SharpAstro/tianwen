@@ -147,7 +147,10 @@ jobs:
       run: dotnet build -c $BUILD_CONF --no-restore -p:Version=${VERSION_PREFIX}${VERSION_REV}${VERSION_HASH} -p:FileVersion=${VERSION_PREFIX}.${VERSION_REV} -p:ContinuousIntegrationBuild=true
       working-directory: src
     - name: Unit Tests
-      run: dotnet test TianWen.Lib.Tests -c $BUILD_CONF --no-build
+      # verbosity=detailed surfaces ITestOutputHelper messages for Skip+Pass tests too,
+      # not just Fail. Needed for the GpuStretchPipelineTests / VkRendererPrimitiveTests /
+      # VkHistogramPipelineTests diagnostic dumps that run when the test Skips on lavapipe.
+      run: dotnet test TianWen.Lib.Tests -c $BUILD_CONF --no-build --logger "console;verbosity=detailed"
       working-directory: src
     # Upload test temp output (cpu.tiff / gpu.tiff / diff.tiff and other test
     # fixtures) when tests fail, so CPU/GPU divergences in GpuStretchPipelineTests
