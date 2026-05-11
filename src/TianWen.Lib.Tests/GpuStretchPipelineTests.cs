@@ -35,6 +35,11 @@ public sealed class GpuStretchPipelineTests(ITestOutputHelper output)
     private const int Width = 1280;
     private const int Height = 1024;
 
+    // Same fixture StretchTests_NewPipeline uses for its CPU-only theory. Real cropped Vela
+    // SNR multi-NB color FITS -- size, bit depth, and stats baked into the file rather than
+    // synthesised, so this exercises the GPU path on production-shaped data.
+    private const string VelaFixture = "Vela_SNR_Panel_10-Multi-NB-color-Hydrogen-alpha-Oxygen_III-crop";
+
     // Same catalog DB cache as StretchTests_NewPipeline -- Tycho-2 bulk load is heavy.
     private static ICelestialObjectDB? _cachedDb;
     private static readonly SemaphoreSlim _dbSem = new(1, 1);
@@ -154,7 +159,7 @@ public sealed class GpuStretchPipelineTests(ITestOutputHelper output)
         byte[] gpuRgba;
         try
         {
-            gpuRgba = await Task.Run(() => RenderViaOffscreenGpu(debayered, uniforms), ct);
+            gpuRgba = await Task.Run(() => RenderViaOffscreenGpu(debayered, uniforms, Width, Height, default, 0f), ct);
         }
         catch (Exception ex) when (IsVulkanInitFailure(ex))
         {
@@ -266,11 +271,182 @@ public sealed class GpuStretchPipelineTests(ITestOutputHelper output)
     }
 
     /// <summary>
+    /// Phase 3 of PLAN-gpu-stretch-tests.md: drive the same 8 stretch cases the CPU-only
+    /// <c>StretchTests_NewPipeline.GivenColorFitsWhenRenderingThroughCpuPipelineThenWritesTiff</c>
+    /// theory exercises through both the CPU mirror and the GPU offscreen pipeline, then assert
+    /// per-pixel byte parity within tolerance. Catches regressions in any GLSL stretch stage
+    /// (WB, bg-neutralization, MTF, curve LUT, HDR knee, luma-Y'/Y).
+    /// </summary>
+    [Theory]
+    // mode    , wb   , bgNeut, conv , curvesMode, hdrAmount, label
+    [InlineData("linked", false, false, false, 0, 0f, "01_baseline")]
+    [InlineData("linked", true,  false, false, 0, 0f, "02_wb")]
+    [InlineData("linked", false, true,  false, 0, 0f, "03_bgneut")]
+    [InlineData("linked", true,  true,  false, 0, 0f, "04_wb_bgneut")]
+    [InlineData("linked", true,  true,  true,  0, 0f, "05_wb_bgneut_converged")]
+    [InlineData("linked", true,  true,  true,  1, 0f, "06_wb_bgneut_converged_curveLut")]
+    [InlineData("linked", true,  true,  true,  1, 0.8f, "07_wb_bgneut_converged_curveLut_hdr")]
+    [InlineData("luma",   true,  false, true,  0, 0f, "08_luma_wb")]
+    public async Task GpuMatchesCpuForVelaStretchCases(
+        string mode, bool applyWb, bool applyBgNeut, bool useConvergence,
+        int curvesMode, float hdrAmount, string label)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var fitsImage = await SharedTestData.ExtractGZippedFitsImageAsync(VelaFixture, cancellationToken: ct);
+        var doc = await AstroImageDocument.CreateFromImageAsync(fitsImage, DebayerAlgorithm.None, cancellationToken: ct);
+
+        // Star detection populates StarMaskedStats + star-masked PerChannelBackground -- both
+        // required for convergence and bg-neutralization to be realistic. Run unconditionally
+        // so per-channel stats are stable across cases regardless of which flags toggle.
+        await doc.DetectStarsAsync(ct);
+
+        if (useConvergence)
+        {
+            doc.UseIterativeConvergence = true;
+        }
+
+        if (applyWb)
+        {
+            // Production sky-bg WB (db argument unused on the sky-bg path -> null!).
+            await doc.ComputeColorCalibrationAsync(null!, ct);
+        }
+
+        var stretchMode = mode == "luma" ? StretchMode.Luma : StretchMode.Linked;
+        var uniforms = doc.ComputeStretchUniforms(stretchMode, new StretchParameters(0.15, -3));
+
+        if (applyBgNeut)
+        {
+            // Real pivot1 gains derived from the same PerChannelBackground the production
+            // viewer uses. For Vela bg is near-neutral so gains hover near identity -- the
+            // bgNeut code path still runs end-to-end and any GLSL regression in the
+            // `out = norm * g + (1 - g)` step shows up immediately.
+            var gains = BackgroundNeutralization.ComputeGains(doc.PerChannelBackground);
+            uniforms = uniforms with { BackgroundNeutralization = gains };
+        }
+
+        ImmutableArray<float> curveKnots = default;
+        if (curvesMode == 1)
+        {
+            // Same S-curve preset the viewer's Shift+B toggle uses.
+            var spline = new FritschCarlsonSpline(
+                [(0f, 0f), (0.15f, 0.22f), (0.4f, 0.5f), (0.7f, 0.72f), (1f, 1f)]);
+            curveKnots = spline.ComputeKnots33();
+        }
+
+        // CPU RenderStretchedRgba takes curvesMode as an explicit parameter; the GPU helper
+        // reads it from the StretchUniforms struct (so the shader UBO field matches the
+        // uniforms layout). Reflect the test's curvesMode into both paths via `with`.
+        uniforms = uniforms with { CurvesMode = curvesMode };
+
+        output.WriteLine($"[{label}] Mode={uniforms.Mode}  WB={Triple(uniforms.WhiteBalance)}  BgNeut={Triple(uniforms.BackgroundNeutralization)}");
+        output.WriteLine($"[{label}] Shadows={Triple(uniforms.Shadows)}  Midtones={Triple(uniforms.Midtones)}  Rescale={Triple(uniforms.Rescale)}");
+
+        var img = doc.UnstretchedImage;
+        var w = img.Width;
+        var h = img.Height;
+
+        // -------- CPU render --------
+        var cpuRgba = new byte[w * h * 4];
+        var cpuSw = Stopwatch.StartNew();
+        img.RenderStretchedRgba(
+            uniforms,
+            cpuRgba,
+            curvesMode: curvesMode,
+            curveLut: curveKnots.IsDefault ? default : curveKnots.AsSpan(),
+            hdrAmount: hdrAmount);
+        cpuSw.Stop();
+        output.WriteLine($"[{label}] CPU RenderStretchedRgba ({w}x{h}): {cpuSw.Elapsed.TotalMilliseconds:F0}ms");
+
+        // -------- GPU render --------
+        byte[] gpuRgba;
+        try
+        {
+            gpuRgba = await Task.Run(() => RenderViaOffscreenGpu(img, uniforms, w, h, curveKnots, hdrAmount), ct);
+        }
+        catch (Exception ex) when (IsVulkanInitFailure(ex))
+        {
+            output.WriteLine($"Vulkan unavailable, skipping GPU comparison: {ex.GetType().Name}: {ex.Message}");
+            Assert.Skip($"Vulkan runtime not available on this host ({ex.Message})");
+            return;
+        }
+        foreach (var line in _formatDiagBag)
+            output.WriteLine(line);
+        if (!_validationBag.IsEmpty)
+        {
+            output.WriteLine($"--- Vulkan validation ({_validationBag.Count} messages) ---");
+            foreach (var line in _validationBag)
+                output.WriteLine(line);
+        }
+
+        // -------- Save TIFFs per case for visual inspection / diffing --------
+        var testDir = SharedTestData.CreateTempTestOutputDir(nameof(GpuStretchPipelineTests));
+        await WriteTiffAsync(cpuRgba, w, h, System.IO.Path.Combine(testDir, $"{label}.cpu.tiff"), ct);
+        await WriteTiffAsync(gpuRgba, w, h, System.IO.Path.Combine(testDir, $"{label}.gpu.tiff"), ct);
+        var diffRgba = new byte[cpuRgba.Length];
+        for (var i = 0; i < cpuRgba.Length; i += 4)
+        {
+            var d = (byte)Math.Min(255,
+                Math.Max(Math.Abs(cpuRgba[i] - gpuRgba[i]),
+                Math.Max(Math.Abs(cpuRgba[i + 1] - gpuRgba[i + 1]),
+                         Math.Abs(cpuRgba[i + 2] - gpuRgba[i + 2]))) * 4); // *4 to amplify
+            diffRgba[i] = diffRgba[i + 1] = diffRgba[i + 2] = d;
+            diffRgba[i + 3] = 255;
+        }
+        await WriteTiffAsync(diffRgba, w, h, System.IO.Path.Combine(testDir, $"{label}.diff.tiff"), ct);
+
+        // -------- Compare --------
+        cpuRgba.Length.ShouldBe(gpuRgba.Length);
+        long absDiffSum = 0;
+        var maxDiff = 0;
+        var pixelsExceedingTolerance = 0;
+        const int PerPixelTolerance = 4;
+        Span<long> perChannelSum = stackalloc long[3];
+        Span<int> perChannelMax = stackalloc int[3];
+        for (var i = 0; i < cpuRgba.Length; i += 4)
+        {
+            for (var c = 0; c < 3; c++)
+            {
+                var d = Math.Abs(cpuRgba[i + c] - gpuRgba[i + c]);
+                absDiffSum += d;
+                perChannelSum[c] += d;
+                if (d > maxDiff) maxDiff = d;
+                if (d > perChannelMax[c]) perChannelMax[c] = d;
+                if (d > PerPixelTolerance) pixelsExceedingTolerance++;
+            }
+        }
+        var pixelCount = cpuRgba.Length / 4;
+        var meanDiff = absDiffSum / (double)(pixelCount * 3);
+        var outlierFraction = pixelsExceedingTolerance / (double)(pixelCount * 3);
+        output.WriteLine($"[{label}] CPU vs GPU diff: mean={meanDiff:F3}  max={maxDiff}  outliers (>{PerPixelTolerance})={outlierFraction:P3}");
+        for (var c = 0; c < 3; c++)
+        {
+            var chLabel = c switch { 0 => "R", 1 => "G", _ => "B" };
+            var meanC = perChannelSum[c] / (double)pixelCount;
+            output.WriteLine($"  {chLabel}: mean diff={meanC:F3}  max={perChannelMax[c]}");
+        }
+
+        // Tolerances match the Phase 1 smoke test -- start loose; tighten once all 8 cases
+        // produce known-good numbers on hardware + lavapipe.
+        meanDiff.ShouldBeLessThan(1.5, $"[{label}] mean per-byte CPU/GPU diff should be small");
+        maxDiff.ShouldBeLessThan(16, $"[{label}] no single byte should differ wildly between CPU and GPU");
+        outlierFraction.ShouldBeLessThan(0.01, $"[{label}] <1% of bytes should exceed the per-pixel tolerance");
+    }
+
+    /// <summary>
     /// Builds an offscreen Vulkan context, runs <see cref="VkFitsImagePipeline"/> against the
     /// given image + uniforms, and reads back the rendered RGBA bytes. Throws on Vulkan init
     /// failure (caller catches via <see cref="IsVulkanInitFailure"/> and skips the test).
+    /// <paramref name="curveLut"/> may be <c>default</c> for "no curve LUT"; <paramref name="hdrAmount"/>
+    /// 0f disables the HDR knee. Both mirror the parameters <see cref="Image.RenderStretchedRgba"/>
+    /// accepts so CPU and GPU paths can be driven from the same theory cases.
     /// </summary>
-    private unsafe byte[] RenderViaOffscreenGpu(Image debayered, in StretchUniforms u)
+    private unsafe byte[] RenderViaOffscreenGpu(
+        Image debayered,
+        in StretchUniforms u,
+        int width,
+        int height,
+        ImmutableArray<float> curveLut,
+        float hdrAmount)
     {
         vkInitialize().CheckResult();
 
@@ -306,8 +482,8 @@ public sealed class GpuStretchPipelineTests(ITestOutputHelper output)
 
         // VulkanContext.Dispose() walks down the device + tears the instance down via
         // InstanceApi.vkDestroyInstance, so the using block on `ctx` covers the instance too.
-        using var ctx = VulkanContext.CreateOffscreen(instance, Width, Height);
-        using var renderer = new VkRenderer(ctx, Width, Height);
+        using var ctx = VulkanContext.CreateOffscreen(instance, (uint)width, (uint)height);
+        using var renderer = new VkRenderer(ctx, (uint)width, (uint)height);
         using var pipeline = new VkFitsImagePipeline(ctx);
 
         // Register the messenger AFTER ctx is built so we get an instance-bound VkInstanceApi
@@ -383,7 +559,7 @@ public sealed class GpuStretchPipelineTests(ITestOutputHelper output)
             normFactor: u.NormFactor,
             curvesBoost: 0f,
             curvesMidpoint: 0.25f,
-            hdrAmount: 0f,
+            hdrAmount: hdrAmount,
             hdrKnee: 0.8f,
             pedestal: u.Pedestal,
             shadows: u.Shadows,
@@ -392,16 +568,16 @@ public sealed class GpuStretchPipelineTests(ITestOutputHelper output)
             rescale: u.Rescale,
             gridEnabled: false,
             gridSpacingRA: 0f, gridSpacingDec: 0f, gridLineWidth: 0f,
-            imageW: Width, imageH: Height,
+            imageW: width, imageH: height,
             crPix1: 0, crPix2: 0, crValRA: 0, crValDec: 0,
             cdMatrix: ReadOnlySpan<float>.Empty,
             whiteBalance: u.WhiteBalance,
             bgNeutralization: u.BackgroundNeutralization,
             curvesMode: u.CurvesMode,
-            curveData: ReadOnlySpan<float>.Empty,
+            curveData: curveLut.IsDefault ? ReadOnlySpan<float>.Empty : curveLut.AsSpan(),
             imageSource: VkFitsImagePipeline.ImageSource.ProcessedChannels);
 
-        pipeline.RecordImageDraw(cmd, ctx, 0, 0, Width, Height, Width, Height);
+        pipeline.RecordImageDraw(cmd, ctx, 0, 0, width, height, width, height);
         renderer.EndOffscreenFrame();
 
         // Capture key UBO fields *after* UpdateStretchUBO ran. The UBO is host-coherent so

@@ -112,11 +112,15 @@ reusable as-is.
   - CI: lavapipe deterministic software rasterizer.
   - macOS: MoltenVK; tests skip if not on the runner.
 
-### Phase 3 -- Theory cases parity check (1 day)
+### Phase 3 -- Theory cases parity check (1 day) [DONE]
 
-Port the 8 cases from `StretchTests_NewPipeline.GivenColorFitsWhenRenderingThroughCpuPipeline...`
-to a `[Theory]` that runs CPU and GPU side-by-side, asserting per-pixel
-equivalence within tolerance.
+- [x] Ported the 8 cases from `StretchTests_NewPipeline.GivenColorFitsWhenRenderingThroughCpuPipeline...`
+      into `GpuStretchPipelineTests.GpuMatchesCpuForVelaStretchCases`. Each case loads the
+      Vela_SNR_Panel fixture, runs the same uniforms-building logic as the CPU theory, then
+      renders through both `Image.RenderStretchedRgba` and the offscreen `VkFitsImagePipeline`
+      and asserts per-byte parity. Hardware Adreno X1-85: mean=0.5, max=1, 0% outliers across
+      all 8 cases (tolerances `mean < 1.5`, `max < 16`, outliers `< 1%` per the existing
+      Phase 1 budget; tighten once lavapipe CI numbers land).
 
 ```csharp
 [Theory]
