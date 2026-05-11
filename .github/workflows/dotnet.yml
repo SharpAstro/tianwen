@@ -97,8 +97,8 @@ jobs:
     # controls the apt cache key.
     - uses: SharpAstro/cache-apt-pkgs-action@v1
       with:
-        packages: ghostscript fonts-urw-base35 fontconfig mesa-vulkan-drivers libvulkan1 vulkan-tools
-        version: 1.1
+        packages: ghostscript fonts-urw-base35 fontconfig mesa-vulkan-drivers libvulkan1 vulkan-tools vulkan-validationlayers
+        version: 1.2
     - name: Rebuild fontconfig cache
       run: fc-cache -f
     # Sanity-check that the Vulkan loader can enumerate at least one ICD before
@@ -149,6 +149,16 @@ jobs:
     - name: Unit Tests
       run: dotnet test TianWen.Lib.Tests -c $BUILD_CONF --no-build
       working-directory: src
+      env:
+        # Force the Vulkan loader to inject the KHRONOS validation layer into any
+        # instance created during the test run, and print validation messages to stderr
+        # (in addition to whatever debug-utils messenger the test might install). This
+        # surfaces lavapipe-vs-hardware divergences in GpuStretchPipelineTests that
+        # the production code doesn't notice. Safe to leave on -- if the layer JSON
+        # isn't found, the loader just warns and continues without it.
+        VK_INSTANCE_LAYERS: VK_LAYER_KHRONOS_validation
+        VK_LAYER_PATH: /usr/share/vulkan/explicit_layer.d
+        VK_LOADER_DEBUG: error,warn
     # Upload test temp output (cpu.tiff / gpu.tiff / diff.tiff and other test
     # fixtures) when tests fail, so CPU/GPU divergences in GpuStretchPipelineTests
     # can be diagnosed without re-running CI to add diagnostics.

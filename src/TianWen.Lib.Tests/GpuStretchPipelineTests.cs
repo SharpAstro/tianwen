@@ -300,15 +300,10 @@ public sealed class GpuStretchPipelineTests(ITestOutputHelper output)
         renderer.BeginOffscreenFrame(new RGBAColor32(0, 0, 0, 255)).ShouldBeTrue();
         var cmd = renderer.CurrentCommandBuffer;
 
-        // DIAGNOSTIC: temporarily force stretchMode = 0 (passthrough) so the GPU output is
-        // just the raw texture sample value at each fragment. If the GPU still outputs solid
-        // black with stretchMode=0, texture sampling itself is broken on this driver. If it
-        // outputs a small-value grey roughly matching the texture data (~0.07-0.10 -> ~18-25
-        // bytes), texture sampling works and the Luma math is the source of zero.
         pipeline.UpdateStretchUBO(
             cmd: cmd,
             channelCount: 3,
-            stretchMode: 0,  // ORIGINAL: (int)u.Mode -- restore after diagnosing
+            stretchMode: (int)u.Mode,
             normFactor: u.NormFactor,
             curvesBoost: 0f,
             curvesMidpoint: 0.25f,
