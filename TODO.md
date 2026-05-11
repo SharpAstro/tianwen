@@ -316,15 +316,20 @@ Learnings from PixInsight Statistical Stretch (SetiAstro, v2.3).
     Mesa-version-specific.
 
   - **Pattern across primitive tests** (Mesa 24 / LLVM 17 / AVX2):
-    - `FillRectangle` (axis-aligned, FlatPipeline) -- FAIL
-    - `DrawRectangle` (4x axis-aligned FillRectangle, FlatPipeline) -- FAIL
-    - `FillEllipse` (EllipsePipeline, full disk) -- FAIL
-    - `DrawEllipse` (EllipsePipeline, ring band) -- PASS
-    - `DrawLine` axis-aligned + diagonal (FlatPipeline, *rotated* quad) -- PASS
+    On CI x86_64 the larger-area solid-fill primitives report higher `outFrac`
+    than the thin-stroke primitives -- but the *bug itself* is the same in all
+    cases: GPU returns the clear color everywhere. The thin-stroke tests "pass"
+    only because their expected lit area is small (a 1-pixel-wide line at 256x256
+    has just ~180 lit bytes / 196608 total = 0.3%, which fits in the 1-2% budget
+    even when those bytes are wrong). The solid-fill tests have 18200+ lit pixels
+    so the all-clear-color output blows past their tighter budgets.
 
-    Solid-fill axis-aligned-quad primitives fail; rotated-quad / thin-stroke
-    primitives pass. Suggests an AVX2 codegen issue specific to axis-aligned-edge
-    rasterization or a fragment-shader path triggered by full-disk EllipsePipeline.
+    Confirmed by extending the standalone min-repro to all seven primitives and
+    running on WSL2 ARM64 Mesa 24 / LLVM 17 / 128-bit lavapipe: every test
+    produces the expected nonzero pixel count exactly (FillRectangle = 18200,
+    DrawRectangle stroke = 2752, FillEllipse = 15380, DrawEllipse ring = 1272,
+    lines = ~180-236, etc.). Same `SdlVulkan.Renderer` build, same Mesa version
+    -- works on ARM64, fails on x86_64.
 
   - **Strongest current hypothesis**: an LLVM AVX2 codegen bug in Mesa's lavapipe
     rasterizer that's been present in both Mesa 24 and 25. Architecture-specific
