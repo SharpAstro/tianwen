@@ -82,11 +82,8 @@ jobs:
 
   test-unit:
     needs: build
-    # Matrix on x86_64 + ARM64 so we cover both architectures. The Mesa lavapipe black-
-    # output bug is x86_64-specific (see TODO.md min-repro evidence), so the ARM64 job
-    # exercises the GPU comp tests with real parity assertions while the x86_64 job
-    # skips them on lavapipe. `fail-fast: false` so an x86_64 regression (the lavapipe
-    # detection check missing one device-name variant, say) doesn't cancel ARM64.
+    # Matrix on x86_64 + ARM64 so we cover both architectures. `fail-fast: false` so a
+    # regression on one architecture doesn't cancel the other.
     strategy:
       fail-fast: false
       matrix:
@@ -99,11 +96,10 @@ jobs:
     # rebuild the local fontconfig index.
     #
     # mesa-vulkan-drivers + libvulkan1 + vulkan-tools provide a software Vulkan
-    # stack (Mesa lavapipe) so GpuStretchPipelineTests can run end-to-end
-    # against the offscreen renderer instead of always Assert.Skip-ing. The
-    # GitHub-hosted ubuntu runner has no GPU, so the Vulkan loader auto-picks
-    # the lavapipe ICD. Bump `version` whenever this package list changes -- it
-    # controls the apt cache key.
+    # stack (Mesa lavapipe) so the GPU comp tests can run end-to-end against the
+    # offscreen renderer instead of skipping. The GitHub-hosted ubuntu runner has
+    # no GPU, so the Vulkan loader auto-picks the lavapipe ICD. Bump `version`
+    # whenever this package list changes -- it controls the apt cache key.
     - uses: SharpAstro/cache-apt-pkgs-action@v1
       with:
         packages: ghostscript fonts-urw-base35 fontconfig mesa-vulkan-drivers libvulkan1 vulkan-tools vulkan-validationlayers
@@ -111,9 +107,9 @@ jobs:
     - name: Rebuild fontconfig cache
       run: fc-cache -f
     # Sanity-check that the Vulkan loader can enumerate at least one ICD before
-    # the unit-test step. If this fails or lists 0 ICDs, GpuStretchPipelineTests
-    # will skip rather than fail -- but the diagnostic in the build log saves a
-    # round trip when debugging.
+    # the unit-test step. If this fails or lists 0 ICDs, the GPU comp tests
+    # will skip rather than fail -- but the diagnostic in the build log saves
+    # a round trip when debugging.
     - name: Vulkan ICD summary
       run: vulkaninfo --summary || true
     - uses: actions/checkout@v6
@@ -157,8 +153,7 @@ jobs:
       working-directory: src
     - name: Unit Tests
       # verbosity=detailed surfaces ITestOutputHelper messages for Skip+Pass tests too,
-      # not just Fail. Needed for the GpuStretchPipelineTests / VkRendererPrimitiveTests /
-      # VkHistogramPipelineTests diagnostic dumps that run when the test Skips on lavapipe.
+      # not just Fail, which is useful for the GPU comp tests' diagnostic dumps.
       run: dotnet test TianWen.Lib.Tests -c $BUILD_CONF --no-build --logger "console;verbosity=detailed"
       working-directory: src
     # Upload test temp output (cpu.tiff / gpu.tiff / diff.tiff and other test

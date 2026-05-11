@@ -284,73 +284,22 @@ Learnings from PixInsight Statistical Stretch (SetiAstro, v2.3).
 - [x] WB-vs-shadow coordinate-space mismatch fixed (2026-05-10) — `ComputeStretchUniforms` now scales per-channel median+mad by WB before deriving shadows/midtones/rescale, so post-WB norm and shadow live in the same space and channels reduced by WB don't clamp to zero.
 - [x] SASP filter/sensor/SED data tracked in git (2026-05-10) — `filter_curves.gs.gz`, `sensor_qe.gs.gz`, `pickles_sed.gs.gz` exempt from the gitignore wildcard so CI can load them. Total +3 MB; only changes when SASP-data upstream changes.
 - [x] Test verification overhaul (2026-05-10) — `StretchTests_NewPipeline` asserts every `StretchUniforms` field (Pedestal/Shadows/Midtones/Rescale/WhiteBalance/BackgroundNeutralization/CurveData) plus per-channel byte means after rendering. `StretchTestBase` got per-channel float-range + AutoLevel quantum-range assertions for all 4 legacy stretch test files. Catches per-channel collapse regressions.
-- [ ] **Mesa lavapipe CPU/GPU divergence in `SdlVulkan.Renderer`** (surfaced 2026-05-11, scope widened same day) — Both `VkFitsImagePipeline` (FITS texture sampling, GpuStretchPipelineTests) and `VkRenderer` (primitives like FillRectangle/FillEllipse/DrawLine, VkRendererPrimitiveTests) produce **solid clear-color output** on Mesa lavapipe (`llvmpipe 25.2.8, LLVM 20.1.2`) while hardware Vulkan (Windows ARM64 locally) matches the CPU pipeline bit-exactly (or within 1 byte). All three GPU comp test classes `Assert.Skip` when `physicalDevice.deviceName` contains `llvmpipe`/`lavapipe`. Diagnostic data + Vulkan validation messages are logged on every run.
+- [x] **Mesa lavapipe CPU/GPU divergence — root cause was a dangling-pointer bug in `SdlVulkan.Renderer/VkPipelineSet.cs`** (resolved 2026-05-11 evening). NOT a Mesa bug.
 
-  **Investigation so far** (plan-A from `handoff-gpu-stretch-tests.md`):
-  - Texture upload is correct (`vkCmdCopyImageToBuffer` readback returns the source data).
-  - UBO contents are correct (host-coherent, verified by `ReadStretchUboBytes`).
-  - R32_SFLOAT advertises `SampledImage` + `SampledImageFilterLinear`.
-  - Even with `stretchMode=0` (passthrough — shader outputs raw texture sample) GPU is still black, so it's not the Luma math.
-  - Primitive tests use `FlatPipeline`/`EllipsePipeline` with **no texture sampling at all** (just constant color from push constants) and still produce black on lavapipe. So the divergence is not specific to sampled-image access.
-  - `VK_LAYER_KHRONOS_validation` is now wired into the test (programmatic, via the instance create info + a `VkDebugUtilsMessengerEXT` callback). Output is dumped via `ITestOutputHelper` whenever the test runs.
-  - First validation run on lavapipe surfaced 9 errors (VUID-VkImageMemoryBarrier-oldLayout-01212 + VUID-vkCmdCopyImageToBuffer-srcImage-00186) from the diagnostic `ReadbackChannelFirstFloats` helper -- the channel images were missing `VK_IMAGE_USAGE_TRANSFER_SRC_BIT`. **Fixed** in `VkFitsImagePipeline.CreateChannelTexture`.
-  - **After the fix: validation layer is CLEAN on the actual draw path, but lavapipe STILL produces (0,0,0,255) everywhere.** So the spec violation we caught was real but unrelated to the rendering bug.
+  **Actual root cause**: `new VkPipelineColorBlendStateCreateInfo(blendAttachment)` (Vortice.Vulkan 3.2.1 constructor that takes a single attachment by value) stores `pAttachments = &attachment` pointing at the constructor's stack frame, which is reclaimed when the constructor returns. The graphics-pipeline create then reads garbage `VkBlendOp` from that location. On ARM64 the post-frame stack happened to contain values that decoded to valid blend ops; on x86_64 it contained values outside the valid `VkBlendOp` enum range. Release Mesa silently passed the garbage through `vk_blend_op_to_pipe`, producing zeroed-out fragment writes for primitives and the partial channel corruption we observed when the clear color was non-zero.
 
-  **Investigation updates (2026-05-11 continued)**:
+  **Fix**: in `SdlVulkan.Renderer/src/SdlVulkan.Renderer/VkPipelineSet.cs::CreatePipeline`, replace the single-arg constructor with an explicit `stackalloc VkPipelineColorBlendAttachmentState[1]` whose lifetime spans the `vkCreateGraphicsPipeline` call, then `pAttachments = blendAttachments; attachmentCount = 1`. The local `tools/lavapipe-repro` rebuilt against the fix reports the expected nonzero pixel counts on x86_64 lavapipe with Mesa 25.2.8 / LLVM 20.1.2 / 256-bit AVX2: FillRectangle=18200, DrawRectangle=2752, DrawLine=180-236, FillEllipse=15380, DrawEllipse=1272.
 
-  - **Plan 3 (minimal standalone repro)** executed -- ~100-line C# console app using
-    just `SdlVulkan.Renderer` from NuGet (`~/lavapipe-repro/LavapipeMinRepro/`),
-    doing the simplest possible thing: `VulkanContext.CreateOffscreen` + `VkRenderer` +
-    `FillRectangle(red rect)` + `ReadbackOffscreenRgba`.
+  **How we found it**: built Mesa 25.2.8 from source with `-Dbuildtype=debug -Dshared-llvm=enabled -Dgallium-drivers=llvmpipe -Dvulkan-drivers=swrast -Dplatforms=` and pointed the repro at `lvp_devenv_icd.x86_64.json` via `VK_DRIVER_FILES`. The debug build trips the assertion `vk_blend_op_to_pipe: Invalid blend op` in `src/vulkan/runtime/vk_blend.c:66` and tells us the value passed to `vkCmdBindPipeline`'s blend op was bogus. Distro Mesa is shipped without `--enable-debug`, so `LP_DEBUG=llvm` is a no-op and validation layers don't catch this; only the assertion in debug Mesa surfaces it.
 
-    **On WSL2 ARM64 Mesa 24.0.5 / LLVM 17.0.6 (128 bits, NEON)**: works correctly --
-    px(120,130) = (255, 0, 0, 255), exactly 18200 nonzero pixels for the 130x140 red
-    rect. No validation messages.
+  **Follow-ups**:
+  - Commit the fix to `SdlVulkan.Renderer` (done locally, not yet pushed).
+  - Bump `SdlVulkan.Renderer` minor and publish via `/release-lib` (pending).
+  - Bump tianwen `Directory.Packages.props` to consume the new version (pending).
+  - Revert the `Assert.Skip(llvmpipe)` guards in `GpuStretchPipelineTests`, `VkHistogramPipelineTests`, `VkRendererPrimitiveTests` (pending — they should pass on x86_64 lavapipe now).
+  - Delete `.github/workflows/test-mesa-latest.yml` once x86_64 + Mesa 25 default CI is green (it was added to confirm the bug persists in kisak Mesa 26; no longer needed).
+  - `lavapipe-bug-report-draft.md` deleted — no upstream bug to file.
 
-    **On CI x86_64 Mesa 25.2.8 / LLVM 20.1.2 (256 bits, AVX2)** and **CI x86_64 Mesa
-    24.0.5 / LLVM 17.0.6 (256 bits, AVX2)**: same bug -- output is solid clear color
-    for the same primitives.
-
-  - **Pin to older Mesa** -- attempted by pinning to `mesa-vulkan-drivers=24.0.5-1ubuntu1`
-    on CI. **Did not help** -- same failures as Mesa 25. So the bug is not
-    Mesa-version-specific.
-
-  - **Pattern across primitive tests** (Mesa 24 / LLVM 17 / AVX2):
-    On CI x86_64 the larger-area solid-fill primitives report higher `outFrac`
-    than the thin-stroke primitives -- but the *bug itself* is the same in all
-    cases: GPU returns the clear color everywhere. The thin-stroke tests "pass"
-    only because their expected lit area is small (a 1-pixel-wide line at 256x256
-    has just ~180 lit bytes / 196608 total = 0.3%, which fits in the 1-2% budget
-    even when those bytes are wrong). The solid-fill tests have 18200+ lit pixels
-    so the all-clear-color output blows past their tighter budgets.
-
-    Confirmed by extending the standalone min-repro to all seven primitives and
-    running on WSL2 ARM64 Mesa 24 / LLVM 17 / 128-bit lavapipe: every test
-    produces the expected nonzero pixel count exactly (FillRectangle = 18200,
-    DrawRectangle stroke = 2752, FillEllipse = 15380, DrawEllipse ring = 1272,
-    lines = ~180-236, etc.). Same `SdlVulkan.Renderer` build, same Mesa version
-    -- works on ARM64, fails on x86_64.
-
-  - **Strongest current hypothesis**: an LLVM AVX2 codegen bug in Mesa's lavapipe
-    rasterizer that's been present in both Mesa 24 and 25. Architecture-specific
-    (works on ARM64 NEON / SSE-class lavapipe builds).
-
-  **Plans not yet tried**: (2) reproduce locally on x86_64 WSL2 or a docker container
-  (current WSL2 is ARM64 and works); (4) bisect `VulkanContext.CreateOffscreen` /
-  `VkRenderer` ctor by disabling features one-by-one until the failing tests pass;
-  file a Mesa bug upstream. The bug is now confirmed to be either a Mesa lavapipe-x86_64
-  bug or implementation-defined behavior we depend on -- not a spec violation our
-  validation layer can detect.
-
-  **Mesa-latest update (2026-05-11)**: ran `.github/workflows/test-mesa-latest.yml` against
-  `ppa:kisak/kisak-mesa` (Mesa 26.0.6 / LLVM 20.1.8 / x86_64 256-bit lavapipe). The bug is
-  identical to Mesa 25.2.8 -- GPU framebuffer is fully clear-color (RGB all 0, A=255), CPU
-  reference matches expected. The misleading log line `outFrac(>16)=4.199 %` is the
-  fraction of CPU non-zero pixels (the stroke shape); since GPU is fully black, every CPU
-  non-zero pixel exceeds tolerance. Confirmed by inspecting the uploaded TIFFs: GPU mean
-  per channel = [0, 0, 0, 255]; CPU mean = [10.7, 10.7, 10.7, 255]. Conclusion: file
-  upstream Mesa bug; reproducer is the existing `~/lavapipe-repro/LavapipeMinRepro`
-  standalone console app + before/after CI artifacts.
 - [ ] Luma blend — smoothly blend between linked and luma-only results
 - [ ] Per-channel convergence — `ConvergeStretchFactor` runs once on luma stats; for Linked/Unlinked the converged factor is approximate per channel (still uses single factor with per-channel WB-scaled stats). Per-channel convergence would tighten the post-stretch median per channel; bigger refactor (factor becomes a triple).
 

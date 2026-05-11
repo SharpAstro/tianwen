@@ -42,7 +42,7 @@
     <!-- SDL3 + Vulkan packages -->
     <PackageVersion Include="DIR.Lib" Version="2.6.591" />
     <PackageVersion Include="Console.Lib" Version="2.10.501" />
-    <PackageVersion Include="SdlVulkan.Renderer" Version="3.4.441" />
+    <PackageVersion Include="SdlVulkan.Renderer" Version="3.4.471" />
     <PackageVersion Include="SDL3-CS" Version="3.5.0-preview.20260213-150035" />
     <PackageVersion Include="SDL3-CS.Native" Version="3.5.0-preview.20260205-174353" />
     <!-- Canon DSLR -->

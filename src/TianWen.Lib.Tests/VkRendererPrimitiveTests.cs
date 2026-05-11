@@ -20,9 +20,7 @@ namespace TianWen.Lib.Tests;
 /// backend would be widespread.
 ///
 /// Unlike <see cref="GpuStretchPipelineTests"/>, these primitives use only the constant-
-/// color FlatPipeline and the ring-shader EllipsePipeline -- neither samples a texture --
-/// so the Mesa lavapipe texture() divergence tracked in TODO.md does not apply here, and
-/// the tests run end-to-end on the CI lavapipe path.
+/// color FlatPipeline and the ring-shader EllipsePipeline -- neither samples a texture.
 ///
 /// Skips when Vulkan is unavailable (no driver / no ICD).
 /// </summary>
@@ -59,7 +57,7 @@ public sealed class VkRendererPrimitiveTests(ITestOutputHelper output)
         if (gpu is null) return;
         // Bit-exact on hardware Vulkan (Vulkan's top-left fill rule with integer-aligned
         // float vertices matches CPU's half-open rect fill exactly). Allow 0.1% headroom
-        // for any lavapipe rasterization quirks.
+        // for rasterization quirks.
         AssertBadPixelFractionUnder(cpu, gpu, perPixelTolerance: 16, badPixelFraction: 0.001,
             nameof(FillRectangle_AxisAligned));
     }
@@ -190,28 +188,10 @@ public sealed class VkRendererPrimitiveTests(ITestOutputHelper output)
         using var ctx = VulkanContext.CreateOffscreen(instance, Width, Height);
         using var renderer = new VkRenderer(ctx, Width, Height);
 
-        // The lavapipe-on-CI run revealed that the divergence we tracked for the FITS texture
-        // pipeline (TODO.md) is broader than just the texture() shader call -- even the
-        // FlatPipeline constant-color draws produce solid-black output on lavapipe while
-        // hardware Vulkan agrees with CPU bit-exactly. Detect the device here so the parity
-        // assertions can short-circuit with Assert.Skip and keep CI green. Hardware Vulkan
-        // continues to enforce the assertions.
         ctx.InstanceApi.vkGetPhysicalDeviceProperties(ctx.PhysicalDevice, out var props);
         var deviceName = System.Text.Encoding.UTF8.GetString(
             System.Runtime.InteropServices.MemoryMarshal.CreateReadOnlySpanFromNullTerminated(props.deviceName));
-        // x86_64 lavapipe drops fragment output to clear color (see TODO.md min-repro
-        // evidence: ARM64 lavapipe with the same Mesa build renders correctly). Only skip
-        // on x86_64 lavapipe; ARM64 lavapipe enforces the parity assertions.
-        var isLavapipe = deviceName.Contains("llvmpipe", StringComparison.OrdinalIgnoreCase)
-            || deviceName.Contains("lavapipe", StringComparison.OrdinalIgnoreCase);
-        var isX86_64 = System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture
-            == System.Runtime.InteropServices.Architecture.X64;
-        var forceRun = Environment.GetEnvironmentVariable("TIANWEN_GPU_TESTS_FORCE_RUN") == "1";
-        output.WriteLine($"Physical device: {deviceName} (lavapipe={isLavapipe}, x86_64={isX86_64}, forceRun={forceRun})");
-        if (isLavapipe && isX86_64 && !forceRun)
-        {
-            Assert.Skip($"Known x86_64 Mesa lavapipe divergence -- VkRenderer GPU draws return clear color instead of geometry on this driver. See TODO.md.");
-        }
+        output.WriteLine($"Physical device: {deviceName}");
 
         renderer.BeginOffscreenFrame(Black).ShouldBeTrue();
         draw(renderer);

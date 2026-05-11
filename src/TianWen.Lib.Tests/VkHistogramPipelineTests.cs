@@ -20,9 +20,6 @@ namespace TianWen.Lib.Tests;
 /// x positions), renders via the offscreen pipeline, and asserts the column structure:
 /// the spike column contains the channel-coloured bar; columns without spikes stay at the
 /// clear color.
-///
-/// Skips on Mesa lavapipe -- same divergence pattern as the other GPU comp tests (see
-/// TODO.md). Hardware Vulkan still enforces the assertions.
 /// </summary>
 [Collection("Imaging")]
 public sealed class VkHistogramPipelineTests(ITestOutputHelper output)
@@ -118,20 +115,10 @@ public sealed class VkHistogramPipelineTests(ITestOutputHelper output)
         using var renderer = new VkRenderer(ctx, Width, Height);
         using var pipeline = new VkFitsImagePipeline(ctx);
 
-        // x86_64-lavapipe-only skip. ARM64 lavapipe renders correctly. See TODO.md.
         ctx.InstanceApi.vkGetPhysicalDeviceProperties(ctx.PhysicalDevice, out var props);
         var deviceName = System.Text.Encoding.UTF8.GetString(
             System.Runtime.InteropServices.MemoryMarshal.CreateReadOnlySpanFromNullTerminated(props.deviceName));
-        var isLavapipe = deviceName.Contains("llvmpipe", StringComparison.OrdinalIgnoreCase)
-            || deviceName.Contains("lavapipe", StringComparison.OrdinalIgnoreCase);
-        var isX86_64 = System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture
-            == System.Runtime.InteropServices.Architecture.X64;
-        var forceRun = Environment.GetEnvironmentVariable("TIANWEN_GPU_TESTS_FORCE_RUN") == "1";
-        output.WriteLine($"Physical device: {deviceName} (lavapipe={isLavapipe}, x86_64={isX86_64}, forceRun={forceRun})");
-        if (isLavapipe && isX86_64 && !forceRun)
-        {
-            Assert.Skip($"Known x86_64 Mesa lavapipe divergence. See TODO.md.");
-        }
+        output.WriteLine($"Physical device: {deviceName}");
 
         pipeline.UploadHistogramTexture(hist0, 0);
         pipeline.UploadHistogramTexture(hist1, 1);
