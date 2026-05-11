@@ -82,7 +82,16 @@ jobs:
 
   test-unit:
     needs: build
-    runs-on: ubuntu-latest
+    # Matrix on x86_64 + ARM64 so we cover both architectures. The Mesa lavapipe black-
+    # output bug is x86_64-specific (see TODO.md min-repro evidence), so the ARM64 job
+    # exercises the GPU comp tests with real parity assertions while the x86_64 job
+    # skips them on lavapipe. `fail-fast: false` so an x86_64 regression (the lavapipe
+    # detection check missing one device-name variant, say) doesn't cancel ARM64.
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-latest, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.runner }}
     steps:
     # cache-apt-pkgs-action installs the listed packages (apt-get install behind
     # the scenes) but caches /var/cache/apt by `version` key. First run pays

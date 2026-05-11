@@ -372,8 +372,13 @@ public sealed class GpuStretchPipelineTests(ITestOutputHelper output)
         );
         var isLavapipe = deviceName.Contains("llvmpipe", StringComparison.OrdinalIgnoreCase)
             || deviceName.Contains("lavapipe", StringComparison.OrdinalIgnoreCase);
-        _formatDiagBag.Add($"Physical device: {deviceName} (lavapipe={isLavapipe})");
-        _isRunningOnLavapipe = isLavapipe;
+        // The lavapipe bug is x86_64-specific (likely an LLVM AVX2 codegen issue). On
+        // ARM64 lavapipe the same code path produces correct output, so we only skip on
+        // x86_64 lavapipe. See TODO.md for the investigation trail + min-repro evidence.
+        var isX86_64 = System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture
+            == System.Runtime.InteropServices.Architecture.X64;
+        _formatDiagBag.Add($"Physical device: {deviceName} (lavapipe={isLavapipe}, x86_64={isX86_64})");
+        _isRunningOnLavapipe = isLavapipe && isX86_64;
 
         // Diagnostics for the CPU/GPU divergence we hit on Mesa lavapipe: R32_SFLOAT's
         // optimalTilingFeatures tells us whether linear filtering, sampling, and even basic

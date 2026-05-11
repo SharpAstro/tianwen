@@ -118,16 +118,18 @@ public sealed class VkHistogramPipelineTests(ITestOutputHelper output)
         using var renderer = new VkRenderer(ctx, Width, Height);
         using var pipeline = new VkFitsImagePipeline(ctx);
 
-        // Lavapipe-skip mirroring the FITS/primitive tests -- the rasterization-or-draw
-        // divergence makes the GPU return solid clear color regardless of pipeline inputs.
+        // x86_64-lavapipe-only skip. ARM64 lavapipe renders correctly. See TODO.md.
         ctx.InstanceApi.vkGetPhysicalDeviceProperties(ctx.PhysicalDevice, out var props);
         var deviceName = System.Text.Encoding.UTF8.GetString(
             System.Runtime.InteropServices.MemoryMarshal.CreateReadOnlySpanFromNullTerminated(props.deviceName));
-        if (deviceName.Contains("llvmpipe", StringComparison.OrdinalIgnoreCase)
-            || deviceName.Contains("lavapipe", StringComparison.OrdinalIgnoreCase))
+        var isLavapipe = deviceName.Contains("llvmpipe", StringComparison.OrdinalIgnoreCase)
+            || deviceName.Contains("lavapipe", StringComparison.OrdinalIgnoreCase);
+        var isX86_64 = System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture
+            == System.Runtime.InteropServices.Architecture.X64;
+        output.WriteLine($"Physical device: {deviceName} (lavapipe={isLavapipe}, x86_64={isX86_64})");
+        if (isLavapipe && isX86_64)
         {
-            output.WriteLine($"Physical device: {deviceName} -- skipping (see TODO.md lavapipe entry).");
-            Assert.Skip($"Known Mesa lavapipe divergence. See TODO.md.");
+            Assert.Skip($"Known x86_64 Mesa lavapipe divergence. See TODO.md.");
         }
 
         pipeline.UploadHistogramTexture(hist0, 0);

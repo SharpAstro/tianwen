@@ -199,11 +199,17 @@ public sealed class VkRendererPrimitiveTests(ITestOutputHelper output)
         ctx.InstanceApi.vkGetPhysicalDeviceProperties(ctx.PhysicalDevice, out var props);
         var deviceName = System.Text.Encoding.UTF8.GetString(
             System.Runtime.InteropServices.MemoryMarshal.CreateReadOnlySpanFromNullTerminated(props.deviceName));
-        if (deviceName.Contains("llvmpipe", StringComparison.OrdinalIgnoreCase)
-            || deviceName.Contains("lavapipe", StringComparison.OrdinalIgnoreCase))
+        // x86_64 lavapipe drops fragment output to clear color (see TODO.md min-repro
+        // evidence: ARM64 lavapipe with the same Mesa build renders correctly). Only skip
+        // on x86_64 lavapipe; ARM64 lavapipe enforces the parity assertions.
+        var isLavapipe = deviceName.Contains("llvmpipe", StringComparison.OrdinalIgnoreCase)
+            || deviceName.Contains("lavapipe", StringComparison.OrdinalIgnoreCase);
+        var isX86_64 = System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture
+            == System.Runtime.InteropServices.Architecture.X64;
+        output.WriteLine($"Physical device: {deviceName} (lavapipe={isLavapipe}, x86_64={isX86_64})");
+        if (isLavapipe && isX86_64)
         {
-            output.WriteLine($"Physical device: {deviceName} -- skipping VkRenderer primitive parity assertion (see TODO.md lavapipe entry).");
-            Assert.Skip($"Known Mesa lavapipe divergence -- VkRenderer GPU draws return clear color instead of geometry on this driver. See TODO.md.");
+            Assert.Skip($"Known x86_64 Mesa lavapipe divergence -- VkRenderer GPU draws return clear color instead of geometry on this driver. See TODO.md.");
         }
 
         renderer.BeginOffscreenFrame(Black).ShouldBeTrue();
