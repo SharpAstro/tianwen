@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Import tool: downloads SASP_data.fits from the setiastro/setiastrosuitepro
+    GitHub repo and converts SENSOR (QE), FILTER (transmission), and SED
+    (Pickles stellar spectra) HDUs into .gs.gz ASCII-separated files under
+    src/TianWen.Lib/Astrometry/Catalogs/.
+
+    Not part of the solution; not packed; not shipped.
+  -->
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <AssemblyName>ImportSaspData</AssemblyName>
+    <RootNamespace>ImportSaspData</RootNamespace>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <IsAotCompatible>false</IsAotCompatible>
+    <GeneratePackageOnBuild>false</GeneratePackageOnBuild>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\TianWen.Lib\TianWen.Lib.csproj" />
+  </ItemGroup>
+
+</Project>

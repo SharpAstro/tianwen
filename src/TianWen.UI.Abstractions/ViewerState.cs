@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using TianWen.Lib.Imaging;
 
 namespace TianWen.UI.Abstractions;
@@ -17,6 +18,13 @@ public sealed class ViewerState
 
     /// <summary>Curves boost amount applied in the display shader (0.0 = off, up to 1.0).</summary>
     public float CurvesBoost { get; set; }
+
+    /// <summary>Curve mode: 0 = power-law boost, 1 = Fritsch-Carlson spline LUT.</summary>
+    public int CurvesMode { get; set; }
+
+    /// <summary>33 Fritsch-Carlson knots for the spline LUT (see <see cref="StretchUniforms.CurveData"/>).
+    /// Empty when using boost mode.</summary>
+    public ImmutableArray<float> CurveData { get; set; } = [];
 
     /// <summary>Index into <see cref="CurvesBoostPresets"/>.</summary>
     public int CurvesBoostIndex { get; set; }
@@ -57,6 +65,12 @@ public sealed class ViewerState
 
     /// <summary>Whether deep-sky object overlays (galaxy ellipses, markers, labels) are visible.</summary>
     public bool ShowOverlays { get; set; }
+
+    /// <summary>Whether Tycho-2 photometric color calibration is active.</summary>
+    public bool ColorCalibrationEnabled { get; set; }
+
+    /// <summary>Whether background neutralization (pivot1 mode) is active.</summary>
+    public bool BackgroundNeutralizationEnabled { get; set; }
 
     /// <summary>Whether detected star circles are visible.</summary>
     public bool ShowStarOverlay { get; set; }

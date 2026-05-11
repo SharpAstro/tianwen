@@ -2,11 +2,17 @@ using System.Text.RegularExpressions;
 
 namespace TianWen.Lib.Imaging;
 
-public readonly partial record struct Filter(string Name, string ShortName, string DisplayName, Bandpass Bandpass)
+public readonly partial record struct Filter(string Name, string ShortName, string DisplayName, Bandpass Bandpass, string? RawName = null)
 {
     /// <summary>Backwards-compatible constructor (DisplayName defaults to Name).</summary>
     public Filter(string Name, string ShortName, Bandpass Bandpass)
-        : this(Name, ShortName, Name, Bandpass) { }
+        : this(Name, ShortName, Name, Bandpass, null) { }
+
+    /// <summary>
+    /// The name used for FITS FILTER header and SPCC filter curve matching.
+    /// Falls back to <see cref="DisplayName"/> when no raw manufacturer name is set.
+    /// </summary>
+    public readonly string FilterNameForFits => RawName ?? DisplayName;
 
     public static readonly Filter None = new(nameof(None), nameof(None), nameof(None), Bandpass.None);
     public static readonly Filter Unknown = new(nameof(Unknown), nameof(Unknown), nameof(Unknown), Bandpass.None);

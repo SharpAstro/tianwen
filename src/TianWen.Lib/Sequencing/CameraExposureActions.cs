@@ -124,7 +124,7 @@ public static class CameraExposureActions
         {
             try
             {
-                camera.Filter = (await filterWheel.GetCurrentFilterAsync(ct).ConfigureAwait(false)).Filter;
+                camera.Filter = await filterWheel.GetCurrentFilterAsync(ct).ConfigureAwait(false);
             }
             catch (Exception ex)
             {

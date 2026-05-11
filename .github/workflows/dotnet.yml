@@ -82,18 +82,36 @@ jobs:
 
   test-unit:
     needs: build
-    runs-on: ubuntu-latest
+    # Matrix on x86_64 + ARM64 so we cover both architectures. `fail-fast: false` so a
+    # regression on one architecture doesn't cancel the other.
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-latest, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.runner }}
     steps:
     # cache-apt-pkgs-action installs the listed packages (apt-get install behind
     # the scenes) but caches /var/cache/apt by `version` key. First run pays
     # the full ~80 MB; subsequent runs restore in ~2s. fc-cache still runs to
     # rebuild the local fontconfig index.
+    #
+    # mesa-vulkan-drivers + libvulkan1 + vulkan-tools provide a software Vulkan
+    # stack (Mesa lavapipe) so the GPU comp tests can run end-to-end against the
+    # offscreen renderer instead of skipping. The GitHub-hosted ubuntu runner has
+    # no GPU, so the Vulkan loader auto-picks the lavapipe ICD. Bump `version`
+    # whenever this package list changes -- it controls the apt cache key.
     - uses: SharpAstro/cache-apt-pkgs-action@v1
       with:
-        packages: ghostscript fonts-urw-base35 fontconfig
-        version: 1.0
+        packages: ghostscript fonts-urw-base35 fontconfig mesa-vulkan-drivers libvulkan1 vulkan-tools vulkan-validationlayers
+        version: 1.3
     - name: Rebuild fontconfig cache
       run: fc-cache -f
+    # Sanity-check that the Vulkan loader can enumerate at least one ICD before
+    # the unit-test step. If this fails or lists 0 ICDs, the GPU comp tests
+    # will skip rather than fail -- but the diagnostic in the build log saves
+    # a round trip when debugging.
+    - name: Vulkan ICD summary
+      run: vulkaninfo --summary || true
     - uses: actions/checkout@v6
       with:
         submodules: recursive
@@ -134,8 +152,24 @@ jobs:
       run: dotnet build -c $BUILD_CONF --no-restore -p:Version=${VERSION_PREFIX}${VERSION_REV}${VERSION_HASH} -p:FileVersion=${VERSION_PREFIX}.${VERSION_REV} -p:ContinuousIntegrationBuild=true
       working-directory: src
     - name: Unit Tests
-      run: dotnet test TianWen.Lib.Tests -c $BUILD_CONF --no-build
+      # verbosity=detailed surfaces ITestOutputHelper messages for Skip+Pass tests too,
+      # not just Fail, which is useful for the GPU comp tests' diagnostic dumps.
+      run: dotnet test TianWen.Lib.Tests -c $BUILD_CONF --no-build --logger "console;verbosity=detailed"
       working-directory: src
+    # Upload test temp output (cpu.tiff / gpu.tiff / diff.tiff and other test
+    # fixtures) when tests fail, so CPU/GPU divergences in GpuStretchPipelineTests
+    # can be diagnosed without re-running CI to add diagnostics.
+    - name: Upload GPU stretch test output on failure
+      if: failure()
+      uses: actions/upload-artifact@v7
+      with:
+        name: gpu-stretch-test-output-${{ matrix.runner }}
+        # Narrow to just the GpuStretchPipelineTests subdir -- /tmp/TianWen.Lib.Tests/
+        # aggregates outputs from every test in the suite (>2 GB on a full failure run);
+        # this slice is ~15 MB (cpu.tiff + gpu.tiff + diff.tiff per case).
+        path: /tmp/TianWen.Lib.Tests/*/GpuStretchPipelineTests/
+        if-no-files-found: ignore
+        retention-days: 7
 
   test-functional:
     needs: build

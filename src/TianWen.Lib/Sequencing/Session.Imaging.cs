@@ -5,10 +5,12 @@ using System.Collections.Specialized;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using TianWen.Lib.Astrometry;
 using TianWen.Lib.Astrometry.Focus;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Devices.Guider;
 using TianWen.Lib.Imaging;
+using TianWen.Lib.Imaging.ColorCalibration;
 using static TianWen.Lib.Stat.StatisticsHelper;
 
 namespace TianWen.Lib.Sequencing;
@@ -1266,5 +1268,70 @@ internal partial record Session
         }
 
         return false;
+    }
+
+    /// <summary>
+    /// Computes spectrophotometric white balance for an image using its metadata
+    /// to build per-channel system throughput curves (sensor QE + CFA + filters),
+    /// then logs the resulting channel multipliers. Requires a plate-solved WCS
+    /// for star-to-catalog matching.
+    /// </summary>
+    /// <remarks>
+    /// Results are cached per (sensor, filter, sensorType) across frames — the
+    /// system throughput and WCS don't change when imaging the same target with
+    /// the same camera and filter.
+    /// </remarks>
+    internal async ValueTask LogSpectrophotometricCalibrationAsync(
+        Image image, StarList stars, WCS wcs, CancellationToken ct)
+    {
+        try
+        {
+            if (!FilterCurveDatabase.IsLoaded)
+                await FilterCurveDatabase.LoadAsync(ct);
+
+            var db = await External.GetCelestialObjectDBAsync(ct);
+
+            // T_sys keyed on (sensorModel | filterRawName | sensorType)
+            var meta = image.ImageMeta;
+            var tsysKey = $"{meta.SensorModel}|{meta.Filter.FilterNameForFits}|{(int)meta.SensorType}";
+
+            if (_cachedTsys is not { } cached || _cachedTsysKey != tsysKey)
+            {
+                var channels = FilterCurveDatabase.BuildChannelThroughputs(meta);
+                if (channels is null)
+                {
+                    _logger.LogDebug("SPCC: could not build channel throughputs for {Instrument} / {Sensor} / {Filter}",
+                        meta.Instrument, meta.SensorModel, meta.Filter.FilterNameForFits);
+                    return;
+                }
+                _cachedTsys = channels;
+                _cachedTsysKey = tsysKey;
+            }
+
+            var (tsysR, tsysG, tsysB) = _cachedTsys.Value;
+
+            var result = Tycho2ColorCalibration.ComputeSpectrophotometricWhiteBalance(
+                image, stars, wcs, db, tsysR, tsysG, tsysB,
+                minStars: 3);
+
+            if (result.HasValue)
+            {
+                var (wbR, wbG, wbB, matchCount) = result.Value;
+                _logger.LogInformation(
+                    "SPCC: {MatchCount} stars, WB=(R:{R:F3} G:{G:F3} B:{B:F3}) for {Instrument} sensor={Sensor} filter={Filter}",
+                    matchCount, wbR, wbG, wbB,
+                    meta.Instrument,
+                    meta.SensorModel is { Length: > 0 } s ? s : "?",
+                    meta.Filter.FilterNameForFits);
+            }
+            else
+            {
+                _logger.LogDebug("SPCC: insufficient matches for {Instrument}", meta.Instrument);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "SPCC: diagnostic failed for {Instrument}", image.ImageMeta.Instrument);
+        }
     }
 }

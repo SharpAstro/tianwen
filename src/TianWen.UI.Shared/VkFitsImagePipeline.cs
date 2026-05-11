@@ -19,9 +19,10 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
 
     /// <summary>
     /// std140 StretchUBO — see field layout in struct definition below.
-    /// Total: 192 bytes.
+    /// Total: 416 bytes (192 base + 16 wb + 16 bgNeut + 144 curveData + 16 lumaWeights
+    /// + 16 lumaStretch + 16 stretchBlend).
     /// </summary>
-    private const int StretchUboSize = 192;
+    private const int StretchUboSize = 416;
 
     /// <summary>
     /// std140 HistogramUBO — 4 x int/float fields = 16 bytes.
@@ -56,7 +57,7 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
             float curvesMidpoint;   // offset  16
             float hdrAmount;        // offset  20
             float hdrKnee;          // offset  24
-            float _pad0;            // offset  28
+            int   curvesMode;       // offset  28: 0=boost, 1=spline LUT
             vec4  pedestal;         // offset  32  (xyz = pedestal RGB, w = pad)
             vec4  shadows;          // offset  48  (xyz = shadows RGB,  w = pad)
             vec4  midtones;         // offset  64  (xyz = midtones RGB, w = pad)
@@ -74,6 +75,12 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
             // mat2 stored as 2 vec4 columns (std140 mat2 = 2 x vec4 = 32 bytes)
             vec4  cdCol0;           // offset 160
             vec4  cdCol1;           // offset 176
+            vec4  whiteBalance;        // offset 192  (xyz = WB multipliers, w = pad)
+            vec4  bgNeutralization;    // offset 208  (xyz = neutralization gains, w = pad)
+            vec4  curveData[9];        // offset 224  (33 knots packed into 9 vec4s; last 3 floats unused)
+            vec4  lumaWeights;         // offset 368  (xyz = R/G/B luma weights, w = pad). Rec.709 default.
+            vec4  lumaStretch;         // offset 384  (x = lumaShadow, y = lumaMidtones, z = lumaRescale, w = pad)
+            vec4  stretchBlend;        // offset 400  (x = lumaBlend in [0,1], y = normalizeScale, zw = pad)
         } ubo;
 
         layout(set = 1, binding = 0) uniform sampler2D uChannel0;
@@ -90,6 +97,9 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
 
         float stretchChannel(float raw, int ch) {
             float norm = raw * ubo.normFactor - ubo.pedestal[ch];
+            // Background neutralization: out = norm * g + (1-g)
+            norm = norm * ubo.bgNeutralization[ch] + (1.0 - ubo.bgNeutralization[ch]);
+            norm = max(norm * ubo.whiteBalance[ch], 0.0);
             float rescaled = (norm - ubo.shadows[ch]) * ubo.rescale[ch];
             return mtf(ubo.midtones[ch], rescaled);
         }
@@ -110,6 +120,25 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
             } else {
                 return v;
             }
+        }
+
+        float applyCurveLUT(float v) {
+            // 33 knots at i/32 for i in 0..32. Mirrors Image.ApplyCurveLut on the CPU side:
+            // v in [0,1] -> idx in [0,32] -> floor to i in [0,31] -> mix(curveData[i],
+            // curveData[i+1], idx-i). The previous implementation clamped i AFTER computing
+            // frac, which produced an off-by-one at v=1.0 (returned knot 32 instead of 33).
+            // min(31) keeps i in [0,31] and lets frac=1 cleanly select knot 33 at v=1.0.
+            v = clamp(v, 0.0, 1.0);
+            float idx = v * 32.0;
+            int i = min(int(idx), 31);
+            float frac = idx - float(i);
+            int vi = i / 4;
+            int ci = i % 4;
+            int vj = (i + 1) / 4;
+            int cj = (i + 1) % 4;
+            float vi0 = ubo.curveData[vi][ci];
+            float vi1 = ubo.curveData[vj][cj];
+            return mix(vi0, vi1, frac);
         }
 
         float applyHdr(float v, float amount, float knee) {
@@ -226,12 +255,19 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
                 if (ubo.stretchMode >= 1) {
                     r = stretchChannel(r, 0);
                 }
-                if (ubo.curvesBoost > 0.0) {
+                if (ubo.curvesMode == 1) {
+                    r = applyCurveLUT(r);
+                } else if (ubo.curvesBoost > 0.0) {
                     r = applyCurve(r, ubo.curvesBoost);
                 }
                 if (ubo.hdrAmount > 0.0) {
                     r = applyHdr(r, ubo.hdrAmount, ubo.hdrKnee);
                 }
+                float nsMono = ubo.stretchBlend.y;
+                if (nsMono != 1.0 && nsMono > 0.0) {
+                    r *= nsMono;
+                }
+                r = clamp(r, 0.0, 1.0);
                 if (ubo.gridEnabled != 0) {
                     vec2 pixel = vec2(vTexCoord.x * ubo.imageSize.x + 1.0,
                                      vTexCoord.y * ubo.imageSize.y + 1.0);
@@ -249,29 +285,62 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
             }
 
             // RGB path
-            if (ubo.stretchMode == 1) {
+            // stretchMode values are the C# StretchMode enum cast to int:
+            //   0 = None (passthrough), 1 = Linked, 2 = Unlinked, 3 = Luma.
+            // Linked and Unlinked both use per-channel stretchChannel; the difference is
+            // already encoded in the per-channel uniforms (Linked replicates channel 0,
+            // Unlinked uses each channel's own stats). Luma is its own pipeline.
+            if (ubo.stretchMode == 1 || ubo.stretchMode == 2) {
                 r = stretchChannel(r, 0);
                 g = stretchChannel(g, 1);
                 b = stretchChannel(b, 2);
-            } else if (ubo.stretchMode == 2) {
-                float nr = r * ubo.normFactor;
-                float ng = g * ubo.normFactor;
-                float nb = b * ubo.normFactor;
-                float prr = nr - ubo.pedestal[0];
-                float prg = ng - ubo.pedestal[1];
-                float prb = nb - ubo.pedestal[2];
-                float Ynorm = 0.2126 * prr + 0.7152 * prg + 0.0722 * prb;
-                float rescaled = (Ynorm - ubo.shadows.x) * ubo.rescale.x;
-                float Yp = mtf(ubo.midtones.x, rescaled);
+            } else if (ubo.stretchMode == 3) {
+                // Capture raw values *before* we trample r/g/b. The optional per-channel
+                // linked branch below also needs them.
+                float rawR = r;
+                float rawG = g;
+                float rawB = b;
+
+                float nr = rawR * ubo.normFactor;
+                float ng = rawG * ubo.normFactor;
+                float nb = rawB * ubo.normFactor;
+                float prr = max((nr - ubo.pedestal[0]) * ubo.whiteBalance[0], 0.0);
+                float prg = max((ng - ubo.pedestal[1]) * ubo.whiteBalance[1], 0.0);
+                float prb = max((nb - ubo.pedestal[2]) * ubo.whiteBalance[2], 0.0);
+                float Ynorm = ubo.lumaWeights.x * prr + ubo.lumaWeights.y * prg + ubo.lumaWeights.z * prb;
+                float rescaled = (Ynorm - ubo.lumaStretch.x) * ubo.lumaStretch.z;
+                float Yp = mtf(ubo.lumaStretch.y, rescaled);
                 float scale = Ynorm > 1e-7 ? Yp / Ynorm : 0.0;
                 float maxCh = max(prr, max(prg, prb));
                 if (maxCh > 1e-7) scale = min(scale, 1.0 / maxCh);
-                r = clamp(prr * scale, 0.0, 1.0);
-                g = clamp(prg * scale, 0.0, 1.0);
-                b = clamp(prb * scale, 0.0, 1.0);
+                float lumaR = clamp(prr * scale, 0.0, 1.0);
+                float lumaG = clamp(prg * scale, 0.0, 1.0);
+                float lumaB = clamp(prb * scale, 0.0, 1.0);
+
+                // Optional blend with the per-channel linked branch. ubo.shadows/midtones/rescale
+                // hold the per-channel linked params in Luma mode (the producer always populates
+                // both LumaStretch and the per-channel linked stats). lumaBlend == 1 short-circuits
+                // to the pure-luma result -- same numbers as before this field existed.
+                float lb = clamp(ubo.stretchBlend.x, 0.0, 1.0);
+                if (lb < 1.0) {
+                    float linkR = stretchChannel(rawR, 0);
+                    float linkG = stretchChannel(rawG, 1);
+                    float linkB = stretchChannel(rawB, 2);
+                    r = mix(linkR, lumaR, lb);
+                    g = mix(linkG, lumaG, lb);
+                    b = mix(linkB, lumaB, lb);
+                } else {
+                    r = lumaR;
+                    g = lumaG;
+                    b = lumaB;
+                }
             }
 
-            if (ubo.curvesBoost > 0.0) {
+            if (ubo.curvesMode == 1) {
+                r = applyCurveLUT(r);
+                g = applyCurveLUT(g);
+                b = applyCurveLUT(b);
+            } else if (ubo.curvesBoost > 0.0) {
                 r = applyCurve(r, ubo.curvesBoost);
                 g = applyCurve(g, ubo.curvesBoost);
                 b = applyCurve(b, ubo.curvesBoost);
@@ -280,6 +349,14 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
                 r = applyHdr(r, ubo.hdrAmount, ubo.hdrKnee);
                 g = applyHdr(g, ubo.hdrAmount, ubo.hdrKnee);
                 b = applyHdr(b, ubo.hdrAmount, ubo.hdrKnee);
+            }
+
+            // Post-stretch normalize -- producer predicts max via Image.PredictPostStretchMaxScale
+            // and stamps stretchBlend.y. Default 1.0 = no-op; only > 1 when the predicted peak
+            // sits below 1 (e.g. HDR knee or S-curve compresses highlights).
+            float ns = ubo.stretchBlend.y;
+            if (ns != 1.0 && ns > 0.0) {
+                r *= ns; g *= ns; b *= ns;
             }
 
             if (ubo.gridEnabled != 0) {
@@ -292,7 +369,7 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
                 b = mix(b, gridColor.b, grid * 0.45);
             }
 
-            FragColor = vec4(r, g, b, 1.0);
+            FragColor = vec4(clamp(r, 0.0, 1.0), clamp(g, 0.0, 1.0), clamp(b, 0.0, 1.0), 1.0);
         }
         """;
 
@@ -375,6 +452,17 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
 
     // Shared sampler
     private VkSampler _linearSampler;
+    private VkFormatFeatureFlags _r32SfloatOptimalTilingFeatures;
+    private bool _r32SfloatLinearFilterSupported;
+
+    /// <summary>
+    /// The format feature flags advertised by the physical device for
+    /// <see cref="VkFormat.R32Sfloat"/>'s optimal tiling, captured at sampler creation.
+    /// Exposed for diagnostics: lavapipe historically returns 0 samples when linear
+    /// filtering is requested without `SampledImageFilterLinear` support.
+    /// </summary>
+    public VkFormatFeatureFlags R32SfloatOptimalTilingFeatures => _r32SfloatOptimalTilingFeatures;
+    public bool R32SfloatLinearFilterSupported => _r32SfloatLinearFilterSupported;
 
     // Channel textures (3x R32_SFLOAT 2D)
     private readonly VkImage[] _channelImages = new VkImage[ChannelCount];
@@ -422,6 +510,90 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
     }
 
     // ------------------------------------------------------------------ Public API
+
+    /// <summary>
+    /// Reads back the first <paramref name="count"/> floats of channel slot
+    /// <paramref name="channel"/> into <paramref name="destination"/>. Diagnostic helper used
+    /// by tests to confirm whether texture upload actually placed data on the GPU. Blocks
+    /// on a one-shot command buffer + queue idle (slow -- not for production hot paths).
+    /// </summary>
+    public unsafe void ReadbackChannelFirstFloats(int channel, Span<float> destination)
+    {
+        if ((uint)channel >= ChannelCount)
+            throw new ArgumentOutOfRangeException(nameof(channel));
+        if (_channelWidth[channel] == 0 || _channelHeight[channel] == 0)
+            throw new InvalidOperationException("Channel texture has no data uploaded.");
+
+        var api = _ctx.DeviceApi;
+        var count = destination.Length;
+        var byteSize = (ulong)(count * sizeof(float));
+
+        // Host-visible scratch buffer (separate from _stagingBuffer to avoid trampling it).
+        VkBufferCreateInfo bufCI = new()
+        {
+            size = byteSize,
+            usage = VkBufferUsageFlags.TransferDst,
+            sharingMode = VkSharingMode.Exclusive
+        };
+        api.vkCreateBuffer(&bufCI, null, out var scratch).CheckResult();
+        try
+        {
+            api.vkGetBufferMemoryRequirements(scratch, out var memReqs);
+            VkMemoryAllocateInfo allocInfo = new()
+            {
+                allocationSize = memReqs.size,
+                memoryTypeIndex = _ctx.FindMemoryType(memReqs.memoryTypeBits,
+                    VkMemoryPropertyFlags.HostVisible | VkMemoryPropertyFlags.HostCoherent)
+            };
+            api.vkAllocateMemory(&allocInfo, null, out var scratchMem).CheckResult();
+            try
+            {
+                api.vkBindBufferMemory(scratch, scratchMem, 0);
+
+                // Clamp copy extent so the GPU writes exactly `count` texels into the
+                // scratch buffer -- a full row (`_channelWidth` texels) would overflow our
+                // tiny scratch buffer. Hardware drivers tolerate the overflow silently;
+                // lavapipe segfaults the process and tanks the rest of the test suite.
+                var width = (uint)Math.Min(count, _channelWidth[channel]);
+                var rowsNeeded = (int)Math.Ceiling((double)count / Math.Max(width, 1));
+                var height = (uint)Math.Min(_channelHeight[channel], Math.Max(rowsNeeded, 1));
+
+                _ctx.ExecuteOneShot(cmd =>
+                {
+                    TransitionImageLayout(cmd, _channelImages[channel],
+                        VkImageLayout.ShaderReadOnlyOptimal, VkImageLayout.TransferSrcOptimal);
+
+                    VkBufferImageCopy region = new()
+                    {
+                        bufferOffset = 0,
+                        bufferRowLength = 0,
+                        bufferImageHeight = 0,
+                        imageSubresource = new VkImageSubresourceLayers(VkImageAspectFlags.Color, 0, 0, 1),
+                        imageOffset = new VkOffset3D(0, 0, 0),
+                        imageExtent = new VkExtent3D(width, height, 1)
+                    };
+                    api.vkCmdCopyImageToBuffer(cmd, _channelImages[channel],
+                        VkImageLayout.TransferSrcOptimal, scratch, 1, &region);
+
+                    TransitionImageLayout(cmd, _channelImages[channel],
+                        VkImageLayout.TransferSrcOptimal, VkImageLayout.ShaderReadOnlyOptimal);
+                });
+
+                void* mapped;
+                api.vkMapMemory(scratchMem, 0, byteSize, 0, &mapped);
+                new ReadOnlySpan<float>(mapped, count).CopyTo(destination);
+                api.vkUnmapMemory(scratchMem);
+            }
+            finally
+            {
+                api.vkFreeMemory(scratchMem);
+            }
+        }
+        finally
+        {
+            api.vkDestroyBuffer(scratch);
+        }
+    }
 
     /// <summary>
     /// Uploads a R32_SFLOAT 2D image into channel slot <paramref name="channel"/> (0-based).
@@ -479,6 +651,16 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
         RawBayer = 2,
     }
 
+    /// <summary>
+    /// Diagnostic: copies the entire stretch UBO contents into <paramref name="destination"/>.
+    /// The UBO is host-visible host-coherent, so this is just a host-to-host memcpy --
+    /// it reflects exactly what the GPU will read at draw time.
+    /// </summary>
+    public unsafe void ReadStretchUboBytes(Span<byte> destination)
+    {
+        new ReadOnlySpan<byte>(_stretchUboMapped, Math.Min(destination.Length, StretchUboSize)).CopyTo(destination);
+    }
+
     public void UpdateStretchUBO(
         VkCommandBuffer cmd,
         int channelCount, int stretchMode, float normFactor,
@@ -492,8 +674,16 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
         float imageW, float imageH, float crPix1, float crPix2,
         float crValRA, float crValDec,
         ReadOnlySpan<float> cdMatrix,
+        (float R, float G, float B) whiteBalance = default,
+        (float R, float G, float B) bgNeutralization = default,
+        int curvesMode = 0,
+        ReadOnlySpan<float> curveData = default,
         ImageSource imageSource = ImageSource.ProcessedChannels,
-        int bayerOffsetX = 0, int bayerOffsetY = 0)
+        int bayerOffsetX = 0, int bayerOffsetY = 0,
+        (float R, float G, float B) lumaWeights = default,
+        (float Shadow, float Midtones, float Rescale) lumaStretch = default,
+        float lumaBlend = 1f,
+        float normalizeScale = 1f)
     {
         var p = _stretchUboMapped;
 
@@ -504,7 +694,7 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
         WriteFloat(p, 16, curvesMidpoint);
         WriteFloat(p, 20, hdrAmount);
         WriteFloat(p, 24, hdrKnee);
-        WriteFloat(p, 28, 0f);                  // _pad0
+        WriteInt(p, 28, curvesMode);
 
         // pedestal (vec4 at offset 32)
         WriteFloat(p, 32, pedestal.R);
@@ -573,6 +763,50 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
         WriteFloat(p, 180, cd11);
         WriteFloat(p, 184, 0f);
         WriteFloat(p, 188, 0f);
+
+        // whiteBalance (vec4 at offset 192)
+        WriteFloat(p, 192, whiteBalance.R);
+        WriteFloat(p, 196, whiteBalance.G);
+        WriteFloat(p, 200, whiteBalance.B);
+        WriteFloat(p, 204, 0f);
+
+        // bgNeutralization (vec4 at offset 208)
+        WriteFloat(p, 208, bgNeutralization.R);
+        WriteFloat(p, 212, bgNeutralization.G);
+        WriteFloat(p, 216, bgNeutralization.B);
+        WriteFloat(p, 220, 0f);
+
+        // curveData[9] = 33 knots packed into 9 std140 vec4 slots. Trailing 3 floats stay
+        // zero (UBO is zero-initialized in CreateMappedBuffer) and are never read by the shader.
+        for (var i = 0; i < 33 && i < curveData.Length; i++)
+        {
+            WriteFloat(p, 224 + i * 4, curveData[i]);
+        }
+
+        // lumaWeights (vec4 at offset 368). Caller passes the (R,G,B) triple from
+        // StretchUniforms.LumaWeights; default = (0,0,0) flags the shader to use
+        // a tuple shipped by callers that haven't migrated yet -- treat as Rec.709.
+        var lwR = lumaWeights.R != 0f || lumaWeights.G != 0f || lumaWeights.B != 0f ? lumaWeights.R : 0.2126f;
+        var lwG = lumaWeights.R != 0f || lumaWeights.G != 0f || lumaWeights.B != 0f ? lumaWeights.G : 0.7152f;
+        var lwB = lumaWeights.R != 0f || lumaWeights.G != 0f || lumaWeights.B != 0f ? lumaWeights.B : 0.0722f;
+        WriteFloat(p, 368, lwR);
+        WriteFloat(p, 372, lwG);
+        WriteFloat(p, 376, lwB);
+        WriteFloat(p, 380, 0f);
+
+        // lumaStretch (vec4 at offset 384) -- scalar Luma MTF params (shadow, midtones, rescale).
+        // Producer leaves at zero when Mode is not Luma; the shader only reads these in the
+        // Luma branch so the zeros are inert outside it.
+        WriteFloat(p, 384, lumaStretch.Shadow);
+        WriteFloat(p, 388, lumaStretch.Midtones);
+        WriteFloat(p, 392, lumaStretch.Rescale);
+        WriteFloat(p, 396, 0f);
+
+        // stretchBlend (vec4 at offset 400) -- (lumaBlend, normalizeScale, pad, pad)
+        WriteFloat(p, 400, lumaBlend);
+        WriteFloat(p, 404, normalizeScale);
+        WriteFloat(p, 408, 0f);
+        WriteFloat(p, 412, 0f);
     }
 
     /// <summary>
@@ -820,14 +1054,32 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
 
     private void CreateSampler()
     {
+        // R32_SFLOAT is NOT mandatorily filterable per the Vulkan spec -- the
+        // `SAMPLED_IMAGE_FILTER_LINEAR_BIT` feature flag is optional for 32-bit float
+        // formats. Hardware desktop GPUs (NVIDIA/AMD/Intel) advertise it; Mesa lavapipe
+        // (software rasterizer, used in CI without a GPU) does not. Sampling with a
+        // linear filter on a format that doesn't support it is undefined behavior, and on
+        // lavapipe the sampler silently returns 0 -- which surfaces as a fully-black
+        // viewer instead of a stretched FITS image. Query and adapt at sampler creation
+        // time.
+        _ctx.InstanceApi.vkGetPhysicalDeviceFormatProperties(
+            _ctx.PhysicalDevice, VkFormat.R32Sfloat, out var floatProps);
+        var linearSupported = (floatProps.optimalTilingFeatures
+            & VkFormatFeatureFlags.SampledImageFilterLinear) != 0;
+        // Exposed via the public property below so tests can verify which branch was taken.
+        _r32SfloatOptimalTilingFeatures = floatProps.optimalTilingFeatures;
+        _r32SfloatLinearFilterSupported = linearSupported;
+        var minFilter = linearSupported ? VkFilter.Linear : VkFilter.Nearest;
+        var mipmapMode = linearSupported ? VkSamplerMipmapMode.Linear : VkSamplerMipmapMode.Nearest;
+
         VkSamplerCreateInfo samplerCI = new()
         {
             magFilter = VkFilter.Nearest,
-            minFilter = VkFilter.Linear,
+            minFilter = minFilter,
             addressModeU = VkSamplerAddressMode.ClampToEdge,
             addressModeV = VkSamplerAddressMode.ClampToEdge,
             addressModeW = VkSamplerAddressMode.ClampToEdge,
-            mipmapMode = VkSamplerMipmapMode.Linear,
+            mipmapMode = mipmapMode,
             maxLod = 1.0f
         };
         _ctx.DeviceApi.vkCreateSampler(&samplerCI, null, out _linearSampler).CheckResult();
@@ -930,7 +1182,14 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
             arrayLayers = 1,
             samples = VkSampleCountFlags.Count1,
             tiling = VkImageTiling.Optimal,
-            usage = VkImageUsageFlags.TransferDst | VkImageUsageFlags.Sampled,
+            // TransferDst -- needed for vkCmdCopyBufferToImage uploads.
+            // Sampled     -- needed for the fragment shader to read the channel.
+            // TransferSrc -- needed for ReadbackChannelFirstFloats (test diagnostic) AND for
+            //                lavapipe to honour the ShaderReadOnlyOptimal -> TransferSrcOptimal
+            //                barrier without leaving the image contents undefined. Without
+            //                it, validation flags VUID-VkImageMemoryBarrier-oldLayout-01212
+            //                and lavapipe returns 0 from subsequent shader samples.
+            usage = VkImageUsageFlags.TransferDst | VkImageUsageFlags.TransferSrc | VkImageUsageFlags.Sampled,
             sharingMode = VkSharingMode.Exclusive,
             initialLayout = VkImageLayout.Undefined
         };
@@ -1168,6 +1427,20 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
             srcStage = VkPipelineStageFlags.TopOfPipe;
             dstStage = VkPipelineStageFlags.FragmentShader;
         }
+        else if (oldLayout == VkImageLayout.ShaderReadOnlyOptimal && newLayout == VkImageLayout.TransferSrcOptimal)
+        {
+            barrier.srcAccessMask = VkAccessFlags.ShaderRead;
+            barrier.dstAccessMask = VkAccessFlags.TransferRead;
+            srcStage = VkPipelineStageFlags.FragmentShader;
+            dstStage = VkPipelineStageFlags.Transfer;
+        }
+        else if (oldLayout == VkImageLayout.TransferSrcOptimal && newLayout == VkImageLayout.ShaderReadOnlyOptimal)
+        {
+            barrier.srcAccessMask = VkAccessFlags.TransferRead;
+            barrier.dstAccessMask = VkAccessFlags.ShaderRead;
+            srcStage = VkPipelineStageFlags.Transfer;
+            dstStage = VkPipelineStageFlags.FragmentShader;
+        }
         else
         {
             throw new ArgumentException($"Unsupported layout transition: {oldLayout} -> {newLayout}");
@@ -1249,7 +1522,13 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
 
         VkPipelineMultisampleStateCreateInfo multisample = VkPipelineMultisampleStateCreateInfo.Default;
 
-        VkPipelineColorBlendAttachmentState blendAttachment = new()
+        // Use stackalloc with an explicit lifetime spanning vkCreateGraphicsPipeline. The
+        // Vortice.Vulkan single-attachment ctor `new VkPipelineColorBlendStateCreateInfo(blendAttachment)`
+        // stores pAttachments pointing at its own stack frame, which is reclaimed when the
+        // ctor returns -- the subsequent vkCreateGraphicsPipeline then reads garbage blend
+        // state. Same bug pattern as SdlVulkan.Renderer/VkPipelineSet.cs fixed in 3.4.471.
+        var blendAttachments = stackalloc VkPipelineColorBlendAttachmentState[1];
+        blendAttachments[0] = new VkPipelineColorBlendAttachmentState
         {
             colorWriteMask = VkColorComponentFlags.All,
             blendEnable = true,
@@ -1261,7 +1540,11 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
             alphaBlendOp = VkBlendOp.Add
         };
 
-        VkPipelineColorBlendStateCreateInfo colorBlend = new(blendAttachment);
+        VkPipelineColorBlendStateCreateInfo colorBlend = new()
+        {
+            attachmentCount = 1,
+            pAttachments = blendAttachments
+        };
 
         var dynamicStates = stackalloc VkDynamicState[2];
         dynamicStates[0] = VkDynamicState.Viewport;

@@ -226,6 +226,12 @@ public interface ICameraDriver : IDeviceDriver
 
     SensorType SensorType { get; }
 
+    /// <summary>
+    /// Sensor die model name, e.g. "IMX533" or "KAF-8300" (FITS: SENSOR).
+    /// Default returns null — drivers with known sensor mappings override this.
+    /// </summary>
+    string? SensorModelName => null;
+
     int BayerOffsetX { get; }
 
     int BayerOffsetY { get; }
@@ -328,7 +334,8 @@ public interface ICameraDriver : IDeviceDriver
                 TargetDec: Target?.Dec ?? double.NaN,
                 ElectronsPerADU: egain,
                 SWCreator: External.SWCreator,
-                Aperture: Aperture ?? -1
+                Aperture: Aperture ?? -1,
+                SensorModel: SensorModelName ?? ""
             )
         );
 

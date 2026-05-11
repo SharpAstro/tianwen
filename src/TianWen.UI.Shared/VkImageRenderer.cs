@@ -146,6 +146,10 @@ public sealed class VkImageRenderer : ImageRendererBase<VulkanContext>, IDisposa
             midtones: (stretch.Midtones.R, stretch.Midtones.G, stretch.Midtones.B),
             highlights: (stretch.Highlights.R, stretch.Highlights.G, stretch.Highlights.B),
             rescale: (stretch.Rescale.R, stretch.Rescale.G, stretch.Rescale.B),
+            whiteBalance: (stretch.WhiteBalance.R, stretch.WhiteBalance.G, stretch.WhiteBalance.B),
+            bgNeutralization: (stretch.BackgroundNeutralization.R, stretch.BackgroundNeutralization.G, stretch.BackgroundNeutralization.B),
+            curvesMode: state.CurvesMode,
+            curveData: state.CurveData.AsSpan(),
             gridEnabled: gridEnabled,
             gridSpacingRA: gridSpacingRA,
             gridSpacingDec: gridSpacingDec,
@@ -159,7 +163,11 @@ public sealed class VkImageRenderer : ImageRendererBase<VulkanContext>, IDisposa
             cdMatrix: cdMatrix,
             imageSource: (VkFitsImagePipeline.ImageSource)ImageSourceMode,
             bayerOffsetX: BayerOffsetX,
-            bayerOffsetY: BayerOffsetY);
+            bayerOffsetY: BayerOffsetY,
+            lumaWeights: (stretch.LumaWeights.R, stretch.LumaWeights.G, stretch.LumaWeights.B),
+            lumaStretch: (stretch.LumaStretch.Shadow, stretch.LumaStretch.Midtones, stretch.LumaStretch.Rescale),
+            lumaBlend: stretch.LumaBlend,
+            normalizeScale: stretch.NormalizeScale);
 
         _fitsPipeline.RecordImageDraw(
             cmd,

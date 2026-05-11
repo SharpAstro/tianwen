@@ -83,11 +83,18 @@ public partial class Image
         var focalLength = hdu.Header.GetIntValue("FOCALLEN", -1);
         var aperture = hdu.Header.GetIntValue("APTDIA", -1);
         var focusPos = hdu.Header.GetIntValue("FOCUSPOS", hdu.Header.GetIntValue("FOCPOS", -1));
+        // FILTER = full manufacturer name (NINA convention); FILTCLAS = coarse classification
         var filterName = hdu.Header.GetStringValue("FILTER");
+        var filterClassName = hdu.Header.GetStringValue("FILTCLAS");
+        var sensorModel = hdu.Header.GetStringValue("SENSOR") ?? "";
         var ccdTemp = hdu.Header.GetFloatValue("CCD-TEMP", float.NaN);
         var rowOrder = RowOrder.FromFITSValue(hdu.Header.GetStringValue("ROWORDER")) ?? RowOrder.TopDown;
         var frameType = FrameType.FromFITSValue(hdu.Header.GetStringValue("FRAMETYP") ?? hdu.Header.GetStringValue("IMAGETYP")) ?? FrameType.None;
-        var filter = Filter.FromName(filterName);
+        // Prefer FILTCLAS for coarse classification; fall back to parsing FILTER (backward compat)
+        var filter = Filter.FromName(filterClassName) is var f && f != Filter.Unknown
+            ? f : Filter.FromName(filterName);
+        // Carry the raw FILTER value in the Filter for SPCC curve matching
+        filter = filter with { RawName = filterName };
         var bzero = (float)hdu.BZero;
         var bscale = (float)hdu.BScale;
         var isCFA = hdu.Header.ContainsKey("CFAIMAGE") ? hdu.Header.GetBooleanValue("CFAIMAGE", false) : null as bool?;
@@ -206,7 +213,8 @@ public partial class Image
             SetCCDTemperature: setCCDTemp,
             ElectronsPerADU: egain,
             SWCreator: swCreator,
-            Aperture: aperture
+            Aperture: aperture,
+            SensorModel: sensorModel
         );
         image = new Image(imgChannels, bitDepth, maxValue, minValue, pedestal, imageMeta);
         wcs = WCS.FromHeader(hdu.Header);
@@ -342,10 +350,10 @@ public partial class Image
             AddHeaderValueIfHasValue("FOCUSPOS", imageMeta.FocusPos, "steps");
             AddHeaderValueIfHasValue("FOCPOS", imageMeta.FocusPos, "steps");
         }
-        if (imageMeta.Filter is { Name: { Length: > 0 } filterName })
-        {
-            AddHeaderValueIfHasValue("FILTER", filterName, "");
-        }
+        // FILTER = full manufacturer name (NINA convention), FILTCLAS = coarse classification
+        AddHeaderValueIfHasValue("FILTER", imageMeta.Filter.FilterNameForFits, "");
+        AddHeaderValueIfHasValue("FILTCLAS", imageMeta.Filter.Name, "");
+        AddHeaderValueIfHasValue("SENSOR", imageMeta.SensorModel, "");
         AddHeaderValueIfHasValue("CCD-TEMP", imageMeta.CCDTemperature, "Celsius");
         AddHeaderValueIfHasValue("SET-TEMP", imageMeta.SetCCDTemperature, "Celsius");
         if (imageMeta.Gain >= 0)

@@ -77,7 +77,20 @@ public sealed class ViewerController(
                 state.StatusMessage = null;
 
                 // Disable stretch for pre-stretched images, re-enable for linear images
-                state.StretchMode = newDoc.IsPreStretched ? StretchMode.None : StretchMode.Unlinked;
+                if (newDoc.IsPreStretched)
+                {
+                    state.StretchMode = StretchMode.None;
+                }
+                else if (state.StretchMode is StretchMode.Linked or StretchMode.Luma
+                    && newDoc.UnstretchedImage.ChannelCount < 3)
+                {
+                    // Switch from color to mono — Linked/Luma need 3+ channels
+                    state.StretchMode = StretchMode.Unlinked;
+                }
+                else if (state.StretchMode is StretchMode.None && !newDoc.IsPreStretched)
+                {
+                    state.StretchMode = StretchMode.Unlinked;
+                }
                 state.HistogramLogScale = state.StretchMode is StretchMode.None;
 
                 if (newDoc.Wcs is { } wcs)

@@ -6,9 +6,12 @@ using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using TianWen.Lib;
 using TianWen.Lib.Astrometry;
+using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Astrometry.PlateSolve;
 using TianWen.Lib.Imaging;
+using TianWen.Lib.Imaging.ColorCalibration;
 using TianWen.Lib.Stat;
 
 namespace TianWen.UI.Abstractions;
@@ -68,6 +71,12 @@ public sealed class AstroImageDocument
     /// <summary>Luminance background from the unstretched image (pedestal-subtracted).</summary>
     public float LumaBackground { get; private set; }
 
+    /// <summary>Per-channel stretch stats recomputed with star mask exclusion. Only available after star detection.</summary>
+    public ChannelStretchStats[]? StarMaskedStats { get; private set; }
+
+    /// <summary>Luminance stretch stats recomputed with star mask exclusion. Only available after star detection.</summary>
+    public ChannelStretchStats? StarMaskedLumaStats { get; private set; }
+
     /// <summary>Detected stars: <c>null</c> while detection is in progress, empty on failure/no stars, populated on success.</summary>
     public StarList? Stars { get; set; }
 
@@ -79,6 +88,18 @@ public sealed class AstroImageDocument
 
     /// <summary>Time taken for star detection.</summary>
     public TimeSpan StarDetectionDuration { get; private set; }
+
+    /// <summary>White balance multipliers from Tycho-2 color calibration. null until computed.</summary>
+    public (float R, float G, float B)? ColorCalibration { get; private set; }
+
+    /// <summary>Background neutralization gains from pivot1 sampling (1,1,1) = no neutralization.</summary>
+    public (float R, float G, float B)? BackgroundNeutralization { get; set; }
+
+    /// <summary>When true, the stretch factor is iteratively adjusted so the post-stretch median converges to <see cref="ConvergenceTarget"/>.</summary>
+    public bool UseIterativeConvergence { get; set; }
+
+    /// <summary>Target post-stretch median for iterative convergence (default 0.25, PixInsight STF convention).</summary>
+    public double ConvergenceTarget { get; set; } = 0.25;
 
     /// <summary>Whether the image appears to be already stretched (e.g. processed TIFF). When true, STF should be disabled by default.</summary>
     public bool IsPreStretched { get; }
@@ -301,44 +322,168 @@ public sealed class AstroImageDocument
     }
 
     /// <summary>
-    /// Computes stretch shader uniforms for the current stretch mode and parameters.
+    /// Resolves a <see cref="LumaWeighting"/> profile to the concrete (R,G,B) triple stored
+    /// in <see cref="StretchUniforms.LumaWeights"/>. For <see cref="LumaWeighting.SensorMatched"/>
+    /// queries <see cref="FilterCurveDatabase"/> for the sensor's broadband response;
+    /// falls back to Rec.709 if the database is not loaded or the sensor name cannot be matched.
     /// </summary>
-    public StretchUniforms ComputeStretchUniforms(StretchMode mode, StretchParameters parameters)
-        => ComputeStretchUniforms(mode, parameters, PerChannelStats, LumaStats, UnstretchedImage.MaxValue);
+    public (float R, float G, float B) ResolveLumaWeights(LumaWeighting weighting)
+    {
+        if (weighting is LumaWeighting.SensorMatched
+            && FilterCurveDatabase.TryComputeSensorLumaWeights(UnstretchedImage.ImageMeta, out var sensorW))
+        {
+            return sensorW;
+        }
+        return weighting.Weights;
+    }
+
+    /// <summary>
+    /// Computes stretch shader uniforms for the current stretch mode and parameters.
+    /// Optional knobs mirror the SetiAstro UX: luma weighting profile (Rec.709/601/2020/SensorMatched),
+    /// luma-vs-linked blend (only meaningful when <paramref name="mode"/> is
+    /// <see cref="StretchMode.Luma"/>), and post-stretch normalize.
+    /// </summary>
+    public StretchUniforms ComputeStretchUniforms(
+        StretchMode mode,
+        StretchParameters parameters,
+        LumaWeighting weighting = LumaWeighting.Rec709,
+        float lumaBlend = 1f,
+        bool normalize = false,
+        int curvesMode = 0,
+        System.ReadOnlySpan<float> curveLut = default,
+        float curvesBoost = 0f,
+        float curvesMidpoint = 0.25f,
+        float hdrAmount = 0f,
+        float hdrKnee = 0.8f)
+    {
+        var stats = PerChannelStats;
+        var luma = LumaStats;
+        var factor = parameters.Factor;
+        var clipping = parameters.ShadowsClipping;
+        var weights = ResolveLumaWeights(weighting);
+
+        if (UseIterativeConvergence && StarMaskedStats is { } masked)
+        {
+            // Star-masked stats have a lower median (stars excluded), so a fixed
+            // stretchFactor under-stretches. Convergence compensates by adjusting
+            // the factor to hit the target median regardless of which stats are used.
+            stats = masked;
+            luma = StarMaskedLumaStats ?? luma;
+
+            var convStats = luma ?? stats[0];
+            var hist = ChannelStatistics.Length > 0 ? ChannelStatistics[0] : null;
+            if (hist is not null)
+            {
+                // For luma convergence the WB scalar is the weighting-profile-weighted
+                // average; for channel-0 fallback it's wb.R. The per-channel rendering
+                // scales stats by the same factor inside ComputeStretchUniforms, so
+                // convergence and rendering operate in matched coordinate spaces.
+                var wbScalar = ColorCalibration is { } wb
+                    ? (luma is not null ? weights.R * wb.R + weights.G * wb.G + weights.B * wb.B : wb.R)
+                    : 1f;
+
+                (factor, _) = Image.ConvergeStretchFactor(
+                    hist, convStats.Pedestal, convStats.Median, convStats.Mad,
+                    factor, clipping, ConvergenceTarget, whiteBalance: wbScalar);
+            }
+        }
+
+        var uniforms = ComputeStretchUniforms(mode, new StretchParameters(factor, clipping), stats, luma, UnstretchedImage.MaxValue, ColorCalibration, weights);
+        if (BackgroundNeutralization is { } bn)
+        {
+            uniforms = uniforms with { BackgroundNeutralization = bn };
+        }
+        if (lumaBlend != 1f)
+        {
+            uniforms = uniforms with { LumaBlend = System.Math.Clamp(lumaBlend, 0f, 1f) };
+        }
+        if (normalize)
+        {
+            var scale = Image.PredictPostStretchMaxScale(
+                uniforms,
+                ChannelStatistics.AsSpan(),
+                curvesMode: curvesMode,
+                curveLut: curveLut,
+                curvesBoost: curvesBoost,
+                curvesMidpoint: curvesMidpoint,
+                hdrAmount: hdrAmount,
+                hdrKnee: hdrKnee);
+            uniforms = uniforms with { NormalizeScale = scale };
+        }
+        return uniforms;
+    }
 
     /// <summary>
     /// Computes stretch shader uniforms from stats directly — no <see cref="AstroImageDocument"/> needed.
+    /// When <paramref name="whiteBalance"/> is non-null, per-channel stats are scaled by the WB
+    /// multipliers before deriving shadows/midtones/rescale, so the shadow clip lands in the
+    /// same coordinate space as the post-WB norm in the GLSL stretch loop. Without this
+    /// adjustment, channels reduced by WB (e.g. B with wb=0.94) would have their post-WB norm
+    /// fall below the un-adjusted shadow and clamp to zero, tinting the bg toward the boosted
+    /// channels.
     /// </summary>
-    public static StretchUniforms ComputeStretchUniforms(StretchMode mode, StretchParameters parameters, ChannelStretchStats[] perChannelStats, ChannelStretchStats? lumaStats, float imageMaxValue)
+    public static StretchUniforms ComputeStretchUniforms(
+        StretchMode mode,
+        StretchParameters parameters,
+        ChannelStretchStats[] perChannelStats,
+        ChannelStretchStats? lumaStats,
+        float imageMaxValue,
+        (float R, float G, float B)? whiteBalance = null,
+        (float R, float G, float B)? lumaWeights = null)
     {
+        // Default luma weighting is Rec.709 — matches the previous hardcoded constants
+        // and keeps existing callers (no lumaWeights argument) on the same numerical path.
+        var weights = lumaWeights ?? (0.2126f, 0.7152f, 0.0722f);
+
         if (mode is StretchMode.None)
         {
-            return new StretchUniforms(StretchMode.None, 1f, default, default, default, default, default);
+            return new StretchUniforms(StretchMode.None, 1f, default, default, default, default, default)
+            { LumaWeights = weights };
         }
 
         var normFactor = imageMaxValue > 1.0f + float.Epsilon ? 1f / imageMaxValue : 1f;
         var factor = parameters.Factor;
         var clipping = parameters.ShadowsClipping;
+        var wb = whiteBalance ?? (1f, 1f, 1f);
 
         if (mode is StretchMode.Luma && lumaStats is { } luma)
         {
-            var (s, m, h, r) = Image.ComputeStretchParameters(luma.Median, luma.Mad, factor, clipping);
+            // Luma stretch uses the chosen luminance weighting over the WB-adjusted channels;
+            // scale luma median/mad by the weighted WB so the luma stretch aligns with the
+            // actual luminance values produced post-WB.
+            var lumaWb = weights.R * wb.R + weights.G * wb.G + weights.B * wb.B;
+            var (s, m, h, r) = Image.ComputeStretchParameters(luma.Median * lumaWb, luma.Mad * lumaWb, factor, clipping);
 
-            // Use per-channel pedestals for background subtraction (avoids green cast from RGGB)
-            // but luma-derived midtone/shadows/rescale for consistent stretch across channels
+            // Use per-channel pedestals for background subtraction (avoids green cast from RGGB);
+            // luma-derived midtone/shadows/rescale live in LumaStretch.
             var chStats = perChannelStats;
             var ped0 = chStats.Length > 0 ? chStats[0].Pedestal : luma.Pedestal;
             var ped1 = chStats.Length > 1 ? chStats[1].Pedestal : ped0;
             var ped2 = chStats.Length > 2 ? chStats[2].Pedestal : ped0;
 
+            // Always compute per-channel linked params alongside the luma scalar so that a
+            // LumaBlend < 1 caller has the linked branch ready in the shader without a UBO
+            // re-upload. Falls back to channel 0 if a stat slot is missing.
+            var lch0 = chStats.Length > 0 ? chStats[0] : new ChannelStretchStats(0f, luma.Median, luma.Mad);
+            var lch1 = chStats.Length > 1 ? chStats[1] : lch0;
+            var lch2 = chStats.Length > 2 ? chStats[2] : lch0;
+            var lp0 = Image.ComputeStretchParameters(lch0.Median * wb.R, lch0.Mad * wb.R, factor, clipping);
+            var lp1 = Image.ComputeStretchParameters(lch1.Median * wb.G, lch1.Mad * wb.G, factor, clipping);
+            var lp2 = Image.ComputeStretchParameters(lch2.Median * wb.B, lch2.Mad * wb.B, factor, clipping);
+
             return new StretchUniforms(
                 Mode: StretchMode.Luma,
                 NormFactor: normFactor,
                 Pedestal: (ped0, ped1, ped2),
-                Shadows: ((float)s, (float)s, (float)s),
-                Midtones: ((float)m, (float)m, (float)m),
-                Highlights: ((float)h, (float)h, (float)h),
-                Rescale: ((float)r, (float)r, (float)r));
+                Shadows: ((float)lp0.Shadows, (float)lp1.Shadows, (float)lp2.Shadows),
+                Midtones: ((float)lp0.Midtones, (float)lp1.Midtones, (float)lp2.Midtones),
+                Highlights: ((float)lp0.Highlights, (float)lp1.Highlights, (float)lp2.Highlights),
+                Rescale: ((float)lp0.Rescale, (float)lp1.Rescale, (float)lp2.Rescale))
+            {
+                WhiteBalance = wb,
+                LumaWeights = weights,
+                LumaStretch = ((float)s, (float)m, (float)r),
+            };
         }
 
         // Linked or unlinked
@@ -353,9 +498,12 @@ public sealed class AstroImageDocument
             ch2 = ch0;
         }
 
-        var p0 = Image.ComputeStretchParameters(ch0.Median, ch0.Mad, factor, clipping);
-        var p1 = Image.ComputeStretchParameters(ch1.Median, ch1.Mad, factor, clipping);
-        var p2 = Image.ComputeStretchParameters(ch2.Median, ch2.Mad, factor, clipping);
+        // WB scales each channel's value range linearly: post-WB_median = wb * pre-WB_median,
+        // post-WB_mad = wb * pre-WB_mad. Compute stretch params from those scaled stats so
+        // shadows/rescale/midtones are consistent with the post-WB norm the shader sees.
+        var p0 = Image.ComputeStretchParameters(ch0.Median * wb.R, ch0.Mad * wb.R, factor, clipping);
+        var p1 = Image.ComputeStretchParameters(ch1.Median * wb.G, ch1.Mad * wb.G, factor, clipping);
+        var p2 = Image.ComputeStretchParameters(ch2.Median * wb.B, ch2.Mad * wb.B, factor, clipping);
 
         return new StretchUniforms(
             Mode: mode,
@@ -364,7 +512,8 @@ public sealed class AstroImageDocument
             Shadows: ((float)p0.Shadows, (float)p1.Shadows, (float)p2.Shadows),
             Midtones: ((float)p0.Midtones, (float)p1.Midtones, (float)p2.Midtones),
             Highlights: ((float)p0.Highlights, (float)p1.Highlights, (float)p2.Highlights),
-            Rescale: ((float)p0.Rescale, (float)p1.Rescale, (float)p2.Rescale));
+            Rescale: ((float)p0.Rescale, (float)p1.Rescale, (float)p2.Rescale))
+        { WhiteBalance = wb, LumaWeights = weights };
     }
 
     /// <summary>
@@ -407,7 +556,157 @@ public sealed class AstroImageDocument
             var (perChannelBg, lumaBg) = UnstretchedImage.ScanBackgroundRegion(pedestals, squareSize: 48, stars.StarMask);
             PerChannelBackground = perChannelBg;
             LumaBackground = lumaBg;
+
+            // Recompute stretch stats with star mask exclusion
+            if (stars.StarMask is { } mask)
+            {
+                var imageChannelCount = UnstretchedImage.ChannelCount;
+                var maskedStats = new ChannelStretchStats[PerChannelStats.Length];
+                for (var c = 0; c < maskedStats.Length; c++)
+                {
+                    if (c < imageChannelCount)
+                    {
+                        var (p, m, madd) = UnstretchedImage.GetStarMaskedMedianAndMADScaledToUnit(c, mask);
+                        maskedStats[c] = new ChannelStretchStats(p, m, madd);
+                    }
+                    else
+                    {
+                        // Bayer images replicate channel 0 stats to all 3 RGB slots
+                        maskedStats[c] = maskedStats[0];
+                    }
+                }
+                StarMaskedStats = maskedStats;
+
+                if (LumaStats is not null)
+                {
+                    StarMaskedLumaStats = maskedStats[0];
+                }
+            }
         }
+    }
+
+    /// <summary>
+    /// Computes Tycho-2 photometric color calibration. Requires plate-solved WCS and detected stars.
+    /// Returns the number of matched stars (0 if calibration failed or wasn't attempted).
+    /// </summary>
+    public async Task<(int MatchCount, string? Diag)> ComputeColorCalibrationAsync(ICelestialObjectDB db, CancellationToken cancellationToken = default)
+    {
+        if (ColorCalibration.HasValue) return (0, null);
+        if (Stars is not { Count: >= 5 } starList) return (0, "Need ≥5 stars");
+        if (starList.StarMask is not { } mask) return (0, "No star mask");
+
+        var calibrateImage = UnstretchedImage;
+        if (calibrateImage.ChannelCount < 3 && calibrateImage.ImageMeta.SensorType is SensorType.RGGB)
+            calibrateImage = await calibrateImage.DebayerAsync(DebayerAlgorithm, cancellationToken: cancellationToken);
+
+        if (calibrateImage.ChannelCount < 3) return (0, "Need color image");
+
+        var wb = await Task.Run(() => ComputeSkyBackgroundWB(calibrateImage, mask), cancellationToken);
+
+        if (wb is not { } w)
+            return (0, "No valid bg samples");
+
+        ColorCalibration = (w.R, w.G, w.B);
+        var diag = $"skyBg R={w.R:F3} B={w.B:F3}";
+        return (1, diag);
+    }
+
+    /// <summary>
+    /// Computes background neutralization gains from the darkest spatial region.
+    /// Results flow through the GPU shader as <see cref="StretchUniforms.BackgroundNeutralization"/>.
+    /// </summary>
+    public (float R, float G, float B)? ComputeBackgroundNeutralization()
+    {
+        if (PerChannelBackground is not { Length: >= 3 } bg)
+            return null;
+
+        var gains = Lib.Imaging.BackgroundNeutralization.ComputeGains(bg);
+        if (Math.Abs(gains.R - 1f) < 0.001f && Math.Abs(gains.G - 1f) < 0.001f && Math.Abs(gains.B - 1f) < 0.001f)
+            return null; // effectively no neutralization needed
+
+        BackgroundNeutralization = gains;
+        return gains;
+    }
+
+    /// <summary>
+    /// Computes spectrophotometric color calibration via Pickles SEDs + system throughput.
+    /// Falls back to sky-background method if SPCC can't run (no plate solve, no filter data).
+    /// </summary>
+    public async Task<(int MatchCount, string? Diag)> ComputeSpccColorCalibrationAsync(
+        ICelestialObjectDB db, CancellationToken cancellationToken = default)
+    {
+        if (ColorCalibration.HasValue) return (0, null);
+        if (Stars is not { Count: >= 3 } starList) return (0, "Need ≥3 stars");
+        if (Wcs is not { HasCDMatrix: true } wcs) return (0, "Need plate-solved WCS");
+        if (!FilterCurveDatabase.IsLoaded) return (0, "Filter curve DB not loaded");
+
+        var calibrateImage = UnstretchedImage;
+        if (calibrateImage.ChannelCount < 3 && calibrateImage.ImageMeta.SensorType is SensorType.RGGB)
+            calibrateImage = await calibrateImage.DebayerAsync(DebayerAlgorithm, cancellationToken: cancellationToken);
+
+        if (calibrateImage.ChannelCount < 3) return (0, "Need color image");
+
+        var meta = calibrateImage.ImageMeta;
+        var channels = await Task.Run(() => FilterCurveDatabase.BuildChannelThroughputs(meta), cancellationToken);
+        if (channels is null)
+            return (0, $"No throughput for {meta.Instrument}/{meta.SensorModel}/{meta.Filter.FilterNameForFits}");
+        var (tsysR, tsysG, tsysB) = channels.Value;
+
+        var result = await Task.Run(() =>
+            Tycho2ColorCalibration.ComputeSpectrophotometricWhiteBalance(
+                calibrateImage, starList, wcs, db, tsysR, tsysG, tsysB, minStars: 3),
+            cancellationToken);
+
+        if (result is not { } r)
+            return (0, "Insufficient SPCC matches");
+
+        ColorCalibration = (r.R, r.G, r.B);
+        var diag = $"SPCC R={r.R:F3} B={r.B:F3} ({r.MatchCount} stars)";
+        return (r.MatchCount, diag);
+    }
+
+    /// <summary>
+    /// Samples the darkest 10% of non-star pixels to find the true sky background color.
+    /// Stars and nebulae are brighter and get excluded by the percentile threshold,
+    /// so only true sky background contributes to the color estimate.
+    /// </summary>
+    private static (float R, float G, float B)? ComputeSkyBackgroundWB(Image image, BitMatrix starMask)
+    {
+        var (_, width, height) = image.Shape;
+        var x0 = width / 20; var x1 = width - x0;   // skip 5% border
+        var y0 = height / 20; var y1 = height - y0;
+        var maxSamples = width * height / 16;
+        var sr = new float[maxSamples]; var sg = new float[maxSamples]; var sb = new float[maxSamples];
+        var yBuf = new float[maxSamples];
+        var n = 0;
+
+        for (var y = y0; y < y1 && n < maxSamples; y += 4)
+            for (var x = x0; x < x1 && n < maxSamples; x += 4)
+            {
+                if (starMask[y, x]) continue;
+                var r = image[0, y, x]; var g = image[1, y, x]; var b = image[2, y, x];
+                if (float.IsNaN(r) || float.IsNaN(g) || float.IsNaN(b)) continue;
+                yBuf[n] = 0.2126f * r + 0.7152f * g + 0.0722f * b;
+                sr[n] = r; sg[n] = g; sb[n] = b;
+                n++;
+            }
+
+        if (n < 100) return null;
+
+        // Sort by luminance to find darkest 10% pixel indices
+        var idx = new int[n]; for (var i = 0; i < n; i++) idx[i] = i;
+        Array.Sort(yBuf, idx, 0, n);
+        var k = Math.Max(n / 10, 10);
+
+        // Collect RGB values of darkest k pixels and median-filter
+        var darkR = new float[k]; var darkG = new float[k]; var darkB = new float[k];
+        for (var i = 0; i < k; i++) { darkR[i] = sr[idx[i]]; darkG[i] = sg[idx[i]]; darkB[i] = sb[idx[i]]; }
+        Array.Sort(darkR); Array.Sort(darkG); Array.Sort(darkB);
+
+        var medR = darkR[k / 2]; var medG = darkG[k / 2]; var medB = darkB[k / 2];
+        if (medG <= 1e-7f) return null;
+
+        return (Math.Clamp(medG / medR, 0.5f, 2f), 1f, Math.Clamp(medG / medB, 0.5f, 2f));
     }
 
     /// <summary>

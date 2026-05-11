@@ -257,8 +257,57 @@ The Vortice.ShaderCompiler GLSL-to-SPIR-V compiler does **not** handle non-ASCII
 in comments. Never use Unicode (em dashes, arrows, math symbols) inside GLSL raw string literals —
 ASCII only.
 
-`Image.StretchValue()` is the single source of truth for the stretch pipeline (normalize → subtract
+`Image.StretchValue()` is the single source of truth for the scalar stretch math (normalize → subtract
 pedestal → rescale → MTF). Don't reimplement it.
+
+### Stretch Pipeline: CPU/GPU Mirror
+
+The stretch pipeline runs in two parallel implementations that must produce visually equivalent
+output for the same `StretchUniforms`:
+- **GPU**: `VkFitsImagePipeline.glsl` `stretchChannel` (per-channel) + `StretchLumaPixelCpu` analogue
+  in shader (Luma) — used by the live FITS viewer.
+- **CPU**: `Image.StretchChannelCpu`, `Image.StretchLumaPixelCpu`, `Image.ApplyHdr`,
+  `Image.ApplyCurveLut`, `Image.ApplyBoost`, `Image.RenderStretchedRgba` — used by
+  `ConsoleImageRenderer` (TUI Sixel) and tests (`StretchTests_NewPipeline`). Never use the GPU.
+
+Pipeline order in both: pedestal subtract → bg neutralization → WB → shadow/rescale → MTF →
+luma blend → curves (LUT or boost) → HDR knee → normalize → clamp. Per-channel for
+Linked/Unlinked, luma-Y'/Y for Luma. In Luma mode the producer always populates BOTH
+`StretchUniforms.LumaStretch` (scalar Luma MTF params) AND per-channel `Shadows/Midtones/Rescale`
+(linked branch params) so the shader can blend between them via `LumaBlend`.
+
+`AstroImageDocument.ComputeStretchUniforms` is the single producer of `StretchUniforms` — it scales
+per-channel stats by WB before deriving shadows/midtones/rescale so the post-WB norm and shadow
+are in the same coordinate space. `ConvergeStretchFactor` takes a `whiteBalance` scalar and
+operates entirely in post-WB space (median, mad, binNorm all multiplied) so the converged
+stretchFactor matches the per-channel rendering.
+
+Luma weights live in `StretchUniforms.LumaWeights` (Rec.709 / Rec.601 / Rec.2020 / SensorMatched
+via the `LumaWeighting` enum, default Rec.709). The CPU `StretchLumaPixelCpu`, GLSL Luma branch,
+and `StretchUniforms.ComputePostStretchBackground` all read from the uniform — never hardcode
+Rec.709 constants. `LumaWeighting.SensorMatched` resolves via
+`AstroImageDocument.ResolveLumaWeights` -> `FilterCurveDatabase.TryComputeSensorLumaWeights`
+(integrates sensor QE × Sony CFA R/G/B over the visible, normalises to sum 1); silently falls
+back to Rec.709 when the sensor model isn't recognised.
+
+Post-stretch normalize: when caller passes `normalize: true` to `ComputeStretchUniforms`, the
+producer calls `Image.PredictPostStretchMaxScale` (walks each channel histogram's top non-zero
+bin through the full chain) and sets `StretchUniforms.NormalizeScale = 1/max`. CPU and GPU
+multiply by this scale after curves+HDR but before the final clamp — single-pass, no GPU
+reduction needed. Default 1.0 = no-op.
+
+When adding a new pipeline stage (e.g. saturation boost, denoise, etc.), wire it into BOTH the
+GLSL shader AND the CPU helpers. A stage that only exists in GLSL is a regression for tests + TUI.
+
+### Test Verification: Full Pipeline Inputs
+
+`StretchTests_NewPipeline.cs` is the end-to-end test for the stretch+colour pipeline. It exercises
+every input field the GPU shader cares about and writes TIFF + JPEG per case to the temp test
+output dir for visual regression. The companion `StretchTestBase.cs` adds per-channel float-value
+range + AutoLevel quantum-range assertions to all four legacy stretch test files.
+
+Pattern when extending tests: assert per-channel byte/float means stay inside `(epsilon, max-epsilon)`
+to catch the channel-collapse regressions we hit during the WB+shadow coordinate-space refactor.
 
 ### Signal Handler Pattern — Route, Don't Implement
 

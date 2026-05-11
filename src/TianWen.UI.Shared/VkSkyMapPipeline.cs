@@ -1952,11 +1952,16 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
             rasterizationSamples = _ctx.MsaaSamples
         };
 
-        VkPipelineColorBlendAttachmentState blendAttachment;
+        // stackalloc with explicit lifetime spanning vkCreateGraphicsPipeline. Same
+        // dangling-pAttachments fix pattern as SdlVulkan.Renderer/VkPipelineSet.cs 3.4.471
+        // and VkFitsImagePipeline above -- the Vortice.Vulkan single-attachment ctor stores
+        // pAttachments pointing at its own stack frame, which is reclaimed when the ctor
+        // returns and surfaces as black/zero fragment output on lavapipe x86_64.
+        var blendAttachments = stackalloc VkPipelineColorBlendAttachmentState[1];
         if (additive)
         {
             // Additive blending: stars add light (like real sky)
-            blendAttachment = new()
+            blendAttachments[0] = new VkPipelineColorBlendAttachmentState
             {
                 colorWriteMask = VkColorComponentFlags.All,
                 blendEnable = true,
@@ -1971,7 +1976,7 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
         else
         {
             // Standard alpha blending for lines
-            blendAttachment = new()
+            blendAttachments[0] = new VkPipelineColorBlendAttachmentState
             {
                 colorWriteMask = VkColorComponentFlags.All,
                 blendEnable = true,
@@ -1984,7 +1989,11 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
             };
         }
 
-        VkPipelineColorBlendStateCreateInfo colorBlend = new(blendAttachment);
+        VkPipelineColorBlendStateCreateInfo colorBlend = new()
+        {
+            attachmentCount = 1,
+            pAttachments = blendAttachments
+        };
 
         var dynamicStates = stackalloc VkDynamicState[2];
         dynamicStates[0] = VkDynamicState.Viewport;

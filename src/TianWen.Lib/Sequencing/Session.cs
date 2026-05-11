@@ -99,6 +99,10 @@ internal partial record Session(
     // Debayer writes directly into these. The viewer reads them for GPU upload.
     private Channel[]?[] _viewerChannels = [];
 
+    // SPCC caching — per-channel system throughput only recomputed on filter/camera change
+    private (FilterCurve R, FilterCurve G, FilterCurve B)? _cachedTsys;
+    private string? _cachedTsysKey; // composite key: sensorModel|filterName|sensorType
+
     public FrameMetrics[] LastFrameMetrics => _lastFrameMetrics;
     private FrameMetrics[] _lastFrameMetrics = [];
 

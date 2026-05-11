@@ -270,6 +270,8 @@ public sealed unsafe class VkMiniViewerWidget : IMiniViewerWidget, IDisposable
             midtones: (stretch.Midtones.R, stretch.Midtones.G, stretch.Midtones.B),
             highlights: (stretch.Highlights.R, stretch.Highlights.G, stretch.Highlights.B),
             rescale: (stretch.Rescale.R, stretch.Rescale.G, stretch.Rescale.B),
+            whiteBalance: (stretch.WhiteBalance.R, stretch.WhiteBalance.G, stretch.WhiteBalance.B),
+            bgNeutralization: (stretch.BackgroundNeutralization.R, stretch.BackgroundNeutralization.G, stretch.BackgroundNeutralization.B),
             gridEnabled: gridEnabled,
             gridSpacingRA: gridSpacingRA,
             gridSpacingDec: gridSpacingDec,
@@ -283,7 +285,11 @@ public sealed unsafe class VkMiniViewerWidget : IMiniViewerWidget, IDisposable
             cdMatrix: cdMatrix,
             imageSource: _imageSource,
             bayerOffsetX: _bayerOffsetX,
-            bayerOffsetY: _bayerOffsetY);
+            bayerOffsetY: _bayerOffsetY,
+            lumaWeights: (stretch.LumaWeights.R, stretch.LumaWeights.G, stretch.LumaWeights.B),
+            lumaStretch: (stretch.LumaStretch.Shadow, stretch.LumaStretch.Midtones, stretch.LumaStretch.Rescale),
+            lumaBlend: stretch.LumaBlend,
+            normalizeScale: stretch.NormalizeScale);
 
         // Set scissor to clip image to the viewport rect
         var api = _renderer.Surface.DeviceApi;

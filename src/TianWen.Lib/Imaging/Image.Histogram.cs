@@ -228,6 +228,78 @@ public partial class Image
     }
 
     /// <summary>
+    /// Like <see cref="GetPedestralMedianAndMADScaledToUnit"/> but excludes pixels masked by
+    /// <paramref name="starMask"/>. Subsamples with <paramref name="pixelStride"/> for speed;
+    /// fallback to full-pixel median/MAD when too few samples remain.
+    /// </summary>
+    public (float Pedestral, float Median, float MAD) GetStarMaskedMedianAndMADScaledToUnit(
+        int channel, BitMatrix starMask, int pixelStride = 4)
+    {
+        var (channelCount, width, height) = Shape;
+        if (channel >= channelCount)
+        {
+            throw new ArgumentOutOfRangeException(nameof(channel));
+        }
+
+        var pedestal = MinValue / MaxValue;
+        var maxSamples = ((width / pixelStride) + 1) * ((height / pixelStride) + 1);
+        var samples = new float[maxSamples];
+        var count = 0;
+        var channelData = data[channel];
+
+        for (var y = 0; y < height; y += pixelStride)
+        {
+            for (var x = 0; x < width; x += pixelStride)
+            {
+                var v = channelData[y, x];
+                if (float.IsNaN(v)) continue;
+                if (starMask[y, x]) continue;
+                if (v <= MinValue) continue;
+                samples[count++] = v;
+            }
+        }
+
+        if (count < 100)
+        {
+            return GetPedestralMedianAndMADScaledToUnit(channel);
+        }
+
+        Array.Sort(samples, 0, count);
+        var median = samples[count / 2];
+
+        // MAD: median of absolute deviations from median
+        var madSamples = new float[count];
+        for (var i = 0; i < count; i++)
+        {
+            madSamples[i] = MathF.Abs(samples[i] - median);
+        }
+        Array.Sort(madSamples);
+        var mad = madSamples[count / 2];
+
+        var invMax = 1f / MaxValue;
+        // Return median in pedestal-subtracted unit-scaled space, matching
+        // GetPedestralMedianAndMADScaledToUnit's convention. The stretch loop computes
+        // `norm = raw * normFactor - pedestal` and then `rescaled = (norm - shadows) * rescale`,
+        // so shadows (= median + ...) MUST be in pedestal-subtracted space too. Returning the
+        // raw median caused shadows to land at the actual sky-pixel value (~0.029), well above
+        // the post-pedestal norm (~0.001), which clamped every below-median pixel to 0.
+        var unitMedian = (median - MinValue) * invMax;
+        var unitMad = mad * invMax;
+        // Floor MAD at half a 16-bit bin width in unit-scaled space (~7.6e-6). The previous
+        // formula `invMax * 0.5f` collapsed to 0.5 after ScaleFloatValuesToUnitInPlace set
+        // MaxValue=1 -> half the dynamic range, which then drove convergence to a degenerate
+        // state with shadows at -2.19 and a flat mid-grey output. Using a fixed bin-width
+        // floor stays correct regardless of normalisation state.
+        const float MinUnitMad = 0.5f / 65535f;
+        if (unitMad < MinUnitMad)
+        {
+            unitMad = MinUnitMad;
+        }
+
+        return (pedestal, unitMedian, unitMad);
+    }
+
+    /// <summary>
     /// get background and star level from peek histogram
     /// </summary>
     /// <returns>background and star level</returns>

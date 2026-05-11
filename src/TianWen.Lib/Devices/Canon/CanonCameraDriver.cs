@@ -165,6 +165,7 @@ internal sealed class CanonCameraDriver : ICameraDriver
     private readonly IReadOnlyList<string> _gains = IsoTable.Select(i => i.Label).ToArray();
 
     // Sensor info (populated from SensorTable or first image decode)
+    private string? _sensorModel;
     private double _pixelSizeX = 6.55; // default: 6D
     private double _pixelSizeY = 6.55;
     private int _cameraXSize = 5472;
@@ -246,6 +247,7 @@ internal sealed class CanonCameraDriver : ICameraDriver
         {
             if (modelName.Contains(model, StringComparison.OrdinalIgnoreCase))
             {
+                _sensorModel = $"Canon_{model.Replace(" ", "")}";
                 _pixelSizeX = pixelSize;
                 _pixelSizeY = pixelSize;
                 _cameraXSize = width;
@@ -377,6 +379,7 @@ internal sealed class CanonCameraDriver : ICameraDriver
     public double ExposureResolution => 0.001; // 1ms
 
     // --- Sensor type ---
+    public string? SensorModelName => _sensorModel;
     public SensorType SensorType => SensorType.RGGB;
     public int BayerOffsetX => 0;
     public int BayerOffsetY => 0;
