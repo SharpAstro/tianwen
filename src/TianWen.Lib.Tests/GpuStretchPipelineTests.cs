@@ -168,6 +168,17 @@ public sealed class GpuStretchPipelineTests(ITestOutputHelper output)
         }
         foreach (var line in _formatDiagBag)
             output.WriteLine(line);
+        if (!_validationBag.IsEmpty)
+        {
+            output.WriteLine($"--- Vulkan validation ({_validationBag.Count} messages) ---");
+            foreach (var line in _validationBag)
+                output.WriteLine(line);
+            output.WriteLine("--- end validation ---");
+        }
+        else
+        {
+            output.WriteLine("Vulkan validation produced no messages (clean) OR layer not loaded.");
+        }
 
         // -------- Compare --------
 
@@ -281,14 +292,74 @@ public sealed class GpuStretchPipelineTests(ITestOutputHelper output)
     {
         vkInitialize().CheckResult();
 
-        VkInstanceCreateInfo ici = new();
-        vkCreateInstance(&ici, null, out var instance).CheckResult();
+        // Enable the KHRONOS validation layer + VK_EXT_debug_utils so the messenger callback
+        // below can capture any spec violations into _validationBag. The Vulkan loader
+        // silently skips unknown layers (if vulkan-validationlayers isn't installed locally,
+        // validation just won't run -- no error). The debug_utils extension is core-promoted
+        // in Vulkan 1.3 but still listed as an instance extension that has to be requested
+        // explicitly even on conformant drivers.
+        var layerNames = new[] { "VK_LAYER_KHRONOS_validation" };
+        var extensionNames = new[] { "VK_EXT_debug_utils" };
+        using var layers = new VkStringArray(layerNames);
+        using var exts = new VkStringArray(extensionNames);
+
+        VkInstanceCreateInfo ici = new()
+        {
+            enabledLayerCount = layers.Length,
+            ppEnabledLayerNames = layers,
+            enabledExtensionCount = exts.Length,
+            ppEnabledExtensionNames = exts,
+        };
+        var createInstanceResult = vkCreateInstance(&ici, null, out var instance);
+        var validationActive = createInstanceResult == VkResult.Success;
+        if (!validationActive)
+        {
+            // The validation layer or debug_utils extension wasn't available -- fall back to
+            // the default instance creation. Keeps the test functional in environments without
+            // the validation layer SDK installed (local dev without VulkanSDK, etc.).
+            _validationBag.Add($"Falling back to default instance: {createInstanceResult} when requesting layer+debug_utils");
+            VkInstanceCreateInfo defaultCI = new();
+            vkCreateInstance(&defaultCI, null, out instance).CheckResult();
+        }
 
         // VulkanContext.Dispose() walks down the device + tears the instance down via
         // InstanceApi.vkDestroyInstance, so the using block on `ctx` covers the instance too.
         using var ctx = VulkanContext.CreateOffscreen(instance, Width, Height);
         using var renderer = new VkRenderer(ctx, Width, Height);
         using var pipeline = new VkFitsImagePipeline(ctx);
+
+        // Register the messenger AFTER ctx is built so we get an instance-bound VkInstanceApi
+        // (the debug-utils messenger functions are extension methods on that wrapper).
+        // Messages produced during ctx / renderer / pipeline construction are not captured,
+        // but anything from device-level operations + the actual frame draw is.
+        if (validationActive)
+        {
+            VkDebugUtilsMessengerCreateInfoEXT messengerCI = new()
+            {
+                messageSeverity = VkDebugUtilsMessageSeverityFlagsEXT.Verbose
+                    | VkDebugUtilsMessageSeverityFlagsEXT.Info
+                    | VkDebugUtilsMessageSeverityFlagsEXT.Warning
+                    | VkDebugUtilsMessageSeverityFlagsEXT.Error,
+                messageType = VkDebugUtilsMessageTypeFlagsEXT.General
+                    | VkDebugUtilsMessageTypeFlagsEXT.Validation
+                    | VkDebugUtilsMessageTypeFlagsEXT.Performance,
+                pfnUserCallback = &DebugCallback,
+            };
+            _activeValidationBag = _validationBag;
+            var createMsgResult = ctx.InstanceApi.vkCreateDebugUtilsMessengerEXT(&messengerCI, null, out _debugMessenger);
+            if (createMsgResult != VkResult.Success)
+            {
+                _validationBag.Add($"vkCreateDebugUtilsMessengerEXT failed: {createMsgResult}");
+                _debugMessenger = VkDebugUtilsMessengerEXT.Null;
+            }
+            else
+            {
+                _debugMessengerCtx = ctx;
+            }
+        }
+
+        try
+        {
 
         // Detect Mesa lavapipe so the test can decide whether to enforce the parity assertion.
         // lavapipe currently produces a fully-black render through this pipeline (see the long
@@ -384,7 +455,48 @@ public sealed class GpuStretchPipelineTests(ITestOutputHelper output)
         _formatDiagBag.Add($"UBO @draw: whiteBalance=({wbR:G6},{wbG:G6},{wbB:G6})");
 
         return ctx.ReadbackOffscreenRgba();
+        }
+        finally
+        {
+            // Tear the messenger down BEFORE the outer `using var ctx` runs, since ctx.Dispose
+            // calls vkDestroyInstance and the messenger must outlive only its instance.
+            if (_debugMessenger != VkDebugUtilsMessengerEXT.Null && _debugMessengerCtx is not null)
+            {
+                _debugMessengerCtx.InstanceApi.vkDestroyDebugUtilsMessengerEXT(_debugMessenger, null);
+                _debugMessenger = VkDebugUtilsMessengerEXT.Null;
+                _debugMessengerCtx = null;
+            }
+            _activeValidationBag = null;
+        }
     }
+
+    /// <summary>
+    /// Static delegate target for <c>VkDebugUtilsMessengerCreateInfoEXT.pfnUserCallback</c>.
+    /// Routes every validation message into <see cref="_activeValidationBag"/>, which the
+    /// outer test method later flushes into <see cref="_formatDiagBag"/> so the messages
+    /// appear in the test output. Tests in the <c>Imaging</c> collection run sequentially so
+    /// the single static bag is safe.
+    /// </summary>
+    [System.Runtime.InteropServices.UnmanagedCallersOnly]
+    private static unsafe uint DebugCallback(
+        VkDebugUtilsMessageSeverityFlagsEXT severity,
+        VkDebugUtilsMessageTypeFlagsEXT type,
+        VkDebugUtilsMessengerCallbackDataEXT* pData,
+        void* pUserData)
+    {
+        var bag = _activeValidationBag;
+        if (bag is null) return 0;
+
+        var msgSpan = System.Runtime.InteropServices.MemoryMarshal.CreateReadOnlySpanFromNullTerminated((byte*)pData->pMessage);
+        var msg = System.Text.Encoding.UTF8.GetString(msgSpan);
+        bag.Add($"[VL {severity}/{type}] {msg}");
+        return 0; // VK_FALSE -- never abort the call that triggered the message
+    }
+
+    private static System.Collections.Concurrent.ConcurrentBag<string>? _activeValidationBag;
+    private readonly System.Collections.Concurrent.ConcurrentBag<string> _validationBag = [];
+    private VkDebugUtilsMessengerEXT _debugMessenger;
+    private VulkanContext? _debugMessengerCtx;
 
     private static bool IsVulkanInitFailure(Exception ex)
     {

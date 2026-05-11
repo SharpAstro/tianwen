@@ -97,8 +97,8 @@ jobs:
     # controls the apt cache key.
     - uses: SharpAstro/cache-apt-pkgs-action@v1
       with:
-        packages: ghostscript fonts-urw-base35 fontconfig mesa-vulkan-drivers libvulkan1 vulkan-tools
-        version: 1.1
+        packages: ghostscript fonts-urw-base35 fontconfig mesa-vulkan-drivers libvulkan1 vulkan-tools vulkan-validationlayers
+        version: 1.3
     - name: Rebuild fontconfig cache
       run: fc-cache -f
     # Sanity-check that the Vulkan loader can enumerate at least one ICD before
