@@ -1112,7 +1112,14 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
             arrayLayers = 1,
             samples = VkSampleCountFlags.Count1,
             tiling = VkImageTiling.Optimal,
-            usage = VkImageUsageFlags.TransferDst | VkImageUsageFlags.Sampled,
+            // TransferDst -- needed for vkCmdCopyBufferToImage uploads.
+            // Sampled     -- needed for the fragment shader to read the channel.
+            // TransferSrc -- needed for ReadbackChannelFirstFloats (test diagnostic) AND for
+            //                lavapipe to honour the ShaderReadOnlyOptimal -> TransferSrcOptimal
+            //                barrier without leaving the image contents undefined. Without
+            //                it, validation flags VUID-VkImageMemoryBarrier-oldLayout-01212
+            //                and lavapipe returns 0 from subsequent shader samples.
+            usage = VkImageUsageFlags.TransferDst | VkImageUsageFlags.TransferSrc | VkImageUsageFlags.Sampled,
             sharingMode = VkSharingMode.Exclusive,
             initialLayout = VkImageLayout.Undefined
         };
