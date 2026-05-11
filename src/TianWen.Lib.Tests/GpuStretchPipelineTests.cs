@@ -30,7 +30,7 @@ namespace TianWen.Lib.Tests;
 /// and reports as Skipped rather than Failed, so CI without GPU drivers stays green.
 /// </summary>
 [Collection("Imaging")]
-public sealed class GpuStretchPipelineTests(ITestOutputHelper output)
+public sealed class GpuStretchPipelineTests : IClassFixture<OffscreenGpuFixture>
 {
     private const int Width = 1280;
     private const int Height = 1024;
@@ -44,9 +44,18 @@ public sealed class GpuStretchPipelineTests(ITestOutputHelper output)
     private static ICelestialObjectDB? _cachedDb;
     private static readonly SemaphoreSlim _dbSem = new(1, 1);
 
+    private readonly OffscreenGpuFixture _gpu;
+    private readonly ITestOutputHelper output;
+
     // Lines collected from inside the offscreen-GPU helper that we want to surface via
-    // ITestOutputHelper after the helper returns.
+    // ITestOutputHelper after the helper returns. Cleared per [Fact] / [Theory] case.
     private readonly System.Collections.Concurrent.ConcurrentBag<string> _formatDiagBag = [];
+
+    public GpuStretchPipelineTests(OffscreenGpuFixture gpu, ITestOutputHelper output)
+    {
+        _gpu = gpu;
+        this.output = output;
+    }
 
     private static async Task<ICelestialObjectDB> InitDbAsync(CancellationToken ct)
     {
@@ -69,6 +78,13 @@ public sealed class GpuStretchPipelineTests(ITestOutputHelper output)
     [Fact]
     public async Task GivenSyntheticSpccField_GpuRenderMatchesCpuRender()
     {
+        if (!_gpu.VulkanAvailable)
+        {
+            output.WriteLine($"Vulkan unavailable: {_gpu.UnavailableReason}");
+            Assert.Skip($"Vulkan runtime not available on this host ({_gpu.UnavailableReason})");
+            return;
+        }
+
         var ct = TestContext.Current.CancellationToken;
 
         // -------- Build the same synthetic field + uniforms as StretchTests_NewPipeline --------
@@ -156,30 +172,9 @@ public sealed class GpuStretchPipelineTests(ITestOutputHelper output)
 
         // -------- GPU render --------
 
-        byte[] gpuRgba;
-        try
-        {
-            gpuRgba = await Task.Run(() => RenderViaOffscreenGpu(debayered, uniforms, Width, Height, default, 0f), ct);
-        }
-        catch (Exception ex) when (IsVulkanInitFailure(ex))
-        {
-            output.WriteLine($"Vulkan unavailable, skipping GPU comparison: {ex.GetType().Name}: {ex.Message}");
-            Assert.Skip($"Vulkan runtime not available on this host ({ex.Message})");
-            return;
-        }
+        var gpuRgba = await Task.Run(() => RenderViaOffscreenGpu(debayered, uniforms, Width, Height, default, 0f), ct);
         foreach (var line in _formatDiagBag)
             output.WriteLine(line);
-        if (!_validationBag.IsEmpty)
-        {
-            output.WriteLine($"--- Vulkan validation ({_validationBag.Count} messages) ---");
-            foreach (var line in _validationBag)
-                output.WriteLine(line);
-            output.WriteLine("--- end validation ---");
-        }
-        else
-        {
-            output.WriteLine("Vulkan validation produced no messages (clean) OR layer not loaded.");
-        }
 
         // -------- Compare --------
 
@@ -291,6 +286,13 @@ public sealed class GpuStretchPipelineTests(ITestOutputHelper output)
         string mode, bool applyWb, bool applyBgNeut, bool useConvergence,
         int curvesMode, float hdrAmount, string label)
     {
+        if (!_gpu.VulkanAvailable)
+        {
+            output.WriteLine($"Vulkan unavailable: {_gpu.UnavailableReason}");
+            Assert.Skip($"Vulkan runtime not available on this host ({_gpu.UnavailableReason})");
+            return;
+        }
+
         var ct = TestContext.Current.CancellationToken;
         var fitsImage = await SharedTestData.ExtractGZippedFitsImageAsync(VelaFixture, cancellationToken: ct);
         var doc = await AstroImageDocument.CreateFromImageAsync(fitsImage, DebayerAlgorithm.None, cancellationToken: ct);
@@ -358,25 +360,9 @@ public sealed class GpuStretchPipelineTests(ITestOutputHelper output)
         output.WriteLine($"[{label}] CPU RenderStretchedRgba ({w}x{h}): {cpuSw.Elapsed.TotalMilliseconds:F0}ms");
 
         // -------- GPU render --------
-        byte[] gpuRgba;
-        try
-        {
-            gpuRgba = await Task.Run(() => RenderViaOffscreenGpu(img, uniforms, w, h, curveKnots, hdrAmount), ct);
-        }
-        catch (Exception ex) when (IsVulkanInitFailure(ex))
-        {
-            output.WriteLine($"Vulkan unavailable, skipping GPU comparison: {ex.GetType().Name}: {ex.Message}");
-            Assert.Skip($"Vulkan runtime not available on this host ({ex.Message})");
-            return;
-        }
+        var gpuRgba = await Task.Run(() => RenderViaOffscreenGpu(img, uniforms, w, h, curveKnots, hdrAmount), ct);
         foreach (var line in _formatDiagBag)
             output.WriteLine(line);
-        if (!_validationBag.IsEmpty)
-        {
-            output.WriteLine($"--- Vulkan validation ({_validationBag.Count} messages) ---");
-            foreach (var line in _validationBag)
-                output.WriteLine(line);
-        }
 
         // -------- Save TIFFs per case for visual inspection / diffing --------
         var testDir = SharedTestData.CreateTempTestOutputDir(nameof(GpuStretchPipelineTests));
@@ -448,76 +434,9 @@ public sealed class GpuStretchPipelineTests(ITestOutputHelper output)
         ImmutableArray<float> curveLut,
         float hdrAmount)
     {
-        vkInitialize().CheckResult();
-
-        // Enable the KHRONOS validation layer + VK_EXT_debug_utils so the messenger callback
-        // below can capture any spec violations into _validationBag. The Vulkan loader
-        // silently skips unknown layers (if vulkan-validationlayers isn't installed locally,
-        // validation just won't run -- no error). The debug_utils extension is core-promoted
-        // in Vulkan 1.3 but still listed as an instance extension that has to be requested
-        // explicitly even on conformant drivers.
-        var layerNames = new[] { "VK_LAYER_KHRONOS_validation" };
-        var extensionNames = new[] { "VK_EXT_debug_utils" };
-        using var layers = new VkStringArray(layerNames);
-        using var exts = new VkStringArray(extensionNames);
-
-        VkInstanceCreateInfo ici = new()
-        {
-            enabledLayerCount = layers.Length,
-            ppEnabledLayerNames = layers,
-            enabledExtensionCount = exts.Length,
-            ppEnabledExtensionNames = exts,
-        };
-        var createInstanceResult = vkCreateInstance(&ici, null, out var instance);
-        var validationActive = createInstanceResult == VkResult.Success;
-        if (!validationActive)
-        {
-            // The validation layer or debug_utils extension wasn't available -- fall back to
-            // the default instance creation. Keeps the test functional in environments without
-            // the validation layer SDK installed (local dev without VulkanSDK, etc.).
-            _validationBag.Add($"Falling back to default instance: {createInstanceResult} when requesting layer+debug_utils");
-            VkInstanceCreateInfo defaultCI = new();
-            vkCreateInstance(&defaultCI, null, out instance).CheckResult();
-        }
-
-        // VulkanContext.Dispose() walks down the device + tears the instance down via
-        // InstanceApi.vkDestroyInstance, so the using block on `ctx` covers the instance too.
-        using var ctx = VulkanContext.CreateOffscreen(instance, (uint)width, (uint)height);
-        using var renderer = new VkRenderer(ctx, (uint)width, (uint)height);
-        using var pipeline = new VkFitsImagePipeline(ctx);
-
-        // Register the messenger AFTER ctx is built so we get an instance-bound VkInstanceApi
-        // (the debug-utils messenger functions are extension methods on that wrapper).
-        // Messages produced during ctx / renderer / pipeline construction are not captured,
-        // but anything from device-level operations + the actual frame draw is.
-        if (validationActive)
-        {
-            VkDebugUtilsMessengerCreateInfoEXT messengerCI = new()
-            {
-                messageSeverity = VkDebugUtilsMessageSeverityFlagsEXT.Verbose
-                    | VkDebugUtilsMessageSeverityFlagsEXT.Info
-                    | VkDebugUtilsMessageSeverityFlagsEXT.Warning
-                    | VkDebugUtilsMessageSeverityFlagsEXT.Error,
-                messageType = VkDebugUtilsMessageTypeFlagsEXT.General
-                    | VkDebugUtilsMessageTypeFlagsEXT.Validation
-                    | VkDebugUtilsMessageTypeFlagsEXT.Performance,
-                pfnUserCallback = &DebugCallback,
-            };
-            _activeValidationBag = _validationBag;
-            var createMsgResult = ctx.InstanceApi.vkCreateDebugUtilsMessengerEXT(&messengerCI, null, out _debugMessenger);
-            if (createMsgResult != VkResult.Success)
-            {
-                _validationBag.Add($"vkCreateDebugUtilsMessengerEXT failed: {createMsgResult}");
-                _debugMessenger = VkDebugUtilsMessengerEXT.Null;
-            }
-            else
-            {
-                _debugMessengerCtx = ctx;
-            }
-        }
-
-        try
-        {
+        var ctx = _gpu.Ctx!;
+        var renderer = _gpu.Renderer!;
+        var pipeline = _gpu.Pipeline!;
 
         ctx.InstanceApi.vkGetPhysicalDeviceProperties(ctx.PhysicalDevice, out var props);
         var deviceName = System.Text.Encoding.UTF8.GetString(
@@ -531,6 +450,8 @@ public sealed class GpuStretchPipelineTests(ITestOutputHelper output)
         _formatDiagBag.Add($"R32_SFLOAT optimalTilingFeatures = {pipeline.R32SfloatOptimalTilingFeatures}");
         _formatDiagBag.Add($"R32_SFLOAT linear filter supported: {pipeline.R32SfloatLinearFilterSupported}");
 
+        // Channel textures resize automatically per upload (UploadChannelTexture destroys + recreates
+        // when dimensions change), so the shared pipeline correctly handles any per-test image size.
         pipeline.UploadChannelTexture(debayered.GetChannelSpan(0), 0, debayered.Width, debayered.Height);
         pipeline.UploadChannelTexture(debayered.GetChannelSpan(1), 1, debayered.Width, debayered.Height);
         pipeline.UploadChannelTexture(debayered.GetChannelSpan(2), 2, debayered.Width, debayered.Height);
@@ -545,10 +466,14 @@ public sealed class GpuStretchPipelineTests(ITestOutputHelper output)
             pipeline.ReadbackChannelFirstFloats(ch, probe);
             var srcSpan = debayered.GetChannelSpan(ch);
             var srcFirst = srcSpan.Length > 0 ? srcSpan[0] : 0f;
-            var srcMid = srcSpan.Length > 1280 * 512 + 640 ? srcSpan[1280 * 512 + 640] : 0f;
+            var midIdx = debayered.Width * (debayered.Height / 2) + debayered.Width / 2;
+            var srcMid = srcSpan.Length > midIdx ? srcSpan[midIdx] : 0f;
             _formatDiagBag.Add($"channel {ch}: src first/mid = {srcFirst:G6} / {srcMid:G6}, readback first 4 = [{probe[0]:G6}, {probe[1]:G6}, {probe[2]:G6}, {probe[3]:G6}]");
         }
 
+        // BeginOffscreenFrame clears the entire fixture-sized framebuffer to black. For tests
+        // smaller than OffscreenGpuFixture.Width/Height, only the (0,0,width,height) sub-rect
+        // is drawn into; the rest stays at clear color and is sliced off in the readback.
         renderer.BeginOffscreenFrame(new RGBAColor32(0, 0, 0, 255)).ShouldBeTrue();
         var cmd = renderer.CurrentCommandBuffer;
 
@@ -577,7 +502,13 @@ public sealed class GpuStretchPipelineTests(ITestOutputHelper output)
             curveData: curveLut.IsDefault ? ReadOnlySpan<float>.Empty : curveLut.AsSpan(),
             imageSource: VkFitsImagePipeline.ImageSource.ProcessedChannels);
 
-        pipeline.RecordImageDraw(cmd, ctx, 0, 0, width, height, width, height);
+        // RecordImageDraw's last two args are the orthographic projection's viewport size, not
+        // the draw-rect size -- they have to match the actual framebuffer the GPU is rendering
+        // into, otherwise the quad gets stretched. The first two args are the source rect's
+        // top-left, and (right, bottom) define the destination quad in pixel space. So:
+        //   - (0, 0, width, height) places the rendered image at top-left (width x height pixels)
+        //   - (OffscreenGpuFixture.Width, OffscreenGpuFixture.Height) is the viewport NDC basis.
+        pipeline.RecordImageDraw(cmd, ctx, 0, 0, width, height, OffscreenGpuFixture.Width, OffscreenGpuFixture.Height);
         renderer.EndOffscreenFrame();
 
         // Capture key UBO fields *after* UpdateStretchUBO ran. The UBO is host-coherent so
@@ -601,61 +532,25 @@ public sealed class GpuStretchPipelineTests(ITestOutputHelper output)
         _formatDiagBag.Add($"UBO @draw: pedestal=({pedR:G6},{pedG:G6},{pedB:G6}) shadows.r={shR:G6} mid.r={midR:G6} rescale.r={resR:G6}");
         _formatDiagBag.Add($"UBO @draw: whiteBalance=({wbR:G6},{wbG:G6},{wbB:G6})");
 
-        return ctx.ReadbackOffscreenRgba();
-        }
-        finally
-        {
-            // Tear the messenger down BEFORE the outer `using var ctx` runs, since ctx.Dispose
-            // calls vkDestroyInstance and the messenger must outlive only its instance.
-            if (_debugMessenger != VkDebugUtilsMessengerEXT.Null && _debugMessengerCtx is not null)
-            {
-                _debugMessengerCtx.InstanceApi.vkDestroyDebugUtilsMessengerEXT(_debugMessenger, null);
-                _debugMessenger = VkDebugUtilsMessengerEXT.Null;
-                _debugMessengerCtx = null;
-            }
-            _activeValidationBag = null;
-        }
+        var fullRgba = ctx.ReadbackOffscreenRgba();
+        return ExtractSubRect(fullRgba, OffscreenGpuFixture.Width, width, height);
     }
 
     /// <summary>
-    /// Static delegate target for <c>VkDebugUtilsMessengerCreateInfoEXT.pfnUserCallback</c>.
-    /// Routes every validation message into <see cref="_activeValidationBag"/>, which the
-    /// outer test method later flushes into <see cref="_formatDiagBag"/> so the messages
-    /// appear in the test output. Tests in the <c>Imaging</c> collection run sequentially so
-    /// the single static bag is safe.
+    /// The fixture's framebuffer is sized to the largest test image (<see cref="OffscreenGpuFixture.Width"/>
+    /// x <see cref="OffscreenGpuFixture.Height"/>). For tests with smaller images the readback
+    /// returns the full framebuffer; this helper slices the meaningful top-left
+    /// <paramref name="dstWidth"/> x <paramref name="dstHeight"/> sub-rectangle out of it.
+    /// Returns the input unchanged when no slicing is needed.
     /// </summary>
-    [System.Runtime.InteropServices.UnmanagedCallersOnly]
-    private static unsafe uint DebugCallback(
-        VkDebugUtilsMessageSeverityFlagsEXT severity,
-        VkDebugUtilsMessageTypeFlagsEXT type,
-        VkDebugUtilsMessengerCallbackDataEXT* pData,
-        void* pUserData)
+    private static byte[] ExtractSubRect(byte[] fullRgba, int srcStrideWidth, int dstWidth, int dstHeight)
     {
-        var bag = _activeValidationBag;
-        if (bag is null) return 0;
-
-        var msgSpan = System.Runtime.InteropServices.MemoryMarshal.CreateReadOnlySpanFromNullTerminated((byte*)pData->pMessage);
-        var msg = System.Text.Encoding.UTF8.GetString(msgSpan);
-        bag.Add($"[VL {severity}/{type}] {msg}");
-        return 0; // VK_FALSE -- never abort the call that triggered the message
-    }
-
-    private static System.Collections.Concurrent.ConcurrentBag<string>? _activeValidationBag;
-    private readonly System.Collections.Concurrent.ConcurrentBag<string> _validationBag = [];
-    private VkDebugUtilsMessengerEXT _debugMessenger;
-    private VulkanContext? _debugMessengerCtx;
-
-    private static bool IsVulkanInitFailure(Exception ex)
-    {
-        // Vortice.Vulkan throws DllNotFoundException when libvulkan can't be loaded; CheckResult
-        // wraps Vk* errors as Exception with the VkResult name. Either way we want to skip.
-        return ex is DllNotFoundException
-            || ex is TypeInitializationException
-            || ex.Message.Contains("vkCreateInstance", StringComparison.OrdinalIgnoreCase)
-            || ex.Message.Contains("vkInitialize", StringComparison.OrdinalIgnoreCase)
-            || ex.Message.Contains("Vulkan", StringComparison.OrdinalIgnoreCase)
-            || ex.Message.Contains("VK_ERROR", StringComparison.Ordinal)
-            || ex.Message.Contains("ICD", StringComparison.Ordinal);
+        if (dstWidth == srcStrideWidth && fullRgba.Length == dstWidth * dstHeight * 4)
+            return fullRgba;
+        var result = new byte[dstWidth * dstHeight * 4];
+        for (var y = 0; y < dstHeight; y++)
+            Buffer.BlockCopy(fullRgba, y * srcStrideWidth * 4, result, y * dstWidth * 4, dstWidth * 4);
+        return result;
     }
 
     private static string Triple((float R, float G, float B) v) => $"({v.R:F4},{v.G:F4},{v.B:F4})";
