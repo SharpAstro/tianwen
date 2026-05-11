@@ -296,7 +296,46 @@ Learnings from PixInsight Statistical Stretch (SetiAstro, v2.3).
   - First validation run on lavapipe surfaced 9 errors (VUID-VkImageMemoryBarrier-oldLayout-01212 + VUID-vkCmdCopyImageToBuffer-srcImage-00186) from the diagnostic `ReadbackChannelFirstFloats` helper -- the channel images were missing `VK_IMAGE_USAGE_TRANSFER_SRC_BIT`. **Fixed** in `VkFitsImagePipeline.CreateChannelTexture`.
   - **After the fix: validation layer is CLEAN on the actual draw path, but lavapipe STILL produces (0,0,0,255) everywhere.** So the spec violation we caught was real but unrelated to the rendering bug.
 
-  **Plans not yet tried**: (2) reproduce locally on WSL2 + RenderDoc to inspect rasterizer state stage-by-stage; (3) build a minimal standalone repro (~100 lines, `CreateOffscreen` + `FillRectangle` + readback) to isolate whether the bug is in `SdlVulkan.Renderer` or in our use of it; (4) bisect `VulkanContext.CreateOffscreen` / `VkRenderer` ctor by disabling features one-by-one until the test passes on lavapipe. The bug is now confirmed to be either a Mesa lavapipe bug or implementation-defined behavior we depend on -- not a spec violation our validation layer can detect.
+  **Investigation updates (2026-05-11 continued)**:
+
+  - **Plan 3 (minimal standalone repro)** executed -- ~100-line C# console app using
+    just `SdlVulkan.Renderer` from NuGet (`~/lavapipe-repro/LavapipeMinRepro/`),
+    doing the simplest possible thing: `VulkanContext.CreateOffscreen` + `VkRenderer` +
+    `FillRectangle(red rect)` + `ReadbackOffscreenRgba`.
+
+    **On WSL2 ARM64 Mesa 24.0.5 / LLVM 17.0.6 (128 bits, NEON)**: works correctly --
+    px(120,130) = (255, 0, 0, 255), exactly 18200 nonzero pixels for the 130x140 red
+    rect. No validation messages.
+
+    **On CI x86_64 Mesa 25.2.8 / LLVM 20.1.2 (256 bits, AVX2)** and **CI x86_64 Mesa
+    24.0.5 / LLVM 17.0.6 (256 bits, AVX2)**: same bug -- output is solid clear color
+    for the same primitives.
+
+  - **Pin to older Mesa** -- attempted by pinning to `mesa-vulkan-drivers=24.0.5-1ubuntu1`
+    on CI. **Did not help** -- same failures as Mesa 25. So the bug is not
+    Mesa-version-specific.
+
+  - **Pattern across primitive tests** (Mesa 24 / LLVM 17 / AVX2):
+    - `FillRectangle` (axis-aligned, FlatPipeline) -- FAIL
+    - `DrawRectangle` (4x axis-aligned FillRectangle, FlatPipeline) -- FAIL
+    - `FillEllipse` (EllipsePipeline, full disk) -- FAIL
+    - `DrawEllipse` (EllipsePipeline, ring band) -- PASS
+    - `DrawLine` axis-aligned + diagonal (FlatPipeline, *rotated* quad) -- PASS
+
+    Solid-fill axis-aligned-quad primitives fail; rotated-quad / thin-stroke
+    primitives pass. Suggests an AVX2 codegen issue specific to axis-aligned-edge
+    rasterization or a fragment-shader path triggered by full-disk EllipsePipeline.
+
+  - **Strongest current hypothesis**: an LLVM AVX2 codegen bug in Mesa's lavapipe
+    rasterizer that's been present in both Mesa 24 and 25. Architecture-specific
+    (works on ARM64 NEON / SSE-class lavapipe builds).
+
+  **Plans not yet tried**: (2) reproduce locally on x86_64 WSL2 or a docker container
+  (current WSL2 is ARM64 and works); (4) bisect `VulkanContext.CreateOffscreen` /
+  `VkRenderer` ctor by disabling features one-by-one until the failing tests pass;
+  file a Mesa bug upstream. The bug is now confirmed to be either a Mesa lavapipe-x86_64
+  bug or implementation-defined behavior we depend on -- not a spec violation our
+  validation layer can detect.
 - [ ] Luma blend — smoothly blend between linked and luma-only results
 - [ ] Per-channel convergence — `ConvergeStretchFactor` runs once on luma stats; for Linked/Unlinked the converged factor is approximate per channel (still uses single factor with per-channel WB-scaled stats). Per-channel convergence would tighten the post-stretch median per channel; bigger refactor (factor becomes a triple).
 
