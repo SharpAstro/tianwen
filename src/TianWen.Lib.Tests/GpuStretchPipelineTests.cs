@@ -500,7 +500,11 @@ public sealed class GpuStretchPipelineTests : IClassFixture<OffscreenGpuFixture>
             bgNeutralization: u.BackgroundNeutralization,
             curvesMode: u.CurvesMode,
             curveData: curveLut.IsDefault ? ReadOnlySpan<float>.Empty : curveLut.AsSpan(),
-            imageSource: VkFitsImagePipeline.ImageSource.ProcessedChannels);
+            imageSource: VkFitsImagePipeline.ImageSource.ProcessedChannels,
+            lumaWeights: u.LumaWeights,
+            lumaStretch: u.LumaStretch,
+            lumaBlend: u.LumaBlend,
+            normalizeScale: u.NormalizeScale);
 
         // RecordImageDraw's last two args are the orthographic projection's viewport size, not
         // the draw-rect size -- they have to match the actual framebuffer the GPU is rendering
@@ -562,5 +566,146 @@ public sealed class GpuStretchPipelineTests : IClassFixture<OffscreenGpuFixture>
         magick.Settings.Compression = ImageMagick.CompressionMethod.Zip;
         var bytes = magick.ToByteArray(ImageMagick.MagickFormat.Tiff);
         await System.IO.File.WriteAllBytesAsync(path, bytes, ct);
+    }
+
+    // ---------------------------------------------------------------- New stretch features
+    //
+    // Mirrors the CPU theory cases in StretchTests_NewPipeline that exercise the LumaWeighting
+    // picker, LumaBlend slider, and post-stretch Normalize. The shared RenderViaOffscreenGpu
+    // helper already forwards LumaWeights/LumaStretch/LumaBlend/NormalizeScale into the UBO, so
+    // these tests just drive the producer with the new options and assert per-byte parity.
+
+    [Theory]
+    [InlineData(LumaWeighting.Rec709, "20_gpu_luma_rec709")]
+    [InlineData(LumaWeighting.Rec601, "21_gpu_luma_rec601")]
+    [InlineData(LumaWeighting.Rec2020, "22_gpu_luma_rec2020")]
+    public async Task GpuMatchesCpuForLumaWeightingProfiles(LumaWeighting weighting, string label)
+    {
+        if (!_gpu.VulkanAvailable)
+        {
+            Assert.Skip($"Vulkan runtime not available ({_gpu.UnavailableReason})");
+            return;
+        }
+
+        var ct = TestContext.Current.CancellationToken;
+        var fitsImage = await SharedTestData.ExtractGZippedFitsImageAsync(VelaFixture, cancellationToken: ct);
+        var doc = await AstroImageDocument.CreateFromImageAsync(fitsImage, DebayerAlgorithm.None, cancellationToken: ct);
+        await doc.DetectStarsAsync(ct);
+
+        var uniforms = doc.ComputeStretchUniforms(StretchMode.Luma, new StretchParameters(0.15, -3), weighting: weighting);
+
+        var img = doc.UnstretchedImage;
+        var w = img.Width;
+        var h = img.Height;
+
+        var cpuRgba = new byte[w * h * 4];
+        img.RenderStretchedRgba(uniforms, cpuRgba);
+
+        var gpuRgba = await Task.Run(() => RenderViaOffscreenGpu(img, uniforms, w, h, default, 0f), ct);
+        foreach (var line in _formatDiagBag) output.WriteLine(line);
+        _formatDiagBag.Clear();
+
+        AssertCpuGpuParity(cpuRgba, gpuRgba, label);
+    }
+
+    [Theory]
+    [InlineData(0.0f, "23_gpu_blend_0")]
+    [InlineData(0.5f, "24_gpu_blend_50")]
+    [InlineData(1.0f, "25_gpu_blend_100")]
+    public async Task GpuMatchesCpuForLumaBlend(float blend, string label)
+    {
+        if (!_gpu.VulkanAvailable)
+        {
+            Assert.Skip($"Vulkan runtime not available ({_gpu.UnavailableReason})");
+            return;
+        }
+
+        var ct = TestContext.Current.CancellationToken;
+        var fitsImage = await SharedTestData.ExtractGZippedFitsImageAsync(VelaFixture, cancellationToken: ct);
+        var doc = await AstroImageDocument.CreateFromImageAsync(fitsImage, DebayerAlgorithm.None, cancellationToken: ct);
+        await doc.DetectStarsAsync(ct);
+
+        var uniforms = doc.ComputeStretchUniforms(StretchMode.Luma, new StretchParameters(0.15, -3), lumaBlend: blend);
+
+        var img = doc.UnstretchedImage;
+        var w = img.Width;
+        var h = img.Height;
+
+        var cpuRgba = new byte[w * h * 4];
+        img.RenderStretchedRgba(uniforms, cpuRgba);
+
+        var gpuRgba = await Task.Run(() => RenderViaOffscreenGpu(img, uniforms, w, h, default, 0f), ct);
+        foreach (var line in _formatDiagBag) output.WriteLine(line);
+        _formatDiagBag.Clear();
+
+        AssertCpuGpuParity(cpuRgba, gpuRgba, label);
+    }
+
+    [Fact]
+    public async Task GpuMatchesCpuForHdrNormalize()
+    {
+        if (!_gpu.VulkanAvailable)
+        {
+            Assert.Skip($"Vulkan runtime not available ({_gpu.UnavailableReason})");
+            return;
+        }
+
+        var ct = TestContext.Current.CancellationToken;
+        var fitsImage = await SharedTestData.ExtractGZippedFitsImageAsync(VelaFixture, cancellationToken: ct);
+        var doc = await AstroImageDocument.CreateFromImageAsync(fitsImage, DebayerAlgorithm.None, cancellationToken: ct);
+        await doc.DetectStarsAsync(ct);
+
+        const float hdrAmount = 0.8f;
+        const float hdrKnee = 0.6f;
+
+        var uniforms = doc.ComputeStretchUniforms(
+            StretchMode.Linked, new StretchParameters(0.15, -3),
+            normalize: true, hdrAmount: hdrAmount, hdrKnee: hdrKnee);
+        uniforms.NormalizeScale.ShouldBeGreaterThan(1f, "HDR knee should leave headroom for normalize");
+        output.WriteLine($"NormalizeScale = {uniforms.NormalizeScale:F4}");
+
+        var img = doc.UnstretchedImage;
+        var w = img.Width;
+        var h = img.Height;
+
+        var cpuRgba = new byte[w * h * 4];
+        img.RenderStretchedRgba(uniforms, cpuRgba, hdrAmount: hdrAmount, hdrKnee: hdrKnee);
+
+        var gpuRgba = await Task.Run(() => RenderViaOffscreenGpu(img, uniforms, w, h, default, hdrAmount), ct);
+        foreach (var line in _formatDiagBag) output.WriteLine(line);
+        _formatDiagBag.Clear();
+
+        // NormalizeScale > 1 amplifies any pre-normalize CPU/GPU mismatch (mediump MTF
+        // precision near the HDR knee) by the same factor. Mean stays tight but the max
+        // single-pixel byte diff can land in the ~20s; relax max + outliers proportionally.
+        AssertCpuGpuParity(cpuRgba, gpuRgba, "26_gpu_hdr_normalize", maxAllowed: 28, outlierMax: 0.03);
+    }
+
+    private void AssertCpuGpuParity(byte[] cpuRgba, byte[] gpuRgba, string label,
+        int maxAllowed = 16, double outlierMax = 0.01)
+    {
+        cpuRgba.Length.ShouldBe(gpuRgba.Length);
+        long absDiffSum = 0;
+        var maxDiff = 0;
+        var pixelsExceedingTolerance = 0;
+        const int PerPixelTolerance = 4;
+        for (var i = 0; i < cpuRgba.Length; i += 4)
+        {
+            for (var c = 0; c < 3; c++)
+            {
+                var d = Math.Abs(cpuRgba[i + c] - gpuRgba[i + c]);
+                absDiffSum += d;
+                if (d > maxDiff) maxDiff = d;
+                if (d > PerPixelTolerance) pixelsExceedingTolerance++;
+            }
+        }
+        var pixelCount = cpuRgba.Length / 4;
+        var meanDiff = absDiffSum / (double)(pixelCount * 3);
+        var outlierFraction = pixelsExceedingTolerance / (double)(pixelCount * 3);
+        output.WriteLine($"[{label}] CPU/GPU diff mean={meanDiff:F3} max={maxDiff} outliers={outlierFraction:P3}");
+
+        meanDiff.ShouldBeLessThan(1.5, $"[{label}] mean diff");
+        maxDiff.ShouldBeLessThan(maxAllowed, $"[{label}] max diff");
+        outlierFraction.ShouldBeLessThan(outlierMax, $"[{label}] outlier fraction");
     }
 }

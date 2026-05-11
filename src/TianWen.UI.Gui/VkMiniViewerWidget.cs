@@ -285,7 +285,11 @@ public sealed unsafe class VkMiniViewerWidget : IMiniViewerWidget, IDisposable
             cdMatrix: cdMatrix,
             imageSource: _imageSource,
             bayerOffsetX: _bayerOffsetX,
-            bayerOffsetY: _bayerOffsetY);
+            bayerOffsetY: _bayerOffsetY,
+            lumaWeights: (stretch.LumaWeights.R, stretch.LumaWeights.G, stretch.LumaWeights.B),
+            lumaStretch: (stretch.LumaStretch.Shadow, stretch.LumaStretch.Midtones, stretch.LumaStretch.Rescale),
+            lumaBlend: stretch.LumaBlend,
+            normalizeScale: stretch.NormalizeScale);
 
         // Set scissor to clip image to the viewport rect
         var api = _renderer.Surface.DeviceApi;

@@ -271,13 +271,28 @@ output for the same `StretchUniforms`:
   `ConsoleImageRenderer` (TUI Sixel) and tests (`StretchTests_NewPipeline`). Never use the GPU.
 
 Pipeline order in both: pedestal subtract → bg neutralization → WB → shadow/rescale → MTF →
-curves (LUT or boost) → HDR knee → clamp. Per-channel for Linked/Unlinked, luma-Y'/Y for Luma.
+luma blend → curves (LUT or boost) → HDR knee → normalize → clamp. Per-channel for
+Linked/Unlinked, luma-Y'/Y for Luma. In Luma mode the producer always populates BOTH
+`StretchUniforms.LumaStretch` (scalar Luma MTF params) AND per-channel `Shadows/Midtones/Rescale`
+(linked branch params) so the shader can blend between them via `LumaBlend`.
 
 `AstroImageDocument.ComputeStretchUniforms` is the single producer of `StretchUniforms` — it scales
 per-channel stats by WB before deriving shadows/midtones/rescale so the post-WB norm and shadow
 are in the same coordinate space. `ConvergeStretchFactor` takes a `whiteBalance` scalar and
 operates entirely in post-WB space (median, mad, binNorm all multiplied) so the converged
 stretchFactor matches the per-channel rendering.
+
+Luma weights live in `StretchUniforms.LumaWeights` (Rec.709 / Rec.601 / Rec.2020 via the
+`LumaWeighting` enum, default Rec.709). The CPU `StretchLumaPixelCpu`, GLSL Luma branch, and
+`StretchUniforms.ComputePostStretchBackground` all read from the uniform — never hardcode
+Rec.709 constants. Per-sensor weights (from `FilterCurveDatabase.AllSensors` x CFA) drop in
+later via the same triple without UBO churn.
+
+Post-stretch normalize: when caller passes `normalize: true` to `ComputeStretchUniforms`, the
+producer calls `Image.PredictPostStretchMaxScale` (walks each channel histogram's top non-zero
+bin through the full chain) and sets `StretchUniforms.NormalizeScale = 1/max`. CPU and GPU
+multiply by this scale after curves+HDR but before the final clamp — single-pass, no GPU
+reduction needed. Default 1.0 = no-op.
 
 When adding a new pipeline stage (e.g. saturation boost, denoise, etc.), wire it into BOTH the
 GLSL shader AND the CPU helpers. A stage that only exists in GLSL is a regression for tests + TUI.

@@ -273,7 +273,7 @@ Learnings from PixInsight Statistical Stretch (SetiAstro, v2.3).
 
 - [x] Luma-only stretch mode (Rec. 709 luminance, stretch Y, scale RGB by Y'/Y)
 - [x] HDR compression in GPU shader (Hermite soft-knee, `uHdrAmount`/`uHdrKnee` uniforms)
-- [ ] Normalize after stretch — `x / max(x)` to fill full [0,1] range
+- [x] Normalize after stretch (2026-05-11) — `StretchUniforms.NormalizeScale` carries a precomputed `1/max` so the GPU stays single-pass. `Image.PredictPostStretchMaxScale` walks the top non-zero histogram bin of each channel and pushes it through the full chain (stretch + curves + HDR); CPU and GPU multiply the post-HDR value before the final clamp. Producer surfaces a `normalize: bool` knob on `AstroImageDocument.ComputeStretchUniforms`; tests in `StretchTests_NewPipeline.GivenColorFitsWithHdrWhenNormalizingThenPeakLiftedToFullRange` + `GpuStretchPipelineTests.GpuMatchesCpuForHdrNormalize`.
 - [x] Iterative convergence — `Image.ConvergeStretchFactor` bisects stretchFactor using histogram until post-stretch median converges to target (0.25). Gated by `AstroImageDocument.UseIterativeConvergence`. **Bisection direction was inverted (fixed 2026-05-10)**; **WB-aware (median/mad/binNorm scaled by `whiteBalance` scalar) since 2026-05-10** so converged factor matches per-channel rendering when SPCC/skyBg WB is active.
 - [x] Star-masked background extraction — `GetStarMaskedMedianAndMADScaledToUnit` recomputes median/MAD excluding star pixels after detection; `StarMaskedStats`/`StarMaskedLumaStats` preferred in `ComputeStretchUniforms`. **Two bugs fixed 2026-05-10**: (1) returned median in raw pixel-value space while the unmasked twin returns pedestal-subtracted — now consistent; (2) MAD floor `invMax * 0.5f` collapsed to 0.5 after `ScaleFloatValuesToUnitInPlace`'d images had `MaxValue=1`, pinning every masked MAD at half the dynamic range — replaced with fixed `0.5/65535` bin-width floor.
 - [x] CPU mirror of GLSL stretch — `Image.StretchChannelCpu` / `StretchLumaPixelCpu` / `ApplyHdr` / `RenderStretchedRgba` (full image → RGBA buffer). `ConsoleImageRenderer` and `StretchTests_NewPipeline` route through these; both must produce visually equivalent output to the GLSL fragment shader for the same `StretchUniforms`.
@@ -300,14 +300,16 @@ Learnings from PixInsight Statistical Stretch (SetiAstro, v2.3).
   - Delete `.github/workflows/test-mesa-latest.yml` once x86_64 + Mesa 25 default CI is green (it was added to confirm the bug persists in kisak Mesa 26; no longer needed).
   - `lavapipe-bug-report-draft.md` deleted — no upstream bug to file.
 
-- [ ] Luma blend — smoothly blend between linked and luma-only results
+- [x] Luma blend (2026-05-11) — `StretchUniforms.LumaBlend` (0 = pure linked, 1 = pure luma, default 1 preserves status-quo Luma-mode behaviour). Producer always populates `LumaStretch` (scalar Luma MTF params) and per-channel linked `Shadows/Midtones/Rescale` in Luma mode so the shader has both branches ready; GLSL `mix(linked, luma, lumaBlend)` inside the Luma branch. Tests: `StretchTests_NewPipeline.GivenColorFitsWhenBlendingLumaWithLinkedThenOutputInterpolates` + `GpuStretchPipelineTests.GpuMatchesCpuForLumaBlend`.
+- [x] Rec.601 / Rec.2020 luma weighting (2026-05-11) — new `LumaWeighting` enum, `StretchUniforms.LumaWeights` `(R,G,B)` triple, resolved by producer; CPU mirror + GLSL Luma branch + `ComputePostStretchBackground` all read from the uniform. Default Rec.709 keeps existing callers on the same numerical path. Tests: `StretchTests_NewPipeline.GivenColorFitsWhenSwitchingLumaWeightingThenWeightsFlowThrough` + `GpuStretchPipelineTests.GpuMatchesCpuForLumaWeightingProfiles`.
+- [ ] Sensor-derived luma weights — `FilterCurveDatabase.AllSensors` already ships IMX571/455/533/STARVIS-2/Canon/Nikon QE curves (used by SPCC). Compute per-sensor luma weights via `integral(sensor_QE(lambda) * CFA_R/G/B(lambda) * visual_response(lambda) dlambda)` and expose alongside the standard `LumaWeighting` enum. Pure producer-side change (resolves to `StretchUniforms.LumaWeights` triple); no UBO / shader churn. Match SetiAstro's `LUMA_PROFILES` sensor entries (`luminancerecombine.py:38-141`).
 - [ ] Per-channel convergence — `ConvergeStretchFactor` runs once on luma stats; for Linked/Unlinked the converged factor is approximate per channel (still uses single factor with per-channel WB-scaled stats). Per-channel convergence would tighten the post-stretch median per channel; bigger refactor (factor becomes a triple).
 
 ## FITS Viewer
 
 - [ ] Rename HDR button/label to "Compress Highlights"
 - [ ] Remove debug `Console.Error.WriteLine` WCS output from `Program.cs`
-- [ ] Support rec601/rec2020 luminance weighting options in luma stretch
+- [x] Support rec601/rec2020 luminance weighting options in luma stretch (2026-05-11) — see Stretch / Image Processing section.
 - [ ] Grid label formatting: show arc-seconds for very narrow FOVs
 - [ ] Crosshair / reticle overlay at image center
 - [x] Annotation overlay (object names from catalogs when plate-solved)

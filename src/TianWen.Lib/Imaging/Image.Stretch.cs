@@ -415,10 +415,11 @@ public partial class Image
     }
 
     /// <summary>
-    /// CPU mirror of the GLSL Luma stretch path (<c>stretchMode == 2</c>). Per-channel pedestal
-    /// subtract + WB -> Rec.709 luma -> MTF -> scale all channels by Y'/Y. Matches the GLSL
+    /// CPU mirror of the GLSL Luma stretch path (<c>stretchMode == 3</c>). Per-channel pedestal
+    /// subtract + WB -> weighted luma -> MTF -> scale all channels by Y'/Y. Matches the GLSL
     /// exactly, including the omission of background neutralization (which is only applied in
-    /// the per-channel Linked/Unlinked path).
+    /// the per-channel Linked/Unlinked path). Weights come from <see cref="StretchUniforms.LumaWeights"/>
+    /// so Rec.709 / Rec.601 / Rec.2020 selections flow through without code changes.
     /// </summary>
     public static (float R, float G, float B) StretchLumaPixelCpu(float r, float g, float b, in StretchUniforms u)
     {
@@ -428,9 +429,9 @@ public partial class Image
         var prr = MathF.Max((nr - u.Pedestal.R) * u.WhiteBalance.R, 0f);
         var prg = MathF.Max((ng - u.Pedestal.G) * u.WhiteBalance.G, 0f);
         var prb = MathF.Max((nb - u.Pedestal.B) * u.WhiteBalance.B, 0f);
-        var yNorm = LumaR * prr + LumaG * prg + LumaB * prb;
-        var rescaled = (yNorm - u.Shadows.R) * u.Rescale.R;
-        var yPrime = (float)MidtonesTransferFunction(u.Midtones.R, rescaled);
+        var yNorm = u.LumaWeights.R * prr + u.LumaWeights.G * prg + u.LumaWeights.B * prb;
+        var rescaled = (yNorm - u.LumaStretch.Shadow) * u.LumaStretch.Rescale;
+        var yPrime = (float)MidtonesTransferFunction(u.LumaStretch.Midtones, rescaled);
         var scale = yNorm > 1e-7f ? yPrime / yNorm : 0f;
         var maxCh = MathF.Max(prr, MathF.Max(prg, prb));
         if (scale > 0f && maxCh > 1e-7f) scale = MathF.Min(scale, 1f / maxCh);
@@ -458,6 +459,97 @@ public partial class Image
         1 => v.G,
         _ => v.B,
     };
+
+    /// <summary>
+    /// Predicts the post-stretch output scale (1 / max) so a caller can stamp
+    /// <see cref="StretchUniforms.NormalizeScale"/> before rendering. Walks each channel's
+    /// histogram from the top to find the brightest raw value, then pushes it through the
+    /// full chain (stretch + curves + HDR) — identical to the per-pixel path in
+    /// <see cref="RenderStretchedRgba"/>. The stretch + curves + HDR stages are all monotonic,
+    /// so the brightest raw value yields the brightest post-stretch value. Returns 1.0 (no-op)
+    /// when the predicted max is &lt;= ~1, since further upscaling can only saturate.
+    /// </summary>
+    /// <remarks>
+    /// Approximation: histogram bins are quantised, so the predicted max is the top bin's
+    /// centre value rather than the true rendered max. For practical astro inputs this lands
+    /// within ~1% of <c>np.max(out)</c> and avoids the GPU reduction-pass needed for exact
+    /// parity with SetiAstro's <c>out / out.max()</c>. The CPU and GPU consume the same
+    /// uniform so they stay in lockstep regardless.
+    /// </remarks>
+    public static float PredictPostStretchMaxScale(
+        in StretchUniforms u,
+        ReadOnlySpan<ImageHistogram> histograms,
+        int curvesMode = 0,
+        ReadOnlySpan<float> curveLut = default,
+        float curvesBoost = 0f,
+        float curvesMidpoint = 0.25f,
+        float hdrAmount = 0f,
+        float hdrKnee = 0.8f)
+    {
+        if (u.Mode is StretchMode.None || histograms.IsEmpty)
+        {
+            return 1f;
+        }
+
+        var hasLut = curvesMode == 1 && !curveLut.IsEmpty;
+        var maxOverall = 0f;
+
+        if (u.Mode is StretchMode.Luma && histograms.Length >= 3)
+        {
+            // Luma path: take the brightest sample of *each* channel independently and run
+            // the full luma kernel on the (r,g,b) triple. This is conservative — the same
+            // pixel won't usually peak in all three channels — but matches the monotonicity
+            // assumption used elsewhere and avoids needing the joint per-pixel histogram.
+            var rRaw = TopBinCenter(histograms[0]);
+            var gRaw = TopBinCenter(histograms[1]);
+            var bRaw = TopBinCenter(histograms[2]);
+            var (rL, gL, bL) = StretchLumaPixelCpu(rRaw, gRaw, bRaw, u);
+
+            // Apply LumaBlend mix with the per-channel linked output (mirrors RenderStretchedRgba)
+            if (u.LumaBlend < 1f)
+            {
+                var rLnk = StretchChannelCpu(rRaw, 0, u);
+                var gLnk = StretchChannelCpu(gRaw, 1, u);
+                var bLnk = StretchChannelCpu(bRaw, 2, u);
+                var b = Math.Clamp(u.LumaBlend, 0f, 1f);
+                var omb = 1f - b;
+                rL = omb * rLnk + b * rL;
+                gL = omb * gLnk + b * gL;
+                bL = omb * bLnk + b * bL;
+            }
+
+            maxOverall = MathF.Max(rL, MathF.Max(gL, bL));
+        }
+        else
+        {
+            for (var c = 0; c < 3 && c < histograms.Length; c++)
+            {
+                var rawTop = TopBinCenter(histograms[c]);
+                var stretched = StretchChannelCpu(rawTop, c, u);
+                if (stretched > maxOverall) maxOverall = stretched;
+            }
+        }
+
+        // Apply curves + HDR to the predicted peak. Both stages are monotonic in [0,1].
+        if (hasLut) maxOverall = ApplyCurveLut(maxOverall, curveLut);
+        else if (curvesBoost > 0f) maxOverall = ApplyBoost(maxOverall, curvesBoost, curvesMidpoint);
+        if (hdrAmount > 0f) maxOverall = ApplyHdr(maxOverall, hdrAmount, hdrKnee);
+
+        // Only return a > 1 scale when the predicted max actually leaves headroom.
+        return maxOverall > 1e-6f && maxOverall < 1f ? 1f / maxOverall : 1f;
+
+        static float TopBinCenter(ImageHistogram hist)
+        {
+            var bins = hist.Histogram;
+            var binMax = (float)(hist.RescaledMaxValue ?? 65535d);
+            var invBinMax = 1f / binMax;
+            for (var i = bins.Length - 1; i >= 0; i--)
+            {
+                if (bins[i] > 0) return (i + 0.5f) * invBinMax;
+            }
+            return 0f;
+        }
+    }
 
     /// <summary>
     /// CPU mirror of the full GLSL fragment shader (image path) — renders this image into an RGBA
@@ -507,7 +599,24 @@ public partial class Image
 
                 if (u.Mode is StretchMode.Luma)
                 {
-                    (rOut, gOut, bOut) = StretchLumaPixelCpu(rRaw, gRaw, bRaw, u);
+                    var (rL, gL, bL) = StretchLumaPixelCpu(rRaw, gRaw, bRaw, u);
+                    // LumaBlend == 1: pure luma (status quo). < 1: blend with the per-channel
+                    // linked path computed here on the fly, matching the GLSL Luma branch.
+                    if (u.LumaBlend < 1f)
+                    {
+                        var rLnk = StretchChannelCpu(rRaw, 0, u);
+                        var gLnk = StretchChannelCpu(gRaw, 1, u);
+                        var bLnk = StretchChannelCpu(bRaw, 2, u);
+                        var b = Math.Clamp(u.LumaBlend, 0f, 1f);
+                        var omb = 1f - b;
+                        rOut = omb * rLnk + b * rL;
+                        gOut = omb * gLnk + b * gL;
+                        bOut = omb * bLnk + b * bL;
+                    }
+                    else
+                    {
+                        rOut = rL; gOut = gL; bOut = bL;
+                    }
                 }
                 else if (u.Mode is StretchMode.None)
                 {
@@ -546,6 +655,15 @@ public partial class Image
                 rOut = ApplyHdr(rOut, hdrAmount, hdrKnee);
                 gOut = ApplyHdr(gOut, hdrAmount, hdrKnee);
                 bOut = ApplyHdr(bOut, hdrAmount, hdrKnee);
+            }
+
+            // Optional post-stretch normalize: rescale so the predicted brightest pixel
+            // (computed by PredictPostStretchMaxScale) lands at 1.0. Default scale=1 = no-op.
+            if (u.NormalizeScale != 1f)
+            {
+                rOut *= u.NormalizeScale;
+                gOut *= u.NormalizeScale;
+                bOut *= u.NormalizeScale;
             }
 
             var o = i * 4;

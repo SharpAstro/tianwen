@@ -163,7 +163,11 @@ public sealed class VkImageRenderer : ImageRendererBase<VulkanContext>, IDisposa
             cdMatrix: cdMatrix,
             imageSource: (VkFitsImagePipeline.ImageSource)ImageSourceMode,
             bayerOffsetX: BayerOffsetX,
-            bayerOffsetY: BayerOffsetY);
+            bayerOffsetY: BayerOffsetY,
+            lumaWeights: (stretch.LumaWeights.R, stretch.LumaWeights.G, stretch.LumaWeights.B),
+            lumaStretch: (stretch.LumaStretch.Shadow, stretch.LumaStretch.Midtones, stretch.LumaStretch.Rescale),
+            lumaBlend: stretch.LumaBlend,
+            normalizeScale: stretch.NormalizeScale);
 
         _fitsPipeline.RecordImageDraw(
             cmd,

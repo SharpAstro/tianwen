@@ -323,13 +323,28 @@ public sealed class AstroImageDocument
 
     /// <summary>
     /// Computes stretch shader uniforms for the current stretch mode and parameters.
+    /// Optional knobs mirror the SetiAstro UX: luma weighting profile (Rec.709/601/2020),
+    /// luma-vs-linked blend (only meaningful when <paramref name="mode"/> is
+    /// <see cref="StretchMode.Luma"/>), and post-stretch normalize.
     /// </summary>
-    public StretchUniforms ComputeStretchUniforms(StretchMode mode, StretchParameters parameters)
+    public StretchUniforms ComputeStretchUniforms(
+        StretchMode mode,
+        StretchParameters parameters,
+        LumaWeighting weighting = LumaWeighting.Rec709,
+        float lumaBlend = 1f,
+        bool normalize = false,
+        int curvesMode = 0,
+        System.ReadOnlySpan<float> curveLut = default,
+        float curvesBoost = 0f,
+        float curvesMidpoint = 0.25f,
+        float hdrAmount = 0f,
+        float hdrKnee = 0.8f)
     {
         var stats = PerChannelStats;
         var luma = LumaStats;
         var factor = parameters.Factor;
         var clipping = parameters.ShadowsClipping;
+        var weights = weighting.Weights;
 
         if (UseIterativeConvergence && StarMaskedStats is { } masked)
         {
@@ -343,12 +358,12 @@ public sealed class AstroImageDocument
             var hist = ChannelStatistics.Length > 0 ? ChannelStatistics[0] : null;
             if (hist is not null)
             {
-                // For luma convergence the WB scalar is the Rec.709-weighted average; for
-                // channel-0 fallback it's wb.R. The per-channel rendering scales stats
-                // by the same factor inside ComputeStretchUniforms, so convergence and
-                // rendering operate in matched coordinate spaces.
+                // For luma convergence the WB scalar is the weighting-profile-weighted
+                // average; for channel-0 fallback it's wb.R. The per-channel rendering
+                // scales stats by the same factor inside ComputeStretchUniforms, so
+                // convergence and rendering operate in matched coordinate spaces.
                 var wbScalar = ColorCalibration is { } wb
-                    ? (luma is not null ? 0.2126f * wb.R + 0.7152f * wb.G + 0.0722f * wb.B : wb.R)
+                    ? (luma is not null ? weights.R * wb.R + weights.G * wb.G + weights.B * wb.B : wb.R)
                     : 1f;
 
                 (factor, _) = Image.ConvergeStretchFactor(
@@ -357,10 +372,27 @@ public sealed class AstroImageDocument
             }
         }
 
-        var uniforms = ComputeStretchUniforms(mode, new StretchParameters(factor, clipping), stats, luma, UnstretchedImage.MaxValue, ColorCalibration);
+        var uniforms = ComputeStretchUniforms(mode, new StretchParameters(factor, clipping), stats, luma, UnstretchedImage.MaxValue, ColorCalibration, weights);
         if (BackgroundNeutralization is { } bn)
         {
             uniforms = uniforms with { BackgroundNeutralization = bn };
+        }
+        if (lumaBlend != 1f)
+        {
+            uniforms = uniforms with { LumaBlend = System.Math.Clamp(lumaBlend, 0f, 1f) };
+        }
+        if (normalize)
+        {
+            var scale = Image.PredictPostStretchMaxScale(
+                uniforms,
+                ChannelStatistics.AsSpan(),
+                curvesMode: curvesMode,
+                curveLut: curveLut,
+                curvesBoost: curvesBoost,
+                curvesMidpoint: curvesMidpoint,
+                hdrAmount: hdrAmount,
+                hdrKnee: hdrKnee);
+            uniforms = uniforms with { NormalizeScale = scale };
         }
         return uniforms;
     }
@@ -380,11 +412,17 @@ public sealed class AstroImageDocument
         ChannelStretchStats[] perChannelStats,
         ChannelStretchStats? lumaStats,
         float imageMaxValue,
-        (float R, float G, float B)? whiteBalance = null)
+        (float R, float G, float B)? whiteBalance = null,
+        (float R, float G, float B)? lumaWeights = null)
     {
+        // Default luma weighting is Rec.709 — matches the previous hardcoded constants
+        // and keeps existing callers (no lumaWeights argument) on the same numerical path.
+        var weights = lumaWeights ?? (0.2126f, 0.7152f, 0.0722f);
+
         if (mode is StretchMode.None)
         {
-            return new StretchUniforms(StretchMode.None, 1f, default, default, default, default, default);
+            return new StretchUniforms(StretchMode.None, 1f, default, default, default, default, default)
+            { LumaWeights = weights };
         }
 
         var normFactor = imageMaxValue > 1.0f + float.Epsilon ? 1f / imageMaxValue : 1f;
@@ -394,28 +432,42 @@ public sealed class AstroImageDocument
 
         if (mode is StretchMode.Luma && lumaStats is { } luma)
         {
-            // Luma stretch uses Rec.709 luminance over the WB-adjusted channels; scale luma
-            // median/mad by the Rec.709-weighted WB so the luma stretch aligns with the actual
-            // luminance values produced post-WB.
-            var lumaWb = 0.2126f * wb.R + 0.7152f * wb.G + 0.0722f * wb.B;
+            // Luma stretch uses the chosen luminance weighting over the WB-adjusted channels;
+            // scale luma median/mad by the weighted WB so the luma stretch aligns with the
+            // actual luminance values produced post-WB.
+            var lumaWb = weights.R * wb.R + weights.G * wb.G + weights.B * wb.B;
             var (s, m, h, r) = Image.ComputeStretchParameters(luma.Median * lumaWb, luma.Mad * lumaWb, factor, clipping);
 
-            // Use per-channel pedestals for background subtraction (avoids green cast from RGGB)
-            // but luma-derived midtone/shadows/rescale for consistent stretch across channels
+            // Use per-channel pedestals for background subtraction (avoids green cast from RGGB);
+            // luma-derived midtone/shadows/rescale live in LumaStretch.
             var chStats = perChannelStats;
             var ped0 = chStats.Length > 0 ? chStats[0].Pedestal : luma.Pedestal;
             var ped1 = chStats.Length > 1 ? chStats[1].Pedestal : ped0;
             var ped2 = chStats.Length > 2 ? chStats[2].Pedestal : ped0;
 
+            // Always compute per-channel linked params alongside the luma scalar so that a
+            // LumaBlend < 1 caller has the linked branch ready in the shader without a UBO
+            // re-upload. Falls back to channel 0 if a stat slot is missing.
+            var lch0 = chStats.Length > 0 ? chStats[0] : new ChannelStretchStats(0f, luma.Median, luma.Mad);
+            var lch1 = chStats.Length > 1 ? chStats[1] : lch0;
+            var lch2 = chStats.Length > 2 ? chStats[2] : lch0;
+            var lp0 = Image.ComputeStretchParameters(lch0.Median * wb.R, lch0.Mad * wb.R, factor, clipping);
+            var lp1 = Image.ComputeStretchParameters(lch1.Median * wb.G, lch1.Mad * wb.G, factor, clipping);
+            var lp2 = Image.ComputeStretchParameters(lch2.Median * wb.B, lch2.Mad * wb.B, factor, clipping);
+
             return new StretchUniforms(
                 Mode: StretchMode.Luma,
                 NormFactor: normFactor,
                 Pedestal: (ped0, ped1, ped2),
-                Shadows: ((float)s, (float)s, (float)s),
-                Midtones: ((float)m, (float)m, (float)m),
-                Highlights: ((float)h, (float)h, (float)h),
-                Rescale: ((float)r, (float)r, (float)r))
-            { WhiteBalance = wb };
+                Shadows: ((float)lp0.Shadows, (float)lp1.Shadows, (float)lp2.Shadows),
+                Midtones: ((float)lp0.Midtones, (float)lp1.Midtones, (float)lp2.Midtones),
+                Highlights: ((float)lp0.Highlights, (float)lp1.Highlights, (float)lp2.Highlights),
+                Rescale: ((float)lp0.Rescale, (float)lp1.Rescale, (float)lp2.Rescale))
+            {
+                WhiteBalance = wb,
+                LumaWeights = weights,
+                LumaStretch = ((float)s, (float)m, (float)r),
+            };
         }
 
         // Linked or unlinked
@@ -445,7 +497,7 @@ public sealed class AstroImageDocument
             Midtones: ((float)p0.Midtones, (float)p1.Midtones, (float)p2.Midtones),
             Highlights: ((float)p0.Highlights, (float)p1.Highlights, (float)p2.Highlights),
             Rescale: ((float)p0.Rescale, (float)p1.Rescale, (float)p2.Rescale))
-        { WhiteBalance = wb };
+        { WhiteBalance = wb, LumaWeights = weights };
     }
 
     /// <summary>

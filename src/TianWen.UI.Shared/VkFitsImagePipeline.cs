@@ -19,9 +19,10 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
 
     /// <summary>
     /// std140 StretchUBO — see field layout in struct definition below.
-    /// Total: 368 bytes (192 base + 16 whiteBalance + 16 bgNeutralization + 144 curveData).
+    /// Total: 416 bytes (192 base + 16 wb + 16 bgNeut + 144 curveData + 16 lumaWeights
+    /// + 16 lumaStretch + 16 stretchBlend).
     /// </summary>
-    private const int StretchUboSize = 368;
+    private const int StretchUboSize = 416;
 
     /// <summary>
     /// std140 HistogramUBO — 4 x int/float fields = 16 bytes.
@@ -77,6 +78,9 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
             vec4  whiteBalance;        // offset 192  (xyz = WB multipliers, w = pad)
             vec4  bgNeutralization;    // offset 208  (xyz = neutralization gains, w = pad)
             vec4  curveData[9];        // offset 224  (33 knots packed into 9 vec4s; last 3 floats unused)
+            vec4  lumaWeights;         // offset 368  (xyz = R/G/B luma weights, w = pad). Rec.709 default.
+            vec4  lumaStretch;         // offset 384  (x = lumaShadow, y = lumaMidtones, z = lumaRescale, w = pad)
+            vec4  stretchBlend;        // offset 400  (x = lumaBlend in [0,1], y = normalizeScale, zw = pad)
         } ubo;
 
         layout(set = 1, binding = 0) uniform sampler2D uChannel0;
@@ -259,6 +263,11 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
                 if (ubo.hdrAmount > 0.0) {
                     r = applyHdr(r, ubo.hdrAmount, ubo.hdrKnee);
                 }
+                float nsMono = ubo.stretchBlend.y;
+                if (nsMono != 1.0 && nsMono > 0.0) {
+                    r *= nsMono;
+                }
+                r = clamp(r, 0.0, 1.0);
                 if (ubo.gridEnabled != 0) {
                     vec2 pixel = vec2(vTexCoord.x * ubo.imageSize.x + 1.0,
                                      vTexCoord.y * ubo.imageSize.y + 1.0);
@@ -286,21 +295,45 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
                 g = stretchChannel(g, 1);
                 b = stretchChannel(b, 2);
             } else if (ubo.stretchMode == 3) {
-                float nr = r * ubo.normFactor;
-                float ng = g * ubo.normFactor;
-                float nb = b * ubo.normFactor;
+                // Capture raw values *before* we trample r/g/b. The optional per-channel
+                // linked branch below also needs them.
+                float rawR = r;
+                float rawG = g;
+                float rawB = b;
+
+                float nr = rawR * ubo.normFactor;
+                float ng = rawG * ubo.normFactor;
+                float nb = rawB * ubo.normFactor;
                 float prr = max((nr - ubo.pedestal[0]) * ubo.whiteBalance[0], 0.0);
                 float prg = max((ng - ubo.pedestal[1]) * ubo.whiteBalance[1], 0.0);
                 float prb = max((nb - ubo.pedestal[2]) * ubo.whiteBalance[2], 0.0);
-                float Ynorm = 0.2126 * prr + 0.7152 * prg + 0.0722 * prb;
-                float rescaled = (Ynorm - ubo.shadows.x) * ubo.rescale.x;
-                float Yp = mtf(ubo.midtones.x, rescaled);
+                float Ynorm = ubo.lumaWeights.x * prr + ubo.lumaWeights.y * prg + ubo.lumaWeights.z * prb;
+                float rescaled = (Ynorm - ubo.lumaStretch.x) * ubo.lumaStretch.z;
+                float Yp = mtf(ubo.lumaStretch.y, rescaled);
                 float scale = Ynorm > 1e-7 ? Yp / Ynorm : 0.0;
                 float maxCh = max(prr, max(prg, prb));
                 if (maxCh > 1e-7) scale = min(scale, 1.0 / maxCh);
-                r = clamp(prr * scale, 0.0, 1.0);
-                g = clamp(prg * scale, 0.0, 1.0);
-                b = clamp(prb * scale, 0.0, 1.0);
+                float lumaR = clamp(prr * scale, 0.0, 1.0);
+                float lumaG = clamp(prg * scale, 0.0, 1.0);
+                float lumaB = clamp(prb * scale, 0.0, 1.0);
+
+                // Optional blend with the per-channel linked branch. ubo.shadows/midtones/rescale
+                // hold the per-channel linked params in Luma mode (the producer always populates
+                // both LumaStretch and the per-channel linked stats). lumaBlend == 1 short-circuits
+                // to the pure-luma result -- same numbers as before this field existed.
+                float lb = clamp(ubo.stretchBlend.x, 0.0, 1.0);
+                if (lb < 1.0) {
+                    float linkR = stretchChannel(rawR, 0);
+                    float linkG = stretchChannel(rawG, 1);
+                    float linkB = stretchChannel(rawB, 2);
+                    r = mix(linkR, lumaR, lb);
+                    g = mix(linkG, lumaG, lb);
+                    b = mix(linkB, lumaB, lb);
+                } else {
+                    r = lumaR;
+                    g = lumaG;
+                    b = lumaB;
+                }
             }
 
             if (ubo.curvesMode == 1) {
@@ -318,6 +351,14 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
                 b = applyHdr(b, ubo.hdrAmount, ubo.hdrKnee);
             }
 
+            // Post-stretch normalize -- producer predicts max via Image.PredictPostStretchMaxScale
+            // and stamps stretchBlend.y. Default 1.0 = no-op; only > 1 when the predicted peak
+            // sits below 1 (e.g. HDR knee or S-curve compresses highlights).
+            float ns = ubo.stretchBlend.y;
+            if (ns != 1.0 && ns > 0.0) {
+                r *= ns; g *= ns; b *= ns;
+            }
+
             if (ubo.gridEnabled != 0) {
                 vec2 pixel = vec2(vTexCoord.x * ubo.imageSize.x + 1.0,
                                  vTexCoord.y * ubo.imageSize.y + 1.0);
@@ -328,7 +369,7 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
                 b = mix(b, gridColor.b, grid * 0.45);
             }
 
-            FragColor = vec4(r, g, b, 1.0);
+            FragColor = vec4(clamp(r, 0.0, 1.0), clamp(g, 0.0, 1.0), clamp(b, 0.0, 1.0), 1.0);
         }
         """;
 
@@ -638,7 +679,11 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
         int curvesMode = 0,
         ReadOnlySpan<float> curveData = default,
         ImageSource imageSource = ImageSource.ProcessedChannels,
-        int bayerOffsetX = 0, int bayerOffsetY = 0)
+        int bayerOffsetX = 0, int bayerOffsetY = 0,
+        (float R, float G, float B) lumaWeights = default,
+        (float Shadow, float Midtones, float Rescale) lumaStretch = default,
+        float lumaBlend = 1f,
+        float normalizeScale = 1f)
     {
         var p = _stretchUboMapped;
 
@@ -737,6 +782,31 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
         {
             WriteFloat(p, 224 + i * 4, curveData[i]);
         }
+
+        // lumaWeights (vec4 at offset 368). Caller passes the (R,G,B) triple from
+        // StretchUniforms.LumaWeights; default = (0,0,0) flags the shader to use
+        // a tuple shipped by callers that haven't migrated yet -- treat as Rec.709.
+        var lwR = lumaWeights.R != 0f || lumaWeights.G != 0f || lumaWeights.B != 0f ? lumaWeights.R : 0.2126f;
+        var lwG = lumaWeights.R != 0f || lumaWeights.G != 0f || lumaWeights.B != 0f ? lumaWeights.G : 0.7152f;
+        var lwB = lumaWeights.R != 0f || lumaWeights.G != 0f || lumaWeights.B != 0f ? lumaWeights.B : 0.0722f;
+        WriteFloat(p, 368, lwR);
+        WriteFloat(p, 372, lwG);
+        WriteFloat(p, 376, lwB);
+        WriteFloat(p, 380, 0f);
+
+        // lumaStretch (vec4 at offset 384) -- scalar Luma MTF params (shadow, midtones, rescale).
+        // Producer leaves at zero when Mode is not Luma; the shader only reads these in the
+        // Luma branch so the zeros are inert outside it.
+        WriteFloat(p, 384, lumaStretch.Shadow);
+        WriteFloat(p, 388, lumaStretch.Midtones);
+        WriteFloat(p, 392, lumaStretch.Rescale);
+        WriteFloat(p, 396, 0f);
+
+        // stretchBlend (vec4 at offset 400) -- (lumaBlend, normalizeScale, pad, pad)
+        WriteFloat(p, 400, lumaBlend);
+        WriteFloat(p, 404, normalizeScale);
+        WriteFloat(p, 408, 0f);
+        WriteFloat(p, 412, 0f);
     }
 
     /// <summary>

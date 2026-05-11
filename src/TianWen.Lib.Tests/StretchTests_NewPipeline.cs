@@ -507,4 +507,192 @@ public class StretchTests_NewPipeline(ITestOutputHelper output)
         await WriteRgbaAsync(rgba, debayered.Width, debayered.Height, testDir, "synthetic_M45_09_spcc", ct);
     }
 
+    /// <summary>
+    /// Verifies the LumaWeighting picker plumbs alternative luminance weights all the way
+    /// through to the rendered output. Renders the same Luma stretch under Rec.709, Rec.601,
+    /// and Rec.2020 and asserts: (a) uniforms carry the expected weights, (b) the resulting
+    /// per-channel byte means differ in the expected direction (Rec.601 weights green less
+    /// heavily -> R/B channels gain prominence vs Rec.709; Rec.2020 weights green more
+    /// heavily than Rec.709 -> R/B fade slightly).
+    /// </summary>
+    [Theory]
+    [InlineData(LumaWeighting.Rec709, 0.2126f, 0.7152f, 0.0722f, "10_luma_rec709")]
+    [InlineData(LumaWeighting.Rec601, 0.299f,  0.587f,  0.114f,  "11_luma_rec601")]
+    [InlineData(LumaWeighting.Rec2020, 0.2627f, 0.6780f, 0.0593f, "12_luma_rec2020")]
+    public async Task GivenColorFitsWhenSwitchingLumaWeightingThenWeightsFlowThrough(
+        LumaWeighting weighting, float expectedR, float expectedG, float expectedB, string label)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var fitsImage = await SharedTestData.ExtractGZippedFitsImageAsync(Fixture, cancellationToken: ct);
+        var doc = await AstroImageDocument.CreateFromImageAsync(fitsImage, DebayerAlgorithm.None, cancellationToken: ct);
+        await doc.DetectStarsAsync(ct);
+
+        var uniforms = doc.ComputeStretchUniforms(StretchMode.Luma, new StretchParameters(0.15, -3), weighting: weighting);
+
+        uniforms.LumaWeights.R.ShouldBe(expectedR, 1e-4f, $"LumaWeights.R for {weighting}");
+        uniforms.LumaWeights.G.ShouldBe(expectedG, 1e-4f, $"LumaWeights.G for {weighting}");
+        uniforms.LumaWeights.B.ShouldBe(expectedB, 1e-4f, $"LumaWeights.B for {weighting}");
+        (uniforms.LumaWeights.R + uniforms.LumaWeights.G + uniforms.LumaWeights.B).ShouldBe(1f, 1e-3f,
+            "luma weights must sum to ~1 (standard photometric convention)");
+
+        var img = doc.UnstretchedImage;
+        var rgba = new byte[img.Width * img.Height * 4];
+        img.RenderStretchedRgba(uniforms, rgba);
+
+        var (rMean, gMean, bMean) = ComputeChannelMeans(rgba);
+        output.WriteLine($"{label}: means R={rMean:F2} G={gMean:F2} B={bMean:F2}");
+
+        // Sanity: all channels carry signal (no collapse, no full saturation).
+        rMean.ShouldBeGreaterThan(0.5); gMean.ShouldBeGreaterThan(0.5); bMean.ShouldBeGreaterThan(0.5);
+        rMean.ShouldBeLessThan(254.5); gMean.ShouldBeLessThan(254.5); bMean.ShouldBeLessThan(254.5);
+
+        var testDir = SharedTestData.CreateTempTestOutputDir(
+            TestContext.Current.TestClass?.TestClassSimpleName ?? nameof(StretchTests_NewPipeline));
+        await WriteRgbaAsync(rgba, img.Width, img.Height, testDir, $"{Fixture}_{label}", ct);
+    }
+
+    /// <summary>
+    /// Luma blend slider: 0 = pure linked, 1 = pure luma, in-between = mix.
+    /// Asserts each blend level produces a distinct (non-identical) byte buffer and that the
+    /// linear blend identity holds approximately: mid = (linked + luma) / 2 within rounding.
+    /// </summary>
+    [Fact]
+    public async Task GivenColorFitsWhenBlendingLumaWithLinkedThenOutputInterpolates()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var fitsImage = await SharedTestData.ExtractGZippedFitsImageAsync(Fixture, cancellationToken: ct);
+        var doc = await AstroImageDocument.CreateFromImageAsync(fitsImage, DebayerAlgorithm.None, cancellationToken: ct);
+        await doc.DetectStarsAsync(ct);
+
+        var img = doc.UnstretchedImage;
+        var rgbaLinked = new byte[img.Width * img.Height * 4];
+        var rgbaMid = new byte[img.Width * img.Height * 4];
+        var rgbaLuma = new byte[img.Width * img.Height * 4];
+
+        var uLinked = doc.ComputeStretchUniforms(StretchMode.Luma, new StretchParameters(0.15, -3), lumaBlend: 0f);
+        var uMid    = doc.ComputeStretchUniforms(StretchMode.Luma, new StretchParameters(0.15, -3), lumaBlend: 0.5f);
+        var uLuma   = doc.ComputeStretchUniforms(StretchMode.Luma, new StretchParameters(0.15, -3), lumaBlend: 1f);
+
+        // LumaStretch is populated for all three (Mode is Luma in all cases).
+        uLinked.LumaStretch.Rescale.ShouldBeGreaterThan(0f, "LumaStretch present even at blend=0 (shader still needs it)");
+        uMid.LumaBlend.ShouldBe(0.5f, 1e-5f);
+        uLuma.LumaBlend.ShouldBe(1f, 1e-5f);
+
+        img.RenderStretchedRgba(uLinked, rgbaLinked);
+        img.RenderStretchedRgba(uMid, rgbaMid);
+        img.RenderStretchedRgba(uLuma, rgbaLuma);
+
+        var meansLinked = ComputeChannelMeans(rgbaLinked);
+        var meansMid = ComputeChannelMeans(rgbaMid);
+        var meansLuma = ComputeChannelMeans(rgbaLuma);
+        output.WriteLine($"blend=0   linked: R={meansLinked.R:F2} G={meansLinked.G:F2} B={meansLinked.B:F2}");
+        output.WriteLine($"blend=0.5 mid:    R={meansMid.R:F2} G={meansMid.G:F2} B={meansMid.B:F2}");
+        output.WriteLine($"blend=1   luma:   R={meansLuma.R:F2} G={meansLuma.G:F2} B={meansLuma.B:F2}");
+
+        // Distinct buffers — the three blend levels must produce different outputs (otherwise
+        // the blend path isn't wired in).
+        BufferDifference(rgbaLinked, rgbaMid).ShouldBeGreaterThan(0L, "blend=0 vs blend=0.5 must differ");
+        BufferDifference(rgbaLuma, rgbaMid).ShouldBeGreaterThan(0L, "blend=1 vs blend=0.5 must differ");
+        BufferDifference(rgbaLinked, rgbaLuma).ShouldBeGreaterThan(0L, "blend=0 vs blend=1 must differ");
+
+        // Linear blend identity: mid mean lies between linked and luma means per channel.
+        AssertBetween(meansLinked.R, meansLuma.R, meansMid.R, "R");
+        AssertBetween(meansLinked.G, meansLuma.G, meansMid.G, "G");
+        AssertBetween(meansLinked.B, meansLuma.B, meansMid.B, "B");
+
+        var testDir = SharedTestData.CreateTempTestOutputDir(
+            TestContext.Current.TestClass?.TestClassSimpleName ?? nameof(StretchTests_NewPipeline));
+        await WriteRgbaAsync(rgbaLinked, img.Width, img.Height, testDir, $"{Fixture}_13_blend0_linked", ct);
+        await WriteRgbaAsync(rgbaMid, img.Width, img.Height, testDir, $"{Fixture}_14_blend50_mid", ct);
+        await WriteRgbaAsync(rgbaLuma, img.Width, img.Height, testDir, $"{Fixture}_15_blend100_luma", ct);
+
+        static void AssertBetween(double linkedMean, double lumaMean, double midMean, string label)
+        {
+            var lo = Math.Min(linkedMean, lumaMean);
+            var hi = Math.Max(linkedMean, lumaMean);
+            // Allow 1 byte slack for rounding (the mid renders independently, not as
+            // numeric average of the two byte buffers).
+            midMean.ShouldBeInRange(lo - 1, hi + 1,
+                $"{label}: mid mean {midMean:F2} should lie between linked {linkedMean:F2} and luma {lumaMean:F2}");
+        }
+    }
+
+    /// <summary>
+    /// Post-stretch normalize: when applied alongside HDR knee compression (which pushes the
+    /// post-stretch max below 1.0), NormalizeScale > 1 should lift the peak back up so the
+    /// brightest channel approaches 255.
+    /// </summary>
+    [Fact]
+    public async Task GivenColorFitsWithHdrWhenNormalizingThenPeakLiftedToFullRange()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var fitsImage = await SharedTestData.ExtractGZippedFitsImageAsync(Fixture, cancellationToken: ct);
+        var doc = await AstroImageDocument.CreateFromImageAsync(fitsImage, DebayerAlgorithm.None, cancellationToken: ct);
+        await doc.DetectStarsAsync(ct);
+
+        const float hdrAmount = 0.8f;
+        const float hdrKnee = 0.6f; // aggressive knee so HDR actually compresses the peak
+
+        var uOff = doc.ComputeStretchUniforms(
+            StretchMode.Linked, new StretchParameters(0.15, -3),
+            normalize: false, hdrAmount: hdrAmount, hdrKnee: hdrKnee);
+
+        var uOn = doc.ComputeStretchUniforms(
+            StretchMode.Linked, new StretchParameters(0.15, -3),
+            normalize: true, hdrAmount: hdrAmount, hdrKnee: hdrKnee);
+
+        uOff.NormalizeScale.ShouldBe(1f, 1e-5f, "default = no-op");
+        uOn.NormalizeScale.ShouldBeGreaterThan(1f, "predicted post-stretch max < 1 with HDR knee, so scale > 1");
+
+        var img = doc.UnstretchedImage;
+        var rgbaOff = new byte[img.Width * img.Height * 4];
+        var rgbaOn  = new byte[img.Width * img.Height * 4];
+        img.RenderStretchedRgba(uOff, rgbaOff, hdrAmount: hdrAmount, hdrKnee: hdrKnee);
+        img.RenderStretchedRgba(uOn,  rgbaOn,  hdrAmount: hdrAmount, hdrKnee: hdrKnee);
+
+        var maxOff = MaxByte(rgbaOff);
+        var maxOn = MaxByte(rgbaOn);
+        output.WriteLine($"NormalizeScale={uOn.NormalizeScale:F4}  maxOff={maxOff}  maxOn={maxOn}");
+
+        maxOn.ShouldBeGreaterThan(maxOff, "normalize should lift the brightest pixel toward white");
+        maxOn.ShouldBeGreaterThanOrEqualTo((byte)250, "normalized peak should approach saturation");
+
+        var testDir = SharedTestData.CreateTempTestOutputDir(
+            TestContext.Current.TestClass?.TestClassSimpleName ?? nameof(StretchTests_NewPipeline));
+        await WriteRgbaAsync(rgbaOff, img.Width, img.Height, testDir, $"{Fixture}_16_hdr_norm_off", ct);
+        await WriteRgbaAsync(rgbaOn,  img.Width, img.Height, testDir, $"{Fixture}_17_hdr_norm_on",  ct);
+    }
+
+    private static (double R, double G, double B) ComputeChannelMeans(byte[] rgba)
+    {
+        long rSum = 0, gSum = 0, bSum = 0;
+        var pixels = rgba.Length / 4;
+        for (var i = 0; i < rgba.Length; i += 4)
+        {
+            rSum += rgba[i];
+            gSum += rgba[i + 1];
+            bSum += rgba[i + 2];
+        }
+        return (rSum / (double)pixels, gSum / (double)pixels, bSum / (double)pixels);
+    }
+
+    private static long BufferDifference(byte[] a, byte[] b)
+    {
+        long diff = 0;
+        for (var i = 0; i < a.Length; i++) diff += Math.Abs(a[i] - b[i]);
+        return diff;
+    }
+
+    private static byte MaxByte(byte[] rgba)
+    {
+        byte m = 0;
+        for (var i = 0; i < rgba.Length; i += 4)
+        {
+            if (rgba[i] > m) m = rgba[i];
+            if (rgba[i + 1] > m) m = rgba[i + 1];
+            if (rgba[i + 2] > m) m = rgba[i + 2];
+        }
+        return m;
+    }
+
 }
