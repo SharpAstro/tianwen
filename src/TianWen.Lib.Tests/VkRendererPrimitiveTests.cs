@@ -206,8 +206,9 @@ public sealed class VkRendererPrimitiveTests(ITestOutputHelper output)
             || deviceName.Contains("lavapipe", StringComparison.OrdinalIgnoreCase);
         var isX86_64 = System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture
             == System.Runtime.InteropServices.Architecture.X64;
-        output.WriteLine($"Physical device: {deviceName} (lavapipe={isLavapipe}, x86_64={isX86_64})");
-        if (isLavapipe && isX86_64)
+        var forceRun = Environment.GetEnvironmentVariable("TIANWEN_GPU_TESTS_FORCE_RUN") == "1";
+        output.WriteLine($"Physical device: {deviceName} (lavapipe={isLavapipe}, x86_64={isX86_64}, forceRun={forceRun})");
+        if (isLavapipe && isX86_64 && !forceRun)
         {
             Assert.Skip($"Known x86_64 Mesa lavapipe divergence -- VkRenderer GPU draws return clear color instead of geometry on this driver. See TODO.md.");
         }

@@ -377,8 +377,11 @@ public sealed class GpuStretchPipelineTests(ITestOutputHelper output)
         // x86_64 lavapipe. See TODO.md for the investigation trail + min-repro evidence.
         var isX86_64 = System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture
             == System.Runtime.InteropServices.Architecture.X64;
-        _formatDiagBag.Add($"Physical device: {deviceName} (lavapipe={isLavapipe}, x86_64={isX86_64})");
-        _isRunningOnLavapipe = isLavapipe && isX86_64;
+        // CI may set TIANWEN_GPU_TESTS_FORCE_RUN=1 to bypass the x86_64-lavapipe skip --
+        // used by the test-mesa-latest job to verify whether newer Mesa versions fix the bug.
+        var forceRun = Environment.GetEnvironmentVariable("TIANWEN_GPU_TESTS_FORCE_RUN") == "1";
+        _formatDiagBag.Add($"Physical device: {deviceName} (lavapipe={isLavapipe}, x86_64={isX86_64}, forceRun={forceRun})");
+        _isRunningOnLavapipe = isLavapipe && isX86_64 && !forceRun;
 
         // Diagnostics for the CPU/GPU divergence we hit on Mesa lavapipe: R32_SFLOAT's
         // optimalTilingFeatures tells us whether linear filtering, sampling, and even basic
