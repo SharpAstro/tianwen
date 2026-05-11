@@ -695,4 +695,87 @@ public class StretchTests_NewPipeline(ITestOutputHelper output)
         return m;
     }
 
+    /// <summary>
+    /// SensorMatched luma weighting: when the doc's ImageMeta names a known OSC sensor (e.g.
+    /// IMX571), <see cref="AstroImageDocument.ResolveLumaWeights"/> returns weights derived
+    /// from sensor-QE x Sony CFA throughput. The helper retries with RGGB CFA inclusion when
+    /// the natural SensorType lookup is degenerate, so debayered images still resolve to
+    /// the sensor-specific triple. Assert the weights flow through into
+    /// <see cref="StretchUniforms.LumaWeights"/> and differ from Rec.709 (which would be the
+    /// silent fallback if the sensor cannot be resolved).
+    /// </summary>
+    [Fact]
+    public async Task GivenOscMetaWhenLumaWeightingIsSensorMatchedThenSensorDerivedWeightsFlowThrough()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await FilterCurveDatabase.LoadAsync(ct);
+
+        var fitsImage = await SharedTestData.ExtractGZippedFitsImageAsync(Fixture, cancellationToken: ct);
+
+        // The Vela fixture is a generic 3-channel RGB FITS; its ImageMeta has no SensorModel.
+        // The OSC interpretation we want for SensorMatched is "this came from an IMX571" --
+        // so we rewrap the image with an ImageMeta that names the sensor. Keeping SensorType
+        // at its original (Monochrome) value avoids tripping GetLumaStretchStatsAsync's
+        // "RGGB needs debayering" branch; TryComputeSensorLumaWeights handles the OSC retry
+        // internally when the natural channel-throughput lookup is degenerate.
+        var oscMeta = fitsImage.ImageMeta with { SensorModel = "IMX571" };
+        var oscImage = new TianWen.Lib.Imaging.Image(
+            data: GetChannelData(fitsImage),
+            bitDepth: fitsImage.BitDepth,
+            maxValue: fitsImage.MaxValue,
+            minValue: fitsImage.MinValue,
+            pedestal: 0f,
+            imageMeta: oscMeta);
+        var doc = await AstroImageDocument.CreateFromImageAsync(oscImage, DebayerAlgorithm.None, cancellationToken: ct);
+
+        var resolved = doc.ResolveLumaWeights(LumaWeighting.SensorMatched);
+        output.WriteLine($"Doc-resolved sensor weights: R={resolved.R:F4} G={resolved.G:F4} B={resolved.B:F4}");
+
+        // Same sensor model resolves to the same triple in the underlying helper. Round-trip
+        // via direct DB call to make sure the doc path doesn't drift from the helper path.
+        FilterCurveDatabase.TryComputeSensorLumaWeights(oscMeta, out var expectedSensorW).ShouldBeTrue(
+            "test precondition: IMX571 must resolve through the helper's RGGB-retry");
+        resolved.R.ShouldBe(expectedSensorW.R, 1e-5f);
+        resolved.G.ShouldBe(expectedSensorW.G, 1e-5f);
+        resolved.B.ShouldBe(expectedSensorW.B, 1e-5f);
+
+        // Mode==Luma + SensorMatched: ComputeStretchUniforms stamps the resolved triple into
+        // StretchUniforms.LumaWeights, which the CPU mirror + GLSL shader both read.
+        var uniforms = doc.ComputeStretchUniforms(
+            StretchMode.Luma, new StretchParameters(0.15, -3), weighting: LumaWeighting.SensorMatched);
+        uniforms.LumaWeights.R.ShouldBe(expectedSensorW.R, 1e-5f);
+        uniforms.LumaWeights.G.ShouldBe(expectedSensorW.G, 1e-5f);
+        uniforms.LumaWeights.B.ShouldBe(expectedSensorW.B, 1e-5f);
+
+        // Sanity: not accidentally Rec.709 (the silent fallback when the sensor lookup fails).
+        var rec709 = LumaWeighting.Rec709.Weights;
+        var l1 = Math.Abs(uniforms.LumaWeights.R - rec709.R)
+               + Math.Abs(uniforms.LumaWeights.G - rec709.G)
+               + Math.Abs(uniforms.LumaWeights.B - rec709.B);
+        l1.ShouldBeGreaterThan(0.01f, "sensor weights must visibly differ from Rec.709 fallback");
+
+        // Render to confirm the new weights actually drive the Luma branch math.
+        var rgba = new byte[oscImage.Width * oscImage.Height * 4];
+        oscImage.RenderStretchedRgba(uniforms, rgba);
+        var (rMean, gMean, bMean) = ComputeChannelMeans(rgba);
+        output.WriteLine($"SensorMatched Luma means: R={rMean:F2} G={gMean:F2} B={bMean:F2}");
+        rMean.ShouldBeGreaterThan(0.5); gMean.ShouldBeGreaterThan(0.5); bMean.ShouldBeGreaterThan(0.5);
+
+        static float[][,] GetChannelData(TianWen.Lib.Imaging.Image img)
+        {
+            var (cc, w, h) = img.Shape;
+            var data = new float[cc][,];
+            for (var c = 0; c < cc; c++)
+            {
+                var src = img.GetChannelSpan(c);
+                var ch = new float[h, w];
+                for (var y = 0; y < h; y++)
+                    for (var x = 0; x < w; x++)
+                        ch[y, x] = src[y * w + x];
+                data[c] = ch;
+            }
+            return data;
+        }
+    }
+
 }

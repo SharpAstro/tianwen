@@ -282,11 +282,13 @@ are in the same coordinate space. `ConvergeStretchFactor` takes a `whiteBalance`
 operates entirely in post-WB space (median, mad, binNorm all multiplied) so the converged
 stretchFactor matches the per-channel rendering.
 
-Luma weights live in `StretchUniforms.LumaWeights` (Rec.709 / Rec.601 / Rec.2020 via the
-`LumaWeighting` enum, default Rec.709). The CPU `StretchLumaPixelCpu`, GLSL Luma branch, and
-`StretchUniforms.ComputePostStretchBackground` all read from the uniform — never hardcode
-Rec.709 constants. Per-sensor weights (from `FilterCurveDatabase.AllSensors` x CFA) drop in
-later via the same triple without UBO churn.
+Luma weights live in `StretchUniforms.LumaWeights` (Rec.709 / Rec.601 / Rec.2020 / SensorMatched
+via the `LumaWeighting` enum, default Rec.709). The CPU `StretchLumaPixelCpu`, GLSL Luma branch,
+and `StretchUniforms.ComputePostStretchBackground` all read from the uniform — never hardcode
+Rec.709 constants. `LumaWeighting.SensorMatched` resolves via
+`AstroImageDocument.ResolveLumaWeights` -> `FilterCurveDatabase.TryComputeSensorLumaWeights`
+(integrates sensor QE × Sony CFA R/G/B over the visible, normalises to sum 1); silently falls
+back to Rec.709 when the sensor model isn't recognised.
 
 Post-stretch normalize: when caller passes `normalize: true` to `ComputeStretchUniforms`, the
 producer calls `Image.PredictPostStretchMaxScale` (walks each channel histogram's top non-zero

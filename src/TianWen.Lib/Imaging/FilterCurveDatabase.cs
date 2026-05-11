@@ -552,6 +552,88 @@ public static class FilterCurveDatabase
         return (tsysR, tsysG, tsysB);
     }
 
+    /// <summary>
+    /// Derives a Luma stretch weight triple from the per-channel system throughput
+    /// (<see cref="BuildChannelThroughputs"/>) by integrating each channel over its
+    /// wavelength range and normalising the result to sum to 1. Captures the sensor's
+    /// broadband response: an OSC IMX571 with a wide-bandpass green CFA will yield a
+    /// different luma vector than a mono camera with narrowband Astrodon RGB filters.
+    /// Returns <c>false</c> when the database is not loaded, the sensor cannot be
+    /// resolved, or any channel integrates to zero (caller should fall back to a
+    /// standard photometric profile in that case).
+    /// </summary>
+    /// <remarks>
+    /// This is an unweighted broadband integral — no photopic V(<i>λ</i>) convolution,
+    /// because the database does not ship the CIE 1931 luminosity function. The result
+    /// is therefore "what fraction of the broadband photon flux lands in each channel"
+    /// rather than "what fraction of perceived brightness." For typical OSC sensors the
+    /// outcome lies near (1/3, 1/3, 1/3); for narrowband mono setups the dominant
+    /// channel reflects the widest filter bandpass.
+    /// </remarks>
+    public static bool TryComputeSensorLumaWeights(ImageMeta meta, out (float R, float G, float B) weights)
+    {
+        weights = default;
+        if (!IsLoaded) return false;
+
+        // Require a recognised sensor model first -- "sensor-matched" weights must actually
+        // include the sensor's QE curve. Without that we'd be returning CFA-only weights
+        // dressed up as sensor-derived, which would silently mask SensorModel typos.
+        var sensorModel = meta.SensorModel is { Length: > 0 } sm ? sm : meta.Instrument;
+        if (sensorModel is null || sensorModel.Length == 0) return false;
+        if (!TryGetSensor(sensorModel, out _) && !TryMatchSensor(sensorModel, out _)) return false;
+
+        // Resolve a usable per-channel triple. If the natural lookup is degenerate (e.g. the
+        // image was debayered downstream so SensorType is no longer RGGB), retry by forcing
+        // the RGGB CFA path -- the user wants the OSC sensor's CFA distribution regardless
+        // of whether pixel data is still Bayer-packed.
+        if (!TryIntegrate(meta, out weights))
+        {
+            var oscMeta = meta with { SensorType = SensorType.RGGB };
+            if (!TryIntegrate(oscMeta, out weights)) return false;
+        }
+        return true;
+
+        static bool TryIntegrate(ImageMeta m, out (float R, float G, float B) result)
+        {
+            result = default;
+            var throughputs = BuildChannelThroughputs(m);
+            if (throughputs is not { } tsys) return false;
+
+            var r = IntegrateThroughput(tsys.R);
+            var g = IntegrateThroughput(tsys.G);
+            var b = IntegrateThroughput(tsys.B);
+
+            // Reject identical channels (mono+single-filter setup) -- those produce a
+            // (1/3,1/3,1/3) triple that conveys nothing about the sensor's response.
+            const double IdenticalChannelEpsilon = 1e-9;
+            if (Math.Abs(r - g) < IdenticalChannelEpsilon
+                && Math.Abs(g - b) < IdenticalChannelEpsilon)
+            {
+                return false;
+            }
+
+            var sum = r + g + b;
+            if (sum <= 0 || double.IsNaN(sum) || double.IsInfinity(sum)) return false;
+
+            result = ((float)(r / sum), (float)(g / sum), (float)(b / sum));
+            return true;
+        }
+
+        static double IntegrateThroughput(FilterCurve curve)
+        {
+            if (curve.Count < 2) return 0;
+            var wl = curve.Wavelengths;
+            var tp = curve.Throughputs;
+            var sum = 0.0;
+            for (var i = 0; i < curve.Count - 1; i++)
+            {
+                var dx = wl[i + 1] - wl[i];
+                sum += (tp[i] + tp[i + 1]) * 0.5 * dx;
+            }
+            return sum;
+        }
+    }
+
     // ------------------------------------------------------------------ SEDs (Pickles)
 
     /// <summary>

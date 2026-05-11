@@ -322,8 +322,24 @@ public sealed class AstroImageDocument
     }
 
     /// <summary>
+    /// Resolves a <see cref="LumaWeighting"/> profile to the concrete (R,G,B) triple stored
+    /// in <see cref="StretchUniforms.LumaWeights"/>. For <see cref="LumaWeighting.SensorMatched"/>
+    /// queries <see cref="FilterCurveDatabase"/> for the sensor's broadband response;
+    /// falls back to Rec.709 if the database is not loaded or the sensor name cannot be matched.
+    /// </summary>
+    public (float R, float G, float B) ResolveLumaWeights(LumaWeighting weighting)
+    {
+        if (weighting is LumaWeighting.SensorMatched
+            && FilterCurveDatabase.TryComputeSensorLumaWeights(UnstretchedImage.ImageMeta, out var sensorW))
+        {
+            return sensorW;
+        }
+        return weighting.Weights;
+    }
+
+    /// <summary>
     /// Computes stretch shader uniforms for the current stretch mode and parameters.
-    /// Optional knobs mirror the SetiAstro UX: luma weighting profile (Rec.709/601/2020),
+    /// Optional knobs mirror the SetiAstro UX: luma weighting profile (Rec.709/601/2020/SensorMatched),
     /// luma-vs-linked blend (only meaningful when <paramref name="mode"/> is
     /// <see cref="StretchMode.Luma"/>), and post-stretch normalize.
     /// </summary>
@@ -344,7 +360,7 @@ public sealed class AstroImageDocument
         var luma = LumaStats;
         var factor = parameters.Factor;
         var clipping = parameters.ShadowsClipping;
-        var weights = weighting.Weights;
+        var weights = ResolveLumaWeights(weighting);
 
         if (UseIterativeConvergence && StarMaskedStats is { } masked)
         {

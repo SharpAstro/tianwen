@@ -15,11 +15,20 @@ public enum LumaWeighting
     Rec601,
     /// <summary>Rec.2020 wide-gamut primaries: (0.2627, 0.6780, 0.0593).</summary>
     Rec2020,
+    /// <summary>Weights derived from the image's sensor QE x CFA filter throughput via
+    /// <c>FilterCurveDatabase.TryComputeSensorLumaWeights</c>. Producer falls back to
+    /// Rec.709 if the database is not loaded or the sensor cannot be resolved. Use this
+    /// when you want the luma stretch matched to a specific OSC sensor's actual broadband
+    /// response (e.g. IMX571/IMX533) rather than a standard photometric profile.</summary>
+    SensorMatched,
 }
 
 public static class LumaWeightingExtensions
 {
-    /// <summary>Resolves the weighting profile to a normalised (R, G, B) weight triple.</summary>
+    /// <summary>Resolves the weighting profile to a normalised (R, G, B) weight triple.
+    /// <see cref="LumaWeighting.SensorMatched"/> falls back to Rec.709 from this pure
+    /// enum-to-triple lookup — the producer resolves the actual sensor-derived weights
+    /// via <c>FilterCurveDatabase.TryComputeSensorLumaWeights(meta, ...)</c>.</summary>
     extension(LumaWeighting weighting)
     {
         public (float R, float G, float B) Weights => weighting switch

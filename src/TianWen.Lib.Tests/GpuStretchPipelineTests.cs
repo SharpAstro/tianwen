@@ -681,6 +681,76 @@ public sealed class GpuStretchPipelineTests : IClassFixture<OffscreenGpuFixture>
         AssertCpuGpuParity(cpuRgba, gpuRgba, "26_gpu_hdr_normalize", maxAllowed: 28, outlierMax: 0.03);
     }
 
+    /// <summary>
+    /// GPU/CPU parity for sensor-derived luma weights: same plumbing as Rec.601/2020 but
+    /// the resolved triple comes from <see cref="FilterCurveDatabase.TryComputeSensorLumaWeights"/>.
+    /// Builds a doc whose ImageMeta names IMX571 so the SensorMatched path resolves to a
+    /// non-default weight vector, then asserts byte parity between CPU and GPU renders.
+    /// </summary>
+    [Fact]
+    public async Task GpuMatchesCpuForSensorMatchedLumaWeights()
+    {
+        if (!_gpu.VulkanAvailable)
+        {
+            Assert.Skip($"Vulkan runtime not available ({_gpu.UnavailableReason})");
+            return;
+        }
+
+        var ct = TestContext.Current.CancellationToken;
+        await FilterCurveDatabase.LoadAsync(ct);
+
+        var fitsImage = await SharedTestData.ExtractGZippedFitsImageAsync(VelaFixture, cancellationToken: ct);
+        var oscMeta = fitsImage.ImageMeta with { SensorModel = "IMX571" };
+        var oscImage = new TianWen.Lib.Imaging.Image(
+            data: CopyChannelData(fitsImage),
+            bitDepth: fitsImage.BitDepth,
+            maxValue: fitsImage.MaxValue,
+            minValue: fitsImage.MinValue,
+            pedestal: 0f,
+            imageMeta: oscMeta);
+        var doc = await AstroImageDocument.CreateFromImageAsync(oscImage, DebayerAlgorithm.None, cancellationToken: ct);
+        await doc.DetectStarsAsync(ct);
+
+        var uniforms = doc.ComputeStretchUniforms(
+            StretchMode.Luma, new StretchParameters(0.15, -3), weighting: LumaWeighting.SensorMatched);
+
+        // Must not be Rec.709 -- otherwise SensorMatched silently fell back and the parity
+        // test would still pass but verify nothing new.
+        var rec709 = LumaWeighting.Rec709.Weights;
+        var diff = Math.Abs(uniforms.LumaWeights.R - rec709.R)
+                 + Math.Abs(uniforms.LumaWeights.G - rec709.G)
+                 + Math.Abs(uniforms.LumaWeights.B - rec709.B);
+        diff.ShouldBeGreaterThan(0.01f, "SensorMatched must resolve to non-Rec.709 weights for this test to be meaningful");
+        output.WriteLine($"SensorMatched weights: R={uniforms.LumaWeights.R:F4} G={uniforms.LumaWeights.G:F4} B={uniforms.LumaWeights.B:F4}");
+
+        var w = oscImage.Width;
+        var h = oscImage.Height;
+        var cpuRgba = new byte[w * h * 4];
+        oscImage.RenderStretchedRgba(uniforms, cpuRgba);
+
+        var gpuRgba = await Task.Run(() => RenderViaOffscreenGpu(oscImage, uniforms, w, h, default, 0f), ct);
+        foreach (var line in _formatDiagBag) output.WriteLine(line);
+        _formatDiagBag.Clear();
+
+        AssertCpuGpuParity(cpuRgba, gpuRgba, "27_gpu_sensor_matched_imx571");
+
+        static float[][,] CopyChannelData(TianWen.Lib.Imaging.Image img)
+        {
+            var (cc, iw, ih) = img.Shape;
+            var data = new float[cc][,];
+            for (var c = 0; c < cc; c++)
+            {
+                var src = img.GetChannelSpan(c);
+                var ch = new float[ih, iw];
+                for (var y = 0; y < ih; y++)
+                    for (var x = 0; x < iw; x++)
+                        ch[y, x] = src[y * iw + x];
+                data[c] = ch;
+            }
+            return data;
+        }
+    }
+
     private void AssertCpuGpuParity(byte[] cpuRgba, byte[] gpuRgba, string label,
         int maxAllowed = 16, double outlierMax = 0.01)
     {

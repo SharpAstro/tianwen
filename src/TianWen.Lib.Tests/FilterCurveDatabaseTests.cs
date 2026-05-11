@@ -449,4 +449,78 @@ public sealed class FilterCurveDatabaseTests(ITestOutputHelper output)
     {
         FilterCurveDatabase.NormalizeName(input).ShouldBe(expected);
     }
+
+    /// <summary>
+    /// Sensor-derived luma weights: for an OSC sensor (SensorType.RGGB) with a known
+    /// QE curve, the helper integrates QE x CFA_R/G/B and normalises so the three
+    /// channels sum to 1. Asserts the broadband response is positive on every channel
+    /// (Bayer CFAs always overlap green into R/B), and that the values are distinct
+    /// from Rec.709 (otherwise the SensorMatched path would be pointless).
+    /// </summary>
+    [Theory]
+    [InlineData("IMX533")]
+    [InlineData("IMX571")]
+    [InlineData("IMX455")]
+    public async Task TryComputeSensorLumaWeights_OscSensor_ProducesNormalizedTriple(string sensorModel)
+    {
+        await FilterCurveDatabase.LoadAsync(TestContext.Current.CancellationToken);
+
+        var meta = TestImageMeta(SensorType.RGGB, sensorModel);
+
+        FilterCurveDatabase.TryComputeSensorLumaWeights(meta, out var w).ShouldBeTrue(
+            $"sensor {sensorModel} + RGGB CFA should integrate to a valid luma triple");
+
+        output.WriteLine($"{sensorModel}: weights R={w.R:F4} G={w.G:F4} B={w.B:F4}");
+
+        // Each channel produces positive broadband signal under a Bayer CFA.
+        w.R.ShouldBeGreaterThan(0f);
+        w.G.ShouldBeGreaterThan(0f);
+        w.B.ShouldBeGreaterThan(0f);
+
+        // Normalised (sums to 1 within FP rounding).
+        (w.R + w.G + w.B).ShouldBe(1f, 1e-4f, "sensor luma weights must sum to 1");
+
+        // Distinct from Rec.709 -- otherwise SensorMatched is just a re-labelled Rec.709.
+        var rec709 = LumaWeighting.Rec709.Weights;
+        var l1Diff = Math.Abs(w.R - rec709.R) + Math.Abs(w.G - rec709.G) + Math.Abs(w.B - rec709.B);
+        l1Diff.ShouldBeGreaterThan(0.01f, "SensorMatched should differ from Rec.709 in a measurable way");
+    }
+
+    /// <summary>
+    /// Empty / unknown sensor metadata falls back cleanly: helper returns false so the
+    /// producer can route to a standard Rec.709 weighting instead of crashing.
+    /// </summary>
+    [Fact]
+    public async Task TryComputeSensorLumaWeights_UnknownSensor_ReturnsFalse()
+    {
+        await FilterCurveDatabase.LoadAsync(TestContext.Current.CancellationToken);
+
+        var meta = TestImageMeta(SensorType.Monochrome, "DEFINITELY_NOT_A_REAL_SENSOR");
+
+        FilterCurveDatabase.TryComputeSensorLumaWeights(meta, out _).ShouldBeFalse(
+            "unknown sensor + mono (no CFA) cannot resolve a per-channel response");
+    }
+
+    /// <summary>Minimal stub for tests that only care about SensorType + SensorModel.</summary>
+    private static ImageMeta TestImageMeta(SensorType sensorType, string sensorModel) => new(
+        Instrument: sensorModel,
+        ExposureStartTime: default,
+        ExposureDuration: default,
+        FrameType: FrameType.Light,
+        Telescope: "",
+        PixelSizeX: 0f,
+        PixelSizeY: 0f,
+        FocalLength: -1,
+        FocusPos: -1,
+        Filter: Filter.None,
+        BinX: 1,
+        BinY: 1,
+        CCDTemperature: float.NaN,
+        SensorType: sensorType,
+        BayerOffsetX: 0,
+        BayerOffsetY: 0,
+        RowOrder: RowOrder.TopDown,
+        Latitude: float.NaN,
+        Longitude: float.NaN,
+        SensorModel: sensorModel);
 }
