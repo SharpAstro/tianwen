@@ -1452,7 +1452,13 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
 
         VkPipelineMultisampleStateCreateInfo multisample = VkPipelineMultisampleStateCreateInfo.Default;
 
-        VkPipelineColorBlendAttachmentState blendAttachment = new()
+        // Use stackalloc with an explicit lifetime spanning vkCreateGraphicsPipeline. The
+        // Vortice.Vulkan single-attachment ctor `new VkPipelineColorBlendStateCreateInfo(blendAttachment)`
+        // stores pAttachments pointing at its own stack frame, which is reclaimed when the
+        // ctor returns -- the subsequent vkCreateGraphicsPipeline then reads garbage blend
+        // state. Same bug pattern as SdlVulkan.Renderer/VkPipelineSet.cs fixed in 3.4.471.
+        var blendAttachments = stackalloc VkPipelineColorBlendAttachmentState[1];
+        blendAttachments[0] = new VkPipelineColorBlendAttachmentState
         {
             colorWriteMask = VkColorComponentFlags.All,
             blendEnable = true,
@@ -1464,7 +1470,11 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
             alphaBlendOp = VkBlendOp.Add
         };
 
-        VkPipelineColorBlendStateCreateInfo colorBlend = new(blendAttachment);
+        VkPipelineColorBlendStateCreateInfo colorBlend = new()
+        {
+            attachmentCount = 1,
+            pAttachments = blendAttachments
+        };
 
         var dynamicStates = stackalloc VkDynamicState[2];
         dynamicStates[0] = VkDynamicState.Viewport;
