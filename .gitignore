@@ -26,3 +26,5 @@ src/TianWen.Lib/Astrometry/Catalogs/*.gs.gz
 !src/TianWen.Lib/Astrometry/Catalogs/filter_curves.gs.gz
 !src/TianWen.Lib/Astrometry/Catalogs/sensor_qe.gs.gz
 !src/TianWen.Lib/Astrometry/Catalogs/pickles_sed.gs.gz
+# Lavapipe min-repro zip (built artifact for upstream bug filing)
+LavapipeMinRepro.zip

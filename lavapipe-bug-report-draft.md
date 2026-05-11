@@ -58,9 +58,10 @@ appear to have produced no output. There are **no validation messages** emitted 
 On ARM64 lavapipe the readback contains the expected drawn output and pixel-matches a
 software reference renderer to within rounding tolerance.
 
-This is reproducible with a ~150-line standalone Vulkan console application (no SDL, no
-external windowing, no swapchain) — attached as `LavapipeMinRepro.cs` /
-`LavapipeMinRepro.csproj` (see *Attachments*).
+This is reproducible with a ~70-line .NET 10 console application — attached as
+`LavapipeMinRepro.zip` (see *Attachments*). It depends only on `SdlVulkan.Renderer`
+3.4.0 (a thin Vortice.Vulkan wrapper published on nuget.org); the offscreen path issues
+normal `vkCreate*` / `vkCmd*` calls and bypasses SDL window/swapchain creation entirely.
 
 ---
 
@@ -138,24 +139,35 @@ out an application-side bug or a spec violation:
 
 ## Reproducer
 
-`LavapipeMinRepro` is a standalone ~150-line C# program that exercises the seven
-primitives. The relevant code (paths are inside the attached archive):
+`LavapipeMinRepro` is a standalone ~70-line C# .NET 10 console application that
+exercises the seven primitives. The archive contains:
 
-- `Program.cs` — full reproducer
-- `LavapipeMinRepro.csproj` — .NET 10 project
-- bindings: Vortice.Vulkan 3.2.1 (regular `vkCreate*` / `vkCmd*` calls — no SDL, no swapchain)
+- `Program.cs` — full reproducer (top-level statements, ~70 lines including diagnostics)
+- `LavapipeMinRepro.csproj` — .NET 10 project file, single `PackageReference` to
+  `SdlVulkan.Renderer` 3.4.0 (which transitively pulls in Vortice.Vulkan 3.2.1 + DIR.Lib)
+- `README.md` — what it does, expected output, build/run commands
+
+`SdlVulkan.Renderer` is a thin published Vortice.Vulkan wrapper. When used in
+offscreen mode (`VulkanContext.CreateOffscreen` + `VkRenderer.BeginOffscreenFrame`),
+it issues normal `vkCreateInstance` / `vkCreateImage` / `vkCmdDraw*` /
+`vkCmdCopyImageToBuffer` calls — no SDL window, no swapchain, no surface. The compiled
+SPIR-V for each primitive shader is embedded in the SdlVulkan.Renderer assembly and is
+identical across architectures.
 
 The reproducer:
 
-1. `vkCreateInstance` with `VK_LAYER_KHRONOS_validation` enabled + a `VK_EXT_debug_utils`
-   messenger that prints to stderr.
-2. Picks the first `VkPhysicalDevice` (lavapipe on the failing hosts).
-3. Creates a 256×256 `B8G8R8A8_UNORM` offscreen image + framebuffer.
-4. Compiles in-line SPIR-V for a passthrough vertex + solid-colour fragment shader.
-5. For each test primitive, builds vertex data, records a render-pass + draw, copies the
-   image to a buffer, reads back, prints the mean pixel value.
+1. `vkCreateInstance` (no validation layer in the min-repro itself, but identical
+   behaviour with the layer enabled — see *What we ruled out application-side*).
+2. `VulkanContext.CreateOffscreen(instance, 256, 256)` — picks the first physical
+   device (lavapipe on the failing hosts), creates device, queue, command pool,
+   256×256 `B8G8R8A8_UNORM` offscreen image + framebuffer + render pass.
+3. For each test primitive: `BeginOffscreenFrame` (clears to black) → call the renderer's
+   `FillRectangle` / `DrawRectangle` / `DrawLine` / `FillEllipse` / `DrawEllipse` →
+   `EndOffscreenFrame` (`vkCmdCopyImageToBuffer` + queue wait + map readback buffer).
+4. Print the non-zero pixel count + centre-pixel RGBA.
 
-Cross-platform — runs on Windows, Linux, macOS, ARM64, x86_64.
+Cross-platform — runs on Windows, Linux, macOS, ARM64, x86_64. The renderer's
+offscreen path does not call into SDL.
 
 ---
 
@@ -208,8 +220,9 @@ same Mesa, only LLVM JIT target differs) makes us think it's a lavapipe JIT code
 
 - Strip the `## Notes for the filer` section before pasting into gitlab.
 - Confirm the architecture comparison table dates are accurate (2026-05-11 today).
-- Min-repro source lives at `~/lavapipe-repro/LavapipeMinRepro/` in WSL2 — zip it before
-  attaching (or paste `Program.cs` inline in a `<details>` block if it's < 10 KB).
+- Min-repro source lives at `tools/lavapipe-repro/` in the repo. Zip is also produced
+  at the repo root as `LavapipeMinRepro.zip` (gitignored). Paste `Program.cs` inline in
+  a `<details>` block (it's < 3 KB) for triage convenience.
 - The CI run URLs are stable as long as the workflows aren't purged; GitHub keeps them
   for 90 days by default. Consider also linking the PR (`#5 stretch-improvements`) so
   triagers can see the discussion that led here.
