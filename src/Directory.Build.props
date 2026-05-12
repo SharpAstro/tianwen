@@ -12,7 +12,8 @@
     <UseLocalSiblings Condition="'$(UseLocalSiblings)' == ''
       AND Exists('$(MSBuildThisFileDirectory)..\..\DIR.Lib\src\DIR.Lib\DIR.Lib.csproj')
       AND Exists('$(MSBuildThisFileDirectory)..\..\Console.Lib\src\Console.Lib\Console.Lib.csproj')
-      AND Exists('$(MSBuildThisFileDirectory)..\..\SdlVulkan.Renderer\src\SdlVulkan.Renderer\SdlVulkan.Renderer.csproj')">true</UseLocalSiblings>
+      AND Exists('$(MSBuildThisFileDirectory)..\..\SdlVulkan.Renderer\src\SdlVulkan.Renderer\SdlVulkan.Renderer.csproj')
+      AND Exists('$(MSBuildThisFileDirectory)..\..\StbImageSharp\src\StbImageSharp.csproj')">true</UseLocalSiblings>
   </PropertyGroup>
 
 </Project>
