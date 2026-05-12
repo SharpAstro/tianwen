@@ -385,6 +385,19 @@ Learnings from PixInsight Statistical Stretch (SetiAstro, v2.3).
 
 - [ ] Move `FileDialogHelper` to DIR.Lib — cross-platform native file picker (comdlg32/zenity/osascript), zero TianWen dependencies
 - [ ] Move `Stat/` DSP suite to DIR.Lib — 12 files: FFT, DFT, 25+ window functions, Catmull-Rom splines, StatisticsHelper, AggregationMethod; all pure math with no astro imports (note: DFT/FFT missing namespace declarations)
+- [ ] Port debayer algos out for FC.SDK.Raw to consume — `Image.Debayer.cs` / `DebayerAlgorithm.cs` / `DebayerAlgorithmExtensions.cs` are pure Bayer-mosaic operations and don't depend on TianWen-specific types beyond `Image`/`Channel`. FC.SDK.Raw currently stops at the raw `ushort[]` mosaic on `CanonRawFile.BayerMosaic` (by design — astronomical stacking only needs the mosaic), but downstream consumers that want a sensible default JPEG render have to roll their own demosaic. Extract to DIR.Lib (or a new `SharpAstro.Imaging`/`SharpAstro.Debayer` package) so both TianWen and FC.SDK.Raw consume the same implementation; keep the 5×5 BilinearMono as the default and the simple 2×2 bilinear as a fallback. As of FC.SDK.Raw 1.4 the parallel ushort-based `CanonDemosaic.Bilinear`/`Ahd` already exist for consumer raw-render use cases — TianWen's float-based copies are intentional duplication for the stretch-aware astronomical path.
+
+## Colour: Unified camera→sRGB matrix
+
+The dcraw `adobe_coeff` 3×3 (now shipped via `FC.SDK.Raw.CanonCameraProfiles`) handles Canon CR2 sensible-default rendering. For OSC astro cameras (ZWO / QHY / etc.) and for Canon bodies whose spectral data is publicly available, we can derive the matrix from first principles — same QE × CFA spectral integration that `Tycho2ColorCalibration.ComputeSpectrophotometricWhiteBalance` already does for SPCC WB. Three pieces, in order:
+
+- [ ] **Add `ImageMeta.CameraToSrgbMatrix`** — nullable `float[]` (9 floats, row-major). Importers populate when known. Render pipeline applies after debayer + WB, before stretch. Identity when null (preserves current behaviour for FITS / TIFF / unknown sensors). This is the generic slot — it doesn't care whether the matrix came from a factory table or was derived from spectral curves.
+
+- [ ] **`FilterCurveDatabase.TryComputeCameraToSrgbMatrix(sensorModel)`** — closed-form integral over the same QE × CFA curves SPCC already loads. For each sRGB primary, integrate against `QE(λ) × CFA_c(λ)` per channel to get the camera-RGB response; invert the resulting 3×3. No stars needed, no per-image fit — pure spectral algebra. Pre-condition: `FilterCurveDatabase.TryGet` returns spectral data for the sensor.
+
+- [ ] **Jiang et al spectral CSV importer** — Stanford 2013 measured camera spectral response (QE × CFA per channel) for ~28 cameras including Canon EOS 5D Mark II / III, 1D X, 40D / 60D, Nikon D40 / D700 / D5100, several Sony / Olympus / Fuji bodies. Public CSV download. Small Python or C# tool that normalises to TianWen's `FilterCurveDatabase` `.gs.gz` format. Once imported, those camera models go through the spectral matrix path; cameras without entries fall back to `CanonCameraProfiles` (Canon) or identity (everything else).
+
+Dispatch order on CR2 import: try spectral matrix first (best — first-principles); fall back to dcraw matrix (factory-curated); fall back to identity (warn). For non-Canon raws (NEF / ARW / etc.) only the spectral path applies until / unless a vendor-specific factory table lands too.
 
 ## SdlVulkan.Renderer
 
