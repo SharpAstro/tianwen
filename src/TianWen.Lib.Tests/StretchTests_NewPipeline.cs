@@ -1,5 +1,6 @@
 using DIR.Lib;
-using DIR.Lib.Tiff;
+using SharpAstro.Tiff;
+using SharpAstro.Png;
 using ImageMagick;
 using Shouldly;
 using System;

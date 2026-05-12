@@ -572,14 +572,14 @@ public sealed class GpuStretchPipelineTests : IClassFixture<OffscreenGpuFixture>
             rgb[dst + 2] = rgba[src + 2];
         }
         await using var fs = System.IO.File.Create(path);
-        await using var writer = DIR.Lib.Tiff.TiffWriter.Create(fs);
-        await writer.AddPageAsync(rgb, width, height, new DIR.Lib.Tiff.TiffPageOptions
+        await using var writer = SharpAstro.Tiff.TiffWriter.Create(fs);
+        await writer.AddPageAsync(rgb, width, height, new SharpAstro.Tiff.TiffPageOptions
         {
             SamplesPerPixel = 3,
             BitsPerSample = 8,
-            Photometric = DIR.Lib.Tiff.TiffPhotometric.Rgb,
-            SampleFormat = DIR.Lib.Tiff.TiffSampleFormat.Uint,
-            Compression = DIR.Lib.Tiff.TiffCompression.Deflate,
+            Photometric = SharpAstro.Tiff.TiffPhotometric.Rgb,
+            SampleFormat = SharpAstro.Tiff.TiffSampleFormat.Uint,
+            Compression = SharpAstro.Tiff.TiffCompression.Deflate,
         }, ct);
         await writer.FlushAsync(ct);
     }

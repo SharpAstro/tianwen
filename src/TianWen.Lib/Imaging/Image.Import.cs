@@ -1,5 +1,5 @@
-using DIR.Lib.Exif;
-using DIR.Lib.Tiff;
+using SharpAstro.Exif;
+using SharpAstro.Tiff;
 using ImageMagick;
 using System;
 using System.Buffers.Binary;
@@ -210,7 +210,7 @@ public partial class Image
         return (pixelSizeX, pixelSizeY);
     }
 
-    private static float TryReadResolutionMicrons(System.Collections.Generic.IReadOnlyDictionary<ushort, DIR.Lib.Exif.ExifTagValue> raw, ushort tag, bool fileIsLittleEndian)
+    private static float TryReadResolutionMicrons(System.Collections.Generic.IReadOnlyDictionary<ushort, SharpAstro.Exif.ExifTagValue> raw, ushort tag, bool fileIsLittleEndian)
     {
         if (!raw.TryGetValue(tag, out var val)
             || val.Type != TiffFieldType.Rational

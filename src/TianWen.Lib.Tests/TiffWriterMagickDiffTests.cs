@@ -3,7 +3,7 @@ using System.Buffers.Binary;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-using DIR.Lib.Tiff;
+using SharpAstro.Tiff;
 using ImageMagick;
 using Shouldly;
 using Xunit;

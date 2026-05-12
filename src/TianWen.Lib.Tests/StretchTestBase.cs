@@ -1,4 +1,5 @@
 using DIR.Lib;
+using SharpAstro.Png;
 using Shouldly;
 using System;
 using System.Diagnostics;

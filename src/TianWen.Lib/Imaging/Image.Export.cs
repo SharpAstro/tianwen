@@ -1,4 +1,4 @@
-using DIR.Lib.Tiff;
+using SharpAstro.Tiff;
 using System;
 using System.IO;
 using System.Runtime.InteropServices;
