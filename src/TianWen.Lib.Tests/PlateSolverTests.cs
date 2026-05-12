@@ -514,10 +514,14 @@ public class PlateSolverTests(ITestOutputHelper output)
     [Fact(Skip = "Manual diagnostic — run by hand against a locally-saved FITS to time FindStarsAsync stages.")]
     public async Task DiagnoseFindStarsAsyncOnSavedSnapshot()
     {
-        var snapshotPath = @"C:\Users\SebastianGodelet\Pictures\TianWen\Snapshot\2026-04-27\snapshot_2026-04-27T03_48_06_OTA1.fits";
-        if (!System.IO.File.Exists(snapshotPath))
+        // Point this at any saved FITS via the TIANWEN_DIAGNOSE_FITS env var
+        // (no hardcoded path — different machines, different snapshot rotations).
+        var snapshotPath = Environment.GetEnvironmentVariable("TIANWEN_DIAGNOSE_FITS");
+        if (string.IsNullOrEmpty(snapshotPath) || !System.IO.File.Exists(snapshotPath))
         {
-            output.WriteLine($"Skipping: snapshot {snapshotPath} not present on this machine.");
+            output.WriteLine(string.IsNullOrEmpty(snapshotPath)
+                ? "Skipping: set TIANWEN_DIAGNOSE_FITS to a locally-saved FITS to enable this diagnostic."
+                : $"Skipping: snapshot {snapshotPath} not present on this machine.");
             return;
         }
 
