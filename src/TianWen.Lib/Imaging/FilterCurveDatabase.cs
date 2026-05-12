@@ -707,6 +707,91 @@ public static class FilterCurveDatabase
         return (fluxR / fluxG, fluxB / fluxG);
     }
 
+    /// <summary>
+    /// Derives the camera-RGB to sRGB 3x3 colour matrix for the given camera
+    /// model from the per-model spectral curves shipped in <c>filter_curves.gs.gz</c>
+    /// (originating from SETI Astro's SASP_data.fits). Two dispatch strategies:
+    ///
+    /// <list type="number">
+    /// <item><b>Canon-style (DSLR / mirrorless)</b>: look up
+    /// <c>&lt;model&gt;_R/G/B</c> filter triples (e.g. <c>CANON_EOS_5D_MARK_II_R</c>).
+    /// These SASP curves are end-to-end measurements that already incorporate
+    /// the sensor's QE response, so no separate QE curve is folded in.</item>
+    /// <item><b>Sony-style (ZWO / QHY / OSC astro)</b>: fall back to the
+    /// generic <c>SONY_COLOR_SENSOR_R/G/B</c> CFA triple combined with a
+    /// model-keyed sensor QE curve (e.g. <c>IMX571</c>).</item>
+    /// </list>
+    ///
+    /// Returns the same 9-float row-major shape the dcraw factory matrix in
+    /// <see cref="FC.SDK.Raw.CanonCameraProfile.ComputeRgbCam"/> produces, so
+    /// callers can use either source interchangeably.
+    /// </summary>
+    /// <param name="cameraModel">EXIF model string (Canon) or sensor model
+    /// (OSC astro). Free-form — the implementation normalises to the SASP
+    /// filter-name convention (uppercase, runs of non-alphanumerics collapsed
+    /// to single underscores).</param>
+    /// <param name="matrix">9 floats, row-major camera-RGB to sRGB.</param>
+    public static bool TryComputeCameraToSrgbMatrix(
+        string cameraModel,
+        [NotNullWhen(true)] out float[]? matrix)
+    {
+        matrix = null;
+        if (string.IsNullOrEmpty(cameraModel) || !IsLoaded) return false;
+
+        var key = NormaliseModelForFilterLookup(cameraModel);
+        if (key.Length == 0) return false;
+
+        // Strategy 1: per-camera CFA triple (Canon / Nikon / Pentax DSLRs in SASP).
+        if (TryGetFilter($"{key}_R", out var camR)
+            && TryGetFilter($"{key}_G", out var camG)
+            && TryGetFilter($"{key}_B", out var camB))
+        {
+            var camXyz = CameraColorMatrix.ComputeCamXyz(camR, camG, camB);
+            matrix = CameraColorMatrix.CamXyzToRgbCam(camXyz);
+            return true;
+        }
+
+        // Strategy 2: sensor QE + generic Sony CFA (IMX OSC astro cameras).
+        if ((TryGetSensor(cameraModel, out var qe) || TryMatchSensor(cameraModel, out qe))
+            && TryGetFilter("SONY_COLOR_SENSOR_R", out var sonyR)
+            && TryGetFilter("SONY_COLOR_SENSOR_G", out var sonyG)
+            && TryGetFilter("SONY_COLOR_SENSOR_B", out var sonyB))
+        {
+            var camXyz = CameraColorMatrix.ComputeCamXyz(qe, sonyR, sonyG, sonyB);
+            matrix = CameraColorMatrix.CamXyzToRgbCam(camXyz);
+            return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>Map a free-form camera model string to the SASP filter-name
+    /// convention: uppercase ASCII, every run of non-alphanumeric characters
+    /// collapsed to a single underscore. Leading/trailing underscores trimmed.
+    /// <c>"Canon EOS 5D Mark II"</c> -> <c>"CANON_EOS_5D_MARK_II"</c>.</summary>
+    private static string NormaliseModelForFilterLookup(string model)
+    {
+        Span<char> buffer = stackalloc char[model.Length];
+        var w = 0;
+        var lastWasUnderscore = true; // treat leading non-alnums as already-emitted underscore
+        foreach (var c in model)
+        {
+            if (char.IsAsciiLetterOrDigit(c))
+            {
+                buffer[w++] = char.ToUpperInvariant(c);
+                lastWasUnderscore = false;
+            }
+            else if (!lastWasUnderscore)
+            {
+                buffer[w++] = '_';
+                lastWasUnderscore = true;
+            }
+        }
+        // Trim trailing underscore.
+        if (w > 0 && buffer[w - 1] == '_') w--;
+        return new string(buffer[..w]);
+    }
+
     // ------------------------------------------------------------------ Token helpers
 
     internal static string NormalizeName(string name)
