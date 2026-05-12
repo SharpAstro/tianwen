@@ -133,4 +133,12 @@
     <PackageReference Include="ZWOptical.SDK" />
   </ItemGroup>
 
+  <!-- DIR.Lib: TiffWriter + PngWriter on the production path (Image.Export.cs). -->
+  <ItemGroup Condition="'$(UseLocalSiblings)' == 'true'">
+    <ProjectReference Include="..\..\..\DIR.Lib\src\DIR.Lib\DIR.Lib.csproj" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(UseLocalSiblings)' != 'true'">
+    <PackageReference Include="DIR.Lib" />
+  </ItemGroup>
+
 </Project>

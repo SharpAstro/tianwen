@@ -1,3 +1,5 @@
+using DIR.Lib;
+using DIR.Lib.Tiff;
 using ImageMagick;
 using Shouldly;
 using System;
@@ -249,27 +251,47 @@ public class StretchTests_NewPipeline(ITestOutputHelper output)
     private static string Triple((float R, float G, float B) v) => $"R={v.R:F4} G={v.G:F4} B={v.B:F4}";
 
     /// <summary>
-    /// Writes an RGBA byte buffer as both lossless ZIP-compressed TIFF (archival; preserves
-    /// every byte for diff-against-GLSL) and JPEG quality-90 (easier to view in any image
-    /// browser and shows the visible result of the pipeline).
+    /// Writes an RGBA byte buffer as both lossless 8-bit RGB TIFF (Deflate-compressed,
+    /// preserves every byte for diff-against-GLSL) and PNG (easier to view in any image
+    /// browser; replaces the prior JPEG quality-90 emit — PNG is lossless, viewable in
+    /// every browser, and DIR.Lib already ships a writer). Both write via DIR.Lib —
+    /// Magick.NET isn't on the path here.
     /// </summary>
     private async Task WriteRgbaAsync(byte[] rgba, int width, int height, string testDir, string namePrefix, CancellationToken ct)
     {
-        var settings = new PixelReadSettings((uint)width, (uint)height, StorageType.Char, PixelMapping.RGBA);
-        using var magick = new MagickImage(rgba, settings);
+        // RGBA → RGB for the lossless diff TIFF. Alpha is always 0xFF for the stretch
+        // pipeline output so dropping it costs nothing and matches the pre-port files.
+        var pixelCount = width * height;
+        var rgb = new byte[pixelCount * 3];
+        for (int p = 0, src = 0, dst = 0; p < pixelCount; p++, src += 4, dst += 3)
+        {
+            rgb[dst]     = rgba[src];
+            rgb[dst + 1] = rgba[src + 1];
+            rgb[dst + 2] = rgba[src + 2];
+        }
 
         var tiffPath = Path.Combine(testDir, $"{namePrefix}.tiff");
-        magick.Settings.Compression = CompressionMethod.Zip;
-        var tiffBytes = magick.ToByteArray(MagickFormat.Tiff);
-        await File.WriteAllBytesAsync(tiffPath, tiffBytes, ct);
+        await using (var fs = File.Create(tiffPath))
+        await using (var writer = TiffWriter.Create(fs))
+        {
+            await writer.AddPageAsync(rgb, width, height, new TiffPageOptions
+            {
+                SamplesPerPixel = 3,
+                BitsPerSample = 8,
+                Photometric = TiffPhotometric.Rgb,
+                SampleFormat = TiffSampleFormat.Uint,
+                Compression = TiffCompression.Deflate,
+            }, ct);
+            await writer.FlushAsync(ct);
+        }
 
-        var jpegPath = Path.Combine(testDir, $"{namePrefix}.jpg");
-        magick.Quality = 90;
-        var jpegBytes = magick.ToByteArray(MagickFormat.Jpeg);
-        await File.WriteAllBytesAsync(jpegPath, jpegBytes, ct);
+        var pngPath = Path.Combine(testDir, $"{namePrefix}.png");
+        var pngBytes = PngWriter.Encode(rgba, width, height);
+        await File.WriteAllBytesAsync(pngPath, pngBytes, ct);
 
-        output.WriteLine($"Wrote {tiffBytes.Length} bytes -> {tiffPath}");
-        output.WriteLine($"Wrote {jpegBytes.Length} bytes -> {jpegPath}");
+        var tiffSize = new FileInfo(tiffPath).Length;
+        output.WriteLine($"Wrote {tiffSize} bytes -> {tiffPath}");
+        output.WriteLine($"Wrote {pngBytes.Length} bytes -> {pngPath}");
     }
 
     // Cache the catalog DB across all SPCC runs in this assembly — InitDBAsync waits for the

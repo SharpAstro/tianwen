@@ -1,7 +1,7 @@
 using System;
 using System.IO;
+using System.Threading;
 using System.Threading.Tasks;
-using ImageMagick;
 using Shouldly;
 using TianWen.Lib.Imaging;
 using TianWen.UI.Abstractions;
@@ -67,6 +67,76 @@ public class ContrastBoostTests(ITestOutputHelper testOutputHelper)
     }
 
     /// <summary>
+    /// Pipeline-B equivalent of the old <c>StretchUnlinkedAsync</c> / <c>StretchLinkedAsync</c> /
+    /// <c>StretchLumaAsync</c>: drive the production CPU stretch math
+    /// (<see cref="Image.StretchChannelCpu"/> / <see cref="Image.StretchLumaPixelCpu"/>) into a
+    /// fresh float <see cref="Image"/> so the contrast-boost test can reuse the existing
+    /// region-luma sampling helpers. Debayers RGGB inputs first since <c>RenderStretchedRgba</c>
+    /// (and this mirror) expect 1- or 3-channel data; mono / 3-channel pass through.
+    /// </summary>
+    private static async Task<Image> RenderStretchedFloatAsync(Image source, DebayerAlgorithm algorithm,
+        StretchMode mode, double stretchFactor, double clippingSigma, CancellationToken ct)
+    {
+        // Debayer first (no-op for mono / 3-channel) so the document is built on the same
+        // 1- or 3-channel image we render against. AstroImageDocument.CreateFromImageAsync
+        // otherwise keeps the raw Bayer image and computes stats on a 1-channel mosaic —
+        // those uniforms wouldn't match a CPU-debayered 3-channel render (the other test in
+        // this file SKIPs RGGB for exactly this reason).
+        var renderImage = await source.DebayerAsync(algorithm, cancellationToken: ct);
+
+        var doc = await AstroImageDocument.CreateFromImageAsync(renderImage, DebayerAlgorithm.None, cancellationToken: ct);
+        await doc.DetectStarsAsync(ct);
+        var uniforms = doc.ComputeStretchUniforms(mode, new StretchParameters(stretchFactor, clippingSigma));
+
+        var (channelCount, width, height) = renderImage.Shape;
+        var outChannels = channelCount >= 3 ? 3 : 1;
+        var dst = Image.CreateChannelData(outChannels, height, width);
+
+        if (channelCount >= 3)
+        {
+            var ch0 = renderImage.GetChannelSpan(0);
+            var ch1 = renderImage.GetChannelSpan(1);
+            var ch2 = renderImage.GetChannelSpan(2);
+            for (var y = 0; y < height; y++)
+            {
+                for (var x = 0; x < width; x++)
+                {
+                    var i = y * width + x;
+                    float rRaw = ch0[i], gRaw = ch1[i], bRaw = ch2[i];
+                    float rOut, gOut, bOut;
+                    if (uniforms.Mode is StretchMode.Luma)
+                    {
+                        (rOut, gOut, bOut) = Image.StretchLumaPixelCpu(rRaw, gRaw, bRaw, uniforms);
+                    }
+                    else
+                    {
+                        rOut = Image.StretchChannelCpu(rRaw, 0, uniforms);
+                        gOut = Image.StretchChannelCpu(gRaw, 1, uniforms);
+                        bOut = Image.StretchChannelCpu(bRaw, 2, uniforms);
+                    }
+                    dst[0][y, x] = Math.Clamp(rOut, 0f, 1f);
+                    dst[1][y, x] = Math.Clamp(gOut, 0f, 1f);
+                    dst[2][y, x] = Math.Clamp(bOut, 0f, 1f);
+                }
+            }
+        }
+        else
+        {
+            var ch0 = renderImage.GetChannelSpan(0);
+            for (var y = 0; y < height; y++)
+            {
+                for (var x = 0; x < width; x++)
+                {
+                    var v = Image.StretchChannelCpu(ch0[y * width + x], 0, uniforms);
+                    dst[0][y, x] = Math.Clamp(v, 0f, 1f);
+                }
+            }
+        }
+
+        return new Image(dst, BitDepth.Float32, 1.0f, 0f, 0f, renderImage.ImageMeta);
+    }
+
+    /// <summary>
     /// Computes the average pixel value over a square region of a single channel.
     /// </summary>
     private static float AverageRegion(Image image, int channel, int x0, int y0, int size)
@@ -110,21 +180,21 @@ public class ContrastBoostTests(ITestOutputHelper testOutputHelper)
         var rawImage = await SharedTestData.ExtractGZippedFitsImageAsync(imageName, cancellationToken: cancellationToken);
         var testDir = SharedTestData.CreateTempTestOutputDir(nameof(ContrastBoostTests));
 
-        // Stretch — returns normalized [0,1] image
+        // Stretch via Pipeline B (production stretch math: ComputeStretchUniforms +
+        // StretchChannelCpu / StretchLumaPixelCpu). Returns a normalised [0,1] float image
+        // the rest of this test samples for bg/obj luma + applies its own boost curve to.
         var stretchFactor = stretchPct * 0.01d;
         var sigma = -5.0;
-        var stretched = await rawImage.StretchUnlinkedAsync(stretchFactor, sigma, algorithm, cancellationToken);
+        var stretched = await RenderStretchedFloatAsync(rawImage, algorithm, StretchMode.Unlinked, stretchFactor, sigma, cancellationToken);
         stretched.ChannelCount.ShouldBe(expectedChannels);
         stretched.MaxValue.ShouldBe(1.0f);
 
         testOutputHelper.WriteLine($"Stretched image: {stretched.Width}x{stretched.Height}x{stretched.ChannelCount}, MaxValue={stretched.MaxValue:F4}");
 
-        // Save stretched (no boost) image
+        // Save stretched (no boost) image via DIR.Lib TIFF writer
         var shortName = imageName.Length > 30 ? imageName[..30] : imageName;
-        var magickBefore = await stretched.ToMagickImageAsync(DebayerAlgorithm.None, cancellationToken);
-        magickBefore.ShouldNotBeNull();
         var beforePath = Path.Combine(testDir, $"{shortName}_f{stretchFactor:F2}_s{sigma:F1}_stretched.tiff");
-        await File.WriteAllBytesAsync(beforePath, magickBefore.ToByteArray(MagickFormat.Tiff), cancellationToken);
+        await stretched.WriteTiffAsync(beforePath, DebayerAlgorithm.None, cancellationToken);
         testOutputHelper.WriteLine($"Saved stretched image: {beforePath}");
 
         // Scan for background and object regions
@@ -190,13 +260,11 @@ public class ContrastBoostTests(ITestOutputHelper testOutputHelper)
             contrastAfter.ShouldBeGreaterThan(contrastBefore,
                 $"Contrast should increase with boost={boost}: was {contrastBefore:F4}, now {contrastAfter:F4}");
 
-            // Save boosted image
+            // Save boosted image via DIR.Lib TIFF writer
             var boostedData = ApplyCurveToImage(stretched, boost, bgLuma);
             var boostedImage = new Image(boostedData, BitDepth.Float32, 1.0f, 0f, 0f, stretched.ImageMeta);
-            var magickBoosted = await boostedImage.ToMagickImageAsync(DebayerAlgorithm.None, cancellationToken);
-            magickBoosted.ShouldNotBeNull();
             var boostedPath = Path.Combine(testDir, $"{shortName}_f{stretchFactor:F2}_s{sigma:F1}_boost{boost:F2}.tiff");
-            await File.WriteAllBytesAsync(boostedPath, magickBoosted.ToByteArray(MagickFormat.Tiff), cancellationToken);
+            await boostedImage.WriteTiffAsync(boostedPath, DebayerAlgorithm.None, cancellationToken);
         }
 
         testOutputHelper.WriteLine($"\nImages saved to: {testDir}");
@@ -246,9 +314,11 @@ public class ContrastBoostTests(ITestOutputHelper testOutputHelper)
         var computedBg = stretch.ComputePostStretchBackground(document.PerChannelBackground, document.LumaBackground);
         testOutputHelper.WriteLine($"\nComputePostStretchBackground = {computedBg:F6}");
 
-        // CPU stretch and measure actual background
+        // CPU stretch via Pipeline B and measure actual background — same math path as the
+        // viewer (ComputeStretchUniforms + StretchChannelCpu) so the predicted bg from
+        // ComputePostStretchBackground really is being checked against itself.
         var rawImage = await SharedTestData.ExtractGZippedFitsImageAsync(imageName, cancellationToken: cancellationToken);
-        var stretched = await rawImage.StretchUnlinkedAsync(stretchFactor, sigma, algorithm, cancellationToken);
+        var stretched = await RenderStretchedFloatAsync(rawImage, algorithm, StretchMode.Unlinked, stretchFactor, sigma, cancellationToken);
 
         var squareSize = 32;
         var step = squareSize * 4;

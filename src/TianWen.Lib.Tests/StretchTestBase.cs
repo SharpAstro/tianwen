@@ -1,14 +1,28 @@
-using ImageMagick;
+using DIR.Lib;
 using Shouldly;
 using System;
 using System.Diagnostics;
 using System.IO;
 using System.Threading.Tasks;
 using TianWen.Lib.Imaging;
+using TianWen.UI.Abstractions;
 using Xunit;
 
 namespace TianWen.Lib.Tests;
 
+/// <summary>
+/// Shared test-driver for the four mono/color/debayered/luma stretch matrices
+/// (<see cref="StretchTests_MonoImage"/>, <see cref="StretchTests_DebayeredImageUnlinked"/>,
+/// <see cref="StretchTests_ColorImagelinked"/>, <see cref="StretchTests_ColorImageLuma"/>).
+///
+/// Drives the production stretch pipeline end-to-end:
+/// FITS → <see cref="AstroImageDocument.CreateFromImageAsync"/> → star detection →
+/// <see cref="AstroImageDocument.ComputeStretchUniforms"/> →
+/// <see cref="Image.RenderStretchedRgba"/> → RGBA8 byte buffer → PNG on disk for
+/// visual inspection. Asserts per-channel byte-level signal so per-channel
+/// regressions (WB/shadow coordinate-space drift, MAD floor bugs, degenerate
+/// convergence) show up immediately.
+/// </summary>
 public abstract class StretchTestBase(ITestOutputHelper testOutputHelper)
 {
     internal Task StretchTest(string fileName, DebayerAlgorithm algorithm, int stretchPct, int clippingSigma, bool linked, uint expectedChannelCount)
@@ -16,15 +30,14 @@ public abstract class StretchTestBase(ITestOutputHelper testOutputHelper)
 
     internal async Task StretchTest(string fileName, DebayerAlgorithm algorithm, int stretchPct, int clippingSigma, string mode, uint expectedChannelCount)
     {
-        // given
-        var cancellationToken = TestContext.Current.CancellationToken;
-        var image = await SharedTestData.ExtractGZippedFitsImageAsync(fileName, cancellationToken: cancellationToken);
+        // ---------- given ----------
+        var ct = TestContext.Current.CancellationToken;
+        var image = await SharedTestData.ExtractGZippedFitsImageAsync(fileName, cancellationToken: ct);
 
         var namePrefix = $"{fileName}_{algorithm}_f{stretchPct}_s{clippingSigma}_{mode}";
         var testDir = SharedTestData.CreateTempTestOutputDir(TestContext.Current.TestClass?.TestClassSimpleName ?? nameof(StretchTest));
 
-        // Pre-stretch diagnostics: show input image stats
-        testOutputHelper.WriteLine($"Input: {image.Width}x{image.Height}x{image.ChannelCount}, MaxValue={image.MaxValue:F4}, MinValue={image.MinValue:F4}, BitDepth={image.BitDepth}");
+        testOutputHelper.WriteLine($"Input: {image.Width}x{image.Height}x{image.ChannelCount}, MaxValue={image.MaxValue:F4}, MinValue={image.MinValue:F4}, BitDepth={image.BitDepth}, SensorType={image.ImageMeta.SensorType}");
         for (var c = 0; c < image.ChannelCount; c++)
         {
             var (ped, med, mad) = image.GetPedestralMedianAndMADScaledToUnit(c);
@@ -34,165 +47,107 @@ public abstract class StretchTestBase(ITestOutputHelper testOutputHelper)
         }
         if (mode == "luma" && image.ChannelCount >= 3)
         {
-            var (lumaPed, lumaMed, lumaMad) = await image.GetLumaStretchStatsAsync(algorithm, cancellationToken);
+            var (lumaPed, lumaMed, lumaMad) = await image.GetLumaStretchStatsAsync(algorithm, ct);
             testOutputHelper.WriteLine($"  Luma: pedestal={lumaPed:F6}, median={lumaMed:F6}, mad={lumaMad:F6}");
             var (ls, lm, lh, lr) = Image.ComputeStretchParameters(lumaMed, lumaMad, stretchPct * 0.01d, clippingSigma);
             testOutputHelper.WriteLine($"  Luma stretch params: shadows={ls:F6}, midtones={lm:F6}, highlights={lh:F6}, rescale={lr:F6}");
         }
 
-        // when
-        var sw = Stopwatch.StartNew();
-        var stretched = mode switch
+        var stretchMode = mode switch
         {
-            "linked" => await image.StretchLinkedAsync(stretchPct * 0.01d, clippingSigma, debayerAlgorithm: algorithm, cancellationToken: cancellationToken),
-            "luma" => await image.StretchLumaAsync(stretchPct * 0.01d, clippingSigma, debayerAlgorithm: algorithm, cancellationToken: cancellationToken),
-            _ => await image.StretchUnlinkedAsync(stretchPct * 0.01d, clippingSigma, debayerAlgorithm: algorithm, cancellationToken: cancellationToken),
+            "linked" => StretchMode.Linked,
+            "luma" => StretchMode.Luma,
+            _ => StretchMode.Unlinked,
         };
+
+        // ---------- when ----------
+        var sw = Stopwatch.StartNew();
+        // Debayer first (no-op for mono / 3-channel images) so the document is built on the
+        // same 1- or 3-channel image we render against. AstroImageDocument.CreateFromImageAsync
+        // would otherwise keep raw Bayer (1-channel mosaic) and compute stats from the mosaic
+        // histogram — those uniforms don't match a CPU-debayered 3-channel render.
+        var renderImage = await image.DebayerAsync(algorithm, cancellationToken: ct);
+        ((uint)renderImage.ChannelCount).ShouldBe(expectedChannelCount, "renderImage channel count after debayer");
+
+        var doc = await AstroImageDocument.CreateFromImageAsync(renderImage, DebayerAlgorithm.None, cancellationToken: ct);
+        // Star detection populates the star mask and a star-masked PerChannelBackground —
+        // required so background neutralisation / converged stretches behave realistically.
+        await doc.DetectStarsAsync(ct);
+
+        var uniforms = doc.ComputeStretchUniforms(stretchMode, new StretchParameters(stretchPct * 0.01d, clippingSigma));
+        testOutputHelper.WriteLine($"  Uniforms: Mode={uniforms.Mode}  NormFactor={uniforms.NormFactor:F4}");
+        testOutputHelper.WriteLine($"    Pedestal=({uniforms.Pedestal.R:F4},{uniforms.Pedestal.G:F4},{uniforms.Pedestal.B:F4})");
+        testOutputHelper.WriteLine($"    Shadows =({uniforms.Shadows.R:F4},{uniforms.Shadows.G:F4},{uniforms.Shadows.B:F4})");
+        testOutputHelper.WriteLine($"    Midtones=({uniforms.Midtones.R:F4},{uniforms.Midtones.G:F4},{uniforms.Midtones.B:F4})");
+        testOutputHelper.WriteLine($"    Rescale =({uniforms.Rescale.R:F4},{uniforms.Rescale.G:F4},{uniforms.Rescale.B:F4})");
+
+        var rgba = new byte[renderImage.Width * renderImage.Height * 4];
+        renderImage.RenderStretchedRgba(uniforms, rgba);
         sw.Stop();
-        testOutputHelper.WriteLine($"Debayering and stretching ({mode}) to {stretchPct}% using {algorithm} took: {sw.Elapsed}");
+        testOutputHelper.WriteLine($"Stretch+render ({mode}) at {stretchPct}% via {algorithm} took: {sw.Elapsed}");
 
-        // Diagnostic: show stretched image stats
-        testOutputHelper.WriteLine($"Stretched: {stretched.Width}x{stretched.Height}x{stretched.ChannelCount}, MaxValue={stretched.MaxValue:F4}, BitDepth={stretched.BitDepth}");
+        // Sample center + corner pixel for the test log so a regression author can correlate
+        // visual results with byte values quickly.
+        var cx = renderImage.Width / 2;
+        var cy = renderImage.Height / 2;
+        var centerIdx = (cy * renderImage.Width + cx) * 4;
+        var cornerIdx = (10 * renderImage.Width + 10) * 4;
+        testOutputHelper.WriteLine($"  RGBA center [{cx},{cy}] = ({rgba[centerIdx]},{rgba[centerIdx + 1]},{rgba[centerIdx + 2]})");
+        testOutputHelper.WriteLine($"  RGBA corner [10,10] = ({rgba[cornerIdx]},{rgba[cornerIdx + 1]},{rgba[cornerIdx + 2]})");
 
-        // Sample pixels from the stretched image: center and corner (likely background)
-        var cx = stretched.Width / 2;
-        var cy = stretched.Height / 2;
-        var cornerX = 10;
-        var cornerY = 10;
-        for (var c = 0; c < stretched.ChannelCount; c++)
-        {
-            testOutputHelper.WriteLine($"  Stretched center [{cx},{cy}] ch{c} = {stretched[c, cy, cx]:F6}");
-            testOutputHelper.WriteLine($"  Stretched corner [{cornerX},{cornerY}] ch{c} = {stretched[c, cornerY, cornerX]:F6}");
-        }
+        // ---------- then ----------
+        VerifyRgbaHasSignal(rgba, expectedChannelCount);
 
-        // Verify stretched image is normalized
-        stretched.MaxValue.ShouldBe(1.0f, $"Stretched image MaxValue should be 1.0 but was {stretched.MaxValue}");
-
-        // then
-        sw.Restart();
-        var magick = await stretched.ToMagickImageAsync(DebayerAlgorithm.None, cancellationToken);
-        sw.Stop();
-        testOutputHelper.WriteLine($"Converting stretched image to magick image took: {sw.Elapsed}");
-        testOutputHelper.WriteLine($"Magick Quantum.Max = {Quantum.Max}");
-
-        magick.ShouldNotBeNull();
-        magick.Width.ShouldBe((uint)image.Width);
-        magick.Height.ShouldBe((uint)image.Height);
-        magick.ChannelCount.ShouldBe(expectedChannelCount);
-
-        // Diagnostic: read back the same pixel from Magick and compare
-        using (var pixels = magick.GetPixelsUnsafe())
-        {
-            var magickPixel = pixels.GetPixel(cx, cy);
-            for (var c = 0; c < magickPixel.Channels; c++)
-            {
-                var magickVal = magickPixel.GetChannel((uint)c);
-                var stretchedVal = stretched[c, cy, cx];
-                var expected = stretchedVal * Quantum.Max;
-                testOutputHelper.WriteLine($"  Magick pixel [{cx},{cy}] ch{c} = {magickVal:F2} (expected {expected:F2}, stretched={stretchedVal:F6}, ratio={magickVal / expected:F4})");
-            }
-        }
-
-        // Verify the stretched float Image itself: bg should not collapse to zero, brightest
-        // pixels should have lifted off the floor, and no channel can stay flat.
-        VerifyStretchedFloatImageHasSignal(stretched, expectedChannelCount);
-
-        // Save stretched image as-is (before AutoLevel)
-        sw.Restart();
-        var stretchedTiffBytes = magick.ToByteArray(MagickFormat.Tiff);
-        sw.Stop();
-        testOutputHelper.WriteLine($"Converting stretched image to TIFF bytes took: {sw.Elapsed}");
-        await File.WriteAllBytesAsync(Path.Combine(testDir, $"{namePrefix}_stretched.tiff"), stretchedTiffBytes, cancellationToken);
-
-        // Also save auto-leveled version for comparison
-        sw.Restart();
-        magick.AutoLevel();
-        sw.Stop();
-        testOutputHelper.WriteLine($"Auto-levelling took: {sw.Elapsed}");
-
-        sw.Restart();
-        var autoLevelTiffBytes = magick.ToByteArray(MagickFormat.Tiff);
-        sw.Stop();
-        testOutputHelper.WriteLine($"Converting magick image to TIFF bytes took: {sw.Elapsed}");
-        await File.WriteAllBytesAsync(Path.Combine(testDir, $"{namePrefix}_autoLevel.tiff"), autoLevelTiffBytes, cancellationToken);
-
-        // Verify the auto-levelled MagickImage: full quantum range used, mean lifted away from
-        // either extreme. AutoLevel rescales to fill the dynamic range so it acts as a sanity
-        // check that the stretched image had real per-channel variation.
-        VerifyAutoLevelledMagickHasSignal(magick, expectedChannelCount);
+        // Save the rendered RGBA as a PNG for visual inspection. Lossless, browser-viewable,
+        // ~order-of-magnitude smaller than the prior TIFF intermediate.
+        var pngPath = Path.Combine(testDir, $"{namePrefix}.png");
+        var pngBytes = PngWriter.Encode(rgba, renderImage.Width, renderImage.Height);
+        await File.WriteAllBytesAsync(pngPath, pngBytes, ct);
+        testOutputHelper.WriteLine($"Wrote {pngBytes.Length} bytes -> {pngPath}");
     }
 
     /// <summary>
-    /// Verifies the stretched <see cref="Image"/> has signal: every channel's range non-zero,
-    /// mean strictly inside (0, MaxValue), and at least some pixels reach > 25% of max. Catches
-    /// regressions where a stretch collapses a channel to a single value (per-channel WB/shadow
-    /// mismatch, degenerate convergence, MAD floor bug, etc).
+    /// Verifies the RGBA8 buffer has per-channel signal — catches the same kinds of regressions
+    /// the old VerifyStretchedFloatImageHasSignal did (per-channel collapse, all-zero output,
+    /// all-saturated output), but on the production byte buffer that's actually displayed.
+    ///
+    /// For mono input (<paramref name="expectedChannelCount"/> == 1) <see cref="Image.RenderStretchedRgba"/>
+    /// broadcasts to R == G == B so only one channel needs to be checked.
     /// </summary>
-    private void VerifyStretchedFloatImageHasSignal(Image stretched, uint expectedChannelCount)
+    private void VerifyRgbaHasSignal(ReadOnlySpan<byte> rgba, uint expectedChannelCount)
     {
-        var (channelCount, width, height) = stretched.Shape;
-        ((uint)channelCount).ShouldBe(expectedChannelCount);
-        for (var c = 0; c < channelCount; c++)
-        {
-            var span = stretched.GetChannelSpan(c);
-            float min = float.MaxValue, max = float.MinValue;
-            double sum = 0;
-            var sampleCount = 0;
-            for (var i = 0; i < span.Length; i++)
-            {
-                var v = span[i];
-                if (float.IsNaN(v)) continue;
-                if (v < min) min = v;
-                if (v > max) max = v;
-                sum += v;
-                sampleCount++;
-            }
-            sampleCount.ShouldBeGreaterThan(0, $"channel {c} should have non-NaN pixels");
-            var mean = sum / sampleCount;
-            testOutputHelper.WriteLine($"  Channel {c} float range: [{min:F4}, {max:F4}]  mean: {mean:F4}");
+        var pixelCount = rgba.Length / 4;
+        pixelCount.ShouldBeGreaterThan(0);
 
-            (max - min).ShouldBeGreaterThan(0.05f, $"channel {c} should have a stretch range >5% of unit (got {(max - min):F4})");
-            max.ShouldBeGreaterThan(0.25f, $"channel {c} brightest pixel should reach >25% of max after stretch");
-            mean.ShouldBeInRange(0.001, 0.999, $"channel {c} mean should be in (0, 1) -- got {mean:F4}");
-        }
-    }
-
-    /// <summary>
-    /// Verifies the auto-levelled <see cref="MagickImage"/> uses the full quantum range and has
-    /// a sensible mean. AutoLevel guarantees the rescaled image spans [0, Quantum.Max], so this
-    /// is a sanity check on the post-stretch pixel distribution rather than the stretch itself.
-    /// </summary>
-    private void VerifyAutoLevelledMagickHasSignal(IMagickImage<float> magick, uint expectedChannelCount)
-    {
-        magick.ChannelCount.ShouldBe(expectedChannelCount);
-        using var pixels = magick.GetPixelsUnsafe();
-        var w = magick.Width;
-        var h = magick.Height;
-        var ch = (int)Math.Min(magick.ChannelCount, 3u);
-        Span<double> chSum = stackalloc double[3];
-        Span<float> chMin = stackalloc float[3] { float.MaxValue, float.MaxValue, float.MaxValue };
-        Span<float> chMax = stackalloc float[3] { float.MinValue, float.MinValue, float.MinValue };
-        var pixelCount = (long)w * h;
-        for (uint y = 0; y < h; y++)
+        var checkChannels = expectedChannelCount >= 3 ? 3 : 1;
+        Span<long> chSum = stackalloc long[3];
+        Span<int> chMin = stackalloc int[3] { 255, 255, 255 };
+        Span<int> chMax = stackalloc int[3] { 0, 0, 0 };
+        for (var i = 0; i < rgba.Length; i += 4)
         {
-            for (uint x = 0; x < w; x++)
+            for (var c = 0; c < checkChannels; c++)
             {
-                var px = pixels.GetPixel((int)x, (int)y);
-                for (var c = 0; c < ch; c++)
-                {
-                    var v = px.GetChannel((uint)c);
-                    chSum[c] += v;
-                    if (v < chMin[c]) chMin[c] = v;
-                    if (v > chMax[c]) chMax[c] = v;
-                }
+                int v = rgba[i + c];
+                chSum[c] += v;
+                if (v < chMin[c]) chMin[c] = v;
+                if (v > chMax[c]) chMax[c] = v;
             }
         }
-        for (var c = 0; c < ch; c++)
+
+        for (var c = 0; c < checkChannels; c++)
         {
-            var mean = chSum[c] / pixelCount;
-            testOutputHelper.WriteLine($"  AutoLevel ch{c} range: [{chMin[c]:F1}, {chMax[c]:F1}]  mean: {mean:F1}  (Quantum.Max={Quantum.Max})");
-            chMax[c].ShouldBeGreaterThan(Quantum.Max * 0.5f, $"channel {c} should reach >50% of Quantum.Max after AutoLevel");
-            mean.ShouldBeInRange(Quantum.Max * 0.005, Quantum.Max * 0.995, $"channel {c} AutoLevel mean stays inside the quantum range");
+            var mean = chSum[c] / (double)pixelCount;
+            testOutputHelper.WriteLine($"  Channel {c} byte range: [{chMin[c]}, {chMax[c]}]  mean: {mean:F2}");
+
+            // Range > 12/255 ≈ 5% — same threshold the old float test used.
+            (chMax[c] - chMin[c]).ShouldBeGreaterThan(12,
+                $"channel {c} should have a stretch range >12/255 (got {chMax[c] - chMin[c]})");
+            // Brightest pixel ≥ 64/255 ≈ 25% — same threshold as old test (max > 0.25f).
+            chMax[c].ShouldBeGreaterThanOrEqualTo(64,
+                $"channel {c} brightest pixel should reach ≥25% of byte range");
+            // Mean strictly inside (0, 255) — catches all-zero / fully-saturated outputs.
+            mean.ShouldBeInRange(0.25, 254.75,
+                $"channel {c} mean should be in (0, 255) -- got {mean:F2}");
         }
     }
 }

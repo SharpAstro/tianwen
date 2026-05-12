@@ -1,4 +1,3 @@
-using ImageMagick;
 using Shouldly;
 using System;
 using System.IO;
@@ -18,14 +17,13 @@ public class TiffRoundTripTests(ITestOutputHelper testOutput)
     [InlineData("RGGB_frame_bx0_by0_top_down", DebayerAlgorithm.VNG)]
     public async Task GivenFitsFileWhenSavedAsTiffAndReloadedThenPixelDataIsPreserved(string name, DebayerAlgorithm algorithm, CancellationToken cancellationToken = default)
     {
-        // given — load FITS and convert to MagickImage
+        // given — load FITS
         var original = await SharedTestData.ExtractGZippedFitsImageAsync(name, isReadOnly: false, cancellationToken: cancellationToken);
-        var magick = await original.ToMagickImageAsync(algorithm, cancellationToken);
 
-        // when — save as TIFF and reload via TryReadImageFile
+        // when — save as TIFF via DIR.Lib and reload via TryReadImageFile
         var testDir = SharedTestData.CreateTempTestOutputDir();
         var tiffPath = Path.Combine(testDir, $"{name}.tiff");
-        await File.WriteAllBytesAsync(tiffPath, magick.ToByteArray(MagickFormat.Tiff), cancellationToken);
+        await original.WriteTiffAsync(tiffPath, algorithm, cancellationToken);
         testOutput.WriteLine($"Saved TIFF to {tiffPath} ({new FileInfo(tiffPath).Length:N0} bytes)");
 
         var loaded = Image.TryReadImageFile(tiffPath, out var reloaded);
@@ -53,8 +51,10 @@ public class TiffRoundTripTests(ITestOutputHelper testOutput)
         reloaded.Width.ShouldBe(reference.Width);
         reloaded.Height.ShouldBe(reference.Height);
 
-        // Pixel values should be close (within quantization tolerance of Q16 = 1/65535)
-        var tolerance = 2f / Quantum.Max; // 2 quanta tolerance for rounding
+        // Pixel values should be close (within quantization tolerance of Q16 = 1/65535).
+        // The round-trip goes through libtiff-HDRI which uses the SMaxSampleValue=65535
+        // tag to remap file-side [0, 1] floats to in-memory [0, 65535] on read.
+        var tolerance = 2f / 65535f; // 2 quanta tolerance for rounding
         for (var c = 0; c < reloaded.ChannelCount; c++)
         {
             var refSpan = reference.GetChannelSpan(c);
@@ -81,11 +81,10 @@ public class TiffRoundTripTests(ITestOutputHelper testOutput)
     {
         // given — load FITS, save as TIFF (unstretched, linear data)
         var original = await SharedTestData.ExtractGZippedFitsImageAsync(name, cancellationToken: cancellationToken);
-        var magick = await original.ToMagickImageAsync(DebayerAlgorithm.None, cancellationToken);
 
         var testDir = SharedTestData.CreateTempTestOutputDir();
         var tiffPath = Path.Combine(testDir, $"{name}_linear.tiff");
-        await File.WriteAllBytesAsync(tiffPath, magick.ToByteArray(MagickFormat.Tiff), cancellationToken);
+        await original.WriteTiffAsync(tiffPath, DebayerAlgorithm.None, cancellationToken);
 
         // when
         Image.TryReadImageFile(tiffPath, out var reloaded).ShouldBeTrue();

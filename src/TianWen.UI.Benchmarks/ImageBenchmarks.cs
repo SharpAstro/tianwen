@@ -132,20 +132,6 @@ public class ImageBenchmarks
     [Benchmark]
     public (float, float, float, float) Background_Color_Ch0() => _colorImage.Background(0);
 
-    // --- Stretch ---
-
-    [Benchmark]
-    public Task<Image> StretchLinked_Color() => _colorImage.StretchLinkedAsync(0.15, -5.0, DebayerAlgorithm.None);
-
-    [Benchmark]
-    public Task<Image> StretchUnlinked_Color() => _colorImage.StretchUnlinkedAsync(0.15, -5.0, DebayerAlgorithm.None);
-
-    [Benchmark]
-    public Task<Image> StretchLuma_Color() => _colorImage.StretchLumaAsync(0.15, -5.0, DebayerAlgorithm.None);
-
-    [Benchmark]
-    public Task<Image> StretchUnlinked_Mono() => _monoImage.StretchUnlinkedAsync(0.15, -5.0, DebayerAlgorithm.None);
-
     // --- Star Detection ---
 
     [Benchmark]

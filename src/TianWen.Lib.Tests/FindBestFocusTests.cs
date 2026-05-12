@@ -1,4 +1,4 @@
-﻿using ImageMagick;
+﻿using DIR.Lib;
 using Shouldly;
 using System;
 using System.Collections.Generic;
@@ -140,19 +140,20 @@ public class FindBestFocusTests(ITestOutputHelper testOutputHelper)
 
     private async Task DrawSolution(MetricSampleMap sampleMap, FocusSolution solution, int minPos, int maxPos, string fileName, [CallerMemberName] string? callerName = null)
     {
-        using var image = new MagickImage(MagickColors.Transparent, 1000, 1000)
-        {
-            Format = MagickFormat.Png
-        };
-        var xMargin = (int)Math.Ceiling(image.Width * 0.1);
-        var yMargin = (int)Math.Ceiling(image.Height * 0.1);
+        // Transparent canvas (alpha=0) so the V-curve and dots render on top of nothing —
+        // matches the prior MagickImage(MagickColors.Transparent, 1000, 1000) setup.
+        using var renderer = new RgbaImageRenderer(1000, 1000);
+        renderer.Surface.Clear(new RGBAColor32(0, 0, 0, 0));
+        var xMargin = (int)Math.Ceiling(renderer.Width * 0.1);
+        var yMargin = (int)Math.Ceiling(renderer.Height * 0.1);
 
-        sampleMap.Draw(solution, minPos, maxPos, image, xMargin, yMargin);
+        sampleMap.Draw(solution, minPos, maxPos, renderer, xMargin, yMargin);
 
         var outputDir = SharedTestData.CreateTempTestOutputDir(callerName);
         var fullPath = Path.Combine(outputDir, fileName);
 
-        await image.WriteAsync(fullPath);
+        var pngBytes = PngWriter.Encode(renderer.Surface.Pixels, renderer.Surface.Width, renderer.Surface.Height);
+        await File.WriteAllBytesAsync(fullPath, pngBytes);
 
         testOutputHelper.WriteLine("Result: " + solution);
         testOutputHelper.WriteLine("Wrote hyperbola plot to: " + fileName + " in");

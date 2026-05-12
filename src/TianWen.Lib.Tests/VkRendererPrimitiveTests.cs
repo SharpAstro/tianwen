@@ -3,6 +3,7 @@ using SdlVulkan.Renderer;
 using Shouldly;
 using System;
 using System.Threading;
+using System.Threading.Tasks;
 using Vortice.Vulkan;
 using Xunit;
 using static Vortice.Vulkan.Vulkan;
@@ -45,7 +46,7 @@ public sealed class VkRendererPrimitiveTests(ITestOutputHelper output)
     // not pixel-perfect matching.
 
     [Fact]
-    public void FillRectangle_AxisAligned()
+    public async Task FillRectangle_AxisAligned()
     {
         // RectInt is (LowerRight, UpperLeft) -- LowerRight comes first in the constructor.
         var rect = new RectInt(new PointInt(180, 200), new PointInt(50, 60));
@@ -58,12 +59,12 @@ public sealed class VkRendererPrimitiveTests(ITestOutputHelper output)
         // Bit-exact on hardware Vulkan (Vulkan's top-left fill rule with integer-aligned
         // float vertices matches CPU's half-open rect fill exactly). Allow 0.1% headroom
         // for rasterization quirks.
-        AssertBadPixelFractionUnder(cpu, gpu, perPixelTolerance: 16, badPixelFraction: 0.001,
+        await AssertBadPixelFractionUnderAsync(cpu, gpu, perPixelTolerance: 16, badPixelFraction: 0.001,
             nameof(FillRectangle_AxisAligned));
     }
 
     [Fact]
-    public void DrawRectangle_ThickStroke()
+    public async Task DrawRectangle_ThickStroke()
     {
         var rect = new RectInt(new PointInt(216, 216), new PointInt(40, 40));
         var (cpu, gpu) = RenderBoth((cpuR, gpuR) =>
@@ -74,14 +75,14 @@ public sealed class VkRendererPrimitiveTests(ITestOutputHelper output)
         if (gpu is null) return;
         // Both backends decompose into 4 axis-aligned FillRectangle calls; rasterization
         // matches the half-open rect convention on each side. Bit-exact on hardware Vulkan.
-        AssertBadPixelFractionUnder(cpu, gpu, perPixelTolerance: 16, badPixelFraction: 0.001,
+        await AssertBadPixelFractionUnderAsync(cpu, gpu, perPixelTolerance: 16, badPixelFraction: 0.001,
             nameof(DrawRectangle_ThickStroke));
     }
 
     [Theory]
     [InlineData(10, 25, 190, 25)]   // horizontal
     [InlineData(128, 10, 128, 246)] // vertical
-    public void DrawLine_AxisAligned(int x0, int y0, int x1, int y1)
+    public async Task DrawLine_AxisAligned(int x0, int y0, int x1, int y1)
     {
         var (cpu, gpu) = RenderBoth((cpuR, gpuR) =>
         {
@@ -93,12 +94,12 @@ public sealed class VkRendererPrimitiveTests(ITestOutputHelper output)
         // 1-unit-thick rotated quad that straddles two rows (e.g. y=24 and y=25 for the
         // horizontal line at y=25). Disagreement is exactly one row's worth of pixels
         // = ~0.55-0.72% of bytes; allow 2% to leave headroom.
-        AssertBadPixelFractionUnder(cpu, gpu, perPixelTolerance: 16, badPixelFraction: 0.02,
+        await AssertBadPixelFractionUnderAsync(cpu, gpu, perPixelTolerance: 16, badPixelFraction: 0.02,
             $"DrawLine_AxisAligned_{x0}_{y0}_{x1}_{y1}");
     }
 
     [Fact]
-    public void DrawLine_Diagonal()
+    public async Task DrawLine_Diagonal()
     {
         var (cpu, gpu) = RenderBoth((cpuR, gpuR) =>
         {
@@ -109,12 +110,12 @@ public sealed class VkRendererPrimitiveTests(ITestOutputHelper output)
         // 45-degree diagonals are bit-exact on hardware Vulkan: CPU scanline-quad and GPU
         // rotated-quad both rasterize to the same diagonal pixel set when the line direction
         // hits the rasterization sweet spot. Allow 1% headroom for non-perfect diagonals.
-        AssertBadPixelFractionUnder(cpu, gpu, perPixelTolerance: 16, badPixelFraction: 0.01,
+        await AssertBadPixelFractionUnderAsync(cpu, gpu, perPixelTolerance: 16, badPixelFraction: 0.01,
             nameof(DrawLine_Diagonal));
     }
 
     [Fact]
-    public void FillEllipse()
+    public async Task FillEllipse()
     {
         var rect = new RectInt(new PointInt(200, 200), new PointInt(60, 60));
         var (cpu, gpu) = RenderBoth((cpuR, gpuR) =>
@@ -126,12 +127,12 @@ public sealed class VkRendererPrimitiveTests(ITestOutputHelper output)
         // CPU uses scanline fill with pixel-center sampling; GPU uses dot-product discard.
         // On hardware Vulkan only edge pixels along the ~440-pixel circumference disagree
         // (~0.07% bad bytes). Allow 0.5% headroom.
-        AssertBadPixelFractionUnder(cpu, gpu, perPixelTolerance: 16, badPixelFraction: 0.005,
+        await AssertBadPixelFractionUnderAsync(cpu, gpu, perPixelTolerance: 16, badPixelFraction: 0.005,
             nameof(FillEllipse));
     }
 
     [Fact]
-    public void DrawEllipse_RingStroke()
+    public async Task DrawEllipse_RingStroke()
     {
         var rect = new RectInt(new PointInt(200, 200), new PointInt(60, 60));
         var (cpu, gpu) = RenderBoth((cpuR, gpuR) =>
@@ -142,7 +143,7 @@ public sealed class VkRendererPrimitiveTests(ITestOutputHelper output)
         if (gpu is null) return;
         // Thick ring: disagreement on outer + inner edges (~0.65% on hardware Vulkan).
         // Allow 2% headroom.
-        AssertBadPixelFractionUnder(cpu, gpu, perPixelTolerance: 16, badPixelFraction: 0.02,
+        await AssertBadPixelFractionUnderAsync(cpu, gpu, perPixelTolerance: 16, badPixelFraction: 0.02,
             nameof(DrawEllipse_RingStroke));
     }
 
@@ -199,7 +200,7 @@ public sealed class VkRendererPrimitiveTests(ITestOutputHelper output)
         return ctx.ReadbackOffscreenRgba();
     }
 
-    private void AssertBadPixelFractionUnder(byte[] cpu, byte[] gpu, int perPixelTolerance, double badPixelFraction, string label)
+    private async Task AssertBadPixelFractionUnderAsync(byte[] cpu, byte[] gpu, int perPixelTolerance, double badPixelFraction, string label)
     {
         cpu.Length.ShouldBe(gpu.Length);
         long absDiffSum = 0;
@@ -226,9 +227,9 @@ public sealed class VkRendererPrimitiveTests(ITestOutputHelper output)
         try
         {
             var dir = SharedTestData.CreateTempTestOutputDir(nameof(VkRendererPrimitiveTests));
-            WriteTiff(cpu, Width, Height, System.IO.Path.Combine(dir, $"{label}.cpu.tiff"));
-            WriteTiff(gpu, Width, Height, System.IO.Path.Combine(dir, $"{label}.gpu.tiff"));
-            WriteDiffTiff(cpu, gpu, Width, Height, System.IO.Path.Combine(dir, $"{label}.diff.tiff"));
+            await WriteTiffAsync(cpu, Width, Height, System.IO.Path.Combine(dir, $"{label}.cpu.tiff"));
+            await WriteTiffAsync(gpu, Width, Height, System.IO.Path.Combine(dir, $"{label}.gpu.tiff"));
+            await WriteDiffTiffAsync(cpu, gpu, Width, Height, System.IO.Path.Combine(dir, $"{label}.diff.tiff"));
             output.WriteLine($"[{label}] wrote cpu/gpu/diff tiffs to {dir}");
         }
         catch (Exception ex)
@@ -240,15 +241,34 @@ public sealed class VkRendererPrimitiveTests(ITestOutputHelper output)
             $"{label}: more than {badPixelFraction:P0} of bytes outside ±{perPixelTolerance} between CPU and GPU");
     }
 
-    private static void WriteTiff(byte[] rgba, int width, int height, string path)
+    /// <summary>
+    /// Writes an RGBA byte buffer as an 8-bit RGB TIFF (Deflate-compressed) via DIR.Lib.
+    /// Alpha is always 0xFF on the CPU/GPU/diff render outputs so dropping it is lossless.
+    /// </summary>
+    private static async Task WriteTiffAsync(byte[] rgba, int width, int height, string path)
     {
-        var settings = new ImageMagick.PixelReadSettings((uint)width, (uint)height, ImageMagick.StorageType.Char, ImageMagick.PixelMapping.RGBA);
-        using var magick = new ImageMagick.MagickImage(rgba, settings);
-        magick.Settings.Compression = ImageMagick.CompressionMethod.Zip;
-        System.IO.File.WriteAllBytes(path, magick.ToByteArray(ImageMagick.MagickFormat.Tiff));
+        var pixelCount = width * height;
+        var rgb = new byte[pixelCount * 3];
+        for (int p = 0, src = 0, dst = 0; p < pixelCount; p++, src += 4, dst += 3)
+        {
+            rgb[dst]     = rgba[src];
+            rgb[dst + 1] = rgba[src + 1];
+            rgb[dst + 2] = rgba[src + 2];
+        }
+        await using var fs = System.IO.File.Create(path);
+        await using var writer = DIR.Lib.Tiff.TiffWriter.Create(fs);
+        await writer.AddPageAsync(rgb, width, height, new DIR.Lib.Tiff.TiffPageOptions
+        {
+            SamplesPerPixel = 3,
+            BitsPerSample = 8,
+            Photometric = DIR.Lib.Tiff.TiffPhotometric.Rgb,
+            SampleFormat = DIR.Lib.Tiff.TiffSampleFormat.Uint,
+            Compression = DIR.Lib.Tiff.TiffCompression.Deflate,
+        });
+        await writer.FlushAsync();
     }
 
-    private static void WriteDiffTiff(byte[] cpu, byte[] gpu, int width, int height, string path)
+    private static Task WriteDiffTiffAsync(byte[] cpu, byte[] gpu, int width, int height, string path)
     {
         var diff = new byte[cpu.Length];
         for (var i = 0; i < cpu.Length; i += 4)
@@ -260,7 +280,7 @@ public sealed class VkRendererPrimitiveTests(ITestOutputHelper output)
             diff[i] = diff[i + 1] = diff[i + 2] = d;
             diff[i + 3] = 255;
         }
-        WriteTiff(diff, width, height, path);
+        return WriteTiffAsync(diff, width, height, path);
     }
 
     private static bool IsVulkanInitFailure(Exception ex)

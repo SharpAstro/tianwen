@@ -1,6 +1,6 @@
-using ImageMagick;
+using DIR.Lib.Tiff;
 using System;
-using System.Numerics;
+using System.IO;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
@@ -9,90 +9,78 @@ namespace TianWen.Lib.Imaging;
 
 public partial class Image
 {
-    public async Task<IMagickImage<float>> ToMagickImageAsync(DebayerAlgorithm debayerAlgorithm = DebayerAlgorithm.VNG, CancellationToken cancellationToken = default)
+    // libtiff-HDRI (and Magick.NET in Q16-HDRI) round-trips float TIFFs through
+    // SMinSampleValue / SMaxSampleValue: on read the file's [0, 1] floats are
+    // multiplied by SMaxSampleValue back to the in-memory range. 65535f is the
+    // canonical Q16-HDRI quantum, so this constant keeps Magick.NET reads coming
+    // back at [0, 65535] (matching what ToMagickImageAsync used to produce) while
+    // scientific readers — tifffile, PixInsight, ImageJ — see the literal
+    // scene-linear [0, 1] floats as written.
+    private const float Q16HdriQuantumMax = 65535f;
+
+    /// <summary>
+    /// Writes the image to <paramref name="path"/> as a 32-bit IEEE-float TIFF via
+    /// DIR.Lib (no Magick.NET on this path). Bayer images are debayered first with
+    /// <paramref name="debayerAlgorithm"/>; mono / 3-channel images pass through.
+    ///
+    /// File values are in the [0, 1] scene-linear convention. The
+    /// <c>SMinSampleValue=0</c> / <c>SMaxSampleValue=<see cref="Q16HdriQuantumMax"/></c>
+    /// tags are emitted so libtiff-HDRI / Magick.NET re-maps to [0, Quantum.Max]
+    /// on read, matching what the old <c>ToMagickImageAsync</c> + Magick.NET write
+    /// produced byte-for-byte (modulo round-trip-tested quantum tolerance). 32-bit
+    /// floats compress poorly without it, so Deflate is used — typically halves
+    /// the on-disk size relative to uncompressed.
+    /// </summary>
+    public async Task WriteTiffAsync(string path, DebayerAlgorithm debayerAlgorithm = DebayerAlgorithm.VNG, CancellationToken cancellationToken = default)
     {
-        Image debayered;
+        Image source;
         if (ImageMeta.SensorType is SensorType.RGGB)
         {
             if (debayerAlgorithm is DebayerAlgorithm.None)
-            {
-                throw new ArgumentException("Must specify an algorithm for debayering", nameof(debayerAlgorithm));
-            }
-            debayered = await DebayerAsync(debayerAlgorithm, cancellationToken: cancellationToken);
+                throw new ArgumentException("Must specify a debayer algorithm for RGGB images", nameof(debayerAlgorithm));
+            source = await DebayerAsync(debayerAlgorithm, cancellationToken: cancellationToken);
         }
         else
         {
-            debayered = this;
+            source = this;
         }
 
-        return debayered.DoToMagickImage();
-    }
-
-    /// <summary>
-    /// Converts the image to a MagickImage, scaling pixel values to [0, Quantum.Max].
-    /// Uses a single reusable buffer per channel to avoid allocating a full scaled Image copy.
-    /// </summary>
-    private IMagickImage<float> DoToMagickImage()
-    {
-        var (channelCount, width, height) = Shape;
+        var (channelCount, width, height) = source.Shape;
+        // Drop alpha / extra channels — TIFF output is mono (1) or RGB (3).
+        var outChannels = channelCount >= 3 ? 3 : 1;
         var pixelCount = width * height;
-        var scale = MaxValue > 0f ? Quantum.Max / MaxValue : 1f;
+        var byteBuffer = new byte[pixelCount * outChannels * 4];
+        var floats = MemoryMarshal.Cast<byte, float>(byteBuffer.AsSpan());
 
-        // Reusable buffer for scaling one channel at a time
-        var buffer = new float[pixelCount];
+        // Normalize source values to [0, 1]. If MaxValue is already 1.0 (or below)
+        // this is a no-op scale; for unnormalized FITS data (MaxValue=65535 etc.)
+        // it brings the file into the [0, 1] convention.
+        var scale = source.MaxValue > 0f ? 1f / source.MaxValue : 1f;
 
-        var firstChannel = ChannelToImage(0); // mono or red
-
-        IMagickImage<float> result;
-        if (channelCount is 3)
+        // Interleave channel-planar → pixel-interleaved for the TIFF strip. Each
+        // pixel is `outChannels` consecutive floats; readers expecting RGB-RGB-RGB
+        // stride match (which is the contig PlanarConfig=1 default).
+        for (var c = 0; c < outChannels; c++)
         {
-            var blue = ChannelToImage(1);
-            var green = ChannelToImage(2);
-
-            using var coll = new MagickImageCollection
+            var channelSpan = source.GetChannelSpan(c);
+            for (var i = 0; i < pixelCount; i++)
             {
-                firstChannel,
-                blue,
-                green
-            };
-
-            result = coll.Combine(ColorSpace.sRGB);
-            result.SetProfile(ColorProfiles.SRGB);
+                floats[i * outChannels + c] = channelSpan[i] * scale;
+            }
         }
-        else
+
+        await using var fs = File.Create(path);
+        await using var writer = TiffWriter.Create(fs);
+        await writer.AddPageAsync(byteBuffer, width, height, new TiffPageOptions
         {
-            result = firstChannel;
-        }
-
-        // ZIP (Deflate) is lossless and typically halves the on-disk size of
-        // 32-bit float TIFFs. Without this, libtiff defaults to no compression
-        // and a 4Kx4K RGB frame is ~192 MB. Settings.Compression is the
-        // encoder-side knob; the read-only Compression property reflects the
-        // source. Set on the combined result as well because Combine() produces
-        // a new image with default (Undefined) compression regardless of the
-        // source channels' settings.
-        result.Settings.Compression = CompressionMethod.Zip;
-
-        return result;
-
-        MagickImage ChannelToImage(int channel)
-        {
-            var image = new MagickImage(MagickColors.Black, (uint)width, (uint)height)
-            {
-                Format = MagickFormat.Tiff,
-                Depth = 32,
-                Endian = BitConverter.IsLittleEndian ? Endian.LSB : Endian.MSB,
-                ColorType = ColorType.Grayscale
-            };
-            image.Settings.Compression = CompressionMethod.Zip;
-
-            // Scale channel data into reusable buffer (SIMD-accelerated)
-            MultiplyScalar(GetChannelSpan(channel), scale, buffer);
-
-            using var pix = image.GetPixelsUnsafe();
-            pix.SetPixels(buffer.AsSpan());
-
-            return image;
-        }
+            SamplesPerPixel = outChannels,
+            BitsPerSample = 32,
+            Photometric = outChannels == 1 ? TiffPhotometric.MinIsBlack : TiffPhotometric.Rgb,
+            SampleFormat = TiffSampleFormat.IeeeFloat,
+            SMinSampleValue = 0f,
+            SMaxSampleValue = Q16HdriQuantumMax,
+            Compression = TiffCompression.Deflate,
+        }, cancellationToken);
+        await writer.FlushAsync(cancellationToken);
     }
 }

@@ -561,11 +561,27 @@ public sealed class GpuStretchPipelineTests : IClassFixture<OffscreenGpuFixture>
 
     private static async Task WriteTiffAsync(byte[] rgba, int width, int height, string path, CancellationToken ct)
     {
-        var settings = new ImageMagick.PixelReadSettings((uint)width, (uint)height, ImageMagick.StorageType.Char, ImageMagick.PixelMapping.RGBA);
-        using var magick = new ImageMagick.MagickImage(rgba, settings);
-        magick.Settings.Compression = ImageMagick.CompressionMethod.Zip;
-        var bytes = magick.ToByteArray(ImageMagick.MagickFormat.Tiff);
-        await System.IO.File.WriteAllBytesAsync(path, bytes, ct);
+        // 8-bit RGB TIFF via DIR.Lib (lossless Deflate). Alpha is always 0xFF on the
+        // CPU/GPU render outputs, so dropping it is bit-for-bit lossless.
+        var pixelCount = width * height;
+        var rgb = new byte[pixelCount * 3];
+        for (int p = 0, src = 0, dst = 0; p < pixelCount; p++, src += 4, dst += 3)
+        {
+            rgb[dst]     = rgba[src];
+            rgb[dst + 1] = rgba[src + 1];
+            rgb[dst + 2] = rgba[src + 2];
+        }
+        await using var fs = System.IO.File.Create(path);
+        await using var writer = DIR.Lib.Tiff.TiffWriter.Create(fs);
+        await writer.AddPageAsync(rgb, width, height, new DIR.Lib.Tiff.TiffPageOptions
+        {
+            SamplesPerPixel = 3,
+            BitsPerSample = 8,
+            Photometric = DIR.Lib.Tiff.TiffPhotometric.Rgb,
+            SampleFormat = DIR.Lib.Tiff.TiffSampleFormat.Uint,
+            Compression = DIR.Lib.Tiff.TiffCompression.Deflate,
+        }, ct);
+        await writer.FlushAsync(ct);
     }
 
     // ---------------------------------------------------------------- New stretch features
