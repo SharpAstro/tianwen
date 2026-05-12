@@ -251,6 +251,70 @@ Camera → `ChannelBuffer` → `Image` → consumer → `image.Release()` → ca
 - `DebayerIntoAsync` for viewer output, `DebayerAsync` only for FITS viewer (file-based)
 - `Array2DPool` is for scratch only — camera buffers use `ChannelBuffer`/`_freeBuffers`
 
+### Float TIFF Convention (Magick.NET ↔ DIR.Lib swap)
+
+Float32 TIFF I/O has two competing readers in the wild and the swap from Magick.NET to
+`DIR.Lib.Tiff.TiffWriter` (planned) must respect both:
+
+- **Magick.NET / libtiff-HDRI**: stores file values normalised to `[0, 1]` and writes
+  `SMinSampleValue=0` / `SMaxSampleValue=Quantum.Max` (tags 340/341) as the dynamic-range
+  declaration. On read, libtiff multiplies file values by `SMaxSampleValue` to restore the
+  in-memory `[0, Quantum.Max]` range. This is non-standard per the TIFF 6.0 spec, which
+  treats SMin/SMax as informational only.
+- **Scientific tools** (`tifffile`, PixInsight, ImageJ, FITS-aware viewers): treat float
+  TIFFs as the literal data. SMin/SMax tags are read into metadata but **never used** to
+  rescale pixels. Verified empirically with `tifffile` against the same files Magick.NET
+  produces — it returns `[0, 1]` floats verbatim.
+
+**The `[0, 1]` file convention works for both** — Magick.NET multiplies by `Quantum.Max`
+(its convention), scientific readers get linear scene-light values. Writing
+`[0, Quantum.Max]` literally would round-trip via Magick.NET but Magick.NET would re-scale
+on read to `[0, Quantum.Max²]` ≈ 4.3 × 10⁹ — broken.
+
+**Migration recipe** for swapping `Image.Export.cs` from Magick.NET to DIR.Lib:
+
+1. Drop the `× Quantum.Max` hop in `DoToMagickImage` — write the source `[0, 1]` floats
+   directly into the TIFF byte buffer.
+2. Emit a `TiffPageOptions` with `SampleFormat = TiffSampleFormat.IeeeFloat`,
+   `SMinSampleValue = 0f`, `SMaxSampleValue = Quantum.Max`. (Tag 339 is mandatory — without
+   it readers misinterpret the float bits as uint. Tags 340/341 are required to keep
+   Magick.NET reading back at `[0, Quantum.Max]`.)
+3. Result is byte-equivalent to today's Magick.NET output → `TiffRoundTripTests` keeps
+   passing, and PixInsight/ImageJ/`tifffile` see literal `[0, 1]` linear values.
+
+The Q16-HDRI `× Quantum.Max` scaling sprinkled through `Image.Export.cs` / `Image.Import.cs`
+is purely an in-memory hop to satisfy Magick.NET's `GetArea` / `SetPixels` range — it does
+**not** affect on-disk bytes. When porting reads off Magick.NET, do the same: read file
+floats as-is and trust `[0, 1]` as the canonical internal range.
+
+See `DIR.Lib.Tests/TiffWriterRoundTripTests.cs` for the byte-level reader probe and
+`TianWen.Lib.Tests/TiffWriterMagickDiffTests.cs` for the cross-library diff suite.
+
+**DIR.Lib Phase-1.5 additions** (available as of DIR.Lib 2.14.x):
+
+- `DIR.Lib.Color.IccProfiles.SRgbV4` — bundled 588-byte sRGB v4 profile bytes
+  (LittleCMS-generated). Pass to `TiffPageOptions.IccProfile` or
+  `PngWriter.Encode(..., iccProfile)` to embed a colour-management tag without
+  having to source profile bytes yourself.
+- `PngWriter.EncodeGray8` / `EncodeGray16` / `EncodeRgba16` — bit-depth and
+  grayscale variants on top of the original RGBA8 entry point. 16-bit overloads
+  accept `ReadOnlySpan<ushort>` in system-endian and byte-swap to PNG's required
+  BE order internally.
+- `PngWriter.Encode(rgba, w, h, iccProfile)` — emits an `iCCP` chunk between
+  IHDR and IDAT, keyword "ICC profile", zlib-deflated. Empty span = no chunk.
+- `DIR.Lib.Tiff.TiffReader.Read(stream | span)` — pure-managed decoder; v1
+  scope is strip layout + Uncompressed/Deflate/ZlibPkzip + 8/16/32-bit uint
+  or IeeeFloat + contig planar config. Both "II" (LE) and "MM" (BE) byte
+  orders are accepted; the reader detects file-order from the header and
+  byte-swaps pixels to *host* order on mismatch. Multi-page chains decoded
+  fully. SampleFormat/SMin/SMax/IccProfile round-trip. Returns
+  `TiffDocument(Pages)`; per-page `Pixels` is always in host byte order,
+  zero-copy castable to `ushort[]`/`float[]` via `MemoryMarshal.Cast`.
+- `TiffWriter` now declares the file's byte order to match the host (II on
+  LE / MM on BE) so multi-byte tag values and pixel samples can be written
+  verbatim from native memory with no swap step. The reader honours either
+  order, so round-trip is correct regardless of host architecture.
+
 ### Sky Map / FITS Viewer GLSL
 
 The Vortice.ShaderCompiler GLSL-to-SPIR-V compiler does **not** handle non-ASCII characters, even
