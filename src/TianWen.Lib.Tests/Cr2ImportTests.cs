@@ -32,6 +32,7 @@ namespace TianWen.Lib.Tests;
 /// Fixture: <c>Data/CR2/_MG_7578.CR2</c>, LFS-tracked. Tests skip
 /// gracefully when the file is missing (clones without <c>git lfs pull</c>).
 /// </summary>
+[Collection("Scheduling")]
 public class Cr2ImportTests(ITestOutputHelper output)
 {
     private static string FixturePath => Path.Combine(AppContext.BaseDirectory, "Data", "CR2", "_MG_7578.CR2");

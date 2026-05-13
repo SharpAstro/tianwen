@@ -24,6 +24,7 @@ namespace TianWen.Lib.Tests;
 /// Sourced from <c>raw.pixls.us</c>, CC0. Tests skip gracefully when the
 /// file is missing (clones without <c>git lfs pull</c>).
 /// </summary>
+[Collection("Scheduling")]
 public class Cr3ImportTests(ITestOutputHelper output)
 {
     private static string FixturePath

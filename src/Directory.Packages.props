@@ -14,7 +14,6 @@
     <PackageVersion Include="DotNext.Threading" Version="6.1.0" />
     <PackageVersion Include="FITS.Lib" Version="4.5.0" />
     <PackageVersion Include="GeoTimeZone" Version="6.1.0" />
-    <PackageVersion Include="Magick.NET-Q16-HDRI-AnyCPU" Version="14.12.0" />
     <!-- Microsoft packages -->
     <PackageVersion Include="Microsoft.Extensions.DependencyInjection" Version="10.0.5" />
     <PackageVersion Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.5" />

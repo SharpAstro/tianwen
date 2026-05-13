@@ -195,7 +195,8 @@ public sealed class AstroImageDocument
             return await OpenFitsAsync(filePath, algorithm, cancellationToken);
         }
 
-        // TIFF, CR2, CR3, and other image formats — decoded via Magick.NET
+        // TIFF, CR2, CR3 — pure-managed: DIR.Lib TiffReader for TIFF,
+        // FC.SDK.Raw for CR2/CR3. No Magick.NET fallback.
         return await OpenImageFileAsync(filePath, cancellationToken);
     }
 

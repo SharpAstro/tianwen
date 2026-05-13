@@ -14,6 +14,7 @@ namespace TianWen.Lib.Tests;
 /// <c>CanonCameraProfile.ComputeRgbCam</c> lands with Phase 2 when the
 /// import wiring adds an FC.SDK.Raw reference to this project.
 /// </summary>
+[Collection("Scheduling")]
 public class CameraColorMatrixTests
 {
     [Fact]

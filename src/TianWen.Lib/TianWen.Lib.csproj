@@ -119,7 +119,6 @@
     <PackageReference Include="FC.SDK.Raw" />
     <PackageReference Include="FITS.Lib" />
     <PackageReference Include="GeoTimeZone" />
-    <PackageReference Include="Magick.NET-Q16-HDRI-AnyCPU" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
     <PackageReference Include="Microsoft.Extensions.Http" />
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
