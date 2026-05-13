@@ -165,6 +165,10 @@ public class Cr2ImportTests(ITestOutputHelper output)
         var bSpan = rgbImage.GetChannelSpan(2);
         var pixels = w * h;
 
+        // 1. Copy channels into a working buffer; apply matrix if provided.
+        //    The matrix transform mixes the three channels (camera-RGB ->
+        //    sRGB primaries) — channel-planar to interleaved layout helps
+        //    the inner loop stay cache-friendly.
         var working = new float[pixels * 3];
         for (var p = 0; p < pixels; p++)
         {
@@ -185,10 +189,17 @@ public class Cr2ImportTests(ITestOutputHelper output)
             }
         }
 
+        // 2. Joint auto-stretch by global max — single divisor across all three
+        //    channels so WB / matrix ratios survive and the brightest pixel
+        //    lands at 1.0. Without this, WB-amplified highlights clip on the
+        //    ushort conversion below.
         var max = 0f;
         for (var i = 0; i < working.Length; i++) if (working[i] > max) max = working[i];
         if (max < 1e-6f) max = 1f;
 
+        // 3. sRGB gamma encode + 8-bit quantise to RGBA. Standard sRGB
+        //    transfer function (IEC 61966-2-1) — what PngWriter / browsers
+        //    / Affinity all assume on unmanaged 8-bit images.
         var rgba = new byte[pixels * 4];
         for (var p = 0; p < pixels; p++)
         {
