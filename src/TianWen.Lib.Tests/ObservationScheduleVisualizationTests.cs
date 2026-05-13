@@ -1,11 +1,11 @@
+using DIR.Lib;
+using SharpAstro.Png;
+using Shouldly;
 using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
-using ImageMagick;
-using ImageMagick.Drawing;
-using Shouldly;
 using TianWen.Lib.Astrometry;
 using TianWen.Lib.Astrometry.SOFA;
 using TianWen.Lib.Devices;
@@ -31,14 +31,14 @@ public sealed class ObservationScheduleVisualizationTests(ITestOutputHelper test
     private static readonly Target NGC7000 = new Target(20.976, 44.53, "NGC 7000", null);
 
     // Target colors for the chart
-    private static readonly MagickColor[] TargetColors =
+    private static readonly RGBAColor32[] TargetColors =
     [
-        new MagickColor("#E63946"),  // Red
-        new MagickColor("#457B9D"),  // Steel blue
-        new MagickColor("#2A9D8F"),  // Teal
-        new MagickColor("#E9C46A"),  // Gold
-        new MagickColor("#F4A261"),  // Orange
-        new MagickColor("#264653"),  // Dark teal
+        Rgb("#E63946"),  // Red
+        Rgb("#457B9D"),  // Steel blue
+        Rgb("#2A9D8F"),  // Teal
+        Rgb("#E9C46A"),  // Gold
+        Rgb("#F4A261"),  // Orange
+        Rgb("#264653"),  // Dark teal
     ];
 
     private record TwilightBoundaries(
@@ -250,35 +250,33 @@ public sealed class ObservationScheduleVisualizationTests(ITestOutputHelper test
         double TimeToX(DateTimeOffset t) => xMargin + ((t - tStart).TotalHours / tRange * plotW);
         double AltToY(double alt) => (yMargin + plotH) - (alt / 90.0 * plotH);
 
-        using var image = new MagickImage(new MagickColor("#1a1a2e"), width, height)
-        {
-            Format = MagickFormat.Png
-        };
-
-        var drawables = new Drawables();
+        // RgbaImageRenderer replaces Magick's MagickImage + Drawables pair:
+        // it owns an RgbaImage buffer and provides Fill/Draw primitives that
+        // mirror the Magick API surface we used here. PNG output via
+        // SharpAstro.Png.PngWriter at the end (no Magick on the path).
+        using var renderer = new RgbaImageRenderer((uint)width, (uint)height);
+        var background = Rgb("#1a1a2e");
+        renderer.Surface.Clear(background);
+        var fontPath = FontResolver.ResolveSystemFont();
 
         // --- Twilight zones ---
-        DrawTwilightZones(drawables, twilight, tStart, tEnd, TimeToX, yMargin, plotH);
+        DrawTwilightZones(renderer, fontPath, twilight, tStart, tEnd, TimeToX, yMargin, plotH);
 
         // --- Night window (dark background already covers it) ---
 
         // --- Grid lines and labels ---
-        DrawGrid(drawables, tStart, tEnd, TimeToX, AltToY, xMargin, yMargin, plotW, plotH);
+        DrawGrid(renderer, fontPath, tStart, tEnd, TimeToX, AltToY, xMargin, yMargin, plotW, plotH);
 
         // --- Min altitude threshold ---
+        // Dashed horizontal red line at the minimum-altitude cutoff with a
+        // right-aligned "{MinHeight}°" label in the left gutter.
         var minAltY = AltToY(MinHeight);
-        drawables
-            .StrokeColor(new MagickColor("#FF6B6B80"))
-            .StrokeWidth(1.5)
-            .StrokeDashArray(6, 4)
-            .FillColor(MagickColors.Transparent)
-            .Line(xMargin, minAltY, xMargin + plotW, minAltY)
-            .StrokeDashArray()
-            .FontPointSize(10)
-            .StrokeColor(MagickColors.Transparent)
-            .FillColor(new MagickColor("#FF6B6B"))
-            .TextAlignment(TextAlignment.Right)
-            .Text(xMargin - 5, minAltY + 4, $"{MinHeight}°");
+        var minAltColor = Rgb("#FF6B6B");
+        var minAltLineColor = minAltColor.WithAlpha(0x80); // half-strength so it doesn't dominate
+        renderer.DrawLineDashed(xMargin, (float)minAltY, xMargin + plotW, (float)minAltY,
+            minAltLineColor, dashLength: 6f, gapLength: 4f, thickness: 2);
+        DrawAnchoredText(renderer, fontPath, $"{MinHeight}°", xMargin - 5, (float)minAltY + 4,
+            fontSize: 10, minAltColor, hAnchor: TextAlign.Far);
 
         // --- Scheduled observation windows (rectangles) ---
         var targetColorMap = new Dictionary<Target, int>();
@@ -296,14 +294,14 @@ public sealed class ObservationScheduleVisualizationTests(ITestOutputHelper test
 
             var x1 = TimeToX(obs.Start);
             var x2 = TimeToX(obs.Start + obs.Duration);
-            var bandColor = new MagickColor(color.R, color.G, color.B, (ushort)(ushort.MaxValue * 0.25));
+            // 25% alpha translucent fill (Magick used ushort.MaxValue * 0.25 →
+            // ~0x40 / 255). With RGBAColor32.WithAlpha we get the same band.
+            var bandColor = color.WithAlpha((byte)(255 * 0.25));
 
-            drawables
-                .FillColor(bandColor)
-                .StrokeColor(color)
-                .StrokeWidth(1)
-                .StrokeDashArray()
-                .Rectangle(x1, yMargin, x2, yMargin + plotH);
+            renderer.Surface.FillRect((int)x1, yMargin, (int)x2, yMargin + plotH, bandColor);
+            renderer.DrawRectangle(
+                new RectInt(new PointInt((int)x1, yMargin), new PointInt((int)x2, yMargin + plotH)),
+                color, strokeWidth: 1);
 
             // Draw spare windows as dashed outlines
             if (sparesPerSlot.TryGetValue(i, out var spares))
@@ -313,13 +311,10 @@ public sealed class ObservationScheduleVisualizationTests(ITestOutputHelper test
                     var spareColorIdx = targetColorMap.GetValueOrDefault(spare.Target, 0) % TargetColors.Length;
                     var spareColor = TargetColors[spareColorIdx];
 
-                    drawables
-                        .FillColor(MagickColors.Transparent)
-                        .StrokeColor(spareColor)
-                        .StrokeWidth(1.5)
-                        .StrokeDashArray(4, 4)
-                        .Rectangle(x1 + 2, yMargin + 2, x2 - 2, yMargin + plotH - 2)
-                        .StrokeDashArray();
+                    // Dashed outline 2 px inside the primary band so both rectangles are visible.
+                    DrawDashedRectangle(renderer,
+                        x1 + 2, yMargin + 2, x2 - 2, yMargin + plotH - 2,
+                        spareColor, dashLength: 4f, gapLength: 4f, thickness: 2);
                 }
             }
         }
@@ -349,7 +344,10 @@ public sealed class ObservationScheduleVisualizationTests(ITestOutputHelper test
 
             // Smooth with Catmull-Rom spline
             var smoothed = CatmullRomSpline.Interpolate(visibleRaw, segmentsPerSpan: 8);
-            var visiblePoints = Array.ConvertAll(smoothed, p => new PointD(p.X, p.Y));
+            // Project to the (float, float) tuples DrawPolyline expects.
+            var visiblePoints = new (float X, float Y)[smoothed.Length];
+            for (var j = 0; j < smoothed.Length; j++)
+                visiblePoints[j] = ((float)smoothed[j].X, (float)smoothed[j].Y);
 
             // Check if this target is only used as spare
             var isSpare = true;
@@ -364,90 +362,65 @@ public sealed class ObservationScheduleVisualizationTests(ITestOutputHelper test
 
             if (isSpare)
             {
-                drawables
-                    .StrokeDashArray(6, 3);
+                renderer.DrawPolylineDashed(visiblePoints, color, dashLength: 6f, gapLength: 3f, thickness: 3);
             }
-
-            drawables
-                .StrokeColor(color)
-                .StrokeWidth(2.5)
-                .FillColor(MagickColors.Transparent)
-                .Polyline(visiblePoints)
-                .StrokeDashArray();
+            else
+            {
+                renderer.DrawPolyline(visiblePoints, color, thickness: 3);
+            }
 
             // Label at the peak
             var peak = profile.MaxBy(p => p.Alt);
-            drawables
-                .FontPointSize(12)
-                .StrokeColor(MagickColors.Transparent)
-                .FillColor(color)
-                .TextAlignment(TextAlignment.Center)
-                .Text(TimeToX(peak.Time), AltToY(peak.Alt) - 8, target.Name);
+            DrawAnchoredText(renderer, fontPath, target.Name,
+                (float)TimeToX(peak.Time), (float)AltToY(peak.Alt) - 8,
+                fontSize: 12, color, hAnchor: TextAlign.Center);
         }
 
         // --- Title ---
-        drawables
-            .FontPointSize(16)
-            .StrokeColor(MagickColors.Transparent)
-            .FillColor(MagickColors.White)
-            .TextAlignment(TextAlignment.Center)
-            .Text(width / 2.0, 20, $"Observation Schedule — {label} ({SiteLatitude:F1}°N, {SiteLongitude:F1}°E)");
+        DrawAnchoredText(renderer, fontPath,
+            $"Observation Schedule — {label} ({SiteLatitude:F1}°N, {SiteLongitude:F1}°E)",
+            width / 2f, 20f, fontSize: 16, Rgb("#FFFFFF"), hAnchor: TextAlign.Center);
 
         // --- Legend ---
+        // Per-target swatch line + name, evenly spaced across the bottom row.
         var legendY = height - 20;
         var legendX = xMargin;
         for (var i = 0; i < targets.Length; i++)
         {
             var color = TargetColors[i % TargetColors.Length];
-            drawables
-                .StrokeColor(color)
-                .StrokeWidth(2)
-                .FillColor(MagickColors.Transparent)
-                .Line(legendX, legendY - 4, legendX + 20, legendY - 4)
-                .StrokeColor(MagickColors.Transparent)
-                .FillColor(color)
-                .FontPointSize(11)
-                .TextAlignment(TextAlignment.Left)
-                .Text(legendX + 25, legendY, targets[i].Name);
+            renderer.DrawLine(legendX, legendY - 4, legendX + 20, legendY - 4, color, thickness: 2);
+            DrawAnchoredText(renderer, fontPath, targets[i].Name,
+                legendX + 25, legendY, fontSize: 11, color, hAnchor: TextAlign.Near);
             legendX += 120;
         }
 
-        // Priority legend
+        // Priority legend — "Primary (solid)" + "Spare (dashed)" entries
+        // explain the line style convention used above.
         legendX += 40;
-        drawables
-            .StrokeColor(MagickColors.Gray)
-            .StrokeWidth(2)
-            .FillColor(MagickColors.Transparent)
-            .Line(legendX, legendY - 4, legendX + 20, legendY - 4)
-            .StrokeColor(MagickColors.Transparent)
-            .FillColor(MagickColors.Gray)
-            .FontPointSize(11)
-            .Text(legendX + 25, legendY, "Primary (solid)");
+        var gray = Rgb("#808080");
+        renderer.DrawLine(legendX, legendY - 4, legendX + 20, legendY - 4, gray, thickness: 2);
+        DrawAnchoredText(renderer, fontPath, "Primary (solid)",
+            legendX + 25, legendY, fontSize: 11, gray, hAnchor: TextAlign.Near);
 
         legendX += 130;
-        drawables
-            .StrokeColor(MagickColors.Gray)
-            .StrokeWidth(2)
-            .StrokeDashArray(4, 4)
-            .FillColor(MagickColors.Transparent)
-            .Line(legendX, legendY - 4, legendX + 20, legendY - 4)
-            .StrokeDashArray()
-            .StrokeColor(MagickColors.Transparent)
-            .FillColor(MagickColors.Gray)
-            .FontPointSize(11)
-            .Text(legendX + 25, legendY, "Spare (dashed)");
+        renderer.DrawLineDashed(legendX, legendY - 4, legendX + 20, legendY - 4,
+            gray, dashLength: 4f, gapLength: 4f, thickness: 2);
+        DrawAnchoredText(renderer, fontPath, "Spare (dashed)",
+            legendX + 25, legendY, fontSize: 11, gray, hAnchor: TextAlign.Near);
 
-        drawables.Draw(image);
-
+        // PNG out. RgbaImage.Pixels is already row-major interleaved RGBA bytes
+        // which PngWriter.Encode wants verbatim — no swizzle / re-pack needed.
         var outputDir = SharedTestData.CreateTempTestOutputDir(nameof(ObservationScheduleVisualizationTests));
         var fullPath = Path.Combine(outputDir, fileName);
-        await image.WriteAsync(fullPath);
+        var png = PngWriter.Encode(renderer.Surface.Pixels, width, height);
+        await File.WriteAllBytesAsync(fullPath, png);
 
         testOutputHelper.WriteLine($"Wrote altitude chart to: {fullPath}");
     }
 
     private static void DrawTwilightZones(
-        Drawables drawables,
+        RgbaImageRenderer renderer,
+        string fontPath,
         TwilightBoundaries twilight,
         DateTimeOffset tStart,
         DateTimeOffset tEnd,
@@ -456,13 +429,12 @@ public sealed class ObservationScheduleVisualizationTests(ITestOutputHelper test
         int plotH)
     {
         // Zone colors from lightest (civil) to darkest (night)
-        var civilColor = new MagickColor("#3a3a5e");
-        var nauticalColor = new MagickColor("#2a2a4e");
-        var astroColor = new MagickColor("#22223e");
-        var labelColor = new MagickColor("#ffffff50");
+        var civilColor = Rgb("#3a3a5e");
+        var nauticalColor = Rgb("#2a2a4e");
+        var astroColor = Rgb("#22223e");
 
         // Collect all zones as (x1, x2, color, label) for drawing
-        var zones = new List<(double X1, double X2, MagickColor Color, string Label)>();
+        var zones = new List<(double X1, double X2, RGBAColor32 Color, string Label, bool Fill)>();
 
         var x0 = timeToX(tStart);
         var xEnd = timeToX(tEnd);
@@ -473,22 +445,23 @@ public sealed class ObservationScheduleVisualizationTests(ITestOutputHelper test
         if (twilight.CivilSet.HasValue)
         {
             var xCivilSet = timeToX(twilight.CivilSet.Value);
-            zones.Add((x0, xCivilSet, civilColor, "Civil"));
+            zones.Add((x0, xCivilSet, civilColor, "Civil", true));
 
             if (twilight.NauticalSet.HasValue)
             {
                 var xNautSet = timeToX(twilight.NauticalSet.Value);
-                zones.Add((xCivilSet, xNautSet, nauticalColor, "Nautical"));
-                zones.Add((xNautSet, xAstroDark, astroColor, "Astro"));
+                zones.Add((xCivilSet, xNautSet, nauticalColor, "Nautical", true));
+                zones.Add((xNautSet, xAstroDark, astroColor, "Astro", true));
             }
             else
             {
-                zones.Add((xCivilSet, xAstroDark, nauticalColor, "Nautical"));
+                zones.Add((xCivilSet, xAstroDark, nauticalColor, "Nautical", true));
             }
         }
 
         // Night zone (between astro dark and astro twilight — already background color)
-        zones.Add((xAstroDark, xAstroTwilight, MagickColors.Transparent, "Night"));
+        // Fill=false so we still emit the label but don't paint over the background.
+        zones.Add((xAstroDark, xAstroTwilight, default, "Night", false));
 
         // Morning zones
         if (twilight.CivilRise.HasValue)
@@ -498,31 +471,32 @@ public sealed class ObservationScheduleVisualizationTests(ITestOutputHelper test
             if (twilight.NauticalRise.HasValue)
             {
                 var xNautRise = timeToX(twilight.NauticalRise.Value);
-                zones.Add((xAstroTwilight, xNautRise, astroColor, "Astro"));
-                zones.Add((xNautRise, xCivilRise, nauticalColor, "Nautical"));
+                zones.Add((xAstroTwilight, xNautRise, astroColor, "Astro", true));
+                zones.Add((xNautRise, xCivilRise, nauticalColor, "Nautical", true));
             }
             else
             {
-                zones.Add((xAstroTwilight, xCivilRise, nauticalColor, "Nautical"));
+                zones.Add((xAstroTwilight, xCivilRise, nauticalColor, "Nautical", true));
             }
 
-            zones.Add((xCivilRise, xEnd, civilColor, "Civil"));
+            zones.Add((xCivilRise, xEnd, civilColor, "Civil", true));
         }
 
         // Draw zone rectangles (plot area only)
-        foreach (var (x1, x2, color, _) in zones)
+        foreach (var (x1, x2, color, _, fill) in zones)
         {
-            if (color != MagickColors.Transparent)
+            if (fill)
             {
-                drawables.FillColor(color).StrokeColor(MagickColors.Transparent)
-                    .Rectangle(x1, yMargin, x2, yMargin + plotH);
+                renderer.Surface.FillRect((int)x1, yMargin, (int)x2, yMargin + plotH, color);
             }
         }
 
         // Draw zone labels above the 90° line
         var labelY = yMargin - 10;
+        var divider = Rgb("#FFFFFF").WithAlpha(0x60);
+        var labelColor = Rgb("#FFFFFF");
 
-        foreach (var (x1, x2, _, label) in zones)
+        foreach (var (x1, x2, _, lab, _) in zones)
         {
             var bandWidth = x2 - x1;
             if (bandWidth <= 20)
@@ -533,27 +507,20 @@ public sealed class ObservationScheduleVisualizationTests(ITestOutputHelper test
             var cx = (x1 + x2) / 2.0;
 
             // Draw a thin line at each zone boundary dropping from the label area to the plot
-            drawables
-                .StrokeColor(new MagickColor("#ffffff60"))
-                .StrokeWidth(1)
-                .StrokeDashArray(2, 3)
-                .FillColor(MagickColors.Transparent)
-                .Line(x1, labelY + 4, x1, yMargin)
-                .Line(x2, labelY + 4, x2, yMargin)
-                .StrokeDashArray();
+            renderer.DrawLineDashed((float)x1, labelY + 4, (float)x1, yMargin,
+                divider, dashLength: 2f, gapLength: 3f);
+            renderer.DrawLineDashed((float)x2, labelY + 4, (float)x2, yMargin,
+                divider, dashLength: 2f, gapLength: 3f);
 
-            var fontSize = bandWidth < 50 ? 9.0 : 11.0;
-            drawables
-                .FontPointSize(fontSize)
-                .StrokeColor(MagickColors.Transparent)
-                .FillColor(MagickColors.White)
-                .TextAlignment(TextAlignment.Center)
-                .Text(cx, labelY, label);
+            var fontSize = bandWidth < 50 ? 9f : 11f;
+            DrawAnchoredText(renderer, fontPath, lab,
+                (float)cx, labelY, fontSize, labelColor, hAnchor: TextAlign.Center);
         }
     }
 
     private static void DrawGrid(
-        Drawables drawables,
+        RgbaImageRenderer renderer,
+        string fontPath,
         DateTimeOffset tStart,
         DateTimeOffset tEnd,
         Func<DateTimeOffset, double> timeToX,
@@ -563,23 +530,16 @@ public sealed class ObservationScheduleVisualizationTests(ITestOutputHelper test
         int plotW,
         int plotH)
     {
-        var gridColor = new MagickColor("#ffffff30");
-        var textColor = new MagickColor("#cccccc");
+        var gridColor = Rgb("#FFFFFF").WithAlpha(0x30);
+        var textColor = Rgb("#CCCCCC");
 
         // Altitude grid lines (every 10°)
         for (var alt = 0; alt <= 90; alt += 10)
         {
             var y = altToY(alt);
-            drawables
-                .StrokeColor(gridColor)
-                .StrokeWidth(0.5)
-                .FillColor(MagickColors.Transparent)
-                .Line(xMargin, y, xMargin + plotW, y)
-                .FontPointSize(10)
-                .StrokeColor(MagickColors.Transparent)
-                .FillColor(textColor)
-                .TextAlignment(TextAlignment.Right)
-                .Text(xMargin - 5, y + 4, $"{alt}°");
+            renderer.DrawLine(xMargin, (float)y, xMargin + plotW, (float)y, gridColor);
+            DrawAnchoredText(renderer, fontPath, $"{alt}°",
+                xMargin - 5, (float)y + 4, fontSize: 10, textColor, hAnchor: TextAlign.Far);
         }
 
         // Time grid lines (every hour)
@@ -590,32 +550,83 @@ public sealed class ObservationScheduleVisualizationTests(ITestOutputHelper test
         for (var t = firstHour; t < tEnd; t = t.AddHours(1))
         {
             var x = timeToX(t);
-            drawables
-                .StrokeColor(gridColor)
-                .StrokeWidth(0.5)
-                .FillColor(MagickColors.Transparent)
-                .Line(x, yMargin, x, yMargin + plotH)
-                .FontPointSize(10)
-                .StrokeColor(MagickColors.Transparent)
-                .FillColor(textColor)
-                .TextAlignment(TextAlignment.Center)
-                .Text(x, yMargin + plotH + 15, t.ToString("HH:mm"));
+            renderer.DrawLine((float)x, yMargin, (float)x, yMargin + plotH, gridColor);
+            DrawAnchoredText(renderer, fontPath, t.ToString("HH:mm"),
+                (float)x, yMargin + plotH + 15, fontSize: 10, textColor, hAnchor: TextAlign.Center);
         }
 
-        // Axes
-        drawables
-            .StrokeColor(new MagickColor("#ffffff60"))
-            .StrokeWidth(1)
-            .FillColor(MagickColors.Transparent)
-            .Line(xMargin, yMargin, xMargin, yMargin + plotH)
-            .Line(xMargin, yMargin + plotH, xMargin + plotW, yMargin + plotH);
+        // Axes — solid 1-pixel lines on the left + bottom edges of the plot area.
+        var axisColor = Rgb("#FFFFFF").WithAlpha(0x60);
+        renderer.DrawLine(xMargin, yMargin, xMargin, yMargin + plotH, axisColor);
+        renderer.DrawLine(xMargin, yMargin + plotH, xMargin + plotW, yMargin + plotH, axisColor);
 
         // Axis labels
-        drawables
-            .FontPointSize(12)
-            .StrokeColor(MagickColors.Transparent)
-            .FillColor(textColor)
-            .TextAlignment(TextAlignment.Center)
-            .Text(xMargin + plotW / 2.0, yMargin + plotH + 40, "Local Time");
+        DrawAnchoredText(renderer, fontPath, "Local Time",
+            xMargin + plotW / 2f, yMargin + plotH + 40,
+            fontSize: 12, textColor, hAnchor: TextAlign.Center);
+    }
+
+    /// <summary>Parses an #RRGGBB hex string into <see cref="RGBAColor32"/>
+    /// with alpha = 0xFF. Magick.NET took these directly; DIR.Lib's
+    /// <see cref="RGBAColor32"/> ctor wants three bytes, so we tokenise here.</summary>
+    private static RGBAColor32 Rgb(string hex)
+    {
+        var s = hex.AsSpan().TrimStart('#');
+        var r = byte.Parse(s[..2], System.Globalization.NumberStyles.HexNumber);
+        var g = byte.Parse(s.Slice(2, 2), System.Globalization.NumberStyles.HexNumber);
+        var b = byte.Parse(s.Slice(4, 2), System.Globalization.NumberStyles.HexNumber);
+        return new RGBAColor32(r, g, b, 0xFF);
+    }
+
+    /// <summary>Draws text with a Magick.NET-style anchor point. Magick's
+    /// <c>Text(x, y, str)</c> with <c>TextAlignment.Left|Center|Right</c>
+    /// treats (x, y) as the baseline-anchored point with horizontal
+    /// alignment relative to x. DIR.Lib's <see cref="RgbaImageRenderer.DrawText"/>
+    /// uses a layout rect + alignment within. We translate by measuring
+    /// the text first and computing a layout rect of exactly the measured
+    /// size, offset so the anchor lands where Magick would have placed it.</summary>
+    private static void DrawAnchoredText(
+        RgbaImageRenderer renderer,
+        string fontPath,
+        string text,
+        float anchorX,
+        float anchorY,
+        float fontSize,
+        RGBAColor32 color,
+        TextAlign hAnchor = TextAlign.Near)
+    {
+        if (string.IsNullOrEmpty(text)) return;
+        var (w, h) = renderer.MeasureText(text, fontPath, fontSize);
+        var layoutX = hAnchor switch
+        {
+            TextAlign.Near => (int)anchorX,
+            TextAlign.Center => (int)(anchorX - w / 2f),
+            TextAlign.Far => (int)(anchorX - w),
+            _ => (int)anchorX,
+        };
+        // Magick.NET's y in Text(x, y, str) is the baseline. DIR.Lib's
+        // layout rect is top-anchored, so we shift up by the measured
+        // height to put the baseline approximately at anchorY.
+        var layoutY = (int)(anchorY - h);
+        var rect = new RectInt(
+            new PointInt(layoutX, layoutY),
+            new PointInt(layoutX + (int)MathF.Ceiling(w), layoutY + (int)MathF.Ceiling(h)));
+        renderer.DrawText(text.AsSpan(), fontPath, fontSize, color, rect,
+            horizAlignment: hAnchor, vertAlignment: TextAlign.Near);
+    }
+
+    /// <summary>Renders a dashed rectangle outline as four dashed lines.
+    /// DIR.Lib has <see cref="RgbaImageRenderer.DrawLineDashed"/> but no
+    /// direct DrawRectangleDashed — emit the four edges manually.</summary>
+    private static void DrawDashedRectangle(
+        RgbaImageRenderer renderer,
+        double x1, double y1, double x2, double y2,
+        RGBAColor32 color,
+        float dashLength, float gapLength, int thickness)
+    {
+        renderer.DrawLineDashed((float)x1, (float)y1, (float)x2, (float)y1, color, dashLength, gapLength, thickness);
+        renderer.DrawLineDashed((float)x2, (float)y1, (float)x2, (float)y2, color, dashLength, gapLength, thickness);
+        renderer.DrawLineDashed((float)x2, (float)y2, (float)x1, (float)y2, color, dashLength, gapLength, thickness);
+        renderer.DrawLineDashed((float)x1, (float)y2, (float)x1, (float)y1, color, dashLength, gapLength, thickness);
     }
 }

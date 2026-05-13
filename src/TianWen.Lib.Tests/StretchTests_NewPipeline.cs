@@ -1,7 +1,6 @@
 using DIR.Lib;
 using SharpAstro.Tiff;
 using SharpAstro.Png;
-using ImageMagick;
 using Shouldly;
 using System;
 using System.Collections.Immutable;
