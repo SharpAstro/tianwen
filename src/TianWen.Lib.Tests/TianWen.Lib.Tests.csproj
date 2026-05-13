@@ -22,7 +22,15 @@
     <EmbeddedResource Include="Data/Focus/NINA/*.json" />
   </ItemGroup>
 
+  <!-- Canon raw fixtures: LFS-tracked, copied to test output dir. Resolved via
+       AppContext.BaseDirectory/Data/CR2/<file>.CR2 at test time. Tests skip
+       gracefully if the file is missing (clones without `git lfs pull`). -->
   <ItemGroup>
+    <None Include="Data\CR2\*.CR2" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="FC.SDK.Raw" />
     <PackageReference Include="Meziantou.Extensions.Logging.Xunit.v3" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" />
     <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" />
