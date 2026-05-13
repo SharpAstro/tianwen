@@ -1,3 +1,4 @@
+using System;
 using BenchmarkDotNet.Running;
 using TianWen.UI.Benchmarks;
 
@@ -9,6 +10,18 @@ using TianWen.UI.Benchmarks;
 if (args.Length >= 2 && args[0] == "profile")
 {
     Profiling.Run(args[1], args);
+    return;
+}
+
+// One-shot smoke run for the LosslessJpeg benchmark — useful when BDN
+// reports "non-zero exit code" but hides the actual exception. Calls
+// Setup() + the benchmark method once and lets any exception escape.
+if (args.Length >= 1 && args[0] == "verify-ljpeg")
+{
+    var b = new LosslessJpegBenchmarks();
+    b.Setup();
+    var r = b.DecodeRawIfdStrip();
+    Console.WriteLine($"OK {r.Width}x{r.Height} components={r.Components} precision={r.Precision} samples={r.Samples.Length}");
     return;
 }
 

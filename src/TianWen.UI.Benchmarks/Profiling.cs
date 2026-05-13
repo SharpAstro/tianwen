@@ -1,6 +1,7 @@
 using System;
 using System.Diagnostics;
 using System.IO;
+using StbImageSharp;
 using TianWen.Lib.Imaging;
 
 namespace TianWen.UI.Benchmarks;
@@ -35,14 +36,25 @@ internal static class Profiling
                 seconds = s;
         }
 
+        var fmt = format.ToLowerInvariant();
+        // `ljpeg` mode is a different shape from the file-decode modes:
+        // we extract the lossless-JPEG strip from a CR2 once, then loop
+        // StbImageSharp directly so the trace shows pure Huffman/predictor
+        // hotspots with no CR2 wrapper / TIFF walk / file I/O noise.
+        if (fmt == "ljpeg")
+        {
+            ProfileLosslessJpeg(seconds);
+            return;
+        }
+
         var fixturesDir = Path.Combine(AppContext.BaseDirectory, "Fixtures");
-        var path = format.ToLowerInvariant() switch
+        var path = fmt switch
         {
             "cr2" => Path.Combine(fixturesDir, "CR2", "_MG_7578.CR2"),
             "cr3" => Path.Combine(fixturesDir, "CR3", "Canon_EOS_R5_CRAW.CR3"),
             "tiff" => SetupSyntheticTiff(),
             _ => throw new ArgumentException(
-                $"unknown format '{format}', expected cr2 / cr3 / tiff", nameof(format))
+                $"unknown format '{format}', expected cr2 / cr3 / tiff / ljpeg", nameof(format))
         };
         if (!File.Exists(path))
         {
@@ -51,10 +63,7 @@ internal static class Profiling
         }
 
         Console.WriteLine($"Profiling decode of {format.ToUpperInvariant()} ({Path.GetFileName(path)}) for {seconds}s.");
-        Console.WriteLine($"Process PID: {Environment.ProcessId} — attach trace now:");
-        Console.WriteLine($"  dotnet-trace collect --process-id {Environment.ProcessId} --profile cpu-sampling --duration 00:00:{seconds - 2:D2} --format Speedscope");
-        Console.WriteLine();
-        Console.WriteLine("Looping decode...");
+        PrintAttachInstructions(seconds);
 
         var deadline = TimeSpan.FromSeconds(seconds);
         var sw = Stopwatch.StartNew();
@@ -69,6 +78,40 @@ internal static class Profiling
         Console.WriteLine();
         Console.WriteLine($"decoded {count} frames in {sw.Elapsed.TotalSeconds:F2}s " +
             $"({sw.Elapsed.TotalMilliseconds / Math.Max(1, count):F1} ms/frame)");
+    }
+
+    /// <summary>Tight-loop of <see cref="LosslessJpeg.FromMemory"/> on a
+    /// pre-extracted CR2 raw IFD strip. Used to profile the StbImageSharp
+    /// SOF3 decoder in isolation, since the full CR2 read includes ~20% of
+    /// time outside of LosslessJpeg (TIFF walk, slice unscramble, EXIF
+    /// parse, Image construction) and obscures Huffman / predictor
+    /// hotspots in the trace.</summary>
+    private static void ProfileLosslessJpeg(int seconds)
+    {
+        var bench = new LosslessJpegBenchmarks();
+        bench.Setup();
+        Console.WriteLine($"Profiling LosslessJpeg.FromMemory for {seconds}s.");
+        PrintAttachInstructions(seconds);
+        var deadline = TimeSpan.FromSeconds(seconds);
+        var sw = Stopwatch.StartNew();
+        var count = 0;
+        while (sw.Elapsed < deadline)
+        {
+            bench.DecodeRawIfdStrip();
+            count++;
+        }
+        sw.Stop();
+        Console.WriteLine();
+        Console.WriteLine($"decoded {count} strips in {sw.Elapsed.TotalSeconds:F2}s " +
+            $"({sw.Elapsed.TotalMilliseconds / Math.Max(1, count):F1} ms/strip)");
+    }
+
+    private static void PrintAttachInstructions(int seconds)
+    {
+        Console.WriteLine($"Process PID: {Environment.ProcessId} — attach trace now:");
+        Console.WriteLine($"  dotnet-trace collect --process-id {Environment.ProcessId} --profile dotnet-sampled-thread-time --duration 00:00:{seconds - 2:D2} --format Speedscope");
+        Console.WriteLine();
+        Console.WriteLine("Looping decode...");
     }
 
     /// <summary>Returns the path to a synthetic TIFF used by the TIFF
