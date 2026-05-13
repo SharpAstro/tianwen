@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import os
 import re
+import struct
 import sys
 from pathlib import Path
 
@@ -17,6 +18,7 @@ import numpy as np
 from PIL import Image
 
 DATE_PATTERN = re.compile(r"^\d{8}$")  # yyyyMMdd
+PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 
 
 def find_test_roots() -> list[Path]:
@@ -59,6 +61,63 @@ def collect_pngs(date_dir: Path) -> dict[tuple[str, str], Path]:
     return out
 
 
+def png_chunks(path: Path) -> list[tuple[str, int]]:
+    """Walk the PNG chunk list. Returns [(type, data_length), ...] in file
+    order. Returns [] for non-PNG inputs (TIFFs etc. — caller handles)."""
+    try:
+        with open(path, "rb") as f:
+            b = f.read()
+    except OSError:
+        return []
+    if not b.startswith(PNG_SIGNATURE):
+        return []
+    out: list[tuple[str, int]] = []
+    pos = len(PNG_SIGNATURE)
+    while pos + 8 <= len(b):
+        ln = struct.unpack(">I", b[pos:pos+4])[0]
+        t = b[pos+4:pos+8].decode("ascii", errors="replace")
+        out.append((t, ln))
+        if t == "IEND":
+            break
+        # length(4) + type(4) + data(ln) + crc(4)
+        pos += 12 + ln
+    return out
+
+
+def diff_png_chunks(a: Path, b: Path) -> str:
+    """Compact summary of which chunks differ between two PNGs. Returns
+    something like "+iCCP[365]" or "-eXIf[42], +iCCP[365]" or "" if neither
+    side is a PNG. Skips IHDR/IDAT/IEND (always present in equal pairs)."""
+    a_chunks = png_chunks(a)
+    b_chunks = png_chunks(b)
+    if not a_chunks or not b_chunks:
+        return ""
+    # Sum data length per chunk type so a doubled chunk shows correctly
+    # (e.g., zTXt appearing twice). The structural trio (IHDR/IDAT/IEND)
+    # is excluded because it's always present and matched; we want the
+    # ancillary chunks that *explain* the byte delta.
+    def by_type(chunks):
+        agg: dict[str, int] = {}
+        for t, ln in chunks:
+            if t in ("IHDR", "IDAT", "IEND"):
+                continue
+            agg[t] = agg.get(t, 0) + ln
+        return agg
+    a_agg, b_agg = by_type(a_chunks), by_type(b_chunks)
+    parts: list[str] = []
+    for t in sorted(set(a_agg) | set(b_agg)):
+        a_len, b_len = a_agg.get(t, 0), b_agg.get(t, 0)
+        if a_len == b_len:
+            continue
+        if b_len == 0:
+            parts.append(f"+{t}[{a_len}]")
+        elif a_len == 0:
+            parts.append(f"-{t}[{b_len}]")
+        else:
+            parts.append(f"~{t}[{b_len}->{a_len}]")
+    return ", ".join(parts)
+
+
 def diff_pair(a_path: Path, b_path: Path, threshold: int) -> dict:
     """Pixel-diff two PNGs. Returns a stats dict with `status` and metrics.
     Assumes both files are valid PNGs; caller catches IO errors."""
@@ -78,6 +137,7 @@ def diff_pair(a_path: Path, b_path: Path, threshold: int) -> dict:
             "bytes_delta": bytes_delta,
             "shape_a": a.shape,
             "shape_b": b.shape,
+            "chunk_diff": "",
         }
 
     diff = np.abs(a - b)
@@ -91,12 +151,18 @@ def diff_pair(a_path: Path, b_path: Path, threshold: int) -> dict:
     changed_pct = 100.0 * n_changed / n_pixels if n_pixels else 0.0
 
     status = "unchanged" if n_changed == 0 else "CHANGED"
+    # When pixels match but bytes differ, decode chunk-level diff so the
+    # reader can tell metadata-only changes (iCCP add, eXIf rewrite) from
+    # encoder-output drift. Skip on pixel-diff cases — the pixel stats
+    # are the story there.
+    chunk_diff = diff_png_chunks(a_path, b_path) if status == "unchanged" and bytes_delta != 0 else ""
     return {
         "status": status,
         "mae": mae,
         "max": max_diff,
         "changed_pct": changed_pct,
         "bytes_delta": bytes_delta,
+        "chunk_diff": chunk_diff,
     }
 
 
@@ -112,15 +178,28 @@ def format_stats(stats: dict) -> str:
     mae = stats["mae"]
     mx = stats["max"]
     pct = stats["changed_pct"]
-    return f"{s:11s}  (MAE={mae:5.2f}, max={mx:3d}, changed={pct:5.2f}%, {bd_str})"
+    base = f"{s:11s}  (MAE={mae:5.2f}, max={mx:3d}, changed={pct:5.2f}%, {bd_str}"
+    cd = stats.get("chunk_diff") or ""
+    return base + (f", {cd})" if cd else ")")
 
 
 def compare_root(root: Path, newer: Path | None, older: Path | None,
                  threshold: int) -> int:
     """Compare all PNGs between two date dirs under `root`. Returns the count
     of CHANGED+RESHAPED entries (so the caller can `exit n` for CI)."""
-    print(f"\n{root.name}:  {newer.name if newer else '?'} vs "
-          f"{older.name if older else '?'}")
+    # Header surfaces the auto-pick prominently — easy to misread "13 vs 12"
+    # as "today vs yesterday" when today is the 14th, so spell out both the
+    # full date and a freshness hint (today / yesterday / Nd ago).
+    today = _today_yyyymmdd()
+    def label(p: Path | None) -> str:
+        if p is None:
+            return "(none)"
+        days = _days_ago(p.name, today)
+        if days == 0: tag = "today"
+        elif days == 1: tag = "yesterday"
+        else: tag = f"{days}d ago"
+        return f"{p.name} ({tag})"
+    print(f"\n{root.name}:  newer={label(newer)}  vs  older={label(older)}")
     if newer is None or older is None:
         print(f"  (only {sum(1 for _ in [newer, older] if _)} date folder(s) "
               f"available — need two to compare)")
@@ -159,6 +238,22 @@ def compare_root(root: Path, newer: Path | None, older: Path | None,
                 print(f"    {fn:40s} {format_stats({'status': 'REMOVED', 'bytes_delta': 0})}")
                 changed_count += 1
     return changed_count
+
+
+def _today_yyyymmdd() -> str:
+    import datetime
+    return datetime.date.today().strftime("%Y%m%d")
+
+
+def _days_ago(date_str: str, today: str) -> int:
+    """Whole-day distance between two yyyyMMdd strings (today minus date)."""
+    import datetime
+    try:
+        a = datetime.datetime.strptime(date_str, "%Y%m%d").date()
+        b = datetime.datetime.strptime(today, "%Y%m%d").date()
+        return (b - a).days
+    except ValueError:
+        return -1
 
 
 def main() -> int:
