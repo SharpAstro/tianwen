@@ -16,6 +16,23 @@
     <ProjectReference Include="..\TianWen.UI.Abstractions\TianWen.UI.Abstractions.csproj" />
   </ItemGroup>
 
+  <!-- LosslessJpegBenchmarks measures StbImageSharp's lossless JPEG decoder
+       directly. The package would arrive transitively from FC.SDK.Raw, but
+       when the StbImageSharp sibling is checked out locally we want to
+       benchmark against the sibling source so iteration on the decoder
+       (Huffman fast-paths, predictor tweaks, etc.) is visible without a
+       NuGet republish round-trip. ProjectReference here overrides the
+       transitive PackageReference for this benchmark project only.
+       NU1605 is suppressed here because the sibling source version
+       (e.g. 2.30.0) can be lower than the transitive constraint pinned by
+       SharpAstro.Fonts (2.30.11+); for a benchmark project this trade-off
+       is acceptable. -->
+  <PropertyGroup Condition="'$(UseLocalSiblings)' == 'true'">
+    <NoWarn>$(NoWarn);NU1605</NoWarn>
+  </PropertyGroup>
+  <ItemGroup Condition="'$(UseLocalSiblings)' == 'true'">
+    <ProjectReference Include="..\..\..\StbImageSharp\src\StbImageSharp\StbImageSharp.csproj" />
+  </ItemGroup>
 
   <!-- Re-use the LFS-tracked Canon raw fixtures from TianWen.Lib.Tests so the
        ImageReadBenchmarks measure decode-from-disk timings against the same
