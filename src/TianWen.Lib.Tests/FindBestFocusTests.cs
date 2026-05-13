@@ -1,5 +1,4 @@
 using DIR.Lib;
-using SharpAstro.Png;
 using Shouldly;
 using System;
 using System.Collections.Generic;
@@ -12,6 +11,7 @@ using System.Threading.Tasks;
 using TianWen.Lib.Astrometry.Focus;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Stat;
+using TianWen.Lib.Tests.Helpers;
 using Xunit;
 
 namespace TianWen.Lib.Tests;
@@ -153,7 +153,7 @@ public class FindBestFocusTests(ITestOutputHelper testOutputHelper)
         var outputDir = SharedTestData.CreateTempTestOutputDir(callerName);
         var fullPath = Path.Combine(outputDir, fileName);
 
-        var pngBytes = PngWriter.Encode(renderer.Surface.Pixels, renderer.Surface.Width, renderer.Surface.Height);
+        var pngBytes = DisplayImageWriter.EncodePng(renderer.Surface.Pixels, renderer.Surface.Width, renderer.Surface.Height);
         await File.WriteAllBytesAsync(fullPath, pngBytes);
 
         testOutputHelper.WriteLine("Result: " + solution);

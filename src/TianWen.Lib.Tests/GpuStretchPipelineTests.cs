@@ -11,6 +11,7 @@ using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Devices.Fake;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.ColorCalibration;
+using TianWen.Lib.Tests.Helpers;
 using TianWen.UI.Abstractions;
 using TianWen.UI.Shared;
 using Vortice.Vulkan;
@@ -199,8 +200,8 @@ public sealed class GpuStretchPipelineTests : IClassFixture<OffscreenGpuFixture>
 
         // Save both for visual inspection (helpful when the assertion fires).
         var testDir = SharedTestData.CreateTempTestOutputDir(nameof(GpuStretchPipelineTests));
-        await WriteTiffAsync(cpuRgba, Width, Height, System.IO.Path.Combine(testDir, "cpu.tiff"), ct);
-        await WriteTiffAsync(gpuRgba, Width, Height, System.IO.Path.Combine(testDir, "gpu.tiff"), ct);
+        await DisplayImageWriter.WriteTiffAsync(cpuRgba, Width, Height, System.IO.Path.Combine(testDir, "cpu.tiff"), ct);
+        await DisplayImageWriter.WriteTiffAsync(gpuRgba, Width, Height, System.IO.Path.Combine(testDir, "gpu.tiff"), ct);
         // Also a per-pixel abs-diff visualisation: max(|R_diff|, |G_diff|, |B_diff|) -> grayscale.
         var diffRgba = new byte[cpuRgba.Length];
         for (var i = 0; i < cpuRgba.Length; i += 4)
@@ -212,7 +213,7 @@ public sealed class GpuStretchPipelineTests : IClassFixture<OffscreenGpuFixture>
             diffRgba[i] = diffRgba[i + 1] = diffRgba[i + 2] = d;
             diffRgba[i + 3] = 255;
         }
-        await WriteTiffAsync(diffRgba, Width, Height, System.IO.Path.Combine(testDir, "diff.tiff"), ct);
+        await DisplayImageWriter.WriteTiffAsync(diffRgba, Width, Height, System.IO.Path.Combine(testDir, "diff.tiff"), ct);
         output.WriteLine($"Wrote cpu.tiff / gpu.tiff / diff.tiff to {testDir}");
 
         long absDiffSum = 0;
@@ -366,8 +367,8 @@ public sealed class GpuStretchPipelineTests : IClassFixture<OffscreenGpuFixture>
 
         // -------- Save TIFFs per case for visual inspection / diffing --------
         var testDir = SharedTestData.CreateTempTestOutputDir(nameof(GpuStretchPipelineTests));
-        await WriteTiffAsync(cpuRgba, w, h, System.IO.Path.Combine(testDir, $"{label}.cpu.tiff"), ct);
-        await WriteTiffAsync(gpuRgba, w, h, System.IO.Path.Combine(testDir, $"{label}.gpu.tiff"), ct);
+        await DisplayImageWriter.WriteTiffAsync(cpuRgba, w, h, System.IO.Path.Combine(testDir, $"{label}.cpu.tiff"), ct);
+        await DisplayImageWriter.WriteTiffAsync(gpuRgba, w, h, System.IO.Path.Combine(testDir, $"{label}.gpu.tiff"), ct);
         var diffRgba = new byte[cpuRgba.Length];
         for (var i = 0; i < cpuRgba.Length; i += 4)
         {
@@ -378,7 +379,7 @@ public sealed class GpuStretchPipelineTests : IClassFixture<OffscreenGpuFixture>
             diffRgba[i] = diffRgba[i + 1] = diffRgba[i + 2] = d;
             diffRgba[i + 3] = 255;
         }
-        await WriteTiffAsync(diffRgba, w, h, System.IO.Path.Combine(testDir, $"{label}.diff.tiff"), ct);
+        await DisplayImageWriter.WriteTiffAsync(diffRgba, w, h, System.IO.Path.Combine(testDir, $"{label}.diff.tiff"), ct);
 
         // -------- Compare --------
         cpuRgba.Length.ShouldBe(gpuRgba.Length);
@@ -558,31 +559,6 @@ public sealed class GpuStretchPipelineTests : IClassFixture<OffscreenGpuFixture>
     }
 
     private static string Triple((float R, float G, float B) v) => $"({v.R:F4},{v.G:F4},{v.B:F4})";
-
-    private static async Task WriteTiffAsync(byte[] rgba, int width, int height, string path, CancellationToken ct)
-    {
-        // 8-bit RGB TIFF via DIR.Lib (lossless Deflate). Alpha is always 0xFF on the
-        // CPU/GPU render outputs, so dropping it is bit-for-bit lossless.
-        var pixelCount = width * height;
-        var rgb = new byte[pixelCount * 3];
-        for (int p = 0, src = 0, dst = 0; p < pixelCount; p++, src += 4, dst += 3)
-        {
-            rgb[dst]     = rgba[src];
-            rgb[dst + 1] = rgba[src + 1];
-            rgb[dst + 2] = rgba[src + 2];
-        }
-        await using var fs = System.IO.File.Create(path);
-        await using var writer = SharpAstro.Tiff.TiffWriter.Create(fs);
-        await writer.AddPageAsync(rgb, width, height, new SharpAstro.Tiff.TiffPageOptions
-        {
-            SamplesPerPixel = 3,
-            BitsPerSample = 8,
-            Photometric = SharpAstro.Tiff.TiffPhotometric.Rgb,
-            SampleFormat = SharpAstro.Tiff.TiffSampleFormat.Uint,
-            Compression = SharpAstro.Tiff.TiffCompression.Deflate,
-        }, ct);
-        await writer.FlushAsync(ct);
-    }
 
     // ---------------------------------------------------------------- New stretch features
     //

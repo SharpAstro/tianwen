@@ -6,6 +6,8 @@ using System.Threading.Tasks;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
+using SharpAstro.Color.Icc;
+using SharpAstro.Jpeg;
 using StbImageWriteSharp;
 using TianWen.Hosting.Dto;
 using TianWen.Hosting.Dto.NinaV2;
@@ -124,7 +126,11 @@ internal static class NinaImageEndpoints
         using var ms = new MemoryStream();
         var writer = new ImageWriter();
         writer.WriteJpg(rgbBytes, outWidth, outHeight, components, ms, quality);
-        return ms.ToArray();
+
+        // Tag as sRGB v4 so colour-managed Nina / Touch N Stars clients render the
+        // preview with the correct gamma. The injector slips an APP2 segment in
+        // after the existing JFIF APP0, leaving the entropy-coded body untouched.
+        return JpegIccInjector.EmbedIccProfile(ms.GetBuffer().AsSpan(0, (int)ms.Length), IccProfiles.SRgbV4);
     }
 
     private static byte FloatToByte(float value)

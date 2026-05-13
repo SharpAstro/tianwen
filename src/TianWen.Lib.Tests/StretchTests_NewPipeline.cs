@@ -1,6 +1,4 @@
 using DIR.Lib;
-using SharpAstro.Tiff;
-using SharpAstro.Png;
 using Shouldly;
 using System;
 using System.Collections.Immutable;
@@ -14,6 +12,7 @@ using TianWen.Lib.Astrometry.PlateSolve;
 using TianWen.Lib.Devices.Fake;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.ColorCalibration;
+using TianWen.Lib.Tests.Helpers;
 using TianWen.UI.Abstractions;
 using Xunit;
 
@@ -259,34 +258,11 @@ public class StretchTests_NewPipeline(ITestOutputHelper output)
     /// </summary>
     private async Task WriteRgbaAsync(byte[] rgba, int width, int height, string testDir, string namePrefix, CancellationToken ct)
     {
-        // RGBA → RGB for the lossless diff TIFF. Alpha is always 0xFF for the stretch
-        // pipeline output so dropping it costs nothing and matches the pre-port files.
-        var pixelCount = width * height;
-        var rgb = new byte[pixelCount * 3];
-        for (int p = 0, src = 0, dst = 0; p < pixelCount; p++, src += 4, dst += 3)
-        {
-            rgb[dst]     = rgba[src];
-            rgb[dst + 1] = rgba[src + 1];
-            rgb[dst + 2] = rgba[src + 2];
-        }
-
         var tiffPath = Path.Combine(testDir, $"{namePrefix}.tiff");
-        await using (var fs = File.Create(tiffPath))
-        await using (var writer = TiffWriter.Create(fs))
-        {
-            await writer.AddPageAsync(rgb, width, height, new TiffPageOptions
-            {
-                SamplesPerPixel = 3,
-                BitsPerSample = 8,
-                Photometric = TiffPhotometric.Rgb,
-                SampleFormat = TiffSampleFormat.Uint,
-                Compression = TiffCompression.Deflate,
-            }, ct);
-            await writer.FlushAsync(ct);
-        }
+        await DisplayImageWriter.WriteTiffAsync(rgba, width, height, tiffPath, ct);
 
         var pngPath = Path.Combine(testDir, $"{namePrefix}.png");
-        var pngBytes = PngWriter.Encode(rgba, width, height);
+        var pngBytes = DisplayImageWriter.EncodePng(rgba, width, height);
         await File.WriteAllBytesAsync(pngPath, pngBytes, ct);
 
         var tiffSize = new FileInfo(tiffPath).Length;

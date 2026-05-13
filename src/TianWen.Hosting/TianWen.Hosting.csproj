@@ -13,6 +13,9 @@
 
   <ItemGroup>
     <PackageReference Include="StbImageWriteSharp" />
+    <!-- JpegIccInjector for embedding sRGB v4 into the prepared-image JPEG output. -->
+    <PackageReference Include="SharpAstro.Jpeg" />
+    <PackageReference Include="SharpAstro.Color.Icc" />
   </ItemGroup>
 
   <ItemGroup>

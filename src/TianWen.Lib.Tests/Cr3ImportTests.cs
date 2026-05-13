@@ -1,9 +1,9 @@
-using SharpAstro.Png;
 using Shouldly;
 using System;
 using System.IO;
 using System.Threading.Tasks;
 using TianWen.Lib.Imaging;
+using TianWen.Lib.Tests.Helpers;
 using Xunit;
 
 namespace TianWen.Lib.Tests;
@@ -132,7 +132,7 @@ public class Cr3ImportTests(ITestOutputHelper output)
             }
             rgba[p * 4 + 3] = 0xFF;
         }
-        File.WriteAllBytes(outPath, PngWriter.Encode(rgba, w, h));
+        File.WriteAllBytes(outPath, DisplayImageWriter.EncodePng(rgba, w, h));
     }
 
     private static float SrgbEncode(float linear)

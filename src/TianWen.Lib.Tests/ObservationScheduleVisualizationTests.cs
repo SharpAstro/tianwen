@@ -1,5 +1,4 @@
 using DIR.Lib;
-using SharpAstro.Png;
 using Shouldly;
 using System;
 using System.Collections.Generic;
@@ -11,6 +10,7 @@ using TianWen.Lib.Astrometry.SOFA;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Sequencing;
 using TianWen.Lib.Stat;
+using TianWen.Lib.Tests.Helpers;
 using Xunit;
 
 namespace TianWen.Lib.Tests;
@@ -412,7 +412,7 @@ public sealed class ObservationScheduleVisualizationTests(ITestOutputHelper test
         // which PngWriter.Encode wants verbatim — no swizzle / re-pack needed.
         var outputDir = SharedTestData.CreateTempTestOutputDir(nameof(ObservationScheduleVisualizationTests));
         var fullPath = Path.Combine(outputDir, fileName);
-        var png = PngWriter.Encode(renderer.Surface.Pixels, width, height);
+        var png = DisplayImageWriter.EncodePng(renderer.Surface.Pixels, width, height);
         await File.WriteAllBytesAsync(fullPath, png);
 
         testOutputHelper.WriteLine($"Wrote altitude chart to: {fullPath}");

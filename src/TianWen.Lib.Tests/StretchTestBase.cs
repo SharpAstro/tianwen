@@ -1,11 +1,11 @@
 using DIR.Lib;
-using SharpAstro.Png;
 using Shouldly;
 using System;
 using System.Diagnostics;
 using System.IO;
 using System.Threading.Tasks;
 using TianWen.Lib.Imaging;
+using TianWen.Lib.Tests.Helpers;
 using TianWen.UI.Abstractions;
 using Xunit;
 
@@ -102,7 +102,7 @@ public abstract class StretchTestBase(ITestOutputHelper testOutputHelper)
         // Save the rendered RGBA as a PNG for visual inspection. Lossless, browser-viewable,
         // ~order-of-magnitude smaller than the prior TIFF intermediate.
         var pngPath = Path.Combine(testDir, $"{namePrefix}.png");
-        var pngBytes = PngWriter.Encode(rgba, renderImage.Width, renderImage.Height);
+        var pngBytes = DisplayImageWriter.EncodePng(rgba, renderImage.Width, renderImage.Height);
         await File.WriteAllBytesAsync(pngPath, pngBytes, ct);
         testOutputHelper.WriteLine($"Wrote {pngBytes.Length} bytes -> {pngPath}");
     }

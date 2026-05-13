@@ -4,6 +4,7 @@ using Shouldly;
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using TianWen.Lib.Tests.Helpers;
 using Vortice.Vulkan;
 using Xunit;
 using static Vortice.Vulkan.Vulkan;
@@ -227,8 +228,8 @@ public sealed class VkRendererPrimitiveTests(ITestOutputHelper output)
         try
         {
             var dir = SharedTestData.CreateTempTestOutputDir(nameof(VkRendererPrimitiveTests));
-            await WriteTiffAsync(cpu, Width, Height, System.IO.Path.Combine(dir, $"{label}.cpu.tiff"));
-            await WriteTiffAsync(gpu, Width, Height, System.IO.Path.Combine(dir, $"{label}.gpu.tiff"));
+            await DisplayImageWriter.WriteTiffAsync(cpu, Width, Height, System.IO.Path.Combine(dir, $"{label}.cpu.tiff"));
+            await DisplayImageWriter.WriteTiffAsync(gpu, Width, Height, System.IO.Path.Combine(dir, $"{label}.gpu.tiff"));
             await WriteDiffTiffAsync(cpu, gpu, Width, Height, System.IO.Path.Combine(dir, $"{label}.diff.tiff"));
             output.WriteLine($"[{label}] wrote cpu/gpu/diff tiffs to {dir}");
         }
@@ -239,33 +240,6 @@ public sealed class VkRendererPrimitiveTests(ITestOutputHelper output)
 
         outFrac.ShouldBeLessThan(badPixelFraction,
             $"{label}: more than {badPixelFraction:P0} of bytes outside ±{perPixelTolerance} between CPU and GPU");
-    }
-
-    /// <summary>
-    /// Writes an RGBA byte buffer as an 8-bit RGB TIFF (Deflate-compressed) via DIR.Lib.
-    /// Alpha is always 0xFF on the CPU/GPU/diff render outputs so dropping it is lossless.
-    /// </summary>
-    private static async Task WriteTiffAsync(byte[] rgba, int width, int height, string path)
-    {
-        var pixelCount = width * height;
-        var rgb = new byte[pixelCount * 3];
-        for (int p = 0, src = 0, dst = 0; p < pixelCount; p++, src += 4, dst += 3)
-        {
-            rgb[dst]     = rgba[src];
-            rgb[dst + 1] = rgba[src + 1];
-            rgb[dst + 2] = rgba[src + 2];
-        }
-        await using var fs = System.IO.File.Create(path);
-        await using var writer = SharpAstro.Tiff.TiffWriter.Create(fs);
-        await writer.AddPageAsync(rgb, width, height, new SharpAstro.Tiff.TiffPageOptions
-        {
-            SamplesPerPixel = 3,
-            BitsPerSample = 8,
-            Photometric = SharpAstro.Tiff.TiffPhotometric.Rgb,
-            SampleFormat = SharpAstro.Tiff.TiffSampleFormat.Uint,
-            Compression = SharpAstro.Tiff.TiffCompression.Deflate,
-        });
-        await writer.FlushAsync();
     }
 
     private static Task WriteDiffTiffAsync(byte[] cpu, byte[] gpu, int width, int height, string path)
@@ -280,7 +254,7 @@ public sealed class VkRendererPrimitiveTests(ITestOutputHelper output)
             diff[i] = diff[i + 1] = diff[i + 2] = d;
             diff[i + 3] = 255;
         }
-        return WriteTiffAsync(diff, width, height, path);
+        return DisplayImageWriter.WriteTiffAsync(diff, width, height, path);
     }
 
     private static bool IsVulkanInitFailure(Exception ex)
