@@ -16,4 +16,13 @@
     <ProjectReference Include="..\TianWen.UI.Abstractions\TianWen.UI.Abstractions.csproj" />
   </ItemGroup>
 
+
+  <!-- Re-use the LFS-tracked Canon raw fixtures from TianWen.Lib.Tests so the
+       ImageReadBenchmarks measure decode-from-disk timings against the same
+       files the import tests pin behaviour with. Linked + copied to output dir. -->
+  <ItemGroup>
+    <None Include="..\TianWen.Lib.Tests\Data\CR2\*.CR2" Link="Fixtures\CR2\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\TianWen.Lib.Tests\Data\CR3\*.CR3" Link="Fixtures\CR3\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>
