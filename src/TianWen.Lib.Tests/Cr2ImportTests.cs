@@ -36,13 +36,26 @@ public class Cr2ImportTests(ITestOutputHelper output)
 {
     private static string FixturePath => Path.Combine(AppContext.BaseDirectory, "Data", "CR2", "_MG_7578.CR2");
 
+    /// <summary>Returns true if <paramref name="path"/> exists AND looks like
+    /// an actual CR2 file (not an unpulled git-lfs pointer). Git-lfs pointer
+    /// files are tiny (~150 bytes) UTF-8 text starting with
+    /// <c>version https://git-lfs.github.com/spec/v1</c>; if we tried to
+    /// decode that as a CR2 we'd get a misleading import failure. The CR2
+    /// fixture is ~19 MB so a length cutoff is sufficient.</summary>
+    private static bool IsFixtureUsable(string path)
+    {
+        if (!File.Exists(path)) return false;
+        return new FileInfo(path).Length > 4096;
+    }
+
     [Fact]
     public async Task Cr2_OpensViaImageTryReadImageFile_WithMatrixAndRgbRender()
     {
         var path = FixturePath;
-        if (!File.Exists(path))
+        if (!IsFixtureUsable(path))
         {
-            Assert.Skip($"CR2 fixture not present at {path}. Run `git lfs pull` to fetch.");
+            Assert.Skip($"CR2 fixture not present or LFS pointer at {path}. " +
+                "Run `git lfs pull --include=\"*.CR2\"` to fetch.");
             return;
         }
         var ct = TestContext.Current.CancellationToken;
@@ -126,9 +139,10 @@ public class Cr2ImportTests(ITestOutputHelper output)
         // import wiring honest — if someone accidentally swaps the spectral
         // / dcraw branches, this test catches it for the 6D case.
         var path = FixturePath;
-        if (!File.Exists(path))
+        if (!IsFixtureUsable(path))
         {
-            Assert.Skip($"CR2 fixture not present at {path}. Run `git lfs pull` to fetch.");
+            Assert.Skip($"CR2 fixture not present or LFS pointer at {path}. " +
+                "Run `git lfs pull --include=\"*.CR2\"` to fetch.");
             return;
         }
 
