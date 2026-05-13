@@ -116,6 +116,7 @@
     <ProjectReference Include="..\TianWen.Lib.SourceGenerators\TianWen.Lib.SourceGenerators.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
     <PackageReference Include="CommunityToolkit.HighPerformance" />
     <PackageReference Include="DotNext.Threading" />
+    <PackageReference Include="FC.SDK.Raw" />
     <PackageReference Include="FITS.Lib" />
     <PackageReference Include="GeoTimeZone" />
     <PackageReference Include="Magick.NET-Q16-HDRI-AnyCPU" />

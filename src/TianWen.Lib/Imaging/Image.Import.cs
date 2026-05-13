@@ -1,3 +1,4 @@
+using FC.SDK.Raw;
 using SharpAstro.Exif;
 using SharpAstro.Tiff;
 using ImageMagick;
@@ -13,8 +14,10 @@ public partial class Image
 {
     /// <summary>
     /// Reads an image file (TIFF, CR2, CR3, etc.) and returns an <see cref="Image"/> with float
-    /// channel data. TIFF (.tif / .tiff) is decoded via DIR.Lib end-to-end. CR2 / CR3 and other
-    /// formats fall through to Magick.NET — those go away in Phase 5 (Canon CR2/CR3 native).
+    /// channel data. TIFF (.tif / .tiff) goes through DIR.Lib's TiffReader; CR2 (.cr2) goes
+    /// through FC.SDK.Raw's pure-managed Canon raw decoder. CR3 and any other formats fall
+    /// through to Magick.NET. CR2 imports populate <see cref="ImageMeta.CameraToSrgbMatrix"/>
+    /// via the spectral (SASP) or dcraw factory lookup; null when neither matches.
     ///
     /// Pixel values are normalised to [0, 1] regardless of source bit depth. EXIF metadata is
     /// extracted into <see cref="ImageMeta"/> where present.
@@ -30,8 +33,116 @@ public partial class Image
             if (TryReadTiffViaDirLib(fileName, out image))
                 return true;
         }
+        else if (ext is ".cr2")
+        {
+            // FC.SDK.Raw pure-managed CR2 decoder. Falls through to Magick.NET on
+            // decode failure (corrupt file, unsupported variant) — same safety net
+            // as the TIFF DIR.Lib path.
+            if (TryReadCanonCr2(fileName, out image))
+                return true;
+        }
+        // NB: .cr3 stays on the Magick.NET path until FC.SDK.Raw ships its CRX
+        // decoder (ISO BMFF + Canon's CRX codec). When that lands, add a `.cr3`
+        // branch here mirroring the `.cr2` one.
 
         return TryReadViaMagick(fileName, ext, out image);
+    }
+
+    /// <summary>Decode a Canon CR2 via FC.SDK.Raw into a 1-channel float
+    /// Bayer mosaic with as-shot WB applied and CameraToSrgbMatrix populated.
+    /// Caller should debayer + apply the matrix downstream (drizzle-friendly
+    /// — the mosaic is preserved for stacking workflows that need it).</summary>
+    private static bool TryReadCanonCr2(string fileName, [NotNullWhen(true)] out Image? image)
+    {
+        try
+        {
+            var raw = CanonRaw.Open(fileName);
+
+            // Only RGGB CFA is currently mapped to SensorType. Other Canon
+            // patterns would need BayerOffset mapping (RGGB+offset encodes
+            // BGGR/GBRG/GRBG in TianWen's convention). Fall through to
+            // Magick.NET for now.
+            if (raw.CfaPattern != CanonCfaPattern.Rggb)
+            {
+                image = null;
+                return false;
+            }
+
+            // Fused ushort -> float + black-subtract + per-CFA-cell WB.
+            var mosaic = CanonRaw.PreprocessMosaic(raw);
+
+            // Reshape flat float[] to channel-planar [height, width].
+            var channel = new float[raw.Height, raw.Width];
+            for (var y = 0; y < raw.Height; y++)
+            for (var x = 0; x < raw.Width; x++)
+                channel[y, x] = mosaic[y * raw.Width + x];
+
+            // Data-driven MaxValue: walk the post-WB mosaic to find the
+            // actual peak. For daylight WB it tops out around 2.0 (R channel);
+            // narrow-band or extreme WB can push higher. The downstream
+            // stretch pipeline divides by MaxValue, so accuracy here keeps
+            // [0, 1] normalisation correct.
+            var max = 0f;
+            foreach (var v in mosaic) if (v > max) max = v;
+            if (max < 1f) max = 1f; // defensive: never below the natural 1.0 ceiling
+
+            // Camera -> sRGB matrix: spectral (SASP) first when the database is
+            // already loaded (lazy: don't force-load it here — astro startup
+            // pre-loads via SPCC), dcraw factory table as fallback, null if
+            // neither has the model.
+            float[]? matrix = null;
+            if (FilterCurveDatabase.IsLoaded
+                && FilterCurveDatabase.TryComputeCameraToSrgbMatrix(raw.Exif?.Model ?? "", out var spectral))
+            {
+                matrix = spectral;
+            }
+            else if (CanonCameraProfiles.ResolveProfile(raw.Exif?.Model)?.ComputeRgbCam() is { } dcraw)
+            {
+                matrix = dcraw;
+            }
+
+            var meta = BuildCanonRawImageMeta(raw, matrix);
+            image = new Image([channel], BitDepth.Float32,
+                maxValue: max, minValue: 0f, pedestal: 0f, meta);
+            return true;
+        }
+        catch (Exception)
+        {
+            image = null;
+            return false;
+        }
+    }
+
+    /// <summary>Construct an <see cref="ImageMeta"/> from a decoded CR2's
+    /// EXIF + the resolved camera matrix. Fields not in the CR2's EXIF
+    /// (telescope, observatory site, target coords) stay as their sentinel
+    /// "unknown" values — the caller can populate via <c>meta with { ... }</c>
+    /// when those facts are known from session context.</summary>
+    private static ImageMeta BuildCanonRawImageMeta(CanonRawFile raw, float[]? cameraToSrgb)
+    {
+        var captureTime = raw.Exif?.CaptureTime is { } ct
+            ? new DateTimeOffset(DateTime.SpecifyKind(ct, DateTimeKind.Utc), TimeSpan.Zero)
+            : DateTimeOffset.UnixEpoch;
+        var exposure = raw.Exif?.ExposureTime is { } et && et.Denominator != 0
+            ? TimeSpan.FromSeconds((double)et.Numerator / et.Denominator)
+            : TimeSpan.Zero;
+
+        return new ImageMeta(
+            Instrument: raw.Exif?.Model ?? "Unknown Canon",
+            ExposureStartTime: captureTime,
+            ExposureDuration: exposure,
+            FrameType: FrameType.Light,
+            Telescope: "",
+            PixelSizeX: 0, PixelSizeY: 0,
+            FocalLength: -1, FocusPos: -1,
+            Filter: Filter.Unknown,
+            BinX: 1, BinY: 1,
+            CCDTemperature: float.NaN,
+            SensorType: SensorType.RGGB,
+            BayerOffsetX: 0, BayerOffsetY: 0,
+            RowOrder: RowOrder.TopDown,
+            Latitude: float.NaN, Longitude: float.NaN
+        ) { CameraToSrgbMatrix = cameraToSrgb };
     }
 
     private static bool TryReadTiffViaDirLib(string fileName, [NotNullWhen(true)] out Image? image)
@@ -238,7 +349,10 @@ public partial class Image
     {
         try
         {
-            // CR2/CR3 need an explicit format hint — otherwise ImageMagick interprets them as TIFF.
+            // CR3 needs an explicit format hint — otherwise ImageMagick interprets it as TIFF.
+            // CR2 is handled by FC.SDK.Raw upstream in TryReadImageFile and never reaches here
+            // unless the FC.SDK.Raw decoder threw (corrupt file / unsupported variant) — in
+            // which case we still try Magick.NET as a last-ditch fallback.
             var settings = ext switch
             {
                 ".cr2" => new MagickReadSettings { Format = MagickFormat.Cr2 },
