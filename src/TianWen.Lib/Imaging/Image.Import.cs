@@ -14,10 +14,11 @@ public partial class Image
 {
     /// <summary>
     /// Reads an image file (TIFF, CR2, CR3, etc.) and returns an <see cref="Image"/> with float
-    /// channel data. TIFF (.tif / .tiff) goes through DIR.Lib's TiffReader; CR2 (.cr2) goes
-    /// through FC.SDK.Raw's pure-managed Canon raw decoder. CR3 and any other formats fall
-    /// through to Magick.NET. CR2 imports populate <see cref="ImageMeta.CameraToSrgbMatrix"/>
-    /// via the spectral (SASP) or dcraw factory lookup; null when neither matches.
+    /// channel data. TIFF (.tif / .tiff) goes through DIR.Lib's TiffReader; CR2 (.cr2) and
+    /// CR3 (.cr3) both go through FC.SDK.Raw's pure-managed Canon raw decoder. Other formats
+    /// fall through to Magick.NET. CR2 and CR3 imports both populate
+    /// <see cref="ImageMeta.CameraToSrgbMatrix"/> via the spectral (SASP) or dcraw factory
+    /// lookup; null when neither matches.
     ///
     /// Pixel values are normalised to [0, 1] regardless of source bit depth. EXIF metadata is
     /// extracted into <see cref="ImageMeta"/> where present.
@@ -33,26 +34,27 @@ public partial class Image
             if (TryReadTiffViaDirLib(fileName, out image))
                 return true;
         }
-        else if (ext is ".cr2")
+        else if (ext is ".cr2" or ".cr3")
         {
-            // FC.SDK.Raw pure-managed CR2 decoder. Falls through to Magick.NET on
-            // decode failure (corrupt file, unsupported variant) — same safety net
-            // as the TIFF DIR.Lib path.
-            if (TryReadCanonCr2(fileName, out image))
+            // FC.SDK.Raw pure-managed Canon decoder. Internal CanonRaw.Open
+            // dispatches on file signature: TIFF magic -> Cr2Decoder, ISO BMFF
+            // ftyp -> Cr3Decoder. Both produce the same CanonRawFile shape so
+            // the downstream preprocess / matrix / ImageMeta wiring is shared.
+            // Falls through to Magick.NET on decode failure (corrupt file,
+            // unsupported variant) — same safety net as the TIFF DIR.Lib path.
+            if (TryReadCanonRaw(fileName, out image))
                 return true;
         }
-        // NB: .cr3 stays on the Magick.NET path until FC.SDK.Raw ships its CRX
-        // decoder (ISO BMFF + Canon's CRX codec). When that lands, add a `.cr3`
-        // branch here mirroring the `.cr2` one.
 
         return TryReadViaMagick(fileName, ext, out image);
     }
 
-    /// <summary>Decode a Canon CR2 via FC.SDK.Raw into a 1-channel float
-    /// Bayer mosaic with as-shot WB applied and CameraToSrgbMatrix populated.
-    /// Caller should debayer + apply the matrix downstream (drizzle-friendly
-    /// — the mosaic is preserved for stacking workflows that need it).</summary>
-    private static bool TryReadCanonCr2(string fileName, [NotNullWhen(true)] out Image? image)
+    /// <summary>Decode a Canon CR2 or CR3 via FC.SDK.Raw into a 1-channel
+    /// float Bayer mosaic with as-shot WB applied and CameraToSrgbMatrix
+    /// populated. Caller should debayer + apply the matrix downstream
+    /// (drizzle-friendly — the mosaic is preserved for stacking workflows
+    /// that need it).</summary>
+    private static bool TryReadCanonRaw(string fileName, [NotNullWhen(true)] out Image? image)
     {
         try
         {
@@ -349,10 +351,11 @@ public partial class Image
     {
         try
         {
-            // CR3 needs an explicit format hint — otherwise ImageMagick interprets it as TIFF.
-            // CR2 is handled by FC.SDK.Raw upstream in TryReadImageFile and never reaches here
-            // unless the FC.SDK.Raw decoder threw (corrupt file / unsupported variant) — in
-            // which case we still try Magick.NET as a last-ditch fallback.
+            // CR2 and CR3 are both handled by FC.SDK.Raw upstream in TryReadImageFile and
+            // never reach here unless the FC.SDK.Raw decoder threw (corrupt file, unsupported
+            // variant — e.g. encType=3 / encType=1 CR3 or a non-RGGB CFA pattern). The
+            // explicit format hint keeps Magick.NET honest when it falls through anyway,
+            // since otherwise ImageMagick interprets .cr3 as TIFF.
             var settings = ext switch
             {
                 ".cr2" => new MagickReadSettings { Format = MagickFormat.Cr2 },

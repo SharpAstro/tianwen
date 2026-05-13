@@ -121,17 +121,17 @@ jobs:
     - name: Compute LFS cache key
       id: lfs-key
       run: |
-        HASH=$(git ls-files '*.lz' '*.ttf' '*.bin.gz' '*.fits.gz' '*.CR2' | xargs cat | sha256sum | cut -c1-16)
+        HASH=$(git ls-files '*.lz' '*.ttf' '*.bin.gz' '*.fits.gz' '*.CR2' '*.CR3' | xargs cat | sha256sum | cut -c1-16)
         echo "key=lfs-tests-${HASH}" >> $GITHUB_OUTPUT
     - uses: actions/cache@v5
       with:
         path: .git/lfs
         key: ${{ steps.lfs-key.outputs.key }}
     - name: Fetch required LFS objects
-      # `*.CR2` covers Cr2ImportTests' Canon raw fixture (Data/CR2/*.CR2,
-      # ~19 MB). `*.cr2` lowercase also patterned in .gitattributes; we only
-      # ship .CR2 today, but the include can be extended if that changes.
-      run: git lfs pull --include="*.lz,*.ttf,*.bin.gz,*.fits.gz,*.CR2"
+      # `*.CR2` covers Cr2ImportTests (Data/CR2/*.CR2, ~19 MB). `*.CR3` covers
+      # Cr3ImportTests (Data/CR3/*.CR3, ~7 MB). Both have lowercase aliases in
+      # .gitattributes but we only ship the .CR2/.CR3 uppercase variants today.
+      run: git lfs pull --include="*.lz,*.ttf,*.bin.gz,*.fits.gz,*.CR2,*.CR3"
     # Pull in the .gs.gz preprocessed catalogs from the build job so the
     # preprocess-catalog.ps1 script doesn't have to re-run here. Touch them to
     # be newer than .json.lz so MSBuild's Inputs/Outputs check skips the
