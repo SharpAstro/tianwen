@@ -399,7 +399,6 @@ the CLI engine is stable.
 | 14 | `LiveStacker` engine — Welford online accumulator (pure math) | 1, 4, 5, 6 | ~250 | Medium |
 | 15 | Session integration — `SessionConfiguration.LiveStacking*` config, per-target lifecycle, `LiveSessionTab` preview "show stack" toggle | 14 | ~300 | Medium |
 | 16 | Tier-3 `--chunked` multi-pass integration | 8, 9 | ~300 | Medium — correctness caveat |
-| ~~17~~ | ~~GUI stacking tab~~ — superseded by phase 15; the existing live-session preview *is* the stacking UI | — | — | — |
 
 End-to-end smoke ships at **phase 13** — calibration → registration → integration
 with the default SigmaClip rejector + mean combiner, accessible via `tianwen stack`.
@@ -408,6 +407,12 @@ mosaic-scale masters; phase 11 expands the rejector menu; phases 14 + 15
 (LiveStacker + session integration) add the in-session path so live preview
 shows the accumulating stack during capture (per-target, automatic reset on
 target switch). Phase 16 (chunked tier-3) is gated on real user need.
+
+A standalone stacking GUI app is not in scope — the existing FITS viewer +
+session live preview cover the user-facing UX for both batch (post-session
+inspect masters in the viewer) and live (preview pane during capture)
+workflows. If a dedicated stacking workbench becomes desirable later it
+would be a separate project rather than an extension of tianwen.
 
 ### Phase 13: CLI orchestrator detail
 

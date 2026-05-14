@@ -68,6 +68,63 @@ public partial class Image
         return DoTransformationAsync(transform, new Vector2(left, top), new Vector2(right, bottom), cancellationToken);
     }
 
+    /// <summary>
+    /// Warps this image into a fixed-size reference grid by inverse-mapping each
+    /// output pixel through <paramref name="transform"/> and sampling the source
+    /// via bilinear interpolation. Out-of-source-bounds output pixels are NaN.
+    /// <para>
+    /// Unlike <see cref="TransformAsync"/> (which sizes the output to contain
+    /// the rotated source extents), this method's output is exactly
+    /// <paramref name="refWidth"/> by <paramref name="refHeight"/> — required
+    /// by the stacking integrator so every aligned frame samples the same
+    /// reference grid and pixel index N maps to the same sky position across
+    /// frames.
+    /// </para>
+    /// </summary>
+    /// <param name="transform">Affine source -> reference mapping as returned
+    /// by <see cref="FindOffsetAndRotationAsync"/>. The inverse is applied
+    /// per output pixel.</param>
+    /// <param name="refWidth">Output (reference grid) width in pixels.</param>
+    /// <param name="refHeight">Output (reference grid) height in pixels.</param>
+    /// <exception cref="ArgumentException"><paramref name="transform"/> is not invertible.</exception>
+    public async Task<Image> WarpToReferenceGridAsync(Matrix3x2 transform, int refWidth, int refHeight, CancellationToken cancellationToken = default)
+    {
+        if (!Matrix3x2.Invert(transform, out var inverseTransform))
+        {
+            throw new ArgumentException("Transform is not invertible", nameof(transform));
+        }
+
+        var channelCount = ChannelCount;
+        var srcW = Width;
+        var srcH = Height;
+        var output = CreateChannelData(channelCount, refHeight, refWidth);
+
+        var parallelOptions = new ParallelOptions
+        {
+            CancellationToken = cancellationToken,
+            MaxDegreeOfParallelism = Environment.ProcessorCount * 4
+        };
+
+        for (var c = 0; c < channelCount; c++)
+        {
+            var channel = c;
+            var dstChannel = output[channel];
+            await Parallel.ForAsync(0, refHeight, parallelOptions, async (y, ct) => await Task.Run(() =>
+            {
+                for (var x = 0; x < refWidth; x++)
+                {
+                    var srcPos = Vector2.Transform(new Vector2(x, y), inverseTransform);
+                    dstChannel[y, x] = srcPos.X >= 0 && srcPos.X < srcW && srcPos.Y >= 0 && srcPos.Y < srcH
+                        ? SubpixelValue(channel, srcPos.X, srcPos.Y)
+                        : float.NaN;
+                }
+                return ValueTask.CompletedTask;
+            }, ct));
+        }
+
+        return new Image(output, BitDepth.Float32, maxValue, minValue, pedestal, imageMeta);
+    }
+
     private async Task<Image> DoTransformationAsync(Matrix3x2 transform, Vector2 tl, Vector2 br, CancellationToken cancellationToken = default)
     {
         var translated = transform * Matrix3x2.CreateTranslation(-tl);
