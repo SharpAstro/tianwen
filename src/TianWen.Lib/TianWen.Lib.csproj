@@ -131,6 +131,11 @@
     <PackageReference Include="FC.SDK" />
     <PackageReference Include="QHYCCD.SDK" />
     <PackageReference Include="ZWOptical.SDK" />
+    <!-- Image.Import / Image.Export import these directly. DIR.Lib 4.0 dropped its
+         phantom codec dependencies (it was a leftover from the Phase 1 extraction),
+         so tianwen has to declare them itself. -->
+    <PackageReference Include="SharpAstro.Tiff" />
+    <PackageReference Include="SharpAstro.Exif" />
   </ItemGroup>
 
   <!-- DIR.Lib: TiffWriter + PngWriter on the production path (Image.Export.cs). -->

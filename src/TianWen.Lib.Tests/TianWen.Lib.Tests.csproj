@@ -52,6 +52,11 @@
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
     <PackageReference Include="xunit.v3" />
+    <!-- DisplayImageWriter uses SharpAstro.Png + SharpAstro.Color.Icc directly;
+         SharpAstro.Tiff arrives transitively via TianWen.Lib (which uses it in
+         Image.Import/Export). -->
+    <PackageReference Include="SharpAstro.Png" />
+    <PackageReference Include="SharpAstro.Color.Icc" />
   </ItemGroup>
 
   <ItemGroup Condition="'$(UseLocalSiblings)' == 'true'">
