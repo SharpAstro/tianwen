@@ -396,16 +396,18 @@ the CLI engine is stable.
 | 11 | Additional rejectors: Winsorized, Percentile, ESD | 7 | ~250 | Medium |
 | 12 | Additional combiners: median, exposure-weighted mean | 8 | ~80 | Low |
 | **13** | **CLI: `tianwen stack` orchestrator** | 3, 4, 5, 8, 9 | ~250 | Low |
-| 14 | `LiveStacker` with Welford accumulator | 1, 5, 6 | ~300 | Medium — concurrency |
-| 15 | Tier-3 `--chunked` multi-pass integration | 8, 9 | ~300 | Medium — correctness caveat |
-| 16 | GUI stacking tab (deferred) | 1–13 | ~700 | High — pure UI |
+| 14 | `LiveStacker` engine — Welford online accumulator (pure math) | 1, 4, 5, 6 | ~250 | Medium |
+| 15 | Session integration — `SessionConfiguration.LiveStacking*` config, per-target lifecycle, `LiveSessionTab` preview "show stack" toggle | 14 | ~300 | Medium |
+| 16 | Tier-3 `--chunked` multi-pass integration | 8, 9 | ~300 | Medium — correctness caveat |
+| ~~17~~ | ~~GUI stacking tab~~ — superseded by phase 15; the existing live-session preview *is* the stacking UI | — | — | — |
 
 End-to-end smoke ships at **phase 13** — calibration → registration → integration
 with the default SigmaClip rejector + mean combiner, accessible via `tianwen stack`.
 Total to that milestone: ~2,520 LOC. Phase 10 (memmap output sink) unblocks
-mosaic-scale masters; phase 11 expands the rejector menu; phase 14 (LiveStacker)
-adds the in-session path. Phase 15 (chunked tier-3) is gated on real user need;
-phase 16 is post-MVP UI work.
+mosaic-scale masters; phase 11 expands the rejector menu; phases 14 + 15
+(LiveStacker + session integration) add the in-session path so live preview
+shows the accumulating stack during capture (per-target, automatic reset on
+target switch). Phase 16 (chunked tier-3) is gated on real user need.
 
 ### Phase 13: CLI orchestrator detail
 
@@ -530,10 +532,11 @@ runs reject → combine. Output written into a pre-allocated master `float[,]`.
 This is the new-code high-water mark — write a focused PR with tests first
 (synthetic stack with known outliers, assert rejection map matches expectation).
 
-### Phase 14: LiveStacker
+### Phase 14: LiveStacker engine
 
 Welford online variance — port the exact `delta/mu/m2` lines from
-`live_stacking.py:1366`. Single struct holds state:
+`live_stacking.py:1366`. Pure-math engine, no session or UI awareness;
+session-side wiring happens in phase 15.
 
 ```csharp
 internal struct WelfordPixel
@@ -542,16 +545,113 @@ internal struct WelfordPixel
     public float M2;
     public int N;
 }
+
+public sealed class LiveStacker
+{
+    public LiveStacker(int width, int height, int channelCount);
+    public int FrameCount { get; }
+    public void Reset();                         // clear all state for new target
+    public void Accept(Image calibratedAligned); // one frame -> in-place accumulate
+    public ImmutableArray<float> MeanSnapshot { get; }   // for preview rendering
+}
 ```
 
-One `WelfordPixel[H * W]` array. Bootstrap: first 24 frames are plain `(prev_sum + x) / (n+1)`.
-After that: mu-sigma clip with κ=3 — outliers replaced by `Mu`, not skipped, so
-`n` increments uniformly and the variance estimate stays valid.
+One `WelfordPixel[C * H * W]` array per channel. Bootstrap: first 24
+frames are plain `(prev_sum + x) / (n+1)`. After that: mu-sigma clip
+with κ=3 — outliers replaced by `Mu`, not skipped, so `N` increments
+uniformly and the variance estimate stays valid.
 
-Threading: producer (capture loop) hands an `Image` to the LiveStacker; consumer
-(UI render) reads the current `MeanImage` snapshot. Use `ImmutableInterlocked.Update`
-on the snapshot reference — matches the project's "shared UI state =
-`ImmutableArray<T>` atomic replace" pattern (per CLAUDE.md).
+Threading: producer (capture loop) calls `Accept` from the imaging
+thread; consumer (UI render) reads `MeanSnapshot`. Snapshot rebuilds on
+`Accept` and stays immutable for readers; matches the project's "shared
+UI state = `ImmutableArray<T>` atomic replace" pattern (per CLAUDE.md).
+
+### Phase 15: Session integration — per-target live preview
+
+This is the **user-facing live stacking story**. Replaces the original
+plan's "GUI stacking tab" entirely — the existing `LiveSessionTab` in
+`TianWen.UI.Abstractions` becomes the stacking UI.
+
+**Configuration:**
+
+```csharp
+public partial class SessionConfiguration
+{
+    /// Whether the session accumulates a live stack per target during imaging.
+    public bool LiveStackingEnabled { get; set; }
+
+    /// Reset the accumulator when the session switches to a different target.
+    /// True (default) gives one master-light per target; false keeps a single
+    /// running stack across the whole session.
+    public bool LiveStackingResetOnTargetChange { get; set; } = true;
+
+    /// When non-null, the accumulator's current state is auto-saved as a
+    /// FITS file under this folder when the target changes or the session
+    /// ends. Filename = "<targetname>_<expSec>s_<n>frames.fits".
+    public string? LiveStackingAutoSaveFolder { get; set; }
+}
+```
+
+**Lifecycle (owned by `Session`):**
+
+```csharp
+// In Session state
+private LiveStacker? _liveStacker;
+private string? _liveStackerTargetId;
+
+// In ImagingLoopAsync, after a successful frame capture + calibrate + register:
+if (config.LiveStackingEnabled && registrationResult.Registered)
+{
+    var targetId = currentTarget.UniqueId;
+    if (config.LiveStackingResetOnTargetChange && targetId != _liveStackerTargetId)
+    {
+        if (_liveStacker is not null && config.LiveStackingAutoSaveFolder is { } folder)
+        {
+            await SaveLiveStackAsync(_liveStacker, _liveStackerTargetId, folder, ct);
+        }
+        _liveStacker?.Reset();
+        _liveStackerTargetId = targetId;
+    }
+    _liveStacker ??= new LiveStacker(image.Width, image.Height, image.ChannelCount);
+    // Calibrate + register + normalize already happened above; warp + accept now.
+    using var warped = await image.TransformAsync(registrationResult.ToReference, ct);
+    _liveStacker.Accept(warped);
+    
+    // Push snapshot to the live-session state for the preview to render.
+    liveSessionState.LiveStackSnapshot = _liveStacker.MeanSnapshot;
+    liveSessionState.LiveStackFrameCount = _liveStacker.FrameCount;
+}
+```
+
+**Preview switch (`LiveSessionTab`):**
+
+Add a state field + keyboard binding:
+
+```csharp
+public sealed class LiveSessionState
+{
+    // existing fields...
+    public bool ShowLiveStackInsteadOfLatestFrame { get; set; }
+    public ImmutableArray<float>? LiveStackSnapshot { get; set; }
+    public int LiveStackFrameCount { get; set; }
+}
+```
+
+The preview pane's render switches source based on the toggle: when
+`ShowLiveStackInsteadOfLatestFrame` is true, it renders
+`LiveStackSnapshot` reshaped into the preview viewport; otherwise it
+renders the latest single frame (current behaviour). Keyboard `K`
+toggles. Toolbar gets a small `Stack` button alongside the existing
+preview controls.
+
+The status bar shows `Stack: <N> frames` when enabled, so the user can
+see accumulation progress without switching the view.
+
+**Why per-target reset is the default:** TianWen's session loop already
+treats multi-target imaging as first-class (planner + scheduler). One
+live stack per target means the user gets N usable masters out of a
+multi-target session, not one mush. Users who want a single all-night
+stack can toggle the config off.
 
 ## Open questions for the user
 
@@ -564,9 +664,9 @@ on the snapshot reference — matches the project's "shared UI state =
 3. **Master location**: under `%LOCALAPPDATA%/TianWen/Masters/<group-key>/`? Or
    stay alongside the lights?
 
-4. **UI surface**: a new "Stacking" tab in the GUI, or a CLI-first workflow under
-   `tianwen stack ...`? CLI-first is faster to ship (no UI plumbing) and lets the
-   GUI come in phase 12 once the engine is stable.
+4. ~~**UI surface**~~: **RESOLVED** — CLI-first (phase 13 `tianwen stack`) for
+   batch; the live-session preview pane in `LiveSessionTab` gets a "show stack"
+   toggle (phase 15) for during-capture viewing. No new "Stacking tab" needed.
 
 5. **Live-stack scope v1**: single-filter only? Multi-filter SHO compositing
    adds 4-5 days but is what most narrowband users want.
