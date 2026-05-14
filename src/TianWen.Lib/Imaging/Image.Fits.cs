@@ -2,6 +2,7 @@ using CommunityToolkit.HighPerformance;
 using nom.tam.fits;
 using nom.tam.util;
 using System;
+using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Linq;
@@ -345,6 +346,20 @@ public partial class Image
     }
 
     public void WriteToFitsFile(string fileName, WCS? wcs = null)
+        => WriteToFitsFile(fileName, wcs, extraHeaders: null);
+
+    /// <summary>
+    /// Overload that adds caller-supplied custom header records after the
+    /// standard ImageMeta + WCS writes. Used by the stacking pipeline to
+    /// stamp <c>STACK_N</c>, <c>REJ_RATE</c>, etc. on master output without
+    /// expanding <see cref="ImageMeta"/> with stack-specific fields.
+    /// </summary>
+    /// <param name="extraHeaders">Maps FITS card name -&gt; (value, comment).
+    /// Value type may be <see cref="int"/>, <see cref="long"/>,
+    /// <see cref="float"/>, <see cref="double"/>, <see cref="bool"/>, or
+    /// <see cref="string"/>; FITS.Lib's <c>Header.AddValue</c> overloads
+    /// dispatch on type. Unsupported value types throw.</param>
+    public void WriteToFitsFile(string fileName, WCS? wcs, IReadOnlyDictionary<string, (object Value, string Comment)>? extraHeaders)
     {
         var (channelCount, width, height) = Shape;
         using var fits = new Fits();
@@ -508,6 +523,29 @@ public partial class Image
         if (wcs is { } wcsValue)
         {
             wcsValue.WriteToHeader(basicHdu.Header);
+        }
+
+        // Caller-supplied extras. Dispatched per-type because nom.tam.fits's
+        // Header.AddValue is overloaded rather than generic and won't accept
+        // a boxed object directly.
+        if (extraHeaders is not null)
+        {
+            foreach (var (key, (value, comment)) in extraHeaders)
+            {
+                switch (value)
+                {
+                    case int i: basicHdu.Header.AddValue(key, i, comment); break;
+                    case long l: basicHdu.Header.AddValue(key, l, comment); break;
+                    case float f: basicHdu.Header.AddValue(key, f, comment); break;
+                    case double d: basicHdu.Header.AddValue(key, d, comment); break;
+                    case bool b: basicHdu.Header.AddValue(key, b, comment); break;
+                    case string s: basicHdu.Header.AddValue(key, s, comment); break;
+                    default:
+                        throw new ArgumentException(
+                            $"Unsupported FITS header value type {value?.GetType().Name ?? "null"} for key '{key}'.",
+                            nameof(extraHeaders));
+                }
+            }
         }
 
         fits.AddHDU(basicHdu);
