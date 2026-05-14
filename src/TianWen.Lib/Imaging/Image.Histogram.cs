@@ -487,20 +487,90 @@ public partial class Image
             }
         });
 
-        // Compute per-channel background, pedestal-subtracted
-        var perChannel = new float[channelCount];
-        for (var c = 0; c < channelCount; c++)
+        // Compute per-channel background, pedestal-subtracted.
+        // For 1-channel Bayer images, the channel-0 median pools all four Bayer
+        // positions together and is useless for background neutralization.
+        // Demosaic the dark region into 3 separate medians (R / G+G / B) so
+        // downstream consumers (BackgroundNeutralization.ComputeGains, the
+        // toolbar dropdown) get the same shape they'd see on a 3-channel image.
+        float[] perChannel;
+        if (channelCount == 1 && ImageMeta.SensorType is SensorType.RGGB)
         {
-            var pedestal = c < pedestals.Length ? pedestals[c] : pedestals[0];
-            perChannel[c] = MedianRegion(c, bgX, bgY, squareSize, starMask) - pedestal;
+            var pedestal = pedestals.Length > 0 ? pedestals[0] : 0f;
+            var (r, g, b) = BayerMediansInRegion(
+                bgX, bgY, squareSize, pedestal,
+                ImageMeta.BayerOffsetX, ImageMeta.BayerOffsetY, starMask);
+            perChannel = [r, g, b];
+        }
+        else
+        {
+            perChannel = new float[channelCount];
+            for (var c = 0; c < channelCount; c++)
+            {
+                var pedestal = c < pedestals.Length ? pedestals[c] : pedestals[0];
+                perChannel[c] = MedianRegion(c, bgX, bgY, squareSize, starMask) - pedestal;
+            }
         }
 
-        // Rec.709 luminance in pedestal-subtracted space
-        var lumaBg = channelCount >= 3
+        // Rec.709 luminance — keyed on the bg array length, not channelCount,
+        // so the Bayer-3 path produces a proper luminance instead of just R.
+        var lumaBg = perChannel.Length >= 3
             ? 0.2126f * perChannel[0] + 0.7152f * perChannel[1] + 0.0722f * perChannel[2]
             : perChannel[0];
 
         return (perChannel, lumaBg);
+    }
+
+    /// <summary>
+    /// Samples 3 median values (R, G, B) from a single-channel Bayer mosaic in a
+    /// square region by classifying each pixel by its Bayer position. The G median
+    /// pools both Bayer green positions (~2x sample count vs R and B). All values
+    /// are pedestal-subtracted. Hardcoded for RGGB layout — extend the switch
+    /// when other Bayer patterns become supported.
+    /// </summary>
+    private (float R, float G, float B) BayerMediansInRegion(
+        int x0, int y0, int size, float pedestal,
+        int bayerOffsetX, int bayerOffsetY, BitMatrix? starMask = null)
+    {
+        // Worst-case capacity per Bayer channel within an n*n region: n*n/2 for G,
+        // n*n/4 for R and B. Round up and add a small slop to absorb any off-by-one.
+        var quarter = (size * size) / 4 + 4;
+        var half = (size * size) / 2 + 4;
+        var rBuf = new float[quarter];
+        var gBuf = new float[half];
+        var bBuf = new float[quarter];
+        int ri = 0, gi = 0, bi = 0;
+
+        for (var y = y0; y < y0 + size && y < Height; y++)
+        {
+            var yp = (y - bayerOffsetY) & 1;
+            for (var x = x0; x < x0 + size && x < Width; x++)
+            {
+                if (starMask is { } sm && sm[y, x]) continue;
+                var v = this[0, y, x];
+                if (float.IsNaN(v)) continue;
+                var xp = (x - bayerOffsetX) & 1;
+                // RGGB layout (relative to bayerOffset): R at (0,0), G at (1,0)+(0,1), B at (1,1)
+                switch (yp * 2 + xp)
+                {
+                    case 0: rBuf[ri++] = v; break;
+                    case 1: gBuf[gi++] = v; break;
+                    case 2: gBuf[gi++] = v; break;
+                    case 3: bBuf[bi++] = v; break;
+                }
+            }
+        }
+
+        return (MedianSpan(rBuf.AsSpan(0, ri)) - pedestal,
+                MedianSpan(gBuf.AsSpan(0, gi)) - pedestal,
+                MedianSpan(bBuf.AsSpan(0, bi)) - pedestal);
+
+        static float MedianSpan(Span<float> s)
+        {
+            if (s.Length == 0) return 0f;
+            s.Sort();
+            return s[s.Length / 2];
+        }
     }
 
     /// <summary>

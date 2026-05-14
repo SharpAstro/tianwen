@@ -23,8 +23,10 @@ public static class ViewerActions
         state.StatusMessage = state.StretchMode is StretchMode.None ? "Stretch: Off" : "Stretch: On";
     }
 
-    // Cycle order for stretch link — excludes None
-    private static readonly StretchMode[] StretchLinkModes = [StretchMode.Unlinked, StretchMode.Linked, StretchMode.Luma];
+    // Cycle order for stretch link — excludes None. Internal so the dropdown
+    // selector in <see cref="ImageRendererBase{TSurface}"/> can reuse the same
+    // mode list (single source of truth: cycle order matches dropdown order).
+    internal static readonly StretchMode[] StretchLinkModes = [StretchMode.Unlinked, StretchMode.Linked, StretchMode.Luma];
 
     public static void CycleStretchLink(ViewerState state, bool reverse = false)
     {

@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.Collections.Immutable;
+using DIR.Lib;
 using TianWen.Lib.Imaging;
 
 namespace TianWen.UI.Abstractions;
@@ -72,6 +73,17 @@ public sealed class ViewerState
     /// <summary>Whether background neutralization (pivot1 mode) is active.</summary>
     public bool BackgroundNeutralizationEnabled { get; set; }
 
+    /// <summary>Chosen pivot algorithm for background neutralization. Mean = balanced
+    /// photographic average (default), GreenPivot = fix green & scale R/B, MinPivot =
+    /// fix darkest channel & scale the rest up. Switching method is cheap: results
+    /// cache per document in <see cref="AstroImageDocument.ComputeBackgroundNeutralization"/>.</summary>
+    public BackgroundNeutralizationMethod BackgroundNeutralizationMethod { get; set; } = BackgroundNeutralizationMethod.Mean;
+
+    /// <summary>Strength of the background-neutralization effect, 0..1. Acts as a
+    /// CPU-side lerp toward identity on the cached gain before the GPU uniform is
+    /// written — no pixel work, no extra shader uniform. 1.0 = full effect.</summary>
+    public float BackgroundNeutralizationStrength { get; set; } = 1f;
+
     /// <summary>Whether detected star circles are visible.</summary>
     public bool ShowStarOverlay { get; set; }
 
@@ -95,6 +107,16 @@ public sealed class ViewerState
 
     /// <summary>Whether the stretch factor dropdown is open.</summary>
     public bool ShowStretchFactorMenu { get; set; }
+
+    /// <summary>
+    /// Shared dropdown overlay for toolbar selectors (stretch mode, channel,
+    /// debayer, stretch params, curves boost, HDR). Only one dropdown can be
+    /// open at a time, so a single state instance is sufficient. Opened by
+    /// left-clicking the corresponding toolbar button; rendered last in
+    /// <see cref="ImageRendererBase{TSurface}.Render"/> so its clickables win
+    /// hit-test z-order (paint order = z-order).
+    /// </summary>
+    public DropdownMenuState ToolbarDropdown { get; } = new();
 
     /// <summary>Index into <see cref="StretchParameters.Presets"/> for the selected stretch preset.</summary>
     public int StretchPresetIndex { get; set; } = 0; // (0.1, -5.0) default

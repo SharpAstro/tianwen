@@ -261,6 +261,17 @@ void HandleMouseDown(byte button, float px, float py)
 
         if (hit is HitResult.ButtonHit { Action: var action } && Enum.TryParse<ToolbarAction>(action, out var toolbarAction))
         {
+            // Left-click on any dropdown-capable toolbar button opens the
+            // overlay; right-click (button == 3) falls through so power users
+            // can still reverse-cycle without summoning the popup. The set of
+            // dropdown actions is encoded in OpenToolbarDropdown's switch —
+            // it returns false for non-dropdown actions so we never need a
+            // parallel "is dropdown action" list here.
+            if (button == 1 && imageRenderer.OpenToolbarDropdown(state, toolbarAction))
+            {
+                return;
+            }
+
             // Base handles pure state; controller handles DI-dependent actions
             if (!ViewerActions.HandleToolbarAction(state, controller.Document, toolbarAction, reverse: button == 3))
             {

@@ -95,6 +95,11 @@ public sealed class AstroImageDocument
     /// <summary>Background neutralization gains from pivot1 sampling (1,1,1) = no neutralization.</summary>
     public (float R, float G, float B)? BackgroundNeutralization { get; set; }
 
+    /// <summary>Per-method cache of computed background-neutralization gains. Switching
+    /// method on a loaded document is a dict lookup + uniform write, not a recompute.
+    /// Populated lazily by <see cref="ComputeBackgroundNeutralization"/>.</summary>
+    private readonly System.Collections.Generic.Dictionary<Lib.Imaging.BackgroundNeutralizationMethod, (float R, float G, float B)> _bnGainsByMethod = new();
+
     /// <summary>When true, the stretch factor is iteratively adjusted so the post-stretch median converges to <see cref="ConvergenceTarget"/>.</summary>
     public bool UseIterativeConvergence { get; set; }
 
@@ -355,7 +360,8 @@ public sealed class AstroImageDocument
         float curvesBoost = 0f,
         float curvesMidpoint = 0.25f,
         float hdrAmount = 0f,
-        float hdrKnee = 0.8f)
+        float hdrKnee = 0.8f,
+        float bgNeutralizationStrength = 1f)
     {
         var stats = PerChannelStats;
         var luma = LumaStats;
@@ -392,7 +398,16 @@ public sealed class AstroImageDocument
         var uniforms = ComputeStretchUniforms(mode, new StretchParameters(factor, clipping), stats, luma, UnstretchedImage.MaxValue, ColorCalibration, weights);
         if (BackgroundNeutralization is { } bn)
         {
-            uniforms = uniforms with { BackgroundNeutralization = bn };
+            // Lerp the gain toward identity by `strength`. Cheap: no recompute,
+            // no extra uniform, no shader change. effective = (1-s)*1 + s*gain.
+            var s = Math.Clamp(bgNeutralizationStrength, 0f, 1f);
+            var effective = s >= 0.9999f
+                ? bn
+                : (
+                    R: 1f + s * (bn.R - 1f),
+                    G: 1f + s * (bn.G - 1f),
+                    B: 1f + s * (bn.B - 1f));
+            uniforms = uniforms with { BackgroundNeutralization = effective };
         }
         if (lumaBlend != 1f)
         {
@@ -615,16 +630,25 @@ public sealed class AstroImageDocument
     /// <summary>
     /// Computes background neutralization gains from the darkest spatial region.
     /// Results flow through the GPU shader as <see cref="StretchUniforms.BackgroundNeutralization"/>.
+    /// Method results are cached per document — switching methods on the same
+    /// document hits the cache, never re-walks pixels.
     /// </summary>
-    public (float R, float G, float B)? ComputeBackgroundNeutralization()
+    public (float R, float G, float B)? ComputeBackgroundNeutralization(
+        Lib.Imaging.BackgroundNeutralizationMethod method = Lib.Imaging.BackgroundNeutralizationMethod.Mean)
     {
         if (PerChannelBackground is not { Length: >= 3 } bg)
             return null;
 
-        var gains = Lib.Imaging.BackgroundNeutralization.ComputeGains(bg);
-        if (Math.Abs(gains.R - 1f) < 0.001f && Math.Abs(gains.G - 1f) < 0.001f && Math.Abs(gains.B - 1f) < 0.001f)
-            return null; // effectively no neutralization needed
+        if (!_bnGainsByMethod.TryGetValue(method, out var gains))
+        {
+            gains = Lib.Imaging.BackgroundNeutralization.ComputeGains(bg, method);
+            _bnGainsByMethod[method] = gains;
+        }
 
+        // Always pin the chosen method's gain onto the document — even when it
+        // happens to be near-identity for this image — so subsequent renders
+        // reflect the user's explicit choice rather than a stale value left
+        // over from a previously-selected method.
         BackgroundNeutralization = gains;
         return gains;
     }
