@@ -57,7 +57,9 @@
     <PackageVersion Include="SharpAstro.Color.Icc" Version="3.0.*" />
     <PackageVersion Include="SharpAstro.Jpeg" Version="3.0.*" />
     <PackageVersion Include="Console.Lib" Version="2.12.*" />
-    <PackageVersion Include="SdlVulkan.Renderer" Version="3.4.471" />
+    <!-- SdlVulkan.Renderer 4.0 = DIR.Lib 4.0 transitive (consume the codec-divorce
+         release). Tracks the SdlVulkan.Renderer repo's CI cadence (4.0.x). -->
+    <PackageVersion Include="SdlVulkan.Renderer" Version="4.0.*" />
     <PackageVersion Include="SDL3-CS" Version="3.5.0-preview.20260213-150035" />
     <PackageVersion Include="SDL3-CS.Native" Version="3.5.0-preview.20260205-174353" />
     <!-- Canon DSLR -->
