@@ -33,6 +33,14 @@ public partial class Image(float[][,] data, BitDepth bitDepth, float maxValue, f
     public float MaxValue => maxValue;
     public float MinValue => minValue;
     /// <summary>
+    /// ADU pedestal added to pixel values to keep them non-negative after
+    /// calibration subtraction (see <see cref="ImageMeta"/> remarks for the
+    /// OFFSET / PEDESTAL / BZERO distinction). 0 for raw frames; the
+    /// calibration <see cref="Subtract"/> path accumulates the user-supplied
+    /// offset here so downstream stretch / stats can subtract it back out.
+    /// </summary>
+    public float Pedestal => pedestal;
+    /// <summary>
     /// Image metadata such as instrument, exposure time, focal length, pixel size, ...
     /// </summary>
     public ImageMeta ImageMeta => imageMeta;
