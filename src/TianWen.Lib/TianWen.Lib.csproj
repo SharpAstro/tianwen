@@ -131,6 +131,11 @@
     <PackageReference Include="FC.SDK" />
     <PackageReference Include="QHYCCD.SDK" />
     <PackageReference Include="ZWOptical.SDK" />
+    <!-- Every device driver in Devices/ does `using TianWen.DAL`. Declaring it
+         directly here (rather than relying on the transitive via QHYCCD.SDK /
+         ZWOptical.SDK) is the honest "this project imports it" signal — same
+         pattern as the SharpAstro codec direct refs below. -->
+    <PackageReference Include="TianWen.DAL" />
     <!-- Image.Import / Image.Export import these directly. DIR.Lib 4.0 dropped its
          phantom codec dependencies (it was a leftover from the Phase 1 extraction),
          so tianwen has to declare them itself. -->
