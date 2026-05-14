@@ -16,13 +16,10 @@ namespace TianWen.Lib.Imaging.Calibration;
 /// Phase 5).
 /// </summary>
 /// <remarks>
-/// Header-only reads still load pixel data today: <see cref="Image.TryReadFitsFile"/>
-/// allocates the full pixel array because FITS.Lib's <c>ReadHDU</c> doesn't
-/// expose a header-only seek. For a typical 100-frame folder this costs ~4 s
-/// on NVMe (3.6 GB throughput, discarded). The buffers are short-lived and GC'd
-/// per iteration, so memory pressure stays bounded — only throughput is wasted.
-/// A future optimisation can read raw FITS blocks until the END card and skip
-/// the data segment; deferred until profiling shows it matters.
+/// Header-only reads via <see cref="Image.TryReadFitsHeader"/> — the FITS.Lib
+/// 4.5.1 <c>Fits.ReadHDUHeaderOnly</c> call skips the data block, so a 100-frame
+/// folder scan stays kilobyte-scale rather than allocating 3.6 GB of throwaway
+/// pixel buffers.
 /// </remarks>
 public sealed class FitsFolderFrameSource : IFrameSource
 {
@@ -81,17 +78,6 @@ public sealed class FitsFolderFrameSource : IFrameSource
 
     private static FrameInfo? TryReadFrameInfo(string path)
     {
-        // See class remarks: this loads pixel data we discard. Acceptable for v1.
-        if (!Image.TryReadFitsFile(path, out var image))
-        {
-            return null;
-        }
-        return new FrameInfo(
-            Path: path,
-            Width: image.Width,
-            Height: image.Height,
-            ChannelCount: image.ChannelCount,
-            BitDepth: image.BitDepth,
-            Meta: image.ImageMeta);
+        return Image.TryReadFitsHeader(path, out var info) ? info : null;
     }
 }

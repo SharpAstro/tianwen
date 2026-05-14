@@ -15,6 +15,14 @@
       AND Exists('$(MSBuildThisFileDirectory)..\..\SdlVulkan.Renderer\src\SdlVulkan.Renderer\SdlVulkan.Renderer.csproj')
       AND Exists('$(MSBuildThisFileDirectory)..\..\StbImageSharp\src\StbImageSharp\StbImageSharp.csproj')
       AND Exists('$(MSBuildThisFileDirectory)..\..\StbImageSharp\src\SharpAstro.Tiff\SharpAstro.Tiff.csproj')">true</UseLocalSiblings>
+
+    <!-- FITS.Lib auto-detect is decoupled from UseLocalSiblings: FITS.Lib has no
+         transitive coupling to the DIR.Lib/Console.Lib/SdlVulkan.Renderer/Fonts
+         sibling chain, so it can be picked up locally even when the rest of the
+         siblings are off (or when the wider chain has a transient restore
+         issue). Override: dotnet build -p:UseLocalFitsLib=false. -->
+    <UseLocalFitsLib Condition="'$(UseLocalFitsLib)' == ''
+      AND Exists('$(MSBuildThisFileDirectory)..\..\FITS.Lib\CSharpFITS\CSharpFITS.csproj')">true</UseLocalFitsLib>
   </PropertyGroup>
 
 </Project>
