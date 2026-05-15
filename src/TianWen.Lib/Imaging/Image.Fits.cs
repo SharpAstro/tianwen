@@ -91,7 +91,12 @@ public partial class Image
         var pixelSizeY = hdu.Header.GetFloatValue("YPIXSZ", float.NaN);
         var xbinning = hdu.Header.GetIntValue("XBINNING", 1);
         var ybinning = hdu.Header.GetIntValue("YBINNING", 1);
-        var focalLength = hdu.Header.GetIntValue("FOCALLEN", -1);
+        // FOCALLEN is often written as a float (e.g. "270.0"), and nom.tam.fits's
+        // GetIntValue won't coerce -- falls back to -1, which silently disables
+        // pixel-scale derivation downstream (plate solver bails on null ImageDim).
+        // Some software emits the keyword as "FOCLEN" instead; accept either.
+        var focalLength = (int)Math.Round(hdu.Header.GetDoubleValue("FOCALLEN",
+            hdu.Header.GetDoubleValue("FOCLEN", -1.0)));
         var aperture = hdu.Header.GetIntValue("APTDIA", -1);
         var focusPos = hdu.Header.GetIntValue("FOCUSPOS", hdu.Header.GetIntValue("FOCPOS", -1));
         var filterName = hdu.Header.GetStringValue("FILTER");
@@ -204,7 +209,12 @@ public partial class Image
         var ybinning = hdu.Header.GetIntValue("YBINNING", 1);
         var pedestal = hdu.Header.GetFloatValue("PEDESTAL", 0f);
         var pixelScale = hdu.Header.GetFloatValue("PIXSCALE", hdu.Header.GetFloatValue("SCALE", float.NaN));
-        var focalLength = hdu.Header.GetIntValue("FOCALLEN", -1);
+        // FOCALLEN is often written as a float (e.g. "270.0"), and nom.tam.fits's
+        // GetIntValue won't coerce -- falls back to -1, which silently disables
+        // pixel-scale derivation downstream (plate solver bails on null ImageDim).
+        // Some software emits the keyword as "FOCLEN" instead; accept either.
+        var focalLength = (int)Math.Round(hdu.Header.GetDoubleValue("FOCALLEN",
+            hdu.Header.GetDoubleValue("FOCLEN", -1.0)));
         var aperture = hdu.Header.GetIntValue("APTDIA", -1);
         var focusPos = hdu.Header.GetIntValue("FOCUSPOS", hdu.Header.GetIntValue("FOCPOS", -1));
         // FILTER = full manufacturer name (NINA convention); FILTCLAS = coarse classification

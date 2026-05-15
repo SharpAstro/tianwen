@@ -214,6 +214,20 @@ var loop = new SdlEventLoop(sdlWindow, renderer)
         }
 
         imageRenderer.Render(controller.Document, state);
+
+        // Cursor feedback: show the horizontal-resize cursor when hovering or
+        // actively dragging the file-list resize handle, default otherwise.
+        // SetSystemCursor is a cached no-op when the cursor is already active,
+        // so calling it every frame is cheap.
+        var (mx, _) = state.MouseScreenPosition;
+        var listW = imageRenderer.ScaledFileListWidth;
+        var handleSlop = 6f * imageRenderer.DpiScale;
+        var overHandle = state.ShowFileList
+            && mx >= listW - handleSlop
+            && mx <= listW + handleSlop;
+        sdlWindow.SetSystemCursor(state.IsResizingFileList || overHandle
+            ? SDL3.SDL.SystemCursor.EWResize
+            : SDL3.SDL.SystemCursor.Default);
     },
 
     OnPostFrame = () =>
@@ -283,6 +297,13 @@ void HandleMouseDown(byte button, float px, float py)
         if (hit is HitResult.ListItemHit { ListId: "FileList", Index: var fileIndex })
         {
             ViewerActions.SelectFile(state, fileIndex);
+            return;
+        }
+
+        if (hit is ResizeHandleHit { Id: "FileList" })
+        {
+            state.IsResizingFileList = true;
+            state.NeedsRedraw = true;
             return;
         }
 

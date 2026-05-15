@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using DIR.Lib;
@@ -152,6 +153,22 @@ public sealed class ViewerState
 
     /// <summary>Scroll offset (in items) for the file list.</summary>
     public int FileListScrollOffset { get; set; }
+
+    /// <summary>User-adjusted file list panel width in DPI-independent units. Default 300px;
+    /// the actual rendered width is this value multiplied by the DPI scale. Clamped to
+    /// <see cref="FileListWidthBaseMin"/>..<see cref="FileListWidthBaseMax"/> when set.</summary>
+    public float FileListWidthBase
+    {
+        get => _fileListWidthBase;
+        set => _fileListWidthBase = Math.Clamp(value, FileListWidthBaseMin, FileListWidthBaseMax);
+    }
+    private float _fileListWidthBase = 300f;
+
+    public const float FileListWidthBaseMin = 180f;
+    public const float FileListWidthBaseMax = 900f;
+
+    /// <summary>True while the user is dragging the file list resize handle.</summary>
+    public bool IsResizingFileList { get; set; }
 
     /// <summary>Set by UI to request loading a different file. Consumed by the app loop.</summary>
     public string? RequestedFilePath { get; set; }

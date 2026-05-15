@@ -133,7 +133,16 @@ namespace TianWen.UI.Abstractions
         private float InfoPanelWidth => BaseInfoPanelWidth * DpiScale;
         private float StatusBarHeight => BaseStatusBarHeight * DpiScale;
         private float ToolbarHeight => BaseToolbarHeight * DpiScale;
-        private float FileListWidth => BaseFileListWidth * DpiScale;
+        // Honor the user-resizable width when state is bound; fall back to the
+        // historical 300px constant when state hasn't been attached yet (e.g.
+        // during initial layout queries before Render(state) has run).
+        private float FileListWidth =>
+            (_state is { } s ? s.FileListWidthBase : BaseFileListWidth) * DpiScale;
+
+        /// <summary>Width of the draggable resize handle at the right edge of
+        /// the file list, in raw screen pixels. ~6px gives a comfortable target
+        /// without claiming visible real estate.</summary>
+        private float FileListResizeHandleWidth => 6f * DpiScale;
         private float FontSize => BaseFontSize * DpiScale;
         private float ToolbarFontSize => BaseToolbarFontSize * DpiScale;
         private float PanelPadding => BasePanelPadding * DpiScale;
@@ -350,6 +359,29 @@ namespace TianWen.UI.Abstractions
             _state = state;
             _document = document;
             BeginFrame();
+
+            // Per-document calibration caches (BackgroundNeutralization,
+            // ColorCalibration) are null on a freshly loaded doc. If the user
+            // had the toggle on for the previous file, restore the visual by
+            // recomputing for the new doc -- otherwise the stretch falls back
+            // to identity gains and the image looks cast-coloured until the
+            // user re-clicks Calibrate/NeutBg.
+            if (document is not null)
+            {
+                if (state.BackgroundNeutralizationEnabled && document.BackgroundNeutralization is null)
+                {
+                    document.ComputeBackgroundNeutralization(state.BackgroundNeutralizationMethod);
+                }
+                // ColorCalibration recompute is async (catalog + photometry) and
+                // depends on detected stars. We only fire when stars are already
+                // available; otherwise the user must re-click Calibrate to kick
+                // off the full detect + solve + calibrate chain.
+                if (state.ColorCalibrationEnabled && document.ColorCalibration is null
+                    && document.Stars is { Count: >= 5 })
+                {
+                    TryStartColorCalibration(state);
+                }
+            }
 
             // Draw image FIRST so UI chrome paints on top of it
             if (ImageWidth > 0 && ImageHeight > 0)
@@ -951,6 +983,17 @@ namespace TianWen.UI.Abstractions
                 var scrollBarY = listTop + scrollFraction * (listHeight - scrollBarH);
                 FillRect(FileListWidth - 4, scrollBarY, 3, scrollBarH, 0.4f, 0.4f, 0.45f, 0.8f);
             }
+
+            // Resize handle at the right edge -- thin vertical bar, brighter
+            // while dragging so the affordance stays visible even when the
+            // cursor leaves the panel during a fast drag.
+            var handleW = FileListResizeHandleWidth;
+            var handleX = FileListWidth - handleW * 0.5f;
+            var (hr, hg, hb, ha) = state.IsResizingFileList
+                ? (0.45f, 0.55f, 0.70f, 1f)
+                : (0.30f, 0.30f, 0.35f, 0.7f);
+            FillRect(handleX, listTop, handleW, listHeight, hr, hg, hb, ha);
+            RegisterClickable(handleX - 2f, listTop, handleW + 4f, listHeight, new ResizeHandleHit("FileList"));
         }
 
         /// <summary>
@@ -2121,6 +2164,13 @@ namespace TianWen.UI.Abstractions
                 return true;
             }
 
+            if (hit is ResizeHandleHit { Id: "FileList" })
+            {
+                state.IsResizingFileList = true;
+                state.NeedsRedraw = true;
+                return true;
+            }
+
             if (hit is not null)
             {
                 return true; // OnClick already handled it (e.g. HistogramLog)
@@ -2139,6 +2189,15 @@ namespace TianWen.UI.Abstractions
             }
 
             state.MouseScreenPosition = (px, py);
+
+            // File-list resize drag: width tracks the cursor's X position in
+            // DPI-independent units. Clamped by FileListWidthBase's setter.
+            if (state.IsResizingFileList)
+            {
+                state.FileListWidthBase = px / DpiScale;
+                state.NeedsRedraw = true;
+                return true;
+            }
 
             // Panning always needs a redraw (image position changes)
             if (state.IsPanning)
@@ -2160,6 +2219,11 @@ namespace TianWen.UI.Abstractions
         {
             if (_state is { } state)
             {
+                if (state.IsResizingFileList)
+                {
+                    state.IsResizingFileList = false;
+                    state.NeedsRedraw = true;
+                }
                 ViewerActions.EndPan(state);
                 return true;
             }
