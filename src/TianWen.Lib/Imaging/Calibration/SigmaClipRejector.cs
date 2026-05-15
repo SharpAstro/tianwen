@@ -1,6 +1,7 @@
 using System;
 using System.Buffers;
 using System.Numerics;
+using static TianWen.Lib.Stat.StatisticsHelper;
 
 namespace TianWen.Lib.Imaging.Calibration;
 
@@ -63,16 +64,22 @@ public sealed record SigmaClipRejector(
                 }
                 if (keptCount < 3) break;
 
-                Array.Sort(valuesBuf, 0, keptCount);
-                var median = Median(valuesBuf, keptCount);
+                // MedianFast (quickselect) instead of full sort: this rejector
+                // runs per-pixel across the full integrated frame (3008x3008 on
+                // IMX533, up to 9M columns per group), 5 iterations max, with
+                // 2 median calls per iteration. O(n) per call vs O(n log n)
+                // saves a measurable chunk of the integration step.
+                var values = valuesBuf.AsSpan(0, keptCount);
+                var median = MedianFast(values);
 
-                // 2. Compute MAD = median(|v - median|).
+                // 2. Compute MAD = median(|v - median|). We can read valuesBuf
+                // in iteration order regardless of MedianFast's permutation --
+                // the absolute-deviation is value-only, position-agnostic.
                 for (var i = 0; i < keptCount; i++)
                 {
                     madBuf[i] = MathF.Abs(valuesBuf[i] - median);
                 }
-                Array.Sort(madBuf, 0, keptCount);
-                var mad = Median(madBuf, keptCount);
+                var mad = MedianFast(madBuf.AsSpan(0, keptCount));
                 if (mad <= 0f)
                 {
                     // Degenerate: > half the kept values are exactly equal to
@@ -111,14 +118,6 @@ public sealed record SigmaClipRejector(
         }
 
         return kept;
-    }
-
-    private static float Median(float[] sorted, int n)
-    {
-        // Caller pre-sorted sorted[0..n].
-        return n % 2 == 1
-            ? sorted[n / 2]
-            : 0.5f * (sorted[n / 2 - 1] + sorted[n / 2]);
     }
 
     /// <summary>

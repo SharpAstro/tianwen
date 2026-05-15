@@ -27,11 +27,16 @@ public static class Registrator
     /// <param name="snrMin">Min SNR for star detection. Lower = more stars but
     /// more spurious detections; 20 matches the existing
     /// <see cref="Image.FindOffsetAndRotationAsync"/> default.</param>
+    /// <param name="onFrameScanned">Optional per-frame callback invoked after
+    /// star detection finishes on a frame. Receives the frame and its detected
+    /// star count. Lets test runners / CLI orchestrators log progress and
+    /// inspect the picker's view of the dataset without re-detecting stars.</param>
     /// <returns>The frame with the highest star count, or null if no frame
     /// has any detectable stars.</returns>
     public static async Task<FrameInfo?> PickReferenceAsync(
         IReadOnlyList<FrameInfo> lights,
         float snrMin = 20f,
+        System.Action<FrameInfo, int>? onFrameScanned = null,
         CancellationToken cancellationToken = default)
     {
         FrameInfo? best = null;
@@ -41,6 +46,7 @@ public static class Registrator
             cancellationToken.ThrowIfCancellationRequested();
             var image = await frame.LoadFullAsync(cancellationToken);
             var stars = await image.FindStarsAsync(channel: 0, snrMin: snrMin, cancellationToken: cancellationToken);
+            onFrameScanned?.Invoke(frame, stars.Count);
             if (stars.Count > bestCount)
             {
                 bestCount = stars.Count;

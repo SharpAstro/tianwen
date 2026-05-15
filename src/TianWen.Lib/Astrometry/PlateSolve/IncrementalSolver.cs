@@ -160,7 +160,7 @@ namespace TianWen.Lib.Astrometry.PlateSolve
             // call, but worth doing now so the first live Refine doesn't pay
             // a one-shot cost while the user is staring at the gauge).
             var seedSorted = new SortedStarList(stars);
-            _ = await seedSorted.FindQuadsAsync(ct).ConfigureAwait(false);
+            _ = await seedSorted.FindQuadsAsync(cancellationToken: ct).ConfigureAwait(false);
 
             // Drop any prior seed before swapping in the new one.
             _seedSortedStars?.Dispose();

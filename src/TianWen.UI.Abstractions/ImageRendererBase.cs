@@ -368,7 +368,13 @@ namespace TianWen.UI.Abstractions
             // user re-clicks Calibrate/NeutBg.
             if (document is not null)
             {
-                if (state.BackgroundNeutralizationEnabled && document.BackgroundNeutralization is null)
+                // Always reapply the current method when the toggle is on --
+                // not just when the doc's cached gain is null. Otherwise a
+                // cached doc that was previously viewed under a different
+                // method (e.g. Mean) keeps its stale Mean gains even though
+                // the toolbar shows Min pivot. The doc's per-method dict
+                // makes the re-call a cheap dictionary lookup.
+                if (state.BackgroundNeutralizationEnabled)
                 {
                     document.ComputeBackgroundNeutralization(state.BackgroundNeutralizationMethod);
                 }
