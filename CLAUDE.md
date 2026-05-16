@@ -89,7 +89,7 @@ every sibling uses `src/<Lib>/<Lib>.csproj`.
 | `DIR.Lib` | `../DIR.Lib` | `src/DIR.Lib/DIR.Lib.csproj` | ✅ |
 | `SdlVulkan.Renderer` | `../SdlVulkan.Renderer` | `src/SdlVulkan.Renderer/SdlVulkan.Renderer.csproj` | ✅ |
 | `Console.Lib` | `../Console.Lib` | `src/Console.Lib/Console.Lib.csproj` | ✅ |
-| `FITS.Lib` | `../FITS.Lib` | `CSharpFITS/CSharpFITS.csproj` (package name is `FITS.Lib`) | ❌ |
+| `FITS.Lib` | `../FITS.Lib` | `CSharpFITS/CSharpFITS.csproj` (package name is `FITS.Lib`) | ✅ (separate `UseLocalFitsLib` switch) |
 | `FC.SDK` | `../FC.SDK` | `src/FC.SDK/FC.SDK.csproj` | ❌ |
 | `ZWOptical.SDK` | `../zwo-sdk-nuget` | `ZWOptical.SDK.csproj` (repo root) | ❌ |
 | `QHYCCD.SDK` | `../QHYCCD.SDK` | `QHYCCD.SDK.csproj` (repo root) | ❌ |
@@ -97,12 +97,21 @@ every sibling uses `src/<Lib>/<Lib>.csproj`.
 | `TianWen.DAL` | `../TianWen.DAL` | — | ❌ |
 
 **Auto-detection** (`Directory.Build.props`): for `DIR.Lib`, `Console.Lib`, `SdlVulkan.Renderer`,
-the build switches to ProjectReference when all three sibling working copies exist, otherwise
-PackageReference. Single property `UseLocalSiblings`. Override: `dotnet build -p:UseLocalSiblings=false`.
-CI always uses PackageReference. `Fonts.Lib` is transitive via DIR.Lib's own `UseLocalFontsLib` switch.
+`StbImageSharp`, `SharpAstro.Tiff`, the build switches to ProjectReference when all five sibling
+working copies exist, otherwise PackageReference. Single property `UseLocalSiblings`. Override:
+`dotnet build -p:UseLocalSiblings=false`. CI always uses PackageReference. `Fonts.Lib` is transitive
+via DIR.Lib's own `UseLocalFontsLib` switch. **`FITS.Lib` has its own independent switch**
+(`UseLocalFitsLib`): it auto-detects when `../FITS.Lib/CSharpFITS/CSharpFITS.csproj` exists, decoupled
+from `UseLocalSiblings` because FITS.Lib has no transitive coupling to the DIR.Lib/Console.Lib chain.
+Override: `dotnet build -p:UseLocalFitsLib=false`.
 
-For libraries without auto-detection, use local nupkg feeds with bumped versions (see
-`feedback_local_nuget_dev.md`) instead of editing references.
+For libraries without auto-detection (`FC.SDK`, `ZWOptical.SDK`, `QHYCCD.SDK`, `TianWen.DAL`),
+prefer to extend the `UseLocalSiblings` (or add an analogous `UseLocalXxx`) switch in
+`Directory.Build.props` + add a conditional `ProjectReference` in the consuming `.csproj`
+rather than reaching for local nupkg feeds. When that's not viable (e.g. cross-team release
+cadence forces a version bump), commit + push + wait for NuGet publish — **do not** create
+local nupkg feeds or run `dotnet pack` to short-circuit the release dance, since CI builds
+will still pull from nuget.org and a local-only nupkg will mask version-skew bugs.
 
 ## Key Technologies
 

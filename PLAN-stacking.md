@@ -711,3 +711,159 @@ stack can toggle the config off.
 - **Group keys**: pure `record MasterGroupKey(...)` value type, not tangled in UI state.
 - **No PyTorch / no Numba**. SIMD intrinsics from `System.Numerics.Tensors` give
   similar throughput in C# for the rejection inner loops.
+
+---
+
+## Phase 8 implementation status (2026-05-16)
+
+Phase 8's "tile integrator" entry above is the v1 plan. The shipped implementation
+is much richer: a **strategy-pattern selector** that picks one of six executors
+based on a runtime memory + disk probe, plus a **`FrameCache`** that turns the
+RAM-staging memory wall into a soft-degrade curve. Phase 8 is essentially feature-
+complete; the original "high-risk" entry now reads as "shipped, six strategies,
+56 unit tests, validated on real Liberty 120s dataset."
+
+### Strategy menu
+
+| Strategy | Source of truth | Best for | Files |
+|---|---|---|---|
+| `InRamAllFramesStrategy` | RAM (N × warped canvas) | Roomy host, fidelity 1.00 | `InRamAllFramesStrategy.cs` |
+| `TilePipelinedStrategy` | Raw FITS on disk; re-decode + warp per strip | Memory-tight host where stage-to-disk is undesirable | `TilePipelinedStrategy.cs` |
+| `FootprintStagedStrategy` | Disk-staged warped float32, per-frame AABB-trimmed | Most production stacks; saves 5-50% disk vs full-canvas staging | `FootprintStagedStrategy.cs` |
+| `Float16StagedStrategy` | Disk-staged warped Half, full canvas | Tight disk; ~half the staging cost of float32 | `Float16StagedStrategy.cs` |
+| `ChunkedTwoPassStrategy` | RAM, chunk-flushed partial sums | Huge frame counts where RAM-for-all-frames busts the cap but a chunk does fit | `ChunkedTwoPassStrategy.cs` |
+| `LiveAccumulatorStrategy` | Welford online; one frame at a time | Live capture preview (Phase 14 lifecycle) | `LiveAccumulatorStrategy.cs` |
+
+### Selector machinery
+
+- **`IntegrationProbe`** snapshots the host: `AvailableRamBytes` (physical, from
+  `GC.GetGCMemoryInfo().TotalAvailableMemoryBytes`), `FreeRamBytes` (currently free,
+  used for soft scoring only), disk space + kind, frame geometry, live flag.
+- **`ResourceBudget`** (default 75% RAM / 80% disk safety) maps the probe to a
+  working cap.
+- **`IntegrationStrategySelector.Pick`** is a two-phase chooser: each strategy's
+  `Evaluate` reports `CanRun` + `EstimatedRamBytes` + `EstimatedDuration` against
+  the hard gate. Survivors get a `(fidelity, speed)` weighted score under a
+  `RankingPolicy` (default `FidelityFirst`); a **memory-pressure soft penalty**
+  multiplies the score by `(1 - clamp((est/free - 1) * 0.25, 0, 0.5))` so a
+  RAM-heavy strategy loses points when free RAM is tight even though it passed
+  the physical-RAM gate. `preferred` parameter lets test code force a specific
+  strategy.
+
+### `FrameCache` — the shared accelerator
+
+Two-tier strong+weak cache keyed by frame index (`FrameCache.cs`):
+- `_strong[f]` holds first `StrongCap` frames — guaranteed-alive for the
+  integration's lifetime. `StrongCap` is `FrameCache.DecideCacheCap(n, frameBytes)`
+  ≈ 50% of currently-free heap at construction time, capped at N.
+- `_weak[f]` holds **every** registered frame as a `WeakReference<Image>`. A weak
+  hit on `TryGet` auto-promotes to a strong-ref so subsequent passes can't lose
+  the frame mid-integration.
+
+Wired into:
+- **`TilePipelinedStrategy`** directly (pass 1 populates, pass 2's strip loop
+  `TryGet`s; miss → re-decode raw + re-register).
+- **`StreamingFrameReader`** holds an optional `WeakReference<Image>` registered
+  via `SetCachedImage`. `ReadStripe` slices from the in-memory channel data when
+  alive, falling through to the disk + byte-decode path when the GC reclaimed it.
+  **`FootprintStagedStrategy`** + **`Float16StagedStrategy`** wire a `FrameCache`
+  + call `reader.SetCachedImage(warped)` per frame at staging time.
+- `ChunkedTwoPassStrategy` not wired — it doesn't use `StreamingFrameReader`,
+  it's RAM-only with a per-chunk buffer drop, so there's no read-path surface
+  to interpose on.
+- `InRamAllFrames` doesn't need it (everything in RAM by design).
+- `LiveAccumulator` is incremental, no re-read pattern.
+
+### Phase 8 sub-phase ship log
+
+| Sub-phase | Commit | Scope |
+|---|---|---|
+| 8.0 | `bbab3c8` | `IntegrationJob` v2 surface (`RawLightSources`, `Calibrator`, `DebayerAlgorithm`, `CanvasWidth/Height`) + `TilePipelined` scaffolding |
+| 8.1 | `f4a7013` | `PartialFitsReader` — memory-mapped FITS sub-region reader, 9 unit tests, supports `BITPIX in {8, 16, 32, -32, -64}` + BZERO/BSCALE + BE→host swap |
+| 8.2 | `330b4b3` | `Image.WarpRegionAsync` (sub-rectangle inverse-bilinear warp) + strip-pipelined `TilePipelinedStrategy.RunAsync` |
+| selector | `da67544` | Physical-RAM hard gate + free-RAM soft penalty + `FreeRamBytes` probe field + 75% safety default |
+| 8.2 perf | `7415671` | Strong+weak cached debayered frames inside TilePipelined → **~10× speedup** on Liberty 120s (10.9 min → 1.6 min) |
+| log polish | `7dcc873` | `(raw-sourced, N=...)` label for strategies that don't use `WarpedFrames` |
+| refactor | `40fce57` | `FrameCache` extracted as shared helper |
+| 8.3 bench | `7ece80b` | BDN `PartialFitsReaderBenchmarks` vs FITS.Lib: **36× faster on tile reads** (0.40 ms vs 14.28 ms), 6000× lower allocation |
+| cache wire | `e17d585` | `StreamingFrameReader.SetCachedImage` + FrameCache wired into FootprintStaged + Float16Staged |
+
+### Phase 8.3 benchmark (numbers worth remembering)
+
+Host: win-arm64, .NET 10, synthetic 3008² BITPIX=16 fixture.
+
+| Read | FITS.Lib | PartialFitsReader | Ratio |
+|---|---|---|---|
+| Full 3008² | 13.0 ms / 55 MB alloc | 22.3 ms / 9 KB alloc | mmap 1.72× slower CPU, **6000× less alloc** |
+| **Tile 256×256** | 14.3 ms / 55 MB alloc | **0.40 ms** / 9 KB alloc | mmap **36×** faster |
+
+FITS.Lib has no sub-rectangle API, so a 256² read still allocates the full 36 MB
+plane. PartialFitsReader's tile read is what TilePipelined actually drives.
+
+### Open follow-ups (Phase 8.x)
+
+- **Sub-region debayer + per-tile warp helpers** (originally planned as Phase 8.2):
+  the current TilePipelined still does a full-canvas debayer per frame, then a
+  per-strip `WarpRegionAsync`. Adding true sub-region debayer (with halo-aware
+  AHD/VNG) would let the strategy decode only the raw bytes the current strip's
+  inverse-transform footprint covers. With `PartialFitsReader` (Phase 8.1) the
+  raw read is already region-bounded; the bottleneck moves to "full debayer per
+  frame." Estimated ~300-500 LOC for halo-aware sub-region BilinearMono/VNG/AHD.
+  Low priority: the cached debayered path already covers the common roomy-host
+  case end-to-end.
+- **SIMD byte-swap in `PartialFitsReader`** — full-read scalar loop costs ~3×
+  FITS.Lib's bulk-swap path. `Vector<uint>` + `BinaryPrimitives.ReverseEndianness`
+  closes the gap. Low priority: production hot path never does full reads
+  through `PartialFitsReader` (it does sub-tile reads where the gap is moot).
+- **PLAN-summary.md entry** for PLAN-stacking.md (untracked today).
+- **Promote `PartialFitsReader` to FITS.Lib** once API stabilises (see file
+  header comment).
+
+### What did NOT happen (deferred from the original plan)
+
+- **Phase 13 CLI `tianwen stack` orchestrator** — not started. The
+  `StackingEndToEndManualTest` (1457 LOC) is the orchestrator in flight today;
+  it doubles as the CLI sketch. Promotion to a `tianwen.Cli` command is a
+  separate task.
+- **Phase 14 `LiveStacker` engine** — `LiveAccumulatorStrategy` is the
+  selector-level placeholder (Welford lifecycle), but the session-side wiring
+  (Phase 15) hasn't started.
+- **Phase 10 `MemoryMappedFitsSink`** for tier-3 mosaic outputs — not started.
+  Tier-3 isn't a live user need yet; `ChunkedTwoPass` covers the in-between case
+  where N×canvas exceeds RAM but a chunk fits.
+
+### Where to look in the codebase (cold-start guide)
+
+```
+src/TianWen.Lib/Imaging/Calibration/
+├── IntegrationProbe.cs          # Probe + ResourceBudget + IntegrationCostModel + DiskKind + StrategyFit
+├── IIntegrationStrategy.cs      # Interface + IntegrationStrategyKind enum
+├── IntegrationStrategySelector.cs  # Two-phase picker + memory-pressure soft penalty
+├── IntegrationJob.cs            # The v2 job record (RawLightSources, Calibrator, ...)
+├── FrameCache.cs                # Two-tier strong+weak cache, DecideCacheCap heuristic
+├── InRamAllFramesStrategy.cs
+├── TilePipelinedStrategy.cs     # 2-pass strip-pipelined; uses FrameCache directly
+├── FootprintStagedStrategy.cs   # Staged warped float32, footprint-trimmed; wires FrameCache + reader cache
+├── Float16StagedStrategy.cs     # Half-precision staging; wires FrameCache + reader cache
+├── ChunkedTwoPassStrategy.cs    # RAM-only chunked partial sums; no cache surface
+├── LiveAccumulatorStrategy.cs   # Welford online (selector-level only today)
+├── StreamingFrameStaging.cs     # StreamingFrameReader (cache-aware ReadStripe), staging writers
+├── StreamingIntegrator.cs       # Chunk reader/reject/combine for staged strategies
+├── Integrator.cs                # In-memory integrator used by InRam + per-strip in TilePipelined
+├── Normalizer.cs                # Per-channel min/median stats + Normalizer.Apply
+└── Calibrator.cs                # bias/dark/flat application; Apply + ApplyTile (Span-based)
+
+src/TianWen.Lib/IO/
+└── PartialFitsReader.cs         # mmap'd FITS sub-rectangle reader (Phase 8.1)
+
+src/TianWen.Lib/Imaging/
+└── Image.Transform.cs           # WarpToReferenceGridAsync + WarpRegionAsync (Phase 8.2a)
+```
+
+Tests: `src/TianWen.Lib.Tests/` — `IntegrationStrategySelectorTests`,
+`TilePipelinedStrategyTests`, `WarpRegionAsyncTests`, `PartialFitsReaderTests`,
+plus the master `StackingEndToEndManualTest` for real-dataset validation
+(skipped when `C:\temp\stack\` is absent so CI stays green).
+
+Benchmarks: `src/TianWen.UI.Benchmarks/PartialFitsReaderBenchmarks.cs`
+(synthetic int16 FITS fixture written at `[GlobalSetup]`).
