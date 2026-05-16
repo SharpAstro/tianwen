@@ -172,4 +172,57 @@ public class IntegrationStrategySelectorTests
         balanced.Score(fidelity: 1.0, normalizedSpeed: 1.0).ShouldBe(1.0, tolerance: 1e-9);
         balanced.Score(fidelity: 0.5, normalizedSpeed: 0.5).ShouldBe(0.5, tolerance: 1e-9);
     }
+
+    [Fact]
+    public void MemoryPressurePenalty_LowFreeRam_DragsScoreVsAbundantFreeRam()
+    {
+        // Same probe except for FreeRamBytes. Score of the RAM-heavy InRam
+        // candidate should drop when free RAM is tight relative to its
+        // estimate. The penalty is "a small nudge" by design -- not enough
+        // to override a much-higher-fidelity strategy on a roomy host, just
+        // enough to bias the ranker when two strategies are close.
+        // Tight = 1.0 GB free, between InRam's ~1.6 GB estimate (penalised)
+        // and Float16Staged's ~0.7 GB estimate (still under free, no penalty).
+        var tightProbe = SmallGroup() with { FreeRamBytes = 1024L * 1024 * 1024 };
+        var roomyProbe = SmallGroup() with { FreeRamBytes = 16L * 1024 * 1024 * 1024 };
+
+        var tightSel = IntegrationStrategySelector.Pick(tightProbe);
+        var roomySel = IntegrationStrategySelector.Pick(roomyProbe);
+
+        var tightInRamScore = tightSel.Considered.Single(c => c.Strategy.Kind == IntegrationStrategyKind.InRamAllFrames).Score;
+        var roomyInRamScore = roomySel.Considered.Single(c => c.Strategy.Kind == IntegrationStrategyKind.InRamAllFrames).Score;
+        tightInRamScore.ShouldBeLessThan(roomyInRamScore,
+            "InRam should score lower when free RAM is tight (memory-pressure penalty kicked in)");
+
+        // The penalty should be meaningful but not catastrophic. Score drops
+        // 5-50% depending on the over-commit ratio (capped at 50%).
+        var dropFraction = (roomyInRamScore - tightInRamScore) / roomyInRamScore;
+        dropFraction.ShouldBeGreaterThan(0.01, "score drop should be measurable");
+        dropFraction.ShouldBeLessThan(0.5 + 1e-9, "penalty caps at 50%");
+    }
+
+    [Fact]
+    public void MemoryPressurePenalty_DoesNotKickIn_WhenFreeRamPlentiful()
+    {
+        // 32 GB physical, 16 GB free -- InRam's 1.6 GB fits both. Soft penalty
+        // is 0, so the default FidelityFirst policy still picks InRam.
+        var probe = SmallGroup() with { FreeRamBytes = 16L * 1024 * 1024 * 1024 };
+
+        var selection = IntegrationStrategySelector.Pick(probe);
+
+        selection.Chosen.Kind.ShouldBe(IntegrationStrategyKind.InRamAllFrames);
+    }
+
+    [Fact]
+    public void MemoryPressurePenalty_DefaultsToOff_WhenFreeRamUnpopulated()
+    {
+        // Probes built without FreeRamBytes (the parameterless default 0) get
+        // no penalty applied. Tests + callers that pre-date the field keep
+        // their pre-penalty behaviour.
+        var probe = SmallGroup(); // FreeRamBytes defaults to 0
+
+        var selection = IntegrationStrategySelector.Pick(probe);
+
+        selection.Chosen.Kind.ShouldBe(IntegrationStrategyKind.InRamAllFrames);
+    }
 }

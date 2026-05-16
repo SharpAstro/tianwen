@@ -47,7 +47,26 @@ public enum DiskKind
 /// <param name="ChannelCount">Channels per frame (1 mono, 3 RGB).</param>
 /// <param name="CanvasWidth">Pixel width of the union-BB output canvas.</param>
 /// <param name="CanvasHeight">Pixel height of the union-BB output canvas.</param>
-/// <param name="AvailableRamBytes">Free RAM budget at probe time (bytes).</param>
+/// <param name="AvailableRamBytes">Total RAM budget the process can claim
+/// (bytes). Use the GC's <c>TotalAvailableMemoryBytes</c> directly -- on
+/// .NET this defaults to the physical RAM the process is allowed to grow
+/// into, not the "currently free" number. The <see cref="ResourceBudget"/>
+/// safety factor (default 75%) brings it down to a working budget, so the
+/// final cap is "physical RAM the strategy is permitted to use" rather
+/// than "free RAM right now, after the GC's transient working set."
+/// The "free right now" number was too pessimistic -- a fresh dotnet test
+/// host reported 1.2 GB on a 64 GB machine just because the GC heap hadn't
+/// grown yet, and that gated out InRam for stacks the box could trivially
+/// fit.</param>
+/// <param name="FreeRamBytes">Currently-free RAM (bytes) -- the OS's
+/// "available" number after accounting for active working sets. Used as a
+/// soft signal in the ranker: a RAM-heavy strategy still gets a CanRun=true
+/// gate so long as its estimate fits in <see cref="AvailableRamBytes"/>,
+/// but if its estimate also exceeds <see cref="FreeRamBytes"/> the ranker
+/// applies a memory-pressure penalty so a lighter staged strategy can take
+/// the win. This means InRam wins on dedicated stack runs (lots of free RAM)
+/// and Footprint/Float16-staged take over when the user is mid-other-work
+/// (RAM is committed elsewhere).</param>
 /// <param name="AvailableDiskBytes">Free space on <paramref name="StagingDir"/>'s drive (bytes).</param>
 /// <param name="StagingDir">Where staged frames would be written. Drive
 /// identity drives the disk-throughput model.</param>
@@ -70,7 +89,8 @@ public sealed record IntegrationProbe(
     string StagingDir,
     DiskKind StagingDiskKind = DiskKind.Unknown,
     bool EmitRejectionMap = true,
-    bool LiveStacking = false)
+    bool LiveStacking = false,
+    long FreeRamBytes = 0)
 {
     /// <summary>Bytes one frame occupies as float32 in RAM.</summary>
     public long FrameBytes => (long)FrameWidth * FrameHeight * ChannelCount * sizeof(float);
@@ -85,10 +105,17 @@ public sealed record IntegrationProbe(
     public long AllFramesRamBytes => FrameBytes * FrameCount;
 
     /// <summary>
-    /// Snapshot the live host. Polls <see cref="GC.GetGCMemoryInfo()"/> for RAM
-    /// (uses TotalAvailable - MemoryLoad so the budget excludes what's already
-    /// pinned by GC heaps) and <see cref="DriveInfo"/> for free disk on the
-    /// staging drive. <paramref name="stagingDiskKind"/> defaults to
+    /// Snapshot the live host. Reads <see cref="GC.GetGCMemoryInfo()"/>'s
+    /// <c>TotalAvailableMemoryBytes</c> for RAM ("how big can the process
+    /// grow", which is physical RAM minus OS / container reserves) and
+    /// <see cref="DriveInfo"/> for free disk on the staging drive. The old
+    /// snapshot subtracted <c>MemoryLoadBytes</c> ("what the GC is already
+    /// holding") which made the budget swing wildly with transient working
+    /// set -- a fresh dotnet host with 64 GB physical reported a 1.2 GB
+    /// "free" gate and rejected InRam stacks the machine could trivially
+    /// fit. The safety factor in <see cref="ResourceBudget"/> (default 75%)
+    /// is the sole mechanism that takes the budget below physical.
+    /// <paramref name="stagingDiskKind"/> defaults to
     /// <see cref="DiskKind.Unknown"/> -- pass the orchestrator's best guess
     /// (typically <see cref="DiskKind.Ssd"/>) until auto-detection is wired.
     /// </summary>
@@ -105,7 +132,8 @@ public sealed record IntegrationProbe(
         bool liveStacking = false)
     {
         var info = GC.GetGCMemoryInfo();
-        var freeRam = Math.Max(0, info.TotalAvailableMemoryBytes - info.MemoryLoadBytes);
+        var physicalRam = info.TotalAvailableMemoryBytes;
+        var currentlyFree = Math.Max(0, info.TotalAvailableMemoryBytes - info.MemoryLoadBytes);
         var root = Path.GetPathRoot(Path.GetFullPath(stagingDir));
         var freeDisk = string.IsNullOrEmpty(root)
             ? 0L
@@ -117,23 +145,28 @@ public sealed record IntegrationProbe(
             ChannelCount: channelCount,
             CanvasWidth: canvasWidth,
             CanvasHeight: canvasHeight,
-            AvailableRamBytes: freeRam,
+            AvailableRamBytes: physicalRam,
             AvailableDiskBytes: freeDisk,
             StagingDir: stagingDir,
             StagingDiskKind: stagingDiskKind,
             EmitRejectionMap: emitRejectionMap,
-            LiveStacking: liveStacking);
+            LiveStacking: liveStacking,
+            FreeRamBytes: currentlyFree);
     }
 }
 
 /// <summary>
 /// Safety factors on the raw <see cref="IntegrationProbe.AvailableRamBytes"/> /
 /// <see cref="IntegrationProbe.AvailableDiskBytes"/> budgets. Leaves headroom
-/// for the framework, masters, OS page cache, and a misbehaving GC pin.
-/// Defaults to 60% / 80% -- pessimistic on RAM (the GC can grow), generous on
-/// disk (OS reclaims aggressively).
+/// for the framework, masters, OS page cache, and other in-process state.
+/// Defaults to 75% / 80%: the RAM number is "physical RAM the process is
+/// permitted to grow into" so the safety factor takes us down to a working
+/// budget. Disk is "free space the OS just reported", same idea. Both can be
+/// cranked higher when the caller knows the host is dedicated to stacking
+/// and nothing else (CI / batch reprocess), or lower for interactive use
+/// where the user wants the GUI to stay responsive during a stack.
 /// </summary>
-public sealed record ResourceBudget(double RamSafetyFactor = 0.60, double DiskSafetyFactor = 0.80)
+public sealed record ResourceBudget(double RamSafetyFactor = 0.75, double DiskSafetyFactor = 0.80)
 {
     public long AllowedRam(IntegrationProbe p) => (long)(p.AvailableRamBytes * RamSafetyFactor);
     public long AllowedDisk(IntegrationProbe p) => (long)(p.AvailableDiskBytes * DiskSafetyFactor);

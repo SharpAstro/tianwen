@@ -114,6 +114,31 @@ public static class IntegrationStrategySelector
         var maxMs = survivors.Max(c => c.Fit.EstimatedDuration.TotalMilliseconds);
         var range = Math.Max(1.0, maxMs - minMs);
 
+        // Memory-pressure soft penalty: candidates that need more RAM than is
+        // currently free (i.e. would force eviction or paging) lose ranking
+        // points proportional to the over-commit. The hard gate already runs
+        // against physical RAM (AvailableRamBytes) so a slow staging
+        // strategy can still win when the host is mid-other-work and a
+        // RAM-heavy strategy would page. The penalty saturates at 50% of
+        // score so a much-higher-fidelity strategy can still come out on top.
+        // Falls back to "no penalty" when FreeRamBytes wasn't populated (0)
+        // so synthesised probes in tests don't get unexpectedly nudged.
+        var freeRam = probe.FreeRamBytes;
+        double MemoryPressurePenalty(long estimatedRam)
+        {
+            if (freeRam <= 0 || estimatedRam <= freeRam) return 0.0;
+            // Penalty scales against free RAM, not physical: a strategy that
+            // asks for 2x free RAM gets penalised regardless of whether the
+            // host has 8 GB or 64 GB installed, because in both cases the GC
+            // would need to grow + evict + page to satisfy it. Coefficient
+            // 0.25 chosen so a 3x-over-free strategy hits the cap (50%) and
+            // a 1.4x slip lands at a gentle 10% penalty -- enough to favour
+            // a staged strategy when free RAM is tight, not enough to override
+            // a much-higher-fidelity winner on a roomy box.
+            var ratio = (double)estimatedRam / freeRam;
+            return Math.Min(0.5, (ratio - 1.0) * 0.25);
+        }
+
         // For each candidate compute the score. Non-survivors stay at 0 so
         // log readers can see who was gated out.
         var ranked = evaluated
@@ -121,7 +146,9 @@ public static class IntegrationStrategySelector
             {
                 if (!c.Fit.CanRun) return new Candidate(c.Strategy, c.Fit, 0);
                 var speedNorm = 1.0 - (c.Fit.EstimatedDuration.TotalMilliseconds - minMs) / range;
-                var score = policy.Score(c.Strategy.FidelityScore, speedNorm);
+                var baseScore = policy.Score(c.Strategy.FidelityScore, speedNorm);
+                var penalty = MemoryPressurePenalty(c.Fit.EstimatedRamBytes);
+                var score = baseScore * (1.0 - penalty);
                 return new Candidate(c.Strategy, c.Fit, score);
             })
             .ToImmutableArray();

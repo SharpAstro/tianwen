@@ -159,9 +159,11 @@ public class StackingEndToEndManualTest(ITestOutputHelper output)
         // Substring match on the group slug to run a subset of groups only
         // (fast iteration on a 21 GB-free disk where the 60s groups don't
         // fit). Empty string = process all groups.
-        // Run all groups except the SoL 60s one (244 frames; staging budget
-        // exceeds available disk on this host until Phase 8 TilePipelined
-        // lands).
+        // SoL 60s (244 frames) staging budget no longer exceeds disk now that
+        // TilePipelined (Phase 8.2) is runnable -- the selector picks it when
+        // disk-staged strategies fail and InRam exceeds RAM. Leave the
+        // exclude blank to process every group; set to `_light_60s` to skip
+        // the long-running SoL group on iteration.
         const string GroupExclude = "_light_60s";
         if (GroupExclude.Length > 0)
         {
@@ -170,6 +172,11 @@ public class StackingEndToEndManualTest(ITestOutputHelper output)
             Log($"[filter] {beforeCount} group(s) -> {lightGroups.Count} after excluding '{GroupExclude}'");
         }
         const string GroupFilter = "";
+
+        // Force a specific integration strategy regardless of probe budget.
+        // Set to e.g. IntegrationStrategyKind.TilePipelined to validate Phase
+        // 8.2 against a real dataset. null = auto-pick (production path).
+        IntegrationStrategyKind? forceStrategy = null;
         if (GroupFilter.Length > 0)
         {
             var beforeCount = lightGroups.Count;
@@ -649,11 +656,13 @@ public class StackingEndToEndManualTest(ITestOutputHelper output)
                 canvasHeight: outHeight,
                 stagingDir: stagingDir,
                 stagingDiskKind: DiskKind.Ssd);
-            // Auto-pick under FidelityFirst policy. TilePipelined declines to
-            // run (Phase 8 not yet implemented) so the selector falls through
-            // to a runnable executor; the strategy table below shows the full
-            // candidate list so it's obvious why a given strategy lost.
-            var selection = IntegrationStrategySelector.Pick(probe);
+            // Auto-pick under FidelityFirst policy unless `forceStrategy` is
+            // set above to a specific kind (override path for validating an
+            // individual strategy against the real dataset). TilePipelined now
+            // returns CanRun=true (Phase 8.2) so it ranks against the others
+            // by speed-fidelity blend; under FidelityFirst it loses to InRam
+            // unless InRam exceeds the RAM budget.
+            var selection = IntegrationStrategySelector.Pick(probe, preferred: forceStrategy);
             Log($"  [strategy] probe: N={probe.FrameCount} frame={probe.FrameWidth}x{probe.FrameHeight}x{probe.ChannelCount} " +
                 $"canvas={probe.CanvasWidth}x{probe.CanvasHeight} freeRam={probe.AvailableRamBytes / 1e9:F1}GB " +
                 $"freeDisk={probe.AvailableDiskBytes / 1e9:F1}GB disk={probe.StagingDiskKind}");
