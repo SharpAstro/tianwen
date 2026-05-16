@@ -101,14 +101,18 @@ public partial class Image
         var h1 = height - 1;
         var s = (double)scale;
 
+        // Parallel.For runs the body directly on worker threads, no per-row
+        // Task.Run wrapper / async lambda / state machine. Default MaxDoP
+        // (= ProcessorCount) -- 4x oversubscription was a holdover from the
+        // per-row async pattern; for memory-bandwidth-bound debayer work it
+        // causes cache-line contention.
         var parallelOptions = new ParallelOptions
         {
             CancellationToken = cancellationToken,
-            MaxDegreeOfParallelism = Environment.ProcessorCount * 4
         };
 
         // Process all rows except the last one in parallel
-        await Parallel.ForAsync(0, h1, parallelOptions, async (y, ct) => await Task.Run(() =>
+        Parallel.For(0, h1, parallelOptions, y =>
         {
             for (int x = 0; x < w1; x++)
             {
@@ -117,9 +121,7 @@ public partial class Image
 
             // last column
             dstChannel[y, w1] = (float)(0.25d * s * ((double)srcChannel[y, w1] + srcChannel[y + 1, w1 - 1] + srcChannel[y, w1 - 1] + srcChannel[y + 1, w1]));
-
-            return ValueTask.CompletedTask;
-        }, ct));
+        });
 
         // last row (processed sequentially as it's a single row)
         for (int x = 0; x < w1; x++)
@@ -170,11 +172,14 @@ public partial class Image
         var dstG = debayered[G];
         var dstB = debayered[B];
 
-        // Process interior pixels in parallel (where full VNG can be applied)
-        await Parallel.ForAsync(radius,
+        // Process interior pixels in parallel (where full VNG can be applied).
+        // Parallel.For + default MaxDoP avoids per-row Task.Run scheduling
+        // overhead -- the old 4x oversubscription was for hiding async
+        // scheduling latency that no longer exists in the sync body.
+        Parallel.For(radius,
             height - radius,
-            new ParallelOptions { CancellationToken = cancellationToken, MaxDegreeOfParallelism = Environment.ProcessorCount * 4 },
-            async (y, ct) => await Task.Run(() =>
+            new ParallelOptions { CancellationToken = cancellationToken },
+            y =>
             {
                 // Pre-select pattern row based on y % 2
                 int patternEven = (y & 1) == 0 ? pattern00 : pattern10;
@@ -210,9 +215,7 @@ public partial class Image
                         debayered[knownColor == R ? B : R][y, x] = scale * InterpolateDiagonalVNG(srcChannel, x, y);
                     }
                 }
-
-                return ValueTask.CompletedTask;
-            }, ct)
+            }
         );
 
         // Process edge pixels with simpler bilinear interpolation (not parallelized - small portion)
@@ -468,14 +471,18 @@ public partial class Image
         var rgbH_R = rgbH[R]; var rgbH_G = rgbH[G]; var rgbH_B = rgbH[B];
         var rgbV_R = rgbV[R]; var rgbV_G = rgbV[G]; var rgbV_B = rgbV[B];
 
+        // Parallel.For runs sync bodies directly on worker threads -- no
+        // per-row async lambda / Task.Run / ValueTask.CompletedTask overhead.
+        // Default MaxDoP = ProcessorCount; the 4x oversubscription was a
+        // holdover from per-row task scheduling and causes cache-line
+        // contention on the 9 full-image scratch arrays AHD allocates.
         var parallelOptions = new ParallelOptions
         {
             CancellationToken = cancellationToken,
-            MaxDegreeOfParallelism = Environment.ProcessorCount * 4
         };
 
         // Interpolate green channel using horizontal and vertical directions, then R/B guided by green
-        await Parallel.ForAsync(radius, height - radius, parallelOptions, async (y, ct) => await Task.Run(() =>
+        Parallel.For(radius, height - radius, parallelOptions, y =>
         {
             int patternEven = (y & 1) == 0 ? pattern00 : pattern10;
             int patternOdd = (y & 1) == 0 ? pattern01 : pattern11;
@@ -549,14 +556,12 @@ public partial class Image
                     rgbV[oppositeColor][y, x] = greenV + cdAvg;
                 }
             }
-
-            return ValueTask.CompletedTask;
-        }, ct));
+        });
 
         // Phase 3: Compute homogeneity and select best direction
         var dstR = debayered[R]; var dstG = debayered[G]; var dstB = debayered[B];
 
-        await Parallel.ForAsync(totalRadius, height - totalRadius, parallelOptions, async (y, ct) => await Task.Run(() =>
+        Parallel.For(totalRadius, height - totalRadius, parallelOptions, y =>
         {
             for (int x = totalRadius; x < width - totalRadius; x++)
             {
@@ -618,9 +623,7 @@ public partial class Image
                     dstB[y, x] = (rgbH_B[y, x] + rgbV_B[y, x]) * 0.5f;
                 }
             }
-
-            return ValueTask.CompletedTask;
-        }, ct));
+        });
 
         // Fill edge pixels with bilinear interpolation before artifact reduction
         ProcessEdgePixels(debayered, width, height, totalRadius, bayerPattern);
@@ -631,7 +634,7 @@ public partial class Image
         var filtered = rgbH;
         var filtR = filtered[R]; var filtG = filtered[G]; var filtB = filtered[B];
 
-        await Parallel.ForAsync(0, height, parallelOptions, async (y, ct) => await Task.Run(() =>
+        Parallel.For(0, height, parallelOptions, y =>
         {
             Span<float> medianBuf = stackalloc float[9];
 
@@ -657,7 +660,7 @@ public partial class Image
                             }
                         }
 
-                        filtered[c][y, x] = (gCenter + Median(medianBuf)) * scale;
+                        filtered[c][y, x] = (gCenter + MedianFast(medianBuf)) * scale;
                     }
                 }
                 else
@@ -667,9 +670,7 @@ public partial class Image
                     filtB[y, x] = dstB[y, x] * scale;
                 }
             }
-
-            return ValueTask.CompletedTask;
-        }, ct));
+        });
 
         var normalized = scale < 1.0f;
         return new Image(filtered, BitDepth.Float32,
