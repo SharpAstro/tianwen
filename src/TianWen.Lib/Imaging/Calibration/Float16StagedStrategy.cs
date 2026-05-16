@@ -100,6 +100,10 @@ public sealed class Float16StagedStrategy : IIntegrationStrategy
         // are taken from the float32 warped image before staging so the
         // quantisation noise doesn't bias the normalisation min/median.
         var staged = new List<StagedAlignedFrame>(job.ExpectedFrameCount);
+        // RAM cache for the warped float32 Image -- the staged file is
+        // half-precision so a cache hit also avoids the Half->float unpack
+        // on the read path, not just the disk seek.
+        FrameCache? cache = null;
         try
         {
             var index = 0;
@@ -113,6 +117,7 @@ public sealed class Float16StagedStrategy : IIntegrationStrategy
                 StreamingFrameStaging.WriteHalf(warped, stagingPath);
 
                 var reader = new StreamingFrameReader(stagingPath);
+                reader.SetCachedImage(warped);
                 staged.Add(new StagedAlignedFrame(
                     reader,
                     warped.ImageMeta,
@@ -120,6 +125,14 @@ public sealed class Float16StagedStrategy : IIntegrationStrategy
                     warped.Pedestal,
                     stats.PerChannelMin,
                     stats.PerChannelMedian));
+
+                if (index == 0)
+                {
+                    var (c, w, h) = warped.Shape;
+                    var frameBytes = (long)w * h * c * sizeof(float);
+                    cache = new FrameCache(job.ExpectedFrameCount, FrameCache.DecideCacheCap(job.ExpectedFrameCount, frameBytes));
+                }
+                cache!.Set(index, warped);
                 index++;
             }
 
@@ -130,6 +143,7 @@ public sealed class Float16StagedStrategy : IIntegrationStrategy
             foreach (var s in staged) s.Dispose();
             try { Directory.Delete(job.StagingDir, recursive: true); }
             catch { /* best-effort */ }
+            _ = cache;
         }
     }
 }

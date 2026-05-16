@@ -212,6 +212,19 @@ public sealed class StreamingFrameReader : IDisposable
     /// <summary>Canvas width. See <see cref="Height"/>.</summary>
     public int Width { get; }
 
+    /// <summary>
+    /// Optional in-memory cache of the full canvas <see cref="Image"/> this
+    /// reader was constructed against. Set via <see cref="SetCachedImage"/>
+    /// when the strategy still has the warped Image alive after staging --
+    /// <see cref="ReadStripe"/> will slice from it instead of reading the
+    /// staged file. Held as a <see cref="WeakReference{T}"/> so the GC can
+    /// reclaim under pressure without breaking correctness: a dead reference
+    /// falls through to the disk path. The strategy is responsible for the
+    /// strong-ref retention policy (typically a <see cref="FrameCache"/>
+    /// keyed by frame index).
+    /// </summary>
+    private WeakReference<Image>? _cachedImage;
+
     /// <summary>Bytes one canvas-sized channel plane would occupy. Kept for
     /// backward compatibility with callers that compute output buffer sizes
     /// from this; the actual on-disk channel for v2 is smaller.</summary>
@@ -276,6 +289,19 @@ public sealed class StreamingFrameReader : IDisposable
 
     private int HeaderSize => _hasFootprint ? StreamingFrameStaging.HeaderBytesV2 : StreamingFrameStaging.HeaderBytesV1;
 
+    /// <summary>
+    /// Register the staged frame's in-memory <see cref="Image"/> so subsequent
+    /// <see cref="ReadStripe"/> calls can slice from RAM instead of seeking
+    /// the staged file. The reader holds a weak reference; the strategy must
+    /// retain the strong reference (typically via a <see cref="FrameCache"/>)
+    /// or the GC may reclaim the image before integration finishes, in which
+    /// case the reader transparently falls back to the disk path.
+    /// </summary>
+    public void SetCachedImage(Image image)
+    {
+        _cachedImage = new WeakReference<Image>(image);
+    }
+
     /// <summary>Reads <paramref name="rowCount"/> consecutive canvas rows
     /// starting at <paramref name="rowStart"/> from <paramref name="channel"/>
     /// into <paramref name="destination"/>. For v2 frames, rows outside the
@@ -290,6 +316,27 @@ public sealed class StreamingFrameReader : IDisposable
             throw new ArgumentOutOfRangeException(nameof(rowStart));
         if (destination.Length < rowCount * Width)
             throw new ArgumentException("Destination span too small for the requested stripe.", nameof(destination));
+
+        // Cache fast path: when the strategy retained the warped Image and it
+        // hasn't been GC'd, slice directly from the in-memory channel data.
+        // Skips the entire disk seek + byte-decode + scatter pipeline below.
+        // Warped images carry NaN outside the footprint by construction (the
+        // warp's out-of-source-bounds clamp) so the slice has the same
+        // NaN-padded shape the staged-file path produces.
+        if (_cachedImage is { } weak && weak.TryGetTarget(out var cached)
+            && cached.ChannelCount == Channels
+            && cached.Height == Height && cached.Width == Width)
+        {
+            var channelData = cached.GetChannelArray(channel);
+            for (var r = 0; r < rowCount; r++)
+            {
+                for (var c = 0; c < Width; c++)
+                {
+                    destination[r * Width + c] = channelData[rowStart + r, c];
+                }
+            }
+            return;
+        }
 
         lock (_gate)
         {

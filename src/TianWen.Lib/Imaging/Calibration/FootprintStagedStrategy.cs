@@ -118,6 +118,13 @@ public sealed class FootprintStagedStrategy : IIntegrationStrategy
         // full canvas (v1 format) -- equivalent to the pre-strategy behavior.
         var hasFootprints = job.FrameFootprints is not null && job.FrameFootprints.Count > 0;
         var staged = new List<StagedAlignedFrame>(job.ExpectedFrameCount);
+        // RAM cache for warped frames: every reader registers a weak ref to
+        // its warped Image so the chunk integrator can slice from RAM when
+        // the GC hasn't reclaimed it. The strong-ref retention lives on the
+        // FrameCache; on a roomy host all N frames stay alive end-to-end and
+        // disk reads collapse to RAM slices. On a tight host weak refs die
+        // and the reader transparently falls back to the staged-file path.
+        FrameCache? cache = null;
         try
         {
             var index = 0;
@@ -146,6 +153,7 @@ public sealed class FootprintStagedStrategy : IIntegrationStrategy
                 }
 
                 var reader = new StreamingFrameReader(stagingPath);
+                reader.SetCachedImage(warped);
                 staged.Add(new StagedAlignedFrame(
                     reader,
                     warped.ImageMeta,
@@ -153,6 +161,14 @@ public sealed class FootprintStagedStrategy : IIntegrationStrategy
                     warped.Pedestal,
                     stats.PerChannelMin,
                     stats.PerChannelMedian));
+
+                if (index == 0)
+                {
+                    var (c, w, h) = warped.Shape;
+                    var frameBytes = (long)w * h * c * sizeof(float);
+                    cache = new FrameCache(job.ExpectedFrameCount, FrameCache.DecideCacheCap(job.ExpectedFrameCount, frameBytes));
+                }
+                cache!.Set(index, warped);
                 index++;
             }
 
@@ -163,6 +179,8 @@ public sealed class FootprintStagedStrategy : IIntegrationStrategy
             foreach (var s in staged) s.Dispose();
             try { Directory.Delete(job.StagingDir, recursive: true); }
             catch { /* best-effort; caller may inspect intermediates */ }
+            // cache falls out of scope; FrameCache holds no native resources.
+            _ = cache;
         }
     }
 }
