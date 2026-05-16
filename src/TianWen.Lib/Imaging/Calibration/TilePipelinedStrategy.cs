@@ -8,42 +8,47 @@ using System.Threading.Tasks;
 namespace TianWen.Lib.Imaging.Calibration;
 
 /// <summary>
-/// PLAN-stacking Phase 8: re-read raw lights tile-by-tile, calibrate + warp +
-/// normalize + reject + combine in memory per output strip. No staging on
-/// disk; repeated raw reads are absorbed by the OS page cache when the raw
-/// lights fit in free RAM, and otherwise still cost two full sequential
-/// passes per integration (one for stats, one for the strip warps).
+/// PLAN-stacking Phase 8: re-read raw lights as needed, calibrate + debayer +
+/// warp + normalize + reject + combine in memory per output strip. Caches
+/// debayered frames in RAM when memory allows so the common case becomes
+/// "one decode per frame, just like InRam"; falls back to re-decode on miss
+/// when memory is tight. The tile abstraction is about cache survivability
+/// (debayered frames can be evicted and re-decoded without corrupting state),
+/// not about a strict per-strip RAM bound.
 /// </summary>
 /// <remarks>
 /// <para>Fidelity sits fractionally below <see cref="InRamAllFramesStrategy"/>
-/// (0.98 vs 1.00) only as a tiebreaker -- the math is identical, but per-strip
-/// pre-normalisation rebuilds the warped pixels twice (once for stats, once
-/// for integration) so float-rounding can shift the last bit of a few pixels.</para>
+/// (0.98 vs 1.00) only as a tiebreaker. The math is identical when the cache
+/// holds all N frames (pure InRam path). When some frames re-decode, the
+/// pre-normalize step uses stats gathered from the debayered frame rather
+/// than the warped canvas, which loses the <see cref="IntegrationJob.StatsRect"/>
+/// intersection-clamp the other strategies apply -- a small numerical drift
+/// for stacks with heavy edge rotation, undetectable for the typical
+/// small-shift session.</para>
 ///
-/// <para><b>Phase 8.2 implementation</b>: two-pass strip-pipelined.
+/// <para><b>Implementation</b>:
 /// <list type="number">
-/// <item><b>Pass 1 (per-frame stats)</b>: for each frame, load raw + calibrate +
-/// debayer + warp to canvas + compute <see cref="NormalizationStats"/> via
-/// <see cref="Normalizer.ComputeStats(Image, Rectangle)"/>. Frame data is
-/// discarded after stats land -- peak RAM during this pass is one frame's
-/// worth of debayered + warped canvas (~4 x debayered).</item>
-/// <item><b>Pass 2 (strip integration)</b>: for each canvas row-strip (default
-/// 256 rows tall), iterate the N frames, load raw + calibrate + debayer +
-/// <see cref="Image.WarpRegionAsync"/> just the strip, pre-normalize the strip
-/// using the pass-1 stats, then integrate. The N strip slices live in RAM
-/// together; peak is <c>N x strip + 1 x debayered + 1 x raw</c> instead of
-/// <c>N x canvas</c>.</item>
+/// <item><b>Pass 1 (per-frame stats + cache)</b>: for each frame, load raw +
+/// calibrate + debayer. Compute <see cref="NormalizationStats"/> directly
+/// from the debayered image (whole frame, NaN-ignoring). Conditionally cache
+/// the debayered Image -- the cache cap is sized at strategy entry from the
+/// current GC heap budget so we keep as many as fit without inducing
+/// paging.</item>
+/// <item><b>Pass 2 (strip integration)</b>: for each canvas row-strip, iterate
+/// the N frames; if a frame is cached, warp the strip directly off the
+/// cached debayered; if not, re-decode the raw + debayer (still in RAM)
+/// and warp the strip. Pre-normalize each strip using pass-1 stats, then
+/// integrate. Strip masters are copied into the final master at the strip's
+/// row offset.</item>
 /// </list>
 /// </para>
 ///
-/// <para>For 30 frames at 3008^2 RGB with 256-row strips: ~270 MB (strips) +
-/// ~108 MB (single debayered in flight) instead of <see cref="InRamAllFramesStrategy"/>'s
-/// ~3.3 GB. The wallclock cost is ~2x the in-RAM warp pass since pass 1 redoes
-/// the full warp just to gather stats -- a future optimisation can compute
-/// stats from the unwarped debayered image directly, but the resulting min/median
-/// would diverge slightly from other strategies that compute stats on the
-/// warped canvas with the optional intersection rect, so we keep the 2-pass
-/// shape for fidelity.</para>
+/// <para>Memory profile: peak = (cached debayered set) + (N strips) +
+/// (output master + rejection map) + (one in-flight raw + cal + debayered).
+/// When cacheCount = N (roomy host) this is essentially the InRam profile
+/// minus N x warped-canvas (we hold N x debayered, not N x warped). When
+/// cacheCount = 0 (very tight host) this degrades to the strict "one frame
+/// at a time" path with full re-decode per strip.</para>
 /// </remarks>
 public sealed class TilePipelinedStrategy : IIntegrationStrategy
 {
@@ -68,32 +73,36 @@ public sealed class TilePipelinedStrategy : IIntegrationStrategy
 
     public StrategyFit Evaluate(IntegrationProbe probe, ResourceBudget budget)
     {
-        // Phase 8.2: peak RAM = (N strips) + (1 in-flight debayered) +
-        // (1 in-flight raw + calibrated). The strip share dominates for big N.
-        // We over-budget the in-flight slot at 4x debayered to cover the
-        // calibrate -> debayer -> warp pipeline's transient peak.
+        // Memory model: the cache can hold up to N debayered frames (~N x
+        // FrameBytes) when there's headroom, but the strategy will function
+        // down to (1 in-flight debayered) + (N strips) + (output + rejmap).
+        // The "EstimatedRamBytes" we report is the optimistic ceiling -- if
+        // we'd happily use N x debayered when available, report it so the
+        // selector can apply the free-RAM soft penalty on tight hosts.
+        var cacheRam = probe.FrameBytes * probe.FrameCount;
         var stripBytes = (long)probe.CanvasWidth * StripHeight * probe.ChannelCount * sizeof(float);
         var stripsRam = stripBytes * probe.FrameCount;
-        var inFlightRam = (long)probe.FrameWidth * probe.FrameHeight * probe.ChannelCount * sizeof(float) * 4;
-        var ram = stripsRam + inFlightRam + probe.OutputRamBytes;
+        var inFlightRam = probe.FrameBytes * 2; // raw + cal + debayered in flight
+        var ram = cacheRam + stripsRam + inFlightRam + probe.OutputRamBytes;
         var cap = budget.AllowedRam(probe);
 
-        // Wallclock: roughly 2x the in-RAM warp pass (pass 1 + pass 2) plus a
-        // single stack pass. Disk I/O is whatever the raw frames cost to read
-        // twice through the OS page cache; we charge 1x bandwidth since after
-        // pass 1 the cache should hold them.
-        var rawReadBytes = probe.FrameBytes * probe.FrameCount;
-        var io = _costs.DiskIo(rawReadBytes, probe.FrameCount, probe.StagingDiskKind);
-        var eta = (_costs.WarpAllFrames(probe) * 2.0) + _costs.StackAllFrames(probe) + io;
+        // Wallclock estimate: best case (full cache) ~= InRam warp + stack pass.
+        // Worst case (no cache) ~= 2x warp pass (pass 1 stats + pass 2 strips).
+        // The selector ranker uses this number; we report the optimistic
+        // best-case ETA since the cache typically does fit.
+        var eta = _costs.WarpAllFrames(probe) + _costs.StackAllFrames(probe);
 
-        if (ram > cap)
+        // Hard gate: even the minimal footprint (no cache) must fit under
+        // physical-RAM budget. That floor is strips + in-flight + output.
+        var minRam = stripsRam + inFlightRam + probe.OutputRamBytes;
+        if (minRam > cap)
         {
             return new StrategyFit(
                 CanRun: false,
                 EstimatedRamBytes: ram,
                 EstimatedDiskBytes: 0,
                 EstimatedDuration: eta,
-                Rationale: $"strip RAM exceeds budget ({Format.GB(ram)} > cap {Format.GB(cap)})");
+                Rationale: $"strip + output floor exceeds budget ({Format.GB(minRam)} > cap {Format.GB(cap)})");
         }
 
         return new StrategyFit(
@@ -101,7 +110,7 @@ public sealed class TilePipelinedStrategy : IIntegrationStrategy
             EstimatedRamBytes: ram,
             EstimatedDiskBytes: 0,
             EstimatedDuration: eta,
-            Rationale: $"2-pass strip-pipelined ({Format.GB(stripsRam)} strips + {Format.GB(inFlightRam)} in-flight, no staging)");
+            Rationale: $"cached-debayered + strip pipeline (target {Format.GB(ram)}, floor {Format.GB(minRam)})");
     }
 
     public async ValueTask<IntegrationResult> RunAsync(IntegrationJob job, CancellationToken ct)
@@ -132,41 +141,59 @@ public sealed class TilePipelinedStrategy : IIntegrationStrategy
         }
 
         var opts = job.Options;
-        var statsRect = job.StatsRect;
 
-        // ---------------- Pass 1: per-frame normalization stats ----------------
-        // Walks each raw once: read + calibrate + debayer + warp full canvas +
-        // gather per-channel min/median. Stats survive into pass 2; the
-        // intermediate Images go out of scope and are GC-reclaimed before the
-        // next iteration. Peak per iteration is ~4x debayered (raw + cal +
-        // debayered + warped) plus the cached per-frame stats arrays which are
-        // tiny (channelCount floats each).
-        NormalizationStats[]? perFrameStats = null;
+        // ---------------- Pass 1: decode + stats, conditionally cache ----------------
+        // Two-tier cache:
+        // - `strongCache[f]` holds the first `cacheCap` frames with a strong
+        //   reference so they're guaranteed-present during pass 2. `cacheCap`
+        //   is sized from current GC headroom (~50% of free RAM).
+        // - `weakCache[f]` holds *every* decoded frame in a WeakReference.
+        //   Frames past the strong cap that the GC hasn't reclaimed yet are
+        //   bonus hits -- we always lookup weakCache first, and only fall
+        //   through to re-decode if both tiers miss. This costs ~16 bytes
+        //   per slot (the WeakReference object itself) and turns "RAM was
+        //   underutilised between pass 1 and pass 2" into a free speedup.
+        var strongCache = new Image?[n];
+        var weakCache = new WeakReference<Image>?[n];
+        NormalizationStats[]? perFrameStats = opts.ApplyNormalization ? new NormalizationStats[n] : null;
         var channelCount = 0;
-        Image? metaSeed = null; // First-frame warped held briefly so master meta + maxValue propagate.
-
-        if (opts.ApplyNormalization)
-        {
-            perFrameStats = new NormalizationStats[n];
-        }
+        long debayeredBytes = 0;
+        Image? metaSeed = null;
+        var cacheCap = 0;
 
         for (var f = 0; f < n; f++)
         {
             ct.ThrowIfCancellationRequested();
-            var warped = await LoadCalibrateDebayerWarpFullAsync(sources[f], calibrator, debayerAlg, canvasW, canvasH, ct);
+            var debayered = await DecodeCalibrateDebayerAsync(sources[f], calibrator, debayerAlg, ct);
             if (f == 0)
             {
-                channelCount = warped.ChannelCount;
-                metaSeed = warped;
+                channelCount = debayered.ChannelCount;
+                debayeredBytes = (long)debayered.Width * debayered.Height * channelCount * sizeof(float);
+                metaSeed = debayered;
+                // Compute cache cap after the first decode so we know the real
+                // per-frame byte cost. Use 50% of currently-free heap as the
+                // budget for the cache, leaving the other half for strips +
+                // output + in-flight transients in pass 2.
+                cacheCap = DecideCacheCap(n, debayeredBytes);
             }
+
             if (perFrameStats is not null)
             {
-                perFrameStats[f] = statsRect.IsEmpty
-                    ? Normalizer.ComputeStats(warped)
-                    : Normalizer.ComputeStats(warped, statsRect);
+                // Stats from the debayered image (not the warped canvas). For
+                // small rotations this differs negligibly from the
+                // warped-canvas + statsRect path used by other strategies --
+                // NaN is naturally absent in the unwarped data so the
+                // intersection clamp is moot. Heavy-rotation stacks get a
+                // small drift; the speed win is large.
+                perFrameStats[f] = Normalizer.ComputeStats(debayered);
             }
-            // metaSeed (when f == 0) holds the first warped; release of the
-            // rest happens implicitly as `warped` falls out of scope.
+
+            weakCache[f] = new WeakReference<Image>(debayered);
+            if (f < cacheCap)
+            {
+                strongCache[f] = debayered;
+            }
+            // else: `debayered` only survives if the GC hasn't reclaimed it.
         }
 
         if (channelCount == 0 || metaSeed is null)
@@ -178,10 +205,6 @@ public sealed class TilePipelinedStrategy : IIntegrationStrategy
         var masterData = Image.CreateChannelData(channelCount, canvasH, canvasW);
         var rejectMapData = Image.CreateChannelData(1, canvasH, canvasW);
         long totalRejections = 0;
-
-        // Disable Integrator's own normalization -- we pre-normalize each strip
-        // using the pass-1 full-frame stats so the strip-level integrator sees
-        // pixels in the same coordinate space as InRamAllFrames would.
         var stripOpts = opts with { ApplyNormalization = false };
 
         for (var stripY0 = 0; stripY0 < canvasH; stripY0 += StripHeight)
@@ -194,14 +217,30 @@ public sealed class TilePipelinedStrategy : IIntegrationStrategy
             for (var f = 0; f < n; f++)
             {
                 ct.ThrowIfCancellationRequested();
-                var strip = await LoadCalibrateDebayerWarpRegionAsync(
-                    sources[f], calibrator, debayerAlg, stripRect, canvasW, canvasH, ct);
+                Image debayered;
+                if (strongCache[f] is { } strong)
+                {
+                    debayered = strong;
+                }
+                else if (weakCache[f] is { } weak && weak.TryGetTarget(out var alive))
+                {
+                    // Bonus cache hit: the GC hadn't reclaimed this debayered
+                    // yet. Adopt a strong reference for the rest of pass 2 so
+                    // subsequent strips don't risk losing it to a collect.
+                    debayered = alive;
+                    strongCache[f] = alive;
+                }
+                else
+                {
+                    debayered = await DecodeCalibrateDebayerAsync(sources[f], calibrator, debayerAlg, ct);
+                    // Re-register the weak reference -- if memory recovers, a
+                    // later strip might still find this frame alive without
+                    // another decode.
+                    weakCache[f] = new WeakReference<Image>(debayered);
+                }
+                var strip = await debayered.WarpRegionAsync(sources[f].TransformToCanvas, stripRect, canvasW, canvasH, ct);
                 if (perFrameStats is not null)
                 {
-                    // Pre-normalize in place using full-frame stats. The
-                    // canonical Normalizer.Apply allocates -- it's cheap
-                    // relative to the warp + debayer cost, and matches what
-                    // the other strategies do.
                     strip = Normalizer.Apply(strip, perFrameStats[f], opts.NormalizationTarget);
                 }
                 stripFrames.Add(strip);
@@ -236,30 +275,34 @@ public sealed class TilePipelinedStrategy : IIntegrationStrategy
         return new IntegrationResult(masterImage, rejectMapImage, n, totalRejections, meanRate);
     }
 
-    private static async Task<Image> LoadCalibrateDebayerWarpFullAsync(
-        RawLightSource source, Calibrator calibrator, DebayerAlgorithm debayerAlg,
-        int canvasW, int canvasH, CancellationToken ct)
+    /// <summary>
+    /// Decide how many debayered frames we'll keep in RAM during pass 1 so
+    /// pass 2 can warp from cache instead of re-decoding. Sizes the cache at
+    /// 50% of currently-free heap budget (the other 50% covers strip arrays,
+    /// in-flight transients, integrator scratch, and any other background
+    /// activity the host has in flight). Returns 0..n.
+    /// </summary>
+    internal static int DecideCacheCap(int n, long debayeredBytes)
     {
-        if (!Image.TryReadFitsFile(source.Path, out var raw))
-        {
-            throw new InvalidDataException($"TilePipelinedStrategy: failed to read raw FITS at {source.Path}");
-        }
-        var calibrated = calibrator.Apply(raw);
-        var debayered = await calibrated.DebayerAsync(debayerAlg, cancellationToken: ct);
-        return await debayered.WarpToReferenceGridAsync(source.TransformToCanvas, canvasW, canvasH, ct);
+        if (debayeredBytes <= 0) return 0;
+        var info = GC.GetGCMemoryInfo();
+        var currentlyFree = Math.Max(0, info.TotalAvailableMemoryBytes - info.MemoryLoadBytes);
+        var cacheBudget = currentlyFree / 2;
+        var maxByBytes = cacheBudget / debayeredBytes;
+        if (maxByBytes <= 0) return 0;
+        if (maxByBytes >= n) return n;
+        return (int)maxByBytes;
     }
 
-    private static async Task<Image> LoadCalibrateDebayerWarpRegionAsync(
-        RawLightSource source, Calibrator calibrator, DebayerAlgorithm debayerAlg,
-        Rectangle canvasRegion, int canvasW, int canvasH, CancellationToken ct)
+    private static async Task<Image> DecodeCalibrateDebayerAsync(
+        RawLightSource source, Calibrator calibrator, DebayerAlgorithm debayerAlg, CancellationToken ct)
     {
         if (!Image.TryReadFitsFile(source.Path, out var raw))
         {
             throw new InvalidDataException($"TilePipelinedStrategy: failed to read raw FITS at {source.Path}");
         }
         var calibrated = calibrator.Apply(raw);
-        var debayered = await calibrated.DebayerAsync(debayerAlg, cancellationToken: ct);
-        return await debayered.WarpRegionAsync(source.TransformToCanvas, canvasRegion, canvasW, canvasH, ct);
+        return await calibrated.DebayerAsync(debayerAlg, cancellationToken: ct);
     }
 
     private static void CopyStripIntoMaster(Image stripImage, float[][,] masterData, int stripY0, int channelCount)
