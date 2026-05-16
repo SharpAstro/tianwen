@@ -1,4 +1,5 @@
 using System;
+using System.Drawing;
 using System.Numerics;
 using System.Threading;
 using System.Threading.Tasks;
@@ -122,6 +123,90 @@ public partial class Image
             }, ct));
         }
 
+        return new Image(output, BitDepth.Float32, maxValue, minValue, pedestal, imageMeta);
+    }
+
+    /// <summary>
+    /// Warp just <paramref name="canvasRegion"/> (a sub-rectangle of the
+    /// reference canvas) instead of the full canvas. Output is a new
+    /// <see cref="Image"/> whose dimensions equal <c>canvasRegion.Width</c> x
+    /// <c>canvasRegion.Height</c>; output pixel <c>(c, r)</c> corresponds to
+    /// canvas pixel <c>(canvasRegion.X + c, canvasRegion.Y + r)</c>.
+    /// Out-of-source-bounds output pixels are <see cref="float.NaN"/>.
+    /// <para>
+    /// Same inverse-mapped bilinear sampling as
+    /// <see cref="WarpToReferenceGridAsync"/>, but the output never holds the
+    /// full canvas in memory — used by
+    /// <c>TilePipelinedStrategy</c> so peak RAM per frame is bounded by the
+    /// strip size instead of the full canvas. <paramref name="canvasWidth"/>
+    /// and <paramref name="canvasHeight"/> aren't strictly needed for the
+    /// arithmetic (the inverse transform doesn't care about canvas bounds),
+    /// but the strategy carries them through to keep the API parallel with
+    /// <see cref="WarpToReferenceGridAsync"/>.
+    /// </para>
+    /// </summary>
+    /// <param name="transform">Affine source -> canvas mapping.</param>
+    /// <param name="canvasRegion">Sub-rectangle of the canvas to materialize.
+    /// Must lie within <c>[0, canvasWidth) x [0, canvasHeight)</c>.</param>
+    /// <param name="canvasWidth">Full canvas width (informational; bounds-checked
+    /// against <paramref name="canvasRegion"/>).</param>
+    /// <param name="canvasHeight">Full canvas height (informational; bounds-checked
+    /// against <paramref name="canvasRegion"/>).</param>
+    public async Task<Image> WarpRegionAsync(
+        Matrix3x2 transform,
+        Rectangle canvasRegion,
+        int canvasWidth,
+        int canvasHeight,
+        CancellationToken cancellationToken = default)
+    {
+        if (canvasRegion.X < 0 || canvasRegion.Y < 0
+            || canvasRegion.Right > canvasWidth || canvasRegion.Bottom > canvasHeight
+            || canvasRegion.Width <= 0 || canvasRegion.Height <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(canvasRegion),
+                $"Region {canvasRegion} out of canvas bounds [0,0)-({canvasWidth},{canvasHeight}).");
+        }
+        if (!Matrix3x2.Invert(transform, out var inverseTransform))
+        {
+            throw new ArgumentException("Transform is not invertible", nameof(transform));
+        }
+
+        var channelCount = ChannelCount;
+        var srcW = Width;
+        var srcH = Height;
+        var regionW = canvasRegion.Width;
+        var regionH = canvasRegion.Height;
+        var x0 = canvasRegion.X;
+        var y0 = canvasRegion.Y;
+        var output = CreateChannelData(channelCount, regionH, regionW);
+
+        var parallelOptions = new ParallelOptions
+        {
+            CancellationToken = cancellationToken,
+        };
+
+        for (var c = 0; c < channelCount; c++)
+        {
+            var channel = c;
+            var dstChannel = output[channel];
+            Parallel.For(0, regionH, parallelOptions, dy =>
+            {
+                var canvasY = y0 + dy;
+                for (var dx = 0; dx < regionW; dx++)
+                {
+                    var canvasX = x0 + dx;
+                    var srcPos = Vector2.Transform(new Vector2(canvasX, canvasY), inverseTransform);
+                    dstChannel[dy, dx] = srcPos.X >= 0 && srcPos.X < srcW && srcPos.Y >= 0 && srcPos.Y < srcH
+                        ? SubpixelValue(channel, srcPos.X, srcPos.Y)
+                        : float.NaN;
+                }
+            });
+        }
+
+        // Yield to keep the public API async-shaped — the body is fully
+        // synchronous after parallel.for completion, but returning a Task
+        // keeps callers consistent with WarpToReferenceGridAsync.
+        await Task.CompletedTask;
         return new Image(output, BitDepth.Float32, maxValue, minValue, pedestal, imageMeta);
     }
 
