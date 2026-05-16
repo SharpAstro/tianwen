@@ -214,10 +214,33 @@ public class StackingEndToEndManualTest(ITestOutputHelper output)
             //   -> VNG debayer to 3-channel RGB -> register against debayered
             //   reference -> warp 3 channels to ref grid -> integrate RGB.
             //
-            // VNG is the sweet spot here: faster than AHD, much cleaner stars
-            // than BilinearMono. For mono cameras the whole debayer step is a
-            // no-op (DebayerAsync short-circuits on Monochrome).
-            const DebayerAlgorithm DebayerAlg = DebayerAlgorithm.VNG;
+            // Two passes, two debayer algorithms:
+            // - CentroidDebayerAlg drives FindStars (reference picker, ref-side
+            //   star detection, per-frame match). VNG is the sweet spot: faster
+            //   than AHD, much cleaner stars than BilinearMono.
+            // - StackDebayerAlg drives the warp+integrate pass. AHD's adaptive
+            //   homogeneity-directed interpolation preserves edge sharpness
+            //   on stars and recovers more colour fidelity than VNG, at the
+            //   cost of ~2-3x debayer time. The cost is per-frame and shows
+            //   up only in the stack pass (the centroid pass stays on VNG so
+            //   star detection time is unchanged).
+            // Why not BilinearMono for the centroid pass: BilinearMono's
+            // 2x2-cell-average produces centroids offset by ~0.5 px relative
+            // to VNG, and mixing it with VNG-debayered stack frames pulls the
+            // transforms off-axis. Verified empirically: drops 2-frame Skull
+            // group's SPCC match count from 149/11k to 11/11k and breaks plate
+            // solve. Keep both passes coordinate-aligned.
+            // For mono cameras the whole debayer step is a no-op
+            // (DebayerAsync short-circuits on Monochrome).
+            const DebayerAlgorithm CentroidDebayerAlg = DebayerAlgorithm.VNG;
+            // AHD by default. ~22x slower per-frame than VNG on the debayer
+            // step (see DebayerBenchmarks) but cleaner channel reconstruction
+            // means SPCC needs ~2x less correction (no false blue boost to
+            // compensate for under-reconstructed green) and the master comes
+            // out visibly neutral instead of green-biased. The cost is
+            // per-frame so it scales with N -- swap back to VNG when wall
+            // clock matters more than colour fidelity.
+            const DebayerAlgorithm StackDebayerAlg = DebayerAlgorithm.AHD;
             const float snrMin = 5f;
             // minStars=2000 forces the FindStarsAsync retry loop to do a 2nd
             // pass at a lower detection_level (~7*noise), bringing the typical
@@ -250,7 +273,7 @@ public class StackingEndToEndManualTest(ITestOutputHelper output)
                 ct.ThrowIfCancellationRequested();
                 var raw = await lf.LoadFullAsync(ct);
                 var calibrated = calibrator.Apply(raw);
-                var debayered = await calibrated.DebayerAsync(DebayerAlg, cancellationToken: ct);
+                var debayered = await calibrated.DebayerAsync(CentroidDebayerAlg, cancellationToken: ct);
                 var stars = await debayered.FindStarsAsync(channel: 0, snrMin: snrMin, minStars: minStars, cancellationToken: ct);
                 frameStarCounts.Add((lf, stars.Count));
                 if (stars.Count > bestCount)
@@ -289,7 +312,11 @@ public class StackingEndToEndManualTest(ITestOutputHelper output)
             {
                 Log($"  [info] WCS hint: RA={searchHint.Value.CenterRA:F4}h Dec={searchHint.Value.CenterDec:F4}°");
             }
-            var referenceDebayered = await calibrator.Apply(referenceRaw).DebayerAsync(DebayerAlg, cancellationToken: ct);
+            // Reference for centroid + canvas-dim seed: mono debayer for fast
+            // FindStars; the per-frame stack-warp pass uses StackDebayerAlg
+            // separately, so the reference's stacked pixels come out colour
+            // alongside every other frame.
+            var referenceDebayered = await calibrator.Apply(referenceRaw).DebayerAsync(CentroidDebayerAlg, cancellationToken: ct);
             var referenceStars = await referenceDebayered.FindStarsAsync(channel: 0, snrMin: snrMin, minStars: minStars, cancellationToken: ct);
             var referenceSorted = new SortedStarList(referenceStars);
             var referenceQuads = await referenceSorted.FindQuadsAsync(maxStars: QuadStars, ct);
@@ -369,7 +396,7 @@ public class StackingEndToEndManualTest(ITestOutputHelper output)
                 perfCalibrate += stageSw.Elapsed;
 
                 stageSw.Restart();
-                var debayered = await calibrated.DebayerAsync(DebayerAlg, cancellationToken: ct);
+                var debayered = await calibrated.DebayerAsync(CentroidDebayerAlg, cancellationToken: ct);
                 perfDebayer += stageSw.Elapsed;
                 var name = Path.GetFileNameWithoutExtension(lightInfo.Path);
 
@@ -588,7 +615,7 @@ public class StackingEndToEndManualTest(ITestOutputHelper output)
                     var calibrated = calibrator.Apply(lightRaw);
                     perfCalibrate += stageSw.Elapsed;
                     stageSw.Restart();
-                    var debayered = await calibrated.DebayerAsync(DebayerAlg, cancellationToken: token);
+                    var debayered = await calibrated.DebayerAsync(StackDebayerAlg, cancellationToken: token);
                     perfDebayer += stageSw.Elapsed;
                     stageSw.Restart();
                     var shifted = transformOrig * canvasShift;
