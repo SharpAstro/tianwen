@@ -720,7 +720,15 @@ public class StackingEndToEndManualTest(ITestOutputHelper output)
                 catch { /* hygiene */ }
                 continue;
             }
-            Log($"  integrated in {sw.ElapsedMilliseconds} ms (yielded {yieldedCount}/{matched.Count})");
+            // TilePipelined consumes RawLightSources directly and never pulls
+            // from WarpedFrames, so yieldedCount stays at 0 -- only the staged
+            // / in-RAM strategies advertise yield/skip progress. Suppress the
+            // "yielded 0/N" tag for the raw-consuming strategies so the line
+            // doesn't read as "stack failed to load anything".
+            var producerLabel = yieldedCount > 0
+                ? $" (yielded {yieldedCount}/{matched.Count})"
+                : $" (raw-sourced, N={matched.Count})";
+            Log($"  integrated in {sw.ElapsedMilliseconds} ms{producerLabel}");
             Log($"    frames: {result.FrameCount}, total rejections: {result.TotalRejections}, mean rate: {result.MeanRejectionRate:P2}");
 
             // Per-stage cost breakdown after dispatch. All perf accumulators
