@@ -1,0 +1,244 @@
+using System;
+using System.IO;
+
+namespace TianWen.Lib.Imaging.Calibration;
+
+/// <summary>
+/// Coarse characterisation of the staging drive. Spindle disks need ~80x
+/// the seek penalty of NVMe and ~5x the throughput penalty -- skipping that
+/// distinction wrecks the ranker on machines that still have an HDD.
+/// </summary>
+/// <remarks>
+/// We don't currently auto-detect this. Windows can read
+/// <c>MSFT_PhysicalDisk.MediaType</c> via CIM, Linux has
+/// <c>/sys/block/&lt;dev&gt;/queue/rotational</c>, macOS has
+/// <c>diskutil info</c> -- all need platform-specific code we haven't
+/// written. v1 accepts the orchestrator's best guess (default
+/// <see cref="Ssd"/>); a future <c>IDiskProbe</c> service can fill this
+/// in transparently.
+/// </remarks>
+public enum DiskKind
+{
+    /// <summary>Type unknown; the cost model uses the SSD profile as a
+    /// safe-ish default but accuracy is reduced.</summary>
+    Unknown,
+
+    /// <summary>NVMe over PCIe. Sequential ~2 GB/s, seek &lt; 0.05 ms.</summary>
+    Nvme,
+
+    /// <summary>SATA SSD. Sequential ~500 MB/s, seek ~ 0.1 ms.</summary>
+    Ssd,
+
+    /// <summary>Spinning rust. Sequential ~120 MB/s, seek ~ 8 ms -- staging
+    /// strategies pay heavily here.</summary>
+    Hdd,
+}
+
+/// <summary>
+/// Snapshot of an integration job + host at strategy-pick time. Carries the
+/// information every <see cref="IIntegrationStrategy"/> needs to decide whether
+/// it can run and how it estimates the resource bill. One probe -> one
+/// <see cref="IntegrationStrategySelector.Pick"/> call -> one chosen strategy.
+/// </summary>
+/// <param name="FrameCount">Number of registered light frames feeding the
+/// integration.</param>
+/// <param name="FrameWidth">Pixel width of each raw light frame.</param>
+/// <param name="FrameHeight">Pixel height of each raw light frame.</param>
+/// <param name="ChannelCount">Channels per frame (1 mono, 3 RGB).</param>
+/// <param name="CanvasWidth">Pixel width of the union-BB output canvas.</param>
+/// <param name="CanvasHeight">Pixel height of the union-BB output canvas.</param>
+/// <param name="AvailableRamBytes">Free RAM budget at probe time (bytes).</param>
+/// <param name="AvailableDiskBytes">Free space on <paramref name="StagingDir"/>'s drive (bytes).</param>
+/// <param name="StagingDir">Where staged frames would be written. Drive
+/// identity drives the disk-throughput model.</param>
+/// <param name="StagingDiskKind">Coarse type of the staging drive (NVMe / SSD /
+/// HDD). Cost model multiplies seek + throughput accordingly.</param>
+/// <param name="EmitRejectionMap">Whether the output buffer includes a
+/// rejection map (doubles peak output RAM).</param>
+/// <param name="LiveStacking">True when the caller wants frame-at-a-time
+/// incremental accumulation (Welford online; PLAN-stacking Phase 14).
+/// Filters the strategy set down to live-capable implementations.</param>
+public sealed record IntegrationProbe(
+    int FrameCount,
+    int FrameWidth,
+    int FrameHeight,
+    int ChannelCount,
+    int CanvasWidth,
+    int CanvasHeight,
+    long AvailableRamBytes,
+    long AvailableDiskBytes,
+    string StagingDir,
+    DiskKind StagingDiskKind = DiskKind.Unknown,
+    bool EmitRejectionMap = true,
+    bool LiveStacking = false)
+{
+    /// <summary>Bytes one frame occupies as float32 in RAM.</summary>
+    public long FrameBytes => (long)FrameWidth * FrameHeight * ChannelCount * sizeof(float);
+
+    /// <summary>Bytes the output canvas occupies as float32 in RAM (single image, no rejection map).</summary>
+    public long CanvasBytes => (long)CanvasWidth * CanvasHeight * ChannelCount * sizeof(float);
+
+    /// <summary>Peak output RAM: master + (optional) rejection map.</summary>
+    public long OutputRamBytes => CanvasBytes * (EmitRejectionMap ? 2 : 1);
+
+    /// <summary>Bytes for all frames in RAM simultaneously (InRamAllFrames).</summary>
+    public long AllFramesRamBytes => FrameBytes * FrameCount;
+
+    /// <summary>
+    /// Snapshot the live host. Polls <see cref="GC.GetGCMemoryInfo()"/> for RAM
+    /// (uses TotalAvailable - MemoryLoad so the budget excludes what's already
+    /// pinned by GC heaps) and <see cref="DriveInfo"/> for free disk on the
+    /// staging drive. <paramref name="stagingDiskKind"/> defaults to
+    /// <see cref="DiskKind.Unknown"/> -- pass the orchestrator's best guess
+    /// (typically <see cref="DiskKind.Ssd"/>) until auto-detection is wired.
+    /// </summary>
+    public static IntegrationProbe Snapshot(
+        int frameCount,
+        int frameWidth,
+        int frameHeight,
+        int channelCount,
+        int canvasWidth,
+        int canvasHeight,
+        string stagingDir,
+        DiskKind stagingDiskKind = DiskKind.Unknown,
+        bool emitRejectionMap = true,
+        bool liveStacking = false)
+    {
+        var info = GC.GetGCMemoryInfo();
+        var freeRam = Math.Max(0, info.TotalAvailableMemoryBytes - info.MemoryLoadBytes);
+        var root = Path.GetPathRoot(Path.GetFullPath(stagingDir));
+        var freeDisk = string.IsNullOrEmpty(root)
+            ? 0L
+            : new DriveInfo(root).AvailableFreeSpace;
+        return new IntegrationProbe(
+            FrameCount: frameCount,
+            FrameWidth: frameWidth,
+            FrameHeight: frameHeight,
+            ChannelCount: channelCount,
+            CanvasWidth: canvasWidth,
+            CanvasHeight: canvasHeight,
+            AvailableRamBytes: freeRam,
+            AvailableDiskBytes: freeDisk,
+            StagingDir: stagingDir,
+            StagingDiskKind: stagingDiskKind,
+            EmitRejectionMap: emitRejectionMap,
+            LiveStacking: liveStacking);
+    }
+}
+
+/// <summary>
+/// Safety factors on the raw <see cref="IntegrationProbe.AvailableRamBytes"/> /
+/// <see cref="IntegrationProbe.AvailableDiskBytes"/> budgets. Leaves headroom
+/// for the framework, masters, OS page cache, and a misbehaving GC pin.
+/// Defaults to 60% / 80% -- pessimistic on RAM (the GC can grow), generous on
+/// disk (OS reclaims aggressively).
+/// </summary>
+public sealed record ResourceBudget(double RamSafetyFactor = 0.60, double DiskSafetyFactor = 0.80)
+{
+    public long AllowedRam(IntegrationProbe p) => (long)(p.AvailableRamBytes * RamSafetyFactor);
+    public long AllowedDisk(IntegrationProbe p) => (long)(p.AvailableDiskBytes * DiskSafetyFactor);
+}
+
+/// <summary>
+/// First-order cost coefficients each <see cref="IIntegrationStrategy.Evaluate"/>
+/// uses to convert (frame count, canvas size, disk bytes, seek count) into a
+/// wall-clock estimate. The defaults are guesstimates calibrated against the
+/// Liberty 120s run (13 frames, 3024^2 RGB, ~98 s end-to-end). They will be
+/// wrong; the ranking they produce is still useful as a tiebreaker, and a
+/// future calibration pass (warp one tile, time it, persist to disk) can
+/// replace the constants per host.
+/// </summary>
+public sealed record IntegrationCostModel
+{
+    /// <summary>Per-pixel CPU cost of the warp + bilinear sample (ns).</summary>
+    // TODO: calibrate against measured runs; this is a Liberty-120s extrapolation.
+    public double CpuNsPerWarpPixel { get; init; } = 80.0;
+
+    /// <summary>Per-output-pixel-per-frame CPU cost of reject + combine (ns).</summary>
+    // TODO: calibrate against measured runs; LinearFitClip is in this ballpark.
+    public double CpuNsPerStackPixelPerFrame { get; init; } = 8.0;
+
+    /// <summary>Float16 unpack overhead per pixel on read (ns). Cheap thanks to
+    /// hardware f16->f32 paths, but not zero.</summary>
+    public double CpuNsPerFloat16Unpack { get; init; } = 1.0;
+
+    /// <summary>Sequential throughput (MB/s) for the given drive class.
+    /// Overridable so a future <c>IDiskProbe</c> or per-host calibration
+    /// can feed measured numbers.</summary>
+    public double DiskMBPerSec(DiskKind kind) => kind switch
+    {
+        DiskKind.Nvme    => 2000.0,
+        DiskKind.Ssd     =>  500.0,
+        DiskKind.Hdd     =>  120.0,
+        DiskKind.Unknown =>  500.0, // SSD-ish guess; flag it in the rationale.
+        _ => 500.0,
+    };
+
+    /// <summary>Per-seek penalty (ms) for the given drive class.</summary>
+    public double DiskSeekMs(DiskKind kind) => kind switch
+    {
+        DiskKind.Nvme    => 0.05,
+        DiskKind.Ssd     => 0.10,
+        DiskKind.Hdd     => 8.00,
+        DiskKind.Unknown => 0.10,
+        _ => 0.10,
+    };
+
+    /// <summary>Total CPU time to warp all N frames into the canvas (one pass).</summary>
+    public TimeSpan WarpAllFrames(IntegrationProbe p)
+    {
+        var pixels = (double)p.FrameWidth * p.FrameHeight * p.ChannelCount * p.FrameCount;
+        return TimeSpan.FromMilliseconds(pixels * CpuNsPerWarpPixel / 1e6);
+    }
+
+    /// <summary>Total CPU time to stack N frames into the canvas (one pass).</summary>
+    public TimeSpan StackAllFrames(IntegrationProbe p)
+    {
+        var pixels = (double)p.CanvasWidth * p.CanvasHeight * p.ChannelCount * p.FrameCount;
+        return TimeSpan.FromMilliseconds(pixels * CpuNsPerStackPixelPerFrame / 1e6);
+    }
+
+    /// <summary>Wall-clock for moving <paramref name="bytes"/> through the
+    /// staging drive with <paramref name="seeks"/> head moves on the given
+    /// <paramref name="kind"/>.</summary>
+    public TimeSpan DiskIo(long bytes, int seeks, DiskKind kind)
+    {
+        var bw = bytes / (DiskMBPerSec(kind) * 1024 * 1024) * 1000;
+        var seekMs = seeks * DiskSeekMs(kind);
+        return TimeSpan.FromMilliseconds(bw + seekMs);
+    }
+}
+
+/// <summary>
+/// How the selector blends fidelity vs estimated speed when ranking the
+/// strategies that pass the gate. <see cref="FidelityFirst"/> matches the
+/// pre-ranking-pass behaviour (quality only). <see cref="Balanced"/> is the
+/// reasonable default. <see cref="SpeedFirst"/> is for batch reprocessing
+/// where wall-clock dominates.
+/// </summary>
+public sealed record RankingPolicy(double FidelityWeight = 0.7, double SpeedWeight = 0.3)
+{
+    public static readonly RankingPolicy FidelityFirst = new(FidelityWeight: 1.0, SpeedWeight: 0.0);
+    public static readonly RankingPolicy Balanced = new(FidelityWeight: 0.5, SpeedWeight: 0.5);
+    public static readonly RankingPolicy SpeedFirst = new(FidelityWeight: 0.2, SpeedWeight: 0.8);
+
+    /// <summary>
+    /// Score = fidelity * w_f + normalized_speed * w_s. Higher is better.
+    /// <paramref name="normalizedSpeed"/> must be in [0, 1] where 1 = fastest
+    /// survivor and 0 = slowest survivor; caller does the normalisation.
+    /// </summary>
+    public double Score(double fidelity, double normalizedSpeed)
+        => fidelity * FidelityWeight + normalizedSpeed * SpeedWeight;
+}
+
+/// <summary>
+/// One strategy's verdict on a probe. <see cref="CanRun"/> gates inclusion;
+/// the bytes + duration estimates feed the ranker; <see cref="Rationale"/>
+/// is a single-line human-readable explanation for the log.
+/// </summary>
+public sealed record StrategyFit(
+    bool CanRun,
+    long EstimatedRamBytes,
+    long EstimatedDiskBytes,
+    TimeSpan EstimatedDuration,
+    string Rationale);

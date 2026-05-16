@@ -1,5 +1,6 @@
 using System;
 using System.Buffers;
+using System.Drawing;
 using System.Numerics;
 using System.Runtime.InteropServices;
 using System.Threading.Tasks;
@@ -59,6 +60,61 @@ public static class Normalizer
             var span = MemoryMarshal.CreateReadOnlySpan(ref channel[0, 0], channel.Length);
             mins[ch] = MinIgnoringNaN(span);
             medians[ch] = MedianViaQuickSelect(span, mins[ch]);
+        });
+        return new NormalizationStats(mins, medians);
+    }
+
+    /// <summary>
+    /// Box-restricted overload of <see cref="ComputeStats(Image)"/>. Walks
+    /// min/median only over pixels inside <paramref name="box"/>, ignoring
+    /// NaN. Used by the stacking pipeline to compute per-frame stats over the
+    /// geometric intersection of all warped frames' footprints on the canvas
+    /// (the rotated-quad-intersection AABB), so frames with large NaN edge
+    /// regions don't collapse their (median - min) and explode the per-frame
+    /// normalization scale.
+    /// <para>
+    /// Falls back to whole-image stats if <paramref name="box"/> is empty
+    /// (intersection was disjoint) or clamps to image bounds.
+    /// </para>
+    /// </summary>
+    public static NormalizationStats ComputeStats(Image image, Rectangle box)
+    {
+        var x0 = Math.Max(0, box.X);
+        var y0 = Math.Max(0, box.Y);
+        var x1 = Math.Min(image.Width,  box.Right);
+        var y1 = Math.Min(image.Height, box.Bottom);
+        if (x1 <= x0 || y1 <= y0) return ComputeStats(image);
+
+        var c = image.ChannelCount;
+        var mins = new float[c];
+        var medians = new float[c];
+        var count = (x1 - x0) * (y1 - y0);
+        Parallel.For(0, c, ch =>
+        {
+            var channel = image.GetChannelArray(ch);
+            // Copy the box's pixels into a contiguous scratch buffer and run
+            // the same MinIgnoringNaN + MedianViaQuickSelect path as the
+            // whole-image overload. Rented from the pool to avoid 3-channel
+            // x N-frame GC churn on the stacking hot path.
+            var buf = ArrayPool<float>.Shared.Rent(count);
+            try
+            {
+                var k = 0;
+                for (var y = y0; y < y1; y++)
+                {
+                    for (var x = x0; x < x1; x++)
+                    {
+                        buf[k++] = channel[y, x];
+                    }
+                }
+                var span = new ReadOnlySpan<float>(buf, 0, count);
+                mins[ch] = MinIgnoringNaN(span);
+                medians[ch] = MedianViaQuickSelect(span, mins[ch]);
+            }
+            finally
+            {
+                ArrayPool<float>.Shared.Return(buf);
+            }
         });
         return new NormalizationStats(mins, medians);
     }

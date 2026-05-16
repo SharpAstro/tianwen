@@ -1,4 +1,5 @@
 using System;
+using System.Drawing;
 using System.Numerics;
 using Shouldly;
 using TianWen.Lib.Imaging;
@@ -176,6 +177,69 @@ public class NormalizerTests
     {
         var stats = new NormalizationStats(new float[] { 0f }, new float[] { 0.5f });
         Should.Throw<ArgumentException>(() => Normalizer.ApplyTile(new float[4], 0, stats, 0.5f, new float[3]));
+    }
+
+    [Fact]
+    public void ComputeStats_Rect_OnlyConsidersPixelsInsideBox()
+    {
+        // 5x3 image, values 0.00..0.14 row-major. Rect = row 0 only.
+        // Inside: 0.00, 0.01, 0.02, 0.03, 0.04. Min=0.00, median (n=5) = 0.02.
+        // Whole-image would give min=0.00, median=0.07; the rect must NOT
+        // pick those up.
+        var values = new float[15];
+        for (var i = 0; i < 15; i++) values[i] = 0.01f * i;
+        var image = Mono(values);
+
+        var stats = Normalizer.ComputeStats(image, new Rectangle(0, 0, 5, 1));
+
+        stats.PerChannelMin[0].ShouldBe(0.00f, tolerance: 1e-5f);
+        stats.PerChannelMedian[0].ShouldBe(0.02f, tolerance: 1e-5f);
+    }
+
+    [Fact]
+    public void ComputeStats_Rect_SkipsNaNInsideBox()
+    {
+        // Rect contains row 1 (values 0.05..0.09). Drop pixel (1,2) -> NaN.
+        // Remaining: 0.05, 0.06, 0.08, 0.09. Min=0.05, median = (0.06+0.08)/2 = 0.07.
+        var values = new float[15];
+        for (var i = 0; i < 15; i++) values[i] = 0.01f * i;
+        values[7] = float.NaN;
+        var image = Mono(values);
+
+        var stats = Normalizer.ComputeStats(image, new Rectangle(0, 1, 5, 1));
+
+        stats.PerChannelMin[0].ShouldBe(0.05f, tolerance: 1e-5f);
+        stats.PerChannelMedian[0].ShouldBe(0.07f, tolerance: 1e-5f);
+    }
+
+    [Fact]
+    public void ComputeStats_Rect_EmptyBoxFallsBackToWholeImage()
+    {
+        var values = new float[15];
+        for (var i = 0; i < 15; i++) values[i] = 0.01f * i;
+        var image = Mono(values);
+
+        var statsWhole = Normalizer.ComputeStats(image);
+        var statsEmpty = Normalizer.ComputeStats(image, new Rectangle(10, 10, 0, 0));
+
+        statsEmpty.PerChannelMin[0].ShouldBe(statsWhole.PerChannelMin[0], tolerance: 1e-5f);
+        statsEmpty.PerChannelMedian[0].ShouldBe(statsWhole.PerChannelMedian[0], tolerance: 1e-5f);
+    }
+
+    [Fact]
+    public void ComputeStats_Rect_ClampsToImageBounds()
+    {
+        // Rect overruns image to the right (width=10 vs image width=5).
+        // Should clamp to the image width (covers full row 0) and produce
+        // the same stats as Rectangle(0, 0, 5, 1).
+        var values = new float[15];
+        for (var i = 0; i < 15; i++) values[i] = 0.01f * i;
+        var image = Mono(values);
+
+        var clamped = Normalizer.ComputeStats(image, new Rectangle(0, 0, 10, 1));
+
+        clamped.PerChannelMin[0].ShouldBe(0.00f, tolerance: 1e-5f);
+        clamped.PerChannelMedian[0].ShouldBe(0.02f, tolerance: 1e-5f);
     }
 
     [Fact]
