@@ -142,24 +142,14 @@ public sealed class TilePipelinedStrategy : IIntegrationStrategy
 
         var opts = job.Options;
 
-        // ---------------- Pass 1: decode + stats, conditionally cache ----------------
-        // Two-tier cache:
-        // - `strongCache[f]` holds the first `cacheCap` frames with a strong
-        //   reference so they're guaranteed-present during pass 2. `cacheCap`
-        //   is sized from current GC headroom (~50% of free RAM).
-        // - `weakCache[f]` holds *every* decoded frame in a WeakReference.
-        //   Frames past the strong cap that the GC hasn't reclaimed yet are
-        //   bonus hits -- we always lookup weakCache first, and only fall
-        //   through to re-decode if both tiers miss. This costs ~16 bytes
-        //   per slot (the WeakReference object itself) and turns "RAM was
-        //   underutilised between pass 1 and pass 2" into a free speedup.
-        var strongCache = new Image?[n];
-        var weakCache = new WeakReference<Image>?[n];
+        // ---------------- Pass 1: decode + stats, register in cache ----------------
+        // FrameCache provides the strong+weak two-tier model. cacheCap is
+        // sized from current GC headroom; frames beyond the cap still get a
+        // WeakReference so any unreclaimed survivor is a bonus pass-2 hit.
+        FrameCache? cache = null;
         NormalizationStats[]? perFrameStats = opts.ApplyNormalization ? new NormalizationStats[n] : null;
         var channelCount = 0;
-        long debayeredBytes = 0;
         Image? metaSeed = null;
-        var cacheCap = 0;
 
         for (var f = 0; f < n; f++)
         {
@@ -168,13 +158,11 @@ public sealed class TilePipelinedStrategy : IIntegrationStrategy
             if (f == 0)
             {
                 channelCount = debayered.ChannelCount;
-                debayeredBytes = (long)debayered.Width * debayered.Height * channelCount * sizeof(float);
                 metaSeed = debayered;
-                // Compute cache cap after the first decode so we know the real
-                // per-frame byte cost. Use 50% of currently-free heap as the
-                // budget for the cache, leaving the other half for strips +
-                // output + in-flight transients in pass 2.
-                cacheCap = DecideCacheCap(n, debayeredBytes);
+                // Decide cache size after the first decode so we know the real
+                // per-frame byte cost.
+                var debayeredBytes = (long)debayered.Width * debayered.Height * channelCount * sizeof(float);
+                cache = new FrameCache(n, FrameCache.DecideCacheCap(n, debayeredBytes));
             }
 
             if (perFrameStats is not null)
@@ -188,12 +176,7 @@ public sealed class TilePipelinedStrategy : IIntegrationStrategy
                 perFrameStats[f] = Normalizer.ComputeStats(debayered);
             }
 
-            weakCache[f] = new WeakReference<Image>(debayered);
-            if (f < cacheCap)
-            {
-                strongCache[f] = debayered;
-            }
-            // else: `debayered` only survives if the GC hasn't reclaimed it.
+            cache!.Set(f, debayered);
         }
 
         if (channelCount == 0 || metaSeed is null)
@@ -218,25 +201,17 @@ public sealed class TilePipelinedStrategy : IIntegrationStrategy
             {
                 ct.ThrowIfCancellationRequested();
                 Image debayered;
-                if (strongCache[f] is { } strong)
+                if (cache!.TryGet(f, out var cached))
                 {
-                    debayered = strong;
-                }
-                else if (weakCache[f] is { } weak && weak.TryGetTarget(out var alive))
-                {
-                    // Bonus cache hit: the GC hadn't reclaimed this debayered
-                    // yet. Adopt a strong reference for the rest of pass 2 so
-                    // subsequent strips don't risk losing it to a collect.
-                    debayered = alive;
-                    strongCache[f] = alive;
+                    debayered = cached;
                 }
                 else
                 {
+                    // Miss in both tiers -- re-decode and re-register so a
+                    // later strip can still find this frame alive if memory
+                    // recovers.
                     debayered = await DecodeCalibrateDebayerAsync(sources[f], calibrator, debayerAlg, ct);
-                    // Re-register the weak reference -- if memory recovers, a
-                    // later strip might still find this frame alive without
-                    // another decode.
-                    weakCache[f] = new WeakReference<Image>(debayered);
+                    cache.Set(f, debayered);
                 }
                 var strip = await debayered.WarpRegionAsync(sources[f].TransformToCanvas, stripRect, canvasW, canvasH, ct);
                 if (perFrameStats is not null)
@@ -273,25 +248,6 @@ public sealed class TilePipelinedStrategy : IIntegrationStrategy
             : 0.0;
 
         return new IntegrationResult(masterImage, rejectMapImage, n, totalRejections, meanRate);
-    }
-
-    /// <summary>
-    /// Decide how many debayered frames we'll keep in RAM during pass 1 so
-    /// pass 2 can warp from cache instead of re-decoding. Sizes the cache at
-    /// 50% of currently-free heap budget (the other 50% covers strip arrays,
-    /// in-flight transients, integrator scratch, and any other background
-    /// activity the host has in flight). Returns 0..n.
-    /// </summary>
-    internal static int DecideCacheCap(int n, long debayeredBytes)
-    {
-        if (debayeredBytes <= 0) return 0;
-        var info = GC.GetGCMemoryInfo();
-        var currentlyFree = Math.Max(0, info.TotalAvailableMemoryBytes - info.MemoryLoadBytes);
-        var cacheBudget = currentlyFree / 2;
-        var maxByBytes = cacheBudget / debayeredBytes;
-        if (maxByBytes <= 0) return 0;
-        if (maxByBytes >= n) return n;
-        return (int)maxByBytes;
     }
 
     private static async Task<Image> DecodeCalibrateDebayerAsync(
