@@ -173,14 +173,21 @@ public partial class Image
         var dstB = debayered[B];
 
         // Process interior pixels in parallel (where full VNG can be applied).
-        // Parallel.For + default MaxDoP avoids per-row Task.Run scheduling
-        // overhead -- the old 4x oversubscription was for hiding async
-        // scheduling latency that no longer exists in the sync body.
+        // Same pinned-ref + Unsafe.Add pattern as AHD Phase 1+2 and Phase 3:
+        // src + dst channels read/written through ref-to-(0, 0) + idx so the
+        // per-pixel hot path has no bounds checks. Helpers take ref + idx
+        // and stay [AggressiveInlining] so the call vanishes after JIT.
+        var strideVng = width;
         Parallel.For(radius,
             height - radius,
             new ParallelOptions { CancellationToken = cancellationToken },
             y =>
             {
+                ref var src0 = ref srcChannel[0, 0];
+                ref var dstR0 = ref dstR[0, 0];
+                ref var dstG0 = ref dstG[0, 0];
+                ref var dstB0 = ref dstB[0, 0];
+
                 // Pre-select pattern row based on y % 2
                 int patternEven = (y & 1) == 0 ? pattern00 : pattern10;
                 int patternOdd = (y & 1) == 0 ? pattern01 : pattern11;
@@ -188,10 +195,13 @@ public partial class Image
                 for (int x = radius; x < width - radius; x++)
                 {
                     int knownColor = (x & 1) == 0 ? patternEven : patternOdd;
+                    int idx = y * strideVng + x;
 
-                    // Copy known value
-                    float rawValue = srcChannel[y, x] * scale;
-                    debayered[knownColor][y, x] = rawValue;
+                    // Copy known value to its channel
+                    float rawValue = Unsafe.Add(ref src0, idx) * scale;
+                    if (knownColor == R) Unsafe.Add(ref dstR0, idx) = rawValue;
+                    else if (knownColor == G) Unsafe.Add(ref dstG0, idx) = rawValue;
+                    else Unsafe.Add(ref dstB0, idx) = rawValue;
 
                     // Interpolate missing colors based on which color we have
                     if (knownColor == G)
@@ -201,18 +211,20 @@ public partial class Image
                         int neighborColor = (x & 1) == 0 ? patternOdd : patternEven;
                         bool rOnHorizontal = neighborColor == R;
 
-                        dstR[y, x] = scale * (rOnHorizontal
-                            ? InterpolateHorizontalVNG(srcChannel, x, y)
-                            : InterpolateVerticalVNG(srcChannel, x, y));
-                        dstB[y, x] = scale * (rOnHorizontal
-                            ? InterpolateVerticalVNG(srcChannel, x, y)
-                            : InterpolateHorizontalVNG(srcChannel, x, y));
+                        Unsafe.Add(ref dstR0, idx) = scale * (rOnHorizontal
+                            ? InterpolateHorizontalVNG(ref src0, idx)
+                            : InterpolateVerticalVNG(ref src0, idx, strideVng));
+                        Unsafe.Add(ref dstB0, idx) = scale * (rOnHorizontal
+                            ? InterpolateVerticalVNG(ref src0, idx, strideVng)
+                            : InterpolateHorizontalVNG(ref src0, idx));
                     }
                     else
                     {
                         // At R or B pixel: interpolate G and the opposite color
-                        dstG[y, x] = scale * InterpolateGreenAtRBVNG(srcChannel, x, y);
-                        debayered[knownColor == R ? B : R][y, x] = scale * InterpolateDiagonalVNG(srcChannel, x, y);
+                        Unsafe.Add(ref dstG0, idx) = scale * InterpolateGreenAtRBVNG(ref src0, idx, strideVng);
+                        float diagonal = scale * InterpolateDiagonalVNG(ref src0, idx, strideVng);
+                        if (knownColor == R) Unsafe.Add(ref dstB0, idx) = diagonal;
+                        else Unsafe.Add(ref dstR0, idx) = diagonal;
                     }
                 }
             }
@@ -234,33 +246,39 @@ public partial class Image
             });
     }
 
+    // VNG helpers below take a pinned `ref float src0` (the (0, 0) element of
+    // the source channel) + a flat idx + the row stride, so the body uses
+    // Unsafe.Add instead of bounds-checked float[,] indexing. Caller pins
+    // the ref once per row in the Parallel.For body and passes idx/stride
+    // forward; helpers stay [AggressiveInlining] so the call vanishes.
+
     [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
-    private static float InterpolateGreenAtRBVNG(float[,] src, int x, int y)
+    private static float InterpolateGreenAtRBVNG(ref float src0, int idx, int stride)
     {
         // Interpolate green at R or B position using 4 cardinal directions
-        float center = src[y, x];
+        float center = Unsafe.Add(ref src0, idx);
 
         // North: green at y-1, same color at y-2
-        float gN = src[y - 1, x];
-        float vN = src[y - 2, x];
-        float gradN = MathF.Abs(MathF.FusedMultiplyAdd(2, gN, - vN - center));
+        float gN = Unsafe.Add(ref src0, idx - stride);
+        float vN = Unsafe.Add(ref src0, idx - 2 * stride);
+        float gradN = MathF.Abs(MathF.FusedMultiplyAdd(2, gN, -vN - center));
         float valN = gN + (center - vN) * 0.5f;
 
         // South
-        float gS = src[y + 1, x];
-        float vS = src[y + 2, x];
-        float gradS = MathF.Abs(MathF.FusedMultiplyAdd(2, gS, - center - vS));
+        float gS = Unsafe.Add(ref src0, idx + stride);
+        float vS = Unsafe.Add(ref src0, idx + 2 * stride);
+        float gradS = MathF.Abs(MathF.FusedMultiplyAdd(2, gS, -center - vS));
         float valS = MathF.FusedMultiplyAdd(center - vS, 0.5f, gS);
 
         // West
-        float gW = src[y, x - 1];
-        float vW = src[y, x - 2];
+        float gW = Unsafe.Add(ref src0, idx - 1);
+        float vW = Unsafe.Add(ref src0, idx - 2);
         float gradW = MathF.Abs(2 * gW - vW - center);
         float valW = MathF.FusedMultiplyAdd(center - vW, 0.5f, gW);
 
         // East
-        float gE = src[y, x + 1];
-        float vE = src[y, x + 2];
+        float gE = Unsafe.Add(ref src0, idx + 1);
+        float vE = Unsafe.Add(ref src0, idx + 2);
         float gradE = MathF.Abs(2 * gE - center - vE);
         float valE = MathF.FusedMultiplyAdd(center - vE, 0.5f, gE);
 
@@ -281,12 +299,12 @@ public partial class Image
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
-    private static float InterpolateHorizontalVNG(float[,] src, int x, int y)
+    private static float InterpolateHorizontalVNG(ref float src0, int idx)
     {
         // Interpolate R or B at green position from horizontal neighbors
-        float center = src[y, x];
-        float left = src[y, x - 1];
-        float right = src[y, x + 1];
+        float center = Unsafe.Add(ref src0, idx);
+        float left = Unsafe.Add(ref src0, idx - 1);
+        float right = Unsafe.Add(ref src0, idx + 1);
 
         float gradL = MathF.Abs(left - center);
         float gradR = MathF.Abs(right - center);
@@ -304,12 +322,12 @@ public partial class Image
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
-    private static float InterpolateVerticalVNG(float[,] src, int x, int y)
+    private static float InterpolateVerticalVNG(ref float src0, int idx, int stride)
     {
         // Interpolate R or B at green position from vertical neighbors
-        float center = src[y, x];
-        float top = src[y - 1, x];
-        float bottom = src[y + 1, x];
+        float center = Unsafe.Add(ref src0, idx);
+        float top = Unsafe.Add(ref src0, idx - stride);
+        float bottom = Unsafe.Add(ref src0, idx + stride);
 
         float gradT = MathF.Abs(top - center);
         float gradB = MathF.Abs(bottom - center);
@@ -327,21 +345,21 @@ public partial class Image
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
-    private static float InterpolateDiagonalVNG(float[,] src, int x, int y)
+    private static float InterpolateDiagonalVNG(ref float src0, int idx, int stride)
     {
         // Interpolate R at B or B at R from 4 diagonal neighbors
-        float center = src[y, x];
+        float center = Unsafe.Add(ref src0, idx);
 
-        float nw = src[y - 1, x - 1];
-        float ne = src[y - 1, x + 1];
-        float sw = src[y + 1, x - 1];
-        float se = src[y + 1, x + 1];
+        float nw = Unsafe.Add(ref src0, idx - stride - 1);
+        float ne = Unsafe.Add(ref src0, idx - stride + 1);
+        float sw = Unsafe.Add(ref src0, idx + stride - 1);
+        float se = Unsafe.Add(ref src0, idx + stride + 1);
 
         // Green values at cardinal neighbors
-        float gN = src[y - 1, x];
-        float gS = src[y + 1, x];
-        float gW = src[y, x - 1];
-        float gE = src[y, x + 1];
+        float gN = Unsafe.Add(ref src0, idx - stride);
+        float gS = Unsafe.Add(ref src0, idx + stride);
+        float gW = Unsafe.Add(ref src0, idx - 1);
+        float gE = Unsafe.Add(ref src0, idx + 1);
 
         // Calculate gradients including green channel differences
         float gradNW = MathF.Abs(nw - center) + MathF.Abs(gN - gW);
@@ -481,36 +499,49 @@ public partial class Image
             CancellationToken = cancellationToken,
         };
 
-        // Interpolate green channel using horizontal and vertical directions, then R/B guided by green
+        // Interpolate green channel using horizontal and vertical directions,
+        // then R/B guided by green. Same Unsafe.Add-via-pinned-ref trick as
+        // Phase 3 -- per-pixel reads/writes drop their bounds checks.
+        var stridePhase1 = width;
         Parallel.For(radius, height - radius, parallelOptions, y =>
         {
+            ref var src0 = ref srcChannel[0, 0];
+            ref var rgbH_R0 = ref rgbH_R[0, 0];
+            ref var rgbH_G0 = ref rgbH_G[0, 0];
+            ref var rgbH_B0 = ref rgbH_B[0, 0];
+            ref var rgbV_R0 = ref rgbV_R[0, 0];
+            ref var rgbV_G0 = ref rgbV_G[0, 0];
+            ref var rgbV_B0 = ref rgbV_B[0, 0];
+
             int patternEven = (y & 1) == 0 ? pattern00 : pattern10;
             int patternOdd = (y & 1) == 0 ? pattern01 : pattern11;
 
             for (int x = radius; x < width - radius; x++)
             {
                 int knownColor = (x & 1) == 0 ? patternEven : patternOdd;
-                float rawValue = srcChannel[y, x];
+                int idx = y * stridePhase1 + x;
+                float rawValue = Unsafe.Add(ref src0, idx);
 
                 if (knownColor == G)
                 {
                     // At green pixel: green is known for both directions
-                    rgbH_G[y, x] = rawValue;
-                    rgbV_G[y, x] = rawValue;
+                    Unsafe.Add(ref rgbH_G0, idx) = rawValue;
+                    Unsafe.Add(ref rgbV_G0, idx) = rawValue;
 
                     // Determine which color is on horizontal vs vertical neighbors
                     int neighborColor = (x & 1) == 0 ? patternOdd : patternEven;
                     bool rOnHorizontal = neighborColor == R;
 
                     // Simple bilinear average (AHD defers direction choice to homogeneity)
-                    float hAvg = (srcChannel[y, x - 1] + srcChannel[y, x + 1]) * 0.5f;
-                    float vAvg = (srcChannel[y - 1, x] + srcChannel[y + 1, x]) * 0.5f;
+                    float hAvg = (Unsafe.Add(ref src0, idx - 1) + Unsafe.Add(ref src0, idx + 1)) * 0.5f;
+                    float vAvg = (Unsafe.Add(ref src0, idx - stridePhase1) + Unsafe.Add(ref src0, idx + stridePhase1)) * 0.5f;
 
-                    rgbH_R[y, x] = rOnHorizontal ? hAvg : vAvg;
-                    rgbH_B[y, x] = rOnHorizontal ? vAvg : hAvg;
-
-                    rgbV_R[y, x] = rOnHorizontal ? hAvg : vAvg;
-                    rgbV_B[y, x] = rOnHorizontal ? vAvg : hAvg;
+                    float rVal = rOnHorizontal ? hAvg : vAvg;
+                    float bVal = rOnHorizontal ? vAvg : hAvg;
+                    Unsafe.Add(ref rgbH_R0, idx) = rVal;
+                    Unsafe.Add(ref rgbH_B0, idx) = bVal;
+                    Unsafe.Add(ref rgbV_R0, idx) = rVal;
+                    Unsafe.Add(ref rgbV_B0, idx) = bVal;
                 }
                 else
                 {
@@ -518,30 +549,23 @@ public partial class Image
                     float center = rawValue;
 
                     // Horizontal green interpolation (Laplacian-corrected)
-                    float gW = srcChannel[y, x - 1];
-                    float gE = srcChannel[y, x + 1];
-                    float greenH = (gW + gE) * 0.5f + (2 * center - srcChannel[y, x - 2] - srcChannel[y, x + 2]) * 0.25f;
+                    float gW = Unsafe.Add(ref src0, idx - 1);
+                    float gE = Unsafe.Add(ref src0, idx + 1);
+                    float greenH = (gW + gE) * 0.5f + (2 * center - Unsafe.Add(ref src0, idx - 2) - Unsafe.Add(ref src0, idx + 2)) * 0.25f;
 
                     // Vertical green interpolation (Laplacian-corrected)
-                    float gN = srcChannel[y - 1, x];
-                    float gS = srcChannel[y + 1, x];
-                    float greenV = (gN + gS) * 0.5f + (2 * center - srcChannel[y - 2, x] - srcChannel[y + 2, x]) * 0.25f;
+                    float gN = Unsafe.Add(ref src0, idx - stridePhase1);
+                    float gS = Unsafe.Add(ref src0, idx + stridePhase1);
+                    float greenV = (gN + gS) * 0.5f + (2 * center - Unsafe.Add(ref src0, idx - 2 * stridePhase1) - Unsafe.Add(ref src0, idx + 2 * stridePhase1)) * 0.25f;
 
-                    rgbH_G[y, x] = greenH;
-                    rgbV_G[y, x] = greenV;
-
-                    // Known color is the same for both
-                    rgbH[knownColor][y, x] = rawValue;
-                    rgbV[knownColor][y, x] = rawValue;
-
-                    // Interpolate opposite color guided by per-pixel color differences
-                    int oppositeColor = knownColor == R ? B : R;
+                    Unsafe.Add(ref rgbH_G0, idx) = greenH;
+                    Unsafe.Add(ref rgbV_G0, idx) = greenV;
 
                     // Diagonal neighbors hold the opposite color
-                    float dNW = srcChannel[y - 1, x - 1];
-                    float dNE = srcChannel[y - 1, x + 1];
-                    float dSW = srcChannel[y + 1, x - 1];
-                    float dSE = srcChannel[y + 1, x + 1];
+                    float dNW = Unsafe.Add(ref src0, idx - stridePhase1 - 1);
+                    float dNE = Unsafe.Add(ref src0, idx - stridePhase1 + 1);
+                    float dSW = Unsafe.Add(ref src0, idx + stridePhase1 - 1);
+                    float dSE = Unsafe.Add(ref src0, idx + stridePhase1 + 1);
 
                     // Per-pixel color-difference: each diagonal pixel's green is estimated
                     // from its 2 nearest cardinal green neighbors
@@ -551,9 +575,26 @@ public partial class Image
                     float cdSE = dSE - (gS + gE) * 0.5f;
                     float cdAvg = (cdNW + cdNE + cdSW + cdSE) * 0.25f;
 
-                    // Reconstruct: opposite = green_interpolated + color_difference
-                    rgbH[oppositeColor][y, x] = greenH + cdAvg;
-                    rgbV[oppositeColor][y, x] = greenV + cdAvg;
+                    // Reconstruct: opposite = green_interpolated + color_difference.
+                    // Branch on knownColor so we can use named refs instead of
+                    // rgbH[oppositeColor] (which would defeat the unchecked-access
+                    // win by going through the ref array indexer).
+                    float oppositeH = greenH + cdAvg;
+                    float oppositeV = greenV + cdAvg;
+                    if (knownColor == R)
+                    {
+                        Unsafe.Add(ref rgbH_R0, idx) = rawValue;
+                        Unsafe.Add(ref rgbV_R0, idx) = rawValue;
+                        Unsafe.Add(ref rgbH_B0, idx) = oppositeH;
+                        Unsafe.Add(ref rgbV_B0, idx) = oppositeV;
+                    }
+                    else // knownColor == B
+                    {
+                        Unsafe.Add(ref rgbH_B0, idx) = rawValue;
+                        Unsafe.Add(ref rgbV_B0, idx) = rawValue;
+                        Unsafe.Add(ref rgbH_R0, idx) = oppositeH;
+                        Unsafe.Add(ref rgbV_R0, idx) = oppositeV;
+                    }
                 }
             }
         });
