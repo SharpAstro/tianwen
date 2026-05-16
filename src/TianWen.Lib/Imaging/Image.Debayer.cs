@@ -558,23 +558,47 @@ public partial class Image
             }
         });
 
-        // Phase 3: Compute homogeneity and select best direction
+        // Phase 3: Compute homogeneity and select best direction.
+        // Hot path: ~150 reads per output pixel x 9M pixels = 1.3 G reads.
+        // float[,] indexing pays 2 bounds checks per access; we pin refs to
+        // each scratch array's (0,0) and use Unsafe.Add for raw offset reads.
+        // Per-row cost is 9 bounds-checked ref grabs paid once; per-pixel
+        // cost is 0 bounds checks. Algorithm + arithmetic order unchanged,
+        // so DebayerRegressionTests guarantees byte-identical output.
         var dstR = debayered[R]; var dstG = debayered[G]; var dstB = debayered[B];
+        var stride = width;
 
         Parallel.For(totalRadius, height - totalRadius, parallelOptions, y =>
         {
+            ref var rgbH_R0 = ref rgbH_R[0, 0];
+            ref var rgbH_G0 = ref rgbH_G[0, 0];
+            ref var rgbH_B0 = ref rgbH_B[0, 0];
+            ref var rgbV_R0 = ref rgbV_R[0, 0];
+            ref var rgbV_G0 = ref rgbV_G[0, 0];
+            ref var rgbV_B0 = ref rgbV_B[0, 0];
+            ref var dstR0 = ref dstR[0, 0];
+            ref var dstG0 = ref dstG[0, 0];
+            ref var dstB0 = ref dstB[0, 0];
+
             for (int x = totalRadius; x < width - totalRadius; x++)
             {
-                // Compute homogeneity for horizontal and vertical in a neighborhood
                 int homH = 0, homV = 0;
+                var centerIdx = y * stride + x;
 
-                float lH = RgbToLuma(rgbH_R[y, x], rgbH_G[y, x], rgbH_B[y, x]);
-                float aH = rgbH_R[y, x] - rgbH_G[y, x];
-                float bH = rgbH_B[y, x] - rgbH_G[y, x];
+                // Cache center RGB once; reused in the tie-break tail below.
+                float cHR = Unsafe.Add(ref rgbH_R0, centerIdx);
+                float cHG = Unsafe.Add(ref rgbH_G0, centerIdx);
+                float cHB = Unsafe.Add(ref rgbH_B0, centerIdx);
+                float lH = RgbToLuma(cHR, cHG, cHB);
+                float aH = cHR - cHG;
+                float bH = cHB - cHG;
 
-                float lV = RgbToLuma(rgbV_R[y, x], rgbV_G[y, x], rgbV_B[y, x]);
-                float aV = rgbV_R[y, x] - rgbV_G[y, x];
-                float bV = rgbV_B[y, x] - rgbV_G[y, x];
+                float cVR = Unsafe.Add(ref rgbV_R0, centerIdx);
+                float cVG = Unsafe.Add(ref rgbV_G0, centerIdx);
+                float cVB = Unsafe.Add(ref rgbV_B0, centerIdx);
+                float lV = RgbToLuma(cVR, cVG, cVB);
+                float aV = cVR - cVG;
+                float bV = cVB - cVG;
 
                 for (int dy = -homogeneityRadius; dy <= homogeneityRadius; dy++)
                 {
@@ -582,19 +606,24 @@ public partial class Image
                     {
                         if (dx == 0 && dy == 0) continue;
 
-                        int ny = y + dy;
-                        int nx = x + dx;
+                        int neighborIdx = centerIdx + dy * stride + dx;
 
                         // Horizontal neighbor differences
-                        float nlH = RgbToLuma(rgbH_R[ny, nx], rgbH_G[ny, nx], rgbH_B[ny, nx]);
-                        float naH = rgbH_R[ny, nx] - rgbH_G[ny, nx];
-                        float nbH = rgbH_B[ny, nx] - rgbH_G[ny, nx];
+                        float nHR = Unsafe.Add(ref rgbH_R0, neighborIdx);
+                        float nHG = Unsafe.Add(ref rgbH_G0, neighborIdx);
+                        float nHB = Unsafe.Add(ref rgbH_B0, neighborIdx);
+                        float nlH = RgbToLuma(nHR, nHG, nHB);
+                        float naH = nHR - nHG;
+                        float nbH = nHB - nHG;
                         float diffH = MathF.Abs(lH - nlH) + MathF.Abs(aH - naH) + MathF.Abs(bH - nbH);
 
                         // Vertical neighbor differences
-                        float nlV = RgbToLuma(rgbV_R[ny, nx], rgbV_G[ny, nx], rgbV_B[ny, nx]);
-                        float naV = rgbV_R[ny, nx] - rgbV_G[ny, nx];
-                        float nbV = rgbV_B[ny, nx] - rgbV_G[ny, nx];
+                        float nVR = Unsafe.Add(ref rgbV_R0, neighborIdx);
+                        float nVG = Unsafe.Add(ref rgbV_G0, neighborIdx);
+                        float nVB = Unsafe.Add(ref rgbV_B0, neighborIdx);
+                        float nlV = RgbToLuma(nVR, nVG, nVB);
+                        float naV = nVR - nVG;
+                        float nbV = nVB - nVG;
                         float diffV = MathF.Abs(lV - nlV) + MathF.Abs(aV - naV) + MathF.Abs(bV - nbV);
 
                         // Lower difference = more homogeneous
@@ -603,24 +632,25 @@ public partial class Image
                     }
                 }
 
-                // Select the direction with higher homogeneity, or average if tied
+                // Select the direction with higher homogeneity, or average if tied.
+                // Reuse cached center values instead of re-reading rgbH/V.
                 if (homH > homV)
                 {
-                    dstR[y, x] = rgbH_R[y, x];
-                    dstG[y, x] = rgbH_G[y, x];
-                    dstB[y, x] = rgbH_B[y, x];
+                    Unsafe.Add(ref dstR0, centerIdx) = cHR;
+                    Unsafe.Add(ref dstG0, centerIdx) = cHG;
+                    Unsafe.Add(ref dstB0, centerIdx) = cHB;
                 }
                 else if (homV > homH)
                 {
-                    dstR[y, x] = rgbV_R[y, x];
-                    dstG[y, x] = rgbV_G[y, x];
-                    dstB[y, x] = rgbV_B[y, x];
+                    Unsafe.Add(ref dstR0, centerIdx) = cVR;
+                    Unsafe.Add(ref dstG0, centerIdx) = cVG;
+                    Unsafe.Add(ref dstB0, centerIdx) = cVB;
                 }
                 else
                 {
-                    dstR[y, x] = (rgbH_R[y, x] + rgbV_R[y, x]) * 0.5f;
-                    dstG[y, x] = (rgbH_G[y, x] + rgbV_G[y, x]) * 0.5f;
-                    dstB[y, x] = (rgbH_B[y, x] + rgbV_B[y, x]) * 0.5f;
+                    Unsafe.Add(ref dstR0, centerIdx) = (cHR + cVR) * 0.5f;
+                    Unsafe.Add(ref dstG0, centerIdx) = (cHG + cVG) * 0.5f;
+                    Unsafe.Add(ref dstB0, centerIdx) = (cHB + cVB) * 0.5f;
                 }
             }
         });
