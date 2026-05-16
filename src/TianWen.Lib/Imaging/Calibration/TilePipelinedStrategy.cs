@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -42,35 +44,86 @@ public sealed class TilePipelinedStrategy : IIntegrationStrategy
 
     public StrategyFit Evaluate(IntegrationProbe probe, ResourceBudget budget)
     {
-        // Project what RAM the eventual Phase 8 path would consume so the log
-        // row carries a meaningful estimate even though we decline to run.
-        var ramCap = budget.AllowedRam(probe) - probe.OutputRamBytes;
-        var tile = ramCap > 0 ? IntegrationTileSizing.Side(probe, ramCap) : -1;
-        var projectedRam = tile > 0
-            ? IntegrationTileSizing.TileRamBytes(tile, probe) + probe.OutputRamBytes
-            : probe.OutputRamBytes;
+        // Phase 8.0: scaffolding-only. RunAsync loads + calibrates + debayers +
+        // warps every raw frame in full and hands the result to the in-memory
+        // Integrator. Memory profile is identical to InRamAllFrames (no
+        // partial-FITS yet) so we report InRam-equivalent RAM cost. Phase 8.1
+        // (memory-mapped partial FITS reader) + Phase 8.2 (sub-region debayer
+        // + per-tile warp) will switch this to the tile-bounded RAM profile
+        // and make the strategy genuinely cheaper than InRam.
+        var ram = probe.AllFramesRamBytes + probe.OutputRamBytes;
+        var cap = budget.AllowedRam(probe);
         var rawReadBytes = probe.FrameBytes * probe.FrameCount;
-        var tileCount = tile > 0
-            ? ((probe.CanvasWidth + tile - 1) / tile) * ((probe.CanvasHeight + tile - 1) / tile)
-            : 1;
-        var seeks = tileCount * probe.FrameCount;
-        var io = _costs.DiskIo(rawReadBytes, seeks, probe.StagingDiskKind);
-        var projectedEta = _costs.WarpAllFrames(probe) + _costs.StackAllFrames(probe) + io;
+        var io = _costs.DiskIo(rawReadBytes, probe.FrameCount, probe.StagingDiskKind);
+        var eta = _costs.WarpAllFrames(probe) + _costs.StackAllFrames(probe) + io;
 
-        var tileDesc = tile > 0 ? $"tile {tile} px" : "tile-sizing infeasible";
+        if (ram > cap)
+        {
+            return new StrategyFit(
+                CanRun: false,
+                EstimatedRamBytes: ram,
+                EstimatedDiskBytes: 0,
+                EstimatedDuration: eta,
+                Rationale: $"Phase 8.0 still N x debayered in RAM ({Format.GB(ram)} > cap {Format.GB(cap)}); Phase 8.1/8.2 will fix this");
+        }
+
         return new StrategyFit(
-            CanRun: false,
-            EstimatedRamBytes: projectedRam,
+            CanRun: true,
+            EstimatedRamBytes: ram,
             EstimatedDiskBytes: 0,
-            EstimatedDuration: projectedEta,
-            Rationale: $"Phase 8 not yet implemented ({tileDesc}, projected {Format.GB(projectedRam)} RAM)");
+            EstimatedDuration: eta,
+            Rationale: $"Phase 8.0 scaffolding (N x debayered in RAM, {Format.GB(ram)} / {Format.GB(cap)}); raw-tile pipeline pending Phase 8.1");
     }
 
-    public ValueTask<IntegrationResult> RunAsync(IntegrationJob job, CancellationToken ct) =>
-        throw new NotImplementedException(
-            "TilePipelinedStrategy is the PLAN-stacking Phase 8 placeholder. Real implementation needs " +
-            "IntegrationJob v2 with raw light paths + per-frame transforms + Calibrator, plus " +
-            "memory-mapped partial FITS reads + sub-region debayer + per-tile inverse-transform warp " +
-            "with bilinear-sample halos. Until those primitives ship the strategy declines to run " +
-            "(Evaluate returns CanRun=false) so the selector falls through to a runnable executor.");
+    public async ValueTask<IntegrationResult> RunAsync(IntegrationJob job, CancellationToken ct)
+    {
+        if (job.RawLightSources is null || job.Calibrator is null)
+        {
+            throw new InvalidOperationException(
+                "TilePipelinedStrategy requires job.RawLightSources + job.Calibrator. The orchestrator " +
+                "must build the raw-source list from the matched-frame transforms and pass the same " +
+                "Calibrator used by the WarpedFrames producer for the other strategies.");
+        }
+
+        var sources = job.RawLightSources;
+        var calibrator = job.Calibrator;
+        var debayerAlg = job.DebayerAlgorithm;
+        var n = sources.Count;
+        if (n == 0)
+        {
+            throw new InvalidOperationException("TilePipelinedStrategy: RawLightSources is empty.");
+        }
+
+        var canvasWidth = job.CanvasWidth;
+        var canvasHeight = job.CanvasHeight;
+        if (canvasWidth <= 0 || canvasHeight <= 0)
+        {
+            throw new InvalidOperationException(
+                $"TilePipelinedStrategy requires job.CanvasWidth + .CanvasHeight (got {canvasWidth}x{canvasHeight})");
+        }
+
+        // Phase 8.0: load + calibrate + debayer + warp every raw frame to the
+        // canvas, then hand off to the in-memory Integrator. This is the
+        // scaffolding step -- output is byte-identical to InRamAllFrames
+        // (same arithmetic on same inputs), and the memory profile is the
+        // same too. Phase 8.1 will replace the per-frame full-canvas warp
+        // pass with per-tile raw reads + partial debayer + partial warp so
+        // peak RAM is bounded by tile-column rather than N x canvas.
+        var warped = new List<Image>(n);
+        for (var f = 0; f < n; f++)
+        {
+            ct.ThrowIfCancellationRequested();
+            if (!Image.TryReadFitsFile(sources[f].Path, out var raw))
+            {
+                throw new InvalidDataException(
+                    $"TilePipelinedStrategy: failed to read raw FITS at {sources[f].Path}");
+            }
+            var calibrated = calibrator.Apply(raw);
+            var debayered = await calibrated.DebayerAsync(debayerAlg, cancellationToken: ct);
+            var w = await debayered.WarpToReferenceGridAsync(sources[f].TransformToCanvas, canvasWidth, canvasHeight, ct);
+            warped.Add(w);
+        }
+
+        return Integrator.Integrate(warped, job.Options);
+    }
 }

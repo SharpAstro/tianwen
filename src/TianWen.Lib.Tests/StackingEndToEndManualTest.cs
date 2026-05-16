@@ -673,13 +673,31 @@ public class StackingEndToEndManualTest(ITestOutputHelper output)
             sw.Restart();
             var rejector = BuildRejector(matched.Count);
             Log($"  rejector: {rejector?.GetType().Name ?? "<none>"}");
+            // Build the raw-source list for TilePipelined: same matched-frame
+            // transforms the producer uses, just packaged with the source FITS
+            // path so the strategy can skip the producer's full-frame warp
+            // pass and (eventually) do per-tile raw reads. Other strategies
+            // ignore this field.
+            var rawSources = new List<RawLightSource>(matched.Count);
+            foreach (var (lightInfo, transformOrig, _, _, _, _) in matched)
+            {
+                rawSources.Add(new RawLightSource(
+                    Path: lightInfo.Path,
+                    TransformToCanvas: transformOrig * canvasShift));
+            }
+
             var job = new IntegrationJob(
                 WarpedFrames: WarpedFramesProducer,
                 ExpectedFrameCount: matched.Count,
                 Options: new IntegrationOptions(Rejector: rejector),
                 StagingDir: stagingDir,
                 StatsRect: statsRect,
-                FrameFootprints: frameFootprints);
+                FrameFootprints: frameFootprints,
+                RawLightSources: rawSources,
+                Calibrator: calibrator,
+                DebayerAlgorithm: StackDebayerAlg,
+                CanvasWidth: outWidth,
+                CanvasHeight: outHeight);
             IntegrationResult result;
             try
             {
