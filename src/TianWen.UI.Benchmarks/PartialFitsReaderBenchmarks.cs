@@ -2,8 +2,8 @@ using System;
 using System.Drawing;
 using System.IO;
 using BenchmarkDotNet.Attributes;
+using nom.tam.fits.IO;
 using TianWen.Lib.Imaging;
-using TianWen.Lib.IO;
 
 namespace TianWen.UI.Benchmarks;
 

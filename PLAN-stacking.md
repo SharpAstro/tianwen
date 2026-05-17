@@ -957,6 +957,8 @@ Wired into:
 | cache wire | `e17d585` | `StreamingFrameReader.SetCachedImage` + FrameCache wired into FootprintStaged + Float16Staged |
 | 8.4 | `8d16b3d` | Spill-to-disk in FootprintStaged + Float16Staged + IProgress wiring + cost-model recalibration (LoadAndCalibrateAllFrames + stack ns/px 8→40) + SVBony alias fix + Parallel.For star detection + MedianFast |
 | 8.5 | _staged_ | Producer double-work elimination: pass A's `calibrated` image cached in `FrameCache`, pass B's `WarpedFramesProducer` skips Load+Calibrate on hits (debayer stays per-pass: VNG vs AHD) |
+| 8.x | `2faacab` | SIMD byte-swap in `PartialFitsReader`: Vector128.Shuffle prologue + scalar tail for BITPIX 16/32/-32 |
+| promotion | _staged_ | `PartialFitsReader` promoted to FITS.Lib 4.6.0 under `nom.tam.fits.IO`; TianWen.Lib.IO copy deleted, two callsite `using`s updated |
 
 ### Phase 8.3 benchmark (numbers worth remembering)
 
@@ -1049,8 +1051,11 @@ plane. PartialFitsReader's tile read is what TilePipelined actually drives.
   closes the gap. Low priority: production hot path never does full reads
   through `PartialFitsReader` (it does sub-tile reads where the gap is moot).
 - **PLAN-summary.md entry** for PLAN-stacking.md (untracked today).
-- **Promote `PartialFitsReader` to FITS.Lib** once API stabilises (see file
-  header comment).
+- ~~**Promote `PartialFitsReader` to FITS.Lib**~~ -- DONE (FITS.Lib 4.6.0,
+  namespace `nom.tam.fits.IO`, net10.0-only target).
+- ~~**SIMD byte-swap in `PartialFitsReader`**~~ -- DONE (Vector128.Shuffle
+  prologue + scalar tail for BITPIX 16/32/-32; ~4x decode-CPU speedup,
+  end-to-end masked by memory bandwidth on the full-frame bench).
 
 ### What did NOT happen (deferred from the original plan)
 
@@ -1086,8 +1091,10 @@ src/TianWen.Lib/Imaging/Calibration/
 ├── Normalizer.cs                # Per-channel min/median stats + Normalizer.Apply
 └── Calibrator.cs                # bias/dark/flat application; Apply + ApplyTile (Span-based)
 
-src/TianWen.Lib/IO/
-└── PartialFitsReader.cs         # mmap'd FITS sub-rectangle reader (Phase 8.1)
+../FITS.Lib/CSharpFITS/IO/
+└── PartialFitsReader.cs         # mmap'd FITS sub-rectangle reader (was Phase 8.1
+                                 # in TianWen.Lib.IO; promoted to FITS.Lib 4.6.0,
+                                 # namespace nom.tam.fits.IO; net10.0-only)
 
 src/TianWen.Lib/Imaging/
 └── Image.Transform.cs           # WarpToReferenceGridAsync + WarpRegionAsync (Phase 8.2a)

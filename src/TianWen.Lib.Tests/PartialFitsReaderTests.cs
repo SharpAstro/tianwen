@@ -6,8 +6,8 @@ using System.IO.Compression;
 using System.Text;
 using System.Threading.Tasks;
 using Shouldly;
+using nom.tam.fits.IO;
 using TianWen.Lib.Imaging;
-using TianWen.Lib.IO;
 using Xunit;
 
 namespace TianWen.Lib.Tests;
