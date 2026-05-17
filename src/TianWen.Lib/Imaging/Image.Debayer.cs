@@ -59,20 +59,47 @@ public partial class Image
     /// the pixels they care about have valid neighbours inside the rect.</param>
     public Task<Image> DebayerRegionIntoAsync(Channel[] destination, DebayerAlgorithm debayerAlgorithm, System.Drawing.Rectangle sourceRect, CancellationToken cancellationToken = default)
     {
-        if (imageMeta.SensorType is not SensorType.RGGB)
-        {
-            throw new InvalidOperationException(
-                "DebayerRegionIntoAsync only makes sense on a Bayer source -- " +
-                "mono/colour images have no debayer step to skip.");
-        }
         var destArrays = new float[destination.Length][,];
         for (var c = 0; c < destination.Length; c++) destArrays[c] = destination[c].Data;
+
+        // Non-Bayer sources: no debayer to do, just copy the rect rows of
+        // each input channel into the corresponding destination channel.
+        // Mirrors DebayerIntoAsync's mono/color short-circuit so callers
+        // can stay sensor-agnostic.
+        if (imageMeta.SensorType is SensorType.Monochrome or SensorType.Color)
+        {
+            CopyRectIntoDestination(destArrays, sourceRect);
+            return Task.FromResult(new Image(destArrays, BitDepth.Float32, maxValue, minValue, pedestal, imageMeta));
+        }
+
         return debayerAlgorithm switch
         {
             DebayerAlgorithm.AHD => DebayerAHDAsync(scale: 1.0f, cancellationToken, destArrays, sourceRect),
             _ => throw new NotSupportedException(
-                $"DebayerRegionIntoAsync currently only supports AHD; {debayerAlgorithm} would need a sub-region overload of its inner loop."),
+                $"DebayerRegionIntoAsync currently only supports AHD on Bayer sources; {debayerAlgorithm} would need a sub-region overload of its inner loop."),
         };
+    }
+
+    private void CopyRectIntoDestination(float[][,] destArrays, System.Drawing.Rectangle sourceRect)
+    {
+        var y0 = Math.Max(0, sourceRect.Y);
+        var y1 = Math.Min(Height, sourceRect.Y + sourceRect.Height);
+        var x0 = Math.Max(0, sourceRect.X);
+        var x1 = Math.Min(Width, sourceRect.X + sourceRect.Width);
+        if (y0 >= y1 || x0 >= x1) return;
+        var rowLen = x1 - x0;
+        var copyChannels = Math.Min(data.Length, destArrays.Length);
+        for (var c = 0; c < copyChannels; c++)
+        {
+            var src = data[c];
+            var dst = destArrays[c];
+            for (var y = y0; y < y1; y++)
+            {
+                var srcRow = MemoryMarshal.CreateReadOnlySpan(ref src[y, x0], rowLen);
+                var dstRow = MemoryMarshal.CreateSpan(ref dst[y, x0], rowLen);
+                srcRow.CopyTo(dstRow);
+            }
+        }
     }
 
     public async Task<Image> DebayerIntoAsync(Channel[] destination, DebayerAlgorithm debayerAlgorithm, bool normalizeToUnit = false, CancellationToken cancellationToken = default)

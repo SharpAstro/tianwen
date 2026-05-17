@@ -172,47 +172,55 @@ public sealed class TilePipelinedStrategy : IIntegrationStrategy
         var swStrat = System.Diagnostics.Stopwatch.StartNew();
         var stripsTotal = (canvasH + StripHeight - 1) / StripHeight;
 
-        // ---------------- Pass 1: decode + stats, register in cache ----------------
-        // FrameCache provides the strong+weak two-tier model. cacheCap is
-        // sized from current GC headroom; frames beyond the cap still get a
-        // WeakReference so any unreclaimed survivor is a bonus pass-2 hit.
-        FrameCache? cache = null;
-        NormalizationStats[]? perFrameStats = opts.ApplyNormalization ? new NormalizationStats[n] : null;
-        var channelCount = 0;
-        Image? metaSeed = null;
+        // ---------------- Pass 1: decode + calibrate + stats, register in cache ----------------
+        // Phase 8.6: cache the CALIBRATED RAW (1-channel float, ~36 MB for a
+        // 3008x3008 sensor) instead of the debayered RGB Image (3 channels,
+        // ~108 MB). Three benefits:
+        //  - 3x more frames fit the strong tier for the same RAM budget
+        //    (cap 28 -> ~130 on 16 GB hosts with 6 GB free), which is the
+        //    difference between a viable strategy and per-strip thrashing.
+        //  - On cache miss in pass 2 we only redo Load + Calibrate, not the
+        //    expensive AHD debayer.
+        //  - Pass 2 does sub-region debayer (only the strip footprint) per
+        //    strip-frame, so the 22x-vs-VNG AHD cost only applies to ~2% of
+        //    the canvas area per call.
+        // Stats are computed once per frame from a full debayer that we then
+        // drop -- same wall-clock cost as today's pass 1.
+        var perFrameStats = opts.ApplyNormalization ? new NormalizationStats[n] : null;
 
-        for (var f = 0; f < n; f++)
+        // First frame sets up cache + metaSeed; subsequent frames reuse them.
+        // Hoisted out of the loop so neither `cache` nor `metaSeed` needs a
+        // null-forgiving operator anywhere downstream -- the compiler sees
+        // them as definitely-assigned non-null locals from here on.
+        ct.ThrowIfCancellationRequested();
+        var firstCalibrated = DecodeCalibrate(sources[0], calibrator);
+        var calibratedBytes = (long)firstCalibrated.Width * firstCalibrated.Height * firstCalibrated.ChannelCount * sizeof(float);
+        var cache = new FrameCache(n, FrameCache.DecideCacheCap(n, calibratedBytes));
+        var metaSeed = await firstCalibrated.DebayerAsync(debayerAlg, cancellationToken: ct);
+        var channelCount = metaSeed.ChannelCount;
+        if (perFrameStats is not null)
+        {
+            perFrameStats[0] = Normalizer.ComputeStats(metaSeed);
+        }
+        cache.Set(0, firstCalibrated);
+        job.Progress?.Report(new IntegrationProgress(IntegrationPhase.LoadingFrames, 1, n, swStrat.Elapsed));
+
+        for (var f = 1; f < n; f++)
         {
             ct.ThrowIfCancellationRequested();
-            var debayered = await DecodeCalibrateDebayerAsync(sources[f], calibrator, debayerAlg, ct);
-            if (f == 0)
-            {
-                channelCount = debayered.ChannelCount;
-                metaSeed = debayered;
-                // Decide cache size after the first decode so we know the real
-                // per-frame byte cost.
-                var debayeredBytes = (long)debayered.Width * debayered.Height * channelCount * sizeof(float);
-                cache = new FrameCache(n, FrameCache.DecideCacheCap(n, debayeredBytes));
-            }
+            var calibrated = DecodeCalibrate(sources[f], calibrator);
 
+            // Stats need the debayered frame, but we don't cache it.
+            // Allocate locally, compute stats, let GC reclaim between
+            // iterations (or sooner under pressure).
             if (perFrameStats is not null)
             {
-                // Stats from the debayered image (not the warped canvas). For
-                // small rotations this differs negligibly from the
-                // warped-canvas + statsRect path used by other strategies --
-                // NaN is naturally absent in the unwarped data so the
-                // intersection clamp is moot. Heavy-rotation stacks get a
-                // small drift; the speed win is large.
-                perFrameStats[f] = Normalizer.ComputeStats(debayered);
+                var debayeredOnce = await calibrated.DebayerAsync(debayerAlg, cancellationToken: ct);
+                perFrameStats[f] = Normalizer.ComputeStats(debayeredOnce);
             }
 
-            cache!.Set(f, debayered);
+            cache.Set(f, calibrated);
             job.Progress?.Report(new IntegrationProgress(IntegrationPhase.LoadingFrames, f + 1, n, swStrat.Elapsed));
-        }
-
-        if (channelCount == 0 || metaSeed is null)
-        {
-            throw new InvalidOperationException("TilePipelinedStrategy: pass 1 produced no frames.");
         }
 
         var stripIdx = 0;
@@ -222,6 +230,27 @@ public sealed class TilePipelinedStrategy : IIntegrationStrategy
         var rejectMapData = Image.CreateChannelData(1, canvasH, canvasW);
         long totalRejections = 0;
         var stripOpts = opts with { ApplyNormalization = false };
+
+        // Pre-allocate full-canvas destination channels for sub-region debayer.
+        // The sub-region debayer fills only the strip-footprint rows + halo;
+        // the rest stays as pool garbage (harmless because WarpRegionAsync
+        // only samples inside the rect by construction). Reused across all
+        // strip-frame calls -- one alloc instead of N * stripsTotal allocs.
+        var rawW = firstCalibrated.Width;
+        var rawH = firstCalibrated.Height;
+        var debayerDestArrays = Image.CreateChannelData(channelCount, rawH, rawW);
+        var debayerDestChannels = new Channel[channelCount];
+        for (var c = 0; c < channelCount; c++)
+        {
+            debayerDestChannels[c] = new Channel(debayerDestArrays[c], default, 0f, 0f, (byte)c);
+        }
+        // Halo for projecting the canvas-strip back to source: 2 pixels.
+        // WarpRegionAsync's SubpixelValue does 4-tap bilinear, so 1 px is the
+        // strict minimum; +1 cushions floating-point round-off + small
+        // rotation in the transform. AHD's internal halo (radius +
+        // homogeneity + 1 for Phase 4 = 5 pixels) is added inside
+        // DebayerRegionIntoAsync.
+        const int projectionHalo = 2;
 
         for (var stripY0 = 0; stripY0 < canvasH; stripY0 += StripHeight)
         {
@@ -233,20 +262,30 @@ public sealed class TilePipelinedStrategy : IIntegrationStrategy
             for (var f = 0; f < n; f++)
             {
                 ct.ThrowIfCancellationRequested();
-                Image debayered;
-                if (cache!.TryGet(f, out var cached))
+                Image calibrated;
+                if (cache.TryGet(f, out var cached))
                 {
-                    debayered = cached;
+                    calibrated = cached;
                 }
                 else
                 {
-                    // Miss in both tiers -- re-decode and re-register so a
-                    // later strip can still find this frame alive if memory
-                    // recovers.
-                    debayered = await DecodeCalibrateDebayerAsync(sources[f], calibrator, debayerAlg, ct);
-                    cache.Set(f, debayered);
+                    // Miss in both tiers -- re-decode + recalibrate (no
+                    // debayer; we redo that per-strip below).
+                    calibrated = DecodeCalibrate(sources[f], calibrator);
+                    cache.Set(f, calibrated);
                 }
-                var strip = await debayered.WarpRegionAsync(sources[f].TransformToCanvas, stripRect, canvasW, canvasH, ct);
+
+                var transform = sources[f].TransformToCanvas;
+                var sourceRect = ProjectCanvasRectToSourceRect(stripRect, transform, rawW, rawH, projectionHalo);
+
+                // Sub-region debayer of the strip's source footprint (plus
+                // halo) into the pre-allocated full-canvas dest. Only the
+                // sourceRect rows hold valid AHD output; WarpRegionAsync
+                // samples only inside that region by construction (its
+                // bounds-check converts out-of-rect samples to NaN, which
+                // the rejector ignores).
+                var debayered = await calibrated.DebayerRegionIntoAsync(debayerDestChannels, debayerAlg, sourceRect, ct);
+                var strip = await debayered.WarpRegionAsync(transform, stripRect, canvasW, canvasH, ct);
                 if (perFrameStats is not null)
                 {
                     strip = Normalizer.Apply(strip, perFrameStats[f], opts.NormalizationTarget);
@@ -286,15 +325,54 @@ public sealed class TilePipelinedStrategy : IIntegrationStrategy
         return new IntegrationResult(masterImage, rejectMapImage, n, totalRejections, meanRate);
     }
 
-    private static async Task<Image> DecodeCalibrateDebayerAsync(
-        RawLightSource source, Calibrator calibrator, DebayerAlgorithm debayerAlg, CancellationToken ct)
+    /// <summary>Load + calibrate, no debayer. Used by Phase 8.6 pass 1 to
+    /// cache the calibrated raw (3x denser than debayered RGB in the strong
+    /// tier) and by pass 2 cache-miss recovery. The actual debayer happens
+    /// per-strip via <see cref="Image.DebayerRegionIntoAsync"/>.</summary>
+    private static Image DecodeCalibrate(RawLightSource source, Calibrator calibrator)
     {
         if (!Image.TryReadFitsFile(source.Path, out var raw))
         {
             throw new InvalidDataException($"TilePipelinedStrategy: failed to read raw FITS at {source.Path}");
         }
-        var calibrated = calibrator.Apply(raw);
-        return await calibrated.DebayerAsync(debayerAlg, cancellationToken: ct);
+        return calibrator.Apply(raw);
+    }
+
+    /// <summary>Inverse-transform a canvas rectangle to its bounding box in
+    /// source-frame coordinates, then expand by <paramref name="halo"/> pixels
+    /// (for bilinear sampling + numerical cushion) and clamp to source bounds.
+    /// Used by pass 2 to figure out how much of the calibrated raw needs to be
+    /// debayered for a given canvas strip.</summary>
+    private static Rectangle ProjectCanvasRectToSourceRect(
+        Rectangle canvasRect, System.Numerics.Matrix3x2 transformToCanvas, int srcW, int srcH, int halo)
+    {
+        if (!System.Numerics.Matrix3x2.Invert(transformToCanvas, out var inverse))
+        {
+            // Non-invertible transform shouldn't happen for the affine fits
+            // we ship -- fall back to full source.
+            return new Rectangle(0, 0, srcW, srcH);
+        }
+
+        Span<System.Numerics.Vector2> corners = stackalloc System.Numerics.Vector2[4];
+        corners[0] = new System.Numerics.Vector2(canvasRect.X, canvasRect.Y);
+        corners[1] = new System.Numerics.Vector2(canvasRect.Right, canvasRect.Y);
+        corners[2] = new System.Numerics.Vector2(canvasRect.X, canvasRect.Bottom);
+        corners[3] = new System.Numerics.Vector2(canvasRect.Right, canvasRect.Bottom);
+
+        var min = new System.Numerics.Vector2(float.PositiveInfinity, float.PositiveInfinity);
+        var max = new System.Numerics.Vector2(float.NegativeInfinity, float.NegativeInfinity);
+        for (var i = 0; i < 4; i++)
+        {
+            var srcPos = System.Numerics.Vector2.Transform(corners[i], inverse);
+            min = System.Numerics.Vector2.Min(min, srcPos);
+            max = System.Numerics.Vector2.Max(max, srcPos);
+        }
+
+        var x0 = Math.Max(0, (int)Math.Floor(min.X) - halo);
+        var y0 = Math.Max(0, (int)Math.Floor(min.Y) - halo);
+        var x1 = Math.Min(srcW, (int)Math.Ceiling(max.X) + halo);
+        var y1 = Math.Min(srcH, (int)Math.Ceiling(max.Y) + halo);
+        return new Rectangle(x0, y0, Math.Max(0, x1 - x0), Math.Max(0, y1 - y0));
     }
 
     private static void CopyStripIntoMaster(Image stripImage, float[][,] masterData, int stripY0, int channelCount)
