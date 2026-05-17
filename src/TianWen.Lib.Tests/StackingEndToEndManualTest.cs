@@ -395,11 +395,20 @@ public class StackingEndToEndManualTest(ITestOutputHelper output)
             //   transform that puts pixel (0, 0) at the BB origin, warp into
             //   the BB-sized canvas, compute stats, stage to disk, drop.
             //
-            // Re-load+cal+debayer in pass B costs ~225 ms per frame extra
-            // (~55 s for a 244-frame group), well worth getting the canvas
-            // size right. The proper fix is deferred warp during integration
-            // (Phase 2) which keeps the bounding-box semantics without the
-            // extra IO pass.
+            // Re-load+cal+debayer in pass B previously cost ~225 ms per frame
+            // (~55 s for a 244-frame group). Now mitigated via calibratedCache:
+            // every successful pass-A match stashes its post-Calibrator.Apply
+            // image in a FrameCache so pass-B's producer can skip the Load +
+            // Calibrate when GC pressure leaves the cached entry alive. The
+            // debayer hop is still per-pass (pass A uses VNG for centroid
+            // accuracy, pass B uses AHD for color fidelity -- swapping them
+            // breaks SPCC, confirmed empirically). Strong-cap sized off
+            // currently-free RAM so tight hosts degrade to today's reload
+            // behaviour for the overflow frames.
+            var calibratedFrameBytes = (long)referenceRaw.Width * referenceRaw.Height * sizeof(float);
+            var calibratedCache = new FrameCache(
+                lightList.Count,
+                FrameCache.DecideCacheCap(lightList.Count, calibratedFrameBytes));
             var matched = new List<(FrameInfo Light, Matrix3x2 Transform, string Name, int Detected, int QuadCount, float QuadTolUsed)>();
             foreach (var lightInfo in lightList)
             {
@@ -469,6 +478,13 @@ public class StackingEndToEndManualTest(ITestOutputHelper output)
                     continue;
                 }
 
+                // Stash the post-Calibrator image so pass B's WarpedFramesProducer
+                // can skip the Load + Calibrate hop. Strong cap fills first N
+                // entries; the rest land as weak refs and may survive a bonus
+                // hit if GC hasn't reclaimed them. The reference frame's path
+                // is handled separately below (already-calibrated `calibrated`
+                // local is in scope for the if-branch).
+                calibratedCache.Set(matched.Count, calibrated);
                 matched.Add((lightInfo, transform.Value, name, detected, quadCount, quadTolUsed));
 
                 var t = transform.Value;
@@ -621,19 +637,39 @@ public class StackingEndToEndManualTest(ITestOutputHelper output)
             // (InRamAllFrames) or stage them to disk (FootprintStaged etc.);
             // staged strategies stage + drop each frame as it comes out so
             // peak RAM stays bounded.
+            //
+            // Cache hot path: pass A stashed each matched frame's calibrated
+            // image into `calibratedCache`. We skip Load + Calibrate for any
+            // frame still alive in the cache (strong tier always; weak tier
+            // when GC hasn't reclaimed yet). Debayer is per-pass (VNG in pass
+            // A for centroid accuracy, AHD here for color fidelity) so it
+            // can't be cached across passes.
             var yieldedCount = 0;
+            var cacheHits = 0;
+            var cacheMisses = 0;
             async IAsyncEnumerable<Image> WarpedFramesProducer(
                 [EnumeratorCancellation] CancellationToken token)
             {
-                foreach (var (lightInfo, transformOrig, name, _, _, _) in matched)
+                for (var i = 0; i < matched.Count; i++)
                 {
+                    var (lightInfo, transformOrig, name, _, _, _) = matched[i];
                     token.ThrowIfCancellationRequested();
-                    stageSw.Restart();
-                    var lightRaw = await lightInfo.LoadFullAsync(token);
-                    perfLoad += stageSw.Elapsed;
-                    stageSw.Restart();
-                    var calibrated = calibrator.Apply(lightRaw);
-                    perfCalibrate += stageSw.Elapsed;
+                    Image calibrated;
+                    if (calibratedCache.TryGet(i, out var cached))
+                    {
+                        calibrated = cached;
+                        cacheHits++;
+                    }
+                    else
+                    {
+                        stageSw.Restart();
+                        var lightRaw = await lightInfo.LoadFullAsync(token);
+                        perfLoad += stageSw.Elapsed;
+                        stageSw.Restart();
+                        calibrated = calibrator.Apply(lightRaw);
+                        perfCalibrate += stageSw.Elapsed;
+                        cacheMisses++;
+                    }
                     stageSw.Restart();
                     var debayered = await calibrated.DebayerAsync(StackDebayerAlg, cancellationToken: token);
                     perfDebayer += stageSw.Elapsed;
@@ -768,6 +804,12 @@ public class StackingEndToEndManualTest(ITestOutputHelper output)
                 Log($"    BuildQuads: {perfBuildQuads.TotalMilliseconds,7:F0} ms  ({Pct(perfBuildQuads, totalNs),5})  avg {Per(perfBuildQuads, perfFrames)}");
                 Log($"    Match     : {perfMatch.TotalMilliseconds,7:F0} ms  ({Pct(perfMatch, totalNs),5})  avg {Per(perfMatch, perfFrames)}");
                 Log($"    Warp      : {perfWarp.TotalMilliseconds,7:F0} ms  ({Pct(perfWarp, totalNs),5})  avg {Per(perfWarp, perfFrames)}");
+                var cacheTotal = cacheHits + cacheMisses;
+                if (cacheTotal > 0)
+                {
+                    var hitPct = (double)cacheHits / cacheTotal * 100;
+                    Log($"  [cache] calibrated-frame cache: {cacheHits}/{cacheTotal} hits ({hitPct:F1}%, strongCap={calibratedCache.StrongCap})");
+                }
             }
             var attempted = yieldedCount + skipCount;
             Log($"  registered + warped {yieldedCount}/{attempted} frames " +

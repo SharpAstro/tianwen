@@ -226,11 +226,22 @@ in production show too many runtime scout trips against known obstructions.
 
 ## PLAN-stacking — DONE ~85%
 
-The original phasing table (Phases 1-12) is fully shipped: `Image` arithmetic,
-masters, calibrator, registrator, normalizer, rejectors (sigma + winsorized + LFC +
-percentile + minmax), the in-memory `Integrator`, MEF FITS write. End-to-end
-validated on real datasets via `StackingEndToEndManualTest` (skips when
-`C:\temp\stack\` is absent so CI stays green).
+The original phasing table (Phases 1-12) is shipped: `Image` arithmetic, masters,
+calibrator, registrator, normalizer, rejectors (sigma + winsorized + LFC +
+percentile + minmax), the in-memory `Integrator`, and FITS write via
+`IntegrationFitsWriter` (Phase 9). End-to-end validated on real datasets via
+`StackingEndToEndManualTest` (skips when `C:\temp\stack\` is absent so CI stays
+green).
+
+Phase 9 caveat: the `IIntegrationSink` interface + `ArraySink` abstraction
+mentioned in the plan are *not* shipped -- only the concrete static
+`IntegrationFitsWriter` plus a sidecar `<master>.rejection.fits` companion file
+for the rejection-map diagnostic. The interface was meant as a seam for Phase
+10's `MemoryMappedFitsSink`; with Phase 10 deferred, pre-introducing the
+interface for a single in-memory consumer would be YAGNI -- right time to
+extract is when MMF lands. MEF (multi-extension FITS) is also deferred per the
+file's own xmldoc: most FITS viewers don't render the second HDU, so two files
+keep the rejection diagnostic usable.
 
 **Phase 8 ("tile integrator") evolved into a strategy-pattern selector** with
 six executors picked at runtime by an `IntegrationStrategySelector` against an

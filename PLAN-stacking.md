@@ -955,6 +955,8 @@ Wired into:
 | refactor | `40fce57` | `FrameCache` extracted as shared helper |
 | 8.3 bench | `7ece80b` | BDN `PartialFitsReaderBenchmarks` vs FITS.Lib: **36× faster on tile reads** (0.40 ms vs 14.28 ms), 6000× lower allocation |
 | cache wire | `e17d585` | `StreamingFrameReader.SetCachedImage` + FrameCache wired into FootprintStaged + Float16Staged |
+| 8.4 | `8d16b3d` | Spill-to-disk in FootprintStaged + Float16Staged + IProgress wiring + cost-model recalibration (LoadAndCalibrateAllFrames + stack ns/px 8→40) + SVBony alias fix + Parallel.For star detection + MedianFast |
+| 8.5 | _staged_ | Producer double-work elimination: pass A's `calibrated` image cached in `FrameCache`, pass B's `WarpedFramesProducer` skips Load+Calibrate on hits (debayer stays per-pass: VNG vs AHD) |
 
 ### Phase 8.3 benchmark (numbers worth remembering)
 
@@ -970,28 +972,39 @@ plane. PartialFitsReader's tile read is what TilePipelined actually drives.
 
 ### Open follow-ups (Phase 8.x)
 
-- **Producer double-work elimination (cost-model overshoot)** -- on the
-  2026-05-17 SoL 60s run, predicted 772 s for Float16Staged-with-spill but
-  actual was 1497 s (1.94x over) under concurrent CPU load. Diagnosis:
-  the test's WarpedFramesProducer re-runs Load + Calibrate + Debayer + FindStars
-  + Warp per frame when iterated by the strategy, even though registration
-  already did this work seconds earlier. Per-stage measured (242 frames):
-  Debayer 786 s, FindStars 110 s, Load 106 s, Warp 107 s, Calibrate 78 s;
-  StreamingIntegrator pass-2 (sigma-clip+combine) ~309 s. Mitigations
-  partially landed (2026-05-17):
+- **Producer double-work elimination** -- on the 2026-05-17 SoL 60s run,
+  predicted 772 s for Float16Staged-with-spill but actual was 1497 s (1.94x
+  over) under concurrent CPU load. Diagnosis: the test's WarpedFramesProducer
+  re-runs Load + Calibrate + Debayer + FindStars + Warp per frame when
+  iterated by the strategy, even though registration already did this work
+  seconds earlier. Per-stage measured (242 frames): Debayer 786 s,
+  FindStars 110 s, Load 106 s, Warp 107 s, Calibrate 78 s; StreamingIntegrator
+  pass-2 (sigma-clip+combine) ~309 s. Mitigations landed (2026-05-17):
   - Added `CpuNsPerLoadCalibratePixel = 50` and `LoadAndCalibrateAllFrames`
     helper; wired into every strategy's eta (was missing entirely).
   - Bumped `CpuNsPerStackPixelPerFrame` from 8 to 40 (calibrated from the
-    309 s pass-2 / 7.53G canvas-pixels = 41 ns/px). The TODO comment had
-    flagged this as un-calibrated.
+    309 s pass-2 / 7.53G canvas-pixels = 41 ns/px).
   - Debayer + warp constants left alone: today's data was contention-biased
     so the 6x debayer overshoot is mostly user-load + AHD, not a model bug.
     Re-measure on a clean run before adjusting.
-  Architectural fix still owed: cache the warped Image instance between
-  registration and strategy invocation so the producer doesn't redo
-  Load/Calibrate/Debayer/Warp/FindStars. Worth ~1000 s on a 244-frame run --
-  cuts the entire pass-1 cost in half. Caller side: registration already
-  has the warped Image, just doesn't keep a reference past `MATCH` logging.
+
+  Architectural fix landed (2026-05-17): pass A's match loop now stashes
+  every successful frame's post-`Calibrator.Apply` image in a `FrameCache`
+  (sized by `DecideCacheCap` against currently-free RAM). Pass B's
+  `WarpedFramesProducer` checks the cache before re-loading; on a hit it
+  skips Load + Calibrate entirely. The debayer hop stays per-pass because
+  pass A uses VNG (centroid accuracy) and pass B uses AHD (color fidelity)
+  -- swapping them breaks SPCC, confirmed empirically. Strong cap fills
+  first; remaining frames land as weak refs that may survive a bonus hit.
+  Expected savings on a 244-frame SoL run with ~6 GB free: ~80 strong-hit
+  frames * 1.5 s/frame (Load+Calibrate) = ~120 s minimum, more if weak
+  refs survive. Hit rate is logged after pass B as
+  `[cache] calibrated-frame cache: H/T hits (P%, strongCap=N)`.
+
+  FindStars is single-work (only pass A) and Warp is single-work
+  (only pass B), so no further sharing is possible across passes without
+  pre-computing the canvas BB before pass A (would require two full
+  scans of the source set just to get transforms). Defer.
 
 - **Spill-to-disk staging (Phase 8.4 candidate)** -- extend `FootprintStaged`
   and `Float16Staged` so frames that fit in `FrameCache.StrongCap` skip the
