@@ -81,7 +81,15 @@ public sealed record IntegrationJob(
     // (test orchestrator today, GUI later) formats / throttles / computes
     // ETA. Status only, NOT a general logging channel -- use ILogger via
     // strategy constructor injection for warnings/debug/diagnostics.
-    IProgress<IntegrationProgress>? Progress = null);
+    IProgress<IntegrationProgress>? Progress = null,
+    // Optional master-canvas sink factory. Strategies that compose the
+    // master via Integrator / StreamingIntegrator pass this through; null
+    // (default) falls back to ArraySink (today's behaviour). Set by the
+    // caller from IntegrationStrategySelector.Selection.Sink via
+    // SinkFactories.Create when canvas size pressures the RAM budget.
+    // Reject map stays ArraySink across the board -- it's 1-channel and
+    // small, not the target of Phase 10's mmap optimisation.
+    Func<int, int, int, IIntegrationSink>? MasterSinkFactory = null);
 
 /// <summary>
 /// Coarse-grained pipeline phase reported by integration strategies. Phases

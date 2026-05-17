@@ -724,6 +724,16 @@ public class StackingEndToEndManualTest(ITestOutputHelper output)
                     $"disk={c.Fit.EstimatedDiskBytes / 1e9,5:F1}GB  {c.Fit.Rationale}");
             }
             Log($"  [strategy] picked {selection.Chosen.Kind} -- {selection.Notes}");
+            // Selector also picks the master-canvas sink based on canvas-to-RAM
+            // ratio (see IntegrationStrategySelector.PickSinkKind). MMF scratch
+            // files land in the same staging dir the strategies already manage;
+            // sink owns its own lifecycle and deletes the file on dispose.
+            var canvasGb = probe.CanvasBytes / 1e9;
+            var ramRatio = probe.AvailableRamBytes > 0
+                ? (double)probe.CanvasBytes / probe.AvailableRamBytes
+                : 0.0;
+            Log($"  [sink] {selection.Sink}  (canvas {canvasGb:F2} GB, {ramRatio:P1} of avail RAM)");
+            var sinkFactory = SinkFactories.Create(selection.Sink, stagingDir);
 
             // 3c. Dispatch through the chosen strategy. The producer drives
             // both pass-B perf timing and the actual warp work via lazy
@@ -763,7 +773,8 @@ public class StackingEndToEndManualTest(ITestOutputHelper output)
                 DebayerAlgorithm: StackDebayerAlg,
                 CanvasWidth: outWidth,
                 CanvasHeight: outHeight,
-                Progress: progress);
+                Progress: progress,
+                MasterSinkFactory: sinkFactory);
             IntegrationResult result;
             try
             {

@@ -201,7 +201,11 @@ public sealed class FootprintStagedStrategy : IIntegrationStrategy
             }
 
             job.Progress?.Report(new IntegrationProgress(IntegrationPhase.Integrating, 0, 1, swStrat.Elapsed));
-            var result = StreamingIntegrator.Integrate(staged, job.Options);
+            // Honour the selector's sink decision; null factory falls back to
+            // ArraySink inside StreamingIntegrator.
+            var first = staged[0].Reader;
+            var masterSink = job.MasterSinkFactory?.Invoke(first.Channels, first.Width, first.Height);
+            var result = StreamingIntegrator.Integrate(staged, job.Options, masterSink: masterSink);
             job.Progress?.Report(new IntegrationProgress(IntegrationPhase.Integrating, 1, 1, swStrat.Elapsed));
             return result;
         }

@@ -23,13 +23,29 @@ namespace TianWen.Lib.Imaging.Calibration;
 /// </summary>
 public static class IntegrationStrategySelector
 {
-    /// <summary>The result of one pick: who won, why, and what every
-    /// candidate had to say.</summary>
+    /// <summary>The result of one pick: who won, why, what every
+    /// candidate had to say, and which sink backing the master canvas
+    /// should use under the current memory pressure.</summary>
     public sealed record Selection(
         IIntegrationStrategy Chosen,
         ImmutableArray<Candidate> Considered,
         RankingPolicy RankedBy,
-        string Notes);
+        string Notes,
+        SinkKind Sink);
+
+    /// <summary>Master canvas occupies <c>&gt; <see cref="MmapPreferredCanvasRamFraction"/></c>
+    /// of the available RAM budget -> prefer <see cref="SinkKind.MemoryMappedFits"/>.
+    /// Leaves headroom for staged-frame caches + strategy scratch + the
+    /// reject map. 0.25 chosen so a 3008² × 3 RGB canvas (~108 MB) on a
+    /// 6 GB-free host stays in-RAM (1.8%), while a 16K mosaic (3.2 GB) on
+    /// the same host flips to mmap (53%).</summary>
+    public const double MmapPreferredCanvasRamFraction = 0.25;
+
+    /// <summary>Master canvas occupies <c>&gt; <see cref="MmapMandatoryCanvasRamFraction"/></c>
+    /// of the available RAM budget -> <see cref="SinkKind.MemoryMappedFits"/>
+    /// is mandatory; in-RAM would bust the budget under any realistic
+    /// strategy working set.</summary>
+    public const double MmapMandatoryCanvasRamFraction = 0.80;
 
     /// <summary>Per-candidate row: the strategy, its fit verdict, and its
     /// final ranked score (only meaningful when <see cref="StrategyFit.CanRun"/>
@@ -62,6 +78,12 @@ public static class IntegrationStrategySelector
         IEnumerable<IIntegrationStrategy>? pool = null)
     {
         budget ??= new ResourceBudget();
+        // Sink decision is orthogonal to strategy ranking: it depends only on
+        // the canvas-to-available-RAM ratio. Computed once up front so both the
+        // user-override return path and the ranked-winner path stamp the same
+        // value. The mandatory threshold acts as a hard ceiling -- any sink
+        // pick above it would force GC paging during the integrator hot loop.
+        var sinkKind = PickSinkKind(probe);
         // Default policy: Balanced (50/50 fidelity/speed). FidelityFirst
         // (SpeedWeight=0) made the selector indifferent to wall time, so a
         // 0.06-fidelity bump would justify arbitrary slowdown. Empirical:
@@ -103,7 +125,8 @@ public static class IntegrationStrategySelector
                     Chosen: match.Strategy,
                     Considered: withZeroScores,
                     RankedBy: policy,
-                    Notes: $"user override --strategy {pref}" + (match.Fit.CanRun ? "" : " (warning: fit reports CanRun=false)"));
+                    Notes: $"user override --strategy {pref}" + (match.Fit.CanRun ? "" : " (warning: fit reports CanRun=false)"),
+                    Sink: sinkKind);
             }
             // Preferred wasn't in the pool -- fall through to ranking.
         }
@@ -202,7 +225,21 @@ public static class IntegrationStrategySelector
             Chosen: winner.Strategy,
             Considered: ranked,
             RankedBy: policy,
-            Notes: $"score={winner.Score:F3} (fidelity={winner.Strategy.FidelityScore:F2}, eta={winner.Fit.EstimatedDuration.TotalSeconds:F0}s)");
+            Notes: $"score={winner.Score:F3} (fidelity={winner.Strategy.FidelityScore:F2}, eta={winner.Fit.EstimatedDuration.TotalSeconds:F0}s)",
+            Sink: sinkKind);
+    }
+
+    /// <summary>Decide between in-RAM and mmap backing for the master canvas
+    /// based on how much of the available RAM budget the canvas alone would
+    /// occupy. Exposed for tests; production callers should rely on the
+    /// <see cref="Selection.Sink"/> value returned by <see cref="Pick"/>.</summary>
+    public static SinkKind PickSinkKind(IntegrationProbe probe)
+    {
+        if (probe.AvailableRamBytes <= 0) return SinkKind.InRamArray; // synthesised probes (tests)
+        var ratio = (double)probe.CanvasBytes / probe.AvailableRamBytes;
+        return ratio >= MmapPreferredCanvasRamFraction
+            ? SinkKind.MemoryMappedFits
+            : SinkKind.InRamArray;
     }
 
     /// <summary>The built-in strategy set. One instance per kind, default

@@ -225,4 +225,46 @@ public class IntegrationStrategySelectorTests
 
         selection.Chosen.Kind.ShouldBe(IntegrationStrategyKind.InRamAllFrames);
     }
+
+    // Sink-kind decision: canvas-vs-RAM ratio. SmallGroup's canvas
+    // (3024*3015*3*4 = ~109 MB) on 32 GB RAM = 0.3% -> InRamArray.
+    [Fact]
+    public void Selection_SmallCanvasPlentyOfRam_PicksInRamSink()
+    {
+        var probe = SmallGroup();
+        var selection = IntegrationStrategySelector.Pick(probe);
+        selection.Sink.ShouldBe(SinkKind.InRamArray);
+    }
+
+    // BigGroup canvas on 200 MB RAM -> 109 MB / 200 MB = 54% > 25% preferred
+    // threshold, so the selector flips to MMF. Strategy ranking is unaffected.
+    [Fact]
+    public void Selection_CanvasOverPreferredThreshold_FlipsToMmap()
+    {
+        // Tight RAM so canvas / availableRam exceeds MmapPreferredCanvasRamFraction.
+        var probe = SmallGroup(ramBytes: 200L * 1024 * 1024);
+        var selection = IntegrationStrategySelector.Pick(probe, preferred: IntegrationStrategyKind.FootprintStaged);
+        selection.Sink.ShouldBe(SinkKind.MemoryMappedFits);
+    }
+
+    [Fact]
+    public void PickSinkKind_AtMandatoryThreshold_ReturnsMmap()
+    {
+        // Canvas takes 90% of available RAM -> well above mandatory cutoff.
+        var probe = SmallGroup() with
+        {
+            AvailableRamBytes = (long)(SmallGroup().CanvasBytes / 0.9),
+        };
+        IntegrationStrategySelector.PickSinkKind(probe).ShouldBe(SinkKind.MemoryMappedFits);
+    }
+
+    [Fact]
+    public void PickSinkKind_ZeroAvailableRam_FallsBackToInRam()
+    {
+        // Synthesised probes (no Snapshot call) leave AvailableRamBytes at 0.
+        // Decision rule must not divide by zero; defaults to InRamArray so
+        // legacy tests aren't surprised.
+        var probe = SmallGroup() with { AvailableRamBytes = 0 };
+        IntegrationStrategySelector.PickSinkKind(probe).ShouldBe(SinkKind.InRamArray);
+    }
 }

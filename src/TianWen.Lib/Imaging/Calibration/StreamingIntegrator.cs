@@ -76,10 +76,22 @@ public static class StreamingIntegrator
     /// <summary>Integrates <paramref name="alignedFrames"/> into a master image
     /// without ever holding more than <paramref name="stripeHeight"/> rows of
     /// pixel data from all frames in memory simultaneously.</summary>
+    /// <param name="alignedFrames">Staged frames sharing shape + reference grid.</param>
+    /// <param name="options">Rejector / combiner / normalisation knobs.</param>
+    /// <param name="stripeHeight">Stripe height in rows -- see
+    /// <see cref="DefaultStripeHeight"/>.</param>
+    /// <param name="masterSink">Optional canvas backing for the master. Null
+    /// (default) allocates an <see cref="ArraySink"/> -- today's behaviour.
+    /// Caller-supplied sinks (e.g. <see cref="MemoryMappedFitsSink"/>) must
+    /// match the staged frame shape; ownership transfers, disposed on exit.</param>
+    /// <param name="rejectSink">Optional canvas backing for the rejection-
+    /// fraction map. Null (default) allocates an <see cref="ArraySink"/>.</param>
     public static IntegrationResult Integrate(
         IReadOnlyList<StagedAlignedFrame> alignedFrames,
         IntegrationOptions? options = null,
-        int stripeHeight = DefaultStripeHeight)
+        int stripeHeight = DefaultStripeHeight,
+        IIntegrationSink? masterSink = null,
+        IIntegrationSink? rejectSink = null)
     {
         options ??= new IntegrationOptions();
         var combiner = options.Combiner ?? new MeanCombiner();
@@ -125,9 +137,12 @@ public static class StreamingIntegrator
 
         // Master canvas + reject map both flow through IIntegrationSink so
         // Phase 10's MemoryMappedFitsSink can substitute without touching the
-        // stripe / row inner loops. ArraySink is today's heap-backed behaviour.
-        using var masterSink = new ArraySink(channelCount, width, height);
-        using var rejectSink = new ArraySink(1, width, height);
+        // stripe / row inner loops. Caller-supplied sinks (e.g. MMF via the
+        // strategy's job.MasterSinkFactory) override the ArraySink default.
+        ValidateSinkShape(masterSink, channelCount, width, height, nameof(masterSink));
+        ValidateSinkShape(rejectSink, 1, width, height, nameof(rejectSink));
+        using IIntegrationSink masterSinkInUse = masterSink ?? new ArraySink(channelCount, width, height);
+        using IIntegrationSink rejectSinkInUse = rejectSink ?? new ArraySink(1, width, height);
 
         long totalRejections = 0;
 
@@ -185,8 +200,8 @@ public static class StreamingIntegrator
                         var maskSpan = keepMask.AsSpan(0, n);
                         var globalRow = sStart + stripeRow;
                         var rowBase = stripeRow * width;
-                        var masterRow = masterSink.GetRow(channelIdx, globalRow);
-                        var rejectRow = rejectSink.GetRow(0, globalRow);
+                        var masterRow = masterSinkInUse.GetRow(channelIdx, globalRow);
+                        var rejectRow = rejectSinkInUse.GetRow(0, globalRow);
 
                         for (var col = 0; col < width; col++)
                         {
@@ -235,7 +250,7 @@ public static class StreamingIntegrator
             var inv = 1f / channelCount;
             for (var y = 0; y < height; y++)
             {
-                var rejectRow = rejectSink.GetRow(0, y);
+                var rejectRow = rejectSinkInUse.GetRow(0, y);
                 for (var x = 0; x < width; x++)
                 {
                     rejectRow[x] *= inv;
@@ -248,13 +263,13 @@ public static class StreamingIntegrator
             : 0.0;
 
         var firstFrame = alignedFrames[0];
-        var masterImage = masterSink.FinaliseAsImage(
+        var masterImage = masterSinkInUse.FinaliseAsImage(
             BitDepth.Float32,
             maxValue: firstFrame.MaxValue,
             minValue: 0f,
             pedestal: firstFrame.Pedestal,
             meta: firstFrame.Meta);
-        var rejectMapImage = rejectSink.FinaliseAsImage(
+        var rejectMapImage = rejectSinkInUse.FinaliseAsImage(
             BitDepth.Float32,
             maxValue: 1f,
             minValue: 0f,
@@ -288,6 +303,18 @@ public static class StreamingIntegrator
                     $"got {r.Channels}x{r.Height}x{r.Width}.",
                     nameof(frames));
             }
+        }
+    }
+
+    private static void ValidateSinkShape(IIntegrationSink? sink, int channels, int width, int height, string paramName)
+    {
+        if (sink is null) return;
+        var s = sink.Shape;
+        if (s.ChannelCount != channels || s.Width != width || s.Height != height)
+        {
+            throw new ArgumentException(
+                $"Sink shape mismatch: expected {channels}x{height}x{width}, got {s.ChannelCount}x{s.Height}x{s.Width}.",
+                paramName);
         }
     }
 }

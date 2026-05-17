@@ -65,7 +65,12 @@ public sealed class InRamAllFramesStrategy : IIntegrationStrategy
             frames.Add(frame);
         }
 
-        return Integrator.Integrate(frames, job.Options);
+        // Honour the selector's sink decision (in-RAM by default; MMF when
+        // canvas occupies a non-trivial share of available RAM). Reject map
+        // stays ArraySink internally -- it's 1-channel and small.
+        var (c, w, h) = frames[0].Shape;
+        var masterSink = job.MasterSinkFactory?.Invoke(c, w, h);
+        return Integrator.Integrate(frames, job.Options, masterSink: masterSink);
     }
 }
 
