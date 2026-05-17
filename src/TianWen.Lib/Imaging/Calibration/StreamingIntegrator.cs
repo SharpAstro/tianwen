@@ -123,9 +123,11 @@ public static class StreamingIntegrator
             }
         }
 
-        var masterData = Image.CreateChannelData(channelCount, height, width);
-        var rejectMapData = Image.CreateChannelData(1, height, width);
-        var rejectMap = rejectMapData[0];
+        // Master canvas + reject map both flow through IIntegrationSink so
+        // Phase 10's MemoryMappedFitsSink can substitute without touching the
+        // stripe / row inner loops. ArraySink is today's heap-backed behaviour.
+        using var masterSink = new ArraySink(channelCount, width, height);
+        using var rejectSink = new ArraySink(1, width, height);
 
         long totalRejections = 0;
 
@@ -146,7 +148,6 @@ public static class StreamingIntegrator
         for (var ch = 0; ch < channelCount; ch++)
         {
             var channelIdx = ch;
-            var outChannel = masterData[channelIdx];
             var minForCh = frameMin?[channelIdx];
             var scaleForCh = frameScale?[channelIdx];
 
@@ -184,6 +185,8 @@ public static class StreamingIntegrator
                         var maskSpan = keepMask.AsSpan(0, n);
                         var globalRow = sStart + stripeRow;
                         var rowBase = stripeRow * width;
+                        var masterRow = masterSink.GetRow(channelIdx, globalRow);
+                        var rejectRow = rejectSink.GetRow(0, globalRow);
 
                         for (var col = 0; col < width; col++)
                         {
@@ -209,11 +212,11 @@ public static class StreamingIntegrator
                                 kept = n;
                             }
 
-                            outChannel[globalRow, col] = combiner.Combine(columnSpan, maskSpan);
+                            masterRow[col] = combiner.Combine(columnSpan, maskSpan);
 
                             if (rejector is not null)
                             {
-                                rejectMap[globalRow, col] += (n - kept) / (float)n;
+                                rejectRow[col] += (n - kept) / (float)n;
                             }
                         }
                         return state;
@@ -232,9 +235,10 @@ public static class StreamingIntegrator
             var inv = 1f / channelCount;
             for (var y = 0; y < height; y++)
             {
+                var rejectRow = rejectSink.GetRow(0, y);
                 for (var x = 0; x < width; x++)
                 {
-                    rejectMap[y, x] *= inv;
+                    rejectRow[x] *= inv;
                 }
             }
         }
@@ -244,20 +248,18 @@ public static class StreamingIntegrator
             : 0.0;
 
         var firstFrame = alignedFrames[0];
-        var masterImage = new Image(
-            data: masterData,
-            bitDepth: BitDepth.Float32,
+        var masterImage = masterSink.FinaliseAsImage(
+            BitDepth.Float32,
             maxValue: firstFrame.MaxValue,
             minValue: 0f,
             pedestal: firstFrame.Pedestal,
-            imageMeta: firstFrame.Meta);
-        var rejectMapImage = new Image(
-            data: rejectMapData,
-            bitDepth: BitDepth.Float32,
+            meta: firstFrame.Meta);
+        var rejectMapImage = rejectSink.FinaliseAsImage(
+            BitDepth.Float32,
             maxValue: 1f,
             minValue: 0f,
             pedestal: 0f,
-            imageMeta: firstFrame.Meta);
+            meta: firstFrame.Meta);
 
         return new IntegrationResult(masterImage, rejectMapImage, n, totalRejections, meanRate);
     }

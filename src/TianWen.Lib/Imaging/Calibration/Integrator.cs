@@ -86,12 +86,13 @@ public static class Integrator
             ? ComputeNormalizationScalars(alignedFrames, options.NormalizationTarget, n, channelCount)
             : (null, null);
 
-        var masterData = Image.CreateChannelData(channelCount, height, width);
-        // Single-channel rejection map — average rejection fraction across
-        // channels per output pixel. Useful for QA + masking out heavily-
-        // rejected regions in downstream processing.
-        var rejectMapData = Image.CreateChannelData(1, height, width);
-        var rejectMap = rejectMapData[0];
+        // Master canvas + single-channel rejection map (average rejection
+        // fraction across channels per output pixel; useful for QA + masking
+        // heavily-rejected regions downstream). Both go through IIntegrationSink
+        // so Phase 10's MemoryMappedFitsSink can drop in without touching the
+        // hot loop. ArraySink is today's behaviour: heap float[][,].
+        using var masterSink = new ArraySink(channelCount, width, height);
+        using var rejectSink = new ArraySink(1, width, height);
 
         long totalRejections = 0;
 
@@ -100,7 +101,6 @@ public static class Integrator
         {
             var channelIdx = ch;
             var channelInputs = inputChannels[channelIdx];
-            var outChannel = masterData[channelIdx];
             var minForCh = frameMin?[channelIdx];
             var scaleForCh = frameScale?[channelIdx];
 
@@ -117,6 +117,12 @@ public static class Integrator
                     var keepMask = state.KeepMask;
                     var columnSpan = column.AsSpan(0, n);
                     var maskSpan = keepMask.AsSpan(0, n);
+                    // Sink row spans fetched once per row (sink-internal pointer
+                    // arithmetic, not a per-pixel cost). Master span is written;
+                    // reject span is read-modify-write to accumulate across
+                    // channels (final /= channelCount happens below the channel loop).
+                    var masterRow = masterSink.GetRow(channelIdx, row);
+                    var rejectRow = rejectSink.GetRow(0, row);
 
                     for (var col = 0; col < width; col++)
                     {
@@ -143,13 +149,13 @@ public static class Integrator
                             kept = n;
                         }
 
-                        outChannel[row, col] = combiner.Combine(columnSpan, maskSpan);
+                        masterRow[col] = combiner.Combine(columnSpan, maskSpan);
 
                         // Accumulate per-pixel rejection rate across channels.
                         // Final divide by channelCount happens after the loop.
                         if (rejector is not null)
                         {
-                            rejectMap[row, col] += (n - kept) / (float)n;
+                            rejectRow[col] += (n - kept) / (float)n;
                         }
                     }
                     return state;
@@ -168,9 +174,10 @@ public static class Integrator
             var inv = 1f / channelCount;
             for (var y = 0; y < height; y++)
             {
+                var rejectRow = rejectSink.GetRow(0, y);
                 for (var x = 0; x < width; x++)
                 {
-                    rejectMap[y, x] *= inv;
+                    rejectRow[x] *= inv;
                 }
             }
         }
@@ -180,20 +187,18 @@ public static class Integrator
             : 0.0;
 
         var firstMeta = alignedFrames[0].ImageMeta;
-        var masterImage = new Image(
-            data: masterData,
-            bitDepth: BitDepth.Float32,
+        var masterImage = masterSink.FinaliseAsImage(
+            BitDepth.Float32,
             maxValue: alignedFrames[0].MaxValue,
             minValue: 0f,
             pedestal: alignedFrames[0].Pedestal,
-            imageMeta: firstMeta);
-        var rejectMapImage = new Image(
-            data: rejectMapData,
-            bitDepth: BitDepth.Float32,
+            meta: firstMeta);
+        var rejectMapImage = rejectSink.FinaliseAsImage(
+            BitDepth.Float32,
             maxValue: 1f,
             minValue: 0f,
             pedestal: 0f,
-            imageMeta: firstMeta);
+            meta: firstMeta);
 
         return new IntegrationResult(masterImage, rejectMapImage, n, totalRejections, meanRate);
     }
