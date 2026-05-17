@@ -33,6 +33,7 @@ public class StackingMatcherDebugTest(ITestOutputHelper output)
 {
     private const string DataRoot = @"C:\temp\stack";
     private const string OutputDir = @"C:\temp\stack\output";
+    private const string MastersDir = @"C:\temp\stack\output\masters";
 
     // Specific 60s-group frames hand-picked from the previous run's per-frame log.
     // The folder mixes TWO objects -- Skull and Crossbones Nebula (early frames,
@@ -70,6 +71,16 @@ public class StackingMatcherDebugTest(ITestOutputHelper output)
         ("MERIDIAN         ", @"LIGHT\2026-02-15_02-12-26__-5.00_60.00s_0124.fits"),
         ("POSTFLIP_SKIP    ", @"LIGHT\2026-02-15_00-08-14__-4.90_60.00s_0016.fits"),
         ("PREFLIP_SKIP_0030", @"LIGHT\2026-02-15_00-24-30__-5.10_60.00s_0030.fits"),
+        // Two frames the 2026-05-17 SoL 60s run (REF=_0233) couldn't register at any
+        // tolerance, both surrounded by clean post-flip matches:
+        //   _0021 neighbours: _0020 qt=0.100 (tx=4056.1 rot=-179.915),
+        //                     _0022 qt=0.100 (tx=4056.3 rot=-179.924)
+        //   _0084 neighbours: _0083 qt=0.050 (tx=4058.5 rot=-179.982),
+        //                     _0085 qt=0.050 (tx=4058.6 rot=-179.972)
+        // Both reported plenty of stars/quads (6567/310 and 6884/304) so the failure
+        // is gate-2/3/4 territory, not "too few quads".
+        ("POSTFLIP_SKIP_0021", @"LIGHT\2026-02-15_00-14-19__-5.00_60.00s_0021.fits"),
+        ("POSTFLIP_SKIP_0084", @"LIGHT\2026-02-15_01-26-17__-5.00_60.00s_0084.fits"),
     ];
 
     private static readonly float[] Tolerances = [0.008f, 0.02f, 0.05f, 0.1f, 0.2f, 0.5f];
@@ -88,11 +99,11 @@ public class StackingMatcherDebugTest(ITestOutputHelper output)
         {
             Assert.Skip($"Test data folder {DataRoot} not present.");
         }
-        var darkMasterPath = Path.Combine(OutputDir, "master_dark_60s_-5C_g120.fits");
-        var flatMasterPath = Path.Combine(OutputDir, "master_flat_7.24s_-5C_None_g120.fits");
+        var darkMasterPath = Path.Combine(MastersDir, "master_dark_60s_-5C_g120.fits");
+        var flatMasterPath = Path.Combine(MastersDir, "master_flat_7.24s_-5C_None_g120.fits");
         if (!File.Exists(darkMasterPath) || !File.Exists(flatMasterPath))
         {
-            Assert.Skip($"Run StackingEndToEndManualTest first to generate masters in {OutputDir}");
+            Assert.Skip($"Run StackingEndToEndManualTest first to generate masters in {MastersDir}");
         }
 
         var ct = TestContext.Current.CancellationToken;
@@ -210,7 +221,8 @@ public class StackingMatcherDebugTest(ITestOutputHelper output)
 
                 output.WriteLine(
                     $"  qt={tol:F3}  rawPairs={diag.RawPairs,5}  filteredPairs={diag.FilteredPairs,5}  " +
-                    $"medianRatio={(float.IsNaN(diag.MedianRatio) ? "n/a   " : diag.MedianRatio.ToString("F4"))}  -> {outcome}{transformSummary}");
+                    $"medianRatio={(float.IsNaN(diag.MedianRatio) ? "n/a   " : diag.MedianRatio.ToString("F4"))}  " +
+                    $"rms={(float.IsNaN(diag.RmsResidualPx) ? "  n/a" : diag.RmsResidualPx.ToString("F3") + "px")}  -> {outcome}{transformSummary}");
             }
 
             output.WriteLine("");
