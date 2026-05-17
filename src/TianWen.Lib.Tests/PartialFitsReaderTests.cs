@@ -1,7 +1,9 @@
 using System;
+using System.Buffers.Binary;
 using System.Drawing;
 using System.IO;
 using System.IO.Compression;
+using System.Text;
 using System.Threading.Tasks;
 using Shouldly;
 using TianWen.Lib.Imaging;
@@ -121,6 +123,96 @@ public class PartialFitsReaderTests
         sw.Stop();
         sw.ElapsedMilliseconds.ShouldBeLessThan(1000,
             $"100x 256x256 reads took {sw.ElapsedMilliseconds} ms; should be << 1s");
+    }
+
+    // Cover the BITPIX=32 (int) + BITPIX=-32 (float) SIMD code paths -- the
+    // production-data fixture is BITPIX=16, so these synthetic files are the
+    // only thing exercising the 4-byte byte-swap loops end-to-end. Region
+    // sizes deliberately mix "fits SIMD chunks exactly" with "needs a scalar
+    // tail" to catch boundary bugs.
+    [Theory]
+    [InlineData(32, 0, 0, 17, 13)]      // BITPIX=32 int, prime sizes -> tail loop
+    [InlineData(32, 5, 7, 32, 16)]      // aligned vector chunks (32 % 4 == 0)
+    [InlineData(32, 3, 11, 33, 9)]      // 33 % 4 = 1 -> mix vector + tail
+    [InlineData(-32, 0, 0, 17, 13)]
+    [InlineData(-32, 5, 7, 32, 16)]
+    [InlineData(-32, 3, 11, 33, 9)]
+    public void PartialReader_SimdPaths_MatchScalarForCrafted32Bit(int bitpix, int rx, int ry, int rw, int rh)
+    {
+        const int width = 64;
+        const int height = 32;
+        var path = Path.Combine(Path.GetTempPath(),
+            $"TianWen.Lib.Tests_PartialFitsReader_synthetic_b{bitpix:+0;-0}_{width}x{height}.fits");
+        if (File.Exists(path)) File.Delete(path);
+        // Integer-valued ramp so BITPIX=32 (truncating to int32) and BITPIX=-32
+        // (exact float32) both round-trip without loss.
+        var values = new float[width * height];
+        for (var i = 0; i < values.Length; i++) values[i] = i - 100f;
+        WriteSyntheticFits(path, width, height, bitpix, values);
+
+        using var partial = new PartialFitsReader(path);
+        partial.BitPix.ShouldBe(bitpix);
+        partial.Width.ShouldBe(width);
+        partial.Height.ShouldBe(height);
+
+        var dest = new float[rw * rh];
+        partial.ReadRegion(new Rectangle(rx, ry, rw, rh), dest);
+
+        for (var r = 0; r < rh; r++)
+        {
+            for (var c = 0; c < rw; c++)
+            {
+                var expected = values[(ry + r) * width + (rx + c)];
+                dest[r * rw + c].ShouldBe(expected, tolerance: 1e-4f,
+                    $"bitpix={bitpix} mismatch at ({rx + c}, {ry + r})");
+            }
+        }
+    }
+
+    // Minimal single-HDU FITS writer for tests: int32 (BITPIX=32) and
+    // float32 (BITPIX=-32) only. Header is the bare set PartialFitsReader
+    // parses (BITPIX, NAXIS, NAXIS1, NAXIS2). BZERO/BSCALE omitted -> default
+    // 0/1 so values round-trip 1:1.
+    private static void WriteSyntheticFits(string path, int width, int height, int bitpix, float[] values)
+    {
+        using var fs = File.Create(path);
+        var header = new StringBuilder();
+        void Card(string s) => header.Append(s.PadRight(80));
+        Card("SIMPLE  =                    T");
+        Card($"BITPIX  = {bitpix,20}");
+        Card("NAXIS   =                    2");
+        Card($"NAXIS1  = {width,20}");
+        Card($"NAXIS2  = {height,20}");
+        Card("END");
+        // Pad header to 2880-byte block.
+        var headerBytes = Encoding.ASCII.GetBytes(header.ToString());
+        var pad = (2880 - headerBytes.Length % 2880) % 2880;
+        fs.Write(headerBytes);
+        if (pad > 0) fs.Write(new byte[pad]);
+
+        // Pixel data, big-endian.
+        var bytesPerPixel = Math.Abs(bitpix) / 8;
+        var data = new byte[values.Length * bytesPerPixel];
+        for (var i = 0; i < values.Length; i++)
+        {
+            if (bitpix == 32)
+            {
+                BinaryPrimitives.WriteInt32BigEndian(data.AsSpan(i * 4, 4), (int)values[i]);
+            }
+            else if (bitpix == -32)
+            {
+                var bits = BitConverter.SingleToInt32Bits(values[i]);
+                BinaryPrimitives.WriteInt32BigEndian(data.AsSpan(i * 4, 4), bits);
+            }
+            else
+            {
+                throw new ArgumentException($"unsupported test bitpix={bitpix}");
+            }
+        }
+        fs.Write(data);
+        // Pad data to 2880-byte block.
+        var dataPad = (2880 - data.Length % 2880) % 2880;
+        if (dataPad > 0) fs.Write(new byte[dataPad]);
     }
 
     private static async Task<TempFixture> ExtractFixtureToTempAsync()
