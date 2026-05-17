@@ -378,11 +378,13 @@ namespace TianWen.UI.Abstractions
                 {
                     document.ComputeBackgroundNeutralization(state.BackgroundNeutralizationMethod);
                 }
-                // ColorCalibration recompute is async (catalog + photometry) and
-                // depends on detected stars. We only fire when stars are already
-                // available; otherwise the user must re-click Calibrate to kick
-                // off the full detect + solve + calibrate chain.
-                if (state.ColorCalibrationEnabled && document.ColorCalibration is null
+                // ColorCalibration auto-retrigger on file switch. The
+                // ColorCalibrationInFlight guard inside TryStartColorCalibration
+                // ensures we don't spawn a new SPCC task every frame while
+                // the previous one is still running (which would freeze the UI).
+                if (state.ColorCalibrationEnabled
+                    && document.ColorCalibration is null
+                    && !document.ColorCalibrationInFlight
                     && document.Stars is { Count: >= 5 })
                 {
                     TryStartColorCalibration(state);
@@ -2073,38 +2075,50 @@ namespace TianWen.UI.Abstractions
             if (_document?.Stars is { Count: >= 5 }
                 && _document.ColorCalibration is null
                 && (_document.UnstretchedImage.ChannelCount >= 3
-                    || _document.UnstretchedImage.ImageMeta.SensorType is SensorType.RGGB))
+                    || _document.UnstretchedImage.ImageMeta.SensorType is SensorType.RGGB)
+                && _document.TryBeginColorCalibration())
             {
                 state.StatusMessage = "Calibrating color...";
                 state.NeedsRedraw = true;
+                var docForTask = _document;
                 _ = Task.Run(async () =>
                 {
-                    var db = CelestialObjectDB is { IsValueCreated: true } lazy
-                        ? await lazy.WithCancellation(CancellationToken.None)
-                        : null!;
+                    try
+                    {
+                        var db = CelestialObjectDB is { IsValueCreated: true } lazy
+                            ? await lazy.WithCancellation(CancellationToken.None)
+                            : null!;
 
-                    // Try SPCC first, fall back to sky-background method
-                    var (matched, diag) = await _document.ComputeSpccColorCalibrationAsync(db);
-                    if (matched <= 0)
-                        (matched, diag) = await _document.ComputeColorCalibrationAsync(db);
-                    if (_document.ColorCalibration is { } wb)
-                    {
-                        state.ColorCalibrationEnabled = true;
-                        if (state.StretchMode is StretchMode.Unlinked)
+                        // Try SPCC first, fall back to sky-background method.
+                        // Capture-by-local (docForTask) so the task always
+                        // clears the in-flight flag on the doc it started for,
+                        // even if the user has navigated away in the meantime.
+                        var (matched, diag) = await docForTask.ComputeSpccColorCalibrationAsync(db);
+                        if (matched <= 0)
+                            (matched, diag) = await docForTask.ComputeColorCalibrationAsync(db);
+                        if (docForTask.ColorCalibration is { } wb)
                         {
-                            state.StretchMode = StretchMode.Linked;
+                            state.ColorCalibrationEnabled = true;
+                            if (state.StretchMode is StretchMode.Unlinked)
+                            {
+                                state.StretchMode = StretchMode.Linked;
+                            }
+                            System.Console.Error.WriteLine($"[ColorCal] {diag}");
+                            state.StatusMessage = matched > 0
+                                ? $"WB ({matched}★): R={wb.Item1:F3} G=1.000 B={wb.Item3:F3}"
+                                : null;
                         }
-                        System.Console.Error.WriteLine($"[ColorCal] {diag}");
-                        state.StatusMessage = matched > 0
-                            ? $"WB ({matched}★): R={wb.Item1:F3} G=1.000 B={wb.Item3:F3}"
-                            : null;
+                        else
+                        {
+                            System.Console.Error.WriteLine($"[ColorCal] FAIL: {diag}");
+                            state.StatusMessage = $"Calibration failed: {diag}";
+                        }
                     }
-                    else
+                    finally
                     {
-                        System.Console.Error.WriteLine($"[ColorCal] FAIL: {diag}");
-                        state.StatusMessage = $"Calibration failed: {diag}";
+                        docForTask.EndColorCalibration();
+                        state.NeedsRedraw = true;
                     }
-                    state.NeedsRedraw = true;
                 });
             }
         }

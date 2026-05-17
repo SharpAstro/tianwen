@@ -723,6 +723,174 @@ RAM-staging memory wall into a soft-degrade curve. Phase 8 is essentially featur
 complete; the original "high-risk" entry now reads as "shipped, six strategies,
 56 unit tests, validated on real Liberty 120s dataset."
 
+### Resume here (when picking the work back up)
+
+**Verdict, measured 2026-05-16: skip rejector SIMD; chase debayer.**
+
+`PixelRejectorBenchmarks` (untracked, 112 LOC at `src/TianWen.UI.Benchmarks/PixelRejectorBenchmarks.cs`)
+ran on the host (Snapdragon X 12-core Arm64, ShortRunJob). Per-call cost, zero alloc across all five impls:
+
+| Rejector | N=10 clean / 1-outlier | N=50 | N=244 (SoL operating point) |
+|---|---:|---:|---:|
+| Sigma | 118 / 189 ns | 361 / 561 ns | 2.31 / **2.68 µs** |
+| Winsorized | 193 / 303 ns | 682 / 1622 ns | 6.60 / 7.22 µs |
+| LinearFit | 132 / 221 ns | 1335 / 2387 ns | 16.18 / 15.17 µs |
+| Percentile | 47 / 40 ns | 203 / 232 ns | 1.32 / 1.40 µs |
+| MinMax | 43 / 38 ns | 204 / 235 ns | 1.52 / 1.40 µs |
+
+End-to-end SoL 244-frame (Statue of Liberty Nebula, 3008² IMX533M, mount-flip mid-session
+producing a 3179×3159 canvas, 242 matched + 2 skipped, SigmaClipRejector, Float16Staged):
+
+| Phase | Wall | Share |
+|---|---:|---:|
+| Integration total | **334.3 s** | 100% |
+| → Debayer (43 frames) | 133.0 s | **40%** of integration, 63% of per-frame |
+| → Load | 43.8 s | 13% / 21% |
+| → FindStars | 15.5 s | 5% / 7% |
+| → Warp | 12.4 s | 4% / 6% |
+| → Calibrate | 5.6 s | 2% / 3% |
+| → Stage + read-back + reject + combine + IO (remainder) | 123.7 s | 37% |
+| Post-process (plate solve + SPCC + write FITS+PNG + autocrop) | 5.5 s | — |
+| 137.4M rejections, 1.88% mean rate |  |  |
+
+**Rejection-only ceiling** for SoL: 2.68 µs × 27M pixel-columns ÷ 12 cores ≈ **6 s wall ≈ 1.8% of 334 s**.
+Even a perfect 2× SIMD speedup is ≤ 3 s on a 5.5-min run. **Do not write the SIMD rejector kernel.**
+
+**Real targets, in order:**
+1. **Debayer** — 133 s on 243 frames = 547 ms/frame. AHD is already vectorised
+   (`Unsafe.Add` Phases 1+2+3, ~28% speedup commits 958e42e + ee0afd2). Either
+   port to sub-region debayer so TilePipelined can decode only the strip footprint
+   it's about to integrate (Phase 8.x "Sub-region debayer + per-tile warp helpers"
+   listed below — was lower priority before; **now is the biggest single win**),
+   or move debayer to GPU compute (Vulkan pipeline already exists in
+   `TianWen.UI.Shared/VkFitsImagePipeline`).
+2. **Float16Staged staging IO** — ~118 s of the "remainder 123.7 s" bucket is writing
+   14.6 GB warped-half-precision to `_staging/` then reading it back. TilePipelined
+   skips this entirely (re-decodes raw per strip via `PartialFitsReader`). On a
+   roomy host TilePipelined could win; on the SoL workload it actually lost
+   badly due to cache thrashing (see selector fixes below).
+
+**Selector fixes landed in this session (2026-05-16, all uncommitted):**
+
+- **Memory-pressure penalty on floor, not target.** Added `FloorRamBytes` (init-only
+  property) to `StrategyFit`, defaulting to `EstimatedRamBytes` so non-adaptive
+  strategies keep current behavior. `TilePipelinedStrategy` opts in with
+  `FloorRamBytes = minRam` (the 2.82 GB strip + in-flight + output floor). The
+  selector's `MemoryPressurePenalty` now reads `FloorRamBytes`. Confirmed correct
+  by the first SoL rerun: TilePipelined went from `score=0.719` (penalised down
+  by 18%) to `score=0.980` (no penalty fired — floor comfortably under free RAM).
+- **Default `RankingPolicy.Balanced` (was `FidelityFirst`).** `FidelityFirst` has
+  `SpeedWeight=0` which made the selector completely indifferent to wall time —
+  a 0.06-fidelity bump justified arbitrary slowdown. `Balanced` (50/50) still
+  favours fidelity within the same speed bucket but lets normalised speed break
+  ties.
+- **Excess-eta penalty.** Same multiplicative shape as the memory penalty:
+  `if eta > 1.5 × cheapest-survivor-eta, score *= (1 - clamp((ratio-1.5)*0.30, 0, 0.5))`.
+  Defence-in-depth when the cost model under-reports a slow strategy. Composes
+  multiplicatively with the memory penalty so combined cap is `(1-0.5)*(1-0.5)=0.25`,
+  i.e. no strategy loses more than 75% of its score.
+- **Cost-model `DebayerAllFrames` constant.** Added `CpuNsPerDebayerPixel = 60.0`
+  (calibrated from Skull/SoL measurements: 547 ms/frame on 3008² AHD = 60 ns/pixel
+  single-thread-equivalent). All five frame-grouped strategies now add
+  `_costs.DebayerAllFrames(probe)` to their eta. **TilePipelined gets an extra
+  cache-miss term**: `EstimateCacheMissRate(probe, freeRam/4) * DebayerAllFrames`
+  for pass-2 re-decode work. On SoL 244-frame this predicts ~1310 s vs
+  Float16Staged's ~725 s — Float16Staged then wins comfortably under Balanced
+  + excess-eta penalty.
+- **`IntegrationProgress` + `IntegrationPhase`** records for structured status
+  reporting from strategies. `IntegrationJob` carries `IProgress<IntegrationProgress>?`.
+  TilePipelined reports `LoadingFrames f/N` per-frame in pass-1 and
+  `Integrating strip/totalStrips` per-strip in pass-2. Test orchestrator
+  collects events into a `ConcurrentDictionary<IntegrationPhase, IntegrationProgress>`
+  and the 30 s monitor emits ONE `[stage] phase X/Y (Z%) elapsed=Xs eta=Ys`
+  line per active phase per tick — fire-and-forget producer, consumer is the
+  sole rate limiter.
+- **Monitor enrichment** (also in `SnapshotResourcesAsync`): now emits
+  `cpu=XX% ws=X.XGB load=X.X/X.XGB alloc=XMB/s free=X.XGB(C:\)` per tick —
+  CPU% via `Process.TotalProcessorTime` delta, alloc/s via
+  `GC.GetTotalAllocatedBytes` delta. Disambiguates CPU-bound vs IO-stalled
+  vs idle/deadlocked without per-strategy progress callbacks.
+
+**Verified during this session:**
+
+- First SoL rerun (selector fix + Balanced policy, but no cost model fix yet)
+  picked TilePipelined and ran for **20+ minutes before user cancelled**
+  vs Float16Staged baseline of 334 s — confirmed the cost model itself was
+  the real bug, not just the ranking weights. Triggered the cost-model
+  calibration above.
+- Cancelled-run cleanup: `output/_staging/` removed, disk recovered.
+- 13 `IntegrationStrategySelectorTests` + 22 integration/stacking/strategy
+  tests pass after all changes.
+
+**Suggested concrete next step (was #1, now #2 since rejector SIMD is dead):**
+1. **Fix the selector memory-pressure penalty** (~10 LOC) + re-run SoL 244 to confirm
+   TilePipelined gets auto-picked + beats Float16Staged's 334 s. Predicted savings
+   ~80-100 s by skipping staging IO.
+2. **Debug why 2 of 244 SoL frames were skipped.** Evidence captured from the
+   2026-05-16 run log (since the log is `append: false` and gets clobbered on the
+   next run, this is the only copy):
+
+   - Reference: `2026-02-14_23-30-25__-5.00_60.00s_0045.fits` (6420 stars, 240 quads)
+   - Both skips: same failure mode `SKIP (no quad fit at any tolerance)` — the
+     `StarReferenceTable.FindFit` widening tolerance ladder (0.000 → 0.020 →
+     0.050 → 0.100 → 0.200) returned zero matches at every level.
+
+   **Skip #1** (timestamp `2026-02-15_00-14-19`, frame `_0021`):
+   ```
+   [..._0019] stars=6559 quads=304 -> MATCH qt=0.100 tx=4062.9px rot=-179.920deg
+   [..._0020] stars=6631 quads=309 -> MATCH qt=0.100 tx=4056.1px rot=-179.915deg
+   [..._0021] stars=6567 quads=310 -> SKIP (no quad fit at any tolerance)
+   [..._0022] stars=6283 quads=302 -> MATCH qt=0.100 tx=4056.3px rot=-179.924deg
+   [..._0023] stars=6285 quads=299 -> MATCH qt=0.100 tx=4059.0px rot=-179.939deg
+   ```
+
+   **Skip #2** (timestamp `2026-02-15_01-26-17`, frame `_0084`):
+   ```
+   [..._0082] stars=6972 quads=312 -> MATCH qt=0.200 tx=4057.7px rot=-179.987deg
+   [..._0083] stars=6770 quads=311 -> MATCH qt=0.050 tx=4058.5px rot=-179.982deg
+   [..._0084] stars=6884 quads=304 -> SKIP (no quad fit at any tolerance)
+   [..._0085] stars=6929 quads=307 -> MATCH qt=0.050 tx=4058.6px rot=-179.972deg
+   [..._0086] stars=6869 quads=296 -> MATCH qt=0.050 tx=4062.0px rot=-179.991deg
+   ```
+
+   **Why this is interesting**: star counts (6567, 6884) and quad counts (310, 304)
+   on the failing frames are in the middle of the neighbouring distribution. Their
+   neighbours all match cleanly at the same translated/rotated state (`tx≈4060 px,
+   rot≈-179.97°` — these are flipped-side frames). Nothing about the failing frames'
+   front-of-pipeline stats screams "bad data". Likely causes:
+   - The top-500-by-flux quad selector happens to pick a different subset of stars
+     on these two frames, missing the quads that hash to reference matches.
+   - A transient (sat trail, aircraft) inserts a few bright fake stars that climb
+     into the top-500 and poison the quad signatures only at certain tolerances.
+   - Numerical edge case in `StarReferenceTable.FindFit` widening loop.
+
+   **Debug starting points**: raw frames still on disk at
+   `C:\temp\stack\LIGHT\2026-02-15_00-14-19__-5.00_60.00s_0021.fits` and
+   `..._01-26-17__-5.00_60.00s_0084.fits`. Run `FindStars` + quad build manually
+   against just those two vs the reference, dump the quad signatures, compare to
+   a matching neighbour's quad list. If the quad selector is the culprit, the fix
+   may be "rebuild quads from top-N stars where N adapts to the reference's quad
+   count, not a fixed 500." Every dropped frame is ~1 minute of paid telescope time
+   so this is worth doing before perf work.
+3. **Phase 13 CLI `tianwen stack` orchestrator.** `StackingEndToEndManualTest`
+   already wires every piece end-to-end; promote to `TianWen.Cli/Commands/StackCommand.cs`
+   System.CommandLine subcommand. ~250 LOC arg parsing + progress.
+4. **Sub-region debayer + halo-aware AHD/VNG** — the biggest end-to-end win once
+   the selector picks TilePipelined more often. ~300-500 LOC.
+5. **Phase 15 session integration of `LiveAccumulatorStrategy`** — selector
+   placeholder exists; missing the `SessionConfiguration.LiveStacking*` config,
+   `ImagingLoopAsync` per-target lifecycle, and `LiveSessionState.LiveStackSnapshot`
+   + `K` toggle in `LiveSessionTab`. Pure-math engine already shipped.
+
+**Resource-snapshot logging** (committed in this session): `StackingEndToEndManualTest`
+now spins up `SnapshotResourcesAsync` after `[start]`, logging working set / GC load /
+free disk every 30 s. Eliminates the "did it crash or is staging just slow?" ambiguity
+that bit this session — Float16Staged's 5-minute staging pass on a 9.8 GB-free disk
+went from "must have crashed" (it didn't) to a visible `[mon]` line every 30 s.
+
+**Lower-priority Phase 8.x leftovers** (see "Open follow-ups" below): SIMD byte-swap in
+`PartialFitsReader`, MEF MMAP output sink (Phase 10), `PartialFitsReader` promotion to FITS.Lib.
+
 ### Strategy menu
 
 | Strategy | Source of truth | Best for | Files |
@@ -802,6 +970,58 @@ plane. PartialFitsReader's tile read is what TilePipelined actually drives.
 
 ### Open follow-ups (Phase 8.x)
 
+- **Producer double-work elimination (cost-model overshoot)** -- on the
+  2026-05-17 SoL 60s run, predicted 772 s for Float16Staged-with-spill but
+  actual was 1497 s (1.94x over) under concurrent CPU load. Diagnosis:
+  the test's WarpedFramesProducer re-runs Load + Calibrate + Debayer + FindStars
+  + Warp per frame when iterated by the strategy, even though registration
+  already did this work seconds earlier. Per-stage measured (242 frames):
+  Debayer 786 s, FindStars 110 s, Load 106 s, Warp 107 s, Calibrate 78 s;
+  StreamingIntegrator pass-2 (sigma-clip+combine) ~309 s. Mitigations
+  partially landed (2026-05-17):
+  - Added `CpuNsPerLoadCalibratePixel = 50` and `LoadAndCalibrateAllFrames`
+    helper; wired into every strategy's eta (was missing entirely).
+  - Bumped `CpuNsPerStackPixelPerFrame` from 8 to 40 (calibrated from the
+    309 s pass-2 / 7.53G canvas-pixels = 41 ns/px). The TODO comment had
+    flagged this as un-calibrated.
+  - Debayer + warp constants left alone: today's data was contention-biased
+    so the 6x debayer overshoot is mostly user-load + AHD, not a model bug.
+    Re-measure on a clean run before adjusting.
+  Architectural fix still owed: cache the warped Image instance between
+  registration and strategy invocation so the producer doesn't redo
+  Load/Calibrate/Debayer/Warp/FindStars. Worth ~1000 s on a 244-frame run --
+  cuts the entire pass-1 cost in half. Caller side: registration already
+  has the warped Image, just doesn't keep a reference past `MATCH` logging.
+
+- **Spill-to-disk staging (Phase 8.4 candidate)** -- extend `FootprintStaged`
+  and `Float16Staged` so frames that fit in `FrameCache.StrongCap` skip the
+  disk write entirely. Today both strategies write all N frames regardless of
+  how many will live in RAM the whole time; the FrameCache wire-up (e17d585)
+  only accelerates the *read* side. With spill semantics, disk usage scales
+  with overflow instead of total: roomy 64GB host -> 0 disk, 16GB SoL host
+  with 244 frames @ 108MB -> ~11GB float16 (vs 13GB today). Sketch:
+  - RunAsync loop: `if (index < cache.StrongCap)` register a `CacheBackedReader`
+    that returns the warped Image straight from cache; else stage to disk +
+    `StreamingFrameReader` as today.
+  - Reader uniformity: both branches implement the same `IFrameReader` (or
+    just the existing reader contract with an "in-cache" sentinel path) so
+    `StreamingIntegrator` doesn't branch.
+  - Cost-model: `diskBytes = max(0, N - strongCap) * bytesPerFrameFormat`.
+    The selector will already prefer the spill variant on roomy hosts because
+    the disk-IO cost line drops to zero; on tight hosts it degrades to today's
+    full-stage behaviour. No new strategy kinds needed -- just edit the two
+    existing classes.
+  - Open question on precision: float-only (float32 via `FootprintStaged`,
+    float16 via `Float16Staged`). Scaled int16 was discussed and dropped
+    (per-frame `(offset, scale)` header bookkeeping not worth the small
+    precision gain over float16). Float32 spilled bytes ~12B/px, float16
+    ~6B/px; the selector picks between them on disk budget + fidelity policy.
+  - Risk: if `FrameCache.DecideCacheCap` ever shrinks mid-run (GC reclaim,
+    other RSS pressure), the strong-ref guarantee breaks and a CacheBackedReader
+    would have nothing to read. Mitigation: pin the strong-cap frames in a
+    `_strong[]` array that survives until RunAsync's `finally`. The cache
+    already does this -- just need to ensure the spilled-tier reader path
+    doesn't drop the strong reference prematurely.
 - **Sub-region debayer + per-tile warp helpers** (originally planned as Phase 8.2):
   the current TilePipelined still does a full-canvas debayer per frame, then a
   per-strip `WarpRegionAsync`. Adding true sub-region debayer (with halo-aware

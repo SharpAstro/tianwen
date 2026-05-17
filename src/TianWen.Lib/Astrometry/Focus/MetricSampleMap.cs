@@ -96,7 +96,7 @@ public class MetricSampleMap(SampleKind kind, AggregationMethod aggregationMetho
         switch (aggregationMethod)
         {
             case AggregationMethod.Median:
-                var median = Median(samples.ToArray());
+                var median = MedianFast(samples.ToArray());
                 return !float.IsNaN(median) ? median : default;
 
             case AggregationMethod.Minimum:

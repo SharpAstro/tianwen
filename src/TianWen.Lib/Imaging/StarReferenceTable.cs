@@ -107,7 +107,7 @@ public class StarReferenceTable
     internal static (StarReferenceTable? Table, FindFitDiagnostics Diagnostics) FindFitWithDiagnostics(
         StarQuadList quadStarDistances1, StarQuadList quadStarDistances2, int minimumCount = 6, float quadTolerance = 0.008f)
     {
-        var diag = new FindFitDiagnostics(quadStarDistances1.Count, quadStarDistances2.Count, 0, 0, float.NaN, quadTolerance);
+        var diag = new FindFitDiagnostics(quadStarDistances1.Count, quadStarDistances2.Count, 0, 0, float.NaN, quadTolerance, float.NaN);
 
         // minimum_count required, 6 for stacking, 3 for plate solving
         if (quadStarDistances1.Count < minimumCount || quadStarDistances2.Count < minimumCount)
@@ -186,6 +186,15 @@ public class StarReferenceTable
                 source.Add(allSource[k]);
                 dest.Add(allDest[k]);
             }
+
+            // Refit the affine on the full inlier set (RANSAC's best model was a 3-point
+            // exact fit) and compute the registration RMS in source-frame pixels. This
+            // is the "RMS" number APP / PixInsight surface per frame.
+            var refit = Matrix3x2.FitAffineTransform(CollectionsMarshal.AsSpan(dest), CollectionsMarshal.AsSpan(source));
+            var rms = refit is { } m
+                ? ComputeRmsResidualPx(CollectionsMarshal.AsSpan(dest), CollectionsMarshal.AsSpan(source), m)
+                : float.NaN;
+            diag = diag with { RmsResidualPx = rms };
 
             return (new StarReferenceTable(source, dest), diag);
         }
@@ -267,20 +276,48 @@ public class StarReferenceTable
         return bestInliers;
     }
 
-    /// <summary>Intermediate gate counts from <see cref="FindFitWithDiagnostics"/>.</summary>
+    /// <summary>Per-frame registration RMS in source-frame pixels: <c>sqrt(mean(‖T·d − s‖²))</c>
+    /// over the inlier set. Returns 0 for an empty set (caller has already gated on
+    /// <see cref="RansacMinInliers"/>).</summary>
+    private static float ComputeRmsResidualPx(ReadOnlySpan<Vector2> dest, ReadOnlySpan<Vector2> source, Matrix3x2 m)
+    {
+        if (dest.Length == 0) return 0f;
+        double sumSq = 0.0;
+        for (int i = 0; i < dest.Length; i++)
+        {
+            var predicted = Vector2.Transform(dest[i], m);
+            sumSq += Vector2.DistanceSquared(predicted, source[i]);
+        }
+        return (float)Math.Sqrt(sumSq / dest.Length);
+    }
+
+    /// <summary>Intermediate gate counts from <see cref="FindFitWithDiagnostics"/>.
+    /// <para><see cref="RmsResidualPx"/> is the registration error: RMS of
+    /// <c>‖T·d_i − s_i‖</c> over the RANSAC inlier set against the final LSQ
+    /// affine, in reference-frame pixels. Matches the "RMS" column in Astro
+    /// Pixel Processor. <c>NaN</c> when RANSAC didn't reach
+    /// <see cref="RansacMinInliers"/> inliers.</para></summary>
     internal readonly record struct FindFitDiagnostics(
         int Quads1,
         int Quads2,
         int RawPairs,
         int FilteredPairs,
         float MedianRatio,
-        float QuadTolerance);
+        float QuadTolerance,
+        float RmsResidualPx);
 
     /// <summary>
     /// Fits a least-squares affine transform from dest to source positions without validation.
     /// Returns <c>null</c> if fewer than 3 pairs or the system is singular.
     /// </summary>
     public Matrix3x2? FitAffineTransform() => Matrix3x2.FitAffineTransform(CollectionsMarshal.AsSpan(_dest), CollectionsMarshal.AsSpan(_source));
+
+    /// <summary>Registration RMS in source-frame pixels: <c>sqrt(mean(‖transform·d − s‖²))</c>
+    /// over the matched-pair set held by this table. Matches the "RMS" column in
+    /// Astro Pixel Processor; comparable across frames stacked against the same
+    /// reference (assuming identical pixel scale).</summary>
+    public float ComputeRmsResidualPx(Matrix3x2 transform)
+        => ComputeRmsResidualPx(CollectionsMarshal.AsSpan(_dest), CollectionsMarshal.AsSpan(_source), transform);
 
     /// <summary>
     /// Fits an affine transform and validates it via <see cref="Matrix3x2Helper.Decompose"/>:

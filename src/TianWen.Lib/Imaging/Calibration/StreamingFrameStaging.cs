@@ -183,15 +183,20 @@ public static class StreamingFrameStaging
 }
 
 /// <summary>
-/// Read-only random-access view into a <see cref="StreamingFrameStaging"/> file.
-/// Supports both v1 (full-canvas) and v2 (footprint-cropped) layouts -- callers
-/// see canvas-sized stripes either way; v2 stripes are NaN-padded outside the
-/// footprint region. Thread-safe across concurrent <see cref="ReadStripe"/>
-/// calls via an internal mutex (the underlying stream is single-cursor).
+/// Read-only random-access view into a <see cref="StreamingFrameStaging"/> file
+/// -- or into an in-memory <see cref="Image"/> with no disk backing at all
+/// (see <see cref="InMemoryOnly"/>). Supports both v1 (full-canvas) and v2
+/// (footprint-cropped) on-disk layouts; callers see canvas-sized stripes
+/// either way (v2 stripes NaN-padded outside the footprint region). Thread-safe
+/// across concurrent <see cref="ReadStripe"/> calls via an internal mutex
+/// (the underlying stream is single-cursor).
 /// </summary>
 public sealed class StreamingFrameReader : IDisposable
 {
-    private readonly FileStream _fs;
+    /// <summary>Disk backing. <c>null</c> when this reader is in-memory-only
+    /// (constructed via <see cref="InMemoryOnly"/>): every stripe read slices
+    /// from <see cref="_cachedImageStrong"/> with no file involved.</summary>
+    private readonly FileStream? _fs;
     private readonly object _gate = new();
 
     private readonly byte _flags;
@@ -225,10 +230,54 @@ public sealed class StreamingFrameReader : IDisposable
     /// </summary>
     private WeakReference<Image>? _cachedImage;
 
+    /// <summary>
+    /// In-memory-only backing: when set, <see cref="_fs"/> is <c>null</c> and
+    /// every stripe read slices directly from this image. The reader owns
+    /// the reference, keeping the frame alive for the whole integration --
+    /// the caller does NOT need a separate FrameCache strong-tier slot. Used
+    /// by the spill-to-disk path in the staged strategies for frames that
+    /// fit in the cache budget (no staging write, no disk read).
+    /// </summary>
+    private readonly Image? _cachedImageStrong;
+
     /// <summary>Bytes one canvas-sized channel plane would occupy. Kept for
     /// backward compatibility with callers that compute output buffer sizes
     /// from this; the actual on-disk channel for v2 is smaller.</summary>
     public long ChannelBytes => (long)Height * Width * sizeof(float);
+
+    /// <summary>
+    /// Build an in-memory-only reader. No staging file is opened (or required);
+    /// every <see cref="ReadStripe"/> call slices directly from
+    /// <paramref name="image"/>. Use this from the spill-to-disk path in
+    /// staged strategies: frames within the FrameCache strong-tier budget skip
+    /// the disk write and get a reader that reads from RAM forever after.
+    /// The reader holds a strong reference to the image, so callers do not
+    /// need to add the frame to a FrameCache strong slot themselves.
+    /// </summary>
+    public static StreamingFrameReader InMemoryOnly(Image image)
+        => new(image);
+
+    private StreamingFrameReader(Image image)
+    {
+        var (channels, width, height) = image.Shape;
+        Path = string.Empty;
+        Channels = channels;
+        Height = height;
+        Width = width;
+        // No on-disk format flags -- the stripe reader skips the disk branch
+        // entirely when _fs is null, and these fields don't influence the
+        // in-memory slice path.
+        _flags = 0;
+        _hasFootprint = false;
+        _isHalf = false;
+        _bytesPerSample = sizeof(float);
+        _footprintX = 0;
+        _footprintY = 0;
+        _footprintWidth = width;
+        _footprintHeight = height;
+        _cachedImageStrong = image;
+        _fs = null;
+    }
 
     public StreamingFrameReader(string path)
     {
@@ -317,13 +366,18 @@ public sealed class StreamingFrameReader : IDisposable
         if (destination.Length < rowCount * Width)
             throw new ArgumentException("Destination span too small for the requested stripe.", nameof(destination));
 
-        // Cache fast path: when the strategy retained the warped Image and it
-        // hasn't been GC'd, slice directly from the in-memory channel data.
-        // Skips the entire disk seek + byte-decode + scatter pipeline below.
-        // Warped images carry NaN outside the footprint by construction (the
-        // warp's out-of-source-bounds clamp) so the slice has the same
+        // Strong-cache fast path: in-memory-only readers (built via
+        // InMemoryOnly) hold a strong ref so this branch always wins. The
+        // staged path's SetCachedImage is a weak ref; same slice loop covers
+        // both. Warped images carry NaN outside the footprint by construction
+        // (the warp's out-of-source-bounds clamp) so the slice has the same
         // NaN-padded shape the staged-file path produces.
-        if (_cachedImage is { } weak && weak.TryGetTarget(out var cached)
+        Image? cached = _cachedImageStrong;
+        if (cached is null && _cachedImage is { } weak && weak.TryGetTarget(out var weakAlive))
+        {
+            cached = weakAlive;
+        }
+        if (cached is not null
             && cached.ChannelCount == Channels
             && cached.Height == Height && cached.Width == Width)
         {
@@ -336,6 +390,17 @@ public sealed class StreamingFrameReader : IDisposable
                 }
             }
             return;
+        }
+
+        if (_fs is null)
+        {
+            // In-memory-only reader but the cached image somehow didn't match
+            // shape (impossible under normal use -- the reader was built from
+            // exactly this image). Surface clearly rather than silently
+            // returning NaN-padded garbage.
+            throw new InvalidOperationException(
+                $"In-memory StreamingFrameReader has no disk fallback and the cached image " +
+                $"shape changed unexpectedly (expected {Channels}x{Height}x{Width}).");
         }
 
         lock (_gate)
@@ -430,5 +495,5 @@ public sealed class StreamingFrameReader : IDisposable
         }
     }
 
-    public void Dispose() => _fs.Dispose();
+    public void Dispose() => _fs?.Dispose();
 }

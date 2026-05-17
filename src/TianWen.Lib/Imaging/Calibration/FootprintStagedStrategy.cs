@@ -52,7 +52,7 @@ public sealed class FootprintStagedStrategy : IIntegrationStrategy
                 CanRun: false,
                 EstimatedRamBytes: probe.OutputRamBytes,
                 EstimatedDiskBytes: 0,
-                EstimatedDuration: _costs.WarpAllFrames(probe) + _costs.StackAllFrames(probe),
+                EstimatedDuration: _costs.LoadAndCalibrateAllFrames(probe) + _costs.DebayerAllFrames(probe) + _costs.WarpAllFrames(probe) + _costs.StackAllFrames(probe),
                 Rationale: $"output buffer alone ({Format.GB(probe.OutputRamBytes)}) busts RAM budget");
         }
 
@@ -63,13 +63,19 @@ public sealed class FootprintStagedStrategy : IIntegrationStrategy
                 CanRun: false,
                 EstimatedRamBytes: ramCap,
                 EstimatedDiskBytes: 0,
-                EstimatedDuration: _costs.WarpAllFrames(probe) + _costs.StackAllFrames(probe),
+                EstimatedDuration: _costs.LoadAndCalibrateAllFrames(probe) + _costs.DebayerAllFrames(probe) + _costs.WarpAllFrames(probe) + _costs.StackAllFrames(probe),
                 Rationale: $"tile floor {IntegrationTileSizing.MinTileSide} px would need more than {Format.GB(ramCap)} for {probe.FrameCount} frames");
         }
 
-        // Disk: per-frame footprint × N, write once + read once = 2×.
+        // Disk: per-frame footprint × N_spilled, write once + read once = 2×.
+        // Spill-to-disk: frames within the FrameCache strong tier stay in RAM
+        // (no disk write, no read-back, full float32 precision); only the
+        // overflow gets staged. Use canvas bytes for the cap (worst-case
+        // sizing), same as the runtime FrameCache.DecideCacheCap call.
         var perFrameStaged = (long)(probe.CanvasBytes * _footprintFraction);
-        var diskBytes = perFrameStaged * probe.FrameCount;
+        var strongCap = FrameCache.DecideCacheCap(probe.FrameCount, probe.CanvasBytes);
+        var diskFrames = Math.Max(0, probe.FrameCount - strongCap);
+        var diskBytes = perFrameStaged * diskFrames;
         var diskCap = budget.AllowedDisk(probe);
         if (diskBytes > diskCap)
         {
@@ -77,26 +83,30 @@ public sealed class FootprintStagedStrategy : IIntegrationStrategy
                 CanRun: false,
                 EstimatedRamBytes: IntegrationTileSizing.TileRamBytes(tile, probe) + probe.OutputRamBytes,
                 EstimatedDiskBytes: diskBytes,
-                EstimatedDuration: _costs.WarpAllFrames(probe) + _costs.StackAllFrames(probe),
-                Rationale: $"needs {Format.GB(diskBytes)} disk, cap {Format.GB(diskCap)} (footprint {_footprintFraction:P0})");
+                EstimatedDuration: _costs.LoadAndCalibrateAllFrames(probe) + _costs.DebayerAllFrames(probe) + _costs.WarpAllFrames(probe) + _costs.StackAllFrames(probe),
+                Rationale: $"needs {Format.GB(diskBytes)} disk for {diskFrames}/{probe.FrameCount} spilled frames, cap {Format.GB(diskCap)} (footprint {_footprintFraction:P0})");
         }
 
         var ram = IntegrationTileSizing.TileRamBytes(tile, probe) + probe.OutputRamBytes;
-        // One sequential write pass + one sequential read pass per frame.
-        // Seeks are roughly per-frame + per-tile during read-back.
+        // One sequential write pass + one sequential read pass per spilled
+        // frame. Seeks are roughly per-spilled-frame + per-tile during the
+        // read-back of spilled frames. Cached frames contribute zero IO.
         var tileCount = ((probe.CanvasWidth + tile - 1) / tile) * ((probe.CanvasHeight + tile - 1) / tile);
         var io = _costs.DiskIo(
             bytes: diskBytes * 2,
-            seeks: probe.FrameCount + tileCount * probe.FrameCount,
+            seeks: diskFrames + tileCount * diskFrames,
             kind: probe.StagingDiskKind);
-        var eta = _costs.WarpAllFrames(probe) + _costs.StackAllFrames(probe) + io;
+        var eta = _costs.LoadAndCalibrateAllFrames(probe) + _costs.DebayerAllFrames(probe) + _costs.WarpAllFrames(probe) + _costs.StackAllFrames(probe) + io;
 
+        var spillNote = diskFrames == 0
+            ? $"all {probe.FrameCount} frames fit in cache -> 0 disk"
+            : $"{strongCap} cached + {diskFrames} spilled, {_footprintFraction:P0} of canvas";
         return new StrategyFit(
             CanRun: true,
             EstimatedRamBytes: ram,
             EstimatedDiskBytes: diskBytes,
             EstimatedDuration: eta,
-            Rationale: $"tile {tile} px, {Format.GB(diskBytes)} disk ({_footprintFraction:P0} of canvas × {probe.FrameCount} frames), {DiskLabel(probe.StagingDiskKind)}");
+            Rationale: $"tile {tile} px, {Format.GB(diskBytes)} disk -- {spillNote}, {DiskLabel(probe.StagingDiskKind)}");
     }
 
     private static string DiskLabel(DiskKind kind) => kind switch
@@ -125,35 +135,58 @@ public sealed class FootprintStagedStrategy : IIntegrationStrategy
         // disk reads collapse to RAM slices. On a tight host weak refs die
         // and the reader transparently falls back to the staged-file path.
         FrameCache? cache = null;
+        var swStrat = System.Diagnostics.Stopwatch.StartNew();
+        var n = job.ExpectedFrameCount;
         try
         {
             var index = 0;
             await foreach (var warped in job.WarpedFrames(ct).WithCancellation(ct))
             {
+                if (index == 0)
+                {
+                    var (c, w, h) = warped.Shape;
+                    var frameBytes = (long)w * h * c * sizeof(float);
+                    cache = new FrameCache(job.ExpectedFrameCount, FrameCache.DecideCacheCap(job.ExpectedFrameCount, frameBytes));
+                }
+
                 var stats = job.StatsRect.Width > 0 && job.StatsRect.Height > 0
                     ? Normalizer.ComputeStats(warped, job.StatsRect)
                     : Normalizer.ComputeStats(warped);
 
-                var stagingPath = Path.Combine(job.StagingDir, $"frame_{index:D4}.bin");
-                if (hasFootprints && index < job.FrameFootprints!.Count)
+                // Spill-to-disk: frames within the cache strong tier stay in
+                // RAM only -- no disk write, no read-back, full float32
+                // fidelity from the warped image. Frames past the cap stage
+                // as today (footprint-trimmed float32 when the footprint
+                // hint is available; otherwise full canvas).
+                StreamingFrameReader reader;
+                if (index < cache!.StrongCap)
                 {
-                    var fp = job.FrameFootprints[index];
-                    if (fp.Width > 0 && fp.Height > 0)
+                    reader = StreamingFrameReader.InMemoryOnly(warped);
+                }
+                else
+                {
+                    var stagingPath = Path.Combine(job.StagingDir, $"frame_{index:D4}.bin");
+                    if (hasFootprints && index < job.FrameFootprints!.Count)
                     {
-                        StreamingFrameStaging.WriteWithFootprint(warped, stagingPath, fp);
+                        var fp = job.FrameFootprints[index];
+                        if (fp.Width > 0 && fp.Height > 0)
+                        {
+                            StreamingFrameStaging.WriteWithFootprint(warped, stagingPath, fp);
+                        }
+                        else
+                        {
+                            StreamingFrameStaging.Write(warped, stagingPath);
+                        }
                     }
                     else
                     {
                         StreamingFrameStaging.Write(warped, stagingPath);
                     }
-                }
-                else
-                {
-                    StreamingFrameStaging.Write(warped, stagingPath);
+
+                    reader = new StreamingFrameReader(stagingPath);
+                    reader.SetCachedImage(warped);
                 }
 
-                var reader = new StreamingFrameReader(stagingPath);
-                reader.SetCachedImage(warped);
                 staged.Add(new StagedAlignedFrame(
                     reader,
                     warped.ImageMeta,
@@ -162,17 +195,15 @@ public sealed class FootprintStagedStrategy : IIntegrationStrategy
                     stats.PerChannelMin,
                     stats.PerChannelMedian));
 
-                if (index == 0)
-                {
-                    var (c, w, h) = warped.Shape;
-                    var frameBytes = (long)w * h * c * sizeof(float);
-                    cache = new FrameCache(job.ExpectedFrameCount, FrameCache.DecideCacheCap(job.ExpectedFrameCount, frameBytes));
-                }
-                cache!.Set(index, warped);
+                cache.Set(index, warped);
                 index++;
+                job.Progress?.Report(new IntegrationProgress(IntegrationPhase.LoadingFrames, index, n, swStrat.Elapsed));
             }
 
-            return StreamingIntegrator.Integrate(staged, job.Options);
+            job.Progress?.Report(new IntegrationProgress(IntegrationPhase.Integrating, 0, 1, swStrat.Elapsed));
+            var result = StreamingIntegrator.Integrate(staged, job.Options);
+            job.Progress?.Report(new IntegrationProgress(IntegrationPhase.Integrating, 1, 1, swStrat.Elapsed));
+            return result;
         }
         finally
         {

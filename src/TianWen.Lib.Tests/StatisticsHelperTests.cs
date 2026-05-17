@@ -14,9 +14,66 @@ public class StatisticsHelperTests
     [InlineData(5f, 1f, 4f, 5f, 7f, 9f)]
     [InlineData(5.5f, 1f, 5f, 6f, 9f)]
     [InlineData(8f, 8f, 9f, 7f, 10f, 6.5f)]
-    public void GivenValuesWhenCalcMedianThenItIsReturned(float expectedMedian, params float[] values)
+    public void GivenValuesWhenCalcMedianSortedThenItIsReturned(float expectedMedian, params float[] values)
     {
-        StatisticsHelper.Median(values).ShouldBe(expectedMedian);
+        StatisticsHelper.MedianSorted(values).ShouldBe(expectedMedian);
+    }
+
+    [Theory]
+    [InlineData(float.NaN)]
+    [InlineData(42f, 42f)]
+    [InlineData(5f, 1f, 4f, 5f, 7f, 9f)]
+    [InlineData(5.5f, 1f, 5f, 6f, 9f)]
+    [InlineData(8f, 8f, 9f, 7f, 10f, 6.5f)]
+    public void GivenValuesWhenCalcMedianFastThenItIsReturned(float expectedMedian, params float[] values)
+    {
+        StatisticsHelper.MedianFast(values).ShouldBe(expectedMedian);
+    }
+
+    [Fact]
+    public void MedianFast_MatchesMedianSorted_OverRandomInputs()
+    {
+        // Cross-check MedianFast against the sort-based MedianSorted over a
+        // wide range of sizes (including the up-to-328 annulus buffer size
+        // used by AnalyseStar) and random distributions. Both implementations
+        // must produce byte-identical results.
+        var rng = new Random(42);
+        foreach (var n in new[] { 2, 3, 4, 5, 7, 8, 9, 15, 16, 32, 100, 327, 328, 329, 1024 })
+        {
+            for (var trial = 0; trial < 25; trial++)
+            {
+                var src = new float[n];
+                for (var i = 0; i < n; i++)
+                {
+                    src[i] = (float)(rng.NextDouble() * 1000.0 - 500.0);
+                }
+
+                var expected = StatisticsHelper.MedianSorted(((float[])src.Clone()).AsSpan());
+                var actual = StatisticsHelper.MedianFast(((float[])src.Clone()).AsSpan());
+                actual.ShouldBe(expected, $"n={n}, trial={trial}");
+            }
+        }
+    }
+
+    [Fact]
+    public void MedianFast_Double_MatchesMedianSorted_OverRandomInputs()
+    {
+        var rng = new Random(7);
+        foreach (var n in new[] { 2, 3, 4, 5, 15, 16, 100 })
+        {
+            for (var trial = 0; trial < 25; trial++)
+            {
+                var src = new double[n];
+                for (var i = 0; i < n; i++)
+                {
+                    src[i] = rng.NextDouble() * 1000.0 - 500.0;
+                }
+
+                var expected = StatisticsHelper.MedianSorted(((double[])src.Clone()).AsSpan());
+                var actual = StatisticsHelper.MedianFast(((double[])src.Clone()).AsSpan());
+                actual.ShouldBe(expected, $"n={n}, trial={trial}");
+            }
+        }
     }
 
     [Theory]

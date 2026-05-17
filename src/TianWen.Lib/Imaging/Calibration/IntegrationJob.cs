@@ -75,4 +75,54 @@ public sealed record IntegrationJob(
     Calibrator? Calibrator = null,
     DebayerAlgorithm DebayerAlgorithm = DebayerAlgorithm.VNG,
     int CanvasWidth = 0,
-    int CanvasHeight = 0);
+    int CanvasHeight = 0,
+    // Optional structured progress sink. Strategies report semantic events
+    // (e.g. LoadingFrames 200/244) at natural checkpoints; the consumer
+    // (test orchestrator today, GUI later) formats / throttles / computes
+    // ETA. Status only, NOT a general logging channel -- use ILogger via
+    // strategy constructor injection for warnings/debug/diagnostics.
+    IProgress<IntegrationProgress>? Progress = null);
+
+/// <summary>
+/// Coarse-grained pipeline phase reported by integration strategies. Phases
+/// model the order user-visible work happens in, not internal strategy passes:
+/// a strategy may visit the same phase multiple times (TilePipelined revisits
+/// <see cref="LoadingFrames"/> on pass-2 cache misses) and may skip phases
+/// it doesn't need.
+/// </summary>
+public enum IntegrationPhase
+{
+    /// <summary>Decoding raw FITS + calibration + debayer + per-frame stats.
+    /// CompletedItems = frames decoded so far; TotalItems = frame count.</summary>
+    LoadingFrames,
+
+    /// <summary>Affine warp from source grid into the canvas grid.
+    /// CompletedItems = frames or strips warped (strategy-specific);
+    /// TotalItems = total to warp.</summary>
+    Warping,
+
+    /// <summary>Per-frame intensity normalization to the reference.
+    /// CompletedItems = frames normalized; TotalItems = frame count.</summary>
+    Normalizing,
+
+    /// <summary>Per-pixel rejection + combine into the master (potentially
+    /// per-strip for tile-pipelined strategies). CompletedItems = strips
+    /// integrated or chunks combined; TotalItems = total units.</summary>
+    Integrating,
+
+    /// <summary>Final master + rejection-map assembly. Usually a single
+    /// event with CompletedItems = TotalItems = 1 just before return.</summary>
+    Finalizing,
+}
+
+/// <summary>
+/// One progress event from an integration strategy. Pure data; the consumer
+/// is responsible for translating to log / UI / ETA inference. Elapsed is
+/// wall-clock since the strategy started so the consumer can compute simple
+/// linear-projection ETAs without each strategy carrying its own stopwatch.
+/// </summary>
+public sealed record IntegrationProgress(
+    IntegrationPhase Phase,
+    int CompletedItems,
+    int TotalItems,
+    TimeSpan Elapsed);

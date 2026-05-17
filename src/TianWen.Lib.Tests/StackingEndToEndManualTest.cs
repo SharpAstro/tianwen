@@ -101,6 +101,17 @@ public class StackingEndToEndManualTest(ITestOutputHelper output)
         }
         Log($"[start] {DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss zzz}  data={DataRoot}  out={outputDir}");
 
+        // Periodic resource + progress snapshot every 30 s. The strategy
+        // pushes IProgress events into latestProgress; the monitor reads the
+        // latest-per-phase slot once per tick and logs it alongside the
+        // resource line. Decouples producer rate (high) from log rate (low)
+        // without per-event throttling -- the monitor IS the rate limiter.
+        var latestProgress = new System.Collections.Concurrent.ConcurrentDictionary<IntegrationPhase, IntegrationProgress>();
+        using var monitorCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        var monitorTask = SnapshotResourcesAsync(outputDir, latestProgress, Log, monitorCts.Token);
+        try
+        {
+
         // -----------------------------------------------------------------
         // 1) Enumerate ALL FITS recursively + group by MasterGroupKey
         // -----------------------------------------------------------------
@@ -164,7 +175,7 @@ public class StackingEndToEndManualTest(ITestOutputHelper output)
         // disk-staged strategies fail and InRam exceeds RAM. Leave the
         // exclude blank to process every group; set to `_light_60s` to skip
         // the long-running SoL group on iteration.
-        const string GroupExclude = "_light_60s";
+        const string GroupExclude = "";
         if (GroupExclude.Length > 0)
         {
             var beforeCount = lightGroups.Count;
@@ -176,7 +187,7 @@ public class StackingEndToEndManualTest(ITestOutputHelper output)
         // Force a specific integration strategy regardless of probe budget.
         // Set to e.g. IntegrationStrategyKind.TilePipelined to validate Phase
         // 8.2 against a real dataset. null = auto-pick (production path).
-        IntegrationStrategyKind? forceStrategy = null;
+        static IntegrationStrategyKind? PickForcedStrategy(int frameCount) => null;
         if (GroupFilter.Length > 0)
         {
             var beforeCount = lightGroups.Count;
@@ -347,7 +358,7 @@ public class StackingEndToEndManualTest(ITestOutputHelper output)
             Directory.CreateDirectory(stagingDir);
 
             sw.Restart();
-            var matchStats = new List<(string Path, float TranslationPx, float RotationDeg, float Scale, float QuadTol)>();
+            var matchStats = new List<(string Path, float TranslationPx, float RotationDeg, float Scale, float QuadTol, float RmsPx)>();
             var skipCount = 0;
             // Min stars for a stable quad-invariant fit. Matches the matcher's
             // internal minStars/4=6 quad-correspondence floor with headroom.
@@ -409,6 +420,7 @@ public class StackingEndToEndManualTest(ITestOutputHelper output)
 
                 Matrix3x2? transform;
                 float quadTolUsed;
+                float rmsPx = float.NaN;
                 int detected;
                 int quadCount = 0;
                 string reason = "";
@@ -417,6 +429,7 @@ public class StackingEndToEndManualTest(ITestOutputHelper output)
                 {
                     transform = Matrix3x2.Identity;
                     quadTolUsed = 0f;
+                    rmsPx = 0f;
                     detected = referenceStars.Count;
                     quadCount = referenceQuads.Count;
                 }
@@ -442,7 +455,7 @@ public class StackingEndToEndManualTest(ITestOutputHelper output)
                         quadCount = lightQuads.Count;
 
                         stageSw.Restart();
-                        (transform, quadTolUsed) = await TryMatchAsync(lightSorted, referenceSorted, QuadStars);
+                        (transform, quadTolUsed, rmsPx) = await TryMatchAsync(lightSorted, referenceSorted, QuadStars);
                         perfMatch += stageSw.Elapsed;
                         if (transform is null) reason = "no quad fit at any tolerance";
                     }
@@ -462,8 +475,8 @@ public class StackingEndToEndManualTest(ITestOutputHelper output)
                 var tx = (float)Math.Sqrt(t.M31 * t.M31 + t.M32 * t.M32);
                 var rot = (float)(Math.Atan2(t.M12, t.M11) * 180.0 / Math.PI);
                 var scale = (float)Math.Sqrt(t.M11 * t.M11 + t.M12 * t.M12);
-                matchStats.Add((lightInfo.Path, tx, rot, scale, quadTolUsed));
-                Log($"  [{name}] stars={detected,4} quads={quadCount,5} -> MATCH qt={quadTolUsed:F3} tx={tx,6:F1}px rot={rot,7:F3}deg");
+                matchStats.Add((lightInfo.Path, tx, rot, scale, quadTolUsed, rmsPx));
+                Log($"  [{name}] stars={detected,4} quads={quadCount,5} -> MATCH qt={quadTolUsed:F3} tx={tx,6:F1}px rot={rot,7:F3}deg rms={rmsPx,5:F2}px");
             }
 
             // Compute the union bounding box of all matched frames' source
@@ -662,6 +675,7 @@ public class StackingEndToEndManualTest(ITestOutputHelper output)
             // returns CanRun=true (Phase 8.2) so it ranks against the others
             // by speed-fidelity blend; under FidelityFirst it loses to InRam
             // unless InRam exceeds the RAM budget.
+            var forceStrategy = PickForcedStrategy(matched.Count);
             var selection = IntegrationStrategySelector.Pick(probe, preferred: forceStrategy);
             Log($"  [strategy] probe: N={probe.FrameCount} frame={probe.FrameWidth}x{probe.FrameHeight}x{probe.ChannelCount} " +
                 $"canvas={probe.CanvasWidth}x{probe.CanvasHeight} freeRam={probe.AvailableRamBytes / 1e9:F1}GB " +
@@ -695,6 +709,12 @@ public class StackingEndToEndManualTest(ITestOutputHelper output)
                     TransformToCanvas: transformOrig * canvasShift));
             }
 
+            // Fire-and-forget into latestProgress -- the 30 s monitor is the
+            // single log emitter for [stage] lines. No throttling needed here
+            // because the dictionary just retains the most recent event per
+            // phase, regardless of how often the strategy reports.
+            var progress = new Progress<IntegrationProgress>(p => latestProgress[p.Phase] = p);
+
             var job = new IntegrationJob(
                 WarpedFrames: WarpedFramesProducer,
                 ExpectedFrameCount: matched.Count,
@@ -706,7 +726,8 @@ public class StackingEndToEndManualTest(ITestOutputHelper output)
                 Calibrator: calibrator,
                 DebayerAlgorithm: StackDebayerAlg,
                 CanvasWidth: outWidth,
-                CanvasHeight: outHeight);
+                CanvasHeight: outHeight,
+                Progress: progress);
             IntegrationResult result;
             try
             {
@@ -785,6 +806,72 @@ public class StackingEndToEndManualTest(ITestOutputHelper output)
         }
 
         Log($"[end] {DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss zzz}");
+        }
+        finally
+        {
+            monitorCts.Cancel();
+            try { await monitorTask; } catch (OperationCanceledException) { /* clean exit */ }
+        }
+    }
+
+    /// <summary>
+    /// Periodic resource snapshot loop: every 30 s log testhost working set,
+    /// system memory load vs cap, and free disk on the output drive. Designed
+    /// to be parked on a background task; cancels cleanly via
+    /// <see cref="OperationCanceledException"/> when the parent shuts down.
+    /// </summary>
+    private static async Task SnapshotResourcesAsync(
+        string outputDir,
+        System.Collections.Concurrent.ConcurrentDictionary<IntegrationPhase, IntegrationProgress> latestProgress,
+        Action<string> log,
+        CancellationToken ct)
+    {
+        var rootPath = Path.GetPathRoot(Path.GetFullPath(outputDir));
+        var drive = rootPath is not null ? new DriveInfo(rootPath) : null;
+        var proc = Process.GetCurrentProcess();
+        var cores = Environment.ProcessorCount;
+        var prevCpu = proc.TotalProcessorTime;
+        var prevAllocBytes = GC.GetTotalAllocatedBytes(precise: false);
+        var prevWall = Stopwatch.GetTimestamp();
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(30));
+        while (await timer.WaitForNextTickAsync(ct))
+        {
+            proc.Refresh();
+            var info = GC.GetGCMemoryInfo();
+            var wsGb = proc.WorkingSet64 / 1024.0 / 1024.0 / 1024.0;
+            var loadGb = info.MemoryLoadBytes / 1024.0 / 1024.0 / 1024.0;
+            var capGb = info.TotalAvailableMemoryBytes / 1024.0 / 1024.0 / 1024.0;
+            var diskFreeGb = drive is not null ? drive.AvailableFreeSpace / 1024.0 / 1024.0 / 1024.0 : double.NaN;
+
+            // CPU% = (testhost CPU time delta / wall time delta) / cores * 100.
+            // 100% = all cores fully loaded by this process. Tells us whether
+            // the integrator is CPU-bound (high) or IO-stalled (low) without
+            // needing per-strategy progress callbacks.
+            var nowCpu = proc.TotalProcessorTime;
+            var nowAllocBytes = GC.GetTotalAllocatedBytes(precise: false);
+            var nowWall = Stopwatch.GetTimestamp();
+            var wallSec = (nowWall - prevWall) / (double)Stopwatch.Frequency;
+            var cpuPct = wallSec > 0 ? (nowCpu - prevCpu).TotalSeconds / wallSec / cores * 100.0 : 0.0;
+            var allocMBs = wallSec > 0 ? (nowAllocBytes - prevAllocBytes) / 1024.0 / 1024.0 / wallSec : 0.0;
+            prevCpu = nowCpu;
+            prevAllocBytes = nowAllocBytes;
+            prevWall = nowWall;
+
+            log($"[mon] {DateTimeOffset.Now:HH:mm:ss} cpu={cpuPct:F0}% ws={wsGb:F2}GB load={loadGb:F1}/{capGb:F1}GB alloc={allocMBs:F0}MB/s free={diskFreeGb:F1}GB({drive?.Name ?? "?"})");
+
+            // Emit the latest progress for each active phase. The strategy
+            // writes events freely; this tick is the single log emitter.
+            // Snapshotting via .ToArray() avoids enumeration over a moving
+            // target when the strategy writes during iteration.
+            foreach (var (phase, p) in latestProgress.ToArray())
+            {
+                var pct = p.TotalItems > 0 ? 100.0 * p.CompletedItems / p.TotalItems : 0;
+                var etaSec = p.CompletedItems > 0
+                    ? p.Elapsed.TotalSeconds / p.CompletedItems * (p.TotalItems - p.CompletedItems)
+                    : 0;
+                log($"  [stage] {phase} {p.CompletedItems}/{p.TotalItems} ({pct:F0}%) elapsed={p.Elapsed.TotalSeconds:F0}s eta={etaSec:F0}s");
+            }
+        }
     }
 
     private static async Task<List<(MasterGroupKey Key, Image Master)>> BuildMastersAsync(
@@ -857,7 +944,7 @@ public class StackingEndToEndManualTest(ITestOutputHelper output)
     /// affine validator + RANSAC min-inlier=4 even at this tolerance.</summary>
     private static readonly float[] QuadTolerances = [0.008f, 0.02f, 0.05f, 0.1f, 0.2f, 0.5f];
 
-    private static async Task<(Matrix3x2? Solution, float QuadTolerance)> TryMatchAsync(
+    private static async Task<(Matrix3x2? Solution, float QuadTolerance, float RmsResidualPx)> TryMatchAsync(
         SortedStarList light, SortedStarList reference, int maxStars)
     {
         foreach (var tol in QuadTolerances)
@@ -865,10 +952,10 @@ public class StackingEndToEndManualTest(ITestOutputHelper output)
             // FindFitAsync internally memoizes FindQuadsAsync (per maxStars key),
             // so re-trying with a looser tolerance only re-runs the match pass,
             // not the quad build.
-            var solution = await light.FindOffsetAndRotationAsync(reference, minimumCount: 6, quadTolerance: tol, maxStars: maxStars);
-            if (solution is not null) return (solution, tol);
+            var (solution, rmsPx) = await light.FindOffsetAndRotationWithRmsAsync(reference, minimumCount: 6, quadTolerance: tol, maxStars: maxStars);
+            if (solution is not null) return (solution, tol, rmsPx);
         }
-        return (null, float.NaN);
+        return (null, float.NaN, float.NaN);
     }
 
     /// <summary>Logs decomposed-transform stats for successful matches so we
@@ -879,7 +966,7 @@ public class StackingEndToEndManualTest(ITestOutputHelper output)
     /// a 180-deg rotation around the image center, not actual mount drift.
     /// Lumping them with same-side frames hides the true dither magnitude.</summary>
     private static void LogMatchSummary(
-        List<(string Path, float TranslationPx, float RotationDeg, float Scale, float QuadTol)> stats,
+        List<(string Path, float TranslationPx, float RotationDeg, float Scale, float QuadTol, float RmsPx)> stats,
         Action<string> log)
     {
         if (stats.Count == 0) { log("  [match] no successful matches"); return; }
@@ -889,6 +976,20 @@ public class StackingEndToEndManualTest(ITestOutputHelper output)
             $"median={rotations[rotations.Length / 2]:F3}, max={rotations[^1]:F3}");
         log($"  [match] scale factor:   min={scales[0]:F5}, " +
             $"median={scales[scales.Length / 2]:F5}, max={scales[^1]:F5}");
+
+        // RMS = APP-style per-frame registration residual in ref-frame pixels.
+        // Excludes the reference frame itself (RMS=0 by construction) so the
+        // median tells us about the real cluster of matches, not the identity-fit
+        // distortion.
+        var rmsSamples = stats.Where(s => !float.IsNaN(s.RmsPx) && s.RmsPx > 0f)
+                              .Select(s => s.RmsPx)
+                              .OrderBy(v => v)
+                              .ToArray();
+        if (rmsSamples.Length > 0)
+        {
+            log($"  [match] rms px:         min={rmsSamples[0]:F3}, " +
+                $"median={rmsSamples[rmsSamples.Length / 2]:F3}, max={rmsSamples[^1]:F3} (n={rmsSamples.Length})");
+        }
 
         LogTranslationGroup(stats.Where(s => Math.Abs(s.RotationDeg) < 90f).ToList(), "same-side", log);
         LogTranslationGroup(stats.Where(s => Math.Abs(s.RotationDeg) >= 90f).ToList(), "flipped ", log);
@@ -903,7 +1004,7 @@ public class StackingEndToEndManualTest(ITestOutputHelper output)
     }
 
     private static void LogTranslationGroup(
-        List<(string Path, float TranslationPx, float RotationDeg, float Scale, float QuadTol)> group,
+        List<(string Path, float TranslationPx, float RotationDeg, float Scale, float QuadTol, float RmsPx)> group,
         string label,
         Action<string> log)
     {

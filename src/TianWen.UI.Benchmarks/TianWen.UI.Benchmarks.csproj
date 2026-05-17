@@ -40,6 +40,14 @@
   <ItemGroup>
     <None Include="..\TianWen.Lib.Tests\Data\CR2\*.CR2" Link="Fixtures\CR2\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\TianWen.Lib.Tests\Data\CR3\*.CR3" Link="Fixtures\CR3\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+    <!-- Real-data fixture for FindStarsBenchmarks: SVBONY SV605CC (IMX533M)
+         3008x3008 60s exposure of the Statue of Liberty Nebula. Used by the
+         Real_IMX533_* benchmarks and the `profile findstars` mode to get a
+         calibrated number against a frame that actually has stars (not
+         synthetic Gaussian blobs on uniform noise). -->
+    <None Include="..\TianWen.Lib.Tests\Data\2026-02-15_00-56-23__-5.00_60.00s_0058.fits.gz"
+          Link="Fixtures\FITS\imx533_sv605cc_60s_real.fits.gz"
+          CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

@@ -212,6 +212,16 @@ public sealed class FilterCurveDatabaseTests(ITestOutputHelper output)
     [InlineData("ZWO ASI585MC Pro", "IMX585")]
     [InlineData("ZWO ASI183MM Pro", "IMX183")]
     [InlineData("ZWO ASI462MC", "IMX462_SEESTAR")]
+    // SVBony product numbers don't encode the sensor (SV605 != IMX605);
+    // covered by the explicit alias table. Regression-test the spelling
+    // variants we expect to see in INSTRUME headers: with/without "SVBONY"
+    // prefix, OSC vs mono suffix, and assorted whitespace.
+    [InlineData("SVBONY SV605CC", "IMX533")]
+    [InlineData("SVBONY SV605MC", "IMX533")]
+    [InlineData("SV605CC", "IMX533")]
+    [InlineData("SV605MC Pro", "IMX533")]
+    [InlineData("Svbony Sv 605 CC", "IMX533")]
+    [InlineData("SVBONY SV705C", "IMX585")]
     private async Task TryMatchSensor_FromProductName_ReturnsCorrectSensor(string productName, string expected)
     {
         await FilterCurveDatabase.LoadAsync(TestContext.Current.CancellationToken);

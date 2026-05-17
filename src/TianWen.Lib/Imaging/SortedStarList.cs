@@ -109,6 +109,18 @@ public class SortedStarList(StarList stars) : IReadOnlyList<ImagedStar>, IDispos
         return starRefTable is { } ? await starRefTable.FindOffsetAndRotationAsync(solutionTolerance) : null;
     }
 
+    /// <summary>Same as <see cref="FindOffsetAndRotationAsync"/> but also returns the
+    /// registration RMS in source-frame pixels (APP / PixInsight surface this per
+    /// frame). RMS is <c>NaN</c> when no match is found.</summary>
+    public async Task<(Matrix3x2? Solution, float RmsResidualPx)> FindOffsetAndRotationWithRmsAsync(
+        SortedStarList other, int minimumCount = 6, float quadTolerance = 0.008f, float solutionTolerance = 1e-3f, int? maxStars = null)
+    {
+        var starRefTable = await FindFitAsync(other, minimumCount, quadTolerance, maxStars);
+        if (starRefTable is null) return (null, float.NaN);
+        var solution = await starRefTable.FindOffsetAndRotationAsync(solutionTolerance);
+        return solution is { } s ? (s, starRefTable.ComputeRmsResidualPx(s)) : (null, float.NaN);
+    }
+
     public async Task<(Matrix3x2? Solution, float QuadTolerance)> FindOffsetAndRotationWithRetryAsync(SortedStarList other, int minimumCount = 6, float solutionTolerance = 1e-3f, int? maxStars = null)
     {
         var tries = 0;

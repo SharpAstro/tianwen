@@ -86,11 +86,31 @@ public sealed class TilePipelinedStrategy : IIntegrationStrategy
         var ram = cacheRam + stripsRam + inFlightRam + probe.OutputRamBytes;
         var cap = budget.AllowedRam(probe);
 
-        // Wallclock estimate: best case (full cache) ~= InRam warp + stack pass.
-        // Worst case (no cache) ~= 2x warp pass (pass 1 stats + pass 2 strips).
-        // The selector ranker uses this number; we report the optimistic
-        // best-case ETA since the cache typically does fit.
-        var eta = _costs.WarpAllFrames(probe) + _costs.StackAllFrames(probe);
+        // Wallclock estimate. Two passes:
+        //   Pass 1: decode + debayer + warp + stats for every frame, once.
+        //   Pass 2: per strip, for each frame:
+        //           - cache hit  -> just warp the strip and reject+combine
+        //           - cache miss -> re-decode + re-debayer + warp the strip
+        //
+        // Cache budget heuristic: freeRam / 4. The other quarter goes to strip
+        // working set (N strips x frames-in-flight), output + rejmap buffers,
+        // and GC headroom. Calibrated 2026-05-16 against the cancelled SoL
+        // 244-frame run: 16.8 GB free / 4 = 4.2 GB cache; working set
+        // (debayered 244 x ~27 MB) = 6.6 GB -> 36% miss rate -> ~142 s extra
+        // debayer on pass-2. Combined with the rest of the model this yields
+        // eta ~1600 s vs Float16Staged's ~647 s, matching the empirical
+        // ~3x-slower observation that triggered this fix.
+        var cacheRamBudget = probe.FreeRamBytes > 0 ? probe.FreeRamBytes / 4 : long.MaxValue;
+        var cacheMissRate = _costs.EstimateCacheMissRate(probe, cacheRamBudget);
+        var loadCalibrateCost = _costs.LoadAndCalibrateAllFrames(probe);
+        var debayerCost = _costs.DebayerAllFrames(probe);
+        var warpCost = _costs.WarpAllFrames(probe);
+        var stackCost = _costs.StackAllFrames(probe);
+        // Pass 1: load + calibrate + decode + debayer + warp + stats once per frame.
+        // Pass 2: warp + stack again (each strip extracts a sub-rect from cache),
+        //         plus load+calibrate+debayer rework for cache misses.
+        var pass2RedecodeCost = TimeSpan.FromMilliseconds((loadCalibrateCost.TotalMilliseconds + debayerCost.TotalMilliseconds) * cacheMissRate);
+        var eta = loadCalibrateCost + debayerCost + warpCost + pass2RedecodeCost + warpCost + stackCost;
 
         // Hard gate: even the minimal footprint (no cache) must fit under
         // physical-RAM budget. That floor is strips + in-flight + output.
@@ -110,7 +130,15 @@ public sealed class TilePipelinedStrategy : IIntegrationStrategy
             EstimatedRamBytes: ram,
             EstimatedDiskBytes: 0,
             EstimatedDuration: eta,
-            Rationale: $"cached-debayered + strip pipeline (target {Format.GB(ram)}, floor {Format.GB(minRam)})");
+            Rationale: $"cached-debayered + strip pipeline (target {Format.GB(ram)}, floor {Format.GB(minRam)})")
+        {
+            // Expose the floor so the selector's memory-pressure penalty
+            // ranks us against what we MUST have (minRam), not what we'd
+            // optimistically use (ram). Without this, the high target on
+            // mosaic stacks (N x debayered frame size) makes this strategy
+            // lose to staged alternatives even when the floor fits comfortably.
+            FloorRamBytes = minRam,
+        };
     }
 
     public async ValueTask<IntegrationResult> RunAsync(IntegrationJob job, CancellationToken ct)
@@ -141,6 +169,8 @@ public sealed class TilePipelinedStrategy : IIntegrationStrategy
         }
 
         var opts = job.Options;
+        var swStrat = System.Diagnostics.Stopwatch.StartNew();
+        var stripsTotal = (canvasH + StripHeight - 1) / StripHeight;
 
         // ---------------- Pass 1: decode + stats, register in cache ----------------
         // FrameCache provides the strong+weak two-tier model. cacheCap is
@@ -177,12 +207,15 @@ public sealed class TilePipelinedStrategy : IIntegrationStrategy
             }
 
             cache!.Set(f, debayered);
+            job.Progress?.Report(new IntegrationProgress(IntegrationPhase.LoadingFrames, f + 1, n, swStrat.Elapsed));
         }
 
         if (channelCount == 0 || metaSeed is null)
         {
             throw new InvalidOperationException("TilePipelinedStrategy: pass 1 produced no frames.");
         }
+
+        var stripIdx = 0;
 
         // ---------------- Pass 2: strip-by-strip integration ----------------
         var masterData = Image.CreateChannelData(channelCount, canvasH, canvasW);
@@ -225,6 +258,9 @@ public sealed class TilePipelinedStrategy : IIntegrationStrategy
             CopyStripIntoMaster(stripResult.Master, masterData, stripY0, channelCount);
             CopyStripIntoMaster(stripResult.RejectionMap, rejectMapData, stripY0, channelCount: 1);
             totalRejections += stripResult.TotalRejections;
+
+            stripIdx++;
+            job.Progress?.Report(new IntegrationProgress(IntegrationPhase.Integrating, stripIdx, stripsTotal, swStrat.Elapsed));
         }
 
         var firstMeta = metaSeed.ImageMeta;

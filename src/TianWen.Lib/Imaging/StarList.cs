@@ -38,7 +38,7 @@ public class StarList(ConcurrentBag<ImagedStar> stars, BitMatrix? starMask = nul
 
         return aggregationMethod switch
         {
-            AggregationMethod.Median => Median(starSamples),
+            AggregationMethod.Median => MedianFast(starSamples),
             AggregationMethod.Average => Average(starSamples),
             _ => throw new ArgumentException($"Averaging method {aggregationMethod} is not supported", nameof(aggregationMethod))
         };

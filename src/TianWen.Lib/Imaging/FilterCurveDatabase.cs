@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Concurrent;
+using System.Collections.Frozen;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Diagnostics.CodeAnalysis;
@@ -402,6 +403,24 @@ public static class FilterCurveDatabase
             }
         }
 
+        // Known camera-name-token -> sensor aliases. Vendors whose product
+        // numbers don't encode the sensor part number need explicit mapping
+        // (otherwise the number-extraction heuristic below tries "605" /
+        // "705" / etc. against IMX*** sensor names and silently misses).
+        // Keys are normalised model tokens (e.g. "SV605", "SV705") matched
+        // as substrings of the normalised product name, so different vendor
+        // strings -- "SVBONY SV605CC" / "SV605MC Pro" / "Svbony Sv 605 CC"
+        // -- all resolve to the right sensor.
+        foreach (var (modelToken, sensorName) in _cameraToSensorAliases)
+        {
+            if (needle.Contains(modelToken, StringComparison.Ordinal)
+                && _sensorsByNormalizedName.TryGetValue(sensorName, out var aliased))
+            {
+                curve = aliased;
+                return true;
+            }
+        }
+
         // Extract numeric model from product name (e.g. "533" from "ASI533MC")
         // and match against sensor names — prefer shorter matching keys
         var numbers = ExtractNumbers(needle);
@@ -427,6 +446,22 @@ public static class FilterCurveDatabase
 
         return false;
     }
+
+    /// <summary>
+    /// Camera-model-token -> sensor-name aliases for vendors whose product
+    /// numbering doesn't include the underlying sensor part number. Keys are
+    /// normalised model tokens (the result of <see cref="NormalizeName"/> on
+    /// just the model identifier, e.g. "SV605") matched as substrings of the
+    /// normalised product name. Values are uppercased sensor names that must
+    /// exist in <c>sensor_qe.gs.gz</c>.
+    /// </summary>
+    private static readonly FrozenDictionary<string, string> _cameraToSensorAliases =
+        new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            // NormalizeName lowercases, so keys must be lowercase to match `needle.Contains(modelToken, Ordinal)`.
+            ["sv605"] = "IMX533", // SVBony SV605CC / SV605MC (OSC and mono share the IMX533)
+            ["sv705"] = "IMX585", // SVBony SV705C
+        }.ToFrozenDictionary(StringComparer.Ordinal);
 
     /// <summary>Extracts contiguous digit sequences from a normalised string.</summary>
     private static List<string> ExtractNumbers(string normalised)

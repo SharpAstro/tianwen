@@ -49,7 +49,7 @@ public sealed class ChunkedTwoPassStrategy : IIntegrationStrategy
                 CanRun: false,
                 EstimatedRamBytes: probe.OutputRamBytes + probe.CanvasBytes,
                 EstimatedDiskBytes: 0,
-                EstimatedDuration: _costs.WarpAllFrames(probe) + _costs.StackAllFrames(probe),
+                EstimatedDuration: _costs.LoadAndCalibrateAllFrames(probe) + _costs.DebayerAllFrames(probe) + _costs.WarpAllFrames(probe) + _costs.StackAllFrames(probe),
                 Rationale: $"output ({Format.GB(probe.OutputRamBytes)}) + partial ({Format.GB(probe.CanvasBytes)}) bust RAM cap {Format.GB(ramCap)}");
         }
 
@@ -60,7 +60,7 @@ public sealed class ChunkedTwoPassStrategy : IIntegrationStrategy
                 CanRun: false,
                 EstimatedRamBytes: probe.OutputRamBytes + probe.CanvasBytes + (long)_minChunkSize * probe.FrameBytes,
                 EstimatedDiskBytes: 0,
-                EstimatedDuration: _costs.WarpAllFrames(probe) + _costs.StackAllFrames(probe),
+                EstimatedDuration: _costs.LoadAndCalibrateAllFrames(probe) + _costs.DebayerAllFrames(probe) + _costs.WarpAllFrames(probe) + _costs.StackAllFrames(probe),
                 Rationale: $"chunk size floor {_minChunkSize} frames would need {Format.GB(probe.FrameBytes * _minChunkSize)}, only {Format.GB(perChunkBudget)} free");
         }
 
@@ -70,7 +70,9 @@ public sealed class ChunkedTwoPassStrategy : IIntegrationStrategy
         // Two passes worth of compute: per-chunk integrate + final combine.
         // The final combine touches K canvases worth of pixels, cheap vs the
         // per-chunk integrate, so approximate as 1.0× WarpAllFrames + StackAllFrames.
-        var eta = _costs.WarpAllFrames(probe) + _costs.StackAllFrames(probe);
+        // Each chunk decodes + debayers its frames once -- across all chunks
+        // that's still 1.0× DebayerAllFrames total.
+        var eta = _costs.LoadAndCalibrateAllFrames(probe) + _costs.DebayerAllFrames(probe) + _costs.WarpAllFrames(probe) + _costs.StackAllFrames(probe);
 
         return new StrategyFit(
             CanRun: true,

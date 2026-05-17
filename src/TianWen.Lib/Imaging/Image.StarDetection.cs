@@ -201,6 +201,19 @@ public partial class Image
         // Interleaved chunk processing: two passes (i=0 even chunks, i=1 odd chunks) ensures no two
         // adjacent chunks run simultaneously, so a star near a chunk boundary won't be written into
         // the BitMatrix star mask by one task while a neighbour reads it concurrently — no locking needed.
+        //
+        // Parallel.For (not ForAsync): the chunk body is purely CPU-bound, no awaits.
+        // ForAsync wraps each iteration in async machinery (ValueTask, state machine,
+        // per-iteration Task) which is dead weight for sync work. Wrapping the whole
+        // pass in Task.Run keeps the outer FindStarsAsync awaitable while the inner
+        // Parallel.For uses range partitioning + work-stealing across cores directly.
+        //
+        // MaxDegreeOfParallelism: ProcessorCount*4. Over-provisioning absorbs chunk
+        // imbalance: galactic-plane frames have hot spots where one chunk does 5-10x
+        // the AnalyseStar work of a sparse chunk. With MDOP=ProcessorCount alone, a
+        // single slow chunk stalls the pass; with MDOP=4x, queued chunks fan out as
+        // cores free up. BDN measured ProcessorCount alone was ~8% slower on the
+        // runner config.
         var halfChunkCount = (int)Math.Ceiling(height * HalfChunkSizeInv);
         var parallelOptions = new ParallelOptions { MaxDegreeOfParallelism = Environment.ProcessorCount * 4, CancellationToken = cancellationToken };
 
@@ -212,17 +225,21 @@ public partial class Image
             var passStart = logger is not null ? Stopwatch.GetTimestamp() : 0L;
             var passDetectionLevel = detection_level;
 
-            for (var i = 0; i <= 1; i++)
+            // Capture loop variable into a local readable by the sync Parallel.For
+            // body. The sync body avoids async state machine overhead on every chunk.
+            var passEvenOdd = 0;
+            await Task.Run(() =>
             {
-                await Parallel.ForAsync(0, halfChunkCount, parallelOptions, async (halfChunk, cancellationToken) =>
+                for (passEvenOdd = 0; passEvenOdd <= 1; passEvenOdd++)
                 {
-                    await Task.Run(() =>
+                    var phase = passEvenOdd;
+                    Parallel.For(0, halfChunkCount, parallelOptions, halfChunk =>
                     {
                         // Per-chunk thread-local counters: bumped only via plain ++,
                         // so the hot path stays scalar-register cheap. Atomically
                         // folded into the shared PassCounters once at chunk end.
                         long localHits = 0, localCalls = 0, localAccepted = 0;
-                        var chunk = 2 * halfChunk + i;
+                        var chunk = 2 * halfChunk + phase;
                         var chunkEnd = Math.Min(height, (chunk + 1) * ChunkSize);
                         for (var fitsY = chunk * ChunkSize; fitsY < chunkEnd; fitsY++)
                         {
@@ -265,9 +282,9 @@ public partial class Image
                             Interlocked.Add(ref passCounters.AnalyseStarCalls, localCalls);
                             Interlocked.Add(ref passCounters.Accepted, localAccepted);
                         }
-                    }, cancellationToken);
-                });
-            }
+                    });
+                }
+            }, cancellationToken);
 
             if (passCounters is not null)
             {
@@ -356,7 +373,12 @@ public partial class Image
             }
 
             var background = backgroundScratch[..backgroundIndex];
-            bg = Median(background);
+            // Use the O(n) quickselect variant: AnalyseStar runs once per
+            // candidate pixel (~6500 stars/frame on the runner cfg) and each
+            // call medians an annulus buffer up to 328 floats. We don't care
+            // that the buffer ends up unsorted -- the next line overwrites
+            // every element with its absolute-deviation form.
+            bg = MedianFast(background);
 
             /* fill background with absolute deviations from median */
             for (var i = 0; i < background.Length; i++)
@@ -365,7 +387,7 @@ public partial class Image
             }
 
             //median absolute deviation (MAD)
-            var mad_bg = Median(background);
+            var mad_bg = MedianFast(background);
             sd_bg = mad_bg * MAD_TO_SD;
 
             // Guard against zero-noise backgrounds (e.g. JPGs from nova.astrometry.net, or uniform synthetic data).

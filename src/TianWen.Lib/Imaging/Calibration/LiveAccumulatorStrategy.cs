@@ -51,7 +51,7 @@ public sealed class LiveAccumulatorStrategy : IIntegrationStrategy
                 CanRun: false,
                 EstimatedRamBytes: ram,
                 EstimatedDiskBytes: 0,
-                EstimatedDuration: _costs.WarpAllFrames(probe) + _costs.StackAllFrames(probe),
+                EstimatedDuration: _costs.LoadAndCalibrateAllFrames(probe) + _costs.DebayerAllFrames(probe) + _costs.WarpAllFrames(probe) + _costs.StackAllFrames(probe),
                 Rationale: "live stacking not requested -- batch strategies are higher fidelity");
         }
 
@@ -61,15 +61,15 @@ public sealed class LiveAccumulatorStrategy : IIntegrationStrategy
                 CanRun: false,
                 EstimatedRamBytes: ram,
                 EstimatedDiskBytes: 0,
-                EstimatedDuration: _costs.WarpAllFrames(probe) + _costs.StackAllFrames(probe),
+                EstimatedDuration: _costs.LoadAndCalibrateAllFrames(probe) + _costs.DebayerAllFrames(probe) + _costs.WarpAllFrames(probe) + _costs.StackAllFrames(probe),
                 Rationale: $"needs {Format.GB(ram)} RAM for Welford state, cap {Format.GB(cap)}");
         }
 
-        // Per-frame: warp + single Welford update pass over the canvas.
+        // Per-frame: decode + debayer + warp + single Welford update pass.
         // Stack cost reduces to one column-step (1 mul-add) per pixel per
         // frame -- the rejector + combiner of batch strategies collapses to
         // an online update.
-        var eta = _costs.WarpAllFrames(probe);
+        var eta = _costs.LoadAndCalibrateAllFrames(probe) + _costs.DebayerAllFrames(probe) + _costs.WarpAllFrames(probe);
 
         return new StrategyFit(
             CanRun: true,

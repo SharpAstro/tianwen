@@ -31,7 +31,7 @@ public sealed class InRamAllFramesStrategy : IIntegrationStrategy
     {
         var ram = probe.AllFramesRamBytes + probe.OutputRamBytes;
         var cap = budget.AllowedRam(probe);
-        var eta = _costs.WarpAllFrames(probe) + _costs.StackAllFrames(probe);
+        var eta = _costs.LoadAndCalibrateAllFrames(probe) + _costs.DebayerAllFrames(probe) + _costs.WarpAllFrames(probe) + _costs.StackAllFrames(probe);
 
         if (ram > cap)
         {

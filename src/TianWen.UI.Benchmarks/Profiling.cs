@@ -1,6 +1,7 @@
 using System;
 using System.Diagnostics;
 using System.IO;
+using System.Threading.Tasks;
 using StbImageSharp;
 using TianWen.Lib.Imaging;
 
@@ -47,6 +48,15 @@ internal static class Profiling
             return;
         }
 
+        // `findstars` mode loops Image.FindStarsAsync on the real-data IMX533
+        // fixture so dotnet-trace can capture hot frames inside DetectStarsAsync
+        // / AnalyseStar without BDN harness noise.
+        if (fmt == "findstars")
+        {
+            ProfileFindStars(seconds, args);
+            return;
+        }
+
         var fixturesDir = Path.Combine(AppContext.BaseDirectory, "Fixtures");
         var path = fmt switch
         {
@@ -54,7 +64,7 @@ internal static class Profiling
             "cr3" => Path.Combine(fixturesDir, "CR3", "Canon_EOS_R5_CRAW.CR3"),
             "tiff" => SetupSyntheticTiff(),
             _ => throw new ArgumentException(
-                $"unknown format '{format}', expected cr2 / cr3 / tiff / ljpeg", nameof(format))
+                $"unknown format '{format}', expected cr2 / cr3 / tiff / ljpeg / findstars", nameof(format))
         };
         if (!File.Exists(path))
         {
@@ -78,6 +88,56 @@ internal static class Profiling
         Console.WriteLine();
         Console.WriteLine($"decoded {count} frames in {sw.Elapsed.TotalSeconds:F2}s " +
             $"({sw.Elapsed.TotalMilliseconds / Math.Max(1, count):F1} ms/frame)");
+    }
+
+    /// <summary>Tight-loop of <see cref="Image.FindStarsAsync"/> on a real
+    /// SVBONY SV605CC (IMX533M, 3008x3008) 60s frame, debayered once before
+    /// the loop. Used to profile <c>DetectStarsAsync</c> / <c>AnalyseStar</c>
+    /// hotspots independently of the BDN iteration harness.
+    /// <para>Args (optional, after `profile findstars`):</para>
+    /// <list type="bullet">
+    ///   <item><c>--cfg default</c> -- snrMin=10, maxStars=500 (single-pass)</item>
+    ///   <item><c>--cfg runner</c>  -- snrMin=5,  minStars=2000 (two-pass) [default]</item>
+    /// </list></summary>
+    private static void ProfileFindStars(int seconds, string[] args)
+    {
+        var cfg = "runner";
+        for (var i = 0; i < args.Length - 1; i++)
+        {
+            if (args[i] == "--cfg") cfg = args[i + 1].ToLowerInvariant();
+        }
+
+        var bench = new FindStarsBenchmarks();
+        bench.Setup();
+        // GlobalSetup loads + VNG-debayers the real fixture once. The
+        // FindStarsAsync calls below use the same cached image, so the loop
+        // measures pure detection cost -- BUT FindStarsAsync memoizes results
+        // keyed on its arguments, so we MUST invalidate per iteration or
+        // every call after the first is a dict lookup masquerading as work.
+        Func<Task> step = cfg switch
+        {
+            "default" => () => bench.Real_IMX533_DefaultCfg(),
+            "runner" => () => bench.Real_IMX533_RunnerCfg(),
+            "platesolve" => () => bench.Real_IMX533_PlateSolveCfg(),
+            _ => throw new ArgumentException(
+                $"unknown --cfg '{cfg}', expected default / runner / platesolve", nameof(args))
+        };
+
+        Console.WriteLine($"Profiling Image.FindStarsAsync on real IMX533 frame, cfg={cfg}, for {seconds}s.");
+        PrintAttachInstructions(seconds);
+        var deadline = TimeSpan.FromSeconds(seconds);
+        var sw = Stopwatch.StartNew();
+        var count = 0;
+        while (sw.Elapsed < deadline)
+        {
+            bench.InvalidateCaches();
+            step().GetAwaiter().GetResult();
+            count++;
+        }
+        sw.Stop();
+        Console.WriteLine();
+        Console.WriteLine($"detected stars in {count} iterations in {sw.Elapsed.TotalSeconds:F2}s " +
+            $"({sw.Elapsed.TotalMilliseconds / Math.Max(1, count):F1} ms/iter)");
     }
 
     /// <summary>Tight-loop of <see cref="LosslessJpeg.FromMemory"/> on a

@@ -187,9 +187,29 @@ public sealed record IntegrationCostModel
     // TODO: calibrate against measured runs; this is a Liberty-120s extrapolation.
     public double CpuNsPerWarpPixel { get; init; } = 80.0;
 
-    /// <summary>Per-output-pixel-per-frame CPU cost of reject + combine (ns).</summary>
-    // TODO: calibrate against measured runs; LinearFitClip is in this ballpark.
-    public double CpuNsPerStackPixelPerFrame { get; init; } = 8.0;
+    /// <summary>Per-output-pixel-per-frame CPU cost of reject + combine (ns).
+    /// Recalibrated 2026-05-17 from the Liberty SoL 60s spill run:
+    /// StreamingIntegrator pass-2 (sigma-clip + mean over 242 frames) took ~309 s
+    /// for a 3179x3159x3 canvas, i.e. 309e9 ns / (3179*3159*3*242) ≈ 42 ns/pixel.
+    /// The previous 8 ns/px figure was measured on a mean-only inline integrator
+    /// without rejection -- a 5x under-count for the real reject+combine work.</summary>
+    public double CpuNsPerStackPixelPerFrame { get; init; } = 40.0;
+
+    /// <summary>Per-source-pixel CPU cost of pre-debayer per-frame load + calibrate
+    /// (read FITS, apply bias/dark/flat, copy into channel buffer) in ns.
+    /// Calibrated 2026-05-17 from the Liberty SoL 60s run: Load 438 ms + Calibrate
+    /// 322 ms = 760 ms per 3008^2 source pixel frame ≈ 84 ns/px under contended
+    /// load. The clean-room figure is closer to 30 ns/px; default sits in between
+    /// as a typical-case estimate. Missing this stage was the single biggest
+    /// observed gap (~200 s under-prediction on a 242-frame stack).</summary>
+    public double CpuNsPerLoadCalibratePixel { get; init; } = 50.0;
+
+    /// <summary>Per-source-pixel CPU cost of debayer (ns). Calibrated 2026-05-16
+    /// from the Liberty SoL 60s run: 547 ms / frame / (3008*3008) ≈ 60 ns/pixel
+    /// for AHD on the 12-core Snapdragon X. Dominates every other phase by a
+    /// factor of ~10 -- this constant is the single biggest determinant of
+    /// pipeline wall time on raw FITS lights.</summary>
+    public double CpuNsPerDebayerPixel { get; init; } = 60.0;
 
     /// <summary>Float16 unpack overhead per pixel on read (ns). Cheap thanks to
     /// hardware f16->f32 paths, but not zero.</summary>
@@ -217,6 +237,27 @@ public sealed record IntegrationCostModel
         _ => 0.10,
     };
 
+    /// <summary>Total CPU time to load + calibrate all N source frames once
+    /// (read FITS, apply bias/dark/flat, write to channel buffer). Counts as
+    /// per-source-pixel × frameCount; the work happens before debayer and is
+    /// part of the producer flow every strategy iterates.</summary>
+    public TimeSpan LoadAndCalibrateAllFrames(IntegrationProbe p)
+    {
+        var pixels = (double)p.FrameWidth * p.FrameHeight * p.FrameCount;
+        return TimeSpan.FromMilliseconds(pixels * CpuNsPerLoadCalibratePixel / 1e6);
+    }
+
+    /// <summary>Total CPU time to debayer all N source frames once (ns ×
+    /// source-pixels × N / 1e6 ms). Mosaic-CFA frames only -- mono frames
+    /// pay zero debayer.</summary>
+    public TimeSpan DebayerAllFrames(IntegrationProbe p)
+    {
+        // ChannelCount=1 is mono (no debayer); only CFA frames pay.
+        if (p.ChannelCount == 1) return TimeSpan.Zero;
+        var pixels = (double)p.FrameWidth * p.FrameHeight * p.FrameCount;
+        return TimeSpan.FromMilliseconds(pixels * CpuNsPerDebayerPixel / 1e6);
+    }
+
     /// <summary>Total CPU time to warp all N frames into the canvas (one pass).</summary>
     public TimeSpan WarpAllFrames(IntegrationProbe p)
     {
@@ -229,6 +270,22 @@ public sealed record IntegrationCostModel
     {
         var pixels = (double)p.CanvasWidth * p.CanvasHeight * p.ChannelCount * p.FrameCount;
         return TimeSpan.FromMilliseconds(pixels * CpuNsPerStackPixelPerFrame / 1e6);
+    }
+
+    /// <summary>
+    /// Approximate per-frame cache-miss rate for a strategy that holds at most
+    /// <paramref name="cacheRamBudget"/> bytes of debayered frames in RAM. When
+    /// the working set of all frames fits the budget, hit rate is 1.0 and miss
+    /// rate is 0.0; when it overflows, miss rate is the fraction that doesn't
+    /// fit. Used by tile-pipelined strategies whose pass-2 strip integration
+    /// pays a full re-decode + re-debayer on every cache miss.
+    /// </summary>
+    public double EstimateCacheMissRate(IntegrationProbe p, long cacheRamBudget)
+    {
+        var debayeredBytesPerFrame = (long)p.FrameWidth * p.FrameHeight * p.ChannelCount * sizeof(float);
+        var workingSetBytes = debayeredBytesPerFrame * p.FrameCount;
+        if (workingSetBytes <= cacheRamBudget) return 0.0;
+        return 1.0 - (double)cacheRamBudget / workingSetBytes;
     }
 
     /// <summary>Wall-clock for moving <paramref name="bytes"/> through the
@@ -274,4 +331,26 @@ public sealed record StrategyFit(
     long EstimatedRamBytes,
     long EstimatedDiskBytes,
     TimeSpan EstimatedDuration,
-    string Rationale);
+    string Rationale)
+{
+    // Backing field as nullable so the property getter can fall back to
+    // EstimatedRamBytes -- a positional record's primary constructor params
+    // aren't visible to property initialisers, so we resolve at read time.
+    private readonly long? _floorRamBytes;
+
+    /// <summary>
+    /// Minimum RAM the strategy needs to run at all -- separate from
+    /// <see cref="EstimatedRamBytes"/> which reports the optimistic target.
+    /// For non-adaptive strategies (the default), reading this returns
+    /// <see cref="EstimatedRamBytes"/>: floor == target. Adaptive strategies
+    /// (e.g. <see cref="TilePipelinedStrategy"/>, whose cache can shrink from
+    /// "N x debayered frames" down to "1 in-flight + strip + output") set this
+    /// explicitly so the selector's memory-pressure penalty doesn't over-
+    /// penalise a target that the strategy can scale below at runtime.
+    /// </summary>
+    public long FloorRamBytes
+    {
+        get => _floorRamBytes ?? EstimatedRamBytes;
+        init => _floorRamBytes = value;
+    }
+}

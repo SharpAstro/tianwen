@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Threading;
@@ -40,7 +41,7 @@ public sealed class Float16StagedStrategy : IIntegrationStrategy
                 CanRun: false,
                 EstimatedRamBytes: probe.OutputRamBytes,
                 EstimatedDiskBytes: 0,
-                EstimatedDuration: _costs.WarpAllFrames(probe) + _costs.StackAllFrames(probe),
+                EstimatedDuration: _costs.LoadAndCalibrateAllFrames(probe) + _costs.DebayerAllFrames(probe) + _costs.WarpAllFrames(probe) + _costs.StackAllFrames(probe),
                 Rationale: $"output buffer alone ({Format.GB(probe.OutputRamBytes)}) busts RAM budget");
         }
 
@@ -51,13 +52,19 @@ public sealed class Float16StagedStrategy : IIntegrationStrategy
                 CanRun: false,
                 EstimatedRamBytes: ramCap,
                 EstimatedDiskBytes: 0,
-                EstimatedDuration: _costs.WarpAllFrames(probe) + _costs.StackAllFrames(probe),
+                EstimatedDuration: _costs.LoadAndCalibrateAllFrames(probe) + _costs.DebayerAllFrames(probe) + _costs.WarpAllFrames(probe) + _costs.StackAllFrames(probe),
                 Rationale: $"tile floor {IntegrationTileSizing.MinTileSide} px would need more than {Format.GB(ramCap)} for {probe.FrameCount} frames");
         }
 
         // Half the bytes of float32 (full canvas, sizeof(half) = 2).
         var perFrameStaged = probe.CanvasBytes / 2;
-        var diskBytes = perFrameStaged * probe.FrameCount;
+
+        // Spill-to-disk: frames fitting in the FrameCache strong tier skip the
+        // disk hit entirely. Project the strong cap from currently-free RAM
+        // (same heuristic the runtime uses in FrameCache.DecideCacheCap).
+        var strongCap = FrameCache.DecideCacheCap(probe.FrameCount, probe.CanvasBytes);
+        var diskFrames = Math.Max(0, probe.FrameCount - strongCap);
+        var diskBytes = perFrameStaged * diskFrames;
         var diskCap = budget.AllowedDisk(probe);
         if (diskBytes > diskCap)
         {
@@ -65,8 +72,8 @@ public sealed class Float16StagedStrategy : IIntegrationStrategy
                 CanRun: false,
                 EstimatedRamBytes: IntegrationTileSizing.TileRamBytes(tile, probe) + probe.OutputRamBytes,
                 EstimatedDiskBytes: diskBytes,
-                EstimatedDuration: _costs.WarpAllFrames(probe) + _costs.StackAllFrames(probe),
-                Rationale: $"needs {Format.GB(diskBytes)} disk, cap {Format.GB(diskCap)}");
+                EstimatedDuration: _costs.LoadAndCalibrateAllFrames(probe) + _costs.DebayerAllFrames(probe) + _costs.WarpAllFrames(probe) + _costs.StackAllFrames(probe),
+                Rationale: $"needs {Format.GB(diskBytes)} disk for {diskFrames}/{probe.FrameCount} spilled frames, cap {Format.GB(diskCap)}");
         }
 
         var ram = IntegrationTileSizing.TileRamBytes(tile, probe) + probe.OutputRamBytes;
@@ -74,20 +81,24 @@ public sealed class Float16StagedStrategy : IIntegrationStrategy
         var tileCount = ((probe.CanvasWidth + tile - 1) / tile) * ((probe.CanvasHeight + tile - 1) / tile);
         var io = _costs.DiskIo(
             bytes: diskBytes * 2,
-            seeks: probe.FrameCount + tileCount * probe.FrameCount,
+            seeks: diskFrames + tileCount * diskFrames,
             kind: probe.StagingDiskKind);
 
-        // f16->f32 unpack on every read pixel.
-        var unpackPixels = (double)probe.CanvasBytes / sizeof(float) * probe.FrameCount;
+        // f16->f32 unpack only for the spilled portion -- cached frames slice
+        // straight from RAM with no unpack at all.
+        var unpackPixels = (double)probe.CanvasBytes / sizeof(float) * diskFrames;
         var unpackMs = unpackPixels * _costs.CpuNsPerFloat16Unpack / 1e6;
-        var eta = _costs.WarpAllFrames(probe) + _costs.StackAllFrames(probe) + io + System.TimeSpan.FromMilliseconds(unpackMs);
+        var eta = _costs.LoadAndCalibrateAllFrames(probe) + _costs.DebayerAllFrames(probe) + _costs.WarpAllFrames(probe) + _costs.StackAllFrames(probe) + io + System.TimeSpan.FromMilliseconds(unpackMs);
 
+        var spillNote = diskFrames == 0
+            ? $"all {probe.FrameCount} frames fit in cache -> 0 disk"
+            : $"{strongCap} cached + {diskFrames} spilled to disk";
         return new StrategyFit(
             CanRun: true,
             EstimatedRamBytes: ram,
             EstimatedDiskBytes: diskBytes,
             EstimatedDuration: eta,
-            Rationale: $"tile {tile} px, {Format.GB(diskBytes)} disk (float16 × {probe.FrameCount} frames)");
+            Rationale: $"tile {tile} px, {Format.GB(diskBytes)} disk -- {spillNote} (float16)");
     }
 
     public async ValueTask<IntegrationResult> RunAsync(IntegrationJob job, CancellationToken ct)
@@ -104,20 +115,43 @@ public sealed class Float16StagedStrategy : IIntegrationStrategy
         // half-precision so a cache hit also avoids the Half->float unpack
         // on the read path, not just the disk seek.
         FrameCache? cache = null;
+        var swStrat = System.Diagnostics.Stopwatch.StartNew();
+        var n = job.ExpectedFrameCount;
         try
         {
             var index = 0;
             await foreach (var warped in job.WarpedFrames(ct).WithCancellation(ct))
             {
+                if (index == 0)
+                {
+                    var (c, w, h) = warped.Shape;
+                    var frameBytes = (long)w * h * c * sizeof(float);
+                    cache = new FrameCache(job.ExpectedFrameCount, FrameCache.DecideCacheCap(job.ExpectedFrameCount, frameBytes));
+                }
+
                 var stats = job.StatsRect.Width > 0 && job.StatsRect.Height > 0
                     ? Normalizer.ComputeStats(warped, job.StatsRect)
                     : Normalizer.ComputeStats(warped);
 
-                var stagingPath = Path.Combine(job.StagingDir, $"frame_{index:D4}.bin");
-                StreamingFrameStaging.WriteHalf(warped, stagingPath);
+                // Spill-to-disk: frames within the cache strong tier stay in
+                // RAM only -- no float16 write, no read-back, no quantisation
+                // noise. The in-memory reader holds its own strong ref so the
+                // frame is guaranteed alive for the whole integration. Frames
+                // past the cap stage to disk as half precision and read back
+                // with the existing unpack path.
+                StreamingFrameReader reader;
+                if (index < cache!.StrongCap)
+                {
+                    reader = StreamingFrameReader.InMemoryOnly(warped);
+                }
+                else
+                {
+                    var stagingPath = Path.Combine(job.StagingDir, $"frame_{index:D4}.bin");
+                    StreamingFrameStaging.WriteHalf(warped, stagingPath);
+                    reader = new StreamingFrameReader(stagingPath);
+                    reader.SetCachedImage(warped);
+                }
 
-                var reader = new StreamingFrameReader(stagingPath);
-                reader.SetCachedImage(warped);
                 staged.Add(new StagedAlignedFrame(
                     reader,
                     warped.ImageMeta,
@@ -126,17 +160,15 @@ public sealed class Float16StagedStrategy : IIntegrationStrategy
                     stats.PerChannelMin,
                     stats.PerChannelMedian));
 
-                if (index == 0)
-                {
-                    var (c, w, h) = warped.Shape;
-                    var frameBytes = (long)w * h * c * sizeof(float);
-                    cache = new FrameCache(job.ExpectedFrameCount, FrameCache.DecideCacheCap(job.ExpectedFrameCount, frameBytes));
-                }
-                cache!.Set(index, warped);
+                cache.Set(index, warped);
                 index++;
+                job.Progress?.Report(new IntegrationProgress(IntegrationPhase.LoadingFrames, index, n, swStrat.Elapsed));
             }
 
-            return StreamingIntegrator.Integrate(staged, job.Options);
+            job.Progress?.Report(new IntegrationProgress(IntegrationPhase.Integrating, 0, 1, swStrat.Elapsed));
+            var result = StreamingIntegrator.Integrate(staged, job.Options);
+            job.Progress?.Report(new IntegrationProgress(IntegrationPhase.Integrating, 1, 1, swStrat.Elapsed));
+            return result;
         }
         finally
         {
