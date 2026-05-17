@@ -1181,6 +1181,36 @@ public class StackingEndToEndManualTest(ITestOutputHelper output)
                     solvedWcs = w;
                     Log($"  [plateSolve] RA={w.CenterRA:F6}h Dec={w.CenterDec:F6}°  " +
                         $"matched={psResult.MatchedStars}/{psResult.DetectedStars} ({psResult.Elapsed.TotalMilliseconds:F0} ms)");
+
+                    // Standard formula: focalLen_mm = pixelSize_um * bin * 206.265 / pixelScale_arcsec.
+                    // The source-frame FOCALLEN is whatever the capture software wrote (often the
+                    // nominal scope spec, ignoring focuser position / reducer state / spacer changes);
+                    // the plate-solve pixel scale is empirically what the optical train actually
+                    // produced. Stamp the derived value on the master + cropped result so the
+                    // emitted FITS headers carry a focal length consistent with the embedded WCS.
+                    var pxScale = w.PixelScaleArcsec;
+                    if (refMeta.PixelSizeX > 0 && refMeta.BinX > 0 && !double.IsNaN(pxScale) && pxScale > 0)
+                    {
+                        var effectivePxSize = refMeta.PixelSizeX * refMeta.BinX;
+                        var derivedFL = Astrometry.CoordinateUtils.FocalLengthMm(effectivePxSize, pxScale);
+                        if (!double.IsNaN(derivedFL))
+                        {
+                            var rounded = (int)Math.Round(derivedFL);
+                            var headerFL = master.ImageMeta.FocalLength;
+                            if (rounded > 0 && rounded != headerFL)
+                            {
+                                Log($"  [focalLen] header={headerFL}mm -> solved={rounded}mm " +
+                                    $"(pxScale {pxScale:F3}\"/px, pxSize {effectivePxSize:F2}μm)");
+                                master = WithUpdatedFocalLength(master, rounded);
+                                result = result with { Master = master };
+                                if (croppedResult is not null)
+                                {
+                                    croppedResult = croppedResult with { Master = WithUpdatedFocalLength(croppedResult.Master, rounded) };
+                                    statsSource = croppedResult.Master;
+                                }
+                            }
+                        }
+                    }
                 }
                 else
                 {
@@ -1401,6 +1431,21 @@ public class StackingEndToEndManualTest(ITestOutputHelper output)
         var croppedMaster = CropImage(full.Master, rect);
         var croppedRejection = CropImage(full.RejectionMap, rect);
         return full with { Master = croppedMaster, RejectionMap = croppedRejection };
+    }
+
+    /// <summary>Wrap the same pixel arrays in a new <see cref="Image"/> instance
+    /// whose <see cref="ImageMeta.FocalLength"/> has been replaced. Used after
+    /// plate solve to stamp the master's FOCALLEN with the optically-derived
+    /// value instead of the source-frame header.</summary>
+    private static Image WithUpdatedFocalLength(Image src, int focalLengthMm)
+    {
+        var data = new float[src.ChannelCount][,];
+        for (var c = 0; c < src.ChannelCount; c++)
+        {
+            data[c] = src.GetChannelArray(c);
+        }
+        var meta = src.ImageMeta with { FocalLength = focalLengthMm };
+        return new Image(data, src.BitDepth, src.MaxValue, src.MinValue, src.Pedestal, meta);
     }
 
     /// <summary>

@@ -25,6 +25,25 @@ public static class CoordinateUtils
             : double.NaN;
 
     /// <summary>
+    /// Inverse of <see cref="PixelScaleArcsec"/>: derives focal length from an
+    /// (already-measured) pixel scale. Useful for stamping the master FITS
+    /// with a focal length consistent with the plate-solve result rather than
+    /// whatever value the source camera-control software put in the header
+    /// (which may be off by a few percent or stale across optical-train changes).
+    /// </summary>
+    /// <param name="pixelSizeUm">Effective pixel size in micrometres
+    /// (physical size × binning factor for binned frames).</param>
+    /// <param name="pixelScaleArcsec">Measured pixel scale in arcsec/px, e.g.
+    /// from <c>WCS.PixelScaleArcsec</c>.</param>
+    /// <returns>Focal length in millimetres, or <see cref="double.NaN"/> if either
+    /// parameter is non-positive.</returns>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static double FocalLengthMm(double pixelSizeUm, double pixelScaleArcsec)
+        => pixelSizeUm > 0 && pixelScaleArcsec > 0
+            ? pixelSizeUm * ArcsecPerRadianDiv1000 / pixelScaleArcsec
+            : double.NaN;
+
+    /// <summary>
     /// Returns the astronomical "evening date" for the given site-local time.
     /// Before noon → previous calendar day (we're in last night's session).
     /// After noon → today (tonight's session hasn't started yet or is underway).
