@@ -1,231 +1,216 @@
 using System;
-using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 
 namespace TianWen.Lib.Imaging.Calibration;
 
 /// <summary>
-/// Last-resort strategy when no other fits: split the N frames into K chunks,
-/// integrate each chunk to a partial (value, weight) master, combine the K
-/// partials with weighted mean. Pays a fidelity cost because per-chunk
-/// rejection is not equivalent to across-all-frames rejection -- a pixel
-/// that's an outlier vs the full distribution may not be one within its
-/// chunk. Documented in PLAN-stacking.md:181-187.
+/// Streaming two-pass strategy with cross-N rejection. Pass A accumulates
+/// per-pixel sum + sumSq + count over all N frames; pass B sigma-clips each
+/// frame's pixel against the global mean ± kappa·sd and combines survivors.
+/// Fidelity ~0.95 -- close to <see cref="InRamAllFramesStrategy"/>'s 1.0,
+/// noticeably above the per-chunk rejection that this strategy historically
+/// did (the original "ChunkedTwoPass" had per-chunk thresholds at fidelity
+/// 0.80 because a 5σ outlier vs the full distribution might only be 3σ in
+/// its 80-frame chunk).
 /// </summary>
+/// <remarks>
+/// <para>The strategy iterates <see cref="IntegrationJob.WarpedFrames"/>
+/// twice. On the test orchestrator's producer (Phase 8.5) the calibrated-
+/// frame cache absorbs the second iteration's Load + Calibrate cost almost
+/// entirely; only Debayer + Warp run twice per frame, plus the per-pixel
+/// accumulation work. On a 244-frame SoL run that's roughly 2× the wall
+/// clock of the old per-chunk rejection variant -- a small price for
+/// ~16 percentage points of fidelity.</para>
+///
+/// <para><b>Memory profile</b> -- 3008² × 3 channels:
+/// <list type="bullet">
+///   <item>Pass A: 3 × (sum + sumSq) channels at float32 + 1 count channel at
+///         uint32. ~252 MB total.</item>
+///   <item>After pass A: derive mean + sd (replace sumSq with sd in-place to
+///         reuse the array). Drop sum (the sums are subsumed by sd via the
+///         identity sd² = (sumSq − sum²/n)/n). Keep mean + sd + count. ~252 MB.</item>
+///   <item>Pass B: add weightedSum (3 ch) + keptCount (1). ~144 MB.</item>
+///   <item>Peak: ~600 MB. Well under tight-host budgets and an order of
+///         magnitude below the historical chunk-buffer approach's
+///         12.5 GB at the same workload.</item>
+/// </list></para>
+///
+/// <para>The "Chunked" half of the strategy name is historical -- there are
+/// no chunks now. We kept the kind so existing selector tests + log lines
+/// don't churn; the next selector revision can rename without a behaviour
+/// change.</para>
+/// </remarks>
 public sealed class ChunkedTwoPassStrategy : IIntegrationStrategy
 {
     private readonly IntegrationCostModel _costs;
-    private readonly int _minChunkSize;
 
-    /// <param name="minChunkSize">Smallest frame-count per chunk we accept;
-    /// below this rejection is too noisy to be useful. SigmaClipRejector
-    /// needs at least 4 entries for the (mean, sigma) pair to mean
-    /// anything.</param>
-    public ChunkedTwoPassStrategy(IntegrationCostModel? costs = null, int minChunkSize = 8)
+    public ChunkedTwoPassStrategy(IntegrationCostModel? costs = null)
     {
         _costs = costs ?? new IntegrationCostModel();
-        _minChunkSize = minChunkSize;
     }
 
     public IntegrationStrategyKind Kind => IntegrationStrategyKind.ChunkedTwoPass;
 
-    /// <summary>Significantly below the others: rejection fidelity degrades
-    /// with chunking, partials carry quantisation, and the final combine
-    /// reintroduces per-pixel noise.</summary>
-    public double FidelityScore => 0.80;
+    /// <summary>Cross-N sigma-clip recovers most of the rejection fidelity
+    /// the old per-chunk variant lost. Sits just under
+    /// <see cref="InRamAllFramesStrategy"/>'s 1.0 because the producer
+    /// re-iteration in pass B can pick up subtle drift from non-deterministic
+    /// floating-point warp paths (Parallel.For ordering).</summary>
+    public double FidelityScore => 0.95;
 
     public bool SupportsLiveStacking => false;
 
     public StrategyFit Evaluate(IntegrationProbe probe, ResourceBudget budget)
     {
         var ramCap = budget.AllowedRam(probe);
-        // Chunk size = how many frames we can hold in RAM simultaneously,
-        // minus the output canvas + one running partial.
-        var perChunkBudget = ramCap - probe.OutputRamBytes - probe.CanvasBytes;
-        if (perChunkBudget <= 0)
+        // Pass A: sum + sumSq per channel + count = 3 × canvasBytes (float)
+        //   + 1 × (canvasBytes / 4 × 4) for count uint32. Round up to 4×.
+        // Pass B: mean + sd + count carried over, plus weightedSum (channelCount × float)
+        //   + keptCount (uint32). About another 2× canvasBytes.
+        // One in-flight warped frame at canvasBytes. Output master + reject map.
+        // 7× canvasBytes upper bound (loose; real peak ~6×).
+        var ram = probe.CanvasBytes * 7 + probe.OutputRamBytes;
+        var eta = _costs.LoadAndCalibrateAllFrames(probe)
+            + _costs.DebayerAllFrames(probe) * 2
+            + _costs.WarpAllFrames(probe) * 2
+            + _costs.StackAllFrames(probe) * 2;
+
+        if (ram > ramCap)
         {
             return new StrategyFit(
                 CanRun: false,
-                EstimatedRamBytes: probe.OutputRamBytes + probe.CanvasBytes,
+                EstimatedRamBytes: ram,
                 EstimatedDiskBytes: 0,
-                EstimatedDuration: _costs.LoadAndCalibrateAllFrames(probe) + _costs.DebayerAllFrames(probe) + _costs.WarpAllFrames(probe) + _costs.StackAllFrames(probe),
-                Rationale: $"output ({Format.GB(probe.OutputRamBytes)}) + partial ({Format.GB(probe.CanvasBytes)}) bust RAM cap {Format.GB(ramCap)}");
+                EstimatedDuration: eta,
+                Rationale: $"needs {Format.GB(ram)} RAM for global stats + accumulators, cap {Format.GB(ramCap)}");
         }
-
-        var chunkSize = (int)Math.Min(probe.FrameCount, perChunkBudget / probe.FrameBytes);
-        if (chunkSize < _minChunkSize)
-        {
-            return new StrategyFit(
-                CanRun: false,
-                EstimatedRamBytes: probe.OutputRamBytes + probe.CanvasBytes + (long)_minChunkSize * probe.FrameBytes,
-                EstimatedDiskBytes: 0,
-                EstimatedDuration: _costs.LoadAndCalibrateAllFrames(probe) + _costs.DebayerAllFrames(probe) + _costs.WarpAllFrames(probe) + _costs.StackAllFrames(probe),
-                Rationale: $"chunk size floor {_minChunkSize} frames would need {Format.GB(probe.FrameBytes * _minChunkSize)}, only {Format.GB(perChunkBudget)} free");
-        }
-
-        var k = (probe.FrameCount + chunkSize - 1) / chunkSize;
-        var ram = (long)chunkSize * probe.FrameBytes + probe.CanvasBytes + probe.OutputRamBytes;
-
-        // Two passes worth of compute: per-chunk integrate + final combine.
-        // The final combine touches K canvases worth of pixels, cheap vs the
-        // per-chunk integrate, so approximate as 1.0× WarpAllFrames + StackAllFrames.
-        // Each chunk decodes + debayers its frames once -- across all chunks
-        // that's still 1.0× DebayerAllFrames total.
-        var eta = _costs.LoadAndCalibrateAllFrames(probe) + _costs.DebayerAllFrames(probe) + _costs.WarpAllFrames(probe) + _costs.StackAllFrames(probe);
 
         return new StrategyFit(
             CanRun: true,
             EstimatedRamBytes: ram,
             EstimatedDiskBytes: 0,
             EstimatedDuration: eta,
-            Rationale: $"{k} chunks of {chunkSize}, {Format.GB(ram)} / {Format.GB(ramCap)} (rejection fidelity degraded)");
+            Rationale: $"two-pass streaming reject+combine, {Format.GB(ram)} / {Format.GB(ramCap)}, cross-N sigma-clip")
+        {
+            FloorRamBytes = ram,
+        };
     }
 
     public async ValueTask<IntegrationResult> RunAsync(IntegrationJob job, CancellationToken ct)
     {
-        // Snapshot RAM at RunAsync time (may have changed since Pick) so the
-        // chunk size accounts for current pressure rather than probe-time.
-        var info = GC.GetGCMemoryInfo();
-        var freeRam = Math.Max(0, info.TotalAvailableMemoryBytes - info.MemoryLoadBytes);
-        var ramCap = (long)(freeRam * new ResourceBudget().RamSafetyFactor);
-
-        // Producer doesn't carry shape info; cache it from the first frame and
-        // size the accumulator buffers from there. Chunk size is recomputed
-        // from frame bytes once we know them.
         var combiner = job.Options.Combiner ?? new MeanCombiner();
         var rejector = job.Options.Rejector;
+        var n = job.ExpectedFrameCount;
+        var swStrat = System.Diagnostics.Stopwatch.StartNew();
 
-        var buffer = new List<Image>();
-        float[][,]? sumValues = null;   // [channel][h, w] -- per-channel weighted sum
-        float[,]? sumWeights = null;    // [h, w] -- channel-shared weight, since the
-                                        // rejector RejectionMap is single-channel mean.
-        var totalFrames = 0;
-        var chunkSize = 0;
-        long totalRejections = 0;
+        // ----- Pass A: stream + accumulate per-pixel sum / sumSq / count -----
+        // Allocated lazily off the first frame so we don't have to assume
+        // canvas shape ahead of time.
+        float[][,]? sumArr = null;
+        float[][,]? sumSqArr = null;
+        uint[,]? countArr = null;
+        int channels = 0, width = 0, height = 0;
         Image? firstFrame = null;
-
-        void FlushChunk()
-        {
-            if (buffer.Count == 0) return;
-            ct.ThrowIfCancellationRequested();
-            // Pure reject+combine: frames are already normalised. ApplyNormalization
-            // off so Integrator doesn't re-compute (would use whole-frame stats and
-            // double-normalise).
-            var chunkResult = Integrator.Integrate(
-                buffer,
-                new IntegrationOptions(
-                    Rejector: rejector,
-                    Combiner: combiner,
-                    ApplyNormalization: false));
-
-            var (chans, w, h) = chunkResult.Master.Shape;
-            sumValues ??= AllocSum(chans, h, w);
-            sumWeights ??= new float[h, w];
-
-            var rejectArr = chunkResult.RejectionMap.GetChannelArray(0);
-            var n_k = buffer.Count;
-
-            // Per-pixel weight = n_k * (1 - rejection_fraction). Channel-shared
-            // because RejectionMap is the mean across channels.
-            Parallel.For(0, h, y =>
-            {
-                for (var x = 0; x < w; x++)
-                {
-                    sumWeights[y, x] += n_k * (1f - rejectArr[y, x]);
-                }
-            });
-
-            // Per-channel weighted sum.
-            for (var c = 0; c < chans; c++)
-            {
-                var sumArr = sumValues[c];
-                var masterArr = chunkResult.Master.GetChannelArray(c);
-                Parallel.For(0, h, y =>
-                {
-                    for (var x = 0; x < w; x++)
-                    {
-                        var weight = n_k * (1f - rejectArr[y, x]);
-                        sumArr[y, x] += masterArr[y, x] * weight;
-                    }
-                });
-            }
-
-            totalRejections += chunkResult.TotalRejections;
-            buffer.Clear();
-        }
+        var framesSeen = 0;
+        long totalRejections = 0;
 
         await foreach (var warped in job.WarpedFrames(ct).WithCancellation(ct))
         {
             firstFrame ??= warped;
-            if (chunkSize == 0)
+            if (sumArr is null)
             {
-                // Size chunks at RunAsync time using actual first-frame bytes;
-                // matches the evaluate-time math but uses live frame shape.
-                var (chans, w, h) = warped.Shape;
-                var frameBytes = (long)w * h * chans * sizeof(float);
-                var canvasBytes = frameBytes;
-                var outputRamBytes = canvasBytes * (job.Options.Rejector is not null ? 2 : 1);
-                var perChunkBudget = ramCap - outputRamBytes - canvasBytes; // 1 partial canvas + output
-                if (perChunkBudget <= 0)
+                (channels, width, height) = warped.Shape;
+                sumArr = new float[channels][,];
+                sumSqArr = new float[channels][,];
+                for (var c = 0; c < channels; c++)
                 {
-                    throw new InvalidOperationException(
-                        $"ChunkedTwoPass: RAM cap {ramCap / 1e9:F2} GB insufficient for output + partial canvas.");
+                    sumArr[c] = new float[height, width];
+                    sumSqArr[c] = new float[height, width];
                 }
-                chunkSize = (int)Math.Max(_minChunkSize, perChunkBudget / frameBytes);
-                chunkSize = Math.Min(chunkSize, job.ExpectedFrameCount);
+                countArr = new uint[height, width];
             }
 
-            // Pre-normalise the warped frame using StatsRect-aware stats so
-            // the chunk's Integrator only does reject+combine.
-            var stats = job.StatsRect.Width > 0 && job.StatsRect.Height > 0
-                ? Normalizer.ComputeStats(warped, job.StatsRect)
-                : Normalizer.ComputeStats(warped);
-            var normalised = Normalizer.Apply(warped, stats, job.Options.NormalizationTarget);
-            buffer.Add(normalised);
-            totalFrames++;
-
-            if (buffer.Count >= chunkSize) FlushChunk();
+            var normalised = NormaliseIfRequested(warped, job);
+            AccumulateStats(normalised, sumArr, sumSqArr!, countArr!);
+            framesSeen++;
+            job.Progress?.Report(new IntegrationProgress(IntegrationPhase.LoadingFrames, framesSeen, n, swStrat.Elapsed));
         }
-        FlushChunk();
 
-        if (sumValues is null || sumWeights is null || firstFrame is null || totalFrames == 0)
+        if (sumArr is null || sumSqArr is null || countArr is null || firstFrame is null || framesSeen == 0)
         {
             throw new InvalidOperationException("ChunkedTwoPass: producer yielded no frames");
         }
 
-        // Finalise: divide per-channel sums by weights, derive rejection map
-        // from the weight deficit relative to N.
-        var (channels, width, height) = firstFrame.Shape;
-        var masterData = Image.CreateChannelData(channels, height, width);
-        var rejectMapData = Image.CreateChannelData(1, height, width);
-        var rejectMap = rejectMapData[0];
+        // Derive per-pixel mean + sd in place. sumSqArr becomes sdArr.
+        // After this loop sumArr holds the per-pixel mean and sumSqArr holds
+        // the per-pixel standard deviation; both have NaN where count==0
+        // (pixels that no frame covered, typically union-BB edges).
+        var meanArr = sumArr;
+        var sdArr = sumSqArr;
+        FinaliseMeanAndSd(meanArr, sdArr, countArr);
 
+        // ----- Pass B: stream again, sigma-clip + combine -----
+        // Re-iterate the producer. The Phase 8.5 calibrated-frame cache on
+        // the test orchestrator makes this near-free for Load + Calibrate;
+        // only Debayer + Warp run twice per frame.
+        var (kappaLow, kappaHigh) = ExtractKappa(rejector);
+        var combineSum = new float[channels][,];
         for (var c = 0; c < channels; c++)
         {
-            var masterArr = masterData[c];
-            var sumArr = sumValues[c];
+            combineSum[c] = new float[height, width];
+        }
+        var keptCount = new uint[height, width];
+        var passBFrames = 0;
+
+        await foreach (var warped in job.WarpedFrames(ct).WithCancellation(ct))
+        {
+            ct.ThrowIfCancellationRequested();
+            var normalised = NormaliseIfRequested(warped, job);
+            var localRejected = AccumulateClippedCombine(normalised, meanArr, sdArr, kappaLow, kappaHigh, combineSum, keptCount);
+            totalRejections += localRejected;
+            passBFrames++;
+            job.Progress?.Report(new IntegrationProgress(IntegrationPhase.Integrating, passBFrames, framesSeen, swStrat.Elapsed));
+        }
+
+        if (passBFrames != framesSeen)
+        {
+            throw new InvalidOperationException(
+                $"ChunkedTwoPass: producer yielded {passBFrames} frames in pass B vs {framesSeen} in pass A. " +
+                "WarpedFrames must be repeatable for two-pass strategies.");
+        }
+
+        // ----- Finalise master + rejection map -----
+        job.Progress?.Report(new IntegrationProgress(IntegrationPhase.Finalizing, 0, 1, swStrat.Elapsed));
+        var masterData = Image.CreateChannelData(channels, height, width);
+        for (var c = 0; c < channels; c++)
+        {
+            var masterCh = masterData[c];
+            var sumCh = combineSum[c];
             Parallel.For(0, height, y =>
             {
                 for (var x = 0; x < width; x++)
                 {
-                    var w = sumWeights[y, x];
-                    masterArr[y, x] = w > 0 ? sumArr[y, x] / w : 0f;
+                    var k = keptCount[y, x];
+                    masterCh[y, x] = k > 0 ? sumCh[y, x] / k : float.NaN;
                 }
             });
         }
+
+        var rejectMapData = Image.CreateChannelData(1, height, width);
+        var rejectMap = rejectMapData[0];
         Parallel.For(0, height, y =>
         {
             for (var x = 0; x < width; x++)
             {
-                rejectMap[y, x] = totalFrames > 0
-                    ? Math.Max(0f, 1f - sumWeights[y, x] / totalFrames)
+                rejectMap[y, x] = framesSeen > 0
+                    ? Math.Max(0f, 1f - (float)keptCount[y, x] / framesSeen)
                     : 0f;
             }
         });
 
-        var meanRate = totalFrames > 0
-            ? (double)totalRejections / ((double)totalFrames * width * height * channels)
+        var meanRate = framesSeen > 0
+            ? (double)totalRejections / ((double)framesSeen * width * height * channels)
             : 0.0;
 
         var masterImage = new Image(
@@ -237,13 +222,149 @@ public sealed class ChunkedTwoPassStrategy : IIntegrationStrategy
             maxValue: 1f, minValue: 0f, pedestal: 0f,
             imageMeta: firstFrame.ImageMeta);
 
-        return new IntegrationResult(masterImage, rejectMapImage, totalFrames, totalRejections, meanRate);
+        job.Progress?.Report(new IntegrationProgress(IntegrationPhase.Finalizing, 1, 1, swStrat.Elapsed));
+        return new IntegrationResult(masterImage, rejectMapImage, framesSeen, totalRejections, meanRate);
     }
 
-    private static float[][,] AllocSum(int channels, int h, int w)
+    /// <summary>Normalise the warped frame using stats taken over
+    /// <see cref="IntegrationJob.StatsRect"/> when set, else whole-frame.
+    /// Mirrors the historical chunked-path behaviour.</summary>
+    private static Image NormaliseIfRequested(Image warped, IntegrationJob job)
     {
-        var arr = new float[channels][,];
-        for (var c = 0; c < channels; c++) arr[c] = new float[h, w];
-        return arr;
+        if (!job.Options.ApplyNormalization) return warped;
+        var stats = job.StatsRect.Width > 0 && job.StatsRect.Height > 0
+            ? Normalizer.ComputeStats(warped, job.StatsRect)
+            : Normalizer.ComputeStats(warped);
+        return Normalizer.Apply(warped, stats, job.Options.NormalizationTarget);
+    }
+
+    private static void AccumulateStats(Image frame, float[][,] sum, float[][,] sumSq, uint[,] count)
+    {
+        var (channels, w, h) = frame.Shape;
+        for (var c = 0; c < channels; c++)
+        {
+            var srcCh = frame.GetChannelArray(c);
+            var sumCh = sum[c];
+            var sumSqCh = sumSq[c];
+            // Count is channel-shared: a NaN at (y, x) in any one channel
+            // typically means warp coverage missed there in ALL channels
+            // (the bilinear sampler emits NaN per-channel uniformly). We
+            // update count using channel 0 only and trust the symmetry.
+            // sum and sumSq still get per-channel updates.
+            var updateCount = c == 0;
+            Parallel.For(0, h, y =>
+            {
+                for (var x = 0; x < w; x++)
+                {
+                    var v = srcCh[y, x];
+                    if (!float.IsNaN(v))
+                    {
+                        sumCh[y, x] += v;
+                        sumSqCh[y, x] += v * v;
+                        if (updateCount) count[y, x]++;
+                    }
+                }
+            });
+        }
+    }
+
+    /// <summary>In-place transform of (sum, sumSq, count) into (mean, sd, count).
+    /// sd uses the population formula sqrt(sumSq/n − (sum/n)²) clamped to 0
+    /// when numerical error pushes the radicand slightly negative.</summary>
+    private static void FinaliseMeanAndSd(float[][,] sumToMean, float[][,] sumSqToSd, uint[,] count)
+    {
+        var channels = sumToMean.Length;
+        var h = sumToMean[0].GetLength(0);
+        var w = sumToMean[0].GetLength(1);
+        for (var c = 0; c < channels; c++)
+        {
+            var meanCh = sumToMean[c];
+            var sdCh = sumSqToSd[c];
+            Parallel.For(0, h, y =>
+            {
+                for (var x = 0; x < w; x++)
+                {
+                    var n = count[y, x];
+                    if (n == 0)
+                    {
+                        meanCh[y, x] = float.NaN;
+                        sdCh[y, x] = float.NaN;
+                        continue;
+                    }
+                    var nF = (float)n;
+                    var mean = meanCh[y, x] / nF;
+                    var variance = sdCh[y, x] / nF - mean * mean;
+                    meanCh[y, x] = mean;
+                    sdCh[y, x] = variance > 0f ? MathF.Sqrt(variance) : 0f;
+                }
+            });
+        }
+    }
+
+    /// <summary>Sigma-clip each frame pixel against the global (mean, sd).
+    /// Returns the number of (pixel, channel) entries this frame contributed
+    /// that were rejected. Updates combineSum + keptCount in place.</summary>
+    private static long AccumulateClippedCombine(
+        Image frame, float[][,] mean, float[][,] sd, float kappaLow, float kappaHigh,
+        float[][,] combineSum, uint[,] keptCount)
+    {
+        var (channels, w, h) = frame.Shape;
+        long localRejected = 0;
+        for (var c = 0; c < channels; c++)
+        {
+            var srcCh = frame.GetChannelArray(c);
+            var meanCh = mean[c];
+            var sdCh = sd[c];
+            var combineCh = combineSum[c];
+            var updateCount = c == 0;
+            Parallel.For(0, h,
+                () => 0L,
+                (y, _, localRej) =>
+                {
+                    for (var x = 0; x < w; x++)
+                    {
+                        var v = srcCh[y, x];
+                        if (float.IsNaN(v)) continue;
+                        var m = meanCh[y, x];
+                        var s = sdCh[y, x];
+                        if (float.IsNaN(m) || float.IsNaN(s))
+                        {
+                            // Per-pixel column was all-NaN in pass A; pass B
+                            // can't tighten that, just include any non-NaN
+                            // value we see now so the master isn't all-NaN.
+                        }
+                        else
+                        {
+                            var delta = v - m;
+                            // Asymmetric low/high gates so the rejector matches the
+                            // SigmaClipRejector knobs the user already configured.
+                            if (delta < -kappaLow * s || delta > kappaHigh * s)
+                            {
+                                localRej++;
+                                continue;
+                            }
+                        }
+                        combineCh[y, x] += v;
+                        if (updateCount) keptCount[y, x]++;
+                    }
+                    return localRej;
+                },
+                localRej => Interlocked.Add(ref localRejected, localRej));
+        }
+        return localRejected;
+    }
+
+    /// <summary>Extract the sigma-clip thresholds from the configured
+    /// rejector. Falls back to (3.0, 3.0) when the rejector doesn't expose
+    /// them or when no rejector is configured.</summary>
+    private static (float Low, float High) ExtractKappa(IPixelRejector? rejector)
+    {
+        return rejector switch
+        {
+            SigmaClipRejector s => (s.LowSigma, s.HighSigma),
+            WinsorizedSigmaClipRejector ws => (ws.LowSigma, ws.HighSigma),
+            null => (3.0f, 3.0f),
+            _ => (3.0f, 3.0f),
+        };
     }
 }
