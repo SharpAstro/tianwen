@@ -108,18 +108,27 @@ internal sealed class FrameCache
     /// Heuristic: how many strong references the cache should retain given
     /// <paramref name="frameCount"/> frames at <paramref name="frameBytes"/>
     /// bytes each. Samples <see cref="GC.GetGCMemoryInfo"/> at call time and
-    /// allocates ~50% of currently-free heap to the cache, leaving the rest
-    /// for the strategy's working set. Returns 0..<paramref name="frameCount"/>.
+    /// allocates a configurable fraction of currently-free heap to the cache,
+    /// leaving the rest for the strategy's working set.
+    /// Returns 0..<paramref name="frameCount"/>.
     /// </summary>
     /// <param name="frameCount">Total frame count for the integration.</param>
     /// <param name="frameBytes">Bytes one cached <see cref="Image"/> occupies.
     /// Typically <c>Width * Height * Channels * sizeof(float)</c>.</param>
-    public static int DecideCacheCap(int frameCount, long frameBytes)
+    /// <param name="budgetFraction">Share of currently-free RAM allotted to
+    /// the strong-cap. Default 0.80 -- the staged + tile-pipelined strategies
+    /// have small working sets (one strip at a time) so leaving 20% headroom
+    /// for the integrator scratch + GC churn is plenty. Was 0.50 historically;
+    /// the lower budget tripped TilePipelined into per-strip cache thrashing
+    /// on the 244-frame SoL run where even the bumped cap (130 vs 28 frames)
+    /// is the difference between a viable strategy and a 72-min wallclock.</param>
+    public static int DecideCacheCap(int frameCount, long frameBytes, double budgetFraction = 0.80)
     {
         if (frameCount <= 0 || frameBytes <= 0) return 0;
+        if (budgetFraction <= 0.0 || budgetFraction > 1.0) throw new ArgumentOutOfRangeException(nameof(budgetFraction));
         var info = GC.GetGCMemoryInfo();
         var currentlyFree = Math.Max(0, info.TotalAvailableMemoryBytes - info.MemoryLoadBytes);
-        var cacheBudget = currentlyFree / 2;
+        var cacheBudget = (long)(currentlyFree * budgetFraction);
         var maxByBytes = cacheBudget / frameBytes;
         if (maxByBytes <= 0) return 0;
         if (maxByBytes >= frameCount) return frameCount;

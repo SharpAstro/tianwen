@@ -42,6 +42,39 @@ public partial class Image
     /// Returns an <see cref="Image"/> wrapping the channel data (no new arrays allocated).
     /// For mono/color: copies + normalizes into destination channels instead of modifying in place.
     /// </summary>
+    /// <summary>
+    /// Debayers a sub-region of the source into pre-allocated full-canvas
+    /// destination channels. Only the pixels inside <paramref name="sourceRect"/>
+    /// (plus the algorithm's halo neighbours) are touched; the rest of the
+    /// destination keeps whatever the caller put there (typically pool garbage,
+    /// harmless because downstream consumers sample inside the rect).
+    /// </summary>
+    /// <param name="destination">Pre-allocated full-canvas channels (3 for
+    /// AHD/VNG, 1 for BilinearMono). Caller owns and reuses across calls.</param>
+    /// <param name="debayerAlgorithm">Currently <see cref="DebayerAlgorithm.AHD"/>
+    /// is the only sub-region-aware impl; other algorithms throw.</param>
+    /// <param name="sourceRect">Pixel rect in source-frame coordinates. Caller
+    /// must add halo for the algorithm (AHD needs radius+homogeneityRadius=4
+    /// pixels; warp consumers typically add 1 more for bilinear sampling) so
+    /// the pixels they care about have valid neighbours inside the rect.</param>
+    public Task<Image> DebayerRegionIntoAsync(Channel[] destination, DebayerAlgorithm debayerAlgorithm, System.Drawing.Rectangle sourceRect, CancellationToken cancellationToken = default)
+    {
+        if (imageMeta.SensorType is not SensorType.RGGB)
+        {
+            throw new InvalidOperationException(
+                "DebayerRegionIntoAsync only makes sense on a Bayer source -- " +
+                "mono/colour images have no debayer step to skip.");
+        }
+        var destArrays = new float[destination.Length][,];
+        for (var c = 0; c < destination.Length; c++) destArrays[c] = destination[c].Data;
+        return debayerAlgorithm switch
+        {
+            DebayerAlgorithm.AHD => DebayerAHDAsync(scale: 1.0f, cancellationToken, destArrays, sourceRect),
+            _ => throw new NotSupportedException(
+                $"DebayerRegionIntoAsync currently only supports AHD; {debayerAlgorithm} would need a sub-region overload of its inner loop."),
+        };
+    }
+
     public async Task<Image> DebayerIntoAsync(Channel[] destination, DebayerAlgorithm debayerAlgorithm, bool normalizeToUnit = false, CancellationToken cancellationToken = default)
     {
         // Extract float[][,] from Channel[] for the internal debayer methods
@@ -382,27 +415,40 @@ public partial class Image
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
-    private void ProcessEdgePixels(float[][,] debayered, int width, int height, int radius, int[,] bayerPattern, float scale = 1.0f)
+    private void ProcessEdgePixels(float[][,] debayered, int width, int height, int radius, int[,] bayerPattern, float scale = 1.0f, System.Drawing.Rectangle? activeRect = null)
     {
-        // Top and bottom edges
-        for (int y = 0; y < height; y++)
+        // If the caller is debayering a sub-region, restrict edge-pixel
+        // filling to the canvas-edge zone INSIDE that rect; pixels outside
+        // the rect aren't touched (caller doesn't care about them and the
+        // scratch arrays may hold pool-garbage there). Interior rects are
+        // typically a no-op (fast intersection check below).
+        var rect = activeRect ?? new System.Drawing.Rectangle(0, 0, width, height);
+        var rx0 = Math.Max(0, rect.X);
+        var ry0 = Math.Max(0, rect.Y);
+        var rx1 = Math.Min(width, rect.X + rect.Width);
+        var ry1 = Math.Min(height, rect.Y + rect.Height);
+
+        // Top and bottom edges within rect
+        for (int y = ry0; y < ry1; y++)
         {
             if (y >= radius && y < height - radius) continue; // Skip interior rows
 
-            for (int x = 0; x < width; x++)
+            for (int x = rx0; x < rx1; x++)
             {
                 ProcessEdgePixel(debayered, x, y, width, height, bayerPattern, scale);
             }
         }
 
-        // Left and right edges (excluding corners already processed)
-        for (int y = radius; y < height - radius; y++)
+        // Left and right edges within rect (excluding corners already processed)
+        var sideY0 = Math.Max(ry0, radius);
+        var sideY1 = Math.Min(ry1, height - radius);
+        for (int y = sideY0; y < sideY1; y++)
         {
-            for (int x = 0; x < radius; x++)
+            for (int x = rx0; x < Math.Min(rx1, radius); x++)
             {
                 ProcessEdgePixel(debayered, x, y, width, height, bayerPattern, scale);
             }
-            for (int x = width - radius; x < width; x++)
+            for (int x = Math.Max(rx0, width - radius); x < rx1; x++)
             {
                 ProcessEdgePixel(debayered, x, y, width, height, bayerPattern, scale);
             }
@@ -453,7 +499,7 @@ public partial class Image
         return count > 0 ? sum / count : 0;
     }
 
-    private async Task<Image> DebayerAHDAsync(float scale, CancellationToken cancellationToken, float[][,]? destination = null)
+    private async Task<Image> DebayerAHDAsync(float scale, CancellationToken cancellationToken, float[][,]? destination = null, System.Drawing.Rectangle? sourceRect = null)
     {
         var width = Width;
         var height = Height;
@@ -477,6 +523,50 @@ public partial class Image
         const int radius = 2;
         const int homogeneityRadius = 2; // neighborhood radius for homogeneity comparison
         const int totalRadius = radius + homogeneityRadius;
+
+        // Sub-region iteration bounds. sourceRect=null -> full frame (today's
+        // behaviour, byte-equivalent). sourceRect=R -> iterate only over R.
+        // Each phase consumes the previous phase's output in a halo window,
+        // so the inner phases process a slab WIDER than the rect to make sure
+        // the rect's edge pixels in the next phase have valid neighbours.
+        // Walking the dependency chain backwards from the final Phase 4
+        // outputs (which sit at rect rows):
+        //  Phase 4 reads dst at y/x ± 1 (3x3 median filter)
+        //    -> Phase 3 must cover rect grown by 1.
+        //  Phase 3 reads rgbH/V at y/x ± homogeneityRadius
+        //    -> Phase 1 must cover rect grown by (1 + homogeneityRadius).
+        //  ProcessEdgePixels must fill canvas-edge pixels INSIDE rect-grown-
+        //  by-1 so Phase 4's halo reads land on valid edge fill.
+        // Pixels inside the rect that fall in the canvas-edge zone get the
+        // standard ProcessEdgePixels treatment below.
+        var rect = sourceRect ?? new System.Drawing.Rectangle(0, 0, width, height);
+        var rectRight = rect.X + rect.Width;
+        var rectBottom = rect.Y + rect.Height;
+        const int phase4Halo = 1;
+        var phase1Grow = phase4Halo + homogeneityRadius;
+        // Phase 1 (interior, radius=2 halo around source reads)
+        var p1Y0 = Math.Max(radius, rect.Y - phase1Grow);
+        var p1Y1 = Math.Min(height - radius, rectBottom + phase1Grow);
+        var p1X0 = Math.Max(radius, rect.X - phase1Grow);
+        var p1X1 = Math.Min(width - radius, rectRight + phase1Grow);
+        // Phase 3 (interior, totalRadius=4 halo: phase 1 result + homogeneity
+        // neighbours; grown by 1 so Phase 4's median filter reads land in
+        // valid rows)
+        var p3Y0 = Math.Max(totalRadius, rect.Y - phase4Halo);
+        var p3Y1 = Math.Min(height - totalRadius, rectBottom + phase4Halo);
+        var p3X0 = Math.Max(totalRadius, rect.X - phase4Halo);
+        var p3X1 = Math.Min(width - totalRadius, rectRight + phase4Halo);
+        // Phase 4 (whole rect; 3x3 median filter handles edges via copy-as-is)
+        var p4Y0 = Math.Max(0, rect.Y);
+        var p4Y1 = Math.Min(height, rectBottom);
+        var p4X0 = Math.Max(0, rect.X);
+        var p4X1 = Math.Min(width, rectRight);
+        // ProcessEdgePixels target: rect grown by Phase 4's halo so dst at
+        // (rect.Y - 1, *) etc. is filled with canvas-edge values where it
+        // lies in the radius zone.
+        var edgeFillRect = sourceRect is null
+            ? (System.Drawing.Rectangle?)null
+            : new System.Drawing.Rectangle(rect.X - phase4Halo, rect.Y - phase4Halo, rect.Width + 2 * phase4Halo, rect.Height + 2 * phase4Halo);
 
         // Phase 1 & 2: Build horizontal and vertical full-color interpolations in parallel
         var rgbH = destination ?? CreateChannelData(3, height, width);
@@ -503,7 +593,7 @@ public partial class Image
         // then R/B guided by green. Same Unsafe.Add-via-pinned-ref trick as
         // Phase 3 -- per-pixel reads/writes drop their bounds checks.
         var stridePhase1 = width;
-        Parallel.For(radius, height - radius, parallelOptions, y =>
+        Parallel.For(p1Y0, p1Y1, parallelOptions, y =>
         {
             ref var src0 = ref srcChannel[0, 0];
             ref var rgbH_R0 = ref rgbH_R[0, 0];
@@ -516,7 +606,7 @@ public partial class Image
             int patternEven = (y & 1) == 0 ? pattern00 : pattern10;
             int patternOdd = (y & 1) == 0 ? pattern01 : pattern11;
 
-            for (int x = radius; x < width - radius; x++)
+            for (int x = p1X0; x < p1X1; x++)
             {
                 int knownColor = (x & 1) == 0 ? patternEven : patternOdd;
                 int idx = y * stridePhase1 + x;
@@ -609,7 +699,7 @@ public partial class Image
         var dstR = debayered[R]; var dstG = debayered[G]; var dstB = debayered[B];
         var stride = width;
 
-        Parallel.For(totalRadius, height - totalRadius, parallelOptions, y =>
+        Parallel.For(p3Y0, p3Y1, parallelOptions, y =>
         {
             ref var rgbH_R0 = ref rgbH_R[0, 0];
             ref var rgbH_G0 = ref rgbH_G[0, 0];
@@ -621,7 +711,7 @@ public partial class Image
             ref var dstG0 = ref dstG[0, 0];
             ref var dstB0 = ref dstB[0, 0];
 
-            for (int x = totalRadius; x < width - totalRadius; x++)
+            for (int x = p3X0; x < p3X1; x++)
             {
                 int homH = 0, homV = 0;
                 var centerIdx = y * stride + x;
@@ -696,8 +786,10 @@ public partial class Image
             }
         });
 
-        // Fill edge pixels with bilinear interpolation before artifact reduction
-        ProcessEdgePixels(debayered, width, height, totalRadius, bayerPattern);
+        // Fill edge pixels with bilinear interpolation before artifact reduction.
+        // For sub-region calls, only process canvas-edge pixels intersecting
+        // the rect-grown-by-Phase4-halo (typically zero work for interior strips).
+        ProcessEdgePixels(debayered, width, height, totalRadius, bayerPattern, scale: 1.0f, edgeFillRect);
 
         // Phase 4: Artifact reduction - 3×3 median filter on color differences (R-G) and (B-G)
         // This smooths the abrupt H/V direction switching that causes per-pixel colour noise
@@ -705,11 +797,11 @@ public partial class Image
         var filtered = rgbH;
         var filtR = filtered[R]; var filtG = filtered[G]; var filtB = filtered[B];
 
-        Parallel.For(0, height, parallelOptions, y =>
+        Parallel.For(p4Y0, p4Y1, parallelOptions, y =>
         {
             Span<float> medianBuf = stackalloc float[9];
 
-            for (int x = 0; x < width; x++)
+            for (int x = p4X0; x < p4X1; x++)
             {
                 // Green channel is kept as-is
                 filtG[y, x] = dstG[y, x] * scale;
