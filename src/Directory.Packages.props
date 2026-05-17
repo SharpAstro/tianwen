@@ -12,7 +12,7 @@
     <!-- Core libraries -->
     <PackageVersion Include="CommunityToolkit.HighPerformance" Version="8.4.2" />
     <PackageVersion Include="DotNext.Threading" Version="6.1.0" />
-    <PackageVersion Include="FITS.Lib" Version="4.5.*" />
+    <PackageVersion Include="FITS.Lib" Version="4.6.0" />
     <PackageVersion Include="GeoTimeZone" Version="6.1.0" />
     <!-- Microsoft packages -->
     <PackageVersion Include="Microsoft.Extensions.DependencyInjection" Version="10.0.5" />
