@@ -61,11 +61,25 @@ public static class Integrator
     /// Parallelized over output rows; each worker rents per-row scratch
     /// buffers from <see cref="ArrayPool{T}"/>.
     /// </summary>
+    /// <param name="alignedFrames">Pre-warped frames sharing shape + reference grid.</param>
+    /// <param name="options">Rejector / combiner / normalisation knobs.</param>
+    /// <param name="masterSink">Optional canvas backing for the master. Null
+    /// (default) allocates an <see cref="ArraySink"/> with the same shape as
+    /// the input frames -- today's behaviour. Caller-supplied sinks (e.g.
+    /// <see cref="MemoryMappedFitsSink"/> for big-canvas Phase 10 stacks) must
+    /// match the input frame shape; ownership transfers to this method, which
+    /// disposes on exit.</param>
+    /// <param name="rejectSink">Optional canvas backing for the single-channel
+    /// rejection-fraction map. Null (default) allocates an
+    /// <see cref="ArraySink"/>. Caller-supplied sinks must be 1-channel and
+    /// match the master shape.</param>
     /// <exception cref="ArgumentException">Empty frame list or shape mismatch
-    /// across frames.</exception>
+    /// across frames / sinks.</exception>
     public static IntegrationResult Integrate(
         IReadOnlyList<Image> alignedFrames,
-        IntegrationOptions? options = null)
+        IntegrationOptions? options = null,
+        IIntegrationSink? masterSink = null,
+        IIntegrationSink? rejectSink = null)
     {
         options ??= new IntegrationOptions();
         var combiner = options.Combiner ?? new MeanCombiner();
@@ -86,13 +100,13 @@ public static class Integrator
             ? ComputeNormalizationScalars(alignedFrames, options.NormalizationTarget, n, channelCount)
             : (null, null);
 
-        // Master canvas + single-channel rejection map (average rejection
-        // fraction across channels per output pixel; useful for QA + masking
-        // heavily-rejected regions downstream). Both go through IIntegrationSink
-        // so Phase 10's MemoryMappedFitsSink can drop in without touching the
-        // hot loop. ArraySink is today's behaviour: heap float[][,].
-        using var masterSink = new ArraySink(channelCount, width, height);
-        using var rejectSink = new ArraySink(1, width, height);
+        // Caller-supplied sinks must agree with the input shape; null falls
+        // back to today's heap-backed ArraySink so this overload stays a
+        // no-behaviour-change drop-in for the existing call sites.
+        ValidateSinkShape(masterSink, channelCount, width, height, nameof(masterSink));
+        ValidateSinkShape(rejectSink, 1, width, height, nameof(rejectSink));
+        using IIntegrationSink masterSinkInUse = masterSink ?? new ArraySink(channelCount, width, height);
+        using IIntegrationSink rejectSinkInUse = rejectSink ?? new ArraySink(1, width, height);
 
         long totalRejections = 0;
 
@@ -121,8 +135,8 @@ public static class Integrator
                     // arithmetic, not a per-pixel cost). Master span is written;
                     // reject span is read-modify-write to accumulate across
                     // channels (final /= channelCount happens below the channel loop).
-                    var masterRow = masterSink.GetRow(channelIdx, row);
-                    var rejectRow = rejectSink.GetRow(0, row);
+                    var masterRow = masterSinkInUse.GetRow(channelIdx, row);
+                    var rejectRow = rejectSinkInUse.GetRow(0, row);
 
                     for (var col = 0; col < width; col++)
                     {
@@ -174,7 +188,7 @@ public static class Integrator
             var inv = 1f / channelCount;
             for (var y = 0; y < height; y++)
             {
-                var rejectRow = rejectSink.GetRow(0, y);
+                var rejectRow = rejectSinkInUse.GetRow(0, y);
                 for (var x = 0; x < width; x++)
                 {
                     rejectRow[x] *= inv;
@@ -187,13 +201,13 @@ public static class Integrator
             : 0.0;
 
         var firstMeta = alignedFrames[0].ImageMeta;
-        var masterImage = masterSink.FinaliseAsImage(
+        var masterImage = masterSinkInUse.FinaliseAsImage(
             BitDepth.Float32,
             maxValue: alignedFrames[0].MaxValue,
             minValue: 0f,
             pedestal: alignedFrames[0].Pedestal,
             meta: firstMeta);
-        var rejectMapImage = rejectSink.FinaliseAsImage(
+        var rejectMapImage = rejectSinkInUse.FinaliseAsImage(
             BitDepth.Float32,
             maxValue: 1f,
             minValue: 0f,
@@ -227,6 +241,18 @@ public static class Integrator
                     $"Frame {i} shape mismatch: expected {c}x{h}x{w}, got {s.ChannelCount}x{s.Height}x{s.Width}.",
                     nameof(frames));
             }
+        }
+    }
+
+    private static void ValidateSinkShape(IIntegrationSink? sink, int channels, int width, int height, string paramName)
+    {
+        if (sink is null) return;
+        var s = sink.Shape;
+        if (s.ChannelCount != channels || s.Width != width || s.Height != height)
+        {
+            throw new ArgumentException(
+                $"Sink shape mismatch: expected {channels}x{height}x{width}, got {s.ChannelCount}x{s.Height}x{s.Width}.",
+                paramName);
         }
     }
 
