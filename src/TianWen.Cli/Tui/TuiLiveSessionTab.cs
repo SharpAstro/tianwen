@@ -658,7 +658,7 @@ internal sealed class TuiLiveSessionTab(
         {
             _displayedImage = latestImage;
             var capturedImage = latestImage;
-            _pendingDoc = Task.Run(async () => (AstroImageDocument?)await AstroImageDocument.CreateFromImageAsync(capturedImage));
+            _pendingDoc = Task.Run(async () => (AstroImageDocument?)await AstroImageDocument.AdoptImageAsync(capturedImage));
         }
 
         // Check if document creation completed

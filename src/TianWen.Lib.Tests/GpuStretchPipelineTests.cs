@@ -148,7 +148,7 @@ public sealed class GpuStretchPipelineTests : IClassFixture<OffscreenGpuFixture>
             CD2_2 = -pixelScaleDeg,
         };
 
-        var doc = await AstroImageDocument.CreateFromImageAsync(bayerImage, DebayerAlgorithm.AHD, wcs, filePath: "synthetic.fits", ct);
+        var doc = await AstroImageDocument.AdoptImageAsync(bayerImage, DebayerAlgorithm.AHD, wcs, filePath: "synthetic.fits", ct);
         await doc.DetectStarsAsync(ct);
         await doc.ComputeSpccColorCalibrationAsync(db, ct);
         doc.ColorCalibration.ShouldNotBeNull();
@@ -296,7 +296,7 @@ public sealed class GpuStretchPipelineTests : IClassFixture<OffscreenGpuFixture>
 
         var ct = TestContext.Current.CancellationToken;
         var fitsImage = await SharedTestData.ExtractGZippedFitsImageAsync(VelaFixture, cancellationToken: ct);
-        var doc = await AstroImageDocument.CreateFromImageAsync(fitsImage, DebayerAlgorithm.None, cancellationToken: ct);
+        var doc = await AstroImageDocument.AdoptImageAsync(fitsImage, DebayerAlgorithm.None, cancellationToken: ct);
 
         // Star detection populates StarMaskedStats + star-masked PerChannelBackground -- both
         // required for convergence and bg-neutralization to be realistic. Run unconditionally
@@ -581,7 +581,7 @@ public sealed class GpuStretchPipelineTests : IClassFixture<OffscreenGpuFixture>
 
         var ct = TestContext.Current.CancellationToken;
         var fitsImage = await SharedTestData.ExtractGZippedFitsImageAsync(VelaFixture, cancellationToken: ct);
-        var doc = await AstroImageDocument.CreateFromImageAsync(fitsImage, DebayerAlgorithm.None, cancellationToken: ct);
+        var doc = await AstroImageDocument.AdoptImageAsync(fitsImage, DebayerAlgorithm.None, cancellationToken: ct);
         await doc.DetectStarsAsync(ct);
 
         var uniforms = doc.ComputeStretchUniforms(StretchMode.Luma, new StretchParameters(0.15, -3), weighting: weighting);
@@ -614,7 +614,7 @@ public sealed class GpuStretchPipelineTests : IClassFixture<OffscreenGpuFixture>
 
         var ct = TestContext.Current.CancellationToken;
         var fitsImage = await SharedTestData.ExtractGZippedFitsImageAsync(VelaFixture, cancellationToken: ct);
-        var doc = await AstroImageDocument.CreateFromImageAsync(fitsImage, DebayerAlgorithm.None, cancellationToken: ct);
+        var doc = await AstroImageDocument.AdoptImageAsync(fitsImage, DebayerAlgorithm.None, cancellationToken: ct);
         await doc.DetectStarsAsync(ct);
 
         var uniforms = doc.ComputeStretchUniforms(StretchMode.Luma, new StretchParameters(0.15, -3), lumaBlend: blend);
@@ -644,7 +644,7 @@ public sealed class GpuStretchPipelineTests : IClassFixture<OffscreenGpuFixture>
 
         var ct = TestContext.Current.CancellationToken;
         var fitsImage = await SharedTestData.ExtractGZippedFitsImageAsync(VelaFixture, cancellationToken: ct);
-        var doc = await AstroImageDocument.CreateFromImageAsync(fitsImage, DebayerAlgorithm.None, cancellationToken: ct);
+        var doc = await AstroImageDocument.AdoptImageAsync(fitsImage, DebayerAlgorithm.None, cancellationToken: ct);
         await doc.DetectStarsAsync(ct);
 
         const float hdrAmount = 0.8f;
@@ -700,7 +700,7 @@ public sealed class GpuStretchPipelineTests : IClassFixture<OffscreenGpuFixture>
             minValue: fitsImage.MinValue,
             pedestal: 0f,
             imageMeta: oscMeta);
-        var doc = await AstroImageDocument.CreateFromImageAsync(oscImage, DebayerAlgorithm.None, cancellationToken: ct);
+        var doc = await AstroImageDocument.AdoptImageAsync(oscImage, DebayerAlgorithm.None, cancellationToken: ct);
         await doc.DetectStarsAsync(ct);
 
         var uniforms = doc.ComputeStretchUniforms(

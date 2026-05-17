@@ -25,9 +25,17 @@ public static class SharedTestData
     internal const string PlateSolveTestFile = nameof(PlateSolveTestFile);
     internal const string PHD2SimGuider = nameof(PHD2SimGuider);
 
-    private static readonly ConcurrentDictionary<string, Image> ImageCache = [];
     private static readonly Assembly SharedTestDataAssembly = typeof(SharedTestData).Assembly;
 
+    // Image instances are NOT cached. Tests in parallel collections (Imaging vs
+    // Astrometry/Catalog/...) call FindStarsAsync, TransformAsync, etc. on the same
+    // Image, and although the Image API treats `float[][,] data` as logically
+    // read-only, the underlying arrays are still concurrent-write hazards: a stretch
+    // or calibration helper that ever wrote in-place would silently corrupt parallel
+    // readers. Sharing the parse result felt like an optimisation; in practice it
+    // produced the "1 ms / 0 stars" flake that appeared every few full-suite runs.
+    // The temp-file write below is still cached (path-keyed) so we only pay the
+    // embedded-resource extract + FITS re-encode once per process.
     internal static async Task<Image> ExtractGZippedFitsImageAsync(string name, bool isReadOnly = true, CancellationToken cancellationToken = default)
     {
         if (!isReadOnly)
@@ -35,31 +43,18 @@ public static class SharedTestData
             return ReadImageFromEmbeddedResourceStream(name);
         }
 
-        if (ImageCache.TryGetValue(name, out var image))
-        {
-            return image;
-        }
-        
-        var imageFile = await WriteEphemeralUseTempFileAsync($"{name}.tianwen-image", 
+        var imageFile = await WriteEphemeralUseTempFileAsync($"{name}.tianwen-image",
             async (tempFile, ct) =>
             {
-                image = ReadImageFromEmbeddedResourceStream(name);
+                var seed = ReadImageFromEmbeddedResourceStream(name);
                 await using var outStream = File.OpenWrite(tempFile);
-                await image.WriteStreamAsync(outStream, ct);
+                await seed.WriteStreamAsync(outStream, ct);
             },
             cancellationToken
         );
 
-        if (image is null)
-        {
-            await using var inStream = File.OpenRead(imageFile);
-            image = await Image.FromStreamAsync(inStream, cancellationToken);
-
-            ImageCache.TryAdd(name, image);
-        }
-
-        return image;
-
+        await using var inStream = File.OpenRead(imageFile);
+        return await Image.FromStreamAsync(inStream, cancellationToken);
     }
 
     private static Image ReadImageFromEmbeddedResourceStream(string name)

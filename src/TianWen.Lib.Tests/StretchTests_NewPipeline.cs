@@ -48,7 +48,7 @@ public class StretchTests_NewPipeline(ITestOutputHelper output)
     {
         var ct = TestContext.Current.CancellationToken;
         var fitsImage = await SharedTestData.ExtractGZippedFitsImageAsync(Fixture, cancellationToken: ct);
-        var doc = await AstroImageDocument.CreateFromImageAsync(fitsImage, DebayerAlgorithm.None, cancellationToken: ct);
+        var doc = await AstroImageDocument.AdoptImageAsync(fitsImage, DebayerAlgorithm.None, cancellationToken: ct);
 
         // Star detection populates StarMaskedStats and a star-masked PerChannelBackground —
         // both required for convergence + background neutralization to behave realistically.
@@ -392,7 +392,7 @@ public class StretchTests_NewPipeline(ITestOutputHelper output)
         wcs.HasCDMatrix.ShouldBeTrue();
         output.WriteLine($"Synthetic WCS: center=({wcs.CenterRA:F4}h, {wcs.CenterDec:F3}°)  scale={pixelScaleArcsec:F3}\"/px");
 
-        var doc = await AstroImageDocument.CreateFromImageAsync(bayerImage, DebayerAlgorithm.AHD, wcs, filePath: "synthetic.fits", ct);
+        var doc = await AstroImageDocument.AdoptImageAsync(bayerImage, DebayerAlgorithm.AHD, wcs, filePath: "synthetic.fits", ct);
         doc.IsPlateSolved.ShouldBeTrue();
 
         var sw = Stopwatch.StartNew();
@@ -522,7 +522,7 @@ public class StretchTests_NewPipeline(ITestOutputHelper output)
     {
         var ct = TestContext.Current.CancellationToken;
         var fitsImage = await SharedTestData.ExtractGZippedFitsImageAsync(Fixture, cancellationToken: ct);
-        var doc = await AstroImageDocument.CreateFromImageAsync(fitsImage, DebayerAlgorithm.None, cancellationToken: ct);
+        var doc = await AstroImageDocument.AdoptImageAsync(fitsImage, DebayerAlgorithm.None, cancellationToken: ct);
         await doc.DetectStarsAsync(ct);
 
         var uniforms = doc.ComputeStretchUniforms(StretchMode.Luma, new StretchParameters(0.15, -3), weighting: weighting);
@@ -559,7 +559,7 @@ public class StretchTests_NewPipeline(ITestOutputHelper output)
     {
         var ct = TestContext.Current.CancellationToken;
         var fitsImage = await SharedTestData.ExtractGZippedFitsImageAsync(Fixture, cancellationToken: ct);
-        var doc = await AstroImageDocument.CreateFromImageAsync(fitsImage, DebayerAlgorithm.None, cancellationToken: ct);
+        var doc = await AstroImageDocument.AdoptImageAsync(fitsImage, DebayerAlgorithm.None, cancellationToken: ct);
         await doc.DetectStarsAsync(ct);
 
         var img = doc.UnstretchedImage;
@@ -625,7 +625,7 @@ public class StretchTests_NewPipeline(ITestOutputHelper output)
     {
         var ct = TestContext.Current.CancellationToken;
         var fitsImage = await SharedTestData.ExtractGZippedFitsImageAsync(Fixture, cancellationToken: ct);
-        var doc = await AstroImageDocument.CreateFromImageAsync(fitsImage, DebayerAlgorithm.None, cancellationToken: ct);
+        var doc = await AstroImageDocument.AdoptImageAsync(fitsImage, DebayerAlgorithm.None, cancellationToken: ct);
         await doc.DetectStarsAsync(ct);
 
         const float hdrAmount = 0.8f;
@@ -724,7 +724,7 @@ public class StretchTests_NewPipeline(ITestOutputHelper output)
             minValue: fitsImage.MinValue,
             pedestal: 0f,
             imageMeta: oscMeta);
-        var doc = await AstroImageDocument.CreateFromImageAsync(oscImage, DebayerAlgorithm.None, cancellationToken: ct);
+        var doc = await AstroImageDocument.AdoptImageAsync(oscImage, DebayerAlgorithm.None, cancellationToken: ct);
 
         var resolved = doc.ResolveLumaWeights(LumaWeighting.SensorMatched);
         output.WriteLine($"Doc-resolved sensor weights: R={resolved.R:F4} G={resolved.G:F4} B={resolved.B:F4}");

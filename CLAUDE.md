@@ -260,6 +260,35 @@ Camera → `ChannelBuffer` → `Image` → consumer → `image.Release()` → ca
 - `DebayerIntoAsync` for viewer output, `DebayerAsync` only for FITS viewer (file-based)
 - `Array2DPool` is for scratch only — camera buffers use `ChannelBuffer`/`_freeBuffers`
 
+### Image Mutability — Almost-Immutable with In-Place Escape Hatches
+
+`Image` is logically immutable: there is no public setter, the `data` arrays live as a
+primary-ctor parameter, and the channel accessor is `GetChannelSpan → ReadOnlySpan<float>`.
+**Two named exceptions deliberately mutate `data[c]` in place** and any new caller of these
+must treat the source `Image` as consumed:
+
+- **`Image.ScaleFloatValuesToUnitInPlace()`** — `internal` rescaler to `[0, 1]`. Returns a
+  new `Image` view but reuses the underlying arrays. Original instance's `MaxValue` field
+  becomes inconsistent with its samples after the call.
+- **`Image.DebayerAsync(..., normalizeToUnit: true)`** — passthrough for non-Bayer images
+  calls `ScaleFloatValuesToUnitInPlace` and returns the result; mutates the input.
+- **`AstroImageDocument.AdoptImageAsync(Image, ...)`** — public ownership-transfer factory
+  (was `CreateFromImageAsync` until the rename). Internally normalises the input via
+  `ScaleFloatValuesToUnitInPlace`. **Caller must not retain or use `image` after this call.**
+  Use the file-loading overload (`AstroImageDocument.OpenAsync(filePath, ...)`) for any case
+  where the source `Image` is shared.
+
+The rename to `AdoptImageAsync` is the canonical signal: any other public API that mutates
+its `Image` input should follow the same naming convention (`Adopt*` / verb-form ownership
+transfer), not the neutral `CreateFrom*` factory pattern.
+
+**Test fixtures must not share `Image` instances across tests.** `SharedTestData` caches the
+extracted *temp file path* (cheap to re-parse) but constructs a fresh `Image` per call; do
+not reintroduce an `Image`-keyed cache. Two parallel collections passing the same cached
+`Image` through `AdoptImageAsync` is enough to produce a "1 ms / 0 stars" `FindStarsAsync`
+flake — the `Background()` histogram peak drifts off scale once the data has been rescaled
+to `[0, 1]` while `MaxValue` still reads the original.
+
 ### Float TIFF Convention (Magick.NET ↔ DIR.Lib swap)
 
 Float32 TIFF I/O has two competing readers in the wild and the swap from Magick.NET to

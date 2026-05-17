@@ -92,6 +92,28 @@ public sealed class AstroImageDocument
     /// <summary>White balance multipliers from Tycho-2 color calibration. null until computed.</summary>
     public (float R, float G, float B)? ColorCalibration { get; private set; }
 
+    // SPCC in-flight gate. The compute task runs on a thread-pool thread and
+    // writes 0 from its finally; Render reads + tries to set 1 from the UI
+    // thread. Plain bool would give no memory-ordering guarantee across the
+    // boundary AND would race the check-then-set on the UI side, so we use
+    // Interlocked + an int (per the project's "Single-flag in-flight gate"
+    // convention).
+    private int _colorCalibrationInFlight;
+
+    /// <summary>True while an SPCC / Tycho-2 calibration task is in flight for
+    /// this document.</summary>
+    public bool ColorCalibrationInFlight => Volatile.Read(ref _colorCalibrationInFlight) != 0;
+
+    /// <summary>Atomically claims the in-flight slot. Returns true if the caller
+    /// won the race and should start the task; false if another caller is
+    /// already running it.</summary>
+    public bool TryBeginColorCalibration() =>
+        Interlocked.CompareExchange(ref _colorCalibrationInFlight, 1, 0) == 0;
+
+    /// <summary>Marks the SPCC task as no longer in flight. Always called from
+    /// the task's finally so a faulted compute still releases the slot.</summary>
+    public void EndColorCalibration() => Volatile.Write(ref _colorCalibrationInFlight, 0);
+
     /// <summary>Background neutralization gains from pivot1 sampling (1,1,1) = no neutralization.</summary>
     public (float R, float G, float B)? BackgroundNeutralization { get; set; }
 
@@ -145,10 +167,19 @@ public sealed class AstroImageDocument
     }
 
     /// <summary>
-    /// Creates a document from an in-memory <see cref="Image"/> (e.g. from the live session capture).
-    /// The image data is used directly — no file I/O, no debayering.
+    /// Creates a document from an in-memory <see cref="Image"/> (e.g. from the live
+    /// session capture). The document <b>adopts</b> the image: its pixel arrays are
+    /// rescaled in place to <c>[0, 1]</c> via <see cref="Image.ScaleFloatValuesToUnitInPlace"/>
+    /// to feed the histogram-based stretch stats without re-allocating the canvas.
     /// </summary>
-    public static async Task<AstroImageDocument> CreateFromImageAsync(Image image, DebayerAlgorithm algorithm = DebayerAlgorithm.AHD, WCS? wcs = null, string filePath = "", CancellationToken cancellationToken = default)
+    /// <remarks>
+    /// The caller must not retain or use <paramref name="image"/> after this call —
+    /// its pixel data has been mutated to a normalised <c>[0, 1]</c> range while the
+    /// original <see cref="Image.MaxValue"/> field is no longer consistent with the
+    /// underlying samples on the source instance. Pass a freshly constructed image
+    /// you own, or build a document via the file-loading overload instead.
+    /// </remarks>
+    public static async Task<AstroImageDocument> AdoptImageAsync(Image image, DebayerAlgorithm algorithm = DebayerAlgorithm.AHD, WCS? wcs = null, string filePath = "", CancellationToken cancellationToken = default)
     {
         // For Bayer images: skip CPU debayer but normalize to [0,1] so stretch stats
         // match the existing histogram-based computation. The GPU shader does bilinear debayer.
@@ -222,7 +253,7 @@ public sealed class AstroImageDocument
             }
         }
 
-        return await CreateFromImageAsync(rawImage, algorithm, fileWcs, filePath, cancellationToken);
+        return await AdoptImageAsync(rawImage, algorithm, fileWcs, filePath, cancellationToken);
     }
 
     private static async Task<AstroImageDocument?> OpenImageFileAsync(string filePath, CancellationToken cancellationToken)
@@ -322,7 +353,14 @@ public sealed class AstroImageDocument
         Span<float> pedestals = stackalloc float[1];
         pedestals[0] = ped;
         var (perChannelBg, lumaBg) = rawImage.ScanBackgroundRegion(pedestals);
-        var bg3 = new[] { perChannelBg[0], perChannelBg[0], perChannelBg[0] };
+        // ScanBackgroundRegion already demosaics 1-channel RGGB into proper
+        // per-channel (R, G, B) medians for Bayer images. Use them directly --
+        // replicating bg[0] (just R) here would discard G and B, giving
+        // ComputeGains an all-identical input and producing (1,1,1) gains so
+        // bg neutralization had no visible effect on raw Bayer lights.
+        var bg3 = perChannelBg.Length >= 3
+            ? new[] { perChannelBg[0], perChannelBg[1], perChannelBg[2] }
+            : new[] { perChannelBg[0], perChannelBg[0], perChannelBg[0] };
 
         return Task.FromResult((perChannelStats, (ChannelStretchStats?)lumaStats, bg3, lumaBg));
     }
@@ -695,7 +733,19 @@ public sealed class AstroImageDocument
     /// Stars and nebulae are brighter and get excluded by the percentile threshold,
     /// so only true sky background contributes to the color estimate.
     /// </summary>
-    private static (float R, float G, float B)? ComputeSkyBackgroundWB(Image image, BitMatrix starMask)
+    /// <summary>
+    /// Derives an (R, G, B) white-balance triple from the median colour of the
+    /// darkest 10% of star-masked sky pixels in a 3-channel image. The
+    /// "sky should be grey" assumption: divide G by R and G by B, clamp the
+    /// ratios to [0.5, 2], and return them as the multipliers that, applied
+    /// to the channels, neutralise the sky cast.
+    /// <para>Pure function -- safe to call from headless pipelines (the
+    /// stacking E2E uses it as a fallback when SPCC can't run because no
+    /// plate-solve / sensor throughput is available). Returns <c>null</c>
+    /// when too few clean samples remain after the star-mask exclusion
+    /// (&lt; 100) or green collapses to ~0.</para>
+    /// </summary>
+    public static (float R, float G, float B)? ComputeSkyBackgroundWB(Image image, BitMatrix starMask)
     {
         var (_, width, height) = image.Shape;
         var x0 = width / 20; var x1 = width - x0;   // skip 5% border
