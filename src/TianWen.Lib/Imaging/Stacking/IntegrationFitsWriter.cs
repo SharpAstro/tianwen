@@ -1,6 +1,9 @@
+using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
+using nom.tam.fits;
+using nom.tam.util;
 using TianWen.Lib.Astrometry;
 
 namespace TianWen.Lib.Imaging.Stacking;
@@ -26,6 +29,18 @@ public static class IntegrationFitsWriter
     /// <summary>Suffix appended to the master path for the rejection map FITS.</summary>
     public const string RejectionMapSuffix = ".rejection.fits";
 
+    /// <summary>Value stamped into the FITS <c>SWCREATE</c> header of every
+    /// master + rejection map this writer produces. Used by
+    /// <see cref="IsTianWenMaster(string)"/> to discriminate our own outputs
+    /// from arbitrary FITS files a user may have parked in the output dir.</summary>
+    public const string SoftwareCreator = "TianWen.Imaging.Stacking.Integrator";
+
+    /// <summary>Prefix used to recognise <see cref="SoftwareCreator"/> values
+    /// across versions (older masters were stamped
+    /// <c>TianWen.Imaging.Calibration.Integrator</c> before the namespace
+    /// split -- both share this prefix).</summary>
+    private const string SoftwareCreatorPrefix = "TianWen.";
+
     /// <summary>
     /// Writes <paramref name="result"/> to <paramref name="masterPath"/>
     /// (the master master image) plus a sibling <c>.rejection.fits</c> file
@@ -46,7 +61,7 @@ public static class IntegrationFitsWriter
             ["STACK_N"] = (result.FrameCount, "Number of frames combined into this master"),
             ["REJ_TOT"] = ((long)result.TotalRejections, "Total per-pixel rejections across the stack"),
             ["REJ_RATE"] = (result.MeanRejectionRate, "Mean rejection rate (rejections / (frames * pixels * channels))"),
-            ["SWCREATE"] = ("TianWen.Imaging.Calibration.Integrator", "Software that created the master"),
+            ["SWCREATE"] = (SoftwareCreator, "Software that created the master"),
         };
 
         result.Master.WriteToFitsFile(masterPath, wcs, extras);
@@ -58,10 +73,35 @@ public static class IntegrationFitsWriter
             {
                 ["STACK_N"] = (result.FrameCount, "Frames the rejection map was computed against"),
                 ["REJ_RATE"] = (result.MeanRejectionRate, "Mean rejection rate (this map's average)"),
-                ["SWCREATE"] = ("TianWen.Imaging.Calibration.Integrator", "Software that created this rejection map"),
+                ["SWCREATE"] = (SoftwareCreator, "Software that created this rejection map"),
                 ["IMAGETYP"] = ("REJECTION", "Per-pixel rejection-fraction map [0, 1]"),
             };
             result.RejectionMap.WriteToFitsFile(rejectionPath, wcs: null, rejExtras);
+        }
+    }
+
+    /// <summary>
+    /// Returns true when <paramref name="path"/> is a FITS file whose
+    /// <c>SWCREATE</c> header was stamped by this writer (any TianWen
+    /// stacking master / rejection map). Used to safely wipe stale outputs
+    /// at the start of a run without touching unrelated FITS files that
+    /// share the output directory. Header-only read -- no pixel data.
+    /// Returns false for any read failure (missing file, corrupt header,
+    /// not a FITS file, no SWCREATE).
+    /// </summary>
+    public static bool IsTianWenMaster(string path)
+    {
+        try
+        {
+            using var bufferedReader = new BufferedFile(path, FileAccess.Read, FileShare.Read, 4 * 2880);
+            using var fitsFile = new Fits(bufferedReader, path.EndsWith(".gz", StringComparison.OrdinalIgnoreCase));
+            var hdu = fitsFile.ReadHDUHeaderOnly();
+            var swcreate = hdu?.Header?.GetStringValue("SWCREATE");
+            return swcreate?.StartsWith(SoftwareCreatorPrefix, StringComparison.Ordinal) == true;
+        }
+        catch
+        {
+            return false;
         }
     }
 

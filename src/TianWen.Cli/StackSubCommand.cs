@@ -117,10 +117,48 @@ internal sealed class StackSubCommand(
 
             var noPng = parseResult.GetValue(noPngOpt);
             var skipPlateSolve = parseResult.GetValue(noPlateSolveOpt);
+
+            // Forward in-flight pipeline progress to the console. Per-group
+            // result lines still go through the foreach below; this hook is
+            // for the long-running stages (Integrating in particular) where
+            // a single group can sit silent for minutes otherwise. We rate-
+            // limit Integrating ticks to one line per ~5% strategy progress
+            // to avoid flooding the terminal on tile-pipelined strategies
+            // that report per-strip.
+            var lastIntegrationPct = -1;
+            var progress = new Progress<StackingProgress>(p =>
+            {
+                switch (p.Phase)
+                {
+                    case StackingPhase.Scanning:
+                        consoleHost.WriteScrollable("[stack] scanning...");
+                        break;
+                    case StackingPhase.BuildingMasters:
+                        consoleHost.WriteScrollable("[stack] building calibration masters...");
+                        break;
+                    case StackingPhase.Registering when p.TotalItems > 0:
+                        consoleHost.WriteScrollable($"[stack] {p.GroupSlug}: register {p.CompletedItems}/{p.TotalItems}");
+                        break;
+                    case StackingPhase.Integrating when p.Integration is { } integ && integ.TotalItems > 0:
+                        var pct = (int)(100.0 * integ.CompletedItems / integ.TotalItems);
+                        if (pct >= lastIntegrationPct + 5 || pct == 100)
+                        {
+                            lastIntegrationPct = pct;
+                            consoleHost.WriteScrollable($"[stack] {p.GroupSlug}: integrate {integ.CompletedItems}/{integ.TotalItems} ({pct}%)");
+                        }
+                        break;
+                    case StackingPhase.PostProcessing:
+                        consoleHost.WriteScrollable($"[stack] {p.GroupSlug}: plate-solve + write");
+                        lastIntegrationPct = -1; // reset for the next group
+                        break;
+                }
+            });
+
             var pipeline = new StackingPipeline(
                 options,
                 pipelineLogger,
-                catalogDb: skipPlateSolve ? null : catalogDb);
+                catalogDb: skipPlateSolve ? null : catalogDb,
+                progress: progress);
             var renderer = noPng ? null : new MasterPreviewRenderer(catalogDb, rendererLogger);
 
             var groupCount = 0;

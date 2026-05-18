@@ -11,7 +11,6 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using TianWen.Lib.Astrometry;
 using TianWen.Lib.Astrometry.Catalogs;
-using TianWen.Lib.Astrometry.PlateSolve;
 using TianWen.Lib.Imaging.Calibration;
 
 namespace TianWen.Lib.Imaging.Stacking;
@@ -99,10 +98,31 @@ public sealed class StackingPipeline(
         var mastersDir = Path.Combine(outputDir, "masters");
         Directory.CreateDirectory(outputDir);
         Directory.CreateDirectory(mastersDir);
-        // Wipe any stale per-group output FITS from a previous run; the
-        // masters/ cache is preserved (cal masters are pure functions of
-        // their inputs, expensive to rebuild).
-        foreach (var f in Directory.EnumerateFiles(outputDir, "*.fits")) File.Delete(f);
+        // Wipe stale per-group output FITS from a previous run, but ONLY
+        // files this writer produced (SWCREATE header check). Leaves
+        // unrelated FITS a user may have parked in outputDir untouched.
+        // The masters/ calibration cache is preserved here too -- cal
+        // masters are pure functions of their inputs and expensive to
+        // rebuild, so we keep them across runs.
+        var wipedCount = 0;
+        var skippedCount = 0;
+        foreach (var f in Directory.EnumerateFiles(outputDir, "*.fits"))
+        {
+            if (IntegrationFitsWriter.IsTianWenMaster(f))
+            {
+                try { File.Delete(f); wipedCount++; }
+                catch (IOException ex) { logger.LogWarning("  [wipe] failed to delete {Path}: {Msg}", f, ex.Message); }
+            }
+            else
+            {
+                skippedCount++;
+            }
+        }
+        if (wipedCount > 0 || skippedCount > 0)
+        {
+            logger.LogInformation("[wipe] removed {Wiped} stale master(s); kept {Skipped} unrelated FITS in {Dir}",
+                wipedCount, skippedCount, outputDir);
+        }
         // Stale _staging from a previous run that died mid-group can
         // balloon to multiple GB per group and fill the disk on re-run.
         var stagingRoot = Path.Combine(outputDir, "_staging");
@@ -344,14 +364,16 @@ public sealed class StackingPipeline(
         }
 
         // Compute the union bounding box of all matched frames' source
-        // footprints in reference space.
+        // footprints in reference space + per-frame canvas-space AABBs +
+        // intersection rectangle for stretch stats.
+        var transforms = matched.ConvertAll(m => m.Transform);
         var (canvasShift, outOriginX, outOriginY, outWidth, outHeight) =
-            ComputeUnionCanvas(matched, referenceDebayered.Width, referenceDebayered.Height);
+            CanvasGeometry.ComputeUnionCanvas(transforms, referenceDebayered.Width, referenceDebayered.Height);
         logger.LogInformation("  [canvas] union bbox = {W}x{H} (origin {X},{Y} in ref space)",
             outWidth, outHeight, outOriginX, outOriginY);
 
-        var (frameFootprints, statsRect) = ComputeFootprintsAndStatsRect(
-            matched, canvasShift, referenceDebayered.Width, referenceDebayered.Height, outWidth, outHeight);
+        var (frameFootprints, statsRect) = CanvasGeometry.ComputeFootprintsAndStatsRect(
+            transforms, canvasShift, referenceDebayered.Width, referenceDebayered.Height, outWidth, outHeight);
 
         // Pass B: producer that re-loads each matched frame and warps
         // into the BB canvas, yielding one Image at a time. Cache hot
@@ -448,7 +470,8 @@ public sealed class StackingPipeline(
         progress?.Report(new StackingProgress(StackingPhase.PostProcessing, key.Slug(), 0, 0));
         var masterPath = Path.Combine(outputDir, $"master_{key.Slug()}.fits");
         var refImageDim = referenceRaw.GetImageDim();
-        var (writtenResult, solvedWcs) = await PlateSolveAndWriteAsync(
+        var postProcessor = new MasterPostProcessor(logger, catalogDb);
+        var (writtenResult, solvedWcs) = await postProcessor.WriteMasterAsync(
             intResult, masterPath, searchHint, refImageDim, referenceRaw.ImageMeta, statsRect, ct);
         if (intResult.TotalRejections > 0)
         {
@@ -545,376 +568,4 @@ public sealed class StackingPipeline(
         return (pick.Master, pick.Key);
     }
 
-    // ---------------------------------------------------------------------
-    // Canvas geometry (union BB + intersection AABB + per-frame footprints)
-    // ---------------------------------------------------------------------
-
-    private static (Matrix3x2 CanvasShift, int OriginX, int OriginY, int Width, int Height) ComputeUnionCanvas(
-        List<(FrameInfo Light, Matrix3x2 Transform)> matched, int refW, int refH)
-    {
-        float minX = 0f, minY = 0f;
-        float maxX = refW, maxY = refH;
-        Span<Vector2> corners = stackalloc Vector2[4]
-        {
-            Vector2.Zero,
-            new Vector2(refW, 0f),
-            new Vector2(0f, refH),
-            new Vector2(refW, refH),
-        };
-        foreach (var (_, mt) in matched)
-        {
-            for (var i = 0; i < 4; i++)
-            {
-                var p = Vector2.Transform(corners[i], mt);
-                if (p.X < minX) minX = p.X;
-                if (p.X > maxX) maxX = p.X;
-                if (p.Y < minY) minY = p.Y;
-                if (p.Y > maxY) maxY = p.Y;
-            }
-        }
-        var outOriginX = (int)MathF.Floor(minX);
-        var outOriginY = (int)MathF.Floor(minY);
-        var outWidth = (int)MathF.Ceiling(maxX) - outOriginX;
-        var outHeight = (int)MathF.Ceiling(maxY) - outOriginY;
-        var canvasShift = Matrix3x2.CreateTranslation(-outOriginX, -outOriginY);
-        return (canvasShift, outOriginX, outOriginY, outWidth, outHeight);
-    }
-
-    private static (List<Rectangle> FrameFootprints, Rectangle StatsRect) ComputeFootprintsAndStatsRect(
-        List<(FrameInfo Light, Matrix3x2 Transform)> matched,
-        Matrix3x2 canvasShift,
-        int srcW, int srcH, int outWidth, int outHeight)
-    {
-        var intersectionPoly = new List<Vector2>
-        {
-            new(0f,        0f),
-            new(outWidth,  0f),
-            new(outWidth,  outHeight),
-            new(0f,        outHeight),
-        };
-        // Heap-allocate quad buffer once outside the loop (CA2014).
-        var quad = new Vector2[4];
-        var frameFootprints = new List<Rectangle>(matched.Count);
-        foreach (var (_, transformOrig) in matched)
-        {
-            var t = transformOrig * canvasShift;
-            quad[0] = Vector2.Transform(new Vector2(0f,   0f),   t);
-            quad[1] = Vector2.Transform(new Vector2(srcW, 0f),   t);
-            quad[2] = Vector2.Transform(new Vector2(srcW, srcH), t);
-            quad[3] = Vector2.Transform(new Vector2(0f,   srcH), t);
-            float fxMin = quad[0].X, fxMax = quad[0].X;
-            float fyMin = quad[0].Y, fyMax = quad[0].Y;
-            for (var i = 1; i < 4; i++)
-            {
-                if (quad[i].X < fxMin) fxMin = quad[i].X;
-                if (quad[i].X > fxMax) fxMax = quad[i].X;
-                if (quad[i].Y < fyMin) fyMin = quad[i].Y;
-                if (quad[i].Y > fyMax) fyMax = quad[i].Y;
-            }
-            var ffX = Math.Max(0, (int)MathF.Floor(fxMin));
-            var ffY = Math.Max(0, (int)MathF.Floor(fyMin));
-            var ffR = Math.Min(outWidth, (int)MathF.Ceiling(fxMax));
-            var ffB = Math.Min(outHeight, (int)MathF.Ceiling(fyMax));
-            frameFootprints.Add(new Rectangle(ffX, ffY, Math.Max(0, ffR - ffX), Math.Max(0, ffB - ffY)));
-
-            EnsureCwInCanvas(quad);
-            intersectionPoly = ClipConvex(intersectionPoly, quad);
-            if (intersectionPoly.Count == 0) break;
-        }
-        while (frameFootprints.Count < matched.Count)
-        {
-            frameFootprints.Add(new Rectangle(0, 0, outWidth, outHeight));
-        }
-
-        Rectangle statsRect;
-        if (intersectionPoly.Count == 0)
-        {
-            statsRect = Rectangle.Empty;
-        }
-        else
-        {
-            float xMin = float.PositiveInfinity, yMin = float.PositiveInfinity;
-            float xMax = float.NegativeInfinity, yMax = float.NegativeInfinity;
-            foreach (var v in intersectionPoly)
-            {
-                if (v.X < xMin) xMin = v.X;
-                if (v.X > xMax) xMax = v.X;
-                if (v.Y < yMin) yMin = v.Y;
-                if (v.Y > yMax) yMax = v.Y;
-            }
-            var rx = (int)MathF.Ceiling(xMin);
-            var ry = (int)MathF.Ceiling(yMin);
-            var rw = (int)MathF.Floor(xMax) - rx;
-            var rh = (int)MathF.Floor(yMax) - ry;
-            statsRect = new Rectangle(rx, ry, Math.Max(0, rw), Math.Max(0, rh));
-        }
-        return (frameFootprints, statsRect);
-    }
-
-    /// <summary>
-    /// Reverses <paramref name="quad"/> in place if its winding is CCW in
-    /// canvas-y-down axes, so downstream <see cref="ClipConvex"/>, which
-    /// expects CW-in-canvas, gets a consistently oriented quad. A
-    /// 180-degree-rotated frame (post-meridian-flip) flips winding to
-    /// CCW-in-canvas and needs reversing.
-    /// </summary>
-    private static void EnsureCwInCanvas(Span<Vector2> quad)
-    {
-        double area = 0;
-        for (var i = 0; i < quad.Length; i++)
-        {
-            var a = quad[i];
-            var b = quad[(i + 1) % quad.Length];
-            area += (double)(b.X - a.X) * (b.Y + a.Y);
-        }
-        if (area > 0)
-        {
-            quad.Reverse();
-        }
-    }
-
-    private static List<Vector2> ClipConvex(List<Vector2> subject, ReadOnlySpan<Vector2> clip)
-    {
-        var output = new List<Vector2>(subject);
-        var input = new List<Vector2>(subject.Count + 2);
-        for (var i = 0; i < clip.Length; i++)
-        {
-            if (output.Count == 0) return output;
-            input.Clear();
-            input.AddRange(output);
-            output.Clear();
-            var a = clip[i];
-            var b = clip[(i + 1) % clip.Length];
-            var edgeDx = b.X - a.X;
-            var edgeDy = b.Y - a.Y;
-            for (var j = 0; j < input.Count; j++)
-            {
-                var curr = input[j];
-                var prev = input[(j - 1 + input.Count) % input.Count];
-                var currSide = edgeDx * (curr.Y - a.Y) - edgeDy * (curr.X - a.X);
-                var prevSide = edgeDx * (prev.Y - a.Y) - edgeDy * (prev.X - a.X);
-                var currIn = currSide >= 0;
-                var prevIn = prevSide >= 0;
-                if (currIn)
-                {
-                    if (!prevIn) output.Add(IntersectSegment(prev, curr, a, b));
-                    output.Add(curr);
-                }
-                else if (prevIn)
-                {
-                    output.Add(IntersectSegment(prev, curr, a, b));
-                }
-            }
-        }
-        return output;
-    }
-
-    private static Vector2 IntersectSegment(Vector2 p1, Vector2 p2, Vector2 a, Vector2 b)
-    {
-        var dx = p2.X - p1.X;
-        var dy = p2.Y - p1.Y;
-        var ex = b.X - a.X;
-        var ey = b.Y - a.Y;
-        var denom = dx * ey - dy * ex;
-        var t = ((a.X - p1.X) * ey - (a.Y - p1.Y) * ex) / denom;
-        return new Vector2(p1.X + t * dx, p1.Y + t * dy);
-    }
-
-    // ---------------------------------------------------------------------
-    // Plate-solve + write master FITS (and autocrop variant)
-    // ---------------------------------------------------------------------
-
-    private async Task<(IntegrationResult Result, WCS? SolvedWcs)> PlateSolveAndWriteAsync(
-        IntegrationResult result,
-        string masterPath,
-        WCS? searchHint,
-        ImageDim? imageDim,
-        ImageMeta refMeta,
-        Rectangle autocropRect,
-        CancellationToken ct)
-    {
-        var sw = Stopwatch.StartNew();
-        var master = result.Master;
-
-        // 0) Fix the master's MaxValue tag without rescaling pixels. The
-        //    integrator inherits MaxValue from the source frames (65535)
-        //    but its actual pixel data is already in [0, 1] -- the warp
-        //    + debayer pipeline emits normalised floats. The metadata-
-        //    vs-data mismatch silently breaks downstream consumers that
-        //    key on MaxValue (most importantly Histogram(), which puts
-        //    MaxValue=65535 into the "non-rescale" branch and produces
-        //    a 59k-bin histogram for pixel data living entirely in
-        //    bin 0). Wrap the same data arrays in a new Image record
-        //    with MaxValue=1; no pixel mutation.
-        if (master.MaxValue > 1.0f + float.Epsilon)
-        {
-            var data = new float[master.ChannelCount][,];
-            for (var c = 0; c < master.ChannelCount; c++)
-            {
-                data[c] = master.GetChannelArray(c);
-            }
-            master = new Image(data, BitDepth.Float32, 1.0f, 0f, master.Pedestal, master.ImageMeta);
-            result = result with { Master = master };
-        }
-
-        // Pre-compute the cropped master once -- reused for the autocrop
-        // FITS at the end.
-        IntegrationResult? croppedResult = null;
-        if (autocropRect.Width > 0 && autocropRect.Height > 0 &&
-            (autocropRect.Width < master.Width || autocropRect.Height < master.Height))
-        {
-            croppedResult = CropIntegrationResult(result, autocropRect);
-        }
-
-        // 1) Plate solve against the supplied catalog. The FITS-header
-        //    WCS hint tells the solver where to look. When the caller
-        //    didn't supply a catalog DB we skip the solve entirely (the
-        //    master FITS gets written without WCS).
-        WCS? solvedWcs = null;
-        if (searchHint is { } hint && catalogDb is { } db)
-        {
-            try
-            {
-                var solver = new CatalogPlateSolver(db);
-                var psResult = await solver.SolveImageAsync(master, imageDim: imageDim, searchOrigin: hint, cancellationToken: ct);
-                if (psResult.Solution is { } w)
-                {
-                    solvedWcs = w;
-                    logger.LogInformation("  [plateSolve] RA={RA:F4}h Dec={Dec:F4}° matched={Matched}/{Detected} ({Ms} ms)",
-                        w.CenterRA, w.CenterDec, psResult.MatchedStars, psResult.DetectedStars, psResult.Elapsed.TotalMilliseconds);
-
-                    // Standard formula: focalLen_mm = pixelSize_um * bin
-                    // * 206.265 / pixelScale_arcsec. The source-frame
-                    // FOCALLEN is whatever the capture software wrote;
-                    // the plate-solve pixel scale is empirically what
-                    // the optical train actually produced. Stamp the
-                    // derived value on the master so the emitted FITS
-                    // header carries a focal length consistent with
-                    // the embedded WCS.
-                    var pxScale = w.PixelScaleArcsec;
-                    if (refMeta.PixelSizeX > 0 && refMeta.BinX > 0 && !double.IsNaN(pxScale) && pxScale > 0)
-                    {
-                        var effectivePxSize = refMeta.PixelSizeX * refMeta.BinX;
-                        var derivedFL = CoordinateUtils.FocalLengthMm(effectivePxSize, pxScale);
-                        if (!double.IsNaN(derivedFL))
-                        {
-                            var rounded = (int)Math.Round(derivedFL);
-                            var headerFL = master.ImageMeta.FocalLength;
-                            if (rounded > 0 && rounded != headerFL)
-                            {
-                                logger.LogInformation("  [focalLen] header={Header}mm -> solved={Solved}mm", headerFL, rounded);
-                                master = WithUpdatedFocalLength(master, rounded);
-                                result = result with { Master = master };
-                                if (croppedResult is not null)
-                                {
-                                    croppedResult = croppedResult with { Master = WithUpdatedFocalLength(croppedResult.Master, rounded) };
-                                }
-                            }
-                        }
-                    }
-                }
-                else
-                {
-                    logger.LogInformation("  [plateSolve] no solution (matched={Matched}/{Detected})",
-                        psResult.MatchedStars, psResult.DetectedStars);
-                }
-            }
-            catch (Exception ex)
-            {
-                logger.LogWarning("  [plateSolve] failed: {Type}: {Msg}", ex.GetType().Name, ex.Message);
-            }
-        }
-        else if (searchHint is null)
-        {
-            logger.LogInformation("  [plateSolve] skipped (no search hint)");
-        }
-        else
-        {
-            logger.LogInformation("  [plateSolve] skipped (no catalog DB supplied)");
-        }
-
-        // 2) Write the master FITS with WCS baked into the headers.
-        IntegrationFitsWriter.Write(masterPath, result, solvedWcs);
-        logger.LogInformation("  wrote {Path}{Wcs}", masterPath, solvedWcs is null ? "" : " (WCS embedded)");
-
-        // 3) Autocrop FITS: same master cropped to the intersection AABB,
-        //    WCS CRPIX shifted by the crop offset so plate-solve coords
-        //    still map to the same sky position.
-        if (croppedResult is not null)
-        {
-            try
-            {
-                WCS? croppedWcs = solvedWcs is { } w
-                    ? w with { CRPix1 = w.CRPix1 - autocropRect.X, CRPix2 = w.CRPix2 - autocropRect.Y }
-                    : null;
-                var cropFitsPath = WithSuffix(masterPath, "_autocrop");
-                IntegrationFitsWriter.Write(cropFitsPath, croppedResult, croppedWcs);
-                logger.LogInformation("  wrote {Path} (crop {W}x{H})", cropFitsPath, autocropRect.Width, autocropRect.Height);
-            }
-            catch (Exception ex)
-            {
-                logger.LogWarning("  [autocrop] failed: {Type}: {Msg}", ex.GetType().Name, ex.Message);
-            }
-        }
-
-        logger.LogInformation("  [post] total {Ms} ms", sw.ElapsedMilliseconds);
-        return (result, solvedWcs);
-    }
-
-    private static string WithSuffix(string path, string suffix)
-    {
-        var dir = Path.GetDirectoryName(path) ?? string.Empty;
-        var stem = Path.GetFileNameWithoutExtension(path);
-        var ext = Path.GetExtension(path);
-        return Path.Combine(dir, stem + suffix + ext);
-    }
-
-    private static IntegrationResult CropIntegrationResult(IntegrationResult full, Rectangle rect)
-    {
-        var croppedMaster = CropImage(full.Master, rect);
-        var croppedRejection = CropImage(full.RejectionMap, rect);
-        return full with { Master = croppedMaster, RejectionMap = croppedRejection };
-    }
-
-    private static Image WithUpdatedFocalLength(Image src, int focalLengthMm)
-    {
-        var data = new float[src.ChannelCount][,];
-        for (var c = 0; c < src.ChannelCount; c++)
-        {
-            data[c] = src.GetChannelArray(c);
-        }
-        var meta = src.ImageMeta with { FocalLength = focalLengthMm };
-        return new Image(data, src.BitDepth, src.MaxValue, src.MinValue, src.Pedestal, meta);
-    }
-
-    private static Image CropImage(Image src, Rectangle rect)
-    {
-        var x0 = Math.Max(0, rect.X);
-        var y0 = Math.Max(0, rect.Y);
-        var x1 = Math.Min(src.Width,  rect.Right);
-        var y1 = Math.Min(src.Height, rect.Bottom);
-        var cw = x1 - x0;
-        var ch = y1 - y0;
-        if (cw <= 0 || ch <= 0)
-        {
-            throw new ArgumentException(
-                $"Crop rect {rect} produces empty image after clamping to {src.Width}x{src.Height}.", nameof(rect));
-        }
-
-        var channelCount = src.ChannelCount;
-        var data = new float[channelCount][,];
-        for (var c = 0; c < channelCount; c++)
-        {
-            var dst = new float[ch, cw];
-            for (var y = 0; y < ch; y++)
-            {
-                for (var x = 0; x < cw; x++)
-                {
-                    dst[y, x] = src[c, y0 + y, x0 + x];
-                }
-            }
-            data[c] = dst;
-        }
-        return new Image(data, BitDepth.Float32, src.MaxValue, src.MinValue, src.Pedestal, src.ImageMeta);
-    }
 }
