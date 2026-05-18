@@ -17,7 +17,7 @@ namespace TianWen.Lib.Tests;
 /// <see cref="StretchTests_ColorImagelinked"/>, <see cref="StretchTests_ColorImageLuma"/>).
 ///
 /// Drives the production stretch pipeline end-to-end:
-/// FITS → <see cref="AstroImageDocument.CreateFromImageAsync"/> → star detection →
+/// FITS → <see cref="AstroImageDocument.AdoptImageAsync"/> → star detection →
 /// <see cref="AstroImageDocument.ComputeStretchUniforms"/> →
 /// <see cref="Image.RenderStretchedRgba"/> → RGBA8 byte buffer → PNG on disk for
 /// visual inspection. Asserts per-channel byte-level signal so per-channel
@@ -64,13 +64,13 @@ public abstract class StretchTestBase(ITestOutputHelper testOutputHelper)
         // ---------- when ----------
         var sw = Stopwatch.StartNew();
         // Debayer first (no-op for mono / 3-channel images) so the document is built on the
-        // same 1- or 3-channel image we render against. AstroImageDocument.CreateFromImageAsync
+        // same 1- or 3-channel image we render against. AstroImageDocument.AdoptImageAsync
         // would otherwise keep raw Bayer (1-channel mosaic) and compute stats from the mosaic
         // histogram — those uniforms don't match a CPU-debayered 3-channel render.
         var renderImage = await image.DebayerAsync(algorithm, cancellationToken: ct);
         ((uint)renderImage.ChannelCount).ShouldBe(expectedChannelCount, "renderImage channel count after debayer");
 
-        var doc = await AstroImageDocument.CreateFromImageAsync(renderImage, DebayerAlgorithm.None, cancellationToken: ct);
+        var doc = await AstroImageDocument.AdoptImageAsync(renderImage, DebayerAlgorithm.None, cancellationToken: ct);
         // Star detection populates the star mask and a star-masked PerChannelBackground —
         // required so background neutralisation / converged stretches behave realistically.
         await doc.DetectStarsAsync(ct);

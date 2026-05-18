@@ -60,6 +60,11 @@ namespace TianWen.Lib.Imaging;
 /// <param name="SWCreator">Software that created the image (FITS: SWCREATE). Empty if unset.</param>
 /// <param name="Aperture">Effective objective aperture diameter in mm (FITS: APTDIA). -1 if unknown.</param>
 /// <param name="SensorModel">Sensor die model, e.g. "IMX533" (FITS: SENSOR). Empty if unknown.</param>
+/// <param name="PierSide">Mount pointing state at exposure time (FITS: PIERSIDE).
+/// <see cref="Devices.PointingState.Unknown"/> when the header is missing or unparseable.
+/// Used by the stacking pipeline's optional pre/post-flip split (lights from
+/// different pier sides see mirrored optical aberrations + flipped Bayer offsets,
+/// so integrating them in separate groups is sometimes useful for diagnostics).</param>
 public record struct ImageMeta(
     string Instrument,
     DateTimeOffset ExposureStartTime,
@@ -89,7 +94,8 @@ public record struct ImageMeta(
     float ElectronsPerADU = float.NaN,
     string SWCreator = "",
     int Aperture = -1,
-    string SensorModel = ""
+    string SensorModel = "",
+    Devices.PointingState PierSide = Devices.PointingState.Unknown
 )
 {
     /// <summary>

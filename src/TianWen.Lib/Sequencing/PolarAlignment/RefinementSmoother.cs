@@ -102,13 +102,13 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
             // (~window/2 iterations behind).
             if (settled && _samplesSeen >= _window)
             {
-                // Copy the ring buffer because StatisticsHelper.Median sorts in place
-                // and we need the original order for the next variance calc.
+                // Copy the ring buffer because StatisticsHelper.MedianFast permutes
+                // in place and we need the original order for the next variance calc.
                 Span<double> azCopy = stackalloc double[_window];
                 Span<double> altCopy = stackalloc double[_window];
                 _bufAz.AsSpan(0, _window).CopyTo(azCopy);
                 _bufAlt.AsSpan(0, _window).CopyTo(altCopy);
-                return (StatisticsHelper.Median(azCopy), StatisticsHelper.Median(altCopy), true);
+                return (StatisticsHelper.MedianFast(azCopy), StatisticsHelper.MedianFast(altCopy), true);
             }
 
             return (_ewmaAz, _ewmaAlt, settled);

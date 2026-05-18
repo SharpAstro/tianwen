@@ -1,6 +1,6 @@
 # Plan Implementation Summary
 
-Status of every `PLAN-*.md` in the repo root, cross-checked against the codebase on 2026-05-07.
+Status of every `PLAN-*.md` in the repo root, cross-checked against the codebase on 2026-05-16.
 
 | Plan | Status |
 |------|--------|
@@ -13,6 +13,9 @@ Status of every `PLAN-*.md` in the repo root, cross-checked against the codebase
 | [PLAN-fov-obstruction-detection](PLAN-fov-obstruction-detection.md) | **DONE** (merged to main; scout UI/WebSocket surfacing, single-frame retry, Layer-2 recovery test all shipped) |
 | [PLAN-catalog-binary-format](PLAN-catalog-binary-format.md) | **PARTIAL ~85%** (Option D + Phase 2A + 2B shipped; Phase 2C Tycho-2 bulk load deferred) |
 | [PLAN-polar-alignment](PLAN-polar-alignment.md) | **DONE ~85%** (Phases 1-5 shipped; refraction-corrected apparent pole + live pressure/temperature still pending) |
+| [PLAN-gpu-stretch-tests](PLAN-gpu-stretch-tests.md) | **DONE ~90%** (Phases 1-4 + follow-ups D & F shipped; Phase 5 separate-CI-job replaced by inline `test-unit` run with mesa-vulkan-drivers) |
+| [PLAN-icc](PLAN-icc.md) | **DONE ~95%** (Tiff 3.0 + new SharpAstro.Jpeg consumed; display helper + Nina JPEG injection wired) |
+| [PLAN-stacking](PLAN-stacking.md) | **DONE ~85%** (Phases 1-12 + 8.0-8.3 shipped — selector + 6 strategies + FrameCache + PartialFitsReader; Phase 13 CLI orchestrator + 14/15 LiveStacker wiring + 10 MMF sink still pending) |
 
 ---
 
@@ -151,11 +154,68 @@ The hot phases are now dict-mutation work, not parse work — what Phase 2 is fo
 	- 2B SHIPPED (2026-05-05): `tools/precompute-simbad-merge.ps1` bakes the post-SIMBAD-merge state into `simbad_merge.bin.gz` (~754 KB embedded). Runtime apply skips ~180 ms of parse + dict-mutation work across 14 catalogs. Same hash-verify-then-apply pattern as 2A. CI guards in `SimbadMergeSnapshotTests` (commit `8da9b16`). Re-bake via `pwsh tools/precompute-simbad-merge.ps1`.
 	- 2C: Tycho-2 bulk load **deferred**; BFS pooling for secondary lookups also not started.
 
+## PLAN-gpu-stretch-tests — DONE ~90%
+
+GPU-vs-CPU pixel-parity tests for the stretch pipeline. Enabled by the offscreen
+path that shipped in `SdlVulkan.Renderer` (`VulkanContext.CreateOffscreen` +
+`VkRenderer.BeginOffscreenFrame` + `VulkanContext.ReadbackOffscreenRgba`).
+
+- Phase 1 (smoke test + class fixture): **DONE** — `OffscreenGpuFixture.cs` owns
+  `(instance, ctx, renderer, pipeline)` and skips with a diagnostic when Vulkan
+  init fails; `GpuStretchPipelineTests.cs` carries the smoke `[Fact]`.
+- Phase 2 (skip-when-unavailable + CI driver install): **DONE** — `.github/workflows/dotnet.yml`
+  installs `mesa-vulkan-drivers libvulkan1 vulkan-tools` and emits a
+  `vulkaninfo --summary` diagnostic before build. `IsVulkanInitFailure` short-circuits
+  to `Assert.Skip` on missing ICD.
+- Phase 3 (8 Vela theory cases parity): **DONE** — `GpuMatchesCpuForVelaStretchCases`
+  runs the same 8 inline cases the CPU `StretchTests_NewPipeline` covers; tolerances
+  `mean < 1.5`, `max < 16`, outliers `< 1%`.
+- Phase 4 (synthetic SPCC GPU verification): **DONE** — `GivenSyntheticSpccField_GpuRenderMatchesCpuRender`
+  runs the full SPCC pipeline (filter throughput, Tycho-2 match, pivot1, curves, HDR)
+  through both paths; additional Luma-weighting, luma-blend, HDR-normalize, sensor-matched
+  theory tests included.
+- Phase 5 (opt-in `[Trait("Category","GPU")]` CI job): **REPLACED** — GPU tests run inside
+  the regular `test-unit` job (lavapipe is fast enough on the test images); no separate
+  trait filter or split job needed. Functionally equivalent to the plan, simpler infra.
+- Follow-up D (primitives parity): **DONE** — `VkRendererPrimitiveTests.cs` covers
+  rectangle/ellipse/circle/line vs `RgbaImageRenderer`.
+- Follow-up F (line tessellation): **DONE** — `SkyMapLineTessellationTests.cs` asserts
+  GPU line vertex output without rasterisation.
+- Not shipped: follow-ups A (Bayer demosaic), B (histogram), C (WCS grid), E (sky map
+  stars), G (milky way), H (overlay ellipses). All optional extensions to the same
+  `OffscreenGpuFixture`.
+
+## PLAN-icc — DONE ~95%
+
+ICC profile tagging across our display output paths. Sibling work landed under
+`../sharpastro/StbImageSharp/` as new packages `SharpAstro.Color.Icc`, `SharpAstro.Jpeg`,
+and a breaking-change bump on `SharpAstro.Tiff`.
+
+- Phase 1 (`SharpAstro.Tiff` breaking change to `ReadOnlyMemory<byte>` `IccProfile`): **DONE** —
+  consumed at `SharpAstro.Tiff 3.0.*` in `Directory.Packages.props:54`.
+- Phase 2 (new `SharpAstro.Jpeg` library with `JpegIccInjector.EmbedIccProfile`): **DONE** —
+  sibling project exists; consumed at `SharpAstro.Jpeg 3.0.*` (single-version family
+  alongside Tiff/Png/Color.Icc, not the `1.0.*` originally planned).
+- Phase 3 (publish to NuGet): **DONE** — all four packages resolve from nuget.org.
+- Phase 4a (display TIFF helper consolidation): **DONE** — `src/TianWen.Lib.Tests/Helpers/DisplayImageWriter.cs`
+  centralises sRGB-tagged 8-bit RGB TIFF + PNG output for the three test files the plan
+  flagged. Plan's working name `TestDisplayTiffWriter.cs` was renamed to `DisplayImageWriter.cs`
+  since it also handles PNG.
+- Phase 4b (`NinaImageEndpoints` JPEG injection): **DONE** — `src/TianWen.Hosting/Api/NinaV2/NinaImageEndpoints.cs:133`
+  wraps `WriteJpg` output through `JpegIccInjector.EmbedIccProfile(..., IccProfiles.SRgbV4)`.
+- Phase 4c (`Image.WriteTiffAsync` stays untagged): **HONOURED** — scientific 32-bit float
+  TIFF deliberately ships with no ICC tag per scope decision 2.
+- Phase 4d (production PNG writers): **N/A** — no production display-PNG paths in
+  `TianWen.Lib` proper. Test/tools PNGs use `DisplayImageWriter.EncodePng` when tagging
+  is desired.
+- Not shipped: ICC consumption on read (out-of-scope per "Non-goals"), multi-segment
+  APP2 (deferred until we have a non-trivial device profile).
+
 ---
 
 ## Bottom line
 
-- **Shipped:** serial-probe (merged), driver-resilience (merged), fov-obstruction-detection (merged), polar-alignment (merged, refraction polish pending).
+- **Shipped:** serial-probe (merged), driver-resilience (merged), fov-obstruction-detection (merged), polar-alignment (merged, refraction polish pending), gpu-stretch-tests (Phases 1-4 + follow-ups D & F), icc (all four phases).
 - **Substantially advanced:** milkyway (Phases 1-2 done, 3-4 scaffolded).
 - **Partially started:** skymap-gpu-overlays (Phase 1 + cache hit), tui-live-session-parity (preview mount section + partial abort flow), catalog-binary-format (Option D + Phase 2A + 2B shipped; 2C deferred).
 - **Essentially untouched:** site horizon mask (sub-plan 3 of first-light-resilience) deferred until operational data warrants it.
@@ -163,3 +223,53 @@ The hot phases are now dict-mutation work, not parse work — what Phase 2 is fo
 **First-light-resilience status:** 2 of 3 sub-plans shipped (driver resilience + FOV obstruction).
 Sub-plan 3 (static azimuth horizon mask) is intentionally deferred — only spin up if 1+2
 in production show too many runtime scout trips against known obstructions.
+
+## PLAN-stacking — DONE ~85%
+
+The original phasing table (Phases 1-12) is shipped: `Image` arithmetic, masters,
+calibrator, registrator, normalizer, rejectors (sigma + winsorized + LFC +
+percentile + minmax), the in-memory `Integrator`, and FITS write via
+`IntegrationFitsWriter` (Phase 9). End-to-end validated on real datasets via
+`StackingEndToEndManualTest` (skips when `C:\temp\stack\` is absent so CI stays
+green).
+
+Phase 9 caveat: the `IIntegrationSink` interface + `ArraySink` abstraction
+mentioned in the plan are *not* shipped -- only the concrete static
+`IntegrationFitsWriter` plus a sidecar `<master>.rejection.fits` companion file
+for the rejection-map diagnostic. The interface was meant as a seam for Phase
+10's `MemoryMappedFitsSink`; with Phase 10 deferred, pre-introducing the
+interface for a single in-memory consumer would be YAGNI -- right time to
+extract is when MMF lands. MEF (multi-extension FITS) is also deferred per the
+file's own xmldoc: most FITS viewers don't render the second HDU, so two files
+keep the rejection diagnostic usable.
+
+**Phase 8 ("tile integrator") evolved into a strategy-pattern selector** with
+six executors picked at runtime by an `IntegrationStrategySelector` against an
+`IntegrationProbe` (physical RAM + disk + frame geometry) gated by a
+`ResourceBudget` (default 75% RAM / 80% disk). Shipped sub-phases this session
+(2026-05-16):
+
+- **8.0** `bbab3c8` — `IntegrationJob` v2 surface + scaffolding.
+- **8.1** `f4a7013` — `PartialFitsReader` (mmap'd FITS sub-region reader, 9 unit tests).
+- **8.2** `330b4b3` — `Image.WarpRegionAsync` + strip-pipelined `TilePipelinedStrategy.RunAsync`.
+- selector `da67544` — physical-RAM hard gate + free-RAM soft penalty.
+- **8.2 perf** `7415671` — strong+weak cached debayered frames → ~10× speedup (Liberty 120s 10.9 min → 1.6 min).
+- refactor `40fce57` — `FrameCache` extracted as shared helper.
+- **8.3** `7ece80b` — BDN bench: PartialFitsReader **36× faster** on tile reads, 6000× less alloc.
+- cache wire `e17d585` — `StreamingFrameReader.SetCachedImage` + FrameCache wired into FootprintStaged + Float16Staged.
+
+**Still pending:**
+- Phase 10 `MemoryMappedFitsSink` for tier-3 mosaic outputs (not user-blocked).
+- Phase 13 `tianwen stack` CLI orchestrator (`StackingEndToEndManualTest` is the
+  flying sketch).
+- Phase 14 `LiveStacker` Welford engine + Phase 15 session integration
+  (`LiveAccumulatorStrategy` is the selector-level placeholder).
+- Phase 8.2 sub-region debayer + halo-aware per-tile warp (the cached-debayered
+  fast path already covers the common roomy-host case; this is the next
+  optimization tier when memory is genuinely tight AND the cache misses dominate).
+- SIMD byte-swap in `PartialFitsReader` for full-image reads (production hot
+  path only does tile reads where mmap already wins 36×, so low priority).
+
+See `PLAN-stacking.md` § "Phase 8 implementation status (2026-05-16)" for the
+cold-start guide to the codebase: every file that holds the strategy machinery,
+the test entry points, and the benchmark numbers worth remembering.

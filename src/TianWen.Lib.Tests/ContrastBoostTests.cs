@@ -78,13 +78,13 @@ public class ContrastBoostTests(ITestOutputHelper testOutputHelper)
         StretchMode mode, double stretchFactor, double clippingSigma, CancellationToken ct)
     {
         // Debayer first (no-op for mono / 3-channel) so the document is built on the same
-        // 1- or 3-channel image we render against. AstroImageDocument.CreateFromImageAsync
+        // 1- or 3-channel image we render against. AstroImageDocument.AdoptImageAsync
         // otherwise keeps the raw Bayer image and computes stats on a 1-channel mosaic —
         // those uniforms wouldn't match a CPU-debayered 3-channel render (the other test in
         // this file SKIPs RGGB for exactly this reason).
         var renderImage = await source.DebayerAsync(algorithm, cancellationToken: ct);
 
-        var doc = await AstroImageDocument.CreateFromImageAsync(renderImage, DebayerAlgorithm.None, cancellationToken: ct);
+        var doc = await AstroImageDocument.AdoptImageAsync(renderImage, DebayerAlgorithm.None, cancellationToken: ct);
         await doc.DetectStarsAsync(ct);
         var uniforms = doc.ComputeStretchUniforms(mode, new StretchParameters(stretchFactor, clippingSigma));
 

@@ -42,7 +42,7 @@ namespace TianWen.Lib.Astrometry.PlateSolve;
 /// valid <c>searchOrigin</c>; blind solving (no search hint) is not supported and returns
 /// <c>null</c>.</para>
 /// </summary>
-internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger<CatalogPlateSolver>? logger = null) : IPlateSolver
+internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger? logger = null) : IPlateSolver
 {
     private readonly ILogger? _logger = logger;
 

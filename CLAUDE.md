@@ -89,7 +89,7 @@ every sibling uses `src/<Lib>/<Lib>.csproj`.
 | `DIR.Lib` | `../DIR.Lib` | `src/DIR.Lib/DIR.Lib.csproj` | ✅ |
 | `SdlVulkan.Renderer` | `../SdlVulkan.Renderer` | `src/SdlVulkan.Renderer/SdlVulkan.Renderer.csproj` | ✅ |
 | `Console.Lib` | `../Console.Lib` | `src/Console.Lib/Console.Lib.csproj` | ✅ |
-| `FITS.Lib` | `../FITS.Lib` | `CSharpFITS/CSharpFITS.csproj` (package name is `FITS.Lib`) | ❌ |
+| `FITS.Lib` | `../FITS.Lib` | `CSharpFITS/CSharpFITS.csproj` (package name is `FITS.Lib`) | ✅ (separate `UseLocalFitsLib` switch) |
 | `FC.SDK` | `../FC.SDK` | `src/FC.SDK/FC.SDK.csproj` | ❌ |
 | `ZWOptical.SDK` | `../zwo-sdk-nuget` | `ZWOptical.SDK.csproj` (repo root) | ❌ |
 | `QHYCCD.SDK` | `../QHYCCD.SDK` | `QHYCCD.SDK.csproj` (repo root) | ❌ |
@@ -97,12 +97,21 @@ every sibling uses `src/<Lib>/<Lib>.csproj`.
 | `TianWen.DAL` | `../TianWen.DAL` | — | ❌ |
 
 **Auto-detection** (`Directory.Build.props`): for `DIR.Lib`, `Console.Lib`, `SdlVulkan.Renderer`,
-the build switches to ProjectReference when all three sibling working copies exist, otherwise
-PackageReference. Single property `UseLocalSiblings`. Override: `dotnet build -p:UseLocalSiblings=false`.
-CI always uses PackageReference. `Fonts.Lib` is transitive via DIR.Lib's own `UseLocalFontsLib` switch.
+`StbImageSharp`, `SharpAstro.Tiff`, the build switches to ProjectReference when all five sibling
+working copies exist, otherwise PackageReference. Single property `UseLocalSiblings`. Override:
+`dotnet build -p:UseLocalSiblings=false`. CI always uses PackageReference. `Fonts.Lib` is transitive
+via DIR.Lib's own `UseLocalFontsLib` switch. **`FITS.Lib` has its own independent switch**
+(`UseLocalFitsLib`): it auto-detects when `../FITS.Lib/CSharpFITS/CSharpFITS.csproj` exists, decoupled
+from `UseLocalSiblings` because FITS.Lib has no transitive coupling to the DIR.Lib/Console.Lib chain.
+Override: `dotnet build -p:UseLocalFitsLib=false`.
 
-For libraries without auto-detection, use local nupkg feeds with bumped versions (see
-`feedback_local_nuget_dev.md`) instead of editing references.
+For libraries without auto-detection (`FC.SDK`, `ZWOptical.SDK`, `QHYCCD.SDK`, `TianWen.DAL`),
+prefer to extend the `UseLocalSiblings` (or add an analogous `UseLocalXxx`) switch in
+`Directory.Build.props` + add a conditional `ProjectReference` in the consuming `.csproj`
+rather than reaching for local nupkg feeds. When that's not viable (e.g. cross-team release
+cadence forces a version bump), commit + push + wait for NuGet publish — **do not** create
+local nupkg feeds or run `dotnet pack` to short-circuit the release dance, since CI builds
+will still pull from nuget.org and a local-only nupkg will mask version-skew bugs.
 
 ## Key Technologies
 
@@ -250,6 +259,35 @@ Camera → `ChannelBuffer` → `Image` → consumer → `image.Release()` → ca
 - Never hold an `Image` from `GetImageAsync` longer than needed — it pins the camera buffer
 - `DebayerIntoAsync` for viewer output, `DebayerAsync` only for FITS viewer (file-based)
 - `Array2DPool` is for scratch only — camera buffers use `ChannelBuffer`/`_freeBuffers`
+
+### Image Mutability — Almost-Immutable with In-Place Escape Hatches
+
+`Image` is logically immutable: there is no public setter, the `data` arrays live as a
+primary-ctor parameter, and the channel accessor is `GetChannelSpan → ReadOnlySpan<float>`.
+**Two named exceptions deliberately mutate `data[c]` in place** and any new caller of these
+must treat the source `Image` as consumed:
+
+- **`Image.ScaleFloatValuesToUnitInPlace()`** — `internal` rescaler to `[0, 1]`. Returns a
+  new `Image` view but reuses the underlying arrays. Original instance's `MaxValue` field
+  becomes inconsistent with its samples after the call.
+- **`Image.DebayerAsync(..., normalizeToUnit: true)`** — passthrough for non-Bayer images
+  calls `ScaleFloatValuesToUnitInPlace` and returns the result; mutates the input.
+- **`AstroImageDocument.AdoptImageAsync(Image, ...)`** — public ownership-transfer factory
+  (was `CreateFromImageAsync` until the rename). Internally normalises the input via
+  `ScaleFloatValuesToUnitInPlace`. **Caller must not retain or use `image` after this call.**
+  Use the file-loading overload (`AstroImageDocument.OpenAsync(filePath, ...)`) for any case
+  where the source `Image` is shared.
+
+The rename to `AdoptImageAsync` is the canonical signal: any other public API that mutates
+its `Image` input should follow the same naming convention (`Adopt*` / verb-form ownership
+transfer), not the neutral `CreateFrom*` factory pattern.
+
+**Test fixtures must not share `Image` instances across tests.** `SharedTestData` caches the
+extracted *temp file path* (cheap to re-parse) but constructs a fresh `Image` per call; do
+not reintroduce an `Image`-keyed cache. Two parallel collections passing the same cached
+`Image` through `AdoptImageAsync` is enough to produce a "1 ms / 0 stars" `FindStarsAsync`
+flake — the `Background()` histogram peak drifts off scale once the data has been rescaled
+to `[0, 1]` while `MaxValue` still reads the original.
 
 ### Float TIFF Convention (Magick.NET ↔ DIR.Lib swap)
 

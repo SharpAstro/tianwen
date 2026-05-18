@@ -42,6 +42,66 @@ public partial class Image
     /// Returns an <see cref="Image"/> wrapping the channel data (no new arrays allocated).
     /// For mono/color: copies + normalizes into destination channels instead of modifying in place.
     /// </summary>
+    /// <summary>
+    /// Debayers a sub-region of the source into pre-allocated full-canvas
+    /// destination channels. Only the pixels inside <paramref name="sourceRect"/>
+    /// (plus the algorithm's halo neighbours) are touched; the rest of the
+    /// destination keeps whatever the caller put there (typically pool garbage,
+    /// harmless because downstream consumers sample inside the rect).
+    /// </summary>
+    /// <param name="destination">Pre-allocated full-canvas channels (3 for
+    /// AHD/VNG, 1 for BilinearMono). Caller owns and reuses across calls.</param>
+    /// <param name="debayerAlgorithm">Currently <see cref="DebayerAlgorithm.AHD"/>
+    /// is the only sub-region-aware impl; other algorithms throw.</param>
+    /// <param name="sourceRect">Pixel rect in source-frame coordinates. Caller
+    /// must add halo for the algorithm (AHD needs radius+homogeneityRadius=4
+    /// pixels; warp consumers typically add 1 more for bilinear sampling) so
+    /// the pixels they care about have valid neighbours inside the rect.</param>
+    public Task<Image> DebayerRegionIntoAsync(Channel[] destination, DebayerAlgorithm debayerAlgorithm, System.Drawing.Rectangle sourceRect, CancellationToken cancellationToken = default)
+    {
+        var destArrays = new float[destination.Length][,];
+        for (var c = 0; c < destination.Length; c++) destArrays[c] = destination[c].Data;
+
+        // Non-Bayer sources: no debayer to do, just copy the rect rows of
+        // each input channel into the corresponding destination channel.
+        // Mirrors DebayerIntoAsync's mono/color short-circuit so callers
+        // can stay sensor-agnostic.
+        if (imageMeta.SensorType is SensorType.Monochrome or SensorType.Color)
+        {
+            CopyRectIntoDestination(destArrays, sourceRect);
+            return Task.FromResult(new Image(destArrays, BitDepth.Float32, maxValue, minValue, pedestal, imageMeta));
+        }
+
+        return debayerAlgorithm switch
+        {
+            DebayerAlgorithm.AHD => DebayerAHDAsync(scale: 1.0f, cancellationToken, destArrays, sourceRect),
+            _ => throw new NotSupportedException(
+                $"DebayerRegionIntoAsync currently only supports AHD on Bayer sources; {debayerAlgorithm} would need a sub-region overload of its inner loop."),
+        };
+    }
+
+    private void CopyRectIntoDestination(float[][,] destArrays, System.Drawing.Rectangle sourceRect)
+    {
+        var y0 = Math.Max(0, sourceRect.Y);
+        var y1 = Math.Min(Height, sourceRect.Y + sourceRect.Height);
+        var x0 = Math.Max(0, sourceRect.X);
+        var x1 = Math.Min(Width, sourceRect.X + sourceRect.Width);
+        if (y0 >= y1 || x0 >= x1) return;
+        var rowLen = x1 - x0;
+        var copyChannels = Math.Min(data.Length, destArrays.Length);
+        for (var c = 0; c < copyChannels; c++)
+        {
+            var src = data[c];
+            var dst = destArrays[c];
+            for (var y = y0; y < y1; y++)
+            {
+                var srcRow = MemoryMarshal.CreateReadOnlySpan(ref src[y, x0], rowLen);
+                var dstRow = MemoryMarshal.CreateSpan(ref dst[y, x0], rowLen);
+                srcRow.CopyTo(dstRow);
+            }
+        }
+    }
+
     public async Task<Image> DebayerIntoAsync(Channel[] destination, DebayerAlgorithm debayerAlgorithm, bool normalizeToUnit = false, CancellationToken cancellationToken = default)
     {
         // Extract float[][,] from Channel[] for the internal debayer methods
@@ -101,14 +161,18 @@ public partial class Image
         var h1 = height - 1;
         var s = (double)scale;
 
+        // Parallel.For runs the body directly on worker threads, no per-row
+        // Task.Run wrapper / async lambda / state machine. Default MaxDoP
+        // (= ProcessorCount) -- 4x oversubscription was a holdover from the
+        // per-row async pattern; for memory-bandwidth-bound debayer work it
+        // causes cache-line contention.
         var parallelOptions = new ParallelOptions
         {
             CancellationToken = cancellationToken,
-            MaxDegreeOfParallelism = Environment.ProcessorCount * 4
         };
 
         // Process all rows except the last one in parallel
-        await Parallel.ForAsync(0, h1, parallelOptions, async (y, ct) => await Task.Run(() =>
+        Parallel.For(0, h1, parallelOptions, y =>
         {
             for (int x = 0; x < w1; x++)
             {
@@ -117,9 +181,7 @@ public partial class Image
 
             // last column
             dstChannel[y, w1] = (float)(0.25d * s * ((double)srcChannel[y, w1] + srcChannel[y + 1, w1 - 1] + srcChannel[y, w1 - 1] + srcChannel[y + 1, w1]));
-
-            return ValueTask.CompletedTask;
-        }, ct));
+        });
 
         // last row (processed sequentially as it's a single row)
         for (int x = 0; x < w1; x++)
@@ -170,12 +232,22 @@ public partial class Image
         var dstG = debayered[G];
         var dstB = debayered[B];
 
-        // Process interior pixels in parallel (where full VNG can be applied)
-        await Parallel.ForAsync(radius,
+        // Process interior pixels in parallel (where full VNG can be applied).
+        // Same pinned-ref + Unsafe.Add pattern as AHD Phase 1+2 and Phase 3:
+        // src + dst channels read/written through ref-to-(0, 0) + idx so the
+        // per-pixel hot path has no bounds checks. Helpers take ref + idx
+        // and stay [AggressiveInlining] so the call vanishes after JIT.
+        var strideVng = width;
+        Parallel.For(radius,
             height - radius,
-            new ParallelOptions { CancellationToken = cancellationToken, MaxDegreeOfParallelism = Environment.ProcessorCount * 4 },
-            async (y, ct) => await Task.Run(() =>
+            new ParallelOptions { CancellationToken = cancellationToken },
+            y =>
             {
+                ref var src0 = ref srcChannel[0, 0];
+                ref var dstR0 = ref dstR[0, 0];
+                ref var dstG0 = ref dstG[0, 0];
+                ref var dstB0 = ref dstB[0, 0];
+
                 // Pre-select pattern row based on y % 2
                 int patternEven = (y & 1) == 0 ? pattern00 : pattern10;
                 int patternOdd = (y & 1) == 0 ? pattern01 : pattern11;
@@ -183,10 +255,13 @@ public partial class Image
                 for (int x = radius; x < width - radius; x++)
                 {
                     int knownColor = (x & 1) == 0 ? patternEven : patternOdd;
+                    int idx = y * strideVng + x;
 
-                    // Copy known value
-                    float rawValue = srcChannel[y, x] * scale;
-                    debayered[knownColor][y, x] = rawValue;
+                    // Copy known value to its channel
+                    float rawValue = Unsafe.Add(ref src0, idx) * scale;
+                    if (knownColor == R) Unsafe.Add(ref dstR0, idx) = rawValue;
+                    else if (knownColor == G) Unsafe.Add(ref dstG0, idx) = rawValue;
+                    else Unsafe.Add(ref dstB0, idx) = rawValue;
 
                     // Interpolate missing colors based on which color we have
                     if (knownColor == G)
@@ -196,23 +271,23 @@ public partial class Image
                         int neighborColor = (x & 1) == 0 ? patternOdd : patternEven;
                         bool rOnHorizontal = neighborColor == R;
 
-                        dstR[y, x] = scale * (rOnHorizontal
-                            ? InterpolateHorizontalVNG(srcChannel, x, y)
-                            : InterpolateVerticalVNG(srcChannel, x, y));
-                        dstB[y, x] = scale * (rOnHorizontal
-                            ? InterpolateVerticalVNG(srcChannel, x, y)
-                            : InterpolateHorizontalVNG(srcChannel, x, y));
+                        Unsafe.Add(ref dstR0, idx) = scale * (rOnHorizontal
+                            ? InterpolateHorizontalVNG(ref src0, idx)
+                            : InterpolateVerticalVNG(ref src0, idx, strideVng));
+                        Unsafe.Add(ref dstB0, idx) = scale * (rOnHorizontal
+                            ? InterpolateVerticalVNG(ref src0, idx, strideVng)
+                            : InterpolateHorizontalVNG(ref src0, idx));
                     }
                     else
                     {
                         // At R or B pixel: interpolate G and the opposite color
-                        dstG[y, x] = scale * InterpolateGreenAtRBVNG(srcChannel, x, y);
-                        debayered[knownColor == R ? B : R][y, x] = scale * InterpolateDiagonalVNG(srcChannel, x, y);
+                        Unsafe.Add(ref dstG0, idx) = scale * InterpolateGreenAtRBVNG(ref src0, idx, strideVng);
+                        float diagonal = scale * InterpolateDiagonalVNG(ref src0, idx, strideVng);
+                        if (knownColor == R) Unsafe.Add(ref dstB0, idx) = diagonal;
+                        else Unsafe.Add(ref dstR0, idx) = diagonal;
                     }
                 }
-
-                return ValueTask.CompletedTask;
-            }, ct)
+            }
         );
 
         // Process edge pixels with simpler bilinear interpolation (not parallelized - small portion)
@@ -231,33 +306,39 @@ public partial class Image
             });
     }
 
+    // VNG helpers below take a pinned `ref float src0` (the (0, 0) element of
+    // the source channel) + a flat idx + the row stride, so the body uses
+    // Unsafe.Add instead of bounds-checked float[,] indexing. Caller pins
+    // the ref once per row in the Parallel.For body and passes idx/stride
+    // forward; helpers stay [AggressiveInlining] so the call vanishes.
+
     [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
-    private static float InterpolateGreenAtRBVNG(float[,] src, int x, int y)
+    private static float InterpolateGreenAtRBVNG(ref float src0, int idx, int stride)
     {
         // Interpolate green at R or B position using 4 cardinal directions
-        float center = src[y, x];
+        float center = Unsafe.Add(ref src0, idx);
 
         // North: green at y-1, same color at y-2
-        float gN = src[y - 1, x];
-        float vN = src[y - 2, x];
-        float gradN = MathF.Abs(MathF.FusedMultiplyAdd(2, gN, - vN - center));
+        float gN = Unsafe.Add(ref src0, idx - stride);
+        float vN = Unsafe.Add(ref src0, idx - 2 * stride);
+        float gradN = MathF.Abs(MathF.FusedMultiplyAdd(2, gN, -vN - center));
         float valN = gN + (center - vN) * 0.5f;
 
         // South
-        float gS = src[y + 1, x];
-        float vS = src[y + 2, x];
-        float gradS = MathF.Abs(MathF.FusedMultiplyAdd(2, gS, - center - vS));
+        float gS = Unsafe.Add(ref src0, idx + stride);
+        float vS = Unsafe.Add(ref src0, idx + 2 * stride);
+        float gradS = MathF.Abs(MathF.FusedMultiplyAdd(2, gS, -center - vS));
         float valS = MathF.FusedMultiplyAdd(center - vS, 0.5f, gS);
 
         // West
-        float gW = src[y, x - 1];
-        float vW = src[y, x - 2];
+        float gW = Unsafe.Add(ref src0, idx - 1);
+        float vW = Unsafe.Add(ref src0, idx - 2);
         float gradW = MathF.Abs(2 * gW - vW - center);
         float valW = MathF.FusedMultiplyAdd(center - vW, 0.5f, gW);
 
         // East
-        float gE = src[y, x + 1];
-        float vE = src[y, x + 2];
+        float gE = Unsafe.Add(ref src0, idx + 1);
+        float vE = Unsafe.Add(ref src0, idx + 2);
         float gradE = MathF.Abs(2 * gE - center - vE);
         float valE = MathF.FusedMultiplyAdd(center - vE, 0.5f, gE);
 
@@ -278,12 +359,12 @@ public partial class Image
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
-    private static float InterpolateHorizontalVNG(float[,] src, int x, int y)
+    private static float InterpolateHorizontalVNG(ref float src0, int idx)
     {
         // Interpolate R or B at green position from horizontal neighbors
-        float center = src[y, x];
-        float left = src[y, x - 1];
-        float right = src[y, x + 1];
+        float center = Unsafe.Add(ref src0, idx);
+        float left = Unsafe.Add(ref src0, idx - 1);
+        float right = Unsafe.Add(ref src0, idx + 1);
 
         float gradL = MathF.Abs(left - center);
         float gradR = MathF.Abs(right - center);
@@ -301,12 +382,12 @@ public partial class Image
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
-    private static float InterpolateVerticalVNG(float[,] src, int x, int y)
+    private static float InterpolateVerticalVNG(ref float src0, int idx, int stride)
     {
         // Interpolate R or B at green position from vertical neighbors
-        float center = src[y, x];
-        float top = src[y - 1, x];
-        float bottom = src[y + 1, x];
+        float center = Unsafe.Add(ref src0, idx);
+        float top = Unsafe.Add(ref src0, idx - stride);
+        float bottom = Unsafe.Add(ref src0, idx + stride);
 
         float gradT = MathF.Abs(top - center);
         float gradB = MathF.Abs(bottom - center);
@@ -324,21 +405,21 @@ public partial class Image
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
-    private static float InterpolateDiagonalVNG(float[,] src, int x, int y)
+    private static float InterpolateDiagonalVNG(ref float src0, int idx, int stride)
     {
         // Interpolate R at B or B at R from 4 diagonal neighbors
-        float center = src[y, x];
+        float center = Unsafe.Add(ref src0, idx);
 
-        float nw = src[y - 1, x - 1];
-        float ne = src[y - 1, x + 1];
-        float sw = src[y + 1, x - 1];
-        float se = src[y + 1, x + 1];
+        float nw = Unsafe.Add(ref src0, idx - stride - 1);
+        float ne = Unsafe.Add(ref src0, idx - stride + 1);
+        float sw = Unsafe.Add(ref src0, idx + stride - 1);
+        float se = Unsafe.Add(ref src0, idx + stride + 1);
 
         // Green values at cardinal neighbors
-        float gN = src[y - 1, x];
-        float gS = src[y + 1, x];
-        float gW = src[y, x - 1];
-        float gE = src[y, x + 1];
+        float gN = Unsafe.Add(ref src0, idx - stride);
+        float gS = Unsafe.Add(ref src0, idx + stride);
+        float gW = Unsafe.Add(ref src0, idx - 1);
+        float gE = Unsafe.Add(ref src0, idx + 1);
 
         // Calculate gradients including green channel differences
         float gradNW = MathF.Abs(nw - center) + MathF.Abs(gN - gW);
@@ -361,27 +442,40 @@ public partial class Image
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
-    private void ProcessEdgePixels(float[][,] debayered, int width, int height, int radius, int[,] bayerPattern, float scale = 1.0f)
+    private void ProcessEdgePixels(float[][,] debayered, int width, int height, int radius, int[,] bayerPattern, float scale = 1.0f, System.Drawing.Rectangle? activeRect = null)
     {
-        // Top and bottom edges
-        for (int y = 0; y < height; y++)
+        // If the caller is debayering a sub-region, restrict edge-pixel
+        // filling to the canvas-edge zone INSIDE that rect; pixels outside
+        // the rect aren't touched (caller doesn't care about them and the
+        // scratch arrays may hold pool-garbage there). Interior rects are
+        // typically a no-op (fast intersection check below).
+        var rect = activeRect ?? new System.Drawing.Rectangle(0, 0, width, height);
+        var rx0 = Math.Max(0, rect.X);
+        var ry0 = Math.Max(0, rect.Y);
+        var rx1 = Math.Min(width, rect.X + rect.Width);
+        var ry1 = Math.Min(height, rect.Y + rect.Height);
+
+        // Top and bottom edges within rect
+        for (int y = ry0; y < ry1; y++)
         {
             if (y >= radius && y < height - radius) continue; // Skip interior rows
 
-            for (int x = 0; x < width; x++)
+            for (int x = rx0; x < rx1; x++)
             {
                 ProcessEdgePixel(debayered, x, y, width, height, bayerPattern, scale);
             }
         }
 
-        // Left and right edges (excluding corners already processed)
-        for (int y = radius; y < height - radius; y++)
+        // Left and right edges within rect (excluding corners already processed)
+        var sideY0 = Math.Max(ry0, radius);
+        var sideY1 = Math.Min(ry1, height - radius);
+        for (int y = sideY0; y < sideY1; y++)
         {
-            for (int x = 0; x < radius; x++)
+            for (int x = rx0; x < Math.Min(rx1, radius); x++)
             {
                 ProcessEdgePixel(debayered, x, y, width, height, bayerPattern, scale);
             }
-            for (int x = width - radius; x < width; x++)
+            for (int x = Math.Max(rx0, width - radius); x < rx1; x++)
             {
                 ProcessEdgePixel(debayered, x, y, width, height, bayerPattern, scale);
             }
@@ -432,7 +526,7 @@ public partial class Image
         return count > 0 ? sum / count : 0;
     }
 
-    private async Task<Image> DebayerAHDAsync(float scale, CancellationToken cancellationToken, float[][,]? destination = null)
+    private async Task<Image> DebayerAHDAsync(float scale, CancellationToken cancellationToken, float[][,]? destination = null, System.Drawing.Rectangle? sourceRect = null)
     {
         var width = Width;
         var height = Height;
@@ -457,6 +551,50 @@ public partial class Image
         const int homogeneityRadius = 2; // neighborhood radius for homogeneity comparison
         const int totalRadius = radius + homogeneityRadius;
 
+        // Sub-region iteration bounds. sourceRect=null -> full frame (today's
+        // behaviour, byte-equivalent). sourceRect=R -> iterate only over R.
+        // Each phase consumes the previous phase's output in a halo window,
+        // so the inner phases process a slab WIDER than the rect to make sure
+        // the rect's edge pixels in the next phase have valid neighbours.
+        // Walking the dependency chain backwards from the final Phase 4
+        // outputs (which sit at rect rows):
+        //  Phase 4 reads dst at y/x ± 1 (3x3 median filter)
+        //    -> Phase 3 must cover rect grown by 1.
+        //  Phase 3 reads rgbH/V at y/x ± homogeneityRadius
+        //    -> Phase 1 must cover rect grown by (1 + homogeneityRadius).
+        //  ProcessEdgePixels must fill canvas-edge pixels INSIDE rect-grown-
+        //  by-1 so Phase 4's halo reads land on valid edge fill.
+        // Pixels inside the rect that fall in the canvas-edge zone get the
+        // standard ProcessEdgePixels treatment below.
+        var rect = sourceRect ?? new System.Drawing.Rectangle(0, 0, width, height);
+        var rectRight = rect.X + rect.Width;
+        var rectBottom = rect.Y + rect.Height;
+        const int phase4Halo = 1;
+        var phase1Grow = phase4Halo + homogeneityRadius;
+        // Phase 1 (interior, radius=2 halo around source reads)
+        var p1Y0 = Math.Max(radius, rect.Y - phase1Grow);
+        var p1Y1 = Math.Min(height - radius, rectBottom + phase1Grow);
+        var p1X0 = Math.Max(radius, rect.X - phase1Grow);
+        var p1X1 = Math.Min(width - radius, rectRight + phase1Grow);
+        // Phase 3 (interior, totalRadius=4 halo: phase 1 result + homogeneity
+        // neighbours; grown by 1 so Phase 4's median filter reads land in
+        // valid rows)
+        var p3Y0 = Math.Max(totalRadius, rect.Y - phase4Halo);
+        var p3Y1 = Math.Min(height - totalRadius, rectBottom + phase4Halo);
+        var p3X0 = Math.Max(totalRadius, rect.X - phase4Halo);
+        var p3X1 = Math.Min(width - totalRadius, rectRight + phase4Halo);
+        // Phase 4 (whole rect; 3x3 median filter handles edges via copy-as-is)
+        var p4Y0 = Math.Max(0, rect.Y);
+        var p4Y1 = Math.Min(height, rectBottom);
+        var p4X0 = Math.Max(0, rect.X);
+        var p4X1 = Math.Min(width, rectRight);
+        // ProcessEdgePixels target: rect grown by Phase 4's halo so dst at
+        // (rect.Y - 1, *) etc. is filled with canvas-edge values where it
+        // lies in the radius zone.
+        var edgeFillRect = sourceRect is null
+            ? (System.Drawing.Rectangle?)null
+            : new System.Drawing.Rectangle(rect.X - phase4Halo, rect.Y - phase4Halo, rect.Width + 2 * phase4Halo, rect.Height + 2 * phase4Halo);
+
         // Phase 1 & 2: Build horizontal and vertical full-color interpolations in parallel
         var rgbH = destination ?? CreateChannelData(3, height, width);
         using var vR = Array2DPool<float>.RentScoped(height, width);
@@ -468,42 +606,59 @@ public partial class Image
         var rgbH_R = rgbH[R]; var rgbH_G = rgbH[G]; var rgbH_B = rgbH[B];
         var rgbV_R = rgbV[R]; var rgbV_G = rgbV[G]; var rgbV_B = rgbV[B];
 
+        // Parallel.For runs sync bodies directly on worker threads -- no
+        // per-row async lambda / Task.Run / ValueTask.CompletedTask overhead.
+        // Default MaxDoP = ProcessorCount; the 4x oversubscription was a
+        // holdover from per-row task scheduling and causes cache-line
+        // contention on the 9 full-image scratch arrays AHD allocates.
         var parallelOptions = new ParallelOptions
         {
             CancellationToken = cancellationToken,
-            MaxDegreeOfParallelism = Environment.ProcessorCount * 4
         };
 
-        // Interpolate green channel using horizontal and vertical directions, then R/B guided by green
-        await Parallel.ForAsync(radius, height - radius, parallelOptions, async (y, ct) => await Task.Run(() =>
+        // Interpolate green channel using horizontal and vertical directions,
+        // then R/B guided by green. Same Unsafe.Add-via-pinned-ref trick as
+        // Phase 3 -- per-pixel reads/writes drop their bounds checks.
+        var stridePhase1 = width;
+        Parallel.For(p1Y0, p1Y1, parallelOptions, y =>
         {
+            ref var src0 = ref srcChannel[0, 0];
+            ref var rgbH_R0 = ref rgbH_R[0, 0];
+            ref var rgbH_G0 = ref rgbH_G[0, 0];
+            ref var rgbH_B0 = ref rgbH_B[0, 0];
+            ref var rgbV_R0 = ref rgbV_R[0, 0];
+            ref var rgbV_G0 = ref rgbV_G[0, 0];
+            ref var rgbV_B0 = ref rgbV_B[0, 0];
+
             int patternEven = (y & 1) == 0 ? pattern00 : pattern10;
             int patternOdd = (y & 1) == 0 ? pattern01 : pattern11;
 
-            for (int x = radius; x < width - radius; x++)
+            for (int x = p1X0; x < p1X1; x++)
             {
                 int knownColor = (x & 1) == 0 ? patternEven : patternOdd;
-                float rawValue = srcChannel[y, x];
+                int idx = y * stridePhase1 + x;
+                float rawValue = Unsafe.Add(ref src0, idx);
 
                 if (knownColor == G)
                 {
                     // At green pixel: green is known for both directions
-                    rgbH_G[y, x] = rawValue;
-                    rgbV_G[y, x] = rawValue;
+                    Unsafe.Add(ref rgbH_G0, idx) = rawValue;
+                    Unsafe.Add(ref rgbV_G0, idx) = rawValue;
 
                     // Determine which color is on horizontal vs vertical neighbors
                     int neighborColor = (x & 1) == 0 ? patternOdd : patternEven;
                     bool rOnHorizontal = neighborColor == R;
 
                     // Simple bilinear average (AHD defers direction choice to homogeneity)
-                    float hAvg = (srcChannel[y, x - 1] + srcChannel[y, x + 1]) * 0.5f;
-                    float vAvg = (srcChannel[y - 1, x] + srcChannel[y + 1, x]) * 0.5f;
+                    float hAvg = (Unsafe.Add(ref src0, idx - 1) + Unsafe.Add(ref src0, idx + 1)) * 0.5f;
+                    float vAvg = (Unsafe.Add(ref src0, idx - stridePhase1) + Unsafe.Add(ref src0, idx + stridePhase1)) * 0.5f;
 
-                    rgbH_R[y, x] = rOnHorizontal ? hAvg : vAvg;
-                    rgbH_B[y, x] = rOnHorizontal ? vAvg : hAvg;
-
-                    rgbV_R[y, x] = rOnHorizontal ? hAvg : vAvg;
-                    rgbV_B[y, x] = rOnHorizontal ? vAvg : hAvg;
+                    float rVal = rOnHorizontal ? hAvg : vAvg;
+                    float bVal = rOnHorizontal ? vAvg : hAvg;
+                    Unsafe.Add(ref rgbH_R0, idx) = rVal;
+                    Unsafe.Add(ref rgbH_B0, idx) = bVal;
+                    Unsafe.Add(ref rgbV_R0, idx) = rVal;
+                    Unsafe.Add(ref rgbV_B0, idx) = bVal;
                 }
                 else
                 {
@@ -511,30 +666,23 @@ public partial class Image
                     float center = rawValue;
 
                     // Horizontal green interpolation (Laplacian-corrected)
-                    float gW = srcChannel[y, x - 1];
-                    float gE = srcChannel[y, x + 1];
-                    float greenH = (gW + gE) * 0.5f + (2 * center - srcChannel[y, x - 2] - srcChannel[y, x + 2]) * 0.25f;
+                    float gW = Unsafe.Add(ref src0, idx - 1);
+                    float gE = Unsafe.Add(ref src0, idx + 1);
+                    float greenH = (gW + gE) * 0.5f + (2 * center - Unsafe.Add(ref src0, idx - 2) - Unsafe.Add(ref src0, idx + 2)) * 0.25f;
 
                     // Vertical green interpolation (Laplacian-corrected)
-                    float gN = srcChannel[y - 1, x];
-                    float gS = srcChannel[y + 1, x];
-                    float greenV = (gN + gS) * 0.5f + (2 * center - srcChannel[y - 2, x] - srcChannel[y + 2, x]) * 0.25f;
+                    float gN = Unsafe.Add(ref src0, idx - stridePhase1);
+                    float gS = Unsafe.Add(ref src0, idx + stridePhase1);
+                    float greenV = (gN + gS) * 0.5f + (2 * center - Unsafe.Add(ref src0, idx - 2 * stridePhase1) - Unsafe.Add(ref src0, idx + 2 * stridePhase1)) * 0.25f;
 
-                    rgbH_G[y, x] = greenH;
-                    rgbV_G[y, x] = greenV;
-
-                    // Known color is the same for both
-                    rgbH[knownColor][y, x] = rawValue;
-                    rgbV[knownColor][y, x] = rawValue;
-
-                    // Interpolate opposite color guided by per-pixel color differences
-                    int oppositeColor = knownColor == R ? B : R;
+                    Unsafe.Add(ref rgbH_G0, idx) = greenH;
+                    Unsafe.Add(ref rgbV_G0, idx) = greenV;
 
                     // Diagonal neighbors hold the opposite color
-                    float dNW = srcChannel[y - 1, x - 1];
-                    float dNE = srcChannel[y - 1, x + 1];
-                    float dSW = srcChannel[y + 1, x - 1];
-                    float dSE = srcChannel[y + 1, x + 1];
+                    float dNW = Unsafe.Add(ref src0, idx - stridePhase1 - 1);
+                    float dNE = Unsafe.Add(ref src0, idx - stridePhase1 + 1);
+                    float dSW = Unsafe.Add(ref src0, idx + stridePhase1 - 1);
+                    float dSE = Unsafe.Add(ref src0, idx + stridePhase1 + 1);
 
                     // Per-pixel color-difference: each diagonal pixel's green is estimated
                     // from its 2 nearest cardinal green neighbors
@@ -544,32 +692,71 @@ public partial class Image
                     float cdSE = dSE - (gS + gE) * 0.5f;
                     float cdAvg = (cdNW + cdNE + cdSW + cdSE) * 0.25f;
 
-                    // Reconstruct: opposite = green_interpolated + color_difference
-                    rgbH[oppositeColor][y, x] = greenH + cdAvg;
-                    rgbV[oppositeColor][y, x] = greenV + cdAvg;
+                    // Reconstruct: opposite = green_interpolated + color_difference.
+                    // Branch on knownColor so we can use named refs instead of
+                    // rgbH[oppositeColor] (which would defeat the unchecked-access
+                    // win by going through the ref array indexer).
+                    float oppositeH = greenH + cdAvg;
+                    float oppositeV = greenV + cdAvg;
+                    if (knownColor == R)
+                    {
+                        Unsafe.Add(ref rgbH_R0, idx) = rawValue;
+                        Unsafe.Add(ref rgbV_R0, idx) = rawValue;
+                        Unsafe.Add(ref rgbH_B0, idx) = oppositeH;
+                        Unsafe.Add(ref rgbV_B0, idx) = oppositeV;
+                    }
+                    else // knownColor == B
+                    {
+                        Unsafe.Add(ref rgbH_B0, idx) = rawValue;
+                        Unsafe.Add(ref rgbV_B0, idx) = rawValue;
+                        Unsafe.Add(ref rgbH_R0, idx) = oppositeH;
+                        Unsafe.Add(ref rgbV_R0, idx) = oppositeV;
+                    }
                 }
             }
+        });
 
-            return ValueTask.CompletedTask;
-        }, ct));
-
-        // Phase 3: Compute homogeneity and select best direction
+        // Phase 3: Compute homogeneity and select best direction.
+        // Hot path: ~150 reads per output pixel x 9M pixels = 1.3 G reads.
+        // float[,] indexing pays 2 bounds checks per access; we pin refs to
+        // each scratch array's (0,0) and use Unsafe.Add for raw offset reads.
+        // Per-row cost is 9 bounds-checked ref grabs paid once; per-pixel
+        // cost is 0 bounds checks. Algorithm + arithmetic order unchanged,
+        // so DebayerRegressionTests guarantees byte-identical output.
         var dstR = debayered[R]; var dstG = debayered[G]; var dstB = debayered[B];
+        var stride = width;
 
-        await Parallel.ForAsync(totalRadius, height - totalRadius, parallelOptions, async (y, ct) => await Task.Run(() =>
+        Parallel.For(p3Y0, p3Y1, parallelOptions, y =>
         {
-            for (int x = totalRadius; x < width - totalRadius; x++)
+            ref var rgbH_R0 = ref rgbH_R[0, 0];
+            ref var rgbH_G0 = ref rgbH_G[0, 0];
+            ref var rgbH_B0 = ref rgbH_B[0, 0];
+            ref var rgbV_R0 = ref rgbV_R[0, 0];
+            ref var rgbV_G0 = ref rgbV_G[0, 0];
+            ref var rgbV_B0 = ref rgbV_B[0, 0];
+            ref var dstR0 = ref dstR[0, 0];
+            ref var dstG0 = ref dstG[0, 0];
+            ref var dstB0 = ref dstB[0, 0];
+
+            for (int x = p3X0; x < p3X1; x++)
             {
-                // Compute homogeneity for horizontal and vertical in a neighborhood
                 int homH = 0, homV = 0;
+                var centerIdx = y * stride + x;
 
-                float lH = RgbToLuma(rgbH_R[y, x], rgbH_G[y, x], rgbH_B[y, x]);
-                float aH = rgbH_R[y, x] - rgbH_G[y, x];
-                float bH = rgbH_B[y, x] - rgbH_G[y, x];
+                // Cache center RGB once; reused in the tie-break tail below.
+                float cHR = Unsafe.Add(ref rgbH_R0, centerIdx);
+                float cHG = Unsafe.Add(ref rgbH_G0, centerIdx);
+                float cHB = Unsafe.Add(ref rgbH_B0, centerIdx);
+                float lH = RgbToLuma(cHR, cHG, cHB);
+                float aH = cHR - cHG;
+                float bH = cHB - cHG;
 
-                float lV = RgbToLuma(rgbV_R[y, x], rgbV_G[y, x], rgbV_B[y, x]);
-                float aV = rgbV_R[y, x] - rgbV_G[y, x];
-                float bV = rgbV_B[y, x] - rgbV_G[y, x];
+                float cVR = Unsafe.Add(ref rgbV_R0, centerIdx);
+                float cVG = Unsafe.Add(ref rgbV_G0, centerIdx);
+                float cVB = Unsafe.Add(ref rgbV_B0, centerIdx);
+                float lV = RgbToLuma(cVR, cVG, cVB);
+                float aV = cVR - cVG;
+                float bV = cVB - cVG;
 
                 for (int dy = -homogeneityRadius; dy <= homogeneityRadius; dy++)
                 {
@@ -577,19 +764,24 @@ public partial class Image
                     {
                         if (dx == 0 && dy == 0) continue;
 
-                        int ny = y + dy;
-                        int nx = x + dx;
+                        int neighborIdx = centerIdx + dy * stride + dx;
 
                         // Horizontal neighbor differences
-                        float nlH = RgbToLuma(rgbH_R[ny, nx], rgbH_G[ny, nx], rgbH_B[ny, nx]);
-                        float naH = rgbH_R[ny, nx] - rgbH_G[ny, nx];
-                        float nbH = rgbH_B[ny, nx] - rgbH_G[ny, nx];
+                        float nHR = Unsafe.Add(ref rgbH_R0, neighborIdx);
+                        float nHG = Unsafe.Add(ref rgbH_G0, neighborIdx);
+                        float nHB = Unsafe.Add(ref rgbH_B0, neighborIdx);
+                        float nlH = RgbToLuma(nHR, nHG, nHB);
+                        float naH = nHR - nHG;
+                        float nbH = nHB - nHG;
                         float diffH = MathF.Abs(lH - nlH) + MathF.Abs(aH - naH) + MathF.Abs(bH - nbH);
 
                         // Vertical neighbor differences
-                        float nlV = RgbToLuma(rgbV_R[ny, nx], rgbV_G[ny, nx], rgbV_B[ny, nx]);
-                        float naV = rgbV_R[ny, nx] - rgbV_G[ny, nx];
-                        float nbV = rgbV_B[ny, nx] - rgbV_G[ny, nx];
+                        float nVR = Unsafe.Add(ref rgbV_R0, neighborIdx);
+                        float nVG = Unsafe.Add(ref rgbV_G0, neighborIdx);
+                        float nVB = Unsafe.Add(ref rgbV_B0, neighborIdx);
+                        float nlV = RgbToLuma(nVR, nVG, nVB);
+                        float naV = nVR - nVG;
+                        float nbV = nVB - nVG;
                         float diffV = MathF.Abs(lV - nlV) + MathF.Abs(aV - naV) + MathF.Abs(bV - nbV);
 
                         // Lower difference = more homogeneous
@@ -598,32 +790,33 @@ public partial class Image
                     }
                 }
 
-                // Select the direction with higher homogeneity, or average if tied
+                // Select the direction with higher homogeneity, or average if tied.
+                // Reuse cached center values instead of re-reading rgbH/V.
                 if (homH > homV)
                 {
-                    dstR[y, x] = rgbH_R[y, x];
-                    dstG[y, x] = rgbH_G[y, x];
-                    dstB[y, x] = rgbH_B[y, x];
+                    Unsafe.Add(ref dstR0, centerIdx) = cHR;
+                    Unsafe.Add(ref dstG0, centerIdx) = cHG;
+                    Unsafe.Add(ref dstB0, centerIdx) = cHB;
                 }
                 else if (homV > homH)
                 {
-                    dstR[y, x] = rgbV_R[y, x];
-                    dstG[y, x] = rgbV_G[y, x];
-                    dstB[y, x] = rgbV_B[y, x];
+                    Unsafe.Add(ref dstR0, centerIdx) = cVR;
+                    Unsafe.Add(ref dstG0, centerIdx) = cVG;
+                    Unsafe.Add(ref dstB0, centerIdx) = cVB;
                 }
                 else
                 {
-                    dstR[y, x] = (rgbH_R[y, x] + rgbV_R[y, x]) * 0.5f;
-                    dstG[y, x] = (rgbH_G[y, x] + rgbV_G[y, x]) * 0.5f;
-                    dstB[y, x] = (rgbH_B[y, x] + rgbV_B[y, x]) * 0.5f;
+                    Unsafe.Add(ref dstR0, centerIdx) = (cHR + cVR) * 0.5f;
+                    Unsafe.Add(ref dstG0, centerIdx) = (cHG + cVG) * 0.5f;
+                    Unsafe.Add(ref dstB0, centerIdx) = (cHB + cVB) * 0.5f;
                 }
             }
+        });
 
-            return ValueTask.CompletedTask;
-        }, ct));
-
-        // Fill edge pixels with bilinear interpolation before artifact reduction
-        ProcessEdgePixels(debayered, width, height, totalRadius, bayerPattern);
+        // Fill edge pixels with bilinear interpolation before artifact reduction.
+        // For sub-region calls, only process canvas-edge pixels intersecting
+        // the rect-grown-by-Phase4-halo (typically zero work for interior strips).
+        ProcessEdgePixels(debayered, width, height, totalRadius, bayerPattern, scale: 1.0f, edgeFillRect);
 
         // Phase 4: Artifact reduction - 3×3 median filter on color differences (R-G) and (B-G)
         // This smooths the abrupt H/V direction switching that causes per-pixel colour noise
@@ -631,11 +824,11 @@ public partial class Image
         var filtered = rgbH;
         var filtR = filtered[R]; var filtG = filtered[G]; var filtB = filtered[B];
 
-        await Parallel.ForAsync(0, height, parallelOptions, async (y, ct) => await Task.Run(() =>
+        Parallel.For(p4Y0, p4Y1, parallelOptions, y =>
         {
             Span<float> medianBuf = stackalloc float[9];
 
-            for (int x = 0; x < width; x++)
+            for (int x = p4X0; x < p4X1; x++)
             {
                 // Green channel is kept as-is
                 filtG[y, x] = dstG[y, x] * scale;
@@ -657,7 +850,7 @@ public partial class Image
                             }
                         }
 
-                        filtered[c][y, x] = (gCenter + Median(medianBuf)) * scale;
+                        filtered[c][y, x] = (gCenter + MedianFast(medianBuf)) * scale;
                     }
                 }
                 else
@@ -667,9 +860,7 @@ public partial class Image
                     filtB[y, x] = dstB[y, x] * scale;
                 }
             }
-
-            return ValueTask.CompletedTask;
-        }, ct));
+        });
 
         var normalized = scale < 1.0f;
         return new Image(filtered, BitDepth.Float32,

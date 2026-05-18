@@ -117,7 +117,6 @@
     <PackageReference Include="CommunityToolkit.HighPerformance" />
     <PackageReference Include="DotNext.Threading" />
     <PackageReference Include="FC.SDK.Raw" />
-    <PackageReference Include="FITS.Lib" />
     <PackageReference Include="GeoTimeZone" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
     <PackageReference Include="Microsoft.Extensions.Http" />
@@ -149,6 +148,16 @@
   </ItemGroup>
   <ItemGroup Condition="'$(UseLocalSiblings)' != 'true'">
     <PackageReference Include="DIR.Lib" />
+  </ItemGroup>
+
+  <!-- FITS.Lib: FITS read/write under Image.Fits.cs. Sibling repo's csproj
+       lives at ../FITS.Lib/CSharpFITS/CSharpFITS.csproj (no src/Lib/Lib pattern).
+       Gated on UseLocalFitsLib (not UseLocalSiblings) — see Directory.Build.props. -->
+  <ItemGroup Condition="'$(UseLocalFitsLib)' == 'true'">
+    <ProjectReference Include="..\..\..\FITS.Lib\CSharpFITS\CSharpFITS.csproj" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(UseLocalFitsLib)' != 'true'">
+    <PackageReference Include="FITS.Lib" />
   </ItemGroup>
 
 </Project>

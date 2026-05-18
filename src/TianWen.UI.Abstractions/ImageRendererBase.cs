@@ -40,6 +40,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.Threading;
 using System.Threading.Tasks;
 using DIR.Lib;
@@ -132,7 +133,16 @@ namespace TianWen.UI.Abstractions
         private float InfoPanelWidth => BaseInfoPanelWidth * DpiScale;
         private float StatusBarHeight => BaseStatusBarHeight * DpiScale;
         private float ToolbarHeight => BaseToolbarHeight * DpiScale;
-        private float FileListWidth => BaseFileListWidth * DpiScale;
+        // Honor the user-resizable width when state is bound; fall back to the
+        // historical 300px constant when state hasn't been attached yet (e.g.
+        // during initial layout queries before Render(state) has run).
+        private float FileListWidth =>
+            (_state is { } s ? s.FileListWidthBase : BaseFileListWidth) * DpiScale;
+
+        /// <summary>Width of the draggable resize handle at the right edge of
+        /// the file list, in raw screen pixels. ~6px gives a comfortable target
+        /// without claiming visible real estate.</summary>
+        private float FileListResizeHandleWidth => 6f * DpiScale;
         private float FontSize => BaseFontSize * DpiScale;
         private float ToolbarFontSize => BaseToolbarFontSize * DpiScale;
         private float PanelPadding => BasePanelPadding * DpiScale;
@@ -350,10 +360,43 @@ namespace TianWen.UI.Abstractions
             _document = document;
             BeginFrame();
 
+            // Per-document calibration caches (BackgroundNeutralization,
+            // ColorCalibration) are null on a freshly loaded doc. If the user
+            // had the toggle on for the previous file, restore the visual by
+            // recomputing for the new doc -- otherwise the stretch falls back
+            // to identity gains and the image looks cast-coloured until the
+            // user re-clicks Calibrate/NeutBg.
+            if (document is not null)
+            {
+                // Always reapply the current method when the toggle is on --
+                // not just when the doc's cached gain is null. Otherwise a
+                // cached doc that was previously viewed under a different
+                // method (e.g. Mean) keeps its stale Mean gains even though
+                // the toolbar shows Min pivot. The doc's per-method dict
+                // makes the re-call a cheap dictionary lookup.
+                if (state.BackgroundNeutralizationEnabled)
+                {
+                    document.ComputeBackgroundNeutralization(state.BackgroundNeutralizationMethod);
+                }
+                // ColorCalibration auto-retrigger on file switch. The
+                // ColorCalibrationInFlight guard inside TryStartColorCalibration
+                // ensures we don't spawn a new SPCC task every frame while
+                // the previous one is still running (which would freeze the UI).
+                if (state.ColorCalibrationEnabled
+                    && document.ColorCalibration is null
+                    && !document.ColorCalibrationInFlight
+                    && document.Stars is { Count: >= 5 })
+                {
+                    TryStartColorCalibration(state);
+                }
+            }
+
             // Draw image FIRST so UI chrome paints on top of it
             if (ImageWidth > 0 && ImageHeight > 0)
             {
-                var stretch = document?.ComputeStretchUniforms(state.StretchMode, state.StretchParameters)
+                var stretch = document?.ComputeStretchUniforms(
+                        state.StretchMode, state.StretchParameters,
+                        bgNeutralizationStrength: state.BackgroundNeutralizationStrength)
                     ?? new StretchUniforms(StretchMode.None, 1f, default, default, default, default, default);
                 var gridWcs = state.ShowGrid && document?.Wcs is { HasCDMatrix: true } w ? w : (WCS?)null;
                 RenderImage(document, state, stretch, gridWcs);
@@ -401,6 +444,20 @@ namespace TianWen.UI.Abstractions
             }
 
             RenderStatusBar(document, state);
+
+            // Dropdown overlays — rendered last so their clickables win z-order
+            // (RegisterClickable resolves by paint order). RenderDropdownMenu is
+            // a no-op when the state is closed.
+            if (_fontPath is { } fontPath)
+            {
+                RenderDropdownMenu(state.ToolbarDropdown, fontPath, ToolbarFontSize,
+                    bgColor: new RGBAColor32(0x33, 0x33, 0x38, 0xff),
+                    highlightColor: new RGBAColor32(0x33, 0x4d, 0x80, 0xff),
+                    textColor: new RGBAColor32(0xe6, 0xe6, 0xe6, 0xff),
+                    borderColor: new RGBAColor32(0x59, 0x59, 0x66, 0xff),
+                    viewportWidth: Width,
+                    viewportHeight: Height);
+            }
         }
 
         // -----------------------------------------------------------------------
@@ -437,6 +494,10 @@ namespace TianWen.UI.Abstractions
         private void RenderToolbar(AstroImageDocument? document, ViewerState state)
         {
             FillRect(0, 0, Width, ToolbarHeight, 0.18f, 0.18f, 0.20f, 1f);
+
+            // Recompute button bounds every frame — labels can change width
+            // (e.g. "Stars" -> "Stars: 5893") which shifts later buttons.
+            _toolbarButtonBounds.Clear();
 
             if (_fontPath is null)
             {
@@ -497,10 +558,253 @@ namespace TianWen.UI.Abstractions
                 if (enabled)
                 {
                     RegisterClickable(x, btnY, btnW, btnH, new HitResult.ButtonHit(action.ToString()));
+                    // Capture rect so left-click can anchor the dropdown beneath the
+                    // button (see OpenToolbarDropdown). Only enabled buttons can be
+                    // clicked, so we only need their bounds.
+                    _toolbarButtonBounds[action] = new RectF32(x, btnY, btnW, btnH);
                 }
 
                 x += btnW + ButtonSpacing;
             }
+        }
+
+        // -----------------------------------------------------------------------
+        // Toolbar dropdowns — single shared overlay (only one open at a time)
+        // -----------------------------------------------------------------------
+
+        /// <summary>Captured bounds of each enabled toolbar button this frame —
+        /// used as the anchor when opening that button's dropdown.</summary>
+        private readonly Dictionary<ToolbarAction, RectF32> _toolbarButtonBounds = new();
+
+        /// <summary>Cycle order + dropdown order for the stretch-mode selector.
+        /// Mirrors <see cref="ViewerActions.StretchLinkModes"/> 1:1 so the click
+        /// handler can index back into the enum array.</summary>
+        private static readonly ImmutableArray<string> StretchLinkModeLabels = BuildLabels(
+            ViewerActions.StretchLinkModes, m => m.ToString());
+
+        /// <summary>Channel-view selector — Composite/Red/Green/Blue. Only
+        /// surfaced for 3+ channel images (gated by <see cref="IsToolbarButtonEnabled"/>).</summary>
+        private static readonly ChannelView[] ChannelViewOrder =
+            [ChannelView.Composite, ChannelView.Red, ChannelView.Green, ChannelView.Blue];
+
+        private static readonly ImmutableArray<string> ChannelViewLabels = BuildLabels(
+            ChannelViewOrder, v => v switch { ChannelView.Composite => "RGB", _ => v.ToString() });
+
+        /// <summary>Debayer-algorithm selector — all 4 algorithms always shown.
+        /// Order matches the <see cref="DebayerAlgorithm"/> enum so the click
+        /// handler can cast `idx` directly.</summary>
+        private static readonly DebayerAlgorithm[] DebayerAlgorithmOrder =
+            [DebayerAlgorithm.None, DebayerAlgorithm.BilinearMono, DebayerAlgorithm.VNG, DebayerAlgorithm.AHD];
+
+        private static readonly ImmutableArray<string> DebayerLabels = BuildLabels(
+            DebayerAlgorithmOrder, a => a.DisplayName);
+
+        /// <summary>Stretch-parameter preset labels — 8 (Factor, ShadowsClipping) presets.</summary>
+        private static readonly ImmutableArray<string> StretchParamsLabels = BuildLabels(
+            StretchParameters.Presets, p => p.ToString());
+
+        /// <summary>Curves-boost preset labels — 0/25/50/100/150 %.</summary>
+        private static readonly ImmutableArray<string> CurvesBoostLabels = BuildLabels(
+            ViewerState.CurvesBoostPresets, b => b > 0f ? $"{b:P0}" : "Off");
+
+        /// <summary>HDR preset labels — "Off" + 4 (amount, knee) combos.</summary>
+        private static readonly ImmutableArray<string> HdrLabels = BuildLabels(
+            ViewerState.HdrPresets, p => p.Amount > 0f ? $"{p.Amount:F1} / {p.Knee:F2}" : "Off");
+
+        /// <summary>Background-neutralization preset table — combines method × strength
+        /// into one flat dropdown. <c>null</c> method = "Off" (disable). Mean has a
+        /// strength variant to demonstrate the lerp plumbing; the other methods stay
+        /// at full strength until a separate strength slider lands.</summary>
+        private static readonly (string Label, BackgroundNeutralizationMethod? Method, float Strength)[] BackgroundNeutralizationPresets =
+        [
+            ("Off",          null,                                          0f),
+            ("Mean",         BackgroundNeutralizationMethod.Mean,           1f),
+            ("Mean (50%)",   BackgroundNeutralizationMethod.Mean,           0.5f),
+            ("Green pivot",  BackgroundNeutralizationMethod.GreenPivot,     1f),
+            ("Min pivot",    BackgroundNeutralizationMethod.MinPivot,       1f),
+        ];
+
+        private static readonly ImmutableArray<string> BackgroundNeutralizationLabels = BuildLabels(
+            BackgroundNeutralizationPresets, p => p.Label);
+
+        private static string ShortMethodLabel(BackgroundNeutralizationMethod m) => m switch
+        {
+            BackgroundNeutralizationMethod.GreenPivot => "Green",
+            BackgroundNeutralizationMethod.MinPivot   => "Min",
+            _                                         => "Mean",
+        };
+
+        private static ImmutableArray<string> BuildLabels<T>(System.Collections.Generic.IReadOnlyList<T> items, Func<T, string> selector)
+        {
+            var arr = new string[items.Count];
+            for (var i = 0; i < items.Count; i++)
+            {
+                arr[i] = selector(items[i]);
+            }
+            return ImmutableArray.Create(arr);
+        }
+
+        /// <summary>
+        /// Opens the appropriate dropdown overlay for <paramref name="action"/>
+        /// anchored below its toolbar button. Returns <c>true</c> if a dropdown
+        /// was opened (caller must not also dispatch the action's cycle).
+        /// Right-click on the same buttons still falls through to
+        /// <see cref="ViewerActions.HandleToolbarAction"/> for reverse-cycle.
+        /// </summary>
+        public bool OpenToolbarDropdown(ViewerState state, ToolbarAction action)
+        {
+            if (!_toolbarButtonBounds.TryGetValue(action, out var bounds))
+            {
+                return false;
+            }
+
+            switch (action)
+            {
+                case ToolbarAction.StretchLink:
+                    OpenDropdown(state, bounds, StretchLinkModeLabels, (idx, _) =>
+                    {
+                        var modes = ViewerActions.StretchLinkModes;
+                        if ((uint)idx < (uint)modes.Length)
+                        {
+                            state.StretchMode = modes[idx];
+                            state.StatusMessage = $"Stretch: {state.StretchMode}";
+                            state.NeedsRedraw = true;
+                        }
+                    });
+                    return true;
+
+                case ToolbarAction.Channel:
+                    OpenDropdown(state, bounds, ChannelViewLabels, (idx, _) =>
+                    {
+                        if ((uint)idx < (uint)ChannelViewOrder.Length)
+                        {
+                            state.ChannelView = ChannelViewOrder[idx];
+                            state.NeedsTextureUpdate = true;
+                            state.StatusMessage = $"Channel: {state.ChannelView}";
+                        }
+                    });
+                    return true;
+
+                case ToolbarAction.Debayer:
+                    OpenDropdown(state, bounds, DebayerLabels, (idx, _) =>
+                    {
+                        if ((uint)idx < (uint)DebayerAlgorithmOrder.Length)
+                        {
+                            state.DebayerAlgorithm = DebayerAlgorithmOrder[idx];
+                            state.NeedsRedraw = true;
+                            state.StatusMessage = $"Debayer (next load): {state.DebayerAlgorithm.DisplayName}";
+                        }
+                    });
+                    return true;
+
+                case ToolbarAction.StretchParams:
+                    OpenDropdown(state, bounds, StretchParamsLabels, (idx, _) =>
+                    {
+                        var presets = StretchParameters.Presets;
+                        if ((uint)idx < (uint)presets.Length)
+                        {
+                            state.StretchPresetIndex = idx;
+                            state.StretchParameters = presets[idx];
+                            state.NeedsRedraw = true;
+                            state.StatusMessage = $"Stretch: {state.StretchParameters}";
+                        }
+                    });
+                    return true;
+
+                case ToolbarAction.CurvesBoost:
+                    OpenDropdown(state, bounds, CurvesBoostLabels, (idx, _) =>
+                    {
+                        var presets = ViewerState.CurvesBoostPresets;
+                        if ((uint)idx < (uint)presets.Length)
+                        {
+                            state.CurvesBoostIndex = idx;
+                            state.CurvesBoost = presets[idx];
+                            state.NeedsRedraw = true;
+                            state.StatusMessage = state.CurvesBoost > 0f ? $"Curves Boost: {state.CurvesBoost:P0}" : "Curves Boost: Off";
+                        }
+                    });
+                    return true;
+
+                case ToolbarAction.Hdr:
+                    OpenDropdown(state, bounds, HdrLabels, (idx, _) =>
+                    {
+                        var presets = ViewerState.HdrPresets;
+                        if ((uint)idx < (uint)presets.Length)
+                        {
+                            state.HdrPresetIndex = idx;
+                            state.HdrAmount = presets[idx].Amount;
+                            state.HdrKnee = presets[idx].Knee;
+                            state.NeedsRedraw = true;
+                            state.StatusMessage = presets[idx].Amount > 0f
+                                ? $"HDR: {presets[idx].Amount:F1} (knee {presets[idx].Knee:F2})"
+                                : "HDR: Off";
+                        }
+                    });
+                    return true;
+
+                case ToolbarAction.BackgroundNeutralize:
+                    OpenDropdown(state, bounds, BackgroundNeutralizationLabels, (idx, _) =>
+                    {
+                        var presets = BackgroundNeutralizationPresets;
+                        if ((uint)idx >= (uint)presets.Length)
+                        {
+                            return;
+                        }
+                        var (label, method, strength) = presets[idx];
+                        state.BackgroundNeutralizationStrength = strength;
+                        if (method is { } m)
+                        {
+                            state.BackgroundNeutralizationMethod = m;
+                            // Compute (or hit per-method cache) and pin gain onto document.
+                            // User picked a method explicitly, so the toolbar reflects that
+                            // even if this image's gain happens to land near identity.
+                            var gain = _document?.ComputeBackgroundNeutralization(m);
+                            state.BackgroundNeutralizationEnabled = true;
+                            state.StatusMessage = gain is { } g
+                                ? $"NeutBg: {label}  R={g.R:F2} G={g.G:F2} B={g.B:F2}"
+                                : $"NeutBg: {label} (no background data)";
+                        }
+                        else
+                        {
+                            // "Off" entry — drop the document gain so the uniform reverts to identity
+                            if (_document is not null)
+                            {
+                                _document.BackgroundNeutralization = null;
+                            }
+                            state.BackgroundNeutralizationEnabled = false;
+                            state.StatusMessage = "NeutBg: Off";
+                        }
+                        state.NeedsRedraw = true;
+                    });
+                    return true;
+
+                default:
+                    return false;
+            }
+        }
+
+        private void OpenDropdown(ViewerState state, RectF32 bounds, ImmutableArray<string> labels, Action<int, string> onSelect)
+        {
+            // Width = max(button width, widest label + horizontal padding).
+            // RenderDropdownMenu draws each label with 0.5*fontSize padding per
+            // side, so budget a full fontSize of slack to avoid edge clipping.
+            var width = bounds.Width;
+            var fontSize = ToolbarFontSize;
+            foreach (var label in labels)
+            {
+                var labelWidth = MeasureText(label, fontSize) + fontSize;
+                if (labelWidth > width)
+                {
+                    width = labelWidth;
+                }
+            }
+            state.ToolbarDropdown.Open(
+                bounds.X,
+                bounds.Y + bounds.Height,
+                width,
+                labels,
+                onSelect);
+            state.NeedsRedraw = true;
         }
 
         private bool IsToolbarButtonEnabled(ToolbarAction action, AstroImageDocument? document) => action switch
@@ -576,7 +880,10 @@ namespace TianWen.UI.Abstractions
                 ToolbarAction.Stars when document?.Stars is null => "Stars...",
                 ToolbarAction.Stars when document?.Stars is { Count: > 0 } s => $"Stars: {s.Count}",
                 ToolbarAction.Stars => "Stars: 0",
-                ToolbarAction.BackgroundNeutralize when state.BackgroundNeutralizationEnabled => "NeutBg: ON",
+                ToolbarAction.BackgroundNeutralize when state.BackgroundNeutralizationEnabled =>
+                    state.BackgroundNeutralizationStrength >= 0.9999f
+                        ? $"NeutBg: {ShortMethodLabel(state.BackgroundNeutralizationMethod)}"
+                        : $"NeutBg: {ShortMethodLabel(state.BackgroundNeutralizationMethod)} {state.BackgroundNeutralizationStrength:P0}",
                 ToolbarAction.SpccCalibrate when state.ColorCalibrationEnabled => $"SPCC: {document?.ColorCalibration?.R:F2}/{document?.ColorCalibration?.B:F2}",
                 ToolbarAction.PlateSolve when state.IsPlateSolving => "Solving...",
                 ToolbarAction.PlateSolve when document?.IsPlateSolved == true => "Solved",
@@ -684,6 +991,17 @@ namespace TianWen.UI.Abstractions
                 var scrollBarY = listTop + scrollFraction * (listHeight - scrollBarH);
                 FillRect(FileListWidth - 4, scrollBarY, 3, scrollBarH, 0.4f, 0.4f, 0.45f, 0.8f);
             }
+
+            // Resize handle at the right edge -- thin vertical bar, brighter
+            // while dragging so the affordance stays visible even when the
+            // cursor leaves the panel during a fast drag.
+            var handleW = FileListResizeHandleWidth;
+            var handleX = FileListWidth - handleW * 0.5f;
+            var (hr, hg, hb, ha) = state.IsResizingFileList
+                ? (0.45f, 0.55f, 0.70f, 1f)
+                : (0.30f, 0.30f, 0.35f, 0.7f);
+            FillRect(handleX, listTop, handleW, listHeight, hr, hg, hb, ha);
+            RegisterClickable(handleX - 2f, listTop, handleW + 4f, listHeight, new ResizeHandleHit("FileList"));
         }
 
         /// <summary>
@@ -1309,7 +1627,9 @@ namespace TianWen.UI.Abstractions
                 return;
             }
 
-            var stretch = document.ComputeStretchUniforms(state.StretchMode, state.StretchParameters);
+            var stretch = document.ComputeStretchUniforms(
+                state.StretchMode, state.StretchParameters,
+                bgNeutralizationStrength: state.BackgroundNeutralizationStrength);
 
             var (histLeft, histTop, histW, histH) = GetHistogramRect(state);
 
@@ -1619,6 +1939,15 @@ namespace TianWen.UI.Abstractions
                 return false;
             }
 
+            // Dropdowns get first crack at keyboard so Escape/Enter/Arrows route
+            // to the open overlay before falling through to global shortcuts
+            // (e.g. Escape would otherwise quit via RequestExitSignal).
+            if (state.ToolbarDropdown.HandleKeyDown(key))
+            {
+                state.NeedsRedraw = true;
+                return true;
+            }
+
             var ctrl = (modifiers & InputModifier.Ctrl) != 0;
             var shift = (modifiers & InputModifier.Shift) != 0;
 
@@ -1746,38 +2075,50 @@ namespace TianWen.UI.Abstractions
             if (_document?.Stars is { Count: >= 5 }
                 && _document.ColorCalibration is null
                 && (_document.UnstretchedImage.ChannelCount >= 3
-                    || _document.UnstretchedImage.ImageMeta.SensorType is SensorType.RGGB))
+                    || _document.UnstretchedImage.ImageMeta.SensorType is SensorType.RGGB)
+                && _document.TryBeginColorCalibration())
             {
                 state.StatusMessage = "Calibrating color...";
                 state.NeedsRedraw = true;
+                var docForTask = _document;
                 _ = Task.Run(async () =>
                 {
-                    var db = CelestialObjectDB is { IsValueCreated: true } lazy
-                        ? await lazy.WithCancellation(CancellationToken.None)
-                        : null!;
+                    try
+                    {
+                        var db = CelestialObjectDB is { IsValueCreated: true } lazy
+                            ? await lazy.WithCancellation(CancellationToken.None)
+                            : null!;
 
-                    // Try SPCC first, fall back to sky-background method
-                    var (matched, diag) = await _document.ComputeSpccColorCalibrationAsync(db);
-                    if (matched <= 0)
-                        (matched, diag) = await _document.ComputeColorCalibrationAsync(db);
-                    if (_document.ColorCalibration is { } wb)
-                    {
-                        state.ColorCalibrationEnabled = true;
-                        if (state.StretchMode is StretchMode.Unlinked)
+                        // Try SPCC first, fall back to sky-background method.
+                        // Capture-by-local (docForTask) so the task always
+                        // clears the in-flight flag on the doc it started for,
+                        // even if the user has navigated away in the meantime.
+                        var (matched, diag) = await docForTask.ComputeSpccColorCalibrationAsync(db);
+                        if (matched <= 0)
+                            (matched, diag) = await docForTask.ComputeColorCalibrationAsync(db);
+                        if (docForTask.ColorCalibration is { } wb)
                         {
-                            state.StretchMode = StretchMode.Linked;
+                            state.ColorCalibrationEnabled = true;
+                            if (state.StretchMode is StretchMode.Unlinked)
+                            {
+                                state.StretchMode = StretchMode.Linked;
+                            }
+                            System.Console.Error.WriteLine($"[ColorCal] {diag}");
+                            state.StatusMessage = matched > 0
+                                ? $"WB ({matched}★): R={wb.Item1:F3} G=1.000 B={wb.Item3:F3}"
+                                : null;
                         }
-                        System.Console.Error.WriteLine($"[ColorCal] {diag}");
-                        state.StatusMessage = matched > 0
-                            ? $"WB ({matched}★): R={wb.Item1:F3} G=1.000 B={wb.Item3:F3}"
-                            : null;
+                        else
+                        {
+                            System.Console.Error.WriteLine($"[ColorCal] FAIL: {diag}");
+                            state.StatusMessage = $"Calibration failed: {diag}";
+                        }
                     }
-                    else
+                    finally
                     {
-                        System.Console.Error.WriteLine($"[ColorCal] FAIL: {diag}");
-                        state.StatusMessage = $"Calibration failed: {diag}";
+                        docForTask.EndColorCalibration();
+                        state.NeedsRedraw = true;
                     }
-                    state.NeedsRedraw = true;
                 });
             }
         }
@@ -1792,12 +2133,12 @@ namespace TianWen.UI.Abstractions
                 return;
             }
 
-            var gains = _document?.ComputeBackgroundNeutralization();
+            var gains = _document?.ComputeBackgroundNeutralization(state.BackgroundNeutralizationMethod);
             if (gains is { } g)
             {
                 state.BackgroundNeutralizationEnabled = true;
                 state.NeedsRedraw = true;
-                System.Console.Error.WriteLine($"[BgNeut] R={g.R:F3} G={g.G:F3} B={g.B:F3}");
+                System.Console.Error.WriteLine($"[BgNeut/{state.BackgroundNeutralizationMethod}] R={g.R:F3} G={g.G:F3} B={g.B:F3}");
             }
         }
 
@@ -1843,6 +2184,13 @@ namespace TianWen.UI.Abstractions
                 return true;
             }
 
+            if (hit is ResizeHandleHit { Id: "FileList" })
+            {
+                state.IsResizingFileList = true;
+                state.NeedsRedraw = true;
+                return true;
+            }
+
             if (hit is not null)
             {
                 return true; // OnClick already handled it (e.g. HistogramLog)
@@ -1861,6 +2209,15 @@ namespace TianWen.UI.Abstractions
             }
 
             state.MouseScreenPosition = (px, py);
+
+            // File-list resize drag: width tracks the cursor's X position in
+            // DPI-independent units. Clamped by FileListWidthBase's setter.
+            if (state.IsResizingFileList)
+            {
+                state.FileListWidthBase = px / DpiScale;
+                state.NeedsRedraw = true;
+                return true;
+            }
 
             // Panning always needs a redraw (image position changes)
             if (state.IsPanning)
@@ -1882,6 +2239,11 @@ namespace TianWen.UI.Abstractions
         {
             if (_state is { } state)
             {
+                if (state.IsResizingFileList)
+                {
+                    state.IsResizingFileList = false;
+                    state.NeedsRedraw = true;
+                }
                 ViewerActions.EndPan(state);
                 return true;
             }

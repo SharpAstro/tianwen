@@ -3,6 +3,29 @@ using System;
 namespace TianWen.Lib.Imaging;
 
 /// <summary>
+/// Choice of pivot target for background-neutralization gain computation.
+/// All methods produce gains satisfying <c>out = val * g + (1-g)</c>, i.e.
+/// highlights at <c>val=1</c> stay fixed; only the relation between channel
+/// background levels changes.
+/// </summary>
+public enum BackgroundNeutralizationMethod
+{
+    /// <summary>Target = mean(R,G,B). Balances around the photographic average.
+    /// Default; matches the historical SETI Astro Suite Pro pivot1 behaviour.</summary>
+    Mean,
+
+    /// <summary>Target = G. Green channel passes through unchanged
+    /// (<c>gG = 1</c>); R and B scale so their background matches green.
+    /// Useful for OSC sensors where green carries the strongest signal.</summary>
+    GreenPivot,
+
+    /// <summary>Target = min(R,G,B). The darkest channel passes through
+    /// (<c>g = 1</c>) and the others scale up to match. No background signal
+    /// is "thrown away" — useful when one channel is significantly cleaner.</summary>
+    MinPivot,
+}
+
+/// <summary>
 /// Background neutralization via pivot1 mode (port of SETI Astro Suite Pro).
 /// Makes the sampled sky background neutral gray while protecting highlights.
 /// </summary>
@@ -13,8 +36,13 @@ public static class BackgroundNeutralization
     /// </summary>
     /// <param name="perChannelBg">Per-channel background values in pedestal-subtracted space
     /// (from <see cref="Image.ScanBackgroundRegion"/>).</param>
+    /// <param name="method">Pivot target choice — affects which channel(s) stay fixed.
+    /// Defaults to <see cref="BackgroundNeutralizationMethod.Mean"/> to preserve
+    /// the behaviour expected by existing tests + call sites.</param>
     /// <returns>Per-channel gains where out = val * g + (1-g). Default (1,1,1) = no change.</returns>
-    public static (float R, float G, float B) ComputeGains(ReadOnlySpan<float> perChannelBg)
+    public static (float R, float G, float B) ComputeGains(
+        ReadOnlySpan<float> perChannelBg,
+        BackgroundNeutralizationMethod method = BackgroundNeutralizationMethod.Mean)
     {
         if (perChannelBg.Length < 3)
             return (1f, 1f, 1f);
@@ -22,7 +50,12 @@ public static class BackgroundNeutralization
         var mR = perChannelBg[0];
         var mG = perChannelBg[1];
         var mB = perChannelBg[2];
-        var t = (mR + mG + mB) / 3f;
+        var t = method switch
+        {
+            BackgroundNeutralizationMethod.GreenPivot => mG,
+            BackgroundNeutralizationMethod.MinPivot   => MathF.Min(mR, MathF.Min(mG, mB)),
+            _                                         => (mR + mG + mB) / 3f,
+        };
 
         var gR = ComputeChannelGain(mR, t);
         var gG = ComputeChannelGain(mG, t);

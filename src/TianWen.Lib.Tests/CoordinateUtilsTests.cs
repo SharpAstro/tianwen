@@ -71,4 +71,43 @@ public class CoordinateUtilsTests
     {
         CoordinateUtils.DegreesToDMS(degrees).ShouldBe(expectedDMS);
     }
+
+    // Reference cases: known sensor/scope pairs from current TianWen fixtures.
+    //  - IMX533 (3.76 μm) on a 600 mm scope -> ~1.293 "/px
+    //  - IMX585 (2.9 μm) bin 2 on a 540 mm scope -> ~2.215 "/px (effective 5.8 μm)
+    //  - DSLR 4.3 μm on 200 mm -> ~4.435 "/px
+    [Theory]
+    [InlineData(3.76, 600, 1.292)]
+    [InlineData(5.80, 540, 2.215)]
+    [InlineData(4.30, 200, 4.435)]
+    public void PixelScaleArcsec_KnownInputs_RoundTrip(double pixSizeUm, double focalLenMm, double expectedArcsec)
+    {
+        var px = CoordinateUtils.PixelScaleArcsec(pixSizeUm, focalLenMm);
+        px.ShouldBe(expectedArcsec, tolerance: 0.001);
+
+        // Inverse round-trip: feeding the result back to FocalLengthMm must
+        // recover the input focal length within rounding.
+        var recovered = CoordinateUtils.FocalLengthMm(pixSizeUm, px);
+        recovered.ShouldBe(focalLenMm, tolerance: 1e-6);
+    }
+
+    [Theory]
+    [InlineData(0, 600)]
+    [InlineData(3.76, 0)]
+    [InlineData(-1, 600)]
+    [InlineData(3.76, -1)]
+    public void PixelScaleArcsec_NonPositiveInputs_ReturnNaN(double pixSizeUm, double focalLenMm)
+    {
+        CoordinateUtils.PixelScaleArcsec(pixSizeUm, focalLenMm).ShouldBe(double.NaN);
+    }
+
+    [Theory]
+    [InlineData(0, 1.292)]
+    [InlineData(3.76, 0)]
+    [InlineData(-1, 1.292)]
+    [InlineData(3.76, -1)]
+    public void FocalLengthMm_NonPositiveInputs_ReturnNaN(double pixSizeUm, double pxScaleArcsec)
+    {
+        CoordinateUtils.FocalLengthMm(pixSizeUm, pxScaleArcsec).ShouldBe(double.NaN);
+    }
 }

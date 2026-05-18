@@ -38,6 +38,66 @@ namespace TianWen.Lib.Tests
             d1Len.ShouldBe(d1);
         }
 
+        [Theory]
+        [InlineData(1,    1)]   // 1 column fits in 1 word
+        [InlineData(63,   1)]   // 63 columns still in 1 word
+        [InlineData(64,   1)]   // exactly 1 word
+        [InlineData(65,   2)]   // spans 2 words
+        [InlineData(128,  2)]   // exactly 2 words
+        [InlineData(1000, 16)]  // 1000 / 64 = 15.625 -> 16 words
+        public void GivenColumnCountWhenWordsPerRowThenCeilDiv64(int d1, int expectedWords)
+        {
+            // given
+            var bm = new BitMatrix(d0: 3, d1: d1);
+
+            // when, then
+            bm.WordsPerRow.ShouldBe(expectedWords);
+        }
+
+        [Fact]
+        public void GivenSetBitWhenGetWordThenBitIsInWordAtCorrectOffset()
+        {
+            // given -- set a few representative bits across word boundaries
+            var bm = new BitMatrix(d0: 2, d1: 130);
+            bm[0,   0] = true;   // bit 0 of word 0
+            bm[0,  63] = true;   // bit 63 of word 0 (high bit)
+            bm[0,  64] = true;   // bit 0 of word 1
+            bm[0, 129] = true;   // bit 1 of word 2 (last spanning word)
+            // row 1 stays all-zero -- verifies GetWord returns 0 when no bit set
+
+            // when
+            var row0Word0 = bm.GetWord(row: 0, wordIndex: 0);
+            var row0Word1 = bm.GetWord(row: 0, wordIndex: 1);
+            var row0Word2 = bm.GetWord(row: 0, wordIndex: 2);
+            var row1Word0 = bm.GetWord(row: 1, wordIndex: 0);
+
+            // then
+            row0Word0.ShouldBe((1UL << 0) | (1UL << 63));
+            row0Word1.ShouldBe(1UL << 0);
+            row0Word2.ShouldBe(1UL << 1);
+            row1Word0.ShouldBe(0UL);
+        }
+
+        [Fact]
+        public void GivenSparseMaskWhenWordZeroThenChunkIsAllUnsetForFastPath()
+        {
+            // The drizzle hot-path optimisation reads GetWord per 64-pixel
+            // chunk; word == 0 means "no masked pixels in this chunk, skip
+            // the per-bit test". This test guards the contract: a chunk
+            // worth of all-clear bits MUST surface as word == 0 so the
+            // fast path actually fires.
+
+            // given
+            var bm = new BitMatrix(d0: 1, d1: 128);
+            bm[0, 100] = true; // only one bit set, lives in word 1 not word 0
+
+            // when, then
+            bm.GetWord(0, 0).ShouldBe(0UL,
+                "first 64 columns are clear -- fast path must trigger");
+            bm.GetWord(0, 1).ShouldNotBe(0UL,
+                "bit 100 lives in word 1 -- slow path must trigger");
+        }
+
         [Fact]
         public void GivenInvalidDimThenArgumentExceptionIsThrown()
         {

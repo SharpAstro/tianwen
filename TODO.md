@@ -266,6 +266,7 @@
 - [ ] Not sure if `SensorType` LRGB check is correct (`SensorType.cs:54`)
 - [ ] Find bounding box of non-NaN region in `Image.cs` (for stacked images with NaN borders)
 - [ ] Star detection noise robustness: `FindStarsAsync` with `snrMin: 5` picks up false positives from shot noise halos around bright stars (e.g. M42 synthetic field: 49 rendered stars → 64 detected). Consider deblending or a minimum star separation filter to reject noise peaks near bright stars.
+- [ ] **AHD debayer: SIMD via output-tile chunking** — Phase 3 (homogeneity comparison, ~70% of AHD's cost) is currently scalar with `Unsafe.Add` (commit 958e42e). To vectorise, process 8 output pixels per `Vector<float>` lane: the 5×5 neighbourhoods of consecutive x positions overlap heavily, so each dx offset becomes a single AVX2 load that serves all 8 pixels. Realistic landing: AHD 298 ms → ~140-150 ms (another ~2× on top of what we have). Non-trivial: the `if (diffH < diffV) homH++ else homV++` branch needs `Vector.GreaterThan` + masked accumulate, the direction-select tail needs `Vector.ConditionalSelect`, and `Vector.Sum`'s tree-add will likely change FP rounding order vs scalar sequential add → `DebayerRegressionTests` hashes will need repinning. Code complexity ~3-5× current scalar+unsafe path. Worth taking on if/when AHD perf dominates wall-clock for big groups (SoL 60s and similar 200+ frame stacks). See `Image.Debayer.cs:559-643` Phase 3 + the discussion in commit 958e42e for design context.
 
 ## Stretch / Image Processing
 

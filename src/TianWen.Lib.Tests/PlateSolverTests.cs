@@ -17,34 +17,6 @@ namespace TianWen.Lib.Tests;
 [Collection("Astrometry")]
 public class PlateSolverTests(ITestOutputHelper output)
 {
-    private static ICelestialObjectDB? _cachedDB;
-    private static readonly SemaphoreSlim _dbSem = new SemaphoreSlim(1, 1);
-
-    private static async Task<ICelestialObjectDB> InitDBAsync(CancellationToken cancellationToken)
-    {
-        if (_cachedDB is ICelestialObjectDB db)
-        {
-            return db;
-        }
-        await _dbSem.WaitAsync(cancellationToken);
-        try
-        {
-            if (_cachedDB is ICelestialObjectDB db2)
-            {
-                return db2;
-            }
-            var newDb = new CelestialObjectDB();
-            // Plate solving queries CoordinateGrid which composes the Tycho-2 spatial index.
-            await newDb.InitDBAsync(waitForTycho2BulkLoad: true, cancellationToken: cancellationToken);
-            _cachedDB = newDb;
-            return newDb;
-        }
-        finally
-        {
-            _dbSem.Release();
-        }
-    }
-
     private static IPlateSolver CreateSolver(Type solverType, ICelestialObjectDB? db = null)
     {
         if (solverType == typeof(CatalogPlateSolver))
@@ -145,7 +117,7 @@ public class PlateSolverTests(ITestOutputHelper output)
     {
         // given
         var cancellationToken = TestContext.Current.CancellationToken;
-        var db = await InitDBAsync(cancellationToken);
+        var db = await SharedCatalogDB.InitAsync(cancellationToken);
         var image = await SharedTestData.ExtractGZippedFitsImageAsync(name, cancellationToken: cancellationToken);
         var solver = new CatalogPlateSolver(db);
 
@@ -254,7 +226,7 @@ public class PlateSolverTests(ITestOutputHelper output)
     {
         // given
         var cancellationToken = TestContext.Current.CancellationToken;
-        var db = await InitDBAsync(cancellationToken);
+        var db = await SharedCatalogDB.InitAsync(cancellationToken);
         var extractedFitsFile = await SharedTestData.ExtractGZippedFitsFileAsync(name, cancellationToken);
         var solver = new CatalogPlateSolver(db);
 
@@ -278,7 +250,7 @@ public class PlateSolverTests(ITestOutputHelper output)
     {
         // given
         var cancellationToken = TestContext.Current.CancellationToken;
-        var db = await InitDBAsync(cancellationToken);
+        var db = await SharedCatalogDB.InitAsync(cancellationToken);
         var image = await SharedTestData.ExtractGZippedFitsImageAsync(SharedTestData.PlateSolveTestFile, cancellationToken: cancellationToken);
         var solver = new CatalogPlateSolver(db);
 
@@ -306,7 +278,7 @@ public class PlateSolverTests(ITestOutputHelper output)
     {
         // given — set up fake camera with catalog DB
         var cancellationToken = TestContext.Current.CancellationToken;
-        var db = await InitDBAsync(cancellationToken);
+        var db = await SharedCatalogDB.InitAsync(cancellationToken);
 
         var timeProvider = new FakeTimeProviderWrapper(new DateTimeOffset(2025, 6, 15, 22, 0, 0, TimeSpan.Zero));
         var external = new FakeExternal(output, timeProvider);
@@ -429,7 +401,7 @@ public class PlateSolverTests(ITestOutputHelper output)
     {
         // given — IMX294C (RGGB) pointing at M42
         var cancellationToken = TestContext.Current.CancellationToken;
-        var db = await InitDBAsync(cancellationToken);
+        var db = await SharedCatalogDB.InitAsync(cancellationToken);
 
         var targetRA = 5.59;
         var targetDec = -5.39;
@@ -589,7 +561,7 @@ public class PlateSolverTests(ITestOutputHelper output)
         double minDec, double maxDec, string label)
     {
         var cancellationToken = TestContext.Current.CancellationToken;
-        var db = await InitDBAsync(cancellationToken);
+        var db = await SharedCatalogDB.InitAsync(cancellationToken);
 
         var composite = db.CoordinateGrid as CompositeRaDecIndex;
         composite.ShouldNotBeNull("expected CelestialObjectDB to expose a CompositeRaDecIndex");

@@ -18,6 +18,9 @@
   <ItemGroup>
     <ProjectReference Include="..\TianWen.Lib\TianWen.Lib.csproj" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
+    <!-- MasterPreviewRenderer emits an sRGB PNG with embedded ICC. -->
+    <PackageReference Include="SharpAstro.Png" />
+    <PackageReference Include="SharpAstro.Color.Icc" />
   </ItemGroup>
 
 </Project>

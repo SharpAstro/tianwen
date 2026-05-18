@@ -108,10 +108,15 @@ public class FindStarsFromFitsFileTests(ITestOutputHelper testOutputHelper)
         testOutputHelper.WriteLine("Luma: bg_no_mask={0:F6}, bg_with_mask={1:F6}, diff={2:F6}",
             lumaBgNoMask, lumaBgWithMask, lumaBgWithMask - lumaBgNoMask);
 
-        // Masked background should be <= unmasked (stars only add flux)
+        // Masked background should be <= unmasked, but the two calls use different
+        // squareSize (32 vs 48) and each picks its own darkest-luma patch -- so the
+        // patches sampled aren't the same image region. Tolerance absorbs that
+        // patch-choice noise (observed up to ~1.5e-4 on heavy-gradient frames);
+        // it's wide enough that a real mask defect (stars not excluded -> bg
+        // inflated by star flux, typically O(1e-2)) would still trip the check.
         for (var c = 0; c < bgNoMask.Length; c++)
         {
-            bgWithMask[c].ShouldBeLessThanOrEqualTo(bgNoMask[c] + 1e-4f,
+            bgWithMask[c].ShouldBeLessThanOrEqualTo(bgNoMask[c] + 5e-4f,
                 $"Ch{c}: masked background should not exceed unmasked");
         }
     }
