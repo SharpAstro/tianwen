@@ -84,15 +84,33 @@ public class StackingPipelineRgbBayerSyntheticTest(ITestOutputHelper output)
         master.Width.ShouldBeGreaterThanOrEqualTo(RgbBayerSyntheticFixture.FrameSize);
         master.Height.ShouldBeGreaterThanOrEqualTo(RgbBayerSyntheticFixture.FrameSize);
 
-        // 3) Every channel carries signal. A debayer regression that left
-        //    one channel zeroed (mismatched Bayer offset, dropped R or B
-        //    interpolation step) would surface here as a near-zero mean.
+        // 3) Every channel carries signal AND the per-channel medians
+        //    match the gain ratio baked into BuildBayerMosaic (R=1.0,
+        //    G=0.7, B=0.4). A "median > epsilon" check alone passes even
+        //    when Bayer dispatch is fully broken (e.g. R<->B swapped)
+        //    because every channel still ends up with SOME signal. The
+        //    ratio check is the actual guard.
+        //
+        //    The debayer path interpolates the missing 2/3 of channels at
+        //    every pixel, which softens the raw ratio toward 1.0 (each
+        //    output pixel is a weighted blend of nearby R/G/B Bayer
+        //    cells). Tolerance is therefore wider than the drizzle test's:
+        //    expected R/G in ~[0.8, 1.7] and B/G in ~[0.5, 1.0], still
+        //    plenty of margin to catch an R<->B swap.
+        var medians = new float[master.ChannelCount];
         for (var c = 0; c < master.ChannelCount; c++)
         {
             var (_, median, _) = master.GetPedestralMedianAndMADScaledToUnit(c);
+            medians[c] = median;
             median.ShouldBeGreaterThan(1e-4f,
                 $"channel {c} median {median:F6} is too close to zero -- debayer / calibration likely zeroed it");
         }
+        var rRatio = medians[0] / medians[1];
+        var bRatio = medians[2] / medians[1];
+        rRatio.ShouldBeInRange(0.8f, 1.7f,
+            $"R/G ratio {rRatio:F2} outside [0.8, 1.7] -- channels likely swapped (debayer Bayer dispatch regression)");
+        bRatio.ShouldBeInRange(0.5f, 1.0f,
+            $"B/G ratio {bRatio:F2} outside [0.5, 1.0] -- channels likely swapped (debayer Bayer dispatch regression)");
 
         // 4) Calibration master cache populated. The 2-dark group should
         //    have built one master_*.fits under output/masters/. Calibration

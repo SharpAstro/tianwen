@@ -94,15 +94,34 @@ public class StackingPipelineRgbBayerDrizzleTest(ITestOutputHelper output)
         master.Width.ShouldBeGreaterThanOrEqualTo(RgbBayerSyntheticFixture.FrameSize);
         master.Height.ShouldBeGreaterThanOrEqualTo(RgbBayerSyntheticFixture.FrameSize);
 
-        // 3) Every channel carries signal. A wrong Bayer-pattern dispatch
-        //    in DrizzleStrategy (e.g. always writing channel 0) would zero
-        //    G or B here; this catches it.
+        // 3) Every channel carries signal AND the per-channel medians match
+        //    the gain ratio baked into BuildBayerMosaic (R=1.0, G=0.7,
+        //    B=0.4). A "median > epsilon" check alone passes even when
+        //    Bayer dispatch is fully broken (e.g. R<->B swapped) because
+        //    every channel still ends up with SOME signal. The ratio check
+        //    is the actual guard: an R<->B swap inverts the master's
+        //    channel ratios from 1.0:0.7:0.4 to 0.4:0.7:1.0, which the
+        //    tolerance below catches by 5+ sigma.
+        var medians = new float[master.ChannelCount];
         for (var c = 0; c < master.ChannelCount; c++)
         {
             var (_, median, _) = master.GetPedestralMedianAndMADScaledToUnit(c);
+            medians[c] = median;
             median.ShouldBeGreaterThan(1e-4f,
                 $"channel {c} median {median:F6} too close to zero -- drizzle Bayer dispatch likely wrong");
         }
+        // Ratios relative to G (channel 1) so we don't depend on absolute
+        // sky-background brightness. Expected R/G = 1.0/0.7 = 1.43,
+        // B/G = 0.4/0.7 = 0.57. Tolerance is generous (~30%) to cover
+        // drizzle's per-cell coverage noise + dark-subtraction residual
+        // on a small synthetic fixture; the R<->B-swap regression would
+        // flip them to R/G ~= 0.57 and B/G ~= 1.43, well outside.
+        var rRatio = medians[0] / medians[1];
+        var bRatio = medians[2] / medians[1];
+        rRatio.ShouldBeInRange(1.0f, 2.0f,
+            $"R/G ratio {rRatio:F2} outside [1.0, 2.0] -- channels likely swapped (Bayer dispatch regression)");
+        bRatio.ShouldBeInRange(0.3f, 0.9f,
+            $"B/G ratio {bRatio:F2} outside [0.3, 0.9] -- channels likely swapped (Bayer dispatch regression)");
 
         // 4) The IntegrationResult is the drizzle variant -- TotalRejections
         //    is repurposed to count uncovered cells, the rejection map is
