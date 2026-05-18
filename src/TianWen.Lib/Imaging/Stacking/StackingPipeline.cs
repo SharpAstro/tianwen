@@ -323,8 +323,6 @@ public sealed class StackingPipeline(
         progress?.Report(new StackingProgress(StackingPhase.Registering, slug, 0, lightList.Count));
         var sw = Stopwatch.StartNew();
         var frameCandidates = new List<(FrameInfo Frame, FrameMetrics Metrics, float Score)>(lightList.Count);
-        FrameInfo? reference = null;
-        var bestScore = float.NegativeInfinity;
         foreach (var lf in lightList)
         {
             ct.ThrowIfCancellationRequested();
@@ -339,10 +337,38 @@ public sealed class StackingPipeline(
                 StarCount: stars.Count);
             var score = stars.Count / (MathF.Max(metrics.MedianHfd, 1f) * (1f + 4f * metrics.MedianEllipticity));
             frameCandidates.Add((lf, metrics, score));
-            if (score > bestScore)
+        }
+
+        // Reference selection: explicit ReferenceFrameHint wins (substring
+        // match on path, first hit), otherwise composite-quality score.
+        // The hint is a debug knob for isolating Bayer-drizzle artifacts
+        // that correlate with reference choice -- pinning to a frame near
+        // the temporal MIDDLE of the session keeps per-frame rotation
+        // residuals symmetric around zero so per-channel drizzle coverage
+        // stays balanced.
+        FrameInfo? reference = null;
+        if (!string.IsNullOrEmpty(options.ReferenceFrameHint))
+        {
+            var hint = options.ReferenceFrameHint;
+            var match = frameCandidates.FirstOrDefault(c =>
+                c.Frame.Path.Contains(hint, StringComparison.OrdinalIgnoreCase));
+            if (match.Frame is not null)
             {
-                bestScore = score;
-                reference = lf;
+                reference = match.Frame;
+                logger.LogInformation("  [refHint] pinning reference to {File} (hint=\"{Hint}\")",
+                    Path.GetFileName(reference.Path), hint);
+            }
+            else
+            {
+                logger.LogWarning("  [refHint] no candidate path matches \"{Hint}\"; falling back to score-based pick", hint);
+            }
+        }
+        if (reference is null)
+        {
+            var bestScore = float.NegativeInfinity;
+            foreach (var c in frameCandidates)
+            {
+                if (c.Score > bestScore) { bestScore = c.Score; reference = c.Frame; }
             }
         }
         if (reference is null)

@@ -68,6 +68,15 @@ namespace TianWen.Lib.Imaging.Stacking;
 /// recommended starting value -- conservative, catches clear outliers
 /// (low-altitude bloated frames, wind-trailed frames) without biting
 /// into the body of the distribution. See <see cref="FrameQualityFilter"/>.</param>
+/// <param name="ReferenceFrameHint">Debug knob: when set, pins the
+/// reference frame for each light group to the first candidate whose
+/// path contains this case-insensitive substring. Null falls back to
+/// the composite-quality score reference picker (the production
+/// default). Use to isolate per-frame Bayer-drizzle artifacts that
+/// correlate with reference choice -- pinning to a frame near the
+/// temporal MIDDLE of a session makes per-frame rotation residuals
+/// symmetric around zero, balancing per-channel drizzle coverage. Off
+/// by default.</param>
 public sealed record StackingOptions(
     string DataRoot,
     string OutputDir,
@@ -82,4 +91,5 @@ public sealed record StackingOptions(
     DrizzleOptions? DrizzleOptions = null,
     bool SplitByPierSide = false,
     float HotPixelSigma = 8.0f,
-    float? QualityRejectSigma = null);
+    float? QualityRejectSigma = null,
+    string? ReferenceFrameHint = null);

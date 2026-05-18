@@ -105,6 +105,10 @@ internal sealed class StackSubCommand(
         {
             Description = "Enable per-frame quality filtering at this sigma threshold: a frame is dropped from integration when its median HFD or ellipticity exceeds median + sigma * 1.4826 * MAD of the session. An 80% keep floor caps rejection at the worst 20% by severity. 3.0 is a conservative starting value -- catches clear outliers (bloated low-altitude frames, wind-trailed frames) without biting into the body of the distribution. Off by default.",
         };
+        var referenceFrameHintOpt = new Option<string?>("--reference-frame")
+        {
+            Description = "Debug knob: pin the reference frame to the first candidate whose path contains this case-insensitive substring (e.g. '_0233' to pin to that filename). Falls back to the composite-quality score picker when unset or no match. Use to isolate per-frame artifacts that correlate with reference choice -- a frame near the session's temporal middle keeps per-frame rotation residuals symmetric, which balances per-channel drizzle coverage.",
+        };
 
         var stackCommand = new Command("stack", "Stack a folder of FITS lights into a master frame.")
         {
@@ -117,7 +121,7 @@ internal sealed class StackSubCommand(
                 noPngOpt, noPlateSolveOpt,
                 drizzlePixfracOpt, drizzleMinFramesOpt,
                 splitByPierSideOpt, hotPixelSigmaOpt,
-                qualityRejectSigmaOpt,
+                qualityRejectSigmaOpt, referenceFrameHintOpt,
             },
         };
         stackCommand.SetAction(async (parseResult, ct) =>
@@ -157,7 +161,8 @@ internal sealed class StackSubCommand(
                 DrizzleOptions: drizzleOptions,
                 SplitByPierSide: parseResult.GetValue(splitByPierSideOpt),
                 HotPixelSigma: parseResult.GetValue(hotPixelSigmaOpt),
-                QualityRejectSigma: parseResult.GetValue(qualityRejectSigmaOpt));
+                QualityRejectSigma: parseResult.GetValue(qualityRejectSigmaOpt),
+                ReferenceFrameHint: parseResult.GetValue(referenceFrameHintOpt));
 
             var noPng = parseResult.GetValue(noPngOpt);
             var skipPlateSolve = parseResult.GetValue(noPlateSolveOpt);
