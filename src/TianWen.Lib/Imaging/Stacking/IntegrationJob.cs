@@ -90,7 +90,20 @@ public sealed record IntegrationJob(
     // SinkFactories.Create when canvas size pressures the RAM budget.
     // Reject map stays ArraySink across the board -- it's 1-channel and
     // small, not the target of Phase 10's mmap optimisation.
-    Func<int, int, int, IIntegrationSink>? MasterSinkFactory = null);
+    Func<int, int, int, IIntegrationSink>? MasterSinkFactory = null,
+    // Raw-CFA producer for DrizzleStrategy ONLY. Yields calibrated 1-channel
+    // Bayer planes + per-frame source->canvas affine; the strategy applies
+    // the transform itself (forward, no inversion) when projecting drops
+    // onto the output grid. Other strategies leave this null and consume
+    // WarpedFrames instead. Kept separate (rather than overloading
+    // WarpedFrames) so the contracts stay distinct and a misuse would
+    // surface as a NullReferenceException rather than as a silent
+    // "we got 1-channel where 3-channel was expected" miscompare.
+    Func<CancellationToken, IAsyncEnumerable<RawBayerFrame>>? RawBayerFrames = null,
+    // Drizzle parameters (pixfrac, output scale, min frame count). Only
+    // read by DrizzleStrategy; other strategies ignore. Null means the
+    // strategy receives DrizzleOptions defaults if it runs at all.
+    DrizzleOptions? DrizzleOptions = null);
 
 /// <summary>
 /// Coarse-grained pipeline phase reported by integration strategies. Phases

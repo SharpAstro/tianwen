@@ -33,6 +33,11 @@ namespace TianWen.Lib.Imaging.Stacking;
 /// pass at a lower detection level when the first returns fewer than this.</param>
 /// <param name="QuadStars">Top-K brightest stars used for quad fingerprints
 /// in <see cref="Registrator"/>'s match step.</param>
+/// <param name="DrizzleOptions">Knobs for <see cref="DrizzleStrategy"/> when
+/// <paramref name="ForcedStrategy"/> is <see cref="IntegrationStrategyKind.BayerDrizzle"/>.
+/// Null falls back to <see cref="Stacking.DrizzleOptions"/> defaults
+/// (Pixfrac=1.0, OutputScale=10, MinFrameCount=60). Ignored unless drizzle
+/// is the chosen strategy.</param>
 public sealed record StackingOptions(
     string DataRoot,
     string OutputDir,
@@ -43,4 +48,5 @@ public sealed record StackingOptions(
     DebayerAlgorithm StackDebayerAlg = DebayerAlgorithm.AHD,
     float SnrMin = 5f,
     int MinStars = 2000,
-    int QuadStars = 500);
+    int QuadStars = 500,
+    DrizzleOptions? DrizzleOptions = null);

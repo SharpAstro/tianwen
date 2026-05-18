@@ -252,5 +252,6 @@ public static class IntegrationStrategySelector
         new Float16StagedStrategy(),
         new ChunkedTwoPassStrategy(),
         new LiveAccumulatorStrategy(),
+        new DrizzleStrategy(),
     };
 }

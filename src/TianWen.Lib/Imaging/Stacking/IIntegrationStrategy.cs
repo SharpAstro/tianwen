@@ -43,6 +43,17 @@ public enum IntegrationStrategyKind
     /// batch strategies because rejection is per-frame relative to the
     /// running mean, not across all frames.</summary>
     LiveAccumulator,
+
+    /// <summary>Bayer drizzle (Fruchter &amp; Hook 2002 style): skip the
+    /// debayer step and project each raw CFA sample onto the output grid
+    /// as a "drop" with per-channel weighted accumulation. Phase 1 ships
+    /// at <c>OutputScale=10</c> (same grid as reference) with
+    /// <c>Pixfrac=1.0</c> -- exercises the code path without resolution
+    /// recovery; classical 2x sub-Bayer drizzle is Phase 2. Opt-in only:
+    /// <see cref="IntegrationStrategySelector"/> never picks it without an
+    /// explicit <c>--strategy BayerDrizzle</c> override. See
+    /// <see cref="DrizzleOptions"/>.</summary>
+    BayerDrizzle,
 }
 
 /// <summary>

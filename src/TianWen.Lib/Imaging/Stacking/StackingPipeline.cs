@@ -363,6 +363,36 @@ public sealed class StackingPipeline(
                 PreviewPngPath: null, Elapsed: groupSw.Elapsed, SkipReason: "fewer than 2 matched frames");
         }
 
+        // BayerDrizzle is opt-in only (--strategy BayerDrizzle). Gate up
+        // front so we fail fast with a clear reason rather than producing
+        // a NaN-riddled master at low frame count or on a Mono / Color
+        // sensor where the per-pixel Bayer dispatch is meaningless. Both
+        // checks would otherwise sneak through into RunAsync and produce
+        // either a useless master (low N) or a wrong-channel-assignment
+        // master (non-RGGB).
+        if (options.ForcedStrategy is IntegrationStrategyKind.BayerDrizzle)
+        {
+            var drizzleOpts = options.DrizzleOptions ?? new DrizzleOptions();
+            if (referenceRaw.ImageMeta.SensorType != SensorType.RGGB)
+            {
+                logger.LogWarning("  [skip] BayerDrizzle requires SensorType.RGGB (got {Sensor})",
+                    referenceRaw.ImageMeta.SensorType);
+                try { Directory.Delete(stagingDir, recursive: true); } catch { /* hygiene */ }
+                return new GroupResult(key.Slug(), lightList.Count, matched.Count, Result: null, MasterFitsPath: null,
+                    PreviewPngPath: null, Elapsed: groupSw.Elapsed,
+                    SkipReason: $"BayerDrizzle requires SensorType.RGGB (got {referenceRaw.ImageMeta.SensorType})");
+            }
+            if (matched.Count < drizzleOpts.MinFrameCount)
+            {
+                logger.LogWarning("  [skip] BayerDrizzle needs >= {Min} matched frames (got {Got}); drizzle coverage would be too sparse",
+                    drizzleOpts.MinFrameCount, matched.Count);
+                try { Directory.Delete(stagingDir, recursive: true); } catch { /* hygiene */ }
+                return new GroupResult(key.Slug(), lightList.Count, matched.Count, Result: null, MasterFitsPath: null,
+                    PreviewPngPath: null, Elapsed: groupSw.Elapsed,
+                    SkipReason: $"BayerDrizzle requires >= {drizzleOpts.MinFrameCount} matched frames (got {matched.Count})");
+            }
+        }
+
         // Compute the union bounding box of all matched frames' source
         // footprints in reference space + per-frame canvas-space AABBs +
         // intersection rectangle for stretch stats.
@@ -402,6 +432,33 @@ public sealed class StackingPipeline(
             }
         }
 
+        // Drizzle producer: yields the calibrated 1-channel raw CFA frame +
+        // composed source->canvas affine. NO debayer, NO warp -- DrizzleStrategy
+        // forward-projects each Bayer sample onto the output grid itself.
+        // Only built when --strategy BayerDrizzle is selected; the strategy
+        // pulls from this and ignores WarpedFrames.
+        async IAsyncEnumerable<RawBayerFrame> RawBayerFramesProducer(
+            [EnumeratorCancellation] CancellationToken token)
+        {
+            for (var i = 0; i < matched.Count; i++)
+            {
+                var (lightInfo, transformOrig) = matched[i];
+                token.ThrowIfCancellationRequested();
+                Image calibrated;
+                if (calibratedCache.TryGet(i, out var cached))
+                {
+                    calibrated = cached;
+                }
+                else
+                {
+                    var lightRaw = await lightInfo.LoadFullAsync(token);
+                    calibrated = calibrator.Apply(lightRaw);
+                }
+                var shifted = transformOrig * canvasShift;
+                yield return new RawBayerFrame(calibrated, shifted);
+            }
+        }
+
         // Snapshot host + pick strategy. Snapshot factory probes free
         // RAM + disk; the selector wants those for its budget gate.
         var probe = IntegrationProbe.Snapshot(
@@ -433,6 +490,7 @@ public sealed class StackingPipeline(
             : new Progress<IntegrationProgress>(p => progress.Report(
                 new StackingProgress(StackingPhase.Integrating, key.Slug(), p.CompletedItems, p.TotalItems, p)));
 
+        var isDrizzle = selection.Chosen.Kind == IntegrationStrategyKind.BayerDrizzle;
         var job = new IntegrationJob(
             WarpedFrames: WarpedFramesProducer,
             ExpectedFrameCount: matched.Count,
@@ -446,7 +504,9 @@ public sealed class StackingPipeline(
             CanvasWidth: outWidth,
             CanvasHeight: outHeight,
             Progress: integrationProgress,
-            MasterSinkFactory: sinkFactory);
+            MasterSinkFactory: sinkFactory,
+            RawBayerFrames: isDrizzle ? RawBayerFramesProducer : null,
+            DrizzleOptions: isDrizzle ? (options.DrizzleOptions ?? new DrizzleOptions()) : null);
 
         sw.Restart();
         IntegrationResult intResult;

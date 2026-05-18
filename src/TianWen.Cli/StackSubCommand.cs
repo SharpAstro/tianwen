@@ -81,6 +81,16 @@ internal sealed class StackSubCommand(
         {
             Description = "Skip plate-solving the master (master FITS still written, just without WCS).",
         };
+        var drizzlePixfracOpt = new Option<float>("--drizzle-pixfrac")
+        {
+            Description = "BayerDrizzle: linear drop size in [0, 1]. 1.0 = full unit-square drop (default). Ignored unless --strategy BayerDrizzle.",
+            DefaultValueFactory = _ => 1.0f,
+        };
+        var drizzleMinFramesOpt = new Option<int>("--drizzle-min-frames")
+        {
+            Description = "BayerDrizzle: minimum matched frames required before the strategy runs. Defaults to 60; lowering it risks NaN holes in R and B channels. Ignored unless --strategy BayerDrizzle.",
+            DefaultValueFactory = _ => 60,
+        };
 
         var stackCommand = new Command("stack", "Stack a folder of FITS lights into a master frame.")
         {
@@ -91,6 +101,7 @@ internal sealed class StackSubCommand(
                 centroidDebayerOpt, stackDebayerOpt,
                 snrMinOpt, minStarsOpt, quadStarsOpt,
                 noPngOpt, noPlateSolveOpt,
+                drizzlePixfracOpt, drizzleMinFramesOpt,
             },
         };
         stackCommand.SetAction(async (parseResult, ct) =>
@@ -103,17 +114,31 @@ internal sealed class StackSubCommand(
             }
 
             var outputDir = parseResult.GetValue(outputOpt) ?? Path.Combine(dataRoot, "output");
+            var forcedStrategy = parseResult.GetValue(strategyOpt);
+            var pixfrac = parseResult.GetValue(drizzlePixfracOpt);
+            var drizzleMinFrames = parseResult.GetValue(drizzleMinFramesOpt);
+            DrizzleOptions? drizzleOptions = null;
+            if (forcedStrategy is IntegrationStrategyKind.BayerDrizzle)
+            {
+                drizzleOptions = new DrizzleOptions(Pixfrac: pixfrac, MinFrameCount: drizzleMinFrames);
+            }
+            else if (pixfrac != 1.0f || drizzleMinFrames != 60)
+            {
+                consoleHost.WriteScrollable(
+                    "[stack] warning: --drizzle-* options ignored when --strategy != BayerDrizzle");
+            }
             var options = new StackingOptions(
                 DataRoot: dataRoot,
                 OutputDir: outputDir,
                 GroupFilter: parseResult.GetValue(groupFilterOpt) ?? "",
                 GroupExclude: parseResult.GetValue(groupExcludeOpt) ?? "",
-                ForcedStrategy: parseResult.GetValue(strategyOpt),
+                ForcedStrategy: forcedStrategy,
                 CentroidDebayerAlg: parseResult.GetValue(centroidDebayerOpt),
                 StackDebayerAlg: parseResult.GetValue(stackDebayerOpt),
                 SnrMin: parseResult.GetValue(snrMinOpt),
                 MinStars: parseResult.GetValue(minStarsOpt),
-                QuadStars: parseResult.GetValue(quadStarsOpt));
+                QuadStars: parseResult.GetValue(quadStarsOpt),
+                DrizzleOptions: drizzleOptions);
 
             var noPng = parseResult.GetValue(noPngOpt);
             var skipPlateSolve = parseResult.GetValue(noPlateSolveOpt);
