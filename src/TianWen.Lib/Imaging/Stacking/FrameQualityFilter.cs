@@ -13,8 +13,12 @@ namespace TianWen.Lib.Imaging.Stacking;
 /// <param name="MedianEllipticity">Median moment-based ellipticity, in
 /// [0, 1]. 0 = round, → 1 = elongated.</param>
 /// <param name="StarCount">Number of stars the detector found on the
-/// frame. Useful for diagnostics but not used by <see cref="FrameQualityFilter"/>
-/// since <c>MinStarsForMatch</c> already gates this at registration time.</param>
+/// frame. Used by <see cref="FrameQualityFilter"/> as a left-tail
+/// reject metric: a session-wide drop in star count catches haze,
+/// clouds, or dew which reduce transparency without necessarily
+/// widening HFD on the few stars that do detect. Independent of the
+/// <c>MinStarsForMatch</c> registration gate (that's an absolute
+/// floor; this is a relative-to-session-median outlier check).</param>
 public readonly record struct FrameMetrics(
     float MedianHfd,
     float MedianFwhm,
