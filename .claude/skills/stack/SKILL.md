@@ -33,16 +33,27 @@ Under `<data-root>/output/` (or `--output` if set):
 - `master_<group>.png`              — display-encoded preview with SPCC + bg-neut (unless `--no-png`)
 - `master_<group>.rejection.fits`   — per-pixel rejection count map (when rejections > 0)
 
+**Drizzle exception**: when `--strategy BayerDrizzle` is in use, the master + sidecars carry a `_drizzle` infix so a side-by-side run against the default strategy can coexist in the same output dir:
+
+- `master_<group>_drizzle.fits`
+- `master_<group>_drizzle_autocrop.fits`
+- `master_<group>_drizzle.png`
+- `master_<group>_drizzle.rejection.fits`  (here this is the per-channel **coverage map**, not a rejection-fraction map)
+
+Every master also carries `SWCREATE = TianWen.Imaging.Stacking.Integrator` + `STRATEGY = <kind>` in its FITS header so provenance stays queryable even if the file gets renamed.
+
 ## Knobs worth knowing
 
 | Flag | When to use |
 |---|---|
-| `--strategy <kind>` | Force a specific integrator. Default lets the selector pick. `TilePipelined` for tight RAM, `InRamAllFrames` for max fidelity when N x canvas fits, `ChunkedTwoPass` for huge N. |
+| `--strategy <kind>` | Force a specific integrator. Default lets the selector pick. `TilePipelined` for tight RAM, `InRamAllFrames` for max fidelity when N x canvas fits, `ChunkedTwoPass` for huge N. `BayerDrizzle` for RGGB inputs where you want zero-interpolation colour reconstruction (skips AHD entirely, fills "missing" R/G/B at each pixel from real Bayer samples in other dithered frames; needs >= 60 matched frames by default). |
+| `--drizzle-pixfrac <float>` | BayerDrizzle: linear drop size in `(0, 1]`. Default `1.0` (full unit-square drop -- forward-bilinear coverage). Lower = sharper output, needs more frames to fill cells. Ignored unless `--strategy BayerDrizzle`. |
+| `--drizzle-min-frames <int>` | BayerDrizzle: matched-frame floor before the strategy runs. Default `60`. Drop only if you accept NaN holes in R/B channels (each Bayer colour is only ~25% of input pixels). Ignored unless `--strategy BayerDrizzle`. |
 | `--group-filter <pat>` | Substring on the group slug; only matching groups run. Useful when one session has multiple targets and you only want one. |
 | `--group-exclude <pat>` | Inverse of `--group-filter`. |
 | `--no-png` | Skip the PNG preview render. Use when iterating on the FITS pipeline and don't need visual QA. |
 | `--no-plate-solve` | Skip plate-solving. Use for synthetic / non-celestial data, or when the catalog DB initialisation is the bottleneck. |
-| `--stack-debayer AHD` (default) | Best colour fidelity, slower per-frame. Swap to `VNG` for ~2-3x speedup at small fidelity cost. |
+| `--stack-debayer AHD` (default) | Best colour fidelity, slower per-frame. Swap to `VNG` for ~2-3x speedup at small fidelity cost. Unused under `--strategy BayerDrizzle` (no debayer step happens). |
 
 ## Long-running runs
 

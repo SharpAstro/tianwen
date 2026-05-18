@@ -54,7 +54,13 @@ public static class IntegrationFitsWriter
     /// <param name="wcs">Optional WCS to embed in the master's header.
     /// The rejection map inherits no WCS (it's a per-pixel statistic,
     /// not a sky image).</param>
-    public static void Write(string masterPath, IntegrationResult result, WCS? wcs = null)
+    /// <param name="strategy">Which <see cref="IIntegrationStrategy"/>
+    /// produced this master -- stamped into the <c>STRATEGY</c> FITS
+    /// header so downstream tools can tell a drizzle master from an
+    /// AHD+stack master without having to read pixel data. Null is
+    /// allowed for non-pipeline callers (tests, manual workflows) that
+    /// don't have a strategy kind handy.</param>
+    public static void Write(string masterPath, IntegrationResult result, WCS? wcs = null, IntegrationStrategyKind? strategy = null)
     {
         var extras = new Dictionary<string, (object Value, string Comment)>
         {
@@ -63,6 +69,10 @@ public static class IntegrationFitsWriter
             ["REJ_RATE"] = (result.MeanRejectionRate, "Mean rejection rate (rejections / (frames * pixels * channels))"),
             ["SWCREATE"] = (SoftwareCreator, "Software that created the master"),
         };
+        if (strategy is { } s)
+        {
+            extras["STRATEGY"] = (s.ToString(), "Integration strategy used (IntegrationStrategyKind)");
+        }
 
         result.Master.WriteToFitsFile(masterPath, wcs, extras);
 
@@ -76,6 +86,10 @@ public static class IntegrationFitsWriter
                 ["SWCREATE"] = (SoftwareCreator, "Software that created this rejection map"),
                 ["IMAGETYP"] = ("REJECTION", "Per-pixel rejection-fraction map [0, 1]"),
             };
+            if (strategy is { } s2)
+            {
+                rejExtras["STRATEGY"] = (s2.ToString(), "Integration strategy used (IntegrationStrategyKind)");
+            }
             result.RejectionMap.WriteToFitsFile(rejectionPath, wcs: null, rejExtras);
         }
     }

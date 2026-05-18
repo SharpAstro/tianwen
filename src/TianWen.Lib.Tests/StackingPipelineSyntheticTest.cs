@@ -22,7 +22,7 @@ namespace TianWen.Lib.Tests;
 ///
 /// <para>What this gives us that the manual SoL test doesn't:</para>
 /// <list type="bullet">
-///   <item>Runs in CI -- no <c>C:\temp\stack</c> dependency, completes in
+///   <item>Runs in CI -- no external dataset dependency, completes in
 ///     a few seconds.</item>
 ///   <item>Deterministic geometry (star positions + dither offsets), so
 ///     assertions on the master canvas size and matched-frame count are

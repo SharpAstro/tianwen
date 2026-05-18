@@ -78,6 +78,16 @@ public class StackingPipelineRgbBayerDrizzleTest(ITestOutputHelper output)
         //    1-channel raw through, this would surface as ChannelCount=1.
         result.MasterFitsPath.ShouldNotBeNull();
         File.Exists(result.MasterFitsPath).ShouldBeTrue();
+        // The filename carries the _drizzle suffix so an A/B run against the
+        // default strategy can coexist in the same output dir. The autocrop
+        // sidecar should also pick up the suffix (master_<slug>_drizzle_autocrop.fits)
+        // because its name is derived from masterPath via WithSuffix("_autocrop").
+        Path.GetFileName(result.MasterFitsPath).ShouldEndWith("_drizzle.fits",
+            customMessage: "drizzle masters must land under master_<slug>_drizzle.fits so they don't collide with default-strategy masters");
+        var autocropPath = Path.Combine(workspace.OutputDir,
+            Path.GetFileNameWithoutExtension(result.MasterFitsPath) + "_autocrop.fits");
+        File.Exists(autocropPath).ShouldBeTrue(
+            $"autocrop sidecar missing at {autocropPath}; expected the _drizzle suffix to propagate via WithSuffix");
         Image.TryReadFitsFile(result.MasterFitsPath, out var master).ShouldBeTrue();
         master.ShouldNotBeNull();
         master.ChannelCount.ShouldBe(3, "drizzle on RGGB should produce a 3-channel master");

@@ -73,6 +73,11 @@ public class StackingPipelineRgbBayerSyntheticTest(ITestOutputHelper output)
         //    step would yield ChannelCount = 1.
         result.MasterFitsPath.ShouldNotBeNull();
         File.Exists(result.MasterFitsPath).ShouldBeTrue($"master FITS missing at {result.MasterFitsPath}");
+        // Non-drizzle masters keep the canonical master_<slug>.fits name
+        // (the _drizzle suffix is reserved for BayerDrizzle outputs so the
+        // two strategies can A/B in the same output dir without collision).
+        Path.GetFileName(result.MasterFitsPath).ShouldNotContain("_drizzle",
+            customMessage: "default-strategy masters must not carry the _drizzle suffix");
         Image.TryReadFitsFile(result.MasterFitsPath, out var master).ShouldBeTrue();
         master.ShouldNotBeNull();
         master.ChannelCount.ShouldBe(3, "RGGB lights should produce a 3-channel debayered master");

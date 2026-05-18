@@ -37,6 +37,7 @@ internal sealed class MasterPostProcessor(ILogger logger, ICelestialObjectDB? ca
         ImageDim? imageDim,
         ImageMeta refMeta,
         Rectangle autocropRect,
+        IntegrationStrategyKind strategy,
         CancellationToken ct)
     {
         var sw = Stopwatch.StartNew();
@@ -140,7 +141,7 @@ internal sealed class MasterPostProcessor(ILogger logger, ICelestialObjectDB? ca
         }
 
         // 2) Write the master FITS with WCS baked into the headers.
-        IntegrationFitsWriter.Write(masterPath, result, solvedWcs);
+        IntegrationFitsWriter.Write(masterPath, result, solvedWcs, strategy);
         logger.LogInformation("  wrote {Path}{Wcs}", masterPath, solvedWcs is null ? "" : " (WCS embedded)");
 
         // 3) Autocrop FITS: same master cropped to the intersection AABB,
@@ -154,7 +155,7 @@ internal sealed class MasterPostProcessor(ILogger logger, ICelestialObjectDB? ca
                     ? w with { CRPix1 = w.CRPix1 - autocropRect.X, CRPix2 = w.CRPix2 - autocropRect.Y }
                     : null;
                 var cropFitsPath = WithSuffix(masterPath, "_autocrop");
-                IntegrationFitsWriter.Write(cropFitsPath, croppedResult, croppedWcs);
+                IntegrationFitsWriter.Write(cropFitsPath, croppedResult, croppedWcs, strategy);
                 logger.LogInformation("  wrote {Path} (crop {W}x{H})", cropFitsPath, autocropRect.Width, autocropRect.Height);
             }
             catch (Exception ex)

@@ -528,11 +528,22 @@ public sealed class StackingPipeline(
         // SPCC / bg-neut / PNG render: those are display-side, handled
         // by the caller against the emitted master.
         progress?.Report(new StackingProgress(StackingPhase.PostProcessing, key.Slug(), 0, 0));
-        var masterPath = Path.Combine(outputDir, $"master_{key.Slug()}.fits");
+        // Drizzle masters land under master_<slug>_drizzle.fits so a user
+        // A/B-ing drizzle vs the default on the same dataset doesn't
+        // silently overwrite. Other strategies share the canonical
+        // master_<slug>.fits name -- their differences (memory layout,
+        // staging, rejection kernel) are invisible in the output FITS
+        // data itself, so a strategy-per-filename split would just add
+        // noise. The strategy IS recorded in the SWCREATE+STRATEGY
+        // headers regardless of strategy, so provenance stays queryable.
+        var strategySuffix = selection.Chosen.Kind == IntegrationStrategyKind.BayerDrizzle
+            ? "_drizzle"
+            : "";
+        var masterPath = Path.Combine(outputDir, $"master_{key.Slug()}{strategySuffix}.fits");
         var refImageDim = referenceRaw.GetImageDim();
         var postProcessor = new MasterPostProcessor(logger, catalogDb);
         var (writtenResult, solvedWcs) = await postProcessor.WriteMasterAsync(
-            intResult, masterPath, searchHint, refImageDim, referenceRaw.ImageMeta, statsRect, ct);
+            intResult, masterPath, searchHint, refImageDim, referenceRaw.ImageMeta, statsRect, selection.Chosen.Kind, ct);
         if (intResult.TotalRejections > 0)
         {
             logger.LogInformation("  wrote {Path}", IntegrationFitsWriter.RejectionPathFor(masterPath));
