@@ -32,6 +32,7 @@ public class StarList(ConcurrentBag<ImagedStar> stars, BitMatrix? starMask = nul
             {
                 SampleKind.HFD => star.HFD,
                 SampleKind.FWHM => star.StarFWHM,
+                SampleKind.Ellipticity => star.Ellipticity,
                 _ => throw new ArgumentException($"Cannot find sample value for {kind}", nameof(kind))
             };
         }

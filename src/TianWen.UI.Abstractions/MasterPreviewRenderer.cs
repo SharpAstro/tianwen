@@ -10,6 +10,7 @@ using TianWen.Lib.Astrometry;
 using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.ColorCalibration;
+using TianWen.Lib.Stat;
 
 namespace TianWen.UI.Abstractions;
 
@@ -108,6 +109,21 @@ public sealed class MasterPreviewRenderer(ICelestialObjectDB? catalogDb, ILogger
             catch (Exception ex)
             {
                 logger.LogWarning("  [WB] star detection failed: {Type}: {Msg}", ex.GetType().Name, ex.Message);
+            }
+
+            // Post-stack PSF summary on the master. Lets us spot when a
+            // stacked output ends up with broader / more elongated stars
+            // than the per-frame medians would suggest -- a tell for
+            // residual registration drift or aggressive rejection cutting
+            // into the best frames.
+            if (statsStars is { Count: > 0 } detected)
+            {
+                var masterHfd = detected.MapReduceStarProperty(SampleKind.HFD, AggregationMethod.Median);
+                var masterFwhm = detected.MapReduceStarProperty(SampleKind.FWHM, AggregationMethod.Median);
+                var masterEcc = detected.MapReduceStarProperty(SampleKind.Ellipticity, AggregationMethod.Median);
+                logger.LogInformation(
+                    "  [masterStats] N={N} hfd={Hfd:F2} fwhm={Fwhm:F2} ecc={Ecc:F3}",
+                    detected.Count, masterHfd, masterFwhm, masterEcc);
             }
 
             if (effectiveWcs is { } w && statsStars is { Count: >= 3 } && catalogDb is { } db)

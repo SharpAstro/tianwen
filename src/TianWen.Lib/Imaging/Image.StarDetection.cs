@@ -541,10 +541,14 @@ public partial class Image
             return false;
         }
 
-        // Get HFD
+        // Get HFD + second-order moments (for ellipticity).
         var pixel_counter = 0;
         sumVal = 0.0f; // reset
         var sumValR = 0.0f;
+        // Second moments accumulate only positive-flux pixels around
+        // the centroid. Doubles because i*i*val products on a bright
+        // star can overflow float precision before normalisation.
+        double sumPosFlux = 0, sumMxx = 0, sumMyy = 0, sumMxy = 0;
 
         // Get HFD using the aproximation routine assuming that HFD line divides the star in equal portions of gravity:
         for (var i = -r_aperture; i <= r_aperture; i++) /*Make steps of one pixel*/
@@ -560,12 +564,45 @@ public partial class Image
                     // How many pixels are above half maximum
                     pixel_counter++;
                 }
+                if (val > 0f)
+                {
+                    // SubpixelValue takes (channel, x, y), so i = dx, j = dy.
+                    sumPosFlux += val;
+                    sumMxx += (double)val * i * i;
+                    sumMyy += (double)val * j * j;
+                    sumMxy += (double)val * i * j;
+                }
             }
         }
 
         var flux = MathF.Max(sumVal, 0.00001f); /* prevent dividing by zero or negative values */
         var hfd = MathF.Max(0.7f, 2 * sumValR / flux);
         var star_fwhm = 2 * MathF.Sqrt(pixel_counter / MathF.PI);/*calculate from surface (by counting pixels above half max) the diameter equals FWHM */
+
+        // Moment-based ellipticity from the 2x2 flux-weighted second-
+        // moment matrix [[Mxx, Mxy], [Mxy, Myy]] (each normalised by
+        // total positive flux). Eigenvalues a², b² are the variances
+        // along major/minor axes; ellipticity e = sqrt(1 - b²/a²) gives
+        // 0 for a round star, ~0.866 for 2:1 elongation, → 1 for a line.
+        // Clamped to [0, 1] to absorb rounding artefacts on near-circular
+        // fits where b² can land slightly negative.
+        var ellipticity = 0f;
+        if (sumPosFlux > 0)
+        {
+            var mxx = sumMxx / sumPosFlux;
+            var myy = sumMyy / sumPosFlux;
+            var mxy = sumMxy / sumPosFlux;
+            var halfTrace = (mxx + myy) * 0.5;
+            var halfDiff = (mxx - myy) * 0.5;
+            var disc = Math.Sqrt(halfDiff * halfDiff + mxy * mxy);
+            var a2 = halfTrace + disc;
+            var b2 = halfTrace - disc;
+            if (a2 > 1e-10)
+            {
+                var ratio = Math.Max(0.0, b2 / a2);
+                ellipticity = (float)Math.Sqrt(Math.Max(0.0, 1.0 - ratio));
+            }
+        }
 
         // SNR formula assumes Poisson statistics on ADU counts (gain=1).
         // For normalized [0,1] images, scale flux and sd back to ADU range so shot noise is correct.
@@ -574,7 +611,7 @@ public partial class Image
         var aduSdBg = sd_bg * aduScale;
         var snr = aduFlux / MathF.Sqrt(aduFlux + r_aperture * r_aperture * MathF.PI * aduSdBg * aduSdBg);
 
-        star = new ImagedStar(hfd, star_fwhm, snr, flux, xc, yc);
+        star = new ImagedStar(hfd, star_fwhm, snr, flux, xc, yc, ellipticity);
         return true;
         /*For both bright stars (shot-noise limited) or skybackground limited situations
         snr := signal/noise

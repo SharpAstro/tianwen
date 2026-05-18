@@ -34,7 +34,7 @@ public class RegistrationRefinerTests
         foreach (var p in points)
         {
             bag.Add(new ImagedStar(HFD: 2f, StarFWHM: 2f, SNR: 100f, Flux: 1000f,
-                XCentroid: p.X, YCentroid: p.Y));
+                XCentroid: p.X, YCentroid: p.Y, Ellipticity: 0f));
         }
         return new SortedStarList(new StarList(bag));
     }

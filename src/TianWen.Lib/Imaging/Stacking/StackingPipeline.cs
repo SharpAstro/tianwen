@@ -12,6 +12,7 @@ using Microsoft.Extensions.Logging;
 using TianWen.Lib.Astrometry;
 using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Imaging.Calibration;
+using TianWen.Lib.Stat;
 
 namespace TianWen.Lib.Imaging.Stacking;
 
@@ -416,9 +417,17 @@ public sealed class StackingPipeline(
                         var (refined, refScale, refRotDeg, refTx, refTy, refRms, refMatched) =
                             RegistrationRefiner.RefineRigid(lightSorted, referenceSorted, transform.Value);
                         transform = refined;
+                        // Per-frame PSF medians from the detected stars. Cheap
+                        // (single pass over the existing StarList) so always
+                        // logged -- spotting an outlier frame's HFD or
+                        // ellipticity spike is exactly what we need when a
+                        // long-span stack ends up with poor SPCC matches.
+                        var medHfd = stars.MapReduceStarProperty(SampleKind.HFD, AggregationMethod.Median);
+                        var medFwhm = stars.MapReduceStarProperty(SampleKind.FWHM, AggregationMethod.Median);
+                        var medEcc = stars.MapReduceStarProperty(SampleKind.Ellipticity, AggregationMethod.Median);
                         logger.LogInformation(
-                            "  [{Name}] stars={Stars} -> MATCH qt={Tol:F3} refine: rot={Rot:F3}° s={Scale:F5} t=({Tx:F2},{Ty:F2}) rms={Rms:F2}px from {RefMatched} pairs",
-                            name, stars.Count, tolUsed, refRotDeg, refScale, refTx, refTy, refRms, refMatched);
+                            "  [{Name}] stars={Stars} hfd={Hfd:F2} fwhm={Fwhm:F2} ecc={Ecc:F3} -> MATCH qt={Tol:F3} refine: rot={Rot:F3}° s={Scale:F5} t=({Tx:F2},{Ty:F2}) rms={Rms:F2}px from {RefMatched} pairs",
+                            name, stars.Count, medHfd, medFwhm, medEcc, tolUsed, refRotDeg, refScale, refTx, refTy, refRms, refMatched);
                     }
                 }
             }
