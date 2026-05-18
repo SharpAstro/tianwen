@@ -20,7 +20,12 @@ namespace TianWen.Lib.Imaging.Stacking;
 /// the median residual of its detected stars against the reference
 /// frame's detected stars, after applying the bulk affine. Rotation
 /// and scale stay at whatever the bulk fit produced; this is strictly
-/// a translation correction.</para>
+/// a translation correction. Empirically sufficient for typical
+/// meridian-flip dumbbells (verified against SoL data: 244-frame
+/// dataset, dumbbells visible pre-refinement, round stars after).
+/// Rotation refinement would be a Kabsch-based extension; not needed
+/// for the meridian-flip case but kept as a follow-up for future
+/// non-rigid distortions.</para>
 /// </summary>
 internal static class RegistrationRefiner
 {
