@@ -38,6 +38,16 @@ namespace TianWen.Lib.Imaging.Stacking;
 /// Null falls back to <see cref="Stacking.DrizzleOptions"/> defaults
 /// (Pixfrac=1.0, OutputScale=10, MinFrameCount=60). Ignored unless drizzle
 /// is the chosen strategy.</param>
+/// <param name="SplitByPierSide">When true, sub-partition each light group
+/// by the per-frame FITS <c>PIERSIDE</c> header so pre-meridian-flip and
+/// post-flip frames integrate into separate masters. Useful for diagnostics
+/// (mirrored optical aberrations + flipped Bayer offsets across the flip
+/// can produce drizzle streaks that disappear when each side is integrated
+/// alone) and as a workaround for capture software that doesn't update
+/// BayerOffsetX/Y post-flip. Frames missing PIERSIDE land in their own
+/// "pierUnknown" sub-group rather than being silently merged with East. Off
+/// by default -- a unified master across the meridian is the production
+/// norm.</param>
 public sealed record StackingOptions(
     string DataRoot,
     string OutputDir,
@@ -49,4 +59,5 @@ public sealed record StackingOptions(
     float SnrMin = 5f,
     int MinStars = 2000,
     int QuadStars = 500,
-    DrizzleOptions? DrizzleOptions = null);
+    DrizzleOptions? DrizzleOptions = null,
+    bool SplitByPierSide = false);

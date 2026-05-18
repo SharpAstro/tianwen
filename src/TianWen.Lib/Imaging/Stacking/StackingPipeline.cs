@@ -206,11 +206,47 @@ public sealed class StackingPipeline(
                 beforeCount, lightGroups.Count, options.GroupFilter);
         }
 
+        // Expand each LightGroupKey-keyed group into one or more
+        // (key, slug, frames) sub-groups. The default path (no pier-side
+        // split) yields a single sub-group per LightGroupKey using the
+        // canonical slug. With SplitByPierSide=true, each LightGroupKey
+        // explodes into up to three sub-groups (East / West / Unknown),
+        // each with its own slug suffix and frame list.
+        var subGroups = new List<(LightGroupKey Key, string Slug, List<FrameInfo> Frames)>();
         foreach (var lightGroup in lightGroups)
+        {
+            var baseSlug = lightGroup.Key.Slug();
+            if (!options.SplitByPierSide)
+            {
+                subGroups.Add((lightGroup.Key, baseSlug, lightGroup.ToList()));
+                continue;
+            }
+            // Partition by pier side. Frames with PointingState.Unknown go
+            // into their own bucket rather than silently merging with East --
+            // a flipped capture without PIERSIDE in the header would
+            // otherwise pollute the East master.
+            foreach (var pierGroup in lightGroup.GroupBy(f => f.Meta.PierSide))
+            {
+                var pierTag = pierGroup.Key switch
+                {
+                    Devices.PointingState.Normal => "pierE",
+                    Devices.PointingState.ThroughThePole => "pierW",
+                    _ => "pierUnknown",
+                };
+                subGroups.Add((lightGroup.Key, $"{baseSlug}_{pierTag}", pierGroup.ToList()));
+            }
+        }
+        if (options.SplitByPierSide)
+        {
+            logger.LogInformation("[lights] pier-side split: {Groups} -> {SubGroups} sub-group(s)",
+                lightGroups.Count, subGroups.Count);
+        }
+
+        foreach (var (key, slug, frames) in subGroups)
         {
             ct.ThrowIfCancellationRequested();
             var result = await ProcessLightGroupAsync(
-                lightGroup.Key, lightGroup.ToList(), darkMasters, flatMasters, outputDir, ct);
+                key, slug, frames, darkMasters, flatMasters, outputDir, ct);
             yield return result;
         }
 
@@ -223,15 +259,19 @@ public sealed class StackingPipeline(
 
     private async Task<GroupResult> ProcessLightGroupAsync(
         LightGroupKey key,
+        string slug,
         List<FrameInfo> lightList,
         List<(MasterGroupKey Key, Image Master)> darkMasters,
         List<(MasterGroupKey Key, Image Master)> flatMasters,
         string outputDir,
         CancellationToken ct)
     {
+        // slug carries any pier-side / future sub-group suffix on top of
+        // key.Slug() -- it's the canonical name for filenames + logs in this
+        // method. Tied to a single group, so we capture it once up top.
         var calKey = key.CalibrationKey;
         var groupSw = Stopwatch.StartNew();
-        logger.LogInformation("=== Light group: {Slug} ({Count} frames) ===", key.Slug(), lightList.Count);
+        logger.LogInformation("=== Light group: {Slug} ({Count} frames) ===", slug, lightList.Count);
 
         // Calibration path: bias is intentionally NOT passed to the
         // Calibrator. The master dark was built from raw darks (no bias
@@ -248,7 +288,7 @@ public sealed class StackingPipeline(
         // 3a. Pick reference (highest star count). We bypass
         // Registrator.PickReferenceAsync because it operates on the raw
         // FrameInfo without debayer awareness.
-        progress?.Report(new StackingProgress(StackingPhase.Registering, key.Slug(), 0, lightList.Count));
+        progress?.Report(new StackingProgress(StackingPhase.Registering, slug, 0, lightList.Count));
         var sw = Stopwatch.StartNew();
         var frameStarCounts = new List<(FrameInfo Frame, int StarCount)>(lightList.Count);
         FrameInfo? reference = null;
@@ -270,7 +310,7 @@ public sealed class StackingPipeline(
         if (reference is null)
         {
             logger.LogWarning("  [skip] no reference frame could be picked");
-            return new GroupResult(key.Slug(), lightList.Count, 0, Result: null, MasterFitsPath: null,
+            return new GroupResult(slug, lightList.Count, 0, Result: null, MasterFitsPath: null,
                 PreviewPngPath: null, Elapsed: groupSw.Elapsed, SkipReason: "no reference frame could be picked");
         }
         logger.LogInformation("  reference: {File} ({Stars} stars, {ElapsedMs} ms)",
@@ -296,7 +336,7 @@ public sealed class StackingPipeline(
         var referenceQuads = await referenceSorted.FindQuadsAsync(maxStars: options.QuadStars, ct);
 
         // Per-group staging dir. Cleaned up by the chosen strategy.
-        var stagingDir = Path.Combine(outputDir, "_staging", key.Slug());
+        var stagingDir = Path.Combine(outputDir, "_staging", slug);
         if (Directory.Exists(stagingDir)) Directory.Delete(stagingDir, recursive: true);
         Directory.CreateDirectory(stagingDir);
 
@@ -350,7 +390,7 @@ public sealed class StackingPipeline(
 
             calibratedCache.Set(matched.Count, calibrated);
             matched.Add((lightInfo, transform.Value));
-            progress?.Report(new StackingProgress(StackingPhase.Registering, key.Slug(), matched.Count + skipCount, lightList.Count));
+            progress?.Report(new StackingProgress(StackingPhase.Registering, slug, matched.Count + skipCount, lightList.Count));
         }
         logger.LogInformation("  registered {Matched}/{Attempted} frames (skipped {Skipped}) in {ElapsedMs} ms",
             matched.Count, lightList.Count, skipCount, sw.ElapsedMilliseconds);
@@ -359,7 +399,7 @@ public sealed class StackingPipeline(
         {
             logger.LogWarning("  [skip] fewer than 2 matched frames; integration would be meaningless");
             try { Directory.Delete(stagingDir, recursive: true); } catch { /* hygiene */ }
-            return new GroupResult(key.Slug(), lightList.Count, matched.Count, Result: null, MasterFitsPath: null,
+            return new GroupResult(slug, lightList.Count, matched.Count, Result: null, MasterFitsPath: null,
                 PreviewPngPath: null, Elapsed: groupSw.Elapsed, SkipReason: "fewer than 2 matched frames");
         }
 
@@ -378,7 +418,7 @@ public sealed class StackingPipeline(
                 logger.LogWarning("  [skip] BayerDrizzle requires SensorType.RGGB (got {Sensor})",
                     referenceRaw.ImageMeta.SensorType);
                 try { Directory.Delete(stagingDir, recursive: true); } catch { /* hygiene */ }
-                return new GroupResult(key.Slug(), lightList.Count, matched.Count, Result: null, MasterFitsPath: null,
+                return new GroupResult(slug, lightList.Count, matched.Count, Result: null, MasterFitsPath: null,
                     PreviewPngPath: null, Elapsed: groupSw.Elapsed,
                     SkipReason: $"BayerDrizzle requires SensorType.RGGB (got {referenceRaw.ImageMeta.SensorType})");
             }
@@ -387,7 +427,7 @@ public sealed class StackingPipeline(
                 logger.LogWarning("  [skip] BayerDrizzle needs >= {Min} matched frames (got {Got}); drizzle coverage would be too sparse",
                     drizzleOpts.MinFrameCount, matched.Count);
                 try { Directory.Delete(stagingDir, recursive: true); } catch { /* hygiene */ }
-                return new GroupResult(key.Slug(), lightList.Count, matched.Count, Result: null, MasterFitsPath: null,
+                return new GroupResult(slug, lightList.Count, matched.Count, Result: null, MasterFitsPath: null,
                     PreviewPngPath: null, Elapsed: groupSw.Elapsed,
                     SkipReason: $"BayerDrizzle requires >= {drizzleOpts.MinFrameCount} matched frames (got {matched.Count})");
             }
@@ -488,7 +528,7 @@ public sealed class StackingPipeline(
         var integrationProgress = progress is null
             ? null
             : new Progress<IntegrationProgress>(p => progress.Report(
-                new StackingProgress(StackingPhase.Integrating, key.Slug(), p.CompletedItems, p.TotalItems, p)));
+                new StackingProgress(StackingPhase.Integrating, slug, p.CompletedItems, p.TotalItems, p)));
 
         var isDrizzle = selection.Chosen.Kind == IntegrationStrategyKind.BayerDrizzle;
         var job = new IntegrationJob(
@@ -518,7 +558,7 @@ public sealed class StackingPipeline(
         {
             logger.LogWarning("  [strategy] {Kind} threw NotImplementedException: {Msg}", selection.Chosen.Kind, ex.Message);
             try { Directory.Delete(stagingDir, recursive: true); } catch { /* hygiene */ }
-            return new GroupResult(key.Slug(), lightList.Count, matched.Count, Result: null, MasterFitsPath: null,
+            return new GroupResult(slug, lightList.Count, matched.Count, Result: null, MasterFitsPath: null,
                 PreviewPngPath: null, Elapsed: groupSw.Elapsed, SkipReason: $"strategy {selection.Chosen.Kind} not implemented");
         }
         logger.LogInformation("  integrated in {ElapsedMs} ms (frames={Frames}, rejections={Rej}, rate={Rate:P2})",
@@ -527,7 +567,7 @@ public sealed class StackingPipeline(
         // 3c. Plate-solve the master + write FITS (+ autocrop). No
         // SPCC / bg-neut / PNG render: those are display-side, handled
         // by the caller against the emitted master.
-        progress?.Report(new StackingProgress(StackingPhase.PostProcessing, key.Slug(), 0, 0));
+        progress?.Report(new StackingProgress(StackingPhase.PostProcessing, slug, 0, 0));
         // Drizzle masters land under master_<slug>_drizzle.fits so a user
         // A/B-ing drizzle vs the default on the same dataset doesn't
         // silently overwrite. Other strategies share the canonical
@@ -539,7 +579,7 @@ public sealed class StackingPipeline(
         var strategySuffix = selection.Chosen.Kind == IntegrationStrategyKind.BayerDrizzle
             ? "_drizzle"
             : "";
-        var masterPath = Path.Combine(outputDir, $"master_{key.Slug()}{strategySuffix}.fits");
+        var masterPath = Path.Combine(outputDir, $"master_{slug}{strategySuffix}.fits");
         var refImageDim = referenceRaw.GetImageDim();
         var postProcessor = new MasterPostProcessor(logger, catalogDb);
         var (writtenResult, solvedWcs) = await postProcessor.WriteMasterAsync(
@@ -550,7 +590,7 @@ public sealed class StackingPipeline(
         }
         var previewPath = Path.ChangeExtension(masterPath, ".png");
         return new GroupResult(
-            key.Slug(),
+            slug,
             FramesAttempted: lightList.Count,
             FramesMatched: matched.Count,
             Result: writtenResult,

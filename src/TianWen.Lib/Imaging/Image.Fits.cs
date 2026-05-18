@@ -123,6 +123,10 @@ public partial class Image
         var setCCDTemp = hdu.Header.GetFloatValue("SET-TEMP", float.NaN);
         var egain = hdu.Header.GetFloatValue("EGAIN", float.NaN);
         var swCreator = hdu.Header.GetStringValue("SWCREATE") ?? "";
+        // PIERSIDE: N.I.N.A. + most modern capture software write a string ("East"
+        // / "West" / "pierEast" / "pierWest"). ASCOM also defines numeric variants
+        // (0 = Normal/East, 1 = ThroughThePole/West). Try both.
+        var pierSide = ParsePierSide(hdu.Header.GetStringValue("PIERSIDE"));
 
         return new ImageMeta(
             instrument,
@@ -151,8 +155,45 @@ public partial class Image
             ElectronsPerADU: egain,
             SWCreator: swCreator,
             Aperture: aperture,
-            SensorModel: sensorModel
+            SensorModel: sensorModel,
+            PierSide: pierSide
         );
+    }
+
+    /// <summary>
+    /// Parses the FITS <c>PIERSIDE</c> header into a <see cref="Devices.PointingState"/>.
+    /// Recognises N.I.N.A.'s strings ("East"/"West"/"pierEast"/"pierWest"), the
+    /// ASCOM short forms ("E"/"W"), the ASCOM numeric forms ("0"/"1"), and the
+    /// "Normal"/"ThroughThePole" full names. Anything else (including
+    /// null / empty / "unknown") returns <see cref="Devices.PointingState.Unknown"/>.
+    /// </summary>
+    private static Devices.PointingState ParsePierSide(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw))
+        {
+            return Devices.PointingState.Unknown;
+        }
+        var s = raw.Trim();
+        // ASCOM standard: 0 = pierEast / Normal, 1 = pierWest / ThroughThePole
+        // (these names trade off whether you index by physical-pier or by
+        // mount-pointing -- "Normal" / "ThroughThePole" is the ASCOM canon).
+        if (s.Equals("0", System.StringComparison.Ordinal) ||
+            s.Equals("E", System.StringComparison.OrdinalIgnoreCase) ||
+            s.Equals("East", System.StringComparison.OrdinalIgnoreCase) ||
+            s.Equals("pierEast", System.StringComparison.OrdinalIgnoreCase) ||
+            s.Equals("Normal", System.StringComparison.OrdinalIgnoreCase))
+        {
+            return Devices.PointingState.Normal;
+        }
+        if (s.Equals("1", System.StringComparison.Ordinal) ||
+            s.Equals("W", System.StringComparison.OrdinalIgnoreCase) ||
+            s.Equals("West", System.StringComparison.OrdinalIgnoreCase) ||
+            s.Equals("pierWest", System.StringComparison.OrdinalIgnoreCase) ||
+            s.Equals("ThroughThePole", System.StringComparison.OrdinalIgnoreCase))
+        {
+            return Devices.PointingState.ThroughThePole;
+        }
+        return Devices.PointingState.Unknown;
     }
 
     public static bool TryReadFitsFile(Fits fitsFile, [NotNullWhen(true)] out Image? image)
@@ -246,6 +287,7 @@ public partial class Image
         var setCCDTemp = hdu.Header.GetFloatValue("SET-TEMP", float.NaN);
         var egain = hdu.Header.GetFloatValue("EGAIN", float.NaN);
         var swCreator = hdu.Header.GetStringValue("SWCREATE") ?? "";
+        var pierSide = ParsePierSide(hdu.Header.GetStringValue("PIERSIDE"));
 
         var minValue = (float)hdu.MinimumValue;
         var maxValue = (float)hdu.MaximumValue;
@@ -348,7 +390,8 @@ public partial class Image
             ElectronsPerADU: egain,
             SWCreator: swCreator,
             Aperture: aperture,
-            SensorModel: sensorModel
+            SensorModel: sensorModel,
+            PierSide: pierSide
         );
         image = new Image(imgChannels, bitDepth, maxValue, minValue, pedestal, imageMeta);
         wcs = WCS.FromHeader(hdu.Header);
@@ -502,6 +545,14 @@ public partial class Image
         AddHeaderValueIfHasValue("FILTER", imageMeta.Filter.FilterNameForFits, "");
         AddHeaderValueIfHasValue("FILTCLAS", imageMeta.Filter.Name, "");
         AddHeaderValueIfHasValue("SENSOR", imageMeta.SensorModel, "");
+        // Round-trip PIERSIDE in N.I.N.A.'s string convention so other tools
+        // recognise it without a numeric-vs-string ambiguity.
+        if (imageMeta.PierSide is Devices.PointingState.Normal or Devices.PointingState.ThroughThePole)
+        {
+            AddHeaderValueIfHasValue("PIERSIDE",
+                imageMeta.PierSide == Devices.PointingState.Normal ? "East" : "West",
+                "Mount side of pier at exposure time");
+        }
         AddHeaderValueIfHasValue("CCD-TEMP", imageMeta.CCDTemperature, "Celsius");
         AddHeaderValueIfHasValue("SET-TEMP", imageMeta.SetCCDTemperature, "Celsius");
         if (imageMeta.Gain >= 0)

@@ -91,6 +91,10 @@ internal sealed class StackSubCommand(
             Description = "BayerDrizzle: minimum matched frames required before the strategy runs. Defaults to 60; lowering it risks NaN holes in R and B channels. Ignored unless --strategy BayerDrizzle.",
             DefaultValueFactory = _ => 60,
         };
+        var splitByPierSideOpt = new Option<bool>("--split-by-pierside")
+        {
+            Description = "Sub-partition each light group by FITS PIERSIDE (pre/post meridian flip) and write separate masters per pier side. Useful for diagnosing drizzle streaks tied to the flip, or for capture setups that don't update BayerOffset post-flip. Filenames pick up _pierE / _pierW / _pierUnknown suffixes.",
+        };
 
         var stackCommand = new Command("stack", "Stack a folder of FITS lights into a master frame.")
         {
@@ -102,6 +106,7 @@ internal sealed class StackSubCommand(
                 snrMinOpt, minStarsOpt, quadStarsOpt,
                 noPngOpt, noPlateSolveOpt,
                 drizzlePixfracOpt, drizzleMinFramesOpt,
+                splitByPierSideOpt,
             },
         };
         stackCommand.SetAction(async (parseResult, ct) =>
@@ -138,7 +143,8 @@ internal sealed class StackSubCommand(
                 SnrMin: parseResult.GetValue(snrMinOpt),
                 MinStars: parseResult.GetValue(minStarsOpt),
                 QuadStars: parseResult.GetValue(quadStarsOpt),
-                DrizzleOptions: drizzleOptions);
+                DrizzleOptions: drizzleOptions,
+                SplitByPierSide: parseResult.GetValue(splitByPierSideOpt));
 
             var noPng = parseResult.GetValue(noPngOpt);
             var skipPlateSolve = parseResult.GetValue(noPlateSolveOpt);
@@ -205,7 +211,11 @@ internal sealed class StackSubCommand(
                 {
                     // The master FITS we just wrote has WCS embedded
                     // (if plate-solve ran). Re-read it so the renderer
-                    // gets the exact pixels + WCS the file holds.
+                    // gets the exact pixels + WCS the file holds. Render
+                    // both the full master and the autocrop variant (the
+                    // autocrop is what most users actually look at -- it
+                    // strips the NaN-edge ring -- so emitting just one
+                    // PNG left half the deliverables off-disk).
                     if (Image.TryReadFitsFile(masterPath, out var masterImage, out var wcs) && masterImage is not null)
                     {
                         var pngPath = result.PreviewPngPath ?? Path.ChangeExtension(masterPath, ".png");
@@ -216,6 +226,23 @@ internal sealed class StackSubCommand(
                         catch (Exception ex)
                         {
                             consoleHost.WriteError($"[stack] {result.GroupSlug}: PNG render failed: {ex.Message}");
+                        }
+                    }
+                    var autocropFitsPath = Path.Combine(
+                        Path.GetDirectoryName(masterPath) ?? string.Empty,
+                        Path.GetFileNameWithoutExtension(masterPath) + "_autocrop.fits");
+                    if (File.Exists(autocropFitsPath) &&
+                        Image.TryReadFitsFile(autocropFitsPath, out var cropImage, out var cropWcs) &&
+                        cropImage is not null)
+                    {
+                        var cropPngPath = Path.ChangeExtension(autocropFitsPath, ".png");
+                        try
+                        {
+                            await renderer.RenderAsync(cropImage, cropImage.ImageMeta, cropWcs, statsSource: null, cropPngPath, ct);
+                        }
+                        catch (Exception ex)
+                        {
+                            consoleHost.WriteError($"[stack] {result.GroupSlug}: autocrop PNG render failed: {ex.Message}");
                         }
                     }
                 }
