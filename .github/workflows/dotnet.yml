@@ -159,7 +159,24 @@ jobs:
     - name: Unit Tests
       # verbosity=detailed surfaces ITestOutputHelper messages for Skip+Pass tests too,
       # not just Fail, which is useful for the GPU comp tests' diagnostic dumps.
-      run: dotnet test TianWen.Lib.Tests -c $BUILD_CONF --no-build --logger "console;verbosity=detailed"
+      #
+      # --blame-crash + --blame-hang capture a Sequence_*.xml (last test before
+      # the testhost died) and a *.dmp (testhost crash dump) under test-results/.
+      # The hang timeout fires when a single test stalls > 5 min, which catches
+      # the "tests finished but testhost lingered then crashed" pattern we saw
+      # on the ubuntu-24.04-arm runner in run 26022912901 (70 s of silence after
+      # the last test before SIGSEGV).
+      #
+      # DOTNET_DbgEnableMiniDump is belt-and-suspenders: the runtime writes its
+      # own minidump on any unhandled .NET exception or fatal-runtime event,
+      # not just on the testhost-process crash xUnit detects. Type=2 = "Heap"
+      # (managed heap + all threads, no full process memory). Path templated
+      # so multiple dumps don't overwrite each other.
+      env:
+        DOTNET_DbgEnableMiniDump: "1"
+        DOTNET_DbgMiniDumpType: "2"
+        DOTNET_DbgMiniDumpName: /tmp/coredump-%e-%p-%t.dmp
+      run: dotnet test TianWen.Lib.Tests -c $BUILD_CONF --no-build --logger "console;verbosity=detailed" --blame-crash --blame-hang --blame-hang-timeout 5min --results-directory test-results/
       working-directory: src
     # Upload test temp output (cpu.tiff / gpu.tiff / diff.tiff and other test
     # fixtures) when tests fail, so CPU/GPU divergences in GpuStretchPipelineTests
@@ -175,6 +192,21 @@ jobs:
         path: /tmp/TianWen.Lib.Tests/*/GpuStretchPipelineTests/
         if-no-files-found: ignore
         retention-days: 7
+    # Upload --blame-crash / --blame-hang artifacts + runtime minidumps so
+    # a SIGSEGV / hang in the testhost can be diagnosed without re-running.
+    # The Sequence_*.xml inside test-results/ names the last test executed
+    # before the crash; the *.dmp files (testhost + runtime) are loadable
+    # in `dotnet-dump analyze` or lldb.
+    - name: Upload test-blame + crash dumps on failure
+      if: failure()
+      uses: actions/upload-artifact@v7
+      with:
+        name: test-blame-${{ matrix.runner }}
+        path: |
+          src/test-results/
+          /tmp/coredump-*.dmp
+        if-no-files-found: ignore
+        retention-days: 14
 
   test-functional:
     needs: build
