@@ -39,11 +39,20 @@ public sealed class MasterPreviewRenderer(ICelestialObjectDB? catalogDb, ILogger
     /// to fall back to the source frame's meta when the master's is
     /// empty.</param>
     /// <param name="wcs">Plate-solved WCS for the master, if available.
-    /// SPCC is skipped when this is null (sky-bg WB still runs).</param>
-    /// <param name="statsSource">Cropped master for stretch stats
-    /// computation; null falls back to <paramref name="master"/>. Used
-    /// when the master has NaN edges that would bias shadow / midtone /
-    /// rescale away from the well-covered region.</param>
+    /// SPCC is skipped when this is null AND <paramref name="statsWcs"/>
+    /// is also null (sky-bg WB still runs).</param>
+    /// <param name="statsSource">Cropped master for stats computation
+    /// (per-channel background, WB star photometry, stretch shadows /
+    /// midtones / rescale). Null falls back to <paramref name="master"/>.
+    /// Used so the full-canvas render inherits its colour balance from
+    /// the well-covered autocrop region instead of being polluted by
+    /// the NaN / zero-coverage edges.</param>
+    /// <param name="statsWcs">WCS for <paramref name="statsSource"/> when
+    /// it differs from the master (the autocrop is re-solved against the
+    /// cropped pixel grid so its CRPIX is offset). Falls back to
+    /// <paramref name="wcs"/> when null, which is correct whenever
+    /// <paramref name="statsSource"/> is null or shares the master's
+    /// grid.</param>
     /// <param name="outputPath">PNG path to write.</param>
     public async Task RenderAsync(
         Image master,
@@ -51,10 +60,17 @@ public sealed class MasterPreviewRenderer(ICelestialObjectDB? catalogDb, ILogger
         WCS? wcs,
         Image? statsSource,
         string outputPath,
+        WCS? statsWcs = null,
         CancellationToken ct = default)
     {
         var sw = Stopwatch.StartNew();
         var stats = statsSource ?? master;
+        // When stats is just master, statsWcs naturally collapses to wcs.
+        // When the caller passes an autocrop as stats, they should pass
+        // its re-solved WCS too -- the autocrop's CRPIX is offset relative
+        // to the full canvas so SPCC needs the cropped WCS to project
+        // catalogue stars onto the cropped pixel grid.
+        var effectiveWcs = statsWcs ?? wcs;
 
         // ------------------------------------------------------------
         // Scan per-channel background medians (used to anchor the
@@ -71,17 +87,22 @@ public sealed class MasterPreviewRenderer(ICelestialObjectDB? catalogDb, ILogger
 
         // ------------------------------------------------------------
         // White balance: SPCC first, sky-bg fallback, else identity.
+        // All photometry / catalog / sky-bg sampling runs on `stats`,
+        // not `master`, so the WB gains are anchored to the well-
+        // covered region. When the caller passes an autocrop as
+        // statsSource, the resulting gains are then applied to the
+        // full master via the shader uniforms below.
         // ------------------------------------------------------------
         (float R, float G, float B)? wbGains = null;
-        if (master.ChannelCount >= 3)
+        if (stats.ChannelCount >= 3)
         {
             // Detect stars once (cap at 500 -- SPCC's photometry +
             // catalog match scales with detection count and the
             // brightest 500 give the same WB answer as 10k+).
-            StarList? masterStars = null;
+            StarList? statsStars = null;
             try
             {
-                masterStars = await master.FindStarsAsync(channel: 0, snrMin: 5f, maxStars: 500,
+                statsStars = await stats.FindStarsAsync(channel: 0, snrMin: 5f, maxStars: 500,
                     minStars: 50, maxRetries: 0, cancellationToken: ct);
             }
             catch (Exception ex)
@@ -89,7 +110,7 @@ public sealed class MasterPreviewRenderer(ICelestialObjectDB? catalogDb, ILogger
                 logger.LogWarning("  [WB] star detection failed: {Type}: {Msg}", ex.GetType().Name, ex.Message);
             }
 
-            if (wcs is { } w && masterStars is { Count: >= 3 } && catalogDb is { } db)
+            if (effectiveWcs is { } w && statsStars is { Count: >= 3 } && catalogDb is { } db)
             {
                 var spccSw = Stopwatch.StartNew();
                 try
@@ -102,7 +123,7 @@ public sealed class MasterPreviewRenderer(ICelestialObjectDB? catalogDb, ILogger
                     if (throughputs is { } t)
                     {
                         var spcc = Tycho2ColorCalibration.ComputeSpectrophotometricWhiteBalance(
-                            master, masterStars, w, db, t.R, t.G, t.B);
+                            stats, statsStars, w, db, t.R, t.G, t.B);
                         if (spcc is { } gains)
                         {
                             wbGains = (gains.R, gains.G, gains.B);
@@ -125,9 +146,9 @@ public sealed class MasterPreviewRenderer(ICelestialObjectDB? catalogDb, ILogger
                 }
             }
 
-            if (wbGains is null && masterStars is { StarMask: { } mask })
+            if (wbGains is null && statsStars is { StarMask: { } mask })
             {
-                var skyWb = AstroImageDocument.ComputeSkyBackgroundWB(master, mask);
+                var skyWb = AstroImageDocument.ComputeSkyBackgroundWB(stats, mask);
                 if (skyWb is { } w2)
                 {
                     wbGains = w2;

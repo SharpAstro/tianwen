@@ -305,15 +305,30 @@ public partial class Image
                 for (var x = 0; x < dstWidth; x++)
                 {
                     var srcX0 = x * factor;
+                    // NaN-aware block average: a drizzle master has NaN at
+                    // zero-coverage cells around the edge of the canvas.
+                    // The naive `sum += NaN` propagates NaN to the entire
+                    // output cell whenever any of the 4 (or factor^2) source
+                    // cells is NaN, which thickens the NaN ring by one
+                    // downsampled cell per Downsample call and -- worse --
+                    // poisons FindStarsAsync's input around the autocrop
+                    // boundary. Sum non-NaN cells, divide by their count;
+                    // only emit NaN when every cell in the block is NaN.
                     var sum = 0f;
+                    var validCount = 0;
                     for (var dy = 0; dy < factor; dy++)
                     {
                         for (var dx = 0; dx < factor; dx++)
                         {
-                            sum += src[srcY0 + dy, srcX0 + dx];
+                            var v = src[srcY0 + dy, srcX0 + dx];
+                            if (!float.IsNaN(v))
+                            {
+                                sum += v;
+                                validCount++;
+                            }
                         }
                     }
-                    dst[c][y, x] = sum / blockArea;
+                    dst[c][y, x] = validCount > 0 ? sum / validCount : float.NaN;
                 }
             }
         }

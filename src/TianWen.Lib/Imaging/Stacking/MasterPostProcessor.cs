@@ -77,16 +77,67 @@ internal sealed class MasterPostProcessor(ILogger logger, ICelestialObjectDB? ca
         //    WCS hint tells the solver where to look. When the caller
         //    didn't supply a catalog DB we skip the solve entirely (the
         //    master FITS gets written without WCS).
+        //
+        //    Prefer the autocrop as the plate-solve input. Drizzle's
+        //    per-channel coverage map leaves NaN cells around the canvas
+        //    edge of the full master, and Image.Downsample (called by
+        //    CatalogPlateSolver when pixel scale < 1.5"/px) propagates a
+        //    single NaN to its entire 2x2 block, thickening the NaN ring
+        //    and poisoning star detection. The autocrop is the
+        //    intersection of all channels' non-NaN regions so it's safe
+        //    by construction. Translate WCS back to the full canvas at
+        //    the end by adding the crop origin to CRPIX.
+        //
+        //    Guard: only prefer autocrop when it covers >= 40% of the
+        //    full canvas AND its smallest side spans >= 0.3 deg of sky.
+        //    Below either threshold the cropped FOV may not overlap
+        //    enough of the catalog query region (or simply lacks
+        //    candidate stars) to converge. Fall back to the full master
+        //    in that case -- the Downsample fix above makes that path
+        //    correct for narrow NaN rings, and the more general future
+        //    case (heavy crop on short-FOV scopes) still has a path.
         WCS? solvedWcs = null;
+        Rectangle solveCrop = default;
         if (searchHint is { } hint && catalogDb is { } db)
         {
             try
             {
-                var solver = new CatalogPlateSolver(db);
-                var psResult = await solver.SolveImageAsync(master, imageDim: imageDim, searchOrigin: hint, cancellationToken: ct);
+                // Idempotent re-entry: the CLI fires InitDBAsync at the
+                // start of the stack run so Tycho-2 bulk decode overlaps
+                // with scan/register/integrate. By the time we get here
+                // it's usually already done (this await returns instantly
+                // via the _isInitialized fast path); otherwise we block
+                // just long enough for the background task to land. Also
+                // observes any exception from the fire-and-forget kick-
+                // off so init failures surface here instead of becoming
+                // unobserved-task crashes.
+                await db.InitDBAsync(waitForTycho2BulkLoad: true, cancellationToken: ct);
+
+                var solver = new CatalogPlateSolver(db, logger);
+                Image solveImage = master;
+                ImageDim? solveImageDim = imageDim;
+                if (croppedResult is not null && PreferAutocropForPlateSolve(autocropRect, master, imageDim))
+                {
+                    solveImage = croppedResult.Master;
+                    solveCrop = autocropRect;
+                    solveImageDim = imageDim is { } dim
+                        ? new ImageDim(dim.PixelScale, autocropRect.Width, autocropRect.Height)
+                        : null;
+                    logger.LogInformation("  [plateSolve] using autocrop ({W}x{H}) as solver input",
+                        autocropRect.Width, autocropRect.Height);
+                }
+                var psResult = await solver.SolveImageAsync(solveImage, imageDim: solveImageDim, searchOrigin: hint, cancellationToken: ct);
                 if (psResult.Solution is { } w)
                 {
-                    solvedWcs = w;
+                    // Shift CRPIX back to the full-canvas coordinate
+                    // space when the solver ran on the autocrop. The
+                    // autocrop's CRPIX is offset by (autocropRect.X,
+                    // autocropRect.Y) from the master's pixel grid;
+                    // adding the offset puts the reference pixel back
+                    // where the full master expects it.
+                    solvedWcs = solveCrop is { Width: > 0 }
+                        ? w with { CRPix1 = w.CRPix1 + solveCrop.X, CRPix2 = w.CRPix2 + solveCrop.Y }
+                        : w;
                     logger.LogInformation("  [plateSolve] RA={RA:F4}h Dec={Dec:F4}° matched={Matched}/{Detected} ({Ms} ms)",
                         w.CenterRA, w.CenterDec, psResult.MatchedStars, psResult.DetectedStars, psResult.Elapsed.TotalMilliseconds);
 
@@ -166,6 +217,49 @@ internal sealed class MasterPostProcessor(ILogger logger, ICelestialObjectDB? ca
 
         logger.LogInformation("  [post] total {Ms} ms", sw.ElapsedMilliseconds);
         return (result, solvedWcs);
+    }
+
+    /// <summary>
+    /// Gate for routing the plate-solve through the autocrop instead of
+    /// the full master. Autocrop is the intersection of all channels'
+    /// non-NaN regions, so it sidesteps NaN-propagation hazards in
+    /// <see cref="Image.Downsample"/> and <see cref="Image.Background"/>.
+    /// We only take that path when the cropped image still has enough
+    /// sky to reasonably converge:
+    /// <list type="bullet">
+    ///   <item>Area &gt;= 40% of full canvas -- below this the crop is
+    ///   "brutal" enough that we may not have enough overlap with the
+    ///   catalog query window (which is sized to the full FOV).</item>
+    ///   <item>Smallest cropped side spans &gt;= 0.3 deg of sky -- on a
+    ///   narrow-FOV scope (e.g. C8 @ 2032mm) a 40% area crop could still
+    ///   collapse to a sub-tenth-degree slice. Below ~0.3 deg the
+    ///   Tycho-2 catalog within the crop has too few stars for the
+    ///   brightness-rank match to be stable.</item>
+    /// </list>
+    /// Either threshold failing returns the full master as the plate-
+    /// solve input. The Downsample NaN-aware fix makes that path work
+    /// for typical narrow-ring drizzle masters; broader pathologies
+    /// (heavy short-FOV crop) accept the catalog overlap risk.
+    /// </summary>
+    private static bool PreferAutocropForPlateSolve(Rectangle crop, Image master, ImageDim? imageDim)
+    {
+        const double MinAreaRatio = 0.40;
+        const double MinSideDeg = 0.30;
+        const double ArcSecPerDeg = 3600.0;
+
+        if (crop.Width <= 0 || crop.Height <= 0) return false;
+
+        var fullArea = (long)master.Width * master.Height;
+        var cropArea = (long)crop.Width * crop.Height;
+        if (fullArea <= 0 || (double)cropArea / fullArea < MinAreaRatio) return false;
+
+        if (imageDim is { PixelScale: var pxScale and > 0 })
+        {
+            var minSideArcsec = pxScale * Math.Min(crop.Width, crop.Height);
+            if (minSideArcsec / ArcSecPerDeg < MinSideDeg) return false;
+        }
+
+        return true;
     }
 
     private static string WithSuffix(string path, string suffix)

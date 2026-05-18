@@ -4,6 +4,7 @@ using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
+using TianWen.Lib.Astrometry;
 using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Stacking;
@@ -191,6 +192,28 @@ internal sealed class StackSubCommand(
                 }
             });
 
+            // The DI-registered ICelestialObjectDB is a singleton but its
+            // catalog grid stays empty until InitDBAsync runs (loads
+            // Tycho-2 + IC/NGC etc into memory). The GUI / FitsViewer
+            // trigger this via their own startup paths; the CLI has been
+            // resolving the uninitialised DB and silently feeding it to
+            // the master plate-solve, which then returned matched=0/0
+            // because the catalog grid was empty (no stars to match
+            // against, regardless of how many image stars FindStars
+            // detected). Fire-and-forget here so the load (a few hundred
+            // ms to seconds depending on disk) overlaps with the scan /
+            // register / integrate phases (60-90s typically). The
+            // post-processor calls InitDBAsync again just before the
+            // CatalogPlateSolver -- since the underlying init is
+            // idempotent and singleton-cached, that second call is
+            // instant when the background load has completed and
+            // otherwise blocks the minimal necessary window. Skipped
+            // entirely under --no-plate-solve.
+            if (!skipPlateSolve)
+            {
+                _ = catalogDb.InitDBAsync(waitForTycho2BulkLoad: true, cancellationToken: ct);
+            }
+
             var pipeline = new StackingPipeline(
                 options,
                 pipelineLogger,
@@ -222,29 +245,62 @@ internal sealed class StackSubCommand(
                     // autocrop is what most users actually look at -- it
                     // strips the NaN-edge ring -- so emitting just one
                     // PNG left half the deliverables off-disk).
+                    //
+                    // Load the autocrop FIRST so we can pass it as the
+                    // stats source for the full-canvas render. Without
+                    // this the full PNG's WB + bg-neut would be derived
+                    // from the partial-coverage edges (drizzle's per-
+                    // Bayer-position uncovered cells, or just the NaN
+                    // ring around any registered stack) and diverge from
+                    // the autocrop's stats; the two PNGs then end up
+                    // with different colour casts on identical data.
+                    var autocropFitsPath = Path.Combine(
+                        Path.GetDirectoryName(masterPath) ?? string.Empty,
+                        Path.GetFileNameWithoutExtension(masterPath) + "_autocrop.fits");
+                    Image? cropImage = null;
+                    WCS? cropWcs = null;
+                    if (File.Exists(autocropFitsPath))
+                    {
+                        Image.TryReadFitsFile(autocropFitsPath, out cropImage, out cropWcs);
+                    }
+
                     if (Image.TryReadFitsFile(masterPath, out var masterImage, out var wcs) && masterImage is not null)
                     {
                         var pngPath = result.PreviewPngPath ?? Path.ChangeExtension(masterPath, ".png");
                         try
                         {
-                            await renderer.RenderAsync(masterImage, masterImage.ImageMeta, wcs, statsSource: null, pngPath, ct);
+                            await renderer.RenderAsync(
+                                masterImage,
+                                masterImage.ImageMeta,
+                                wcs,
+                                statsSource: cropImage,
+                                pngPath,
+                                statsWcs: cropWcs,
+                                ct: ct);
                         }
                         catch (Exception ex)
                         {
                             consoleHost.WriteError($"[stack] {result.GroupSlug}: PNG render failed: {ex.Message}");
                         }
                     }
-                    var autocropFitsPath = Path.Combine(
-                        Path.GetDirectoryName(masterPath) ?? string.Empty,
-                        Path.GetFileNameWithoutExtension(masterPath) + "_autocrop.fits");
-                    if (File.Exists(autocropFitsPath) &&
-                        Image.TryReadFitsFile(autocropFitsPath, out var cropImage, out var cropWcs) &&
-                        cropImage is not null)
+                    if (cropImage is not null)
                     {
+                        // Pass cropImage as statsSource explicitly even
+                        // though it equals master here -- keeps both call
+                        // sites symmetric: "always use the autocrop region
+                        // as the stats source, regardless of which image
+                        // we're rendering pixels of."
                         var cropPngPath = Path.ChangeExtension(autocropFitsPath, ".png");
                         try
                         {
-                            await renderer.RenderAsync(cropImage, cropImage.ImageMeta, cropWcs, statsSource: null, cropPngPath, ct);
+                            await renderer.RenderAsync(
+                                cropImage,
+                                cropImage.ImageMeta,
+                                cropWcs,
+                                statsSource: cropImage,
+                                cropPngPath,
+                                statsWcs: cropWcs,
+                                ct: ct);
                         }
                         catch (Exception ex)
                         {
