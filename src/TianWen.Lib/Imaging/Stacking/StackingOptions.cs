@@ -48,6 +48,16 @@ namespace TianWen.Lib.Imaging.Stacking;
 /// "pierUnknown" sub-group rather than being silently merged with East. Off
 /// by default -- a unified master across the meridian is the production
 /// norm.</param>
+/// <param name="HotPixelSigma">Threshold (in Gaussian sigmas above the dark
+/// master's per-channel median) for flagging hot pixels. The flagged
+/// positions get NaN'd in the calibrated light frames so downstream
+/// integration ignores them entirely -- dark subtraction alone removes
+/// the average per-pixel offset but leaves per-frame shot-noise variance
+/// from genuinely-hot pixels, which then survives into the master (most
+/// visible as single bright pixels in drizzle output where there is no
+/// per-cell averaging). Default 8 is conservative; hot pixels typically
+/// score 100+ sigma. Pass 0 to disable masking (legacy behaviour).
+/// Ignored when no dark master is matched to the light group.</param>
 public sealed record StackingOptions(
     string DataRoot,
     string OutputDir,
@@ -60,4 +70,5 @@ public sealed record StackingOptions(
     int MinStars = 2000,
     int QuadStars = 500,
     DrizzleOptions? DrizzleOptions = null,
-    bool SplitByPierSide = false);
+    bool SplitByPierSide = false,
+    float HotPixelSigma = 8.0f);

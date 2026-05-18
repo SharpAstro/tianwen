@@ -283,7 +283,21 @@ public sealed class StackingPipeline(
         var (flat, flatKey) = MatchMaster(flatMasters, calKey);
         logger.LogInformation("  dark master: {Dark}", darkKey is null ? "NONE" : darkKey.Slug());
         logger.LogInformation("  flat master: {Flat}", flatKey is null ? "NONE" : flatKey.Slug());
-        var calibrator = new Calibrator(Bias: null, Dark: dark, Flat: flat, Pedestal: 0f);
+        // Build hot-pixel mask from the dark master (one-time cost per
+        // group, ~tens of ms even on full-frame). Pixels above
+        // sigma * 1.4826 * MAD over the channel median get NaN'd in the
+        // calibrated light frames so downstream integration ignores them.
+        // Disabled when no dark is matched (no dark = no hot-pixel
+        // detection possible) or when HotPixelSigma <= 0.
+        BitMatrix[]? badPixelMask = null;
+        if (dark is not null && options.HotPixelSigma > 0f)
+        {
+            badPixelMask = BadPixelDetection.BuildMaskFromDark(dark, options.HotPixelSigma);
+            var maskedCount = BadPixelDetection.CountMaskedPixels(badPixelMask, dark.Width, dark.Height);
+            logger.LogInformation("  hot-pixel mask: {Count} px flagged at {Sigma:F1} sigma",
+                maskedCount, options.HotPixelSigma);
+        }
+        var calibrator = new Calibrator(Bias: null, Dark: dark, Flat: flat, Pedestal: 0f, BadPixelMask: badPixelMask);
 
         // 3a. Pick reference (highest star count). We bypass
         // Registrator.PickReferenceAsync because it operates on the raw

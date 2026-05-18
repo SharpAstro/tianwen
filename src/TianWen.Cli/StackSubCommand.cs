@@ -95,6 +95,11 @@ internal sealed class StackSubCommand(
         {
             Description = "Sub-partition each light group by FITS PIERSIDE (pre/post meridian flip) and write separate masters per pier side. Useful for diagnosing drizzle streaks tied to the flip, or for capture setups that don't update BayerOffset post-flip. Filenames pick up _pierE / _pierW / _pierUnknown suffixes.",
         };
+        var hotPixelSigmaOpt = new Option<float>("--hot-pixel-sigma")
+        {
+            Description = "Threshold (Gaussian sigmas above dark master median) for hot-pixel masking. Flagged pixels are NaN'd in calibrated lights so integration ignores them. Default 8 (hot pixels typically score 100+). Pass 0 to disable masking.",
+            DefaultValueFactory = _ => 8.0f,
+        };
 
         var stackCommand = new Command("stack", "Stack a folder of FITS lights into a master frame.")
         {
@@ -106,7 +111,7 @@ internal sealed class StackSubCommand(
                 snrMinOpt, minStarsOpt, quadStarsOpt,
                 noPngOpt, noPlateSolveOpt,
                 drizzlePixfracOpt, drizzleMinFramesOpt,
-                splitByPierSideOpt,
+                splitByPierSideOpt, hotPixelSigmaOpt,
             },
         };
         stackCommand.SetAction(async (parseResult, ct) =>
@@ -144,7 +149,8 @@ internal sealed class StackSubCommand(
                 MinStars: parseResult.GetValue(minStarsOpt),
                 QuadStars: parseResult.GetValue(quadStarsOpt),
                 DrizzleOptions: drizzleOptions,
-                SplitByPierSide: parseResult.GetValue(splitByPierSideOpt));
+                SplitByPierSide: parseResult.GetValue(splitByPierSideOpt),
+                HotPixelSigma: parseResult.GetValue(hotPixelSigmaOpt));
 
             var noPng = parseResult.GetValue(noPngOpt);
             var skipPlateSolve = parseResult.GetValue(noPlateSolveOpt);

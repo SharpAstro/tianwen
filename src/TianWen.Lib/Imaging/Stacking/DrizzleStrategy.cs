@@ -126,8 +126,26 @@ public sealed class DrizzleStrategy : IIntegrationStrategy
             }
 
             var meta = frame.RawCfa.ImageMeta;
-            var pattern = meta.SensorType.GetBayerPatternMatrix(meta.BayerOffsetX, meta.BayerOffsetY);
             var transform = frame.TransformToCanvas;
+            // Meridian-flip Bayer compensation. NINA and most capture
+            // software don't update BayerOffsetX/Y across a meridian flip
+            // because the sensor's relationship to the OTA hasn't changed --
+            // only OTA-relative-to-sky has. The registrator's affine
+            // captures the flip as a ~180 deg rotation (cos(180 deg) = -1
+            // so M11 < 0 -- M11 and M22 swap signs together, so checking
+            // one suffices). When detected, the camera's Bayer offset
+            // relative to the SKY is shifted by (1, 1) in both axes,
+            // which swaps R<->B in the dispatch matrix while leaving G in
+            // place. Without this fix, half the stack deposits R samples
+            // into the B output channel and vice versa, which produces
+            // the streaky / wrong-colour stars seen in combined-flip
+            // drizzle masters (the per-pier-side split is the workaround
+            // for the same problem, but composing the masters
+            // automatically here is the proper fix).
+            var isFlipped = transform.M11 < 0f;
+            var offX = isFlipped ? (meta.BayerOffsetX + 1) & 1 : meta.BayerOffsetX;
+            var offY = isFlipped ? (meta.BayerOffsetY + 1) & 1 : meta.BayerOffsetY;
+            var pattern = meta.SensorType.GetBayerPatternMatrix(offX, offY);
             var raw = frame.RawCfa;
             var srcW = raw.Width;
             var srcH = raw.Height;
