@@ -58,6 +58,16 @@ namespace TianWen.Lib.Imaging.Stacking;
 /// per-cell averaging). Default 8 is conservative; hot pixels typically
 /// score 100+ sigma. Pass 0 to disable masking (legacy behaviour).
 /// Ignored when no dark master is matched to the light group.</param>
+/// <param name="QualityRejectSigma">When set, runs the post-registration
+/// frame quality filter at this sigma threshold: a frame is dropped from
+/// integration if its median HFD or ellipticity exceeds
+/// <c>median + sigma · 1.4826 · MAD</c> of the session's matched-frame
+/// distribution. An 80% keep floor caps rejection at the worst 20% by
+/// severity when the MAD threshold would over-cut. Null disables the
+/// filter (default; preserves the pre-this-feature behaviour). 3.0 is the
+/// recommended starting value -- conservative, catches clear outliers
+/// (low-altitude bloated frames, wind-trailed frames) without biting
+/// into the body of the distribution. See <see cref="FrameQualityFilter"/>.</param>
 public sealed record StackingOptions(
     string DataRoot,
     string OutputDir,
@@ -71,4 +81,5 @@ public sealed record StackingOptions(
     int QuadStars = 500,
     DrizzleOptions? DrizzleOptions = null,
     bool SplitByPierSide = false,
-    float HotPixelSigma = 8.0f);
+    float HotPixelSigma = 8.0f,
+    float? QualityRejectSigma = null);

@@ -305,14 +305,26 @@ public sealed class StackingPipeline(
                 maskedCount, options.HotPixelSigma);
         }
 
-        // 3a. Pick reference (highest star count). We bypass
+        // 3a. Pick reference by composite PSF quality. We bypass
         // Registrator.PickReferenceAsync because it operates on the raw
         // FrameInfo without debayer awareness.
+        //
+        // Score = StarCount / (max(HFD, 1) * (1 + 4 * Ellipticity)).
+        // Picks the frame with the most stars, weighted down by broad
+        // PSF (HFD) and elongation (ecc). Rewards sharp-round-many-stars
+        // simultaneously. A bloated frame with 10000 stars loses to a
+        // sharp frame with 5000 stars whenever the HFD difference is
+        // >2x; an elongated frame is penalised regardless of count
+        // (factor 5 at ecc=1, factor 3 at ecc=0.5). Pre-refactor logic
+        // picked by star count alone, which let low-altitude bloated
+        // early frames win on dense fields even when their PSF was 30%
+        // broader -- bad reference for the rest of the session to
+        // register against.
         progress?.Report(new StackingProgress(StackingPhase.Registering, slug, 0, lightList.Count));
         var sw = Stopwatch.StartNew();
-        var frameStarCounts = new List<(FrameInfo Frame, int StarCount)>(lightList.Count);
+        var frameCandidates = new List<(FrameInfo Frame, FrameMetrics Metrics, float Score)>(lightList.Count);
         FrameInfo? reference = null;
-        var bestCount = -1;
+        var bestScore = float.NegativeInfinity;
         foreach (var lf in lightList)
         {
             ct.ThrowIfCancellationRequested();
@@ -320,10 +332,16 @@ public sealed class StackingPipeline(
             var calibrated = calibrator.Apply(raw);
             var debayered = await calibrated.DebayerAsync(options.CentroidDebayerAlg, cancellationToken: ct);
             var stars = await debayered.FindStarsAsync(channel: 0, snrMin: options.SnrMin, minStars: options.MinStars, cancellationToken: ct);
-            frameStarCounts.Add((lf, stars.Count));
-            if (stars.Count > bestCount)
+            var metrics = new FrameMetrics(
+                MedianHfd: stars.MapReduceStarProperty(SampleKind.HFD, AggregationMethod.Median),
+                MedianFwhm: stars.MapReduceStarProperty(SampleKind.FWHM, AggregationMethod.Median),
+                MedianEllipticity: stars.MapReduceStarProperty(SampleKind.Ellipticity, AggregationMethod.Median),
+                StarCount: stars.Count);
+            var score = stars.Count / (MathF.Max(metrics.MedianHfd, 1f) * (1f + 4f * metrics.MedianEllipticity));
+            frameCandidates.Add((lf, metrics, score));
+            if (score > bestScore)
             {
-                bestCount = stars.Count;
+                bestScore = score;
                 reference = lf;
             }
         }
@@ -333,9 +351,13 @@ public sealed class StackingPipeline(
             return new GroupResult(slug, lightList.Count, 0, Result: null, MasterFitsPath: null,
                 PreviewPngPath: null, Elapsed: groupSw.Elapsed, SkipReason: "no reference frame could be picked");
         }
-        logger.LogInformation("  reference: {File} ({Stars} stars, {ElapsedMs} ms)",
+        var refCandidate = frameCandidates.First(s => s.Frame.Path == reference.Path);
+        logger.LogInformation("  reference: {File} (stars={Stars} hfd={Hfd:F2} ecc={Ecc:F3} score={Score:F1}, {ElapsedMs} ms)",
             Path.GetFileName(reference.Path),
-            frameStarCounts.First(s => s.Frame.Path == reference.Path).StarCount,
+            refCandidate.Metrics.StarCount,
+            refCandidate.Metrics.MedianHfd,
+            refCandidate.Metrics.MedianEllipticity,
+            refCandidate.Score,
             sw.ElapsedMilliseconds);
 
         // Pre-load + calibrate + debayer reference once; detect ref stars
@@ -354,6 +376,16 @@ public sealed class StackingPipeline(
         var referenceStars = await referenceDebayered.FindStarsAsync(channel: 0, snrMin: options.SnrMin, minStars: options.MinStars, cancellationToken: ct);
         var referenceSorted = new SortedStarList(referenceStars);
         var referenceQuads = await referenceSorted.FindQuadsAsync(maxStars: options.QuadStars, ct);
+        // Reference-frame metrics so the matched tuple gets a real
+        // FrameMetrics even for the reference (which skips the register
+        // loop's star-detection path). Used by the post-registration
+        // quality filter -- without it the reference would be a (0,0,0)
+        // outlier and always survive even if it's actually the worst.
+        var referenceMetrics = new FrameMetrics(
+            MedianHfd: referenceStars.MapReduceStarProperty(SampleKind.HFD, AggregationMethod.Median),
+            MedianFwhm: referenceStars.MapReduceStarProperty(SampleKind.FWHM, AggregationMethod.Median),
+            MedianEllipticity: referenceStars.MapReduceStarProperty(SampleKind.Ellipticity, AggregationMethod.Median),
+            StarCount: referenceStars.Count);
 
         // Per-group staging dir. Cleaned up by the chosen strategy.
         var stagingDir = Path.Combine(outputDir, "_staging", slug);
@@ -366,7 +398,7 @@ public sealed class StackingPipeline(
         var calibratedCache = new FrameCache(
             lightList.Count,
             FrameCache.DecideCacheCap(lightList.Count, calibratedFrameBytes));
-        var matched = new List<(FrameInfo Light, Matrix3x2 Transform)>();
+        var matched = new List<(FrameInfo Light, Matrix3x2 Transform, FrameMetrics Metrics)>();
         var skipCount = 0;
         sw.Restart();
         foreach (var lightInfo in lightList)
@@ -378,9 +410,11 @@ public sealed class StackingPipeline(
             var name = Path.GetFileNameWithoutExtension(lightInfo.Path);
 
             Matrix3x2? transform;
+            FrameMetrics frameMetrics = default;
             if (string.Equals(lightInfo.Path, reference.Path, StringComparison.OrdinalIgnoreCase))
             {
                 transform = Matrix3x2.Identity;
+                frameMetrics = referenceMetrics;
             }
             else
             {
@@ -422,9 +456,13 @@ public sealed class StackingPipeline(
                         // logged -- spotting an outlier frame's HFD or
                         // ellipticity spike is exactly what we need when a
                         // long-span stack ends up with poor SPCC matches.
+                        // Stashed on the matched tuple so the post-loop
+                        // quality filter has session-wide statistics without
+                        // re-running star detection.
                         var medHfd = stars.MapReduceStarProperty(SampleKind.HFD, AggregationMethod.Median);
                         var medFwhm = stars.MapReduceStarProperty(SampleKind.FWHM, AggregationMethod.Median);
                         var medEcc = stars.MapReduceStarProperty(SampleKind.Ellipticity, AggregationMethod.Median);
+                        frameMetrics = new FrameMetrics(medHfd, medFwhm, medEcc, stars.Count);
                         logger.LogInformation(
                             "  [{Name}] stars={Stars} hfd={Hfd:F2} fwhm={Fwhm:F2} ecc={Ecc:F3} -> MATCH qt={Tol:F3} refine: rot={Rot:F3}° s={Scale:F5} t=({Tx:F2},{Ty:F2}) rms={Rms:F2}px from {RefMatched} pairs",
                             name, stars.Count, medHfd, medFwhm, medEcc, tolUsed, refRotDeg, refScale, refTx, refTy, refRms, refMatched);
@@ -434,11 +472,61 @@ public sealed class StackingPipeline(
             if (transform is null) { skipCount++; continue; }
 
             calibratedCache.Set(matched.Count, calibrated);
-            matched.Add((lightInfo, transform.Value));
+            matched.Add((lightInfo, transform.Value, frameMetrics));
             progress?.Report(new StackingProgress(StackingPhase.Registering, slug, matched.Count + skipCount, lightList.Count));
         }
         logger.LogInformation("  registered {Matched}/{Attempted} frames (skipped {Skipped}) in {ElapsedMs} ms",
             matched.Count, lightList.Count, skipCount, sw.ElapsedMilliseconds);
+
+        // Post-registration quality filter. Off by default; enable via
+        // StackingOptions.QualityRejectSigma. Drops frames whose median
+        // HFD or ellipticity exceeds the session's median + sigma * MAD
+        // threshold, capped at the worst 20% by severity (the 80% keep
+        // floor in FrameQualityFilter). One log line per dropped frame
+        // so the audit is per-frame, not just a count.
+        if (options.QualityRejectSigma is { } qSigma && qSigma > 0f && matched.Count >= 4)
+        {
+            var metricsArr = new FrameMetrics[matched.Count];
+            for (var i = 0; i < matched.Count; i++) metricsArr[i] = matched[i].Metrics;
+            var filterResult = FrameQualityFilter.Filter(metricsArr, qSigma);
+            if (filterResult.KeptCount < matched.Count)
+            {
+                if (filterResult.FloorTriggered)
+                {
+                    logger.LogInformation(
+                        "  [quality] sigma={Sigma:F2} -- FLOOR triggered: MAD threshold would over-cut, capped to worst {N}/{Total} by severity",
+                        qSigma, matched.Count - filterResult.KeptCount, matched.Count);
+                }
+                else
+                {
+                    logger.LogInformation(
+                        "  [quality] sigma={Sigma:F2}: rejecting {N}/{Total} frames",
+                        qSigma, matched.Count - filterResult.KeptCount, matched.Count);
+                }
+                var filtered = new List<(FrameInfo Light, Matrix3x2 Transform, FrameMetrics Metrics)>(filterResult.KeptCount);
+                for (var i = 0; i < matched.Count; i++)
+                {
+                    var reason = filterResult.Reasons[i];
+                    if (reason == FrameRejectReason.Kept)
+                    {
+                        filtered.Add(matched[i]);
+                    }
+                    else
+                    {
+                        var m = matched[i].Metrics;
+                        var rejName = Path.GetFileNameWithoutExtension(matched[i].Light.Path);
+                        logger.LogInformation(
+                            "  [quality] reject {Name} reason={Reason} hfd={Hfd:F2} ecc={Ecc:F3} stars={Stars}",
+                            rejName, reason, m.MedianHfd, m.MedianEllipticity, m.StarCount);
+                    }
+                }
+                matched = filtered;
+            }
+            else
+            {
+                logger.LogInformation("  [quality] sigma={Sigma:F2}: no frames rejected", qSigma);
+            }
+        }
 
         if (matched.Count < 2)
         {
@@ -498,7 +586,7 @@ public sealed class StackingPipeline(
         {
             for (var i = 0; i < matched.Count; i++)
             {
-                var (lightInfo, transformOrig) = matched[i];
+                var (lightInfo, transformOrig, _) = matched[i];
                 token.ThrowIfCancellationRequested();
                 Image calibrated;
                 if (calibratedCache.TryGet(i, out var cached))
@@ -527,7 +615,7 @@ public sealed class StackingPipeline(
         {
             for (var i = 0; i < matched.Count; i++)
             {
-                var (lightInfo, transformOrig) = matched[i];
+                var (lightInfo, transformOrig, _) = matched[i];
                 token.ThrowIfCancellationRequested();
                 Image calibrated;
                 if (calibratedCache.TryGet(i, out var cached))
@@ -564,7 +652,7 @@ public sealed class StackingPipeline(
         logger.LogInformation("  rejector: {Rejector}", rejector?.GetType().Name ?? "<none>");
 
         var rawSources = new List<RawLightSource>(matched.Count);
-        foreach (var (lightInfo, transformOrig) in matched)
+        foreach (var (lightInfo, transformOrig, _) in matched)
         {
             rawSources.Add(new RawLightSource(Path: lightInfo.Path, TransformToCanvas: transformOrig * canvasShift));
         }

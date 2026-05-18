@@ -101,6 +101,10 @@ internal sealed class StackSubCommand(
             Description = "Threshold (Gaussian sigmas above dark master median) for hot-pixel masking. Flagged pixels are NaN'd in calibrated lights so integration ignores them. Default 8 (hot pixels typically score 100+). Pass 0 to disable masking.",
             DefaultValueFactory = _ => 8.0f,
         };
+        var qualityRejectSigmaOpt = new Option<float?>("--quality-reject-sigma")
+        {
+            Description = "Enable per-frame quality filtering at this sigma threshold: a frame is dropped from integration when its median HFD or ellipticity exceeds median + sigma * 1.4826 * MAD of the session. An 80% keep floor caps rejection at the worst 20% by severity. 3.0 is a conservative starting value -- catches clear outliers (bloated low-altitude frames, wind-trailed frames) without biting into the body of the distribution. Off by default.",
+        };
 
         var stackCommand = new Command("stack", "Stack a folder of FITS lights into a master frame.")
         {
@@ -113,6 +117,7 @@ internal sealed class StackSubCommand(
                 noPngOpt, noPlateSolveOpt,
                 drizzlePixfracOpt, drizzleMinFramesOpt,
                 splitByPierSideOpt, hotPixelSigmaOpt,
+                qualityRejectSigmaOpt,
             },
         };
         stackCommand.SetAction(async (parseResult, ct) =>
@@ -151,7 +156,8 @@ internal sealed class StackSubCommand(
                 QuadStars: parseResult.GetValue(quadStarsOpt),
                 DrizzleOptions: drizzleOptions,
                 SplitByPierSide: parseResult.GetValue(splitByPierSideOpt),
-                HotPixelSigma: parseResult.GetValue(hotPixelSigmaOpt));
+                HotPixelSigma: parseResult.GetValue(hotPixelSigmaOpt),
+                QualityRejectSigma: parseResult.GetValue(qualityRejectSigmaOpt));
 
             var noPng = parseResult.GetValue(noPngOpt);
             var skipPlateSolve = parseResult.GetValue(noPlateSolveOpt);
