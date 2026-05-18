@@ -106,6 +106,11 @@ var rootCommand = new RootCommand
         new DeviceSubCommand(consoleHost).Build(),
         viewSubCommand.Build(),
         new PlanSubCommand(consoleHost, plannerState, services.GetRequiredService<TianWen.Lib.Astrometry.Catalogs.ICelestialObjectDB>(), profileSelector).Build(),
+        new StackSubCommand(
+            consoleHost,
+            services.GetRequiredService<ILogger<TianWen.Lib.Imaging.Stacking.StackingPipeline>>(),
+            services.GetRequiredService<ILogger<TianWen.UI.Abstractions.MasterPreviewRenderer>>(),
+            services.GetRequiredService<TianWen.Lib.Astrometry.Catalogs.ICelestialObjectDB>()).Build(),
         new TuiSubCommand(services, consoleHost, plannerState, profileSelector).Build()
     }
 };
