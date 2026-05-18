@@ -1,7 +1,7 @@
 using System;
 using System.Runtime.InteropServices;
 
-namespace TianWen.Lib.Imaging.Calibration;
+namespace TianWen.Lib.Imaging.Stacking;
 
 /// <summary>
 /// In-memory <see cref="IIntegrationSink"/>: backs the canvas with a

@@ -1,6 +1,6 @@
 using System;
 
-namespace TianWen.Lib.Imaging.Calibration;
+namespace TianWen.Lib.Imaging.Stacking;
 
 /// <summary>
 /// Shared tile-sizing math for the tile-pipelined / staged strategies.

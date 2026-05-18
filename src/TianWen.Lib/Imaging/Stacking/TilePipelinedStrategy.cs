@@ -4,8 +4,9 @@ using System.Drawing;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
+using TianWen.Lib.Imaging.Calibration;
 
-namespace TianWen.Lib.Imaging.Calibration;
+namespace TianWen.Lib.Imaging.Stacking;
 
 /// <summary>
 /// PLAN-stacking Phase 8: re-read raw lights as needed, calibrate + debayer +

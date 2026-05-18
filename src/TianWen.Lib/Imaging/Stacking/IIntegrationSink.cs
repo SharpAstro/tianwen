@@ -1,6 +1,6 @@
 using System;
 
-namespace TianWen.Lib.Imaging.Calibration;
+namespace TianWen.Lib.Imaging.Stacking;
 
 /// <summary>
 /// Output backing for the per-pixel master canvas an integrator writes to.

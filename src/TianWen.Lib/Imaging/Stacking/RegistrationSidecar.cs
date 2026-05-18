@@ -3,7 +3,7 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace TianWen.Lib.Imaging.Calibration;
+namespace TianWen.Lib.Imaging.Stacking;
 
 /// <summary>
 /// Persists / loads <see cref="RegistrationResult"/> sidecars adjacent to each

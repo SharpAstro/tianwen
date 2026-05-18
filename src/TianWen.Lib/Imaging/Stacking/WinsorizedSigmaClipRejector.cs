@@ -2,7 +2,7 @@ using System;
 using System.Buffers;
 using static TianWen.Lib.Stat.StatisticsHelper;
 
-namespace TianWen.Lib.Imaging.Calibration;
+namespace TianWen.Lib.Imaging.Stacking;
 
 /// <summary>
 /// Winsorized variant of <see cref="SigmaClipRejector"/>. The rejection

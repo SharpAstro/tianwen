@@ -2,6 +2,7 @@ using System;
 using BenchmarkDotNet.Attributes;
 using BenchmarkDotNet.Jobs;
 using TianWen.Lib.Imaging.Calibration;
+using TianWen.Lib.Imaging.Stacking;
 
 namespace TianWen.UI.Benchmarks;
 

@@ -3,7 +3,7 @@ using System.Globalization;
 using System.IO;
 using TianWen.Lib.Astrometry;
 
-namespace TianWen.Lib.Imaging.Calibration;
+namespace TianWen.Lib.Imaging.Stacking;
 
 /// <summary>
 /// Writes an <see cref="IntegrationResult"/> to disk as two FITS files: a

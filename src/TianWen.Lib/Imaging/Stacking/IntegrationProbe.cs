@@ -1,7 +1,7 @@
 using System;
 using System.IO;
 
-namespace TianWen.Lib.Imaging.Calibration;
+namespace TianWen.Lib.Imaging.Stacking;
 
 /// <summary>
 /// Coarse characterisation of the staging drive. Spindle disks need ~80x

@@ -1,6 +1,6 @@
 using System;
 
-namespace TianWen.Lib.Imaging.Calibration;
+namespace TianWen.Lib.Imaging.Stacking;
 
 /// <summary>
 /// Combines the kept entries of an N-frame column at a single output pixel

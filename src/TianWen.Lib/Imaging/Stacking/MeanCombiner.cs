@@ -1,7 +1,7 @@
 using System;
 using System.Numerics;
 
-namespace TianWen.Lib.Imaging.Calibration;
+namespace TianWen.Lib.Imaging.Stacking;
 
 /// <summary>
 /// Plain mean of kept entries. The default combiner for kappa-sigma stacking:

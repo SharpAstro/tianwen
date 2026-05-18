@@ -3,8 +3,9 @@ using System.Collections.Generic;
 using System.Drawing;
 using System.Numerics;
 using System.Threading;
+using TianWen.Lib.Imaging.Calibration;
 
-namespace TianWen.Lib.Imaging.Calibration;
+namespace TianWen.Lib.Imaging.Stacking;
 
 /// <summary>
 /// A single raw light frame ready to be consumed tile-by-tile by

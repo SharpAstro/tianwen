@@ -1,6 +1,6 @@
 using System;
 
-namespace TianWen.Lib.Imaging.Calibration;
+namespace TianWen.Lib.Imaging.Stacking;
 
 /// <summary>
 /// Per-output-pixel outlier rejector. The integrator calls this once for each

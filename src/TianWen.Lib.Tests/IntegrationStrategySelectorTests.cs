@@ -2,6 +2,7 @@ using System;
 using System.Linq;
 using Shouldly;
 using TianWen.Lib.Imaging.Calibration;
+using TianWen.Lib.Imaging.Stacking;
 using Xunit;
 
 namespace TianWen.Lib.Tests;

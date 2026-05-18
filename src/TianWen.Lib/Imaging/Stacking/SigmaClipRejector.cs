@@ -3,7 +3,7 @@ using System.Buffers;
 using System.Numerics;
 using static TianWen.Lib.Stat.StatisticsHelper;
 
-namespace TianWen.Lib.Imaging.Calibration;
+namespace TianWen.Lib.Imaging.Stacking;
 
 /// <summary>
 /// Iterative outlier rejection using median + MAD-derived sigma estimate.

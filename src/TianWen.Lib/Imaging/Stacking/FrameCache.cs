@@ -1,6 +1,6 @@
 using System;
 
-namespace TianWen.Lib.Imaging.Calibration;
+namespace TianWen.Lib.Imaging.Stacking;
 
 /// <summary>
 /// Two-tier strong+weak cache for per-frame <see cref="Image"/> instances,

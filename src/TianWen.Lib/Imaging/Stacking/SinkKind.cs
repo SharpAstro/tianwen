@@ -1,7 +1,7 @@
 using System;
 using System.IO;
 
-namespace TianWen.Lib.Imaging.Calibration;
+namespace TianWen.Lib.Imaging.Stacking;
 
 /// <summary>
 /// Backing choice for an integrator's master canvas. Surfaced on

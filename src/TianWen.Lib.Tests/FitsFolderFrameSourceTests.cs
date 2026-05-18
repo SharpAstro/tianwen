@@ -7,6 +7,7 @@ using Shouldly;
 using TianWen.Lib.Astrometry;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Calibration;
+using TianWen.Lib.Imaging.Stacking;
 using Xunit;
 
 namespace TianWen.Lib.Tests;

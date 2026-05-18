@@ -1,7 +1,7 @@
 using System;
 using System.Buffers;
 
-namespace TianWen.Lib.Imaging.Calibration;
+namespace TianWen.Lib.Imaging.Stacking;
 
 /// <summary>
 /// Drops a fixed fraction of the most-extreme values from each tail of the

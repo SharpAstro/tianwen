@@ -2,7 +2,7 @@ using System;
 using System.Numerics;
 using System.Text.Json.Serialization;
 
-namespace TianWen.Lib.Imaging.Calibration;
+namespace TianWen.Lib.Imaging.Stacking;
 
 /// <summary>
 /// Result of registering one light frame against a reference: the affine

@@ -2,7 +2,7 @@ using System;
 using System.Buffers;
 using static TianWen.Lib.Stat.StatisticsHelper;
 
-namespace TianWen.Lib.Imaging.Calibration;
+namespace TianWen.Lib.Imaging.Stacking;
 
 /// <summary>
 /// Linear-fit clipping: sorts the per-pixel value column ascending, fits a
