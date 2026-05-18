@@ -562,6 +562,41 @@ public sealed class StackingPipeline(
                 PreviewPngPath: null, Elapsed: groupSw.Elapsed, SkipReason: "fewer than 2 matched frames");
         }
 
+        // Re-center per-frame rotations around zero. Subtracts the mean
+        // rotation across kept frames from each frame's transform; the
+        // master canvas ends up rotated by -mean from the original
+        // reference orientation, but per-frame Kabsch residuals are now
+        // symmetric. This breaks Bayer drizzle's per-channel coverage
+        // bias when the reference frame happens to sit at one temporal
+        // extreme of the session -- per-frame rotation residuals
+        // otherwise all point the same way, the same canvas position
+        // ends up sampling the same Bayer color across many frames, and
+        // chromatic speckle appears around bright stars. Confirmed
+        // empirically on SoL pierE: ref 0249 (late-pierE) + Kabsch
+        // produced visible speckle; same data with mean-rotation
+        // subtracted is clean.
+        //
+        // Plate-solving the master after integration discovers the new
+        // orientation naturally; no special WCS handling needed.
+        double sumTheta = 0;
+        foreach (var (_, t, _) in matched)
+        {
+            sumTheta += Math.Atan2(t.M12, t.M11);
+        }
+        var meanThetaRad = (float)(sumTheta / matched.Count);
+        if (Math.Abs(meanThetaRad) > 1e-6f)
+        {
+            var invMean = Matrix3x2.CreateRotation(-meanThetaRad);
+            for (var i = 0; i < matched.Count; i++)
+            {
+                var (light, t, metricsT) = matched[i];
+                matched[i] = (light, t * invMean, metricsT);
+            }
+            logger.LogInformation(
+                "  [rotDebias] mean per-frame rotation = {DegMean:F4}° across {N} frames; subtracted from each transform",
+                meanThetaRad * 180.0 / Math.PI, matched.Count);
+        }
+
         // BayerDrizzle is opt-in only (--strategy BayerDrizzle). Gate up
         // front so we fail fast with a clear reason rather than producing
         // a NaN-riddled master at low frame count or on a Mono / Color
