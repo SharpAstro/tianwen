@@ -413,12 +413,12 @@ public sealed class StackingPipeline(
                         // brute-force NN over ~100 stars) so we always
                         // apply it; non-drizzle strategies get a marginal
                         // accuracy improvement at zero cost.
-                        var (refined, refDx, refDy, refMatched) = RegistrationRefiner.RefineTranslation(
-                            lightSorted, referenceSorted, transform.Value);
+                        var (refined, refScale, refRotDeg, refTx, refTy, refRms, refMatched) =
+                            RegistrationRefiner.RefineRigid(lightSorted, referenceSorted, transform.Value);
                         transform = refined;
                         logger.LogInformation(
-                            "  [{Name}] stars={Stars} -> MATCH qt={Tol:F3} refine=({Dx:F2},{Dy:F2})px from {RefMatched} pairs",
-                            name, stars.Count, tolUsed, refDx, refDy, refMatched);
+                            "  [{Name}] stars={Stars} -> MATCH qt={Tol:F3} refine: rot={Rot:F3}° s={Scale:F5} t=({Tx:F2},{Ty:F2}) rms={Rms:F2}px from {RefMatched} pairs",
+                            name, stars.Count, tolUsed, refRotDeg, refScale, refTx, refTy, refRms, refMatched);
                     }
                 }
             }
