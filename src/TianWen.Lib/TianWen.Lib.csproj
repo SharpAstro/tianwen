@@ -33,7 +33,21 @@
     <None Remove="Astrometry/Catalogs/tmp-data/**" />
     <EmbeddedResource Remove="Astrometry/Catalogs/*.json" />
     <EmbeddedResource Include="Astrometry/Catalogs/*.lz" WithCulture="false" />
-    <EmbeddedResource Include="Astrometry/Catalogs/*.gz" WithCulture="false" />
+    <!-- Tracked .gz/.bin.gz catalog files: committed in git (filter_curves,
+         hd_hip_cross, pickles_sed, sensor_qe, simbad_merge), so they exist at
+         project-evaluation time. Listed explicitly because the previous
+         "Astrometry/Catalogs/*.gz" wildcard races against PreprocessCatalogs
+         on a fresh worktree: the glob expands at project-load time before
+         the target generates Barnard.gs.gz / NGC.gs.gz / etc., so first-build
+         DLLs silently shipped without 15 of the 30 catalogs embedded. The
+         generated outputs of PreprocessCatalogs are now injected by the
+         EmbedCatalogOutputs target below so they get picked up deterministically
+         regardless of disk state at evaluation time. -->
+    <EmbeddedResource Include="Astrometry/Catalogs/filter_curves.gs.gz" WithCulture="false" />
+    <EmbeddedResource Include="Astrometry/Catalogs/hd_hip_cross.bin.gz" WithCulture="false" />
+    <EmbeddedResource Include="Astrometry/Catalogs/pickles_sed.gs.gz" WithCulture="false" />
+    <EmbeddedResource Include="Astrometry/Catalogs/sensor_qe.gs.gz" WithCulture="false" />
+    <EmbeddedResource Include="Astrometry/Catalogs/simbad_merge.bin.gz" WithCulture="false" />
     <!-- Catalogs migrated to the ASCII-separated .gs.gz format: keep the .json.lz on
          disk as preprocessor input but exclude it from the assembly so only the
          faster path ships. See PLAN-catalog-binary-format.md. -->
@@ -110,6 +124,19 @@
           Inputs="@(CatalogPreprocess)"
           Outputs="@(CatalogPreprocess->'%(OutputPath)')">
     <Exec Command="pwsh -NoProfile -File &quot;$(MSBuildThisFileDirectory)..\..\tools\preprocess-catalog.ps1&quot; -Input &quot;%(CatalogPreprocess.FullPath)&quot; -Output &quot;$(MSBuildThisFileDirectory)%(CatalogPreprocess.OutputPath)&quot;" />
+  </Target>
+
+  <!-- Register the generated .gs.gz outputs as EmbeddedResource items.
+       Separate target with no Inputs/Outputs gate so it runs on every build
+       (incremental and clean), making the embed set deterministic. The
+       DependsOnTargets ensures PreprocessCatalogs has generated the files
+       before this target collects them. -->
+  <Target Name="EmbedCatalogOutputs"
+          BeforeTargets="AssignTargetPaths"
+          DependsOnTargets="PreprocessCatalogs">
+    <ItemGroup>
+      <EmbeddedResource Include="@(CatalogPreprocess->'%(OutputPath)')" WithCulture="false" />
+    </ItemGroup>
   </Target>
 
   <ItemGroup>
