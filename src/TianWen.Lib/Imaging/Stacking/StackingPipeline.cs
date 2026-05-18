@@ -401,7 +401,24 @@ public sealed class StackingPipeline(
                     }
                     else
                     {
-                        logger.LogInformation("  [{Name}] stars={Stars} -> MATCH qt={Tol:F3}", name, stars.Count, tolUsed);
+                        // Translation-only refinement on top of the bulk
+                        // quad-fingerprint match. Quad fit is RMS-minimising
+                        // over the brightest N stars, which leaves a small
+                        // per-frame translation bias on meridian-flip
+                        // sessions (pre-flip and post-flip averages differ
+                        // by ~1-2 px). Drizzle preserves that bias as a
+                        // "dumbbell" stretch on every star -- bilinear-warp
+                        // strategies hide it under kernel smoothing.
+                        // Refinement is essentially free (~1 ms / frame
+                        // brute-force NN over ~100 stars) so we always
+                        // apply it; non-drizzle strategies get a marginal
+                        // accuracy improvement at zero cost.
+                        var (refined, refDx, refDy, refMatched) = RegistrationRefiner.RefineTranslation(
+                            lightSorted, referenceSorted, transform.Value);
+                        transform = refined;
+                        logger.LogInformation(
+                            "  [{Name}] stars={Stars} -> MATCH qt={Tol:F3} refine=({Dx:F2},{Dy:F2})px from {RefMatched} pairs",
+                            name, stars.Count, tolUsed, refDx, refDy, refMatched);
                     }
                 }
             }
