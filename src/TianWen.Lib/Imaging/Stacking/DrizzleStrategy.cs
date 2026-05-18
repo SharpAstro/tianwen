@@ -200,25 +200,44 @@ public sealed class DrizzleStrategy : IIntegrationStrategy
                 var v = raw[0, ySrc, xSrc];
                 if (float.IsNaN(v)) return;
 
-                // Forward-warp pixel CENTER to canvas space.
-                // The +0.5 / -0.5 dance converts integer pixel indices
-                // to/from centre-of-pixel coordinates so transform's
-                // identity at (0,0) maps the source (0,0) pixel onto
-                // the canvas (0,0) pixel.
-                var p = Vector2.Transform(new Vector2(xSrc + 0.5f, ySrc + 0.5f), transform);
-                var xW = p.X - 0.5f;
-                var yW = p.Y - 0.5f;
+                // Forward-warp using the same coordinate convention as
+                // WarpToReferenceGridAsync (Image.Transform.cs): pixel
+                // index *is* position -- no +0.5 / -0.5 center-offset
+                // dance. The registrator's affine was computed from star
+                // centroids reported in this convention; applying it to
+                // raw integer pixel indices keeps everything consistent.
+                //
+                // (Previously this method added +0.5 on source and
+                // subtracted 0.5 on canvas, mixing it with a [i, i+1]
+                // cell-extent convention on the output. Those two
+                // half-pixel shifts cancel under pure translation but
+                // *not* under rotation: a 180-degree-rotated source
+                // pixel ended up shifted by an extra (-1, -1) on the
+                // canvas vs the standard path, which manifested as the
+                // dumbbell stretch on every star in the combined
+                // meridian-flip drizzle output. Translation-only
+                // per-frame refinement narrowed each frame's residual
+                // but couldn't fix the underlying convention mismatch.)
+                var p = Vector2.Transform(new Vector2(xSrc, ySrc), transform);
+                var xW = p.X;
+                var yW = p.Y;
 
-                // Square drop on the output grid.
+                // Square drop on the output grid. Canvas cell at index
+                // (xc, yc) is at position (xc, yc) and occupies
+                // [xc - 0.5, xc + 0.5] x [yc - 0.5, yc + 0.5] -- same
+                // convention as SubpixelValue / WarpToReferenceGridAsync.
                 var xLo = xW - halfP;
                 var xHi = xW + halfP;
                 var yLo = yW - halfP;
                 var yHi = yW + halfP;
 
-                var x0 = Math.Max(0, (int)MathF.Floor(xLo));
-                var x1 = Math.Min(canvasW - 1, (int)MathF.Ceiling(xHi) - 1);
-                var y0 = Math.Max(0, (int)MathF.Floor(yLo));
-                var y1 = Math.Min(canvasH - 1, (int)MathF.Ceiling(yHi) - 1);
+                // Loop bounds: cell index i overlaps the drop iff
+                // i - 0.5 < xHi and i + 0.5 > xLo, i.e.
+                // floor(xLo + 0.5) <= i <= ceil(xHi - 0.5).
+                var x0 = Math.Max(0, (int)MathF.Floor(xLo + 0.5f));
+                var x1 = Math.Min(canvasW - 1, (int)MathF.Ceiling(xHi - 0.5f));
+                var y0 = Math.Max(0, (int)MathF.Floor(yLo + 0.5f));
+                var y1 = Math.Min(canvasH - 1, (int)MathF.Ceiling(yHi - 0.5f));
                 if (x1 < x0 || y1 < y0) return;
 
                 var ch = pattern[ySrc & 1, xSrc & 1];
@@ -227,11 +246,15 @@ public sealed class DrizzleStrategy : IIntegrationStrategy
 
                 for (var yc = y0; yc <= y1; yc++)
                 {
-                    var dy = MathF.Min(yc + 1f, yHi) - MathF.Max(yc, yLo);
+                    var cellYLo = yc - 0.5f;
+                    var cellYHi = yc + 0.5f;
+                    var dy = MathF.Min(yHi, cellYHi) - MathF.Max(yLo, cellYLo);
                     if (dy <= 0f) continue;
                     for (var xc = x0; xc <= x1; xc++)
                     {
-                        var dx = MathF.Min(xc + 1f, xHi) - MathF.Max(xc, xLo);
+                        var cellXLo = xc - 0.5f;
+                        var cellXHi = xc + 0.5f;
+                        var dx = MathF.Min(xHi, cellXHi) - MathF.Max(xLo, cellXLo);
                         if (dx <= 0f) continue;
                         var area = dx * dy;
                         fluxCh[yc, xc] += v * area;
