@@ -530,11 +530,28 @@ public sealed class StackingPipeline(
                         qSigma, matched.Count - filterResult.KeptCount, matched.Count);
                 }
                 var filtered = new List<(FrameInfo Light, Matrix3x2 Transform, FrameMetrics Metrics)>(filterResult.KeptCount);
+                // Rebuild the calibratedCache alongside matched so the
+                // integrator's index-based lookup stays consistent. The
+                // cache is keyed by integer frame index = matched[i]
+                // position; when we drop frame K from matched, every
+                // subsequent index in the cache becomes off-by-one
+                // relative to the new matched list. Without this
+                // rebuild, the integrator pairs new matched[K+] with
+                // OLD cache[K+]'s calibrated image -- it uses the
+                // wrong calibrated frame with the right transform,
+                // producing systematic misregistration on every frame
+                // after the drop. That looked like chromatic speckle on
+                // SoL pier-side drizzle masters.
+                var newCache = new FrameCache(filterResult.KeptCount, FrameCache.DecideCacheCap(filterResult.KeptCount, calibratedFrameBytes));
                 for (var i = 0; i < matched.Count; i++)
                 {
                     var reason = filterResult.Reasons[i];
                     if (reason == FrameRejectReason.Kept)
                     {
+                        if (calibratedCache.TryGet(i, out var cachedImg))
+                        {
+                            newCache.Set(filtered.Count, cachedImg);
+                        }
                         filtered.Add(matched[i]);
                     }
                     else
@@ -547,6 +564,7 @@ public sealed class StackingPipeline(
                     }
                 }
                 matched = filtered;
+                calibratedCache = newCache;
             }
             else
             {
