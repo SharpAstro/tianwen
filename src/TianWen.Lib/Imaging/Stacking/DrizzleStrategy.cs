@@ -8,16 +8,31 @@ namespace TianWen.Lib.Imaging.Stacking;
 /// <summary>
 /// Bayer drizzle (Fruchter &amp; Hook 2002 style) -- forward-projects each
 /// raw CFA pixel as a square "drop" onto the per-channel output grid with
-/// weighted accumulation, then divides flux by total weight. Skips the
-/// debayer interpolation step entirely: each input pixel contributes only
-/// to its own colour channel (R, G, or B per <see cref="SensorType.GetBayerPatternMatrix"/>).
+/// weighted accumulation, then divides flux by total weight. The key
+/// distinguishing property is what it AVOIDS: no AHD / VNG / bilinear
+/// debayer interpolation. Each Bayer sample lands in its own colour
+/// channel only (R, G, or B per <see cref="SensorType.GetBayerPatternMatrix"/>);
+/// the "missing" R value at a G Bayer position is filled in by real R
+/// measurements from other frames whose dither put a real R Bayer cell at
+/// that same sky position. No channel value is ever interpolated -- every
+/// master pixel's R, G, and B come from actual Bayer samples across the
+/// stack.
 ///
-/// <para>Phase 1 ships at <see cref="DrizzleOptions.OutputScale"/> = 10
-/// (1.0x, same grid as the reference frame) with
-/// <see cref="DrizzleOptions.Pixfrac"/> = 1.0 -- the math degenerates to
-/// forward-bilinear distribution, but exercises every code path Phase 2's
-/// real 2.0x oversampling will need (Bayer skip, drop projection, paired-
-/// plane accumulator, weighted divide).</para>
+/// <para>This is meaningful even at <see cref="DrizzleOptions.OutputScale"/>
+/// = 10 (1.0x, same grid as the reference frame): the standard
+/// calibrate-debayer-warp-stack path runs each frame through AHD's
+/// gradient-based colour interpolation, which guesses 2/3 of every pixel's
+/// channel values and introduces chromatic fringes near star edges + false-
+/// colour speckle in noise. Drizzle skips that step entirely, so colour
+/// fidelity is bounded by Bayer sample SNR, not by interpolation kernel
+/// quality. Phase 2 will lift <see cref="DrizzleOptions.OutputScale"/> to
+/// 20 (2.0x) and layer sub-Bayer resolution recovery on top of the existing
+/// colour-fidelity win.</para>
+///
+/// <para>At <see cref="DrizzleOptions.Pixfrac"/> = 1.0 each drop covers a
+/// full unit cell, so per-pixel work is O(4) output cells touched per input
+/// pixel and coverage is robust at moderate frame counts (60+ recommended
+/// for clean R/B fills under typical sub-pixel dither).</para>
 ///
 /// <para>Opt-in only: <see cref="Evaluate"/> reports <c>CanRun = false</c>
 /// to keep <see cref="IntegrationStrategySelector"/> from auto-picking it.
