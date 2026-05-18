@@ -283,21 +283,26 @@ public sealed class StackingPipeline(
         var (flat, flatKey) = MatchMaster(flatMasters, calKey);
         logger.LogInformation("  dark master: {Dark}", darkKey is null ? "NONE" : darkKey.Slug());
         logger.LogInformation("  flat master: {Flat}", flatKey is null ? "NONE" : flatKey.Slug());
-        // Build hot-pixel mask from the dark master (one-time cost per
-        // group, ~tens of ms even on full-frame). Pixels above
-        // sigma * 1.4826 * MAD over the channel median get NaN'd in the
-        // calibrated light frames so downstream integration ignores them.
-        // Disabled when no dark is matched (no dark = no hot-pixel
-        // detection possible) or when HotPixelSigma <= 0.
+        var calibrator = new Calibrator(Bias: null, Dark: dark, Flat: flat, Pedestal: 0f);
+        // Build hot-pixel mask from the dark master only when drizzle is
+        // forced -- mask consumption lives entirely in DrizzleStrategy
+        // because applying it upstream (in Calibrator) would NaN-poison
+        // the registration pass: Debayer spreads NaN through its kernel,
+        // FindStars sees the NaN-bordered holes as degenerate geometry,
+        // and StarQuadList trips on coincident-point divisions. Drizzle
+        // is also the only strategy that benefits -- the standard path's
+        // MeanCombiner sigma-clips hot-pixel outliers across N frames
+        // already, so the mask is a net loss there. One-time cost per
+        // group; ~tens of ms even on full-frame.
         BitMatrix[]? badPixelMask = null;
-        if (dark is not null && options.HotPixelSigma > 0f)
+        if (dark is not null && options.HotPixelSigma > 0f &&
+            options.ForcedStrategy is IntegrationStrategyKind.BayerDrizzle)
         {
             badPixelMask = BadPixelDetection.BuildMaskFromDark(dark, options.HotPixelSigma);
             var maskedCount = BadPixelDetection.CountMaskedPixels(badPixelMask, dark.Width, dark.Height);
             logger.LogInformation("  hot-pixel mask: {Count} px flagged at {Sigma:F1} sigma",
                 maskedCount, options.HotPixelSigma);
         }
-        var calibrator = new Calibrator(Bias: null, Dark: dark, Flat: flat, Pedestal: 0f, BadPixelMask: badPixelMask);
 
         // 3a. Pick reference (highest star count). We bypass
         // Registrator.PickReferenceAsync because it operates on the raw
@@ -560,7 +565,8 @@ public sealed class StackingPipeline(
             Progress: integrationProgress,
             MasterSinkFactory: sinkFactory,
             RawBayerFrames: isDrizzle ? RawBayerFramesProducer : null,
-            DrizzleOptions: isDrizzle ? (options.DrizzleOptions ?? new DrizzleOptions()) : null);
+            DrizzleOptions: isDrizzle ? (options.DrizzleOptions ?? new DrizzleOptions()) : null,
+            BadPixelMask: isDrizzle ? badPixelMask : null);
 
         sw.Restart();
         IntegrationResult intResult;

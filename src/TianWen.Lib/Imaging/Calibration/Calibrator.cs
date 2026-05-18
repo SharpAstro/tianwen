@@ -40,21 +40,12 @@ namespace TianWen.Lib.Imaging.Calibration;
 /// 0.001-0.01 for normalised [0, 1] float data. Default 0 (no offset).</param>
 /// <param name="FlatEpsilon">Lower bound on the flat divisor to prevent
 /// division by zero on dead sensor cells. Default 1e-6f.</param>
-/// <param name="BadPixelMask">Optional per-channel hot-pixel mask
-/// (typically built from <see cref="BadPixelDetection.BuildMaskFromDark"/>).
-/// Pixels where the mask bit is set get NaN'd in the calibrated output,
-/// signalling downstream integrators / drizzle accumulators to skip
-/// them. One <see cref="BitMatrix"/> per channel keeps the footprint at
-/// 1 bit/pixel. Null = no masking; dark subtraction alone handles the
-/// per-pixel offset but leaves the per-frame shot-noise variance from
-/// hot pixels in the data.</param>
 public sealed record Calibrator(
     Image? Bias = null,
     Image? Dark = null,
     Image? Flat = null,
     float Pedestal = 0f,
-    float FlatEpsilon = 1e-6f,
-    BitMatrix[]? BadPixelMask = null)
+    float FlatEpsilon = 1e-6f)
 {
     /// <summary>
     /// Returns a calibrated copy of <paramref name="light"/>. Bias and dark are
@@ -86,31 +77,6 @@ public sealed record Calibrator(
         if (Flat is { } flat)
         {
             result = result.Divide(flat, epsilon: FlatEpsilon);
-        }
-
-        // Apply bad-pixel mask AFTER calibration arithmetic so the NaN
-        // marker survives. Mutates the result's backing arrays directly --
-        // safe because result was produced by Subtract / Divide above
-        // (so we own it). Skipped silently when the mask channel count
-        // doesn't match the light's (e.g. mono light with a 3-channel
-        // mask, or vice versa) -- a caller mismatching shapes shouldn't
-        // crash the calibrator.
-        if (BadPixelMask is { } mask && mask.Length == result.ChannelCount)
-        {
-            for (var c = 0; c < result.ChannelCount; c++)
-            {
-                var ch = result.GetChannelArray(c);
-                var m = mask[c];
-                var h = ch.GetLength(0);
-                var w = ch.GetLength(1);
-                for (var y = 0; y < h; y++)
-                {
-                    for (var x = 0; x < w; x++)
-                    {
-                        if (m[y, x]) ch[y, x] = float.NaN;
-                    }
-                }
-            }
         }
 
         return result;
@@ -151,12 +117,6 @@ public sealed record Calibrator(
         var biasChannel = Bias?.GetChannelArray(channel);
         var darkChannel = Dark?.GetChannelArray(channel);
         var flatChannel = Flat?.GetChannelArray(channel);
-        // BitMatrix is a struct -- can't be null, so we use a flag plus a
-        // local copy. The struct is small (reference + int), so the copy
-        // is cheap; the inner loop hits the BitMatrix indexer directly
-        // without going through the array<->nullable hop.
-        var hasMask = BadPixelMask is { } m && channel < m.Length;
-        var maskChannel = hasMask ? BadPixelMask![channel] : default;
         ValidateRegionInBounds(biasChannel, regionX, regionY, regionWidth, regionHeight, "bias");
         ValidateRegionInBounds(darkChannel, regionX, regionY, regionWidth, regionHeight, "dark");
         ValidateRegionInBounds(flatChannel, regionX, regionY, regionWidth, regionHeight, "flat");
@@ -185,10 +145,6 @@ public sealed record Calibrator(
                     var f = flatChannel[srcY, srcX];
                     v /= f > epsilon ? f : epsilon;
                 }
-                // Bad-pixel mask wins over arithmetic -- NaN here signals
-                // "no measurement", which is structurally different from
-                // a clamped-to-zero arithmetic result.
-                if (hasMask && maskChannel[srcY, srcX]) v = float.NaN;
                 dst[rowOffset + x] = v;
             }
         }

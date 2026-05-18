@@ -103,7 +103,16 @@ public sealed record IntegrationJob(
     // Drizzle parameters (pixfrac, output scale, min frame count). Only
     // read by DrizzleStrategy; other strategies ignore. Null means the
     // strategy receives DrizzleOptions defaults if it runs at all.
-    DrizzleOptions? DrizzleOptions = null);
+    DrizzleOptions? DrizzleOptions = null,
+    // Per-channel hot-pixel mask, indexed in the same channel order as
+    // the raw Bayer / debayered frames. Drizzle consumes this on its
+    // accumulation pass to skip flagged Bayer cells, since drizzle has
+    // no per-cell rejection to wash them out. Built upstream from the
+    // dark master via BadPixelDetection.BuildMaskFromDark. Other
+    // strategies ignore -- their integrator's MeanCombiner already
+    // sigma-clips hot-pixel outliers across N frames, so the mask isn't
+    // a net win for them and would just spread NaN through Debayer.
+    BitMatrix[]? BadPixelMask = null);
 
 /// <summary>
 /// Coarse-grained pipeline phase reported by integration strategies. Phases

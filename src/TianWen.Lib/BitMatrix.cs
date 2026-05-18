@@ -162,6 +162,29 @@ public readonly struct BitMatrix
     };
 
     /// <summary>
+    /// Number of 64-bit words per row -- equals <c>ceil(_d1 / 64)</c>. Useful
+    /// for callers that want to walk the matrix at word granularity instead
+    /// of bit granularity (e.g. for chunked sparse-skip fast paths).
+    /// </summary>
+    public readonly int WordsPerRow
+    {
+        [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
+        get => _data.GetLength(1);
+    }
+
+    /// <summary>
+    /// Returns the raw 64-bit word at <c>(row, wordIndex)</c>. Bit <c>k</c>
+    /// of the returned word maps to column <c>wordIndex * 64 + k</c>.
+    /// Lets a caller test 64 mask bits with a single load + compare, and
+    /// skip the entire chunk on <c>word == 0</c> (no masked pixels in the
+    /// chunk) -- much cheaper than 64 invocations of the <c>this[d0, d1]</c>
+    /// indexer when masks are sparse (typical hot-pixel densities are
+    /// 1 in 10k+).
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
+    public readonly ulong GetWord(int row, int wordIndex) => _data[row, wordIndex];
+
+    /// <summary>
     /// Clears all bits in the matrix.
     /// </summary>
     public readonly void ClearAll()

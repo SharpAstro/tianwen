@@ -1,5 +1,6 @@
 using System;
 using System.Numerics;
+using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -115,6 +116,13 @@ public sealed class DrizzleStrategy : IIntegrationStrategy
         // via per-frame normalization to NormalizationTarget=0.5.
         var sourceMaxValue = 1.0f;
         var frameCount = 0;
+        // Bad-pixel mask is 1-channel (the raw Bayer plane is 1-channel
+        // pre-debayer). We pick the first channel of the mask -- callers
+        // wiring a multi-channel mask onto a Bayer drizzle producer
+        // either have a bug or are mosaicking. Either way, channel 0 is
+        // the right read for our raw CFA input.
+        var badPixelMask = job.BadPixelMask is { Length: > 0 } m ? m[0] : default;
+        var hasBadPixelMask = job.BadPixelMask is { Length: > 0 };
 
         await foreach (var frame in job.RawBayerFrames(ct).WithCancellation(ct))
         {
@@ -150,50 +158,89 @@ public sealed class DrizzleStrategy : IIntegrationStrategy
             var srcW = raw.Width;
             var srcH = raw.Height;
 
+            // Chunked walk over the source pixels in 64-wide horizontal
+            // strips so we can use BitMatrix.GetWord to skip the per-pixel
+            // mask check entirely on the common case (word == 0 = no hot
+            // pixels in this 64-pixel chunk). A typical CMOS sensor at
+            // sigma=8 has ~5000 hot pixels in 26 M -- 99.98% of words
+            // are zero, so the fast path runs almost always.
             for (var ySrc = 0; ySrc < srcH; ySrc++)
             {
-                for (var xSrc = 0; xSrc < srcW; xSrc++)
+                var xSrc = 0;
+                while (xSrc < srcW)
                 {
-                    var v = raw[0, ySrc, xSrc];
-                    if (float.IsNaN(v)) continue;
-
-                    // Forward-warp pixel CENTER to canvas space.
-                    // The +0.5 / -0.5 dance converts integer pixel indices
-                    // to/from centre-of-pixel coordinates so transform's
-                    // identity at (0,0) maps the source (0,0) pixel onto
-                    // the canvas (0,0) pixel.
-                    var p = Vector2.Transform(new Vector2(xSrc + 0.5f, ySrc + 0.5f), transform);
-                    var xW = p.X - 0.5f;
-                    var yW = p.Y - 0.5f;
-
-                    // Square drop on the output grid.
-                    var xLo = xW - halfP;
-                    var xHi = xW + halfP;
-                    var yLo = yW - halfP;
-                    var yHi = yW + halfP;
-
-                    var x0 = Math.Max(0, (int)MathF.Floor(xLo));
-                    var x1 = Math.Min(canvasW - 1, (int)MathF.Ceiling(xHi) - 1);
-                    var y0 = Math.Max(0, (int)MathF.Floor(yLo));
-                    var y1 = Math.Min(canvasH - 1, (int)MathF.Ceiling(yHi) - 1);
-                    if (x1 < x0 || y1 < y0) continue;
-
-                    var ch = pattern[ySrc & 1, xSrc & 1];
-                    var fluxCh = flux[ch];
-                    var weightCh = weight[ch];
-
-                    for (var yc = y0; yc <= y1; yc++)
+                    var chunkEnd = Math.Min(((xSrc >> 6) + 1) << 6, srcW);
+                    var maskWord = hasBadPixelMask ? badPixelMask.GetWord(ySrc, xSrc >> 6) : 0UL;
+                    if (maskWord == 0UL)
                     {
-                        var dy = MathF.Min(yc + 1f, yHi) - MathF.Max(yc, yLo);
-                        if (dy <= 0f) continue;
-                        for (var xc = x0; xc <= x1; xc++)
+                        // Fast path: no per-pixel mask check needed.
+                        for (; xSrc < chunkEnd; xSrc++)
                         {
-                            var dx = MathF.Min(xc + 1f, xHi) - MathF.Max(xc, xLo);
-                            if (dx <= 0f) continue;
-                            var area = dx * dy;
-                            fluxCh[yc, xc] += v * area;
-                            weightCh[yc, xc] += area;
+                            DepositOne(xSrc, ySrc);
                         }
+                    }
+                    else
+                    {
+                        // Slow path: bit-test each pixel against the
+                        // already-loaded mask word.
+                        for (; xSrc < chunkEnd; xSrc++)
+                        {
+                            if ((maskWord & (1UL << (xSrc & 63))) != 0UL) continue;
+                            DepositOne(xSrc, ySrc);
+                        }
+                    }
+                }
+            }
+
+            // Per-pixel drop projection. Local function so the fast/slow
+            // mask branches above don't duplicate the body. Closes over
+            // the per-frame locals (transform, pattern, flux, weight,
+            // halfP, canvasW, canvasH, raw, srcH/srcW) -- C# hoists
+            // those into a struct displayclass, no GC pressure per call.
+            // AggressiveInlining nudges the JIT to fold this into both
+            // call sites.
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            void DepositOne(int xSrc, int ySrc)
+            {
+                var v = raw[0, ySrc, xSrc];
+                if (float.IsNaN(v)) return;
+
+                // Forward-warp pixel CENTER to canvas space.
+                // The +0.5 / -0.5 dance converts integer pixel indices
+                // to/from centre-of-pixel coordinates so transform's
+                // identity at (0,0) maps the source (0,0) pixel onto
+                // the canvas (0,0) pixel.
+                var p = Vector2.Transform(new Vector2(xSrc + 0.5f, ySrc + 0.5f), transform);
+                var xW = p.X - 0.5f;
+                var yW = p.Y - 0.5f;
+
+                // Square drop on the output grid.
+                var xLo = xW - halfP;
+                var xHi = xW + halfP;
+                var yLo = yW - halfP;
+                var yHi = yW + halfP;
+
+                var x0 = Math.Max(0, (int)MathF.Floor(xLo));
+                var x1 = Math.Min(canvasW - 1, (int)MathF.Ceiling(xHi) - 1);
+                var y0 = Math.Max(0, (int)MathF.Floor(yLo));
+                var y1 = Math.Min(canvasH - 1, (int)MathF.Ceiling(yHi) - 1);
+                if (x1 < x0 || y1 < y0) return;
+
+                var ch = pattern[ySrc & 1, xSrc & 1];
+                var fluxCh = flux[ch];
+                var weightCh = weight[ch];
+
+                for (var yc = y0; yc <= y1; yc++)
+                {
+                    var dy = MathF.Min(yc + 1f, yHi) - MathF.Max(yc, yLo);
+                    if (dy <= 0f) continue;
+                    for (var xc = x0; xc <= x1; xc++)
+                    {
+                        var dx = MathF.Min(xc + 1f, xHi) - MathF.Max(xc, xLo);
+                        if (dx <= 0f) continue;
+                        var area = dx * dy;
+                        fluxCh[yc, xc] += v * area;
+                        weightCh[yc, xc] += area;
                     }
                 }
             }
