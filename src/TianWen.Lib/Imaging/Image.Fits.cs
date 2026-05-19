@@ -72,7 +72,12 @@ public partial class Image
         }
 
         var imageMeta = ParseImageMetaFromHeader(hdu, channelCount);
-        frameInfo = new Calibration.FrameInfo(fileName, width, height, channelCount, bitDepth, imageMeta);
+        // STACK_N is stamped by IntegrationFitsWriter on every stacking product
+        // (masters + rejection maps). Carrying it on FrameInfo lets the
+        // pipeline drop these at scan time when a stale output-*/ dir sits
+        // alongside the lights, otherwise they get treated as fresh frames.
+        var stackedFrameCount = hdu.Header.GetIntValue("STACK_N", 0);
+        frameInfo = new Calibration.FrameInfo(fileName, width, height, channelCount, bitDepth, imageMeta, stackedFrameCount);
         return true;
     }
 

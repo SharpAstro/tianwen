@@ -18,13 +18,19 @@ namespace TianWen.Lib.Imaging.Calibration;
 /// <param name="Meta">Parsed <see cref="ImageMeta"/> — frame type, exposure,
 /// filter, sensor type, temperature, etc. All FITS header reads needed by the
 /// stacking pipeline are routed through this field.</param>
+/// <param name="StackedFrameCount">Value of the FITS <c>STACK_N</c> header, or 0
+/// when the keyword is absent. Non-zero marks the file as a stacking product
+/// (master integrated by <c>IntegrationFitsWriter</c>) — these must be filtered
+/// out at scan time when they sit alongside lights, otherwise they get treated
+/// as fresh frames and pollute the next run's groups.</param>
 public sealed record FrameInfo(
     string Path,
     int Width,
     int Height,
     int ChannelCount,
     BitDepth BitDepth,
-    ImageMeta Meta)
+    ImageMeta Meta,
+    int StackedFrameCount = 0)
 {
     /// <summary>Convenience accessor — <c>Meta.FrameType</c>.</summary>
     public FrameType FrameType => Meta.FrameType;

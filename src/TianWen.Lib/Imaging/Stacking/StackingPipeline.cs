@@ -143,6 +143,7 @@ public sealed class StackingPipeline(
         var source = new FitsFolderFrameSource(options.DataRoot, recursive: true);
         var allFrames = new List<FrameInfo>();
         var outputDirNormalised = Path.GetFullPath(outputDir);
+        var stackProductSkipped = 0;
         await foreach (var frame in source.EnumerateAsync(ct))
         {
             // Skip anything under outputDir -- masters and previous-run
@@ -153,7 +154,23 @@ public sealed class StackingPipeline(
             {
                 continue;
             }
+            // STACK_N is stamped on every stacking product (master + rejection
+            // map). When the data root contains adjacent output-*/ dirs from
+            // prior runs -- which the outputDir-startsWith check above doesn't
+            // cover because they don't sit under the current output dir --
+            // those masters look like ordinary 1-frame FITS to the scan and
+            // partition the lights into ghost MasterGroupKey buckets. Header
+            // check is authoritative regardless of where the file lives.
+            if (frame.StackedFrameCount > 0)
+            {
+                stackProductSkipped++;
+                continue;
+            }
             allFrames.Add(frame);
+        }
+        if (stackProductSkipped > 0)
+        {
+            logger.LogInformation("[scan] ignored {Count} stack product(s) (STACK_N set)", stackProductSkipped);
         }
         logger.LogInformation("[scan] {Count} frames in {ElapsedMs} ms", allFrames.Count, sw.ElapsedMilliseconds);
 
@@ -241,6 +258,45 @@ public sealed class StackingPipeline(
         {
             logger.LogInformation("[lights] pier-side split: {Groups} -> {SubGroups} sub-group(s)",
                 lightGroups.Count, subGroups.Count);
+        }
+
+        // Drop tiny sub-groups silently. These are almost always ghosts from
+        // MasterGroupKey drift -- a single frame's CCDTemperature rounding
+        // to -4C instead of -5C, or an offset value that drifted mid-session,
+        // partitions an otherwise-uniform observation into a "real" group
+        // (most of the frames) plus a handful of 1-2 frame stragglers. Each
+        // straggler then trickles through registration, fails the "matched
+        // >= 2" check, and emits a SKIPPED warning per group -- pure log
+        // noise. Pre-filtering at scan time means one summary instead of
+        // N warnings. Threshold of 4 lines up with the smallest viable
+        // integration count; below it kappa-sigma rejection has nothing
+        // to clip against and the result is statistically meaningless
+        // anyway. Real 4+ frame sub-groups still process normally.
+        const int MinSubGroupFramesToProcess = 4;
+        var tinySubGroups = subGroups.Where(g => g.Frames.Count < MinSubGroupFramesToProcess).ToList();
+        if (tinySubGroups.Count > 0)
+        {
+            var totalDropped = tinySubGroups.Sum(g => g.Frames.Count);
+            logger.LogInformation(
+                "[lights] dropped {Count} ghost sub-group(s) below MinSubGroupFrames={Min} ({Frames} frames total, likely header-drift artifacts)",
+                tinySubGroups.Count, MinSubGroupFramesToProcess, totalDropped);
+            // Per-ghost diagnostic: surface every field of the
+            // MasterGroupKey since the slug strips the ones that usually
+            // drift (Offset, FilterName, exact TemperatureC, dimensions).
+            // One Debug-level line per ghost so the file logger captures it
+            // for post-mortem but the console (Warning min) stays quiet.
+            foreach (var ghost in tinySubGroups)
+            {
+                var k = ghost.Key.CalibrationKey;
+                var sample = ghost.Frames[0];
+                logger.LogDebug(
+                    "[lights/ghost] {Slug} ({Frames} fr): temp={Temp}C filter={Filter}/{Band} offset={Offset} gain={Gain} dim={W}x{H}x{Ch} sensor={Sensor} sample={Path}",
+                    ghost.Slug, ghost.Frames.Count,
+                    k.TemperatureC?.ToString() ?? "n/a", k.FilterName.Length > 0 ? k.FilterName : "(empty)", k.FilterBandpass,
+                    k.Offset, k.Gain, k.Width, k.Height, k.ChannelCount, k.SensorType,
+                    System.IO.Path.GetFileName(sample.Path));
+            }
+            subGroups = subGroups.Where(g => g.Frames.Count >= MinSubGroupFramesToProcess).ToList();
         }
 
         foreach (var (key, slug, frames) in subGroups)
