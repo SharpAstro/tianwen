@@ -340,7 +340,8 @@ Learnings from PixInsight Statistical Stretch (SetiAstro, v2.3).
 
 - [ ] Extract distortion model (SIP polynomial coefficients) from plate solver output
 - [ ] Implement image undistortion using extracted distortion model
-- [ ] `CatalogPlateSolver` can't solve drizzle outputs from the CLI (`tianwen solve <fits>`) even with correct scale + search-origin hint -- returns "no solution". Same image solves cleanly from inside `StackingPipeline` because that path uses per-pass quad-tolerance ladders + retries against the reference frame. Either: surface the same per-pass tolerance ladder through `IPlateSolver.SolveFileAsync`, or have `tianwen solve` retry the ladder itself. Reproducer: `tianwen solve master_*_drizzle.fits --focus-length 2350 --pixel-size 3.76 --search-origin "<ra-h>,<dec>"`.
+- [ ] `CatalogPlateSolver` can't solve drizzle outputs from the CLI (`tianwen solve <fits>`) even with correct scale + search-origin hint -- returns "no solution". Verified against the SoL drizzle master at the actual scope geometry (FL=270mm, PS=3.76um -> 2.872 arcsec/px, hint at RA=11.196h Dec=-61.35 deg, radius 5 deg). Same image solves cleanly from inside `StackingPipeline` because that path uses per-pass quad-tolerance ladders + retries against the reference frame. Either: surface the same per-pass tolerance ladder through `IPlateSolver.SolveFileAsync`, or have `tianwen solve` retry the ladder itself.
+- [ ] `IntegrationFitsWriter` does not propagate `FOCALLEN` / aperture / telescope-name headers from the input lights onto the master. As a result `--scale auto` (and any downstream tool that reads scope geometry from the master) can't derive a pixel scale even though every input light has it. Picking up `meta.FocalLength` / `meta.Aperture` / `meta.Telescope` from the first input frame during write is the obvious fix.
 
 ## Astrometry / Catalogs (Queries)
 
