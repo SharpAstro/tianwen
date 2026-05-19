@@ -116,6 +116,19 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
 
     public IRaDecIndex DeepSkyCoordinateGrid => _raDecIndex;
 
+    /// <summary>
+    /// Internal diagnostic: surfaces the inner state of the Tycho-2 bulk load
+    /// so a test (or precompute tool) can verify the binary was decoded
+    /// successfully. Production code should never need this -- use
+    /// <see cref="Tycho2StarCount"/> + <see cref="CopyTycho2Stars"/> instead.
+    /// </summary>
+    internal (bool DataLoaded, int StreamCount, bool IndexBuilt, bool BulkTaskRan, TaskStatus? BulkTaskStatus) Tycho2BulkLoadState =>
+        (_tycho2Data is not null,
+         _tycho2StreamCount,
+         _tycho2RaDecIndex is not null,
+         _tycho2BulkLoadTask is not null,
+         _tycho2BulkLoadTask?.Status);
+
     /// <inheritdoc/>
     public bool TryResolveCommonName(string name, out IReadOnlyList<CatalogIndex> matches) => _objectsByCommonName.TryGetLookupEntries(name, out matches);
 
@@ -1433,11 +1446,24 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
     public int HipStarCount => _hipToTyc?.Length ?? 0;
 
     /// <inheritdoc/>
-    public int Tycho2StarCount => _tycho2StarCount;
+    public int Tycho2StarCount
+    {
+        get
+        {
+            // The lazy is populated by CopyTycho2Stars on its first call; if a
+            // caller queries the count BEFORE iterating, the cached field is
+            // still 0 even though _tycho2Data is fully loaded. Trigger the
+            // count walk on read so the property doc ("populated lazily on
+            // first access") is true regardless of call order.
+            EnsureTycho2StarCount();
+            return _tycho2StarCount;
+        }
+    }
 
     /// <summary>
     /// Cached total star count across all Tycho-2 streams. Populated lazily on
-    /// first access and after the binary data is loaded.
+    /// first access (via <see cref="Tycho2StarCount"/> or
+    /// <see cref="CopyTycho2Stars"/>) once the binary data is loaded.
     /// </summary>
     private int _tycho2StarCount;
 
