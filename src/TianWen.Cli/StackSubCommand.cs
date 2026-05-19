@@ -113,9 +113,9 @@ internal sealed class StackSubCommand(
         {
             Description = "Opt out of drizzle auto-selection. On RGGB sensors with >= 60 matched frames the selector picks BayerDrizzle / TilePipelinedDrizzle by default (3-5x faster than the standard AHD-debayer path on big-N sessions); this flag forces the standard path instead. Useful for A/B against a reference master, or when you specifically want kappa-sigma rejection rather than drizzle's per-cell coverage map. --strategy overrides still win -- forcing BayerDrizzle bypasses this flag.",
         };
-        var includeStackProductsOpt = new Option<bool>("--include-stack-products")
+        var includeIntegrationsOpt = new Option<bool>("--include-integrations")
         {
-            Description = "Keep frames with a non-zero FITS STACK_N header (i.e. masters from a previous run) as scan inputs. Default behaviour is to drop them since stale masters in adjacent output-*/ dirs otherwise pollute the next session's grouping. Pass this flag for two-stage mosaic stacking: integrate each panel separately, then re-run with --include-stack-products against the panel masters to produce the final mosaic. .rejection.fits sidecars are ALWAYS dropped regardless of this flag.",
+            Description = "Keep frames with a non-zero FITS STACK_N header (integrated masters from a previous run) as scan inputs. Default behaviour is to drop them since stale masters in adjacent output-*/ dirs otherwise pollute the next session's grouping. Pass this flag for two-stage mosaic stacking: integrate each panel separately, then re-run with --include-integrations against the panel masters to produce the final mosaic. .rejection.fits sidecars are ALWAYS dropped regardless of this flag.",
         };
 
         var stackCommand = new Command("stack", "Stack a folder of FITS lights into a master frame.")
@@ -130,7 +130,7 @@ internal sealed class StackSubCommand(
                 drizzlePixfracOpt, drizzleMinFramesOpt,
                 splitByPierSideOpt, hotPixelSigmaOpt,
                 qualityRejectSigmaOpt, referenceFrameHintOpt,
-                noBayerDrizzleOpt, includeStackProductsOpt,
+                noBayerDrizzleOpt, includeIntegrationsOpt,
             },
         };
         stackCommand.SetAction(async (parseResult, ct) =>
@@ -183,7 +183,7 @@ internal sealed class StackSubCommand(
                 QualityRejectSigma: parseResult.GetValue(qualityRejectSigmaOpt),
                 ReferenceFrameHint: parseResult.GetValue(referenceFrameHintOpt),
                 DisableBayerDrizzle: disableBayerDrizzle,
-                IncludeStackProducts: parseResult.GetValue(includeStackProductsOpt));
+                IncludeIntegrations: parseResult.GetValue(includeIntegrationsOpt));
 
             var noPng = parseResult.GetValue(noPngOpt);
             var skipPlateSolve = parseResult.GetValue(noPlateSolveOpt);
