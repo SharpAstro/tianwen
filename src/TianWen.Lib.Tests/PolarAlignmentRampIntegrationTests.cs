@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Time.Testing;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Shouldly;
 using System;
 using System.Threading;
@@ -94,7 +95,7 @@ public class PolarAlignmentRampIntegrationTests(ITestOutputHelper output)
             imageReadyPollInterval: TimeSpan.FromMilliseconds(50),
             logger: logger);
 
-        var solver = new CatalogPlateSolver(db);
+        var solver = new CatalogPlateSolver(db, NullLogger.Instance);
 
         // Default ramp: 100, 150, 200, 250, 500, 1000, 2000, 5000 ms.
         var ramp = AdaptiveExposureRamp.DefaultRamp;

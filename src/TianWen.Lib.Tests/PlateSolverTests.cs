@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging.Abstractions;
 using Shouldly;
 using System;
 using System.Diagnostics;
@@ -22,7 +23,7 @@ public class PlateSolverTests(ITestOutputHelper output)
         if (solverType == typeof(CatalogPlateSolver))
         {
             db.ShouldNotBeNull();
-            return new CatalogPlateSolver(db);
+            return new CatalogPlateSolver(db, NullLogger.Instance);
         }
 
         return (Activator.CreateInstance(solverType) as IPlateSolver).ShouldNotBeNull();
@@ -119,7 +120,7 @@ public class PlateSolverTests(ITestOutputHelper output)
         var cancellationToken = TestContext.Current.CancellationToken;
         var db = await SharedCatalogDB.InitAsync(cancellationToken);
         var image = await SharedTestData.ExtractGZippedFitsImageAsync(name, cancellationToken: cancellationToken);
-        var solver = new CatalogPlateSolver(db);
+        var solver = new CatalogPlateSolver(db, NullLogger.Instance);
 
         SharedTestData.TestFileImageDimAndCoords.TryGetValue(name, out var dimAndCoords).ShouldBeTrue();
 
@@ -228,7 +229,7 @@ public class PlateSolverTests(ITestOutputHelper output)
         var cancellationToken = TestContext.Current.CancellationToken;
         var db = await SharedCatalogDB.InitAsync(cancellationToken);
         var extractedFitsFile = await SharedTestData.ExtractGZippedFitsFileAsync(name, cancellationToken);
-        var solver = new CatalogPlateSolver(db);
+        var solver = new CatalogPlateSolver(db, NullLogger.Instance);
 
         SharedTestData.TestFileImageDimAndCoords.TryGetValue(name, out var dimAndCoords).ShouldBeTrue();
 
@@ -252,7 +253,7 @@ public class PlateSolverTests(ITestOutputHelper output)
         var cancellationToken = TestContext.Current.CancellationToken;
         var db = await SharedCatalogDB.InitAsync(cancellationToken);
         var image = await SharedTestData.ExtractGZippedFitsImageAsync(SharedTestData.PlateSolveTestFile, cancellationToken: cancellationToken);
-        var solver = new CatalogPlateSolver(db);
+        var solver = new CatalogPlateSolver(db, NullLogger.Instance);
 
         // when — no searchOrigin provided
         var result = await solver.SolveImageAsync(image, cancellationToken: cancellationToken);
@@ -331,7 +332,7 @@ public class PlateSolverTests(ITestOutputHelper output)
 
         // Plate solve with search origin near the target
         var searchOrigin = new WCS(targetRA, targetDec);
-        var solver = new CatalogPlateSolver(db);
+        var solver = new CatalogPlateSolver(db, NullLogger.Instance);
         var result = await solver.SolveImageAsync(image, imageDim, searchOrigin: searchOrigin, searchRadius: 3d, cancellationToken: cancellationToken);
 
         output.WriteLine($"Solve: {result.Elapsed.TotalMilliseconds:F0}ms, {result.Iterations} iterations, " +

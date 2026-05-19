@@ -42,9 +42,9 @@ namespace TianWen.Lib.Astrometry.PlateSolve;
 /// valid <c>searchOrigin</c>; blind solving (no search hint) is not supported and returns
 /// <c>null</c>.</para>
 /// </summary>
-internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger? logger = null) : IPlateSolver
+internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) : IPlateSolver
 {
-    private readonly ILogger? _logger = logger;
+    private readonly ILogger _logger = logger;
 
     const int MinStarsForMatch = 6;
 
@@ -121,14 +121,26 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger? logger 
         var fov = dim.FieldOfView;
         var searchRadiusDeg = searchRadius ?? Math.Max(fov.width, fov.height) * 0.75;
 
+        // Self-init the celestial-object DB so any caller works regardless of whether
+        // they remembered to InitDBAsync upstream. Idempotent: after the first call
+        // _isInitialized makes this an instant fast-path. Without it the catalog query
+        // returns 0 stars and we bail in tens of ms with no useful diagnostic.
+        await db.InitDBAsync(waitForTycho2BulkLoad: true, cancellationToken: cancellationToken);
+
         // Query catalog stars within search radius
         var stageSw = Stopwatch.StartNew();
         var catalogCoords = QueryCatalogStarsInRegion(origin, searchRadiusDeg);
-        _logger?.LogDebug("CatalogPlateSolver: catalog query {Count} stars in {Ms}ms (Dec={Dec:F2}°, R={R:F2}°)",
+        _logger.LogDebug("CatalogPlateSolver: catalog query {Count} stars in {Ms}ms (Dec={Dec:F2}°, R={R:F2}°)",
             catalogCoords.Count, stageSw.Elapsed.TotalMilliseconds, origin.CenterDec, searchRadiusDeg);
         _catalogStars = catalogCoords.Count;
         if (catalogCoords.Count < MinStarsForMatch)
         {
+            // Most common cause: ICelestialObjectDB.InitDBAsync was never called.
+            // The DB returns an empty CoordinateGrid until Tycho-2 bulk decode lands.
+            // Callers (StackingPipeline/MasterPostProcessor) explicitly init before
+            // solving; the CLI's `solve` subcommand initialises in the same fashion.
+            _logger.LogWarning("CatalogPlateSolver: only {Count} catalog stars in search region (need {Min}); did you forget to InitDBAsync the celestial object DB?",
+                catalogCoords.Count, MinStarsForMatch);
             return Result(empty);
         }
 
@@ -158,7 +170,7 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger? logger 
             {
                 stageSw.Restart();
                 detectionImage = image.Downsample(detectionScale);
-                _logger?.LogDebug("CatalogPlateSolver: downsampled {SrcW}x{SrcH} -> {DstW}x{DstH} (factor {Factor}, target {Target}\"/px) in {Ms}ms",
+                _logger.LogDebug("CatalogPlateSolver: downsampled {SrcW}x{SrcH} -> {DstW}x{DstH} (factor {Factor}, target {Target}\"/px) in {Ms}ms",
                     image.Width, image.Height, detectionImage.Width, detectionImage.Height, detectionScale, TargetPixelScaleX10 / 10.0, stageSw.Elapsed.TotalMilliseconds);
             }
         }
@@ -176,7 +188,7 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger? logger 
         // its few real stars and the ramp moves on.
         stageSw.Restart();
         var detectedStars = await detectionImage.FindStarsAsync(0, snrMin: 5f, maxStars: 500, minStars: 50, maxRetries: 0, logger: _logger, cancellationToken: cancellationToken);
-        _logger?.LogDebug("CatalogPlateSolver: FindStarsAsync detected {Count} stars in {Ms}ms ({W}x{H})",
+        _logger.LogDebug("CatalogPlateSolver: FindStarsAsync detected {Count} stars in {Ms}ms ({W}x{H})",
             detectedStars.Count, stageSw.Elapsed.TotalMilliseconds, detectionImage.Width, detectionImage.Height);
 
         // Scale centroids back to original-image pixel space if we downsampled.
@@ -219,7 +231,7 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger? logger 
 
         var std = stdTask.Result;
         var mirror = mirrorTask.Result;
-        _logger?.LogDebug("CatalogPlateSolver: matching iterations std={StdMatched}/{StdIter} mirror={MirrorMatched}/{MirrorIter} in {Ms}ms",
+        _logger.LogDebug("CatalogPlateSolver: matching iterations std={StdMatched}/{StdIter} mirror={MirrorMatched}/{MirrorIter} in {Ms}ms",
             std.MatchedStars, std.Iterations, mirror.MatchedStars, mirror.Iterations, stageSw.Elapsed.TotalMilliseconds);
 
         // Pick the parity. Match count is the *primary* signal: if one attempt
