@@ -395,13 +395,23 @@ public sealed class StackingPipeline(
         // MeanCombiner sigma-clips hot-pixel outliers across N frames
         // already, so the mask is a net loss there. One-time cost per
         // group; ~tens of ms even on full-frame.
+        // Build the per-channel hot-pixel mask whenever a dark + sigma are
+        // available. Strategy selection happens later and an auto-picked
+        // drizzle would otherwise miss the mask entirely (the previous
+        // ForcedStrategy==BayerDrizzle gate was a bug: TilePipelinedDrizzle
+        // and auto-picked drizzle both consume the mask but neither path
+        // satisfied the gate, so they ran with NO hot-pixel rejection and
+        // visible hot-pixel clusters survived into the master). Non-drizzle
+        // strategies ignore IntegrationJob.BadPixelMask anyway -- their
+        // MeanCombiner sigma-clip handles outliers across N frames -- so
+        // unconditional construction costs ~tens of ms and is free for
+        // them.
         BitMatrix[]? badPixelMask = null;
-        if (dark is not null && options.HotPixelSigma > 0f &&
-            options.ForcedStrategy is IntegrationStrategyKind.BayerDrizzle)
+        if (dark is not null && options.HotPixelSigma > 0f)
         {
-            badPixelMask = BadPixelDetection.BuildMaskFromDark(dark, options.HotPixelSigma);
+            badPixelMask = BadPixelDetection.BuildMaskFromDark(dark, options.HotPixelSigma, logger);
             var maskedCount = BadPixelDetection.CountMaskedPixels(badPixelMask, dark.Width, dark.Height);
-            logger.LogInformation("  hot-pixel mask: {Count} px flagged at {Sigma:F1} sigma",
+            logger.LogInformation("  hot-pixel mask: {Count} px flagged at sigma={Sigma:F1}",
                 maskedCount, options.HotPixelSigma);
         }
 
