@@ -133,7 +133,15 @@ public sealed class StackingPipeline(
             catch { /* best-effort cleanup; per-group code surfaces if it still fails */ }
         }
 
+        // Construct the tracker AFTER the wipe + staging cleanup so the
+        // baseline disk reading reflects the run's actual starting point
+        // (not the pre-cleanup state including stale outputs that we just
+        // deleted). RAM baseline is "right before we open any FITS files",
+        // which is the most useful reference for "how much did the pipeline
+        // consume" questions.
+        var hostTracker = new HostSnapshotTracker(outputDir);
         logger.LogInformation("[start] data={DataRoot} out={OutputDir}", options.DataRoot, outputDir);
+        hostTracker.Log(logger, "start");
 
         // -----------------------------------------------------------------
         // 1) Enumerate ALL FITS recursively + group by frame type
@@ -205,6 +213,7 @@ public sealed class StackingPipeline(
                 stackProductKept);
         }
         logger.LogInformation("[scan] {Count} frames in {ElapsedMs} ms", allFrames.Count, sw.ElapsedMilliseconds);
+        hostTracker.Log(logger, "scan");
 
         var byType = allFrames.GroupBy(f => f.FrameType).ToDictionary(g => g.Key, g => g.ToList());
         foreach (var (type, frames) in byType)
@@ -222,6 +231,7 @@ public sealed class StackingPipeline(
         var flatMasters = await BuildMastersAsync(byType.GetValueOrDefault(FrameType.Flat), MasterFrameBuilder.BuildFlatMasterAsync, mastersDir, ct);
         logger.LogInformation("[masters] {Bias} bias, {Dark} dark, {Flat} flat ready in {ElapsedMs} ms",
             biasMasters.Count, darkMasters.Count, flatMasters.Count, sw.ElapsedMilliseconds);
+        hostTracker.Log(logger, "masters");
 
         // -----------------------------------------------------------------
         // 3) For each lights group, run the integration pipeline
@@ -335,10 +345,11 @@ public sealed class StackingPipeline(
         {
             ct.ThrowIfCancellationRequested();
             var result = await ProcessLightGroupAsync(
-                key, slug, frames, darkMasters, flatMasters, outputDir, ct);
+                key, slug, frames, darkMasters, flatMasters, outputDir, hostTracker, ct);
             yield return result;
         }
 
+        hostTracker.Log(logger, "end");
         logger.LogInformation("[end]");
     }
 
@@ -353,6 +364,7 @@ public sealed class StackingPipeline(
         List<(MasterGroupKey Key, Image Master)> darkMasters,
         List<(MasterGroupKey Key, Image Master)> flatMasters,
         string outputDir,
+        HostSnapshotTracker hostTracker,
         CancellationToken ct)
     {
         // slug carries any pier-side / future sub-group suffix on top of
@@ -591,6 +603,7 @@ public sealed class StackingPipeline(
         }
         logger.LogInformation("  registered {Matched}/{Attempted} frames (skipped {Skipped}) in {ElapsedMs} ms",
             matched.Count, lightList.Count, skipCount, sw.ElapsedMilliseconds);
+        hostTracker.Log(logger, $"register/{slug}");
 
         // Post-registration quality filter. Off by default; enable via
         // StackingOptions.QualityRejectSigma. Drops frames whose median
@@ -884,6 +897,7 @@ public sealed class StackingPipeline(
         }
         logger.LogInformation("  integrated in {ElapsedMs} ms (frames={Frames}, rejections={Rej}, rate={Rate:P2})",
             sw.ElapsedMilliseconds, intResult.FrameCount, intResult.TotalRejections, intResult.MeanRejectionRate);
+        hostTracker.Log(logger, $"integrate/{slug}");
 
         // 3c. Plate-solve the master + write FITS (+ autocrop). No
         // SPCC / bg-neut / PNG render: those are display-side, handled
