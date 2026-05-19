@@ -208,16 +208,38 @@ public static class BadPixelDetection
             Array.Sort(workBuf, 0, liveCount);
             var mad = workBuf[liveCount / 2];
 
-            // MAD = 0 can happen when the inlier subset is uniform (rare
-            // but possible on a clipped / over-corrected dark). The
-            // threshold would collapse to median + 0, which is the median
-            // itself; counting "pixels exceeding the median" would mark
-            // ~half the channel. Bail with whatever mask we already have.
+            // MAD = 0 on cooled-CMOS bias-dominated darks: at -5C on an
+            // IMX571, 60s of dark current is sub-ADU, so the master dark
+            // is essentially uniform bias with a long hot-pixel tail.
+            // 50%+ of pixels collapse to a single quantized value, the
+            // median absolute deviation is 0 by construction, and the
+            // textbook threshold (median + sigma * MAD) degenerates to
+            // the median itself -- which would mark half the channel as
+            // "hot". Fall back to the median of the NON-ZERO absolute
+            // deviations: this anchors the noise scale to the typical
+            // step between the bias floor and the next-quantized level
+            // (a few ADU on this sensor), ignoring the degenerate
+            // delta-function at exactly the bias level.
             if (mad <= 0f)
             {
-                logger?.LogDebug("  hot-pixel ch={Ch} iter={Iter}: MAD=0 (inlier subset uniform); stopping",
-                    channelIndex, iter);
-                break;
+                // Find the first non-zero deviation. workBuf is sorted
+                // ascending, so a linear scan from the start lands on the
+                // first non-zero entry quickly (most zeros are clustered
+                // at the bottom).
+                var firstNonZero = 0;
+                while (firstNonZero < liveCount && workBuf[firstNonZero] <= 0f) firstNonZero++;
+                if (firstNonZero >= liveCount)
+                {
+                    // Truly uniform channel (every strided sample
+                    // identical). Can't recover a noise scale; bail.
+                    logger?.LogDebug("  hot-pixel ch={Ch} iter={Iter}: every strided sample identical to median; stopping",
+                        channelIndex, iter);
+                    break;
+                }
+                // Median of the non-zero deviation tail.
+                mad = workBuf[firstNonZero + (liveCount - firstNonZero) / 2];
+                logger?.LogDebug("  hot-pixel ch={Ch} iter={Iter}: MAD=0 (bias-dominated dark); using non-zero-tail MAD={Mad:F4}",
+                    channelIndex, iter, mad);
             }
 
             var threshold = median + sigmaThreshold * GaussianFactor * mad;
