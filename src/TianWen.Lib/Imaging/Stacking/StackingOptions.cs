@@ -77,6 +77,16 @@ namespace TianWen.Lib.Imaging.Stacking;
 /// temporal MIDDLE of a session makes per-frame rotation residuals
 /// symmetric around zero, balancing per-channel drizzle coverage. Off
 /// by default.</param>
+/// <param name="IncludeStackProducts">When true, the scan keeps frames with a
+/// non-zero FITS <c>STACK_N</c> header (i.e. masters integrated by a previous
+/// run) and feeds them into the next-stage grouping. Two-stage mosaic
+/// stacking is the canonical use case: each panel is integrated separately,
+/// then the resulting masters are re-stacked as the panel-aligned final
+/// mosaic. Off by default -- stale masters in adjacent <c>output-*/</c> dirs
+/// from prior runs would otherwise pollute the next session's lights. The
+/// <c>.rejection.fits</c> sidecar is ALWAYS dropped regardless of this flag:
+/// it's a per-pixel rejection-fraction map, not an image suitable for
+/// further integration.</param>
 /// <param name="DisableBayerDrizzle">Opt out of drizzle auto-selection.
 /// Drizzle (both <see cref="IntegrationStrategyKind.BayerDrizzle"/> and
 /// <see cref="IntegrationStrategyKind.TilePipelinedDrizzle"/>) is
@@ -106,4 +116,5 @@ public sealed record StackingOptions(
     float HotPixelSigma = 8.0f,
     float? QualityRejectSigma = null,
     string? ReferenceFrameHint = null,
-    bool DisableBayerDrizzle = false);
+    bool DisableBayerDrizzle = false,
+    bool IncludeStackProducts = false);
