@@ -1,4 +1,5 @@
 using System;
+using Microsoft.Extensions.Logging;
 
 namespace TianWen.Lib.Imaging.Calibration;
 
@@ -13,35 +14,83 @@ namespace TianWen.Lib.Imaging.Calibration;
 public static class BadPixelDetection
 {
     /// <summary>Subsample stride used when computing the per-channel median +
-    /// MAD of the dark master. A 6224x4168 IMX455 dark at stride=32 yields
-    /// ~25k samples per channel -- enough for a stable median estimate, ~10ms
-    /// per channel. The dark master changes rarely (one build per session),
-    /// so over-investing in precision here doesn't pay back.</summary>
-    private const int StatStride = 32;
+    /// MAD of the dark master. Denser than the original stride=32 because the
+    /// iterative loop (<see cref="BuildMaskFromDark"/>) leans on the sample
+    /// containing actual hot pixels: each iteration excludes the flagged
+    /// strided positions and re-estimates noise stats from the inlier
+    /// remainder, which only helps if a meaningful fraction of the sample
+    /// IS contaminated. At stride=8 a 6224x4168 IMX455 dark yields ~405k
+    /// samples per channel -- big enough to contain dozens of hot pixels at
+    /// typical 0.01-0.1 % hot-pixel rates, so excluding them measurably
+    /// tightens the MAD between iterations. Sort cost stays under 10 ms per
+    /// channel per iteration.</summary>
+    private const int StatStride = 8;
 
     /// <summary>Conventional MAD-to-Gaussian-sigma factor. Median +
     /// <see cref="GaussianFactor"/> * MAD approximates median + 1*sigma
     /// for a Gaussian distribution, which is what the
-    /// <paramref name="sigmaThreshold"/> in <see cref="BuildMaskFromDark"/>
-    /// effectively maps to.</summary>
+    /// <c>sigmaThreshold</c> parameter effectively maps to.</summary>
     private const float GaussianFactor = 1.4826f;
 
+    /// <summary>Default iteration cap for kappa-sigma convergence in
+    /// <see cref="BuildMaskFromDark"/>. Typical real-data convergence
+    /// happens in 2-4 iterations; the cap is a runaway guard for
+    /// pathological inputs (uniform dark, single-bin distribution, etc.).</summary>
+    private const int DefaultMaxIterations = 10;
+
+    /// <summary>Default convergence floor: stop iterating when an iteration
+    /// adds fewer than this fraction of the channel's total pixel count to
+    /// the mask. 0.0001 = 0.01 % (~2600 pixels on a 26 MP frame) -- small
+    /// enough that "we've found nearly everything" but big enough that we
+    /// don't iterate forever chasing noise-floor flicker.</summary>
+    private const float DefaultConvergenceFraction = 0.0001f;
+
     /// <summary>
-    /// Per-channel hot-pixel mask: <c>true</c> bit = pixel is hotter than
-    /// <paramref name="sigmaThreshold"/> Gaussian-sigma above the channel
-    /// median, masked from downstream integration. One <see cref="BitMatrix"/>
-    /// per channel keeps the memory footprint at 1 bit/pixel (8x denser
-    /// than <c>bool[,]</c> -- ~3 MB per 6k frame channel vs 26 MB).
+    /// Per-channel hot-pixel mask: <c>true</c> bit = pixel exceeds the
+    /// converged threshold (median + sigma * 1.4826 * MAD), masked from
+    /// downstream integration. One <see cref="BitMatrix"/> per channel keeps
+    /// the memory footprint at 1 bit/pixel (8x denser than <c>bool[,]</c>
+    /// -- ~3 MB per 6k frame channel vs 26 MB).
+    ///
+    /// <para>The kappa-sigma loop iterates until convergence: each pass
+    /// recomputes the median + MAD over the strided sample positions that
+    /// are NOT YET masked. Outliers (hot pixels) in the sample inflate the
+    /// initial MAD; excluding them on the next iteration tightens MAD,
+    /// drops the threshold (in absolute ADU), and catches more borderline
+    /// pixels. The mask grows monotonically -- never un-mask -- and the
+    /// loop terminates when an iteration adds fewer than
+    /// <paramref name="convergenceFraction"/> of total pixels, or after
+    /// <paramref name="maxIterations"/> as a safety cap. This is the
+    /// standard astro pipeline approach (PixInsight CosmeticCorrection,
+    /// Astro Pixel Processor, DeepSkyStacker bad-pixel rejection all do
+    /// equivalent iterative kappa-sigma) and catches the warm-borderline
+    /// pixels a one-shot threshold misses.</para>
     /// </summary>
     /// <param name="darkMaster">Master dark frame.</param>
     /// <param name="sigmaThreshold">Threshold in Gaussian sigmas. Typical
-    /// good value is 8 -- hot pixels usually score 100+ sigma above the
-    /// channel median, so 8 is comfortably above the legitimate dark
-    /// current spread without flagging warm-but-usable pixels. Pass 0 or
-    /// negative to return <c>null</c> (disable masking).</param>
+    /// good value is 8 -- once the iterative loop has converged, anything
+    /// 8 sigma above the noise floor is a hot pixel by definition (no
+    /// legitimate dark current spread reaches 8 sigma above the cleaned
+    /// median). Pass 0 or negative to return <c>null</c> (disable masking).</param>
+    /// <param name="logger">Optional logger -- receives one
+    /// <c>Information</c> line per channel summarising the converged mask
+    /// (count + iterations + final threshold) and per-iteration
+    /// <c>Debug</c> lines for forensics.</param>
+    /// <param name="maxIterations">Hard cap on iterations. Defaults to
+    /// <see cref="DefaultMaxIterations"/>; tighter values (3-5) for
+    /// runtime-sensitive paths.</param>
+    /// <param name="convergenceFraction">Stop when newly-masked pixels in
+    /// one iteration drop below <c>fraction * totalChannelPx</c>. Defaults
+    /// to <see cref="DefaultConvergenceFraction"/> (0.01 % of channel
+    /// pixels).</param>
     /// <returns>A per-channel mask <c>BitMatrix[ChannelCount]</c> or
     /// <c>null</c> when masking is disabled.</returns>
-    public static BitMatrix[]? BuildMaskFromDark(Image darkMaster, float sigmaThreshold)
+    public static BitMatrix[]? BuildMaskFromDark(
+        Image darkMaster,
+        float sigmaThreshold,
+        ILogger? logger = null,
+        int maxIterations = DefaultMaxIterations,
+        float convergenceFraction = DefaultConvergenceFraction)
     {
         if (sigmaThreshold <= 0f)
         {
@@ -51,32 +100,18 @@ public static class BadPixelDetection
         var masks = new BitMatrix[channelCount];
         for (var c = 0; c < channelCount; c++)
         {
-            var data = darkMaster.GetChannelArray(c);
-            var (median, mad) = ComputeMedianAndMad(data);
-            var threshold = median + sigmaThreshold * GaussianFactor * mad;
-            var h = data.GetLength(0);
-            var w = data.GetLength(1);
-            var mask = new BitMatrix(h, w);
-            for (var y = 0; y < h; y++)
-            {
-                for (var x = 0; x < w; x++)
-                {
-                    if (data[y, x] > threshold)
-                    {
-                        mask[y, x] = true;
-                    }
-                }
-            }
-            masks[c] = mask;
+            masks[c] = BuildMaskForChannel(darkMaster.GetChannelArray(c), c,
+                sigmaThreshold, maxIterations, convergenceFraction, logger);
         }
         return masks;
     }
 
     /// <summary>
     /// Counts the masked pixels (true bits) across all channels. Useful
-    /// for the pipeline log -- a typical CMOS sensor reports 50-5000 hot
-    /// pixels at sigma=8, larger or smaller counts hint at a bad sigma
-    /// choice or a corrupted dark.
+    /// for the pipeline log -- a typical CMOS sensor reports a few hundred
+    /// to several thousand hot pixels after iterative convergence; very
+    /// different orders of magnitude hint at a bad sigma choice or a
+    /// corrupted dark.
     /// </summary>
     public static int CountMaskedPixels(BitMatrix[]? mask, int width, int height)
     {
@@ -96,30 +131,158 @@ public static class BadPixelDetection
         return total;
     }
 
-    private static (float Median, float Mad) ComputeMedianAndMad(float[,] data)
+    /// <summary>
+    /// Run the iterative kappa-sigma loop for one channel of the dark master.
+    /// Strided positions + values are captured once; each iteration filters
+    /// the sample to currently un-masked positions, recomputes median + MAD,
+    /// applies the new threshold to the FULL channel, and grows the mask.
+    /// </summary>
+    private static BitMatrix BuildMaskForChannel(
+        float[,] data, int channelIndex,
+        float sigmaThreshold, int maxIterations, float convergenceFraction,
+        ILogger? logger)
     {
         var h = data.GetLength(0);
         var w = data.GetLength(1);
+        var totalPx = (long)h * w;
+        var convergenceFloor = (long)(totalPx * convergenceFraction);
+
+        // Strided sample collected once; reused (with position-aware
+        // mask filtering) across iterations.
         var sampleCount = ((h + StatStride - 1) / StatStride) * ((w + StatStride - 1) / StatStride);
-        var samples = new float[sampleCount];
+        var sampleValues = new float[sampleCount];
+        var sampleY = new int[sampleCount];
+        var sampleX = new int[sampleCount];
         var idx = 0;
         for (var y = 0; y < h; y += StatStride)
         {
             for (var x = 0; x < w; x += StatStride)
             {
-                samples[idx++] = data[y, x];
+                sampleValues[idx] = data[y, x];
+                sampleY[idx] = y;
+                sampleX[idx] = x;
+                idx++;
             }
         }
-        Array.Sort(samples, 0, idx);
-        var median = samples[idx / 2];
-        // Reuse the samples buffer for the deviation array -- we've already
-        // consumed the sorted samples to read the median.
-        for (var i = 0; i < idx; i++)
+        var totalSample = idx;
+
+        var mask = new BitMatrix(h, w);
+        var workBuf = new float[totalSample];
+        long maskedTotal = 0;
+        var lastThreshold = 0f;
+        var iterRan = 0;
+
+        for (var iter = 0; iter < maxIterations; iter++)
         {
-            samples[i] = MathF.Abs(samples[i] - median);
+            iterRan = iter + 1;
+
+            // Filter the strided sample to positions NOT in the current
+            // mask. After iter 0 these are guaranteed non-hot (we just
+            // flagged the hot ones), so the median + MAD anchor to the
+            // inlier distribution.
+            var liveCount = 0;
+            for (var i = 0; i < totalSample; i++)
+            {
+                if (!mask[sampleY[i], sampleX[i]])
+                {
+                    workBuf[liveCount++] = sampleValues[i];
+                }
+            }
+            // Degenerate: every strided sample has been masked. Stop --
+            // the channel's distribution is so contaminated that one more
+            // iteration would have no signal to anchor against.
+            if (liveCount == 0)
+            {
+                break;
+            }
+
+            Array.Sort(workBuf, 0, liveCount);
+            var median = workBuf[liveCount / 2];
+
+            // Reuse the buffer for the absolute-deviation array. We've
+            // already consumed the sorted samples to read the median.
+            for (var i = 0; i < liveCount; i++)
+            {
+                workBuf[i] = MathF.Abs(workBuf[i] - median);
+            }
+            Array.Sort(workBuf, 0, liveCount);
+            var mad = workBuf[liveCount / 2];
+
+            // MAD = 0 on cooled-CMOS bias-dominated darks: at -5C on an
+            // IMX571, 60s of dark current is sub-ADU, so the master dark
+            // is essentially uniform bias with a long hot-pixel tail.
+            // 50%+ of pixels collapse to a single quantized value, the
+            // median absolute deviation is 0 by construction, and the
+            // textbook threshold (median + sigma * MAD) degenerates to
+            // the median itself -- which would mark half the channel as
+            // "hot". Fall back to the median of the NON-ZERO absolute
+            // deviations: this anchors the noise scale to the typical
+            // step between the bias floor and the next-quantized level
+            // (a few ADU on this sensor), ignoring the degenerate
+            // delta-function at exactly the bias level.
+            if (mad <= 0f)
+            {
+                // Find the first non-zero deviation. workBuf is sorted
+                // ascending, so a linear scan from the start lands on the
+                // first non-zero entry quickly (most zeros are clustered
+                // at the bottom).
+                var firstNonZero = 0;
+                while (firstNonZero < liveCount && workBuf[firstNonZero] <= 0f) firstNonZero++;
+                if (firstNonZero >= liveCount)
+                {
+                    // Truly uniform channel (every strided sample
+                    // identical). Can't recover a noise scale; bail.
+                    logger?.LogDebug("  hot-pixel ch={Ch} iter={Iter}: every strided sample identical to median; stopping",
+                        channelIndex, iter);
+                    break;
+                }
+                // Median of the non-zero deviation tail.
+                mad = workBuf[firstNonZero + (liveCount - firstNonZero) / 2];
+                logger?.LogDebug("  hot-pixel ch={Ch} iter={Iter}: MAD=0 (bias-dominated dark); using non-zero-tail MAD={Mad:F4}",
+                    channelIndex, iter, mad);
+            }
+
+            var threshold = median + sigmaThreshold * GaussianFactor * mad;
+            lastThreshold = threshold;
+
+            // Walk the FULL channel; flag any un-masked pixel exceeding
+            // threshold. Mask grows monotonically -- a pixel marked in
+            // iter K stays marked through convergence even if a later
+            // iteration's threshold would un-mark it. This is correct:
+            // once we've identified a hot pixel using cleaner statistics,
+            // re-introducing it would contaminate the very loop that just
+            // excluded it.
+            long newlyMasked = 0;
+            for (var y = 0; y < h; y++)
+            {
+                for (var x = 0; x < w; x++)
+                {
+                    if (!mask[y, x] && data[y, x] > threshold)
+                    {
+                        mask[y, x] = true;
+                        newlyMasked++;
+                    }
+                }
+            }
+            maskedTotal += newlyMasked;
+
+            logger?.LogDebug(
+                "  hot-pixel ch={Ch} iter={Iter}: median={Med:F4} mad={Mad:F4} threshold={T:F4} added={Added} total={Total}",
+                channelIndex, iter, median, mad, threshold, newlyMasked, maskedTotal);
+
+            // Convergence criterion: newly-added below the absolute floor,
+            // OR exactly zero (full convergence). Iter 0 always has
+            // newlyMasked > 0 in practice; subsequent iters tail off.
+            if (newlyMasked == 0 || newlyMasked < convergenceFloor)
+            {
+                break;
+            }
         }
-        Array.Sort(samples, 0, idx);
-        var mad = samples[idx / 2];
-        return (median, mad);
+
+        logger?.LogInformation(
+            "  hot-pixel ch={Ch}: {Count} px in {Iters} iter(s) (final threshold={T:F4})",
+            channelIndex, maskedTotal, iterRan, lastThreshold);
+
+        return mask;
     }
 }

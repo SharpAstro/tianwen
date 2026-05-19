@@ -101,6 +101,22 @@ internal sealed class StackSubCommand(
             Description = "Threshold (Gaussian sigmas above dark master median) for hot-pixel masking. Flagged pixels are NaN'd in calibrated lights so integration ignores them. Default 8 (hot pixels typically score 100+). Pass 0 to disable masking.",
             DefaultValueFactory = _ => 8.0f,
         };
+        var qualityRejectSigmaOpt = new Option<float?>("--quality-reject-sigma")
+        {
+            Description = "Enable per-frame quality filtering at this sigma threshold: a frame is dropped from integration when its median HFD or ellipticity exceeds median + sigma * 1.4826 * MAD of the session. An 80% keep floor caps rejection at the worst 20% by severity. 3.0 is a conservative starting value -- catches clear outliers (bloated low-altitude frames, wind-trailed frames) without biting into the body of the distribution. Off by default.",
+        };
+        var referenceFrameHintOpt = new Option<string?>("--reference-frame")
+        {
+            Description = "Debug knob: pin the reference frame to the first candidate whose path contains this case-insensitive substring (e.g. '_0233' to pin to that filename). Falls back to the composite-quality score picker when unset or no match. Use to isolate per-frame artifacts that correlate with reference choice -- a frame near the session's temporal middle keeps per-frame rotation residuals symmetric, which balances per-channel drizzle coverage.",
+        };
+        var noBayerDrizzleOpt = new Option<bool>("--no-bayer-drizzle")
+        {
+            Description = "Opt out of drizzle auto-selection. On RGGB sensors with >= 60 matched frames the selector picks BayerDrizzle / TilePipelinedDrizzle by default (3-5x faster than the standard AHD-debayer path on big-N sessions); this flag forces the standard path instead. Useful for A/B against a reference master, or when you specifically want kappa-sigma rejection rather than drizzle's per-cell coverage map. --strategy overrides still win -- forcing BayerDrizzle bypasses this flag.",
+        };
+        var includeStackProductsOpt = new Option<bool>("--include-stack-products")
+        {
+            Description = "Keep frames with a non-zero FITS STACK_N header (i.e. masters from a previous run) as scan inputs. Default behaviour is to drop them since stale masters in adjacent output-*/ dirs otherwise pollute the next session's grouping. Pass this flag for two-stage mosaic stacking: integrate each panel separately, then re-run with --include-stack-products against the panel masters to produce the final mosaic. .rejection.fits sidecars are ALWAYS dropped regardless of this flag.",
+        };
 
         var stackCommand = new Command("stack", "Stack a folder of FITS lights into a master frame.")
         {
@@ -113,6 +129,8 @@ internal sealed class StackSubCommand(
                 noPngOpt, noPlateSolveOpt,
                 drizzlePixfracOpt, drizzleMinFramesOpt,
                 splitByPierSideOpt, hotPixelSigmaOpt,
+                qualityRejectSigmaOpt, referenceFrameHintOpt,
+                noBayerDrizzleOpt, includeStackProductsOpt,
             },
         };
         stackCommand.SetAction(async (parseResult, ct) =>
@@ -128,15 +146,25 @@ internal sealed class StackSubCommand(
             var forcedStrategy = parseResult.GetValue(strategyOpt);
             var pixfrac = parseResult.GetValue(drizzlePixfracOpt);
             var drizzleMinFrames = parseResult.GetValue(drizzleMinFramesOpt);
+            var disableBayerDrizzle = parseResult.GetValue(noBayerDrizzleOpt);
+            // Drizzle options now apply for both forced drizzle AND auto-
+            // picked drizzle, so build them whenever drizzle could be
+            // selected (anything except a non-drizzle forced strategy).
+            // The pixfrac / min-frames flags stay no-ops only when the
+            // user has BOTH forced a non-drizzle strategy AND set them
+            // -- the previous warning fired too eagerly under auto-pick.
             DrizzleOptions? drizzleOptions = null;
-            if (forcedStrategy is IntegrationStrategyKind.BayerDrizzle)
+            var forcedNonDrizzle = forcedStrategy is { } fs
+                && fs != IntegrationStrategyKind.BayerDrizzle
+                && fs != IntegrationStrategyKind.TilePipelinedDrizzle;
+            if (!forcedNonDrizzle)
             {
                 drizzleOptions = new DrizzleOptions(Pixfrac: pixfrac, MinFrameCount: drizzleMinFrames);
             }
             else if (pixfrac != 1.0f || drizzleMinFrames != 60)
             {
                 consoleHost.WriteScrollable(
-                    "[stack] warning: --drizzle-* options ignored when --strategy != BayerDrizzle");
+                    $"[stack] warning: --drizzle-* options ignored when --strategy={forcedStrategy} (non-drizzle)");
             }
             var options = new StackingOptions(
                 DataRoot: dataRoot,
@@ -151,7 +179,11 @@ internal sealed class StackSubCommand(
                 QuadStars: parseResult.GetValue(quadStarsOpt),
                 DrizzleOptions: drizzleOptions,
                 SplitByPierSide: parseResult.GetValue(splitByPierSideOpt),
-                HotPixelSigma: parseResult.GetValue(hotPixelSigmaOpt));
+                HotPixelSigma: parseResult.GetValue(hotPixelSigmaOpt),
+                QualityRejectSigma: parseResult.GetValue(qualityRejectSigmaOpt),
+                ReferenceFrameHint: parseResult.GetValue(referenceFrameHintOpt),
+                DisableBayerDrizzle: disableBayerDrizzle,
+                IncludeStackProducts: parseResult.GetValue(includeStackProductsOpt));
 
             var noPng = parseResult.GetValue(noPngOpt);
             var skipPlateSolve = parseResult.GetValue(noPlateSolveOpt);

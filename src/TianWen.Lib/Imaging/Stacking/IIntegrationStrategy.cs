@@ -54,6 +54,21 @@ public enum IntegrationStrategyKind
     /// explicit <c>--strategy BayerDrizzle</c> override. See
     /// <see cref="DrizzleOptions"/>.</summary>
     BayerDrizzle,
+
+    /// <summary>Tile-pipelined Bayer drizzle: same forward-projection
+    /// kernel as <see cref="BayerDrizzle"/> but the flux/weight
+    /// accumulators are sized per canvas strip rather than full-canvas.
+    /// Caches calibrated 1-channel Bayer frames; per strip, inverse-
+    /// projects the canvas strip rect back to a source rect per frame
+    /// and iterates only those source pixels (the rest can't reach the
+    /// strip). Memory profile is bounded by strip working set +
+    /// calibrated-frame cache rather than (3 ch x 2 planes x full
+    /// canvas) -- ~25 MB strip vs ~400 MB full canvas on a 4032 RGB
+    /// output, scaling 4x harder under Phase 2 (2.0x output scale).
+    /// Drizzle kernel + post-processing are shared with
+    /// <see cref="BayerDrizzle"/> via <see cref="DrizzleKernel"/>; only
+    /// memory layout differs.</summary>
+    TilePipelinedDrizzle,
 }
 
 /// <summary>

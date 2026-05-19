@@ -1,6 +1,7 @@
 using System;
 using System.Drawing;
 using System.Numerics;
+using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -90,6 +91,19 @@ public partial class Image
     /// <exception cref="ArgumentException"><paramref name="transform"/> is not invertible.</exception>
     public async Task<Image> WarpToReferenceGridAsync(Matrix3x2 transform, int refWidth, int refHeight, CancellationToken cancellationToken = default)
     {
+        // Identity-skip fast path. The reference frame in StackingPipeline
+        // is registered against itself with transform = Matrix3x2.Identity
+        // and the canvas grid is sized to the reference dims, so this
+        // branch fires once per group and avoids the per-pixel bilinear
+        // sample + NaN-bounds check that otherwise runs over the full
+        // canvas. Matches the precedent in TransformAsync (line 53) where
+        // identity already short-circuits.
+        if (transform.IsIdentity && refWidth == Width && refHeight == Height)
+        {
+            await Task.CompletedTask;
+            return this;
+        }
+
         if (!Matrix3x2.Invert(transform, out var inverseTransform))
         {
             throw new ArgumentException("Transform is not invertible", nameof(transform));
@@ -166,10 +180,6 @@ public partial class Image
             throw new ArgumentOutOfRangeException(nameof(canvasRegion),
                 $"Region {canvasRegion} out of canvas bounds [0,0)-({canvasWidth},{canvasHeight}).");
         }
-        if (!Matrix3x2.Invert(transform, out var inverseTransform))
-        {
-            throw new ArgumentException("Transform is not invertible", nameof(transform));
-        }
 
         var channelCount = ChannelCount;
         var srcW = Width;
@@ -178,6 +188,61 @@ public partial class Image
         var regionH = canvasRegion.Height;
         var x0 = canvasRegion.X;
         var y0 = canvasRegion.Y;
+
+        // Identity-skip fast path. Under identity, source coords equal
+        // canvas coords; sampling collapses to a strided copy of the
+        // source's [x0..x0+regionW, y0..y0+regionH] sub-rect into the
+        // region-sized output. Pixels whose canvas position falls
+        // outside the source remain NaN. The TilePipelined strategy
+        // calls WarpRegionAsync once per strip per frame; under
+        // identity (the reference frame's strips) that's `stripsTotal`
+        // calls saved from the bilinear sampler.
+        if (transform.IsIdentity)
+        {
+            var copied = CreateChannelData(channelCount, regionH, regionW);
+            // Intersect canvas region with source bounds. The reference
+            // frame's source dims equal canvas dims, so fullyInside is
+            // the common case and we can skip the NaN pre-fill pass.
+            var copyX0 = Math.Max(0, x0);
+            var copyY0 = Math.Max(0, y0);
+            var copyX1 = Math.Min(srcW, x0 + regionW);
+            var copyY1 = Math.Min(srcH, y0 + regionH);
+            var fullyInside = copyX0 == x0 && copyY0 == y0
+                && copyX1 == x0 + regionW && copyY1 == y0 + regionH;
+            for (var c = 0; c < channelCount; c++)
+            {
+                var dst = copied[c];
+                if (!fullyInside)
+                {
+                    // Vectorized fill -- Span<float>.Fill uses SIMD where
+                    // available; a per-pixel loop here would dominate the
+                    // fast path on big strips. CreateSpan over a float[,]
+                    // is the in-house idiom (Image.Arithmetic.cs et al.).
+                    MemoryMarshal.CreateSpan(ref dst[0, 0], dst.Length).Fill(float.NaN);
+                }
+                if (copyX1 > copyX0 && copyY1 > copyY0)
+                {
+                    var srcCh = GetChannelArray(c);
+                    var rowLen = copyX1 - copyX0;
+                    for (var sy = copyY0; sy < copyY1; sy++)
+                    {
+                        // Row-wise BlockCopy is faster than the scalar
+                        // copy loop when rowLen is non-trivial.
+                        var dstRow = MemoryMarshal.CreateSpan(ref dst[sy - y0, copyX0 - x0], rowLen);
+                        var srcRow = MemoryMarshal.CreateSpan(ref srcCh[sy, copyX0], rowLen);
+                        srcRow.CopyTo(dstRow);
+                    }
+                }
+            }
+            await Task.CompletedTask;
+            return new Image(copied, BitDepth.Float32, maxValue, minValue, pedestal, imageMeta);
+        }
+
+        if (!Matrix3x2.Invert(transform, out var inverseTransform))
+        {
+            throw new ArgumentException("Transform is not invertible", nameof(transform));
+        }
+
         var output = CreateChannelData(channelCount, regionH, regionW);
 
         var parallelOptions = new ParallelOptions

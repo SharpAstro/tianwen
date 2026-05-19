@@ -10,6 +10,7 @@ using TianWen.Lib.Astrometry;
 using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.ColorCalibration;
+using TianWen.Lib.Stat;
 
 namespace TianWen.UI.Abstractions;
 
@@ -110,6 +111,21 @@ public sealed class MasterPreviewRenderer(ICelestialObjectDB? catalogDb, ILogger
                 logger.LogWarning("  [WB] star detection failed: {Type}: {Msg}", ex.GetType().Name, ex.Message);
             }
 
+            // Post-stack PSF summary on the master. Lets us spot when a
+            // stacked output ends up with broader / more elongated stars
+            // than the per-frame medians would suggest -- a tell for
+            // residual registration drift or aggressive rejection cutting
+            // into the best frames.
+            if (statsStars is { Count: > 0 } detected)
+            {
+                var masterHfd = detected.MapReduceStarProperty(SampleKind.HFD, AggregationMethod.Median);
+                var masterFwhm = detected.MapReduceStarProperty(SampleKind.FWHM, AggregationMethod.Median);
+                var masterEcc = detected.MapReduceStarProperty(SampleKind.Ellipticity, AggregationMethod.Median);
+                logger.LogInformation(
+                    "  [masterStats] N={N} hfd={Hfd:F2} fwhm={Fwhm:F2} ecc={Ecc:F3}",
+                    detected.Count, masterHfd, masterFwhm, masterEcc);
+            }
+
             if (effectiveWcs is { } w && statsStars is { Count: >= 3 } && catalogDb is { } db)
             {
                 var spccSw = Stopwatch.StartNew();
@@ -127,8 +143,11 @@ public sealed class MasterPreviewRenderer(ICelestialObjectDB? catalogDb, ILogger
                         if (spcc is { } gains)
                         {
                             wbGains = (gains.R, gains.G, gains.B);
-                            logger.LogInformation("  [SPCC] WB=({R:F3}, {G:F3}, {B:F3}) from {Matches} Tycho-2 matches ({Ms} ms)",
-                                gains.R, gains.G, gains.B, gains.MatchCount, spccSw.ElapsedMilliseconds);
+                            logger.LogInformation(
+                                "  [SPCC] WB=({R:F3}, {G:F3}, {B:F3}) from {Final}/{Initial} Tycho-2 matches in {Iters} kappa-sigma iter(s) ({Ms} ms)",
+                                gains.R, gains.G, gains.B,
+                                gains.FinalMatches, gains.InitialMatches, gains.Iterations,
+                                spccSw.ElapsedMilliseconds);
                         }
                         else
                         {

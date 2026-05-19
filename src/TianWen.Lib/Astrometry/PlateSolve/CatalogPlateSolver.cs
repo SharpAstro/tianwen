@@ -683,7 +683,7 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger? logger 
             if (xPix >= -marginX && xPix <= dim.Width + marginX &&
                 yPix >= -marginY && yPix <= dim.Height + marginY)
             {
-                projected.Add(new ImagedStar(2f, 2f, 100f, 1000f, xPix, yPix));
+                projected.Add(new ImagedStar(2f, 2f, 100f, 1000f, xPix, yPix, 0f));
             }
         }
 

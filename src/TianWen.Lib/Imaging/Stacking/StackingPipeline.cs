@@ -12,6 +12,7 @@ using Microsoft.Extensions.Logging;
 using TianWen.Lib.Astrometry;
 using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Imaging.Calibration;
+using TianWen.Lib.Stat;
 
 namespace TianWen.Lib.Imaging.Stacking;
 
@@ -132,7 +133,15 @@ public sealed class StackingPipeline(
             catch { /* best-effort cleanup; per-group code surfaces if it still fails */ }
         }
 
+        // Construct the tracker AFTER the wipe + staging cleanup so the
+        // baseline disk reading reflects the run's actual starting point
+        // (not the pre-cleanup state including stale outputs that we just
+        // deleted). RAM baseline is "right before we open any FITS files",
+        // which is the most useful reference for "how much did the pipeline
+        // consume" questions.
+        var hostTracker = new HostSnapshotTracker(outputDir);
         logger.LogInformation("[start] data={DataRoot} out={OutputDir}", options.DataRoot, outputDir);
+        hostTracker.Log(logger, "start");
 
         // -----------------------------------------------------------------
         // 1) Enumerate ALL FITS recursively + group by frame type
@@ -142,6 +151,9 @@ public sealed class StackingPipeline(
         var source = new FitsFolderFrameSource(options.DataRoot, recursive: true);
         var allFrames = new List<FrameInfo>();
         var outputDirNormalised = Path.GetFullPath(outputDir);
+        var stackProductSkipped = 0;
+        var rejectionMapSkipped = 0;
+        var stackProductKept = 0;
         await foreach (var frame in source.EnumerateAsync(ct))
         {
             // Skip anything under outputDir -- masters and previous-run
@@ -152,9 +164,56 @@ public sealed class StackingPipeline(
             {
                 continue;
             }
+            // Rejection maps carry STACK_N too but are per-pixel
+            // rejection-fraction images, not sky data -- always drop them
+            // regardless of IncludeStackProducts. Filename suffix is the
+            // canonical IntegrationFitsWriter marker; check both bare and
+            // .gz variants since FitsFolderFrameSource accepts both.
+            if (frame.Path.EndsWith(IntegrationFitsWriter.RejectionMapSuffix, StringComparison.OrdinalIgnoreCase) ||
+                frame.Path.EndsWith(IntegrationFitsWriter.RejectionMapSuffix + ".gz", StringComparison.OrdinalIgnoreCase))
+            {
+                rejectionMapSkipped++;
+                continue;
+            }
+            // STACK_N marks any stacking product (master or rejection map);
+            // the rejection branch above has already filtered the latter,
+            // so reaching here with STACK_N>0 means an integrated master.
+            // Default policy is to drop them -- stale masters in adjacent
+            // output-*/ dirs from prior runs would otherwise look like
+            // ordinary 1-frame FITS to the scan and partition the lights
+            // into ghost MasterGroupKey buckets. IncludeStackProducts opts
+            // in for two-stage mosaic stacking where each panel is integrated
+            // separately, then the panel masters are re-stacked.
+            if (frame.StackedFrameCount > 0)
+            {
+                if (options.IncludeStackProducts)
+                {
+                    stackProductKept++;
+                }
+                else
+                {
+                    stackProductSkipped++;
+                    continue;
+                }
+            }
             allFrames.Add(frame);
         }
+        if (rejectionMapSkipped > 0)
+        {
+            logger.LogInformation("[scan] ignored {Count} rejection map(s)", rejectionMapSkipped);
+        }
+        if (stackProductSkipped > 0)
+        {
+            logger.LogInformation("[scan] ignored {Count} stack product(s) (STACK_N set); pass --include-stack-products to keep them",
+                stackProductSkipped);
+        }
+        if (stackProductKept > 0)
+        {
+            logger.LogInformation("[scan] keeping {Count} stack product(s) as input (IncludeStackProducts=true)",
+                stackProductKept);
+        }
         logger.LogInformation("[scan] {Count} frames in {ElapsedMs} ms", allFrames.Count, sw.ElapsedMilliseconds);
+        hostTracker.Log(logger, "scan");
 
         var byType = allFrames.GroupBy(f => f.FrameType).ToDictionary(g => g.Key, g => g.ToList());
         foreach (var (type, frames) in byType)
@@ -172,6 +231,7 @@ public sealed class StackingPipeline(
         var flatMasters = await BuildMastersAsync(byType.GetValueOrDefault(FrameType.Flat), MasterFrameBuilder.BuildFlatMasterAsync, mastersDir, ct);
         logger.LogInformation("[masters] {Bias} bias, {Dark} dark, {Flat} flat ready in {ElapsedMs} ms",
             biasMasters.Count, darkMasters.Count, flatMasters.Count, sw.ElapsedMilliseconds);
+        hostTracker.Log(logger, "masters");
 
         // -----------------------------------------------------------------
         // 3) For each lights group, run the integration pipeline
@@ -242,14 +302,54 @@ public sealed class StackingPipeline(
                 lightGroups.Count, subGroups.Count);
         }
 
+        // Drop tiny sub-groups silently. These are almost always ghosts from
+        // MasterGroupKey drift -- a single frame's CCDTemperature rounding
+        // to -4C instead of -5C, or an offset value that drifted mid-session,
+        // partitions an otherwise-uniform observation into a "real" group
+        // (most of the frames) plus a handful of 1-2 frame stragglers. Each
+        // straggler then trickles through registration, fails the "matched
+        // >= 2" check, and emits a SKIPPED warning per group -- pure log
+        // noise. Pre-filtering at scan time means one summary instead of
+        // N warnings. Threshold of 4 lines up with the smallest viable
+        // integration count; below it kappa-sigma rejection has nothing
+        // to clip against and the result is statistically meaningless
+        // anyway. Real 4+ frame sub-groups still process normally.
+        const int MinSubGroupFramesToProcess = 4;
+        var tinySubGroups = subGroups.Where(g => g.Frames.Count < MinSubGroupFramesToProcess).ToList();
+        if (tinySubGroups.Count > 0)
+        {
+            var totalDropped = tinySubGroups.Sum(g => g.Frames.Count);
+            logger.LogInformation(
+                "[lights] dropped {Count} ghost sub-group(s) below MinSubGroupFrames={Min} ({Frames} frames total, likely header-drift artifacts)",
+                tinySubGroups.Count, MinSubGroupFramesToProcess, totalDropped);
+            // Per-ghost diagnostic: surface every field of the
+            // MasterGroupKey since the slug strips the ones that usually
+            // drift (Offset, FilterName, exact TemperatureC, dimensions).
+            // One Debug-level line per ghost so the file logger captures it
+            // for post-mortem but the console (Warning min) stays quiet.
+            foreach (var ghost in tinySubGroups)
+            {
+                var k = ghost.Key.CalibrationKey;
+                var sample = ghost.Frames[0];
+                logger.LogDebug(
+                    "[lights/ghost] {Slug} ({Frames} fr): temp={Temp}C filter={Filter}/{Band} offset={Offset} gain={Gain} dim={W}x{H}x{Ch} sensor={Sensor} sample={Path}",
+                    ghost.Slug, ghost.Frames.Count,
+                    k.TemperatureC?.ToString() ?? "n/a", k.FilterName.Length > 0 ? k.FilterName : "(empty)", k.FilterBandpass,
+                    k.Offset, k.Gain, k.Width, k.Height, k.ChannelCount, k.SensorType,
+                    System.IO.Path.GetFileName(sample.Path));
+            }
+            subGroups = subGroups.Where(g => g.Frames.Count >= MinSubGroupFramesToProcess).ToList();
+        }
+
         foreach (var (key, slug, frames) in subGroups)
         {
             ct.ThrowIfCancellationRequested();
             var result = await ProcessLightGroupAsync(
-                key, slug, frames, darkMasters, flatMasters, outputDir, ct);
+                key, slug, frames, darkMasters, flatMasters, outputDir, hostTracker, ct);
             yield return result;
         }
 
+        hostTracker.Log(logger, "end");
         logger.LogInformation("[end]");
     }
 
@@ -264,6 +364,7 @@ public sealed class StackingPipeline(
         List<(MasterGroupKey Key, Image Master)> darkMasters,
         List<(MasterGroupKey Key, Image Master)> flatMasters,
         string outputDir,
+        HostSnapshotTracker hostTracker,
         CancellationToken ct)
     {
         // slug carries any pier-side / future sub-group suffix on top of
@@ -294,24 +395,44 @@ public sealed class StackingPipeline(
         // MeanCombiner sigma-clips hot-pixel outliers across N frames
         // already, so the mask is a net loss there. One-time cost per
         // group; ~tens of ms even on full-frame.
+        // Build the per-channel hot-pixel mask whenever a dark + sigma are
+        // available. Strategy selection happens later and an auto-picked
+        // drizzle would otherwise miss the mask entirely (the previous
+        // ForcedStrategy==BayerDrizzle gate was a bug: TilePipelinedDrizzle
+        // and auto-picked drizzle both consume the mask but neither path
+        // satisfied the gate, so they ran with NO hot-pixel rejection and
+        // visible hot-pixel clusters survived into the master). Non-drizzle
+        // strategies ignore IntegrationJob.BadPixelMask anyway -- their
+        // MeanCombiner sigma-clip handles outliers across N frames -- so
+        // unconditional construction costs ~tens of ms and is free for
+        // them.
         BitMatrix[]? badPixelMask = null;
-        if (dark is not null && options.HotPixelSigma > 0f &&
-            options.ForcedStrategy is IntegrationStrategyKind.BayerDrizzle)
+        if (dark is not null && options.HotPixelSigma > 0f)
         {
-            badPixelMask = BadPixelDetection.BuildMaskFromDark(dark, options.HotPixelSigma);
+            badPixelMask = BadPixelDetection.BuildMaskFromDark(dark, options.HotPixelSigma, logger);
             var maskedCount = BadPixelDetection.CountMaskedPixels(badPixelMask, dark.Width, dark.Height);
-            logger.LogInformation("  hot-pixel mask: {Count} px flagged at {Sigma:F1} sigma",
+            logger.LogInformation("  hot-pixel mask: {Count} px flagged at sigma={Sigma:F1}",
                 maskedCount, options.HotPixelSigma);
         }
 
-        // 3a. Pick reference (highest star count). We bypass
+        // 3a. Pick reference by composite PSF quality. We bypass
         // Registrator.PickReferenceAsync because it operates on the raw
         // FrameInfo without debayer awareness.
+        //
+        // Score = StarCount / (max(HFD, 1) * (1 + 4 * Ellipticity)).
+        // Picks the frame with the most stars, weighted down by broad
+        // PSF (HFD) and elongation (ecc). Rewards sharp-round-many-stars
+        // simultaneously. A bloated frame with 10000 stars loses to a
+        // sharp frame with 5000 stars whenever the HFD difference is
+        // >2x; an elongated frame is penalised regardless of count
+        // (factor 5 at ecc=1, factor 3 at ecc=0.5). Pre-refactor logic
+        // picked by star count alone, which let low-altitude bloated
+        // early frames win on dense fields even when their PSF was 30%
+        // broader -- bad reference for the rest of the session to
+        // register against.
         progress?.Report(new StackingProgress(StackingPhase.Registering, slug, 0, lightList.Count));
         var sw = Stopwatch.StartNew();
-        var frameStarCounts = new List<(FrameInfo Frame, int StarCount)>(lightList.Count);
-        FrameInfo? reference = null;
-        var bestCount = -1;
+        var frameCandidates = new List<(FrameInfo Frame, FrameMetrics Metrics, float Score)>(lightList.Count);
         foreach (var lf in lightList)
         {
             ct.ThrowIfCancellationRequested();
@@ -319,11 +440,45 @@ public sealed class StackingPipeline(
             var calibrated = calibrator.Apply(raw);
             var debayered = await calibrated.DebayerAsync(options.CentroidDebayerAlg, cancellationToken: ct);
             var stars = await debayered.FindStarsAsync(channel: 0, snrMin: options.SnrMin, minStars: options.MinStars, cancellationToken: ct);
-            frameStarCounts.Add((lf, stars.Count));
-            if (stars.Count > bestCount)
+            var metrics = new FrameMetrics(
+                MedianHfd: stars.MapReduceStarProperty(SampleKind.HFD, AggregationMethod.Median),
+                MedianFwhm: stars.MapReduceStarProperty(SampleKind.FWHM, AggregationMethod.Median),
+                MedianEllipticity: stars.MapReduceStarProperty(SampleKind.Ellipticity, AggregationMethod.Median),
+                StarCount: stars.Count);
+            var score = stars.Count / (MathF.Max(metrics.MedianHfd, 1f) * (1f + 4f * metrics.MedianEllipticity));
+            frameCandidates.Add((lf, metrics, score));
+        }
+
+        // Reference selection: explicit ReferenceFrameHint wins (substring
+        // match on path, first hit), otherwise composite-quality score.
+        // The hint is a debug knob for isolating Bayer-drizzle artifacts
+        // that correlate with reference choice -- pinning to a frame near
+        // the temporal MIDDLE of the session keeps per-frame rotation
+        // residuals symmetric around zero so per-channel drizzle coverage
+        // stays balanced.
+        FrameInfo? reference = null;
+        if (!string.IsNullOrEmpty(options.ReferenceFrameHint))
+        {
+            var hint = options.ReferenceFrameHint;
+            var match = frameCandidates.FirstOrDefault(c =>
+                c.Frame.Path.Contains(hint, StringComparison.OrdinalIgnoreCase));
+            if (match.Frame is not null)
             {
-                bestCount = stars.Count;
-                reference = lf;
+                reference = match.Frame;
+                logger.LogInformation("  [refHint] pinning reference to {File} (hint=\"{Hint}\")",
+                    Path.GetFileName(reference.Path), hint);
+            }
+            else
+            {
+                logger.LogWarning("  [refHint] no candidate path matches \"{Hint}\"; falling back to score-based pick", hint);
+            }
+        }
+        if (reference is null)
+        {
+            var bestScore = float.NegativeInfinity;
+            foreach (var c in frameCandidates)
+            {
+                if (c.Score > bestScore) { bestScore = c.Score; reference = c.Frame; }
             }
         }
         if (reference is null)
@@ -332,9 +487,13 @@ public sealed class StackingPipeline(
             return new GroupResult(slug, lightList.Count, 0, Result: null, MasterFitsPath: null,
                 PreviewPngPath: null, Elapsed: groupSw.Elapsed, SkipReason: "no reference frame could be picked");
         }
-        logger.LogInformation("  reference: {File} ({Stars} stars, {ElapsedMs} ms)",
+        var refCandidate = frameCandidates.First(s => s.Frame.Path == reference.Path);
+        logger.LogInformation("  reference: {File} (stars={Stars} hfd={Hfd:F2} ecc={Ecc:F3} score={Score:F1}, {ElapsedMs} ms)",
             Path.GetFileName(reference.Path),
-            frameStarCounts.First(s => s.Frame.Path == reference.Path).StarCount,
+            refCandidate.Metrics.StarCount,
+            refCandidate.Metrics.MedianHfd,
+            refCandidate.Metrics.MedianEllipticity,
+            refCandidate.Score,
             sw.ElapsedMilliseconds);
 
         // Pre-load + calibrate + debayer reference once; detect ref stars
@@ -353,6 +512,16 @@ public sealed class StackingPipeline(
         var referenceStars = await referenceDebayered.FindStarsAsync(channel: 0, snrMin: options.SnrMin, minStars: options.MinStars, cancellationToken: ct);
         var referenceSorted = new SortedStarList(referenceStars);
         var referenceQuads = await referenceSorted.FindQuadsAsync(maxStars: options.QuadStars, ct);
+        // Reference-frame metrics so the matched tuple gets a real
+        // FrameMetrics even for the reference (which skips the register
+        // loop's star-detection path). Used by the post-registration
+        // quality filter -- without it the reference would be a (0,0,0)
+        // outlier and always survive even if it's actually the worst.
+        var referenceMetrics = new FrameMetrics(
+            MedianHfd: referenceStars.MapReduceStarProperty(SampleKind.HFD, AggregationMethod.Median),
+            MedianFwhm: referenceStars.MapReduceStarProperty(SampleKind.FWHM, AggregationMethod.Median),
+            MedianEllipticity: referenceStars.MapReduceStarProperty(SampleKind.Ellipticity, AggregationMethod.Median),
+            StarCount: referenceStars.Count);
 
         // Per-group staging dir. Cleaned up by the chosen strategy.
         var stagingDir = Path.Combine(outputDir, "_staging", slug);
@@ -365,7 +534,7 @@ public sealed class StackingPipeline(
         var calibratedCache = new FrameCache(
             lightList.Count,
             FrameCache.DecideCacheCap(lightList.Count, calibratedFrameBytes));
-        var matched = new List<(FrameInfo Light, Matrix3x2 Transform)>();
+        var matched = new List<(FrameInfo Light, Matrix3x2 Transform, FrameMetrics Metrics)>();
         var skipCount = 0;
         sw.Restart();
         foreach (var lightInfo in lightList)
@@ -377,9 +546,11 @@ public sealed class StackingPipeline(
             var name = Path.GetFileNameWithoutExtension(lightInfo.Path);
 
             Matrix3x2? transform;
+            FrameMetrics frameMetrics = default;
             if (string.Equals(lightInfo.Path, reference.Path, StringComparison.OrdinalIgnoreCase))
             {
                 transform = Matrix3x2.Identity;
+                frameMetrics = referenceMetrics;
             }
             else
             {
@@ -413,23 +584,104 @@ public sealed class StackingPipeline(
                         // brute-force NN over ~100 stars) so we always
                         // apply it; non-drizzle strategies get a marginal
                         // accuracy improvement at zero cost.
-                        var (refined, refDx, refDy, refMatched) = RegistrationRefiner.RefineTranslation(
-                            lightSorted, referenceSorted, transform.Value);
+                        var (refined, refScale, refRotDeg, refTx, refTy, refRms, refMatched) =
+                            RegistrationRefiner.RefineRigid(lightSorted, referenceSorted, transform.Value);
                         transform = refined;
+                        // Per-frame PSF medians from the detected stars. Cheap
+                        // (single pass over the existing StarList) so always
+                        // logged -- spotting an outlier frame's HFD or
+                        // ellipticity spike is exactly what we need when a
+                        // long-span stack ends up with poor SPCC matches.
+                        // Stashed on the matched tuple so the post-loop
+                        // quality filter has session-wide statistics without
+                        // re-running star detection.
+                        var medHfd = stars.MapReduceStarProperty(SampleKind.HFD, AggregationMethod.Median);
+                        var medFwhm = stars.MapReduceStarProperty(SampleKind.FWHM, AggregationMethod.Median);
+                        var medEcc = stars.MapReduceStarProperty(SampleKind.Ellipticity, AggregationMethod.Median);
+                        frameMetrics = new FrameMetrics(medHfd, medFwhm, medEcc, stars.Count);
                         logger.LogInformation(
-                            "  [{Name}] stars={Stars} -> MATCH qt={Tol:F3} refine=({Dx:F2},{Dy:F2})px from {RefMatched} pairs",
-                            name, stars.Count, tolUsed, refDx, refDy, refMatched);
+                            "  [{Name}] stars={Stars} hfd={Hfd:F2} fwhm={Fwhm:F2} ecc={Ecc:F3} -> MATCH qt={Tol:F3} refine: rot={Rot:F3}° s={Scale:F5} t=({Tx:F2},{Ty:F2}) rms={Rms:F2}px from {RefMatched} pairs",
+                            name, stars.Count, medHfd, medFwhm, medEcc, tolUsed, refRotDeg, refScale, refTx, refTy, refRms, refMatched);
                     }
                 }
             }
             if (transform is null) { skipCount++; continue; }
 
             calibratedCache.Set(matched.Count, calibrated);
-            matched.Add((lightInfo, transform.Value));
+            matched.Add((lightInfo, transform.Value, frameMetrics));
             progress?.Report(new StackingProgress(StackingPhase.Registering, slug, matched.Count + skipCount, lightList.Count));
         }
         logger.LogInformation("  registered {Matched}/{Attempted} frames (skipped {Skipped}) in {ElapsedMs} ms",
             matched.Count, lightList.Count, skipCount, sw.ElapsedMilliseconds);
+        hostTracker.Log(logger, $"register/{slug}");
+
+        // Post-registration quality filter. Off by default; enable via
+        // StackingOptions.QualityRejectSigma. Drops frames whose median
+        // HFD or ellipticity exceeds the session's median + sigma * MAD
+        // threshold, capped at the worst 20% by severity (the 80% keep
+        // floor in FrameQualityFilter). One log line per dropped frame
+        // so the audit is per-frame, not just a count.
+        if (options.QualityRejectSigma is { } qSigma && qSigma > 0f && matched.Count >= 4)
+        {
+            var metricsArr = new FrameMetrics[matched.Count];
+            for (var i = 0; i < matched.Count; i++) metricsArr[i] = matched[i].Metrics;
+            var filterResult = FrameQualityFilter.Filter(metricsArr, qSigma);
+            if (filterResult.KeptCount < matched.Count)
+            {
+                if (filterResult.FloorTriggered)
+                {
+                    logger.LogInformation(
+                        "  [quality] sigma={Sigma:F2} -- FLOOR triggered: MAD threshold would over-cut, capped to worst {N}/{Total} by severity",
+                        qSigma, matched.Count - filterResult.KeptCount, matched.Count);
+                }
+                else
+                {
+                    logger.LogInformation(
+                        "  [quality] sigma={Sigma:F2}: rejecting {N}/{Total} frames",
+                        qSigma, matched.Count - filterResult.KeptCount, matched.Count);
+                }
+                var filtered = new List<(FrameInfo Light, Matrix3x2 Transform, FrameMetrics Metrics)>(filterResult.KeptCount);
+                // Rebuild the calibratedCache alongside matched so the
+                // integrator's index-based lookup stays consistent. The
+                // cache is keyed by integer frame index = matched[i]
+                // position; when we drop frame K from matched, every
+                // subsequent index in the cache becomes off-by-one
+                // relative to the new matched list. Without this
+                // rebuild, the integrator pairs new matched[K+] with
+                // OLD cache[K+]'s calibrated image -- it uses the
+                // wrong calibrated frame with the right transform,
+                // producing systematic misregistration on every frame
+                // after the drop. That looked like chromatic speckle on
+                // SoL pier-side drizzle masters.
+                var newCache = new FrameCache(filterResult.KeptCount, FrameCache.DecideCacheCap(filterResult.KeptCount, calibratedFrameBytes));
+                for (var i = 0; i < matched.Count; i++)
+                {
+                    var reason = filterResult.Reasons[i];
+                    if (reason == FrameRejectReason.Kept)
+                    {
+                        if (calibratedCache.TryGet(i, out var cachedImg))
+                        {
+                            newCache.Set(filtered.Count, cachedImg);
+                        }
+                        filtered.Add(matched[i]);
+                    }
+                    else
+                    {
+                        var m = matched[i].Metrics;
+                        var rejName = Path.GetFileNameWithoutExtension(matched[i].Light.Path);
+                        logger.LogInformation(
+                            "  [quality] reject {Name} reason={Reason} hfd={Hfd:F2} ecc={Ecc:F3} stars={Stars}",
+                            rejName, reason, m.MedianHfd, m.MedianEllipticity, m.StarCount);
+                    }
+                }
+                matched = filtered;
+                calibratedCache = newCache;
+            }
+            else
+            {
+                logger.LogInformation("  [quality] sigma={Sigma:F2}: no frames rejected", qSigma);
+            }
+        }
 
         if (matched.Count < 2)
         {
@@ -446,26 +698,32 @@ public sealed class StackingPipeline(
         // checks would otherwise sneak through into RunAsync and produce
         // either a useless master (low N) or a wrong-channel-assignment
         // master (non-RGGB).
-        if (options.ForcedStrategy is IntegrationStrategyKind.BayerDrizzle)
+        // Both drizzle variants share the same algorithmic preconditions
+        // (RGGB sensor for Bayer dispatch + enough matched frames for
+        // robust R/B coverage); only memory layout differs. Gate them
+        // identically.
+        if (options.ForcedStrategy is IntegrationStrategyKind.BayerDrizzle
+            or IntegrationStrategyKind.TilePipelinedDrizzle)
         {
             var drizzleOpts = options.DrizzleOptions ?? new DrizzleOptions();
+            var kindName = options.ForcedStrategy.Value;
             if (referenceRaw.ImageMeta.SensorType != SensorType.RGGB)
             {
-                logger.LogWarning("  [skip] BayerDrizzle requires SensorType.RGGB (got {Sensor})",
-                    referenceRaw.ImageMeta.SensorType);
+                logger.LogWarning("  [skip] {Kind} requires SensorType.RGGB (got {Sensor})",
+                    kindName, referenceRaw.ImageMeta.SensorType);
                 try { Directory.Delete(stagingDir, recursive: true); } catch { /* hygiene */ }
                 return new GroupResult(slug, lightList.Count, matched.Count, Result: null, MasterFitsPath: null,
                     PreviewPngPath: null, Elapsed: groupSw.Elapsed,
-                    SkipReason: $"BayerDrizzle requires SensorType.RGGB (got {referenceRaw.ImageMeta.SensorType})");
+                    SkipReason: $"{kindName} requires SensorType.RGGB (got {referenceRaw.ImageMeta.SensorType})");
             }
             if (matched.Count < drizzleOpts.MinFrameCount)
             {
-                logger.LogWarning("  [skip] BayerDrizzle needs >= {Min} matched frames (got {Got}); drizzle coverage would be too sparse",
-                    drizzleOpts.MinFrameCount, matched.Count);
+                logger.LogWarning("  [skip] {Kind} needs >= {Min} matched frames (got {Got}); drizzle coverage would be too sparse",
+                    kindName, drizzleOpts.MinFrameCount, matched.Count);
                 try { Directory.Delete(stagingDir, recursive: true); } catch { /* hygiene */ }
                 return new GroupResult(slug, lightList.Count, matched.Count, Result: null, MasterFitsPath: null,
                     PreviewPngPath: null, Elapsed: groupSw.Elapsed,
-                    SkipReason: $"BayerDrizzle requires >= {drizzleOpts.MinFrameCount} matched frames (got {matched.Count})");
+                    SkipReason: $"{kindName} requires >= {drizzleOpts.MinFrameCount} matched frames (got {matched.Count})");
             }
         }
 
@@ -489,7 +747,7 @@ public sealed class StackingPipeline(
         {
             for (var i = 0; i < matched.Count; i++)
             {
-                var (lightInfo, transformOrig) = matched[i];
+                var (lightInfo, transformOrig, _) = matched[i];
                 token.ThrowIfCancellationRequested();
                 Image calibrated;
                 if (calibratedCache.TryGet(i, out var cached))
@@ -518,7 +776,7 @@ public sealed class StackingPipeline(
         {
             for (var i = 0; i < matched.Count; i++)
             {
-                var (lightInfo, transformOrig) = matched[i];
+                var (lightInfo, transformOrig, _) = matched[i];
                 token.ThrowIfCancellationRequested();
                 Image calibrated;
                 if (calibratedCache.TryGet(i, out var cached))
@@ -537,6 +795,11 @@ public sealed class StackingPipeline(
 
         // Snapshot host + pick strategy. Snapshot factory probes free
         // RAM + disk; the selector wants those for its budget gate.
+        // SensorType is pulled from the group key (the canonical scan-time
+        // value), not from the reference frame's meta -- they agree by
+        // construction since grouping keys on SensorType, but the group
+        // key is the source of truth for the whole group's invariants.
+        // Drizzle strategies key CanRun off this in their Evaluate.
         var probe = IntegrationProbe.Snapshot(
             frameCount: matched.Count,
             frameWidth: referenceDebayered.Width,
@@ -545,8 +808,42 @@ public sealed class StackingPipeline(
             canvasWidth: outWidth,
             canvasHeight: outHeight,
             stagingDir: stagingDir,
+            sensorType: key.CalibrationKey.SensorType,
             stagingDiskKind: DiskKind.Ssd);
-        var selection = IntegrationStrategySelector.Pick(probe, preferred: options.ForcedStrategy);
+        // Build the strategy pool. Two reasons to deviate from the default:
+        //   1) --no-bayer-drizzle: filter both drizzle variants out so
+        //      auto-pick falls back to the standard path.
+        //   2) --drizzle-min-frames N (N != 60): replace the default
+        //      drizzle instances with ones constructed against the
+        //      user-overridden minimum, so the auto-pick gate matches
+        //      what the user asked for. Without this, --drizzle-min-frames
+        //      would only affect the pre-strategy gate (which fires
+        //      ONLY on --strategy=BayerDrizzle/TilePipelinedDrizzle),
+        //      leaving the auto-pick path still using the hardcoded 60.
+        // ForcedStrategy still wins either way (the override bypasses
+        // CanRun and the pool entirely), so a user who passes both
+        // --no-bayer-drizzle and --strategy=BayerDrizzle gets drizzle.
+        IEnumerable<IIntegrationStrategy>? pool = null;
+        var drizzleMinFrames = options.DrizzleOptions?.MinFrameCount ?? DrizzleStrategy.AutoSelectMinFrameCount;
+        if (options.DisableBayerDrizzle)
+        {
+            pool = IntegrationStrategySelector.DefaultStrategies()
+                .Where(s => s.Kind is not IntegrationStrategyKind.BayerDrizzle
+                        and not IntegrationStrategyKind.TilePipelinedDrizzle)
+                .ToArray();
+        }
+        else if (drizzleMinFrames != DrizzleStrategy.AutoSelectMinFrameCount)
+        {
+            pool = IntegrationStrategySelector.DefaultStrategies()
+                .Select(s => s.Kind switch
+                {
+                    IntegrationStrategyKind.BayerDrizzle => (IIntegrationStrategy)new DrizzleStrategy(minFrameCount: drizzleMinFrames),
+                    IntegrationStrategyKind.TilePipelinedDrizzle => new TilePipelinedDrizzleStrategy(minFrameCount: drizzleMinFrames),
+                    _ => s,
+                })
+                .ToArray();
+        }
+        var selection = IntegrationStrategySelector.Pick(probe, preferred: options.ForcedStrategy, pool: pool);
         logger.LogInformation("  [strategy] picked {Kind} -- {Notes}", selection.Chosen.Kind, selection.Notes);
         logger.LogInformation("  [sink] {Sink} (canvas {GB:F2} GB)", selection.Sink, probe.CanvasBytes / 1e9);
         var sinkFactory = SinkFactories.Create(selection.Sink, stagingDir);
@@ -555,7 +852,7 @@ public sealed class StackingPipeline(
         logger.LogInformation("  rejector: {Rejector}", rejector?.GetType().Name ?? "<none>");
 
         var rawSources = new List<RawLightSource>(matched.Count);
-        foreach (var (lightInfo, transformOrig) in matched)
+        foreach (var (lightInfo, transformOrig, _) in matched)
         {
             rawSources.Add(new RawLightSource(Path: lightInfo.Path, TransformToCanvas: transformOrig * canvasShift));
         }
@@ -566,7 +863,17 @@ public sealed class StackingPipeline(
             : new Progress<IntegrationProgress>(p => progress.Report(
                 new StackingProgress(StackingPhase.Integrating, slug, p.CompletedItems, p.TotalItems, p)));
 
-        var isDrizzle = selection.Chosen.Kind == IntegrationStrategyKind.BayerDrizzle;
+        // Drizzle dispatch: BayerDrizzle (streaming, full-canvas accumulator)
+        // and TilePipelinedDrizzle (strip-pipelined accumulator) both run
+        // the drizzle algorithm and need DrizzleOptions + the bad-pixel
+        // mask. They differ in producer plumbing: streaming uses
+        // RawBayerFrames (one-shot, frame-at-a-time), tile-pipelined uses
+        // RawLightSources (multi-pass per strip from cached calibrated
+        // bayer). The bool `isDrizzle` gates BOTH; the producer pick
+        // happens inside that branch.
+        var isStreamingDrizzle = selection.Chosen.Kind == IntegrationStrategyKind.BayerDrizzle;
+        var isTiledDrizzle = selection.Chosen.Kind == IntegrationStrategyKind.TilePipelinedDrizzle;
+        var isDrizzle = isStreamingDrizzle || isTiledDrizzle;
         var job = new IntegrationJob(
             WarpedFrames: WarpedFramesProducer,
             ExpectedFrameCount: matched.Count,
@@ -581,7 +888,7 @@ public sealed class StackingPipeline(
             CanvasHeight: outHeight,
             Progress: integrationProgress,
             MasterSinkFactory: sinkFactory,
-            RawBayerFrames: isDrizzle ? RawBayerFramesProducer : null,
+            RawBayerFrames: isStreamingDrizzle ? RawBayerFramesProducer : null,
             DrizzleOptions: isDrizzle ? (options.DrizzleOptions ?? new DrizzleOptions()) : null,
             BadPixelMask: isDrizzle ? badPixelMask : null);
 
@@ -600,6 +907,7 @@ public sealed class StackingPipeline(
         }
         logger.LogInformation("  integrated in {ElapsedMs} ms (frames={Frames}, rejections={Rej}, rate={Rate:P2})",
             sw.ElapsedMilliseconds, intResult.FrameCount, intResult.TotalRejections, intResult.MeanRejectionRate);
+        hostTracker.Log(logger, $"integrate/{slug}");
 
         // 3c. Plate-solve the master + write FITS (+ autocrop). No
         // SPCC / bg-neut / PNG render: those are display-side, handled
@@ -613,7 +921,13 @@ public sealed class StackingPipeline(
         // data itself, so a strategy-per-filename split would just add
         // noise. The strategy IS recorded in the SWCREATE+STRATEGY
         // headers regardless of strategy, so provenance stays queryable.
-        var strategySuffix = selection.Chosen.Kind == IntegrationStrategyKind.BayerDrizzle
+        // Both drizzle variants emit byte-equivalent output (same kernel,
+        // same final divide), so they share the _drizzle infix. Other
+        // strategies share the canonical master_<slug>.fits name -- their
+        // differences in memory layout / staging / rejection kernel are
+        // invisible in the output FITS bytes.
+        var strategySuffix = selection.Chosen.Kind is IntegrationStrategyKind.BayerDrizzle
+            or IntegrationStrategyKind.TilePipelinedDrizzle
             ? "_drizzle"
             : "";
         var masterPath = Path.Combine(outputDir, $"master_{slug}{strategySuffix}.fits");

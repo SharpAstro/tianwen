@@ -58,6 +58,48 @@ namespace TianWen.Lib.Imaging.Stacking;
 /// per-cell averaging). Default 8 is conservative; hot pixels typically
 /// score 100+ sigma. Pass 0 to disable masking (legacy behaviour).
 /// Ignored when no dark master is matched to the light group.</param>
+/// <param name="QualityRejectSigma">When set, runs the post-registration
+/// frame quality filter at this sigma threshold: a frame is dropped from
+/// integration if its median HFD or ellipticity exceeds
+/// <c>median + sigma · 1.4826 · MAD</c> of the session's matched-frame
+/// distribution. An 80% keep floor caps rejection at the worst 20% by
+/// severity when the MAD threshold would over-cut. Null disables the
+/// filter (default; preserves the pre-this-feature behaviour). 3.0 is the
+/// recommended starting value -- conservative, catches clear outliers
+/// (low-altitude bloated frames, wind-trailed frames) without biting
+/// into the body of the distribution. See <see cref="FrameQualityFilter"/>.</param>
+/// <param name="ReferenceFrameHint">Debug knob: when set, pins the
+/// reference frame for each light group to the first candidate whose
+/// path contains this case-insensitive substring. Null falls back to
+/// the composite-quality score reference picker (the production
+/// default). Use to isolate per-frame Bayer-drizzle artifacts that
+/// correlate with reference choice -- pinning to a frame near the
+/// temporal MIDDLE of a session makes per-frame rotation residuals
+/// symmetric around zero, balancing per-channel drizzle coverage. Off
+/// by default.</param>
+/// <param name="IncludeStackProducts">When true, the scan keeps frames with a
+/// non-zero FITS <c>STACK_N</c> header (i.e. masters integrated by a previous
+/// run) and feeds them into the next-stage grouping. Two-stage mosaic
+/// stacking is the canonical use case: each panel is integrated separately,
+/// then the resulting masters are re-stacked as the panel-aligned final
+/// mosaic. Off by default -- stale masters in adjacent <c>output-*/</c> dirs
+/// from prior runs would otherwise pollute the next session's lights. The
+/// <c>.rejection.fits</c> sidecar is ALWAYS dropped regardless of this flag:
+/// it's a per-pixel rejection-fraction map, not an image suitable for
+/// further integration.</param>
+/// <param name="DisableBayerDrizzle">Opt out of drizzle auto-selection.
+/// Drizzle (both <see cref="IntegrationStrategyKind.BayerDrizzle"/> and
+/// <see cref="IntegrationStrategyKind.TilePipelinedDrizzle"/>) is
+/// auto-pickable when the sensor is RGGB and the matched-frame count
+/// meets the minimum coverage threshold (default 60). The 3-5x wall-
+/// time advantage usually beats the standard path under the Balanced
+/// ranking policy on RGGB input. Set this when you want the AHD-
+/// debayered + warp-rejected master instead -- e.g. for SPCC
+/// validation against a reference master, or when you specifically
+/// want the standard rejection kernel's outlier handling rather than
+/// drizzle's per-cell coverage map. <see cref="ForcedStrategy"/>
+/// overrides this either way (forcing BayerDrizzle still routes to
+/// the drizzle path even when this flag is true).</param>
 public sealed record StackingOptions(
     string DataRoot,
     string OutputDir,
@@ -71,4 +113,8 @@ public sealed record StackingOptions(
     int QuadStars = 500,
     DrizzleOptions? DrizzleOptions = null,
     bool SplitByPierSide = false,
-    float HotPixelSigma = 8.0f);
+    float HotPixelSigma = 8.0f,
+    float? QualityRejectSigma = null,
+    string? ReferenceFrameHint = null,
+    bool DisableBayerDrizzle = false,
+    bool IncludeStackProducts = false);

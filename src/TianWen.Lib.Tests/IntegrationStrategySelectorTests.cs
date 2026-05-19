@@ -1,6 +1,7 @@
 using System;
 using System.Linq;
 using Shouldly;
+using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Calibration;
 using TianWen.Lib.Imaging.Stacking;
 using Xunit;
@@ -13,22 +14,24 @@ public class IntegrationStrategySelectorTests
     // Hand-crafted probes that target each branch of the picker. Bytes/RAM
     // are chosen so the *ranking*, not just CanRun, exercises the right path.
 
-    private static IntegrationProbe SmallGroup(long ramBytes = 32L * 1024 * 1024 * 1024) => new(
+    private static IntegrationProbe SmallGroup(long ramBytes = 32L * 1024 * 1024 * 1024, SensorType sensor = SensorType.Monochrome) => new(
         FrameCount: 13,
         FrameWidth: 3008, FrameHeight: 3008, ChannelCount: 3,
         CanvasWidth: 3024, CanvasHeight: 3015,
         AvailableRamBytes: ramBytes,
         AvailableDiskBytes: 500L * 1024 * 1024 * 1024,
         StagingDir: "C:/tmp",
+        SensorType: sensor,
         StagingDiskKind: DiskKind.Ssd);
 
-    private static IntegrationProbe BigGroup(long ramBytes = 8L * 1024 * 1024 * 1024, long diskBytes = 500L * 1024 * 1024 * 1024, DiskKind disk = DiskKind.Ssd) => new(
+    private static IntegrationProbe BigGroup(long ramBytes = 8L * 1024 * 1024 * 1024, long diskBytes = 500L * 1024 * 1024 * 1024, DiskKind disk = DiskKind.Ssd, SensorType sensor = SensorType.Monochrome) => new(
         FrameCount: 244,
         FrameWidth: 3008, FrameHeight: 3008, ChannelCount: 3,
         CanvasWidth: 3024, CanvasHeight: 3015,
         AvailableRamBytes: ramBytes,
         AvailableDiskBytes: diskBytes,
         StagingDir: "C:/tmp",
+        SensorType: sensor,
         StagingDiskKind: disk);
 
     [Fact]
@@ -55,6 +58,113 @@ public class IntegrationStrategySelectorTests
         var inRam = selection.Considered.Single(c => c.Strategy.Kind == IntegrationStrategyKind.InRamAllFrames);
         inRam.Fit.CanRun.ShouldBeFalse();
         inRam.Fit.Rationale.ShouldContain("RAM");
+    }
+
+    [Fact]
+    public void BigGroup_RGGB_PicksBayerDrizzle()
+    {
+        // RGGB sensor + 244 frames (above the 60-frame coverage gate) +
+        // 16 GB host: drizzle should auto-win. The standard path's per-
+        // frame AHD + warp + reject-combine cost (~1000 ms / frame) is
+        // ~3-5x what drizzle's load+calibrate + forward-project (~300 ms /
+        // frame) needs; under Balanced policy that speed advantage wins
+        // over the 0.92-vs-0.98 fidelity discount.
+        var probe = BigGroup(ramBytes: 16L * 1024 * 1024 * 1024, sensor: SensorType.RGGB);
+
+        var selection = IntegrationStrategySelector.Pick(probe);
+
+        selection.Chosen.Kind.ShouldBeOneOf(
+            IntegrationStrategyKind.BayerDrizzle,
+            IntegrationStrategyKind.TilePipelinedDrizzle);
+        var drizzleCandidates = selection.Considered
+            .Where(c => c.Strategy.Kind is IntegrationStrategyKind.BayerDrizzle
+                or IntegrationStrategyKind.TilePipelinedDrizzle)
+            .ToArray();
+        drizzleCandidates.Length.ShouldBe(2,
+            "both drizzle variants should appear in the considered list on RGGB+N>=60");
+        drizzleCandidates.ShouldAllBe(c => c.Fit.CanRun);
+    }
+
+    [Fact]
+    public void SmallGroup_RGGB_GatesOutBayerDrizzleByFrameCount()
+    {
+        // RGGB sensor BUT only 13 frames -- below the 60-frame coverage
+        // gate. The per-Bayer-position coverage (~25% per channel) leaves
+        // big NaN gaps in R and B at this N, so drizzle stays gated even
+        // though the sensor type matches.
+        var probe = SmallGroup(sensor: SensorType.RGGB);
+
+        var selection = IntegrationStrategySelector.Pick(probe);
+
+        selection.Chosen.Kind.ShouldBe(IntegrationStrategyKind.InRamAllFrames);
+        var drizzle = selection.Considered.Single(c => c.Strategy.Kind == IntegrationStrategyKind.BayerDrizzle);
+        drizzle.Fit.CanRun.ShouldBeFalse();
+        drizzle.Fit.Rationale.ShouldContain("matched frames");
+    }
+
+    [Fact]
+    public void BigGroup_Monochrome_GatesOutBayerDrizzleBySensorType()
+    {
+        // 244 frames but mono sensor -- no Bayer matrix to dispatch from,
+        // so drizzle is meaningless. The selector falls back to the
+        // standard path (TilePipelined / FootprintStaged / etc.)
+        // depending on memory budget.
+        var probe = BigGroup(ramBytes: 16L * 1024 * 1024 * 1024, sensor: SensorType.Monochrome);
+
+        var selection = IntegrationStrategySelector.Pick(probe);
+
+        selection.Chosen.Kind.ShouldNotBe(IntegrationStrategyKind.BayerDrizzle);
+        selection.Chosen.Kind.ShouldNotBe(IntegrationStrategyKind.TilePipelinedDrizzle);
+        var drizzle = selection.Considered.Single(c => c.Strategy.Kind == IntegrationStrategyKind.BayerDrizzle);
+        drizzle.Fit.CanRun.ShouldBeFalse();
+        drizzle.Fit.Rationale.ShouldContain("RGGB");
+    }
+
+    [Fact]
+    public void RGGB_BelowDefaultMinFrames_AutoPicksDrizzleWhenMinFramesLowered()
+    {
+        // 50 frames, RGGB sensor. Default DrizzleStrategy uses
+        // AutoSelectMinFrameCount = 60, so the stock pool gates drizzle
+        // out. When the pipeline constructs a custom pool with
+        // minFrameCount=50 (as it would under --drizzle-min-frames 50),
+        // drizzle becomes auto-pickable. This proves the override
+        // threads through to the auto-pick path, not just the pre-gate.
+        var probe = new IntegrationProbe(
+            FrameCount: 50,
+            FrameWidth: 3008, FrameHeight: 3008, ChannelCount: 3,
+            CanvasWidth: 3024, CanvasHeight: 3015,
+            AvailableRamBytes: 16L * 1024 * 1024 * 1024,
+            AvailableDiskBytes: 500L * 1024 * 1024 * 1024,
+            StagingDir: "C:/tmp",
+            SensorType: SensorType.RGGB,
+            StagingDiskKind: DiskKind.Ssd);
+
+        // Default pool: drizzle gated by 60-frame minimum.
+        var defaultPick = IntegrationStrategySelector.Pick(probe);
+        var defaultDrizzle = defaultPick.Considered.Single(c => c.Strategy.Kind == IntegrationStrategyKind.BayerDrizzle);
+        defaultDrizzle.Fit.CanRun.ShouldBeFalse(
+            "default pool with minFrameCount=60 should gate out drizzle at N=50");
+        defaultDrizzle.Fit.Rationale.ShouldContain("matched frames");
+
+        // Custom pool: drizzle constructed with minFrameCount=50, matching
+        // what the pipeline would build when --drizzle-min-frames 50 is
+        // set. Both drizzle variants now accept N=50; selector picks one
+        // of them under Balanced policy.
+        var customPool = IntegrationStrategySelector.DefaultStrategies()
+            .Select(s => s.Kind switch
+            {
+                IntegrationStrategyKind.BayerDrizzle => (IIntegrationStrategy)new DrizzleStrategy(minFrameCount: 50),
+                IntegrationStrategyKind.TilePipelinedDrizzle => new TilePipelinedDrizzleStrategy(minFrameCount: 50),
+                _ => s,
+            })
+            .ToArray();
+        var customPick = IntegrationStrategySelector.Pick(probe, pool: customPool);
+        var customDrizzle = customPick.Considered.Single(c => c.Strategy.Kind == IntegrationStrategyKind.BayerDrizzle);
+        customDrizzle.Fit.CanRun.ShouldBeTrue(
+            $"custom pool with minFrameCount=50 should accept N=50 (rationale: {customDrizzle.Fit.Rationale})");
+        customPick.Chosen.Kind.ShouldBeOneOf(
+            IntegrationStrategyKind.BayerDrizzle,
+            IntegrationStrategyKind.TilePipelinedDrizzle);
     }
 
     [Fact]
