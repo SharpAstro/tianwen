@@ -1316,10 +1316,10 @@ internal partial record Session
 
             if (result.HasValue)
             {
-                var (wbR, wbG, wbB, matchCount) = result.Value;
+                var r = result.Value;
                 _logger.LogInformation(
-                    "SPCC: {MatchCount} stars, WB=(R:{R:F3} G:{G:F3} B:{B:F3}) for {Instrument} sensor={Sensor} filter={Filter}",
-                    matchCount, wbR, wbG, wbB,
+                    "SPCC: {Final}/{Initial} stars in {Iters} iter(s), WB=(R:{R:F3} G:{G:F3} B:{B:F3}) for {Instrument} sensor={Sensor} filter={Filter}",
+                    r.FinalMatches, r.InitialMatches, r.Iterations, r.R, r.G, r.B,
                     meta.Instrument,
                     meta.SensorModel is { Length: > 0 } s ? s : "?",
                     meta.Filter.FilterNameForFits);

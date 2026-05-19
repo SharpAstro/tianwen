@@ -143,8 +143,11 @@ public sealed class MasterPreviewRenderer(ICelestialObjectDB? catalogDb, ILogger
                         if (spcc is { } gains)
                         {
                             wbGains = (gains.R, gains.G, gains.B);
-                            logger.LogInformation("  [SPCC] WB=({R:F3}, {G:F3}, {B:F3}) from {Matches} Tycho-2 matches ({Ms} ms)",
-                                gains.R, gains.G, gains.B, gains.MatchCount, spccSw.ElapsedMilliseconds);
+                            logger.LogInformation(
+                                "  [SPCC] WB=({R:F3}, {G:F3}, {B:F3}) from {Final}/{Initial} Tycho-2 matches in {Iters} kappa-sigma iter(s) ({Ms} ms)",
+                                gains.R, gains.G, gains.B,
+                                gains.FinalMatches, gains.InitialMatches, gains.Iterations,
+                                spccSw.ElapsedMilliseconds);
                         }
                         else
                         {
