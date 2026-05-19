@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Library</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <IsTrimmable>True</IsTrimmable>
+    <IsAotCompatible>True</IsAotCompatible>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+
+  <!-- Bridge layer: the only project that knows both the astronomy domain
+       (TianWen.Lib's Image, FITS, plate solving) and the ONNX runtime
+       (TianWen.AI's EP resolver + session-options helpers). Concrete
+       enhancers (NafnetSharpener, WalkingNoiseDenoiser, ...) live here so
+       neither neighbour pays the cost of the other. -->
+  <ItemGroup>
+    <ProjectReference Include="..\TianWen.Lib\TianWen.Lib.csproj" />
+    <ProjectReference Include="..\TianWen.AI\TianWen.AI.csproj" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="../.editorconfig" Link=".editorconfig" />
+  </ItemGroup>
+
+</Project>

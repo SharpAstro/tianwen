@@ -1,0 +1,78 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Library</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <IsTrimmable>True</IsTrimmable>
+    <IsAotCompatible>True</IsAotCompatible>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+
+  <!-- Intentionally NO ProjectReference to TianWen.Lib. This project is a
+       thin ORT facade (EP resolver, session-options helpers, eventually
+       tensor utilities). The domain bridge (Image to/from tensor and the
+       concrete enhancers) lives in TianWen.AI.Imaging, which references both. -->
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
+  </ItemGroup>
+
+  <!-- ONNX Runtime native package selection by published RID. The CPU,
+       DirectML, and CUDA-GPU packages each carry their own native
+       onnxruntime build, so we pick exactly one per RID. AnyCPU dev/test
+       builds (no RuntimeIdentifier) fall through to the CPU baseline so
+       `dotnet build` / `dotnet test` work without pulling 800 MB of CUDA
+       libs that nobody needs at unit-test time. -->
+  <Choose>
+    <When Condition="'$(RuntimeIdentifier)' == 'win-arm64'">
+      <ItemGroup>
+        <!-- QNN EP for Snapdragon Hexagon NPU. Matches ../sebgod/testwinai.
+             Important: pure FP32 models (Cosmic Clarity / SetiAstro NAFNet
+             exports) silently fall back to CPU at the node level because
+             HTP is INT8/INT16-first. Real NPU acceleration requires an
+             INT8-quantized .onnx or a pre-compiled .serialized.bin from
+             the QNN SDK. The package's native onnxruntime build does not
+             include DirectML, so the iGPU path is off here, which is
+             fine on Snapdragon (NPU beats Adreno-via-DML for matmul-heavy
+             vision workloads). -->
+        <PackageReference Include="Microsoft.ML.OnnxRuntime.QNN" />
+      </ItemGroup>
+    </When>
+    <When Condition="'$(RuntimeIdentifier)' == 'win-x64'">
+      <ItemGroup>
+        <!-- DirectML EP works across NVIDIA, AMD, and Intel iGPUs via
+             D3D12; broadest Windows-x64 coverage with one package. -->
+        <PackageReference Include="Microsoft.ML.OnnxRuntime.DirectML" />
+      </ItemGroup>
+    </When>
+    <When Condition="'$(RuntimeIdentifier)' == 'linux-x64'">
+      <ItemGroup>
+        <!-- CUDA EP. Requires libcuda.so.1 + libcudart.so.X on the host;
+             if absent the runtime silently falls back to CPU. -->
+        <PackageReference Include="Microsoft.ML.OnnxRuntime.Gpu" />
+      </ItemGroup>
+    </When>
+    <Otherwise>
+      <!-- linux-arm64 (Pi/Jetson-non-CUDA), osx-x64, osx-arm64, and no-RID
+           dev builds. CoreML EP is bundled inside the base package on
+           Apple platforms (since ORT 1.16), no separate ref needed. -->
+      <ItemGroup>
+        <PackageReference Include="Microsoft.ML.OnnxRuntime" />
+      </ItemGroup>
+    </Otherwise>
+  </Choose>
+
+  <!-- The ORT managed wrapper reflects over tensor element types and over
+       its own session option attributes. Without rooting the assembly the
+       AOT trimmer drops type metadata and inference throws at first run.
+       Same pattern as ../sebgod/testwinai. -->
+  <ItemGroup>
+    <TrimmerRootAssembly Include="Microsoft.ML.OnnxRuntime" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="../.editorconfig" Link=".editorconfig" />
+  </ItemGroup>
+
+</Project>

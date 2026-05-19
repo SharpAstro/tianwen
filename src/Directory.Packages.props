@@ -27,6 +27,15 @@
     <PackageVersion Include="Microsoft.SourceLink.GitHub" Version="10.0.201" />
     <PackageVersion Include="System.IO.Ports" Version="10.0.5" />
     <PackageVersion Include="System.Numerics.Tensors" Version="10.0.5" />
+    <!-- ONNX Runtime: CPU baseline, plus per-RID accelerator variants. The
+         CPU / GPU / DirectML / QNN packages each bundle their own native
+         onnxruntime build, so consumers pick exactly ONE per published RID
+         (gated by RuntimeIdentifier in TianWen.AI.csproj). Floats to track
+         testwinai's transitive QNN version. -->
+    <PackageVersion Include="Microsoft.ML.OnnxRuntime" Version="1.24.*" />
+    <PackageVersion Include="Microsoft.ML.OnnxRuntime.Gpu" Version="1.24.*" />
+    <PackageVersion Include="Microsoft.ML.OnnxRuntime.DirectML" Version="1.24.*" />
+    <PackageVersion Include="Microsoft.ML.OnnxRuntime.QNN" Version="1.24.*" />
     <!-- Benchmark packages -->
     <PackageVersion Include="BenchmarkDotNet" Version="0.15.8" />
     <!-- Testing packages -->

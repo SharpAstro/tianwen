@@ -11,6 +11,8 @@
     <File Path="Directory.Packages.props" />
     <File Path="NuGet.config" />
   </Folder>
+  <Project Path="TianWen.AI/TianWen.AI.csproj" />
+  <Project Path="TianWen.AI.Imaging/TianWen.AI.Imaging.csproj" />
   <Project Path="TianWen.Cli/TianWen.Cli.csproj" />
   <Project Path="TianWen.Hosting/TianWen.Hosting.csproj" />
   <Project Path="TianWen.Server/TianWen.Server.csproj" />
