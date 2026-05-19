@@ -340,6 +340,7 @@ Learnings from PixInsight Statistical Stretch (SetiAstro, v2.3).
 
 - [ ] Extract distortion model (SIP polynomial coefficients) from plate solver output
 - [ ] Implement image undistortion using extracted distortion model
+- [ ] `CatalogPlateSolver` can't solve drizzle outputs from the CLI (`tianwen solve <fits>`) even with correct scale + search-origin hint -- returns "no solution". Same image solves cleanly from inside `StackingPipeline` because that path uses per-pass quad-tolerance ladders + retries against the reference frame. Either: surface the same per-pass tolerance ladder through `IPlateSolver.SolveFileAsync`, or have `tianwen solve` retry the ladder itself. Reproducer: `tianwen solve master_*_drizzle.fits --focus-length 2350 --pixel-size 3.76 --search-origin "<ra-h>,<dec>"`.
 
 ## Astrometry / Catalogs (Queries)
 
