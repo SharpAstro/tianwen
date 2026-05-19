@@ -253,5 +253,6 @@ public static class IntegrationStrategySelector
         new ChunkedTwoPassStrategy(),
         new LiveAccumulatorStrategy(),
         new DrizzleStrategy(),
+        new TilePipelinedDrizzleStrategy(),
     };
 }

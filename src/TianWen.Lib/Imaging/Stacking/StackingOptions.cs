@@ -77,6 +77,19 @@ namespace TianWen.Lib.Imaging.Stacking;
 /// temporal MIDDLE of a session makes per-frame rotation residuals
 /// symmetric around zero, balancing per-channel drizzle coverage. Off
 /// by default.</param>
+/// <param name="DisableBayerDrizzle">Opt out of drizzle auto-selection.
+/// Drizzle (both <see cref="IntegrationStrategyKind.BayerDrizzle"/> and
+/// <see cref="IntegrationStrategyKind.TilePipelinedDrizzle"/>) is
+/// auto-pickable when the sensor is RGGB and the matched-frame count
+/// meets the minimum coverage threshold (default 60). The 3-5x wall-
+/// time advantage usually beats the standard path under the Balanced
+/// ranking policy on RGGB input. Set this when you want the AHD-
+/// debayered + warp-rejected master instead -- e.g. for SPCC
+/// validation against a reference master, or when you specifically
+/// want the standard rejection kernel's outlier handling rather than
+/// drizzle's per-cell coverage map. <see cref="ForcedStrategy"/>
+/// overrides this either way (forcing BayerDrizzle still routes to
+/// the drizzle path even when this flag is true).</param>
 public sealed record StackingOptions(
     string DataRoot,
     string OutputDir,
@@ -92,4 +105,5 @@ public sealed record StackingOptions(
     bool SplitByPierSide = false,
     float HotPixelSigma = 8.0f,
     float? QualityRejectSigma = null,
-    string? ReferenceFrameHint = null);
+    string? ReferenceFrameHint = null,
+    bool DisableBayerDrizzle = false);

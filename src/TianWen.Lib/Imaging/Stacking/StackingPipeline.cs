@@ -587,26 +587,32 @@ public sealed class StackingPipeline(
         // checks would otherwise sneak through into RunAsync and produce
         // either a useless master (low N) or a wrong-channel-assignment
         // master (non-RGGB).
-        if (options.ForcedStrategy is IntegrationStrategyKind.BayerDrizzle)
+        // Both drizzle variants share the same algorithmic preconditions
+        // (RGGB sensor for Bayer dispatch + enough matched frames for
+        // robust R/B coverage); only memory layout differs. Gate them
+        // identically.
+        if (options.ForcedStrategy is IntegrationStrategyKind.BayerDrizzle
+            or IntegrationStrategyKind.TilePipelinedDrizzle)
         {
             var drizzleOpts = options.DrizzleOptions ?? new DrizzleOptions();
+            var kindName = options.ForcedStrategy.Value;
             if (referenceRaw.ImageMeta.SensorType != SensorType.RGGB)
             {
-                logger.LogWarning("  [skip] BayerDrizzle requires SensorType.RGGB (got {Sensor})",
-                    referenceRaw.ImageMeta.SensorType);
+                logger.LogWarning("  [skip] {Kind} requires SensorType.RGGB (got {Sensor})",
+                    kindName, referenceRaw.ImageMeta.SensorType);
                 try { Directory.Delete(stagingDir, recursive: true); } catch { /* hygiene */ }
                 return new GroupResult(slug, lightList.Count, matched.Count, Result: null, MasterFitsPath: null,
                     PreviewPngPath: null, Elapsed: groupSw.Elapsed,
-                    SkipReason: $"BayerDrizzle requires SensorType.RGGB (got {referenceRaw.ImageMeta.SensorType})");
+                    SkipReason: $"{kindName} requires SensorType.RGGB (got {referenceRaw.ImageMeta.SensorType})");
             }
             if (matched.Count < drizzleOpts.MinFrameCount)
             {
-                logger.LogWarning("  [skip] BayerDrizzle needs >= {Min} matched frames (got {Got}); drizzle coverage would be too sparse",
-                    drizzleOpts.MinFrameCount, matched.Count);
+                logger.LogWarning("  [skip] {Kind} needs >= {Min} matched frames (got {Got}); drizzle coverage would be too sparse",
+                    kindName, drizzleOpts.MinFrameCount, matched.Count);
                 try { Directory.Delete(stagingDir, recursive: true); } catch { /* hygiene */ }
                 return new GroupResult(slug, lightList.Count, matched.Count, Result: null, MasterFitsPath: null,
                     PreviewPngPath: null, Elapsed: groupSw.Elapsed,
-                    SkipReason: $"BayerDrizzle requires >= {drizzleOpts.MinFrameCount} matched frames (got {matched.Count})");
+                    SkipReason: $"{kindName} requires >= {drizzleOpts.MinFrameCount} matched frames (got {matched.Count})");
             }
         }
 
@@ -678,6 +684,11 @@ public sealed class StackingPipeline(
 
         // Snapshot host + pick strategy. Snapshot factory probes free
         // RAM + disk; the selector wants those for its budget gate.
+        // SensorType is pulled from the group key (the canonical scan-time
+        // value), not from the reference frame's meta -- they agree by
+        // construction since grouping keys on SensorType, but the group
+        // key is the source of truth for the whole group's invariants.
+        // Drizzle strategies key CanRun off this in their Evaluate.
         var probe = IntegrationProbe.Snapshot(
             frameCount: matched.Count,
             frameWidth: referenceDebayered.Width,
@@ -686,8 +697,42 @@ public sealed class StackingPipeline(
             canvasWidth: outWidth,
             canvasHeight: outHeight,
             stagingDir: stagingDir,
+            sensorType: key.CalibrationKey.SensorType,
             stagingDiskKind: DiskKind.Ssd);
-        var selection = IntegrationStrategySelector.Pick(probe, preferred: options.ForcedStrategy);
+        // Build the strategy pool. Two reasons to deviate from the default:
+        //   1) --no-bayer-drizzle: filter both drizzle variants out so
+        //      auto-pick falls back to the standard path.
+        //   2) --drizzle-min-frames N (N != 60): replace the default
+        //      drizzle instances with ones constructed against the
+        //      user-overridden minimum, so the auto-pick gate matches
+        //      what the user asked for. Without this, --drizzle-min-frames
+        //      would only affect the pre-strategy gate (which fires
+        //      ONLY on --strategy=BayerDrizzle/TilePipelinedDrizzle),
+        //      leaving the auto-pick path still using the hardcoded 60.
+        // ForcedStrategy still wins either way (the override bypasses
+        // CanRun and the pool entirely), so a user who passes both
+        // --no-bayer-drizzle and --strategy=BayerDrizzle gets drizzle.
+        IEnumerable<IIntegrationStrategy>? pool = null;
+        var drizzleMinFrames = options.DrizzleOptions?.MinFrameCount ?? DrizzleStrategy.AutoSelectMinFrameCount;
+        if (options.DisableBayerDrizzle)
+        {
+            pool = IntegrationStrategySelector.DefaultStrategies()
+                .Where(s => s.Kind is not IntegrationStrategyKind.BayerDrizzle
+                        and not IntegrationStrategyKind.TilePipelinedDrizzle)
+                .ToArray();
+        }
+        else if (drizzleMinFrames != DrizzleStrategy.AutoSelectMinFrameCount)
+        {
+            pool = IntegrationStrategySelector.DefaultStrategies()
+                .Select(s => s.Kind switch
+                {
+                    IntegrationStrategyKind.BayerDrizzle => (IIntegrationStrategy)new DrizzleStrategy(minFrameCount: drizzleMinFrames),
+                    IntegrationStrategyKind.TilePipelinedDrizzle => new TilePipelinedDrizzleStrategy(minFrameCount: drizzleMinFrames),
+                    _ => s,
+                })
+                .ToArray();
+        }
+        var selection = IntegrationStrategySelector.Pick(probe, preferred: options.ForcedStrategy, pool: pool);
         logger.LogInformation("  [strategy] picked {Kind} -- {Notes}", selection.Chosen.Kind, selection.Notes);
         logger.LogInformation("  [sink] {Sink} (canvas {GB:F2} GB)", selection.Sink, probe.CanvasBytes / 1e9);
         var sinkFactory = SinkFactories.Create(selection.Sink, stagingDir);
@@ -707,7 +752,17 @@ public sealed class StackingPipeline(
             : new Progress<IntegrationProgress>(p => progress.Report(
                 new StackingProgress(StackingPhase.Integrating, slug, p.CompletedItems, p.TotalItems, p)));
 
-        var isDrizzle = selection.Chosen.Kind == IntegrationStrategyKind.BayerDrizzle;
+        // Drizzle dispatch: BayerDrizzle (streaming, full-canvas accumulator)
+        // and TilePipelinedDrizzle (strip-pipelined accumulator) both run
+        // the drizzle algorithm and need DrizzleOptions + the bad-pixel
+        // mask. They differ in producer plumbing: streaming uses
+        // RawBayerFrames (one-shot, frame-at-a-time), tile-pipelined uses
+        // RawLightSources (multi-pass per strip from cached calibrated
+        // bayer). The bool `isDrizzle` gates BOTH; the producer pick
+        // happens inside that branch.
+        var isStreamingDrizzle = selection.Chosen.Kind == IntegrationStrategyKind.BayerDrizzle;
+        var isTiledDrizzle = selection.Chosen.Kind == IntegrationStrategyKind.TilePipelinedDrizzle;
+        var isDrizzle = isStreamingDrizzle || isTiledDrizzle;
         var job = new IntegrationJob(
             WarpedFrames: WarpedFramesProducer,
             ExpectedFrameCount: matched.Count,
@@ -722,7 +777,7 @@ public sealed class StackingPipeline(
             CanvasHeight: outHeight,
             Progress: integrationProgress,
             MasterSinkFactory: sinkFactory,
-            RawBayerFrames: isDrizzle ? RawBayerFramesProducer : null,
+            RawBayerFrames: isStreamingDrizzle ? RawBayerFramesProducer : null,
             DrizzleOptions: isDrizzle ? (options.DrizzleOptions ?? new DrizzleOptions()) : null,
             BadPixelMask: isDrizzle ? badPixelMask : null);
 
@@ -754,7 +809,13 @@ public sealed class StackingPipeline(
         // data itself, so a strategy-per-filename split would just add
         // noise. The strategy IS recorded in the SWCREATE+STRATEGY
         // headers regardless of strategy, so provenance stays queryable.
-        var strategySuffix = selection.Chosen.Kind == IntegrationStrategyKind.BayerDrizzle
+        // Both drizzle variants emit byte-equivalent output (same kernel,
+        // same final divide), so they share the _drizzle infix. Other
+        // strategies share the canonical master_<slug>.fits name -- their
+        // differences in memory layout / staging / rejection kernel are
+        // invisible in the output FITS bytes.
+        var strategySuffix = selection.Chosen.Kind is IntegrationStrategyKind.BayerDrizzle
+            or IntegrationStrategyKind.TilePipelinedDrizzle
             ? "_drizzle"
             : "";
         var masterPath = Path.Combine(outputDir, $"master_{slug}{strategySuffix}.fits");

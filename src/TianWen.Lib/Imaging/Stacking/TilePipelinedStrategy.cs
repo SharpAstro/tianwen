@@ -277,7 +277,7 @@ public sealed class TilePipelinedStrategy : IIntegrationStrategy
                 }
 
                 var transform = sources[f].TransformToCanvas;
-                var sourceRect = ProjectCanvasRectToSourceRect(stripRect, transform, rawW, rawH, projectionHalo);
+                var sourceRect = CanvasGeometry.ProjectCanvasRectToSourceRect(stripRect, transform, rawW, rawH, projectionHalo);
 
                 // Sub-region debayer of the strip's source footprint (plus
                 // halo) into the pre-allocated full-canvas dest. Only the
@@ -337,43 +337,6 @@ public sealed class TilePipelinedStrategy : IIntegrationStrategy
             throw new InvalidDataException($"TilePipelinedStrategy: failed to read raw FITS at {source.Path}");
         }
         return calibrator.Apply(raw);
-    }
-
-    /// <summary>Inverse-transform a canvas rectangle to its bounding box in
-    /// source-frame coordinates, then expand by <paramref name="halo"/> pixels
-    /// (for bilinear sampling + numerical cushion) and clamp to source bounds.
-    /// Used by pass 2 to figure out how much of the calibrated raw needs to be
-    /// debayered for a given canvas strip.</summary>
-    private static Rectangle ProjectCanvasRectToSourceRect(
-        Rectangle canvasRect, System.Numerics.Matrix3x2 transformToCanvas, int srcW, int srcH, int halo)
-    {
-        if (!System.Numerics.Matrix3x2.Invert(transformToCanvas, out var inverse))
-        {
-            // Non-invertible transform shouldn't happen for the affine fits
-            // we ship -- fall back to full source.
-            return new Rectangle(0, 0, srcW, srcH);
-        }
-
-        Span<System.Numerics.Vector2> corners = stackalloc System.Numerics.Vector2[4];
-        corners[0] = new System.Numerics.Vector2(canvasRect.X, canvasRect.Y);
-        corners[1] = new System.Numerics.Vector2(canvasRect.Right, canvasRect.Y);
-        corners[2] = new System.Numerics.Vector2(canvasRect.X, canvasRect.Bottom);
-        corners[3] = new System.Numerics.Vector2(canvasRect.Right, canvasRect.Bottom);
-
-        var min = new System.Numerics.Vector2(float.PositiveInfinity, float.PositiveInfinity);
-        var max = new System.Numerics.Vector2(float.NegativeInfinity, float.NegativeInfinity);
-        for (var i = 0; i < 4; i++)
-        {
-            var srcPos = System.Numerics.Vector2.Transform(corners[i], inverse);
-            min = System.Numerics.Vector2.Min(min, srcPos);
-            max = System.Numerics.Vector2.Max(max, srcPos);
-        }
-
-        var x0 = Math.Max(0, (int)Math.Floor(min.X) - halo);
-        var y0 = Math.Max(0, (int)Math.Floor(min.Y) - halo);
-        var x1 = Math.Min(srcW, (int)Math.Ceiling(max.X) + halo);
-        var y1 = Math.Min(srcH, (int)Math.Ceiling(max.Y) + halo);
-        return new Rectangle(x0, y0, Math.Max(0, x1 - x0), Math.Max(0, y1 - y0));
     }
 
     private static void CopyStripIntoMaster(Image stripImage, float[][,] masterData, int stripY0, int channelCount)

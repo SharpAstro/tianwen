@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using TianWen.Lib.Imaging;
 
 namespace TianWen.Lib.Imaging.Stacking;
 
@@ -87,6 +88,18 @@ public sealed record IntegrationProbe(
     long AvailableRamBytes,
     long AvailableDiskBytes,
     string StagingDir,
+    // Sensor type of the reference frame, authoritatively the group's
+    // <see cref="LightGroupKey.CalibrationKey"/>.SensorType. The scanner
+    // pins this at scan-time from per-frame FITS headers; it's invariant
+    // within a group (frames with different SensorType end up in
+    // different groups by construction). Required (no default) so a
+    // caller that doesn't know the sensor type has to make an explicit
+    // choice -- <see cref="Imaging.SensorType.Monochrome"/> for the safe
+    // "no Bayer matrix" assumption, matching the Image / ImageMeta
+    // convention. Drizzle strategies key CanRun off this; only
+    // <see cref="Imaging.SensorType.RGGB"/> exposes the Bayer-encoded
+    // source plane the forward-projection kernel dispatches from.
+    SensorType SensorType,
     DiskKind StagingDiskKind = DiskKind.Unknown,
     bool EmitRejectionMap = true,
     bool LiveStacking = false,
@@ -127,6 +140,7 @@ public sealed record IntegrationProbe(
         int canvasWidth,
         int canvasHeight,
         string stagingDir,
+        SensorType sensorType,
         DiskKind stagingDiskKind = DiskKind.Unknown,
         bool emitRejectionMap = true,
         bool liveStacking = false)
@@ -151,7 +165,8 @@ public sealed record IntegrationProbe(
             StagingDiskKind: stagingDiskKind,
             EmitRejectionMap: emitRejectionMap,
             LiveStacking: liveStacking,
-            FreeRamBytes: currentlyFree);
+            FreeRamBytes: currentlyFree,
+            SensorType: sensorType);
     }
 }
 
@@ -210,6 +225,17 @@ public sealed record IntegrationCostModel
     /// factor of ~10 -- this constant is the single biggest determinant of
     /// pipeline wall time on raw FITS lights.</summary>
     public double CpuNsPerDebayerPixel { get; init; } = 60.0;
+
+    /// <summary>Per-source-pixel CPU cost of drizzle forward-projection (ns).
+    /// Each Bayer sample touches up to 4 output cells at pixfrac=1; the inner
+    /// loop is 4 multiplies + 4 adds + 4 stores per cell, ~30 ns per source
+    /// pixel measured empirically from earlier SoL drizzle runs. This is
+    /// what the drizzle family pays instead of <see cref="CpuNsPerDebayerPixel"/>
+    /// + <see cref="CpuNsPerWarpPixel"/> + <see cref="CpuNsPerStackPixelPerFrame"/>;
+    /// the net is ~3-5x speedup vs the standard path on RGGB inputs, which
+    /// is what makes drizzle competitive enough to auto-select on big-N
+    /// sessions despite its 0.92 vs 0.98 fidelity discount.</summary>
+    public double CpuNsPerDrizzleProjectPixel { get; init; } = 30.0;
 
     /// <summary>Float16 unpack overhead per pixel on read (ns). Cheap thanks to
     /// hardware f16->f32 paths, but not zero.</summary>

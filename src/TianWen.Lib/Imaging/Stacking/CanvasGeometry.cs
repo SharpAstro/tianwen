@@ -219,4 +219,52 @@ internal static class CanvasGeometry
         var t = ((a.X - p1.X) * ey - (a.Y - p1.Y) * ex) / denom;
         return new Vector2(p1.X + t * dx, p1.Y + t * dy);
     }
+
+    /// <summary>
+    /// Inverse-transform a canvas rectangle to its bounding box in source-frame
+    /// coordinates, then expand by <paramref name="halo"/> pixels (sampler /
+    /// numerical cushion) and clamp to source bounds. Used by tile-pipelined
+    /// strategies to figure out how much of the source frame needs to be
+    /// touched for a given canvas strip -- only those pixels can project into
+    /// the strip, the rest can be skipped entirely.
+    /// </summary>
+    /// <param name="canvasRect">Strip rectangle on the output canvas.</param>
+    /// <param name="transformToCanvas">Frame's source -> canvas affine.</param>
+    /// <param name="srcW">Source frame width.</param>
+    /// <param name="srcH">Source frame height.</param>
+    /// <param name="halo">Pixels to expand on each side for sampler safety
+    /// (bilinear: 1 px; AHD: 5 px; drizzle forward-project: 1 px is sufficient
+    /// since the drop covers a unit cell at most).</param>
+    public static Rectangle ProjectCanvasRectToSourceRect(
+        Rectangle canvasRect, Matrix3x2 transformToCanvas, int srcW, int srcH, int halo)
+    {
+        if (!Matrix3x2.Invert(transformToCanvas, out var inverse))
+        {
+            // Non-invertible transform shouldn't happen for affine fits we
+            // ship -- fall back to the whole source so the caller still gets
+            // a non-empty result rather than dropping the frame silently.
+            return new Rectangle(0, 0, srcW, srcH);
+        }
+
+        Span<Vector2> corners = stackalloc Vector2[4];
+        corners[0] = new Vector2(canvasRect.X, canvasRect.Y);
+        corners[1] = new Vector2(canvasRect.Right, canvasRect.Y);
+        corners[2] = new Vector2(canvasRect.X, canvasRect.Bottom);
+        corners[3] = new Vector2(canvasRect.Right, canvasRect.Bottom);
+
+        var min = new Vector2(float.PositiveInfinity, float.PositiveInfinity);
+        var max = new Vector2(float.NegativeInfinity, float.NegativeInfinity);
+        for (var i = 0; i < 4; i++)
+        {
+            var srcPos = Vector2.Transform(corners[i], inverse);
+            min = Vector2.Min(min, srcPos);
+            max = Vector2.Max(max, srcPos);
+        }
+
+        var x0 = Math.Max(0, (int)Math.Floor(min.X) - halo);
+        var y0 = Math.Max(0, (int)Math.Floor(min.Y) - halo);
+        var x1 = Math.Min(srcW, (int)Math.Ceiling(max.X) + halo);
+        var y1 = Math.Min(srcH, (int)Math.Ceiling(max.Y) + halo);
+        return new Rectangle(x0, y0, Math.Max(0, x1 - x0), Math.Max(0, y1 - y0));
+    }
 }
