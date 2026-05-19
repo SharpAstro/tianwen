@@ -77,8 +77,8 @@ namespace TianWen.Lib.Imaging.Stacking;
 /// temporal MIDDLE of a session makes per-frame rotation residuals
 /// symmetric around zero, balancing per-channel drizzle coverage. Off
 /// by default.</param>
-/// <param name="IncludeStackProducts">When true, the scan keeps frames with a
-/// non-zero FITS <c>STACK_N</c> header (i.e. masters integrated by a previous
+/// <param name="IncludeIntegrations">When true, the scan keeps frames with a
+/// non-zero FITS <c>STACK_N</c> header (integrated masters from a previous
 /// run) and feeds them into the next-stage grouping. Two-stage mosaic
 /// stacking is the canonical use case: each panel is integrated separately,
 /// then the resulting masters are re-stacked as the panel-aligned final
@@ -117,4 +117,4 @@ public sealed record StackingOptions(
     float? QualityRejectSigma = null,
     string? ReferenceFrameHint = null,
     bool DisableBayerDrizzle = false,
-    bool IncludeStackProducts = false);
+    bool IncludeIntegrations = false);

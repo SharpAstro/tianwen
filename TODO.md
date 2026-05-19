@@ -340,6 +340,7 @@ Learnings from PixInsight Statistical Stretch (SetiAstro, v2.3).
 
 - [ ] Extract distortion model (SIP polynomial coefficients) from plate solver output
 - [ ] Implement image undistortion using extracted distortion model
+- [x] `CatalogPlateSolver` can't solve drizzle outputs from the CLI (`tianwen solve <fits>`) -- root cause was **`ICelestialObjectDB.InitDBAsync` was never called from the CLI's solve path**. The `StackingPipeline` path works because `MasterPostProcessor.cs:114` explicitly awaits `InitDBAsync(waitForTycho2BulkLoad: true, ct)` before invoking the solver; the CLI's `solve` subcommand skipped it. Without init, the catalog query returned 0 stars and the solver bailed in ~50 ms with no useful diagnostic (the ctor accepted `ILogger? logger = null` and DI's non-generic `ILogger` resolution silently left it `null`, so internal `_logger?.LogDebug` lines never fired). Fix: (1) self-init inside `CatalogPlateSolver.SolveImageAsync` via the idempotent `_isInitialized` fast path so any caller works; (2) DI registration switched to a factory lambda in `AstrometryServiceCollectionExtensions.cs` that resolves `ILogger<CatalogPlateSolver>` and upcasts to the ctor's non-generic `ILogger`. Verified: SoL drizzle + drizzle_autocrop both solve cleanly via CLI (RA=11.196h Dec=-61.35°, 887/969 and 663/753 stars matched; ~580 ms cold including Tycho-2 bulk decode, ~70 ms warm).
 
 ## Astrometry / Catalogs (Queries)
 

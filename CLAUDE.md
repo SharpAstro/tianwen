@@ -192,6 +192,31 @@ for supported keys.
 - `AstapPlateSolver` — wraps `astap_cli`; needs ~44 stars
 - `AstrometryNetPlateSolver` — wraps `solve-field`; slower fallback
 
+**`CatalogPlateSolver` requires Tycho-2 to be loaded.** The solver self-inits the
+`ICelestialObjectDB` at the top of `SolveImageAsync` via the idempotent `InitDBAsync`
+fast path (`_isInitialized`), so any caller (CLI, hosted API, tests) works without
+remembering to init upstream. First call pays the Tycho-2 bulk-decode cost (~500 ms
+typical); subsequent calls are free.
+
+**DI registration uses a factory lambda** (`AstrometryServiceCollectionExtensions.cs`):
+
+```csharp
+.AddSingleton<IPlateSolver>(sp => new CatalogPlateSolver(
+    sp.GetRequiredService<ICelestialObjectDB>(),
+    sp.GetRequiredService<ILogger<CatalogPlateSolver>>()))
+```
+
+The short form `AddSingleton<IPlateSolver, CatalogPlateSolver>()` does NOT work for any
+ctor with a non-generic `ILogger` parameter — `Microsoft.Extensions.Logging` only
+registers `ILogger<T>` (open generic) and `ILoggerFactory`, never `ILogger` directly.
+A ctor `(Foo, ILogger? logger = null)` therefore silently gets `logger = null` from DI,
+and `_logger?.LogDebug(...)` lines never fire — which is exactly how the
+"`CatalogPlateSolver` fails on drizzle outputs from `tianwen solve`" bug hid for weeks.
+**Rule:** ctor params should be `ILogger<TSelf> logger` for direct DI resolution, or
+use a factory lambda when a non-generic `ILogger` ctor parameter must be preserved
+(e.g. so the same class can be manually constructed by another component that already
+holds an `ILogger`).
+
 ### Session
 
 `Session` (`TianWen.Lib/Sequencing/Session.cs`) is the central orchestrator. **Single-mount /

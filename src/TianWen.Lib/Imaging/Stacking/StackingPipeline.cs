@@ -151,9 +151,9 @@ public sealed class StackingPipeline(
         var source = new FitsFolderFrameSource(options.DataRoot, recursive: true);
         var allFrames = new List<FrameInfo>();
         var outputDirNormalised = Path.GetFullPath(outputDir);
-        var stackProductSkipped = 0;
+        var integrationSkipped = 0;
         var rejectionMapSkipped = 0;
-        var stackProductKept = 0;
+        var integrationKept = 0;
         await foreach (var frame in source.EnumerateAsync(ct))
         {
             // Skip anything under outputDir -- masters and previous-run
@@ -166,7 +166,7 @@ public sealed class StackingPipeline(
             }
             // Rejection maps carry STACK_N too but are per-pixel
             // rejection-fraction images, not sky data -- always drop them
-            // regardless of IncludeStackProducts. Filename suffix is the
+            // regardless of IncludeIntegrations. Filename suffix is the
             // canonical IntegrationFitsWriter marker; check both bare and
             // .gz variants since FitsFolderFrameSource accepts both.
             if (frame.Path.EndsWith(IntegrationFitsWriter.RejectionMapSuffix, StringComparison.OrdinalIgnoreCase) ||
@@ -175,24 +175,24 @@ public sealed class StackingPipeline(
                 rejectionMapSkipped++;
                 continue;
             }
-            // STACK_N marks any stacking product (master or rejection map);
-            // the rejection branch above has already filtered the latter,
-            // so reaching here with STACK_N>0 means an integrated master.
-            // Default policy is to drop them -- stale masters in adjacent
-            // output-*/ dirs from prior runs would otherwise look like
-            // ordinary 1-frame FITS to the scan and partition the lights
-            // into ghost MasterGroupKey buckets. IncludeStackProducts opts
-            // in for two-stage mosaic stacking where each panel is integrated
+            // STACK_N marks any integration product (master or rejection map);
+            // the rejection branch above has already filtered the latter, so
+            // reaching here with STACK_N>0 means an integrated master. Default
+            // policy is to drop them -- stale masters in adjacent output-*/
+            // dirs from prior runs would otherwise look like ordinary 1-frame
+            // FITS to the scan and partition the lights into ghost
+            // MasterGroupKey buckets. IncludeIntegrations opts in for
+            // two-stage mosaic stacking where each panel is integrated
             // separately, then the panel masters are re-stacked.
             if (frame.StackedFrameCount > 0)
             {
-                if (options.IncludeStackProducts)
+                if (options.IncludeIntegrations)
                 {
-                    stackProductKept++;
+                    integrationKept++;
                 }
                 else
                 {
-                    stackProductSkipped++;
+                    integrationSkipped++;
                     continue;
                 }
             }
@@ -202,15 +202,15 @@ public sealed class StackingPipeline(
         {
             logger.LogInformation("[scan] ignored {Count} rejection map(s)", rejectionMapSkipped);
         }
-        if (stackProductSkipped > 0)
+        if (integrationSkipped > 0)
         {
-            logger.LogInformation("[scan] ignored {Count} stack product(s) (STACK_N set); pass --include-stack-products to keep them",
-                stackProductSkipped);
+            logger.LogInformation("[scan] ignored {Count} integration(s) (STACK_N set); pass --include-integrations to keep them",
+                integrationSkipped);
         }
-        if (stackProductKept > 0)
+        if (integrationKept > 0)
         {
-            logger.LogInformation("[scan] keeping {Count} stack product(s) as input (IncludeStackProducts=true)",
-                stackProductKept);
+            logger.LogInformation("[scan] keeping {Count} integration(s) as input (IncludeIntegrations=true)",
+                integrationKept);
         }
         logger.LogInformation("[scan] {Count} frames in {ElapsedMs} ms", allFrames.Count, sw.ElapsedMilliseconds);
         hostTracker.Log(logger, "scan");

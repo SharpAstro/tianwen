@@ -581,7 +581,18 @@ public partial class Image
             AddHeaderValueIfHasValue("DEC", imageMeta.TargetDec, "degrees");
         }
         AddHeaderValueIfHasValue("SWCREATE", imageMeta.SWCreator, "");
-        if (imageMeta.SensorType is SensorType.RGGB)
+        // BAYERPAT / COLORTYP only make sense on a single-channel raw CFA
+        // image where the pattern is still latent in the pixel layout.
+        // A debayered RGB master (channelCount==3) has separate R/G/B
+        // planes -- downstream tools that see BAYERPAT will think they
+        // need to debayer again and produce double-debayered garbage.
+        // Note: BAYOFFX / BAYOFFY above are written unconditionally; for
+        // a debayered image they're effectively meaningless metadata but
+        // not actively misleading (no tool re-debayers from offsets
+        // alone). If we ever propagate the original CFA pattern through
+        // the integration result for forensics, gate them on the same
+        // channelCount==1 predicate.
+        if (imageMeta.SensorType is SensorType.RGGB && channelCount == 1)
         {
             AddHeaderValueIfHasValue("BAYERPAT", "RGGB", "");
             AddHeaderValueIfHasValue("COLORTYP", "RGGB", "");

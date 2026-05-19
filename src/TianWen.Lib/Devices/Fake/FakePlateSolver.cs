@@ -1,11 +1,13 @@
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using System;
 using System.Diagnostics;
+using System.Threading;
+using System.Threading.Tasks;
 using TianWen.Lib.Astrometry;
 using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Astrometry.PlateSolve;
 using TianWen.Lib.Imaging;
-using System.Threading;
-using System.Threading.Tasks;
 
 namespace TianWen.Lib.Devices.Fake;
 
@@ -20,9 +22,9 @@ internal class FakePlateSolver : IPlateSolver
 
     public FakePlateSolver() { }
 
-    public FakePlateSolver(ICelestialObjectDB db)
+    public FakePlateSolver(ICelestialObjectDB db, ILogger? logger = null)
     {
-        _catalogSolver = new CatalogPlateSolver(db);
+        _catalogSolver = new CatalogPlateSolver(db, logger ?? NullLogger.Instance);
     }
 
     public string Name => "Fake plate solver";
