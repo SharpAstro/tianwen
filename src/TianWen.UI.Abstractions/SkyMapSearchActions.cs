@@ -322,7 +322,29 @@ public static class SkyMapSearchActions
     private static int FuzzyMatchScore(string query, string entry)
     {
         if (entry.Equals(query, StringComparison.OrdinalIgnoreCase)) return 100;
-        if (entry.StartsWith(query, StringComparison.OrdinalIgnoreCase)) return 80;
+        if (entry.StartsWith(query, StringComparison.OrdinalIgnoreCase))
+        {
+            // Tie-break flat StartsWith matches by checking whether the prefix
+            // ends at a token boundary in the entry. Without this, a query like
+            // "TYC 425" gives every "TYC 425*" the same score (80) and the
+            // arbitrary HashSet iteration order through AllObjectIndices decides
+            // which 10 of "TYC 425-2502-1", "TYC 4250-1960-1", "TYC 4251-1273-1",
+            // ... survive the top-K cut -- so the user looking for Barnard's at
+            // "TYC 425-" sees TYC 4250- / TYC 4251- / TYC 4259- with TYC 425-
+            // itself missing.
+            //
+            // Bonus when the character after the matched prefix is a known
+            // separator ('-', ' ', '/', '.') -- that means the query covers a
+            // complete catalog token, not the middle of a longer number.
+            // "TYC 425" + '-' -> 95 (Barnard's TYC 425-2502-1 wins)
+            // "TYC 425" + '0' -> 80 (TYC 4250-1960-1 still appears below)
+            if (query.Length < entry.Length)
+            {
+                var next = entry[query.Length];
+                if (next is '-' or ' ' or '/' or '.') return 95;
+            }
+            return 80;
+        }
         if (entry.Contains(query, StringComparison.OrdinalIgnoreCase)) return 40;
         return 0;
     }
