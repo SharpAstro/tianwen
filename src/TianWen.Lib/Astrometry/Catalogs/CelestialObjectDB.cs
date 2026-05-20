@@ -91,6 +91,17 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
     private readonly SemaphoreSlim _initLock = new(1, 1);
 
     /// <summary>
+    /// Background bake of the sorted ordinal-ignore-case auto-complete list, kicked off
+    /// during init as soon as <see cref="_objectsByIndex"/>, <see cref="_crossIndexLookuptable"/>,
+    /// and <see cref="_objectsByCommonName"/> are fully populated (i.e. after the hd-hip-cross
+    /// phase — Tycho-2 bulk does not contribute names so we don't have to wait for it).
+    /// Costs ~300-600 ms on the ~400-600K entries the sky-map search modal binary-searches.
+    /// Doing it here pulls the cost off the first F3-keystroke critical path: by the time the
+    /// user opens search, the result is almost always already there.
+    /// </summary>
+    private Task<string[]>? _autoCompleteListTask;
+
+    /// <summary>
     /// Per-phase wall-clock timings captured during the last <see cref="InitDBAsync"/>
     /// call. Ordered by completion time. Populated fresh on every init; useful for
     /// benchmarks and diagnostics. Empty before first init.
@@ -584,6 +595,16 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
         }
         _lastInitPhaseTimings.Add(("hd-hip-cross", phaseSw.Elapsed));
 
+        // Kick off the sorted auto-complete list bake in the background. At this point every
+        // input the bake reads is frozen for the lifetime of this instance: _objectsByIndex
+        // and _crossIndexLookuptable are append-only during init (no further mutation after
+        // hd-hip-cross), and _objectsByCommonName likewise. The bake therefore needs no
+        // synchronisation with the rest of init; it runs in parallel with the (possibly
+        // already-finished) Tycho-2 bulk wait. First caller of CreateAutoCompleteList awaits
+        // the result; if init was kicked off well before search opens, the bake is done by
+        // then and the await is a no-op.
+        _autoCompleteListTask = Task.Run(BuildSortedAutoCompleteList, cancellationToken);
+
         // Optional: gate init completion on the bulk Tycho-2 load. Default false — runtime
         // callers that need this data will await EnsureTycho2DataLoadedAsync themselves.
         // Set true when the caller wants InitDBAsync to return only after every bit of
@@ -677,6 +698,46 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
     /// </summary>
     public Task EnsureTycho2DataLoadedAsync(CancellationToken cancellationToken = default)
         => _tycho2BulkLoadTask is { } t ? t.WaitAsync(cancellationToken) : Task.CompletedTask;
+
+    /// <summary>
+    /// Overrides the default interface implementation in <see cref="ICelestialObjectDB"/>.
+    /// Returns the result of the background bake started during init (see
+    /// <see cref="_autoCompleteListTask"/>), blocking only if the bake is still in flight.
+    /// Idempotent: subsequent calls return the same array reference.
+    /// <para>
+    /// Pre-init or when the bake task was somehow not started (defensive only — init always
+    /// starts it), falls back to building synchronously here so unit tests that construct
+    /// a partially-populated db can still call this without depending on init internals.
+    /// </para>
+    /// </summary>
+    public string[] CreateAutoCompleteList()
+        => _autoCompleteListTask is { } t ? t.GetAwaiter().GetResult() : BuildSortedAutoCompleteList();
+
+    /// <summary>
+    /// Pure CPU bake: enumerates <see cref="AllObjectIndices"/> + <see cref="CommonNames"/>
+    /// into a deduped array, then sorts ordinal-ignore-case so callers can binary-search
+    /// the prefix range. Identical contract to the default
+    /// <see cref="ICelestialObjectDB.CreateAutoCompleteList"/>, just packaged for off-init
+    /// thread-pool execution.
+    /// </summary>
+    private string[] BuildSortedAutoCompleteList()
+    {
+        var objIndices = AllObjectIndices;
+        var canonicalSet = new HashSet<string>((int)(objIndices.Count * 1.3f));
+        foreach (var objIndex in objIndices)
+        {
+            canonicalSet.Add(objIndex.ToCanonical(CanonicalFormat.Normal));
+            canonicalSet.Add(objIndex.ToCanonical(CanonicalFormat.Alternative));
+        }
+
+        var commonNames = CommonNames;
+        var names = new string[canonicalSet.Count + commonNames.Count];
+        canonicalSet.CopyTo(names, 0);
+        commonNames.CopyTo(names, canonicalSet.Count);
+
+        Array.Sort(names, StringComparer.OrdinalIgnoreCase);
+        return names;
+    }
 
     /// <summary>
     /// Snapshot of the state mutated by the most recent <see cref="BuildHdHipCrossIndicesViaTyc"/>
