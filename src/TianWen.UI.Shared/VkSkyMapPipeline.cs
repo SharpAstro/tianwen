@@ -657,6 +657,17 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
     private bool _disposed;
     private bool _geometryBuilt;
 
+    /// <summary>
+    /// Month-key the star buffer was built for, encoded as <c>year*12 + (month-1)</c>.
+    /// Sentinel <see cref="int.MinValue"/> means "not built yet". When this drifts
+    /// from the key of the current viewing epoch by even one month, the star
+    /// buffer is rebuilt with positions propagated to the new epoch via
+    /// per-star proper motion. Half-month worst-case pm drift at median
+    /// Tycho-2 pm of 7 mas/yr is ~0.3 mas -- well below any usable sky-map
+    /// pixel scale, so month-grain caching is conservative enough.
+    /// </summary>
+    private int _starBufferMonthKey = int.MinValue;
+
     // ────────────────────────────────────────────────── Construction
 
     public VkSkyMapPipeline(VulkanContext ctx)
@@ -678,23 +689,83 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
     public bool GeometryReady => _geometryBuilt;
 
     /// <summary>
-    /// Build all persistent vertex buffers from the star catalog. Call once when
-    /// <see cref="ICelestialObjectDB"/> becomes available.
+    /// Build all persistent vertex buffers from the star catalog, with Tycho-2
+    /// stars propagated from J2000 to <paramref name="starEpoch"/> via per-star
+    /// proper motion. Safe to call every frame -- early-returns when the
+    /// already-built buffer is current for the requested epoch's month
+    /// (Tycho-2 pm-induced drift inside a single month is sub-arcsec, far
+    /// below sky-map pixel scale, so monthly cache granularity is correct).
+    /// Crossing a month boundary rebuilds only the star buffer (one
+    /// <see cref="BuildStarBuffer"/> pass, ~1 s on a 2.5M-star catalog);
+    /// constellations, grid, and the ecliptic are epoch-independent and
+    /// stay in place.
     /// </summary>
-    public void BuildGeometry(ICelestialObjectDB db)
+    public void BuildGeometry(ICelestialObjectDB db, DateTimeOffset starEpoch)
     {
-        if (_geometryBuilt)
+        var monthKey = StarBufferMonthKey(starEpoch);
+        if (_geometryBuilt && monthKey == _starBufferMonthKey)
         {
             return;
         }
 
-        BuildStarBuffer(db);
+        var dtYr = MonthBakeEpoch(starEpoch).JulianYearsSinceJ2000();
+
+        if (_geometryBuilt)
+        {
+            // Month-transition rebuild: tear down only the star buffer; the
+            // other buffers are epoch-independent and don't need to be
+            // re-uploaded. _magLookup gets refreshed inside BuildStarBuffer.
+            //
+            // Wait for the GPU to finish draining any frame that's still using
+            // the old vertex buffer before destroying it. VulkanContext.DestroyBuffer
+            // is a straight vkDestroyBuffer + vkFreeMemory (no internal sync), so
+            // without this drain a still-in-flight draw command would dereference
+            // freed memory. The drain is once-per-month-transition and on the
+            // same call path as the ~1 s buffer rebuild, so the extra few ms
+            // is invisible.
+            _ctx.DeviceApi.vkDeviceWaitIdle();
+            DestroyBuffer(_starBuffer, _starMemory);
+            _starBuffer = default;
+            _starMemory = default;
+            _starCount = 0;
+            BuildStarBuffer(db, dtYr);
+            _starBufferMonthKey = monthKey;
+            return;
+        }
+
+        // First build: everything.
+        BuildStarBuffer(db, dtYr);
         BuildConstellationFigureBuffer(db);
         BuildConstellationBoundaryBuffer();
         BuildGridBuffers();
         BuildEclipticBuffer();
 
         _geometryBuilt = true;
+        _starBufferMonthKey = monthKey;
+    }
+
+    /// <summary>
+    /// Encodes a viewing epoch as an integer comparable month key
+    /// (<c>year * 12 + (month - 1)</c>). Equality on this key means
+    /// the cached star buffer's pm-propagated positions are still
+    /// accurate to within a half-month of pm drift.
+    /// </summary>
+    private static int StarBufferMonthKey(DateTimeOffset epoch)
+    {
+        var u = epoch.UtcDateTime;
+        return u.Year * 12 + (u.Month - 1);
+    }
+
+    /// <summary>
+    /// The fixed anchor inside a month that the cached star buffer is baked
+    /// against -- noon UTC on day 1. Half-month worst-case pm drift from
+    /// the anchor at typical Tycho-2 pm (7 mas/yr median) is ~0.3 mas,
+    /// invisible at any usable sky-map pixel scale.
+    /// </summary>
+    private static DateTimeOffset MonthBakeEpoch(DateTimeOffset epoch)
+    {
+        var u = epoch.UtcDateTime;
+        return new DateTimeOffset(u.Year, u.Month, 1, 12, 0, 0, TimeSpan.Zero);
     }
 
     /// <summary>
@@ -1098,7 +1169,7 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
 
     // ────────────────────────────────────────────────── Geometry builders
 
-    private void BuildStarBuffer(ICelestialObjectDB db)
+    private void BuildStarBuffer(ICelestialObjectDB db, double dtJulianYears)
     {
         // Stream the full Tycho-2 catalog (~2.5M stars). HIP stars are a subset so we
         // don't lose any bright stars by skipping the dedicated HIP loop. The existing
@@ -1108,6 +1179,9 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
         if (tycCount == 0)
         {
             // Fallback: older databases without the Tycho-2 binary still populate HIP.
+            // No pm available via the HIP TryLookup path, so this fallback renders
+            // at J2000 unconditionally. Acceptable -- it only fires on legacy DBs
+            // that don't have the Tycho-2 bulk data shipped in this build anyway.
             BuildStarBufferFromHip(db);
             return;
         }
@@ -1122,6 +1196,11 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
 
         // Worst case: one output slot per input star. Right-size to avoid List<T> growth.
         var floats = new List<float>(tycCount * floatsPerStar);
+
+        // Skip the per-star propagate entirely when dt is zero (synthetic test
+        // frames, missing DATE-OBS, etc) -- avoids 2.5M wasted cos(Dec) calls
+        // on the no-op branch.
+        var applyPm = dtJulianYears != 0.0;
 
         var copied = 0;
         while (copied < tycCount)
@@ -1140,7 +1219,16 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
                 {
                     continue;
                 }
-                var (x, y, z) = SkyMapState.RaDecToUnitVec(s.RaHours, s.DecDeg);
+
+                double ra = s.RaHours, dec = s.DecDeg;
+                if (applyPm && (s.PmRaTenthMasPerYr != 0 || s.PmDecTenthMasPerYr != 0))
+                {
+                    (ra, dec) = CoordinateUtils.PropagatePm(
+                        s.RaHours, s.DecDeg,
+                        s.PmRaMasPerYr, s.PmDecMasPerYr,
+                        dtJulianYears);
+                }
+                var (x, y, z) = SkyMapState.RaDecToUnitVec(ra, dec);
                 floats.Add(x);
                 floats.Add(y);
                 floats.Add(z);

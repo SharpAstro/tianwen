@@ -101,11 +101,12 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
         // Lazy-create the pipeline
         _pipeline ??= new VkSkyMapPipeline(renderer.Context);
 
-        // Build persistent geometry once when catalog is available
-        if (!_pipeline.GeometryReady)
-        {
-            _pipeline.BuildGeometry(db);
-        }
+        // Build persistent geometry on first frame after catalog is available, and
+        // rebuild the Tycho-2 star buffer with pm propagation whenever viewingTime
+        // crosses a month boundary. BuildGeometry is idempotent: it early-returns
+        // when the cached buffer's month key matches the viewing epoch, so calling
+        // it every frame here is cheap.
+        _pipeline.BuildGeometry(db, viewingTime);
 
         // Try loading the Milky Way texture from disk (once, after pipeline is ready)
         if (!_milkyWayLoadAttempted)
