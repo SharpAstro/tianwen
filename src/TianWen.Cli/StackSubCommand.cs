@@ -341,6 +341,16 @@ internal sealed class StackSubCommand(
                             $"detected={f.Detected} wcs-fail={f.WcsFail} no-cand={f.NoCandidates} " +
                             $"tol-miss={f.TolMissed} no-bv={f.NoBmv} no-v={f.NoVmag} " +
                             $"accepted={f.Accepted} k-rej={kRej}");
+
+                        // Per-quadrant tol-miss localisation -- if one corner has a much higher
+                        // tol-miss% than the centre-adjacent quadrants, that's the lens-distortion
+                        // signature pointing at SIP-polynomial fitting as the next step.
+                        consoleHost.WriteScrollable(
+                            $"[stack] {result.GroupSlug}: SPCC by-quadrant (det/tol-miss/acc)  " +
+                            $"TL={f.TL.Detected}/{f.TL.TolMissed}/{f.TL.Accepted}  " +
+                            $"TR={f.TR.Detected}/{f.TR.TolMissed}/{f.TR.Accepted}  " +
+                            $"BL={f.BL.Detected}/{f.BL.TolMissed}/{f.BL.Accepted}  " +
+                            $"BR={f.BR.Detected}/{f.BR.TolMissed}/{f.BR.Accepted}");
                     }
                     if (cropImage is not null)
                     {

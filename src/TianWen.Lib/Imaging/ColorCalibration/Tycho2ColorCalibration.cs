@@ -28,6 +28,13 @@ public static class Tycho2ColorCalibration
     /// only N reach the photometric fit?" -- so we can target the dominant
     /// failure mode (faint stars with no catalog at all? real-image distortion
     /// pushing positions past the tolerance? Tycho-2 photometry gaps?).
+    /// <para>
+    /// The per-quadrant breakdown (<see cref="TL"/> / <see cref="TR"/> /
+    /// <see cref="BL"/> / <see cref="BR"/>) splits stars by image-pixel
+    /// position relative to the centre, so a tol-miss imbalance ("BL=89% miss
+    /// vs centre TR=70% miss") signals corner distortion (SIP fix would help)
+    /// rather than uniform registration drift.
+    /// </para>
     /// </summary>
     public readonly record struct SpccFunnel(
         int Detected,
@@ -36,7 +43,21 @@ public static class Tycho2ColorCalibration
         int TolMissed,      // candidates exist but none within matchRadiusArcsec
         int NoBmv,          // matched but Tycho-2 BMinusV is missing (~4% of entries)
         int NoVmag,         // matched but V_Mag is also NaN (very rare)
-        int Accepted);      // entered the initial photometry set
+        int Accepted,       // entered the initial photometry set
+        SpccQuadrant TL,    // x < W/2, y < H/2 (image top-left, matches PNG render orientation)
+        SpccQuadrant TR,    // x >= W/2, y < H/2
+        SpccQuadrant BL,    // x < W/2, y >= H/2
+        SpccQuadrant BR);   // x >= W/2, y >= H/2
+
+    /// <summary>Per-quadrant slice of <see cref="SpccFunnel"/>. Carries only the
+    /// counters whose distribution across the image is diagnostic of the failure
+    /// mode (detect-density floor, tol-miss localisation, accept density).
+    /// Sum of all four quadrants' <see cref="Detected"/> equals
+    /// <see cref="SpccFunnel.Detected"/>.</summary>
+    public readonly record struct SpccQuadrant(
+        int Detected,
+        int TolMissed,
+        int Accepted);
 
     /// <summary>Outcome of the white-balance fit. Carries both the converged
     /// multipliers and the iteration trail (initial-vs-final match count +
@@ -93,7 +114,8 @@ public static class Tycho2ColorCalibration
         if (image.ChannelCount < 3 && image.ImageMeta.SensorType is not SensorType.RGGB) return null;
 
         var dtYr = ComputeDtJulianYears(image);
-        var (matches, funnel) = MatchStars(stars, wcs, db, matchRadiusArcsec, maxMagDiff, dtYr);
+        var (matches, funnel) = MatchStars(stars, wcs, db, matchRadiusArcsec, maxMagDiff, dtYr,
+            image.Width, image.Height);
         if (matches.Count < minStars) return null;
 
         var photometry = ExtractPhotometry(image, matches, apertureRadius,
@@ -135,7 +157,8 @@ public static class Tycho2ColorCalibration
         if (!FilterCurveDatabase.IsLoaded) return null;
 
         var dtYr = ComputeDtJulianYears(image);
-        var (matches, funnel) = MatchStars(stars, wcs, db, matchRadiusArcsec, maxMagDiff, dtYr);
+        var (matches, funnel) = MatchStars(stars, wcs, db, matchRadiusArcsec, maxMagDiff, dtYr,
+            image.Width, image.Height);
         if (matches.Count < minStars) return null;
 
         var photometry = ExtractPhotometry(image, matches, apertureRadius,
@@ -197,7 +220,8 @@ public static class Tycho2ColorCalibration
     private static (List<(ImagedStar Star, CelestialObject Tycho)> Matches, SpccFunnel Funnel) MatchStars(
         StarList stars, WCS wcs, ICelestialObjectDB db,
         float matchRadiusArcsec, float maxMagDiff,
-        double dtJulianYears)
+        double dtJulianYears,
+        int imageWidth, int imageHeight)
     {
         var matches = new List<(ImagedStar, CelestialObject)>();
         var matchRadiusDeg = matchRadiusArcsec / 3600.0;
@@ -206,8 +230,27 @@ public static class Tycho2ColorCalibration
         // sum == stars.Count by construction.
         int wcsFail = 0, noCand = 0, tolMissed = 0, noBmv = 0, noVmag = 0;
 
+        // Quadrant breakdown: split each detected star by (x, y) vs (W/2, H/2).
+        // detected[k] is incremented for every star in quadrant k; tolMissed[k]
+        // and accepted[k] only when those terminal buckets are hit. Lets the
+        // caller spot e.g. "BR quadrant has 90% tol-miss vs centre at 65%" --
+        // strong signal that lens distortion / SIP terms matter.
+        Span<int> qDetected = stackalloc int[4];
+        Span<int> qTolMissed = stackalloc int[4];
+        Span<int> qAccepted = stackalloc int[4];
+
+        var midX = imageWidth * 0.5f;
+        var midY = imageHeight * 0.5f;
+
         foreach (var star in stars)
         {
+            // Quadrant index: 0=TL, 1=TR, 2=BL, 3=BR. y is the FITS row index;
+            // we treat low y as "top" to match the rendered PNG orientation
+            // that humans look at -- TL in the funnel output corresponds to
+            // the upper-left of the master.png the renderer wrote.
+            var qIdx = (star.XCentroid >= midX ? 1 : 0) | (star.YCentroid >= midY ? 2 : 0);
+            qDetected[qIdx]++;
+
             var sky = wcs.PixelToSky(star.XCentroid + 1, star.YCentroid + 1);
             if (sky is not { } pos) { wcsFail++; continue; }
 
@@ -215,11 +258,12 @@ public static class Tycho2ColorCalibration
             if (candidates is not { Count: > 0 }) { noCand++; continue; }
 
             var (bestMatch, _) = FindBestMatch(star, pos, db, candidates, matchRadiusDeg, maxMagDiff, dtJulianYears);
-            if (bestMatch is not { } match) { tolMissed++; continue; }
+            if (bestMatch is not { } match) { tolMissed++; qTolMissed[qIdx]++; continue; }
             if (Half.IsNaN(match.BMinusV)) { noBmv++; continue; }
             if (Half.IsNaN(match.V_Mag)) { noVmag++; continue; }
 
             matches.Add((star, match));
+            qAccepted[qIdx]++;
         }
 
         var funnel = new SpccFunnel(
@@ -229,7 +273,11 @@ public static class Tycho2ColorCalibration
             TolMissed: tolMissed,
             NoBmv: noBmv,
             NoVmag: noVmag,
-            Accepted: matches.Count);
+            Accepted: matches.Count,
+            TL: new SpccQuadrant(qDetected[0], qTolMissed[0], qAccepted[0]),
+            TR: new SpccQuadrant(qDetected[1], qTolMissed[1], qAccepted[1]),
+            BL: new SpccQuadrant(qDetected[2], qTolMissed[2], qAccepted[2]),
+            BR: new SpccQuadrant(qDetected[3], qTolMissed[3], qAccepted[3]));
         return (matches, funnel);
     }
 
