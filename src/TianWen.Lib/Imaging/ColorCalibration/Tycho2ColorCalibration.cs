@@ -217,14 +217,17 @@ public static class Tycho2ColorCalibration
             if (obj.ObjectType is not ObjectType.Star) continue;
             if (Half.IsNaN(obj.BMinusV)) continue;
 
-            // Propagate Tycho-2 J2000 position to the image epoch. Non-Tycho-2
-            // candidates (cross-ref'd HD/HIP that landed here via the composite
-            // RA/Dec grid) skip the propagation -- the cross-walk loses pm
-            // anyway, and the typical 0.18" median drift sits well inside the
-            // 5" SPCC tolerance for those.
+            // Propagate Tycho-2 J2000 position to the image epoch. Cross-walked
+            // HIP/HD indices arrive here with obj.Index already resolved to the
+            // underlying TYC entry (TryLookupTycho2StarFromBinaryData constructs
+            // the CelestialObject with the TYC index, not the original query),
+            // so TryGetTycho2Star(obj.Index, ...) finds the pm whether the
+            // caller queried by TYC, HIP, or HD. Truly non-Tycho-2 candidates
+            // (no cross-ref to Tycho-2) skip the propagation -- there's no pm
+            // to apply for them anyway.
             double matchRa = obj.RA, matchDec = obj.Dec;
             if (dtJulianYears != 0.0
-                && db.TryGetTycho2Star(idx, out var tyc)
+                && db.TryGetTycho2Star(obj.Index, out var tyc)
                 && (tyc.PmRaTenthMasPerYr != 0 || tyc.PmDecTenthMasPerYr != 0))
             {
                 (matchRa, matchDec) = CoordinateUtils.PropagatePm(
