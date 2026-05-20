@@ -49,8 +49,14 @@ public static class SkyMapSearchActions
 
     /// <summary>
     /// Recompute <see cref="SkyMapSearchState.Results"/> from the current
-    /// <see cref="SkyMapSearchState.SearchInput"/> text. Same fuzzy-match rules
-    /// as the planner autocomplete (exact &gt; prefix &gt; substring).
+    /// <see cref="SkyMapSearchState.SearchInput"/> text. With Tycho-2 in the
+    /// catalog the index is ~2.5M entries; we exploit the fact that
+    /// <see cref="ICelestialObjectDB.CreateAutoCompleteList"/> returns its
+    /// entries sorted ordinal-ignore-case to binary-search the prefix
+    /// range in O(log N), then scan the contiguous prefix run for matches.
+    /// A substring fallback runs only when the prefix scan returns nothing,
+    /// keeping the steady-state hot path off the full-array scan that used
+    /// to fire on every keystroke.
     /// </summary>
     public static void FilterResults(SkyMapSearchState search, ICelestialObjectDB db)
     {
@@ -64,29 +70,70 @@ public static class SkyMapSearchActions
         }
 
         var index = search.SearchIndex;
-        var candidates = new List<(string Entry, int Score)>(capacity: MaxResults * 4);
-        var minScore = 0;
+        var candidates = new List<(string Entry, int Score)>(capacity: MaxResults * 2);
 
-        for (var i = 0; i < index.Length; i++)
+        // 1. Binary-search to find the first entry >= query, then iterate forward
+        //    while StartsWith(query) holds. The sorted array means this prefix
+        //    range is contiguous -- a couple log2(N) ~ 22 string compares followed
+        //    by O(matches) of linear scan.
+        var startIdx = LowerBound(index, query);
+        for (var i = startIdx; i < index.Length; i++)
         {
             var entry = index[i];
-            var score = FuzzyMatchScore(query, entry);
-            if (score <= minScore) continue;
-
-            candidates.Add((entry, score));
-            if (candidates.Count >= MaxResults * 4)
+            if (!entry.StartsWith(query, StringComparison.OrdinalIgnoreCase))
             {
-                candidates.Sort(static (a, b) => b.Score.CompareTo(a.Score));
-                candidates.RemoveRange(MaxResults, candidates.Count - MaxResults);
-                minScore = candidates[^1].Score;
+                // The sorted order means once StartsWith stops, no later entry
+                // can satisfy it either. Stop scanning.
+                break;
+            }
+
+            // Score the prefix match by whether it covers a complete catalog
+            // token (followed by a delimiter or end-of-string) vs sits in the
+            // middle of a longer token. The boundary case wins so e.g.
+            // "TYC 425" surfaces TYC 425-2502-1 ahead of TYC 4250-1960-1.
+            int score;
+            if (entry.Length == query.Length)
+            {
+                score = 100;  // exact
+            }
+            else
+            {
+                var next = entry[query.Length];
+                score = next is '-' or ' ' or '/' or '.' ? 95 : 80;
+            }
+            candidates.Add((entry, score));
+        }
+
+        // 2. Substring fallback: only run when prefix yielded nothing -- with
+        //    millions of entries a Contains scan is hundreds of ms, so we skip
+        //    it when the prefix already produced anything useful.
+        if (candidates.Count == 0)
+        {
+            for (var i = 0; i < index.Length; i++)
+            {
+                var entry = index[i];
+                if (entry.Contains(query, StringComparison.OrdinalIgnoreCase))
+                {
+                    candidates.Add((entry, 40));
+                    if (candidates.Count >= MaxResults * 2)
+                    {
+                        break;
+                    }
+                }
             }
         }
 
-        candidates.Sort(static (a, b) => b.Score.CompareTo(a.Score));
+        // Score DESC, then alphabetical ASC as a stable tie-break so the user
+        // sees a predictable ordering of equally-scored entries.
+        candidates.Sort(static (a, b) =>
+        {
+            var c = b.Score.CompareTo(a.Score);
+            return c != 0 ? c : string.Compare(a.Entry, b.Entry, StringComparison.OrdinalIgnoreCase);
+        });
 
-        var results = ImmutableArray.CreateBuilder<SkyMapSearchResult>(Math.Min(candidates.Count, MaxResults));
-        var seenIndices = new HashSet<CatalogIndex>();
         var take = Math.Min(candidates.Count, MaxResults);
+        var results = ImmutableArray.CreateBuilder<SkyMapSearchResult>(take);
+        var seenIndices = new HashSet<CatalogIndex>();
         for (var i = 0; i < take; i++)
         {
             var entry = candidates[i].Entry;
@@ -103,6 +150,31 @@ public static class SkyMapSearchActions
         search.Results = results.ToImmutable();
         search.SelectedResultIndex = search.Results.Length > 0 ? 0 : -1;
         search.ResultsScrollOffset = 0;
+    }
+
+    /// <summary>
+    /// Standard lower-bound binary search: returns the index of the first
+    /// entry in <paramref name="sorted"/> that is greater-or-equal to
+    /// <paramref name="query"/> under <see cref="StringComparison.OrdinalIgnoreCase"/>.
+    /// Returns <c>sorted.Length</c> when every entry is strictly less than the
+    /// query (i.e. query would insert at the end).
+    /// </summary>
+    private static int LowerBound(ImmutableArray<string> sorted, string query)
+    {
+        int lo = 0, hi = sorted.Length;
+        while (lo < hi)
+        {
+            var mid = (lo + hi) >> 1;
+            if (string.Compare(sorted[mid], query, StringComparison.OrdinalIgnoreCase) < 0)
+            {
+                lo = mid + 1;
+            }
+            else
+            {
+                hi = mid;
+            }
+        }
+        return lo;
     }
 
     /// <summary>
@@ -318,36 +390,6 @@ public static class SkyMapSearchActions
 
     private static CelestialObjectShape? ResolveShape(ICelestialObjectDB db, CatalogIndex idx)
         => db.TryGetShape(idx, out var shape) ? shape : null;
-
-    private static int FuzzyMatchScore(string query, string entry)
-    {
-        if (entry.Equals(query, StringComparison.OrdinalIgnoreCase)) return 100;
-        if (entry.StartsWith(query, StringComparison.OrdinalIgnoreCase))
-        {
-            // Tie-break flat StartsWith matches by checking whether the prefix
-            // ends at a token boundary in the entry. Without this, a query like
-            // "TYC 425" gives every "TYC 425*" the same score (80) and the
-            // arbitrary HashSet iteration order through AllObjectIndices decides
-            // which 10 of "TYC 425-2502-1", "TYC 4250-1960-1", "TYC 4251-1273-1",
-            // ... survive the top-K cut -- so the user looking for Barnard's at
-            // "TYC 425-" sees TYC 4250- / TYC 4251- / TYC 4259- with TYC 425-
-            // itself missing.
-            //
-            // Bonus when the character after the matched prefix is a known
-            // separator ('-', ' ', '/', '.') -- that means the query covers a
-            // complete catalog token, not the middle of a longer number.
-            // "TYC 425" + '-' -> 95 (Barnard's TYC 425-2502-1 wins)
-            // "TYC 425" + '0' -> 80 (TYC 4250-1960-1 still appears below)
-            if (query.Length < entry.Length)
-            {
-                var next = entry[query.Length];
-                if (next is '-' or ' ' or '/' or '.') return 95;
-            }
-            return 80;
-        }
-        if (entry.Contains(query, StringComparison.OrdinalIgnoreCase)) return 40;
-        return 0;
-    }
 
     private static void SlewTo(SkyMapState skyMap, double raHours, double decDeg)
     {

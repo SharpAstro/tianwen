@@ -170,10 +170,13 @@ public interface ICelestialObjectDB
 
     /// <summary>
     /// Uses <see cref="ICelestialObjectDB.CommonNames"/> and <see cref="ICelestialObjectDB.AllObjectIndices"/> to create a list
-    /// of all names and designations.
+    /// of all names and designations, **sorted ordinal-ignore-case ascending** so callers
+    /// can binary-search the prefix range in O(log N) and iterate matches as a contiguous
+    /// run. The sort also eliminates HashSet-iteration ordering randomness that previously
+    /// caused identically-scored prefix matches to surface in arbitrary order.
     /// </summary>
     /// <param name="this">Initialised object db</param>
-    /// <returns>copied array of all names and canonical designations</returns>
+    /// <returns>sorted (ordinal-ignore-case ascending) array of all names and canonical designations</returns>
     public string[] CreateAutoCompleteList()
     {
         var commonNames = CommonNames;
@@ -190,6 +193,7 @@ public interface ICelestialObjectDB
         canonicalSet.CopyTo(names, 0);
         commonNames.CopyTo(names, canonicalSet.Count);
 
+        Array.Sort(names, StringComparer.OrdinalIgnoreCase);
         return names;
     }
 }
