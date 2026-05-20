@@ -296,12 +296,13 @@ internal sealed class StackSubCommand(
                         Image.TryReadFitsFile(autocropFitsPath, out cropImage, out cropWcs);
                     }
 
+                    SpccDiagnostics? spcc = null;
                     if (Image.TryReadFitsFile(masterPath, out var masterImage, out var wcs) && masterImage is not null)
                     {
                         var pngPath = result.PreviewPngPath ?? Path.ChangeExtension(masterPath, ".png");
                         try
                         {
-                            await renderer.RenderAsync(
+                            spcc = await renderer.RenderAsync(
                                 masterImage,
                                 masterImage.ImageMeta,
                                 wcs,
@@ -315,6 +316,17 @@ internal sealed class StackSubCommand(
                             consoleHost.WriteError($"[stack] {result.GroupSlug}: PNG render failed: {ex.Message}");
                         }
                     }
+
+                    // Emit SPCC summary as part of the deterministic stack output. The renderer
+                    // also logs at Information level for the file logger, but Release console
+                    // is Warning-floored so we surface it here through IConsoleHost instead.
+                    if (spcc is { } s)
+                    {
+                        consoleHost.WriteScrollable(
+                            $"[stack] {result.GroupSlug}: SPCC WB=({s.WbR:F3}, {s.WbG:F3}, {s.WbB:F3}) " +
+                            $"{s.FinalMatches}/{s.InitialMatches} Tycho-2 matches " +
+                            $"({s.Iterations} iters, {s.Elapsed.TotalMilliseconds:F0} ms)");
+                    }
                     if (cropImage is not null)
                     {
                         // Pass cropImage as statsSource explicitly even
@@ -325,7 +337,9 @@ internal sealed class StackSubCommand(
                         var cropPngPath = Path.ChangeExtension(autocropFitsPath, ".png");
                         try
                         {
-                            await renderer.RenderAsync(
+                            // Discard the autocrop's SpccDiagnostics return: it computes the
+                            // same WB on the same stats source we already reported above.
+                            _ = await renderer.RenderAsync(
                                 cropImage,
                                 cropImage.ImageMeta,
                                 cropWcs,

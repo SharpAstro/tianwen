@@ -15,6 +15,19 @@ using TianWen.Lib.Stat;
 namespace TianWen.UI.Abstractions;
 
 /// <summary>
+/// Per-render SPCC outcome surfaced by <see cref="MasterPreviewRenderer.RenderAsync"/>
+/// so the calling subcommand can emit a deterministic <c>[stack] ... SPCC=...</c>
+/// summary line through its <c>IConsoleHost</c>. Keeps the SPCC diagnostic on the
+/// stack command's output channel (always visible in Release) instead of relying on
+/// the ILogger pipeline's Information level being enabled.
+/// </summary>
+public readonly record struct SpccDiagnostics(
+    float WbR, float WbG, float WbB,
+    int InitialMatches, int FinalMatches,
+    int Iterations,
+    TimeSpan Elapsed);
+
+/// <summary>
 /// Display-side post-processing for a stacking master: SPCC + sky-bg
 /// fallback WB, background neutralisation gain solve, then a stretched
 /// PNG preview with sRGB ICC. Pulled out of the original
@@ -55,7 +68,10 @@ public sealed class MasterPreviewRenderer(ICelestialObjectDB? catalogDb, ILogger
     /// <paramref name="statsSource"/> is null or shares the master's
     /// grid.</param>
     /// <param name="outputPath">PNG path to write.</param>
-    public async Task RenderAsync(
+    /// <returns>SPCC diagnostics when SPCC ran and produced a gain triple; null when
+    /// SPCC was skipped (mono master, missing WCS / catalog, insufficient throughput
+    /// data, or fewer than 3 stars).</returns>
+    public async Task<SpccDiagnostics?> RenderAsync(
         Image master,
         ImageMeta sensorMeta,
         WCS? wcs,
@@ -64,6 +80,7 @@ public sealed class MasterPreviewRenderer(ICelestialObjectDB? catalogDb, ILogger
         WCS? statsWcs = null,
         CancellationToken ct = default)
     {
+        SpccDiagnostics? spccDiagnostics = null;
         var sw = Stopwatch.StartNew();
         var stats = statsSource ?? master;
         // When stats is just master, statsWcs naturally collapses to wcs.
@@ -143,6 +160,11 @@ public sealed class MasterPreviewRenderer(ICelestialObjectDB? catalogDb, ILogger
                         if (spcc is { } gains)
                         {
                             wbGains = (gains.R, gains.G, gains.B);
+                            spccDiagnostics = new SpccDiagnostics(
+                                gains.R, gains.G, gains.B,
+                                gains.InitialMatches, gains.FinalMatches,
+                                gains.Iterations,
+                                spccSw.Elapsed);
                             logger.LogInformation(
                                 "  [SPCC] WB=({R:F3}, {G:F3}, {B:F3}) from {Final}/{Initial} Tycho-2 matches in {Iters} kappa-sigma iter(s) ({Ms} ms)",
                                 gains.R, gains.G, gains.B,
@@ -242,5 +264,7 @@ public sealed class MasterPreviewRenderer(ICelestialObjectDB? catalogDb, ILogger
             outputPath, renderSw.ElapsedMilliseconds);
 
         logger.LogInformation("  [preview] total {Ms} ms", sw.ElapsedMilliseconds);
+
+        return spccDiagnostics;
     }
 }

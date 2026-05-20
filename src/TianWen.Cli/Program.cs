@@ -4,7 +4,6 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Pastel;
 using System.CommandLine;
-using System.Diagnostics;
 using System.Text;
 using TianWen.Cli;
 using TianWen.Cli.Plan;
@@ -59,8 +58,17 @@ builder.Services
     .AddSingleton<DocumentCache>()
     .AddSingleton<IConsoleHost, ConsoleHost>();
 
-// File logger captures Debug+; console (when present) gets Warning+ unless debugging
-builder.Logging.SetMinimumLevel(Debugger.IsAttached ? LogLevel.Debug : LogLevel.Warning);
+// File logger captures Debug+; console (when present) gets Warning+ in Release so the
+// stack/solve subcommand output stays scannable. Debug builds get the full Debug firehose
+// so diagnostics like [SPCC]/[bgNeut]/[plateSolve] surface during development. Subcommands
+// that need a specific diagnostic in Release should surface it deliberately via
+// IConsoleHost (see StackSubCommand's `[stack] ...` lines) rather than depending on
+// raising the global log floor.
+#if DEBUG
+builder.Logging.SetMinimumLevel(LogLevel.Debug);
+#else
+builder.Logging.SetMinimumLevel(LogLevel.Warning);
+#endif
 builder.Logging.AddFilter<FileLoggerProvider>("", LogLevel.Debug);
 builder.Logging.AddFilter("Microsoft", LogLevel.Warning);
 builder.Logging.AddFilter("System", LogLevel.Warning);
