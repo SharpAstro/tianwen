@@ -12,7 +12,10 @@
     <!-- Core libraries -->
     <PackageVersion Include="CommunityToolkit.HighPerformance" Version="8.4.2" />
     <PackageVersion Include="DotNext.Threading" Version="6.1.0" />
-    <PackageVersion Include="FITS.Lib" Version="4.6.0" />
+    <!-- Floating 4.6.* picks up auto-versioned patch builds from FITS.Lib CI
+         (matches the SdlVulkan.Renderer / DIR.Lib / Console.Lib convention).
+         Bump the prefix manually on minor (4.6 -> 4.7) or major (4.X -> 5.X). -->
+    <PackageVersion Include="FITS.Lib" Version="4.6.*" />
     <PackageVersion Include="GeoTimeZone" Version="6.1.0" />
     <!-- Microsoft packages -->
     <PackageVersion Include="Microsoft.Extensions.DependencyInjection" Version="10.0.5" />
