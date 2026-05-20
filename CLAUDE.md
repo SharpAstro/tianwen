@@ -63,11 +63,14 @@ src/
 ├── TianWen.UI.Shared/             # SDL→InputKey mapping, Vulkan FITS pipeline, VkSkyMapPipeline
 ├── TianWen.UI.Gui/                # N.I.N.A.-style integrated GUI (AOT-published → `tianwen-gui`)
 ├── TianWen.UI.FitsViewer/         # Standalone FITS viewer (AOT-published → `tianwen-fits`)
-└── TianWen.UI.Benchmarks/         # BenchmarkDotNet performance tests
+├── TianWen.UI.Benchmarks/         # BenchmarkDotNet performance tests
+├── TianWen.AI/                    # ORT facade (EP resolver + session-options helpers)
+├── TianWen.AI.Imaging/            # Image ↔ tensor bridge + concrete enhancer wrappers
+└── TianWen.AI.MCP/                # MCP (Model Context Protocol) stdio server (AOT-published → `tianwen-mcp`)
 ```
 
-CLI, Server, FitsViewer, Gui set `<AssemblyName>` to a short lower-case name so the published
-binaries are `tianwen`, `tianwen-server`, `tianwen-fits`, `tianwen-gui`.
+CLI, Server, FitsViewer, Gui, MCP set `<AssemblyName>` to a short lower-case name so the published
+binaries are `tianwen`, `tianwen-server`, `tianwen-fits`, `tianwen-gui`, `tianwen-mcp`.
 
 ## Build & Test Commands
 

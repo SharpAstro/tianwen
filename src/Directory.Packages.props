@@ -23,6 +23,10 @@
     <PackageVersion Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.5" />
     <PackageVersion Include="Microsoft.Extensions.Logging.Console" Version="10.0.5" />
     <PackageVersion Include="Microsoft.Extensions.TimeProvider.Testing" Version="10.4.0" />
+    <!-- MCP server SDK for TianWen.AI.MCP. Hosts an MCP (Model Context Protocol)
+         stdio server so an AI assistant can call read-only debugging tools
+         against TianWen.Lib. AOT-compatible when registered via WithTools<T>(). -->
+    <PackageVersion Include="ModelContextProtocol" Version="1.1.0" />
     <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="18.3.0" />
     <PackageVersion Include="Microsoft.SourceLink.GitHub" Version="10.0.201" />
     <PackageVersion Include="System.IO.Ports" Version="10.0.5" />
