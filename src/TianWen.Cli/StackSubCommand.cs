@@ -317,15 +317,30 @@ internal sealed class StackSubCommand(
                         }
                     }
 
-                    // Emit SPCC summary as part of the deterministic stack output. The renderer
-                    // also logs at Information level for the file logger, but Release console
-                    // is Warning-floored so we surface it here through IConsoleHost instead.
+                    // Emit SPCC summary + per-gate funnel as part of the deterministic stack
+                    // output. The renderer also logs at Information level for the file logger,
+                    // but Release console is Warning-floored so we surface it here through
+                    // IConsoleHost instead.
+                    //
+                    // Funnel reads: "of <detected> stars FindStarsAsync reported, breakdown by
+                    // gate to the photometric kappa-sigma stage" -- lets us answer "why are we
+                    // losing X% of stars" by which counter dominates (no-cand = catalog missing,
+                    // tol-miss = WCS distortion, no-bv = Tycho-2 photometry gaps, k-rej =
+                    // kappa-sigma outliers after the match).
                     if (spcc is { } s)
                     {
                         consoleHost.WriteScrollable(
                             $"[stack] {result.GroupSlug}: SPCC WB=({s.WbR:F3}, {s.WbG:F3}, {s.WbB:F3}) " +
                             $"{s.FinalMatches}/{s.InitialMatches} Tycho-2 matches " +
                             $"({s.Iterations} iters, {s.Elapsed.TotalMilliseconds:F0} ms)");
+
+                        var f = s.Funnel;
+                        var kRej = s.InitialMatches - s.FinalMatches;
+                        consoleHost.WriteScrollable(
+                            $"[stack] {result.GroupSlug}: SPCC funnel " +
+                            $"detected={f.Detected} wcs-fail={f.WcsFail} no-cand={f.NoCandidates} " +
+                            $"tol-miss={f.TolMissed} no-bv={f.NoBmv} no-v={f.NoVmag} " +
+                            $"accepted={f.Accepted} k-rej={kRej}");
                     }
                     if (cropImage is not null)
                     {

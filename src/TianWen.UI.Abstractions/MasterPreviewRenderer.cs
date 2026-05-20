@@ -20,11 +20,19 @@ namespace TianWen.UI.Abstractions;
 /// summary line through its <c>IConsoleHost</c>. Keeps the SPCC diagnostic on the
 /// stack command's output channel (always visible in Release) instead of relying on
 /// the ILogger pipeline's Information level being enabled.
+/// <para>
+/// <see cref="Funnel"/> reports WHY the detected-star count dropped to
+/// <see cref="InitialMatches"/> -- whether stars never found a Tycho-2 candidate,
+/// were past the position tolerance, or had missing photometry. Lets the caller
+/// answer "of 500 detected stars why did only N reach SPCC?" without piecing it
+/// together from multiple log lines.
+/// </para>
 /// </summary>
 public readonly record struct SpccDiagnostics(
     float WbR, float WbG, float WbB,
     int InitialMatches, int FinalMatches,
     int Iterations,
+    Tycho2ColorCalibration.SpccFunnel Funnel,
     TimeSpan Elapsed);
 
 /// <summary>
@@ -164,6 +172,7 @@ public sealed class MasterPreviewRenderer(ICelestialObjectDB? catalogDb, ILogger
                                 gains.R, gains.G, gains.B,
                                 gains.InitialMatches, gains.FinalMatches,
                                 gains.Iterations,
+                                gains.Funnel,
                                 spccSw.Elapsed);
                             logger.LogInformation(
                                 "  [SPCC] WB=({R:F3}, {G:F3}, {B:F3}) from {Final}/{Initial} Tycho-2 matches in {Iters} kappa-sigma iter(s) ({Ms} ms)",

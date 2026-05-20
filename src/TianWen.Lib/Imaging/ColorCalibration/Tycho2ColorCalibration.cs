@@ -22,15 +22,34 @@ public static class Tycho2ColorCalibration
         double ExpectedR, double ExpectedG, double ExpectedB,
         double Magnitude);
 
+    /// <summary>Per-gate funnel diagnostic for <see cref="MatchStars"/>. Every
+    /// detected star ends in exactly one of the bucket counters; the sum equals
+    /// <see cref="Detected"/>. Used to answer "of 500 detected stars why did
+    /// only N reach the photometric fit?" -- so we can target the dominant
+    /// failure mode (faint stars with no catalog at all? real-image distortion
+    /// pushing positions past the tolerance? Tycho-2 photometry gaps?).
+    /// </summary>
+    public readonly record struct SpccFunnel(
+        int Detected,
+        int WcsFail,        // PixelToSky returned null (out-of-WCS-bounds star)
+        int NoCandidates,   // CoordinateGrid cell is empty -- Tycho-2 has nothing nearby
+        int TolMissed,      // candidates exist but none within matchRadiusArcsec
+        int NoBmv,          // matched but Tycho-2 BMinusV is missing (~4% of entries)
+        int NoVmag,         // matched but V_Mag is also NaN (very rare)
+        int Accepted);      // entered the initial photometry set
+
     /// <summary>Outcome of the white-balance fit. Carries both the converged
     /// multipliers and the iteration trail (initial-vs-final match count +
     /// iteration count) so the caller can log "started with 127 candidates,
-    /// 119 survived 3-iter kappa-sigma" without re-deriving the numbers.</summary>
+    /// 119 survived 3-iter kappa-sigma" without re-deriving the numbers.
+    /// <see cref="Funnel"/> exposes WHERE the 500-detected-star pipeline
+    /// dropped to <see cref="InitialMatches"/>.</summary>
     public readonly record struct SpccWhiteBalanceResult(
         float R, float G, float B,
         int InitialMatches,
         int FinalMatches,
-        int Iterations)
+        int Iterations,
+        SpccFunnel Funnel)
     {
         /// <summary>Back-compat shim: callers that only want the survivor
         /// count read this; equivalent to <see cref="FinalMatches"/>.</summary>
@@ -74,14 +93,14 @@ public static class Tycho2ColorCalibration
         if (image.ChannelCount < 3 && image.ImageMeta.SensorType is not SensorType.RGGB) return null;
 
         var dtYr = ComputeDtJulianYears(image);
-        var matches = MatchStars(stars, wcs, db, matchRadiusArcsec, maxMagDiff, dtYr);
+        var (matches, funnel) = MatchStars(stars, wcs, db, matchRadiusArcsec, maxMagDiff, dtYr);
         if (matches.Count < minStars) return null;
 
         var photometry = ExtractPhotometry(image, matches, apertureRadius,
             bv => SyntheticStarFieldRenderer.BMinusVToRGB(bv));
         if (photometry.Count < minStars) return null;
 
-        return ComputeMultipliers(photometry);
+        return ComputeMultipliers(photometry, funnel);
     }
 
     /// <summary>
@@ -116,14 +135,14 @@ public static class Tycho2ColorCalibration
         if (!FilterCurveDatabase.IsLoaded) return null;
 
         var dtYr = ComputeDtJulianYears(image);
-        var matches = MatchStars(stars, wcs, db, matchRadiusArcsec, maxMagDiff, dtYr);
+        var (matches, funnel) = MatchStars(stars, wcs, db, matchRadiusArcsec, maxMagDiff, dtYr);
         if (matches.Count < minStars) return null;
 
         var photometry = ExtractPhotometry(image, matches, apertureRadius,
             bv => ComputeExpectedRgbFromSed(bv, tsysR, tsysG, tsysB));
         if (photometry.Count < minStars) return null;
 
-        return ComputeMultipliers(photometry);
+        return ComputeMultipliers(photometry, funnel);
     }
 
     /// <summary>
@@ -175,7 +194,7 @@ public static class Tycho2ColorCalibration
     /// then survive into the photometric kappa-sigma pass as outliers that
     /// bias the white-balance fit.
     /// </summary>
-    private static List<(ImagedStar Star, CelestialObject Tycho)> MatchStars(
+    private static (List<(ImagedStar Star, CelestialObject Tycho)> Matches, SpccFunnel Funnel) MatchStars(
         StarList stars, WCS wcs, ICelestialObjectDB db,
         float matchRadiusArcsec, float maxMagDiff,
         double dtJulianYears)
@@ -183,23 +202,35 @@ public static class Tycho2ColorCalibration
         var matches = new List<(ImagedStar, CelestialObject)>();
         var matchRadiusDeg = matchRadiusArcsec / 3600.0;
 
+        // Per-gate counters. Every detected star ends in exactly one bucket;
+        // sum == stars.Count by construction.
+        int wcsFail = 0, noCand = 0, tolMissed = 0, noBmv = 0, noVmag = 0;
+
         foreach (var star in stars)
         {
             var sky = wcs.PixelToSky(star.XCentroid + 1, star.YCentroid + 1);
-            if (sky is not { } pos) continue;
+            if (sky is not { } pos) { wcsFail++; continue; }
 
             var candidates = db.CoordinateGrid[pos.RA, pos.Dec];
-            if (candidates is not { Count: > 0 }) continue;
+            if (candidates is not { Count: > 0 }) { noCand++; continue; }
 
-            var (bestMatch, bestDist) = FindBestMatch(star, pos, db, candidates, matchRadiusDeg, maxMagDiff, dtJulianYears);
+            var (bestMatch, _) = FindBestMatch(star, pos, db, candidates, matchRadiusDeg, maxMagDiff, dtJulianYears);
+            if (bestMatch is not { } match) { tolMissed++; continue; }
+            if (Half.IsNaN(match.BMinusV)) { noBmv++; continue; }
+            if (Half.IsNaN(match.V_Mag)) { noVmag++; continue; }
 
-            if (bestMatch is { } match && !Half.IsNaN(match.BMinusV) && match.V_Mag is var vMag && !Half.IsNaN(vMag))
-            {
-                matches.Add((star, match));
-            }
+            matches.Add((star, match));
         }
 
-        return matches;
+        var funnel = new SpccFunnel(
+            Detected: stars.Count,
+            WcsFail: wcsFail,
+            NoCandidates: noCand,
+            TolMissed: tolMissed,
+            NoBmv: noBmv,
+            NoVmag: noVmag,
+            Accepted: matches.Count);
+        return (matches, funnel);
     }
 
     private static (CelestialObject? Match, double DistanceDeg) FindBestMatch(
@@ -405,7 +436,7 @@ public static class Tycho2ColorCalibration
     /// span overload, but returns the iteration outcome (initial vs. final
     /// match counts + iteration count) so the caller can log the funnel.
     /// </summary>
-    private static SpccWhiteBalanceResult ComputeMultipliers(List<StarMatch> photometry)
+    private static SpccWhiteBalanceResult ComputeMultipliers(List<StarMatch> photometry, SpccFunnel funnel)
     {
         var rRatios = new float[photometry.Count];
         var bRatios = new float[photometry.Count];
@@ -432,7 +463,8 @@ public static class Tycho2ColorCalibration
             B: Math.Clamp(fit.B, 0.1f, 10f),
             InitialMatches: photometry.Count,
             FinalMatches: fit.FinalCount,
-            Iterations: fit.Iterations);
+            Iterations: fit.Iterations,
+            Funnel: funnel);
     }
 
     /// <summary>
