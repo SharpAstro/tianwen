@@ -73,7 +73,8 @@ public static class Tycho2ColorCalibration
     {
         if (image.ChannelCount < 3 && image.ImageMeta.SensorType is not SensorType.RGGB) return null;
 
-        var matches = MatchStars(stars, wcs, db, matchRadiusArcsec, maxMagDiff);
+        var dtYr = ComputeDtJulianYears(image);
+        var matches = MatchStars(stars, wcs, db, matchRadiusArcsec, maxMagDiff, dtYr);
         if (matches.Count < minStars) return null;
 
         var photometry = ExtractPhotometry(image, matches, apertureRadius,
@@ -114,7 +115,8 @@ public static class Tycho2ColorCalibration
         // Ensure SED database is loaded
         if (!FilterCurveDatabase.IsLoaded) return null;
 
-        var matches = MatchStars(stars, wcs, db, matchRadiusArcsec, maxMagDiff);
+        var dtYr = ComputeDtJulianYears(image);
+        var matches = MatchStars(stars, wcs, db, matchRadiusArcsec, maxMagDiff, dtYr);
         if (matches.Count < minStars) return null;
 
         var photometry = ExtractPhotometry(image, matches, apertureRadius,
@@ -152,11 +154,31 @@ public static class Tycho2ColorCalibration
     }
 
     /// <summary>
-    /// Matches detected stars to Tycho-2 catalog entries.
+    /// Maps the image's FITS DATE-OBS to fractional Julian years since J2000.0
+    /// for use as the dt input to <see cref="CoordinateUtils.PropagatePm"/>.
+    /// Returns <c>0.0</c> (no propagation) when no plausible exposure date is
+    /// available -- synthetic test frames, missing FITS header, or any
+    /// pre-1900 value -- so the matcher keeps its prior behaviour exactly.
+    /// </summary>
+    private static double ComputeDtJulianYears(Image image)
+    {
+        var exposureStart = image.ImageMeta.ExposureStartTime;
+        return exposureStart.Year > 1900 ? exposureStart.JulianYearsSinceJ2000() : 0.0;
+    }
+
+    /// <summary>
+    /// Matches detected stars to Tycho-2 catalog entries. Catalog stars are
+    /// projected from J2000 to the image epoch via proper motion before the
+    /// angular-separation cut -- without this, the ~2.5% of Tycho-2 stars with
+    /// |pm| > 30 mas/yr drift past the <paramref name="matchRadiusArcsec"/>
+    /// tolerance over 26 years of catalog age, get mis-matched or dropped, and
+    /// then survive into the photometric kappa-sigma pass as outliers that
+    /// bias the white-balance fit.
     /// </summary>
     private static List<(ImagedStar Star, CelestialObject Tycho)> MatchStars(
         StarList stars, WCS wcs, ICelestialObjectDB db,
-        float matchRadiusArcsec, float maxMagDiff)
+        float matchRadiusArcsec, float maxMagDiff,
+        double dtJulianYears)
     {
         var matches = new List<(ImagedStar, CelestialObject)>();
         var matchRadiusDeg = matchRadiusArcsec / 3600.0;
@@ -169,7 +191,7 @@ public static class Tycho2ColorCalibration
             var candidates = db.CoordinateGrid[pos.RA, pos.Dec];
             if (candidates is not { Count: > 0 }) continue;
 
-            var (bestMatch, bestDist) = FindBestMatch(star, pos, db, candidates, matchRadiusDeg, maxMagDiff);
+            var (bestMatch, bestDist) = FindBestMatch(star, pos, db, candidates, matchRadiusDeg, maxMagDiff, dtJulianYears);
 
             if (bestMatch is { } match && !Half.IsNaN(match.BMinusV) && match.V_Mag is var vMag && !Half.IsNaN(vMag))
             {
@@ -183,7 +205,8 @@ public static class Tycho2ColorCalibration
     private static (CelestialObject? Match, double DistanceDeg) FindBestMatch(
         ImagedStar star, (double RA, double Dec) sky,
         ICelestialObjectDB db, IReadOnlyCollection<CatalogIndex> candidates,
-        double matchRadiusDeg, float maxMagDiff)
+        double matchRadiusDeg, float maxMagDiff,
+        double dtJulianYears)
     {
         CelestialObject? bestMatch = null;
         var bestDist = matchRadiusDeg;
@@ -194,7 +217,23 @@ public static class Tycho2ColorCalibration
             if (obj.ObjectType is not ObjectType.Star) continue;
             if (Half.IsNaN(obj.BMinusV)) continue;
 
-            var distDeg = AngularSeparation(sky.RA, sky.Dec, obj.RA, obj.Dec);
+            // Propagate Tycho-2 J2000 position to the image epoch. Non-Tycho-2
+            // candidates (cross-ref'd HD/HIP that landed here via the composite
+            // RA/Dec grid) skip the propagation -- the cross-walk loses pm
+            // anyway, and the typical 0.18" median drift sits well inside the
+            // 5" SPCC tolerance for those.
+            double matchRa = obj.RA, matchDec = obj.Dec;
+            if (dtJulianYears != 0.0
+                && db.TryGetTycho2Star(idx, out var tyc)
+                && (tyc.PmRaTenthMasPerYr != 0 || tyc.PmDecTenthMasPerYr != 0))
+            {
+                (matchRa, matchDec) = CoordinateUtils.PropagatePm(
+                    obj.RA, obj.Dec,
+                    tyc.PmRaMasPerYr, tyc.PmDecMasPerYr,
+                    dtJulianYears);
+            }
+
+            var distDeg = AngularSeparation(sky.RA, sky.Dec, matchRa, matchDec);
             if (distDeg < bestDist)
             {
                 bestDist = distDeg;
