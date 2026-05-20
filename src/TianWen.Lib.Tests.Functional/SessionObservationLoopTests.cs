@@ -74,18 +74,16 @@ public class SessionObservationLoopTests(ITestOutputHelper output)
 
         var loopTask = Task.Run(async () => await ctx.Session.ObservationLoopAsync(cancellationToken), cancellationToken);
 
-        // Warm-up: give loopTask a brief real-time window to be scheduled by the
-        // thread pool and reach its first await SleepAsync (where it registers a
-        // fake timer) before we start advancing fake time. Without this, on CI's
-        // contended runners the pump can rip through several minutes of fake time
-        // before the loop is scheduled — by which point the loop's first
-        // iteration reads GetUtcNow() past the observation window and exits
-        // without ever capturing a frame. This was the root cause of the
-        // meridian-flip test's CI-only flake.
-        // (We can't poll loopTask.Status as a "task has started" signal because
-        // async-state-machine tasks stay in WaitingForActivation for their whole
-        // lifetime — every await transitions back to it.)
-        await Task.Delay(50, cancellationToken);
+        // Don't start pumping until the loop has actually parked at its first
+        // SleepAsync. Without this barrier, on CI's contended runners the pump
+        // could rip through several minutes of fake time before the Task.Run
+        // continuation was scheduled, at which point the loop's first iteration
+        // read GetUtcNow() past the observation window and exited without
+        // capturing a frame. WaitForFirstWaiterAsync is the explicit barrier --
+        // it polls FakeTimeProviderWrapper.WaiterCount (incremented inside the
+        // ExternalTimePump branch of SleepAsync) so we know at least one task
+        // is genuinely parked before we start advancing time.
+        await ctx.TimeProvider.WaitForFirstWaiterAsync(loopTask, cancellationToken);
 
         // Pump time in small increments — the obs loop yields on SleepAsync until
         // we advance past its target time, ensuring deterministic sequencing.

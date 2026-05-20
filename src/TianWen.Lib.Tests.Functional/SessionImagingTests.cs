@@ -98,6 +98,10 @@ public class SessionImagingTests(ITestOutputHelper output)
         ctx.TimeProvider.ExternalTimePump = true;
         var imagingTask = Task.Run(async () => await ctx.Session.ImagingLoopAsync(observation, hourAngle, cancellationToken: ct));
 
+        // Wait for the loop to park at its first SleepAsync before pumping fake time --
+        // see FakeTimeProviderWrapper.WaitForFirstWaiterAsync for the race this avoids.
+        await ctx.TimeProvider.WaitForFirstWaiterAsync(imagingTask, ct);
+
         var pumpIncrement = TimeSpan.FromSeconds(5);
         var maxFakeTime = TimeSpan.FromHours(4);
         var pumped = TimeSpan.Zero;
@@ -170,6 +174,10 @@ public class SessionImagingTests(ITestOutputHelper output)
         ctx.TimeProvider.ExternalTimePump = true;
         var imagingTask = Task.Run(async () => await ctx.Session.ImagingLoopAsync(observation, hourAngle, cancellationToken: ct));
 
+        // Wait for the loop to park at its first SleepAsync before pumping fake time --
+        // see FakeTimeProviderWrapper.WaitForFirstWaiterAsync for the race this avoids.
+        await ctx.TimeProvider.WaitForFirstWaiterAsync(imagingTask, ct);
+
         var pumpIncrement = TimeSpan.FromSeconds(5);
         var maxFakeTime = TimeSpan.FromHours(4);
         var pumped = TimeSpan.Zero;
@@ -224,6 +232,10 @@ public class SessionImagingTests(ITestOutputHelper output)
         // when — run observation loop on thread pool, pump fake time cooperatively
         ctx.TimeProvider.ExternalTimePump = true;
         var loopTask = Task.Run(async () => await ctx.Session.ObservationLoopAsync(ct), ct);
+
+        // Wait for the loop to park at its first SleepAsync before pumping fake time --
+        // see FakeTimeProviderWrapper.WaitForFirstWaiterAsync for the race this avoids.
+        await ctx.TimeProvider.WaitForFirstWaiterAsync(loopTask, ct);
 
         var pumpIncrement = TimeSpan.FromSeconds(5);
         var maxFakeTime = TimeSpan.FromHours(4);
@@ -297,6 +309,10 @@ public class SessionImagingTests(ITestOutputHelper output)
         var defocused = false;
         ctx.TimeProvider.ExternalTimePump = true;
         var imagingTask = Task.Run(async () => await ctx.Session.ImagingLoopAsync(observation, hourAngle, cancellationToken: ct));
+
+        // Wait for the loop to park at its first SleepAsync before pumping fake time --
+        // see FakeTimeProviderWrapper.WaitForFirstWaiterAsync for the race this avoids.
+        await ctx.TimeProvider.WaitForFirstWaiterAsync(imagingTask, ct);
 
         var pumpIncrement = TimeSpan.FromSeconds(5);
         var maxFakeTime = TimeSpan.FromHours(4);
@@ -386,6 +402,10 @@ public class SessionImagingTests(ITestOutputHelper output)
         ctx.TimeProvider.ExternalTimePump = true;
         var imagingTask = Task.Run(async () => await ctx.Session.ImagingLoopAsync(observation, hourAngle, cancellationToken: ct));
 
+        // Wait for the loop to park at its first SleepAsync before pumping fake time --
+        // see FakeTimeProviderWrapper.WaitForFirstWaiterAsync for the race this avoids.
+        await ctx.TimeProvider.WaitForFirstWaiterAsync(imagingTask, ct);
+
         var pumpIncrement = TimeSpan.FromSeconds(5);
         var maxFakeTime = TimeSpan.FromHours(4);
         var pumped = TimeSpan.Zero;
@@ -459,6 +479,10 @@ public class SessionImagingTests(ITestOutputHelper output)
         var cloudsCleared = false;
         ctx.TimeProvider.ExternalTimePump = true;
         var imagingTask = Task.Run(async () => await ctx.Session.ImagingLoopAsync(observation, hourAngle, cancellationToken: ct));
+
+        // Wait for the loop to park at its first SleepAsync before pumping fake time --
+        // see FakeTimeProviderWrapper.WaitForFirstWaiterAsync for the race this avoids.
+        await ctx.TimeProvider.WaitForFirstWaiterAsync(imagingTask, ct);
 
         var pumpIncrement = TimeSpan.FromSeconds(5);
         var maxFakeTime = TimeSpan.FromHours(4);

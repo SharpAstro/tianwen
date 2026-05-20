@@ -391,6 +391,10 @@ public class SessionScoutAndProbeTests(ITestOutputHelper output)
         ctx.TimeProvider.ExternalTimePump = true;
         var task = Task.Run(async () => await action(ct), ct);
 
+        // Wait for the action to park at its first SleepAsync before pumping fake time --
+        // see FakeTimeProviderWrapper.WaitForFirstWaiterAsync for the race this avoids.
+        await ctx.TimeProvider.WaitForFirstWaiterAsync(task, ct);
+
         var pumpIncrement = TimeSpan.FromSeconds(1);
         var maxFakeTime = TimeSpan.FromMinutes(20);
         var pumped = TimeSpan.Zero;
