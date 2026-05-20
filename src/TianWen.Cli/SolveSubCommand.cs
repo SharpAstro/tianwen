@@ -25,7 +25,8 @@ namespace TianWen.Cli;
 /// </summary>
 internal sealed class SolveSubCommand(
     IConsoleHost consoleHost,
-    IPlateSolverFactory plateSolverFactory)
+    IPlateSolverFactory plateSolverFactory,
+    TianWen.Lib.Astrometry.Catalogs.ICelestialObjectDB catalogDb)
 {
     /// <summary>Solver scale-tolerance default (matches the internal
     /// <see cref="IPlateSolver"/> constant). +/- 3 % of the supplied
@@ -103,6 +104,16 @@ internal sealed class SolveSubCommand(
             Description = "Write the solved WCS back into the input FITS file in place. Default off (read-only).",
         };
 
+        var annotateOpt = new Option<string?>("--annotate")
+        {
+            Description = "Write a plate-solve verification PNG to this path. Overlays detected stars (green circles), nearest Tycho-2 projections (red crosses), and residual lines (green<=tolerance, yellow<=3x, red>3x). Makes the tol-miss pattern visible at a glance -- if lines all point one direction it's a global offset, fan out it's distortion. Requires a successful solve.",
+        };
+        var annotateSearchRadiusOpt = new Option<float>("--annotate-search-arcsec")
+        {
+            Description = "Maximum distance (arcsec) the annotator searches for a nearest catalog candidate per detected star. Set above the match tolerance so misses are still visible. Default 60.",
+            DefaultValueFactory = _ => 60f,
+        };
+
         var solveCommand = new Command("solve", "Plate-solve a FITS file and optionally export detected stars.")
         {
             Arguments = { fitsArg },
@@ -113,6 +124,7 @@ internal sealed class SolveSubCommand(
                 snrMinOpt, minStarsOpt, maxStarsOpt,
                 exportStarsOpt, exportFormatOpt,
                 updateFitsOpt,
+                annotateOpt, annotateSearchRadiusOpt,
             },
         };
         solveCommand.SetAction(async (parseResult, ct) =>
@@ -206,6 +218,20 @@ internal sealed class SolveSubCommand(
                     // headers are preserved; only WCS keywords get updated.
                     image.WriteToFitsFile(fitsPath, solvedWcs);
                     consoleHost.WriteScrollable($"[solve] wrote WCS to {fitsPath}");
+                }
+
+                if (parseResult.GetValue(annotateOpt) is { } annotPath)
+                {
+                    // Catalog DB init is idempotent + cached; first call here pays the
+                    // ~270 ms Tycho-2 bulk-decode if the solver hasn't already triggered it.
+                    await catalogDb.InitDBAsync(waitForTycho2BulkLoad: true, ct);
+                    var annotSearchArcsec = parseResult.GetValue(annotateSearchRadiusOpt);
+                    await TianWen.UI.Abstractions.PlateSolveAnnotator.RenderAnnotatedAsync(
+                        image, solvedWcs, stars, catalogDb, annotPath,
+                        matchRadiusArcsec: 5f,
+                        searchRadiusArcsec: annotSearchArcsec,
+                        ct: ct);
+                    consoleHost.WriteScrollable($"[annotate] {stars.Count} stars overlaid -> {annotPath}");
                 }
             }
             else

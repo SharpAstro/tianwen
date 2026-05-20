@@ -121,7 +121,8 @@ var rootCommand = new RootCommand
             services.GetRequiredService<TianWen.Lib.Astrometry.Catalogs.ICelestialObjectDB>()).Build(),
         new SolveSubCommand(
             consoleHost,
-            services.GetRequiredService<TianWen.Lib.Astrometry.PlateSolve.IPlateSolverFactory>()).Build(),
+            services.GetRequiredService<TianWen.Lib.Astrometry.PlateSolve.IPlateSolverFactory>(),
+            services.GetRequiredService<TianWen.Lib.Astrometry.Catalogs.ICelestialObjectDB>()).Build(),
         new TuiSubCommand(services, consoleHost, plannerState, profileSelector).Build()
     }
 };
