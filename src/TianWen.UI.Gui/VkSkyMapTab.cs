@@ -102,11 +102,14 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
         _pipeline ??= new VkSkyMapPipeline(renderer.Context);
 
         // Build persistent geometry on first frame after catalog is available, and
-        // rebuild the Tycho-2 star buffer with pm propagation whenever viewingTime
-        // crosses a month boundary. BuildGeometry is idempotent: it early-returns
-        // when the cached buffer's month key matches the viewing epoch, so calling
-        // it every frame here is cheap.
+        // request a Tycho-2 star buffer rebuild with pm propagation whenever
+        // viewingTime crosses a month boundary. BuildGeometry kicks off async rebuilds
+        // (mirroring ViewerController._loadTask) -- the actual GPU swap happens on
+        // this render thread inside TryApplyPendingStarBuild on a later frame, so the
+        // user never sees a freeze. Both calls early-return cheaply on the common
+        // path where no work is pending.
         _pipeline.BuildGeometry(db, viewingTime);
+        _pipeline.TryApplyPendingStarBuild();
 
         // Try loading the Milky Way texture from disk (once, after pipeline is ready)
         if (!_milkyWayLoadAttempted)

@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Numerics;
 using System.Runtime.CompilerServices;
+using System.Threading.Tasks;
 using SdlVulkan.Renderer;
 using TianWen.Lib.Astrometry;
 using TianWen.Lib.Astrometry.Catalogs;
@@ -668,6 +669,38 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
     /// </summary>
     private int _starBufferMonthKey = int.MinValue;
 
+    /// <summary>
+    /// Last month-key requested by <see cref="BuildGeometry"/>. The async
+    /// rebuild path uses this to discard stale results: if the user scrubs
+    /// past while a rebuild is in flight, the completed task may carry
+    /// data for a month we no longer want -- spotting that via
+    /// <c>result.MonthKey != _starBufferRequestedMonthKey</c> lets the
+    /// render thread skip the swap and kick off a fresh rebuild on the
+    /// next BuildGeometry call.
+    /// </summary>
+    private int _starBufferRequestedMonthKey = int.MinValue;
+
+    /// <summary>
+    /// In-flight async star-buffer rebuild, if any. Mirrors the
+    /// <c>_loadTask</c> pattern in <c>ViewerController</c>: the background
+    /// thread runs the CPU-bound vertex compute + sort + mag-bins, the
+    /// render thread later installs the result via the GPU upload step
+    /// inside <see cref="TryApplyPendingStarBuild"/>. Only one rebuild
+    /// can be in flight at a time -- a same-month request becomes a noop;
+    /// a different-month request waits for the current one to complete
+    /// (and either install or get discarded as stale) before starting.
+    /// </summary>
+    private Task<StarBuildResult>? _starRebuildTask;
+
+    /// <summary>
+    /// Output of an async star-buffer rebuild: a flat float[] of sorted star
+    /// vertices (5 floats / star), the count actually written (NaN-mag stars
+    /// dropped during the loop), the pre-computed magnitude lookup table,
+    /// and the target month-key so a stale build can be discarded on swap.
+    /// </summary>
+    private readonly record struct StarBuildResult(
+        float[] Verts, uint StarCount, uint[] MagBins, int MonthKey);
+
     // ────────────────────────────────────────────────── Construction
 
     public VkSkyMapPipeline(VulkanContext ctx)
@@ -703,45 +736,130 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
     public void BuildGeometry(ICelestialObjectDB db, DateTimeOffset starEpoch)
     {
         var monthKey = StarBufferMonthKey(starEpoch);
-        if (_geometryBuilt && monthKey == _starBufferMonthKey)
-        {
-            return;
-        }
+        _starBufferRequestedMonthKey = monthKey;
 
-        var dtYr = MonthBakeEpoch(starEpoch).JulianYearsSinceJ2000();
-
-        if (_geometryBuilt)
+        if (!_geometryBuilt)
         {
-            // Month-transition rebuild: tear down only the star buffer; the
-            // other buffers are epoch-independent and don't need to be
-            // re-uploaded. _magLookup gets refreshed inside BuildStarBuffer.
-            //
-            // Wait for the GPU to finish draining any frame that's still using
-            // the old vertex buffer before destroying it. VulkanContext.DestroyBuffer
-            // is a straight vkDestroyBuffer + vkFreeMemory (no internal sync), so
-            // without this drain a still-in-flight draw command would dereference
-            // freed memory. The drain is once-per-month-transition and on the
-            // same call path as the ~1 s buffer rebuild, so the extra few ms
-            // is invisible.
-            _ctx.DeviceApi.vkDeviceWaitIdle();
-            DestroyBuffer(_starBuffer, _starMemory);
-            _starBuffer = default;
-            _starMemory = default;
-            _starCount = 0;
+            // First build: synchronous so the first frame can actually draw.
+            // The interactive freeze on first launch already happens during
+            // catalog init, so adding the ~1 s here is in line with prior UX.
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            var dtYr = MonthBakeEpoch(starEpoch).JulianYearsSinceJ2000();
+
             BuildStarBuffer(db, dtYr);
+            var starMs = sw.Elapsed.TotalMilliseconds;
+            BuildConstellationFigureBuffer(db);
+            BuildConstellationBoundaryBuffer();
+            BuildGridBuffers();
+            BuildEclipticBuffer();
+
+            _geometryBuilt = true;
             _starBufferMonthKey = monthKey;
+            System.Console.Error.WriteLine(
+                $"[VkSkyMapPipeline] first build (month-key {monthKey}, dtYr={dtYr:F3}): " +
+                $"stars {starMs:N0} ms ({_starCount}), full geometry {sw.Elapsed.TotalMilliseconds:N0} ms");
             return;
         }
 
-        // First build: everything.
-        BuildStarBuffer(db, dtYr);
-        BuildConstellationFigureBuffer(db);
-        BuildConstellationBoundaryBuffer();
-        BuildGridBuffers();
-        BuildEclipticBuffer();
+        // Geometry exists -- apply any completed rebuild from a prior frame's
+        // request before deciding whether to kick off a new one.
+        TryApplyPendingStarBuild();
 
-        _geometryBuilt = true;
-        _starBufferMonthKey = monthKey;
+        if (monthKey == _starBufferMonthKey)
+        {
+            return;
+        }
+
+        // A rebuild is already in flight: noop. If it lands on a stale month
+        // (user scrubbed past while building), TryApplyPendingStarBuild on a
+        // later frame will discard the result and a fresh build kicks off here.
+        if (_starRebuildTask is { IsCompleted: false })
+        {
+            return;
+        }
+
+        StartStarBufferRebuildAsync(db, monthKey);
+    }
+
+    /// <summary>
+    /// Kicks off a background <see cref="Task.Run"/> that produces a fresh
+    /// star vertex array + magnitude bins for <paramref name="monthKey"/>.
+    /// Pure-CPU work (Tycho-2 walk, pm propagation, sort, mag bins) -- no
+    /// Vulkan calls happen on the background thread. The render-thread swap
+    /// runs in <see cref="TryApplyPendingStarBuild"/> next frame.
+    /// </summary>
+    private void StartStarBufferRebuildAsync(ICelestialObjectDB db, int monthKey)
+    {
+        var year = monthKey / 12;
+        var month = (monthKey % 12) + 1;
+        var bake = new DateTimeOffset(year, month, 1, 12, 0, 0, TimeSpan.Zero);
+        var dtYr = bake.JulianYearsSinceJ2000();
+        var tycCount = db.Tycho2StarCount;
+        const int floatsPerStar = SkyMapState.FloatsPerStar;
+
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        _starRebuildTask = Task.Run(() =>
+        {
+            var verts = new float[tycCount * floatsPerStar];
+            var written = SkyMapState.FillTycho2StarVertices(db, dtYr, verts);
+            var sortableSpan = verts.AsSpan(0, written * floatsPerStar);
+            SortStarsByMagnitude(sortableSpan, floatsPerStar);
+            var magBins = ComputeMagBins(sortableSpan, floatsPerStar);
+            System.Console.Error.WriteLine(
+                $"[VkSkyMapPipeline] async star build month-key {monthKey} (dtYr={dtYr:F3}): " +
+                $"CPU {sw.Elapsed.TotalMilliseconds:N0} ms ({written} stars)");
+            return new StarBuildResult(verts, (uint)written, magBins, monthKey);
+        });
+    }
+
+    /// <summary>
+    /// Render-thread half of the async rebuild: when a background task has
+    /// completed, do the actual GPU buffer creation + atomic field swap.
+    /// Called every frame from the tab's render path before <see cref="Draw"/>.
+    /// Cheap when no task is in flight; runs the GPU upload + drain only on
+    /// the one frame where the task transitions to completed.
+    /// </summary>
+    public void TryApplyPendingStarBuild()
+    {
+        if (_starRebuildTask is not { IsCompletedSuccessfully: true } task)
+        {
+            return;
+        }
+        var result = task.Result;
+        _starRebuildTask = null;
+
+        // Stale: user scrubbed past while we were building. Discard so the
+        // next BuildGeometry kicks off a fresh request for the latest month.
+        if (result.MonthKey != _starBufferRequestedMonthKey)
+        {
+            System.Console.Error.WriteLine(
+                $"[VkSkyMapPipeline] discarded stale build for month-key {result.MonthKey} " +
+                $"(latest requested {_starBufferRequestedMonthKey})");
+            return;
+        }
+
+        // GPU swap. vkDeviceWaitIdle drains any in-flight draw still
+        // referencing the old buffer; CreatePersistentVertexBuffer allocates +
+        // uploads the new one; DestroyBuffer frees the old. Atomic from the
+        // render thread's perspective -- the swap completes inside this method
+        // and the next Draw uses the new buffer.
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        _ctx.DeviceApi.vkDeviceWaitIdle();
+        var waitMs = sw.Elapsed.TotalMilliseconds;
+
+        DestroyBuffer(_starBuffer, _starMemory);
+        var uploadStart = sw.Elapsed;
+        var floats = result.Verts.AsSpan(0, (int)result.StarCount * SkyMapState.FloatsPerStar);
+        (_starBuffer, _starMemory) = _ctx.CreatePersistentVertexBuffer(floats);
+        var uploadMs = (sw.Elapsed - uploadStart).TotalMilliseconds;
+
+        _starCount = result.StarCount;
+        _magBinCounts = result.MagBins;
+        _starBufferMonthKey = result.MonthKey;
+
+        System.Console.Error.WriteLine(
+            $"[VkSkyMapPipeline] async swap installed month-key {result.MonthKey}: " +
+            $"GPU drain {waitMs:N0} ms + upload {uploadMs:N0} ms = render-thread {sw.Elapsed.TotalMilliseconds:N0} ms ({_starCount} stars)");
     }
 
     /// <summary>
@@ -1186,60 +1304,19 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
             return;
         }
 
-        // Per-star GPU vertex layout: vec3 pos + float vMag + float bv = 5 floats.
-        const int floatsPerStar = 5;
+        // The per-star vertex compute lives in SkyMapState so the benchmark
+        // project can measure it without needing a Vulkan context. The pipeline
+        // still owns the sort + magnitude-lookup + GPU upload that follow.
+        const int floatsPerStar = SkyMapState.FloatsPerStar;
+        var verts = new float[tycCount * floatsPerStar];
+        var written = SkyMapState.FillTycho2StarVertices(db, dtJulianYears, verts);
+        _starCount = (uint)written;
 
-        // Read Tycho-2 records in chunks — keeps the temp alloc bounded (~16 MB) while
-        // still minimising the number of CopyTycho2Stars calls.
-        const int chunkSize = 200_000;
-        var chunk = new Tycho2StarLite[chunkSize];
-
-        // Worst case: one output slot per input star. Right-size to avoid List<T> growth.
-        var floats = new List<float>(tycCount * floatsPerStar);
-
-        // Skip the per-star propagate entirely when dt is zero (synthetic test
-        // frames, missing DATE-OBS, etc) -- avoids 2.5M wasted cos(Dec) calls
-        // on the no-op branch.
-        var applyPm = dtJulianYears != 0.0;
-
-        var copied = 0;
-        while (copied < tycCount)
-        {
-            var wanted = Math.Min(chunkSize, tycCount - copied);
-            var n = db.CopyTycho2Stars(chunk.AsSpan(0, wanted), copied);
-            if (n == 0)
-            {
-                break;
-            }
-
-            for (int i = 0; i < n; i++)
-            {
-                var s = chunk[i];
-                if (float.IsNaN(s.VMag))
-                {
-                    continue;
-                }
-
-                double ra = s.RaHours, dec = s.DecDeg;
-                if (applyPm && (s.PmRaTenthMasPerYr != 0 || s.PmDecTenthMasPerYr != 0))
-                {
-                    (ra, dec) = CoordinateUtils.PropagatePm(
-                        s.RaHours, s.DecDeg,
-                        s.PmRaMasPerYr, s.PmDecMasPerYr,
-                        dtJulianYears);
-                }
-                var (x, y, z) = SkyMapState.RaDecToUnitVec(ra, dec);
-                floats.Add(x);
-                floats.Add(y);
-                floats.Add(z);
-                floats.Add(s.VMag);
-                floats.Add(float.IsNaN(s.BMinusV) ? 0.65f : s.BMinusV);
-            }
-
-            copied += n;
-        }
-
-        _starCount = (uint)(floats.Count / floatsPerStar);
+        // SortStarsByMagnitude + BuildMagnitudeLookup operate on the contiguous
+        // float[] view directly (the prior List<float>-of-the-same-data wrapping
+        // pattern bought nothing: both helpers immediately called
+        // CollectionsMarshal.AsSpan internally).
+        var floats = verts.AsSpan(0, written * floatsPerStar);
 
         // Sort by magnitude (brightest first) so we can limit instance count at draw
         // time based on EffectiveMagnitudeLimit — the GPU only processes the prefix of
@@ -1247,17 +1324,15 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
         SortStarsByMagnitude(floats, floatsPerStar);
         BuildMagnitudeLookup(floats, floatsPerStar);
 
-        (_starBuffer, _starMemory) = _ctx.CreatePersistentVertexBuffer(
-            System.Runtime.InteropServices.CollectionsMarshal.AsSpan(floats));
+        (_starBuffer, _starMemory) = _ctx.CreatePersistentVertexBuffer(floats);
     }
 
     /// <summary>
     /// Sorts the flat star float array by the magnitude field (index 3 of each 5-float record).
     /// Uses Array.Sort on a temporary index array to avoid copying 20-byte records.
     /// </summary>
-    private static void SortStarsByMagnitude(List<float> floats, int floatsPerStar)
+    private static void SortStarsByMagnitude(Span<float> span, int floatsPerStar)
     {
-        var span = System.Runtime.InteropServices.CollectionsMarshal.AsSpan(floats);
         var count = span.Length / floatsPerStar;
         if (count <= 1) return;
 
@@ -1290,23 +1365,32 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
     /// </summary>
     private uint[] _magBinCounts = [];
 
-    private void BuildMagnitudeLookup(List<float> sortedFloats, int floatsPerStar)
+    private void BuildMagnitudeLookup(ReadOnlySpan<float> span, int floatsPerStar)
+        => _magBinCounts = ComputeMagBins(span, floatsPerStar);
+
+    /// <summary>
+    /// Computes the magnitude → instance-count lookup table from a brightest-first
+    /// sorted star vertex span. 30 bins covering V_T 0..15 in 0.5-mag steps. Pure
+    /// function so the async rebuild can compute it on a background thread and the
+    /// render thread just installs the returned array into <see cref="_magBinCounts"/>.
+    /// </summary>
+    private static uint[] ComputeMagBins(ReadOnlySpan<float> sortedSpan, int floatsPerStar)
     {
-        const int bins = 30; // mag 0..15 in 0.5 steps
-        _magBinCounts = new uint[bins];
-        var span = System.Runtime.InteropServices.CollectionsMarshal.AsSpan(sortedFloats);
-        var count = (uint)(span.Length / floatsPerStar);
+        const int bins = 30;
+        var magBins = new uint[bins];
+        var count = (uint)(sortedSpan.Length / floatsPerStar);
 
         uint idx = 0;
         for (var bin = 0; bin < bins; bin++)
         {
             var magThreshold = (bin + 1) * 0.5f;
-            while (idx < count && span[(int)(idx * floatsPerStar + 3)] <= magThreshold)
+            while (idx < count && sortedSpan[(int)(idx * floatsPerStar + 3)] <= magThreshold)
             {
                 idx++;
             }
-            _magBinCounts[bin] = idx;
+            magBins[bin] = idx;
         }
+        return magBins;
     }
 
     /// <summary>
@@ -1348,10 +1432,10 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
         }
 
         _starCount = (uint)(floats.Count / 5);
-        SortStarsByMagnitude(floats, 5);
-        BuildMagnitudeLookup(floats, 5);
-        (_starBuffer, _starMemory) = _ctx.CreatePersistentVertexBuffer(
-            System.Runtime.InteropServices.CollectionsMarshal.AsSpan(floats));
+        var floatsSpan = System.Runtime.InteropServices.CollectionsMarshal.AsSpan(floats);
+        SortStarsByMagnitude(floatsSpan, 5);
+        BuildMagnitudeLookup(floatsSpan, 5);
+        (_starBuffer, _starMemory) = _ctx.CreatePersistentVertexBuffer(floatsSpan);
     }
 
     private void BuildConstellationFigureBuffer(ICelestialObjectDB db)

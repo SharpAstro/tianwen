@@ -3,6 +3,7 @@ using System.Collections.Immutable;
 using System.Numerics;
 using System.Runtime.CompilerServices;
 using DIR.Lib;
+using TianWen.Lib.Astrometry;
 using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Astrometry.VSOP87;
 
@@ -346,6 +347,97 @@ namespace TianWen.UI.Abstractions
             var (sinRA, cosRA) = MathF.SinCos((float)(raHours * Hours2RadF));
             var (sinDec, cosDec) = MathF.SinCos(float.DegreesToRadians((float)decDeg));
             return (cosDec * cosRA, cosDec * sinRA, sinDec);
+        }
+
+        /// <summary>
+        /// Per-star vertex layout for the sky-map star buffer: 5 floats per star
+        /// = vec3 unit position + float V magnitude + float B-V colour.
+        /// </summary>
+        public const int FloatsPerStar = 5;
+
+        /// <summary>
+        /// CPU portion of the Tycho-2 star buffer build: streams the full catalog
+        /// in chunks via <see cref="ICelestialObjectDB.CopyTycho2Stars"/>, applies
+        /// proper-motion propagation when <paramref name="dtJulianYears"/> is
+        /// non-zero, converts each surviving star to a unit vector via
+        /// <see cref="RaDecToUnitVec"/>, and writes
+        /// <see cref="FloatsPerStar"/> floats per star into
+        /// <paramref name="destination"/>.
+        /// <para>
+        /// Returns the number of stars written -- caller is responsible for any
+        /// downstream sort + magnitude-lookup + GPU upload steps. Extracted from
+        /// <c>VkSkyMapPipeline.BuildStarBuffer</c> so the CPU-bound loop can be
+        /// benchmarked in isolation from the Vulkan upload.
+        /// </para>
+        /// </summary>
+        /// <param name="db">DB with Tycho-2 bulk data loaded
+        /// (<c>InitDBAsync(waitForTycho2BulkLoad: true)</c>).</param>
+        /// <param name="dtJulianYears">Years since J2000.0; <c>0</c> = no
+        /// pm propagation, render at J2000 (the prior behaviour).</param>
+        /// <param name="destination">Pre-allocated buffer of at least
+        /// <c>db.Tycho2StarCount * FloatsPerStar</c> floats.</param>
+        /// <returns>Number of stars written (each occupies
+        /// <see cref="FloatsPerStar"/> consecutive floats).</returns>
+        public static int FillTycho2StarVertices(
+            ICelestialObjectDB db, double dtJulianYears, Span<float> destination)
+        {
+            var tycCount = db.Tycho2StarCount;
+            if (tycCount == 0)
+            {
+                return 0;
+            }
+
+            // Read Tycho-2 records in chunks -- keeps the temp alloc bounded
+            // (~16 MB) while still minimising the number of CopyTycho2Stars calls.
+            const int chunkSize = 200_000;
+            var chunk = new Tycho2StarLite[chunkSize];
+
+            // Skip per-star pm computation entirely when dt is zero (test frames,
+            // missing DATE-OBS) -- avoids 2.5M wasted cos(Dec) calls on the no-op.
+            var applyPm = dtJulianYears != 0.0;
+
+            var read = 0;
+            var written = 0;
+            while (read < tycCount)
+            {
+                var wanted = Math.Min(chunkSize, tycCount - read);
+                var n = db.CopyTycho2Stars(chunk.AsSpan(0, wanted), read);
+                if (n == 0)
+                {
+                    break;
+                }
+
+                for (var i = 0; i < n; i++)
+                {
+                    var s = chunk[i];
+                    if (float.IsNaN(s.VMag))
+                    {
+                        continue;
+                    }
+
+                    double ra = s.RaHours, dec = s.DecDeg;
+                    if (applyPm && (s.PmRaTenthMasPerYr != 0 || s.PmDecTenthMasPerYr != 0))
+                    {
+                        (ra, dec) = CoordinateUtils.PropagatePm(
+                            s.RaHours, s.DecDeg,
+                            s.PmRaMasPerYr, s.PmDecMasPerYr,
+                            dtJulianYears);
+                    }
+
+                    var (x, y, z) = RaDecToUnitVec(ra, dec);
+                    var off = written * FloatsPerStar;
+                    destination[off]     = x;
+                    destination[off + 1] = y;
+                    destination[off + 2] = z;
+                    destination[off + 3] = s.VMag;
+                    destination[off + 4] = float.IsNaN(s.BMinusV) ? 0.65f : s.BMinusV;
+                    written++;
+                }
+
+                read += n;
+            }
+
+            return written;
         }
     }
 
