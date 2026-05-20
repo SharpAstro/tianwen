@@ -44,6 +44,20 @@ public readonly record struct Tycho2StarLite(
     public float PmDecMasPerYr => PmDecTenthMasPerYr * 0.1f;
 }
 
+/// <summary>
+/// Per-match record produced by <see cref="ICelestialObjectDB.FindTycho2ByCanonicalPrefix"/>.
+/// Carries the raw (tyc1, tyc2, tyc3) triple plus V magnitude. The caller
+/// formats the canonical "TYC tyc1-tyc2-tyc3" display string and builds the
+/// <see cref="CatalogIndex"/> from the triple via the Base91 round-trip only
+/// when materialising a result row -- the CatalogIndex enum value isn't the
+/// raw bit layout, it's the ASCII-packed form of the Base91-encoded bytes, so
+/// constructing it eagerly during the byte-walk would burn ~2 string
+/// allocations per scanned match (most of which never reach the UI when the
+/// buffer overflows). Returned in stream-walk order; consumers that need a
+/// stable sort post-sort themselves.
+/// </summary>
+public readonly record struct Tycho2PrefixMatch(ushort Tyc1, ushort Tyc2, byte Tyc3, float VMag);
+
 public interface ICelestialObjectDB
 {
     bool TryResolveCommonName(string name, out IReadOnlyList<CatalogIndex> matches);
@@ -153,6 +167,39 @@ public interface ICelestialObjectDB
         // CelestialObjectDB overrides with the byte[] decode.
         star = default;
         return false;
+    }
+
+    /// <summary>
+    /// Virtual prefix-search over the ~2.5M Tycho-2 stars without materialising
+    /// "TYC nnnn-nnnn-n" strings into <see cref="CreateAutoCompleteList"/>. Walks
+    /// the byte[] sorted by <c>(tyc1, tyc2, tyc3)</c> directly, applying the
+    /// numeric-prefix query and stopping at the destination's length. Zero
+    /// allocation beyond the destination span itself.
+    /// <para>
+    /// The <paramref name="query"/> is the part AFTER the literal "TYC" prefix
+    /// (caller strips the catalog tag + any leading whitespace). It is parsed
+    /// by splitting on <c>-</c>:
+    /// </para>
+    /// <list type="bullet">
+    /// <item><description><c>"425"</c> -- tyc1 string-prefix; matches tyc1=425 and tyc1=4250..4259.</description></item>
+    /// <item><description><c>"425-"</c> -- tyc1 EXACTLY 425, tyc2 wildcard.</description></item>
+    /// <item><description><c>"425-25"</c> -- tyc1 EXACTLY 425, tyc2 string-prefix "25".</description></item>
+    /// <item><description><c>"425-2502-1"</c> -- tyc1+tyc2 exact, tyc3 string-prefix "1".</description></item>
+    /// </list>
+    /// <para>
+    /// Within each scanned stream, entries are visited in their stored order
+    /// (sorted by <c>(tyc2, tyc3)</c> ascending). Cross-stream order follows
+    /// tyc1 ascending, with exact-tyc1 matches always preceding prefix-only
+    /// matches so e.g. "425" surfaces tyc1=425 records before tyc1=4250 records.
+    /// </para>
+    /// </summary>
+    /// <param name="query">User text after the "TYC" tag (e.g. "425-2502").</param>
+    /// <param name="destination">Pre-allocated buffer; method returns when this fills.</param>
+    /// <returns>Number of matches written to <paramref name="destination"/>.</returns>
+    int FindTycho2ByCanonicalPrefix(ReadOnlySpan<char> query, Span<Tycho2PrefixMatch> destination)
+    {
+        // Default impl for test stubs: no Tycho-2 data, no matches.
+        return 0;
     }
 
     public bool TryLookupByIndex(string name, [NotNullWhen(true)] out CelestialObject celestialObject)

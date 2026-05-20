@@ -1482,6 +1482,156 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
         return TryGetTycho2StarByTycId(tyc1, (ushort)tyc2, tyc3, out star);
     }
 
+    /// <inheritdoc/>
+    public int FindTycho2ByCanonicalPrefix(ReadOnlySpan<char> query, Span<Tycho2PrefixMatch> destination)
+    {
+        if (_tycho2Data is null || destination.IsEmpty || query.IsEmpty)
+        {
+            return 0;
+        }
+
+        // Parse the dash-segmented query. The segment BEFORE the last dash is
+        // always exact (must parse to an integer in tyc range); the TRAILING
+        // segment is a string-prefix on the unpadded decimal form, with empty
+        // meaning wildcard so "425-" matches every star in tyc1=425.
+        ushort? tyc1Exact = null;
+        ReadOnlySpan<char> tyc1Prefix = default;
+        ushort? tyc2Exact = null;
+        ReadOnlySpan<char> tyc2Prefix = default;
+        ReadOnlySpan<char> tyc3Prefix = default;
+        var hasTyc2Filter = false;
+        var hasTyc3Filter = false;
+
+        var dash1 = query.IndexOf('-');
+        if (dash1 < 0)
+        {
+            // 1 segment -> tyc1 string-prefix on the whole query.
+            if (!IsAllDigits(query)) return 0;
+            tyc1Prefix = query;
+        }
+        else
+        {
+            var seg0 = query[..dash1];
+            if (!ushort.TryParse(seg0, NumberStyles.None, CultureInfo.InvariantCulture, out var t1)) return 0;
+            tyc1Exact = t1;
+
+            var rest1 = query[(dash1 + 1)..];
+            var dash2 = rest1.IndexOf('-');
+            if (dash2 < 0)
+            {
+                // 2 segments -> tyc2 prefix; "" is wildcard for "TYC 425-".
+                if (!IsAllDigits(rest1)) return 0;
+                tyc2Prefix = rest1;
+                hasTyc2Filter = true;
+            }
+            else
+            {
+                var seg1 = rest1[..dash2];
+                if (!ushort.TryParse(seg1, NumberStyles.None, CultureInfo.InvariantCulture, out var t2)) return 0;
+                tyc2Exact = t2;
+
+                var rest2 = rest1[(dash2 + 1)..];
+                if (rest2.IndexOf('-') >= 0) return 0;  // 4+ segments invalid
+                if (!IsAllDigits(rest2)) return 0;
+                tyc3Prefix = rest2;
+                hasTyc3Filter = true;
+            }
+        }
+
+        int written = 0;
+        var data = _tycho2Data.AsSpan();
+        const int entrySize = 17;
+        Span<char> tycBuf = stackalloc char[5];  // 5 digits covers ushort.MaxValue
+
+        // Walk streams tyc1=1..streamCount ascending. With tyc1Exact set this
+        // visits exactly one stream; with a tyc1 prefix the natural ascending
+        // order matches string-prefix iteration (e.g. "1" hits 1, 10..19,
+        // 100..199, 1000..1999 in that order).
+        for (var tyc1 = 1; tyc1 <= _tycho2StreamCount; tyc1++)
+        {
+            if (tyc1Exact is { } e1)
+            {
+                if (tyc1 != e1) continue;
+            }
+            else
+            {
+                // tyc1 prefix mode -- format unpadded, check StartsWith.
+                if (!((ushort)tyc1).TryFormat(tycBuf, out var len1, default, CultureInfo.InvariantCulture)) continue;
+                if (!tycBuf[..len1].StartsWith(tyc1Prefix, StringComparison.Ordinal)) continue;
+            }
+
+            var gscIdx = tyc1 - 1;
+            var startOffset = BinaryPrimitives.ReadInt32LittleEndian(data[((gscIdx + 1) * 4)..]);
+            var endOffset = gscIdx + 1 < _tycho2StreamCount
+                ? BinaryPrimitives.ReadInt32LittleEndian(data[((gscIdx + 2) * 4)..])
+                : _tycho2Data.Length;
+            var entryCount = (endOffset - startOffset) / entrySize;
+
+            for (var i = 0; i < entryCount; i++)
+            {
+                var entry = data[(startOffset + i * entrySize)..];
+                var tyc2 = BinaryPrimitives.ReadUInt16LittleEndian(entry);
+                var tyc3 = entry[2];
+
+                if (tyc2Exact is { } e2)
+                {
+                    // Records sorted by (tyc2, tyc3): once tyc2 > exact we're past
+                    // the only possible match in this stream, stop scanning.
+                    if (tyc2 < e2) continue;
+                    if (tyc2 > e2) break;
+                }
+                else if (hasTyc2Filter)
+                {
+                    if (!tyc2.TryFormat(tycBuf, out var len2, default, CultureInfo.InvariantCulture)) continue;
+                    if (!tycBuf[..len2].StartsWith(tyc2Prefix, StringComparison.Ordinal)) continue;
+                }
+
+                if (hasTyc3Filter)
+                {
+                    if (!tyc3.TryFormat(tycBuf, out var len3, default, CultureInfo.InvariantCulture)) continue;
+                    if (!tycBuf[..len3].StartsWith(tyc3Prefix, StringComparison.Ordinal)) continue;
+                }
+
+                // Decode V magnitude only -- B-V isn't surfaced in the search row.
+                var vtDecimag = entry[11];
+                var btDecimag = entry[12];
+                float vMag;
+                if (vtDecimag == 0xFF)
+                {
+                    vMag = float.NaN;
+                }
+                else
+                {
+                    var vt = (vtDecimag - 20) / 10.0f;
+                    vMag = btDecimag != 0xFF
+                        ? vt - 0.090f * ((btDecimag - 20) / 10.0f - vt)
+                        : vt;
+                }
+
+                destination[written++] = new Tycho2PrefixMatch((ushort)tyc1, tyc2, tyc3, vMag);
+
+                if (written >= destination.Length) return written;
+            }
+        }
+
+        return written;
+    }
+
+    /// <summary>
+    /// True when <paramref name="s"/> is empty or contains only ASCII digits.
+    /// Empty is intentionally accepted so "TYC 425-" can be parsed as
+    /// tyc1=exact, tyc2=wildcard.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static bool IsAllDigits(ReadOnlySpan<char> s)
+    {
+        for (var i = 0; i < s.Length; i++)
+        {
+            if (s[i] is < '0' or > '9') return false;
+        }
+        return true;
+    }
+
     /// <summary>
     /// Single-walk decode by raw (tyc1, tyc2, tyc3). Unified producer for
     /// both the public <see cref="TryGetTycho2Star"/> and the internal

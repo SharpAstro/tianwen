@@ -858,4 +858,89 @@ public class CelestialObjectDBTests
         star.ShouldBe(default(Tycho2StarLite));
     }
 
+    // ── Virtual TYC prefix search ──
+
+    [Fact]
+    public async Task FindTycho2ByCanonicalPrefix_ExactTriple_ReturnsTheSingleRecord()
+    {
+        // Electra (TYC 1799-1441-1): exact prefix string -- only the literal record
+        // should match (tyc3 prefix "1" is unique within that tyc1+tyc2 pair).
+        var db = await InitDBAsync();
+
+        Span<Tycho2PrefixMatch> buf = stackalloc Tycho2PrefixMatch[10];
+        var count = db.FindTycho2ByCanonicalPrefix("1799-1441-1".AsSpan(), buf);
+
+        count.ShouldBe(1);
+        buf[0].Tyc1.ShouldBe((ushort)1799);
+        buf[0].Tyc2.ShouldBe((ushort)1441);
+        buf[0].Tyc3.ShouldBe((byte)1);
+        ((double)buf[0].VMag).ShouldBeInRange(3.5, 3.9);
+    }
+
+    [Fact]
+    public async Task FindTycho2ByCanonicalPrefix_ExactTyc1Wildcard_ReturnsAllStreamEntries()
+    {
+        // "425-" means tyc1=425 exact, tyc2/tyc3 wildcard. The cap on the buffer
+        // bounds the result -- we just verify ALL returned entries are in tyc1=425.
+        var db = await InitDBAsync();
+
+        Span<Tycho2PrefixMatch> buf = stackalloc Tycho2PrefixMatch[20];
+        var count = db.FindTycho2ByCanonicalPrefix("425-".AsSpan(), buf);
+
+        count.ShouldBe(20);
+        for (var i = 0; i < count; i++)
+        {
+            buf[i].Tyc1.ShouldBe((ushort)425);
+        }
+    }
+
+    [Fact]
+    public async Task FindTycho2ByCanonicalPrefix_Tyc1Prefix_SurfacesExactBeforeStringPrefix()
+    {
+        // "425" (no trailing dash) means tyc1 string-prefix on "425". This matches
+        // both tyc1=425 and tyc1=4250..4259. Stream-walk order is ascending tyc1, so
+        // tyc1=425 records come BEFORE tyc1=4250 records.
+        var db = await InitDBAsync();
+
+        Span<Tycho2PrefixMatch> buf = stackalloc Tycho2PrefixMatch[60];
+        var count = db.FindTycho2ByCanonicalPrefix("425".AsSpan(), buf);
+
+        count.ShouldBeGreaterThan(0);
+
+        // First entry must be tyc1=425 (the exact-int match precedes the
+        // 4250-4259 string-prefix matches that follow it numerically).
+        buf[0].Tyc1.ShouldBe((ushort)425);
+
+        // Every result must be a string-prefix match on "425" -- ints 425 or 4250..4259.
+        for (var i = 0; i < count; i++)
+        {
+            var t1 = buf[i].Tyc1;
+            var match = t1 == 425 || (t1 >= 4250 && t1 <= 4259);
+            match.ShouldBeTrue($"Entry {i} tyc1={t1} should match string-prefix '425'");
+        }
+    }
+
+    [Fact]
+    public async Task FindTycho2ByCanonicalPrefix_NonNumericQuery_ReturnsZero()
+    {
+        // "Barnard" isn't a TYC-shaped query -- the parser bails on the first non-digit.
+        var db = await InitDBAsync();
+
+        Span<Tycho2PrefixMatch> buf = stackalloc Tycho2PrefixMatch[10];
+        db.FindTycho2ByCanonicalPrefix("Barnard".AsSpan(), buf).ShouldBe(0);
+        db.FindTycho2ByCanonicalPrefix("".AsSpan(), buf).ShouldBe(0);
+        db.FindTycho2ByCanonicalPrefix("---".AsSpan(), buf).ShouldBe(0);
+        db.FindTycho2ByCanonicalPrefix("1-2-3-4".AsSpan(), buf).ShouldBe(0);  // 4+ segments
+    }
+
+    [Fact]
+    public async Task FindTycho2ByCanonicalPrefix_OutOfRangeTyc1_ReturnsZero()
+    {
+        // tyc1 max is 9537 -- "99999" parses but no stream matches.
+        var db = await InitDBAsync();
+
+        Span<Tycho2PrefixMatch> buf = stackalloc Tycho2PrefixMatch[10];
+        db.FindTycho2ByCanonicalPrefix("99999".AsSpan(), buf).ShouldBe(0);
+    }
+
 }

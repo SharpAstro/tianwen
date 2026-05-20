@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
+using System.Globalization;
 using System.Numerics;
 using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Astrometry.SOFA;
@@ -66,6 +67,16 @@ public static class SkyMapSearchActions
         {
             search.Results = [];
             search.SelectedResultIndex = -1;
+            return;
+        }
+
+        // Virtual TYC path: the ~2.5M Tycho-2 stars deliberately don't appear in
+        // the autocomplete list (would balloon the sort to ~5M entries with ~120MB
+        // of string allocations). Instead, queries that look like "TYC <digits>..."
+        // are served by a direct byte[] walk over the catalogue, which decodes a
+        // small destination buffer on-the-fly without materialising any noise stars.
+        if (TryHandleTycPrefix(search, db, query))
+        {
             return;
         }
 
@@ -175,6 +186,61 @@ public static class SkyMapSearchActions
             }
         }
         return lo;
+    }
+
+    /// <summary>
+    /// Detect a "TYC ..." (or "TYC..." / "TYC-...") query, strip the catalog tag,
+    /// and route to <see cref="ICelestialObjectDB.FindTycho2ByCanonicalPrefix"/>.
+    /// Returns true when the query was TYC-shaped (results written to
+    /// <paramref name="search"/>); false to let the caller continue with the
+    /// general autocomplete-list scan.
+    /// </summary>
+    private static bool TryHandleTycPrefix(SkyMapSearchState search, ICelestialObjectDB db, string query)
+    {
+        var trimmed = query.AsSpan().Trim();
+        if (trimmed.Length < 4) return false;  // need at least "TYC" + 1 digit
+        if (!trimmed.StartsWith("TYC", StringComparison.OrdinalIgnoreCase)) return false;
+
+        // Allow either whitespace or a stray "-" between TYC and the first
+        // digit so "TYC 425", "TYC-425", "TYC425" all work.
+        var rest = trimmed[3..].TrimStart();
+        if (!rest.IsEmpty && rest[0] == '-')
+        {
+            rest = rest[1..].TrimStart();
+        }
+        if (rest.IsEmpty) return false;
+
+        // Allocate a scratch span on the stack -- MaxResults * 2 gives the dedupe
+        // step downstream some slack. ~30 records * 16 bytes = ~480 B, well below
+        // any stackalloc limit.
+        Span<Tycho2PrefixMatch> buf = stackalloc Tycho2PrefixMatch[MaxResults * 2];
+        var count = db.FindTycho2ByCanonicalPrefix(rest, buf);
+
+        var take = Math.Min(count, MaxResults);
+        var results = ImmutableArray.CreateBuilder<SkyMapSearchResult>(take);
+        for (var i = 0; i < take; i++)
+        {
+            var m = buf[i];
+            // Format canonical display directly from the triple -- one InvariantCulture
+            // string interpolation, no Base91 work. The CatalogIndex round-trip via
+            // EncodeTyc2CatalogIndex + AbbreviationToCatalogIndex is still needed because
+            // SkyMapSearchResult.Index is what the commit handler hands to
+            // db.TryLookupByIndex; only the (up to MaxResults) records that actually
+            // make it to the UI pay this cost, never the scanned-but-overflowed records.
+            var display = string.Create(CultureInfo.InvariantCulture, $"TYC {m.Tyc1}-{m.Tyc2}-{m.Tyc3}");
+            var encoded = CatalogUtils.EncodeTyc2CatalogIndex(Catalog.Tycho2, m.Tyc1, m.Tyc2, m.Tyc3);
+            var idx = CatalogUtils.AbbreviationToCatalogIndex(encoded, isBase91Encoded: true);
+            results.Add(new SkyMapSearchResult(
+                Display: display,
+                Index: idx,
+                ObjType: ObjectType.Star,
+                VMag: m.VMag));
+        }
+
+        search.Results = results.ToImmutable();
+        search.SelectedResultIndex = search.Results.Length > 0 ? 0 : -1;
+        search.ResultsScrollOffset = 0;
+        return true;
     }
 
     /// <summary>
