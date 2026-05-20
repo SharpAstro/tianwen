@@ -42,4 +42,15 @@ public static class TimeUtils
     private static readonly DateTime JD2000 = DateTimeOffset.Parse("2000-01-01T12:00:00Z").UtcDateTime;
 
     public static double JulianDaysSinceJ2000(this DateTime dt) => (dt - JD2000).TotalDays;
+
+    /// <summary>
+    /// Fractional Julian years between the J2000.0 epoch (2000-01-01T12:00:00 UTC)
+    /// and <paramref name="dto"/>. Negative for pre-J2000 dates. Wraps
+    /// <see cref="JulianDaysSinceJ2000"/> with the standard 365.25-day Julian
+    /// year used for proper-motion propagation in Tycho-2 / Hipparcos /
+    /// IAU SOFA contexts.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static double JulianYearsSinceJ2000(this DateTimeOffset dto)
+        => dto.UtcDateTime.JulianDaysSinceJ2000() / 365.25;
 }

@@ -399,4 +399,47 @@ public static class CoordinateUtils
         var dec2 = Math.Asin(x2[2]);
         return (ra2, dec2);
     }
+
+    /// <summary>
+    /// Propagates a J2000 RA/Dec to <paramref name="dtJulianYears"/> later using
+    /// the Tycho-2 / Hipparcos proper-motion convention. <paramref name="pmRaMasPerYr"/>
+    /// is the great-circle RA component (i.e. true pmRA × cos(Dec), the form
+    /// that Tycho-2 publishes directly in field pmRA), and
+    /// <paramref name="pmDecMasPerYr"/> is the Dec component, both in mas/yr.
+    /// <para>
+    /// Linear first-order propagation: exact enough for all relevant <c>dt</c>
+    /// (J2000 → today is ~26 years; second-order curvature terms are
+    /// sub-microarcsec at this scale, dwarfed by the F7.1 source precision).
+    /// Pure Cartesian division by cos(Dec) inverts the cos(Dec) factor baked
+    /// into the published pmRA; the tiny clamp at <c>1e-12</c> guards against
+    /// stars at the pole (Tycho-2 has none at exactly ±90°, so the clamp
+    /// never fires in practice).
+    /// </para>
+    /// </summary>
+    /// <param name="raHours">J2000 RA in hours.</param>
+    /// <param name="decDeg">J2000 Dec in degrees.</param>
+    /// <param name="pmRaMasPerYr">Proper motion in RA, as pmRA × cos(Dec) (mas/yr).</param>
+    /// <param name="pmDecMasPerYr">Proper motion in Dec (mas/yr).</param>
+    /// <param name="dtJulianYears">Time since J2000.0 in Julian years (negative ok).</param>
+    /// <returns>Propagated (RA in hours, Dec in degrees). RA is NOT wrapped to
+    /// 0..24 -- caller normalises if needed (most projection / matching code
+    /// is wrap-tolerant via cos differences).</returns>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static (double RaHours, double DecDeg) PropagatePm(
+        double raHours, double decDeg,
+        double pmRaMasPerYr, double pmDecMasPerYr,
+        double dtJulianYears)
+    {
+        if (pmRaMasPerYr == 0 && pmDecMasPerYr == 0)
+        {
+            return (raHours, decDeg);
+        }
+
+        // pmRA carries cos(Dec); 3.6e6 mas/deg; 15 deg/hour -> 5.4e7 mas/hour.
+        var cosDec = Math.Cos(double.DegreesToRadians(decDeg));
+        var deltaRaHours = pmRaMasPerYr * dtJulianYears
+                           / (5.4e7 * Math.Max(cosDec, 1e-12));
+        var deltaDecDeg  = pmDecMasPerYr * dtJulianYears / 3.6e6;
+        return (raHours + deltaRaHours, decDeg + deltaDecDeg);
+    }
 }

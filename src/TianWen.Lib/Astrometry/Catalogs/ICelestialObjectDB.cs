@@ -9,11 +9,40 @@ namespace TianWen.Lib.Astrometry.Catalogs;
 
 /// <summary>
 /// Compact per-star record used for bulk enumeration of the Tycho-2 catalog,
-/// primarily for GPU sky map rendering.
-/// RA is in hours, Dec in degrees, <paramref name="VMag"/> is Johnson V, <paramref name="BMinusV"/>
-/// is the colour index (≈ 0.65 for solar-type stars when the blue channel is missing).
+/// primarily for GPU sky map rendering. RA in hours, Dec in degrees,
+/// <paramref name="VMag"/> is Johnson V, <paramref name="BMinusV"/> is the
+/// colour index (~0.65 default for solar-type stars when BT is missing).
+/// <para>
+/// Proper motions are stored as <see cref="int"/> in units of <c>0.1 mas/yr</c>
+/// (= source value times 10) to preserve the Tycho-2 F7.1 source precision
+/// losslessly across the full catalog range. Use the
+/// <see cref="PmRaMasPerYr"/> / <see cref="PmDecMasPerYr"/> derived properties
+/// for convenient float access in mas/yr.
+/// </para>
+/// <para>
+/// A stored value of <c>0</c> conflates two source states:
+/// (a) <c>posflg='X'</c> entries where Tycho-2 has no derived proper motion
+/// (~4.3% of the catalog) and (b) legitimate zero-pm stars. Both produce
+/// no drift under any <c>dt</c> propagation, so no downstream consumer
+/// can distinguish or needs to.
+/// </para>
 /// </summary>
-public readonly record struct Tycho2StarLite(float RaHours, float DecDeg, float VMag, float BMinusV);
+public readonly record struct Tycho2StarLite(
+    float RaHours, float DecDeg, float VMag, float BMinusV,
+    int PmRaTenthMasPerYr, int PmDecTenthMasPerYr)
+{
+    /// <summary>
+    /// Proper motion in RA*cos(Dec), in mas/yr. Derived from the stored
+    /// <see cref="PmRaTenthMasPerYr"/>. Returns <c>0</c> for missing/zero pm.
+    /// </summary>
+    public float PmRaMasPerYr  => PmRaTenthMasPerYr  * 0.1f;
+
+    /// <summary>
+    /// Proper motion in Dec, in mas/yr. Derived from the stored
+    /// <see cref="PmDecTenthMasPerYr"/>. Returns <c>0</c> for missing/zero pm.
+    /// </summary>
+    public float PmDecMasPerYr => PmDecTenthMasPerYr * 0.1f;
+}
 
 public interface ICelestialObjectDB
 {
@@ -98,6 +127,33 @@ public interface ICelestialObjectDB
     /// <param name="startIndex">Global offset into the catalog (0-based). Defaults to 0.</param>
     /// <returns>Number of records written.</returns>
     int CopyTycho2Stars(Span<Tycho2StarLite> destination, int startIndex = 0);
+
+    /// <summary>
+    /// Single-star lookup by Tycho-2 catalog index. One walk through the
+    /// catalog byte[] produces RA/Dec/photometry/pm all at once -- use this
+    /// in SPCC matching and plate-solving where you need both position and
+    /// pm for the propagation step. Bulk enumeration (sky map, MilkyWay
+    /// baking) should keep using <see cref="CopyTycho2Stars"/>.
+    /// <para>
+    /// Returns <c>true</c> with a fully-populated <see cref="Tycho2StarLite"/>
+    /// when the star is found. <see cref="Tycho2StarLite.VMag"/> is
+    /// <see cref="float.NaN"/> when source VT is missing (~0.04% of entries).
+    /// Pm fields are <c>0</c> when the source posflg='X' or pm is exactly
+    /// zero (the two cases are indistinguishable -- both yield no drift
+    /// under propagation, which is the right downstream behaviour).
+    /// </para>
+    /// </summary>
+    /// <param name="index">Catalog index. Non-Tycho-2 indices return false.</param>
+    /// <param name="star">Decoded star record on success.</param>
+    /// <returns><c>true</c> when found; <c>false</c> when not a Tycho-2 index
+    /// or the Tycho-2 bulk data hasn't loaded yet.</returns>
+    bool TryGetTycho2Star(CatalogIndex index, out Tycho2StarLite star)
+    {
+        // Default impl for test stubs / fakes: no Tycho-2 data. The real
+        // CelestialObjectDB overrides with the byte[] decode.
+        star = default;
+        return false;
+    }
 
     public bool TryLookupByIndex(string name, [NotNullWhen(true)] out CelestialObject celestialObject)
     {

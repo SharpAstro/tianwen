@@ -808,4 +808,54 @@ public class CelestialObjectDBTests
             string.Join(", ", nanMagStars.Distinct().Select(s => $"HIP {s.Hip} ({s.Constellation})")));
     }
 
+    [Fact]
+    public async Task TryGetTycho2Star_BarnardsStar_ReturnsExactPmFromSidecar()
+    {
+        // Barnard's Star = TYC 0425-2502-1 = HIP 87937. pm in Tycho-2 source
+        // (field 4 = pmRA*cos(Dec), field 5 = pmDec):
+        //   pmRA  = -798.8  mas/yr -> stored * 10 = -7988
+        //   pmDec = 10277.3 mas/yr -> stored * 10 = +102773  <- rail-saturates int16,
+        //                                                       recovered exact from
+        //                                                       tyc2_pm_sidecar.bin.lz
+        var db = await InitDBAsync();
+        db.TryLookupByIndex("TYC 425-2502-1", out var barnard).ShouldBeTrue();
+        db.TryGetTycho2Star(barnard.Index, out var star).ShouldBeTrue();
+        star.PmRaTenthMasPerYr.ShouldBe(-7988);
+        star.PmDecTenthMasPerYr.ShouldBe(102773);
+    }
+
+    [Fact]
+    public async Task TryGetTycho2Star_EpsilonIndi_ReturnsExactPmFromSidecar()
+    {
+        // eps Indi = TYC 8817-984-1 = HIP 108870. Saturates pmRA (3959.1).
+        var db = await InitDBAsync();
+        db.TryLookupByIndex("TYC 8817-984-1", out var epsIndi).ShouldBeTrue();
+        db.TryGetTycho2Star(epsIndi.Index, out var star).ShouldBeTrue();
+        star.PmRaTenthMasPerYr.ShouldBe(39591);   // 3959.1 * 10
+        star.PmDecTenthMasPerYr.ShouldBe(-25383); // -2538.3 * 10
+    }
+
+    [Fact]
+    public async Task TryGetTycho2Star_TypicalStar_RoundTripsInlineInt16()
+    {
+        // TYC 8962-2640-1 from the SoL field analysis: pmRA = -5.8, pmDec = 1.1.
+        // No rail saturation -> reads inline int16 directly.
+        var db = await InitDBAsync();
+        db.TryLookupByIndex("TYC 8962-2640-1", out var obj).ShouldBeTrue();
+        db.TryGetTycho2Star(obj.Index, out var star).ShouldBeTrue();
+        star.PmRaTenthMasPerYr.ShouldBe(-58);  // -5.8 * 10
+        star.PmDecTenthMasPerYr.ShouldBe(11);  // 1.1 * 10
+        // Sanity check: derived float properties match
+        star.PmRaMasPerYr.ShouldBe(-5.8f, tolerance: 1e-3f);
+        star.PmDecMasPerYr.ShouldBe(1.1f, tolerance: 1e-3f);
+    }
+
+    [Fact]
+    public async Task TryGetTycho2Star_NonTycho2Index_ReturnsFalse()
+    {
+        var db = await InitDBAsync();
+        db.TryGetTycho2Star(CatalogIndex.NGC7331, out var star).ShouldBeFalse();
+        star.ShouldBe(default(Tycho2StarLite));
+    }
+
 }

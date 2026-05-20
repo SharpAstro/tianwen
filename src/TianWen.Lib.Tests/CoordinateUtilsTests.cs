@@ -110,4 +110,60 @@ public class CoordinateUtilsTests
     {
         CoordinateUtils.FocalLengthMm(pixSizeUm, pxScaleArcsec).ShouldBe(double.NaN);
     }
+
+    [Fact]
+    public void PropagatePm_ZeroPm_ReturnsInputUnchanged()
+    {
+        var (ra, dec) = CoordinateUtils.PropagatePm(12.345, -45.678, 0.0, 0.0, 26.0);
+        ra.ShouldBe(12.345);
+        dec.ShouldBe(-45.678);
+    }
+
+    [Fact]
+    public void PropagatePm_ZeroDt_ReturnsInputUnchanged()
+    {
+        var (ra, dec) = CoordinateUtils.PropagatePm(12.345, -45.678, 100.0, -50.0, 0.0);
+        ra.ShouldBe(12.345);
+        dec.ShouldBe(-45.678);
+    }
+
+    [Fact]
+    public void PropagatePm_BarnardsStarDecDriftMatchesHandComputation()
+    {
+        // Barnard's Star (TYC 0425-2502-1, HIP 87937), J2000 from Tycho-2:
+        // pmRA = -798.8 mas/yr (RA*cos(Dec) form, source field 4)
+        // pmDec = +10277.3 mas/yr
+        // RA = 17.9636 h, Dec = +4.6933 deg.
+        // For dt = 26 yr, ΔDec = 10277.3 * 26 / 3.6e6 = 0.07422972... deg.
+        var (_, dec) = CoordinateUtils.PropagatePm(17.9636, 4.6933, -798.8, 10277.3, 26.0);
+        var deltaDec = dec - 4.6933;
+        deltaDec.ShouldBe(10277.3 * 26.0 / 3.6e6, tolerance: 1e-9);
+    }
+
+    [Fact]
+    public void PropagatePm_RaDriftScalesByInverseCosDec()
+    {
+        // pmRA is published as RA*cos(Dec), so the actual ΔRA in hours needs
+        // an extra /cos(Dec) factor. Verify the unwind at Dec = 60 deg
+        // (cos = 0.5 -> ΔRA doubles vs the same pmRA at the equator).
+        var pmRa = 1000.0;
+        var dt = 1.0;
+        var (raEquator, _)  = CoordinateUtils.PropagatePm(0, 0,  pmRa, 0, dt);
+        var (raHighDec, _) = CoordinateUtils.PropagatePm(0, 60, pmRa, 0, dt);
+        // ΔRA(60°) should be exactly ΔRA(0°) / cos(60°) = ΔRA(0°) * 2.
+        var ratio = raHighDec / raEquator;
+        ratio.ShouldBe(2.0, tolerance: 1e-12);
+    }
+
+    [Fact]
+    public void PropagatePm_RoundTripsThroughForwardThenBackward()
+    {
+        var (raMid, decMid) = CoordinateUtils.PropagatePm(11.196, -61.35, -20.0, 15.0, 26.0);
+        var (raBack, decBack) = CoordinateUtils.PropagatePm(raMid, decMid, -20.0, 15.0, -26.0);
+        // Note: this is approximate -- cos(Dec) varies slightly between the
+        // start and midpoint epochs, so the inverse propagation isn't bit-exact
+        // for non-equatorial declinations. At a typical Dec the error is sub-uas.
+        raBack.ShouldBe(11.196, tolerance: 1e-6);
+        decBack.ShouldBe(-61.35, tolerance: 1e-9);
+    }
 }

@@ -119,7 +119,21 @@ function ConvertAndWrite-Tycho2Data
     $resolvedPath = (Resolve-Path $UnzippedDataFileName).Path
     $lines = [System.IO.File]::ReadAllLines($resolvedPath, [System.Text.Encoding]::ASCII)
     $isLittleEndian = [BitConverter]::IsLittleEndian
-    $entry = [byte[]]::new(13)
+    # 17-byte entry layout: tyc2 u16 | tyc3 u8 | RA f32 (hours) | Dec f32 (deg)
+    #                     | VT decimag u8 | BT decimag u8
+    #                     | pmRA int16 (= source mas/yr * 10)
+    #                     | pmDec int16 (= source mas/yr * 10).
+    # Inline pm encoding: signed int16, scale 0.1 mas/yr per unit -- exactly
+    # matches the source F7.1 precision for the 2.5M-11 stars whose
+    # |pm| <= 3276.7 mas/yr. Special values:
+    #   0           = "no useful pm" (covers both posflg='X' missing-pm
+    #                  entries AND legitimate zero-pm stars; both produce
+    #                  no drift downstream regardless of dt).
+    #   +/-32767    = saturation rail; consult tyc2_pm_sidecar.bin.lz with
+    #                  the (tyc1, tyc2, tyc3) key to recover exact int32
+    #                  pm for the 11 high-pm stars (Barnard's, Kapteyn's,
+    #                  etc.). Sidecar entry = 13 bytes per record.
+    $entry = [byte[]]::new(17)
     $inv = [cultureinfo]::InvariantCulture
 
     foreach ($line in $lines) {
@@ -162,6 +176,16 @@ function ConvertAndWrite-Tycho2Data
         $vtDecimag = if ([float]::IsNaN($vtMag)) { 255 } else { [Math]::Clamp([int][Math]::Round($vtMag * 10) + 20, 0, 254) }
         $btDecimag = if ([float]::IsNaN($btMag)) { 255 } else { [Math]::Clamp([int][Math]::Round($btMag * 10) + 20, 0, 254) }
 
+        # Parse pmRA (field 4) and pmDE (field 5) in mas/yr; both blank for posflg='X'
+        # (mean position observed only, no proper motion derived). NaN propagates
+        # through the Half cast cleanly.
+        [float]$pmRa = [float]::NaN
+        [float]$pmDec = [float]::NaN
+        if ($posType -ne 'X') {
+            [void][float]::TryParse($values[4].Trim(), $inv, [ref] $pmRa)
+            [void][float]::TryParse($values[5].Trim(), $inv, [ref] $pmDec)
+        }
+
         # Write binary entry directly
         $gscIdx = $tyc1 - 1
         $stream = $OutputData.Streams[$gscIdx]
@@ -176,13 +200,59 @@ function ConvertAndWrite-Tycho2Data
             [array]::Reverse($decBytes)
         }
 
-        $entry[0] = $id2Bytes[0]; $entry[1] = $id2Bytes[1]
-        $entry[2] = [byte]$tyc3
-        $entry[3] = $raHBytes[0]; $entry[4] = $raHBytes[1]; $entry[5] = $raHBytes[2]; $entry[6] = $raHBytes[3]
-        $entry[7] = $decBytes[0]; $entry[8] = $decBytes[1]; $entry[9] = $decBytes[2]; $entry[10] = $decBytes[3]
+        # int16 = round(source mas/yr * 10). Sentinel 0 covers both "no pm
+        # data" (posflg='X') and "exactly zero pm" -- both produce no drift
+        # so no consumer can distinguish them. Saturation rails at
+        # +/-32767 trigger a sidecar entry (int32 pm to preserve full
+        # source precision past the 3276.7 mas/yr inline range).
+        [int]$pmRaTenths  = 0
+        [int]$pmDecTenths = 0
+        $pmRaSat  = $false
+        $pmDecSat = $false
+        if (-not [float]::IsNaN($pmRa)) {
+            $q = [int][Math]::Round($pmRa * 10.0)
+            if     ($q -gt  32767) { $pmRaTenths =  32767; $pmRaSat = $true }
+            elseif ($q -lt -32767) { $pmRaTenths = -32767; $pmRaSat = $true }
+            else                   { $pmRaTenths = $q }
+        }
+        if (-not [float]::IsNaN($pmDec)) {
+            $q = [int][Math]::Round($pmDec * 10.0)
+            if     ($q -gt  32767) { $pmDecTenths =  32767; $pmDecSat = $true }
+            elseif ($q -lt -32767) { $pmDecTenths = -32767; $pmDecSat = $true }
+            else                   { $pmDecTenths = $q }
+        }
+        if ($pmRaSat -or $pmDecSat) {
+            # Either-axis saturation triggers a sidecar entry that carries the
+            # exact pm value (source * 10, int32) for BOTH components, so the
+            # reader can substitute the lossless value when it sees a rail.
+            [void]$OutputData.SidecarEntries.Add([PSCustomObject]@{
+                Tyc1 = $tyc1
+                Tyc2 = $tyc2
+                Tyc3 = $tyc3
+                # Note: if a star has only one axis saturated, the non-rail
+                # axis's exact value still lives in the sidecar too (avoids
+                # a partial-encoding branch in the reader).
+                PmRaTenths  = if ([float]::IsNaN($pmRa))  { 0 } else { [int][Math]::Round($pmRa  * 10.0) }
+                PmDecTenths = if ([float]::IsNaN($pmDec)) { 0 } else { [int][Math]::Round($pmDec * 10.0) }
+            })
+        }
+
+        $pmRaInt16Bytes  = [BitConverter]::GetBytes([int16]$pmRaTenths)
+        $pmDecInt16Bytes = [BitConverter]::GetBytes([int16]$pmDecTenths)
+        if (-not $isLittleEndian) {
+            [array]::Reverse($pmRaInt16Bytes)
+            [array]::Reverse($pmDecInt16Bytes)
+        }
+
+        $entry[0]  = $id2Bytes[0]; $entry[1]  = $id2Bytes[1]
+        $entry[2]  = [byte]$tyc3
+        $entry[3]  = $raHBytes[0]; $entry[4]  = $raHBytes[1]; $entry[5]  = $raHBytes[2]; $entry[6]  = $raHBytes[3]
+        $entry[7]  = $decBytes[0]; $entry[8]  = $decBytes[1]; $entry[9]  = $decBytes[2]; $entry[10] = $decBytes[3]
         $entry[11] = [byte]$vtDecimag
         $entry[12] = [byte]$btDecimag
-        $stream.Write($entry, 0, 13)
+        $entry[13] = $pmRaInt16Bytes[0];  $entry[14] = $pmRaInt16Bytes[1]
+        $entry[15] = $pmDecInt16Bytes[0]; $entry[16] = $pmDecInt16Bytes[1]
+        $stream.Write($entry, 0, 17)
 
         # track GSC region bounding box
         if ($ra -lt $OutputData.GscMinRA[$gscIdx])  { $OutputData.GscMinRA[$gscIdx]  = $ra }
@@ -366,13 +436,16 @@ $cats.GetEnumerator() | ForEach-Object {
         }
 
         $outputData = [PSCustomObject] @{
-            Streams   = [System.IO.FileStream[]]::new($cat.StreamCount)
-            HIPMap    = @{}
-            HDMap     = @{}
-            GscMinRA  = $gscMinRA
-            GscMaxRA  = $gscMaxRA
-            GscMinDec = $gscMinDec
-            GscMaxDec = $gscMaxDec
+            Streams        = [System.IO.FileStream[]]::new($cat.StreamCount)
+            HIPMap         = @{}
+            HDMap          = @{}
+            GscMinRA       = $gscMinRA
+            GscMaxRA       = $gscMaxRA
+            GscMinDec      = $gscMinDec
+            GscMaxDec      = $gscMaxDec
+            # Exact-pm overflow for the ~0.15% of stars whose |pm| > 254 mas/yr
+            # (one-or-both axes). Sorted + written to tyc2_pm_sidecar.bin at end.
+            SidecarEntries = [System.Collections.Generic.List[object]]::new()
         }
 
         $needsProcessing = $false
@@ -451,6 +524,41 @@ $cats.GetEnumerator() | ForEach-Object {
             }
             [System.IO.File]::WriteAllBytes($boundsFile, $boundsBuffer)
             Compress-WithLzip $boundsFile
+
+            # PM sidecar: per-record entry = tyc1 u16 | tyc2 u16 | tyc3 u8
+            #                              | pmRA int32 | pmDec int32 = 13 bytes.
+            # int32 (= source * 10, no clipping) covers the full Tycho-2 pm
+            # range including Barnard's 10277 mas/yr without further loss.
+            # Sorted ascending by (tyc1, tyc2, tyc3) so the reader can binary
+            # search OR fill a dictionary in one linear pass. No entry count
+            # header -- count = decompressed length / 13. Reader is only
+            # consulted when inline pmRA or pmDec == +/-32767 (the saturation
+            # rails), so misses are functionally impossible at runtime.
+            $sidecarEntries = @($outputData.SidecarEntries | Sort-Object Tyc1, Tyc2, Tyc3)
+            $sidecarFile = [System.IO.Path]::Combine($PSScriptRoot, 'tyc2_pm_sidecar.bin')
+            Write-Host "Writing pm sidecar to $sidecarFile ($($sidecarEntries.Count) saturated stars)"
+            $sidecarBuffer = [byte[]]::new($sidecarEntries.Count * 13)
+            $sidecarIdx = 0
+            foreach ($e in $sidecarEntries) {
+                $t1Bytes  = [BitConverter]::GetBytes([uint16]$e.Tyc1)
+                $t2Bytes  = [BitConverter]::GetBytes([uint16]$e.Tyc2)
+                $praBytes = [BitConverter]::GetBytes([int32]$e.PmRaTenths)
+                $pdeBytes = [BitConverter]::GetBytes([int32]$e.PmDecTenths)
+                if (-not $boundsIsLE) {
+                    [array]::Reverse($t1Bytes);  [array]::Reverse($t2Bytes)
+                    [array]::Reverse($praBytes); [array]::Reverse($pdeBytes)
+                }
+                $sidecarBuffer[$sidecarIdx]      = $t1Bytes[0];  $sidecarBuffer[$sidecarIdx + 1]  = $t1Bytes[1]
+                $sidecarBuffer[$sidecarIdx + 2]  = $t2Bytes[0];  $sidecarBuffer[$sidecarIdx + 3]  = $t2Bytes[1]
+                $sidecarBuffer[$sidecarIdx + 4]  = [byte]$e.Tyc3
+                $sidecarBuffer[$sidecarIdx + 5]  = $praBytes[0]; $sidecarBuffer[$sidecarIdx + 6]  = $praBytes[1]
+                $sidecarBuffer[$sidecarIdx + 7]  = $praBytes[2]; $sidecarBuffer[$sidecarIdx + 8]  = $praBytes[3]
+                $sidecarBuffer[$sidecarIdx + 9]  = $pdeBytes[0]; $sidecarBuffer[$sidecarIdx + 10] = $pdeBytes[1]
+                $sidecarBuffer[$sidecarIdx + 11] = $pdeBytes[2]; $sidecarBuffer[$sidecarIdx + 12] = $pdeBytes[3]
+                $sidecarIdx += 13
+            }
+            [System.IO.File]::WriteAllBytes($sidecarFile, $sidecarBuffer)
+            Compress-WithLzip $sidecarFile
         }
 
         # Simple binary archive: int32 streamCount, then streamCount × int32 byte-offsets, then concatenated stream data.

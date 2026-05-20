@@ -55,6 +55,22 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
     private byte[]? _tycho2Data;
     private int _tycho2StreamCount;
     private Tycho2RaDecIndex? _tycho2RaDecIndex;
+
+    /// <summary>
+    /// Exact-pm overrides for the ~11 Tycho-2 stars whose |pmRA| or |pmDec| exceeds
+    /// the int16 x 10 inline encoding's range of +/-3276.7 mas/yr (Barnard's,
+    /// Kapteyn's, etc.). Built once from <c>tyc2_pm_sidecar.bin.lz</c> during the
+    /// bulk load. Key packs (tyc1, tyc2, tyc3) into a long; value is exact
+    /// (pmRa, pmDec) in tenth-mas/yr (= source mas/yr * 10) as int32 -- this
+    /// covers Barnard's 10277 mas/yr losslessly. Null until
+    /// <see cref="ReadTycho2Bulk"/> populates.
+    /// </summary>
+    private Dictionary<long, (int PmRaTenthMasPerYr, int PmDecTenthMasPerYr)>? _tycho2PmSidecar;
+
+    /// <summary>Packs a TYC identifier into the long key used by <see cref="_tycho2PmSidecar"/>.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static long PackTycKey(ushort tyc1, ushort tyc2, byte tyc3)
+        => ((long)tyc1 << 24) | ((long)tyc2 << 8) | tyc3;
     private CatalogIndex[]? _hipToTyc;
     private CatalogIndex[]? _hdToTyc;
 
@@ -622,6 +638,28 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
         {
             var boundsData = LzipDecoder.Decompress(boundsStream);
             _tycho2RaDecIndex = new Tycho2RaDecIndex(_tycho2Data, _tycho2StreamCount, boundsData);
+        }
+
+        var sidecarManifest = manifestNames.FirstOrDefault(p => p.EndsWith(".tyc2_pm_sidecar.bin.lz"));
+        if (sidecarManifest is not null && assembly.GetManifestResourceStream(sidecarManifest) is Stream sidecarStream)
+        {
+            // Format: 13 bytes per entry, tyc1 u16 | tyc2 u16 | tyc3 u8 | pmRA int32 | pmDec int32.
+            // Entry count = byte length / 13 (no header). Sorted ascending by (tyc1, tyc2, tyc3).
+            var sidecarBytes = LzipDecoder.Decompress(sidecarStream);
+            var entryCount = sidecarBytes.Length / 13;
+            var dict = new Dictionary<long, (int, int)>(entryCount);
+            var src = sidecarBytes.AsSpan();
+            for (int i = 0; i < entryCount; i++)
+            {
+                var off = i * 13;
+                var tyc1 = BinaryPrimitives.ReadUInt16LittleEndian(src[off..]);
+                var tyc2 = BinaryPrimitives.ReadUInt16LittleEndian(src[(off + 2)..]);
+                var tyc3 = src[off + 4];
+                var pmRa  = BinaryPrimitives.ReadInt32LittleEndian(src[(off + 5)..]);
+                var pmDec = BinaryPrimitives.ReadInt32LittleEndian(src[(off + 9)..]);
+                dict[PackTycKey(tyc1, tyc2, tyc3)] = (pmRa, pmDec);
+            }
+            _tycho2PmSidecar = dict;
         }
     }
 
@@ -1364,17 +1402,42 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
     /// at the start of the binary file (int32 LE per stream).
     /// </para>
     /// </summary>
-    private bool TryGetTycho2RaDec(ushort tyc1, ushort tyc2, byte tyc3, out double ra, out double dec, out Half vMag, out float bMinusV)
+    /// <inheritdoc/>
+    public bool TryGetTycho2Star(CatalogIndex index, out Tycho2StarLite star)
     {
-        ra = dec = 0;
-        vMag = HalfUndefined;
-        bMinusV = 0.65f; // solar-type default
+        star = default;
+        if (_tycho2Data is null)
+        {
+            return false;
+        }
+
+        var (cat, value, msbSet) = index.ToCatalogAndValue();
+        if (cat is not Catalog.Tycho2 || !msbSet)
+        {
+            return false;
+        }
+
+        var (tyc1, tyc2, tyc3) = DecodeTyc2CatalogIndex(value);
+        return TryGetTycho2StarByTycId(tyc1, (ushort)tyc2, tyc3, out star);
+    }
+
+    /// <summary>
+    /// Single-walk decode by raw (tyc1, tyc2, tyc3). Unified producer for
+    /// both the public <see cref="TryGetTycho2Star"/> and the internal
+    /// <see cref="TryGetTycho2RaDec"/> shim that <see cref="TryLookupTycho2StarFromBinaryData"/>
+    /// uses to populate a <see cref="CelestialObject"/>. Walking the per-region
+    /// table once per lookup and producing every field downstream consumers
+    /// might want keeps the byte[]-decode path single-source-of-truth.
+    /// </summary>
+    private bool TryGetTycho2StarByTycId(ushort tyc1, ushort tyc2, byte tyc3, out Tycho2StarLite star)
+    {
+        star = default;
         if (_tycho2Data is null || tyc1 == 0 || tyc1 > _tycho2StreamCount)
         {
             return false;
         }
 
-        const int entrySize = 13;
+        const int entrySize = 17;
         var data = _tycho2Data.AsSpan();
 
         var gscIdx = tyc1 - 1;
@@ -1382,7 +1445,6 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
         var endOffset = gscIdx + 1 < _tycho2StreamCount
             ? BinaryPrimitives.ReadInt32LittleEndian(data[((gscIdx + 2) * 4)..])
             : _tycho2Data.Length;
-
         var entryCount = (endOffset - startOffset) / entrySize;
 
         for (int i = 0; i < entryCount; i++)
@@ -1393,18 +1455,59 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
 
             if (entryTyc2 == tyc2 && entryTyc3 == tyc3)
             {
-                ra = BinaryPrimitives.ReadSingleLittleEndian(entry[3..]);
-                dec = BinaryPrimitives.ReadSingleLittleEndian(entry[7..]);
+                var raHours = BinaryPrimitives.ReadSingleLittleEndian(entry[3..]);
+                var decDeg  = BinaryPrimitives.ReadSingleLittleEndian(entry[7..]);
                 var vtDecimag = entry[11];
                 var btDecimag = entry[12];
-                vMag = DecodeJohnsonVFromDecimags(vtDecimag, btDecimag);
-                // B-V = 0.850 × (BT - VT), or default if BT missing
-                if (vtDecimag != 0xFF && btDecimag != 0xFF)
+
+                float vMag, bMinusV = 0.65f;
+                if (vtDecimag == 0xFF)
+                {
+                    vMag = float.NaN;
+                }
+                else
                 {
                     var vt = (vtDecimag - 20) / 10.0f;
-                    var bt = (btDecimag - 20) / 10.0f;
-                    bMinusV = 0.850f * (bt - vt);
+                    if (btDecimag != 0xFF)
+                    {
+                        var bt = (btDecimag - 20) / 10.0f;
+                        vMag = vt - 0.090f * (bt - vt);
+                        bMinusV = 0.850f * (bt - vt);
+                    }
+                    else
+                    {
+                        vMag = vt;
+                    }
                 }
+
+                // pm: int16 inline + int32 sidecar on saturation rails.
+                var rawPmRa  = BinaryPrimitives.ReadInt16LittleEndian(entry[13..]);
+                var rawPmDec = BinaryPrimitives.ReadInt16LittleEndian(entry[15..]);
+                int pmRaTenths, pmDecTenths;
+                if (rawPmRa == short.MaxValue || rawPmRa == -short.MaxValue
+                 || rawPmDec == short.MaxValue || rawPmDec == -short.MaxValue)
+                {
+                    if (_tycho2PmSidecar is { } sidecar
+                        && sidecar.TryGetValue(PackTycKey(tyc1, tyc2, tyc3), out var exact))
+                    {
+                        (pmRaTenths, pmDecTenths) = exact;
+                    }
+                    else
+                    {
+                        // Defensive fallback: rail without a sidecar entry
+                        // shouldn't happen because the PS1 emits a sidecar row
+                        // whenever it clips at bake time.
+                        pmRaTenths = rawPmRa;
+                        pmDecTenths = rawPmDec;
+                    }
+                }
+                else
+                {
+                    pmRaTenths = rawPmRa;
+                    pmDecTenths = rawPmDec;
+                }
+
+                star = new Tycho2StarLite(raHours, decDeg, vMag, bMinusV, pmRaTenths, pmDecTenths);
                 return true;
             }
         }
@@ -1413,34 +1516,27 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
     }
 
     /// <summary>
-    /// Decodes Johnson V magnitude from biased decimag-encoded VT and BT bytes.
-    /// <para>
-    /// Decimag encoding: <c>byte = clamp(round(mag × 10) + 20, 0, 254)</c>, 0xFF = missing.
-    /// Decoding: <c>mag = (byte − 20) / 10.0</c>.
-    /// </para>
-    /// <para>
-    /// If both VT and BT are available, computes Johnson V = VT − 0.090 × (BT − VT).
-    /// If only VT is available, returns VT as an approximation.
-    /// If VT is missing, returns <see cref="Half.NaN"/>.
-    /// </para>
+    /// Legacy shim used by <see cref="TryLookupTycho2StarFromBinaryData"/> to
+    /// populate a <see cref="CelestialObject"/>. Delegates to the unified
+    /// decode and discards pm. Kept so the CelestialObject construction path
+    /// doesn't need to know about the new Tycho2StarLite return shape.
     /// </summary>
-    private static Half DecodeJohnsonVFromDecimags(byte vtDecimag, byte btDecimag)
+    private bool TryGetTycho2RaDec(ushort tyc1, ushort tyc2, byte tyc3, out double ra, out double dec, out Half vMag, out float bMinusV)
     {
-        if (vtDecimag == 0xFF)
+        if (TryGetTycho2StarByTycId(tyc1, tyc2, tyc3, out var star))
         {
-            return HalfUndefined;
+            ra = star.RaHours;
+            dec = star.DecDeg;
+            vMag = float.IsNaN(star.VMag) ? HalfUndefined : (Half)star.VMag;
+            bMinusV = star.BMinusV;
+            return true;
         }
-
-        var vt = (vtDecimag - 20) / 10.0;
-
-        if (btDecimag != 0xFF)
-        {
-            var bt = (btDecimag - 20) / 10.0;
-            return (Half)(vt - 0.090 * (bt - vt));
-        }
-
-        return (Half)vt;
+        ra = dec = 0;
+        vMag = HalfUndefined;
+        bMinusV = 0.65f;
+        return false;
     }
+
 
     /// <inheritdoc/>
     public int HipStarCount => _hipToTyc?.Length ?? 0;
@@ -1469,7 +1565,7 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
 
     /// <summary>
     /// Ensure <see cref="_tycho2StarCount"/> reflects the loaded binary. Counts
-    /// 13-byte records in each per-stream range once and caches the result.
+    /// 15-byte records in each per-stream range once and caches the result.
     /// </summary>
     private void EnsureTycho2StarCount()
     {
@@ -1478,7 +1574,7 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
             return;
         }
 
-        const int entrySize = 13;
+        const int entrySize = 17;
         var data = _tycho2Data.AsSpan();
         var total = 0;
         for (int gscIdx = 0; gscIdx < _tycho2StreamCount; gscIdx++)
@@ -1501,7 +1597,7 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
             return 0;
         }
 
-        const int entrySize = 13;
+        const int entrySize = 17;
         var data = _tycho2Data.AsSpan();
 
         // Walk streams in order, skipping the first `startIndex` records and then
@@ -1528,11 +1624,44 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
             for (int i = streamStart; i < entryCount && written < destination.Length; i++)
             {
                 var entry = data[(startOffset + i * entrySize)..];
-                // Layout: tyc2 (u16) | tyc3 (u8) | RA f32 | Dec f32 | VT decimag (u8) | BT decimag (u8)
+                // Layout: tyc2 (u16) | tyc3 (u8) | RA f32 | Dec f32 | VT decimag (u8)
+                //       | BT decimag (u8) | pmRA int16 (mas/yr * 10) | pmDec int16 (mas/yr * 10).
+                // Rail value +/-32767 means the star saturated the inline range; the
+                // sidecar carries the exact int32 (mas/yr * 10) for those (~11 stars
+                // catalog-wide, e.g. Barnard's, Kapteyn's, eps Indi, mu Cas). 0 in the
+                // inline field is the "no useful pm" marker (missing OR exactly zero --
+                // indistinguishable, but no downstream consumer cares: both yield zero
+                // drift under propagation).
+                var tyc2 = BinaryPrimitives.ReadUInt16LittleEndian(entry);
+                var tyc3 = entry[2];
                 var ra  = BinaryPrimitives.ReadSingleLittleEndian(entry[3..]);
                 var dec = BinaryPrimitives.ReadSingleLittleEndian(entry[7..]);
                 var vtDecimag = entry[11];
                 var btDecimag = entry[12];
+                var rawPmRa  = BinaryPrimitives.ReadInt16LittleEndian(entry[13..]);
+                var rawPmDec = BinaryPrimitives.ReadInt16LittleEndian(entry[15..]);
+                int pmRaTenths, pmDecTenths;
+                if (rawPmRa == short.MaxValue || rawPmRa == -short.MaxValue
+                 || rawPmDec == short.MaxValue || rawPmDec == -short.MaxValue)
+                {
+                    if (_tycho2PmSidecar is { } sidecar
+                        && sidecar.TryGetValue(PackTycKey((ushort)(gscIdx + 1), tyc2, tyc3), out var exact))
+                    {
+                        (pmRaTenths, pmDecTenths) = exact;
+                    }
+                    else
+                    {
+                        // Defensive fallback: shouldn't trigger in practice since every
+                        // rail-saturated star was written to the sidecar at bake time.
+                        pmRaTenths  = rawPmRa;
+                        pmDecTenths = rawPmDec;
+                    }
+                }
+                else
+                {
+                    pmRaTenths  = rawPmRa;
+                    pmDecTenths = rawPmDec;
+                }
 
                 float vMag;
                 float bv = 0.65f; // solar-type default when blue channel is missing
@@ -1557,7 +1686,7 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
                     }
                 }
 
-                destination[written++] = new Tycho2StarLite(ra, dec, vMag, bv);
+                destination[written++] = new Tycho2StarLite(ra, dec, vMag, bv, pmRaTenths, pmDecTenths);
             }
         }
 
