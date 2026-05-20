@@ -127,11 +127,19 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
         // returns 0 stars and we bail in tens of ms with no useful diagnostic.
         await db.InitDBAsync(waitForTycho2BulkLoad: true, cancellationToken: cancellationToken);
 
+        // Map FITS DATE-OBS to fractional Julian years since J2000.0 so the
+        // catalog query can propagate Tycho-2 J2000 positions to the image
+        // epoch via proper motion. The Year > 1900 guard turns missing /
+        // synthetic DATE-OBS metadata into dtYr=0 (no propagation) rather
+        // than catastrophically applying a ~-2000yr shift.
+        var exposureStart = image.ImageMeta.ExposureStartTime;
+        var dtYr = exposureStart.Year > 1900 ? exposureStart.JulianYearsSinceJ2000() : 0.0;
+
         // Query catalog stars within search radius
         var stageSw = Stopwatch.StartNew();
-        var catalogCoords = QueryCatalogStarsInRegion(origin, searchRadiusDeg);
-        _logger.LogDebug("CatalogPlateSolver: catalog query {Count} stars in {Ms}ms (Dec={Dec:F2}°, R={R:F2}°)",
-            catalogCoords.Count, stageSw.Elapsed.TotalMilliseconds, origin.CenterDec, searchRadiusDeg);
+        var catalogCoords = QueryCatalogStarsInRegion(origin, searchRadiusDeg, dtYr);
+        _logger.LogDebug("CatalogPlateSolver: catalog query {Count} stars in {Ms}ms (Dec={Dec:F2}°, R={R:F2}°, dtYr={DtYr:F2})",
+            catalogCoords.Count, stageSw.Elapsed.TotalMilliseconds, origin.CenterDec, searchRadiusDeg, dtYr);
         _catalogStars = catalogCoords.Count;
         if (catalogCoords.Count < MinStarsForMatch)
         {
@@ -572,7 +580,26 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
         return matched > 0 ? Math.Sqrt(sumSqDist / matched) : double.MaxValue;
     }
 
-    private List<(double RA, double Dec, double VMag)> QueryCatalogStarsInRegion(WCS origin, double radiusDeg)
+    /// <summary>
+    /// Propagates a candidate's J2000 RA/Dec to the image epoch via Tycho-2
+    /// proper motion when one is available. Uses <c>obj.Index</c> so that
+    /// cross-walked HIP/HD candidates (which arrive here with their TYC
+    /// resolution already in <see cref="CelestialObject.Index"/>) pick up
+    /// pm too, the same way SPCC's matcher does (see 9d933f8).
+    /// </summary>
+    private static (double Ra, double Dec) MaybePropagate(
+        ICelestialObjectDB db, in CelestialObject obj, double dtJulianYears)
+    {
+        if (dtJulianYears == 0.0) return (obj.RA, obj.Dec);
+        if (!db.TryGetTycho2Star(obj.Index, out var tyc)) return (obj.RA, obj.Dec);
+        if (tyc.PmRaTenthMasPerYr == 0 && tyc.PmDecTenthMasPerYr == 0) return (obj.RA, obj.Dec);
+        return CoordinateUtils.PropagatePm(
+            obj.RA, obj.Dec,
+            tyc.PmRaMasPerYr, tyc.PmDecMasPerYr,
+            dtJulianYears);
+    }
+
+    private List<(double RA, double Dec, double VMag)> QueryCatalogStarsInRegion(WCS origin, double radiusDeg, double dtJulianYears)
     {
         var result = new List<(double RA, double Dec, double VMag)>();
 
@@ -612,7 +639,8 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
                     {
                         if (seen.Add(idx) && db.TryLookupByIndex(idx, out var obj) && obj.ObjectType is ObjectType.Star)
                         {
-                            result.Add((obj.RA, obj.Dec, Half.IsNaN(obj.V_Mag) ? 99.0 : (double)obj.V_Mag));
+                            var (ra, dec) = MaybePropagate(db, obj, dtJulianYears);
+                            result.Add((ra, dec, Half.IsNaN(obj.V_Mag) ? 99.0 : (double)obj.V_Mag));
                         }
                     }
                 }
@@ -623,7 +651,8 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
             {
                 if (seen.Add(idx) && db.TryLookupByIndex(idx, out var obj) && obj.ObjectType is ObjectType.Star)
                 {
-                    result.Add((obj.RA, obj.Dec, Half.IsNaN(obj.V_Mag) ? 99.0 : (double)obj.V_Mag));
+                    var (ra, dec) = MaybePropagate(db, obj, dtJulianYears);
+                    result.Add((ra, dec, Half.IsNaN(obj.V_Mag) ? 99.0 : (double)obj.V_Mag));
                 }
             }
 
@@ -645,7 +674,8 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
                 {
                     if (seen.Add(idx) && db.TryLookupByIndex(idx, out var obj) && obj.ObjectType is ObjectType.Star)
                     {
-                        result.Add((obj.RA, obj.Dec, Half.IsNaN(obj.V_Mag) ? 99.0 : (double)obj.V_Mag));
+                        var (ra, dec) = MaybePropagate(db, obj, dtJulianYears);
+                        result.Add((ra, dec, Half.IsNaN(obj.V_Mag) ? 99.0 : (double)obj.V_Mag));
                     }
                 }
             }
