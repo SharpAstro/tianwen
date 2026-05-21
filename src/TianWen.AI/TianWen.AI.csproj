@@ -27,16 +27,20 @@
   <Choose>
     <When Condition="'$(RuntimeIdentifier)' == 'win-arm64'">
       <ItemGroup>
-        <!-- QNN EP for Snapdragon Hexagon NPU. Matches ../sebgod/testwinai.
-             Important: pure FP32 models (Cosmic Clarity / SetiAstro NAFNet
-             exports) silently fall back to CPU at the node level because
-             HTP is INT8/INT16-first. Real NPU acceleration requires an
-             INT8-quantized .onnx or a pre-compiled .serialized.bin from
-             the QNN SDK. The package's native onnxruntime build does not
-             include DirectML, so the iGPU path is off here, which is
-             fine on Snapdragon (NPU beats Adreno-via-DML for matmul-heavy
-             vision workloads). -->
-        <PackageReference Include="Microsoft.ML.OnnxRuntime.QNN" />
+        <!-- DirectML EP for the Adreno GPU on Snapdragon Windows-on-ARM.
+             Trade-off vs the alternative QNN package: QNN's HTP backend is
+             INT8/INT16-first, so on pure FP32 models (AI4 NAFNet, Cosmic
+             Clarity, etc.) QNN silently per-node-falls-back to CPU and we
+             see no acceleration; the NPU is effectively unused. DirectML
+             talks to the Adreno via D3D12 compute and DOES accelerate FP32
+             matmuls. Two practical implications:
+               * FP32 today (this codebase): DirectML wins by a wide margin.
+               * INT8-quantized later: swap to Microsoft.ML.OnnxRuntime.QNN
+                 to put matmul-heavy nodes on the Hexagon NPU. The two
+                 NuGet packages each ship their own onnxruntime.dll with
+                 different feature sets compiled in; only one can be
+                 referenced per build. -->
+        <PackageReference Include="Microsoft.ML.OnnxRuntime.DirectML" />
       </ItemGroup>
     </When>
     <When Condition="'$(RuntimeIdentifier)' == 'win-x64'">
