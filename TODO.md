@@ -268,6 +268,37 @@
 - [ ] Star detection noise robustness: `FindStarsAsync` with `snrMin: 5` picks up false positives from shot noise halos around bright stars (e.g. M42 synthetic field: 49 rendered stars → 64 detected). Consider deblending or a minimum star separation filter to reject noise peaks near bright stars.
 - [ ] **AHD debayer: SIMD via output-tile chunking** — Phase 3 (homogeneity comparison, ~70% of AHD's cost) is currently scalar with `Unsafe.Add` (commit 958e42e). To vectorise, process 8 output pixels per `Vector<float>` lane: the 5×5 neighbourhoods of consecutive x positions overlap heavily, so each dx offset becomes a single AVX2 load that serves all 8 pixels. Realistic landing: AHD 298 ms → ~140-150 ms (another ~2× on top of what we have). Non-trivial: the `if (diffH < diffV) homH++ else homV++` branch needs `Vector.GreaterThan` + masked accumulate, the direction-select tail needs `Vector.ConditionalSelect`, and `Vector.Sum`'s tree-add will likely change FP rounding order vs scalar sequential add → `DebayerRegressionTests` hashes will need repinning. Code complexity ~3-5× current scalar+unsafe path. Worth taking on if/when AHD perf dominates wall-clock for big groups (SoL 60s and similar 200+ frame stacks). See `Image.Debayer.cs:559-643` Phase 3 + the discussion in commit 958e42e for design context.
 
+## AI Enhancement
+
+Shipped on branch `ai-enhancement` (Phases 0-6 of `PLAN-ai-enhancement.md`): `IStarRemover` + `IStellarSharpener` + `INonStellarDeconvolver` atomic enhancers, `SharpenPipeline` orchestrator (additive + screen modes), shared `ChunkedNafnetRunner`, MTF helpers on `Image.Stretch.cs`, `ChunkedInference` tile/stitch, `HfdPsfEstimator`, `tianwen image {sharpen,remove-stars}` CLI. Items below are deferred follow-ups.
+
+### Deferred CLI verbs (image group)
+
+Each verb maps to an enhancer / classical implementation that hasn't been wired yet. CLI shape mirrors the shipped `tianwen image sharpen` (input FITS, `-o output`, default `<input>_<verb>.fits`).
+
+- [ ] `tianwen image denoise` -- wraps `deep_denoise_{color,mono}_AI4.onnx`. New `IDenoiseEnhancer` interface + ONNX impl following the same shape as the three shipped enhancers.
+- [ ] `tianwen image denoise-walking` -- specialised walking-noise variant via `deep_denoise_*_AI4_1w.onnx`. Could be a flag on `denoise` rather than a separate verb.
+- [ ] `tianwen image upscale 2x|3x|4x` -- wraps `superres_{2,3,4}x.onnx`. New `IUpscaleEnhancer`. Output dimensions are scale * input.
+- [ ] `tianwen image remove-trails` -- `satelliteRemovalAI4.onnx`. Per `PLAN-stacking.md` this logically belongs in the stacking pipeline as a pre-rejection filter; standalone single-image verb is also useful.
+- [ ] `tianwen image correct-aberration` -- optical aberration correction (coma, astigmatism, off-axis distortion). Models hosted in `riccardoalberghi/abberation_models` (different repo + release cadence than AI4); needs a separate fetcher branch in `tools/tianwen-ai-models-fetch.ps1` + runtime self-bootstrap.
+- [ ] `tianwen image flatten` -- ABE gradient removal (classical poly + RBF, no AI). See `PLAN-background-extraction.md`.
+- [ ] `tianwen image stretch` -- apply MTF stretch for display / PNG export.
+- [ ] `tianwen image debayer` -- Bayer raw → RGB.
+- [ ] `tianwen image calibrate` -- apply master bias/dark/flat (wraps the calibrator types from `PLAN-stacking.md`).
+- [ ] `tianwen image stats` -- HFD/FWHM/background/SNR.
+- [ ] `tianwen image info` -- print FITS headers.
+- [ ] `tianwen image histogram` -- text or PNG output.
+- [ ] `tianwen image crop`, `tianwen image resize`, `tianwen image convert <fits|tiff|png|jpg>` -- existing IO methods on `Image`; just need CLI surfacing.
+
+### Other deferred AI work
+
+- [ ] **Deployment / runtime self-bootstrap of model files.** Today the AI enhancers depend on `%LOCALAPPDATA%\TianWen\models` being populated by the dev script `tools/tianwen-ai-models-fetch.ps1`; shipped binaries can't expect that. Need (a) in-app first-launch fetch with progress UI, (b) `tianwen models fetch` CLI sub-command (programmatic equivalent of the pwsh script). Hardlink-from-SAS-Pro fast path stays as a power-user optimisation.
+- [ ] `tianwen models list` -- show which models are present under `%LOCALAPPDATA%\TianWen\models` and which are missing per the expected manifest. Complement to `tianwen models fetch`.
+- [ ] **Classical (non-AI) fallbacks** via `AddTianWenClassicalEnhancers()` extension, `TryAddSingleton` so `AddTianWenAi` wins when models present. Lucy-Richardson `INonStellarDeconvolver`, unsharp-mask `IStellarSharpener`, bilateral/NLM denoise. No classical fallback for `IStarRemover` -- no respectable analogue.
+- [ ] **Hexagon NPU acceleration on win-arm64.** AI4 ships pure FP32; QNN HTP wants INT8/INT16 or a pre-compiled `.serialized.bin`. Either upstream re-export at INT8 or our own ORT QNN compile pass. Current behaviour: FP32 nodes per-node-fall-back to CPU on win-arm64 -- works, just doesn't use the NPU. The new per-phase timing log (`infer={ms}ms`) is the diagnostic that surfaces this.
+- [ ] **Per-chunk PSF re-measurement for `INonStellarDeconvolver`.** v1 `HfdPsfEstimator` returns a whole-image scalar; SAS Pro re-measures PSF per chunk via SEP to capture tilt/coma variation across the field. Would land as a new `SepPerChunkPsfEstimator` (port of SAS Pro's `measure_psf_radius`) registered through `IPsfEstimator` -- no changes to the deconvolver needed.
+- [ ] **GUI menu entry for `SharpenPipeline`.** Surface the same flow through the GUI's processing menu so non-CLI users can run AI sharpen against the currently-loaded image. Reuses `SharpenPipeline` from DI; UI is a checkbox set per `SharpenRequest` field.
+
 ## Stretch / Image Processing
 
 Learnings from PixInsight Statistical Stretch (SetiAstro, v2.3).
