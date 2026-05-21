@@ -6,6 +6,7 @@ using System.Runtime.InteropServices;
 using System.Threading;
 using Microsoft.ML.OnnxRuntime;
 using Microsoft.ML.OnnxRuntime.Tensors;
+using TianWen.Lib;
 using TianWen.Lib.Imaging;
 
 namespace TianWen.AI.Imaging.Onnx;
@@ -110,57 +111,111 @@ public static class ChunkedNafnetRunner
 
         var tileMonoToModel = sourceChannels == 1 && modelChannels == 3;
 
+        // Per-chunk input tensors come from the shared ArrayPool via
+        // ArrayPoolHelper.Rent<float> (using-scoped SharedObject<T>). On a
+        // multi-megapixel input this saves ~hundreds of MB of GC churn
+        // (256 chunks * 3 channels * chunkSize * chunkSize * 4 bytes);
+        // without pooling the inference loop spends a noticeable fraction
+        // of its time in Gen2 GC.
+
+        // NAFNet has 4 levels of stride-2 downsampling -> the spatial dims of
+        // every tensor it sees must be divisible by 16 (= 2^4). Interior
+        // chunks happen to satisfy this when chunkSize/overlap are chosen to,
+        // but edge chunks at the right/bottom of the padded image are
+        // whatever-was-left, often NOT divisible. We pad each chunk locally
+        // up to the next multiple of 16, run inference, then crop the
+        // output back. Padding strategy: replicate the source's rightmost
+        // column + bottom row into the padded region (matches SAS Pro's
+        // _pad2d_to_multiple(mode="reflect") for the typical case of 1-15
+        // pixels of interior padding, and avoids the sharp-edge artefact
+        // zero-padding would create).
+        const int NafnetMultiple = 16;
+
         for (var i = 0; i < chunkCount; i++)
         {
             ct.ThrowIfCancellationRequested();
             var refChunk = srcChunksByChannel[0][i];
             var h = refChunk.Height;
             var w = refChunk.Width;
-            var planeStride = h * w;
+            var infH = ((h + NafnetMultiple - 1) / NafnetMultiple) * NafnetMultiple;
+            var infW = ((w + NafnetMultiple - 1) / NafnetMultiple) * NafnetMultiple;
+            var infPlaneStride = infH * infW;
+            var tensorElementCount = modelChannels * infPlaneStride;
 
-            var imageTensor = new DenseTensor<float>([1, modelChannels, h, w]);
-            var imageSpan = imageTensor.Buffer.Span;
-
-            if (tileMonoToModel)
+            // Rent from the shared pool via the using-scoped helper. The
+            // SharedObject<T>'s AsMemory()/AsSpan() return the exact
+            // requested length (ArrayPool.Rent itself may return a larger
+            // buffer; SharedObject hides that detail).
+            using var pooled = ArrayPoolHelper.Rent<float>(tensorElementCount);
             {
-                var ch0 = srcChunksByChannel[0][i].Data.AsSpan();
-                for (var c = 0; c < modelChannels; c++)
+                var tensorMemory = pooled.AsMemory();
+                var imageTensor = new DenseTensor<float>(tensorMemory, [1, modelChannels, infH, infW]);
+                var imageSpan = pooled.AsSpan();
+
+                // Pack source chunk(s) into the top-left of each model channel
+                // slot with replicate-pad on the right/bottom.
+                for (var modelCh = 0; modelCh < modelChannels; modelCh++)
                 {
-                    ch0.CopyTo(imageSpan.Slice(c * planeStride, planeStride));
+                    var sourceCh = tileMonoToModel ? 0 : modelCh;
+                    var srcData = srcChunksByChannel[sourceCh][i].Data;
+                    var chOffset = modelCh * infPlaneStride;
+
+                    for (var y = 0; y < h; y++)
+                    {
+                        var srcRowOffset = y * w;
+                        var dstRowOffset = chOffset + y * infW;
+                        srcData.AsSpan(srcRowOffset, w).CopyTo(imageSpan.Slice(dstRowOffset, w));
+                        if (infW > w)
+                        {
+                            // Replicate the rightmost source column across the padded
+                            // columns (avoids sharp-edge artefacts in the network).
+                            var rightmost = srcData[srcRowOffset + w - 1];
+                            for (var x = w; x < infW; x++) imageSpan[dstRowOffset + x] = rightmost;
+                        }
+                    }
+                    if (infH > h)
+                    {
+                        // Replicate the bottom (already replicate-padded on the
+                        // right) row down to the padded height.
+                        var lastRow = imageSpan.Slice(chOffset + (h - 1) * infW, infW);
+                        for (var y = h; y < infH; y++)
+                        {
+                            lastRow.CopyTo(imageSpan.Slice(chOffset + y * infW, infW));
+                        }
+                    }
+                }
+
+                // Build the input list. Each Run call's input list contains the
+                // current chunk's image tensor plus any caller-supplied extras
+                // (e.g. psf01). Extras don't change per chunk so the same
+                // tensor reference is reused safely.
+                var inputs = new List<NamedOnnxValue>(1 + (extraInputs?.Count ?? 0))
+                {
+                    NamedOnnxValue.CreateFromTensor(imageInputName, imageTensor),
+                };
+                if (extraInputs is { Count: > 0 }) inputs.AddRange(extraInputs);
+
+                using var result = session.Run(inputs);
+                var outputTensor = result[0].AsTensor<float>();
+                var outSpan = outputTensor.ToDenseTensor().Buffer.Span;
+
+                // Crop the output back to the source chunk's actual h*w (drop
+                // the replicate-padded right/bottom strip). Output buffers
+                // belong to Chunk.Data which lives until Stitch runs, so we
+                // can't pool these without restructuring Chunk's lifecycle --
+                // leave them as fresh arrays for now.
+                for (var c = 0; c < sourceChannels; c++)
+                {
+                    var outData = new float[h * w];
+                    var chOffset = c * infPlaneStride;
+                    for (var y = 0; y < h; y++)
+                    {
+                        outSpan.Slice(chOffset + y * infW, w).CopyTo(outData.AsSpan(y * w, w));
+                    }
+                    outputChunksByChannel[c][i] = refChunk with { Data = outData };
                 }
             }
-            else
-            {
-                // sourceChannels == modelChannels (1->1 or 3->3): direct copy.
-                for (var c = 0; c < modelChannels; c++)
-                {
-                    srcChunksByChannel[c][i].Data.AsSpan().CopyTo(imageSpan.Slice(c * planeStride, planeStride));
-                }
-            }
-
-            // Build the input list. Each Run call's input list contains the
-            // current chunk's image tensor plus any caller-supplied extras
-            // (e.g. psf01). Extras don't change per chunk so the same
-            // tensor reference is reused safely.
-            var inputs = new List<NamedOnnxValue>(1 + (extraInputs?.Count ?? 0))
-            {
-                NamedOnnxValue.CreateFromTensor(imageInputName, imageTensor),
-            };
-            if (extraInputs is { Count: > 0 }) inputs.AddRange(extraInputs);
-
-            using var result = session.Run(inputs);
-            var outputTensor = result[0].AsTensor<float>();
-            var outSpan = outputTensor.ToDenseTensor().Buffer.Span;
-
-            // Extract sourceChannels channels from the modelChannels output
-            // (mono via tile-to-3 -> only channel 0; otherwise per-channel
-            // direct).
-            for (var c = 0; c < sourceChannels; c++)
-            {
-                var outData = new float[planeStride];
-                outSpan.Slice(c * planeStride, planeStride).CopyTo(outData);
-                outputChunksByChannel[c][i] = refChunk with { Data = outData };
-            }
+            // `pooled` returned to the pool on scope exit.
         }
         var inferMs = phaseSw.ElapsedMilliseconds; phaseSw.Restart();
 
