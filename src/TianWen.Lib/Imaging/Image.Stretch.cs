@@ -1,4 +1,6 @@
 using System;
+using System.Buffers;
+using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using static TianWen.Lib.Stat.StatisticsHelper;
@@ -111,6 +113,171 @@ public partial class Image
         {
             return clamped;
         }
+    }
+
+    /// <summary>
+    /// Derives the PixInsight midtones balance β such that
+    /// <see cref="MidtonesTransferFunction"/>(β, <paramref name="origMedian"/>) ==
+    /// <paramref name="targetMedian"/>.
+    /// </summary>
+    /// <remarks>
+    /// The bare PixInsight STF formula <c>MTF(m, x) = (m - 1)·x / ((2m - 1)·x - m)</c>
+    /// always lands <c>MTF(m, m) = 0.5</c>. When you want a stretch that lands an
+    /// empirical median at a chosen output median (e.g. 0.25 to match
+    /// SetiAstroSuite Pro's AI4 NAFNet pre-stretch), translate the parameters via
+    /// this helper and then call <see cref="MidtonesTransferFunction"/> directly:
+    /// <c>var β = MidtonesBalanceFor(origMed, 0.25); MTF(β, origMed) == 0.25</c>.
+    /// Used by <see cref="MtfStretch"/> / <see cref="MtfUnstretch"/>; exposed
+    /// publicly so callers can do scalar previews without instantiating an
+    /// <see cref="Image"/>.
+    /// </remarks>
+    public static double MidtonesBalanceFor(double origMedian, double targetMedian)
+        => origMedian * (targetMedian - 1.0)
+           / (targetMedian * (2.0 * origMedian - 1.0) - origMedian);
+
+    /// <summary>
+    /// Adaptive per-channel MTF stretch: subtract each channel's minimum
+    /// (auto-pedestal) then apply <see cref="MidtonesTransferFunction"/> with the
+    /// midtones balance that maps the channel's shifted median to
+    /// <paramref name="targetMedian"/>. Returns a new image with the stretched
+    /// data in [0, 1]; the source is not mutated.
+    /// </summary>
+    /// <remarks>
+    /// This is the *input-normalisation* stretch used by ML pipelines that
+    /// expect a specific histogram shape (e.g. SetiAstroSuite Pro's AI4 NAFNet
+    /// models expect <paramref name="targetMedian"/> = 0.25). It is intentionally
+    /// the bare-minimum stretch -- min subtract + MTF, nothing else. Compare
+    /// with <see cref="StretchChannelCpu"/>, which is the full *display* pipeline
+    /// (pedestal + background-neutralisation + WB + shadows + MTF + rescale).
+    /// <para>The forward stretch is round-trippable via <see cref="MtfUnstretch"/>
+    /// using the <paramref name="origMin"/> + <paramref name="balances"/> tuple
+    /// returned here. NaN inputs are preserved verbatim.</para>
+    /// </remarks>
+    /// <param name="targetMedian">Output median each channel's median is mapped to.</param>
+    /// <param name="origMin">Out: per-channel minimum that was subtracted before MTF.</param>
+    /// <param name="balances">Out: per-channel midtones balance β used in the MTF.</param>
+    public Image MtfStretch(double targetMedian, out float[] origMin, out double[] balances)
+    {
+        var (channels, width, height) = Shape;
+        var pixelCount = width * height;
+        origMin = new float[channels];
+        balances = new double[channels];
+        var newData = CreateChannelData(channels, height, width);
+
+        var scratch = ArrayPool<float>.Shared.Rent(pixelCount);
+        try
+        {
+            for (var c = 0; c < channels; c++)
+            {
+                var src = GetChannelSpan(c);
+                var dst = MemoryMarshal.CreateSpan(ref newData[c][0, 0], pixelCount);
+
+                // Pass 1: find min (skip NaN).
+                var min = float.PositiveInfinity;
+                for (var i = 0; i < pixelCount; i++)
+                {
+                    var v = src[i];
+                    if (!float.IsNaN(v) && v < min) min = v;
+                }
+                if (float.IsPositiveInfinity(min)) min = 0f;
+                origMin[c] = min;
+
+                // Pass 2: collect non-NaN (src - min) into scratch, then median.
+                var count = 0;
+                for (var i = 0; i < pixelCount; i++)
+                {
+                    var v = src[i];
+                    if (!float.IsNaN(v)) scratch[count++] = v - min;
+                }
+                var med = count > 0 ? MedianFast(scratch.AsSpan(0, count)) : 0f;
+
+                // Derive β. When the channel is all NaN or the shifted median is 0
+                // (flat plane), β is undefined; fall back to 0.5 which makes MTF
+                // the identity in [0, 1], so the stretch becomes a no-op on this
+                // channel (and Unstretch with 1 - β = 0.5 stays identity too).
+                var beta = med > 0f
+                    ? MidtonesBalanceFor(med, targetMedian)
+                    : 0.5;
+                balances[c] = beta;
+
+                // Pass 3: subtract min + MTF(β, x), NaN-preserving.
+                for (var i = 0; i < pixelCount; i++)
+                {
+                    var v = src[i];
+                    if (float.IsNaN(v))
+                    {
+                        dst[i] = float.NaN;
+                    }
+                    else
+                    {
+                        var shifted = v - min;
+                        if (shifted < 0f) shifted = 0f;  // float wobble guard
+                        dst[i] = (float)MidtonesTransferFunction(beta, shifted);
+                    }
+                }
+            }
+        }
+        finally
+        {
+            ArrayPool<float>.Shared.Return(scratch);
+        }
+
+        return new Image(newData, BitDepth.Float32, 1.0f, 0f, 0f, imageMeta);
+    }
+
+    /// <summary>
+    /// Inverse of <see cref="MtfStretch"/>. Applies
+    /// <see cref="MidtonesTransferFunction"/> with <c>1 - β</c> (which is the
+    /// algebraic inverse of MTF with balance β) then adds the per-channel
+    /// minimum back. Returns a new image; the source is not mutated.
+    /// </summary>
+    /// <remarks>
+    /// Identity: <c>MTF⁻¹(β, y) == MTF(1 - β, y)</c>. This is why we don't ship a
+    /// separate InverseMtf -- the existing
+    /// <see cref="MidtonesTransferFunction"/> primitive handles both directions
+    /// when you pass it <c>1 - β</c>. NaN inputs are preserved verbatim. The
+    /// returned image's <see cref="MaxValue"/> is the empirically observed peak
+    /// (re-computed during the pass), since MTF⁻¹ can produce values outside
+    /// <c>[0, 1]</c> if the network output excursions exceed the training range.
+    /// </remarks>
+    public Image MtfUnstretch(ReadOnlySpan<float> origMin, ReadOnlySpan<double> balances)
+    {
+        var (channels, width, height) = Shape;
+        if (origMin.Length != channels)
+            throw new ArgumentException($"origMin length ({origMin.Length}) must match channel count ({channels})", nameof(origMin));
+        if (balances.Length != channels)
+            throw new ArgumentException($"balances length ({balances.Length}) must match channel count ({channels})", nameof(balances));
+
+        var pixelCount = width * height;
+        var newData = CreateChannelData(channels, height, width);
+        var actualMax = float.NegativeInfinity;
+
+        for (var c = 0; c < channels; c++)
+        {
+            var src = GetChannelSpan(c);
+            var dst = MemoryMarshal.CreateSpan(ref newData[c][0, 0], pixelCount);
+            var inverseBeta = 1.0 - balances[c];
+            var min = origMin[c];
+
+            for (var i = 0; i < pixelCount; i++)
+            {
+                var v = src[i];
+                if (float.IsNaN(v))
+                {
+                    dst[i] = float.NaN;
+                }
+                else
+                {
+                    // Inverse MTF identity: MTF⁻¹(β, y) == MTF(1 - β, y).
+                    var unstretched = (float)MidtonesTransferFunction(inverseBeta, v) + min;
+                    dst[i] = unstretched;
+                    if (unstretched > actualMax) actualMax = unstretched;
+                }
+            }
+        }
+
+        if (float.IsNegativeInfinity(actualMax)) actualMax = 1.0f;
+        return new Image(newData, BitDepth.Float32, actualMax, 0f, 0f, imageMeta);
     }
 
     /// <summary>
