@@ -43,17 +43,19 @@ to .NET 10 with `Microsoft.ML.OnnxRuntime`.
 ### Project layout
 
 ```
-TianWen.Lib/Imaging/Enhancement/                  -- zero AI dep
-├── IImageEnhancer.cs                              (already exists; Image -> Image base)
-├── IStarRemover.cs                                (-> starless plate)
-├── IStellarSharpener.cs                           (sharpens a stars-only plate)
-├── INonStellarDeconvolver.cs                      (deconvolves a starless plate)
-├── IPsfEstimator.cs                               (whole-image or per-chunk PSF scalar)
-├── HfdPsfEstimator.cs                             (TianWen-native; uses FindStarsAsync)
-└── SharpenPipeline.cs                             (orchestrator; pure delegation + per-pixel math)
+TianWen.Lib/Imaging/                              -- zero AI dep
+├── Image.Stretch.cs                               (EXTEND: add MtfStretch / MtfUnstretch / MidtonesBalanceFor next to existing MidtonesTransferFunction / StretchValue)
+└── Enhancement/
+    ├── IImageEnhancer.cs                          (already exists; Image -> Image base)
+    ├── IStarRemover.cs                            (-> starless plate)
+    ├── IStellarSharpener.cs                       (sharpens a stars-only plate)
+    ├── INonStellarDeconvolver.cs                  (deconvolves a starless plate)
+    ├── IPsfEstimator.cs                           (whole-image or per-chunk PSF scalar)
+    ├── HfdPsfEstimator.cs                         (TianWen-native; uses FindStarsAsync)
+    └── SharpenPipeline.cs                         (orchestrator; pure delegation + per-pixel math)
 
 TianWen.AI.Imaging/                               -- ORT-backed concrete impls
-├── SasProMtf.cs                                   (pre-stretch + inverse-stretch helpers)
+├── AiNafnetInputs.cs                              (internal; static readonly TargetMedian = 0.25 + other shared NAFNet input constants)
 ├── ChunkedInference.cs                            (tile + overlap + 16-px border ignore stitch)
 ├── Onnx/
 │   ├── OnnxStarRemover.cs                         (darkstar_color_AI4 / darkstar_mono_AI4)
@@ -72,44 +74,88 @@ step's enhancer is missing.
 ### Interface contract: atomic + black box
 
 Each `IImageEnhancer` impl owns its own:
-- **Stretch / unstretch** via `SasProMtf` (caller passes any `Image`, linear or
-  stretched — the enhancer auto-detects via the SAS Pro `median(image-min) < 0.125`
-  rule and reverses on output).
+- **Stretch / unstretch** via `Image.MtfStretch(AiNafnetInputs.TargetMedian, ...)` /
+  `Image.MtfUnstretch(...)` (caller passes any `Image`, linear or stretched -- the
+  enhancer auto-detects via the SAS Pro `median(image-min) < 0.125` rule and reverses
+  on output).
 - **Tiling** via `ChunkedInference` (`chunk_size` + `overlap` + 16-pixel border
-  ignore on stitch — same parameters as SAS Pro's `split_image_into_chunks_with_overlap`
+  ignore on stitch -- same parameters as SAS Pro's `split_image_into_chunks_with_overlap`
   / `stitch_chunks_ignore_border`).
 - **ONNX session** (lazy, cached, EP selection via `ExecutionProviderResolver`).
 
 Output is in the same color space as the input. Caller does not need to know
 anything about stretching, tiling, or PSF scalars.
 
-### Stretch pipeline (SAS Pro MTF, frozen)
+### Stretch pipeline (reuse `Image.MidtonesTransferFunction`, add MTF-only wrappers)
+
+We already have the MTF primitive: `Image.MidtonesTransferFunction(midToneBalance, value)`
+at `Image.Stretch.cs:103` -- the standard PixInsight STF, `(m-1)*x / ((2m-1)*x - m)`.
+The SAS Pro variant takes a `target_median` (0.25 for AI4) and maps `orig_med → target_median`
+rather than `→ 0.5`, but the two are **mathematically equivalent**: pick a midtone balance
+`β` such that `MidtonesTransferFunction(β, orig_med) == target_median` and plug it into
+the existing function. Closed form:
+
+```
+β = orig_med * (t - 1) / (t * (2*orig_med - 1) - orig_med)
+```
+
+Bonus: the **inverse** is also the same function with `1 - β` -- the algebraic identity
+`MidtonesTransferFunction⁻¹(β, y) == MidtonesTransferFunction(1 - β, y)` holds, so we
+don't need a separate `InverseMtf`.
+
+Extend `Image.Stretch.cs` with three public additions (and one internal constant in
+`TianWen.AI.Imaging`):
 
 ```csharp
-public static class SasProMtf
+// Image.Stretch.cs (TianWen.Lib) -- alongside the existing MidtonesTransferFunction:
+
+public static double MidtonesBalanceFor(double origMedian, double targetMedian)
+    => origMedian * (targetMedian - 1.0)
+       / (targetMedian * (2.0 * origMedian - 1.0) - origMedian);
+
+// On Image itself -- the round-trippable per-channel wrap/unwrap.
+// Internally: per-channel orig_min subtract -> MidtonesTransferFunction(β, v) per pixel.
+// `Vector<float>` SIMD inner loop, single pass, no allocation beyond the output buffer.
+public Image MtfStretch(double targetMedian, out float[] origMin, out double[] balances);
+
+// Inverse: MidtonesTransferFunction(1 - β, v) per pixel + add orig_min back.
+public Image MtfUnstretch(ReadOnlySpan<float> origMin, ReadOnlySpan<double> balances);
+```
+
+```csharp
+// TianWen.AI.Imaging/AiNafnetInputs.cs -- internal; only the AI enhancers consume it.
+internal static class AiNafnetInputs
 {
-    public const float TargetMedian = 0.25f;
-
-    // Detect-and-apply. Returns the transformed image + the per-channel
-    // (origMin, origMed) tuple needed for inversion. If no stretch was needed,
-    // origMed = null and Inverse is a no-op.
-    public static (Image stretched, float[] origMin, float[]? origMed) Apply(Image src);
-
-    public static Image Inverse(Image stretched, float[] origMin, float[]? origMed);
+    /// <summary>
+    /// Target median for the MTF pre-stretch applied to every AI4 NAFNet ONNX input.
+    /// SAS Pro's stretch_image_mono / stretch_image_unlinked_rgb use the same default.
+    /// `static readonly` (not `const`) so consumers in other assemblies pick up changes
+    /// on rebuild of TianWen.AI.Imaging rather than baking the literal at IL emit time.
+    /// </summary>
+    public static readonly double TargetMedian = 0.25;
 }
 ```
 
-Formula (per channel, target `t = 0.25f`):
+Enhancer call site:
+```csharp
+var stretched = image.MtfStretch(AiNafnetInputs.TargetMedian, out var origMin, out var bal);
+// ... ORT inference on stretched ...
+var result = output.MtfUnstretch(origMin, bal);
 ```
-x' = ((m - 1) * t * x) / (m * (t + x - 1) - t * x)    // m = orig_med
-```
-Inverse is algebraic. Implemented inline with `Vector<float>` SIMD — single pass,
-no allocation beyond the output buffer.
 
-**Why frozen, not reusing `Image.StretchValue()`:** AI4 is trained against this
-specific transform with no pedestal / WB / shadow-rescale / luma-blend stages. Our
-viewer stretch pipeline has all of those and is intentionally evolving (see CLAUDE.md
-"Stretch Pipeline: CPU/GPU Mirror"). Coupling them invites silent quality drift.
+**Why this layout:** the MTF *math* is generic (PixInsight STF, used by every astro
+processing tool) and belongs in `Image.Stretch.cs` next to its peers. The *parameter*
+(`target_median = 0.25`) is AI4-training metadata and belongs with the AI enhancers
+that depend on it. Different model families can declare their own constants without
+touching the math. And we never re-implement MTF -- a single source of truth, matching
+CLAUDE.md's "Stretch Pipeline: CPU/GPU Mirror" rule.
+
+**What this does NOT replicate from our viewer stretch pipeline:** background neutralisation,
+WB, shadow/rescale, luma blend, curves, HDR boost, normalize, clamp. Those are *display*
+stages -- user-tuned look-and-feel adjustments that produce the final on-screen pixels.
+SAS Pro skips them too because pre-AI stretch is *input normalisation* (push the
+histogram to the training distribution), not display rendering. The two pipelines
+share an MTF stage; the rest is intentionally separate.
 
 ### PSF measurement
 
@@ -227,7 +273,7 @@ model is on disk, leaving the classical fallback for absent ones.
 | Phase | Scope | Status |
 |-------|-------|--------|
 | 0 | PLAN doc + dev-only model fetch script | DONE (`tools/tianwen-ai-models-fetch.ps1` with `.pth`/`.pt` filter; 17 `.onnx` files + manifest.json in `%LOCALAPPDATA%\TianWen\models`, 1.4 GB) |
-| 1 | `SasProMtf` + `ChunkedInference` + `IPsfEstimator` + `HfdPsfEstimator` | NOT STARTED |
+| 1 | `Image.MtfStretch` / `Image.MtfUnstretch` / `Image.MidtonesBalanceFor` extensions to `Image.Stretch.cs` + `AiNafnetInputs.TargetMedian` constant + `ChunkedInference` + `IPsfEstimator` + `HfdPsfEstimator` | NOT STARTED |
 | 2 | `IStarRemover` + `OnnxStarRemover` (darkstar_color/mono_AI4) — also produces a useful standalone "starless export" feature | NOT STARTED |
 | 3 | `IStellarSharpener` + `OnnxStellarSharpener` (deep_sharp_stellar_AI4) | NOT STARTED |
 | 4 | `INonStellarDeconvolver` + `OnnxNonStellarDeconvolver` (deep_nonstellar_sharp_conditional_psf_AI4) | NOT STARTED |
@@ -260,4 +306,4 @@ model is on disk, leaving the classical fallback for absent ones.
 - [tools/tianwen-ai-models-fetch.ps1](tools/tianwen-ai-models-fetch.ps1) — dev model fetch (hardlink from SAS Pro, else download)
 - [PLAN-stacking.md](PLAN-stacking.md) — satellite trail removal belongs there as a pre-rejection filter
 - [CLAUDE.md](CLAUDE.md) — "Plate Solving" section's factory-lambda note (same DI gotcha for `ILogger` ctor params)
-- [CLAUDE.md](CLAUDE.md) — "Stretch Pipeline: CPU/GPU Mirror" — why we use a frozen `SasProMtf`, not `Image.StretchValue`
+- [CLAUDE.md](CLAUDE.md) — "Stretch Pipeline: CPU/GPU Mirror" — `Image.MtfStretch` is the MTF-only entry into the same math `Image.StretchValue` already uses; the multi-stage viewer chain is for display, not for ONNX input prep
