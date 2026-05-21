@@ -16,6 +16,7 @@ Status of every `PLAN-*.md` in the repo root, cross-checked against the codebase
 | [PLAN-gpu-stretch-tests](PLAN-gpu-stretch-tests.md) | **DONE ~90%** (Phases 1-4 + follow-ups D & F shipped; Phase 5 separate-CI-job replaced by inline `test-unit` run with mesa-vulkan-drivers) |
 | [PLAN-icc](PLAN-icc.md) | **DONE ~95%** (Tiff 3.0 + new SharpAstro.Jpeg consumed; display helper + Nina JPEG injection wired) |
 | [PLAN-stacking](PLAN-stacking.md) | **DONE ~85%** (Phases 1-12 + 8.0-8.3 shipped — selector + 6 strategies + FrameCache + PartialFitsReader; Phase 13 CLI orchestrator + 14/15 LiveStacker wiring + 10 MMF sink still pending) |
+| [PLAN-ai-enhancement](PLAN-ai-enhancement.md) | **PARTIAL ~10%** (Phase 0 done: dev model fetch via `tools/tianwen-ai-models-fetch.ps1` with `.pth`/`.pt` filter, 17 `.onnx` files + manifest.json in `%LOCALAPPDATA%\TianWen\models`, 1.4 GB; `IImageEnhancer` + `TensorImageConverter` + `ExecutionProviderResolver` scaffolding present; Phases 1-10 NOT STARTED) |
 
 ---
 
