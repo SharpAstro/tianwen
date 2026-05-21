@@ -168,6 +168,104 @@ public partial class Image
     }
 
     /// <summary>
+    /// Per-pixel linear interpolation: <c>(1 - amount) * this + amount * other</c>,
+    /// where <paramref name="amount"/> is clamped to <c>[0, 1]</c>. Used by
+    /// <c>SharpenPipeline</c> to blend an AI enhancer's output back toward
+    /// its input ("blend slider" -- typical good range 0.4..0.7 for AI4
+    /// sharpening, so the network output doesn't fully replace the source
+    /// and create the "snap-to-pixel" pixelation on tight star fields).
+    /// </summary>
+    /// <param name="other">Right-hand operand. Must match this image's shape.</param>
+    /// <param name="amount">Interpolation weight. 0 returns <c>this</c>;
+    /// 1 returns <paramref name="other"/>; 0.5 is the midpoint.</param>
+    /// <exception cref="ArgumentException">Shapes mismatch.</exception>
+    public Image Lerp(Image other, float amount)
+    {
+        ValidateSameShape(other);
+        var a = Math.Clamp(amount, 0f, 1f);
+        if (a == 0f) return new Image(CopyChannelData(), BitDepth.Float32, MaxValue, MinValue, pedestal, imageMeta);
+        if (a == 1f) return new Image(other.CopyChannelData(), BitDepth.Float32, other.MaxValue, other.MinValue, pedestal, imageMeta);
+
+        var dst = CreateChannelData(ChannelCount, Height, Width);
+        for (var c = 0; c < ChannelCount; c++)
+        {
+            var lhs = GetChannelSpan(c);
+            var rhs = other.GetChannelSpan(c);
+            var output = MemoryMarshal.CreateSpan(ref dst[c][0, 0], dst[c].Length);
+            TensorPrimitives.Lerp(lhs, rhs, a, output);
+        }
+        return new Image(dst, BitDepth.Float32, MaxValue, MinValue, pedestal, imageMeta);
+    }
+
+    /// <summary>
+    /// Per-pixel Subtractive Chromatic Noise Reduction (SCNR) on the green
+    /// channel, used to neutralise the green cast on stars (OSC sensors'
+    /// 2:1 green-Bayer dominance). For each pixel <c>m = mode == Average ?
+    /// (R + B) * 0.5 : max(R, B)</c>; new <c>G = G - amount * max(0, G - m)</c>.
+    /// At <paramref name="amount"/> = 1 the green channel is clamped to
+    /// <c>m</c>; at 0 the image is unchanged.
+    /// </summary>
+    /// <remarks>
+    /// <para>SCNR is destructive of legitimate green signal (e.g. OIII /
+    /// H-beta nebula emission). Apply on a stars-only plate, NOT on the
+    /// full image -- callers in <c>SharpenPipeline</c> run SCNR strictly on
+    /// the stellar branch (<c>SharpenedStars</c> or <c>StarsOnly</c>) before
+    /// recombining with the untouched starless plate, so nebula chromaticity
+    /// is preserved.</para>
+    /// <para>NaN inputs in any channel propagate to the output G pixel.
+    /// Mono / non-RGB images pass through unchanged (the operation is a
+    /// no-op when fewer than 3 channels are present).</para>
+    /// </remarks>
+    /// <param name="mode">Reference value rule: <see cref="ScnrMode.Average"/>
+    /// uses <c>(R + B) / 2</c>; <see cref="ScnrMode.Maximum"/> uses
+    /// <c>max(R, B)</c> (more aggressive green removal).</param>
+    /// <param name="amount">Strength in [0, 1]. Clamped.</param>
+    public Image SubtractiveChromaticNoise(ScnrMode mode, float amount = 1.0f)
+    {
+        if (mode is ScnrMode.None || ChannelCount < 3)
+        {
+            return new Image(CopyChannelData(), BitDepth.Float32, MaxValue, MinValue, pedestal, imageMeta);
+        }
+
+        var clamped = Math.Clamp(amount, 0f, 1f);
+        var dst = CreateChannelData(ChannelCount, Height, Width);
+
+        // R + B copied verbatim. The G channel gets the SCNR formula.
+        // Any channels beyond RGB (rare) copy verbatim too.
+        var rSpan = GetChannelSpan(0);
+        var gSpan = GetChannelSpan(1);
+        var bSpan = GetChannelSpan(2);
+        var rDst = MemoryMarshal.CreateSpan(ref dst[0][0, 0], dst[0].Length);
+        var gDst = MemoryMarshal.CreateSpan(ref dst[1][0, 0], dst[1].Length);
+        var bDst = MemoryMarshal.CreateSpan(ref dst[2][0, 0], dst[2].Length);
+        rSpan.CopyTo(rDst);
+        bSpan.CopyTo(bDst);
+        ScnrChannelG(rSpan, gSpan, bSpan, gDst, mode, clamped);
+        for (var c = 3; c < ChannelCount; c++)
+        {
+            GetChannelSpan(c).CopyTo(MemoryMarshal.CreateSpan(ref dst[c][0, 0], dst[c].Length));
+        }
+
+        return new Image(dst, BitDepth.Float32, MaxValue, MinValue, pedestal, imageMeta);
+    }
+
+    /// <summary>
+    /// Helper for <see cref="Lerp"/> and <see cref="SubtractiveChromaticNoise"/>:
+    /// duplicates the backing <c>float[][,]</c> when callers need a
+    /// pass-through-with-fresh-buffer result (caller can mutate the returned
+    /// image without aliasing the source).
+    /// </summary>
+    private float[][,] CopyChannelData()
+    {
+        var copy = CreateChannelData(ChannelCount, Height, Width);
+        for (var c = 0; c < ChannelCount; c++)
+        {
+            GetChannelSpan(c).CopyTo(MemoryMarshal.CreateSpan(ref copy[c][0, 0], copy[c].Length));
+        }
+        return copy;
+    }
+
+    /// <summary>
     /// Accumulates <paramref name="other"/> into this image in place
     /// (<c>this[i] += other[i]</c>). The lone in-place exception to the
     /// otherwise immutable arithmetic API — used by the live-stack accumulator
@@ -305,4 +403,79 @@ public partial class Image
             dst[i] = v < 0f ? 0f : (v > 1f ? 1f : v);
         }
     }
+
+    /// <summary>
+    /// SIMD inner loop for SCNR: <c>m = mode == Average ? (r + b) * 0.5 : max(r, b);
+    /// dst = g - amount * max(0, g - m)</c>. NaN propagates: if any of r/g/b
+    /// is NaN, dst becomes NaN via the arithmetic.
+    /// </summary>
+    private static void ScnrChannelG(
+        ReadOnlySpan<float> r, ReadOnlySpan<float> g, ReadOnlySpan<float> b,
+        Span<float> dst, ScnrMode mode, float amount)
+    {
+        var width = Vector<float>.Count;
+        var amountVec = new Vector<float>(amount);
+        var halfVec = new Vector<float>(0.5f);
+        var zero = Vector<float>.Zero;
+        var i = 0;
+        if (mode is ScnrMode.Average)
+        {
+            for (; i <= r.Length - width; i += width)
+            {
+                var rv = new Vector<float>(r[i..]);
+                var gv = new Vector<float>(g[i..]);
+                var bv = new Vector<float>(b[i..]);
+                var refVal = (rv + bv) * halfVec;
+                var excess = Vector.Max(gv - refVal, zero);
+                (gv - amountVec * excess).CopyTo(dst[i..]);
+            }
+            for (; i < r.Length; i++)
+            {
+                var refVal = (r[i] + b[i]) * 0.5f;
+                var excess = MathF.Max(g[i] - refVal, 0f);
+                dst[i] = g[i] - amount * excess;
+            }
+        }
+        else
+        {
+            for (; i <= r.Length - width; i += width)
+            {
+                var rv = new Vector<float>(r[i..]);
+                var gv = new Vector<float>(g[i..]);
+                var bv = new Vector<float>(b[i..]);
+                var refVal = Vector.Max(rv, bv);
+                var excess = Vector.Max(gv - refVal, zero);
+                (gv - amountVec * excess).CopyTo(dst[i..]);
+            }
+            for (; i < r.Length; i++)
+            {
+                var refVal = MathF.Max(r[i], b[i]);
+                var excess = MathF.Max(g[i] - refVal, 0f);
+                dst[i] = g[i] - amount * excess;
+            }
+        }
+    }
+}
+
+/// <summary>
+/// Reference-value rule for <see cref="Image.SubtractiveChromaticNoise"/>.
+/// Maps to the four PixInsight SCNR variants via the <c>amount</c> parameter:
+/// Average + amount=1 = "Average Neutral Protection"; Maximum + amount=1 =
+/// "Maximum Neutral Protection"; either mode with amount &lt; 1 = the
+/// corresponding "Mask" variant.
+/// </summary>
+public enum ScnrMode
+{
+    /// <summary>No SCNR applied -- pass-through.</summary>
+    None = 0,
+
+    /// <summary>Reference value is <c>(R + B) / 2</c>. Preserves more green
+    /// in highlights than <see cref="Maximum"/>; the recommended default
+    /// for star plates because it doesn't over-correct neutral white stars.</summary>
+    Average = 1,
+
+    /// <summary>Reference value is <c>max(R, B)</c>. More aggressive green
+    /// removal -- useful when the green cast is severe or only the
+    /// strongest channel should set the cap.</summary>
+    Maximum = 2,
 }

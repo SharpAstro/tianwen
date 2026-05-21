@@ -64,6 +64,32 @@ public class SharpenPipelineTests(ITestOutputHelper output)
             => Task.FromResult(input);
     }
 
+    /// <summary>
+    /// Star remover that ignores the input and returns a uniform-colored plate
+    /// of the same shape. Useful for SCNR-on-stars tests where the test wants
+    /// to control the stars-only plate's per-channel distribution (the stars
+    /// plate becomes <c>Source - uniformR/G/B</c> per channel after the split,
+    /// so the test can dial in a green dominance independently of the source).
+    /// </summary>
+    private sealed class UniformStarRemover(float r, float g, float b) : IStarRemover
+    {
+        public string Name => $"Test/UniformStarRemover({r:F2},{g:F2},{b:F2})";
+        public Task<Image> EnhanceAsync(Image input, CancellationToken cancellationToken = default)
+        {
+            var (channels, w, h) = input.Shape;
+            var data = new float[channels][,];
+            var fills = channels == 1 ? new[] { (r + g + b) / 3f } : new[] { r, g, b };
+            for (var c = 0; c < channels; c++)
+            {
+                var plane = new float[h, w];
+                var fill = c < fills.Length ? fills[c] : fills[^1];
+                for (var y = 0; y < h; y++) for (var x = 0; x < w; x++) plane[y, x] = fill;
+                data[c] = plane;
+            }
+            return Task.FromResult(new Image(data, BitDepth.Float32, 1.0f, 0f, 0f, input.ImageMeta));
+        }
+    }
+
     private static Image SyntheticRgb(int w, int h, float fill)
     {
         var r = new float[h, w];
@@ -270,6 +296,95 @@ public class SharpenPipelineTests(ITestOutputHelper output)
         // Unscreen: StarsOnly = 1 - (1 - 0.5) / (1 - 0.3) = 1 - 5/7 ≈ 0.2857.
         result.Starless[0, 0, 0].ShouldBe(0.3f, 1e-5f);
         result.StarsOnly[0, 0, 0].ShouldBe(1f - 5f / 7f, 1e-4f);
+    }
+
+    // --- SCNR-on-stars + AI blend amounts ------------------------------
+
+    [Fact]
+    public async Task ProcessAsync_StarsScnr_AppliesToStarsPlateNotStarless()
+    {
+        // Build a green-tinted source over a neutral-grey "starless" plate so
+        // the additive split puts the green dominance squarely on the stars
+        // plate -- exactly the workflow shape SCNR is for.
+        // Source = (0.5, 0.8, 0.5). UniformStarRemover(0.3, 0.3, 0.3) ->
+        //   Starless = (0.3, 0.3, 0.3) (uniform neutral plate),
+        //   StarsOnly = max(Source - Starless, 0) = (0.2, 0.5, 0.2).
+        // SCNR Average + amount=1 on stars: m = (0.2+0.2)/2 = 0.2,
+        //   excess = 0.5-0.2 = 0.3, Gnew = 0.5 - 0.3 = 0.2 -- neutralised.
+        // Starless: untouched, still (0.3, 0.3, 0.3).
+        // Recombined: (0.2+0.3, 0.2+0.3, 0.2+0.3) = (0.5, 0.5, 0.5) -- white.
+        const int w = 4, h = 4;
+        var r = new float[h, w];
+        var g = new float[h, w];
+        var b = new float[h, w];
+        for (var y = 0; y < h; y++) for (var x = 0; x < w; x++) { r[y, x] = 0.5f; g[y, x] = 0.8f; b[y, x] = 0.5f; }
+        var src = new Image([r, g, b], BitDepth.Float32, 1.0f, 0f, 0f, new ImageMeta { SensorType = SensorType.Color });
+
+        var pipeline = new SharpenPipeline(starRemover: new UniformStarRemover(0.3f, 0.3f, 0.3f));
+        var result = await pipeline.ProcessAsync(new SharpenRequest(src,
+            RunStarRemoval: true, RunStellarSharpen: false, RunNonStellarDeconv: false,
+            Recombine: true, StarsScnrMode: ScnrMode.Average, StarsScnrAmount: 1.0f),
+            TestContext.Current.CancellationToken);
+
+        result.Final.ShouldNotBeNull();
+        // Stars plate after SCNR: G channel pulled from 0.5 down to 0.2.
+        result.StarsOnly!.ShouldNotBeNull();
+        result.StarsOnly![1, 0, 0].ShouldBe(0.2f, 1e-5f);
+        // Starless plate: untouched -- still (0.3, 0.3, 0.3) per channel.
+        result.Starless![1, 0, 0].ShouldBe(0.3f, 1e-5f);
+        // Recombined: 0.2 + 0.3 = 0.5 on every channel -> neutral white.
+        result.Final[0, 0, 0].ShouldBe(0.5f, 1e-5f);
+        result.Final[1, 0, 0].ShouldBe(0.5f, 1e-5f);
+        result.Final[2, 0, 0].ShouldBe(0.5f, 1e-5f);
+    }
+
+    [Fact]
+    public async Task ProcessAsync_StellarBlend_BlendsAiOutputBackTowardStarsOnly()
+    {
+        // With identity stellar sharpener, the AI output equals the input;
+        // Lerp is a no-op at any blend value. Use an enhancer that DOUBLES
+        // the input so the blend dial is observable.
+        var pipeline = new SharpenPipeline(
+            starRemover: new ConstantStarRemover(0.2f),
+            stellarSharpener: new ScaleEnhancer(2.0f));
+        var src = SyntheticRgb(8, 8, 0.5f);
+
+        // StarsOnly = 0.2 everywhere. ScaleEnhancer(2x) -> 0.4. Blend=0.5
+        // -> lerp(0.2, 0.4, 0.5) = 0.3 -- exact midpoint.
+        var halfResult = await pipeline.ProcessAsync(new SharpenRequest(src,
+            RunStarRemoval: true, RunStellarSharpen: true, RunNonStellarDeconv: false,
+            Recombine: false, StellarBlend: 0.5f),
+            TestContext.Current.CancellationToken);
+        halfResult.SharpenedStars![0, 0, 0].ShouldBe(0.3f, 1e-5f);
+
+        // Blend=0 -> entirely the input, no AI applied.
+        var zeroResult = await pipeline.ProcessAsync(new SharpenRequest(src,
+            RunStarRemoval: true, RunStellarSharpen: true, RunNonStellarDeconv: false,
+            Recombine: false, StellarBlend: 0.0f),
+            TestContext.Current.CancellationToken);
+        zeroResult.SharpenedStars![0, 0, 0].ShouldBe(0.2f, 1e-5f);
+    }
+
+    /// <summary>Multiplies every pixel by a scalar. Stand-in for an enhancer that
+    /// actually changes its input so the blend math is observable in tests.</summary>
+    private sealed class ScaleEnhancer(float scale) : IStarRemover, IStellarSharpener, INonStellarDeconvolver
+    {
+        public string Name => $"Test/Scale({scale})";
+        public Task<Image> EnhanceAsync(Image input, CancellationToken cancellationToken = default)
+        {
+            var (channels, w, h) = input.Shape;
+            var data = new float[channels][,];
+            for (var c = 0; c < channels; c++)
+            {
+                var plane = new float[h, w];
+                var src = input.GetChannelSpan(c);
+                for (var y = 0; y < h; y++)
+                    for (var x = 0; x < w; x++)
+                        plane[y, x] = src[y * w + x] * scale;
+                data[c] = plane;
+            }
+            return Task.FromResult(new Image(data, BitDepth.Float32, 1.0f, 0f, 0f, input.ImageMeta));
+        }
     }
 
     // --- DI wiring -----------------------------------------------------
