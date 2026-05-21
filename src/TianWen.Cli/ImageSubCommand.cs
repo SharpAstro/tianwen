@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.CommandLine;
 using System.IO;
 using System.Threading;
@@ -67,7 +69,7 @@ internal sealed class ImageSubCommand(
         };
         var outputOpt = new Option<string?>("--output", "-o")
         {
-            Description = "Output FITS path. Default: <input>_sharpened.fits (or per-plate <input>_{starless,stars,sharpened-stars,deconvolved-starless}.fits when --no-recombine is set).",
+            Description = "Output FITS path. Default: <input>_sharpened.fits (or per-plate <input>_{starless,stars,sharpened-stars,deconvolved-starless,denoised-starless}.fits when --no-recombine is set).",
         };
         var modeOpt = new Option<string>("--mode")
         {
@@ -81,6 +83,10 @@ internal sealed class ImageSubCommand(
         var noDeconvOpt = new Option<bool>("--no-deconv")
         {
             Description = "Skip the non-stellar deconvolution pass. Starless plate passes through unmodified.",
+        };
+        var noDenoiseOpt = new Option<bool>("--no-denoise")
+        {
+            Description = "Skip the noise-reduction pass on the starless plate. By default denoise runs AFTER deconv (PixInsight order) to suppress deconv-amplified grain.",
         };
         var noRecombineOpt = new Option<bool>("--no-recombine")
         {
@@ -100,6 +106,11 @@ internal sealed class ImageSubCommand(
             Description = "AI strength for the non-stellar deconvolution pass in [0, 1]. 0 = nebula untouched; 1 = full AI output. Nebula usually tolerates higher values than stellar sharpening.",
             DefaultValueFactory = _ => 1.0f,
         };
+        var denoiseBlendOpt = new Option<float>("--denoise-blend")
+        {
+            Description = "AI strength for the denoise pass on the starless plate in [0, 1]. 0 = noise untouched; 1 = full AI output. AI4 NoiseX is conservative on faint nebula detail so full strength is usually safe.",
+            DefaultValueFactory = _ => 1.0f,
+        };
         var scnrOpt = new Option<string>("--scnr")
         {
             Description = "Subtractive Chromatic Noise Reduction on the stars plate only (preserves OIII / H-beta nebula green). Modes: 'none' (default), 'average' = pull G down to (R+B)/2, 'maximum' = pull G down to max(R,B). The starless plate is always untouched.",
@@ -111,10 +122,10 @@ internal sealed class ImageSubCommand(
             DefaultValueFactory = _ => 1.0f,
         };
 
-        var cmd = new Command("sharpen", "Full AI4 NAFNet sharpen pipeline: remove stars, sharpen the stars-only plate, deconvolve the starless plate, optional SCNR on stars, recombine.")
+        var cmd = new Command("sharpen", "Full AI4 NAFNet sharpen pipeline: remove stars, sharpen the stars-only plate, deconvolve + denoise the starless plate, optional SCNR on stars, recombine.")
         {
             Arguments = { inputArg },
-            Options = { outputOpt, modeOpt, noStellarOpt, noDeconvOpt, noRecombineOpt, pngOpt, stellarBlendOpt, deconvBlendOpt, scnrOpt, scnrAmountOpt },
+            Options = { outputOpt, modeOpt, noStellarOpt, noDeconvOpt, noDenoiseOpt, noRecombineOpt, pngOpt, stellarBlendOpt, deconvBlendOpt, denoiseBlendOpt, scnrOpt, scnrAmountOpt },
         };
         cmd.SetAction(async (parseResult, ct) =>
         {
@@ -140,10 +151,12 @@ internal sealed class ImageSubCommand(
 
             var noStellar = parseResult.GetValue(noStellarOpt);
             var noDeconv = parseResult.GetValue(noDeconvOpt);
+            var noDenoise = parseResult.GetValue(noDenoiseOpt);
             var noRecombine = parseResult.GetValue(noRecombineOpt);
             var outputPath = parseResult.GetValue(outputOpt);
             var stellarBlend = Math.Clamp(parseResult.GetValue(stellarBlendOpt), 0f, 1f);
             var deconvBlend = Math.Clamp(parseResult.GetValue(deconvBlendOpt), 0f, 1f);
+            var denoiseBlend = Math.Clamp(parseResult.GetValue(denoiseBlendOpt), 0f, 1f);
 
             var scnrStr = (parseResult.GetValue(scnrOpt) ?? "none").ToLowerInvariant();
             ScnrMode scnrMode = scnrStr switch
@@ -171,22 +184,22 @@ internal sealed class ImageSubCommand(
             // a fresh copy at unit range. Original `src` is unchanged.
             var normalised = src.ScaleFloatValuesToUnit();
 
-            var request = new SharpenRequest(
-                Source: normalised,
-                RunStarRemoval: true,
-                RunStellarSharpen: !noStellar,
-                RunNonStellarDeconv: !noDeconv,
-                Recombine: !noRecombine,
-                Mode: mode,
-                StellarBlend: stellarBlend,
-                DeconvBlend: deconvBlend,
-                StarsScnrMode: scnrMode,
-                StarsScnrAmount: scnrAmount);
+            // Build the SharpenStep list in canonical order. CLI flags toggle
+            // step presence; the pipeline interprets the array in declared
+            // order so this is also the execution order.
+            var steps = new List<SharpenStep> { new RemoveStarsStep(SplitMode: mode) };
+            if (!noStellar) steps.Add(new SharpenStarsStep(Blend: stellarBlend));
+            if (!noDeconv) steps.Add(new DeconvolveStarlessStep(Blend: deconvBlend));
+            if (!noDenoise) steps.Add(new DenoiseStarlessStep(Blend: denoiseBlend));
+            if (scnrMode != ScnrMode.None) steps.Add(new ScnrStarsStep(Mode: scnrMode, Amount: scnrAmount));
+            if (!noRecombine) steps.Add(new RecombineStep(Mode: mode));
+
+            var request = new SharpenRequest(normalised, ImmutableArray.CreateRange(steps));
 
             consoleHost.WriteScrollable(
                 $"[sharpen] {input} {src.Width}x{src.Height}x{src.ChannelCount} mode={mode} " +
                 $"stellar={!noStellar}({stellarBlend:F2}) deconv={!noDeconv}({deconvBlend:F2}) " +
-                $"scnr={scnrMode}({scnrAmount:F2}) recombine={!noRecombine}");
+                $"denoise={!noDenoise}({denoiseBlend:F2}) scnr={scnrMode}({scnrAmount:F2}) recombine={!noRecombine}");
 
             SharpenResult result;
             try
@@ -211,6 +224,7 @@ internal sealed class ImageSubCommand(
                 await WritePlateAsync(result.StarsOnly, basePath, "_stars", wcs, src.ImageMeta, withPng, ct);
                 await WritePlateAsync(result.SharpenedStars, basePath, "_sharpened-stars", wcs, src.ImageMeta, withPng, ct);
                 await WritePlateAsync(result.DeconvolvedStarless, basePath, "_deconvolved-starless", wcs, src.ImageMeta, withPng, ct);
+                await WritePlateAsync(result.DenoisedStarless, basePath, "_denoised-starless", wcs, src.ImageMeta, withPng, ct);
             }
             else
             {
@@ -225,6 +239,7 @@ internal sealed class ImageSubCommand(
             result.StarsOnly?.Release();
             result.SharpenedStars?.Release();
             result.DeconvolvedStarless?.Release();
+            result.DenoisedStarless?.Release();
             result.Final?.Release();
             return 0;
         });

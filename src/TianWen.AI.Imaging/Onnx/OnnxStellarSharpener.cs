@@ -40,10 +40,14 @@ public sealed class OnnxStellarSharpener(
             throw new NotSupportedException(
                 $"OnnxStellarSharpener requires 1 or 3 channels, got {input.ChannelCount}.");
         }
-        if (input.MaxValue > 1.0f + 1e-3f)
+        // Allow up to MaxValue=1.5 to tolerate small AI4 NAFNet overshoot when
+        // chained as a pipeline stage (see Image.MtfUnstretch xmldoc -- network
+        // excursions above [0, 1] are preserved as empirical max). Still
+        // rejects miscalibrated inputs like raw [0, 65535] camera data.
+        if (input.MaxValue > 1.5f)
         {
             throw new ArgumentException(
-                $"OnnxStellarSharpener requires input normalised to [0, 1], got MaxValue={input.MaxValue}. " +
+                $"OnnxStellarSharpener requires input normalised to ~[0, 1], got MaxValue={input.MaxValue}. " +
                 "Use AstroImageDocument.AdoptImageAsync or Image.ScaleFloatValuesToUnitInPlace first.",
                 nameof(input));
         }
