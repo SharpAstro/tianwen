@@ -24,18 +24,21 @@ public static class AiServiceCollectionExtensions
     /// Currently registers:
     /// <list type="bullet">
     /// <item><see cref="IModelResolver"/> -> <see cref="ModelResolver"/> (default search paths).</item>
+    /// <item><see cref="IPsfEstimator"/> -> <see cref="HfdPsfEstimator"/> (whole-image scalar via FindStarsAsync).</item>
     /// <item><see cref="IStarRemover"/> -> <see cref="OnnxStarRemover"/>.</item>
     /// <item><see cref="IStellarSharpener"/> -> <see cref="OnnxStellarSharpener"/>.</item>
+    /// <item><see cref="INonStellarDeconvolver"/> -> <see cref="OnnxNonStellarDeconvolver"/>.</item>
     /// </list>
-    /// Future phases will add <c>INonStellarDeconvolver</c> here. The
-    /// <c>SharpenPipeline</c> orchestrator lives in <c>TianWen.Lib</c> and
-    /// will be registered there.
+    /// The <c>SharpenPipeline</c> orchestrator (Phase 5) lives in
+    /// <c>TianWen.Lib</c> and will be registered there.
     /// </remarks>
     public static IServiceCollection AddTianWenAi(this IServiceCollection services)
     {
         services.TryAddSingleton<IModelResolver, ModelResolver>();
+        services.TryAddSingleton<IPsfEstimator, HfdPsfEstimator>();
         services.TryAddSingleton<IStarRemover, OnnxStarRemover>();
         services.TryAddSingleton<IStellarSharpener, OnnxStellarSharpener>();
+        services.TryAddSingleton<INonStellarDeconvolver, OnnxNonStellarDeconvolver>();
         return services;
     }
 }
