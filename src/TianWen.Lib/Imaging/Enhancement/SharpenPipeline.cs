@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Diagnostics;
 using System.Linq;
+using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
@@ -72,7 +73,7 @@ public sealed class SharpenPipeline(
                 switch (step)
                 {
                     case RemoveStarsStep removeStars:
-                        starless = await starRemover!.EnhanceAsync(request.Source, cancellationToken);
+                        starless = await Require(starRemover).EnhanceAsync(request.Source, cancellationToken);
                         // Pixel split:
                         //   Additive (default): StarsOnly = max(Source - Starless, 0).
                         //     Physically correct in linear-light photon space.
@@ -92,8 +93,8 @@ public sealed class SharpenPipeline(
                         // Input is whatever the stars plate currently is -- raw
                         // starsOnly normally, or an SCNR'd version if ScnrStarsStep
                         // ran earlier in the same request.
-                        var inputPlate = starsOnly!;
-                        var raw = await stellarSharpener!.EnhanceAsync(inputPlate, cancellationToken);
+                        var inputPlate = Require(starsOnly);
+                        var raw = await Require(stellarSharpener).EnhanceAsync(inputPlate, cancellationToken);
                         sharpenedStars = sharpStep.Blend < 1f
                             ? inputPlate.Lerp(raw, sharpStep.Blend)
                             : raw;
@@ -104,8 +105,8 @@ public sealed class SharpenPipeline(
 
                     case DeconvolveStarlessStep deconvStep:
                     {
-                        var inputPlate = starless!;
-                        var raw = await nonStellarDeconvolver!.EnhanceAsync(inputPlate, cancellationToken);
+                        var inputPlate = Require(starless);
+                        var raw = await Require(nonStellarDeconvolver).EnhanceAsync(inputPlate, cancellationToken);
                         deconvolvedStarless = deconvStep.Blend < 1f
                             ? inputPlate.Lerp(raw, deconvStep.Blend)
                             : raw;
@@ -119,13 +120,42 @@ public sealed class SharpenPipeline(
                         // Denoise sees the most-processed starless: deconv
                         // output if a DeconvolveStarlessStep ran earlier,
                         // otherwise the raw starless plate.
-                        var inputPlate = deconvolvedStarless ?? starless!;
-                        var raw = await denoiser!.EnhanceAsync(inputPlate, cancellationToken);
+                        var inputPlate = deconvolvedStarless ?? Require(starless);
+                        var raw = await Require(denoiser).EnhanceAsync(inputPlate, denoiseStep.Variant, cancellationToken);
                         denoisedStarless = denoiseStep.Blend < 1f
                             ? inputPlate.Lerp(raw, denoiseStep.Blend)
                             : raw;
                         if (!ReferenceEquals(denoisedStarless, raw)) raw.Release();
                         timings.Add(("denoise-starless", phaseSw.ElapsedMilliseconds));
+                        break;
+                    }
+
+                    case BackgroundReduceStep bgStep:
+                    {
+                        // Pulls background luminosity down on the starless
+                        // plate via an S-curve. Auto-derives the histogram
+                        // peak when BackgroundPeak is null.
+                        var inputPlate = denoisedStarless ?? deconvolvedStarless ?? Require(starless);
+                        var bgPeak = bgStep.BackgroundPeak ?? inputPlate.EstimateBackgroundPeak();
+                        var reduced = inputPlate.ReduceBackground(bgPeak, bgStep.Compression);
+                        if (denoisedStarless is not null) denoisedStarless.Release();
+                        denoisedStarless = reduced;
+                        timings.Add(("background-reduce", phaseSw.ElapsedMilliseconds));
+                        break;
+                    }
+
+                    case CompressHighlightsStep hiStep:
+                    {
+                        // Soft highlight roll-off on the starless plate. Knee
+                        // threshold below which curve is identity; above,
+                        // Reinhard-style compression. Auto-slotted into the
+                        // denoisedStarless lineage like the other starless
+                        // transforms.
+                        var inputPlate = denoisedStarless ?? deconvolvedStarless ?? Require(starless);
+                        var compressed = inputPlate.CompressHighlights(hiStep.Knee, hiStep.Amount);
+                        if (denoisedStarless is not null) denoisedStarless.Release();
+                        denoisedStarless = compressed;
+                        timings.Add(("compress-highlights", phaseSw.ElapsedMilliseconds));
                         break;
                     }
 
@@ -136,7 +166,7 @@ public sealed class SharpenPipeline(
                         // legitimate green nebula signal (OIII / H-beta).
                         // Mutates the most-processed stars plate in-place
                         // (sharpened if present, else raw starsOnly).
-                        var inputPlate = sharpenedStars ?? starsOnly!;
+                        var inputPlate = sharpenedStars ?? Require(starsOnly);
                         var afterScnr = inputPlate.SubtractiveChromaticNoise(scnrStep.Mode, scnrStep.Amount);
                         if (sharpenedStars is not null)
                         {
@@ -145,10 +175,54 @@ public sealed class SharpenPipeline(
                         }
                         else
                         {
-                            starsOnly!.Release();
+                            Require(starsOnly).Release();
                             starsOnly = afterScnr;
                         }
                         timings.Add(("scnr-stars", phaseSw.ElapsedMilliseconds));
+                        break;
+                    }
+
+                    case StretchStarsStep stretchStarsStep:
+                    {
+                        // Frank-style fixed-curve StarStretch on the most-
+                        // processed stars plate. The fixed curve is critical
+                        // here -- auto-targeted MtfStretch would push the
+                        // stars plate's near-zero median to the target and
+                        // saturate all bright peaks. In-place mutation
+                        // lineage matches SCNR.
+                        var inputPlate = sharpenedStars ?? Require(starsOnly);
+                        var stretched = inputPlate.StarStretch(stretchStarsStep.Amount);
+                        if (sharpenedStars is not null)
+                        {
+                            sharpenedStars.Release();
+                            sharpenedStars = stretched;
+                        }
+                        else
+                        {
+                            Require(starsOnly).Release();
+                            starsOnly = stretched;
+                        }
+                        timings.Add(("stretch-stars", phaseSw.ElapsedMilliseconds));
+                        break;
+                    }
+
+                    case StretchStarlessStep stretchStarlessStep:
+                    {
+                        // MTF stretch on the most-processed starless plate
+                        // (denoised > deconvolved > raw). Slotted as a NEW
+                        // denoisedStarless entry so the rolling
+                        // "most-processed" chain remains valid downstream.
+                        var inputPlate = denoisedStarless ?? deconvolvedStarless ?? Require(starless);
+                        var stretched = inputPlate.MtfStretch(stretchStarlessStep.TargetMedian, out _, out _);
+                        // Release whichever slot we're shadowing -- the
+                        // recombine fallback chain picks denoisedStarless
+                        // first regardless of how it got there.
+                        if (denoisedStarless is not null)
+                        {
+                            denoisedStarless.Release();
+                        }
+                        denoisedStarless = stretched;
+                        timings.Add(("stretch-starless", phaseSw.ElapsedMilliseconds));
                         break;
                     }
 
@@ -157,8 +231,8 @@ public sealed class SharpenPipeline(
                         // Most-processed plate wins on each side:
                         //   bg = denoised > deconvolved > raw starless
                         //   fg = sharpened > raw starsOnly
-                        var bg = denoisedStarless ?? deconvolvedStarless ?? starless!;
-                        var fg = sharpenedStars ?? starsOnly!;
+                        var bg = denoisedStarless ?? deconvolvedStarless ?? Require(starless);
+                        var fg = sharpenedStars ?? Require(starsOnly);
                         final = recombineStep.Mode == RecombineMode.Screen ? bg.Screen(fg) : bg.Add(fg);
                         timings.Add(("recombine", phaseSw.ElapsedMilliseconds));
                         break;
@@ -200,6 +274,20 @@ public sealed class SharpenPipeline(
             DeconvolvedStarless: deconvolvedStarless,
             DenoisedStarless: denoisedStarless);
     }
+
+    /// <summary>
+    /// Asserts a plate / enhancer the pipeline expects (per
+    /// <see cref="ValidateRequest"/>) is actually present. Removes the need
+    /// for the null-forgiving <c>!</c> operator at call sites while keeping
+    /// the cross-method invariant explicit. The <c>InvalidOperationException</c>
+    /// here is dead code in practice -- <see cref="ValidateRequest"/> catches
+    /// the missing-precondition case before execution -- but it makes the
+    /// assumption legible and turns any future validation bug into a clear
+    /// diagnostic rather than a NullReferenceException.
+    /// </summary>
+    private static T Require<T>(T? value, [CallerArgumentExpression(nameof(value))] string? expression = null) where T : class
+        => value ?? throw new InvalidOperationException(
+            $"SharpenPipeline invariant violated: '{expression}' is null at use. ValidateRequest should have rejected this request.");
 
     private void ValidateRequest(SharpenRequest request)
     {
@@ -250,6 +338,45 @@ public sealed class SharpenPipeline(
                 case ScnrStarsStep:
                     if (!hasStarsOnly) throw new ArgumentException(
                         $"SharpenRequest.Steps[{i}]: ScnrStarsStep requires a preceding RemoveStarsStep (no stars-only plate for SCNR).",
+                        nameof(request));
+                    break;
+                case BackgroundReduceStep bgReduce:
+                    if (!hasStarless) throw new ArgumentException(
+                        $"SharpenRequest.Steps[{i}]: BackgroundReduceStep requires a preceding RemoveStarsStep (no starless plate to reduce).",
+                        nameof(request));
+                    if (bgReduce.Compression is <= 0.0 or > 1.0) throw new ArgumentException(
+                        $"SharpenRequest.Steps[{i}]: BackgroundReduceStep.Compression must be in (0, 1]; got {bgReduce.Compression}.",
+                        nameof(request));
+                    if (bgReduce.BackgroundPeak is { } bp && (bp <= 0.0 || bp >= 0.5)) throw new ArgumentException(
+                        $"SharpenRequest.Steps[{i}]: BackgroundReduceStep.BackgroundPeak must be in (0, 0.5); got {bp}.",
+                        nameof(request));
+                    break;
+                case CompressHighlightsStep hi:
+                    if (!hasStarless) throw new ArgumentException(
+                        $"SharpenRequest.Steps[{i}]: CompressHighlightsStep requires a preceding RemoveStarsStep (no starless plate to compress).",
+                        nameof(request));
+                    if (hi.Knee is <= 0.0 or >= 1.0) throw new ArgumentException(
+                        $"SharpenRequest.Steps[{i}]: CompressHighlightsStep.Knee must be in (0, 1); got {hi.Knee}.",
+                        nameof(request));
+                    if (hi.Amount < 0.0) throw new ArgumentException(
+                        $"SharpenRequest.Steps[{i}]: CompressHighlightsStep.Amount must be >= 0; got {hi.Amount}.",
+                        nameof(request));
+                    break;
+                case StretchStarsStep stretchStars:
+                    if (!hasStarsOnly) throw new ArgumentException(
+                        $"SharpenRequest.Steps[{i}]: StretchStarsStep requires a preceding RemoveStarsStep (no stars plate to stretch).",
+                        nameof(request));
+                    if (stretchStars.Amount is <= 0.0 or > 10.0) throw new ArgumentException(
+                        $"SharpenRequest.Steps[{i}]: StretchStarsStep.Amount must be in (0, 10]; got {stretchStars.Amount}. " +
+                        "SAS Pro slider range is 0-8; typical linear-input values are 1.5-3.0.",
+                        nameof(request));
+                    break;
+                case StretchStarlessStep stretchStarless:
+                    if (!hasStarless) throw new ArgumentException(
+                        $"SharpenRequest.Steps[{i}]: StretchStarlessStep requires a preceding RemoveStarsStep (no starless plate to stretch).",
+                        nameof(request));
+                    if (stretchStarless.TargetMedian is <= 0.0 or >= 1.0) throw new ArgumentException(
+                        $"SharpenRequest.Steps[{i}]: StretchStarlessStep.TargetMedian must be in (0, 1); got {stretchStarless.TargetMedian}.",
                         nameof(request));
                     break;
                 case RecombineStep:
@@ -321,7 +448,51 @@ public sealed record DeconvolveStarlessStep(float Blend = 1.0f) : SharpenStep;
 /// <param name="Blend">AI strength in [0, 1]. 0 = noise untouched; 1 = full
 /// AI output. AI4 NoiseX is conservative on faint detail so full strength
 /// is usually safe.</param>
-public sealed record DenoiseStarlessStep(float Blend = 1.0f) : SharpenStep;
+/// <param name="Variant">Model weight bundle. <see cref="DenoiseVariant.Default"/>
+/// is the full AI4 NAFNet (slowest, highest quality); <see cref="DenoiseVariant.Lite"/>
+/// is the half-width fast variant; <see cref="DenoiseVariant.Walking"/> is
+/// trained on dither-correlated pattern noise.</param>
+public sealed record DenoiseStarlessStep(float Blend = 1.0f, DenoiseVariant Variant = DenoiseVariant.Default) : SharpenStep;
+
+/// <summary>S-curve background reduction on the starless / nebula plate.
+/// Pulls the histogram peak down toward black via a symmetric cubic-Hermite
+/// curve through <c>(0,0), (bg, bg·c), (0.5, 0.5), (1-bg, 1-bg·c), (1, 1)</c>.
+/// Mirrors the "Reduce Background Luminosity" step in SAS Pro's statistical
+/// stretch script (and the equivalent Affinity / Photoshop curves workflow).
+/// </summary>
+/// <remarks>
+/// Applied AFTER <see cref="StretchStarlessStep"/> only -- the stars plate
+/// already has black background between star peaks and shouldn't have it
+/// pushed further down. Identity at midpoint, symmetric around it, so
+/// highlights are preserved while the histogram peak (background) gets
+/// crushed toward black.
+/// </remarks>
+/// <param name="Compression">Multiplier applied to <paramref name="BackgroundPeak"/>
+/// for the low control point. Default <c>0.36</c> matches the empirical
+/// Affinity curve point <c>(0.112, 0.04)</c> from finished real-world
+/// processing -- the histogram peak gets compressed by ~3x. Subsequent
+/// layers (Masked Contrast Boost etc.) push the visible picker reading
+/// further down to ~3/255; this step is just the curves layer.
+/// Range (0, 1]; 1.0 = no reduction (identity curve).</param>
+/// <param name="BackgroundPeak">X anchor of the low control point. Null
+/// (default) auto-derives via <see cref="Image.EstimateBackgroundPeak"/>
+/// at execution time -- the histogram peak post-stretch, matching where
+/// the eye picks the "background level" on an inspected histogram.
+/// Range (0, 0.5).</param>
+public sealed record BackgroundReduceStep(double Compression = 0.36, double? BackgroundPeak = null) : SharpenStep;
+
+/// <summary>Reinhard-style soft highlight compression on the starless /
+/// nebula plate. Pairs with <see cref="BackgroundReduceStep"/>: that step
+/// pulls the low end down, this step compresses the high end -- together
+/// they reproduce the SAS Pro statistical-stretch shape (asymmetric curve
+/// passing through identity at the midpoint). Applied AFTER
+/// <see cref="BackgroundReduceStep"/> in the canonical order.
+/// </summary>
+/// <param name="Knee">Threshold above which compression starts (below =
+/// identity). Default <c>0.7</c>.</param>
+/// <param name="Amount">Compression strength; higher = stronger roll-off.
+/// Default <c>1.0</c>. Range &gt;= 0.</param>
+public sealed record CompressHighlightsStep(double Knee = 0.7, double Amount = 1.0) : SharpenStep;
 
 /// <summary>Subtractive Chromatic Noise Reduction on the stars-only plate
 /// only -- preserves legitimate green nebula signal (OIII / H-beta) on the
@@ -332,6 +503,39 @@ public sealed record DenoiseStarlessStep(float Blend = 1.0f) : SharpenStep;
 /// <see cref="ScnrMode.Maximum"/> = pull G down to max(R, B).</param>
 /// <param name="Amount">SCNR strength in [0, 1]. 1 = full neutralise.</param>
 public sealed record ScnrStarsStep(ScnrMode Mode, float Amount = 1.0f) : SharpenStep;
+
+/// <summary>Frank Sackenheim's fixed-curve StarStretch on the stars-only
+/// plate. Applies <see cref="Image.StarStretch"/> (PixInsight MTF with a
+/// fixed midtones balance, NOT auto-targeted to the channel median) to
+/// whatever the current stars plate is (sharpened or raw, scnr'd or not).
+/// </summary>
+/// <remarks>
+/// <para>The fixed-curve approach is critical for stars-only plates: the
+/// plate's channel median is near zero (mostly background with sparse
+/// bright peaks), so a median-targeting <see cref="MtfStretch"/> would
+/// shove that near-zero median to the target and over-saturate the bright
+/// peaks. Frank's approach uses a single fixed curve based on
+/// <paramref name="Amount"/> -- same lift for every pixel regardless of
+/// channel statistics.</para>
+///
+/// <para>Output is in stretched [0, 1] space; the downstream
+/// <see cref="RecombineStep"/> should use <see cref="RecombineMode.Screen"/>
+/// when both plates are pre-stretched (screen is the natural bounded
+/// composite for stretched data).</para>
+/// </remarks>
+/// <param name="Amount">SAS Pro slider amount. UI default in SAS Pro is
+/// 5.0 (factor = 243, midtones ≈ 0.004) for already-stretched input. On
+/// linear stars-only data values in [1.5, 3.0] usually balance the lift
+/// without over-brightening; we default to <c>2.0</c>.</param>
+public sealed record StretchStarsStep(double Amount = 2.0) : SharpenStep;
+
+/// <summary>Per-plate MTF stretch on the starless plate. Companion to
+/// <see cref="StretchStarsStep"/>; see its xmldoc for the dual-stretch
+/// motivation. Applies <see cref="Image.MtfStretch"/> to the
+/// most-processed starless plate (denoised, deconvolved, or raw).</summary>
+/// <param name="TargetMedian">MTF target median in [0.01, 0.50]; default
+/// <c>0.25</c> matches the SAS Pro / cosmicclarity convention.</param>
+public sealed record StretchStarlessStep(double TargetMedian = 0.25) : SharpenStep;
 
 /// <summary>Recombine the processed plates into the final image. Must be
 /// the last step when present (validation enforces this).</summary>

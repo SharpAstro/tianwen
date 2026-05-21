@@ -1,3 +1,6 @@
+using System.Threading;
+using System.Threading.Tasks;
+
 namespace TianWen.Lib.Imaging.Enhancement;
 
 /// <summary>
@@ -20,4 +23,34 @@ namespace TianWen.Lib.Imaging.Enhancement;
 /// </remarks>
 public interface IDenoiseEnhancer : IImageEnhancer
 {
+    /// <summary>
+    /// Variant-aware overload. Concrete impls override to select the model
+    /// (Default / Lite / Walking) based on <paramref name="variant"/>. The
+    /// default impl ignores the variant and delegates to the base
+    /// <see cref="IImageEnhancer.EnhanceAsync"/>, so test fakes /
+    /// pass-through implementations don't need to override.
+    /// </summary>
+    Task<Image> EnhanceAsync(Image input, DenoiseVariant variant, CancellationToken cancellationToken = default)
+        => EnhanceAsync(input, cancellationToken);
+}
+
+/// <summary>
+/// Selects the AI4 NAFNet denoise model weight bundle. Mirrors the SAS Pro
+/// <c>denoise_engine.py</c> variant flags (<c>lite</c>, <c>walking</c>).
+/// </summary>
+public enum DenoiseVariant
+{
+    /// <summary>Standard AI4 NAFNet weights -- highest quality, slowest.
+    /// File: <c>deep_denoise_{mono,color}_AI4.onnx</c>.</summary>
+    Default = 0,
+
+    /// <summary>Lite variant (half-width NAFNet, ~2x faster, slightly less
+    /// effective on faint detail). File:
+    /// <c>deep_denoise_{mono,color}_AI4_lite.onnx</c>.</summary>
+    Lite = 1,
+
+    /// <summary>"Walking-noise" variant trained on dither-correlated /
+    /// pattern noise (the slow drift artefact common to long uncalibrated
+    /// stacks). File: <c>deep_denoise_{mono,color}_AI4_1w.onnx</c>.</summary>
+    Walking = 2,
 }

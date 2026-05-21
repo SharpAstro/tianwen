@@ -226,6 +226,233 @@ public partial class Image
     }
 
     /// <summary>
+    /// Applies the PixInsight MTF formula with a <i>fixed</i> midtones balance
+    /// to every pixel (no per-channel auto-targeting). The companion to
+    /// <see cref="MtfStretch"/>: same underlying curve, but the curve is the
+    /// SAME for every channel and every input median. Use this when the data's
+    /// channel median doesn't represent the "interesting" tonal anchor --
+    /// notably for stars-only plates after star removal, where the median is
+    /// near zero (mostly background pixels with sparse bright peaks) and
+    /// auto-targeting that median to e.g. 0.25 would lift the background by
+    /// 250x and saturate every star.
+    /// </summary>
+    /// <param name="midtones">Midtones balance in (0, 1). 0.5 = identity;
+    /// values &lt; 0.5 lift shadows (typical stretch); &gt; 0.5 darkens.</param>
+    public Image FixedMidtonesStretch(double midtones)
+    {
+        var (channels, width, height) = Shape;
+        var pixelCount = width * height;
+        var newData = CreateChannelData(channels, height, width);
+        for (var c = 0; c < channels; c++)
+        {
+            var src = GetChannelSpan(c);
+            var dst = MemoryMarshal.CreateSpan(ref newData[c][0, 0], pixelCount);
+            for (var i = 0; i < pixelCount; i++)
+            {
+                var v = src[i];
+                dst[i] = float.IsNaN(v) ? float.NaN : (float)MidtonesTransferFunction(midtones, v);
+            }
+        }
+        return new Image(newData, BitDepth.Float32, 1.0f, 0f, 0f, imageMeta);
+    }
+
+    /// <summary>
+    /// Frank Sackenheim's StarStretch curve from the SAS Pro / PixInsight
+    /// StarStretch script: applies a single fixed-midtones MTF curve where
+    /// <c>midtones = 1 / (3^amount + 1)</c>. Pure pass-through wrapper around
+    /// <see cref="FixedMidtonesStretch"/> with the SAS Pro slider semantics
+    /// baked in.
+    /// </summary>
+    /// <param name="amount">SAS Pro "amount" slider value. SAS Pro's UI default
+    /// is 5.0 (factor = 243, midtones ≈ 0.004) -- aggressive lift designed
+    /// for star plates extracted from already-stretched images. On linear
+    /// stars-only plates (median near zero), values in the 1.5 - 3.0 range
+    /// usually produce well-balanced stretches. Higher = stronger stretch.</param>
+    public Image StarStretch(double amount)
+    {
+        var midtones = 1.0 / (Math.Pow(3.0, amount) + 1.0);
+        return FixedMidtonesStretch(midtones);
+    }
+
+    /// <summary>
+    /// Estimates the background histogram peak (mode) of channel 0 by
+    /// bucketing pixel values into a coarse 256-bin histogram and returning
+    /// the bin centre of the most-populated bin. For stretched astro frames
+    /// most pixels ARE background, so the mode is a good proxy for "where
+    /// the sky sits" -- matches what a colour picker in Photoshop / Affinity
+    /// reads when sampling background regions.
+    /// </summary>
+    /// <remarks>
+    /// Channel 0 is enough for a calibration step -- the channels are usually
+    /// close after background neutralisation. NaN values are skipped.
+    /// Returns 0 if the channel is empty / all-NaN.
+    /// </remarks>
+    public float EstimateBackgroundPeak()
+    {
+        const int Bins = 256;
+        Span<int> hist = stackalloc int[Bins];
+        var src = GetChannelSpan(0);
+        for (var i = 0; i < src.Length; i++)
+        {
+            var v = src[i];
+            if (float.IsNaN(v)) continue;
+            var clamped = Math.Clamp(v, 0f, 1f);
+            var idx = Math.Min((int)(clamped * Bins), Bins - 1);
+            hist[idx]++;
+        }
+        var peakIdx = 0;
+        var peakCount = 0;
+        for (var i = 0; i < Bins; i++)
+        {
+            if (hist[i] > peakCount) { peakCount = hist[i]; peakIdx = i; }
+        }
+        return (peakIdx + 0.5f) / Bins;
+    }
+
+    /// <summary>
+    /// Reinhard-style soft highlight compression. Below <paramref name="knee"/>
+    /// the curve is identity (no change). Above <paramref name="knee"/> values
+    /// are compressed by <c>v_out = knee + range · t / (1 + amount · t)</c>
+    /// where <c>t = (v - knee) / (1 - knee)</c>. As <paramref name="amount"/>
+    /// rises the asymptote of the compressed region drops further below 1.0,
+    /// so saturated pixels get pulled back from clipping. Identity at the
+    /// midpoint is preserved by virtue of <paramref name="knee"/> being above
+    /// 0.5 in typical use. Pairs with <see cref="ReduceBackground"/>: bg-pull
+    /// handles the low end, this handles the high end, the two are independent
+    /// (asymmetric overall curve passing through (0.5, 0.5) at identity).
+    /// </summary>
+    /// <param name="knee">Threshold above which compression starts. Default
+    /// <c>0.7</c> -- below the typical Frank-0.25 stretched median so the
+    /// nebula-bright regions get gentle roll-off while pure mid-tones stay
+    /// untouched. Range (0, 1).</param>
+    /// <param name="amount">Compression strength. <c>0</c> = no compression
+    /// (identity above knee); higher = stronger roll-off. <c>1.0</c> maps
+    /// <c>v=1.0</c> to <c>knee + (1-knee)/2</c> -- a useful default that
+    /// recovers ~half the headroom above the knee. Range &gt;= 0.</param>
+    public Image CompressHighlights(double knee, double amount)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(knee);
+        ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual(knee, 1.0);
+        ArgumentOutOfRangeException.ThrowIfNegative(amount);
+
+        var (channels, width, height) = Shape;
+        var pixelCount = width * height;
+        var newData = CreateChannelData(channels, height, width);
+        var k = (float)knee;
+        var a = (float)amount;
+        for (var c = 0; c < channels; c++)
+        {
+            var src = GetChannelSpan(c);
+            var dst = MemoryMarshal.CreateSpan(ref newData[c][0, 0], pixelCount);
+            for (var i = 0; i < pixelCount; i++)
+            {
+                var v = src[i];
+                dst[i] = float.IsNaN(v) ? float.NaN : ApplyHdr(v, a, k);
+            }
+        }
+        return new Image(newData, BitDepth.Float32, 1.0f, 0f, 0f, imageMeta);
+    }
+
+    /// <summary>
+    /// Pulls background luminosity down via a symmetric S-curve through
+    /// five control points: <c>(0,0), (bg, bg·c), (0.5, 0.5),
+    /// (1-bg, 1-bg·c), (1, 1)</c>. Identity at the midpoint, symmetric
+    /// around it, monotonic. Cubic Hermite spline interpolation between
+    /// control points (smooth, no kinks). Matches the "reduce background
+    /// luminosity" curve in Affinity / Photoshop workflows on stretched
+    /// astro frames -- darken the histogram peak (background) while
+    /// preserving highlights and bright structure.
+    /// </summary>
+    /// <param name="backgroundPeak">The X anchor of the low control point.
+    /// Typically the histogram peak post-stretch (call
+    /// <see cref="EstimateBackgroundPeak"/> to auto-derive). Must be in
+    /// <c>(0, 0.5)</c>.</param>
+    /// <param name="compression">How aggressively to pull the background
+    /// down. The low control point is mapped to <c>backgroundPeak · compression</c>.
+    /// Default <c>0.10</c> matches the empirically-measured 3/255 ≈ 0.012
+    /// background in finished Affinity work (for a typical 0.112 stretched
+    /// background peak). Must be in <c>(0, 1]</c>; 1.0 = no reduction.</param>
+    public Image ReduceBackground(double backgroundPeak, double compression)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(backgroundPeak);
+        ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual(backgroundPeak, 0.5);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(compression);
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(compression, 1.0);
+
+        const int LutSize = 4096;
+        Span<float> lut = stackalloc float[LutSize];
+        BuildBackgroundReduceLut(lut, (float)backgroundPeak, (float)compression);
+
+        var (channels, width, height) = Shape;
+        var pixelCount = width * height;
+        var newData = CreateChannelData(channels, height, width);
+        for (var c = 0; c < channels; c++)
+        {
+            var src = GetChannelSpan(c);
+            var dst = MemoryMarshal.CreateSpan(ref newData[c][0, 0], pixelCount);
+            for (var i = 0; i < pixelCount; i++)
+            {
+                var v = src[i];
+                if (float.IsNaN(v)) { dst[i] = float.NaN; continue; }
+                var clamped = Math.Clamp(v, 0f, 1f);
+                var idx = clamped * (LutSize - 1);
+                var i0 = (int)idx;
+                if (i0 >= LutSize - 1) { dst[i] = lut[LutSize - 1]; continue; }
+                var frac = idx - i0;
+                dst[i] = lut[i0] * (1f - frac) + lut[i0 + 1] * frac;
+            }
+        }
+        return new Image(newData, BitDepth.Float32, 1.0f, 0f, 0f, imageMeta);
+    }
+
+    /// <summary>
+    /// Populates <paramref name="lut"/> with the cubic-Hermite-interpolated
+    /// 5-point S-curve used by <see cref="ReduceBackground"/>. Standalone
+    /// for testability + so callers can inspect / cache the LUT outside the
+    /// per-pixel hot loop. Finite-difference tangents at each control point.
+    /// </summary>
+    internal static void BuildBackgroundReduceLut(Span<float> lut, float backgroundPeak, float compression)
+    {
+        var bg = backgroundPeak;
+        var bgY = backgroundPeak * compression;
+        Span<float> xs = stackalloc float[5] { 0f, bg, 0.5f, 1f - bg, 1f };
+        Span<float> ys = stackalloc float[5] { 0f, bgY, 0.5f, 1f - bgY, 1f };
+
+        // Finite-difference tangents at each control point. Edges use
+        // one-sided differences; interior points average the left and
+        // right slopes.
+        Span<float> m = stackalloc float[5];
+        m[0] = (ys[1] - ys[0]) / (xs[1] - xs[0]);
+        m[4] = (ys[4] - ys[3]) / (xs[4] - xs[3]);
+        for (var k = 1; k < 4; k++)
+        {
+            var dL = (ys[k] - ys[k - 1]) / (xs[k] - xs[k - 1]);
+            var dR = (ys[k + 1] - ys[k]) / (xs[k + 1] - xs[k]);
+            m[k] = 0.5f * (dL + dR);
+        }
+
+        for (var i = 0; i < lut.Length; i++)
+        {
+            var t = (float)i / (lut.Length - 1);
+            // Find segment containing t.
+            var seg = 0;
+            while (seg < 3 && t > xs[seg + 1]) seg++;
+            var h = xs[seg + 1] - xs[seg];
+            var u = (t - xs[seg]) / h;
+            var u2 = u * u;
+            var u3 = u2 * u;
+            var h00 = 2f * u3 - 3f * u2 + 1f;
+            var h10 = u3 - 2f * u2 + u;
+            var h01 = -2f * u3 + 3f * u2;
+            var h11 = u3 - u2;
+            lut[i] = h00 * ys[seg]
+                   + h10 * h * m[seg]
+                   + h01 * ys[seg + 1]
+                   + h11 * h * m[seg + 1];
+        }
+    }
+
+    /// <summary>
     /// Inverse of <see cref="MtfStretch"/>. Applies
     /// <see cref="MidtonesTransferFunction"/> with <c>1 - β</c> (which is the
     /// algebraic inverse of MTF with balance β) then adds the per-channel
