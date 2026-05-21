@@ -39,6 +39,10 @@ public static class AiServiceCollectionExtensions
         services.TryAddSingleton<IStarRemover, OnnxStarRemover>();
         services.TryAddSingleton<IStellarSharpener, OnnxStellarSharpener>();
         services.TryAddSingleton<INonStellarDeconvolver, OnnxNonStellarDeconvolver>();
+        // The orchestrator lives in TianWen.Lib (zero-AI dep) but consumers
+        // will want both wired together; register it here so a single
+        // AddTianWenAi() call sets up the whole sharpen flow.
+        services.TryAddSingleton<SharpenPipeline>();
         return services;
     }
 }
