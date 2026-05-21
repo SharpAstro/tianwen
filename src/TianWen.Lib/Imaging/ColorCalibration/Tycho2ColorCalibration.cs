@@ -4,6 +4,7 @@ using System.Runtime.CompilerServices;
 using TianWen.Lib.Astrometry;
 using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Devices.Fake;
+using TianWen.Lib.Stat;
 
 namespace TianWen.Lib.Imaging.ColorCalibration;
 
@@ -38,16 +39,22 @@ public static class Tycho2ColorCalibration
     /// </summary>
     public readonly record struct SpccFunnel(
         int Detected,
-        int WcsFail,        // PixelToSky returned null (out-of-WCS-bounds star)
-        int NoCandidates,   // CoordinateGrid cell is empty -- Tycho-2 has nothing nearby
-        int TolMissed,      // candidates exist but none within matchRadiusArcsec
-        int NoBmv,          // matched but Tycho-2 BMinusV is missing (~4% of entries)
-        int NoVmag,         // matched but V_Mag is also NaN (very rare)
-        int Accepted,       // entered the initial photometry set
-        SpccQuadrant TL,    // x < W/2, y < H/2 (image top-left, matches PNG render orientation)
-        SpccQuadrant TR,    // x >= W/2, y < H/2
-        SpccQuadrant BL,    // x < W/2, y >= H/2
-        SpccQuadrant BR);   // x >= W/2, y >= H/2
+        int WcsFail,                // PixelToSky returned null (out-of-WCS-bounds star)
+        int NoCandidates,           // CoordinateGrid cell is empty -- Tycho-2 has nothing nearby
+        int TolMissed,              // no candidate within EffectiveRadiusArcsec at all
+        int RejMagDiff,             // candidate(s) within radius, but all failed |V - predicted| <= maxMagDiff
+        int NoBmv,                  // matched but Tycho-2 BMinusV is missing (~4% of entries)
+        int NoVmag,                 // matched but V_Mag is also NaN (very rare)
+        int Accepted,               // entered the initial photometry set
+        bool MagGateActive,         // true once enough pass-1 matches existed to estimate a zero-point
+        float ZeroPoint,            // photometric zero-point used by the mag gate (NaN when inactive)
+        float EffectiveRadiusArcsec,// match radius actually used; either the caller's input (probe failed) or the adaptive value derived from the probe pass
+        float ProbeMedianArcsec,    // median residual under the input WCS over the probe pass (NaN when probe didn't run)
+        float ProbeMadArcsec,       // MAD of residuals (NaN when probe didn't run); a noisy WCS shows up as large MAD here
+        SpccQuadrant TL,            // x < W/2, y < H/2 (image top-left, matches PNG render orientation)
+        SpccQuadrant TR,            // x >= W/2, y < H/2
+        SpccQuadrant BL,            // x < W/2, y >= H/2
+        SpccQuadrant BR);           // x >= W/2, y >= H/2
 
     /// <summary>Per-quadrant slice of <see cref="SpccFunnel"/>. Carries only the
     /// counters whose distribution across the image is diagnostic of the failure
@@ -57,6 +64,7 @@ public static class Tycho2ColorCalibration
     public readonly record struct SpccQuadrant(
         int Detected,
         int TolMissed,
+        int RejMagDiff,
         int Accepted);
 
     /// <summary>Outcome of the white-balance fit. Carries both the converged
@@ -92,6 +100,60 @@ public static class Tycho2ColorCalibration
     /// the kappa-sigma cut is on shaky statistical footing -- we'd rather
     /// keep an outlier than under-fit a 4-star sample.</summary>
     private const int MinSurvivors = 5;
+
+    /// <summary>Minimum number of pass-1 (angular-only) matches required before
+    /// we'll trust the median photometric zero-point enough to enable the mag
+    /// gate in pass 2. Below this, the zero-point estimate is dominated by
+    /// random photometry noise and could *worsen* matching by gating out
+    /// genuine pairs. 20 is conservative: median of 20 floats with a clean
+    /// inlier majority gives a ~0.1 mag standard error on the zero-point.</summary>
+    private const int MinForZeroPoint = 20;
+
+    /// <summary>Multiplier applied to the caller-supplied <c>matchRadiusArcsec</c>
+    /// to choose the probe pass's generous tolerance. The probe needs to be
+    /// loose enough to capture real matches even on distorted lenses (where
+    /// per-star residuals are 10-20 arcsec) without admitting so much noise
+    /// that the median residual itself becomes contaminated. 6x default 5"
+    /// = 30" -- about 4-5x the median plate-solve residual seen on the SoL
+    /// drizzle master, generous enough to bracket the real distribution.</summary>
+    private const float ProbeRadiusMultiplier = 6.0f;
+
+    /// <summary>Hard lower bound on the probe tolerance. Even when the caller
+    /// passes a tiny matchRadiusArcsec (e.g. 1"), we need at least 30" of
+    /// reach so the residual distribution we measure is *real* and not
+    /// truncated by our own tolerance.</summary>
+    private const float ProbeMinArcsec = 30f;
+
+    /// <summary>Hard upper bound on the probe tolerance. Tycho-2 cells are sized
+    /// so that 60" queries return useful candidate sets; beyond that, density
+    /// shoots up and the nearest-neighbour scan starts admitting cross-matches
+    /// (multiple plausible Tycho stars within range of one detection) that
+    /// confuse the residual median. Loose-WCS masters legitimately *need* a
+    /// final tolerance &gt;60", but we derive that from the probe stats, not
+    /// from the probe radius itself.</summary>
+    private const float ProbeMaxArcsec = 60f;
+
+    /// <summary>Minimum probe matches before we trust the median + MAD enough
+    /// to size the actual matching tolerance from them. Below this we keep
+    /// the caller's matchRadiusArcsec and disable adaptive sizing -- the
+    /// probe distribution can be dominated by the few stars that happen to
+    /// be near a Tycho neighbour, biasing the median below the true RMS.</summary>
+    private const int MinForAdaptiveTolerance = 20;
+
+    /// <summary>Multiplier on the per-star residual sigma (1.4826 * MAD) when
+    /// sizing the final tolerance. 3 captures ~99% of true matches under a
+    /// Gaussian residual distribution; a real lens has heavier tails so we
+    /// add the median to the budget to admit corner stars whose residuals
+    /// pull median upward. The math: <c>tol = median + 3 * 1.4826 * MAD</c>.</summary>
+    private const float AdaptiveSigmaMultiplier = 3.0f;
+
+    /// <summary>Absolute floor on the adaptive tolerance, regardless of WCS
+    /// quality. Tycho-2 catalog positions are accurate to ~0.1", proper-motion
+    /// drift residual after PropagatePm is similar, centroid noise on bright
+    /// stars is &lt;0.1". A 3" floor protects against pathologically tight
+    /// adaptive estimates that would reject otherwise-fine matches sitting
+    /// just outside an over-optimistic gate.</summary>
+    private const float AdaptiveFloorArcsec = 3f;
 
     // Delegate type for computing expected RGB from a stellar B-V colour index.
     // Used by ExtractPhotometry to support both blackbody and SED-based approaches.
@@ -209,6 +271,22 @@ public static class Tycho2ColorCalibration
     }
 
     /// <summary>
+    /// Per-detected-star outcome of <see cref="FindBestMatch"/>. The terminal
+    /// caller buckets are picked by inspecting these fields in order:
+    /// <c>Match != null</c> -> Accepted; else <c>CandidatesInRadius == 0</c>
+    /// -> TolMissed; else <c>RejectedByMagGate &gt; 0</c> -> RejMagDiff.
+    /// This split lets the funnel distinguish "no Tycho star within tolerance"
+    /// from "Tycho star(s) within tolerance but the photometric gate rejected
+    /// them", which is the diagnostic we need to attribute SPCC losses to
+    /// distortion vs close-pair mis-matching.
+    /// </summary>
+    private readonly record struct FindBestMatchResult(
+        CelestialObject? Match,
+        double DistanceDeg,
+        int CandidatesInRadius,
+        int RejectedByMagGate);
+
+    /// <summary>
     /// Matches detected stars to Tycho-2 catalog entries. Catalog stars are
     /// projected from J2000 to the image epoch via proper motion before the
     /// angular-separation cut -- without this, the ~2.5% of Tycho-2 stars with
@@ -216,19 +294,179 @@ public static class Tycho2ColorCalibration
     /// tolerance over 26 years of catalog age, get mis-matched or dropped, and
     /// then survive into the photometric kappa-sigma pass as outliers that
     /// bias the white-balance fit.
+    /// <para>
+    /// Two-pass design: pass 1 runs angular-only matching exactly as the
+    /// pre-mag-gate code did, then derives a photometric zero-point
+    /// <c>zp = median(V_mag + 2.5 * log10(Flux))</c> from the survivors.
+    /// Pass 2 re-runs matching with a per-star predicted magnitude
+    /// <c>m_pred = zp - 2.5 * log10(Flux)</c> and rejects candidates whose
+    /// <c>|V_mag - m_pred| &gt; maxMagDiff</c>. The gate catches the dense-
+    /// field close-pair case where a bright Tycho star happens to be the
+    /// angularly closest neighbour to a faint detection (or vice versa) and
+    /// would otherwise be accepted on coordinates alone. When pass 1 produces
+    /// fewer than <see cref="MinForZeroPoint"/> matches the zero-point can't
+    /// be estimated reliably and we fall back to the pass-1 result with the
+    /// gate disabled (<see cref="SpccFunnel.MagGateActive"/> = false).
+    /// </para>
     /// </summary>
-    private static (List<(ImagedStar Star, CelestialObject Tycho)> Matches, SpccFunnel Funnel) MatchStars(
+    internal static (List<(ImagedStar Star, CelestialObject Tycho)> Matches, SpccFunnel Funnel) MatchStars(
         StarList stars, WCS wcs, ICelestialObjectDB db,
         float matchRadiusArcsec, float maxMagDiff,
         double dtJulianYears,
         int imageWidth, int imageHeight)
     {
+        var midX = imageWidth * 0.5f;
+        var midY = imageHeight * 0.5f;
+
+        // Probe pass: size the actual matching tolerance from the WCS's true
+        // residual distribution on this image. Returns (effectiveRadiusArcsec,
+        // probeMedian, probeMad) -- the latter two are NaN when the probe
+        // sample was too small to trust, in which case effectiveRadius equals
+        // the caller's input (legacy behaviour preserved).
+        var (effectiveTolArcsec, probeMedianArcsec, probeMadArcsec) =
+            ProbeAndSizeMatchTolerance(stars, wcs, db, matchRadiusArcsec, dtJulianYears);
+        var effectiveTolDeg = effectiveTolArcsec / 3600.0;
+
+        // Pass 1: angular-only match (mag gate disabled). The survivors here
+        // seed the zero-point used by the mag gate in pass 2.
+        var (coarseMatches, coarseFunnel) = RunMatchPass(
+            stars, wcs, db, effectiveTolDeg, dtJulianYears,
+            zeroPoint: float.NaN, maxMagDiff: float.PositiveInfinity,
+            midX, midY,
+            effectiveTolArcsec, probeMedianArcsec, probeMadArcsec);
+
+        // Need a non-trivial sample to estimate the median zero-point. Below
+        // the floor we keep pass 1 unchanged so we never regress matching
+        // when the field is too sparse for the photometric gate to help.
+        if (coarseMatches.Count < MinForZeroPoint
+            || !TryComputeZeroPoint(coarseMatches, out var zp))
+        {
+            return (coarseMatches, coarseFunnel);
+        }
+
+        // Pass 2: re-match with the photometric gate. Throws away pass-1
+        // results (some pass-1 accepted matches may flip to RejMagDiff and
+        // vice versa). The funnel returned here is the canonical one --
+        // counters reflect post-gate decisions, not pass-1's pre-gate state.
+        return RunMatchPass(
+            stars, wcs, db, effectiveTolDeg, dtJulianYears,
+            zeroPoint: zp, maxMagDiff: maxMagDiff,
+            midX, midY,
+            effectiveTolArcsec, probeMedianArcsec, probeMadArcsec);
+    }
+
+    /// <summary>
+    /// Probe the WCS quality on the actual image by running a generous-tolerance
+    /// nearest-neighbour match and measuring the per-star residual distribution.
+    /// Returns the tolerance that should be used for the real matching passes,
+    /// plus the residual statistics for telemetry/logging.
+    /// <para>
+    /// The math: <c>tolerance = max(input, median + sigmaMultiplier * 1.4826 * MAD)</c>
+    /// floored at <see cref="AdaptiveFloorArcsec"/>. Median + sigma captures
+    /// ~99% of real matches under a Gaussian residual; adding the median (rather
+    /// than just using sigma) admits corner stars whose residuals pull the
+    /// median above the sigma-width of the central cluster.
+    /// </para>
+    /// <para>
+    /// Returns the caller's input radius (with NaN probe stats) when the probe
+    /// returned fewer than <see cref="MinForAdaptiveTolerance"/> matches --
+    /// either the field is too sparse for adaptive sizing to be reliable, or
+    /// the WCS is so far off that even a 60" probe can't find candidates.
+    /// Either way, the legacy behaviour preserves the caller's choice.
+    /// </para>
+    /// </summary>
+    private static (float EffectiveTolArcsec, float ProbeMedian, float ProbeMad) ProbeAndSizeMatchTolerance(
+        StarList stars, WCS wcs, ICelestialObjectDB db,
+        float inputRadiusArcsec, double dtJulianYears)
+    {
+        var probeTolArcsec = Math.Clamp(inputRadiusArcsec * ProbeRadiusMultiplier,
+            ProbeMinArcsec, ProbeMaxArcsec);
+        var probeTolDeg = probeTolArcsec / 3600.0;
+
+        // One buffer for residuals (in arcsec). stackalloc when the star list
+        // fits; otherwise an array allocation -- still cheap at ~10 KB for
+        // a 5k-star field.
+        Span<float> residuals = stars.Count <= 1024
+            ? stackalloc float[stars.Count]
+            : new float[stars.Count];
+        var n = 0;
+
+        foreach (var star in stars)
+        {
+            var sky = wcs.PixelToSky(star.XCentroid + 1, star.YCentroid + 1);
+            if (sky is not { } pos) continue;
+
+            var candidates = db.CoordinateGrid[pos.RA, pos.Dec];
+            if (candidates is not { Count: > 0 }) continue;
+
+            var bestDistDeg = probeTolDeg;
+            var found = false;
+            foreach (var idx in candidates)
+            {
+                if (!db.TryLookupByIndex(idx, out var obj)) continue;
+                if (obj.ObjectType is not ObjectType.Star) continue;
+                if (Half.IsNaN(obj.BMinusV)) continue;
+
+                double matchRa = obj.RA, matchDec = obj.Dec;
+                if (dtJulianYears != 0.0
+                    && db.TryGetTycho2Star(obj.Index, out var tyc)
+                    && (tyc.PmRaTenthMasPerYr != 0 || tyc.PmDecTenthMasPerYr != 0))
+                {
+                    (matchRa, matchDec) = CoordinateUtils.PropagatePm(
+                        obj.RA, obj.Dec,
+                        tyc.PmRaMasPerYr, tyc.PmDecMasPerYr,
+                        dtJulianYears);
+                }
+
+                var distDeg = AngularSeparation(pos.RA, pos.Dec, matchRa, matchDec);
+                if (distDeg < bestDistDeg)
+                {
+                    bestDistDeg = distDeg;
+                    found = true;
+                }
+            }
+            if (found) residuals[n++] = (float)(bestDistDeg * 3600.0);
+        }
+
+        if (n < MinForAdaptiveTolerance)
+        {
+            return (inputRadiusArcsec, float.NaN, float.NaN);
+        }
+
+        // MedianFast permutes the buffer in place but doesn't lose values, so
+        // we can compute deviations from the (now-permuted) buffer afterward.
+        var probeMedian = StatisticsHelper.MedianFast(residuals[..n]);
+        for (var i = 0; i < n; i++) residuals[i] = MathF.Abs(residuals[i] - probeMedian);
+        var probeMad = StatisticsHelper.MedianFast(residuals[..n]);
+
+        // Tolerance = max(input, median + K * sigma) with safety floor. Cap
+        // at the probe radius -- we never trust an estimate beyond what we
+        // actually observed.
+        var sigmaArcsec = 1.4826f * probeMad;
+        var adaptiveTol = probeMedian + AdaptiveSigmaMultiplier * sigmaArcsec;
+        var effective = Math.Max(Math.Max(adaptiveTol, inputRadiusArcsec), AdaptiveFloorArcsec);
+        effective = Math.Min(effective, probeTolArcsec);
+        return (effective, probeMedian, probeMad);
+    }
+
+    /// <summary>
+    /// One end-to-end pass over the detected star list. Pass <see cref="float.NaN"/>
+    /// for <paramref name="zeroPoint"/> to disable the mag gate (pass 1
+    /// behaviour); pass a finite value to enable it (pass 2).
+    /// </summary>
+    private static (List<(ImagedStar Star, CelestialObject Tycho)> Matches, SpccFunnel Funnel) RunMatchPass(
+        StarList stars, WCS wcs, ICelestialObjectDB db,
+        double matchRadiusDeg, double dtJulianYears,
+        float zeroPoint, float maxMagDiff,
+        float midX, float midY,
+        float effectiveRadiusArcsec, float probeMedianArcsec, float probeMadArcsec)
+    {
+        var gateActive = !float.IsNaN(zeroPoint);
         var matches = new List<(ImagedStar, CelestialObject)>();
-        var matchRadiusDeg = matchRadiusArcsec / 3600.0;
 
         // Per-gate counters. Every detected star ends in exactly one bucket;
         // sum == stars.Count by construction.
-        int wcsFail = 0, noCand = 0, tolMissed = 0, noBmv = 0, noVmag = 0;
+        int wcsFail = 0, noCand = 0, tolMissed = 0, rejMagDiff = 0, noBmv = 0, noVmag = 0;
 
         // Quadrant breakdown: split each detected star by (x, y) vs (W/2, H/2).
         // detected[k] is incremented for every star in quadrant k; tolMissed[k]
@@ -237,10 +475,8 @@ public static class Tycho2ColorCalibration
         // strong signal that lens distortion / SIP terms matter.
         Span<int> qDetected = stackalloc int[4];
         Span<int> qTolMissed = stackalloc int[4];
+        Span<int> qRejMagDiff = stackalloc int[4];
         Span<int> qAccepted = stackalloc int[4];
-
-        var midX = imageWidth * 0.5f;
-        var midY = imageHeight * 0.5f;
 
         foreach (var star in stars)
         {
@@ -257,8 +493,24 @@ public static class Tycho2ColorCalibration
             var candidates = db.CoordinateGrid[pos.RA, pos.Dec];
             if (candidates is not { Count: > 0 }) { noCand++; continue; }
 
-            var (bestMatch, _) = FindBestMatch(star, pos, db, candidates, matchRadiusDeg, maxMagDiff, dtJulianYears);
-            if (bestMatch is not { } match) { tolMissed++; qTolMissed[qIdx]++; continue; }
+            // Predicted magnitude only meaningful when the gate is active AND
+            // the detection has a positive flux. Negative/zero flux can occur
+            // for borderline detections near the noise floor; we keep them
+            // matchable in pass 2 by passing +Inf gate (effectively disabled
+            // for this star), but they still get all the other filters.
+            var predictedMag = gateActive && star.Flux > 0
+                ? zeroPoint - 2.5f * MathF.Log10(star.Flux)
+                : float.NaN;
+
+            var result = FindBestMatch(star, pos, db, candidates, matchRadiusDeg,
+                dtJulianYears, predictedMag, maxMagDiff);
+
+            if (result.Match is not { } match)
+            {
+                if (result.CandidatesInRadius == 0) { tolMissed++; qTolMissed[qIdx]++; }
+                else { rejMagDiff++; qRejMagDiff[qIdx]++; }
+                continue;
+            }
             if (Half.IsNaN(match.BMinusV)) { noBmv++; continue; }
             if (Half.IsNaN(match.V_Mag)) { noVmag++; continue; }
 
@@ -271,24 +523,73 @@ public static class Tycho2ColorCalibration
             WcsFail: wcsFail,
             NoCandidates: noCand,
             TolMissed: tolMissed,
+            RejMagDiff: rejMagDiff,
             NoBmv: noBmv,
             NoVmag: noVmag,
             Accepted: matches.Count,
-            TL: new SpccQuadrant(qDetected[0], qTolMissed[0], qAccepted[0]),
-            TR: new SpccQuadrant(qDetected[1], qTolMissed[1], qAccepted[1]),
-            BL: new SpccQuadrant(qDetected[2], qTolMissed[2], qAccepted[2]),
-            BR: new SpccQuadrant(qDetected[3], qTolMissed[3], qAccepted[3]));
+            MagGateActive: gateActive,
+            ZeroPoint: gateActive ? zeroPoint : float.NaN,
+            EffectiveRadiusArcsec: effectiveRadiusArcsec,
+            ProbeMedianArcsec: probeMedianArcsec,
+            ProbeMadArcsec: probeMadArcsec,
+            TL: new SpccQuadrant(qDetected[0], qTolMissed[0], qRejMagDiff[0], qAccepted[0]),
+            TR: new SpccQuadrant(qDetected[1], qTolMissed[1], qRejMagDiff[1], qAccepted[1]),
+            BL: new SpccQuadrant(qDetected[2], qTolMissed[2], qRejMagDiff[2], qAccepted[2]),
+            BR: new SpccQuadrant(qDetected[3], qTolMissed[3], qRejMagDiff[3], qAccepted[3]));
         return (matches, funnel);
     }
 
-    private static (CelestialObject? Match, double DistanceDeg) FindBestMatch(
+    /// <summary>
+    /// Robust median zero-point estimator. For each (detection, catalog) pair
+    /// with positive flux and finite V_mag, accumulates the per-star sample
+    /// <c>V_mag + 2.5 * log10(Flux)</c>. The median over those samples is the
+    /// zero-point that maps detection flux to apparent V magnitude:
+    /// <c>m_pred = zp - 2.5 * log10(Flux)</c>. Median (not mean) is used so
+    /// the inevitable ~10-15% of pass-1 mis-matches do not bias the estimate.
+    /// Returns <c>false</c> if fewer than <see cref="MinForZeroPoint"/> usable
+    /// samples survived, signalling the caller to keep the gate disabled.
+    /// </summary>
+    private static bool TryComputeZeroPoint(
+        List<(ImagedStar Star, CelestialObject Tycho)> matches, out float zeroPoint)
+    {
+        Span<float> samples = matches.Count <= 256
+            ? stackalloc float[matches.Count]
+            : new float[matches.Count];
+        var k = 0;
+        for (var i = 0; i < matches.Count; i++)
+        {
+            var (s, t) = matches[i];
+            if (s.Flux <= 0 || Half.IsNaN(t.V_Mag)) continue;
+            samples[k++] = (float)t.V_Mag + 2.5f * MathF.Log10(s.Flux);
+        }
+        if (k < MinForZeroPoint) { zeroPoint = float.NaN; return false; }
+
+        // MedianFast permutes in place (QuickSelect, partial sort) so we must
+        // not rely on the buffer ordering after this call -- we just consume
+        // the return value.
+        zeroPoint = StatisticsHelper.MedianFast(samples[..k]);
+        return true;
+    }
+
+    /// <summary>
+    /// Picks the angularly-closest catalog candidate within
+    /// <paramref name="matchRadiusDeg"/> that also passes the magnitude gate
+    /// (when <paramref name="predictedMag"/> is finite). Tracks per-star
+    /// diagnostic counters so the caller can attribute "no Tycho near" vs
+    /// "Tycho near but photometrically inconsistent" to the right funnel
+    /// bucket.
+    /// </summary>
+    private static FindBestMatchResult FindBestMatch(
         ImagedStar star, (double RA, double Dec) sky,
         ICelestialObjectDB db, IReadOnlyCollection<CatalogIndex> candidates,
-        double matchRadiusDeg, float maxMagDiff,
-        double dtJulianYears)
+        double matchRadiusDeg, double dtJulianYears,
+        float predictedMag, float maxMagDiff)
     {
         CelestialObject? bestMatch = null;
         var bestDist = matchRadiusDeg;
+        var gateActive = !float.IsNaN(predictedMag);
+        var candidatesInRadius = 0;
+        var rejectedByMagGate = 0;
 
         foreach (var idx in candidates)
         {
@@ -316,6 +617,25 @@ public static class Tycho2ColorCalibration
             }
 
             var distDeg = AngularSeparation(sky.RA, sky.Dec, matchRa, matchDec);
+            // Track angular-tolerance candidates regardless of the mag gate so
+            // we can distinguish TolMissed (none in radius) from RejMagDiff
+            // (some in radius, all gated out).
+            if (distDeg >= matchRadiusDeg) continue;
+            candidatesInRadius++;
+
+            // Mag gate: when active, require |V_mag - predicted| <= maxMagDiff.
+            // Candidates failing the gate are counted but not eligible to
+            // become the bestMatch. NaN V_mag candidates skip the gate
+            // entirely so they can still be the closest match -- a NaN V
+            // is rare (the noVmag funnel bucket catches them later) and we
+            // don't want a NaN to short-circuit a genuine angular match.
+            if (gateActive && !Half.IsNaN(obj.V_Mag)
+                && MathF.Abs((float)obj.V_Mag - predictedMag) > maxMagDiff)
+            {
+                rejectedByMagGate++;
+                continue;
+            }
+
             if (distDeg < bestDist)
             {
                 bestDist = distDeg;
@@ -323,7 +643,7 @@ public static class Tycho2ColorCalibration
             }
         }
 
-        return (bestMatch, bestDist);
+        return new FindBestMatchResult(bestMatch, bestDist, candidatesInRadius, rejectedByMagGate);
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]

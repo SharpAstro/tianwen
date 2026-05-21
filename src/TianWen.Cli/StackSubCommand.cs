@@ -336,21 +336,29 @@ internal sealed class StackSubCommand(
 
                         var f = s.Funnel;
                         var kRej = s.InitialMatches - s.FinalMatches;
+                        var gate = f.MagGateActive ? $"zp={f.ZeroPoint:F2}" : "off";
+                        // Probe stats are NaN when the field was too sparse for adaptive sizing;
+                        // surface "probe=off" in that case so the log is unambiguous.
+                        var probe = float.IsNaN(f.ProbeMedianArcsec)
+                            ? "off"
+                            : $"med={f.ProbeMedianArcsec:F1}\" mad={f.ProbeMadArcsec:F1}\"";
                         consoleHost.WriteScrollable(
                             $"[stack] {result.GroupSlug}: SPCC funnel " +
                             $"detected={f.Detected} wcs-fail={f.WcsFail} no-cand={f.NoCandidates} " +
-                            $"tol-miss={f.TolMissed} no-bv={f.NoBmv} no-v={f.NoVmag} " +
-                            $"accepted={f.Accepted} k-rej={kRej}");
+                            $"tol-miss={f.TolMissed} rej-mag={f.RejMagDiff} no-bv={f.NoBmv} no-v={f.NoVmag} " +
+                            $"accepted={f.Accepted} k-rej={kRej} " +
+                            $"tol={f.EffectiveRadiusArcsec:F1}\" probe={probe} mag-gate={gate}");
 
-                        // Per-quadrant tol-miss localisation -- if one corner has a much higher
-                        // tol-miss% than the centre-adjacent quadrants, that's the lens-distortion
-                        // signature pointing at SIP-polynomial fitting as the next step.
+                        // Per-quadrant tol-miss + rej-mag localisation -- a corner heavy on
+                        // tol-miss% points at lens distortion (SIP); a corner heavy on rej-mag
+                        // points at dense-field close-pair contamination that the magnitude
+                        // gate caught (or at zero-point bias if every quadrant rises together).
                         consoleHost.WriteScrollable(
-                            $"[stack] {result.GroupSlug}: SPCC by-quadrant (det/tol-miss/acc)  " +
-                            $"TL={f.TL.Detected}/{f.TL.TolMissed}/{f.TL.Accepted}  " +
-                            $"TR={f.TR.Detected}/{f.TR.TolMissed}/{f.TR.Accepted}  " +
-                            $"BL={f.BL.Detected}/{f.BL.TolMissed}/{f.BL.Accepted}  " +
-                            $"BR={f.BR.Detected}/{f.BR.TolMissed}/{f.BR.Accepted}");
+                            $"[stack] {result.GroupSlug}: SPCC by-quadrant (det/tol-miss/rej-mag/acc)  " +
+                            $"TL={f.TL.Detected}/{f.TL.TolMissed}/{f.TL.RejMagDiff}/{f.TL.Accepted}  " +
+                            $"TR={f.TR.Detected}/{f.TR.TolMissed}/{f.TR.RejMagDiff}/{f.TR.Accepted}  " +
+                            $"BL={f.BL.Detected}/{f.BL.TolMissed}/{f.BL.RejMagDiff}/{f.BL.Accepted}  " +
+                            $"BR={f.BR.Detected}/{f.BR.TolMissed}/{f.BR.RejMagDiff}/{f.BR.Accepted}");
                     }
                     if (cropImage is not null)
                     {
