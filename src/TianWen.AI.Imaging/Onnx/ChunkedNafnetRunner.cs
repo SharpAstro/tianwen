@@ -8,6 +8,7 @@ using Microsoft.ML.OnnxRuntime;
 using Microsoft.ML.OnnxRuntime.Tensors;
 using TianWen.Lib;
 using TianWen.Lib.Imaging;
+using TianWen.Lib.Stat;
 
 namespace TianWen.AI.Imaging.Onnx;
 
@@ -77,8 +78,32 @@ public static class ChunkedNafnetRunner
         var totalSw = Stopwatch.StartNew();
         var phaseSw = Stopwatch.StartNew();
 
-        // 1. MTF input-normalisation stretch.
-        var stretched = input.MtfStretch(AiNafnetInputs.TargetMedian, out var origMin, out var balances);
+        // 1. MTF input-normalisation stretch -- ONLY when the input looks
+        //    linear. SAS Pro heuristic: if median(channel0 - min) >=
+        //    StretchAutoDetectMedianThreshold (0.125), the input is presumed
+        //    already-stretched and we skip the MtfStretch/MtfUnstretch
+        //    round-trip entirely. Critical for pre-stretched inputs because
+        //    the MTF curve is nonlinearly steep near saturation, and a
+        //    redundant round-trip there amplifies per-channel noise around
+        //    bright stars (the artefact reported on the first
+        //    Skull-and-Crossbones run).
+        var stretchApplied = NeedsStretch(input);
+        Image stretched;
+        float[]? origMin = null;
+        double[]? balances = null;
+        if (stretchApplied)
+        {
+            stretched = input.MtfStretch(AiNafnetInputs.TargetMedian, out var min, out var bal);
+            origMin = min;
+            balances = bal;
+        }
+        else
+        {
+            // Pass the source through to the network verbatim. The forward
+            // pad/split/inference/stitch loop operates on `stretched` as if
+            // nothing happened; we skip the MtfUnstretch at the end too.
+            stretched = input;
+        }
         var stretchMs = phaseSw.ElapsedMilliseconds; phaseSw.Restart();
         ct.ThrowIfCancellationRequested();
 
@@ -242,13 +267,57 @@ public static class ChunkedNafnetRunner
 
         var inferenceResult = new Image(outChannelData, BitDepth.Float32, 1.0f, 0f, 0f, input.ImageMeta);
 
-        // 7. Inverse MTF -> source units.
-        var unstretched = inferenceResult.MtfUnstretch(origMin, balances);
-        var unstretchMs = phaseSw.ElapsedMilliseconds;
+        // 7. Inverse MTF -> source units, ONLY when the forward stretch was
+        //    applied. Skip path returns the inference output directly --
+        //    network output is already in the same domain as the source.
+        Image output;
+        long unstretchMs;
+        if (stretchApplied)
+        {
+            output = inferenceResult.MtfUnstretch(origMin!, balances!);
+            unstretchMs = phaseSw.ElapsedMilliseconds;
+        }
+        else
+        {
+            output = inferenceResult;
+            unstretchMs = 0;
+        }
         var totalMs = totalSw.ElapsedMilliseconds;
 
         return new ChunkedNafnetResult(
-            unstretched, chunkCount, stretchMs, prepMs, inferMs, stitchMs, unstretchMs, totalMs);
+            output, chunkCount, stretchMs, prepMs, inferMs, stitchMs, unstretchMs, totalMs, stretchApplied);
+    }
+
+    /// <summary>
+    /// SAS Pro auto-detect: an input with median(channel0 - min) below
+    /// <see cref="AiNafnetInputs.StretchAutoDetectMedianThreshold"/> is
+    /// "linear-ish" and needs MtfStretch; anything above is presumed
+    /// already-stretched and the round-trip is skipped.
+    /// </summary>
+    private static bool NeedsStretch(Image input)
+    {
+        var ch0 = input.GetChannelSpan(0);
+        if (ch0.Length == 0) return true;
+
+        var min = float.PositiveInfinity;
+        for (var i = 0; i < ch0.Length; i++)
+        {
+            var v = ch0[i];
+            if (!float.IsNaN(v) && v < min) min = v;
+        }
+        if (float.IsPositiveInfinity(min)) return true; // all NaN -> default to stretch
+
+        using var scratch = ArrayPoolHelper.Rent<float>(ch0.Length);
+        var scratchSpan = scratch.AsSpan();
+        var count = 0;
+        for (var i = 0; i < ch0.Length; i++)
+        {
+            var v = ch0[i];
+            if (!float.IsNaN(v)) scratchSpan[count++] = v - min;
+        }
+        if (count == 0) return true;
+        var median = StatisticsHelper.MedianFast(scratchSpan[..count]);
+        return median < AiNafnetInputs.StretchAutoDetectMedianThreshold;
     }
 
     private static void ValidateChannels(int sourceChannels, int modelChannels)
@@ -280,6 +349,10 @@ public static class ChunkedNafnetRunner
 /// Per-call result + timing breakdown returned by <see cref="ChunkedNafnetRunner.Run"/>.
 /// The enhancer that called the runner emits its own log line using these
 /// values so individual enhancers retain their distinct log categories.
+/// <see cref="StretchApplied"/> reflects the auto-detect decision: <c>true</c>
+/// means the MtfStretch/MtfUnstretch round-trip ran; <c>false</c> means
+/// the input was already in (or near) the NAFNet training distribution and
+/// the source was fed to the network verbatim.
 /// </summary>
 public sealed record ChunkedNafnetResult(
     Image Output,
@@ -289,4 +362,5 @@ public sealed record ChunkedNafnetResult(
     long InferMs,
     long StitchMs,
     long UnstretchMs,
-    long TotalMs);
+    long TotalMs,
+    bool StretchApplied);
