@@ -36,6 +36,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\TianWen.Lib\TianWen.Lib.csproj" />
+    <ProjectReference Include="..\TianWen.AI.Imaging\TianWen.AI.Imaging.csproj" />
     <ProjectReference Include="..\TianWen.UI.Abstractions\TianWen.UI.Abstractions.csproj" />
   </ItemGroup>
 
