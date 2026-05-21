@@ -1,13 +1,8 @@
 using System;
-using System.Collections.Generic;
-using System.Collections.Immutable;
-using System.Diagnostics;
-using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Microsoft.ML.OnnxRuntime;
-using Microsoft.ML.OnnxRuntime.Tensors;
 using TianWen.AI.Inference;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Enhancement;
@@ -18,25 +13,20 @@ namespace TianWen.AI.Imaging.Onnx;
 /// AI4 NAFNet star-removal enhancer. Selects between
 /// <c>darkstar_mono_AI4.onnx</c> (1 channel) and
 /// <c>darkstar_color_AI4.onnx</c> (3 channels) by input
-/// <see cref="Image.ChannelCount"/>. Wraps each inference call with the
-/// canonical AI4 input prep: <see cref="Image.MtfStretch"/> ->
-/// <see cref="ChunkedInference.AddBorder"/> -> tile + run ONNX session +
-/// stitch -> <see cref="ChunkedInference.RemoveBorder"/> ->
-/// <see cref="Image.MtfUnstretch"/>.
+/// <see cref="Image.ChannelCount"/> and delegates the actual pipeline to
+/// <see cref="ChunkedNafnetRunner"/>.
 /// </summary>
 /// <remarks>
-/// Input range expectation: caller must pass an image already normalised to
-/// <c>[0, 1]</c> (e.g. via <c>AstroImageDocument.AdoptImageAsync</c> or
-/// <c>Image.ScaleFloatValuesToUnitInPlace</c>). The MTF primitive in
-/// <see cref="Image.MidtonesTransferFunction"/> clamps to <c>[0, 1]</c>; if
-/// fed wider-range data it silently saturates and the inference output is
-/// garbage. We validate the bound and throw with a pointer to the right
-/// helper rather than failing silently.
+/// <para>Domain semantics: linear-units in / linear-units out, but the
+/// transformation is NOT a linear-domain function of the input -- star
+/// removal globally rewrites the histogram (stellar pixels collapse to the
+/// local nebula level). See PLAN-ai-enhancement.md "Domain semantics" for
+/// the implications when chaining with other linear-domain tools.</para>
 ///
-/// Session lifecycle: this class is registered as a singleton via
-/// <c>AddTianWenAi</c> and lazily creates one <see cref="InferenceSession"/>
+/// <para>Session lifecycle: registered as a singleton via
+/// <c>AddTianWenAi</c>; lazily creates one <see cref="InferenceSession"/>
 /// per (mono/color) model. Sessions are cached for the lifetime of the
-/// instance and released on <see cref="Dispose"/>.
+/// instance and released on <see cref="Dispose"/>.</para>
 /// </remarks>
 public sealed class OnnxStarRemover(
     IModelResolver modelResolver,
@@ -73,148 +63,42 @@ public sealed class OnnxStarRemover(
                 nameof(input));
         }
 
-        // The actual session run is sync; offload to the thread pool so the
-        // public API stays async-friendly without blocking the caller.
         return await Task.Run(() => RunPipeline(input, cancellationToken), cancellationToken);
     }
 
     private Image RunPipeline(Image input, CancellationToken ct)
     {
-        var (channels, srcW, srcH) = input.Shape;
-        logger?.LogDebug("OnnxStarRemover: input {W}x{H}x{C}, chunkSize={Chunk}, overlap={Overlap}, border={Border}",
-            srcW, srcH, channels, chunkSize, overlap, AiNafnetInputs.StitchBorderPx);
+        var (sourceChannels, srcW, srcH) = input.Shape;
+        var modelName = sourceChannels == 1 ? MonoModel : ColorModel;
+        logger?.LogDebug("OnnxStarRemover: input {W}x{H}x{C} model={Model} chunkSize={Chunk} overlap={Overlap}",
+            srcW, srcH, sourceChannels, modelName, chunkSize, overlap);
 
-        // Per-phase timing for the diagnostic log at the end. Each phase's
-        // wall-clock cost is captured separately so users can tell whether
-        // a slow run is bottlenecked on CPU prep (stretch/stitch), GPU
-        // inference, or both -- especially valuable on win-arm64 where QNN
-        // can silently per-node-fall-back to CPU for FP32 models.
-        var totalSw = Stopwatch.StartNew();
-        var phaseSw = Stopwatch.StartNew();
+        var session = AcquireSession(sourceChannels);
+        var (imageInputName, outputName) = OnnxIoNames.SingleInput(session);
 
-        // 1. MTF input-normalisation stretch (per-channel pedestal + MTF that
-        //    lands each channel's median at AiNafnetInputs.TargetMedian).
-        var stretched = input.MtfStretch(AiNafnetInputs.TargetMedian, out var origMin, out var balances);
-        var stretchMs = phaseSw.ElapsedMilliseconds; phaseSw.Restart();
-        ct.ThrowIfCancellationRequested();
+        var result = ChunkedNafnetRunner.Run(
+            input, session, imageInputName, outputName,
+            modelChannels: sourceChannels,   // darkstar models match source: mono->1, color->3
+            chunkSize: chunkSize, overlap: overlap,
+            extraInputs: null,
+            ct: ct);
 
-        // 2. AddBorder per channel. NAFNet's tile boundaries produce visible
-        //    artefacts; we pad first so the post-stitch border drop never
-        //    eats real image data.
-        var border = AiNafnetInputs.StitchBorderPx;
-        var paddedChannels = new float[channels][];
-        int paddedW = 0, paddedH = 0;
-        for (var c = 0; c < channels; c++)
-        {
-            paddedChannels[c] = ChunkedInference.AddBorder(
-                stretched.GetChannelSpan(c), srcW, srcH, border, out paddedW, out paddedH);
-        }
-        ct.ThrowIfCancellationRequested();
-
-        // 3. Split each padded channel into matching chunks. Same parameters
-        //    -> identical chunk layout across channels, so we can iterate
-        //    chunks-per-position and pack into one (1, C, h, w) NCHW tensor.
-        var chunksPerChannel = new ImmutableArray<ChunkedInference.Chunk>[channels];
-        for (var c = 0; c < channels; c++)
-        {
-            chunksPerChannel[c] = ChunkedInference.Split(paddedChannels[c], paddedW, paddedH, chunkSize, overlap);
-        }
-        var chunkCount = chunksPerChannel[0].Length;
-        var prepMs = phaseSw.ElapsedMilliseconds; phaseSw.Restart();
-
-        // 4. Run inference chunk-by-chunk against the right model.
-        var session = AcquireSession(channels);
-        var inputName = session.InputMetadata.Keys.GetEnumerator().AsSingle();
-        var outputName = session.OutputMetadata.Keys.GetEnumerator().AsSingle();
-        var outputChunksByChannel = new ChunkedInference.Chunk[channels][];
-        for (var c = 0; c < channels; c++) outputChunksByChannel[c] = new ChunkedInference.Chunk[chunkCount];
-
-        for (var i = 0; i < chunkCount; i++)
-        {
-            ct.ThrowIfCancellationRequested();
-            var refChunk = chunksPerChannel[0][i];
-            var h = refChunk.Height;
-            var w = refChunk.Width;
-            var planeStride = h * w;
-
-            var inputTensor = new DenseTensor<float>(new[] { 1, channels, h, w });
-            var inputSpan = inputTensor.Buffer.Span;
-            for (var c = 0; c < channels; c++)
-            {
-                chunksPerChannel[c][i].Data.AsSpan().CopyTo(inputSpan.Slice(c * planeStride, planeStride));
-            }
-
-            using var result = session.Run(
-                [NamedOnnxValue.CreateFromTensor(inputName, inputTensor)]);
-            var outputTensor = result[0].AsTensor<float>();
-            var outSpan = outputTensor.ToDenseTensor().Buffer.Span;
-
-            for (var c = 0; c < channels; c++)
-            {
-                var outData = new float[planeStride];
-                outSpan.Slice(c * planeStride, planeStride).CopyTo(outData);
-                outputChunksByChannel[c][i] = refChunk with { Data = outData };
-            }
-        }
-        var inferMs = phaseSw.ElapsedMilliseconds; phaseSw.Restart();
-
-        // 5. Stitch chunks back per channel, with the canonical border drop.
-        var stitchedChannels = new float[channels][];
-        for (var c = 0; c < channels; c++)
-        {
-            stitchedChannels[c] = new float[paddedW * paddedH];
-            ChunkedInference.Stitch(outputChunksByChannel[c], stitchedChannels[c], paddedW, paddedH, border);
-        }
-        ct.ThrowIfCancellationRequested();
-
-        // 6. RemoveBorder per channel; rebuild Image data jagged array.
-        // CreateChannelData is internal to TianWen.Lib; allocate inline here.
-        var outChannelData = new float[channels][,];
-        for (var c = 0; c < channels; c++)
-        {
-            var unpadded = ChunkedInference.RemoveBorder(stitchedChannels[c], paddedW, paddedH, border);
-            var plane = new float[srcH, srcW];
-            var dst = MemoryMarshal.CreateSpan(ref plane[0, 0], srcW * srcH);
-            unpadded.AsSpan().CopyTo(dst);
-            outChannelData[c] = plane;
-        }
-        var stitchMs = phaseSw.ElapsedMilliseconds; phaseSw.Restart();
-
-        // The stretched inference output is in [0, 1] (modulo small NAFNet
-        // excursions); MaxValue=1.0 is a safe upper bound here -- MtfUnstretch
-        // will compute the empirical max during the inverse pass anyway.
-        var inferenceResult = new Image(outChannelData, BitDepth.Float32, 1.0f, 0f, 0f, input.ImageMeta);
-
-        // 7. Inverse MTF -> source units. Linear-units output (but see
-        //    PLAN-ai-enhancement.md "Domain semantics" for why star-removal
-        //    output is not a linear-semantics function of input).
-        var unstretched = inferenceResult.MtfUnstretch(origMin, balances);
-        var unstretchMs = phaseSw.ElapsedMilliseconds;
-        var totalMs = totalSw.ElapsedMilliseconds;
-
-        // Throughput: source megapixels processed per second. Counts source
-        // pixels (not padded / chunk-overlap totals) so the number reflects
-        // user-visible output size rather than internal accounting.
-        var megapixels = (channels * srcW * (double)srcH) / 1_000_000.0;
-        var throughputMpps = totalMs > 0 ? megapixels * 1000.0 / totalMs : 0.0;
-
+        var megapixels = (sourceChannels * srcW * (double)srcH) / 1_000_000.0;
+        var throughputMpps = result.TotalMs > 0 ? megapixels * 1000.0 / result.TotalMs : 0.0;
         logger?.LogInformation(
             "OnnxStarRemover.EnhanceAsync: {Model} {W}x{H}x{C} chunks={Chunks} " +
             "stretch={Stretch}ms prep={Prep}ms infer={Infer}ms stitch={Stitch}ms unstretch={Unstretch}ms " +
             "throughput={Mpps:F2} Mp/s total={Total}ms",
-            channels == 1 ? MonoModel : ColorModel, srcW, srcH, channels, chunkCount,
-            stretchMs, prepMs, inferMs, stitchMs, unstretchMs,
-            throughputMpps, totalMs);
+            modelName, srcW, srcH, sourceChannels, result.ChunkCount,
+            result.StretchMs, result.PrepMs, result.InferMs, result.StitchMs, result.UnstretchMs,
+            throughputMpps, result.TotalMs);
 
-        return unstretched;
+        return result.Output;
     }
 
     private InferenceSession AcquireSession(int channels)
     {
         var modelName = channels == 1 ? MonoModel : ColorModel;
-        // Lazy-init under lock. Singleton lifetime + repeated Enhance calls
-        // share the InferenceSession (compiling the EP graph is the costly
-        // part of session creation).
         lock (_gate)
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
@@ -240,21 +124,5 @@ public sealed class OnnxStarRemover(
             _colorSession = null;
             _disposed = true;
         }
-    }
-}
-
-/// <summary>
-/// Tiny helper: pull the single string out of an enumerator, throwing if the
-/// caller's assumption (input/output count == 1) is wrong. Used to extract
-/// the bound input + output names from a session's metadata dictionaries.
-/// </summary>
-file static class EnumeratorExt
-{
-    public static string AsSingle(this IEnumerator<string> en)
-    {
-        if (!en.MoveNext()) throw new InvalidOperationException("expected at least one element");
-        var only = en.Current;
-        if (en.MoveNext()) throw new InvalidOperationException($"expected exactly one element; saw at least two ({only}, {en.Current}, ...)");
-        return only;
     }
 }
