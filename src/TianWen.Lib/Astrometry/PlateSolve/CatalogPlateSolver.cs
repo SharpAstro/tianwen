@@ -8,6 +8,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Imaging;
+using TianWen.Lib.Stat;
 using static TianWen.Lib.Astrometry.Constants;
 using static TianWen.Lib.Astrometry.CoordinateUtils;
 
@@ -48,11 +49,35 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
 
     const int MinStarsForMatch = 6;
 
+    /// <summary>
+    /// Minimum inlier count required before we attempt a SIP polynomial fit
+    /// on top of the linear CD matrix. Order-2 SIP has 5 unknowns per axis
+    /// (i + j ∈ [1, 2]) = 10 in total; 30 inliers is a comfortable 3× over-
+    /// determine and below this threshold we fall back to the linear WCS.
+    /// </summary>
+    const int MinMatchesForSipFit = 30;
+
+    /// <summary>
+    /// SIP polynomial order. <c>0</c> disables the fit (emits linear WCS);
+    /// the default <c>2</c> matches what astrometry.net emits and covers
+    /// the residual distortion observed on hobby-grade Newtonians at
+    /// 1-3 arcsec/px. Tests / advanced callers may bump this for
+    /// wider-field optics.
+    /// </summary>
+    internal int SipOrder { get; set; } = 3;
+
     public string Name => "Catalog plate solver";
 
     public float Priority => 0.99f;
 
     private readonly record struct SolveAttempt(WCS? Wcs, int ProjectedStars, int MatchedStars, int Iterations, double RmsResidual, double AffineDeterminant);
+
+    /// <summary>
+    /// Catalog-star projection result with the originating sky coordinates
+    /// attached, so the matching loop can collect (detected pixel, catalog
+    /// RA/Dec) pairs without a second pass over the catalog.
+    /// </summary>
+    private readonly record struct ProjectedCatalogStar(ImagedStar Pixel, double RA, double Dec);
 
     private int _catalogStars, _detectedStars;
 
@@ -239,8 +264,8 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
 
         var std = stdTask.Result;
         var mirror = mirrorTask.Result;
-        _logger.LogDebug("CatalogPlateSolver: matching iterations std={StdMatched}/{StdIter} mirror={MirrorMatched}/{MirrorIter} in {Ms}ms",
-            std.MatchedStars, std.Iterations, mirror.MatchedStars, mirror.Iterations, stageSw.Elapsed.TotalMilliseconds);
+        _logger.LogDebug("CatalogPlateSolver: matching iterations std={StdMatched}/{StdIter} (rms {StdRms:F2}px) mirror={MirrorMatched}/{MirrorIter} (rms {MirRms:F2}px) in {Ms}ms",
+            std.MatchedStars, std.Iterations, std.RmsResidual, mirror.MatchedStars, mirror.Iterations, mirror.RmsResidual, stageSw.Elapsed.TotalMilliseconds);
 
         // Pick the parity. Match count is the *primary* signal: if one attempt
         // has dramatically more matched stars, it's the right answer regardless
@@ -298,6 +323,13 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
         double rmsResidual = 0, affineDet = 0;
 
         SolveAttempt MakeResult(WCS? wcs) => new SolveAttempt(wcs, projectedCount, matchedCount, iterCount, rmsResidual, affineDet);
+
+        // Track the best-so-far match set so SIP can be fit on it after the
+        // loop (or at an early-return). These trail one iteration behind the
+        // active matched* lists because we only commit them when the iter's
+        // count makes it past the peakMatchCount filter.
+        List<Vector2>? finalMatchedDetected = null;
+        List<(double RA, double Dec)>? finalMatchedCatalogSky = null;
 
         // Iteratively refine: project → match → fit affine → update WCS → repeat
         for (int iteration = 0; iteration < 10; iteration++)
@@ -366,6 +398,7 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
 
             var matchedDetected = new List<Vector2>();
             var matchedProjected = new List<Vector2>();
+            var matchedCatalogSky = new List<(double RA, double Dec)>();
 
             for (int detRank = 0; detRank < maxDetectedForMatching; detRank++)
             {
@@ -380,13 +413,13 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
 
                 var det = rankedDetected[detRank];
                 var bestScore = matchTolerance;
-                ImagedStar? bestMatch = null;
+                ProjectedCatalogStar? bestMatch = null;
 
                 for (int catRank = 0; catRank < maxProjectedForMatching; catRank++)
                 {
                     var cat = projected[catRank];
-                    var dx = det.XCentroid - cat.XCentroid;
-                    var dy = det.YCentroid - cat.YCentroid;
+                    var dx = det.XCentroid - cat.Pixel.XCentroid;
+                    var dy = det.YCentroid - cat.Pixel.YCentroid;
                     var dist = MathF.Sqrt(dx * dx + dy * dy);
 
                     if (dist < matchTolerance)
@@ -405,7 +438,8 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
                 if (bestMatch is { } bm)
                 {
                     matchedDetected.Add(new Vector2(det.XCentroid, det.YCentroid));
-                    matchedProjected.Add(new Vector2(bm.XCentroid, bm.YCentroid));
+                    matchedProjected.Add(new Vector2(bm.Pixel.XCentroid, bm.Pixel.YCentroid));
+                    matchedCatalogSky.Add((bm.RA, bm.Dec));
                 }
             }
 
@@ -420,21 +454,43 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
                 // built from peakMatchCount inliers.
                 matchedCount = iteration > 0 ? peakMatchCount : matchedDetected.Count;
                 iterCount = iteration + 1;
-                return MakeResult(iteration > 0 ? AttachCDMatrix(currentOrigin, hasMinv ? lastMinv : default(Matrix3x2?), pixelScaleRad, cx, cy, dim, xSign) : null);
+                return MakeResult(iteration > 0
+                    ? MaybeFitSip(AttachCDMatrix(currentOrigin, hasMinv ? lastMinv : default(Matrix3x2?), pixelScaleRad, cx, cy, dim, xSign), finalMatchedDetected, finalMatchedCatalogSky)
+                    : null);
             }
 
-            // Early stop if match count dropped significantly (diverging)
-            if (iteration > 0 && matchedDetected.Count < peakMatchCount / 2)
+            // Early stop if match count drops catastrophically -- the divergence
+            // protection. Originally compared to peakMatchCount/2, but that floor
+            // is too aggressive past iter 2 where matchTolerance shrinks ~3x per
+            // iter (40px -> 12px -> 4px) and naturally cuts the match count to
+            // 1/3 - 1/2 of the previous iter without indicating any divergence.
+            // Net effect: iter 3's tighter (and cleaner) inlier set got rolled
+            // back to iter 2's loose set, leaving SIP unable to clear its gate.
+            // Use peakMatchCount/4 from iter 3 onward (still catches catastrophic
+            // collapse) while requiring a hard floor of MinMatchesForSipFit so
+            // we never accept an inlier set too small for the post-loop SIP fit.
+            var divergeFloor = iteration < 3
+                ? peakMatchCount / 2
+                : Math.Max(peakMatchCount / 4, MinMatchesForSipFit);
+            if (iteration > 0 && matchedDetected.Count < divergeFloor)
             {
                 break;
             }
             peakMatchCount = Math.Max(peakMatchCount, matchedDetected.Count);
 
+            // Save the best-so-far match set for the post-loop SIP fit. We
+            // commit only at iterations that survive the count gate above,
+            // so a transient bad iteration does not poison the SIP inputs.
+            finalMatchedDetected = matchedDetected;
+            finalMatchedCatalogSky = matchedCatalogSky;
+
             // Compute offset using Matrix3x2 affine fit (handles translation + rotation)
             var M = Matrix3x2.FitAffineTransform(CollectionsMarshal.AsSpan(matchedProjected), CollectionsMarshal.AsSpan(matchedDetected));
             if (M is null || !Matrix3x2.Invert(M.Value, out var Minv))
             {
-                return MakeResult(iteration > 0 ? AttachCDMatrix(currentOrigin, hasMinv ? lastMinv : default(Matrix3x2?), pixelScaleRad, cx, cy, dim, xSign) : null);
+                return MakeResult(iteration > 0
+                    ? MaybeFitSip(AttachCDMatrix(currentOrigin, hasMinv ? lastMinv : default(Matrix3x2?), pixelScaleRad, cx, cy, dim, xSign), finalMatchedDetected, finalMatchedCatalogSky)
+                    : null);
             }
 
             lastMinv = Minv;
@@ -461,7 +517,9 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
 
             if (refined is not { } refinedWcs)
             {
-                return MakeResult(iteration > 0 ? AttachCDMatrix(currentOrigin, lastMinv, pixelScaleRad, cx, cy, dim, xSign) : null);
+                return MakeResult(iteration > 0
+                    ? MaybeFitSip(AttachCDMatrix(currentOrigin, lastMinv, pixelScaleRad, cx, cy, dim, xSign), finalMatchedDetected, finalMatchedCatalogSky)
+                    : null);
             }
 
             // Check convergence
@@ -475,14 +533,366 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
             matchedCount = matchedDetected.Count;
             iterCount = iteration + 1;
 
-            if (dRA < 1e-6 && dDec < 1e-6)
+            // Don't break before iter 3 has actually run. The center stabilises
+            // quickly (it pivots around the inlier centroid which is stable
+            // from iter 1 onward), but the match TOLERANCE keeps shrinking
+            // through iter 3 (0.003 of diagonal ~= 12 px on a 4k master).
+            // Stopping at the convergence threshold after only iter 2 leaves
+            // matchTolerance at 0.01 of diagonal ~= 40 px, which admits
+            // wrong-star pairings whose residuals dwarf real distortion and
+            // prevent SIP from clearing its improvement gate. Forcing the
+            // loop to reach iter 3's tighter tolerance hardens the inlier
+            // set for both the final Kabsch affine AND the downstream SIP fit.
+            const int MinIterationsBeforeConvergenceBreak = 3;
+            if (iteration >= MinIterationsBeforeConvergenceBreak && dRA < 1e-6 && dDec < 1e-6)
             {
                 break;
             }
         }
 
-        return MakeResult(AttachCDMatrix(currentOrigin, hasMinv ? lastMinv : default(Matrix3x2?), pixelScaleRad, cx, cy, dim, xSign));
+        return MakeResult(MaybeFitSip(
+            AttachCDMatrix(currentOrigin, hasMinv ? lastMinv : default(Matrix3x2?), pixelScaleRad, cx, cy, dim, xSign),
+            finalMatchedDetected,
+            finalMatchedCatalogSky));
     }
+
+    /// <summary>
+    /// Fits a SIP polynomial of <see cref="SipOrder"/> onto the linear
+    /// <paramref name="linearWcs"/>, returning the SIP-augmented WCS when
+    /// the fit reduces residuals; otherwise returns the unchanged linear
+    /// WCS. No-op when SIP is disabled, when too few matches are available,
+    /// or when the WCS has no CD matrix to layer on top of.
+    /// </summary>
+    private WCS MaybeFitSip(
+        WCS linearWcs,
+        List<Vector2>? matchedDetected,
+        List<(double RA, double Dec)>? matchedCatalogSky)
+    {
+        if (SipOrder < 1 || !linearWcs.HasCDMatrix
+            || matchedDetected is null || matchedCatalogSky is null)
+        {
+            return linearWcs;
+        }
+        var n = matchedDetected.Count;
+        if (n < MinMatchesForSipFit || n != matchedCatalogSky.Count)
+        {
+            return linearWcs;
+        }
+
+        // Each match contributes one (u_det, v_det) → (u_true, v_true) pair:
+        // observed pixel offset relative to CRPIX, and the offset the catalog
+        // (RA, Dec) would land at under a perfect WCS. The latter comes from
+        // the linear WCS's SkyToPixel — which is exactly the "predicted"
+        // pixel the affine fit produces today. The SIP polynomial fits the
+        // (true − detected) residual.
+        var uDetRaw = new double[n];
+        var vDetRaw = new double[n];
+        var duFwdRaw = new double[n];   // u_true − u_det (forward SIP target)
+        var dvFwdRaw = new double[n];
+
+        for (var i = 0; i < n; i++)
+        {
+            var det = matchedDetected[i];
+            var sky = matchedCatalogSky[i];
+            var pred = linearWcs.SkyToPixel(sky.RA, sky.Dec);
+            if (pred is null)
+            {
+                // Behind the tangent plane — should not happen for matches
+                // we already validated by proximity, but be defensive.
+                return linearWcs;
+            }
+            uDetRaw[i] = det.X - linearWcs.CRPix1;
+            vDetRaw[i] = det.Y - linearWcs.CRPix2;
+            var uTrue = pred.Value.X - linearWcs.CRPix1;
+            var vTrue = pred.Value.Y - linearWcs.CRPix2;
+            duFwdRaw[i] = uTrue - uDetRaw[i];
+            dvFwdRaw[i] = vTrue - vDetRaw[i];
+        }
+
+        // Outlier filter: the solver's late-iteration match tolerance is several
+        // pixels, so the raw inlier set typically contains 5-15% false positives
+        // whose residuals dwarf the actual distortion signal. Clip by 5 × MAD
+        // (median absolute deviation, the robust analogue of σ) — generous enough
+        // to preserve real corner distortion (~1-3 px) while culling the ~10-15 px
+        // mismatches that drag the LS fit toward garbage coefficients.
+        // Robust bias correction: median, not mean — the late-iteration
+        // matching tolerance admits a long-tail outlier distribution
+        // (matches up to ~13.5 px on the SoL master) so the mean is pulled
+        // off-true. Median is the right estimator for the constant shift,
+        // and SIP polynomials by convention have no constant term (i + j = 0
+        // is absorbed into CRPIX), so we shift CRPIX itself to take it.
+        var workU = new double[n];
+        var workV = new double[n];
+        Array.Copy(duFwdRaw, workU, n);
+        Array.Copy(dvFwdRaw, workV, n);
+        var biasU = StatisticsHelper.MedianFast(workU);
+        var biasV = StatisticsHelper.MedianFast(workV);
+        for (var i = 0; i < n; i++)
+        {
+            duFwdRaw[i] -= biasU;
+            dvFwdRaw[i] -= biasV;
+        }
+        linearWcs = linearWcs with
+        {
+            CRPix1 = linearWcs.CRPix1 - biasU,
+            CRPix2 = linearWcs.CRPix2 - biasV,
+        };
+
+        // Iterative MAD clip to converge on the inlier cluster. The matching
+        // step's late-iter tolerance is several pixels, so a single MAD pass
+        // still leaves several-px outliers in the keep set (their long-tail
+        // pulls the MAD up); two more passes tighten the cluster to its
+        // genuine width. Each pass shrinks the active set and recomputes MAD
+        // on the survivors, terminating either when no further outliers are
+        // found or when the count drops below the SIP-fit minimum.
+        var work = new double[n];
+        var keep = new bool[n];
+        for (var i = 0; i < n; i++) keep[i] = true;
+        var nKept = n;
+        double medianResidual = 0, mad = 0, clipThreshold = 0;
+        for (var pass = 0; pass < 3; pass++)
+        {
+            var w = 0;
+            for (var i = 0; i < n; i++)
+            {
+                if (!keep[i]) continue;
+                work[w++] = Math.Sqrt(duFwdRaw[i] * duFwdRaw[i] + dvFwdRaw[i] * dvFwdRaw[i]);
+            }
+            medianResidual = StatisticsHelper.MedianFast(work.AsSpan(0, w));
+            w = 0;
+            for (var i = 0; i < n; i++)
+            {
+                if (!keep[i]) continue;
+                var resMag = Math.Sqrt(duFwdRaw[i] * duFwdRaw[i] + dvFwdRaw[i] * dvFwdRaw[i]);
+                work[w++] = Math.Abs(resMag - medianResidual);
+            }
+            mad = StatisticsHelper.MedianFast(work.AsSpan(0, w));
+            // sigma ≈ 1.4826 × MAD for normal-distributed residuals. Cap below
+            // 0.5 px so the clip threshold never collapses below typical
+            // centroid noise on a tight final cluster.
+            var robustSigma = 1.4826 * mad;
+            clipThreshold = Math.Max(medianResidual + 3 * robustSigma, 0.5);
+
+            var newKept = 0;
+            for (var i = 0; i < n; i++)
+            {
+                if (!keep[i]) continue;
+                var resMag = Math.Sqrt(duFwdRaw[i] * duFwdRaw[i] + dvFwdRaw[i] * dvFwdRaw[i]);
+                if (resMag > clipThreshold) keep[i] = false;
+                else newKept++;
+            }
+            if (newKept == nKept) break;   // converged
+            nKept = newKept;
+            if (nKept < MinMatchesForSipFit) break;
+        }
+        _logger?.LogDebug("CatalogPlateSolver SIP fit: bias=({BiasU:F2},{BiasV:F2}) px, residual median={Med:F2} px, MAD={Mad:F2} px, clip={Clip:F1} px (kept {Kept}/{N})",
+            biasU, biasV, medianResidual, mad, clipThreshold, nKept, n);
+
+        if (nKept < MinMatchesForSipFit)
+        {
+            _logger?.LogDebug("CatalogPlateSolver SIP fit: skipped (only {N} clean inliers after iterative MAD clip from {Raw} raw matches)",
+                nKept, n);
+            return linearWcs;
+        }
+        var uDet = new double[nKept];
+        var vDet = new double[nKept];
+        var duFwd = new double[nKept];
+        var dvFwd = new double[nKept];
+        var inlierIndices = new int[nKept];
+        double sumSqLinear = 0;
+        var idx = 0;
+        for (var i = 0; i < n; i++)
+        {
+            if (!keep[i]) continue;
+            uDet[idx] = uDetRaw[i];
+            vDet[idx] = vDetRaw[i];
+            duFwd[idx] = duFwdRaw[i];
+            dvFwd[idx] = dvFwdRaw[i];
+            inlierIndices[idx] = i;
+            sumSqLinear += duFwdRaw[i] * duFwdRaw[i] + dvFwdRaw[i] * dvFwdRaw[i];
+            idx++;
+        }
+        var nFiltered = nKept;
+        var rmsLinearPre = Math.Sqrt(sumSqLinear / nFiltered);
+
+        // Affine M re-fit on the clean inlier subset. The matching pipeline's
+        // late-iter Kabsch fit ran against the loose-tolerance inlier set
+        // (~13.5 px on the SoL master) which admitted ~10-15% wrong-star
+        // pairings; their large residuals biased the CD matrix toward a
+        // rotation/scale that doesn't actually fit the bulk of stars. Re-
+        // fitting a 2x2 linear map M: (uDet, vDet) -> (uTrue, vTrue) on just
+        // the MAD-cleaned inliers removes that bias, and absorbing M into
+        // the CD matrix (CD_new = CD_old * M) leaves SIP only the genuine
+        // non-linear distortion residual to capture -- which lets SIP clear
+        // its 30% improvement gate on masters where the contaminated linear
+        // fit alone would prevent it.
+        // <para>
+        // Translation is intentionally omitted from the affine: the median
+        // bias step above already absorbed the dominant constant shift into
+        // CRPIX, and reintroducing it here would force a second bias
+        // adjustment to keep SIP's constant-term-free convention valid.
+        // </para>
+        var design = new double[nFiltered, 2];
+        var uTrueArr = new double[nFiltered];
+        var vTrueArr = new double[nFiltered];
+        for (var k = 0; k < nFiltered; k++)
+        {
+            design[k, 0] = uDet[k];
+            design[k, 1] = vDet[k];
+            uTrueArr[k] = uDet[k] + duFwd[k];
+            vTrueArr[k] = vDet[k] + dvFwd[k];
+        }
+        var affineRowU = PolynomialLeastSquares.Solve(design, uTrueArr);
+        var affineRowV = PolynomialLeastSquares.Solve(design, vTrueArr);
+        if (affineRowU is not null && affineRowV is not null)
+        {
+            // CD_new = CD_old * M, where M = [[a11, a12], [a21, a22]] and
+            // affineRowU = (a11, a12), affineRowV = (a21, a22). Derivation:
+            // sky_offset = CD_old * (uTrue, vTrue) = CD_old * M * (uDet, vDet);
+            // we want sky_offset = CD_new * (uDet, vDet), so CD_new = CD_old * M.
+            var a11 = affineRowU[0]; var a12 = affineRowU[1];
+            var a21 = affineRowV[0]; var a22 = affineRowV[1];
+            var oldCD11 = linearWcs.CD1_1; var oldCD12 = linearWcs.CD1_2;
+            var oldCD21 = linearWcs.CD2_1; var oldCD22 = linearWcs.CD2_2;
+            linearWcs = linearWcs with
+            {
+                CD1_1 = oldCD11 * a11 + oldCD12 * a21,
+                CD1_2 = oldCD11 * a12 + oldCD12 * a22,
+                CD2_1 = oldCD21 * a11 + oldCD22 * a21,
+                CD2_2 = oldCD21 * a12 + oldCD22 * a22,
+            };
+
+            // Recompute (duFwd, dvFwd) under the refitted WCS. The catalog
+            // sky is unchanged; only the WCS's pixel mapping shifted, so
+            // SkyToPixel produces fresh uTrue values. Inliers stay the same
+            // (we don't re-run MAD clip -- doing so risks a feedback loop
+            // where the tightened fit recursively trims its own training set).
+            double sumSqLinearPost = 0;
+            for (var k = 0; k < nFiltered; k++)
+            {
+                var i = inlierIndices[k];
+                var sky = matchedCatalogSky[i];
+                var pred = linearWcs.SkyToPixel(sky.RA, sky.Dec);
+                if (pred is null)
+                {
+                    // Catalog star fell behind the tangent plane under the
+                    // refitted CD -- extremely unlikely for inliers, but if
+                    // it happens we abandon the refit rather than partially
+                    // updating duFwd/dvFwd.
+                    sumSqLinearPost = double.NaN;
+                    break;
+                }
+                var uTrueNew = pred.Value.X - linearWcs.CRPix1;
+                var vTrueNew = pred.Value.Y - linearWcs.CRPix2;
+                duFwd[k] = uTrueNew - uDet[k];
+                dvFwd[k] = vTrueNew - vDet[k];
+                sumSqLinearPost += duFwd[k] * duFwd[k] + dvFwd[k] * dvFwd[k];
+            }
+
+            if (!double.IsNaN(sumSqLinearPost))
+            {
+                var rmsLinearPost = Math.Sqrt(sumSqLinearPost / nFiltered);
+                _logger?.LogDebug("CatalogPlateSolver SIP fit: affine refit dropped rms {Pre:F2} -> {Post:F2} px on {N} clean inliers (M=[[{A11:F5},{A12:F5}],[{A21:F5},{A22:F5}]])",
+                    rmsLinearPre, rmsLinearPost, nFiltered, a11, a12, a21, a22);
+                sumSqLinear = sumSqLinearPost;
+            }
+            else
+            {
+                _logger?.LogDebug("CatalogPlateSolver SIP fit: affine refit abandoned (catalog sky behind tangent plane under refitted CD)");
+                // Don't trust the partially-mutated state; we can't easily
+                // unwind the with-expression on linearWcs without re-running
+                // SkyToPixel on every inlier under the original CD. Take the
+                // robust path: bail on SIP entirely. The pre-refit linearWcs
+                // is the caller's already-attached candidate which is fine.
+                return linearWcs;
+            }
+        }
+        else
+        {
+            _logger?.LogDebug("CatalogPlateSolver SIP fit: affine refit skipped (rank-deficient design on {N} inliers)", nFiltered);
+        }
+        var rmsLinear = Math.Sqrt(sumSqLinear / nFiltered);
+
+        var fwdA = SipPolynomial.Fit(uDet, vDet, duFwd, SipOrder);
+        var fwdB = SipPolynomial.Fit(uDet, vDet, dvFwd, SipOrder);
+        if (fwdA is null || fwdB is null)
+        {
+            _logger?.LogDebug("CatalogPlateSolver SIP fit: forward fit failed (rank-deficient design, {N} matches, order {Order})", nFiltered, SipOrder);
+            return linearWcs;
+        }
+
+        // Inverse SIP: given (u_true, v_true), recover (u_det, v_det). We fit
+        // the inverse polynomial against the residual that takes the
+        // POST-forward-corrected coordinate back to the observed pixel.
+        // Crucially we evaluate at the *post-forward* coords (u + A(u, v),
+        // v + B(u, v)) rather than the noisy (u_true_linear) targets, so
+        // forward and inverse are consistent inverses by construction —
+        // SkyToPixel then PixelToSky round-trips to within the polynomial's
+        // own residual rather than to (noise_A + noise_AP).
+        var uPostFwdArr = new double[nFiltered];
+        var vPostFwdArr = new double[nFiltered];
+        var duInv = new double[nFiltered];
+        var dvInv = new double[nFiltered];
+        for (var i = 0; i < nFiltered; i++)
+        {
+            var aHere = SipPolynomial.Apply(uDet[i], vDet[i], fwdA);
+            var bHere = SipPolynomial.Apply(uDet[i], vDet[i], fwdB);
+            uPostFwdArr[i] = uDet[i] + aHere;
+            vPostFwdArr[i] = vDet[i] + bHere;
+            // We want AP(uPostFwd, vPostFwd) = -aHere so that
+            // SkyToPixel: (uPostFwd) + AP(uPostFwd) = uDet.
+            duInv[i] = -aHere;
+            dvInv[i] = -bHere;
+        }
+        var invAP = SipPolynomial.Fit(uPostFwdArr, vPostFwdArr, duInv, SipOrder);
+        var invBP = SipPolynomial.Fit(uPostFwdArr, vPostFwdArr, dvInv, SipOrder);
+
+        var candidate = linearWcs with
+        {
+            SipOrder = SipOrder,
+            SipA = fwdA,
+            SipB = fwdB,
+            SipAP = invAP,
+            SipBP = invBP,
+        };
+
+        // Sanity-check the fit by re-evaluating SkyToPixel on every clean
+        // inlier (post outlier clip) and comparing to the detected centroid.
+        // We reject SIP unless it brings the pixel-space RMS down by
+        // *substantially* more than the overfit-noise floor — for N inliers
+        // and K coefficients per axis, fitting pure noise reduces RMS by
+        // ~sqrt(K/N), so we demand at least a 30% relative improvement to
+        // be confident the polynomial captured a real distortion pattern
+        // rather than centroid noise.
+        double sumSqSip = 0;
+        for (var k = 0; k < nFiltered; k++)
+        {
+            var i = inlierIndices[k];
+            var det = matchedDetected[i];
+            var corrected = candidate.SkyToPixel(matchedCatalogSky[i].RA, matchedCatalogSky[i].Dec);
+            if (corrected is null)
+            {
+                return linearWcs;
+            }
+            var ddx = corrected.Value.X - det.X;
+            var ddy = corrected.Value.Y - det.Y;
+            sumSqSip += ddx * ddx + ddy * ddy;
+        }
+        var rmsSip = Math.Sqrt(sumSqSip / nFiltered);
+
+        const double SipImprovementThreshold = 0.7;
+        if (rmsSip > rmsLinear * SipImprovementThreshold)
+        {
+            _logger?.LogDebug("CatalogPlateSolver SIP fit: rejected (rms {Sip:F2} px vs linear {Lin:F2} px; needed ≤ {Threshold:F2} px, {N} clean of {Raw} raw, clip {Clip:F1} px)",
+                rmsSip, rmsLinear, rmsLinear * SipImprovementThreshold, nFiltered, n, clipThreshold);
+            return linearWcs;
+        }
+
+        _logger?.LogDebug("CatalogPlateSolver SIP fit: rms {Sip:F2} px (down from {Lin:F2} px linear, {N} clean of {Raw} raw, clip {Clip:F1} px, order {Order})",
+            rmsSip, rmsLinear, nFiltered, n, clipThreshold, SipOrder);
+        return candidate;
+    }
+
 
     /// <summary>
     /// Computes the FITS CD matrix from the inverse affine transform and attaches it to the WCS.
@@ -684,7 +1094,7 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
         return result;
     }
 
-    private static List<ImagedStar> ProjectCatalogStars(
+    private static List<ProjectedCatalogStar> ProjectCatalogStars(
         List<(double RA, double Dec, double VMag)> catalogCoords,
         WCS origin,
         double pixelScaleRad,
@@ -694,7 +1104,7 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
         double xSign
     )
     {
-        var projected = new List<ImagedStar>();
+        var projected = new List<ProjectedCatalogStar>();
 
         var alpha0 = origin.CenterRA * HOURS2RADIANS;
         var (sinDelta0, cosDelta0) = Math.SinCos(double.DegreesToRadians(origin.CenterDec));
@@ -725,7 +1135,8 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
             if (xPix >= -marginX && xPix <= dim.Width + marginX &&
                 yPix >= -marginY && yPix <= dim.Height + marginY)
             {
-                projected.Add(new ImagedStar(2f, 2f, 100f, 1000f, xPix, yPix, 0f));
+                projected.Add(new ProjectedCatalogStar(
+                    new ImagedStar(2f, 2f, 100f, 1000f, xPix, yPix, 0f), ra, dec));
             }
         }
 

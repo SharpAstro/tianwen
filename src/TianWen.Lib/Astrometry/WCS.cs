@@ -46,6 +46,49 @@ public record struct WCS(double CenterRA, double CenterDec)
     public double CD2_2 { get; init; } = double.NaN;
 
     /// <summary>
+    /// SIP (Shupe et al. 2005) forward polynomial coefficients for the
+    /// pixel-X axis. <c>null</c> when the WCS is linear-only. When set,
+    /// shape is <c>[SipOrder + 1, SipOrder + 1]</c> with terms at
+    /// <c>i + j ∈ [1, SipOrder]</c>; the (0, 0) entry is conventionally
+    /// absent (absorbed by CRPIX1).
+    /// </summary>
+    public double[,]? SipA { get; init; }
+
+    /// <summary>Companion to <see cref="SipA"/> for the pixel-Y axis.</summary>
+    public double[,]? SipB { get; init; }
+
+    /// <summary>
+    /// SIP inverse polynomial coefficients for the pixel-X axis, used by
+    /// <see cref="SkyToPixel"/> to avoid Newton iteration when going from
+    /// sky to pixel through a distorted CD matrix.
+    /// </summary>
+    public double[,]? SipAP { get; init; }
+
+    /// <summary>Companion to <see cref="SipAP"/> for the pixel-Y axis.</summary>
+    public double[,]? SipBP { get; init; }
+
+    /// <summary>
+    /// SIP polynomial order (max <c>i + j</c> across A/B). 0 means the
+    /// WCS is purely linear; <see cref="PixelToSky"/> and
+    /// <see cref="SkyToPixel"/> skip the polynomial branch in that case.
+    /// </summary>
+    public int SipOrder { get; init; }
+
+    /// <summary>
+    /// True when forward SIP terms (<see cref="SipA"/> + <see cref="SipB"/>)
+    /// are present and applicable.
+    /// </summary>
+    public readonly bool HasSip => SipOrder > 0 && SipA is not null && SipB is not null;
+
+    /// <summary>
+    /// True when inverse SIP terms (<see cref="SipAP"/> + <see cref="SipBP"/>)
+    /// are present. Independent of <see cref="HasSip"/>: a header can carry
+    /// only forward terms, in which case <see cref="SkyToPixel"/> falls back
+    /// to one Newton iteration with the forward polynomial.
+    /// </summary>
+    public readonly bool HasInverseSip => SipOrder > 0 && SipAP is not null && SipBP is not null;
+
+    /// <summary>
     /// Whether the CD matrix was constructed from approximate data (PIXSCALE + ANGLE)
     /// rather than from an actual plate solution.
     /// </summary>
@@ -95,6 +138,17 @@ public record struct WCS(double CenterRA, double CenterDec)
         // Pixel offset from reference pixel
         var dx = x - CRPix1;
         var dy = y - CRPix2;
+
+        // Forward SIP distortion: u' = u + A(u, v), v' = v + B(u, v),
+        // evaluated at the original (u, v). The CD matrix then maps the
+        // *corrected* relative-pixel coords into intermediate world coords.
+        if (HasSip)
+        {
+            var dxC = SipPolynomial.Apply(dx, dy, SipA!);
+            var dyC = SipPolynomial.Apply(dx, dy, SipB!);
+            dx += dxC;
+            dy += dyC;
+        }
 
         // Intermediate world coordinates (degrees) via CD matrix
         var u = CD1_1 * dx + CD1_2 * dy;
@@ -173,6 +227,29 @@ public record struct WCS(double CenterRA, double CenterDec)
 
         var dx = (CD2_2 * u - CD1_2 * v) / det;
         var dy = (-CD2_1 * u + CD1_1 * v) / det;
+
+        // Inverse SIP: x = U + F(U, V), y = V + G(U, V), with F/G evaluated
+        // at the post-CD-inverse coords (U, V) ≡ pre-correction (dx, dy).
+        // Capture corrections in temps so both polynomials see the same input.
+        if (HasInverseSip)
+        {
+            var dxC = SipPolynomial.Apply(dx, dy, SipAP!);
+            var dyC = SipPolynomial.Apply(dx, dy, SipBP!);
+            dx += dxC;
+            dy += dyC;
+        }
+        else if (HasSip)
+        {
+            // Fall back to one Newton iteration of the forward polynomial:
+            // we want (dx_obs, dy_obs) such that (dx_obs + A(dx_obs, dy_obs),
+            // dy_obs + B(dx_obs, dy_obs)) = (dx, dy). Start from (dx, dy) and
+            // subtract the forward correction evaluated there. One step is
+            // enough for the small (<1 px) corrections SIP typically produces.
+            var dxC = SipPolynomial.Apply(dx, dy, SipA!);
+            var dyC = SipPolynomial.Apply(dx, dy, SipB!);
+            dx -= dxC;
+            dy -= dyC;
+        }
 
         return (CRPix1 + dx, CRPix2 + dy);
     }
@@ -273,7 +350,9 @@ public record struct WCS(double CenterRA, double CenterDec)
             }
             else
             {
-                // Fall back to PIXSCALE/SCALE + ANGLE/POSANGLE (approximate WCS from mount + camera)
+                // Fall back to PIXSCALE/SCALE + ANGLE/POSANGLE (approximate WCS from mount + camera).
+                // SIP is layered on top of a CD matrix, so we only reach this branch when we
+                // already know there is no SIP either.
                 var pixscale = header.GetDoubleValue("PIXSCALE", double.NaN);
                 if (double.IsNaN(pixscale))
                 {
@@ -318,7 +397,82 @@ public record struct WCS(double CenterRA, double CenterDec)
             }
         }
 
+        // SIP polynomial distortion, layered on top of CD. Only valid when CTYPE1
+        // explicitly carries the `-SIP` suffix; otherwise the A_*/B_* cards are
+        // either absent or apply to a different convention we don't read.
+        var ctype1 = header.GetStringValue("CTYPE1");
+        if (wcs.HasCDMatrix && ctype1 is not null && ctype1.Contains("-SIP", StringComparison.OrdinalIgnoreCase))
+        {
+            wcs = ReadSipFromHeader(header, wcs);
+        }
+
         return wcs;
+    }
+
+    /// <summary>
+    /// Extracts SIP A/B/AP/BP coefficient arrays from a FITS header that
+    /// has already been confirmed to carry a SIP CTYPE. Missing arrays
+    /// (e.g. a header that only emits forward terms) leave the
+    /// corresponding fields null; <see cref="SkyToPixel"/> falls back to
+    /// one Newton iteration of the forward polynomial in that case.
+    /// </summary>
+    private static WCS ReadSipFromHeader(Header header, WCS wcs)
+    {
+        var aOrder = header.GetIntValue("A_ORDER", -1);
+        var bOrder = header.GetIntValue("B_ORDER", -1);
+        if (aOrder < 1 || bOrder < 1)
+        {
+            // Malformed SIP header — CTYPE claims SIP but the order cards
+            // are missing. Skip the polynomial pickup; caller still gets a
+            // valid linear WCS and downstream code keeps working.
+            return wcs;
+        }
+
+        // The shared SipOrder is the max across A/B/AP/BP so the per-array
+        // shape covers every emitted card; arrays are square at that order
+        // even if a specific axis has a lower nominal order.
+        var apOrder = header.GetIntValue("AP_ORDER", -1);
+        var bpOrder = header.GetIntValue("BP_ORDER", -1);
+        var maxOrder = Math.Max(Math.Max(aOrder, bOrder), Math.Max(apOrder, bpOrder));
+        if (maxOrder < 1 || maxOrder > SipPolynomial.MaxOrder)
+        {
+            return wcs;
+        }
+
+        var a = ReadSipCoefficientMatrix(header, "A_", aOrder, maxOrder);
+        var b = ReadSipCoefficientMatrix(header, "B_", bOrder, maxOrder);
+        var ap = apOrder >= 1 ? ReadSipCoefficientMatrix(header, "AP_", apOrder, maxOrder) : null;
+        var bp = bpOrder >= 1 ? ReadSipCoefficientMatrix(header, "BP_", bpOrder, maxOrder) : null;
+
+        return wcs with
+        {
+            SipOrder = maxOrder,
+            SipA = a,
+            SipB = b,
+            SipAP = ap,
+            SipBP = bp,
+        };
+    }
+
+    /// <summary>
+    /// Reads <c>{prefix}i_j</c> coefficient cards (e.g. <c>A_2_1</c>) into a
+    /// <c>[maxOrder + 1, maxOrder + 1]</c> matrix; missing cards stay zero.
+    /// Both the <c>(0, 0)</c> term and any term where <c>i + j &gt; ownOrder</c>
+    /// are skipped per SIP convention.
+    /// </summary>
+    private static double[,] ReadSipCoefficientMatrix(Header header, string prefix, int ownOrder, int maxOrder)
+    {
+        var coeffs = new double[maxOrder + 1, maxOrder + 1];
+        for (var i = 0; i <= ownOrder; i++)
+        {
+            for (var j = 0; j <= ownOrder - i; j++)
+            {
+                if ((i | j) == 0) continue;
+                var key = string.Concat(prefix, i.ToString(CultureInfo.InvariantCulture), "_", j.ToString(CultureInfo.InvariantCulture));
+                coeffs[i, j] = header.GetDoubleValue(key, 0.0);
+            }
+        }
+        return coeffs;
     }
 
     /// <summary>
@@ -388,8 +542,12 @@ public record struct WCS(double CenterRA, double CenterDec)
     /// </summary>
     public readonly void WriteToHeader(Header header)
     {
-        header.AddCard(new HeaderCard("CTYPE1", "RA---TAN", "TAN (gnomonic) projection"));
-        header.AddCard(new HeaderCard("CTYPE2", "DEC--TAN", "TAN (gnomonic) projection"));
+        // CTYPE gets the `-SIP` suffix iff we are actually emitting a SIP
+        // polynomial; readers must use that suffix to know to look for the
+        // A_*/B_* cards.
+        var hasSip = HasSip;
+        header.AddCard(new HeaderCard("CTYPE1", hasSip ? "RA---TAN-SIP" : "RA---TAN", "TAN (gnomonic) projection"));
+        header.AddCard(new HeaderCard("CTYPE2", hasSip ? "DEC--TAN-SIP" : "DEC--TAN", "TAN (gnomonic) projection"));
         header.AddCard(new HeaderCard("EQUINOX", 2000.0, "J2000.0"));
         header.AddCard(new HeaderCard("CRVAL1", CenterRA * 15.0, "RA at reference pixel [deg]"));
         header.AddCard(new HeaderCard("CRVAL2", CenterDec, "Dec at reference pixel [deg]"));
@@ -409,6 +567,35 @@ public record struct WCS(double CenterRA, double CenterDec)
             header.AddCard(new HeaderCard("CD1_2", CD1_2, "dRA/dy [deg/pix]"));
             header.AddCard(new HeaderCard("CD2_1", CD2_1, "dDec/dx [deg/pix]"));
             header.AddCard(new HeaderCard("CD2_2", CD2_2, "dDec/dy [deg/pix]"));
+        }
+
+        if (hasSip)
+        {
+            WriteSipCoefficientMatrix(header, "A", SipA!, SipOrder);
+            WriteSipCoefficientMatrix(header, "B", SipB!, SipOrder);
+            if (HasInverseSip)
+            {
+                WriteSipCoefficientMatrix(header, "AP", SipAP!, SipOrder);
+                WriteSipCoefficientMatrix(header, "BP", SipBP!, SipOrder);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Emits a SIP coefficient block as a series of <c>{name}_ORDER</c>
+    /// + <c>{name}_i_j</c> cards. Both the constant term and entries where
+    /// <c>i + j &gt; order</c> are skipped per the SIP convention.
+    /// </summary>
+    private static void WriteSipCoefficientMatrix(Header header, string name, double[,] coeffs, int order)
+    {
+        header.AddCard(new HeaderCard($"{name}_ORDER", order, "SIP polynomial order"));
+        for (var i = 0; i <= order; i++)
+        {
+            for (var j = 0; j <= order - i; j++)
+            {
+                if ((i | j) == 0) continue;
+                header.AddCard(new HeaderCard($"{name}_{i}_{j}", coeffs[i, j], null));
+            }
         }
     }
 }
