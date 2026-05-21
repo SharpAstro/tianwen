@@ -29,6 +29,18 @@ namespace TianWen.AI.Inference;
 public static class ExecutionProviderResolver
 {
     /// <summary>
+    /// Set of EP names compiled into the loaded <c>onnxruntime</c> native, as
+    /// reported by <see cref="OrtEnv.GetAvailableProviders"/>. Probed once at
+    /// type-load and cached; the answer can't change for the process lifetime
+    /// (the native DLL is pinned). Used to skip <c>AppendExecutionProvider_X</c>
+    /// calls whose P/Invoke entry points don't exist in this build -- avoids
+    /// the EntryPointNotFoundException stack-trace noise when a no-RID dev
+    /// build picks the CPU-only ORT package.
+    /// </summary>
+    private static readonly HashSet<string> _availableNativeProviders =
+        new(OrtEnv.Instance().GetAvailableProviders() ?? [], StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
     /// Builds a <see cref="SessionOptions"/> with the best available EP chain
     /// for the current OS/architecture, falling back to CPU on any append failure.
     /// </summary>
@@ -44,6 +56,16 @@ public static class ExecutionProviderResolver
 
         foreach (var ep in EnumeratePreferredProviders())
         {
+            // Pre-check native availability via GetAvailableProviders so we
+            // never call into a missing P/Invoke entry point. The reactive
+            // catch is still here as belt-and-suspenders (e.g. CUDA driver
+            // present at link time but absent at runtime).
+            if (!IsNativeAvailable(ep))
+            {
+                logger?.LogDebug("ONNX EP {Provider} not present in loaded onnxruntime native (build without -r {Rid}? falling through to CPU).",
+                    ep, RuntimeInformation.RuntimeIdentifier);
+                continue;
+            }
             try
             {
                 AppendProvider(options, ep, deviceId);
@@ -51,16 +73,35 @@ public static class ExecutionProviderResolver
             }
             catch (Exception ex)
             {
-                // Append failure typically means the native EP wasn't bundled
-                // into the current RID's onnxruntime build (e.g. DirectML
-                // requested on a CPU-only package). The CPU EP is always
-                // appended last so we still get a working session.
-                logger?.LogDebug(ex, "ONNX EP {Provider} unavailable, falling through.", ep);
+                // Runtime append failure -- EP compiled in but couldn't init
+                // (e.g. CUDA driver missing). CPU EP is always appended last
+                // by ORT so we still get a working session.
+                logger?.LogDebug(ex, "ONNX EP {Provider} append failed at runtime, falling through.", ep);
             }
         }
 
         return options;
     }
+
+    /// <summary>
+    /// Maps a strongly-typed <see cref="ExecutionProvider"/> to the native EP
+    /// name string ORT reports via <c>GetAvailableProviders</c>. Returns true
+    /// when the EP is compiled into the current native build.
+    /// </summary>
+    public static bool IsNativeAvailable(ExecutionProvider provider) => provider switch
+    {
+        ExecutionProvider.DirectML => _availableNativeProviders.Contains("DmlExecutionProvider"),
+        ExecutionProvider.Cuda     => _availableNativeProviders.Contains("CUDAExecutionProvider"),
+        ExecutionProvider.CoreML   => _availableNativeProviders.Contains("CoreMLExecutionProvider"),
+        ExecutionProvider.Qnn      => _availableNativeProviders.Contains("QNNExecutionProvider"),
+        _ => false,
+    };
+
+    /// <summary>The native EP names compiled into the loaded onnxruntime.dll
+    /// (e.g. <c>["DmlExecutionProvider", "CPUExecutionProvider"]</c> for a
+    /// DirectML build, <c>["CPUExecutionProvider"]</c> for the baseline CPU
+    /// package). Useful for diagnostics + CLI banners.</summary>
+    public static IReadOnlyCollection<string> AvailableNativeProviders => _availableNativeProviders;
 
     /// <summary>
     /// The ordered list of EPs we'd try for the current platform, best-first.

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
@@ -11,11 +12,12 @@ namespace TianWen.AI.Imaging.Onnx;
 
 /// <summary>
 /// AI4 NAFNet noise-reduction enhancer. Selects between
-/// <c>deep_denoise_mono_AI4.onnx</c> (1 channel) and
-/// <c>deep_denoise_color_AI4.onnx</c> (3 channels) by input
-/// <see cref="Image.ChannelCount"/> and delegates the actual pipeline to
-/// <see cref="ChunkedNafnetRunner"/>. Single ONNX input (no PSF conditional);
-/// mirrors the shape of <see cref="OnnxStarRemover"/>.
+/// <c>deep_denoise_mono_AI4*.onnx</c> (1 channel) and
+/// <c>deep_denoise_color_AI4*.onnx</c> (3 channels) by input
+/// <see cref="Image.ChannelCount"/>, and between Default / Lite / Walking
+/// weight bundles by the <see cref="DenoiseVariant"/> argument.
+/// Single ONNX input (no PSF conditional); delegates the actual pipeline
+/// to <see cref="ChunkedNafnetRunner"/>.
 /// </summary>
 /// <remarks>
 /// <para>Domain semantics: linear-units in / linear-units out, and the
@@ -25,7 +27,7 @@ namespace TianWen.AI.Imaging.Onnx;
 ///
 /// <para>Session lifecycle: registered as a singleton via
 /// <c>AddTianWenAi</c>; lazily creates one <see cref="InferenceSession"/>
-/// per (mono / color) model. Sessions are cached for the lifetime of the
+/// per (channel-count, variant) pair, cached for the lifetime of the
 /// instance and released on <see cref="Dispose"/>.</para>
 /// </remarks>
 public sealed class OnnxDenoiser(
@@ -35,17 +37,16 @@ public sealed class OnnxDenoiser(
     int overlap = 64)
     : IDenoiseEnhancer, IDisposable
 {
-    private const string MonoModel = "deep_denoise_mono_AI4.onnx";
-    private const string ColorModel = "deep_denoise_color_AI4.onnx";
-
     private readonly object _gate = new();
-    private InferenceSession? _monoSession;
-    private InferenceSession? _colorSession;
+    private readonly Dictionary<(int Channels, DenoiseVariant Variant), InferenceSession> _sessions = [];
     private bool _disposed;
 
     public string Name => "Denoiser (AI4 NAFNet)";
 
-    public async Task<Image> EnhanceAsync(Image input, CancellationToken cancellationToken = default)
+    public Task<Image> EnhanceAsync(Image input, CancellationToken cancellationToken = default)
+        => EnhanceAsync(input, DenoiseVariant.Default, cancellationToken);
+
+    public async Task<Image> EnhanceAsync(Image input, DenoiseVariant variant, CancellationToken cancellationToken = default)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         ArgumentNullException.ThrowIfNull(input);
@@ -66,17 +67,17 @@ public sealed class OnnxDenoiser(
                 nameof(input));
         }
 
-        return await Task.Run(() => RunPipeline(input, cancellationToken), cancellationToken);
+        return await Task.Run(() => RunPipeline(input, variant, cancellationToken), cancellationToken);
     }
 
-    private Image RunPipeline(Image input, CancellationToken ct)
+    private Image RunPipeline(Image input, DenoiseVariant variant, CancellationToken ct)
     {
         var (sourceChannels, srcW, srcH) = input.Shape;
-        var modelName = sourceChannels == 1 ? MonoModel : ColorModel;
-        logger?.LogDebug("OnnxDenoiser: input {W}x{H}x{C} model={Model} chunkSize={Chunk} overlap={Overlap}",
-            srcW, srcH, sourceChannels, modelName, chunkSize, overlap);
+        var modelName = ModelFileNameFor(sourceChannels, variant);
+        logger?.LogDebug("OnnxDenoiser: input {W}x{H}x{C} variant={Variant} model={Model} chunkSize={Chunk} overlap={Overlap}",
+            srcW, srcH, sourceChannels, variant, modelName, chunkSize, overlap);
 
-        var session = AcquireSession(sourceChannels);
+        var session = AcquireSession(sourceChannels, variant);
         var (imageInputName, outputName) = OnnxIoNames.SingleInput(session);
 
         var result = ChunkedNafnetRunner.Run(
@@ -89,31 +90,48 @@ public sealed class OnnxDenoiser(
         var megapixels = (sourceChannels * srcW * (double)srcH) / 1_000_000.0;
         var throughputMpps = result.TotalMs > 0 ? megapixels * 1000.0 / result.TotalMs : 0.0;
         logger?.LogInformation(
-            "OnnxDenoiser.EnhanceAsync: {Model} {W}x{H}x{C} chunks={Chunks} stretchApplied={StretchApplied} " +
+            "OnnxDenoiser.EnhanceAsync: {Model} variant={Variant} {W}x{H}x{C} chunks={Chunks} stretchApplied={StretchApplied} " +
             "stretch={Stretch}ms prep={Prep}ms infer={Infer}ms stitch={Stitch}ms unstretch={Unstretch}ms " +
             "throughput={Mpps:F2} Mp/s total={Total}ms",
-            modelName, srcW, srcH, sourceChannels, result.ChunkCount, result.StretchApplied,
+            modelName, variant, srcW, srcH, sourceChannels, result.ChunkCount, result.StretchApplied,
             result.StretchMs, result.PrepMs, result.InferMs, result.StitchMs, result.UnstretchMs,
             throughputMpps, result.TotalMs);
 
         return result.Output;
     }
 
-    private InferenceSession AcquireSession(int channels)
+    /// <summary>
+    /// Resolves the (channels, variant) pair to the on-disk ONNX file name.
+    /// Mono lite has an upstream filename typo (<c>..lite..onnx</c>); we
+    /// honour the disk reality rather than fight it.
+    /// </summary>
+    private static string ModelFileNameFor(int channels, DenoiseVariant variant) => (channels, variant) switch
     {
-        var modelName = channels == 1 ? MonoModel : ColorModel;
+        (1, DenoiseVariant.Default) => "deep_denoise_mono_AI4.onnx",
+        (3, DenoiseVariant.Default) => "deep_denoise_color_AI4.onnx",
+        (1, DenoiseVariant.Lite)    => "deep_denoise_mono_AI4_lite..onnx",
+        (3, DenoiseVariant.Lite)    => "deep_denoise_color_AI4_lite.onnx",
+        (1, DenoiseVariant.Walking) => "deep_denoise_mono_AI4_1w.onnx",
+        (3, DenoiseVariant.Walking) => "deep_denoise_color_AI4_1w.onnx",
+        _ => throw new ArgumentOutOfRangeException(nameof(variant), variant, $"Unsupported (channels={channels}, variant={variant}) pair."),
+    };
+
+    private InferenceSession AcquireSession(int channels, DenoiseVariant variant)
+    {
+        var key = (channels, variant);
         lock (_gate)
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
-            ref InferenceSession? slot = ref channels == 1 ? ref _monoSession : ref _colorSession;
-            if (slot is null)
+            if (!_sessions.TryGetValue(key, out var session))
             {
+                var modelName = ModelFileNameFor(channels, variant);
                 var modelPath = modelResolver.Resolve(modelName);
                 logger?.LogInformation("OnnxDenoiser: loading {Model} from {Path}", modelName, modelPath);
                 using var options = ExecutionProviderResolver.CreateSessionOptions(deviceId: 0, logger: logger);
-                slot = new InferenceSession(modelPath, options);
+                session = new InferenceSession(modelPath, options);
+                _sessions[key] = session;
             }
-            return slot;
+            return session;
         }
     }
 
@@ -121,10 +139,8 @@ public sealed class OnnxDenoiser(
     {
         lock (_gate)
         {
-            _monoSession?.Dispose();
-            _monoSession = null;
-            _colorSession?.Dispose();
-            _colorSession = null;
+            foreach (var session in _sessions.Values) session.Dispose();
+            _sessions.Clear();
             _disposed = true;
         }
     }
