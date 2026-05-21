@@ -130,6 +130,9 @@ var rootCommand = new RootCommand
             consoleHost,
             services.GetRequiredService<SharpenPipeline>(),
             services.GetRequiredService<IStarRemover>(),
+            new TianWen.UI.Abstractions.MasterPreviewRenderer(
+                services.GetRequiredService<TianWen.Lib.Astrometry.Catalogs.ICelestialObjectDB>(),
+                services.GetRequiredService<ILogger<TianWen.UI.Abstractions.MasterPreviewRenderer>>()),
             services.GetService<ILogger<ImageSubCommand>>()).Build(),
         new TuiSubCommand(services, consoleHost, plannerState, profileSelector).Build()
     }
