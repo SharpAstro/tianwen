@@ -90,11 +90,31 @@ internal sealed class ImageSubCommand(
         {
             Description = "Also write a stretched PNG preview alongside each output FITS (same render as 'tianwen stack' produces, so the sharpened result is visually comparable).",
         };
+        var stellarBlendOpt = new Option<float>("--stellar-blend")
+        {
+            Description = "AI strength for the stellar sharpening pass in [0, 1]. 0 = stars untouched (= --no-stellar-sharpen); 1 = full AI output; ~0.5 is a typical good value for tight star fields where AI4 over-sharpens.",
+            DefaultValueFactory = _ => 1.0f,
+        };
+        var deconvBlendOpt = new Option<float>("--deconv-blend")
+        {
+            Description = "AI strength for the non-stellar deconvolution pass in [0, 1]. 0 = nebula untouched; 1 = full AI output. Nebula usually tolerates higher values than stellar sharpening.",
+            DefaultValueFactory = _ => 1.0f,
+        };
+        var scnrOpt = new Option<string>("--scnr")
+        {
+            Description = "Subtractive Chromatic Noise Reduction on the stars plate only (preserves OIII / H-beta nebula green). Modes: 'none' (default), 'average' = pull G down to (R+B)/2, 'maximum' = pull G down to max(R,B). The starless plate is always untouched.",
+            DefaultValueFactory = _ => "none",
+        };
+        var scnrAmountOpt = new Option<float>("--scnr-amount")
+        {
+            Description = "SCNR strength in [0, 1]. 1 = full neutralise. Ignored when --scnr is 'none'.",
+            DefaultValueFactory = _ => 1.0f,
+        };
 
-        var cmd = new Command("sharpen", "Full AI4 NAFNet sharpen pipeline: remove stars, sharpen the stars-only plate, deconvolve the starless plate, recombine.")
+        var cmd = new Command("sharpen", "Full AI4 NAFNet sharpen pipeline: remove stars, sharpen the stars-only plate, deconvolve the starless plate, optional SCNR on stars, recombine.")
         {
             Arguments = { inputArg },
-            Options = { outputOpt, modeOpt, noStellarOpt, noDeconvOpt, noRecombineOpt, pngOpt },
+            Options = { outputOpt, modeOpt, noStellarOpt, noDeconvOpt, noRecombineOpt, pngOpt, stellarBlendOpt, deconvBlendOpt, scnrOpt, scnrAmountOpt },
         };
         cmd.SetAction(async (parseResult, ct) =>
         {
@@ -122,6 +142,23 @@ internal sealed class ImageSubCommand(
             var noDeconv = parseResult.GetValue(noDeconvOpt);
             var noRecombine = parseResult.GetValue(noRecombineOpt);
             var outputPath = parseResult.GetValue(outputOpt);
+            var stellarBlend = Math.Clamp(parseResult.GetValue(stellarBlendOpt), 0f, 1f);
+            var deconvBlend = Math.Clamp(parseResult.GetValue(deconvBlendOpt), 0f, 1f);
+
+            var scnrStr = (parseResult.GetValue(scnrOpt) ?? "none").ToLowerInvariant();
+            ScnrMode scnrMode = scnrStr switch
+            {
+                "none" => ScnrMode.None,
+                "average" => ScnrMode.Average,
+                "maximum" or "max" => ScnrMode.Maximum,
+                _ => (ScnrMode)(-1),
+            };
+            if ((int)scnrMode < 0)
+            {
+                consoleHost.WriteError($"--scnr must be 'none', 'average', or 'maximum', got '{scnrStr}'");
+                return 1;
+            }
+            var scnrAmount = Math.Clamp(parseResult.GetValue(scnrAmountOpt), 0f, 1f);
 
             if (!Image.TryReadFitsFile(input, out var src, out var wcs))
             {
@@ -140,11 +177,16 @@ internal sealed class ImageSubCommand(
                 RunStellarSharpen: !noStellar,
                 RunNonStellarDeconv: !noDeconv,
                 Recombine: !noRecombine,
-                Mode: mode);
+                Mode: mode,
+                StellarBlend: stellarBlend,
+                DeconvBlend: deconvBlend,
+                StarsScnrMode: scnrMode,
+                StarsScnrAmount: scnrAmount);
 
             consoleHost.WriteScrollable(
                 $"[sharpen] {input} {src.Width}x{src.Height}x{src.ChannelCount} mode={mode} " +
-                $"stellar={!noStellar} deconv={!noDeconv} recombine={!noRecombine}");
+                $"stellar={!noStellar}({stellarBlend:F2}) deconv={!noDeconv}({deconvBlend:F2}) " +
+                $"scnr={scnrMode}({scnrAmount:F2}) recombine={!noRecombine}");
 
             SharpenResult result;
             try

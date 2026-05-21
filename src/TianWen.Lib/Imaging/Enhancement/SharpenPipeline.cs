@@ -85,14 +85,47 @@ public sealed class SharpenPipeline(
             // user has multiple inference accelerators.
             if (request.RunStellarSharpen)
             {
-                sharpenedStars = await stellarSharpener!.EnhanceAsync(starsOnly!, cancellationToken);
+                var rawStellar = await stellarSharpener!.EnhanceAsync(starsOnly!, cancellationToken);
+                // AI-strength blend: lerp from the input plate (StarsOnly) toward
+                // the network output. Default StellarBlend = 1.0 keeps the existing
+                // "full AI" behaviour; values < 1 mitigate the "snap to pixel"
+                // artefact AI4 produces on tight star fields.
+                sharpenedStars = request.StellarBlend < 1f
+                    ? starsOnly!.Lerp(rawStellar, request.StellarBlend)
+                    : rawStellar;
+                if (!ReferenceEquals(sharpenedStars, rawStellar)) rawStellar.Release();
                 stellarMs = phaseSw.ElapsedMilliseconds; phaseSw.Restart();
             }
 
             if (request.RunNonStellarDeconv)
             {
-                deconvolvedStarless = await nonStellarDeconvolver!.EnhanceAsync(starless!, cancellationToken);
+                var rawDeconv = await nonStellarDeconvolver!.EnhanceAsync(starless!, cancellationToken);
+                deconvolvedStarless = request.DeconvBlend < 1f
+                    ? starless!.Lerp(rawDeconv, request.DeconvBlend)
+                    : rawDeconv;
+                if (!ReferenceEquals(deconvolvedStarless, rawDeconv)) rawDeconv.Release();
                 deconvMs = phaseSw.ElapsedMilliseconds; phaseSw.Restart();
+            }
+
+            // SCNR (Subtractive Chromatic Noise Reduction) on the stellar
+            // branch ONLY. Applied to (SharpenedStars ?? StarsOnly) before
+            // recombine -- the starless plate is left untouched to preserve
+            // legitimate green nebula signal (OIII / H-beta emission). Skipped
+            // outright when no stellar plate is in flight (RunStarRemoval=false).
+            if (request.StarsScnrMode != ScnrMode.None && starsOnly is not null)
+            {
+                var beforeScnr = sharpenedStars ?? starsOnly;
+                var afterScnr = beforeScnr.SubtractiveChromaticNoise(request.StarsScnrMode, request.StarsScnrAmount);
+                if (sharpenedStars is not null)
+                {
+                    sharpenedStars.Release();
+                    sharpenedStars = afterScnr;
+                }
+                else
+                {
+                    starsOnly.Release();
+                    starsOnly = afterScnr;
+                }
             }
 
             if (request.Recombine)
@@ -152,11 +185,14 @@ public sealed class SharpenPipeline(
                 "SharpenRequest: Recombine requires RunStarRemoval (nothing to recombine).",
                 nameof(request));
         }
-        if (request.Recombine && !request.RunStellarSharpen && !request.RunNonStellarDeconv)
+        // Recombine is meaningful when ANY plate transformation runs: AI
+        // sharpen (stellar / deconv) OR SCNR on the stars plate. If nothing
+        // touches a plate, Recombine would just reproduce Source.
+        if (request.Recombine && !request.RunStellarSharpen && !request.RunNonStellarDeconv && request.StarsScnrMode == ScnrMode.None)
         {
             throw new ArgumentException(
-                "SharpenRequest: Recombine requires at least one of RunStellarSharpen or RunNonStellarDeconv " +
-                "(otherwise Final would just equal Source -- caller can skip the pipeline).",
+                "SharpenRequest: Recombine requires at least one of RunStellarSharpen, RunNonStellarDeconv, " +
+                "or StarsScnrMode (otherwise Final would just equal Source -- caller can skip the pipeline).",
                 nameof(request));
         }
 
@@ -192,7 +228,27 @@ public sealed record SharpenRequest(
     bool RunStellarSharpen = true,
     bool RunNonStellarDeconv = true,
     bool Recombine = true,
-    RecombineMode Mode = RecombineMode.Additive);
+    RecombineMode Mode = RecombineMode.Additive,
+
+    /// <summary>AI strength for the stellar branch. 0 keeps stars at their
+    /// original size + colour; 1 uses the network output verbatim; ~0.5 is a
+    /// typical good value for tight star fields where AI4 over-sharpens.</summary>
+    float StellarBlend = 1.0f,
+
+    /// <summary>AI strength for the non-stellar deconv branch. Same scale as
+    /// <see cref="StellarBlend"/>; the nebula often tolerates higher values.</summary>
+    float DeconvBlend = 1.0f,
+
+    /// <summary>If not <see cref="ScnrMode.None"/>, applies subtractive
+    /// chromatic noise reduction to the stellar plate (only -- the starless
+    /// plate keeps legitimate green nebula signal). Run AFTER the stellar
+    /// sharpen pass, BEFORE recombine.</summary>
+    ScnrMode StarsScnrMode = ScnrMode.None,
+
+    /// <summary>SCNR strength in [0, 1]. 1 = full green-neutralise to the
+    /// chosen reference (Average or Maximum). Ignored when
+    /// <see cref="StarsScnrMode"/> is <see cref="ScnrMode.None"/>.</summary>
+    float StarsScnrAmount = 1.0f);
 
 /// <summary>
 /// How <see cref="SharpenPipeline"/> splits the source into a stars-only +
