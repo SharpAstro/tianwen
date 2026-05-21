@@ -71,17 +71,14 @@ public static class ExecutionProviderResolver
     {
         if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
         {
-            // win-arm64 -> Snapdragon, prefer NPU. The QNN package's native
-            // build doesn't ship DirectML, so we don't try DML as a fallback
-            // here. win-x64 stays on DirectML (no NPU package available).
-            if (RuntimeInformation.ProcessArchitecture == Architecture.Arm64)
-            {
-                yield return ExecutionProvider.Qnn;
-            }
-            else
-            {
-                yield return ExecutionProvider.DirectML;
-            }
+            // Both win-arm64 (Snapdragon Adreno) and win-x64 (NVIDIA/AMD/
+            // Intel iGPU) -> DirectML via D3D12 compute. We previously picked
+            // QNN on arm64 to target the Hexagon NPU, but QNN's HTP only
+            // accelerates INT8/INT16 nodes -- our FP32 AI4 models silently
+            // per-node-fell-back to CPU and ignored the GPU. DirectML on
+            // Adreno is the right choice until we ship INT8-quantized
+            // models (then revisit; see TODO "Hexagon NPU acceleration").
+            yield return ExecutionProvider.DirectML;
             yield break;
         }
         if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
