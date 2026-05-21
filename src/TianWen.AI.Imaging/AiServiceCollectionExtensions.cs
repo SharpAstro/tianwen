@@ -25,9 +25,9 @@ public static class AiServiceCollectionExtensions
     /// <list type="bullet">
     /// <item><see cref="IModelResolver"/> -> <see cref="ModelResolver"/> (default search paths).</item>
     /// <item><see cref="IStarRemover"/> -> <see cref="OnnxStarRemover"/>.</item>
+    /// <item><see cref="IStellarSharpener"/> -> <see cref="OnnxStellarSharpener"/>.</item>
     /// </list>
-    /// Future phases will add <c>IStellarSharpener</c> and
-    /// <c>INonStellarDeconvolver</c> registrations here. The
+    /// Future phases will add <c>INonStellarDeconvolver</c> here. The
     /// <c>SharpenPipeline</c> orchestrator lives in <c>TianWen.Lib</c> and
     /// will be registered there.
     /// </remarks>
@@ -35,6 +35,7 @@ public static class AiServiceCollectionExtensions
     {
         services.TryAddSingleton<IModelResolver, ModelResolver>();
         services.TryAddSingleton<IStarRemover, OnnxStarRemover>();
+        services.TryAddSingleton<IStellarSharpener, OnnxStellarSharpener>();
         return services;
     }
 }
