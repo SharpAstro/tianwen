@@ -1,6 +1,8 @@
 using System;
 using System.Threading.Tasks;
+using Meziantou.Extensions.Logging.Xunit.v3;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Shouldly;
 using TianWen.AI.Imaging;
@@ -19,7 +21,7 @@ namespace TianWen.Lib.Tests;
 /// fail.
 /// </summary>
 [Collection("Imaging")]
-public class OnnxStarRemoverSmokeTests
+public class OnnxStarRemoverSmokeTests(ITestOutputHelper output)
 {
     private static bool HasColorModel(out string skipMessage)
     {
@@ -96,7 +98,11 @@ public class OnnxStarRemoverSmokeTests
         // stretch/infer/unstretch path without multi-chunk stitching.
         const int w = 256, h = 192;
         var src = BuildSyntheticRgbWithStars(w, h);
-        using var enhancer = new OnnxStarRemover(new ModelResolver(), logger: null, chunkSize: 512, overlap: 64);
+        // Wire a real logger so the timing breakdown shows up in test output.
+        // Verifies the LogInformation call lands and lets us eyeball the
+        // per-phase numbers when re-running the smoke test.
+        using var factory = LoggerFactory.Create(b => b.AddProvider(new XUnitLoggerProvider(output, appendScope: false)));
+        using var enhancer = new OnnxStarRemover(new ModelResolver(), factory.CreateLogger<OnnxStarRemover>(), chunkSize: 512, overlap: 64);
 
         var result = await enhancer.EnhanceAsync(src, TestContext.Current.CancellationToken);
 

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
@@ -83,9 +84,18 @@ public sealed class OnnxStarRemover(
         logger?.LogDebug("OnnxStarRemover: input {W}x{H}x{C}, chunkSize={Chunk}, overlap={Overlap}, border={Border}",
             srcW, srcH, channels, chunkSize, overlap, AiNafnetInputs.StitchBorderPx);
 
+        // Per-phase timing for the diagnostic log at the end. Each phase's
+        // wall-clock cost is captured separately so users can tell whether
+        // a slow run is bottlenecked on CPU prep (stretch/stitch), GPU
+        // inference, or both -- especially valuable on win-arm64 where QNN
+        // can silently per-node-fall-back to CPU for FP32 models.
+        var totalSw = Stopwatch.StartNew();
+        var phaseSw = Stopwatch.StartNew();
+
         // 1. MTF input-normalisation stretch (per-channel pedestal + MTF that
         //    lands each channel's median at AiNafnetInputs.TargetMedian).
         var stretched = input.MtfStretch(AiNafnetInputs.TargetMedian, out var origMin, out var balances);
+        var stretchMs = phaseSw.ElapsedMilliseconds; phaseSw.Restart();
         ct.ThrowIfCancellationRequested();
 
         // 2. AddBorder per channel. NAFNet's tile boundaries produce visible
@@ -110,6 +120,7 @@ public sealed class OnnxStarRemover(
             chunksPerChannel[c] = ChunkedInference.Split(paddedChannels[c], paddedW, paddedH, chunkSize, overlap);
         }
         var chunkCount = chunksPerChannel[0].Length;
+        var prepMs = phaseSw.ElapsedMilliseconds; phaseSw.Restart();
 
         // 4. Run inference chunk-by-chunk against the right model.
         var session = AcquireSession(channels);
@@ -145,6 +156,7 @@ public sealed class OnnxStarRemover(
                 outputChunksByChannel[c][i] = refChunk with { Data = outData };
             }
         }
+        var inferMs = phaseSw.ElapsedMilliseconds; phaseSw.Restart();
 
         // 5. Stitch chunks back per channel, with the canonical border drop.
         var stitchedChannels = new float[channels][];
@@ -166,6 +178,7 @@ public sealed class OnnxStarRemover(
             unpadded.AsSpan().CopyTo(dst);
             outChannelData[c] = plane;
         }
+        var stitchMs = phaseSw.ElapsedMilliseconds; phaseSw.Restart();
 
         // The stretched inference output is in [0, 1] (modulo small NAFNet
         // excursions); MaxValue=1.0 is a safe upper bound here -- MtfUnstretch
@@ -175,7 +188,25 @@ public sealed class OnnxStarRemover(
         // 7. Inverse MTF -> source units. Linear-units output (but see
         //    PLAN-ai-enhancement.md "Domain semantics" for why star-removal
         //    output is not a linear-semantics function of input).
-        return inferenceResult.MtfUnstretch(origMin, balances);
+        var unstretched = inferenceResult.MtfUnstretch(origMin, balances);
+        var unstretchMs = phaseSw.ElapsedMilliseconds;
+        var totalMs = totalSw.ElapsedMilliseconds;
+
+        // Throughput: source megapixels processed per second. Counts source
+        // pixels (not padded / chunk-overlap totals) so the number reflects
+        // user-visible output size rather than internal accounting.
+        var megapixels = (channels * srcW * (double)srcH) / 1_000_000.0;
+        var throughputMpps = totalMs > 0 ? megapixels * 1000.0 / totalMs : 0.0;
+
+        logger?.LogInformation(
+            "OnnxStarRemover.EnhanceAsync: {Model} {W}x{H}x{C} chunks={Chunks} " +
+            "stretch={Stretch}ms prep={Prep}ms infer={Infer}ms stitch={Stitch}ms unstretch={Unstretch}ms " +
+            "throughput={Mpps:F2} Mp/s total={Total}ms",
+            channels == 1 ? MonoModel : ColorModel, srcW, srcH, channels, chunkCount,
+            stretchMs, prepMs, inferMs, stitchMs, unstretchMs,
+            throughputMpps, totalMs);
+
+        return unstretched;
     }
 
     private InferenceSession AcquireSession(int channels)
