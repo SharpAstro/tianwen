@@ -4,40 +4,54 @@ using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
+using TianWen.Lib.Astrometry;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Enhancement;
+using TianWen.UI.Abstractions;
 
 namespace TianWen.Cli;
 
 /// <summary>
-/// <c>tianwen image &lt;verb&gt;</c> -- single-image AI enhancement verbs.
-/// Each verb takes a FITS file in, produces FITS file(s) out. Default output
-/// path is <c>&lt;input&gt;_&lt;verb&gt;.fits</c>; explicit <c>-o</c> overrides.
+/// <c>tianwen image &lt;verb&gt;</c> -- single-image enhancement + render
+/// verbs. Each verb takes a FITS file in, produces FITS or PNG file(s)
+/// out. Default output path is <c>&lt;input&gt;_&lt;verb&gt;.fits</c>;
+/// explicit <c>-o</c> overrides.
 /// </summary>
 /// <remarks>
-/// All verbs go through the AI4 NAFNet enhancers wired by
-/// <c>services.AddTianWenAi()</c> in <c>Program.cs</c>. Input is normalised
-/// to <c>[0, 1]</c> via <see cref="Image.ScaleFloatValuesToUnit"/> before
-/// inference (the enhancers validate the range and would otherwise reject
-/// the call); output is written at <c>BitDepth.Float32</c> in the same
-/// normalised range. WCS headers from the input round-trip into every
-/// output file so downstream plate-solve / stacking calls can still use
-/// the same astrometric solution.
+/// AI enhancers go through the AI4 NAFNet pipeline wired by
+/// <c>services.AddTianWenAi()</c>. Input is normalised to <c>[0, 1]</c>
+/// via <see cref="Image.ScaleFloatValuesToUnit"/> before inference
+/// (the enhancers validate the range and would otherwise reject the call);
+/// output is written at <c>BitDepth.Float32</c> in the same normalised
+/// range. WCS headers from the input round-trip into every output file
+/// so downstream plate-solve / stacking calls still use the same
+/// astrometric solution.
+///
+/// <para><c>tianwen image render</c> wraps
+/// <see cref="MasterPreviewRenderer"/> -- the same component
+/// <c>tianwen stack</c> uses to produce the <c>master_*.png</c>
+/// companion file. SPCC color calibration is computed at render time
+/// and baked into the PNG; it is NOT written into the source FITS. So
+/// the same FITS rendered twice produces the same PNG, but the FITS
+/// itself stays color-uncalibrated -- by design, so downstream tools
+/// keep the linear data untouched.</para>
 /// </remarks>
 internal sealed class ImageSubCommand(
     IConsoleHost consoleHost,
     SharpenPipeline sharpenPipeline,
     IStarRemover starRemover,
+    MasterPreviewRenderer previewRenderer,
     ILogger<ImageSubCommand>? logger = null)
 {
     public Command Build()
     {
-        var image = new Command("image", "Single-image AI enhancement verbs (sharpen, remove-stars).")
+        var image = new Command("image", "Single-image enhancement + render verbs (sharpen, remove-stars, render).")
         {
             Subcommands =
             {
                 BuildSharpenCommand(),
                 BuildRemoveStarsCommand(),
+                BuildRenderCommand(),
             },
         };
         return image;
@@ -72,11 +86,15 @@ internal sealed class ImageSubCommand(
         {
             Description = "Don't recombine the processed plates. Each plate is written as a separate file (see --output).",
         };
+        var pngOpt = new Option<bool>("--png")
+        {
+            Description = "Also write a stretched PNG preview alongside each output FITS (same render as 'tianwen stack' produces, so the sharpened result is visually comparable).",
+        };
 
         var cmd = new Command("sharpen", "Full AI4 NAFNet sharpen pipeline: remove stars, sharpen the stars-only plate, deconvolve the starless plate, recombine.")
         {
             Arguments = { inputArg },
-            Options = { outputOpt, modeOpt, noStellarOpt, noDeconvOpt, noRecombineOpt },
+            Options = { outputOpt, modeOpt, noStellarOpt, noDeconvOpt, noRecombineOpt, pngOpt },
         };
         cmd.SetAction(async (parseResult, ct) =>
         {
@@ -140,21 +158,24 @@ internal sealed class ImageSubCommand(
                 return 2;
             }
 
+            var withPng = parseResult.GetValue(pngOpt);
+
             if (noRecombine)
             {
                 // Per-plate output: derive each path from the explicit output (if
                 // any) or from the input. Skip plates that weren't produced.
                 var basePath = outputPath ?? StripExtension(input);
-                WritePlate(result.Starless, basePath, "_starless", wcs);
-                WritePlate(result.StarsOnly, basePath, "_stars", wcs);
-                WritePlate(result.SharpenedStars, basePath, "_sharpened-stars", wcs);
-                WritePlate(result.DeconvolvedStarless, basePath, "_deconvolved-starless", wcs);
+                await WritePlateAsync(result.Starless, basePath, "_starless", wcs, src.ImageMeta, withPng, ct);
+                await WritePlateAsync(result.StarsOnly, basePath, "_stars", wcs, src.ImageMeta, withPng, ct);
+                await WritePlateAsync(result.SharpenedStars, basePath, "_sharpened-stars", wcs, src.ImageMeta, withPng, ct);
+                await WritePlateAsync(result.DeconvolvedStarless, basePath, "_deconvolved-starless", wcs, src.ImageMeta, withPng, ct);
             }
             else
             {
                 var dst = outputPath ?? DefaultOut(input, "_sharpened");
                 result.Final!.WriteToFitsFile(dst, wcs);
                 consoleHost.WriteScrollable($"[sharpen] wrote {dst}");
+                if (withPng) await RenderPngAsync(result.Final, src.ImageMeta, wcs, ReplaceExtension(dst, ".png"), ct);
             }
 
             // Release intermediates the orchestrator allocated.
@@ -181,10 +202,15 @@ internal sealed class ImageSubCommand(
             Description = "Output FITS path. Default: <input>_starless.fits.",
         };
 
+        var pngOpt = new Option<bool>("--png")
+        {
+            Description = "Also write a stretched PNG preview alongside the FITS output.",
+        };
+
         var cmd = new Command("remove-stars", "AI4 NAFNet star removal only. Produces a starless export.")
         {
             Arguments = { inputArg },
-            Options = { outputOpt },
+            Options = { outputOpt, pngOpt },
         };
         cmd.SetAction(async (parseResult, ct) =>
         {
@@ -220,7 +246,51 @@ internal sealed class ImageSubCommand(
             var dst = parseResult.GetValue(outputOpt) ?? DefaultOut(input, "_starless");
             starless.WriteToFitsFile(dst, wcs);
             consoleHost.WriteScrollable($"[remove-stars] wrote {dst}");
+            if (parseResult.GetValue(pngOpt))
+            {
+                await RenderPngAsync(starless, src.ImageMeta, wcs, ReplaceExtension(dst, ".png"), ct);
+            }
             starless.Release();
+            return 0;
+        });
+        return cmd;
+    }
+
+    // -------- tianwen image render -------------------------------------
+
+    private Command BuildRenderCommand()
+    {
+        var inputArg = new Argument<string>("input")
+        {
+            Description = "FITS file to render to PNG.",
+        };
+        var outputOpt = new Option<string?>("--output", "-o")
+        {
+            Description = "Output PNG path. Default: <input>.png.",
+        };
+
+        var cmd = new Command("render", "Render a FITS file to a stretched PNG using the same renderer as 'tianwen stack' (SPCC + sky-bg WB + bg-neut + stretch + sRGB ICC).")
+        {
+            Arguments = { inputArg },
+            Options = { outputOpt },
+        };
+        cmd.SetAction(async (parseResult, ct) =>
+        {
+            var input = parseResult.GetValue(inputArg)!;
+            if (!File.Exists(input))
+            {
+                consoleHost.WriteError($"Input not found: {input}");
+                return 1;
+            }
+            if (!Image.TryReadFitsFile(input, out var src, out var wcs))
+            {
+                consoleHost.WriteError($"Failed to read FITS file: {input}");
+                return 1;
+            }
+            var dst = parseResult.GetValue(outputOpt) ?? ReplaceExtension(input, ".png");
+            consoleHost.WriteScrollable(
+                $"[render] {input} {src.Width}x{src.Height}x{src.ChannelCount} -> {dst}");
+            await RenderPngAsync(src, src.ImageMeta, wcs, dst, ct);
             return 0;
         });
         return cmd;
@@ -228,7 +298,12 @@ internal sealed class ImageSubCommand(
 
     // -------- helpers ---------------------------------------------------
 
-    private void WritePlate(Image? plate, string basePath, string suffix, TianWen.Lib.Astrometry.WCS? wcs)
+    /// <summary>
+    /// Write a plate to <c>basePath + suffix + ".fits"</c>, optionally followed
+    /// by a same-stem PNG via <see cref="RenderPngAsync"/>. Used for both the
+    /// recombined output and the per-plate exports from <c>--no-recombine</c>.
+    /// </summary>
+    private async Task WritePlateAsync(Image? plate, string basePath, string suffix, WCS? wcs, ImageMeta sensorMeta, bool withPng, CancellationToken ct)
     {
         if (plate is null) return;
         var path = basePath.EndsWith(".fits", StringComparison.OrdinalIgnoreCase)
@@ -236,6 +311,27 @@ internal sealed class ImageSubCommand(
             : basePath + suffix + ".fits";
         plate.WriteToFitsFile(path, wcs);
         consoleHost.WriteScrollable($"[sharpen] wrote {path}");
+        if (withPng) await RenderPngAsync(plate, sensorMeta, wcs, ReplaceExtension(path, ".png"), ct);
+    }
+
+    /// <summary>
+    /// Run the shared <see cref="MasterPreviewRenderer"/> -- same path the
+    /// stack subcommand uses for its <c>master_*.png</c> -- against
+    /// <paramref name="img"/>. SPCC is computed at render time and only
+    /// baked into the PNG; the source FITS stays untouched.
+    /// </summary>
+    private async Task RenderPngAsync(Image img, ImageMeta sensorMeta, WCS? wcs, string pngPath, CancellationToken ct)
+    {
+        try
+        {
+            await previewRenderer.RenderAsync(img, sensorMeta, wcs, statsSource: null, pngPath, ct: ct);
+            consoleHost.WriteScrollable($"[render] wrote {pngPath}");
+        }
+        catch (Exception ex)
+        {
+            consoleHost.WriteError($"PNG render failed for {pngPath}: {ex.Message}");
+            logger?.LogError(ex, "PNG render failed for {Path}", pngPath);
+        }
     }
 
     private static string DefaultOut(string input, string suffix)
@@ -246,4 +342,7 @@ internal sealed class ImageSubCommand(
         var ext = Path.GetExtension(path);
         return string.IsNullOrEmpty(ext) ? path : path[..^ext.Length];
     }
+
+    private static string ReplaceExtension(string path, string newExt)
+        => StripExtension(path) + newExt;
 }
