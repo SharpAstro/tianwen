@@ -184,6 +184,37 @@ enough for v1; defer per-chunk re-measurement to a follow-up). A future
 `SepPerChunkPsfEstimator` (port of SAS Pro's `measure_psf_radius`) can land
 without touching the deconvolver.
 
+### Domain semantics: linear-units, but not always linear-semantics
+
+The `MtfStretch → infer → MtfUnstretch` wrapping puts every enhancer's output
+back in source units (numerically `[0, MaxValue]`, same scale as the input).
+That matches the user-facing contract of linear-domain tools like RC-Astro's
+BlurXTerminator / NoiseXTerminator: caller hands in linear, gets back linear.
+
+The subtlety is whether the *function* the AI applied is well-approximated by
+a linear-domain transformation. This matters when chaining AI passes with
+other linear-domain math (gradient removal, color calibration, classical
+fallbacks). Per step:
+
+| Step | Linear-units output? | Linear-semantics? | Reason |
+|------|:--:|:--:|--------|
+| `IStellarSharpener` | yes | **yes** | Local detail edits in the stars-only plate; no histogram macro-shape change. Chains fine with linear-domain math before or after. |
+| `INonStellarDeconvolver` | yes | **yes** | Same -- local-only edits on starless plate. The PSF-conditional scalar input doesn't change global tone. |
+| `IStarRemover` (darkstar) | yes | **no** | Globally rewrites the histogram by collapsing every stellar pixel down to the local nebula level. No <c>f</c> in linear units approximates "stretched-trained NAFNet seeing stars at their perceptually-stretched contrast". The output is in source units but is not a linear-domain function of the input. |
+
+**Practical consequence.** Star removal is normally the **last step** in the
+linear stage of the pipeline (calibration → stacking → ABE → color calibration →
+star removal → stretch → post-processing on the starless + stars-only plates).
+The fact that the AI4 darkstar isn't "true linear semantics" doesn't bite
+because nothing linear-domain runs after it. If we ever want to chain ABE
+*after* star removal -- e.g. re-fit a gradient on the starless plate to clean
+up residual sky -- we should be aware that we're feeding a non-linear-semantics
+plate to a linear-fitting tool, and either (a) keep the gradient fit very low
+degree, or (b) train a linear-domain star remover specifically for that flow.
+
+For now: keep the canonical pipeline order. Documentation here so the
+limitation is recoverable months from now without re-deriving it.
+
 ### Orchestrator API
 
 ```csharp
