@@ -5,10 +5,12 @@ using Microsoft.Extensions.Logging;
 using Pastel;
 using System.CommandLine;
 using System.Text;
+using TianWen.AI.Imaging;
 using TianWen.Cli;
 using TianWen.Cli.Plan;
 using TianWen.Cli.View;
 using TianWen.Lib.Extensions;
+using TianWen.Lib.Imaging.Enhancement;
 using TianWen.Lib.Logging;
 using TianWen.UI.Abstractions;
 using TianWen.UI.Abstractions.Extensions;
@@ -54,6 +56,7 @@ builder.Services
     .AddDevices()
     .AddSessionFactory()
     .AddFitsViewer()
+    .AddTianWenAi()
     .AddSingleton<IVirtualTerminal, VirtualTerminal>()
     .AddSingleton<DocumentCache>()
     .AddSingleton<IConsoleHost, ConsoleHost>();
@@ -123,6 +126,11 @@ var rootCommand = new RootCommand
             consoleHost,
             services.GetRequiredService<TianWen.Lib.Astrometry.PlateSolve.IPlateSolverFactory>(),
             services.GetRequiredService<TianWen.Lib.Astrometry.Catalogs.ICelestialObjectDB>()).Build(),
+        new ImageSubCommand(
+            consoleHost,
+            services.GetRequiredService<SharpenPipeline>(),
+            services.GetRequiredService<IStarRemover>(),
+            services.GetService<ILogger<ImageSubCommand>>()).Build(),
         new TuiSubCommand(services, consoleHost, plannerState, profileSelector).Build()
     }
 };
