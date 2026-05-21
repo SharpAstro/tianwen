@@ -84,10 +84,10 @@ public sealed class OnnxNonStellarDeconvolver(
         var megapixels = (sourceChannels * srcW * (double)srcH) / 1_000_000.0;
         var throughputMpps = result.TotalMs > 0 ? megapixels * 1000.0 / result.TotalMs : 0.0;
         logger?.LogInformation(
-            "OnnxNonStellarDeconvolver.EnhanceAsync: {Model} {W}x{H}x{C} chunks={Chunks} psf01={Psf01:F3} " +
+            "OnnxNonStellarDeconvolver.EnhanceAsync: {Model} {W}x{H}x{C} chunks={Chunks} stretchApplied={StretchApplied} psf01={Psf01:F3} " +
             "stretch={Stretch}ms prep={Prep}ms infer={Infer}ms stitch={Stitch}ms unstretch={Unstretch}ms " +
             "throughput={Mpps:F2} Mp/s total={Total}ms",
-            Model, srcW, srcH, sourceChannels, result.ChunkCount, psf01,
+            Model, srcW, srcH, sourceChannels, result.ChunkCount, result.StretchApplied, psf01,
             result.StretchMs, result.PrepMs, result.InferMs, result.StitchMs, result.UnstretchMs,
             throughputMpps, result.TotalMs);
 

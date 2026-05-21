@@ -86,10 +86,10 @@ public sealed class OnnxStarRemover(
         var megapixels = (sourceChannels * srcW * (double)srcH) / 1_000_000.0;
         var throughputMpps = result.TotalMs > 0 ? megapixels * 1000.0 / result.TotalMs : 0.0;
         logger?.LogInformation(
-            "OnnxStarRemover.EnhanceAsync: {Model} {W}x{H}x{C} chunks={Chunks} " +
+            "OnnxStarRemover.EnhanceAsync: {Model} {W}x{H}x{C} chunks={Chunks} stretchApplied={StretchApplied} " +
             "stretch={Stretch}ms prep={Prep}ms infer={Infer}ms stitch={Stitch}ms unstretch={Unstretch}ms " +
             "throughput={Mpps:F2} Mp/s total={Total}ms",
-            modelName, srcW, srcH, sourceChannels, result.ChunkCount,
+            modelName, srcW, srcH, sourceChannels, result.ChunkCount, result.StretchApplied,
             result.StretchMs, result.PrepMs, result.InferMs, result.StitchMs, result.UnstretchMs,
             throughputMpps, result.TotalMs);
 

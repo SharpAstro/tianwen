@@ -37,4 +37,19 @@ internal static class AiNafnetInputs
     /// produces near tile edges.
     /// </summary>
     public static readonly int StitchBorderPx = 16;
+
+    /// <summary>
+    /// Threshold for the "is this input already stretched?" auto-detect in
+    /// <see cref="Onnx.ChunkedNafnetRunner"/>. If
+    /// <c>median(channel0 - min) &gt;= this</c>, the input is presumed to
+    /// already be in (or close to) the NAFNet training distribution
+    /// (<see cref="TargetMedian"/> = 0.25) and the MTF round-trip is skipped
+    /// -- we pass the source directly to the ONNX session, then return its
+    /// output verbatim. Matches the <c>stretch_needed</c> check in SAS Pro's
+    /// <c>sharpen_engine.py</c>. Skipping the round-trip is critical for
+    /// inputs that are already stretched (e.g. ABE / GHS output), because
+    /// the MTF nonlinearity near saturation amplifies per-channel noise
+    /// around bright stars.
+    /// </summary>
+    public static readonly float StretchAutoDetectMedianThreshold = 0.125f;
 }
