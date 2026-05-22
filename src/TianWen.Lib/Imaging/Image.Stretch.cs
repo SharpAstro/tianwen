@@ -310,6 +310,204 @@ public partial class Image
     }
 
     /// <summary>
+    /// Estimates the rising edge of the histogram -- the pixel value at which
+    /// the histogram first lifts off the floor on the way up to the main peak
+    /// (background mode). This is the "where the histogram starts lifting up
+    /// towards the peak" point Paul (Polymath Astro) and other GHS practitioners
+    /// recommend as the GHS symmetry point on linear-input frames: stretching
+    /// pivots around the lift-off so the noise floor below isn't dragged up but
+    /// everything above (including the background bulk) gets the full curve.
+    /// </summary>
+    /// <remarks>
+    /// Uses a 4096-bin histogram (~0.00024 step) on channel 0 -- enough
+    /// resolution to land within ~0.0005 of Paul's hand-picked SP=0.003 for
+    /// linear-bg ~0.005 frames. Walks LEFT from the mode bin and stops at the
+    /// first bin whose count falls below <paramref name="thresholdFraction"/>
+    /// of the peak. NaN values are skipped. Returns 0 if the channel is empty
+    /// / all-NaN.
+    /// </remarks>
+    /// <param name="thresholdFraction">Fraction of the peak count below which
+    /// a bin is considered "off the floor". Default 0.05 (5% of peak) -- low
+    /// enough to find the true lift-off, high enough to ignore single-bin
+    /// noise tails. Range (0, 1).</param>
+    public float EstimateRisingEdge(float thresholdFraction = 0.05f)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(thresholdFraction);
+        ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual(thresholdFraction, 1.0f);
+
+        const int Bins = 4096;
+        Span<int> hist = stackalloc int[Bins];
+        var src = GetChannelSpan(0);
+        for (var i = 0; i < src.Length; i++)
+        {
+            var v = src[i];
+            if (float.IsNaN(v)) continue;
+            var clamped = Math.Clamp(v, 0f, 1f);
+            var idx = Math.Min((int)(clamped * Bins), Bins - 1);
+            hist[idx]++;
+        }
+        var peakIdx = 0;
+        var peakCount = 0;
+        for (var i = 0; i < Bins; i++)
+        {
+            if (hist[i] > peakCount) { peakCount = hist[i]; peakIdx = i; }
+        }
+        if (peakCount == 0) return 0f;
+
+        var threshold = peakCount * thresholdFraction;
+        var edgeIdx = peakIdx;
+        while (edgeIdx > 0 && hist[edgeIdx] >= threshold) edgeIdx--;
+        return (edgeIdx + 0.5f) / Bins;
+    }
+
+    /// <summary>
+    /// Generalized Hyperbolic Stretch (Mike Cranfield's PixInsight script
+    /// family, as ported in SAS Pro <c>ghs_dialog_pro.py</c>). Five-parameter
+    /// tone curve with independent shadow / highlight protection points --
+    /// addresses MTF's "single hyperbolic" limitation by exposing the
+    /// protection regions as separate controls.
+    /// </summary>
+    /// <remarks>
+    /// <para>The curve is constructed in a parametric (us, vp) form with
+    /// us as the LUT index (uniform [0, 1]) and vp as the output at that
+    /// index. The function passes through (0, 0), (0.5, SP), and (1, 1) by
+    /// construction: input pixel value <c>x = us</c> maps to
+    /// <c>output = vp(us)</c>. <see cref="BuildGhsLut"/> is exposed so the
+    /// LUT can be inspected / tested separately from the per-pixel loop.</para>
+    ///
+    /// <para>LP / HP protection: linear blend between the raw GHS curve and
+    /// identity in the respective region (below / above SP). <c>0</c> = no
+    /// protection (raw GHS); <c>1</c> = full identity (no stretch in that
+    /// region). The gamma tail (<paramref name="gamma"/>) is rarely needed
+    /// and defaults to 1.0 (off).</para>
+    /// </remarks>
+    /// <param name="intensity">Curve exponent (a in SAS Pro). Smaller values
+    /// (0.2 - 0.8) give stronger midtones lift; ~1.0 is near identity at
+    /// SP=0.5; larger values darken. Default <c>0.5</c> for a moderate
+    /// stretch on linear input.</param>
+    /// <param name="asymmetry">Direction parameter (b in SAS Pro). 1.0 =
+    /// symmetric curve. Values &gt; 1 stretch shadows more aggressively;
+    /// values &lt; 1 emphasise highlights. Default <c>1.0</c>.</param>
+    /// <param name="shadowProtection">LP in [0, 1]: how much of the curve
+    /// below SP is replaced with identity. 0 = full GHS, 1 = pure identity
+    /// below SP. Default <c>0.0</c>.</param>
+    /// <param name="highlightProtection">HP in [0, 1]: same as
+    /// <paramref name="shadowProtection"/> but for the region above SP.
+    /// Default <c>0.0</c>; raise (e.g. 0.3) to gently preserve bright
+    /// regions without an extra compression step.</param>
+    /// <param name="symmetryPoint">SP in (0, 1): the input pixel value at
+    /// which the curve hinges. Output at <c>x = 0.5</c> equals SP. Default
+    /// <c>0.25</c> matches the SAS Pro / PixInsight statistical-stretch
+    /// convention.</param>
+    /// <param name="gamma">Output gamma applied after the GHS curve.
+    /// Default <c>1.0</c> (no gamma).</param>
+    public Image GeneralizedHyperbolicStretch(
+        double intensity = 0.5,
+        double asymmetry = 1.0,
+        double shadowProtection = 0.0,
+        double highlightProtection = 0.0,
+        double symmetryPoint = 0.25,
+        double gamma = 1.0)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(intensity);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(asymmetry);
+        ArgumentOutOfRangeException.ThrowIfNegative(shadowProtection);
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(shadowProtection, 1.0);
+        ArgumentOutOfRangeException.ThrowIfNegative(highlightProtection);
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(highlightProtection, 1.0);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(symmetryPoint);
+        ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual(symmetryPoint, 1.0);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(gamma);
+
+        const int LutSize = 65536;
+        var lut = new float[LutSize];
+        BuildGhsLut(lut, intensity, asymmetry, shadowProtection, highlightProtection, symmetryPoint, gamma);
+
+        var (channels, width, height) = Shape;
+        var pixelCount = width * height;
+        var newData = CreateChannelData(channels, height, width);
+        for (var c = 0; c < channels; c++)
+        {
+            var src = GetChannelSpan(c);
+            var dst = MemoryMarshal.CreateSpan(ref newData[c][0, 0], pixelCount);
+            for (var i = 0; i < pixelCount; i++)
+            {
+                var v = src[i];
+                if (float.IsNaN(v)) { dst[i] = float.NaN; continue; }
+                var clamped = Math.Clamp(v, 0f, 1f);
+                var idx = clamped * (LutSize - 1);
+                var i0 = (int)idx;
+                if (i0 >= LutSize - 1) { dst[i] = lut[LutSize - 1]; continue; }
+                var frac = idx - i0;
+                dst[i] = lut[i0] * (1f - frac) + lut[i0 + 1] * frac;
+            }
+        }
+        return new Image(newData, BitDepth.Float32, 1.0f, 0f, 0f, imageMeta);
+    }
+
+    /// <summary>
+    /// Populates <paramref name="lut"/> with the GHS tone curve indexed by
+    /// uniform <c>us = i / (N - 1)</c>. Standalone for testability and so
+    /// callers can cache / inspect the LUT outside the per-pixel hot loop.
+    /// </summary>
+    internal static void BuildGhsLut(
+        Span<float> lut, double a, double b, double lp, double hp, double sp, double g)
+    {
+        const double eps = 1e-9;
+        var n = lut.Length;
+        var halfA = Math.Pow(0.5, a);
+        // midL/midR are constant across all us (depend only on a, b at us=0.5).
+        var midL = halfA / (halfA + b * halfA + eps);
+        var midR = halfA / (halfA + (1.0 / b) * halfA + eps);
+
+        // First pass: build the raw curve into the LUT.
+        for (var i = 0; i < n; i++)
+        {
+            var us = (double)i / (n - 1);
+            double up, vp;
+            if (us <= 0.5)
+            {
+                // Left half: maps us [0, 0.5] to up [0, sp].
+                up = 2.0 * sp * us;
+                var num = Math.Pow(us, a);
+                var raw = num / (num + b * Math.Pow(1.0 - us, a) + eps);
+                vp = raw * (sp / Math.Max(midL, eps));
+            }
+            else
+            {
+                // Right half: maps us [0.5, 1] to up [sp, 1].
+                up = sp + 2.0 * (1.0 - sp) * (us - 0.5);
+                var num = Math.Pow(us, a);
+                var raw = num / (num + (1.0 / b) * Math.Pow(1.0 - us, a) + eps);
+                vp = sp + (raw - midR) * ((1.0 - sp) / Math.Max(1.0 - midR, eps));
+            }
+
+            // LP / HP linear blend with identity in protected region.
+            if (lp > 0 && up <= sp) vp = (1.0 - lp) * vp + lp * up;
+            if (hp > 0 && up >= sp) vp = (1.0 - hp) * vp + hp * up;
+
+            // Optional output gamma.
+            if (Math.Abs(g - 1.0) > 1e-6)
+            {
+                var clamped = Math.Clamp(vp, 0.0, 1.0);
+                vp = Math.Pow(clamped, 1.0 / g);
+            }
+
+            lut[i] = (float)Math.Clamp(vp, 0.0, 1.0);
+        }
+
+        // Monotonic correction (np.maximum.accumulate equivalent). Guards
+        // against tiny non-monotonic dips that the floating-point arithmetic
+        // can introduce near LP/HP transitions.
+        var running = lut[0];
+        for (var i = 1; i < n; i++)
+        {
+            if (lut[i] < running) lut[i] = running;
+            else running = lut[i];
+        }
+    }
+
+    /// <summary>
     /// Reinhard-style soft highlight compression. Below <paramref name="knee"/>
     /// the curve is identity (no change). Above <paramref name="knee"/> values
     /// are compressed by <c>v_out = knee + range · t / (1 + amount · t)</c>

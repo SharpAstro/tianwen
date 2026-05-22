@@ -2,6 +2,7 @@ using System;
 using System.Collections.Immutable;
 using System.Runtime.CompilerServices;
 using System.Threading.Tasks;
+using static TianWen.Lib.Stat.StatisticsHelper;
 namespace TianWen.Lib.Imaging;
 
 public partial class Image
@@ -156,6 +157,13 @@ public partial class Image
              * we can determine the mad by beginning from the median and step up and down
              * By doing so we will gain a sorted list automatically, because MAD = DetermineMedian(|xn - median|)
              * So starting from the median will be 0 (as median - median = 0), going up and down will increment by the steps
+             *
+             * Sub-bin linear interpolation: without it the MAD is quantised to integer
+             * bin distances {0, 1, 2, ...}, which on a 65535-bin histogram floors any
+             * observable σ at ~1.5e-5 in unit space (MAD_TO_SD / 65535) and makes
+             * drizzle-stacked frames read identical bin-noise values regardless of
+             * their true noise level. Interpolating by the fraction of in-bin count
+             * needed to cross medianlength recovers float precision below 1 bin.
              */
             occurances = 0;
             var idxDown = median1;
@@ -163,18 +171,30 @@ public partial class Image
             mad = null;
             while (true)
             {
+                uint currCount;
                 if (idxDown >= 0 && idxDown != idxUp)
                 {
-                    occurances += histogram[idxDown] + histogram[idxUp];
+                    currCount = histogram[idxDown] + histogram[idxUp];
                 }
                 else
                 {
-                    occurances += histogram[idxUp];
+                    currCount = histogram[idxUp];
                 }
+                var prevOccurances = occurances;
+                occurances += currCount;
 
                 if (occurances > medianlength)
                 {
-                    mad = MathF.Abs(idxUp - median.Value);
+                    var k = (double)idxUp - median.Value;
+                    var frac = currCount > 0
+                        ? (medianlength - prevOccurances) / (double)currCount
+                        : 0.5;
+                    // For k > 0: |delta| range of this bin step is [k - 0.5, k + 0.5].
+                    // For k == 0 (first iter, all pixels in the median bin): |delta|
+                    // range collapses to [0, 0.5] (only one side of the bin contributes
+                    // because pixels on the median's own bin have |delta| <= 0.5).
+                    var madD = k == 0 ? frac * 0.5 : Math.Max(0, k - 0.5 + frac);
+                    mad = (float)madD;
                     break;
                 }
 
@@ -225,6 +245,68 @@ public partial class Image
         }
 
         return (pedestral, median * maxValueFactor, scaledMad);
+    }
+
+    /// <summary>
+    /// Robust per-channel noise σ estimate, in unit-scaled [0, 1] coordinates.
+    /// For each channel: σ = MAD × 1.4826 (the Gaussian consistency factor for
+    /// the median absolute deviation -- recovers the true σ of a Normal
+    /// distribution from MAD with negligible bias for N > ~1000 samples).
+    /// </summary>
+    /// <remarks>
+    /// <para>MAD is computed around the channel median, so bright outliers
+    /// (stars, nebula cores) are statistically rejected -- the result is a
+    /// good proxy for "noise σ of the background" without needing explicit
+    /// background segmentation. This is the same primitive PixInsight's
+    /// <c>MeasureSNR</c> uses, and what SAS Pro's stretch heuristics check.</para>
+    ///
+    /// <para>Use case in the AI pipeline: log per-stage σ to quantify how
+    /// much grain each enhancer (denoise, deconv) actually removes, and to
+    /// detect regressions where a stage <i>amplifies</i> noise (which
+    /// deconv can do when run without a denoise follow-up).</para>
+    ///
+    /// <para>Output length equals the channel count -- 1 for mono, 3 for
+    /// RGB. Degenerate channels (all-NaN, fully saturated, or zero variance)
+    /// yield σ = 0 -- the histogram can't compute MAD on those, so the
+    /// primitive probes the histogram's nullable <see cref="ImageHistogram.MAD"/>
+    /// directly and falls back to 0 when missing. Callers tracking "this
+    /// stage broke" should compare σ to the entry baseline; a sudden drop
+    /// to exactly 0 signals degeneracy.</para>
+    /// </remarks>
+    public ImmutableArray<float> EstimateNoiseProfile()
+    {
+        var (channels, _, _) = Shape;
+        var builder = ImmutableArray.CreateBuilder<float>(channels);
+        for (var c = 0; c < channels; c++)
+        {
+            // Probe the underlying histogram directly -- its MAD field is
+            // nullable when the channel is degenerate, so a null check is a
+            // proper precondition rather than catching the throw from
+            // GetPedestralMedianAndMADScaledToUnit.
+            //
+            // No half-bin floor here (unlike GetPedestralMedianAndMADScaledToUnit):
+            // the histogram MAD now uses sub-bin linear interpolation, so values
+            // below 0.5 bins are real measurements, not quantisation noise. The
+            // floor would defeat the whole point of noise tracking on already-
+            // stacked / drizzled data where true σ < 1e-5 is common.
+            var stats = Statistics(c, removePedestral: true);
+            if (stats.MAD is { } madRaw && stats.RescaledMaxValue is { } rescaledMax)
+            {
+                var scaled = (float)(madRaw / rescaledMax);
+                builder.Add(scaled * MAD_TO_SD);
+            }
+            else if (stats.MAD is { } madUnscaled)
+            {
+                // No rescale -> MAD already in unit space
+                var scaled = madUnscaled / MaxValue;
+                builder.Add(scaled * MAD_TO_SD);
+            }
+            else
+            {
+                builder.Add(0f);
+            }
+        }
+        return builder.MoveToImmutable();
     }
 
     /// <summary>

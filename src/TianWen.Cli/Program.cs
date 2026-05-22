@@ -130,6 +130,7 @@ var rootCommand = new RootCommand
             consoleHost,
             services.GetRequiredService<SharpenPipeline>(),
             services.GetRequiredService<IStarRemover>(),
+            services.GetRequiredService<IGradientCorrector>(),
             new TianWen.UI.Abstractions.MasterPreviewRenderer(
                 services.GetRequiredService<TianWen.Lib.Astrometry.Catalogs.ICelestialObjectDB>(),
                 services.GetRequiredService<ILogger<TianWen.UI.Abstractions.MasterPreviewRenderer>>()),

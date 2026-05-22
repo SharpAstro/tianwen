@@ -57,7 +57,7 @@ public class SharpenPipelineTests(ITestOutputHelper output)
     }
 
     /// <summary>Identity enhancer (returns input unchanged). Stand-in for any role.</summary>
-    private sealed class IdentityEnhancer(string name) : IStarRemover, IStellarSharpener, INonStellarDeconvolver, IDenoiseEnhancer
+    private sealed class IdentityEnhancer(string name) : IStarRemover, IStellarSharpener, INonStellarDeconvolver, IDenoiseEnhancer, IGradientCorrector
     {
         public string Name => name;
         public Task<Image> EnhanceAsync(Image input, CancellationToken cancellationToken = default)
@@ -92,7 +92,7 @@ public class SharpenPipelineTests(ITestOutputHelper output)
 
     /// <summary>Multiplies every pixel by a scalar. Stand-in for an enhancer that
     /// actually changes its input so the blend math is observable in tests.</summary>
-    private sealed class ScaleEnhancer(float scale) : IStarRemover, IStellarSharpener, INonStellarDeconvolver, IDenoiseEnhancer
+    private sealed class ScaleEnhancer(float scale) : IStarRemover, IStellarSharpener, INonStellarDeconvolver, IDenoiseEnhancer, IGradientCorrector
     {
         public string Name => $"Test/Scale({scale})";
         public Task<Image> EnhanceAsync(Image input, CancellationToken cancellationToken = default)
@@ -291,7 +291,8 @@ public class SharpenPipelineTests(ITestOutputHelper output)
             starRemover: new ConstantStarRemover(0.2f),
             stellarSharpener: identity,
             nonStellarDeconvolver: identity,
-            denoiser: identity);
+            denoiser: identity,
+            gradientCorrector: identity);
         var src = SyntheticRgb(8, 8, 0.5f);
 
         var result = await pipeline.ProcessAsync(SharpenRequest.Canonical(src), TestContext.Current.CancellationToken);
@@ -303,6 +304,70 @@ public class SharpenPipelineTests(ITestOutputHelper output)
 
         // Final = identity(StarsOnly) + identity(identity(Starless)) = 0.2 + 0.3 = 0.5.
         result.Final[0, 0, 0].ShouldBe(0.5f, 1e-5f);
+    }
+
+    [Fact]
+    public async Task ProcessAsync_KeepIntermediatesNone_OnlyFinalReturned()
+    {
+        // KeepIntermediates=None trims peak memory by releasing each plate
+        // as soon as downstream consumes it. Contract: SharpenResult.Final
+        // is the only non-null Image slot; every other plate is null (and
+        // the underlying buffers released).
+        var identity = new IdentityEnhancer("identity");
+        var pipeline = new SharpenPipeline(
+            starRemover: new ConstantStarRemover(0.2f),
+            stellarSharpener: identity,
+            nonStellarDeconvolver: identity,
+            denoiser: identity,
+            gradientCorrector: identity);
+        var src = SyntheticRgb(8, 8, 0.5f);
+
+        var request = SharpenRequest.Canonical(src) with { KeepIntermediates = SharpenIntermediates.None };
+        var result = await pipeline.ProcessAsync(request, TestContext.Current.CancellationToken);
+
+        // Final must survive -- the whole point of the run.
+        result.Final.ShouldNotBeNull();
+        result.Final[0, 0, 0].ShouldBe(0.5f, 1e-5f);
+
+        // All intermediate slots null -- released mid-pipeline + at recombine.
+        result.GradientCorrected.ShouldBeNull();
+        result.Starless.ShouldBeNull();
+        result.StarsOnly.ShouldBeNull();
+        result.SharpenedStars.ShouldBeNull();
+        result.DeconvolvedStarless.ShouldBeNull();
+        result.DenoisedStarless.ShouldBeNull();
+
+        // Noise telemetry survives -- ImmutableArray<float> is value-type-tiny.
+        result.InputNoise.IsDefaultOrEmpty.ShouldBeFalse();
+        result.FinalNoise.IsDefaultOrEmpty.ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task ProcessAsync_KeepIntermediatesStarsAndStarlessLineage_DropsGradientOnly()
+    {
+        // The CLI --dual-stretch preset: needs the stars and starless
+        // lineages for per-plate TIFF export, doesn't need the gradient-
+        // corrected plate. Verify the flag keeps the lineages but drops
+        // gradientCorrected.
+        var identity = new IdentityEnhancer("identity");
+        var pipeline = new SharpenPipeline(
+            starRemover: new ConstantStarRemover(0.2f),
+            stellarSharpener: identity,
+            nonStellarDeconvolver: identity,
+            denoiser: identity,
+            gradientCorrector: identity);
+        var src = SyntheticRgb(8, 8, 0.5f);
+
+        var request = SharpenRequest.Canonical(src) with { KeepIntermediates = SharpenIntermediates.StarsAndStarlessLineage };
+        var result = await pipeline.ProcessAsync(request, TestContext.Current.CancellationToken);
+
+        result.Final.ShouldNotBeNull();
+        result.GradientCorrected.ShouldBeNull();  // dropped by the preset
+        result.Starless.ShouldNotBeNull();
+        result.StarsOnly.ShouldNotBeNull();
+        result.SharpenedStars.ShouldNotBeNull();
+        result.DeconvolvedStarless.ShouldNotBeNull();
+        result.DenoisedStarless.ShouldNotBeNull();
     }
 
     [Fact]

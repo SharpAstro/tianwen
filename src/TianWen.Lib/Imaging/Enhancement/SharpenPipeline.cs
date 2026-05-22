@@ -42,6 +42,7 @@ public sealed class SharpenPipeline(
     IStellarSharpener? stellarSharpener = null,
     INonStellarDeconvolver? nonStellarDeconvolver = null,
     IDenoiseEnhancer? denoiser = null,
+    IGradientCorrector? gradientCorrector = null,
     ILogger<SharpenPipeline>? logger = null)
 {
     public async Task<SharpenResult> ProcessAsync(SharpenRequest request, CancellationToken cancellationToken = default)
@@ -52,9 +53,23 @@ public sealed class SharpenPipeline(
 
         var totalSw = Stopwatch.StartNew();
         var (channels, srcW, srcH) = request.Source.Shape;
-        logger?.LogDebug("SharpenPipeline.ProcessAsync: input {W}x{H}x{C} steps=[{Steps}]",
-            srcW, srcH, channels, string.Join(", ", request.Steps.Select(s => s.GetType().Name)));
+        // Capture entry noise before any step runs so the result has a clean
+        // baseline for "how much grain did the AI pipeline remove" deltas.
+        // MAD-based estimator naturally rejects bright outliers (stars, nebula
+        // cores) so this is background σ even without segmentation. See
+        // Image.EstimateNoiseProfile xmldoc.
+        var inputNoise = request.Source.EstimateNoiseProfile();
+        logger?.LogDebug("SharpenPipeline.ProcessAsync: input {W}x{H}x{C} σ=[{Sigma}] steps=[{Steps}]",
+            srcW, srcH, channels, FormatNoise(inputNoise),
+            string.Join(", ", request.Steps.Select(s => s.GetType().Name)));
 
+        // Gradient-corrected source plate. Populated by GradientCorrectionStep
+        // (head of Frank Sackenheim's canonical order). Downstream steps that
+        // read from the source -- only RemoveStarsStep, since everything else
+        // works off starless/stars lineages -- pick gradientCorrected if
+        // present, else fall back to request.Source. This keeps the request
+        // immutable.
+        Image? gradientCorrected = null;
         Image? starless = null;
         Image? starsOnly = null;
         Image? sharpenedStars = null;
@@ -62,7 +77,14 @@ public sealed class SharpenPipeline(
         Image? denoisedStarless = null;
         Image? final = null;
 
-        var timings = new List<(string Name, long Ms)>(request.Steps.Length);
+        var timings = new List<(string Name, long Ms, ImmutableArray<float> NoiseAfter)>(request.Steps.Length);
+        // Tracks the noise σ of the most-processed *linear* starless plate.
+        // Bumped only by linear-domain steps (RemoveStars / Deconv / Denoise);
+        // stretch / bg-reduce / compress / GHS steps that mutate the
+        // denoisedStarless slot in stretched space do NOT update this -- they
+        // would conflate AI noise reduction with histogram redistribution.
+        // Anchors the headline "AI removed X% noise" delta in SharpenResult.
+        var linearStarlessNoise = inputNoise;
         var phaseSw = Stopwatch.StartNew();
 
         try
@@ -72,8 +94,23 @@ public sealed class SharpenPipeline(
                 phaseSw.Restart();
                 switch (step)
                 {
+                    case GradientCorrectionStep:
+                    {
+                        // Removes the smooth background gradient at the head
+                        // of the pipeline. All downstream steps that consume
+                        // the source pick `gradientCorrected ?? request.Source`
+                        // so they see the cleaned plate.
+                        gradientCorrected = await Require(gradientCorrector).EnhanceAsync(request.Source, cancellationToken);
+                        timings.Add(("gradient-correction", phaseSw.ElapsedMilliseconds, gradientCorrected.EstimateNoiseProfile()));
+                        break;
+                    }
+
                     case RemoveStarsStep removeStars:
-                        starless = await Require(starRemover).EnhanceAsync(request.Source, cancellationToken);
+                    {
+                        // Read from the corrected plate when GradientCorrectionStep
+                        // ran upstream; falls back to the original source otherwise.
+                        var starsInput = gradientCorrected ?? request.Source;
+                        starless = await Require(starRemover).EnhanceAsync(starsInput, cancellationToken);
                         // Pixel split:
                         //   Additive (default): StarsOnly = max(Source - Starless, 0).
                         //     Physically correct in linear-light photon space.
@@ -83,10 +120,21 @@ public sealed class SharpenPipeline(
                         //     pre-stretched data or want to round-trip through
                         //     the screen identity.
                         starsOnly = removeStars.SplitMode == RecombineMode.Screen
-                            ? request.Source.Unscreen(starless)
-                            : request.Source.Subtract(starless);
-                        timings.Add(("remove-stars+split", phaseSw.ElapsedMilliseconds));
+                            ? starsInput.Unscreen(starless)
+                            : starsInput.Subtract(starless);
+                        linearStarlessNoise = starless.EstimateNoiseProfile();
+                        timings.Add(("remove-stars+split", phaseSw.ElapsedMilliseconds, linearStarlessNoise));
+                        // gradientCorrected's only consumer was the star
+                        // remover + the split math above. Caller opts out of
+                        // keeping it via the GradientCorrected flag -- by
+                        // default (All) it's preserved for inspection.
+                        if (!request.KeepIntermediates.HasFlag(SharpenIntermediates.GradientCorrected) && gradientCorrected is not null)
+                        {
+                            gradientCorrected.Release();
+                            gradientCorrected = null;
+                        }
                         break;
+                    }
 
                     case SharpenStarsStep sharpStep:
                     {
@@ -99,7 +147,7 @@ public sealed class SharpenPipeline(
                             ? inputPlate.Lerp(raw, sharpStep.Blend)
                             : raw;
                         if (!ReferenceEquals(sharpenedStars, raw)) raw.Release();
-                        timings.Add(("sharpen-stars", phaseSw.ElapsedMilliseconds));
+                        timings.Add(("sharpen-stars", phaseSw.ElapsedMilliseconds, sharpenedStars.EstimateNoiseProfile()));
                         break;
                     }
 
@@ -111,7 +159,16 @@ public sealed class SharpenPipeline(
                             ? inputPlate.Lerp(raw, deconvStep.Blend)
                             : raw;
                         if (!ReferenceEquals(deconvolvedStarless, raw)) raw.Release();
-                        timings.Add(("deconv-starless", phaseSw.ElapsedMilliseconds));
+                        linearStarlessNoise = deconvolvedStarless.EstimateNoiseProfile();
+                        timings.Add(("deconv-starless", phaseSw.ElapsedMilliseconds, linearStarlessNoise));
+                        // starless is dead once deconv lands -- downstream
+                        // (denoise / recombine fallback) prefers deconv ->
+                        // denoised in the rolling-most-processed chain.
+                        if (!request.KeepIntermediates.HasFlag(SharpenIntermediates.Starless) && starless is not null)
+                        {
+                            starless.Release();
+                            starless = null;
+                        }
                         break;
                     }
 
@@ -126,7 +183,23 @@ public sealed class SharpenPipeline(
                             ? inputPlate.Lerp(raw, denoiseStep.Blend)
                             : raw;
                         if (!ReferenceEquals(denoisedStarless, raw)) raw.Release();
-                        timings.Add(("denoise-starless", phaseSw.ElapsedMilliseconds));
+                        linearStarlessNoise = denoisedStarless.EstimateNoiseProfile();
+                        timings.Add(("denoise-starless", phaseSw.ElapsedMilliseconds, linearStarlessNoise));
+                        // deconvolvedStarless is dead once denoise lands
+                        // (same rolling-most-processed argument); release if
+                        // the caller didn't flag it for retention.
+                        if (!request.KeepIntermediates.HasFlag(SharpenIntermediates.DeconvolvedStarless) && deconvolvedStarless is not null)
+                        {
+                            deconvolvedStarless.Release();
+                            deconvolvedStarless = null;
+                        }
+                        // Likewise starless when denoise reads directly from
+                        // it (no deconv ran in between -- starless is now dead).
+                        if (!request.KeepIntermediates.HasFlag(SharpenIntermediates.Starless) && starless is not null)
+                        {
+                            starless.Release();
+                            starless = null;
+                        }
                         break;
                     }
 
@@ -140,7 +213,7 @@ public sealed class SharpenPipeline(
                         var reduced = inputPlate.ReduceBackground(bgPeak, bgStep.Compression);
                         if (denoisedStarless is not null) denoisedStarless.Release();
                         denoisedStarless = reduced;
-                        timings.Add(("background-reduce", phaseSw.ElapsedMilliseconds));
+                        timings.Add(("background-reduce", phaseSw.ElapsedMilliseconds, denoisedStarless.EstimateNoiseProfile()));
                         break;
                     }
 
@@ -155,7 +228,7 @@ public sealed class SharpenPipeline(
                         var compressed = inputPlate.CompressHighlights(hiStep.Knee, hiStep.Amount);
                         if (denoisedStarless is not null) denoisedStarless.Release();
                         denoisedStarless = compressed;
-                        timings.Add(("compress-highlights", phaseSw.ElapsedMilliseconds));
+                        timings.Add(("compress-highlights", phaseSw.ElapsedMilliseconds, denoisedStarless.EstimateNoiseProfile()));
                         break;
                     }
 
@@ -178,7 +251,9 @@ public sealed class SharpenPipeline(
                             Require(starsOnly).Release();
                             starsOnly = afterScnr;
                         }
-                        timings.Add(("scnr-stars", phaseSw.ElapsedMilliseconds));
+                        // SCNR mutates the stars plate; report its noise to track G-channel drift.
+                        var scnrTracked = sharpenedStars ?? Require(starsOnly);
+                        timings.Add(("scnr-stars", phaseSw.ElapsedMilliseconds, scnrTracked.EstimateNoiseProfile()));
                         break;
                     }
 
@@ -202,7 +277,39 @@ public sealed class SharpenPipeline(
                             Require(starsOnly).Release();
                             starsOnly = stretched;
                         }
-                        timings.Add(("stretch-stars", phaseSw.ElapsedMilliseconds));
+                        var stretchTracked = sharpenedStars ?? Require(starsOnly);
+                        timings.Add(("stretch-stars", phaseSw.ElapsedMilliseconds, stretchTracked.EstimateNoiseProfile()));
+                        break;
+                    }
+
+                    case GhsStretchStarlessStep ghsStep:
+                    {
+                        // Generalized Hyperbolic Stretch on the most-processed
+                        // starless plate. With Paul's defaults (b=8, hp=0.8,
+                        // sp=auto) a single pass produces the recommended shape.
+                        // Multi-pass is supported as an escape hatch.
+                        //
+                        // Why SP is auto-detected ONCE before the loop (not per
+                        // pass): re-estimating after each pass would chase the
+                        // already-stretched histogram and slowly bias toward
+                        // the new mode, defeating the "pivot at the linear
+                        // lift-off" intent.
+                        var inputPlate = denoisedStarless ?? deconvolvedStarless ?? Require(starless);
+                        var sp = ghsStep.SymmetryPoint ?? Math.Clamp(inputPlate.EstimateRisingEdge(), 1e-4, 0.999);
+                        var current = inputPlate;
+                        for (var pass = 0; pass < ghsStep.Passes; pass++)
+                        {
+                            var stretched = current.GeneralizedHyperbolicStretch(
+                                ghsStep.Intensity, ghsStep.Asymmetry,
+                                ghsStep.ShadowProtection, ghsStep.HighlightProtection,
+                                sp, gamma: 1.0);
+                            if (!ReferenceEquals(current, inputPlate)) current.Release();
+                            current = stretched;
+                        }
+                        if (denoisedStarless is not null) denoisedStarless.Release();
+                        denoisedStarless = current;
+                        var spLabel = ghsStep.SymmetryPoint is null ? $"sp~{sp:F4}auto" : $"sp={sp:F3}";
+                        timings.Add(($"ghs-stretch-starless({spLabel},b{ghsStep.Asymmetry:F1},hp{ghsStep.HighlightProtection:F2},{ghsStep.Passes}x)", phaseSw.ElapsedMilliseconds, denoisedStarless.EstimateNoiseProfile()));
                         break;
                     }
 
@@ -222,7 +329,7 @@ public sealed class SharpenPipeline(
                             denoisedStarless.Release();
                         }
                         denoisedStarless = stretched;
-                        timings.Add(("stretch-starless", phaseSw.ElapsedMilliseconds));
+                        timings.Add(("stretch-starless", phaseSw.ElapsedMilliseconds, denoisedStarless.EstimateNoiseProfile()));
                         break;
                     }
 
@@ -234,7 +341,20 @@ public sealed class SharpenPipeline(
                         var bg = denoisedStarless ?? deconvolvedStarless ?? Require(starless);
                         var fg = sharpenedStars ?? Require(starsOnly);
                         final = recombineStep.Mode == RecombineMode.Screen ? bg.Screen(fg) : bg.Add(fg);
-                        timings.Add(("recombine", phaseSw.ElapsedMilliseconds));
+                        timings.Add(("recombine", phaseSw.ElapsedMilliseconds, final.EstimateNoiseProfile()));
+                        // Recombine is always the last step (validation
+                        // enforces this), so every contributing plate is
+                        // dead after final lands. Per-flag release: each
+                        // intermediate survives only if the caller flagged it
+                        // for retention. A caller passing None gets just
+                        // `Final`; All preserves everything.
+                        var keep = request.KeepIntermediates;
+                        if (!keep.HasFlag(SharpenIntermediates.GradientCorrected)   && gradientCorrected   is not null) { gradientCorrected.Release();   gradientCorrected   = null; }
+                        if (!keep.HasFlag(SharpenIntermediates.Starless)            && starless            is not null) { starless.Release();            starless            = null; }
+                        if (!keep.HasFlag(SharpenIntermediates.StarsOnly)           && starsOnly           is not null) { starsOnly.Release();           starsOnly           = null; }
+                        if (!keep.HasFlag(SharpenIntermediates.SharpenedStars)      && sharpenedStars      is not null) { sharpenedStars.Release();      sharpenedStars      = null; }
+                        if (!keep.HasFlag(SharpenIntermediates.DeconvolvedStarless) && deconvolvedStarless is not null) { deconvolvedStarless.Release(); deconvolvedStarless = null; }
+                        if (!keep.HasFlag(SharpenIntermediates.DenoisedStarless)    && denoisedStarless    is not null) { denoisedStarless.Release();    denoisedStarless    = null; }
                         break;
                     }
 
@@ -251,6 +371,7 @@ public sealed class SharpenPipeline(
         {
             // On failure release everything we've allocated so the camera
             // buffer pool doesn't grow unboundedly across failed runs.
+            gradientCorrected?.Release();
             starless?.Release();
             starsOnly?.Release();
             sharpenedStars?.Release();
@@ -260,10 +381,18 @@ public sealed class SharpenPipeline(
             throw;
         }
 
+        // FinalNoise = the σ of the most-processed *linear* starless plate,
+        // tracked separately via linearStarlessNoise so stretch / bg-reduce /
+        // compress / GHS steps (which mutate the denoisedStarless SLOT in
+        // stretched space) don't poison the headline Δ%. See the variable's
+        // declaration for the full rationale.
+        var finalNoise = linearStarlessNoise;
+
         logger?.LogInformation(
-            "SharpenPipeline.ProcessAsync: {W}x{H}x{C} timings={Timings} total={Total}ms",
+            "SharpenPipeline.ProcessAsync: {W}x{H}x{C} σ_in=[{NoiseIn}] σ_out=[{NoiseOut}] timings={Timings} total={Total}ms",
             srcW, srcH, channels,
-            string.Join(" ", timings.Select(t => $"{t.Name}={t.Ms}ms")),
+            FormatNoise(inputNoise), FormatNoise(finalNoise),
+            string.Join(" ", timings.Select(t => $"{t.Name}={t.Ms}ms{(t.NoiseAfter.IsDefaultOrEmpty ? "" : $" σ=[{FormatNoise(t.NoiseAfter)}]")}")),
             totalSw.ElapsedMilliseconds);
 
         return new SharpenResult(
@@ -272,7 +401,21 @@ public sealed class SharpenPipeline(
             StarsOnly: starsOnly,
             SharpenedStars: sharpenedStars,
             DeconvolvedStarless: deconvolvedStarless,
-            DenoisedStarless: denoisedStarless);
+            DenoisedStarless: denoisedStarless,
+            GradientCorrected: gradientCorrected,
+            InputNoise: inputNoise,
+            FinalNoise: finalNoise);
+    }
+
+    /// <summary>
+    /// Renders a per-channel σ vector as a slash-separated scientific-notation
+    /// string for log lines (e.g. <c>4.21E-003/5.18E-003/4.99E-003</c>).
+    /// Used by both the entry log and the per-step timing summary.
+    /// </summary>
+    private static string FormatNoise(ImmutableArray<float> sigmas)
+    {
+        if (sigmas.IsDefaultOrEmpty) return "n/a";
+        return string.Join("/", sigmas.Select(s => s.ToString("E2", System.Globalization.CultureInfo.InvariantCulture)));
     }
 
     /// <summary>
@@ -316,6 +459,11 @@ public sealed class SharpenPipeline(
             }
             switch (step)
             {
+                case GradientCorrectionStep:
+                    if (hasStarless) throw new ArgumentException(
+                        $"SharpenRequest.Steps[{i}]: GradientCorrectionStep must run BEFORE RemoveStarsStep -- Frank Sackenheim's canonical order is gradient -> stars -> detail -> stretch. Move the gradient step to the head of the request.",
+                        nameof(request));
+                    break;
                 case RemoveStarsStep:
                     hasStarless = true;
                     hasStarsOnly = true;
@@ -379,6 +527,23 @@ public sealed class SharpenPipeline(
                         $"SharpenRequest.Steps[{i}]: StretchStarlessStep.TargetMedian must be in (0, 1); got {stretchStarless.TargetMedian}.",
                         nameof(request));
                     break;
+                case GhsStretchStarlessStep ghs:
+                    if (!hasStarless) throw new ArgumentException(
+                        $"SharpenRequest.Steps[{i}]: GhsStretchStarlessStep requires a preceding RemoveStarsStep (no starless plate to stretch).",
+                        nameof(request));
+                    if (ghs.Intensity <= 0.0) throw new ArgumentException(
+                        $"SharpenRequest.Steps[{i}]: GhsStretchStarlessStep.Intensity must be > 0; got {ghs.Intensity}.",
+                        nameof(request));
+                    if (ghs.Asymmetry <= 0.0) throw new ArgumentException(
+                        $"SharpenRequest.Steps[{i}]: GhsStretchStarlessStep.Asymmetry must be > 0; got {ghs.Asymmetry}.",
+                        nameof(request));
+                    if (ghs.SymmetryPoint is { } sp && (sp <= 0.0 || sp >= 1.0)) throw new ArgumentException(
+                        $"SharpenRequest.Steps[{i}]: GhsStretchStarlessStep.SymmetryPoint must be null (auto) or in (0, 1); got {sp}.",
+                        nameof(request));
+                    if (ghs.Passes is < 1 or > 10) throw new ArgumentException(
+                        $"SharpenRequest.Steps[{i}]: GhsStretchStarlessStep.Passes must be in [1, 10]; got {ghs.Passes}.",
+                        nameof(request));
+                    break;
                 case RecombineStep:
                     if (!hasStarless || !hasStarsOnly) throw new ArgumentException(
                         $"SharpenRequest.Steps[{i}]: RecombineStep requires a preceding RemoveStarsStep (no plates to recombine).",
@@ -399,6 +564,10 @@ public sealed class SharpenPipeline(
         {
             switch (step)
             {
+                case GradientCorrectionStep when gradientCorrector is null:
+                    throw new InvalidOperationException(
+                        "SharpenPipeline: GradientCorrectionStep requested but no IGradientCorrector registered. " +
+                        "Call AddTianWenAi() (or register a custom IGradientCorrector) in your composition root.");
                 case RemoveStarsStep when starRemover is null:
                     throw new InvalidOperationException(
                         "SharpenPipeline: RemoveStarsStep requested but no IStarRemover registered. " +
@@ -421,6 +590,21 @@ public sealed class SharpenPipeline(
 /// <see cref="SharpenPipeline"/> can execute. Concrete steps bundle "what
 /// to do" with the parameters that govern it.</summary>
 public abstract record SharpenStep;
+
+/// <summary>Gradient / background correction. Slots at the head of the
+/// canonical Frank Sackenheim flow (gradient -> stars -> detail -> stretch)
+/// so every downstream stage sees a flat-background plate. Validation
+/// enforces this ordering -- a gradient step that lands after
+/// <see cref="RemoveStarsStep"/> is rejected because the starless plate is
+/// itself a smoothed estimate of background + structure and a gradient
+/// solver wants the raw photon counts.</summary>
+/// <remarks>
+/// Backed by <see cref="IGradientCorrector"/>. Output replaces the
+/// source for downstream steps that read it (currently only
+/// <see cref="RemoveStarsStep"/>); the original <c>request.Source</c> is
+/// left untouched and remains the <c>InputNoise</c> baseline.
+/// </remarks>
+public sealed record GradientCorrectionStep : SharpenStep;
 
 /// <summary>Star removal: produces a starless plate and (via the chosen
 /// split mode) a stars-only plate.</summary>
@@ -529,6 +713,54 @@ public sealed record ScnrStarsStep(ScnrMode Mode, float Amount = 1.0f) : Sharpen
 /// without over-brightening; we default to <c>2.0</c>.</param>
 public sealed record StretchStarsStep(double Amount = 2.0) : SharpenStep;
 
+/// <summary>Mike Cranfield's Generalized Hyperbolic Stretch on the
+/// starless / nebula plate -- an alternative to <see cref="StretchStarlessStep"/>
+/// (MTF) with built-in shadow / highlight protection controls. Use when MTF's
+/// single-hyperbolic shape over-lifts highlights (the "core blowout" symptom)
+/// and you don't want to stack a Reinhard <see cref="CompressHighlightsStep"/>
+/// band-aid on top.
+/// </summary>
+/// <remarks>
+/// <para>Pick this OR <see cref="StretchStarlessStep"/>, not both -- validation
+/// rejects duplicate-purpose stretches on the same plate.</para>
+///
+/// <para>Defaults mirror Paul (Polymath Astro)'s PixInsight workflow as a
+/// single-pass stretch-from-linear stage: <c>Asymmetry=8.0</c> (his "local
+/// stretch intensity" of 8-10), <c>HighlightProtection=0.8</c> to preserve
+/// bright structure without core blowout, <c>SymmetryPoint=null</c> (auto-
+/// detect via <see cref="Image.EstimateRisingEdge"/> -- finds the histogram
+/// lift-off point), <c>Passes=1</c> with these correct parameters.</para>
+/// </remarks>
+/// <param name="Intensity">Curve exponent (a). Smaller = stronger lift. Default <c>1.5</c>.</param>
+/// <param name="Asymmetry">Direction (b in SAS Pro; "local stretch intensity"
+/// in PixInsight). 1.0 = symmetric; higher = stronger hyperbolic curvature.
+/// Default <c>8.0</c> -- Paul (Polymath Astro) recommends 8-10 for an initial
+/// stretch-from-linear pass; lower values were the underlying cause of the
+/// "GHS landed flat" symptom in the 3-pass workaround.</param>
+/// <param name="ShadowProtection">LP in [0, 1] -- identity blend below SP. Default <c>0.0</c>.</param>
+/// <param name="HighlightProtection">HP in [0, 1] -- identity blend above SP.
+/// Default <c>0.8</c> per Paul's PixInsight workflow: high HP combined with
+/// the high <paramref name="Asymmetry"/> gives a gentle highlight roll-off
+/// without an external Reinhard band-aid.</param>
+/// <param name="SymmetryPoint">SP in (0, 1) -- the curve hinges at this input
+/// value (output at <c>x = 0.5</c> equals SP). <c>null</c> (default) auto-
+/// detects via <see cref="Image.EstimateRisingEdge"/> on the input plate --
+/// the histogram lift-off point on the left side of the background mode.
+/// Mirrors Paul's "where the histogram starts lifting up towards the peak"
+/// rule of thumb.</param>
+/// <param name="Passes">How many times to apply the GHS curve. Default
+/// <c>1</c> -- with correct defaults (b=8, hp=0.8, sp=auto) a single pass
+/// gives the same shape as Paul's PixInsight workflow. Higher values are a
+/// workaround for sub-optimal defaults; prefer raising
+/// <paramref name="Asymmetry"/> over stacking passes. Range [1, 10].</param>
+public sealed record GhsStretchStarlessStep(
+    double Intensity = 1.5,
+    double Asymmetry = 8.0,
+    double ShadowProtection = 0.0,
+    double HighlightProtection = 0.8,
+    double? SymmetryPoint = null,
+    int Passes = 1) : SharpenStep;
+
 /// <summary>Per-plate MTF stretch on the starless plate. Companion to
 /// <see cref="StretchStarsStep"/>; see its xmldoc for the dual-stretch
 /// motivation. Applies <see cref="Image.MtfStretch"/> to the
@@ -548,18 +780,73 @@ public sealed record StretchStarlessStep(double TargetMedian = 0.25) : SharpenSt
 public sealed record RecombineStep(RecombineMode Mode = RecombineMode.Additive) : SharpenStep;
 
 /// <summary>
+/// Per-plate intermediate-retention selector for <see cref="SharpenRequest.KeepIntermediates"/>.
+/// Each flag corresponds to a slot on <see cref="SharpenResult"/>; the pipeline
+/// releases plates whose flag is unset as soon as the downstream chain has
+/// consumed them. Lets each consumer state exactly which intermediates it
+/// needs -- the canonical sharpen flow wants <see cref="None"/> (composite
+/// only), a dual-stretch CLI run wants <see cref="StarsAndStarlessLineage"/>,
+/// a per-plate analyst wants <see cref="All"/>.
+/// </summary>
+[Flags]
+public enum SharpenIntermediates
+{
+    /// <summary>Release every intermediate as soon as downstream lands. Only
+    /// <see cref="SharpenResult.Final"/> survives. Trims peak memory from
+    /// ~8 plates to ~3 for the canonical workflow.</summary>
+    None = 0,
+    /// <summary>Keep the gradient-corrected source plate (output of
+    /// <see cref="GradientCorrectionStep"/>).</summary>
+    GradientCorrected   = 1 << 0,
+    /// <summary>Keep the raw starless plate (output of <see cref="RemoveStarsStep"/>).</summary>
+    Starless            = 1 << 1,
+    /// <summary>Keep the stars-only plate (source minus starless).</summary>
+    StarsOnly           = 1 << 2,
+    /// <summary>Keep the stellar-sharpener output.</summary>
+    SharpenedStars      = 1 << 3,
+    /// <summary>Keep the non-stellar deconvolver output.</summary>
+    DeconvolvedStarless = 1 << 4,
+    /// <summary>Keep the denoiser output (and any stretch / bg-reduce / compress
+    /// mutations that overwrite this slot in dual-stretch mode).</summary>
+    DenoisedStarless    = 1 << 5,
+    /// <summary>Preset: both star and starless lineages (everything except
+    /// gradient-corrected). What the CLI <c>--dual-stretch</c> path needs to
+    /// write per-plate stretched float TIFFs from the most-processed plate
+    /// on each side.</summary>
+    StarsAndStarlessLineage = Starless | StarsOnly | SharpenedStars | DeconvolvedStarless | DenoisedStarless,
+    /// <summary>Keep everything -- previous behaviour, what the CLI
+    /// <c>--no-recombine</c> path uses since it writes each plate as a
+    /// separate FITS file.</summary>
+    All = GradientCorrected | StarsAndStarlessLineage,
+}
+
+/// <summary>
 /// Inputs to <see cref="SharpenPipeline.ProcessAsync"/>. The pipeline runs
 /// <paramref name="Steps"/> in declared order, so the request <i>is</i> the
 /// program: callers compose the workflow they want by choosing which
 /// <see cref="SharpenStep"/> records to include and in what order.
 /// </summary>
-public sealed record SharpenRequest(Image Source, ImmutableArray<SharpenStep> Steps)
+/// <param name="Source">Linear-units source image (typically a freshly-
+/// loaded calibrated stack). The pipeline reads but never mutates this.</param>
+/// <param name="Steps">Ordered program of steps to run. <see cref="SharpenRequest.Canonical"/>
+/// returns Frank Sackenheim's gradient -> stars -> detail -> stretch order.</param>
+/// <param name="KeepIntermediates">Which intermediate plates to retain on the
+/// returned <see cref="SharpenResult"/>. Default <see cref="SharpenIntermediates.All"/>
+/// preserves backwards-compatible behaviour -- every plate is exposed. Set
+/// to <see cref="SharpenIntermediates.None"/> for the canonical "just give
+/// me the composite" path (drops peak memory from ~8 plates to ~3), or to
+/// <see cref="SharpenIntermediates.StarsAndStarlessLineage"/> when a caller
+/// wants per-plate outputs (e.g. dual-stretch TIFF export) without paying
+/// for the gradient-corrected plate.</param>
+public sealed record SharpenRequest(Image Source, ImmutableArray<SharpenStep> Steps, SharpenIntermediates KeepIntermediates = SharpenIntermediates.All)
 {
     /// <summary>Returns a request with the canonical "sharpen everything"
-    /// workflow: remove stars, sharpen stars, deconvolve starless, denoise
-    /// starless, recombine. All steps at default blend strength.</summary>
+    /// workflow per Frank Sackenheim: gradient correction, remove stars,
+    /// sharpen stars, deconvolve starless, denoise starless, recombine.
+    /// All steps at default blend strength.</summary>
     public static SharpenRequest Canonical(Image source) => new(source,
     [
+        new GradientCorrectionStep(),
         new RemoveStarsStep(),
         new SharpenStarsStep(),
         new DeconvolveStarlessStep(),
@@ -619,10 +906,28 @@ public enum RecombineMode
 /// starless plate (or the raw <paramref name="Starless"/> when no
 /// deconv step preceded). Present iff the request included a
 /// <see cref="DenoiseStarlessStep"/>.</param>
+/// <param name="GradientCorrected">Background-gradient-corrected plate
+/// produced by <see cref="GradientCorrectionStep"/>. Replaces the
+/// original source for downstream steps that read it. Present iff the
+/// request included a <see cref="GradientCorrectionStep"/>.</param>
+/// <param name="InputNoise">Per-channel σ of the input image as measured
+/// by <see cref="Image.EstimateNoiseProfile"/> (MAD × 1.4826, unit-scaled).
+/// Always populated. Default <see cref="ImmutableArray{T}.Empty"/> only on
+/// the mostly-empty failure return; success paths always have at least
+/// 1 (mono) or 3 (RGB) entries.</param>
+/// <param name="FinalNoise">Per-channel σ of the most-processed LINEAR
+/// plate (denoised > deconvolved > raw starless), NOT the recombined
+/// composite. Pairs with <paramref name="InputNoise"/> for an apples-to-
+/// apples linear-domain "AI removed X% noise" delta -- the composite is
+/// excluded because <c>--dual-stretch</c> renders it in stretched space,
+/// which would conflate AI noise reduction with histogram redistribution.</param>
 public sealed record SharpenResult(
     Image? Final,
     Image? Starless,
     Image? StarsOnly,
     Image? SharpenedStars,
     Image? DeconvolvedStarless,
-    Image? DenoisedStarless);
+    Image? DenoisedStarless,
+    Image? GradientCorrected = null,
+    ImmutableArray<float> InputNoise = default,
+    ImmutableArray<float> FinalNoise = default);

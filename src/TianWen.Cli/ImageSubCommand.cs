@@ -46,17 +46,19 @@ internal sealed class ImageSubCommand(
     IConsoleHost consoleHost,
     SharpenPipeline sharpenPipeline,
     IStarRemover starRemover,
+    IGradientCorrector gradientCorrector,
     MasterPreviewRenderer previewRenderer,
     ILogger<ImageSubCommand>? logger = null)
 {
     public Command Build()
     {
-        var image = new Command("image", "Single-image enhancement + render verbs (sharpen, remove-stars, render).")
+        var image = new Command("image", "Single-image enhancement + render verbs (sharpen, remove-stars, flatten, render).")
         {
             Subcommands =
             {
                 BuildSharpenCommand(),
                 BuildRemoveStarsCommand(),
+                BuildFlattenCommand(),
                 BuildRenderCommand(),
             },
         };
@@ -144,6 +146,40 @@ internal sealed class ImageSubCommand(
             Description = "Auto-target MTF median for the starless / nebula plate (0 < tm < 1). 0.25 is the SAS Pro / PixInsight convention. Implies --dual-stretch.",
             DefaultValueFactory = _ => 0.25,
         };
+        var ghsStarlessOpt = new Option<bool>("--ghs-starless")
+        {
+            Description = "Use Mike Cranfield's Generalized Hyperbolic Stretch on the starless plate instead of MTF. Has built-in shadow/highlight protection controls -- the principled alternative to the MTF + Reinhard compress band-aid. Defaults mirror Paul (Polymath Astro)'s PixInsight workflow as a single-pass stretch-from-linear stage: intensity=1.5, asymmetry=8.0, shadow-protection=0.0, highlight-protection=0.8, symmetry-point=auto (rising edge of histogram), passes=1.",
+        };
+        var ghsIntensityOpt = new Option<double>("--ghs-intensity")
+        {
+            Description = "GHS curve exponent. Smaller (0.2-0.5) = stronger lift. Default 1.5. Implies --ghs-starless.",
+            DefaultValueFactory = _ => 1.5,
+        };
+        var ghsAsymmetryOpt = new Option<double>("--ghs-asymmetry")
+        {
+            Description = "GHS direction (b in SAS Pro / \"local stretch intensity\" in PixInsight). 1.0 symmetric; higher = stronger hyperbolic curvature. Default 8.0 (Paul/Polymath Astro recommends 8-10 for stretch-from-linear); was the silent cause of GHS landing flat with the old default of 1.0. Implies --ghs-starless.",
+            DefaultValueFactory = _ => 8.0,
+        };
+        var ghsShadowProtectionOpt = new Option<double>("--ghs-shadow-protection")
+        {
+            Description = "GHS LP in [0, 1] -- linear blend with identity below SP. 0 = no protection. Implies --ghs-starless.",
+            DefaultValueFactory = _ => 0.0,
+        };
+        var ghsHighlightProtectionOpt = new Option<double>("--ghs-highlight-protection")
+        {
+            Description = "GHS HP in [0, 1] -- linear blend with identity above SP. Default 0.8 per Paul's PixInsight workflow: high HP + high asymmetry gives a gentle highlight roll-off without an external Reinhard band-aid. Implies --ghs-starless.",
+            DefaultValueFactory = _ => 0.8,
+        };
+        var ghsSymmetryPointOpt = new Option<double>("--ghs-symmetry-point")
+        {
+            Description = "GHS SP -- the curve hinges here (output at x=0.5 equals SP). Pass a value in (0, 1) to override; default <=0 means auto-detect via Image.EstimateRisingEdge (histogram lift-off point, matching Paul's \"where the histogram starts lifting up towards the peak\" rule). Implies --ghs-starless.",
+            DefaultValueFactory = _ => -1.0,
+        };
+        var ghsPassesOpt = new Option<int>("--ghs-passes")
+        {
+            Description = "How many times to apply the GHS curve. Default 1 -- with correct defaults (asymmetry=8, hp=0.8, sp=auto) a single pass produces Paul's recommended shape; higher values are an escape hatch, prefer raising --ghs-asymmetry first. Range [1, 10].",
+            DefaultValueFactory = _ => 1,
+        };
         var noReduceBgOpt = new Option<bool>("--no-reduce-bg")
         {
             Description = "Skip the S-curve background reduction on the starless plate. By default --dual-stretch applies a Compression=0.36 reduce-background curve (matches finished Affinity workflow control point at ~0.112,0.04).",
@@ -171,7 +207,7 @@ internal sealed class ImageSubCommand(
         var cmd = new Command("sharpen", "Full AI4 NAFNet sharpen pipeline: remove stars, sharpen the stars-only plate, deconvolve + denoise the starless plate, optional SCNR on stars, recombine.")
         {
             Arguments = { inputArg },
-            Options = { outputOpt, modeOpt, noStellarOpt, noDeconvOpt, noDenoiseOpt, noRecombineOpt, pngOpt, stellarBlendOpt, deconvBlendOpt, denoiseBlendOpt, denoiseVariantOpt, scnrOpt, scnrAmountOpt, dualStretchOpt, stretchStarsAmountOpt, stretchStarlessMedianOpt, noReduceBgOpt, reduceBgCompressionOpt, noCompressHighlightsOpt, highlightKneeOpt, highlightAmountOpt },
+            Options = { outputOpt, modeOpt, noStellarOpt, noDeconvOpt, noDenoiseOpt, noRecombineOpt, pngOpt, stellarBlendOpt, deconvBlendOpt, denoiseBlendOpt, denoiseVariantOpt, scnrOpt, scnrAmountOpt, dualStretchOpt, stretchStarsAmountOpt, stretchStarlessMedianOpt, ghsStarlessOpt, ghsIntensityOpt, ghsAsymmetryOpt, ghsShadowProtectionOpt, ghsHighlightProtectionOpt, ghsSymmetryPointOpt, ghsPassesOpt, noReduceBgOpt, reduceBgCompressionOpt, noCompressHighlightsOpt, highlightKneeOpt, highlightAmountOpt },
         };
         cmd.SetAction(async (parseResult, ct) =>
         {
@@ -240,6 +276,17 @@ internal sealed class ImageSubCommand(
             var starlessMedian = Math.Clamp(parseResult.GetValue(stretchStarlessMedianOpt), 0.01, 0.99);
             var noReduceBg = parseResult.GetValue(noReduceBgOpt);
             var reduceBgCompression = Math.Clamp(parseResult.GetValue(reduceBgCompressionOpt), 0.01, 1.0);
+            var ghsStarless = parseResult.GetValue(ghsStarlessOpt);
+            var ghsIntensity = Math.Max(0.01, parseResult.GetValue(ghsIntensityOpt));
+            var ghsAsymmetry = Math.Max(0.01, parseResult.GetValue(ghsAsymmetryOpt));
+            var ghsShadowProtection = Math.Clamp(parseResult.GetValue(ghsShadowProtectionOpt), 0.0, 1.0);
+            var ghsHighlightProtection = Math.Clamp(parseResult.GetValue(ghsHighlightProtectionOpt), 0.0, 1.0);
+            var ghsSymmetryPointRaw = parseResult.GetValue(ghsSymmetryPointOpt);
+            // Sentinel <= 0 (default) means auto-detect via EstimateRisingEdge at pipeline time.
+            double? ghsSymmetryPoint = ghsSymmetryPointRaw > 0.0
+                ? Math.Clamp(ghsSymmetryPointRaw, 0.01, 0.99)
+                : null;
+            var ghsPasses = Math.Clamp(parseResult.GetValue(ghsPassesOpt), 1, 10);
             var noCompressHighlights = parseResult.GetValue(noCompressHighlightsOpt);
             var highlightKnee = Math.Clamp(parseResult.GetValue(highlightKneeOpt), 0.01, 0.99);
             var highlightAmount = Math.Max(0.0, parseResult.GetValue(highlightAmountOpt));
@@ -274,7 +321,17 @@ internal sealed class ImageSubCommand(
             if (dualStretch)
             {
                 steps.Add(new StretchStarsStep(Amount: starsAmount));
-                steps.Add(new StretchStarlessStep(TargetMedian: starlessMedian));
+                // Pick MTF or GHS for the starless plate based on --ghs-starless.
+                if (ghsStarless)
+                    steps.Add(new GhsStretchStarlessStep(
+                        Intensity: ghsIntensity,
+                        Asymmetry: ghsAsymmetry,
+                        ShadowProtection: ghsShadowProtection,
+                        HighlightProtection: ghsHighlightProtection,
+                        SymmetryPoint: ghsSymmetryPoint,
+                        Passes: ghsPasses));
+                else
+                    steps.Add(new StretchStarlessStep(TargetMedian: starlessMedian));
                 // S-curve background reduction on starless after stretch
                 // (PixInsight statistical-stretch convention). Auto-detects
                 // bg peak via histogram mode. Skippable with --no-reduce-bg.
@@ -298,10 +355,29 @@ internal sealed class ImageSubCommand(
             var recombineMode = dualStretch ? RecombineMode.Screen : mode;
             if (!noRecombine) steps.Add(new RecombineStep(Mode: recombineMode));
 
-            var request = new SharpenRequest(normalised, ImmutableArray.CreateRange(steps));
+            // Each CLI mode tells the pipeline exactly which plates it'll read
+            // off SharpenResult. The pipeline releases everything else as soon
+            // as the downstream chain has consumed it -- trims peak memory
+            // from ~8 plates to ~3 (canonical recombine) or ~5 (dual-stretch)
+            // for a 3k drizzle. See SharpenRequest.KeepIntermediates xmldoc.
+            //   --no-recombine  -> writes each plate as a separate FITS, needs them all.
+            //   --dual-stretch  -> reads per-plate stretched TIFFs from
+            //                       sharpenedStars (or starsOnly fallback) +
+            //                       denoisedStarless (or deconv/raw fallback) --
+            //                       gradient-corrected is not needed.
+            //   else            -> composite only; release every intermediate.
+            var keepIntermediates =
+                  noRecombine  ? SharpenIntermediates.All
+                : dualStretch  ? SharpenIntermediates.StarsAndStarlessLineage
+                :                SharpenIntermediates.None;
+            var request = new SharpenRequest(normalised, ImmutableArray.CreateRange(steps), KeepIntermediates: keepIntermediates);
 
+            var spDesc = ghsSymmetryPoint is { } spv ? spv.ToString("F3") : "auto";
+            var starlessStretchDesc = ghsStarless
+                ? $"ghs(i{ghsIntensity:F2}/b{ghsAsymmetry:F2}/sp{spDesc}/hp{ghsHighlightProtection:F2}/{ghsPasses}x)"
+                : $"mtf-tm={starlessMedian:F2}";
             var dualStretchDesc = dualStretch
-                ? $" dual-stretch(stars-amount={starsAmount:F2},starless-tm={starlessMedian:F2}) reduce-bg={(!noReduceBg ? reduceBgCompression.ToString("F2") : "off")} compress-hi={(!noCompressHighlights ? $"k{highlightKnee:F2}/a{highlightAmount:F2}" : "off")}"
+                ? $" dual-stretch(stars-amount={starsAmount:F2},starless={starlessStretchDesc}) reduce-bg={(!noReduceBg ? reduceBgCompression.ToString("F2") : "off")} compress-hi={(!noCompressHighlights ? $"k{highlightKnee:F2}/a{highlightAmount:F2}" : "off")}"
                 : "";
             consoleHost.WriteScrollable(
                 $"[sharpen] {input} {src.Width}x{src.Height}x{src.ChannelCount} mode={mode} " +
@@ -369,6 +445,19 @@ internal sealed class ImageSubCommand(
                     await WriteStretchedFloatTiffAsync(stretchedStars, tiffBase + "_stars.tif", ct);
                 if (stretchedStarless is not null)
                     await WriteStretchedFloatTiffAsync(stretchedStarless, tiffBase + "_starless.tif", ct);
+            }
+
+            // Noise summary: per-channel σ pre/post + reduction %. Helps the
+            // operator decide if denoise/deconv blends are sane without
+            // grepping the pipeline log.
+            if (!result.InputNoise.IsDefaultOrEmpty && !result.FinalNoise.IsDefaultOrEmpty
+                && result.InputNoise.Length == result.FinalNoise.Length)
+            {
+                var preFmt = string.Join("/", result.InputNoise.Select(s => s.ToString("E2", System.Globalization.CultureInfo.InvariantCulture)));
+                var postFmt = string.Join("/", result.FinalNoise.Select(s => s.ToString("E2", System.Globalization.CultureInfo.InvariantCulture)));
+                var deltaFmt = string.Join("/", result.InputNoise.Zip(result.FinalNoise,
+                    (pre, post) => pre > 0f ? $"{(post - pre) / pre * 100f:+0.0;-0.0;0.0}%" : "n/a"));
+                consoleHost.WriteScrollable($"[sharpen] noise σ pre=[{preFmt}] post=[{postFmt}] Δ=[{deltaFmt}]");
             }
 
             // Release intermediates the orchestrator allocated.
@@ -445,6 +534,119 @@ internal sealed class ImageSubCommand(
                 await RenderPngAsync(starless, src.ImageMeta, wcs, ReplaceExtension(dst, ".png"), ct);
             }
             starless.Release();
+            return 0;
+        });
+        return cmd;
+    }
+
+    // -------- tianwen image flatten ------------------------------------
+
+    private Command BuildFlattenCommand()
+    {
+        var inputArg = new Argument<string>("input")
+        {
+            Description = "FITS file to flatten (remove smooth background gradient).",
+        };
+        var outputOpt = new Option<string?>("--output", "-o")
+        {
+            Description = "Output FITS path. Default: <input>_flattened.fits.",
+        };
+        var pngOpt = new Option<bool>("--png")
+        {
+            Description = "Also write a stretched PNG preview alongside the FITS output.",
+        };
+        var saveGradientOpt = new Option<bool>("--save-gradient")
+        {
+            Description = "Also write the estimated background surface as <output>_gradient.fits (+ .png if --png is set). Useful for sanity-checking the gradient model -- you can see whether it picked up light pollution vs vignette vs sky-glow asymmetry. Skipped by default to avoid leaking a 120 MB plate per call on large drizzles.",
+        };
+
+        var cmd = new Command("flatten", "AI gradient correction via GraXpert BGE ONNX (subtractive). " +
+            "Estimates the smooth background (light pollution, vignette, sky-glow asymmetry) and " +
+            "subtracts it while preserving the mean sky level. Runs at the head of the canonical " +
+            "Frank Sackenheim flow (gradient -> stars -> detail -> stretch). Requires the GraXpert " +
+            "BGE model materialised via tools/tianwen-ai-models-fetch.ps1.")
+        {
+            Arguments = { inputArg },
+            Options = { outputOpt, pngOpt, saveGradientOpt },
+        };
+        cmd.SetAction(async (parseResult, ct) =>
+        {
+            var input = parseResult.GetValue(inputArg)!;
+            if (!File.Exists(input))
+            {
+                consoleHost.WriteError($"Input not found: {input}");
+                return 1;
+            }
+
+            if (!Image.TryReadFitsFile(input, out var src, out var wcs))
+            {
+                consoleHost.WriteError($"Failed to read FITS file: {input}");
+                return 1;
+            }
+            var normalised = src.ScaleFloatValuesToUnit();
+            var withPng = parseResult.GetValue(pngOpt);
+            var saveGradient = parseResult.GetValue(saveGradientOpt);
+
+            consoleHost.WriteScrollable(
+                $"[flatten] {input} {src.Width}x{src.Height}x{src.ChannelCount}{(saveGradient ? " save-gradient=true" : "")}");
+
+            Image flattened;
+            Image? background = null;
+            try
+            {
+                if (saveGradient)
+                {
+                    (flattened, background) = await gradientCorrector.EnhanceAndEstimateBackgroundAsync(normalised, ct);
+                }
+                else
+                {
+                    flattened = await gradientCorrector.EnhanceAsync(normalised, ct);
+                }
+            }
+            catch (Exception ex)
+            {
+                consoleHost.WriteError($"flatten failed: {ex.Message}");
+                logger?.LogError(ex, "Gradient correction failed for {Input}", input);
+                return 2;
+            }
+
+            var dst = parseResult.GetValue(outputOpt) ?? DefaultOut(input, "_flattened");
+            flattened.WriteToFitsFile(dst, wcs);
+            consoleHost.WriteScrollable($"[flatten] wrote {dst}");
+            if (withPng)
+            {
+                await RenderPngAsync(flattened, src.ImageMeta, wcs, ReplaceExtension(dst, ".png"), ct);
+            }
+            if (saveGradient)
+            {
+                if (background is null)
+                {
+                    // Default-interface-method path: the active corrector
+                    // doesn't expose a background surface (only the AI BGE
+                    // does today). Tell the operator so they don't think the
+                    // gradient was empty.
+                    consoleHost.WriteScrollable($"[flatten] --save-gradient: active IGradientCorrector ({gradientCorrector.GetType().Name}) does not expose a separate background surface; skipping.");
+                }
+                else
+                {
+                    var gradientDst = ReplaceExtension(dst, "_gradient.fits");
+                    background.WriteToFitsFile(gradientDst, wcs);
+                    consoleHost.WriteScrollable($"[flatten] wrote {gradientDst}");
+                    if (withPng)
+                    {
+                        // Min-max contrast stretch -- the gradient is a smooth
+                        // low-amplitude surface, MasterPreviewRenderer's
+                        // SPCC + bg-neut + auto-MTF crushes the very signal
+                        // we want to see. Logs per-channel amplitude so the
+                        // operator can tell whether the model thinks there
+                        // IS a gradient (informative output) or whether it
+                        // settled on essentially uniform (suspicious).
+                        await WriteContrastStretchedPngAsync(background, ReplaceExtension(gradientDst, ".png"), "gradient", ct);
+                    }
+                    background.Release();
+                }
+            }
+            flattened.Release();
             return 0;
         });
         return cmd;
@@ -597,6 +799,72 @@ internal sealed class ImageSubCommand(
     /// done per-plate MTF + screen recombine and a second MTF via
     /// <see cref="MasterPreviewRenderer"/> would over-lift and saturate.
     /// </summary>
+    /// <summary>
+    /// Min-max contrast-stretched PNG. For each channel, computes min/max
+    /// and maps that range to [0, 255]. Designed for visualising
+    /// low-amplitude smooth surfaces (gradient correctors' background output)
+    /// where the master preview renderer's SPCC + bg-neut + auto-MTF stretch
+    /// crushes the very signal we want to inspect. Also logs per-channel
+    /// min / max / amplitude so the operator can see whether the model
+    /// actually thinks there's a gradient at all.
+    /// </summary>
+    private async Task WriteContrastStretchedPngAsync(Image image, string pngPath, string tag, CancellationToken ct)
+    {
+        var (channels, w, h) = image.Shape;
+        if (channels is not (1 or 3))
+        {
+            consoleHost.WriteError($"PNG export requires 1 or 3 channels, got {channels}; skipping {pngPath}");
+            return;
+        }
+
+        var pixelCount = w * h;
+        // Heap allocation because stackalloc Span can't cross the LINQ lambda
+        // below. 3-element float[] is trivial; not in a hot path.
+        var mins = new float[3];
+        var maxs = new float[3];
+        for (var c = 0; c < channels; c++)
+        {
+            var span = image.GetChannelSpan(c);
+            var min = float.PositiveInfinity;
+            var max = float.NegativeInfinity;
+            for (var i = 0; i < span.Length; i++)
+            {
+                var v = span[i];
+                if (!float.IsFinite(v)) continue;
+                if (v < min) min = v;
+                if (v > max) max = v;
+            }
+            mins[c] = min;
+            maxs[c] = max;
+        }
+
+        var amplitudeLog = string.Join(" ",
+            Enumerable.Range(0, channels)
+                .Select(c => $"c{c}:[{mins[c]:E2}..{maxs[c]:E2}] amp={maxs[c] - mins[c]:E2}"));
+        consoleHost.WriteScrollable($"[{tag}] {amplitudeLog}");
+
+        var rgba = new byte[pixelCount * 4];
+        var r = image.GetChannelSpan(0);
+        var g = channels == 3 ? image.GetChannelSpan(1) : r;
+        var b = channels == 3 ? image.GetChannelSpan(2) : r;
+        var rMin = mins[0]; var rRange = MathF.Max(maxs[0] - rMin, 1e-9f);
+        var gMin = channels == 3 ? mins[1] : rMin; var gRange = channels == 3 ? MathF.Max(maxs[1] - gMin, 1e-9f) : rRange;
+        var bMin = channels == 3 ? mins[2] : rMin; var bRange = channels == 3 ? MathF.Max(maxs[2] - bMin, 1e-9f) : rRange;
+        for (var i = 0; i < pixelCount; i++)
+        {
+            rgba[i * 4 + 0] = ToByte((r[i] - rMin) / rRange);
+            rgba[i * 4 + 1] = ToByte((g[i] - gMin) / gRange);
+            rgba[i * 4 + 2] = ToByte((b[i] - bMin) / bRange);
+            rgba[i * 4 + 3] = 255;
+        }
+
+        var png = PngWriter.Encode(rgba, w, h, IccProfiles.SRgbV4.Span);
+        await File.WriteAllBytesAsync(pngPath, png, ct);
+        consoleHost.WriteScrollable($"[{tag}] wrote {pngPath} (min-max contrast)");
+
+        static byte ToByte(float v) => (byte)Math.Clamp(v * 255f + 0.5f, 0f, 255f);
+    }
+
     private async Task WriteStretchedPngAsync(Image image, string pngPath, CancellationToken ct)
     {
         var (channels, w, h) = image.Shape;

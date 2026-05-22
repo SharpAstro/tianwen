@@ -29,6 +29,7 @@ public static class AiServiceCollectionExtensions
     /// <item><see cref="IStellarSharpener"/> -> <see cref="OnnxStellarSharpener"/>.</item>
     /// <item><see cref="INonStellarDeconvolver"/> -> <see cref="OnnxNonStellarDeconvolver"/>.</item>
     /// <item><see cref="IDenoiseEnhancer"/> -> <see cref="OnnxDenoiser"/>.</item>
+    /// <item><see cref="IGradientCorrector"/> -> <see cref="OnnxBackgroundExtractor"/> (GraXpert BGE).</item>
     /// </list>
     /// The <c>SharpenPipeline</c> orchestrator (Phase 5) lives in
     /// <c>TianWen.Lib</c> and will be registered there.
@@ -41,6 +42,7 @@ public static class AiServiceCollectionExtensions
         services.TryAddSingleton<IStellarSharpener, OnnxStellarSharpener>();
         services.TryAddSingleton<INonStellarDeconvolver, OnnxNonStellarDeconvolver>();
         services.TryAddSingleton<IDenoiseEnhancer, OnnxDenoiser>();
+        services.TryAddSingleton<IGradientCorrector, OnnxBackgroundExtractor>();
         // The orchestrator lives in TianWen.Lib (zero-AI dep) but consumers
         // will want both wired together; register it here so a single
         // AddTianWenAi() call sets up the whole sharpen flow.
