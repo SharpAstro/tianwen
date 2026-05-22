@@ -120,7 +120,16 @@ public partial class Image
         float? median, mad;
         if (calcStats)
         {
-            var medianlength = histogram.Count / 2.0;
+            // Median threshold is half the PIXEL count (hist_total), not half
+            // the BIN count (histogram.Count). The old `histogram.Count / 2.0`
+            // typically resolved to threshold/2 ~= 32768; on images with more
+            // than that many pixels the walker stopped well below the actual
+            // median bin, biasing median toward 0. Latent because typical
+            // astro frames have a tight background dominating early bins, so
+            // both thresholds resolved to the same bin -- but a uniform
+            // [0, 1] ramp on a 512^2+ image returns ~0.13 instead of ~0.5
+            // under the old behaviour.
+            var medianlength = hist_total / 2.0;
             uint occurances = 0;
             int median1 = 0, median2 = 0;
 
@@ -139,9 +148,14 @@ public partial class Image
                 else if (occurances == medianlength)
                 {
                     median1 = i;
+                    // Find the next bin j with non-zero count. Previous code
+                    // tested `histValue > 0` (the OUTER bin's count) which is
+                    // always true at this point -- so j=i+1 unconditionally,
+                    // regardless of whether that bin had any pixels. Fix
+                    // mirrors the obvious intent of "next non-empty bin".
                     for (int j = i + 1; j < threshold; j++)
                     {
-                        if (histValue > 0)
+                        if (histogram[j] > 0)
                         {
                             median2 = j;
                             break;
