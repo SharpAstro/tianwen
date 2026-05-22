@@ -102,4 +102,78 @@ public static class TensorImageConverter
             pedestal: reference.Pedestal,
             imageMeta: reference.ImageMeta);
     }
+
+    /// <summary>
+    /// NHWC variant of <see cref="ToNchwTensor"/>: shape
+    /// <c>[1, Height, Width, ChannelCount]</c>. TensorFlow-style layout,
+    /// used by models exported via Keras / tf.saved_model (GraXpert's BGE
+    /// background-extraction model is one such -- its <c>gen_input_image</c>
+    /// input expects NHWC). The interleaved layout means a single row-major
+    /// CopyTo isn't enough; we have to walk per-pixel and stripe the
+    /// channels into adjacent positions.
+    /// </summary>
+    public static DenseTensor<float> ToNhwcTensor(Image image)
+    {
+        var (channels, width, height) = image.Shape;
+        var dims = new[] { 1, height, width, channels };
+        var tensor = new DenseTensor<float>(dims);
+        var dst = tensor.Buffer.Span;
+        for (var c = 0; c < channels; c++)
+        {
+            var src = image.GetChannelSpan(c);
+            // dst[y, x, c] = src[y * w + x]. With channels innermost, we
+            // stride by `channels` between adjacent pixels of the same plane.
+            for (var i = 0; i < src.Length; i++)
+            {
+                dst[i * channels + c] = src[i];
+            }
+        }
+        return tensor;
+    }
+
+    /// <summary>
+    /// NHWC counterpart to <see cref="FromNchwTensor"/>. De-interleaves the
+    /// channel-innermost tensor back into TianWen's planar
+    /// <c>float[ch][height,width]</c> representation. Batch must be 1.
+    /// </summary>
+    public static Image FromNhwcTensor(DenseTensor<float> tensor, Image reference)
+    {
+        var dims = tensor.Dimensions;
+        if (dims.Length != 4 || dims[0] != 1)
+        {
+            throw new ArgumentException(
+                $"Expected NHWC tensor with batch=1, got [{string.Join(",", dims.ToArray())}].",
+                nameof(tensor));
+        }
+        var height = dims[1];
+        var width = dims[2];
+        var channels = dims[3];
+        var src = tensor.Buffer.Span;
+        var planeStride = height * width;
+
+        var data = new float[channels][,];
+        float min = float.PositiveInfinity, max = float.NegativeInfinity;
+
+        for (var c = 0; c < channels; c++)
+        {
+            var plane = new float[height, width];
+            var dstSpan = MemoryMarshal.CreateSpan(ref plane[0, 0], planeStride);
+            for (var i = 0; i < planeStride; i++)
+            {
+                var v = src[i * channels + c];
+                dstSpan[i] = v;
+                if (v < min) min = v;
+                if (v > max) max = v;
+            }
+            data[c] = plane;
+        }
+
+        return new Image(
+            data,
+            reference.BitDepth,
+            maxValue: max,
+            minValue: min,
+            pedestal: reference.Pedestal,
+            imageMeta: reference.ImageMeta);
+    }
 }

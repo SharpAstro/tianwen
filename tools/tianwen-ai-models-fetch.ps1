@@ -37,9 +37,11 @@
 param(
     [string]$OutputDir,
     [string]$SasProDir,
+    [string]$GraXpertDir,
     [string]$CacheDir,
     [switch]$NoWalking,
     [switch]$NoSasPro,
+    [switch]$NoGraXpert,
     [switch]$NoDownload,
     [switch]$PruneCache,
     [switch]$Force
@@ -79,9 +81,28 @@ function Get-DefaultSasProDir {
     return Join-Path $HOME '.local/share/SASpro/models'
 }
 
-if (-not $OutputDir) { $OutputDir = Get-DefaultOutputDir }
-if (-not $SasProDir) { $SasProDir = Get-DefaultSasProDir }
-if (-not $CacheDir)  { $CacheDir  = Join-Path $HOME '.cache/tianwen-ai-models' }
+function Get-DefaultGraXpertDir {
+    # GraXpert (Steffenhir/GraXpert, MIT) stores its ONNX models under
+    # %LOCALAPPDATA%/GraXpert/GraXpert/<bucket>/<version>/model.onnx -- one
+    # subdir per model kind (bge-ai-models, denoise-ai-models, etc.) with
+    # one semver-named version dir each. We only consume the BGE bucket for
+    # now (background extraction); the denoise bucket overlaps with SAS Pro's
+    # AI4 NAFNet which we already ship.
+    if ($IsWindows -or $env:OS -eq 'Windows_NT') {
+        $base = $env:LOCALAPPDATA
+        if (-not $base) { $base = Join-Path $HOME 'AppData/Local' }
+        return Join-Path $base 'GraXpert/GraXpert'
+    }
+    if ($IsMacOS) {
+        return Join-Path $HOME 'Library/Application Support/GraXpert/GraXpert'
+    }
+    return Join-Path $HOME '.local/share/GraXpert/GraXpert'
+}
+
+if (-not $OutputDir)    { $OutputDir    = Get-DefaultOutputDir }
+if (-not $SasProDir)    { $SasProDir    = Get-DefaultSasProDir }
+if (-not $GraXpertDir)  { $GraXpertDir  = Get-DefaultGraXpertDir }
+if (-not $CacheDir)     { $CacheDir     = Join-Path $HOME '.cache/tianwen-ai-models' }
 
 New-Item -ItemType Directory -Path $CacheDir  -Force | Out-Null
 New-Item -ItemType Directory -Path $OutputDir -Force | Out-Null
@@ -237,18 +258,80 @@ function Materialize-Job {
 
 # Phase 1: download zips (unless -NoDownload).
 if (-not $NoDownload) {
-    Write-Host "[1/2] Downloading model zips" -ForegroundColor Cyan
+    Write-Host "[1/3] Downloading model zips" -ForegroundColor Cyan
     Write-Host ("  cache: {0}" -f $CacheDir) -ForegroundColor DarkGray
     foreach ($job in $jobs) { Download-Job $job }
 } else {
-    Write-Host "[1/2] Download skipped (-NoDownload)" -ForegroundColor DarkGray
+    Write-Host "[1/3] Download skipped (-NoDownload)" -ForegroundColor DarkGray
 }
 
 # Phase 2: materialize into TianWen output dir.
-Write-Host "[2/2] Materializing into $OutputDir" -ForegroundColor Cyan
+Write-Host "[2/3] Materializing SAS Pro models into $OutputDir" -ForegroundColor Cyan
 foreach ($job in $jobs) { Materialize-Job $job }
 
-# Phase 3: optional cache pruning. Hardlinks share inodes with SAS Pro's copy
+# Phase 3: GraXpert background-extraction (BGE) model. Single file, no zip,
+# detect-and-hardlink only. v1 has no GitHub mirror fallback -- if GraXpert
+# isn't installed locally we print a hint and skip. (Mirror story tracked
+# in TODO.md under the gradient correction work; matches our SAS Pro
+# strategy where dev relies on detection and prod uses our own mirror.)
+function Materialize-GraXpertBge {
+    param([Parameter(Mandatory)][string]$GraXpertRoot, [Parameter(Mandatory)][string]$Output)
+    $bgeRoot = Join-Path $GraXpertRoot 'bge-ai-models'
+    if (-not (Test-Path -LiteralPath $bgeRoot)) {
+        Write-Host ("  GraXpert BGE dir not found: {0}" -f $bgeRoot) -ForegroundColor DarkGray
+        Write-Host "  -> install GraXpert (https://github.com/Steffenhir/GraXpert) and run it at least once to populate the model cache, then re-run this script." -ForegroundColor DarkGray
+        return $false
+    }
+
+    # Pick the highest-semver-named subdir that contains a model.onnx.
+    $candidates = Get-ChildItem -LiteralPath $bgeRoot -Directory -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -match '^\d+\.\d+\.\d+$' -and (Test-Path (Join-Path $_.FullName 'model.onnx')) } |
+        Sort-Object -Property @{Expression = { [version]$_.Name }} -Descending
+    if (-not $candidates) {
+        Write-Host ("  no versioned BGE model under {0}" -f $bgeRoot) -ForegroundColor Yellow
+        return $false
+    }
+    $picked = $candidates[0]
+    $source = Join-Path $picked.FullName 'model.onnx'
+    # Flatten to a versioned name in TianWen models tree -- consistent with the
+    # SAS Pro AI4 layout, lets a future BGE version live alongside the old one
+    # if we ever need A/B comparison.
+    $target = Join-Path $Output ("graxpert_bge_v{0}.onnx" -f $picked.Name)
+    # Also keep an unversioned alias so downstream code (IModelResolver) can
+    # request "graxpert_bge.onnx" without baking the version in. Re-link the
+    # alias to the newest version on every run.
+    $alias  = Join-Path $Output 'graxpert_bge.onnx'
+
+    $size = (Get-Item -LiteralPath $source).Length
+    Write-Host ("  GraXpert BGE: v{0} ({1:N0} MB)" -f $picked.Name, ($size / 1MB)) -ForegroundColor Cyan
+
+    if (Test-Path -LiteralPath $target) {
+        Write-Host ("    skipped:    {0,5} (already present)" -f 1) -ForegroundColor DarkGray
+    } elseif (Try-Hardlink -Source $source -Target $target) {
+        Write-Host ("    hardlinked: {0,5} -> {1}" -f 1, $target) -ForegroundColor Green
+    } else {
+        Copy-Item -LiteralPath $source -Destination $target -Force
+        Write-Host ("    copied:     {0,5} (hardlink failed) -> {1}" -f 1, $target) -ForegroundColor Yellow
+    }
+
+    if (Test-Path -LiteralPath $alias) { Remove-Item -LiteralPath $alias -Force }
+    if (Try-Hardlink -Source $target -Target $alias) {
+        Write-Host ("    aliased:    {0,5} -> graxpert_bge.onnx" -f 1) -ForegroundColor Green
+    } else {
+        Copy-Item -LiteralPath $target -Destination $alias -Force
+        Write-Host ("    aliased:    {0,5} -> graxpert_bge.onnx (copy)" -f 1) -ForegroundColor Yellow
+    }
+    return $true
+}
+
+if (-not $NoGraXpert) {
+    Write-Host "[3/3] Materializing GraXpert BGE model" -ForegroundColor Cyan
+    Materialize-GraXpertBge -GraXpertRoot $GraXpertDir -Output $OutputDir | Out-Null
+} else {
+    Write-Host "[3/3] GraXpert skipped (-NoGraXpert)" -ForegroundColor DarkGray
+}
+
+# Phase 4: optional cache pruning. Hardlinks share inodes with SAS Pro's copy
 # so the bytes survive zip removal; pure-extract files are already independent
 # bytes on disk. Either way the cache is safe to drop once materialization
 # completes successfully.
