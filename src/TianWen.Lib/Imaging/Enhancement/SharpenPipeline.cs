@@ -293,11 +293,31 @@ public sealed class SharpenPipeline(
                         // the "pivot at the linear lift-off" intent.
                         var inputPlate = denoisedStarless ?? deconvolvedStarless ?? Require(starless);
                         var sp = ghsStep.SP ?? Math.Clamp(inputPlate.EstimateRisingEdge(), 1e-4, 0.999);
+
+                        // AutoConverge: bisect LnD via the histogram so the
+                        // stretch hits the requested target median regardless
+                        // of input dynamic range. B / SP / LP / HP stay fixed
+                        // -- they're the curve "shape"; LnD is the strength.
+                        var effectiveLnD = ghsStep.LnD;
+                        var convergenceLabel = "";
+                        if (ghsStep.AutoConverge)
+                        {
+                            var histogram = inputPlate.Histogram(channel: 0);
+                            var convergence = Image.ConvergeGhsStretchFactor(
+                                histogram, b: ghsStep.B, sp: sp,
+                                lp: ghsStep.LP, hp: ghsStep.HP,
+                                targetMedian: ghsStep.AutoTargetMedian);
+                            effectiveLnD = convergence.LnD;
+                            convergenceLabel = convergence.ConvergedMedian
+                                ? $",auto(med={convergence.PostStretchMedian:F3},R^2={convergence.LogSlopeRSquared:F2})"
+                                : $",auto(BEST-EFFORT med={convergence.PostStretchMedian:F3})";
+                        }
+
                         var current = inputPlate;
                         for (var pass = 0; pass < ghsStep.Passes; pass++)
                         {
                             var stretched = current.GeneralizedHyperbolicStretch(
-                                lnD: ghsStep.LnD, b: ghsStep.B, sp: sp,
+                                lnD: effectiveLnD, b: ghsStep.B, sp: sp,
                                 lp: ghsStep.LP, hp: ghsStep.HP);
                             if (!ReferenceEquals(current, inputPlate)) current.Release();
                             current = stretched;
@@ -305,7 +325,7 @@ public sealed class SharpenPipeline(
                         if (denoisedStarless is not null) denoisedStarless.Release();
                         denoisedStarless = current;
                         var spLabel = ghsStep.SP is null ? $"sp~{sp:F4}auto" : $"sp={sp:F3}";
-                        timings.Add(($"ghs-stretch-starless(lnD{ghsStep.LnD:F2},b{ghsStep.B:F1},{spLabel},hp{ghsStep.HP:F2},{ghsStep.Passes}x)", phaseSw.ElapsedMilliseconds, denoisedStarless.EstimateNoiseProfile()));
+                        timings.Add(($"ghs-stretch-starless(lnD{effectiveLnD:F2},b{ghsStep.B:F1},{spLabel},hp{ghsStep.HP:F2},{ghsStep.Passes}x{convergenceLabel})", phaseSw.ElapsedMilliseconds, denoisedStarless.EstimateNoiseProfile()));
                         break;
                     }
 
@@ -545,6 +565,9 @@ public sealed class SharpenPipeline(
                     if (ghs.Passes is < 1 or > 10) throw new ArgumentException(
                         $"SharpenRequest.Steps[{i}]: GhsStretchStarlessStep.Passes must be in [1, 10]; got {ghs.Passes}.",
                         nameof(request));
+                    if (ghs.AutoTargetMedian is <= 0.0 or >= 1.0) throw new ArgumentException(
+                        $"SharpenRequest.Steps[{i}]: GhsStretchStarlessStep.AutoTargetMedian must be in (0, 1); got {ghs.AutoTargetMedian}.",
+                        nameof(request));
                     break;
                 case RecombineStep:
                     if (!hasStarless || !hasStarsOnly) throw new ArgumentException(
@@ -776,13 +799,22 @@ public sealed record StretchStarsStep(double Amount = 2.0) : SharpenStep;
 /// <param name="LP">Shadow protection point in <c>[0, SP]</c>.</param>
 /// <param name="HP">Highlight protection point in <c>[SP, 1]</c>.</param>
 /// <param name="Passes">Number of times to apply the curve. Default 1.</param>
+/// <param name="AutoConverge">When true, ignore <paramref name="LnD"/>
+/// and bisect via <see cref="Image.ConvergeGhsStretchFactor"/> against
+/// the input plate's histogram until the post-stretch median lands near
+/// <paramref name="AutoTargetMedian"/>. B / SP / LP / HP stay
+/// caller-supplied.</param>
+/// <param name="AutoTargetMedian">Median target for AutoConverge. Default
+/// 0.25 (SAS Pro / PixInsight convention).</param>
 public sealed record GhsStretchStarlessStep(
     double LnD = 1.3,
     double B = 8.0,
     double? SP = null,
     double LP = 0.0,
     double HP = 0.8,
-    int Passes = 1) : SharpenStep;
+    int Passes = 1,
+    bool AutoConverge = false,
+    double AutoTargetMedian = 0.25) : SharpenStep;
 
 /// <summary>Per-plate MTF stretch on the starless plate. Companion to
 /// <see cref="StretchStarsStep"/>; see its xmldoc for the dual-stretch
