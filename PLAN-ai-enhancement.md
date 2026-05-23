@@ -304,16 +304,32 @@ model is on disk, leaving the classical fallback for absent ones.
 | Phase | Scope | Status |
 |-------|-------|--------|
 | 0 | PLAN doc + dev-only model fetch script | DONE (`tools/tianwen-ai-models-fetch.ps1` with `.pth`/`.pt` filter; 17 `.onnx` files + manifest.json in `%LOCALAPPDATA%\TianWen\models`, 1.4 GB) |
-| 1 | `Image.MtfStretch` / `Image.MtfUnstretch` / `Image.MidtonesBalanceFor` extensions to `Image.Stretch.cs` + `AiNafnetInputs.TargetMedian` constant + `ChunkedInference` + `IPsfEstimator` + `HfdPsfEstimator` | NOT STARTED |
-| 2 | `IStarRemover` + `OnnxStarRemover` (darkstar_color/mono_AI4) — also produces a useful standalone "starless export" feature | NOT STARTED |
-| 3 | `IStellarSharpener` + `OnnxStellarSharpener` (deep_sharp_stellar_AI4) | NOT STARTED |
-| 4 | `INonStellarDeconvolver` + `OnnxNonStellarDeconvolver` (deep_nonstellar_sharp_conditional_psf_AI4) | NOT STARTED |
-| 5 | `SharpenPipeline` orchestrator + request validation + tests | NOT STARTED |
-| 6 | `AddTianWenAi` DI extension + `ModelResolver` + integration tests against real model files | NOT STARTED |
-| 7 | `tianwen sharpen` CLI command + GUI menu entry | NOT STARTED |
+| 1 | `Image.MtfStretch` / `Image.MtfUnstretch` / `Image.MidtonesBalanceFor` extensions to `Image.Stretch.cs` + `AiNafnetInputs.TargetMedian` constant + `ChunkedInference` + `IPsfEstimator` + `HfdPsfEstimator` | DONE |
+| 2 | `IStarRemover` + `OnnxStarRemover` (darkstar_color/mono_AI4) — also produces a useful standalone "starless export" feature | DONE |
+| 3 | `IStellarSharpener` + `OnnxStellarSharpener` (deep_sharp_stellar_AI4) | DONE |
+| 4 | `INonStellarDeconvolver` + `OnnxNonStellarDeconvolver` (deep_nonstellar_sharp_conditional_psf_AI4) | DONE |
+| 5 | `SharpenPipeline` orchestrator + request validation + tests | DONE (step-based `SharpenStep` discriminated record + ordered list; `SharpenIntermediates` retention selector) |
+| 6 | `AddTianWenAi` DI extension + `ModelResolver` + integration tests against real model files | DONE (ModelResolver portability fix for non-Windows landed alongside) |
+| 7 | `tianwen sharpen` CLI command + GUI menu entry | DONE for CLI (`tianwen image {sharpen,remove-stars,flatten,render,stats}`); GUI menu entry still NOT STARTED |
 | 8 | Deployment: runtime self-bootstrap (in-app first-launch download) + `tianwen models fetch` sub-command | NOT STARTED |
 | 9 | Classical fallbacks (`UnsharpMaskStellarSharpener`, `LucyRichardsonDeconvolver`, etc.) | DEFERRED |
 | 10 | NPU acceleration on win-arm64 (INT8 quant or `.serialized.bin` compile) | DEFERRED |
+
+**Refinements shipped beyond the original phasing** (merged to main with the Phases 0-7 work):
+
+| Topic | Detail |
+|---|---|
+| `IDenoiseEnhancer` + 3-variant ONNX impl | Standalone interface; default / lite / walking-noise weights selected by `DenoiseVariant`; slots between deconv and recombine on the starless branch |
+| `IGradientCorrector` + GraXpert BGE | NHWC ONNX wrapper; `EnhanceAndEstimateBackgroundAsync` default-interface-method for diagnostic background plate; `--save-gradient` flag on `tianwen image flatten` |
+| Dual-stretch pipeline | `StretchStarsStep` (Frank fixed-curve MTF) + `StretchStarlessStep` (auto-target MTF) OR `GhsStretchStarlessStep` (Cranfield GHS, opt-in only) + `BackgroundReduceStep` (S-curve) + `CompressHighlightsStep` (Reinhard knee) + Screen recombine; per-plate float TIFF export with sRGB v4 ICC |
+| `tianwen image stats` | `ImageStats.ComputeAsync` -> HFD/FWHM/Ellipticity/SNR + per-channel pedestal/median/MAD/noise; `IsLinear` flag via `Image.DetectPreStretched` (after `ScaleFloatValuesToUnit`) with cross-stretch comparison warning; `--format text|json` |
+| 16-px chunk padding + `ArrayPool` input tensors | NAFNet broadcast errors fixed on real-image sizes; ~200 MB GC churn cut |
+| `tianwen image render` + `--png` flags | PNG goes through the same `MasterPreviewRenderer` as the stack output |
+| `Image.SubtractiveChromaticNoise` + `Image.Lerp` | SCNR on stars plate (`ScnrStarsStep`); per-step AI blend amounts (`StellarBlend`, `DeconvBlend`, `DenoiseBlend`) |
+| Win-arm64: QNN -> DirectML for FP32 | 2.4x speedup on Skull master (6m42s -> 2m45s); Adreno GPU via DirectML EP |
+| Pre-stretched-input auto-detect | `ChunkedNafnetRunner` skips MtfStretch round-trip when input median(ch0 - min) >= 0.125 |
+| `Image.Histogram` median bugfix | `histogram.Count / 2.0` -> `hist_total / 2.0`; latent bug masked by tight astro backgrounds dominating low bins; 5 new direct tests pin the fix |
+| `Image.BilinearResize` | Clamp `fx`/`fy` BEFORE deriving `dx`/`dy` (else non-monotonic dip at boundaries) |
 
 ## Open questions
 
