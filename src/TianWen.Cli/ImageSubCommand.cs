@@ -181,6 +181,15 @@ internal sealed class ImageSubCommand(
             Description = "How many times to apply the GHS curve. Default 1. Range [1, 10].",
             DefaultValueFactory = _ => 1,
         };
+        var ghsAutoOpt = new Option<bool>("--ghs-starless-auto")
+        {
+            Description = "Auto-tune --ghs-lnd via Image.ConvergeGhsStretchFactor: bisect LnD against the input plate's histogram until the post-stretch median lands at --ghs-target-median. B, SP, LP, HP stay caller-supplied; only LnD is solved. Implies --ghs-starless. The timing log line includes the converged LnD, achieved median, and the log-slope R^2 quality marker.",
+        };
+        var ghsAutoTargetMedianOpt = new Option<double>("--ghs-target-median")
+        {
+            Description = "Target post-stretch median for --ghs-starless-auto. Default 0.25 (SAS Pro / PixInsight statistical-stretch convention). Implies --ghs-starless-auto.",
+            DefaultValueFactory = _ => 0.25,
+        };
         var noReduceBgOpt = new Option<bool>("--no-reduce-bg")
         {
             Description = "Skip the S-curve background reduction on the starless plate. By default --dual-stretch applies a Compression=0.36 reduce-background curve (matches finished Affinity workflow control point at ~0.112,0.04).",
@@ -208,7 +217,7 @@ internal sealed class ImageSubCommand(
         var cmd = new Command("sharpen", "Full AI4 NAFNet sharpen pipeline: remove stars, sharpen the stars-only plate, deconvolve + denoise the starless plate, optional SCNR on stars, recombine.")
         {
             Arguments = { inputArg },
-            Options = { outputOpt, modeOpt, noStellarOpt, noDeconvOpt, noDenoiseOpt, noRecombineOpt, pngOpt, stellarBlendOpt, deconvBlendOpt, denoiseBlendOpt, denoiseVariantOpt, scnrOpt, scnrAmountOpt, dualStretchOpt, stretchStarsAmountOpt, stretchStarlessMedianOpt, ghsStarlessOpt, ghsLnDOpt, ghsBOpt, ghsLpOpt, ghsHpOpt, ghsSpOpt, ghsPassesOpt, noReduceBgOpt, reduceBgCompressionOpt, noCompressHighlightsOpt, highlightKneeOpt, highlightAmountOpt },
+            Options = { outputOpt, modeOpt, noStellarOpt, noDeconvOpt, noDenoiseOpt, noRecombineOpt, pngOpt, stellarBlendOpt, deconvBlendOpt, denoiseBlendOpt, denoiseVariantOpt, scnrOpt, scnrAmountOpt, dualStretchOpt, stretchStarsAmountOpt, stretchStarlessMedianOpt, ghsStarlessOpt, ghsLnDOpt, ghsBOpt, ghsLpOpt, ghsHpOpt, ghsSpOpt, ghsPassesOpt, ghsAutoOpt, ghsAutoTargetMedianOpt, noReduceBgOpt, reduceBgCompressionOpt, noCompressHighlightsOpt, highlightKneeOpt, highlightAmountOpt },
         };
         cmd.SetAction(async (parseResult, ct) =>
         {
@@ -289,6 +298,11 @@ internal sealed class ImageSubCommand(
             double? ghsSp = ghsSpRaw > 0.0
                 ? Math.Clamp(ghsSpRaw, 0.01, 0.99)
                 : null;
+            // --ghs-target-median below 1.0 implies --ghs-starless-auto
+            // (default 0.25 leaves auto off; explicit target turns it on).
+            var ghsAutoTargetMedian = Math.Clamp(parseResult.GetValue(ghsAutoTargetMedianOpt), 0.01, 0.99);
+            var ghsAutoFlag = parseResult.GetValue(ghsAutoOpt);
+            var ghsAuto = ghsAutoFlag;
             var ghsPasses = Math.Clamp(parseResult.GetValue(ghsPassesOpt), 1, 10);
             var noCompressHighlights = parseResult.GetValue(noCompressHighlightsOpt);
             var highlightKnee = Math.Clamp(parseResult.GetValue(highlightKneeOpt), 0.01, 0.99);
@@ -332,7 +346,9 @@ internal sealed class ImageSubCommand(
                         SP: ghsSp,
                         LP: ghsLp,
                         HP: ghsHp,
-                        Passes: ghsPasses));
+                        Passes: ghsPasses,
+                        AutoConverge: ghsAuto,
+                        AutoTargetMedian: ghsAutoTargetMedian));
                 else
                     steps.Add(new StretchStarlessStep(TargetMedian: starlessMedian));
                 // S-curve background reduction on starless after stretch
@@ -376,8 +392,9 @@ internal sealed class ImageSubCommand(
             var request = new SharpenRequest(normalised, ImmutableArray.CreateRange(steps), KeepIntermediates: keepIntermediates);
 
             var spDesc = ghsSp is { } spv ? spv.ToString("F3") : "auto";
+            var lnDDesc = ghsAuto ? $"lnD~auto(t={ghsAutoTargetMedian:F2})" : $"lnD{ghsLnD:F2}";
             var starlessStretchDesc = ghsStarless
-                ? $"ghs(lnD{ghsLnD:F2}/b{ghsB:F2}/sp{spDesc}/lp{ghsLp:F2}/hp{ghsHp:F2}/{ghsPasses}x)"
+                ? $"ghs({lnDDesc}/b{ghsB:F2}/sp{spDesc}/lp{ghsLp:F2}/hp{ghsHp:F2}/{ghsPasses}x)"
                 : $"mtf-tm={starlessMedian:F2}";
             var dualStretchDesc = dualStretch
                 ? $" dual-stretch(stars-amount={starsAmount:F2},starless={starlessStretchDesc}) reduce-bg={(!noReduceBg ? reduceBgCompression.ToString("F2") : "off")} compress-hi={(!noCompressHighlights ? $"k{highlightKnee:F2}/a{highlightAmount:F2}" : "off")}"

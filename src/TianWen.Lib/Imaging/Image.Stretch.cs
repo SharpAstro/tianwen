@@ -1,5 +1,6 @@
 using System;
 using System.Buffers;
+using System.Collections.Immutable;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
@@ -1310,5 +1311,245 @@ public partial class Image
         }
 
         return (factor, midtones);
+    }
+
+    /// <summary>
+    /// Result of <see cref="ConvergeGhsStretchFactor"/>. <see cref="LnD"/>
+    /// is the converged stretch factor (user-facing
+    /// <c>ln(D + 1)</c> convention); <see cref="PostStretchMedian"/> /
+    /// <see cref="LogSlopeRSquared"/> report where the converged curve
+    /// landed. <see cref="ConvergedMedian"/> is true iff the bisection
+    /// satisfied the median tolerance.
+    /// </summary>
+    public readonly record struct GhsConvergence(
+        double LnD,
+        double PostStretchMedian,
+        double LogSlopeRSquared,
+        bool ConvergedMedian);
+
+    /// <summary>
+    /// Bisects <c>LnD</c> until the post-stretch median lands within
+    /// <paramref name="medianTolerance"/> of <paramref name="targetMedian"/>.
+    /// <c>B</c>, <c>SP</c>, <c>LP</c>, <c>HP</c> are fixed across the
+    /// bisection -- LnD is the natural single variable that controls
+    /// curve strength, mirroring <see cref="ConvergeStretchFactor"/> for
+    /// MTF. Cheap: each iteration builds a 65536-entry LUT once and
+    /// walks the histogram bins through it; no per-pixel pass through
+    /// the image. Reports the post-stretch log-slope R^2 as an advisory
+    /// quality marker; it does NOT drive convergence (narrowband / steep
+    /// nebula inputs naturally violate the exponential-decay assumption
+    /// the R^2 measures against, and the metric is left for the operator
+    /// to interpret).
+    /// </summary>
+    /// <remarks>
+    /// <para>Monotonicity: higher <c>LnD</c> = larger <c>D</c> = stronger
+    /// curve = higher post-stretch median (for stretch-from-linear use
+    /// where <c>SP &lt; target</c>). Bisection direction:
+    /// <c>median &lt; target</c> -> raise lo; <c>median &gt; target</c>
+    /// -> lower hi.</para>
+    ///
+    /// <para>The log-slope R^2 is computed at the converged LnD only.
+    /// Score &gt;= 0.9 generally indicates a well-stretched broadband
+    /// astro frame (exponential decay above the bg peak); &lt; 0.7 is
+    /// either narrowband (legitimate violation of the decay model) or
+    /// a poor stretch. Use as a hint, not a hard gate.</para>
+    /// </remarks>
+    /// <param name="histogram">Pre-computed channel-0 histogram. Must
+    /// have <see cref="ImageHistogram.Total"/> &gt; 0.</param>
+    /// <param name="b">GHS signed local stretch intensity. Default
+    /// <c>8.0</c> (Paul's case-1 hyperbolic branch).</param>
+    /// <param name="sp">Symmetry point. Caller-supplied (typically
+    /// <see cref="EstimateRisingEdge"/> on the linear input).</param>
+    /// <param name="lp">Shadow protection point.</param>
+    /// <param name="hp">Highlight protection point.</param>
+    /// <param name="targetMedian">Desired post-stretch median. Default
+    /// <c>0.25</c>.</param>
+    /// <param name="medianTolerance">Convergence tolerance. Default
+    /// <c>0.01</c>.</param>
+    /// <param name="minLnD">Lower bisection bound. Default <c>0.1</c>.</param>
+    /// <param name="maxLnD">Upper bisection bound. Default <c>8.0</c>
+    /// (corresponds to D ~= 2980 -- extreme stretch). The reference
+    /// PixInsight script uses a slider range to roughly 8.</param>
+    /// <param name="maxIterations">Bisection iteration cap. Default <c>20</c>.</param>
+    public static GhsConvergence ConvergeGhsStretchFactor(
+        ImageHistogram histogram,
+        double b = 8.0,
+        double sp = 0.05,
+        double lp = 0.0,
+        double hp = 0.8,
+        double targetMedian = 0.25,
+        double medianTolerance = 0.01,
+        double minLnD = 0.1,
+        double maxLnD = 8.0,
+        int maxIterations = 20)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxLnD - minLnD);
+
+        if (histogram.Total <= 0f)
+        {
+            return new GhsConvergence(1.30, double.NaN, double.NaN, ConvergedMedian: false);
+        }
+
+        const int LutSize = 65536;
+        Span<float> lut = new float[LutSize];
+        var bins = histogram.Histogram;
+        var binCount = bins.Length;
+        var totalF = histogram.Total;
+        var halfTotal = totalF * 0.5f;
+        var binMax = histogram.RescaledMaxValue ?? 65535f;
+        var invBinMax = 1f / binMax;
+
+        var lo = minLnD;
+        var hi = maxLnD;
+        var lnD = Math.Clamp(1.30, lo, hi);
+        var lastMedian = double.NaN;
+        var converged = false;
+
+        for (var iter = 0; iter < maxIterations; iter++)
+        {
+            BuildGhsLut(lut, lnD, b, sp, lp, hp);
+            lastMedian = ComputePostStretchMedian(lut, bins, halfTotal, invBinMax);
+
+            if (double.IsNaN(lastMedian)) break;
+            if (Math.Abs(lastMedian - targetMedian) <= medianTolerance)
+            {
+                converged = true;
+                break;
+            }
+
+            // median < target -> curve too weak -> raise lnD.
+            if (lastMedian < targetMedian) lo = lnD;
+            else hi = lnD;
+            lnD = (lo + hi) * 0.5;
+        }
+
+        // Final pass on the converged LnD to compute the R^2 advisory.
+        BuildGhsLut(lut, lnD, b, sp, lp, hp);
+        var rSquared = ComputeLogSlopeRSquared(lut, bins, totalF, invBinMax);
+
+        return new GhsConvergence(lnD, lastMedian, rSquared, converged);
+    }
+
+    /// <summary>
+    /// Walks <paramref name="bins"/> through <paramref name="lut"/> to
+    /// find the post-stretch median (the post-stretch value at which
+    /// cumulative count first reaches <paramref name="halfTotal"/>).
+    /// Same idea as <see cref="ConvergeStretchFactor"/>'s inner loop but
+    /// generalised: each bin's center value maps through the LUT to its
+    /// post-stretch value; cumulative bin counts find the 50th percentile.
+    /// </summary>
+    private static double ComputePostStretchMedian(
+        ReadOnlySpan<float> lut, ImmutableArray<uint> bins, float halfTotal, float invBinMax)
+    {
+        var binCount = bins.Length;
+        var cumulative = 0f;
+        for (var i = 0; i < binCount; i++)
+        {
+            cumulative += bins[i];
+            if (cumulative >= halfTotal)
+            {
+                var v = (i + 0.5f) * invBinMax;
+                if (v > 1f) v = 1f;
+                var idx = v * (lut.Length - 1);
+                var i0 = (int)idx;
+                if (i0 >= lut.Length - 1) return lut[lut.Length - 1];
+                var frac = idx - i0;
+                return lut[i0] * (1f - frac) + lut[i0 + 1] * frac;
+            }
+        }
+        return double.NaN;
+    }
+
+    /// <summary>
+    /// Computes the R^2 of a least-squares linear fit on
+    /// <c>(value, log(count))</c> sampled from the post-stretch
+    /// histogram above the bg peak. A well-stretched broadband astro
+    /// frame produces approximate exponential decay above the bg peak
+    /// -- linear when plotted log-y, R^2 close to 1. Narrowband or
+    /// steep nebula inputs naturally fail this; the metric is advisory.
+    /// </summary>
+    /// <returns>R^2 in <c>[0, 1]</c>, or <see cref="double.NaN"/> when
+    /// the post-stretch histogram lacks enough non-empty bins above
+    /// the peak to fit a line (e.g. all pixels collapse to a single
+    /// bin under an extreme stretch).</returns>
+    private static double ComputeLogSlopeRSquared(
+        ReadOnlySpan<float> lut, ImmutableArray<uint> bins, float total, float invBinMax)
+    {
+        var binCount = bins.Length;
+        // Project input histogram into a post-stretch histogram by
+        // mapping each input bin's center value through the LUT.
+        // Same bin count as input -- precision penalty is minor for
+        // 65536 bins and lets us reuse the same indexing arithmetic.
+        var postBins = new uint[binCount];
+        for (var i = 0; i < binCount; i++)
+        {
+            if (bins[i] == 0) continue;
+            var v = (i + 0.5f) * invBinMax;
+            if (v > 1f) v = 1f;
+            var idx = v * (lut.Length - 1);
+            var i0 = (int)idx;
+            var stretched = i0 >= lut.Length - 1
+                ? lut[lut.Length - 1]
+                : lut[i0] + (lut[i0 + 1] - lut[i0]) * (idx - i0);
+            var outIdx = (int)(stretched * (binCount - 1));
+            if (outIdx < 0) outIdx = 0;
+            else if (outIdx >= binCount) outIdx = binCount - 1;
+            postBins[outIdx] += bins[i];
+        }
+
+        // Find the post-stretch peak bin (mode).
+        var peakIdx = 0;
+        var peakCount = 0u;
+        for (var i = 0; i < binCount; i++)
+        {
+            if (postBins[i] > peakCount) { peakCount = postBins[i]; peakIdx = i; }
+        }
+        if (peakCount == 0) return double.NaN;
+
+        // Sample from just above the peak through 0.95 of the top bin.
+        // Skip a small margin past the peak (we want the decay region,
+        // not the peak itself); cap at 0.95 to avoid the edge artifacts
+        // that often live in the final few bins.
+        var startIdx = peakIdx + (int)(binCount * 0.02);  // 2% past peak
+        var endIdx = (int)(binCount * 0.95);
+        if (endIdx - startIdx < 16) return double.NaN; // too few sample bins
+
+        // Build the (x, y) pairs: x = bin value, y = log(count + 1)
+        // -- the +1 epsilon prevents log(0) on empty bins without
+        // distorting the regression on populated ones.
+        // Compute regression statistics in a single pass.
+        double sumX = 0, sumY = 0, sumXX = 0, sumXY = 0;
+        var n = 0;
+        for (var i = startIdx; i <= endIdx; i++)
+        {
+            var x = (double)i / (binCount - 1);
+            var y = Math.Log(postBins[i] + 1.0);
+            sumX += x;
+            sumY += y;
+            sumXX += x * x;
+            sumXY += x * y;
+            n++;
+        }
+        if (n < 2) return double.NaN;
+
+        var meanX = sumX / n;
+        var meanY = sumY / n;
+        var varX = sumXX / n - meanX * meanX;
+        if (varX <= 0) return double.NaN;
+        var covXY = sumXY / n - meanX * meanY;
+        var slope = covXY / varX;
+        var intercept = meanY - slope * meanX;
+
+        double ssTot = 0, ssRes = 0;
+        for (var i = startIdx; i <= endIdx; i++)
+        {
+            var x = (double)i / (binCount - 1);
+            var y = Math.Log(postBins[i] + 1.0);
+            var yHat = intercept + slope * x;
+            ssTot += (y - meanY) * (y - meanY);
+            ssRes += (y - yHat) * (y - yHat);
+        }
+        if (ssTot <= 0) return double.NaN;
+        return Math.Clamp(1.0 - ssRes / ssTot, 0.0, 1.0);
     }
 }
