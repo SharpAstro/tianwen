@@ -317,6 +317,7 @@ public sealed class SharpenPipeline(
                             var perChannelLnD = new double[channelCount];
                             var perChannelSp = new double[channelCount];
                             var perChannelMedian = new double[channelCount];
+                            var perChannelMode = new double[channelCount];
                             var perChannelR2 = new double[channelCount];
                             var perChannelB = new double[channelCount];
                             var perChannelLp = new double[channelCount];
@@ -330,15 +331,17 @@ public sealed class SharpenPipeline(
                                 var convergence = Image.ConvergeGhsStretchFactor(
                                     hist, b: ghsStep.B, sp: chSp,
                                     lp: ghsStep.LP, hp: ghsStep.HP,
-                                    targetMedian: ghsStep.AutoTargetMedian);
+                                    targetValue: ghsStep.AutoTargetValue,
+                                    target: ghsStep.AutoTarget);
                                 perChannelLnD[c] = convergence.LnD;
                                 perChannelSp[c] = chSp;
                                 perChannelMedian[c] = convergence.PostStretchMedian;
+                                perChannelMode[c] = convergence.PostStretchMode;
                                 perChannelR2[c] = convergence.LogSlopeRSquared;
                                 perChannelB[c] = ghsStep.B;
                                 perChannelLp[c] = ghsStep.LP;
                                 perChannelHp[c] = ghsStep.HP;
-                                allConverged &= convergence.ConvergedMedian;
+                                allConverged &= convergence.Converged;
                             }
                             for (var pass = 0; pass < ghsStep.Passes; pass++)
                             {
@@ -348,8 +351,13 @@ public sealed class SharpenPipeline(
                                 if (!ReferenceEquals(current, inputPlate)) current.Release();
                                 current = stretched;
                             }
+                            // Telemetry: show the metric the bisection targeted (med vs mode);
+                            // both numbers are computed regardless of target so the operator can
+                            // sanity-check that the non-targeted metric hasn't drifted too far.
+                            var perChTargeted = ghsStep.AutoTarget == Image.GhsConvergeTarget.Mode ? perChannelMode : perChannelMedian;
+                            var perChLabel = ghsStep.AutoTarget == Image.GhsConvergeTarget.Mode ? "mode" : "med";
                             spLabel = $"sp~[{string.Join("/", perChannelSp.Select(v => v.ToString("F4")))}]";
-                            convergenceLabel = $",auto-perch(lnD=[{string.Join("/", perChannelLnD.Select(v => v.ToString("F2")))}],med=[{string.Join("/", perChannelMedian.Select(v => v.ToString("F3")))}]" +
+                            convergenceLabel = $",auto-perch(lnD=[{string.Join("/", perChannelLnD.Select(v => v.ToString("F2")))}],{perChLabel}=[{string.Join("/", perChTargeted.Select(v => v.ToString("F3")))}]" +
                                 (allConverged ? "" : ",BEST-EFFORT") + ")";
                         }
                         else
@@ -366,11 +374,15 @@ public sealed class SharpenPipeline(
                                 var convergence = Image.ConvergeGhsStretchFactor(
                                     histogram, b: ghsStep.B, sp: sp,
                                     lp: ghsStep.LP, hp: ghsStep.HP,
-                                    targetMedian: ghsStep.AutoTargetMedian);
+                                    targetValue: ghsStep.AutoTargetValue,
+                                    target: ghsStep.AutoTarget);
                                 effectiveLnD = convergence.LnD;
-                                convergenceLabel = convergence.ConvergedMedian
-                                    ? $",auto(med={convergence.PostStretchMedian:F3},R^2={convergence.LogSlopeRSquared:F2})"
-                                    : $",auto(BEST-EFFORT med={convergence.PostStretchMedian:F3})";
+                                // Telemetry label shows both metrics so the operator can see
+                                // where the non-targeted one landed (e.g. when target=Mode, the
+                                // median value tells you how bright the bulk of the histogram is).
+                                convergenceLabel = convergence.Converged
+                                    ? $",auto(med={convergence.PostStretchMedian:F3},mode={convergence.PostStretchMode:F3},R^2={convergence.LogSlopeRSquared:F2})"
+                                    : $",auto(BEST-EFFORT med={convergence.PostStretchMedian:F3},mode={convergence.PostStretchMode:F3})";
                             }
                             for (var pass = 0; pass < ghsStep.Passes; pass++)
                             {
@@ -518,7 +530,12 @@ public sealed class SharpenPipeline(
         }
 
         // Topological walk: for each step, every plate it reads must be
-        // produced by an earlier step. Duplicates rejected in v1.
+        // produced by an earlier step. Most step types are rejected on
+        // duplicate (v1 simplification) except those that have a
+        // documented multi-application recipe -- e.g. GhsStretchStarlessStep
+        // for Mike Cranfield's two-pass workflow (gh-astro sections 2.7-2.9:
+        // pass 1 lifts the linear histogram, BackgroundReduceStep does the
+        // "linear prestretch", pass 2 redistributes contrast).
         var hasStarless = false;
         var hasStarsOnly = false;
         var seenTypes = new HashSet<Type>();
@@ -527,7 +544,8 @@ public sealed class SharpenPipeline(
         {
             var step = request.Steps[i];
             var t = step.GetType();
-            if (!seenTypes.Add(t))
+            var alreadySeen = !seenTypes.Add(t);
+            if (alreadySeen && step is not GhsStretchStarlessStep)
             {
                 throw new ArgumentException(
                     $"SharpenRequest.Steps[{i}]: duplicate step of type {t.Name}. Each step type may appear at most once.",
@@ -625,8 +643,8 @@ public sealed class SharpenPipeline(
                     if (ghs.Passes is < 1 or > 10) throw new ArgumentException(
                         $"SharpenRequest.Steps[{i}]: GhsStretchStarlessStep.Passes must be in [1, 10]; got {ghs.Passes}.",
                         nameof(request));
-                    if (ghs.AutoTargetMedian is <= 0.0 or >= 1.0) throw new ArgumentException(
-                        $"SharpenRequest.Steps[{i}]: GhsStretchStarlessStep.AutoTargetMedian must be in (0, 1); got {ghs.AutoTargetMedian}.",
+                    if (ghs.AutoTargetValue is <= 0.0 or >= 1.0) throw new ArgumentException(
+                        $"SharpenRequest.Steps[{i}]: GhsStretchStarlessStep.AutoTargetValue must be in (0, 1); got {ghs.AutoTargetValue}.",
                         nameof(request));
                     break;
                 case RecombineStep:
@@ -861,11 +879,18 @@ public sealed record StretchStarsStep(double Amount = 2.0) : SharpenStep;
 /// <param name="Passes">Number of times to apply the curve. Default 1.</param>
 /// <param name="AutoConverge">When true, ignore <paramref name="LnD"/>
 /// and bisect via <see cref="Image.ConvergeGhsStretchFactor"/> against
-/// the input plate's histogram until the post-stretch median lands near
-/// <paramref name="AutoTargetMedian"/>. B / SP / LP / HP stay
+/// the input plate's histogram until the metric chosen by
+/// <paramref name="AutoTarget"/> lands near
+/// <paramref name="AutoTargetValue"/>. B / SP / LP / HP stay
 /// caller-supplied.</param>
-/// <param name="AutoTargetMedian">Median target for AutoConverge. Default
-/// 0.25 (SAS Pro / PixInsight convention).</param>
+/// <param name="AutoTargetValue">Target value for AutoConverge. Default
+/// 0.25 (SAS Pro / PixInsight convention for
+/// <see cref="Image.GhsConvergeTarget.Median"/>; Paul's bg-lift recipe
+/// for <see cref="Image.GhsConvergeTarget.Mode"/>).</param>
+/// <param name="AutoTarget">Which post-stretch metric AutoConverge
+/// bisects against. <see cref="Image.GhsConvergeTarget.Median"/> matches
+/// PixInsight STF (historical default); <see cref="Image.GhsConvergeTarget.Mode"/>
+/// targets the bg peak instead and produces a visibly brighter result.</param>
 public sealed record GhsStretchStarlessStep(
     double LnD = 1.3,
     double B = 8.0,
@@ -874,7 +899,8 @@ public sealed record GhsStretchStarlessStep(
     double HP = 0.8,
     int Passes = 1,
     bool AutoConverge = false,
-    double AutoTargetMedian = 0.25) : SharpenStep;
+    double AutoTargetValue = 0.25,
+    Image.GhsConvergeTarget AutoTarget = Image.GhsConvergeTarget.Median) : SharpenStep;
 
 /// <summary>Per-plate MTF stretch on the starless plate. Companion to
 /// <see cref="StretchStarsStep"/>; see its xmldoc for the dual-stretch

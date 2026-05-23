@@ -1372,39 +1372,66 @@ public partial class Image
     }
 
     /// <summary>
+    /// Which post-stretch metric <see cref="ConvergeGhsStretchFactor"/>
+    /// bisects against. <see cref="Median"/> is the historical default
+    /// (PixInsight STF convention); <see cref="Mode"/> targets the bg
+    /// peak instead, matching Paul (Polymath Astro)'s "lift the
+    /// histogram peak to ~0.25" recipe. Mode-target produces a visibly
+    /// brighter result for typical astro frames because median sits
+    /// above mode (long signal tail), so converging the median to 0.25
+    /// leaves the bg peak well below it.
+    /// </summary>
+    public enum GhsConvergeTarget
+    {
+        Median,
+        Mode,
+    }
+
+    /// <summary>
     /// Result of <see cref="ConvergeGhsStretchFactor"/>. <see cref="LnD"/>
     /// is the converged stretch factor (user-facing
     /// <c>ln(D + 1)</c> convention); <see cref="PostStretchMedian"/> /
-    /// <see cref="LogSlopeRSquared"/> report where the converged curve
-    /// landed. <see cref="ConvergedMedian"/> is true iff the bisection
-    /// satisfied the median tolerance.
+    /// <see cref="PostStretchMode"/> / <see cref="LogSlopeRSquared"/>
+    /// report where the converged curve landed (both metrics are always
+    /// computed, regardless of which one the bisection targeted).
+    /// <see cref="Converged"/> is true iff the bisection satisfied the
+    /// caller's tolerance on the chosen target metric.
     /// </summary>
     public readonly record struct GhsConvergence(
         double LnD,
         double PostStretchMedian,
+        double PostStretchMode,
         double LogSlopeRSquared,
-        bool ConvergedMedian);
+        bool Converged);
 
     /// <summary>
-    /// Bisects <c>LnD</c> until the post-stretch median lands within
-    /// <paramref name="medianTolerance"/> of <paramref name="targetMedian"/>.
-    /// <c>B</c>, <c>SP</c>, <c>LP</c>, <c>HP</c> are fixed across the
-    /// bisection -- LnD is the natural single variable that controls
-    /// curve strength, mirroring <see cref="ConvergeStretchFactor"/> for
-    /// MTF. Cheap: each iteration builds a 65536-entry LUT once and
-    /// walks the histogram bins through it; no per-pixel pass through
-    /// the image. Reports the post-stretch log-slope R^2 as an advisory
-    /// quality marker; it does NOT drive convergence (narrowband / steep
-    /// nebula inputs naturally violate the exponential-decay assumption
-    /// the R^2 measures against, and the metric is left for the operator
-    /// to interpret).
+    /// Bisects <c>LnD</c> until the post-stretch metric selected by
+    /// <paramref name="target"/> lands within <paramref name="tolerance"/>
+    /// of <paramref name="targetValue"/>. <c>B</c>, <c>SP</c>, <c>LP</c>,
+    /// <c>HP</c> are fixed across the bisection -- LnD is the natural
+    /// single variable that controls curve strength, mirroring
+    /// <see cref="ConvergeStretchFactor"/> for MTF. Cheap: each iteration
+    /// builds a 65536-entry LUT once and walks the histogram bins through
+    /// it; no per-pixel pass through the image. Reports the post-stretch
+    /// log-slope R^2 as an advisory quality marker; it does NOT drive
+    /// convergence (narrowband / steep nebula inputs naturally violate
+    /// the exponential-decay assumption the R^2 measures against, and
+    /// the metric is left for the operator to interpret).
     /// </summary>
     /// <remarks>
     /// <para>Monotonicity: higher <c>LnD</c> = larger <c>D</c> = stronger
-    /// curve = higher post-stretch median (for stretch-from-linear use
-    /// where <c>SP &lt; target</c>). Bisection direction:
-    /// <c>median &lt; target</c> -> raise lo; <c>median &gt; target</c>
-    /// -> lower hi.</para>
+    /// curve = higher post-stretch median (and higher post-stretch mode)
+    /// for stretch-from-linear use where <c>SP &lt; target</c>.
+    /// Bisection direction: <c>metric &lt; target</c> -> raise lo;
+    /// <c>metric &gt; target</c> -> lower hi.</para>
+    ///
+    /// <para><see cref="GhsConvergeTarget.Median"/> is the historical
+    /// PixInsight STF default and converges to a stretched look where the
+    /// bulk of the histogram lands at the requested value. For typical
+    /// linear astro frames this leaves the bg peak (mode) well below the
+    /// target median, producing a dim-looking result.
+    /// <see cref="GhsConvergeTarget.Mode"/> targets the bg peak instead,
+    /// matching Paul (Polymath Astro)'s recipe.</para>
     ///
     /// <para>The log-slope R^2 is computed at the converged LnD only.
     /// Score &gt;= 0.9 generally indicates a well-stretched broadband
@@ -1420,32 +1447,36 @@ public partial class Image
     /// <see cref="EstimateRisingEdge"/> on the linear input).</param>
     /// <param name="lp">Shadow protection point.</param>
     /// <param name="hp">Highlight protection point.</param>
-    /// <param name="targetMedian">Desired post-stretch median. Default
-    /// <c>0.25</c>.</param>
-    /// <param name="medianTolerance">Convergence tolerance. Default
-    /// <c>0.01</c>.</param>
+    /// <param name="targetValue">Desired post-stretch value of the chosen
+    /// <paramref name="target"/> metric. Default <c>0.25</c> (PixInsight
+    /// STF convention for median; Paul's bg-lift recipe for mode).</param>
+    /// <param name="tolerance">Convergence tolerance on
+    /// <paramref name="targetValue"/>. Default <c>0.01</c>.</param>
     /// <param name="minLnD">Lower bisection bound. Default <c>0.1</c>.</param>
     /// <param name="maxLnD">Upper bisection bound. Default <c>8.0</c>
     /// (corresponds to D ~= 2980 -- extreme stretch). The reference
     /// PixInsight script uses a slider range to roughly 8.</param>
     /// <param name="maxIterations">Bisection iteration cap. Default <c>20</c>.</param>
+    /// <param name="target">Which post-stretch metric to bisect against.
+    /// Default <see cref="GhsConvergeTarget.Median"/>.</param>
     public static GhsConvergence ConvergeGhsStretchFactor(
         ImageHistogram histogram,
         double b = 8.0,
         double sp = 0.05,
         double lp = 0.0,
         double hp = 0.8,
-        double targetMedian = 0.25,
-        double medianTolerance = 0.01,
+        double targetValue = 0.25,
+        double tolerance = 0.01,
         double minLnD = 0.1,
         double maxLnD = 8.0,
-        int maxIterations = 20)
+        int maxIterations = 20,
+        GhsConvergeTarget target = GhsConvergeTarget.Median)
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxLnD - minLnD);
 
         if (histogram.Total <= 0f)
         {
-            return new GhsConvergence(1.30, double.NaN, double.NaN, ConvergedMedian: false);
+            return new GhsConvergence(1.30, double.NaN, double.NaN, double.NaN, Converged: false);
         }
 
         const int LutSize = 65536;
@@ -1457,35 +1488,62 @@ public partial class Image
         var binMax = histogram.RescaledMaxValue ?? 65535f;
         var invBinMax = 1f / binMax;
 
+        // Scratch projection buffer reused across iterations when we need
+        // the post-stretch mode (median uses the cumulative-walk shortcut
+        // and doesn't need a projection).
+        var postBins = target == GhsConvergeTarget.Mode ? new uint[binCount] : null;
+
         var lo = minLnD;
         var hi = maxLnD;
         var lnD = Math.Clamp(1.30, lo, hi);
         var lastMedian = double.NaN;
+        var lastMode = double.NaN;
         var converged = false;
 
         for (var iter = 0; iter < maxIterations; iter++)
         {
             BuildGhsLut(lut, lnD, b, sp, lp, hp);
             lastMedian = ComputePostStretchMedian(lut, bins, halfTotal, invBinMax);
+            double metric;
+            if (target == GhsConvergeTarget.Mode)
+            {
+                lastMode = ComputePostStretchMode(lut, bins, invBinMax, postBins!);
+                metric = lastMode;
+            }
+            else
+            {
+                metric = lastMedian;
+            }
 
-            if (double.IsNaN(lastMedian)) break;
-            if (Math.Abs(lastMedian - targetMedian) <= medianTolerance)
+            if (double.IsNaN(metric)) break;
+            if (Math.Abs(metric - targetValue) <= tolerance)
             {
                 converged = true;
                 break;
             }
 
-            // median < target -> curve too weak -> raise lnD.
-            if (lastMedian < targetMedian) lo = lnD;
+            // metric < target -> curve too weak -> raise lnD.
+            if (metric < targetValue) lo = lnD;
             else hi = lnD;
             lnD = (lo + hi) * 0.5;
         }
 
-        // Final pass on the converged LnD to compute the R^2 advisory.
+        // Final pass on the converged LnD to compute both metrics + R^2.
+        // Whichever metric wasn't the bisection target is still computed
+        // for telemetry so the caller sees the full picture.
         BuildGhsLut(lut, lnD, b, sp, lp, hp);
+        if (double.IsNaN(lastMedian))
+        {
+            lastMedian = ComputePostStretchMedian(lut, bins, halfTotal, invBinMax);
+        }
+        if (double.IsNaN(lastMode))
+        {
+            postBins ??= new uint[binCount];
+            lastMode = ComputePostStretchMode(lut, bins, invBinMax, postBins);
+        }
         var rSquared = ComputeLogSlopeRSquared(lut, bins, totalF, invBinMax);
 
-        return new GhsConvergence(lnD, lastMedian, rSquared, converged);
+        return new GhsConvergence(lnD, lastMedian, lastMode, rSquared, converged);
     }
 
     /// <summary>
@@ -1519,26 +1577,26 @@ public partial class Image
     }
 
     /// <summary>
-    /// Computes the R^2 of a least-squares linear fit on
-    /// <c>(value, log(count))</c> sampled from the post-stretch
-    /// histogram above the bg peak. A well-stretched broadband astro
-    /// frame produces approximate exponential decay above the bg peak
-    /// -- linear when plotted log-y, R^2 close to 1. Narrowband or
-    /// steep nebula inputs naturally fail this; the metric is advisory.
+    /// Projects <paramref name="bins"/> through <paramref name="lut"/>
+    /// into <paramref name="postBins"/> (caller-owned, length == bins;
+    /// cleared on entry) and returns the post-stretch mode -- the
+    /// centre value of the most populated post-stretch bin. Returns
+    /// <see cref="double.NaN"/> when no input bin is populated. Caller
+    /// reuses <paramref name="postBins"/> across iterations to avoid
+    /// per-iteration allocation.
     /// </summary>
-    /// <returns>R^2 in <c>[0, 1]</c>, or <see cref="double.NaN"/> when
-    /// the post-stretch histogram lacks enough non-empty bins above
-    /// the peak to fit a line (e.g. all pixels collapse to a single
-    /// bin under an extreme stretch).</returns>
-    private static double ComputeLogSlopeRSquared(
-        ReadOnlySpan<float> lut, ImmutableArray<uint> bins, float total, float invBinMax)
+    /// <remarks>
+    /// The stretch warps bin widths, so the post-stretch mode is NOT
+    /// the LUT value of the input mode: multiple input bins can pile
+    /// into a single post-stretch bin where the curve is steep.
+    /// Projection is therefore the only correct way to find it.
+    /// O(binCount) per call.
+    /// </remarks>
+    private static double ComputePostStretchMode(
+        ReadOnlySpan<float> lut, ImmutableArray<uint> bins, float invBinMax, uint[] postBins)
     {
         var binCount = bins.Length;
-        // Project input histogram into a post-stretch histogram by
-        // mapping each input bin's center value through the LUT.
-        // Same bin count as input -- precision penalty is minor for
-        // 65536 bins and lets us reuse the same indexing arithmetic.
-        var postBins = new uint[binCount];
+        Array.Clear(postBins);
         for (var i = 0; i < binCount; i++)
         {
             if (bins[i] == 0) continue;
@@ -1555,7 +1613,6 @@ public partial class Image
             postBins[outIdx] += bins[i];
         }
 
-        // Find the post-stretch peak bin (mode).
         var peakIdx = 0;
         var peakCount = 0u;
         for (var i = 0; i < binCount; i++)
@@ -1563,6 +1620,34 @@ public partial class Image
             if (postBins[i] > peakCount) { peakCount = postBins[i]; peakIdx = i; }
         }
         if (peakCount == 0) return double.NaN;
+        return (peakIdx + 0.5) / binCount;
+    }
+
+    /// <summary>
+    /// Computes the R^2 of a least-squares linear fit on
+    /// <c>(value, log(count))</c> sampled from the post-stretch
+    /// histogram above the bg peak. A well-stretched broadband astro
+    /// frame produces approximate exponential decay above the bg peak
+    /// -- linear when plotted log-y, R^2 close to 1. Narrowband or
+    /// steep nebula inputs naturally fail this; the metric is advisory.
+    /// </summary>
+    /// <returns>R^2 in <c>[0, 1]</c>, or <see cref="double.NaN"/> when
+    /// the post-stretch histogram lacks enough non-empty bins above
+    /// the peak to fit a line (e.g. all pixels collapse to a single
+    /// bin under an extreme stretch).</returns>
+    private static double ComputeLogSlopeRSquared(
+        ReadOnlySpan<float> lut, ImmutableArray<uint> bins, float total, float invBinMax)
+    {
+        var binCount = bins.Length;
+        // Project input histogram into a post-stretch histogram by
+        // mapping each input bin's center value through the LUT, then
+        // find the peak. Shared with the Mode-target convergence path
+        // via ComputePostStretchMode.
+        var postBins = new uint[binCount];
+        var modeValue = ComputePostStretchMode(lut, bins, invBinMax, postBins);
+        if (double.IsNaN(modeValue)) return double.NaN;
+        var peakIdx = (int)(modeValue * binCount);
+        if (peakIdx >= binCount) peakIdx = binCount - 1;
 
         // Sample from just above the peak through 0.95 of the top bin.
         // Skip a small margin past the peak (we want the decay region,
