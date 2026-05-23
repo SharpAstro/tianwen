@@ -22,7 +22,8 @@ internal sealed class StackSubCommand(
     IConsoleHost consoleHost,
     ILogger<StackingPipeline> pipelineLogger,
     ILogger<MasterPreviewRenderer> rendererLogger,
-    ICelestialObjectDB catalogDb)
+    ICelestialObjectDB catalogDb,
+    TianWen.Lib.Imaging.Enhancement.SharpenPipeline sharpenPipeline)
 {
     public Command Build()
     {
@@ -117,6 +118,15 @@ internal sealed class StackSubCommand(
         {
             Description = "Keep frames with a non-zero FITS STACK_N header (integrated masters from a previous run) as scan inputs. Default behaviour is to drop them since stale masters in adjacent output-*/ dirs otherwise pollute the next session's grouping. Pass this flag for two-stage mosaic stacking: integrate each panel separately, then re-run with --include-integrations against the panel masters to produce the final mosaic. .rejection.fits sidecars are ALWAYS dropped regardless of this flag.",
         };
+        var enhanceOpt = new Option<bool>("--enhance")
+        {
+            Description = "Run the canonical AI sharpen pipeline (gradient correction + remove stars + sharpen stars + deconvolve + denoise + recombine) against each master after integration. Writes master_*_sharpened.fits and (when autocrop is active) master_*_sharpened_autocrop.fits alongside the raw masters; the linear masters are never overwritten. Requires the ONNX models materialised via tools/tianwen-ai-models-fetch.ps1.",
+        };
+        var enhanceBlendOpt = new Option<float>("--enhance-blend")
+        {
+            Description = "Uniform AI strength for the sharpen pass in [0, 1]. 0 = each AI step is a no-op (master passes through unmodified); 1 = full AI output. Applied to the stellar-sharpen, non-stellar deconv, and denoise steps. Implies --enhance.",
+            DefaultValueFactory = _ => 1.0f,
+        };
 
         var stackCommand = new Command("stack", "Stack a folder of FITS lights into a master frame.")
         {
@@ -131,6 +141,7 @@ internal sealed class StackSubCommand(
                 splitByPierSideOpt, hotPixelSigmaOpt,
                 qualityRejectSigmaOpt, referenceFrameHintOpt,
                 noBayerDrizzleOpt, includeIntegrationsOpt,
+                enhanceOpt, enhanceBlendOpt,
             },
         };
         stackCommand.SetAction(async (parseResult, ct) =>
@@ -166,6 +177,12 @@ internal sealed class StackSubCommand(
                 consoleHost.WriteScrollable(
                     $"[stack] warning: --drizzle-* options ignored when --strategy={forcedStrategy} (non-drizzle)");
             }
+            // --enhance-blend is the implicit gate for --enhance: passing a
+            // blend < 1 without --enhance still enables the pipeline (the
+            // blend value would otherwise be silently ignored, which would
+            // be more confusing than auto-on).
+            var enhanceBlendArg = Math.Clamp(parseResult.GetValue(enhanceBlendOpt), 0f, 1f);
+            var enhanceArg = parseResult.GetValue(enhanceOpt) || enhanceBlendArg < 1.0f;
             var options = new StackingOptions(
                 DataRoot: dataRoot,
                 OutputDir: outputDir,
@@ -183,7 +200,9 @@ internal sealed class StackSubCommand(
                 QualityRejectSigma: parseResult.GetValue(qualityRejectSigmaOpt),
                 ReferenceFrameHint: parseResult.GetValue(referenceFrameHintOpt),
                 DisableBayerDrizzle: disableBayerDrizzle,
-                IncludeIntegrations: parseResult.GetValue(includeIntegrationsOpt));
+                IncludeIntegrations: parseResult.GetValue(includeIntegrationsOpt),
+                Enhance: enhanceArg,
+                EnhanceBlend: enhanceBlendArg);
 
             var noPng = parseResult.GetValue(noPngOpt);
             var skipPlateSolve = parseResult.GetValue(noPlateSolveOpt);
@@ -250,7 +269,8 @@ internal sealed class StackSubCommand(
                 options,
                 pipelineLogger,
                 catalogDb: skipPlateSolve ? null : catalogDb,
-                progress: progress);
+                progress: progress,
+                sharpenPipeline: options.Enhance ? sharpenPipeline : null);
             var renderer = noPng ? null : new MasterPreviewRenderer(catalogDb, rendererLogger);
 
             var groupCount = 0;

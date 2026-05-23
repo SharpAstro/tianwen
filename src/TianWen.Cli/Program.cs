@@ -121,7 +121,8 @@ var rootCommand = new RootCommand
             consoleHost,
             services.GetRequiredService<ILogger<TianWen.Lib.Imaging.Stacking.StackingPipeline>>(),
             services.GetRequiredService<ILogger<TianWen.UI.Abstractions.MasterPreviewRenderer>>(),
-            services.GetRequiredService<TianWen.Lib.Astrometry.Catalogs.ICelestialObjectDB>()).Build(),
+            services.GetRequiredService<TianWen.Lib.Astrometry.Catalogs.ICelestialObjectDB>(),
+            services.GetRequiredService<SharpenPipeline>()).Build(),
         new SolveSubCommand(
             consoleHost,
             services.GetRequiredService<TianWen.Lib.Astrometry.PlateSolve.IPlateSolverFactory>(),
