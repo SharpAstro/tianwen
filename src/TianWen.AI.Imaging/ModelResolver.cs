@@ -55,7 +55,11 @@ public sealed class ModelResolver : IModelResolver
     {
         if (string.IsNullOrWhiteSpace(modelFileName))
             throw new ArgumentException("modelFileName must be non-empty", nameof(modelFileName));
-        if (modelFileName.IndexOfAny([Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar]) >= 0)
+        // Reject both '/' and '\' regardless of OS. The Path.*SeparatorChar
+        // lookup collapses to '/' on Linux, letting a Windows-style backslash
+        // path slip past on the CI Linux runners (caught by
+        // ModelResolverTests.Resolve_RejectsPathSeparators).
+        if (modelFileName.IndexOfAny(['/', '\\']) >= 0)
             throw new ArgumentException($"modelFileName must be a bare filename, got '{modelFileName}'", nameof(modelFileName));
 
         foreach (var dir in _searchPaths)
