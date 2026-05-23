@@ -126,10 +126,10 @@ metric is meaningful.
 
 | Phase | Scope | Status |
 |---|---|---|
-| 0 | Cleanup: delete broken convergence draft (`ConvergeGhsIntensity` + `ConvergeGhsIntensityTests` + `GhsCurveProbeTests`); commit the empirical curve-output table from the probe to this plan's "Why the existing impl is wrong" section so the rationale is preserved | NOT STARTED |
-| 1 | Reference math port: replace `BuildGhsLut` body with the four B-branch forms; expose signed `b`, add `BP` + `CP` parameters, fix SP semantics (input hinge). Curve API becomes `(LnD, B, SP, LP, HP, BP, CP) -> Image`. Old `intensity` parameter renamed to `LnD` to match the reference and force callers to recognise the unit change | NOT STARTED |
-| 2 | Reference validation: golden-table tests against the four branch values at known `(D, b)` from the screenshot. Cross-check curve values at LP / SP / HP for continuity (the coefficient derivations should produce piecewise-continuous output by construction; tests catch off-by-one errors in the port) | NOT STARTED |
-| 3 | `GhsStretchStarlessStep` rewire: parameters renamed to match (`LnD`, `B`, `SP`, `LP`, `HP`, `BP`, `CP`). Default values from the screenshot (`LnD=1.30 B=-1.00 SP=0.57143 HP=0.80357 LP=0 BP=0 CP=0`). CLI flag rename: `--ghs-d` (was `--ghs-intensity`), `--ghs-b` (was `--ghs-asymmetry` -- now allows negative). Per [[feedback_ghs_not_default]] this remains opt-in via `--ghs-starless` until Phase 6 quality-gates it | NOT STARTED |
+| 0 | Cleanup: delete broken convergence draft (`ConvergeGhsIntensity` + `ConvergeGhsIntensityTests` + `GhsCurveProbeTests`); commit the empirical curve-output table from the probe to this plan's "Why the existing impl is wrong" section so the rationale is preserved | DONE |
+| 1 | Reference math port: replace `BuildGhsLut` body with the four B-branch forms; expose signed `b`, fix SP semantics (input hinge). Curve API becomes `(LnD, B, SP, LP, HP) -> Image`. Old `intensity` parameter renamed to `LnD` to match the reference and force callers to recognise the unit change. **BP/CP deferred** -- screenshot shows them greyed out in GHS mode (they belong to the Linear Stretch ST=3 branch, not GHS proper); not needed for v1 | DONE |
+| 2 | Reference validation: identity at `LnD=0`, endpoints `(0, 0)` + `(1, 1)`, all four B-branches reachable + monotonic, continuity at LP / SP / HP, primary regression guard ("input 0.05 lifts above 0.20 with Paul's case-1 parameters"). 6 tests pass; full suite 2479 pass | DONE |
+| 3 | `GhsStretchStarlessStep` rewire: parameters renamed (`LnD`, `B`, `SP`, `LP`, `HP`, `Passes`). Default values are Paul's case-1 recipe (`LnD=1.30 B=8.0 SP=auto LP=0 HP=0.8 Passes=1`) -- NOT the screenshot's case-2 values. CLI flag rename: `--ghs-lnd / --ghs-b / --ghs-lp / --ghs-hp / --ghs-sp`. Per [[feedback_ghs_not_default]] this remains opt-in via `--ghs-starless` until Phase 6 quality-gates it | DONE |
 | 4 | `Image.ConvergeGhsStretchFactor`: bisects `D_user = LnD` over `[0.1, 3.0]` with `B`, `SP`, `LP`, `HP` fixed at the caller-supplied values. Per iteration: build LUT, walk histogram bins, accumulate post-stretch median + clip rate + log-slope score. Returns the converged `LnD` plus the achieved metrics. Mirrors `Image.ConvergeStretchFactor` structurally | NOT STARTED |
 | 5 | Convergence tests: (a) synthetic dark sky converges median to 0.25 +/- 0.01 with log-slope `R^2 >= 0.9`; (b) synthetic narrowband-style steep input converges median but log-slope score drops below 0.7 (documents the metric's failure mode); (c) deterministic output for identical input; (d) HP escalation kicks in when clip rate exceeded; (e) golden-table values against a known-good reference (run the reference JS script on a small synthetic, capture its output, compare to ours) | NOT STARTED |
 | 6 | Wire `AutoConverge` into `GhsStretchStarlessStep` + `--ghs-starless-auto` CLI flag. When set, runs `ConvergeGhsStretchFactor` before the multi-pass loop and uses the converged `LnD` for all passes. Log resolved `LnD`, achieved median, clip rate, log-slope score on the timing line | NOT STARTED |
@@ -156,15 +156,23 @@ metric is meaningful.
    BP=0 in GHS, let `BackgroundReduceStep` handle bg shaping
    post-stretch since it's already orthogonal to GHS in the
    step list.
-2. **Default `B` direction.** Screenshot shows `B=-1.00`
-   (logarithmic branch); Paul's transcript suggests `B=8` for the
-   "Local Stretch Intensity" slider in his case-1 walkthrough.
-   The two are different recipes for different image cases. The
-   `AutoConverge` flow needs a default `B`; using `-1` makes the
-   logarithmic branch the default. **Vote:** ship `B=-1` as the
-   default (logarithmic stretch, well-conditioned across linear
-   inputs); make `B=8` accessible via `--ghs-b` when callers want
-   the hyperbolic family.
+2. **Default `B` direction.** Two distinct cases:
+   - **Case-1 (linear -> display, what `GhsStretchStarlessStep` is for):**
+     Paul's video uses `B = 8` (hyperbolic / harmonic branch, lifts
+     dim bg substantially). Empirically verified by Phase 2 tests:
+     with `B=8, SP=0.003, HP=0.8, lnD=1.30`, input 0.05 maps to ~0.27.
+   - **Case-2 (local contrast on already-stretched input, what the
+     screenshot shows):** `B = -1` (logarithmic branch), SP near the
+     histogram peak in stretched space (~0.5-0.6). Used to refine
+     the curve on data already at display brightness.
+
+   **Decision:** ship `B = 8` as the case-1 default for
+   `GhsStretchStarlessStep` (it's the starless-stretch step in the
+   linear -> display pipeline). Operators wanting case-2 set
+   `--ghs-b -1` explicitly. **The screenshot's `B = -1.00 SP =
+   0.57143` is actually case-2 -- it can't be used as the case-1
+   default verbatim.** This was an early port-design mistake caught
+   by the Phase 2 lift-test.
 3. **Use the existing arcsinh branch as an additional curve
    choice?** The reference script also implements `Arcsinh Stretch`
    and `Histogram Transformation` in the same dispatch. Worth

@@ -149,36 +149,36 @@ internal sealed class ImageSubCommand(
         };
         var ghsStarlessOpt = new Option<bool>("--ghs-starless")
         {
-            Description = "Use Mike Cranfield's Generalized Hyperbolic Stretch on the starless plate instead of MTF. Has built-in shadow/highlight protection controls -- the principled alternative to the MTF + Reinhard compress band-aid. Defaults mirror Paul (Polymath Astro)'s PixInsight workflow as a single-pass stretch-from-linear stage: intensity=1.5, asymmetry=8.0, shadow-protection=0.0, highlight-protection=0.8, symmetry-point=auto (rising edge of histogram), passes=1.",
+            Description = "Use Mike Cranfield's Generalised Hyperbolic Stretch on the starless plate (https://github.com/mikec1485/GHS) instead of MTF. Defaults match Paul (Polymath Astro)'s video walkthrough for case-1 (linear -> display): LnD=1.30, B=8.0 (hyperbolic branch), LP=0, HP=0.8, SP=auto (Image.EstimateRisingEdge), passes=1. See PLAN-ghs.md for the curve math.",
         };
-        var ghsIntensityOpt = new Option<double>("--ghs-intensity")
+        var ghsLnDOpt = new Option<double>("--ghs-lnd")
         {
-            Description = "GHS curve exponent. Smaller (0.2-0.5) = stronger lift. Default 1.5. Implies --ghs-starless.",
-            DefaultValueFactory = _ => 1.5,
+            Description = "GHS stretch factor in the PixInsight slider convention -- the value the script displays is ln(D + 1); internally D = exp(LnD) - 1. 0 = identity. Default 1.30 = D~2.67. Implies --ghs-starless.",
+            DefaultValueFactory = _ => 1.30,
         };
-        var ghsAsymmetryOpt = new Option<double>("--ghs-asymmetry")
+        var ghsBOpt = new Option<double>("--ghs-b")
         {
-            Description = "GHS direction (b in SAS Pro / \"local stretch intensity\" in PixInsight). 1.0 symmetric; higher = stronger hyperbolic curvature. Default 8.0 (Paul/Polymath Astro recommends 8-10 for stretch-from-linear); was the silent cause of GHS landing flat with the old default of 1.0. Implies --ghs-starless.",
+            Description = "GHS local stretch intensity (signed). B = 8 picks the hyperbolic / harmonic branch (Paul's case-1 default, lifts dim bg); B = -1 picks the logarithmic branch (good for case-2 local contrast on already-stretched input); B = 0 exponential; B < 0, != -1 power-with-negative-B. Larger |B| = more focused stretch around SP. Default 8.0. Implies --ghs-starless.",
             DefaultValueFactory = _ => 8.0,
         };
-        var ghsShadowProtectionOpt = new Option<double>("--ghs-shadow-protection")
+        var ghsLpOpt = new Option<double>("--ghs-lp")
         {
-            Description = "GHS LP in [0, 1] -- linear blend with identity below SP. 0 = no protection. Implies --ghs-starless.",
+            Description = "GHS shadow protection point in [0, SP]. Below LP the curve is linear at the gradient evaluated at LP -- preserves shadow texture. Default 0. Implies --ghs-starless.",
             DefaultValueFactory = _ => 0.0,
         };
-        var ghsHighlightProtectionOpt = new Option<double>("--ghs-highlight-protection")
+        var ghsHpOpt = new Option<double>("--ghs-hp")
         {
-            Description = "GHS HP in [0, 1] -- linear blend with identity above SP. Default 0.8 per Paul's PixInsight workflow: high HP + high asymmetry gives a gentle highlight roll-off without an external Reinhard band-aid. Implies --ghs-starless.",
+            Description = "GHS highlight protection point in [SP, 1]. Above HP the curve is linear at the gradient evaluated at HP -- prevents the upper tail from being compressed. Default 0.8 (Paul's recommendation). Implies --ghs-starless.",
             DefaultValueFactory = _ => 0.8,
         };
-        var ghsSymmetryPointOpt = new Option<double>("--ghs-symmetry-point")
+        var ghsSpOpt = new Option<double>("--ghs-sp")
         {
-            Description = "GHS SP -- the curve hinges here (output at x=0.5 equals SP). Pass a value in (0, 1) to override; default <=0 means auto-detect via Image.EstimateRisingEdge (histogram lift-off point, matching Paul's \"where the histogram starts lifting up towards the peak\" rule). Implies --ghs-starless.",
+            Description = "GHS symmetry point -- the input pixel value where the curve has maximum gradient (its inflection point). Pass a value in (0, 1) to override; default <=0 means auto-detect via Image.EstimateRisingEdge (histogram lift-off). Implies --ghs-starless.",
             DefaultValueFactory = _ => -1.0,
         };
         var ghsPassesOpt = new Option<int>("--ghs-passes")
         {
-            Description = "How many times to apply the GHS curve. Default 1 -- with correct defaults (asymmetry=8, hp=0.8, sp=auto) a single pass produces Paul's recommended shape; higher values are an escape hatch, prefer raising --ghs-asymmetry first. Range [1, 10].",
+            Description = "How many times to apply the GHS curve. Default 1. Range [1, 10].",
             DefaultValueFactory = _ => 1,
         };
         var noReduceBgOpt = new Option<bool>("--no-reduce-bg")
@@ -208,7 +208,7 @@ internal sealed class ImageSubCommand(
         var cmd = new Command("sharpen", "Full AI4 NAFNet sharpen pipeline: remove stars, sharpen the stars-only plate, deconvolve + denoise the starless plate, optional SCNR on stars, recombine.")
         {
             Arguments = { inputArg },
-            Options = { outputOpt, modeOpt, noStellarOpt, noDeconvOpt, noDenoiseOpt, noRecombineOpt, pngOpt, stellarBlendOpt, deconvBlendOpt, denoiseBlendOpt, denoiseVariantOpt, scnrOpt, scnrAmountOpt, dualStretchOpt, stretchStarsAmountOpt, stretchStarlessMedianOpt, ghsStarlessOpt, ghsIntensityOpt, ghsAsymmetryOpt, ghsShadowProtectionOpt, ghsHighlightProtectionOpt, ghsSymmetryPointOpt, ghsPassesOpt, noReduceBgOpt, reduceBgCompressionOpt, noCompressHighlightsOpt, highlightKneeOpt, highlightAmountOpt },
+            Options = { outputOpt, modeOpt, noStellarOpt, noDeconvOpt, noDenoiseOpt, noRecombineOpt, pngOpt, stellarBlendOpt, deconvBlendOpt, denoiseBlendOpt, denoiseVariantOpt, scnrOpt, scnrAmountOpt, dualStretchOpt, stretchStarsAmountOpt, stretchStarlessMedianOpt, ghsStarlessOpt, ghsLnDOpt, ghsBOpt, ghsLpOpt, ghsHpOpt, ghsSpOpt, ghsPassesOpt, noReduceBgOpt, reduceBgCompressionOpt, noCompressHighlightsOpt, highlightKneeOpt, highlightAmountOpt },
         };
         cmd.SetAction(async (parseResult, ct) =>
         {
@@ -278,14 +278,16 @@ internal sealed class ImageSubCommand(
             var noReduceBg = parseResult.GetValue(noReduceBgOpt);
             var reduceBgCompression = Math.Clamp(parseResult.GetValue(reduceBgCompressionOpt), 0.01, 1.0);
             var ghsStarless = parseResult.GetValue(ghsStarlessOpt);
-            var ghsIntensity = Math.Max(0.01, parseResult.GetValue(ghsIntensityOpt));
-            var ghsAsymmetry = Math.Max(0.01, parseResult.GetValue(ghsAsymmetryOpt));
-            var ghsShadowProtection = Math.Clamp(parseResult.GetValue(ghsShadowProtectionOpt), 0.0, 1.0);
-            var ghsHighlightProtection = Math.Clamp(parseResult.GetValue(ghsHighlightProtectionOpt), 0.0, 1.0);
-            var ghsSymmetryPointRaw = parseResult.GetValue(ghsSymmetryPointOpt);
+            var ghsLnD = Math.Max(0.0, parseResult.GetValue(ghsLnDOpt));
+            // B is signed -- no clamp; the four-branch math handles any
+            // finite double (B == -1, B < 0, B == 0, B > 0).
+            var ghsB = parseResult.GetValue(ghsBOpt);
+            var ghsLp = Math.Clamp(parseResult.GetValue(ghsLpOpt), 0.0, 1.0);
+            var ghsHp = Math.Clamp(parseResult.GetValue(ghsHpOpt), 0.0, 1.0);
+            var ghsSpRaw = parseResult.GetValue(ghsSpOpt);
             // Sentinel <= 0 (default) means auto-detect via EstimateRisingEdge at pipeline time.
-            double? ghsSymmetryPoint = ghsSymmetryPointRaw > 0.0
-                ? Math.Clamp(ghsSymmetryPointRaw, 0.01, 0.99)
+            double? ghsSp = ghsSpRaw > 0.0
+                ? Math.Clamp(ghsSpRaw, 0.01, 0.99)
                 : null;
             var ghsPasses = Math.Clamp(parseResult.GetValue(ghsPassesOpt), 1, 10);
             var noCompressHighlights = parseResult.GetValue(noCompressHighlightsOpt);
@@ -325,11 +327,11 @@ internal sealed class ImageSubCommand(
                 // Pick MTF or GHS for the starless plate based on --ghs-starless.
                 if (ghsStarless)
                     steps.Add(new GhsStretchStarlessStep(
-                        Intensity: ghsIntensity,
-                        Asymmetry: ghsAsymmetry,
-                        ShadowProtection: ghsShadowProtection,
-                        HighlightProtection: ghsHighlightProtection,
-                        SymmetryPoint: ghsSymmetryPoint,
+                        LnD: ghsLnD,
+                        B: ghsB,
+                        SP: ghsSp,
+                        LP: ghsLp,
+                        HP: ghsHp,
                         Passes: ghsPasses));
                 else
                     steps.Add(new StretchStarlessStep(TargetMedian: starlessMedian));
@@ -373,9 +375,9 @@ internal sealed class ImageSubCommand(
                 :                SharpenIntermediates.None;
             var request = new SharpenRequest(normalised, ImmutableArray.CreateRange(steps), KeepIntermediates: keepIntermediates);
 
-            var spDesc = ghsSymmetryPoint is { } spv ? spv.ToString("F3") : "auto";
+            var spDesc = ghsSp is { } spv ? spv.ToString("F3") : "auto";
             var starlessStretchDesc = ghsStarless
-                ? $"ghs(i{ghsIntensity:F2}/b{ghsAsymmetry:F2}/sp{spDesc}/hp{ghsHighlightProtection:F2}/{ghsPasses}x)"
+                ? $"ghs(lnD{ghsLnD:F2}/b{ghsB:F2}/sp{spDesc}/lp{ghsLp:F2}/hp{ghsHp:F2}/{ghsPasses}x)"
                 : $"mtf-tm={starlessMedian:F2}";
             var dualStretchDesc = dualStretch
                 ? $" dual-stretch(stars-amount={starsAmount:F2},starless={starlessStretchDesc}) reduce-bg={(!noReduceBg ? reduceBgCompression.ToString("F2") : "off")} compress-hi={(!noCompressHighlights ? $"k{highlightKnee:F2}/a{highlightAmount:F2}" : "off")}"
