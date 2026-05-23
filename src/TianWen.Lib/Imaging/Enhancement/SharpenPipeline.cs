@@ -291,41 +291,101 @@ public sealed class SharpenPipeline(
                         // chase the already-stretched histogram and bias the
                         // hinge toward the new mode each iteration, defeating
                         // the "pivot at the linear lift-off" intent.
+                        //
+                        // For multi-channel input under AutoConverge, the
+                        // dispatch runs per-channel convergence (each channel
+                        // detects its own SP via EstimateRisingEdge on its own
+                        // histogram, bisects its own LnD against the target
+                        // median). This matches PixInsight's "unlinked" stretch
+                        // mode and avoids the colour cast that linked AutoConverge
+                        // produces on OSC drizzle plates with uneven channel bg.
+                        // Discovered empirically against the SoL drizzle: linked
+                        // AutoConverge made R channel get a 27x lift while G+B
+                        // got 4x, leaving a strong teal cast on the final image.
                         var inputPlate = denoisedStarless ?? deconvolvedStarless ?? Require(starless);
-                        var sp = ghsStep.SP ?? Math.Clamp(inputPlate.EstimateRisingEdge(), 1e-4, 0.999);
-
-                        // AutoConverge: bisect LnD via the histogram so the
-                        // stretch hits the requested target median regardless
-                        // of input dynamic range. B / SP / LP / HP stay fixed
-                        // -- they're the curve "shape"; LnD is the strength.
-                        var effectiveLnD = ghsStep.LnD;
-                        var convergenceLabel = "";
-                        if (ghsStep.AutoConverge)
-                        {
-                            var histogram = inputPlate.Histogram(channel: 0);
-                            var convergence = Image.ConvergeGhsStretchFactor(
-                                histogram, b: ghsStep.B, sp: sp,
-                                lp: ghsStep.LP, hp: ghsStep.HP,
-                                targetMedian: ghsStep.AutoTargetMedian);
-                            effectiveLnD = convergence.LnD;
-                            convergenceLabel = convergence.ConvergedMedian
-                                ? $",auto(med={convergence.PostStretchMedian:F3},R^2={convergence.LogSlopeRSquared:F2})"
-                                : $",auto(BEST-EFFORT med={convergence.PostStretchMedian:F3})";
-                        }
+                        var channelCount = inputPlate.ChannelCount;
 
                         var current = inputPlate;
-                        for (var pass = 0; pass < ghsStep.Passes; pass++)
+                        var spLabel = "";
+                        var convergenceLabel = "";
+
+                        if (ghsStep.AutoConverge && channelCount > 1)
                         {
-                            var stretched = current.GeneralizedHyperbolicStretch(
-                                lnD: effectiveLnD, b: ghsStep.B, sp: sp,
-                                lp: ghsStep.LP, hp: ghsStep.HP);
-                            if (!ReferenceEquals(current, inputPlate)) current.Release();
-                            current = stretched;
+                            // Per-channel: detect SP + bisect LnD independently
+                            // per channel; build per-channel LUTs in a single
+                            // call to GeneralizedHyperbolicStretchPerChannel.
+                            var perChannelLnD = new double[channelCount];
+                            var perChannelSp = new double[channelCount];
+                            var perChannelMedian = new double[channelCount];
+                            var perChannelR2 = new double[channelCount];
+                            var perChannelB = new double[channelCount];
+                            var perChannelLp = new double[channelCount];
+                            var perChannelHp = new double[channelCount];
+                            var allConverged = true;
+                            for (var c = 0; c < channelCount; c++)
+                            {
+                                var hist = inputPlate.Histogram(channel: c);
+                                var chSp = ghsStep.SP ?? Math.Clamp(
+                                    inputPlate.EstimateRisingEdge(channel: c), 1e-4, 0.999);
+                                var convergence = Image.ConvergeGhsStretchFactor(
+                                    hist, b: ghsStep.B, sp: chSp,
+                                    lp: ghsStep.LP, hp: ghsStep.HP,
+                                    targetMedian: ghsStep.AutoTargetMedian);
+                                perChannelLnD[c] = convergence.LnD;
+                                perChannelSp[c] = chSp;
+                                perChannelMedian[c] = convergence.PostStretchMedian;
+                                perChannelR2[c] = convergence.LogSlopeRSquared;
+                                perChannelB[c] = ghsStep.B;
+                                perChannelLp[c] = ghsStep.LP;
+                                perChannelHp[c] = ghsStep.HP;
+                                allConverged &= convergence.ConvergedMedian;
+                            }
+                            for (var pass = 0; pass < ghsStep.Passes; pass++)
+                            {
+                                var stretched = current.GeneralizedHyperbolicStretchPerChannel(
+                                    perChannelLnD, perChannelB, perChannelSp,
+                                    perChannelLp, perChannelHp);
+                                if (!ReferenceEquals(current, inputPlate)) current.Release();
+                                current = stretched;
+                            }
+                            spLabel = $"sp~[{string.Join("/", perChannelSp.Select(v => v.ToString("F4")))}]";
+                            convergenceLabel = $",auto-perch(lnD=[{string.Join("/", perChannelLnD.Select(v => v.ToString("F2")))}],med=[{string.Join("/", perChannelMedian.Select(v => v.ToString("F3")))}]" +
+                                (allConverged ? "" : ",BEST-EFFORT") + ")";
                         }
+                        else
+                        {
+                            // Single-channel mono, OR multi-channel non-auto:
+                            // linked. Either there's only one channel or the
+                            // caller is supplying explicit LnD (knows their
+                            // input is balanced).
+                            var sp = ghsStep.SP ?? Math.Clamp(inputPlate.EstimateRisingEdge(), 1e-4, 0.999);
+                            var effectiveLnD = ghsStep.LnD;
+                            if (ghsStep.AutoConverge)
+                            {
+                                var histogram = inputPlate.Histogram(channel: 0);
+                                var convergence = Image.ConvergeGhsStretchFactor(
+                                    histogram, b: ghsStep.B, sp: sp,
+                                    lp: ghsStep.LP, hp: ghsStep.HP,
+                                    targetMedian: ghsStep.AutoTargetMedian);
+                                effectiveLnD = convergence.LnD;
+                                convergenceLabel = convergence.ConvergedMedian
+                                    ? $",auto(med={convergence.PostStretchMedian:F3},R^2={convergence.LogSlopeRSquared:F2})"
+                                    : $",auto(BEST-EFFORT med={convergence.PostStretchMedian:F3})";
+                            }
+                            for (var pass = 0; pass < ghsStep.Passes; pass++)
+                            {
+                                var stretched = current.GeneralizedHyperbolicStretch(
+                                    lnD: effectiveLnD, b: ghsStep.B, sp: sp,
+                                    lp: ghsStep.LP, hp: ghsStep.HP);
+                                if (!ReferenceEquals(current, inputPlate)) current.Release();
+                                current = stretched;
+                            }
+                            spLabel = ghsStep.SP is null ? $"sp~{sp:F4}auto" : $"sp={sp:F3}";
+                        }
+
                         if (denoisedStarless is not null) denoisedStarless.Release();
                         denoisedStarless = current;
-                        var spLabel = ghsStep.SP is null ? $"sp~{sp:F4}auto" : $"sp={sp:F3}";
-                        timings.Add(($"ghs-stretch-starless(lnD{effectiveLnD:F2},b{ghsStep.B:F1},{spLabel},hp{ghsStep.HP:F2},{ghsStep.Passes}x{convergenceLabel})", phaseSw.ElapsedMilliseconds, denoisedStarless.EstimateNoiseProfile()));
+                        timings.Add(($"ghs-stretch-starless(b{ghsStep.B:F1},{spLabel},hp{ghsStep.HP:F2},{ghsStep.Passes}x{convergenceLabel})", phaseSw.ElapsedMilliseconds, denoisedStarless.EstimateNoiseProfile()));
                         break;
                     }
 

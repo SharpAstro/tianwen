@@ -331,14 +331,16 @@ public partial class Image
     /// a bin is considered "off the floor". Default 0.05 (5% of peak) -- low
     /// enough to find the true lift-off, high enough to ignore single-bin
     /// noise tails. Range (0, 1).</param>
-    public float EstimateRisingEdge(float thresholdFraction = 0.05f)
+    public float EstimateRisingEdge(int channel = 0, float thresholdFraction = 0.05f)
     {
+        ArgumentOutOfRangeException.ThrowIfNegative(channel);
+        ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual(channel, ChannelCount);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(thresholdFraction);
         ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual(thresholdFraction, 1.0f);
 
         const int Bins = 4096;
         Span<int> hist = stackalloc int[Bins];
-        var src = GetChannelSpan(0);
+        var src = GetChannelSpan(channel);
         for (var i = 0; i < src.Length; i++)
         {
             var v = src[i];
@@ -434,19 +436,75 @@ public partial class Image
         {
             var src = GetChannelSpan(c);
             var dst = MemoryMarshal.CreateSpan(ref newData[c][0, 0], pixelCount);
-            for (var i = 0; i < pixelCount; i++)
-            {
-                var v = src[i];
-                if (float.IsNaN(v)) { dst[i] = float.NaN; continue; }
-                var clamped = Math.Clamp(v, 0f, 1f);
-                var idx = clamped * (LutSize - 1);
-                var i0 = (int)idx;
-                if (i0 >= LutSize - 1) { dst[i] = lut[LutSize - 1]; continue; }
-                var frac = idx - i0;
-                dst[i] = lut[i0] * (1f - frac) + lut[i0 + 1] * frac;
-            }
+            ApplyLutToChannel(src, dst, lut);
         }
         return new Image(newData, BitDepth.Float32, 1.0f, 0f, 0f, imageMeta);
+    }
+
+    /// <summary>
+    /// Per-channel GHS overload: applies a SEPARATE curve to each channel
+    /// using the corresponding entry of <paramref name="lnD"/>,
+    /// <paramref name="b"/>, <paramref name="sp"/>, <paramref name="lp"/>,
+    /// <paramref name="hp"/>. PixInsight's "unlinked" stretch mode --
+    /// useful when channels carry unequal bg levels (typical for an
+    /// OSC drizzle without prior bg neutralisation), where the linked
+    /// overload produces a colour cast.
+    /// </summary>
+    /// <remarks>
+    /// All parameter arrays must have the same length as
+    /// <see cref="ChannelCount"/>. Caller is responsible for deriving
+    /// the per-channel parameters (typically: SP via
+    /// <see cref="EstimateRisingEdge"/> per channel, LnD via
+    /// <see cref="ConvergeGhsStretchFactor"/> per channel).
+    /// </remarks>
+    public Image GeneralizedHyperbolicStretchPerChannel(
+        ReadOnlySpan<double> lnD, ReadOnlySpan<double> b,
+        ReadOnlySpan<double> sp, ReadOnlySpan<double> lp,
+        ReadOnlySpan<double> hp)
+    {
+        var (channels, width, height) = Shape;
+        if (lnD.Length != channels || b.Length != channels || sp.Length != channels
+            || lp.Length != channels || hp.Length != channels)
+        {
+            throw new ArgumentException(
+                $"Per-channel parameter arrays must have length {channels} (got lnD={lnD.Length}, b={b.Length}, sp={sp.Length}, lp={lp.Length}, hp={hp.Length})");
+        }
+
+        const int LutSize = 65536;
+        var lut = new float[LutSize];
+        var pixelCount = width * height;
+        var newData = CreateChannelData(channels, height, width);
+        for (var c = 0; c < channels; c++)
+        {
+            BuildGhsLut(lut, lnD[c], b[c], sp[c], lp[c], hp[c]);
+            var src = GetChannelSpan(c);
+            var dst = MemoryMarshal.CreateSpan(ref newData[c][0, 0], pixelCount);
+            ApplyLutToChannel(src, dst, lut);
+        }
+        return new Image(newData, BitDepth.Float32, 1.0f, 0f, 0f, imageMeta);
+    }
+
+    /// <summary>
+    /// Maps every pixel in <paramref name="src"/> through
+    /// <paramref name="lut"/> with linear interpolation between LUT
+    /// entries; writes to <paramref name="dst"/>. NaN pixels pass through
+    /// unmodified. Extracted to keep the linked + per-channel overloads
+    /// from duplicating the per-pixel loop.
+    /// </summary>
+    private static void ApplyLutToChannel(ReadOnlySpan<float> src, Span<float> dst, ReadOnlySpan<float> lut)
+    {
+        var lutSize = lut.Length;
+        for (var i = 0; i < src.Length; i++)
+        {
+            var v = src[i];
+            if (float.IsNaN(v)) { dst[i] = float.NaN; continue; }
+            var clamped = Math.Clamp(v, 0f, 1f);
+            var idx = clamped * (lutSize - 1);
+            var i0 = (int)idx;
+            if (i0 >= lutSize - 1) { dst[i] = lut[lutSize - 1]; continue; }
+            var frac = idx - i0;
+            dst[i] = lut[i0] * (1f - frac) + lut[i0 + 1] * frac;
+        }
     }
 
     /// <summary>
