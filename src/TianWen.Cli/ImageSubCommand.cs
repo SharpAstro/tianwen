@@ -18,6 +18,26 @@ using TianWen.UI.Abstractions;
 namespace TianWen.Cli;
 
 /// <summary>
+/// Three-state selector for the starless-plate stretch mode in
+/// <c>tianwen image sharpen --dual-stretch</c>. Folds the previous
+/// pair of boolean flags (<c>--ghs-starless</c> + <c>--ghs-starless-auto</c>)
+/// into a single <c>--ghs-starless &lt;mode&gt;</c> enum to avoid the
+/// "manual GHS requires both flags, auto requires both plus a target"
+/// foot-gun.
+/// </summary>
+public enum GhsStarlessMode
+{
+    /// <summary>Use the MTF starless stretch (Frank's convention). Default.</summary>
+    Off,
+    /// <summary>Use GHS with caller-supplied <c>--ghs-lnd</c> (and other knobs).</summary>
+    Manual,
+    /// <summary>Use GHS with <see cref="Image.ConvergeGhsStretchFactor"/>
+    /// auto-tuning <c>LnD</c> against <c>--ghs-target</c> and
+    /// <c>--ghs-target-value</c>.</summary>
+    Auto,
+}
+
+/// <summary>
 /// <c>tianwen image &lt;verb&gt;</c> -- single-image enhancement + render
 /// verbs. Each verb takes a FITS file in, produces FITS or PNG file(s)
 /// out. Default output path is <c>&lt;input&gt;_&lt;verb&gt;.fits</c>;
@@ -147,33 +167,34 @@ internal sealed class ImageSubCommand(
             Description = "Auto-target MTF median for the starless / nebula plate (0 < tm < 1). 0.25 is the SAS Pro / PixInsight convention. Implies --dual-stretch.",
             DefaultValueFactory = _ => 0.25,
         };
-        var ghsStarlessOpt = new Option<bool>("--ghs-starless")
+        var ghsStarlessOpt = new Option<GhsStarlessMode>("--ghs-starless")
         {
-            Description = "Use Mike Cranfield's Generalised Hyperbolic Stretch on the starless plate (https://github.com/mikec1485/GHS) instead of MTF. Defaults match Paul (Polymath Astro)'s video walkthrough for case-1 (linear -> display): LnD=1.30, B=8.0 (hyperbolic branch), LP=0, HP=0.8, SP=auto (Image.EstimateRisingEdge), passes=1. See PLAN-ghs.md for the curve math.",
+            Description = "Starless-plate stretch selector: 'off' uses MTF (Frank's convention, default); 'manual' uses Mike Cranfield's Generalised Hyperbolic Stretch (https://github.com/mikec1485/GHS) with caller-supplied --ghs-lnd / --ghs-b / --ghs-lp / --ghs-hp / --ghs-sp; 'auto' uses GHS with Image.ConvergeGhsStretchFactor bisecting LnD against --ghs-target / --ghs-target-value (B / SP / LP / HP still caller-supplied). GHS defaults match Paul (Polymath Astro)'s video walkthrough for case-1 (linear -> display): LnD=1.30, B=8.0 (hyperbolic branch), LP=0, HP=0.8, SP=auto (Image.EstimateRisingEdge), passes=1. See PLAN-ghs.md for the curve math.",
+            DefaultValueFactory = _ => GhsStarlessMode.Off,
         };
         var ghsLnDOpt = new Option<double>("--ghs-lnd")
         {
-            Description = "GHS stretch factor in the PixInsight slider convention -- the value the script displays is ln(D + 1); internally D = exp(LnD) - 1. 0 = identity. Default 1.30 = D~2.67. Implies --ghs-starless.",
+            Description = "GHS stretch factor in the PixInsight slider convention -- the value the script displays is ln(D + 1); internally D = exp(LnD) - 1. 0 = identity. Default 1.30 = D~2.67. Honoured when --ghs-starless=manual; ignored when --ghs-starless=auto (bisection solves LnD instead).",
             DefaultValueFactory = _ => 1.30,
         };
         var ghsBOpt = new Option<double>("--ghs-b")
         {
-            Description = "GHS local stretch intensity (signed). B = 8 picks the hyperbolic / harmonic branch (Paul's case-1 default, lifts dim bg); B = -1 picks the logarithmic branch (good for case-2 local contrast on already-stretched input); B = 0 exponential; B < 0, != -1 power-with-negative-B. Larger |B| = more focused stretch around SP. Default 8.0. Implies --ghs-starless.",
+            Description = "GHS local stretch intensity (signed). B = 8 picks the hyperbolic / harmonic branch (Paul's case-1 default, lifts dim bg); B = -1 picks the logarithmic branch (good for case-2 local contrast on already-stretched input); B = 0 exponential; B < 0, != -1 power-with-negative-B. Larger |B| = more focused stretch around SP. Default 8.0. Honoured when --ghs-starless != off.",
             DefaultValueFactory = _ => 8.0,
         };
         var ghsLpOpt = new Option<double>("--ghs-lp")
         {
-            Description = "GHS shadow protection point in [0, SP]. Below LP the curve is linear at the gradient evaluated at LP -- preserves shadow texture. Default 0. Implies --ghs-starless.",
+            Description = "GHS shadow protection point in [0, SP]. Below LP the curve is linear at the gradient evaluated at LP -- preserves shadow texture. Default 0. Honoured when --ghs-starless != off.",
             DefaultValueFactory = _ => 0.0,
         };
         var ghsHpOpt = new Option<double>("--ghs-hp")
         {
-            Description = "GHS highlight protection point in [SP, 1]. Above HP the curve is linear at the gradient evaluated at HP -- prevents the upper tail from being compressed. Default 0.8 (Paul's recommendation). Implies --ghs-starless.",
+            Description = "GHS highlight protection point in [SP, 1]. Above HP the curve is linear at the gradient evaluated at HP -- prevents the upper tail from being compressed. Default 0.8 (Paul's recommendation). Honoured when --ghs-starless != off.",
             DefaultValueFactory = _ => 0.8,
         };
         var ghsSpOpt = new Option<double>("--ghs-sp")
         {
-            Description = "GHS symmetry point -- the input pixel value where the curve has maximum gradient (its inflection point). Pass a value in (0, 1) to override; default <=0 means auto-detect via Image.EstimateRisingEdge (histogram lift-off). Implies --ghs-starless.",
+            Description = "GHS symmetry point -- the input pixel value where the curve has maximum gradient (its inflection point). Pass a value in (0, 1) to override; default <=0 means auto-detect via Image.EstimateRisingEdge (histogram lift-off). Honoured when --ghs-starless != off.",
             DefaultValueFactory = _ => -1.0,
         };
         var ghsPassesOpt = new Option<int>("--ghs-passes")
@@ -181,14 +202,19 @@ internal sealed class ImageSubCommand(
             Description = "How many times to apply the GHS curve. Default 1. Range [1, 10].",
             DefaultValueFactory = _ => 1,
         };
-        var ghsAutoOpt = new Option<bool>("--ghs-starless-auto")
+        var ghsAutoTargetValueOpt = new Option<double>("--ghs-target-value")
         {
-            Description = "Auto-tune --ghs-lnd via Image.ConvergeGhsStretchFactor: bisect LnD against the input plate's histogram until the post-stretch median lands at --ghs-target-median. B, SP, LP, HP stay caller-supplied; only LnD is solved. Implies --ghs-starless. The timing log line includes the converged LnD, achieved median, and the log-slope R^2 quality marker.",
-        };
-        var ghsAutoTargetMedianOpt = new Option<double>("--ghs-target-median")
-        {
-            Description = "Target post-stretch median for --ghs-starless-auto. Default 0.25 (SAS Pro / PixInsight statistical-stretch convention). Implies --ghs-starless-auto.",
+            Description = "Target post-stretch value for --ghs-starless=auto. Interpreted as median (PixInsight STF default) or as the bg-peak mode depending on --ghs-target. Default 0.25 (SAS Pro / PixInsight statistical-stretch convention). Honoured only when --ghs-starless=auto.",
             DefaultValueFactory = _ => 0.25,
+        };
+        var ghsTwopassOpt = new Option<bool>("--ghs-twopass")
+        {
+            Description = "Apply Mike Cranfield's canonical two-pass GHS workflow (gh-astro doc sections 2.7-2.9): pass 1 (caller's --ghs-* params) lifts the linear histogram peak to --ghs-target-value, BackgroundReduceStep clips the bg (the 'linear prestretch' from the doc), pass 2 (B=2.5, HP=0.95, LP=0, SP=auto, auto-converge on the same target) redistributes contrast and pushes signal toward the highlights. Forces an implicit BackgroundReduceStep between passes regardless of --no-reduce-bg. Single-pass --ghs-passes still works for stacking identical curves but is rarely useful; prefer --ghs-twopass for the canonical recipe. Implies --ghs-starless != off + --dual-stretch.",
+        };
+        var ghsAutoTargetOpt = new Option<Image.GhsConvergeTarget>("--ghs-target")
+        {
+            Description = "Which post-stretch metric --ghs-starless=auto bisects against. 'median' is the PixInsight STF default; 'mode' targets the bg peak (Paul / Polymath Astro's recipe -- lifts the histogram peak to ~0.25 instead of converging the median to it). Mode-target produces a visibly brighter result on typical linear astro frames because the median sits well above the mode (long signal tail). Default median for back-compat. Honoured only when --ghs-starless=auto.",
+            DefaultValueFactory = _ => Image.GhsConvergeTarget.Median,
         };
         var noReduceBgOpt = new Option<bool>("--no-reduce-bg")
         {
@@ -217,7 +243,7 @@ internal sealed class ImageSubCommand(
         var cmd = new Command("sharpen", "Full AI4 NAFNet sharpen pipeline: remove stars, sharpen the stars-only plate, deconvolve + denoise the starless plate, optional SCNR on stars, recombine.")
         {
             Arguments = { inputArg },
-            Options = { outputOpt, modeOpt, noStellarOpt, noDeconvOpt, noDenoiseOpt, noRecombineOpt, pngOpt, stellarBlendOpt, deconvBlendOpt, denoiseBlendOpt, denoiseVariantOpt, scnrOpt, scnrAmountOpt, dualStretchOpt, stretchStarsAmountOpt, stretchStarlessMedianOpt, ghsStarlessOpt, ghsLnDOpt, ghsBOpt, ghsLpOpt, ghsHpOpt, ghsSpOpt, ghsPassesOpt, ghsAutoOpt, ghsAutoTargetMedianOpt, noReduceBgOpt, reduceBgCompressionOpt, noCompressHighlightsOpt, highlightKneeOpt, highlightAmountOpt },
+            Options = { outputOpt, modeOpt, noStellarOpt, noDeconvOpt, noDenoiseOpt, noRecombineOpt, pngOpt, stellarBlendOpt, deconvBlendOpt, denoiseBlendOpt, denoiseVariantOpt, scnrOpt, scnrAmountOpt, dualStretchOpt, stretchStarsAmountOpt, stretchStarlessMedianOpt, ghsStarlessOpt, ghsLnDOpt, ghsBOpt, ghsLpOpt, ghsHpOpt, ghsSpOpt, ghsPassesOpt, ghsTwopassOpt, ghsAutoTargetValueOpt, ghsAutoTargetOpt, noReduceBgOpt, reduceBgCompressionOpt, noCompressHighlightsOpt, highlightKneeOpt, highlightAmountOpt },
         };
         cmd.SetAction(async (parseResult, ct) =>
         {
@@ -286,7 +312,9 @@ internal sealed class ImageSubCommand(
             var starlessMedian = Math.Clamp(parseResult.GetValue(stretchStarlessMedianOpt), 0.01, 0.99);
             var noReduceBg = parseResult.GetValue(noReduceBgOpt);
             var reduceBgCompression = Math.Clamp(parseResult.GetValue(reduceBgCompressionOpt), 0.01, 1.0);
-            var ghsStarless = parseResult.GetValue(ghsStarlessOpt);
+            var ghsStarlessMode = parseResult.GetValue(ghsStarlessOpt);
+            var ghsStarless = ghsStarlessMode != GhsStarlessMode.Off;
+            var ghsAuto = ghsStarlessMode == GhsStarlessMode.Auto;
             var ghsLnD = Math.Max(0.0, parseResult.GetValue(ghsLnDOpt));
             // B is signed -- no clamp; the four-branch math handles any
             // finite double (B == -1, B < 0, B == 0, B > 0).
@@ -298,12 +326,13 @@ internal sealed class ImageSubCommand(
             double? ghsSp = ghsSpRaw > 0.0
                 ? Math.Clamp(ghsSpRaw, 0.01, 0.99)
                 : null;
-            // --ghs-target-median below 1.0 implies --ghs-starless-auto
-            // (default 0.25 leaves auto off; explicit target turns it on).
-            var ghsAutoTargetMedian = Math.Clamp(parseResult.GetValue(ghsAutoTargetMedianOpt), 0.01, 0.99);
-            var ghsAutoFlag = parseResult.GetValue(ghsAutoOpt);
-            var ghsAuto = ghsAutoFlag;
+            // --ghs-target-value is the post-stretch target (interpretation
+            // depends on --ghs-target: median or bg-peak mode). Only
+            // honoured when --ghs-starless=auto.
+            var ghsAutoTargetValue = Math.Clamp(parseResult.GetValue(ghsAutoTargetValueOpt), 0.01, 0.99);
+            var ghsAutoTarget = parseResult.GetValue(ghsAutoTargetOpt);
             var ghsPasses = Math.Clamp(parseResult.GetValue(ghsPassesOpt), 1, 10);
+            var ghsTwopass = parseResult.GetValue(ghsTwopassOpt);
             var noCompressHighlights = parseResult.GetValue(noCompressHighlightsOpt);
             var highlightKnee = Math.Clamp(parseResult.GetValue(highlightKneeOpt), 0.01, 0.99);
             var highlightAmount = Math.Max(0.0, parseResult.GetValue(highlightAmountOpt));
@@ -339,7 +368,12 @@ internal sealed class ImageSubCommand(
             {
                 steps.Add(new StretchStarsStep(Amount: starsAmount));
                 // Pick MTF or GHS for the starless plate based on --ghs-starless.
+                // GHS + --ghs-twopass: split bg-reduce between two GHS passes
+                // (Cranfield's canonical recipe -- gh-astro sections 2.7-2.9):
+                //   pass 1 (user params)  ->  bg-reduce  ->  pass 2 (B=2.5, HP=0.95).
+                // Single-pass GHS or MTF: bg-reduce comes after the lone stretch.
                 if (ghsStarless)
+                {
                     steps.Add(new GhsStretchStarlessStep(
                         LnD: ghsLnD,
                         B: ghsB,
@@ -348,13 +382,47 @@ internal sealed class ImageSubCommand(
                         HP: ghsHp,
                         Passes: ghsPasses,
                         AutoConverge: ghsAuto,
-                        AutoTargetMedian: ghsAutoTargetMedian));
+                        AutoTargetValue: ghsAutoTargetValue,
+                        AutoTarget: ghsAutoTarget));
+                    if (ghsTwopass)
+                    {
+                        // The "linear prestretch" / blackpoint clip lives between
+                        // passes per the canonical doc. Forced on regardless of
+                        // --no-reduce-bg; without it pass 2 would just re-flatten
+                        // pass 1's lift. Auto bg-peak detect post-pass-1.
+                        steps.Add(new BackgroundReduceStep(Compression: reduceBgCompression));
+                        // Pass 2: lower B (less concentrated curve), higher HP
+                        // (avoid double rolloff -- pass 1 already shaped highlights),
+                        // SP auto-detect on the now-stretched-and-bg-reduced plate,
+                        // LP=0, same auto-converge target as pass 1 so the bg peak
+                        // lands back at the requested value after the clip pulled it
+                        // down. Passes=1 -- chaining twopass with multi-pass per-step
+                        // is not a documented recipe.
+                        steps.Add(new GhsStretchStarlessStep(
+                            LnD: 0.5,
+                            B: 2.5,
+                            SP: null,
+                            LP: 0.0,
+                            HP: 0.95,
+                            Passes: 1,
+                            AutoConverge: ghsAuto,
+                            AutoTargetValue: ghsAutoTargetValue,
+                            AutoTarget: ghsAutoTarget));
+                    }
+                    else if (!noReduceBg)
+                    {
+                        // Single-pass GHS: bg-reduce after the stretch
+                        // (statistical-stretch convention).
+                        steps.Add(new BackgroundReduceStep(Compression: reduceBgCompression));
+                    }
+                }
                 else
+                {
                     steps.Add(new StretchStarlessStep(TargetMedian: starlessMedian));
-                // S-curve background reduction on starless after stretch
-                // (PixInsight statistical-stretch convention). Auto-detects
-                // bg peak via histogram mode. Skippable with --no-reduce-bg.
-                if (!noReduceBg) steps.Add(new BackgroundReduceStep(Compression: reduceBgCompression));
+                    // MTF: bg-reduce after the stretch (statistical-stretch
+                    // convention). Auto-detects bg peak via histogram mode.
+                    if (!noReduceBg) steps.Add(new BackgroundReduceStep(Compression: reduceBgCompression));
+                }
                 // Reinhard-style soft highlight compression on the same
                 // starless plate -- prevents the central-nebula core from
                 // blowing out after the dual-stretch. Asymmetric companion
@@ -392,9 +460,11 @@ internal sealed class ImageSubCommand(
             var request = new SharpenRequest(normalised, ImmutableArray.CreateRange(steps), KeepIntermediates: keepIntermediates);
 
             var spDesc = ghsSp is { } spv ? spv.ToString("F3") : "auto";
-            var lnDDesc = ghsAuto ? $"lnD~auto(t={ghsAutoTargetMedian:F2})" : $"lnD{ghsLnD:F2}";
+            var targetLabel = ghsAutoTarget == Image.GhsConvergeTarget.Mode ? "mode" : "med";
+            var lnDDesc = ghsAuto ? $"lnD~auto({targetLabel}={ghsAutoTargetValue:F2})" : $"lnD{ghsLnD:F2}";
+            var twopassSuffix = ghsTwopass ? "+twopass(b2.5/hp0.95)" : "";
             var starlessStretchDesc = ghsStarless
-                ? $"ghs({lnDDesc}/b{ghsB:F2}/sp{spDesc}/lp{ghsLp:F2}/hp{ghsHp:F2}/{ghsPasses}x)"
+                ? $"ghs({lnDDesc}/b{ghsB:F2}/sp{spDesc}/lp{ghsLp:F2}/hp{ghsHp:F2}/{ghsPasses}x{twopassSuffix})"
                 : $"mtf-tm={starlessMedian:F2}";
             var dualStretchDesc = dualStretch
                 ? $" dual-stretch(stars-amount={starsAmount:F2},starless={starlessStretchDesc}) reduce-bg={(!noReduceBg ? reduceBgCompression.ToString("F2") : "off")} compress-hi={(!noCompressHighlights ? $"k{highlightKnee:F2}/a{highlightAmount:F2}" : "off")}"

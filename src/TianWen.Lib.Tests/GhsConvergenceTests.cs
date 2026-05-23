@@ -20,7 +20,10 @@ public class GhsConvergenceTests
     /// Builds a synthetic histogram approximating a linear astro frame:
     /// most pixels at the sky background, sparse bright tail. Returns a
     /// minimal <see cref="ImageHistogram"/> with the fields the
-    /// convergence helper actually reads.
+    /// convergence helper actually reads. Mode (bg peak) ~= median for
+    /// this layout, so it's NOT useful for showing the dim-image
+    /// diagnosis -- use <see cref="SyntheticHistogramWithDiffuse"/> for
+    /// that.
     /// </summary>
     private static ImageHistogram SyntheticHistogram(int bgBin, int tailStart, int tailEnd, uint bgCount, uint tailDensity)
     {
@@ -28,6 +31,31 @@ public class GhsConvergenceTests
         var total = 0u;
         bins[bgBin] = bgCount; total += bgCount;
         for (var i = tailStart; i <= tailEnd; i++) { bins[i] = tailDensity; total += tailDensity; }
+        return new ImageHistogram(
+            Channel: 0,
+            Histogram: ImmutableArray.Create(bins),
+            Mean: bgBin, Total: total, Threshold: 0f, ThresholdPct: 91,
+            RescaledMaxValue: 65535f, Median: bgBin, MAD: 1f, IgnoreBlack: false);
+    }
+
+    /// <summary>
+    /// Builds a synthetic histogram with a bg peak, a diffuse-signal
+    /// band immediately above it, and a sparse bright tail. Calibrated
+    /// to produce input median &gt; input mode so the median-vs-mode
+    /// post-stretch gap is visible -- which is the real-astro
+    /// regime (extended nebulae, galaxies, etc.) where the dim-image
+    /// observation lives.
+    /// </summary>
+    private static ImageHistogram SyntheticHistogramWithDiffuse(
+        int bgBin, uint bgCount,
+        int diffuseStart, int diffuseEnd, uint diffuseDensity,
+        int tailStart, int tailEnd, uint tailDensity)
+    {
+        var bins = new uint[65536];
+        var total = 0u;
+        bins[bgBin] += bgCount; total += bgCount;
+        for (var i = diffuseStart; i <= diffuseEnd; i++) { bins[i] += diffuseDensity; total += diffuseDensity; }
+        for (var i = tailStart; i <= tailEnd; i++) { bins[i] += tailDensity; total += tailDensity; }
         return new ImageHistogram(
             Channel: 0,
             Histogram: ImmutableArray.Create(bins),
@@ -50,9 +78,9 @@ public class GhsConvergenceTests
 
         var result = Image.ConvergeGhsStretchFactor(
             hist, b: 8.0, sp: 0.003, lp: 0.0, hp: 0.8,
-            targetMedian: 0.25, medianTolerance: 0.01);
+            targetValue: 0.25, tolerance: 0.01);
 
-        result.ConvergedMedian.ShouldBeTrue(
+        result.Converged.ShouldBeTrue(
             $"bisection should hit median 0.25; got median={result.PostStretchMedian:F4} at LnD={result.LnD:F3}");
         result.PostStretchMedian.ShouldBeInRange(0.24, 0.26);
         // LnD should land in a sensible range -- not at the bisection bounds
@@ -81,16 +109,17 @@ public class GhsConvergenceTests
 
         a.LnD.ShouldBe(b.LnD);
         a.PostStretchMedian.ShouldBe(b.PostStretchMedian);
+        a.PostStretchMode.ShouldBe(b.PostStretchMode);
         a.LogSlopeRSquared.ShouldBe(b.LogSlopeRSquared);
-        a.ConvergedMedian.ShouldBe(b.ConvergedMedian);
+        a.Converged.ShouldBe(b.Converged);
     }
 
     [Fact]
     public void EmptyHistogram_ReturnsSafeFallback()
     {
         // Total = 0 has no signal for the bisection; the helper must
-        // return defaults (LnD = 1.30, NaN metrics, ConvergedMedian =
-        // false) without throwing.
+        // return defaults (LnD = 1.30, NaN metrics, Converged = false)
+        // without throwing.
         var bins = new uint[65536];
         var hist = new ImageHistogram(
             Channel: 0, Histogram: ImmutableArray.Create(bins),
@@ -100,13 +129,14 @@ public class GhsConvergenceTests
         var result = Image.ConvergeGhsStretchFactor(hist, sp: 0.05);
 
         result.LnD.ShouldBe(1.30);
-        result.ConvergedMedian.ShouldBeFalse();
+        result.Converged.ShouldBeFalse();
         double.IsNaN(result.PostStretchMedian).ShouldBeTrue();
+        double.IsNaN(result.PostStretchMode).ShouldBeTrue();
         double.IsNaN(result.LogSlopeRSquared).ShouldBeTrue();
     }
 
     [Fact]
-    public void NonDefaultTargetMedian_Respected()
+    public void NonDefaultTargetValue_Respected()
     {
         // Pass a non-default target (0.35) and a tight tolerance;
         // converged median should respect the new target, not the
@@ -117,7 +147,7 @@ public class GhsConvergenceTests
 
         var result = Image.ConvergeGhsStretchFactor(
             hist, b: 8.0, sp: 0.003, hp: 0.8,
-            targetMedian: 0.35, medianTolerance: 0.005);
+            targetValue: 0.35, tolerance: 0.005);
 
         result.PostStretchMedian.ShouldBeInRange(0.345, 0.355,
             $"target=0.35 should land in [0.345, 0.355]; got {result.PostStretchMedian:F4}");
@@ -140,10 +170,71 @@ public class GhsConvergenceTests
         var brightResult = Image.ConvergeGhsStretchFactor(brightHist, b: 8.0, sp: 0.003);
 
         // Both should converge.
-        dimResult.ConvergedMedian.ShouldBeTrue();
-        brightResult.ConvergedMedian.ShouldBeTrue();
+        dimResult.Converged.ShouldBeTrue();
+        brightResult.Converged.ShouldBeTrue();
         // The brighter input should need LESS lift -- LnD smaller.
         brightResult.LnD.ShouldBeLessThan(dimResult.LnD,
             $"brighter input needed LnD={brightResult.LnD:F3}; dimmer needed LnD={dimResult.LnD:F3} -- monotonicity is wrong");
+    }
+
+    [Fact]
+    public void ModeTarget_ConvergesBgPeakNotMedian()
+    {
+        // The mode-target path bisects until the bg peak lifts to the
+        // requested value (Paul's recipe), not the median. Use the
+        // richer "with-diffuse" histogram so input median > input mode
+        // -- otherwise mode and median collapse to the same bin in
+        // bg-dominated synthetics and the test can't distinguish the
+        // two targets. Mode-target should land the bg peak at ~0.25
+        // and push the median above that.
+        var hist = SyntheticHistogramWithDiffuse(
+            bgBin: 3000, bgCount: 400_000,
+            diffuseStart: 4500, diffuseEnd: 8000, diffuseDensity: 150,
+            tailStart: 8001, tailEnd: 50000, tailDensity: 2);
+
+        var result = Image.ConvergeGhsStretchFactor(
+            hist, b: 8.0, sp: 0.003, lp: 0.0, hp: 0.8,
+            targetValue: 0.25, tolerance: 0.01,
+            target: Image.GhsConvergeTarget.Mode);
+
+        result.Converged.ShouldBeTrue(
+            $"bisection should hit mode 0.25; got mode={result.PostStretchMode:F4} at LnD={result.LnD:F3}");
+        result.PostStretchMode.ShouldBeInRange(0.24, 0.26);
+        // Telemetric median is still computed and should sit ABOVE the
+        // mode (the lifted bg peak), since diffuse signal pushes the
+        // 50th percentile higher than the bg peak.
+        result.PostStretchMedian.ShouldBeGreaterThan(result.PostStretchMode,
+            $"median {result.PostStretchMedian:F3} should be above mode {result.PostStretchMode:F3} for a hist with diffuse signal");
+    }
+
+    [Fact]
+    public void Diagnostic_MedianTarget_LeavesBgPeakBelowTarget()
+    {
+        // Diagnostic for the "GHS output looks dim" observation. With
+        // a realistic linear astro histogram (bg peak + diffuse signal
+        // band + sparse tail, so input median > input mode), converging
+        // the median to 0.25 lands the bg peak (mode) well below 0.25.
+        // The result feels dim because the bulk of the visible area
+        // sits at the bg peak, not the median. Mode-target is the fix;
+        // this test pins the diagnosis so a future change to the
+        // bisection or mode helper can't quietly undo it.
+        var hist = SyntheticHistogramWithDiffuse(
+            bgBin: 3000, bgCount: 400_000,
+            diffuseStart: 4500, diffuseEnd: 8000, diffuseDensity: 150,
+            tailStart: 8001, tailEnd: 50000, tailDensity: 2);
+
+        var result = Image.ConvergeGhsStretchFactor(
+            hist, b: 8.0, sp: 0.003, lp: 0.0, hp: 0.8,
+            targetValue: 0.25, tolerance: 0.01,
+            target: Image.GhsConvergeTarget.Median);
+
+        result.Converged.ShouldBeTrue();
+        result.PostStretchMedian.ShouldBeInRange(0.24, 0.26);
+        // The bg peak should land BELOW the median target -- this is
+        // the dim-image diagnosis. Strict ordering is the signal we
+        // care about; the exact gap depends on curve shape + diffuse
+        // band density and may shift with future BuildGhsLut tweaks.
+        result.PostStretchMode.ShouldBeLessThan(result.PostStretchMedian,
+            $"median-target convergence leaves the bg peak at {result.PostStretchMode:F3}, below median {result.PostStretchMedian:F3}; use Mode target for Paul's recipe");
     }
 }
