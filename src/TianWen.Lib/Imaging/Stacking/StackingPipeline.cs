@@ -50,7 +50,8 @@ public sealed class StackingPipeline(
     StackingOptions options,
     ILogger logger,
     ICelestialObjectDB? catalogDb = null,
-    IProgress<StackingProgress>? progress = null)
+    IProgress<StackingProgress>? progress = null,
+    Enhancement.SharpenPipeline? sharpenPipeline = null)
 {
     /// <summary>Ladder of quadTolerance values to try per frame, ascending.
     /// First-match wins. The lower rungs (0.008, 0.02, 0.05) are tuned for the
@@ -932,9 +933,10 @@ public sealed class StackingPipeline(
             : "";
         var masterPath = Path.Combine(outputDir, $"master_{slug}{strategySuffix}.fits");
         var refImageDim = referenceRaw.GetImageDim();
-        var postProcessor = new MasterPostProcessor(logger, catalogDb);
-        var (writtenResult, solvedWcs) = await postProcessor.WriteMasterAsync(
-            intResult, masterPath, searchHint, refImageDim, referenceRaw.ImageMeta, statsRect, selection.Chosen.Kind, ct);
+        var postProcessor = new MasterPostProcessor(logger, catalogDb, options.Enhance ? sharpenPipeline : null);
+        var postResult = await postProcessor.WriteMasterAsync(
+            intResult, masterPath, searchHint, refImageDim, referenceRaw.ImageMeta, statsRect, selection.Chosen.Kind,
+            enhance: options.Enhance, enhanceBlend: options.EnhanceBlend, ct);
         if (intResult.TotalRejections > 0)
         {
             logger.LogInformation("  wrote {Path}", IntegrationFitsWriter.RejectionPathFor(masterPath));
@@ -944,7 +946,7 @@ public sealed class StackingPipeline(
             slug,
             FramesAttempted: lightList.Count,
             FramesMatched: matched.Count,
-            Result: writtenResult,
+            Result: postResult.Result,
             MasterFitsPath: masterPath,
             PreviewPngPath: previewPath,
             Elapsed: groupSw.Elapsed);

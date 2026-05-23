@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Immutable;
 using System.Diagnostics;
 using System.Drawing;
 using System.IO;
@@ -9,8 +10,18 @@ using TianWen.Lib.Astrometry;
 using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Astrometry.PlateSolve;
 using TianWen.Lib.Imaging.Calibration;
+using TianWen.Lib.Imaging.Enhancement;
 
 namespace TianWen.Lib.Imaging.Stacking;
+
+/// <summary>
+/// Return value of <see cref="MasterPostProcessor.WriteMasterAsync"/>:
+/// the (possibly updated) <see cref="IntegrationResult"/> after MaxValue
+/// + focal-length backfill, and the WCS produced by plate-solve (null when
+/// no catalog DB was supplied or the solve failed). Named record rather
+/// than a tuple so callers can deconstruct or assert by field name.
+/// </summary>
+internal readonly record struct MasterWriteResult(IntegrationResult Result, WCS? SolvedWcs);
 
 /// <summary>
 /// Post-integration disk side-effects: MaxValue header fix-up, plate-solve
@@ -21,16 +32,20 @@ namespace TianWen.Lib.Imaging.Stacking;
 /// intersection rectangle and shifts the WCS CRPIX so the cropped FITS
 /// still maps to the same sky coordinates.
 /// </summary>
-internal sealed class MasterPostProcessor(ILogger logger, ICelestialObjectDB? catalogDb)
+internal sealed class MasterPostProcessor(ILogger logger, ICelestialObjectDB? catalogDb, SharpenPipeline? sharpenPipeline = null)
 {
     /// <summary>
     /// Writes <paramref name="result"/>'s master FITS to <paramref name="masterPath"/>
     /// (with WCS if plate-solve succeeds), plus a sibling <c>_autocrop.fits</c>
     /// when <paramref name="autocropRect"/> is a proper sub-rectangle of the
-    /// master. Returns the (possibly updated) <see cref="IntegrationResult"/>
-    /// -- focal-length and MaxValue may have been backfilled on the master.
+    /// master. When <paramref name="enhance"/> is set and a <see cref="SharpenPipeline"/>
+    /// was supplied, also writes <c>_sharpened.fits</c> + (when autocrop is
+    /// active) <c>_sharpened_autocrop.fits</c> sibling files; the raw masters
+    /// are never replaced. Returns the (possibly updated)
+    /// <see cref="IntegrationResult"/> -- focal-length and MaxValue may have
+    /// been backfilled on the master.
     /// </summary>
-    public async Task<(IntegrationResult Result, WCS? SolvedWcs)> WriteMasterAsync(
+    public async Task<MasterWriteResult> WriteMasterAsync(
         IntegrationResult result,
         string masterPath,
         WCS? searchHint,
@@ -38,6 +53,8 @@ internal sealed class MasterPostProcessor(ILogger logger, ICelestialObjectDB? ca
         ImageMeta refMeta,
         Rectangle autocropRect,
         IntegrationStrategyKind strategy,
+        bool enhance,
+        float enhanceBlend,
         CancellationToken ct)
     {
         var sw = Stopwatch.StartNew();
@@ -195,6 +212,27 @@ internal sealed class MasterPostProcessor(ILogger logger, ICelestialObjectDB? ca
         IntegrationFitsWriter.Write(masterPath, result, solvedWcs, strategy);
         logger.LogInformation("  wrote {Path}{Wcs}", masterPath, solvedWcs is null ? "" : " (WCS embedded)");
 
+        // 2.5) AI enhancement: run SharpenRequest.Canonical()-style pipeline
+        //      (gradient correction -> remove stars -> sharpen stars ->
+        //      deconvolve starless -> denoise starless -> recombine) on the
+        //      master and write _sharpened.fits + (when autocrop is active)
+        //      _sharpened_autocrop.fits sibling files. The raw masters are
+        //      never overwritten. Cropping the enhanced master here rather
+        //      than re-running enhancement on the pre-cropped image keeps
+        //      it to a single forward pass and guarantees the sharpened
+        //      autocrop is byte-identical to the autocrop of the sharpened
+        //      full.
+        if (enhance && sharpenPipeline is not null)
+        {
+            await EnhanceAndWriteAsync(
+                result, masterPath, solvedWcs, strategy,
+                croppedResult, autocropRect, enhanceBlend, ct);
+        }
+        else if (enhance && sharpenPipeline is null)
+        {
+            logger.LogWarning("  [enhance] requested but SharpenPipeline not registered; skipping");
+        }
+
         // 3) Autocrop FITS: same master cropped to the intersection AABB,
         //    WCS CRPIX shifted by the crop offset so plate-solve coords
         //    still map to the same sky position.
@@ -216,7 +254,7 @@ internal sealed class MasterPostProcessor(ILogger logger, ICelestialObjectDB? ca
         }
 
         logger.LogInformation("  [post] total {Ms} ms", sw.ElapsedMilliseconds);
-        return (result, solvedWcs);
+        return new MasterWriteResult(result, solvedWcs);
     }
 
     /// <summary>
@@ -268,6 +306,80 @@ internal sealed class MasterPostProcessor(ILogger logger, ICelestialObjectDB? ca
         var stem = Path.GetFileNameWithoutExtension(path);
         var ext = Path.GetExtension(path);
         return Path.Combine(dir, stem + suffix + ext);
+    }
+
+    /// <summary>
+    /// Runs the canonical AI enhancement pipeline against the master and
+    /// writes the sharpened sibling FITS files. Cropping the enhanced master
+    /// to <paramref name="autocropRect"/> reuses the same single forward pass
+    /// for the autocrop variant; the raw master FITS (already on disk) is
+    /// untouched. Failures log + return without throwing so a misbehaving
+    /// model never breaks the canonical stacking output.
+    /// </summary>
+    private async Task EnhanceAndWriteAsync(
+        IntegrationResult master,
+        string masterPath,
+        WCS? solvedWcs,
+        IntegrationStrategyKind strategy,
+        IntegrationResult? croppedResult,
+        Rectangle autocropRect,
+        float enhanceBlend,
+        CancellationToken ct)
+    {
+        Debug.Assert(sharpenPipeline is not null, "EnhanceAndWriteAsync called without SharpenPipeline -- guard upstream");
+        var sw = Stopwatch.StartNew();
+        try
+        {
+            // Canonical linear-in / linear-out flow per SharpenRequest.Canonical(),
+            // with the per-step Blend exposed via --enhance-blend. GhsStretch and
+            // dual-stretch are deliberately NOT included -- a stacked master must
+            // stay in linear photon-space so downstream PixInsight / Affinity /
+            // tianwen-render workflows still apply their own stretch.
+            var blend = Math.Clamp(enhanceBlend, 0f, 1f);
+            var steps = ImmutableArray.Create<SharpenStep>(
+                new GradientCorrectionStep(),
+                new RemoveStarsStep(),
+                new SharpenStarsStep(Blend: blend),
+                new DeconvolveStarlessStep(Blend: blend),
+                new DenoiseStarlessStep(Blend: blend),
+                new RecombineStep());
+            var request = new SharpenRequest(master.Master, steps, KeepIntermediates: SharpenIntermediates.None);
+            var sharpenResult = await sharpenPipeline.ProcessAsync(request, ct);
+            if (sharpenResult.Final is not { } enhancedMaster)
+            {
+                logger.LogWarning("  [enhance] SharpenPipeline returned no Final image; skipping write");
+                return;
+            }
+
+            // Reuse the original IntegrationResult shell (FrameCount, RejectionMap,
+            // MeanRejectionRate) so IntegrationFitsWriter keeps the same provenance
+            // headers; just swap Master for the enhanced pixels.
+            var sharpenedPath = WithSuffix(masterPath, "_sharpened");
+            IntegrationFitsWriter.Write(sharpenedPath, master with { Master = enhancedMaster }, solvedWcs, strategy);
+            logger.LogInformation("  wrote {Path} (enhance blend={Blend:F2}, {Ms} ms)", sharpenedPath, blend, sw.ElapsedMilliseconds);
+
+            if (croppedResult is not null)
+            {
+                var enhancedCropped = CropImage(enhancedMaster, autocropRect);
+                WCS? croppedWcs = solvedWcs is { } w
+                    ? w with { CRPix1 = w.CRPix1 - autocropRect.X, CRPix2 = w.CRPix2 - autocropRect.Y }
+                    : null;
+                var sharpenedCropPath = WithSuffix(masterPath, "_sharpened_autocrop");
+                IntegrationFitsWriter.Write(sharpenedCropPath, croppedResult with { Master = enhancedCropped }, croppedWcs, strategy);
+                logger.LogInformation("  wrote {Path} (crop {W}x{H})", sharpenedCropPath, autocropRect.Width, autocropRect.Height);
+            }
+
+            enhancedMaster.Release();
+        }
+        catch (OperationCanceledException)
+        {
+            logger.LogInformation("  [enhance] cancelled after {Ms} ms", sw.ElapsedMilliseconds);
+            throw;
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning("  [enhance] failed after {Ms} ms: {Type}: {Msg}", sw.ElapsedMilliseconds, ex.GetType().Name, ex.Message);
+        }
     }
 
     private static IntegrationResult CropIntegrationResult(IntegrationResult full, Rectangle rect)

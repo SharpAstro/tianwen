@@ -117,4 +117,6 @@ public sealed record StackingOptions(
     float? QualityRejectSigma = null,
     string? ReferenceFrameHint = null,
     bool DisableBayerDrizzle = false,
-    bool IncludeIntegrations = false);
+    bool IncludeIntegrations = false,
+    bool Enhance = false,
+    float EnhanceBlend = 1.0f);
