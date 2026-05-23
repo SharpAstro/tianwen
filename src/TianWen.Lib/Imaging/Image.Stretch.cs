@@ -381,47 +381,50 @@ public partial class Image
     /// region). The gamma tail (<paramref name="gamma"/>) is rarely needed
     /// and defaults to 1.0 (off).</para>
     /// </remarks>
-    /// <param name="intensity">Curve exponent (a in SAS Pro). Smaller values
-    /// (0.2 - 0.8) give stronger midtones lift; ~1.0 is near identity at
-    /// SP=0.5; larger values darken. Default <c>0.5</c> for a moderate
-    /// stretch on linear input.</param>
-    /// <param name="asymmetry">Direction parameter (b in SAS Pro). 1.0 =
-    /// symmetric curve. Values &gt; 1 stretch shadows more aggressively;
-    /// values &lt; 1 emphasise highlights. Default <c>1.0</c>.</param>
-    /// <param name="shadowProtection">LP in [0, 1]: how much of the curve
-    /// below SP is replaced with identity. 0 = full GHS, 1 = pure identity
-    /// below SP. Default <c>0.0</c>.</param>
-    /// <param name="highlightProtection">HP in [0, 1]: same as
-    /// <paramref name="shadowProtection"/> but for the region above SP.
-    /// Default <c>0.0</c>; raise (e.g. 0.3) to gently preserve bright
-    /// regions without an extra compression step.</param>
-    /// <param name="symmetryPoint">SP in (0, 1): the input pixel value at
-    /// which the curve hinges. Output at <c>x = 0.5</c> equals SP. Default
-    /// <c>0.25</c> matches the SAS Pro / PixInsight statistical-stretch
-    /// convention.</param>
-    /// <param name="gamma">Output gamma applied after the GHS curve.
-    /// Default <c>1.0</c> (no gamma).</param>
+    /// <param name="lnD">Stretch factor, in the user-facing
+    /// <c>ln(D + 1)</c> convention from the PixInsight slider (the
+    /// screenshot's <c>1.30</c> -- internally converts to
+    /// <c>D = exp(lnD) - 1</c>). 0 = identity (no stretch); larger lifts
+    /// the shadows more aggressively. Range &gt;= 0. Default <c>1.3</c>
+    /// matches Paul (Polymath Astro)'s example case-1 (linear -> display)
+    /// stretch.</param>
+    /// <param name="b">Local stretch intensity. <b>Signed:</b> negative
+    /// values pick the logarithmic / power-with-negative-B branches,
+    /// zero picks the exponential branch, positive picks the
+    /// hyperbolic / harmonic branch. Larger |b| = more focused stretch
+    /// around SP. Range any finite double. Default <c>-1.0</c>
+    /// (logarithmic) matches Paul's example settings.</param>
+    /// <param name="sp">Symmetry point in [LP, HP]. <b>Input pixel value
+    /// where the curve has maximum gradient</b> -- the inflection point.
+    /// Typically set to the histogram lift-off (the linear bg peak) for
+    /// stretch-from-linear use; the screenshot uses 0.57 for an
+    /// already-MTF-stretched input. Default <c>0.5</c>.</param>
+    /// <param name="lp">Lowlight (shadow) protection point in [0, SP].
+    /// Below LP the curve is linear at the gradient evaluated at LP --
+    /// hard floor that preserves shadow texture. Default <c>0.0</c>
+    /// (no shadow protection).</param>
+    /// <param name="hp">Highlight protection point in [SP, 1]. Above HP
+    /// the curve is linear at the gradient evaluated at HP -- prevents
+    /// the upper tail from being compressed to identity. Default
+    /// <c>1.0</c> (no highlight protection).</param>
     public Image GeneralizedHyperbolicStretch(
-        double intensity = 0.5,
-        double asymmetry = 1.0,
-        double shadowProtection = 0.0,
-        double highlightProtection = 0.0,
-        double symmetryPoint = 0.25,
-        double gamma = 1.0)
+        double lnD = 1.3,
+        double b = -1.0,
+        double sp = 0.5,
+        double lp = 0.0,
+        double hp = 1.0)
     {
-        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(intensity);
-        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(asymmetry);
-        ArgumentOutOfRangeException.ThrowIfNegative(shadowProtection);
-        ArgumentOutOfRangeException.ThrowIfGreaterThan(shadowProtection, 1.0);
-        ArgumentOutOfRangeException.ThrowIfNegative(highlightProtection);
-        ArgumentOutOfRangeException.ThrowIfGreaterThan(highlightProtection, 1.0);
-        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(symmetryPoint);
-        ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual(symmetryPoint, 1.0);
-        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(gamma);
+        ArgumentOutOfRangeException.ThrowIfNegative(lnD);
+        ArgumentOutOfRangeException.ThrowIfNegative(sp);
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(sp, 1.0);
+        ArgumentOutOfRangeException.ThrowIfNegative(lp);
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(lp, sp);
+        ArgumentOutOfRangeException.ThrowIfLessThan(hp, sp);
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(hp, 1.0);
 
         const int LutSize = 65536;
         var lut = new float[LutSize];
-        BuildGhsLut(lut, intensity, asymmetry, shadowProtection, highlightProtection, symmetryPoint, gamma);
+        BuildGhsLut(lut, lnD, b, sp, lp, hp);
 
         var (channels, width, height) = Shape;
         var pixelCount = width * height;
@@ -446,59 +449,221 @@ public partial class Image
     }
 
     /// <summary>
-    /// Populates <paramref name="lut"/> with the GHS tone curve indexed by
-    /// uniform <c>us = i / (N - 1)</c>. Standalone for testability and so
-    /// callers can cache / inspect the LUT outside the per-pixel hot loop.
+    /// Pre-computed coefficient set for one branch of the GHS curve. Each
+    /// segment of the piecewise function (<c>z &lt; LP</c>,
+    /// <c>LP &lt;= z &lt; SP</c>, <c>SP &lt;= z &lt;= HP</c>,
+    /// <c>z &gt; HP</c>) reads its coefficients from this struct.
+    /// <c>e2</c> / <c>e3</c> are only used by the power-form branches
+    /// (<c>B != 0</c> and <c>B != -1</c>); other branches leave them at 0.
+    /// Order + meaning match Mike Cranfield's reference PixInsight
+    /// implementation (<c>GHSStretch.js</c> lines 902-1040). Internal so
+    /// the convergence helper can probe coefficients independently of
+    /// the LUT build.
     /// </summary>
-    internal static void BuildGhsLut(
-        Span<float> lut, double a, double b, double lp, double hp, double sp, double g)
-    {
-        const double eps = 1e-9;
-        var n = lut.Length;
-        var halfA = Math.Pow(0.5, a);
-        // midL/midR are constant across all us (depend only on a, b at us=0.5).
-        var midL = halfA / (halfA + b * halfA + eps);
-        var midR = halfA / (halfA + (1.0 / b) * halfA + eps);
+    internal readonly record struct GhsCoefficients(
+        double A1, double B1,
+        double A2, double B2, double C2, double D2, double E2,
+        double A3, double B3, double C3, double D3, double E3,
+        double A4, double B4);
 
-        // First pass: build the raw curve into the LUT.
+    /// <summary>
+    /// Derives the 4-segment piecewise GHS coefficients for the supplied
+    /// curve parameters. Faithful port of <c>GHSStretch.js</c> section 5
+    /// (lines 902-1040). The output curve passes through <c>(0, 0)</c>
+    /// and <c>(1, 1)</c> and is continuous at LP / SP / HP by construction.
+    /// </summary>
+    /// <param name="D">Stretch factor in linear units
+    /// (<c>D = exp(lnD) - 1</c>); not the user-facing slider value.</param>
+    /// <param name="b">Local stretch intensity (signed). The sign +
+    /// magnitude select the branch:
+    /// <c>b == -1</c> logarithmic, <c>b &lt; 0</c> power (negative b),
+    /// <c>b == 0</c> exponential, <c>b &gt; 0</c> hyperbolic.</param>
+    internal static GhsCoefficients ComputeGhsCoefficients(double D, double b, double sp, double lp, double hp)
+    {
+        double qlp, q0, qwp, q1, q;
+        double a1, b1, a2, b2_, c2, d2, e2 = 0.0, a3, b3, c3, d3, e3 = 0.0, a4, b4;
+
+        if (b == -1.0)
+        {
+            // Logarithmic branch: y = a + b * ln(c + d * z).
+            qlp = -Math.Log(1.0 + D * (sp - lp));
+            q0 = qlp - D * lp / (1.0 + D * (sp - lp));
+            qwp = Math.Log(1.0 + D * (hp - sp));
+            q1 = qwp + D * (1.0 - hp) / (1.0 + D * (hp - sp));
+            q = 1.0 / (q1 - q0);
+
+            a1 = 0.0;
+            b1 = D / (1.0 + D * (sp - lp)) * q;
+
+            a2 = -q0 * q;
+            b2_ = -q;
+            c2 = 1.0 + D * sp;
+            d2 = -D;
+
+            a3 = -q0 * q;
+            b3 = q;
+            c3 = 1.0 - D * sp;
+            d3 = D;
+
+            a4 = (qwp - q0 - D * hp / (1.0 + D * (hp - sp))) * q;
+            b4 = q * D / (1.0 + D * (hp - sp));
+        }
+        else if (b < 0.0)
+        {
+            // Power branch with negative b: y = a + b * (c + d * z)^e.
+            // Sign flip on b matches the reference's internal handling.
+            var B = -b;
+            qlp = (1.0 - Math.Pow(1.0 + D * B * (sp - lp), (B - 1.0) / B)) / (B - 1.0);
+            q0 = qlp - D * lp * Math.Pow(1.0 + D * B * (sp - lp), -1.0 / B);
+            qwp = (Math.Pow(1.0 + D * B * (hp - sp), (B - 1.0) / B) - 1.0) / (B - 1.0);
+            q1 = qwp + D * (1.0 - hp) * Math.Pow(1.0 + D * B * (hp - sp), -1.0 / B);
+            q = 1.0 / (q1 - q0);
+
+            a1 = 0.0;
+            b1 = D * Math.Pow(1.0 + D * B * (sp - lp), -1.0 / B) * q;
+
+            a2 = (1.0 / (B - 1.0) - q0) * q;
+            b2_ = -q / (B - 1.0);
+            c2 = 1.0 + D * B * sp;
+            d2 = -D * B;
+            e2 = (B - 1.0) / B;
+
+            a3 = (-1.0 / (B - 1.0) - q0) * q;
+            b3 = q / (B - 1.0);
+            c3 = 1.0 - D * B * sp;
+            d3 = D * B;
+            e3 = (B - 1.0) / B;
+
+            a4 = (qwp - q0 - D * hp * Math.Pow(1.0 + D * B * (hp - sp), -1.0 / B)) * q;
+            b4 = D * Math.Pow(1.0 + D * B * (hp - sp), -1.0 / B) * q;
+        }
+        else if (b == 0.0)
+        {
+            // Exponential branch: y = a + b * exp(c + d * z).
+            qlp = Math.Exp(-D * (sp - lp));
+            q0 = qlp - D * lp * Math.Exp(-D * (sp - lp));
+            qwp = 2.0 - Math.Exp(-D * (hp - sp));
+            q1 = qwp + D * (1.0 - hp) * Math.Exp(-D * (hp - sp));
+            q = 1.0 / (q1 - q0);
+
+            a1 = 0.0;
+            b1 = D * Math.Exp(-D * (sp - lp)) * q;
+
+            a2 = -q0 * q;
+            b2_ = q;
+            c2 = -D * sp;
+            d2 = D;
+
+            a3 = (2.0 - q0) * q;
+            b3 = -q;
+            c3 = D * sp;
+            d3 = -D;
+
+            a4 = (qwp - q0 - D * hp * Math.Exp(-D * (hp - sp))) * q;
+            b4 = D * Math.Exp(-D * (hp - sp)) * q;
+        }
+        else
+        {
+            // b > 0: Hyperbolic / harmonic branch:
+            // y = a + b * (c + d * z)^e with e = -1/b.
+            qlp = Math.Pow(1.0 + D * b * (sp - lp), -1.0 / b);
+            q0 = qlp - D * lp * Math.Pow(1.0 + D * b * (sp - lp), -(1.0 + b) / b);
+            qwp = 2.0 - Math.Pow(1.0 + D * b * (hp - sp), -1.0 / b);
+            q1 = qwp + D * (1.0 - hp) * Math.Pow(1.0 + D * b * (hp - sp), -(1.0 + b) / b);
+            q = 1.0 / (q1 - q0);
+
+            a1 = 0.0;
+            b1 = D * Math.Pow(1.0 + D * b * (sp - lp), -(1.0 + b) / b) * q;
+
+            a2 = -q0 * q;
+            b2_ = q;
+            c2 = 1.0 + D * b * sp;
+            d2 = -D * b;
+            e2 = -1.0 / b;
+
+            a3 = (2.0 - q0) * q;
+            b3 = -q;
+            c3 = 1.0 - D * b * sp;
+            d3 = D * b;
+            e3 = -1.0 / b;
+
+            a4 = (qwp - q0 - D * hp * Math.Pow(1.0 + D * b * (hp - sp), -(b + 1.0) / b)) * q;
+            b4 = D * Math.Pow(1.0 + D * b * (hp - sp), -(b + 1.0) / b) * q;
+        }
+
+        return new GhsCoefficients(a1, b1, a2, b2_, c2, d2, e2, a3, b3, c3, d3, e3, a4, b4);
+    }
+
+    /// <summary>
+    /// Evaluates the GHS curve at a single input value <paramref name="z"/>
+    /// in <c>[0, 1]</c> given the pre-computed
+    /// <paramref name="coeff"/> and the branch selector
+    /// <paramref name="b"/>. The 4 piecewise regions are dispatched by
+    /// comparing <c>z</c> against <c>lp</c> / <c>sp</c> / <c>hp</c>.
+    /// </summary>
+    internal static double EvaluateGhs(in GhsCoefficients coeff, double z, double b, double lp, double sp, double hp)
+    {
+        if (z < lp) return coeff.A1 + coeff.B1 * z;
+        if (z > hp) return coeff.A4 + coeff.B4 * z;
+
+        if (b == -1.0)
+        {
+            return z < sp
+                ? coeff.A2 + coeff.B2 * Math.Log(coeff.C2 + coeff.D2 * z)
+                : coeff.A3 + coeff.B3 * Math.Log(coeff.C3 + coeff.D3 * z);
+        }
+        if (b == 0.0)
+        {
+            return z < sp
+                ? coeff.A2 + coeff.B2 * Math.Exp(coeff.C2 + coeff.D2 * z)
+                : coeff.A3 + coeff.B3 * Math.Exp(coeff.C3 + coeff.D3 * z);
+        }
+        // Power form -- the (B-1)/B sign flip in the negative-b branch is
+        // already baked into the coefficients (e2 / e3).
+        return z < sp
+            ? coeff.A2 + coeff.B2 * Math.Pow(coeff.C2 + coeff.D2 * z, coeff.E2)
+            : coeff.A3 + coeff.B3 * Math.Pow(coeff.C3 + coeff.D3 * z, coeff.E3);
+    }
+
+    /// <summary>
+    /// Populates <paramref name="lut"/> with the GHS tone curve sampled
+    /// at uniform input values <c>i / (N - 1)</c>. Faithful port of
+    /// Mike Cranfield's reference PixInsight script
+    /// (<c>mikec1485/GHS/src/scripts/.../lib/GHSStretch.js</c>),
+    /// 4 piecewise regions with branch selection on <paramref name="b"/>.
+    /// </summary>
+    /// <param name="lnD">User-facing slider value
+    /// (<c>D_actual = exp(lnD) - 1</c>). 0 = identity.</param>
+    /// <param name="b">Signed local stretch intensity.</param>
+    /// <param name="sp">Symmetry point (input value where curve hinges).</param>
+    /// <param name="lp">Shadow protection point.</param>
+    /// <param name="hp">Highlight protection point.</param>
+    internal static void BuildGhsLut(
+        Span<float> lut, double lnD, double b, double sp, double lp, double hp)
+    {
+        var n = lut.Length;
+        var D = Math.Exp(lnD) - 1.0;
+
+        if (D <= 0.0)
+        {
+            // Identity (lnD == 0 or invalid). Caller validates lnD >= 0;
+            // explicit identity here is robust against floating-point
+            // rounding of exp(0) - 1 to a tiny negative.
+            for (var i = 0; i < n; i++) lut[i] = (float)i / (n - 1);
+            return;
+        }
+
+        var coeff = ComputeGhsCoefficients(D, b, sp, lp, hp);
         for (var i = 0; i < n; i++)
         {
-            var us = (double)i / (n - 1);
-            double up, vp;
-            if (us <= 0.5)
-            {
-                // Left half: maps us [0, 0.5] to up [0, sp].
-                up = 2.0 * sp * us;
-                var num = Math.Pow(us, a);
-                var raw = num / (num + b * Math.Pow(1.0 - us, a) + eps);
-                vp = raw * (sp / Math.Max(midL, eps));
-            }
-            else
-            {
-                // Right half: maps us [0.5, 1] to up [sp, 1].
-                up = sp + 2.0 * (1.0 - sp) * (us - 0.5);
-                var num = Math.Pow(us, a);
-                var raw = num / (num + (1.0 / b) * Math.Pow(1.0 - us, a) + eps);
-                vp = sp + (raw - midR) * ((1.0 - sp) / Math.Max(1.0 - midR, eps));
-            }
-
-            // LP / HP linear blend with identity in protected region.
-            if (lp > 0 && up <= sp) vp = (1.0 - lp) * vp + lp * up;
-            if (hp > 0 && up >= sp) vp = (1.0 - hp) * vp + hp * up;
-
-            // Optional output gamma.
-            if (Math.Abs(g - 1.0) > 1e-6)
-            {
-                var clamped = Math.Clamp(vp, 0.0, 1.0);
-                vp = Math.Pow(clamped, 1.0 / g);
-            }
-
-            lut[i] = (float)Math.Clamp(vp, 0.0, 1.0);
+            var z = (double)i / (n - 1);
+            var y = EvaluateGhs(coeff, z, b, lp, sp, hp);
+            lut[i] = (float)Math.Clamp(y, 0.0, 1.0);
         }
 
         // Monotonic correction (np.maximum.accumulate equivalent). Guards
         // against tiny non-monotonic dips that the floating-point arithmetic
-        // can introduce near LP/HP transitions.
+        // can introduce near LP / SP / HP boundary transitions.
         var running = lut[0];
         for (var i = 1; i < n; i++)
         {

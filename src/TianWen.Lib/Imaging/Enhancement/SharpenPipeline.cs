@@ -284,32 +284,28 @@ public sealed class SharpenPipeline(
 
                     case GhsStretchStarlessStep ghsStep:
                     {
-                        // Generalized Hyperbolic Stretch on the most-processed
-                        // starless plate. With Paul's defaults (b=8, hp=0.8,
-                        // sp=auto) a single pass produces the recommended shape.
-                        // Multi-pass is supported as an escape hatch.
-                        //
-                        // Why SP is auto-detected ONCE before the loop (not per
-                        // pass): re-estimating after each pass would chase the
-                        // already-stretched histogram and slowly bias toward
-                        // the new mode, defeating the "pivot at the linear
-                        // lift-off" intent.
+                        // Generalised Hyperbolic Stretch on the most-processed
+                        // starless plate. Cranfield's reference implementation
+                        // (see PLAN-ghs.md). SP auto-detects ONCE before the
+                        // multi-pass loop: re-estimating after each pass would
+                        // chase the already-stretched histogram and bias the
+                        // hinge toward the new mode each iteration, defeating
+                        // the "pivot at the linear lift-off" intent.
                         var inputPlate = denoisedStarless ?? deconvolvedStarless ?? Require(starless);
-                        var sp = ghsStep.SymmetryPoint ?? Math.Clamp(inputPlate.EstimateRisingEdge(), 1e-4, 0.999);
+                        var sp = ghsStep.SP ?? Math.Clamp(inputPlate.EstimateRisingEdge(), 1e-4, 0.999);
                         var current = inputPlate;
                         for (var pass = 0; pass < ghsStep.Passes; pass++)
                         {
                             var stretched = current.GeneralizedHyperbolicStretch(
-                                ghsStep.Intensity, ghsStep.Asymmetry,
-                                ghsStep.ShadowProtection, ghsStep.HighlightProtection,
-                                sp, gamma: 1.0);
+                                lnD: ghsStep.LnD, b: ghsStep.B, sp: sp,
+                                lp: ghsStep.LP, hp: ghsStep.HP);
                             if (!ReferenceEquals(current, inputPlate)) current.Release();
                             current = stretched;
                         }
                         if (denoisedStarless is not null) denoisedStarless.Release();
                         denoisedStarless = current;
-                        var spLabel = ghsStep.SymmetryPoint is null ? $"sp~{sp:F4}auto" : $"sp={sp:F3}";
-                        timings.Add(($"ghs-stretch-starless({spLabel},b{ghsStep.Asymmetry:F1},hp{ghsStep.HighlightProtection:F2},{ghsStep.Passes}x)", phaseSw.ElapsedMilliseconds, denoisedStarless.EstimateNoiseProfile()));
+                        var spLabel = ghsStep.SP is null ? $"sp~{sp:F4}auto" : $"sp={sp:F3}";
+                        timings.Add(($"ghs-stretch-starless(lnD{ghsStep.LnD:F2},b{ghsStep.B:F1},{spLabel},hp{ghsStep.HP:F2},{ghsStep.Passes}x)", phaseSw.ElapsedMilliseconds, denoisedStarless.EstimateNoiseProfile()));
                         break;
                     }
 
@@ -531,14 +527,20 @@ public sealed class SharpenPipeline(
                     if (!hasStarless) throw new ArgumentException(
                         $"SharpenRequest.Steps[{i}]: GhsStretchStarlessStep requires a preceding RemoveStarsStep (no starless plate to stretch).",
                         nameof(request));
-                    if (ghs.Intensity <= 0.0) throw new ArgumentException(
-                        $"SharpenRequest.Steps[{i}]: GhsStretchStarlessStep.Intensity must be > 0; got {ghs.Intensity}.",
+                    if (ghs.LnD < 0.0) throw new ArgumentException(
+                        $"SharpenRequest.Steps[{i}]: GhsStretchStarlessStep.LnD must be >= 0 (0 = identity); got {ghs.LnD}.",
                         nameof(request));
-                    if (ghs.Asymmetry <= 0.0) throw new ArgumentException(
-                        $"SharpenRequest.Steps[{i}]: GhsStretchStarlessStep.Asymmetry must be > 0; got {ghs.Asymmetry}.",
+                    if (ghs.LP < 0.0 || ghs.LP > 1.0) throw new ArgumentException(
+                        $"SharpenRequest.Steps[{i}]: GhsStretchStarlessStep.LP must be in [0, 1]; got {ghs.LP}.",
                         nameof(request));
-                    if (ghs.SymmetryPoint is { } sp && (sp <= 0.0 || sp >= 1.0)) throw new ArgumentException(
-                        $"SharpenRequest.Steps[{i}]: GhsStretchStarlessStep.SymmetryPoint must be null (auto) or in (0, 1); got {sp}.",
+                    if (ghs.HP < 0.0 || ghs.HP > 1.0) throw new ArgumentException(
+                        $"SharpenRequest.Steps[{i}]: GhsStretchStarlessStep.HP must be in [0, 1]; got {ghs.HP}.",
+                        nameof(request));
+                    if (ghs.HP < ghs.LP) throw new ArgumentException(
+                        $"SharpenRequest.Steps[{i}]: GhsStretchStarlessStep requires LP <= HP; got LP={ghs.LP}, HP={ghs.HP}.",
+                        nameof(request));
+                    if (ghs.SP is { } spVal && (spVal < ghs.LP || spVal > ghs.HP)) throw new ArgumentException(
+                        $"SharpenRequest.Steps[{i}]: GhsStretchStarlessStep.SP must be null (auto-detect) or in [LP, HP] = [{ghs.LP}, {ghs.HP}]; got {spVal}.",
                         nameof(request));
                     if (ghs.Passes is < 1 or > 10) throw new ArgumentException(
                         $"SharpenRequest.Steps[{i}]: GhsStretchStarlessStep.Passes must be in [1, 10]; got {ghs.Passes}.",
@@ -753,12 +755,33 @@ public sealed record StretchStarsStep(double Amount = 2.0) : SharpenStep;
 /// gives the same shape as Paul's PixInsight workflow. Higher values are a
 /// workaround for sub-optimal defaults; prefer raising
 /// <paramref name="Asymmetry"/> over stacking passes. Range [1, 10].</param>
+/// <summary>
+/// Generalised Hyperbolic Stretch on the starless plate, faithfully porting
+/// Mike Cranfield's PixInsight script
+/// (<a href="https://github.com/mikec1485/GHS">mikec1485/GHS</a>). Defaults
+/// match Paul (Polymath Astro)'s video walkthrough for the case-1
+/// (linear -> display) stretch: <c>B = 8</c> (hyperbolic branch),
+/// SP auto-detect via histogram lift-off, <c>HP = 0.8</c>.
+/// See PLAN-ghs.md for the math.
+/// </summary>
+/// <param name="LnD">User-facing stretch factor in the
+/// <c>ln(D + 1)</c> convention -- internally <c>D = exp(LnD) - 1</c>.</param>
+/// <param name="B">Signed local stretch intensity. <c>B = 8</c>
+/// is Paul's case-1 recommendation (hyperbolic branch). <c>B = -1</c>
+/// switches to the logarithmic branch for case-2
+/// (local contrast on already-stretched input).</param>
+/// <param name="SP">Symmetry point (input value where curve hinges).
+/// Null = auto-detect via <see cref="Image.EstimateRisingEdge"/> on the
+/// input histogram.</param>
+/// <param name="LP">Shadow protection point in <c>[0, SP]</c>.</param>
+/// <param name="HP">Highlight protection point in <c>[SP, 1]</c>.</param>
+/// <param name="Passes">Number of times to apply the curve. Default 1.</param>
 public sealed record GhsStretchStarlessStep(
-    double Intensity = 1.5,
-    double Asymmetry = 8.0,
-    double ShadowProtection = 0.0,
-    double HighlightProtection = 0.8,
-    double? SymmetryPoint = null,
+    double LnD = 1.3,
+    double B = 8.0,
+    double? SP = null,
+    double LP = 0.0,
+    double HP = 0.8,
     int Passes = 1) : SharpenStep;
 
 /// <summary>Per-plate MTF stretch on the starless plate. Companion to
