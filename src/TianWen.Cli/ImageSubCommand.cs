@@ -52,7 +52,7 @@ internal sealed class ImageSubCommand(
 {
     public Command Build()
     {
-        var image = new Command("image", "Single-image enhancement + render verbs (sharpen, remove-stars, flatten, render).")
+        var image = new Command("image", "Single-image enhancement + render verbs (sharpen, remove-stars, flatten, render, stats).")
         {
             Subcommands =
             {
@@ -60,6 +60,7 @@ internal sealed class ImageSubCommand(
                 BuildRemoveStarsCommand(),
                 BuildFlattenCommand(),
                 BuildRenderCommand(),
+                BuildStatsCommand(),
             },
         };
         return image;
@@ -687,6 +688,152 @@ internal sealed class ImageSubCommand(
             consoleHost.WriteScrollable(
                 $"[render] {input} {src.Width}x{src.Height}x{src.ChannelCount} -> {dst}");
             await RenderPngAsync(src, src.ImageMeta, wcs, dst, ct);
+            return 0;
+        });
+        return cmd;
+    }
+
+    // -------- tianwen image stats --------------------------------------
+
+    private Command BuildStatsCommand()
+    {
+        var inputArg = new Argument<string>("input")
+        {
+            Description = "FITS file to measure stats against.",
+        };
+        var formatOpt = new Option<string>("--format")
+        {
+            Description = "Output format: 'text' (default, human-readable) or 'json' (machine-parseable single object).",
+            DefaultValueFactory = _ => "text",
+        };
+        var snrMinOpt = new Option<float>("--snr-min")
+        {
+            Description = "Minimum star SNR for detection. Default 20 -- matches FindStarsAsync default. Lower values pick up more (noisier) stars.",
+            DefaultValueFactory = _ => 20f,
+        };
+        var maxStarsOpt = new Option<int>("--max-stars")
+        {
+            Description = "Cap on the number of detected stars. Default 500.",
+            DefaultValueFactory = _ => 500,
+        };
+
+        var cmd = new Command("stats",
+            "Measure per-image statistics: star count, median HFD/FWHM/Ellipticity/SNR (linear inputs only), " +
+            "per-channel pedestal/median/MAD + noise σ (MAD x 1.4826, unit-scaled). " +
+            "Inputs detected as already-stretched via Image.DetectPreStretched still produce numbers but emit a warning -- " +
+            "HFD/FWHM/SNR aren't directly comparable across linear and stretched plates.")
+        {
+            Arguments = { inputArg },
+            Options = { formatOpt, snrMinOpt, maxStarsOpt },
+        };
+        cmd.SetAction(async (parseResult, ct) =>
+        {
+            var input = parseResult.GetValue(inputArg)!;
+            if (!File.Exists(input))
+            {
+                consoleHost.WriteError($"Input not found: {input}");
+                return 1;
+            }
+            if (!Image.TryReadFitsFile(input, out var src, out _))
+            {
+                consoleHost.WriteError($"Failed to read FITS file: {input}");
+                return 1;
+            }
+
+            var snrMin = parseResult.GetValue(snrMinOpt);
+            var maxStars = parseResult.GetValue(maxStarsOpt);
+            var formatStr = (parseResult.GetValue(formatOpt) ?? "text").ToLowerInvariant();
+            var asJson = formatStr switch
+            {
+                "json" => true,
+                "text" => false,
+                _ => (bool?)null,
+            };
+            if (asJson is null)
+            {
+                consoleHost.WriteError($"--format must be 'text' or 'json', got '{formatStr}'");
+                return 1;
+            }
+
+            ImageStats stats;
+            try
+            {
+                stats = await ImageStats.ComputeAsync(src, snrMin: snrMin, maxStars: maxStars, logger: logger, cancellationToken: ct);
+            }
+            catch (Exception ex)
+            {
+                consoleHost.WriteError($"stats failed: {ex.Message}");
+                logger?.LogError(ex, "Stats computation failed for {Input}", input);
+                return 2;
+            }
+            src.Release();
+
+            // System.Text.Json reflection-based serializer trips IL2026/IL3050
+            // under AOT. Schema is tiny; hand-roll JSON via StringBuilder
+            // (same approach SolveSubCommand uses for its stars export).
+            var inv = System.Globalization.CultureInfo.InvariantCulture;
+            if (asJson.Value)
+            {
+                var sb = new System.Text.StringBuilder(512);
+                // JsonEncodedText handles control chars + quotes + backslashes per spec;
+                // .ToString() returns the escaped content (no surrounding quotes), which
+                // we provide ourselves.
+                sb.Append("{\"input\":\"").Append(System.Text.Json.JsonEncodedText.Encode(input).ToString())
+                    .Append("\",\"width\":").Append(stats.Width)
+                    .Append(",\"height\":").Append(stats.Height)
+                    .Append(",\"channels\":").Append(stats.ChannelCount)
+                    .Append(",\"isLinear\":").Append(stats.IsLinear ? "true" : "false")
+                    .Append(",\"starCount\":").Append(stats.StarCount)
+                    .Append(",\"hfdMedian\":").Append(stats.HfdMedian.ToString("R", inv))
+                    .Append(",\"fwhmMedian\":").Append(stats.FwhmMedian.ToString("R", inv))
+                    .Append(",\"ellipticityMedian\":").Append(stats.EllipticityMedian.ToString("R", inv))
+                    .Append(",\"snrMedian\":").Append(stats.SnrMedian.ToString("R", inv))
+                    .Append(",\"perChannel\":[");
+                for (var i = 0; i < stats.PerChannel.Length; i++)
+                {
+                    var c = stats.PerChannel[i];
+                    if (i > 0) sb.Append(',');
+                    sb.Append("{\"channel\":").Append(c.ChannelIndex)
+                        .Append(",\"pedestal\":").Append(c.Pedestal.ToString("R", inv))
+                        .Append(",\"median\":").Append(c.Median.ToString("R", inv))
+                        .Append(",\"mad\":").Append(c.Mad.ToString("R", inv))
+                        .Append(",\"noiseSigma\":").Append(c.NoiseSigma.ToString("R", inv))
+                        .Append('}');
+                }
+                sb.Append("],\"warnings\":[");
+                if (!stats.IsLinear)
+                    sb.Append("\"image appears stretched; HFD/FWHM/SNR are not directly comparable to linear plates\"");
+                sb.Append("]}");
+                consoleHost.WriteScrollable(sb.ToString());
+                return 0;
+            }
+
+            // Text format: stats line per group, two-decimal pixels, scientific
+            // notation for noise σ (typically 1e-4 .. 1e-2 on linear plates).
+            consoleHost.WriteScrollable(
+                $"[stats] {input} {stats.Width}x{stats.Height}x{stats.ChannelCount} " +
+                $"linear={(stats.IsLinear ? "yes" : "NO")} stars={stats.StarCount}");
+            if (stats.StarCount > 0)
+            {
+                consoleHost.WriteScrollable(
+                    $"[stats] stars: HFD={stats.HfdMedian.ToString("F2", inv)}px " +
+                    $"FWHM={stats.FwhmMedian.ToString("F2", inv)}px " +
+                    $"ecc={stats.EllipticityMedian.ToString("F3", inv)} " +
+                    $"SNR={stats.SnrMedian.ToString("F1", inv)} (medians over {stats.StarCount} stars)");
+            }
+            for (var i = 0; i < stats.PerChannel.Length; i++)
+            {
+                var c = stats.PerChannel[i];
+                consoleHost.WriteScrollable(
+                    $"[stats] c{c.ChannelIndex}: pedestal={c.Pedestal.ToString("E2", inv)} " +
+                    $"median={c.Median.ToString("E2", inv)} " +
+                    $"MAD={c.Mad.ToString("E2", inv)} " +
+                    $"σ={c.NoiseSigma.ToString("E2", inv)}");
+            }
+            if (!stats.IsLinear)
+            {
+                consoleHost.WriteError("[stats] WARN: image appears stretched; HFD/FWHM/SNR are not directly comparable to linear plates.");
+            }
             return 0;
         });
         return cmd;
