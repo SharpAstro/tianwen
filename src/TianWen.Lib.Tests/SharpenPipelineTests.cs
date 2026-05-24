@@ -199,6 +199,9 @@ public class SharpenPipelineTests(ITestOutputHelper output)
             denoiser: new IdentityEnhancer("denoise"));
         var src = SyntheticRgb(8, 8, 0.5f);
 
+        // RecombineStep may now be followed by MtfStretchFinalStep or
+        // GhsStretchFinalStep (the post-recombine stretch pair) but
+        // nothing else; a DenoiseStarlessStep here should still be rejected.
         var ex = await Should.ThrowAsync<ArgumentException>(async () =>
             await pipeline.ProcessAsync(new SharpenRequest(src,
             [
@@ -206,7 +209,7 @@ public class SharpenPipelineTests(ITestOutputHelper output)
                 new RecombineStep(),
                 new DenoiseStarlessStep(),
             ]), TestContext.Current.CancellationToken));
-        ex.Message.ShouldContain("RecombineStep must be the final step");
+        ex.Message.ShouldContain("only MtfStretchFinalStep or GhsStretchFinalStep may follow RecombineStep");
     }
 
     [Fact]

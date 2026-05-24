@@ -286,117 +286,17 @@ public sealed class SharpenPipeline(
                     {
                         // Generalised Hyperbolic Stretch on the most-processed
                         // starless plate. Cranfield's reference implementation
-                        // (see PLAN-ghs.md). SP auto-detects ONCE before the
-                        // multi-pass loop: re-estimating after each pass would
-                        // chase the already-stretched histogram and bias the
-                        // hinge toward the new mode each iteration, defeating
-                        // the "pivot at the linear lift-off" intent.
-                        //
-                        // For multi-channel input under AutoConverge, the
-                        // dispatch runs per-channel convergence (each channel
-                        // detects its own SP via EstimateRisingEdge on its own
-                        // histogram, bisects its own LnD against the target
-                        // median). This matches PixInsight's "unlinked" stretch
-                        // mode and avoids the colour cast that linked AutoConverge
-                        // produces on OSC drizzle plates with uneven channel bg.
-                        // Discovered empirically against the SoL drizzle: linked
-                        // AutoConverge made R channel get a 27x lift while G+B
-                        // got 4x, leaving a strong teal cast on the final image.
+                        // (see PLAN-ghs.md). All curve mechanics live in
+                        // ApplyGhsChain, shared with GhsStretchFinalStep.
                         var inputPlate = denoisedStarless ?? deconvolvedStarless ?? Require(starless);
-                        var channelCount = inputPlate.ChannelCount;
-
-                        var current = inputPlate;
-                        var spLabel = "";
-                        var convergenceLabel = "";
-
-                        if (ghsStep.AutoConverge && channelCount > 1)
-                        {
-                            // Per-channel: detect SP + bisect LnD independently
-                            // per channel; build per-channel LUTs in a single
-                            // call to GeneralizedHyperbolicStretchPerChannel.
-                            var perChannelLnD = new double[channelCount];
-                            var perChannelSp = new double[channelCount];
-                            var perChannelMedian = new double[channelCount];
-                            var perChannelMode = new double[channelCount];
-                            var perChannelR2 = new double[channelCount];
-                            var perChannelB = new double[channelCount];
-                            var perChannelLp = new double[channelCount];
-                            var perChannelHp = new double[channelCount];
-                            var allConverged = true;
-                            for (var c = 0; c < channelCount; c++)
-                            {
-                                var hist = inputPlate.Histogram(channel: c);
-                                var chSp = ghsStep.SP ?? Math.Clamp(
-                                    inputPlate.EstimateRisingEdge(channel: c), 1e-4, 0.999);
-                                var convergence = Image.ConvergeGhsStretchFactor(
-                                    hist, b: ghsStep.B, sp: chSp,
-                                    lp: ghsStep.LP, hp: ghsStep.HP,
-                                    targetValue: ghsStep.AutoTargetValue,
-                                    target: ghsStep.AutoTarget);
-                                perChannelLnD[c] = convergence.LnD;
-                                perChannelSp[c] = chSp;
-                                perChannelMedian[c] = convergence.PostStretchMedian;
-                                perChannelMode[c] = convergence.PostStretchMode;
-                                perChannelR2[c] = convergence.LogSlopeRSquared;
-                                perChannelB[c] = ghsStep.B;
-                                perChannelLp[c] = ghsStep.LP;
-                                perChannelHp[c] = ghsStep.HP;
-                                allConverged &= convergence.Converged;
-                            }
-                            for (var pass = 0; pass < ghsStep.Passes; pass++)
-                            {
-                                var stretched = current.GeneralizedHyperbolicStretchPerChannel(
-                                    perChannelLnD, perChannelB, perChannelSp,
-                                    perChannelLp, perChannelHp);
-                                if (!ReferenceEquals(current, inputPlate)) current.Release();
-                                current = stretched;
-                            }
-                            // Telemetry: show the metric the bisection targeted (med vs mode);
-                            // both numbers are computed regardless of target so the operator can
-                            // sanity-check that the non-targeted metric hasn't drifted too far.
-                            var perChTargeted = ghsStep.AutoTarget == Image.GhsConvergeTarget.Mode ? perChannelMode : perChannelMedian;
-                            var perChLabel = ghsStep.AutoTarget == Image.GhsConvergeTarget.Mode ? "mode" : "med";
-                            spLabel = $"sp~[{string.Join("/", perChannelSp.Select(v => v.ToString("F4")))}]";
-                            convergenceLabel = $",auto-perch(lnD=[{string.Join("/", perChannelLnD.Select(v => v.ToString("F2")))}],{perChLabel}=[{string.Join("/", perChTargeted.Select(v => v.ToString("F3")))}]" +
-                                (allConverged ? "" : ",BEST-EFFORT") + ")";
-                        }
-                        else
-                        {
-                            // Single-channel mono, OR multi-channel non-auto:
-                            // linked. Either there's only one channel or the
-                            // caller is supplying explicit LnD (knows their
-                            // input is balanced).
-                            var sp = ghsStep.SP ?? Math.Clamp(inputPlate.EstimateRisingEdge(), 1e-4, 0.999);
-                            var effectiveLnD = ghsStep.LnD;
-                            if (ghsStep.AutoConverge)
-                            {
-                                var histogram = inputPlate.Histogram(channel: 0);
-                                var convergence = Image.ConvergeGhsStretchFactor(
-                                    histogram, b: ghsStep.B, sp: sp,
-                                    lp: ghsStep.LP, hp: ghsStep.HP,
-                                    targetValue: ghsStep.AutoTargetValue,
-                                    target: ghsStep.AutoTarget);
-                                effectiveLnD = convergence.LnD;
-                                // Telemetry label shows both metrics so the operator can see
-                                // where the non-targeted one landed (e.g. when target=Mode, the
-                                // median value tells you how bright the bulk of the histogram is).
-                                convergenceLabel = convergence.Converged
-                                    ? $",auto(med={convergence.PostStretchMedian:F3},mode={convergence.PostStretchMode:F3},R^2={convergence.LogSlopeRSquared:F2})"
-                                    : $",auto(BEST-EFFORT med={convergence.PostStretchMedian:F3},mode={convergence.PostStretchMode:F3})";
-                            }
-                            for (var pass = 0; pass < ghsStep.Passes; pass++)
-                            {
-                                var stretched = current.GeneralizedHyperbolicStretch(
-                                    lnD: effectiveLnD, b: ghsStep.B, sp: sp,
-                                    lp: ghsStep.LP, hp: ghsStep.HP);
-                                if (!ReferenceEquals(current, inputPlate)) current.Release();
-                                current = stretched;
-                            }
-                            spLabel = ghsStep.SP is null ? $"sp~{sp:F4}auto" : $"sp={sp:F3}";
-                        }
-
+                        var (stretched, spLabel, convergenceLabel) = ApplyGhsChain(
+                            inputPlate,
+                            lnD: ghsStep.LnD, b: ghsStep.B, userSp: ghsStep.SP,
+                            lp: ghsStep.LP, hp: ghsStep.HP, passes: ghsStep.Passes,
+                            autoConverge: ghsStep.AutoConverge,
+                            autoTargetValue: ghsStep.AutoTargetValue, autoTarget: ghsStep.AutoTarget);
                         if (denoisedStarless is not null) denoisedStarless.Release();
-                        denoisedStarless = current;
+                        denoisedStarless = stretched;
                         timings.Add(($"ghs-stretch-starless(b{ghsStep.B:F1},{spLabel},hp{ghsStep.HP:F2},{ghsStep.Passes}x{convergenceLabel})", phaseSw.ElapsedMilliseconds, denoisedStarless.EstimateNoiseProfile()));
                         break;
                     }
@@ -430,12 +330,12 @@ public sealed class SharpenPipeline(
                         var fg = sharpenedStars ?? Require(starsOnly);
                         final = recombineStep.Mode == RecombineMode.Screen ? bg.Screen(fg) : bg.Add(fg);
                         timings.Add(("recombine", phaseSw.ElapsedMilliseconds, final.EstimateNoiseProfile()));
-                        // Recombine is always the last step (validation
-                        // enforces this), so every contributing plate is
-                        // dead after final lands. Per-flag release: each
-                        // intermediate survives only if the caller flagged it
-                        // for retention. A caller passing None gets just
-                        // `Final`; All preserves everything.
+                        // Recombine may be followed by a post-recombine stretch
+                        // step (MtfStretchFinalStep / GhsStretchFinalStep); the
+                        // contributing per-plate slots stay around so an explicit
+                        // keep-intermediates flag honours them, but they get
+                        // released here on the no-keep path because the final
+                        // stretch only reads `final`.
                         var keep = request.KeepIntermediates;
                         if (!keep.HasFlag(SharpenIntermediates.GradientCorrected)   && gradientCorrected   is not null) { gradientCorrected.Release();   gradientCorrected   = null; }
                         if (!keep.HasFlag(SharpenIntermediates.Starless)            && starless            is not null) { starless.Release();            starless            = null; }
@@ -443,6 +343,39 @@ public sealed class SharpenPipeline(
                         if (!keep.HasFlag(SharpenIntermediates.SharpenedStars)      && sharpenedStars      is not null) { sharpenedStars.Release();      sharpenedStars      = null; }
                         if (!keep.HasFlag(SharpenIntermediates.DeconvolvedStarless) && deconvolvedStarless is not null) { deconvolvedStarless.Release(); deconvolvedStarless = null; }
                         if (!keep.HasFlag(SharpenIntermediates.DenoisedStarless)    && denoisedStarless    is not null) { denoisedStarless.Release();    denoisedStarless    = null; }
+                        break;
+                    }
+
+                    case MtfStretchFinalStep mtfFinalStep:
+                    {
+                        // MTF stretch on the recombined `final` plate.
+                        // The non-split workflow's stretch step: validation
+                        // ensures this only fires after RecombineStep, so
+                        // `final` is populated.
+                        var input = Require(final);
+                        var stretched = input.MtfStretch(mtfFinalStep.TargetMedian, out _, out _);
+                        input.Release();
+                        final = stretched;
+                        timings.Add(($"mtf-stretch-final(tm={mtfFinalStep.TargetMedian:F2})", phaseSw.ElapsedMilliseconds, final.EstimateNoiseProfile()));
+                        break;
+                    }
+
+                    case GhsStretchFinalStep ghsFinalStep:
+                    {
+                        // GHS chain on the recombined `final` plate. Reuses
+                        // ApplyGhsChain (single source of truth for per-channel
+                        // auto-converge + multi-pass + telemetry); validation
+                        // ensures `final` is populated.
+                        var input = Require(final);
+                        var (stretched, spLabel, convergenceLabel) = ApplyGhsChain(
+                            input,
+                            lnD: ghsFinalStep.LnD, b: ghsFinalStep.B, userSp: ghsFinalStep.SP,
+                            lp: ghsFinalStep.LP, hp: ghsFinalStep.HP, passes: ghsFinalStep.Passes,
+                            autoConverge: ghsFinalStep.AutoConverge,
+                            autoTargetValue: ghsFinalStep.AutoTargetValue, autoTarget: ghsFinalStep.AutoTarget);
+                        input.Release();
+                        final = stretched;
+                        timings.Add(($"ghs-stretch-final(b{ghsFinalStep.B:F1},{spLabel},hp{ghsFinalStep.HP:F2},{ghsFinalStep.Passes}x{convergenceLabel})", phaseSw.ElapsedMilliseconds, final.EstimateNoiseProfile()));
                         break;
                     }
 
@@ -519,6 +452,129 @@ public sealed class SharpenPipeline(
     private static T Require<T>(T? value, [CallerArgumentExpression(nameof(value))] string? expression = null) where T : class
         => value ?? throw new InvalidOperationException(
             $"SharpenPipeline invariant violated: '{expression}' is null at use. ValidateRequest should have rejected this request.");
+
+    /// <summary>
+    /// Run a (possibly multi-pass, possibly per-channel auto-converged) GHS
+    /// chain on <paramref name="input"/>. Single source of truth for the
+    /// dispatcher cases that apply GHS to a plate, regardless of which
+    /// plate slot (starless / final). Returns the stretched <see cref="Image"/>
+    /// and two telemetry labels (sp and convergence) that the caller stitches
+    /// into the timing-log line.
+    /// </summary>
+    /// <remarks>
+    /// Per-channel auto-converge fires when <paramref name="autoConverge"/>
+    /// is true AND the plate has &gt; 1 channel -- each channel gets its
+    /// own SP detection + LnD bisection. Linked mode otherwise. SP
+    /// auto-detects ONCE before the multi-pass loop: re-estimating after
+    /// each pass would chase the already-stretched histogram and bias the
+    /// hinge toward the new mode, defeating the "pivot at the linear
+    /// lift-off" intent.
+    /// </remarks>
+    private static (Image Stretched, string SpLabel, string ConvergenceLabel) ApplyGhsChain(
+        Image input,
+        double lnD, double b, double? userSp, double lp, double hp,
+        int passes, bool autoConverge,
+        double autoTargetValue, Image.GhsConvergeTarget autoTarget)
+    {
+        var channelCount = input.ChannelCount;
+        var current = input;
+        string spLabel;
+        var convergenceLabel = "";
+
+        if (autoConverge && channelCount > 1)
+        {
+            // Per-channel: detect SP + bisect LnD independently per channel;
+            // build per-channel LUTs in a single GeneralizedHyperbolicStretchPerChannel
+            // call. Matches PixInsight's "unlinked" stretch mode and avoids
+            // the colour cast that linked AutoConverge produces on OSC drizzle
+            // plates with uneven channel bg.
+            var perChannelLnD = new double[channelCount];
+            var perChannelSp = new double[channelCount];
+            var perChannelMedian = new double[channelCount];
+            var perChannelMode = new double[channelCount];
+            var perChannelR2 = new double[channelCount];
+            var perChannelB = new double[channelCount];
+            var perChannelLp = new double[channelCount];
+            var perChannelHp = new double[channelCount];
+            var allConverged = true;
+            for (var c = 0; c < channelCount; c++)
+            {
+                var hist = input.Histogram(channel: c);
+                var chSp = userSp ?? Math.Clamp(input.EstimateRisingEdge(channel: c), 1e-4, 0.999);
+                var convergence = Image.ConvergeGhsStretchFactor(
+                    hist, b: b, sp: chSp,
+                    lp: lp, hp: hp,
+                    targetValue: autoTargetValue,
+                    target: autoTarget);
+                perChannelLnD[c] = convergence.LnD;
+                perChannelSp[c] = chSp;
+                perChannelMedian[c] = convergence.PostStretchMedian;
+                perChannelMode[c] = convergence.PostStretchMode;
+                perChannelR2[c] = convergence.LogSlopeRSquared;
+                perChannelB[c] = b;
+                perChannelLp[c] = lp;
+                perChannelHp[c] = hp;
+                allConverged &= convergence.Converged;
+            }
+            for (var pass = 0; pass < passes; pass++)
+            {
+                var stretched = current.GeneralizedHyperbolicStretchPerChannel(
+                    perChannelLnD, perChannelB, perChannelSp,
+                    perChannelLp, perChannelHp);
+                if (!ReferenceEquals(current, input)) current.Release();
+                current = stretched;
+            }
+            // Telemetry: show the metric the bisection targeted (med vs mode);
+            // both numbers are computed regardless of target so the operator can
+            // sanity-check that the non-targeted metric hasn't drifted too far.
+            var perChTargeted = autoTarget == Image.GhsConvergeTarget.Mode ? perChannelMode : perChannelMedian;
+            var perChLabel = autoTarget == Image.GhsConvergeTarget.Mode ? "mode" : "med";
+            spLabel = $"sp~[{string.Join("/", perChannelSp.Select(v => v.ToString("F4")))}]";
+            convergenceLabel = $",auto-perch(lnD=[{string.Join("/", perChannelLnD.Select(v => v.ToString("F2")))}],{perChLabel}=[{string.Join("/", perChTargeted.Select(v => v.ToString("F3")))}]" +
+                (allConverged ? "" : ",BEST-EFFORT") + ")";
+        }
+        else
+        {
+            // Single-channel mono OR multi-channel non-auto: linked.
+            // Either there's only one channel or the caller is supplying
+            // explicit LnD (knows their input is balanced).
+            var sp = userSp ?? Math.Clamp(input.EstimateRisingEdge(), 1e-4, 0.999);
+            var effectiveLnD = lnD;
+            if (autoConverge)
+            {
+                var histogram = input.Histogram(channel: 0);
+                var convergence = Image.ConvergeGhsStretchFactor(
+                    histogram, b: b, sp: sp,
+                    lp: lp, hp: hp,
+                    targetValue: autoTargetValue,
+                    target: autoTarget);
+                effectiveLnD = convergence.LnD;
+                convergenceLabel = convergence.Converged
+                    ? $",auto(med={convergence.PostStretchMedian:F3},mode={convergence.PostStretchMode:F3},R^2={convergence.LogSlopeRSquared:F2})"
+                    : $",auto(BEST-EFFORT med={convergence.PostStretchMedian:F3},mode={convergence.PostStretchMode:F3})";
+            }
+            for (var pass = 0; pass < passes; pass++)
+            {
+                var stretched = current.GeneralizedHyperbolicStretch(
+                    lnD: effectiveLnD, b: b, sp: sp,
+                    lp: lp, hp: hp);
+                if (!ReferenceEquals(current, input)) current.Release();
+                current = stretched;
+            }
+            spLabel = userSp is null ? $"sp~{sp:F4}auto" : $"sp={sp:F3}";
+        }
+
+        return (current, spLabel, convergenceLabel);
+    }
+
+    private static bool HasPrecedingRecombine(SharpenRequest request, int index)
+    {
+        for (var k = 0; k < index; k++)
+        {
+            if (request.Steps[k] is RecombineStep) return true;
+        }
+        return false;
+    }
 
     private void ValidateRequest(SharpenRequest request)
     {
@@ -651,8 +707,48 @@ public sealed class SharpenPipeline(
                     if (!hasStarless || !hasStarsOnly) throw new ArgumentException(
                         $"SharpenRequest.Steps[{i}]: RecombineStep requires a preceding RemoveStarsStep (no plates to recombine).",
                         nameof(request));
-                    if (i != request.Steps.Length - 1) throw new ArgumentException(
-                        $"SharpenRequest.Steps[{i}]: RecombineStep must be the final step.",
+                    // Recombine no longer has to be last -- post-recombine
+                    // stretch steps (MtfStretchFinalStep / GhsStretchFinalStep)
+                    // are allowed afterwards. Forbid anything else though.
+                    for (var j = i + 1; j < request.Steps.Length; j++)
+                    {
+                        if (request.Steps[j] is not (MtfStretchFinalStep or GhsStretchFinalStep))
+                        {
+                            throw new ArgumentException(
+                                $"SharpenRequest.Steps[{i}]: only MtfStretchFinalStep or GhsStretchFinalStep may follow RecombineStep; got {request.Steps[j].GetType().Name} at Steps[{j}].",
+                                nameof(request));
+                        }
+                    }
+                    break;
+                case MtfStretchFinalStep mtfFinal:
+                    if (!HasPrecedingRecombine(request, i)) throw new ArgumentException(
+                        $"SharpenRequest.Steps[{i}]: MtfStretchFinalStep requires a preceding RecombineStep.",
+                        nameof(request));
+                    if (mtfFinal.TargetMedian is <= 0.0 or >= 1.0) throw new ArgumentException(
+                        $"SharpenRequest.Steps[{i}]: MtfStretchFinalStep.TargetMedian must be in (0, 1); got {mtfFinal.TargetMedian}.",
+                        nameof(request));
+                    break;
+                case GhsStretchFinalStep ghsFinal:
+                    if (!HasPrecedingRecombine(request, i)) throw new ArgumentException(
+                        $"SharpenRequest.Steps[{i}]: GhsStretchFinalStep requires a preceding RecombineStep.",
+                        nameof(request));
+                    if (ghsFinal.LnD < 0.0) throw new ArgumentException(
+                        $"SharpenRequest.Steps[{i}]: GhsStretchFinalStep.LnD must be >= 0; got {ghsFinal.LnD}.",
+                        nameof(request));
+                    if (ghsFinal.LP is < 0.0 or > 1.0) throw new ArgumentException(
+                        $"SharpenRequest.Steps[{i}]: GhsStretchFinalStep.LP must be in [0, 1]; got {ghsFinal.LP}.",
+                        nameof(request));
+                    if (ghsFinal.HP is < 0.0 or > 1.0) throw new ArgumentException(
+                        $"SharpenRequest.Steps[{i}]: GhsStretchFinalStep.HP must be in [0, 1]; got {ghsFinal.HP}.",
+                        nameof(request));
+                    if (ghsFinal.SP is { } sp && sp is <= 0.0 or >= 1.0) throw new ArgumentException(
+                        $"SharpenRequest.Steps[{i}]: GhsStretchFinalStep.SP must be in (0, 1); got {sp}.",
+                        nameof(request));
+                    if (ghsFinal.Passes is < 1 or > 10) throw new ArgumentException(
+                        $"SharpenRequest.Steps[{i}]: GhsStretchFinalStep.Passes must be in [1, 10]; got {ghsFinal.Passes}.",
+                        nameof(request));
+                    if (ghsFinal.AutoTargetValue is <= 0.0 or >= 1.0) throw new ArgumentException(
+                        $"SharpenRequest.Steps[{i}]: GhsStretchFinalStep.AutoTargetValue must be in (0, 1); got {ghsFinal.AutoTargetValue}.",
                         nameof(request));
                     break;
                 default:
@@ -910,8 +1006,10 @@ public sealed record GhsStretchStarlessStep(
 /// <c>0.25</c> matches the SAS Pro / cosmicclarity convention.</param>
 public sealed record StretchStarlessStep(double TargetMedian = 0.25) : SharpenStep;
 
-/// <summary>Recombine the processed plates into the final image. Must be
-/// the last step when present (validation enforces this).</summary>
+/// <summary>Recombine the processed plates into the final image. Validation
+/// permits only <see cref="MtfStretchFinalStep"/> or
+/// <see cref="GhsStretchFinalStep"/> after this step (the post-recombine
+/// stretch pair).</summary>
 /// <param name="Mode">Recombine math:
 /// <see cref="RecombineMode.Additive"/> = <c>bg + fg</c> (linear-light
 /// correct, two light sources summing on the sensor);
@@ -919,6 +1017,37 @@ public sealed record StretchStarlessStep(double TargetMedian = 0.25) : SharpenSt
 /// (matches NAFNet's stretched-space training identity). For round-trip
 /// consistency match the <see cref="RemoveStarsStep.SplitMode"/>.</param>
 public sealed record RecombineStep(RecombineMode Mode = RecombineMode.Additive) : SharpenStep;
+
+/// <summary>MTF stretch applied to the recombined <c>final</c> plate AFTER
+/// <see cref="RecombineStep"/>. This is the "non-split" stretch path:
+/// AI ops still split + recombine, but a single MTF curve shapes the
+/// final composite rather than each plate getting its own stretch.
+/// Mutually exclusive with <see cref="GhsStretchFinalStep"/> and with the
+/// dual-stretch step set (<see cref="StretchStarsStep"/>,
+/// <see cref="StretchStarlessStep"/>, <see cref="GhsStretchStarlessStep"/>,
+/// <see cref="BackgroundReduceStep"/>, <see cref="CompressHighlightsStep"/>).
+/// </summary>
+/// <param name="TargetMedian">MTF target median in (0, 1); default
+/// <c>0.25</c> matches the PixInsight STF convention.</param>
+public sealed record MtfStretchFinalStep(double TargetMedian = 0.25) : SharpenStep;
+
+/// <summary>GHS chain applied to the recombined <c>final</c> plate AFTER
+/// <see cref="RecombineStep"/>. The "non-split" GHS path: AI ops split +
+/// recombine, then a single GHS curve (optionally multi-stage per Cranfield's
+/// canonical workflow) shapes the final composite. Field semantics mirror
+/// <see cref="GhsStretchStarlessStep"/>; see its xmldoc for details on each.
+/// Mutually exclusive with <see cref="MtfStretchFinalStep"/> and with the
+/// dual-stretch step set.</summary>
+public sealed record GhsStretchFinalStep(
+    double LnD = 1.3,
+    double B = 8.0,
+    double? SP = null,
+    double LP = 0.0,
+    double HP = 0.8,
+    int Passes = 1,
+    bool AutoConverge = false,
+    double AutoTargetValue = 0.25,
+    Image.GhsConvergeTarget AutoTarget = Image.GhsConvergeTarget.Median) : SharpenStep;
 
 /// <summary>
 /// Per-plate intermediate-retention selector for <see cref="SharpenRequest.KeepIntermediates"/>.
