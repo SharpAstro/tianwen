@@ -17,25 +17,37 @@ using TianWen.UI.Abstractions;
 
 namespace TianWen.Cli;
 
-/// <summary>
-/// Three-state selector for the starless-plate stretch mode in
-/// <c>tianwen image sharpen --dual-stretch</c>. Folds the previous
-/// pair of boolean flags (<c>--ghs-starless</c> + <c>--ghs-starless-auto</c>)
-/// into a single <c>--ghs-starless &lt;mode&gt;</c> enum to avoid the
-/// "manual GHS requires both flags, auto requires both plus a target"
-/// foot-gun.
-/// </summary>
-public enum GhsStarlessMode
-{
-    /// <summary>Use the MTF starless stretch (Frank's convention). Default.</summary>
-    Off,
-    /// <summary>Use GHS with caller-supplied <c>--ghs-lnd</c> (and other knobs).</summary>
-    Manual,
-    /// <summary>Use GHS with <see cref="Image.ConvergeGhsStretchFactor"/>
-    /// auto-tuning <c>LnD</c> against <c>--ghs-target</c> and
-    /// <c>--ghs-target-value</c>.</summary>
-    Auto,
-}
+/// <summary>Stretch selector for the stars-only plate (under
+/// <c>--dual-stretch</c>). <see cref="StarStretch"/> = Frank Sackenheim's
+/// fixed-curve "stars stretch" -- preserves star colour + shape, gentle
+/// on highlights, the default and almost always correct. <see cref="Mtf"/>
+/// = midtones-balance with <c>--stretch-stars-amount</c> reinterpreted as
+/// the target median. <see cref="Ghs"/> = full GHS chain with the
+/// <c>--ghs-*</c> family (rarely useful on stars; pinches cores).</summary>
+public enum StarStretchMode { StarStretch, Mtf, Ghs }
+
+/// <summary>Stretch selector for the starless plate (under
+/// <c>--dual-stretch</c>). <see cref="Mtf"/> = midtones-balance with
+/// <c>--stretch-starless-median</c>, the historical default.
+/// <see cref="Ghs"/> = Cranfield's Generalised Hyperbolic Stretch chain
+/// driven by the <c>--ghs-*</c> family.</summary>
+public enum StarlessStretchMode { Mtf, Ghs }
+
+/// <summary>Stretch selector for the single-plate (non-split) workflow.
+/// Active only when <c>--dual-stretch</c> is NOT set and no per-plate
+/// stretch flag was supplied. StarStretch is NOT a valid value here:
+/// it's a stars-only curve and makes no sense on a recombined or
+/// unsplit plate.</summary>
+public enum CombinedStretchMode { Mtf, Ghs }
+
+/// <summary>Selector for the <c>--ghs-converge</c> axis: whether to
+/// run <see cref="Image.ConvergeGhsStretchFactor"/> against the input
+/// histogram (Auto, default) or apply the caller's <c>--ghs-lnd</c>
+/// verbatim (Manual). Replaces the old <c>--ghs-starless &lt;manual|auto&gt;</c>
+/// distinction now that "should GHS run" is decoupled into
+/// <see cref="StarStretchMode"/> / <see cref="StarlessStretchMode"/> /
+/// <see cref="CombinedStretchMode"/>.</summary>
+public enum GhsConvergeMode { Auto, Manual }
 
 /// <summary>
 /// <c>tianwen image &lt;verb&gt;</c> -- single-image enhancement + render
@@ -167,34 +179,49 @@ internal sealed class ImageSubCommand(
             Description = "Auto-target MTF median for the starless / nebula plate (0 < tm < 1). 0.25 is the SAS Pro / PixInsight convention. Implies --dual-stretch.",
             DefaultValueFactory = _ => 0.25,
         };
-        var ghsStarlessOpt = new Option<GhsStarlessMode>("--ghs-starless")
+        var starStretchModeOpt = new Option<StarStretchMode>("--star-stretch-mode")
         {
-            Description = "Starless-plate stretch selector: 'off' uses MTF (Frank's convention, default); 'manual' uses Mike Cranfield's Generalised Hyperbolic Stretch (https://github.com/mikec1485/GHS) with caller-supplied --ghs-lnd / --ghs-b / --ghs-lp / --ghs-hp / --ghs-sp; 'auto' uses GHS with Image.ConvergeGhsStretchFactor bisecting LnD against --ghs-target / --ghs-target-value (B / SP / LP / HP still caller-supplied). GHS defaults match Paul (Polymath Astro)'s video walkthrough for case-1 (linear -> display): LnD=1.30, B=8.0 (hyperbolic branch), LP=0, HP=0.8, SP=auto (Image.EstimateRisingEdge), passes=1. See PLAN-ghs.md for the curve math.",
-            DefaultValueFactory = _ => GhsStarlessMode.Off,
+            Description = "Stretch type for the stars-only plate under --dual-stretch. 'starstretch' (default) = Frank Sackenheim's fixed-curve stars stretch (preserves star colour + shape, gentle on highlights, almost always correct). 'mtf' = midtones-balance reusing --stretch-stars-amount as the target. 'ghs' = full GHS chain (--ghs-* family); rarely useful on stars -- it pinches cores. Setting this implies --dual-stretch.",
+            DefaultValueFactory = _ => StarStretchMode.StarStretch,
+        };
+        var starlessStretchModeOpt = new Option<StarlessStretchMode>("--starless-stretch-mode")
+        {
+            Description = "Stretch type for the starless plate under --dual-stretch. 'mtf' (default) = midtones-balance with --stretch-starless-median. 'ghs' = Mike Cranfield's Generalised Hyperbolic Stretch chain (https://github.com/mikec1485/GHS) driven by --ghs-lnd / --ghs-b / --ghs-lp / --ghs-hp / --ghs-sp / --ghs-passes / --ghs-stages / --ghs-target / --ghs-target-value / --ghs-converge. GHS defaults match Paul (Polymath Astro)'s case-1 recipe: LnD=1.30, B=8.0 (hyperbolic), LP=0, HP=0.8, SP=auto (Image.EstimateRisingEdge), passes=1, stages=1. See PLAN-ghs.md for the curve math. Setting this implies --dual-stretch.",
+            DefaultValueFactory = _ => StarlessStretchMode.Mtf,
+        };
+        var stretchModeOpt = new Option<CombinedStretchMode>("--stretch-mode")
+        {
+            Description = "Stretch type applied to the recombined (non-split) plate. 'mtf' (default) = midtones-balance with --stretch-starless-median. 'ghs' = GHS chain with the --ghs-* family. Mutually exclusive with --dual-stretch / --star-stretch-mode / --starless-stretch-mode -- those control the split workflow and there is no recombined plate to stretch.",
+            DefaultValueFactory = _ => CombinedStretchMode.Mtf,
+        };
+        var ghsConvergeOpt = new Option<GhsConvergeMode>("--ghs-converge")
+        {
+            Description = "Whether to auto-tune GHS LnD via Image.ConvergeGhsStretchFactor against the input histogram (Auto, default) or apply --ghs-lnd verbatim (Manual). Honoured only when some stretch mode (--star/--starless/--stretch) is set to 'ghs'.",
+            DefaultValueFactory = _ => GhsConvergeMode.Auto,
         };
         var ghsLnDOpt = new Option<double>("--ghs-lnd")
         {
-            Description = "GHS stretch factor in the PixInsight slider convention -- the value the script displays is ln(D + 1); internally D = exp(LnD) - 1. 0 = identity. Default 1.30 = D~2.67. Honoured when --ghs-starless=manual; ignored when --ghs-starless=auto (bisection solves LnD instead).",
+            Description = "GHS stretch factor in the PixInsight slider convention -- the value the script displays is ln(D + 1); internally D = exp(LnD) - 1. 0 = identity. Default 1.30 = D~2.67. Honoured when --ghs-converge=Manual; ignored when --ghs-converge=Auto (bisection solves LnD instead).",
             DefaultValueFactory = _ => 1.30,
         };
         var ghsBOpt = new Option<double>("--ghs-b")
         {
-            Description = "GHS local stretch intensity (signed). B = 8 picks the hyperbolic / harmonic branch (Paul's case-1 default, lifts dim bg); B = -1 picks the logarithmic branch (good for case-2 local contrast on already-stretched input); B = 0 exponential; B < 0, != -1 power-with-negative-B. Larger |B| = more focused stretch around SP. Default 8.0. Honoured when --ghs-starless != off.",
+            Description = "GHS local stretch intensity (signed). B = 8 picks the hyperbolic / harmonic branch (Paul's case-1 default, lifts dim bg); B = -1 picks the logarithmic branch (good for case-2 local contrast on already-stretched input); B = 0 exponential; B < 0, != -1 power-with-negative-B. Larger |B| = more focused stretch around SP. Default 8.0. Honoured when --starless-stretch-mode=Ghs (or --stretch-mode=Ghs).",
             DefaultValueFactory = _ => 8.0,
         };
         var ghsLpOpt = new Option<double>("--ghs-lp")
         {
-            Description = "GHS shadow protection point in [0, SP]. Below LP the curve is linear at the gradient evaluated at LP -- preserves shadow texture. Default 0. Honoured when --ghs-starless != off.",
+            Description = "GHS shadow protection point in [0, SP]. Below LP the curve is linear at the gradient evaluated at LP -- preserves shadow texture. Default 0. Honoured when --starless-stretch-mode=Ghs (or --stretch-mode=Ghs).",
             DefaultValueFactory = _ => 0.0,
         };
         var ghsHpOpt = new Option<double>("--ghs-hp")
         {
-            Description = "GHS highlight protection point in [SP, 1]. Above HP the curve is linear at the gradient evaluated at HP -- prevents the upper tail from being compressed. Default 0.8 (Paul's recommendation). Honoured when --ghs-starless != off.",
+            Description = "GHS highlight protection point in [SP, 1]. Above HP the curve is linear at the gradient evaluated at HP -- prevents the upper tail from being compressed. Default 0.8 (Paul's recommendation). Honoured when --starless-stretch-mode=Ghs (or --stretch-mode=Ghs).",
             DefaultValueFactory = _ => 0.8,
         };
         var ghsSpOpt = new Option<double>("--ghs-sp")
         {
-            Description = "GHS symmetry point -- the input pixel value where the curve has maximum gradient (its inflection point). Pass a value in (0, 1) to override; default <=0 means auto-detect via Image.EstimateRisingEdge (histogram lift-off). Honoured when --ghs-starless != off.",
+            Description = "GHS symmetry point -- the input pixel value where the curve has maximum gradient (its inflection point). Pass a value in (0, 1) to override; default <=0 means auto-detect via Image.EstimateRisingEdge (histogram lift-off). Honoured when --starless-stretch-mode=Ghs (or --stretch-mode=Ghs).",
             DefaultValueFactory = _ => -1.0,
         };
         var ghsPassesOpt = new Option<int>("--ghs-passes")
@@ -204,16 +231,17 @@ internal sealed class ImageSubCommand(
         };
         var ghsAutoTargetValueOpt = new Option<double>("--ghs-target-value")
         {
-            Description = "Target post-stretch value for --ghs-starless=auto. Interpreted as median (PixInsight STF default) or as the bg-peak mode depending on --ghs-target. Default 0.25 (SAS Pro / PixInsight statistical-stretch convention). Honoured only when --ghs-starless=auto.",
+            Description = "Target post-stretch value for --ghs-converge=Auto. Interpreted as median (PixInsight STF default) or as the bg-peak mode depending on --ghs-target. Default 0.25 (SAS Pro / PixInsight statistical-stretch convention). Honoured only when --ghs-converge=Auto.",
             DefaultValueFactory = _ => 0.25,
         };
-        var ghsTwopassOpt = new Option<bool>("--ghs-twopass")
+        var ghsStagesOpt = new Option<int>("--ghs-stages")
         {
-            Description = "Apply Mike Cranfield's canonical two-pass GHS workflow (gh-astro doc sections 2.7-2.9): pass 1 (caller's --ghs-* params) lifts the linear histogram peak to --ghs-target-value, BackgroundReduceStep clips the bg (the 'linear prestretch' from the doc), pass 2 (B=2.5, HP=0.95, LP=0, SP=auto, auto-converge on the same target) redistributes contrast and pushes signal toward the highlights. Forces an implicit BackgroundReduceStep between passes regardless of --no-reduce-bg. Single-pass --ghs-passes still works for stacking identical curves but is rarely useful; prefer --ghs-twopass for the canonical recipe. Implies --ghs-starless != off + --dual-stretch.",
+            Description = "Number of distinct GHS stages in the canonical Cranfield chain (gh-astro doc 2.7-2.9). 1 (default) = single GHS pass with caller's --ghs-* params. 2 = pass 1 -> BackgroundReduceStep ('linear prestretch') -> pass 2 (B=2.5, HP=0.95, LP=0, SP=auto, auto-converge on same target -- redistributes contrast and pushes signal toward highlights). 3 = stages 2 + pass 3 (B=-1 log branch, HP=0.99, LP=0, SP=auto, LnD=0.5 fixed, no auto-converge -- highlight refinement per case-2 recipe). Stages >= 2 force an implicit BackgroundReduceStep between passes 1 and 2 regardless of --no-reduce-bg. Implies --ghs-starless != off + --dual-stretch.",
+            DefaultValueFactory = _ => 1,
         };
         var ghsAutoTargetOpt = new Option<Image.GhsConvergeTarget>("--ghs-target")
         {
-            Description = "Which post-stretch metric --ghs-starless=auto bisects against. 'median' is the PixInsight STF default; 'mode' targets the bg peak (Paul / Polymath Astro's recipe -- lifts the histogram peak to ~0.25 instead of converging the median to it). Mode-target produces a visibly brighter result on typical linear astro frames because the median sits well above the mode (long signal tail). Default median for back-compat. Honoured only when --ghs-starless=auto.",
+            Description = "Which post-stretch metric --ghs-converge=Auto bisects against. 'median' is the PixInsight STF default; 'mode' targets the bg peak (Paul / Polymath Astro's recipe -- lifts the histogram peak to ~0.25 instead of converging the median to it). Mode-target produces a visibly brighter result on typical linear astro frames because the median sits well above the mode (long signal tail). Default median for back-compat. Honoured only when --ghs-converge=Auto.",
             DefaultValueFactory = _ => Image.GhsConvergeTarget.Median,
         };
         var noReduceBgOpt = new Option<bool>("--no-reduce-bg")
@@ -243,7 +271,7 @@ internal sealed class ImageSubCommand(
         var cmd = new Command("sharpen", "Full AI4 NAFNet sharpen pipeline: remove stars, sharpen the stars-only plate, deconvolve + denoise the starless plate, optional SCNR on stars, recombine.")
         {
             Arguments = { inputArg },
-            Options = { outputOpt, modeOpt, noStellarOpt, noDeconvOpt, noDenoiseOpt, noRecombineOpt, pngOpt, stellarBlendOpt, deconvBlendOpt, denoiseBlendOpt, denoiseVariantOpt, scnrOpt, scnrAmountOpt, dualStretchOpt, stretchStarsAmountOpt, stretchStarlessMedianOpt, ghsStarlessOpt, ghsLnDOpt, ghsBOpt, ghsLpOpt, ghsHpOpt, ghsSpOpt, ghsPassesOpt, ghsTwopassOpt, ghsAutoTargetValueOpt, ghsAutoTargetOpt, noReduceBgOpt, reduceBgCompressionOpt, noCompressHighlightsOpt, highlightKneeOpt, highlightAmountOpt },
+            Options = { outputOpt, modeOpt, noStellarOpt, noDeconvOpt, noDenoiseOpt, noRecombineOpt, pngOpt, stellarBlendOpt, deconvBlendOpt, denoiseBlendOpt, denoiseVariantOpt, scnrOpt, scnrAmountOpt, dualStretchOpt, stretchStarsAmountOpt, stretchStarlessMedianOpt, starStretchModeOpt, starlessStretchModeOpt, stretchModeOpt, ghsConvergeOpt, ghsLnDOpt, ghsBOpt, ghsLpOpt, ghsHpOpt, ghsSpOpt, ghsPassesOpt, ghsStagesOpt, ghsAutoTargetValueOpt, ghsAutoTargetOpt, noReduceBgOpt, reduceBgCompressionOpt, noCompressHighlightsOpt, highlightKneeOpt, highlightAmountOpt },
         };
         cmd.SetAction(async (parseResult, ct) =>
         {
@@ -307,14 +335,53 @@ internal sealed class ImageSubCommand(
             // Dual stretch: gated on --dual-stretch. Star plate uses Frank's
             // fixed-curve StarStretch (amount slider); starless plate uses
             // auto-target MTF (Frank's convention, target_median = 0.25).
-            var dualStretch = parseResult.GetValue(dualStretchOpt);
+            // Per-plate stretch flags (--star-stretch-mode / --starless-stretch-mode)
+            // imply --dual-stretch; --stretch-mode is mutually exclusive with it.
+            var dualStretchFlag = parseResult.GetValue(dualStretchOpt);
             var starsAmount = Math.Clamp(parseResult.GetValue(stretchStarsAmountOpt), 0.1, 10.0);
             var starlessMedian = Math.Clamp(parseResult.GetValue(stretchStarlessMedianOpt), 0.01, 0.99);
             var noReduceBg = parseResult.GetValue(noReduceBgOpt);
             var reduceBgCompression = Math.Clamp(parseResult.GetValue(reduceBgCompressionOpt), 0.01, 1.0);
-            var ghsStarlessMode = parseResult.GetValue(ghsStarlessOpt);
-            var ghsStarless = ghsStarlessMode != GhsStarlessMode.Off;
-            var ghsAuto = ghsStarlessMode == GhsStarlessMode.Auto;
+            // Per-plate stretch modes. Detect "user explicitly provided" via
+            // OptionResult.Tokens -- needed to distinguish "user accepted the
+            // default" from "user didn't mention the flag at all", which in
+            // turn drives the --dual-stretch implication.
+            var starStretchMode = parseResult.GetValue(starStretchModeOpt);
+            var starlessStretchMode = parseResult.GetValue(starlessStretchModeOpt);
+            var combinedStretchMode = parseResult.GetValue(stretchModeOpt);
+            var starModeExplicit = parseResult.GetResult(starStretchModeOpt)?.Tokens.Count > 0;
+            var starlessModeExplicit = parseResult.GetResult(starlessStretchModeOpt)?.Tokens.Count > 0;
+            var combinedModeExplicit = parseResult.GetResult(stretchModeOpt)?.Tokens.Count > 0;
+            var ghsConverge = parseResult.GetValue(ghsConvergeOpt);
+
+            // Resolve dual-stretch + GHS effective flags from the new mode triple.
+            // Rule: per-plate (--star-stretch-mode / --starless-stretch-mode)
+            // implies --dual-stretch; --stretch-mode is incompatible with split.
+            var dualStretch = dualStretchFlag || starModeExplicit || starlessModeExplicit;
+            if (combinedModeExplicit && dualStretch)
+            {
+                consoleHost.WriteError(
+                    "--stretch-mode applies to the recombined plate and is mutually exclusive with --dual-stretch / --star-stretch-mode / --starless-stretch-mode.");
+                return 1;
+            }
+            // --stretch-mode without --dual-stretch is now wired via
+            // MtfStretchFinalStep / GhsStretchFinalStep -- the step list
+            // construction below adds the post-recombine stretch when
+            // combinedModeExplicit is set.
+            if (starModeExplicit && starStretchMode != StarStretchMode.StarStretch)
+            {
+                // MTF / GHS on the stars plate would need new SharpenStep
+                // variants (MtfStretchStarsStep / GhsStretchStarsStep).
+                // StarStretch is the only stars-plate stretch wired today.
+                consoleHost.WriteError(
+                    $"--star-stretch-mode {starStretchMode} is not yet supported on the stars plate. Only 'starstretch' (Frank Sackenheim's fixed-curve, the default) is wired in v1.");
+                return 1;
+            }
+            // GHS effective flags: starless-plate mode == ghs turns on the
+            // GHS codepath. Manual vs auto convergence is the separate
+            // --ghs-converge axis.
+            var ghsStarless = starlessStretchMode == StarlessStretchMode.Ghs;
+            var ghsAuto = ghsConverge == GhsConvergeMode.Auto;
             var ghsLnD = Math.Max(0.0, parseResult.GetValue(ghsLnDOpt));
             // B is signed -- no clamp; the four-branch math handles any
             // finite double (B == -1, B < 0, B == 0, B > 0).
@@ -332,7 +399,7 @@ internal sealed class ImageSubCommand(
             var ghsAutoTargetValue = Math.Clamp(parseResult.GetValue(ghsAutoTargetValueOpt), 0.01, 0.99);
             var ghsAutoTarget = parseResult.GetValue(ghsAutoTargetOpt);
             var ghsPasses = Math.Clamp(parseResult.GetValue(ghsPassesOpt), 1, 10);
-            var ghsTwopass = parseResult.GetValue(ghsTwopassOpt);
+            var ghsStages = Math.Clamp(parseResult.GetValue(ghsStagesOpt), 1, 3);
             var noCompressHighlights = parseResult.GetValue(noCompressHighlightsOpt);
             var highlightKnee = Math.Clamp(parseResult.GetValue(highlightKneeOpt), 0.01, 0.99);
             var highlightAmount = Math.Max(0.0, parseResult.GetValue(highlightAmountOpt));
@@ -374,6 +441,7 @@ internal sealed class ImageSubCommand(
                 // Single-pass GHS or MTF: bg-reduce comes after the lone stretch.
                 if (ghsStarless)
                 {
+                    // Stage 1 (always): caller-supplied params.
                     steps.Add(new GhsStretchStarlessStep(
                         LnD: ghsLnD,
                         B: ghsB,
@@ -384,19 +452,19 @@ internal sealed class ImageSubCommand(
                         AutoConverge: ghsAuto,
                         AutoTargetValue: ghsAutoTargetValue,
                         AutoTarget: ghsAutoTarget));
-                    if (ghsTwopass)
+                    if (ghsStages >= 2)
                     {
                         // The "linear prestretch" / blackpoint clip lives between
                         // passes per the canonical doc. Forced on regardless of
-                        // --no-reduce-bg; without it pass 2 would just re-flatten
-                        // pass 1's lift. Auto bg-peak detect post-pass-1.
+                        // --no-reduce-bg; without it stage 2 would just re-flatten
+                        // stage 1's lift. Auto bg-peak detect post-stage-1.
                         steps.Add(new BackgroundReduceStep(Compression: reduceBgCompression));
-                        // Pass 2: lower B (less concentrated curve), higher HP
-                        // (avoid double rolloff -- pass 1 already shaped highlights),
+                        // Stage 2: lower B (less concentrated curve), higher HP
+                        // (avoid double rolloff -- stage 1 already shaped highlights),
                         // SP auto-detect on the now-stretched-and-bg-reduced plate,
-                        // LP=0, same auto-converge target as pass 1 so the bg peak
+                        // LP=0, same auto-converge target as stage 1 so the bg peak
                         // lands back at the requested value after the clip pulled it
-                        // down. Passes=1 -- chaining twopass with multi-pass per-step
+                        // down. Passes=1 -- chaining stages with multi-pass per-step
                         // is not a documented recipe.
                         steps.Add(new GhsStretchStarlessStep(
                             LnD: 0.5,
@@ -411,9 +479,31 @@ internal sealed class ImageSubCommand(
                     }
                     else if (!noReduceBg)
                     {
-                        // Single-pass GHS: bg-reduce after the stretch
+                        // Single-stage GHS: bg-reduce after the stretch
                         // (statistical-stretch convention).
                         steps.Add(new BackgroundReduceStep(Compression: reduceBgCompression));
+                    }
+                    if (ghsStages >= 3)
+                    {
+                        // Stage 3: highlight refinement per case-2 (local contrast
+                        // on already-stretched data). B = -1 picks the logarithmic
+                        // branch, SP auto-detects to the new mid-tone position
+                        // (where the histogram is densest post-stage-2), HP = 0.99
+                        // keeps the highlight cap effectively off. Fixed small LnD
+                        // (0.5) -- this stage isn't an auto-converged bg lift, it's
+                        // a small shaped curve added on top, so we don't bisect.
+                        // No bg-reduce between stages 2 and 3 -- the doc only
+                        // mentions one linear prestretch between stages 1 and 2.
+                        steps.Add(new GhsStretchStarlessStep(
+                            LnD: 0.5,
+                            B: -1.0,
+                            SP: null,
+                            LP: 0.0,
+                            HP: 0.99,
+                            Passes: 1,
+                            AutoConverge: false,
+                            AutoTargetValue: ghsAutoTargetValue,
+                            AutoTarget: ghsAutoTarget));
                     }
                 }
                 else
@@ -440,7 +530,35 @@ internal sealed class ImageSubCommand(
             // composite: Final = 1 - (1-bg)(1-fg). Split stays in linear
             // (mode controls that).
             var recombineMode = dualStretch ? RecombineMode.Screen : mode;
-            if (!noRecombine) steps.Add(new RecombineStep(Mode: recombineMode));
+            if (!noRecombine)
+            {
+                steps.Add(new RecombineStep(Mode: recombineMode));
+                // --stretch-mode operates on the recombined `final` plate.
+                // Honoured only when no dual-stretch (per the validation above);
+                // adds either MtfStretchFinalStep or GhsStretchFinalStep after
+                // RecombineStep. The full --ghs-* knob set still drives the
+                // GHS variant; --ghs-stages multi-stage is NOT applied to
+                // final yet (single pass only -- multi-stage post-recombine
+                // would need a "linear prestretch" step that operates on
+                // `final` too, which we haven't wired).
+                if (combinedModeExplicit && combinedStretchMode == CombinedStretchMode.Mtf)
+                {
+                    steps.Add(new MtfStretchFinalStep(TargetMedian: starlessMedian));
+                }
+                else if (combinedModeExplicit && combinedStretchMode == CombinedStretchMode.Ghs)
+                {
+                    steps.Add(new GhsStretchFinalStep(
+                        LnD: ghsLnD,
+                        B: ghsB,
+                        SP: ghsSp,
+                        LP: ghsLp,
+                        HP: ghsHp,
+                        Passes: ghsPasses,
+                        AutoConverge: ghsAuto,
+                        AutoTargetValue: ghsAutoTargetValue,
+                        AutoTarget: ghsAutoTarget));
+                }
+            }
 
             // Each CLI mode tells the pipeline exactly which plates it'll read
             // off SharpenResult. The pipeline releases everything else as soon
@@ -462,9 +580,14 @@ internal sealed class ImageSubCommand(
             var spDesc = ghsSp is { } spv ? spv.ToString("F3") : "auto";
             var targetLabel = ghsAutoTarget == Image.GhsConvergeTarget.Mode ? "mode" : "med";
             var lnDDesc = ghsAuto ? $"lnD~auto({targetLabel}={ghsAutoTargetValue:F2})" : $"lnD{ghsLnD:F2}";
-            var twopassSuffix = ghsTwopass ? "+twopass(b2.5/hp0.95)" : "";
+            var stagesSuffix = ghsStages switch
+            {
+                2 => "+s2(b2.5/hp0.95)",
+                3 => "+s2(b2.5/hp0.95)+s3(b-1/hp0.99)",
+                _ => "",
+            };
             var starlessStretchDesc = ghsStarless
-                ? $"ghs({lnDDesc}/b{ghsB:F2}/sp{spDesc}/lp{ghsLp:F2}/hp{ghsHp:F2}/{ghsPasses}x{twopassSuffix})"
+                ? $"ghs({lnDDesc}/b{ghsB:F2}/sp{spDesc}/lp{ghsLp:F2}/hp{ghsHp:F2}/{ghsPasses}x{stagesSuffix})"
                 : $"mtf-tm={starlessMedian:F2}";
             var dualStretchDesc = dualStretch
                 ? $" dual-stretch(stars-amount={starsAmount:F2},starless={starlessStretchDesc}) reduce-bg={(!noReduceBg ? reduceBgCompression.ToString("F2") : "off")} compress-hi={(!noCompressHighlights ? $"k{highlightKnee:F2}/a{highlightAmount:F2}" : "off")}"
