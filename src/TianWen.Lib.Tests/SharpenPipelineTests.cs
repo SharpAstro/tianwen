@@ -209,7 +209,7 @@ public class SharpenPipelineTests(ITestOutputHelper output)
                 new RecombineStep(),
                 new DenoiseStarlessStep(),
             ]), TestContext.Current.CancellationToken));
-        ex.Message.ShouldContain("only MtfStretchFinalStep or GhsStretchFinalStep may follow RecombineStep");
+        ex.Message.ShouldContain("only MtfStretchFinalStep, GhsStretchFinalStep or AsinhStretchFinalStep may follow RecombineStep");
     }
 
     [Fact]

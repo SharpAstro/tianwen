@@ -282,6 +282,31 @@ public sealed class SharpenPipeline(
                         break;
                     }
 
+                    case AsinhStretchStarsStep asinhStarsStep:
+                    {
+                        // Asinh stretch on the most-processed stars plate.
+                        // Chrominance-preserving by construction (all channels
+                        // share one luma-derived scale); the right curve when
+                        // star colour matters under heavy lift. Same in-place
+                        // mutation lineage as StretchStarsStep.
+                        var inputPlate = sharpenedStars ?? Require(starsOnly);
+                        var stretched = inputPlate.AsinhStretch(
+                            asinhStarsStep.Beta, asinhStarsStep.BlackPoint, asinhStarsStep.LumaWeights);
+                        if (sharpenedStars is not null)
+                        {
+                            sharpenedStars.Release();
+                            sharpenedStars = stretched;
+                        }
+                        else
+                        {
+                            Require(starsOnly).Release();
+                            starsOnly = stretched;
+                        }
+                        var stretchTracked = sharpenedStars ?? Require(starsOnly);
+                        timings.Add(($"asinh-stretch-stars(β={asinhStarsStep.Beta:F1},bp={asinhStarsStep.BlackPoint:F3})", phaseSw.ElapsedMilliseconds, stretchTracked.EstimateNoiseProfile()));
+                        break;
+                    }
+
                     case GhsStretchStarlessStep ghsStep:
                     {
                         // Generalised Hyperbolic Stretch on the most-processed
@@ -318,6 +343,20 @@ public sealed class SharpenPipeline(
                         }
                         denoisedStarless = stretched;
                         timings.Add(("stretch-starless", phaseSw.ElapsedMilliseconds, denoisedStarless.EstimateNoiseProfile()));
+                        break;
+                    }
+
+                    case AsinhStretchStarlessStep asinhStarlessStep:
+                    {
+                        // Asinh stretch on the most-processed starless plate.
+                        // Same "slotted as denoisedStarless" pattern as the MTF
+                        // and GHS starless cases.
+                        var inputPlate = denoisedStarless ?? deconvolvedStarless ?? Require(starless);
+                        var stretched = inputPlate.AsinhStretch(
+                            asinhStarlessStep.Beta, asinhStarlessStep.BlackPoint, asinhStarlessStep.LumaWeights);
+                        if (denoisedStarless is not null) denoisedStarless.Release();
+                        denoisedStarless = stretched;
+                        timings.Add(($"asinh-stretch-starless(β={asinhStarlessStep.Beta:F1},bp={asinhStarlessStep.BlackPoint:F3})", phaseSw.ElapsedMilliseconds, denoisedStarless.EstimateNoiseProfile()));
                         break;
                     }
 
@@ -376,6 +415,20 @@ public sealed class SharpenPipeline(
                         input.Release();
                         final = stretched;
                         timings.Add(($"ghs-stretch-final(b{ghsFinalStep.B:F1},{spLabel},hp{ghsFinalStep.HP:F2},{ghsFinalStep.Passes}x{convergenceLabel})", phaseSw.ElapsedMilliseconds, final.EstimateNoiseProfile()));
+                        break;
+                    }
+
+                    case AsinhStretchFinalStep asinhFinalStep:
+                    {
+                        // Asinh stretch on the recombined `final` plate. The
+                        // non-split-workflow asinh option. Validation ensures
+                        // `final` is populated.
+                        var input = Require(final);
+                        var stretched = input.AsinhStretch(
+                            asinhFinalStep.Beta, asinhFinalStep.BlackPoint, asinhFinalStep.LumaWeights);
+                        input.Release();
+                        final = stretched;
+                        timings.Add(($"asinh-stretch-final(β={asinhFinalStep.Beta:F1},bp={asinhFinalStep.BlackPoint:F3})", phaseSw.ElapsedMilliseconds, final.EstimateNoiseProfile()));
                         break;
                     }
 
@@ -708,14 +761,15 @@ public sealed class SharpenPipeline(
                         $"SharpenRequest.Steps[{i}]: RecombineStep requires a preceding RemoveStarsStep (no plates to recombine).",
                         nameof(request));
                     // Recombine no longer has to be last -- post-recombine
-                    // stretch steps (MtfStretchFinalStep / GhsStretchFinalStep)
-                    // are allowed afterwards. Forbid anything else though.
+                    // stretch steps (MtfStretchFinalStep / GhsStretchFinalStep
+                    // / AsinhStretchFinalStep) are allowed afterwards.
+                    // Forbid anything else though.
                     for (var j = i + 1; j < request.Steps.Length; j++)
                     {
-                        if (request.Steps[j] is not (MtfStretchFinalStep or GhsStretchFinalStep))
+                        if (request.Steps[j] is not (MtfStretchFinalStep or GhsStretchFinalStep or AsinhStretchFinalStep))
                         {
                             throw new ArgumentException(
-                                $"SharpenRequest.Steps[{i}]: only MtfStretchFinalStep or GhsStretchFinalStep may follow RecombineStep; got {request.Steps[j].GetType().Name} at Steps[{j}].",
+                                $"SharpenRequest.Steps[{i}]: only MtfStretchFinalStep, GhsStretchFinalStep or AsinhStretchFinalStep may follow RecombineStep; got {request.Steps[j].GetType().Name} at Steps[{j}].",
                                 nameof(request));
                         }
                     }
@@ -749,6 +803,39 @@ public sealed class SharpenPipeline(
                         nameof(request));
                     if (ghsFinal.AutoTargetValue is <= 0.0 or >= 1.0) throw new ArgumentException(
                         $"SharpenRequest.Steps[{i}]: GhsStretchFinalStep.AutoTargetValue must be in (0, 1); got {ghsFinal.AutoTargetValue}.",
+                        nameof(request));
+                    break;
+                case AsinhStretchStarsStep asinhStars:
+                    if (!hasStarsOnly) throw new ArgumentException(
+                        $"SharpenRequest.Steps[{i}]: AsinhStretchStarsStep requires a preceding RemoveStarsStep (no stars plate to stretch).",
+                        nameof(request));
+                    if (asinhStars.Beta < 1.0 || asinhStars.Beta > 1000.0) throw new ArgumentException(
+                        $"SharpenRequest.Steps[{i}]: AsinhStretchStarsStep.Beta must be in [1, 1000]; got {asinhStars.Beta}. Siril's typical range is 1-1000.",
+                        nameof(request));
+                    if (asinhStars.BlackPoint is < 0.0 or >= 1.0) throw new ArgumentException(
+                        $"SharpenRequest.Steps[{i}]: AsinhStretchStarsStep.BlackPoint must be in [0, 1); got {asinhStars.BlackPoint}.",
+                        nameof(request));
+                    break;
+                case AsinhStretchStarlessStep asinhStarless:
+                    if (!hasStarless) throw new ArgumentException(
+                        $"SharpenRequest.Steps[{i}]: AsinhStretchStarlessStep requires a preceding RemoveStarsStep (no starless plate to stretch).",
+                        nameof(request));
+                    if (asinhStarless.Beta < 1.0 || asinhStarless.Beta > 1000.0) throw new ArgumentException(
+                        $"SharpenRequest.Steps[{i}]: AsinhStretchStarlessStep.Beta must be in [1, 1000]; got {asinhStarless.Beta}.",
+                        nameof(request));
+                    if (asinhStarless.BlackPoint is < 0.0 or >= 1.0) throw new ArgumentException(
+                        $"SharpenRequest.Steps[{i}]: AsinhStretchStarlessStep.BlackPoint must be in [0, 1); got {asinhStarless.BlackPoint}.",
+                        nameof(request));
+                    break;
+                case AsinhStretchFinalStep asinhFinal:
+                    if (!HasPrecedingRecombine(request, i)) throw new ArgumentException(
+                        $"SharpenRequest.Steps[{i}]: AsinhStretchFinalStep requires a preceding RecombineStep.",
+                        nameof(request));
+                    if (asinhFinal.Beta < 1.0 || asinhFinal.Beta > 1000.0) throw new ArgumentException(
+                        $"SharpenRequest.Steps[{i}]: AsinhStretchFinalStep.Beta must be in [1, 1000]; got {asinhFinal.Beta}.",
+                        nameof(request));
+                    if (asinhFinal.BlackPoint is < 0.0 or >= 1.0) throw new ArgumentException(
+                        $"SharpenRequest.Steps[{i}]: AsinhStretchFinalStep.BlackPoint must be in [0, 1); got {asinhFinal.BlackPoint}.",
                         nameof(request));
                     break;
                 default:
@@ -1048,6 +1135,44 @@ public sealed record GhsStretchFinalStep(
     bool AutoConverge = false,
     double AutoTargetValue = 0.25,
     Image.GhsConvergeTarget AutoTarget = Image.GhsConvergeTarget.Median) : SharpenStep;
+
+/// <summary>Asinh stretch (Siril's color-aware formula) applied to the
+/// stars-only plate. Calls <see cref="Image.AsinhStretch"/>. Scales all
+/// channels by the same luma-derived factor so star colour is preserved
+/// by construction -- the only thing that can desaturate stars under
+/// this curve is the <see cref="BlackPoint"/> subtraction near zero.</summary>
+/// <param name="Beta">Stretch strength (Siril "stretch" parameter).
+/// Typical range 1-1000. Linear stars-only plates usually want 10-50;
+/// already-stretched inputs 3-10.</param>
+/// <param name="BlackPoint">Subtracted before the scaled output.
+/// 0 (default) is correct for stars-only plates (the bg has already
+/// been subtracted by RemoveStarsStep). Range [0, 1).</param>
+/// <param name="LumaWeights">Weighting profile for the per-pixel luma
+/// in the colour formula. <see cref="LumaWeighting.Rec709"/> default.</param>
+public sealed record AsinhStretchStarsStep(
+    double Beta = 10.0,
+    double BlackPoint = 0.0,
+    LumaWeighting LumaWeights = LumaWeighting.Rec709) : SharpenStep;
+
+/// <summary>Asinh stretch applied to the starless plate. See
+/// <see cref="AsinhStretchStarsStep"/> for math details; same helper,
+/// different plate target. Companion to <see cref="StretchStarlessStep"/>
+/// (MTF) and <see cref="GhsStretchStarlessStep"/> (GHS) under the
+/// <c>--dual-stretch</c> umbrella.</summary>
+public sealed record AsinhStretchStarlessStep(
+    double Beta = 10.0,
+    double BlackPoint = 0.0,
+    LumaWeighting LumaWeights = LumaWeighting.Rec709) : SharpenStep;
+
+/// <summary>Asinh stretch applied to the recombined <c>final</c> plate
+/// AFTER <see cref="RecombineStep"/>. The non-split-workflow asinh
+/// option; companion to <see cref="MtfStretchFinalStep"/> and
+/// <see cref="GhsStretchFinalStep"/>. Mutually exclusive with those
+/// (validation enforces at most one post-recombine stretch).</summary>
+public sealed record AsinhStretchFinalStep(
+    double Beta = 10.0,
+    double BlackPoint = 0.0,
+    LumaWeighting LumaWeights = LumaWeighting.Rec709) : SharpenStep;
 
 /// <summary>
 /// Per-plate intermediate-retention selector for <see cref="SharpenRequest.KeepIntermediates"/>.

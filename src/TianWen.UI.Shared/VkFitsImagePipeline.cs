@@ -1,4 +1,5 @@
 using SdlVulkan.Renderer;
+using TianWen.Lib.Imaging;
 using Vortice.ShaderCompiler;
 using Vortice.Vulkan;
 using static Vortice.Vulkan.Vulkan;
@@ -786,9 +787,9 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
         // lumaWeights (vec4 at offset 368). Caller passes the (R,G,B) triple from
         // StretchUniforms.LumaWeights; default = (0,0,0) flags the shader to use
         // a tuple shipped by callers that haven't migrated yet -- treat as Rec.709.
-        var lwR = lumaWeights.R != 0f || lumaWeights.G != 0f || lumaWeights.B != 0f ? lumaWeights.R : 0.2126f;
-        var lwG = lumaWeights.R != 0f || lumaWeights.G != 0f || lumaWeights.B != 0f ? lumaWeights.G : 0.7152f;
-        var lwB = lumaWeights.R != 0f || lumaWeights.G != 0f || lumaWeights.B != 0f ? lumaWeights.B : 0.0722f;
+        var (lwR, lwG, lwB) = (lumaWeights.R != 0f || lumaWeights.G != 0f || lumaWeights.B != 0f)
+            ? lumaWeights
+            : LumaWeighting.Rec709.Weights;
         WriteFloat(p, 368, lwR);
         WriteFloat(p, 372, lwG);
         WriteFloat(p, 376, lwB);

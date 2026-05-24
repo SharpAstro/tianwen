@@ -611,7 +611,7 @@ public partial class Image
         // Rec.709 luminance — keyed on the bg array length, not channelCount,
         // so the Bayer-3 path produces a proper luminance instead of just R.
         var lumaBg = perChannel.Length >= 3
-            ? 0.2126f * perChannel[0] + 0.7152f * perChannel[1] + 0.0722f * perChannel[2]
+            ? LumaWeighting.Rec709.ToLuma(perChannel[0], perChannel[1], perChannel[2])
             : perChannel[0];
 
         return (perChannel, lumaBg);
@@ -731,7 +731,7 @@ public partial class Image
         var r = AverageRegionChannel(0, x0, y0, size, starMask);
         var g = AverageRegionChannel(1, x0, y0, size, starMask);
         var b = AverageRegionChannel(2, x0, y0, size, starMask);
-        return 0.2126f * r + 0.7152f * g + 0.0722f * b;
+        return LumaWeighting.Rec709.ToLuma(r, g, b);
     }
 
     private float AverageRegionChannel(int channel, int x0, int y0, int size, BitMatrix? starMask = null)

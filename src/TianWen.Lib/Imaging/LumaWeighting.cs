@@ -37,5 +37,23 @@ public static class LumaWeightingExtensions
             LumaWeighting.Rec2020 => (0.2627f, 0.6780f, 0.0593f),
             _ => (0.2126f, 0.7152f, 0.0722f),
         };
+
+        /// <summary>Compute luma for one RGB pixel via this profile's weights.
+        /// Inlined-on-hot-paths helper that replaces the dozen+ sites in the
+        /// codebase that previously hardcoded <c>(0.2126f, 0.7152f, 0.0722f)</c>
+        /// inline -- now the enum is the single source of truth.</summary>
+        public float ToLuma(float r, float g, float b)
+        {
+            var (wR, wG, wB) = weighting.Weights;
+            return wR * r + wG * g + wB * b;
+        }
     }
+
+    /// <summary>Compute luma for one RGB pixel from a pre-resolved
+    /// <c>(R, G, B)</c> weight tuple. The tuple-taking form is for hot
+    /// loops where the weights have already been pulled out of
+    /// <c>StretchUniforms.LumaWeights</c> or computed via
+    /// <c>FilterCurveDatabase.TryComputeSensorLumaWeights</c>.</summary>
+    public static float ToLuma(this (float R, float G, float B) weights, float r, float g, float b)
+        => weights.R * r + weights.G * g + weights.B * b;
 }
