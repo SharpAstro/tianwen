@@ -51,7 +51,7 @@ public partial class Image
                     else
                     {
                         if (needsNorm) { r *= normFactor; g *= normFactor; b *= normFactor; }
-                        var luma = LumaR * r + LumaG * g + LumaB * b;
+                        var luma = LumaWeighting.Rec709.ToLuma(r, g, b);
                         lumaChannel[y, x] = luma;
                         if (luma < lumaMin) lumaMin = luma;
                     }
@@ -65,11 +65,6 @@ public partial class Image
             return lumaImage.GetPedestralMedianAndMADScaledToUnit(0);
         }, cancellationToken);
     }
-
-    // Rec. 709 luminance weights
-    private const float LumaR = 0.2126f;
-    private const float LumaG = 0.7152f;
-    private const float LumaB = 0.0722f;
 
     /// <summary>
     /// Computes the stretch parameters (shadows, midtones, highlights, rescale) from channel statistics.
@@ -273,6 +268,110 @@ public partial class Image
     {
         var midtones = 1.0 / (Math.Pow(3.0, amount) + 1.0);
         return FixedMidtonesStretch(midtones);
+    }
+
+    /// <summary>
+    /// Hyperbolic-arcsin stretch (Siril's <c>asinh</c> command). For
+    /// multi-channel images each channel is scaled by a SHARED factor
+    /// derived from per-pixel luminance, so chrominance is preserved by
+    /// construction -- the right tool when star colour or any colour
+    /// fidelity matters under stretching.
+    /// </summary>
+    /// <remarks>
+    /// <para>Mono: <c>out = (in - bp) * asinh(in * β) / (in * asinh(β))</c></para>
+    /// <para>Colour: <c>out_c = (in_c - bp) * asinh(luma * β) / (luma * asinh(β))</c>
+    /// where <c>luma</c> is computed from the three channels via
+    /// <paramref name="lumaWeighting"/> (Rec.709 default, matches the rest
+    /// of the stretch pipeline).</para>
+    /// <para>The <c>asinh(x)/x</c> term has a 0/0 form as <c>x → 0</c>;
+    /// the limit is <c>β</c>. We switch to that limit below 1e-5 luma to
+    /// avoid the singularity without introducing visible discontinuity.</para>
+    /// <para>Per Siril's docs the formula scales ALL channels by the same
+    /// luma-derived factor -- that's what preserves star colour. Verified
+    /// by inspection: <c>out_r / out_g = (in_r - bp) / (in_g - bp)</c>,
+    /// independent of β. So a blue star stays blue at any stretch strength,
+    /// and a desaturation can only come from the <c>(in - bp)</c> term
+    /// when one channel sits near the bp.</para>
+    /// </remarks>
+    /// <param name="beta">Stretch strength (Siril's "stretch" param).
+    /// Typical range 1-1000. Larger = more aggressive lift. Default
+    /// callers should pick based on linear vs already-stretched input
+    /// (linear stars-only ~10-50, already-stretched starless ~3-10).</param>
+    /// <param name="blackPoint">Subtracted from each channel before the
+    /// scaled output. Use 0 for a pre-subtracted plate (e.g. stars-only
+    /// after star-removal); use the post-stretch bg peak when stretching
+    /// data that still has a bg pedestal. Range <c>[0, 1)</c>.</param>
+    /// <param name="lumaWeighting">Weighting profile for the per-pixel
+    /// luminance in the colour formula. Default <see cref="LumaWeighting.Rec709"/>;
+    /// the codebase's <c>StretchUniforms.LumaWeights</c> convention.</param>
+    public Image AsinhStretch(double beta, double blackPoint = 0.0, LumaWeighting lumaWeighting = LumaWeighting.Rec709)
+    {
+        ArgumentOutOfRangeException.ThrowIfLessThan(beta, 1.0);
+        ArgumentOutOfRangeException.ThrowIfNegative(blackPoint);
+        ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual(blackPoint, 1.0);
+
+        var (channels, width, height) = Shape;
+        var pixelCount = width * height;
+        var newData = CreateChannelData(channels, height, width);
+        var bp = (float)blackPoint;
+        var betaF = (float)beta;
+        var asinhBeta = (float)Math.Asinh(beta);
+        var invAsinhBeta = 1f / asinhBeta;
+        // Limit of asinh(luma * β) / luma as luma → 0 is β; precompute the
+        // resulting scale = β / asinh(β) so the near-zero branch is a single
+        // multiply.
+        var nearZeroScale = betaF * invAsinhBeta;
+        const float LumaEpsilon = 1e-5f;
+
+        if (channels == 1)
+        {
+            var src = GetChannelSpan(0);
+            var dst = MemoryMarshal.CreateSpan(ref newData[0][0, 0], pixelCount);
+            for (var i = 0; i < pixelCount; i++)
+            {
+                var v = src[i];
+                if (float.IsNaN(v)) { dst[i] = float.NaN; continue; }
+                var scale = v < LumaEpsilon
+                    ? nearZeroScale
+                    : (float)Math.Asinh(v * betaF) * invAsinhBeta / v;
+                dst[i] = (v - bp) * scale;
+            }
+        }
+        else if (channels >= 3)
+        {
+            var (wR, wG, wB) = lumaWeighting.Weights;
+            var src0 = GetChannelSpan(0);
+            var src1 = GetChannelSpan(1);
+            var src2 = GetChannelSpan(2);
+            var dst0 = MemoryMarshal.CreateSpan(ref newData[0][0, 0], pixelCount);
+            var dst1 = MemoryMarshal.CreateSpan(ref newData[1][0, 0], pixelCount);
+            var dst2 = MemoryMarshal.CreateSpan(ref newData[2][0, 0], pixelCount);
+            for (var i = 0; i < pixelCount; i++)
+            {
+                var r = src0[i];
+                var g = src1[i];
+                var b = src2[i];
+                if (float.IsNaN(r) || float.IsNaN(g) || float.IsNaN(b))
+                {
+                    dst0[i] = float.NaN; dst1[i] = float.NaN; dst2[i] = float.NaN;
+                    continue;
+                }
+                var luma = wR * r + wG * g + wB * b;
+                var scale = luma < LumaEpsilon
+                    ? nearZeroScale
+                    : (float)Math.Asinh(luma * betaF) * invAsinhBeta / luma;
+                dst0[i] = (r - bp) * scale;
+                dst1[i] = (g - bp) * scale;
+                dst2[i] = (b - bp) * scale;
+            }
+        }
+        else
+        {
+            throw new NotSupportedException(
+                $"AsinhStretch supports 1-channel (mono) or 3+ channel (RGB+) images; got {channels} channels.");
+        }
+
+        return new Image(newData, BitDepth.Float32, 1.0f, 0f, 0f, imageMeta);
     }
 
     /// <summary>

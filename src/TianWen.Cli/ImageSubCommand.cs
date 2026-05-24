@@ -19,26 +19,29 @@ namespace TianWen.Cli;
 
 /// <summary>Stretch selector for the stars-only plate (under
 /// <c>--dual-stretch</c>). <see cref="StarStretch"/> = Frank Sackenheim's
-/// fixed-curve "stars stretch" -- preserves star colour + shape, gentle
-/// on highlights, the default and almost always correct. <see cref="Mtf"/>
-/// = midtones-balance with <c>--stretch-stars-amount</c> reinterpreted as
-/// the target median. <see cref="Ghs"/> = full GHS chain with the
-/// <c>--ghs-*</c> family (rarely useful on stars; pinches cores).</summary>
-public enum StarStretchMode { StarStretch, Mtf, Ghs }
+/// fixed-curve stars stretch -- preserves star colour + shape, gentle
+/// on highlights, the historical default. <see cref="Asinh"/> = Siril-style
+/// hyperbolic-arcsin stretch driven by <c>--asinh-*</c> knobs; scales all
+/// channels by the same luma-derived factor so chrominance (star colour)
+/// is preserved by construction. MTF and GHS on stars were considered
+/// but dropped: GHS is undocumented for stars-only plates (per gh-astro.co.uk)
+/// and MTF on stars doesn't beat StarStretch.</summary>
+public enum StarStretchMode { StarStretch, Asinh }
 
 /// <summary>Stretch selector for the starless plate (under
 /// <c>--dual-stretch</c>). <see cref="Mtf"/> = midtones-balance with
 /// <c>--stretch-starless-median</c>, the historical default.
 /// <see cref="Ghs"/> = Cranfield's Generalised Hyperbolic Stretch chain
-/// driven by the <c>--ghs-*</c> family.</summary>
-public enum StarlessStretchMode { Mtf, Ghs }
+/// driven by the <c>--ghs-*</c> family. <see cref="Asinh"/> = Siril-style
+/// hyperbolic-arcsin stretch driven by <c>--asinh-*</c> knobs.</summary>
+public enum StarlessStretchMode { Mtf, Ghs, Asinh }
 
 /// <summary>Stretch selector for the single-plate (non-split) workflow.
 /// Active only when <c>--dual-stretch</c> is NOT set and no per-plate
 /// stretch flag was supplied. StarStretch is NOT a valid value here:
 /// it's a stars-only curve and makes no sense on a recombined or
 /// unsplit plate.</summary>
-public enum CombinedStretchMode { Mtf, Ghs }
+public enum CombinedStretchMode { Mtf, Ghs, Asinh }
 
 /// <summary>Selector for the <c>--ghs-converge</c> axis: whether to
 /// run <see cref="Image.ConvergeGhsStretchFactor"/> against the input
@@ -244,6 +247,21 @@ internal sealed class ImageSubCommand(
             Description = "Which post-stretch metric --ghs-converge=Auto bisects against. 'median' is the PixInsight STF default; 'mode' targets the bg peak (Paul / Polymath Astro's recipe -- lifts the histogram peak to ~0.25 instead of converging the median to it). Mode-target produces a visibly brighter result on typical linear astro frames because the median sits well above the mode (long signal tail). Default median for back-compat. Honoured only when --ghs-converge=Auto.",
             DefaultValueFactory = _ => Image.GhsConvergeTarget.Median,
         };
+        var asinhBetaOpt = new Option<double>("--asinh-beta")
+        {
+            Description = "Stretch strength for Siril-style asinh stretches (Siril's 'stretch' parameter). Range [1, 1000]. Larger = more aggressive lift. Honoured when any --*-stretch-mode=Asinh. Default 10 -- a moderate lift; linear stars-only plates usually want 10-50, already-stretched starless 3-10.",
+            DefaultValueFactory = _ => 10.0,
+        };
+        var asinhBlackPointOpt = new Option<double>("--asinh-black-point")
+        {
+            Description = "Black-point subtracted from each channel before the asinh-scaled output. 0 (default) is correct for stars-only plates (the bg has already been subtracted by RemoveStarsStep) or for any plate that's already been background-neutralised. Use the post-stretch bg peak when feeding data with a pedestal. Range [0, 1). Honoured when any --*-stretch-mode=Asinh.",
+            DefaultValueFactory = _ => 0.0,
+        };
+        var asinhLumaOpt = new Option<LumaWeighting>("--asinh-luma")
+        {
+            Description = "Luma weighting profile for the colour asinh formula. Rec.709 (default) matches the rest of the stretch pipeline. Rec.601 / Rec.2020 cover NTSC / wide-gamut workflows. SensorMatched resolves to per-sensor QE x CFA weights via FilterCurveDatabase. Honoured when any --*-stretch-mode=Asinh on a multi-channel image.",
+            DefaultValueFactory = _ => LumaWeighting.Rec709,
+        };
         var noReduceBgOpt = new Option<bool>("--no-reduce-bg")
         {
             Description = "Skip the S-curve background reduction on the starless plate. By default --dual-stretch applies a Compression=0.36 reduce-background curve (matches finished Affinity workflow control point at ~0.112,0.04).",
@@ -271,7 +289,7 @@ internal sealed class ImageSubCommand(
         var cmd = new Command("sharpen", "Full AI4 NAFNet sharpen pipeline: remove stars, sharpen the stars-only plate, deconvolve + denoise the starless plate, optional SCNR on stars, recombine.")
         {
             Arguments = { inputArg },
-            Options = { outputOpt, modeOpt, noStellarOpt, noDeconvOpt, noDenoiseOpt, noRecombineOpt, pngOpt, stellarBlendOpt, deconvBlendOpt, denoiseBlendOpt, denoiseVariantOpt, scnrOpt, scnrAmountOpt, dualStretchOpt, stretchStarsAmountOpt, stretchStarlessMedianOpt, starStretchModeOpt, starlessStretchModeOpt, stretchModeOpt, ghsConvergeOpt, ghsLnDOpt, ghsBOpt, ghsLpOpt, ghsHpOpt, ghsSpOpt, ghsPassesOpt, ghsStagesOpt, ghsAutoTargetValueOpt, ghsAutoTargetOpt, noReduceBgOpt, reduceBgCompressionOpt, noCompressHighlightsOpt, highlightKneeOpt, highlightAmountOpt },
+            Options = { outputOpt, modeOpt, noStellarOpt, noDeconvOpt, noDenoiseOpt, noRecombineOpt, pngOpt, stellarBlendOpt, deconvBlendOpt, denoiseBlendOpt, denoiseVariantOpt, scnrOpt, scnrAmountOpt, dualStretchOpt, stretchStarsAmountOpt, stretchStarlessMedianOpt, starStretchModeOpt, starlessStretchModeOpt, stretchModeOpt, ghsConvergeOpt, ghsLnDOpt, ghsBOpt, ghsLpOpt, ghsHpOpt, ghsSpOpt, ghsPassesOpt, ghsStagesOpt, ghsAutoTargetValueOpt, ghsAutoTargetOpt, asinhBetaOpt, asinhBlackPointOpt, asinhLumaOpt, noReduceBgOpt, reduceBgCompressionOpt, noCompressHighlightsOpt, highlightKneeOpt, highlightAmountOpt },
         };
         cmd.SetAction(async (parseResult, ct) =>
         {
@@ -368,20 +386,18 @@ internal sealed class ImageSubCommand(
             // MtfStretchFinalStep / GhsStretchFinalStep -- the step list
             // construction below adds the post-recombine stretch when
             // combinedModeExplicit is set.
-            if (starModeExplicit && starStretchMode != StarStretchMode.StarStretch)
-            {
-                // MTF / GHS on the stars plate would need new SharpenStep
-                // variants (MtfStretchStarsStep / GhsStretchStarsStep).
-                // StarStretch is the only stars-plate stretch wired today.
-                consoleHost.WriteError(
-                    $"--star-stretch-mode {starStretchMode} is not yet supported on the stars plate. Only 'starstretch' (Frank Sackenheim's fixed-curve, the default) is wired in v1.");
-                return 1;
-            }
+            // --star-stretch-mode StarStretch + Asinh are both wired; MTF/GHS
+            // were removed from the enum since gh-astro doesn't propose a GHS
+            // recipe for stars-only plates and MTF on stars doesn't beat
+            // StarStretch + LumaBlend.
             // GHS effective flags: starless-plate mode == ghs turns on the
             // GHS codepath. Manual vs auto convergence is the separate
             // --ghs-converge axis.
             var ghsStarless = starlessStretchMode == StarlessStretchMode.Ghs;
             var ghsAuto = ghsConverge == GhsConvergeMode.Auto;
+            var asinhBeta = Math.Clamp(parseResult.GetValue(asinhBetaOpt), 1.0, 1000.0);
+            var asinhBlackPoint = Math.Clamp(parseResult.GetValue(asinhBlackPointOpt), 0.0, 0.999);
+            var asinhLuma = parseResult.GetValue(asinhLumaOpt);
             var ghsLnD = Math.Max(0.0, parseResult.GetValue(ghsLnDOpt));
             // B is signed -- no clamp; the four-branch math handles any
             // finite double (B == -1, B < 0, B == 0, B > 0).
@@ -433,7 +449,19 @@ internal sealed class ImageSubCommand(
             // Per-plate stretch (linear -> stretched) AFTER all AI ops.
             if (dualStretch)
             {
-                steps.Add(new StretchStarsStep(Amount: starsAmount));
+                // Stars-plate selector: StarStretch (Frank's fixed curve)
+                // or Asinh (Siril's chrominance-preserving asinh).
+                if (starStretchMode == StarStretchMode.Asinh)
+                {
+                    steps.Add(new AsinhStretchStarsStep(
+                        Beta: asinhBeta,
+                        BlackPoint: asinhBlackPoint,
+                        LumaWeights: asinhLuma));
+                }
+                else
+                {
+                    steps.Add(new StretchStarsStep(Amount: starsAmount));
+                }
                 // Pick MTF or GHS for the starless plate based on --ghs-starless.
                 // GHS + --ghs-twopass: split bg-reduce between two GHS passes
                 // (Cranfield's canonical recipe -- gh-astro sections 2.7-2.9):
@@ -506,6 +534,14 @@ internal sealed class ImageSubCommand(
                             AutoTarget: ghsAutoTarget));
                     }
                 }
+                else if (starlessStretchMode == StarlessStretchMode.Asinh)
+                {
+                    steps.Add(new AsinhStretchStarlessStep(
+                        Beta: asinhBeta,
+                        BlackPoint: asinhBlackPoint,
+                        LumaWeights: asinhLuma));
+                    if (!noReduceBg) steps.Add(new BackgroundReduceStep(Compression: reduceBgCompression));
+                }
                 else
                 {
                     steps.Add(new StretchStarlessStep(TargetMedian: starlessMedian));
@@ -557,6 +593,13 @@ internal sealed class ImageSubCommand(
                         AutoConverge: ghsAuto,
                         AutoTargetValue: ghsAutoTargetValue,
                         AutoTarget: ghsAutoTarget));
+                }
+                else if (combinedModeExplicit && combinedStretchMode == CombinedStretchMode.Asinh)
+                {
+                    steps.Add(new AsinhStretchFinalStep(
+                        Beta: asinhBeta,
+                        BlackPoint: asinhBlackPoint,
+                        LumaWeights: asinhLuma));
                 }
             }
 

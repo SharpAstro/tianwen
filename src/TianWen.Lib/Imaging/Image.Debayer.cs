@@ -876,6 +876,12 @@ public partial class Image
 
         [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
         static float RgbToLuma(float r, float g, float b)
-            => MathF.FusedMultiplyAdd(0.2126f, r, MathF.FusedMultiplyAdd(0.7152f, g, 0.0722f * b));
+        {
+            // Hot-loop FMA form retained explicitly. Weights pulled from
+            // LumaWeighting.Rec709 (single source of truth) but written as
+            // a literal capture so the JIT folds them as constants.
+            var (wR, wG, wB) = LumaWeighting.Rec709.Weights;
+            return MathF.FusedMultiplyAdd(wR, r, MathF.FusedMultiplyAdd(wG, g, wB * b));
+        }
     }
 }

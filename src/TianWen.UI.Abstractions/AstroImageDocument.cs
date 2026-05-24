@@ -487,7 +487,7 @@ public sealed class AstroImageDocument
     {
         // Default luma weighting is Rec.709 — matches the previous hardcoded constants
         // and keeps existing callers (no lumaWeights argument) on the same numerical path.
-        var weights = lumaWeights ?? (0.2126f, 0.7152f, 0.0722f);
+        var weights = lumaWeights ?? LumaWeighting.Rec709.Weights;
 
         if (mode is StretchMode.None)
         {
@@ -761,7 +761,7 @@ public sealed class AstroImageDocument
                 if (starMask[y, x]) continue;
                 var r = image[0, y, x]; var g = image[1, y, x]; var b = image[2, y, x];
                 if (float.IsNaN(r) || float.IsNaN(g) || float.IsNaN(b)) continue;
-                yBuf[n] = 0.2126f * r + 0.7152f * g + 0.0722f * b;
+                yBuf[n] = LumaWeighting.Rec709.ToLuma(r, g, b);
                 sr[n] = r; sg[n] = g; sb[n] = b;
                 n++;
             }

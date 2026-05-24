@@ -271,4 +271,84 @@ public class ImageStretchPrimitivesTests
         var img = new Image([arr], BitDepth.Float32, maxValue: 1f, minValue: 0f, pedestal: 0f, default);
         img.EstimateRisingEdge().ShouldBe(0f);
     }
+
+    // --- AsinhStretch (Siril colour-aware asinh) ------------------------------
+
+    private static Image MakeRgbConstant(float r, float g, float b)
+    {
+        var rArr = new float[1, 1]; rArr[0, 0] = r;
+        var gArr = new float[1, 1]; gArr[0, 0] = g;
+        var bArr = new float[1, 1]; bArr[0, 0] = b;
+        return new Image([rArr, gArr, bArr], BitDepth.Float32, maxValue: 1f, minValue: 0f, pedestal: 0f, default);
+    }
+
+    [Fact]
+    public void AsinhStretch_PreservesChannelRatio_OnColourPixel()
+    {
+        // Core invariant from the docs: out_c = (in_c - bp) * scale, where scale
+        // depends only on luma. With bp = 0, ratios between channels are
+        // preserved by construction at any beta. A "blue star" stays blue.
+        var src = MakeRgbConstant(0.04f, 0.06f, 0.10f); // a blue-ish dim star
+        var stretched = src.AsinhStretch(beta: 50.0, blackPoint: 0.0);
+        var rOut = stretched[0, 0, 0];
+        var gOut = stretched[1, 0, 0];
+        var bOut = stretched[2, 0, 0];
+        // r:g:b = 4:6:10 should hold post-stretch. Use relative ratios with
+        // a tolerance that survives float imprecision in asinh.
+        (gOut / rOut).ShouldBe(0.06f / 0.04f, tolerance: 1e-4f);
+        (bOut / rOut).ShouldBe(0.10f / 0.04f, tolerance: 1e-4f);
+    }
+
+    [Fact]
+    public void AsinhStretch_LiftsDimValuesMore_OnMonoGradient()
+    {
+        // The asinh family's defining property: gradient is steepest at 0 and
+        // monotonically decreases. So pixels at x = 0.05 receive more relative
+        // lift than pixels at x = 0.5.
+        var src = MakeGradient(width: 256);
+        var stretched = src.AsinhStretch(beta: 10.0, blackPoint: 0.0);
+        // Sample a dim and a bright pixel, compare lift ratios.
+        var dimIn = src[0, 0, 51];      // ~0.2
+        var brightIn = src[0, 0, 230];   // ~0.9
+        var dimOut = stretched[0, 0, 51];
+        var brightOut = stretched[0, 0, 230];
+        var dimLift = dimOut / dimIn;
+        var brightLift = brightOut / brightIn;
+        dimLift.ShouldBeGreaterThan(brightLift);
+    }
+
+    [Fact]
+    public void AsinhStretch_EndpointsMonotonic()
+    {
+        // 0 -> 0 (modulo bp=0), 1 -> some saturated value < 1 (no clipping built-in;
+        // the curve plateaus toward 1 / asinh(beta) * asinh(beta) = 1 at x=1 when bp=0).
+        var src = MakeGradient(width: 256);
+        var stretched = src.AsinhStretch(beta: 10.0, blackPoint: 0.0);
+        stretched[0, 0, 0].ShouldBe(0f, tolerance: 1e-4f);
+        // Bright endpoint: at x=1, formula gives (1 - 0) * asinh(10) / (1 * asinh(10)) = 1.
+        stretched[0, 0, 255].ShouldBe(1f, tolerance: 1e-4f);
+        // Monotonicity along the ramp.
+        for (var x = 1; x < 256; x++)
+        {
+            stretched[0, 0, x].ShouldBeGreaterThanOrEqualTo(stretched[0, 0, x - 1]);
+        }
+    }
+
+    [Fact]
+    public void AsinhStretch_BlackPointShiftsZeroDown()
+    {
+        // bp=0.05 means pixels at value 0.05 should map to ~0 (modulo the scale
+        // applied to (in - bp)). At in=bp the (in - bp) term zeros, so out=0
+        // regardless of beta.
+        var src = MakeConstant(value: 0.05f);
+        var stretched = src.AsinhStretch(beta: 50.0, blackPoint: 0.05);
+        stretched[0, 0, 0].ShouldBe(0f, tolerance: 1e-5f);
+    }
+
+    [Fact]
+    public void AsinhStretch_RejectsBetaBelowOne()
+    {
+        var src = MakeGradient();
+        Should.Throw<ArgumentOutOfRangeException>(() => src.AsinhStretch(beta: 0.5));
+    }
 }
