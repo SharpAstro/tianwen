@@ -4,7 +4,6 @@ using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
-using SharpAstro.Color.Icc;
 using SharpAstro.Png;
 using TianWen.Lib.Astrometry;
 using TianWen.Lib.Astrometry.Catalogs;
@@ -86,6 +85,9 @@ public sealed class MasterPreviewRenderer(ICelestialObjectDB? catalogDb, ILogger
         Image? statsSource,
         string outputPath,
         WCS? statsWcs = null,
+        bool hdr10Pq = false,
+        float peakNits = 1000f,
+        bool gamutToBt2020 = true,
         CancellationToken ct = default)
     {
         SpccDiagnostics? spccDiagnostics = null;
@@ -265,9 +267,36 @@ public sealed class MasterPreviewRenderer(ICelestialObjectDB? catalogDb, ILogger
         {
             uniforms = uniforms with { BackgroundNeutralization = bg2 };
         }
-        var rgba = new byte[width * height * 4];
-        master.RenderStretchedRgba(uniforms, rgba);
-        var png = PngWriter.Encode(rgba, width, height, IccProfiles.SRgbV4.Span);
+        // 16-bit per channel via SharpAstro.Png 3.0's EncodeRgba16 path.
+        // 65,536 levels per channel eliminates the banding the 8-bit path
+        // produced on smooth nebula gradients (visible after MTF stretch).
+        //
+        // Colour signalling: PNG-3 cICP -- 4-byte chunk instead of an ICC
+        // profile. Default is {sRGB primaries, sRGB transfer, RGB, full
+        // range} for SDR display-referred output. When hdr10Pq=true, the
+        // rgba buffer is re-encoded to BT.2020+PQ via Bt2020Pq.EncodeInPlace
+        // and tagged with cICP Hdr10Pq -- modern browsers + HDR displays
+        // interpret it as actual HDR. peakNits sets the "1.0 stretched
+        // value -> X nits" mapping (default 1000 nits, cinema HDR10).
+        var rgba = new ushort[width * height * 4];
+        master.RenderStretchedRgba16(uniforms, rgba);
+        CicpChunk cicp;
+        if (hdr10Pq)
+        {
+            Bt2020Pq.EncodeInPlace(rgba, peakNits, gamutToBt2020);
+            // BT.2020 + PQ is canonical HDR10. sRGB-primaries + PQ is the
+            // "narrow-gamut HDR" variant (cICP {1, 16, 0, 1}) -- non-standard
+            // but valid PNG-3 / ICC v4.4 and avoids gamut-mismatch
+            // desaturation on consumer HDR pipelines that don't apply the
+            // inverse BT.2020-to-display matrix on output.
+            cicp = gamutToBt2020 ? CicpChunk.Hdr10Pq : CicpChunk.SrgbPq;
+        }
+        else
+        {
+            cicp = CicpChunk.Srgb;
+        }
+        var pngOpts = new PngWriteOptions { Cicp = cicp };
+        var png = PngWriter.EncodeRgba16(rgba, width, height, pngOpts);
         await File.WriteAllBytesAsync(outputPath, png, ct);
         logger.LogInformation("  wrote {Path} ({TotalMs} ms render+encode)",
             outputPath, renderSw.ElapsedMilliseconds);

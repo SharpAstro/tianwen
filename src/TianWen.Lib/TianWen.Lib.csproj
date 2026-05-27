@@ -169,6 +169,18 @@
     <PackageReference Include="SharpAstro.Exif" />
   </ItemGroup>
 
+  <!-- SharpAstro.Jxr: Image.WriteJxrAsync goes through JxrFileFormatter +
+       JxrEncoder + JxrContainer. Conditional ProjectReference picks up the
+       in-flight Windows Photo / WIC interop work (YCoCg + YUV444, IFD tags,
+       single-tile index table) before it ships to NuGet. CI / package
+       builds without the sibling fall through to PackageReference. -->
+  <ItemGroup Condition="'$(UseLocalSiblings)' == 'true'">
+    <ProjectReference Include="..\..\..\StbImageSharp\src\SharpAstro.Jxr\SharpAstro.Jxr.csproj" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(UseLocalSiblings)' != 'true'">
+    <PackageReference Include="SharpAstro.Jxr" />
+  </ItemGroup>
+
   <!-- DIR.Lib: TiffWriter + PngWriter on the production path (Image.Export.cs). -->
   <ItemGroup Condition="'$(UseLocalSiblings)' == 'true'">
     <ProjectReference Include="..\..\..\DIR.Lib\src\DIR.Lib\DIR.Lib.csproj" />

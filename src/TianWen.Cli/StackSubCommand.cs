@@ -75,9 +75,10 @@ internal sealed class StackSubCommand(
             Description = "Top-K brightest stars used for quad fingerprints during registration.",
             DefaultValueFactory = _ => 500,
         };
-        var noPngOpt = new Option<bool>("--no-png")
+        var formatOpt = new Option<ImageOutputFormat>("--output-format")
         {
-            Description = "Skip the PNG preview render (just emit master FITS + autocrop FITS).",
+            Description = "2D-viewer companion alongside master_*.fits + master_*_autocrop.fits. 'png' (default) = stretched 8-bit-per-channel RGBA via MasterPreviewRenderer (SPCC + WB + auto-stretch + sRGB ICC). 'jxr' = JPEG XR with float-true HDR pixels (BD32F mono / BD16F RGB) -- writes the master FITS verbatim with NO SPCC / stretch baked in; SPCC diagnostics are skipped for the JXR path. 'none' = no companion (just the FITS outputs). Windows Photos has no JXR codec; open .jxr in PixInsight / GIMP+plugin / Affinity / IrfanView+plugin.",
+            DefaultValueFactory = _ => ImageOutputFormat.Png,
         };
         var noPlateSolveOpt = new Option<bool>("--no-plate-solve")
         {
@@ -136,7 +137,7 @@ internal sealed class StackSubCommand(
                 outputOpt, groupFilterOpt, groupExcludeOpt, strategyOpt,
                 centroidDebayerOpt, stackDebayerOpt,
                 snrMinOpt, minStarsOpt, quadStarsOpt,
-                noPngOpt, noPlateSolveOpt,
+                formatOpt, noPlateSolveOpt,
                 drizzlePixfracOpt, drizzleMinFramesOpt,
                 splitByPierSideOpt, hotPixelSigmaOpt,
                 qualityRejectSigmaOpt, referenceFrameHintOpt,
@@ -204,7 +205,7 @@ internal sealed class StackSubCommand(
                 Enhance: enhanceArg,
                 EnhanceBlend: enhanceBlendArg);
 
-            var noPng = parseResult.GetValue(noPngOpt);
+            var format = parseResult.GetValue(formatOpt);
             var skipPlateSolve = parseResult.GetValue(noPlateSolveOpt);
 
             // Forward in-flight pipeline progress to the console. Per-group
@@ -271,7 +272,11 @@ internal sealed class StackSubCommand(
                 catalogDb: skipPlateSolve ? null : catalogDb,
                 progress: progress,
                 sharpenPipeline: options.Enhance ? sharpenPipeline : null);
-            var renderer = noPng ? null : new MasterPreviewRenderer(catalogDb, rendererLogger);
+            // Only the PNG path needs the renderer (SPCC + auto-stretch +
+            // sRGB ICC). JXR writes the master FITS verbatim via
+            // Image.WriteJxrAsync -- no SPCC, no stretch -- so the renderer
+            // is unused on that path. None of course needs neither.
+            var renderer = format == ImageOutputFormat.Png ? new MasterPreviewRenderer(catalogDb, rendererLogger) : null;
 
             var groupCount = 0;
             var integratedCount = 0;
@@ -287,6 +292,44 @@ internal sealed class StackSubCommand(
                 consoleHost.WriteScrollable(
                     $"[stack] {result.GroupSlug}: {result.FramesMatched}/{result.FramesAttempted} matched, " +
                     $"wrote {Path.GetFileName(result.MasterFitsPath)} in {result.Elapsed.TotalSeconds:F1}s");
+
+                // JXR companion path: short-circuit before the PNG renderer
+                // block. Both master + autocrop are written as float-true
+                // .jxr next to the FITS, no SPCC / stretch involved.
+                if (format == ImageOutputFormat.Jxr && result.MasterFitsPath is { } masterFitsForJxr)
+                {
+                    var autocropFitsForJxr = Path.Combine(
+                        Path.GetDirectoryName(masterFitsForJxr) ?? string.Empty,
+                        Path.GetFileNameWithoutExtension(masterFitsForJxr) + "_autocrop.fits");
+                    if (Image.TryReadFitsFile(masterFitsForJxr, out var masterImageForJxr, out _) && masterImageForJxr is not null)
+                    {
+                        try
+                        {
+                            var jxrPath = Path.ChangeExtension(masterFitsForJxr, ".jxr");
+                            await masterImageForJxr.WriteJxrAsync(jxrPath, DebayerAlgorithm.VNG, ct);
+                            consoleHost.WriteScrollable($"[stack] {result.GroupSlug}: wrote {Path.GetFileName(jxrPath)} (JXR HDR)");
+                        }
+                        catch (Exception ex)
+                        {
+                            consoleHost.WriteError($"[stack] {result.GroupSlug}: master JXR failed: {ex.Message}");
+                        }
+                    }
+                    if (File.Exists(autocropFitsForJxr)
+                        && Image.TryReadFitsFile(autocropFitsForJxr, out var cropImageForJxr, out _)
+                        && cropImageForJxr is not null)
+                    {
+                        try
+                        {
+                            var cropJxrPath = Path.ChangeExtension(autocropFitsForJxr, ".jxr");
+                            await cropImageForJxr.WriteJxrAsync(cropJxrPath, DebayerAlgorithm.VNG, ct);
+                            consoleHost.WriteScrollable($"[stack] {result.GroupSlug}: wrote {Path.GetFileName(cropJxrPath)} (JXR HDR)");
+                        }
+                        catch (Exception ex)
+                        {
+                            consoleHost.WriteError($"[stack] {result.GroupSlug}: autocrop JXR failed: {ex.Message}");
+                        }
+                    }
+                }
 
                 if (renderer is not null && result.Result is { } intResult && result.MasterFitsPath is { } masterPath)
                 {

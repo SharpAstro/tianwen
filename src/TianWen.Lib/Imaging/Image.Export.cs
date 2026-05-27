@@ -1,3 +1,4 @@
+using SharpAstro.Jxr;
 using SharpAstro.Tiff;
 using System;
 using System.IO;
@@ -82,5 +83,93 @@ public partial class Image
             Compression = TiffCompression.Deflate,
         }, cancellationToken);
         await writer.FlushAsync(cancellationToken);
+    }
+
+    /// <summary>
+    /// Writes the image to <paramref name="path"/> as a JPEG XR (T.832) file
+    /// with float-true HDR pixels. Bayer images are debayered first with
+    /// <paramref name="debayerAlgorithm"/>; mono / 3-channel images pass through.
+    ///
+    /// <para>The "HDR" promise is real precision <b>and</b> real dynamic range:</para>
+    /// <list type="bullet">
+    ///   <item><term>Mono</term><description><c>BD32F</c> — full IEEE single-precision
+    ///   float per pixel, encoded with <c>lenMantissa = 8</c>.</description></item>
+    ///   <item><term>RGB</term><description><c>BD16F</c> — 16-bit half-float
+    ///   per channel (~11-bit effective mantissa, full half-float exponent range
+    ///   ~6e-5 to 65,504). The T.832 container has no Table A.6 pixel-format GUID
+    ///   for BD32F RGB so half-float is the canonical RGB HDR shape.</description></item>
+    /// </list>
+    ///
+    /// <para><b>No normalisation</b> — values are written verbatim. Bright
+    /// star cores that overshoot <c>1.0</c> after MTF / asinh stretches (or
+    /// raw unscaled FITS data with values in the tens of thousands) are
+    /// preserved as written. Half-float clips at ~65,504; callers writing
+    /// raw FITS without prior normalisation should ensure that range fits
+    /// (it does for ushort FITS data: max 65,535 → 65,504 after Half cast,
+    /// a 0.05% loss at the very brightest pixels).</para>
+    ///
+    /// <para>Lossless quantisation (<c>dcQp = lpQp = hpQp = 1</c>) and no POT
+    /// (<c>overlapMode = 0</c>) give bit-exact round-trip via
+    /// <see cref="JxrFileFormatter"/> for BD32F, and as close to lossless as
+    /// half-float allows for BD16F.</para>
+    /// </summary>
+    public async Task WriteJxrAsync(string path, DebayerAlgorithm debayerAlgorithm = DebayerAlgorithm.VNG, CancellationToken cancellationToken = default)
+    {
+        Image source;
+        if (ImageMeta.SensorType is SensorType.RGGB)
+        {
+            if (debayerAlgorithm is DebayerAlgorithm.None)
+                throw new ArgumentException("Must specify a debayer algorithm for RGGB images", nameof(debayerAlgorithm));
+            source = await DebayerAsync(debayerAlgorithm, cancellationToken: cancellationToken);
+        }
+        else
+        {
+            source = this;
+        }
+
+        var (channelCount, width, height) = source.Shape;
+        // Drop alpha / extra channels — JXR output is mono (1) or RGB (3).
+        var outChannels = channelCount >= 3 ? 3 : 1;
+        var pixelCount = width * height;
+
+        byte[] jxrBytes;
+        if (outChannels == 1)
+        {
+            // BD32F grayscale: full float32 fidelity. Source values are
+            // written verbatim -- if the pipeline overshot 1.0 on bright
+            // cores, those magnitudes are preserved (HDR semantics).
+            var pixels = new float[pixelCount];
+            source.GetChannelSpan(0).CopyTo(pixels);
+            jxrBytes = JxrFileFormatter.SaveBd32FGrayscaleNoFlexbits(pixels, width, height);
+        }
+        else
+        {
+            // BD16F RGB: half-float interleaved. Order is RGBRGB... contig
+            // per JxrEncoder convention. (Half)x silently clips finite
+            // values above ~65,504 -- a non-issue for our pipeline (post-
+            // stretch peaks well below that) but noted for raw-FITS callers.
+            //
+            // useYUV444: true applies the T.832 §9.6.2.7 YCoCg-R reversible
+            // lifting pre-FCT and tags the codestream with
+            // InternalClrFmt=YUV444 + OutputClrFmt=NComponent. This is what
+            // Microsoft's WIC WMPhoto decoder accepts -- the default
+            // InternalClrFmt=Rgb path is rejected by Windows Photos. The
+            // colour transform is lossless (reversible lifting), so JXR
+            // round-trips are bit-exact via SharpAstro.Jxr's own decoder
+            // regardless of which path we picked.
+            var halfPixels = new Half[pixelCount * 3];
+            var r = source.GetChannelSpan(0);
+            var g = source.GetChannelSpan(1);
+            var b = source.GetChannelSpan(2);
+            for (var i = 0; i < pixelCount; i++)
+            {
+                halfPixels[i * 3 + 0] = (Half)r[i];
+                halfPixels[i * 3 + 1] = (Half)g[i];
+                halfPixels[i * 3 + 2] = (Half)b[i];
+            }
+            jxrBytes = JxrFileFormatter.SaveBd16FRgbNoFlexbits(halfPixels, width, height, useYUV444: true);
+        }
+
+        await File.WriteAllBytesAsync(path, jxrBytes, cancellationToken);
     }
 }

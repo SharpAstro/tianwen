@@ -1359,11 +1359,147 @@ public partial class Image
                 bOut *= u.NormalizeScale;
             }
 
+            // Gamut-preserving max-channel scale -- see comment on the
+            // 16-bit mirror RenderStretchedRgba16 below for the rationale.
+            var maxOut = MathF.Max(rOut, MathF.Max(gOut, bOut));
+            if (maxOut > 1f)
+            {
+                var s = 1f / maxOut;
+                rOut *= s; gOut *= s; bOut *= s;
+            }
             var o = i * 4;
-            rgba32[o] = (byte)(Math.Clamp(rOut, 0f, 1f) * 255f);
-            rgba32[o + 1] = (byte)(Math.Clamp(gOut, 0f, 1f) * 255f);
-            rgba32[o + 2] = (byte)(Math.Clamp(bOut, 0f, 1f) * 255f);
+            rgba32[o] = (byte)(MathF.Max(rOut, 0f) * 255f);
+            rgba32[o + 1] = (byte)(MathF.Max(gOut, 0f) * 255f);
+            rgba32[o + 2] = (byte)(MathF.Max(bOut, 0f) * 255f);
             rgba32[o + 3] = 255;
+        }
+    }
+
+    /// <summary>
+    /// 16-bit-per-channel mirror of <see cref="RenderStretchedRgba"/>. Same
+    /// stretch math, same per-pixel pipeline -- only the final quantisation
+    /// differs: <c>* 65535</c> into <see cref="ushort"/> instead of <c>* 255</c>
+    /// into <see cref="byte"/>. Used by <see cref="MasterPreviewRenderer"/>
+    /// and the dual-stretch companion writer to emit 16-bit PNG via
+    /// SharpAstro.Png 3.0's <c>PngWriter.EncodeRgba16</c>, which eliminates
+    /// the banding the 8-bit path produces on smooth nebula gradients
+    /// (256 levels -> 65,536 levels per channel).
+    /// </summary>
+    /// <param name="u">Stretch uniforms; same as <see cref="RenderStretchedRgba"/>.</param>
+    /// <param name="rgba64">Output buffer in host byte order, length = Width * Height * 4 (interleaved RGBA ushorts).
+    /// SharpAstro.Png handles the BE byte-swap PNG requires internally; callers pass host order.</param>
+    public void RenderStretchedRgba16(
+        in StretchUniforms u,
+        Span<ushort> rgba64,
+        float curvesBoost = 0f,
+        int curvesMode = 0,
+        ReadOnlySpan<float> curveLut = default,
+        float curvesMidpoint = 0.25f,
+        float hdrAmount = 0f,
+        float hdrKnee = 0.8f)
+    {
+        var (channelCount, width, height) = Shape;
+        var pixelCount = width * height;
+        if (rgba64.Length < pixelCount * 4)
+            throw new ArgumentException($"rgba64 length ({rgba64.Length}) too small for {width}x{height} ({pixelCount * 4} ushorts needed)", nameof(rgba64));
+
+        var isColor = channelCount >= 3;
+        var ch0 = GetChannelSpan(0);
+        var ch1 = isColor ? GetChannelSpan(1) : default;
+        var ch2 = isColor ? GetChannelSpan(2) : default;
+        var hasLut = curvesMode == 1 && !curveLut.IsEmpty;
+
+        for (var i = 0; i < pixelCount; i++)
+        {
+            float rOut, gOut, bOut;
+
+            if (isColor)
+            {
+                var rRaw = ch0[i];
+                var gRaw = ch1[i];
+                var bRaw = ch2[i];
+
+                if (u.Mode is StretchMode.Luma)
+                {
+                    var (rL, gL, bL) = StretchLumaPixelCpu(rRaw, gRaw, bRaw, u);
+                    if (u.LumaBlend < 1f)
+                    {
+                        var rLnk = StretchChannelCpu(rRaw, 0, u);
+                        var gLnk = StretchChannelCpu(gRaw, 1, u);
+                        var bLnk = StretchChannelCpu(bRaw, 2, u);
+                        var b = Math.Clamp(u.LumaBlend, 0f, 1f);
+                        var omb = 1f - b;
+                        rOut = omb * rLnk + b * rL;
+                        gOut = omb * gLnk + b * gL;
+                        bOut = omb * bLnk + b * bL;
+                    }
+                    else
+                    {
+                        rOut = rL; gOut = gL; bOut = bL;
+                    }
+                }
+                else if (u.Mode is StretchMode.None)
+                {
+                    rOut = rRaw; gOut = gRaw; bOut = bRaw;
+                }
+                else
+                {
+                    rOut = StretchChannelCpu(rRaw, 0, u);
+                    gOut = StretchChannelCpu(gRaw, 1, u);
+                    bOut = StretchChannelCpu(bRaw, 2, u);
+                }
+            }
+            else
+            {
+                var raw = ch0[i];
+                rOut = u.Mode is StretchMode.None ? raw : StretchChannelCpu(raw, 0, u);
+                gOut = bOut = rOut;
+            }
+
+            if (hasLut)
+            {
+                rOut = ApplyCurveLut(rOut, curveLut);
+                gOut = ApplyCurveLut(gOut, curveLut);
+                bOut = ApplyCurveLut(bOut, curveLut);
+            }
+            else if (curvesBoost > 0f)
+            {
+                rOut = ApplyBoost(rOut, curvesBoost, curvesMidpoint);
+                gOut = ApplyBoost(gOut, curvesBoost, curvesMidpoint);
+                bOut = ApplyBoost(bOut, curvesBoost, curvesMidpoint);
+            }
+
+            if (hdrAmount > 0f)
+            {
+                rOut = ApplyHdr(rOut, hdrAmount, hdrKnee);
+                gOut = ApplyHdr(gOut, hdrAmount, hdrKnee);
+                bOut = ApplyHdr(bOut, hdrAmount, hdrKnee);
+            }
+
+            if (u.NormalizeScale != 1f)
+            {
+                rOut *= u.NormalizeScale;
+                gOut *= u.NormalizeScale;
+                bOut *= u.NormalizeScale;
+            }
+
+            // Gamut-preserving max-channel scale before per-channel clamp:
+            // a saturated overshoot would otherwise hit one channel's ceiling
+            // first and skew the hue. Scaling all three by 1/max keeps the
+            // colour ratio (the pixel desaturates toward white instead of
+            // shifting hue). Negative values from float wobble get clamped
+            // to 0; max-scale only fires when at least one channel >1.
+            var maxOut = MathF.Max(rOut, MathF.Max(gOut, bOut));
+            if (maxOut > 1f)
+            {
+                var s = 1f / maxOut;
+                rOut *= s; gOut *= s; bOut *= s;
+            }
+            var o = i * 4;
+            rgba64[o] = (ushort)(MathF.Max(rOut, 0f) * 65535f);
+            rgba64[o + 1] = (ushort)(MathF.Max(gOut, 0f) * 65535f);
+            rgba64[o + 2] = (ushort)(MathF.Max(bOut, 0f) * 65535f);
+            rgba64[o + 3] = 65535;
         }
     }
 

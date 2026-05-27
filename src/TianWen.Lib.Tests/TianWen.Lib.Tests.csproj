@@ -52,18 +52,21 @@
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
     <PackageReference Include="xunit.v3" />
-    <!-- DisplayImageWriter uses SharpAstro.Png + SharpAstro.Color.Icc directly;
-         SharpAstro.Tiff arrives transitively via TianWen.Lib (which uses it in
-         Image.Import/Export). -->
-    <PackageReference Include="SharpAstro.Png" />
-    <PackageReference Include="SharpAstro.Color.Icc" />
   </ItemGroup>
 
+  <!-- DisplayImageWriter uses SharpAstro.Png + SharpAstro.Color.Icc directly;
+       SharpAstro.Tiff arrives transitively via TianWen.Lib (which uses it in
+       Image.Import/Export). Local-sibling check picks up the in-tree 3.1.x
+       sources during dev; CI / package builds fall through to PackageReference. -->
   <ItemGroup Condition="'$(UseLocalSiblings)' == 'true'">
     <ProjectReference Include="..\..\..\Console.Lib\src\Console.Lib\Console.Lib.csproj" />
+    <ProjectReference Include="..\..\..\StbImageSharp\src\SharpAstro.Png\SharpAstro.Png.csproj" />
+    <ProjectReference Include="..\..\..\StbImageSharp\src\SharpAstro.Color.Icc\SharpAstro.Color.Icc.csproj" />
   </ItemGroup>
   <ItemGroup Condition="'$(UseLocalSiblings)' != 'true'">
     <PackageReference Include="Console.Lib" />
+    <PackageReference Include="SharpAstro.Png" />
+    <PackageReference Include="SharpAstro.Color.Icc" />
   </ItemGroup>
 
   <ItemGroup>

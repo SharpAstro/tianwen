@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.CommandLine;
+using System.CommandLine.Parsing;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Threading;
@@ -51,6 +52,58 @@ public enum CombinedStretchMode { Mtf, Ghs, Asinh }
 /// <see cref="StarStretchMode"/> / <see cref="StarlessStretchMode"/> /
 /// <see cref="CombinedStretchMode"/>.</summary>
 public enum GhsConvergeMode { Auto, Manual }
+
+/// <summary>Container picked for the 2D-viewer companion file emitted next
+/// to FITS by the <c>image</c> + <c>stack</c> subcommands.
+/// <list type="bullet">
+///   <item><term><see cref="None"/></term><description>no companion is
+///   written; only the FITS output.</description></item>
+///   <item><term><see cref="Png"/></term><description>8-bit-per-channel
+///   RGBA via <see cref="MasterPreviewRenderer"/> -- SPCC + WB +
+///   auto-stretch + sRGB ICC are baked in. Smooth gradients can band
+///   against the limited bit-depth. Default for subcommands where a
+///   2D preview is the deliverable (<c>stack</c>, <c>image render</c>).</description></item>
+///   <item><term><see cref="PngPq"/></term><description>16-bit PNG with
+///   PNG-3 <c>cICP {9, 16, 0, 1}</c> = HDR10 (BT.2020 primaries + SMPTE
+///   ST 2084 PQ transfer). Samples are sRGB-EOTF'd, gamut-converted to
+///   BT.2020, scaled to <c>--png-pq-peak-nits</c> (default 1000), then
+///   PQ-encoded. Modern Chrome / Edge / Firefox / Safari display this
+///   as actual HDR on HDR monitors; SDR monitors tonemap it back.
+///   <b>Viewer note:</b> Windows 11 Photos opens the file but ignores
+///   the cICP HDR10 signalling -- the PQ-encoded samples are displayed
+///   as if they were sRGB, which makes the result look washed-out /
+///   muted (PQ allocates most code-value space to high luminance, so
+///   "scene white" lands around 0.45-0.75 in PQ code and naive
+///   display reads that as mid-grey). Affinity Photo honours cICP and
+///   shows the file correctly as HDR. Status of the cICP
+///   <c>{1, 16, 0, 1}</c> variant (sRGB primaries + PQ transfer,
+///   narrow-gamut HDR) on Windows is unverified.</description></item>
+///   <item><term><see cref="Jxr"/></term><description>JPEG XR (T.832)
+///   with float-true HDR pixels -- BD32F mono / BD16F RGB via
+///   <see cref="Image.WriteJxrAsync"/>; no banding because the file
+///   preserves the floating-point dynamic range. JXR mode skips the
+///   renderer's SPCC + stretch -- the file is the (post-pipeline) plate
+///   verbatim, suitable for downstream HDR-aware tools that don't want
+///   a baked-in tonemap. <b>Viewer note:</b> Windows Photos opens JXR
+///   when the codestream uses YCbCr 4:4:4 internal colour format; the
+///   current SharpAstro.Jxr writer emits NComponent (RGB) which Photos
+///   rejects. YUV 4:4:4 writer support is being added upstream.</description></item>
+/// </list></summary>
+public enum ImageOutputFormat { None, Png, PngPq, Jxr }
+
+/// <summary>
+/// Gamut for PNG-PQ output. <see cref="Srgb"/> (default) keeps the
+/// rendered samples in sRGB primaries and tags the file with cICP
+/// <c>{1, 16, 0, 1}</c> ("narrow-gamut HDR"): the PQ transfer is still
+/// applied so HDR-aware viewers expand luminance, but colour saturation
+/// stays at sRGB strength regardless of whether the viewer applies the
+/// BT.2020-to-display gamut tonemap correctly. <see cref="Bt2020"/>
+/// performs the canonical sRGB-to-BT.2020 matrix conversion and tags
+/// with cICP <c>{9, 16, 0, 1}</c> = HDR10 -- the spec-blessed signal
+/// for true HDR content but relies on the viewer to apply the inverse
+/// gamut matrix or colours look muted on consumer (sRGB / P3) displays.
+/// </summary>
+public enum PngPqGamut { Srgb, Bt2020 }
 
 /// <summary>
 /// <c>tianwen image &lt;verb&gt;</c> -- single-image enhancement + render
@@ -134,9 +187,21 @@ internal sealed class ImageSubCommand(
         {
             Description = "Don't recombine the processed plates. Each plate is written as a separate file (see --output).",
         };
-        var pngOpt = new Option<bool>("--png")
+        var formatOpt = new Option<ImageOutputFormat>("--output-format")
         {
-            Description = "Also write a stretched PNG preview alongside each output FITS (same render as 'tianwen stack' produces, so the sharpened result is visually comparable).",
+            Description = "2D-viewer companion file alongside each output FITS. 'none' (default) = FITS only. 'png' = 16-bit RGBA + cICP sRGB (SDR display-referred). 'png-pq' = 16-bit RGBA + cICP HDR10 (BT.2020 + PQ); Affinity Photo honours the cICP HDR signal and shows it correctly, but Windows 11 Photos ignores cICP and displays the PQ samples as sRGB (looks muted). 'jxr' = JPEG XR with float-true HDR pixels (BD32F mono / BD16F RGB); writes the post-pipeline plate verbatim, skips Reinhard highlight knee so >1.0 overshoots survive. Per-plate dual-stretch float TIFFs are unaffected.",
+            DefaultValueFactory = _ => ImageOutputFormat.None,
+            CustomParser = ParseOutputFormat,
+        };
+        var pngPqPeakNitsOpt = new Option<float>("--png-pq-peak-nits")
+        {
+            Description = "Peak display luminance assigned to stretched value 1.0 in HDR10 PQ output (--output-format png-pq). Cinema HDR10 typically grades at 1000; ITU-R BT.2408 reference white is 203; premium HDR targets 4000. Range (0, 10000]. Default 1000.",
+            DefaultValueFactory = _ => 1000f,
+        };
+        var pngPqGamutOpt = new Option<PngPqGamut>("--png-pq-gamut")
+        {
+            Description = "Colour primaries for PNG-PQ output. 'srgb' (default) skips the BT.2020 gamut matrix; cICP {1, 16, 0, 1} tells viewers 'sRGB primaries, PQ transfer' so colours stay at sRGB saturation regardless of whether the viewer correctly inverts BT.2020-to-display. 'bt2020' performs the canonical sRGB-to-BT.2020 matrix conversion and tags cICP {9, 16, 0, 1} (HDR10 canonical) -- correct per spec but consumer viewers that skip the inverse gamut tonemap render this muted.",
+            DefaultValueFactory = _ => PngPqGamut.Srgb,
         };
         var stellarBlendOpt = new Option<float>("--stellar-blend")
         {
@@ -289,7 +354,7 @@ internal sealed class ImageSubCommand(
         var cmd = new Command("sharpen", "Full AI4 NAFNet sharpen pipeline: remove stars, sharpen the stars-only plate, deconvolve + denoise the starless plate, optional SCNR on stars, recombine.")
         {
             Arguments = { inputArg },
-            Options = { outputOpt, modeOpt, noStellarOpt, noDeconvOpt, noDenoiseOpt, noRecombineOpt, pngOpt, stellarBlendOpt, deconvBlendOpt, denoiseBlendOpt, denoiseVariantOpt, scnrOpt, scnrAmountOpt, dualStretchOpt, stretchStarsAmountOpt, stretchStarlessMedianOpt, starStretchModeOpt, starlessStretchModeOpt, stretchModeOpt, ghsConvergeOpt, ghsLnDOpt, ghsBOpt, ghsLpOpt, ghsHpOpt, ghsSpOpt, ghsPassesOpt, ghsStagesOpt, ghsAutoTargetValueOpt, ghsAutoTargetOpt, asinhBetaOpt, asinhBlackPointOpt, asinhLumaOpt, noReduceBgOpt, reduceBgCompressionOpt, noCompressHighlightsOpt, highlightKneeOpt, highlightAmountOpt },
+            Options = { outputOpt, modeOpt, noStellarOpt, noDeconvOpt, noDenoiseOpt, noRecombineOpt, formatOpt, pngPqPeakNitsOpt, pngPqGamutOpt, stellarBlendOpt, deconvBlendOpt, denoiseBlendOpt, denoiseVariantOpt, scnrOpt, scnrAmountOpt, dualStretchOpt, stretchStarsAmountOpt, stretchStarlessMedianOpt, starStretchModeOpt, starlessStretchModeOpt, stretchModeOpt, ghsConvergeOpt, ghsLnDOpt, ghsBOpt, ghsLpOpt, ghsHpOpt, ghsSpOpt, ghsPassesOpt, ghsStagesOpt, ghsAutoTargetValueOpt, ghsAutoTargetOpt, asinhBetaOpt, asinhBlackPointOpt, asinhLumaOpt, noReduceBgOpt, reduceBgCompressionOpt, noCompressHighlightsOpt, highlightKneeOpt, highlightAmountOpt },
         };
         cmd.SetAction(async (parseResult, ct) =>
         {
@@ -336,6 +401,15 @@ internal sealed class ImageSubCommand(
                 return 1;
             }
             var scnrAmount = Math.Clamp(parseResult.GetValue(scnrAmountOpt), 0f, 1f);
+            // Output format is read up-front because the step-list
+            // construction below conditions on it: JXR opts the pipeline
+            // into true-HDR semantics (skip the Reinhard highlight knee
+            // so >1.0 cores are preserved instead of being compressed
+            // back into [0, 1]).
+            var format = parseResult.GetValue(formatOpt);
+            var pngPqPeakNits = Math.Clamp(parseResult.GetValue(pngPqPeakNitsOpt), 1f, 10000f);
+            var pngPqGamut = parseResult.GetValue(pngPqGamutOpt);
+            var gamutToBt2020 = pngPqGamut == PngPqGamut.Bt2020;
             var denoiseVariantStr = (parseResult.GetValue(denoiseVariantOpt) ?? "default").ToLowerInvariant();
             DenoiseVariant denoiseVariant = denoiseVariantStr switch
             {
@@ -554,7 +628,22 @@ internal sealed class ImageSubCommand(
                 // blowing out after the dual-stretch. Asymmetric companion
                 // to the bg-reduce step; together they reproduce the SAS Pro
                 // statistical-stretch shape.
-                if (!noCompressHighlights) steps.Add(new CompressHighlightsStep(Knee: highlightKnee, Amount: highlightAmount));
+                // Skip Reinhard for any HDR-preserving output format. Reinhard's
+                // whole purpose is to bring >1.0 cores back into [0, 1] for SDR
+                // display, which defeats HDR intent for both:
+                //   * Jxr  -- float container, preserves overshoots verbatim
+                //   * PngPq -- 16-bit PQ-coded PNG; the high-luminance PQ codes
+                //              expand the [0, 1] PQ-input range across the
+                //              perceptual brightness curve, so a bright core
+                //              landing at the PQ peak displays at HDR-peak nits.
+                //              Reinhard would compress that back into the same
+                //              SDR-ish range as the plain Png path.
+                // The gamut-preserving max-channel scale in the float-to-ushort
+                // quantizers (WriteStretchedPngAsync / RenderStretchedRgba* )
+                // catches the overshoots without per-channel hue-skew.
+                var isHdrFormat = format == ImageOutputFormat.Jxr || format == ImageOutputFormat.PngPq;
+                if (!noCompressHighlights && !isHdrFormat)
+                    steps.Add(new CompressHighlightsStep(Knee: highlightKnee, Amount: highlightAmount));
             }
             // SCNR AFTER the stretch -- PixInsight convention. Green stars
             // are a stretched-space artefact (faint noise floor amplified
@@ -652,38 +741,30 @@ internal sealed class ImageSubCommand(
                 return 2;
             }
 
-            var withPng = parseResult.GetValue(pngOpt);
 
             if (noRecombine)
             {
                 // Per-plate output: derive each path from the explicit output (if
                 // any) or from the input. Skip plates that weren't produced.
                 var basePath = outputPath ?? StripExtension(input);
-                await WritePlateAsync(result.Starless, basePath, "_starless", wcs, src.ImageMeta, withPng, ct);
-                await WritePlateAsync(result.StarsOnly, basePath, "_stars", wcs, src.ImageMeta, withPng, ct);
-                await WritePlateAsync(result.SharpenedStars, basePath, "_sharpened-stars", wcs, src.ImageMeta, withPng, ct);
-                await WritePlateAsync(result.DeconvolvedStarless, basePath, "_deconvolved-starless", wcs, src.ImageMeta, withPng, ct);
-                await WritePlateAsync(result.DenoisedStarless, basePath, "_denoised-starless", wcs, src.ImageMeta, withPng, ct);
+                await WritePlateAsync(result.Starless, basePath, "_starless", wcs, src.ImageMeta, format, pngPqPeakNits, gamutToBt2020, ct);
+                await WritePlateAsync(result.StarsOnly, basePath, "_stars", wcs, src.ImageMeta, format, pngPqPeakNits, gamutToBt2020, ct);
+                await WritePlateAsync(result.SharpenedStars, basePath, "_sharpened-stars", wcs, src.ImageMeta, format, pngPqPeakNits, gamutToBt2020, ct);
+                await WritePlateAsync(result.DeconvolvedStarless, basePath, "_deconvolved-starless", wcs, src.ImageMeta, format, pngPqPeakNits, gamutToBt2020, ct);
+                await WritePlateAsync(result.DenoisedStarless, basePath, "_denoised-starless", wcs, src.ImageMeta, format, pngPqPeakNits, gamutToBt2020, ct);
             }
             else if (result.Final is { } finalImage)
             {
-                var dst = outputPath ?? DefaultOut(input, "_sharpened");
+                var dst = EnsureFitsExtension(outputPath ?? DefaultOut(input, "_sharpened"));
                 finalImage.WriteToFitsFile(dst, wcs);
                 consoleHost.WriteScrollable($"[sharpen] wrote {dst}");
-                if (withPng)
-                {
-                    // For dual-stretch: composite is already in stretched
-                    // [0, 1] space (per-plate MTF + screen recombine), so
-                    // running MasterPreviewRenderer would auto-MTF again
-                    // (double-stretch). Just byte-encode + sRGB tag. For
-                    // the non-dual-stretch path, fall through to the
-                    // existing renderer which does the single auto-stretch.
-                    var pngPath = ReplaceExtension(dst, ".png");
-                    if (dualStretch)
-                        await WriteStretchedPngAsync(finalImage, pngPath, ct);
-                    else
-                        await RenderPngAsync(finalImage, src.ImageMeta, wcs, pngPath, ct);
-                }
+                // For dual-stretch: composite is already in stretched [0, 1]
+                // space (per-plate MTF + screen recombine), so MasterPreviewRenderer
+                // would auto-MTF again (double-stretch). useStretchedPng = true
+                // takes the byte-encode path instead. JXR ignores the flag and
+                // always preserves floats verbatim.
+                await WriteCompanionAsync(finalImage, dst, format, src.ImageMeta, wcs, "sharpen",
+                    useStretchedPng: dualStretch, peakNits: pngPqPeakNits, gamutToBt2020: gamutToBt2020, ct: ct);
             }
 
             // Dual-stretch: also write per-plate stretched float TIFFs for
@@ -741,15 +822,27 @@ internal sealed class ImageSubCommand(
             Description = "Output FITS path. Default: <input>_starless.fits.",
         };
 
-        var pngOpt = new Option<bool>("--png")
+        var formatOpt = new Option<ImageOutputFormat>("--output-format")
         {
-            Description = "Also write a stretched PNG preview alongside the FITS output.",
+            Description = "2D-viewer companion file alongside the FITS output. 'none' (default) = no companion. 'png' = 16-bit RGBA + cICP sRGB (SDR). 'png-pq' = 16-bit RGBA + cICP HDR10 PQ (HDR display). 'jxr' = JPEG XR with float-true HDR pixels.",
+            DefaultValueFactory = _ => ImageOutputFormat.None,
+            CustomParser = ParseOutputFormat,
+        };
+        var pngPqPeakNitsOpt = new Option<float>("--png-pq-peak-nits")
+        {
+            Description = "Peak luminance for HDR PQ output (--output-format png-pq). Range (0, 10000]. Default 1000.",
+            DefaultValueFactory = _ => 1000f,
+        };
+        var pngPqGamutOpt = new Option<PngPqGamut>("--png-pq-gamut")
+        {
+            Description = "Colour primaries for HDR PQ output (--output-format png-pq). 'srgb' (default) keeps sRGB primaries, cICP {1, 16, 0, 1}. 'bt2020' applies sRGB-to-BT.2020 matrix, cICP {9, 16, 0, 1} = canonical HDR10.",
+            DefaultValueFactory = _ => PngPqGamut.Srgb,
         };
 
         var cmd = new Command("remove-stars", "AI4 NAFNet star removal only. Produces a starless export.")
         {
             Arguments = { inputArg },
-            Options = { outputOpt, pngOpt },
+            Options = { outputOpt, formatOpt, pngPqPeakNitsOpt, pngPqGamutOpt },
         };
         cmd.SetAction(async (parseResult, ct) =>
         {
@@ -782,13 +875,14 @@ internal sealed class ImageSubCommand(
                 return 2;
             }
 
-            var dst = parseResult.GetValue(outputOpt) ?? DefaultOut(input, "_starless");
+            var dst = EnsureFitsExtension(parseResult.GetValue(outputOpt) ?? DefaultOut(input, "_starless"));
             starless.WriteToFitsFile(dst, wcs);
             consoleHost.WriteScrollable($"[remove-stars] wrote {dst}");
-            if (parseResult.GetValue(pngOpt))
-            {
-                await RenderPngAsync(starless, src.ImageMeta, wcs, ReplaceExtension(dst, ".png"), ct);
-            }
+            var format = parseResult.GetValue(formatOpt);
+            var peakNits = Math.Clamp(parseResult.GetValue(pngPqPeakNitsOpt), 1f, 10000f);
+            var gamutToBt2020 = parseResult.GetValue(pngPqGamutOpt) == PngPqGamut.Bt2020;
+            await WriteCompanionAsync(starless, dst, format, src.ImageMeta, wcs, "remove-stars",
+                useStretchedPng: false, peakNits: peakNits, gamutToBt2020: gamutToBt2020, ct: ct);
             starless.Release();
             return 0;
         });
@@ -807,9 +901,21 @@ internal sealed class ImageSubCommand(
         {
             Description = "Output FITS path. Default: <input>_flattened.fits.",
         };
-        var pngOpt = new Option<bool>("--png")
+        var formatOpt = new Option<ImageOutputFormat>("--output-format")
         {
-            Description = "Also write a stretched PNG preview alongside the FITS output.",
+            Description = "2D-viewer companion file alongside the FITS output. 'none' (default) = no companion. 'png' = 16-bit cICP sRGB (SDR). 'png-pq' = 16-bit cICP HDR10 PQ. 'jxr' = float-true HDR. The --save-gradient surface PNG is unaffected -- it stays PNG (min-max contrast visualisation, not banding-sensitive).",
+            DefaultValueFactory = _ => ImageOutputFormat.None,
+            CustomParser = ParseOutputFormat,
+        };
+        var pngPqPeakNitsOpt = new Option<float>("--png-pq-peak-nits")
+        {
+            Description = "Peak luminance for HDR PQ output (--output-format png-pq). Range (0, 10000]. Default 1000.",
+            DefaultValueFactory = _ => 1000f,
+        };
+        var pngPqGamutOpt = new Option<PngPqGamut>("--png-pq-gamut")
+        {
+            Description = "Colour primaries for HDR PQ output. 'srgb' (default) keeps sRGB primaries; 'bt2020' applies sRGB-to-BT.2020 matrix = canonical HDR10.",
+            DefaultValueFactory = _ => PngPqGamut.Srgb,
         };
         var saveGradientOpt = new Option<bool>("--save-gradient")
         {
@@ -823,7 +929,7 @@ internal sealed class ImageSubCommand(
             "BGE model materialised via tools/tianwen-ai-models-fetch.ps1.")
         {
             Arguments = { inputArg },
-            Options = { outputOpt, pngOpt, saveGradientOpt },
+            Options = { outputOpt, formatOpt, pngPqPeakNitsOpt, pngPqGamutOpt, saveGradientOpt },
         };
         cmd.SetAction(async (parseResult, ct) =>
         {
@@ -840,7 +946,9 @@ internal sealed class ImageSubCommand(
                 return 1;
             }
             var normalised = src.ScaleFloatValuesToUnit();
-            var withPng = parseResult.GetValue(pngOpt);
+            var format = parseResult.GetValue(formatOpt);
+            var peakNits = Math.Clamp(parseResult.GetValue(pngPqPeakNitsOpt), 1f, 10000f);
+            var gamutToBt2020 = parseResult.GetValue(pngPqGamutOpt) == PngPqGamut.Bt2020;
             var saveGradient = parseResult.GetValue(saveGradientOpt);
 
             consoleHost.WriteScrollable(
@@ -866,13 +974,11 @@ internal sealed class ImageSubCommand(
                 return 2;
             }
 
-            var dst = parseResult.GetValue(outputOpt) ?? DefaultOut(input, "_flattened");
+            var dst = EnsureFitsExtension(parseResult.GetValue(outputOpt) ?? DefaultOut(input, "_flattened"));
             flattened.WriteToFitsFile(dst, wcs);
             consoleHost.WriteScrollable($"[flatten] wrote {dst}");
-            if (withPng)
-            {
-                await RenderPngAsync(flattened, src.ImageMeta, wcs, ReplaceExtension(dst, ".png"), ct);
-            }
+            await WriteCompanionAsync(flattened, dst, format, src.ImageMeta, wcs, "flatten",
+                useStretchedPng: false, peakNits: peakNits, gamutToBt2020: gamutToBt2020, ct: ct);
             if (saveGradient)
             {
                 if (background is null)
@@ -888,7 +994,7 @@ internal sealed class ImageSubCommand(
                     var gradientDst = ReplaceExtension(dst, "_gradient.fits");
                     background.WriteToFitsFile(gradientDst, wcs);
                     consoleHost.WriteScrollable($"[flatten] wrote {gradientDst}");
-                    if (withPng)
+                    if (format != ImageOutputFormat.None)
                     {
                         // Min-max contrast stretch -- the gradient is a smooth
                         // low-amplitude surface, MasterPreviewRenderer's
@@ -896,7 +1002,9 @@ internal sealed class ImageSubCommand(
                         // we want to see. Logs per-channel amplitude so the
                         // operator can tell whether the model thinks there
                         // IS a gradient (informative output) or whether it
-                        // settled on essentially uniform (suspicious).
+                        // settled on essentially uniform (suspicious). Always
+                        // PNG -- contrast-stretch viz isn't banding-sensitive,
+                        // a 30 MB JXR of a smooth gradient is pointless.
                         await WriteContrastStretchedPngAsync(background, ReplaceExtension(gradientDst, ".png"), "gradient", ct);
                     }
                     background.Release();
@@ -914,17 +1022,33 @@ internal sealed class ImageSubCommand(
     {
         var inputArg = new Argument<string>("input")
         {
-            Description = "FITS file to render to PNG.",
+            Description = "FITS file to render.",
         };
         var outputOpt = new Option<string?>("--output", "-o")
         {
-            Description = "Output PNG path. Default: <input>.png.",
+            Description = "Output path. Default: <input>.png (or <input>.jxr when --output-format=jxr).",
+        };
+        var formatOpt = new Option<ImageOutputFormat>("--output-format")
+        {
+            Description = "Output container. 'png' (default) = 16-bit RGBA + cICP sRGB via MasterPreviewRenderer (SPCC + sky-bg WB + bg-neut + stretch). 'png-pq' = 16-bit RGBA + cICP HDR10 PQ (BT.2020 + SMPTE 2084); modern browsers / HDR displays render as actual HDR at --png-pq-peak-nits peak. 'jxr' = JPEG XR with float-true HDR pixels (BD32F mono / BD16F RGB); writes the input verbatim, NO SPCC / WB / stretch.",
+            DefaultValueFactory = _ => ImageOutputFormat.Png,
+            CustomParser = ParseOutputFormat,
+        };
+        var pngPqPeakNitsOpt = new Option<float>("--png-pq-peak-nits")
+        {
+            Description = "Peak luminance for HDR PQ output (--output-format png-pq). Range (0, 10000]. Default 1000.",
+            DefaultValueFactory = _ => 1000f,
+        };
+        var pngPqGamutOpt = new Option<PngPqGamut>("--png-pq-gamut")
+        {
+            Description = "Colour primaries for HDR PQ output. 'srgb' (default) = cICP {1, 16, 0, 1}; 'bt2020' = canonical HDR10 cICP {9, 16, 0, 1}.",
+            DefaultValueFactory = _ => PngPqGamut.Srgb,
         };
 
-        var cmd = new Command("render", "Render a FITS file to a stretched PNG using the same renderer as 'tianwen stack' (SPCC + sky-bg WB + bg-neut + stretch + sRGB ICC).")
+        var cmd = new Command("render", "Render a FITS file to a stretched PNG (default), HDR PQ PNG (--output-format png-pq), or float-true HDR JPEG XR (--output-format jxr).")
         {
             Arguments = { inputArg },
-            Options = { outputOpt },
+            Options = { outputOpt, formatOpt, pngPqPeakNitsOpt, pngPqGamutOpt },
         };
         cmd.SetAction(async (parseResult, ct) =>
         {
@@ -939,10 +1063,28 @@ internal sealed class ImageSubCommand(
                 consoleHost.WriteError($"Failed to read FITS file: {input}");
                 return 1;
             }
-            var dst = parseResult.GetValue(outputOpt) ?? ReplaceExtension(input, ".png");
+            var format = parseResult.GetValue(formatOpt);
+            if (format == ImageOutputFormat.None)
+            {
+                // `render`'s whole purpose is to produce a viewer file --
+                // None is nonsensical here (it'd silently no-op). Sharpen /
+                // remove-stars / flatten accept None because they have a
+                // FITS primary output; render does not.
+                consoleHost.WriteError("--output-format=none is invalid for `image render` (it would produce no output).");
+                return 1;
+            }
+            // `render` writes the chosen format AS the primary output; passing
+            // primaryPath = dst means ReplaceExtension is a no-op when the
+            // extension already matches. ImageOutputFormat.None was rejected
+            // above, so this always emits one file.
+            var dst = parseResult.GetValue(outputOpt) ?? ReplaceExtension(input, ExtensionFor(format));
             consoleHost.WriteScrollable(
-                $"[render] {input} {src.Width}x{src.Height}x{src.ChannelCount} -> {dst}");
-            await RenderPngAsync(src, src.ImageMeta, wcs, dst, ct);
+                $"[render] {input} {src.Width}x{src.Height}x{src.ChannelCount} -> {dst} ({format.ToString().ToLowerInvariant()})");
+            await WriteCompanionAsync(src, dst, format, src.ImageMeta, wcs, "render",
+                useStretchedPng: false,
+                peakNits: Math.Clamp(parseResult.GetValue(pngPqPeakNitsOpt), 1f, 10000f),
+                gamutToBt2020: parseResult.GetValue(pngPqGamutOpt) == PngPqGamut.Bt2020,
+                ct: ct);
             return 0;
         });
         return cmd;
@@ -1098,10 +1240,12 @@ internal sealed class ImageSubCommand(
 
     /// <summary>
     /// Write a plate to <c>basePath + suffix + ".fits"</c>, optionally followed
-    /// by a same-stem PNG via <see cref="RenderPngAsync"/>. Used for both the
-    /// recombined output and the per-plate exports from <c>--no-recombine</c>.
+    /// by a same-stem 2D-viewer companion picked by <paramref name="format"/>.
+    /// Used for both the recombined output and the per-plate exports from
+    /// <c>--no-recombine</c>. Companion dispatch is delegated to
+    /// <see cref="WriteCompanionAsync"/>.
     /// </summary>
-    private async Task WritePlateAsync(Image? plate, string basePath, string suffix, WCS? wcs, ImageMeta sensorMeta, bool withPng, CancellationToken ct)
+    private async Task WritePlateAsync(Image? plate, string basePath, string suffix, WCS? wcs, ImageMeta sensorMeta, ImageOutputFormat format, float peakNits, bool gamutToBt2020, CancellationToken ct)
     {
         if (plate is null) return;
         var path = basePath.EndsWith(".fits", StringComparison.OrdinalIgnoreCase)
@@ -1109,7 +1253,77 @@ internal sealed class ImageSubCommand(
             : basePath + suffix + ".fits";
         plate.WriteToFitsFile(path, wcs);
         consoleHost.WriteScrollable($"[sharpen] wrote {path}");
-        if (withPng) await RenderPngAsync(plate, sensorMeta, wcs, ReplaceExtension(path, ".png"), ct);
+        await WriteCompanionAsync(plate, path, format, sensorMeta, wcs, "sharpen",
+            useStretchedPng: false, peakNits: peakNits, gamutToBt2020: gamutToBt2020, ct: ct);
+    }
+
+    /// <summary>File extension (with leading dot) for the chosen companion format.</summary>
+    private static string ExtensionFor(ImageOutputFormat format) => format switch
+    {
+        ImageOutputFormat.Jxr => ".jxr",
+        // PngPq stays .png -- it's a standard PNG file with cICP HDR10 signaling,
+        // not a different container. Tools that don't honour cICP fall back to
+        // SDR display via the PNG bit-depth alone.
+        _ => ".png",
+    };
+
+    /// <summary>
+    /// Single dispatch point for companion files. Callers pass the FITS
+    /// primary path (extension is swapped here) plus the chosen
+    /// <paramref name="format"/>; the routing between PNG renderer, JXR
+    /// float writer, dual-stretch byte-PNG, and "no companion" lives in
+    /// one place so subcommands don't open-code the same switch four times.
+    /// </summary>
+    /// <param name="useStretchedPng">When <c>true</c> and
+    /// <paramref name="format"/> is <see cref="ImageOutputFormat.Png"/> or
+    /// <see cref="ImageOutputFormat.PngPq"/>, the byte-encode path is used
+    /// (assumes the image is already in stretched <c>[0, 1]</c> space).
+    /// Used by the sharpen + dual-stretch flow to avoid double-stretching
+    /// via <see cref="MasterPreviewRenderer"/>. Ignored for JXR.</param>
+    /// <param name="peakNits">Peak display luminance for the HDR10 PQ
+    /// encoding when format is <see cref="ImageOutputFormat.PngPq"/>.
+    /// Ignored for other formats.</param>
+    /// <param name="gamutToBt2020">When PNG-PQ is selected, controls
+    /// whether the sRGB-to-BT.2020 gamut matrix is applied (true,
+    /// canonical HDR10) or skipped (false, narrow-gamut sRGB+PQ).
+    /// Ignored for other formats.</param>
+    private async Task WriteCompanionAsync(
+        Image image, string primaryPath, ImageOutputFormat format,
+        ImageMeta sensorMeta, WCS? wcs, string tag,
+        bool useStretchedPng,
+        float peakNits,
+        bool gamutToBt2020,
+        CancellationToken ct)
+    {
+        if (format == ImageOutputFormat.None) return;
+        var path = ReplaceExtension(primaryPath, ExtensionFor(format));
+        switch (format)
+        {
+            case ImageOutputFormat.Jxr:
+                try
+                {
+                    await image.WriteJxrAsync(path, DebayerAlgorithm.VNG, ct);
+                    consoleHost.WriteScrollable($"[{tag}] wrote {path} (JXR HDR)");
+                }
+                catch (Exception ex)
+                {
+                    consoleHost.WriteError($"JXR write failed for {path}: {ex.Message}");
+                    logger?.LogError(ex, "JXR write failed for {Path}", path);
+                }
+                break;
+            case ImageOutputFormat.Png when useStretchedPng:
+                await WriteStretchedPngAsync(image, path, hdr10Pq: false, peakNits, gamutToBt2020, ct);
+                break;
+            case ImageOutputFormat.PngPq when useStretchedPng:
+                await WriteStretchedPngAsync(image, path, hdr10Pq: true, peakNits, gamutToBt2020, ct);
+                break;
+            case ImageOutputFormat.Png:
+                await RenderPngAsync(image, sensorMeta, wcs, path, hdr10Pq: false, peakNits, gamutToBt2020, ct);
+                break;
+            case ImageOutputFormat.PngPq:
+                await RenderPngAsync(image, sensorMeta, wcs, path, hdr10Pq: true, peakNits, gamutToBt2020, ct);
+                break;
+        }
     }
 
     /// <summary>
@@ -1118,12 +1332,16 @@ internal sealed class ImageSubCommand(
     /// <paramref name="img"/>. SPCC is computed at render time and only
     /// baked into the PNG; the source FITS stays untouched.
     /// </summary>
-    private async Task RenderPngAsync(Image img, ImageMeta sensorMeta, WCS? wcs, string pngPath, CancellationToken ct)
+    private async Task RenderPngAsync(Image img, ImageMeta sensorMeta, WCS? wcs, string pngPath, bool hdr10Pq, float peakNits, bool gamutToBt2020, CancellationToken ct)
     {
         try
         {
-            await previewRenderer.RenderAsync(img, sensorMeta, wcs, statsSource: null, pngPath, ct: ct);
-            consoleHost.WriteScrollable($"[render] wrote {pngPath}");
+            await previewRenderer.RenderAsync(img, sensorMeta, wcs, statsSource: null, pngPath,
+                hdr10Pq: hdr10Pq, peakNits: peakNits, gamutToBt2020: gamutToBt2020, ct: ct);
+            var suffix = hdr10Pq
+                ? $" (HDR PQ, {peakNits:F0} nits, {(gamutToBt2020 ? "BT.2020" : "sRGB")} primaries)"
+                : "";
+            consoleHost.WriteScrollable($"[render] wrote {pngPath}{suffix}");
         }
         catch (Exception ex)
         {
@@ -1134,12 +1352,22 @@ internal sealed class ImageSubCommand(
 
     /// <summary>
     /// Write an <see cref="Image"/> with [0, 1] float values as a 32-bit
-    /// IEEE float TIFF tagged with sRGB v4 ICC. The MTF tone curve in the
-    /// stretched plates isn't exactly sRGB gamma, but it's close enough
-    /// that colour-managed viewers (PixInsight, Photoshop, Affinity, browsers)
-    /// will display the data sensibly. Used for the per-plate dual-stretch
-    /// export so users can layer stars + starless in PS/Affinity with the
-    /// "Screen" blend mode to reproduce the in-pipeline recombine.
+    /// IEEE float TIFF tagged with the bundled sRGB v4 ICC. Used for the
+    /// per-plate dual-stretch export so users can layer stars + starless
+    /// in PS / Affinity with the "Screen" blend mode to reproduce the
+    /// in-pipeline recombine.
+    ///
+    /// <para><b>Always linear floats, always sRGB ICC, regardless of
+    /// <see cref="ImageOutputFormat"/>.</b> An earlier iteration injected
+    /// an ICC v4.4 <c>cicp</c> tag matching the PNG-PQ output (HDR10
+    /// PQ-encoded floats + cicp HDR10), but Affinity Photo didn't honour
+    /// the cicp tag on TIFFs and rendered the PQ-coded values as plain
+    /// sRGB display-referred -- which is the "muted / washed-out" look
+    /// from the colour ladder. PNGs continue to honour PNG-3 cICP in
+    /// Affinity; only the TIFF reader path is gamut-ignorant. So the
+    /// TIFFs stay in the linear sRGB convention that every editor reads
+    /// without surprises, and the PNG companion alone carries the HDR
+    /// signal for HDR-display viewing.</para>
     /// </summary>
     private async Task WriteStretchedFloatTiffAsync(Image image, string path, CancellationToken ct)
     {
@@ -1260,14 +1488,14 @@ internal sealed class ImageSubCommand(
             rgba[i * 4 + 3] = 255;
         }
 
-        var png = PngWriter.Encode(rgba, w, h, IccProfiles.SRgbV4.Span);
+        var png = PngWriter.Encode(rgba, w, h, new PngWriteOptions { Cicp = CicpChunk.Srgb });
         await File.WriteAllBytesAsync(pngPath, png, ct);
         consoleHost.WriteScrollable($"[{tag}] wrote {pngPath} (min-max contrast)");
 
         static byte ToByte(float v) => (byte)Math.Clamp(v * 255f + 0.5f, 0f, 255f);
     }
 
-    private async Task WriteStretchedPngAsync(Image image, string pngPath, CancellationToken ct)
+    private async Task WriteStretchedPngAsync(Image image, string pngPath, bool hdr10Pq, float peakNits, bool gamutToBt2020, CancellationToken ct)
     {
         var (channels, w, h) = image.Shape;
         if (channels is not (1 or 3))
@@ -1276,31 +1504,102 @@ internal sealed class ImageSubCommand(
             return;
         }
 
-        // RGBA interleaved 8-bit (alpha=255). Mono replicates the single
-        // channel into R/G/B so the PNG file is RGB-encoded (PngWriter
-        // doesn't have a Gray entry point and replicating is cheap).
+        // 16-bit RGBA interleaved (alpha=65535). Mono replicates the single
+        // channel into R/G/B since EncodeRgba16 is the natural HDR-precision
+        // entry point and we don't want to fork a separate Gray16 path here.
+        // 65,536 levels eliminate the banding the old 8-bit path produced.
+        //
+        // Gamut-preserving max-channel scale: under HDR formats (PngPq, Jxr)
+        // we skip CompressHighlightsStep, so the plate can contain >1.0
+        // overshoots. A per-channel clamp here would let one channel saturate
+        // while the others stay, skewing the hue toward yellow / white. We
+        // scale all three by 1/max instead, so the brightest channel lands
+        // at 1.0 and the colour ratio is preserved (the overshoot desaturates
+        // toward white). Mono path is unaffected (max == one channel always).
         var pixelCount = w * h;
-        var rgba = new byte[pixelCount * 4];
+        var rgba = new ushort[pixelCount * 4];
         var r = image.GetChannelSpan(0);
         var g = channels == 3 ? image.GetChannelSpan(1) : r;
         var b = channels == 3 ? image.GetChannelSpan(2) : r;
         for (var i = 0; i < pixelCount; i++)
         {
-            rgba[i * 4 + 0] = ToByte(r[i]);
-            rgba[i * 4 + 1] = ToByte(g[i]);
-            rgba[i * 4 + 2] = ToByte(b[i]);
-            rgba[i * 4 + 3] = 255;
+            var r0 = r[i];
+            var g0 = g[i];
+            var b0 = b[i];
+            var maxV = MathF.Max(r0, MathF.Max(g0, b0));
+            if (maxV > 1f)
+            {
+                var s = 1f / maxV;
+                r0 *= s; g0 *= s; b0 *= s;
+            }
+            rgba[i * 4 + 0] = ToUShort(r0);
+            rgba[i * 4 + 1] = ToUShort(g0);
+            rgba[i * 4 + 2] = ToUShort(b0);
+            rgba[i * 4 + 3] = 65535;
         }
 
-        var png = PngWriter.Encode(rgba, w, h, IccProfiles.SRgbV4.Span);
-        await File.WriteAllBytesAsync(pngPath, png, ct);
-        consoleHost.WriteScrollable($"[sharpen] wrote {pngPath} (dual-stretch PNG, no re-stretch)");
+        // cICP: sRGB by default; PQ for HDR10 with --png-pq-gamut choosing
+        // canonical BT.2020-primaries (cICP {9, 16, 0, 1}) or narrow-gamut
+        // sRGB-primaries (cICP {1, 16, 0, 1}). The encoding step rewrites
+        // the rgba buffer in-place using the matching gamut math.
+        CicpChunk cicp;
+        if (hdr10Pq)
+        {
+            Bt2020Pq.EncodeInPlace(rgba, peakNits, gamutToBt2020);
+            cicp = gamutToBt2020 ? CicpChunk.Hdr10Pq : CicpChunk.SrgbPq;
+        }
+        else
+        {
+            cicp = CicpChunk.Srgb;
+        }
 
-        static byte ToByte(float v) => (byte)Math.Clamp(v * 255f + 0.5f, 0f, 255f);
+        var png = PngWriter.EncodeRgba16(rgba, w, h, new PngWriteOptions { Cicp = cicp });
+        await File.WriteAllBytesAsync(pngPath, png, ct);
+        var suffix = hdr10Pq
+            ? $" (16-bit dual-stretch PNG, HDR PQ @ {peakNits:F0} nits, {(gamutToBt2020 ? "BT.2020" : "sRGB")} primaries)"
+            : " (16-bit dual-stretch PNG, no re-stretch)";
+        consoleHost.WriteScrollable($"[sharpen] wrote {pngPath}{suffix}");
+
+        static ushort ToUShort(float v) => (ushort)Math.Clamp(v * 65535f + 0.5f, 0f, 65535f);
+    }
+
+    /// <summary>Parser for <c>--output-format</c>. Accepts the hyphenated CLI
+    /// form (e.g. <c>png-pq</c>) in addition to the bare enum-identifier form
+    /// (<c>PngPq</c>) that System.CommandLine's default enum parser would
+    /// require. Case-insensitive; aliases (<c>hdr10</c>, <c>hdr10-pq</c>) map
+    /// to <see cref="ImageOutputFormat.PngPq"/> because that's the standard
+    /// industry name for the underlying signaling.</summary>
+    private static ImageOutputFormat ParseOutputFormat(ArgumentResult arg)
+    {
+        var token = arg.Tokens.Count > 0 ? arg.Tokens[0].Value.ToLowerInvariant() : "none";
+        return token switch
+        {
+            "none" => ImageOutputFormat.None,
+            "png" => ImageOutputFormat.Png,
+            "png-pq" or "pngpq" or "hdr10" or "hdr10-pq" => ImageOutputFormat.PngPq,
+            "jxr" => ImageOutputFormat.Jxr,
+            _ => throw new ArgumentException(
+                $"--output-format: unknown value '{token}'; expected one of: none, png, png-pq, jxr"),
+        };
     }
 
     private static string DefaultOut(string input, string suffix)
         => StripExtension(input) + suffix + ".fits";
+
+    /// <summary>
+    /// Ensure <paramref name="path"/> ends with <c>.fits</c>. Used to harden
+    /// the primary-output sites where the user-supplied <c>-o</c> path might
+    /// arrive without an extension (otherwise we'd write a FITS file with no
+    /// extension and the companion -- via <see cref="ReplaceExtension"/> --
+    /// would end up at <c>&lt;path&gt;.png/.jxr</c> while the FITS sits
+    /// extensionless, an obviously broken pair).
+    /// </summary>
+    private static string EnsureFitsExtension(string path)
+        => path.EndsWith(".fits", StringComparison.OrdinalIgnoreCase)
+            || path.EndsWith(".fit", StringComparison.OrdinalIgnoreCase)
+            || path.EndsWith(".fts", StringComparison.OrdinalIgnoreCase)
+            ? path
+            : path + ".fits";
 
     private static string StripExtension(string path)
     {

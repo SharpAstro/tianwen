@@ -18,49 +18,53 @@
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
   </ItemGroup>
 
-  <!-- ONNX Runtime native package selection by published RID. The CPU,
-       DirectML, and CUDA-GPU packages each carry their own native
-       onnxruntime build, so we pick exactly one per RID. AnyCPU dev/test
-       builds (no RuntimeIdentifier) fall through to the CPU baseline so
-       `dotnet build` / `dotnet test` work without pulling 800 MB of CUDA
-       libs that nobody needs at unit-test time. -->
+  <!-- ONNX Runtime native package selection.
+       Each of the CPU / DirectML / CUDA-GPU NuGet packages ships its own
+       onnxruntime.dll built with a different feature set; we must reference
+       exactly one. The selection is conditioned on $(OS) (the host MSBuild
+       operating system, always set, host-determined) rather than
+       $(RuntimeIdentifier). Previously the RID-conditioned Choose silently
+       regressed to the CPU baseline whenever a `dotnet restore` ran
+       without an explicit RID, because restore caches the resolved
+       direct-dep set in project.assets.json. A later RID-aware build
+       reusing that cached resolution would copy the CPU onnxruntime.dll
+       into bin/win-arm64/, masking DirectML at runtime (the giveaway log
+       line is "ONNX EP DirectML not present in loaded onnxruntime
+       native"). Conditioning on $(OS) survives RID-less restores because
+       $(OS) is determined by the build host, not the publish target. -->
   <Choose>
-    <When Condition="'$(RuntimeIdentifier)' == 'win-arm64'">
-      <ItemGroup>
-        <!-- DirectML EP for the Adreno GPU on Snapdragon Windows-on-ARM.
-             Trade-off vs the alternative QNN package: QNN's HTP backend is
-             INT8/INT16-first, so on pure FP32 models (AI4 NAFNet, Cosmic
-             Clarity, etc.) QNN silently per-node-falls-back to CPU and we
-             see no acceleration; the NPU is effectively unused. DirectML
-             talks to the Adreno via D3D12 compute and DOES accelerate FP32
-             matmuls. Two practical implications:
-               * FP32 today (this codebase): DirectML wins by a wide margin.
-               * INT8-quantized later: swap to Microsoft.ML.OnnxRuntime.QNN
-                 to put matmul-heavy nodes on the Hexagon NPU. The two
-                 NuGet packages each ship their own onnxruntime.dll with
-                 different feature sets compiled in; only one can be
-                 referenced per build. -->
-        <PackageReference Include="Microsoft.ML.OnnxRuntime.DirectML" />
-      </ItemGroup>
-    </When>
-    <When Condition="'$(RuntimeIdentifier)' == 'win-x64'">
-      <ItemGroup>
-        <!-- DirectML EP works across NVIDIA, AMD, and Intel iGPUs via
-             D3D12; broadest Windows-x64 coverage with one package. -->
-        <PackageReference Include="Microsoft.ML.OnnxRuntime.DirectML" />
-      </ItemGroup>
-    </When>
     <When Condition="'$(RuntimeIdentifier)' == 'linux-x64'">
       <ItemGroup>
         <!-- CUDA EP. Requires libcuda.so.1 + libcudart.so.X on the host;
-             if absent the runtime silently falls back to CPU. -->
+             if absent the runtime silently falls back to CPU. Only fires
+             when the user explicitly targets the CUDA RID; a no-RID
+             dev build on Linux falls through to the CPU baseline below. -->
         <PackageReference Include="Microsoft.ML.OnnxRuntime.Gpu" />
+      </ItemGroup>
+    </When>
+    <When Condition="'$(OS)' == 'Windows_NT'">
+      <ItemGroup>
+        <!-- DirectML EP for any Windows host. Covers both win-arm64
+             (Adreno GPU on Snapdragon Windows-on-ARM) and win-x64 (NVIDIA
+             / AMD / Intel iGPUs via D3D12) plus no-RID dev builds.
+             Trade-off vs the QNN alternative on win-arm64: QNN's HTP
+             backend is INT8/INT16-first, so on pure FP32 models
+             (AI4 NAFNet, Cosmic Clarity, etc.) QNN per-node-falls-back
+             to CPU and the NPU sits idle. DirectML talks to the Adreno
+             via D3D12 compute and accelerates FP32 matmuls. If we later
+             quantise to INT8, swap to Microsoft.ML.OnnxRuntime.QNN to put
+             matmul-heavy nodes on the Hexagon NPU. DirectML's
+             onnxruntime.dll falls back to CPU EP at runtime when D3D12
+             isn't available, so this package is a safe superset of the
+             plain CPU baseline on Windows. -->
+        <PackageReference Include="Microsoft.ML.OnnxRuntime.DirectML" />
       </ItemGroup>
     </When>
     <Otherwise>
       <!-- linux-arm64 (Pi/Jetson-non-CUDA), osx-x64, osx-arm64, and no-RID
-           dev builds. CoreML EP is bundled inside the base package on
-           Apple platforms (since ORT 1.16), no separate ref needed. -->
+           dev builds on non-Windows hosts. CoreML EP is bundled inside the
+           base package on Apple platforms (since ORT 1.16), no separate
+           ref needed. -->
       <ItemGroup>
         <PackageReference Include="Microsoft.ML.OnnxRuntime" />
       </ItemGroup>

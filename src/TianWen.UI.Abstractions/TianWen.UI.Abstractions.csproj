@@ -18,7 +18,16 @@
   <ItemGroup>
     <ProjectReference Include="..\TianWen.Lib\TianWen.Lib.csproj" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
-    <!-- MasterPreviewRenderer emits an sRGB PNG with embedded ICC. -->
+  </ItemGroup>
+
+  <!-- SharpAstro.Png + SharpAstro.Color.Icc: MasterPreviewRenderer emits the
+       cICP-tagged PNG via PngWriter; the cICP enums (ColorPrimaries /
+       TransferFunction / MatrixCoefficients) come from SharpAstro.Color.Icc. -->
+  <ItemGroup Condition="'$(UseLocalSiblings)' == 'true'">
+    <ProjectReference Include="..\..\..\StbImageSharp\src\SharpAstro.Png\SharpAstro.Png.csproj" />
+    <ProjectReference Include="..\..\..\StbImageSharp\src\SharpAstro.Color.Icc\SharpAstro.Color.Icc.csproj" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(UseLocalSiblings)' != 'true'">
     <PackageReference Include="SharpAstro.Png" />
     <PackageReference Include="SharpAstro.Color.Icc" />
   </ItemGroup>

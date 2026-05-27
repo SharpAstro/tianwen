@@ -3,7 +3,6 @@ using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using DIR.Lib;
-using SharpAstro.Color.Icc;
 using SharpAstro.Png;
 using TianWen.Lib.Astrometry;
 using TianWen.Lib.Astrometry.Catalogs;
@@ -142,8 +141,9 @@ public static class PlateSolveAnnotator
                 lineColor, thickness: 1);
         }
 
-        // 3. Encode PNG using the same sRGB ICC the master previews carry.
-        var png = PngWriter.Encode(renderer.Surface.Pixels, width, height, IccProfiles.SRgbV4.Span);
+        // 3. Encode PNG with cICP sRGB (same colour signal the master previews carry,
+        // 4 bytes instead of ~600-byte iCCP profile per PNG-3 §6.1 priority order).
+        var png = PngWriter.Encode(renderer.Surface.Pixels, width, height, new PngWriteOptions { Cicp = CicpChunk.Srgb });
         await File.WriteAllBytesAsync(outputPath, png, ct);
     }
 
