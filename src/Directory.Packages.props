@@ -63,24 +63,25 @@
          instead of a (byte[], int, int) tuple. -->
     <PackageVersion Include="DIR.Lib" Version="4.0.*" />
     <!-- DIR.Lib 3.0 extracted its codec layer to these sibling packages, which
-         now ship as a lockstep family at 3.0.x from the StbImageSharp repo.
-         3.0 brought a binary-breaking SharpAstro.Tiff change (TiffPageOptions.IccProfile
-         is ReadOnlyMemory<byte>) plus the new SharpAstro.Jpeg sibling (JpegIccInjector
-         for APP2 ICC embedding). -->
-    <PackageVersion Include="SharpAstro.Tiff" Version="3.0.*" />
-    <PackageVersion Include="SharpAstro.Exif" Version="3.0.*" />
-    <!-- Png 3.1 = CicpChunk record's positional args switched from raw bytes
-         to H.273 enums (binary-breaking). Color.Icc 3.1 = adds the H.273
-         enums + IccProfiles.WithCicp helper. Both bumped in lockstep so
-         consumers float to the matched pair. -->
+         ship as a lockstep family from the StbImageSharp repo. 3.0 brought a
+         binary-breaking SharpAstro.Tiff change (TiffPageOptions.IccProfile is
+         ReadOnlyMemory<byte>) plus the JpegIccInjector sibling (now packaged as
+         SharpAstro.Jpeg.IccInjector) for APP2 ICC embedding.
+         3.1 = SharpAstro.Png CicpChunk record's positional args switched from
+         raw bytes to H.273 enums (binary-breaking) + SharpAstro.Color.Icc adds
+         the H.273 enums + IccProfiles.WithCicp helper. The whole family is
+         bumped to 3.1.* in lockstep so all members float to the matched set
+         (mixing a 3.0 member with the 3.1 Png break is a runtime hazard). -->
+    <PackageVersion Include="SharpAstro.Tiff" Version="3.1.*" />
+    <PackageVersion Include="SharpAstro.Exif" Version="3.1.*" />
     <PackageVersion Include="SharpAstro.Png" Version="3.1.*" />
     <PackageVersion Include="SharpAstro.Color.Icc" Version="3.1.*" />
-    <PackageVersion Include="SharpAstro.Jpeg" Version="3.0.*" />
+    <PackageVersion Include="SharpAstro.Jpeg.IccInjector" Version="3.1.*" />
     <!-- Pure-managed JPEG XR (T.832) encoder/decoder. Used by Image.WriteJxrAsync
          to emit HDR-true float pixels (BD32F mono / BD16F RGB) as an alternative
-         to the 8-bit-per-channel PNG companion. Same StbImageSharp repo + 3.0.x
+         to the 8-bit-per-channel PNG companion. Same StbImageSharp repo + 3.1.*
          lockstep as the other SharpAstro codec siblings. -->
-    <PackageVersion Include="SharpAstro.Jxr" Version="3.0.*" />
+    <PackageVersion Include="SharpAstro.Jxr" Version="3.1.*" />
     <PackageVersion Include="Console.Lib" Version="2.12.*" />
     <!-- SdlVulkan.Renderer 4.1 adds SdlVulkanWindow.SetSystemCursor (needed by the
          FITS viewer hover cursors) + anisotropic glyph xScale. Still DIR.Lib 4.0
