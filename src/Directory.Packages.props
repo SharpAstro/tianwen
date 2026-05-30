@@ -40,7 +40,7 @@
          (gated by RuntimeIdentifier in TianWen.AI.csproj). Floats to track
          testwinai's transitive QNN version. -->
     <PackageVersion Include="Microsoft.ML.OnnxRuntime" Version="1.24.*" />
-    <PackageVersion Include="Microsoft.ML.OnnxRuntime.Gpu" Version="1.24.*" />
+    <PackageVersion Include="Microsoft.ML.OnnxRuntime.Gpu.Linux" Version="1.24.*" />
     <PackageVersion Include="Microsoft.ML.OnnxRuntime.DirectML" Version="1.24.*" />
     <PackageVersion Include="Microsoft.ML.OnnxRuntime.QNN" Version="1.24.*" />
     <!-- Benchmark packages -->
