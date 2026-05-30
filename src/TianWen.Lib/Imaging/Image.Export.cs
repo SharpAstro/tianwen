@@ -1,3 +1,4 @@
+using SharpAstro.Exr;
 using SharpAstro.Jxr;
 using SharpAstro.Tiff;
 using System;
@@ -173,5 +174,75 @@ public partial class Image
         }
 
         await File.WriteAllBytesAsync(path, jxrBytes, cancellationToken);
+    }
+
+    /// <summary>
+    /// Writes the image to <paramref name="path"/> as an OpenEXR (<c>.exr</c>) file
+    /// with float-true HDR pixels. Bayer images are debayered first with
+    /// <paramref name="debayerAlgorithm"/>; mono / 3-channel images pass through.
+    ///
+    /// <para>The HDR shape mirrors <see cref="WriteJxrAsync"/> but with EXR's native types:</para>
+    /// <list type="bullet">
+    ///   <item><term>Mono</term><description>a single 32-bit-float <c>Y</c> channel.</description></item>
+    ///   <item><term>RGB</term><description>32-bit-float <c>R</c>/<c>G</c>/<c>B</c> channels.</description></item>
+    /// </list>
+    ///
+    /// <para>Both planes are full IEEE single precision — a <b>truly lossless</b>
+    /// scene-linear master (more precise than JXR's mantissa-quantised BD32F and than
+    /// half-float RGB). This is the unstretched HDR master for the stacking pipeline.</para>
+    ///
+    /// <para><b>No normalisation</b> — values are written verbatim (scene-linear), so
+    /// post-stretch star cores that overshoot <c>1.0</c> and raw FITS magnitudes are
+    /// preserved exactly.</para>
+    ///
+    /// <para>Compression is ZIP (lossless zlib, <see cref="ExrImageCodec"/>'s default);
+    /// the round-trip is bit-exact on the float/half representation. PIZ is available
+    /// via the codec if smaller files are preferred.</para>
+    /// </summary>
+    public async Task WriteExrAsync(string path, DebayerAlgorithm debayerAlgorithm = DebayerAlgorithm.VNG, CancellationToken cancellationToken = default)
+    {
+        Image source;
+        if (ImageMeta.SensorType is SensorType.RGGB)
+        {
+            if (debayerAlgorithm is DebayerAlgorithm.None)
+                throw new ArgumentException("Must specify a debayer algorithm for RGGB images", nameof(debayerAlgorithm));
+            source = await DebayerAsync(debayerAlgorithm, cancellationToken: cancellationToken);
+        }
+        else
+        {
+            source = this;
+        }
+
+        var (channelCount, width, height) = source.Shape;
+        // Drop alpha / extra channels — EXR output is mono (1) or RGB (3).
+        var outChannels = channelCount >= 3 ? 3 : 1;
+        var pixelCount = width * height;
+
+        byte[] exrBytes;
+        if (outChannels == 1)
+        {
+            // Mono FLOAT: full float32 fidelity, written verbatim (HDR semantics).
+            var pixels = new float[pixelCount];
+            source.GetChannelSpan(0).CopyTo(pixels);
+            exrBytes = ExrImageCodec.EncodeMonoFloat(pixels, width, height);
+        }
+        else
+        {
+            // RGB FLOAT: full float32 interleaved (RGBRGB...) — lossless linear master,
+            // no half-float precision loss.
+            var rgb = new float[pixelCount * 3];
+            var r = source.GetChannelSpan(0);
+            var g = source.GetChannelSpan(1);
+            var b = source.GetChannelSpan(2);
+            for (var i = 0; i < pixelCount; i++)
+            {
+                rgb[i * 3 + 0] = r[i];
+                rgb[i * 3 + 1] = g[i];
+                rgb[i * 3 + 2] = b[i];
+            }
+            exrBytes = ExrImageCodec.EncodeRgbFloat(rgb, width, height);
+        }
+
+        await File.WriteAllBytesAsync(path, exrBytes, cancellationToken);
     }
 }

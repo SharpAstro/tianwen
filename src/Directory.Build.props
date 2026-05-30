@@ -19,7 +19,8 @@
       AND Exists('$(MSBuildThisFileDirectory)..\..\StbImageSharp\src\SharpAstro.Png\SharpAstro.Png.csproj')
       AND Exists('$(MSBuildThisFileDirectory)..\..\StbImageSharp\src\SharpAstro.Color.Icc\SharpAstro.Color.Icc.csproj')
       AND Exists('$(MSBuildThisFileDirectory)..\..\StbImageSharp\src\SharpAstro.Jxr\SharpAstro.Jxr.csproj')
-      AND Exists('$(MSBuildThisFileDirectory)..\..\StbImageSharp\src\SharpAstro.Jpeg.IccInjector\SharpAstro.Jpeg.IccInjector.csproj')">true</UseLocalSiblings>
+      AND Exists('$(MSBuildThisFileDirectory)..\..\StbImageSharp\src\SharpAstro.Jpeg.IccInjector\SharpAstro.Jpeg.IccInjector.csproj')
+      AND Exists('$(MSBuildThisFileDirectory)..\..\StbImageSharp\src\SharpAstro.Exr\SharpAstro.Exr.csproj')">true</UseLocalSiblings>
 
     <!-- FITS.Lib auto-detect is decoupled from UseLocalSiblings: FITS.Lib has no
          transitive coupling to the DIR.Lib/Console.Lib/SdlVulkan.Renderer/Fonts

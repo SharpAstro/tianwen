@@ -89,7 +89,7 @@ public enum GhsConvergeMode { Auto, Manual }
 ///   current SharpAstro.Jxr writer emits NComponent (RGB) which Photos
 ///   rejects. YUV 4:4:4 writer support is being added upstream.</description></item>
 /// </list></summary>
-public enum ImageOutputFormat { None, Png, PngPq, Jxr }
+public enum ImageOutputFormat { None, Png, PngPq, Jxr, Exr }
 
 /// <summary>
 /// Gamut for PNG-PQ output. <see cref="Srgb"/> (default) keeps the
@@ -1261,6 +1261,7 @@ internal sealed class ImageSubCommand(
     private static string ExtensionFor(ImageOutputFormat format) => format switch
     {
         ImageOutputFormat.Jxr => ".jxr",
+        ImageOutputFormat.Exr => ".exr",
         // PngPq stays .png -- it's a standard PNG file with cICP HDR10 signaling,
         // not a different container. Tools that don't honour cICP fall back to
         // SDR display via the PNG bit-depth alone.
@@ -1322,6 +1323,11 @@ internal sealed class ImageSubCommand(
                 break;
             case ImageOutputFormat.PngPq:
                 await RenderPngAsync(image, sensorMeta, wcs, path, hdr10Pq: true, peakNits, gamutToBt2020, ct);
+                break;
+            case ImageOutputFormat.Exr:
+                // EXR is the unstretched linear master emitted by the 'stack' command;
+                // the 'image' command produces stretched/processed output (jxr / png).
+                consoleHost.WriteError($"EXR is the unstretched stacking-master format (use the 'stack' command); the 'image' command emits stretched output. Skipping {path}.");
                 break;
         }
     }
