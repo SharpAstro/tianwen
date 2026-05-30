@@ -108,10 +108,10 @@ public partial class Image
     /// (it does for ushort FITS data: max 65,535 → 65,504 after Half cast,
     /// a 0.05% loss at the very brightest pixels).</para>
     ///
-    /// <para>Lossless quantisation (<c>dcQp = lpQp = hpQp = 1</c>) and no POT
-    /// (<c>overlapMode = 0</c>) give bit-exact round-trip via
-    /// <see cref="JxrFileFormatter"/> for BD32F, and as close to lossless as
-    /// half-float allows for BD16F.</para>
+    /// <para>Lossless quantisation (QP indices 0) and no POT (<c>overlap = 0</c>),
+    /// the <see cref="JxrImageCodec"/> defaults, give a bit-exact round-trip on the
+    /// float-pixel representation for BD32F, and as close to lossless as half-float
+    /// allows for BD16F.</para>
     /// </summary>
     public async Task WriteJxrAsync(string path, DebayerAlgorithm debayerAlgorithm = DebayerAlgorithm.VNG, CancellationToken cancellationToken = default)
     {
@@ -140,7 +140,10 @@ public partial class Image
             // cores, those magnitudes are preserved (HDR semantics).
             var pixels = new float[pixelCount];
             source.GetChannelSpan(0).CopyTo(pixels);
-            jxrBytes = JxrFileFormatter.SaveBd32FGrayscaleNoFlexbits(pixels, width, height);
+            // jxrlib-faithful re-port: lenMantissa 8 is the astrophotography
+            // precision/size trade-off; expBias, lossless QP and OL_NONE take the
+            // codec's defaults (which match jxrlib's encoder).
+            jxrBytes = JxrImageCodec.EncodeGrayF32(pixels, width, height, lenMantissa: 8);
         }
         else
         {
@@ -149,14 +152,10 @@ public partial class Image
             // values above ~65,504 -- a non-issue for our pipeline (post-
             // stretch peaks well below that) but noted for raw-FITS callers.
             //
-            // useYUV444: true applies the T.832 §9.6.2.7 YCoCg-R reversible
-            // lifting pre-FCT and tags the codestream with
-            // InternalClrFmt=YUV444 + OutputClrFmt=NComponent. This is what
-            // Microsoft's WIC WMPhoto decoder accepts -- the default
-            // InternalClrFmt=Rgb path is rejected by Windows Photos. The
-            // colour transform is lossless (reversible lifting), so JXR
-            // round-trips are bit-exact via SharpAstro.Jxr's own decoder
-            // regardless of which path we picked.
+            // The codec applies the T.832 §9.6.2.7 YCoCg-R reversible lifting
+            // pre-FCT and tags the codestream InternalClrFmt=YUV444. The colour
+            // transform is lossless (reversible lifting), so JXR round-trips are
+            // bit-exact for the half-float values via SharpAstro.Jxr's decoder.
             var halfPixels = new Half[pixelCount * 3];
             var r = source.GetChannelSpan(0);
             var g = source.GetChannelSpan(1);
@@ -167,7 +166,10 @@ public partial class Image
                 halfPixels[i * 3 + 1] = (Half)g[i];
                 halfPixels[i * 3 + 2] = (Half)b[i];
             }
-            jxrBytes = JxrFileFormatter.SaveBd16FRgbNoFlexbits(halfPixels, width, height, useYUV444: true);
+            // Re-port emits OutputClrFmt=Rgb, which is verified to open in WIC /
+            // Windows Photos with non-zero pixels -- the old NComponent workaround
+            // is not needed by this codec (JxrHdrWicTests in the StbImageSharp repo).
+            jxrBytes = JxrImageCodec.EncodeRgbF16(halfPixels, width, height);
         }
 
         await File.WriteAllBytesAsync(path, jxrBytes, cancellationToken);
