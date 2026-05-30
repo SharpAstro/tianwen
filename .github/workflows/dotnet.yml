@@ -11,7 +11,7 @@ on:
   workflow_dispatch:
 
 env:
-  VERSION_PREFIX: 4.2.${{ github.run_number }}
+  VERSION_PREFIX: 5.0.${{ github.run_number }}
   VERSION_REV: ${{ github.run_attempt }}
   VERSION_HASH: +${{ github.sha }}
   BUILD_CONF: Release
