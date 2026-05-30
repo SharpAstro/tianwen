@@ -162,18 +162,26 @@
          ZWOptical.SDK) is the honest "this project imports it" signal — same
          pattern as the SharpAstro codec direct refs below. -->
     <PackageReference Include="TianWen.DAL" />
-    <!-- Image.Import / Image.Export import these directly. DIR.Lib 4.0 dropped its
-         phantom codec dependencies (it was a leftover from the Phase 1 extraction),
-         so tianwen has to declare them itself. -->
+  </ItemGroup>
+
+  <!-- Image.Import / Image.Export import SharpAstro.Tiff + .Exif directly. DIR.Lib
+       4.0 dropped its phantom codec dependencies (a leftover from the Phase 1
+       extraction), so tianwen declares them itself: sibling ProjectReference during
+       local dev, NuGet PackageReference for CI / package builds. -->
+  <ItemGroup Condition="'$(UseLocalSiblings)' == 'true'">
+    <ProjectReference Include="..\..\..\StbImageSharp\src\SharpAstro.Tiff\SharpAstro.Tiff.csproj" />
+    <ProjectReference Include="..\..\..\StbImageSharp\src\SharpAstro.Exif\SharpAstro.Exif.csproj" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(UseLocalSiblings)' != 'true'">
     <PackageReference Include="SharpAstro.Tiff" />
     <PackageReference Include="SharpAstro.Exif" />
   </ItemGroup>
 
   <!-- SharpAstro.Jxr: the jxrlib-faithful re-port. Image.WriteJxrAsync uses the
        JxrImageCodec.EncodeGrayF32 / EncodeRgbF16 API (BD8/16/16F/32F + arbitrary
-       dimensions, oracle-validated bit-exact vs jxrlib). Shipped to NuGet at 3.0.211,
-       so both the local sibling (ProjectReference) and the published package
-       (PackageReference, version 3.0.* below) expose the new API. -->
+       dimensions, oracle-validated bit-exact vs jxrlib). Shipped to NuGet in the
+       3.1.* codec family, so both the local sibling (ProjectReference) and the
+       published package (PackageReference, version 3.1.* below) expose the new API. -->
   <ItemGroup Condition="'$(UseLocalSiblings)' == 'true'">
     <ProjectReference Include="..\..\..\StbImageSharp\src\SharpAstro.Jxr\SharpAstro.Jxr.csproj" />
   </ItemGroup>

@@ -15,9 +15,11 @@
       AND Exists('$(MSBuildThisFileDirectory)..\..\SdlVulkan.Renderer\src\SdlVulkan.Renderer\SdlVulkan.Renderer.csproj')
       AND Exists('$(MSBuildThisFileDirectory)..\..\StbImageSharp\src\StbImageSharp\StbImageSharp.csproj')
       AND Exists('$(MSBuildThisFileDirectory)..\..\StbImageSharp\src\SharpAstro.Tiff\SharpAstro.Tiff.csproj')
+      AND Exists('$(MSBuildThisFileDirectory)..\..\StbImageSharp\src\SharpAstro.Exif\SharpAstro.Exif.csproj')
       AND Exists('$(MSBuildThisFileDirectory)..\..\StbImageSharp\src\SharpAstro.Png\SharpAstro.Png.csproj')
       AND Exists('$(MSBuildThisFileDirectory)..\..\StbImageSharp\src\SharpAstro.Color.Icc\SharpAstro.Color.Icc.csproj')
-      AND Exists('$(MSBuildThisFileDirectory)..\..\StbImageSharp\src\SharpAstro.Jxr\SharpAstro.Jxr.csproj')">true</UseLocalSiblings>
+      AND Exists('$(MSBuildThisFileDirectory)..\..\StbImageSharp\src\SharpAstro.Jxr\SharpAstro.Jxr.csproj')
+      AND Exists('$(MSBuildThisFileDirectory)..\..\StbImageSharp\src\SharpAstro.Jpeg.IccInjector\SharpAstro.Jpeg.IccInjector.csproj')">true</UseLocalSiblings>
 
     <!-- FITS.Lib auto-detect is decoupled from UseLocalSiblings: FITS.Lib has no
          transitive coupling to the DIR.Lib/Console.Lib/SdlVulkan.Renderer/Fonts
