@@ -38,8 +38,17 @@
         <!-- CUDA EP. Requires libcuda.so.1 + libcudart.so.X on the host;
              if absent the runtime silently falls back to CPU. Only fires
              when the user explicitly targets the CUDA RID; a no-RID
-             dev build on Linux falls through to the CPU baseline below. -->
-        <PackageReference Include="Microsoft.ML.OnnxRuntime.Gpu" />
+             dev build on Linux falls through to the CPU baseline below.
+             Reference the Linux-specific package, NOT the combined
+             Microsoft.ML.OnnxRuntime.Gpu meta-package: the latter depends
+             on BOTH .Gpu.Linux (the .so EPs) AND .Gpu.Windows (the .dll
+             EPs), and publish copies every native asset regardless of RID,
+             so the combined package dragged ~291 MB of unloadable Windows
+             CUDA DLLs (onnxruntime_providers_cuda.dll etc.) into the
+             linux-x64 artifact, roughly half the download. .Gpu.Linux
+             pulls the managed wrapper transitively (via .Managed) so the
+             TrimmerRootAssembly below stays valid. -->
+        <PackageReference Include="Microsoft.ML.OnnxRuntime.Gpu.Linux" />
       </ItemGroup>
     </When>
     <When Condition="'$(OS)' == 'Windows_NT'">
