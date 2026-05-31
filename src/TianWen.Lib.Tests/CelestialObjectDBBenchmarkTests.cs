@@ -10,6 +10,12 @@ namespace TianWen.Lib.Tests;
 [Collection("Catalog")]
 public class CelestialObjectDBBenchmarkTests(ITestOutputHelper output)
 {
+    // Generous ceiling (100µs) for the O(1)-lookup perf assertions below. Lookups are tens of ns
+    // on dev hardware; this tolerates noisy shared CI runners (notably ubuntu-24.04-arm under load,
+    // which flaked a 10µs bound) while still catching an O(1) -> O(N) regression by orders of
+    // magnitude. Single source of truth for all three lookup tests.
+    private const double MaxLookupNs = 100_000;
+
     [Fact]
     public async Task GivenNewDBWhenInitializingThenItCompletesInUnder20Seconds()
     {
@@ -66,7 +72,7 @@ public class CelestialObjectDBBenchmarkTests(ITestOutputHelper output)
         // then
         var avgNs = sw.Elapsed.TotalNanoseconds / (iterations * indices.Length);
         output.WriteLine($"TryLookupByIndex: {avgNs:F1}ns avg per lookup ({iterations * indices.Length} lookups in {sw.Elapsed.TotalMilliseconds:F1}ms)");
-        avgNs.ShouldBeLessThan(10_000, $"Lookup took {avgNs:F1}ns avg, expected < 1000ns");
+        avgNs.ShouldBeLessThan(MaxLookupNs, $"Lookup took {avgNs:F1}ns avg, expected < {MaxLookupNs}ns");
     }
 
     [Fact]
@@ -99,7 +105,7 @@ public class CelestialObjectDBBenchmarkTests(ITestOutputHelper output)
         // then
         var avgNs = sw.Elapsed.TotalNanoseconds / (iterations * names.Length);
         output.WriteLine($"TryResolveCommonName: {avgNs:F1}ns avg per lookup ({iterations * names.Length} lookups in {sw.Elapsed.TotalMilliseconds:F1}ms)");
-        avgNs.ShouldBeLessThan(10_000, $"Name resolution took {avgNs:F1}ns avg, expected < 1000ns");
+        avgNs.ShouldBeLessThan(MaxLookupNs, $"Name resolution took {avgNs:F1}ns avg, expected < {MaxLookupNs}ns");
     }
 
     [Fact]
@@ -141,9 +147,8 @@ public class CelestialObjectDBBenchmarkTests(ITestOutputHelper output)
         // (not a ratio to init) avoids flaking when init I/O is fast and the ratio compresses.
         var avgLookupNs = sw.Elapsed.TotalNanoseconds / (iterations * indices.Length);
         var speedup = initNsPerEntry / avgLookupNs;
-        const double maxLookupNs = 100_000;
-        output.WriteLine($"Init: {initNsPerEntry:F1}ns/entry, Lookup: {avgLookupNs:F1}ns avg, Speedup: {speedup:F1}x (informational; max lookup: {maxLookupNs}ns)");
-        avgLookupNs.ShouldBeLessThan(maxLookupNs,
-            $"Cross-index lookup ({avgLookupNs:F1}ns) should be < {maxLookupNs}ns; suggests an O(1) → O(N) regression in TryGetCrossIndices");
+        output.WriteLine($"Init: {initNsPerEntry:F1}ns/entry, Lookup: {avgLookupNs:F1}ns avg, Speedup: {speedup:F1}x (informational; max lookup: {MaxLookupNs}ns)");
+        avgLookupNs.ShouldBeLessThan(MaxLookupNs,
+            $"Cross-index lookup ({avgLookupNs:F1}ns) should be < {MaxLookupNs}ns; suggests an O(1) → O(N) regression in TryGetCrossIndices");
     }
 }
