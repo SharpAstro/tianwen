@@ -404,15 +404,15 @@ internal partial record Session
         var camera = Setup.Telescopes[telescopeIndex].Camera.Driver;
 
         // Cancel any in-progress exposure left over from prior phases
-        if (await camera.GetCameraStateAsync(cancellationToken) is CameraState.Exposing)
+        if (await ResilientInvokeAsync(camera, camera.GetCameraStateAsync, ResilientCallOptions.IdempotentRead, cancellationToken) is CameraState.Exposing)
         {
             if (camera.CanAbortExposure)
             {
-                await camera.AbortExposureAsync(cancellationToken);
+                await ResilientInvokeAsync(camera, camera.AbortExposureAsync, ResilientCallOptions.NonIdempotentAction, cancellationToken);
             }
             else if (camera.CanStopExposure)
             {
-                await camera.StopExposureAsync(cancellationToken);
+                await ResilientInvokeAsync(camera, camera.StopExposureAsync, ResilientCallOptions.NonIdempotentAction, cancellationToken);
             }
             await _timeProvider.SleepAsync(TimeSpan.FromSeconds(1), cancellationToken);
         }
@@ -423,7 +423,7 @@ internal partial record Session
             ResilientCallOptions.NonIdempotentAction, cancellationToken);
         await _timeProvider.SleepAsync(scoutExposure + TimeSpan.FromSeconds(2), cancellationToken);
 
-        if (!await camera.GetImageReadyAsync(cancellationToken))
+        if (!await ResilientInvokeAsync(camera, camera.GetImageReadyAsync, ResilientCallOptions.IdempotentRead, cancellationToken))
         {
             return default;
         }
@@ -439,7 +439,7 @@ internal partial record Session
         try
         {
             var stars = await image.FindStarsAsync(0, snrMin: 10, maxStars: 200, cancellationToken: cancellationToken);
-            var gain = await camera.GetGainAsync(cancellationToken);
+            var gain = await ResilientInvokeAsync(camera, camera.GetGainAsync, ResilientCallOptions.IdempotentRead, cancellationToken);
 
             // Preserve exposure on 0-star results — see TakeScoutFrameAsync rationale.
             // FrameMetrics.FromStarList returns default(FrameMetrics) when stars.Count == 0,

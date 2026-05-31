@@ -313,7 +313,7 @@ public static class PlannerActions
     public static bool StepSelectedSlider(PlannerState state, int minutesDelta)
     {
         var idx = state.SelectedSliderIndex;
-        if (idx < 0 || idx >= state.HandoffSliders.Count)
+        if (idx < 0 || idx >= state.HandoffSliders.Length)
         {
             return false;
         }
@@ -321,7 +321,7 @@ public static class PlannerActions
         var newTime = state.HandoffSliders[idx] + TimeSpan.FromMinutes(minutesDelta);
         ClampSlider(state, idx, ref newTime);
 
-        state.HandoffSliders[idx] = newTime;
+        state.HandoffSliders = state.HandoffSliders.SetItem(idx, newTime);
         state.IsDirty = true;
         state.NeedsRedraw = true;
         return true;
@@ -333,16 +333,46 @@ public static class PlannerActions
     /// </summary>
     public static void MoveSlider(PlannerState state, int idx, DateTimeOffset newTime)
     {
-        if (idx < 0 || idx >= state.HandoffSliders.Count)
+        if (idx < 0 || idx >= state.HandoffSliders.Length)
         {
             return;
         }
 
         ClampSlider(state, idx, ref newTime);
 
-        state.HandoffSliders[idx] = newTime;
+        state.HandoffSliders = state.HandoffSliders.SetItem(idx, newTime);
         state.IsDirty = true;
         state.NeedsRedraw = true;
+    }
+
+    /// <summary>
+    /// Click-to-place: moves the handoff slider nearest (in time) to <paramref name="time"/>
+    /// to that time (clamped to keep 15-minute gaps) and selects it so Left/Right stepping
+    /// works. Returns the moved slider's index, or -1 when there are no sliders. Used by the
+    /// chart's click-to-place + drag-start interaction.
+    /// </summary>
+    public static int PlaceNearestSlider(PlannerState state, DateTimeOffset time)
+    {
+        if (state.HandoffSliders.Length == 0)
+        {
+            return -1;
+        }
+
+        var nearest = 0;
+        var bestDelta = (state.HandoffSliders[0] - time).Duration();
+        for (var i = 1; i < state.HandoffSliders.Length; i++)
+        {
+            var delta = (state.HandoffSliders[i] - time).Duration();
+            if (delta < bestDelta)
+            {
+                bestDelta = delta;
+                nearest = i;
+            }
+        }
+
+        SelectSlider(state, nearest);
+        MoveSlider(state, nearest, time);
+        return nearest;
     }
 
     /// <summary>
@@ -351,7 +381,7 @@ public static class PlannerActions
     /// </summary>
     public static void SelectSlider(PlannerState state, int index)
     {
-        if (index >= 0 && index < state.HandoffSliders.Count)
+        if (index >= 0 && index < state.HandoffSliders.Length)
         {
             state.SelectedSliderOriginalTime = state.HandoffSliders[index];
         }
@@ -369,13 +399,13 @@ public static class PlannerActions
     /// </summary>
     public static bool CycleSelectedSlider(PlannerState state)
     {
-        if (state.HandoffSliders.Count == 0)
+        if (state.HandoffSliders.Length == 0)
         {
             return false;
         }
 
         state.SelectedSliderIndex =
-            state.SelectedSliderIndex < state.HandoffSliders.Count - 1
+            state.SelectedSliderIndex < state.HandoffSliders.Length - 1
                 ? state.SelectedSliderIndex + 1
                 : -1;
         state.NeedsRedraw = true;
@@ -410,9 +440,9 @@ public static class PlannerActions
                 if (state.SelectedSliderOriginalTime is { } originalTime)
                 {
                     var idx = state.SelectedSliderIndex;
-                    if (idx >= 0 && idx < state.HandoffSliders.Count)
+                    if (idx >= 0 && idx < state.HandoffSliders.Length)
                     {
-                        state.HandoffSliders[idx] = originalTime;
+                        state.HandoffSliders = state.HandoffSliders.SetItem(idx, originalTime);
                     }
                 }
                 state.SelectedSliderOriginalTime = null;
@@ -435,7 +465,7 @@ public static class PlannerActions
     /// </summary>
     public static int HitTestSlider(PlannerState state, float pixelX, float chartX, float chartW)
     {
-        if (state.HandoffSliders.Count == 0)
+        if (state.HandoffSliders.Length == 0)
         {
             return -1;
         }
@@ -451,7 +481,7 @@ public static class PlannerActions
         var bestIdx = -1;
         var bestDist = double.MaxValue;
 
-        for (var i = 0; i < state.HandoffSliders.Count; i++)
+        for (var i = 0; i < state.HandoffSliders.Length; i++)
         {
             var fraction = (state.HandoffSliders[i] - tStart).TotalSeconds / (tEnd - tStart).TotalSeconds;
             var sliderPixelX = plotX + fraction * plotW;
@@ -471,7 +501,7 @@ public static class PlannerActions
         var minSlot = TimeSpan.FromMinutes(15);
 
         var minTime = idx > 0 ? state.HandoffSliders[idx - 1] + minSlot : state.AstroDark + minSlot;
-        var maxTime = idx < state.HandoffSliders.Count - 1
+        var maxTime = idx < state.HandoffSliders.Length - 1
             ? state.HandoffSliders[idx + 1] - minSlot
             : state.AstroTwilight - minSlot;
 
@@ -1114,7 +1144,7 @@ public static class PlannerActions
         var filtered = GetFilteredTargets(state);
         var pinnedCount = state.PinnedCount;
 
-        state.HandoffSliders.Clear();
+        state.HandoffSliders = [];
         state.PinnedTargetConflicts = new bool[pinnedCount];
 
         if (pinnedCount < 2)
@@ -1124,6 +1154,11 @@ public static class PlannerActions
 
         var minSlot = TimeSpan.FromMinutes(15);
 
+        // Build into a local then publish atomically -- this runs on the background
+        // InitializePlannerAsync thread while the render thread reads HandoffSliders, so the
+        // collection must never be observed mid-mutation (see CLAUDE.md shared-UI-state rule).
+        var slidersBuilder = ImmutableArray.CreateBuilder<DateTimeOffset>(pinnedCount - 1);
+
         for (var i = 0; i < pinnedCount - 1; i++)
         {
             var targetA = filtered[i].Target;
@@ -1132,12 +1167,12 @@ public static class PlannerActions
             var slider = FindCurveIntersection(state, targetA, targetB);
 
             // Ensure sliders are monotonically increasing with minimum gap
-            var minTime = i > 0 ? state.HandoffSliders[i - 1] + minSlot : state.AstroDark + minSlot;
+            var minTime = i > 0 ? slidersBuilder[i - 1] + minSlot : state.AstroDark + minSlot;
             var maxTime = state.AstroTwilight - minSlot * (pinnedCount - 1 - i);
             if (slider < minTime) slider = minTime;
             if (slider > maxTime) slider = maxTime;
 
-            state.HandoffSliders.Add(slider);
+            slidersBuilder.Add(slider);
 
             // Conflict: check if actual peak altitude times are within 1 hour
             var peakTimeA = state.AltitudeProfiles.TryGetValue(filtered[i].Target, out var profA) && profA.Count > 0
@@ -1153,12 +1188,14 @@ public static class PlannerActions
             }
         }
 
+        state.HandoffSliders = slidersBuilder.ToImmutable();
+
         // Flag targets whose allocated window is very small (< 1.5 hours)
         for (var i = 0; i < pinnedCount; i++)
         {
             var windowStart = i == 0 ? state.AstroDark
-                : i - 1 < state.HandoffSliders.Count ? state.HandoffSliders[i - 1] : state.AstroDark;
-            var windowEnd = i >= pinnedCount - 1 || i >= state.HandoffSliders.Count
+                : i - 1 < state.HandoffSliders.Length ? state.HandoffSliders[i - 1] : state.AstroDark;
+            var windowEnd = i >= pinnedCount - 1 || i >= state.HandoffSliders.Length
                 ? state.AstroTwilight : state.HandoffSliders[i];
             var allocatedHours = (windowEnd - windowStart).TotalHours;
 
@@ -1257,8 +1294,8 @@ public static class PlannerActions
 
             var windowStart = i == 0
                 ? state.AstroDark
-                : i - 1 < state.HandoffSliders.Count ? state.HandoffSliders[i - 1] : state.AstroDark;
-            var windowEnd = i >= pinnedCount - 1 || i >= state.HandoffSliders.Count
+                : i - 1 < state.HandoffSliders.Length ? state.HandoffSliders[i - 1] : state.AstroDark;
+            var windowEnd = i >= pinnedCount - 1 || i >= state.HandoffSliders.Length
                 ? state.AstroTwilight
                 : state.HandoffSliders[i];
 

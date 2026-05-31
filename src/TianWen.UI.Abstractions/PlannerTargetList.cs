@@ -47,9 +47,9 @@ public static class PlannerTargetList
             string info;
             if (isPinned)
             {
-                var startTime = i == 0 || state.HandoffSliders.Count == 0
+                var startTime = i == 0 || state.HandoffSliders.Length == 0
                     ? state.AstroDark
-                    : i - 1 < state.HandoffSliders.Count
+                    : i - 1 < state.HandoffSliders.Length
                         ? state.HandoffSliders[i - 1]
                         : scored.OptimalStart;
                 info = startTime.ToOffset(state.SiteTimeZone).ToString("HH:mm");

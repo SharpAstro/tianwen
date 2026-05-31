@@ -517,8 +517,8 @@ namespace TianWen.UI.Abstractions
                 var bgColor = i % 2 == 0 ? PanelBg : RowAltBg;
 
                 // Compute remaining window (clipped to now)
-                var windowStart = i > 0 && i - 1 < sliders.Count ? sliders[i - 1] : dark;
-                var windowEnd = i < sliders.Count ? sliders[i] : twilight;
+                var windowStart = i > 0 && i - 1 < sliders.Length ? sliders[i - 1] : dark;
+                var windowEnd = i < sliders.Length ? sliders[i] : twilight;
                 var effectiveStart = windowStart;
                 var utcNow = (_timeProvider ?? SystemTimeProvider.Instance).GetUtcNow();
                 if (utcNow > windowStart && utcNow < windowEnd)

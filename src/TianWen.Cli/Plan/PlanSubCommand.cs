@@ -145,8 +145,8 @@ internal class PlanSubCommand(
             if (scored is { Target: not null })
             {
                 var start = i == 0 ? plannerState.AstroDark
-                    : i - 1 < plannerState.HandoffSliders.Count ? plannerState.HandoffSliders[i - 1] : scored.OptimalStart;
-                var end = i >= pinnedCount - 1 || i >= plannerState.HandoffSliders.Count
+                    : i - 1 < plannerState.HandoffSliders.Length ? plannerState.HandoffSliders[i - 1] : scored.OptimalStart;
+                var end = i >= pinnedCount - 1 || i >= plannerState.HandoffSliders.Length
                     ? plannerState.AstroTwilight : plannerState.HandoffSliders[i];
                 var duration = end - start;
                 var durationStr = duration.TotalHours >= 1.0
@@ -168,8 +168,8 @@ internal class PlanSubCommand(
         for (var i = 0; i < pinnedCount; i++)
         {
             var windowStart = i == 0 ? plannerState.AstroDark
-                : i - 1 < plannerState.HandoffSliders.Count ? plannerState.HandoffSliders[i - 1] : plannerState.AstroDark;
-            var windowEnd = i >= pinnedCount - 1 || i >= plannerState.HandoffSliders.Count
+                : i - 1 < plannerState.HandoffSliders.Length ? plannerState.HandoffSliders[i - 1] : plannerState.AstroDark;
+            var windowEnd = i >= pinnedCount - 1 || i >= plannerState.HandoffSliders.Length
                 ? plannerState.AstroTwilight : plannerState.HandoffSliders[i];
             var hours = (windowEnd - windowStart).TotalHours;
 

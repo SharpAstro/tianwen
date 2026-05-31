@@ -420,7 +420,7 @@ public static class AltitudeChartRenderer
 
             // Determine this target's time window from sliders
             var windowStart = i == 0 ? state.AstroDark : state.HandoffSliders[i - 1];
-            var windowEnd = i >= pinnedCount - 1 || i >= state.HandoffSliders.Count
+            var windowEnd = i >= pinnedCount - 1 || i >= state.HandoffSliders.Length
                 ? state.AstroTwilight
                 : state.HandoffSliders[i];
 
@@ -456,7 +456,7 @@ public static class AltitudeChartRenderer
         }
 
         // Draw handoff slider lines
-        for (var i = 0; i < state.HandoffSliders.Count; i++)
+        for (var i = 0; i < state.HandoffSliders.Length; i++)
         {
             var sliderX = timeToX(state.HandoffSliders[i]);
             if (sliderX >= plotX && sliderX <= plotX + plotW)

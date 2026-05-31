@@ -113,7 +113,7 @@ public sealed class ViewerController(
                             newDoc.Stars?.Count ?? 0, newDoc.StarDetectionDuration.TotalSeconds, newDoc.AverageHFR, newDoc.AverageFWHM);
                         state.NeedsRedraw = true;
                     }
-                    catch (OperationCanceledException) { }
+                    catch (OperationCanceledException) { logger.LogDebug("Star detection cancelled"); }
                     catch (Exception ex)
                     {
                         logger.LogWarning(ex, "Star detection failed");
@@ -201,11 +201,11 @@ public sealed class ViewerController(
 
         if (_loadTask is not null)
         {
-            try { await _loadTask; } catch (OperationCanceledException) { }
+            try { await _loadTask; } catch (OperationCanceledException) { logger.LogDebug("Load task cancelled during shutdown"); }
         }
         if (_backgroundTask is not null)
         {
-            try { await _backgroundTask; } catch (OperationCanceledException) { }
+            try { await _backgroundTask; } catch (OperationCanceledException) { logger.LogDebug("Background task cancelled during shutdown"); }
         }
     }
 }

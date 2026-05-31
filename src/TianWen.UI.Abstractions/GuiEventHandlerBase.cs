@@ -120,7 +120,7 @@ namespace TianWen.UI.Abstractions
                 return true;
             }
 
-            // Slider drag start + selection
+            // Slider drag start + selection (clicked directly on a slider handle)
             if (hit is HitResult.SliderHit { SliderIndex: var sliderIdx })
             {
                 _plannerState.DraggingSliderIndex = sliderIdx;
@@ -128,7 +128,31 @@ namespace TianWen.UI.Abstractions
                 return true;
             }
 
-            // Clicking outside a slider → deselect
+            // Click-to-place: a click anywhere in the planner chart (but not directly on a
+            // slider handle) moves the nearest handoff slider to that time and begins a drag,
+            // so the same press can refine it. Selecting it also makes Left/Right step the
+            // slider (which trumps date-switching). Replaces the old click-empty-chart-to-deselect.
+            if (hit is null
+                && _appState.ActiveTab == GuiTab.Planner
+                && _plannerState.HandoffSliders.Length > 0)
+            {
+                var chartRect = _chrome.PlannerChartRect;
+                if (px >= chartRect.X && px <= chartRect.X + chartRect.Width
+                    && py >= chartRect.Y && py <= chartRect.Y + chartRect.Height)
+                {
+                    var (tStart, tEnd, plotX, plotW) = AltitudeChartRenderer.GetChartTimeLayout(
+                        _plannerState, (int)chartRect.X, (int)chartRect.Width);
+                    var clickedTime = AltitudeChartRenderer.XToTime(px, tStart, tEnd, plotX, plotW);
+                    if (PlannerActions.PlaceNearestSlider(_plannerState, clickedTime) is var moved && moved >= 0)
+                    {
+                        _plannerState.DraggingSliderIndex = moved;
+                        _appState.NeedsRedraw = true;
+                        return true;
+                    }
+                }
+            }
+
+            // Clicking outside a slider and outside the chart → deselect
             if (_plannerState.SelectedSliderIndex >= 0)
             {
                 PlannerActions.SelectSlider(_plannerState, -1);
@@ -185,7 +209,7 @@ namespace TianWen.UI.Abstractions
                 return _chrome.ActiveTab?.HandleInput(new InputEvent.MouseMove(px, py)) ?? false;
             }
 
-            if (idx >= _plannerState.HandoffSliders.Count)
+            if (idx >= _plannerState.HandoffSliders.Length)
             {
                 _plannerState.DraggingSliderIndex = -1;
                 return false;

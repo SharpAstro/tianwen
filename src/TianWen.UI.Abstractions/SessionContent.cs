@@ -105,8 +105,8 @@ namespace TianWen.UI.Abstractions
                 var proposal = proposals[i];
 
                 // Compute window, clipped to "now" for remaining time estimate
-                var windowStart = i > 0 && i - 1 < sliders.Count ? sliders[i - 1] : dark;
-                var windowEnd = i < sliders.Count ? sliders[i] : twilight;
+                var windowStart = i > 0 && i - 1 < sliders.Length ? sliders[i - 1] : dark;
+                var windowEnd = i < sliders.Length ? sliders[i] : twilight;
                 var effectiveStart = windowStart;
                 if (timeProvider is not null)
                 {

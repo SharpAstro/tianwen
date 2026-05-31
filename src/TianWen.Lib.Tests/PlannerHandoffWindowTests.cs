@@ -82,7 +82,7 @@ public class PlannerHandoffWindowTests
         state.Proposals = proposalsBuilder.ToImmutable();
         if (sliders is not null)
         {
-            state.HandoffSliders.AddRange(sliders);
+            state.HandoffSliders = [.. sliders];
         }
         return state;
     }

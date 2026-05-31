@@ -1217,9 +1217,9 @@ internal partial record Session
             var camera = Setup.Telescopes[telescopeIndex].Camera.Driver;
 
             // Abort any in-progress exposure before taking a short test exposure
-            if (await camera.GetCameraStateAsync(cancellationToken) is CameraState.Exposing)
+            if (await ResilientInvokeAsync(camera, camera.GetCameraStateAsync, ResilientCallOptions.IdempotentRead, cancellationToken) is CameraState.Exposing)
             {
-                await camera.AbortExposureAsync(cancellationToken);
+                await ResilientInvokeAsync(camera, camera.AbortExposureAsync, ResilientCallOptions.NonIdempotentAction, cancellationToken);
                 await _timeProvider.SleepAsync(TimeSpan.FromSeconds(1), cancellationToken);
             }
 
@@ -1230,7 +1230,7 @@ internal partial record Session
                 ResilientCallOptions.NonIdempotentAction, cancellationToken);
             await _timeProvider.SleepAsync(testExposure + TimeSpan.FromSeconds(2), cancellationToken);
 
-            if (!await camera.GetImageReadyAsync(cancellationToken))
+            if (!await ResilientInvokeAsync(camera, camera.GetImageReadyAsync, ResilientCallOptions.IdempotentRead, cancellationToken))
             {
                 continue;
             }
@@ -1247,7 +1247,7 @@ internal partial record Session
             var imgW = image.Width;
             var imgH = image.Height;
             image.Release();
-            var currentGain = await camera.GetGainAsync(cancellationToken);
+            var currentGain = await ResilientInvokeAsync(camera, camera.GetGainAsync, ResilientCallOptions.IdempotentRead, cancellationToken);
             var metrics = FrameMetrics.FromStarList(stars, testExposure, currentGain, imgW, imgH);
 
             if (!metrics.IsValid)

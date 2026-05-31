@@ -182,7 +182,7 @@ namespace TianWen.UI.Abstractions
 
         private void RegisterSliderHitRegions(PlannerState state, float dpiScale)
         {
-            if (state.HandoffSliders.Count == 0)
+            if (state.HandoffSliders.Length == 0)
             {
                 return;
             }
@@ -192,7 +192,7 @@ namespace TianWen.UI.Abstractions
             var tRange = (tEnd - tStart).TotalHours;
 
             var hitW = 10f * dpiScale;
-            for (var i = 0; i < state.HandoffSliders.Count; i++)
+            for (var i = 0; i < state.HandoffSliders.Length; i++)
             {
                 var fraction = (state.HandoffSliders[i] - tStart).TotalHours / tRange;
                 var sliderX = plotX + (float)(fraction * plotW);
@@ -364,9 +364,9 @@ namespace TianWen.UI.Abstractions
                 string infoStr;
                 if (isPinned)
                 {
-                    var startTime = i == 0 || state.HandoffSliders.Count == 0
+                    var startTime = i == 0 || state.HandoffSliders.Length == 0
                         ? state.AstroDark
-                        : i - 1 < state.HandoffSliders.Count
+                        : i - 1 < state.HandoffSliders.Length
                             ? state.HandoffSliders[i - 1]
                             : scored.OptimalStart;
                     infoStr = startTime.ToOffset(state.SiteTimeZone).ToString("HH:mm");
