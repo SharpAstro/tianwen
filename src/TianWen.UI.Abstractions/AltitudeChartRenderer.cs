@@ -165,7 +165,11 @@ public static class AltitudeChartRenderer
             minAltLabelRect, TextAlign.Near, TextAlign.Center);
 
         // --- Pinned target viable windows + handoff sliders ---
-        var allTargets = BuildTargetList(state, highlightTargetIndex);
+        // highlightInList is the selected target's index WITHIN allTargets (-1 if none) --
+        // distinct from highlightTargetIndex, which indexes the filtered list. The chart only
+        // contains pinned + selected, so the two index spaces diverge for any selection past
+        // the pinned section; DrawAltitudeCurves must use the allTargets-space index.
+        var (allTargets, highlightInList) = BuildTargetList(state, highlightTargetIndex);
         var targetColorMap = BuildColorMap(allTargets);
 
         if (state.PinnedCount >= 1)
@@ -176,7 +180,7 @@ public static class AltitudeChartRenderer
 
         // --- Altitude curves ---
         DrawAltitudeCurves(renderer, state, allTargets, targetColorMap,
-            TimeToX, AltToY, fontFamily, h, highlightTargetIndex);
+            TimeToX, AltToY, fontFamily, h, highlightInList);
 
         // --- Moon curve ---
         if (state.MoonAltitudeProfile is { Count: > 1 } moonProfile)
@@ -792,7 +796,7 @@ public static class AltitudeChartRenderer
         Func<double, int> altToY,
         string fontFamily,
         int rendererH,
-        int? highlightTargetIndex)
+        int highlightIndex)
     {
         for (var i = 0; i < allTargets.Length; i++)
         {
@@ -819,7 +823,8 @@ public static class AltitudeChartRenderer
             // Smooth with Catmull-Rom
             var smoothed = CatmullRomSpline.Interpolate(visibleRaw, segmentsPerSpan: 16);
 
-            var isHighlight = highlightTargetIndex.HasValue && highlightTargetIndex.Value == i;
+            // highlightIndex is in allTargets space (-1 = none); i is never negative.
+            var isHighlight = highlightIndex == i;
             var dotSize     = isHighlight ? 3 : 2;
             var curveColor  = isHighlight
                 ? new RGBAColor32(
@@ -983,7 +988,14 @@ public static class AltitudeChartRenderer
     // Data helpers
     // -----------------------------------------------------------------------
 
-    private static Target[] BuildTargetList(PlannerState state, int? highlightTargetIndex)
+    /// <summary>
+    /// Builds the chart's target set (pinned proposals + the currently selected target) and
+    /// returns it together with the selected target's index WITHIN that set (-1 if none). The
+    /// returned index is in the same space the curve loop iterates -- callers must NOT reuse
+    /// <paramref name="highlightTargetIndex"/> (a filtered-list index) for highlighting, since
+    /// the chart omits non-pinned, non-selected targets and the two spaces diverge.
+    /// </summary>
+    private static (Target[] Targets, int HighlightIndex) BuildTargetList(PlannerState state, int? highlightTargetIndex)
     {
         // Show only: proposed targets + the currently selected target
         // This keeps the chart clean and focused on the user's plan
@@ -1013,7 +1025,13 @@ public static class AltitudeChartRenderer
             }
         }
 
-        return [.. result];
+        // Locate the selected target in the assembled set (it may sit in the pinned prefix or
+        // have been appended above) so the curve loop highlights the right one.
+        var highlightIndex = highlightTargetIndex is { } hi && hi >= 0 && hi < filtered.Count
+            ? result.IndexOf(filtered[hi].Target)
+            : -1;
+
+        return ([.. result], highlightIndex);
     }
 
     private static Dictionary<Target, int> BuildColorMap(Target[] targets)

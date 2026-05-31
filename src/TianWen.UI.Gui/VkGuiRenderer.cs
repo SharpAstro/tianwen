@@ -68,6 +68,13 @@ namespace TianWen.UI.Gui
         /// <inheritdoc/>
         public void PlannerEnsureVisible(int index) => _plannerTab.EnsureVisible(index);
 
+        /// <summary>
+        /// True when the planner's deferred chart-texture upload has produced a texture
+        /// that hasn't been drawn yet, so the event loop should schedule one more frame.
+        /// Gated to the Planner tab by the caller. See <see cref="VkPlannerTab.ChartTexturePendingDraw"/>.
+        /// </summary>
+        public bool PlannerChartPendingDraw => _plannerTab.ChartTexturePendingDraw;
+
         // Base layout constants (at 1x scale)
         private const float BaseSidebarWidth = 52f;
         private const float BaseStatusBarHeight = 28f;

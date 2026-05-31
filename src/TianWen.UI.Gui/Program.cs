@@ -294,9 +294,14 @@ var loop = new SdlEventLoop(sdlWindow, renderer)
         // the thread pool, etc.) push their redraw flag here -- treat them as
         // first-class triggers so per-rung polar status updates surface within
         // a frame instead of waiting for the periodic tick to catch them.
+        // A deferred chart-texture upload (planner) leaves a freshly-uploaded texture
+        // undrawn until the next frame; force that follow-up frame so the chart doesn't
+        // lag one selection behind. Gated to the Planner tab so it can't spin a redraw
+        // loop while another tab is active (the flag clears once RenderChart draws it).
         return appState.NeedsRedraw || plannerState.NeedsRedraw
             || guiRenderer.SkyMapState.NeedsRedraw
             || guiRenderer.LiveSessionState.NeedsRedraw
+            || (appState.ActiveTab == GuiTab.Planner && guiRenderer.PlannerChartPendingDraw)
             || appState.ActiveTextInput is { IsActive: true };
     },
 

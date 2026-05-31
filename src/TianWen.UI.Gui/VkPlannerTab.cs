@@ -41,6 +41,23 @@ public sealed class VkPlannerTab : PlannerTab<VulkanContext>, IDisposable
     // Cache key to detect when the chart needs re-rendering
     private ChartCacheKey _cachedKey;
 
+    /// <summary>
+    /// True while a re-rendered chart frame is queued for GPU upload but not yet drawn, so the
+    /// event loop must schedule one more frame.
+    ///
+    /// The upload is deferred a full frame: <see cref="RenderChart"/> queues
+    /// <see cref="_pendingPixels"/> (and draws the PREVIOUS texture); the NEXT frame's
+    /// BeginFrame -> OnPreRenderPass (<see cref="FlushChartUpload"/>) swaps in the new texture,
+    /// and that same frame's RenderChart finally draws it. The interval where
+    /// <see cref="_pendingPixels"/> is non-null straddles the event loop's CheckNeedsRedraw for
+    /// that next frame, so exposing it there is what forces the follow-up frame. Without it the
+    /// chart paints one selection behind the list/detail panels (which paint immediately), and
+    /// the planner tab has no periodic redraw to catch it up -- so the chart only updated when
+    /// some unrelated event (e.g. the mouse entering the chart) happened to trigger a redraw.
+    /// Mirrors the renderer's own FontAtlasDirty -> redraw contract for deferred glyph uploads.
+    /// </summary>
+    public bool ChartTexturePendingDraw => _pendingPixels is not null;
+
     public VkPlannerTab(VkRenderer renderer) : base(renderer)
     {
         _renderer = renderer;
