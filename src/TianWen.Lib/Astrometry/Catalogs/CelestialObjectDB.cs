@@ -702,16 +702,17 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
     /// <summary>
     /// Overrides the default interface implementation in <see cref="ICelestialObjectDB"/>.
     /// Returns the result of the background bake started during init (see
-    /// <see cref="_autoCompleteListTask"/>), blocking only if the bake is still in flight.
-    /// Idempotent: subsequent calls return the same array reference.
+    /// <see cref="_autoCompleteListTask"/>) once it has completed; while the bake is still
+    /// in flight it builds the list synchronously on the calling thread rather than blocking
+    /// on the task. Once the bake has finished, subsequent calls return the same baked array.
     /// <para>
-    /// Pre-init or when the bake task was somehow not started (defensive only — init always
-    /// starts it), falls back to building synchronously here so unit tests that construct
-    /// a partially-populated db can still call this without depending on init internals.
+    /// Building inline is also the fallback for the pre-init / not-yet-started case (defensive
+    /// only — init always starts the bake) so unit tests that construct a partially-populated
+    /// db can still call this without depending on init internals.
     /// </para>
     /// </summary>
     public string[] CreateAutoCompleteList()
-        => _autoCompleteListTask is { } t ? t.GetAwaiter().GetResult() : BuildSortedAutoCompleteList();
+        => _autoCompleteListTask is { IsCompletedSuccessfully: true } t ? t.Result : BuildSortedAutoCompleteList();
 
     /// <summary>
     /// Pure CPU bake: enumerates <see cref="AllObjectIndices"/> + <see cref="CommonNames"/>

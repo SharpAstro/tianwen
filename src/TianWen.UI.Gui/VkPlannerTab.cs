@@ -106,17 +106,27 @@ public sealed class VkPlannerTab : PlannerTab<VulkanContext>, IDisposable
             return;
         }
 
+        // Slider positions must be part of the cache key: dragging or arrow-stepping a handoff
+        // slider changes its time (not the count or selected index), so without this the cached
+        // chart texture would not rebuild and the slider line would appear frozen mid-drag.
+        var slidersHash = new HashCode();
+        foreach (var sliderTime in state.HandoffSliders)
+        {
+            slidersHash.Add(sliderTime.UtcTicks);
+        }
+
         // Build cache key — excludes mouse and current time (drawn as overlays)
         var key = new ChartCacheKey(
             chartW, chartH,
             selectedIndex,
             state.PinnedCount,
-            state.HandoffSliders.Count,
+            state.HandoffSliders.Length,
             state.SelectedSliderIndex,
             state.DraggingSliderIndex,
             state.MinHeightAboveHorizon,
             state.WeatherForecast is { Count: > 0 } wf ? wf[0].Time.GetHashCode() : 0,
-            state.AstroDark.GetHashCode()
+            state.AstroDark.GetHashCode(),
+            slidersHash.ToHashCode()
         );
 
         // Re-render only on cache miss AND when no upload is already queued for
@@ -231,5 +241,6 @@ public sealed class VkPlannerTab : PlannerTab<VulkanContext>, IDisposable
         int DraggingSliderIndex,
         int MinAltitude,
         int WeatherForecastHash,
-        int AstroDarkHash);
+        int AstroDarkHash,
+        int SlidersHash);
 }

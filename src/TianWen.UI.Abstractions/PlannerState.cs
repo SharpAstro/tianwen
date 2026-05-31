@@ -85,8 +85,13 @@ public class PlannerState
     /// <summary>
     /// Handoff times between adjacent pinned targets (N-1 entries for N pinned targets).
     /// Slider[i] is the boundary between pinned target i and pinned target i+1.
+    /// <para>
+    /// <see cref="ImmutableArray{T}"/> with atomic replacement: <see cref="AppSignalHandler.InitializePlannerAsync"/>
+    /// recomputes these on a background task while the render thread reads them, so the
+    /// collection must never be observed mid-mutation (see CLAUDE.md shared-UI-state rule).
+    /// </para>
     /// </summary>
-    public List<DateTimeOffset> HandoffSliders { get; set; } = [];
+    public ImmutableArray<DateTimeOffset> HandoffSliders { get; set; } = [];
 
     /// <summary>
     /// Conflict flags parallel to the sorted pinned targets list.

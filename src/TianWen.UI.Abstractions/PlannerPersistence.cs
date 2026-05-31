@@ -157,13 +157,10 @@ public static class PlannerPersistence
             restoredProposals.Count, dto.Proposals.Length);
 
         // Restore saved slider positions if count matches and they fall within the current night window
-        if (dto.Sliders.Length == state.HandoffSliders.Count
+        if (dto.Sliders.Length == state.HandoffSliders.Length
             && dto.Sliders.All(s => s >= state.AstroDark && s <= state.AstroTwilight))
         {
-            for (var i = 0; i < dto.Sliders.Length; i++)
-            {
-                state.HandoffSliders[i] = dto.Sliders[i];
-            }
+            state.HandoffSliders = [.. dto.Sliders];
             logger.LogInformation("PlannerPersistence: restored {Count} slider positions", dto.Sliders.Length);
         }
         else if (dto.Sliders.Length > 0)

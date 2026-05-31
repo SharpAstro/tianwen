@@ -509,7 +509,7 @@ internal partial record Session
         }
 
         var autoFocusExposure = TimeSpan.FromSeconds(2);
-        var currentGain = await camera.GetGainAsync(cancellationToken);
+        var currentGain = await ResilientInvokeAsync(camera, camera.GetGainAsync, ResilientCallOptions.IdempotentRead, cancellationToken);
 
         // Bootstrap per-focuser EWMA from disk on first encounter so the very first move
         // of the session uses last-night's overshoot estimate, not the URI seed.
@@ -541,14 +541,14 @@ internal partial record Session
             var targetPos = startPos + i * stepSize;
             _currentActivity = $"#{telescopeIndex + 1} V-curve {i + 1}/{stepCount} pos={targetPos}";
             // Move may have been started during previous iteration's download overlap
-            if (!await focuser.GetIsMovingAsync(cancellationToken))
+            if (!await ResilientInvokeAsync(focuser, focuser.GetIsMovingAsync, ResilientCallOptions.IdempotentRead, cancellationToken))
             {
                 await ResilientInvokeAsync(
                     focuser,
                     ct => focuser.BeginMoveAsync(targetPos, ct),
                     ResilientCallOptions.AbsoluteMove, cancellationToken);
             }
-            while (await focuser.GetIsMovingAsync(cancellationToken) && !cancellationToken.IsCancellationRequested)
+            while (await ResilientInvokeAsync(focuser, focuser.GetIsMovingAsync, ResilientCallOptions.IdempotentRead, cancellationToken) && !cancellationToken.IsCancellationRequested)
             {
                 await PollDeviceStatesAsync(cancellationToken);
                 await _timeProvider.SleepAsync(TimeSpan.FromMilliseconds(100), cancellationToken);

@@ -47,8 +47,8 @@ public static class PlannerDetails
         if (isProposed && idx < pinnedCount)
         {
             var imgStart = idx == 0 ? state.AstroDark
-                : idx - 1 < state.HandoffSliders.Count ? state.HandoffSliders[idx - 1] : state.AstroDark;
-            var imgEnd = idx >= pinnedCount - 1 || idx >= state.HandoffSliders.Count
+                : idx - 1 < state.HandoffSliders.Length ? state.HandoffSliders[idx - 1] : state.AstroDark;
+            var imgEnd = idx >= pinnedCount - 1 || idx >= state.HandoffSliders.Length
                 ? state.AstroTwilight : state.HandoffSliders[idx];
 
             var effectiveStart = imgStart;

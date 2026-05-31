@@ -531,15 +531,13 @@ public static class EquipmentActions
                 break;
             }
 
-            try { await Task.Delay(stepInterval, cancellationToken); }
-            catch (OperationCanceledException) { throw; }
+            await Task.Delay(stepInterval, cancellationToken);
         }
 
         try { await camera.SetCoolerOnAsync(false, cancellationToken); }
         catch (Exception ex) { logger.LogWarning(ex, "SetCoolerOnAsync(false) failed for {Uri}", deviceUri); }
 
-        try { await Task.Delay(TimeSpan.FromSeconds(2), cancellationToken); }
-        catch (OperationCanceledException) { throw; }
+        await Task.Delay(TimeSpan.FromSeconds(2), cancellationToken);
 
         if (disconnectAfter)
         {

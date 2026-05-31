@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
+using Microsoft.Extensions.Logging;
 using TianWen.Lib.Devices;
 using TianWen.Hosting.Dto;
 using TianWen.Hosting.Dto.NinaV2;
@@ -54,7 +55,7 @@ internal static class NinaSequenceEndpoints
         });
 
         // GET /v2/api/sequence/start — start session using active profile + pending targets
-        group.MapGet("/start", (IHostedSession hosted, ISessionFactory factory, CancellationToken ct) =>
+        group.MapGet("/start", (IHostedSession hosted, ISessionFactory factory, ILogger<HostedSession> logger, CancellationToken ct) =>
         {
             if (hosted.CurrentSession is not null)
             {
@@ -103,7 +104,8 @@ internal static class NinaSequenceEndpoints
             _ = Task.Run(async () =>
             {
                 try { await session.RunAsync(ct); }
-                catch (OperationCanceledException) { }
+                catch (OperationCanceledException) { logger.LogInformation("ninaAPI: session run cancelled"); }
+                catch (Exception ex) { logger.LogError(ex, "ninaAPI: session run faulted"); }
             }, ct);
 
             return Results.Json(
