@@ -4,6 +4,7 @@ using System.Collections.Specialized;
 using System.Threading;
 using System.Threading.Tasks;
 using TianWen.DAL;
+using TianWen.Lib.Astrometry;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Devices.Fake;
 using Xunit;
@@ -282,6 +283,149 @@ public class FakeSkywatcherMountDriverTests(ITestOutputHelper output)
 
         (await mount.GetSiteLatitudeAsync(ct)).ShouldBe(48.2, 0.01);
         (await mount.GetSiteLongitudeAsync(ct)).ShouldBe(16.3, 0.01);
+    }
+
+    #endregion
+
+    #region Polar Misalignment — imaging regime
+
+    // ~30'/-10' misalignment used across the imaging-regime tests; magnitude
+    // ~0.5deg, so the pointing offset stays well inside a degree.
+    private const double TestAzMisalignArcmin = 30.0;
+    private const double TestAltMisalignArcmin = -10.0;
+
+    /// <summary>
+    /// Advance fake time in small steps until the mount reports it has stopped
+    /// slewing (or a cap is hit). The fake Skywatcher integrates its goto at
+    /// 3deg/s on a 50ms simulation timer, so the slew only progresses when fake
+    /// time advances.
+    /// </summary>
+    private static async Task PumpUntilNotSlewingAsync(FakeSkywatcherMountDriver mount, FakeExternal external, CancellationToken ct, TimeSpan max)
+    {
+        var step = TimeSpan.FromMilliseconds(200);
+        var pumped = TimeSpan.Zero;
+        while (pumped < max)
+        {
+            if (!await mount.IsSlewingAsync(ct))
+            {
+                break;
+            }
+            external.TimeProvider.Advance(step);
+            pumped += step;
+        }
+    }
+
+    [Fact]
+    public void GivenMisalignedAxisAwayFromPoleWhenApplyAxisTiltThenNearCommandedNotPole()
+    {
+        // Misaligned RA axis tilted ~0.5deg off the +Z (north) celestial pole.
+        var tiltRad = 0.5 * Math.PI / 180.0;
+        var axis = new Vec3(Math.Sin(tiltRad), 0.0, Math.Cos(tiltRad));
+
+        // Believed (commanded/encoder) pointing well away from the pole.
+        const double believedRa = 6.0;   // hours
+        const double believedDec = 45.0; // degrees
+
+        var (ra, dec) = FakeSkywatcherMountDriver.ApplyAxisTiltToPointing(
+            axis, Hemisphere.North, believedRa, believedDec);
+
+        // True pointing must track the commanded Dec to within the misalignment
+        // magnitude -- emphatically NOT snapped to the pole (the original bug).
+        dec.ShouldBe(believedDec, 1.0);
+        dec.ShouldBeLessThan(80.0);
+
+        // ...but it must NOT be identical either: the misalignment carries on so
+        // plate-solve centering has a real offset to detect and sync away.
+        var offsetDeg = Math.Abs(dec - believedDec) + Math.Abs(ra - believedRa) * 15.0;
+        offsetDeg.ShouldBeGreaterThan(0.01);
+    }
+
+    [Fact]
+    public void GivenAlignedAxisWhenApplyAxisTiltThenReturnsBelievedUnchanged()
+    {
+        // Axis exactly on the pole == no misalignment -> identity transform.
+        var pole = new Vec3(0.0, 0.0, 1.0);
+
+        var (ra, dec) = FakeSkywatcherMountDriver.ApplyAxisTiltToPointing(
+            pole, Hemisphere.North, 6.0, 45.0);
+
+        ra.ShouldBe(6.0, 1e-9);
+        dec.ShouldBe(45.0, 1e-9);
+    }
+
+    [Fact(Timeout = 60_000)]
+    public async Task GivenMisalignedMountWhenSlewedAwayFromPoleThenReportsNearTargetNotPole()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (mount, external) = await CreateConnectedMountAsync(
+            ct, azMisalignmentArcmin: TestAzMisalignArcmin, altMisalignmentArcmin: TestAltMisalignArcmin);
+
+        // Slew Dec from the home pole down to +45; keep RA at the current LST so
+        // the RA delta is ~0 and only the Dec axis has to travel (bounds pump time).
+        var lst = await mount.GetSiderealTimeAsync(ct);
+        await mount.BeginSlewRaDecAsync(lst, 45.0, ct);
+        await PumpUntilNotSlewingAsync(mount, external, ct, TimeSpan.FromSeconds(40));
+
+        var dec = await mount.GetDeclinationAsync(ct);
+
+        // Reports ~commanded (within the misalignment magnitude), NOT the pole.
+        dec.ShouldBe(45.0, 1.5);
+        dec.ShouldBeLessThan(80.0);
+        // No plate-solve sync yet -> the misalignment is still "carried on".
+        mount.IsAlignmentCorrected.ShouldBeFalse();
+    }
+
+    [Fact(Timeout = 60_000)]
+    public async Task GivenMisalignedMountWhenPlateSolveSyncAwayFromPoleThenLearnsAlignmentAndReportsBelieved()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (mount, _) = await CreateConnectedMountAsync(
+            ct, azMisalignmentArcmin: TestAzMisalignArcmin, altMisalignmentArcmin: TestAltMisalignArcmin);
+
+        mount.IsAlignmentCorrected.ShouldBeFalse();
+
+        // A plate-solve-driven sync to a real target (away from the pole) models
+        // the mount learning its true orientation.
+        await mount.SyncRaDecAsync(6.0, 45.0, ct);
+
+        mount.IsAlignmentCorrected.ShouldBeTrue();
+        // After correction the reported pointing is the believed (encoder)
+        // position verbatim -- no residual offset.
+        (await mount.GetRightAscensionAsync(ct)).ShouldBe(6.0, 0.01);
+        (await mount.GetDeclinationAsync(ct)).ShouldBe(45.0, 0.01);
+    }
+
+    [Fact(Timeout = 60_000)]
+    public async Task GivenMisalignedMountWhenSyncToPoleThenAlignmentNotLearned()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (mount, _) = await CreateConnectedMountAsync(
+            ct, azMisalignmentArcmin: TestAzMisalignArcmin, altMisalignmentArcmin: TestAltMisalignArcmin);
+
+        // A sync to the pole (startup / park convention) must NOT learn alignment,
+        // or the polar-align simulation would be zeroed before it can run.
+        var lst = await mount.GetSiderealTimeAsync(ct);
+        await mount.SyncRaDecAsync(lst, 90.0, ct);
+
+        mount.IsAlignmentCorrected.ShouldBeFalse();
+    }
+
+    [Fact(Timeout = 60_000)]
+    public async Task GivenSouthernMisalignedMountWhenSyncAwayFromPoleThenLearnsAlignment()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        // Southern site -> the home pole is -90; hemisphere is driven by site lat.
+        var (mount, _) = await CreateConnectedMountAsync(
+            ct, latitude: -33.9, longitude: 18.4,
+            azMisalignmentArcmin: TestAzMisalignArcmin, altMisalignmentArcmin: TestAltMisalignArcmin);
+
+        mount.IsAlignmentCorrected.ShouldBeFalse();
+
+        // Sync to a southern target well away from the -90 pole.
+        await mount.SyncRaDecAsync(6.0, -45.0, ct);
+
+        mount.IsAlignmentCorrected.ShouldBeTrue();
+        (await mount.GetDeclinationAsync(ct)).ShouldBe(-45.0, 0.01);
     }
 
     #endregion

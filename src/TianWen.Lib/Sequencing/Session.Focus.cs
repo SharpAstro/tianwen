@@ -761,6 +761,25 @@ internal partial record Session
         var telescope = Setup.Telescopes[telescopeIndex];
         var camDriver = telescope.Camera.Driver;
 
+        // Read the mount's CURRENT pointing before exposing. This drives two
+        // things: (1) the camera's render-centre, so the frame reflects where
+        // the scope ACTUALLY points -- including any polar misalignment the
+        // mount hasn't been synced out yet -- which is what makes plate-solve
+        // centering able to measure and correct the offset; and (2) the
+        // plate-solve search hint below (re-used, no second read). On a real
+        // camera Target is just FITS metadata, so stamping the live pointing is
+        // harmless; on the fake camera it is the synthetic-field centre.
+        var mountRa = await ResilientInvokeAsync(
+            mount.Driver, mount.Driver.GetRightAscensionAsync,
+            ResilientCallOptions.IdempotentRead, cancellationToken);
+        var mountDec = await ResilientInvokeAsync(
+            mount.Driver, mount.Driver.GetDeclinationAsync,
+            ResilientCallOptions.IdempotentRead, cancellationToken);
+        if (camDriver.Target is { } currentTarget)
+        {
+            camDriver.Target = currentTarget with { RA = mountRa, Dec = mountDec };
+        }
+
         // Take a short exposure
         await camDriver.StartExposureAsync(exposureTime, cancellationToken: cancellationToken);
 
@@ -788,13 +807,8 @@ internal partial record Session
             return (false, double.NaN, double.NaN);
         }
 
-        // Plate solve using mount's current position as search origin
-        var mountRa = await ResilientInvokeAsync(
-            mount.Driver, mount.Driver.GetRightAscensionAsync,
-            ResilientCallOptions.IdempotentRead, cancellationToken);
-        var mountDec = await ResilientInvokeAsync(
-            mount.Driver, mount.Driver.GetDeclinationAsync,
-            ResilientCallOptions.IdempotentRead, cancellationToken);
+        // Plate solve using the mount position read before the exposure as the
+        // search origin (re-used -- no second driver round-trip).
         var searchOrigin = new WCS(mountRa, mountDec);
 
         var result = await PlateSolver.SolveImageAsync(image, searchOrigin: searchOrigin, searchRadius: 10, cancellationToken: cancellationToken);
@@ -853,6 +867,10 @@ internal partial record Session
             if (totalOffsetArcmin <= thresholdArcmin)
             {
                 _logger.LogInformation("Centering: converged within {Threshold}' after {Attempt} attempt(s)", thresholdArcmin, attempt);
+                // Clear the transient centering/re-slewing status so the live UI falls
+                // through to the phase text once centering finishes; otherwise the last
+                // "Re-slewing to ..." string lingers on screen through the exposure.
+                _currentActivity = null;
                 return true;
             }
 
@@ -869,6 +887,9 @@ internal partial record Session
         }
 
         _logger.LogWarning("Centering: did not converge within {Max} attempts for {Target}", maxAttempts, target.Name);
+        // Even on non-convergence, drop the transient status so the UI doesn't keep
+        // showing "Re-slewing to ..." into the subsequent exposure.
+        _currentActivity = null;
         return false;
     }
 

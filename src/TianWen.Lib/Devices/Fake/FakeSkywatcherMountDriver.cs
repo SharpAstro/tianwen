@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging;
 using System;
 using System.Globalization;
 using System.Threading;
@@ -76,6 +77,32 @@ internal class FakeSkywatcherMountDriver(FakeDevice device, IServiceProvider ser
     /// </summary>
     private bool MisalignmentEnabled => Math.Abs(_azErrArcmin) > 1e-3 || Math.Abs(_altErrArcmin) > 1e-3;
 
+    /// <summary>
+    /// Set once a plate-solve-driven <see cref="SyncRaDecAsync"/> to a target
+    /// away from the pole lands. Models the mount LEARNING its true orientation
+    /// from the sync: after that the residual polar misalignment is corrected,
+    /// so <see cref="GetRightAscensionAsync"/> / <see cref="GetDeclinationAsync"/>
+    /// report the believed (encoder) pointing verbatim and imaging frames render
+    /// on-target. This is how the imaging centering loop converges -- the first
+    /// frame shows the misalignment offset, plate-solve syncs, and the re-slew
+    /// lands true. Startup / park syncs (to the pole) deliberately do NOT set
+    /// this, so the polar-align simulation survives until a real imaging sync.
+    /// </summary>
+    private bool _alignmentCorrected;
+
+    /// <summary>Test seam: whether a plate-solve sync away from the pole has
+    /// modelled the alignment as learned (residual misalignment corrected).</summary>
+    internal bool IsAlignmentCorrected => _alignmentCorrected;
+
+    /// <summary>
+    /// Angular distance from the site's celestial pole, in degrees, within which
+    /// the OTA is treated as "parked on the pole" for polar-align simulation
+    /// (encoder-swept pole) rather than slewed to an imaging target (axis-tilt of
+    /// the believed pointing). Polar align operates with the believed Dec within
+    /// a few degrees of the pole; imaging targets are well below this.
+    /// </summary>
+    private const double NearPoleDeg = 5.0;
+
     /// <inheritdoc/>
     /// <remarks>
     /// Applies a topocentric polar-misalignment transform on top of the base
@@ -89,7 +116,7 @@ internal class FakeSkywatcherMountDriver(FakeDevice device, IServiceProvider ser
     public override async ValueTask<double> GetRightAscensionAsync(CancellationToken cancellationToken)
     {
         var baseRa = await base.GetRightAscensionAsync(cancellationToken);
-        if (!MisalignmentEnabled || CprRa == 0)
+        if (!MisalignmentEnabled || _alignmentCorrected || CprRa == 0)
         {
             return baseRa;
         }
@@ -102,13 +129,43 @@ internal class FakeSkywatcherMountDriver(FakeDevice device, IServiceProvider ser
     public override async ValueTask<double> GetDeclinationAsync(CancellationToken cancellationToken)
     {
         var baseDec = await base.GetDeclinationAsync(cancellationToken);
-        if (!MisalignmentEnabled || CprRa == 0)
+        if (!MisalignmentEnabled || _alignmentCorrected || CprRa == 0)
         {
             return baseDec;
         }
         var baseRa = await base.GetRightAscensionAsync(cancellationToken);
         var (_, decMis) = await ComputeMisalignedPointingAsync(baseRa, baseDec, cancellationToken);
         return decMis;
+    }
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// A sync to a target away from the pole is plate-solve-driven (the imaging
+    /// centering loop tells the mount its TRUE sky position). We model that as
+    /// the mount LEARNING its orientation: the residual polar misalignment is
+    /// corrected, so subsequent <see cref="GetRightAscensionAsync"/> /
+    /// <see cref="GetDeclinationAsync"/> report the believed (encoder) pointing
+    /// verbatim and the re-slew converges on target. Startup / park syncs go to
+    /// the pole and must NOT trigger this -- otherwise the polar-align
+    /// simulation would be zeroed before it can run. The base call still moves
+    /// the encoders either way.
+    /// </remarks>
+    public override async ValueTask SyncRaDecAsync(double ra, double dec, CancellationToken cancellationToken)
+    {
+        await base.SyncRaDecAsync(ra, dec, cancellationToken);
+        if (!MisalignmentEnabled || _alignmentCorrected)
+        {
+            return;
+        }
+        var siteLatDeg = await GetSiteLatitudeAsync(cancellationToken);
+        var hemisphere = siteLatDeg >= 0 ? Hemisphere.North : Hemisphere.South;
+        if (!IsNearSitePole(dec, hemisphere))
+        {
+            _alignmentCorrected = true;
+            Logger.LogInformation(
+                "FakeSkywatcher: plate-solve sync to ({Ra:F4}h, {Dec:F4}deg) away from the pole -- modelling alignment as learned; residual misalignment corrected.",
+                ra, dec);
+        }
     }
 
     /// <summary>
@@ -123,13 +180,43 @@ internal class FakeSkywatcherMountDriver(FakeDevice device, IServiceProvider ser
         var siteLatDeg = await GetSiteLatitudeAsync(ct);
         var siteLonDeg = await GetSiteLongitudeAsync(ct);
         var siteElevM = await GetSiteElevationAsync(ct);
-        var hemisphere = baseDec >= 0 ? Hemisphere.North : Hemisphere.South;
-        var encoderRad = EncoderAngleRadians(PosRa, CprRa);
+        // Which celestial pole the mount homes to is fixed by the observing
+        // hemisphere (site latitude), NOT by where the OTA currently points.
+        var hemisphere = siteLatDeg >= 0 ? Hemisphere.North : Hemisphere.South;
         var utc = TimeProvider.GetUtcNow();
         var axis = TopocentricMisalignmentToJ2000Axis(
             siteLatDeg, siteLonDeg, siteElevM, utc,
             _azErrArcmin, _altErrArcmin, hemisphere, TimeProvider);
-        return ApplyPolarMisalignment(axis, hemisphere, encoderRad);
+
+        if (IsNearSitePole(baseDec, hemisphere))
+        {
+            // Polar-align regime: the OTA is parked on the pole and the RA axis
+            // is rotated via MoveAxis to trace a small circle about the
+            // misaligned axis. The believed RA is degenerate at the pole, so we
+            // sweep the pole vector by the raw encoder angle (the polar-align
+            // routine recovers the circle centre = the misaligned axis).
+            var encoderRad = EncoderAngleRadians(PosRa, CprRa);
+            return ApplyPolarMisalignment(axis, hemisphere, encoderRad);
+        }
+
+        // Imaging regime: the OTA has been slewed away from the pole. The true
+        // sky it reaches is the believed (encoder) pointing rotated rigidly by
+        // the axis tilt -- a small (~misalignment-sized) offset that respects
+        // WHERE the scope was slewed, so a GOTO to Dec=45 reports ~45 (not the
+        // pole). The imaging centering loop plate-solves this offset and syncs
+        // it away (see SyncRaDecAsync).
+        return ApplyAxisTiltToPointing(axis, hemisphere, baseRa, baseDec);
+    }
+
+    /// <summary>
+    /// True when <paramref name="decDeg"/> sits within <see cref="NearPoleDeg"/>
+    /// of the site's celestial pole -- i.e. the OTA is parked on the pole for
+    /// polar-align, as opposed to slewed to an imaging target.
+    /// </summary>
+    private static bool IsNearSitePole(double decDeg, Hemisphere hemisphere)
+    {
+        var poleDec = hemisphere == Hemisphere.North ? 90.0 : -90.0;
+        return Math.Abs(decDeg - poleDec) <= NearPoleDeg;
     }
 
     /// <summary>
@@ -267,6 +354,75 @@ internal class FakeSkywatcherMountDriver(FakeDevice device, IServiceProvider ser
         var raDeg = Math.Atan2(ry, rx) * 180.0 / Math.PI;
         var ra = raDeg / 15.0;
         if (ra < 0.0) ra += 24.0;
+        return (ra, dec);
+    }
+
+    /// <summary>
+    /// Project the believed (encoder) pointing through the mount's rigid axis
+    /// tilt to recover the true sky direction the OTA reaches when slewed away
+    /// from the pole. Unlike <see cref="ApplyPolarMisalignment"/> -- which pins
+    /// the OTA to the pole and sweeps by the RA encoder, valid only while the
+    /// scope is parked on the pole for polar-align -- this rotates the believed
+    /// pointing by the rotation that carries the true pole onto the misaligned
+    /// axis. The result is a small (~misalignment-magnitude) position-dependent
+    /// offset from the commanded coordinates: exactly the pointing error a real
+    /// polar-misaligned GEM exhibits, which plate-solve centering then detects
+    /// and syncs away.
+    /// </summary>
+    /// <param name="misalignedAxisJ2000">The actual mount RA-axis in J2000 (the
+    /// tilted pole), as produced by <see cref="TopocentricMisalignmentToJ2000Axis"/>.</param>
+    /// <param name="hemisphere">Site hemisphere -- selects which true pole the
+    /// tilt is measured from.</param>
+    /// <param name="baseRa">Believed (encoder-derived) RA in hours.</param>
+    /// <param name="baseDec">Believed (encoder-derived) Dec in degrees.</param>
+    /// <returns>True (RA, Dec). RA in [0, 24) hours; Dec in [-90, 90] degrees.</returns>
+    internal static (double Ra, double Dec) ApplyAxisTiltToPointing(
+        Vec3 misalignedAxisJ2000,
+        Hemisphere hemisphere,
+        double baseRa,
+        double baseDec)
+    {
+        var poleZ = hemisphere == Hemisphere.North ? 1.0 : -1.0;
+        var kx = misalignedAxisJ2000.X;
+        var ky = misalignedAxisJ2000.Y;
+        var kz = misalignedAxisJ2000.Z;
+
+        var believed = PolarAxisSolver.RaDecToUnitVec(baseRa, baseDec);
+
+        // Rotation R that carries the true pole (0, 0, poleZ) onto the misaligned
+        // axis k: rotation axis r = norm(pole x k), angle = acos(pole . k).
+        // pole x k = (-poleZ*ky, poleZ*kx, 0).
+        var dot = Math.Clamp(poleZ * kz, -1.0, 1.0);
+        var angle = Math.Acos(dot);
+        var rxRaw = -poleZ * ky;
+        var ryRaw = poleZ * kx;
+        var axisLen = Math.Sqrt(rxRaw * rxRaw + ryRaw * ryRaw);
+        if (axisLen < 1e-12 || angle < 1e-9)
+        {
+            // Axis already coincides with the pole (no tilt) -- believed == true.
+            return (baseRa, baseDec);
+        }
+        var rx = rxRaw / axisLen;
+        var ry = ryRaw / axisLen;
+        const double rz = 0.0; // pole x k always lies in the equatorial plane
+
+        var cosT = Math.Cos(angle);
+        var sinT = Math.Sin(angle);
+        var oneMinusCos = 1.0 - cosT;
+
+        // Rodrigues: R(r, angle) . v = v.cos + (r x v).sin + r.(r . v).(1 - cos).
+        var vx = believed.X;
+        var vy = believed.Y;
+        var vz = believed.Z;
+        var rDotV = rx * vx + ry * vy + rz * vz;
+        var crossX = ry * vz - rz * vy;
+        var crossY = rz * vx - rx * vz;
+        var crossZ = rx * vy - ry * vx;
+        var tx = vx * cosT + crossX * sinT + rx * rDotV * oneMinusCos;
+        var ty = vy * cosT + crossY * sinT + ry * rDotV * oneMinusCos;
+        var tz = vz * cosT + crossZ * sinT + rz * rDotV * oneMinusCos;
+
+        var (ra, dec) = PolarAxisSolver.UnitVecToRaDec(new Vec3(tx, ty, tz));
         return (ra, dec);
     }
 
