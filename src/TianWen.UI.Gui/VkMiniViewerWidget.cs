@@ -136,7 +136,15 @@ public sealed unsafe class VkMiniViewerWidget : IMiniViewerWidget, IDisposable
             {
                 _cachedStretchStats = new ChannelStretchStats[_uploadedChannelCount];
             }
-            var (ped, med, mad) = image.GetPedestralMedianAndMADScaledToUnit(0);
+            // Stretch stats only need an aggregate median/MAD, so subsample large
+            // frames on a fixed grid (~1M-sample target). A full 61 MP scan on the
+            // render thread for every new frame is what dragged the live session to
+            // ~1 FPS. Display is unaffected -- the full frame is still uploaded and
+            // rendered, so 1:1 still shows every pixel.
+            var pixels = (long)image.Width * image.Height;
+            const long targetSamples = 1_000_000L;
+            var stride = pixels > targetSamples ? (int)Math.Sqrt((double)pixels / targetSamples) : 1;
+            var (ped, med, mad) = image.GetPedestralMedianAndMADScaledToUnit(0, pixelStride: stride);
             for (var c = 0; c < _cachedStretchStats!.Length; c++)
             {
                 _cachedStretchStats[c] = new ChannelStretchStats(ped, med, mad);

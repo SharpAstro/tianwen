@@ -571,6 +571,46 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
             screenX, screenY + 20f * dpiScale + lineH, lineH);
     }
 
+    /// <summary>
+    /// Draws the committed plan's target(s): a small reticle + name label per scheduled
+    /// observation. The currently-executing observation is amber (matching the slewing
+    /// mount reticle); the rest are pale green. Below-horizon targets are dimmed.
+    /// </summary>
+    protected override void RenderScheduleTargets(
+        RectF32 contentRect, float dpiScale, string fontPath, float baseFontSize,
+        double ppr, float cx, float cy, SiteContext site, bool dimBelowHorizon)
+    {
+        var fontSize = baseFontSize * dpiScale;
+        var lineH = fontSize * 1.2f;
+        const float margin = 100f;
+
+        foreach (var (ra, dec, name, isActive) in State.ScheduleTargets)
+        {
+            if (!SkyMapProjection.ProjectWithMatrix(ra, dec, State.CurrentViewMatrix,
+                    ppr, cx, cy, out var sx, out var sy))
+            {
+                continue;
+            }
+            if (sx < contentRect.X - margin || sx > contentRect.X + contentRect.Width + margin
+                || sy < contentRect.Y - margin || sy > contentRect.Y + contentRect.Height + margin)
+            {
+                continue;
+            }
+
+            // Dim targets currently below the horizon so they read as "not up yet".
+            var alpha = (byte)(dimBelowHorizon && !site.IsAboveHorizon(ra, dec) ? 0x60 : 0xE0);
+            var color = isActive
+                ? new RGBAColor32(0xFF, 0xB0, 0x40, alpha)  // amber - active observation
+                : new RGBAColor32(0x80, 0xE0, 0xA0, alpha); // pale green - scheduled
+
+            VkOverlayShapes.DrawReticle(renderer, dpiScale,
+                sx, sy, radius: 9f, armLength: 14f, gap: 4f,
+                color: color, thickness: 1.5f);
+            DrawReticleLabel(name, fontPath, fontSize * 0.9f, color,
+                sx, sy + 14f * dpiScale, lineH);
+        }
+    }
+
     private void DrawReticleLabel(string text, string fontPath, float fontSize, RGBAColor32 color,
         float centerX, float topY, float lineH)
     {

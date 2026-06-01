@@ -478,6 +478,7 @@ namespace TianWen.UI.Gui
                     // preview-mode uses PreviewMountState populated by PollPreviewTelemetry.
                     PopulateSkyMapMountOverlay(appState);
                     PopulateSkyMapMosaicPanels(appState, plannerState);
+                    PopulateSkyMapScheduleTargets();
                     _skyMapTab.Render(plannerState, contentRect, DpiScale,
                         _fontPath ?? "monospace", timeProvider);
                     break;
@@ -530,16 +531,30 @@ namespace TianWen.UI.Gui
             // before the first poll completes (or when no mount is configured at all).
             // Guard on the display name being set, which only happens after a successful
             // poll establishes that a mount is connected.
-            var displayName = LiveSessionState.PreviewMountDisplayName;
+            // Source the mount state AND its display name from the same place: the
+            // session when one is running (it owns the mount and populates MountState),
+            // otherwise the preview poll. Previously the display-name guard always read
+            // the preview poll's name, so a session started without a prior preview poll
+            // (e.g. straight from the Planner) suppressed the reticle even though the
+            // session mount was live.
+            MountState ms;
+            string? displayName;
+            if (LiveSessionState.IsRunning)
+            {
+                ms = LiveSessionState.MountState;
+                displayName = LiveSessionState.ActiveSession?.Setup.Mount.Device.DisplayName;
+            }
+            else
+            {
+                ms = LiveSessionState.PreviewMountState;
+                displayName = LiveSessionState.PreviewMountDisplayName;
+            }
+
             if (string.IsNullOrEmpty(displayName))
             {
                 _skyMapTab.State.MountOverlay = null;
                 return;
             }
-
-            var ms = LiveSessionState.IsRunning
-                ? LiveSessionState.MountState
-                : LiveSessionState.PreviewMountState;
 
             if (double.IsNaN(ms.RightAscension) || double.IsNaN(ms.Declination))
             {
@@ -572,6 +587,36 @@ namespace TianWen.UI.Gui
                 IsSlewing: ms.IsSlewing,
                 IsTracking: ms.IsTracking,
                 SensorFovDeg: sensorFov);
+        }
+
+        /// <summary>
+        /// Surfaces the committed observing plan's target(s) to the sky map so the user can
+        /// see where tonight's targets sit. Sourced from the built schedule
+        /// (<see cref="SessionTabState.Schedule"/>); the running session's
+        /// <see cref="LiveSessionState.ActiveObservation"/> is flagged so the renderer can
+        /// highlight the target currently being imaged / slewed to.
+        /// </summary>
+        private void PopulateSkyMapScheduleTargets()
+        {
+            var schedule = SessionState.Schedule;
+            if (schedule is not { Count: > 0 })
+            {
+                _skyMapTab.State.ScheduleTargets = [];
+                return;
+            }
+
+            var active = LiveSessionState.ActiveObservation?.Target;
+            var targets = new List<(double RA, double Dec, string Name, bool IsActive)>(schedule.Count);
+            foreach (var obs in schedule)
+            {
+                var t = obs.Target;
+                if (double.IsNaN(t.RA) || double.IsNaN(t.Dec))
+                {
+                    continue;
+                }
+                targets.Add((t.RA, t.Dec, t.Name, active is { } a && a == t));
+            }
+            _skyMapTab.State.ScheduleTargets = [.. targets];
         }
 
         /// <summary>

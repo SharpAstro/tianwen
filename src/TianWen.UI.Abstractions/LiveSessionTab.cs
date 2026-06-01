@@ -1110,7 +1110,7 @@ namespace TianWen.UI.Abstractions
                 // Filter
                 if (y < maxY && ota.FilterWheel is not null)
                 {
-                    var filterName = (i < cameraStates.Length && cameraStates[i].FilterName is { Length: > 0 } fn) ? fn : "--";
+                    var filterName = i < cameraStates.Length ? LiveSessionActions.FilterDisplayLabel(cameraStates[i].FilterName, "--") : "--";
                     DrawText($"FW: {filterName}", fontPath,
                         px + pad, y, textW, rowH,
                         smallFs, BodyText, TextAlign.Near, TextAlign.Center);
@@ -1229,7 +1229,7 @@ namespace TianWen.UI.Abstractions
             var fraction = totalSec > 0 ? (float)(elapsedSec / totalSec) : 0f;
 
             // Filter + frame label
-            var filterLabel = cs.FilterName is { Length: > 0 } fn ? fn : "L";
+            var filterLabel = LiveSessionActions.FilterDisplayLabel(cs.FilterName, "L");
             var expLabel = $"{filterLabel} #{cs.FrameNumber} ({elapsedSec:F0}/{totalSec:F0}s)";
             DrawText(expLabel, fontPath,
                 x, y, w, rowH, smallFs, BodyText, TextAlign.Near, TextAlign.Center);
@@ -1941,7 +1941,8 @@ namespace TianWen.UI.Abstractions
                 FillRect(rect.X, y, rect.Width, rowH, bg);
 
                 var target = entry.TargetName.Length > 10 ? entry.TargetName[..10] : entry.TargetName;
-                var filter = entry.FilterName.Length > 6 ? entry.FilterName[..6] : entry.FilterName;
+                var filterRaw = LiveSessionActions.FilterDisplayLabel(entry.FilterName, "L");
+                var filter = filterRaw.Length > 6 ? filterRaw[..6] : filterRaw;
                 var hfd = entry.MedianHfd > 0 ? $"{entry.MedianHfd:F1}\"" : "--";
                 var stars = entry.StarCount > 0 ? $"{entry.StarCount}" : "--";
 

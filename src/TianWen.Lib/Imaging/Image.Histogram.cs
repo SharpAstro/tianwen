@@ -229,12 +229,12 @@ public partial class Image
         return new ImageHistogram(channel, histogram.ToImmutableArray(), hist_mean, hist_total, threshold, thresholdPct, rescaledMaxValue, median, mad, ignoreBlack);
     }
 
-    public ImageHistogram Statistics(int channel, bool removePedestral = false)
-        => Histogram(channel, thresholdPct: 100, ignoreBlack: false, calcStats: true, removePedestral);
+    public ImageHistogram Statistics(int channel, bool removePedestral = false, int pixelStride = 1)
+        => Histogram(channel, thresholdPct: 100, ignoreBlack: false, calcStats: true, removePedestral, pixelStride);
 
-    public (float Pedestral, float Median, float MAD) GetPedestralMedianAndMADScaledToUnit(int channel)
+    public (float Pedestral, float Median, float MAD) GetPedestralMedianAndMADScaledToUnit(int channel, int pixelStride = 1)
     {
-        var stats = Statistics(channel, removePedestral: true);
+        var stats = Statistics(channel, removePedestral: true, pixelStride: pixelStride);
         if (stats.Median is not { } median || stats.MAD is not { } mad)
         {
             throw new InvalidOperationException("Median and MAD should have been calculated");

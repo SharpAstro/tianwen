@@ -519,8 +519,20 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver
     /// When set together with <see cref="Target"/> and <see cref="TrueBestFocus"/>,
     /// renders catalog stars from Tycho-2 projected onto the sensor via TAN projection
     /// instead of generating random star positions.
+    /// <para>
+    /// Normally left for the driver to resolve itself, lazily, from the DI-provided
+    /// <see cref="FakeDeviceDriverBase.External"/> on the first exposure (see
+    /// <see cref="StartExposureAsync"/>) -- so nothing in the session / shared layer
+    /// needs to know this fake-only dependency exists. Test code may assign it
+    /// directly, which short-circuits the lazy resolve.
+    /// </para>
     /// </summary>
     public ICelestialObjectDB? CelestialObjectDB { get; set; }
+
+    // One-shot guard so the lazy catalog-DB resolve in StartExposureAsync is
+    // attempted at most once even if the DB is unavailable (avoids re-awaiting
+    // every exposure when the resolve yields null / throws).
+    private bool _catalogDbResolveAttempted;
 
     /// <summary>
     /// Simulated cloud coverage (0.0 = clear, 1.0 = overcast). Applied to rendered frames
@@ -608,7 +620,7 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver
     public ValueTask<bool> GetIsPulseGuidingAsync(CancellationToken cancellationToken = default)
         => ValueTask.FromResult(Connected ? false : throw new InvalidOperationException("Camera is not connected"));
 
-    public ValueTask<DateTimeOffset> StartExposureAsync(TimeSpan duration, FrameType frameType = FrameType.Light, CancellationToken cancellationToken = default)
+    public async ValueTask<DateTimeOffset> StartExposureAsync(TimeSpan duration, FrameType frameType = FrameType.Light, CancellationToken cancellationToken = default)
     {
         // Test seam: simulate a transient driver fault (USB bump, COM glitch).
         // ResilientCall classifies IOException as transient, so it triggers the
@@ -619,6 +631,28 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver
         }
         // Decrement went below 0 — clamp to 0 so steady state stays at 0.
         Interlocked.CompareExchange(ref TransientStartExposureFailures, 0, -1);
+
+        // Fake-only: the synthetic-star renderer needs the celestial catalog to
+        // project real stars at the target, so the (real) plate solver in a
+        // centering / focus / guider loop can match the rendered frame. Resolve
+        // it lazily from the same DI-provided IExternal the rest of the app uses
+        // -- the session / shared layer stays unaware of this fake-only need.
+        // GetCelestialObjectDBAsync performs the (idempotent) DB init, so by the
+        // time StopExposureCore renders, the catalog is loaded. Explicit test
+        // wiring of CelestialObjectDB short-circuits this; on failure the synth
+        // falls back to a random star field (the prior behaviour).
+        if (CelestialObjectDB is null && !_catalogDbResolveAttempted)
+        {
+            _catalogDbResolveAttempted = true;
+            try
+            {
+                CelestialObjectDB = await External.GetCelestialObjectDBAsync(cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                Logger.LogDebug(ex, "FakeCamera: catalog DB resolve failed; synthetic frames will use a random star field");
+            }
+        }
 
         var minDuration = TimeSpan.FromSeconds(ExposureResolution);
         var intentedDuration = duration < minDuration ? minDuration : duration;
@@ -643,7 +677,7 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver
                 timer.Change(intentedDuration, Timeout.InfiniteTimeSpan);
             }
 
-            return ValueTask.FromResult(startTime);
+            return startTime;
         }
         else
         {

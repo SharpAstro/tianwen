@@ -1811,6 +1811,30 @@ namespace TianWen.UI.Abstractions
                         }
                     };
 
+                    // Surface each session phase transition in the notification feed.
+                    // Terminal phases (Complete/Aborted/Failed) are emitted in the RunAsync
+                    // finally block below, so they are skipped here to avoid duplicates.
+                    session.PhaseChanged += (_, e) =>
+                    {
+                        var phaseMsg = e.NewPhase switch
+                        {
+                            SessionPhase.Initialising => "Initialising session…",
+                            SessionPhase.WaitingForDark => "Waiting for astronomical dark…",
+                            SessionPhase.Cooling => "Cooling cameras to setpoint…",
+                            SessionPhase.RoughFocus => "Initial rough focus…",
+                            SessionPhase.AutoFocus => "Auto-focusing…",
+                            SessionPhase.CalibratingGuider => "Calibrating guider…",
+                            SessionPhase.Observing => "Observation loop started",
+                            SessionPhase.Finalising => "Finalising session…",
+                            _ => null
+                        };
+                        if (phaseMsg is not null)
+                        {
+                            appState.AppendNotification(_timeProvider.GetUtcNow(), NotificationSeverity.Info, phaseMsg);
+                            appState.NeedsRedraw = true;
+                        }
+                    };
+
                     // RunAsync includes Finalise — run as tracked background task so:
                     // 1. UI stays responsive (signal handler returns immediately)
                     // 2. DrainAsync at shutdown waits for Finalise to complete

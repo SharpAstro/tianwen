@@ -51,6 +51,15 @@ namespace TianWen.UI.Abstractions
             _ => new RGBAColor32(0x55, 0x55, 0x88, 0xff)                                // default purple-grey
         };
 
+        /// <summary>
+        /// UI label for a per-frame filter name. A camera with no filter wheel reports
+        /// the <see cref="Filter.Unknown"/> sentinel (DisplayName "Unknown"); surface the
+        /// caller's <paramref name="fallback"/> (e.g. "L" for luminance, "--" for "none")
+        /// instead of the raw sentinel string.
+        /// </summary>
+        public static string FilterDisplayLabel(string? filterName, string fallback)
+            => filterName is { Length: > 0 } name && name != Filter.Unknown.DisplayName ? name : fallback;
+
         /// <summary>Format a timespan as compact duration (e.g. "4h56m" or "23m").</summary>
         public static string FormatDuration(TimeSpan ts)
         {
