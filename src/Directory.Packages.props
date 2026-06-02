@@ -87,7 +87,10 @@
          other SharpAstro codec siblings. -->
     <PackageVersion Include="SharpAstro.Jxr" Version="3.2.*" />
     <PackageVersion Include="SharpAstro.Exr" Version="3.2.*" />
-    <PackageVersion Include="Console.Lib" Version="2.12.*" />
+    <!-- Console.Lib 2.17 adds ScrollableList + TreeView opt-in auto wheel routing
+         (on top of 2.13-2.16 widget work). Built on DIR.Lib 4.4, same sibling
+         family as SdlVulkan.Renderer 5.1. -->
+    <PackageVersion Include="Console.Lib" Version="2.17.*" />
     <!-- SdlVulkan.Renderer 5.0 adds a multi-page SDF glyph atlas (no more grow
          stall / Adreno submit-wedge) on top of 4.1's SetSystemCursor + anisotropic
          glyph xScale. 5.1 implements DIR.Lib 4.4's PushClip/PopClip via Vulkan
