@@ -1814,7 +1814,10 @@ namespace TianWen.UI.Abstractions
                     // Surface each session phase transition in the notification feed.
                     // Terminal phases (Complete/Aborted/Failed) are emitted in the RunAsync
                     // finally block below, so they are skipped here to avoid duplicates.
-                    session.PhaseChanged += (_, e) =>
+                    // Extracted to a named local so it can be unsubscribed in finally —
+                    // prevents a dangling delegate from keeping a stale session alive
+                    // if the session reference is ever captured here in future refactors.
+                    void OnPhaseChanged(object? _, SessionPhaseChangedEventArgs e)
                     {
                         var phaseMsg = e.NewPhase switch
                         {
@@ -1833,7 +1836,8 @@ namespace TianWen.UI.Abstractions
                             appState.AppendNotification(_timeProvider.GetUtcNow(), NotificationSeverity.Info, phaseMsg);
                             appState.NeedsRedraw = true;
                         }
-                    };
+                    }
+                    session.PhaseChanged += OnPhaseChanged;
 
                     // RunAsync includes Finalise — run as tracked background task so:
                     // 1. UI stays responsive (signal handler returns immediately)
@@ -1850,6 +1854,7 @@ namespace TianWen.UI.Abstractions
                         }
                         finally
                         {
+                            session.PhaseChanged -= OnPhaseChanged;
                             liveSessionState.IsRunning = false;
                             liveSessionState.NeedsRedraw = true;
 
