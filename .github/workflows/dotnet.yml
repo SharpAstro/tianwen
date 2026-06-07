@@ -139,7 +139,7 @@ jobs:
     # be newer than .json.lz so MSBuild's Inputs/Outputs check skips the
     # PreprocessCatalogs target.
     - name: Download preprocessed catalogs
-      uses: actions/download-artifact@v6
+      uses: actions/download-artifact@v8
       with:
         name: preprocessed-catalogs
         path: src/TianWen.Lib/Astrometry/Catalogs/
@@ -235,7 +235,7 @@ jobs:
     - name: Fetch required LFS objects
       run: git lfs pull --include="*.lz,*.ttf,*.bin.gz,*.fits.gz"
     - name: Download preprocessed catalogs
-      uses: actions/download-artifact@v6
+      uses: actions/download-artifact@v8
       with:
         name: preprocessed-catalogs
         path: src/TianWen.Lib/Astrometry/Catalogs/
@@ -306,7 +306,7 @@ jobs:
     # preprocess-catalog.ps1 script on the multi-platform publish matrix
     # (Windows / Linux / macOS).
     - name: Download preprocessed catalogs
-      uses: actions/download-artifact@v6
+      uses: actions/download-artifact@v8
       with:
         name: preprocessed-catalogs
         path: src/TianWen.Lib/Astrometry/Catalogs/
