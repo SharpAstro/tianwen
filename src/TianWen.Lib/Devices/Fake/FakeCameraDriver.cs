@@ -529,10 +529,15 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver
     /// </summary>
     public ICelestialObjectDB? CelestialObjectDB { get; set; }
 
-    // One-shot guard so the lazy catalog-DB resolve in StartExposureAsync is
-    // attempted at most once even if the DB is unavailable (avoids re-awaiting
-    // every exposure when the resolve yields null / throws).
-    private bool _catalogDbResolveAttempted;
+    // One-shot gate for the lazy catalog-DB resolve in StartExposureAsync.
+    // 0 = open (not yet claimed), 1 = claimed (resolve in-flight or finished).
+    // Claimed atomically via Interlocked so at most one caller ever runs the
+    // (idempotent) resolve even if two exposures overlap -- the resolve block
+    // sits BEFORE the camera-state CAS, so it is not otherwise serialised. The
+    // gate is reset to 0 only on cancellation, so a genuinely transient OCE stays
+    // retryable while a real failure (DB unavailable) gives up for good (avoids
+    // re-awaiting every exposure).
+    private int _catalogDbResolveGate;
 
     /// <summary>
     /// Simulated cloud coverage (0.0 = clear, 1.0 = overcast). Applied to rendered frames
@@ -641,15 +646,33 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver
         // time StopExposureCore renders, the catalog is loaded. Explicit test
         // wiring of CelestialObjectDB short-circuits this; on failure the synth
         // falls back to a random star field (the prior behaviour).
-        if (CelestialObjectDB is null && !_catalogDbResolveAttempted)
+        // Claim the resolve atomically: only the caller that flips the gate 0 -> 1
+        // runs it. The CelestialObjectDB null-check short-circuits the common
+        // steady-state path (already resolved) so we don't touch the gate once set.
+        if (CelestialObjectDB is null
+            && Interlocked.CompareExchange(ref _catalogDbResolveGate, 1, 0) == 0)
         {
-            _catalogDbResolveAttempted = true;
             try
             {
                 CelestialObjectDB = await External.GetCelestialObjectDBAsync(cancellationToken).ConfigureAwait(false);
+                // Success: leave the gate claimed (1) -- never re-attempt.
+            }
+            catch (OperationCanceledException)
+            {
+                // The token was cancelled mid-resolve (e.g. session abort during
+                // the first exposure). This is transient and tied to THIS call,
+                // not a permanent property of the catalog: release the gate so a
+                // later exposure on this (reused) driver retries, and let the
+                // cancellation propagate instead of arming an exposure on a dead
+                // token.
+                Interlocked.Exchange(ref _catalogDbResolveGate, 0);
+                throw;
             }
             catch (Exception ex)
             {
+                // Genuine failure (e.g. catalog not installed). Leave the gate
+                // claimed so we don't re-await every exposure; the synth falls
+                // back to a random star field (the prior behaviour).
                 Logger.LogDebug(ex, "FakeCamera: catalog DB resolve failed; synthetic frames will use a random star field");
             }
         }
