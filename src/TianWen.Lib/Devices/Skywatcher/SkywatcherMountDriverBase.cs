@@ -306,7 +306,7 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
         _isSlewingDec = false;
     }
 
-    public async ValueTask SyncRaDecAsync(double ra, double dec, CancellationToken cancellationToken)
+    public virtual async ValueTask SyncRaDecAsync(double ra, double dec, CancellationToken cancellationToken)
     {
         var raSteps = RaToSteps(ra);
         var decSteps = DecToSteps(dec);

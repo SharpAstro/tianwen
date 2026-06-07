@@ -114,6 +114,17 @@ internal sealed class GuideLoop
     /// </summary>
     internal GuiderCentroidTracker Tracker => _tracker;
 
+    private int _statsResetRequested;
+
+    /// <summary>
+    /// Requests that the guide-error accumulators be reset at the start of the next loop
+    /// iteration (thread-safe). The driver calls this when guiding actually begins (the
+    /// Settling -&gt; Guiding transition) so the displayed RMS / Peak reflect guiding
+    /// quality, not the calibration + settle transient. Performed on the loop thread to
+    /// avoid racing the per-frame <c>Add</c>.
+    /// </summary>
+    internal void RequestErrorStatsReset() => Interlocked.Exchange(ref _statsResetRequested, 1);
+
     /// <summary>
     /// Guide error statistics.
     /// </summary>
@@ -248,6 +259,13 @@ internal sealed class GuideLoop
         {
             while (!cancellationToken.IsCancellationRequested)
             {
+                // Honour a pending stats reset on the loop thread (set by the driver at
+                // the Settling -> Guiding transition) so guide-quality stats start fresh.
+                if (Interlocked.Exchange(ref _statsResetRequested, 0) == 1)
+                {
+                    _errorTracker.Reset();
+                }
+
                 var frameStart = GetTimestamp();
 
                 // Capture and process frame — release previous frame's ChannelBuffer

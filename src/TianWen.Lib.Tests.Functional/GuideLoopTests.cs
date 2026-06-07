@@ -4,6 +4,7 @@ using System;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
+using TianWen.DAL;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Devices.Fake;
 using TianWen.Lib.Devices.Guider;
@@ -126,6 +127,85 @@ public class GuideLoopTests(ITestOutputHelper output)
         // With PE enabled and guiding active, the total RMS should be bounded
         guideLoop.ErrorTracker.TotalSamples.ShouldBeGreaterThan(0u);
         guideLoop.IsGuiding.ShouldBeFalse("loop should have stopped");
+    }
+
+    [Fact(Timeout = 60_000)]
+    public async Task GivenGuideLoopWhenStatsResetRequestedThenPeakAndRmsStartFresh()
+    {
+        // Models the Settling -> Guiding transition: a large transient (calibration/settle)
+        // builds a big Peak/RMS, then RequestErrorStatsReset() at the guiding hand-off must
+        // clear it so the displayed stats reflect guiding quality, not the transient.
+        var ct = TestContext.Current.CancellationToken;
+        var timeProvider = new FakeTimeProviderWrapper(new DateTimeOffset(2025, 6, 15, 22, 0, 0, TimeSpan.Zero));
+
+        // No-op pulse target: we script the star error directly so corrections never move it.
+        var pulseTarget = new NoOpPulseGuideTarget();
+
+        var tracker = new GuiderCentroidTracker(maxStars: 1);
+        var offsetX = 0.0;
+        // A single bright star at frame centre, shifted by offsetX -> fully controlled,
+        // uncontaminated error (no neighbour stars to pull the centroid).
+        ValueTask<Image> Render(CancellationToken token)
+        {
+            ReadOnlySpan<ProjectedStar> stars = [new ProjectedStar(160, 120, Magnitude: 5.0)];
+            return ValueTask.FromResult(Image.FromChannel(SyntheticStarFieldRenderer.Render(
+                320, 240, 0, stars, offsetX: offsetX, offsetY: 0,
+                exposureSeconds: 2.0, pixelScaleArcsec: PixelScaleArcsec)));
+        }
+
+        // Acquire at zero offset and lock there.
+        tracker.ProcessFrame((await Render(ct)).GetChannelArray(0));
+        tracker.IsAcquired.ShouldBeTrue();
+        tracker.SetLockPosition();
+
+        var pController = new ProportionalGuideController { AggressivenessRa = 0.7, AggressivenessDec = 0.7, MinPulseMs = 20 };
+        var guideLoop = new GuideLoop(pulseTarget, tracker, pController, timeProvider);
+        guideLoop.SetCalibration(new GuiderCalibrationResult(
+            CameraAngleRad: 0, RaRatePixPerSec: 2.0, DecRatePixPerSec: 2.0,
+            RaDisplacementPx: 18, DecDisplacementPx: 18, TotalCalibrationTimeSec: 9));
+
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        var iter = 0;
+        var peakDuringTransient = 0.0;
+        var didReset = false;
+
+        ValueTask<Image> Drive(CancellationToken token)
+        {
+            iter++;
+            if (iter <= 5)
+            {
+                offsetX = 8.0; // sustained ~8px error -> Peak/RMS grow (no-op pulse can't fix it)
+            }
+            else if (!didReset)
+            {
+                // Snapshot the large peak built up, then request the reset + clear the error.
+                peakDuringTransient = guideLoop.ErrorTracker.PeakRa;
+                guideLoop.RequestErrorStatsReset();
+                didReset = true;
+                offsetX = 0.0;
+            }
+            if (iter >= 12)
+            {
+                cts.Cancel();
+            }
+            return Render(token);
+        }
+
+        try
+        {
+            await guideLoop.RunAsync(Drive, TimeSpan.FromSeconds(GuideIntervalSeconds),
+                hourAngle: 0, declination: 45.0, siteLatitude: 48.2, cancellationToken: cts.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            // Expected — cancelled after the post-reset frames.
+        }
+
+        output.WriteLine($"peakDuringTransient={peakDuringTransient:F2}px finalPeakRa={guideLoop.ErrorTracker.PeakRa:F2}px finalRaRmsAll={guideLoop.ErrorTracker.RaRmsAll:F2}px");
+
+        peakDuringTransient.ShouldBeGreaterThan(5.0, "a sustained ~8px error must build a large peak before the reset");
+        guideLoop.ErrorTracker.PeakRa.ShouldBeLessThan(2.0, "after the reset, Peak reflects only post-reset (near-zero) errors");
+        guideLoop.ErrorTracker.RaRmsAll.ShouldBeLessThan(2.0, "RMS also starts fresh after the reset");
     }
 
     [Fact(Timeout = 60_000)]
@@ -850,5 +930,15 @@ public class GuideLoopTests(ITestOutputHelper output)
 
         output.WriteLine($"Guide iterations: {iterationCount}");
         output.WriteLine($"Total samples: {guideLoop.ErrorTracker.TotalSamples}");
+    }
+
+    /// <summary>Pulse target that ignores corrections — the test scripts the star error directly.</summary>
+    private sealed class NoOpPulseGuideTarget : IPulseGuideTarget
+    {
+        public ValueTask PulseGuideAsync(GuideDirection direction, TimeSpan duration, CancellationToken cancellationToken)
+            => ValueTask.CompletedTask;
+
+        public ValueTask<bool> IsPulseGuidingAsync(CancellationToken cancellationToken)
+            => ValueTask.FromResult(false);
     }
 }

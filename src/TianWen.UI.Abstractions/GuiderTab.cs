@@ -159,18 +159,28 @@ namespace TianWen.UI.Abstractions
                         var offsetX = rect.X + (rect.Width - drawW) / 2;
                         var offsetY = rect.Y + (rect.Height - drawH) / 2;
 
-                        // Crosshair overlay on guide star position
+                        // Guide-star overlay. During guiding, draw a full RA/Dec-aligned
+                        // reticle (orange RA / blue Dec) spanning the frame with a centre gap
+                        // so the star stays visible; before guiding, the small fixed crosshair.
                         if (State.GuideStarPosition is var (starX, starY))
                         {
                             var cx = (int)(offsetX + starX * fitScale);
                             var cy = (int)(offsetY + starY * fitScale);
-                            var crossLen = (int)(15 * dpiScale);
-                            var crossGap = (int)(4 * dpiScale);
 
-                            FillRect(cx - crossLen, cy, crossLen - crossGap, 1, CrosshairColor);
-                            FillRect(cx + crossGap, cy, crossLen - crossGap, 1, CrosshairColor);
-                            FillRect(cx, cy - crossLen, 1, crossLen - crossGap, CrosshairColor);
-                            FillRect(cx, cy + crossGap, 1, crossLen - crossGap, CrosshairColor);
+                            if (State.GuideSamples.Length >= 2 && State.CalibrationOverlay is { } reticleCal)
+                            {
+                                RenderGuidingReticle(reticleCal, cx, cy, rect, dpiScale);
+                            }
+                            else
+                            {
+                                var crossLen = (int)(15 * dpiScale);
+                                var crossGap = (int)(4 * dpiScale);
+
+                                FillRect(cx - crossLen, cy, crossLen - crossGap, 1, CrosshairColor);
+                                FillRect(cx + crossGap, cy, crossLen - crossGap, 1, CrosshairColor);
+                                FillRect(cx, cy - crossLen, 1, crossLen - crossGap, CrosshairColor);
+                                FillRect(cx, cy + crossGap, 1, crossLen - crossGap, CrosshairColor);
+                            }
                         }
 
                         // L-shaped calibration overlay: auto-scaled, centered on image.
@@ -199,6 +209,64 @@ namespace TianWen.UI.Abstractions
             DrawText(State.IsRunning ? "Waiting for guide frame\u2026" : "No guide camera",
                 fontPath, rect.X, rect.Y, rect.Width, rect.Height,
                 fontSize, DimText, TextAlign.Center, TextAlign.Center);
+        }
+
+        /// <summary>
+        /// Full-frame RA/Dec reticle centred on the guide star, drawn during guiding. Arms run
+        /// along the calibrated RA axis (orange) and the perpendicular Dec axis (blue), clipped
+        /// to the camera rect, with a centre gap so the star itself stays visible. Persists for
+        /// the whole guiding session as an orientation reference (the calibration L-shape only
+        /// shows before guiding starts).
+        /// </summary>
+        private void RenderGuidingReticle(CalibrationOverlayData cal, int starCx, int starCy, RectF32 rect, float dpiScale)
+        {
+            var theta = cal.CameraAngleRad;
+            var raUx = (float)Math.Cos(theta);
+            var raUy = (float)Math.Sin(theta);
+            // Dec axis = RA axis rotated 90deg on the sensor.
+            var decUx = -raUy;
+            var decUy = raUx;
+            var gap = 14f * dpiScale;
+
+            DrawReticleArm(starCx, starCy, raUx, raUy, rect, gap, CalRaColor);
+            DrawReticleArm(starCx, starCy, -raUx, -raUy, rect, gap, CalRaColor);
+            DrawReticleArm(starCx, starCy, decUx, decUy, rect, gap, CalDecColor);
+            DrawReticleArm(starCx, starCy, -decUx, -decUy, rect, gap, CalDecColor);
+
+            // Tiny centre marker so the exact lock position reads clearly inside the gap.
+            FillRect(starCx - 1, starCy - 1, 3, 3, CrosshairColor);
+        }
+
+        /// <summary>
+        /// Draws one reticle arm from the star (offset outward by <paramref name="gap"/>) along
+        /// (ux, uy) to where the ray leaves <paramref name="rect"/> (slab method), so the arm
+        /// always clips to the guide-camera area instead of bleeding into neighbouring panels.
+        /// </summary>
+        private void DrawReticleArm(int cx, int cy, float ux, float uy, RectF32 rect, float gap, RGBAColor32 color)
+        {
+            var tExit = float.MaxValue;
+            if (MathF.Abs(ux) > 1e-4f)
+            {
+                var t1 = (rect.X - cx) / ux;
+                var t2 = (rect.X + rect.Width - cx) / ux;
+                tExit = MathF.Min(tExit, MathF.Max(t1, t2));
+            }
+            if (MathF.Abs(uy) > 1e-4f)
+            {
+                var t1 = (rect.Y - cy) / uy;
+                var t2 = (rect.Y + rect.Height - cy) / uy;
+                tExit = MathF.Min(tExit, MathF.Max(t1, t2));
+            }
+            if (tExit <= gap)
+            {
+                return; // star sits at the frame edge along this arm
+            }
+
+            var x0 = (int)(cx + ux * gap);
+            var y0 = (int)(cy + uy * gap);
+            var x1 = (int)(cx + ux * tExit);
+            var y1 = (int)(cy + uy * tExit);
+            DrawLine(x0, y0, x1, y1, color);
         }
 
         /// <summary>

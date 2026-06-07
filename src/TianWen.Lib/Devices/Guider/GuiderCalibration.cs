@@ -97,6 +97,17 @@ internal sealed class GuiderCalibration
     public double BacklashMovementThresholdPx { get; set; } = 1.5;
 
     /// <summary>
+    /// Expected one-direction star excursion (pixels) during calibration: the backlash
+    /// clearing pulses plus the measurement sweep, all in the same direction, before the
+    /// star is returned to start. Callers use this to acquire a guide star with enough
+    /// edge clearance to survive the throw instead of re-locking onto a different star.
+    /// </summary>
+    /// <param name="guideRatePixPerSec">Effective guide rate in pixels per second.</param>
+    public double ExpectedSweepThrowPixels(double guideRatePixPerSec)
+        => (CalibrationSteps + (BacklashClearingEnabled ? MaxBacklashClearingSteps : 0))
+           * CalibrationPulseDuration.TotalSeconds * Math.Max(0.0, guideRatePixPerSec);
+
+    /// <summary>
     /// Runs calibration by pulsing in each direction and measuring displacement.
     /// </summary>
     /// <param name="pulseTarget">Pulse guide target (camera ST-4, mount, or router).</param>

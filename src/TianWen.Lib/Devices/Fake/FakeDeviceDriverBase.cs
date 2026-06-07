@@ -25,6 +25,16 @@ internal abstract class FakeDeviceDriverBase(FakeDevice fakeDevice, IServiceProv
 
     public DeviceType DriverType => _fakeDevice.DeviceType;
 
+    /// <summary>
+    /// The DI container the driver was instantiated from (the singleton root, via
+    /// <see cref="DeviceHub"/>). Retained so a fake driver can LAZILY self-resolve
+    /// other singletons it needs (e.g. <see cref="IDeviceHub"/> to find the connected
+    /// mount) without the session / shared layer having to wire that dependency in --
+    /// the same self-resolve principle <see cref="FakeCameraDriver"/> uses for the
+    /// celestial-object DB. Resolve lazily (not in a ctor) to avoid construction cycles.
+    /// </summary>
+    protected IServiceProvider ServiceProvider { get; } = serviceProvider;
+
     public IExternal External { get; } = serviceProvider.GetRequiredService<IExternal>();
 
     public ILogger Logger { get; } = serviceProvider.GetRequiredService<ILoggerFactory>().CreateLogger(fakeDevice.GetType().Name);

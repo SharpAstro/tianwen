@@ -87,6 +87,14 @@ namespace TianWen.UI.Abstractions
         /// </summary>
         public ImmutableArray<(double RA, double Dec, string Name, int Row, int Col)> MosaicPanels { get; set; } = [];
 
+        /// <summary>
+        /// Committed observing-plan target(s) for the sky-map overlay: RA/Dec centre (J2000),
+        /// display name, and whether this is the currently-executing observation. Populated by
+        /// the event loop from the built schedule (and the running session's active observation),
+        /// so the user can see where tonight's targets sit. Empty when no plan is committed.
+        /// </summary>
+        public ImmutableArray<(double RA, double Dec, string Name, bool IsActive)> ScheduleTargets { get; set; } = [];
+
         /// <summary>Cached view matrix, updated each frame by the rendering layer.</summary>
         public Matrix4x4 CurrentViewMatrix { get; set; } = Matrix4x4.Identity;
 

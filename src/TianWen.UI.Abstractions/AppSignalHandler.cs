@@ -1811,6 +1811,34 @@ namespace TianWen.UI.Abstractions
                         }
                     };
 
+                    // Surface each session phase transition in the notification feed.
+                    // Terminal phases (Complete/Aborted/Failed) are emitted in the RunAsync
+                    // finally block below, so they are skipped here to avoid duplicates.
+                    // Extracted to a named local so it can be unsubscribed in finally —
+                    // prevents a dangling delegate from keeping a stale session alive
+                    // if the session reference is ever captured here in future refactors.
+                    void OnPhaseChanged(object? _, SessionPhaseChangedEventArgs e)
+                    {
+                        var phaseMsg = e.NewPhase switch
+                        {
+                            SessionPhase.Initialising => "Initialising session…",
+                            SessionPhase.WaitingForDark => "Waiting for astronomical dark…",
+                            SessionPhase.Cooling => "Cooling cameras to setpoint…",
+                            SessionPhase.RoughFocus => "Initial rough focus…",
+                            SessionPhase.AutoFocus => "Auto-focusing…",
+                            SessionPhase.CalibratingGuider => "Calibrating guider…",
+                            SessionPhase.Observing => "Observation loop started",
+                            SessionPhase.Finalising => "Finalising session…",
+                            _ => null
+                        };
+                        if (phaseMsg is not null)
+                        {
+                            appState.AppendNotification(_timeProvider.GetUtcNow(), NotificationSeverity.Info, phaseMsg);
+                            appState.NeedsRedraw = true;
+                        }
+                    }
+                    session.PhaseChanged += OnPhaseChanged;
+
                     // RunAsync includes Finalise — run as tracked background task so:
                     // 1. UI stays responsive (signal handler returns immediately)
                     // 2. DrainAsync at shutdown waits for Finalise to complete
@@ -1826,6 +1854,7 @@ namespace TianWen.UI.Abstractions
                         }
                         finally
                         {
+                            session.PhaseChanged -= OnPhaseChanged;
                             liveSessionState.IsRunning = false;
                             liveSessionState.NeedsRedraw = true;
 

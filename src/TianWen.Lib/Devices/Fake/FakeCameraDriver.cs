@@ -1,3 +1,4 @@
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
@@ -126,6 +127,34 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver
     private double _starPositionY;
     private long _peStartTicks;  // phase reference (never updated)
     private long _lastPeTicks;   // last integration timestamp
+
+    // ── Part 2: guide-camera mount coupling ──────────────────────────────────
+    // The guide star drifts on the sensor by the coupled mount's misalignment
+    // pointing change (the fake SkyWatcher mount drifts mostly in Dec while
+    // tracking about a tilted polar axis). The guider's ST-4 pulses land on the
+    // camera (pulseGuideSource=Camera) and counter that drift via the same
+    // _starPositionX/Y integrator, so the loop closes inside the camera with no
+    // mount changes and no session awareness -- the camera self-resolves the
+    // mount from the device hub, mirroring how it self-resolves the catalog DB.
+    // Cached pointing is read in the (async) StartExposureAsync and consumed by
+    // the (sync) render path; both are guarded by _lock.
+    private IMountDriver? _coupledMount;
+    private bool _mountRefCaptured;     // reference (zero-drift) pointing captured?
+    private double _mountRefRa;         // believed RA at first guide exposure (hours)
+    private double _mountRefDec;        // believed Dec (degrees)
+    private double _mountCachedRa;      // mount RA snapshot from the last StartExposureAsync
+    private double _mountCachedDec;     // mount Dec snapshot
+    private bool _mountPointingValid;   // a snapshot has been taken at least once
+
+    /// <summary>
+    /// True when this fake camera is the rig's guide camera (its URI names it so).
+    /// Reuses the same path convention <see cref="GetPreset"/> keys off to pick the
+    /// IMX178M preset, so "the guide cam" is identified consistently. Only the guide
+    /// camera couples its rendered star field to the mount's drift; main imaging
+    /// cameras render at their stamped <see cref="Target"/> and must not double-count
+    /// the drift (the session's centering loop plate-solves and re-syncs them).
+    /// </summary>
+    private bool IsGuideCamera => _fakeDevice.DeviceUri.AbsolutePath.Contains("GuideCam", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>Periodic error period in seconds (typical worm gear ~10 minutes).</summary>
     internal double PePeriodSeconds { get; set; } = 600.0;
@@ -519,8 +548,25 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver
     /// When set together with <see cref="Target"/> and <see cref="TrueBestFocus"/>,
     /// renders catalog stars from Tycho-2 projected onto the sensor via TAN projection
     /// instead of generating random star positions.
+    /// <para>
+    /// Normally left for the driver to resolve itself, lazily, from the DI-provided
+    /// <see cref="FakeDeviceDriverBase.External"/> on the first exposure (see
+    /// <see cref="StartExposureAsync"/>) -- so nothing in the session / shared layer
+    /// needs to know this fake-only dependency exists. Test code may assign it
+    /// directly, which short-circuits the lazy resolve.
+    /// </para>
     /// </summary>
     public ICelestialObjectDB? CelestialObjectDB { get; set; }
+
+    // One-shot gate for the lazy catalog-DB resolve in StartExposureAsync.
+    // 0 = open (not yet claimed), 1 = claimed (resolve in-flight or finished).
+    // Claimed atomically via Interlocked so at most one caller ever runs the
+    // (idempotent) resolve even if two exposures overlap -- the resolve block
+    // sits BEFORE the camera-state CAS, so it is not otherwise serialised. The
+    // gate is reset to 0 only on cancellation, so a genuinely transient OCE stays
+    // retryable while a real failure (DB unavailable) gives up for good (avoids
+    // re-awaiting every exposure).
+    private int _catalogDbResolveGate;
 
     /// <summary>
     /// Simulated cloud coverage (0.0 = clear, 1.0 = overcast). Applied to rendered frames
@@ -608,7 +654,7 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver
     public ValueTask<bool> GetIsPulseGuidingAsync(CancellationToken cancellationToken = default)
         => ValueTask.FromResult(Connected ? false : throw new InvalidOperationException("Camera is not connected"));
 
-    public ValueTask<DateTimeOffset> StartExposureAsync(TimeSpan duration, FrameType frameType = FrameType.Light, CancellationToken cancellationToken = default)
+    public async ValueTask<DateTimeOffset> StartExposureAsync(TimeSpan duration, FrameType frameType = FrameType.Light, CancellationToken cancellationToken = default)
     {
         // Test seam: simulate a transient driver fault (USB bump, COM glitch).
         // ResilientCall classifies IOException as transient, so it triggers the
@@ -619,6 +665,81 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver
         }
         // Decrement went below 0 — clamp to 0 so steady state stays at 0.
         Interlocked.CompareExchange(ref TransientStartExposureFailures, 0, -1);
+
+        // Fake-only: the synthetic-star renderer needs the celestial catalog to
+        // project real stars at the target, so the (real) plate solver in a
+        // centering / focus / guider loop can match the rendered frame. Resolve
+        // it lazily from the same DI-provided IExternal the rest of the app uses
+        // -- the session / shared layer stays unaware of this fake-only need.
+        // GetCelestialObjectDBAsync performs the (idempotent) DB init, so by the
+        // time StopExposureCore renders, the catalog is loaded. Explicit test
+        // wiring of CelestialObjectDB short-circuits this; on failure the synth
+        // falls back to a random star field (the prior behaviour).
+        // Claim the resolve atomically: only the caller that flips the gate 0 -> 1
+        // runs it. The CelestialObjectDB null-check short-circuits the common
+        // steady-state path (already resolved) so we don't touch the gate once set.
+        if (CelestialObjectDB is null
+            && Interlocked.CompareExchange(ref _catalogDbResolveGate, 1, 0) == 0)
+        {
+            try
+            {
+                CelestialObjectDB = await External.GetCelestialObjectDBAsync(cancellationToken).ConfigureAwait(false);
+                // Success: leave the gate claimed (1) -- never re-attempt.
+            }
+            catch (OperationCanceledException)
+            {
+                // The token was cancelled mid-resolve (e.g. session abort during
+                // the first exposure). This is transient and tied to THIS call,
+                // not a permanent property of the catalog: release the gate so a
+                // later exposure on this (reused) driver retries, and let the
+                // cancellation propagate instead of arming an exposure on a dead
+                // token.
+                Interlocked.Exchange(ref _catalogDbResolveGate, 0);
+                throw;
+            }
+            catch (Exception ex)
+            {
+                // Genuine failure (e.g. catalog not installed). Leave the gate
+                // claimed so we don't re-await every exposure; the synth falls
+                // back to a random star field (the prior behaviour).
+                Logger.LogDebug(ex, "FakeCamera: catalog DB resolve failed; synthetic frames will use a random star field");
+            }
+        }
+
+        // Fake-only (guide camera): snapshot the coupled mount's current pointing so
+        // the (sync) render path can offset the guide star by the mount's drift.
+        // Reading RA/Dec is async (per-call SOFA recompute) and StopExposureCore is a
+        // sync timer callback, so we cache here and consume it at render time. The
+        // first successful snapshot also fixes the zero-drift reference, so the star
+        // starts centred at acquisition and drifts thereafter -- exactly the residual
+        // a real polar-misaligned mount leaves for the guider to chase. Main imaging
+        // cameras (IsGuideCamera == false) never take this path. OperationCanceledException
+        // propagates (the exposure must not arm on a cancelled token); any other fault
+        // falls back to the self-contained PE+ST-4 drift for this frame.
+        if (IsGuideCamera && FocalLength > 0 && ResolveCoupledMount() is { } coupledMount)
+        {
+            try
+            {
+                var mountRa = await coupledMount.GetRightAscensionAsync(cancellationToken).ConfigureAwait(false);
+                var mountDec = await coupledMount.GetDeclinationAsync(cancellationToken).ConfigureAwait(false);
+                lock (_lock)
+                {
+                    _mountCachedRa = mountRa;
+                    _mountCachedDec = mountDec;
+                    _mountPointingValid = true;
+                    if (!_mountRefCaptured)
+                    {
+                        _mountRefRa = mountRa;
+                        _mountRefDec = mountDec;
+                        _mountRefCaptured = true;
+                    }
+                }
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                Logger.LogDebug(ex, "FakeCamera: mount pointing read failed; guide star falls back to self-contained drift this frame");
+            }
+        }
 
         var minDuration = TimeSpan.FromSeconds(ExposureResolution);
         var intentedDuration = duration < minDuration ? minDuration : duration;
@@ -643,7 +764,7 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver
                 timer.Change(intentedDuration, Timeout.InfiniteTimeSpan);
             }
 
-            return ValueTask.FromResult(startTime);
+            return startTime;
         }
         else
         {
@@ -812,17 +933,106 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver
     }
 
     /// <summary>
-    /// Current star offset: integrated PE drift + accumulated ST-4 corrections.
-    /// Both operate on the same position — corrections push back against drift.
+    /// Current star offset: integrated PE drift + accumulated ST-4 corrections +
+    /// (guide camera only) the coupled mount's misalignment drift. All operate on
+    /// the same sensor position, so the guider's ST-4 corrections push back against
+    /// both the PE wobble and the mount drift.
     /// </summary>
     private (double X, double Y) TotalStarOffset
     {
         get
         {
             IntegratePeDrift();
-            return (_starPositionX, _starPositionY);
+            var (mountX, mountY) = MountDriftPixels();
+            return (_starPositionX + mountX, _starPositionY + mountY);
         }
     }
+
+    /// <summary>
+    /// Lazily finds the connected mount in the device hub (single-mount invariant),
+    /// caching it once found. Returns <c>null</c> when no hub is registered (unit
+    /// tests) or no mount is connected yet -- the guide star then uses only the
+    /// self-contained PE+ST-4 drift. Resolved from the retained
+    /// <see cref="FakeDeviceDriverBase.ServiceProvider"/> so nothing in the session /
+    /// shared layer needs to know this fake-only coupling exists.
+    /// </summary>
+    private IMountDriver? ResolveCoupledMount()
+    {
+        if (_coupledMount is { Connected: true })
+        {
+            return _coupledMount;
+        }
+
+        var hub = ServiceProvider.GetService<IDeviceHub>();
+        if (hub is null)
+        {
+            return null;
+        }
+
+        foreach (var (_, driver) in hub.ConnectedDevices)
+        {
+            if (driver is IMountDriver mount && mount.Connected)
+            {
+                _coupledMount = mount;
+                return mount;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Guide-camera-only: the star offset (px) induced by the coupled mount's
+    /// misalignment drift since the zero-drift reference was captured, computed from
+    /// the pointing snapshot taken in <see cref="StartExposureAsync"/> (the render path
+    /// is sync and cannot await). Converts the believed-vs-current pointing delta to
+    /// pixels via the guide pixel scale. Returns <c>(0, 0)</c> for main imaging cameras
+    /// (no snapshot ever taken) or before a reference exists. The Dec delta maps to Y
+    /// and the RA delta (scaled by cos Dec) to X, matching the ST-4 accumulator axes
+    /// (N/S -> Y, E/W -> X); the sign is otherwise arbitrary because the guider learns
+    /// the calibration mapping empirically, then nulls whatever it sees.
+    /// </summary>
+    private (double X, double Y) MountDriftPixels()
+    {
+        double ra, dec, refRa, refDec;
+        lock (_lock)
+        {
+            if (!_mountPointingValid || !_mountRefCaptured)
+            {
+                return (0.0, 0.0);
+            }
+            ra = _mountCachedRa;
+            dec = _mountCachedDec;
+            refRa = _mountRefRa;
+            refDec = _mountRefDec;
+        }
+
+        var pixelScaleArcsec = Astrometry.CoordinateUtils.PixelScaleArcsec(PixelSizeX, FocalLength);
+        if (pixelScaleArcsec <= 0)
+        {
+            return (0.0, 0.0);
+        }
+
+        // Wrap the RA delta into (-12, 12]h so a reference near the 0/24h seam never
+        // produces a spurious ~24h jump (the real drift is sub-arcminute).
+        var dRaHours = ra - refRa;
+        if (dRaHours > 12.0) dRaHours -= 24.0;
+        else if (dRaHours < -12.0) dRaHours += 24.0;
+
+        var cosDec = Math.Cos(refDec * Math.PI / 180.0);
+        var raArcsec = dRaHours * 15.0 * 3600.0 * cosDec;
+        var decArcsec = (dec - refDec) * 3600.0;
+        return (raArcsec / pixelScaleArcsec, decArcsec / pixelScaleArcsec);
+    }
+
+    /// <summary>
+    /// Test seam: the guide-star pixel offset currently induced by the coupled
+    /// mount's misalignment drift (the value folded into <see cref="TotalStarOffset"/>
+    /// for rendering). <c>(0, 0)</c> when this is not a guide camera, no mount is
+    /// coupled, or no zero-drift reference has been captured yet. Reflects the mount
+    /// pointing snapshot taken by the most recent <see cref="StartExposureAsync"/>.
+    /// </summary>
+    internal (double X, double Y) CurrentMountDriftPixels => MountDriftPixels();
 
     protected override void Dispose(bool disposing)
     {

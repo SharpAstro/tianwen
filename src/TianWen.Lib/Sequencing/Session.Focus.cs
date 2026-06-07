@@ -761,64 +761,93 @@ internal partial record Session
         var telescope = Setup.Telescopes[telescopeIndex];
         var camDriver = telescope.Camera.Driver;
 
-        // Take a short exposure
-        await camDriver.StartExposureAsync(exposureTime, cancellationToken: cancellationToken);
-
-        // Wait for exposure to complete
-        Image? image = null;
-        var polled = TimeSpan.Zero;
-        var maxPoll = exposureTime + exposureTime; // wait up to 2x exposure time
-        while (polled < maxPoll && !cancellationToken.IsCancellationRequested)
-        {
-            if (await camDriver.GetImageAsync(cancellationToken) is { Width: > 0, Height: > 0 } img)
-            {
-                image = img;
-                break;
-            }
-
-            var spinDuration = TimeSpan.FromMilliseconds(250);
-            polled += spinDuration;
-            await _timeProvider.SleepAsync(spinDuration, cancellationToken);
-        }
-
-        if (image is null)
-        {
-            _logger.LogWarning("Plate solve: failed to capture image from camera #{CameraNumber}.", telescopeIndex + 1);
-            RecordPlateSolve(context, telescope.Name, succeeded: false, solution: null, elapsed: TimeSpan.Zero);
-            return (false, double.NaN, double.NaN);
-        }
-
-        // Plate solve using mount's current position as search origin
+        // Read the mount's CURRENT pointing before exposing. This drives two
+        // things: (1) the camera's render-centre for THIS exposure, so the frame
+        // reflects where the scope ACTUALLY points -- including any polar
+        // misalignment the mount hasn't been synced out yet -- which is what
+        // makes plate-solve centering able to measure and correct the offset;
+        // and (2) the plate-solve search hint below (re-used, no second read).
         var mountRa = await ResilientInvokeAsync(
             mount.Driver, mount.Driver.GetRightAscensionAsync,
             ResilientCallOptions.IdempotentRead, cancellationToken);
         var mountDec = await ResilientInvokeAsync(
             mount.Driver, mount.Driver.GetDeclinationAsync,
             ResilientCallOptions.IdempotentRead, cancellationToken);
-        var searchOrigin = new WCS(mountRa, mountDec);
 
-        var result = await PlateSolver.SolveImageAsync(image, searchOrigin: searchOrigin, searchRadius: 10, cancellationToken: cancellationToken);
-        image.Release();
-
-        if (result.Solution is not { } wcs)
+        // The mount-pointing stamp below is only needed so the (fake) camera
+        // renders THIS centering frame at the actual pointing; on a real camera
+        // Target is just FITS metadata. It must NOT leak into later science-frame
+        // headers -- e.g. after a mid-observation meridian flip, where no
+        // per-observation Target reset runs afterward -- so we snapshot the
+        // caller's Target and restore it in the finally below.
+        var originalTarget = camDriver.Target;
+        if (camDriver.Target is { } currentTarget)
         {
-            _logger.LogWarning("Plate solve: failed to solve image from camera #{CameraNumber}.", telescopeIndex + 1);
-            RecordPlateSolve(context, telescope.Name, succeeded: false, solution: null, result);
-            return (false, double.NaN, double.NaN);
+            camDriver.Target = currentTarget with { RA = mountRa, Dec = mountDec };
         }
 
-        _logger.LogInformation(
-            "Plate solve: solved at ({SolvedRA}, {SolvedDec}), mount was at ({MountRA}, {MountDec}), offset=({DeltaRA:F4}h, {DeltaDec:F2}°).",
-            Astrometry.CoordinateUtils.HoursToHMS(wcs.CenterRA), Astrometry.CoordinateUtils.DegreesToDMS(wcs.CenterDec),
-            Astrometry.CoordinateUtils.HoursToHMS(mountRa), Astrometry.CoordinateUtils.DegreesToDMS(mountDec),
-            wcs.CenterRA - mountRa, wcs.CenterDec - mountDec);
+        try
+        {
+            // Take a short exposure
+            await camDriver.StartExposureAsync(exposureTime, cancellationToken: cancellationToken);
 
-        // Sync mount to solved J2000 coordinates
-        await mount.Driver.SyncRaDecJ2000Async(wcs.CenterRA, wcs.CenterDec, cancellationToken);
+            // Wait for exposure to complete
+            Image? image = null;
+            var polled = TimeSpan.Zero;
+            var maxPoll = exposureTime + exposureTime; // wait up to 2x exposure time
+            while (polled < maxPoll && !cancellationToken.IsCancellationRequested)
+            {
+                if (await camDriver.GetImageAsync(cancellationToken) is { Width: > 0, Height: > 0 } img)
+                {
+                    image = img;
+                    break;
+                }
 
-        _logger.LogInformation("Plate solve: mount synced to solved position.");
-        RecordPlateSolve(context, telescope.Name, succeeded: true, solution: wcs, result);
-        return (true, wcs.CenterRA, wcs.CenterDec);
+                var spinDuration = TimeSpan.FromMilliseconds(250);
+                polled += spinDuration;
+                await _timeProvider.SleepAsync(spinDuration, cancellationToken);
+            }
+
+            if (image is null)
+            {
+                _logger.LogWarning("Plate solve: failed to capture image from camera #{CameraNumber}.", telescopeIndex + 1);
+                RecordPlateSolve(context, telescope.Name, succeeded: false, solution: null, elapsed: TimeSpan.Zero);
+                return (false, double.NaN, double.NaN);
+            }
+
+            // Plate solve using the mount position read before the exposure as the
+            // search origin (re-used -- no second driver round-trip).
+            var searchOrigin = new WCS(mountRa, mountDec);
+
+            var result = await PlateSolver.SolveImageAsync(image, searchOrigin: searchOrigin, searchRadius: 10, cancellationToken: cancellationToken);
+            image.Release();
+
+            if (result.Solution is not { } wcs)
+            {
+                _logger.LogWarning("Plate solve: failed to solve image from camera #{CameraNumber}.", telescopeIndex + 1);
+                RecordPlateSolve(context, telescope.Name, succeeded: false, solution: null, result);
+                return (false, double.NaN, double.NaN);
+            }
+
+            _logger.LogInformation(
+                "Plate solve: solved at ({SolvedRA}, {SolvedDec}), mount was at ({MountRA}, {MountDec}), offset=({DeltaRA:F4}h, {DeltaDec:F2}°).",
+                Astrometry.CoordinateUtils.HoursToHMS(wcs.CenterRA), Astrometry.CoordinateUtils.DegreesToDMS(wcs.CenterDec),
+                Astrometry.CoordinateUtils.HoursToHMS(mountRa), Astrometry.CoordinateUtils.DegreesToDMS(mountDec),
+                wcs.CenterRA - mountRa, wcs.CenterDec - mountDec);
+
+            // Sync mount to solved J2000 coordinates
+            await mount.Driver.SyncRaDecJ2000Async(wcs.CenterRA, wcs.CenterDec, cancellationToken);
+
+            _logger.LogInformation("Plate solve: mount synced to solved position.");
+            RecordPlateSolve(context, telescope.Name, succeeded: true, solution: wcs, result);
+            return (true, wcs.CenterRA, wcs.CenterDec);
+        }
+        finally
+        {
+            // Restore the caller's Target so the transient mount-pointing stamp
+            // does not bleed into subsequent science-frame FITS metadata.
+            camDriver.Target = originalTarget;
+        }
     }
 
     /// <summary>
@@ -853,6 +882,10 @@ internal partial record Session
             if (totalOffsetArcmin <= thresholdArcmin)
             {
                 _logger.LogInformation("Centering: converged within {Threshold}' after {Attempt} attempt(s)", thresholdArcmin, attempt);
+                // Clear the transient centering/re-slewing status so the live UI falls
+                // through to the phase text once centering finishes; otherwise the last
+                // "Re-slewing to ..." string lingers on screen through the exposure.
+                _currentActivity = null;
                 return true;
             }
 
@@ -869,6 +902,9 @@ internal partial record Session
         }
 
         _logger.LogWarning("Centering: did not converge within {Max} attempts for {Target}", maxAttempts, target.Name);
+        // Even on non-convergence, drop the transient status so the UI doesn't keep
+        // showing "Re-slewing to ..." into the subsequent exposure.
+        _currentActivity = null;
         return false;
     }
 

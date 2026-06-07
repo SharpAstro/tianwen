@@ -178,6 +178,13 @@ namespace TianWen.UI.Abstractions
                 RenderMosaicPanels(contentRect, dpiScale, ppr, cx, cy);
             }
 
+            // Committed plan target markers (where tonight's targets are). Drawn under the
+            // mount reticle so the reticle stays the topmost element when it overlaps a target.
+            if (State.ScheduleTargets.Length > 0)
+            {
+                RenderScheduleTargets(contentRect, dpiScale, fontPath, BaseFontSize, ppr, cx, cy, site, dimBelowHorizon);
+            }
+
             // Mount reticle on top of everything catalog-related so it's never buried.
             if (State.ShowMountOverlay && State.MountOverlay is { } mountOverlay)
             {
@@ -217,6 +224,18 @@ namespace TianWen.UI.Abstractions
             ICelestialObjectDB db, RectF32 contentRect, float dpiScale, string fontPath,
             float baseFontSize, SiteContext site, bool dimBelowHorizon, PlannerState plannerState,
             bool showAllOverlays)
+        {
+        }
+
+        /// <summary>
+        /// Override in the GPU subclass to draw committed observing-plan target markers
+        /// (a small reticle + label per <see cref="SkyMapState.ScheduleTargets"/> entry,
+        /// the active observation highlighted). Base implementation is a no-op — the
+        /// software / TUI fallback does not render shape markers.
+        /// </summary>
+        protected virtual void RenderScheduleTargets(
+            RectF32 contentRect, float dpiScale, string fontPath, float baseFontSize,
+            double ppr, float cx, float cy, SiteContext site, bool dimBelowHorizon)
         {
         }
 

@@ -60,8 +60,11 @@
     <!-- SDL3 + Vulkan packages -->
     <!-- DIR.Lib 4.0 dropped its phantom codec dependencies (SharpAstro.Tiff/.Exif/.Color.Icc
          are not used by DIR.Lib source). BoxRasterizer.RenderToRgba now returns RgbaImage
-         instead of a (byte[], int, int) tuple. -->
-    <PackageVersion Include="DIR.Lib" Version="4.0.*" />
+         instead of a (byte[], int, int) tuple.
+         4.4 adds renderer clip hooks (PushClip/PopClip) + TabBar / FontFallbackResolver
+         widgets. Lockstep with SdlVulkan.Renderer 5.1, which implements the clip hooks
+         via Vulkan scissor, so the two must move together. -->
+    <PackageVersion Include="DIR.Lib" Version="4.4.*" />
     <!-- DIR.Lib 3.0 extracted its codec layer to these sibling packages, which
          ship as a lockstep family from the StbImageSharp repo. 3.0 brought a
          binary-breaking SharpAstro.Tiff change (TiffPageOptions.IccProfile is
@@ -84,11 +87,15 @@
          other SharpAstro codec siblings. -->
     <PackageVersion Include="SharpAstro.Jxr" Version="3.2.*" />
     <PackageVersion Include="SharpAstro.Exr" Version="3.2.*" />
-    <PackageVersion Include="Console.Lib" Version="2.12.*" />
-    <!-- SdlVulkan.Renderer 4.1 adds SdlVulkanWindow.SetSystemCursor (needed by the
-         FITS viewer hover cursors) + anisotropic glyph xScale. Still DIR.Lib 4.0
-         transitive (the 4.1 bump is renderer-side only). -->
-    <PackageVersion Include="SdlVulkan.Renderer" Version="4.1.*" />
+    <!-- Console.Lib 2.17 adds ScrollableList + TreeView opt-in auto wheel routing
+         (on top of 2.13-2.16 widget work). Built on DIR.Lib 4.4, same sibling
+         family as SdlVulkan.Renderer 5.1. -->
+    <PackageVersion Include="Console.Lib" Version="2.17.*" />
+    <!-- SdlVulkan.Renderer 5.0 adds a multi-page SDF glyph atlas (no more grow
+         stall / Adreno submit-wedge) on top of 4.1's SetSystemCursor + anisotropic
+         glyph xScale. 5.1 implements DIR.Lib 4.4's PushClip/PopClip via Vulkan
+         scissor, in lockstep with DIR.Lib 4.4 (see above). -->
+    <PackageVersion Include="SdlVulkan.Renderer" Version="5.1.*" />
     <PackageVersion Include="SDL3-CS" Version="3.5.0-preview.20260213-150035" />
     <PackageVersion Include="SDL3-CS.Native" Version="3.5.0-preview.20260205-174353" />
     <!-- Canon DSLR -->

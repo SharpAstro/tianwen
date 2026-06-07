@@ -203,6 +203,54 @@ public class GuiderCentroidTrackerTests(ITestOutputHelper output)
     }
 
     [Fact]
+    public void GivenBrightEdgeStarAndDimmerInteriorStarWhenAcquireWithEdgeMarginThenPicksInterior()
+    {
+        const int w = 800, h = 600;
+        // A bright star hugging the left edge + a dimmer star well inside the frame.
+        ReadOnlySpan<ProjectedStar> stars =
+        [
+            new ProjectedStar(30, 300, Magnitude: 5.0),   // brightest, but near the left edge
+            new ProjectedStar(400, 300, Magnitude: 6.0),  // dimmer, comfortably interior
+        ];
+        var frame = SyntheticStarFieldRenderer.Render(w, h, 0, stars, exposureSeconds: 2.0);
+
+        // Legacy behaviour (no margin): lock the brightest star, which sits near the edge.
+        var legacy = new GuiderCentroidTracker(maxStars: 1);
+        var rLegacy = legacy.ProcessFrame(frame);
+        rLegacy.ShouldNotBeNull();
+        rLegacy.Value.X.ShouldBeLessThan(100, "without an edge margin the brightest (edge) star is chosen");
+
+        // With an edge margin big enough to exclude the edge star: prefer the interior
+        // one even though it is dimmer -- so the calibration throw won't push it off-frame.
+        var robust = new GuiderCentroidTracker(maxStars: 1) { AcquisitionEdgeMargin = 80 };
+        var rRobust = robust.ProcessFrame(frame);
+        rRobust.ShouldNotBeNull();
+        rRobust.Value.X.ShouldBeGreaterThan(300, "with an edge margin the interior star is preferred");
+        output.WriteLine($"legacy primary X={rLegacy.Value.X:F1}, robust primary X={rRobust.Value.X:F1}");
+    }
+
+    [Fact]
+    public void GivenOnlyEdgeStarsWhenAcquireWithEdgeMarginThenStillAcquires()
+    {
+        const int w = 800, h = 600;
+        // Both stars are within the margin of an edge -> no interior candidate exists.
+        ReadOnlySpan<ProjectedStar> stars =
+        [
+            new ProjectedStar(30, 300, Magnitude: 5.0),
+            new ProjectedStar(w - 30, 300, Magnitude: 6.0),
+        ];
+        var frame = SyntheticStarFieldRenderer.Render(w, h, 0, stars, exposureSeconds: 2.0);
+
+        var tracker = new GuiderCentroidTracker(maxStars: 1) { AcquisitionEdgeMargin = 80 };
+        var result = tracker.ProcessFrame(frame);
+
+        // Fall back to the brightest overall rather than failing to acquire.
+        result.ShouldNotBeNull();
+        tracker.IsAcquired.ShouldBeTrue();
+        result.Value.X.ShouldBeLessThan(100, "falls back to the brightest star when none are interior");
+    }
+
+    [Fact]
     public void GivenMultiStarTrackingWhenOneStarLostThenOthersStillTracked()
     {
         // Use large field with many stars
