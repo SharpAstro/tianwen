@@ -6,6 +6,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Devices.Fake;
+using TianWen.Lib.Devices.Guider;
 using TianWen.Lib.Imaging;
 using Xunit;
 
@@ -37,15 +38,16 @@ public class FakeCameraMountCouplingTests(ITestOutputHelper output)
             .AddSingleton<IDeviceHub, DeviceHub>()
             .BuildServiceProvider();
 
-    private static async Task<IMountDriver> ConnectMisalignedMountAsync(IDeviceHub hub, CancellationToken ct)
+    private static async Task<IMountDriver> ConnectMisalignedMountAsync(IDeviceHub hub, CancellationToken ct,
+        double azArcmin = TestAzMisalignArcmin, double altArcmin = TestAltMisalignArcmin)
     {
         var mountDevice = new FakeDevice(DeviceType.Mount, 1, new NameValueCollection
         {
             { "port", "SkyWatcher" },
             { "latitude", "48.2" },
             { "longitude", "16.3" },
-            { "polarMisalignmentAzArcmin", TestAzMisalignArcmin.ToString() },
-            { "polarMisalignmentAltArcmin", TestAltMisalignArcmin.ToString() }
+            { "polarMisalignmentAzArcmin", azArcmin.ToString() },
+            { "polarMisalignmentAltArcmin", altArcmin.ToString() }
         });
         var mount = (IMountDriver)await hub.ConnectAsync(mountDevice, ct);
         await mount.SetSiteLatitudeAsync(48.2, ct);
@@ -136,5 +138,114 @@ public class FakeCameraMountCouplingTests(ITestOutputHelper output)
         var drift = mainCam.CurrentMountDriftPixels;
         drift.X.ShouldBe(0.0, "the main imaging camera does not couple to the mount drift");
         drift.Y.ShouldBe(0.0);
+    }
+
+    /// <summary>
+    /// The end-to-end scenario the user hit in the GUI: the built-in guider calibrating
+    /// and guiding against the misaligned <see cref="FakeSkywatcherMountDriver"/> through
+    /// a coupled <see cref="FakeCameraDriver"/> guide camera, with ST-4 pulses routed to
+    /// the camera (<c>pulseGuideSource=Camera</c> -- the Test profile's setting). Asserts
+    /// the loop calibrates, reaches Guiding, and then STAYS locked with bounded RMS for
+    /// minutes while the mount keeps drifting -- the corrections null the misalignment drift.
+    /// <para>
+    /// Requires <see cref="FakeTimeProviderWrapper.ExternalTimePump"/> so this pump is the
+    /// SOLE clock: otherwise the guide loop's own <c>SleepAsync</c> calls advance fake time
+    /// too, and the two competing clocks scramble the exposure/correction cadence into a
+    /// spurious limit cycle (a test artifact, not a real guiding fault).
+    /// </para>
+    /// </summary>
+    [Fact(Timeout = 120_000)]
+    public async Task GivenBuiltInGuiderWithMisalignedSkywatcherAndCameraPulseWhenCalibrateAndGuideThenStaysLockedWhileMountDrifts()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var timeProvider = new FakeTimeProviderWrapper(new DateTimeOffset(2025, 6, 15, 22, 0, 0, TimeSpan.Zero));
+        var external = new FakeExternal(output, timeProvider);
+        await using var sp = BuildHubServiceProvider(external);
+        var hub = sp.GetRequiredService<IDeviceHub>();
+
+        // Misaligned SkyWatcher, tracking, centred away from the pole (alignment learned
+        // -> the residual polar-axis drift is now what the guider must chase).
+        var mount = await ConnectMisalignedMountAsync(hub, ct);
+        await mount.SetTrackingAsync(true, ct);
+        await mount.SyncRaDecAsync(6.0, 45.0, ct);
+
+        // Guide camera: URI names it GuideCam (couples to the mount drift); shrink the
+        // readout so the per-frame render stays cheap across the long calibrate+guide loop.
+        var guideCam = (FakeCameraDriver)await hub.ConnectAsync(
+            new FakeDevice(new Uri("camera://FakeDevice/FakeGuideCam1#Fake Guide Cam")), ct);
+        guideCam.FocalLength = 130;
+        guideCam.BinX = 1;
+        guideCam.NumX = 800;
+        guideCam.NumY = 600;
+
+        // Built-in guider with ST-4 routed to the camera -- exactly the Test profile.
+        var guiderDevice = new BuiltInGuiderDevice(
+            new Uri("guider://BuiltInGuiderDevice/builtin?pulseGuideSource=Camera#Built-in Guider"));
+        var guider = new BuiltInGuiderDriver(guiderDevice, sp);
+        await guider.ConnectAsync(ct);
+        guider.LinkDevices(mount, guideCam);
+
+        string? guidingError = null;
+        guider.GuidingErrorEvent += (_, e) => guidingError = e.Message;
+
+        // Drive time SOLELY from this pump now -- otherwise the guide loop's own
+        // SleepAsync calls would also advance fake time, racing the pump and
+        // scrambling the exposure<->correction timing.
+        timeProvider.ExternalTimePump = true;
+
+        // Kick off calibration + guiding (runs as a background task).
+        await guider.GuideAsync(settlePixels: 1.5, settleTime: 3.0, settleTimeout: 90.0, ct);
+
+        // Cooperative time pump: advance fake time so exposures complete and the loop
+        // iterates, yielding to the background task between steps. Never SleepAsync here.
+        var increment = TimeSpan.FromMilliseconds(250);
+        var pumped = TimeSpan.Zero;
+        var cap = TimeSpan.FromMinutes(10);
+        while (pumped < cap && guidingError is null && !await guider.IsGuidingAsync(ct))
+        {
+            timeProvider.Advance(increment);
+            pumped += increment;
+            await Task.Delay(1, ct);
+        }
+
+        // Calibration must have acquired a star, measured rates/angle, and settled --
+        // i.e. the built-in guider calibrates cleanly against the misaligned SkyWatcher
+        // + coupled guide cam with ST-4 on the camera (the exact Test-profile scenario).
+        guidingError.ShouldBeNull("calibration must not raise an error (acquire star + measure displacement)");
+        (await guider.IsGuidingAsync(ct)).ShouldBeTrue(
+            "the guider must reach the Guiding state after calibrating + settling against the misaligned mount");
+
+        // At settle the lifetime RMS is tiny -- both axes converged cleanly.
+        var settleStats = await guider.GetStatsAsync(ct);
+        settleStats.ShouldNotBeNull();
+        output.WriteLine(
+            $"At-settle: TotalRMS={settleStats.TotalRMS:F2}\" RaRMS={settleStats.RaRMS:F2}\" DecRMS={settleStats.DecRMS:F2}\"");
+        settleStats.TotalRMS.ShouldBeLessThan(3.0, "calibration + settle must converge cleanly (sub-3\" RMS)");
+
+        // Guide for ~2 more minutes of fake time: the misaligned mount keeps drifting
+        // (mostly Dec) the whole time, but the guider's camera ST-4 corrections null it,
+        // so guiding stays locked. (Earlier this looked unstable -- that was a test bug:
+        // without ExternalTimePump the guide loop's own SleepAsync calls advanced fake
+        // time AND so did the pump, two clocks racing. With a single clock the loop is
+        // rock-solid; the GuideLoop itself was never at fault.)
+        for (var i = 0; i < 700 && guidingError is null && !ct.IsCancellationRequested; i++)
+        {
+            timeProvider.Advance(increment);
+            await Task.Delay(1, ct);
+        }
+        guidingError.ShouldBeNull("guiding must stay healthy while the mount drifts");
+        (await guider.IsGuidingAsync(ct)).ShouldBeTrue("guiding must stay locked, not fall out");
+
+        var sustainedStats = await guider.GetStatsAsync(ct);
+        sustainedStats.ShouldNotBeNull();
+        output.WriteLine(
+            $"Sustained: TotalRMS={sustainedStats.TotalRMS:F2}\" RaRMS={sustainedStats.RaRMS:F2}\" " +
+            $"DecRMS={sustainedStats.DecRMS:F2}\" PeakRa={sustainedStats.PeakRa:F2}\" PeakDec={sustainedStats.PeakDec:F2}\"");
+        // The corrections track the drift -> bounded RMS, NOT the runaway we saw with the
+        // broken two-clock harness. Generous bound: the mount drift + PE residual + centroid
+        // noise should stay well under a few arcsec on this coarse (~3.8"/px) guide scope.
+        sustainedStats.TotalRMS.ShouldBeLessThan(5.0, "sustained guiding must stay locked against the drift");
+
+        await guider.StopCaptureAsync(TimeSpan.FromSeconds(5), ct);
     }
 }
