@@ -350,7 +350,7 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
     {
         var exposureTime = await ExposureTimeAsync(ct);
 
-        var tracker = new GuiderCentroidTracker(maxStars: 1);
+        var tracker = new GuiderCentroidTracker(maxStars: 1) { AcquisitionEdgeMargin = GuideStarAcquisitionMargin() };
         _calibrationTracker = tracker;
         var frame = await CaptureGuideFrameAsync(camera, exposureTime, TimeProvider, External.ImageReadyPollInterval, ct);
         _lastFrame = frame;
@@ -401,7 +401,7 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
 
         // Acquire a guide star for validation
         var exposureTime = await ExposureTimeAsync(ct);
-        var tracker = new GuiderCentroidTracker(maxStars: 1);
+        var tracker = new GuiderCentroidTracker(maxStars: 1) { AcquisitionEdgeMargin = GuideStarAcquisitionMargin() };
         _calibrationTracker = tracker;
         var frame = await CaptureGuideFrameAsync(camera, exposureTime, TimeProvider, External.ImageReadyPollInterval, ct);
         _lastFrame = frame;
@@ -502,7 +502,7 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
             }
 
             // Acquire guide star and set lock position
-            var tracker = new GuiderCentroidTracker(maxStars: 1);
+            var tracker = new GuiderCentroidTracker(maxStars: 1) { AcquisitionEdgeMargin = GuideStarAcquisitionMargin() };
             var timeProvider = TimeProvider;
             var pollInterval = External.ImageReadyPollInterval;
             async ValueTask<Image> CaptureFrame(CancellationToken token)
@@ -723,11 +723,37 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
 
         if (elapsed.TotalSeconds >= _settleTime)
         {
-            TryTransition(GuiderState.Settling, GuiderState.Guiding);
+            if (TryTransition(GuiderState.Settling, GuiderState.Guiding))
+            {
+                // Start guide-quality stats fresh as guiding begins, so the displayed
+                // RMS / Peak reflect guiding -- not the calibration + settle transient
+                // (matches PHD2, which only shows the guide graph once guiding starts).
+                _guideLoop?.RequestErrorStatsReset();
+            }
             return true;
         }
 
         return false;
+    }
+
+    /// <summary>
+    /// Edge margin (px) to keep an acquired guide star clear of the frame border so it
+    /// survives the calibration throw (backlash clearing + measurement sweep, one
+    /// direction) instead of leaving the sensor and forcing a re-lock onto a different
+    /// star. Derived from the standard 0.5x sidereal guide rate against the guide pixel
+    /// scale; capped to a third of the (binned) frame so small sub-frames still acquire.
+    /// </summary>
+    private int GuideStarAcquisitionMargin()
+    {
+        const double halfSiderealArcsecPerSec = 15.041 * 0.5;
+        var scale = GuiderPixelScale; // arcsec/px (1.0 fallback)
+        var ratePxPerSec = scale > 0 ? halfSiderealArcsecPerSec / scale : 2.0;
+        // Same calibration geometry the driver runs (defaults + backlash clearing on).
+        var throwPx = new GuiderCalibration { BacklashClearingEnabled = true }
+            .ExpectedSweepThrowPixels(ratePxPerSec) + 16.0; // + search-radius tracking headroom
+        var frameMin = _camera is { Connected: true } cam ? Math.Min(cam.NumX, cam.NumY) : 0;
+        var cap = frameMin > 0 ? frameMin / 3 : int.MaxValue;
+        return Math.Clamp((int)Math.Ceiling(throwPx), 0, cap);
     }
 
     private void CancelGuideLoop()

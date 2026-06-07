@@ -29,6 +29,16 @@ internal sealed class GuiderCentroidTracker
     public float MinSNR { get; set; } = DefaultMinSNR;
 
     /// <summary>
+    /// When &gt; 0, initial acquisition prefers guide stars at least this many pixels from
+    /// every frame edge, so the chosen star survives large excursions (notably the
+    /// calibration throw) without leaving the sensor and forcing a re-lock onto a
+    /// different star mid-calibration. If no candidate is that far inside, the brightest
+    /// overall is used -- acquisition never fails purely for lack of border clearance.
+    /// Default 0 = brightest-anywhere (legacy behaviour).
+    /// </summary>
+    public int AcquisitionEdgeMargin { get; set; }
+
+    /// <summary>
     /// Number of stars currently being tracked.
     /// </summary>
     public int TrackedStarCount => _stars.Count;
@@ -195,8 +205,25 @@ internal sealed class GuiderCentroidTracker
             return null;
         }
 
-        // Sort by flux descending (brightest first)
-        candidates.Sort((a, b) => b.Flux.CompareTo(a.Flux));
+        // Sort brightest-first, but when an acquisition edge margin is set, prefer stars
+        // with enough border clearance to survive the calibration throw (so we don't lock
+        // onto a star the sweep then pushes off-frame). Falls back to brightest-overall
+        // when no candidate is comfortably interior, so acquisition never fails for it.
+        if (AcquisitionEdgeMargin > 0)
+        {
+            var m = AcquisitionEdgeMargin;
+            bool Interior(CandidateStar c) =>
+                c.X >= m && c.X < width - m && c.Y >= m && c.Y < height - m;
+            candidates.Sort((a, b) =>
+            {
+                var byInterior = Interior(b).CompareTo(Interior(a)); // interior first
+                return byInterior != 0 ? byInterior : b.Flux.CompareTo(a.Flux);
+            });
+        }
+        else
+        {
+            candidates.Sort((a, b) => b.Flux.CompareTo(a.Flux));
+        }
 
         // Select well-separated stars up to MaxStars
         _stars.Clear();
