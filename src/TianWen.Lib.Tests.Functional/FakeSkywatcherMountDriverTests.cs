@@ -428,5 +428,61 @@ public class FakeSkywatcherMountDriverTests(ITestOutputHelper output)
         (await mount.GetDeclinationAsync(ct)).ShouldBe(-45.0, 0.01);
     }
 
+    [Fact(Timeout = 60_000)]
+    public async Task GivenMisalignedMountWhenTrackingAfterSyncThenFieldDriftsSlowlyAndAccumulates()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (mount, external) = await CreateConnectedMountAsync(
+            ct, azMisalignmentArcmin: TestAzMisalignArcmin, altMisalignmentArcmin: TestAltMisalignArcmin);
+
+        // Plate-solve sync away from the pole: the static offset is learned, and
+        // the drift reference is set to this freshly-centred position.
+        await mount.SyncRaDecAsync(6.0, 45.0, ct);
+        mount.IsAlignmentCorrected.ShouldBeTrue();
+
+        // At the moment of sync the field sits exactly on target (zero residual) --
+        // this is what lets the centering loop converge.
+        var ra0 = await mount.GetRightAscensionAsync(ct);
+        var dec0 = await mount.GetDeclinationAsync(ct);
+        ra0.ShouldBe(6.0, 0.02);
+        dec0.ShouldBe(45.0, 0.02);
+
+        // Track for 5 sidereal minutes -- the misaligned axis leaks a slow drift.
+        external.TimeProvider.Advance(TimeSpan.FromMinutes(5));
+        var ra5 = await mount.GetRightAscensionAsync(ct);
+        var dec5 = await mount.GetDeclinationAsync(ct);
+
+        var drift5Arcsec = GreatCircleArcsec(ra0, dec0, ra5, dec5);
+        var decDrift5Arcsec = Math.Abs(dec5 - dec0) * 3600.0;
+        output.WriteLine($"5min: total drift={drift5Arcsec:F1}\"  dec drift={decDrift5Arcsec:F1}\"");
+
+        // Realistic polar-misalignment drift for ~30': tens of arcsec over 5 min --
+        // NOT zero (the old "learned alignment zeroes everything" bug) and NOT
+        // degrees (a runaway). Rule of thumb ~0.25"/min per arcmin -> ~40"/5min.
+        drift5Arcsec.ShouldBeGreaterThan(3.0, "a misaligned mount must drift while tracking");
+        drift5Arcsec.ShouldBeLessThan(900.0, "drift must stay realistic, not run away");
+
+        // Drift accumulates with elapsed tracking time (track 5 more minutes).
+        external.TimeProvider.Advance(TimeSpan.FromMinutes(5));
+        var ra10 = await mount.GetRightAscensionAsync(ct);
+        var dec10 = await mount.GetDeclinationAsync(ct);
+        var drift10Arcsec = GreatCircleArcsec(ra0, dec0, ra10, dec10);
+        output.WriteLine($"10min: total drift={drift10Arcsec:F1}\"");
+        drift10Arcsec.ShouldBeGreaterThan(drift5Arcsec, "drift grows with tracking time");
+    }
+
+    /// <summary>Great-circle separation between two (RA hours, Dec deg) points, in arcsec.</summary>
+    private static double GreatCircleArcsec(double ra1Hours, double dec1Deg, double ra2Hours, double dec2Deg)
+    {
+        var ra1 = ra1Hours * 15.0 * Math.PI / 180.0;
+        var ra2 = ra2Hours * 15.0 * Math.PI / 180.0;
+        var dec1 = dec1Deg * Math.PI / 180.0;
+        var dec2 = dec2Deg * Math.PI / 180.0;
+        var cosSep = Math.Sin(dec1) * Math.Sin(dec2)
+            + Math.Cos(dec1) * Math.Cos(dec2) * Math.Cos(ra1 - ra2);
+        var sepRad = Math.Acos(Math.Clamp(cosSep, -1.0, 1.0));
+        return sepRad * 180.0 / Math.PI * 3600.0;
+    }
+
     #endregion
 }

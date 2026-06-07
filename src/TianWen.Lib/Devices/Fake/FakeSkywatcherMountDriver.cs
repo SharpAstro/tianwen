@@ -95,6 +95,28 @@ internal class FakeSkywatcherMountDriver(FakeDevice device, IServiceProvider ser
     internal bool IsAlignmentCorrected => _alignmentCorrected;
 
     /// <summary>
+    /// UTC of the last plate-solve sync away from the pole -- the reference from
+    /// which the post-centering tracking drift accumulates. A sync removes the
+    /// static pointing offset but NOT the polar-axis tilt, so the field keeps
+    /// drifting (mostly in Dec) as the mount tracks about the wrong axis. Reset
+    /// on every away-from-pole sync so the drift always grows from the most
+    /// recently centred position -- exactly the residual a real misaligned mount
+    /// leaves for the guider to chase. <see cref="ApplyTrackingDrift"/> consumes it.
+    /// </summary>
+    private DateTimeOffset _trackingRefUtc;
+
+    /// <summary>
+    /// Believed (commanded) RA/Dec captured at the last away-from-pole sync -- the
+    /// fixed anchor the post-centering drift accumulates from. Anchoring to the
+    /// synced position (rather than the live <c>base</c> RA) keeps the drift purely
+    /// a function of elapsed tracking time: the base driver derives RA as
+    /// <c>LST - HA(steps)</c>, which advances with sidereal time even on a
+    /// stationary encoder, so using it live would swamp the misalignment signal.
+    /// </summary>
+    private double _trackingRefRa;
+    private double _trackingRefDec;
+
+    /// <summary>
     /// Angular distance from the site's celestial pole, in degrees, within which
     /// the OTA is treated as "parked on the pole" for polar-align simulation
     /// (encoder-swept pole) rather than slewed to an imaging target (axis-tilt of
@@ -116,7 +138,10 @@ internal class FakeSkywatcherMountDriver(FakeDevice device, IServiceProvider ser
     public override async ValueTask<double> GetRightAscensionAsync(CancellationToken cancellationToken)
     {
         var baseRa = await base.GetRightAscensionAsync(cancellationToken);
-        if (!MisalignmentEnabled || _alignmentCorrected || CprRa == 0)
+        // Note: a learned alignment (_alignmentCorrected) no longer short-circuits
+        // here -- it removes the STATIC offset but the residual polar-axis tracking
+        // drift is still applied inside ComputeMisalignedPointingAsync.
+        if (!MisalignmentEnabled || CprRa == 0)
         {
             return baseRa;
         }
@@ -129,7 +154,7 @@ internal class FakeSkywatcherMountDriver(FakeDevice device, IServiceProvider ser
     public override async ValueTask<double> GetDeclinationAsync(CancellationToken cancellationToken)
     {
         var baseDec = await base.GetDeclinationAsync(cancellationToken);
-        if (!MisalignmentEnabled || _alignmentCorrected || CprRa == 0)
+        if (!MisalignmentEnabled || CprRa == 0)
         {
             return baseDec;
         }
@@ -153,19 +178,36 @@ internal class FakeSkywatcherMountDriver(FakeDevice device, IServiceProvider ser
     public override async ValueTask SyncRaDecAsync(double ra, double dec, CancellationToken cancellationToken)
     {
         await base.SyncRaDecAsync(ra, dec, cancellationToken);
-        if (!MisalignmentEnabled || _alignmentCorrected)
+        if (!MisalignmentEnabled)
         {
             return;
         }
         var siteLatDeg = await GetSiteLatitudeAsync(cancellationToken);
         var hemisphere = siteLatDeg >= 0 ? Hemisphere.North : Hemisphere.South;
-        if (!IsNearSitePole(dec, hemisphere))
+        if (IsNearSitePole(dec, hemisphere))
+        {
+            // Startup / park syncs go to the pole and must NOT establish the
+            // imaging tracking-drift reference -- the polar-align simulation
+            // (the encoder-swept regime) owns the near-pole behaviour, and
+            // zeroing it here would kill the polar-align routine before it runs.
+            return;
+        }
+        // Plate-solve sync away from the pole. The static pointing offset is now
+        // learned out (so the centering loop converges), but the polar axis is
+        // STILL tilted: reset the drift reference so the field starts drifting
+        // afresh from this freshly-centred position. That residual drift is what
+        // the guider then chases -- exactly like a real polar-misaligned mount,
+        // where plate-solve centering fixes pointing but not polar alignment.
+        if (!_alignmentCorrected)
         {
             _alignmentCorrected = true;
             Logger.LogInformation(
-                "FakeSkywatcher: plate-solve sync to ({Ra:F4}h, {Dec:F4}deg) away from the pole -- modelling alignment as learned; residual misalignment corrected.",
+                "FakeSkywatcher: plate-solve sync to ({Ra:F4}h, {Dec:F4}deg) away from the pole -- static pointing offset learned; residual polar-axis tracking drift retained.",
                 ra, dec);
         }
+        _trackingRefRa = ra;
+        _trackingRefDec = dec;
+        _trackingRefUtc = TimeProvider.GetUtcNow();
     }
 
     /// <summary>
@@ -199,12 +241,27 @@ internal class FakeSkywatcherMountDriver(FakeDevice device, IServiceProvider ser
             return ApplyPolarMisalignment(axis, hemisphere, encoderRad);
         }
 
-        // Imaging regime: the OTA has been slewed away from the pole. The true
-        // sky it reaches is the believed (encoder) pointing rotated rigidly by
-        // the axis tilt -- a small (~misalignment-sized) offset that respects
-        // WHERE the scope was slewed, so a GOTO to Dec=45 reports ~45 (not the
-        // pole). The imaging centering loop plate-solves this offset and syncs
-        // it away (see SyncRaDecAsync).
+        if (_alignmentCorrected)
+        {
+            // Post-centering imaging regime. The static cone-error offset has been
+            // synced out, but the mount is still tracking about its TILTED axis, so
+            // the field drifts from the last sync onward -- predominantly in Dec.
+            // This is the residual the guider corrects; it grows with elapsed
+            // sidereal time, not a single fixed offset (see ApplyTrackingDrift).
+            // Anchored to the synced reference position, NOT the live base RA
+            // (which advances with LST and would swamp the drift -- see the
+            // _trackingRefRa rationale).
+            var trackedSeconds = (TimeProvider.GetUtcNow() - _trackingRefUtc).TotalSeconds;
+            return ApplyTrackingDrift(hemisphere, axis, _trackingRefRa, _trackingRefDec, trackedSeconds);
+        }
+
+        // Imaging regime, pre-centering: the OTA has been slewed away from the
+        // pole. The true sky it reaches is the believed (encoder) pointing rotated
+        // rigidly by the axis tilt -- a small (~misalignment-sized) offset that
+        // respects WHERE the scope was slewed, so a GOTO to Dec=45 reports ~45
+        // (not the pole). The imaging centering loop plate-solves this offset and
+        // syncs it away (see SyncRaDecAsync), after which the drift branch above
+        // takes over.
         return ApplyAxisTiltToPointing(axis, hemisphere, baseRa, baseDec);
     }
 
@@ -424,6 +481,60 @@ internal class FakeSkywatcherMountDriver(FakeDevice device, IServiceProvider ser
 
         var (ra, dec) = PolarAxisSolver.UnitVecToRaDec(new Vec3(tx, ty, tz));
         return (ra, dec);
+    }
+
+    /// <summary>
+    /// True sky direction of a polar-misaligned mount that has been TRACKING for
+    /// <paramref name="trackedSeconds"/> since its pointing was last established
+    /// (the most recent plate-solve sync). The mount drives its OTA about its own
+    /// (tilted) RA axis at the sidereal rate; the sky rotates the same angle about
+    /// the TRUE celestial pole. The residual between those two rotations is the
+    /// classic polar-misalignment field drift -- predominantly in Declination,
+    /// with a rate set by the misalignment magnitude and the target's position.
+    /// </summary>
+    /// <remarks>
+    /// At <paramref name="trackedSeconds"/> == 0 both rotations are the identity,
+    /// so the freshly-centred frame sits exactly on the believed pointing and the
+    /// drift accumulates only thereafter. This is what makes the imaging centering
+    /// loop converge (zero residual at the moment of sync) while still leaving the
+    /// slow drift a guider must correct. Reuses <see cref="PolarAxisSolver.Rotate"/>
+    /// (Rodrigues) rather than re-deriving the rotation inline.
+    /// </remarks>
+    /// <param name="hemisphere">Site hemisphere -- selects the true pole sign.</param>
+    /// <param name="misalignedAxisJ2000">The mount's tilted RA axis in J2000, from
+    /// <see cref="TopocentricMisalignmentToJ2000Axis"/>.</param>
+    /// <param name="believedRa">Believed (commanded/encoder) RA in hours.</param>
+    /// <param name="believedDec">Believed (commanded/encoder) Dec in degrees.</param>
+    /// <param name="trackedSeconds">Seconds tracked since the last sync. Negative
+    /// values are clamped to 0 (a sync timestamped in the future cannot drift).</param>
+    /// <returns>True (RA, Dec). RA in [0, 24) hours; Dec in [-90, 90] degrees.</returns>
+    internal static (double Ra, double Dec) ApplyTrackingDrift(
+        Hemisphere hemisphere,
+        Vec3 misalignedAxisJ2000,
+        double believedRa,
+        double believedDec,
+        double trackedSeconds)
+    {
+        if (trackedSeconds <= 0.0)
+        {
+            return (believedRa, believedDec);
+        }
+
+        // Sidereal angular rate (one full turn per sidereal day).
+        const double siderealRadPerSec = 2.0 * Math.PI / 86164.0905;
+        var theta = siderealRadPerSec * trackedSeconds;
+
+        var poleZ = hemisphere == Hemisphere.North ? 1.0 : -1.0;
+        // The true celestial pole is the J2000 equatorial z-axis by definition.
+        var truePole = new Vec3(0.0, 0.0, poleZ);
+
+        var believed = PolarAxisSolver.RaDecToUnitVec(believedRa, believedDec);
+        // Track about the misaligned axis, then de-rotate by the ideal sidereal
+        // motion about the true pole. Net = the field drift the misalignment leaks.
+        var tracked = PolarAxisSolver.Rotate(believed, misalignedAxisJ2000, theta);
+        var drifted = PolarAxisSolver.Rotate(tracked, truePole, -theta);
+
+        return PolarAxisSolver.UnitVecToRaDec(drifted);
     }
 
     /// <summary>
