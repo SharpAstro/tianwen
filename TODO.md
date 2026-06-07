@@ -21,7 +21,7 @@
 - [x] Weather overlay in planner — hourly forecast from Open-Meteo (free, no API key) with layered color emoji (rain/snow/thunder/fog/cloud/sun/moon), file-cached with 1h TTL + offline fallback. Weather as full device type (IWeatherDriver) with equipment/profile integration
 - [x] Planner: show Moon phase + position — altitude curve on the chart with phase emoji (hemisphere-aware). Uses Meeus lunar ephemeris via VSOP87a pipeline
 - [ ] Moon penalty in target scoring — penalise targets within ~30° of a bright Moon (illumination × proximity factor). Compute angular separation per target in ObservationScheduler.ScoreTarget
-- [ ] Live viewer: camera switching — allow selecting which OTA's camera to preview in both GUI MiniViewer and TUI Sixel preview (currently always shows first available)
+- [ ] Live viewer: camera switching — allow selecting which OTA's camera to preview in both GUI MiniViewer and TUI Sixel preview (currently always shows first available). PARTIAL (verified 2026-06-02): GUI DONE (`MiniViewerState.SelectedCameraIndex` + `#1`/`#2` toolbar toggles, `LiveSessionTab.cs:373`); TUI Sixel preview still always takes first available (`TuiLiveSessionTab.cs:644`).
 - [x] Guider graph: connect dots with lines (Bresenham or anti-aliased) instead of scatter dots — users expect smooth curves like PHD2
 - [x] Guider graph: scrolling window (last N samples) with dynamic Y scale and grid lines at integer arcsec
 - [x] Guider graph: reuse the existing LiveSessionTab guide graph widget — the guider tab should show a larger version of the same graph, not a separate implementation. Extract shared graph rendering
@@ -48,7 +48,7 @@
   - [x] `FakeGuider`: generate synthetic guide frames with star field
   - [x] GUI: guide camera Canvas + crosshair overlay + SNR + frame counter
   - [x] GUI: star profile panel with 1D H/V intensity cross-sections + Gaussian fits + FWHM
-  - [ ] PHD2: no image (show placeholder), SNR/mass from event stream only
+  - [ ] PHD2: no image (show placeholder), SNR/mass from event stream only. PARTIAL (verified 2026-06-02): placeholder DONE (`GuiderTabState.PlaceholderReason`); SNR/mass from PHD2 event stream still TODO (`OpenPHD2GuiderDriver` leaves `GuideStarSNR` null).
 - [x] Live session: show dither state — guider header shows `[Settling 0.42px]` with live distance, `[Paused (Slewing)]` during slews, correction arrows `[Guiding →142ms ↑38ms]`
 - [ ] Cooling graph: same scrolling window treatment
 - [ ] VSOP87 vectorization — convert 43K lines of hardcoded `amplitude * Cos(phase + frequency * t)` into coefficient arrays, evaluate with `Vector256<double>` (AVX2). Process 4 terms per iteration. Requires source generator or one-time conversion of all planet files (EarthX/Y/Z, MarsX/Y/Z, etc.)
@@ -56,11 +56,11 @@
 - [ ] Equipment tab: fully data-driven profile panel — replace hardcoded `RenderProfileSlot` calls (mount, guider, guider cam/foc) with a declarative slot model that includes special sections (site editing, focal length input, device settings) as metadata. Currently core slots are hardcoded and only "extra" slots (weather, future types) are rendered dynamically via `EquipmentContent.GetExtraProfileSlots`. Goal: single loop over all slots with pluggable section renderers.
 - [ ] Equipment tab: generic per-device settings pane — each device type (camera, mount, guider, etc.) should declare configurable properties via URI query params (like BuiltInGuiderDevice), and the equipment tab renders them automatically. FakeDevice should carry PE amplitude, period, guide rate etc. as URI params so FakeCameraDriver initializes from them instead of hardcoded defaults
 - [ ] Fake camera: shift/change star field during slews — currently renders the same fixed seed regardless of mount pointing
-- [ ] Fake camera: scale synthetic background noise with exposure duration in `SyntheticStarFieldRenderer` — long subs (≥60s) have unrealistically clean backgrounds, causing per-channel stretch to produce degenerate parameters. Real cameras accumulate sky glow + dark current + read noise over time.
+- [x] Fake camera: scale synthetic background noise with exposure duration in `SyntheticStarFieldRenderer` — long subs (≥60s) have unrealistically clean backgrounds, causing per-channel stretch to produce degenerate parameters. Real cameras accumulate sky glow + dark current + read noise over time. DONE (2026-06-02): sky background scales by exposure on all paths (`skyLevel = skyBackground * exposureSeconds`, `SyntheticStarFieldRenderer.cs:132,270,836`); star flux scales too, read noise stays fixed (correct).
 
 - [x] Fake filter wheels should have pre-installed filters (realistic filter sets per device ID)
 - [ ] Planner: disambiguate duplicate common names — when multiple catalog entries share the same display name (e.g. NGC 4038 and NGC 4039 both named "Antennae Galaxies"), append the catalog designation in brackets: "Antennae Galaxies (NGC 4038)"
-- [ ] Planner: full rescan when site coordinates change significantly (>1°) instead of fast-path recompute — currently changing lat from -37 to 50 keeps southern-hemisphere targets with 0° altitude
+- [x] Planner: full rescan when site coordinates change significantly (>1°) instead of fast-path recompute — currently changing lat from -37 to 50 keeps southern-hemisphere targets with 0° altitude. DONE (2026-06-02): `AppSignalHandler.cs:489-510` runs full `ComputeTonightsBestAsync` when |Δlat| or |Δlon| > 1°, else fast-path `RecomputeForDate`.
 - [ ] Extract VkImageRenderer UI layout to Abstractions — toolbar, file list, status bar, hit testing are renderer-agnostic; image rendering + texture upload stay Vulkan-specific in Shared
 - [ ] Viewer tab renders at (0,0) ignoring contentRect — refactor ImageRendererBase.Render to accept a contentRect like PlannerTab/SessionTab/EquipmentTab so it works correctly when embedded in the tabbed GUI
 - [x] Pinned items in planner should persist to disk — auto-save/load via `PlannerPersistence` keyed by profile+date, stored under `{OutputFolder}/Planner/{profileId}/{date}.json`
@@ -260,7 +260,7 @@
 
 - [ ] Free unmanaged resources and override finalizer in `External.Dispose` (`External.cs:85-91`)
 - [ ] Actually ensure that FITS library writes async (`IExternal.cs:226`)
-- [ ] Write an MCP server for TianWen (expose session status, device state, observation schedule)
+- [ ] Write an MCP server for TianWen (expose session status, device state, observation schedule). PARTIAL (verified 2026-06-02): `TianWen.AI.MCP` (`tianwen-mcp`) ships `FitsTools` (Header/Stats/FindStars/PlateSolve/Pixels), `CatalogTools` (Lookup), `LogTools` (Tail). Session-status / device-state / observation-schedule tools still TODO (planned `stack.*`/`profile.*`/`devices.*`/`app.*` categories are doc-only in `Program.cs`).
 
 ## Imaging
 
@@ -344,7 +344,7 @@ Learnings from PixInsight Statistical Stretch (SetiAstro, v2.3).
 ## FITS Viewer
 
 - [ ] Rename HDR button/label to "Compress Highlights"
-- [ ] Remove debug `Console.Error.WriteLine` WCS output from `Program.cs`
+- [x] Remove debug `Console.Error.WriteLine` WCS output from `Program.cs` DONE (2026-06-02): none present in `TianWen.UI.FitsViewer/Program.cs` (all logging via `ILogger`).
 - [x] Support rec601/rec2020 luminance weighting options in luma stretch (2026-05-11) — see Stretch / Image Processing section.
 - [ ] Grid label formatting: show arc-seconds for very narrow FOVs
 - [ ] Crosshair / reticle overlay at image center
@@ -385,7 +385,7 @@ Learnings from PixInsight Statistical Stretch (SetiAstro, v2.3).
 
 - [ ] `ObjectType.IsStar()` helper method
 - [ ] VDB has objects listed as `Be*`, but in HIP we only know stars (`*`) (`CelestialObjectDBTests.cs:73`)
-- [ ] Read WCS from FITS file in `FakePlateSolver` (`FakePlateSolver.cs:26`)
+- [x] Read WCS from FITS file in `FakePlateSolver` (`FakePlateSolver.cs:26`) DONE (2026-06-02): `SolveFileAsync` falls back to `Image.TryReadFitsFile(...)` WCS when no `CatalogPlateSolver` is injected (`FakePlateSolver.cs:50-54`).
 - [ ] See if fake mounts (`FakeMountDriver` and `FakeMeadeLX200ProtocolMountDriver`) can share a mount-specific base class
 
 ## Statistics
@@ -455,3 +455,70 @@ Dispatch order on CR2 import: try spectral matrix first (best — first-principl
 - [x] Touch input: pinch-to-zoom via `SDL_EVENT_FINGER_*` events — two-finger tracking + scale computation in `SdlEventLoop` (`OnPinch`/`OnPinchEnd`), consumed by `SkyMapTab` via `InputEvent.Pinch`/`PinchEnd` (2f0b484)
 
 Vulkan/SDL migration rationale moved to `../SdlVulkan.Renderer/README.md` ("Rationale: Why SDL3 + Vortice.Vulkan" section).
+
+## Inbox: consolidated from Slack self-notes (2026-06-02)
+
+New, still-actionable TianWen items lifted from the Slack "messages to self" brain-dump (Mar-May 2026),
+deduped against the rest of this file. Date in parens is when the note was written. Triage into the
+sections above when picked up. Notes that turned out to be already DONE or already tracked elsewhere are
+intentionally NOT repeated here.
+
+### Sky Map
+- [ ] Search box + click-to-goto (slew to clicked object) (2026-04-16)
+- [ ] Compass markers + horizon markers (2026-04-16)
+- [ ] "N" key jumps the sky to local midnight (2026-04-18) (pairs with the time-adjuster item above)
+- [ ] "Show in planner" action from the sky map (2026-04-18)
+- [ ] Compute edge crossings (clip constellation / grid lines at the viewport edge) (2026-04-04)
+- [ ] Load Gaia stars from Stellarium `.dat` files (the 3-vector unit-pos pipeline is already DONE; only the loader is missing) (2026-04-04, 2026-05-19)
+- [ ] Bake a nebulosity layer into the baked Milky Way background image (2026-04-18)
+- [ ] Share more rendering code between the Sky Map and the FITS viewer (2026-04-04)
+
+### Planner / Session GUI
+- [ ] Second planner view: all unique pinned objects plotted over their bounding visibility timespan (2026-04-18) (confirmed not implemented)
+- [ ] Indicate a "light" / coverage marker under targets that actually have scheduled exposure time (2026-03-25) (the Tonight tab already goes read-only with Start disabled during a running session; only the per-target coverage marker is missing)
+- [ ] Site change should unpin pinned targets when coordinates change, and must NOT invalidate cooler setpoint temps (2026-03-27) (unpin: confirmed not done)
+- [ ] Planner input bugs: Ctrl+V paste does nothing, input field too small, Enter does not commit the "Today" date edit (2026-04-07)
+- [ ] Replace the Live Session tab icon with a Milky Way image (2026-03-24) (currently the camera-flash emoji)
+- [ ] Make the Windows taskbar entry more dynamic (progress / session state) (2026-04-02)
+
+### Equipment / device UX
+- [ ] Gate "Connect All" on discovery completion (2026-04-30)
+- [ ] Clicking a device class should ensure all devices of that class are visible; vendor text is hard to read (2026-04-23)
+- [ ] Better feedback than logging "Expected Camera, got mount" on a type mismatch (2026-04-23)
+- [ ] "Hold Shift reveals extra options" pattern (e.g. Shift on discover; Shift = loop instead of single-click preview) (2026-04-16)
+- [ ] Manual device creator UI (host / port fields) (2026-04-20) (overlaps the "Add unseen device" OnStep follow-up above)
+
+### Sequencing / Session
+- [ ] Avoid auto-focus when approaching the meridian (2026-05-14)
+- [ ] Custom horizon file support (2026-03-17) (overlaps the deferred horizon-mask sub-plan)
+- [ ] Configurable parking position (2026-03-17)
+- [ ] Memoize pier side / polarity (2026-03-17)
+- [ ] Spares: compute from higher-priority list items that conflict with the accepted schedule, prefer same object type (2026-03-23) (refines the existing spare-target fallback)
+- [ ] Revisit imaging / guider / polar-align loop tick rate; see if it can be increased in real (non-fake) time (2026-05-01) (pairs with the GCD/6 faster-tick item above)
+
+### Drivers / hardware
+- [ ] Canon lens stepper as a special focuser: model manual vs automatic telephoto lenses as a special optical system so we know when auto-focus is usable; test that manual focus works during a session (2026-04-19)
+
+### Stacker (no section exists yet)
+- [ ] Support 3rd-party master frames (bias/dark/flat from other tools) (2026-05-19)
+- [ ] Auto-pick flats by matching object time + filter (2026-05-19)
+- [ ] Download Gaia SP stars (2026-05-19) (same source as the Sky Map Gaia loader)
+
+### Stretch / Astrometry
+- [ ] Auto-stretch ("MML") should use the object DB for grounding (object type + shape) (2026-05-07)
+- [ ] Debug why so few stars match in Tycho-2 SPCC (2026-05-19)
+- [ ] MCP: "best of tonight / this week / this month" tools (2026-05-21) (pairs with the MCP server + generalise-TonightsBest items above)
+
+### Build / infra / docs
+- [ ] Shrink git fetch size (~500 MB of `.zip` / `.gz` / `.lzip` data files) (2026-04-19)
+- [ ] Create a subset of the emoji font to cut size (2026-03-26) (pairs with fetch-size)
+- [ ] Mention FC.SDK in the skills docs (2026-04-19)
+- [ ] Investigate AOT trim warnings: LibUsbDotNet (IL2104 / IL3053), CSharpFITS (IL3053) (2026-04-19)
+- [ ] CI: ensure publish does not run while tests are still going; reduce server AOT publish warnings (2026-04-19)
+- [ ] App self-update detection (2026-04-26)
+
+### Code quality
+- [ ] Move `RGBAColor32Extensions.cs` to a base layer (DIR.Lib) (2026-04-26)
+- [ ] Use `Vector2` where we currently pass `PointF`-style pairs (2026-04-10)
+- [ ] Document / clarify how `ResilientCall` interacts with collision detection (2026-04-26)
+- [ ] Maybe support .NET Standard 2.0 for wider lib reuse (2026-05-02)
