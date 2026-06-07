@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Immutable;
 using DIR.Lib;
 using Microsoft.Extensions.Logging;
 using SdlVulkan.Renderer;
@@ -27,6 +28,8 @@ namespace TianWen.UI.Gui
         private readonly VkNotificationsTab _notificationsTab;
         private readonly VkMiniViewerWidget _guiderMiniViewer;
         private readonly VkMiniViewerWidget _miniViewer;
+        private ScheduledObservationTree? _cachedSchedule;
+        private Target? _cachedActiveTarget;
         private string? _fontPath;
         private string? _emojiFontPath;
         private uint _width;
@@ -602,10 +605,24 @@ namespace TianWen.UI.Gui
             if (schedule is not { Count: > 0 })
             {
                 _skyMapTab.State.ScheduleTargets = [];
+                _cachedSchedule = null;
+                _cachedActiveTarget = null;
                 return;
             }
 
+            // Rebuild only when the schedule or active observation changes.
+            // The schedule is static during a session; only the active target
+            // changes as observations advance. Comparing the schedule identity
+            // and active target identity avoids a List+ImmutableArray allocation
+            // every render frame (~60 FPS).
             var active = LiveSessionState.ActiveObservation?.Target;
+            if (_cachedSchedule == schedule && _cachedActiveTarget == active)
+            {
+                return;
+            }
+            _cachedSchedule = schedule;
+            _cachedActiveTarget = active;
+
             var targets = new List<(double RA, double Dec, string Name, bool IsActive)>(schedule.Count);
             foreach (var obs in schedule)
             {
