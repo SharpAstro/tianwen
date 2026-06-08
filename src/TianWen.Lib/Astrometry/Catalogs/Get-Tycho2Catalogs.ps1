@@ -107,6 +107,124 @@ function ConvertFrom-EpochRadians
     return [PSCustomObject]@{ RA = $ra2; Dec = $dec2 }
 }
 
+# Writes one Tycho-2 star as a 17-byte binary entry into its GSC-region stream,
+# plus pm-sidecar overflow, GSC bounding-box, and HIP cross-ref accumulation.
+# Shared by the main-catalog parser (tyc2.dat) AND the Supplement-1 parser
+# (suppl_1.dat) so the on-disk layout is byte-identical for both sources.
+#
+# 17-byte entry layout: tyc2 u16 | tyc3 u8 | RA f32 (hours) | Dec f32 (deg)
+#                     | VT decimag u8 | BT decimag u8
+#                     | pmRA int16 (= source mas/yr * 10)
+#                     | pmDec int16 (= source mas/yr * 10).
+# Inline pm encoding: signed int16, scale 0.1 mas/yr per unit. Special values:
+#   0           = "no useful pm" (missing-pm entries AND legitimate zero-pm
+#                  stars; both produce no drift downstream regardless of dt).
+#   +/-32767    = saturation rail; consult tyc2_pm_sidecar.bin.lz with the
+#                  (tyc1, tyc2, tyc3) key to recover exact int32 pm.
+# Biased decimag: byte = clamp(round(mag * 10) + 20, 0, 254), 0xFF = missing.
+# Caller passes RA in HOURS, Dec in DEGREES, both already at epoch J2000/ICRS
+# (the supplement parser propagates its J1991.25 positions forward by proper
+# motion before calling). VtMag/BtMag/PmRa/PmDec are NaN when the source is blank.
+function Write-Tycho2BinaryEntry
+{
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)] [int]   $Tyc1,
+        [Parameter(Mandatory = $true)] [int]   $Tyc2,
+        [Parameter(Mandatory = $true)] [int]   $Tyc3,
+        [Parameter(Mandatory = $true)] [float] $RaHours,
+        [Parameter(Mandatory = $true)] [float] $DecDeg,
+        [float] $VtMag = [float]::NaN,
+        [float] $BtMag = [float]::NaN,
+        [float] $PmRa  = [float]::NaN,
+        [float] $PmDec = [float]::NaN,
+        [int]   $Hip   = 0,
+        [Parameter(Mandatory = $true)] [PSCustomObject] $OutputData
+    )
+
+    $gscIdx = $Tyc1 - 1
+    $stream = $OutputData.Streams[$gscIdx]
+    if ($null -eq $stream) { return }   # region not opened for processing this run
+
+    $isLittleEndian = [BitConverter]::IsLittleEndian
+
+    $vtDecimag = if ([float]::IsNaN($VtMag)) { 255 } else { [Math]::Clamp([int][Math]::Round($VtMag * 10) + 20, 0, 254) }
+    $btDecimag = if ([float]::IsNaN($BtMag)) { 255 } else { [Math]::Clamp([int][Math]::Round($BtMag * 10) + 20, 0, 254) }
+
+    $id2Bytes = [BitConverter]::GetBytes([int16]$Tyc2)
+    if (-not $isLittleEndian) { [array]::Reverse($id2Bytes) }
+
+    $raHBytes = [BitConverter]::GetBytes([BitConverter]::SingleToInt32Bits([float]$RaHours))
+    $decBytes = [BitConverter]::GetBytes([BitConverter]::SingleToInt32Bits([float]$DecDeg))
+    if (-not $isLittleEndian) {
+        [array]::Reverse($raHBytes)
+        [array]::Reverse($decBytes)
+    }
+
+    # int16 = round(source mas/yr * 10). Saturation rails at +/-32767 trigger a
+    # sidecar entry (int32 pm to preserve full source precision past 3276.7 mas/yr).
+    [int]$pmRaTenths  = 0
+    [int]$pmDecTenths = 0
+    $pmRaSat  = $false
+    $pmDecSat = $false
+    if (-not [float]::IsNaN($PmRa)) {
+        $q = [int][Math]::Round($PmRa * 10.0)
+        if     ($q -gt  32767) { $pmRaTenths =  32767; $pmRaSat = $true }
+        elseif ($q -lt -32767) { $pmRaTenths = -32767; $pmRaSat = $true }
+        else                   { $pmRaTenths = $q }
+    }
+    if (-not [float]::IsNaN($PmDec)) {
+        $q = [int][Math]::Round($PmDec * 10.0)
+        if     ($q -gt  32767) { $pmDecTenths =  32767; $pmDecSat = $true }
+        elseif ($q -lt -32767) { $pmDecTenths = -32767; $pmDecSat = $true }
+        else                   { $pmDecTenths = $q }
+    }
+    if ($pmRaSat -or $pmDecSat) {
+        # Either-axis saturation triggers a sidecar entry that carries the exact
+        # pm (source * 10, int32) for BOTH components, so the reader can
+        # substitute the lossless value when it sees a rail.
+        [void]$OutputData.SidecarEntries.Add([PSCustomObject]@{
+            Tyc1 = $Tyc1
+            Tyc2 = $Tyc2
+            Tyc3 = $Tyc3
+            PmRaTenths  = if ([float]::IsNaN($PmRa))  { 0 } else { [int][Math]::Round($PmRa  * 10.0) }
+            PmDecTenths = if ([float]::IsNaN($PmDec)) { 0 } else { [int][Math]::Round($PmDec * 10.0) }
+        })
+    }
+
+    $pmRaInt16Bytes  = [BitConverter]::GetBytes([int16]$pmRaTenths)
+    $pmDecInt16Bytes = [BitConverter]::GetBytes([int16]$pmDecTenths)
+    if (-not $isLittleEndian) {
+        [array]::Reverse($pmRaInt16Bytes)
+        [array]::Reverse($pmDecInt16Bytes)
+    }
+
+    $entry = [byte[]]::new(17)
+    $entry[0]  = $id2Bytes[0]; $entry[1]  = $id2Bytes[1]
+    $entry[2]  = [byte]$Tyc3
+    $entry[3]  = $raHBytes[0]; $entry[4]  = $raHBytes[1]; $entry[5]  = $raHBytes[2]; $entry[6]  = $raHBytes[3]
+    $entry[7]  = $decBytes[0]; $entry[8]  = $decBytes[1]; $entry[9]  = $decBytes[2]; $entry[10] = $decBytes[3]
+    $entry[11] = [byte]$vtDecimag
+    $entry[12] = [byte]$btDecimag
+    $entry[13] = $pmRaInt16Bytes[0];  $entry[14] = $pmRaInt16Bytes[1]
+    $entry[15] = $pmDecInt16Bytes[0]; $entry[16] = $pmDecInt16Bytes[1]
+    $stream.Write($entry, 0, 17)
+
+    # track GSC region bounding box
+    if ($RaHours -lt $OutputData.GscMinRA[$gscIdx])  { $OutputData.GscMinRA[$gscIdx]  = $RaHours }
+    if ($RaHours -gt $OutputData.GscMaxRA[$gscIdx])  { $OutputData.GscMaxRA[$gscIdx]  = $RaHours }
+    if ($DecDeg  -lt $OutputData.GscMinDec[$gscIdx]) { $OutputData.GscMinDec[$gscIdx] = $DecDeg }
+    if ($DecDeg  -gt $OutputData.GscMaxDec[$gscIdx]) { $OutputData.GscMaxDec[$gscIdx] = $DecDeg }
+
+    # accumulate HIP -> TYC mapping
+    if ($Hip -ne 0) {
+        if (-not $OutputData.HIPMap.ContainsKey($Hip)) {
+            $OutputData.HIPMap[$Hip] = [System.Collections.Generic.List[short[]]]::new()
+        }
+        [void]$OutputData.HIPMap[$Hip].Add([short[]]@([short]$Tyc1, [short]$Tyc2, [short]$Tyc3))
+    }
+}
+
 function ConvertAndWrite-Tycho2Data
 {
     [CmdletBinding()]
@@ -118,22 +236,6 @@ function ConvertAndWrite-Tycho2Data
 
     $resolvedPath = (Resolve-Path $UnzippedDataFileName).Path
     $lines = [System.IO.File]::ReadAllLines($resolvedPath, [System.Text.Encoding]::ASCII)
-    $isLittleEndian = [BitConverter]::IsLittleEndian
-    # 17-byte entry layout: tyc2 u16 | tyc3 u8 | RA f32 (hours) | Dec f32 (deg)
-    #                     | VT decimag u8 | BT decimag u8
-    #                     | pmRA int16 (= source mas/yr * 10)
-    #                     | pmDec int16 (= source mas/yr * 10).
-    # Inline pm encoding: signed int16, scale 0.1 mas/yr per unit -- exactly
-    # matches the source F7.1 precision for the 2.5M-11 stars whose
-    # |pm| <= 3276.7 mas/yr. Special values:
-    #   0           = "no useful pm" (covers both posflg='X' missing-pm
-    #                  entries AND legitimate zero-pm stars; both produce
-    #                  no drift downstream regardless of dt).
-    #   +/-32767    = saturation rail; consult tyc2_pm_sidecar.bin.lz with
-    #                  the (tyc1, tyc2, tyc3) key to recover exact int32
-    #                  pm for the 11 high-pm stars (Barnard's, Kapteyn's,
-    #                  etc.). Sidecar entry = 13 bytes per record.
-    $entry = [byte[]]::new(17)
     $inv = [cultureinfo]::InvariantCulture
 
     foreach ($line in $lines) {
@@ -186,9 +288,6 @@ function ConvertAndWrite-Tycho2Data
         if (-not [float]::TryParse($values[19].Trim(), $inv, [ref] $vtMag)) { $vtMag = [float]::NaN }
         if (-not [float]::TryParse($values[17].Trim(), $inv, [ref] $btMag)) { $btMag = [float]::NaN }
 
-        $vtDecimag = if ([float]::IsNaN($vtMag)) { 255 } else { [Math]::Clamp([int][Math]::Round($vtMag * 10) + 20, 0, 254) }
-        $btDecimag = if ([float]::IsNaN($btMag)) { 255 } else { [Math]::Clamp([int][Math]::Round($btMag * 10) + 20, 0, 254) }
-
         # Parse pmRA (field 4) and pmDE (field 5) in mas/yr; both blank for posflg='X'
         # (mean position observed only, no proper motion derived). NaN propagates
         # through the Half cast cleanly.
@@ -199,89 +298,12 @@ function ConvertAndWrite-Tycho2Data
             [void][float]::TryParse($values[5].Trim(), $inv, [ref] $pmDec)
         }
 
-        # Write binary entry directly
-        $gscIdx = $tyc1 - 1
-        $stream = $OutputData.Streams[$gscIdx]
+        # Write the 17-byte binary entry (+ pm sidecar, GSC bbox, HIP map).
+        Write-Tycho2BinaryEntry -Tyc1 $tyc1 -Tyc2 $tyc2 -Tyc3 $tyc3 `
+            -RaHours $ra -DecDeg $dec -VtMag $vtMag -BtMag $btMag `
+            -PmRa $pmRa -PmDec $pmDec -Hip $hip -OutputData $OutputData
 
-        $id2Bytes = [BitConverter]::GetBytes([int16]$tyc2)
-        if (-not $isLittleEndian) { [array]::Reverse($id2Bytes) }
-
-        $raHBytes = [BitConverter]::GetBytes([BitConverter]::SingleToInt32Bits([float]$ra))
-        $decBytes = [BitConverter]::GetBytes([BitConverter]::SingleToInt32Bits([float]$dec))
-        if (-not $isLittleEndian) {
-            [array]::Reverse($raHBytes)
-            [array]::Reverse($decBytes)
-        }
-
-        # int16 = round(source mas/yr * 10). Sentinel 0 covers both "no pm
-        # data" (posflg='X') and "exactly zero pm" -- both produce no drift
-        # so no consumer can distinguish them. Saturation rails at
-        # +/-32767 trigger a sidecar entry (int32 pm to preserve full
-        # source precision past the 3276.7 mas/yr inline range).
-        [int]$pmRaTenths  = 0
-        [int]$pmDecTenths = 0
-        $pmRaSat  = $false
-        $pmDecSat = $false
-        if (-not [float]::IsNaN($pmRa)) {
-            $q = [int][Math]::Round($pmRa * 10.0)
-            if     ($q -gt  32767) { $pmRaTenths =  32767; $pmRaSat = $true }
-            elseif ($q -lt -32767) { $pmRaTenths = -32767; $pmRaSat = $true }
-            else                   { $pmRaTenths = $q }
-        }
-        if (-not [float]::IsNaN($pmDec)) {
-            $q = [int][Math]::Round($pmDec * 10.0)
-            if     ($q -gt  32767) { $pmDecTenths =  32767; $pmDecSat = $true }
-            elseif ($q -lt -32767) { $pmDecTenths = -32767; $pmDecSat = $true }
-            else                   { $pmDecTenths = $q }
-        }
-        if ($pmRaSat -or $pmDecSat) {
-            # Either-axis saturation triggers a sidecar entry that carries the
-            # exact pm value (source * 10, int32) for BOTH components, so the
-            # reader can substitute the lossless value when it sees a rail.
-            [void]$OutputData.SidecarEntries.Add([PSCustomObject]@{
-                Tyc1 = $tyc1
-                Tyc2 = $tyc2
-                Tyc3 = $tyc3
-                # Note: if a star has only one axis saturated, the non-rail
-                # axis's exact value still lives in the sidecar too (avoids
-                # a partial-encoding branch in the reader).
-                PmRaTenths  = if ([float]::IsNaN($pmRa))  { 0 } else { [int][Math]::Round($pmRa  * 10.0) }
-                PmDecTenths = if ([float]::IsNaN($pmDec)) { 0 } else { [int][Math]::Round($pmDec * 10.0) }
-            })
-        }
-
-        $pmRaInt16Bytes  = [BitConverter]::GetBytes([int16]$pmRaTenths)
-        $pmDecInt16Bytes = [BitConverter]::GetBytes([int16]$pmDecTenths)
-        if (-not $isLittleEndian) {
-            [array]::Reverse($pmRaInt16Bytes)
-            [array]::Reverse($pmDecInt16Bytes)
-        }
-
-        $entry[0]  = $id2Bytes[0]; $entry[1]  = $id2Bytes[1]
-        $entry[2]  = [byte]$tyc3
-        $entry[3]  = $raHBytes[0]; $entry[4]  = $raHBytes[1]; $entry[5]  = $raHBytes[2]; $entry[6]  = $raHBytes[3]
-        $entry[7]  = $decBytes[0]; $entry[8]  = $decBytes[1]; $entry[9]  = $decBytes[2]; $entry[10] = $decBytes[3]
-        $entry[11] = [byte]$vtDecimag
-        $entry[12] = [byte]$btDecimag
-        $entry[13] = $pmRaInt16Bytes[0];  $entry[14] = $pmRaInt16Bytes[1]
-        $entry[15] = $pmDecInt16Bytes[0]; $entry[16] = $pmDecInt16Bytes[1]
-        $stream.Write($entry, 0, 17)
-
-        # track GSC region bounding box
-        if ($ra -lt $OutputData.GscMinRA[$gscIdx])  { $OutputData.GscMinRA[$gscIdx]  = $ra }
-        if ($ra -gt $OutputData.GscMaxRA[$gscIdx])  { $OutputData.GscMaxRA[$gscIdx]  = $ra }
-        if ($dec -lt $OutputData.GscMinDec[$gscIdx]) { $OutputData.GscMinDec[$gscIdx] = $dec }
-        if ($dec -gt $OutputData.GscMaxDec[$gscIdx]) { $OutputData.GscMaxDec[$gscIdx] = $dec }
-
-        # accumulate HIP -> TYC mapping
-        if ($hip -ne 0) {
-            if (-not $OutputData.HIPMap.ContainsKey($hip)) {
-                $OutputData.HIPMap[$hip] = [System.Collections.Generic.List[short[]]]::new()
-            }
-            [void]$OutputData.HIPMap[$hip].Add($tycIdShort)
-        }
-
-        # accumulate HD -> TYC mapping
+        # accumulate HD -> TYC mapping (HD cross-ref is main-catalog only)
         $hdList = $HDCrossTable[$tyc.Key]
         if ($null -ne $hdList) {
             foreach ($hd in $hdList) {
@@ -294,6 +316,108 @@ function ConvertAndWrite-Tycho2Data
             }
         }
     }
+}
+
+# Parses the Tycho-2 Supplement-1 (suppl_1.dat): the ~17,588 Hipparcos / Tycho-1
+# stars that are NOT in the main Tycho-2 catalogue -- including the very brightest
+# stars in the sky (Sirius, Vega, Antares, ...), which saturate the Tycho detector
+# and are therefore relegated to the supplement. Without these the sky map renders
+# no first-magnitude stars at all.
+#
+# suppl_1.dat is pipe-delimited (same as tyc2.dat as served by VizieR I/259).
+# Positions are ICRS at epoch J1991.25 (NOT J2000 like the main catalogue!), so we
+# propagate them forward to J2000 by proper motion -- a LINEAR pm shift, never
+# precession (the frame is already ICRS; precession would wrongly rotate it). A
+# Tycho-1-only star carries no pm, so its J1991.25 position is kept as-is (sub-
+# arcsec error). The mflag column selects which magnitude fills the renderer's VT
+# slot (see Note (3) in the ReadMe):
+#   ' ' both BT+VT given -> VT in VT slot, BT in BT slot (true colour)
+#   'V' only VT          -> VT in VT slot
+#   'H' Hp instead of VT -> Hp in VT slot, BT blank -- this is how the brightest
+#                           stars (e.g. Antares, Hp only) carry a magnitude
+#   'B' only BT          -> BT in VT slot so the star still renders
+function ConvertAndWrite-Tycho2Supplement1
+{
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)] [string] $UnzippedDataFileName,
+        [Parameter(Mandatory = $true)] [PSCustomObject] $OutputData
+    )
+
+    $resolvedPath = (Resolve-Path $UnzippedDataFileName).Path
+    $lines = [System.IO.File]::ReadAllLines($resolvedPath, [System.Text.Encoding]::ASCII)
+    $inv = [cultureinfo]::InvariantCulture
+
+    $dtYears = 2000.0 - 1991.25          # J1991.25 -> J2000.0 propagation interval
+    $degPerMas = 1.0 / 3600000.0         # mas -> degrees
+    $deg2Rad = [Math]::PI / 180.0
+
+    $written = 0
+    foreach ($line in $lines) {
+        # Pipe-delimited fields (0-indexed):
+        #   0 TYC "t1 t2 t3" | 1 flag[HT] | 2 RAdeg | 3 DEdeg | 4 pmRA | 5 pmDE
+        #   | 6-9 errors | 10 mflag[ BVH] | 11 BTmag | 12 e_BT | 13 VTmag/Hp
+        #   | 14 e_VT | 15 prox | 16 TYC[ T] | 17 HIP | 18 CCDM
+        $values = $line.Split('|')
+        if ($values.Length -lt 14) { continue }   # need at least through the VT field
+
+        $tyc = ConvertFrom-TycIdComponents $values[0].Split(' ')
+        $tyc1 = $tyc.Tyc1; $tyc2 = $tyc.Tyc2; $tyc3 = $tyc.Tyc3
+        if ($tyc1 -lt 1 -or $tyc1 -gt $OutputData.Streams.Length) { continue }
+
+        # ICRS @ J1991.25 (degrees).
+        [float]$raDeg = [float]::NaN; [float]$decDeg = [float]::NaN
+        if (-not [float]::TryParse($values[2].Trim(), $inv, [ref] $raDeg))  { continue }
+        if (-not [float]::TryParse($values[3].Trim(), $inv, [ref] $decDeg)) { continue }
+
+        # Proper motion (mas/yr, RA*cos(dec)); blank for Tycho-1 ('T') stars.
+        [float]$pmRa = [float]::NaN; [float]$pmDec = [float]::NaN
+        [void][float]::TryParse($values[4].Trim(), $inv, [ref] $pmRa)
+        [void][float]::TryParse($values[5].Trim(), $inv, [ref] $pmDec)
+
+        # Linear pm propagation J1991.25 -> J2000 (ICRS; no precession). Keep the
+        # J1991.25 position when pm is unavailable (Tycho-1-only stars).
+        [double]$raJ2000 = $raDeg
+        [double]$decJ2000 = $decDeg
+        if (-not [float]::IsNaN($pmDec)) {
+            $decJ2000 = $decDeg + $pmDec * $dtYears * $degPerMas
+        }
+        if (-not [float]::IsNaN($pmRa)) {
+            $cosDec = [Math]::Cos($decDeg * $deg2Rad)
+            if ($cosDec -gt 1e-6) {
+                $raJ2000 = $raDeg + ($pmRa * $dtYears * $degPerMas) / $cosDec
+            }
+        }
+        if ($raJ2000 -lt 0)       { $raJ2000 += 360.0 }
+        elseif ($raJ2000 -ge 360) { $raJ2000 -= 360.0 }
+
+        [float]$raHours = [float]($raJ2000 / 15.0)
+        [float]$decOut  = [float]$decJ2000
+
+        # mflag selects the magnitude source for the renderer's VT slot:
+        #   '' both -> VT slot = VT, BT slot = BT (true colour)
+        #   'V'/'H' -> VT slot = VT/Hp, BT blank
+        #   'B'     -> VT slot = BT so the star still renders
+        $mflag = $values[10].Trim()
+        [float]$btField = [float]::NaN; [float]$vtField = [float]::NaN
+        [void][float]::TryParse($values[11].Trim(), $inv, [ref] $btField)
+        [void][float]::TryParse($values[13].Trim(), $inv, [ref] $vtField)
+
+        [float]$vtSlot = if ($mflag -eq 'B') { $btField } else { $vtField }
+        [float]$btSlot = if ($mflag -eq '')  { $btField } else { [float]::NaN }
+
+        $hip = 0
+        if ($values.Length -ge 18) {
+            [void][int]::TryParse($values[17].Trim(), $inv, [ref] $hip)
+        }
+
+        Write-Tycho2BinaryEntry -Tyc1 $tyc1 -Tyc2 $tyc2 -Tyc3 $tyc3 `
+            -RaHours $raHours -DecDeg $decOut -VtMag $vtSlot -BtMag $btSlot `
+            -PmRa $pmRa -PmDec $pmDec -Hip $hip -OutputData $OutputData
+        $written++
+    }
+
+    Write-Host "  Supplement-1: wrote $written stars"
 }
 
 # Writes a flat fixed-size cross-reference binary file where each entry's position determines the key:
@@ -427,6 +551,14 @@ $cats.GetEnumerator() | ForEach-Object {
         } else {
             & curl -LO https://cdsarc.cds.unistra.fr/ftp/$($cat.Cat)/$($cat.File)
         }
+
+        # Tycho-2 Supplement-1: the bright/saturated Hipparcos+Tycho-1 stars that
+        # are missing from the main catalogue (Sirius, Vega, Antares, ...). Same
+        # VizieR catalogue (I/259) but a single un-split file.
+        if ($folder -eq 'tyc2') {
+            Write-Host "Downloading: https://cdsarc.cds.unistra.fr/ftp/$($cat.Cat)/suppl_1.dat.gz"
+            & curl -LO https://cdsarc.cds.unistra.fr/ftp/$($cat.Cat)/suppl_1.dat.gz
+        }
     } else {
         Write-Host 'Skipping download as folder is present. Use -ForceDownload to download anyway.'
     }
@@ -493,6 +625,23 @@ $cats.GetEnumerator() | ForEach-Object {
 
             if ($folder -eq 'tyc2' -and $needsProcessing) {
                 ConvertAndWrite-Tycho2Data -UnzippedDataFileName $unzippedDataFileName -HDCrossTable $cats['tyc2_hd'].Data -OutputData $outputData
+            }
+        }
+
+        # After the main catalogue, fold in Supplement-1 (the bright stars missing
+        # from tyc2.dat) -- extracted from suppl_1.dat.gz and written into the same
+        # open GSC-region streams via the shared 17-byte entry writer.
+        if ($folder -eq 'tyc2' -and $needsProcessing) {
+            if (Test-Path 'suppl_1.dat.gz') {
+                if (-not (Test-Path 'suppl_1.dat') -or $ForceDownload) {
+                    Write-Host "Extracting suppl_1.dat.gz"
+                    if (Test-Path 'suppl_1.dat') { Remove-Item 'suppl_1.dat' }
+                    & 7z e -y 'suppl_1.dat.gz'
+                }
+                Write-Host "Processing Tycho-2 Supplement-1 (suppl_1.dat)"
+                ConvertAndWrite-Tycho2Supplement1 -UnzippedDataFileName 'suppl_1.dat' -OutputData $outputData
+            } else {
+                Write-Warning "suppl_1.dat.gz not found -- bright stars (Sirius/Vega/Antares/...) will be MISSING. Run with -ForceDownload to fetch it."
             }
         }
 
