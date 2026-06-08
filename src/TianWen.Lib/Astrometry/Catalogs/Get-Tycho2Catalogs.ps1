@@ -154,11 +154,19 @@ function ConvertAndWrite-Tycho2Data
         $raIdx = 2; $decIdx = 3
         if ($posType -eq 'X') { $raIdx = 24; $decIdx = 25 }
 
+        # Same TryParse caveat as the magnitudes below: a failed parse writes 0 to the
+        # out-param, silently defeating the -999 sentinel init. Branch on the bool and
+        # restore -999 so an unparseable position is an obvious marker, not a star
+        # masquerading at RA 0h / Dec 0 (which would also poison the GSC bounding box).
         [float]$ra = -999; [float]$dec = -999
         if ([float]::TryParse($values[$raIdx], $inv, [ref] $ra)) {
             $ra /= 15.0
+        } else {
+            $ra = -999
         }
-        [void][float]::TryParse($values[$decIdx], $inv, [ref] $dec)
+        if (-not [float]::TryParse($values[$decIdx], $inv, [ref] $dec)) {
+            $dec = -999
+        }
 
         # Note: for posType 'X' entries, fields 24/25 are the observed Tycho-2 position
         # already in ICRS (J2000 reference frame). No precession is needed — ICRS coordinates
@@ -168,10 +176,15 @@ function ConvertAndWrite-Tycho2Data
 
         # Parse VTmag (field 19) and BTmag (field 17), 0-indexed pipe-delimited
         # Encode as biased decimag: byte = clamp(round(mag * 10) + 20, 0, 254), 0xFF = missing
+        # NOTE: float.TryParse writes 0 to its out-param on failure, so a blank field
+        # would leave the mag at 0.0 (decimag 20 = mag 0.0), NOT NaN. Must branch on the
+        # bool result and reset to NaN, otherwise a star with only BT (VT blank) bakes as
+        # VT=0.0 and decodes to a bogus bright mag / huge B-V (e.g. TYC 9372-1058-1 ->
+        # V=-1.15, B-V=10.88). Read the bool, don't trust the out-value.
         [float]$vtMag = [float]::NaN
         [float]$btMag = [float]::NaN
-        [void][float]::TryParse($values[19].Trim(), $inv, [ref] $vtMag)
-        [void][float]::TryParse($values[17].Trim(), $inv, [ref] $btMag)
+        if (-not [float]::TryParse($values[19].Trim(), $inv, [ref] $vtMag)) { $vtMag = [float]::NaN }
+        if (-not [float]::TryParse($values[17].Trim(), $inv, [ref] $btMag)) { $btMag = [float]::NaN }
 
         $vtDecimag = if ([float]::IsNaN($vtMag)) { 255 } else { [Math]::Clamp([int][Math]::Round($vtMag * 10) + 20, 0, 254) }
         $btDecimag = if ([float]::IsNaN($btMag)) { 255 } else { [Math]::Clamp([int][Math]::Round($btMag * 10) + 20, 0, 254) }
