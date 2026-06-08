@@ -37,6 +37,24 @@ public static class OverlayEngine
     public static bool IsStarType(ObjectType ot) => ot.IsStar;
 
     /// <summary>
+    /// Chooses the marker shape for an overlay object. The ellipse is gated on the object
+    /// being an EXTENDED type (galaxy / nebula / cluster), NOT merely on a shape entry
+    /// existing: a star can pick up a stray or cross-linked shape -- e.g. Antares (alpha
+    /// Sco) sits inside the rho-Oph dark-cloud complex, so a nebula's shape can be
+    /// cross-linked onto the star's catalog index -- and must still render as a cross,
+    /// never an extended-object ellipse. Single source of truth shared by
+    /// <see cref="ComputeOverlays"/>, <see cref="GatherSkyMapOverlayCandidates"/>, and the
+    /// sky-map search selection marker (<c>SkyMapTab.TryDrawShapeMarker</c>).
+    /// </summary>
+    /// <param name="hasShape">Whether a usable (non-NaN) angular shape exists for the object.</param>
+    public static OverlayMarkerKind ChooseMarkerKind(ObjectType type, bool hasShape) => type switch
+    {
+        _ when hasShape && IsExtendedObjectType(type) => OverlayMarkerKind.Ellipse,
+        _ when IsStarType(type)                       => OverlayMarkerKind.Cross,
+        _                                             => OverlayMarkerKind.Circle,
+    };
+
+    /// <summary>
     /// Returns a priority score for a common name (lower = better). Delegates to
     /// <see cref="CelestialObject.NamePriority"/> so label placement and the sky-map
     /// info panel agree on which name to show.
@@ -469,30 +487,37 @@ public static class OverlayEngine
             var color = GetOverlayColor(obj.ObjectType);
 
             OverlayMarker marker;
-            if (db.TryGetShape(idx, out var shape) &&
-                !Half.IsNaN(shape.MajorAxis) && !Half.IsNaN(shape.MinorAxis))
+            var hasShape = db.TryGetShape(idx, out var shape)
+                && !Half.IsNaN(shape.MajorAxis) && !Half.IsNaN(shape.MinorAxis);
+            switch (ChooseMarkerKind(obj.ObjectType, hasShape))
             {
-                var semiMajPx = (float)((double)shape.MajorAxis / 2.0 * arcminToPixels);
-                var semiMinPx = (float)((double)shape.MinorAxis / 2.0 * arcminToPixels);
-
-                // Skip tiny ellipses (< 3 pixels)
-                if (semiMajPx < 3f)
+                case OverlayMarkerKind.Ellipse:
                 {
-                    continue;
-                }
+                    var semiMajPx = (float)((double)shape.MajorAxis / 2.0 * arcminToPixels);
+                    var semiMinPx = (float)((double)shape.MinorAxis / 2.0 * arcminToPixels);
 
-                var paScreen = ComputeScreenPA(wcs, obj.RA, obj.Dec, shape.PositionAngle);
-                marker = OverlayMarker.Ellipse(semiMajPx, semiMinPx, paScreen);
-            }
-            else if (IsStarType(obj.ObjectType))
-            {
-                var arm = 6f * layout.DpiScale;
-                marker = OverlayMarker.Cross(arm);
-            }
-            else
-            {
-                var markerRadius = 8f * layout.DpiScale;
-                marker = OverlayMarker.Circle(markerRadius);
+                    // Skip tiny ellipses (< 3 pixels). continue targets the foreach.
+                    if (semiMajPx < 3f)
+                    {
+                        continue;
+                    }
+
+                    var paScreen = ComputeScreenPA(wcs, obj.RA, obj.Dec, shape.PositionAngle);
+                    marker = OverlayMarker.Ellipse(semiMajPx, semiMinPx, paScreen);
+                    break;
+                }
+                case OverlayMarkerKind.Cross:
+                {
+                    var arm = 6f * layout.DpiScale;
+                    marker = OverlayMarker.Cross(arm);
+                    break;
+                }
+                default:
+                {
+                    var markerRadius = 8f * layout.DpiScale;
+                    marker = OverlayMarker.Circle(markerRadius);
+                    break;
+                }
             }
 
             var lines = BuildOverlayLabel(obj, idx, db, scale);
@@ -814,21 +839,22 @@ public static class OverlayEngine
         foreach (var (catIdx, obj, isPinned) in scratch)
         {
             OverlayCandidateMarker marker;
-            if (db.TryGetShape(catIdx, out var shape) &&
-                !Half.IsNaN(shape.MajorAxis) && !Half.IsNaN(shape.MinorAxis))
+            var hasShape = db.TryGetShape(catIdx, out var shape)
+                && !Half.IsNaN(shape.MajorAxis) && !Half.IsNaN(shape.MinorAxis);
+            switch (ChooseMarkerKind(obj.ObjectType, hasShape))
             {
-                marker = new OverlayCandidateMarker.Ellipse(
-                    (float)((double)shape.MajorAxis / 2.0),
-                    (float)((double)shape.MinorAxis / 2.0),
-                    shape.PositionAngle);
-            }
-            else if (IsStarType(obj.ObjectType))
-            {
-                marker = new OverlayCandidateMarker.Cross(6f);
-            }
-            else
-            {
-                marker = new OverlayCandidateMarker.Circle(8f);
+                case OverlayMarkerKind.Ellipse:
+                    marker = new OverlayCandidateMarker.Ellipse(
+                        (float)((double)shape.MajorAxis / 2.0),
+                        (float)((double)shape.MinorAxis / 2.0),
+                        shape.PositionAngle);
+                    break;
+                case OverlayMarkerKind.Cross:
+                    marker = new OverlayCandidateMarker.Cross(6f);
+                    break;
+                default:
+                    marker = new OverlayCandidateMarker.Circle(8f);
+                    break;
             }
 
             var color = GetOverlayColor(obj.ObjectType);
