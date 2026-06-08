@@ -43,6 +43,7 @@ namespace TianWen.UI.Abstractions
         // the top-left corner of the sky map.
         private float _mouseDownX, _mouseDownY;
         private bool _mouseDownOnMap;
+        private InputModifier _mouseDownModifiers;
 
         /// <summary>
         /// Draws the search modal and/or the info panel. Called last in <see cref="Render"/>
@@ -518,18 +519,21 @@ namespace TianWen.UI.Abstractions
                 return false;
             }
 
-            PostSignal(new SkyMapClickSelectSignal(upX, upY));
+            PostSignal(new SkyMapClickSelectSignal(upX, upY, _mouseDownModifiers));
             return true;
         }
 
         /// <summary>
-        /// Remember the mouse-down location for click-vs-drag detection.
-        /// Call from the tab's <c>MouseDown</c> handler.
+        /// Remember the mouse-down location (and modifiers) for click-vs-drag detection.
+        /// Call from the tab's <c>MouseDown</c> handler. The modifiers are captured here
+        /// because <see cref="InputEvent.MouseUp"/> does not carry them — only
+        /// <see cref="InputEvent.MouseDown"/> does — and the click-select fires on mouse-up.
         /// </summary>
-        protected void RememberMouseDown(float x, float y)
+        protected void RememberMouseDown(float x, float y, InputModifier modifiers = InputModifier.None)
         {
             _mouseDownX = x;
             _mouseDownY = y;
+            _mouseDownModifiers = modifiers;
             _mouseDownOnMap = true;
         }
 
