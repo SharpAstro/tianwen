@@ -1,3 +1,4 @@
+using DIR.Lib;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Sequencing.PolarAlignment;
 
@@ -194,8 +195,12 @@ public readonly record struct SkyMapSearchCommitSignal;
 /// <summary>
 /// User clicked on the sky map itself (non-drag). Payload is the pixel
 /// coordinates; the handler projects to RA/Dec and picks the nearest object.
+/// <para><see cref="Modifiers"/> carries the keyboard modifiers held at mouse-down.
+/// Ctrl forces a point-source ("prefer the star") pick so a click inside a large
+/// extended-object ellipse (e.g. an IC nebula) can still select a star underneath it
+/// instead of being swallowed by the enclosing shape.</para>
 /// </summary>
-public readonly record struct SkyMapClickSelectSignal(float ScreenX, float ScreenY);
+public readonly record struct SkyMapClickSelectSignal(float ScreenX, float ScreenY, InputModifier Modifiers = InputModifier.None);
 
 /// <summary>
 /// Toggle an object in <see cref="PlannerState.Proposals"/> from the sky map

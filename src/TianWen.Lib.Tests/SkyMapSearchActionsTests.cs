@@ -1,5 +1,7 @@
 using System;
+using System.Collections.Generic;
 using Shouldly;
+using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Astrometry.SOFA;
 using TianWen.UI.Abstractions;
 using Xunit;
@@ -93,9 +95,72 @@ public class SkyMapSearchActionsTests
         info.SetTime.ShouldNotBeNull();
     }
 
+    // A nebula with a large shape and a star sitting inside the projected ellipse.
+    // Plain click lands on the nebula (the ellipse expands the DSO hit radius and
+    // short-circuits the star pass); Ctrl+click (preferPointSource) reaches the star.
+    [Fact]
+    public void ClickInsideNebulaEllipsePicksNebula_CtrlClickPicksStarInside()
+    {
+        // Index/type are irrelevant to the pick (it keys off grid + shape + distance),
+        // but set sensible values for clarity.
+        var nebula = new CelestialObject(CatalogIndex.NGC7331, ObjectType.HIIReg,
+            12.0, 0.0, Constellation.Pegasus, Half.NaN, Half.NaN, Half.NaN,
+            new HashSet<string> { "TestNebula" });
+        var star = new CelestialObject(CatalogIndex.HIP025281, ObjectType.Star,
+            12.0, 0.1 /* ~6' north of the nebula centre */, Constellation.Pegasus,
+            Half.NaN, Half.NaN, Half.NaN, new HashSet<string> { "TestStar" });
+        // 60' major axis -> ~250 px radius at this FOV: comfortably covers the star.
+        var nebulaShape = new CelestialObjectShape((Half)60.0, (Half)60.0, (Half)0.0);
+        var db = new ClickPickDb(nebula, star, nebulaShape);
+
+        var skyMap = new SkyMapState
+        {
+            Mode = SkyMapMode.Equatorial,
+            CenterRA = 12.0,
+            CenterDec = 0.0,
+            FieldOfViewDeg = 2.0,
+        };
+        var viewMatrix = skyMap.ComputeViewMatrix();
+        const float height = 1000f;
+        var ppr = SkyMapProjection.PixelsPerRadian(height, skyMap.FieldOfViewDeg);
+        const float cx = 500f, cy = 500f;
+
+        // Click point = the star's projected position. The nebula projects to centre.
+        SkyMapProjection.ProjectWithMatrix(star.RA, star.Dec, viewMatrix, ppr, cx, cy, out var starX, out var starY)
+            .ShouldBeTrue();
+        SkyMapProjection.ProjectWithMatrix(nebula.RA, nebula.Dec, viewMatrix, ppr, cx, cy, out var nebX, out var nebY)
+            .ShouldBeTrue();
+
+        // Precondition: the star sits beyond the plain 20 px click tolerance from the
+        // nebula centroid (so without the ellipse expansion the nebula would NOT match),
+        // yet inside the ~250 px shape radius (so the plain click DOES match the nebula).
+        var offsetPx = MathF.Sqrt((starX - nebX) * (starX - nebX) + (starY - nebY) * (starY - nebY));
+        offsetPx.ShouldBeGreaterThan(20f);
+        offsetPx.ShouldBeLessThan(200f);
+
+        var viewingUtc = DateTimeOffset.UtcNow;
+        var site = SiteContext.Create(0, 0, viewingUtc);
+
+        // Plain click -> nebula (ellipse swallows the click).
+        var plain = new SkyMapSearchState();
+        SkyMapSearchActions.SelectObjectByClick(
+            plain, skyMap, db, 0, 0, viewingUtc, site,
+            starX, starY, viewMatrix, ppr, cx, cy, preferPointSource: false).ShouldBeTrue();
+        var plainInfo = plain.InfoPanel.ShouldNotBeNull();
+        plainInfo.Name.ShouldBe("TestNebula");
+
+        // Ctrl+click -> the star underneath the ellipse.
+        var ctrl = new SkyMapSearchState();
+        SkyMapSearchActions.SelectObjectByClick(
+            ctrl, skyMap, db, 0, 0, viewingUtc, site,
+            starX, starY, viewMatrix, ppr, cx, cy, preferPointSource: true).ShouldBeTrue();
+        var ctrlInfo = ctrl.InfoPanel.ShouldNotBeNull();
+        ctrlInfo.Name.ShouldBe("TestStar");
+    }
+
     // Minimal ICelestialObjectDB stub — only CreateAutoCompleteList and TryLookupByIndex
     // are needed for the tests above. Rest throw to catch accidental usage.
-    private sealed class EmptyDb : TianWen.Lib.Astrometry.Catalogs.ICelestialObjectDB
+    private class EmptyDb : TianWen.Lib.Astrometry.Catalogs.ICelestialObjectDB
     {
         public System.Collections.Generic.IReadOnlySet<TianWen.Lib.Astrometry.Catalogs.CatalogIndex> AllObjectIndices
             => new System.Collections.Generic.HashSet<TianWen.Lib.Astrometry.Catalogs.CatalogIndex>();
@@ -104,8 +169,8 @@ public class SkyMapSearchActionsTests
             => new System.Collections.Generic.HashSet<TianWen.Lib.Astrometry.Catalogs.Catalog>();
 
         public System.Collections.Generic.IReadOnlyCollection<string> CommonNames => Array.Empty<string>();
-        public TianWen.Lib.Astrometry.Catalogs.IRaDecIndex CoordinateGrid => new EmptyIndex();
-        public TianWen.Lib.Astrometry.Catalogs.IRaDecIndex DeepSkyCoordinateGrid => new EmptyIndex();
+        public virtual TianWen.Lib.Astrometry.Catalogs.IRaDecIndex CoordinateGrid => new EmptyIndex();
+        public virtual TianWen.Lib.Astrometry.Catalogs.IRaDecIndex DeepSkyCoordinateGrid => new EmptyIndex();
         public int HipStarCount => 0;
         public int Tycho2StarCount => 0;
 
@@ -127,10 +192,10 @@ public class SkyMapSearchActionsTests
             return false;
         }
 
-        public bool TryGetShape(TianWen.Lib.Astrometry.Catalogs.CatalogIndex index, out TianWen.Lib.Astrometry.Catalogs.CelestialObjectShape shape)
+        public virtual bool TryGetShape(TianWen.Lib.Astrometry.Catalogs.CatalogIndex index, out TianWen.Lib.Astrometry.Catalogs.CelestialObjectShape shape)
         { shape = default; return false; }
 
-        public bool TryLookupByIndex(TianWen.Lib.Astrometry.Catalogs.CatalogIndex index, out TianWen.Lib.Astrometry.Catalogs.CelestialObject celestialObject)
+        public virtual bool TryLookupByIndex(TianWen.Lib.Astrometry.Catalogs.CatalogIndex index, out TianWen.Lib.Astrometry.Catalogs.CelestialObject celestialObject)
         { celestialObject = default; return false; }
 
         public bool TryLookupHIP(int hipNumber, out double ra, out double dec, out float vMag, out float bv)
@@ -143,6 +208,35 @@ public class SkyMapSearchActionsTests
         {
             public System.Collections.Generic.IReadOnlyCollection<TianWen.Lib.Astrometry.Catalogs.CatalogIndex> this[double ra, double dec]
                 => Array.Empty<TianWen.Lib.Astrometry.Catalogs.CatalogIndex>();
+        }
+    }
+
+    // Grid-populated stub for click-pick tests: the DSO grid yields the nebula; the
+    // (composite) coordinate grid yields both the nebula and the star, mirroring how
+    // a bright/field star and an extended object co-occupy the real index.
+    private sealed class ClickPickDb(CelestialObject nebula, CelestialObject star, CelestialObjectShape nebulaShape) : EmptyDb
+    {
+        public override IRaDecIndex CoordinateGrid => new FixedIndex(nebula.Index, star.Index);
+        public override IRaDecIndex DeepSkyCoordinateGrid => new FixedIndex(nebula.Index);
+
+        public override bool TryLookupByIndex(CatalogIndex index, out CelestialObject celestialObject)
+        {
+            if (index == nebula.Index) { celestialObject = nebula; return true; }
+            if (index == star.Index) { celestialObject = star; return true; }
+            celestialObject = default;
+            return false;
+        }
+
+        public override bool TryGetShape(CatalogIndex index, out CelestialObjectShape shape)
+        {
+            if (index == nebula.Index) { shape = nebulaShape; return true; }
+            shape = default;
+            return false;
+        }
+
+        private sealed class FixedIndex(params CatalogIndex[] items) : IRaDecIndex
+        {
+            public IReadOnlyCollection<CatalogIndex> this[double ra, double dec] => items;
         }
     }
 }

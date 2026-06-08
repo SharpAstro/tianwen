@@ -913,7 +913,8 @@ namespace TianWen.UI.Abstractions
                     plannerState.SiteLatitude, plannerState.SiteLongitude,
                     viewingUtc, site,
                     sig.ScreenX, sig.ScreenY,
-                    skyMapState.CurrentViewMatrix, ppr, cx, cy);
+                    skyMapState.CurrentViewMatrix, ppr, cx, cy,
+                    preferPointSource: (sig.Modifiers & InputModifier.Ctrl) != 0);
 
                 skyMapState.NeedsRedraw = true;
                 appState.NeedsRedraw = true;

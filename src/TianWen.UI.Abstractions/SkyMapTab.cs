@@ -663,7 +663,7 @@ namespace TianWen.UI.Abstractions
             InputEvent.Scroll(var scrollY, var mx, var my, _) => HandleZoom(scrollY, mx, my),
             InputEvent.Pinch(var scale, var px, var py) => HandlePinchZoom(scale, px, py),
             InputEvent.PinchEnd => HandlePinchEnd(),
-            InputEvent.MouseDown(var x, var y, _, _, _) => HandleDragStart(x, y),
+            InputEvent.MouseDown(var x, var y, _, var mods, _) => HandleDragStart(x, y, mods),
             InputEvent.MouseUp(var x, var y, _) => HandleMouseUp(x, y),
             InputEvent.MouseMove(var x, var y) when State.IsDragging && !State.IsPinching => HandleDrag(x, y),
             InputEvent.KeyDown(var key, _) => HandleKey(key),
@@ -746,11 +746,13 @@ namespace TianWen.UI.Abstractions
             return true;
         }
 
-        private bool HandleDragStart(float x, float y)
+        private bool HandleDragStart(float x, float y, InputModifier modifiers = InputModifier.None)
         {
             // Modal swallows click-outside via its backdrop region, so this only runs
-            // for clicks on the map itself when the modal is closed.
-            RememberMouseDown(x, y);
+            // for clicks on the map itself when the modal is closed. Modifiers are
+            // captured here (mouse-down) and replayed on the mouse-up click-select,
+            // since InputEvent.MouseUp does not carry them.
+            RememberMouseDown(x, y, modifiers);
             State.IsDragging = true;
             State.DragStart = (x, y);
             State.DragStartCenter = (State.CenterRA, State.CenterDec);

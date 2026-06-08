@@ -285,6 +285,12 @@ public static class SkyMapSearchActions
     /// info panel. Returns true when an object was matched. DSOs are preferred
     /// over stars at equal distance (so clicking M31's halo picks the galaxy,
     /// not the nearest faint Tycho-2 star).
+    /// <para>When <paramref name="preferPointSource"/> is set (Ctrl+click), the
+    /// preference inverts: the enclosing extended-object ellipse no longer expands
+    /// its hit radius, and the star pass always runs and wins over a co-located DSO.
+    /// This lets a click inside a large IC/nebula shape select a star underneath it
+    /// instead of being swallowed by the shape. A DSO is still returned as a fallback
+    /// when its centroid is the only thing within tolerance and no star is hit.</para>
     /// </summary>
     public static bool SelectObjectByClick(
         SkyMapSearchState search,
@@ -295,7 +301,8 @@ public static class SkyMapSearchActions
         in SiteContext site,
         float clickScreenX, float clickScreenY,
         in Matrix4x4 viewMatrix,
-        double pixelsPerRadian, float centerX, float centerY)
+        double pixelsPerRadian, float centerX, float centerY,
+        bool preferPointSource = false)
     {
         var (clickRa, clickDec) = SkyMapProjection.UnprojectWithMatrix(
             clickScreenX, clickScreenY, viewMatrix, pixelsPerRadian, centerX, centerY);
@@ -347,8 +354,11 @@ public static class SkyMapSearchActions
                 // Effective hit radius: click tolerance, extended to the shape's
                 // projected major-axis radius for extended objects. Arcmin -> rad
                 // -> screen px uses the current pixelsPerRadian.
+                // Ctrl+click (preferPointSource) skips the shape expansion so the
+                // ellipse no longer swallows clicks meant for stars inside it — the
+                // DSO then only matches near its centroid.
                 var hitRadiusPx = (double)ClickToleranceScreenPx;
-                if (db.TryGetShape(idx, out var shape))
+                if (!preferPointSource && db.TryGetShape(idx, out var shape))
                 {
                     var majorArcmin = (double)shape.MajorAxis;
                     if (majorArcmin > 0)
@@ -370,12 +380,15 @@ public static class SkyMapSearchActions
         CatalogIndex? bestIdx = bestDsoIdx;
         var bestDistSq = bestDsoDistSq;
 
-        // Stars — only if no DSO matched. Filter by the current visible-magnitude
-        // cutoff so we never "select" a Tycho star that isn't drawn on screen.
-        // Hit radius scales with the rendered star size: brighter stars draw
-        // bigger sprites (Stellarium-style pow10 curve) and should be proportionally
-        // easier to click. 1.5x the visual radius is slop room, floored at 20 px.
-        if (bestDsoIdx is null)
+        // Stars — when no DSO matched, OR when the caller forced a point-source pick
+        // (Ctrl+click). Filter by the current visible-magnitude cutoff so we never
+        // "select" a Tycho star that isn't drawn on screen. Hit radius scales with the
+        // rendered star size: brighter stars draw bigger sprites (Stellarium-style
+        // pow10 curve) and should be proportionally easier to click. 1.5x the visual
+        // radius is slop room, floored at 20 px.
+        // Note: the star pass resets bestDistSq but not bestIdx, so when
+        // preferPointSource finds no star it falls back to the (tight-radius) DSO hit.
+        if (bestDsoIdx is null || preferPointSource)
         {
             var magLimit = skyMap.EffectiveMagnitudeLimit;
             var fovDeg = skyMap.FieldOfViewDeg;
