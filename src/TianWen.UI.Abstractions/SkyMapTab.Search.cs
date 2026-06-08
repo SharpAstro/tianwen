@@ -349,6 +349,16 @@ namespace TianWen.UI.Abstractions
         {
             if (info.Shape is not { } shape) return false;
 
+            // A star can carry a stray/cross-linked shape (e.g. Antares sits inside the
+            // rho-Oph dark-cloud complex), but it must still draw as the crosshair, never
+            // an extended-object ellipse. Gate on the same classifier the overlay markers
+            // use so all three marker paths agree.
+            if (Overlays.OverlayEngine.ChooseMarkerKind(info.ObjType, hasShape: true)
+                != Overlays.OverlayMarkerKind.Ellipse)
+            {
+                return false;
+            }
+
             var majorArcmin = (double)shape.MajorAxis;
             var minorArcmin = (double)shape.MinorAxis;
             if (double.IsNaN(majorArcmin) || majorArcmin <= 0) return false;

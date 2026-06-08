@@ -49,6 +49,23 @@ public class OverlayEngineTests
         OverlayEngine.IsStarType(ot).ShouldBe(expected);
     }
 
+    // --- ChooseMarkerKind ---
+
+    [Theory]
+    // Extended types use an ellipse only when a shape is present; without one they fall to a circle.
+    [InlineData(ObjectType.Galaxy, true, OverlayMarkerKind.Ellipse)]
+    [InlineData(ObjectType.Galaxy, false, OverlayMarkerKind.Circle)]
+    [InlineData(ObjectType.DarkNeb, true, OverlayMarkerKind.Ellipse)]
+    // Stars are always a cross — even when a stray/cross-linked shape exists (Antares = RedSG).
+    [InlineData(ObjectType.Star, true, OverlayMarkerKind.Cross)]
+    [InlineData(ObjectType.Star, false, OverlayMarkerKind.Cross)]
+    [InlineData(ObjectType.RedSG, true, OverlayMarkerKind.Cross)]
+    [InlineData(ObjectType.RedSG, false, OverlayMarkerKind.Cross)]
+    public void ChooseMarkerKind_GatesEllipseOnExtendedType(ObjectType ot, bool hasShape, OverlayMarkerKind expected)
+    {
+        OverlayEngine.ChooseMarkerKind(ot, hasShape).ShouldBe(expected);
+    }
+
     // --- GetNamePriority ---
 
     [Theory]
@@ -362,6 +379,33 @@ public class OverlayEngineTests
         items.Count.ShouldBeGreaterThanOrEqualTo(1);
         items[0].Marker.Kind.ShouldBe(OverlayMarkerKind.Cross);
         items[0].Color.ShouldBe((1.0f, 1.0f, 1.0f)); // white for stars
+    }
+
+    [Fact]
+    public void ComputeOverlays_StarWithShape_ReturnsCrossNotEllipse()
+    {
+        // Regression (Antares / alpha Sco): a star can pick up an extended-object
+        // shape entry — the rho-Oph dark-cloud complex sits right on Antares, so a
+        // nebula shape cross-links onto the RedSG star index. A star must still render
+        // as a cross marker, never an extended-object ellipse, even when a shape is
+        // present. The marker choice must gate on object TYPE, not merely "has a shape".
+        var wcs = MakeSimpleWCS();
+        var names = new HashSet<string> { "Antares" };
+        var antares = new CelestialObject(
+            CatalogIndex.HIP025281, ObjectType.RedSG, 5.0, -2.0,
+            Constellation.Orion, (Half)0.9, Half.NaN, (Half)1.84, names);
+        // A bogus (cross-linked) extended shape large enough to draw as an ellipse.
+        var shape = new CelestialObjectShape((Half)7.0, (Half)5.0, (Half)45.0);
+        var db = new FakeDB(antares, shape: shape, gridRA: 5.0, gridDec: -2.0);
+
+        var layout = new ViewportLayout(1920, 1080, 1000, 1000, 0.5f, (0, 0), 0, 40, 1920, 1000, 1.0f);
+
+        var items = OverlayEngine.ComputeOverlays(layout, wcs, db, (_, _) => 50f, 18f);
+
+        items.Count.ShouldBeGreaterThanOrEqualTo(1);
+        // RedSG is a star (its packed 's*r' code contains '*'), so the marker must be
+        // a cross — the shape entry must not promote it to an ellipse.
+        items[0].Marker.Kind.ShouldBe(OverlayMarkerKind.Cross);
     }
 
     [Fact]
