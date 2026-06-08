@@ -537,6 +537,51 @@ loop.OnQuit = () =>
     return appState.ShuttingDown || appState.QuitRequested || guiRenderer.LiveSessionState.IsRunning;
 };
 
+#if DEBUG
+// Live UI debug inspector (DEBUG only -- compiled out of Release entirely). Exposes this running
+// process to the SdlVulkan.Renderer.Inspector MCP sidecar so an agent can discover it, read the
+// widget tree, screenshot the window, inject input, and post a curated set of signals. All of the
+// in-process machinery lives in the framework under #if DEBUG; this block is the only wiring.
+using var debugInspector = DebugInspector.Attach(loop, new DebugInspectorOptions
+{
+    AppName = "TianWen",
+    WindowTitle = () => lastWindowTitle,
+    GetRegions = () =>
+    {
+        // Chrome (sidebar / status bar) clickables + the active tab's clickables, both rebuilt
+        // each frame. Read on the render thread inside the inspector's command pump.
+        var regions = new List<ClickableRegion>();
+        regions.AddRange(guiRenderer.GetRegisteredRegions());
+        if (guiRenderer.ActiveTab is PixelWidgetBase<VulkanContext> activeTab)
+        {
+            regions.AddRange(activeTab.GetRegisteredRegions());
+        }
+        return regions;
+    },
+    AppState = s =>
+    {
+        // Curated snapshot (NOT a full GuiAppState dump -- it holds non-serializable handles).
+        // The framework owns serialization; we just declare named values.
+        var ls = guiRenderer.LiveSessionState;
+        s.Set("activeTab", appState.ActiveTab.ToString());
+        s.Set("profile", appState.ActiveProfile?.DisplayName);
+        s.Set("status", appState.StatusMessage);
+        s.Set("sessionRunning", ls.IsRunning);
+        s.Set("phase", ls.Phase.ToString());
+        s.Set("unreadNotifications", appState.UnreadNotificationCount);
+    },
+    SignalFactories = new Dictionary<string, Action<System.Text.Json.JsonElement>>
+    {
+        // Each action closes over `bus` and posts with the signal's concrete type (what the bus
+        // dispatches on). Keep this list curated -- these can trigger real device/session actions.
+        ["DiscoverDevices"] = el => bus.Post(new DiscoverDevicesSignal(
+            IncludeFake: el.TryGetProperty("includeFake", out var f) && f.GetBoolean())),
+        ["BuildSchedule"] = _ => bus.Post(new BuildScheduleSignal()),
+        ["StartSession"] = _ => bus.Post(new StartSessionSignal()),
+    },
+});
+#endif
+
 loop.Run(cts.Token);
 
 // Final cleanup — drain should complete quickly since we already waited in the loop.

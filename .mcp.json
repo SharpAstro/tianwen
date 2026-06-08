@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "sdl-ui-inspector": {
+      "type": "stdio",
+      "command": "dnx",
+      "args": ["SdlVulkan.Renderer.Inspector", "--yes"]
+    }
+  }
+}
