@@ -471,7 +471,7 @@ function Write-CrossRefFiles
     if ($collisions.Count -gt 0) {
         $collisions | ConvertTo-Json | Set-Content -Encoding UTF8 $JsonFile
         Compress-WithLzip $JsonFile
-        Write-Host "  $($collisions.Count) collision(s) written to $JsonFile.jz"
+        Write-Host "  $($collisions.Count) collision(s) written to $JsonFile.lz"
     }
 }
 
