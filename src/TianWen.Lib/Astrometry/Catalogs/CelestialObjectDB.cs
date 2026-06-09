@@ -1313,6 +1313,64 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
         return ObjectType.Star;
     }
 
+    /// <summary>
+    /// V magnitude brighter (smaller) than this is in the Tycho-2 saturation regime:
+    /// the brightest stars (the V &lt;= 2.5 Tycho-2 Supplement-1 set -- Antares, Sirius,
+    /// Vega, ...) saturate the detector, so their VT/BT photometry and the linear
+    /// VT->V Johnson transform are unreliable. For these we prefer a curated
+    /// cross-reference (SIMBAD / HR) literature V when one exists. Set above the
+    /// faintest supplement star (Lesath ~2.4) and well below normal main-catalog
+    /// variables like R Leporis (~8.3) whose Tycho snapshot value we keep.
+    /// </summary>
+    private const float Tycho2SaturationVMag = 3.0f;
+
+    /// <summary>
+    /// True when a Tycho-2-derived V should defer to a curated cross-reference: the
+    /// star has no Tycho V at all (NaN) or is bright enough to be in the saturation
+    /// regime (see <see cref="Tycho2SaturationVMag"/>).
+    /// </summary>
+    private static bool PreferCrossRefMagnitude(Half tychoV)
+        => Half.IsNaN(tychoV) || (float)tychoV <= Tycho2SaturationVMag;
+
+    /// <summary>
+    /// Walks <paramref name="index"/>'s own object and then its cross-references for a
+    /// curated (SIMBAD / HR / HD) V magnitude. Mirrors <see cref="GetInheritedObjectType"/>.
+    /// Used to override an unreliable saturated Tycho-2 magnitude for the brightest stars
+    /// (see <see cref="Tycho2SaturationVMag"/>) -- e.g. Antares, whose saturated Tycho V
+    /// (~1.10) is not the Johnson V (0.91) a red supergiant actually has. Returns
+    /// <c>false</c> when nothing carries a non-NaN V, so the Tycho value is kept for
+    /// stars SIMBAD lacks.
+    /// </summary>
+    private bool TryGetCrossRefMagnitude(CatalogIndex index, out Half vMag, out Half bMinusV)
+    {
+        vMag = HalfUndefined;
+        bMinusV = HalfUndefined;
+
+        // The index's own SIMBAD-loaded object first -- for a HIP star this is the
+        // curated literature V (e.g. HIP 80763 = 0.91), which is exactly the value
+        // TryLookupHIP returned before Supplement-1 gave Antares a Tycho entry.
+        if (_objectsByIndex.TryGetValue(index, out var self) && !Half.IsNaN(self.V_Mag))
+        {
+            vMag = self.V_Mag;
+            bMinusV = self.BMinusV;
+            return true;
+        }
+
+        if (_crossIndexLookuptable.TryGetLookupEntries(index, out var crossRefs))
+        {
+            foreach (var crossRef in crossRefs)
+            {
+                if (_objectsByIndex.TryGetValue(crossRef, out var crossObj) && !Half.IsNaN(crossObj.V_Mag))
+                {
+                    vMag = crossObj.V_Mag;
+                    bMinusV = crossObj.BMinusV;
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
     private void PopulateSimbadStarEntries(Dictionary<Catalog, CatalogIndex[]> relevantIds, Catalog catalog, double raInH, double dec, Half vMag, Half bMinusV, ObjectType objType)
     {
         if (relevantIds.TryGetValue(catalog, out var ids))
@@ -1982,6 +2040,13 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
             {
                 // Try to inherit a more specific object type from cross-references (e.g., HR with CStar type)
                 var objType = GetInheritedObjectType(hipIdx);
+                // Saturated Tycho photometry for the brightest stars is unreliable
+                // (Antares -> 1.10, not its Johnson V 0.91). Prefer a curated cross-ref V.
+                if (PreferCrossRefMagnitude(vMag) && TryGetCrossRefMagnitude(hipIdx, out var xrefVMag, out var xrefBv))
+                {
+                    vMag = xrefVMag;
+                    bv = (float)xrefBv;
+                }
                 celestialObject = new CelestialObject(hipIdx, objType, ra, dec, constellation, vMag, HalfUndefined, (Half)bv, EmptyNameSet);
                 return true;
             }
@@ -2063,6 +2128,13 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
             {
                 // Try to inherit a more specific object type from cross-references (e.g., HR with CStar type)
                 var objType = GetInheritedObjectType(hipIndex);
+                // See TryLookupHIPCore(int): prefer a curated cross-ref V over unreliable
+                // saturated Tycho photometry for the brightest stars.
+                if (PreferCrossRefMagnitude(vMag) && TryGetCrossRefMagnitude(hipIndex, out var xrefVMag, out var xrefBv))
+                {
+                    vMag = xrefVMag;
+                    bv = (float)xrefBv;
+                }
                 celestialObject = new CelestialObject(hipIndex, objType, ra, dec, constellation, vMag, HalfUndefined, (Half)bv, EmptyNameSet);
                 return true;
             }
@@ -2084,6 +2156,13 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
             {
                 // Try to inherit a more specific object type from cross-references (e.g., HR with CStar type)
                 var objType = GetInheritedObjectType(hdIndex);
+                // See TryLookupHIPCore(int): prefer a curated cross-ref V over unreliable
+                // saturated Tycho photometry for the brightest stars.
+                if (PreferCrossRefMagnitude(vMag) && TryGetCrossRefMagnitude(hdIndex, out var xrefVMag, out var xrefBv))
+                {
+                    vMag = xrefVMag;
+                    bv = (float)xrefBv;
+                }
                 celestialObject = new CelestialObject(hdIndex, objType, ra, dec, constellation, vMag, HalfUndefined, (Half)bv, EmptyNameSet);
                 return true;
             }
