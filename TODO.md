@@ -370,6 +370,7 @@ Learnings from PixInsight Statistical Stretch (SetiAstro, v2.3).
 ## Astrometry / Catalogs
 
 - [x] Update lib to accept spans in `CatalogUtils` (`CatalogUtils.cs:326,360`)
+- [ ] Better Tycho VT->V transform (Bessell 2000) for the moderately-red population. Today `CelestialObjectDB.cs` uses the ESA *linear* relation `V = VT - 0.090(BT-VT)`, `B-V = 0.850(BT-VT)`, valid only for `-0.2 < (BT-VT) < 1.8` — duplicated in the single-star decode (`TryGetTycho2StarByTycId`) and the bulk render loop (`CopyTycho2Stars`). Bessell (2000, PASP 112, 961) is the better fit but is a cubic-spline **lookup table defined only to `(BT-VT) = 2.0`**. The brightest/reddest stars are *beyond* even that — Antares sits at `BT-VT ≈ 2.20`, R Leporis at `≈ 5.80` — so **no transform recovers them**; that's why `PreferCrossRefMagnitude` (commit aad748e) defers those to a curated SIMBAD/HR V, and that backstop must stay. Adopting Bessell would: (1) source the exact table accurately (paper / AstroCalc source — do **not** guess coefficients), (2) unify the two transform sites into one helper, (3) re-baseline every Tycho-magnitude test incl. R Lep's pinned `8.28` (extrapolated). Net benefit is improved V/B-V for `BT-VT ≈ 1.5–2.0` stars (mostly the rendered Tycho buffer), not the extremes. Refs: Bessell 2000 (`iopscience.iop.org/article/10.1086/316598`), projectpluto.com/photomet.htm.
 
 ## Astrometry / Plate Solving
 
