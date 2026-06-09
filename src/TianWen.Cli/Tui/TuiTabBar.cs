@@ -32,7 +32,7 @@ internal sealed class TuiTabBar(ITerminalViewport viewport)
 
         var tabText = string.Join(" ", parts);
         var profileName = appState.ActiveProfile?.DisplayName ?? "No profile";
-        var clock = timeProvider.System.GetLocalNow().ToOffset(siteTimeZone).ToString("HH:mm:ss");
+        var clock = timeProvider.GetUtcNow().ToOffset(siteTimeZone).ToString("HH:mm:ss");
 
         _bar.Text($" {tabText}").RightText($"{profileName}  {clock} ");
         _bar.Render();

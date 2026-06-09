@@ -601,10 +601,10 @@ namespace TianWen.UI.Abstractions
                     var endStr = windowEnd.ToOffset(tz).ToString("HH:mm");
                     var durColor = window.TotalHours < 1.5 ? WarningColor : AccentColor;
                     var durStr = window.TotalHours >= 1
-                        ? $"{window.TotalHours:0.0}h"
-                        : $"{window.TotalMinutes:0}min";
+                        ? $"{(int)window.TotalHours}h {window.Minutes:D2}m"
+                        : $"{(int)window.TotalMinutes}m";
 
-                    DrawText($"  {startStr}\u2013{endStr}  ({durStr})", fontPath,
+                    DrawText($"  {startStr}-{endStr}  ({durStr})", fontPath,
                         colTargetX, cursor, listRect.Width - colNumW - padding * 2, rowH * 0.8f,
                         fontSize * 0.85f, durColor, TextAlign.Near, TextAlign.Center);
                 }

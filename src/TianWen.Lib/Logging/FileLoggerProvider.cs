@@ -16,7 +16,9 @@ public sealed class FileLoggerProvider : ILoggerProvider
 
     public FileLoggerProvider(string appName)
     {
-        var now = DateTime.Now;
+        // Machine-local wall clock (carries the local offset). Sourced from TimeProvider.System
+        // rather than DateTime.Now so we never touch the banned BCL now-statics.
+        var now = TimeProvider.System.GetLocalNow();
         var dateDir = now.ToString("yyyyMMdd");
         var timestamp = now.ToString("yyyyMMdd'T'HH_mm_ss");
 
@@ -51,7 +53,9 @@ internal sealed class FileLogger(string categoryName, StreamWriter writer, Lock 
         }
 
         var message = formatter(state, exception);
-        var timestamp = DateTime.Now.ToString("HH:mm:ss.fff");
+        // Carry the UTC offset (e.g. "12:34:56.789 +02:00") so log timestamps are unambiguous
+        // across timezones. Machine-local via TimeProvider.System -- never the banned BCL now-statics.
+        var timestamp = TimeProvider.System.GetLocalNow().ToString("HH:mm:ss.fff zzz");
         var level = logLevel switch
         {
             LogLevel.Trace => "TRC",

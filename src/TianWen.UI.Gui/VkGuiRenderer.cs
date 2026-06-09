@@ -316,7 +316,7 @@ namespace TianWen.UI.Gui
                 return;
             }
 
-            var now = timeProvider.System.GetLocalNow().ToOffset(plannerState.SiteTimeZone);
+            var now = timeProvider.GetUtcNow().ToOffset(plannerState.SiteTimeZone);
             var clockText = now.ToString("ddd d MMM HH:mm:ss");
 
             // Profile name (left)
@@ -363,13 +363,13 @@ namespace TianWen.UI.Gui
                 {
                     var dark = plannerState.AstroDark.ToOffset(plannerState.SiteTimeZone);
                     var twilight = plannerState.AstroTwilight.ToOffset(plannerState.SiteTimeZone);
-                    dateStr = $"Tonight {dark:HH:mm}\u2013{twilight:HH:mm}";
+                    dateStr = $"Tonight {dark:HH:mm}-{twilight:HH:mm}";
                 }
                 else if (plannerState.AstroDark != default)
                 {
                     var dark = plannerState.AstroDark.ToOffset(plannerState.SiteTimeZone);
                     var twilight = plannerState.AstroTwilight.ToOffset(plannerState.SiteTimeZone);
-                    dateStr = $"{planDate:ddd d MMM} {dark:HH:mm}\u2013{twilight:HH:mm}";
+                    dateStr = $"{planDate:ddd d MMM} {dark:HH:mm}-{twilight:HH:mm}";
                 }
                 else
                 {
@@ -390,13 +390,10 @@ namespace TianWen.UI.Gui
                 }
             }
 
-            // Clock (right) — on tabs that benefit from live time display
-            if (appState.ActiveTab is GuiTab.Planner or GuiTab.LiveSession or GuiTab.Guider)
-            {
-                DrawText(clockText.AsSpan(), _fontPath,
-                    w * 0.7f, 0, w * 0.3f - 4f, sbh,
-                    FontSize, StatusText, TextAlign.Far, TextAlign.Center);
-            }
+            // Wall clock (right) - shown on every tab for consistent placement.
+            DrawText(clockText.AsSpan(), _fontPath,
+                w * 0.7f, 0, w * 0.3f - 4f, sbh,
+                FontSize, StatusText, TextAlign.Far, TextAlign.Center);
 
             // Status message — placed after the profile name (measured, not assumed) and
             // bounded by the date-arrow region to the right. Over-long messages are

@@ -375,7 +375,7 @@ internal class AscomCameraDriver : AscomDeviceDriverBase, ICameraDriver
                 _device.DeviceId, ex.GetType().Name, ex.Message);
             return ValueTask.FromException<DateTimeOffset>(ex);
         }
-        var startTime = TimeProvider.System.GetLocalNow();
+        var startTime = TimeProvider.GetUtcNow();
         LastExposureStartTime = startTime;
         LastExposureFrameType = frameType;
         return ValueTask.FromResult(startTime);

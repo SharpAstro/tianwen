@@ -104,7 +104,7 @@ internal sealed class TuiPlannerTab(
         _canvasRenderer.FillRectangle(
             new RectInt(new PointInt((int)canvasPixelSize.Width, (int)canvasPixelSize.Height), new PointInt(0, 0)),
             new RGBAColor32(0x1a, 0x1a, 0x2e, 0xff));
-        var chartCurrentTime = plannerState.PlanningDate.HasValue ? null as DateTimeOffset? : timeProvider.System.GetLocalNow();
+        var chartCurrentTime = plannerState.PlanningDate.HasValue ? null as DateTimeOffset? : timeProvider.GetUtcNow().ToOffset(plannerState.SiteTimeZone);
         AltitudeChartRenderer.Render(_canvasRenderer, plannerState, fontPath,
             0, 0, (int)_canvasRenderer.Width, (int)_canvasRenderer.Height,
             highlightTargetIndex: plannerState.SelectedTargetIndex,

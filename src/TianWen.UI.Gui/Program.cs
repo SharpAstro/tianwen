@@ -267,14 +267,13 @@ var loop = new SdlEventLoop(sdlWindow, renderer)
             return true; // always redraw during shutdown
         }
 
-        // Redraw periodically on the Live Session / Guider / Sky Map tabs so the
-        // clock and live time-dependent overlays tick smoothly. 500ms while a session
-        // OR a polar-alignment routine is running (progress bars, per-rung "Probing
-        // 200ms (3/8)" status, axis-error needles, locked-exposure indicator); 1s in
-        // plain preview / sky-map mode (clock + sky-map LST advance) -- otherwise the
-        // only periodic redraw trigger is the 2s preview-telemetry poll, which shows
-        // up as a visible 2s tick.
-        if (appState.ActiveTab is GuiTab.LiveSession or GuiTab.Guider or GuiTab.SkyMap)
+        // The status-bar wall clock (HH:mm:ss) is shown on EVERY tab, so we need at
+        // least a 1 Hz redraw on all tabs to make it tick. This used to be gated to the
+        // Live Session / Guider / Sky Map tabs, which is exactly why the clock on the
+        // Planner (and other tabs) only updated when an input event happened to force a
+        // frame. 500ms while a session OR a polar-alignment routine is running (progress
+        // bars, per-rung "Probing 200ms (3/8)" status, axis-error needles, locked-exposure
+        // indicator); 1s otherwise (clock tick + sky-map LST advance).
         {
             var now = timeProvider.GetTimestamp();
             var liveState = guiRenderer.LiveSessionState;

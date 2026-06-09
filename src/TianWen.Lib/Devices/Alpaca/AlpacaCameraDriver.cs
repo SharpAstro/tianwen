@@ -341,7 +341,7 @@ public void ReleaseImageData() { }
             new("Light", frameType.NeedsOpenShutter.ToString())
         ], cancellationToken);
 
-        var startTime = TimeProvider.System.GetLocalNow();
+        var startTime = TimeProvider.GetUtcNow();
         LastExposureStartTime = startTime;
         LastExposureFrameType = frameType;
         return startTime;

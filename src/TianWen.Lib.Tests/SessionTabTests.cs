@@ -260,4 +260,53 @@ namespace TianWen.Lib.Tests
             state.FieldCount.ShouldBe(expectedCount);
         }
     }
+
+    /// <summary>
+    /// Regression guard for "the session captured 120s, not the 45s shown in the config screen".
+    /// The Session config displays the per-OTA f-ratio default exposure, but schedule building
+    /// used to pass a hardcoded 120s -- so what the user saw on the target rows was NOT what the
+    /// session captured. <see cref="SessionContent.EffectiveDefaultSubExposure"/> is now the
+    /// single source of truth both the display and the scheduler read.
+    /// </summary>
+    [Collection("UI")]
+    public class EffectiveDefaultSubExposureTests
+    {
+        // f/3 OTA (FL 300mm / aperture 100mm) -> DefaultExposureFromFRatio = 5*3*3 = 45s,
+        // i.e. exactly the "45s in the config" the user saw -- and crucially NOT 120s.
+        private static SessionTabState StateWithF3Ota()
+        {
+            var state = new SessionTabState();
+            state.CameraSettings.Add(new PerOtaCameraSettings
+            {
+                OtaName = "Telescope #0",
+                FocalLength = 300,
+                Aperture = 100,
+            });
+            return state;
+        }
+
+        [Fact]
+        public void WhenNoConfigOverride_EffectiveDefaultEqualsDisplayedFRatioDefaultNot120()
+        {
+            var state = StateWithF3Ota();
+            state.Configuration = state.Configuration with { DefaultSubExposure = null };
+
+            // What the config screen displays for an unoverridden target:
+            var displayedSec = SessionContent.DefaultExposureSeconds(state);
+            displayedSec.ShouldBe(45); // f/3 -> 45s shown; NOT the old hardcoded 120
+
+            // The scheduler's default MUST equal what the screen shows (the broken invariant).
+            SessionContent.EffectiveDefaultSubExposure(state).ShouldBe(TimeSpan.FromSeconds(displayedSec));
+            SessionContent.EffectiveDefaultSubExposure(state).ShouldNotBe(TimeSpan.FromSeconds(120));
+        }
+
+        [Fact]
+        public void WhenConfigOverrideSet_EffectiveDefaultHonoursConfigValue()
+        {
+            var state = StateWithF3Ota();
+            state.Configuration = state.Configuration with { DefaultSubExposure = TimeSpan.FromSeconds(90) };
+
+            SessionContent.EffectiveDefaultSubExposure(state).ShouldBe(TimeSpan.FromSeconds(90));
+        }
+    }
 }

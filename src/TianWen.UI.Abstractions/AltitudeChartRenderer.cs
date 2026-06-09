@@ -378,7 +378,9 @@ public static class AltitudeChartRenderer
             DrawVLine(renderer, x, plotY, plotY + plotH, GridColor);
 
             var labelRect = MakeRect(x - 24, plotY + plotH + 2, 48, 16);
-            renderer.DrawText(t.ToString("HH:mm"), fontFamily, FontSize(h, 10), TextColor,
+            // Axis is "Local Time": label hour ticks in the site timezone, never the
+            // machine TZ (a bare ToString would render the stored UTC offset).
+            renderer.DrawText(t.ToOffset(state.SiteTimeZone).ToString("HH:mm"), fontFamily, FontSize(h, 10), TextColor,
                 labelRect, TextAlign.Center, TextAlign.Near);
         }
 

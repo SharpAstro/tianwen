@@ -49,7 +49,7 @@ internal static class AsciiAltitudeChart
             var col = (int)((t - start).TotalHours / totalHours * chartWidth);
             if (col >= 0 && col < chartWidth)
             {
-                var label = t.ToLocalTime().ToString("HH");
+                var label = t.ToOffset(state.SiteTimeZone).ToString("HH");
                 while (header.Length < nameWidth + 3 + col)
                 {
                     header += ' ';

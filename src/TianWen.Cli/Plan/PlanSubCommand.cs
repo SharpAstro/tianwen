@@ -86,7 +86,7 @@ internal class PlanSubCommand(
             var s = plannerState.TonightsBest[i];
             var pin = plannerState.Proposals.Any(p => p.Target == s.Target) ? "\u2605" : "";
             var objType = s.ObjectType.ToAbbreviation();
-            var window = $"{s.OptimalStart.ToOffset(plannerState.SiteTimeZone):HH:mm}\u2013{(s.OptimalStart + s.OptimalDuration).ToOffset(plannerState.SiteTimeZone):HH:mm}";
+            var window = $"{s.OptimalStart.ToOffset(plannerState.SiteTimeZone):HH:mm}-{(s.OptimalStart + s.OptimalDuration).ToOffset(plannerState.SiteTimeZone):HH:mm}";
             var rating = PlannerActions.ScoreToRating(s.CombinedScore, maxScore);
 
             sb.AppendLine($"| {pin}{i + 1} | {s.Target.Name} | {objType} | {s.OptimalAltitude:F0}\u00b0 | {window} | {rating:F1}\u2605 |");

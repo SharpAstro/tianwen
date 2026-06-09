@@ -58,6 +58,19 @@ namespace TianWen.UI.Abstractions
         }
 
         /// <summary>
+        /// The effective default sub-exposure for a proposal that has no per-target override:
+        /// the session config's <see cref="SessionConfiguration.DefaultSubExposure"/> when set,
+        /// otherwise the per-OTA f-ratio default (<see cref="DefaultExposureSeconds"/>). This is
+        /// the SINGLE source of truth shared by the Session-tab display AND schedule building,
+        /// so what the user sees on the target rows is exactly what the session captures. The old
+        /// code displayed the f-ratio default but scheduled a hardcoded 120s -- "exposure is 120s,
+        /// not the one I set in the session".
+        /// </summary>
+        public static TimeSpan EffectiveDefaultSubExposure(SessionTabState sessionState)
+            => sessionState.Configuration.DefaultSubExposure
+               ?? TimeSpan.FromSeconds(DefaultExposureSeconds(sessionState));
+
+        /// <summary>
         /// Builds display-ready camera settings rows from the session state.
         /// </summary>
         public static List<CameraSettingsRow> GetCameraRows(SessionTabState sessionState)
@@ -136,10 +149,10 @@ namespace TianWen.UI.Abstractions
                 {
                     var startStr = windowStart.ToOffset(tz).ToString("HH:mm");
                     var endStr = windowEnd.ToOffset(tz).ToString("HH:mm");
-                    timeWindow = $"{startStr}\u2013{endStr}";
+                    timeWindow = $"{startStr}-{endStr}";
                     duration = window.TotalHours >= 1
-                        ? $"{window.TotalHours:0.0}h"
-                        : $"{window.TotalMinutes:0}min";
+                        ? $"{(int)window.TotalHours}h {window.Minutes:D2}m"
+                        : $"{(int)window.TotalMinutes}m";
                     isWarning = window.TotalHours < 1.5;
                 }
                 else

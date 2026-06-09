@@ -60,16 +60,16 @@ namespace TianWen.UI.Abstractions
         public static string FilterDisplayLabel(string? filterName, string fallback)
             => filterName is { Length: > 0 } name && name != Filter.Unknown.DisplayName ? name : fallback;
 
-        /// <summary>Format a timespan as compact duration (e.g. "4h56m" or "23m").</summary>
+        /// <summary>Format a timespan as a duration (e.g. "4h 56m" or "23m 45s").</summary>
         public static string FormatDuration(TimeSpan ts)
         {
             if (ts.TotalHours >= 1)
             {
-                return $"{(int)ts.TotalHours}h{ts.Minutes:D2}m";
+                return $"{(int)ts.TotalHours}h {ts.Minutes:D2}m";
             }
             if (ts.TotalMinutes >= 1)
             {
-                return $"{(int)ts.TotalMinutes}m{ts.Seconds:D2}s";
+                return $"{(int)ts.TotalMinutes}m {ts.Seconds:D2}s";
             }
             return $"{(int)ts.TotalSeconds}s";
         }

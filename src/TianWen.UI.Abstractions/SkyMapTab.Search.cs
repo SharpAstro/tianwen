@@ -247,9 +247,10 @@ namespace TianWen.UI.Abstractions
             row += rowH;
 
             // Rise / Transit / Set — three lines or one combined line when space is tight.
+            var tz = plannerState.SiteTimeZone;
             var rtsLine = info.NeverRises ? "Never rises (below horizon)"
-                        : info.Circumpolar ? $"Circumpolar   Transit {FormatHHMM(info.TransitTime)}"
-                        : $"Rise {FormatHHMM(info.RiseTime)}   Transit {FormatHHMM(info.TransitTime)}   Set {FormatHHMM(info.SetTime)}";
+                        : info.Circumpolar ? $"Circumpolar   Transit {FormatHHMM(info.TransitTime, tz)}"
+                        : $"Rise {FormatHHMM(info.RiseTime, tz)}   Transit {FormatHHMM(info.TransitTime, tz)}   Set {FormatHHMM(info.SetTime, tz)}";
             DrawText(rtsLine.AsSpan(), fontPath,
                 textX, py + row, textW, rowH, fontSize, SearchText, TextAlign.Near, TextAlign.Center);
 
@@ -440,8 +441,10 @@ namespace TianWen.UI.Abstractions
             return true;
         }
 
-        private static string FormatHHMM(DateTimeOffset? t)
-            => t is { } dt ? $"{dt.LocalDateTime:HH:mm}" : "--:--";
+        // Rise/Transit/Set are UTC instants; render them in the site timezone, never the
+        // machine timezone (.LocalDateTime would show UTC on a UTC-set machine).
+        private static string FormatHHMM(DateTimeOffset? t, TimeSpan siteTimeZone)
+            => t is { } dt ? $"{dt.ToOffset(siteTimeZone):HH:mm}" : "--:--";
 
         // Walk PlannerState.Proposals to see if this catalog index is pinned.
         // Called once per frame while the info panel is visible — proposals are few
