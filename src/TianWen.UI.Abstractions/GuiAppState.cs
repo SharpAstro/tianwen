@@ -41,6 +41,17 @@ public class GuiAppState
 
     public GuiTab ActiveTab { get; set; } = GuiTab.Planner;
     public Profile? ActiveProfile { get; set; }
+
+    /// <summary>
+    /// Single app-wide site timezone offset (from GeoTimeZone via the profile site).
+    /// The one source of truth for "local time" display across planner, live session,
+    /// sky map, and notifications -- <see cref="PlannerState"/> and
+    /// <see cref="LiveSessionState"/> read through to this (see their AttachAppState).
+    /// Display code converts UTC instants with <c>dto.ToOffset(SiteTimeZone)</c>; never
+    /// render machine-local time or raw UTC.
+    /// </summary>
+    public TimeSpan SiteTimeZone { get; set; }
+
     public bool NeedsRedraw { get; set; } = true;
     public (float X, float Y) MouseScreenPosition { get; set; }
     public InputModifier LastClickModifiers { get; set; }

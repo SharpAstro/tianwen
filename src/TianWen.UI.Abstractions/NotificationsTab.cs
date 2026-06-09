@@ -119,9 +119,9 @@ namespace TianWen.UI.Abstractions
                 };
                 FillRect(_listRect.X, rowY, 3f * dpiScale, rowH, stripeColor);
 
-                // Timestamp (HH:mm:ss, site-local-ish — we just render whatever the
-                // DateTimeOffset captured at record time).
-                var tsText = entry.When.ToLocalTime().ToString("HH:mm:ss");
+                // Timestamp (HH:mm:ss) in the single app-wide site timezone -- never the
+                // machine TZ (.ToLocalTime would show UTC on a UTC-set machine).
+                var tsText = entry.When.ToOffset(appState.SiteTimeZone).ToString("HH:mm:ss");
                 var tsX = _listRect.X + 10f * dpiScale;
                 var tsW = 70f * dpiScale;
                 DrawText(tsText.AsSpan(), fontPath,

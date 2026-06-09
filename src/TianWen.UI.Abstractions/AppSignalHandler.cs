@@ -248,7 +248,7 @@ namespace TianWen.UI.Abstractions
             catch { }
 
             return new CameraTelemetrySample(
-                _timeProvider.System.GetLocalNow(),
+                _timeProvider.GetUtcNow(),
                 ccd, sink, setpoint, power, coolerOn, busy);
         }
 
@@ -612,6 +612,13 @@ namespace TianWen.UI.Abstractions
             _tracker = tracker;
             _cts = cts;
             _external = external;
+
+            // Single site-timezone source: planner + live-session read through to
+            // GuiAppState.SiteTimeZone so every time display shares one value and the
+            // two states cannot drift apart (see PlannerState.AttachAppState).
+            plannerState.AttachAppState(appState);
+            liveSessionState.AttachAppState(appState);
+
             _logger = sp.GetRequiredService<ILoggerFactory>().CreateLogger(nameof(AppSignalHandler));
             _timeProvider = sp.GetRequiredService<ITimeProvider>();
 
@@ -1662,9 +1669,14 @@ namespace TianWen.UI.Abstractions
 
                 var profileData = profile.Data ?? ProfileData.Empty;
                 var (filters, design) = GetFirstOtaFilterConfig(profileData);
+                // Use the SAME effective defaults the session-start path uses so the planner
+                // PREVIEW matches what the session will actually capture (it previously hardcoded
+                // gain=120/offset=10/sub=120s here, diverging from both the config and the
+                // f-ratio exposure shown on the target rows). Gain/offset stay null so the per-OTA
+                // camera settings drive them, exactly as StartSession does.
                 PlannerActions.BuildSchedule(plannerState, sessionState, transform,
-                    defaultGain: 120, defaultOffset: 10,
-                    defaultSubExposure: TimeSpan.FromSeconds(120),
+                    defaultGain: null, defaultOffset: null,
+                    defaultSubExposure: SessionContent.EffectiveDefaultSubExposure(sessionState),
                     defaultObservationTime: TimeSpan.FromMinutes(60),
                     availableFilters: filters,
                     opticalDesign: design);
@@ -1727,9 +1739,10 @@ namespace TianWen.UI.Abstractions
 
                     var (filters, design) = GetFirstOtaFilterConfig(profileData);
 
-                    var subExposure = sessionState.Configuration.DefaultSubExposure ?? TimeSpan.FromSeconds(120);
-                    _logger.LogInformation("BuildSchedule: DefaultSubExposure={SubExposure} (config={Config})",
-                        subExposure, sessionState.Configuration.DefaultSubExposure);
+                    var subExposure = SessionContent.EffectiveDefaultSubExposure(sessionState);
+                    _logger.LogInformation(
+                        "BuildSchedule: effective default sub-exposure={SubExposure} (config={Config}, f-ratio default={FRatioSec}s)",
+                        subExposure, sessionState.Configuration.DefaultSubExposure, SessionContent.DefaultExposureSeconds(sessionState));
                     PlannerActions.BuildSchedule(plannerState, sessionState, transform,
                         defaultGain: null, defaultOffset: null,
                         defaultSubExposure: subExposure,
@@ -1777,7 +1790,8 @@ namespace TianWen.UI.Abstractions
                         session.Setup.Telescopes.Length);
 
                     liveSessionState.ActiveSession = session;
-                    liveSessionState.SiteTimeZone = plannerState.SiteTimeZone;
+                    // SiteTimeZone is no longer copied here -- LiveSessionState reads it
+                    // through to the single app-wide GuiAppState.SiteTimeZone.
                     appState.AppendNotification(_timeProvider.GetUtcNow(),
                         NotificationSeverity.Info, "Session started");
                     appState.NeedsRedraw = true;

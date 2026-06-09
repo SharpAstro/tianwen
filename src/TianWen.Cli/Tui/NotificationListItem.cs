@@ -8,7 +8,7 @@ namespace TianWen.Cli.Tui;
 /// <see cref="NotificationEntry"/> as <c>HH:mm:ss  [SEV ]  message</c> with
 /// severity-coloured tag and dim timestamp.
 /// </summary>
-internal sealed class NotificationListItem(NotificationEntry entry) : IRowFormatter
+internal sealed class NotificationListItem(NotificationEntry entry, System.TimeSpan siteTimeZone) : IRowFormatter
 {
     private static readonly VtStyle DimStyle = new(SgrColor.BrightBlack, SgrColor.Black);
     private static readonly VtStyle BodyStyle = new(SgrColor.White, SgrColor.Black);
@@ -20,7 +20,7 @@ internal sealed class NotificationListItem(NotificationEntry entry) : IRowFormat
 
     public string FormatRow(int width, ColorMode colorMode, bool isSelected)
     {
-        var ts = entry.When.ToLocalTime().ToString("HH:mm:ss");
+        var ts = entry.When.ToOffset(siteTimeZone).ToString("HH:mm:ss");
         var (tag, sevStyle) = entry.Severity switch
         {
             NotificationSeverity.Error => ("ERR ", ErrorStyle),

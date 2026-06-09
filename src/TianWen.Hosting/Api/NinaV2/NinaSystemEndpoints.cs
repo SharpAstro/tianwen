@@ -28,38 +28,42 @@ internal static class NinaSystemEndpoints
             ResponseEnvelope<string>.Ok(_version),
             NinaApiJsonContext.Default.ResponseEnvelopeString));
 
-        // GET /v2/api/time — current server time in ISO 8601
-        group.MapGet("/time", () => Results.Json(
-            ResponseEnvelope<string>.Ok(DateTimeOffset.UtcNow.ToString("o")),
+        // GET /v2/api/time — current server time in ISO 8601 (UTC wire format, ninaAPI contract)
+        group.MapGet("/time", (ITimeProvider timeProvider) => Results.Json(
+            ResponseEnvelope<string>.Ok(timeProvider.GetUtcNow().ToString("o")),
             NinaApiJsonContext.Default.ResponseEnvelopeString));
 
         // GET /v2/api/event-history — synthesized from session phase changes
-        group.MapGet("/event-history", (IHostedSession hosted) =>
+        group.MapGet("/event-history", (IHostedSession hosted, ITimeProvider timeProvider) =>
         {
             var events = new List<NinaEventDto>();
+
+            // One timestamp for the whole snapshot. ISO 8601 UTC ("o") is the ninaAPI wire
+            // contract Touch N Stars expects -- this is API payload, not UI display.
+            var nowIso = timeProvider.GetUtcNow().ToString("o");
 
             if (hosted.CurrentSession is { } session)
             {
                 // Report device connections as events
                 if (session.Setup.Mount.Driver.Connected)
                 {
-                    events.Add(new NinaEventDto { Time = DateTimeOffset.UtcNow.ToString("o"), Event = "MOUNT-CONNECTED" });
+                    events.Add(new NinaEventDto { Time = nowIso, Event = "MOUNT-CONNECTED" });
                 }
                 if (session.Setup.Telescopes.Length > 0 && session.Setup.Telescopes[0].Camera.Driver.Connected)
                 {
-                    events.Add(new NinaEventDto { Time = DateTimeOffset.UtcNow.ToString("o"), Event = "CAMERA-CONNECTED" });
+                    events.Add(new NinaEventDto { Time = nowIso, Event = "CAMERA-CONNECTED" });
                 }
                 if (session.Setup.Guider.Driver.Connected)
                 {
-                    events.Add(new NinaEventDto { Time = DateTimeOffset.UtcNow.ToString("o"), Event = "GUIDER-CONNECTED" });
+                    events.Add(new NinaEventDto { Time = nowIso, Event = "GUIDER-CONNECTED" });
                 }
                 if (session.Setup.Telescopes.Length > 0 && session.Setup.Telescopes[0].Focuser?.Driver.Connected == true)
                 {
-                    events.Add(new NinaEventDto { Time = DateTimeOffset.UtcNow.ToString("o"), Event = "FOCUSER-CONNECTED" });
+                    events.Add(new NinaEventDto { Time = nowIso, Event = "FOCUSER-CONNECTED" });
                 }
                 if (session.Setup.Telescopes.Length > 0 && session.Setup.Telescopes[0].FilterWheel?.Driver.Connected == true)
                 {
-                    events.Add(new NinaEventDto { Time = DateTimeOffset.UtcNow.ToString("o"), Event = "FILTERWHEEL-CONNECTED" });
+                    events.Add(new NinaEventDto { Time = nowIso, Event = "FILTERWHEEL-CONNECTED" });
                 }
             }
 

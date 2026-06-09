@@ -55,7 +55,7 @@ internal static class NinaSequenceEndpoints
         });
 
         // GET /v2/api/sequence/start — start session using active profile + pending targets
-        group.MapGet("/start", (IHostedSession hosted, ISessionFactory factory, ILogger<HostedSession> logger, CancellationToken ct) =>
+        group.MapGet("/start", (IHostedSession hosted, ISessionFactory factory, ILogger<HostedSession> logger, ITimeProvider timeProvider, CancellationToken ct) =>
         {
             if (hosted.CurrentSession is not null)
             {
@@ -73,9 +73,10 @@ internal static class NinaSequenceEndpoints
 
             // Drain pending targets
             var pendingTargets = hosted is HostedSession hs2 ? hs2.DrainTargets() : [];
+            var startUtc = timeProvider.GetUtcNow();
             var observations = pendingTargets.Select(t => new ScheduledObservation(
                 new Target(t.RA, t.Dec, t.Name, null),
-                DateTimeOffset.UtcNow,
+                startUtc,
                 TimeSpan.FromMinutes(t.DurationMinutes ?? 30),
                 AcrossMeridian: false,
                 FilterPlan: FilterPlanBuilder.BuildSingleFilterPlan(

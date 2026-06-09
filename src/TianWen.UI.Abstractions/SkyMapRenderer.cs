@@ -86,7 +86,7 @@ namespace TianWen.UI.Abstractions
 
             if (state.ShowPlanets)
             {
-                DrawPlanets(image, db, site, cRA, cDec, ppr, cx, cy, w, h);
+                DrawPlanets(image, db, site, timeProvider, cRA, cDec, ppr, cx, cy, w, h);
             }
 
             // Horizon drawn last so it's visible on top of everything
@@ -476,6 +476,7 @@ namespace TianWen.UI.Abstractions
             RgbaImage image,
             ICelestialObjectDB db,
             SiteContext site,
+            ITimeProvider timeProvider,
             double cRA, double cDec, double ppr,
             float cx, float cy, int w, int h)
         {
@@ -484,7 +485,7 @@ namespace TianWen.UI.Abstractions
                 return;
             }
 
-            var now = DateTimeOffset.UtcNow; // planets need current time, not cached
+            var now = timeProvider.GetUtcNow(); // planets need current time, not cached
 
             foreach (var planetIdx in PlanetIndices)
             {

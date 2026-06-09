@@ -136,7 +136,7 @@ namespace TianWen.UI.Abstractions
                 ? state.SelectedTargetIndex
                 : (int?)null;
 
-            var now = timeProvider.System.GetLocalNow();
+            var now = timeProvider.GetUtcNow().ToOffset(state.SiteTimeZone);
             _currentTime = now;
             _timeProvider = timeProvider;
 

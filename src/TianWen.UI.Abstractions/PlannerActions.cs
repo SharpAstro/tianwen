@@ -26,7 +26,9 @@ public static class PlannerActions
     /// </summary>
     public static void ShiftPlanningDate(PlannerState state, ITimeProvider timeProvider, int days)
     {
-        var current = state.PlanningDate ?? timeProvider.System.GetLocalNow();
+        // Default "tonight" in the site's timezone, not the machine's, so the calendar date we
+        // step from matches the observing night the user sees on the chart.
+        var current = state.PlanningDate ?? timeProvider.GetUtcNow().ToOffset(state.SiteTimeZone);
         state.PlanningDate = current.AddDays(days);
         state.NeedsRecompute = true;
         state.NeedsRedraw = true;
@@ -38,7 +40,7 @@ public static class PlannerActions
     /// </summary>
     public static void ShiftPlanningHours(PlannerState state, ITimeProvider timeProvider, int hours)
     {
-        var current = state.PlanningDate ?? timeProvider.System.GetLocalNow();
+        var current = state.PlanningDate ?? timeProvider.GetUtcNow().ToOffset(state.SiteTimeZone);
         state.PlanningDate = current.AddHours(hours);
         state.NeedsRecompute = true;
         state.NeedsRedraw = true;

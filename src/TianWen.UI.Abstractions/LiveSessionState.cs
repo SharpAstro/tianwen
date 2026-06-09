@@ -116,8 +116,18 @@ namespace TianWen.UI.Abstractions
         /// <summary>Calibration overlay data for guide camera L-overlay.</summary>
         public CalibrationOverlayData? CalibrationOverlay { get; set; }
 
-        /// <summary>Site timezone offset for displaying times in local site time.</summary>
-        public TimeSpan SiteTimeZone { get; set; }
+        // Site timezone reads through to the single app-wide GuiAppState.SiteTimeZone
+        // (wired via AttachAppState in the AppSignalHandler ctor) instead of being an
+        // independently-set copy that could drift from the planner's value.
+        private GuiAppState? _appState;
+
+        /// <summary>Site timezone offset for displaying times in local site time. Sourced
+        /// from the single app-wide <see cref="GuiAppState.SiteTimeZone"/>.</summary>
+        public TimeSpan SiteTimeZone => _appState?.SiteTimeZone ?? TimeSpan.Zero;
+
+        /// <summary>Attach the app-wide state so <see cref="SiteTimeZone"/> reflects the
+        /// single shared value. Called once during app composition (AppSignalHandler ctor).</summary>
+        internal void AttachAppState(GuiAppState appState) => _appState = appState;
 
         // --- Preview mode telemetry (populated when !IsRunning, from hub-connected drivers) ---
 

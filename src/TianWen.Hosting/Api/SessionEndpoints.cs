@@ -42,7 +42,7 @@ internal static class SessionEndpoints
         /// Consumes pending targets from IHostedSession.
         /// Accepts optional JSON body with SessionConfigApiDto.
         /// </summary>
-        group.MapPost("/start", async (HttpContext httpContext, IHostedSession hosted, ISessionFactory factory, CancellationToken ct) =>
+        group.MapPost("/start", async (HttpContext httpContext, IHostedSession hosted, ISessionFactory factory, ITimeProvider timeProvider, CancellationToken ct) =>
         {
             if (hosted.CurrentSession is not null)
             {
@@ -93,9 +93,10 @@ internal static class SessionEndpoints
 
             // Drain pending targets
             var pendingTargets = hosted is HostedSession hs ? hs.DrainTargets() : [];
+            var startUtc = timeProvider.GetUtcNow();
             var observations = pendingTargets.Select(t => new ScheduledObservation(
                 new Target(t.RA, t.Dec, t.Name, null),
-                DateTimeOffset.UtcNow,
+                startUtc,
                 TimeSpan.FromMinutes(t.DurationMinutes ?? 30),
                 AcrossMeridian: false,
                 FilterPlan: FilterPlanBuilder.BuildSingleFilterPlan(

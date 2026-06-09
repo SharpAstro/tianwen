@@ -84,6 +84,6 @@ public static class PlannerDetails
     {
         var start = scored.OptimalStart.ToOffset(state.SiteTimeZone);
         var end = (scored.OptimalStart + scored.OptimalDuration).ToOffset(state.SiteTimeZone);
-        return $"{start:HH:mm}\u2013{end:HH:mm}";
+        return $"{start:HH:mm}-{end:HH:mm}";
     }
 }

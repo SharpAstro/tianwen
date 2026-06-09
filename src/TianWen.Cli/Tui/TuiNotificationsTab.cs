@@ -36,7 +36,7 @@ internal sealed class TuiNotificationsTab(GuiAppState appState) : TuiTabBase
         var items = new NotificationListItem[entries.Length];
         for (var i = 0; i < entries.Length; i++)
         {
-            items[i] = new NotificationListItem(entries[i]);
+            items[i] = new NotificationListItem(entries[i], appState.SiteTimeZone);
         }
 
         var header = entries.Length > 0

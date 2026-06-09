@@ -136,8 +136,29 @@ public class PlannerState
     /// <summary>Maximum number of autocomplete suggestions to show.</summary>
     public const int MaxSuggestions = 8;
 
+    // Single app-wide site timezone source. In the interactive app (GUI/TUI) this reads
+    // and writes through to GuiAppState.SiteTimeZone (wired via AttachAppState) so the
+    // planner, live session, sky map, and notifications share one value and cannot drift
+    // apart. The standalone `plan` CLI command has no GuiAppState, so it falls back to a
+    // local field. Used for display instead of machine-local time (never render UTC).
+    private GuiAppState? _appState;
+    private TimeSpan _siteTimeZoneFallback;
+
     /// <summary>Site timezone offset (from GeoTimeZone). Used for display instead of machine local time.</summary>
-    public TimeSpan SiteTimeZone { get; set; }
+    public TimeSpan SiteTimeZone
+    {
+        get => _appState?.SiteTimeZone ?? _siteTimeZoneFallback;
+        set
+        {
+            if (_appState is not null) _appState.SiteTimeZone = value;
+            else _siteTimeZoneFallback = value;
+        }
+    }
+
+    /// <summary>Attach the app-wide state so <see cref="SiteTimeZone"/> reads/writes the
+    /// single shared <see cref="GuiAppState.SiteTimeZone"/>. Called once during app
+    /// composition (the AppSignalHandler constructor).</summary>
+    internal void AttachAppState(GuiAppState appState) => _appState = appState;
 
     /// <summary>
     /// The date to plan for. Null = tonight (uses current time).

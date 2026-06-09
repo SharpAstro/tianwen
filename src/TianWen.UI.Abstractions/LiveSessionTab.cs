@@ -629,11 +629,8 @@ namespace TianWen.UI.Abstractions
                         state.NeedsRedraw = true;
                     });
 
-                // Current time (right side)
-                var timeText = timeProvider.GetUtcNow().ToOffset(state.SiteTimeZone).ToString("HH:mm:ss");
-                DrawText(timeText, fontPath,
-                    rect.X + rect.Width - 120f * dpiScale, rect.Y, 116f * dpiScale, rect.Height,
-                    fontSize, DimText, TextAlign.Far, TextAlign.Center);
+                // Current time is shown by the global status-bar clock (top-right on every
+                // tab) -- no separate in-content clock here, to avoid a duplicate display.
                 return;
             }
 
@@ -1946,7 +1943,7 @@ namespace TianWen.UI.Abstractions
                 var hfd = entry.MedianHfd > 0 ? $"{entry.MedianHfd:F1}\"" : "--";
                 var stars = entry.StarCount > 0 ? $"{entry.StarCount}" : "--";
 
-                DrawText(entry.Timestamp.ToString("HH:mm"), fontPath, colTime, y, colTarget - colTime, rowH, rowFs, DimText, TextAlign.Near, TextAlign.Center);
+                DrawText(entry.Timestamp.ToOffset(state.SiteTimeZone).ToString("HH:mm"), fontPath, colTime, y, colTarget - colTime, rowH, rowFs, DimText, TextAlign.Near, TextAlign.Center);
                 DrawText(target, fontPath, colTarget, y, colFilter - colTarget, rowH, rowFs, BodyText, TextAlign.Near, TextAlign.Center);
                 DrawText(filter, fontPath, colFilter, y, colHfd - colFilter, rowH, rowFs, DimText, TextAlign.Near, TextAlign.Center);
                 DrawText(hfd, fontPath, colHfd, y, colStars - colHfd, rowH, rowFs, BodyText, TextAlign.Far, TextAlign.Center);
