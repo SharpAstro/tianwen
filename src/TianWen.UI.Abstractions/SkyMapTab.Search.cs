@@ -390,28 +390,19 @@ namespace TianWen.UI.Abstractions
 
             var dnx = nx - ox;
             var dny = ny - oy;
-            var nlen = MathF.Sqrt(dnx * dnx + dny * dny);
-            if (nlen < 1e-5f) return false;
-            dnx /= nlen;
-            dny /= nlen;
+            if (dnx * dnx + dny * dny < 1e-10f) return false;
 
-            // Position angle (degrees, north through east). Rotating the north unit
-            // by +PA (CW on a sky-map viewed from inside the celestial sphere) gives
-            // the major-axis direction. CW on screen = rotation matrix R(-PA) in
-            // standard math; Y-axis is already inverted, so the sign works out to
-            // a regular CCW rotation on screen.
             var paDeg = (double)shape.PositionAngle;
             if (double.IsNaN(paDeg)) paDeg = 0;
-            var paRad = double.DegreesToRadians(paDeg);
-            var (sinPa, cosPa) = Math.SinCos(paRad);
-            // Major direction = cos(PA) * north + sin(PA) * east.
-            // East on screen = rotate north by +90 deg (screen CW, which is CCW in
-            // math with Y-inverted): east_screen = (dny, -dnx).
-            var majorX = (float)(cosPa * dnx + sinPa * dny);
-            var majorY = (float)(cosPa * dny - sinPa * dnx);
-            // Minor direction is major rotated +90 deg (same convention):
-            var minorX = majorY;
-            var minorY = -majorX;
+            var paRad = (float)double.DegreesToRadians(paDeg);
+
+            // Major / minor axis screen directions come from the single shared helper so
+            // this selection ellipse and the [O] overlay ellipse for the same object are
+            // oriented identically (true sky position angle). The GPU overlay shader is a
+            // hand-maintained mirror of the same convention -- see
+            // Overlays.OverlayEngine.ComputeEllipseScreenAxes.
+            var (majorX, majorY, minorX, minorY) =
+                Overlays.OverlayEngine.ComputeEllipseScreenAxes(dnx, dny, paRad);
 
             // Trace the ellipse.
             const int Segments = 36;

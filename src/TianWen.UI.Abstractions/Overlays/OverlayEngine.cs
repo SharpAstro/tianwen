@@ -207,6 +207,52 @@ public static class OverlayEngine
     }
 
     /// <summary>
+    /// Single source of truth for overlay-ellipse orientation, shared by the CPU
+    /// selection marker (<c>SkyMapTab.TryDrawShapeMarker</c>) and -- as a
+    /// hand-maintained GPU mirror -- the sky-map overlay shader
+    /// (<c>VkSkyMapPipeline.OverlayEllipseVertexSource</c>). The shader computes the
+    /// equivalent angle form <c>totalAngle = atan2(north.y, north.x) - paFromNorth</c>
+    /// and draws the major axis along <c>(cos(totalAngle), sin(totalAngle))</c>; keep
+    /// the two in lockstep.
+    /// <para>
+    /// Given the screen-space direction of celestial north at the object (already
+    /// projected; screen +x is right, +y is DOWN) and the position angle in radians
+    /// measured from north toward east, returns the screen-space unit vectors of the
+    /// ellipse major and minor axes. The sky map is east-left (see
+    /// <see cref="SkyMapProjection"/>: "RA increases to the left"), so a positive PA
+    /// rotates the major axis from north toward screen-left -- i.e. true sky position
+    /// angle. At PA = 0 the major axis lies along celestial north.
+    /// </para>
+    /// </summary>
+    /// <returns>Major and minor axis screen-space unit vectors. Falls back to the
+    /// screen axes (1,0)/(0,1) when the supplied north direction is degenerate.</returns>
+    public static (float MajorX, float MajorY, float MinorX, float MinorY)
+        ComputeEllipseScreenAxes(float northX, float northY, float paRad)
+    {
+        var nlen = MathF.Sqrt(northX * northX + northY * northY);
+        if (nlen < 1e-6f)
+        {
+            return (1f, 0f, 0f, 1f);
+        }
+        var nx = northX / nlen;
+        var ny = northY / nlen;
+
+        // East = north rotated -90 deg in screen space (east-left map): (ny, -nx).
+        var ex = ny;
+        var ey = -nx;
+
+        var (sin, cos) = MathF.SinCos(paRad);
+        // Major axis = cos(PA) * north + sin(PA) * east.
+        var majorX = cos * nx + sin * ex;
+        var majorY = cos * ny + sin * ey;
+        // Minor axis is the major axis rotated +90 deg in screen space. The sign is
+        // irrelevant for a symmetric ellipse, but matching the GPU keeps the two exact.
+        var minorX = -majorY;
+        var minorY = majorX;
+        return (majorX, majorY, minorX, minorY);
+    }
+
+    /// <summary>
     /// Computes a label priority score (higher = more important) used to decide
     /// which labels to place when crowded. Factors in: has-common-name bonus,
     /// brightness (V_Mag), and on-sky size (shape major axis).
@@ -870,6 +916,7 @@ public static class OverlayEngine
             output.Add(new OverlayCandidate
             {
                 CatalogIndex = catIdx,
+                ObjectType = obj.ObjectType,
                 RA = obj.RA,
                 Dec = obj.Dec,
                 UnitVec = new Vector3((float)ux, (float)uy, (float)uz),

@@ -66,6 +66,14 @@ namespace TianWen.UI.Abstractions
         public bool ShowObjectOverlay { get; set; }
 
         /// <summary>
+        /// Show dark nebulae (Barnard / LDN / Dobashi dust lanes) as their own overlay
+        /// layer, toggled with the <c>[D]</c> key. Kept separate from
+        /// <see cref="ShowObjectOverlay"/> (<c>[O]</c>) so the dust-cloud markers don't
+        /// clutter the default deep-sky overlay. Off by default.
+        /// </summary>
+        public bool ShowDarkNebulae { get; set; }
+
+        /// <summary>
         /// Current mount pointing for the reticle overlay. Null when no mount is connected
         /// or its coordinates can't be read. Populated by the event loop from polled
         /// <c>LiveSessionState.PreviewMountState</c> (preview mode) or <c>session.MountState</c>
