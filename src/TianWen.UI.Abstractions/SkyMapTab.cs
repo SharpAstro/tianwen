@@ -585,7 +585,7 @@ namespace TianWen.UI.Abstractions
                 : $"FOV: {State.FieldOfViewDeg:F1}\u00B0";
             var modeLabel = State.Mode == SkyMapMode.Equatorial ? "EQ" : "AZ";
             var skyHint = State.MilkyWayAvailable ? " [S]ky" : "";
-            var info = $"RA: {State.CenterRA:F2}h  Dec: {State.CenterDec:F1}\u00B0    {fovText}    [{modeLabel}]  [H]orizon [G]rid [A]lt/Az [B]oundaries [C]onst [P]roj [O]bjects [M]ount{skyHint}";
+            var info = $"RA: {State.CenterRA:F2}h  Dec: {State.CenterDec:F1}\u00B0    {fovText}    [{modeLabel}]  [H]orizon [G]rid [A]lt/Az [B]oundaries [C]onst [P]roj [O]bjects [D]ark [M]ount{skyHint}";
 
             DrawText(info.AsSpan(), fontPath,
                 rect.X + 8, stripY, rect.Width - 16, stripH,
@@ -848,6 +848,10 @@ namespace TianWen.UI.Abstractions
                     return true;
                 case InputKey.O:
                     State.ShowObjectOverlay = !State.ShowObjectOverlay;
+                    State.NeedsRedraw = true;
+                    return true;
+                case InputKey.D:
+                    State.ShowDarkNebulae = !State.ShowDarkNebulae;
                     State.NeedsRedraw = true;
                     return true;
                 case InputKey.M:

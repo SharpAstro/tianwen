@@ -61,6 +61,7 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
     private int _overlayRectWKey, _overlayRectHKey;
     private float _overlayDpiKey;
     private bool _overlayShowAllKey;
+    private bool _overlayShowDarkNebKey;
     private ImmutableArray<ProposedObservation> _overlayProposalsKey;
     private ICelestialObjectDB? _overlayDbKey;
     private readonly List<OverlayCandidate> _overlayCandidates = [];
@@ -239,18 +240,20 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
         // so the candidate list is independent of viewMatrix. Below that threshold the
         // scan bounds are derived from the current view matrix, so it stays in the key.
         var wideFov = fov >= WideFovThresholdDeg;
+        var showDarkNebulae = State.ShowDarkNebulae;
         var cacheHit = ReferenceEquals(db, _overlayDbKey)
             && fov == _overlayFovKey
             && rectW == _overlayRectWKey
             && rectH == _overlayRectHKey
             && dpiScale == _overlayDpiKey
             && showAllOverlays == _overlayShowAllKey
+            && showDarkNebulae == _overlayShowDarkNebKey
             && proposals == _overlayProposalsKey
             && (wideFov || viewMatrix.Equals(_overlayViewKey));
 
         if (!cacheHit)
         {
-            RebuildOverlayCandidates(db, contentRect, dpiScale, proposals, showAllOverlays);
+            RebuildOverlayCandidates(db, contentRect, dpiScale, proposals, showAllOverlays, showDarkNebulae);
             _overlayDbKey = db;
             _overlayViewKey = viewMatrix;
             _overlayFovKey = fov;
@@ -258,6 +261,7 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
             _overlayRectHKey = rectH;
             _overlayDpiKey = dpiScale;
             _overlayShowAllKey = showAllOverlays;
+            _overlayShowDarkNebKey = showDarkNebulae;
             _overlayProposalsKey = proposals;
         }
 
@@ -463,7 +467,7 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
     /// </summary>
     private void RebuildOverlayCandidates(
         ICelestialObjectDB db, RectF32 contentRect, float dpiScale,
-        ImmutableArray<ProposedObservation> proposals, bool showAllOverlays)
+        ImmutableArray<ProposedObservation> proposals, bool showAllOverlays, bool showDarkNebulae)
     {
         _overlayCandidates.Clear();
 
@@ -485,10 +489,10 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
             if (pinnedIndices.Count == 0) pinnedIndices = null;
         }
 
-        // Skip the full catalog scan entirely when the overlay is off AND there are
-        // no pinned targets to show -- avoids iterating ~100k spatial-index cells for
-        // nothing when the user just wants a clean sky map.
-        if (!showAllOverlays && pinnedIndices is null)
+        // Skip the full catalog scan entirely when both overlay layers are off AND
+        // there are no pinned targets to show -- avoids iterating ~100k spatial-index
+        // cells for nothing when the user just wants a clean sky map.
+        if (!showAllOverlays && !showDarkNebulae && pinnedIndices is null)
         {
             return;
         }
@@ -496,11 +500,19 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
         OverlayEngine.GatherSkyMapOverlayCandidates(
             State, contentRect, dpiScale, db, pinnedIndices, _overlayCandidates);
 
-        // When the full overlay is off, strip non-pinned candidates so only the
-        // user's planned targets remain visible as landmarks.
-        if (!showAllOverlays)
+        // Per-layer visibility: dark nebulae follow the [D] toggle, every other catalog
+        // object follows [O]. Pinned planner targets always survive both gates so the
+        // user's planned observations stay visible as landmarks regardless of layer state.
+        if (!showAllOverlays || !showDarkNebulae)
         {
-            _overlayCandidates.RemoveAll(c => !c.IsPinned);
+            _overlayCandidates.RemoveAll(c =>
+            {
+                if (c.IsPinned)
+                {
+                    return false;
+                }
+                return c.ObjectType == ObjectType.DarkNeb ? !showDarkNebulae : !showAllOverlays;
+            });
         }
     }
 

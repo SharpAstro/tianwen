@@ -23,6 +23,10 @@ public readonly record struct OverlayCandidate
 {
     public required CatalogIndex CatalogIndex { get; init; }
 
+    /// <summary>Catalog object type. Lets the GUI gate overlay visibility by layer --
+    /// e.g. dark nebulae follow the [D] toggle while everything else follows [O].</summary>
+    public required ObjectType ObjectType { get; init; }
+
     /// <summary>Right ascension in hours (J2000).</summary>
     public required double RA { get; init; }
 

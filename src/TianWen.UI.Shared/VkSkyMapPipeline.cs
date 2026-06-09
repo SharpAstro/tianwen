@@ -359,10 +359,14 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
             vec3 tipUnit = normalize(aUnitVec + nTangent * stepRad);
             vec3 tipProj = stereoProject((ubo.viewMatrix * vec4(tipUnit, 1.0)).xyz);
             vec2 north2d = tipProj.xy - center;
-            // Screen y grows downward, so "up on screen" is -Y; atan(x, -y) gives the
-            // angle of the screen-north direction measured CCW from screen up.
-            float screenNorthAngle = atan(north2d.x, -north2d.y);
-            float totalAngle = screenNorthAngle + aPaFromNorth;
+            // Screen-space angle of celestial north, measured from screen +x (right).
+            // Hand-maintained mirror of OverlayEngine.ComputeEllipseScreenAxes (the CPU
+            // selection marker shares the same convention): the major axis points along
+            // (cos(totalAngle), sin(totalAngle)) with totalAngle = northAngle - PA, so a
+            // positive PA rotates the major axis from north toward east. The sky map is
+            // east-left, so this is true sky position angle (PA = 0 -> major along north).
+            float screenNorthAngle = atan(north2d.y, north2d.x);
+            float totalAngle = screenNorthAngle - aPaFromNorth;
 
             // 4. Convert arcmin -> pixels using the UBO's pixelsPerRadian.
             float arcminToPx = ubo.pixelsPerRadian * 0.00029088820866;  // pi / (180 * 60)
