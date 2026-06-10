@@ -48,6 +48,18 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
     // guiding just-above the settle threshold -- never settling, never diverging past the
     // divergence kill-switch -- still gets caught instead of resetting the timer forever.
     private long _settlingPhaseStartedTicks;
+    // Number of large-excursion settle-clock resets within the current settle phase. The neural
+    // fail-safe requires repeated resets (the perpetually-resetting signature of a misbehaving
+    // model) before blaming the model -- a single reset is just as likely an external perturbation
+    // (wind gust, scope bump) that the model should not be punished for.
+    private int _settleExcursionResets;
+
+    /// <summary>
+    /// Minimum number of large-excursion settle resets within one settle phase before the neural
+    /// fail-safe may fire. One excursion is indistinguishable from an external perturbation; two
+    /// or more while the model is engaged is the model fighting the settle.
+    /// </summary>
+    private const int NeuralSettleFailSafeMinExcursions = 2;
 
     /// <summary>
     /// Fraction of the settle timeout after which, if guiding still has not settled and the neural
@@ -262,7 +274,7 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
                 ? Math.Sqrt(ra * ra + dec * dec)
                 : 0.0;
 
-            var elapsed = TimeProvider.GetElapsedTime(_settleStartedTicks);
+            var elapsed = TimeProvider.GetElapsedTime(Interlocked.Read(ref _settleStartedTicks));
 
             return ValueTask.FromResult<SettleProgress?>(new SettleProgress
             {
@@ -661,9 +673,12 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
                     wormStepsDec = await mount.GetWormPeriodStepsAsync(TelescopeAxis.Seconary, ct);
                 }
 
-                // Transition: Calibrating → Settling → Guiding
-                ForceState(GuiderState.Settling);
+                // Transition: Calibrating → Settling → Guiding. The phase timestamp must be
+                // recorded BEFORE the state becomes visible: a concurrent IsGuidingAsync /
+                // IsSettlingAsync poll that observes Settling with a zero/stale phase start would
+                // compute a huge settling duration and trip the neural fail-safe instantly.
                 RecordSettlePhaseStart();
+                ForceState(GuiderState.Settling);
 
                 // Run the guide loop (returns on cancellation or a recalibration request)
                 await guideLoop.RunAsync(CaptureFrame, exposureTime, hourAngle, declination, siteLatitude,
@@ -839,6 +854,7 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
         var now = TimeProvider.GetTimestamp();
         Interlocked.Exchange(ref _settleStartedTicks, now);
         Interlocked.Exchange(ref _settlingPhaseStartedTicks, now);
+        Interlocked.Exchange(ref _settleExcursionResets, 0);
     }
 
     /// <summary>
@@ -857,11 +873,14 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
         // guiding just above the settle threshold -- never settling, never diverging far enough to
         // trip the in-loop divergence kill-switch). Disable it and restart the settle window so the
         // proven P-controller gets a clean attempt within the remaining budget. Uses the phase timer
-        // (not reset by excursions) so a perpetually-resetting settle still gets caught.
+        // (not reset by excursions) so a perpetually-resetting settle still gets caught -- but only
+        // after repeated excursion resets, so a single external perturbation (wind gust, scope bump)
+        // that stretches the phase past the threshold is not blamed on the model.
         if (_settleTimeout > 0 && _guideLoop is { IsNeuralActive: true } neuralLoop)
         {
             var settlingFor = TimeProvider.GetElapsedTime(Interlocked.Read(ref _settlingPhaseStartedTicks));
-            if (settlingFor.TotalSeconds >= _settleTimeout * NeuralSettleFailSafeFraction)
+            if (settlingFor.TotalSeconds >= _settleTimeout * NeuralSettleFailSafeFraction &&
+                Volatile.Read(ref _settleExcursionResets) >= NeuralSettleFailSafeMinExcursions)
             {
                 neuralLoop.DisableNeuralModel();
                 Logger.LogWarning(
@@ -871,7 +890,7 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
             }
         }
 
-        var elapsed = TimeProvider.GetElapsedTime(_settleStartedTicks);
+        var elapsed = TimeProvider.GetElapsedTime(Interlocked.Read(ref _settleStartedTicks));
 
         // Check actual error distance (in pixels) against the settle threshold
         var tracker = _guideLoop?.ErrorTracker;
@@ -881,6 +900,7 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
             if (distance > _settlePixels * 3)
             {
                 // Large excursion — reset the settle timer completely
+                Interlocked.Increment(ref _settleExcursionResets);
                 RecordSettleStart();
                 return false;
             }

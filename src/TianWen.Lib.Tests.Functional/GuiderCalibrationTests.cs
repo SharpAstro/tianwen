@@ -513,6 +513,52 @@ public class GuiderCalibrationTests(ITestOutputHelper output)
         ok.ShouldNotBeNull("a perpendicular calibration must still be accepted (the gate must not false-reject)");
     }
 
+    [Fact(Timeout = 60_000)]
+    public async Task GivenConeErrorRigWhenValidateSavedCalibrationThenValid()
+    {
+        // A rig with real cone error / camera tilt shows the RA and Dec sweep directions 5-30deg
+        // off perpendicular on the sensor. Fresh calibration accepts that (the degeneracy gate is
+        // deliberately generous), so re-validation of the SAVED calibration on the same rig must
+        // accept it too -- using the tight session-drift tolerance here meant every session
+        // re-calibrated from scratch and threw away the neural model continuity.
+        var ct = TestContext.Current.CancellationToken;
+        var timeProvider = new FakeTimeProviderWrapper(new DateTimeOffset(2025, 6, 15, 22, 0, 0, TimeSpan.Zero));
+
+        var tracker = new GuiderCentroidTracker(maxStars: 1);
+        var rig = new DirectionalStarRig();
+
+        ValueTask<Image> Render(CancellationToken token)
+        {
+            ReadOnlySpan<ProjectedStar> stars = [new ProjectedStar(160 + rig.X, 120 + rig.Y, Magnitude: 5.0)];
+            return ValueTask.FromResult(Image.FromChannel(SyntheticStarFieldRenderer.Render(
+                320, 240, 0, stars, offsetX: 0, offsetY: 0, exposureSeconds: 2.0, pixelScaleArcsec: PixelScaleArcsec)));
+        }
+
+        tracker.ProcessFrame((await Render(ct)).GetChannelArray(0));
+        tracker.IsAcquired.ShouldBeTrue();
+
+        var calibration = new GuiderCalibration { CalibrationPulseDuration = TimeSpan.FromSeconds(1), CalibrationSteps = 3 };
+
+        // West sweeps along 180deg; North along 105deg -> 75deg axis separation = 15deg from
+        // perpendicular. Inside the 30deg fresh tolerance, outside the old 5deg validation gate.
+        var northAngleRad = 105.0 * Math.PI / 180.0;
+        rig.WestResponse = (-1.0, 0.0);
+        rig.NorthResponse = (Math.Cos(northAngleRad), Math.Sin(northAngleRad));
+
+        var calResult = await calibration.CalibrateAsync(rig, tracker, Render, timeProvider, ct);
+        calResult.ShouldNotBeNull("15deg non-orthogonality is within the fresh calibration tolerance");
+
+        // Re-acquire and validate the just-saved calibration on the unchanged rig.
+        tracker.Reset();
+        tracker.ProcessFrame((await Render(ct)).GetChannelArray(0));
+        tracker.IsAcquired.ShouldBeTrue();
+
+        var result = await calibration.ValidateAsync(calResult.Value, rig, tracker, Render, timeProvider, ct);
+        output.WriteLine($"Validation result: {result}");
+        result.ShouldBe(CalibrationValidationResult.Valid,
+            "a calibration that passed the fresh orthogonality gate must re-validate on the same rig");
+    }
+
     [Fact]
     public void SweepLinearityScoresMonotonicHighAndWanderingLow()
     {

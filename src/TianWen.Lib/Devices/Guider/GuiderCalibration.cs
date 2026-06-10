@@ -266,11 +266,7 @@ internal sealed class GuiderCalibration
         // non-responding axis) and would yield garbage corrections -- reject rather than guide on it.
         var raAxisAngleDeg = Math.Atan2(raDy, raDx) * 180.0 / Math.PI;
         var decAxisAngleDeg = Math.Atan2(decDy, decDx) * 180.0 / Math.PI;
-        var axisSeparationDeg = Math.Abs(decAxisAngleDeg - raAxisAngleDeg);
-        if (axisSeparationDeg > 180.0)
-        {
-            axisSeparationDeg = 360.0 - axisSeparationDeg;
-        }
+        var axisSeparationDeg = FoldAngleDiffDeg(Math.Abs(decAxisAngleDeg - raAxisAngleDeg));
         if (Math.Abs(axisSeparationDeg - 90.0) > FreshOrthogonalityToleranceDeg)
         {
             // RA/Dec axes not perpendicular -> degenerate calibration.
@@ -310,6 +306,13 @@ internal sealed class GuiderCalibration
                 BacklashClearingStepsRa: raBacklashResult.StepsUsed,
                 BacklashClearingStepsDec: decBacklashResult.StepsUsed));
     }
+
+    /// <summary>
+    /// Folds an absolute angle difference (degrees, up to 360) into [0, 180] so two directions
+    /// can be compared by their shortest angular separation regardless of winding.
+    /// </summary>
+    internal static double FoldAngleDiffDeg(double absDiffDeg)
+        => absDiffDeg > 180.0 ? 360.0 - absDiffDeg : absDiffDeg;
 
     /// <summary>
     /// Sweep linearity = net displacement / total path length travelled through the recorded steps.
@@ -397,12 +400,7 @@ internal sealed class GuiderCalibration
 
         // Compare camera angle
         var measuredAngleRad = Math.Atan2(dy, dx);
-        var angleDiffDeg = Math.Abs(measuredAngleRad - savedCalibration.CameraAngleRad) * 180.0 / Math.PI;
-        // Normalize to [0, 180]
-        if (angleDiffDeg > 180.0)
-        {
-            angleDiffDeg = 360.0 - angleDiffDeg;
-        }
+        var angleDiffDeg = FoldAngleDiffDeg(Math.Abs(measuredAngleRad - savedCalibration.CameraAngleRad) * 180.0 / Math.PI);
 
         if (angleDiffDeg > AngleToleranceDeg)
         {
@@ -471,14 +469,15 @@ internal sealed class GuiderCalibration
 
         // Orthogonality: the Dec (North) displacement direction must be ~90deg from the RA
         // (West) displacement direction. If the saved camera angle no longer keeps the axes
-        // orthogonal (pier flip, large rotation), reject so we recalibrate cleanly.
+        // orthogonal (pier flip, large rotation), reject so we recalibrate cleanly. This measures
+        // the same physical quantity as the fresh-calibration degeneracy gate, so it uses the same
+        // generous tolerance: a rig with real cone error / camera tilt (5-30deg apparent
+        // non-orthogonality) passes fresh calibration and must not have its saved calibration
+        // invalidated every session. Session-to-session DRIFT is caught by the camera-angle check
+        // above, which compares against the saved angle at the tight AngleToleranceDeg.
         var measuredDecAngleRad = Math.Atan2(ddy, ddx);
-        var raToDecDeg = Math.Abs(measuredDecAngleRad - measuredAngleRad) * 180.0 / Math.PI;
-        if (raToDecDeg > 180.0)
-        {
-            raToDecDeg = 360.0 - raToDecDeg;
-        }
-        if (Math.Abs(raToDecDeg - 90.0) > AngleToleranceDeg)
+        var raToDecDeg = FoldAngleDiffDeg(Math.Abs(measuredDecAngleRad - measuredAngleRad) * 180.0 / Math.PI);
+        if (Math.Abs(raToDecDeg - 90.0) > FreshOrthogonalityToleranceDeg)
         {
             return CalibrationValidationResult.AngleChanged;
         }
@@ -687,8 +686,7 @@ public sealed record CalibrationOverlayData(
             var decLast = DecSteps[^1];
             var raAngle = Math.Atan2(raLast.Y - RaOrigin.Y, raLast.X - RaOrigin.X);
             var decAngle = Math.Atan2(decLast.Y - DecOrigin.Y, decLast.X - DecOrigin.X);
-            var diff = Math.Abs(decAngle - raAngle) * 180.0 / Math.PI;
-            if (diff > 180) diff = 360 - diff;
+            var diff = GuiderCalibration.FoldAngleDiffDeg(Math.Abs(decAngle - raAngle) * 180.0 / Math.PI);
             return Math.Abs(diff - 90);
         }
     }

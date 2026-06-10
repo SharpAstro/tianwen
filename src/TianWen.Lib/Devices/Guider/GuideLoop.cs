@@ -183,6 +183,12 @@ internal sealed class GuideLoop
     private int _consecutiveDivergentFrames;
 
     /// <summary>
+    /// Current consecutive-divergent-frame count feeding <see cref="RecalibrationRequested"/>.
+    /// Exposed for tests asserting the counter resets across star-loss gaps.
+    /// </summary>
+    internal int ConsecutiveDivergentFrames => _consecutiveDivergentFrames;
+
+    /// <summary>
     /// Whether the guide loop is currently running.
     /// </summary>
     public bool IsGuiding => _isGuiding;
@@ -387,6 +393,10 @@ internal sealed class GuideLoop
                             _guideFrameCount, _lastPrimaryX, _lastPrimaryY);
                     }
                     _hasPreviousError = false;
+                    // A star-loss gap breaks the "consecutive divergent frames" contract: frames
+                    // with no centroid must not bridge two divergent stretches into one sustained
+                    // run, or a cloud passage followed by a single bad frame triggers recalibration.
+                    _consecutiveDivergentFrames = 0;
                     await _timeProvider.SleepAsync(exposureInterval, cancellationToken);
                     continue;
                 }
@@ -429,10 +439,7 @@ internal sealed class GuideLoop
                 // Short-window total guide RMS, computed once for the safety nets below (only once
                 // enough samples have accrued to be meaningful).
                 var haveDivergenceSamples = _errorTracker.ShortWindowCount >= 10;
-                var shortTotalRms = haveDivergenceSamples
-                    ? Math.Sqrt(_errorTracker.RaRmsShort * _errorTracker.RaRmsShort +
-                                _errorTracker.DecRmsShort * _errorTracker.DecRmsShort)
-                    : 0.0;
+                var shortTotalRms = haveDivergenceSamples ? _errorTracker.TotalRmsShort : 0.0;
 
                 // Robust divergence kill-switch (independent of the perf monitor): if the short-window
                 // guide RMS blows past a sane bound while the neural model is engaged, the model is
@@ -511,9 +518,8 @@ internal sealed class GuideLoop
                 if (_experienceBuffer is not null && _neuralFeatures is not null)
                 {
                     var features = new float[NeuralGuideModel.InputSize];
-                    var (raErr, decErr) = calibration.TransformToMountAxes(result.Value.DeltaX, result.Value.DeltaY);
                     // Pass previous frame's correction in pixels so gear error can be accumulated
-                    _neuralFeatures.Build(raErr, decErr,
+                    _neuralFeatures.Build(raErrorPx, decErrorPx,
                         _lastRaCorrectionPx, _lastDecCorrectionPx,
                         timestamp,
                         _errorTracker.RaRmsShort, _errorTracker.DecRmsShort, hourAngle, declination,
