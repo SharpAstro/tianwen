@@ -9,6 +9,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using TianWen.DAL;
 using TianWen.Lib.Astrometry.Catalogs;
+using TianWen.Lib.Astrometry.SOFA;
 using TianWen.Lib.Imaging;
 
 namespace TianWen.Lib.Devices.Fake;
@@ -139,11 +140,12 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver
     // Cached pointing is read in the (async) StartExposureAsync and consumed by
     // the (sync) render path; both are guarded by _lock.
     private IMountDriver? _coupledMount;
+    private Transform? _coupledMountTransform; // reused SOFA transform for native -> J2000 (built once, time refreshed per exposure)
     private bool _mountRefCaptured;     // reference (zero-drift) pointing captured?
-    private double _mountRefRa;         // believed RA at first guide exposure (hours)
-    private double _mountRefDec;        // believed Dec (degrees)
-    private double _mountCachedRa;      // mount RA snapshot from the last StartExposureAsync
-    private double _mountCachedDec;     // mount Dec snapshot
+    private double _mountRefRa;         // believed RA at first guide exposure (J2000 hours)
+    private double _mountRefDec;        // believed Dec (J2000 degrees)
+    private double _mountCachedRa;      // mount RA snapshot from the last StartExposureAsync (J2000 hours)
+    private double _mountCachedDec;     // mount Dec snapshot (J2000 degrees)
     private bool _mountPointingValid;   // a snapshot has been taken at least once
 
     /// <summary>
@@ -748,8 +750,18 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver
         {
             try
             {
-                var mountRa = await coupledMount.GetRightAscensionAsync(cancellationToken).ConfigureAwait(false);
-                var mountDec = await coupledMount.GetDeclinationAsync(cancellationToken).ConfigureAwait(false);
+                // The catalog projection centre and the drift reference are J2000 quantities;
+                // read the pointing via the frame-converting helper — a raw native (JNOW) read
+                // here would shift the rendered sky by ~22' of precession at epoch 2026, which
+                // is exactly the offset that wedged plate-solve centering. The transform is
+                // built once and its clock refreshed per exposure (updateTime: true).
+                _coupledMountTransform ??= await coupledMount.TryGetTransformAsync(cancellationToken).ConfigureAwait(false);
+                if (_coupledMountTransform is not { } mountTransform
+                    || await coupledMount.GetRaDecJ2000Async(mountTransform, updateTime: true, cancellationToken).ConfigureAwait(false) is not { } pointing)
+                {
+                    throw new InvalidOperationException("mount pointing unavailable in J2000 (transform unavailable)");
+                }
+                var (mountRa, mountDec) = pointing;
                 var slewDetected = false;
                 lock (_lock)
                 {
@@ -895,6 +907,10 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver
                         }
                         rotationDeg = GuideRotationDeg;
                     }
+
+                    LastCatalogRenderCentre = CelestialObjectDB is not null && hasPointing && FocalLength > 0
+                        ? (pointingRa, pointingDec)
+                        : null;
 
                     if (CelestialObjectDB is { } db && hasPointing && FocalLength > 0)
                     {
@@ -1148,6 +1164,14 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver
     /// pointing snapshot taken by the most recent <see cref="StartExposureAsync"/>.
     /// </summary>
     internal (double X, double Y) CurrentMountDriftPixels => MountDriftPixels();
+
+    /// <summary>
+    /// Test seam: J2000 projection centre (RA hours, Dec degrees) of the most recent
+    /// catalog-star render — i.e. the stamped <see cref="Target"/> for main cameras, or the
+    /// coupled mount's frame-converted pointing plus cone error for the guide camera. Null when
+    /// the last render fell back to the random star field.
+    /// </summary>
+    internal (double RaJ2000, double DecJ2000)? LastCatalogRenderCentre { get; private set; }
 
     protected override void Dispose(bool disposing)
     {

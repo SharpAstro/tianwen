@@ -686,4 +686,108 @@ public class FakeCameraMountCouplingTests(ITestOutputHelper output)
         tracker2.IsAcquired.ShouldBeTrue(
             "the star field must follow the mount to the new pointing — this was the starless-after-slew bug");
     }
+
+    /// <summary>
+    /// Frame-correctness regression (the "centering stuck at 22 arcmin" bug): the SkyWatcher
+    /// protocol reports TOPOCENTRIC (JNOW) coordinates, but the synthetic sky is the J2000
+    /// catalog. The guide camera must therefore frame-convert the coupled mount's pointing
+    /// before projecting catalog stars; treating the native read as J2000 shifts the rendered
+    /// sky by ~25 years of precession.
+    /// </summary>
+    [Fact(Timeout = 120_000)]
+    public async Task GivenTopocentricSkywatcherThenGuideCamProjectsAtJ2000ConvertedPointing()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var external = new FakeExternal(output, now: new DateTimeOffset(2025, 6, 15, 22, 0, 0, TimeSpan.Zero));
+        var db = new CelestialObjectDB();
+        await db.InitDBAsync(waitForTycho2BulkLoad: true, cancellationToken: ct);
+        external.CelestialObjectDB = db;
+
+        await using var sp = BuildHubServiceProvider(external);
+        var hub = sp.GetRequiredService<IDeviceHub>();
+
+        var mount = await ConnectMisalignedMountAsync(hub, ct);
+        await mount.SetTrackingAsync(true, ct);
+        await mount.SyncRaDecAsync(6.0, 45.0, ct); // native (JNOW) coordinates
+
+        var guideCam = (FakeCameraDriver)await hub.ConnectAsync(
+            new FakeDevice(new Uri("camera://FakeDevice/FakeGuideCam1#Fake Guide Cam")), ct);
+        guideCam.FocalLength = 130;
+        guideCam.BinX = 1;
+        guideCam.NumX = 800;
+        guideCam.NumY = 600;
+        // Zero the realism offsets so the projection centre is the converted pointing exactly.
+        guideCam.GuideConeErrorRaArcmin = 0;
+        guideCam.GuideConeErrorDecArcmin = 0;
+        guideCam.GuideRotationDeg = 0;
+
+        // Expected J2000 centre computed through the same SOFA path the driver helper uses.
+        var transform = await mount.TryGetTransformAsync(ct);
+        transform.ShouldNotBeNull();
+        transform.SetTopocentric(6.0, 45.0);
+        transform.Refresh();
+        var expectedRa = transform.RAJ2000;
+        var expectedDec = transform.DecJ2000;
+
+        IExternal externalItf = external;
+        var frame = await BuiltInGuiderDriver.CaptureGuideFrameAsync(
+            guideCam, TimeSpan.FromSeconds(2), external.TimeProvider, externalItf.ImageReadyPollInterval, ct);
+        frame.Release();
+
+        var centre = guideCam.LastCatalogRenderCentre;
+        centre.HasValue.ShouldBeTrue("the catalog branch must have rendered (DB + coupled mount + focal length present)");
+        output.WriteLine($"render centre: RA={centre!.Value.RaJ2000:F5}h Dec={centre.Value.DecJ2000:F4}° (native 6.00000h/45.0000°, expected J2000 {expectedRa:F5}h/{expectedDec:F4}°)");
+        centre.Value.RaJ2000.ShouldBe(expectedRa, 5e-4);
+        centre.Value.DecJ2000.ShouldBe(expectedDec, 5e-3);
+        // The conversion must be material — ~25 years of precession, not a native pass-through.
+        Math.Abs(centre.Value.RaJ2000 - 6.0).ShouldBeGreaterThan(0.01,
+            "rendering the J2000 sky at the raw JNOW pointing is the bug this guards against");
+    }
+
+    /// <summary>
+    /// Round-trip consistency that plate-solve centering depends on: slewing to a J2000 target
+    /// (session-style, J2000 → mount-native conversion) and reading the pointing back through
+    /// <see cref="IMountDriver.GetRaDecJ2000Async(CancellationToken)"/> must agree to well under
+    /// the ~22' precession error that previously wedged the sync/re-slew loop.
+    /// </summary>
+    [Fact(Timeout = 60_000)]
+    public async Task GivenTopocentricSkywatcherWhenSlewingToJ2000TargetThenJ2000ReadbackMatches()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var external = new FakeExternal(output, now: new DateTimeOffset(2025, 6, 15, 22, 0, 0, TimeSpan.Zero));
+        await using var sp = BuildHubServiceProvider(external);
+        var hub = sp.GetRequiredService<IDeviceHub>();
+
+        var mount = await ConnectMisalignedMountAsync(hub, ct);
+        await mount.SetTrackingAsync(true, ct);
+        await mount.SyncRaDecAsync(6.0, 45.0, ct); // learn alignment away from the pole
+
+        // High-altitude target (close to the LST meridian at this site/time) so the
+        // refraction-model asymmetry between slew and readback stays negligible.
+        var target = new Target(16.5, 45.0, "RoundTrip", null);
+        var slew = await mount.BeginSlewToTargetAsync(target, minAboveHorizonDegrees: 5, ct);
+        slew.PostCondition.ShouldBe(SlewPostCondition.Slewing);
+        for (var i = 0; i < 600 && await mount.IsSlewingAsync(ct); i++)
+        {
+            external.TimeProvider.Advance(TimeSpan.FromSeconds(1));
+            await Task.Delay(1, ct);
+        }
+        (await mount.IsSlewingAsync(ct)).ShouldBeFalse("slew must complete within the pumped window");
+
+        var readback = await mount.GetRaDecJ2000Async(ct);
+        readback.ShouldNotBeNull();
+        var (raJ2000, decJ2000) = readback.Value;
+
+        var cosDec = Math.Cos(target.Dec * Math.PI / 180.0);
+        var raErrArcmin = Math.Abs(raJ2000 - target.RA) * 15.0 * 60.0 * cosDec;
+        var decErrArcmin = Math.Abs(decJ2000 - target.Dec) * 60.0;
+        output.WriteLine($"J2000 readback: RA={raJ2000:F5}h Dec={decJ2000:F4}° err=({raErrArcmin:F2}', {decErrArcmin:F2}')");
+        raErrArcmin.ShouldBeLessThan(3.0, "J2000 slew → J2000 readback must agree (the old native-as-J2000 path was ~22' off)");
+        decErrArcmin.ShouldBeLessThan(3.0);
+
+        // And the native reading genuinely differs (the mount really is topocentric).
+        var nativeRa = await mount.GetRightAscensionAsync(ct);
+        (Math.Abs(nativeRa - raJ2000) * 15.0 * 60.0 * cosDec).ShouldBeGreaterThan(5.0,
+            "native (JNOW) and J2000 must differ by ~25 years of precession (~8' at this pointing) — if not, this test lost its teeth");
+    }
 }

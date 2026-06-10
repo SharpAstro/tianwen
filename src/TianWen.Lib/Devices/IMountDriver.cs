@@ -505,6 +505,20 @@ public interface IMountDriver : IDeviceDriver
     }
 
     /// <summary>
+    /// One-shot convenience over <see cref="GetRaDecJ2000Async(Transform, bool, CancellationToken)"/>:
+    /// builds a fresh <see cref="Transform"/> (site + mount UTC) per call. Use this anywhere the
+    /// mount's pointing feeds a J2000 quantity — a <see cref="Target"/> stamp, a plate-solve
+    /// search origin, a catalog projection centre. Treating the NATIVE read as J2000 is off by
+    /// precession (~22' in 2026 for topocentric mounts) — enough to wedge plate-solve centering
+    /// in a sync/re-slew loop that never converges. Prefer the Transform-reusing overload on
+    /// per-frame hot paths.
+    /// </summary>
+    async ValueTask<(double RaJ2000, double DecJ2000)?> GetRaDecJ2000Async(CancellationToken cancellationToken)
+        => await TryGetTransformAsync(cancellationToken) is { } transform
+            ? await GetRaDecJ2000Async(transform, updateTime: false, cancellationToken)
+            : null;
+
+    /// <summary>
     /// Checks whether the mount is still on the same side of the meridian as when the slew started.
     /// Uses hour angle comparison with a deadband to detect clear meridian crossings, which works
     /// reliably across all mount types (including LX200 mounts that cannot report physical pier side).

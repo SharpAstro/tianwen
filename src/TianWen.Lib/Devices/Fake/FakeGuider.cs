@@ -523,13 +523,18 @@ internal class FakeGuider(FakeDevice fakeDevice, IServiceProvider serviceProvide
         Directory.CreateDirectory(outputFolder);
         var path = Path.Combine(outputFolder, $"guider_{TimeProvider.GetUtcNow().UtcDateTime:yyyyMMdd_HHmmss}.fits");
 
-        // Write WCS headers from current mount pointing so FakePlateSolver can read them
+        // Write WCS headers from current mount pointing so FakePlateSolver can read them.
+        // FITS WCS is a J2000 quantity — convert from the mount's native (typically JNOW) frame.
         WCS? wcs = null;
         if (_mount is { Connected: true } mount)
         {
-            var ra = double.IsNaN(PointingRA) ? await mount.GetRightAscensionAsync(cancellationToken) : PointingRA;
-            var dec = double.IsNaN(PointingDec) ? await mount.GetDeclinationAsync(cancellationToken) : PointingDec;
-            wcs = new WCS(ra, dec);
+            var mountJ2000 = await mount.GetRaDecJ2000Async(cancellationToken);
+            var ra = double.IsNaN(PointingRA) ? mountJ2000?.RaJ2000 : PointingRA;
+            var dec = double.IsNaN(PointingDec) ? mountJ2000?.DecJ2000 : PointingDec;
+            if (ra is { } raJ2000 && dec is { } decJ2000)
+            {
+                wcs = new WCS(raJ2000, decJ2000);
+            }
         }
         else if (!double.IsNaN(PointingRA) && !double.IsNaN(PointingDec))
         {
