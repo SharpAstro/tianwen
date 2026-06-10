@@ -31,6 +31,8 @@ public enum DeviceSettingKind
 /// <param name="IsVisible">Optional predicate to conditionally hide this row (e.g. blend% only when neural=true).</param>
 /// <param name="Placeholder">Placeholder text for <see cref="DeviceSettingKind.StringEditor"/> fields.</param>
 /// <param name="Mask">When true, the displayed value is masked (e.g. for API keys). Only used by <see cref="DeviceSettingKind.StringEditor"/>.</param>
+/// <param name="IsAdvanced">When true, the row is grouped under a collapsed-by-default "Advanced" sub-section
+/// (expert knobs with sensible defaults that most users never touch).</param>
 public readonly record struct DeviceSettingDescriptor(
     string Key,
     string Label,
@@ -40,7 +42,8 @@ public readonly record struct DeviceSettingDescriptor(
     Func<Uri, Uri>? Decrement = null,
     Func<Uri, bool>? IsVisible = null,
     string? Placeholder = null,
-    bool Mask = false);
+    bool Mask = false,
+    bool IsAdvanced = false);
 
 public static class DeviceSettingHelper
 {
@@ -73,7 +76,8 @@ public static class DeviceSettingHelper
         string key, string label,
         bool defaultValue = true,
         string trueLabel = "Yes", string falseLabel = "No",
-        Func<Uri, bool>? isVisible = null)
+        Func<Uri, bool>? isVisible = null,
+        bool isAdvanced = false)
     {
         return new DeviceSettingDescriptor(
             key, label, DeviceSettingKind.BoolToggle,
@@ -89,7 +93,8 @@ public static class DeviceSettingHelper
                 var current = val is null || !bool.TryParse(val, out var b) ? defaultValue : b;
                 return WithQueryParam(uri, key, (!current).ToString());
             },
-            IsVisible: isVisible);
+            IsVisible: isVisible,
+            IsAdvanced: isAdvanced);
     }
 
     /// <summary>
@@ -98,7 +103,8 @@ public static class DeviceSettingHelper
     public static DeviceSettingDescriptor EnumSetting<TEnum>(
         string key, string label,
         TEnum defaultValue,
-        Func<Uri, bool>? isVisible = null) where TEnum : struct, Enum
+        Func<Uri, bool>? isVisible = null,
+        bool isAdvanced = false) where TEnum : struct, Enum
     {
         var values = Enum.GetValues<TEnum>();
         return new DeviceSettingDescriptor(
@@ -118,7 +124,8 @@ public static class DeviceSettingHelper
                 var next = values[(idx + 1) % values.Length];
                 return WithQueryParam(uri, key, next.ToString());
             },
-            IsVisible: isVisible);
+            IsVisible: isVisible,
+            IsAdvanced: isAdvanced);
     }
 
     /// <summary>
@@ -128,7 +135,8 @@ public static class DeviceSettingHelper
         string key, string label,
         int defaultValue, int min, int max, int step,
         string? suffix = null,
-        Func<Uri, bool>? isVisible = null)
+        Func<Uri, bool>? isVisible = null,
+        bool isAdvanced = false)
     {
         return new DeviceSettingDescriptor(
             key, label, DeviceSettingKind.IntStepper,
@@ -150,7 +158,8 @@ public static class DeviceSettingHelper
                 var current = val is not null && int.TryParse(val, CultureInfo.InvariantCulture, out var i) ? i : defaultValue;
                 return WithQueryParam(uri, key, Math.Max(min, current - step).ToString(CultureInfo.InvariantCulture));
             },
-            IsVisible: isVisible);
+            IsVisible: isVisible,
+            IsAdvanced: isAdvanced);
     }
 
     /// <summary>
@@ -160,7 +169,8 @@ public static class DeviceSettingHelper
         string key, string label,
         double defaultValue, double min, double max, double step,
         string format = "F1", string? suffix = null,
-        Func<Uri, bool>? isVisible = null)
+        Func<Uri, bool>? isVisible = null,
+        bool isAdvanced = false)
     {
         return new DeviceSettingDescriptor(
             key, label, DeviceSettingKind.FloatStepper,
@@ -184,7 +194,8 @@ public static class DeviceSettingHelper
                 var current = val is not null && double.TryParse(val, CultureInfo.InvariantCulture, out var d) ? d : defaultValue;
                 return WithQueryParam(uri, key, Math.Max(min, current - step).ToString(CultureInfo.InvariantCulture));
             },
-            IsVisible: isVisible);
+            IsVisible: isVisible,
+            IsAdvanced: isAdvanced);
     }
 
     /// <summary>
@@ -193,7 +204,8 @@ public static class DeviceSettingHelper
     public static DeviceSettingDescriptor PercentSetting(
         string key, string label,
         int defaultPercent, int stepPercent = 5,
-        Func<Uri, bool>? isVisible = null)
+        Func<Uri, bool>? isVisible = null,
+        bool isAdvanced = false)
     {
         return new DeviceSettingDescriptor(
             key, label, DeviceSettingKind.PercentStepper,
@@ -223,7 +235,8 @@ public static class DeviceSettingHelper
                 var newPct = Math.Max(0, pct - stepPercent);
                 return WithQueryParam(uri, key, (newPct / 100.0).ToString(CultureInfo.InvariantCulture));
             },
-            IsVisible: isVisible);
+            IsVisible: isVisible,
+            IsAdvanced: isAdvanced);
     }
 
     /// <summary>
@@ -238,7 +251,8 @@ public static class DeviceSettingHelper
         string defaultValue = "",
         string? placeholder = null,
         bool mask = false,
-        Func<Uri, bool>? isVisible = null)
+        Func<Uri, bool>? isVisible = null,
+        bool isAdvanced = false)
     {
         return new DeviceSettingDescriptor(
             key, label, DeviceSettingKind.StringEditor,
@@ -252,6 +266,7 @@ public static class DeviceSettingHelper
             Decrement: uri => uri,
             IsVisible: isVisible,
             Placeholder: placeholder,
-            Mask: mask);
+            Mask: mask,
+            IsAdvanced: isAdvanced);
     }
 }

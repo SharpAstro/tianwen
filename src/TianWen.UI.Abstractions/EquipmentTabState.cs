@@ -149,6 +149,13 @@ public class EquipmentTabState
     /// <summary>Key of the string setting currently being edited, or null.</summary>
     public string? EditingStringSettingKey { get; set; }
 
+    /// <summary>
+    /// Whether the "Advanced" sub-section of the expanded device settings pane is open.
+    /// Collapsed by default; survives Save (re-opening the same device) but resets when a
+    /// different device's pane is expanded.
+    /// </summary>
+    public bool AdvancedDeviceSettingsExpanded { get; set; }
+
     /// <summary>Text input state for the active <see cref="DeviceSettingKind.StringEditor"/> field.</summary>
     public TextInputState StringSettingInput { get; } = new();
 
@@ -157,7 +164,14 @@ public class EquipmentTabState
     /// </summary>
     public void BeginEditingDeviceSettings(Uri deviceUri)
     {
-        ExpandedDeviceSettingsUri = deviceUri.GetLeftPart(UriPartial.Path);
+        var deviceKey = deviceUri.GetLeftPart(UriPartial.Path);
+        if (ExpandedDeviceSettingsUri != deviceKey)
+        {
+            // Different device: start with the advanced sub-section collapsed. Re-opening the
+            // same device (e.g. after Save) keeps it as the user left it.
+            AdvancedDeviceSettingsExpanded = false;
+        }
+        ExpandedDeviceSettingsUri = deviceKey;
         SavedDeviceSettingsUri = deviceUri;
         EditingDeviceUri = deviceUri;
         DeviceSettingsDirty = false;
@@ -171,6 +185,7 @@ public class EquipmentTabState
         ExpandedDeviceSettingsUri = null;
         EditingDeviceUri = null;
         DeviceSettingsDirty = false;
+        AdvancedDeviceSettingsExpanded = false;
     }
 
     /// <summary>

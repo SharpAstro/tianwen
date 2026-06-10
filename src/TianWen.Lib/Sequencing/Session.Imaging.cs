@@ -227,13 +227,11 @@ internal partial record Session
     /// <exception cref="InvalidOperationException"></exception>
     /// <summary>
     /// Backstop for how long the imaging loop defers to the guider recovering a lock in place
-    /// before forcing a clean restart. The built-in guider bounds its own recovery and goes to
-    /// "Stopped" (raising a guiding error) when it truly gives up -- at which point the session
-    /// restarts immediately, without waiting this out. This grace only covers a pathological
-    /// never-completing "Settling" (the driver's TryCompleteSettle has no settle-timeout-to-Idle
-    /// path): normal bounded recovery resolves to Guiding or Stopped well before it.
+    /// before forcing a clean restart. Tunable via
+    /// <see cref="SessionConfiguration.GuiderRecoveryGrace"/>; see that doc for the rationale.
     /// </summary>
-    private static readonly TimeSpan GuiderRecoveryGrace = TimeSpan.FromMinutes(3);
+    private TimeSpan GuiderRecoveryGrace =>
+        Configuration.GuiderRecoveryGrace ?? SessionConfiguration.DefaultGuiderRecoveryGrace;
 
     /// <summary>How <see cref="ImagingLoopAsync"/> should react to the guider's reported health.
     /// See <see cref="DecideGuiderIntervention"/>.</summary>

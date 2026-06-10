@@ -148,6 +148,13 @@ namespace TianWen.UI.Abstractions
                         c => $"{c.GuidingTries}",
                         c => c with { GuidingTries = Math.Min(c.GuidingTries + 1, 10) },
                         c => c with { GuidingTries = Math.Max(c.GuidingTries - 1, 1) }),
+                    new ConfigFieldDescriptor(
+                        "Recovery Grace", ConfigFieldKind.NullableTimeSpanStepper, "",
+                        c => c.GuiderRecoveryGrace is { } grace
+                            ? FormatTimeSpan(grace)
+                            : $"Auto ({FormatTimeSpan(SessionConfiguration.DefaultGuiderRecoveryGrace)})",
+                        c => c with { GuiderRecoveryGrace = StepNullableTimeSpan(c.GuiderRecoveryGrace, TimeSpan.FromMinutes(1), SessionConfiguration.DefaultGuiderRecoveryGrace, true) },
+                        c => c with { GuiderRecoveryGrace = StepNullableTimeSpan(c.GuiderRecoveryGrace, TimeSpan.FromMinutes(1), SessionConfiguration.DefaultGuiderRecoveryGrace, false) }),
                 ]),
 
                 new ConfigGroup("Horizon",

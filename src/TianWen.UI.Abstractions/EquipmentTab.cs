@@ -2043,24 +2043,18 @@ namespace TianWen.UI.Abstractions
             var labelX = x + padding * 2f;
             var stepBtnW = 24f * dpiScale;
 
-            for (var i = 0; i < settings.Length; i++)
+            // Local row renderer shared by the basic pass and the advanced sub-section.
+            var rowIndex = 0;
+            float RenderSettingRow(DeviceSettingDescriptor desc, float rowCursor)
             {
-                var desc = settings[i];
-
-                // Conditional visibility
-                if (desc.IsVisible is { } isVisible && !isVisible(editingUri))
-                {
-                    continue;
-                }
-
-                var rowBg = i % 2 == 0 ? FilterTableBg : FilterRowAlt;
-                FillRect(x + padding, cursor, w - padding * 2f, rowH, rowBg);
+                var rowBg = rowIndex++ % 2 == 0 ? FilterTableBg : FilterRowAlt;
+                FillRect(x + padding, rowCursor, w - padding * 2f, rowH, rowBg);
 
                 // StringEditor uses a narrower label to give more space to the text input
                 var rowLabelW = desc.Kind == DeviceSettingKind.StringEditor ? w * 0.25f : labelW;
                 var rowControlX = x + padding * 2f + rowLabelW;
                 var rowControlW = w - padding * 4f - rowLabelW;
-                DrawText($"{desc.Label}:".AsSpan(), fontPath, labelX, cursor, rowLabelW, rowH, fontSize * 0.85f, DimText, TextAlign.Near, TextAlign.Center);
+                DrawText($"{desc.Label}:".AsSpan(), fontPath, labelX, rowCursor, rowLabelW, rowH, fontSize * 0.85f, DimText, TextAlign.Near, TextAlign.Center);
 
                 var capturedDesc = desc;
                 switch (desc.Kind)
@@ -2069,7 +2063,7 @@ namespace TianWen.UI.Abstractions
                     case DeviceSettingKind.EnumCycle:
                     {
                         var valueLabel = desc.FormatValue(editingUri);
-                        RenderButton(valueLabel, controlX, cursor, controlW, rowH, fontPath, fontSize * 0.85f, EditButtonBg, BodyText, $"Cycle_{desc.Key}",
+                        RenderButton(valueLabel, controlX, rowCursor, controlW, rowH, fontPath, fontSize * 0.85f, EditButtonBg, BodyText, $"Cycle_{desc.Key}",
                             _ =>
                             {
                                 State.EditingDeviceUri = capturedDesc.Increment(editingUri);
@@ -2085,7 +2079,7 @@ namespace TianWen.UI.Abstractions
                         // [-] button
                         if (desc.Decrement is { } decrement)
                         {
-                            RenderButton("-", controlX, cursor, stepBtnW, rowH, fontPath, fontSize * 0.85f, EditButtonBg, BodyText, $"Dec_{desc.Key}",
+                            RenderButton("-", controlX, rowCursor, stepBtnW, rowH, fontPath, fontSize * 0.85f, EditButtonBg, BodyText, $"Dec_{desc.Key}",
                                 _ =>
                                 {
                                     State.EditingDeviceUri = decrement(editingUri);
@@ -2096,10 +2090,10 @@ namespace TianWen.UI.Abstractions
                         // Value label
                         var valueText = desc.FormatValue(editingUri);
                         var valueW = controlW - stepBtnW * 2f;
-                        DrawText(valueText.AsSpan(), fontPath, controlX + stepBtnW, cursor, valueW, rowH, fontSize * 0.85f, BodyText, TextAlign.Center, TextAlign.Center);
+                        DrawText(valueText.AsSpan(), fontPath, controlX + stepBtnW, rowCursor, valueW, rowH, fontSize * 0.85f, BodyText, TextAlign.Center, TextAlign.Center);
 
                         // [+] button
-                        RenderButton("+", controlX + controlW - stepBtnW, cursor, stepBtnW, rowH, fontPath, fontSize * 0.85f, EditButtonBg, BodyText, $"Inc_{desc.Key}",
+                        RenderButton("+", controlX + controlW - stepBtnW, rowCursor, stepBtnW, rowH, fontPath, fontSize * 0.85f, EditButtonBg, BodyText, $"Inc_{desc.Key}",
                             _ =>
                             {
                                 State.EditingDeviceUri = capturedDesc.Increment(editingUri);
@@ -2118,7 +2112,7 @@ namespace TianWen.UI.Abstractions
                             {
                                 State.StringSettingInput.Placeholder = placeholder;
                             }
-                            RenderTextInput(State.StringSettingInput, (int)rowControlX, (int)cursor, (int)rowControlW, (int)rowH, fontPath, fontSize * 0.85f);
+                            RenderTextInput(State.StringSettingInput, (int)rowControlX, (int)rowCursor, (int)rowControlW, (int)rowH, fontPath, fontSize * 0.85f);
                         }
                         else
                         {
@@ -2131,7 +2125,7 @@ namespace TianWen.UI.Abstractions
                             {
                                 displayValue = desc.Placeholder ?? "(empty)";
                             }
-                            RenderButton(displayValue, rowControlX, cursor, rowControlW, rowH, fontPath, fontSize * 0.85f, EditButtonBg, BodyText, $"Edit_{desc.Key}",
+                            RenderButton(displayValue, rowControlX, rowCursor, rowControlW, rowH, fontPath, fontSize * 0.85f, EditButtonBg, BodyText, $"Edit_{desc.Key}",
                                 _ =>
                                 {
                                     State.EditingStringSettingKey = capturedDesc.Key;
@@ -2142,7 +2136,53 @@ namespace TianWen.UI.Abstractions
                     }
                 }
 
+                return rowCursor + rowH;
+            }
+
+            // Basic rows first; advanced rows are deferred to a collapsed-by-default sub-section.
+            var visibleAdvancedCount = 0;
+            for (var i = 0; i < settings.Length; i++)
+            {
+                var desc = settings[i];
+
+                // Conditional visibility
+                if (desc.IsVisible is { } isVisible && !isVisible(editingUri))
+                {
+                    continue;
+                }
+                if (desc.IsAdvanced)
+                {
+                    visibleAdvancedCount++;
+                    continue;
+                }
+
+                cursor = RenderSettingRow(desc, cursor);
+            }
+
+            // Advanced sub-section: expert knobs with sensible defaults, collapsed by default.
+            if (visibleAdvancedCount > 0)
+            {
+                var advancedExpanded = State.AdvancedDeviceSettingsExpanded;
+                var advancedLabel = advancedExpanded ? "      Advanced [-]" : "      Advanced [+]";
+                FillRect(x + padding, cursor, w - padding * 2f, rowH, FilterTableBg);
+                RegisterClickable(x + padding, cursor, w - padding * 2f, rowH, new HitResult.ButtonHit($"ToggleAdvanced_{deviceKey}"),
+                    _ => State.AdvancedDeviceSettingsExpanded = !advancedExpanded);
+                DrawText(advancedLabel.AsSpan(), fontPath, x + padding * 2f, cursor, w - padding * 4f, rowH, fontSize * 0.85f, DimText, TextAlign.Near, TextAlign.Center);
                 cursor += rowH;
+
+                if (advancedExpanded)
+                {
+                    for (var i = 0; i < settings.Length; i++)
+                    {
+                        var desc = settings[i];
+                        if (!desc.IsAdvanced || (desc.IsVisible is { } isVisible && !isVisible(editingUri)))
+                        {
+                            continue;
+                        }
+
+                        cursor = RenderSettingRow(desc, cursor);
+                    }
+                }
             }
 
             // Commit any active string editor when focus moves away

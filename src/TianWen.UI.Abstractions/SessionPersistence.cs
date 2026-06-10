@@ -79,6 +79,9 @@ public static class SessionPersistence
             ConditionDeteriorationThreshold: dto.ConditionDeteriorationThreshold,
             ConditionRecoveryTimeout: dto.ConditionRecoveryTimeoutMinutes.HasValue
                 ? TimeSpan.FromMinutes(dto.ConditionRecoveryTimeoutMinutes.Value)
+                : null,
+            GuiderRecoveryGrace: dto.GuiderRecoveryGraceMinutes.HasValue
+                ? TimeSpan.FromMinutes(dto.GuiderRecoveryGraceMinutes.Value)
                 : null);
 
         // Restore per-OTA camera settings: only if OTA count matches and camera URI matches per slot
@@ -141,6 +144,7 @@ public static class SessionPersistence
             MosaicMargin: config.MosaicMargin,
             ConditionDeteriorationThreshold: config.ConditionDeteriorationThreshold,
             ConditionRecoveryTimeoutMinutes: config.ConditionRecoveryTimeout?.TotalMinutes,
+            GuiderRecoveryGraceMinutes: config.GuiderRecoveryGrace?.TotalMinutes,
             CameraSettings: cameraSettings);
     }
 
@@ -175,7 +179,8 @@ public record SessionConfigDto(
     double MosaicMargin,
     float ConditionDeteriorationThreshold,
     double? ConditionRecoveryTimeoutMinutes,
-    PerOtaCameraSettingsDto[] CameraSettings);
+    PerOtaCameraSettingsDto[] CameraSettings,
+    double? GuiderRecoveryGraceMinutes = null);
 
 /// <summary>DTO for per-OTA camera settings.</summary>
 public record PerOtaCameraSettingsDto(sbyte SetpointTempC, int Gain, int Offset, Uri? CameraUri);

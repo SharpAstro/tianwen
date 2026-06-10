@@ -61,34 +61,16 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
     /// </summary>
     private const int NeuralSettleFailSafeMinExcursions = 2;
 
-    /// <summary>
-    /// Fraction of the settle timeout after which, if guiding still has not settled and the neural
-    /// model is engaged, the model is disabled and the settle window restarts on the pure
-    /// P-controller. Half leaves the rest of the timeout for the proven controller to settle.
-    /// </summary>
-    private const double NeuralSettleFailSafeFraction = 0.5;
-
-    /// <summary>
-    /// Maximum number of recalibration attempts after the guide loop reports a divergence it cannot
-    /// recover from. Beyond this, guiding gives up with an error rather than recalibrating forever.
-    /// </summary>
-    private const int MaxRecalibrationAttempts = 3;
-
-    /// <summary>
-    /// Maximum calibration attempts before giving up. A failed attempt (cloud, poor seeing, no usable
-    /// star) is retried -- transient conditions often clear -- rather than abandoning the session.
-    /// </summary>
-    private const int MaxCalibrationAttempts = 3;
-
-    /// <summary>
-    /// Delay between calibration attempts, giving transient conditions (a passing cloud) time to clear.
-    /// </summary>
-    private static readonly TimeSpan CalibrationRetryDelay = TimeSpan.FromSeconds(5);
-
-    // Configuration — read from device URI query parameters
+    // Configuration — read from device URI query parameters. The advanced knobs (calibration
+    // attempts/delay, settle fail-safe fraction) carry their defaults + rationale on the
+    // corresponding BuiltInGuiderDevice properties.
     private readonly bool _reuseCalibration;
     private readonly bool _useNeuralGuider;
     private readonly double _neuralBlendFactor;
+    private readonly int _maxCalibrationAttempts;
+    private readonly int _maxRecalibrationAttempts;
+    private readonly TimeSpan _calibrationRetryDelay;
+    private readonly double _neuralSettleFailSafeFraction;
 
     private enum GuiderState
     {
@@ -109,6 +91,10 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
         _reuseCalibration = device.ReuseCalibration;
         _useNeuralGuider = device.UseNeuralGuider;
         _neuralBlendFactor = device.NeuralBlendFactor;
+        _maxCalibrationAttempts = device.MaxCalibrationAttempts;
+        _maxRecalibrationAttempts = device.MaxRecalibrationAttempts;
+        _calibrationRetryDelay = device.CalibrationRetryDelay;
+        _neuralSettleFailSafeFraction = device.NeuralSettleFailSafeFraction;
     }
 
     public string Name => _device.DisplayName;
@@ -460,24 +446,24 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
     /// </summary>
     private async ValueTask<GuiderCalibrationResult?> CalibrateWithRetryAsync(IPulseGuideTarget pulseTarget, ICameraDriver camera, CancellationToken ct)
     {
-        for (var attempt = 1; attempt <= MaxCalibrationAttempts && !ct.IsCancellationRequested; attempt++)
+        for (var attempt = 1; attempt <= _maxCalibrationAttempts && !ct.IsCancellationRequested; attempt++)
         {
             var result = await CalibrateInternalAsync(pulseTarget, camera, ct);
             if (result is not null)
             {
                 if (attempt > 1)
                 {
-                    Logger.LogInformation("Built-in guider: calibration succeeded on attempt {Attempt}/{Max}.", attempt, MaxCalibrationAttempts);
+                    Logger.LogInformation("Built-in guider: calibration succeeded on attempt {Attempt}/{Max}.", attempt, _maxCalibrationAttempts);
                 }
                 return result;
             }
 
-            if (attempt < MaxCalibrationAttempts)
+            if (attempt < _maxCalibrationAttempts)
             {
                 Logger.LogWarning(
                     "Built-in guider: calibration attempt {Attempt}/{Max} failed -- retrying in {Delay:F0}s (waiting for transient conditions like cloud to clear).",
-                    attempt, MaxCalibrationAttempts, CalibrationRetryDelay.TotalSeconds);
-                await TimeProvider.SleepAsync(CalibrationRetryDelay, ct);
+                    attempt, _maxCalibrationAttempts, _calibrationRetryDelay.TotalSeconds);
+                await TimeProvider.SleepAsync(_calibrationRetryDelay, ct);
             }
         }
 
@@ -691,17 +677,17 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
 
                 // Guiding diverged beyond recovery -- re-acquire + recalibrate to re-establish a clean
                 // reference rather than limp on a broken lock. Bounded attempts.
-                if (++recalibrationAttempts > MaxRecalibrationAttempts)
+                if (++recalibrationAttempts > _maxRecalibrationAttempts)
                 {
                     GuidingErrorEvent?.Invoke(this, new GuidingErrorEventArgs(_device,
-                        $"Guiding diverged repeatedly; {MaxRecalibrationAttempts} recalibration attempts did not recover"));
+                        $"Guiding diverged repeatedly; {_maxRecalibrationAttempts} recalibration attempts did not recover"));
                     return; // finally resets to Idle
                 }
 
                 neuralAllowed = false;
                 Logger.LogWarning(
                     "Built-in guider: guiding diverged -- recalibrating to re-establish a clean lock (attempt {Attempt}/{Max}; neural off for the rest of the session).",
-                    recalibrationAttempts, MaxRecalibrationAttempts);
+                    recalibrationAttempts, _maxRecalibrationAttempts);
                 ForceState(GuiderState.Calibrating);
                 _lastCalibration = null;
                 var fresh = await CalibrateWithRetryAsync(pulseTarget, camera, ct);
@@ -879,13 +865,13 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
         if (_settleTimeout > 0 && _guideLoop is { IsNeuralActive: true } neuralLoop)
         {
             var settlingFor = TimeProvider.GetElapsedTime(Interlocked.Read(ref _settlingPhaseStartedTicks));
-            if (settlingFor.TotalSeconds >= _settleTimeout * NeuralSettleFailSafeFraction &&
+            if (settlingFor.TotalSeconds >= _settleTimeout * _neuralSettleFailSafeFraction &&
                 Volatile.Read(ref _settleExcursionResets) >= NeuralSettleFailSafeMinExcursions)
             {
                 neuralLoop.DisableNeuralModel();
                 Logger.LogWarning(
                     "Built-in guider: still settling after {Elapsed:F0}s ({Fraction:P0} of the {Timeout:F0}s settle timeout) with the neural model engaged -- disabling neural and restarting the settle window on the P-controller.",
-                    settlingFor.TotalSeconds, NeuralSettleFailSafeFraction, _settleTimeout);
+                    settlingFor.TotalSeconds, _neuralSettleFailSafeFraction, _settleTimeout);
                 RecordSettleStart(); // fresh settle attempt for the P-controller within the remaining budget
             }
         }
