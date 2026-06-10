@@ -340,6 +340,8 @@ internal class FakeSkywatcherSerialDevice : ISerialConnection
                 }
 
                 case 'j': // Current position
+                case 'd': // Secondary (dual-)encoder count — GSS queries it during init;
+                          // the fake has one perfect encoder, so both report the same.
                 {
                     var pos = axis == '1' ? _posRa : _posDec;
                     _responseBuffer.Append('=');

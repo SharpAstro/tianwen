@@ -1,8 +1,12 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text;
 using System.Text.Json;
+using System.Threading;
+using System.Threading.Tasks;
 using Shouldly;
+using TianWen.Lib.Devices.Fake;
 using TianWen.Lib.Devices.Skywatcher;
 using Xunit;
 
@@ -17,7 +21,7 @@ namespace TianWen.Lib.Tests;
 /// by scenario (init, tracking, pulses, gotos — north and south).
 /// </summary>
 [Collection("Skywatcher")]
-public class SkywatcherGssOracleTests
+public class SkywatcherGssOracleTests(ITestOutputHelper output)
 {
     private sealed record OracleEntry(string Scenario, string Cmd, string Reply);
 
@@ -109,13 +113,73 @@ public class SkywatcherGssOracleTests
         // GSS sends :H (target increment) then :M (break-point steps: 3500 high-speed,
         // 0 low-speed) then :J. Our driver must do the same once :M support lands.
         var goto45 = Scenario("north-goto-axis1-45deg").Select(e => e.Cmd).ToList();
-        goto45.ShouldContain(":H1703611");
+        goto45.ShouldContain(":H1403611"); // 1,128,000 steps = 45 deg at CPR 9,024,000
         goto45.ShouldContain(":M1AC0D00"); // 3500 = 0x0DAC, LE "AC0D00"
         var hIdx = goto45.FindIndex(c => c.StartsWith(":H1", StringComparison.Ordinal));
         var mIdx = goto45.FindIndex(c => c.StartsWith(":M1", StringComparison.Ordinal));
         var jIdx = goto45.FindIndex(c => c == ":J1");
         hIdx.ShouldBeLessThan(mIdx);
         mIdx.ShouldBeLessThan(jIdx);
+    }
+
+    /// <summary>
+    /// Replays the complete GSS-recorded command stream into our fake motor controller:
+    /// every command GSServer's client put on the wire must be ACCEPTED by
+    /// <see cref="FakeSkywatcherSerialDevice"/> with a reply of the same grammar
+    /// (ok/error prefix and data length), and the static mount-parameter queries must
+    /// be byte-identical (both sides model the same canned EQ6). This is the
+    /// "GSS could drive our fake" guarantee — the fake speaks real-firmware protocol,
+    /// not a TianWen-only dialect.
+    /// </summary>
+    [Fact]
+    public async Task FakeMotorController_AcceptsTheFullGssClientTranscript()
+    {
+        var timeProvider = new FakeTimeProviderWrapper(new DateTimeOffset(2025, 6, 15, 22, 0, 0, TimeSpan.Zero));
+        var fake = new FakeSkywatcherSerialDevice(FakeExternal.CreateLogger(output), Encoding.ASCII, timeProvider, isOpen: true);
+        var terminator = "\r"u8.ToArray();
+
+        async Task<string> ExchangeAsync(string cmd)
+        {
+            (await fake.TryWriteAsync(Encoding.ASCII.GetBytes(cmd + "\r"), CancellationToken.None))
+                .ShouldBeTrue($"fake must accept GSS command {cmd}");
+            var reply = await fake.TryReadTerminatedAsync(terminator, CancellationToken.None);
+            reply.ShouldNotBeNull($"fake must reply to GSS command {cmd}");
+            return reply;
+        }
+
+        foreach (var entry in _entries.Value)
+        {
+            var axisChar = entry.Cmd[2];
+            if (entry.Cmd[1] == 'G')
+            {
+                // A GSS client stops a running axis and polls FullStop before changing
+                // motion mode. The oracle's scripted port stopped instantly; this fake
+                // additionally models post-GOTO tracking auto-resume, so emulate the
+                // client-side stop where the recorded session had the axis idle.
+                var status = await ExchangeAsync($":f{axisChar}");
+                if (status.Length >= 3 && status[2] == '1')
+                {
+                    await ExchangeAsync($":K{axisChar}");
+                }
+            }
+
+            var reply = await ExchangeAsync(entry.Cmd);
+
+            reply[0].ShouldBe(entry.Reply[0], $"ok/error prefix for {entry.Cmd} ({entry.Scenario})");
+            reply.Length.ShouldBe(entry.Reply.Length, $"reply shape for {entry.Cmd} ({entry.Scenario})");
+            if (entry.Cmd[1] is 'e' or 'a' or 'b' or 'g' or 's')
+            {
+                // Static mount parameters: both fakes are the same canned EQ6.
+                reply.ShouldBe(entry.Reply, $"static query {entry.Cmd}");
+            }
+
+            if (entry.Cmd[1] == 'J')
+            {
+                // Let the started motion progress: a 45 deg GOTO at the fake's
+                // 3 deg/s sim rate completes within 15 s.
+                timeProvider.Advance(TimeSpan.FromSeconds(30));
+            }
+        }
     }
 
     [Fact]

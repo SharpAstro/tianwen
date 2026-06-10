@@ -80,7 +80,7 @@ namespace GssOracle
             switch (c)
             {
                 case 'e': return "=002703";            // EQ6, fw 3.39
-                case 'a': return "=80B389";            // CPR 9024000 (LE hex)
+                case 'a': return "=00B289";            // CPR 9024000 = 0x89B200 (LE hex)
                 case 'b': return "=60E316";            // timer freq 1500000
                 case 'g': return "=10";                // high-speed ratio 16
                 case 's': return "=D5C300";            // worm steps 50133
