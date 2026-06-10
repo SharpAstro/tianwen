@@ -65,6 +65,15 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
     // Guide state
     private int _guideSpeedIndex = 2; // default 0.5x sidereal
 
+    /// <summary>
+    /// Opt-in (<c>?decPulseGoto=true</c> on the mount URI, advanced setting): Dec pulses
+    /// run as relative low-speed micro-GOTOs instead of rate-for-duration. The step count
+    /// is exact and the axis settles as fast as the goto ramp allows, instead of holding
+    /// f x sidereal for the full pulse duration (GSServer's DecPulseGoTo mode).
+    /// </summary>
+    private readonly bool _decPulseGoTo =
+        bool.TryParse(device.Query.QueryValue(DeviceQueryKey.DecPulseGoTo), out var decPulseGoTo) && decPulseGoTo;
+
     // Site
     private double _siteLatitude = double.NaN;
     private double _siteLongitude = double.NaN;
@@ -512,6 +521,12 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
             };
             var guideSpeed = siderealDegPerSec * guideFraction;
 
+            if (_decPulseGoTo)
+            {
+                await DecPulseAsMicroGotoAsync(forward, guideSpeed, duration, cancellationToken);
+                return;
+            }
+
             await SendCommandAsync('G', '2', SkywatcherProtocol.EncodeMotionMode(SkywatcherMotionFunc.LowSpeedSlew, forward, IsSouthernHemisphere), cancellationToken);
             var t1 = SkywatcherProtocol.ComputeT1Preset(_tmrFreq, _cprDec, guideSpeed, false, _highSpeedRatio);
             await SendCommandAsync('I', '2', SkywatcherProtocol.EncodeUInt24(t1), cancellationToken);
@@ -525,6 +540,49 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
                 await SendCommandAsync('K', '2', null, CancellationToken.None);
             }
         }
+    }
+
+    /// <summary>
+    /// Dec pulse as a relative low-speed micro-GOTO (GSServer's DecPulseGoTo mode): the
+    /// duration converts to an exact step count (duration x rate in arcsec x steps/arcsec),
+    /// the goto runs it, and we poll until FullStop (3.5 s cap, GSS's wait). Faster settling
+    /// than holding the rate for the full duration, and the displacement is exact.
+    /// </summary>
+    private async ValueTask DecPulseAsMicroGotoAsync(bool forward, double guideSpeedDegPerSec, TimeSpan duration, CancellationToken cancellationToken)
+    {
+        var arcsec = guideSpeedDegPerSec * 3600.0 * duration.TotalSeconds;
+        var steps = (int)Math.Round(arcsec * _cprDec / (360.0 * 3600.0));
+        if (steps == 0)
+        {
+            Logger.LogDebug("Dec micro-GOTO pulse of {DurationMs:F1} ms rounds to zero steps; skipping", duration.TotalMilliseconds);
+            return;
+        }
+
+        var status = await QueryAxisStatusAsync('2', cancellationToken);
+        if (status.IsRunning)
+        {
+            await StopAxisAndWaitAsync('2', cancellationToken);
+        }
+
+        steps = _firmwareInfo.MountModel.AdjustGotoSteps(steps);
+        await SendCommandAsync('G', '2', SkywatcherProtocol.EncodeMotionMode(SkywatcherMotionFunc.LowSpeedGoto, forward, IsSouthernHemisphere), cancellationToken);
+        await SendCommandAsync('H', '2', SkywatcherProtocol.EncodeUInt24((uint)steps), cancellationToken);
+        await SendCommandAsync('M', '2', SkywatcherProtocol.EncodeUInt24(0), cancellationToken);
+        await SendCommandAsync('J', '2', null, cancellationToken);
+
+        var pollInterval = TimeSpan.FromMilliseconds(25);
+        var timeout = TimeSpan.FromSeconds(3.5);
+        var waited = TimeSpan.Zero;
+        while (waited < timeout)
+        {
+            if (!(await QueryAxisStatusAsync('2', cancellationToken)).IsRunning)
+            {
+                return;
+            }
+            await TimeProvider.SleepAsync(pollInterval, cancellationToken);
+            waited += pollInterval;
+        }
+        Logger.LogWarning("Dec micro-GOTO pulse ({Steps} steps) did not reach full stop within {TimeoutSeconds:F1}s", steps, timeout.TotalSeconds);
     }
 
     public ValueTask<bool> IsPulseGuidingAsync(CancellationToken cancellationToken)

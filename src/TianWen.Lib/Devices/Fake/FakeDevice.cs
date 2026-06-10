@@ -56,6 +56,11 @@ public record FakeDevice(Uri DeviceUri) : DeviceBase(DeviceUri)
             defaultValue: -10.0, min: -180.0, max: 180.0, step: 1.0,
             format: "F1", suffix: "'",
             isVisible: IsFakeSkywatcherMount),
+        DeviceSettingHelper.BoolSetting(
+            DeviceQueryKey.DecPulseGoTo.Key, "Dec Pulse as GOTO",
+            defaultValue: false,
+            isVisible: IsFakeSkywatcherMount,
+            isAdvanced: true),
     ];
 
     private static readonly ImmutableArray<DeviceSettingDescriptor> FocuserSettings =

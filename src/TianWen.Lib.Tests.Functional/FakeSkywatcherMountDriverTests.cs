@@ -19,17 +19,23 @@ public class FakeSkywatcherMountDriverTests(ITestOutputHelper output)
         double longitude = 16.3,
         double azMisalignmentArcmin = 0.0,
         double altMisalignmentArcmin = 0.0,
-        DateTimeOffset? now = null)
+        DateTimeOffset? now = null,
+        bool decPulseGoTo = false)
     {
         var external = new FakeExternal(output, now: now ?? new DateTimeOffset(2025, 6, 15, 22, 0, 0, TimeSpan.Zero));
-        var device = new FakeDevice(DeviceType.Mount, 1, new NameValueCollection
+        var query = new NameValueCollection
         {
             { "port", "SkyWatcher" },
             { "latitude", latitude.ToString() },
             { "longitude", longitude.ToString() },
             { "polarMisalignmentAzArcmin", azMisalignmentArcmin.ToString() },
             { "polarMisalignmentAltArcmin", altMisalignmentArcmin.ToString() }
-        });
+        };
+        if (decPulseGoTo)
+        {
+            query.Add("decPulseGoto", "true");
+        }
+        var device = new FakeDevice(DeviceType.Mount, 1, query);
         var mount = new FakeSkywatcherMountDriver(device, external.BuildServiceProvider());
         return (mount, external);
     }
@@ -40,9 +46,10 @@ public class FakeSkywatcherMountDriverTests(ITestOutputHelper output)
         double longitude = 16.3,
         double azMisalignmentArcmin = 0.0,
         double altMisalignmentArcmin = 0.0,
-        DateTimeOffset? now = null)
+        DateTimeOffset? now = null,
+        bool decPulseGoTo = false)
     {
-        var (mount, external) = CreateMount(latitude, longitude, azMisalignmentArcmin, altMisalignmentArcmin, now);
+        var (mount, external) = CreateMount(latitude, longitude, azMisalignmentArcmin, altMisalignmentArcmin, now, decPulseGoTo);
         await mount.ConnectAsync(ct);
         await mount.SetSiteLatitudeAsync(latitude, ct);
         await mount.SetSiteLongitudeAsync(longitude, ct);
@@ -282,6 +289,42 @@ public class FakeSkywatcherMountDriverTests(ITestOutputHelper output)
         await mount.PulseGuideAsync(GuideDirection.North, TimeSpan.FromMilliseconds(19), ct);
 
         serial.CommandLogSnapshot.Length.ShouldBe(before);
+    }
+
+    /// <summary>
+    /// Opt-in decPulseGoto=true: a Dec pulse converts to an exact relative low-speed
+    /// micro-GOTO (GSS DecPulseGoTo) instead of holding f x sidereal for the duration.
+    /// Displacement must come out the same as rate mode (duration x rate), and the wire
+    /// must show a goto (:G2 func 2 + :H2 + :J2), not a rate run (:I2 ... :K2).
+    /// </summary>
+    [Theory(Timeout = 60_000)]
+    [InlineData(GuideDirection.North)]
+    [InlineData(GuideDirection.South)]
+    public async Task GivenDecPulseGotoModeWhenDecPulsingThenMicroGotoMovesExactSteps(GuideDirection direction)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (mount, _) = await CreateConnectedMountAsync(ct, decPulseGoTo: true);
+        await mount.SyncRaDecAsync(6.0, 45.0, ct);
+        await mount.SetTrackingAsync(true, ct);
+
+        var serial = mount.SerialConnection.ShouldBeOfType<FakeSkywatcherSerialDevice>();
+        var decBefore = await mount.GetDeclinationAsync(ct);
+        var before = serial.CommandLogSnapshot.Length;
+
+        var pulse = TimeSpan.FromSeconds(60);
+        await mount.PulseGuideAsync(direction, pulse, ct);
+
+        var decAfter = await mount.GetDeclinationAsync(ct);
+        var expectedArcsec = 0.5 * 15.041 * pulse.TotalSeconds;
+        var dDecArcsec = (decAfter - decBefore) * 3600.0;
+        output.WriteLine($"direction={direction} dDec={dDecArcsec:F1}\" expected={expectedArcsec:F1}\"");
+        Math.Abs(dDecArcsec).ShouldBe(expectedArcsec, expectedArcsec * 0.02,
+            "the micro-GOTO step count is exact, so displacement must match duration x rate closely");
+
+        var decCmds = serial.CommandLogSnapshot.Skip(before).Where(c => c.Length > 2 && c[2] == '2').ToList();
+        decCmds.ShouldContain(c => c.StartsWith(":G22"), "Dec pulse must use the low-speed GOTO func");
+        decCmds.ShouldContain(c => c.StartsWith(":H2"), "relative target increment");
+        decCmds.ShouldNotContain(c => c.StartsWith(":I2"), "no rate preset in micro-GOTO mode");
     }
 
     /// <summary>

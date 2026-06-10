@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Logging;
 using System;
+using System.Collections.Immutable;
 using System.Collections.Specialized;
 using System.Net;
 using System.Text;
@@ -22,6 +23,17 @@ public record SkywatcherDevice(Uri DeviceUri) : DeviceBase(DeviceUri)
     {
         // calls primary constructor
     }
+
+    private static readonly ImmutableArray<DeviceSettingDescriptor> MountSettings =
+    [
+        DeviceSettingHelper.BoolSetting(
+            DeviceQueryKey.DecPulseGoTo.Key, "Dec Pulse as GOTO",
+            defaultValue: false,
+            isAdvanced: true),
+    ];
+
+    public override ImmutableArray<DeviceSettingDescriptor> Settings =>
+        DeviceType == DeviceType.Mount ? MountSettings : [];
 
     protected override IDeviceDriver? NewInstanceFromDevice(IServiceProvider sp) => DeviceType switch
     {
