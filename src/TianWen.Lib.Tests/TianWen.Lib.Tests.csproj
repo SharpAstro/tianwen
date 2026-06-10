@@ -20,6 +20,9 @@
     <EmbeddedResource Include="Data/*.gz" />
     <EmbeddedResource Include="Data/Focus/*.gz" />
     <EmbeddedResource Include="Data/Focus/NINA/*.json" />
+    <!-- SkyWatcher protocol oracle: wire transcripts recorded from GSServer's own
+         GS.SkyWatcher client driving a scripted serial port (tools/GssOracle). -->
+    <EmbeddedResource Include="Data/gss-oracle-transcripts.json" />
   </ItemGroup>
 
   <!-- Canon raw fixtures: LFS-tracked, copied to test output dir. Resolved via

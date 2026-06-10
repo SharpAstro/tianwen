@@ -41,6 +41,33 @@ internal enum SkywatcherMountModel
 internal readonly record struct SkywatcherFirmwareInfo(SkywatcherMountModel MountModel, int IntVersion, string VersionString);
 
 /// <summary>
+/// Motion-mode function for the first data char of the :G command.
+/// Values match the real motor-controller wire format (reference: GSServer
+/// <c>Commands.SetMotionMode</c>). Note the speed bit INVERTS meaning between
+/// GOTO and slew modes: 0 is the high-speed GOTO but 3 is the high-speed slew.
+/// </summary>
+internal enum SkywatcherMotionFunc
+{
+    HighSpeedGoto = 0,
+    LowSpeedSlew = 1,
+    LowSpeedGoto = 2,
+    HighSpeedSlew = 3,
+}
+
+internal static class SkywatcherMotionFuncExtensions
+{
+    extension(SkywatcherMotionFunc func)
+    {
+        /// <summary>True for the two GOTO funcs (move to :H/:S target, decelerate, stop).</summary>
+        public bool IsGoto => func is SkywatcherMotionFunc.HighSpeedGoto or SkywatcherMotionFunc.LowSpeedGoto;
+
+        /// <summary>True when the :I T1 preset is interpreted at the high-speed
+        /// (1/highSpeedRatio) timer scale — pair with <c>ComputeT1Preset(highSpeed: true)</c>.</summary>
+        public bool IsHighSpeed => func is SkywatcherMotionFunc.HighSpeedGoto or SkywatcherMotionFunc.HighSpeedSlew;
+    }
+}
+
+/// <summary>
 /// Capability flags parsed from the :q1 010000 response.
 /// </summary>
 internal readonly record struct SkywatcherCapabilities(
@@ -69,7 +96,7 @@ internal static class SkywatcherProtocol
 
     /// <summary>
     /// Encode a 24-bit unsigned value to 6-char hex string in little-endian byte order.
-    /// Example: 0x800000 → "000008"
+    /// Example: 0x800000 → "000080"
     /// </summary>
     internal static string EncodeUInt24(uint value)
     {
@@ -81,7 +108,7 @@ internal static class SkywatcherProtocol
 
     /// <summary>
     /// Decode a 6-char hex string in little-endian byte order to a 24-bit unsigned value.
-    /// Example: "000008" → 0x800000
+    /// Example: "000080" → 0x800000
     /// </summary>
     internal static uint DecodeUInt24(ReadOnlySpan<char> hex)
     {
@@ -111,6 +138,45 @@ internal static class SkywatcherProtocol
     internal static int DecodePosition(ReadOnlySpan<char> hex)
     {
         return (int)DecodeUInt24(hex) - POSITION_OFFSET;
+    }
+
+    /// <summary>
+    /// Encode the 2-char data payload of the :G (set motion mode) command:
+    /// <c>&lt;func&gt;&lt;dir&gt;</c>. The dir char is a bit field: bit 0 = reverse
+    /// (0 = forward/CW, 1 = reverse), bit 1 = southern hemisphere. Matches the real
+    /// motor-controller firmware and GSServer <c>Commands.SetMotionMode</c> — any
+    /// other payload shape (notably the former 3-char "hex mode byte + dir" dialect)
+    /// is misparsed by real hardware.
+    /// </summary>
+    internal static string EncodeMotionMode(SkywatcherMotionFunc func, bool forward, bool southernHemisphere)
+    {
+        var dir = (forward ? 0 : 1) | (southernHemisphere ? 2 : 0);
+        return $"{(int)func}{dir}";
+    }
+
+    /// <summary>
+    /// Decode a 2-char :G payload produced by <see cref="EncodeMotionMode"/>.
+    /// Mirrored decoder for the fake motor controller and tests.
+    /// </summary>
+    internal static bool TryDecodeMotionMode(ReadOnlySpan<char> payload, out SkywatcherMotionFunc func, out bool forward, out bool southernHemisphere)
+    {
+        func = default;
+        forward = false;
+        southernHemisphere = false;
+        if (payload.Length < 2)
+        {
+            return false;
+        }
+        var f = payload[0] - '0';
+        var d = payload[1] - '0';
+        if (f is < 0 or > 3 || d is < 0 or > 3)
+        {
+            return false;
+        }
+        func = (SkywatcherMotionFunc)f;
+        forward = (d & 0x1) == 0;
+        southernHemisphere = (d & 0x2) != 0;
+        return true;
     }
 
     /// <summary>
@@ -285,7 +351,7 @@ internal static class SkywatcherProtocol
         _ => 0.5
     };
 
-    private static int ParseHexNibble(char c) => c switch
+    internal static int ParseHexNibble(char c) => c switch
     {
         >= '0' and <= '9' => c - '0',
         >= 'A' and <= 'F' => c - 'A' + 10,

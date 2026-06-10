@@ -65,6 +65,33 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
     private double _siteLatitude = double.NaN;
     private double _siteLongitude = double.NaN;
     private double _siteElevation = double.NaN;
+    private bool _warnedHemisphereUnknown;
+
+    /// <summary>
+    /// Southern-hemisphere flag, driven by site latitude. Sets dir bit 1 on every
+    /// :G motion-mode command AND mirrors the steps↔sky conversions: below the
+    /// equator the RA worm physically turns the opposite way for sidereal tracking
+    /// (GSServer: <c>SetTracking</c> passes the negated rate for EqS and
+    /// <c>Axes.AxesAppToMount</c> mirrors the axis, <c>a[0] = 180 - a[0]</c>), so
+    /// the wire direction and the conversion must flip together. NaN latitude
+    /// (site not pushed yet) is treated as northern with a one-shot warning.
+    /// </summary>
+    private bool IsSouthernHemisphere
+    {
+        get
+        {
+            if (double.IsNaN(_siteLatitude))
+            {
+                if (!_warnedHemisphereUnknown)
+                {
+                    _warnedHemisphereUnknown = true;
+                    Logger.LogWarning("Site latitude not set; assuming northern hemisphere for Skywatcher motion-mode direction");
+                }
+                return false;
+            }
+            return _siteLatitude < 0;
+        }
+    }
 
     // Snap port
     private volatile bool _snapActive;
@@ -141,8 +168,10 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
                 return;
             }
 
-            // Set tracking mode: slow speed, forward direction, tracking
-            await SendCommandAsync('G', '1', "030", cancellationToken); // tracking, forward, low speed
+            // Set tracking mode: low-speed slew in the hemisphere's sidereal direction —
+            // forward in the north, reverse in the south (GSS feeds EqS the negated rate).
+            var south = IsSouthernHemisphere;
+            await SendCommandAsync('G', '1', SkywatcherProtocol.EncodeMotionMode(SkywatcherMotionFunc.LowSpeedSlew, forward: !south, south), cancellationToken);
             // Compute sidereal rate T1 preset
             var siderealDegPerSec = SIDEREAL_RATE / 3600.0;
             var t1 = SkywatcherProtocol.ComputeT1Preset(_tmrFreq, _cprRa, siderealDegPerSec, false, _highSpeedRatio);
@@ -288,12 +317,21 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
             return;
         }
 
-        var direction = delta > 0 ? '0' : '1'; // 0=forward, 1=reverse
+        var forward = delta > 0;
         var absDelta = Math.Abs(delta);
 
-        // Use high-speed goto mode
-        await SendCommandAsync('G', axis, $"00{direction}", cancellationToken); // goto, high speed, direction
+        // GSS picks the GOTO speed tier by distance: below the low-speed margin
+        // (5 s of slewing at 128x sidereal = 640 sidereal-seconds of steps) it uses
+        // the low-speed GOTO func, else high-speed. Break-point steps (:M) follow
+        // GSS's defaults: 3500 for high-speed, 0 for low-speed.
+        var cpr = axis == '1' ? _cprRa : _cprDec;
+        var lowSpeedMarginSteps = (long)(640.0 * SIDEREAL_RATE / 3600.0 * cpr / 360.0);
+        var func = absDelta > lowSpeedMarginSteps ? SkywatcherMotionFunc.HighSpeedGoto : SkywatcherMotionFunc.LowSpeedGoto;
+        var breakSteps = func == SkywatcherMotionFunc.HighSpeedGoto ? 3500u : 0u;
+
+        await SendCommandAsync('G', axis, SkywatcherProtocol.EncodeMotionMode(func, forward, IsSouthernHemisphere), cancellationToken);
         await SendCommandAsync('H', axis, SkywatcherProtocol.EncodeUInt24((uint)absDelta), cancellationToken); // step count
+        await SendCommandAsync('M', axis, SkywatcherProtocol.EncodeUInt24(breakSteps), cancellationToken); // break-point increment
         await SendCommandAsync('J', axis, null, cancellationToken); // start
     }
 
@@ -337,16 +375,17 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
             return;
         }
 
-        var direction = rate > 0 ? '0' : '1';
+        var forward = rate > 0;
         var absRate = Math.Abs(rate);
 
         // Determine if high speed
         var siderealDegPerSec = SIDEREAL_RATE / 3600.0;
         var highSpeed = absRate > siderealDegPerSec * 2; // high speed above 2x sidereal
 
-        // Set motion mode: slewing, direction, speed tier
-        var speedChar = highSpeed ? '0' : '1'; // 0=high speed, 1=low speed
-        await SendCommandAsync('G', axisChar, $"01{direction}", cancellationToken); // slew mode
+        // High-speed slew func must pair with the highSpeed T1 preset below (the
+        // firmware interprets the :I period at 1/highSpeedRatio scale in that mode).
+        var func = highSpeed ? SkywatcherMotionFunc.HighSpeedSlew : SkywatcherMotionFunc.LowSpeedSlew;
+        await SendCommandAsync('G', axisChar, SkywatcherProtocol.EncodeMotionMode(func, forward, IsSouthernHemisphere), cancellationToken);
         var cpr = axisChar == '1' ? _cprRa : _cprDec;
         var t1 = SkywatcherProtocol.ComputeT1Preset(_tmrFreq, cpr, absRate, highSpeed, _highSpeedRatio);
         await SendCommandAsync('I', axisChar, SkywatcherProtocol.EncodeUInt24(t1), cancellationToken);
@@ -374,7 +413,10 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
             var guideSpeed = siderealDegPerSec * rateFactor;
             if (guideSpeed > siderealDegPerSec * 1e-3)
             {
-                await SendCommandAsync('G', '1', "030", cancellationToken); // tracking, low speed, forward
+                // Pulse runs in the tracking direction (forward north / reverse south);
+                // only the rate differs from sidereal.
+                var south = IsSouthernHemisphere;
+                await SendCommandAsync('G', '1', SkywatcherProtocol.EncodeMotionMode(SkywatcherMotionFunc.LowSpeedSlew, forward: !south, south), cancellationToken);
                 var t1 = SkywatcherProtocol.ComputeT1Preset(_tmrFreq, _cprRa, guideSpeed, false, _highSpeedRatio);
                 await SendCommandAsync('I', '1', SkywatcherProtocol.EncodeUInt24(t1), cancellationToken);
                 await SendCommandAsync('J', '1', null, cancellationToken);
@@ -397,15 +439,15 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
         else
         {
             // Dec has no tracking baseline: move the axis at f x sidereal in the pulse direction.
-            var dirChar = direction switch
+            var forward = direction switch
             {
-                GuideDirection.North => '0', // Dec forward
-                GuideDirection.South => '1', // Dec reverse
+                GuideDirection.North => true,  // Dec forward
+                GuideDirection.South => false, // Dec reverse
                 _ => throw new ArgumentException($"Unknown guide direction {direction}", nameof(direction))
             };
             var guideSpeed = siderealDegPerSec * guideFraction;
 
-            await SendCommandAsync('G', '2', $"03{dirChar}", cancellationToken); // tracking, low speed, direction
+            await SendCommandAsync('G', '2', SkywatcherProtocol.EncodeMotionMode(SkywatcherMotionFunc.LowSpeedSlew, forward, IsSouthernHemisphere), cancellationToken);
             var t1 = SkywatcherProtocol.ComputeT1Preset(_tmrFreq, _cprDec, guideSpeed, false, _highSpeedRatio);
             await SendCommandAsync('I', '2', SkywatcherProtocol.EncodeUInt24(t1), cancellationToken);
             await SendCommandAsync('J', '2', null, cancellationToken);
@@ -828,20 +870,19 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
     private async ValueTask<AxisStatus> QueryAxisStatusAsync(char axis, CancellationToken cancellationToken)
     {
         var response = await SendAndReceiveAsync('f', axis, null, cancellationToken);
-        if (SkywatcherProtocol.TryParseResponse(response, out var data) && data.Length >= 6)
+        if (SkywatcherProtocol.TryParseResponse(response, out var data) && data.Length >= 3)
         {
-            // Status bytes: 3 bytes (6 hex chars)
-            // Byte 0: bit0=running, bit1=blocked
-            // Byte 1: bit0=init done
-            // Byte 2: bit0=level (0=tracking/1=slewing)
-            var raw = SkywatcherProtocol.DecodeUInt24(data.AsSpan(0, 6));
-            var byte0 = (int)(raw & 0xFF);
-            var byte1 = (int)((raw >> 8) & 0xFF);
-            var byte2 = (int)((raw >> 16) & 0xFF);
-            var isRunning = (byte0 & 0x01) != 0;
-            var isInitDone = (byte1 & 0x01) != 0;
-            var isTracking = (byte2 & 0x01) == 0; // 0=tracking rate, 1=slewing rate
-            return new AxisStatus(isRunning, isTracking, isInitDone);
+            // Real firmware replies 3 status nibbles (reference: GSServer GetAxisStatus):
+            // nibble 0: bit0 = constant-speed mode (slew/tracking) vs GOTO, bit1 = reverse, bit2 = high speed
+            // nibble 1: bit0 = running (0 = full stop)
+            // nibble 2: bit0 = init done
+            var n0 = SkywatcherProtocol.ParseHexNibble(data[0]);
+            var n1 = SkywatcherProtocol.ParseHexNibble(data[1]);
+            var n2 = SkywatcherProtocol.ParseHexNibble(data[2]);
+            var isRunning = (n1 & 0x01) != 0;
+            var isConstantSpeed = (n0 & 0x01) != 0; // tracking/MoveAxis rate, not a GOTO
+            var isInitDone = (n2 & 0x01) != 0;
+            return new AxisStatus(isRunning, isRunning && isConstantSpeed, isInitDone);
         }
         return new AxisStatus(false, false, false);
     }
@@ -854,7 +895,9 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
     /// Convert encoder steps to RA hours.
     /// Home position (steps=0) corresponds to HA=6h (counterweight-down, scope at pole),
     /// matching the GSServer GermanPolar convention where HomeAxisX=90°.
-    /// HA = steps / CPR * 24 + 6, then RA = LST - HA.
+    /// North: HA = steps / CPR * 24 + 6; south: HA = 6 - steps / CPR * 24 (the axis
+    /// mapping mirrors below the equator, GSS Axes.AxesAppToMount a[0] = 180 - a[0],
+    /// matching the physically reversed tracking direction). Then RA = LST - HA.
     /// </summary>
     private double StepsToRa(int steps)
     {
@@ -863,14 +906,16 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
         transform.RefreshDateTimeFromTimeProvider();
         transform.SiteLongitude = double.IsNaN(_siteLongitude) ? 0.0 : _siteLongitude;
         var lst = transform.LocalSiderealTime;
-        var ha = (double)steps / _cprRa * 24.0 + 6.0;
+        var axisHours = (double)steps / _cprRa * 24.0;
+        var ha = IsSouthernHemisphere ? 6.0 - axisHours : 6.0 + axisHours;
         var ra = CoordinateUtils.ConditionRA(lst - ha);
         return ra;
     }
 
     /// <summary>
     /// Convert RA hours to encoder steps.
-    /// Inverse of <see cref="StepsToRa"/>: steps = (HA - 6) / 24 * CPR.
+    /// Inverse of <see cref="StepsToRa"/>: steps = (HA - 6) / 24 * CPR north,
+    /// (6 - HA) / 24 * CPR south.
     /// </summary>
     private int RaToSteps(double ra)
     {
@@ -880,29 +925,37 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
         transform.SiteLongitude = double.IsNaN(_siteLongitude) ? 0.0 : _siteLongitude;
         var lst = transform.LocalSiderealTime;
         var ha = CoordinateUtils.ConditionHA(lst - ra);
-        return (int)Math.Round((ha - 6.0) / 24.0 * _cprRa);
+        var axisHours = IsSouthernHemisphere ? 6.0 - ha : ha - 6.0;
+        return (int)Math.Round(axisHours / 24.0 * _cprRa);
     }
 
     /// <summary>
     /// Convert encoder steps to declination degrees.
-    /// Home position (steps=0) corresponds to Dec=90° (pole, counterweight-down),
-    /// matching the GSServer GermanPolar convention where HomeAxisY=90°.
-    /// Dec = 90 - steps / CPR * 360.
+    /// Home position (steps=0) corresponds to the site's celestial pole
+    /// (counterweight-down), matching the GSServer GermanPolar convention where
+    /// HomeAxisY=90°. North: Dec = 90 - steps / CPR * 360; south the mapping
+    /// mirrors from the -90 pole: Dec = -90 + steps / CPR * 360. The mirror keeps
+    /// "normal" (counterweight-down) pointings in positive step space in both
+    /// hemispheres, so the pier-side rule in <see cref="GetSideOfPierAsync"/>
+    /// needs no hemisphere branch.
     /// </summary>
     private double StepsToDec(int steps)
     {
         if (_cprDec == 0) return 0.0;
-        return 90.0 - (double)steps / _cprDec * 360.0;
+        var axisDegrees = (double)steps / _cprDec * 360.0;
+        return IsSouthernHemisphere ? -90.0 + axisDegrees : 90.0 - axisDegrees;
     }
 
     /// <summary>
     /// Convert declination degrees to encoder steps.
-    /// Inverse of <see cref="StepsToDec"/>: steps = (90 - dec) / 360 * CPR.
+    /// Inverse of <see cref="StepsToDec"/>: steps = (90 - dec) / 360 * CPR north,
+    /// (dec + 90) / 360 * CPR south.
     /// </summary>
     private int DecToSteps(double dec)
     {
         if (_cprDec == 0) return 0;
-        return (int)Math.Round((90.0 - dec) / 360.0 * _cprDec);
+        var axisDegrees = IsSouthernHemisphere ? dec + 90.0 : 90.0 - dec;
+        return (int)Math.Round(axisDegrees / 360.0 * _cprDec);
     }
 
     #endregion

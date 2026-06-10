@@ -182,17 +182,24 @@ public class FakeSkywatcherMountDriverTests(ITestOutputHelper output)
     /// Dec axis at 0.5x. This pins both the driver semantics (RA pulses offset the tracking
     /// rate rather than replacing it) and the fake's rate fidelity (the ':I' preset is
     /// honoured on both axes; fractional steps are not truncated away per tick).
+    /// Southern rows pin the hemisphere handling: below the equator the RA worm tracks in
+    /// reverse and the steps-to-sky conversion mirrors with it, so pulse displacement must
+    /// come out identical to the northern case.
     /// </summary>
     [Theory(Timeout = 60_000)]
-    [InlineData(GuideDirection.West)]
-    [InlineData(GuideDirection.East)]
-    [InlineData(GuideDirection.North)]
-    [InlineData(GuideDirection.South)]
-    public async Task GivenTrackingMountWhenPulseGuidingThenPointingMovesAtGuideRate(GuideDirection direction)
+    [InlineData(GuideDirection.West, 48.2)]
+    [InlineData(GuideDirection.East, 48.2)]
+    [InlineData(GuideDirection.North, 48.2)]
+    [InlineData(GuideDirection.South, 48.2)]
+    [InlineData(GuideDirection.West, -33.9)]
+    [InlineData(GuideDirection.East, -33.9)]
+    [InlineData(GuideDirection.North, -33.9)]
+    [InlineData(GuideDirection.South, -33.9)]
+    public async Task GivenTrackingMountWhenPulseGuidingThenPointingMovesAtGuideRate(GuideDirection direction, double latitude)
     {
         var ct = TestContext.Current.CancellationToken;
-        var (mount, _) = await CreateConnectedMountAsync(ct);
-        await mount.SyncRaDecAsync(6.0, 45.0, ct);
+        var (mount, _) = await CreateConnectedMountAsync(ct, latitude: latitude);
+        await mount.SyncRaDecAsync(6.0, latitude >= 0 ? 45.0 : -45.0, ct);
         await mount.SetTrackingAsync(true, ct);
 
         var raBefore = await mount.GetRightAscensionAsync(ct);
@@ -255,6 +262,61 @@ public class FakeSkywatcherMountDriverTests(ITestOutputHelper output)
         output.WriteLine($"dDec={dDecArcsec:F1}\" expected~{expectedArcsec:F1}\"");
         Math.Abs(dDecArcsec).ShouldBe(expectedArcsec, expectedArcsec * 0.15,
             "a North pulse must move the reported Dec even in the post-sync drift regime");
+    }
+
+    #endregion
+
+    #region Southern Hemisphere
+
+    /// <summary>
+    /// In the south the RA worm physically tracks in REVERSE (:G dir bit 0 set, per the
+    /// GSServer reference: EqS tracking gets the negated rate) while the driver's mirrored
+    /// steps-to-HA conversion keeps the believed RA constant. If either side flips without
+    /// the other, a tracked target drifts at 2x sidereal in reads — this pins them together.
+    /// </summary>
+    [Fact(Timeout = 60_000)]
+    public async Task GivenSouthernMountWhenTrackingThenPointingStaysOnTarget()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (mount, external) = await CreateConnectedMountAsync(ct, latitude: -33.9, longitude: 18.4);
+        await mount.SyncRaDecAsync(6.0, -45.0, ct);
+        await mount.SetTrackingAsync(true, ct);
+
+        var ra0 = await mount.GetRightAscensionAsync(ct);
+        external.TimeProvider.Advance(TimeSpan.FromMinutes(10));
+
+        var ra10 = await mount.GetRightAscensionAsync(ct);
+        var dec10 = await mount.GetDeclinationAsync(ct);
+        output.WriteLine($"ra0={ra0:F5}h ra10={ra10:F5}h dec10={dec10:F4}");
+
+        // 10 untracked minutes would read ~0.167h of RA drift; tracked must hold.
+        ra10.ShouldBe(ra0, 0.005);
+        dec10.ShouldBe(-45.0, 0.01);
+    }
+
+    /// <summary>
+    /// Southern GOTO: the mirrored RaToSteps/DecToSteps must produce a delta that the
+    /// (hemisphere-agnostic, step-space) goto executes onto the right sky position, and
+    /// the fake's post-goto tracking auto-resume must run in the southern (reverse)
+    /// direction — wrong-direction resume shows up as RA drifting off target after arrival.
+    /// </summary>
+    [Fact(Timeout = 60_000)]
+    public async Task GivenSouthernMountWhenSlewedThenArrivesAtTargetAndTrackingHolds()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (mount, external) = await CreateConnectedMountAsync(ct, latitude: -33.9, longitude: 18.4);
+        await mount.SyncRaDecAsync(6.0, -45.0, ct);
+
+        await mount.BeginSlewRaDecAsync(8.0, -30.0, ct);
+        await PumpUntilNotSlewingAsync(mount, external, ct, TimeSpan.FromSeconds(40));
+
+        (await mount.GetRightAscensionAsync(ct)).ShouldBe(8.0, 0.05);
+        (await mount.GetDeclinationAsync(ct)).ShouldBe(-30.0, 0.05);
+
+        // Post-goto auto-resumed tracking must hold the new target in the south.
+        var raArrived = await mount.GetRightAscensionAsync(ct);
+        external.TimeProvider.Advance(TimeSpan.FromMinutes(5));
+        (await mount.GetRightAscensionAsync(ct)).ShouldBe(raArrived, 0.005);
     }
 
     #endregion

@@ -56,6 +56,13 @@ internal class FakeSkywatcherSerialDevice : ISerialConnection
     private bool _raHighSpeed;
     private bool _decHighSpeed;
 
+    // Southern-hemisphere flag from the latest RA :G command's dir bit 1. The bit is
+    // informational for motion (bit 0 alone sets rotation direction, matching GSS's
+    // pulse path which omits it entirely), but the firmware uses it to pick the
+    // direction when auto-resuming sidereal tracking after a GOTO completes — in the
+    // south the RA worm tracks in reverse. Only RA needs it; Dec has no tracking.
+    private bool _raSouthern;
+
     // Constant-speed slew rate captured from the most recent ':I' (T1 preset)
     // command, in degrees-per-second. The simulation integrates at this rate
     // when the axis is running in non-goto, non-tracking mode -- without it
@@ -162,11 +169,13 @@ internal class FakeSkywatcherSerialDevice : ISerialConnection
                     // Real SW mounts auto-start sidereal tracking after goto completes
                     _raGotoMode = false;
                     _raTracking = true;
-                    // Tracking always runs FORWARD at sidereal: the goto's direction and
-                    // rate must not leak into it. A reverse goto (slew toward larger RA)
-                    // used to leave _raDirection=1, so the auto-resumed "tracking" ran the
-                    // axis backward and the believed RA drifted at 2x sidereal.
-                    _raDirection = 0;
+                    // Tracking always runs at sidereal in the hemisphere's tracking
+                    // direction (forward north, reverse south per the stored :G dir
+                    // bit 1): the goto's direction and rate must not leak into it. A
+                    // reverse goto (slew toward larger RA) used to leave _raDirection=1,
+                    // so the auto-resumed "tracking" ran the axis backward and the
+                    // believed RA drifted at 2x sidereal.
+                    _raDirection = _raSouthern ? 1 : 0;
                     _raSlewDegPerSec = 0;
                     _raHighSpeed = false;
                     // _raRunning stays true — now tracking at sidereal rate
@@ -316,18 +325,23 @@ internal class FakeSkywatcherSerialDevice : ISerialConnection
 
                 case 'f': // Axis status
                 {
-                    // 3 bytes: byte0 (running|blocked), byte1 (initDone), byte2 (level: 0=tracking, 1=slew)
+                    // Real firmware replies 3 status nibbles (reference: GSServer GetAxisStatus):
+                    // nibble 0: bit0 = constant-speed (slew/tracking) mode vs GOTO, bit1 = reverse, bit2 = high speed
+                    // nibble 1: bit0 = running (0 = full stop)
+                    // nibble 2: bit0 = init done
                     var isRunning = axis == '1' ? _raRunning : _decRunning;
                     var isInitDone = axis == '1' ? _raInitDone : _decInitDone;
-                    var isTracking = axis == '1' ? _raTracking : !_decGotoMode;
+                    var isGotoMode = axis == '1' ? _raGotoMode : _decGotoMode;
+                    var isHighSpeed = axis == '1' ? _raHighSpeed : _decHighSpeed;
+                    var isReverse = (axis == '1' ? _raDirection : _decDirection) != 0;
 
-                    var byte0 = isRunning ? 1 : 0;
-                    var byte1 = isInitDone ? 1 : 0;
-                    var byte2 = (isRunning && !isTracking) ? 1 : 0; // 1=slewing speed, 0=tracking speed
-
-                    var statusVal = (uint)(byte0 | (byte1 << 8) | (byte2 << 16));
+                    var n0 = (isGotoMode ? 0 : 1) | (isReverse ? 2 : 0) | (isHighSpeed ? 4 : 0);
+                    var n1 = isRunning ? 1 : 0;
+                    var n2 = isInitDone ? 1 : 0;
                     _responseBuffer.Append('=');
-                    _responseBuffer.Append(SkywatcherProtocol.EncodeUInt24(statusVal));
+                    _responseBuffer.Append((char)(n0 < 10 ? '0' + n0 : 'A' + n0 - 10));
+                    _responseBuffer.Append((char)('0' + n1));
+                    _responseBuffer.Append((char)('0' + n2));
                     _responseBuffer.Append('\r');
                     break;
                 }
@@ -354,17 +368,18 @@ internal class FakeSkywatcherSerialDevice : ISerialConnection
 
                 case 'G': // Motion mode
                 {
-                    // payload: 2-char hex mode byte + 1-char direction
-                    // mode bit 0: 0=goto, 1=constant-speed (tracking/guide)
-                    // mode bit 1: 0=high-speed, 1=low-speed
-                    // direction: 0=forward, 1=reverse
-                    if (payload.Length >= 3)
+                    // Real wire format (GSServer Commands.SetMotionMode): 2 data chars
+                    // <func><dir>. func: 0=hs-GOTO, 1=ls-slew (tracking/guide), 2=ls-GOTO,
+                    // 3=hs-slew — the speed bit inverts meaning between goto and slew.
+                    // dir: bit0=reverse, bit1=southern hemisphere. Motion follows bit0
+                    // only; the hemisphere bit is stored so post-GOTO tracking auto-resume
+                    // runs in the correct direction for the site.
+                    if (SkywatcherProtocol.TryDecodeMotionMode(payload.AsSpan(), out var func, out var forward, out var southern))
                     {
-                        var modeByte = byte.Parse(payload.AsSpan(0, 2), NumberStyles.HexNumber, CultureInfo.InvariantCulture);
-                        var isGoto = (modeByte & 0x01) == 0;
-                        var isHighSpeed = (modeByte & 0x02) == 0;
-                        var dir = payload[2] - '0';
-                        if (axis == '1') { _raGotoMode = isGoto; _raDirection = dir; _raHighSpeed = isHighSpeed; }
+                        var isGoto = func.IsGoto;
+                        var isHighSpeed = func.IsHighSpeed;
+                        var dir = forward ? 0 : 1;
+                        if (axis == '1') { _raGotoMode = isGoto; _raDirection = dir; _raHighSpeed = isHighSpeed; _raSouthern = southern; }
                         else { _decGotoMode = isGoto; _decDirection = dir; _decHighSpeed = isHighSpeed; }
                     }
                     _responseBuffer.Append("=\r");
