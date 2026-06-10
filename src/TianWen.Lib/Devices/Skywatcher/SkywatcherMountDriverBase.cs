@@ -58,6 +58,10 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
     /// before <c>InitDeviceAsync</c> queries the controller.</summary>
     protected uint CprRa => _cprRa;
 
+    /// <summary>Test seam: the live serial connection, so wire-level tests can
+    /// reach the fake's command transcript. Null before connect.</summary>
+    internal ISerialConnection? SerialConnection => _deviceInfo.SerialDevice;
+
     // Guide state
     private int _guideSpeedIndex = 2; // default 0.5x sidereal
 
@@ -396,44 +400,77 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
 
     #region Pulse Guide
 
+    /// <summary>
+    /// Minimum pulse duration. Below the serial round-trip latency a pulse is noise;
+    /// matches GSServer's MinPulseDurationRa/Dec default of 20 ms.
+    /// </summary>
+    private static readonly TimeSpan MinPulseDuration = TimeSpan.FromMilliseconds(20);
+
     public async ValueTask PulseGuideAsync(GuideDirection direction, TimeSpan duration, CancellationToken cancellationToken)
     {
+        if (duration < MinPulseDuration)
+        {
+            Logger.LogDebug("Ignoring {Direction} pulse of {DurationMs:F1} ms (below the {MinMs} ms floor)",
+                direction, duration.TotalMilliseconds, MinPulseDuration.TotalMilliseconds);
+            return;
+        }
+
         var guideFraction = SkywatcherProtocol.GuideSpeedFraction(_guideSpeedIndex);
         var siderealDegPerSec = SIDEREAL_RATE / 3600.0;
 
         if (direction is GuideDirection.East or GuideDirection.West)
         {
             // RA pulse guiding OFFSETS the sidereal tracking rate rather than replacing it:
-            // West = (1+f) x sidereal, East = (1-f) x sidereal, both in the tracking (forward)
-            // direction. Commanding f x sidereal with a direction flag (the old behaviour)
-            // made BOTH pulses drift the star east relative to the sky — a West pulse ran the
-            // axis slower than sidereal (-f relative) and an East pulse reversed it (-(1+f)
-            // relative) — with a (1+f)/f gain asymmetry between the two directions.
+            // West = (1+f) x sidereal, East = (1-f) x sidereal, both in the tracking
+            // direction (forward north / reverse south). Commanding f x sidereal with a
+            // direction flag (the old behaviour) made BOTH pulses drift the star east
+            // relative to the sky — a West pulse ran the axis slower than sidereal (-f
+            // relative) and an East pulse reversed it (-(1+f) relative) — with a (1+f)/f
+            // gain asymmetry between the two directions.
             var rateFactor = direction is GuideDirection.West ? 1.0 + guideFraction : 1.0 - guideFraction;
-            var guideSpeed = siderealDegPerSec * rateFactor;
-            if (guideSpeed > siderealDegPerSec * 1e-3)
+            // East at guide fraction 1.0x gives a combined rate of 0; the motor boards
+            // cannot encode a zero step period, so command sidereal/1000 instead — the
+            // axis "looks stopped" without a stop/start transient (GSS does the same).
+            var guideSpeed = siderealDegPerSec * Math.Max(rateFactor, 1e-3);
+            var t1Pulse = SkywatcherProtocol.EncodeUInt24(
+                SkywatcherProtocol.ComputeT1Preset(_tmrFreq, _cprRa, guideSpeed, false, _highSpeedRatio));
+
+            if (_isTracking)
             {
-                // Pulse runs in the tracking direction (forward north / reverse south);
-                // only the rate differs from sidereal.
-                var south = IsSouthernHemisphere;
-                await SendCommandAsync('G', '1', SkywatcherProtocol.EncodeMotionMode(SkywatcherMotionFunc.LowSpeedSlew, forward: !south, south), cancellationToken);
-                var t1 = SkywatcherProtocol.ComputeT1Preset(_tmrFreq, _cprRa, guideSpeed, false, _highSpeedRatio);
-                await SendCommandAsync('I', '1', SkywatcherProtocol.EncodeUInt24(t1), cancellationToken);
-                await SendCommandAsync('J', '1', null, cancellationToken);
+                // The axis is already running at sidereal in the tracking direction and the
+                // combined rate never changes sign (f <= 1): change ONLY the step period
+                // (:I) live, then restore it. No stop/start — a K+G+I+J round trip adds
+                // decel/accel transients comparable to a short pulse's length, and real
+                // firmware rejects :G while the motor is running (error !2).
+                await SendCommandAsync('I', '1', t1Pulse, cancellationToken);
+                try
+                {
+                    await TimeProvider.SleepAsync(duration, cancellationToken);
+                }
+                finally
+                {
+                    // Restore the sidereal step period even when the pulse is cancelled —
+                    // a stuck guide rate would drift the mount at (1±f) x sidereal forever.
+                    var t1Sidereal = SkywatcherProtocol.ComputeT1Preset(_tmrFreq, _cprRa, siderealDegPerSec, false, _highSpeedRatio);
+                    await SendCommandAsync('I', '1', SkywatcherProtocol.EncodeUInt24(t1Sidereal), CancellationToken.None);
+                }
             }
             else
             {
-                // East pulse at guide fraction 1.0x: (1-f) = 0 — halt the RA axis for the duration.
-                await SendCommandAsync('K', '1', null, cancellationToken);
-            }
-
-            await TimeProvider.SleepAsync(duration, cancellationToken);
-
-            await SendCommandAsync('K', '1', null, cancellationToken);
-            if (_isTracking)
-            {
-                // Restore sidereal tracking on RA
-                await SetTrackingAsync(true, cancellationToken);
+                // Not tracking: there is no baseline to offset. Run the axis at the
+                // combined rate for the duration, then stop it again.
+                var south = IsSouthernHemisphere;
+                await SendCommandAsync('G', '1', SkywatcherProtocol.EncodeMotionMode(SkywatcherMotionFunc.LowSpeedSlew, forward: !south, south), cancellationToken);
+                await SendCommandAsync('I', '1', t1Pulse, cancellationToken);
+                await SendCommandAsync('J', '1', null, cancellationToken);
+                try
+                {
+                    await TimeProvider.SleepAsync(duration, cancellationToken);
+                }
+                finally
+                {
+                    await SendCommandAsync('K', '1', null, CancellationToken.None);
+                }
             }
         }
         else
@@ -451,10 +488,14 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
             var t1 = SkywatcherProtocol.ComputeT1Preset(_tmrFreq, _cprDec, guideSpeed, false, _highSpeedRatio);
             await SendCommandAsync('I', '2', SkywatcherProtocol.EncodeUInt24(t1), cancellationToken);
             await SendCommandAsync('J', '2', null, cancellationToken);
-
-            await TimeProvider.SleepAsync(duration, cancellationToken);
-
-            await SendCommandAsync('K', '2', null, cancellationToken);
+            try
+            {
+                await TimeProvider.SleepAsync(duration, cancellationToken);
+            }
+            finally
+            {
+                await SendCommandAsync('K', '2', null, CancellationToken.None);
+            }
         }
     }
 

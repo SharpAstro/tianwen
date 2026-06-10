@@ -1,6 +1,7 @@
 using Shouldly;
 using System;
 using System.Collections.Specialized;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using TianWen.DAL;
@@ -231,6 +232,56 @@ public class FakeSkywatcherMountDriverTests(ITestOutputHelper output)
         // running all four theory cases; here just pin that the pulse moved at all
         // in a consistent direction (sign is mapping-dependent, magnitude is not).
         Math.Abs(axisDeltaArcsec).ShouldBeGreaterThan(0);
+    }
+
+    /// <summary>
+    /// Wire contract (pinned against the GSS oracle transcripts): an RA pulse while
+    /// tracking changes ONLY the step period — :I with the combined rate, then :I back
+    /// to sidereal. No :G/:J/:K stop/start: real firmware rejects :G while the motor
+    /// runs (error !2), and the decel/accel transient would eat short pulses.
+    /// </summary>
+    [Theory(Timeout = 60_000)]
+    [InlineData(GuideDirection.West)]
+    [InlineData(GuideDirection.East)]
+    public async Task GivenTrackingMountWhenRaPulseGuidingThenOnlyStepPeriodChanges(GuideDirection direction)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (mount, _) = await CreateConnectedMountAsync(ct);
+        await mount.SyncRaDecAsync(6.0, 45.0, ct);
+        await mount.SetTrackingAsync(true, ct);
+
+        var serial = mount.SerialConnection.ShouldBeOfType<FakeSkywatcherSerialDevice>();
+        var before = serial.CommandLogSnapshot.Length;
+
+        await mount.PulseGuideAsync(direction, TimeSpan.FromSeconds(2), ct);
+
+        var motionCmds = serial.CommandLogSnapshot.Skip(before)
+            .Where(c => c.Length > 1 && c[1] is 'G' or 'I' or 'J' or 'K' or 'L')
+            .ToList();
+        output.WriteLine(string.Join(" ", motionCmds));
+        motionCmds.ShouldAllBe(c => c.StartsWith(":I1"),
+            "a tracking RA pulse must be a live :I rate change, never a stop/start");
+        motionCmds.Count.ShouldBe(2, "exactly one pulse-rate :I and one sidereal-restore :I");
+    }
+
+    /// <summary>
+    /// Pulses below the 20 ms floor are serial-latency noise (GSS MinPulseDurationRa/Dec
+    /// default): the driver must drop them without touching the wire.
+    /// </summary>
+    [Fact(Timeout = 60_000)]
+    public async Task GivenPulseBelowMinimumDurationThenNothingIsSent()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (mount, _) = await CreateConnectedMountAsync(ct);
+        await mount.SetTrackingAsync(true, ct);
+
+        var serial = mount.SerialConnection.ShouldBeOfType<FakeSkywatcherSerialDevice>();
+        var before = serial.CommandLogSnapshot.Length;
+
+        await mount.PulseGuideAsync(GuideDirection.West, TimeSpan.FromMilliseconds(10), ct);
+        await mount.PulseGuideAsync(GuideDirection.North, TimeSpan.FromMilliseconds(19), ct);
+
+        serial.CommandLogSnapshot.Length.ShouldBe(before);
     }
 
     /// <summary>

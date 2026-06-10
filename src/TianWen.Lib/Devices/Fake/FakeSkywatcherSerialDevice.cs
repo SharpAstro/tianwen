@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Logging;
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.Text;
 using System.Threading;
@@ -84,6 +85,24 @@ internal class FakeSkywatcherSerialDevice : ISerialConnection
 
     // Guide speed
     private int _guideSpeedIndex = 2; // 0-4
+
+    // Wire transcript seam for tests: the most recent commands received (terminator
+    // stripped), oldest first, capped so multi-hour fake sessions don't grow unbounded.
+    private const int COMMAND_LOG_CAP = 4096;
+    private readonly Queue<string> _commandLog = new();
+
+    /// <summary>Snapshot of the most recent wire commands (up to <see cref="COMMAND_LOG_CAP"/>),
+    /// for wire-level protocol assertions in tests.</summary>
+    internal string[] CommandLogSnapshot
+    {
+        get
+        {
+            lock (_lockObj)
+            {
+                return _commandLog.ToArray();
+            }
+        }
+    }
 
     // Snap port
     private bool _snapActive;
@@ -257,6 +276,12 @@ internal class FakeSkywatcherSerialDevice : ISerialConnection
             if (dataStr.Length < 3 || dataStr[0] != ':')
             {
                 return ValueTask.FromResult(false);
+            }
+
+            _commandLog.Enqueue(dataStr.TrimEnd('\r'));
+            if (_commandLog.Count > COMMAND_LOG_CAP)
+            {
+                _commandLog.Dequeue();
             }
 
             var cmd = dataStr[1];
