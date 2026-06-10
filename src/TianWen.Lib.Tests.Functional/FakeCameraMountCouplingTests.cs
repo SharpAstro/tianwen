@@ -6,6 +6,7 @@ using System;
 using System.Collections.Specialized;
 using System.Threading;
 using System.Threading.Tasks;
+using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Devices.Fake;
 using TianWen.Lib.Devices.Guider;
@@ -408,5 +409,281 @@ public class FakeCameraMountCouplingTests(ITestOutputHelper output)
         savedSamples.Length.ShouldBeGreaterThan(0, "online learning must save a fresh model sample (the 'new sample')");
         stats.DecRMS.ShouldBeLessThan(60.0,
             "a fresh model must not reproduce the corrupt model's catastrophic Dec divergence (568\")");
+    }
+
+    /// <summary>
+    /// Regression for the "guider flatlines after slewing to the target" session bug: the
+    /// zero-drift reference was captured once per driver lifetime, so after a GOTO the random
+    /// star field rendered with an offset equal to the whole slew (tens of thousands of pixels)
+    /// and every post-slew guide frame was starless. A pointing jump far beyond anything drift
+    /// can produce must re-baseline the reference so the drift term restarts near zero — while
+    /// ordinary tracking drift (the signal the guider nulls) must survive untouched.
+    /// </summary>
+    [Fact(Timeout = 60_000)]
+    public async Task GivenGuideCameraWhenMountGotosToNewTargetThenDriftReferenceRebaselines()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var external = new FakeExternal(output, now: new DateTimeOffset(2025, 6, 15, 22, 0, 0, TimeSpan.Zero));
+        await using var sp = BuildHubServiceProvider(external);
+        var hub = sp.GetRequiredService<IDeviceHub>();
+
+        var mount = await ConnectMisalignedMountAsync(hub, ct);
+        await mount.SetTrackingAsync(true, ct);
+
+        var guideCam = (FakeCameraDriver)await hub.ConnectAsync(
+            new FakeDevice(new Uri("camera://FakeDevice/FakeGuideCam1#Fake Guide Cam")), ct);
+        guideCam.FocalLength = 130;
+
+        await mount.SyncRaDecAsync(6.0, 45.0, ct);
+        await SnapshotPointingAsync(guideCam, ct); // zero-drift reference at the calibration spot
+
+        // Track 5 minutes: genuine misalignment drift accumulates and must NOT re-baseline.
+        external.TimeProvider.Advance(TimeSpan.FromMinutes(5));
+        await SnapshotPointingAsync(guideCam, ct);
+        var beforeSlew = guideCam.CurrentMountDriftPixels;
+        Math.Sqrt(beforeSlew.X * beforeSlew.X + beforeSlew.Y * beforeSlew.Y)
+            .ShouldBeGreaterThan(1.0, "ordinary tracking drift must survive (no spurious re-baseline)");
+
+        // GOTO to the actual target (the user's failing scenario: calibrate near one pointing,
+        // then slew away). 2° is far beyond the 10' slew-detection threshold.
+        await mount.BeginSlewRaDecAsync(6.2, 43.0, ct);
+        for (var i = 0; i < 600 && await mount.IsSlewingAsync(ct); i++)
+        {
+            external.TimeProvider.Advance(TimeSpan.FromSeconds(1));
+            await Task.Delay(1, ct);
+        }
+        (await mount.IsSlewingAsync(ct)).ShouldBeFalse("slew must complete within the pumped window");
+
+        await SnapshotPointingAsync(guideCam, ct);
+        var afterSlew = guideCam.CurrentMountDriftPixels;
+        var magAfter = Math.Sqrt(afterSlew.X * afterSlew.X + afterSlew.Y * afterSlew.Y);
+        output.WriteLine($"drift after GOTO: X={afterSlew.X:F2}px Y={afterSlew.Y:F2}px (thousands of px before the fix)");
+        magAfter.ShouldBeLessThan(1.0,
+            "the GOTO must re-baseline the zero-drift reference so the field starts fresh at the new target");
+    }
+
+    /// <summary>
+    /// Regression for "guiding starts on a starless field and flatlines silently": with a
+    /// reusable in-memory calibration, the guide-start path skipped any acquisition check and
+    /// called SetLockPosition on nothing — the loop then reported healthy Guiding/Settling with
+    /// an empty graph forever. Acquisition is now gated: bounded retries, then a loud
+    /// GuidingErrorEvent and a return to Idle.
+    /// </summary>
+    [Fact(Timeout = 120_000)]
+    public async Task GivenCloudWhenGuidingRestartsWithReusedCalibrationThenAcquisitionFailsLoudly()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var timeProvider = new FakeTimeProviderWrapper(new DateTimeOffset(2025, 6, 15, 22, 0, 0, TimeSpan.Zero));
+        var external = new FakeExternal(output, timeProvider);
+        await using var sp = BuildHubServiceProvider(external);
+        var hub = sp.GetRequiredService<IDeviceHub>();
+
+        var mount = await ConnectMisalignedMountAsync(hub, ct);
+        await mount.SetTrackingAsync(true, ct);
+        await mount.SyncRaDecAsync(6.0, 45.0, ct);
+
+        var guideCam = (FakeCameraDriver)await hub.ConnectAsync(
+            new FakeDevice(new Uri("camera://FakeDevice/FakeGuideCam1#Fake Guide Cam")), ct);
+        guideCam.FocalLength = 130;
+        guideCam.BinX = 1;
+        guideCam.NumX = 800;
+        guideCam.NumY = 600;
+
+        // 2 attempts, 1s retry delay: keep the deliberately-failing path fast (advanced knobs).
+        var guiderDevice = new BuiltInGuiderDevice(new Uri(
+            "guider://BuiltInGuiderDevice/builtin?pulseGuideSource=Camera&maxCalibrationAttempts=2&calibrationRetryDelaySeconds=1#Built-in Guider"));
+        var guider = new BuiltInGuiderDriver(guiderDevice, sp);
+        await guider.ConnectAsync(ct);
+        guider.LinkDevices(mount, guideCam);
+
+        string? guidingError = null;
+        guider.GuidingErrorEvent += (_, e) => guidingError = e.Message;
+
+        timeProvider.ExternalTimePump = true;
+        await guider.GuideAsync(settlePixels: 1.5, settleTime: 3.0, settleTimeout: 90.0, ct);
+
+        var increment = TimeSpan.FromMilliseconds(250);
+        var pumped = TimeSpan.Zero;
+        while (pumped < TimeSpan.FromMinutes(10) && guidingError is null && !await guider.IsGuidingAsync(ct))
+        {
+            timeProvider.Advance(increment);
+            pumped += increment;
+            await Task.Delay(1, ct);
+        }
+        guidingError.ShouldBeNull("the clean first calibration must succeed");
+        (await guider.IsGuidingAsync(ct)).ShouldBeTrue("must reach Guiding so a calibration is cached for reuse");
+
+        // Stop (slew-to-target in a real session), cloud over, restart with the cached calibration.
+        await guider.StopCaptureAsync(TimeSpan.FromSeconds(5), ct);
+
+        // Drain the loop's in-flight exposure before restarting — a real session slews for a
+        // minute between stop and restart, so the camera is never still Exposing at re-start.
+        for (var i = 0; i < 40; i++)
+        {
+            timeProvider.Advance(increment);
+            await Task.Delay(1, ct);
+        }
+
+        // Yank the whole field off the sensor (raw ST-4 mega-pulse, ~2 px/s × 800 s ≈ 1600 px on a
+        // 600 px-high readout): acquisition now faces genuinely starless frames — deterministic,
+        // unlike cloud attenuation which caps at 90% and lets the brightest star through.
+        await guideCam.PulseGuideAsync(TianWen.DAL.GuideDirection.North, TimeSpan.FromSeconds(800), ct);
+        await guider.GuideAsync(settlePixels: 1.5, settleTime: 3.0, settleTimeout: 90.0, ct);
+
+        pumped = TimeSpan.Zero;
+        while (pumped < TimeSpan.FromMinutes(5) && guidingError is null)
+        {
+            timeProvider.Advance(increment);
+            pumped += increment;
+            await Task.Delay(1, ct);
+        }
+
+        guidingError.ShouldNotBeNull("starting to guide on a starless field must fail loudly, not flatline");
+        guidingError.ShouldContain("no usable guide star");
+        (await guider.IsGuidingAsync(ct)).ShouldBeFalse("the driver must return to Idle after giving up");
+    }
+
+    /// <summary>
+    /// Star loss during guiding must surface as the PHD2-style "LostLock" app state (red label +
+    /// notification upstream) instead of a healthy-looking Guiding/Settling with a flat graph —
+    /// and must clear back to Guiding once the tracker re-acquires.
+    /// </summary>
+    [Fact(Timeout = 120_000)]
+    public async Task GivenCloudDuringGuidingThenStatusReportsLostLockAndRecoversOnClear()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var timeProvider = new FakeTimeProviderWrapper(new DateTimeOffset(2025, 6, 15, 22, 0, 0, TimeSpan.Zero));
+        var external = new FakeExternal(output, timeProvider);
+        await using var sp = BuildHubServiceProvider(external);
+        var hub = sp.GetRequiredService<IDeviceHub>();
+
+        var mount = await ConnectMisalignedMountAsync(hub, ct);
+        await mount.SetTrackingAsync(true, ct);
+        await mount.SyncRaDecAsync(6.0, 45.0, ct);
+
+        var guideCam = (FakeCameraDriver)await hub.ConnectAsync(
+            new FakeDevice(new Uri("camera://FakeDevice/FakeGuideCam1#Fake Guide Cam")), ct);
+        guideCam.FocalLength = 130;
+        guideCam.BinX = 1;
+        guideCam.NumX = 800;
+        guideCam.NumY = 600;
+
+        var guiderDevice = new BuiltInGuiderDevice(
+            new Uri("guider://BuiltInGuiderDevice/builtin?pulseGuideSource=Camera#Built-in Guider"));
+        var guider = new BuiltInGuiderDriver(guiderDevice, sp);
+        await guider.ConnectAsync(ct);
+        guider.LinkDevices(mount, guideCam);
+
+        string? guidingError = null;
+        guider.GuidingErrorEvent += (_, e) => guidingError = e.Message;
+
+        timeProvider.ExternalTimePump = true;
+        await guider.GuideAsync(settlePixels: 1.5, settleTime: 3.0, settleTimeout: 90.0, ct);
+
+        var increment = TimeSpan.FromMilliseconds(250);
+        var pumped = TimeSpan.Zero;
+        while (pumped < TimeSpan.FromMinutes(10) && guidingError is null && !await guider.IsGuidingAsync(ct))
+        {
+            timeProvider.Advance(increment);
+            pumped += increment;
+            await Task.Delay(1, ct);
+        }
+        guidingError.ShouldBeNull();
+        (await guider.IsGuidingAsync(ct)).ShouldBeTrue("must reach Guiding before the cloud rolls in");
+        (await guider.GetStatusAsync(ct)).AppState.ShouldBe("Guiding");
+
+        // Yank the whole field off the sensor via a raw ST-4 mega-pulse on the camera (the fake
+        // applies rate × duration instantly, ~2 px/s × 800 s ≈ 1600 px on a 600 px-high readout):
+        // every star leaves the frame, so the tracker loses the star persistently — the
+        // deterministic stand-in for clouds/obstruction (cloud attenuation caps at 90%, which a
+        // bright locked star survives).
+        await guideCam.PulseGuideAsync(TianWen.DAL.GuideDirection.North, TimeSpan.FromSeconds(800), ct);
+        string? appState = null;
+        pumped = TimeSpan.Zero;
+        while (pumped < TimeSpan.FromMinutes(3))
+        {
+            timeProvider.Advance(increment);
+            pumped += increment;
+            await Task.Delay(1, ct);
+            (appState, _) = await guider.GetStatusAsync(ct);
+            if (appState == "LostLock")
+            {
+                break;
+            }
+        }
+        appState.ShouldBe("LostLock", "a starless guide frame must surface as LostLock, not a healthy-looking flatline");
+
+        // The field returns: the tracker re-acquires and the state returns to Guiding.
+        await guideCam.PulseGuideAsync(TianWen.DAL.GuideDirection.South, TimeSpan.FromSeconds(800), ct);
+        pumped = TimeSpan.Zero;
+        while (pumped < TimeSpan.FromMinutes(3))
+        {
+            timeProvider.Advance(increment);
+            pumped += increment;
+            await Task.Delay(1, ct);
+            (appState, _) = await guider.GetStatusAsync(ct);
+            if (appState == "Guiding")
+            {
+                break;
+            }
+        }
+        appState.ShouldBe("Guiding", "once the cloud clears the tracker re-acquires and the lost-lock flag clears");
+
+        await guider.StopCaptureAsync(TimeSpan.FromSeconds(5), ct);
+    }
+
+    /// <summary>
+    /// With a catalog DB wired, the guide camera projects REAL catalog stars at the coupled
+    /// mount's live pointing (guide-scope cone error + camera roll applied), so it produces an
+    /// acquirable star field at ANY pointing — including immediately after a GOTO, which was the
+    /// random-field fallback's failure mode.
+    /// </summary>
+    [Fact(Timeout = 120_000)]
+    public async Task GivenCatalogDbThenGuideCamRendersAcquirableStarsAtAnyMountPointing()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var external = new FakeExternal(output, now: new DateTimeOffset(2025, 6, 15, 22, 0, 0, TimeSpan.Zero));
+        var db = new CelestialObjectDB();
+        await db.InitDBAsync(waitForTycho2BulkLoad: true, cancellationToken: ct);
+        external.CelestialObjectDB = db;
+
+        await using var sp = BuildHubServiceProvider(external);
+        var hub = sp.GetRequiredService<IDeviceHub>();
+
+        var mount = await ConnectMisalignedMountAsync(hub, ct);
+        await mount.SetTrackingAsync(true, ct);
+        await mount.SyncRaDecAsync(6.0, 45.0, ct);
+
+        var guideCam = (FakeCameraDriver)await hub.ConnectAsync(
+            new FakeDevice(new Uri("camera://FakeDevice/FakeGuideCam1#Fake Guide Cam")), ct);
+        guideCam.FocalLength = 130;
+        guideCam.BinX = 1;
+        guideCam.NumX = 800;
+        guideCam.NumY = 600;
+
+        IExternal externalItf = external; // ImageReadyPollInterval is a default interface member
+        var frame = await BuiltInGuiderDriver.CaptureGuideFrameAsync(
+            guideCam, TimeSpan.FromSeconds(2), external.TimeProvider, externalItf.ImageReadyPollInterval, ct);
+        var tracker = new GuiderCentroidTracker(maxStars: 1);
+        tracker.ProcessFrame(frame.GetChannelArray(0));
+        frame.Release();
+        tracker.IsAcquired.ShouldBeTrue("catalog stars must render at the initial pointing");
+
+        // GOTO elsewhere and capture again — the field must follow the mount.
+        await mount.BeginSlewRaDecAsync(6.2, 43.0, ct);
+        for (var i = 0; i < 600 && await mount.IsSlewingAsync(ct); i++)
+        {
+            external.TimeProvider.Advance(TimeSpan.FromSeconds(1));
+            await Task.Delay(1, ct);
+        }
+        (await mount.IsSlewingAsync(ct)).ShouldBeFalse("slew must complete within the pumped window");
+
+        var frame2 = await BuiltInGuiderDriver.CaptureGuideFrameAsync(
+            guideCam, TimeSpan.FromSeconds(2), external.TimeProvider, externalItf.ImageReadyPollInterval, ct);
+        var tracker2 = new GuiderCentroidTracker(maxStars: 1);
+        tracker2.ProcessFrame(frame2.GetChannelArray(0));
+        frame2.Release();
+        tracker2.IsAcquired.ShouldBeTrue(
+            "the star field must follow the mount to the new pointing — this was the starless-after-slew bug");
     }
 }

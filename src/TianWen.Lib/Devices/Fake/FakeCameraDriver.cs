@@ -156,6 +156,34 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver
     /// </summary>
     private bool IsGuideCamera => _fakeDevice.DeviceUri.AbsolutePath.Contains("GuideCam", StringComparison.OrdinalIgnoreCase);
 
+    /// <summary>
+    /// Guide-scope cone error, RA component in arcminutes (guide camera only). The guide scope
+    /// never points exactly where the mount believes the main OTA points; the catalog star field
+    /// is projected at the mount pointing offset by this. Default models a typical mini guide
+    /// scope in adjustable rings (~10' total misalignment).
+    /// </summary>
+    internal double GuideConeErrorRaArcmin { get; set; } = 9.0;
+
+    /// <summary>Guide-scope cone error, Dec component in arcminutes (guide camera only).</summary>
+    internal double GuideConeErrorDecArcmin { get; set; } = -6.0;
+
+    /// <summary>
+    /// Guide camera roll angle in degrees (guide camera only). Real guide cams are never
+    /// north-up; the guider's calibration sweep measures this angle empirically, so a non-zero
+    /// default exercises that path.
+    /// </summary>
+    internal double GuideRotationDeg { get; set; } = 15.0;
+
+    /// <summary>
+    /// Pointing jump (arcseconds) between consecutive guide exposures beyond which the coupled
+    /// mount is considered to have slewed (GOTO) rather than drifted: misalignment drift is
+    /// arcseconds-per-minute, so 10 arcminutes between frames can only be a slew. On detection the
+    /// zero-drift reference re-baselines to the new pointing and the in-camera star-position
+    /// integrator resets — the guide cam sees a fresh field at the new target instead of the old
+    /// field offset by the (sensor-dwarfing) slew distance.
+    /// </summary>
+    private const double SlewDetectionThresholdArcsec = 600.0;
+
     /// <summary>Periodic error period in seconds (typical worm gear ~10 minutes).</summary>
     internal double PePeriodSeconds { get; set; } = 600.0;
 
@@ -722,17 +750,36 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver
             {
                 var mountRa = await coupledMount.GetRightAscensionAsync(cancellationToken).ConfigureAwait(false);
                 var mountDec = await coupledMount.GetDeclinationAsync(cancellationToken).ConfigureAwait(false);
+                var slewDetected = false;
                 lock (_lock)
                 {
+                    if (_mountPointingValid && IsSlewSizedJump(_mountCachedRa, _mountCachedDec, mountRa, mountDec))
+                    {
+                        // GOTO between exposures: re-baseline the zero-drift reference and reset
+                        // the in-camera star integrator (ST-4 corrections + PE accumulated for the
+                        // OLD field are meaningless at the new pointing). Without this the random
+                        // star field rendered "drift" equal to the whole slew — tens of thousands
+                        // of pixels — leaving every post-slew guide frame starless.
+                        _starPositionX = 0;
+                        _starPositionY = 0;
+                        slewDetected = true;
+                    }
+
                     _mountCachedRa = mountRa;
                     _mountCachedDec = mountDec;
                     _mountPointingValid = true;
-                    if (!_mountRefCaptured)
+                    if (!_mountRefCaptured || slewDetected)
                     {
                         _mountRefRa = mountRa;
                         _mountRefDec = mountDec;
                         _mountRefCaptured = true;
                     }
+                }
+                if (slewDetected)
+                {
+                    Logger.LogInformation(
+                        "FakeCamera: GOTO detected (pointing jumped to RA={Ra:F4}h Dec={Dec:F4}°); re-baselined zero-drift reference and reset star integrator.",
+                        mountRa, mountDec);
                 }
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
@@ -816,7 +863,40 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver
                     // with no dedicated focuser); render in perfect focus.
                     var defocus = FocusPosition <= 0 ? 0 : Math.Abs(FocusPosition - TrueBestFocus);
 
-                    if (CelestialObjectDB is { } db && Target is { } target && FocalLength > 0)
+                    // Projection centre for the catalog star field. Main imaging cameras render at
+                    // their stamped Target (the session's centering loop plate-solves and re-syncs
+                    // them). The guide camera has no Target: it renders at the coupled mount's LIVE
+                    // pointing (snapshot taken in StartExposureAsync) offset by the guide scope's
+                    // cone error, with the camera's roll angle applied — so the field is correct at
+                    // any pointing and mount drift shows up as field motion automatically. In that
+                    // branch the star offset must be the in-camera part only (PE + ST-4); the
+                    // mount-drift term already lives in the moving projection centre.
+                    var pointingRa = 0.0;
+                    var pointingDec = 0.0;
+                    var hasPointing = false;
+                    var rotationDeg = 0.0;
+                    if (Target is { } target)
+                    {
+                        pointingRa = target.RA;
+                        pointingDec = target.Dec;
+                        hasPointing = true;
+                    }
+                    else if (IsGuideCamera)
+                    {
+                        lock (_lock)
+                        {
+                            if (_mountPointingValid)
+                            {
+                                var cosPointingDec = Math.Max(Math.Cos(_mountCachedDec * Math.PI / 180.0), 0.01);
+                                pointingRa = _mountCachedRa + GuideConeErrorRaArcmin / (60.0 * 15.0 * cosPointingDec);
+                                pointingDec = Math.Clamp(_mountCachedDec + GuideConeErrorDecArcmin / 60.0, -90.0, 90.0);
+                                hasPointing = true;
+                            }
+                        }
+                        rotationDeg = GuideRotationDeg;
+                    }
+
+                    if (CelestialObjectDB is { } db && hasPointing && FocalLength > 0)
                     {
                         // Synth flux scales with collecting area (aperture^2)
                         // referenced to a 50mm light bucket -- a 200mm f/3 OTA
@@ -843,20 +923,22 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver
                             SyntheticStarFieldRenderer.DetectabilityMagCutoff(
                                 apertureScale, exposureSec));
                         var stars = SyntheticStarFieldRenderer.ProjectCatalogStars(
-                            target.RA, target.Dec, FocalLength, PixelSizeX, imgWidth, imgHeight, db, magCutoff);
+                            pointingRa, pointingDec, FocalLength, PixelSizeX, imgWidth, imgHeight, db, magCutoff,
+                            rotationDeg: rotationDeg);
                         // Diagnostic: confirm aperture / scale / cutoff / cap during synth render.
                         Logger.LogDebug(
-                            "FakeCamera synth: aperture={Aperture} focal={FocalLength} t={ExposureSec:F3}s defocus={Defocus} scale={Scale:F2} magCutoff={Cutoff:F2} placedStars={Stars}",
-                            Aperture, FocalLength, exposureSec, defocus, apertureScale, magCutoff, stars.Count);
+                            "FakeCamera synth: aperture={Aperture} focal={FocalLength} t={ExposureSec:F3}s defocus={Defocus} scale={Scale:F2} magCutoff={Cutoff:F2} placedStars={Stars} rot={RotationDeg:F1}",
+                            Aperture, FocalLength, exposureSec, defocus, apertureScale, magCutoff, stars.Count, rotationDeg);
+                        var (offsetX, offsetY) = Target is not null ? TotalStarOffset : InCameraStarOffset;
                         var cloudSeed = _frameRng.Next();
                         var starSpan = System.Runtime.InteropServices.CollectionsMarshal.AsSpan(stars);
                         array = SensorType is Imaging.SensorType.RGGB
                             ? SyntheticStarFieldRenderer.RenderBayer(imgWidth, imgHeight, defocus, starSpan,
-                                offsetX: TotalStarOffset.X, offsetY: TotalStarOffset.Y,
+                                offsetX: offsetX, offsetY: offsetY,
                                 exposureSeconds: exposureSec, noiseSeed: _frameRng.Next(),
                                 apertureScaleFactor: apertureScale, dest: dest)
                             : SyntheticStarFieldRenderer.Render(imgWidth, imgHeight, defocus,
-                                stars: starSpan, offsetX: TotalStarOffset.X, offsetY: TotalStarOffset.Y,
+                                stars: starSpan, offsetX: offsetX, offsetY: offsetY,
                                 exposureSeconds: exposureSec, noiseSeed: _frameRng.Next(),
                                 cloudCoverage: CloudCoverage, cloudSeed: cloudSeed,
                                 apertureScaleFactor: apertureScale, dest: dest);
@@ -946,6 +1028,39 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver
             var (mountX, mountY) = MountDriftPixels();
             return (_starPositionX + mountX, _starPositionY + mountY);
         }
+    }
+
+    /// <summary>
+    /// In-camera star offset only: integrated PE wobble + accumulated ST-4 corrections, WITHOUT
+    /// the mount-drift term. Used by the guide-camera catalog render path, where the mount's
+    /// pointing change (drift and slews alike) is already expressed through the live projection
+    /// centre — adding <see cref="MountDriftPixels"/> on top would double-count it.
+    /// </summary>
+    private (double X, double Y) InCameraStarOffset
+    {
+        get
+        {
+            IntegratePeDrift();
+            return (_starPositionX, _starPositionY);
+        }
+    }
+
+    /// <summary>
+    /// True when the pointing change between two consecutive guide exposures exceeds
+    /// <see cref="SlewDetectionThresholdArcsec"/> on either axis — i.e. a GOTO, not drift.
+    /// Caller must hold <c>_lock</c>.
+    /// </summary>
+    private static bool IsSlewSizedJump(double prevRaHours, double prevDecDeg, double raHours, double decDeg)
+    {
+        // Wrap the RA delta into (-12, 12]h so a jump across the 0/24h seam is not misread.
+        var dRaHours = raHours - prevRaHours;
+        if (dRaHours > 12.0) dRaHours -= 24.0;
+        else if (dRaHours < -12.0) dRaHours += 24.0;
+
+        var cosDec = Math.Cos(prevDecDeg * Math.PI / 180.0);
+        var raArcsec = Math.Abs(dRaHours * 15.0 * 3600.0 * cosDec);
+        var decArcsec = Math.Abs((decDeg - prevDecDeg) * 3600.0);
+        return raArcsec > SlewDetectionThresholdArcsec || decArcsec > SlewDetectionThresholdArcsec;
     }
 
     /// <summary>

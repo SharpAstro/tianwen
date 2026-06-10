@@ -405,6 +405,9 @@ internal static class SyntheticStarFieldRenderer
     /// <param name="db">Celestial object database with Tycho-2 star data.</param>
     /// <param name="magnitudeCutoff">Faintest magnitude to include. Stars fainter than this are skipped.
     /// Default 12.0 matches Tycho-2 completeness. For short exposures (&lt;5s), use ~8–10.</param>
+    /// <param name="rotationDeg">Camera roll angle in degrees: the standard coordinates are rotated
+    /// by this angle before pixel mapping, modelling a camera that is not aligned north-up
+    /// (every real guide cam). 0 = north-up (the previous behaviour).</param>
     /// <returns>List of stars projected to pixel coordinates within sensor bounds.</returns>
     public static List<ProjectedStar> ProjectCatalogStars(
         double targetRA,
@@ -414,10 +417,15 @@ internal static class SyntheticStarFieldRenderer
         int width,
         int height,
         ICelestialObjectDB db,
-        double magnitudeCutoff = 12.0)
+        double magnitudeCutoff = 12.0,
+        double rotationDeg = 0.0)
     {
         const double Deg2Rad = Math.PI / 180.0;
         const double Rad2Arcsec = 206264.806;
+
+        var rotRad = rotationDeg * Deg2Rad;
+        var cosRot = Math.Cos(rotRad);
+        var sinRot = Math.Sin(rotRad);
 
         // Pixel scale in arcsec/pixel
         var pixelScaleArcsec = Rad2Arcsec * (pixelSizeUm * 1e-3) / focalLengthMm;
@@ -500,9 +508,13 @@ internal static class SyntheticStarFieldRenderer
             var xi = cosDec * Math.Sin(deltaRA) / cosC;
             var eta = (cosDec0 * sinDec - sinDec0 * cosDec * Math.Cos(deltaRA)) / cosC;
 
+            // Camera roll: rotate the tangent-plane coordinates by the camera angle
+            var xiRot = xi * cosRot - eta * sinRot;
+            var etaRot = xi * sinRot + eta * cosRot;
+
             // Convert to pixels (xi positive = East = -X in standard image orientation)
-            var pixelX = halfW - xi * Rad2Arcsec / pixelScaleArcsec;
-            var pixelY = halfH - eta * Rad2Arcsec / pixelScaleArcsec;
+            var pixelX = halfW - xiRot * Rad2Arcsec / pixelScaleArcsec;
+            var pixelY = halfH - etaRot * Rad2Arcsec / pixelScaleArcsec;
 
             // Keep stars within sensor bounds (with small margin for PSF)
             if (pixelX >= -20 && pixelX < width + 20 && pixelY >= -20 && pixelY < height + 20)
