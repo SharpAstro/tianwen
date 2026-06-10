@@ -393,6 +393,16 @@ internal class FakeSkywatcherSerialDevice : ISerialConnection
 
                 case 'G': // Motion mode
                 {
+                    // Real firmware rejects :G while the motor is running — error !2
+                    // "Motor not Stopped" — and ignores the command. Emulating that makes
+                    // the whole test suite enforce the stop-then-:G contract: any driver
+                    // path that forgets StopAxisAndWaitAsync diverges loudly instead of
+                    // silently working on the fake but failing on hardware.
+                    if (axis == '1' ? _raRunning : _decRunning)
+                    {
+                        _responseBuffer.Append("!2\r");
+                        break;
+                    }
                     // Real wire format (GSServer Commands.SetMotionMode): 2 data chars
                     // <func><dir>. func: 0=hs-GOTO, 1=ls-slew (tracking/guide), 2=ls-GOTO,
                     // 3=hs-slew — the speed bit inverts meaning between goto and slew.

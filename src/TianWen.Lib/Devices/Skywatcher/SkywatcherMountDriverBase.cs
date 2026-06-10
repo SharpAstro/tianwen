@@ -172,15 +172,32 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
                 return;
             }
 
-            // Set tracking mode: low-speed slew in the hemisphere's sidereal direction —
-            // forward in the north, reverse in the south (GSS feeds EqS the negated rate).
+            // Tracking runs the RA axis as a low-speed slew in the hemisphere's sidereal
+            // direction — forward in the north, reverse in the south (GSS feeds EqS the
+            // negated rate).
             var south = IsSouthernHemisphere;
-            await SendCommandAsync('G', '1', SkywatcherProtocol.EncodeMotionMode(SkywatcherMotionFunc.LowSpeedSlew, forward: !south, south), cancellationToken);
-            // Compute sidereal rate T1 preset
             var siderealDegPerSec = SIDEREAL_RATE / 3600.0;
             var t1 = SkywatcherProtocol.ComputeT1Preset(_tmrFreq, _cprRa, siderealDegPerSec, false, _highSpeedRatio);
-            await SendCommandAsync('I', '1', SkywatcherProtocol.EncodeUInt24(t1), cancellationToken);
-            await SendCommandAsync('J', '1', null, cancellationToken);
+
+            var status = await QueryAxisStatusAsync('1', cancellationToken);
+            if (status.IsRunning && status.IsTracking && status.IsForward == !south)
+            {
+                // Already running at a constant-speed rate in the tracking direction
+                // (e.g. firmware auto-resumed tracking after a GOTO): change only the
+                // step period — GSS AxisSlew's rateChangeOnly path. Re-sending :G here
+                // would be rejected by real firmware (!2 motor not stopped).
+                await SendCommandAsync('I', '1', SkywatcherProtocol.EncodeUInt24(t1), cancellationToken);
+            }
+            else
+            {
+                if (status.IsRunning)
+                {
+                    await StopAxisAndWaitAsync('1', cancellationToken);
+                }
+                await SendCommandAsync('G', '1', SkywatcherProtocol.EncodeMotionMode(SkywatcherMotionFunc.LowSpeedSlew, forward: !south, south), cancellationToken);
+                await SendCommandAsync('I', '1', SkywatcherProtocol.EncodeUInt24(t1), cancellationToken);
+                await SendCommandAsync('J', '1', null, cancellationToken);
+            }
             _isTracking = true;
         }
         else
@@ -278,9 +295,12 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
             throw new InvalidOperationException("Mount not initialized");
         }
 
-        // Stop tracking first
-        await SendCommandAsync('K', '1', null, cancellationToken);
-        await SendCommandAsync('K', '2', null, cancellationToken);
+        // Stop both axes and wait for FullStop: :K only STARTS a deceleration, and
+        // real firmware rejects the goto's :G with !2 until the motor has stopped.
+        // _isTracking (tracking DESIRED) is deliberately left alone — the firmware
+        // auto-resumes sidereal tracking once the goto completes.
+        await StopAxisAndWaitAsync('1', cancellationToken);
+        await StopAxisAndWaitAsync('2', cancellationToken);
 
         // Refresh cached encoder positions from the mount before computing the delta.
         // Without this, _posRa / _posDec may be stale (only updated on Get*Async reads),
@@ -377,6 +397,14 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
         {
             await SendCommandAsync('K', axisChar, null, cancellationToken);
             return;
+        }
+
+        // The axis may be running (tracking, or a previous MoveAxis at a different
+        // rate): real firmware rejects :G mid-motion (!2), so stop and wait first.
+        var status = await QueryAxisStatusAsync(axisChar, cancellationToken);
+        if (status.IsRunning)
+        {
+            await StopAxisAndWaitAsync(axisChar, cancellationToken);
         }
 
         var forward = rate > 0;
@@ -667,6 +695,11 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
 
     public async ValueTask ParkAsync(CancellationToken cancellationToken)
     {
+        // Stop both axes (tracking may be running) before the home goto — the goto's
+        // :G is rejected with !2 on a moving motor.
+        await StopAxisAndWaitAsync('1', cancellationToken);
+        await StopAxisAndWaitAsync('2', cancellationToken);
+        _isTracking = false;
         // Slew to home position (0x800000 = step 0)
         await SlewAxisToAsync('1', _posRa, 0, cancellationToken);
         await SlewAxisToAsync('2', _posDec, 0, cancellationToken);
@@ -906,7 +939,38 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
         await port.TryReadTerminatedAsync(CrTerminator, cancellationToken);
     }
 
-    private record struct AxisStatus(bool IsRunning, bool IsTracking, bool IsInitDone);
+    private record struct AxisStatus(bool IsRunning, bool IsTracking, bool IsForward, bool IsInitDone);
+
+    /// <summary>
+    /// Decelerate-stop an axis and wait until it reports FullStop. :K only STARTS a
+    /// deceleration; real firmware rejects a subsequent :G with !2 (motor not stopped)
+    /// until the motor has actually halted. Mirrors GSServer's wait: 25 ms status
+    /// polls, the stop re-issued every 5 polls, capped at 3.5 s.
+    /// </summary>
+    private async ValueTask StopAxisAndWaitAsync(char axisChar, CancellationToken cancellationToken)
+    {
+        await SendCommandAsync('K', axisChar, null, cancellationToken);
+
+        var pollInterval = TimeSpan.FromMilliseconds(25);
+        var timeout = TimeSpan.FromSeconds(3.5);
+        var waited = TimeSpan.Zero;
+        var polls = 0;
+        while (waited < timeout)
+        {
+            var status = await QueryAxisStatusAsync(axisChar, cancellationToken);
+            if (!status.IsRunning)
+            {
+                return;
+            }
+            if (++polls % 5 == 0)
+            {
+                await SendCommandAsync('K', axisChar, null, cancellationToken);
+            }
+            await TimeProvider.SleepAsync(pollInterval, cancellationToken);
+            waited += pollInterval;
+        }
+        Logger.LogWarning("Skywatcher axis {Axis} did not reach full stop within {TimeoutSeconds:F1}s", axisChar, timeout.TotalSeconds);
+    }
 
     private async ValueTask<AxisStatus> QueryAxisStatusAsync(char axis, CancellationToken cancellationToken)
     {
@@ -922,10 +986,11 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
             var n2 = SkywatcherProtocol.ParseHexNibble(data[2]);
             var isRunning = (n1 & 0x01) != 0;
             var isConstantSpeed = (n0 & 0x01) != 0; // tracking/MoveAxis rate, not a GOTO
+            var isForward = (n0 & 0x02) == 0;
             var isInitDone = (n2 & 0x01) != 0;
-            return new AxisStatus(isRunning, isRunning && isConstantSpeed, isInitDone);
+            return new AxisStatus(isRunning, isRunning && isConstantSpeed, isForward, isInitDone);
         }
-        return new AxisStatus(false, false, false);
+        return new AxisStatus(false, false, true, false);
     }
 
     #endregion
