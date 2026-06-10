@@ -65,6 +65,16 @@ internal class FakeSkywatcherSerialDevice : ISerialConnection
     private double _raSlewDegPerSec;
     private double _decSlewDegPerSec;
 
+    // Fractional step remainders for the constant-speed integrators. At tracking /
+    // guide rates the 50ms simulation tick only advances a handful of steps
+    // (sidereal = ~5.2 steps/tick, 0.5x guide = ~2.6) and a plain (int) cast
+    // truncated the fraction every tick: the axis systematically under-ran by ~4%
+    // at sidereal (a spurious ~36"/min east drift on top of the modelled
+    // misalignment) and ~24% at 0.5x guide rate. Carrying the remainder across
+    // ticks makes the long-run rate exact.
+    private double _raStepFrac;
+    private double _decStepFrac;
+
     // Guide speed
     private int _guideSpeedIndex = 2; // 0-4
 
@@ -95,16 +105,25 @@ internal class FakeSkywatcherSerialDevice : ISerialConnection
     public bool IsOpen { get; private set; }
     public Encoding Encoding { get; }
 
-    private void SimulationTimerCallback(object? state)
+    private void SimulationTimerCallback(object? state) => AdvanceSimulation();
+
+    /// <summary>
+    /// Integrates axis motion since the last call. Invoked by the 50ms simulation
+    /// timer AND synchronously at the head of every protocol command — without the
+    /// latter, a guide pulse shorter than the timer period (J ... K inside one tick)
+    /// would move the axis by nothing at all: the stop command must first account
+    /// for the motion that occurred while the axis was running.
+    /// </summary>
+    private void AdvanceSimulation()
     {
         if (!IsOpen) return;
 
-        var currentTicks = _timeProvider.GetTimestamp();
-        var elapsedTicks = currentTicks - _lastTrackingTicks;
-        _lastTrackingTicks = currentTicks;
-
         lock (_lockObj)
         {
+            var currentTicks = _timeProvider.GetTimestamp();
+            var elapsedTicks = currentTicks - _lastTrackingTicks;
+            _lastTrackingTicks = currentTicks;
+
             var elapsedSeconds = (double)elapsedTicks / _timeProvider.TimestampFrequency;
 
             // Simulate tracking: advance RA at sidereal rate when in tracking
@@ -126,7 +145,10 @@ internal class FakeSkywatcherSerialDevice : ISerialConnection
                     stepsPerSec = (double)DEFAULT_CPR / 86164.0905;
                 }
                 var direction = _raDirection == 0 ? 1.0 : -1.0;
-                _posRa += (int)(direction * stepsPerSec * elapsedSeconds);
+                _raStepFrac += direction * stepsPerSec * elapsedSeconds;
+                var raWholeSteps = (int)_raStepFrac;
+                _posRa += raWholeSteps;
+                _raStepFrac -= raWholeSteps;
             }
 
             // Simulate goto slew: move toward target, auto-start tracking when done
@@ -140,6 +162,13 @@ internal class FakeSkywatcherSerialDevice : ISerialConnection
                     // Real SW mounts auto-start sidereal tracking after goto completes
                     _raGotoMode = false;
                     _raTracking = true;
+                    // Tracking always runs FORWARD at sidereal: the goto's direction and
+                    // rate must not leak into it. A reverse goto (slew toward larger RA)
+                    // used to leave _raDirection=1, so the auto-resumed "tracking" ran the
+                    // axis backward and the believed RA drifted at 2x sidereal.
+                    _raDirection = 0;
+                    _raSlewDegPerSec = 0;
+                    _raHighSpeed = false;
                     // _raRunning stays true — now tracking at sidereal rate
                 }
                 else
@@ -172,10 +201,18 @@ internal class FakeSkywatcherSerialDevice : ISerialConnection
                 }
                 else
                 {
-                    // Constant-speed guide/slew: move Dec at guide rate
-                    var guideRate = (double)DEFAULT_CPR / 86164.0905 * 0.5; // 0.5x sidereal
+                    // Constant-speed guide/slew: move Dec at the rate the most recent
+                    // ':I' command set (pulse guide / MoveAxis), falling back to 0.5x
+                    // sidereal when none was captured. Hardcoding 0.5x here made the
+                    // fake ignore the mount's configured guide speed entirely.
+                    var stepsPerSec = _decSlewDegPerSec > 0
+                        ? _decSlewDegPerSec * (double)DEFAULT_CPR / 360.0
+                        : (double)DEFAULT_CPR / 86164.0905 * 0.5;
                     var direction = _decDirection == 0 ? 1.0 : -1.0;
-                    _posDec += (int)(direction * guideRate * elapsedSeconds);
+                    _decStepFrac += direction * stepsPerSec * elapsedSeconds;
+                    var decWholeSteps = (int)_decStepFrac;
+                    _posDec += decWholeSteps;
+                    _decStepFrac -= decWholeSteps;
                 }
             }
         }
@@ -201,6 +238,11 @@ internal class FakeSkywatcherSerialDevice : ISerialConnection
 #if DEBUG
         _logger.LogTrace("--> {Message}", dataStr);
 #endif
+        // Bring axis positions up to date before the command takes effect — a stop
+        // command must observe the motion that ran since the last 50ms tick, or
+        // sub-tick guide pulses (J ... K within one period) would be lost entirely.
+        AdvanceSimulation();
+
         lock (_lockObj)
         {
             if (dataStr.Length < 3 || dataStr[0] != ':')

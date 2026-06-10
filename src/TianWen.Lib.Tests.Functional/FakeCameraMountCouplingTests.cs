@@ -91,7 +91,10 @@ public class FakeCameraMountCouplingTests(ITestOutputHelper output)
         var guideCam = (FakeCameraDriver)await hub.ConnectAsync(new FakeDevice(guideCamUri), ct);
         guideCam.FocalLength = 130;
 
-        // Plate-solve sync away from the pole: static offset learned, drift armed.
+        // Track + plate-solve sync away from the pole: static offset learned, drift armed.
+        // Tracking must be ON: with the axis parked, the believed pointing sweeps at
+        // sidereal rate (15"/s) and the 5-minute jump below would read as a GOTO.
+        await mount.SetTrackingAsync(true, ct);
         await mount.SyncRaDecAsync(6.0, 45.0, ct);
 
         // First guide exposure captures the zero-drift reference -> star centred.
@@ -138,6 +141,7 @@ public class FakeCameraMountCouplingTests(ITestOutputHelper output)
         var mainCam = (FakeCameraDriver)await hub.ConnectAsync(new FakeDevice(DeviceType.Camera, 1), ct);
         mainCam.FocalLength = 600;
 
+        await mount.SetTrackingAsync(true, ct);
         await mount.SyncRaDecAsync(6.0, 45.0, ct);
 
         await SnapshotPointingAsync(mainCam, ct);
@@ -524,10 +528,11 @@ public class FakeCameraMountCouplingTests(ITestOutputHelper output)
             await Task.Delay(1, ct);
         }
 
-        // Yank the whole field off the sensor (raw ST-4 mega-pulse, ~2 px/s × 800 s ≈ 1600 px on a
-        // 600 px-high readout): acquisition now faces genuinely starless frames — deterministic,
-        // unlike cloud attenuation which caps at 90% and lets the brightest star through.
-        await guideCam.PulseGuideAsync(TianWen.DAL.GuideDirection.North, TimeSpan.FromSeconds(800), ct);
+        // Full overcast: CloudCoverage >= 1.0 renders genuinely starless frames (partial
+        // cloud attenuation caps at 90% and lets the brightest star through; ST-4
+        // mega-pulses are no longer usable as a stand-in — they now physically move the
+        // mount, and the camera's slew detection would just re-baseline to a fresh field).
+        guideCam.CloudCoverage = 1.0;
         await guider.GuideAsync(settlePixels: 1.5, settleTime: 3.0, settleTimeout: 90.0, ct);
 
         pumped = TimeSpan.Zero;
@@ -592,12 +597,11 @@ public class FakeCameraMountCouplingTests(ITestOutputHelper output)
         (await guider.IsGuidingAsync(ct)).ShouldBeTrue("must reach Guiding before the cloud rolls in");
         (await guider.GetStatusAsync(ct)).AppState.ShouldBe("Guiding");
 
-        // Yank the whole field off the sensor via a raw ST-4 mega-pulse on the camera (the fake
-        // applies rate × duration instantly, ~2 px/s × 800 s ≈ 1600 px on a 600 px-high readout):
-        // every star leaves the frame, so the tracker loses the star persistently — the
-        // deterministic stand-in for clouds/obstruction (cloud attenuation caps at 90%, which a
-        // bright locked star survives).
-        await guideCam.PulseGuideAsync(TianWen.DAL.GuideDirection.North, TimeSpan.FromSeconds(800), ct);
+        // Full overcast: CloudCoverage >= 1.0 renders genuinely starless frames, so the
+        // tracker loses the star persistently. (Partial cloud attenuation caps at 90%,
+        // which a bright locked star survives; the previous ST-4 mega-pulse stand-in now
+        // physically moves the mount and would read as a GOTO instead.)
+        guideCam.CloudCoverage = 1.0;
         string? appState = null;
         pumped = TimeSpan.Zero;
         while (pumped < TimeSpan.FromMinutes(3))
@@ -613,8 +617,8 @@ public class FakeCameraMountCouplingTests(ITestOutputHelper output)
         }
         appState.ShouldBe("LostLock", "a starless guide frame must surface as LostLock, not a healthy-looking flatline");
 
-        // The field returns: the tracker re-acquires and the state returns to Guiding.
-        await guideCam.PulseGuideAsync(TianWen.DAL.GuideDirection.South, TimeSpan.FromSeconds(800), ct);
+        // The cloud clears: the tracker re-acquires and the state returns to Guiding.
+        guideCam.CloudCoverage = 0.0;
         pumped = TimeSpan.Zero;
         while (pumped < TimeSpan.FromMinutes(3))
         {

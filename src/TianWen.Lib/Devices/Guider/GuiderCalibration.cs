@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
@@ -40,6 +41,13 @@ internal readonly record struct CalibrationProgress(
 
 internal sealed class GuiderCalibration
 {
+    /// <summary>
+    /// Optional logger. Every rejection path in <see cref="CalibrateAsync"/> logs WHY it
+    /// returned null (with the measured numbers) — a silent null forces whoever reads the
+    /// session log to guess which of five quality gates fired.
+    /// </summary>
+    public ILogger? Logger { get; set; }
+
     /// <summary>
     /// Current calibration progress, updated during <see cref="CalibrateAsync"/>.
     /// </summary>
@@ -161,6 +169,8 @@ internal sealed class GuiderCalibration
             var blFrame = await captureFrame(cancellationToken);
             if (tracker.ProcessFrame(blFrame.GetChannelArray(0)) is null)
             {
+                Logger?.LogWarning("Calibration rejected: star lost re-acquiring after RA (West) backlash clearing ({Steps} steps, movement detected: {Moved}).",
+                    raBacklashResult.StepsUsed, raBacklashResult.MovementDetected);
                 return null;
             }
             tracker.SetLockPosition();
@@ -179,6 +189,7 @@ internal sealed class GuiderCalibration
 
         if (westMeasurement is null)
         {
+            Logger?.LogWarning("Calibration rejected: star lost during the RA (West) measurement sweep.");
             return null;
         }
 
@@ -196,6 +207,7 @@ internal sealed class GuiderCalibration
         var frame = await captureFrame(cancellationToken);
         if (tracker.ProcessFrame(frame.GetChannelArray(0)) is null)
         {
+            Logger?.LogWarning("Calibration rejected: star lost re-acquiring after the RA (East) return sweep.");
             return null;
         }
         tracker.SetLockPosition();
@@ -212,6 +224,8 @@ internal sealed class GuiderCalibration
             var blFrame2 = await captureFrame(cancellationToken);
             if (tracker.ProcessFrame(blFrame2.GetChannelArray(0)) is null)
             {
+                Logger?.LogWarning("Calibration rejected: star lost re-acquiring after Dec (North) backlash clearing ({Steps} steps, movement detected: {Moved}).",
+                    decBacklashResult.StepsUsed, decBacklashResult.MovementDetected);
                 return null;
             }
             tracker.SetLockPosition();
@@ -230,6 +244,7 @@ internal sealed class GuiderCalibration
 
         if (northMeasurement is null)
         {
+            Logger?.LogWarning("Calibration rejected: star lost during the Dec (North) measurement sweep.");
             return null;
         }
 
@@ -257,6 +272,8 @@ internal sealed class GuiderCalibration
         if (raDisplacementPx < 1.0 || decDisplacementPx < 1.0)
         {
             // Not enough displacement for reliable calibration
+            Logger?.LogWarning("Calibration rejected: insufficient displacement (RA West {RaPx:F2}px, Dec North {DecPx:F2}px; need >= 1px each). Pulses are not moving the mount or the guide rate is too low.",
+                raDisplacementPx, decDisplacementPx);
             return null;
         }
 
@@ -270,6 +287,8 @@ internal sealed class GuiderCalibration
         if (Math.Abs(axisSeparationDeg - 90.0) > FreshOrthogonalityToleranceDeg)
         {
             // RA/Dec axes not perpendicular -> degenerate calibration.
+            Logger?.LogWarning("Calibration rejected: RA/Dec sweep axes are {Separation:F1}deg apart (RA at {RaAngle:F1}deg, Dec at {DecAngle:F1}deg; need 90 +/- {Tolerance:F0}deg).",
+                axisSeparationDeg, raAxisAngleDeg, decAxisAngleDeg, FreshOrthogonalityToleranceDeg);
             return null;
         }
 
@@ -277,9 +296,12 @@ internal sealed class GuiderCalibration
         // axis, so the net displacement is close to the total path the star travelled. A star that
         // wandered (seeing blowups, intermittent stiction, a hopping centroid) inflates the path
         // without the net -- the per-step rate is unreliable, so reject.
-        if (SweepLinearity(raOrigin, raSteps, raDisplacementPx) < MinSweepLinearity ||
-            SweepLinearity(decOrigin, decSteps, decDisplacementPx) < MinSweepLinearity)
+        var raLinearity = SweepLinearity(raOrigin, raSteps, raDisplacementPx);
+        var decLinearity = SweepLinearity(decOrigin, decSteps, decDisplacementPx);
+        if (raLinearity < MinSweepLinearity || decLinearity < MinSweepLinearity)
         {
+            Logger?.LogWarning("Calibration rejected: unstable sweep (linearity RA {RaLin:F2}, Dec {DecLin:F2}; need >= {Min:F2}). The star wandered instead of moving monotonically.",
+                raLinearity, decLinearity, MinSweepLinearity);
             return null;
         }
 

@@ -167,11 +167,15 @@ internal static class SyntheticStarFieldRenderer
             }
         }
 
-        // Render stars with shot noise (separate RNG — clipping differences don't affect positions)
+        // Render stars with shot noise (separate RNG — clipping differences don't affect positions).
+        // Fully overcast (cloudCoverage >= 1.0) is a blackout: no star photons reach the
+        // sensor at all. The partial-cloud path below deliberately caps attenuation at 90%
+        // so bright stars survive a passing cloud — total cover needs this explicit gate.
+        var renderStarCount = cloudCoverage >= 1.0 ? 0 : starCount;
         var shotRng = new Random(noiseSeed.HasValue ? noiseSeed.Value + 1 : seed + 2);
         var sigma2x2 = 2.0 * sigma * sigma;
 
-        for (var s = 0; s < starCount; s++)
+        for (var s = 0; s < renderStarCount; s++)
         {
             var (starX, starY, flux) = stars[s];
             var normalization = flux / (Math.PI * sigma2x2);
@@ -210,7 +214,11 @@ internal static class SyntheticStarFieldRenderer
         }
 
         // Apply cloud coverage: attenuate stars and add diffuse glow
-        if (cloudCoverage > 0)
+        if (cloudCoverage >= 1.0)
+        {
+            ApplyUniformOvercast(data, cloudGlow * exposureSeconds);
+        }
+        else if (cloudCoverage > 0)
         {
             var cloudMap = GenerateCloudMap(width, height, cloudCoverage, cloudSeed);
             ApplyCloudMap(data, cloudMap, cloudGlow * exposureSeconds);
@@ -307,11 +315,14 @@ internal static class SyntheticStarFieldRenderer
             }
         }
 
-        // Render stars with shot noise
+        // Render stars with shot noise. Fully overcast (cloudCoverage >= 1.0) is a blackout:
+        // no star photons reach the sensor (the partial-cloud attenuation caps at 90%, so
+        // bright stars deliberately survive anything short of total cover).
+        var renderStarCount = cloudCoverage >= 1.0 ? 0 : starArray.Length;
         var shotRng = new Random(noiseSeed.HasValue ? noiseSeed.Value + 1 : seed + 2);
         var sigma2x2 = 2.0 * sigma * sigma;
 
-        for (var s = 0; s < starArray.Length; s++)
+        for (var s = 0; s < renderStarCount; s++)
         {
             var (starX, starY, flux) = starArray[s];
             var normalization = flux / (Math.PI * sigma2x2);
@@ -348,7 +359,11 @@ internal static class SyntheticStarFieldRenderer
         }
 
         // Apply cloud coverage
-        if (cloudCoverage > 0)
+        if (cloudCoverage >= 1.0)
+        {
+            ApplyUniformOvercast(data, cloudGlow * exposureSeconds);
+        }
+        else if (cloudCoverage > 0)
         {
             var cloudMap = GenerateCloudMap(width, height, cloudCoverage, cloudSeed);
             ApplyCloudMap(data, cloudMap, cloudGlow * exposureSeconds);
@@ -639,6 +654,28 @@ internal static class SyntheticStarFieldRenderer
                     // Attenuate signal (stars + sky) and add cloud glow
                     data[y, x] = (float)(data[y, x] * (1.0 - opacity * 0.9) + cloudGlow * opacity);
                 }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Fully-overcast sky (coverage >= 1.0): attenuates everything by the same 90% cap the
+    /// partial-cloud path uses and adds a UNIFORM glow. The textured cloud map is deliberately
+    /// not used here — its glow knots read as SNR ~4 pseudo-stars to a centroid tracker, but a
+    /// solid deck is featureless.
+    /// </summary>
+    /// <param name="data">Image data array to modify in-place.</param>
+    /// <param name="cloudGlow">Uniform glow added everywhere (scattered light, in ADU).</param>
+    internal static void ApplyUniformOvercast(float[,] data, double cloudGlow)
+    {
+        var height = data.GetLength(0);
+        var width = data.GetLength(1);
+
+        for (var y = 0; y < height; y++)
+        {
+            for (var x = 0; x < width; x++)
+            {
+                data[y, x] = (float)(data[y, x] * 0.1 + cloudGlow);
             }
         }
     }

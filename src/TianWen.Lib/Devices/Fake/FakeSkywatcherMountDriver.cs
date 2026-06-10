@@ -117,6 +117,31 @@ internal class FakeSkywatcherMountDriver(FakeDevice device, IServiceProvider ser
     private double _trackingRefDec;
 
     /// <summary>
+    /// Believed (encoder-derived) RA/Dec at the same reference moment. Under perfect
+    /// tracking the believed pointing is CONSTANT, so any deviation from this value at
+    /// read time is exactly the commanded axis motion since the reference — guide
+    /// pulses, MoveAxis nudges, the in-flight portion of a GOTO. The post-centering
+    /// branch adds that deviation to the drifted pointing 1:1: without it, pulse
+    /// guiding moved the encoders but was INVISIBLE in pointing reads (the guider
+    /// measured ~0 displacement per pulse and calibration was rejected for
+    /// insufficient displacement). After a sync / completed GOTO the encoders match
+    /// the commanded position, so the commanded RA/Dec doubles as the believed anchor.
+    /// </summary>
+    private double _trackingRefBaseRa;
+    private double _trackingRefBaseDec;
+
+    /// <summary>
+    /// True while a post-centering GOTO is in flight and the believed-pointing anchor
+    /// has not been captured yet. The fake goto computes its target steps from the HA
+    /// at COMMAND time, so the believed RA on arrival is the target plus the slew
+    /// duration of sidereal motion — anchoring at the commanded target would leave a
+    /// permanent slew-duration error in every read (~9' for a long slew). Instead the
+    /// first pointing read after the slew completes captures the believed pointing as
+    /// the anchor (and restarts the drift clock at arrival).
+    /// </summary>
+    private bool _trackingRefBasePending;
+
+    /// <summary>
     /// Angular distance from the site's celestial pole, in degrees, within which
     /// the OTA is treated as "parked on the pole" for polar-align simulation
     /// (encoder-swept pole) rather than slewed to an imaging target (axis-tilt of
@@ -207,6 +232,11 @@ internal class FakeSkywatcherMountDriver(FakeDevice device, IServiceProvider ser
         }
         _trackingRefRa = ra;
         _trackingRefDec = dec;
+        // The sync just wrote the encoders to match (ra, dec), so the believed
+        // pointing anchor is the commanded position itself.
+        _trackingRefBaseRa = ra;
+        _trackingRefBaseDec = dec;
+        _trackingRefBasePending = false;
         _trackingRefUtc = TimeProvider.GetUtcNow();
     }
 
@@ -242,6 +272,11 @@ internal class FakeSkywatcherMountDriver(FakeDevice device, IServiceProvider ser
         }
         _trackingRefRa = ra;
         _trackingRefDec = dec;
+        // The believed-pointing anchor cannot be captured here: the goto's target steps
+        // encode the HA at command time, so the believed RA at ARRIVAL differs from the
+        // commanded target by the slew duration of sidereal motion. Defer the capture to
+        // the first pointing read after the slew completes (see _trackingRefBasePending).
+        _trackingRefBasePending = true;
         _trackingRefUtc = TimeProvider.GetUtcNow();
         Logger.LogInformation(
             "FakeSkywatcher: GOTO ({Ra:F4}h, {Dec:F4}deg) re-baselined the tracking-drift reference (alignment already learned -- the slew lands on target and the residual polar drift restarts from here).",
@@ -289,8 +324,42 @@ internal class FakeSkywatcherMountDriver(FakeDevice device, IServiceProvider ser
             // Anchored to the synced reference position, NOT the live base RA
             // (which advances with LST and would swamp the drift -- see the
             // _trackingRefRa rationale).
+            // A post-centering GOTO defers the believed-pointing anchor capture to the
+            // first read after the slew completes (the goto's target steps go stale by
+            // the slew duration -- see _trackingRefBasePending). Mid-slew reads report
+            // the drift-anchored target, matching the pre-deviation behaviour.
+            if (_trackingRefBasePending)
+            {
+                if (await IsSlewingAsync(ct))
+                {
+                    var trackedSecondsInFlight = (TimeProvider.GetUtcNow() - _trackingRefUtc).TotalSeconds;
+                    return ApplyTrackingDrift(hemisphere, axis, _trackingRefRa, _trackingRefDec, trackedSecondsInFlight);
+                }
+                _trackingRefBaseRa = baseRa;
+                _trackingRefBaseDec = baseDec;
+                _trackingRefBasePending = false;
+                // Restart the drift clock at arrival: the residual polar drift
+                // re-accumulates from the freshly-reached target.
+                _trackingRefUtc = TimeProvider.GetUtcNow();
+            }
+
             var trackedSeconds = (TimeProvider.GetUtcNow() - _trackingRefUtc).TotalSeconds;
-            return ApplyTrackingDrift(hemisphere, axis, _trackingRefRa, _trackingRefDec, trackedSeconds);
+            var (raDrifted, decDrifted) = ApplyTrackingDrift(hemisphere, axis, _trackingRefRa, _trackingRefDec, trackedSeconds);
+
+            // Commanded axis motion since the reference must still show up 1:1. Under
+            // perfect tracking the believed (encoder) pointing is constant, so its
+            // deviation from the reference anchor IS that motion: guide pulses,
+            // MoveAxis nudges. Without this term the anchor freeze made pulse guiding
+            // invisible in pointing reads -- the guider's calibration measured ~0
+            // displacement per pulse and rejected itself for insufficient displacement.
+            var dRaHours = baseRa - _trackingRefBaseRa;
+            if (dRaHours > 12.0) dRaHours -= 24.0;
+            else if (dRaHours < -12.0) dRaHours += 24.0;
+            var dDecDeg = baseDec - _trackingRefBaseDec;
+
+            var raOut = (raDrifted + dRaHours) % 24.0;
+            if (raOut < 0) raOut += 24.0;
+            return (raOut, Math.Clamp(decDrifted + dDecDeg, -90.0, 90.0));
         }
 
         // Imaging regime, pre-centering: the OTA has been slewed away from the

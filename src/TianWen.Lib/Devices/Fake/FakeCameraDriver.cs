@@ -132,11 +132,17 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver
     // ── Part 2: guide-camera mount coupling ──────────────────────────────────
     // The guide star drifts on the sensor by the coupled mount's misalignment
     // pointing change (the fake SkyWatcher mount drifts mostly in Dec while
-    // tracking about a tilted polar axis). The guider's ST-4 pulses land on the
-    // camera (pulseGuideSource=Camera) and counter that drift via the same
-    // _starPositionX/Y integrator, so the loop closes inside the camera with no
-    // mount changes and no session awareness -- the camera self-resolves the
-    // mount from the device hub, mirroring how it self-resolves the catalog DB.
+    // tracking about a tilted polar axis). Guide corrections counter that drift
+    // by MOVING THE MOUNT: pulses routed to the mount directly
+    // (pulseGuideSource=Mount/Auto) or via this camera's ST-4 port
+    // (pulseGuideSource=Camera, forwarded as if a guide cable were wired to the
+    // mount's autoguide port) change the encoders and hence the pointing the
+    // next exposure snapshots — the loop closes through the mount with no
+    // session awareness; the camera self-resolves the mount from the device
+    // hub, mirroring how it self-resolves the catalog DB. The in-camera
+    // _starPositionX/Y integrator only models sensor-visible periodic error
+    // (worm PE never appears in encoder/pointing reads) plus, when no mount is
+    // coupled at all, the legacy self-contained ST-4 shift for standalone tests.
     // Cached pointing is read in the (async) StartExposureAsync and consumed by
     // the (sync) render path; both are guarded by _lock.
     private IMountDriver? _coupledMount;
@@ -147,6 +153,9 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver
     private double _mountCachedRa;      // mount RA snapshot from the last StartExposureAsync (J2000 hours)
     private double _mountCachedDec;     // mount Dec snapshot (J2000 degrees)
     private bool _mountPointingValid;   // a snapshot has been taken at least once
+    private long? _mountRaAxisPos;      // RA axis encoder snapshot from the last StartExposureAsync (null = unavailable)
+    private uint _mountWormStepsRa;     // steps per worm revolution (probed once), 0 = unknown
+    private bool _mountWormProbed;      // worm-period probe attempted?
 
     /// <summary>
     /// True when this fake camera is the rig's guide camera (its URI names it so).
@@ -213,27 +222,52 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver
     }
 
     /// <summary>
-    /// PE drift rate amplitude in pixels/second.
-    /// Derived from peak-to-peak arcsec → amplitude pixels → rate via ω.
+    /// PE displacement amplitude in pixels (half the peak-to-peak swing).
     /// </summary>
-    private double PeRateAmplitude
+    private double PeAmplitudePixels
     {
         get
         {
             var pixelScaleArcsec = FocalLength > 0 ? Astrometry.CoordinateUtils.PixelScaleArcsec(PixelSizeX, FocalLength) : 3.8; // ~130mm + 2.4µm default
-            var amplitudePixels = PePeakTopeakArcsec / 2.0 / pixelScaleArcsec;
-            return 2.0 * Math.PI / PePeriodSeconds * amplitudePixels;
+            return PePeakTopeakArcsec / 2.0 / pixelScaleArcsec;
         }
     }
 
     /// <summary>
-    /// Advances star position by integrating PE drift since the last call.
-    /// Called each frame before rendering.
+    /// PE drift rate amplitude in pixels/second.
+    /// Derived from peak-to-peak arcsec → amplitude pixels → rate via ω.
+    /// </summary>
+    private double PeRateAmplitude => 2.0 * Math.PI / PePeriodSeconds * PeAmplitudePixels;
+
+    /// <summary>
+    /// Updates the PE component of the star position. Called each frame before rendering.
+    /// Preferred path: positional PE keyed to the coupled mount's RA worm rotation
+    /// (encoder position mod worm period, snapshot taken in StartExposureAsync) — the
+    /// same phase the neural guider reads through its encoder features, so disturbance
+    /// and feature stay correlated. Fallback (no coupled mount / encoder unavailable):
+    /// the original wall-clock sine integration.
     /// </summary>
     private void IntegratePeDrift()
     {
         if (PePeakTopeakArcsec <= 0)
         {
+            return;
+        }
+
+        long? axisPos;
+        uint wormSteps;
+        lock (_lock)
+        {
+            axisPos = _mountRaAxisPos;
+            wormSteps = _mountWormStepsRa;
+        }
+        if (axisPos is long pos && wormSteps > 0)
+        {
+            // Positional: the worm angle IS the PE phase. ST-4 never writes to
+            // _starPositionX when a mount is coupled (pulses forward to the mount),
+            // so overwriting it with the pure PE term is safe.
+            var wormPhase = 2.0 * Math.PI * (((pos % wormSteps) + wormSteps) % wormSteps) / wormSteps;
+            _starPositionX = PeAmplitudePixels * Math.Sin(wormPhase);
             return;
         }
 
@@ -762,9 +796,26 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver
                     throw new InvalidOperationException("mount pointing unavailable in J2000 (transform unavailable)");
                 }
                 var (mountRa, mountDec) = pointing;
+
+                // PE phase source: worm-gear periodic error is a function of worm rotation
+                // (RA axis encoder position mod worm period), not wall time — and it never
+                // shows up in encoder/pointing reads, only on the sensor. Snapshot the
+                // encoder here so the (sync) render path computes the PE displacement
+                // positionally; this is what makes the neural guider's encoder-phase
+                // features [22-25] correlate with the disturbance they exist to predict.
+                if (!_mountWormProbed)
+                {
+                    _mountWormProbed = true;
+                    _mountWormStepsRa = await coupledMount.GetWormPeriodStepsAsync(TelescopeAxis.Primary, cancellationToken).ConfigureAwait(false);
+                }
+                var axisPos = _mountWormStepsRa > 0
+                    ? await coupledMount.GetAxisPositionAsync(TelescopeAxis.Primary, cancellationToken).ConfigureAwait(false)
+                    : null;
+
                 var slewDetected = false;
                 lock (_lock)
                 {
+                    _mountRaAxisPos = axisPos;
                     if (_mountPointingValid && IsSlewSizedJump(_mountCachedRa, _mountCachedDec, mountRa, mountDec))
                     {
                         // GOTO between exposures: re-baseline the zero-drift reference and reset
@@ -1015,8 +1066,23 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver
         return ValueTask.CompletedTask;
     }
 
-    public ValueTask PulseGuideAsync(GuideDirection direction, TimeSpan duration, CancellationToken cancellationToken = default)
+    public async ValueTask PulseGuideAsync(GuideDirection direction, TimeSpan duration, CancellationToken cancellationToken = default)
     {
+        // ST-4 models a guide cable wired from this camera's port to the coupled
+        // mount's autoguide port: the pulse physically moves the MOUNT (encoders and
+        // pointing change; the star field follows via the live projection centre /
+        // MountDriftPixels), exactly like real hardware. The previous in-camera
+        // shortcut (shift the star integrator, mount untouched) closed the guide loop
+        // with dynamics no real rig has — instantaneous full-magnitude corrections,
+        // perfectly sensor-axis-aligned, encoders frozen — which let a neural guider
+        // train on a plant that doesn't exist.
+        if (ResolveCoupledMount() is { CanPulseGuide: true } mount)
+        {
+            await mount.PulseGuideAsync(direction, duration, cancellationToken).ConfigureAwait(false);
+            return;
+        }
+
+        // No mount coupled (standalone / unit-test use): legacy in-camera shift.
         var pixels = GuideRatePixelsPerSecond * duration.TotalSeconds;
         // ST-4 corrections modify the same accumulator as PE drift.
         // West = speed up RA tracking = stars shift -X (counteracts +X drift)
@@ -1027,7 +1093,6 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver
             case GuideDirection.West:  _starPositionX -= pixels; break;
             case GuideDirection.East:  _starPositionX += pixels; break;
         }
-        return ValueTask.CompletedTask;
     }
 
     /// <summary>

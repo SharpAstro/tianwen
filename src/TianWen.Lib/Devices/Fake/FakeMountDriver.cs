@@ -345,7 +345,12 @@ internal sealed class FakeMountDriver(FakeDevice fakeDevice, IServiceProvider se
         UpdateTrackingState();
         return axis switch
         {
-            TelescopeAxis.Primary => (long)(ConditionRA(_ra + _accumulatedRaHours) / 24.0 * EncoderTicksPerRevolution),
+            // The RA axis encoder reads the MECHANICAL axis angle, which follows the hour
+            // angle (LST - RA): while tracking, RA stays constant but the axis (and worm)
+            // physically rotates at sidereal rate. Deriving the encoder from RA (the old
+            // behaviour) froze it during tracking — the worm never turned, so encoder-phase
+            // features and any PE keyed to worm rotation were decorrelated from reality.
+            TelescopeAxis.Primary => (long)(ConditionRA(LocalSiderealTime() - (_ra + _accumulatedRaHours)) / 24.0 * EncoderTicksPerRevolution),
             TelescopeAxis.Seconary => (long)((_dec + _accumulatedDecDegrees + 90.0) / 360.0 * EncoderTicksPerRevolution),
             _ => null
         };
@@ -364,6 +369,9 @@ internal sealed class FakeMountDriver(FakeDevice fakeDevice, IServiceProvider se
     }
 
     public ValueTask<double> GetSiderealTimeAsync(CancellationToken cancellationToken)
+        => ValueTask.FromResult(LocalSiderealTime());
+
+    private double LocalSiderealTime()
     {
         var transform = new Transform(TimeProvider)
         {
@@ -372,7 +380,7 @@ internal sealed class FakeMountDriver(FakeDevice fakeDevice, IServiceProvider se
             SiteElevation = _siteElevation
         };
         transform.RefreshDateTimeFromTimeProvider();
-        return ValueTask.FromResult(transform.LocalSiderealTime);
+        return transform.LocalSiderealTime;
     }
 
     public async ValueTask<double> GetHourAngleAsync(CancellationToken cancellationToken)

@@ -359,36 +359,60 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
 
     public async ValueTask PulseGuideAsync(GuideDirection direction, TimeSpan duration, CancellationToken cancellationToken)
     {
-        var (axisChar, isForward) = direction switch
-        {
-            GuideDirection.East => ('1', false),  // RA reverse
-            GuideDirection.West => ('1', true),   // RA forward
-            GuideDirection.North => ('2', true),  // Dec forward
-            GuideDirection.South => ('2', false), // Dec reverse
-            _ => throw new ArgumentException($"Unknown guide direction {direction}", nameof(direction))
-        };
-
-        var dirChar = isForward ? '0' : '1';
         var guideFraction = SkywatcherProtocol.GuideSpeedFraction(_guideSpeedIndex);
         var siderealDegPerSec = SIDEREAL_RATE / 3600.0;
-        var guideSpeed = siderealDegPerSec * guideFraction;
-        var cpr = axisChar == '1' ? _cprRa : _cprDec;
 
-        // Set tracking mode with guide speed
-        await SendCommandAsync('G', axisChar, $"03{dirChar}", cancellationToken); // tracking, low speed, direction
-        var t1 = SkywatcherProtocol.ComputeT1Preset(_tmrFreq, cpr, guideSpeed, false, _highSpeedRatio);
-        await SendCommandAsync('I', axisChar, SkywatcherProtocol.EncodeUInt24(t1), cancellationToken);
-        await SendCommandAsync('J', axisChar, null, cancellationToken);
-
-        // Wait for duration
-        await TimeProvider.SleepAsync(duration, cancellationToken);
-
-        // Stop guide axis (restore tracking on RA, stop on Dec)
-        await SendCommandAsync('K', axisChar, null, cancellationToken);
-        if (axisChar == '1' && _isTracking)
+        if (direction is GuideDirection.East or GuideDirection.West)
         {
-            // Restart sidereal tracking on RA
-            await SetTrackingAsync(true, cancellationToken);
+            // RA pulse guiding OFFSETS the sidereal tracking rate rather than replacing it:
+            // West = (1+f) x sidereal, East = (1-f) x sidereal, both in the tracking (forward)
+            // direction. Commanding f x sidereal with a direction flag (the old behaviour)
+            // made BOTH pulses drift the star east relative to the sky — a West pulse ran the
+            // axis slower than sidereal (-f relative) and an East pulse reversed it (-(1+f)
+            // relative) — with a (1+f)/f gain asymmetry between the two directions.
+            var rateFactor = direction is GuideDirection.West ? 1.0 + guideFraction : 1.0 - guideFraction;
+            var guideSpeed = siderealDegPerSec * rateFactor;
+            if (guideSpeed > siderealDegPerSec * 1e-3)
+            {
+                await SendCommandAsync('G', '1', "030", cancellationToken); // tracking, low speed, forward
+                var t1 = SkywatcherProtocol.ComputeT1Preset(_tmrFreq, _cprRa, guideSpeed, false, _highSpeedRatio);
+                await SendCommandAsync('I', '1', SkywatcherProtocol.EncodeUInt24(t1), cancellationToken);
+                await SendCommandAsync('J', '1', null, cancellationToken);
+            }
+            else
+            {
+                // East pulse at guide fraction 1.0x: (1-f) = 0 — halt the RA axis for the duration.
+                await SendCommandAsync('K', '1', null, cancellationToken);
+            }
+
+            await TimeProvider.SleepAsync(duration, cancellationToken);
+
+            await SendCommandAsync('K', '1', null, cancellationToken);
+            if (_isTracking)
+            {
+                // Restore sidereal tracking on RA
+                await SetTrackingAsync(true, cancellationToken);
+            }
+        }
+        else
+        {
+            // Dec has no tracking baseline: move the axis at f x sidereal in the pulse direction.
+            var dirChar = direction switch
+            {
+                GuideDirection.North => '0', // Dec forward
+                GuideDirection.South => '1', // Dec reverse
+                _ => throw new ArgumentException($"Unknown guide direction {direction}", nameof(direction))
+            };
+            var guideSpeed = siderealDegPerSec * guideFraction;
+
+            await SendCommandAsync('G', '2', $"03{dirChar}", cancellationToken); // tracking, low speed, direction
+            var t1 = SkywatcherProtocol.ComputeT1Preset(_tmrFreq, _cprDec, guideSpeed, false, _highSpeedRatio);
+            await SendCommandAsync('I', '2', SkywatcherProtocol.EncodeUInt24(t1), cancellationToken);
+            await SendCommandAsync('J', '2', null, cancellationToken);
+
+            await TimeProvider.SleepAsync(duration, cancellationToken);
+
+            await SendCommandAsync('K', '2', null, cancellationToken);
         }
     }
 

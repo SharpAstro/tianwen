@@ -6,7 +6,11 @@ namespace TianWen.Lib.Devices.Guider;
 /// </summary>
 public enum PulseGuideSource : byte
 {
-    /// <summary>Try camera ST-4 first, fall back to mount, throw if neither supports it.</summary>
+    /// <summary>
+    /// Try mount pulse guiding first, fall back to camera ST-4, throw if neither supports it.
+    /// The mount is preferred because camera ST-4 capability only reflects the presence of a
+    /// socket, not a connected guide cable — pulses into an unwired port are silent no-ops.
+    /// </summary>
     Auto,
     /// <summary>Force ST-4 via guider camera (fail if camera doesn't support it).</summary>
     Camera,
