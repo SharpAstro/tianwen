@@ -29,6 +29,7 @@ namespace TianWen.UI.Abstractions
         private static readonly RGBAColor32 BodyText = new RGBAColor32(0xcc, 0xcc, 0xcc, 0xff);
         private static readonly RGBAColor32 DimText = new RGBAColor32(0x88, 0x88, 0x88, 0xff);
         private static readonly RGBAColor32 PlaceholderText = new RGBAColor32(0x66, 0x66, 0x88, 0xff);
+        private static readonly RGBAColor32 AlertText = new RGBAColor32(0xff, 0x55, 0x44, 0xff);
 
         public GuiderTabState State { get; } = new GuiderTabState();
 
@@ -78,11 +79,13 @@ namespace TianWen.UI.Abstractions
                 return;
             }
 
-            // Header: guider state + RMS
+            // Header: guider state + RMS. A lost guide star renders in alert red — a silent
+            // flatline with a healthy-looking header is how star loss went unnoticed before.
             var guiderLabel = FormatGuiderStateLabel();
+            var guiderLabelColor = State.GuiderState is "LostLock" ? AlertText : HeaderText;
             DrawText($"[{guiderLabel}]", fontPath,
                 headerRect.X + padding, headerRect.Y, 200 * dpiScale, headerRect.Height,
-                fontSize, HeaderText, TextAlign.Near, TextAlign.Center);
+                fontSize, guiderLabelColor, TextAlign.Near, TextAlign.Center);
             DrawText(GuiderActions.FormatRmsSummary(State.LastGuideStats), fontPath,
                 headerRect.X + padding + 200 * dpiScale, headerRect.Y,
                 headerRect.Width - 200 * dpiScale - padding * 2, headerRect.Height,
@@ -339,6 +342,10 @@ namespace TianWen.UI.Abstractions
         private string FormatGuiderStateLabel()
         {
             var state = State.GuiderState;
+            if (state is "LostLock")
+            {
+                return "GUIDE STAR LOST";
+            }
             if (state is "Settling" && State.GuiderSettleProgress is { Distance: var dist } && !double.IsNaN(dist))
             {
                 return $"Settling {dist:F2}px";

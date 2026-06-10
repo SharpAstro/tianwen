@@ -390,7 +390,7 @@ internal partial record Session
             try
             {
                 var (appState, _) = await guider.Driver.GetStatusAsync(cancellationToken);
-                _guiderState = appState;
+                UpdateGuiderState(appState);
             }
             catch { /* ignore */ }
 

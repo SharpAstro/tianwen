@@ -1826,6 +1826,17 @@ namespace TianWen.UI.Abstractions
                         }
                     };
 
+                    // Surface guider star-loss / recovery transitions in the notification feed.
+                    // Mapping lives in GuiderActions; silent for ordinary state churn.
+                    session.GuiderStateChanged += (_, e) =>
+                    {
+                        if (GuiderActions.NotificationForGuiderTransition(e.OldState, e.NewState) is { } n)
+                        {
+                            appState.AppendNotification(_timeProvider.GetUtcNow(), n.Severity, n.Message);
+                            appState.NeedsRedraw = true;
+                        }
+                    };
+
                     // Surface each session phase transition in the notification feed.
                     // Terminal phases (Complete/Aborted/Failed) are emitted in the RunAsync
                     // finally block below, so they are skipped here to avoid duplicates.

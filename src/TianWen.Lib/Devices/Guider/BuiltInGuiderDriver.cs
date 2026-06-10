@@ -327,11 +327,16 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
     public ValueTask<(string? AppState, double AvgDist)> GetStatusAsync(CancellationToken cancellationToken = default)
     {
         var state = CurrentState;
+        // PHD2 vocabulary: while the loop has no star lock, report "LostLock" instead of a
+        // healthy-looking Guiding/Settling. Session logic already treats LostLock as
+        // guiding-in-recovery (it must not restart the guider over a passing cloud), and the
+        // UI uses it to show a "guide star lost" banner instead of a silent flatline.
         var appState = state switch
         {
             GuiderState.Idle => "Stopped",
             GuiderState.Looping => "Looping",
             GuiderState.Calibrating => "Calibrating",
+            GuiderState.Guiding or GuiderState.Settling when _guideLoop?.IsStarLost == true => "LostLock",
             GuiderState.Guiding => "Guiding",
             GuiderState.Settling => "Settling",
             _ => "Unknown",
@@ -603,10 +608,38 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
 
             while (!ct.IsCancellationRequested)
             {
-                // Acquire guide star and set lock position
+                // Acquire guide star and set lock position. A starless frame here (cloud at slew
+                // completion, pointing way off after a GOTO) previously slipped through unchecked --
+                // the loop then "guided" on nothing and the UI showed a healthy-looking flatline.
+                // Bounded retries with the same backoff the calibration path uses; give up loudly
+                // rather than guide without a lock.
                 var tracker = new GuiderCentroidTracker(maxStars: 1) { AcquisitionEdgeMargin = GuideStarAcquisitionMargin() };
-                var frame = await CaptureGuideFrameAsync(camera, exposureTime, TimeProvider, External.ImageReadyPollInterval, ct);
-                tracker.ProcessFrame(frame.GetChannelArray(0));
+                var acquired = false;
+                for (var attempt = 1; attempt <= _maxCalibrationAttempts && !ct.IsCancellationRequested; attempt++)
+                {
+                    var frame = await CaptureGuideFrameAsync(camera, exposureTime, TimeProvider, External.ImageReadyPollInterval, ct);
+                    tracker.ProcessFrame(frame.GetChannelArray(0));
+                    if (tracker.IsAcquired)
+                    {
+                        acquired = true;
+                        _lastFrame = frame;
+                        break;
+                    }
+
+                    frame.Release();
+                    Logger.LogWarning(
+                        "Built-in guider: no guide star acquired for guiding (attempt {Attempt}/{Max}; cloud / poor seeing?), retrying in {Delay:F0}s.",
+                        attempt, _maxCalibrationAttempts, _calibrationRetryDelay.TotalSeconds);
+                    await TimeProvider.SleepAsync(_calibrationRetryDelay, ct);
+                }
+
+                if (!acquired)
+                {
+                    GuidingErrorEvent?.Invoke(this, new GuidingErrorEventArgs(_device,
+                        $"Cannot start guiding — no usable guide star after {_maxCalibrationAttempts} attempts (cloud / poor seeing?)"));
+                    return; // finally resets to Idle
+                }
+
                 tracker.SetLockPosition();
 
                 // Build guide loop

@@ -154,6 +154,26 @@ internal partial record Session(
     public event EventHandler<FrameWrittenEventArgs>? FrameWritten;
     public event EventHandler<PlateSolveCompletedEventArgs>? PlateSolveCompleted;
     public event EventHandler<ScoutCompletedEventArgs>? ScoutCompleted;
+    public event EventHandler<GuiderStateChangedEventArgs>? GuiderStateChanged;
+
+    /// <summary>
+    /// Single write path for the polled guider app-state: raises <see cref="GuiderStateChanged"/>
+    /// on transitions (e.g. "Guiding" → "LostLock") so UIs can surface star-loss / recovery as
+    /// notifications instead of relying on the user to spot a flatlined guide graph. Called from
+    /// both pollers (the calibration-phase <see cref="GuideStatsPoller"/> and the imaging-loop
+    /// tick), so transition detection lives here, not at the poll sites.
+    /// </summary>
+    private void UpdateGuiderState(string? appState)
+    {
+        var previous = _guiderState;
+        if (previous == appState)
+        {
+            return;
+        }
+
+        _guiderState = appState;
+        GuiderStateChanged?.Invoke(this, new GuiderStateChangedEventArgs(previous, appState));
+    }
 
     /// <summary>
     /// Per-observation, per-telescope baseline metrics for focus drift and environmental anomaly detection.
@@ -378,7 +398,7 @@ internal partial record Session(
                     try
                     {
                         var (appState, _) = await guider.GetStatusAsync(ct);
-                        session._guiderState = appState;
+                        session.UpdateGuiderState(appState);
                         session._guiderSettleProgress = await guider.GetSettleProgressAsync(ct);
 
                         if (await guider.GetStatsAsync(ct) is { } gs)

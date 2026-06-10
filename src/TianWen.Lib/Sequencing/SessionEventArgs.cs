@@ -29,6 +29,18 @@ public sealed class PlateSolveCompletedEventArgs(PlateSolveRecord record) : Even
 }
 
 /// <summary>
+/// Event args for <see cref="ISession.GuiderStateChanged"/>. Fired whenever the polled guider
+/// app-state string changes (e.g. "Guiding" → "LostLock" → "Guiding"), so UIs can surface
+/// star-loss / recovery transitions as notifications instead of relying on the user to spot a
+/// flatlined guide graph.
+/// </summary>
+public sealed class GuiderStateChangedEventArgs(string? oldState, string? newState) : EventArgs
+{
+    public string? OldState { get; } = oldState;
+    public string? NewState { get; } = newState;
+}
+
+/// <summary>
 /// Event args for <see cref="ISession.ScoutCompleted"/>. Fired after the FOV-obstruction
 /// scout returns its routing decision (Proceed / Advance) so UIs can surface what just
 /// happened — currently an opaque ~30-90s pause between centering and guider start.

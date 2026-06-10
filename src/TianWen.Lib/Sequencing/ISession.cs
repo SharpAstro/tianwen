@@ -124,5 +124,9 @@ public interface ISession : IAsyncDisposable
     /// <summary>Fired after the FOV-obstruction scout completes (success, transparency, or skip).</summary>
     event EventHandler<ScoutCompletedEventArgs>? ScoutCompleted;
 
+    /// <summary>Fired when the polled guider app-state string changes (e.g. "Guiding" → "LostLock"),
+    /// so UIs can surface star-loss / recovery transitions as notifications.</summary>
+    event EventHandler<GuiderStateChangedEventArgs>? GuiderStateChanged;
+
     Task RunAsync(CancellationToken cancellationToken);
 }

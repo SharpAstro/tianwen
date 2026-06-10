@@ -83,6 +83,13 @@ internal sealed class GuideLoop
     internal int StarLostEvents { get; private set; }
 
     /// <summary>
+    /// True while the loop currently has no guide star lock (the last processed frame returned no
+    /// centroid). Read from driver poll threads to surface a PHD2-style "LostLock" app state;
+    /// a plain bool read is atomic so no locking is needed for this advisory flag.
+    /// </summary>
+    internal bool IsStarLost => _starLost;
+
+    /// <summary>
     /// Number of times the loop re-acquired a star after a loss, all-run. A high count during
     /// otherwise-quiet guiding means the lock is unstable (the "guide star keeps changing" symptom).
     /// </summary>
