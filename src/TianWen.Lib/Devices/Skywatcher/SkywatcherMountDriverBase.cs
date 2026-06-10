@@ -238,7 +238,7 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
         return result;
     }
 
-    public async ValueTask BeginSlewRaDecAsync(double ra, double dec, CancellationToken cancellationToken)
+    public virtual async ValueTask BeginSlewRaDecAsync(double ra, double dec, CancellationToken cancellationToken)
     {
         if (_cprRa == 0 || _cprDec == 0)
         {

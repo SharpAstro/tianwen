@@ -110,6 +110,19 @@ internal sealed class GuideErrorTracker
     public double PeakDec => _decAll.Peak;
 
     /// <summary>
+    /// Peak RA error (absolute) in pixels over the short rolling window. Unlike
+    /// <see cref="PeakRa"/> (all-time), this decays as old samples age out, so a one-off
+    /// startup/calibration transient doesn't dominate the displayed peak forever.
+    /// </summary>
+    public double PeakRaShort => _raShort.Peak;
+
+    /// <summary>
+    /// Peak Dec error (absolute) in pixels over the short rolling window. See
+    /// <see cref="PeakRaShort"/>.
+    /// </summary>
+    public double PeakDecShort => _decShort.Peak;
+
+    /// <summary>
     /// Last RA error in pixels, or null if no samples.
     /// </summary>
     public double? LastRaError => _raAll.Last;

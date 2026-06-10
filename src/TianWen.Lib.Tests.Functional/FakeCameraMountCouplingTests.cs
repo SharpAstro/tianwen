@@ -1,4 +1,6 @@
+using Meziantou.Extensions.Logging.Xunit.v3;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Shouldly;
 using System;
 using System.Collections.Specialized;
@@ -30,11 +32,17 @@ public class FakeCameraMountCouplingTests(ITestOutputHelper output)
     /// constructed by DI with this same provider, so the camera's
     /// <see cref="FakeDeviceDriverBase.ServiceProvider"/> resolves the very same hub.
     /// </summary>
-    private static ServiceProvider BuildHubServiceProvider(FakeExternal external) =>
+    private ServiceProvider BuildHubServiceProvider(FakeExternal external) =>
         new ServiceCollection()
             .AddSingleton<IExternal>(external)
             .AddSingleton<ITimeProvider>(external.TimeProvider)
-            .AddLogging()
+            // Route driver logs to the test output so the new GuideLoop telemetry is visible
+            // when running this scenario headlessly. Keep the per-frame FakeCamera "rendering
+            // N stars" Debug spam out of the way (Information) so the guide telemetry reads cleanly.
+            .AddLogging(b => b
+                .SetMinimumLevel(LogLevel.Debug)
+                .AddFilter("FakeDevice", LogLevel.Information)
+                .AddProvider(new XUnitLoggerProvider(output, false)))
             .AddSingleton<IDeviceHub, DeviceHub>()
             .BuildServiceProvider();
 
@@ -246,6 +254,159 @@ public class FakeCameraMountCouplingTests(ITestOutputHelper output)
         // noise should stay well under a few arcsec on this coarse (~3.8"/px) guide scope.
         sustainedStats.TotalRMS.ShouldBeLessThan(5.0, "sustained guiding must stay locked against the drift");
 
+        // Instrumentation: an occasional re-lock onto another star is normal (a star can leave the
+        // frame, a satellite can pass), but REPEATED swapping is the instability the user reported --
+        // each swap resets the guide reference and jumps the error graph ("the selected guide star
+        // keeps changing" + the Dec flip-flop). Over a ~2-minute locked run with bounded RMS the lock
+        // should hold steady, so swaps should be rare; a storm of them would fail this.
+        output.WriteLine(
+            $"Instrumentation: starLost={guider.GuideStarLostEvents} reacq={guider.GuideReacquisitionEvents} differentStar={guider.GuideDifferentStarReacquisitions}");
+        guider.GuideDifferentStarReacquisitions.ShouldBeLessThanOrEqualTo(2,
+            "an isolated re-lock is acceptable, but repeatedly swapping the guide star while supposedly locked is the reported instability");
+
         await guider.StopCaptureAsync(TimeSpan.FromSeconds(5), ct);
+    }
+
+    /// <summary>
+    /// Recovery validation via a simulated cloud: a cloud sits over the guide star during the first
+    /// calibration attempt so it cannot acquire; the driver RETRIES rather than abandoning the
+    /// session, and once the cloud clears the retry calibrates cleanly and guiding starts. Daytime is
+    /// irrelevant here -- fake devices, controllable cloud coverage, fake time. The companion to the
+    /// divergence-recovery path: this exercises calibration-retry-on-transient-failure.
+    /// </summary>
+    [Fact(Timeout = 120_000)]
+    public async Task GivenCloudDuringFirstCalibrationWhenItClearsThenRetrySucceedsAndGuides()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var timeProvider = new FakeTimeProviderWrapper(new DateTimeOffset(2025, 6, 15, 22, 0, 0, TimeSpan.Zero));
+        var external = new FakeExternal(output, timeProvider);
+        await using var sp = BuildHubServiceProvider(external);
+        var hub = sp.GetRequiredService<IDeviceHub>();
+
+        var mount = await ConnectMisalignedMountAsync(hub, ct);
+        await mount.SetTrackingAsync(true, ct);
+        await mount.SyncRaDecAsync(6.0, 45.0, ct);
+
+        var guideCam = (FakeCameraDriver)await hub.ConnectAsync(
+            new FakeDevice(new Uri("camera://FakeDevice/FakeGuideCam1#Fake Guide Cam")), ct);
+        guideCam.FocalLength = 130;
+        guideCam.BinX = 1;
+        guideCam.NumX = 800;
+        guideCam.NumY = 600;
+        guideCam.CloudCoverage = 0.99; // overcast -> the first calibration attempt cannot acquire a star
+
+        var guiderDevice = new BuiltInGuiderDevice(
+            new Uri("guider://BuiltInGuiderDevice/builtin?pulseGuideSource=Camera#Built-in Guider"));
+        var guider = new BuiltInGuiderDriver(guiderDevice, sp);
+        await guider.ConnectAsync(ct);
+        guider.LinkDevices(mount, guideCam);
+
+        string? guidingError = null;
+        guider.GuidingErrorEvent += (_, e) => guidingError = e.Message;
+
+        timeProvider.ExternalTimePump = true;
+        await guider.GuideAsync(settlePixels: 1.5, settleTime: 3.0, settleTimeout: 90.0, ct);
+
+        var increment = TimeSpan.FromMilliseconds(250);
+        var pumped = TimeSpan.Zero;
+        var cleared = false;
+        while (pumped < TimeSpan.FromMinutes(10) && guidingError is null && !await guider.IsGuidingAsync(ct))
+        {
+            // The cloud clears a few seconds in -- after the first attempt has failed, during the
+            // retry wait -- so the second calibration attempt finds the star.
+            if (!cleared && pumped > TimeSpan.FromSeconds(3))
+            {
+                guideCam.CloudCoverage = 0.0;
+                cleared = true;
+            }
+            timeProvider.Advance(increment);
+            pumped += increment;
+            await Task.Delay(1, ct);
+        }
+
+        output.WriteLine($"clearedCloud={cleared} reachedGuiding={await guider.IsGuidingAsync(ct)} guidingError={guidingError ?? "(none)"} pumped={pumped.TotalSeconds:F0}s");
+        cleared.ShouldBeTrue("the first attempt must have stayed cloudy long enough that the cloud-clear path was exercised (else the cloud was too weak to block acquisition)");
+        guidingError.ShouldBeNull("a transient cloud during the first calibration must not abort the session -- the retry recovers");
+        (await guider.IsGuidingAsync(ct)).ShouldBeTrue("once the cloud clears, the calibration retry must succeed and guiding must start");
+
+        await guider.StopCaptureAsync(TimeSpan.FromSeconds(5), ct);
+    }
+
+    /// <summary>
+    /// User-requested ("delete the model and get a new sample"). Trains a FRESH neural model from
+    /// scratch in the misaligned-Skywatcher sim (empty profile -> InitializeRandom + online learning)
+    /// over a long run so the blend ramps in and the model learns. Asserts a fresh .ngm is saved (the
+    /// new sample) and that guiding never suffers the catastrophic Dec divergence the CORRUPT loaded
+    /// model caused (568" / kill-switch in HarmfulLoadedNeuralModelIsHardDisabledBySafetyNet) -- i.e.
+    /// the corrupt model was the problem, not neural guiding in general.
+    /// </summary>
+    [Fact(Timeout = 180_000)]
+    public async Task FreshNeuralModelTrainsStablyAndSavesNewSample()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var timeProvider = new FakeTimeProviderWrapper(new DateTimeOffset(2025, 6, 15, 22, 0, 0, TimeSpan.Zero));
+        var external = new FakeExternal(output, timeProvider);
+        await using var sp = BuildHubServiceProvider(external);
+        var hub = sp.GetRequiredService<IDeviceHub>();
+
+        var mount = await ConnectMisalignedMountAsync(hub, ct);
+        await mount.SetTrackingAsync(true, ct);
+        await mount.SyncRaDecAsync(6.0, 45.0, ct);
+
+        var guideCam = (FakeCameraDriver)await hub.ConnectAsync(
+            new FakeDevice(new Uri("camera://FakeDevice/FakeGuideCam1#Fake Guide Cam")), ct);
+        guideCam.FocalLength = 130;
+        guideCam.BinX = 1;
+        guideCam.NumX = 800;
+        guideCam.NumY = 600;
+
+        // Empty profile -> no .ngm on disk -> the driver initialises a FRESH model and trains it
+        // online. Neural forced ON to exercise training (it's opt-in/default-off now).
+        var guiderDevice = new BuiltInGuiderDevice(
+            new Uri("guider://BuiltInGuiderDevice/builtin?pulseGuideSource=Camera&useNeuralGuider=true#Built-in Guider"));
+        var guider = new BuiltInGuiderDriver(guiderDevice, sp);
+        await guider.ConnectAsync(ct);
+        guider.LinkDevices(mount, guideCam);
+
+        string? guidingError = null;
+        guider.GuidingErrorEvent += (_, e) => guidingError = e.Message;
+
+        timeProvider.ExternalTimePump = true;
+        await guider.GuideAsync(settlePixels: 1.5, settleTime: 3.0, settleTimeout: 90.0, ct);
+
+        var increment = TimeSpan.FromMilliseconds(250);
+        var pumped = TimeSpan.Zero;
+        var cap = TimeSpan.FromMinutes(10);
+        while (pumped < cap && guidingError is null && !await guider.IsGuidingAsync(ct))
+        {
+            timeProvider.Advance(increment);
+            pumped += increment;
+            await Task.Delay(1, ct);
+        }
+        (await guider.IsGuidingAsync(ct)).ShouldBeTrue("must reach Guiding before the training pump");
+
+        // Pump ~1050s so the blend ramp completes and the fresh model trains + saves online.
+        for (var i = 0; i < 4200 && guidingError is null && !ct.IsCancellationRequested; i++)
+        {
+            timeProvider.Advance(increment);
+            await Task.Delay(1, ct);
+        }
+
+        var stats = await guider.GetStatsAsync(ct);
+        stats.ShouldNotBeNull();
+
+        await guider.StopCaptureAsync(TimeSpan.FromSeconds(5), ct);
+
+        var ngDir = new System.IO.DirectoryInfo(System.IO.Path.Combine(external.ProfileFolder.FullName, "NeuralGuider"));
+        var savedSamples = ngDir.Exists ? ngDir.GetFiles("*.ngm") : System.Array.Empty<System.IO.FileInfo>();
+
+        output.WriteLine(
+            $"Fresh model: NeuralActive={guider.GuideNeuralActive} DecRMS={stats.DecRMS:F2}\" PeakDec={stats.PeakDec:F2}\" " +
+            $"savedSamples={savedSamples.Length} starLost={guider.GuideStarLostEvents}");
+
+        guidingError.ShouldBeNull("fresh-model guiding must not raise a fatal error");
+        savedSamples.Length.ShouldBeGreaterThan(0, "online learning must save a fresh model sample (the 'new sample')");
+        stats.DecRMS.ShouldBeLessThan(60.0,
+            "a fresh model must not reproduce the corrupt model's catastrophic Dec divergence (568\")");
     }
 }

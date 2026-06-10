@@ -15,6 +15,6 @@ public record struct BuiltInGuiderConfig(
     public static readonly BuiltInGuiderConfig Default = new(
         PulseGuideSource.Auto,
         ReverseDecAfterFlip: true,
-        UseNeuralGuider: true,
+        UseNeuralGuider: false,
         NeuralBlendPercent: 15);
 }

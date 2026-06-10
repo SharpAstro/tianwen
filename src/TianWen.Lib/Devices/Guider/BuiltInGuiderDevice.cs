@@ -35,7 +35,7 @@ public record class BuiltInGuiderDevice(Uri DeviceUri) : GuiderDeviceBase(Device
     private static bool IsNeuralEnabled(Uri uri)
     {
         var val = HttpUtility.ParseQueryString(uri.Query)[UseNeuralKey];
-        return val is null || !bool.TryParse(val, out var b) || b;
+        return val is not null && bool.TryParse(val, out var b) && b;
     }
 
     public override ImmutableArray<DeviceSettingDescriptor> Settings { get; } =
@@ -51,7 +51,7 @@ public record class BuiltInGuiderDevice(Uri DeviceUri) : GuiderDeviceBase(Device
             defaultValue: true),
         DeviceSettingHelper.BoolSetting(
             UseNeuralKey, "Neural Guider",
-            defaultValue: true, trueLabel: "On", falseLabel: "Off"),
+            defaultValue: false, trueLabel: "On", falseLabel: "Off"),
         DeviceSettingHelper.PercentSetting(
             NeuralBlendKey, "Neural Blend",
             defaultPercent: 50,
@@ -108,14 +108,17 @@ public record class BuiltInGuiderDevice(Uri DeviceUri) : GuiderDeviceBase(Device
 
     /// <summary>
     /// Whether to enable the neural guide model for online learning during guiding.
-    /// Defaults to <c>true</c> — the model starts from scratch or loads from a previous session.
+    /// Defaults to <c>false</c> — neural guiding is opt-in. It is experimental: a model trained
+    /// online can become net-harmful and drift an axis (notably Dec) badly before the
+    /// performance monitor can disable it, so it must be explicitly turned on. The pure
+    /// P-controller is the default and guides sub-arcsec on its own.
     /// </summary>
     internal bool UseNeuralGuider
     {
         get
         {
             var value = Query.QueryValue(DeviceQueryKey.UseNeuralGuider);
-            return value is null || !bool.TryParse(value, out var result) || result;
+            return value is not null && bool.TryParse(value, out var result) && result;
         }
     }
 

@@ -71,6 +71,24 @@ internal sealed class GuiderCalibration
     public double RateToleranceFraction { get; set; } = 0.20;
 
     /// <summary>
+    /// Maximum deviation from perpendicular (degrees) allowed between the measured RA (West) and
+    /// Dec (North) axes of a FRESH calibration before it is rejected as degenerate. RA and Dec are
+    /// mechanically perpendicular, so on the sensor the two sweep directions must be ~90deg apart;
+    /// a near-parallel result means a bad sweep (severe backlash, a star jump/swap, stiction, or a
+    /// non-responding axis) that would produce garbage corrections. Generous (30deg) so real cone
+    /// error / camera tilt passes while clearly-degenerate calibrations are rejected.
+    /// </summary>
+    public double FreshOrthogonalityToleranceDeg { get; set; } = 30.0;
+
+    /// <summary>
+    /// Minimum sweep linearity (net displacement / total path length) for a FRESH calibration. A
+    /// clean monotonic sweep has a ratio near 1; a star that wandered back and forth during the
+    /// sweep (seeing blowups, intermittent stiction, a hopping centroid) inflates the path length,
+    /// signalling unstable rates -- reject below this. 0.6 tolerates normal seeing jitter.
+    /// </summary>
+    public double MinSweepLinearity { get; set; } = 0.6;
+
+    /// <summary>
     /// Duration of each calibration pulse.
     /// </summary>
     public TimeSpan CalibrationPulseDuration { get; set; } = TimeSpan.FromMilliseconds(DefaultCalibrationPulseMs);
@@ -242,6 +260,33 @@ internal sealed class GuiderCalibration
             return null;
         }
 
+        // Reject a DEGENERATE calibration: RA and Dec are mechanically perpendicular, so the
+        // West (RA) and North (Dec) sweep directions on the sensor must be ~90deg apart. A
+        // near-parallel result means a bad sweep (severe backlash, a star jump/swap, stiction or a
+        // non-responding axis) and would yield garbage corrections -- reject rather than guide on it.
+        var raAxisAngleDeg = Math.Atan2(raDy, raDx) * 180.0 / Math.PI;
+        var decAxisAngleDeg = Math.Atan2(decDy, decDx) * 180.0 / Math.PI;
+        var axisSeparationDeg = Math.Abs(decAxisAngleDeg - raAxisAngleDeg);
+        if (axisSeparationDeg > 180.0)
+        {
+            axisSeparationDeg = 360.0 - axisSeparationDeg;
+        }
+        if (Math.Abs(axisSeparationDeg - 90.0) > FreshOrthogonalityToleranceDeg)
+        {
+            // RA/Dec axes not perpendicular -> degenerate calibration.
+            return null;
+        }
+
+        // Reject an UNSTABLE sweep: a clean calibration moves the star monotonically along each
+        // axis, so the net displacement is close to the total path the star travelled. A star that
+        // wandered (seeing blowups, intermittent stiction, a hopping centroid) inflates the path
+        // without the net -- the per-step rate is unreliable, so reject.
+        if (SweepLinearity(raOrigin, raSteps, raDisplacementPx) < MinSweepLinearity ||
+            SweepLinearity(decOrigin, decSteps, decDisplacementPx) < MinSweepLinearity)
+        {
+            return null;
+        }
+
         // Camera angle: angle of the RA axis on the sensor
         // West pulse should move stars along the RA direction on the sensor
         var cameraAngleRad = Math.Atan2(raDy, raDx);
@@ -264,6 +309,31 @@ internal sealed class GuiderCalibration
                 RaRateArcsecPerSec: 0, DecRateArcsecPerSec: 0,
                 BacklashClearingStepsRa: raBacklashResult.StepsUsed,
                 BacklashClearingStepsDec: decBacklashResult.StepsUsed));
+    }
+
+    /// <summary>
+    /// Sweep linearity = net displacement / total path length travelled through the recorded steps.
+    /// 1.0 = perfectly monotonic; lower means the star wandered during the sweep. Returns 1.0 when
+    /// there are too few steps to judge (so a short sweep is never rejected on this basis alone).
+    /// </summary>
+    internal static double SweepLinearity(CalibrationStep origin, ImmutableArray<CalibrationStep> steps, double netDisplacementPx)
+    {
+        if (steps.Length < 2)
+        {
+            return 1.0;
+        }
+
+        var path = 0.0;
+        var prev = origin;
+        foreach (var step in steps)
+        {
+            var dx = step.X - prev.X;
+            var dy = step.Y - prev.Y;
+            path += Math.Sqrt(dx * dx + dy * dy);
+            prev = step;
+        }
+
+        return path > 1e-6 ? Math.Min(1.0, netDisplacementPx / path) : 1.0;
     }
 
     /// <summary>
@@ -346,6 +416,71 @@ internal sealed class GuiderCalibration
         if (rateDeviation > RateToleranceFraction)
         {
             return CalibrationValidationResult.RateDrifted;
+        }
+
+        // --- Dec axis validation (North pulse) ---
+        // The RA-only check above let a saved calibration with a stale/wrong Dec rate sail
+        // through "validated", which then guides Dec badly (the live symptom: RA RMS fine, Dec
+        // diverging). Validate the Dec axis too: pulse North, measure displacement, and reject
+        // (recalibrate) if the Dec rate has drifted or the Dec axis is no longer ~orthogonal to
+        // RA (e.g. wrong pier side / flip). The tracker was reset + reacquired after the RA
+        // return above, so it holds a fresh star.
+        if (!tracker.IsAcquired)
+        {
+            return CalibrationValidationResult.AngleChanged;
+        }
+        tracker.SetLockPosition();
+
+        await pulseTarget.PulseGuideAsync(GuideDirection.North, pulseDuration, cancellationToken);
+        await WaitForPulseCompleteAsync(pulseTarget, timeProvider, pulseDuration, cancellationToken);
+        var decFrame = await captureFrame(cancellationToken);
+        var decResult = tracker.ProcessFrame(decFrame.GetChannelArray(0));
+
+        // Return the star (South) and re-acquire for the caller.
+        await pulseTarget.PulseGuideAsync(GuideDirection.South, pulseDuration, cancellationToken);
+        await WaitForPulseCompleteAsync(pulseTarget, timeProvider, pulseDuration, cancellationToken);
+        tracker.Reset();
+        var decReturnFrame = await captureFrame(cancellationToken);
+        tracker.ProcessFrame(decReturnFrame.GetChannelArray(0));
+
+        if (decResult is null)
+        {
+            return CalibrationValidationResult.AngleChanged;
+        }
+
+        var ddx = decResult.Value.DeltaX;
+        var ddy = decResult.Value.DeltaY;
+        var decDisplacement = Math.Sqrt(ddx * ddx + ddy * ddy);
+
+        if (decDisplacement < 1.0)
+        {
+            // Dec axis not responding anything like the saved rate -> recalibrate.
+            return CalibrationValidationResult.RateDrifted;
+        }
+
+        var savedDecRate = Math.Abs(savedCalibration.DecRatePixPerSec);
+        if (savedDecRate > 1e-6)
+        {
+            var measuredDecRate = decDisplacement / pulseDuration.TotalSeconds;
+            var decRateDeviation = Math.Abs(measuredDecRate - savedDecRate) / savedDecRate;
+            if (decRateDeviation > RateToleranceFraction)
+            {
+                return CalibrationValidationResult.RateDrifted;
+            }
+        }
+
+        // Orthogonality: the Dec (North) displacement direction must be ~90deg from the RA
+        // (West) displacement direction. If the saved camera angle no longer keeps the axes
+        // orthogonal (pier flip, large rotation), reject so we recalibrate cleanly.
+        var measuredDecAngleRad = Math.Atan2(ddy, ddx);
+        var raToDecDeg = Math.Abs(measuredDecAngleRad - measuredAngleRad) * 180.0 / Math.PI;
+        if (raToDecDeg > 180.0)
+        {
+            raToDecDeg = 360.0 - raToDecDeg;
+        }
+        if (Math.Abs(raToDecDeg - 90.0) > AngleToleranceDeg)
+        {
+            return CalibrationValidationResult.AngleChanged;
         }
 
         return CalibrationValidationResult.Valid;

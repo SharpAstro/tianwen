@@ -191,11 +191,13 @@ internal class FakeGuider(FakeDevice fakeDevice, IServiceProvider serviceProvide
             : DefaultPixelScale;
         return ValueTask.FromResult<GuideStats?>(new GuideStats
         {
-            TotalRMS = (tracker?.TotalRmsAll ?? 0.3) * scale,
-            RaRMS = (tracker?.RaRmsAll ?? 0.2) * scale,
-            DecRMS = (tracker?.DecRmsAll ?? 0.2) * scale,
-            PeakRa = (tracker?.PeakRa ?? 0.5) * scale,
-            PeakDec = (tracker?.PeakDec ?? 0.4) * scale,
+            // Recent rolling-window stats (not all-time) so the panel reflects current guide
+            // quality and isn't poisoned by an early transient -- mirrors BuiltInGuiderDriver.
+            TotalRMS = (tracker?.TotalRmsShort ?? 0.3) * scale,
+            RaRMS = (tracker?.RaRmsShort ?? 0.2) * scale,
+            DecRMS = (tracker?.DecRmsShort ?? 0.2) * scale,
+            PeakRa = (tracker?.PeakRaShort ?? 0.5) * scale,
+            PeakDec = (tracker?.PeakDecShort ?? 0.4) * scale,
             LastRaErr = tracker?.LastRaError * scale,
             LastDecErr = tracker?.LastDecError * scale,
         });

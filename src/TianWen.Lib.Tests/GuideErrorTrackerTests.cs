@@ -41,6 +41,39 @@ public class GuideErrorTrackerTests
     }
 
     [Fact]
+    public void GivenEarlyTransientThenRecentGoodGuiding_ShortWindowReflectsReality_AllTimeStaysPoisoned()
+    {
+        // REGRESSION for "guiding looks shit": a single large early excursion (a calibration /
+        // settle transient -- the kind that produced "Dec RMS 427\" / Peak Dec 1325\"") poisons
+        // the ALL-TIME accumulator forever. The guide-stats panel used to read the all-time
+        // RMS/Peak, so it showed a catastrophic number while LIVE guiding had already recovered
+        // to arcsec level. GetStatsAsync now reads the SHORT rolling window, which decays the
+        // transient as it ages out -- matching the per-sample scatter plot.
+        var tracker = new GuideErrorTracker();
+
+        // A huge one-off transient at t=0 (e.g. a calibration excursion: ~1000px in Dec).
+        tracker.Add(0.0, 1000.0, 1000.0);
+
+        // Recent good guiding 200-240s later -> the transient is now older than the 100s short
+        // window and has been evicted from it (but NOT from the all-time accumulator).
+        for (var t = 200; t <= 240; t++)
+        {
+            tracker.Add(t, 0.5, 0.5);
+        }
+
+        // All-time is poisoned by the transient -- exactly what the panel WRONGLY displayed.
+        tracker.DecRmsAll.ShouldBeGreaterThan(50.0);
+        tracker.PeakDec.ShouldBeGreaterThan(900.0);
+
+        // Short rolling window reflects CURRENT reality (transient aged out) -- what the panel
+        // shows now, and what the scatter plot always showed.
+        tracker.DecRmsShort.ShouldBeLessThan(2.0);
+        tracker.PeakDecShort.ShouldBeLessThan(2.0);
+        tracker.RaRmsShort.ShouldBeLessThan(2.0);
+        tracker.PeakRaShort.ShouldBeLessThan(2.0);
+    }
+
+    [Fact]
     public void GivenSamplesWhenWindowExpiresThenOldSamplesDropped()
     {
         var tracker = new GuideErrorTracker();

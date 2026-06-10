@@ -210,6 +210,44 @@ internal class FakeSkywatcherMountDriver(FakeDevice device, IServiceProvider ser
         _trackingRefUtc = TimeProvider.GetUtcNow();
     }
 
+    /// <inheritdoc/>
+    /// <remarks>
+    /// Once the alignment has been LEARNED (<see cref="_alignmentCorrected"/>), a GOTO to a
+    /// new imaging target must re-baseline the tracking-drift reference. Post-centering,
+    /// <see cref="GetRightAscensionAsync"/>/<see cref="GetDeclinationAsync"/> report
+    /// <see cref="ApplyTrackingDrift"/> anchored to <see cref="_trackingRefRa"/>/
+    /// <see cref="_trackingRefDec"/> -- deliberately frozen to the last sync (decoupled from
+    /// the live encoder so sidereal LST jitter doesn't swamp the misalignment signal). Without
+    /// this override, that frozen anchor makes a subsequent slew a no-op in the REPORTED
+    /// position: the encoder moves to the new target but GetRA/GetDec keep returning the old
+    /// synced position, so the imaging centering loop never converges. A real mount slews
+    /// accurately once pointing is learned; the residual polar-axis drift then re-accumulates
+    /// from the freshly-commanded target -- which is exactly what re-baselining models.
+    /// Pre-alignment slews need no special handling: <see cref="ApplyAxisTiltToPointing"/>
+    /// already tracks the live encoder.
+    /// </remarks>
+    public override async ValueTask BeginSlewRaDecAsync(double ra, double dec, CancellationToken cancellationToken)
+    {
+        await base.BeginSlewRaDecAsync(ra, dec, cancellationToken);
+        if (!MisalignmentEnabled || !_alignmentCorrected)
+        {
+            return;
+        }
+        var siteLatDeg = await GetSiteLatitudeAsync(cancellationToken);
+        var hemisphere = siteLatDeg >= 0 ? Hemisphere.North : Hemisphere.South;
+        if (IsNearSitePole(dec, hemisphere))
+        {
+            // Parking / polar-align slews to the pole do not establish an imaging reference.
+            return;
+        }
+        _trackingRefRa = ra;
+        _trackingRefDec = dec;
+        _trackingRefUtc = TimeProvider.GetUtcNow();
+        Logger.LogInformation(
+            "FakeSkywatcher: GOTO ({Ra:F4}h, {Dec:F4}deg) re-baselined the tracking-drift reference (alignment already learned -- the slew lands on target and the residual polar drift restarts from here).",
+            ra, dec);
+    }
+
     /// <summary>
     /// Read site parameters, build the misaligned axis in J2000, and project
     /// the perfectly-aligned home pointing through the encoder angle around

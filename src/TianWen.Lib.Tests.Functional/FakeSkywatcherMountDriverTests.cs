@@ -471,6 +471,63 @@ public class FakeSkywatcherMountDriverTests(ITestOutputHelper output)
         drift10Arcsec.ShouldBeGreaterThan(drift5Arcsec, "drift grows with tracking time");
     }
 
+    [Fact(Timeout = 60_000)]
+    public async Task GivenAlignmentLearnedWhenSlewedToNewTargetThenReportedPointingFollowsToNewTarget()
+    {
+        // REGRESSION for the bug PR #15 missed (single-target only): after the first
+        // plate-solve sync learns the alignment, GetRA/GetDec route through
+        // ApplyTrackingDrift anchored to the FROZEN first-sync reference
+        // (_trackingRefRa/_trackingRefDec). A subsequent GOTO to a new target moves
+        // the encoder correctly, but the misalignment OVERLAY kept reporting the OLD
+        // synced position -- so the imaging centering loop plate-solved a stale spot
+        // and never converged ("slewing doesn't work"). This drives the real session
+        // flow: sync at calibration target A, then slew to imaging target B.
+        //
+        // Pre-fix this FAILS hard: decB reads ~0 (frozen at A) instead of ~-40.
+        var ct = TestContext.Current.CancellationToken;
+        var (mount, external) = await CreateConnectedMountAsync(
+            ct, azMisalignmentArcmin: TestAzMisalignArcmin, altMisalignmentArcmin: TestAltMisalignArcmin);
+
+        // Target A: calibration target near the equator. Plate-solve sync learns the
+        // alignment and anchors the drift reference here.
+        await mount.SyncRaDecAsync(6.0, 0.0, ct);
+        mount.IsAlignmentCorrected.ShouldBeTrue();
+        (await mount.GetRightAscensionAsync(ct)).ShouldBe(6.0, 0.05);
+        (await mount.GetDeclinationAsync(ct)).ShouldBe(0.0, 0.05);
+
+        // Target B: a real imaging target far away in BOTH axes (Dec is the axis the
+        // live symptom showed). RA delta kept modest so the 3deg/s goto finishes
+        // inside the pump cap.
+        const double targetBRa = 9.0;    // +3h
+        const double targetBDec = -40.0; // 40deg away
+        await mount.BeginSlewRaDecAsync(targetBRa, targetBDec, ct);
+        await PumpUntilNotSlewingAsync(mount, external, ct, TimeSpan.FromSeconds(50));
+
+        var raB = await mount.GetRightAscensionAsync(ct);
+        var decB = await mount.GetDeclinationAsync(ct);
+        output.WriteLine($"After slew A(6h/0)->B: reported RA={raB:F3}h Dec={decB:F3} (target {targetBRa}h/{targetBDec})");
+
+        // The reported pointing MUST follow the slew to target B (within the
+        // misalignment magnitude ~0.5deg), NOT stay stuck at the stale first-sync A.
+        // ShouldBe(-40, 1.5) is the killer assertion: pre-fix decB reads ~0 (frozen
+        // at A) and this fails by ~40deg; post-fix it follows to ~-40.
+        decB.ShouldBe(targetBDec, 1.5);
+        raB.ShouldBe(targetBRa, 0.3);
+
+        // Alignment stays learned (pointing is corrected globally), and the residual
+        // polar drift now re-accumulates from the NEW target, not the old one.
+        mount.IsAlignmentCorrected.ShouldBeTrue();
+        var raJustAfter = raB;
+        var decJustAfter = decB;
+        external.TimeProvider.Advance(TimeSpan.FromMinutes(5));
+        var raDrift = await mount.GetRightAscensionAsync(ct);
+        var decDrift = await mount.GetDeclinationAsync(ct);
+        var driftArcsec = GreatCircleArcsec(raJustAfter, decJustAfter, raDrift, decDrift);
+        output.WriteLine($"5min after re-baseline: drift from new target={driftArcsec:F1}\"");
+        driftArcsec.ShouldBeGreaterThan(3.0, "residual polar drift must re-accumulate from the new target");
+        driftArcsec.ShouldBeLessThan(900.0, "drift must stay realistic, not run away");
+    }
+
     /// <summary>Great-circle separation between two (RA hours, Dec deg) points, in arcsec.</summary>
     private static double GreatCircleArcsec(double ra1Hours, double dec1Deg, double ra2Hours, double dec2Deg)
     {
