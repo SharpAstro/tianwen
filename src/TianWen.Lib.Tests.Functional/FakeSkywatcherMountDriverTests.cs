@@ -1,6 +1,7 @@
 using Shouldly;
 using System;
 using System.Collections.Specialized;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using TianWen.DAL;
@@ -18,17 +19,23 @@ public class FakeSkywatcherMountDriverTests(ITestOutputHelper output)
         double longitude = 16.3,
         double azMisalignmentArcmin = 0.0,
         double altMisalignmentArcmin = 0.0,
-        DateTimeOffset? now = null)
+        DateTimeOffset? now = null,
+        bool decPulseGoTo = false)
     {
         var external = new FakeExternal(output, now: now ?? new DateTimeOffset(2025, 6, 15, 22, 0, 0, TimeSpan.Zero));
-        var device = new FakeDevice(DeviceType.Mount, 1, new NameValueCollection
+        var query = new NameValueCollection
         {
             { "port", "SkyWatcher" },
             { "latitude", latitude.ToString() },
             { "longitude", longitude.ToString() },
             { "polarMisalignmentAzArcmin", azMisalignmentArcmin.ToString() },
             { "polarMisalignmentAltArcmin", altMisalignmentArcmin.ToString() }
-        });
+        };
+        if (decPulseGoTo)
+        {
+            query.Add("decPulseGoto", "true");
+        }
+        var device = new FakeDevice(DeviceType.Mount, 1, query);
         var mount = new FakeSkywatcherMountDriver(device, external.BuildServiceProvider());
         return (mount, external);
     }
@@ -39,9 +46,10 @@ public class FakeSkywatcherMountDriverTests(ITestOutputHelper output)
         double longitude = 16.3,
         double azMisalignmentArcmin = 0.0,
         double altMisalignmentArcmin = 0.0,
-        DateTimeOffset? now = null)
+        DateTimeOffset? now = null,
+        bool decPulseGoTo = false)
     {
-        var (mount, external) = CreateMount(latitude, longitude, azMisalignmentArcmin, altMisalignmentArcmin, now);
+        var (mount, external) = CreateMount(latitude, longitude, azMisalignmentArcmin, altMisalignmentArcmin, now, decPulseGoTo);
         await mount.ConnectAsync(ct);
         await mount.SetSiteLatitudeAsync(latitude, ct);
         await mount.SetSiteLongitudeAsync(longitude, ct);
@@ -174,6 +182,237 @@ public class FakeSkywatcherMountDriverTests(ITestOutputHelper output)
 
         // Should complete without throwing
         await mount.PulseGuideAsync(direction, TimeSpan.FromMilliseconds(100), ct);
+    }
+
+    /// <summary>
+    /// Pulse guiding must move the POINTING at the configured guide rate (default index 2 =
+    /// 0.5x sidereal): West/East offset the RA tracking rate by ±0.5x, North/South move the
+    /// Dec axis at 0.5x. This pins both the driver semantics (RA pulses offset the tracking
+    /// rate rather than replacing it) and the fake's rate fidelity (the ':I' preset is
+    /// honoured on both axes; fractional steps are not truncated away per tick).
+    /// Southern rows pin the hemisphere handling: below the equator the RA worm tracks in
+    /// reverse and the steps-to-sky conversion mirrors with it, so pulse displacement must
+    /// come out identical to the northern case.
+    /// </summary>
+    [Theory(Timeout = 60_000)]
+    [InlineData(GuideDirection.West, 48.2)]
+    [InlineData(GuideDirection.East, 48.2)]
+    [InlineData(GuideDirection.North, 48.2)]
+    [InlineData(GuideDirection.South, 48.2)]
+    [InlineData(GuideDirection.West, -33.9)]
+    [InlineData(GuideDirection.East, -33.9)]
+    [InlineData(GuideDirection.North, -33.9)]
+    [InlineData(GuideDirection.South, -33.9)]
+    public async Task GivenTrackingMountWhenPulseGuidingThenPointingMovesAtGuideRate(GuideDirection direction, double latitude)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (mount, _) = await CreateConnectedMountAsync(ct, latitude: latitude);
+        await mount.SyncRaDecAsync(6.0, latitude >= 0 ? 45.0 : -45.0, ct);
+        await mount.SetTrackingAsync(true, ct);
+
+        var raBefore = await mount.GetRightAscensionAsync(ct);
+        var decBefore = await mount.GetDeclinationAsync(ct);
+
+        var pulse = TimeSpan.FromSeconds(60);
+        await mount.PulseGuideAsync(direction, pulse, ct);
+
+        var raAfter = await mount.GetRightAscensionAsync(ct);
+        var decAfter = await mount.GetDeclinationAsync(ct);
+
+        // 0.5x sidereal for 60s = 451.2 arcsec of axis motion.
+        const double guideFraction = 0.5;
+        var expectedArcsec = guideFraction * 15.041 * pulse.TotalSeconds;
+        var dRaArcsec = (raAfter - raBefore) * 15.0 * 3600.0;
+        var dDecArcsec = (decAfter - decBefore) * 3600.0;
+        output.WriteLine($"direction={direction} dRA={dRaArcsec:F1}\" dDec={dDecArcsec:F1}\" expected={expectedArcsec:F1}\"");
+
+        var (axisDeltaArcsec, otherAxisDeltaArcsec) = direction is GuideDirection.West or GuideDirection.East
+            ? (dRaArcsec, dDecArcsec)
+            : (dDecArcsec, dRaArcsec);
+
+        Math.Abs(axisDeltaArcsec).ShouldBe(expectedArcsec, expectedArcsec * 0.1,
+            $"a 60s {direction} pulse at 0.5x sidereal must move the pulsed axis by ~{expectedArcsec:F0} arcsec");
+        Math.Abs(otherAxisDeltaArcsec).ShouldBeLessThan(expectedArcsec * 0.05,
+            "the other axis must stay put during the pulse");
+
+        // Opposite directions must move opposite ways (E vs W, N vs S) — covered by
+        // running all four theory cases; here just pin that the pulse moved at all
+        // in a consistent direction (sign is mapping-dependent, magnitude is not).
+        Math.Abs(axisDeltaArcsec).ShouldBeGreaterThan(0);
+    }
+
+    /// <summary>
+    /// Wire contract (pinned against the GSS oracle transcripts): an RA pulse while
+    /// tracking changes ONLY the step period — :I with the combined rate, then :I back
+    /// to sidereal. No :G/:J/:K stop/start: real firmware rejects :G while the motor
+    /// runs (error !2), and the decel/accel transient would eat short pulses.
+    /// </summary>
+    [Theory(Timeout = 60_000)]
+    [InlineData(GuideDirection.West)]
+    [InlineData(GuideDirection.East)]
+    public async Task GivenTrackingMountWhenRaPulseGuidingThenOnlyStepPeriodChanges(GuideDirection direction)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (mount, _) = await CreateConnectedMountAsync(ct);
+        await mount.SyncRaDecAsync(6.0, 45.0, ct);
+        await mount.SetTrackingAsync(true, ct);
+
+        var serial = mount.SerialConnection.ShouldBeOfType<FakeSkywatcherSerialDevice>();
+        var before = serial.CommandLogSnapshot.Length;
+
+        await mount.PulseGuideAsync(direction, TimeSpan.FromSeconds(2), ct);
+
+        var motionCmds = serial.CommandLogSnapshot.Skip(before)
+            .Where(c => c.Length > 1 && c[1] is 'G' or 'I' or 'J' or 'K' or 'L')
+            .ToList();
+        output.WriteLine(string.Join(" ", motionCmds));
+        motionCmds.ShouldAllBe(c => c.StartsWith(":I1"),
+            "a tracking RA pulse must be a live :I rate change, never a stop/start");
+        motionCmds.Count.ShouldBe(2, "exactly one pulse-rate :I and one sidereal-restore :I");
+    }
+
+    /// <summary>
+    /// Pulses below the 20 ms floor are serial-latency noise (GSS MinPulseDurationRa/Dec
+    /// default): the driver must drop them without touching the wire.
+    /// </summary>
+    [Fact(Timeout = 60_000)]
+    public async Task GivenPulseBelowMinimumDurationThenNothingIsSent()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (mount, _) = await CreateConnectedMountAsync(ct);
+        await mount.SetTrackingAsync(true, ct);
+
+        var serial = mount.SerialConnection.ShouldBeOfType<FakeSkywatcherSerialDevice>();
+        var before = serial.CommandLogSnapshot.Length;
+
+        await mount.PulseGuideAsync(GuideDirection.West, TimeSpan.FromMilliseconds(10), ct);
+        await mount.PulseGuideAsync(GuideDirection.North, TimeSpan.FromMilliseconds(19), ct);
+
+        serial.CommandLogSnapshot.Length.ShouldBe(before);
+    }
+
+    /// <summary>
+    /// Opt-in decPulseGoto=true: a Dec pulse converts to an exact relative low-speed
+    /// micro-GOTO (GSS DecPulseGoTo) instead of holding f x sidereal for the duration.
+    /// Displacement must come out the same as rate mode (duration x rate), and the wire
+    /// must show a goto (:G2 func 2 + :H2 + :J2), not a rate run (:I2 ... :K2).
+    /// </summary>
+    [Theory(Timeout = 60_000)]
+    [InlineData(GuideDirection.North)]
+    [InlineData(GuideDirection.South)]
+    public async Task GivenDecPulseGotoModeWhenDecPulsingThenMicroGotoMovesExactSteps(GuideDirection direction)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (mount, _) = await CreateConnectedMountAsync(ct, decPulseGoTo: true);
+        await mount.SyncRaDecAsync(6.0, 45.0, ct);
+        await mount.SetTrackingAsync(true, ct);
+
+        var serial = mount.SerialConnection.ShouldBeOfType<FakeSkywatcherSerialDevice>();
+        var decBefore = await mount.GetDeclinationAsync(ct);
+        var before = serial.CommandLogSnapshot.Length;
+
+        var pulse = TimeSpan.FromSeconds(60);
+        await mount.PulseGuideAsync(direction, pulse, ct);
+
+        var decAfter = await mount.GetDeclinationAsync(ct);
+        var expectedArcsec = 0.5 * 15.041 * pulse.TotalSeconds;
+        var dDecArcsec = (decAfter - decBefore) * 3600.0;
+        output.WriteLine($"direction={direction} dDec={dDecArcsec:F1}\" expected={expectedArcsec:F1}\"");
+        Math.Abs(dDecArcsec).ShouldBe(expectedArcsec, expectedArcsec * 0.02,
+            "the micro-GOTO step count is exact, so displacement must match duration x rate closely");
+
+        var decCmds = serial.CommandLogSnapshot.Skip(before).Where(c => c.Length > 2 && c[2] == '2').ToList();
+        decCmds.ShouldContain(c => c.StartsWith(":G22"), "Dec pulse must use the low-speed GOTO func");
+        decCmds.ShouldContain(c => c.StartsWith(":H2"), "relative target increment");
+        decCmds.ShouldNotContain(c => c.StartsWith(":I2"), "no rate preset in micro-GOTO mode");
+    }
+
+    /// <summary>
+    /// Regression: after an away-from-pole sync the misalignment model anchors TRUE
+    /// pointing to the sync reference plus time-based drift — and used to FREEZE OUT the
+    /// live encoder entirely, making guide pulses invisible in pointing reads (the
+    /// guider's calibration measured ~0 displacement and rejected itself). Commanded
+    /// axis motion since the reference must appear 1:1: trivially in the believed
+    /// (public) reads asserted here, and via the believed-deviation term in the true
+    /// pointing the guide camera renders (covered by FakeCameraMountCouplingTests).
+    /// </summary>
+    [Fact(Timeout = 60_000)]
+    public async Task GivenMisalignedSyncedMountWhenPulseGuidingThenPointingStillMoves()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (mount, _) = await CreateConnectedMountAsync(ct,
+            azMisalignmentArcmin: 30.0, altMisalignmentArcmin: -10.0);
+        await mount.SetTrackingAsync(true, ct);
+        // Away-from-pole plate-solve sync: enters the post-centering drift regime.
+        await mount.SyncRaDecAsync(6.0, 45.0, ct);
+
+        var decBefore = await mount.GetDeclinationAsync(ct);
+        var pulse = TimeSpan.FromSeconds(60);
+        await mount.PulseGuideAsync(GuideDirection.North, pulse, ct);
+        var decAfter = await mount.GetDeclinationAsync(ct);
+
+        // 0.5x sidereal x 60s = 451" commanded; the residual polar drift contributes
+        // only a few arcsec over the same minute, hence the generous 15% tolerance.
+        var expectedArcsec = 0.5 * 15.041 * pulse.TotalSeconds;
+        var dDecArcsec = (decAfter - decBefore) * 3600.0;
+        output.WriteLine($"dDec={dDecArcsec:F1}\" expected~{expectedArcsec:F1}\"");
+        Math.Abs(dDecArcsec).ShouldBe(expectedArcsec, expectedArcsec * 0.15,
+            "a North pulse must move the reported Dec even in the post-sync drift regime");
+    }
+
+    #endregion
+
+    #region Southern Hemisphere
+
+    /// <summary>
+    /// In the south the RA worm physically tracks in REVERSE (:G dir bit 0 set, per the
+    /// GSServer reference: EqS tracking gets the negated rate) while the driver's mirrored
+    /// steps-to-HA conversion keeps the believed RA constant. If either side flips without
+    /// the other, a tracked target drifts at 2x sidereal in reads — this pins them together.
+    /// </summary>
+    [Fact(Timeout = 60_000)]
+    public async Task GivenSouthernMountWhenTrackingThenPointingStaysOnTarget()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (mount, external) = await CreateConnectedMountAsync(ct, latitude: -33.9, longitude: 18.4);
+        await mount.SyncRaDecAsync(6.0, -45.0, ct);
+        await mount.SetTrackingAsync(true, ct);
+
+        var ra0 = await mount.GetRightAscensionAsync(ct);
+        external.TimeProvider.Advance(TimeSpan.FromMinutes(10));
+
+        var ra10 = await mount.GetRightAscensionAsync(ct);
+        var dec10 = await mount.GetDeclinationAsync(ct);
+        output.WriteLine($"ra0={ra0:F5}h ra10={ra10:F5}h dec10={dec10:F4}");
+
+        // 10 untracked minutes would read ~0.167h of RA drift; tracked must hold.
+        ra10.ShouldBe(ra0, 0.005);
+        dec10.ShouldBe(-45.0, 0.01);
+    }
+
+    /// <summary>
+    /// Southern GOTO: the mirrored RaToSteps/DecToSteps must produce a delta that the
+    /// (hemisphere-agnostic, step-space) goto executes onto the right sky position, and
+    /// the fake's post-goto tracking auto-resume must run in the southern (reverse)
+    /// direction — wrong-direction resume shows up as RA drifting off target after arrival.
+    /// </summary>
+    [Fact(Timeout = 60_000)]
+    public async Task GivenSouthernMountWhenSlewedThenArrivesAtTargetAndTrackingHolds()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (mount, external) = await CreateConnectedMountAsync(ct, latitude: -33.9, longitude: 18.4);
+        await mount.SyncRaDecAsync(6.0, -45.0, ct);
+
+        await mount.BeginSlewRaDecAsync(8.0, -30.0, ct);
+        await PumpUntilNotSlewingAsync(mount, external, ct, TimeSpan.FromSeconds(40));
+
+        (await mount.GetRightAscensionAsync(ct)).ShouldBe(8.0, 0.05);
+        (await mount.GetDeclinationAsync(ct)).ShouldBe(-30.0, 0.05);
+
+        // Post-goto auto-resumed tracking must hold the new target in the south.
+        var raArrived = await mount.GetRightAscensionAsync(ct);
+        external.TimeProvider.Advance(TimeSpan.FromMinutes(5));
+        (await mount.GetRightAscensionAsync(ct)).ShouldBe(raArrived, 0.005);
     }
 
     #endregion
@@ -366,13 +605,25 @@ public class FakeSkywatcherMountDriverTests(ITestOutputHelper output)
         await mount.BeginSlewRaDecAsync(lst, 45.0, ct);
         await PumpUntilNotSlewingAsync(mount, external, ct, TimeSpan.FromSeconds(40));
 
+        var ra = await mount.GetRightAscensionAsync(ct);
         var dec = await mount.GetDeclinationAsync(ct);
 
-        // Reports ~commanded (within the misalignment magnitude), NOT the pole.
-        dec.ShouldBe(45.0, 1.5);
-        dec.ShouldBeLessThan(80.0);
+        // Public reads report the BELIEVED (encoder) pointing -- the commanded target,
+        // exactly like a real mount whose encoders cannot observe their own polar
+        // misalignment. Emphatically NOT the pole, and NOT the misaligned true sky.
+        dec.ShouldBe(45.0, 0.1);
         // No plate-solve sync yet -> the misalignment is still "carried on".
         mount.IsAlignmentCorrected.ShouldBeFalse();
+
+        // The TRUE pointing (what a camera frame would show) differs from the believed
+        // read by ~the configured misalignment -- the hidden cone error a plate solve
+        // reveals and the centering loop syncs away.
+        var (raTrue, decTrue) = await mount.GetTruePointingNativeAsync(ct);
+        var hiddenOffsetArcsec = GreatCircleArcsec(ra, dec, raTrue, decTrue);
+        output.WriteLine($"believed=({ra:F4}h, {dec:F4}deg) true=({raTrue:F4}h, {decTrue:F4}deg) hidden offset={hiddenOffsetArcsec:F1}\"");
+        hiddenOffsetArcsec.ShouldBeGreaterThan(60.0, "the hidden misalignment must be visible in the true pointing");
+        hiddenOffsetArcsec.ShouldBeLessThan(2.0 * 3600.0, "the hidden offset must stay misalignment-sized");
+        decTrue.ShouldBeLessThan(80.0, "true pointing tracks the commanded target, not the pole");
     }
 
     [Fact(Timeout = 60_000)]
@@ -389,10 +640,15 @@ public class FakeSkywatcherMountDriverTests(ITestOutputHelper output)
         await mount.SyncRaDecAsync(6.0, 45.0, ct);
 
         mount.IsAlignmentCorrected.ShouldBeTrue();
-        // After correction the reported pointing is the believed (encoder)
-        // position verbatim -- no residual offset.
+        // The reported pointing is the believed (encoder) position verbatim.
         (await mount.GetRightAscensionAsync(ct)).ShouldBe(6.0, 0.01);
         (await mount.GetDeclinationAsync(ct)).ShouldBe(45.0, 0.01);
+        // And at the moment of sync the TRUE pointing coincides with it (zero
+        // residual, drift reference freshly anchored) -- the camera frame sits
+        // exactly on target, which is what lets the centering loop converge.
+        var (raTrue, decTrue) = await mount.GetTruePointingNativeAsync(ct);
+        raTrue.ShouldBe(6.0, 0.02);
+        decTrue.ShouldBe(45.0, 0.02);
     }
 
     [Fact(Timeout = 60_000)]
@@ -435,22 +691,24 @@ public class FakeSkywatcherMountDriverTests(ITestOutputHelper output)
         var (mount, external) = await CreateConnectedMountAsync(
             ct, azMisalignmentArcmin: TestAzMisalignArcmin, altMisalignmentArcmin: TestAltMisalignArcmin);
 
-        // Plate-solve sync away from the pole: the static offset is learned, and
-        // the drift reference is set to this freshly-centred position.
+        // Track + plate-solve sync away from the pole: the static offset is learned, and
+        // the drift reference is set to this freshly-centred position. Tracking must be
+        // ON: with the axis parked the believed pointing sweeps at sidereal rate, which
+        // would show up as commanded motion on top of the misalignment drift.
+        await mount.SetTrackingAsync(true, ct);
         await mount.SyncRaDecAsync(6.0, 45.0, ct);
         mount.IsAlignmentCorrected.ShouldBeTrue();
 
         // At the moment of sync the field sits exactly on target (zero residual) --
-        // this is what lets the centering loop converge.
-        var ra0 = await mount.GetRightAscensionAsync(ct);
-        var dec0 = await mount.GetDeclinationAsync(ct);
+        // this is what lets the centering loop converge. True == believed here.
+        var (ra0, dec0) = await mount.GetTruePointingNativeAsync(ct);
         ra0.ShouldBe(6.0, 0.02);
         dec0.ShouldBe(45.0, 0.02);
 
-        // Track for 5 sidereal minutes -- the misaligned axis leaks a slow drift.
+        // Track for 5 sidereal minutes -- the misaligned axis leaks a slow drift
+        // into the TRUE pointing (the sky the camera sees).
         external.TimeProvider.Advance(TimeSpan.FromMinutes(5));
-        var ra5 = await mount.GetRightAscensionAsync(ct);
-        var dec5 = await mount.GetDeclinationAsync(ct);
+        var (ra5, dec5) = await mount.GetTruePointingNativeAsync(ct);
 
         var drift5Arcsec = GreatCircleArcsec(ra0, dec0, ra5, dec5);
         var decDrift5Arcsec = Math.Abs(dec5 - dec0) * 3600.0;
@@ -462,13 +720,84 @@ public class FakeSkywatcherMountDriverTests(ITestOutputHelper output)
         drift5Arcsec.ShouldBeGreaterThan(3.0, "a misaligned mount must drift while tracking");
         drift5Arcsec.ShouldBeLessThan(900.0, "drift must stay realistic, not run away");
 
+        // The PUBLIC (believed/encoder) reads must NOT show the drift -- a real
+        // mount's encoders track perfectly in their own frame and cannot observe
+        // the polar misalignment. Only the camera (plate solve) can reveal it.
+        var raBelieved5 = await mount.GetRightAscensionAsync(ct);
+        var decBelieved5 = await mount.GetDeclinationAsync(ct);
+        var believedDriftArcsec = GreatCircleArcsec(6.0, 45.0, raBelieved5, decBelieved5);
+        output.WriteLine($"5min: believed drift={believedDriftArcsec:F1}\" (must stay ~0)");
+        believedDriftArcsec.ShouldBeLessThan(drift5Arcsec / 2.0, "believed reads must not leak the hidden drift");
+
         // Drift accumulates with elapsed tracking time (track 5 more minutes).
         external.TimeProvider.Advance(TimeSpan.FromMinutes(5));
-        var ra10 = await mount.GetRightAscensionAsync(ct);
-        var dec10 = await mount.GetDeclinationAsync(ct);
+        var (ra10, dec10) = await mount.GetTruePointingNativeAsync(ct);
         var drift10Arcsec = GreatCircleArcsec(ra0, dec0, ra10, dec10);
         output.WriteLine($"10min: total drift={drift10Arcsec:F1}\"");
         drift10Arcsec.ShouldBeGreaterThan(drift5Arcsec, "drift grows with tracking time");
+    }
+
+    [Fact(Timeout = 60_000)]
+    public async Task GivenAlignmentLearnedWhenSlewedToNewTargetThenReportedPointingFollowsToNewTarget()
+    {
+        // REGRESSION for the bug PR #15 missed (single-target only): after the first
+        // plate-solve sync learns the alignment, GetRA/GetDec route through
+        // ApplyTrackingDrift anchored to the FROZEN first-sync reference
+        // (_trackingRefRa/_trackingRefDec). A subsequent GOTO to a new target moves
+        // the encoder correctly, but the misalignment OVERLAY kept reporting the OLD
+        // synced position -- so the imaging centering loop plate-solved a stale spot
+        // and never converged ("slewing doesn't work"). This drives the real session
+        // flow: sync at calibration target A, then slew to imaging target B.
+        //
+        // Pre-fix this FAILS hard: decB reads ~0 (frozen at A) instead of ~-40.
+        var ct = TestContext.Current.CancellationToken;
+        var (mount, external) = await CreateConnectedMountAsync(
+            ct, azMisalignmentArcmin: TestAzMisalignArcmin, altMisalignmentArcmin: TestAltMisalignArcmin);
+
+        // Target A: calibration target near the equator. Plate-solve sync learns the
+        // alignment and anchors the drift reference here.
+        await mount.SyncRaDecAsync(6.0, 0.0, ct);
+        mount.IsAlignmentCorrected.ShouldBeTrue();
+        (await mount.GetRightAscensionAsync(ct)).ShouldBe(6.0, 0.05);
+        (await mount.GetDeclinationAsync(ct)).ShouldBe(0.0, 0.05);
+
+        // Target B: a real imaging target far away in BOTH axes (Dec is the axis the
+        // live symptom showed). RA delta kept modest so the 3deg/s goto finishes
+        // inside the pump cap.
+        const double targetBRa = 9.0;    // +3h
+        const double targetBDec = -40.0; // 40deg away
+        await mount.BeginSlewRaDecAsync(targetBRa, targetBDec, ct);
+        await PumpUntilNotSlewingAsync(mount, external, ct, TimeSpan.FromSeconds(50));
+
+        var raB = await mount.GetRightAscensionAsync(ct);
+        var decB = await mount.GetDeclinationAsync(ct);
+        output.WriteLine($"After slew A(6h/0)->B: reported RA={raB:F3}h Dec={decB:F3} (target {targetBRa}h/{targetBDec})");
+
+        // The reported pointing MUST follow the slew to target B (within the
+        // misalignment magnitude ~0.5deg), NOT stay stuck at the stale first-sync A.
+        // ShouldBe(-40, 1.5) is the killer assertion: pre-fix decB reads ~0 (frozen
+        // at A) and this fails by ~40deg; post-fix it follows to ~-40.
+        decB.ShouldBe(targetBDec, 1.5);
+        raB.ShouldBe(targetBRa, 0.3);
+
+        // Alignment stays learned (pointing is corrected globally), and the residual
+        // polar drift now re-accumulates from the NEW target, not the old one. The
+        // drift lives in the TRUE pointing (camera-visible); this first true read
+        // also captures the deferred believed anchor + restarts the drift clock at
+        // arrival (see _trackingRefBasePending).
+        mount.IsAlignmentCorrected.ShouldBeTrue();
+        var (raTrueB, decTrueB) = await mount.GetTruePointingNativeAsync(ct);
+        decTrueB.ShouldBe(targetBDec, 1.5);
+        external.TimeProvider.Advance(TimeSpan.FromMinutes(5));
+        var (raTrueDrift, decTrueDrift) = await mount.GetTruePointingNativeAsync(ct);
+        var driftArcsec = GreatCircleArcsec(raTrueB, decTrueB, raTrueDrift, decTrueDrift);
+        output.WriteLine($"5min after re-baseline: true drift from new target={driftArcsec:F1}\" raw RA={raTrueDrift:F4}h Dec={decTrueDrift:F4} (was {raTrueB:F4}h/{decTrueB:F4}) tracking={await mount.IsTrackingAsync(ct)}");
+        driftArcsec.ShouldBeGreaterThan(3.0, "residual polar drift must re-accumulate from the new target");
+        driftArcsec.ShouldBeLessThan(900.0, "drift must stay realistic, not run away");
+
+        // Believed reads stay pinned on the commanded target throughout -- the
+        // hidden drift is camera-only, exactly like real hardware.
+        (await mount.GetDeclinationAsync(ct)).ShouldBe(targetBDec, 1.5);
     }
 
     /// <summary>Great-circle separation between two (RA hours, Dec deg) points, in arcsec.</summary>

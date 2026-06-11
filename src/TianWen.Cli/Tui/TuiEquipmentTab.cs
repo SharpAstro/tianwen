@@ -43,6 +43,9 @@ internal sealed class TuiEquipmentTab(
     /// <summary>Working copy of device URIs being edited (keyed by slot path).</summary>
     private readonly Dictionary<string, Uri> _editingUris = new Dictionary<string, Uri>();
 
+    /// <summary>Device URI paths whose "Advanced" settings sub-section is expanded (collapsed by default).</summary>
+    private readonly HashSet<string> _advancedExpandedUris = new HashSet<string>();
+
     /// <summary>Active inline text input (filter name editing).</summary>
     private TextInputState? _activeInlineInput;
 
@@ -436,41 +439,82 @@ internal sealed class TuiEquipmentTab(
 
         items.Add(new EquipmentFieldItem { SectionName = sectionLabel });
 
+        // Basic rows first; advanced rows are deferred to a collapsed-by-default sub-section
+        // (same split the GUI equipment tab renders).
+        var advanced = new List<DeviceSettingDescriptor>();
         foreach (var setting in device.Settings)
         {
             if (setting.IsVisible is { } predicate && predicate(workingUri) == false)
             {
                 continue;
             }
+            if (setting.IsAdvanced)
+            {
+                advanced.Add(setting);
+                continue;
+            }
 
-            var capturedSetting = setting;
+            AddSettingRow(items, ref fieldIdx, setting, workingUri, uriKey);
+        }
+
+        if (advanced.Count > 0)
+        {
+            var expanded = _advancedExpandedUris.Contains(uriKey);
             var capturedKey = uriKey;
-
             items.Add(new EquipmentFieldItem
             {
-                Setting = setting,
-                DeviceUri = workingUri,
+                ActionLabel = expanded ? "Advanced [-]" : "Advanced [+]",
                 FieldIndex = fieldIdx,
                 Increment = () =>
                 {
-                    var current = _editingUris[capturedKey];
-                    _editingUris[capturedKey] = capturedSetting.Increment(current);
-                    SaveDeviceSettings(capturedKey);
-                },
-                Decrement = capturedSetting.Decrement is not null
-                    ? () =>
+                    if (!_advancedExpandedUris.Add(capturedKey))
                     {
-                        var current = _editingUris[capturedKey];
-                        if (capturedSetting.Decrement(current) is { } decremented)
-                        {
-                            _editingUris[capturedKey] = decremented;
-                            SaveDeviceSettings(capturedKey);
-                        }
+                        _advancedExpandedUris.Remove(capturedKey);
                     }
-                    : null,
+                    NeedsRedraw = true;
+                },
             });
             fieldIdx++;
+
+            if (expanded)
+            {
+                foreach (var setting in advanced)
+                {
+                    AddSettingRow(items, ref fieldIdx, setting, workingUri, uriKey);
+                }
+            }
         }
+    }
+
+    private void AddSettingRow(List<EquipmentFieldItem> items, ref int fieldIdx, DeviceSettingDescriptor setting, Uri workingUri, string uriKey)
+    {
+        var capturedSetting = setting;
+        var capturedKey = uriKey;
+
+        items.Add(new EquipmentFieldItem
+        {
+            Setting = setting,
+            DeviceUri = workingUri,
+            FieldIndex = fieldIdx,
+            Increment = () =>
+            {
+                var current = _editingUris[capturedKey];
+                _editingUris[capturedKey] = capturedSetting.Increment(current);
+                SaveDeviceSettings(capturedKey);
+            },
+            Decrement = capturedSetting.Decrement is not null
+                ? () =>
+                {
+                    var current = _editingUris[capturedKey];
+                    if (capturedSetting.Decrement(current) is { } decremented)
+                    {
+                        _editingUris[capturedKey] = decremented;
+                        SaveDeviceSettings(capturedKey);
+                    }
+                }
+                : null,
+        });
+        fieldIdx++;
     }
 
     private void BuildDevicePickerList(ProfileData data)

@@ -58,17 +58,74 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
     /// before <c>InitDeviceAsync</c> queries the controller.</summary>
     protected uint CprRa => _cprRa;
 
+    /// <summary>Test seam: the live serial connection, so wire-level tests can
+    /// reach the fake's command transcript. Null before connect.</summary>
+    internal ISerialConnection? SerialConnection => _deviceInfo.SerialDevice;
+
     // Guide state
     private int _guideSpeedIndex = 2; // default 0.5x sidereal
+
+    /// <summary>
+    /// Opt-in (<c>?decPulseGoto=true</c> on the mount URI, advanced setting): Dec pulses
+    /// run as relative low-speed micro-GOTOs instead of rate-for-duration. The step count
+    /// is exact and the axis settles as fast as the goto ramp allows, instead of holding
+    /// f x sidereal for the full pulse duration (GSServer's DecPulseGoTo mode).
+    /// </summary>
+    private readonly bool _decPulseGoTo =
+        bool.TryParse(device.Query.QueryValue(DeviceQueryKey.DecPulseGoTo), out var decPulseGoTo) && decPulseGoTo;
 
     // Site
     private double _siteLatitude = double.NaN;
     private double _siteLongitude = double.NaN;
     private double _siteElevation = double.NaN;
+    private bool _warnedHemisphereUnknown;
+
+    /// <summary>
+    /// Southern-hemisphere flag, driven by site latitude. Sets dir bit 1 on every
+    /// :G motion-mode command AND mirrors the steps↔sky conversions: below the
+    /// equator the RA worm physically turns the opposite way for sidereal tracking
+    /// (GSServer: <c>SetTracking</c> passes the negated rate for EqS and
+    /// <c>Axes.AxesAppToMount</c> mirrors the axis, <c>a[0] = 180 - a[0]</c>), so
+    /// the wire direction and the conversion must flip together. NaN latitude
+    /// (site not pushed yet) is treated as northern with a one-shot warning.
+    /// </summary>
+    private bool IsSouthernHemisphere
+    {
+        get
+        {
+            if (double.IsNaN(_siteLatitude))
+            {
+                if (!_warnedHemisphereUnknown)
+                {
+                    _warnedHemisphereUnknown = true;
+                    Logger.LogWarning("Site latitude not set; assuming northern hemisphere for Skywatcher motion-mode direction");
+                }
+                return false;
+            }
+            return _siteLatitude < 0;
+        }
+    }
 
     // Snap port
     private volatile bool _snapActive;
     internal bool IsSnapActive => _snapActive;
+
+    // EQMOD-style iterative-goto refinement state (see IsSlewingAsync). The RA target
+    // steps of a goto encode the hour angle at COMMAND time, so a long slew lands late
+    // by the slew duration of sidereal motion (~9' for a multi-hour swing). EQMOD closes
+    // this by re-issuing short refinement gotos until the residual is inside tolerance;
+    // we mirror that so a slew genuinely ARRIVES at the commanded sky position and a
+    // J2000 slew -> J2000 readback round-trips. NaN RA = no goto pending.
+    private double _gotoTargetRa = double.NaN;
+    private double _gotoTargetDec;
+    private int _gotoRefineAttempts;
+    private int _gotoRefineInFlight; // Interlocked gate: concurrent IsSlewing pollers must not double-issue the refinement goto
+
+    /// <summary>Residual pointing error above which a completed goto is refined with another pass.</summary>
+    private const double GotoRefineToleranceArcsec = 30.0;
+
+    /// <summary>Refinement pass cap; each pass shrinks the residual by the ratio of pass-to-initial slew duration.</summary>
+    private const int MaxGotoRefineAttempts = 2;
 
     #region Capabilities
 
@@ -141,13 +198,32 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
                 return;
             }
 
-            // Set tracking mode: slow speed, forward direction, tracking
-            await SendCommandAsync('G', '1', "030", cancellationToken); // tracking, forward, low speed
-            // Compute sidereal rate T1 preset
+            // Tracking runs the RA axis as a low-speed slew in the hemisphere's sidereal
+            // direction — forward in the north, reverse in the south (GSS feeds EqS the
+            // negated rate).
+            var south = IsSouthernHemisphere;
             var siderealDegPerSec = SIDEREAL_RATE / 3600.0;
             var t1 = SkywatcherProtocol.ComputeT1Preset(_tmrFreq, _cprRa, siderealDegPerSec, false, _highSpeedRatio);
-            await SendCommandAsync('I', '1', SkywatcherProtocol.EncodeUInt24(t1), cancellationToken);
-            await SendCommandAsync('J', '1', null, cancellationToken);
+
+            var status = await QueryAxisStatusAsync('1', cancellationToken);
+            if (status.IsRunning && status.IsTracking && status.IsForward == !south)
+            {
+                // Already running at a constant-speed rate in the tracking direction
+                // (e.g. firmware auto-resumed tracking after a GOTO): change only the
+                // step period — GSS AxisSlew's rateChangeOnly path. Re-sending :G here
+                // would be rejected by real firmware (!2 motor not stopped).
+                await SendCommandAsync('I', '1', SkywatcherProtocol.EncodeUInt24(t1), cancellationToken);
+            }
+            else
+            {
+                if (status.IsRunning)
+                {
+                    await StopAxisAndWaitAsync('1', cancellationToken);
+                }
+                await SendCommandAsync('G', '1', SkywatcherProtocol.EncodeMotionMode(SkywatcherMotionFunc.LowSpeedSlew, forward: !south, south), cancellationToken);
+                await SendCommandAsync('I', '1', SkywatcherProtocol.EncodeUInt24(t1), cancellationToken);
+                await SendCommandAsync('J', '1', null, cancellationToken);
+            }
             _isTracking = true;
         }
         else
@@ -234,20 +310,86 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
         {
             Logger.LogDebug("IsSlewingAsync=true: RA(running={RaRun},tracking={RaTrk}) Dec(running={DecRun},tracking={DecTrk})",
                 statusRa.IsRunning, statusRa.IsTracking, statusDec.IsRunning, statusDec.IsTracking);
+            return true;
         }
-        return result;
+
+        // EQMOD-style iterative goto: the axes have stopped, but if a goto is pending
+        // its RA target steps went stale by the slew duration of sidereal motion (see
+        // _gotoTargetRa). Re-issue short refinement gotos from this completion-detection
+        // point (the poll-based protocol has no arrival callback) until the residual is
+        // inside tolerance or the attempt cap is reached. While a refinement is in
+        // flight the mount keeps reporting "slewing", so callers' wait-for-completion
+        // loops remain correct without changes.
+        if (!double.IsNaN(_gotoTargetRa))
+        {
+            if (Interlocked.CompareExchange(ref _gotoRefineInFlight, 1, 0) != 0)
+            {
+                // Another poller is already evaluating/issuing the refinement.
+                return true;
+            }
+            try
+            {
+                if (_gotoRefineAttempts < MaxGotoRefineAttempts)
+                {
+                    var raNow = await GetRightAscensionAsync(cancellationToken);
+                    var decNow = await GetDeclinationAsync(cancellationToken);
+                    var dRaHours = _gotoTargetRa - raNow;
+                    if (dRaHours > 12.0) dRaHours -= 24.0;
+                    else if (dRaHours < -12.0) dRaHours += 24.0;
+                    var cosDec = Math.Cos(_gotoTargetDec * Math.PI / 180.0);
+                    var raErrArcsec = dRaHours * 15.0 * 3600.0 * cosDec;
+                    var decErrArcsec = (_gotoTargetDec - decNow) * 3600.0;
+                    var errArcsec = Math.Sqrt(raErrArcsec * raErrArcsec + decErrArcsec * decErrArcsec);
+                    if (errArcsec > GotoRefineToleranceArcsec)
+                    {
+                        _gotoRefineAttempts++;
+                        Logger.LogInformation(
+                            "Iterative goto refinement {Attempt}/{Max}: residual {Err:F1}\" -> re-slewing to RA={Ra:F4}h Dec={Dec:F4}",
+                            _gotoRefineAttempts, MaxGotoRefineAttempts, errArcsec, _gotoTargetRa, _gotoTargetDec);
+                        await SlewToRaDecCoreAsync(_gotoTargetRa, _gotoTargetDec, cancellationToken);
+                        return true;
+                    }
+                }
+                _gotoTargetRa = double.NaN; // arrived (or attempts exhausted) -- goto complete
+            }
+            finally
+            {
+                Interlocked.Exchange(ref _gotoRefineInFlight, 0);
+            }
+        }
+        return false;
     }
 
-    public async ValueTask BeginSlewRaDecAsync(double ra, double dec, CancellationToken cancellationToken)
+    public virtual async ValueTask BeginSlewRaDecAsync(double ra, double dec, CancellationToken cancellationToken)
     {
         if (_cprRa == 0 || _cprDec == 0)
         {
             throw new InvalidOperationException("Mount not initialized");
         }
 
-        // Stop tracking first
-        await SendCommandAsync('K', '1', null, cancellationToken);
-        await SendCommandAsync('K', '2', null, cancellationToken);
+        // Arm the iterative-goto refinement (see IsSlewingAsync) BEFORE the first pass
+        // so a poll racing the slew start still sees the pending target.
+        _gotoTargetRa = ra;
+        _gotoTargetDec = dec;
+        _gotoRefineAttempts = 0;
+
+        await SlewToRaDecCoreAsync(ra, dec, cancellationToken);
+    }
+
+    /// <summary>
+    /// One goto pass: stop both axes, refresh encoders, issue the :G/:H/:M/:J sequence
+    /// for the delta to (<paramref name="ra"/>, <paramref name="dec"/>). Shared by
+    /// <see cref="BeginSlewRaDecAsync"/> (which arms the refinement state) and the
+    /// refinement passes in <see cref="IsSlewingAsync"/> (which must not re-arm it).
+    /// </summary>
+    private async ValueTask SlewToRaDecCoreAsync(double ra, double dec, CancellationToken cancellationToken)
+    {
+        // Stop both axes and wait for FullStop: :K only STARTS a deceleration, and
+        // real firmware rejects the goto's :G with !2 until the motor has stopped.
+        // _isTracking (tracking DESIRED) is deliberately left alone — the firmware
+        // auto-resumes sidereal tracking once the goto completes.
+        await StopAxisAndWaitAsync('1', cancellationToken);
+        await StopAxisAndWaitAsync('2', cancellationToken);
 
         // Refresh cached encoder positions from the mount before computing the delta.
         // Without this, _posRa / _posDec may be stale (only updated on Get*Async reads),
@@ -288,17 +430,29 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
             return;
         }
 
-        var direction = delta > 0 ? '0' : '1'; // 0=forward, 1=reverse
+        var forward = delta > 0;
         var absDelta = Math.Abs(delta);
 
-        // Use high-speed goto mode
-        await SendCommandAsync('G', axis, $"00{direction}", cancellationToken); // goto, high speed, direction
+        // GSS picks the GOTO speed tier by distance: below the low-speed margin
+        // (5 s of slewing at 128x sidereal = 640 sidereal-seconds of steps) it uses
+        // the low-speed GOTO func, else high-speed. Break-point steps (:M) follow
+        // GSS's defaults: 3500 for high-speed, 0 for low-speed.
+        var cpr = axis == '1' ? _cprRa : _cprDec;
+        var lowSpeedMarginSteps = (long)(640.0 * SIDEREAL_RATE / 3600.0 * cpr / 360.0);
+        var func = absDelta > lowSpeedMarginSteps ? SkywatcherMotionFunc.HighSpeedGoto : SkywatcherMotionFunc.LowSpeedGoto;
+        var breakSteps = func == SkywatcherMotionFunc.HighSpeedGoto ? 3500u : 0u;
+
+        await SendCommandAsync('G', axis, SkywatcherProtocol.EncodeMotionMode(func, forward, IsSouthernHemisphere), cancellationToken);
         await SendCommandAsync('H', axis, SkywatcherProtocol.EncodeUInt24((uint)absDelta), cancellationToken); // step count
+        await SendCommandAsync('M', axis, SkywatcherProtocol.EncodeUInt24(breakSteps), cancellationToken); // break-point increment
         await SendCommandAsync('J', axis, null, cancellationToken); // start
     }
 
     public async ValueTask AbortSlewAsync(CancellationToken cancellationToken)
     {
+        // Disarm any pending iterative-goto refinement FIRST -- an abort must not be
+        // followed by a refinement pass chasing the cancelled target.
+        _gotoTargetRa = double.NaN;
         // Instant stop both axes
         await SendCommandAsync('L', '1', null, cancellationToken);
         await SendCommandAsync('L', '2', null, cancellationToken);
@@ -337,16 +491,25 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
             return;
         }
 
-        var direction = rate > 0 ? '0' : '1';
+        // The axis may be running (tracking, or a previous MoveAxis at a different
+        // rate): real firmware rejects :G mid-motion (!2), so stop and wait first.
+        var status = await QueryAxisStatusAsync(axisChar, cancellationToken);
+        if (status.IsRunning)
+        {
+            await StopAxisAndWaitAsync(axisChar, cancellationToken);
+        }
+
+        var forward = rate > 0;
         var absRate = Math.Abs(rate);
 
         // Determine if high speed
         var siderealDegPerSec = SIDEREAL_RATE / 3600.0;
         var highSpeed = absRate > siderealDegPerSec * 2; // high speed above 2x sidereal
 
-        // Set motion mode: slewing, direction, speed tier
-        var speedChar = highSpeed ? '0' : '1'; // 0=high speed, 1=low speed
-        await SendCommandAsync('G', axisChar, $"01{direction}", cancellationToken); // slew mode
+        // High-speed slew func must pair with the highSpeed T1 preset below (the
+        // firmware interprets the :I period at 1/highSpeedRatio scale in that mode).
+        var func = highSpeed ? SkywatcherMotionFunc.HighSpeedSlew : SkywatcherMotionFunc.LowSpeedSlew;
+        await SendCommandAsync('G', axisChar, SkywatcherProtocol.EncodeMotionMode(func, forward, IsSouthernHemisphere), cancellationToken);
         var cpr = axisChar == '1' ? _cprRa : _cprDec;
         var t1 = SkywatcherProtocol.ComputeT1Preset(_tmrFreq, cpr, absRate, highSpeed, _highSpeedRatio);
         await SendCommandAsync('I', axisChar, SkywatcherProtocol.EncodeUInt24(t1), cancellationToken);
@@ -357,39 +520,152 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
 
     #region Pulse Guide
 
+    /// <summary>
+    /// Minimum pulse duration. Below the serial round-trip latency a pulse is noise;
+    /// matches GSServer's MinPulseDurationRa/Dec default of 20 ms.
+    /// </summary>
+    private static readonly TimeSpan MinPulseDuration = TimeSpan.FromMilliseconds(20);
+
     public async ValueTask PulseGuideAsync(GuideDirection direction, TimeSpan duration, CancellationToken cancellationToken)
     {
-        var (axisChar, isForward) = direction switch
+        if (duration < MinPulseDuration)
         {
-            GuideDirection.East => ('1', false),  // RA reverse
-            GuideDirection.West => ('1', true),   // RA forward
-            GuideDirection.North => ('2', true),  // Dec forward
-            GuideDirection.South => ('2', false), // Dec reverse
-            _ => throw new ArgumentException($"Unknown guide direction {direction}", nameof(direction))
-        };
+            Logger.LogDebug("Ignoring {Direction} pulse of {DurationMs:F1} ms (below the {MinMs} ms floor)",
+                direction, duration.TotalMilliseconds, MinPulseDuration.TotalMilliseconds);
+            return;
+        }
 
-        var dirChar = isForward ? '0' : '1';
         var guideFraction = SkywatcherProtocol.GuideSpeedFraction(_guideSpeedIndex);
         var siderealDegPerSec = SIDEREAL_RATE / 3600.0;
-        var guideSpeed = siderealDegPerSec * guideFraction;
-        var cpr = axisChar == '1' ? _cprRa : _cprDec;
 
-        // Set tracking mode with guide speed
-        await SendCommandAsync('G', axisChar, $"03{dirChar}", cancellationToken); // tracking, low speed, direction
-        var t1 = SkywatcherProtocol.ComputeT1Preset(_tmrFreq, cpr, guideSpeed, false, _highSpeedRatio);
-        await SendCommandAsync('I', axisChar, SkywatcherProtocol.EncodeUInt24(t1), cancellationToken);
-        await SendCommandAsync('J', axisChar, null, cancellationToken);
-
-        // Wait for duration
-        await TimeProvider.SleepAsync(duration, cancellationToken);
-
-        // Stop guide axis (restore tracking on RA, stop on Dec)
-        await SendCommandAsync('K', axisChar, null, cancellationToken);
-        if (axisChar == '1' && _isTracking)
+        if (direction is GuideDirection.East or GuideDirection.West)
         {
-            // Restart sidereal tracking on RA
-            await SetTrackingAsync(true, cancellationToken);
+            // RA pulse guiding OFFSETS the sidereal tracking rate rather than replacing it:
+            // West = (1+f) x sidereal, East = (1-f) x sidereal, both in the tracking
+            // direction (forward north / reverse south). Commanding f x sidereal with a
+            // direction flag (the old behaviour) made BOTH pulses drift the star east
+            // relative to the sky — a West pulse ran the axis slower than sidereal (-f
+            // relative) and an East pulse reversed it (-(1+f) relative) — with a (1+f)/f
+            // gain asymmetry between the two directions.
+            var rateFactor = direction is GuideDirection.West ? 1.0 + guideFraction : 1.0 - guideFraction;
+            // East at guide fraction 1.0x gives a combined rate of 0; the motor boards
+            // cannot encode a zero step period, so command sidereal/1000 instead — the
+            // axis "looks stopped" without a stop/start transient (GSS does the same).
+            var guideSpeed = siderealDegPerSec * Math.Max(rateFactor, 1e-3);
+            var t1Pulse = SkywatcherProtocol.EncodeUInt24(
+                SkywatcherProtocol.ComputeT1Preset(_tmrFreq, _cprRa, guideSpeed, false, _highSpeedRatio));
+
+            if (_isTracking)
+            {
+                // The axis is already running at sidereal in the tracking direction and the
+                // combined rate never changes sign (f <= 1): change ONLY the step period
+                // (:I) live, then restore it. No stop/start — a K+G+I+J round trip adds
+                // decel/accel transients comparable to a short pulse's length, and real
+                // firmware rejects :G while the motor is running (error !2).
+                await SendCommandAsync('I', '1', t1Pulse, cancellationToken);
+                try
+                {
+                    await TimeProvider.SleepAsync(duration, cancellationToken);
+                }
+                finally
+                {
+                    // Restore the sidereal step period even when the pulse is cancelled —
+                    // a stuck guide rate would drift the mount at (1±f) x sidereal forever.
+                    var t1Sidereal = SkywatcherProtocol.ComputeT1Preset(_tmrFreq, _cprRa, siderealDegPerSec, false, _highSpeedRatio);
+                    await SendCommandAsync('I', '1', SkywatcherProtocol.EncodeUInt24(t1Sidereal), CancellationToken.None);
+                }
+            }
+            else
+            {
+                // Not tracking: there is no baseline to offset. Run the axis at the
+                // combined rate for the duration, then stop it again.
+                var south = IsSouthernHemisphere;
+                await SendCommandAsync('G', '1', SkywatcherProtocol.EncodeMotionMode(SkywatcherMotionFunc.LowSpeedSlew, forward: !south, south), cancellationToken);
+                await SendCommandAsync('I', '1', t1Pulse, cancellationToken);
+                await SendCommandAsync('J', '1', null, cancellationToken);
+                try
+                {
+                    await TimeProvider.SleepAsync(duration, cancellationToken);
+                }
+                finally
+                {
+                    await SendCommandAsync('K', '1', null, CancellationToken.None);
+                }
+            }
         }
+        else
+        {
+            // Dec has no tracking baseline: move the axis at f x sidereal in the pulse direction.
+            var forward = direction switch
+            {
+                GuideDirection.North => true,  // Dec forward
+                GuideDirection.South => false, // Dec reverse
+                _ => throw new ArgumentException($"Unknown guide direction {direction}", nameof(direction))
+            };
+            var guideSpeed = siderealDegPerSec * guideFraction;
+
+            if (_decPulseGoTo)
+            {
+                await DecPulseAsMicroGotoAsync(forward, guideSpeed, duration, cancellationToken);
+                return;
+            }
+
+            await SendCommandAsync('G', '2', SkywatcherProtocol.EncodeMotionMode(SkywatcherMotionFunc.LowSpeedSlew, forward, IsSouthernHemisphere), cancellationToken);
+            var t1 = SkywatcherProtocol.ComputeT1Preset(_tmrFreq, _cprDec, guideSpeed, false, _highSpeedRatio);
+            await SendCommandAsync('I', '2', SkywatcherProtocol.EncodeUInt24(t1), cancellationToken);
+            await SendCommandAsync('J', '2', null, cancellationToken);
+            try
+            {
+                await TimeProvider.SleepAsync(duration, cancellationToken);
+            }
+            finally
+            {
+                await SendCommandAsync('K', '2', null, CancellationToken.None);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Dec pulse as a relative low-speed micro-GOTO (GSServer's DecPulseGoTo mode): the
+    /// duration converts to an exact step count (duration x rate in arcsec x steps/arcsec),
+    /// the goto runs it, and we poll until FullStop (3.5 s cap, GSS's wait). Faster settling
+    /// than holding the rate for the full duration, and the displacement is exact.
+    /// </summary>
+    private async ValueTask DecPulseAsMicroGotoAsync(bool forward, double guideSpeedDegPerSec, TimeSpan duration, CancellationToken cancellationToken)
+    {
+        var arcsec = guideSpeedDegPerSec * 3600.0 * duration.TotalSeconds;
+        var steps = (int)Math.Round(arcsec * _cprDec / (360.0 * 3600.0));
+        if (steps == 0)
+        {
+            Logger.LogDebug("Dec micro-GOTO pulse of {DurationMs:F1} ms rounds to zero steps; skipping", duration.TotalMilliseconds);
+            return;
+        }
+
+        var status = await QueryAxisStatusAsync('2', cancellationToken);
+        if (status.IsRunning)
+        {
+            await StopAxisAndWaitAsync('2', cancellationToken);
+        }
+
+        steps = _firmwareInfo.MountModel.AdjustGotoSteps(steps);
+        await SendCommandAsync('G', '2', SkywatcherProtocol.EncodeMotionMode(SkywatcherMotionFunc.LowSpeedGoto, forward, IsSouthernHemisphere), cancellationToken);
+        await SendCommandAsync('H', '2', SkywatcherProtocol.EncodeUInt24((uint)steps), cancellationToken);
+        await SendCommandAsync('M', '2', SkywatcherProtocol.EncodeUInt24(0), cancellationToken);
+        await SendCommandAsync('J', '2', null, cancellationToken);
+
+        var pollInterval = TimeSpan.FromMilliseconds(25);
+        var timeout = TimeSpan.FromSeconds(3.5);
+        var waited = TimeSpan.Zero;
+        while (waited < timeout)
+        {
+            if (!(await QueryAxisStatusAsync('2', cancellationToken)).IsRunning)
+            {
+                return;
+            }
+            await TimeProvider.SleepAsync(pollInterval, cancellationToken);
+            waited += pollInterval;
+        }
+        Logger.LogWarning("Dec micro-GOTO pulse ({Steps} steps) did not reach full stop within {TimeoutSeconds:F1}s", steps, timeout.TotalSeconds);
     }
 
     public ValueTask<bool> IsPulseGuidingAsync(CancellationToken cancellationToken)
@@ -560,6 +836,15 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
 
     public async ValueTask ParkAsync(CancellationToken cancellationToken)
     {
+        // Parking targets a fixed ENCODER position, not a sky position -- disarm any
+        // pending iterative-goto refinement or it would chase the old sky target after
+        // the park slew stops.
+        _gotoTargetRa = double.NaN;
+        // Stop both axes (tracking may be running) before the home goto — the goto's
+        // :G is rejected with !2 on a moving motor.
+        await StopAxisAndWaitAsync('1', cancellationToken);
+        await StopAxisAndWaitAsync('2', cancellationToken);
+        _isTracking = false;
         // Slew to home position (0x800000 = step 0)
         await SlewAxisToAsync('1', _posRa, 0, cancellationToken);
         await SlewAxisToAsync('2', _posDec, 0, cancellationToken);
@@ -799,27 +1084,58 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
         await port.TryReadTerminatedAsync(CrTerminator, cancellationToken);
     }
 
-    private record struct AxisStatus(bool IsRunning, bool IsTracking, bool IsInitDone);
+    private record struct AxisStatus(bool IsRunning, bool IsTracking, bool IsForward, bool IsInitDone);
+
+    /// <summary>
+    /// Decelerate-stop an axis and wait until it reports FullStop. :K only STARTS a
+    /// deceleration; real firmware rejects a subsequent :G with !2 (motor not stopped)
+    /// until the motor has actually halted. Mirrors GSServer's wait: 25 ms status
+    /// polls, the stop re-issued every 5 polls, capped at 3.5 s.
+    /// </summary>
+    private async ValueTask StopAxisAndWaitAsync(char axisChar, CancellationToken cancellationToken)
+    {
+        await SendCommandAsync('K', axisChar, null, cancellationToken);
+
+        var pollInterval = TimeSpan.FromMilliseconds(25);
+        var timeout = TimeSpan.FromSeconds(3.5);
+        var waited = TimeSpan.Zero;
+        var polls = 0;
+        while (waited < timeout)
+        {
+            var status = await QueryAxisStatusAsync(axisChar, cancellationToken);
+            if (!status.IsRunning)
+            {
+                return;
+            }
+            if (++polls % 5 == 0)
+            {
+                await SendCommandAsync('K', axisChar, null, cancellationToken);
+            }
+            await TimeProvider.SleepAsync(pollInterval, cancellationToken);
+            waited += pollInterval;
+        }
+        Logger.LogWarning("Skywatcher axis {Axis} did not reach full stop within {TimeoutSeconds:F1}s", axisChar, timeout.TotalSeconds);
+    }
 
     private async ValueTask<AxisStatus> QueryAxisStatusAsync(char axis, CancellationToken cancellationToken)
     {
         var response = await SendAndReceiveAsync('f', axis, null, cancellationToken);
-        if (SkywatcherProtocol.TryParseResponse(response, out var data) && data.Length >= 6)
+        if (SkywatcherProtocol.TryParseResponse(response, out var data) && data.Length >= 3)
         {
-            // Status bytes: 3 bytes (6 hex chars)
-            // Byte 0: bit0=running, bit1=blocked
-            // Byte 1: bit0=init done
-            // Byte 2: bit0=level (0=tracking/1=slewing)
-            var raw = SkywatcherProtocol.DecodeUInt24(data.AsSpan(0, 6));
-            var byte0 = (int)(raw & 0xFF);
-            var byte1 = (int)((raw >> 8) & 0xFF);
-            var byte2 = (int)((raw >> 16) & 0xFF);
-            var isRunning = (byte0 & 0x01) != 0;
-            var isInitDone = (byte1 & 0x01) != 0;
-            var isTracking = (byte2 & 0x01) == 0; // 0=tracking rate, 1=slewing rate
-            return new AxisStatus(isRunning, isTracking, isInitDone);
+            // Real firmware replies 3 status nibbles (reference: GSServer GetAxisStatus):
+            // nibble 0: bit0 = constant-speed mode (slew/tracking) vs GOTO, bit1 = reverse, bit2 = high speed
+            // nibble 1: bit0 = running (0 = full stop)
+            // nibble 2: bit0 = init done
+            var n0 = SkywatcherProtocol.ParseHexNibble(data[0]);
+            var n1 = SkywatcherProtocol.ParseHexNibble(data[1]);
+            var n2 = SkywatcherProtocol.ParseHexNibble(data[2]);
+            var isRunning = (n1 & 0x01) != 0;
+            var isConstantSpeed = (n0 & 0x01) != 0; // tracking/MoveAxis rate, not a GOTO
+            var isForward = (n0 & 0x02) == 0;
+            var isInitDone = (n2 & 0x01) != 0;
+            return new AxisStatus(isRunning, isRunning && isConstantSpeed, isForward, isInitDone);
         }
-        return new AxisStatus(false, false, false);
+        return new AxisStatus(false, false, true, false);
     }
 
     #endregion
@@ -830,7 +1146,9 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
     /// Convert encoder steps to RA hours.
     /// Home position (steps=0) corresponds to HA=6h (counterweight-down, scope at pole),
     /// matching the GSServer GermanPolar convention where HomeAxisX=90°.
-    /// HA = steps / CPR * 24 + 6, then RA = LST - HA.
+    /// North: HA = steps / CPR * 24 + 6; south: HA = 6 - steps / CPR * 24 (the axis
+    /// mapping mirrors below the equator, GSS Axes.AxesAppToMount a[0] = 180 - a[0],
+    /// matching the physically reversed tracking direction). Then RA = LST - HA.
     /// </summary>
     private double StepsToRa(int steps)
     {
@@ -839,14 +1157,16 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
         transform.RefreshDateTimeFromTimeProvider();
         transform.SiteLongitude = double.IsNaN(_siteLongitude) ? 0.0 : _siteLongitude;
         var lst = transform.LocalSiderealTime;
-        var ha = (double)steps / _cprRa * 24.0 + 6.0;
+        var axisHours = (double)steps / _cprRa * 24.0;
+        var ha = IsSouthernHemisphere ? 6.0 - axisHours : 6.0 + axisHours;
         var ra = CoordinateUtils.ConditionRA(lst - ha);
         return ra;
     }
 
     /// <summary>
     /// Convert RA hours to encoder steps.
-    /// Inverse of <see cref="StepsToRa"/>: steps = (HA - 6) / 24 * CPR.
+    /// Inverse of <see cref="StepsToRa"/>: steps = (HA - 6) / 24 * CPR north,
+    /// (6 - HA) / 24 * CPR south.
     /// </summary>
     private int RaToSteps(double ra)
     {
@@ -856,29 +1176,37 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
         transform.SiteLongitude = double.IsNaN(_siteLongitude) ? 0.0 : _siteLongitude;
         var lst = transform.LocalSiderealTime;
         var ha = CoordinateUtils.ConditionHA(lst - ra);
-        return (int)Math.Round((ha - 6.0) / 24.0 * _cprRa);
+        var axisHours = IsSouthernHemisphere ? 6.0 - ha : ha - 6.0;
+        return (int)Math.Round(axisHours / 24.0 * _cprRa);
     }
 
     /// <summary>
     /// Convert encoder steps to declination degrees.
-    /// Home position (steps=0) corresponds to Dec=90° (pole, counterweight-down),
-    /// matching the GSServer GermanPolar convention where HomeAxisY=90°.
-    /// Dec = 90 - steps / CPR * 360.
+    /// Home position (steps=0) corresponds to the site's celestial pole
+    /// (counterweight-down), matching the GSServer GermanPolar convention where
+    /// HomeAxisY=90°. North: Dec = 90 - steps / CPR * 360; south the mapping
+    /// mirrors from the -90 pole: Dec = -90 + steps / CPR * 360. The mirror keeps
+    /// "normal" (counterweight-down) pointings in positive step space in both
+    /// hemispheres, so the pier-side rule in <see cref="GetSideOfPierAsync"/>
+    /// needs no hemisphere branch.
     /// </summary>
     private double StepsToDec(int steps)
     {
         if (_cprDec == 0) return 0.0;
-        return 90.0 - (double)steps / _cprDec * 360.0;
+        var axisDegrees = (double)steps / _cprDec * 360.0;
+        return IsSouthernHemisphere ? -90.0 + axisDegrees : 90.0 - axisDegrees;
     }
 
     /// <summary>
     /// Convert declination degrees to encoder steps.
-    /// Inverse of <see cref="StepsToDec"/>: steps = (90 - dec) / 360 * CPR.
+    /// Inverse of <see cref="StepsToDec"/>: steps = (90 - dec) / 360 * CPR north,
+    /// (dec + 90) / 360 * CPR south.
     /// </summary>
     private int DecToSteps(double dec)
     {
         if (_cprDec == 0) return 0;
-        return (int)Math.Round((90.0 - dec) / 360.0 * _cprDec);
+        var axisDegrees = IsSouthernHemisphere ? dec + 90.0 : 90.0 - dec;
+        return (int)Math.Round(axisDegrees / 360.0 * _cprDec);
     }
 
     #endregion

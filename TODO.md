@@ -40,7 +40,7 @@
 - [x] Guider tab: keep looping guide camera frames during centering/slewing — call `LoopAsync` when not guiding so the guide camera feed stays live. Currently the guide loop stops during centering and the tab shows "Waiting for guider"
 - [x] Guider tab: show calibration frames — render guide camera during calibration phase with star position and profile. Remaining: star movement vectors, step count, and calibration progress overlay
 - [ ] Guider: adaptive image-ready polling — sleep until near the expected end of exposure (N − `ImageReadyPollInterval`), then poll every 10ms, and in the final ~10ms poll every 1ms. Avoids wasting CPU on long sleeps while minimising latency at exposure end. Applies to `BuiltInGuiderDriver.CaptureGuideFrameAsync` and any other image-ready poll loop
-- [ ] Fake camera: apply mount tracking drift as pixel offset to star positions — `SyntheticStarFieldRenderer` produces a fixed star field so pulse guide corrections are invisible, causing `GuiderCalibration` to never converge (zero displacement). Need to read accumulated RA/Dec drift from `FakeMountDriver` and translate to pixel shift
+- [x] Fake camera: apply mount tracking drift as pixel offset to star positions — DONE (PR #15 + PR #19): guide cam self-resolves the coupled mount from `IDeviceHub`, snapshots J2000 pointing per exposure and renders the deviation as pixel offset (`MountDriftPixels`); ST-4 forwards to the coupled mount so corrections physically move the encoders; `GuiderCalibration` converges end-to-end
 - [x] Guider tab: guide camera image + crosshair (done). Remaining: star close-up + 1D intensity profile
   - [x] Add to `IDeviceDependentGuider`: `Image? LastGuideFrame`, `(float,float)? GuideStarPosition`, `float? GuideStarSNR`, `float? GuideStarHFD`
   - [x] Surface on `ISession` via `LiveSessionState.PollSession`
@@ -222,6 +222,35 @@
 - [ ] Use standard atmosphere for `SitePressure` (`IMountDriver.cs:344`)
 - [ ] Check online or via connected devices for `SiteTemperature` (`IMountDriver.cs:345`)
 - [ ] Handle refraction — assumes driver does not support/do refraction (`IMountDriver.cs:347`)
+
+## Mount / Skywatcher Protocol (gaps vs GSServer reference, `../../other/GSServer/GS.SkyWatcher`)
+
+Findings from comparing `SkywatcherMountDriverBase` against GSServer's `SkyWatcher.cs` `AxisPulse`/`AxisSlew` + `Commands.cs` (2026-06-10). **Fixed 2026-06-11** (commits `71de9b7`, `541213d`, `72b6e53`, `84880c5` on `fix/guider-slewing-calibration`), validated against wire transcripts recorded from GSServer's own client code: `tools/GssOracle` drives `GS.SkyWatcher` headless against a scripted serial port (no ASCOM/COM); the recorded transcripts are pinned as the `gss-oracle-transcripts.json` fixture (`SkywatcherGssOracleTests`).
+
+- [x] **`:G` motion-mode payload is a fake-only dialect** — DONE (`71de9b7`): real 2-char `<func><dir>` format via `SkywatcherProtocol.EncodeMotionMode(func, forward, southernHemisphere)` + `SkywatcherMotionFunc` enum (speed bit inverts between goto and slew); all five driver call sites and the fake's parser flipped atomically; `speedChar` dead variable replaced by the func selection. 16-payload table test + oracle round-trip test.
+- [x] **Southern-hemisphere direction bit** — DONE (`71de9b7`): every `:G` carries dir bit1 below the equator, tracking/RA pulses run the worm in REVERSE in the south (GSS EqS passes the negated rate), and the steps↔sky conversions mirror with it (`StepsToRa`/`RaToSteps`/`StepsToDec`/`DecToSteps`, equivalent of GSS `Axes.AxesAppToMount` `a[0] = 180 − a[0]`). Fake auto-resumes post-GOTO tracking per the stored hemisphere bit. Southern tracking/goto/pulse functional tests pin it.
+- [x] **Pulse guide via live `:I` rate change** — DONE (`541213d`): RA pulse while tracking sends only `:I` (combined rate) then `:I` (sidereal restore, in `finally` so cancellation can't leave the rate stuck); f=1.0 East commands sidereal/1000 instead of halting. Wire-contract test asserts no `:G`/`:J`/`:K` during a tracking RA pulse.
+- [x] **Dec pulse as micro-GOTO (GSS `DecPulseGoTo`)** — DONE (`84880c5`): opt-in `?decPulseGoto=true` mount URI key (advanced device setting on `SkywatcherDevice` + fake); duration → exact steps → relative low-speed GOTO (`:G` func 2 + `:H` + `:M 0` + `:J`) polled to FullStop, 3.5 s cap. Rate-based stays default.
+- [x] **Wait for FullStop after `:K` before issuing `:G`** — DONE (`72b6e53`): `StopAxisAndWaitAsync` (25 ms polls, re-stop every 5, 3.5 s cap) used by `BeginSlewRaDecAsync`/`ParkAsync`/`MoveAxisAsync`; `SetTrackingAsync(true)` is status-driven (already-running-in-tracking-direction → live `:I` only, GSS `rateChangeOnly`). The fake now REJECTS `:G` while running with `!2` like real firmware, so the whole suite enforces the contract.
+- [x] **Minimum pulse duration floor** — DONE (`541213d`): 20 ms floor at the top of `PulseGuideAsync`, dropped before touching the wire.
+- [x] **`:f` axis-status reply is 3 nibbles, not 6 hex chars** (found via the GSS oracle) — DONE (`71de9b7`): nibble0 = mode/dir/high-speed bits, nibble1 = running, nibble2 = init; driver parse + fake reply flipped together.
+- [x] **GOTO `:M` break-point increment + speed-tier selection** (found via the GSS oracle) — DONE (`71de9b7`): `:H` then `:M` (3500 high-speed / 0 low-speed) then `:J`; low-speed GOTO func within the 640-sidereal-second margin, high-speed beyond it.
+- [x] **Iterative goto refinement (EQMOD-style)** — DONE (2026-06-11, believed/true split branch): the goto's RA target steps encode the HA at COMMAND time, so a long slew landed late by the slew duration of sidereal motion (~9' for a multi-hour swing). `IsSlewingAsync` is the completion-detection point: when the axes stop with a goto pending and the residual exceeds 30", it re-issues a short refinement goto (max 2 passes, `Interlocked` gate against concurrent pollers); callers' wait-for-completion loops are unchanged because the mount keeps reporting "slewing" during refinement. `AbortSlewAsync`/`ParkAsync` disarm the pending target. Validated by `GivenTopocentricSkywatcherWhenSlewingToJ2000TargetThenJ2000ReadbackMatches` (readback err 9.4' -> <3').
+- [ ] Dec backlash compensation in pulse guide — GSS converts configured backlash steps into extra pulse duration (capped +1000 ms so PHD2's 2 s return expectation holds, `SkyWatcher.cs:500-506`). We have per-focuser backlash inference; mounts have none. Lower priority: the built-in guider's calibration absorbs steady-state Dec lash partially.
+- [ ] Verify on real hardware whether EQ6-class firmware auto-resumes sidereal tracking after a GOTO (the fake models auto-resume; GSS does not rely on it). Low risk either way: `Session` re-ensures tracking via `EnsureTrackingAsync` before focus/imaging, which is status-driven and firmware-legal now.
+- [ ] Verify iterative goto refinement on real hardware (EQMOD does the same multi-pass goto; our 30" tolerance / 2-pass cap may need tuning against real motor ramp + stop-wait times).
+
+## Mount / Believed vs True Pointing (fakes) + Sky-Map Solve & Sync
+
+DONE 2026-06-11 (believed/true split). A real mount's encoders only know the BELIEVED pointing;
+hidden alignment errors (polar misalignment, cone error) are only observable through a camera.
+The fakes now model this honestly, and the sky map gained the discovery tool:
+
+- [x] `FakeSkywatcherMountDriver` public `GetRA/GetDec` report the believed (encoder) pointing; the misaligned TRUE pointing moved to the internal `IFakeTruePointingSource.GetTruePointingNativeAsync` seam (all three regimes: near-pole encoder sweep, pre-sync axis tilt, post-sync tracking drift + believed-deviation term).
+- [x] `FakeCameraDriver` guide path renders from the true seam; main path shifts the stamped `Target` by the per-exposure `(true - believed)` J2000 delta so plate solves of main frames reveal the hidden error. `FakeGuider.SaveImageAsync` stamps WCS from the true seam (polar-align sim signal preserved). Shared conversion extracted to `EquatorialFrameConversion.TopocentricToJ2000` (one path with `IMountDriver.GetRaDecJ2000Async`).
+- [x] Sky-map mount reticle is clickable -> mount info panel -> **Solve & Sync** button: `MountActions.SolveAndSyncAsync` (stamp + preview capture + plate solve + `SyncRaDec` via the profile transform). Marker jumps to truth on the next telemetry poll; re-slew stays the user's decision. Uses the OTA's MAIN camera (`OTAs[OtaIndex].Camera`, index 0 from the button). This is the only truthful-marker path for slew-less trackers (SkyGuider Pro: `CanSlew=false`, `CanSync=true`). Verified end-to-end in the GUI: blind goto lands marker ON target; Solve & Sync revealed a 6.5' cone error; re-goto landed true; second solve showed 1.3' residual (pure tracking drift).
+- [ ] Optional: per-OTA picker for Solve & Sync on multi-OTA rigs (button currently posts OTA 0).
+- [ ] Optional: expose Solve & Sync exposure/gain/binning in the UI (currently 5 s / camera default / bin 1).
 
 ## Device Management
 
@@ -407,7 +436,7 @@ Learnings from PixInsight Statistical Stretch (SetiAstro, v2.3).
 - [ ] Investigate if increasing neural model parameters (wider/deeper MLP) improves guide accuracy
 - [ ] Investigate improving pretrained model with real-time mount telemetry data
 - [x] Built-in guider receives same mount driver instance via `IMountDependentGuider` wiring in `SessionFactory`
-- [ ] Support ST-4 guide port as guiding output (DAL already detects `HasST4Port`)
+- [x] Support ST-4 guide port as guiding output — `PulseGuideRouter` + `PulseGuideSource` (`?pulseGuideSource=Auto|Camera|Mount` on the guider URI) routes corrections through `ICameraDriver.PulseGuideAsync`. `Auto` prefers the mount (commit 8a08691): camera `CanPulseGuide` only proves an ST-4 *socket* exists (`HasST4Port`), not that a cable is connected
 - [ ] Support snap/shutter-release port for external camera triggering
 
 ## Protocol Support
@@ -465,6 +494,8 @@ sections above when picked up. Notes that turned out to be already DONE or alrea
 intentionally NOT repeated here.
 
 ### Sky Map
+- [x] **Pan/zoom jank at sub-90deg FOV (worst with SCP in view)** — FIXED 2026-06-11: the overlay Phase A cache (`VkSkyMapTab.RenderObjectOverlay`) was keyed on the exact view matrix below `WideFovThresholdDeg`, so every drag frame re-ran the catalog grid scan (`GatherSkyMapOverlayCandidates`; pole-in-view = full-RA Dec strip, ~16k cell lookups -> 100-240 ms/frame; ~5k cells elsewhere -> 40-90 ms). Fix: key on the unprojected view centre quantized to FOV/8 cells + FOV quantized to ~10% log steps, and widen the gather margin to `max(1deg, 0.15 x FOV)` (RA scaled 1/cos dec) so the cached set covers every view inside a cell; Phase B's per-frame projection culls as before. Measured at the SCP all-layers-on: 8 zoom/time stimuli -> ONE 93 ms frame (the legitimate cell-boundary rebuild) vs 1-3 slow frames per stimulus before.
+- [ ] Optional follow-up: move overlay Phase A (candidate gather) to a background task (the `TryApplyPendingStarBuild` pattern) so even cell-boundary rebuilds never block a frame — a fast drag across the pole still crosses ~8 cells per screen-width, each a one-frame ~90 ms hiccup.
 - [ ] Search box + click-to-goto (slew to clicked object) (2026-04-16)
 - [ ] Compass markers + horizon markers (2026-04-16)
 - [ ] "N" key jumps the sky to local midnight (2026-04-18) (pairs with the time-adjuster item above)

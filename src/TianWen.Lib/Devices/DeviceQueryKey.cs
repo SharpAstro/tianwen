@@ -24,6 +24,10 @@ public enum DeviceQueryKey
     PePeriodSeconds,
     PePeakTopeakArcsec,
     ReuseCalibration,
+    MaxCalibrationAttempts,
+    MaxRecalibrationAttempts,
+    CalibrationRetryDelaySeconds,
+    NeuralSettleFailSafeFraction,
     FocuserInitialPosition,
     FocuserBestFocus,
     FocuserBacklashIn,
@@ -31,6 +35,7 @@ public enum DeviceQueryKey
     ApiKey,
     PolarMisalignmentAzArcmin,
     PolarMisalignmentAltArcmin,
+    DecPulseGoTo,
 }
 
 public static class DeviceQueryKeyExtensions
@@ -72,6 +77,10 @@ public static class DeviceQueryKeyExtensions
             DeviceQueryKey.PePeriodSeconds => "pePeriodSeconds",
             DeviceQueryKey.PePeakTopeakArcsec => "pePeakTopeakArcsec",
             DeviceQueryKey.ReuseCalibration => "reuseCalibration",
+            DeviceQueryKey.MaxCalibrationAttempts => "maxCalibrationAttempts",
+            DeviceQueryKey.MaxRecalibrationAttempts => "maxRecalibrationAttempts",
+            DeviceQueryKey.CalibrationRetryDelaySeconds => "calibrationRetryDelaySeconds",
+            DeviceQueryKey.NeuralSettleFailSafeFraction => "neuralSettleFailSafeFraction",
             DeviceQueryKey.FocuserInitialPosition => "focuserInitialPosition",
             DeviceQueryKey.FocuserBestFocus => "focuserBestFocus",
             DeviceQueryKey.FocuserBacklashIn => "focuserBacklashIn",
@@ -79,6 +88,7 @@ public static class DeviceQueryKeyExtensions
             DeviceQueryKey.ApiKey => "apiKey",
             DeviceQueryKey.PolarMisalignmentAzArcmin => "polarMisalignmentAzArcmin",
             DeviceQueryKey.PolarMisalignmentAltArcmin => "polarMisalignmentAltArcmin",
+            DeviceQueryKey.DecPulseGoTo => "decPulseGoto",
             _ => key.ToString().ToLowerInvariant()
         };
     }

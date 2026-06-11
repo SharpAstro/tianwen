@@ -55,6 +55,45 @@ internal class FakeGuider(FakeDevice fakeDevice, IServiceProvider serviceProvide
     private double _ditherPixels;
     private long _settleStartedTicks;
 
+    private int _guideStartAttempts;
+
+    // --- Test hook: simulate the built-in guider recovering a lock IN PLACE (re-acquire after a
+    // star loss, recalibrate after a divergence). During the window the guider reports
+    // not-guiding + "Calibrating" WITHOUT a GuideAsync call -- exactly as the real driver does
+    // while it self-recovers -- then reverts to whatever the underlying state is (still Guiding).
+    // Lets a session-loop test verify the session DEFERS to that recovery instead of fighting it
+    // (the #4-vs-#3 race: a session restart mid-recovery throws "cannot start in state
+    // Calibrating" and reschedules the target). ---
+    private long _simulatedRecoveryStartTicks;
+    private long _simulatedRecoveryDurationTicks; // 0 = not simulating
+
+    /// <summary>
+    /// Number of times <see cref="GuideAsync"/> was invoked. A session that fights an in-place
+    /// recovery (calls GuideAsync while the guider reports "Calibrating") is observable here.
+    /// </summary>
+    internal int GuideStartAttempts => Volatile.Read(ref _guideStartAttempts);
+
+    /// <summary>
+    /// Begin a simulated in-place recovery lasting <paramref name="duration"/> of fake time: the
+    /// guider reports not-guiding + "Calibrating" for the window, with no GuideAsync call, then
+    /// reverts to the real state. See the field comment above.
+    /// </summary>
+    internal void BeginSimulatedInPlaceRecovery(TimeSpan duration)
+    {
+        Interlocked.Exchange(ref _simulatedRecoveryStartTicks, TimeProvider.GetTimestamp());
+        Interlocked.Exchange(ref _simulatedRecoveryDurationTicks, duration.Ticks);
+    }
+
+    private bool InSimulatedRecovery
+    {
+        get
+        {
+            var durationTicks = Interlocked.Read(ref _simulatedRecoveryDurationTicks);
+            return durationTicks > 0
+                && TimeProvider.GetElapsedTime(Interlocked.Read(ref _simulatedRecoveryStartTicks)) < TimeSpan.FromTicks(durationTicks);
+        }
+    }
+
     private enum GuiderState
     {
         Idle = 0,
@@ -191,11 +230,13 @@ internal class FakeGuider(FakeDevice fakeDevice, IServiceProvider serviceProvide
             : DefaultPixelScale;
         return ValueTask.FromResult<GuideStats?>(new GuideStats
         {
-            TotalRMS = (tracker?.TotalRmsAll ?? 0.3) * scale,
-            RaRMS = (tracker?.RaRmsAll ?? 0.2) * scale,
-            DecRMS = (tracker?.DecRmsAll ?? 0.2) * scale,
-            PeakRa = (tracker?.PeakRa ?? 0.5) * scale,
-            PeakDec = (tracker?.PeakDec ?? 0.4) * scale,
+            // Recent rolling-window stats (not all-time) so the panel reflects current guide
+            // quality and isn't poisoned by an early transient -- mirrors BuiltInGuiderDriver.
+            TotalRMS = (tracker?.TotalRmsShort ?? 0.3) * scale,
+            RaRMS = (tracker?.RaRmsShort ?? 0.2) * scale,
+            DecRMS = (tracker?.DecRmsShort ?? 0.2) * scale,
+            PeakRa = (tracker?.PeakRaShort ?? 0.5) * scale,
+            PeakDec = (tracker?.PeakDecShort ?? 0.4) * scale,
             LastRaErr = tracker?.LastRaError * scale,
             LastDecErr = tracker?.LastDecError * scale,
         });
@@ -203,6 +244,12 @@ internal class FakeGuider(FakeDevice fakeDevice, IServiceProvider serviceProvide
 
     public ValueTask<(string? AppState, double AvgDist)> GetStatusAsync(CancellationToken cancellationToken = default)
     {
+        if (InSimulatedRecovery)
+        {
+            // Recovering a lock in place -- report "Calibrating" (not guiding) as the real driver does.
+            return ValueTask.FromResult<(string?, double)>(("Calibrating", 0.0));
+        }
+
         var state = CurrentState;
         var appState = state switch
         {
@@ -226,6 +273,16 @@ internal class FakeGuider(FakeDevice fakeDevice, IServiceProvider serviceProvide
 
     public ValueTask GuideAsync(double settlePixels, double settleTime, double settleTimeout, CancellationToken cancellationToken)
     {
+        Interlocked.Increment(ref _guideStartAttempts);
+
+        if (InSimulatedRecovery)
+        {
+            // Mirror the real driver: starting guiding while it is recovering a lock in place is
+            // rejected (BuiltInGuiderDriver.GuideAsync throws for non-Idle/Looping states). A session
+            // that calls this mid-recovery is fighting the driver -- the bug this models.
+            throw new GuiderException("Cannot start guiding in state Calibrating (simulated in-place recovery)");
+        }
+
         if (!_equipmentConnected)
         {
             throw new GuiderException("Equipment is not connected. Call ConnectEquipmentAsync first.");
@@ -316,7 +373,7 @@ internal class FakeGuider(FakeDevice fakeDevice, IServiceProvider serviceProvide
     public ValueTask<bool> IsGuidingAsync(CancellationToken cancellationToken = default)
     {
         TryCompleteSettle();
-        return ValueTask.FromResult(CurrentState is GuiderState.Guiding && !_paused);
+        return ValueTask.FromResult(!InSimulatedRecovery && CurrentState is GuiderState.Guiding && !_paused);
     }
 
     public ValueTask<bool> IsLoopingAsync(CancellationToken cancellationToken = default)
@@ -325,7 +382,7 @@ internal class FakeGuider(FakeDevice fakeDevice, IServiceProvider serviceProvide
     public ValueTask<bool> IsSettlingAsync(CancellationToken cancellationToken = default)
     {
         TryCompleteSettle();
-        return ValueTask.FromResult(CurrentState is GuiderState.Settling or GuiderState.Calibrating);
+        return ValueTask.FromResult(InSimulatedRecovery || CurrentState is GuiderState.Settling or GuiderState.Calibrating);
     }
 
     public async ValueTask<bool> LoopAsync(TimeSpan timeout, CancellationToken cancellationToken = default)
@@ -466,13 +523,25 @@ internal class FakeGuider(FakeDevice fakeDevice, IServiceProvider serviceProvide
         Directory.CreateDirectory(outputFolder);
         var path = Path.Combine(outputFolder, $"guider_{TimeProvider.GetUtcNow().UtcDateTime:yyyyMMdd_HHmmss}.fits");
 
-        // Write WCS headers from current mount pointing so FakePlateSolver can read them
+        // Write WCS headers from current mount pointing so FakePlateSolver can read them.
+        // FITS WCS is a J2000 quantity — convert from the mount's native (typically JNOW) frame.
+        // A plate solve reports the TRUE sky, so prefer the fake mount's hidden-error seam
+        // (polar misalignment / drift) over the public believed read; this is what feeds the
+        // polar-align routine its misalignment signal. Real mounts only have believed reads.
         WCS? wcs = null;
         if (_mount is { Connected: true } mount)
         {
-            var ra = double.IsNaN(PointingRA) ? await mount.GetRightAscensionAsync(cancellationToken) : PointingRA;
-            var dec = double.IsNaN(PointingDec) ? await mount.GetDeclinationAsync(cancellationToken) : PointingDec;
-            wcs = new WCS(ra, dec);
+            var mountJ2000 = mount is IFakeTruePointingSource trueSource
+                ? (await mount.TryGetTransformAsync(cancellationToken) is { } transform
+                    ? await trueSource.GetTruePointingJ2000Async(transform, updateTime: false, cancellationToken)
+                    : null)
+                : await mount.GetRaDecJ2000Async(cancellationToken);
+            var ra = double.IsNaN(PointingRA) ? mountJ2000?.RaJ2000 : PointingRA;
+            var dec = double.IsNaN(PointingDec) ? mountJ2000?.DecJ2000 : PointingDec;
+            if (ra is { } raJ2000 && dec is { } decJ2000)
+            {
+                wcs = new WCS(raJ2000, decJ2000);
+            }
         }
         else if (!double.IsNaN(PointingRA) && !double.IsNaN(PointingDec))
         {

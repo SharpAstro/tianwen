@@ -96,5 +96,20 @@ public record struct SessionConfiguration(
     /// <see cref="MeridianFlipEarliestMinutesAfter"/> = single fixed flip point; larger = an
     /// opportunistic window in which the flip can happen between exposures. Default <c>10</c> min.
     /// </summary>
-    double MeridianFlipLatestMinutesAfter = 10
-);
+    double MeridianFlipLatestMinutesAfter = 10,
+    /// <summary>
+    /// Backstop for how long the imaging loop defers to the guider recovering a lock in place
+    /// (states "Calibrating"/"Settling") before forcing a clean restart. The built-in guider
+    /// bounds its own recovery and goes to "Stopped" (raising a guiding error) when it truly
+    /// gives up -- at which point the session restarts immediately, without waiting this out.
+    /// This grace only covers a pathological never-completing "Settling": normal bounded
+    /// recovery resolves to Guiding or Stopped well before it. <c>null</c> = use
+    /// <see cref="SessionConfiguration.DefaultGuiderRecoveryGrace"/>. Slow guide cameras
+    /// (long guide exposures) legitimately need a longer grace.
+    /// </summary>
+    TimeSpan? GuiderRecoveryGrace = null
+)
+{
+    /// <summary>Effective default for <see cref="GuiderRecoveryGrace"/> when unset.</summary>
+    public static readonly TimeSpan DefaultGuiderRecoveryGrace = TimeSpan.FromMinutes(3);
+}

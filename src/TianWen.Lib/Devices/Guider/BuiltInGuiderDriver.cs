@@ -25,6 +25,7 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
 
     private GuideLoop? _guideLoop;
     private CancellationTokenSource? _guideCts;
+    private Task? _guideLoopTask;
     private GuiderCalibrationResult? _lastCalibration;
     private PointingState? _calibrationPierSide;
     private volatile Image? _lastFrame;
@@ -41,12 +42,36 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
 
     private double _settlePixels;
     private double _settleTime;
+    private double _settleTimeout;
     private long _settleStartedTicks;
+    // Overall settle-phase start, set once when entering Settling and NOT reset by excursions
+    // (unlike _settleStartedTicks). Used by the neural settle fail-safe so a model that keeps
+    // guiding just-above the settle threshold -- never settling, never diverging past the
+    // divergence kill-switch -- still gets caught instead of resetting the timer forever.
+    private long _settlingPhaseStartedTicks;
+    // Number of large-excursion settle-clock resets within the current settle phase. The neural
+    // fail-safe requires repeated resets (the perpetually-resetting signature of a misbehaving
+    // model) before blaming the model -- a single reset is just as likely an external perturbation
+    // (wind gust, scope bump) that the model should not be punished for.
+    private int _settleExcursionResets;
 
-    // Configuration — read from device URI query parameters
+    /// <summary>
+    /// Minimum number of large-excursion settle resets within one settle phase before the neural
+    /// fail-safe may fire. One excursion is indistinguishable from an external perturbation; two
+    /// or more while the model is engaged is the model fighting the settle.
+    /// </summary>
+    private const int NeuralSettleFailSafeMinExcursions = 2;
+
+    // Configuration — read from device URI query parameters. The advanced knobs (calibration
+    // attempts/delay, settle fail-safe fraction) carry their defaults + rationale on the
+    // corresponding BuiltInGuiderDevice properties.
     private readonly bool _reuseCalibration;
     private readonly bool _useNeuralGuider;
     private readonly double _neuralBlendFactor;
+    private readonly int _maxCalibrationAttempts;
+    private readonly int _maxRecalibrationAttempts;
+    private readonly TimeSpan _calibrationRetryDelay;
+    private readonly double _neuralSettleFailSafeFraction;
 
     private enum GuiderState
     {
@@ -67,6 +92,10 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
         _reuseCalibration = device.ReuseCalibration;
         _useNeuralGuider = device.UseNeuralGuider;
         _neuralBlendFactor = device.NeuralBlendFactor;
+        _maxCalibrationAttempts = device.MaxCalibrationAttempts;
+        _maxRecalibrationAttempts = device.MaxRecalibrationAttempts;
+        _calibrationRetryDelay = device.CalibrationRetryDelay;
+        _neuralSettleFailSafeFraction = device.NeuralSettleFailSafeFraction;
     }
 
     public string Name => _device.DisplayName;
@@ -100,6 +129,27 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
     /// <summary>Guide star SNR.</summary>
     public double? GuideStarSNR =>
         (_guideLoop?.LastCentroidResult ?? _calibrationTracker?.LastResult)?.SNR;
+
+    /// <summary>
+    /// Number of frames on which the guide loop lost the lock star (all-run). Surfaced for
+    /// tests and UI so a lock that keeps dropping is observable, not silent.
+    /// </summary>
+    internal int GuideStarLostEvents => _guideLoop?.StarLostEvents ?? 0;
+
+    /// <summary>Number of times the guide loop re-acquired a star after a loss (all-run).</summary>
+    internal int GuideReacquisitionEvents => _guideLoop?.ReacquisitionEvents ?? 0;
+
+    /// <summary>
+    /// Re-acquisitions where the new primary was a DIFFERENT star (the lock swapped, discarding
+    /// the guide reference) -- the "selected guide star changes" / Dec-graph-jump symptom.
+    /// </summary>
+    internal int GuideDifferentStarReacquisitions => _guideLoop?.DifferentStarReacquisitions ?? 0;
+
+    /// <summary>
+    /// Whether the neural model is still contributing. False once a hard-disable safety net fired
+    /// (bounds, sustained underperformance, or divergence). Surfaced for tests.
+    /// </summary>
+    internal bool GuideNeuralActive => _guideLoop?.IsNeuralActive ?? false;
 
     /// <summary>Star profile: horizontal and vertical intensity cross-sections.</summary>
     public (float[] H, float[] V)? GuideStarProfile =>
@@ -211,7 +261,7 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
                 ? Math.Sqrt(ra * ra + dec * dec)
                 : 0.0;
 
-            var elapsed = TimeProvider.GetElapsedTime(_settleStartedTicks);
+            var elapsed = TimeProvider.GetElapsedTime(Interlocked.Read(ref _settleStartedTicks));
 
             return ValueTask.FromResult<SettleProgress?>(new SettleProgress
             {
@@ -258,11 +308,16 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
         var scale = GuiderPixelScale; // px → arcsec
         return ValueTask.FromResult<GuideStats?>(new GuideStats
         {
-            TotalRMS = (tracker?.TotalRmsAll ?? 0) * scale,
-            RaRMS = (tracker?.RaRmsAll ?? 0) * scale,
-            DecRMS = (tracker?.DecRmsAll ?? 0) * scale,
-            PeakRa = (tracker?.PeakRa ?? 0) * scale,
-            PeakDec = (tracker?.PeakDec ?? 0) * scale,
+            // Recent rolling-window stats (NOT all-time): the panel must reflect CURRENT guide
+            // quality like PHD2. An all-time accumulator never decays, so one early transient
+            // (a calibration/settle excursion) poisoned the displayed RMS forever -- showing a
+            // catastrophic Dec RMS (e.g. 427") while live guiding had recovered to arcsec level.
+            // The scatter plot already shows per-sample reality; these numbers now match it.
+            TotalRMS = (tracker?.TotalRmsShort ?? 0) * scale,
+            RaRMS = (tracker?.RaRmsShort ?? 0) * scale,
+            DecRMS = (tracker?.DecRmsShort ?? 0) * scale,
+            PeakRa = (tracker?.PeakRaShort ?? 0) * scale,
+            PeakDec = (tracker?.PeakDecShort ?? 0) * scale,
             LastRaErr = tracker?.LastRaError * scale,
             LastDecErr = tracker?.LastDecError * scale,
             LastRaPulseMs = _guideLoop?.LastCorrection?.RaPulseMs,
@@ -273,11 +328,16 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
     public ValueTask<(string? AppState, double AvgDist)> GetStatusAsync(CancellationToken cancellationToken = default)
     {
         var state = CurrentState;
+        // PHD2 vocabulary: while the loop has no star lock, report "LostLock" instead of a
+        // healthy-looking Guiding/Settling. Session logic already treats LostLock as
+        // guiding-in-recovery (it must not restart the guider over a passing cloud), and the
+        // UI uses it to show a "guide star lost" banner instead of a silent flatline.
         var appState = state switch
         {
             GuiderState.Idle => "Stopped",
             GuiderState.Looping => "Looping",
             GuiderState.Calibrating => "Calibrating",
+            GuiderState.Guiding or GuiderState.Settling when _guideLoop?.IsStarLost == true => "LostLock",
             GuiderState.Guiding => "Guiding",
             GuiderState.Settling => "Settling",
             _ => "Unknown",
@@ -313,6 +373,13 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
         return ValueTask.CompletedTask;
     }
 
+    /// <summary>
+    /// The background calibrate-and-guide task started by the most recent <see cref="GuideAsync"/>
+    /// call (null before the first call). Exposed for deterministic test pumping: a test can advance
+    /// fake time until this task completes instead of guessing how much fake time the loop needs.
+    /// </summary>
+    internal Task? GuideLoopTask => _guideLoopTask;
+
     public ValueTask GuideAsync(double settlePixels, double settleTime, double settleTimeout, CancellationToken cancellationToken)
     {
         if (_pulseTarget is null || _camera is null || _mount is null)
@@ -328,6 +395,7 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
 
         _settlePixels = settlePixels;
         _settleTime = settleTime;
+        _settleTimeout = settleTimeout;
 
         // Cancel any previous guide loop
         CancelGuideLoop();
@@ -337,8 +405,10 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
 
         ForceState(GuiderState.Calibrating);
 
-        // Start calibration + guide loop in the background
-        _ = RunCalibrateAndGuideAsync(_pulseTarget, _camera, _mount, cts.Token);
+        // Start calibration + guide loop in the background. The task is retained (not discarded)
+        // so it can be observed for completion: tests pump fake time until it finishes rather
+        // than guessing a fake-time budget, and a future StopCapture could await a clean unwind.
+        _guideLoopTask = RunCalibrateAndGuideAsync(_pulseTarget, _camera, _mount, cts.Token);
 
         return ValueTask.CompletedTask;
     }
@@ -360,7 +430,9 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
         {
             frame.Release();
             _lastFrame = null;
-            GuidingErrorEvent?.Invoke(this, new GuidingErrorEventArgs(_device, "Failed to acquire guide star"));
+            // Return null without raising a guiding error -- the caller retries (a cloud / poor seeing
+            // is often transient) and raises the terminal error only once all attempts are exhausted.
+            Logger.LogWarning("Built-in guider: calibration could not acquire a guide star (cloud / poor seeing?).");
             return null;
         }
 
@@ -376,9 +448,42 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
         var calibration = new GuiderCalibration
         {
             BacklashClearingEnabled = true,
+            Logger = Logger,
         };
 
         return await calibration.CalibrateAsync(pulseTarget, tracker, CaptureFrame, TimeProvider, ct);
+    }
+
+    /// <summary>
+    /// Calibrates with bounded retries. A failed attempt (no usable guide star, or a calibration the
+    /// quality gates reject) is often transient -- a passing cloud, poor seeing -- so retry after a
+    /// short wait that gives conditions time to clear, rather than abandoning the session on the
+    /// first cloud. Returns null only after all attempts fail.
+    /// </summary>
+    private async ValueTask<GuiderCalibrationResult?> CalibrateWithRetryAsync(IPulseGuideTarget pulseTarget, ICameraDriver camera, CancellationToken ct)
+    {
+        for (var attempt = 1; attempt <= _maxCalibrationAttempts && !ct.IsCancellationRequested; attempt++)
+        {
+            var result = await CalibrateInternalAsync(pulseTarget, camera, ct);
+            if (result is not null)
+            {
+                if (attempt > 1)
+                {
+                    Logger.LogInformation("Built-in guider: calibration succeeded on attempt {Attempt}/{Max}.", attempt, _maxCalibrationAttempts);
+                }
+                return result;
+            }
+
+            if (attempt < _maxCalibrationAttempts)
+            {
+                Logger.LogWarning(
+                    "Built-in guider: calibration attempt {Attempt}/{Max} failed -- retrying in {Delay:F0}s (waiting for transient conditions like cloud to clear).",
+                    attempt, _maxCalibrationAttempts, _calibrationRetryDelay.TotalSeconds);
+                await TimeProvider.SleepAsync(_calibrationRetryDelay, ct);
+            }
+        }
+
+        return null;
     }
 
     /// <summary>
@@ -468,10 +573,10 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
 
             if (calResult is null)
             {
-                calResult = await CalibrateInternalAsync(pulseTarget, camera, ct);
+                calResult = await CalibrateWithRetryAsync(pulseTarget, camera, ct);
                 if (calResult is null)
                 {
-                    GuidingErrorEvent?.Invoke(this, new GuidingErrorEventArgs(_device, "Calibration failed — insufficient star displacement"));
+                    GuidingErrorEvent?.Invoke(this, new GuidingErrorEventArgs(_device, "Calibration failed — no usable guide star after retries (cloud / poor seeing?) or insufficient star displacement"));
                     ForceState(GuiderState.Idle);
                     return;
                 }
@@ -501,73 +606,146 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
                 }
             }
 
-            // Acquire guide star and set lock position
-            var tracker = new GuiderCentroidTracker(maxStars: 1) { AcquisitionEdgeMargin = GuideStarAcquisitionMargin() };
             var timeProvider = TimeProvider;
             var pollInterval = External.ImageReadyPollInterval;
             async ValueTask<Image> CaptureFrame(CancellationToken token)
                 => await CaptureGuideFrameAsync(camera, exposureTime, timeProvider, pollInterval, token);
 
-            var frame = await CaptureGuideFrameAsync(camera, exposureTime, TimeProvider, External.ImageReadyPollInterval, ct);
-            tracker.ProcessFrame(frame.GetChannelArray(0));
-            tracker.SetLockPosition();
+            // Guide -> (on divergence) recalibrate -> guide, bounded. Each pass re-acquires a fresh
+            // guide star and rebuilds the loop. A neural model that drove the divergence is NOT
+            // re-enabled on a recovery pass (it's the usual culprit), so recovery runs on pure P.
+            var neuralAllowed = _useNeuralGuider;
+            var recalibrationAttempts = 0;
 
-            // Build guide loop
-            var pController = new ProportionalGuideController
+            while (!ct.IsCancellationRequested)
             {
-                AggressivenessRa = 0.7,
-                AggressivenessDec = 0.7,
-                MinPulseMs = 5
-            };
-
-            var guideLoop = new GuideLoop(pulseTarget, tracker, pController, TimeProvider);
-            guideLoop.SetCalibration(calResult.Value);
-
-            // Enable neural guide model with online learning if configured
-            if (_useNeuralGuider)
-            {
-                var model = new NeuralGuideModel();
-                var loaded = await NeuralGuideModelPersistence.TryLoadAsync(model, External.ProfileFolder, ct);
-                if (loaded is null)
+                // Acquire guide star and set lock position. A starless frame here (cloud at slew
+                // completion, pointing way off after a GOTO) previously slipped through unchecked --
+                // the loop then "guided" on nothing and the UI showed a healthy-looking flatline.
+                // Bounded retries with the same backoff the calibration path uses; give up loudly
+                // rather than guide without a lock.
+                var tracker = new GuiderCentroidTracker(maxStars: 1) { AcquisitionEdgeMargin = GuideStarAcquisitionMargin() };
+                var acquired = false;
+                for (var attempt = 1; attempt <= _maxCalibrationAttempts && !ct.IsCancellationRequested; attempt++)
                 {
-                    model.InitializeRandom(42);
+                    var frame = await CaptureGuideFrameAsync(camera, exposureTime, TimeProvider, External.ImageReadyPollInterval, ct);
+                    tracker.ProcessFrame(frame.GetChannelArray(0));
+                    if (tracker.IsAcquired)
+                    {
+                        acquired = true;
+                        _lastFrame = frame;
+                        break;
+                    }
+
+                    frame.Release();
+                    Logger.LogWarning(
+                        "Built-in guider: no guide star acquired for guiding (attempt {Attempt}/{Max}; cloud / poor seeing?), retrying in {Delay:F0}s.",
+                        attempt, _maxCalibrationAttempts, _calibrationRetryDelay.TotalSeconds);
+                    await TimeProvider.SleepAsync(_calibrationRetryDelay, ct);
                 }
-                guideLoop.NeuralBlendFactor = _neuralBlendFactor;
-                guideLoop.EnableNeuralModel(model);
-                guideLoop.EnableOnlineLearning(profileFolder: External.ProfileFolder);
-                Logger.LogInformation(
-                    "Neural guide enabled (blend={Blend}, {Status})",
-                    _neuralBlendFactor, loaded is not null ? "loaded from disk" : "fresh model");
+
+                if (!acquired)
+                {
+                    GuidingErrorEvent?.Invoke(this, new GuidingErrorEventArgs(_device,
+                        $"Cannot start guiding — no usable guide star after {_maxCalibrationAttempts} attempts (cloud / poor seeing?)"));
+                    return; // finally resets to Idle
+                }
+
+                tracker.SetLockPosition();
+
+                // Build guide loop
+                var pController = new ProportionalGuideController
+                {
+                    AggressivenessRa = 0.7,
+                    AggressivenessDec = 0.7,
+                    MinPulseMs = 5
+                };
+
+                var guideLoop = new GuideLoop(pulseTarget, tracker, pController, TimeProvider, Logger);
+                guideLoop.SetCalibration(calResult.Value);
+
+                // Enable neural guide model with online learning if configured (and not disabled
+                // after a divergence-triggered recalibration -- a suspect model must not be reloaded).
+                if (neuralAllowed)
+                {
+                    var model = new NeuralGuideModel();
+                    var loaded = await NeuralGuideModelPersistence.TryLoadAsync(model, External.ProfileFolder, ct);
+                    if (loaded is null)
+                    {
+                        model.InitializeRandom(42);
+                    }
+                    guideLoop.NeuralBlendFactor = _neuralBlendFactor;
+                    guideLoop.EnableNeuralModel(model);
+                    guideLoop.EnableOnlineLearning(profileFolder: External.ProfileFolder);
+                    Logger.LogInformation(
+                        "Neural guide enabled (blend={Blend}, {Status})",
+                        _neuralBlendFactor, loaded is not null ? "loaded from disk" : "fresh model");
+                }
+
+                _guideLoop = guideLoop;
+                _calibrationTracker = null; // guide loop owns tracking now
+
+                // Query mount for neural model features
+                var declination = await mount.GetDeclinationAsync(ct);
+                var ra = await mount.GetRightAscensionAsync(ct);
+                var siteLatitude = await mount.GetSiteLatitudeAsync(ct);
+                var siderealTime = await mount.GetSiderealTimeAsync(ct);
+                var hourAngle = siderealTime - ra;
+
+                // Probe mount for encoder position support (for predictive PEC)
+                Func<TelescopeAxis, CancellationToken, ValueTask<long?>>? getAxisPosition = null;
+                uint wormStepsRa = 0, wormStepsDec = 0;
+                var testPos = await mount.GetAxisPositionAsync(TelescopeAxis.Primary, ct);
+                if (testPos is not null)
+                {
+                    getAxisPosition = mount.GetAxisPositionAsync;
+                    wormStepsRa = await mount.GetWormPeriodStepsAsync(TelescopeAxis.Primary, ct);
+                    wormStepsDec = await mount.GetWormPeriodStepsAsync(TelescopeAxis.Seconary, ct);
+                }
+
+                // Transition: Calibrating → Settling → Guiding. The phase timestamp must be
+                // recorded BEFORE the state becomes visible: a concurrent IsGuidingAsync /
+                // IsSettlingAsync poll that observes Settling with a zero/stale phase start would
+                // compute a huge settling duration and trip the neural fail-safe instantly.
+                RecordSettlePhaseStart();
+                ForceState(GuiderState.Settling);
+
+                // Run the guide loop (returns on cancellation or a recalibration request)
+                await guideLoop.RunAsync(CaptureFrame, exposureTime, hourAngle, declination, siteLatitude,
+                    getAxisPosition, wormStepsRa, wormStepsDec, ct);
+
+                if (ct.IsCancellationRequested || !guideLoop.RecalibrationRequested)
+                {
+                    break; // normal stop
+                }
+
+                // Guiding diverged beyond recovery -- re-acquire + recalibrate to re-establish a clean
+                // reference rather than limp on a broken lock. Bounded attempts.
+                if (++recalibrationAttempts > _maxRecalibrationAttempts)
+                {
+                    GuidingErrorEvent?.Invoke(this, new GuidingErrorEventArgs(_device,
+                        $"Guiding diverged repeatedly; {_maxRecalibrationAttempts} recalibration attempts did not recover"));
+                    return; // finally resets to Idle
+                }
+
+                neuralAllowed = false;
+                Logger.LogWarning(
+                    "Built-in guider: guiding diverged -- recalibrating to re-establish a clean lock (attempt {Attempt}/{Max}; neural off for the rest of the session).",
+                    recalibrationAttempts, _maxRecalibrationAttempts);
+                ForceState(GuiderState.Calibrating);
+                _lastCalibration = null;
+                var fresh = await CalibrateWithRetryAsync(pulseTarget, camera, ct);
+                if (fresh is null)
+                {
+                    GuidingErrorEvent?.Invoke(this, new GuidingErrorEventArgs(_device,
+                        "Recalibration failed — no usable guide star after retries"));
+                    return;
+                }
+                calResult = fresh;
+                _lastCalibration = fresh;
+                _calibrationPierSide = await mount.GetSideOfPierAsync(ct);
+                // loop back -> re-acquire + rebuild loop with the fresh calibration
             }
-
-            _guideLoop = guideLoop;
-            _calibrationTracker = null; // guide loop owns tracking now
-
-            // Query mount for neural model features
-            var declination = await mount.GetDeclinationAsync(ct);
-            var ra = await mount.GetRightAscensionAsync(ct);
-            var siteLatitude = await mount.GetSiteLatitudeAsync(ct);
-            var siderealTime = await mount.GetSiderealTimeAsync(ct);
-            var hourAngle = siderealTime - ra;
-
-            // Probe mount for encoder position support (for predictive PEC)
-            Func<TelescopeAxis, CancellationToken, ValueTask<long?>>? getAxisPosition = null;
-            uint wormStepsRa = 0, wormStepsDec = 0;
-            var testPos = await mount.GetAxisPositionAsync(TelescopeAxis.Primary, ct);
-            if (testPos is not null)
-            {
-                getAxisPosition = mount.GetAxisPositionAsync;
-                wormStepsRa = await mount.GetWormPeriodStepsAsync(TelescopeAxis.Primary, ct);
-                wormStepsDec = await mount.GetWormPeriodStepsAsync(TelescopeAxis.Seconary, ct);
-            }
-
-            // Transition: Calibrating → Settling → Guiding
-            ForceState(GuiderState.Settling);
-            RecordSettleStart();
-
-            // Run the guide loop (blocks until cancelled)
-            await guideLoop.RunAsync(CaptureFrame, exposureTime, hourAngle, declination, siteLatitude,
-                getAxisPosition, wormStepsRa, wormStepsDec, ct);
         }
         catch (OperationCanceledException)
         {
@@ -629,9 +807,10 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
 
         _settlePixels = settlePixels;
         _settleTime = settleTime;
+        _settleTimeout = settleTimeout;
 
         ForceState(GuiderState.Settling);
-        RecordSettleStart();
+        RecordSettlePhaseStart();
 
         return ValueTask.CompletedTask;
     }
@@ -696,6 +875,19 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
     }
 
     /// <summary>
+    /// Marks the start of a settle phase (entering Settling). Resets both the "stable for settleTime"
+    /// timer and the overall settle-phase timer used by the neural fail-safe. Excursion resets call
+    /// <see cref="RecordSettleStart"/> instead, which only resets the former.
+    /// </summary>
+    private void RecordSettlePhaseStart()
+    {
+        var now = TimeProvider.GetTimestamp();
+        Interlocked.Exchange(ref _settleStartedTicks, now);
+        Interlocked.Exchange(ref _settlingPhaseStartedTicks, now);
+        Interlocked.Exchange(ref _settleExcursionResets, 0);
+    }
+
+    /// <summary>
     /// Checks whether the guide error has been below the settle threshold for the required settle time.
     /// If so, transitions from Settling to Guiding.
     /// </summary>
@@ -706,7 +898,29 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
             return false;
         }
 
-        var elapsed = TimeProvider.GetElapsedTime(_settleStartedTicks);
+        // Neural settle fail-safe: if settling drags past a fraction of the settle timeout with the
+        // neural model still engaged, the model is the likely reason it will not settle (it keeps
+        // guiding just above the settle threshold -- never settling, never diverging far enough to
+        // trip the in-loop divergence kill-switch). Disable it and restart the settle window so the
+        // proven P-controller gets a clean attempt within the remaining budget. Uses the phase timer
+        // (not reset by excursions) so a perpetually-resetting settle still gets caught -- but only
+        // after repeated excursion resets, so a single external perturbation (wind gust, scope bump)
+        // that stretches the phase past the threshold is not blamed on the model.
+        if (_settleTimeout > 0 && _guideLoop is { IsNeuralActive: true } neuralLoop)
+        {
+            var settlingFor = TimeProvider.GetElapsedTime(Interlocked.Read(ref _settlingPhaseStartedTicks));
+            if (settlingFor.TotalSeconds >= _settleTimeout * _neuralSettleFailSafeFraction &&
+                Volatile.Read(ref _settleExcursionResets) >= NeuralSettleFailSafeMinExcursions)
+            {
+                neuralLoop.DisableNeuralModel();
+                Logger.LogWarning(
+                    "Built-in guider: still settling after {Elapsed:F0}s ({Fraction:P0} of the {Timeout:F0}s settle timeout) with the neural model engaged -- disabling neural and restarting the settle window on the P-controller.",
+                    settlingFor.TotalSeconds, _neuralSettleFailSafeFraction, _settleTimeout);
+                RecordSettleStart(); // fresh settle attempt for the P-controller within the remaining budget
+            }
+        }
+
+        var elapsed = TimeProvider.GetElapsedTime(Interlocked.Read(ref _settleStartedTicks));
 
         // Check actual error distance (in pixels) against the settle threshold
         var tracker = _guideLoop?.ErrorTracker;
@@ -716,6 +930,7 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
             if (distance > _settlePixels * 3)
             {
                 // Large excursion — reset the settle timer completely
+                Interlocked.Increment(ref _settleExcursionResets);
                 RecordSettleStart();
                 return false;
             }

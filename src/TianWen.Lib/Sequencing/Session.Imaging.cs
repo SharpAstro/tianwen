@@ -225,6 +225,54 @@ internal partial record Session
     /// <param name="cancellationToken"></param>
     /// <returns>loop result</returns>
     /// <exception cref="InvalidOperationException"></exception>
+    /// <summary>
+    /// Backstop for how long the imaging loop defers to the guider recovering a lock in place
+    /// before forcing a clean restart. Tunable via
+    /// <see cref="SessionConfiguration.GuiderRecoveryGrace"/>; see that doc for the rationale.
+    /// </summary>
+    private TimeSpan GuiderRecoveryGrace =>
+        Configuration.GuiderRecoveryGrace ?? SessionConfiguration.DefaultGuiderRecoveryGrace;
+
+    /// <summary>How <see cref="ImagingLoopAsync"/> should react to the guider's reported health.
+    /// See <see cref="DecideGuiderIntervention"/>.</summary>
+    internal enum GuiderInterventionAction
+    {
+        /// <summary>Guiding -- proceed with imaging.</summary>
+        Proceed,
+        /// <summary>Recovering a lock in place (Calibrating/Settling) within the grace budget --
+        /// defer the next frame and let the driver finish; do NOT restart (that fights it).</summary>
+        DeferForRecovery,
+        /// <summary>Stopped, or "recovering" past the grace budget (a stuck settle) -- the session
+        /// must (re)start guiding, and reschedule the target if that fails.</summary>
+        Restart,
+    }
+
+    /// <summary>
+    /// Decides how <see cref="ImagingLoopAsync"/> reacts to the guider's reported state. The
+    /// built-in guider drops out of "Guiding" while it recovers a lock in place -- re-acquiring a
+    /// star after a loss, or recalibrating after a divergence (states "Calibrating"/"Settling") --
+    /// and bounds that recovery itself. Restarting from the session during that window fights the
+    /// driver: GuideAsync throws "cannot start guiding in state Calibrating", the retry backs off,
+    /// and the target is rescheduled even though guiding was recovering. So defer while it recovers
+    /// in place, and only (re)start once it has genuinely stopped -- or, as a backstop, if a
+    /// never-completing settle drags on past <paramref name="recoveryGrace"/>.
+    /// </summary>
+    internal static GuiderInterventionAction DecideGuiderIntervention(
+        bool isGuiding, string? guiderState, TimeSpan recoveringFor, TimeSpan recoveryGrace)
+    {
+        if (isGuiding)
+        {
+            return GuiderInterventionAction.Proceed;
+        }
+
+        // "Calibrating"/"Settling" => the driver is recovering a lock in place (see the GetStatusAsync
+        // state mappings in BuiltInGuiderDriver / FakeGuider / OpenPHD2). Give it room to the backstop.
+        var recoveringInPlace = guiderState is "Calibrating" or "Settling";
+        return recoveringInPlace && recoveringFor < recoveryGrace
+            ? GuiderInterventionAction.DeferForRecovery
+            : GuiderInterventionAction.Restart;
+    }
+
     internal async ValueTask<ImageLoopNextAction> ImagingLoopAsync(ScheduledObservation observation, double hourAngleAtSlewTime, PointingState pierSideAtSlewTime = PointingState.Unknown, CancellationToken cancellationToken = default)
     {
         var guider = Setup.Guider;
@@ -321,6 +369,11 @@ internal partial record Session
 
         using var ticker = new PeriodicTimer(tickDuration, _timeProvider.System);
 
+        // When the guider is not guiding, this stamps when it first dropped out so we can tell a
+        // brief in-place recovery (defer to it) from a stuck/stopped guider (restart). Reset
+        // whenever guiding is healthy or after a successful restart. See DecideGuiderIntervention.
+        long? guiderRecoveryStartedTicks = null;
+
         while (!cancellationToken.IsCancellationRequested
             && mount.Driver.Connected
             && await CatchAsync(mount.Driver.IsTrackingAsync, cancellationToken)
@@ -337,7 +390,7 @@ internal partial record Session
             try
             {
                 var (appState, _) = await guider.Driver.GetStatusAsync(cancellationToken);
-                _guiderState = appState;
+                UpdateGuiderState(appState);
             }
             catch { /* ignore */ }
 
@@ -366,8 +419,48 @@ internal partial record Session
                 }
             }
 
-            if (!isGuiding)
+            if (isGuiding)
             {
+                guiderRecoveryStartedTicks = null; // healthy -> reset the recovery clock
+            }
+            else
+            {
+                guiderRecoveryStartedTicks ??= _timeProvider.GetTimestamp();
+                var recoveringFor = _timeProvider.GetElapsedTime(guiderRecoveryStartedTicks.Value);
+
+                if (DecideGuiderIntervention(isGuiding, _guiderState, recoveringFor, GuiderRecoveryGrace)
+                    is GuiderInterventionAction.DeferForRecovery)
+                {
+                    // The guider is recovering a lock in place (re-acquire after a star loss,
+                    // recalibrate after a divergence). It bounds that itself; restarting here would
+                    // fight it (see DecideGuiderIntervention). Defer the next frame and let it finish.
+                    _logger.LogDebug(
+                        "Guider recovering in place ({GuiderState}) on {Target} for {Elapsed:F0}s; deferring next frame instead of restarting.",
+                        _guiderState, observation.Target.Name, recoveringFor.TotalSeconds);
+                    await ticker.WaitForNextTickAsync(cancellationToken);
+                    continue;
+                }
+
+                // Restart: genuinely stopped, or a stuck settle past the grace backstop. Surface why
+                // it stopped, force-stop any stuck recovery so the (re)start isn't rejected, then
+                // restart -- rescheduling the target only if that fails.
+                while (_guiderEvents.TryDequeue(out var guiderEvent))
+                {
+                    if (guiderEvent is GuidingErrorEventArgs guidingError)
+                    {
+                        _logger.LogWarning("Guider reported an error before stopping on {Target}: {Message}",
+                            observation.Target.Name, guidingError.Message);
+                    }
+                }
+
+                if (_guiderState is "Calibrating" or "Settling")
+                {
+                    _logger.LogWarning(
+                        "Guider stuck recovering ({GuiderState}) for {Elapsed:F0}s on {Target}; forcing a clean restart.",
+                        _guiderState, recoveringFor.TotalSeconds, observation.Target.Name);
+                    await CatchAsync(ct => guider.Driver.StopCaptureAsync(TimeSpan.FromSeconds(5), ct), cancellationToken).ConfigureAwait(false);
+                }
+
                 var guiderRestartedSuccess =
                     await CatchAsync(guider.Driver.ConnectAsync, cancellationToken) &&
                     await ResilientInvokeAsync(
@@ -387,6 +480,8 @@ internal partial record Session
                     next = ImageLoopNextAction.RepeatCurrentObservation;
                     break;
                 }
+
+                guiderRecoveryStartedTicks = null; // restarted OK -> reset the recovery clock
             }
 
             for (var i = 0; i < scopes; i++)

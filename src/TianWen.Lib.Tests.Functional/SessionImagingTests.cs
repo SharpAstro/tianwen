@@ -523,4 +523,101 @@ public class SessionImagingTests(ITestOutputHelper output)
         output.WriteLine($"Total exposure time: {ctx.Session.TotalExposureTime}");
         output.WriteLine($"Result: {result}");
     }
+
+    /// <summary>
+    /// Regression for the #4-vs-#3 race: when the guider recovers a lock IN PLACE (re-acquire after
+    /// a star loss, recalibrate after a divergence) it leaves the "Guiding" state for "Calibrating"
+    /// while the driver bounds and finishes the recovery itself. The imaging loop must DEFER to that
+    /// recovery, not fight it. The old code, seeing <c>!IsGuiding</c> each tick, called
+    /// <see cref="FakeGuider.GuideAsync"/> mid-recovery (which the driver rejects with "cannot start
+    /// in state Calibrating"), backed off, and could reschedule a target whose guider was recovering
+    /// fine. Here we drive the real imaging loop, simulate a short in-place recovery once imaging is
+    /// underway, and assert the session never tries to (re)start guiding during it and resumes
+    /// imaging afterward.
+    /// </summary>
+    [Fact(Timeout = 120_000)]
+    public async Task GivenGuiderRecoversInPlaceWhenImagingThenSessionDefersAndDoesNotRestartGuiding()
+    {
+        // given — M13 near zenith from Vienna in June, a generous window so imaging runs well past
+        // the simulated recovery.
+        var ct = TestContext.Current.CancellationToken;
+        var subExposure = TimeSpan.FromSeconds(30);
+        var scheduledDuration = TimeSpan.FromMinutes(30);
+
+        var observations = new[]
+        {
+            new ScheduledObservation(
+                new Target(16.695, 36.46, "M13", null),
+                new DateTimeOffset(2025, 6, 15, 22, 0, 0, TimeSpan.Zero),
+                scheduledDuration,
+                AcrossMeridian: false,
+                FilterPlan: FilterPlanBuilder.BuildSingleFilterPlan(subExposure),
+                Gain: 0,
+                Offset: 0
+            )
+        };
+
+        using var ctx = await CreateImagingSessionAsync(observations: observations, cancellationToken: ct);
+
+        IMountDriver mount = ctx.Mount;
+        await mount.EnsureTrackingAsync(cancellationToken: ct);
+
+        var guider = (FakeGuider)ctx.Session.Setup.Guider.Driver;
+        await guider.GuideAsync(0.3, 3, 30, ct);
+        await ctx.TimeProvider.SleepAsync(TimeSpan.FromSeconds(4), ct); // settle to Guiding
+
+        var observation = ctx.Session.ActiveObservation;
+        observation.ShouldNotBeNull();
+        var hourAngle = await ctx.Mount.GetHourAngleAsync(ct);
+
+        // when — run imaging loop; once a frame is written (imaging confirmed), simulate a short
+        // in-place recovery (90s of fake time, well under the session's recovery grace).
+        var recoveryStarted = false;
+        var attemptsAtRecoveryStart = -1;
+        var framesAtRecoveryStart = -1;
+        ctx.TimeProvider.ExternalTimePump = true;
+        var imagingTask = Task.Run(async () => await ctx.Session.ImagingLoopAsync(observation, hourAngle, cancellationToken: ct));
+
+        // Wait for the loop to park at its first SleepAsync before pumping fake time --
+        // see FakeTimeProviderWrapper.WaitForFirstWaiterAsync for the race this avoids.
+        await ctx.TimeProvider.WaitForFirstWaiterAsync(imagingTask, ct);
+
+        var pumpIncrement = TimeSpan.FromSeconds(5);
+        var maxFakeTime = TimeSpan.FromHours(4);
+        var pumped = TimeSpan.Zero;
+        while (pumped < maxFakeTime && !imagingTask.IsCompleted && !ct.IsCancellationRequested)
+        {
+            ctx.TimeProvider.Advance(pumpIncrement);
+            pumped += pumpIncrement;
+
+            if (!recoveryStarted && ctx.Session.TotalFramesWritten >= 1)
+            {
+                attemptsAtRecoveryStart = guider.GuideStartAttempts;
+                framesAtRecoveryStart = ctx.Session.TotalFramesWritten;
+                guider.BeginSimulatedInPlaceRecovery(TimeSpan.FromSeconds(90));
+                recoveryStarted = true;
+                output.WriteLine($"Injected in-place recovery at pump {pumped}: GuideStartAttempts={attemptsAtRecoveryStart}, frames={framesAtRecoveryStart}");
+            }
+
+            await Task.Delay(1, ct);
+        }
+
+        imagingTask.IsCompleted.ShouldBeTrue("imaging loop should have completed within timeout");
+        var result = await imagingTask;
+
+        // then
+        recoveryStarted.ShouldBeTrue("imaging must have produced a frame so the recovery could be injected");
+
+        // The session must NOT have called GuideAsync while the guider was recovering in place --
+        // doing so fights the driver's own bounded recovery (the #4-vs-#3 race).
+        guider.GuideStartAttempts.ShouldBe(attemptsAtRecoveryStart,
+            "session must defer to the guider's in-place recovery, not (re)start guiding mid-recovery");
+
+        // And it must have resumed imaging once the guider recovered -- not abandoned the target.
+        result.ShouldBe(ImageLoopNextAction.AdvanceToNextObservation);
+        ctx.Session.TotalFramesWritten.ShouldBeGreaterThan(framesAtRecoveryStart,
+            "imaging must resume after the in-place recovery completes");
+
+        output.WriteLine($"Final GuideStartAttempts={guider.GuideStartAttempts}, frames={ctx.Session.TotalFramesWritten}, result={result}");
+    }
 }

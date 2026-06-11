@@ -9,6 +9,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using TianWen.DAL;
 using TianWen.Lib.Astrometry.Catalogs;
+using TianWen.Lib.Astrometry.SOFA;
 using TianWen.Lib.Imaging;
 
 namespace TianWen.Lib.Devices.Fake;
@@ -131,20 +132,42 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver
     // ── Part 2: guide-camera mount coupling ──────────────────────────────────
     // The guide star drifts on the sensor by the coupled mount's misalignment
     // pointing change (the fake SkyWatcher mount drifts mostly in Dec while
-    // tracking about a tilted polar axis). The guider's ST-4 pulses land on the
-    // camera (pulseGuideSource=Camera) and counter that drift via the same
-    // _starPositionX/Y integrator, so the loop closes inside the camera with no
-    // mount changes and no session awareness -- the camera self-resolves the
-    // mount from the device hub, mirroring how it self-resolves the catalog DB.
+    // tracking about a tilted polar axis). Guide corrections counter that drift
+    // by MOVING THE MOUNT: pulses routed to the mount directly
+    // (pulseGuideSource=Mount/Auto) or via this camera's ST-4 port
+    // (pulseGuideSource=Camera, forwarded as if a guide cable were wired to the
+    // mount's autoguide port) change the encoders and hence the pointing the
+    // next exposure snapshots — the loop closes through the mount with no
+    // session awareness; the camera self-resolves the mount from the device
+    // hub, mirroring how it self-resolves the catalog DB. The in-camera
+    // _starPositionX/Y integrator only models sensor-visible periodic error
+    // (worm PE never appears in encoder/pointing reads) plus, when no mount is
+    // coupled at all, the legacy self-contained ST-4 shift for standalone tests.
     // Cached pointing is read in the (async) StartExposureAsync and consumed by
     // the (sync) render path; both are guarded by _lock.
     private IMountDriver? _coupledMount;
+    private Transform? _coupledMountTransform; // reused SOFA transform for native -> J2000 (built once, time refreshed per exposure)
     private bool _mountRefCaptured;     // reference (zero-drift) pointing captured?
-    private double _mountRefRa;         // believed RA at first guide exposure (hours)
-    private double _mountRefDec;        // believed Dec (degrees)
-    private double _mountCachedRa;      // mount RA snapshot from the last StartExposureAsync
-    private double _mountCachedDec;     // mount Dec snapshot
+    private double _mountRefRa;         // believed RA at first guide exposure (J2000 hours)
+    private double _mountRefDec;        // believed Dec (J2000 degrees)
+    private double _mountCachedRa;      // mount RA snapshot from the last StartExposureAsync (J2000 hours)
+    private double _mountCachedDec;     // mount Dec snapshot (J2000 degrees)
     private bool _mountPointingValid;   // a snapshot has been taken at least once
+    private long? _mountRaAxisPos;      // RA axis encoder snapshot from the last StartExposureAsync (null = unavailable)
+    private uint _mountWormStepsRa;     // steps per worm revolution (probed once), 0 = unknown
+    private bool _mountWormProbed;      // worm-period probe attempted?
+
+    // Main-camera-only: (true - believed) J2000 pointing delta snapshot taken per
+    // exposure when the coupled mount models hidden alignment errors
+    // (IFakeTruePointingSource). The stamped Target is a believed-pointing quantity
+    // (session/preview stamp it from the mount's public reads), but the sensor sees
+    // the TRUE sky - the render path shifts the catalog projection centre by this
+    // delta so a plate solve of a main frame reveals the hidden cone/polar error
+    // (which is exactly what the centering loop syncs away). Stays (0, 0) for guide
+    // cameras (their projection centre is the live true pointing already), real
+    // mounts, or no coupled mount. Guarded by _lock like the other snapshots.
+    private double _trueMinusBelievedRa;  // J2000 hours
+    private double _trueMinusBelievedDec; // J2000 degrees
 
     /// <summary>
     /// True when this fake camera is the rig's guide camera (its URI names it so).
@@ -155,6 +178,34 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver
     /// the drift (the session's centering loop plate-solves and re-syncs them).
     /// </summary>
     private bool IsGuideCamera => _fakeDevice.DeviceUri.AbsolutePath.Contains("GuideCam", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Guide-scope cone error, RA component in arcminutes (guide camera only). The guide scope
+    /// never points exactly where the mount believes the main OTA points; the catalog star field
+    /// is projected at the mount pointing offset by this. Default models a typical mini guide
+    /// scope in adjustable rings (~10' total misalignment).
+    /// </summary>
+    internal double GuideConeErrorRaArcmin { get; set; } = 9.0;
+
+    /// <summary>Guide-scope cone error, Dec component in arcminutes (guide camera only).</summary>
+    internal double GuideConeErrorDecArcmin { get; set; } = -6.0;
+
+    /// <summary>
+    /// Guide camera roll angle in degrees (guide camera only). Real guide cams are never
+    /// north-up; the guider's calibration sweep measures this angle empirically, so a non-zero
+    /// default exercises that path.
+    /// </summary>
+    internal double GuideRotationDeg { get; set; } = 15.0;
+
+    /// <summary>
+    /// Pointing jump (arcseconds) between consecutive guide exposures beyond which the coupled
+    /// mount is considered to have slewed (GOTO) rather than drifted: misalignment drift is
+    /// arcseconds-per-minute, so 10 arcminutes between frames can only be a slew. On detection the
+    /// zero-drift reference re-baselines to the new pointing and the in-camera star-position
+    /// integrator resets — the guide cam sees a fresh field at the new target instead of the old
+    /// field offset by the (sensor-dwarfing) slew distance.
+    /// </summary>
+    private const double SlewDetectionThresholdArcsec = 600.0;
 
     /// <summary>Periodic error period in seconds (typical worm gear ~10 minutes).</summary>
     internal double PePeriodSeconds { get; set; } = 600.0;
@@ -183,27 +234,52 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver
     }
 
     /// <summary>
-    /// PE drift rate amplitude in pixels/second.
-    /// Derived from peak-to-peak arcsec → amplitude pixels → rate via ω.
+    /// PE displacement amplitude in pixels (half the peak-to-peak swing).
     /// </summary>
-    private double PeRateAmplitude
+    private double PeAmplitudePixels
     {
         get
         {
             var pixelScaleArcsec = FocalLength > 0 ? Astrometry.CoordinateUtils.PixelScaleArcsec(PixelSizeX, FocalLength) : 3.8; // ~130mm + 2.4µm default
-            var amplitudePixels = PePeakTopeakArcsec / 2.0 / pixelScaleArcsec;
-            return 2.0 * Math.PI / PePeriodSeconds * amplitudePixels;
+            return PePeakTopeakArcsec / 2.0 / pixelScaleArcsec;
         }
     }
 
     /// <summary>
-    /// Advances star position by integrating PE drift since the last call.
-    /// Called each frame before rendering.
+    /// PE drift rate amplitude in pixels/second.
+    /// Derived from peak-to-peak arcsec → amplitude pixels → rate via ω.
+    /// </summary>
+    private double PeRateAmplitude => 2.0 * Math.PI / PePeriodSeconds * PeAmplitudePixels;
+
+    /// <summary>
+    /// Updates the PE component of the star position. Called each frame before rendering.
+    /// Preferred path: positional PE keyed to the coupled mount's RA worm rotation
+    /// (encoder position mod worm period, snapshot taken in StartExposureAsync) — the
+    /// same phase the neural guider reads through its encoder features, so disturbance
+    /// and feature stay correlated. Fallback (no coupled mount / encoder unavailable):
+    /// the original wall-clock sine integration.
     /// </summary>
     private void IntegratePeDrift()
     {
         if (PePeakTopeakArcsec <= 0)
         {
+            return;
+        }
+
+        long? axisPos;
+        uint wormSteps;
+        lock (_lock)
+        {
+            axisPos = _mountRaAxisPos;
+            wormSteps = _mountWormStepsRa;
+        }
+        if (axisPos is long pos && wormSteps > 0)
+        {
+            // Positional: the worm angle IS the PE phase. ST-4 never writes to
+            // _starPositionX when a mount is coupled (pulses forward to the mount),
+            // so overwriting it with the pure PE term is safe.
+            var wormPhase = 2.0 * Math.PI * (((pos % wormSteps) + wormSteps) % wormSteps) / wormSteps;
+            _starPositionX = PeAmplitudePixels * Math.Sin(wormPhase);
             return;
         }
 
@@ -720,24 +796,110 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver
         {
             try
             {
-                var mountRa = await coupledMount.GetRightAscensionAsync(cancellationToken).ConfigureAwait(false);
-                var mountDec = await coupledMount.GetDeclinationAsync(cancellationToken).ConfigureAwait(false);
+                // The catalog projection centre and the drift reference are J2000 quantities;
+                // read the pointing via the frame-converting helper — a raw native (JNOW) read
+                // here would shift the rendered sky by ~22' of precession at epoch 2026, which
+                // is exactly the offset that wedged plate-solve centering. The transform is
+                // built once and its clock refreshed per exposure (updateTime: true).
+                // The sensor sees the TRUE sky: prefer the fake mount's hidden-error seam
+                // (polar misalignment, post-sync drift) over the public believed read - a
+                // real mount only exposes the believed pointing, where the two coincide.
+                _coupledMountTransform ??= await coupledMount.TryGetTransformAsync(cancellationToken).ConfigureAwait(false);
+                if (_coupledMountTransform is not { } mountTransform
+                    || await ReadMountPointingJ2000Async(coupledMount, mountTransform, cancellationToken).ConfigureAwait(false) is not { } pointing)
+                {
+                    throw new InvalidOperationException("mount pointing unavailable in J2000 (transform unavailable)");
+                }
+                var (mountRa, mountDec) = pointing;
+
+                // PE phase source: worm-gear periodic error is a function of worm rotation
+                // (RA axis encoder position mod worm period), not wall time — and it never
+                // shows up in encoder/pointing reads, only on the sensor. Snapshot the
+                // encoder here so the (sync) render path computes the PE displacement
+                // positionally; this is what makes the neural guider's encoder-phase
+                // features [22-25] correlate with the disturbance they exist to predict.
+                if (!_mountWormProbed)
+                {
+                    _mountWormProbed = true;
+                    _mountWormStepsRa = await coupledMount.GetWormPeriodStepsAsync(TelescopeAxis.Primary, cancellationToken).ConfigureAwait(false);
+                }
+                var axisPos = _mountWormStepsRa > 0
+                    ? await coupledMount.GetAxisPositionAsync(TelescopeAxis.Primary, cancellationToken).ConfigureAwait(false)
+                    : null;
+
+                var slewDetected = false;
                 lock (_lock)
                 {
+                    _mountRaAxisPos = axisPos;
+                    if (_mountPointingValid && IsSlewSizedJump(_mountCachedRa, _mountCachedDec, mountRa, mountDec))
+                    {
+                        // GOTO between exposures: re-baseline the zero-drift reference and reset
+                        // the in-camera star integrator (ST-4 corrections + PE accumulated for the
+                        // OLD field are meaningless at the new pointing). Without this the random
+                        // star field rendered "drift" equal to the whole slew — tens of thousands
+                        // of pixels — leaving every post-slew guide frame starless.
+                        _starPositionX = 0;
+                        _starPositionY = 0;
+                        slewDetected = true;
+                    }
+
                     _mountCachedRa = mountRa;
                     _mountCachedDec = mountDec;
                     _mountPointingValid = true;
-                    if (!_mountRefCaptured)
+                    if (!_mountRefCaptured || slewDetected)
                     {
                         _mountRefRa = mountRa;
                         _mountRefDec = mountDec;
                         _mountRefCaptured = true;
                     }
                 }
+                if (slewDetected)
+                {
+                    Logger.LogInformation(
+                        "FakeCamera: GOTO detected (pointing jumped to RA={Ra:F4}h Dec={Dec:F4}°); re-baselined zero-drift reference and reset star integrator.",
+                        mountRa, mountDec);
+                }
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
                 Logger.LogDebug(ex, "FakeCamera: mount pointing read failed; guide star falls back to self-contained drift this frame");
+            }
+        }
+
+        // Fake-only (main imaging camera): snapshot the (true - believed) pointing delta
+        // so the (sync) render path can shift the stamped-Target projection centre to the
+        // TRUE sky the sensor would see (see _trueMinusBelievedRa). Without this, a main
+        // frame would render exactly at the believed pointing and plate solving could
+        // never reveal the mount's hidden cone/polar error. OperationCanceledException
+        // propagates; any other fault leaves the previous delta in place for this frame.
+        if (!IsGuideCamera && FocalLength > 0 && Target is not null
+            && ResolveCoupledMount() is IFakeTruePointingSource trueSource and IMountDriver trueMount)
+        {
+            try
+            {
+                _coupledMountTransform ??= await trueMount.TryGetTransformAsync(cancellationToken).ConfigureAwait(false);
+                if (_coupledMountTransform is { } mountTransform
+                    && await trueMount.GetRaDecJ2000Async(mountTransform, updateTime: true, cancellationToken).ConfigureAwait(false) is { } believed
+                    // Time already refreshed by the believed read; both legs must share the
+                    // same transform epoch or the delta picks up a spurious offset.
+                    && await trueSource.GetTruePointingJ2000Async(mountTransform, updateTime: false, cancellationToken).ConfigureAwait(false) is { } truePointing)
+                {
+                    // Wrap the RA delta into (-12, 12]h so a believed/true pair straddling
+                    // the 0/24h seam never produces a spurious ~24h jump.
+                    var dRaHours = truePointing.RaJ2000 - believed.RaJ2000;
+                    if (dRaHours > 12.0) dRaHours -= 24.0;
+                    else if (dRaHours < -12.0) dRaHours += 24.0;
+                    var dDecDeg = truePointing.DecJ2000 - believed.DecJ2000;
+                    lock (_lock)
+                    {
+                        _trueMinusBelievedRa = dRaHours;
+                        _trueMinusBelievedDec = dDecDeg;
+                    }
+                }
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                Logger.LogDebug(ex, "FakeCamera: true-pointing delta read failed; main frame renders at the stamped Target this frame");
             }
         }
 
@@ -816,7 +978,54 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver
                     // with no dedicated focuser); render in perfect focus.
                     var defocus = FocusPosition <= 0 ? 0 : Math.Abs(FocusPosition - TrueBestFocus);
 
-                    if (CelestialObjectDB is { } db && Target is { } target && FocalLength > 0)
+                    // Projection centre for the catalog star field. Main imaging cameras render at
+                    // their stamped Target - a believed-pointing quantity - shifted by the
+                    // (true - believed) delta snapshot so the frame shows the TRUE sky including
+                    // the coupled mount's hidden cone/polar error (the session's centering loop
+                    // plate-solves that offset and syncs it away). The guide camera has no Target:
+                    // it renders at the coupled mount's LIVE true pointing (snapshot taken in
+                    // StartExposureAsync) offset by the guide scope's cone error, with the camera's
+                    // roll angle applied - so the field is correct at any pointing and mount drift
+                    // shows up as field motion automatically. In that branch the star offset must
+                    // be the in-camera part only (PE + ST-4); the mount-drift term already lives
+                    // in the moving projection centre.
+                    var pointingRa = 0.0;
+                    var pointingDec = 0.0;
+                    var hasPointing = false;
+                    var rotationDeg = 0.0;
+                    if (Target is { } target)
+                    {
+                        double trueDeltaRa, trueDeltaDec;
+                        lock (_lock)
+                        {
+                            trueDeltaRa = _trueMinusBelievedRa;
+                            trueDeltaDec = _trueMinusBelievedDec;
+                        }
+                        pointingRa = (target.RA + trueDeltaRa) % 24.0;
+                        if (pointingRa < 0.0) pointingRa += 24.0;
+                        pointingDec = Math.Clamp(target.Dec + trueDeltaDec, -90.0, 90.0);
+                        hasPointing = true;
+                    }
+                    else if (IsGuideCamera)
+                    {
+                        lock (_lock)
+                        {
+                            if (_mountPointingValid)
+                            {
+                                var cosPointingDec = Math.Max(Math.Cos(_mountCachedDec * Math.PI / 180.0), 0.01);
+                                pointingRa = _mountCachedRa + GuideConeErrorRaArcmin / (60.0 * 15.0 * cosPointingDec);
+                                pointingDec = Math.Clamp(_mountCachedDec + GuideConeErrorDecArcmin / 60.0, -90.0, 90.0);
+                                hasPointing = true;
+                            }
+                        }
+                        rotationDeg = GuideRotationDeg;
+                    }
+
+                    LastCatalogRenderCentre = CelestialObjectDB is not null && hasPointing && FocalLength > 0
+                        ? (pointingRa, pointingDec)
+                        : null;
+
+                    if (CelestialObjectDB is { } db && hasPointing && FocalLength > 0)
                     {
                         // Synth flux scales with collecting area (aperture^2)
                         // referenced to a 50mm light bucket -- a 200mm f/3 OTA
@@ -843,20 +1052,22 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver
                             SyntheticStarFieldRenderer.DetectabilityMagCutoff(
                                 apertureScale, exposureSec));
                         var stars = SyntheticStarFieldRenderer.ProjectCatalogStars(
-                            target.RA, target.Dec, FocalLength, PixelSizeX, imgWidth, imgHeight, db, magCutoff);
+                            pointingRa, pointingDec, FocalLength, PixelSizeX, imgWidth, imgHeight, db, magCutoff,
+                            rotationDeg: rotationDeg);
                         // Diagnostic: confirm aperture / scale / cutoff / cap during synth render.
                         Logger.LogDebug(
-                            "FakeCamera synth: aperture={Aperture} focal={FocalLength} t={ExposureSec:F3}s defocus={Defocus} scale={Scale:F2} magCutoff={Cutoff:F2} placedStars={Stars}",
-                            Aperture, FocalLength, exposureSec, defocus, apertureScale, magCutoff, stars.Count);
+                            "FakeCamera synth: aperture={Aperture} focal={FocalLength} t={ExposureSec:F3}s defocus={Defocus} scale={Scale:F2} magCutoff={Cutoff:F2} placedStars={Stars} rot={RotationDeg:F1}",
+                            Aperture, FocalLength, exposureSec, defocus, apertureScale, magCutoff, stars.Count, rotationDeg);
+                        var (offsetX, offsetY) = Target is not null ? TotalStarOffset : InCameraStarOffset;
                         var cloudSeed = _frameRng.Next();
                         var starSpan = System.Runtime.InteropServices.CollectionsMarshal.AsSpan(stars);
                         array = SensorType is Imaging.SensorType.RGGB
                             ? SyntheticStarFieldRenderer.RenderBayer(imgWidth, imgHeight, defocus, starSpan,
-                                offsetX: TotalStarOffset.X, offsetY: TotalStarOffset.Y,
+                                offsetX: offsetX, offsetY: offsetY,
                                 exposureSeconds: exposureSec, noiseSeed: _frameRng.Next(),
                                 apertureScaleFactor: apertureScale, dest: dest)
                             : SyntheticStarFieldRenderer.Render(imgWidth, imgHeight, defocus,
-                                stars: starSpan, offsetX: TotalStarOffset.X, offsetY: TotalStarOffset.Y,
+                                stars: starSpan, offsetX: offsetX, offsetY: offsetY,
                                 exposureSeconds: exposureSec, noiseSeed: _frameRng.Next(),
                                 cloudCoverage: CloudCoverage, cloudSeed: cloudSeed,
                                 apertureScaleFactor: apertureScale, dest: dest);
@@ -917,8 +1128,23 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver
         return ValueTask.CompletedTask;
     }
 
-    public ValueTask PulseGuideAsync(GuideDirection direction, TimeSpan duration, CancellationToken cancellationToken = default)
+    public async ValueTask PulseGuideAsync(GuideDirection direction, TimeSpan duration, CancellationToken cancellationToken = default)
     {
+        // ST-4 models a guide cable wired from this camera's port to the coupled
+        // mount's autoguide port: the pulse physically moves the MOUNT (encoders and
+        // pointing change; the star field follows via the live projection centre /
+        // MountDriftPixels), exactly like real hardware. The previous in-camera
+        // shortcut (shift the star integrator, mount untouched) closed the guide loop
+        // with dynamics no real rig has — instantaneous full-magnitude corrections,
+        // perfectly sensor-axis-aligned, encoders frozen — which let a neural guider
+        // train on a plant that doesn't exist.
+        if (ResolveCoupledMount() is { CanPulseGuide: true } mount)
+        {
+            await mount.PulseGuideAsync(direction, duration, cancellationToken).ConfigureAwait(false);
+            return;
+        }
+
+        // No mount coupled (standalone / unit-test use): legacy in-camera shift.
         var pixels = GuideRatePixelsPerSecond * duration.TotalSeconds;
         // ST-4 corrections modify the same accumulator as PE drift.
         // West = speed up RA tracking = stars shift -X (counteracts +X drift)
@@ -929,7 +1155,6 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver
             case GuideDirection.West:  _starPositionX -= pixels; break;
             case GuideDirection.East:  _starPositionX += pixels; break;
         }
-        return ValueTask.CompletedTask;
     }
 
     /// <summary>
@@ -949,6 +1174,39 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver
     }
 
     /// <summary>
+    /// In-camera star offset only: integrated PE wobble + accumulated ST-4 corrections, WITHOUT
+    /// the mount-drift term. Used by the guide-camera catalog render path, where the mount's
+    /// pointing change (drift and slews alike) is already expressed through the live projection
+    /// centre — adding <see cref="MountDriftPixels"/> on top would double-count it.
+    /// </summary>
+    private (double X, double Y) InCameraStarOffset
+    {
+        get
+        {
+            IntegratePeDrift();
+            return (_starPositionX, _starPositionY);
+        }
+    }
+
+    /// <summary>
+    /// True when the pointing change between two consecutive guide exposures exceeds
+    /// <see cref="SlewDetectionThresholdArcsec"/> on either axis — i.e. a GOTO, not drift.
+    /// Caller must hold <c>_lock</c>.
+    /// </summary>
+    private static bool IsSlewSizedJump(double prevRaHours, double prevDecDeg, double raHours, double decDeg)
+    {
+        // Wrap the RA delta into (-12, 12]h so a jump across the 0/24h seam is not misread.
+        var dRaHours = raHours - prevRaHours;
+        if (dRaHours > 12.0) dRaHours -= 24.0;
+        else if (dRaHours < -12.0) dRaHours += 24.0;
+
+        var cosDec = Math.Cos(prevDecDeg * Math.PI / 180.0);
+        var raArcsec = Math.Abs(dRaHours * 15.0 * 3600.0 * cosDec);
+        var decArcsec = Math.Abs((decDeg - prevDecDeg) * 3600.0);
+        return raArcsec > SlewDetectionThresholdArcsec || decArcsec > SlewDetectionThresholdArcsec;
+    }
+
+    /// <summary>
     /// Lazily finds the connected mount in the device hub (single-mount invariant),
     /// caching it once found. Returns <c>null</c> when no hub is registered (unit
     /// tests) or no mount is connected yet -- the guide star then uses only the
@@ -956,6 +1214,18 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver
     /// <see cref="FakeDeviceDriverBase.ServiceProvider"/> so nothing in the session /
     /// shared layer needs to know this fake-only coupling exists.
     /// </summary>
+    /// <summary>
+    /// The mount pointing the SENSOR sees, in J2000: the fake true-pointing seam
+    /// (hidden polar misalignment / post-sync drift) when the coupled mount models
+    /// one, else the public believed read - on real mounts the two coincide by
+    /// definition (the believed read is all that exists).
+    /// </summary>
+    private static ValueTask<(double RaJ2000, double DecJ2000)?> ReadMountPointingJ2000Async(
+        IMountDriver mount, Transform transform, CancellationToken cancellationToken)
+        => mount is IFakeTruePointingSource trueSource
+            ? trueSource.GetTruePointingJ2000Async(transform, updateTime: true, cancellationToken)
+            : mount.GetRaDecJ2000Async(transform, updateTime: true, cancellationToken);
+
     private IMountDriver? ResolveCoupledMount()
     {
         if (_coupledMount is { Connected: true })
@@ -1033,6 +1303,14 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver
     /// pointing snapshot taken by the most recent <see cref="StartExposureAsync"/>.
     /// </summary>
     internal (double X, double Y) CurrentMountDriftPixels => MountDriftPixels();
+
+    /// <summary>
+    /// Test seam: J2000 projection centre (RA hours, Dec degrees) of the most recent
+    /// catalog-star render — i.e. the stamped <see cref="Target"/> for main cameras, or the
+    /// coupled mount's frame-converted pointing plus cone error for the guide camera. Null when
+    /// the last render fell back to the random star field.
+    /// </summary>
+    internal (double RaJ2000, double DecJ2000)? LastCatalogRenderCentre { get; private set; }
 
     protected override void Dispose(bool disposing)
     {

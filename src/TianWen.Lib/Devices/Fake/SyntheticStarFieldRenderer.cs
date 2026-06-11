@@ -167,11 +167,15 @@ internal static class SyntheticStarFieldRenderer
             }
         }
 
-        // Render stars with shot noise (separate RNG — clipping differences don't affect positions)
+        // Render stars with shot noise (separate RNG — clipping differences don't affect positions).
+        // Fully overcast (cloudCoverage >= 1.0) is a blackout: no star photons reach the
+        // sensor at all. The partial-cloud path below deliberately caps attenuation at 90%
+        // so bright stars survive a passing cloud — total cover needs this explicit gate.
+        var renderStarCount = cloudCoverage >= 1.0 ? 0 : starCount;
         var shotRng = new Random(noiseSeed.HasValue ? noiseSeed.Value + 1 : seed + 2);
         var sigma2x2 = 2.0 * sigma * sigma;
 
-        for (var s = 0; s < starCount; s++)
+        for (var s = 0; s < renderStarCount; s++)
         {
             var (starX, starY, flux) = stars[s];
             var normalization = flux / (Math.PI * sigma2x2);
@@ -210,7 +214,11 @@ internal static class SyntheticStarFieldRenderer
         }
 
         // Apply cloud coverage: attenuate stars and add diffuse glow
-        if (cloudCoverage > 0)
+        if (cloudCoverage >= 1.0)
+        {
+            ApplyUniformOvercast(data, cloudGlow * exposureSeconds);
+        }
+        else if (cloudCoverage > 0)
         {
             var cloudMap = GenerateCloudMap(width, height, cloudCoverage, cloudSeed);
             ApplyCloudMap(data, cloudMap, cloudGlow * exposureSeconds);
@@ -307,11 +315,14 @@ internal static class SyntheticStarFieldRenderer
             }
         }
 
-        // Render stars with shot noise
+        // Render stars with shot noise. Fully overcast (cloudCoverage >= 1.0) is a blackout:
+        // no star photons reach the sensor (the partial-cloud attenuation caps at 90%, so
+        // bright stars deliberately survive anything short of total cover).
+        var renderStarCount = cloudCoverage >= 1.0 ? 0 : starArray.Length;
         var shotRng = new Random(noiseSeed.HasValue ? noiseSeed.Value + 1 : seed + 2);
         var sigma2x2 = 2.0 * sigma * sigma;
 
-        for (var s = 0; s < starArray.Length; s++)
+        for (var s = 0; s < renderStarCount; s++)
         {
             var (starX, starY, flux) = starArray[s];
             var normalization = flux / (Math.PI * sigma2x2);
@@ -348,7 +359,11 @@ internal static class SyntheticStarFieldRenderer
         }
 
         // Apply cloud coverage
-        if (cloudCoverage > 0)
+        if (cloudCoverage >= 1.0)
+        {
+            ApplyUniformOvercast(data, cloudGlow * exposureSeconds);
+        }
+        else if (cloudCoverage > 0)
         {
             var cloudMap = GenerateCloudMap(width, height, cloudCoverage, cloudSeed);
             ApplyCloudMap(data, cloudMap, cloudGlow * exposureSeconds);
@@ -405,6 +420,9 @@ internal static class SyntheticStarFieldRenderer
     /// <param name="db">Celestial object database with Tycho-2 star data.</param>
     /// <param name="magnitudeCutoff">Faintest magnitude to include. Stars fainter than this are skipped.
     /// Default 12.0 matches Tycho-2 completeness. For short exposures (&lt;5s), use ~8–10.</param>
+    /// <param name="rotationDeg">Camera roll angle in degrees: the standard coordinates are rotated
+    /// by this angle before pixel mapping, modelling a camera that is not aligned north-up
+    /// (every real guide cam). 0 = north-up (the previous behaviour).</param>
     /// <returns>List of stars projected to pixel coordinates within sensor bounds.</returns>
     public static List<ProjectedStar> ProjectCatalogStars(
         double targetRA,
@@ -414,10 +432,15 @@ internal static class SyntheticStarFieldRenderer
         int width,
         int height,
         ICelestialObjectDB db,
-        double magnitudeCutoff = 12.0)
+        double magnitudeCutoff = 12.0,
+        double rotationDeg = 0.0)
     {
         const double Deg2Rad = Math.PI / 180.0;
         const double Rad2Arcsec = 206264.806;
+
+        var rotRad = rotationDeg * Deg2Rad;
+        var cosRot = Math.Cos(rotRad);
+        var sinRot = Math.Sin(rotRad);
 
         // Pixel scale in arcsec/pixel
         var pixelScaleArcsec = Rad2Arcsec * (pixelSizeUm * 1e-3) / focalLengthMm;
@@ -500,9 +523,13 @@ internal static class SyntheticStarFieldRenderer
             var xi = cosDec * Math.Sin(deltaRA) / cosC;
             var eta = (cosDec0 * sinDec - sinDec0 * cosDec * Math.Cos(deltaRA)) / cosC;
 
+            // Camera roll: rotate the tangent-plane coordinates by the camera angle
+            var xiRot = xi * cosRot - eta * sinRot;
+            var etaRot = xi * sinRot + eta * cosRot;
+
             // Convert to pixels (xi positive = East = -X in standard image orientation)
-            var pixelX = halfW - xi * Rad2Arcsec / pixelScaleArcsec;
-            var pixelY = halfH - eta * Rad2Arcsec / pixelScaleArcsec;
+            var pixelX = halfW - xiRot * Rad2Arcsec / pixelScaleArcsec;
+            var pixelY = halfH - etaRot * Rad2Arcsec / pixelScaleArcsec;
 
             // Keep stars within sensor bounds (with small margin for PSF)
             if (pixelX >= -20 && pixelX < width + 20 && pixelY >= -20 && pixelY < height + 20)
@@ -627,6 +654,28 @@ internal static class SyntheticStarFieldRenderer
                     // Attenuate signal (stars + sky) and add cloud glow
                     data[y, x] = (float)(data[y, x] * (1.0 - opacity * 0.9) + cloudGlow * opacity);
                 }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Fully-overcast sky (coverage >= 1.0): attenuates everything by the same 90% cap the
+    /// partial-cloud path uses and adds a UNIFORM glow. The textured cloud map is deliberately
+    /// not used here — its glow knots read as SNR ~4 pseudo-stars to a centroid tracker, but a
+    /// solid deck is featureless.
+    /// </summary>
+    /// <param name="data">Image data array to modify in-place.</param>
+    /// <param name="cloudGlow">Uniform glow added everywhere (scattered light, in ADU).</param>
+    internal static void ApplyUniformOvercast(float[,] data, double cloudGlow)
+    {
+        var height = data.GetLength(0);
+        var width = data.GetLength(1);
+
+        for (var y = 0; y < height; y++)
+        {
+            for (var x = 0; x < width; x++)
+            {
+                data[y, x] = (float)(data[y, x] * 0.1 + cloudGlow);
             }
         }
     }

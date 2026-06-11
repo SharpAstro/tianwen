@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Logging;
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.Text;
 using System.Threading;
@@ -56,6 +57,13 @@ internal class FakeSkywatcherSerialDevice : ISerialConnection
     private bool _raHighSpeed;
     private bool _decHighSpeed;
 
+    // Southern-hemisphere flag from the latest RA :G command's dir bit 1. The bit is
+    // informational for motion (bit 0 alone sets rotation direction, matching GSS's
+    // pulse path which omits it entirely), but the firmware uses it to pick the
+    // direction when auto-resuming sidereal tracking after a GOTO completes — in the
+    // south the RA worm tracks in reverse. Only RA needs it; Dec has no tracking.
+    private bool _raSouthern;
+
     // Constant-speed slew rate captured from the most recent ':I' (T1 preset)
     // command, in degrees-per-second. The simulation integrates at this rate
     // when the axis is running in non-goto, non-tracking mode -- without it
@@ -65,8 +73,36 @@ internal class FakeSkywatcherSerialDevice : ISerialConnection
     private double _raSlewDegPerSec;
     private double _decSlewDegPerSec;
 
+    // Fractional step remainders for the constant-speed integrators. At tracking /
+    // guide rates the 50ms simulation tick only advances a handful of steps
+    // (sidereal = ~5.2 steps/tick, 0.5x guide = ~2.6) and a plain (int) cast
+    // truncated the fraction every tick: the axis systematically under-ran by ~4%
+    // at sidereal (a spurious ~36"/min east drift on top of the modelled
+    // misalignment) and ~24% at 0.5x guide rate. Carrying the remainder across
+    // ticks makes the long-run rate exact.
+    private double _raStepFrac;
+    private double _decStepFrac;
+
     // Guide speed
     private int _guideSpeedIndex = 2; // 0-4
+
+    // Wire transcript seam for tests: the most recent commands received (terminator
+    // stripped), oldest first, capped so multi-hour fake sessions don't grow unbounded.
+    private const int COMMAND_LOG_CAP = 4096;
+    private readonly Queue<string> _commandLog = new();
+
+    /// <summary>Snapshot of the most recent wire commands (up to <see cref="COMMAND_LOG_CAP"/>),
+    /// for wire-level protocol assertions in tests.</summary>
+    internal string[] CommandLogSnapshot
+    {
+        get
+        {
+            lock (_lockObj)
+            {
+                return _commandLog.ToArray();
+            }
+        }
+    }
 
     // Snap port
     private bool _snapActive;
@@ -95,16 +131,25 @@ internal class FakeSkywatcherSerialDevice : ISerialConnection
     public bool IsOpen { get; private set; }
     public Encoding Encoding { get; }
 
-    private void SimulationTimerCallback(object? state)
+    private void SimulationTimerCallback(object? state) => AdvanceSimulation();
+
+    /// <summary>
+    /// Integrates axis motion since the last call. Invoked by the 50ms simulation
+    /// timer AND synchronously at the head of every protocol command — without the
+    /// latter, a guide pulse shorter than the timer period (J ... K inside one tick)
+    /// would move the axis by nothing at all: the stop command must first account
+    /// for the motion that occurred while the axis was running.
+    /// </summary>
+    private void AdvanceSimulation()
     {
         if (!IsOpen) return;
 
-        var currentTicks = _timeProvider.GetTimestamp();
-        var elapsedTicks = currentTicks - _lastTrackingTicks;
-        _lastTrackingTicks = currentTicks;
-
         lock (_lockObj)
         {
+            var currentTicks = _timeProvider.GetTimestamp();
+            var elapsedTicks = currentTicks - _lastTrackingTicks;
+            _lastTrackingTicks = currentTicks;
+
             var elapsedSeconds = (double)elapsedTicks / _timeProvider.TimestampFrequency;
 
             // Simulate tracking: advance RA at sidereal rate when in tracking
@@ -126,7 +171,10 @@ internal class FakeSkywatcherSerialDevice : ISerialConnection
                     stepsPerSec = (double)DEFAULT_CPR / 86164.0905;
                 }
                 var direction = _raDirection == 0 ? 1.0 : -1.0;
-                _posRa += (int)(direction * stepsPerSec * elapsedSeconds);
+                _raStepFrac += direction * stepsPerSec * elapsedSeconds;
+                var raWholeSteps = (int)_raStepFrac;
+                _posRa += raWholeSteps;
+                _raStepFrac -= raWholeSteps;
             }
 
             // Simulate goto slew: move toward target, auto-start tracking when done
@@ -140,6 +188,15 @@ internal class FakeSkywatcherSerialDevice : ISerialConnection
                     // Real SW mounts auto-start sidereal tracking after goto completes
                     _raGotoMode = false;
                     _raTracking = true;
+                    // Tracking always runs at sidereal in the hemisphere's tracking
+                    // direction (forward north, reverse south per the stored :G dir
+                    // bit 1): the goto's direction and rate must not leak into it. A
+                    // reverse goto (slew toward larger RA) used to leave _raDirection=1,
+                    // so the auto-resumed "tracking" ran the axis backward and the
+                    // believed RA drifted at 2x sidereal.
+                    _raDirection = _raSouthern ? 1 : 0;
+                    _raSlewDegPerSec = 0;
+                    _raHighSpeed = false;
                     // _raRunning stays true — now tracking at sidereal rate
                 }
                 else
@@ -172,10 +229,18 @@ internal class FakeSkywatcherSerialDevice : ISerialConnection
                 }
                 else
                 {
-                    // Constant-speed guide/slew: move Dec at guide rate
-                    var guideRate = (double)DEFAULT_CPR / 86164.0905 * 0.5; // 0.5x sidereal
+                    // Constant-speed guide/slew: move Dec at the rate the most recent
+                    // ':I' command set (pulse guide / MoveAxis), falling back to 0.5x
+                    // sidereal when none was captured. Hardcoding 0.5x here made the
+                    // fake ignore the mount's configured guide speed entirely.
+                    var stepsPerSec = _decSlewDegPerSec > 0
+                        ? _decSlewDegPerSec * (double)DEFAULT_CPR / 360.0
+                        : (double)DEFAULT_CPR / 86164.0905 * 0.5;
                     var direction = _decDirection == 0 ? 1.0 : -1.0;
-                    _posDec += (int)(direction * guideRate * elapsedSeconds);
+                    _decStepFrac += direction * stepsPerSec * elapsedSeconds;
+                    var decWholeSteps = (int)_decStepFrac;
+                    _posDec += decWholeSteps;
+                    _decStepFrac -= decWholeSteps;
                 }
             }
         }
@@ -201,11 +266,22 @@ internal class FakeSkywatcherSerialDevice : ISerialConnection
 #if DEBUG
         _logger.LogTrace("--> {Message}", dataStr);
 #endif
+        // Bring axis positions up to date before the command takes effect — a stop
+        // command must observe the motion that ran since the last 50ms tick, or
+        // sub-tick guide pulses (J ... K within one period) would be lost entirely.
+        AdvanceSimulation();
+
         lock (_lockObj)
         {
             if (dataStr.Length < 3 || dataStr[0] != ':')
             {
                 return ValueTask.FromResult(false);
+            }
+
+            _commandLog.Enqueue(dataStr.TrimEnd('\r'));
+            if (_commandLog.Count > COMMAND_LOG_CAP)
+            {
+                _commandLog.Dequeue();
             }
 
             var cmd = dataStr[1];
@@ -264,6 +340,8 @@ internal class FakeSkywatcherSerialDevice : ISerialConnection
                 }
 
                 case 'j': // Current position
+                case 'd': // Secondary (dual-)encoder count — GSS queries it during init;
+                          // the fake has one perfect encoder, so both report the same.
                 {
                     var pos = axis == '1' ? _posRa : _posDec;
                     _responseBuffer.Append('=');
@@ -274,18 +352,23 @@ internal class FakeSkywatcherSerialDevice : ISerialConnection
 
                 case 'f': // Axis status
                 {
-                    // 3 bytes: byte0 (running|blocked), byte1 (initDone), byte2 (level: 0=tracking, 1=slew)
+                    // Real firmware replies 3 status nibbles (reference: GSServer GetAxisStatus):
+                    // nibble 0: bit0 = constant-speed (slew/tracking) mode vs GOTO, bit1 = reverse, bit2 = high speed
+                    // nibble 1: bit0 = running (0 = full stop)
+                    // nibble 2: bit0 = init done
                     var isRunning = axis == '1' ? _raRunning : _decRunning;
                     var isInitDone = axis == '1' ? _raInitDone : _decInitDone;
-                    var isTracking = axis == '1' ? _raTracking : !_decGotoMode;
+                    var isGotoMode = axis == '1' ? _raGotoMode : _decGotoMode;
+                    var isHighSpeed = axis == '1' ? _raHighSpeed : _decHighSpeed;
+                    var isReverse = (axis == '1' ? _raDirection : _decDirection) != 0;
 
-                    var byte0 = isRunning ? 1 : 0;
-                    var byte1 = isInitDone ? 1 : 0;
-                    var byte2 = (isRunning && !isTracking) ? 1 : 0; // 1=slewing speed, 0=tracking speed
-
-                    var statusVal = (uint)(byte0 | (byte1 << 8) | (byte2 << 16));
+                    var n0 = (isGotoMode ? 0 : 1) | (isReverse ? 2 : 0) | (isHighSpeed ? 4 : 0);
+                    var n1 = isRunning ? 1 : 0;
+                    var n2 = isInitDone ? 1 : 0;
                     _responseBuffer.Append('=');
-                    _responseBuffer.Append(SkywatcherProtocol.EncodeUInt24(statusVal));
+                    _responseBuffer.Append((char)(n0 < 10 ? '0' + n0 : 'A' + n0 - 10));
+                    _responseBuffer.Append((char)('0' + n1));
+                    _responseBuffer.Append((char)('0' + n2));
                     _responseBuffer.Append('\r');
                     break;
                 }
@@ -312,17 +395,28 @@ internal class FakeSkywatcherSerialDevice : ISerialConnection
 
                 case 'G': // Motion mode
                 {
-                    // payload: 2-char hex mode byte + 1-char direction
-                    // mode bit 0: 0=goto, 1=constant-speed (tracking/guide)
-                    // mode bit 1: 0=high-speed, 1=low-speed
-                    // direction: 0=forward, 1=reverse
-                    if (payload.Length >= 3)
+                    // Real firmware rejects :G while the motor is running — error !2
+                    // "Motor not Stopped" — and ignores the command. Emulating that makes
+                    // the whole test suite enforce the stop-then-:G contract: any driver
+                    // path that forgets StopAxisAndWaitAsync diverges loudly instead of
+                    // silently working on the fake but failing on hardware.
+                    if (axis == '1' ? _raRunning : _decRunning)
                     {
-                        var modeByte = byte.Parse(payload.AsSpan(0, 2), NumberStyles.HexNumber, CultureInfo.InvariantCulture);
-                        var isGoto = (modeByte & 0x01) == 0;
-                        var isHighSpeed = (modeByte & 0x02) == 0;
-                        var dir = payload[2] - '0';
-                        if (axis == '1') { _raGotoMode = isGoto; _raDirection = dir; _raHighSpeed = isHighSpeed; }
+                        _responseBuffer.Append("!2\r");
+                        break;
+                    }
+                    // Real wire format (GSServer Commands.SetMotionMode): 2 data chars
+                    // <func><dir>. func: 0=hs-GOTO, 1=ls-slew (tracking/guide), 2=ls-GOTO,
+                    // 3=hs-slew — the speed bit inverts meaning between goto and slew.
+                    // dir: bit0=reverse, bit1=southern hemisphere. Motion follows bit0
+                    // only; the hemisphere bit is stored so post-GOTO tracking auto-resume
+                    // runs in the correct direction for the site.
+                    if (SkywatcherProtocol.TryDecodeMotionMode(payload.AsSpan(), out var func, out var forward, out var southern))
+                    {
+                        var isGoto = func.IsGoto;
+                        var isHighSpeed = func.IsHighSpeed;
+                        var dir = forward ? 0 : 1;
+                        if (axis == '1') { _raGotoMode = isGoto; _raDirection = dir; _raHighSpeed = isHighSpeed; _raSouthern = southern; }
                         else { _decGotoMode = isGoto; _decDirection = dir; _decHighSpeed = isHighSpeed; }
                     }
                     _responseBuffer.Append("=\r");

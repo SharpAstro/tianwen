@@ -267,43 +267,62 @@ namespace TianWen.UI.Abstractions
             var btnH = 24f * dpiScale;
             var btnY = py + ph - btnH - 8f * dpiScale;
 
-            // Pin / Unpin (right edge).
-            var pinBtnX = px + pw - btnW - 10f * dpiScale;
-            RenderButton(
-                isPinned ? "Unpin" : "Pin",
-                pinBtnX, btnY, btnW, btnH, fontPath, fontSize,
-                isPinned ? UnpinButtonBg : PinButtonBg,
-                SearchText,
-                "SkyMapPinToggle",
-                _ => PostSignal(new SkyMapPinObjectSignal(
-                    pinName, pinRA, pinDec, pinIndex, pinType)));
+            if (info.IsMount)
+            {
+                // Mount entry: the one meaningful action is Solve & Sync (a goto to
+                // the mount's own reported position is a no-op, and pinning it makes
+                // no sense). The handler is the source of truth for the session /
+                // camera / CanSync gates.
+                var ssBtnW = 110f * dpiScale;
+                var ssBtnX = px + pw - ssBtnW - 10f * dpiScale;
+                RenderButton(
+                    "Solve & Sync",
+                    ssBtnX, btnY, ssBtnW, btnH, fontPath, fontSize,
+                    GotoButtonBg,
+                    SearchText,
+                    "SkyMapSolveSync",
+                    _ => PostSignal(new SkyMapSolveSyncSignal()));
+            }
+            else
+            {
+                // Pin / Unpin (right edge).
+                var pinBtnX = px + pw - btnW - 10f * dpiScale;
+                RenderButton(
+                    isPinned ? "Unpin" : "Pin",
+                    pinBtnX, btnY, btnW, btnH, fontPath, fontSize,
+                    isPinned ? UnpinButtonBg : PinButtonBg,
+                    SearchText,
+                    "SkyMapPinToggle",
+                    _ => PostSignal(new SkyMapPinObjectSignal(
+                        pinName, pinRA, pinDec, pinIndex, pinType)));
 
-            // View-in-Planner (left of the Pin button). Jumps to the planner tab
-            // with this target scored, selected, and scrolled into view.
-            var viewBtnX = pinBtnX - btnW - 8f * dpiScale;
-            RenderButton(
-                "View in Planner",
-                viewBtnX, btnY, btnW, btnH, fontPath, fontSize * 0.9f,
-                ViewButtonBg,
-                SearchText,
-                "SkyMapViewInPlanner",
-                _ => PostSignal(new ViewInPlannerSignal(
-                    pinName, pinRA, pinDec, pinIndex, pinType)));
+                // View-in-Planner (left of the Pin button). Jumps to the planner tab
+                // with this target scored, selected, and scrolled into view.
+                var viewBtnX = pinBtnX - btnW - 8f * dpiScale;
+                RenderButton(
+                    "View in Planner",
+                    viewBtnX, btnY, btnW, btnH, fontPath, fontSize * 0.9f,
+                    ViewButtonBg,
+                    SearchText,
+                    "SkyMapViewInPlanner",
+                    _ => PostSignal(new ViewInPlannerSignal(
+                        pinName, pinRA, pinDec, pinIndex, pinType)));
 
-            // Goto (left of View-in-Planner). Slews the connected mount to the
-            // object. Grayed when the target never rises from the current site;
-            // the handler is still the source of truth for the actual horizon /
-            // connection gate.
-            var gotoBtnX = viewBtnX - btnW - 8f * dpiScale;
-            var canGoto = !info.NeverRises;
-            RenderButton(
-                "Goto",
-                gotoBtnX, btnY, btnW, btnH, fontPath, fontSize,
-                canGoto ? GotoButtonBg : GotoDisabledBg,
-                SearchText,
-                "SkyMapGoto",
-                _ => PostSignal(new SkyMapSlewToObjectSignal(
-                    pinName, pinRA, pinDec, pinIndex, pinType)));
+                // Goto (left of View-in-Planner). Slews the connected mount to the
+                // object. Grayed when the target never rises from the current site;
+                // the handler is still the source of truth for the actual horizon /
+                // connection gate.
+                var gotoBtnX = viewBtnX - btnW - 8f * dpiScale;
+                var canGoto = !info.NeverRises;
+                RenderButton(
+                    "Goto",
+                    gotoBtnX, btnY, btnW, btnH, fontPath, fontSize,
+                    canGoto ? GotoButtonBg : GotoDisabledBg,
+                    SearchText,
+                    "SkyMapGoto",
+                    _ => PostSignal(new SkyMapSlewToObjectSignal(
+                        pinName, pinRA, pinDec, pinIndex, pinType)));
+            }
 
             // Close button — top-right of the info panel.
             var closeSize = 20f * dpiScale;

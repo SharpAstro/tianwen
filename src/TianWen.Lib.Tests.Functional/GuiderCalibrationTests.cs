@@ -1,6 +1,7 @@
 using TianWen.Lib.Imaging;
 using Shouldly;
 using System;
+using System.Collections.Immutable;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
@@ -468,5 +469,136 @@ public class GuiderCalibrationTests(ITestOutputHelper output)
                 tempDir.Delete(recursive: true);
             }
         }
+    }
+
+    [Fact(Timeout = 60_000)]
+    public async Task GivenNonOrthogonalAxesWhenCalibrateThenRejected()
+    {
+        // Reject-if-dodgy (fresh calibration): a sweep where North moves the star the SAME way as
+        // West is degenerate -- RA and Dec are mechanically perpendicular, so near-parallel axes
+        // signal a bad sweep (backlash, a star swap, a non-responding axis) that would produce
+        // garbage corrections. CalibrateAsync must return null, not hand back a usable result.
+        var ct = TestContext.Current.CancellationToken;
+        var timeProvider = new FakeTimeProviderWrapper(new DateTimeOffset(2025, 6, 15, 22, 0, 0, TimeSpan.Zero));
+
+        var tracker = new GuiderCentroidTracker(maxStars: 1);
+        var rig = new DirectionalStarRig();
+
+        ValueTask<Image> Render(CancellationToken token)
+        {
+            ReadOnlySpan<ProjectedStar> stars = [new ProjectedStar(160 + rig.X, 120 + rig.Y, Magnitude: 5.0)];
+            return ValueTask.FromResult(Image.FromChannel(SyntheticStarFieldRenderer.Render(
+                320, 240, 0, stars, offsetX: 0, offsetY: 0, exposureSeconds: 2.0, pixelScaleArcsec: PixelScaleArcsec)));
+        }
+
+        tracker.ProcessFrame((await Render(ct)).GetChannelArray(0));
+        tracker.IsAcquired.ShouldBeTrue();
+
+        var calibration = new GuiderCalibration { CalibrationPulseDuration = TimeSpan.FromSeconds(1), CalibrationSteps = 3 };
+
+        // Degenerate: North responds along the SAME sensor direction as West (axes ~parallel).
+        rig.WestResponse = (-1.0, 0.0);
+        rig.NorthResponse = (-1.0, 0.0);
+        var degenerate = await calibration.CalibrateAsync(rig, tracker, Render, timeProvider, ct);
+        degenerate.ShouldBeNull("a non-orthogonal (degenerate) calibration must be rejected");
+
+        // Sanity: with perpendicular axes the very same machinery accepts the calibration, so the
+        // gate is not just refusing everything.
+        rig.X = 0;
+        rig.Y = 0;
+        tracker.Reset();
+        tracker.ProcessFrame((await Render(ct)).GetChannelArray(0));
+        rig.NorthResponse = (0.0, -1.0);
+        var ok = await calibration.CalibrateAsync(rig, tracker, Render, timeProvider, ct);
+        ok.ShouldNotBeNull("a perpendicular calibration must still be accepted (the gate must not false-reject)");
+    }
+
+    [Fact(Timeout = 60_000)]
+    public async Task GivenConeErrorRigWhenValidateSavedCalibrationThenValid()
+    {
+        // A rig with real cone error / camera tilt shows the RA and Dec sweep directions 5-30deg
+        // off perpendicular on the sensor. Fresh calibration accepts that (the degeneracy gate is
+        // deliberately generous), so re-validation of the SAVED calibration on the same rig must
+        // accept it too -- using the tight session-drift tolerance here meant every session
+        // re-calibrated from scratch and threw away the neural model continuity.
+        var ct = TestContext.Current.CancellationToken;
+        var timeProvider = new FakeTimeProviderWrapper(new DateTimeOffset(2025, 6, 15, 22, 0, 0, TimeSpan.Zero));
+
+        var tracker = new GuiderCentroidTracker(maxStars: 1);
+        var rig = new DirectionalStarRig();
+
+        ValueTask<Image> Render(CancellationToken token)
+        {
+            ReadOnlySpan<ProjectedStar> stars = [new ProjectedStar(160 + rig.X, 120 + rig.Y, Magnitude: 5.0)];
+            return ValueTask.FromResult(Image.FromChannel(SyntheticStarFieldRenderer.Render(
+                320, 240, 0, stars, offsetX: 0, offsetY: 0, exposureSeconds: 2.0, pixelScaleArcsec: PixelScaleArcsec)));
+        }
+
+        tracker.ProcessFrame((await Render(ct)).GetChannelArray(0));
+        tracker.IsAcquired.ShouldBeTrue();
+
+        var calibration = new GuiderCalibration { CalibrationPulseDuration = TimeSpan.FromSeconds(1), CalibrationSteps = 3 };
+
+        // West sweeps along 180deg; North along 105deg -> 75deg axis separation = 15deg from
+        // perpendicular. Inside the 30deg fresh tolerance, outside the old 5deg validation gate.
+        var northAngleRad = 105.0 * Math.PI / 180.0;
+        rig.WestResponse = (-1.0, 0.0);
+        rig.NorthResponse = (Math.Cos(northAngleRad), Math.Sin(northAngleRad));
+
+        var calResult = await calibration.CalibrateAsync(rig, tracker, Render, timeProvider, ct);
+        calResult.ShouldNotBeNull("15deg non-orthogonality is within the fresh calibration tolerance");
+
+        // Re-acquire and validate the just-saved calibration on the unchanged rig.
+        tracker.Reset();
+        tracker.ProcessFrame((await Render(ct)).GetChannelArray(0));
+        tracker.IsAcquired.ShouldBeTrue();
+
+        var result = await calibration.ValidateAsync(calResult.Value, rig, tracker, Render, timeProvider, ct);
+        output.WriteLine($"Validation result: {result}");
+        result.ShouldBe(CalibrationValidationResult.Valid,
+            "a calibration that passed the fresh orthogonality gate must re-validate on the same rig");
+    }
+
+    [Fact]
+    public void SweepLinearityScoresMonotonicHighAndWanderingLow()
+    {
+        // The fresh-calibration linearity gate: a clean monotonic sweep scores ~1; a star that
+        // zig-zagged the same net distance scores low (unstable rate) and would be rejected.
+        var origin = new CalibrationStep(0, 0);
+
+        var monotonic = ImmutableArray.Create(
+            new CalibrationStep(3, 0), new CalibrationStep(6, 0), new CalibrationStep(9, 0));
+        GuiderCalibration.SweepLinearity(origin, monotonic, netDisplacementPx: 9.0)
+            .ShouldBeGreaterThan(0.95, "a straight monotonic sweep is ~perfectly linear");
+
+        var wandering = ImmutableArray.Create(
+            new CalibrationStep(8, 0), new CalibrationStep(2, 0), new CalibrationStep(9, 0));
+        GuiderCalibration.SweepLinearity(origin, wandering, netDisplacementPx: 9.0)
+            .ShouldBeLessThan(0.6, "a wandering sweep (unstable rate) must score below the reject threshold");
+    }
+
+    /// <summary>Pulse target that moves a single tracked star by a per-axis response vector (camera px).</summary>
+    private sealed class DirectionalStarRig : IPulseGuideTarget
+    {
+        public double X;
+        public double Y;
+        public double RatePxPerSec { get; set; } = 3.0;
+        public (double Dx, double Dy) WestResponse { get; set; } = (-1.0, 0.0);
+        public (double Dx, double Dy) NorthResponse { get; set; } = (0.0, -1.0);
+
+        public ValueTask PulseGuideAsync(GuideDirection direction, TimeSpan duration, CancellationToken cancellationToken)
+        {
+            var px = RatePxPerSec * duration.TotalSeconds;
+            switch (direction)
+            {
+                case GuideDirection.West: X += WestResponse.Dx * px; Y += WestResponse.Dy * px; break;
+                case GuideDirection.East: X -= WestResponse.Dx * px; Y -= WestResponse.Dy * px; break;
+                case GuideDirection.North: X += NorthResponse.Dx * px; Y += NorthResponse.Dy * px; break;
+                case GuideDirection.South: X -= NorthResponse.Dx * px; Y -= NorthResponse.Dy * px; break;
+            }
+            return ValueTask.CompletedTask;
+        }
+
+        public ValueTask<bool> IsPulseGuidingAsync(CancellationToken cancellationToken) => ValueTask.FromResult(false);
     }
 }

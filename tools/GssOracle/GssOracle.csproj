@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Headless oracle: drives GSServer's own GS.SkyWatcher protocol classes against a
+       scripted ISerialPort and records the exact wire bytes GSS emits. The committed
+       JSON fixture in TianWen.Lib.Tests pins our SkywatcherProtocol/driver output
+       against this ground truth. Requires the GSServer checkout at ../../other/GSServer
+       (relative to the sharpastro parent) - dev-only, never built by CI or the solution. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net472</TargetFramework>
+    <!-- GSS Debug|AnyCPU compiles its libs with PlatformTarget x86 - match it. -->
+    <PlatformTarget>x86</PlatformTarget>
+    <LangVersion>9.0</LangVersion>
+    <Nullable>disable</Nullable>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\..\other\GSServer\GS.SkyWatcher\GS.SkyWatcher.csproj" />
+    <ProjectReference Include="..\..\..\..\other\GSServer\GS.Shared\GS.Shared.csproj" />
+  </ItemGroup>
+
+</Project>

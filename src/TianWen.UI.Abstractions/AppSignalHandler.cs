@@ -939,6 +939,151 @@ namespace TianWen.UI.Abstractions
                 appState.NeedsRedraw = true;
             });
 
+            bus.Subscribe<SkyMapShowMountInfoSignal>(sig =>
+            {
+                var viewingUtc = plannerState.PlanningDate?.ToUniversalTime() ?? _timeProvider.GetUtcNow();
+                var site = SiteContext.Create(plannerState.SiteLatitude, plannerState.SiteLongitude, viewingUtc);
+                skySearch.InfoPanel = SkyMapInfoPanelData.FromMount(
+                    sig.Name, sig.RaHours, sig.DecDeg,
+                    plannerState.SiteLatitude, plannerState.SiteLongitude,
+                    viewingUtc, site);
+                skyMapState.NeedsRedraw = true;
+                appState.NeedsRedraw = true;
+            });
+
+            bus.Subscribe<SkyMapSolveSyncSignal>(sig =>
+            {
+                if (liveSessionState.IsRunning)
+                {
+                    appState.AppendNotification(_timeProvider.GetUtcNow(),
+                        NotificationSeverity.Warning, "Cannot solve & sync while a session is running");
+                    appState.NeedsRedraw = true;
+                    return;
+                }
+                if (appState.ActiveProfile is not { Data: { } pdata } profile
+                    || pdata.Mount is not { Scheme: not "none" } mountUri)
+                {
+                    appState.AppendNotification(_timeProvider.GetUtcNow(),
+                        NotificationSeverity.Warning, "No mount configured in the active profile");
+                    appState.NeedsRedraw = true;
+                    return;
+                }
+                if (appState.DeviceHub is not { } hub
+                    || !hub.TryGetConnectedDriver<IMountDriver>(mountUri, out var mount)
+                    || mount is null)
+                {
+                    appState.AppendNotification(_timeProvider.GetUtcNow(),
+                        NotificationSeverity.Warning, "Mount is not connected \u2014 connect it from the Equipment tab first");
+                    appState.NeedsRedraw = true;
+                    return;
+                }
+                if (pdata.OTAs is not { Length: > 0 } otas || sig.OtaIndex >= otas.Length)
+                {
+                    appState.AppendNotification(_timeProvider.GetUtcNow(),
+                        NotificationSeverity.Warning, "No OTA configured in the active profile");
+                    appState.NeedsRedraw = true;
+                    return;
+                }
+                var ota = otas[sig.OtaIndex];
+                if (!hub.TryGetConnectedDriver<ICameraDriver>(ota.Camera, out var camera) || camera is null)
+                {
+                    appState.AppendNotification(_timeProvider.GetUtcNow(),
+                        NotificationSeverity.Warning, "Camera not connected");
+                    appState.NeedsRedraw = true;
+                    return;
+                }
+
+                // Optional per-OTA devices for FITS denorm stamping (same as TakePreview).
+                IFocuserDriver? ssFocuser = null;
+                if (ota.Focuser is { } ssFocUri
+                    && hub.TryGetConnectedDriver<IFocuserDriver>(ssFocUri, out var ssFocDrv))
+                {
+                    ssFocuser = ssFocDrv;
+                }
+                IFilterWheelDriver? ssFilterWheel = null;
+                if (ota.FilterWheel is { } ssFwUri
+                    && hub.TryGetConnectedDriver<IFilterWheelDriver>(ssFwUri, out var ssFwDrv))
+                {
+                    ssFilterWheel = ssFwDrv;
+                }
+
+                // Mirror the preview-capture progress UI while the solve frame exposes.
+                if (sig.OtaIndex < liveSessionState.PreviewCapturing.Length)
+                {
+                    liveSessionState.PreviewCapturing[sig.OtaIndex] = true;
+                    liveSessionState.PreviewCaptureStart[sig.OtaIndex] = _timeProvider.GetUtcNow();
+                    liveSessionState.PreviewExposureDuration[sig.OtaIndex] = TimeSpan.FromSeconds(sig.ExposureSeconds);
+                }
+                appState.StatusMessage = "Solve & sync\u2026";
+                appState.NeedsRedraw = true;
+
+                var capturedSig = sig;
+                var capturedMount = mount;
+                var capturedCamera = camera;
+                var capturedProfile = profile;
+                var capturedOta = ota;
+                tracker.Run(async () =>
+                {
+                    try
+                    {
+                        var outcome = await MountActions.SolveAndSyncAsync(
+                            capturedMount, capturedCamera,
+                            capturedOta.Name, capturedOta.FocalLength, capturedOta.Aperture,
+                            ssFocuser, ssFilterWheel,
+                            sp.GetRequiredService<ICelestialObjectDB>(),
+                            sp.GetRequiredService<IPlateSolverFactory>(),
+                            capturedProfile, _timeProvider,
+                            TimeSpan.FromSeconds(capturedSig.ExposureSeconds),
+                            capturedSig.Gain is { } g ? (short)g : null,
+                            capturedSig.Binning,
+                            logger, cts.Token);
+
+                        // Stash the solve frame into the preview slot (ownership transfer from
+                        // the outcome; release the previous occupant so its ChannelBuffer drops).
+                        if (outcome.CapturedImage is { } image
+                            && capturedSig.OtaIndex < liveSessionState.LastCapturedImages.Length)
+                        {
+                            liveSessionState.LastCapturedImages[capturedSig.OtaIndex]?.Release();
+                            liveSessionState.LastCapturedImages[capturedSig.OtaIndex] = image;
+                        }
+                        else
+                        {
+                            outcome.CapturedImage?.Release();
+                        }
+                        if (outcome.SolveResult is { } solveResult)
+                        {
+                            liveSessionState.PreviewPlateSolveResult = solveResult;
+                        }
+
+                        var severity = outcome.Result == MountActions.SolveSyncResult.Synced
+                            ? NotificationSeverity.Info
+                            : NotificationSeverity.Warning;
+                        appState.AppendNotification(_timeProvider.GetUtcNow(), severity, outcome.StatusMessage);
+                    }
+                    catch (OperationCanceledException oce)
+                    {
+                        // Shutdown / explicit cancel - log so a mid-solve abort stays traceable.
+                        logger.LogDebug(oce, "Solve & sync cancelled");
+                    }
+                    catch (Exception ex)
+                    {
+                        logger.LogWarning(ex, "Solve & sync failed");
+                        appState.AppendNotification(_timeProvider.GetUtcNow(),
+                            NotificationSeverity.Error, $"Solve & sync failed: {ex.Message}");
+                    }
+                    finally
+                    {
+                        if (capturedSig.OtaIndex < liveSessionState.PreviewCapturing.Length)
+                        {
+                            liveSessionState.PreviewCapturing[capturedSig.OtaIndex] = false;
+                        }
+                        skyMapState.NeedsRedraw = true;
+                        liveSessionState.NeedsRedraw = true;
+                        appState.NeedsRedraw = true;
+                    }
+                }, "SolveAndSync");
+            });
+
             // ---------------------------------------------------------------
             // Wire equipment text input callbacks
             // ---------------------------------------------------------------
@@ -1822,6 +1967,17 @@ namespace TianWen.UI.Abstractions
                         if (msg is not null)
                         {
                             appState.AppendNotification(_timeProvider.GetUtcNow(), severity, msg);
+                            appState.NeedsRedraw = true;
+                        }
+                    };
+
+                    // Surface guider star-loss / recovery transitions in the notification feed.
+                    // Mapping lives in GuiderActions; silent for ordinary state churn.
+                    session.GuiderStateChanged += (_, e) =>
+                    {
+                        if (GuiderActions.NotificationForGuiderTransition(e.OldState, e.NewState) is { } n)
+                        {
+                            appState.AppendNotification(_timeProvider.GetUtcNow(), n.Severity, n.Message);
                             appState.NeedsRedraw = true;
                         }
                     };

@@ -82,6 +82,70 @@ public class SkywatcherProtocolTests
 
     #endregion
 
+    #region Motion Mode (:G)
+
+    // All 16 payloads pinned against GSServer Commands.SetMotionMode (func 0-3 ×
+    // forward/reverse × north/south). Cross-checked against recorded GSS wire
+    // transcripts in Data/gss-oracle-transcripts.json (see SkywatcherGssOracleTests).
+    [Theory] // func passed as int: the internal enum cannot appear in a public test signature
+    [InlineData(0, true, false, "00")]  // HighSpeedGoto
+    [InlineData(0, false, false, "01")]
+    [InlineData(0, true, true, "02")]
+    [InlineData(0, false, true, "03")]
+    [InlineData(1, true, false, "10")]  // LowSpeedSlew (tracking/guiding)
+    [InlineData(1, false, false, "11")]
+    [InlineData(1, true, true, "12")]
+    [InlineData(1, false, true, "13")]
+    [InlineData(2, true, false, "20")]  // LowSpeedGoto
+    [InlineData(2, false, false, "21")]
+    [InlineData(2, true, true, "22")]
+    [InlineData(2, false, true, "23")]
+    [InlineData(3, true, false, "30")]  // HighSpeedSlew
+    [InlineData(3, false, false, "31")]
+    [InlineData(3, true, true, "32")]
+    [InlineData(3, false, true, "33")]
+    public void EncodeMotionMode_MatchesGssWireFormat(int func, bool forward, bool south, string expected)
+    {
+        SkywatcherProtocol.EncodeMotionMode((SkywatcherMotionFunc)func, forward, south).ShouldBe(expected);
+    }
+
+    [Theory]
+    [InlineData("00")]
+    [InlineData("11")]
+    [InlineData("22")]
+    [InlineData("33")]
+    [InlineData("13")]
+    public void EncodeDecodeMotionMode_Roundtrip(string payload)
+    {
+        SkywatcherProtocol.TryDecodeMotionMode(payload.AsSpan(), out var func, out var forward, out var south).ShouldBeTrue();
+        SkywatcherProtocol.EncodeMotionMode(func, forward, south).ShouldBe(payload);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("1")]
+    [InlineData("40")] // func out of range
+    [InlineData("14")] // dir out of range
+    public void TryDecodeMotionMode_InvalidPayload_ReturnsFalse(string payload)
+    {
+        SkywatcherProtocol.TryDecodeMotionMode(payload.AsSpan(), out _, out _, out _).ShouldBeFalse();
+    }
+
+    [Fact]
+    public void MotionFunc_SpeedBitInvertsBetweenGotoAndSlew()
+    {
+        SkywatcherMotionFunc.HighSpeedGoto.IsGoto.ShouldBeTrue();
+        SkywatcherMotionFunc.HighSpeedGoto.IsHighSpeed.ShouldBeTrue();
+        SkywatcherMotionFunc.LowSpeedSlew.IsGoto.ShouldBeFalse();
+        SkywatcherMotionFunc.LowSpeedSlew.IsHighSpeed.ShouldBeFalse();
+        SkywatcherMotionFunc.LowSpeedGoto.IsGoto.ShouldBeTrue();
+        SkywatcherMotionFunc.LowSpeedGoto.IsHighSpeed.ShouldBeFalse();
+        SkywatcherMotionFunc.HighSpeedSlew.IsGoto.ShouldBeFalse();
+        SkywatcherMotionFunc.HighSpeedSlew.IsHighSpeed.ShouldBeTrue();
+    }
+
+    #endregion
+
     #region Speed Formula
 
     [Fact]

@@ -135,14 +135,20 @@ public static class CameraExposureActions
 
         // Per-exposure: refresh Target from mount pointing (only when caller
         // supplies a target name -- imaging session manages Target via
-        // scheduling and must not have it stomped here).
+        // scheduling and must not have it stomped here). Target is a J2000
+        // quantity, so the native (typically JNOW) pointing is frame-converted.
         if (mount is not null && targetName is not null)
         {
             try
             {
-                var ra = await mount.GetRightAscensionAsync(ct).ConfigureAwait(false);
-                var dec = await mount.GetDeclinationAsync(ct).ConfigureAwait(false);
-                camera.Target = new Target(ra, dec, targetName, null);
+                if (await mount.GetRaDecJ2000Async(ct).ConfigureAwait(false) is { } pointing)
+                {
+                    camera.Target = new Target(pointing.RaJ2000, pointing.DecJ2000, targetName, null);
+                }
+                else
+                {
+                    logger?.LogDebug("StampDenorm: mount pointing unavailable in J2000 (transform unavailable), Target not stamped");
+                }
             }
             catch (Exception ex)
             {

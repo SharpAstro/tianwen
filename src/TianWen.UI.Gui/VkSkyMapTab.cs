@@ -56,7 +56,17 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
     // whole list (grid walk + hundreds of List/HashSet allocs) on every mouse-move.
     // At narrow FOV we keep viewMatrix in the key because the scan bounds depend
     // on it; at narrow FOV the scan is bounded and rebuild cost is already small.
-    private Matrix4x4 _overlayViewKey;
+    // Phase A (candidate gather) cache key. The view contribution is the UNPROJECTED
+    // view centre QUANTIZED to FOV/8 cells plus the FOV quantized to ~10% steps -- NOT
+    // the exact view matrix. A drag/pan or wheel zoom therefore only invalidates the
+    // cache when the centre crosses a quantization cell (or the zoom moves ~10%), and
+    // the gather's scan margin (see GatherSkyMapOverlayCandidates) guarantees the
+    // cached candidate set still covers every view inside the cell. Keying on the raw
+    // matrix made the expensive catalog grid scan re-run on EVERY pan frame below the
+    // wide-FOV threshold -- the "jank when the SCP comes into view at ~70 deg FOV"
+    // (pole-in-view scans a full-RA Dec strip, the worst case).
+    private double _overlayCentreRaKey = double.NaN;
+    private double _overlayCentreDecKey = double.NaN;
     private double _overlayFovKey = -1.0;
     private int _overlayRectWKey, _overlayRectHKey;
     private float _overlayDpiKey;
@@ -237,26 +247,55 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
         var rectH = (int)contentRect.Height;
 
         // Phase A cache hit: when FOV >= 90 deg the scan bounds are the whole sphere
-        // so the candidate list is independent of viewMatrix. Below that threshold the
-        // scan bounds are derived from the current view matrix, so it stays in the key.
+        // so the candidate list is independent of the view. Below that threshold the
+        // view contributes a QUANTIZED centre + FOV (see the key fields' comment):
+        // panning only re-runs the expensive catalog grid scan when the centre crosses
+        // a FOV/8 cell, and the gather's widened scan margin keeps the cached set
+        // valid for every view inside the cell. Phase B's per-frame projection culls
+        // off-screen candidates, so correctness is unaffected between rebuilds.
         var wideFov = fov >= WideFovThresholdDeg;
         var showDarkNebulae = State.ShowDarkNebulae;
+
+        // ~10% logarithmic FOV steps: zoom rebuilds a handful of times across a 2x
+        // range instead of once per wheel tick. The magnitude cutoffs the gather
+        // derives from FOV drift by at most ~10% before a rebuild picks them up --
+        // visually indistinguishable.
+        var quantFov = Math.Pow(1.1, Math.Round(Math.Log(Math.Max(fov, 0.1)) / Math.Log(1.1)));
+
+        var centreX = contentRect.X + contentRect.Width * 0.5f;
+        var centreY = contentRect.Y + contentRect.Height * 0.5f;
+        var pprKey = SkyMapProjection.PixelsPerRadian(contentRect.Height, fov);
+        var (centreRa, centreDec) = SkyMapProjection.UnprojectWithMatrix(
+            centreX, centreY, viewMatrix, pprKey, centreX, centreY);
+        // Quantize the centre to FOV/8 cells. The RA step widens by 1/cos(dec)
+        // (clamped) so cells stay roughly square on the sky; near the pole RA
+        // quantization is meaningless anyway -- the gather sweeps the full 24h there.
+        var quantStepDeg = fov / 8.0;
+        var quantDec = Math.Round(centreDec / quantStepDeg) * quantStepDeg;
+        var cosDec = Math.Max(Math.Abs(Math.Cos(quantDec * Math.PI / 180.0)), 0.05);
+        var quantStepRaHours = quantStepDeg / 15.0 / cosDec;
+        var quantRa = Math.Round(centreRa / quantStepRaHours) * quantStepRaHours;
+        var centreValid = !double.IsNaN(quantRa) && !double.IsNaN(quantDec);
+
         var cacheHit = ReferenceEquals(db, _overlayDbKey)
-            && fov == _overlayFovKey
+            && quantFov == _overlayFovKey
             && rectW == _overlayRectWKey
             && rectH == _overlayRectHKey
             && dpiScale == _overlayDpiKey
             && showAllOverlays == _overlayShowAllKey
             && showDarkNebulae == _overlayShowDarkNebKey
             && proposals == _overlayProposalsKey
-            && (wideFov || viewMatrix.Equals(_overlayViewKey));
+            && (wideFov || (centreValid
+                            && quantRa == _overlayCentreRaKey
+                            && quantDec == _overlayCentreDecKey));
 
         if (!cacheHit)
         {
             RebuildOverlayCandidates(db, contentRect, dpiScale, proposals, showAllOverlays, showDarkNebulae);
             _overlayDbKey = db;
-            _overlayViewKey = viewMatrix;
-            _overlayFovKey = fov;
+            _overlayCentreRaKey = centreValid ? quantRa : double.NaN; // NaN never equals -> rebuild next frame
+            _overlayCentreDecKey = centreValid ? quantDec : double.NaN;
+            _overlayFovKey = quantFov;
             _overlayRectWKey = rectW;
             _overlayRectHKey = rectH;
             _overlayDpiKey = dpiScale;
@@ -581,6 +620,19 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
         DrawReticleLabel(coordsText, fontPath, fontSize * 0.9f,
             new RGBAColor32(color.Red, color.Green, color.Blue, (byte)(color.Alpha * 0.8f)),
             screenX, screenY + 20f * dpiScale + lineH, lineH);
+
+        // Clickable region over the reticle: opens the mount info panel (with its
+        // Solve & Sync button) - same UX rule as the fixed markers, the click only
+        // selects, the button acts. The reported position is the BELIEVED (encoder)
+        // pointing; Solve & Sync is how the marker is brought back to the truth.
+        var hitSize = 44f * dpiScale;
+        var capturedName = mountOverlay.DisplayName;
+        var capturedRA = mountOverlay.RaJ2000;
+        var capturedDec = mountOverlay.DecJ2000;
+        RegisterClickable(screenX - hitSize * 0.5f, screenY - hitSize * 0.5f, hitSize, hitSize,
+            new HitResult.ButtonHit("SkyMapMountReticle"),
+            _ => PostSignal(new SkyMapShowMountInfoSignal(
+                capturedName, capturedRA, capturedDec)));
     }
 
     /// <summary>

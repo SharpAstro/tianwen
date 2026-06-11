@@ -25,6 +25,7 @@ public sealed class SessionConfigApiDto
     public double? DefaultSubExposureSeconds { get; init; }
     public float? ConditionDeteriorationThreshold { get; init; }
     public double? ConditionRecoveryTimeoutMinutes { get; init; }
+    public double? GuiderRecoveryGraceMinutes { get; init; }
 
     /// <summary>
     /// Builds a <see cref="SessionConfiguration"/> by overlaying set fields onto defaults.
@@ -61,6 +62,9 @@ public sealed class SessionConfigApiDto
             ConditionRecoveryTimeout = ConditionRecoveryTimeoutMinutes.HasValue
                 ? TimeSpan.FromMinutes(ConditionRecoveryTimeoutMinutes.Value)
                 : defaults.ConditionRecoveryTimeout,
+            GuiderRecoveryGrace = GuiderRecoveryGraceMinutes.HasValue
+                ? TimeSpan.FromMinutes(GuiderRecoveryGraceMinutes.Value)
+                : defaults.GuiderRecoveryGrace,
         };
     }
 
@@ -83,6 +87,7 @@ public sealed class SessionConfigApiDto
             DefaultSubExposureSeconds = config.DefaultSubExposure?.TotalSeconds,
             ConditionDeteriorationThreshold = config.ConditionDeteriorationThreshold,
             ConditionRecoveryTimeoutMinutes = config.ConditionRecoveryTimeout?.TotalMinutes,
+            GuiderRecoveryGraceMinutes = config.GuiderRecoveryGrace?.TotalMinutes,
         };
     }
 }

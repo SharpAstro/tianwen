@@ -203,14 +203,16 @@ internal partial record Session
             return false;
         }
 
-        // Update camera targets with current mount position for FITS headers and synthetic star rendering
-        var zenithRa = await ResilientInvokeAsync(
-            mount.Driver, mount.Driver.GetRightAscensionAsync,
-            ResilientCallOptions.IdempotentRead, cancellationToken);
-        var zenithDec = await ResilientInvokeAsync(
-            mount.Driver, mount.Driver.GetDeclinationAsync,
-            ResilientCallOptions.IdempotentRead, cancellationToken);
-        var zenithTarget = new Target(zenithRa, zenithDec, "Zenith", null);
+        // Update camera targets with current mount position for FITS headers and synthetic star
+        // rendering. Target is a J2000 quantity, so convert from the mount's native frame.
+        if (await ResilientInvokeAsync(
+                mount.Driver, ct => mount.Driver.GetRaDecJ2000Async(ct),
+                ResilientCallOptions.IdempotentRead, cancellationToken) is not { } zenithJ2000)
+        {
+            _logger.LogError("RoughFocus: could not read mount pointing in J2000 (transform unavailable).");
+            return false;
+        }
+        var zenithTarget = new Target(zenithJ2000.RaJ2000, zenithJ2000.DecJ2000, "Zenith", null);
         for (var i = 0; i < Setup.Telescopes.Length; i++)
         {
             var cam = Setup.Telescopes[i].Camera.Driver;
@@ -767,12 +769,20 @@ internal partial record Session
         // misalignment the mount hasn't been synced out yet -- which is what
         // makes plate-solve centering able to measure and correct the offset;
         // and (2) the plate-solve search hint below (re-used, no second read).
-        var mountRa = await ResilientInvokeAsync(
-            mount.Driver, mount.Driver.GetRightAscensionAsync,
-            ResilientCallOptions.IdempotentRead, cancellationToken);
-        var mountDec = await ResilientInvokeAsync(
-            mount.Driver, mount.Driver.GetDeclinationAsync,
-            ResilientCallOptions.IdempotentRead, cancellationToken);
+        // Both consumers are J2000 quantities, so the native (typically JNOW)
+        // pointing must be frame-converted: comparing a raw topocentric read
+        // against the solver's J2000 result bakes ~22' of precession (epoch
+        // 2026) into the centering loop, which then syncs/re-slews forever
+        // without converging.
+        if (await ResilientInvokeAsync(
+                mount.Driver, ct => mount.Driver.GetRaDecJ2000Async(ct),
+                ResilientCallOptions.IdempotentRead, cancellationToken) is not { } mountJ2000)
+        {
+            _logger.LogWarning("Plate solve: could not read mount pointing in J2000 (transform unavailable), skipping.");
+            RecordPlateSolve(context, telescope.Name, succeeded: false, solution: null, elapsed: TimeSpan.Zero);
+            return (false, double.NaN, double.NaN);
+        }
+        var (mountRa, mountDec) = mountJ2000;
 
         // The mount-pointing stamp below is only needed so the (fake) camera
         // renders THIS centering frame at the actual pointing; on a real camera

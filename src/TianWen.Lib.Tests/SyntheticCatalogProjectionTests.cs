@@ -189,4 +189,45 @@ public class SyntheticCatalogProjectionTests(ITestOutputHelper output)
                 $"{label}: projection over-reported");
         }
     }
+
+    /// <summary>
+    /// The camera-roll parameter must rotate the projected field rigidly around the sensor
+    /// centre: in centre-relative coordinates (u, v) = (halfW - x, halfH - y) a roll of θ maps
+    /// (u, v) → (u·cosθ − v·sinθ, u·sinθ + v·cosθ). Verified star-by-star at θ = 90° against
+    /// the unrotated projection, matching stars by their catalog RA/Dec identity. The fake
+    /// guide camera uses this to model a camera that is not mounted north-up.
+    /// </summary>
+    [Fact]
+    public async Task GivenCameraRollThenProjectionRotatesRigidlyAroundSensorCentre()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var db = await InitDBAsync(ct);
+
+        const int Width = 1000;
+        const int Height = 1000;
+        var unrotated = SyntheticStarFieldRenderer.ProjectCatalogStars(6.0, 45.0, 600, 3.76, Width, Height, db, 12.0);
+        var rotated = SyntheticStarFieldRenderer.ProjectCatalogStars(6.0, 45.0, 600, 3.76, Width, Height, db, 12.0, rotationDeg: 90.0);
+
+        unrotated.ShouldNotBeEmpty();
+        var rotatedByStar = rotated.ToDictionary(s => (s.RA, s.Dec));
+
+        var compared = 0;
+        foreach (var s in unrotated)
+        {
+            if (!rotatedByStar.TryGetValue((s.RA, s.Dec), out var r))
+            {
+                continue; // rotated out of the sensor bounds (square sensor corners differ)
+            }
+
+            var u = Width / 2.0 - s.PixelX;
+            var v = Height / 2.0 - s.PixelY;
+            // θ = 90°: (u', v') = (−v, u)
+            (Width / 2.0 - r.PixelX).ShouldBe(-v, 1e-6);
+            (Height / 2.0 - r.PixelY).ShouldBe(u, 1e-6);
+            compared++;
+        }
+
+        output.WriteLine($"compared {compared} stars ({unrotated.Count} unrotated, {rotated.Count} rotated)");
+        compared.ShouldBeGreaterThan(5, "enough stars must land in both projections for the check to be meaningful");
+    }
 }
