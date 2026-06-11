@@ -110,6 +110,23 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
     private volatile bool _snapActive;
     internal bool IsSnapActive => _snapActive;
 
+    // EQMOD-style iterative-goto refinement state (see IsSlewingAsync). The RA target
+    // steps of a goto encode the hour angle at COMMAND time, so a long slew lands late
+    // by the slew duration of sidereal motion (~9' for a multi-hour swing). EQMOD closes
+    // this by re-issuing short refinement gotos until the residual is inside tolerance;
+    // we mirror that so a slew genuinely ARRIVES at the commanded sky position and a
+    // J2000 slew -> J2000 readback round-trips. NaN RA = no goto pending.
+    private double _gotoTargetRa = double.NaN;
+    private double _gotoTargetDec;
+    private int _gotoRefineAttempts;
+    private int _gotoRefineInFlight; // Interlocked gate: concurrent IsSlewing pollers must not double-issue the refinement goto
+
+    /// <summary>Residual pointing error above which a completed goto is refined with another pass.</summary>
+    private const double GotoRefineToleranceArcsec = 30.0;
+
+    /// <summary>Refinement pass cap; each pass shrinks the residual by the ratio of pass-to-initial slew duration.</summary>
+    private const int MaxGotoRefineAttempts = 2;
+
     #region Capabilities
 
     public bool CanSetTracking => true;
@@ -293,8 +310,54 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
         {
             Logger.LogDebug("IsSlewingAsync=true: RA(running={RaRun},tracking={RaTrk}) Dec(running={DecRun},tracking={DecTrk})",
                 statusRa.IsRunning, statusRa.IsTracking, statusDec.IsRunning, statusDec.IsTracking);
+            return true;
         }
-        return result;
+
+        // EQMOD-style iterative goto: the axes have stopped, but if a goto is pending
+        // its RA target steps went stale by the slew duration of sidereal motion (see
+        // _gotoTargetRa). Re-issue short refinement gotos from this completion-detection
+        // point (the poll-based protocol has no arrival callback) until the residual is
+        // inside tolerance or the attempt cap is reached. While a refinement is in
+        // flight the mount keeps reporting "slewing", so callers' wait-for-completion
+        // loops remain correct without changes.
+        if (!double.IsNaN(_gotoTargetRa))
+        {
+            if (Interlocked.CompareExchange(ref _gotoRefineInFlight, 1, 0) != 0)
+            {
+                // Another poller is already evaluating/issuing the refinement.
+                return true;
+            }
+            try
+            {
+                if (_gotoRefineAttempts < MaxGotoRefineAttempts)
+                {
+                    var raNow = await GetRightAscensionAsync(cancellationToken);
+                    var decNow = await GetDeclinationAsync(cancellationToken);
+                    var dRaHours = _gotoTargetRa - raNow;
+                    if (dRaHours > 12.0) dRaHours -= 24.0;
+                    else if (dRaHours < -12.0) dRaHours += 24.0;
+                    var cosDec = Math.Cos(_gotoTargetDec * Math.PI / 180.0);
+                    var raErrArcsec = dRaHours * 15.0 * 3600.0 * cosDec;
+                    var decErrArcsec = (_gotoTargetDec - decNow) * 3600.0;
+                    var errArcsec = Math.Sqrt(raErrArcsec * raErrArcsec + decErrArcsec * decErrArcsec);
+                    if (errArcsec > GotoRefineToleranceArcsec)
+                    {
+                        _gotoRefineAttempts++;
+                        Logger.LogInformation(
+                            "Iterative goto refinement {Attempt}/{Max}: residual {Err:F1}\" -> re-slewing to RA={Ra:F4}h Dec={Dec:F4}",
+                            _gotoRefineAttempts, MaxGotoRefineAttempts, errArcsec, _gotoTargetRa, _gotoTargetDec);
+                        await SlewToRaDecCoreAsync(_gotoTargetRa, _gotoTargetDec, cancellationToken);
+                        return true;
+                    }
+                }
+                _gotoTargetRa = double.NaN; // arrived (or attempts exhausted) -- goto complete
+            }
+            finally
+            {
+                Interlocked.Exchange(ref _gotoRefineInFlight, 0);
+            }
+        }
+        return false;
     }
 
     public virtual async ValueTask BeginSlewRaDecAsync(double ra, double dec, CancellationToken cancellationToken)
@@ -304,6 +367,23 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
             throw new InvalidOperationException("Mount not initialized");
         }
 
+        // Arm the iterative-goto refinement (see IsSlewingAsync) BEFORE the first pass
+        // so a poll racing the slew start still sees the pending target.
+        _gotoTargetRa = ra;
+        _gotoTargetDec = dec;
+        _gotoRefineAttempts = 0;
+
+        await SlewToRaDecCoreAsync(ra, dec, cancellationToken);
+    }
+
+    /// <summary>
+    /// One goto pass: stop both axes, refresh encoders, issue the :G/:H/:M/:J sequence
+    /// for the delta to (<paramref name="ra"/>, <paramref name="dec"/>). Shared by
+    /// <see cref="BeginSlewRaDecAsync"/> (which arms the refinement state) and the
+    /// refinement passes in <see cref="IsSlewingAsync"/> (which must not re-arm it).
+    /// </summary>
+    private async ValueTask SlewToRaDecCoreAsync(double ra, double dec, CancellationToken cancellationToken)
+    {
         // Stop both axes and wait for FullStop: :K only STARTS a deceleration, and
         // real firmware rejects the goto's :G with !2 until the motor has stopped.
         // _isTracking (tracking DESIRED) is deliberately left alone — the firmware
@@ -370,6 +450,9 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
 
     public async ValueTask AbortSlewAsync(CancellationToken cancellationToken)
     {
+        // Disarm any pending iterative-goto refinement FIRST -- an abort must not be
+        // followed by a refinement pass chasing the cancelled target.
+        _gotoTargetRa = double.NaN;
         // Instant stop both axes
         await SendCommandAsync('L', '1', null, cancellationToken);
         await SendCommandAsync('L', '2', null, cancellationToken);
@@ -753,6 +836,10 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
 
     public async ValueTask ParkAsync(CancellationToken cancellationToken)
     {
+        // Parking targets a fixed ENCODER position, not a sky position -- disarm any
+        // pending iterative-goto refinement or it would chase the old sky target after
+        // the park slew stops.
+        _gotoTargetRa = double.NaN;
         // Stop both axes (tracking may be running) before the home goto — the goto's
         // :G is rejected with !2 on a moving motor.
         await StopAxisAndWaitAsync('1', cancellationToken);
