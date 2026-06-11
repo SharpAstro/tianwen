@@ -100,7 +100,13 @@ public readonly record struct StartPolarAlignmentSignal(
     int OtaIndex = -1,
     double DeltaRaDeg = 45.0,
     bool UseGuider = false,
-    PolarAlignmentConfiguration? Configuration = null);
+    PolarAlignmentConfiguration? Configuration = null)
+{
+    // Same record-struct trap as SkyMapSolveSyncSignal: a parameterless `new()` would skip
+    // these defaults (OtaIndex 0 not -1, DeltaRaDeg 0 not 45). Route through the primary
+    // ctor so a no-arg construction means "auto-pick OTA, 45 deg sweep" as declared.
+    public StartPolarAlignmentSignal() : this(OtaIndex: -1) { }
+}
 
 /// <summary>
 /// Cancel an in-flight polar-alignment routine. The orchestrator's reverse-axis
@@ -282,7 +288,16 @@ public readonly record struct SkyMapSolveSyncSignal(
     int OtaIndex = 0,
     double ExposureSeconds = 5.0,
     int? Gain = null,
-    short Binning = 1);
+    short Binning = 1)
+{
+    // A record struct's implicit parameterless constructor zero-inits every field and
+    // SKIPS these primary-ctor defaults, so a plain `new SkyMapSolveSyncSignal()` (as the
+    // mount info-panel button posts) would give ExposureSeconds = 0 -> a floored ~10 ms
+    // solve frame, too few stars to plate-solve in sparse fields. Routing the parameterless
+    // ctor through the primary ctor makes the declared defaults actually apply. See the
+    // SignalDefaultsTests guard that fails the build if any signal struct re-introduces this.
+    public SkyMapSolveSyncSignal() : this(OtaIndex: 0) { }
+}
 
 /// <summary>
 /// Set the sky-map viewport directly: recentre on the given J2000 RA/Dec and/or change
