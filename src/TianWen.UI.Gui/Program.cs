@@ -568,6 +568,38 @@ using var debugInspector = DebugInspector.Attach(loop, new DebugInspectorOptions
         s.Set("sessionRunning", ls.IsRunning);
         s.Set("phase", ls.Phase.ToString());
         s.Set("unreadNotifications", appState.UnreadNotificationCount);
+
+        // Sky-map viewport — lets the inspector frame the view deterministically (via the
+        // SkyMapSetView signal) and read back where it landed instead of eyeballing a screenshot.
+        var sky = guiRenderer.SkyMapState;
+        s.Set("mapCenterRaHours", sky.CenterRA);
+        s.Set("mapCenterDec", sky.CenterDec);
+        s.Set("mapFovDeg", sky.FieldOfViewDeg);
+        s.Set("mapMode", sky.Mode.ToString());
+        s.Set("mapShowObjectOverlay", sky.ShowObjectOverlay);
+        s.Set("mapShowDarkNebulae", sky.ShowDarkNebulae);
+
+        // Mount marker (the believed-pointing reticle) — the Solve & Sync witness. After a
+        // sync the believed pointing jumps to truth, so polling this RA/Dec before/after
+        // shows the marker move; the arcmin offset itself surfaces in lastNotification.
+        if (sky.MountOverlay is { } mo)
+        {
+            s.Set("mountConnected", true);
+            s.Set("mountName", mo.DisplayName);
+            s.Set("mountRaJ2000", mo.RaJ2000);
+            s.Set("mountDecJ2000", mo.DecJ2000);
+            s.Set("mountSlewing", mo.IsSlewing);
+            s.Set("mountTracking", mo.IsTracking);
+        }
+        else
+        {
+            s.Set("mountConnected", false);
+        }
+
+        // Newest notification text — where the Solve & Sync arcmin offset, slew results,
+        // and error messages all land. Newest entry is at index 0.
+        var notes = appState.Notifications;
+        s.Set("lastNotification", notes.IsDefaultOrEmpty ? null : notes[0].Message);
     },
     SignalFactories = new Dictionary<string, Action<System.Text.Json.JsonElement>>
     {
@@ -577,6 +609,31 @@ using var debugInspector = DebugInspector.Attach(loop, new DebugInspectorOptions
             IncludeFake: el.TryGetProperty("includeFake", out var f) && f.GetBoolean())),
         ["BuildSchedule"] = _ => bus.Post(new BuildScheduleSignal()),
         ["StartSession"] = _ => bus.Post(new StartSessionSignal()),
+
+        // Sky-map view control: frame the map deterministically (on the mount marker, a known
+        // position) without synthesising drag/scroll. Every field optional -> partial update.
+        ["SkyMapSetView"] = el => bus.Post(new SkyMapSetViewSignal(
+            CenterRaHours: el.OptDouble("centerRaHours"),
+            CenterDecDeg: el.OptDouble("centerDec"),
+            FieldOfViewDeg: el.OptDouble("fovDeg"),
+            ShowObjectOverlay: el.OptBool("showObjectOverlay"),
+            ShowDarkNebulae: el.OptBool("showDarkNebulae"))),
+
+        // Solve & Sync: capture -> plate-solve -> sync the mount to truth. Gated handler-side
+        // (no session running, sync-capable mount + camera connected). The arcmin offset lands
+        // in lastNotification; the mount marker (mountRaJ2000/Dec) jumps after the sync.
+        ["SkyMapSolveSync"] = el => bus.Post(new SkyMapSolveSyncSignal(
+            OtaIndex: el.OptInt("otaIndex") ?? 0,
+            ExposureSeconds: el.OptDouble("exposureSeconds") ?? 5.0,
+            Gain: el.OptInt("gain"),
+            Binning: (short)(el.OptInt("binning") ?? 1))),
+
+        // Single transient preview exposure into the mini viewer (no disk write).
+        ["TakePreview"] = el => bus.Post(new TakePreviewSignal(
+            OtaIndex: el.OptInt("otaIndex") ?? 0,
+            ExposureSeconds: el.OptDouble("exposureSeconds") ?? 1.0,
+            Gain: el.OptInt("gain"),
+            Binning: (short)(el.OptInt("binning") ?? 1))),
     },
 });
 #endif

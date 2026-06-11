@@ -471,10 +471,5 @@ public static class SkyMapSearchActions
         => db.TryGetShape(idx, out var shape) ? shape : null;
 
     private static void SlewTo(SkyMapState skyMap, double raHours, double decDeg)
-    {
-        skyMap.CenterRA = raHours;
-        skyMap.CenterDec = decDeg;
-        skyMap.NormalizeCenter();
-        skyMap.NeedsRedraw = true;
-    }
+        => SkyMapViewActions.CenterOn(skyMap, raHours, decDeg);
 }

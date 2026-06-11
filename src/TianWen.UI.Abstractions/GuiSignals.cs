@@ -283,3 +283,25 @@ public readonly record struct SkyMapSolveSyncSignal(
     double ExposureSeconds = 5.0,
     int? Gain = null,
     short Binning = 1);
+
+/// <summary>
+/// Set the sky-map viewport directly: recentre on the given J2000 RA/Dec and/or change
+/// the field of view, and optionally flip overlay layers. Every field is nullable so a
+/// caller can do a partial update (e.g. just the FOV). Primarily a programmatic control
+/// seam for the DEBUG inspector - it lets an agent frame the view deterministically (on
+/// the mount marker, on a known sky position) without synthesising drag/scroll gestures,
+/// which is what makes a scripted Solve &amp; Sync / jank-measurement loop possible. Routed
+/// to <c>SkyMapViewActions.SetView</c>; the handler is route-only (just mutates
+/// <see cref="SkyMapState"/> and flags a redraw).
+/// </summary>
+/// <param name="CenterRaHours">New viewport-centre RA in hours (J2000), [0, 24). Null leaves it unchanged.</param>
+/// <param name="CenterDecDeg">New viewport-centre Dec in degrees (J2000). Null leaves it unchanged.</param>
+/// <param name="FieldOfViewDeg">New vertical FOV in degrees; clamped to [0.5, 180]. Null leaves it unchanged.</param>
+/// <param name="ShowObjectOverlay">When set, toggles the catalog object overlay ([O]).</param>
+/// <param name="ShowDarkNebulae">When set, toggles the dark-nebula overlay ([D]).</param>
+public readonly record struct SkyMapSetViewSignal(
+    double? CenterRaHours = null,
+    double? CenterDecDeg = null,
+    double? FieldOfViewDeg = null,
+    bool? ShowObjectOverlay = null,
+    bool? ShowDarkNebulae = null);
