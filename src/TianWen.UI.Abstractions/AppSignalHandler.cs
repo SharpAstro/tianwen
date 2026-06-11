@@ -139,6 +139,34 @@ namespace TianWen.UI.Abstractions
         private int _previewMountInFlight;
         private bool _loggedFirstPreviewMountSample;
 
+        // Mount-reticle poll cadence ramps down instead of snapping straight to the slow
+        // steady rate the instant tracking is detected. Fast while slewing, fast for a
+        // settle window after the mount lands and starts tracking, then relaxing to the
+        // slow steady cadence only once it has tracked undisturbed for that window.
+        // Sidereal tracking is sub-pixel on any sky-map FOV, so the slow cadence is purely
+        // a serial-load saver - the ramp means the reticle never lags a deliberate move by
+        // up to the steady interval. _steadyTrackingSinceTicks holds the timestamp steady
+        // tracking began (0 = not steady); _wasSteadyTracking is last frame's flag for the
+        // transition edge. Both are UI-thread-only - read + written only in the
+        // PollPreviewTelemetry gate, never from tracker continuations.
+        private long _steadyTrackingSinceTicks;
+        private bool _wasSteadyTracking;
+        // Set by RequestPreviewMountRefresh (called from the goto / solve-and-sync tracker
+        // continuations) to force the next poll tick to sample immediately, bypassing the
+        // interval so a deliberate move lands on the reticle within a frame. Volatile
+        // because the setter runs on a background thread while the gate reads it on the UI
+        // thread; consumed (cleared) only once a poll actually starts.
+        private int _forcePreviewMountPoll;
+
+        // Mount-reticle poll intervals (see _steadyTrackingSinceTicks). Slewing keeps up
+        // with visible motion; Settling is the fast post-landing rate held for the settle
+        // window; Steady is the relaxed sidereal rate; Idle covers parked / not-tracking.
+        private static readonly TimeSpan MountPollSlewing = TimeSpan.FromMilliseconds(500);
+        private static readonly TimeSpan MountPollSettling = TimeSpan.FromSeconds(1);
+        private static readonly TimeSpan MountPollSteady = TimeSpan.FromSeconds(10);
+        private static readonly TimeSpan MountPollIdle = TimeSpan.FromSeconds(2);
+        private static readonly TimeSpan MountTrackingSettleWindow = TimeSpan.FromSeconds(10);
+
 
         /// <summary>
         /// Polls connected cameras for cooler/temperature telemetry and appends samples
@@ -331,22 +359,52 @@ namespace TianWen.UI.Abstractions
                 }, $"PreviewTelemetry OTA{capturedIndex}");
             }
 
-            // Mount polling — rate-adaptive on last-known slew/tracking state.
-            // Steady sidereal tracking is ~15 arcsec/s, which is sub-pixel on any sky-map
-            // FOV we support — 10s cadence is sensory-overkill and massively reduces the
-            // baseline hardware load (6 serial reads per tick). Fast 500 ms cadence only
-            // while slewing, so the reticle keeps up with visible motion.
+            // Mount polling - rate-adaptive on last-known slew/tracking state, with a
+            // ramp-down so the reticle stays responsive right after a move. Steady sidereal
+            // tracking is ~15 arcsec/s, which is sub-pixel on any sky-map FOV we support, so
+            // the slow steady cadence is purely a serial-load saver (6 reads per tick). But
+            // snapping straight to it the instant tracking is detected made a freshly-landed
+            // goto / sync lag by up to the steady interval. Instead: fast while slewing, fast
+            // for MountTrackingSettleWindow after the mount lands and starts tracking, then
+            // relaxing to the steady rate only once it has tracked undisturbed that long.
             var prevMount = _liveSessionState.PreviewMountState;
-            var mountInterval = prevMount.IsSlewing
-                ? TimeSpan.FromMilliseconds(500)
-                : prevMount.IsTracking
-                    ? TimeSpan.FromSeconds(10)
-                    : TimeSpan.FromSeconds(2);
+            var steadyNow = prevMount.IsTracking && !prevMount.IsSlewing;
+            if (steadyNow && !_wasSteadyTracking)
+            {
+                _steadyTrackingSinceTicks = nowTicks;   // just entered steady tracking - start the settle clock
+            }
+            else if (!steadyNow)
+            {
+                _steadyTrackingSinceTicks = 0;           // moving or parked - cancel the settle clock
+            }
+            _wasSteadyTracking = steadyNow;
 
-            if (_timeProvider.GetElapsedTime(_previewMountLastTicks, nowTicks) >= mountInterval
+            TimeSpan mountInterval;
+            if (prevMount.IsSlewing)
+            {
+                mountInterval = MountPollSlewing;
+            }
+            else if (steadyNow)
+            {
+                var settledFor = _steadyTrackingSinceTicks != 0
+                    ? _timeProvider.GetElapsedTime(_steadyTrackingSinceTicks, nowTicks)
+                    : TimeSpan.Zero;
+                mountInterval = settledFor >= MountTrackingSettleWindow ? MountPollSteady : MountPollSettling;
+            }
+            else
+            {
+                mountInterval = MountPollIdle;
+            }
+
+            // A forced refresh (deliberate move just issued) bypasses the interval entirely.
+            var forceNow = Volatile.Read(ref _forcePreviewMountPoll) == 1;
+            if ((forceNow || _timeProvider.GetElapsedTime(_previewMountLastTicks, nowTicks) >= mountInterval)
                 && profileData.Mount is { Scheme: not "none" } mountUri
                 && Interlocked.CompareExchange(ref _previewMountInFlight, 1, 0) == 0)
             {
+                // Consume the force flag only once a poll actually starts; if the in-flight
+                // guard above lost (a poll is already running) the flag persists for next frame.
+                Volatile.Write(ref _forcePreviewMountPoll, 0);
                 _previewMountLastTicks = nowTicks;
 
                 _tracker.Run(async () =>
@@ -381,6 +439,17 @@ namespace TianWen.UI.Abstractions
                 }, "PreviewMount");
             }
         }
+
+        /// <summary>
+        /// Forces the next <see cref="PollPreviewTelemetry"/> tick to sample the mount
+        /// immediately, bypassing the cadence interval. Call after a deliberate move (a
+        /// goto kicking off, a solve &amp; sync landing) so the reticle reflects the new
+        /// pointing within a frame instead of waiting out the steady poll interval. The
+        /// in-flight guard still serialises against any poll already running; if one is,
+        /// the request persists until the next free tick. Safe to call from a background
+        /// tracker continuation.
+        /// </summary>
+        private void RequestPreviewMountRefresh() => Volatile.Write(ref _forcePreviewMountPoll, 1);
 
         // De-duplicate the mount-transform-unavailable warning so a misconfigured
         // profile doesn't log once per poll. Reset to null to re-arm when the error
@@ -874,6 +943,15 @@ namespace TianWen.UI.Abstractions
                         // stuck on the kick-off "Slewing to ..." message.
                         if (post == SlewPostCondition.Slewing)
                         {
+                            // Surface the slew destination on the sky map (marker + ETA, the
+                            // latter estimated in the render path from the polled reticle).
+                            // The signal carries J2000 catalog coords, matching the overlay frame.
+                            skyMapState.ActiveSlewTarget = new SlewTargetInfo(
+                                capturedSig.Name, capturedSig.RA, capturedSig.Dec);
+                            skyMapState.SlewEtaSeconds = double.NaN;
+                            // Kick the mount poll so the reticle picks up IsSlewing (and the
+                            // fast slew cadence) this frame instead of up to a steady interval later.
+                            RequestPreviewMountRefresh();
                             var (completion, completionMsg) = await MountActions.AwaitSlewCompletionAsync(
                                 capturedMount, capturedSig.Name, _timeProvider,
                                 logger: logger, cancellationToken: cts.Token);
@@ -897,6 +975,10 @@ namespace TianWen.UI.Abstractions
                     }
                     finally
                     {
+                        // Slew finished (reached / timed out / cancelled / failed): drop the
+                        // destination marker so it doesn't linger after the mount settles.
+                        skyMapState.ActiveSlewTarget = null;
+                        skyMapState.SlewEtaSeconds = double.NaN;
                         skyMapState.NeedsRedraw = true;
                         appState.NeedsRedraw = true;
                     }
@@ -971,6 +1053,13 @@ namespace TianWen.UI.Abstractions
                     appState.NeedsRedraw = true;
                     return;
                 }
+                // Re-entrancy guard: ignore a second click while a solve is already in
+                // flight (the button also shows "Solving ..." and drops its handler, but
+                // a queued signal could still arrive). UI-thread-only read here.
+                if (skyMapState.SolveSyncInProgress)
+                {
+                    return;
+                }
                 if (appState.ActiveProfile is not { Data: { } pdata } profile
                     || pdata.Mount is not { Scheme: not "none" } mountUri)
                 {
@@ -1019,6 +1108,8 @@ namespace TianWen.UI.Abstractions
                 }
 
                 // Mirror the preview-capture progress UI while the solve frame exposes.
+                // ExposureSeconds is now trustworthy even for the button's parameterless
+                // `new SkyMapSolveSyncSignal()` thanks to its explicit parameterless ctor.
                 if (sig.OtaIndex < liveSessionState.PreviewCapturing.Length)
                 {
                     liveSessionState.PreviewCapturing[sig.OtaIndex] = true;
@@ -1026,6 +1117,7 @@ namespace TianWen.UI.Abstractions
                     liveSessionState.PreviewExposureDuration[sig.OtaIndex] = TimeSpan.FromSeconds(sig.ExposureSeconds);
                 }
                 appState.StatusMessage = "Solve & sync\u2026";
+                skyMapState.SolveSyncInProgress = true; // drives the "Solving ..." button label
                 appState.NeedsRedraw = true;
 
                 var capturedSig = sig;
@@ -1088,6 +1180,10 @@ namespace TianWen.UI.Abstractions
                         {
                             liveSessionState.PreviewCapturing[capturedSig.OtaIndex] = false;
                         }
+                        skyMapState.SolveSyncInProgress = false; // re-enable the Solve & Sync button
+                        // A sync doesn't change slew/track state, so the cadence ramp won't
+                        // notice it - force a poll so the reticle jumps to the synced pointing.
+                        RequestPreviewMountRefresh();
                         skyMapState.NeedsRedraw = true;
                         liveSessionState.NeedsRedraw = true;
                         appState.NeedsRedraw = true;

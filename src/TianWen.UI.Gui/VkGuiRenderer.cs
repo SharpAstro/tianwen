@@ -3,6 +3,7 @@ using System.Collections.Immutable;
 using DIR.Lib;
 using Microsoft.Extensions.Logging;
 using SdlVulkan.Renderer;
+using TianWen.Lib.Astrometry;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Sequencing;
 using TianWen.UI.Abstractions;
@@ -476,7 +477,7 @@ namespace TianWen.UI.Gui
                     // own poll path. Session-mode uses the session's own MountState
                     // (already populated at session's PollDeviceStatesAsync cadence);
                     // preview-mode uses PreviewMountState populated by PollPreviewTelemetry.
-                    PopulateSkyMapMountOverlay(appState);
+                    PopulateSkyMapMountOverlay(appState, timeProvider);
                     PopulateSkyMapMosaicPanels(appState, plannerState);
                     PopulateSkyMapScheduleTargets();
                     _skyMapTab.Render(plannerState, contentRect, DpiScale,
@@ -524,7 +525,7 @@ namespace TianWen.UI.Gui
         /// J2000 coords are preferred; native coords are used as a fallback for session
         /// mode which does not yet populate the J2000 fields.
         /// </summary>
-        private void PopulateSkyMapMountOverlay(GuiAppState appState)
+        private void PopulateSkyMapMountOverlay(GuiAppState appState, ITimeProvider timeProvider)
         {
             // Without an actual poll, default(MountState) has all-zero coords -- not
             // NaN -- so a NaN check alone would still draw a phantom reticle at (0h, 0)
@@ -587,6 +588,53 @@ namespace TianWen.UI.Gui
                 IsSlewing: ms.IsSlewing,
                 IsTracking: ms.IsTracking,
                 SensorFovDeg: sensorFov);
+
+            // Refine the slew ETA from the just-read believed position + wall clock. Uses
+            // the position the telemetry poll already produced (raJ2000/decJ2000) rather
+            // than reading the mount again, so it never races PollPreviewTelemetry on the port.
+            UpdateSlewEta(raJ2000, decJ2000, timeProvider);
+        }
+
+        // Render-thread-only ETA tracking for the active slew destination. Observes how
+        // far the reticle has moved toward the target since the slew began and divides the
+        // remaining arc by that rate. NaN until enough motion is seen to be meaningful.
+        private SlewTargetInfo? _etaTrackedTarget;
+        private DateTimeOffset _etaStartUtc;
+        private double _etaStartRemainingDeg;
+
+        private void UpdateSlewEta(double curRaJ2000, double curDecJ2000, ITimeProvider timeProvider)
+        {
+            var target = _skyMapTab.State.ActiveSlewTarget;
+            if (target is null || double.IsNaN(curRaJ2000) || double.IsNaN(curDecJ2000))
+            {
+                _etaTrackedTarget = null;
+                return;
+            }
+
+            var now = timeProvider.GetUtcNow();
+            var remainingDeg = CoordinateUtils.AngularSeparationDeg(
+                curRaJ2000, curDecJ2000, target.RaJ2000, target.DecJ2000);
+
+            // (Re)start the observation window when a new goto sets a fresh target instance.
+            if (!ReferenceEquals(_etaTrackedTarget, target))
+            {
+                _etaTrackedTarget = target;
+                _etaStartUtc = now;
+                _etaStartRemainingDeg = remainingDeg;
+                _skyMapTab.State.SlewEtaSeconds = double.NaN;
+                return;
+            }
+
+            var elapsed = (now - _etaStartUtc).TotalSeconds;
+            var covered = _etaStartRemainingDeg - remainingDeg;
+            // Need a little time + observed motion before a rate estimate is trustworthy.
+            if (elapsed >= 0.75 && covered >= 0.05)
+            {
+                var rateDegPerSec = covered / elapsed;
+                _skyMapTab.State.SlewEtaSeconds = rateDegPerSec > 1e-6
+                    ? Math.Max(0.0, remainingDeg / rateDegPerSec)
+                    : double.NaN;
+            }
         }
 
         /// <summary>
