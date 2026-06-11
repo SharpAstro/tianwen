@@ -157,6 +157,18 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver
     private uint _mountWormStepsRa;     // steps per worm revolution (probed once), 0 = unknown
     private bool _mountWormProbed;      // worm-period probe attempted?
 
+    // Main-camera-only: (true - believed) J2000 pointing delta snapshot taken per
+    // exposure when the coupled mount models hidden alignment errors
+    // (IFakeTruePointingSource). The stamped Target is a believed-pointing quantity
+    // (session/preview stamp it from the mount's public reads), but the sensor sees
+    // the TRUE sky - the render path shifts the catalog projection centre by this
+    // delta so a plate solve of a main frame reveals the hidden cone/polar error
+    // (which is exactly what the centering loop syncs away). Stays (0, 0) for guide
+    // cameras (their projection centre is the live true pointing already), real
+    // mounts, or no coupled mount. Guarded by _lock like the other snapshots.
+    private double _trueMinusBelievedRa;  // J2000 hours
+    private double _trueMinusBelievedDec; // J2000 degrees
+
     /// <summary>
     /// True when this fake camera is the rig's guide camera (its URI names it so).
     /// Reuses the same path convention <see cref="GetPreset"/> keys off to pick the
@@ -789,9 +801,12 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver
                 // here would shift the rendered sky by ~22' of precession at epoch 2026, which
                 // is exactly the offset that wedged plate-solve centering. The transform is
                 // built once and its clock refreshed per exposure (updateTime: true).
+                // The sensor sees the TRUE sky: prefer the fake mount's hidden-error seam
+                // (polar misalignment, post-sync drift) over the public believed read - a
+                // real mount only exposes the believed pointing, where the two coincide.
                 _coupledMountTransform ??= await coupledMount.TryGetTransformAsync(cancellationToken).ConfigureAwait(false);
                 if (_coupledMountTransform is not { } mountTransform
-                    || await coupledMount.GetRaDecJ2000Async(mountTransform, updateTime: true, cancellationToken).ConfigureAwait(false) is not { } pointing)
+                    || await ReadMountPointingJ2000Async(coupledMount, mountTransform, cancellationToken).ConfigureAwait(false) is not { } pointing)
                 {
                     throw new InvalidOperationException("mount pointing unavailable in J2000 (transform unavailable)");
                 }
@@ -848,6 +863,43 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
                 Logger.LogDebug(ex, "FakeCamera: mount pointing read failed; guide star falls back to self-contained drift this frame");
+            }
+        }
+
+        // Fake-only (main imaging camera): snapshot the (true - believed) pointing delta
+        // so the (sync) render path can shift the stamped-Target projection centre to the
+        // TRUE sky the sensor would see (see _trueMinusBelievedRa). Without this, a main
+        // frame would render exactly at the believed pointing and plate solving could
+        // never reveal the mount's hidden cone/polar error. OperationCanceledException
+        // propagates; any other fault leaves the previous delta in place for this frame.
+        if (!IsGuideCamera && FocalLength > 0 && Target is not null
+            && ResolveCoupledMount() is IFakeTruePointingSource trueSource and IMountDriver trueMount)
+        {
+            try
+            {
+                _coupledMountTransform ??= await trueMount.TryGetTransformAsync(cancellationToken).ConfigureAwait(false);
+                if (_coupledMountTransform is { } mountTransform
+                    && await trueMount.GetRaDecJ2000Async(mountTransform, updateTime: true, cancellationToken).ConfigureAwait(false) is { } believed
+                    // Time already refreshed by the believed read; both legs must share the
+                    // same transform epoch or the delta picks up a spurious offset.
+                    && await trueSource.GetTruePointingJ2000Async(mountTransform, updateTime: false, cancellationToken).ConfigureAwait(false) is { } truePointing)
+                {
+                    // Wrap the RA delta into (-12, 12]h so a believed/true pair straddling
+                    // the 0/24h seam never produces a spurious ~24h jump.
+                    var dRaHours = truePointing.RaJ2000 - believed.RaJ2000;
+                    if (dRaHours > 12.0) dRaHours -= 24.0;
+                    else if (dRaHours < -12.0) dRaHours += 24.0;
+                    var dDecDeg = truePointing.DecJ2000 - believed.DecJ2000;
+                    lock (_lock)
+                    {
+                        _trueMinusBelievedRa = dRaHours;
+                        _trueMinusBelievedDec = dDecDeg;
+                    }
+                }
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                Logger.LogDebug(ex, "FakeCamera: true-pointing delta read failed; main frame renders at the stamped Target this frame");
             }
         }
 
@@ -927,21 +979,31 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver
                     var defocus = FocusPosition <= 0 ? 0 : Math.Abs(FocusPosition - TrueBestFocus);
 
                     // Projection centre for the catalog star field. Main imaging cameras render at
-                    // their stamped Target (the session's centering loop plate-solves and re-syncs
-                    // them). The guide camera has no Target: it renders at the coupled mount's LIVE
-                    // pointing (snapshot taken in StartExposureAsync) offset by the guide scope's
-                    // cone error, with the camera's roll angle applied — so the field is correct at
-                    // any pointing and mount drift shows up as field motion automatically. In that
-                    // branch the star offset must be the in-camera part only (PE + ST-4); the
-                    // mount-drift term already lives in the moving projection centre.
+                    // their stamped Target - a believed-pointing quantity - shifted by the
+                    // (true - believed) delta snapshot so the frame shows the TRUE sky including
+                    // the coupled mount's hidden cone/polar error (the session's centering loop
+                    // plate-solves that offset and syncs it away). The guide camera has no Target:
+                    // it renders at the coupled mount's LIVE true pointing (snapshot taken in
+                    // StartExposureAsync) offset by the guide scope's cone error, with the camera's
+                    // roll angle applied - so the field is correct at any pointing and mount drift
+                    // shows up as field motion automatically. In that branch the star offset must
+                    // be the in-camera part only (PE + ST-4); the mount-drift term already lives
+                    // in the moving projection centre.
                     var pointingRa = 0.0;
                     var pointingDec = 0.0;
                     var hasPointing = false;
                     var rotationDeg = 0.0;
                     if (Target is { } target)
                     {
-                        pointingRa = target.RA;
-                        pointingDec = target.Dec;
+                        double trueDeltaRa, trueDeltaDec;
+                        lock (_lock)
+                        {
+                            trueDeltaRa = _trueMinusBelievedRa;
+                            trueDeltaDec = _trueMinusBelievedDec;
+                        }
+                        pointingRa = (target.RA + trueDeltaRa) % 24.0;
+                        if (pointingRa < 0.0) pointingRa += 24.0;
+                        pointingDec = Math.Clamp(target.Dec + trueDeltaDec, -90.0, 90.0);
                         hasPointing = true;
                     }
                     else if (IsGuideCamera)
@@ -1152,6 +1214,18 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver
     /// <see cref="FakeDeviceDriverBase.ServiceProvider"/> so nothing in the session /
     /// shared layer needs to know this fake-only coupling exists.
     /// </summary>
+    /// <summary>
+    /// The mount pointing the SENSOR sees, in J2000: the fake true-pointing seam
+    /// (hidden polar misalignment / post-sync drift) when the coupled mount models
+    /// one, else the public believed read - on real mounts the two coincide by
+    /// definition (the believed read is all that exists).
+    /// </summary>
+    private static ValueTask<(double RaJ2000, double DecJ2000)?> ReadMountPointingJ2000Async(
+        IMountDriver mount, Transform transform, CancellationToken cancellationToken)
+        => mount is IFakeTruePointingSource trueSource
+            ? trueSource.GetTruePointingJ2000Async(transform, updateTime: true, cancellationToken)
+            : mount.GetRaDecJ2000Async(transform, updateTime: true, cancellationToken);
+
     private IMountDriver? ResolveCoupledMount()
     {
         if (_coupledMount is { Connected: true })

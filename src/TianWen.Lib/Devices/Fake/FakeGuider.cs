@@ -525,10 +525,17 @@ internal class FakeGuider(FakeDevice fakeDevice, IServiceProvider serviceProvide
 
         // Write WCS headers from current mount pointing so FakePlateSolver can read them.
         // FITS WCS is a J2000 quantity — convert from the mount's native (typically JNOW) frame.
+        // A plate solve reports the TRUE sky, so prefer the fake mount's hidden-error seam
+        // (polar misalignment / drift) over the public believed read; this is what feeds the
+        // polar-align routine its misalignment signal. Real mounts only have believed reads.
         WCS? wcs = null;
         if (_mount is { Connected: true } mount)
         {
-            var mountJ2000 = await mount.GetRaDecJ2000Async(cancellationToken);
+            var mountJ2000 = mount is IFakeTruePointingSource trueSource
+                ? (await mount.TryGetTransformAsync(cancellationToken) is { } transform
+                    ? await trueSource.GetTruePointingJ2000Async(transform, updateTime: false, cancellationToken)
+                    : null)
+                : await mount.GetRaDecJ2000Async(cancellationToken);
             var ra = double.IsNaN(PointingRA) ? mountJ2000?.RaJ2000 : PointingRA;
             var dec = double.IsNaN(PointingDec) ? mountJ2000?.DecJ2000 : PointingDec;
             if (ra is { } raJ2000 && dec is { } decJ2000)

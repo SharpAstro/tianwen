@@ -492,16 +492,7 @@ public interface IMountDriver : IDeviceDriver
             transform.DateTime = utc;
         }
 
-        transform.SetTopocentric(raNative, decNative);
-        transform.Refresh();
-
-        var raJ2000 = transform.RAJ2000;
-        var decJ2000 = transform.DecJ2000;
-        if (double.IsNaN(raJ2000) || double.IsNaN(decJ2000))
-        {
-            return null;
-        }
-        return (raJ2000, decJ2000);
+        return EquatorialFrameConversion.TopocentricToJ2000(transform, raNative, decNative);
     }
 
     /// <summary>

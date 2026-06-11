@@ -9,7 +9,7 @@ using TianWen.Lib.Devices.Skywatcher;
 
 namespace TianWen.Lib.Devices.Fake;
 
-internal class FakeSkywatcherMountDriver(FakeDevice device, IServiceProvider serviceProvider) : SkywatcherMountDriverBase<FakeDevice>(device, serviceProvider)
+internal class FakeSkywatcherMountDriver(FakeDevice device, IServiceProvider serviceProvider) : SkywatcherMountDriverBase<FakeDevice>(device, serviceProvider), IFakeTruePointingSource
 {
     /// <summary>
     /// Current azimuth misalignment in arcminutes, in the topocentric (horizon)
@@ -44,9 +44,10 @@ internal class FakeSkywatcherMountDriver(FakeDevice device, IServiceProvider ser
     /// Apply a delta to the configured topocentric (az, alt) misalignment in
     /// arcminutes. Used by the polar-align refining UI to simulate the user
     /// twisting alt/az knobs while the routine watches the field drift across
-    /// the pole. The next <see cref="GetRightAscensionAsync"/> /
-    /// <see cref="GetDeclinationAsync"/> call picks up the new values via the
-    /// existing per-call SOFA recompute -- no driver reconnect needed.
+    /// the pole. The next camera frame picks up the new values via
+    /// <see cref="GetTruePointingNativeAsync"/>'s per-call SOFA recompute -- no
+    /// driver reconnect needed. (Public position reads report the believed
+    /// pointing and deliberately never observe the nudge.)
     /// </summary>
     /// <remarks>
     /// Each delta is multiplied by a small random factor in [0.85, 1.05]:
@@ -136,8 +137,8 @@ internal class FakeSkywatcherMountDriver(FakeDevice device, IServiceProvider ser
     /// at COMMAND time, so the believed RA on arrival is the target plus the slew
     /// duration of sidereal motion — anchoring at the commanded target would leave a
     /// permanent slew-duration error in every read (~9' for a long slew). Instead the
-    /// first pointing read after the slew completes captures the believed pointing as
-    /// the anchor (and restarts the drift clock at arrival).
+    /// first true-pointing read (camera frame) after the slew completes captures the
+    /// believed pointing as the anchor (and restarts the drift clock at arrival).
     /// </summary>
     private bool _trackingRefBasePending;
 
@@ -152,40 +153,31 @@ internal class FakeSkywatcherMountDriver(FakeDevice device, IServiceProvider ser
 
     /// <inheritdoc/>
     /// <remarks>
-    /// Applies a topocentric polar-misalignment transform on top of the base
-    /// driver's perfect-alignment RA so the synthesised fake-camera frames
-    /// trace a small circle around an offset axis as the RA encoder rotates.
-    /// The misaligned axis is constructed in the same topocentric frame
-    /// <see cref="PolarAxisSolver.DecomposeAxisError"/> projects into, so the
+    /// The TRUE pointing applies a topocentric polar-misalignment transform on top
+    /// of the base driver's believed (encoder) pointing so the synthesised
+    /// fake-camera frames trace a small circle around an offset axis as the RA
+    /// encoder rotates. The misaligned axis is constructed in the same topocentric
+    /// frame <see cref="PolarAxisSolver.DecomposeAxisError"/> projects into, so the
     /// configured arcmin values round-trip cleanly through the polar-align
     /// routine -- "I dialled in 30', the routine reads 30'".
+    ///
+    /// The public <see cref="SkywatcherMountDriverBase{TDevice}.GetRightAscensionAsync"/> /
+    /// GetDeclinationAsync reads deliberately stay on the base (believed) pointing:
+    /// a real mount's encoders cannot observe their own polar misalignment, so the
+    /// hidden error must only be visible through the camera (plate solving).
+    /// Note: a learned alignment (_alignmentCorrected) does not short-circuit
+    /// here -- it removes the STATIC offset but the residual polar-axis tracking
+    /// drift is still applied inside ComputeMisalignedPointingAsync.
     /// </remarks>
-    public override async ValueTask<double> GetRightAscensionAsync(CancellationToken cancellationToken)
+    public async ValueTask<(double Ra, double Dec)> GetTruePointingNativeAsync(CancellationToken cancellationToken)
     {
         var baseRa = await base.GetRightAscensionAsync(cancellationToken);
-        // Note: a learned alignment (_alignmentCorrected) no longer short-circuits
-        // here -- it removes the STATIC offset but the residual polar-axis tracking
-        // drift is still applied inside ComputeMisalignedPointingAsync.
-        if (!MisalignmentEnabled || CprRa == 0)
-        {
-            return baseRa;
-        }
-        var baseDec = await base.GetDeclinationAsync(cancellationToken);
-        var (raMis, _) = await ComputeMisalignedPointingAsync(baseRa, baseDec, cancellationToken);
-        return raMis;
-    }
-
-    /// <inheritdoc/>
-    public override async ValueTask<double> GetDeclinationAsync(CancellationToken cancellationToken)
-    {
         var baseDec = await base.GetDeclinationAsync(cancellationToken);
         if (!MisalignmentEnabled || CprRa == 0)
         {
-            return baseDec;
+            return (baseRa, baseDec);
         }
-        var baseRa = await base.GetRightAscensionAsync(cancellationToken);
-        var (_, decMis) = await ComputeMisalignedPointingAsync(baseRa, baseDec, cancellationToken);
-        return decMis;
+        return await ComputeMisalignedPointingAsync(baseRa, baseDec, cancellationToken);
     }
 
     /// <inheritdoc/>
@@ -286,8 +278,8 @@ internal class FakeSkywatcherMountDriver(FakeDevice device, IServiceProvider ser
     /// <summary>
     /// Read site parameters, build the misaligned axis in J2000, and project
     /// the perfectly-aligned home pointing through the encoder angle around
-    /// that axis. Pulled out of both overrides so the two-call sequence (RA
-    /// then Dec) doesn't duplicate the per-call SOFA work twice.
+    /// that axis. The single entry point is <see cref="GetTruePointingNativeAsync"/>;
+    /// public position reads never call this (they report the believed pointing).
     /// </summary>
     private async ValueTask<(double Ra, double Dec)> ComputeMisalignedPointingAsync(
         double baseRa, double baseDec, CancellationToken ct)

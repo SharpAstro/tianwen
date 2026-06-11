@@ -328,11 +328,13 @@ public class FakeSkywatcherMountDriverTests(ITestOutputHelper output)
     }
 
     /// <summary>
-    /// Regression: after an away-from-pole sync the misalignment model anchors reported
+    /// Regression: after an away-from-pole sync the misalignment model anchors TRUE
     /// pointing to the sync reference plus time-based drift — and used to FREEZE OUT the
     /// live encoder entirely, making guide pulses invisible in pointing reads (the
     /// guider's calibration measured ~0 displacement and rejected itself). Commanded
-    /// axis motion since the reference must appear 1:1 on top of the drift.
+    /// axis motion since the reference must appear 1:1: trivially in the believed
+    /// (public) reads asserted here, and via the believed-deviation term in the true
+    /// pointing the guide camera renders (covered by FakeCameraMountCouplingTests).
     /// </summary>
     [Fact(Timeout = 60_000)]
     public async Task GivenMisalignedSyncedMountWhenPulseGuidingThenPointingStillMoves()
@@ -603,13 +605,25 @@ public class FakeSkywatcherMountDriverTests(ITestOutputHelper output)
         await mount.BeginSlewRaDecAsync(lst, 45.0, ct);
         await PumpUntilNotSlewingAsync(mount, external, ct, TimeSpan.FromSeconds(40));
 
+        var ra = await mount.GetRightAscensionAsync(ct);
         var dec = await mount.GetDeclinationAsync(ct);
 
-        // Reports ~commanded (within the misalignment magnitude), NOT the pole.
-        dec.ShouldBe(45.0, 1.5);
-        dec.ShouldBeLessThan(80.0);
+        // Public reads report the BELIEVED (encoder) pointing -- the commanded target,
+        // exactly like a real mount whose encoders cannot observe their own polar
+        // misalignment. Emphatically NOT the pole, and NOT the misaligned true sky.
+        dec.ShouldBe(45.0, 0.1);
         // No plate-solve sync yet -> the misalignment is still "carried on".
         mount.IsAlignmentCorrected.ShouldBeFalse();
+
+        // The TRUE pointing (what a camera frame would show) differs from the believed
+        // read by ~the configured misalignment -- the hidden cone error a plate solve
+        // reveals and the centering loop syncs away.
+        var (raTrue, decTrue) = await mount.GetTruePointingNativeAsync(ct);
+        var hiddenOffsetArcsec = GreatCircleArcsec(ra, dec, raTrue, decTrue);
+        output.WriteLine($"believed=({ra:F4}h, {dec:F4}deg) true=({raTrue:F4}h, {decTrue:F4}deg) hidden offset={hiddenOffsetArcsec:F1}\"");
+        hiddenOffsetArcsec.ShouldBeGreaterThan(60.0, "the hidden misalignment must be visible in the true pointing");
+        hiddenOffsetArcsec.ShouldBeLessThan(2.0 * 3600.0, "the hidden offset must stay misalignment-sized");
+        decTrue.ShouldBeLessThan(80.0, "true pointing tracks the commanded target, not the pole");
     }
 
     [Fact(Timeout = 60_000)]
@@ -626,10 +640,15 @@ public class FakeSkywatcherMountDriverTests(ITestOutputHelper output)
         await mount.SyncRaDecAsync(6.0, 45.0, ct);
 
         mount.IsAlignmentCorrected.ShouldBeTrue();
-        // After correction the reported pointing is the believed (encoder)
-        // position verbatim -- no residual offset.
+        // The reported pointing is the believed (encoder) position verbatim.
         (await mount.GetRightAscensionAsync(ct)).ShouldBe(6.0, 0.01);
         (await mount.GetDeclinationAsync(ct)).ShouldBe(45.0, 0.01);
+        // And at the moment of sync the TRUE pointing coincides with it (zero
+        // residual, drift reference freshly anchored) -- the camera frame sits
+        // exactly on target, which is what lets the centering loop converge.
+        var (raTrue, decTrue) = await mount.GetTruePointingNativeAsync(ct);
+        raTrue.ShouldBe(6.0, 0.02);
+        decTrue.ShouldBe(45.0, 0.02);
     }
 
     [Fact(Timeout = 60_000)]
@@ -675,22 +694,21 @@ public class FakeSkywatcherMountDriverTests(ITestOutputHelper output)
         // Track + plate-solve sync away from the pole: the static offset is learned, and
         // the drift reference is set to this freshly-centred position. Tracking must be
         // ON: with the axis parked the believed pointing sweeps at sidereal rate, which
-        // now (correctly) shows up in reads on top of the misalignment drift.
+        // would show up as commanded motion on top of the misalignment drift.
         await mount.SetTrackingAsync(true, ct);
         await mount.SyncRaDecAsync(6.0, 45.0, ct);
         mount.IsAlignmentCorrected.ShouldBeTrue();
 
         // At the moment of sync the field sits exactly on target (zero residual) --
-        // this is what lets the centering loop converge.
-        var ra0 = await mount.GetRightAscensionAsync(ct);
-        var dec0 = await mount.GetDeclinationAsync(ct);
+        // this is what lets the centering loop converge. True == believed here.
+        var (ra0, dec0) = await mount.GetTruePointingNativeAsync(ct);
         ra0.ShouldBe(6.0, 0.02);
         dec0.ShouldBe(45.0, 0.02);
 
-        // Track for 5 sidereal minutes -- the misaligned axis leaks a slow drift.
+        // Track for 5 sidereal minutes -- the misaligned axis leaks a slow drift
+        // into the TRUE pointing (the sky the camera sees).
         external.TimeProvider.Advance(TimeSpan.FromMinutes(5));
-        var ra5 = await mount.GetRightAscensionAsync(ct);
-        var dec5 = await mount.GetDeclinationAsync(ct);
+        var (ra5, dec5) = await mount.GetTruePointingNativeAsync(ct);
 
         var drift5Arcsec = GreatCircleArcsec(ra0, dec0, ra5, dec5);
         var decDrift5Arcsec = Math.Abs(dec5 - dec0) * 3600.0;
@@ -702,10 +720,18 @@ public class FakeSkywatcherMountDriverTests(ITestOutputHelper output)
         drift5Arcsec.ShouldBeGreaterThan(3.0, "a misaligned mount must drift while tracking");
         drift5Arcsec.ShouldBeLessThan(900.0, "drift must stay realistic, not run away");
 
+        // The PUBLIC (believed/encoder) reads must NOT show the drift -- a real
+        // mount's encoders track perfectly in their own frame and cannot observe
+        // the polar misalignment. Only the camera (plate solve) can reveal it.
+        var raBelieved5 = await mount.GetRightAscensionAsync(ct);
+        var decBelieved5 = await mount.GetDeclinationAsync(ct);
+        var believedDriftArcsec = GreatCircleArcsec(6.0, 45.0, raBelieved5, decBelieved5);
+        output.WriteLine($"5min: believed drift={believedDriftArcsec:F1}\" (must stay ~0)");
+        believedDriftArcsec.ShouldBeLessThan(drift5Arcsec / 2.0, "believed reads must not leak the hidden drift");
+
         // Drift accumulates with elapsed tracking time (track 5 more minutes).
         external.TimeProvider.Advance(TimeSpan.FromMinutes(5));
-        var ra10 = await mount.GetRightAscensionAsync(ct);
-        var dec10 = await mount.GetDeclinationAsync(ct);
+        var (ra10, dec10) = await mount.GetTruePointingNativeAsync(ct);
         var drift10Arcsec = GreatCircleArcsec(ra0, dec0, ra10, dec10);
         output.WriteLine($"10min: total drift={drift10Arcsec:F1}\"");
         drift10Arcsec.ShouldBeGreaterThan(drift5Arcsec, "drift grows with tracking time");
@@ -755,17 +781,23 @@ public class FakeSkywatcherMountDriverTests(ITestOutputHelper output)
         raB.ShouldBe(targetBRa, 0.3);
 
         // Alignment stays learned (pointing is corrected globally), and the residual
-        // polar drift now re-accumulates from the NEW target, not the old one.
+        // polar drift now re-accumulates from the NEW target, not the old one. The
+        // drift lives in the TRUE pointing (camera-visible); this first true read
+        // also captures the deferred believed anchor + restarts the drift clock at
+        // arrival (see _trackingRefBasePending).
         mount.IsAlignmentCorrected.ShouldBeTrue();
-        var raJustAfter = raB;
-        var decJustAfter = decB;
+        var (raTrueB, decTrueB) = await mount.GetTruePointingNativeAsync(ct);
+        decTrueB.ShouldBe(targetBDec, 1.5);
         external.TimeProvider.Advance(TimeSpan.FromMinutes(5));
-        var raDrift = await mount.GetRightAscensionAsync(ct);
-        var decDrift = await mount.GetDeclinationAsync(ct);
-        var driftArcsec = GreatCircleArcsec(raJustAfter, decJustAfter, raDrift, decDrift);
-        output.WriteLine($"5min after re-baseline: drift from new target={driftArcsec:F1}\" raw RA={raDrift:F4}h Dec={decDrift:F4} (was {raJustAfter:F4}h/{decJustAfter:F4}) tracking={await mount.IsTrackingAsync(ct)}");
+        var (raTrueDrift, decTrueDrift) = await mount.GetTruePointingNativeAsync(ct);
+        var driftArcsec = GreatCircleArcsec(raTrueB, decTrueB, raTrueDrift, decTrueDrift);
+        output.WriteLine($"5min after re-baseline: true drift from new target={driftArcsec:F1}\" raw RA={raTrueDrift:F4}h Dec={decTrueDrift:F4} (was {raTrueB:F4}h/{decTrueB:F4}) tracking={await mount.IsTrackingAsync(ct)}");
         driftArcsec.ShouldBeGreaterThan(3.0, "residual polar drift must re-accumulate from the new target");
         driftArcsec.ShouldBeLessThan(900.0, "drift must stay realistic, not run away");
+
+        // Believed reads stay pinned on the commanded target throughout -- the
+        // hidden drift is camera-only, exactly like real hardware.
+        (await mount.GetDeclinationAsync(ct)).ShouldBe(targetBDec, 1.5);
     }
 
     /// <summary>Great-circle separation between two (RA hours, Dec deg) points, in arcsec.</summary>
