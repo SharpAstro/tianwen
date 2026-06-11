@@ -106,7 +106,7 @@ public static class PlateSolveAnnotator
             {
                 if (!db.TryLookupByIndex(idx, out var obj)) continue;
                 if (double.IsNaN(obj.RA) || double.IsNaN(obj.Dec)) continue;
-                var distDeg = AngularSeparationDeg(pos.RA, pos.Dec, obj.RA, obj.Dec);
+                var distDeg = CoordinateUtils.AngularSeparationDeg(pos.RA, pos.Dec, obj.RA, obj.Dec);
                 if (distDeg < bestDistDeg
                     && wcs.SkyToPixel(obj.RA, obj.Dec) is { } projected)
                 {
@@ -164,23 +164,4 @@ public static class PlateSolveAnnotator
         renderer.DrawLine(xi, yi - armPx, xi, yi + armPx, color, thickness: 1);
     }
 
-    /// <summary>
-    /// Great-circle angular separation in degrees between two (RA-hours, Dec-deg)
-    /// points. Mirrors the formula in <see cref="Tycho2ColorCalibration"/>'s
-    /// <c>AngularSeparation</c>; duplicated here so the annotator doesn't pull
-    /// the calibration internals into its dependency surface.
-    /// </summary>
-    private static double AngularSeparationDeg(double ra1Hours, double dec1Deg, double ra2Hours, double dec2Deg)
-    {
-        const double DegPerRad = 180.0 / Math.PI;
-        var ra1 = ra1Hours * 15.0 / DegPerRad;
-        var dec1 = dec1Deg / DegPerRad;
-        var ra2 = ra2Hours * 15.0 / DegPerRad;
-        var dec2 = dec2Deg / DegPerRad;
-        var sinHalfDdec = Math.Sin((dec2 - dec1) * 0.5);
-        var sinHalfDra = Math.Sin((ra2 - ra1) * 0.5);
-        var a = sinHalfDdec * sinHalfDdec
-              + Math.Cos(dec1) * Math.Cos(dec2) * sinHalfDra * sinHalfDra;
-        return 2.0 * Math.Asin(Math.Min(1.0, Math.Sqrt(a))) * DegPerRad;
-    }
 }
