@@ -514,15 +514,35 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
             var (r, g, b) = item.IsPinned ? (1f, 0.44f, 0.19f) : item.Color;
             var labelAlpha = dimBelowHorizon && !site.IsAboveHorizon(item.RA, item.Dec) ? 0.35f : 1.0f;
             if (!item.IsPinned) labelAlpha *= fovAlpha;
+            var maxLineW = 0f;
             for (var li = 0; li < item.LabelLines.Count; li++)
             {
                 var lineAlpha = (li == 0 ? 1.0f : 0.7f) * labelAlpha;
                 var color = RGBAColor32.FromFloat(r, g, b, lineAlpha);
-                Renderer.DrawText(item.LabelLines[li].AsSpan(), fontPath, labelSize, color,
+                var line = item.LabelLines[li];
+                Renderer.DrawText(line.AsSpan(), fontPath, labelSize, color,
                     new RectInt(
                         new PointInt((int)(lx + 200), (int)(ly + (li + 1) * lineH)),
                         new PointInt((int)lx, (int)(ly + li * lineH))),
                     TextAlign.Near, TextAlign.Center);
+                var (lineW, _) = Renderer.MeasureText(line.AsSpan(), fontPath, labelSize);
+                if (lineW > maxLineW) maxLineW = lineW;
+            }
+
+            // Hit-test the label's bounding box (not the individual glyphs): clicking the
+            // text selects the same object a click on its marker would. We synthesize a
+            // click-select at the object's own screen position so the existing nearest-object
+            // resolver (SkyMapClickSelectSignal -> SelectObjectByClick) runs unchanged -- one
+            // path, no duplicate resolution. Skip near-invisible labels (faded out at wide
+            // FOV) so there are no phantom hit targets, and require a measured text width.
+            if (labelAlpha > 0.15f && maxLineW > 0f && item.LabelLines.Count > 0)
+            {
+                var labelH = item.LabelLines.Count * lineH;
+                var objX = item.ScreenX;
+                var objY = item.ScreenY;
+                RegisterClickable(lx, ly, maxLineW, labelH,
+                    new HitResult.ButtonHit($"SkyMapObjectLabel:{item.LabelLines[0]}"),
+                    _ => PostSignal(new SkyMapClickSelectSignal(objX, objY, InputModifier.None)));
             }
         }
 
@@ -677,6 +697,11 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
             return;
         }
 
+        // Destination marker + ETA for an in-flight slew. Drawn before the mount's own
+        // off-screen early-return so the user still sees where it is heading even when the
+        // reticle itself ends up just outside the viewport during a long slew.
+        RenderSlewTarget(contentRect, dpiScale, fontPath, baseFontSize, ppr, cx, cy, screenX, screenY);
+
         // Skip if the mount is projected well off-screen — no point drawing a reticle
         // we can't see, and it keeps the label clutter off the info strip.
         const float margin = 100f;
@@ -733,6 +758,101 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
             new HitResult.ButtonHit("SkyMapMountReticle"),
             _ => PostSignal(new SkyMapShowMountInfoSignal(
                 capturedName, capturedRA, capturedDec)));
+    }
+
+    /// <summary>
+    /// Draws the in-flight slew destination: a connecting line from the mount reticle to
+    /// the target, plus a destination ring + "-> name" label and a best-effort ETA. When
+    /// the target coincides with an already-rendered scheduled / pinned marker the ring is
+    /// skipped (no duplicate) and only the line + ETA augment that existing marker.
+    /// </summary>
+    private void RenderSlewTarget(
+        RectF32 contentRect, float dpiScale, string fontPath, float baseFontSize,
+        double ppr, float cx, float cy, float mountScreenX, float mountScreenY)
+    {
+        if (State.ActiveSlewTarget is not { } target)
+        {
+            return;
+        }
+
+        if (!SkyMapProjection.ProjectWithMatrix(target.RaJ2000, target.DecJ2000,
+                State.CurrentViewMatrix, ppr, cx, cy, out var tx, out var ty))
+        {
+            return;
+        }
+
+        const float margin = 100f;
+        if (tx < contentRect.X - margin || tx > contentRect.X + contentRect.Width + margin
+            || ty < contentRect.Y - margin || ty > contentRect.Y + contentRect.Height + margin)
+        {
+            return;
+        }
+
+        // Amber matches the slewing reticle / active scheduled target.
+        var amber = new RGBAColor32(0xFF, 0xB0, 0x40, 0xFF);
+        var fontSize = baseFontSize * dpiScale;
+        var lineH = fontSize * 1.2f;
+
+        // Slew vector: from the mount's current reticle to the destination.
+        DrawLine(mountScreenX, mountScreenY, tx, ty,
+            new RGBAColor32(amber.Red, amber.Green, amber.Blue, 0x70));
+
+        // Don't draw a second reticle when the target is already a scheduled / pinned
+        // marker - just augment it (the line above + the ETA below).
+        var alreadyMarked = IsTargetAlreadyMarked(target);
+        var labelTopY = ty + 16f * dpiScale;
+        if (!alreadyMarked)
+        {
+            DrawCircle(tx, ty, 12f * dpiScale, amber, 1.5f);
+            DrawReticleLabel(target.Name, fontPath, fontSize, amber, tx, labelTopY, lineH);
+            labelTopY += lineH;
+        }
+
+        var eta = State.SlewEtaSeconds;
+        if (!double.IsNaN(eta))
+        {
+            DrawReticleLabel(FormatEta(eta), fontPath, fontSize * 0.9f,
+                new RGBAColor32(amber.Red, amber.Green, amber.Blue, 0xCC), tx, labelTopY, lineH);
+        }
+    }
+
+    /// <summary>
+    /// True when the slew target coincides (within ~6') with an already-rendered scheduled
+    /// observation or pinned overlay object, so the destination shouldn't get a duplicate
+    /// marker. Matched by sky position since scheduled targets don't carry a catalog index.
+    /// </summary>
+    private bool IsTargetAlreadyMarked(SlewTargetInfo target)
+    {
+        const double tolDeg = 0.1; // ~6 arcmin: same object, not a coincidental neighbour
+
+        foreach (var (ra, dec, _, _) in State.ScheduleTargets)
+        {
+            if (CoordinateUtils.AngularSeparationDeg(ra, dec, target.RaJ2000, target.DecJ2000) < tolDeg)
+            {
+                return true;
+            }
+        }
+
+        foreach (var item in _overlayItems)
+        {
+            if (item.IsPinned
+                && CoordinateUtils.AngularSeparationDeg(item.RA, item.Dec, target.RaJ2000, target.DecJ2000) < tolDeg)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>Formats a slew ETA (seconds) as a short "ETA ..." label.</summary>
+    private static string FormatEta(double seconds)
+    {
+        if (seconds < 1.0) return "ETA <1s";
+        if (seconds < 60.0) return $"ETA {seconds:F0}s";
+        var m = (int)(seconds / 60.0);
+        var s = (int)(seconds % 60.0);
+        return $"ETA {m}m {s:D2}s";
     }
 
     /// <summary>

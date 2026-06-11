@@ -192,8 +192,9 @@ namespace TianWen.UI.Abstractions
             RectF32 contentRect, string fontPath, float dpiScale,
             double pixelsPerRadian, float cx, float cy)
         {
-            // Widened from 300 to fit three action buttons (Goto / View / Pin).
-            var pw = 320f * dpiScale;
+            // Widened (300 -> 320 -> 348) to fit three action buttons (Goto / View in
+            // Planner / Pin) without the longer "View in Planner" label clipping.
+            var pw = 348f * dpiScale;
             var ph = 205f * dpiScale;
             var px = contentRect.X + 12f * dpiScale;
             var py = contentRect.Y + contentRect.Height - ph - 32f * dpiScale; // above status strip
@@ -272,16 +273,24 @@ namespace TianWen.UI.Abstractions
                 // Mount entry: the one meaningful action is Solve & Sync (a goto to
                 // the mount's own reported position is a no-op, and pinning it makes
                 // no sense). The handler is the source of truth for the session /
-                // camera / CanSync gates.
+                // camera / CanSync gates. While a solve is in flight the button shows
+                // "Solving ..." (dimmed, no click handler) so it reads as busy and can't
+                // be re-triggered mid-solve.
+                var solving = State.SolveSyncInProgress;
                 var ssBtnW = 110f * dpiScale;
                 var ssBtnX = px + pw - ssBtnW - 10f * dpiScale;
+                Action<InputModifier>? ssOnClick = null;
+                if (!solving)
+                {
+                    ssOnClick = _ => PostSignal(new SkyMapSolveSyncSignal());
+                }
                 RenderButton(
-                    "Solve & Sync",
+                    solving ? "Solving ..." : "Solve & Sync",
                     ssBtnX, btnY, ssBtnW, btnH, fontPath, fontSize,
-                    GotoButtonBg,
+                    solving ? GotoDisabledBg : GotoButtonBg,
                     SearchText,
                     "SkyMapSolveSync",
-                    _ => PostSignal(new SkyMapSolveSyncSignal()));
+                    ssOnClick);
             }
             else
             {
@@ -297,11 +306,13 @@ namespace TianWen.UI.Abstractions
                         pinName, pinRA, pinDec, pinIndex, pinType)));
 
                 // View-in-Planner (left of the Pin button). Jumps to the planner tab
-                // with this target scored, selected, and scrolled into view.
-                var viewBtnX = pinBtnX - btnW - 8f * dpiScale;
+                // with this target scored, selected, and scrolled into view. Wider than
+                // the short Goto / Pin buttons so the longer label doesn't clip.
+                var viewBtnW = 116f * dpiScale;
+                var viewBtnX = pinBtnX - viewBtnW - 8f * dpiScale;
                 RenderButton(
                     "View in Planner",
-                    viewBtnX, btnY, btnW, btnH, fontPath, fontSize * 0.9f,
+                    viewBtnX, btnY, viewBtnW, btnH, fontPath, fontSize * 0.9f,
                     ViewButtonBg,
                     SearchText,
                     "SkyMapViewInPlanner",

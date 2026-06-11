@@ -86,6 +86,31 @@ namespace TianWen.UI.Abstractions
         public bool ShowMountOverlay { get; set; } = true;
 
         /// <summary>
+        /// True while a sky-map Solve &amp; Sync (capture + plate-solve + sync) is in
+        /// flight. Set by the signal handler when the capture starts and cleared when it
+        /// finishes; the mount info-panel button reads it to show "Solving ..." and to
+        /// suppress re-triggering mid-solve.
+        /// </summary>
+        public bool SolveSyncInProgress { get; set; }
+
+        /// <summary>
+        /// The mount's current slew destination (J2000) + display name while a goto issued
+        /// from the sky map is in flight; null when the mount is not slewing to a
+        /// GUI-known target. The renderer draws a destination marker, but when the target
+        /// coincides with an already-rendered scheduled / pinned marker it augments that
+        /// (connecting line + ETA) instead of drawing a duplicate reticle.
+        /// </summary>
+        public SlewTargetInfo? ActiveSlewTarget { get; set; }
+
+        /// <summary>
+        /// Estimated seconds until the <see cref="ActiveSlewTarget"/> slew completes, or
+        /// <see cref="double.NaN"/> when not yet estimable (too little motion observed).
+        /// Computed in the render path from the polled reticle position + wall clock so it
+        /// does not add a second concurrent mount reader alongside the telemetry poll.
+        /// </summary>
+        public double SlewEtaSeconds { get; set; } = double.NaN;
+
+        /// <summary>
         /// Pre-computed mosaic panel centres for pinned targets whose catalog shape
         /// exceeds the sensor FOV. Populated by the event loop alongside the mount
         /// overlay. Each entry is the RA/Dec centre of one panel. The sensor FOV
@@ -462,4 +487,11 @@ namespace TianWen.UI.Abstractions
         Equatorial,
         Horizon
     }
+
+    /// <summary>
+    /// A mount slew destination for the sky-map overlay: target J2000 coordinates + the
+    /// display name of what is being slewed to. A fresh instance is created per goto so
+    /// the renderer can detect a new slew (by reference) and restart its ETA estimate.
+    /// </summary>
+    public sealed record SlewTargetInfo(string Name, double RaJ2000, double DecJ2000);
 }
