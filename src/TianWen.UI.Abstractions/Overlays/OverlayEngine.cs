@@ -609,13 +609,18 @@ public static class OverlayEngine
     /// that previously made wide-FOV panning sluggish.
     /// </remarks>
     public static void GatherSkyMapOverlayCandidates(
-        SkyMapState state,
+        in Matrix4x4 viewMatrix,
+        double fieldOfViewDeg,
         RectF32 contentRect,
         float dpiScale,
         ICelestialObjectDB db,
         IReadOnlySet<CatalogIndex>? pinnedCatalogIndices,
         List<OverlayCandidate> output)
     {
+        // NOTE: this walk is the heavy Phase A pass (60-170ms in dense regions / pole-in-view).
+        // It takes the view matrix + FOV by value rather than reading a live SkyMapState so it
+        // can run on a background thread (see VkSkyMapTab's async gather) without tearing on the
+        // render thread's view updates. It only reads the (immutable-after-init) catalog DB.
         output.Clear();
 
         if (contentRect.Width <= 0 || contentRect.Height <= 0)
@@ -623,13 +628,12 @@ public static class OverlayEngine
             return;
         }
 
-        var viewMatrix = state.CurrentViewMatrix;
-        var ppr = SkyMapProjection.PixelsPerRadian(contentRect.Height, state.FieldOfViewDeg);
+        var ppr = SkyMapProjection.PixelsPerRadian(contentRect.Height, fieldOfViewDeg);
         var cxView = contentRect.X + contentRect.Width * 0.5f;
         var cyView = contentRect.Y + contentRect.Height * 0.5f;
 
         // FOV-driven magnitude cutoffs share the viewer's heuristics; FOV is in arcminutes.
-        var fovArcmin = state.FieldOfViewDeg * 60.0;
+        var fovArcmin = fieldOfViewDeg * 60.0;
         var magCutoff = GetExtendedMagCutoff(fovArcmin);
         var starMagCutoff = GetStarMagCutoff(fovArcmin);
 
@@ -705,7 +709,7 @@ public static class OverlayEngine
         // must stay valid while the centre drifts anywhere inside a cell
         // (max step/2 * sqrt(2) ~= 0.09 * FOV). 0.15 * FOV covers that with slack;
         // the 1 deg floor keeps the old near-edge behaviour at narrow FOVs.
-        var marginDeg = Math.Max(1.0, state.FieldOfViewDeg * 0.15);
+        var marginDeg = Math.Max(1.0, fieldOfViewDeg * 0.15);
 
         if (poleInView)
         {
@@ -721,7 +725,7 @@ public static class OverlayEngine
             minDec = Math.Max(-90.0, minDec - Math.Max(2.0, marginDeg));
             maxDec = Math.Min(90.0, maxDec + Math.Max(2.0, marginDeg));
         }
-        else if (state.FieldOfViewDeg >= 90.0)
+        else if (fieldOfViewDeg >= 90.0)
         {
             minRA = 0.0;
             maxRA = 24.0;
@@ -764,7 +768,7 @@ public static class OverlayEngine
         // Zoom-equivalent knob for label verbosity. At narrow FOV (zoomed in) we show more
         // cross-index detail; the viewer's BuildOverlayLabel uses an image-zoom scalar with
         // the same 0.5/1.0 breakpoints, so map FOV to an equivalent zoom value.
-        var labelZoom = (float)Math.Clamp(10.0 / Math.Max(state.FieldOfViewDeg, 0.5), 0.25, 2.0);
+        var labelZoom = (float)Math.Clamp(10.0 / Math.Max(fieldOfViewDeg, 0.5), 0.25, 2.0);
 
         // Scratch list used so the magnitude sort happens before label/priority
         // construction -- keeps output in brightest-first order without sorting

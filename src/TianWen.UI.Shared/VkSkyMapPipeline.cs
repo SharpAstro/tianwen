@@ -641,6 +641,13 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
     private VkBuffer _starBuffer;
     private VkDeviceMemory _starMemory;
     private uint _starCount;
+#if DEBUG
+    // Slow-frame attribution: the star draw is GPU-side (instanced quads), so its cost never
+    // shows in CPU phase timers -- it surfaces as a high 'begin=' (fence wait) in the event
+    // loop's frame.slow split. Logging the visible-instance count whenever it moves by >25%
+    // gives that fence pressure a correlatable cause (FOV/magnitude-limit changes).
+    private uint _lastLoggedVisibleStars;
+#endif
 
     private VkBuffer _figureBuffer;
     private VkDeviceMemory _figureMemory;
@@ -1152,6 +1159,15 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
         var visibleStars = _magBinCounts.Length > 0
             ? GetVisibleStarCount(state.EffectiveMagnitudeLimit)
             : _starCount;
+#if DEBUG
+        if (visibleStars > _lastLoggedVisibleStars + (_lastLoggedVisibleStars >> 2)
+            || visibleStars < _lastLoggedVisibleStars - (_lastLoggedVisibleStars >> 2))
+        {
+            Console.Error.WriteLine(
+                $"[rdiag] skymap.stars visible={visibleStars} effMag={state.EffectiveMagnitudeLimit:F1} fov={state.FieldOfViewDeg:F0}");
+            _lastLoggedVisibleStars = visibleStars;
+        }
+#endif
         if (visibleStars > 0)
         {
             api.vkCmdBindPipeline(cmd, VkPipelineBindPoint.Graphics, _starPipeline);
