@@ -25,6 +25,26 @@ public static class CoordinateUtils
             : double.NaN;
 
     /// <summary>
+    /// Great-circle angular separation in degrees between two sky positions given as
+    /// (RA in hours, Dec in degrees). Haversine form - numerically stable for small
+    /// separations. Single source of truth for sky-coordinate separations in the
+    /// RA-hours convention used across the app (sky map, plate-solve annotator, etc.).
+    /// </summary>
+    public static double AngularSeparationDeg(double ra1Hours, double dec1Deg, double ra2Hours, double dec2Deg)
+    {
+        const double DegPerRad = 180.0 / Math.PI;
+        var ra1 = ra1Hours * 15.0 / DegPerRad;
+        var dec1 = dec1Deg / DegPerRad;
+        var ra2 = ra2Hours * 15.0 / DegPerRad;
+        var dec2 = dec2Deg / DegPerRad;
+        var sinHalfDdec = Math.Sin((dec2 - dec1) * 0.5);
+        var sinHalfDra = Math.Sin((ra2 - ra1) * 0.5);
+        var a = sinHalfDdec * sinHalfDdec
+              + Math.Cos(dec1) * Math.Cos(dec2) * sinHalfDra * sinHalfDra;
+        return 2.0 * Math.Asin(Math.Min(1.0, Math.Sqrt(a))) * DegPerRad;
+    }
+
+    /// <summary>
     /// Inverse of <see cref="PixelScaleArcsec"/>: derives focal length from an
     /// (already-measured) pixel scale. Useful for stamping the master FITS
     /// with a focal length consistent with the plate-solve result rather than
