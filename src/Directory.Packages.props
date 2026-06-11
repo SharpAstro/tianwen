@@ -74,19 +74,21 @@
          raw bytes to H.273 enums (binary-breaking) + SharpAstro.Color.Icc adds
          the H.273 enums + IccProfiles.WithCicp helper.
          3.2 = the new SharpAstro.Exr (OpenEXR read+write) package joins the family.
-         The whole family floats to 3.2.* in lockstep so all members resolve to the
+         3.3 = family minor bump (StbImageSharp repo); members continue to ship as a
+         matched set.
+         The whole family floats to 3.3.* in lockstep so all members resolve to the
          matched set (mixing minors across a lockstep break is a runtime hazard). -->
-    <PackageVersion Include="SharpAstro.Tiff" Version="3.2.*" />
-    <PackageVersion Include="SharpAstro.Exif" Version="3.2.*" />
-    <PackageVersion Include="SharpAstro.Png" Version="3.2.*" />
-    <PackageVersion Include="SharpAstro.Color.Icc" Version="3.2.*" />
-    <PackageVersion Include="SharpAstro.Jpeg.IccInjector" Version="3.2.*" />
+    <PackageVersion Include="SharpAstro.Tiff" Version="3.3.*" />
+    <PackageVersion Include="SharpAstro.Exif" Version="3.3.*" />
+    <PackageVersion Include="SharpAstro.Png" Version="3.3.*" />
+    <PackageVersion Include="SharpAstro.Color.Icc" Version="3.3.*" />
+    <PackageVersion Include="SharpAstro.Jpeg.IccInjector" Version="3.3.*" />
     <!-- Pure-managed JPEG XR (T.832) + OpenEXR codecs. Image.WriteJxrAsync emits
          HDR float pixels (BD32F mono / BD16F RGB); Image.WriteExrAsync emits OpenEXR
-         (FLOAT mono / HALF RGB). Same StbImageSharp repo + 3.2.* lockstep as the
+         (FLOAT mono / HALF RGB). Same StbImageSharp repo + 3.3.* lockstep as the
          other SharpAstro codec siblings. -->
-    <PackageVersion Include="SharpAstro.Jxr" Version="3.2.*" />
-    <PackageVersion Include="SharpAstro.Exr" Version="3.2.*" />
+    <PackageVersion Include="SharpAstro.Jxr" Version="3.3.*" />
+    <PackageVersion Include="SharpAstro.Exr" Version="3.3.*" />
     <!-- Console.Lib 2.17 adds ScrollableList + TreeView opt-in auto wheel routing
          (on top of 2.13-2.16 widget work). Built on DIR.Lib 4.4, same sibling
          family as SdlVulkan.Renderer 5.1. -->
@@ -94,8 +96,11 @@
     <!-- SdlVulkan.Renderer 5.0 adds a multi-page SDF glyph atlas (no more grow
          stall / Adreno submit-wedge) on top of 4.1's SetSystemCursor + anisotropic
          glyph xScale. 5.1 implements DIR.Lib 4.4's PushClip/PopClip via Vulkan
-         scissor, in lockstep with DIR.Lib 4.4 (see above). -->
-    <PackageVersion Include="SdlVulkan.Renderer" Version="5.1.*" />
+         scissor, in lockstep with DIR.Lib 4.4 (see above).
+         6.0 (PR #22) adds glyph/atlas hot-path perf, draw-call dedup, and Mailbox
+         present mode; it still targets DIR.Lib 4.4.x, so the renderer can move to 6.0
+         without dragging DIR.Lib forward (verified via package restore at bump time). -->
+    <PackageVersion Include="SdlVulkan.Renderer" Version="6.0.*" />
     <PackageVersion Include="SDL3-CS" Version="3.5.0-preview.20260213-150035" />
     <PackageVersion Include="SDL3-CS.Native" Version="3.5.0-preview.20260205-174353" />
     <!-- Canon DSLR -->
