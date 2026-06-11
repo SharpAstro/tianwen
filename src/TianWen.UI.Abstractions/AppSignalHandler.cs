@@ -927,6 +927,17 @@ namespace TianWen.UI.Abstractions
                 appState.NeedsRedraw = true;
             });
 
+            bus.Subscribe<SkyMapSetViewSignal>(sig =>
+            {
+                // Route-only: the actions helper owns the centre + FOV-clamp + toggle logic.
+                if (SkyMapViewActions.SetView(skyMapState,
+                        sig.CenterRaHours, sig.CenterDecDeg, sig.FieldOfViewDeg,
+                        sig.ShowObjectOverlay, sig.ShowDarkNebulae))
+                {
+                    appState.NeedsRedraw = true;
+                }
+            });
+
             bus.Subscribe<SkyMapShowFixedPointInfoSignal>(sig =>
             {
                 var viewingUtc = plannerState.PlanningDate?.ToUniversalTime() ?? _timeProvider.GetUtcNow();
