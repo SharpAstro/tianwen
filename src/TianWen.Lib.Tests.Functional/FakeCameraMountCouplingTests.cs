@@ -535,13 +535,20 @@ public class FakeCameraMountCouplingTests(ITestOutputHelper output)
         guideCam.CloudCoverage = 1.0;
         await guider.GuideAsync(settlePixels: 1.5, settleTime: 3.0, settleTimeout: 90.0, ct);
 
-        pumped = TimeSpan.Zero;
-        while (pumped < TimeSpan.FromMinutes(5) && guidingError is null)
+        // Pump fake time until the background acquisition loop actually completes (it exhausts its
+        // bounded retries on the starless field, fires the error, and returns to Idle in its finally),
+        // NOT until a fixed fake-time budget elapses. The old budget-bounded pump flaked under CI load:
+        // the test thread blasts through all iterations (burning the whole fake-time budget) before
+        // the thread-pool-starved loop finishes its exposures + retry sleeps, so guidingError was still
+        // null at the assert. Awaiting the task also closes the race where GuidingErrorEvent fires
+        // before the finally runs ForceState(Idle). The [Fact(Timeout)] is the hard backstop.
+        var failTask = guider.GuideLoopTask.ShouldNotBeNull("the second GuideAsync must start a background acquisition loop");
+        while (!failTask.IsCompleted)
         {
             timeProvider.Advance(increment);
-            pumped += increment;
             await Task.Delay(1, ct);
         }
+        await failTask; // surface any unexpected exception and guarantee the finally (state -> Idle) has run
 
         guidingError.ShouldNotBeNull("starting to guide on a starless field must fail loudly, not flatline");
         guidingError.ShouldContain("no usable guide star");

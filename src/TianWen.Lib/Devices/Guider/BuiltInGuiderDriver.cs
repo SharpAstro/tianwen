@@ -25,6 +25,7 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
 
     private GuideLoop? _guideLoop;
     private CancellationTokenSource? _guideCts;
+    private Task? _guideLoopTask;
     private GuiderCalibrationResult? _lastCalibration;
     private PointingState? _calibrationPierSide;
     private volatile Image? _lastFrame;
@@ -372,6 +373,13 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
         return ValueTask.CompletedTask;
     }
 
+    /// <summary>
+    /// The background calibrate-and-guide task started by the most recent <see cref="GuideAsync"/>
+    /// call (null before the first call). Exposed for deterministic test pumping: a test can advance
+    /// fake time until this task completes instead of guessing how much fake time the loop needs.
+    /// </summary>
+    internal Task? GuideLoopTask => _guideLoopTask;
+
     public ValueTask GuideAsync(double settlePixels, double settleTime, double settleTimeout, CancellationToken cancellationToken)
     {
         if (_pulseTarget is null || _camera is null || _mount is null)
@@ -397,8 +405,10 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
 
         ForceState(GuiderState.Calibrating);
 
-        // Start calibration + guide loop in the background
-        _ = RunCalibrateAndGuideAsync(_pulseTarget, _camera, _mount, cts.Token);
+        // Start calibration + guide loop in the background. The task is retained (not discarded)
+        // so it can be observed for completion: tests pump fake time until it finishes rather
+        // than guessing a fake-time budget, and a future StopCapture could await a clean unwind.
+        _guideLoopTask = RunCalibrateAndGuideAsync(_pulseTarget, _camera, _mount, cts.Token);
 
         return ValueTask.CompletedTask;
     }
