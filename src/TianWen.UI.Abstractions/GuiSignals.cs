@@ -252,3 +252,34 @@ public readonly record struct SkyMapShowFixedPointInfoSignal(
     string Name,
     double RaHours,
     double DecDeg);
+
+/// <summary>
+/// Open the sky-map info panel for the MOUNT marker (the believed pointing reticle).
+/// Handler builds <see cref="SkyMapInfoPanelData"/> flagged as the mount entry so the
+/// panel renders a "Solve &amp; Sync" button instead of Goto/Pin (a goto to the mount's
+/// own reported position is meaningless). Same UX rule as the rest of the map: the
+/// click only opens the panel, the button acts.
+/// </summary>
+public readonly record struct SkyMapShowMountInfoSignal(
+    string Name,
+    double RaHours,
+    double DecDeg);
+
+/// <summary>
+/// Capture a frame on the OTA's camera, plate-solve it, and SYNC the mount to the
+/// solved position (no re-slew - that stays the user's decision, via Goto). This is
+/// how the sky-map marker is brought back to truth: the mount only knows its believed
+/// (encoder) pointing; the camera is the only witness of where it ACTUALLY points.
+/// For slew-less trackers (SkyGuider Pro: CanSlew=false, CanSync=true) this is the
+/// only way the marker can ever be correct - aim by hand, solve &amp; sync, repeat.
+/// Routed to <c>MountActions.SolveAndSyncAsync</c>; only valid when no session is
+/// running and both a camera and a sync-capable mount are connected. The captured
+/// frame lands in the preview slot and the solve result in
+/// <see cref="LiveSessionState.PreviewPlateSolveResult"/>, mirroring
+/// <see cref="TakePreviewSignal"/> + <see cref="PlateSolvePreviewSignal"/>.
+/// </summary>
+public readonly record struct SkyMapSolveSyncSignal(
+    int OtaIndex = 0,
+    double ExposureSeconds = 5.0,
+    int? Gain = null,
+    short Binning = 1);

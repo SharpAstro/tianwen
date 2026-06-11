@@ -581,6 +581,19 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
         DrawReticleLabel(coordsText, fontPath, fontSize * 0.9f,
             new RGBAColor32(color.Red, color.Green, color.Blue, (byte)(color.Alpha * 0.8f)),
             screenX, screenY + 20f * dpiScale + lineH, lineH);
+
+        // Clickable region over the reticle: opens the mount info panel (with its
+        // Solve & Sync button) - same UX rule as the fixed markers, the click only
+        // selects, the button acts. The reported position is the BELIEVED (encoder)
+        // pointing; Solve & Sync is how the marker is brought back to the truth.
+        var hitSize = 44f * dpiScale;
+        var capturedName = mountOverlay.DisplayName;
+        var capturedRA = mountOverlay.RaJ2000;
+        var capturedDec = mountOverlay.DecJ2000;
+        RegisterClickable(screenX - hitSize * 0.5f, screenY - hitSize * 0.5f, hitSize, hitSize,
+            new HitResult.ButtonHit("SkyMapMountReticle"),
+            _ => PostSignal(new SkyMapShowMountInfoSignal(
+                capturedName, capturedRA, capturedDec)));
     }
 
     /// <summary>

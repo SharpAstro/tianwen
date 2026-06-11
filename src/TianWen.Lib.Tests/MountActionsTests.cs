@@ -7,7 +7,9 @@ using System.Threading;
 using System.Threading.Tasks;
 using TianWen.Lib.Astrometry;
 using TianWen.Lib.Astrometry.Catalogs;
+using TianWen.Lib.Astrometry.PlateSolve;
 using TianWen.Lib.Devices;
+using TianWen.Lib.Imaging;
 using TianWen.UI.Abstractions;
 using Xunit;
 
@@ -251,6 +253,213 @@ public class MountActionsTests
             SiteElevation = 120.0
         };
         return new Profile(Guid.NewGuid(), "Test", data);
+    }
+
+    // ── SolveAndSyncAsync ──
+
+    [Fact]
+    public async Task SolveAndSyncAsync_WhenMountCannotSync_ReturnsNotPossibleWithoutCapture()
+    {
+        var mount = SetupSyncMount(canSync: false);
+        var camera = SetupCamera(MakeSolveImage());
+        var solver = Substitute.For<IPlateSolverFactory>();
+
+        var outcome = await InvokeSolveSyncAsync(mount, camera, solver);
+
+        outcome.Result.ShouldBe(MountActions.SolveSyncResult.NotPossible);
+        outcome.StatusMessage.ShouldContain("does not support sync");
+        outcome.CapturedImage.ShouldBeNull();
+        await camera.DidNotReceiveWithAnyArgs().StartExposureAsync(default, default, Arg.Any<CancellationToken>());
+        await mount.DidNotReceiveWithAnyArgs().SyncRaDecAsync(default, default, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task SolveAndSyncAsync_WhenCameraNotConnected_ReturnsNotPossible()
+    {
+        var mount = SetupSyncMount(believed: (6.0, 45.0));
+        var camera = Substitute.For<ICameraDriver>();
+        camera.Connected.Returns(false);
+        var solver = Substitute.For<IPlateSolverFactory>();
+
+        var outcome = await InvokeSolveSyncAsync(mount, camera, solver);
+
+        outcome.Result.ShouldBe(MountActions.SolveSyncResult.NotPossible);
+        outcome.StatusMessage.ShouldBe("Camera is not connected");
+        await mount.DidNotReceiveWithAnyArgs().SyncRaDecAsync(default, default, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task SolveAndSyncAsync_WhenPointingUnavailable_ReturnsNotPossible()
+    {
+        // GetRaDecJ2000Async unstubbed -> null: no believed pointing, no search origin.
+        var mount = SetupSyncMount(believed: null);
+        var camera = SetupCamera(MakeSolveImage());
+        var solver = Substitute.For<IPlateSolverFactory>();
+
+        var outcome = await InvokeSolveSyncAsync(mount, camera, solver);
+
+        outcome.Result.ShouldBe(MountActions.SolveSyncResult.NotPossible);
+        outcome.StatusMessage.ShouldBe("Mount pointing unavailable");
+        await camera.DidNotReceiveWithAnyArgs().StartExposureAsync(default, default, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task SolveAndSyncAsync_WhenCaptureReturnsNoFrame_ReturnsCaptureFailed()
+    {
+        var mount = SetupSyncMount(believed: (6.0, 45.0));
+        var camera = SetupCamera(image: null);
+        var solver = Substitute.For<IPlateSolverFactory>();
+
+        var outcome = await InvokeSolveSyncAsync(mount, camera, solver);
+
+        outcome.Result.ShouldBe(MountActions.SolveSyncResult.CaptureFailed);
+        outcome.CapturedImage.ShouldBeNull();
+        await mount.DidNotReceiveWithAnyArgs().SyncRaDecAsync(default, default, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task SolveAndSyncAsync_WhenSolveFails_ReturnsSolveFailedWithCapturedImage()
+    {
+        var mount = SetupSyncMount(believed: (6.0, 45.0));
+        var image = MakeSolveImage();
+        var camera = SetupCamera(image);
+        var solver = SetupSolver(solution: null);
+
+        var outcome = await InvokeSolveSyncAsync(mount, camera, solver);
+
+        outcome.Result.ShouldBe(MountActions.SolveSyncResult.SolveFailed);
+        // Ownership of the captured frame still transfers so the caller can show/release it.
+        outcome.CapturedImage.ShouldBeSameAs(image);
+        outcome.SolveResult.ShouldNotBeNull();
+        await mount.DidNotReceiveWithAnyArgs().SyncRaDecAsync(default, default, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task SolveAndSyncAsync_HappyPath_SyncsMountToSolvedNativePosition()
+    {
+        // Believed (6.0, 45.0) vs solved (6.05, 44.8): a ~46' cone error to sync away.
+        var mount = SetupSyncMount(believed: (6.0, 45.0), native: (6.052, 44.82, 180.0, 55.0));
+        var image = MakeSolveImage();
+        var camera = SetupCamera(image);
+        var solver = SetupSolver(solution: new WCS(6.05, 44.8));
+
+        var outcome = await InvokeSolveSyncAsync(mount, camera, solver);
+
+        outcome.Result.ShouldBe(MountActions.SolveSyncResult.Synced);
+        outcome.StatusMessage.ShouldStartWith("Synced");
+        outcome.CapturedImage.ShouldBeSameAs(image);
+        outcome.SolveResult.ShouldNotBeNull();
+        // Synced with the J2000->native CONVERTED coordinates, not raw J2000.
+        await mount.Received(1).SyncRaDecAsync(6.052, 44.82, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task SolveAndSyncAsync_WithoutSlewSupport_StillSyncs()
+    {
+        // The SkyGuider Pro case: CanSlew=false, CanSync=true. Solve & sync is the ONLY
+        // way a slew-less tracker's reported position can ever be made truthful.
+        var mount = SetupSyncMount(believed: (6.0, 45.0), native: (6.01, 44.99, 180.0, 55.0));
+        mount.CanSlew.Returns(false);
+        mount.CanSlewAsync.Returns(false);
+        var camera = SetupCamera(MakeSolveImage());
+        var solver = SetupSolver(solution: new WCS(6.01, 45.0));
+
+        var outcome = await InvokeSolveSyncAsync(mount, camera, solver);
+
+        outcome.Result.ShouldBe(MountActions.SolveSyncResult.Synced);
+        await mount.Received(1).SyncRaDecAsync(6.01, 44.99, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task SolveAndSyncAsync_WhenSyncThrows_ReturnsSyncFailed()
+    {
+        var mount = SetupSyncMount(believed: (6.0, 45.0), native: (6.05, 44.8, 180.0, 55.0));
+        mount.SyncRaDecAsync(Arg.Any<double>(), Arg.Any<double>(), Arg.Any<CancellationToken>())
+            .Returns(_ => ValueTask.FromException(new InvalidOperationException("sync rejected")));
+        var image = MakeSolveImage();
+        var camera = SetupCamera(image);
+        var solver = SetupSolver(solution: new WCS(6.05, 44.8));
+
+        var outcome = await InvokeSolveSyncAsync(mount, camera, solver);
+
+        outcome.Result.ShouldBe(MountActions.SolveSyncResult.SyncFailed);
+        outcome.StatusMessage.ShouldContain("sync rejected");
+        outcome.CapturedImage.ShouldBeSameAs(image);
+    }
+
+    [Fact]
+    public async Task SolveAndSyncAsync_WhenNativeTransformFails_ReturnsSyncFailedWithoutSyncing()
+    {
+        var mount = SetupSyncMount(believed: (6.0, 45.0), native: null);
+        var camera = SetupCamera(MakeSolveImage());
+        var solver = SetupSolver(solution: new WCS(6.05, 44.8));
+
+        var outcome = await InvokeSolveSyncAsync(mount, camera, solver);
+
+        outcome.Result.ShouldBe(MountActions.SolveSyncResult.SyncFailed);
+        outcome.StatusMessage.ShouldContain("transform failed");
+        await mount.DidNotReceiveWithAnyArgs().SyncRaDecAsync(default, default, Arg.Any<CancellationToken>());
+    }
+
+    private static Task<MountActions.SolveSyncOutcome> InvokeSolveSyncAsync(
+        IMountDriver mount, ICameraDriver camera, IPlateSolverFactory solver)
+    {
+        var profile = MakeProfile();
+        var timeProvider = new FakeTimeProviderWrapper(new DateTimeOffset(2026, 4, 20, 12, 0, 0, TimeSpan.Zero));
+        return MountActions.SolveAndSyncAsync(
+            mount, camera, otaName: "TestOTA", focalLengthMm: 400, apertureMm: 80,
+            focuser: null, filterWheel: null, catalogDb: null,
+            solverFactory: solver, profile: profile, timeProvider: timeProvider,
+            exposure: TimeSpan.FromSeconds(1),
+            cancellationToken: TestContext.Current.CancellationToken);
+    }
+
+    private static IMountDriver SetupSyncMount(
+        bool canSync = true,
+        (double RaJ2000, double DecJ2000)? believed = null,
+        (double RaMount, double DecMount, double Az, double Alt)? native = null)
+    {
+        var mount = Substitute.For<IMountDriver>();
+        mount.Connected.Returns(true);
+        mount.CanSync.Returns(canSync);
+        mount.EquatorialSystem.Returns(EquatorialCoordinateType.Topocentric);
+        mount.GetRaDecJ2000Async(
+                Arg.Any<TianWen.Lib.Astrometry.SOFA.Transform>(),
+                Arg.Any<bool>(), Arg.Any<CancellationToken>())
+            .Returns(ValueTask.FromResult(believed));
+        mount.TryTransformJ2000ToMountNativeAsync(
+                Arg.Any<TianWen.Lib.Astrometry.SOFA.Transform>(),
+                Arg.Any<double>(), Arg.Any<double>(), Arg.Any<bool>(), Arg.Any<CancellationToken>())
+            .Returns(ValueTask.FromResult(native));
+        return mount;
+    }
+
+    private static ICameraDriver SetupCamera(Image? image)
+    {
+        var camera = Substitute.For<ICameraDriver>();
+        camera.Connected.Returns(true);
+        camera.GetImageReadyAsync(Arg.Any<CancellationToken>()).Returns(ValueTask.FromResult(true));
+        camera.GetImageAsync(Arg.Any<CancellationToken>()).Returns(ValueTask.FromResult(image));
+        return camera;
+    }
+
+    private static IPlateSolverFactory SetupSolver(WCS? solution)
+    {
+        var solver = Substitute.For<IPlateSolverFactory>();
+        solver.SolveImageAsync(
+                Arg.Any<Image>(), Arg.Any<ImageDim?>(), Arg.Any<float>(),
+                Arg.Any<WCS?>(), Arg.Any<double?>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(new PlateSolveResult(solution, TimeSpan.FromMilliseconds(100))));
+        return solver;
+    }
+
+    private static Image MakeSolveImage()
+    {
+        var data = new float[8, 8];
+        var meta = new ImageMeta("solveSync", new DateTime(2026, 6, 11, 12, 0, 0, DateTimeKind.Utc),
+            TimeSpan.FromSeconds(1), FrameType.Light, "", 3.76f, 3.76f, 500, -1, Filter.Luminance, 1, 1,
+            float.NaN, SensorType.Monochrome, 0, 0, RowOrder.TopDown, float.NaN, float.NaN);
+        return new Image([data], BitDepth.Float32, 1f, 0f, 0f, meta);
     }
 
     private static IMountDriver SetupMount(

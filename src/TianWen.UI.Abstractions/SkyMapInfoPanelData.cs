@@ -27,7 +27,8 @@ public readonly record struct SkyMapInfoPanelData(
     bool NeverRises,
     double? AngularSizeDeg,
     CelestialObjectShape? Shape,
-    CatalogIndex? Index)
+    CatalogIndex? Index,
+    bool IsMount = false)
 {
     /// <summary>
     /// Build a panel payload for a catalog object at the given site and viewing time.
@@ -117,6 +118,20 @@ public readonly record struct SkyMapInfoPanelData(
             Shape: null,
             Index: null);
     }
+
+    /// <summary>
+    /// Build a panel payload for the mount marker (the believed pointing reticle).
+    /// Same fields as <see cref="FromPosition"/> with <see cref="IsMount"/> set so the
+    /// panel swaps the Goto / View / Pin actions for "Solve &amp; Sync" - a goto to the
+    /// mount's own reported position is a no-op, and the truthful action is to find
+    /// out where it ACTUALLY points.
+    /// </summary>
+    public static SkyMapInfoPanelData FromMount(
+        string name, double raHours, double decDeg,
+        double siteLat, double siteLon,
+        DateTimeOffset viewingUtc,
+        in SiteContext site)
+        => FromPosition(name, raHours, decDeg, siteLat, siteLon, viewingUtc, site) with { IsMount = true };
 
     // Local-only alt/az from a SiteContext (fast; no SOFA pipeline needed for display).
     // For the precision plate-solving needs the full Transform path — but the info
