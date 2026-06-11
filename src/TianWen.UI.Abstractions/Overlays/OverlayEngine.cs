@@ -699,6 +699,14 @@ public static class OverlayEngine
              && spx >= contentRect.X - polePadding && spx <= contentRect.X + contentRect.Width + polePadding
              && spy >= contentRect.Y - polePadding && spy <= contentRect.Y + contentRect.Height + polePadding);
 
+        // Scan margin beyond the sampled bounds. Sized to the Phase A cache
+        // quantization in VkSkyMapTab.RenderObjectOverlay: the candidate cache is
+        // keyed on the view centre quantized to FOV/8 cells, so the gathered set
+        // must stay valid while the centre drifts anywhere inside a cell
+        // (max step/2 * sqrt(2) ~= 0.09 * FOV). 0.15 * FOV covers that with slack;
+        // the 1 deg floor keeps the old near-edge behaviour at narrow FOVs.
+        var marginDeg = Math.Max(1.0, state.FieldOfViewDeg * 0.15);
+
         if (poleInView)
         {
             // Every RA projects through the pole, so the corner sample's RA bounds
@@ -710,8 +718,8 @@ public static class OverlayEngine
             minRA = 0.0;
             maxRA = 24.0;
             raWrapped = false;
-            minDec = Math.Max(-90.0, minDec - 2.0);
-            maxDec = Math.Min(90.0, maxDec + 2.0);
+            minDec = Math.Max(-90.0, minDec - Math.Max(2.0, marginDeg));
+            maxDec = Math.Min(90.0, maxDec + Math.Max(2.0, marginDeg));
         }
         else if (state.FieldOfViewDeg >= 90.0)
         {
@@ -723,11 +731,16 @@ public static class OverlayEngine
         }
         else
         {
-            // Expand by 1 deg to catch near-edge objects
-            minRA -= 1.0 / 15.0;
-            maxRA += 1.0 / 15.0;
-            minDec = Math.Max(-90.0, minDec - 1.0);
-            maxDec = Math.Min(90.0, maxDec + 1.0);
+            // Expand to catch near-edge objects AND to keep the cached candidate set
+            // valid while the quantized-centre cache key holds (see above). The RA
+            // margin widens by 1/cos(dec) (clamped) so it covers the same on-sky
+            // distance at high declinations.
+            var maxAbsDec = Math.Min(Math.Max(Math.Abs(minDec), Math.Abs(maxDec)), 89.0);
+            var cosDec = Math.Max(Math.Cos(maxAbsDec * Math.PI / 180.0), 0.05);
+            minRA -= marginDeg / 15.0 / cosDec;
+            maxRA += marginDeg / 15.0 / cosDec;
+            minDec = Math.Max(-90.0, minDec - marginDeg);
+            maxDec = Math.Min(90.0, maxDec + marginDeg);
         }
 
         var grid = db.DeepSkyCoordinateGrid;
