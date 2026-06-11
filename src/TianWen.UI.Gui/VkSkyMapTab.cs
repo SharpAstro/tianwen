@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Numerics;
+using System.Threading.Tasks;
 using DIR.Lib;
 using SdlVulkan.Renderer;
 using TianWen.Lib.Astrometry;
@@ -65,15 +66,34 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
     // matrix made the expensive catalog grid scan re-run on EVERY pan frame below the
     // wide-FOV threshold -- the "jank when the SCP comes into view at ~70 deg FOV"
     // (pole-in-view scans a full-RA Dec strip, the worst case).
-    private double _overlayCentreRaKey = double.NaN;
-    private double _overlayCentreDecKey = double.NaN;
-    private double _overlayFovKey = -1.0;
-    private int _overlayRectWKey, _overlayRectHKey;
-    private float _overlayDpiKey;
-    private bool _overlayShowAllKey;
-    private bool _overlayShowDarkNebKey;
-    private ImmutableArray<ProposedObservation> _overlayProposalsKey;
-    private ICelestialObjectDB? _overlayDbKey;
+    // Identity of a Phase A gather: the quantized view key plus the catalog/visibility
+    // inputs the walk depends on. Record-struct equality compares ImmutableArray by its
+    // underlying-array reference and ICelestialObjectDB by reference (matches the old
+    // per-field comparison). When the FOV is wide the centre is dropped from the key
+    // (Ra=Dec=0) so the candidate set is centre-independent up there, exactly like before.
+    private readonly record struct OverlayGatherKey(
+        ICelestialObjectDB? Db,
+        ImmutableArray<ProposedObservation> Proposals,
+        double Ra, double Dec, double Fov,
+        int RectW, int RectH, float Dpi,
+        bool ShowAll, bool ShowDark);
+
+    // Result handed back from the background walk: a freshly-built candidate list plus the
+    // key it was computed for (so the render thread knows what view it corresponds to).
+    private readonly record struct OverlayGatherResult(
+        List<OverlayCandidate> Candidates, OverlayGatherKey Key);
+
+    // Async Phase A. The candidate walk is a 60-170ms grid scan; running it inline on the
+    // render thread made a fast pan re-trigger it every frame (slow gather -> the view had
+    // already moved -> cache miss -> slow gather), which was THE residual sky-map jank.
+    // Mirror the star-buffer pattern (StartStarBufferRebuildAsync / TryApplyPendingStarBuild):
+    // the walk runs on a Task, the render thread keeps projecting + drawing the last-good
+    // candidate list EVERY frame, and the fresh list is swapped in when the task lands. Only
+    // one walk is in flight at a time; if the view moved on by the time it lands we apply it
+    // anyway (it is still closer than what we have) and the next frame kicks a fresh one.
+    private Task<OverlayGatherResult>? _overlayGatherTask;
+    private OverlayGatherKey _overlayAppliedKey;
+    private bool _overlayHasAppliedKey;
     private readonly List<OverlayCandidate> _overlayCandidates = [];
     private readonly List<OverlayItem> _overlayItems = [];
     private readonly List<(OverlayItem Item, float X, float Y)> _overlayPlacedLabels = [];
@@ -246,20 +266,29 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
         var rectW = (int)contentRect.Width;
         var rectH = (int)contentRect.Height;
 
-        // Phase A cache hit: when FOV >= 90 deg the scan bounds are the whole sphere
-        // so the candidate list is independent of the view. Below that threshold the
-        // view contributes a QUANTIZED centre + FOV (see the key fields' comment):
-        // panning only re-runs the expensive catalog grid scan when the centre crosses
-        // a FOV/8 cell, and the gather's widened scan margin keeps the cached set
-        // valid for every view inside the cell. Phase B's per-frame projection culls
-        // off-screen candidates, so correctness is unaffected between rebuilds.
+#if DEBUG
+        // Slow-frame attribution (pairs with SdlEventLoop's [rdiag] frame.slow
+        // begin/render/end split): logs which overlay phase ate the time. The Phase A
+        // gather is logged at its call site (it only runs on cache miss and is the usual
+        // spike); the per-frame log at the end of this method covers the always-on phases.
+        // On a cache-miss frame the 'project' bucket below includes the gather -- the
+        // separate skymap.gather line is what attributes it.
+        var diagStart = System.Diagnostics.Stopwatch.GetTimestamp();
+        long diagProjectDone = 0, diagLabelsDone = 0;
+#endif
+
+        // Phase A: the candidate set is keyed on a QUANTIZED view centre + FOV (not the raw
+        // view matrix) so a pan only invalidates it when the centre crosses a FOV/8 cell;
+        // when FOV >= 90 deg the scan bounds are the whole sphere so the centre drops out of
+        // the key entirely. The walk itself is 60-170ms in dense regions, so it runs on a
+        // BACKGROUND task (see StartOverlayGatherAsync): the render thread keeps projecting +
+        // drawing the last-good list every frame and swaps in the fresh one when it lands.
         var wideFov = fov >= WideFovThresholdDeg;
         var showDarkNebulae = State.ShowDarkNebulae;
 
-        // ~10% logarithmic FOV steps: zoom rebuilds a handful of times across a 2x
-        // range instead of once per wheel tick. The magnitude cutoffs the gather
-        // derives from FOV drift by at most ~10% before a rebuild picks them up --
-        // visually indistinguishable.
+        // ~10% logarithmic FOV steps: zoom re-gathers a handful of times across a 2x range
+        // instead of once per wheel tick. The magnitude cutoffs the gather derives from FOV
+        // drift by at most ~10% before a re-gather picks them up -- visually indistinguishable.
         var quantFov = Math.Pow(1.1, Math.Round(Math.Log(Math.Max(fov, 0.1)) / Math.Log(1.1)));
 
         var centreX = contentRect.X + contentRect.Width * 0.5f;
@@ -267,9 +296,9 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
         var pprKey = SkyMapProjection.PixelsPerRadian(contentRect.Height, fov);
         var (centreRa, centreDec) = SkyMapProjection.UnprojectWithMatrix(
             centreX, centreY, viewMatrix, pprKey, centreX, centreY);
-        // Quantize the centre to FOV/8 cells. The RA step widens by 1/cos(dec)
-        // (clamped) so cells stay roughly square on the sky; near the pole RA
-        // quantization is meaningless anyway -- the gather sweeps the full 24h there.
+        // Quantize the centre to FOV/8 cells. The RA step widens by 1/cos(dec) (clamped) so
+        // cells stay roughly square on the sky; near the pole RA quantization is meaningless
+        // anyway -- the gather sweeps the full 24h there.
         var quantStepDeg = fov / 8.0;
         var quantDec = Math.Round(centreDec / quantStepDeg) * quantStepDeg;
         var cosDec = Math.Max(Math.Abs(Math.Cos(quantDec * Math.PI / 180.0)), 0.05);
@@ -277,31 +306,24 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
         var quantRa = Math.Round(centreRa / quantStepRaHours) * quantStepRaHours;
         var centreValid = !double.IsNaN(quantRa) && !double.IsNaN(quantDec);
 
-        var cacheHit = ReferenceEquals(db, _overlayDbKey)
-            && quantFov == _overlayFovKey
-            && rectW == _overlayRectWKey
-            && rectH == _overlayRectHKey
-            && dpiScale == _overlayDpiKey
-            && showAllOverlays == _overlayShowAllKey
-            && showDarkNebulae == _overlayShowDarkNebKey
-            && proposals == _overlayProposalsKey
-            && (wideFov || (centreValid
-                            && quantRa == _overlayCentreRaKey
-                            && quantDec == _overlayCentreDecKey));
+        // Wide FOV: drop the centre from the key (whole-sphere scan). Invalid centre (NaN):
+        // leave it NaN so the key never matches and we keep trying (matches old behaviour).
+        var desiredKey = new OverlayGatherKey(
+            db, proposals,
+            wideFov ? 0.0 : (centreValid ? quantRa : double.NaN),
+            wideFov ? 0.0 : (centreValid ? quantDec : double.NaN),
+            quantFov, rectW, rectH, dpiScale, showAllOverlays, showDarkNebulae);
 
-        if (!cacheHit)
+        // 1. Install a completed background gather (swaps _overlayCandidates, records its key).
+        TryApplyPendingOverlayGather();
+
+        // 2. If our candidates don't match the view we want, make sure a walk is running for it.
+        //    Only one is in flight at a time; when it lands (step 1, a later frame) we apply it
+        //    and, if the view has moved on, kick a fresh one. The render thread never blocks.
+        if (!(_overlayHasAppliedKey && _overlayAppliedKey == desiredKey) && _overlayGatherTask is null)
         {
-            RebuildOverlayCandidates(db, contentRect, dpiScale, proposals, showAllOverlays, showDarkNebulae);
-            _overlayDbKey = db;
-            _overlayCentreRaKey = centreValid ? quantRa : double.NaN; // NaN never equals -> rebuild next frame
-            _overlayCentreDecKey = centreValid ? quantDec : double.NaN;
-            _overlayFovKey = quantFov;
-            _overlayRectWKey = rectW;
-            _overlayRectHKey = rectH;
-            _overlayDpiKey = dpiScale;
-            _overlayShowAllKey = showAllOverlays;
-            _overlayShowDarkNebKey = showDarkNebulae;
-            _overlayProposalsKey = proposals;
+            StartOverlayGatherAsync(db, contentRect, dpiScale, proposals,
+                showAllOverlays, showDarkNebulae, desiredKey);
         }
 
         // Phase B: project cached candidates into screen items every frame. This is
@@ -315,6 +337,9 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
         }
         OverlayEngine.ProjectSkyMapCandidatesInto(_overlayCandidates, State, contentRect,
             dpiScale, _overlayItems);
+#if DEBUG
+        diagProjectDone = System.Diagnostics.Stopwatch.GetTimestamp();
+#endif
 
         if (_overlayItems.Count == 0)
         {
@@ -342,6 +367,9 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
         {
             OverlayEngine.PlaceLabelsBestEffort(_overlayItems, placementLabelSize, 4f, measureText, record);
         }
+#if DEBUG
+        diagLabelsDone = System.Diagnostics.Stopwatch.GetTimestamp();
+#endif
 
         // Overlay fade at wide FOV -- keep overlays readable when zoomed out.
         // At FOV <= 120 there is no fade; between 120 and 180 deg the alpha
@@ -497,23 +525,70 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
                     TextAlign.Near, TextAlign.Center);
             }
         }
+
+#if DEBUG
+        var overlayTotalMs = System.Diagnostics.Stopwatch.GetElapsedTime(diagStart).TotalMilliseconds;
+        if (overlayTotalMs > 25 && diagProjectDone != 0 && diagLabelsDone != 0)
+        {
+            var projectMs = System.Diagnostics.Stopwatch.GetElapsedTime(diagStart, diagProjectDone).TotalMilliseconds;
+            var labelsMs = System.Diagnostics.Stopwatch.GetElapsedTime(diagProjectDone, diagLabelsDone).TotalMilliseconds;
+            var drawMs = System.Diagnostics.Stopwatch.GetElapsedTime(diagLabelsDone).TotalMilliseconds;
+            Console.Error.WriteLine(
+                $"[rdiag] skymap.overlay {overlayTotalMs:F0}ms (project={projectMs:F0} labels={labelsMs:F0} draw={drawMs:F0}) cands={_overlayCandidates.Count} items={_overlayItems.Count} placed={_overlayPlacedLabels.Count}");
+        }
+#endif
     }
 
     /// <summary>
-    /// Rebuilds <see cref="_overlayCandidates"/> via the view-matrix-independent gather
-    /// pass. Called only on cache miss -- per-frame projection and label placement
-    /// happen in <see cref="RenderObjectOverlay"/>, not here.
+    /// Render-thread half of the async Phase A rebuild: when the background walk has
+    /// completed, swap its fresh candidate list into <see cref="_overlayCandidates"/> and
+    /// record the key it was computed for. Called every frame before Phase B; cheap when
+    /// no walk is in flight. We apply the result unconditionally (even if the view has
+    /// moved on since the walk started) -- it is still closer to the current view than
+    /// what we hold, the gather's scan margin keeps it valid for nearby views, and the
+    /// next frame kicks a fresh walk if it no longer matches.
     /// </summary>
-    private void RebuildOverlayCandidates(
-        ICelestialObjectDB db, RectF32 contentRect, float dpiScale,
-        ImmutableArray<ProposedObservation> proposals, bool showAllOverlays, bool showDarkNebulae)
+    private void TryApplyPendingOverlayGather()
     {
-        _overlayCandidates.Clear();
+        if (_overlayGatherTask is not { IsCompleted: true } task)
+        {
+            return;
+        }
+        // Clear the slot regardless of outcome so a faulted/cancelled walk can't wedge the
+        // pipeline (a non-null task would block every future kick). A fault just means we
+        // keep the last-good set and re-gather next frame.
+        _overlayGatherTask = null;
+        if (!task.IsCompletedSuccessfully)
+        {
+            Console.Error.WriteLine(
+                $"[VkSkyMapTab] overlay gather failed: {task.Exception?.GetBaseException().Message}");
+            return;
+        }
 
-        // Build pinned catalog-index set from planner proposals. Targets that have
-        // a CatalogIndex can be matched against the overlay engine's spatial scan;
-        // non-catalog targets (manually typed) would need a separate RA/Dec match
-        // (deferred to a future pass).
+        var result = task.Result;
+        _overlayCandidates.Clear();
+        _overlayCandidates.AddRange(result.Candidates);
+        _overlayAppliedKey = result.Key;
+        _overlayHasAppliedKey = true;
+    }
+
+    /// <summary>
+    /// Kicks off the background Phase A walk for <paramref name="key"/>. The pinned-target
+    /// set and the early-out (both layers off, nothing pinned) are resolved here on the
+    /// render thread; the view matrix + FOV are snapshotted by value so the walk sees a
+    /// consistent view even as the render thread keeps panning. The walk itself
+    /// (<see cref="OverlayEngine.GatherSkyMapOverlayCandidates"/> + the per-layer filter)
+    /// is pure CPU over the immutable-after-init catalog DB, so it is safe off-thread --
+    /// the same property the async star-buffer build relies on. On completion it sets
+    /// <c>State.NeedsRedraw</c> so the loop schedules the frame that applies it.
+    /// </summary>
+    private void StartOverlayGatherAsync(
+        ICelestialObjectDB db, RectF32 contentRect, float dpiScale,
+        ImmutableArray<ProposedObservation> proposals, bool showAllOverlays, bool showDarkNebulae,
+        OverlayGatherKey key)
+    {
+        // Pinned catalog-index set from planner proposals (CatalogIndex-bearing targets only;
+        // manually-typed RA/Dec targets would need a separate match, deferred).
         HashSet<CatalogIndex>? pinnedIndices = null;
         if (proposals.Length > 0)
         {
@@ -528,31 +603,56 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
             if (pinnedIndices.Count == 0) pinnedIndices = null;
         }
 
-        // Skip the full catalog scan entirely when both overlay layers are off AND
-        // there are no pinned targets to show -- avoids iterating ~100k spatial-index
-        // cells for nothing when the user just wants a clean sky map.
+        // Both layers off and nothing pinned: nothing to gather. Apply an empty set
+        // synchronously (instant) so we don't spin up a task or re-kick every frame.
         if (!showAllOverlays && !showDarkNebulae && pinnedIndices is null)
         {
+            _overlayCandidates.Clear();
+            _overlayAppliedKey = key;
+            _overlayHasAppliedKey = true;
             return;
         }
 
-        OverlayEngine.GatherSkyMapOverlayCandidates(
-            State, contentRect, dpiScale, db, pinnedIndices, _overlayCandidates);
-
-        // Per-layer visibility: dark nebulae follow the [D] toggle, every other catalog
-        // object follows [O]. Pinned planner targets always survive both gates so the
-        // user's planned observations stay visible as landmarks regardless of layer state.
-        if (!showAllOverlays || !showDarkNebulae)
+        // Snapshot the view by value -- the background walk must not read the live (mutating)
+        // SkyMapState. Matrix4x4 is a struct, so this is a consistent copy. The seed capacity
+        // is read HERE on the render thread (reading _overlayCandidates.Count inside the task
+        // would race the render thread's Clear/AddRange/iteration of that list).
+        var snapViewMatrix = State.CurrentViewMatrix;
+        var snapFov = State.FieldOfViewDeg;
+        var seedCapacity = _overlayCandidates.Count > 0 ? _overlayCandidates.Count : 256;
+#if DEBUG
+        var gatherStart = System.Diagnostics.Stopwatch.GetTimestamp();
+#endif
+        _overlayGatherTask = Task.Run(() =>
         {
-            _overlayCandidates.RemoveAll(c =>
+            var list = new List<OverlayCandidate>(seedCapacity);
+            OverlayEngine.GatherSkyMapOverlayCandidates(
+                snapViewMatrix, snapFov, contentRect, dpiScale, db, pinnedIndices, list);
+
+            // Per-layer visibility: dark nebulae follow [D], every other catalog object
+            // follows [O]. Pinned planner targets survive both gates so they stay visible
+            // as landmarks regardless of layer state.
+            if (!showAllOverlays || !showDarkNebulae)
             {
-                if (c.IsPinned)
+                list.RemoveAll(c =>
                 {
-                    return false;
-                }
-                return c.ObjectType == ObjectType.DarkNeb ? !showDarkNebulae : !showAllOverlays;
-            });
-        }
+                    if (c.IsPinned)
+                    {
+                        return false;
+                    }
+                    return c.ObjectType == ObjectType.DarkNeb ? !showDarkNebulae : !showAllOverlays;
+                });
+            }
+#if DEBUG
+            var gatherMs = System.Diagnostics.Stopwatch.GetElapsedTime(gatherStart).TotalMilliseconds;
+            if (gatherMs > 10)
+                Console.Error.WriteLine(
+                    $"[rdiag] skymap.gather(async) {gatherMs:F0}ms cands={list.Count} fov={snapFov:F1}");
+#endif
+            // Schedule the render frame that installs this result (TryApplyPendingOverlayGather).
+            State.NeedsRedraw = true;
+            return new OverlayGatherResult(list, key);
+        });
     }
 
     // Mosaic panel outlines are now drawn by the GPU LinePipeline (see BuildFovLines
