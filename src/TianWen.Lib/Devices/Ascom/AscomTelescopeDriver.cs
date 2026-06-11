@@ -339,13 +339,14 @@ internal class AscomTelescopeDriver : AscomDeviceDriverBase, IMountDriver
         return SafeValueTask(() => _telescope.MoveAxis((int)axis, rate));
     }
 
+    // The COM TargetRightAscension/TargetDeclination properties throw an ASCOM
+    // ValueNotSet exception until a target has actually been assigned (e.g. by a
+    // SlewToCoordinates call). SafeGet swallows that and returns NaN, matching the
+    // GetRightAscension/GetDeclination idiom above, so callers see "no target set"
+    // as NaN rather than an exception.
     public ValueTask<double> GetTargetRightAscensionAsync(CancellationToken cancellationToken)
-    {
-        throw new NotImplementedException();
-    }
+        => ValueTask.FromResult(SafeGet(() => _telescope.TargetRightAscension, double.NaN));
 
     public ValueTask<double> GetTargetDeclinationAsync(CancellationToken cancellationToken)
-    {
-        throw new NotImplementedException();
-    }
+        => ValueTask.FromResult(SafeGet(() => _telescope.TargetDeclination, double.NaN));
 }

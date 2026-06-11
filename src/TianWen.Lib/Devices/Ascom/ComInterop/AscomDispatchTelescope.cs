@@ -40,6 +40,10 @@ internal sealed partial class AscomDispatchTelescope : IDisposable
     // Coordinate properties
     public partial double RightAscension { get; }
     public partial double Declination { get; }
+    // ASCOM target coordinates (the last commanded goto target). The COM getter throws
+    // a ValueNotSet exception until a target is assigned; callers go through SafeGet.
+    public partial double TargetRightAscension { get; }
+    public partial double TargetDeclination { get; }
     public partial double SiderealTime { get; }
     public partial double SiteElevation { get; set; }
     public partial double SiteLatitude { get; set; }
