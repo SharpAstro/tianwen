@@ -1,6 +1,34 @@
 # Plan: Stellarium-Style Time Scrubber for the Sky Map
 
-Status: NOT STARTED. Authored 2026-06-12 for hand-off; all file/line facts verified against main @ `ae85cd8`.
+Status: SHIPPED 2026-06-12 (branch `feat/top-5-todo`). Authored 2026-06-12; all file/line facts verified against main @ `ae85cd8`.
+
+## Implementation notes (as shipped)
+
+- `SkyMapState.TimeOffset` (TimeSpan, default Zero, not persisted) + two pure statics:
+  `FormatOffset(TimeSpan)` (largest-two-non-zero-units, signed, ASCII: `+0`, `+3h`,
+  `-1h 30m`, `+1w 2d`, `+2d 3h`) and `ComputeMidnightOffset(DateTimeOffset nowLocal)`
+  (>= noon -> tomorrow 00:00, else this morning 00:00; returns a frame-independent
+  duration so callers add it straight onto the UTC base).
+- Derivation in `SkyMapTab.Render`: `baseTime = PlanningDate?.ToUniversalTime() ?? _cachedLiveTime;`
+  `viewingTime = baseTime + State.TimeOffset;` `isTimeShifted = PlanningDate.HasValue || TimeOffset != Zero`.
+  `_cachedLiveTime` keeps its 1 s refresh whenever `PlanningDate` is null, so in live mode the
+  scrubbed instant advances with the wall clock (Stellarium behavior). No downstream changes
+  needed -- `VkSkyMapTab.RenderSkyMap` already consumes the passed `viewingTime`.
+- Keys (`SkyMapTab.HandleKey`, now `(InputKey, InputModifier)`): Up/Down +-1h (Shift +-10m),
+  Left/Right -+1d, PageUp/PageDown +-1w, `N` midnight (base = PlanningDate else GetUtcNow,
+  in `SiteTimeZone`), `0` offset reset, `T` full reset (also clears PlanningDate). All set
+  `NeedsRedraw`, never `NeedsRecompute`; the planner arrows that previously fired here are gone.
+- HUD: `DrawInfoStrip` appends ` (FormatOffset(TimeOffset))` when offset != 0 and widens the
+  right-side time box (300/292). Only the scrub offset is shown (a planner PlanningDate is
+  already self-evident from the absolute date); no per-frame clock read.
+- Inspector: `Program.cs` AppState snapshot adds `mapTimeOffsetMinutes` + `mapTimeOffset`.
+- Tests: `SkyMapTimeScrubTests` (20) -- FormatOffset theory, ComputeMidnightOffset theory,
+  and a Vienna-winter day->night sun-altitude propagation guard. Shift+arrow 10 min step was
+  feasible (KeyDown carries modifiers) so it was included, not skipped.
+- Deviation from the draft: the offset chip shows only `State.TimeOffset` (not a combined
+  PlanningDate delta) to avoid a per-frame `GetUtcNow` and a stale-`_cachedLiveTime` hazard.
+  `FormatOffset` does not zero-pad the minor unit (`+2d 3h`, not `+2d 03h`) -- simplest
+  consistent rule, no special-casing.
 
 Goal: step the sky map's observation instant relative to NOW (+1h, +1d, ...) as an
 **offset from the wall clock** (so the scrubbed instant keeps advancing with real time),
