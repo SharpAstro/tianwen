@@ -2,6 +2,7 @@ using Microsoft.Extensions.Logging;
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using TianWen.Lib.Astrometry;
 using TianWen.Lib.Extensions;
 
 namespace TianWen.Lib.Sequencing;
@@ -10,6 +11,16 @@ internal partial record Session
 {
     internal async ValueTask<DateTime> GetMountUtcNowAsync(CancellationToken cancellationToken)
         => await Setup.Mount.Driver.TryGetUTCDateFromMountAsync(cancellationToken) ?? _timeProvider.GetUtcNow().UtcDateTime;
+
+    /// <summary>
+    /// Resolves refraction inputs (site pressure + temperature) for transforms built on the
+    /// session hot path: a connected weather device supplies the live values, else the standard
+    /// atmosphere (pressure auto-derived from the site's static elevation). These are varying
+    /// environmental values, so they are read live here rather than stored. Passed to
+    /// <see cref="Devices.IMountDriver.TryGetTransformAsync(SiteConditions, CancellationToken)"/>.
+    /// </summary>
+    private SiteConditions ResolveSiteConditions()
+        => SiteConditions.Resolve(Setup.Weather?.Driver is { Connected: true } weather ? weather : null);
 
     /// <summary>
     /// Converts a UTC <see cref="DateTime"/> to a local <see cref="DateTimeOffset"/> at the site's timezone,
@@ -147,7 +158,7 @@ internal partial record Session
 
     internal async ValueTask<DateTime> SessionEndTimeAsync(DateTime startTime, CancellationToken cancellationToken)
     {
-        if (await Setup.Mount.Driver.TryGetTransformAsync(cancellationToken) is not { } transform)
+        if (await Setup.Mount.Driver.TryGetTransformAsync(ResolveSiteConditions(), cancellationToken) is not { } transform)
         {
             throw new InvalidOperationException("Failed to retrieve time transformation from mount");
         }

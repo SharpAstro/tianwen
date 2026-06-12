@@ -2382,23 +2382,24 @@ namespace TianWen.UI.Abstractions
                         });
                 }
 
-                // Refraction inputs: prefer connected weather device, then standard atmosphere.
-                double pressureHPa = 1010.0;
-                double temperatureC = 10.0;
-                if (profileData.Weather is { } weatherUri
-                    && hub.TryGetConnectedDriver<IWeatherDriver>(weatherUri, out var weather)
-                    && weather is not null)
+                // Refraction inputs: a connected weather device supplies the live values, else the
+                // standard atmosphere -- the same two-tier chain the session uses
+                // (SiteConditions.Resolve). PolarAlignmentSite needs concrete numbers, so the
+                // standard tier collapses to SiteConditions.StandardPressureHPa here rather than
+                // the elevation auto-derive used where a Transform is the consumer.
+                IWeatherDriver? weather = null;
+                if (profileData.Weather is { } weatherUri)
                 {
-                    if (!double.IsNaN(weather.Pressure)) pressureHPa = weather.Pressure;
-                    if (!double.IsNaN(weather.Temperature)) temperatureC = weather.Temperature;
+                    hub.TryGetConnectedDriver<IWeatherDriver>(weatherUri, out weather);
                 }
+                var conditions = SiteConditions.Resolve(weather);
 
                 var site = new PolarAlignmentSite(
                     LatitudeDeg: lat,
                     LongitudeDeg: lon,
                     ElevationM: profileData.SiteElevation ?? 0,
-                    PressureHPa: pressureHPa,
-                    TemperatureC: temperatureC);
+                    PressureHPa: conditions.PressureHPa,
+                    TemperatureC: conditions.TemperatureCelsius);
 
                 // Setup-panel path supplies the full configuration. Toolbar /
                 // legacy callers leave Configuration null and pin only

@@ -683,7 +683,7 @@ internal partial record Session
             }
 
             // Check if target has dropped below minimum altitude
-            if (await mount.Driver.TryGetTransformAsync(cancellationToken) is { } altTransform
+            if (await mount.Driver.TryGetTransformAsync(ResolveSiteConditions(), cancellationToken) is { } altTransform
                 && await mount.Driver.TryTransformJ2000ToMountNativeAsync(
                     altTransform, observation.Target.RA, observation.Target.Dec,
                     updateTime: true, cancellationToken) is { } altCoords
@@ -1256,7 +1256,7 @@ internal partial record Session
         Target target, byte minAlt, TimeSpan maxLookahead, CancellationToken cancellationToken)
     {
         var mount = Setup.Mount;
-        if (await mount.Driver.TryGetTransformAsync(cancellationToken) is not { } transform)
+        if (await mount.Driver.TryGetTransformAsync(ResolveSiteConditions(), cancellationToken) is not { } transform)
         {
             return null;
         }

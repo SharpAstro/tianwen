@@ -502,7 +502,7 @@ internal partial record Session
         ScheduledObservation observation, CancellationToken cancellationToken)
     {
         var mount = Setup.Mount;
-        if (await mount.Driver.TryGetTransformAsync(cancellationToken) is not { } transform)
+        if (await mount.Driver.TryGetTransformAsync(ResolveSiteConditions(), cancellationToken) is not { } transform)
         {
             return null;
         }
