@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Collections.Immutable;
 using DIR.Lib;
 using Microsoft.Extensions.Logging;
@@ -89,17 +90,25 @@ namespace TianWen.UI.Gui
         private float StatusBarHeight => BaseStatusBarHeight * DpiScale;
         private float FontSize => BaseFontSize * DpiScale;
 
-        // Sidebar tab definitions. Tooltip shows the name + Ctrl+letter shortcut.
-        private static readonly (string Icon, GuiTab Tab, string Tooltip)[] SidebarTabs =
-        [
-            ("\U0001F52D", GuiTab.Equipment,     "Equipment (Ctrl+E)"),
-            ("\U0001F4C5", GuiTab.Planner,       "Planner (Ctrl+P)"),
-            ("\U0001F30C", GuiTab.SkyMap,        "Sky Map (Ctrl+M)"),
-            ("\U0001F4F7", GuiTab.Session,       "Session (Ctrl+S)"),
-            ("\U0001F4F8", GuiTab.LiveSession,   "Live Session (Ctrl+L)"),
-            ("\U0001F3AF", GuiTab.Guider,        "Guider (Ctrl+G)"),
-            ("\U0001F514", GuiTab.Notifications, "Notifications (Ctrl+N)"),
-        ];
+        // Live Session sidebar icon reflects session state (overridden per-frame in RenderSidebar):
+        // idle = camera, running = camera with flash. The rocket marks the Session Setup tab as the
+        // "set up and launch here" entry point so the Start Session button is easy to find.
+        private const string LiveSessionIdleIcon    = "\U0001F4F7"; // camera
+        private const string LiveSessionRunningIcon = "\U0001F4F8"; // camera with flash
+
+        // Per-tab sidebar chrome (icon + hover tooltip with the Ctrl+letter shortcut). The sidebar
+        // ORDER comes from GuiAppState.TabOrder (shared with Ctrl+Tab cycling) so the visual order
+        // and the cycle order can't drift apart.
+        private static readonly Dictionary<GuiTab, (string Icon, string Tooltip)> TabChrome = new()
+        {
+            [GuiTab.Equipment]     = ("\U0001F52D",        "Equipment (Ctrl+E)"),
+            [GuiTab.Planner]       = ("\U0001F4C5",        "Planner (Ctrl+P)"),
+            [GuiTab.SkyMap]        = ("\U0001F30C",        "Sky Map (Ctrl+M)"),
+            [GuiTab.Session]       = ("\U0001F680",        "Session Setup (Ctrl+S)"),
+            [GuiTab.LiveSession]   = (LiveSessionIdleIcon, "Live Session (Ctrl+L)"),
+            [GuiTab.Guider]        = ("\U0001F3AF",        "Guider (Ctrl+G)"),
+            [GuiTab.Notifications] = ("\U0001F514",        "Notifications (Ctrl+N)"),
+        };
 
         // Sidebar colors
         private static readonly RGBAColor32 SidebarBg     = new RGBAColor32(0x1a, 0x1a, 0x22, 0xff);
@@ -229,9 +238,16 @@ namespace TianWen.UI.Gui
             string? hoverTooltip = null;
             float hoverY = 0f;
 
-            for (var i = 0; i < SidebarTabs.Length; i++)
+            var tabs = GuiAppState.TabOrder;
+            for (var i = 0; i < tabs.Length; i++)
             {
-                var (icon, tab, tooltip) = SidebarTabs[i];
+                var tab = tabs[i];
+                var (icon, tooltip) = TabChrome[tab];
+                // Live Session icon flips to "camera with flash" while a session is actually running.
+                if (tab is GuiTab.LiveSession && LiveSessionState.IsRunning)
+                {
+                    icon = LiveSessionRunningIcon;
+                }
                 var btnY = startY + i * buttonSize;
                 var isActive = appState.ActiveTab == tab;
                 var isLocked = (noProfile && tab is not GuiTab.Equipment)

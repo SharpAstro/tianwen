@@ -36,6 +36,40 @@ public readonly record struct NotificationEntry(
 
 public class GuiAppState
 {
+    /// <summary>
+    /// Canonical left-to-right (sidebar top-to-bottom) tab order. Single source of truth for
+    /// both the GUI sidebar rendering and Ctrl+Tab / Ctrl+Shift+Tab cycling, so the visual order
+    /// and the cycle order can never drift apart. The <see cref="GuiTab"/> enum declaration order
+    /// is historical and intentionally not used for ordering.
+    /// </summary>
+    public static readonly ImmutableArray<GuiTab> TabOrder =
+    [
+        GuiTab.Equipment,
+        GuiTab.Planner,
+        GuiTab.SkyMap,
+        GuiTab.Session,
+        GuiTab.LiveSession,
+        GuiTab.Guider,
+        GuiTab.Notifications,
+    ];
+
+    /// <summary>
+    /// Returns the tab one step from <paramref name="current"/> in <see cref="TabOrder"/>
+    /// (<paramref name="forward"/> = next, otherwise previous), wrapping around at both ends.
+    /// Backs Ctrl+Tab / Ctrl+Shift+Tab cycling.
+    /// </summary>
+    public static GuiTab NextTab(GuiTab current, bool forward)
+    {
+        var order = TabOrder;
+        var idx = order.IndexOf(current);
+        if (idx < 0) idx = 0;
+
+        var next = forward
+            ? (idx + 1) % order.Length
+            : (idx - 1 + order.Length) % order.Length;
+        return order[next];
+    }
+
     /// <summary>Device URI registry for resolving camera URIs to device instances.</summary>
     public IDeviceHub? DeviceHub { get; init; }
 

@@ -266,6 +266,14 @@ namespace TianWen.UI.Abstractions
                 return true;
             }
 
+            // Ctrl+Tab / Ctrl+Shift+Tab cycle through tabs in sidebar order (wraps around).
+            // Also global so it works while a search field is focused.
+            if (inputKey == InputKey.Tab && (inputModifier & InputModifier.Ctrl) != 0)
+            {
+                CycleTab(forward: (inputModifier & InputModifier.Shift) == 0);
+                return true;
+            }
+
             var activeInput = _appState.ActiveTextInput;
             if (activeInput is { IsActive: true })
             {
@@ -299,6 +307,21 @@ namespace TianWen.UI.Abstractions
             }
             _appState.NeedsRedraw = true;
             return true;
+        }
+
+        /// <summary>
+        /// Cycles the active tab one step through <see cref="GuiAppState.TabOrder"/> (Ctrl+Tab forward,
+        /// Ctrl+Shift+Tab backward), wrapping around at the ends.
+        /// </summary>
+        private void CycleTab(bool forward)
+        {
+            var tab = GuiAppState.NextTab(_appState.ActiveTab, forward);
+            _appState.ActiveTab = tab;
+            if (tab == GuiTab.Notifications)
+            {
+                _appState.UnreadNotificationCount = 0;
+            }
+            _appState.NeedsRedraw = true;
         }
 
         // ===================================================================
