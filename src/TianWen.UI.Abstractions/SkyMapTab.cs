@@ -122,7 +122,13 @@ namespace TianWen.UI.Abstractions
                 _cachedLiveTime = timeProvider.GetUtcNow();
                 _liveTimeRefreshTicks = nowTicks;
             }
-            var viewingTime = plannerState.PlanningDate?.ToUniversalTime() ?? _cachedLiveTime;
+            // Base instant: the planner's absolute date (when set) else the live wall clock.
+            // The sky-map scrub offset (Up/Down/Left/Right/PageUp/PageDown/N) stacks on top so
+            // the scrubbed instant keeps advancing with real time in live mode (offset is fixed,
+            // _cachedLiveTime keeps refreshing). PlanningDate stays planner-driven; scrubbing
+            // here never recomputes the planner.
+            var baseTime = plannerState.PlanningDate?.ToUniversalTime() ?? _cachedLiveTime;
+            var viewingTime = baseTime + State.TimeOffset;
 
             // Initialize view to zenith on first valid site, or re-center on profile switch
             var site = SiteContext.Create(siteLat, siteLon, viewingTime);
@@ -196,8 +202,9 @@ namespace TianWen.UI.Abstractions
             // click a pole or zenith to slew, even if the mount happens to overlap.
             RenderFixedPointMarkers(contentRect, dpiScale, fontPath, BaseFontSize, ppr, cx, cy, site);
 
+            var isTimeShifted = plannerState.PlanningDate.HasValue || State.TimeOffset != TimeSpan.Zero;
             DrawInfoStrip(contentRect, fontPath, fontSize, dpiScale, cx, cy,
-                viewingTime, plannerState.SiteTimeZone, plannerState.PlanningDate.HasValue);
+                viewingTime, plannerState.SiteTimeZone, isTimeShifted);
 
             // Crosshair
             var crossColor = new RGBAColor32(0xFF, 0xFF, 0xFF, 0x40);
@@ -580,6 +587,15 @@ namespace TianWen.UI.Abstractions
                 ? $"{localTime:yyyy-MM-dd HH:mm}"
                 : $"{localTime:HH:mm:ss}";
 
+            // Append a compact signed offset chip while scrubbed (e.g. "(+2d 03h)") so the
+            // absolute instant above is read as a deliberate offset from the live wall clock
+            // (which stays visible in the global status bar). Only the scrub offset is shown;
+            // a planner-set PlanningDate is already self-evident from the absolute date.
+            if (State.TimeOffset != TimeSpan.Zero)
+            {
+                timeText += $"  ({SkyMapState.FormatOffset(State.TimeOffset)})";
+            }
+
             var fovText = State.FieldOfViewDeg < 1
                 ? $"FOV: {State.FieldOfViewDeg * 60:F0}'"
                 : $"FOV: {State.FieldOfViewDeg:F1}\u00B0";
@@ -591,10 +607,11 @@ namespace TianWen.UI.Abstractions
                 rect.X + 8, stripY, rect.Width - 16, stripH,
                 fontSize * 0.85f, InfoText, TextAlign.Near, TextAlign.Center);
 
-            // Time display on the right side of the strip -- blue when time-shifted
+            // Time display on the right side of the strip -- blue when time-shifted. The box is
+            // wide enough for the shifted "yyyy-MM-dd HH:mm  (+2d 03h)" form, not just HH:mm:ss.
             var timeColor = isTimeShifted ? TimeShiftColor : InfoText;
             DrawText(timeText.AsSpan(), fontPath,
-                rect.X + rect.Width - 160, stripY, 152, stripH,
+                rect.X + rect.Width - 300, stripY, 292, stripH,
                 fontSize * 0.85f, timeColor, TextAlign.Far, TextAlign.Center);
         }
 
@@ -666,7 +683,7 @@ namespace TianWen.UI.Abstractions
             InputEvent.MouseDown(var x, var y, _, var mods, _) => HandleDragStart(x, y, mods),
             InputEvent.MouseUp(var x, var y, _) => HandleMouseUp(x, y),
             InputEvent.MouseMove(var x, var y) when State.IsDragging && !State.IsPinching => HandleDrag(x, y),
-            InputEvent.KeyDown(var key, _) => HandleKey(key),
+            InputEvent.KeyDown(var key, var modifiers) => HandleKey(key, modifiers),
             _ => false
         };
 
@@ -811,7 +828,7 @@ namespace TianWen.UI.Abstractions
             return true;
         }
 
-        private bool HandleKey(InputKey key)
+        private bool HandleKey(InputKey key, InputModifier modifiers = InputModifier.None)
         {
             // F3 and (when modal open) arrow-key navigation take priority over
             // the map toggles below.
@@ -819,6 +836,8 @@ namespace TianWen.UI.Abstractions
             {
                 return true;
             }
+
+            var fineStep = (modifiers & InputModifier.Shift) != 0;
 
             switch (key)
             {
@@ -872,20 +891,52 @@ namespace TianWen.UI.Abstractions
                     State.MagnitudeLimit = Math.Max(State.MagnitudeLimit - 0.5f, 1f);
                     State.NeedsRedraw = true;
                     return true;
-                case InputKey.Left when _timeProvider is not null && _plannerState is not null:
-                    PlannerActions.ShiftPlanningDate(_plannerState, _timeProvider, -1);
+                // Time scrubbing (Stellarium-style): the arrows now step the sky-map-scoped
+                // TimeOffset, NOT the planner's PlanningDate. The sky map is purely visual --
+                // scrubbing never triggers a planner recompute. The planner tab keeps its own
+                // date controls. OS key-repeat drives hold-to-repeat (no custom repeat logic).
+                case InputKey.Up:
+                    State.TimeOffset += fineStep ? TimeSpan.FromMinutes(10) : TimeSpan.FromHours(1);
+                    State.NeedsRedraw = true;
                     return true;
-                case InputKey.Right when _timeProvider is not null && _plannerState is not null:
-                    PlannerActions.ShiftPlanningDate(_plannerState, _timeProvider, 1);
+                case InputKey.Down:
+                    State.TimeOffset -= fineStep ? TimeSpan.FromMinutes(10) : TimeSpan.FromHours(1);
+                    State.NeedsRedraw = true;
                     return true;
-                case InputKey.Up when _timeProvider is not null && _plannerState is not null:
-                    PlannerActions.ShiftPlanningHours(_plannerState, _timeProvider, 1);
+                case InputKey.Right:
+                    State.TimeOffset += TimeSpan.FromDays(1);
+                    State.NeedsRedraw = true;
                     return true;
-                case InputKey.Down when _timeProvider is not null && _plannerState is not null:
-                    PlannerActions.ShiftPlanningHours(_plannerState, _timeProvider, -1);
+                case InputKey.Left:
+                    State.TimeOffset -= TimeSpan.FromDays(1);
+                    State.NeedsRedraw = true;
+                    return true;
+                case InputKey.PageUp:
+                    State.TimeOffset += TimeSpan.FromDays(7);
+                    State.NeedsRedraw = true;
+                    return true;
+                case InputKey.PageDown:
+                    State.TimeOffset -= TimeSpan.FromDays(7);
+                    State.NeedsRedraw = true;
+                    return true;
+                case InputKey.N when _timeProvider is not null && _plannerState is not null:
+                    // Jump to the midnight of the current observing night, computed in the
+                    // site-local frame of the current base instant (planner date if set, else now).
+                    var baseUtc = _plannerState.PlanningDate?.ToUniversalTime() ?? _timeProvider.GetUtcNow();
+                    var baseLocal = baseUtc.ToOffset(_plannerState.SiteTimeZone);
+                    State.TimeOffset = SkyMapState.ComputeMidnightOffset(baseLocal);
+                    State.NeedsRedraw = true;
+                    return true;
+                case InputKey.D0:
+                    // Reset only the scrub offset -- a PlanningDate set in the planner is preserved.
+                    State.TimeOffset = TimeSpan.Zero;
+                    State.NeedsRedraw = true;
                     return true;
                 case InputKey.T when _plannerState is not null:
+                    // Full "back to live": clear both the planner date and the scrub offset.
                     PlannerActions.ResetPlanningDate(_plannerState);
+                    State.TimeOffset = TimeSpan.Zero;
+                    State.NeedsRedraw = true;
                     return true;
                 default:
                     return false;

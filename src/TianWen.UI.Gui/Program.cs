@@ -578,6 +578,9 @@ using var debugInspector = DebugInspector.Attach(loop, new DebugInspectorOptions
         s.Set("mapMode", sky.Mode.ToString());
         s.Set("mapShowObjectOverlay", sky.ShowObjectOverlay);
         s.Set("mapShowDarkNebulae", sky.ShowDarkNebulae);
+        // Time scrub offset (Stellarium-style): minutes for assertions, formatted for readability.
+        s.Set("mapTimeOffsetMinutes", sky.TimeOffset.TotalMinutes);
+        s.Set("mapTimeOffset", SkyMapState.FormatOffset(sky.TimeOffset));
 
         // Mount marker (the believed-pointing reticle) — the Solve & Sync witness. After a
         // sync the believed pointing jumps to truth, so polling this RA/Dec before/after

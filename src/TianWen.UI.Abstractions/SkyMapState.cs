@@ -181,6 +181,19 @@ namespace TianWen.UI.Abstractions
             }
         }
 
+        /// <summary>
+        /// Scrub offset added to the live wall clock for sky rendering. Zero = live.
+        /// Stored as an offset (Stellarium-style) so the scrubbed instant keeps
+        /// advancing with real time rather than freezing on a captured absolute date.
+        /// Drives sky colour, LST (star/horizon/crosshair rotation), planet + Moon
+        /// positions, horizon fill, and below-horizon label dimming -- all of which
+        /// flow from the single <c>viewingTime</c> derivation in
+        /// <see cref="SkyMapTab{TSurface}.Render"/>. Deliberately sky-map-scoped (not on
+        /// <see cref="PlannerState"/>) so scrubbing never triggers a planner recompute,
+        /// and not persisted across sessions.
+        /// </summary>
+        public TimeSpan TimeOffset { get; set; }
+
         /// <summary>True when viewport changed and the cached texture must be re-rendered.</summary>
         public bool NeedsRedraw { get; set; } = true;
 
@@ -296,6 +309,75 @@ namespace TianWen.UI.Abstractions
             if (sunAltDeg < 5)
                 return new RGBAColor32(0x3A, 0x2C, 0x54, 0xFF); // golden hour
             return new RGBAColor32(0x28, 0x34, 0x50, 0xFF);     // daylight dusty blue
+        }
+
+        /// <summary>
+        /// Formats a <see cref="TimeOffset"/> as a compact signed string showing the
+        /// largest two non-zero units, e.g. <c>"+3h"</c>, <c>"-1h 30m"</c>,
+        /// <c>"+1w 2d"</c>, <c>"+2d 3h"</c>, <c>"-5h"</c>. Sub-minute magnitudes (and
+        /// zero) render as <c>"+0"</c>. Units: weeks (w), days (d), hours (h),
+        /// minutes (m). ASCII only -- this string lands in the GLSL-adjacent HUD strip.
+        /// </summary>
+        public static string FormatOffset(TimeSpan offset)
+        {
+            var sign = offset < TimeSpan.Zero ? "-" : "+";
+            var totalMinutes = (long)offset.Duration().TotalMinutes;
+            if (totalMinutes == 0)
+            {
+                return "+0";
+            }
+
+            var weeks = totalMinutes / (7 * 24 * 60);
+            totalMinutes %= 7 * 24 * 60;
+            var days = totalMinutes / (24 * 60);
+            totalMinutes %= 24 * 60;
+            var hours = totalMinutes / 60;
+            var minutes = totalMinutes % 60;
+
+            // Largest two non-zero units in descending order.
+            Span<(long Value, char Unit)> all =
+            [
+                (weeks, 'w'), (days, 'd'), (hours, 'h'), (minutes, 'm')
+            ];
+
+            var result = sign;
+            var shown = 0;
+            foreach (var (value, unit) in all)
+            {
+                if (value == 0)
+                {
+                    continue;
+                }
+                if (shown > 0)
+                {
+                    result += " ";
+                }
+                result += $"{value}{unit}";
+                if (++shown == 2)
+                {
+                    break;
+                }
+            }
+            return result;
+        }
+
+        /// <summary>
+        /// Computes the <see cref="TimeOffset"/> that lands the sky on the midnight of the
+        /// current observing night, expressed in the site-local frame of
+        /// <paramref name="nowLocal"/>. Definition (Stellarium "N"): the upcoming
+        /// <c>00:00</c> when it is afternoon/evening (local time &gt;= 12:00), otherwise the
+        /// <c>00:00</c> that already started the current night (negative offset, e.g. at
+        /// 02:00 jump back two hours). The returned value is a frame-independent duration, so
+        /// callers add it directly to the UTC base time.
+        /// </summary>
+        public static TimeSpan ComputeMidnightOffset(DateTimeOffset nowLocal)
+        {
+            // >= noon -> tonight rolls into tomorrow's 00:00; before noon -> this night's 00:00.
+            var midnightDate = nowLocal.TimeOfDay >= TimeSpan.FromHours(12)
+                ? nowLocal.Date.AddDays(1)
+                : nowLocal.Date;
+            var targetMidnight = new DateTimeOffset(midnightDate, nowLocal.Offset);
+            return targetMidnight - nowLocal;
         }
 
         /// <summary>
