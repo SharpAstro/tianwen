@@ -98,7 +98,7 @@
 
 ### Not Yet Done
 
-- [ ] Integrate scheduler into `Session.RunAsync` flow — currently `ObservationLoopAsync` iterates linearly; needs to respect `ScheduledObservation.Start` times (wait until scheduled start before slewing). **Plan ready:** see `PLAN-scheduled-starts.md`
+- [x] Integrate scheduler into `Session.RunAsync` flow — currently `ObservationLoopAsync` iterates linearly; needs to respect `ScheduledObservation.Start` times (wait until scheduled start before slewing). **Shipped** (branch `feat/top-5-todo`): `WaitForScheduledStartAsync` at the top of `ObservationLoopAsync` waits until `Start - ScheduledStartLeadTime` (default 3 min, covers slew + center + guider settle); same-/past-Start schedules short-circuit (linear advance unchanged), lead-adjusted start beyond session end skips the observation cleanly, late starts proceed unclamped. Chunked SleepAsync on the mount clock (cancellation-responsive). See `PLAN-scheduled-starts.md`
 - [x] Time-aware observation switching — `ImagingLoopAsync` computes `maxTicks` from `observation.Duration` and advances when `tickCount >= maxTicks`
 - [x] Weather/cloud interruption handling — condition deterioration detection via star count ratio vs baseline; pauses guiding, polls with test exposures, resumes or advances after configurable timeout (`ConditionDeteriorationThreshold`, `ConditionRecoveryTimeout`); synthetic cloud simulation in `SyntheticStarFieldRenderer` for testing
 - [ ] Multi-night scheduling — carry over incomplete observations to next session with accumulated exposure tracking

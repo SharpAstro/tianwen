@@ -1,6 +1,25 @@
 # Plan: Honor ScheduledObservation.Start in the Observation Loop
 
-Status: NOT STARTED. Authored 2026-06-12 for hand-off; all file/line facts verified against main @ `ae85cd8`.
+Status: SHIPPED on branch `feat/top-5-todo` (2026-06-12). Authored 2026-06-12 for hand-off; all
+file/line facts verified against main @ `ae85cd8`.
+
+Implementation notes (as built):
+- `ScheduledStartOutcome` enum + `WaitForScheduledStartAsync(observation, sessionEndTime, ct)` live in
+  `Session.Timing.cs`; the call site is the top of the `ObservationLoopAsync` body (before
+  `EnsureTrackingAsync`), `SessionEnded` -> `break`. `sessionEndTime` is `DateTime` (matches the loop
+  variable from `SessionEndTimeAsync`), not `DateTimeOffset` as the draft pseudo-code showed.
+- Knob: `SessionConfiguration.ScheduledStartLeadTime` (`TimeSpan?`, default via
+  `SessionConfiguration.DefaultScheduledStartLeadTime` = 3 min), mirroring the `MaxWaitForRisingTarget`
+  null-coalesce pattern.
+- Late-start policy is v1 as specced: `StartedLate` proceeds without clamping `Duration`.
+- Tests (`SessionObservationLoopTests`, `[Collection("Session")]`): a fast no-pump branch test
+  (`GivenScheduledStartWhenWaitForScheduledStartThenBranchOutcomesAreCorrect`) covers the three instant
+  branches; the parked-wait, session-end skip, and cancel-during-wait paths are covered end-to-end with
+  the `ExternalTimePump` harness. The real-wait test asserts via `FrameWritten` timestamps that the later
+  target's first frame lands at/after `Start - lead` while the earlier target finished before it. The
+  plan's "same-Start regression twin" and "past-start integration twin" are covered by the existing
+  `GivenThreeWinterTargets...` test (same-Start) plus the branch test's `StartedLate` case, so no
+  near-duplicate integration tests were added.
 
 Goal: `ObservationLoopAsync` currently iterates the schedule linearly and starts each
 target the moment the previous one finishes - `ScheduledObservation.Start` is computed

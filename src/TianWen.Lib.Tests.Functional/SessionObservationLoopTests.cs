@@ -1,5 +1,7 @@
 using Shouldly;
 using System;
+using System.Collections.Concurrent;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using TianWen.Lib.Devices;
@@ -101,6 +103,19 @@ public class SessionObservationLoopTests(ITestOutputHelper output)
 
         loopTask.IsCompleted.ShouldBeTrue("observation loop should have completed within timeout");
         await loopTask;
+    }
+
+    /// <summary>
+    /// Subscribes to <see cref="ISession.FrameWritten"/> and collects every written frame's
+    /// exposure-log entry (target name + fake-clock timestamp) so tests can assert <em>when</em>
+    /// a given target was actually imaged. The event fires from the loop's thread-pool task, so
+    /// the collector is a <see cref="ConcurrentQueue{T}"/>.
+    /// </summary>
+    private static ConcurrentQueue<ExposureLogEntry> CaptureFrames(SessionTestContext ctx)
+    {
+        var frames = new ConcurrentQueue<ExposureLogEntry>();
+        ctx.Session.FrameWritten += (_, e) => frames.Enqueue(e.Entry);
+        return frames;
     }
 
     [Fact(Timeout = 120_000)]
@@ -365,5 +380,235 @@ public class SessionObservationLoopTests(ITestOutputHelper output)
 
         output.WriteLine($"Frames written: {ctx.Session.TotalFramesWritten}");
         output.WriteLine($"Total exposure: {ctx.Session.TotalExposureTime}");
+    }
+
+    /// <summary>
+    /// Branch coverage for <see cref="Session.WaitForScheduledStartAsync"/> without the time pump:
+    /// past start -> StartedLate, start within the lead window (== now and just inside lead) ->
+    /// Proceed (no sleep), start beyond session end -> SessionEnded. The actual parked wait is
+    /// exercised end-to-end by <see cref="GivenSecondObservationStartsLaterWhenLoopRunsThenImagingWaitsForScheduledStart"/>.
+    /// </summary>
+    [Fact(Timeout = 60_000)]
+    public async Task GivenScheduledStartWhenWaitForScheduledStartThenBranchOutcomesAreCorrect()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var subExposure = TimeSpan.FromSeconds(30);
+
+        var observations = new[]
+        {
+            new ScheduledObservation(
+                new Target(5.588, -5.391, "M42", null),
+                WinterNightStart,
+                TimeSpan.FromMinutes(5),
+                AcrossMeridian: false,
+                FilterPlan: FilterPlanBuilder.BuildSingleFilterPlan(subExposure),
+                Gain: 0,
+                Offset: 0)
+        };
+
+        using var ctx = await CreateWinterSessionAsync(observations, cancellationToken: ct);
+
+        // CreateWinterSessionAsync advances fake time slightly (focuser-move SleepAsync loop), so
+        // anchor the branch boundaries on the live clock rather than WinterNightStart.
+        var now = await ctx.Session.GetMountUtcNowAsync(ct);
+        var sessionEnd = now.AddHours(8);
+        var lead = SessionConfiguration.DefaultScheduledStartLeadTime;
+
+        ScheduledObservation Obs(DateTimeOffset start) => new(
+            new Target(5.588, -5.391, "M42", null),
+            start,
+            TimeSpan.FromMinutes(15),
+            AcrossMeridian: false,
+            FilterPlan: FilterPlanBuilder.BuildSingleFilterPlan(subExposure),
+            Gain: 0,
+            Offset: 0);
+
+        // Start one hour in the past -> behind schedule, proceed immediately.
+        (await ctx.Session.WaitForScheduledStartAsync(Obs(now - TimeSpan.FromHours(1)), sessionEnd, ct))
+            .ShouldBe(Session.ScheduledStartOutcome.StartedLate);
+
+        // Start exactly now -> within the lead window, proceed without sleeping.
+        (await ctx.Session.WaitForScheduledStartAsync(Obs(now), sessionEnd, ct))
+            .ShouldBe(Session.ScheduledStartOutcome.Proceed);
+
+        // Start in the future but still inside the lead window -> proceed without sleeping.
+        (await ctx.Session.WaitForScheduledStartAsync(Obs(now + lead - TimeSpan.FromMinutes(1)), sessionEnd, ct))
+            .ShouldBe(Session.ScheduledStartOutcome.Proceed);
+
+        // Lead-adjusted start beyond session end -> skip the observation.
+        (await ctx.Session.WaitForScheduledStartAsync(Obs(sessionEnd.AddHours(1)), sessionEnd, ct))
+            .ShouldBe(Session.ScheduledStartOutcome.SessionEnded);
+
+        // No frames should have been produced by direct calls to the wait helper.
+        ctx.Session.TotalFramesWritten.ShouldBe(0);
+    }
+
+    /// <summary>
+    /// Two visible targets where the second is scheduled 45 min later than the first. The loop must
+    /// image the first immediately, then <em>wait</em> until the second's (Start - lead) before
+    /// imaging it -- the headline behaviour of PLAN-scheduled-starts.
+    /// </summary>
+    [Fact(Timeout = 120_000)]
+    public async Task GivenSecondObservationStartsLaterWhenLoopRunsThenImagingWaitsForScheduledStart()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var subExposure = TimeSpan.FromSeconds(30);
+        var config = SessionTestHelper.DefaultConfiguration with { MinHeightAboveHorizon = 10 };
+
+        var laterStart = WinterNightStart + TimeSpan.FromMinutes(45);
+
+        var observations = new[]
+        {
+            new ScheduledObservation(
+                new Target(5.588, -5.391, "M42", null),
+                WinterNightStart,
+                TimeSpan.FromMinutes(5),
+                AcrossMeridian: false,
+                FilterPlan: FilterPlanBuilder.BuildSingleFilterPlan(subExposure),
+                Gain: 0,
+                Offset: 0),
+            new ScheduledObservation(
+                new Target(3.791, 24.105, "M45", null),
+                laterStart,
+                TimeSpan.FromMinutes(5),
+                AcrossMeridian: false,
+                FilterPlan: FilterPlanBuilder.BuildSingleFilterPlan(subExposure),
+                Gain: 0,
+                Offset: 0)
+        };
+
+        using var ctx = await CreateWinterSessionAsync(observations, config, cancellationToken: ct);
+        await ctx.Mount.EnsureTrackingAsync(cancellationToken: ct);
+
+        var frames = CaptureFrames(ctx);
+
+        // when
+        await RunObservationLoopWithTimePumpAsync(ctx, subExposure, ct);
+
+        // then
+        var all = frames.ToArray();
+        var m42 = all.Where(f => f.TargetName == "M42").ToArray();
+        var m45 = all.Where(f => f.TargetName == "M45").ToArray();
+
+        m42.Length.ShouldBeGreaterThan(0, "M42 (immediate start) should have produced frames");
+        m45.Length.ShouldBeGreaterThan(0, "M45 (later start) should have produced frames after the wait");
+
+        var lead = SessionConfiguration.DefaultScheduledStartLeadTime;
+        var firstM45 = m45.Min(f => f.Timestamp);
+        var lastM42 = m42.Max(f => f.Timestamp);
+
+        firstM45.ShouldBeGreaterThanOrEqualTo(laterStart - lead,
+            "M45 must not be imaged before its scheduled start minus lead");
+        lastM42.ShouldBeLessThan(laterStart - lead,
+            "M42 (immediate) must finish well before M45's scheduled window opens");
+
+        ctx.Session.CurrentObservationIndex.ShouldBeGreaterThanOrEqualTo(2,
+            "both observations should have been advanced through");
+
+        output.WriteLine($"M42 frames: {m42.Length} (last @ {lastM42:o})");
+        output.WriteLine($"M45 frames: {m45.Length} (first @ {firstM45:o}, scheduled start {laterStart:o})");
+    }
+
+    /// <summary>
+    /// The second observation's start lies beyond the session end (morning twilight). The loop must
+    /// image the first, then end cleanly without slewing to or imaging the second.
+    /// </summary>
+    [Fact(Timeout = 120_000)]
+    public async Task GivenStartBeyondSessionEndWhenLoopRunsThenObservationSkippedCleanly()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var subExposure = TimeSpan.FromSeconds(30);
+        var config = SessionTestHelper.DefaultConfiguration with { MinHeightAboveHorizon = 10 };
+
+        // Session end is next-morning astronomical twilight (~+7h from WinterNightStart). +12h is
+        // well past it, so obs[1] can never start tonight.
+        var beyondSessionEnd = WinterNightStart + TimeSpan.FromHours(12);
+
+        var observations = new[]
+        {
+            new ScheduledObservation(
+                new Target(5.588, -5.391, "M42", null),
+                WinterNightStart,
+                TimeSpan.FromMinutes(5),
+                AcrossMeridian: false,
+                FilterPlan: FilterPlanBuilder.BuildSingleFilterPlan(subExposure),
+                Gain: 0,
+                Offset: 0),
+            new ScheduledObservation(
+                new Target(3.791, 24.105, "LateTarget", null),
+                beyondSessionEnd,
+                TimeSpan.FromMinutes(5),
+                AcrossMeridian: false,
+                FilterPlan: FilterPlanBuilder.BuildSingleFilterPlan(subExposure),
+                Gain: 0,
+                Offset: 0)
+        };
+
+        using var ctx = await CreateWinterSessionAsync(observations, config, cancellationToken: ct);
+        await ctx.Mount.EnsureTrackingAsync(cancellationToken: ct);
+
+        var frames = CaptureFrames(ctx);
+
+        // when
+        await RunObservationLoopWithTimePumpAsync(ctx, subExposure, ct);
+
+        // then
+        var all = frames.ToArray();
+        all.ShouldContain(f => f.TargetName == "M42", "M42 should have been imaged");
+        all.ShouldNotContain(f => f.TargetName == "LateTarget",
+            "the beyond-session-end target must never be imaged");
+        ctx.Session.TotalFramesWritten.ShouldBeGreaterThan(0);
+        ctx.Session.CurrentObservationIndex.ShouldBe(1,
+            "loop breaks at the beyond-session-end observation without advancing past it");
+
+        output.WriteLine($"Frames written: {ctx.Session.TotalFramesWritten}");
+        output.WriteLine($"Final observation index: {ctx.Session.CurrentObservationIndex}");
+    }
+
+    /// <summary>
+    /// Cancelling during the scheduled-start wait must unwind the loop promptly via
+    /// <see cref="OperationCanceledException"/> (chunked sleep is cancellation-responsive), without
+    /// having imaged anything.
+    /// </summary>
+    [Fact(Timeout = 120_000)]
+    public async Task GivenCancellationDuringScheduledStartWaitThenLoopExitsPromptly()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var subExposure = TimeSpan.FromSeconds(30);
+        var config = SessionTestHelper.DefaultConfiguration with { MinHeightAboveHorizon = 10 };
+
+        // Single target 3 h in the future so the loop's very first action is the scheduled-start wait.
+        var lateStart = WinterNightStart + TimeSpan.FromHours(3);
+
+        var observations = new[]
+        {
+            new ScheduledObservation(
+                new Target(5.588, -5.391, "M42", null),
+                lateStart,
+                TimeSpan.FromMinutes(5),
+                AcrossMeridian: false,
+                FilterPlan: FilterPlanBuilder.BuildSingleFilterPlan(subExposure),
+                Gain: 0,
+                Offset: 0)
+        };
+
+        using var ctx = await CreateWinterSessionAsync(observations, config, cancellationToken: ct);
+        await ctx.Mount.EnsureTrackingAsync(cancellationToken: ct);
+
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        ctx.TimeProvider.ExternalTimePump = true;
+
+        var loopTask = Task.Run(async () => await ctx.Session.ObservationLoopAsync(cts.Token), ct);
+
+        // Wait until the loop is parked in the scheduled-start wait, then cancel.
+        await ctx.TimeProvider.WaitForFirstWaiterAsync(loopTask, ct);
+        await cts.CancelAsync();
+
+        // then — the loop unwinds via OCE rather than spinning or hanging.
+        await Should.ThrowAsync<OperationCanceledException>(async () => await loopTask);
+
+        ctx.Session.TotalFramesWritten.ShouldBe(0, "nothing should be imaged before the scheduled start");
+
+        output.WriteLine("Loop cancelled cleanly during scheduled-start wait.");
     }
 }

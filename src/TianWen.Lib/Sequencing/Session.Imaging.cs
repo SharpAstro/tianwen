@@ -30,6 +30,20 @@ internal partial record Session
             && !cancellationToken.IsCancellationRequested
         )
         {
+            // Honor the scheduler's allocated start: wait until (Start - lead) before committing
+            // to the slew, so the altitude-optimised slot allocation actually happens at the
+            // allocated time. Waiting BEFORE the slew (not after) avoids running the RA worm toward
+            // the meridian and going stale on an early centering/refocus/guider start. Same-Start
+            // and past-Start schedules (hosted API, legacy, existing tests) short-circuit instantly,
+            // preserving the linear-advance behaviour.
+            var startOutcome = await WaitForScheduledStartAsync(observation, sessionEndTime, cancellationToken);
+            if (startOutcome == ScheduledStartOutcome.SessionEnded)
+            {
+                _logger.LogInformation(
+                    "Scheduled start of {Observation} is beyond session end; ending observation loop.", observation);
+                break;
+            }
+
             if (!await mount.Driver.EnsureTrackingAsync(cancellationToken: cancellationToken))
             {
                 _logger.LogError("Failed to enable tracking of {Mount}.", mount);
