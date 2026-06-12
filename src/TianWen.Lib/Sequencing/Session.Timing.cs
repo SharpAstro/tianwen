@@ -53,6 +53,98 @@ internal partial record Session
         }
     }
 
+    /// <summary>
+    /// Outcome of <see cref="WaitForScheduledStartAsync"/>.
+    /// </summary>
+    internal enum ScheduledStartOutcome
+    {
+        /// <summary>The scheduled start (minus lead) was reached normally; proceed with the slew.</summary>
+        Proceed,
+        /// <summary>The observation is already behind schedule (start in the past); proceeding immediately.</summary>
+        StartedLate,
+        /// <summary>The lead-adjusted start lies beyond the session end; the observation should be skipped.</summary>
+        SessionEnded
+    }
+
+    /// <summary>
+    /// Waits until <c>observation.Start - lead</c> before returning, so the scheduler's
+    /// altitude-optimised slot allocation actually begins slewing at the allocated time
+    /// instead of the loop advancing linearly. The lead (<see cref="SessionConfiguration.ScheduledStartLeadTime"/>,
+    /// default 3 min) covers slew + centering + guider settle so the first light frame lands near
+    /// <see cref="ScheduledObservation.Start"/>.
+    /// </summary>
+    /// <remarks>
+    /// Same-Start / past-Start schedules (hosted API stamping <c>Start = now</c>, legacy callers,
+    /// and every existing test) short-circuit at the first branch, so current behaviour is
+    /// preserved exactly for those paths. Uses <see cref="GetMountUtcNowAsync"/> -- the same clock
+    /// the observation-loop condition uses -- not <c>_timeProvider.GetUtcNow()</c>, so the two never
+    /// disagree. Sleeps in &lt;= 1 min chunks so cancellation stays responsive and the fake-time
+    /// pump in tests advances it naturally; cancellation unwinds via <see cref="OperationCanceledException"/>
+    /// like every other <c>SleepAsync</c> call site.
+    /// </remarks>
+    internal async ValueTask<ScheduledStartOutcome> WaitForScheduledStartAsync(
+        ScheduledObservation observation, DateTime sessionEndTime, CancellationToken cancellationToken)
+    {
+        var lead = Configuration.ScheduledStartLeadTime ?? SessionConfiguration.DefaultScheduledStartLeadTime;
+        var startUtc = observation.Start.UtcDateTime;
+        var waitUntil = startUtc - lead;
+        var now = await GetMountUtcNowAsync(cancellationToken);
+
+        // Start already reached (or in the past): preserves the linear-advance behaviour exactly
+        // for same-Start / hosted-API / legacy schedules, which all hit this branch.
+        if (now >= waitUntil)
+        {
+            if (now > startUtc)
+            {
+                _logger.LogInformation(
+                    "Observation {Target} scheduled start {Start:o} is {Late} in the past; proceeding immediately (running behind schedule).",
+                    observation.Target, observation.Start, now - startUtc);
+                return ScheduledStartOutcome.StartedLate;
+            }
+
+            return ScheduledStartOutcome.Proceed;
+        }
+
+        // The lead-adjusted start lies beyond the session end -> nothing to image for this slot.
+        if (waitUntil >= sessionEndTime)
+        {
+            _logger.LogWarning(
+                "Observation {Target} scheduled start {Start:o} (lead {Lead}) is at or beyond session end {SessionEnd:o}; skipping.",
+                observation.Target, observation.Start, lead, sessionEndTime);
+            return ScheduledStartOutcome.SessionEnded;
+        }
+
+        _logger.LogInformation(
+            "Waiting {Wait} until scheduled start {Start:o} (lead {Lead}) of {Target}.",
+            waitUntil - now, observation.Start, lead, observation.Target);
+
+        while (true)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            now = await GetMountUtcNowAsync(cancellationToken);
+            var remaining = waitUntil - now;
+            if (remaining <= TimeSpan.Zero)
+            {
+                break;
+            }
+
+            var chunk = remaining < TimeSpan.FromMinutes(1) ? remaining : TimeSpan.FromMinutes(1);
+            await _timeProvider.SleepAsync(chunk, cancellationToken).ConfigureAwait(false);
+        }
+
+        // Pathological overshoot: only reachable with a clock that jumps a whole slot in one chunk.
+        var startOfImaging = await GetMountUtcNowAsync(cancellationToken);
+        if (startOfImaging > startUtc + observation.Duration)
+        {
+            _logger.LogWarning(
+                "Overslept the scheduled slot of {Target}: woke at {Now:o}, slot ended {SlotEnd:o}; proceeding late.",
+                observation.Target, startOfImaging, observation.Start + observation.Duration);
+            return ScheduledStartOutcome.StartedLate;
+        }
+
+        return ScheduledStartOutcome.Proceed;
+    }
+
     internal async ValueTask<DateTime> SessionEndTimeAsync(DateTime startTime, CancellationToken cancellationToken)
     {
         if (await Setup.Mount.Driver.TryGetTransformAsync(cancellationToken) is not { } transform)

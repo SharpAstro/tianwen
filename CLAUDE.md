@@ -232,6 +232,14 @@ or "re-order" logic must operate on the OTA set as a single unit.
 `InitialRoughFocusAsync` → `AutoFocusAllTelescopesAsync` → `CalibrateGuiderAsync` → `ObservationLoopAsync`.
 See class XML doc + `PLAN-*.md` for details on each phase.
 
+`ObservationLoopAsync` waits until `ScheduledObservation.Start - ScheduledStartLeadTime` (default 3 min,
+covers slew + center + guider settle) before slewing to each target, via `WaitForScheduledStartAsync`
+(`Session.Timing.cs`), so the scheduler's altitude-optimised slot times are honored. Same-Start / past-Start
+schedules (hosted API stamping `Start = now`, legacy callers, existing tests) short-circuit the wait and
+advance linearly, so that path is unchanged. Late starts proceed without clamping (the full `Duration` still
+runs); a lead-adjusted start beyond session end skips the observation cleanly. The wait uses the same mount
+clock (`GetMountUtcNowAsync`) as the loop condition.
+
 ### Driver Resilience on the Hot Path
 
 All driver calls reachable from the session hot path go through `Session.ResilientInvokeAsync(...)`,

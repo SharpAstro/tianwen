@@ -107,9 +107,22 @@ public record struct SessionConfiguration(
     /// <see cref="SessionConfiguration.DefaultGuiderRecoveryGrace"/>. Slow guide cameras
     /// (long guide exposures) legitimately need a longer grace.
     /// </summary>
-    TimeSpan? GuiderRecoveryGrace = null
+    TimeSpan? GuiderRecoveryGrace = null,
+    /// <summary>
+    /// Lead time subtracted from <see cref="ScheduledObservation.Start"/> before the observation
+    /// loop begins slewing, so the slew + centering + guider-settle overhead completes close to the
+    /// scheduled start and the first light frame lands near <c>Start</c>. <c>null</c> = use
+    /// <see cref="SessionConfiguration.DefaultScheduledStartLeadTime"/> (3 min).
+    /// Schedules whose observations all share the same (or a past) <c>Start</c> -- the hosted API
+    /// and legacy callers -- short-circuit the wait entirely, so this only takes effect for true
+    /// future-start schedules produced by the planner.
+    /// </summary>
+    TimeSpan? ScheduledStartLeadTime = null
 )
 {
     /// <summary>Effective default for <see cref="GuiderRecoveryGrace"/> when unset.</summary>
     public static readonly TimeSpan DefaultGuiderRecoveryGrace = TimeSpan.FromMinutes(3);
+
+    /// <summary>Effective default for <see cref="ScheduledStartLeadTime"/> when unset.</summary>
+    public static readonly TimeSpan DefaultScheduledStartLeadTime = TimeSpan.FromMinutes(3);
 }
