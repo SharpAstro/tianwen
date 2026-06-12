@@ -4,7 +4,9 @@ using System.Collections.Immutable;
 using System.Linq;
 using TianWen.Lib.Astrometry;
 using TianWen.Lib.Astrometry.Catalogs;
+using TianWen.Lib.Astrometry.Lunar;
 using TianWen.Lib.Astrometry.SOFA;
+using TianWen.Lib.Astrometry.VSOP87;
 using TianWen.Lib.Devices;
 
 namespace TianWen.Lib.Sequencing;
@@ -12,6 +14,14 @@ namespace TianWen.Lib.Sequencing;
 internal static class ObservationScheduler
 {
     private static readonly TimeSpan TimeBinDuration = TimeSpan.FromMinutes(30);
+
+    /// <summary>
+    /// Default Moon-avoidance radius in degrees. Targets within this angular distance of a
+    /// bright, above-horizon Moon have their per-bin altitude score reduced by an
+    /// illumination x quadratic-proximity factor. Single source of truth referenced by the
+    /// scoring/scheduling overloads' default parameters. A radius of <c>0</c> disables the penalty.
+    /// </summary>
+    public const double DefaultMoonAvoidanceRadiusDeg = 30.0;
 
     // Fallback chain: at high latitudes in summer, deeper twilight boundaries may not be reached.
     // CivilTwilight is excluded — too bright for astronomical observation.
@@ -119,12 +129,16 @@ internal static class ObservationScheduler
         DateTimeOffset astroDark,
         DateTimeOffset astroTwilight,
         byte minHeightAboveHorizon,
-        ObjectType objectType = ObjectType.Unknown)
+        ObjectType objectType = ObjectType.Unknown,
+        double moonAvoidanceRadiusDeg = DefaultMoonAvoidanceRadiusDeg)
     {
         var (astroms, times) = PrecomputeAstromGrid(
             astroDark, astroTwilight,
             transform.SiteLatitude, transform.SiteLongitude, transform.SiteElevation);
-        return ScoreTarget(target, astroms, times, astroDark, astroTwilight, minHeightAboveHorizon, transform.SiteLongitude, objectType);
+        var moonGrid = moonAvoidanceRadiusDeg > 0
+            ? PrecomputeMoonGrid(times, astroms, moonAvoidanceRadiusDeg)
+            : (MoonGrid?)null;
+        return ScoreTarget(target, astroms, times, astroDark, astroTwilight, minHeightAboveHorizon, transform.SiteLongitude, objectType, moonGrid: moonGrid);
     }
 
     /// <summary>
@@ -143,7 +157,8 @@ internal static class ObservationScheduler
         int? defaultGain,
         int? defaultOffset,
         TimeSpan defaultSubExposure,
-        TimeSpan defaultObservationTime)
+        TimeSpan defaultObservationTime,
+        double moonAvoidanceRadiusDeg = DefaultMoonAvoidanceRadiusDeg)
     {
         if (proposals.IsEmpty)
         {
@@ -153,7 +168,8 @@ internal static class ObservationScheduler
         var (astroDark, astroTwilight) = CalculateNightWindow(transform);
 
         return Schedule(proposals, transform, astroDark, astroTwilight, minHeightAboveHorizon,
-            defaultGain, defaultOffset, defaultSubExposure, defaultObservationTime);
+            defaultGain, defaultOffset, defaultSubExposure, defaultObservationTime,
+            moonAvoidanceRadiusDeg: moonAvoidanceRadiusDeg);
     }
 
     /// <summary>
@@ -172,7 +188,8 @@ internal static class ObservationScheduler
         TimeSpan defaultObservationTime,
         IReadOnlyList<InstalledFilter>? availableFilters = null,
         TimeSpan? defaultNarrowbandSubExposure = null,
-        OpticalDesign opticalDesign = OpticalDesign.Unknown)
+        OpticalDesign opticalDesign = OpticalDesign.Unknown,
+        double moonAvoidanceRadiusDeg = DefaultMoonAvoidanceRadiusDeg)
     {
         if (proposals.IsEmpty)
         {
@@ -184,12 +201,18 @@ internal static class ObservationScheduler
             astroDark, astroTwilight,
             transform.SiteLatitude, transform.SiteLongitude, transform.SiteElevation);
 
+        // Precompute the Moon's per-bin position/illumination once (target-independent) so
+        // every proposal shares the same moonlight-penalty context.
+        var moonGrid = moonAvoidanceRadiusDeg > 0
+            ? PrecomputeMoonGrid(times, astroms, moonAvoidanceRadiusDeg)
+            : (MoonGrid?)null;
+
         // Score all proposals
         var scored = new List<(ProposedObservation Proposal, ScoredTarget Score)>(proposals.Length);
         foreach (var proposal in proposals)
         {
             var score = ScoreTarget(proposal.Target, astroms, times, astroDark, astroTwilight,
-                minHeightAboveHorizon, transform.SiteLongitude, proposal.ObjectType);
+                minHeightAboveHorizon, transform.SiteLongitude, proposal.ObjectType, moonGrid: moonGrid);
             scored.Add((proposal, score));
         }
 
@@ -600,6 +623,80 @@ internal static class ObservationScheduler
     }
 
     /// <summary>
+    /// Per-time-bin Moon ephemeris shared across all targets when scoring a single night.
+    /// The Moon's path is target-independent, so this is computed once (alongside the Astrom
+    /// grid) and threaded into every <see cref="ScoreTarget"/> call rather than recomputing
+    /// the Moon position for each (target x bin) pair. Index alignment with the Astrom/time
+    /// grid is by construction: build it from the very arrays passed to <see cref="ScoreTarget"/>.
+    /// </summary>
+    internal readonly struct MoonGrid
+    {
+        /// <summary>Per-bin geocentric J2000 Moon right ascension in hours (NaN if unavailable).</summary>
+        public readonly double[] RaHours;
+
+        /// <summary>Per-bin geocentric J2000 Moon declination in degrees (NaN if unavailable).</summary>
+        public readonly double[] DecDeg;
+
+        /// <summary>Per-bin flag: is the Moon above the local horizon at that sample?</summary>
+        public readonly bool[] AboveHorizon;
+
+        /// <summary>Moon illumination fraction [0,1] sampled at the night midpoint (changes &lt;2%/night).</summary>
+        public readonly double Illumination;
+
+        /// <summary>Angular radius (degrees) within which the penalty applies; the proximity falloff edge.</summary>
+        public readonly double AvoidanceRadiusDeg;
+
+        public MoonGrid(double[] raHours, double[] decDeg, bool[] aboveHorizon, double illumination, double avoidanceRadiusDeg)
+        {
+            RaHours = raHours;
+            DecDeg = decDeg;
+            AboveHorizon = aboveHorizon;
+            Illumination = illumination;
+            AvoidanceRadiusDeg = avoidanceRadiusDeg;
+        }
+    }
+
+    /// <summary>
+    /// Precomputes the Moon's per-bin position (geocentric J2000), above-horizon flag, and
+    /// night-midpoint illumination for the same time grid used by <see cref="ScoreTarget"/>.
+    /// Must be built from the same <paramref name="times"/>/<paramref name="astroms"/> arrays that
+    /// are passed to <see cref="ScoreTarget"/> so the per-bin index lines up.
+    /// </summary>
+    internal static MoonGrid PrecomputeMoonGrid(
+        ReadOnlySpan<DateTimeOffset> times,
+        ReadOnlySpan<Astrom> astroms,
+        double avoidanceRadiusDeg)
+    {
+        var raHours = new double[times.Length];
+        var decDeg = new double[times.Length];
+        var aboveHorizon = new bool[times.Length];
+
+        for (var i = 0; i < times.Length; i++)
+        {
+            if (VSOP87a.ReduceJ2000(CatalogIndex.Moon, times[i], out var ra, out var dec, out _))
+            {
+                raHours[i] = ra;
+                decDeg[i] = dec;
+                // Geocentric J2000 Moon RA/Dec through the topocentric Astrom carries up to
+                // ~1 deg of parallax error -- irrelevant against a ~30 deg avoidance radius and
+                // a simple above/below-horizon gate.
+                aboveHorizon[i] = SOFAHelpers.AltitudeFromAstrom(ra, dec, in astroms[i]) > 0;
+            }
+            else
+            {
+                raHours[i] = double.NaN;
+                decDeg[i] = double.NaN;
+                aboveHorizon[i] = false;
+            }
+        }
+
+        // Illumination changes <2% across a single night; sample once at the grid midpoint.
+        var (illumination, _) = MeeusMoon.GetPhase(times[times.Length / 2].ToJulian());
+
+        return new MoonGrid(raHours, decDeg, aboveHorizon, illumination, avoidanceRadiusDeg);
+    }
+
+    /// <summary>
     /// Scores a target using precomputed Astrom structs.
     /// Calls only Atciq + Atioq per sample (no Apco13).
     /// </summary>
@@ -612,7 +709,8 @@ internal static class ObservationScheduler
         byte minHeightAboveHorizon,
         double siteLong,
         ObjectType objectType,
-        double objectBonus = 1.0)
+        double objectBonus = 1.0,
+        MoonGrid? moonGrid = null)
     {
         var profile = new Dictionary<RaDecEventTime, RaDecEventInfo>(astroms.Length + 4);
         var totalScore = 0d;
@@ -620,6 +718,11 @@ internal static class ObservationScheduler
         DateTimeOffset bestTime = astroDark;
         DateTimeOffset? windowStart = null;
         DateTimeOffset? windowEnd = null;
+        // Closest the (above-horizon) Moon comes to the target across the imaging window.
+        // Stays MaxValue when the Moon never interferes (new Moon, or Moon below the
+        // horizon for the whole window); surfaced as NaN on the ScoredTarget.
+        var minMoonSepDeg = double.MaxValue;
+        var moonIllumination = moonGrid?.Illumination ?? 0.0;
 
         for (var i = 0; i < astroms.Length; i++)
         {
@@ -630,7 +733,31 @@ internal static class ObservationScheduler
 
             if (alt > minHeightAboveHorizon)
             {
-                totalScore += alt - minHeightAboveHorizon;
+                var binScore = alt - minHeightAboveHorizon;
+
+                // Moonlight penalty: when a bright Moon is above the horizon at this bin and
+                // close to the target, scale the bin's contribution down by an
+                // illumination x quadratic-proximity factor. Applied per bin (not as a
+                // whole-night multiplier) so a target that is only Moon-contended after
+                // moonrise keeps its pre-moonrise score, which lets OptimalStart drift toward
+                // the dark part of the night for free.
+                if (moonGrid is { } moon && moonIllumination > 0
+                    && moon.AboveHorizon[i] && !double.IsNaN(moon.RaHours[i]))
+                {
+                    var sepDeg = CoordinateUtils.AngularSeparationDeg(
+                        moon.RaHours[i], moon.DecDeg[i], target.RA, target.Dec);
+                    if (sepDeg < minMoonSepDeg)
+                    {
+                        minMoonSepDeg = sepDeg;
+                    }
+
+                    // proximity: 1 at 0 deg separation, 0 at/beyond the avoidance radius.
+                    var proximity = Math.Clamp((moon.AvoidanceRadiusDeg - sepDeg) / moon.AvoidanceRadiusDeg, 0.0, 1.0);
+                    var moonFactor = 1.0 - moonIllumination * proximity * proximity;
+                    binScore *= moonFactor;
+                }
+
+                totalScore += binScore;
 
                 windowStart ??= time;
                 windowEnd = time;
@@ -671,7 +798,9 @@ internal static class ObservationScheduler
             ? windowEnd.Value - windowStart.Value
             : TimeSpan.Zero;
 
-        return new ScoredTarget(target, (Half)totalScore, (Half)objectBonus, profile, optimalStart, optimalDuration, bestAlt == double.MinValue ? 0 : bestAlt, objectType);
+        return new ScoredTarget(target, (Half)totalScore, (Half)objectBonus, profile, optimalStart, optimalDuration,
+            bestAlt == double.MinValue ? 0 : bestAlt, objectType,
+            minMoonSepDeg == double.MaxValue ? double.NaN : minMoonSepDeg);
     }
 
     private static int FindClosestTimeIndex(ReadOnlySpan<DateTimeOffset> times, DateTimeOffset target)
@@ -698,7 +827,8 @@ internal static class ObservationScheduler
     public static IEnumerable<ScoredTarget> TonightsBest(
         ICelestialObjectDB objectDb,
         Transform transform,
-        byte minHeightAboveHorizon)
+        byte minHeightAboveHorizon,
+        double moonAvoidanceRadiusDeg = DefaultMoonAvoidanceRadiusDeg)
     {
         var (astroDark, astroTwilight) = CalculateNightWindow(transform);
 
@@ -707,6 +837,11 @@ internal static class ObservationScheduler
         var (astroms, times) = PrecomputeAstromGrid(
             astroDark, astroTwilight,
             transform.SiteLatitude, transform.SiteLongitude, transform.SiteElevation);
+
+        // Moon position/illumination per bin, shared across every candidate (target-independent).
+        var moonGrid = moonAvoidanceRadiusDeg > 0
+            ? PrecomputeMoonGrid(times, astroms, moonAvoidanceRadiusDeg)
+            : (MoonGrid?)null;
 
         // Precompute a single Astrom at astronomical midnight for the quick pre-filter.
         var midIdx = astroms.Length / 2;
@@ -739,7 +874,7 @@ internal static class ObservationScheduler
             for (var dec = decMin; dec <= decMax; dec += 1.0)
             {
                 ScanGridCell(grid, wrappedRa, dec, objectDb, in midAstrom, astroms, times, astroDark, astroTwilight,
-                    minHeightAboveHorizon, transform.SiteLongitude, seen, candidates);
+                    minHeightAboveHorizon, transform.SiteLongitude, seen, candidates, moonGrid);
             }
         }
 
@@ -777,7 +912,7 @@ internal static class ObservationScheduler
 
                     var target = new Target(obj.RA, obj.Dec, obj.DisplayName, idx);
                 var scored = ScoreTarget(target, astroms, times, astroDark, astroTwilight, minHeightAboveHorizon,
-                    transform.SiteLongitude, obj.ObjectType, objectBonus);
+                    transform.SiteLongitude, obj.ObjectType, objectBonus, moonGrid);
                 if (scored.TotalScore <= Half.Zero) continue;
 
                 candidates.Add(scored);
@@ -800,7 +935,8 @@ internal static class ObservationScheduler
         byte minHeightAboveHorizon,
         double siteLong,
         HashSet<CatalogIndex> seen,
-        SortedSet<ScoredTarget> candidates)
+        SortedSet<ScoredTarget> candidates,
+        MoonGrid? moonGrid)
     {
         foreach (var idx in grid[ra, dec])
         {
@@ -822,7 +958,7 @@ internal static class ObservationScheduler
 
             var target = new Target(obj.RA, obj.Dec, obj.DisplayName, idx);
             var scored = ScoreTarget(target, astroms, times, astroDark, astroTwilight, minHeightAboveHorizon,
-                siteLong, obj.ObjectType, objectBonus);
+                siteLong, obj.ObjectType, objectBonus, moonGrid);
             if (scored.TotalScore <= Half.Zero) continue;
 
             candidates.Add(scored);

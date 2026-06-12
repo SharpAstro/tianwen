@@ -14,7 +14,14 @@ public readonly record struct ScoredTarget(
     DateTimeOffset OptimalStart,
     TimeSpan OptimalDuration,
     double OptimalAltitude = 0,
-    ObjectType ObjectType = ObjectType.Unknown
+    ObjectType ObjectType = ObjectType.Unknown,
+    /// <summary>
+    /// Smallest angular separation (degrees) between this target and the above-horizon Moon
+    /// across the imaging window, or <see cref="double.NaN"/> when the Moon never interferes
+    /// (new Moon, Moon-avoidance disabled, or Moon below the horizon for the whole window).
+    /// Informational only - the moonlight penalty is already baked into <see cref="TotalScore"/>.
+    /// </summary>
+    double MinMoonSeparationDeg = double.NaN
 ) : IComparable<ScoredTarget>
 {
     /// <summary>

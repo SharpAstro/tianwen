@@ -73,6 +73,11 @@ public static class PlannerActions
         state.CachedAstromGrid = null;
         var (astroms, times) = EnsureAstromGrid(state, transform);
 
+        // Moon-avoidance context for this night, shared across every rescored target so the
+        // batch path matches the per-target transform overload (which applies it by default).
+        var moonGrid = ObservationScheduler.PrecomputeMoonGrid(
+            times, astroms, ObservationScheduler.DefaultMoonAvoidanceRadiusDeg);
+
         // Build new scored / profile dicts locally, then swap atomically at the end
         // so readers on the render thread never observe a partially-cleared or
         // partially-populated Dictionary (classic "Collection was modified" race).
@@ -86,7 +91,7 @@ public static class PlannerActions
         {
             var scored = ObservationScheduler.ScoreTarget(old.Target, astroms, times,
                 astroDark, astroTwilight, state.MinHeightAboveHorizon, transform.SiteLongitude,
-                old.ObjectType);
+                old.ObjectType, moonGrid: moonGrid);
             rescored.Add(scored);
             scoredBuilder[old.Target] = scored;
             profilesBuilder[old.Target] = ComputeFineAltitudeProfileFast(
@@ -100,7 +105,7 @@ public static class PlannerActions
             {
                 var scored = ObservationScheduler.ScoreTarget(s.Target, astroms, times,
                     astroDark, astroTwilight, state.MinHeightAboveHorizon, transform.SiteLongitude,
-                    s.ObjectType);
+                    s.ObjectType, moonGrid: moonGrid);
                 scoredBuilder[s.Target] = scored;
                 profilesBuilder[s.Target] = ComputeFineAltitudeProfileFast(
                     s.Target, astroms, times, transform.SiteLatitude, transform.SiteLongitude);
