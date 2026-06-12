@@ -1,16 +1,56 @@
 # Plan: Live Site Pressure/Temperature for Refraction
 
-Status: NOT STARTED. Authored 2026-06-12 for hand-off; all file/line facts verified against main @ `ae85cd8`.
+Status: SHIPPED 2026-06-12 (branch `feat/top-5-todo`) -- two-tier resolver (live weather -> standard atmosphere). Authored 2026-06-12; file/line facts verified against main @ `ae85cd8`.
 
-Goal: replace the hardcoded `SitePressure = 1010` / `SiteTemperature = 10` in
-`IMountDriver.TryGetTransformAsync` with a three-tier resolution: (1) live
-`IWeatherDriver.Pressure`/`Temperature` when a weather device is connected, (2) new
-user-configurable `ProfileData.SitePressureHPa`/`SiteTemperatureCelsius`, (3) standard
-atmosphere as last resort. Matters for refraction at low altitudes (a lat-15 deg pole
-sees ~3.4 arcmin of refraction lift; lat-35 deg still ~1.4 arcmin) and unblocks the
-polar-alignment refraction work (PLAN-polar-alignment.md "Refraction at low pole
-altitudes" names exactly this tier chain and says it "retires the stale TODO at
-IMountDriver.cs:395-396").
+### Design correction (2026-06-12): no profile-stored override
+
+The draft proposed a middle tier of user-configurable `ProfileData.SitePressureHPa` /
+`SiteTemperatureCelsius`. **Dropped by design.** Pressure and temperature are *varying*
+environmental values -- unlike the static site geometry (latitude/longitude/elevation, which only
+change when the rig is physically relocated). Persisting a single value would be stale within
+hours and actively misleading. So they are never written to the profile. The no-weather fallback
+instead derives pressure barometrically from the profile's *static* elevation (the correct static
+proxy), which `Transform.CalculateSitePressureIfRequired` already does when `SitePressure` is left
+NaN. The live value, when a weather device is connected, is read fresh each call -- the driver
+already caches its last reading (`OpenMeteoDriver.Pressure` is a `_pressure` field read, refreshed
+on the driver's own cadence), so there is nowhere else to cache it.
+
+## Implementation notes (as shipped)
+
+- **Phase 1** `src/TianWen.Lib/Astrometry/SiteConditions.cs`: `SiteConditionsSource` enum
+  (`Weather`, `StandardAtmosphere`) + `readonly record struct SiteConditions(PressureHPa,
+  TemperatureCelsius, PressureSource, TemperatureSource)`. `Resolve(IWeatherDriver?)` resolves each
+  value independently (weather non-NaN + in-range wins, else standard). Weather readings are
+  range-validated (pressure 300..1100, temp -80..60) so a garbage station reading can't poison
+  refraction; `static readonly Standard` (1010/10). `ApplyTo(Transform)` always sets
+  `SiteTemperature`, sets `SitePressure` only when `PressureSource != StandardAtmosphere` (standard
+  tier left NaN -> transform auto-derives from elevation).
+- **Phase 3** `IMountDriver`: kept `TryGetTransformAsync(CancellationToken)` (now delegates to
+  `TryGetTransformAsync(SiteConditions.Standard, ct)`) and ADDED an overload
+  `TryGetTransformAsync(SiteConditions conditions, CancellationToken ct)`. This is the deviation
+  from the draft's single optional-param signature: an overload keeps `CancellationToken` last in
+  both (C# convention / feedback_cancellation_token_last) AND avoids reordering the 13 existing
+  positional `(ct)` call sites. `Session.ResolveSiteConditions()` (guards on a *connected* weather
+  driver, reads it live) feeds the 4 session call sites (Timing, Imaging x2, Obstruction).
+  `TransformFactory.FromProfile` keeps its 15 C planner default (not 10, to avoid re-baselining
+  planner output) and leaves pressure unset for the elevation auto-derive -- no profile temp/pressure
+  reads.
+- **Phase 4** Polar-align handler (`AppSignalHandler`) replaced its inline weather block with
+  `SiteConditions.Resolve(weather)`; `PolarAlignmentSite` reads
+  `conditions.PressureHPa`/`TemperatureCelsius` (standard tier = 1010 there, since it needs a
+  concrete number rather than a Transform to auto-derive into).
+- **Phase 6** Tests: `SiteConditionsTests` (weather-wins / per-value NaN independence / out-of-range
+  fall-through / no-weather standard + `ApplyTo` auto-derive-vs-pin, using `FakeTimeProviderWrapper`
+  for a deterministic Transform). `IMountDriver.cs:344/345` TODOs ticked; `:347` (refraction-support
+  assumption) left open per the out-of-scope note below.
+
+Goal (as realized): replace the hardcoded `SitePressure = 1010` / `SiteTemperature = 10` in
+`IMountDriver.TryGetTransformAsync` with a two-tier resolution: (1) live
+`IWeatherDriver.Pressure`/`Temperature` when a weather device is connected, (2) standard
+atmosphere as fallback, with pressure derived from the profile's static elevation. Matters for
+refraction at low altitudes (a lat-15 deg pole sees ~3.4 arcmin of refraction lift; lat-35 deg
+still ~1.4 arcmin) and unblocks the polar-alignment refraction work (PLAN-polar-alignment.md
+"Refraction at low pole altitudes" names exactly this tier chain).
 
 ## Current state (verified facts)
 

@@ -380,23 +380,35 @@ public interface IMountDriver : IDeviceDriver
     ValueTask SetSiteLongitudeAsync(double longitude, CancellationToken cancellationToken);
 
     /// <summary>
-    /// Initialises a <see cref="Transform"/> using standard pressure and atmosphere. Please adjust if available.
+    /// Initialises a <see cref="Transform"/> using the standard-atmosphere refraction inputs
+    /// (<see cref="SiteConditions.Standard"/>). Pressure is left unset so the transform derives it
+    /// barometrically from the site elevation -- more accurate at altitude than a flat 1010 hPa.
+    /// Prefer the <see cref="TryGetTransformAsync(SiteConditions, CancellationToken)"/> overload
+    /// when live weather conditions are available.
     /// </summary>
     /// <returns>Initialized transform or null if not connected/date time could not be established.</returns>
-    async ValueTask<Transform?> TryGetTransformAsync(CancellationToken cancellationToken)
+    ValueTask<Transform?> TryGetTransformAsync(CancellationToken cancellationToken)
+        => TryGetTransformAsync(SiteConditions.Standard, cancellationToken);
+
+    /// <summary>
+    /// Initialises a <see cref="Transform"/> applying the resolved <paramref name="conditions"/>
+    /// (live weather / standard atmosphere) for refraction. See <see cref="SiteConditions.ApplyTo"/>.
+    /// </summary>
+    /// <returns>Initialized transform or null if not connected/date time could not be established.</returns>
+    async ValueTask<Transform?> TryGetTransformAsync(SiteConditions conditions, CancellationToken cancellationToken)
     {
         if (Connected && await TryGetUTCDateFromMountAsync(cancellationToken) is { } utc)
         {
-            return new Transform(TimeProvider)
+            var transform = new Transform(TimeProvider)
             {
                 SiteElevation = await GetSiteElevationAsync(cancellationToken) is var elev && !double.IsNaN(elev) ? elev : 0,
                 SiteLatitude = await GetSiteLatitudeAsync(cancellationToken),
                 SiteLongitude = await GetSiteLongitudeAsync(cancellationToken),
-                SitePressure = 1010, // TODO standard atmosphere
-                SiteTemperature = 10, // TODO check either online or if compatible devices connected
                 DateTime = utc,
                 Refraction = true // TODO assumes that driver does not support/do refraction
             };
+            conditions.ApplyTo(transform);
+            return transform;
         }
 
         return null;

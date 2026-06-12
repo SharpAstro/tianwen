@@ -42,6 +42,10 @@ public static class TransformFactory
             SiteLatitude = lat,
             SiteLongitude = lon,
             SiteElevation = d.SiteElevation ?? 0.0,
+            // 15 C planner default -- intentionally not the 10 C standard-atmosphere constant, to
+            // avoid re-baselining existing planner/night-window outputs. Pressure left unset so the
+            // transform auto-derives it barometrically from elevation. Live pressure/temperature
+            // are varying values and are not stored in the profile.
             SiteTemperature = 15,
             DateTimeOffset = timeProvider.System.GetLocalNow()
         };
