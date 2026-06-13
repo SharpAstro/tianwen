@@ -316,6 +316,14 @@ internal partial record Session
                             await camDriver.SetGainAsync(origGain[i], cancellationToken);
                         }
 
+                        // Capture the zenith night-sky gauge from this rough-focus frame (detected vs
+                        // catalog-predicted at the unobstructed zenith) to anchor the first-scout
+                        // obstruction oracle + cloud gate. Best-effort; never fails rough focus.
+                        if (!hasRoughFocus[i])
+                        {
+                            await CaptureZenithGaugeAsync(i, stars.Count, expTimesSec[i], zenithJ2000.RaJ2000, zenithJ2000.DecJ2000, cancellationToken);
+                        }
+
                         hasRoughFocus[i] = true;
                     }
                 }

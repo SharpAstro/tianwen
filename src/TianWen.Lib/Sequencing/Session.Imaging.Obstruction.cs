@@ -158,30 +158,46 @@ internal partial record Session
 
         var prevBaseline = TryGetPreviousObservationBaseline();
 
-        // No baseline yet (first observation of session) → no model to compare against.
-        // Plan flags this as a known limitation; conservative answer is "trust and proceed".
         if (prevBaseline is null)
         {
-            _logger.LogInformation(
-                "Scout: no previous baseline for {Target}; skipping obstruction classification.",
-                observation.Target);
-            return new ScoutResult(preMetrics, ScoutClassification.Healthy, null);
-        }
-
-        var (classification, _) = ClassifyAgainstBaseline(preMetrics, prevBaseline);
-        if (classification == ScoutClassification.Healthy)
-        {
-            _logger.LogInformation(
-                "Scout: {Target} healthy ({Stars} stars vs prev baseline).",
+            // First observation of the night: no same-night baseline. Fall back to the zenith-anchored
+            // first-scout oracle (PLAN-obstruction-first-light-oracle). Healthy / inconclusive -> proceed;
+            // a shortfall routes into the same altitude-nudge disambiguation as the baseline path.
+            var oracle = await ClassifyFirstScoutAgainstZenithAsync(observation, preMetrics, scoutExposure, cancellationToken);
+            if (oracle is not { } firstScoutClass)
+            {
+                _logger.LogInformation(
+                    "Scout: no previous baseline and first-scout oracle inconclusive for {Target}; proceeding.",
+                    observation.Target);
+                return new ScoutResult(preMetrics, ScoutClassification.Healthy, null);
+            }
+            if (firstScoutClass == ScoutClassification.Healthy)
+            {
+                _logger.LogInformation(
+                    "Scout: first-observation {Target} healthy per zenith-anchored oracle ({Stars}).",
+                    observation.Target, FormatStarCounts(preMetrics));
+                return new ScoutResult(preMetrics, ScoutClassification.Healthy, null);
+            }
+            _logger.LogWarning(
+                "Scout: first-observation {Target} flagged by zenith-anchored oracle ({Stars}); running altitude-nudge disambiguation.",
                 observation.Target, FormatStarCounts(preMetrics));
-            return new ScoutResult(preMetrics, ScoutClassification.Healthy, null);
+        }
+        else
+        {
+            var (classification, _) = ClassifyAgainstBaseline(preMetrics, prevBaseline);
+            if (classification == ScoutClassification.Healthy)
+            {
+                _logger.LogInformation(
+                    "Scout: {Target} healthy ({Stars} stars vs prev baseline).",
+                    observation.Target, FormatStarCounts(preMetrics));
+                return new ScoutResult(preMetrics, ScoutClassification.Healthy, null);
+            }
+            _logger.LogWarning(
+                "Scout: {Target} flagged ({Stars} stars vs prev baseline {BaselineStars}); running altitude-nudge disambiguation.",
+                observation.Target, FormatStarCounts(preMetrics), FormatStarCounts(prevBaseline));
         }
 
-        _logger.LogWarning(
-            "Scout: {Target} flagged ({Stars} stars vs prev baseline {BaselineStars}); running altitude-nudge disambiguation.",
-            observation.Target, FormatStarCounts(preMetrics), FormatStarCounts(prevBaseline));
-
-        // Phase 2: nudge test
+        // Phase 2: nudge test (shared by the same-night baseline path and the first-scout oracle path)
         var (postMetrics, refinedClassification) = await NudgeTestAsync(observation, preMetrics, scoutExposure, cancellationToken);
         if (refinedClassification == ScoutClassification.Transparency)
         {
@@ -438,7 +454,10 @@ internal partial record Session
 
         try
         {
-            var stars = await image.FindStarsAsync(0, snrMin: 10, maxStars: 200, cancellationToken: cancellationToken);
+            // maxStars high enough that a dense field's detected count is not clipped below the
+            // first-scout oracle's absolute catalog expectation (a 200-cap would falsely depress the
+            // detected/expected ratio in the Milky Way and flag a clear field as obstructed).
+            var stars = await image.FindStarsAsync(0, snrMin: 10, maxStars: 1000, cancellationToken: cancellationToken);
             var gain = await ResilientInvokeAsync(camera, camera.GetGainAsync, ResilientCallOptions.IdempotentRead, cancellationToken);
 
             // Preserve exposure on 0-star results — see TakeScoutFrameAsync rationale.
@@ -481,13 +500,8 @@ internal partial record Session
         var maxFovDeg = 0.0;
         for (var i = 0; i < Setup.Telescopes.Length; i++)
         {
-            var t = Setup.Telescopes[i];
-            var c = t.Camera.Driver;
-            var pixelScaleArcsec = CoordinateUtils.PixelScaleArcsec(c.PixelSizeX, t.FocalLength);
-            if (double.IsNaN(pixelScaleArcsec) || c.NumX <= 0) continue;
-            var bin = Math.Max(1, c.BinX);
-            var fovDeg = c.NumX * bin * pixelScaleArcsec / 3600.0;
-            if (fovDeg > maxFovDeg) maxFovDeg = fovDeg;
+            var (wDeg, _) = ComputeFovDegrees(Setup.Telescopes[i]);
+            if (wDeg > maxFovDeg) maxFovDeg = wDeg;
         }
         return maxFovDeg / 2.0;
     }

@@ -117,7 +117,33 @@ public record struct SessionConfiguration(
     /// and legacy callers -- short-circuit the wait entirely, so this only takes effect for true
     /// future-start schedules produced by the planner.
     /// </summary>
-    TimeSpan? ScheduledStartLeadTime = null
+    TimeSpan? ScheduledStartLeadTime = null,
+    /// <summary>
+    /// Master switch for the first-scout zenith-anchored obstruction oracle + cloud gate. When the
+    /// first observation of the night has no same-night baseline, the rough-focus zenith frame is used
+    /// to calibrate an expected star count for the target; a large shortfall routes into the nudge test.
+    /// </summary>
+    bool FirstScoutOracleEnabled = true,
+    /// <summary>
+    /// Fraction of the (zenith-calibrated, else catalog-floor) expected star count below which the
+    /// first scout is considered suspicious and routed into the obstruction nudge test. Deliberately
+    /// looser than the same-night <see cref="ObstructionStarCountRatioHealthy"/> because an absolute
+    /// expectation is a weaker reference than a same-night baseline.
+    /// </summary>
+    float OracleFactor = 0.4f,
+    /// <summary>
+    /// Minimum catalog-predicted star count for the first-scout oracle / zenith gauge to be trusted.
+    /// Below this (e.g. a tiny FOV at high galactic latitude) the oracle is skipped and the first
+    /// observation is waved through as before -- a handful of expected stars cannot support the test.
+    /// </summary>
+    int MinOracleStarCount = 10,
+    /// <summary>
+    /// Zenith detection efficiency (detected / catalog-predicted at the unobstructed zenith) below
+    /// which the whole sky is treated as clouded over: the session holds and re-gauges (up to
+    /// <see cref="ConditionRecoveryTimeout"/>) instead of imaging into cloud. Zenith can't be blocked,
+    /// so a crushed ratio there is transparency, never obstruction.
+    /// </summary>
+    float CloudGateEfficiencyFloor = 0.15f
 )
 {
     /// <summary>Effective default for <see cref="GuiderRecoveryGrace"/> when unset.</summary>

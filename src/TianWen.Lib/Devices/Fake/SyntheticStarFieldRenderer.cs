@@ -398,14 +398,10 @@ internal static class SyntheticStarFieldRenderer
         double fwhmPixels = 2.0,
         double readNoise = 5.0,
         double snrThreshold = 5.0)
-    {
-        var sigma = fwhmPixels / 2.3548;
-        var peakFactor = 1.0 / (Math.PI * 2.0 * sigma * sigma); // peak ADU per unit total flux
-        var fluxNormalizer = 10000.0 * Math.Max(exposureSeconds, 1e-3) * Math.Max(apertureScaleFactor, 1e-6);
-        var minPeak = snrThreshold * readNoise;
-        var minFlux = minPeak / peakFactor;
-        return 5.0 - 2.5 * Math.Log10(minFlux / fluxNormalizer);
-    }
+        // Forwards to the shared model so the fake renderer and the session's obstruction oracle
+        // share one detectability formula (extracted to Astrometry.StarDetectionModel).
+        => Astrometry.StarDetectionModel.DetectabilityMagCutoff(
+            apertureScaleFactor, exposureSeconds, fwhmPixels, readNoise, snrThreshold);
 
     /// <summary>
     /// Projects catalog stars from the celestial object database onto sensor pixel coordinates
@@ -456,50 +452,15 @@ internal static class SyntheticStarFieldRenderer
         var sinDec0 = Math.Sin(dec0Rad);
         var cosDec0 = Math.Cos(dec0Rad);
 
-        // Query cells that overlap the FOV
-        // IRaDecIndex cells are ~1° in Dec, ~(1/15)h in RA
-        var decMin = targetDec - searchRadiusDeg;
-        var decMax = targetDec + searchRadiusDeg;
-        var raRadiusHours = searchRadiusDeg / (15.0 * Math.Max(Math.Cos(dec0Rad), 0.01));
-        var raMinH = targetRA - raRadiusHours;
-        var raMaxH = targetRA + raRadiusHours;
-
-        var grid = db.CoordinateGrid;
-        var queriedIndices = new HashSet<CatalogIndex>();
-
-        // Step through RA/Dec cells (1/15 h RA steps, 1° Dec steps)
-        var raStepH = 1.0 / 15.0;
-        var decStep = 1.0;
-        for (var dec = decMin; dec <= decMax + decStep; dec += decStep)
-        {
-            for (var ra = raMinH; ra <= raMaxH + raStepH; ra += raStepH)
-            {
-                var queryRA = ((ra % 24.0) + 24.0) % 24.0;
-                var queryDec = Math.Clamp(dec, -90, 90);
-                foreach (var index in grid[queryRA, queryDec])
-                {
-                    queriedIndices.Add(index);
-                }
-            }
-        }
-
-        // Project each star onto the sensor
+        // Project each star onto the sensor. The catalog cell-walk + dedup + star/NaN filter is shared
+        // with the session's obstruction oracle via CatalogStarCounter.EnumerateFieldStars, so fake
+        // rendering and the oracle enumerate the same catalog the same way (feedback_one_path).
         var result = new List<ProjectedStar>();
         var halfW = width / 2.0;
         var halfH = height / 2.0;
 
-        foreach (var index in queriedIndices)
+        foreach (var obj in Astrometry.Catalogs.CatalogStarCounter.EnumerateFieldStars(db, targetRA, targetDec, searchRadiusDeg))
         {
-            if (!db.TryLookupByIndex(index, out var obj))
-            {
-                continue;
-            }
-
-            if (obj.ObjectType is not ObjectType.Star || Half.IsNaN(obj.V_Mag))
-            {
-                continue;
-            }
-
             var mag = (double)obj.V_Mag;
             if (mag > magnitudeCutoff)
             {
