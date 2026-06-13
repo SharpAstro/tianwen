@@ -879,7 +879,12 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
 
         var api = _ctx.DeviceApi;
 
-        api.vkDeviceWaitIdle();
+        // Skip the pre-teardown drain when the GPU is known wedged — an unbounded wait on a stuck
+        // device would hang Dispose (matches the renderer's recovery/teardown guards).
+        if (!_ctx.IsGpuStuck)
+        {
+            api.vkDeviceWaitIdle();
+        }
 
         // Pipelines
         if (_imagePipeline != VkPipeline.Null)

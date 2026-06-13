@@ -641,6 +641,18 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
     private VkBuffer _starBuffer;
     private VkDeviceMemory _starMemory;
     private uint _starCount;
+
+    // ── Spatial chunking ──────────────────────────────────────────────────
+    // The star buffer is laid out grouped by spatial chunk (a coarse RA/Dec grid),
+    // sorted by magnitude within each chunk. At draw time only the chunks whose
+    // bounding cone intersects the view cone are submitted, and only their
+    // magnitude-prefix -- so a deep zoom touches a handful of chunks instead of
+    // streaming the whole catalog to the GPU (the unbounded version TDR'd the
+    // Adreno X1-85, which froze the UI thread in the swapchain-recovery path).
+    private const int StarGridCols = 12;                  // RA slices  (2h / 30deg each)
+    private const int StarGridRows = 12;                  // Dec slices (15deg each)
+    private const int StarChunkCount = StarGridCols * StarGridRows;
+    private StarChunk[] _starChunks = [];
 #if DEBUG
     // Slow-frame attribution: the star draw is GPU-side (instanced quads), so its cost never
     // shows in CPU phase timers -- it surfaces as a high 'begin=' (fence wait) in the event
@@ -704,13 +716,25 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
     private Task<StarBuildResult>? _starRebuildTask;
 
     /// <summary>
-    /// Output of an async star-buffer rebuild: a flat float[] of sorted star
-    /// vertices (5 floats / star), the count actually written (NaN-mag stars
-    /// dropped during the loop), the pre-computed magnitude lookup table,
-    /// and the target month-key so a stale build can be discarded on swap.
+    /// One spatial chunk's slice of the contiguous star buffer: its instance range
+    /// (<see cref="Offset"/> + <see cref="Count"/> within the magnitude-sorted, chunk-grouped
+    /// buffer), the per-chunk magnitude -> prefix-count lookup (brightest-first, same 0.5-mag
+    /// bins as the old global table), and a bounding cone (axis unit vector + angular radius in
+    /// radians) used to cull the chunk against the view cone at draw time.
+    /// </summary>
+    private readonly record struct StarChunk(
+        uint Offset, uint Count, uint[] MagBins,
+        float ConeX, float ConeY, float ConeZ, float ConeRadiusRad);
+
+    /// <summary>
+    /// Output of an async star-buffer rebuild: a flat float[] of star vertices
+    /// (5 floats / star) laid out grouped by spatial chunk and sorted by magnitude
+    /// within each chunk, the count actually written (NaN-mag stars dropped during
+    /// the loop), the per-chunk layout, and the target month-key so a stale build
+    /// can be discarded on swap.
     /// </summary>
     private readonly record struct StarBuildResult(
-        float[] Verts, uint StarCount, uint[] MagBins, int MonthKey);
+        float[] Verts, uint StarCount, StarChunk[] Chunks, int MonthKey);
 
     // ────────────────────────────────────────────────── Construction
 
@@ -813,13 +837,11 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
         {
             var verts = new float[tycCount * floatsPerStar];
             var written = SkyMapState.FillTycho2StarVertices(db, dtYr, verts);
-            var sortableSpan = verts.AsSpan(0, written * floatsPerStar);
-            SortStarsByMagnitude(sortableSpan, floatsPerStar);
-            var magBins = ComputeMagBins(sortableSpan, floatsPerStar);
+            var chunks = ChunkAndSortStars(verts.AsSpan(0, written * floatsPerStar), floatsPerStar);
             System.Console.Error.WriteLine(
                 $"[VkSkyMapPipeline] async star build month-key {monthKey} (dtYr={dtYr:F3}): " +
                 $"CPU {sw.Elapsed.TotalMilliseconds:N0} ms ({written} stars)");
-            return new StarBuildResult(verts, (uint)written, magBins, monthKey);
+            return new StarBuildResult(verts, (uint)written, chunks, monthKey);
         });
     }
 
@@ -853,9 +875,15 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
         // referencing the old buffer; CreatePersistentVertexBuffer allocates +
         // uploads the new one; DestroyBuffer frees the old. Atomic from the
         // render thread's perspective -- the swap completes inside this method
-        // and the next Draw uses the new buffer.
+        // and the next Draw uses the new buffer. Skip the drain when the GPU is
+        // known wedged: an unbounded wait on a stuck device would hang the render
+        // thread (the event loop already short-circuits OnRender while stuck, so
+        // this is a belt-and-suspenders guard against ever blocking here).
         var sw = System.Diagnostics.Stopwatch.StartNew();
-        _ctx.DeviceApi.vkDeviceWaitIdle();
+        if (!_ctx.IsGpuStuck)
+        {
+            _ctx.DeviceApi.vkDeviceWaitIdle();
+        }
         var waitMs = sw.Elapsed.TotalMilliseconds;
 
         DestroyBuffer(_starBuffer, _starMemory);
@@ -865,7 +893,7 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
         var uploadMs = (sw.Elapsed - uploadStart).TotalMilliseconds;
 
         _starCount = result.StarCount;
-        _magBinCounts = result.MagBins;
+        _starChunks = result.Chunks;
         _starBufferMonthKey = result.MonthKey;
 
         System.Console.Error.WriteLine(
@@ -1153,38 +1181,72 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
         }
 
         // ── Stars ──
-        // Stars are sorted by magnitude (brightest first). Only instance the prefix
-        // that passes the current EffectiveMagnitudeLimit — at full zoom-out (FOV 180°,
-        // mag ~6.5) we draw ~9k instances instead of all ~118k.
-        var visibleStars = _magBinCounts.Length > 0
-            ? GetVisibleStarCount(state.EffectiveMagnitudeLimit)
-            : _starCount;
-#if DEBUG
-        if (visibleStars > _lastLoggedVisibleStars + (_lastLoggedVisibleStars >> 2)
-            || visibleStars < _lastLoggedVisibleStars - (_lastLoggedVisibleStars >> 2))
+        // The star buffer is laid out grouped by spatial chunk, sorted by magnitude
+        // within each chunk. Cull chunks whose bounding cone misses the view cone, then
+        // draw only each visible chunk's magnitude-prefix. A deep zoom (small FOV, high
+        // effective magnitude) touches a handful of chunks instead of streaming the whole
+        // ~2M-star catalog to the GPU — the unbounded version TDR'd the Adreno X1-85.
+        if (_starChunks.Length > 0 && _starCount > 0)
         {
-            Console.Error.WriteLine(
-                $"[rdiag] skymap.stars visible={visibleStars} effMag={state.EffectiveMagnitudeLimit:F1} fov={state.FieldOfViewDeg:F0}");
-            _lastLoggedVisibleStars = visibleStars;
-        }
-#endif
-        if (visibleStars > 0)
-        {
+            var effMag = state.EffectiveMagnitudeLimit;
+
+            // View cone in J2000: axis = the look-at direction (identical to the view
+            // matrix's forward vector, so the cull is exact in both equatorial and horizon
+            // modes). Radius = the full FOV — generous enough to cover the viewport diagonal
+            // for any reasonable aspect, so chunks never pop in/out at the screen edges.
+            var (vx, vy, vz) = SkyMapState.RaDecToUnitVec(state.CenterRA, state.CenterDec);
+            var viewRadiusRad = (float)double.DegreesToRadians(Math.Min(180.0, state.FieldOfViewDeg));
+
             api.vkCmdBindPipeline(cmd, VkPipelineBindPoint.Graphics, _starPipeline);
 
-            // Bind quad (binding 0) and star instance data (binding 1)
-            var quadBuf = _quadBuffer;
-            var starBuf = _starBuffer;
+            // Bind quad (binding 0) and star instance data (binding 1) once; each chunk is a
+            // contiguous instance range drawn via a firstInstance offset into the same buffer.
             var offsets = stackalloc ulong[2];
             offsets[0] = 0;
             offsets[1] = 0;
             var buffers = stackalloc VkBuffer[2];
-            buffers[0] = quadBuf;
-            buffers[1] = starBuf;
+            buffers[0] = _quadBuffer;
+            buffers[1] = _starBuffer;
             api.vkCmdBindVertexBuffers(cmd, 0, 2, buffers, offsets);
 
-            // 6 vertices per quad, only the visible prefix of the sorted star buffer
-            api.vkCmdDraw(cmd, 6, visibleStars, 0, 0);
+            uint drawn = 0;
+            for (var c = 0; c < _starChunks.Length; c++)
+            {
+                var chunk = _starChunks[c];
+                if (chunk.Count == 0)
+                {
+                    continue;
+                }
+
+                // View-cone cull: skip when the two cones cannot intersect, i.e. the angular
+                // separation of their axes exceeds the sum of their radii.
+                var dot = vx * chunk.ConeX + vy * chunk.ConeY + vz * chunk.ConeZ;
+                var sep = MathF.Acos(Math.Clamp(dot, -1f, 1f));
+                if (sep > viewRadiusRad + chunk.ConeRadiusRad)
+                {
+                    continue;
+                }
+
+                // Magnitude cull: only this chunk's brightest-first prefix at the current limit.
+                var n = GetVisibleStarCount(chunk.MagBins, effMag);
+                if (n == 0)
+                {
+                    continue;
+                }
+
+                // 6 vertices per quad, n instances starting at this chunk's offset.
+                api.vkCmdDraw(cmd, 6, n, 0, chunk.Offset);
+                drawn += n;
+            }
+#if DEBUG
+            if (drawn > _lastLoggedVisibleStars + (_lastLoggedVisibleStars >> 2)
+                || drawn < _lastLoggedVisibleStars - (_lastLoggedVisibleStars >> 2))
+            {
+                Console.Error.WriteLine(
+                    $"[rdiag] skymap.stars drawn={drawn} effMag={effMag:F1} fov={state.FieldOfViewDeg:F0} (was {_starCount} unculled)");
+                _lastLoggedVisibleStars = drawn;
+            }
+#endif
         }
     }
 
@@ -1326,23 +1388,18 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
 
         // The per-star vertex compute lives in SkyMapState so the benchmark
         // project can measure it without needing a Vulkan context. The pipeline
-        // still owns the sort + magnitude-lookup + GPU upload that follow.
+        // still owns the spatial chunking + per-chunk sort + GPU upload that follow.
         const int floatsPerStar = SkyMapState.FloatsPerStar;
         var verts = new float[tycCount * floatsPerStar];
         var written = SkyMapState.FillTycho2StarVertices(db, dtJulianYears, verts);
         _starCount = (uint)written;
 
-        // SortStarsByMagnitude + BuildMagnitudeLookup operate on the contiguous
-        // float[] view directly (the prior List<float>-of-the-same-data wrapping
-        // pattern bought nothing: both helpers immediately called
-        // CollectionsMarshal.AsSpan internally).
         var floats = verts.AsSpan(0, written * floatsPerStar);
 
-        // Sort by magnitude (brightest first) so we can limit instance count at draw
-        // time based on EffectiveMagnitudeLimit — the GPU only processes the prefix of
-        // stars that pass the current mag threshold, instead of all 118k every frame.
-        SortStarsByMagnitude(floats, floatsPerStar);
-        BuildMagnitudeLookup(floats, floatsPerStar);
+        // Group into spatial chunks + sort each chunk by magnitude (brightest first), so the
+        // draw can cull whole chunks by view cone and then submit only each visible chunk's
+        // magnitude-prefix — instead of streaming the entire catalog to the GPU every frame.
+        _starChunks = ChunkAndSortStars(floats, floatsPerStar);
 
         (_starBuffer, _starMemory) = _ctx.CreatePersistentVertexBuffer(floats);
     }
@@ -1379,20 +1436,120 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
     }
 
     /// <summary>
-    /// Pre-computed magnitude → instance count lookup. For a given mag limit, the number
-    /// of stars to draw is <c>_magBinCounts[bin]</c> where <c>bin = (int)(mag * 2)</c>.
-    /// Bins cover mag 0..15 in 0.5-mag steps (30 entries).
+    /// Partitions the flat star vertex span into a coarse RA/Dec grid, reorders it in place so
+    /// each chunk's stars are contiguous, sorts each chunk brightest-first, and returns the
+    /// per-chunk layout (instance range + 0.5-mag prefix bins + bounding cone). The draw then
+    /// culls whole chunks by view cone and submits only each visible chunk's magnitude prefix,
+    /// bounding GPU work so a deep zoom can't stream the whole catalog and TDR the GPU.
     /// </summary>
-    private uint[] _magBinCounts = [];
+    private static StarChunk[] ChunkAndSortStars(Span<float> verts, int floatsPerStar)
+    {
+        var count = verts.Length / floatsPerStar;
+        var chunks = new StarChunk[StarChunkCount];
+        if (count == 0)
+        {
+            return chunks; // every chunk Count == 0 -> all culled at draw
+        }
 
-    private void BuildMagnitudeLookup(ReadOnlySpan<float> span, int floatsPerStar)
-        => _magBinCounts = ComputeMagBins(span, floatsPerStar);
+        const float raCellDeg = 360f / StarGridCols;
+        const float decCellDeg = 180f / StarGridRows;
+        const float rad2deg = 180f / MathF.PI;
+
+        // 1. Assign each star to a chunk (RA column x Dec row) from its unit vector.
+        var chunkOf = new int[count];
+        var counts = new int[StarChunkCount];
+        for (var i = 0; i < count; i++)
+        {
+            var b = i * floatsPerStar;
+            float x = verts[b], y = verts[b + 1], z = verts[b + 2];
+            var decDeg = MathF.Asin(Math.Clamp(z, -1f, 1f)) * rad2deg;            // [-90, 90]
+            var raDeg = MathF.Atan2(y, x) * rad2deg;                              // (-180, 180]
+            if (raDeg < 0f)
+            {
+                raDeg += 360f;                                                    // [0, 360)
+            }
+            var col = Math.Clamp((int)(raDeg / raCellDeg), 0, StarGridCols - 1);
+            var row = Math.Clamp((int)((decDeg + 90f) / decCellDeg), 0, StarGridRows - 1);
+            var c = row * StarGridCols + col;
+            chunkOf[i] = c;
+            counts[c]++;
+        }
+
+        // 2. Prefix offsets: the instance index where each chunk begins in the grouped buffer.
+        var offsets = new int[StarChunkCount];
+        for (int c = 0, running = 0; c < StarChunkCount; c++)
+        {
+            offsets[c] = running;
+            running += counts[c];
+        }
+
+        // 3. Stable scatter into a chunk-grouped copy, then write it back over the input span.
+        var grouped = new float[count * floatsPerStar];
+        var cursor = (int[])offsets.Clone();
+        for (var i = 0; i < count; i++)
+        {
+            var dst = cursor[chunkOf[i]]++ * floatsPerStar;
+            verts.Slice(i * floatsPerStar, floatsPerStar).CopyTo(grouped.AsSpan(dst, floatsPerStar));
+        }
+        grouped.AsSpan().CopyTo(verts);
+
+        // 4. Per chunk: sort by magnitude, then compute prefix bins + bounding cone.
+        for (var c = 0; c < StarChunkCount; c++)
+        {
+            var n = counts[c];
+            if (n == 0)
+            {
+                chunks[c] = new StarChunk(0, 0, [], 0f, 0f, 1f, 0f);
+                continue;
+            }
+            var sub = verts.Slice(offsets[c] * floatsPerStar, n * floatsPerStar);
+            SortStarsByMagnitude(sub, floatsPerStar);
+            var bins = ComputeMagBins(sub, floatsPerStar);
+            var (cx, cy, cz, radRad) = ComputeChunkCone(sub, floatsPerStar);
+            chunks[c] = new StarChunk((uint)offsets[c], (uint)n, bins, cx, cy, cz, radRad);
+        }
+        return chunks;
+    }
 
     /// <summary>
-    /// Computes the magnitude → instance-count lookup table from a brightest-first
-    /// sorted star vertex span. 30 bins covering V_T 0..15 in 0.5-mag steps. Pure
-    /// function so the async rebuild can compute it on a background thread and the
-    /// render thread just installs the returned array into <see cref="_magBinCounts"/>.
+    /// Bounding cone for a chunk's stars: axis = the normalized mean of the member unit vectors,
+    /// radius = the maximum angular distance (radians) from that axis to any member. Drives the
+    /// rotation-invariant view-cone cull in <see cref="Draw"/> (correct in equatorial + horizon).
+    /// </summary>
+    private static (float X, float Y, float Z, float RadiusRad) ComputeChunkCone(
+        ReadOnlySpan<float> span, int floatsPerStar)
+    {
+        var n = span.Length / floatsPerStar;
+        double sx = 0, sy = 0, sz = 0;
+        for (var i = 0; i < n; i++)
+        {
+            var b = i * floatsPerStar;
+            sx += span[b]; sy += span[b + 1]; sz += span[b + 2];
+        }
+        var len = Math.Sqrt(sx * sx + sy * sy + sz * sz);
+        if (len < 1e-9)
+        {
+            return (0f, 0f, 1f, MathF.PI); // antipodal cancellation -> whole-sky cone, never culled
+        }
+        float ax = (float)(sx / len), ay = (float)(sy / len), az = (float)(sz / len);
+
+        var minDot = 1f;
+        for (var i = 0; i < n; i++)
+        {
+            var b = i * floatsPerStar;
+            var dot = ax * span[b] + ay * span[b + 1] + az * span[b + 2];
+            if (dot < minDot)
+            {
+                minDot = dot;
+            }
+        }
+        return (ax, ay, az, MathF.Acos(Math.Clamp(minDot, -1f, 1f)));
+    }
+
+    /// <summary>
+    /// Computes the magnitude → instance-count lookup table from a brightest-first sorted star
+    /// vertex span. 30 bins covering V 0..15 in 0.5-mag steps. Pure function so the async rebuild
+    /// can compute each chunk's table on a background thread.
     /// </summary>
     private static uint[] ComputeMagBins(ReadOnlySpan<float> sortedSpan, int floatsPerStar)
     {
@@ -1414,13 +1571,17 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
     }
 
     /// <summary>
-    /// Returns the number of star instances to draw for the given magnitude limit.
-    /// Stars are sorted brightest-first, so we just return the prefix count.
+    /// Number of star instances to draw from a chunk for the given magnitude limit. Stars are
+    /// sorted brightest-first within the chunk, so this is just the prefix count from its bins.
     /// </summary>
-    private uint GetVisibleStarCount(float magLimit)
+    private static uint GetVisibleStarCount(uint[] magBins, float magLimit)
     {
-        var bin = Math.Clamp((int)(magLimit * 2) - 1, 0, _magBinCounts.Length - 1);
-        return _magBinCounts[bin];
+        if (magBins.Length == 0)
+        {
+            return 0;
+        }
+        var bin = Math.Clamp((int)(magLimit * 2) - 1, 0, magBins.Length - 1);
+        return magBins[bin];
     }
 
     /// <summary>
@@ -1453,8 +1614,7 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
 
         _starCount = (uint)(floats.Count / 5);
         var floatsSpan = System.Runtime.InteropServices.CollectionsMarshal.AsSpan(floats);
-        SortStarsByMagnitude(floatsSpan, 5);
-        BuildMagnitudeLookup(floatsSpan, 5);
+        _starChunks = ChunkAndSortStars(floatsSpan, 5);
         (_starBuffer, _starMemory) = _ctx.CreatePersistentVertexBuffer(floatsSpan);
     }
 
@@ -2267,7 +2427,12 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
         _disposed = true;
 
         var api = _ctx.DeviceApi;
-        api.vkDeviceWaitIdle();
+        // Skip the pre-teardown drain when the GPU is known wedged — an unbounded wait on a stuck
+        // device would hang Dispose (matches the renderer's recovery/teardown guards).
+        if (!_ctx.IsGpuStuck)
+        {
+            api.vkDeviceWaitIdle();
+        }
 
         // Milky Way resources
         _milkyWayTexture?.Dispose();
