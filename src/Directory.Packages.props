@@ -103,8 +103,11 @@
          present mode.
          6.1 hardens GPU-wedge recovery: bounded vkWaitForFences drains (no unbounded
          vkDeviceWaitIdle) + a device-level IsGpuStuck flag, so a stuck GPU can no longer
-         hang the UI thread. Repinned to DIR.Lib 4.5 (lockstep with Console.Lib 2.18). -->
-    <PackageVersion Include="SdlVulkan.Renderer" Version="6.1.*" />
+         hang the UI thread. Repinned to DIR.Lib 4.5 (lockstep with Console.Lib 2.18).
+         6.2 (PR #27) extends that: bounded swapchain readback (no unbounded vkQueueWaitIdle),
+         TryWaitPriorFramesIdle for font-atlas grow/evict, and a once-per-storm
+         SdlWindowView.OnRenderDegraded callback so the app can load-shed to a safe view. -->
+    <PackageVersion Include="SdlVulkan.Renderer" Version="6.2.*" />
     <PackageVersion Include="SDL3-CS" Version="3.5.0-preview.20260213-150035" />
     <PackageVersion Include="SDL3-CS.Native" Version="3.5.0-preview.20260205-174353" />
     <!-- Canon DSLR -->
