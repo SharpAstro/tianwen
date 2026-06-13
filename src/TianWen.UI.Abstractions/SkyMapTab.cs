@@ -696,6 +696,7 @@ namespace TianWen.UI.Abstractions
 
         private bool HandlePinchZoom(float scale, float centerX, float centerY)
         {
+            _sincePinch.Restart(); // keep the wheel-dedup grace window fresh for the whole gesture
             if (!State.IsPinching)
             {
                 // Pinch start — suppress drag, undo any drag the first finger caused
@@ -720,8 +721,36 @@ namespace TianWen.UI.Abstractions
             return true;
         }
 
+        // Runaway-zoom flood detector. Zoom events arriving faster than any human could scroll
+        // (a stuck wheel, or a Windows precision touchpad firing both FingerMotion AND MouseWheel for
+        // one gesture) ramp the FOV every frame until a wide-FOV frame wedges the GPU. We log one
+        // warning per burst so a recurrence is instantly visible in the log instead of inferred from
+        // the FOV ramp. Stopwatch is a monotonic elapsed timer (input pacing), not a wall-clock read.
+        private readonly System.Diagnostics.Stopwatch _zoomFloodWindow = System.Diagnostics.Stopwatch.StartNew();
+        private int _zoomEventsInWindow;
+        private const int ZoomFloodWarnThreshold = 20; // >20 zoom events in <200ms (~100/s) is not a human
+
+        // Trackpad-pinch dedup: a Windows precision touchpad fires both FingerMotion (pinch) AND
+        // MouseWheel for one zoom gesture. Track the time since the last pinch event so the wheel path
+        // can ignore the duplicate wheel zoom during a pinch and for a short grace window after it
+        // (trailing OS-momentum wheel events). Not started until the first pinch, so a plain mouse
+        // wheel before any pinch is never suppressed.
+        private readonly System.Diagnostics.Stopwatch _sincePinch = new();
+        private const long PinchWheelGraceMs = 300;
+
         private bool HandleZoom(float scrollY, float mouseX, float mouseY)
         {
+            // While a pinch is active -- or just ended -- the simultaneous mouse-wheel events are the
+            // OS's duplicate of the same trackpad gesture, so ignore them. This is the targeted fix for
+            // the dual-fire FOV runaway; a pure mouse wheel with no pinch is unaffected.
+            if (State.IsPinching || (_sincePinch.IsRunning && _sincePinch.ElapsedMilliseconds < PinchWheelGraceMs))
+            {
+#if DEBUG
+                Logger?.LogDebug("SkyMap wheel zoom ignored (trackpad pinch active/recent); scrollY={ScrollY:F2}", scrollY);
+#endif
+                return true; // consume the duplicate wheel event without zooming
+            }
+
             // Scale proportionally to scroll magnitude — each unit ≈ 15% zoom
             var factor = Math.Pow(0.85, scrollY);
             return HandleZoomByFactor(factor, mouseX, mouseY);
@@ -729,6 +758,7 @@ namespace TianWen.UI.Abstractions
 
         private bool HandleZoomByFactor(double factor, float mouseX, float mouseY)
         {
+            var oldFovDeg = State.FieldOfViewDeg;
 
             // Center-point zoom: zoom toward the sky position under the mouse cursor
             var ppr = SkyMapProjection.PixelsPerRadian(_contentHeight, State.FieldOfViewDeg);
@@ -760,6 +790,23 @@ namespace TianWen.UI.Abstractions
             }
 
             State.NeedsRedraw = true;
+
+            // Flood detection (see fields above): one-shot warning per burst when zoom events arrive
+            // impossibly fast — the signature of the touchpad-dual-fire / stuck-scroll FOV runaway.
+            if (_zoomFloodWindow.ElapsedMilliseconds > 200)
+            {
+                _zoomFloodWindow.Restart();
+                _zoomEventsInWindow = 0;
+            }
+            if (++_zoomEventsInWindow == ZoomFloodWarnThreshold)
+            {
+                Logger?.LogWarning(
+                    "SkyMap zoom flood: {Count}+ events in <200ms (FOV {Old:F1} -> {New:F1} deg) - likely a stuck scroll / touchpad dual-fire, not user input.",
+                    _zoomEventsInWindow, oldFovDeg, State.FieldOfViewDeg);
+            }
+#if DEBUG
+            Logger?.LogDebug("SkyMap zoom: factor={Factor:F3} FOV {Old:F1} -> {New:F1} deg", factor, oldFovDeg, State.FieldOfViewDeg);
+#endif
             return true;
         }
 

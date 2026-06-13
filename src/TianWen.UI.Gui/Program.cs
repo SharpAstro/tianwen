@@ -195,6 +195,24 @@ var loop = new SdlEventLoop(sdlWindow, renderer)
         guiRenderer.Resize(rw, rh);
     },
 
+    // The renderer's swapchain recovery isn't sticking — it kept wedging + recovering, meaning the
+    // current workload keeps re-saturating the GPU (the classic case: a runaway sky-map zoom producing
+    // a multi-second frame). Shed load so the GPU can drain: leave the heavy view for the cheap
+    // Notifications tab and reset the sky-map zoom so the runaway frame stops being submitted. Runs on
+    // the render thread; hardware + session control run on a background task and are unaffected by a
+    // render stall, so this only changes what's on screen, never what the mount/camera are doing.
+    OnRenderDegraded = () =>
+    {
+        var wasTab = appState.ActiveTab;
+        var fovAtStall = guiRenderer.SkyMapState.FieldOfViewDeg; // capture for the trace before resetting
+        appState.ActiveTab = GuiTab.Notifications;
+        guiRenderer.SkyMapState.FieldOfViewDeg = 60.0; // reset a runaway zoom to a sane default
+        guiRenderer.SkyMapState.NeedsRedraw = true;
+        appState.NeedsRedraw = true;
+        appState.RecordNotification(timeProvider.GetUtcNow(), NotificationSeverity.Warning,
+            $"Display recovered from a GPU stall on the {wasTab} view (sky-map FOV was {fovAtStall:F0} deg) - switched to a safe view and reset the zoom. Hardware and session control were unaffected.");
+    },
+
     OnMouseDown = (button, x, y, clicks, mods) =>
     {
         if (button == 1) handlers.HandleInput(new InputEvent.MouseDown(x, y, Modifiers: mods, ClickCount: clicks));
