@@ -331,6 +331,11 @@ internal partial record Session(
                 return;
             }
 
+            // Cloud gate (C): the zenith rough-focus gauge is an obstruction-free read of transparency.
+            // If even the zenith is crushed, the whole sky is clouded; hold and re-gauge before sinking
+            // the night into thick cloud. No-op when the sky reads clear or no valid gauge exists.
+            await WaitForCloudGateAsync(cancellationToken);
+
             SetPhase(SessionPhase.AutoFocus);
             if (!await AutoFocusAllTelescopesAsync(cancellationToken))
             {

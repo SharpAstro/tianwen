@@ -51,6 +51,16 @@ public class SessionScoutAndProbeTests(ITestOutputHelper output)
         return ctx;
     }
 
+    // The fake camera lazily sizes its readout window on the first exposure; the oracle / gauge FOV
+    // computation reads NumX/NumY/BinX up front, so set a (near) full-frame readout explicitly for the
+    // tests that call those helpers without first taking a frame.
+    private static void InitCameraReadout(SessionTestContext ctx)
+    {
+        ctx.Camera.BinX = 1;
+        ctx.Camera.NumX = ctx.Camera.CameraXSize - 1;
+        ctx.Camera.NumY = ctx.Camera.CameraYSize - 1;
+    }
+
     private static ScheduledObservation Obs(double ra, double dec, string name)
         => new(
             new Target(ra, dec, name, null),
@@ -62,12 +72,19 @@ public class SessionScoutAndProbeTests(ITestOutputHelper output)
             Offset: 0);
 
     [Fact(Timeout = 60_000)]
-    public async Task GivenFirstObservationNoBaselineWhenScoutThenHealthy()
+    public async Task GivenFirstObservationNoBaselineAndOracleDisabledWhenScoutThenHealthy()
     {
-        // No previous observation → no baseline → conservative Healthy classification.
+        // Oracle OFF: first observation, no baseline → fall back to the original "trust and proceed"
+        // (conservative Healthy). With the oracle ON (default) this path is exercised by
+        // GivenFirstObservationOracleClearSky / HeavyCloud below instead.
         var ct = TestContext.Current.CancellationToken;
         var observations = new[] { Obs(3.79, 24.1, "M45") };
-        using var ctx = await CreateScoutSessionAsync(observations, cancellationToken: ct);
+        var config = SessionTestHelper.DefaultConfiguration with
+        {
+            ScoutExposure = TimeSpan.FromSeconds(2),
+            FirstScoutOracleEnabled = false,
+        };
+        using var ctx = await CreateScoutSessionAsync(observations, configuration: config, cancellationToken: ct);
         ctx.Session.AdvanceObservationForTest(); // index 0; prev = -1 → no baseline
 
         // Slew to target so scout has a sky position
@@ -84,6 +101,93 @@ public class SessionScoutAndProbeTests(ITestOutputHelper output)
             result.Classification.ShouldBe(ScoutClassification.Healthy);
             result.EstimatedClearIn.ShouldBeNull();
         }, ct);
+    }
+
+    [Fact(Timeout = 60_000)]
+    public async Task GivenFirstObservationOracleClearSkyWhenScoutThenProceeds()
+    {
+        // Oracle ON, first observation (no baseline), clear sky. The catalog is wired to BOTH the fake
+        // render and the oracle, so detected ≈ catalog-predicted; the zenith-anchored oracle
+        // (catalog-floor fallback, no gauge) waves the field through. Asserted via the outcome
+        // (Proceed) -- robust whether the oracle returns Healthy directly or the nudge confirms
+        // Transparency (both proceed on a clear sky).
+        var ct = TestContext.Current.CancellationToken;
+        var db = await SharedCatalogDB.InitAsync(ct);
+        var observations = new[] { Obs(3.79, 24.1, "M45") };
+        using var ctx = await CreateScoutSessionAsync(observations, cancellationToken: ct);
+        ctx.External.CelestialObjectDB = db; // oracle catalog
+        ctx.Camera.CelestialObjectDB = db;   // render from the same catalog
+        ctx.Camera.CloudCoverage = 0;        // clear
+        ctx.Session.AdvanceObservationForTest();
+
+        var target = ctx.Session.ActiveObservation!.Target;
+        await ctx.Mount.BeginSlewRaDecAsync(target.RA, target.Dec, ct);
+        while (await ctx.Mount.IsSlewingAsync(ct))
+        {
+            await ctx.TimeProvider.SleepAsync(TimeSpan.FromMilliseconds(50), ct);
+        }
+
+        await RunScoutWithTimePumpAsync(ctx, async ct2 =>
+        {
+            var outcome = await ctx.Session.RunObstructionScoutAsync(ctx.Session.ActiveObservation!, ct2);
+            outcome.ShouldBe(ScoutOutcome.Proceed);
+        }, ct);
+    }
+
+    [Fact(Timeout = 60_000)]
+    public async Task GivenFirstScoutZeroStarsAgainstDenseCatalogWhenClassifyAgainstZenithThenObstruction()
+    {
+        // The zenith-anchored oracle, exercised directly with controlled scout metrics against the real
+        // catalog (no dependence on the fake render / cloud model). A first scout that took a real 2s
+        // exposure but detected zero stars, over M45's dense field (catalog expectation well above
+        // MinOracleStarCount), is flagged as a (tentative) Obstruction so ScoutAndProbeAsync runs the
+        // nudge. A scout swimming in stars is Healthy. This is the discriminator the old unconditional
+        // "first observation -> Healthy" lacked.
+        var ct = TestContext.Current.CancellationToken;
+        var db = await SharedCatalogDB.InitAsync(ct);
+        var observations = new[] { Obs(3.79, 24.1, "M45") };
+        using var ctx = await CreateScoutSessionAsync(observations, cancellationToken: ct);
+        ctx.External.CelestialObjectDB = db;
+        InitCameraReadout(ctx);
+        var observation = observations[0];
+        var twoSec = TimeSpan.FromSeconds(2);
+
+        var zeroStars = new[] { new FrameMetrics(StarCount: 0, MedianHfd: 0, MedianFwhm: 0, Exposure: twoSec, Gain: 0) };
+        var obstruction = await ctx.Session.ClassifyFirstScoutAgainstZenithAsync(observation, zeroStars, twoSec, ct);
+        obstruction.ShouldBe(ScoutClassification.Obstruction);
+
+        var manyStars = new[] { new FrameMetrics(StarCount: 100_000, MedianHfd: 2.5f, MedianFwhm: 3.0f, Exposure: twoSec, Gain: 0) };
+        var healthy = await ctx.Session.ClassifyFirstScoutAgainstZenithAsync(observation, manyStars, twoSec, ct);
+        healthy.ShouldBe(ScoutClassification.Healthy);
+    }
+
+    [Fact(Timeout = 60_000)]
+    public async Task GivenDetectedCountAndRealCatalogWhenComputeSkyGaugeThenValidGauge_AndGateNoOpsAboveFloor()
+    {
+        // ComputeSkyGaugeAsync turns a detected count + the real catalog into a NightSkyGauge (bridges
+        // CatalogStarCounter and the NightSkyGauge inversion against the live DB), and WaitForCloudGateAsync
+        // is a fast no-op once a valid gauge reads at or above the cloud-gate floor. The crushed-gauge ->
+        // hold-and-re-gauge recovery loop is glue over TakeScoutFrameAsync (covered by the scout tests)
+        // and ComputeSkyGaugeAsync (covered here), so it is not separately driven end to end.
+        var ct = TestContext.Current.CancellationToken;
+        var db = await SharedCatalogDB.InitAsync(ct);
+        var observations = new[] { Obs(3.79, 24.1, "M45") };
+        using var ctx = await CreateScoutSessionAsync(observations, cancellationToken: ct);
+        ctx.External.CelestialObjectDB = db;
+        InitCameraReadout(ctx);
+
+        var gauge = await ctx.Session.ComputeSkyGaugeAsync(
+            otaIndex: 0, detectedStars: 40, exposureSeconds: 2.0, snrThreshold: 10.0,
+            raHours: 3.79, decDeg: 24.1, ct);
+        gauge.Valid.ShouldBeTrue();
+        gauge.CatalogPredictedAtZenith.ShouldBeGreaterThan(0);
+        gauge.Efficiency.ShouldBeInRange(0.0, 1.0);
+        output.WriteLine($"Computed gauge: detected={gauge.DetectedAtZenith} predicted={gauge.CatalogPredictedAtZenith} eff={gauge.Efficiency:P0} effLimit=V<={gauge.EffectiveLimitMag:F1}");
+
+        // A valid gauge above the floor -> WaitForCloudGateAsync returns immediately (no hold, no pump).
+        ctx.Session.SetZenithGaugeForTest(0, gauge with { Efficiency = 0.9 });
+        await ctx.Session.WaitForCloudGateAsync(ct);
+        ctx.Session.GetZenithGaugeForTest(0).Efficiency.ShouldBe(0.9);
     }
 
     [Fact(Timeout = 60_000)]
