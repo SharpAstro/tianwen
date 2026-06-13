@@ -95,6 +95,29 @@ internal class SessionFactory(
 
         var setup = new Setup(mount, guider, guiderSetup, [.. otas], weather);
 
+        // Diagnostic: did the session reuse already-connected hub driver instances, or create fresh
+        // ones? A fresh instance re-runs DoConnectDeviceAsync at InitialisationAsync, which for the fake
+        // SkyWatcher re-homes the encoder ("mount reset to 0,0 at session start") and could equally
+        // reset any device (camera cooling, focuser position, ...). Checked for EVERY device so a
+        // borrow miss (URI-key mismatch with what the manual connect cached) is visible per-device.
+        // borrowed=false while the user was already connected => the hub borrow missed for that device.
+        void LogBorrow(string role, DeviceBase dev, bool borrowed) =>
+            _logger.LogDebug("Session setup: {Role} {Uri} borrowed-from-hub={Borrowed}", role, dev.DeviceUri, borrowed);
+
+        LogBorrow("mount", mount.Device, mount.Borrowed);
+        LogBorrow("guider", guider.Device, guider.Borrowed);
+        if (guiderCamera is not null) LogBorrow("guiderCamera", guiderCamera.Device, guiderCamera.Borrowed);
+        if (guiderFocuser is not null) LogBorrow("guiderFocuser", guiderFocuser.Device, guiderFocuser.Borrowed);
+        if (weather is not null) LogBorrow("weather", weather.Device, weather.Borrowed);
+        for (var i = 0; i < otas.Count; i++)
+        {
+            var o = otas[i];
+            LogBorrow($"ota{i}.camera", o.Camera.Device, o.Camera.Borrowed);
+            if (o.Cover is { } cov) LogBorrow($"ota{i}.cover", cov.Device, cov.Borrowed);
+            if (o.Focuser is { } foc) LogBorrow($"ota{i}.focuser", foc.Device, foc.Borrowed);
+            if (o.FilterWheel is { } fw) LogBorrow($"ota{i}.filterWheel", fw.Device, fw.Borrowed);
+        }
+
         return (setup, profileData);
 
         DeviceBase DeviceFromUri(Uri deviceUri, int? otaIdx = null)

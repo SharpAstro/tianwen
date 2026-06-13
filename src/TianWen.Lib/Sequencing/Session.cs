@@ -6,8 +6,10 @@ using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Threading;
 using System.Threading.Tasks;
+using TianWen.Lib.Astrometry;
 using TianWen.Lib.Astrometry.Focus;
 using TianWen.Lib.Astrometry.PlateSolve;
+using TianWen.Lib.Astrometry.SOFA;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Devices.Guider;
 using TianWen.Lib.Extensions;
@@ -87,7 +89,16 @@ internal partial record Session(
     public SessionPhase Phase => _phase;
     public string? CurrentActivity => _currentActivity;
     public MountState MountState => _mountState;
-    private MountState _mountState;
+    // Start "unknown" (all-NaN coords), not default(MountState) which would read as a real RA0/Dec0.
+    // The first PollDeviceStatesAsync (RunAsync, right after InitialisationAsync) fills it in. UI
+    // consumers treat NaN RA as "no pointing yet" and keep the last known value rather than snapping
+    // the reticle to the celestial-equator origin during the seconds-long init window.
+    private MountState _mountState = new(double.NaN, double.NaN, double.NaN, default, false, false);
+    // Reused SOFA transform for converting the mount's native (JNOW) pointing to J2000 for the
+    // sky-map reticle. Built once from site conditions (fixed for the session) with only its
+    // DateTime refreshed per poll; dropped + rebuilt if a conversion ever returns NaN (e.g. it
+    // was built before the site sync). Mirrors AppSignalHandler's preview-poll conversion.
+    private Transform? _mountStateTransform;
 
     public string? LastFramePath => _lastFramePath;
     private volatile string? _lastFramePath;
@@ -262,13 +273,52 @@ internal partial record Session(
         var mount = Setup.Mount.Driver;
         if (mount.Connected)
         {
+            var ra = await PollDriverReadAsync(mount, mount.GetRightAscensionAsync, _mountState.RightAscension, cancellationToken);
+            var dec = await PollDriverReadAsync(mount, mount.GetDeclinationAsync, _mountState.Declination, cancellationToken);
+
+            // Derive J2000 coords so the sky-map reticle renders in the same frame as catalog
+            // stars/objects. Treating the native topocentric (JNOW) read as J2000 is off by ~22'
+            // of precession in 2026 -- enough to look like a real pointing error on the map. Mirrors
+            // AppSignalHandler.SamplePreviewMountAsync's idle-path conversion (same shared
+            // EquatorialFrameConversion helper) so the reticle is identical whether or not a session
+            // is running. J2000-native mounts pass the native values through unchanged.
+            var (raJ2000, decJ2000) = (double.NaN, double.NaN);
+            if (!double.IsNaN(ra) && !double.IsNaN(dec))
+            {
+                if (mount.EquatorialSystem == EquatorialCoordinateType.J2000)
+                {
+                    (raJ2000, decJ2000) = (ra, dec);
+                }
+                else if (mount.EquatorialSystem == EquatorialCoordinateType.Topocentric)
+                {
+                    _mountStateTransform ??= await mount.TryGetTransformAsync(ResolveSiteConditions(), cancellationToken);
+                    if (_mountStateTransform is { } transform)
+                    {
+                        transform.DateTime = _timeProvider.GetUtcNow().UtcDateTime;
+                        if (EquatorialFrameConversion.TopocentricToJ2000(transform, ra, dec) is { } j2000)
+                        {
+                            (raJ2000, decJ2000) = j2000;
+                        }
+                        else
+                        {
+                            // Transform not fully initialised (e.g. built before the site sync) ->
+                            // drop it so the next poll rebuilds from the now-valid site. J2000 stays
+                            // NaN this tick and the overlay falls back to the native read.
+                            _mountStateTransform = null;
+                        }
+                    }
+                }
+            }
+
             _mountState = new MountState(
-                RightAscension: await PollDriverReadAsync(mount, mount.GetRightAscensionAsync, _mountState.RightAscension, cancellationToken),
-                Declination: await PollDriverReadAsync(mount, mount.GetDeclinationAsync, _mountState.Declination, cancellationToken),
+                RightAscension: ra,
+                Declination: dec,
                 HourAngle: await PollDriverReadAsync(mount, mount.GetHourAngleAsync, _mountState.HourAngle, cancellationToken),
                 PierSide: await PollDriverReadAsync(mount, mount.GetSideOfPierAsync, _mountState.PierSide, cancellationToken),
                 IsSlewing: await PollDriverReadAsync(mount, mount.IsSlewingAsync, _mountState.IsSlewing, cancellationToken),
-                IsTracking: await PollDriverReadAsync(mount, mount.IsTrackingAsync, _mountState.IsTracking, cancellationToken));
+                IsTracking: await PollDriverReadAsync(mount, mount.IsTrackingAsync, _mountState.IsTracking, cancellationToken),
+                RaJ2000: raJ2000,
+                DecJ2000: decJ2000);
         }
     }
 
