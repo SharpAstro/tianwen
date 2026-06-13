@@ -53,6 +53,12 @@ namespace TianWen.UI.Abstractions
         /// <summary>Per-observation exposure value hit regions for double-click-to-edit.</summary>
         private readonly List<(RectF32 Rect, int ProposalIndex)> _exposureValueRegions = [];
 
+        /// <summary>Reused scratch buffer for measuring the shared stepper value-column width (no per-frame alloc).</summary>
+        private readonly List<string> _stepperValueScratch = [];
+
+        /// <summary>Reused scratch buffer for measuring the shared per-OTA camera-settings value-column width.</summary>
+        private readonly List<string> _cameraValueScratch = [];
+
         /// <summary>Cached reference to planner state for HandleInput access.</summary>
         private PlannerState? _plannerState;
 
@@ -329,7 +335,7 @@ namespace TianWen.UI.Abstractions
             var itemH = BaseItemHeight * dpiScale;
             var headerH = BaseHeaderHeight * dpiScale;
             var stepperBtnW = BaseStepperBtnW * dpiScale;
-            var valueW = BaseValueW * dpiScale * 0.75f;
+            var labelW = 80f * dpiScale;
 
             var camLayout = new PixelLayout(rect);
             var headerRect = camLayout.Dock(PixelDockStyle.Top, headerH);
@@ -349,6 +355,40 @@ namespace TianWen.UI.Abstractions
                 return;
             }
 
+            var controlX = listRect.X + padding + labelW;
+
+            // Measurement-driven value column shared across every OTA's setpoint/gain row so long
+            // gain-mode names fit and all steppers stay aligned (see PixelWidgetBase.MeasureValueColumnWidth).
+            // Mode cameras contribute all mode names (not just the current one) so the column does not
+            // reflow as the user cycles modes.
+            _cameraValueScratch.Clear();
+            for (var i = 0; i < State.CameraSettings.Count; i++)
+            {
+                var cam = State.CameraSettings[i];
+                if (cam.HasCooling)
+                {
+                    _cameraValueScratch.Add($"{cam.SetpointTempC}°C");
+                }
+
+                if (cam.UsesGainMode && cam.GainModes.Count > 0)
+                {
+                    for (var m = 0; m < cam.GainModes.Count; m++)
+                    {
+                        _cameraValueScratch.Add(cam.GainModes[m]);
+                    }
+                }
+                else
+                {
+                    _cameraValueScratch.Add($"{cam.Gain}");
+                }
+            }
+
+            var valueW = MeasureValueColumnWidth(
+                _cameraValueScratch, fontPath, fontSize,
+                minWidth: BaseValueW * dpiScale * 0.75f,
+                maxWidth: listRect.Width - padding * 2f - labelW - stepperBtnW * 2f,
+                horizontalPadding: padding);
+
             var cursor = listRect.Y;
 
             for (var i = 0; i < State.CameraSettings.Count && cursor + itemH * 2 <= listRect.Y + listRect.Height; i++)
@@ -363,9 +403,6 @@ namespace TianWen.UI.Abstractions
                     listRect.X + padding, cursor, listRect.Width - padding * 2, itemH,
                     fontSize, BodyText, TextAlign.Near, TextAlign.Center);
                 cursor += itemH;
-
-                var labelW = 80f * dpiScale;
-                var controlX = listRect.X + padding + labelW;
 
                 // Setpoint row (hidden for uncooled cameras like DSLRs)
                 if (cam.HasCooling)
@@ -388,7 +425,6 @@ namespace TianWen.UI.Abstractions
                 }
 
                 // Gain row
-                var gainValueW = cam.UsesGainMode ? valueW * 1.6f : valueW;
                 FillRect(listRect.X, cursor, listRect.Width, itemH, RowAltBg);
                 DrawText("Gain", fontPath,
                     listRect.X + padding, cursor, labelW, itemH,
@@ -410,9 +446,9 @@ namespace TianWen.UI.Abstractions
                             State.NeedsRedraw = true;
                         });
                     DrawText(modeName, fontPath,
-                        controlX + stepperBtnW, cursor, gainValueW, itemH,
+                        controlX + stepperBtnW, cursor, valueW, itemH,
                         fontSize * 0.9f, BodyText, TextAlign.Center, TextAlign.Center);
-                    RenderButton("\u25B6", controlX + stepperBtnW + gainValueW, cursor, stepperBtnW, itemH, fontPath, fontSize,
+                    RenderButton("\u25B6", controlX + stepperBtnW + valueW, cursor, stepperBtnW, itemH, fontPath, fontSize,
                         StepperBg, BodyText, $"Inc:Gain:{i}",
                         _ =>
                         {
@@ -636,7 +672,6 @@ namespace TianWen.UI.Abstractions
             var headerH = BaseHeaderHeight * dpiScale;
             var labelW = BaseLabelW * dpiScale;
             var stepperBtnW = BaseStepperBtnW * dpiScale;
-            var valueW = BaseValueW * dpiScale;
 
             FillRect(rect.X, rect.Y, rect.Width, rect.Height, ContentBg);
 
@@ -644,6 +679,33 @@ namespace TianWen.UI.Abstractions
             var cursor = rect.Y - State.ConfigScrollOffset;
             var groups = SessionConfigGroups.Groups;
             var globalFieldIdx = 0;
+
+            // Measurement-driven value column: size the [-] value [+] cell to the widest current
+            // stepper value (e.g. "Auto (3min)") so long strings are neither clipped nor collide
+            // with the steppers, while every stepper stays aligned in one shared column. Clamp to
+            // the space actually available in the panel; MeasureValueColumnWidth falls back to the
+            // minimum when no font is available (headless tests).
+            _stepperValueScratch.Clear();
+            for (var gi = 0; gi < groups.Length; gi++)
+            {
+                var fields = groups[gi].Fields;
+                for (var fi = 0; fi < fields.Length; fi++)
+                {
+                    var field = fields[fi];
+                    if (field.Kind is ConfigFieldKind.BoolToggle or ConfigFieldKind.EnumCycle)
+                    {
+                        continue; // toggles / cycles size their own button, not the value cell
+                    }
+
+                    _stepperValueScratch.Add(FormatStepperDisplay(field, State.Configuration));
+                }
+            }
+
+            var valueW = MeasureValueColumnWidth(
+                _stepperValueScratch, fontPath, fontSize,
+                minWidth: BaseValueW * dpiScale,
+                maxWidth: rect.Width - padding * 3f - labelW - stepperBtnW * 2f,
+                horizontalPadding: padding);
 
             for (var gi = 0; gi < groups.Length; gi++)
             {
@@ -733,15 +795,21 @@ namespace TianWen.UI.Abstractions
         // Stepper row: [-] value [+]
         // -----------------------------------------------------------------------
 
+        /// <summary>Value text (value + optional unit) shown in a stepper's centre cell.</summary>
+        private static string FormatStepperDisplay(ConfigFieldDescriptor field, SessionConfiguration config)
+        {
+            var valueStr = field.FormatValue(config);
+            var unitStr = field.Unit.Length > 0 ? $" {field.Unit}" : "";
+            return $"{valueStr}{unitStr}";
+        }
+
         private void RenderStepperRow(
             ConfigFieldDescriptor field,
             float x, float y,
             float btnW, float valW, float h,
             string fontPath, float fontSize)
         {
-            var valueStr = field.FormatValue(State.Configuration);
-            var unitStr = field.Unit.Length > 0 ? $" {field.Unit}" : "";
-            var displayStr = $"{valueStr}{unitStr}";
+            var displayStr = FormatStepperDisplay(field, State.Configuration);
 
             ConfigButton("\u2212", x, y, btnW, h, fontPath, fontSize,
                 StepperBg, $"Dec:{field.Label}",
