@@ -197,6 +197,17 @@ internal partial record Session
         _logger.LogDebug("Init: connecting mount {Mount}", mount);
         await mount.Driver.ConnectAsync(cancellationToken).ConfigureAwait(false);
 
+        // Diagnostic snapshot: site + believed pointing right after the (borrowed, already-connected)
+        // mount is reused. If site is NaN here the manual connect never pushed it; if RA/Dec are
+        // already 0,0 the reset happened before the session even touched the mount.
+        _logger.LogDebug(
+            "Init mount snapshot (post-connect): site lat={Lat:F3} lon={Lon:F3}; believed RA={Ra:F4}h Dec={Dec:F3}deg; atPark={Park}",
+            await mount.Driver.GetSiteLatitudeAsync(cancellationToken),
+            await mount.Driver.GetSiteLongitudeAsync(cancellationToken),
+            await _logger.CatchAsync(mount.Driver.GetRightAscensionAsync, cancellationToken, double.NaN),
+            await _logger.CatchAsync(mount.Driver.GetDeclinationAsync, cancellationToken, double.NaN),
+            await mount.Driver.AtParkAsync(cancellationToken));
+
         _currentActivity = "Connecting guider\u2026";
         _logger.LogDebug("Init: connecting guider {Guider}", guider);
         await guider.Driver.ConnectAsync(cancellationToken).ConfigureAwait(false);
@@ -219,6 +230,15 @@ internal partial record Session
             await mount.Driver.SetSiteLatitudeAsync(Configuration.SiteLatitude, cancellationToken);
             await mount.Driver.SetSiteLongitudeAsync(Configuration.SiteLongitude, cancellationToken);
             _logger.LogInformation("Mount site synced to lat={Latitude:F4}, lon={Longitude:F4}", Configuration.SiteLatitude, Configuration.SiteLongitude);
+
+            // Diagnostic snapshot: did setting the site (which re-runs MaybeSyncToPoleAfterSiteSet on
+            // the SkyWatcher) shift/zero the believed pointing? Compare RA/Dec to the post-connect line.
+            _logger.LogDebug(
+                "Init mount snapshot (post-SetSite): site lat={Lat:F3} lon={Lon:F3}; believed RA={Ra:F4}h Dec={Dec:F3}deg",
+                await mount.Driver.GetSiteLatitudeAsync(cancellationToken),
+                await mount.Driver.GetSiteLongitudeAsync(cancellationToken),
+                await _logger.CatchAsync(mount.Driver.GetRightAscensionAsync, cancellationToken, double.NaN),
+                await _logger.CatchAsync(mount.Driver.GetDeclinationAsync, cancellationToken, double.NaN));
         }
         else
         {

@@ -75,10 +75,11 @@ namespace TianWen.UI.Abstractions
 
         /// <summary>
         /// Current mount pointing for the reticle overlay. Null when no mount is connected
-        /// or its coordinates can't be read. Populated by the event loop from polled
-        /// <c>LiveSessionState.PreviewMountState</c> (preview mode) or <c>session.MountState</c>
-        /// (session running). RA/Dec are J2000 when available; native coords are used as a
-        /// fallback for mounts where the J2000 conversion hasn't been populated yet.
+        /// or its coordinates can't be read. Populated by the event loop from the single
+        /// canonical <c>LiveSessionState.MountState</c> (fed by the preview poll while idle,
+        /// the running session's poll otherwise). RA/Dec are J2000 when available; native
+        /// coords are used as a fallback for mounts where the J2000 conversion hasn't been
+        /// populated yet.
         /// </summary>
         public SkyMapMountOverlay? MountOverlay { get; set; }
 

@@ -367,7 +367,7 @@ namespace TianWen.UI.Abstractions
             // goto / sync lag by up to the steady interval. Instead: fast while slewing, fast
             // for MountTrackingSettleWindow after the mount lands and starts tracking, then
             // relaxing to the steady rate only once it has tracked undisturbed that long.
-            var prevMount = _liveSessionState.PreviewMountState;
+            var prevMount = _liveSessionState.MountState;
             var steadyNow = prevMount.IsTracking && !prevMount.IsSlewing;
             if (steadyNow && !_wasSteadyTracking)
             {
@@ -421,10 +421,10 @@ namespace TianWen.UI.Abstractions
                             _logger.LogInformation("Preview mount first sample: RA={RA:F4}h Dec={Dec:F4}° HA={HA:F4}h slewing={Slewing} tracking={Tracking}",
                                 ms.RightAscension, ms.Declination, ms.HourAngle, ms.IsSlewing, ms.IsTracking);
                         }
-                        _liveSessionState.PreviewMountState = ms;
+                        _liveSessionState.MountState = ms;
                         if (displayName is not null)
                         {
-                            _liveSessionState.PreviewMountDisplayName = displayName;
+                            _liveSessionState.MountDisplayName = displayName;
                         }
                         _appState.NeedsRedraw = true;
                     }
@@ -477,9 +477,12 @@ namespace TianWen.UI.Abstractions
                 return (default, null);
             }
 
-            var ra = await _logger.CatchAsync(mount.GetRightAscensionAsync, ct);
-            var dec = await _logger.CatchAsync(mount.GetDeclinationAsync, ct);
-            var ha = await _logger.CatchAsync(mount.GetHourAngleAsync, ct);
+            // Default to NaN (not the struct default 0.0) so a FAILED read is treated as "unavailable"
+            // by the !IsNaN guard below, instead of being mistaken for a valid RA0/Dec0 and painted at
+            // the celestial-equator origin (the "mount suddenly jumps to 0,0 / forgets its site" bug).
+            var ra = await _logger.CatchAsync(mount.GetRightAscensionAsync, ct, double.NaN);
+            var dec = await _logger.CatchAsync(mount.GetDeclinationAsync, ct, double.NaN);
+            var ha = await _logger.CatchAsync(mount.GetHourAngleAsync, ct, double.NaN);
             var slewing = await _logger.CatchAsync(mount.IsSlewingAsync, ct);
             var tracking = await _logger.CatchAsync(mount.IsTrackingAsync, ct);
             var pier = await _logger.CatchAsync(mount.GetSideOfPierAsync, ct);

@@ -463,11 +463,15 @@ namespace TianWen.UI.Gui
             ITimeProvider timeProvider,
             RectF32 contentRect)
         {
-            // Poll session state for any tab that needs live data (LiveSession, Guider)
-            if (appState.ActiveTab is GuiTab.LiveSession or GuiTab.Guider)
-            {
-                LiveSessionState.PollSession();
-            }
+            // Refresh the cached session snapshot every frame, regardless of tab. PollSession
+            // early-returns when no session is active (cheap volatile-field copies otherwise), so
+            // this is essentially free when idle. Running it unconditionally keeps the single
+            // canonical LiveSessionState.MountState current on EVERY tab while a session runs --
+            // previously this was gated to LiveSession/Guider, so the Sky Map reticle read a stale
+            // default(MountState) (RA0/Dec0) the whole time a session was active and the user was
+            // watching the map. The mount was never wrong; the copy that fed the reticle was never
+            // refreshed.
+            LiveSessionState.PollSession();
 
             switch (appState.ActiveTab)
             {
@@ -488,11 +492,11 @@ namespace TianWen.UI.Gui
                     break;
 
                 case GuiTab.SkyMap:
-                    // Feed the live mount snapshot into the sky map state so the
-                    // reticle overlay tracks the mount without the tab needing its
-                    // own poll path. Session-mode uses the session's own MountState
-                    // (already populated at session's PollDeviceStatesAsync cadence);
-                    // preview-mode uses PreviewMountState populated by PollPreviewTelemetry.
+                    // Feed the live mount snapshot into the sky map state so the reticle overlay
+                    // tracks the mount without the tab needing its own poll path. Reads the single
+                    // canonical LiveSessionState.MountState (kept current every frame by the
+                    // unconditional PollSession above when a session runs, or by PollPreviewTelemetry
+                    // when idle) -- no session-vs-preview branch here any more.
                     PopulateSkyMapMountOverlay(appState, timeProvider);
                     PopulateSkyMapMosaicPanels(appState, plannerState);
                     PopulateSkyMapScheduleTargets();
@@ -535,37 +539,22 @@ namespace TianWen.UI.Gui
         /// Snapshots the current mount pointing into <see cref="SkyMapState.MountOverlay"/>
         /// just before the sky-map tab renders. This keeps the sky map free of any direct
         /// dependency on <see cref="LiveSessionState"/>; the tab itself only sees the tiny
-        /// <see cref="SkyMapMountOverlay"/> snapshot. Picks the session's own MountState
-        /// when a session is running (session drives the poll cadence itself), else the
-        /// preview-mode snapshot (driven by <c>AppSignalHandler.PollPreviewTelemetry</c>).
-        /// J2000 coords are preferred; native coords are used as a fallback for session
-        /// mode which does not yet populate the J2000 fields.
+        /// <see cref="SkyMapMountOverlay"/> snapshot. Reads the single canonical
+        /// <see cref="LiveSessionState.MountState"/> -- fed by the session poll while running and
+        /// the preview poll while idle -- so there is no session-vs-preview branch to keep in sync.
+        /// J2000 coords are preferred; native coords are the fallback when the active source does
+        /// not populate the J2000 fields (the session poll currently does not, so session-mode is
+        /// accurate to within precession until the believed/true split lands).
         /// </summary>
         private void PopulateSkyMapMountOverlay(GuiAppState appState, ITimeProvider timeProvider)
         {
-            // Without an actual poll, default(MountState) has all-zero coords -- not
-            // NaN -- so a NaN check alone would still draw a phantom reticle at (0h, 0)
-            // before the first poll completes (or when no mount is configured at all).
-            // Guard on the display name being set, which only happens after a successful
-            // poll establishes that a mount is connected.
-            // Source the mount state AND its display name from the same place: the
-            // session when one is running (it owns the mount and populates MountState),
-            // otherwise the preview poll. Previously the display-name guard always read
-            // the preview poll's name, so a session started without a prior preview poll
-            // (e.g. straight from the Planner) suppressed the reticle even though the
-            // session mount was live.
-            MountState ms;
-            string? displayName;
-            if (LiveSessionState.IsRunning)
-            {
-                ms = LiveSessionState.MountState;
-                displayName = LiveSessionState.ActiveSession?.Setup.Mount.Device.DisplayName;
-            }
-            else
-            {
-                ms = LiveSessionState.PreviewMountState;
-                displayName = LiveSessionState.PreviewMountDisplayName;
-            }
+            // The single canonical snapshot. NaN RA/Dec (or an empty display name) means "no
+            // current pointing" -- either no mount is configured or no poll has succeeded yet --
+            // and suppresses the reticle. A genuine, freshly-polled RA0/Dec0 would still draw,
+            // which is correct: that is a real (if unusual) pointing, not the old phantom that
+            // came from reading a never-refreshed default(MountState).
+            var ms = LiveSessionState.MountState;
+            var displayName = LiveSessionState.MountDisplayName;
 
             if (string.IsNullOrEmpty(displayName))
             {

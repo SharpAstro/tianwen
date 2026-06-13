@@ -1789,14 +1789,14 @@ namespace TianWen.UI.Abstractions
             FillRect(rect.X, mountY, rect.Width, 1, SeparatorColor);
             mountY += pad;
 
-            var ms = state.PreviewMountState;
+            var ms = state.MountState;
             var dotColor = ms.IsSlewing ? StatusSlewing
                 : ms.IsTracking ? StatusTracking
                 : DimText;
             var dotSize = rowH * 0.4f;
             FillRect(rect.X + pad, mountY + (rowH - dotSize) / 2, dotSize, dotSize, dotColor);
 
-            var mountName = state.PreviewMountDisplayName ?? "Mount";
+            var mountName = state.MountDisplayName ?? "Mount";
             DrawText(mountName, fontPath,
                 rect.X + pad + dotSize + pad, mountY, rect.Width - pad * 3 - dotSize, rowH,
                 smallFs, HeaderText, TextAlign.Near, TextAlign.Center);
@@ -2020,7 +2020,7 @@ namespace TianWen.UI.Abstractions
             {
                 return (false, "Polar align: no OTA configured");
             }
-            if (string.IsNullOrEmpty(state.PreviewMountDisplayName))
+            if (string.IsNullOrEmpty(state.MountDisplayName))
             {
                 return (false, "Polar align: connect a mount first");
             }

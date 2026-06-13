@@ -1772,10 +1772,10 @@ namespace TianWen.UI.Abstractions
         /// <summary>
         /// Renders the mount status panel (RA/Dec/Slewing/Tracking) for the given mount URI,
         /// but only when the mount is currently hub-connected. Hidden otherwise.
-        /// State comes from <see cref="LiveSessionState.PreviewMountState"/>, which is populated
-        /// by <c>AppSignalHandler.PollPreviewTelemetry</c> while the equipment / sky-map / live-session
-        /// tabs are visible. The expander gives the user a visible answer to "is the mount tracking?"
-        /// without having to leave the equipment tab.
+        /// State comes from the single canonical <see cref="LiveSessionState.MountState"/>, populated
+        /// by <c>AppSignalHandler.PollPreviewTelemetry</c> while idle (equipment / sky-map / live-session
+        /// tabs visible) and by the running session's poll otherwise. The expander gives the user a
+        /// visible answer to "is the mount tracking?" without having to leave the equipment tab.
         /// </summary>
         private float RenderMountTelemetryIfAny(
             GuiAppState appState,
@@ -1806,7 +1806,7 @@ namespace TianWen.UI.Abstractions
             if (!isOpen) return cursor;
 
             // Snapshot the mount state once — the field is published atomically via Interlocked.Exchange.
-            var ms = liveSessionState.PreviewMountState;
+            var ms = liveSessionState.MountState;
 
             // ---- Status badge row: Slewing | Tracking | Idle, colour-coded.
             var badgeRowH = rowH;

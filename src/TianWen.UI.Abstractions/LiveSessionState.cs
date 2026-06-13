@@ -77,9 +77,6 @@ namespace TianWen.UI.Abstractions
         /// <summary>Per-camera exposure state for countdown display.</summary>
         public ImmutableArray<CameraExposureState> CameraStates { get; set; } = [];
 
-        /// <summary>Polled mount state (RA, Dec, HA, pier side, slewing, tracking).</summary>
-        public MountState MountState { get; set; }
-
         /// <summary>Fine-grained activity description within the current phase.</summary>
         public string? CurrentActivity { get; set; }
 
@@ -137,26 +134,35 @@ namespace TianWen.UI.Abstractions
         /// </summary>
         public ImmutableArray<PreviewOTATelemetry> PreviewOTATelemetry { get; set; } = [];
 
-        /// <summary>Mount telemetry for preview mode (RA/Dec/tracking). Default when no mount connected.
+        /// <summary>
+        /// The single canonical mount-pointing snapshot (RA, Dec, HA, pier side, slewing, tracking).
+        /// Fed by whichever poller currently owns the mount: <c>AppSignalHandler.PollPreviewTelemetry</c>
+        /// when no session is running, and <see cref="PollSession"/> (copying <c>ISession.MountState</c>)
+        /// while a session is running. The two are mutually exclusive in time — the preview poll bails
+        /// when <see cref="IsRunning"/>, and the session poll only exists during a session — so this one
+        /// field is always the current pointing regardless of which path produced it. Every reticle /
+        /// status reader uses this field; there is deliberately no second copy to drift out of sync.
         /// <para>
-        /// <b>Thread safety:</b> <see cref="MountState"/> is a record struct of ~50 bytes; an
-        /// unsynchronised cross-thread write/read can tear (mix fields from two consecutive
-        /// values). The poll continuation runs on a thread pool thread; the render thread reads
-        /// per frame. We box the value in a small reference holder so the publish is a single
-        /// atomic reference write via <see cref="Interlocked.Exchange{T}(ref T, T)"/> — readers
-        /// see one consistent snapshot, no lock on the render hot path.
+        /// <b>Thread safety:</b> <see cref="Sequencing.MountState"/> is a record struct of ~50 bytes;
+        /// an unsynchronised cross-thread write/read can tear (mix fields from two consecutive values).
+        /// The preview poll continuation runs on a thread pool thread (the session poll runs on the
+        /// render thread); the render thread reads per frame. We box the value in a small reference
+        /// holder so the publish is a single atomic reference write via
+        /// <see cref="Interlocked.Exchange{T}(ref T, T)"/> — readers see one consistent snapshot, no
+        /// lock on the render hot path.
         /// </para>
         /// </summary>
         private sealed record MountStateHolder(MountState Value);
-        private MountStateHolder _previewMountStateHolder = new(default);
-        public MountState PreviewMountState
+        private MountStateHolder _mountStateHolder = new(default);
+        public MountState MountState
         {
-            get => Volatile.Read(ref _previewMountStateHolder).Value;
-            set => Interlocked.Exchange(ref _previewMountStateHolder, new MountStateHolder(value));
+            get => Volatile.Read(ref _mountStateHolder).Value;
+            set => Interlocked.Exchange(ref _mountStateHolder, new MountStateHolder(value));
         }
 
-        /// <summary>Resolved mount display name for preview mode.</summary>
-        public string? PreviewMountDisplayName { get; set; }
+        /// <summary>Resolved mount display name for the current <see cref="MountState"/> source
+        /// (preview poll when idle, the running session's mount otherwise).</summary>
+        public string? MountDisplayName { get; set; }
 
         /// <summary>Whether a preview exposure is currently in progress (per OTA index).</summary>
         public bool[] PreviewCapturing { get; set; } = [];
@@ -370,7 +376,20 @@ namespace TianWen.UI.Abstractions
             CoolingSamples = session.CoolingSamples;
             PhaseTimeline = session.PhaseTimeline;
             CameraStates = session.CameraStates;
-            MountState = session.MountState;
+            // Only adopt the session's mount snapshot once it holds a real (polled) pointing.
+            // ActiveSession is assigned the instant the session is created -- several seconds
+            // before RunAsync's first PollDeviceStatesAsync -- so until then session.MountState
+            // is all-NaN ("unknown"). Copying that would snap the reticle to RA0/Dec0; a NaN RA
+            // mid-session likewise means a transient failed read. In both cases keep the last
+            // good value (the prior preview poll's, or the previous session sample) rather than
+            // overwriting it. The session is the authority on the mount's display name, so the
+            // name moves in lock-step with the pointing it describes.
+            var sessionMount = session.MountState;
+            if (!double.IsNaN(sessionMount.RightAscension))
+            {
+                MountState = sessionMount;
+                MountDisplayName = session.Setup.Mount.Device.DisplayName;
+            }
             CurrentActivity = session.CurrentActivity;
             LastFramePath = session.LastFramePath;
             LastCapturedImages = session.LastCapturedImages;
