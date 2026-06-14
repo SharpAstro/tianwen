@@ -1,6 +1,7 @@
 using System;
 using DIR.Lib;
 using SdlVulkan.Renderer;
+using TianWen.Lib.Devices.Weather;
 using TianWen.UI.Abstractions;
 using Vortice.Vulkan;
 
@@ -171,6 +172,8 @@ public sealed class VkPlannerTab : PlannerTab<VulkanContext>, IDisposable
 
             DrawTimeOverlay(chartCurrentTime, tStart, tEnd, plotX, plotY, plotW, plotH);
             DrawMouseFollower(mousePos, state, tStart, tEnd, plotX, plotY, plotW, plotH, fontPath, chartH);
+            DrawWeatherTooltip(mousePos, state, tStart, tEnd, plotX, plotW,
+                (int)chartRect.X, (int)chartRect.Y, chartW, chartH, fontPath);
         }
     }
 
@@ -223,6 +226,128 @@ public sealed class VkPlannerTab : PlannerTab<VulkanContext>, IDisposable
             new RGBAColor32(255, 255, 255, 160),
             new RectInt(new PointInt((int)mx + 20, plotY + 16), new PointInt((int)mx - 20, plotY + 2)),
             TextAlign.Center, TextAlign.Near);
+    }
+
+    /// <summary>
+    /// Hover tooltip over the weather band: when the cursor is on an hour's icon/humidity row,
+    /// finds the nearest forecast hour and draws a detail box (condition, cloud, chance of rain,
+    /// temp/dew, humidity, wind, visibility). Drawn natively per-frame like the mouse follower so
+    /// it never invalidates the cached chart texture.
+    /// </summary>
+    private void DrawWeatherTooltip((float, float)? mousePos, PlannerState state,
+        DateTimeOffset tStart, DateTimeOffset tEnd, int plotX, int plotW,
+        int areaX, int areaY, int chartW, int chartH, string fontPath)
+    {
+        if (mousePos is not var (mx, my))
+        {
+            return;
+        }
+        if (state.WeatherForecast is not { Count: > 0 } forecast)
+        {
+            return;
+        }
+
+        var bandOpt = AltitudeChartRenderer.GetWeatherBandLayout(state, areaX, areaY, chartW, chartH);
+        if (bandOpt is not { } band)
+        {
+            return;
+        }
+        var (bandX, bandY, bandW, bandH) = band;
+
+        // Only react while hovering the weather band row.
+        if (mx < bandX || mx > bandX + bandW || my < bandY || my > bandY + bandH)
+        {
+            return;
+        }
+
+        // Nearest forecast hour to the cursor X (within half a slot).
+        var tRange = (tEnd - tStart).TotalHours;
+        if (tRange <= 0)
+        {
+            return;
+        }
+        var slotW = Math.Max(8.0, plotW / tRange);
+
+        HourlyWeatherForecast? best = null;
+        var bestDx = double.MaxValue;
+        var bestX = 0.0;
+        foreach (var entry in forecast)
+        {
+            var frac = (entry.Time - tStart).TotalHours / tRange;
+            var ex = plotX + frac * plotW;
+            var dx = Math.Abs(ex - mx);
+            if (dx < bestDx)
+            {
+                bestDx = dx;
+                best = entry;
+                bestX = ex;
+            }
+        }
+        if (best is not { } f || bestDx > slotW)
+        {
+            return;
+        }
+
+        // Highlight the hovered hour column for feedback.
+        _renderer.FillRectangle(
+            new RectInt(new PointInt((int)(bestX + slotW / 2), bandY + bandH), new PointInt((int)(bestX - slotW / 2), bandY)),
+            new RGBAColor32(255, 255, 255, 30));
+
+        var lines = AltitudeChartRenderer.BuildWeatherTooltipLines(f, state.SiteTimeZone);
+        if (lines.Count == 0)
+        {
+            return;
+        }
+
+        var fontSize = Math.Max(7f, 11f * chartH / 800f);
+        var lineH = fontSize * 1.35f;
+        const float pad = 8f;
+
+        var maxW = 0f;
+        foreach (var line in lines)
+        {
+            var (w, _) = _renderer.MeasureText(line.AsSpan(), fontPath, fontSize);
+            if (w > maxW)
+            {
+                maxW = w;
+            }
+        }
+
+        var boxW = maxW + pad * 2f;
+        var boxH = lines.Count * lineH + pad * 2f;
+
+        // Below the band by default, centered on the cursor and clamped to the chart; flip above
+        // the band if it would overflow the bottom edge.
+        var boxX = Math.Clamp(mx - boxW / 2f, areaX + 2f, areaX + chartW - boxW - 2f);
+        var boxY = bandY + bandH + 6f;
+        if (boxY + boxH > areaY + chartH)
+        {
+            boxY = bandY - boxH - 6f;
+        }
+
+        _renderer.FillRectangle(
+            new RectInt(new PointInt((int)(boxX + boxW), (int)(boxY + boxH)), new PointInt((int)boxX, (int)boxY)),
+            new RGBAColor32(18, 20, 32, 235));
+        DrawBoxBorder((int)boxX, (int)boxY, (int)boxW, (int)boxH, new RGBAColor32(120, 140, 200, 200));
+
+        var ty = boxY + pad;
+        for (var i = 0; i < lines.Count; i++)
+        {
+            var color = i == 0 ? new RGBAColor32(255, 255, 255, 255) : new RGBAColor32(205, 210, 225, 255);
+            _renderer.DrawText(lines[i], fontPath, fontSize, color,
+                new RectInt(new PointInt((int)(boxX + boxW - pad), (int)(ty + lineH)), new PointInt((int)(boxX + pad), (int)ty)),
+                TextAlign.Near, TextAlign.Center);
+            ty += lineH;
+        }
+    }
+
+    /// <summary>Draws a 1px rectangle outline as four filled edges (FillRectangle is the primitive).</summary>
+    private void DrawBoxBorder(int x, int y, int w, int h, RGBAColor32 color)
+    {
+        _renderer.FillRectangle(new RectInt(new PointInt(x + w, y + 1), new PointInt(x, y)), color);          // top
+        _renderer.FillRectangle(new RectInt(new PointInt(x + w, y + h), new PointInt(x, y + h - 1)), color);  // bottom
+        _renderer.FillRectangle(new RectInt(new PointInt(x + 1, y + h), new PointInt(x, y)), color);          // left
+        _renderer.FillRectangle(new RectInt(new PointInt(x + w, y + h), new PointInt(x + w - 1, y)), color);  // right
     }
 
     public void Dispose()
