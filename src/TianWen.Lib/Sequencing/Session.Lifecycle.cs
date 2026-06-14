@@ -17,9 +17,15 @@ internal partial record Session
         var mount = Setup.Mount;
 
         // TODO: maybe slew slightly above/below 0 declination to avoid trees, etc.
-        // slew half an hour east of meridian, plate solve and slew closer
+        // Slew to 30 min of hour-angle EAST of the meridian (HA = -0.5h) at the celestial
+        // equator: the target is approaching the meridian but has not yet crossed it, so the GEM
+        // stays on its pre-flip pier side for the whole (short) calibration and the Dec guide
+        // sense matches the side imaging begins on. The previous value (+0.5h) slewed WEST of the
+        // meridian, already past the flip boundary onto the opposite pier side, which inverts the
+        // Dec calibration sense and sits right on the ambiguous flip edge -> Dec runaway. HA is
+        // LST - RA, so HA < 0 means east, i.e. before crossing (see BeginSlewHourAngleDecAsync).
         var dec = 0;
-        await mount.Driver.BeginSlewHourAngleDecAsync(TimeSpan.FromMinutes(30).TotalHours, dec, cancellationToken).ConfigureAwait(false);
+        await mount.Driver.BeginSlewHourAngleDecAsync(-TimeSpan.FromMinutes(30).TotalHours, dec, cancellationToken).ConfigureAwait(false);
 
         if (!await mount.Driver.WaitForSlewCompleteAsync(PollDeviceStatesAsync, cancellationToken).ConfigureAwait(false))
         {

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Immutable;
 using System.Collections.Specialized;
+using System.Globalization;
 using System.Threading;
 using System.Threading.Tasks;
 using TianWen.Lib.Astrometry.Focus;
@@ -57,6 +58,8 @@ internal static class SessionTestHelper
         DateTimeOffset? now = null,
         int focalLength = 1000,
         string? mountPort = null,
+        double latitude = 48.2,
+        double longitude = 16.3,
         CancellationToken cancellationToken = default)
     {
         var timeProvider = new FakeTimeProviderWrapper(now ?? new DateTimeOffset(2025, 6, 15, 22, 0, 0, TimeSpan.Zero));
@@ -91,8 +94,8 @@ internal static class SessionTestHelper
 
         var mountQuery = new NameValueCollection
         {
-            { "latitude", "48.2" },
-            { "longitude", "16.3" },
+            { "latitude", latitude.ToString(CultureInfo.InvariantCulture) },
+            { "longitude", longitude.ToString(CultureInfo.InvariantCulture) },
             { "elevation", "200" }
         };
         if (mountPort is not null)
