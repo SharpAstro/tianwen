@@ -359,13 +359,19 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
         var placementLabelSize = baseFontSize * dpiScale * 0.85f;
         var measureText = (string text, float size) => Renderer.MeasureText(text.AsSpan(), fontPath, size).Width;
         Action<OverlayItem, float, float> record = (item, lx, ly) => _overlayPlacedLabels.Add((item, lx, ly));
+
+        // Reserve the mount reticle's label footprint (drawn later, in RenderMountOverlay) so
+        // an object name never renders on top of it when the mount sits on a catalogued target.
+        var mountLabelReservation = BuildMountLabelReservation(contentRect, dpiScale, fontPath, baseFontSize);
         if (_useCollisionPlacement)
         {
-            OverlayEngine.PlaceLabels(_overlayItems, placementLabelSize, 4f, measureText, record);
+            OverlayEngine.PlaceLabels(_overlayItems, placementLabelSize, 4f, measureText, record,
+                reservedRegions: mountLabelReservation);
         }
         else
         {
-            OverlayEngine.PlaceLabelsBestEffort(_overlayItems, placementLabelSize, 4f, measureText, record);
+            OverlayEngine.PlaceLabelsBestEffort(_overlayItems, placementLabelSize, 4f, measureText, record,
+                reservedRegions: mountLabelReservation);
         }
 #if DEBUG
         diagLabelsDone = System.Diagnostics.Stopwatch.GetTimestamp();
@@ -733,14 +739,9 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
         // should be at the pole, the label tells the truth immediately.
         var fontSize = baseFontSize * dpiScale;
         var lineH = fontSize * 1.2f;
-        // No '+' for positive Dec — at small font a thin '+' was misread as '-' (and
-        // vice versa) on the bug-hunt screenshots. Bare sign-when-negative is unambiguous.
-        // Proper DMS punctuation (' for arcmin, " for arcsec) reads cleanly as a
-        // sky coordinate vs the default ':' which looked like a time.
-        var coordsText = $"RA {CoordinateUtils.HoursToHMS(mountOverlay.RaJ2000, hourSeparator: 'h', withFrac: false, minuteSeparator: 'm', secondSuffix: "s")}"
-            + $"  Dec {CoordinateUtils.DegreesToDMS(mountOverlay.DecJ2000, withPlus: false, degreeSign: '\u00B0', withFrac: false, arcMinuteSign: '\u2032', arcSecondSign: "\u2033")}";
+        var (nameText, coordsText) = MountLabelLines(mountOverlay);
 
-        DrawReticleLabel(mountOverlay.DisplayName, fontPath, fontSize, color,
+        DrawReticleLabel(nameText, fontPath, fontSize, color,
             screenX, screenY + 20f * dpiScale, lineH);
         DrawReticleLabel(coordsText, fontPath, fontSize * 0.9f,
             new RGBAColor32(color.Red, color.Green, color.Blue, (byte)(color.Alpha * 0.8f)),
@@ -904,6 +905,60 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
                 new PointInt((int)(centerX + textW * 0.5f + 4), (int)(topY + lineH)),
                 new PointInt((int)(centerX - textW * 0.5f - 4), (int)topY)),
             TextAlign.Center, TextAlign.Center);
+    }
+
+    /// <summary>
+    /// The two lines of the mount reticle label: display name + believed J2000 RA/Dec.
+    /// Single source of truth shared by <see cref="RenderMountOverlay"/> (which draws them)
+    /// and <see cref="BuildMountLabelReservation"/> (which reserves their footprint so
+    /// catalog labels don't overlap), so the rendered text and the reserved box can't drift.
+    /// </summary>
+    // No '+' for positive Dec — at small font a thin '+' was misread as '-' (and
+    // vice versa) on the bug-hunt screenshots. Bare sign-when-negative is unambiguous.
+    // Proper DMS punctuation (' for arcmin, " for arcsec) reads cleanly as a
+    // sky coordinate vs the default ':' which looked like a time.
+    private static (string Name, string Coords) MountLabelLines(SkyMapMountOverlay mountOverlay) => (
+        mountOverlay.DisplayName,
+        $"RA {CoordinateUtils.HoursToHMS(mountOverlay.RaJ2000, hourSeparator: 'h', withFrac: false, minuteSeparator: 'm', secondSuffix: "s")}"
+            + $"  Dec {CoordinateUtils.DegreesToDMS(mountOverlay.DecJ2000, withPlus: false, degreeSign: '°', withFrac: false, arcMinuteSign: '′', arcSecondSign: "″")}");
+
+    /// <summary>
+    /// Screen-space box occupied by the mount reticle's two-line label, or <c>null</c> when
+    /// no mount overlay is shown or the mount projects off-screen. Passed to
+    /// <see cref="OverlayEngine.PlaceLabels"/> as a reserved region so an object name never
+    /// renders on top of the mount label when the mount is parked on a catalogued target.
+    /// The geometry mirrors <see cref="RenderMountOverlay"/>'s label layout exactly (two
+    /// centred lines below the reticle: name at <c>fontSize</c>, coords at <c>fontSize*0.9</c>,
+    /// each <see cref="DrawReticleLabel"/> block padded ±4px horizontally).
+    /// </summary>
+    private IReadOnlyList<(float X, float Y, float W, float H)>? BuildMountLabelReservation(
+        RectF32 contentRect, float dpiScale, string fontPath, float baseFontSize)
+    {
+        if (!State.ShowMountOverlay || State.MountOverlay is not { } mountOverlay)
+        {
+            return null;
+        }
+
+        // Recompute the projection the same way the base render loop does (it doesn't pass
+        // ppr/cx/cy into RenderObjectOverlay) so the box lands exactly where RenderMountOverlay
+        // will draw the label a few passes later this frame.
+        var ppr = SkyMapProjection.PixelsPerRadian(contentRect.Height, State.FieldOfViewDeg);
+        var cx = contentRect.X + contentRect.Width * 0.5f;
+        var cy = contentRect.Y + contentRect.Height * 0.5f;
+        if (!SkyMapProjection.ProjectWithMatrix(mountOverlay.RaJ2000, mountOverlay.DecJ2000,
+                State.CurrentViewMatrix, ppr, cx, cy, out var sx, out var sy))
+        {
+            return null;
+        }
+
+        var fontSize = baseFontSize * dpiScale;
+        var lineH = fontSize * 1.2f;
+        var (nameText, coordsText) = MountLabelLines(mountOverlay);
+        var nameW = Renderer.MeasureText(nameText.AsSpan(), fontPath, fontSize).Width + 8f;
+        var coordsW = Renderer.MeasureText(coordsText.AsSpan(), fontPath, fontSize * 0.9f).Width + 8f;
+        var blockW = MathF.Max(nameW, coordsW);
+        var top = sy + 20f * dpiScale;
+        return [(sx - blockW * 0.5f, top, blockW, lineH * 2f)];
     }
 
     // Color palette for fixed-frame markers

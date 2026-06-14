@@ -588,6 +588,94 @@ public class OverlayEngineTests
         items[0].LabelPriority.ShouldBeLessThan(15f);
     }
 
+    // --- PlaceLabels reserved regions (mount reticle label collision avoidance) ---
+
+    private static OverlayItem MakeLabelItem(float screenX, float screenY, int slotHint = 0) =>
+        new OverlayItem
+        {
+            ScreenX = screenX,
+            ScreenY = screenY,
+            Marker = new OverlayMarker { Kind = OverlayMarkerKind.Cross },
+            LabelLines = ["X"],
+            LabelPriority = 10f,
+            LabelSlotHint = slotHint,
+            StableSortKey = 1,
+        };
+
+    [Fact]
+    public void PlaceLabels_NoReservation_LabelTakesPreferredSlot()
+    {
+        var item = MakeLabelItem(500f, 500f, slotHint: 0); // prefers slot 0 (right of marker)
+        var placed = new List<(OverlayItem Item, float X, float Y)>();
+
+        OverlayEngine.PlaceLabels([item], labelSize: 10f, labelPad: 4f,
+            measureText: (_, _) => 100f,
+            drawLabelLines: (it, x, y) => placed.Add((it, x, y)));
+
+        placed.Count.ShouldBe(1);
+        placed[0].X.ShouldBe(510f); // right slot: cx + labelPad + 6
+        placed[0].Y.ShouldBe(494f); // cy - totalH/2 (totalH = 10*1.2 = 12)
+    }
+
+    [Fact]
+    public void PlaceLabels_ReservedRegionOverPreferredSlot_PushesLabelToFreeSlot()
+    {
+        var item = MakeLabelItem(500f, 500f, slotHint: 0);
+        var placed = new List<(OverlayItem Item, float X, float Y)>();
+
+        // Reserve exactly the right-slot box (where the label would otherwise land),
+        // mimicking the mount reticle label occupying that space. Named-tuple element
+        // names don't affect the type, so this array satisfies the reservedRegions param.
+        (float X, float Y, float W, float H)[] reserved = [(510f, 494f, 100f, 12f)];
+
+        OverlayEngine.PlaceLabels([item], labelSize: 10f, labelPad: 4f,
+            measureText: (_, _) => 100f,
+            drawLabelLines: (it, x, y) => placed.Add((it, x, y)),
+            reservedRegions: reserved);
+
+        placed.Count.ShouldBe(1);
+        // Rotated to the left slot, clear of the reserved box.
+        placed[0].X.ShouldBe(390f); // cx - maxLineW - labelPad - 6
+        placed[0].Y.ShouldBe(494f);
+        // And the chosen label box must not intersect the reserved region.
+        var (lx, ly) = (placed[0].X, placed[0].Y);
+        var intersects = lx < 610f && lx + 100f > 510f && ly < 506f && ly + 12f > 494f;
+        intersects.ShouldBeFalse();
+    }
+
+    [Fact]
+    public void PlaceLabelsBestEffort_NoReservation_DrawsLabel()
+    {
+        var item = MakeLabelItem(500f, 500f, slotHint: 3); // below slot
+        var placed = new List<(OverlayItem Item, float X, float Y)>();
+
+        OverlayEngine.PlaceLabelsBestEffort([item], labelSize: 10f, labelPad: 4f,
+            measureText: (_, _) => 100f,
+            drawLabelLines: (it, x, y) => placed.Add((it, x, y)));
+
+        placed.Count.ShouldBe(1);
+        placed[0].X.ShouldBe(450f); // below slot: cx - maxLineW/2
+        placed[0].Y.ShouldBe(510f); // cy + labelPad + 6
+    }
+
+    [Fact]
+    public void PlaceLabelsBestEffort_ReservedRegionOverSlot_DropsLabel()
+    {
+        var item = MakeLabelItem(500f, 500f, slotHint: 3);
+        var placed = new List<(OverlayItem Item, float X, float Y)>();
+
+        // The best-effort "below" slot lands at (450, 510); reserve it so the label
+        // would bury the mount reticle label and must therefore be dropped instead.
+        (float X, float Y, float W, float H)[] reserved = [(450f, 510f, 100f, 12f)];
+
+        OverlayEngine.PlaceLabelsBestEffort([item], labelSize: 10f, labelPad: 4f,
+            measureText: (_, _) => 100f,
+            drawLabelLines: (it, x, y) => placed.Add((it, x, y)),
+            reservedRegions: reserved);
+
+        placed.ShouldBeEmpty();
+    }
+
     // --- Helpers ---
 
     private static WCS MakeSimpleWCS()
