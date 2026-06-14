@@ -42,6 +42,9 @@ public static class AltitudeChartRenderer
     private static readonly RGBAColor32 GrayColor          = new RGBAColor32(180, 180, 180, 255);
     private static readonly RGBAColor32 ZoneLabelColor     = new RGBAColor32(255, 255, 255,  80);   // #ffffff50
 
+    // Subtle solar-midnight marker (a touch cooler/brighter than the plain hourly grid)
+    private static readonly RGBAColor32 SolarMidnightColor = new RGBAColor32(150, 175, 235, 110);
+
     // Min-altitude threshold line colour
     private static readonly RGBAColor32 MinAltColor        = new RGBAColor32(255, 107, 107, 200);   // #FF6B6BC8
     private static readonly RGBAColor32 MinAltLabelColor   = new RGBAColor32(255, 107, 107, 255);
@@ -204,7 +207,7 @@ public static class AltitudeChartRenderer
             var bandH = WeatherBandHeight(h);
             var weatherBandY = areaY + titleH + 4;
             DrawWeatherBand(renderer, state, forecast, tStart, tEnd, TimeToX,
-                plotX, weatherBandY, plotW, bandH, h, emojiFontPath ?? fontFamily);
+                plotX, weatherBandY, plotW, bandH, h, fontFamily, emojiFontPath ?? fontFamily);
         }
 
         // --- Current time shade (grey out elapsed time) ---
@@ -270,12 +273,12 @@ public static class AltitudeChartRenderer
             if (state.NauticalSet.HasValue)
             {
                 var xNautSet = timeToX(state.NauticalSet.Value);
-                zones.Add((xCivSet, xNautSet, NauticalZoneColor, "Nautical"));
+                zones.Add((xCivSet, xNautSet, NauticalZoneColor, "Naut."));
                 zones.Add((xNautSet, xAstroDark, AstroZoneColor, "Astro"));
             }
             else
             {
-                zones.Add((xCivSet, xAstroDark, NauticalZoneColor, "Nautical"));
+                zones.Add((xCivSet, xAstroDark, NauticalZoneColor, "Naut."));
             }
         }
 
@@ -291,11 +294,11 @@ public static class AltitudeChartRenderer
             {
                 var xNautRise = timeToX(state.NauticalRise.Value);
                 zones.Add((xAstroTwilight, xNautRise, AstroZoneColor, "Astro"));
-                zones.Add((xNautRise, xCivRise, NauticalZoneColor, "Nautical"));
+                zones.Add((xNautRise, xCivRise, NauticalZoneColor, "Naut."));
             }
             else
             {
-                zones.Add((xAstroTwilight, xCivRise, NauticalZoneColor, "Nautical"));
+                zones.Add((xAstroTwilight, xCivRise, NauticalZoneColor, "Naut."));
             }
 
             zones.Add((xCivRise, xEnd, CivilZoneColor, "Civil"));
@@ -382,6 +385,19 @@ public static class AltitudeChartRenderer
             // machine TZ (a bare ToString would render the stored UTC offset).
             renderer.DrawText(t.ToOffset(state.SiteTimeZone).ToString("HH:mm"), fontFamily, FontSize(h, 10), TextColor,
                 labelRect, TextAlign.Center, TextAlign.Near);
+        }
+
+        // Subtle "middle of the night" marker: solar midnight (the Sun's lower culmination,
+        // when it is darkest) -- NOT clock midnight. It is the midpoint between end-of-evening
+        // and start-of-morning astronomical twilight; those two solar events are symmetric
+        // about the Sun's lowest point, so their midpoint is solar midnight with the equation
+        // of time, longitude-within-timezone, and DST already baked in (the twilight times come
+        // from the real solar ephemeris).
+        var solarMidnight = state.AstroDark + (state.AstroTwilight - state.AstroDark) / 2;
+        if (solarMidnight > tStart && solarMidnight < tEnd)
+        {
+            DrawDashedVLine(renderer, timeToX(solarMidnight), plotY, plotY + plotH,
+                SolarMidnightColor, dashLen: 3, gapLen: 5);
         }
 
         // Axes
@@ -544,6 +560,29 @@ public static class AltitudeChartRenderer
     }
 
     /// <summary>
+    /// Returns the hover-able weather band rectangle (icon row + humidity row) in the same pixel
+    /// space as the plot, or null when there is no forecast / no twilight data. The GUI uses this
+    /// to hit-test the hovered hour and position the weather tooltip; X/Width match the plot
+    /// column (see <see cref="GetChartPlotLayout"/>).
+    /// </summary>
+    public static (int BandX, int BandY, int BandW, int BandH)? GetWeatherBandLayout(
+        PlannerState state, int areaX, int areaY, int areaW, int areaH)
+    {
+        if (state.AstroDark == default || state.WeatherForecast is not { Count: > 0 })
+        {
+            return null;
+        }
+
+        var xMargin = Math.Max(48, areaW / 14);
+        var titleH = Math.Max(16, areaH / 35);
+        var bandX = areaX + xMargin;
+        var bandW = areaW - xMargin * 2;
+        var bandY = areaY + titleH + 4;
+        var bandH = WeatherBandHeight(areaH) + HumidityRowHeight(areaH);
+        return (bandX, bandY, bandW, bandH);
+    }
+
+    /// <summary>
     /// Converts a screen X pixel to a time using the chart's time layout.
     /// </summary>
     public static DateTimeOffset XToTime(float px, DateTimeOffset tStart, DateTimeOffset tEnd, float plotX, float plotW)
@@ -560,12 +599,30 @@ public static class AltitudeChartRenderer
     /// <summary>Returns the weather icon band height, proportional to chart height.</summary>
     private static int WeatherBandHeight(int chartH) => Math.Max(18, chartH / 36);
 
+    /// <summary>Returns the humidity readout row height (drawn just below the icon band), proportional to chart height.</summary>
+    private static int HumidityRowHeight(int chartH) => Math.Max(11, chartH / 60);
+
     /// <summary>Returns extra top margin pixels when weather data is available, proportional to chart height.</summary>
     private static int WeatherMargin(PlannerState state, int chartH = 800)
-        => state.WeatherForecast is { Count: > 0 } ? WeatherBandHeight(chartH) + Math.Max(16, chartH / 50) : 0;
+        => state.WeatherForecast is { Count: > 0 }
+            ? WeatherBandHeight(chartH) + HumidityRowHeight(chartH) + Math.Max(16, chartH / 50)
+            : 0;
 
     /// <summary>
-    /// Draws hourly weather condition icons in a band just above the plot area.
+    /// Maps relative humidity (%) to a dew-risk colour: green (dry) -> gold -> orange -> red
+    /// (near-saturation, optics likely to dew up). Thresholds reflect dew risk, not just RH.
+    /// </summary>
+    private static RGBAColor32 HumidityColor(double humidity) => humidity switch
+    {
+        < 60 => new RGBAColor32(130, 200, 130, 255),  // dry — low dew risk
+        < 75 => new RGBAColor32(220, 200, 110, 255),  // moderate
+        < 88 => new RGBAColor32(235, 160,  90, 255),  // high — watch for dew
+        _    => new RGBAColor32(235, 110, 110, 255),  // near saturation — dew likely
+    };
+
+    /// <summary>
+    /// Draws hourly weather condition icons in a band just above the plot area, plus a
+    /// per-hour relative-humidity readout row immediately below the icons.
     /// Icons: rain > fog > overcast > partly cloudy > clear (moon at night, sun in twilight).
     /// </summary>
     private static void DrawWeatherBand<TSurface>(
@@ -576,12 +633,25 @@ public static class AltitudeChartRenderer
         Func<DateTimeOffset, int> timeToX,
         int plotX, int bandY, int plotW,
         int bandH, int chartH,
+        string fontFamily,
         string emojiFontPath)
     {
         var iconSize = FontSize(chartH, 14);
         var tRange = (tEnd - tStart).TotalHours;
         // Width of one hour slot in pixels
         var slotW = (int)Math.Max(8, plotW / tRange);
+
+        // Humidity readout row sits directly under the icon band (its height is reserved
+        // by WeatherMargin so the twilight-zone labels below shift down with it).
+        var humRowY = bandY + bandH;
+        var humRowH = HumidityRowHeight(chartH);
+        var humFontSize = FontSize(chartH, 9);
+
+        // Gutter label so the bare percentages read as relative humidity (left of the plot,
+        // mirrors the altitude "°" gutter; the gutter is free above the plot area).
+        var rhLabelRect = MakeRect(plotX - 44, humRowY, 40, humRowH);
+        renderer.DrawText("RH", fontFamily, humFontSize, GrayColor,
+            rhLabelRect, TextAlign.Far, TextAlign.Center);
 
         for (var i = 0; i < forecast.Count; i++)
         {
@@ -618,6 +688,14 @@ public static class AltitudeChartRenderer
                     (int)baseRect.Width, (int)baseRect.Height);
                 renderer.DrawText(layerIcon, emojiFontPath, layerSize, WhiteColor,
                     layerRect, TextAlign.Center, TextAlign.Center);
+            }
+
+            // Per-hour relative humidity, dew-risk coloured (NaN = unsupported by the source)
+            if (!double.IsNaN(entry.Humidity))
+            {
+                var humRect = MakeRect(x - slotW / 2, humRowY, slotW, humRowH);
+                renderer.DrawText($"{entry.Humidity:F0}%", fontFamily, humFontSize, HumidityColor(entry.Humidity),
+                    humRect, TextAlign.Center, TextAlign.Center);
             }
         }
     }
@@ -711,6 +789,92 @@ public static class AltitudeChartRenderer
             return true;
         }
         return false;
+    }
+
+    // -----------------------------------------------------------------------
+    // Weather tooltip (hover detail) — pure formatting, drawn natively by the GUI
+    // -----------------------------------------------------------------------
+
+    private static readonly string[] CompassPoints =
+        ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"];
+
+    /// <summary>
+    /// Builds the lines shown in the planner's hover tooltip for one hourly forecast entry.
+    /// Time is rendered in the site timezone (never the machine TZ); fields the source did not
+    /// provide (NaN) are skipped. Pure + backend-agnostic so the GUI can measure and draw it.
+    /// </summary>
+    public static List<string> BuildWeatherTooltipLines(HourlyWeatherForecast f, TimeSpan siteTimeZone)
+    {
+        var lines = new List<string>(7);
+
+        var time = f.Time.ToOffset(siteTimeZone).ToString("HH:mm");
+        var condition = DescribeWeatherCode(f.WeatherCode);
+        lines.Add(condition.Length > 0 ? $"{time}  {condition}" : time);
+
+        if (!double.IsNaN(f.CloudCover))
+        {
+            lines.Add($"Cloud: {f.CloudCover:F0}%");
+        }
+
+        // Chance of rain (probability) and/or amount, whichever the source supplies.
+        if (!double.IsNaN(f.PrecipitationProbability) || f.Precipitation > 0.01)
+        {
+            var parts = new List<string>(2);
+            if (!double.IsNaN(f.PrecipitationProbability)) parts.Add($"{f.PrecipitationProbability:F0}%");
+            if (f.Precipitation > 0.01) parts.Add($"{f.Precipitation:F1} mm");
+            lines.Add($"Rain: {string.Join("  ", parts)}");
+        }
+
+        if (!double.IsNaN(f.Temperature))
+        {
+            var dew = double.IsNaN(f.DewPoint) ? "" : $"   Dew {f.DewPoint:F0}°C";
+            lines.Add($"Temp: {f.Temperature:F0}°C{dew}");
+        }
+
+        if (!double.IsNaN(f.Humidity))
+        {
+            lines.Add($"Humidity: {f.Humidity:F0}%");
+        }
+
+        if (!double.IsNaN(f.WindSpeed))
+        {
+            var gust = double.IsNaN(f.WindGust) ? "" : $" (gust {f.WindGust:F0})";
+            var dir = double.IsNaN(f.WindDirection) ? "" : $" {CompassPoint(f.WindDirection)}";
+            lines.Add($"Wind: {f.WindSpeed:F0} m/s{gust}{dir}");
+        }
+
+        if (!double.IsNaN(f.Visibility) && f.Visibility > 0)
+        {
+            lines.Add(f.Visibility >= 1000
+                ? $"Visibility: {f.Visibility / 1000.0:F0} km"
+                : $"Visibility: {f.Visibility:F0} m");
+        }
+
+        return lines;
+    }
+
+    /// <summary>Short human description for a WMO 4677 weather code (the subset the forecast sources emit).</summary>
+    public static string DescribeWeatherCode(int code) => code switch
+    {
+        0 => "Clear",
+        1 => "Mostly clear",
+        2 => "Partly cloudy",
+        3 => "Overcast",
+        45 or 48 => "Fog",
+        >= 51 and <= 57 => "Drizzle",
+        >= 61 and <= 67 => "Rain",
+        >= 71 and <= 77 => "Snow",
+        >= 80 and <= 82 => "Rain showers",
+        85 or 86 => "Snow showers",
+        >= 95 => "Thunderstorm",
+        _ => "",
+    };
+
+    /// <summary>16-point compass abbreviation for a wind direction in degrees (0 = N, clockwise).</summary>
+    private static string CompassPoint(double deg)
+    {
+        var idx = (int)Math.Round((((deg % 360) + 360) % 360) / 22.5) % 16;
+        return CompassPoints[idx];
     }
 
     // -----------------------------------------------------------------------
@@ -946,6 +1110,25 @@ public static class AltitudeChartRenderer
                 FillRect(renderer, x, y, segEnd - x, 1, color);
             }
             x    = segEnd;
+            draw = !draw;
+        }
+    }
+
+    /// <summary>Draws a dashed vertical line by alternating filled and gap rectangles.</summary>
+    private static void DrawDashedVLine<TSurface>(
+        Renderer<TSurface> renderer, int x, int y1, int y2,
+        RGBAColor32 color, int dashLen = 5, int gapLen = 5)
+    {
+        var y = y1;
+        var draw = true;
+        while (y < y2)
+        {
+            var segEnd = Math.Min(y + (draw ? dashLen : gapLen), y2);
+            if (draw)
+            {
+                FillRect(renderer, x, y, 1, segEnd - y, color);
+            }
+            y    = segEnd;
             draw = !draw;
         }
     }
