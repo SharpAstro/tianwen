@@ -1006,7 +1006,8 @@ namespace TianWen.UI.Abstractions
                     viewingUtc, site,
                     sig.ScreenX, sig.ScreenY,
                     skyMapState.CurrentViewMatrix, ppr, cx, cy,
-                    preferPointSource: (sig.Modifiers & InputModifier.Ctrl) != 0);
+                    preferPointSource: (sig.Modifiers & InputModifier.Ctrl) != 0,
+                    pinnedCatalogIndices: PlannerActions.GetPinnedCatalogIndices(plannerState.Proposals));
 
                 skyMapState.NeedsRedraw = true;
                 appState.NeedsRedraw = true;

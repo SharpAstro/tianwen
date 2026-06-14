@@ -608,20 +608,9 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
         OverlayGatherKey key)
     {
         // Pinned catalog-index set from planner proposals (CatalogIndex-bearing targets only;
-        // manually-typed RA/Dec targets would need a separate match, deferred).
-        HashSet<CatalogIndex>? pinnedIndices = null;
-        if (proposals.Length > 0)
-        {
-            pinnedIndices = [];
-            foreach (var p in proposals)
-            {
-                if (p.Target.CatalogIndex is { } idx)
-                {
-                    pinnedIndices.Add(idx);
-                }
-            }
-            if (pinnedIndices.Count == 0) pinnedIndices = null;
-        }
+        // manually-typed RA/Dec targets would need a separate match, deferred). Shared with the
+        // click resolver via PlannerActions so "is this object pinned" has one definition.
+        var pinnedIndices = PlannerActions.GetPinnedCatalogIndices(proposals);
 
         // Both layers off and nothing pinned: nothing to gather. Apply an empty set
         // synchronously (instant) so we don't spin up a task or re-kick every frame.

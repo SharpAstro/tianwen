@@ -21,6 +21,32 @@ namespace TianWen.UI.Abstractions;
 public static class PlannerActions
 {
     /// <summary>
+    /// Extracts the catalog-index set of the planner's currently-proposed (pinned) targets --
+    /// the CatalogIndex-bearing ones (manually-typed RA/Dec targets carry none). Returns null
+    /// when nothing is pinned. One source of truth for "is this object pinned", shared by the
+    /// sky-map overlay gather (pinned targets render as landmarks even with their layer off)
+    /// and the click resolver (so they stay clickable under the same conditions).
+    /// </summary>
+    public static IReadOnlySet<CatalogIndex>? GetPinnedCatalogIndices(ImmutableArray<ProposedObservation> proposals)
+    {
+        if (proposals.Length == 0)
+        {
+            return null;
+        }
+
+        HashSet<CatalogIndex>? set = null;
+        foreach (var p in proposals)
+        {
+            if (p.Target.CatalogIndex is { } idx)
+            {
+                (set ??= []).Add(idx);
+            }
+        }
+
+        return set;
+    }
+
+    /// <summary>
     /// Shifts the planning date by the given number of days (+1 = tomorrow, -1 = yesterday).
     /// Sets <see cref="PlannerState.PlanningDate"/> and flags for recomputation.
     /// </summary>
