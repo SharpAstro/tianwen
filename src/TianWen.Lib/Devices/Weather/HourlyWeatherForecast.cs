@@ -17,6 +17,8 @@ namespace TianWen.Lib.Devices.Weather;
 /// <param name="Visibility">Visibility in meters.</param>
 /// <param name="WeatherCode">WMO 4677 weather code. Key values: 0=clear, 1–3=partly cloudy/overcast,
 /// 45/48=fog/rime fog, 51–67=drizzle/rain, 71–77=snow, 80–82=showers, 95–99=thunderstorm.</param>
+/// <param name="PrecipitationProbability">Chance of precipitation as a percentage (0–100), or
+/// <see cref="double.NaN"/> when the source does not provide it.</param>
 public readonly record struct HourlyWeatherForecast(
     DateTimeOffset Time,
     double CloudCover,
@@ -28,4 +30,5 @@ public readonly record struct HourlyWeatherForecast(
     double WindGust,
     double WindDirection,
     double Visibility,
-    int WeatherCode);
+    int WeatherCode,
+    double PrecipitationProbability = double.NaN);

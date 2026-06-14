@@ -65,7 +65,9 @@ internal sealed class FakeWeatherDriver(FakeDevice fakeDevice, IServiceProvider 
                 WindGust: 4.0 + phase * 0.5,
                 WindDirection: 220.0,
                 Visibility: visibility,
-                WeatherCode: weatherCode
+                WeatherCode: weatherCode,
+                // Synthetic chance-of-rain: high during the rain phases, low when clear.
+                PrecipitationProbability: precip > 0.1 ? 90.0 : (cloud > 70.0 ? 25.0 : (cloud > 30.0 ? 8.0 : 2.0))
             ));
         }
 

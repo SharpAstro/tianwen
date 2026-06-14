@@ -19,7 +19,7 @@ namespace TianWen.Lib.Devices.Weather;
 internal sealed class OpenMeteoDriver : IWeatherDriver
 {
     private const string BaseUrl = "https://api.open-meteo.com/v1/forecast";
-    private const string HourlyParams = "cloud_cover,precipitation,temperature_2m,relative_humidity_2m,dew_point_2m,wind_speed_10m,wind_gusts_10m,wind_direction_10m,visibility,weather_code";
+    private const string HourlyParams = "cloud_cover,precipitation,precipitation_probability,temperature_2m,relative_humidity_2m,dew_point_2m,wind_speed_10m,wind_gusts_10m,wind_direction_10m,visibility,weather_code";
     private const string CurrentParams = "temperature_2m,relative_humidity_2m,cloud_cover,surface_pressure,wind_direction_10m,wind_speed_10m,wind_gusts_10m,precipitation";
     private static readonly TimeSpan CacheTtl = TimeSpan.FromHours(1);
 
@@ -263,7 +263,8 @@ internal sealed class OpenMeteoDriver : IWeatherDriver
                 WindGust: GetValue(hourly.WindGusts10m, i) / 3.6,
                 WindDirection: GetValue(hourly.WindDirection10m, i),
                 Visibility: GetValue(hourly.Visibility, i),
-                WeatherCode: GetIntValue(hourly.WeatherCode, i)
+                WeatherCode: GetIntValue(hourly.WeatherCode, i),
+                PrecipitationProbability: GetValue(hourly.PrecipitationProbability, i)
             ));
         }
 

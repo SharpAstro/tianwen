@@ -342,7 +342,8 @@ internal sealed class OpenWeatherMapDriver : IWeatherDriver
             WindGust: entry.WindGust,
             WindDirection: entry.WindDeg,
             Visibility: entry.Visibility,
-            WeatherCode: OwmIdToWmoCode(entry.Weather is { Count: > 0 } ? entry.Weather[0].Id : 0)
+            WeatherCode: OwmIdToWmoCode(entry.Weather is { Count: > 0 } ? entry.Weather[0].Id : 0),
+            PrecipitationProbability: entry.Pop * 100.0 // OWM Pop is 0–1
         );
     }
 
@@ -398,7 +399,8 @@ internal sealed class OpenWeatherMapDriver : IWeatherDriver
                         WindGust: Lerp(forecast.WindGust, nextForecast.WindGust, t),
                         WindDirection: LerpAngle(forecast.WindDirection, nextForecast.WindDirection, t),
                         Visibility: Lerp(forecast.Visibility, nextForecast.Visibility, t),
-                        WeatherCode: forecast.WeatherCode // discrete — hold until next data point
+                        WeatherCode: forecast.WeatherCode, // discrete — hold until next data point
+                        PrecipitationProbability: Lerp(forecast.PrecipitationProbability, nextForecast.PrecipitationProbability, t)
                     ));
                 }
             }
@@ -423,7 +425,8 @@ internal sealed class OpenWeatherMapDriver : IWeatherDriver
             WindGust: entry.Wind?.Gust ?? double.NaN,
             WindDirection: entry.Wind?.Deg ?? double.NaN,
             Visibility: entry.Visibility,
-            WeatherCode: OwmIdToWmoCode(entry.Weather is { Count: > 0 } ? entry.Weather[0].Id : 0)
+            WeatherCode: OwmIdToWmoCode(entry.Weather is { Count: > 0 } ? entry.Weather[0].Id : 0),
+            PrecipitationProbability: entry.Pop * 100.0 // OWM Pop is 0–1
         );
     }
 
