@@ -48,13 +48,13 @@ internal sealed class OpenWeatherMapDriver : IWeatherDriver
     private double _windDirection = double.NaN;
     private double _rainRate = double.NaN;
 
-    public OpenWeatherMapDriver(OpenWeatherMapDevice device, IServiceProvider serviceProvider)
+    public OpenWeatherMapDriver(OpenWeatherMapDevice device, IServiceProvider serviceProvider, string apiKey)
     {
         _device = device;
         _external = serviceProvider.GetRequiredService<IExternal>();
         Logger = serviceProvider.GetRequiredService<ILoggerFactory>().CreateLogger(nameof(OpenWeatherMapDriver));
         TimeProvider = serviceProvider.GetRequiredService<ITimeProvider>();
-        _apiKey = device.ApiKey ?? throw new ArgumentException("OpenWeatherMap API key is required");
+        _apiKey = apiKey;
     }
 
     // --- IDeviceDriver ---

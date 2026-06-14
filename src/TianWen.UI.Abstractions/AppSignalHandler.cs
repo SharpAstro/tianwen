@@ -1332,22 +1332,45 @@ namespace TianWen.UI.Abstractions
             eqState.ApertureInput.OnCommit = saveOta;
 
             // Device string settings (API keys, ports, etc.) — commit on Enter saves the setting
-            eqState.StringSettingInput.OnCommit = _ =>
+            eqState.StringSettingInput.OnCommit = async _ =>
             {
-                if (eqState.EditingStringSettingKey is { } key && eqState.EditingDeviceUri is { } editUri)
+                if (eqState.EditingStringSettingKey is not { } key || eqState.EditingDeviceUri is not { } editUri)
                 {
-                    eqState.EditingDeviceUri = DeviceSettingHelper.WithQueryParam(editUri, key, eqState.StringSettingInput.Text);
-                    eqState.EditingStringSettingKey = null;
-                    // Auto-save: apply the updated URI to the profile
-                    if (appState.ActiveProfile is { Data: { } data } && eqState.EditingDeviceUri is { } newUri
-                        && eqState.SavedDeviceSettingsUri is { } savedUri)
-                    {
-                        var newData = EquipmentActions.UpdateDeviceUri(data, savedUri, newUri);
-                        bus.Post(new UpdateProfileSignal(newData));
-                        eqState.BeginEditingDeviceSettings(newUri);
-                    }
+                    return;
                 }
-                return Task.CompletedTask;
+
+                var value = eqState.StringSettingInput.Text;
+                eqState.EditingStringSettingKey = null;
+
+                // A masked setting (e.g. an API key) is a secret: persist it to the OS credential
+                // store keyed by device, NEVER onto the device URI / profile JSON — that would leak
+                // the secret into plaintext config AND lose it when the URI is replaced on a provider
+                // switch (the bug this fixes). The credential key is derived from the device id so it
+                // stays stable across URI changes and is shared across profiles.
+                var device = EquipmentActions.TryDeviceFromUri(editUri);
+                if (device is not null && device.Settings.Any(s => s.Key == key && s.Mask))
+                {
+                    sp.GetRequiredService<ICredentialStore>().Set(ICredentialStore.KeyFor(device.DeviceId, key), value);
+
+                    // The URI/profile is unchanged, so the refetch-on-weather-URI-change path won't
+                    // fire; re-fetch here now that the key may have become available.
+                    if (DeviceTypeHelper.TryParseDeviceType(editUri.Scheme) is DeviceType.Weather)
+                    {
+                        await FetchWeatherForecastAsync(cts.Token);
+                    }
+                    appState.NeedsRedraw = true;
+                    return;
+                }
+
+                // Non-secret: keep as a query param on the device URI (existing behaviour).
+                eqState.EditingDeviceUri = DeviceSettingHelper.WithQueryParam(editUri, key, value);
+                if (appState.ActiveProfile is { Data: { } data } && eqState.EditingDeviceUri is { } newUri
+                    && eqState.SavedDeviceSettingsUri is { } savedUri)
+                {
+                    var newData = EquipmentActions.UpdateDeviceUri(data, savedUri, newUri);
+                    bus.Post(new UpdateProfileSignal(newData));
+                    eqState.BeginEditingDeviceSettings(newUri);
+                }
             };
 
             // ---------------------------------------------------------------
