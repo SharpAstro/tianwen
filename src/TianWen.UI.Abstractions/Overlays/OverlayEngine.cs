@@ -1048,13 +1048,18 @@ public static class OverlayEngine
     /// <param name="drawLabelLines">Callback: draw a label block at (x, y) with the given
     /// base RGB color. The block's top-left is at (x, y); line-height is <paramref name="labelSize"/> * 1.2.</param>
     /// <param name="maxLabels">Label cap to prevent clutter. Defaults to <see cref="MaxOverlayLabels"/>.</param>
+    /// <param name="reservedRegions">Screen-space boxes (x, y, w, h) that are already
+    /// occupied by something the engine doesn't own — e.g. the live mount-reticle label,
+    /// drawn later in a separate pass. Catalog labels treat them as pre-placed and stack
+    /// around them, so the mount label is never overlapped by an object name.</param>
     public static void PlaceLabels(
         IReadOnlyList<OverlayItem> items,
         float labelSize,
         float labelPad,
         Func<string, float, float> measureText,
         Action<OverlayItem, float, float> drawLabelLines,
-        int maxLabels = MaxOverlayLabels)
+        int maxLabels = MaxOverlayLabels,
+        IReadOnlyList<(float X, float Y, float W, float H)>? reservedRegions = null)
     {
         // Iterate in priority order (high -> low) so bright / named / large
         // objects claim their preferred slot first; lower-priority labels drop
@@ -1073,7 +1078,13 @@ public static class OverlayEngine
             return a.StableSortKey.CompareTo(b.StableSortKey);
         });
 
+        // Seed the occupied set with any externally-owned boxes (the mount reticle label)
+        // so the first catalog label that would land there is forced to another slot.
         var placedLabels = new List<(float X, float Y, float W, float H)>();
+        if (reservedRegions is { Count: > 0 })
+        {
+            placedLabels.AddRange(reservedRegions);
+        }
         var labelCount = 0;
 
         foreach (var item in sorted)
@@ -1157,7 +1168,8 @@ public static class OverlayEngine
         float labelPad,
         Func<string, float, float> measureText,
         Action<OverlayItem, float, float> drawLabelLines,
-        int maxLabels = MaxOverlayLabels)
+        int maxLabels = MaxOverlayLabels,
+        IReadOnlyList<(float X, float Y, float W, float H)>? reservedRegions = null)
     {
         var sorted = new List<OverlayItem>(items);
         sorted.Sort((a, b) =>
@@ -1206,6 +1218,27 @@ public static class OverlayEngine
                     lx = item.ScreenX + labelPad + 6f;
                     ly = item.ScreenY - totalH / 2f;
                     break;
+            }
+
+            // Best-effort placement has no inter-label collision check (overlapping labels
+            // are accepted, Stellarium-style), but a reserved box belongs to something more
+            // important than a catalog name (the mount reticle label) — drop the few labels
+            // that would land on it rather than letting them bury it.
+            if (reservedRegions is { Count: > 0 })
+            {
+                var blocked = false;
+                foreach (var (px, py, pw, ph) in reservedRegions)
+                {
+                    if (lx < px + pw && lx + maxLineW > px && ly < py + ph && ly + totalH > py)
+                    {
+                        blocked = true;
+                        break;
+                    }
+                }
+                if (blocked)
+                {
+                    continue;
+                }
             }
 
             drawLabelLines(item, lx, ly);
