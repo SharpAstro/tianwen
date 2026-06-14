@@ -137,11 +137,12 @@ namespace TianWen.UI.Abstractions
                 && _plannerState.HandoffSliders.Length > 0)
             {
                 var chartRect = _chrome.PlannerChartRect;
-                if (px >= chartRect.X && px <= chartRect.X + chartRect.Width
-                    && py >= chartRect.Y && py <= chartRect.Y + chartRect.Height)
+                var (tStart, tEnd, plotX, plotY, plotW, plotH) = AltitudeChartRenderer.GetChartPlotLayout(
+                    _plannerState, (int)chartRect.X, (int)chartRect.Y, (int)chartRect.Width, (int)chartRect.Height);
+                // Only inside the PLOT area -- a click on the weather band / icons above the plot
+                // (or the legend / axis below it) must NOT move a handoff divider.
+                if (px >= plotX && px <= plotX + plotW && py >= plotY && py <= plotY + plotH)
                 {
-                    var (tStart, tEnd, plotX, plotW) = AltitudeChartRenderer.GetChartTimeLayout(
-                        _plannerState, (int)chartRect.X, (int)chartRect.Width);
                     var clickedTime = AltitudeChartRenderer.XToTime(px, tStart, tEnd, plotX, plotW);
                     if (PlannerActions.PlaceNearestSlider(_plannerState, clickedTime) is var moved && moved >= 0)
                     {
