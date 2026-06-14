@@ -119,6 +119,9 @@ public class SkyMapSearchActionsTests
             CenterRA = 12.0,
             CenterDec = 0.0,
             FieldOfViewDeg = 2.0,
+            // The nebula follows the [O] layer; it must be enabled to be clickable (the click
+            // resolver now honours per-layer visibility, like the rendered overlay).
+            ShowObjectOverlay = true,
         };
         var viewMatrix = skyMap.ComputeViewMatrix();
         const float height = 1000f;
@@ -156,6 +159,68 @@ public class SkyMapSearchActionsTests
             starX, starY, viewMatrix, ppr, cx, cy, preferPointSource: true).ShouldBeTrue();
         var ctrlInfo = ctrl.InfoPanel.ShouldNotBeNull();
         ctrlInfo.Name.ShouldBe("TestStar");
+    }
+
+    // Dark nebulae follow the [D] layer. The click resolver must honour that: a hidden dark
+    // nebula is NOT selectable (regression — it used to hit-test every DSO regardless of the
+    // toggle), but enabling [D] or pinning the target makes it clickable again. Covers both the
+    // DSO pass and the star pass (CoordinateGrid is composite, so the dark neb is in both).
+    [Fact]
+    public void DarkNebulaClickRespectsLayerToggleAndPinning()
+    {
+        var darkNeb = new CelestialObject(CatalogIndex.LDN00146, ObjectType.DarkNeb,
+            12.0, 0.0, Constellation.Cygnus, Half.NaN, Half.NaN, Half.NaN,
+            new HashSet<string> { "TestDarkNeb" });
+        // A field star parked far off the click so the star pass never matches it — the result
+        // is then driven purely by whether the dark nebula itself is clickable.
+        var farStar = new CelestialObject(CatalogIndex.HIP025281, ObjectType.Star,
+            12.0, 80.0, Constellation.Cygnus, Half.NaN, Half.NaN, Half.NaN,
+            new HashSet<string> { "FarStar" });
+        var shape = new CelestialObjectShape((Half)30.0, (Half)20.0, (Half)0.0);
+        var db = new ClickPickDb(darkNeb, farStar, shape);
+
+        var skyMap = new SkyMapState
+        {
+            Mode = SkyMapMode.Equatorial,
+            CenterRA = 12.0,
+            CenterDec = 0.0,
+            FieldOfViewDeg = 2.0,
+        };
+        var viewMatrix = skyMap.ComputeViewMatrix();
+        const float height = 1000f;
+        var ppr = SkyMapProjection.PixelsPerRadian(height, skyMap.FieldOfViewDeg);
+        const float cx = 500f, cy = 500f;
+
+        SkyMapProjection.ProjectWithMatrix(darkNeb.RA, darkNeb.Dec, viewMatrix, ppr, cx, cy, out var nx, out var ny)
+            .ShouldBeTrue();
+
+        var viewingUtc = DateTimeOffset.UtcNow;
+        var site = SiteContext.Create(0, 0, viewingUtc);
+
+        // [D] layer OFF, not pinned -> the dark nebula is not selectable.
+        skyMap.ShowDarkNebulae = false;
+        var off = new SkyMapSearchState();
+        SkyMapSearchActions.SelectObjectByClick(
+            off, skyMap, db, 0, 0, viewingUtc, site,
+            nx, ny, viewMatrix, ppr, cx, cy).ShouldBeFalse();
+        off.InfoPanel.ShouldBeNull();
+
+        // [D] layer ON -> selects the dark nebula.
+        skyMap.ShowDarkNebulae = true;
+        var on = new SkyMapSearchState();
+        SkyMapSearchActions.SelectObjectByClick(
+            on, skyMap, db, 0, 0, viewingUtc, site,
+            nx, ny, viewMatrix, ppr, cx, cy).ShouldBeTrue();
+        on.InfoPanel.ShouldNotBeNull().Name.ShouldBe("TestDarkNeb");
+
+        // [D] layer OFF but pinned -> still clickable (renders as a landmark, stays selectable).
+        skyMap.ShowDarkNebulae = false;
+        var pinned = new SkyMapSearchState();
+        SkyMapSearchActions.SelectObjectByClick(
+            pinned, skyMap, db, 0, 0, viewingUtc, site,
+            nx, ny, viewMatrix, ppr, cx, cy,
+            pinnedCatalogIndices: new HashSet<CatalogIndex> { darkNeb.Index }).ShouldBeTrue();
+        pinned.InfoPanel.ShouldNotBeNull().Name.ShouldBe("TestDarkNeb");
     }
 
     // Minimal ICelestialObjectDB stub — only CreateAutoCompleteList and TryLookupByIndex

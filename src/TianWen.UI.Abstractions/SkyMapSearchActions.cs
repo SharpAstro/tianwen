@@ -302,7 +302,8 @@ public static class SkyMapSearchActions
         float clickScreenX, float clickScreenY,
         in Matrix4x4 viewMatrix,
         double pixelsPerRadian, float centerX, float centerY,
-        bool preferPointSource = false)
+        bool preferPointSource = false,
+        IReadOnlySet<CatalogIndex>? pinnedCatalogIndices = null)
     {
         var (clickRa, clickDec) = SkyMapProjection.UnprojectWithMatrix(
             clickScreenX, clickScreenY, viewMatrix, pixelsPerRadian, centerX, centerY);
@@ -341,6 +342,17 @@ public static class SkyMapSearchActions
                 if (!seenDso.Add(idx)) continue;
                 if (!db.TryLookupByIndex(idx, out var o)) continue;
                 if (double.IsNaN(o.RA) || double.IsNaN(o.Dec)) continue;
+
+                // Honour the same per-layer visibility the rendered overlay uses (mirrors
+                // OverlayEngine.GatherSkyMapOverlayCandidates): dark nebulae follow the [D]
+                // layer, all other catalog objects follow the [O] layer, and pinned planner
+                // targets stay clickable as landmarks regardless of layer state. Without this a
+                // hidden object stays selectable by a click on apparently-empty sky.
+                if (!IsDsoLayerClickable(o.ObjectType, o.Index, idx, skyMap, pinnedCatalogIndices))
+                {
+                    continue;
+                }
+
                 if (!SkyMapProjection.ProjectWithMatrix(o.RA, o.Dec, viewMatrix, pixelsPerRadian, centerX, centerY,
                         out var sx, out var sy))
                 {
@@ -401,10 +413,22 @@ public static class SkyMapSearchActions
                     if (!seenStar.Add(idx)) continue;
                     if (!db.TryLookupByIndex(idx, out var o)) continue;
                     if (double.IsNaN(o.RA) || double.IsNaN(o.Dec)) continue;
-                    // Skip stars below the visible cutoff — same rule the GPU uses.
-                    // NaN V_Mag falls through (conservative: assume visible).
+                    // Stars follow the visible magnitude cutoff (same rule the GPU uses; NaN
+                    // V_Mag falls through as visible) and are never layer-gated -- the star
+                    // field is always drawn. But CoordinateGrid is the COMPOSITE index
+                    // (deep-sky + Tycho-2), so a layer-hidden deep-sky object (e.g. a dark
+                    // nebula with [D] off) can surface here too; gate any non-star by the same
+                    // per-layer visibility as the DSO pass so it can't be selected through the
+                    // star pass after the DSO pass already skipped it.
                     var vMag = (float)o.V_Mag;
-                    if (!float.IsNaN(vMag) && vMag > magLimit) continue;
+                    if (o.ObjectType.IsStar)
+                    {
+                        if (!float.IsNaN(vMag) && vMag > magLimit) continue;
+                    }
+                    else if (!IsDsoLayerClickable(o.ObjectType, o.Index, idx, skyMap, pinnedCatalogIndices))
+                    {
+                        continue;
+                    }
                     if (!SkyMapProjection.ProjectWithMatrix(o.RA, o.Dec, viewMatrix, pixelsPerRadian, centerX, centerY,
                             out var sx, out var sy))
                     {
@@ -437,6 +461,28 @@ public static class SkyMapSearchActions
             obj, siteLat, siteLon, viewingUtc, site,
             ResolveShape(db, hit));
         return true;
+    }
+
+    /// <summary>
+    /// Whether a deep-sky object is currently selectable by a sky-map click, given the
+    /// per-layer visibility toggles. Mirrors the render-side filter in
+    /// <c>OverlayEngine.GatherSkyMapOverlayCandidates</c>: dark nebulae follow the [D] layer
+    /// (<see cref="SkyMapState.ShowDarkNebulae"/>), every other catalog object follows the [O]
+    /// layer (<see cref="SkyMapState.ShowObjectOverlay"/>), and pinned planner targets are
+    /// always clickable (they render as landmarks even when the layer is off).
+    /// </summary>
+    private static bool IsDsoLayerClickable(
+        ObjectType objectType, CatalogIndex objIndex, CatalogIndex gridIndex,
+        SkyMapState skyMap, IReadOnlySet<CatalogIndex>? pinnedCatalogIndices)
+    {
+        if (pinnedCatalogIndices is not null
+            && ((objIndex != default && pinnedCatalogIndices.Contains(objIndex))
+                || pinnedCatalogIndices.Contains(gridIndex)))
+        {
+            return true;
+        }
+
+        return objectType == ObjectType.DarkNeb ? skyMap.ShowDarkNebulae : skyMap.ShowObjectOverlay;
     }
 
     /// <summary>
