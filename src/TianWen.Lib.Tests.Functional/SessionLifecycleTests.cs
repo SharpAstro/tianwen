@@ -100,12 +100,21 @@ public class SessionLifecycleTests(ITestOutputHelper output)
 
     // --- CalibrateGuiderAsync ---
 
-    [Fact(Timeout = 120_000)]
-    public async Task GivenConnectedMountWhenCalibrateGuiderThenSlewsAndStartsGuiding()
+    // Both hemispheres: Vienna (northern) and Melbourne (southern). The calibration must slew
+    // EAST of the meridian (before crossing) in BOTH, so the GEM stays on its pre-flip pier side
+    // for the whole calibration. "East/before crossing" is HA < 0 in either hemisphere (the
+    // convention is absolute); only the apparent left/right motion mirrors south of the equator.
+    [Theory(Timeout = 120_000)]
+    [InlineData(48.2, 16.3)]                  // Vienna, northern
+    [InlineData(-37.8743502, 145.1668205)]    // Melbourne, southern
+    public async Task GivenConnectedMountWhenCalibrateGuiderThenSlewsEastOfMeridianAndStartsGuiding(double latitude, double longitude)
     {
-        // Use winter night when dec=0 near meridian is well above horizon from Vienna
+        // Use winter night when dec=0 near meridian is well above horizon. dec=0 culminates at a
+        // fixed altitude (90 - |lat|) regardless of season, so it is well clear of the horizon from
+        // both sites, and CalibrateGuiderAsync does not gate on darkness.
         var ct = TestContext.Current.CancellationToken;
-        using var ctx = await SessionTestHelper.CreateSessionAsync(output, now: WinterNight, cancellationToken: ct);
+        using var ctx = await SessionTestHelper.CreateSessionAsync(
+            output, now: WinterNight, latitude: latitude, longitude: longitude, cancellationToken: ct);
 
         IMountDriver mount = ctx.Mount;
         await mount.EnsureTrackingAsync(cancellationToken: ct);
@@ -121,6 +130,16 @@ public class SessionLifecycleTests(ITestOutputHelper output)
 
         calibrateTask.IsCompleted.ShouldBeTrue("CalibrateGuiderAsync should complete within timeout");
         await calibrateTask; // propagate any exceptions
+
+        // The calibration target must sit EAST of the meridian (HA < 0): it is approaching the
+        // meridian but has not crossed it, so the mount stays on its pre-flip pier side. The slew
+        // lands at HA = -0.5h and tracking only drifts it UP toward 0 (it stays negative for ~30
+        // min), so HA in (-0.7, 0) confirms east. The old +0.5h bug landed WEST (~+0.5h) -- past
+        // the meridian on the opposite pier side -- which would fail this in BOTH hemispheres.
+        var ha = await mount.GetHourAngleAsync(ct);
+        output.WriteLine($"Hour angle after calibration slew: {ha:F3}h ({(ha < 0 ? "EAST, before crossing" : "WEST, after crossing")}) at lat={latitude}");
+        ha.ShouldBeLessThan(0.0, $"calibration must slew EAST of the meridian (HA < 0, before crossing), but HA={ha:F3}h");
+        ha.ShouldBeGreaterThan(-0.7, $"calibration target should be ~30 min east of the meridian, but HA={ha:F3}h");
 
         // After calibration, guider should be guiding
         var guider = (FakeGuider)ctx.Session.Setup.Guider.Driver;
