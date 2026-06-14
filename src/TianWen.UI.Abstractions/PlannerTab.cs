@@ -187,8 +187,8 @@ namespace TianWen.UI.Abstractions
                 return;
             }
 
-            var (tStart, tEnd, plotX, plotW) = AltitudeChartRenderer.GetChartTimeLayout(
-                state, (int)_chartRect.X, (int)_chartRect.Width);
+            var (tStart, tEnd, plotX, plotY, plotW, plotH) = AltitudeChartRenderer.GetChartPlotLayout(
+                state, (int)_chartRect.X, (int)_chartRect.Y, (int)_chartRect.Width, (int)_chartRect.Height);
             var tRange = (tEnd - tStart).TotalHours;
 
             var hitW = 10f * dpiScale;
@@ -197,8 +197,9 @@ namespace TianWen.UI.Abstractions
                 var fraction = (state.HandoffSliders[i] - tStart).TotalHours / tRange;
                 var sliderX = plotX + (float)(fraction * plotW);
 
-                var capturedIdx = i;
-                RegisterClickable(sliderX - hitW / 2, _chartRect.Y, hitW, _chartRect.Height,
+                // Hit region spans only the plot rows -- NOT the full chart height -- so clicking
+                // the weather band / icons above the plot never grabs a handoff divider.
+                RegisterClickable(sliderX - hitW / 2, plotY, hitW, plotH,
                     new HitResult.SliderHit(i));
             }
         }
