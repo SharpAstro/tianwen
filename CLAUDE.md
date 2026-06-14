@@ -188,6 +188,28 @@ URI-addressed: `DeviceBase` (URI identity), `IDeviceSource<T>` (driver backends)
 Each subclass reads query keys (`?key=value`) defined in `DeviceQueryKey`. See class XML doc comments
 for supported keys.
 
+### Device Secrets (Credential Store)
+
+Secrets (API keys) are **not** stored on the device URI or in the profile JSON. `ICredentialStore`
+(`TianWen.Lib/Devices/`) holds them keyed `{deviceId}/{settingKey}` (e.g. `openweathermap/apiKey`) —
+keyed by **device, not URI**, so the secret survives the URI being replaced on a provider switch /
+re-discovery (the bug it fixes: OWM's `?apiKey=` used to be wiped on every re-assign) and is shared
+across profiles (enter once).
+
+- **Windows**: `WindowsCredentialStore` — Credential Manager (Generic credentials) via
+  `LibraryImport` (source-gen marshalling, AOT-clean; visible in Control Panel → Credential Manager).
+  The `CREDENTIAL` struct keeps string fields as `IntPtr` (hand-marshalled) so it stays blittable.
+- **Non-Windows**: `FileCredentialStore` — owner-only (`0600`) file per secret under `AppData/Secrets`.
+  A libsecret / macOS-Keychain backend can drop in later behind the same interface.
+- OS-selected in `AddExternal`. Tests exercise `FileCredentialStore` over a temp dir (the Windows
+  vault is not unit-tested — it would write to the real per-user store).
+
+A masked `DeviceSettingDescriptor` (`Mask: true`) routes its edit to the store, never the URI
+(`AppSignalHandler`'s `StringSettingInput.OnCommit`; it re-fetches weather afterwards). A leftover
+`?apiKey=` on a URI is ignored — the driver only reads the store. **Deferred:** a per-profile
+override of the shared per-device key (would need an active-profile-id provider at driver-creation
+time, since `NewInstanceFromDevice(sp)` has no profile context).
+
 ### Plate Solving
 
 `IPlateSolverFactory` selects in priority order:
@@ -231,6 +253,14 @@ or "re-order" logic must operate on the OTA set as a single unit.
 `RunAsync` workflow: `InitialisationAsync` → wait for twilight → `CoolCamerasToSetpointAsync` →
 `InitialRoughFocusAsync` → `AutoFocusAllTelescopesAsync` → `CalibrateGuiderAsync` → `ObservationLoopAsync`.
 See class XML doc + `PLAN-*.md` for details on each phase.
+
+**Guider calibration pier-side invariant:** `CalibrateGuiderAsync` (`Session.Lifecycle.cs`) slews to
+HA **−0.5h** (30 min *east* of the meridian, target still approaching transit) before calibrating, NOT
+west. `HA = LST − RA`, so HA < 0 = east = *before* crossing. East keeps the GEM on its pre-flip pier
+side for the whole calibration, so the learned Dec guide sense matches the side rising targets are
+imaged on. Calibrating west (HA > 0) is past the flip boundary on the opposite pier side → inverted Dec
+sense + ambiguous flip-edge → Dec runaway. Hemisphere-independent (only apparent left/right mirrors in
+the south); pinned by a both-hemisphere `[Theory]` in `SessionLifecycleTests`.
 
 `ObservationLoopAsync` waits until `ScheduledObservation.Start - ScheduledStartLeadTime` (default 3 min,
 covers slew + center + guider settle) before slewing to each target, via `WaitForScheduledStartAsync`
@@ -518,5 +548,6 @@ Centralized in `Directory.Packages.props` — version numbers go there, not in i
 TianWen/
 ├── Logs/        # Per-day log files: GUI_*.log, FitsViewer_*.log
 ├── Profiles/   # Per-profile data (*.json + NeuralGuider/*.ngm + BacklashHistory/*.json)
-└── Planner/    # Persisted planner state (pinned targets)
+├── Planner/    # Persisted planner state (pinned targets)
+└── Secrets/    # Non-Windows only: 0600 file per device secret (Windows uses Credential Manager)
 ```
