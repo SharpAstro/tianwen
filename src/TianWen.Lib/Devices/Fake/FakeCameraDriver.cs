@@ -10,6 +10,8 @@ using System.Threading.Tasks;
 using TianWen.DAL;
 using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Astrometry.SOFA;
+using TianWen.Lib.Devices.Fake.Disturbance;
+using TianWen.Lib.Devices.Fake.Disturbance.Terms;
 using TianWen.Lib.Imaging;
 
 namespace TianWen.Lib.Devices.Fake;
@@ -154,6 +156,11 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver
     private double _mountCachedDec;     // mount Dec snapshot (J2000 degrees)
     private bool _mountPointingValid;   // a snapshot has been taken at least once
 
+    // Sensor-side seeing (SensorDelta): a one-term DisturbanceModel built lazily on the first frame
+    // after SeeingArcsec is set, then cached so the per-frame draw advances off a stable epoch.
+    private DisturbanceModel? _sensorModel;
+    private DateTimeOffset? _seeingEpoch;
+
     // Main-camera-only: (true - believed) J2000 pointing delta snapshot taken per
     // exposure when the coupled mount models hidden alignment errors
     // (IFakeTruePointingSource). The stamped Target is a believed-pointing quantity
@@ -211,6 +218,17 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver
     /// Periodic error peak-to-peak amplitude in arcseconds (typical ~20").
     /// </summary>
     internal double PePeakTopeakArcsec { get; set; } = 20.0;
+
+    /// <summary>
+    /// Atmospheric seeing (arcsec). When &gt; 0, a per-frame zero-mean centroid wander is added to
+    /// the rendered star position (the canonical <see cref="AtmosphericSeeingTerm"/> via
+    /// <see cref="DisturbanceModel.SensorDelta"/>). This is a SENSOR-side disturbance: a mount pulse
+    /// cannot null it, so it is the irreducible noise floor a guide loop sees. 0 = off (default).
+    /// </summary>
+    internal double SeeingArcsec { get; set; }
+
+    /// <summary>Deterministic seed for the seeing draw, so a coupled scenario replays identically.</summary>
+    internal int SeeingSeed { get; set; } = 101;
 
     /// <summary>
     /// Guide rate in pixels per second, derived from 0.5x sidereal rate and the camera's pixel scale.
@@ -287,6 +305,33 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver
         var phase = TimeProvider.GetElapsedTime(_peStartTicks).TotalSeconds;
         var driftRate = PeRateAmplitude * Math.Sin(2.0 * Math.PI * phase / PePeriodSeconds);
         _starPositionX += driftRate * dt;
+    }
+
+    /// <summary>
+    /// Per-frame atmospheric-seeing centroid wander in PIXELS, from the canonical
+    /// <see cref="AtmosphericSeeingTerm"/> via <see cref="DisturbanceModel.SensorDelta"/>. Returns
+    /// (0, 0) when <see cref="SeeingArcsec"/> is off or the pixel scale is unavailable. The term is
+    /// idempotent within a single instant (one fresh draw per advancing frame), so repeated reads at
+    /// the same time are safe. Converts the term's native arcsec to pixels via the camera's pixel
+    /// scale -- a pure sensor offset, never folded back into the mount pointing.
+    /// </summary>
+    private (double X, double Y) SeeingOffsetPixels()
+    {
+        if (SeeingArcsec <= 0.0 || FocalLength <= 0)
+        {
+            return (0.0, 0.0);
+        }
+        _sensorModel ??= new DisturbanceModel(new IDisturbanceTerm[] { new AtmosphericSeeingTerm(SeeingArcsec, SeeingSeed) });
+        var epoch = _seeingEpoch ??= TimeProvider.GetUtcNow();
+        var elapsedSeconds = (TimeProvider.GetUtcNow() - epoch).TotalSeconds;
+
+        var (dRaArcsec, dDecArcsec) = _sensorModel.SensorDelta(new DisturbanceContext(elapsedSeconds, double.NaN));
+        var pixelScaleArcsec = Astrometry.CoordinateUtils.PixelScaleArcsec(PixelSizeX, FocalLength);
+        if (pixelScaleArcsec <= 0.0)
+        {
+            return (0.0, 0.0);
+        }
+        return (dRaArcsec / pixelScaleArcsec, dDecArcsec / pixelScaleArcsec);
     }
 
     public bool UsesGainValue { get; } = true;
@@ -1037,6 +1082,14 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver
                             "FakeCamera synth: aperture={Aperture} focal={FocalLength} t={ExposureSec:F3}s defocus={Defocus} scale={Scale:F2} magCutoff={Cutoff:F2} placedStars={Stars} rot={RotationDeg:F1}",
                             Aperture, FocalLength, exposureSec, defocus, apertureScale, magCutoff, stars.Count, rotationDeg);
                         var (offsetX, offsetY) = Target is not null ? TotalStarOffset : InCameraStarOffset;
+                        // Atmospheric seeing is a SENSOR-side disturbance (SensorDelta): a per-frame
+                        // centroid wander added post-projection, on top of the pointing offset. It is
+                        // NOT correctable by a mount pulse -- chasing it just feeds the seeing variance
+                        // into the corrections -- so it is the noise floor the coupling-harness guide
+                        // tests see. (0 = off; computed once per frame into locals so X/Y share one draw.)
+                        var (seeingX, seeingY) = SeeingOffsetPixels();
+                        offsetX += seeingX;
+                        offsetY += seeingY;
                         var cloudSeed = _frameRng.Next();
                         var starSpan = System.Runtime.InteropServices.CollectionsMarshal.AsSpan(stars);
                         array = SensorType is Imaging.SensorType.RGGB

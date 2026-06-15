@@ -34,15 +34,20 @@
   bespoke `_accumulated*` term math) -- best sequenced AFTER steps 6-7, since migrating the
   `SetupGuidedMount` guide tests to the coupling harness shrinks `FakeMountDriver`'s disturbance-knob
   consumers to just `FakeMountDriverTests`, making the checkpoint->on-read-delta rewrite low-risk.
-- **Step 6 (partial)**: `SetupCoupledGuidedMount` gained wind / flexure / cable-snag params (set on the
-  FakeSkywatcher's composed model). The wind+PE (`GivenWindGustsWhenNeuralGuiding...`) and cable-snag+PE
-  (`GivenCableSnagWhenNeuralGuiding...`) tests are migrated off `SetupGuidedMount` -- they now record
-  119 real samples (was ~2) and assert `TotalSamples > 50`. Wind+PE RMS 0.484 px, cable-snag 0.061 px,
-  both far under the 15 px bound.
-- **Open**: the **combined** test (`GivenCombinedDisturbancesWhenNeuralGuiding...`) still uses
-  `SetupGuidedMount` because it needs **seeing**, which is camera-side (`AtmosphericSeeingTerm` ->
-  `SensorDelta`) and not yet wired into `FakeCameraDriver`'s coupling render path (step 7). Then finish
-  step 5's model composition into `FakeMountDriver`.
+- **Steps 6 + 7 DONE**: `SetupCoupledGuidedMount` gained wind / flexure / cable-snag params (on the
+  FakeSkywatcher's composed model) and a `seeingArcsec` param (on the guide camera). `FakeCameraDriver`
+  now has a `SeeingArcsec` knob wired through `SeeingOffsetPixels()` -- a one-term `DisturbanceModel`
+  (`AtmosphericSeeingTerm`) whose `SensorDelta` is added post-projection to the rendered star, the
+  canonical sensor-side wander a mount pulse cannot null. All three legacy `SetupGuidedMount` guide
+  tests (wind+PE, cable-snag+PE, combined+seeing) are migrated to the coupling harness and the
+  hand-rolled `SetupGuidedMount` helper is retired (deleted). Each now records 119 real samples (was
+  ~2) and asserts `TotalSamples > 50`: wind+PE RMS 0.484 px, cable-snag 0.061 px, combined 0.362 px
+  (~= the pure 2" seeing floor of ~0.34 px -- seeing dominates, as expected for an un-correctable
+  disturbance), all far under the 15 px bound.
+- **Open (only remaining)**: finish step 5's model composition -- compose the shared `DisturbanceModel`
+  into `FakeMountDriver` and retire its bespoke `_accumulated*` term math. Now low-risk: the guide
+  tests no longer use `FakeMountDriver` disturbances, so the only consumers are `FakeMountDriverTests`
+  plus a few inline-PE `GuideLoopTests`.
 
 ### Design refinement adopted during implementation
 
@@ -210,12 +215,12 @@ sequenceDiagram
 |---|---|---|:--:|---|
 | Periodic error | Drivetrain | periodic (worm phase) | yes | `FakeSkywatcher` (positional `PeriodicErrorTerm`, on the TRUE pointing) -- DONE; `FakeMountDriver` (legacy time-based) still to retire (step 5) |
 | Polar misalignment | MountAxis | drift (HA-dependent) | yes | `FakeSkywatcher` (real tilt) -- keep, make a term |
-| Flexure | OpticalTube | drift (HA-dependent) | yes | `FakeMountDriver` |
-| Cable snag | OpticalTube | impulse (at HA/time) | yes (as a step) | `FakeMountDriver` |
+| Flexure | OpticalTube | drift (HA-dependent) | yes | `FakeSkywatcher` `FlexureTerm` (on TRUE pointing) -- DONE; `FakeMountDriver` legacy still to retire (step 5) |
+| Cable snag | OpticalTube | impulse (at HA/time) | yes (as a step) | `FakeSkywatcher` `CableSnagTerm` -- DONE; `FakeMountDriver` legacy still to retire (step 5) |
 | Backlash | Drivetrain | dead-zone on correction | partially (interacts with pulses) | none (mounts) |
-| Wind gust | OpticalTube | stochastic (OU, slow) | partially (bandwidth-limited) | `FakeMountDriver` |
-| Gear noise | Drivetrain | stochastic (OU, fast) | no (too fast for 0.5 Hz) | `FakeMountDriver` |
-| Atmospheric seeing | Atmosphere | stochastic (zero-mean, per-frame) | no with mount; yes with AO | `FakeCamera` render hook |
+| Wind gust | OpticalTube | stochastic (OU, slow) | partially (bandwidth-limited) | `FakeSkywatcher` `WindGustTerm` -- DONE; `FakeMountDriver` legacy still to retire (step 5) |
+| Gear noise | Drivetrain | stochastic (OU, fast) | no (too fast for 0.5 Hz) | `FakeSkywatcher` `GearNoiseTerm` (term exists); `FakeMountDriver` legacy still to retire (step 5) |
+| Atmospheric seeing | Atmosphere | stochastic (zero-mean, per-frame) | no with mount; yes with AO | `FakeCamera.SeeingArcsec` -> `AtmosphericSeeingTerm` / `SensorDelta` -- DONE |
 
 ## Migration plan
 
@@ -224,17 +229,18 @@ sequenceDiagram
 | 1 | Introduce `IDisturbanceTerm`, `DisturbanceStage`, `DisturbanceCharacter`, `DisturbanceContext`, `DisturbanceModel`, `CorrectionActuator` (pure, in `TianWen.Lib/Devices/Fake/Disturbance/`) | M |
 | 2 | Port the existing math into terms: `PeriodicError`, `PolarMisalignment`, `Flexure`, `CableSnag`, `WindGust`, `GearNoise`, `AtmosphericSeeing` (lift from `FakeMountDriver.UpdateTrackingState` + the `FakeCamera` PE + `SyntheticStarFieldRenderer` seeing hook) | M |
 | 3 | **DONE.** `FakeSkywatcherMountDriver` composes a `DisturbanceModel`; `GetTruePointingNativeAsync` = believed + `PointingDelta`. | M |
-| 4 | **DONE.** Worm PE is now a mount Drivetrain term (positional, on the TRUE pointing via `ReadRaWormPhaseRadiansAsync`); `FakeCameraDriver.IntegratePeDrift` applies camera-side PE only standalone. Seeing via `SensorDelta` post-projection remains a future coupling-path knob (step 7). | S |
-| 5 | Retire `FakeMountDriver._accumulated*` -- either delete it (if all tests migrate) or reimplement `UpdateTrackingState` to compose the same `DisturbanceModel`. **Remove the sidereal-into-RA term entirely.** | M |
-| 6 | Migrate `GuideLoopTests.SetupGuidedMount` to drive frames through a `FakeCamera` coupled to a `FakeSkywatcher` via `DeviceHub` (the `FakeCameraMountCouplingTests` harness). Re-baseline RMS thresholds against the now-~360-sample runs. | L |
-| 7 | Add `WindGust` + `AtmosphericSeeing` knobs to the coupling path if the neural guardrail needs its full disturbance palette (they exist on `FakeMountDriver` today; they need to be terms the coupling harness can configure). | S |
+| 4 | **DONE.** Worm PE is now a mount Drivetrain term (positional, on the TRUE pointing via `ReadRaWormPhaseRadiansAsync`); `FakeCameraDriver.IntegratePeDrift` applies camera-side PE only standalone. | S |
+| 5 | **PARTIAL.** The sidereal-into-RA term is **removed** (reported RA held, axis encoder rotates) plus two latent bugs fixed (accumulator reset, cable-snag latch). **Still open**: compose the shared `DisturbanceModel` into `FakeMountDriver` and retire the bespoke `_accumulated*` term math. | M |
+| 6 | **DONE.** All three `SetupGuidedMount` guide tests (wind+PE, cable-snag+PE, combined+seeing) drive frames through a `FakeCamera` coupled to a `FakeSkywatcher` via `DeviceHub`; the legacy `SetupGuidedMount` helper is deleted. Records 119 real samples (was ~2). | L |
+| 7 | **DONE.** Wind + flexure + cable-snag are mount knobs on the coupling path; `AtmosphericSeeing` is a `FakeCamera.SeeingArcsec` knob via `SensorDelta`. The coupling harness can configure the full disturbance palette. | S |
 
 ## Test impact
 
-- The neural-vs-P comparison and the other `SetupGuidedMount`-based tests
-  (`GivenWindGusts...`, `GivenCableSnag...`, `GivenCombinedDisturbances...`) currently record
-  ~2 samples; after migration they record ~360 and their RMS assertions become meaningful.
-  Thresholds must be re-baselined in the same change (expect them to move).
+- The neural-vs-P comparison and the formerly `SetupGuidedMount`-based tests
+  (`GivenWindGusts...`, `GivenCableSnag...`, `GivenCombinedDisturbances...`) used to record
+  ~2 samples; **migrated** to the coupling harness they record 119 real samples and their RMS
+  assertions are meaningful (each also asserts `TotalSamples > 50`). The RMS bound stayed 15 px
+  (very loose); the real-sample-count assertion is the substantive new check.
 - `FakeCameraMountCouplingTests` should pass unchanged -- it already uses the believed/true
   seam; it just gains more term types behind the same coupling.
 - `FakeSkywatcherMisalignmentTests` (pure static math) and `PolarAlignmentSessionTests`
