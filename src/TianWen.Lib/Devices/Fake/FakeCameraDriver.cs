@@ -153,9 +153,6 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver
     private double _mountCachedRa;      // mount RA snapshot from the last StartExposureAsync (J2000 hours)
     private double _mountCachedDec;     // mount Dec snapshot (J2000 degrees)
     private bool _mountPointingValid;   // a snapshot has been taken at least once
-    private long? _mountRaAxisPos;      // RA axis encoder snapshot from the last StartExposureAsync (null = unavailable)
-    private uint _mountWormStepsRa;     // steps per worm revolution (probed once), 0 = unknown
-    private bool _mountWormProbed;      // worm-period probe attempted?
 
     // Main-camera-only: (true - believed) J2000 pointing delta snapshot taken per
     // exposure when the coupled mount models hidden alignment errors
@@ -253,11 +250,13 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver
 
     /// <summary>
     /// Updates the PE component of the star position. Called each frame before rendering.
-    /// Preferred path: positional PE keyed to the coupled mount's RA worm rotation
-    /// (encoder position mod worm period, snapshot taken in StartExposureAsync) — the
-    /// same phase the neural guider reads through its encoder features, so disturbance
-    /// and feature stay correlated. Fallback (no coupled mount / encoder unavailable):
-    /// the original wall-clock sine integration.
+    /// STANDALONE ONLY (no coupled mount): the original wall-clock sine integration, kept for the
+    /// self-contained unit-test camera. When a mount IS coupled, periodic error is the mount's
+    /// responsibility — it rides on the mount's TRUE pointing (FakeSkywatcher's positional
+    /// <see cref="Disturbance.Terms.PeriodicErrorTerm"/>, keyed to the RA worm encoder) and reaches
+    /// the sensor through the moving projection centre (guide cam: the live mount pointing snapshot;
+    /// main cam: the true-minus-believed delta). Applying it here too would double-count it
+    /// (<c>_starPositionX</c> + the mount-drift term both carrying the same swing).
     /// </summary>
     private void IntegratePeDrift()
     {
@@ -266,20 +265,10 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver
             return;
         }
 
-        long? axisPos;
-        uint wormSteps;
-        lock (_lock)
+        // Coupled: the mount owns periodic error (see remarks). Leave _starPositionX untouched —
+        // when coupled, ST-4 forwards to the mount and never writes it either, so it stays 0.
+        if (ResolveCoupledMount() is not null)
         {
-            axisPos = _mountRaAxisPos;
-            wormSteps = _mountWormStepsRa;
-        }
-        if (axisPos is long pos && wormSteps > 0)
-        {
-            // Positional: the worm angle IS the PE phase. ST-4 never writes to
-            // _starPositionX when a mount is coupled (pulses forward to the mount),
-            // so overwriting it with the pure PE term is safe.
-            var wormPhase = 2.0 * Math.PI * (((pos % wormSteps) + wormSteps) % wormSteps) / wormSteps;
-            _starPositionX = PeAmplitudePixels * Math.Sin(wormPhase);
             return;
         }
 
@@ -812,25 +801,14 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver
                 }
                 var (mountRa, mountDec) = pointing;
 
-                // PE phase source: worm-gear periodic error is a function of worm rotation
-                // (RA axis encoder position mod worm period), not wall time — and it never
-                // shows up in encoder/pointing reads, only on the sensor. Snapshot the
-                // encoder here so the (sync) render path computes the PE displacement
-                // positionally; this is what makes the neural guider's encoder-phase
-                // features [22-25] correlate with the disturbance they exist to predict.
-                if (!_mountWormProbed)
-                {
-                    _mountWormProbed = true;
-                    _mountWormStepsRa = await coupledMount.GetWormPeriodStepsAsync(TelescopeAxis.Primary, cancellationToken).ConfigureAwait(false);
-                }
-                var axisPos = _mountWormStepsRa > 0
-                    ? await coupledMount.GetAxisPositionAsync(TelescopeAxis.Primary, cancellationToken).ConfigureAwait(false)
-                    : null;
-
+                // Worm-gear periodic error rides on the mount's TRUE pointing now (FakeSkywatcher's
+                // positional PeriodicErrorTerm, keyed to its own RA worm encoder), so the swing is
+                // already in (mountRa, mountDec) above and reaches the sensor through the live
+                // projection centre — no encoder snapshot needed here, and IntegratePeDrift no longer
+                // applies camera-side PE when a mount is coupled (it would double-count this term).
                 var slewDetected = false;
                 lock (_lock)
                 {
-                    _mountRaAxisPos = axisPos;
                     if (_mountPointingValid && IsSlewSizedJump(_mountCachedRa, _mountCachedDec, mountRa, mountDec))
                     {
                         // GOTO between exposures: re-baseline the zero-drift reference and reset

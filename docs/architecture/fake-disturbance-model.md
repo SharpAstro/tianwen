@@ -10,11 +10,19 @@
 - **Step 6 (partial, earlier)**: the neural-vs-P comparison test
   (`GuideLoopTests.GivenSameScenarioWhenNeuralPlusPVsPOnlyThenNeuralIsNotWorse`) already runs on the
   coupling harness via `SetupCoupledGuidedMount` (~99 real samples, asserts `TotalSamples > 50`).
-- **Step 3 (in progress)**: `FakeSkywatcher` composes a `DisturbanceModel` and layers `PointingDelta`
-  onto the believed->true read; inert until a knob is set.
-- **Open**: move worm PE camera->mount (step 4), retire `FakeMountDriver._accumulated*` + the
-  sidereal-into-RA bug (step 5), migrate the wind/cable-snag/combined `SetupGuidedMount` tests
-  (steps 6-7).
+- **Step 3 DONE** (commit 713ce6d): `FakeSkywatcher` composes a `DisturbanceModel` and layers
+  `PointingDelta` onto the believed->true read; inert until a knob is set.
+- **Steps 4 + 2b DONE**: worm periodic error moved camera->mount. `FakeSkywatcher.ReadRaWormPhaseRadiansAsync`
+  computes the worm phase from its own RA encoder (`PosRa` mod the probed worm period) and feeds the
+  positional `PeriodicErrorTerm`, so PE rides on the TRUE pointing and the coupled guide camera
+  observes it through the live projection centre. `FakeCameraDriver.IntegratePeDrift` now applies
+  camera-side PE only when NO mount is coupled (standalone unit-test path); the worm-encoder snapshot
+  machinery (`_mountRaAxisPos` / `_mountWormStepsRa`) is gone. This also makes `pePeakToPeakArcsec=0`
+  a genuinely PE-free scenario (previously the camera's 20" default leaked in) and applies the
+  physical `cos(dec)` factor PE picks up on conversion to sensor pixels. Verified: adding 15" PE
+  nearly doubles the P-only RA RMS (0.026 -> 0.049 px) with Dec ~flat -- the RA-dominant signature.
+- **Open**: retire `FakeMountDriver._accumulated*` + the sidereal-into-RA bug (step 5), migrate the
+  wind/cable-snag/combined `SetupGuidedMount` tests (steps 6-7).
 
 ### Design refinement adopted during implementation
 
@@ -180,7 +188,7 @@ sequenceDiagram
 
 | Term | Stage | Character | Correctable by mount pulse? | Source today |
 |---|---|---|:--:|---|
-| Periodic error | Drivetrain | periodic (worm phase) | yes | `FakeCamera` (positional) + `FakeMountDriver` (time-based) -- unify on positional |
+| Periodic error | Drivetrain | periodic (worm phase) | yes | `FakeSkywatcher` (positional `PeriodicErrorTerm`, on the TRUE pointing) -- DONE; `FakeMountDriver` (legacy time-based) still to retire (step 5) |
 | Polar misalignment | MountAxis | drift (HA-dependent) | yes | `FakeSkywatcher` (real tilt) -- keep, make a term |
 | Flexure | OpticalTube | drift (HA-dependent) | yes | `FakeMountDriver` |
 | Cable snag | OpticalTube | impulse (at HA/time) | yes (as a step) | `FakeMountDriver` |
@@ -195,8 +203,8 @@ sequenceDiagram
 |---|---|---|
 | 1 | Introduce `IDisturbanceTerm`, `DisturbanceStage`, `DisturbanceCharacter`, `DisturbanceContext`, `DisturbanceModel`, `CorrectionActuator` (pure, in `TianWen.Lib/Devices/Fake/Disturbance/`) | M |
 | 2 | Port the existing math into terms: `PeriodicError`, `PolarMisalignment`, `Flexure`, `CableSnag`, `WindGust`, `GearNoise`, `AtmosphericSeeing` (lift from `FakeMountDriver.UpdateTrackingState` + the `FakeCamera` PE + `SyntheticStarFieldRenderer` seeing hook) | M |
-| 3 | `FakeSkywatcherMountDriver` composes a `DisturbanceModel`; `GetTruePointingNativeAsync` = believed + `PointingDelta`. Move worm PE from the camera to a Drivetrain term so it is positional in one place. | M |
-| 4 | `FakeCameraDriver` render: pointing from the true seam, plus `SensorDelta` (seeing) added post-projection. Drop the camera-side PE once it is a mount term. | S |
+| 3 | **DONE.** `FakeSkywatcherMountDriver` composes a `DisturbanceModel`; `GetTruePointingNativeAsync` = believed + `PointingDelta`. | M |
+| 4 | **DONE.** Worm PE is now a mount Drivetrain term (positional, on the TRUE pointing via `ReadRaWormPhaseRadiansAsync`); `FakeCameraDriver.IntegratePeDrift` applies camera-side PE only standalone. Seeing via `SensorDelta` post-projection remains a future coupling-path knob (step 7). | S |
 | 5 | Retire `FakeMountDriver._accumulated*` -- either delete it (if all tests migrate) or reimplement `UpdateTrackingState` to compose the same `DisturbanceModel`. **Remove the sidereal-into-RA term entirely.** | M |
 | 6 | Migrate `GuideLoopTests.SetupGuidedMount` to drive frames through a `FakeCamera` coupled to a `FakeSkywatcher` via `DeviceHub` (the `FakeCameraMountCouplingTests` harness). Re-baseline RMS thresholds against the now-~360-sample runs. | L |
 | 7 | Add `WindGust` + `AtmosphericSeeing` knobs to the coupling path if the neural guardrail needs its full disturbance palette (they exist on `FakeMountDriver` today; they need to be terms the coupling harness can configure). | S |

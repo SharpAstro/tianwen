@@ -1190,18 +1190,23 @@ public class GuideLoopTests(ITestOutputHelper output)
         await mount.SetTrackingAsync(true, ct);
         await mount.SyncRaDecAsync(6.0, 45.0, ct);
 
-        // Coupled guide camera (URI names it GuideCam -> couples to the mount drift). Worm PE
-        // amplitude is the second disturbance; it renders positionally from the mount's RA encoder.
+        // Worm PE is the second disturbance: a MOUNT term now (FakeSkywatcher's positional
+        // PeriodicErrorTerm, keyed to its own RA worm encoder), so it rides on the true pointing
+        // and the coupled guide camera observes it through the live projection centre -- the camera
+        // no longer applies its own PE when coupled. Setting it here (not on the camera) is what
+        // makes pePeakToPeakArcsec=0 a genuinely PE-free "polar misalignment only" scenario.
+        if (pePeakToPeakArcsec > 0)
+        {
+            ((FakeSkywatcherMountDriver)mount).PePeakTopeakArcsec = pePeakToPeakArcsec;
+        }
+
+        // Coupled guide camera (URI names it GuideCam -> couples to the mount drift).
         var guideCam = (FakeCameraDriver)await hub.ConnectAsync(
             new FakeDevice(new Uri("camera://FakeDevice/FakeGuideCam1#Fake Guide Cam")), ct);
         guideCam.FocalLength = 130;
         guideCam.BinX = 1;
         guideCam.NumX = 800;
         guideCam.NumY = 600;
-        if (pePeakToPeakArcsec > 0)
-        {
-            guideCam.PePeakTopeakArcsec = pePeakToPeakArcsec;
-        }
 
         var exposure = TimeSpan.FromSeconds(1);
         var pollInterval = TimeSpan.FromMilliseconds(10);

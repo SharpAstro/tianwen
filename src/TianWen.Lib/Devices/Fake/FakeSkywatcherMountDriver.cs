@@ -198,6 +198,11 @@ internal class FakeSkywatcherMountDriver(FakeDevice device, IServiceProvider ser
     private DisturbanceModel? _disturbances;
     private DateTimeOffset? _disturbanceEpoch;
 
+    // RA worm period in steps, probed once from the base (:s) value, 0 = unknown. Drives the
+    // positional periodic-error phase (worm angle = encoder position mod worm period).
+    private uint _wormStepsRa;
+    private bool _wormStepsRaProbed;
+
     /// <inheritdoc/>
     /// <remarks>
     /// The TRUE pointing applies a topocentric polar-misalignment transform on top
@@ -225,8 +230,10 @@ internal class FakeSkywatcherMountDriver(FakeDevice device, IServiceProvider ser
             : await ComputeMisalignedPointingAsync(baseRa, baseDec, cancellationToken);
         // Layer the additive perturbations (PE, flexure, wind, gear, cable snag) on top of the
         // believed->true polar transform. Inert until a term is configured, so the default mount
-        // (and a perfectly polar-aligned one) is unaffected.
-        return ApplyDisturbances(trueRa, trueDec);
+        // (and a perfectly polar-aligned one) is unaffected. The worm phase feeds the positional
+        // periodic-error term; reading it here (async) keeps ApplyDisturbances synchronous.
+        var wormPhase = await ReadRaWormPhaseRadiansAsync(cancellationToken);
+        return ApplyDisturbances(trueRa, trueDec, wormPhase);
     }
 
     /// <summary>
@@ -234,14 +241,14 @@ internal class FakeSkywatcherMountDriver(FakeDevice device, IServiceProvider ser
     /// the believed-&gt;true polar transform. Returns the input unchanged when no term is active
     /// (the common case), so the cost and the behaviour are both zero for an unconfigured mount.
     /// </summary>
-    private (double Ra, double Dec) ApplyDisturbances(double raHours, double decDeg)
+    private (double Ra, double Dec) ApplyDisturbances(double raHours, double decDeg, double wormPhaseRadians)
     {
         _disturbances ??= BuildDisturbanceModel();
         var epoch = _disturbanceEpoch ??= TimeProvider.GetUtcNow();
         var elapsedSeconds = (TimeProvider.GetUtcNow() - epoch).TotalSeconds;
 
         var (dRaArcsec, dDecArcsec) = _disturbances.PointingDelta(
-            new DisturbanceContext(elapsedSeconds, RaWormPhaseRadians()));
+            new DisturbanceContext(elapsedSeconds, wormPhaseRadians));
         if (dRaArcsec == 0.0 && dDecArcsec == 0.0)
         {
             return (raHours, decDeg);
@@ -264,11 +271,33 @@ internal class FakeSkywatcherMountDriver(FakeDevice device, IServiceProvider ser
 
     /// <summary>
     /// RA worm phase in radians for the positional periodic-error term, or <see cref="double.NaN"/>
-    /// when the worm period is unavailable (the PE term then falls back to a wall-clock sine).
-    /// Wired to the RA encoder when periodic error moves onto the mount (Phase 2b); NaN today, which
-    /// is harmless while <see cref="PePeakTopeakArcsec"/> defaults to 0.
+    /// when periodic error is off or the worm period is unknown (the PE term then falls back to a
+    /// wall-clock sine). The worm angle IS the PE phase: the RA encoder position folded into
+    /// [0, 2pi) by the worm period. Reads <see cref="SkywatcherMountDriverBase{TDevice}.PosRa"/>,
+    /// which <see cref="GetTruePointingNativeAsync"/> just refreshed via the base RA read (the
+    /// <c>j 1</c> query), so no extra encoder round-trip is needed; the worm period is probed once
+    /// and cached. This is the same phase the fake guide camera read before periodic error moved
+    /// onto the mount, so the disturbance the guider chases stays correlated with the RA encoder.
     /// </summary>
-    private double RaWormPhaseRadians() => double.NaN;
+    private async ValueTask<double> ReadRaWormPhaseRadiansAsync(CancellationToken cancellationToken)
+    {
+        if (PePeakTopeakArcsec <= 0.0)
+        {
+            return double.NaN;
+        }
+        if (!_wormStepsRaProbed)
+        {
+            _wormStepsRaProbed = true;
+            _wormStepsRa = await GetWormPeriodStepsAsync(TelescopeAxis.Primary, cancellationToken);
+        }
+        if (_wormStepsRa == 0)
+        {
+            return double.NaN;
+        }
+        long steps = _wormStepsRa;
+        long pos = PosRa;
+        return 2.0 * Math.PI * (((pos % steps) + steps) % steps) / steps;
+    }
 
     /// <inheritdoc/>
     /// <remarks>
