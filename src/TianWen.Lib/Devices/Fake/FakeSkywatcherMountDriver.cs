@@ -5,6 +5,8 @@ using System.Threading;
 using System.Threading.Tasks;
 using TianWen.Lib.Astrometry;
 using TianWen.Lib.Astrometry.SOFA;
+using TianWen.Lib.Devices.Fake.Disturbance;
+using TianWen.Lib.Devices.Fake.Disturbance.Terms;
 using TianWen.Lib.Devices.Skywatcher;
 
 namespace TianWen.Lib.Devices.Fake;
@@ -151,6 +153,51 @@ internal class FakeSkywatcherMountDriver(FakeDevice device, IServiceProvider ser
     /// </summary>
     private const double NearPoleDeg = 5.0;
 
+    // ---- Additive disturbance perturbations -------------------------------------------------
+    // Layered on top of the believed->true polar transform via the shared DisturbanceModel. All
+    // default OFF, so a mount without these knobs behaves exactly as before -- the coupling and
+    // polar-align suites are unaffected; the test harness opts in by setting them. Periodic worm
+    // error is a MOUNT term here (moved off the fake camera) so it lives in one place and the
+    // guide camera observes it through the true-pointing read.
+
+    /// <summary>Worm periodic-error peak-to-peak amplitude in arcsec (0 = off).</summary>
+    internal double PePeakTopeakArcsec { get; set; }
+
+    /// <summary>RA worm period in seconds.</summary>
+    internal double PePeriodSeconds { get; set; } = 600.0;
+
+    /// <summary>Differential flexure: Dec drift in arcsec per hour of hour-angle tracked (0 = off).</summary>
+    internal double FlexureDriftRateDecArcsecPerHaHour { get; set; }
+
+    /// <summary>Wind-gust stationary amplitude in arcsec (0 = off).</summary>
+    internal double WindGustAmplitudeArcsec { get; set; }
+
+    /// <summary>Wind-gust correlation (decay) time in seconds.</summary>
+    internal double WindGustDecayTimeSeconds { get; set; } = 8.0;
+
+    /// <summary>Gear-noise stationary amplitude in arcsec (0 = off).</summary>
+    internal double GearNoiseArcsec { get; set; }
+
+    /// <summary>Gear-noise correlation (decay) time in seconds.</summary>
+    internal double GearNoiseDecayTimeSeconds { get; set; } = 0.5;
+
+    /// <summary>Cable-snag trigger time in seconds since the disturbance epoch (0 = off).</summary>
+    internal double CableSnagTimeSeconds { get; set; }
+
+    /// <summary>Cable-snag RA step in arcsec, applied once at <see cref="CableSnagTimeSeconds"/>.</summary>
+    internal double CableSnagAmplitudeRaArcsec { get; set; }
+
+    /// <summary>Cable-snag Dec step in arcsec.</summary>
+    internal double CableSnagAmplitudeDecArcsec { get; set; }
+
+    private const double ArcsecPerRaHour = 3600.0 * 15.0; // RA-coordinate arcsec per hour
+    private const double ArcsecPerDegree = 3600.0;
+
+    // Built lazily on the first true-pointing read (after the knobs above are set), then cached so
+    // the stochastic terms (wind / gear) keep their state across frames.
+    private DisturbanceModel? _disturbances;
+    private DateTimeOffset? _disturbanceEpoch;
+
     /// <inheritdoc/>
     /// <remarks>
     /// The TRUE pointing applies a topocentric polar-misalignment transform on top
@@ -173,12 +220,55 @@ internal class FakeSkywatcherMountDriver(FakeDevice device, IServiceProvider ser
     {
         var baseRa = await base.GetRightAscensionAsync(cancellationToken);
         var baseDec = await base.GetDeclinationAsync(cancellationToken);
-        if (!MisalignmentEnabled || CprRa == 0)
-        {
-            return (baseRa, baseDec);
-        }
-        return await ComputeMisalignedPointingAsync(baseRa, baseDec, cancellationToken);
+        var (trueRa, trueDec) = !MisalignmentEnabled || CprRa == 0
+            ? (baseRa, baseDec)
+            : await ComputeMisalignedPointingAsync(baseRa, baseDec, cancellationToken);
+        // Layer the additive perturbations (PE, flexure, wind, gear, cable snag) on top of the
+        // believed->true polar transform. Inert until a term is configured, so the default mount
+        // (and a perfectly polar-aligned one) is unaffected.
+        return ApplyDisturbances(trueRa, trueDec);
     }
+
+    /// <summary>
+    /// Adds the configured additive disturbance perturbations to a pointing that already carries
+    /// the believed-&gt;true polar transform. Returns the input unchanged when no term is active
+    /// (the common case), so the cost and the behaviour are both zero for an unconfigured mount.
+    /// </summary>
+    private (double Ra, double Dec) ApplyDisturbances(double raHours, double decDeg)
+    {
+        _disturbances ??= BuildDisturbanceModel();
+        var epoch = _disturbanceEpoch ??= TimeProvider.GetUtcNow();
+        var elapsedSeconds = (TimeProvider.GetUtcNow() - epoch).TotalSeconds;
+
+        var (dRaArcsec, dDecArcsec) = _disturbances.PointingDelta(
+            new DisturbanceContext(elapsedSeconds, RaWormPhaseRadians()));
+        if (dRaArcsec == 0.0 && dDecArcsec == 0.0)
+        {
+            return (raHours, decDeg);
+        }
+
+        var raOut = (raHours + dRaArcsec / ArcsecPerRaHour) % 24.0;
+        if (raOut < 0.0) raOut += 24.0;
+        var decOut = Math.Clamp(decDeg + dDecArcsec / ArcsecPerDegree, -90.0, 90.0);
+        return (raOut, decOut);
+    }
+
+    private DisturbanceModel BuildDisturbanceModel() => new(new IDisturbanceTerm[]
+    {
+        new PeriodicErrorTerm(PePeakTopeakArcsec, PePeriodSeconds),
+        new FlexureTerm(FlexureDriftRateDecArcsecPerHaHour),
+        new CableSnagTerm(CableSnagTimeSeconds, CableSnagAmplitudeRaArcsec, CableSnagAmplitudeDecArcsec),
+        new WindGustTerm(WindGustAmplitudeArcsec, WindGustDecayTimeSeconds),
+        new GearNoiseTerm(GearNoiseArcsec, GearNoiseDecayTimeSeconds),
+    });
+
+    /// <summary>
+    /// RA worm phase in radians for the positional periodic-error term, or <see cref="double.NaN"/>
+    /// when the worm period is unavailable (the PE term then falls back to a wall-clock sine).
+    /// Wired to the RA encoder when periodic error moves onto the mount (Phase 2b); NaN today, which
+    /// is harmless while <see cref="PePeakTopeakArcsec"/> defaults to 0.
+    /// </summary>
+    private double RaWormPhaseRadians() => double.NaN;
 
     /// <inheritdoc/>
     /// <remarks>

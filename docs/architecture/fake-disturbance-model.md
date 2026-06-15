@@ -1,12 +1,31 @@
 # Fake Mount/Camera Disturbance Model
 
-**Status: PROPOSED (design under review).** First step landed pragmatically: the neural-vs-P
-comparison test (`GuideLoopTests.GivenSameScenarioWhenNeuralPlusPVsPOnlyThenNeuralIsNotWorse`) is
-migrated onto the coupling harness via a new `SetupCoupledGuidedMount` helper (misaligned
-`FakeSkywatcher` + coupled `FakeCamera`, loop closed through mount pulses). It now records ~99 real
-guide samples per run instead of the 2-sample vacuity, and asserts `TotalSamples > 50`. This is the
-targeted slice of "Migration plan" step 6 using the *existing* fakes -- the full `IDisturbanceTerm`
-refactor (steps 1-5, 7) and migrating the other `SetupGuidedMount`-based tests are still open.
+**Status: IN PROGRESS.**
+
+- **Steps 1-2 DONE** (commit f8e71a9): the pure `Disturbance/` subsystem -- `IDisturbanceTerm`,
+  `DisturbanceModel` (`PointingDelta` vs `SensorDelta`), `CorrectionActuator` (derived
+  correctability), and the additive terms (PeriodicError positional, Flexure, CableSnag, WindGust,
+  GearNoise, AtmosphericSeeing) over a shared `OrnsteinUhlenbeck2D`. 9 unit tests in
+  `DisturbanceModelTests`.
+- **Step 6 (partial, earlier)**: the neural-vs-P comparison test
+  (`GuideLoopTests.GivenSameScenarioWhenNeuralPlusPVsPOnlyThenNeuralIsNotWorse`) already runs on the
+  coupling harness via `SetupCoupledGuidedMount` (~99 real samples, asserts `TotalSamples > 50`).
+- **Step 3 (in progress)**: `FakeSkywatcher` composes a `DisturbanceModel` and layers `PointingDelta`
+  onto the believed->true read; inert until a knob is set.
+- **Open**: move worm PE camera->mount (step 4), retire `FakeMountDriver._accumulated*` + the
+  sidereal-into-RA bug (step 5), migrate the wind/cable-snag/combined `SetupGuidedMount` tests
+  (steps 6-7).
+
+### Design refinement adopted during implementation
+
+The arch originally listed **polar misalignment as an additive `IDisturbanceTerm`**. On contact with
+the code that is wrong: `FakeSkywatcher`'s misalignment is a *stateful believed->true coordinate
+transform* with three lifecycle regimes (near-pole encoder sweep, pre-sync axis tilt, post-sync
+tracking drift + commanded-deviation), position- and sync/goto-state-dependent. That is exactly what
+this doc calls *the universal carrier* -- so polar misalignment **stays the believed->true transform**,
+and the `DisturbanceModel` carries only the *additive perturbations* (PE, flexure, wind, gear) layered
+on top of it (plus seeing on the camera). Each effect still has exactly one home -- PE moves
+camera->mount -- which is the unification goal; there is no `PolarMisalignmentTerm`.
 
 A coherent way to model guiding disturbances (periodic error, polar misalignment,
 flexure, cable snag, wind, atmospheric seeing, gear noise) across the fake mount and
