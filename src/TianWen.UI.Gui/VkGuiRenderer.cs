@@ -361,12 +361,12 @@ namespace TianWen.UI.Gui
                     // [<] previous day — closer to the date text
                     RenderButton("\u25C0", centerX + arrowInset, 0, arrowW, sbh, _fontPath, arrowFontSize,
                         arrowBg, StatusText, "DatePrev",
-                        _ => { PlannerActions.ShiftPlanningDate(plannerState, timeProvider, -1); });
+                        _ => { PlannerActions.ShiftPlanningDate(plannerState, timeProvider, -1, _skyMapTab.State); });
 
                     // [>] next day — closer to the date text
                     RenderButton("\u25B6", centerX + centerW - arrowW - arrowInset, 0, arrowW, sbh, _fontPath, arrowFontSize,
                         arrowBg, StatusText, "DateNext",
-                        _ => { PlannerActions.ShiftPlanningDate(plannerState, timeProvider, +1); });
+                        _ => { PlannerActions.ShiftPlanningDate(plannerState, timeProvider, +1, _skyMapTab.State); });
                 }
 
                 // Date + night window label between arrows

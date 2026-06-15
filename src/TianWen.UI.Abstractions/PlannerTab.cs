@@ -140,8 +140,12 @@ namespace TianWen.UI.Abstractions
             _currentTime = now;
             _timeProvider = timeProvider;
 
-            // Only pass current time to chart if planning for tonight
-            var chartCurrentTime = state.PlanningDate.HasValue ? (DateTimeOffset?)null : now;
+            // Always hand the chart the live "now". The renderer only draws the elapsed-time
+            // shade when now falls inside the displayed night's [tStart, tEnd] window, so it
+            // self-hides for any other night. Gating on PlanningDate == null was wrong: arrowing
+            // back to today sets PlanningDate to a concrete (non-null) date, which used to suppress
+            // the shade even though the chart is showing tonight.
+            var chartCurrentTime = now;
             // Only show mouse follower when not dragging and mouse is inside the chart area
             (float, float)? mousePos = null;
             if (state.DraggingSliderIndex < 0 && _appMousePosition is var (mx, my)
@@ -618,6 +622,17 @@ namespace TianWen.UI.Abstractions
 
                 case InputKey.Right when _timeProvider is not null:
                     PlannerActions.ShiftPlanningDate(state, _timeProvider, 1);
+                    return true;
+
+                // PageUp/PageDown mirror Right/Left (date +1 / -1), matching the sky-map tab's
+                // convention so the two tabs step the night identically. No scrub fold here —
+                // the planner has no visual scrub of its own.
+                case InputKey.PageUp when _timeProvider is not null:
+                    PlannerActions.ShiftPlanningDate(state, _timeProvider, 1);
+                    return true;
+
+                case InputKey.PageDown when _timeProvider is not null:
+                    PlannerActions.ShiftPlanningDate(state, _timeProvider, -1);
                     return true;
 
                 default:

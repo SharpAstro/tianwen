@@ -50,12 +50,24 @@ public static class PlannerActions
     /// Shifts the planning date by the given number of days (+1 = tomorrow, -1 = yesterday).
     /// Sets <see cref="PlannerState.PlanningDate"/> and flags for recomputation.
     /// </summary>
-    public static void ShiftPlanningDate(PlannerState state, ITimeProvider timeProvider, int days)
+    /// <param name="skyMap">
+    /// Optional sky-map state. When supplied, any visual scrub offset
+    /// (<see cref="SkyMapState.TimeOffset"/>) is folded into the new planning date and cleared, so the
+    /// planner "catches up" to the scrubbed view (an auto-reset) and the sky map and planner panel stay
+    /// on the SAME night. Without it, scrub +2d then date +1d would show the sky at +3d while the panel
+    /// computed +1d. Pass null (or a zero offset) for a plain date shift.
+    /// </param>
+    public static void ShiftPlanningDate(PlannerState state, ITimeProvider timeProvider, int days, SkyMapState? skyMap = null)
     {
         // Default "tonight" in the site's timezone, not the machine's, so the calendar date we
         // step from matches the observing night the user sees on the chart.
         var current = state.PlanningDate ?? timeProvider.GetUtcNow().ToOffset(state.SiteTimeZone);
-        state.PlanningDate = current.AddDays(days);
+        var scrub = skyMap?.TimeOffset ?? TimeSpan.Zero;
+        state.PlanningDate = current.AddDays(days) + scrub;
+        if (skyMap is not null)
+        {
+            skyMap.TimeOffset = TimeSpan.Zero;
+        }
         state.NeedsRecompute = true;
         state.NeedsRedraw = true;
     }
