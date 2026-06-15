@@ -1,9 +1,13 @@
 using TianWen.Lib.Imaging;
 using Shouldly;
 using System;
+using System.Collections.Specialized;
+using System.Globalization;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using TianWen.DAL;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Devices.Fake;
@@ -832,38 +836,41 @@ public class GuideLoopTests(ITestOutputHelper output)
     }
 
     [Theory(Timeout = 120_000)]
-    [InlineData(2.0, 0.0, "good seeing")]
-    [InlineData(4.0, 0.0, "poor seeing")]
-    [InlineData(2.0, 0.3, "good seeing + polar drift")]
-    [InlineData(4.0, 0.3, "poor seeing + polar drift")]
+    [InlineData(0.0, "polar misalignment only")]
+    [InlineData(15.0, "polar misalignment + worm PE")]
     public async Task GivenSameScenarioWhenNeuralPlusPVsPOnlyThenNeuralIsNotWorse(
-        double seeingArcsec, double polarDriftDecArcsecPerSec, string label)
+        double pePeakToPeakArcsec, string label)
     {
         var ct = TestContext.Current.CancellationToken;
-        var iterations = IterationsForPeCycles(480.0, cycles: 1.5);
+        var iterations = 100;
 
-        // Identical scenario for both runs: PE + wind + seeing, plus (in the drift cases) a
-        // constant-rate polar-misalignment Dec drift. That drift is a ramp disturbance — a pure
-        // P-controller can only track it with a steady-state following error, so it stresses the
-        // guardrail in a way the bounded/oscillatory PE+wind+seeing terms don't. The assertion
-        // proves the neural model doesn't make that worse; in production the perf-monitor would
-        // shadow-compare and disable the model if it did.
+        // Identical scenario for both runs, on the HONEST coupling harness (misaligned
+        // FakeSkywatcher + coupled guide cam, loop closed through mount pulses): a residual
+        // polar-misalignment drift (mostly Dec) plus, in the second case, worm periodic error.
+        // The guide star stays in frame, so the loop records hundreds of REAL error samples --
+        // unlike the old FakeMountDriver hand-rolled renderer, which baked the sidereal baseline
+        // into reported RA and so recorded only ~2 samples (see docs/known-limitations.md). The
+        // assertion proves the neural model doesn't make guiding worse; in production the
+        // perf-monitor would shadow-compare and disable it if it did.
         // --- Run 1: P-controller only ---
-        var (_, pOnlyLoop, _, _, pOnlyRender) = await SetupGuidedMount(ct,
-            peAmplitude: 10.0, windAmplitude: 1.5, seeingArcsec: seeingArcsec,
-            polarDriftDecArcsecPerSec: polarDriftDecArcsecPerSec);
+        var (_, pOnlyLoop, _, _, pOnlyRender) = await SetupCoupledGuidedMount(ct,
+            pePeakToPeakArcsec: pePeakToPeakArcsec);
 
         await RunGuideIterations(pOnlyLoop, pOnlyRender, iterations, ct);
 
         var pOnlyRms = pOnlyLoop.ErrorTracker.TotalRmsAll;
-        output.WriteLine($"[{label}] P-only total RMS: {pOnlyRms:F3} px");
+        output.WriteLine($"[{label}] P-only samples={pOnlyLoop.ErrorTracker.TotalSamples} total RMS: {pOnlyRms:F3} px");
         output.WriteLine($"[{label}] P-only RA RMS:    {pOnlyLoop.ErrorTracker.RaRmsAll:F3} px");
         output.WriteLine($"[{label}] P-only Dec RMS:   {pOnlyLoop.ErrorTracker.DecRmsAll:F3} px");
 
+        // The whole point of the migration: the loop must record a real distribution of guide
+        // errors, not the 2-sample vacuity of the old hand-rolled renderer.
+        pOnlyLoop.ErrorTracker.TotalSamples.ShouldBeGreaterThan(50u,
+            "the coupling harness must keep the guide star in frame and record real samples");
+
         // --- Run 2: Neural + P-controller (identical scenario) ---
-        var (_, neuralLoop, _, neuralCalResult, neuralRender) = await SetupGuidedMount(ct,
-            peAmplitude: 10.0, windAmplitude: 1.5, seeingArcsec: seeingArcsec,
-            polarDriftDecArcsecPerSec: polarDriftDecArcsecPerSec);
+        var (_, neuralLoop, _, neuralCalResult, neuralRender) = await SetupCoupledGuidedMount(ct,
+            pePeakToPeakArcsec: pePeakToPeakArcsec);
 
         var model = new NeuralGuideModel();
         model.InitializeRandom(seed: 42);
@@ -1134,11 +1141,109 @@ public class GuideLoopTests(ITestOutputHelper output)
 
     // --- Helpers ---
 
+    /// <summary>
+    /// Sets up a guided mount on the HONEST coupling harness: a misaligned
+    /// <see cref="FakeSkywatcherMountDriver"/> (residual polar-axis drift after sync is the
+    /// correctable disturbance) plus a coupled <see cref="FakeCameraDriver"/> guide camera that
+    /// renders the true (believed + misalignment) pointing. Unlike <see cref="SetupGuidedMount"/>
+    /// (FakeMountDriver + a hand-rolled renderer that bakes the sidereal baseline into reported RA,
+    /// so the guide star races out of frame in ~2 frames -- see docs/known-limitations.md), here the
+    /// star stays in frame and the loop records hundreds of real error samples. Disturbances:
+    /// worm periodic error (<paramref name="pePeakToPeakArcsec"/>) + polar-misalignment drift. The
+    /// loop closes through mount pulses. This is the docs/architecture/fake-disturbance-model.md
+    /// migration target for the neural-vs-P comparison.
+    /// </summary>
+    private async Task<(IMountDriver mount, GuideLoop guideLoop, GuiderCentroidTracker tracker,
+        GuiderCalibrationResult calResult, Func<CancellationToken, ValueTask<Image>> renderFrame)>
+        SetupCoupledGuidedMount(CancellationToken ct,
+            double pePeakToPeakArcsec = 0,
+            double polarMisalignAzArcmin = 30.0,
+            double polarMisalignAltArcmin = -10.0)
+    {
+        var timeProvider = new FakeTimeProviderWrapper(new DateTimeOffset(2025, 6, 15, 22, 0, 0, TimeSpan.Zero));
+        var external = new FakeExternal(output, timeProvider);
+
+        // A real DeviceHub so the guide camera self-resolves the coupled mount (mirrors
+        // FakeCameraMountCouplingTests). Logging stays at Warning to keep the per-frame
+        // "rendering N stars" Debug spam out of the way across the long capture loop.
+        var sp = new ServiceCollection()
+            .AddSingleton<IExternal>(external)
+            .AddSingleton<ITimeProvider>(external.TimeProvider)
+            .AddLogging(b => b.SetMinimumLevel(LogLevel.Warning))
+            .AddSingleton<IDeviceHub, DeviceHub>()
+            .BuildServiceProvider();
+        var hub = sp.GetRequiredService<IDeviceHub>();
+
+        // Misaligned SkyWatcher, tracking, synced away from the pole so the alignment is "learned"
+        // and the residual polar-axis drift (mostly Dec) is what the guider must chase.
+        var mountDevice = new FakeDevice(DeviceType.Mount, 1, new NameValueCollection
+        {
+            { "port", "SkyWatcher" },
+            { "latitude", "48.2" },
+            { "longitude", "16.3" },
+            { "polarMisalignmentAzArcmin", polarMisalignAzArcmin.ToString(CultureInfo.InvariantCulture) },
+            { "polarMisalignmentAltArcmin", polarMisalignAltArcmin.ToString(CultureInfo.InvariantCulture) },
+        });
+        var mount = (IMountDriver)await hub.ConnectAsync(mountDevice, ct);
+        await mount.SetSiteLatitudeAsync(48.2, ct);
+        await mount.SetSiteLongitudeAsync(16.3, ct);
+        await mount.SetTrackingAsync(true, ct);
+        await mount.SyncRaDecAsync(6.0, 45.0, ct);
+
+        // Coupled guide camera (URI names it GuideCam -> couples to the mount drift). Worm PE
+        // amplitude is the second disturbance; it renders positionally from the mount's RA encoder.
+        var guideCam = (FakeCameraDriver)await hub.ConnectAsync(
+            new FakeDevice(new Uri("camera://FakeDevice/FakeGuideCam1#Fake Guide Cam")), ct);
+        guideCam.FocalLength = 130;
+        guideCam.BinX = 1;
+        guideCam.NumX = 800;
+        guideCam.NumY = 600;
+        if (pePeakToPeakArcsec > 0)
+        {
+            guideCam.PePeakTopeakArcsec = pePeakToPeakArcsec;
+        }
+
+        var exposure = TimeSpan.FromSeconds(1);
+        var pollInterval = TimeSpan.FromMilliseconds(10);
+        var tracker = new GuiderCentroidTracker(maxStars: 1);
+
+        async ValueTask<Image> RenderFrame(CancellationToken token)
+            => await BuiltInGuiderDriver.CaptureGuideFrameAsync(
+                guideCam, exposure, timeProvider, pollInterval, token);
+
+        // Acquire + calibrate against the coupled camera, pulsing the mount directly (the pulse
+        // moves the believed encoders -> true pointing -> next frame, so the loop closes).
+        tracker.ProcessFrame((await RenderFrame(ct)).GetChannelArray(0));
+        var calibration = new GuiderCalibration
+        {
+            CalibrationPulseDuration = TimeSpan.FromSeconds(2),
+            CalibrationSteps = 4
+        };
+        var pulseTarget = new MountPulseGuideTarget(mount);
+        var calResult = await calibration.CalibrateAsync(pulseTarget, tracker, RenderFrame, timeProvider, ct);
+        calResult.ShouldNotBeNull();
+
+        // Re-acquire + lock at the post-calibration position.
+        tracker.Reset();
+        tracker.ProcessFrame((await RenderFrame(ct)).GetChannelArray(0));
+        tracker.SetLockPosition();
+
+        var pController = new ProportionalGuideController
+        {
+            AggressivenessRa = 0.7,
+            AggressivenessDec = 0.7,
+            MinPulseMs = 20
+        };
+        var guideLoop = new GuideLoop(pulseTarget, tracker, pController, timeProvider);
+        guideLoop.SetCalibration(calResult.Value);
+
+        return (mount, guideLoop, tracker, calResult.Value, RenderFrame);
+    }
+
     private async Task<(FakeMountDriver mount, GuideLoop guideLoop, GuiderCentroidTracker tracker,
         GuiderCalibrationResult calResult, Func<CancellationToken, ValueTask<Image>> renderFrame)>
         SetupGuidedMount(CancellationToken ct,
             double peAmplitude = 0, double pePeriod = 480.0, double windAmplitude = 0, double flexureRate = 0,
-            double polarDriftDecArcsecPerSec = 0, double polarDriftRaArcsecPerSec = 0,
             double cableSnagTime = 0, double cableSnagRa = 0, double cableSnagDec = 0,
             double seeingArcsec = 0)
     {
@@ -1190,8 +1295,6 @@ public class GuideLoopTests(ITestOutputHelper output)
         mount.PeriodicErrorPeriodSeconds = pePeriod;
         mount.WindGustAmplitudeArcsec = windAmplitude;
         mount.FlexureDriftRateDecArcsecPerHaHour = flexureRate;
-        mount.PolarDriftRateDecArcsecPerSec = polarDriftDecArcsecPerSec;
-        mount.PolarDriftRateRaArcsecPerSec = polarDriftRaArcsecPerSec;
         mount.CableSnagTimeSeconds = cableSnagTime;
         mount.CableSnagAmplitudeRaArcsec = cableSnagRa;
         mount.CableSnagAmplitudeDecArcsec = cableSnagDec;

@@ -1,6 +1,12 @@
 # Fake Mount/Camera Disturbance Model
 
-**Status: PROPOSED (design under review).** No code written yet.
+**Status: PROPOSED (design under review).** First step landed pragmatically: the neural-vs-P
+comparison test (`GuideLoopTests.GivenSameScenarioWhenNeuralPlusPVsPOnlyThenNeuralIsNotWorse`) is
+migrated onto the coupling harness via a new `SetupCoupledGuidedMount` helper (misaligned
+`FakeSkywatcher` + coupled `FakeCamera`, loop closed through mount pulses). It now records ~99 real
+guide samples per run instead of the 2-sample vacuity, and asserts `TotalSamples > 50`. This is the
+targeted slice of "Migration plan" step 6 using the *existing* fakes -- the full `IDisturbanceTerm`
+refactor (steps 1-5, 7) and migrating the other `SetupGuidedMount`-based tests are still open.
 
 A coherent way to model guiding disturbances (periodic error, polar misalignment,
 flexure, cable snag, wind, atmospheric seeing, gear noise) across the fake mount and
