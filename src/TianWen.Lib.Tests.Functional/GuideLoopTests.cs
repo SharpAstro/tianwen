@@ -832,16 +832,26 @@ public class GuideLoopTests(ITestOutputHelper output)
     }
 
     [Theory(Timeout = 120_000)]
-    [InlineData(2.0, "good seeing")]
-    [InlineData(4.0, "poor seeing")]
-    public async Task GivenSameScenarioWhenNeuralPlusPVsPOnlyThenNeuralIsNotWorse(double seeingArcsec, string label)
+    [InlineData(2.0, 0.0, "good seeing")]
+    [InlineData(4.0, 0.0, "poor seeing")]
+    [InlineData(2.0, 0.3, "good seeing + polar drift")]
+    [InlineData(4.0, 0.3, "poor seeing + polar drift")]
+    public async Task GivenSameScenarioWhenNeuralPlusPVsPOnlyThenNeuralIsNotWorse(
+        double seeingArcsec, double polarDriftDecArcsecPerSec, string label)
     {
         var ct = TestContext.Current.CancellationToken;
         var iterations = IterationsForPeCycles(480.0, cycles: 1.5);
 
+        // Identical scenario for both runs: PE + wind + seeing, plus (in the drift cases) a
+        // constant-rate polar-misalignment Dec drift. That drift is a ramp disturbance — a pure
+        // P-controller can only track it with a steady-state following error, so it stresses the
+        // guardrail in a way the bounded/oscillatory PE+wind+seeing terms don't. The assertion
+        // proves the neural model doesn't make that worse; in production the perf-monitor would
+        // shadow-compare and disable the model if it did.
         // --- Run 1: P-controller only ---
         var (_, pOnlyLoop, _, _, pOnlyRender) = await SetupGuidedMount(ct,
-            peAmplitude: 10.0, windAmplitude: 1.5, seeingArcsec: seeingArcsec);
+            peAmplitude: 10.0, windAmplitude: 1.5, seeingArcsec: seeingArcsec,
+            polarDriftDecArcsecPerSec: polarDriftDecArcsecPerSec);
 
         await RunGuideIterations(pOnlyLoop, pOnlyRender, iterations, ct);
 
@@ -852,7 +862,8 @@ public class GuideLoopTests(ITestOutputHelper output)
 
         // --- Run 2: Neural + P-controller (identical scenario) ---
         var (_, neuralLoop, _, neuralCalResult, neuralRender) = await SetupGuidedMount(ct,
-            peAmplitude: 10.0, windAmplitude: 1.5, seeingArcsec: seeingArcsec);
+            peAmplitude: 10.0, windAmplitude: 1.5, seeingArcsec: seeingArcsec,
+            polarDriftDecArcsecPerSec: polarDriftDecArcsecPerSec);
 
         var model = new NeuralGuideModel();
         model.InitializeRandom(seed: 42);
@@ -1127,6 +1138,7 @@ public class GuideLoopTests(ITestOutputHelper output)
         GuiderCalibrationResult calResult, Func<CancellationToken, ValueTask<Image>> renderFrame)>
         SetupGuidedMount(CancellationToken ct,
             double peAmplitude = 0, double pePeriod = 480.0, double windAmplitude = 0, double flexureRate = 0,
+            double polarDriftDecArcsecPerSec = 0, double polarDriftRaArcsecPerSec = 0,
             double cableSnagTime = 0, double cableSnagRa = 0, double cableSnagDec = 0,
             double seeingArcsec = 0)
     {
@@ -1178,6 +1190,8 @@ public class GuideLoopTests(ITestOutputHelper output)
         mount.PeriodicErrorPeriodSeconds = pePeriod;
         mount.WindGustAmplitudeArcsec = windAmplitude;
         mount.FlexureDriftRateDecArcsecPerHaHour = flexureRate;
+        mount.PolarDriftRateDecArcsecPerSec = polarDriftDecArcsecPerSec;
+        mount.PolarDriftRateRaArcsecPerSec = polarDriftRaArcsecPerSec;
         mount.CableSnagTimeSeconds = cableSnagTime;
         mount.CableSnagAmplitudeRaArcsec = cableSnagRa;
         mount.CableSnagAmplitudeDecArcsec = cableSnagDec;
