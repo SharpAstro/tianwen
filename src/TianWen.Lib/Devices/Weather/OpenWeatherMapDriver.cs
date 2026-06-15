@@ -183,12 +183,17 @@ internal sealed class OpenWeatherMapDriver : IWeatherDriver
             return cached?.data ?? [];
         }
 
+        // Merge with the (now stale) cache so early-evening hours an earlier session captured -- which
+        // OWM's future-only 3-hour forecast no longer returns -- are retained rather than clobbered by
+        // the refetch.
+        var merged = WeatherForecastMerge.Merge(cached?.data, forecasts);
+
         // Cache result (non-fatal)
         await Logger.CatchAsync(
-            ct => _external.AtomicWriteJsonAsync(cacheFile, forecasts, OpenMeteoJsonContext.Default.ListHourlyWeatherForecast, ct),
+            ct => _external.AtomicWriteJsonAsync(cacheFile, merged, OpenMeteoJsonContext.Default.ListHourlyWeatherForecast, ct),
             cancellationToken);
 
-        return forecasts;
+        return merged;
     }
 
     /// <summary>

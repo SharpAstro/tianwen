@@ -172,12 +172,16 @@ internal sealed class OpenMeteoDriver : IWeatherDriver
         // Parse hourly data
         var forecasts = ParseHourlyData(apiResponse.Hourly, start, end);
 
+        // Merge with the (now stale) cache so early-evening hours an earlier session captured -- which
+        // a future-only forecast no longer returns -- are retained rather than clobbered by the refetch.
+        var merged = WeatherForecastMerge.Merge(cached?.data, forecasts);
+
         // Cache result (non-fatal — don't lose forecast data if caching fails)
         await Logger.CatchAsync(
-            ct => _external.AtomicWriteJsonAsync(cacheFile, forecasts, OpenMeteoJsonContext.Default.ListHourlyWeatherForecast, ct),
+            ct => _external.AtomicWriteJsonAsync(cacheFile, merged, OpenMeteoJsonContext.Default.ListHourlyWeatherForecast, ct),
             cancellationToken);
 
-        return forecasts;
+        return merged;
     }
 
     /// <summary>
