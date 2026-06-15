@@ -1,9 +1,12 @@
 using System;
 using System.Collections.Generic;
+using System.Numerics;
+using DIR.Lib;
 using Shouldly;
 using TianWen.Lib.Astrometry;
 using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Imaging;
+using TianWen.UI.Abstractions;
 using TianWen.UI.Abstractions.Overlays;
 using Xunit;
 
@@ -273,6 +276,26 @@ public class OverlayEngineTests
 
         lines[0].ShouldBe("eta Ori"); // Bayer (priority 2) before Flamsteed (priority 3)
         lines[1].ShouldBe("28 Ori");
+    }
+
+    [Fact]
+    public void BuildOverlayLabel_EqualPriorityNames_MatchesInfoPanelDisplayName()
+    {
+        // Several equal-priority (IAU-style, capital-leading) common names of different
+        // lengths. The overlay label must pick the SAME name the info panel shows
+        // (CelestialObject.DisplayName breaks a priority tie by longest-then-alphabetical),
+        // not an arbitrary HashSet-iteration-order alias. Regression: a pinned "Ophiuchus
+        // Molecular Cloud" landmark rendered its short alias "OPHIUCUS" while the info panel
+        // (SkyMapInfoPanelData.FromCatalogObject, which reads DisplayName) said the full name.
+        var names = new HashSet<string> { "OPHIUCUS", "Oph Cloud", "Ophiuchus Molecular Cloud" };
+        var obj = MakeObject(CatalogIndex.NGC1976, ObjectType.StarFormingReg, names);
+        var db = new FakeDB(obj);
+
+        var lines = OverlayEngine.BuildOverlayLabel(obj, CatalogIndex.NGC1976, db, zoom: 0.3f);
+
+        lines.Count.ShouldBe(1);
+        lines[0].ShouldBe("Ophiuchus Molecular Cloud"); // longest equal-priority name
+        lines[0].ShouldBe(obj.DisplayName);             // and exactly what the info panel shows
     }
 
     // --- ComputeScreenPA ---
@@ -690,6 +713,46 @@ public class OverlayEngineTests
             CD2_1 = 0.0,
             CD2_2 = 0.001658,
         };
+    }
+
+    // A Star Forming Region / molecular cloud is NOT an "extended" overlay type, so the overlay
+    // normally filters it out. When the user PINS it, it must still be gathered and rendered as a
+    // landmark. Regression: the object-TYPE gate ran BEFORE the pinned-bypass, so pinned SFR/cloud
+    // targets (e.g. "Ophiuchus Molecular Cloud") silently vanished from the map while a pinned
+    // ordinary nebula (Trifid) showed.
+    [Fact]
+    public void GatherSkyMapOverlayCandidates_PinnedNonExtendedType_IsStillGathered()
+    {
+        var cloud = new CelestialObject(
+            CatalogIndex.NGC1976, ObjectType.StarFormingReg, 12.0, 0.0,
+            default, Half.NaN, Half.NaN, Half.NaN,
+            new HashSet<string> { "Ophiuchus Molecular Cloud" });
+        var db = new FakeDB(cloud, gridRA: 12.0, gridDec: 0.0);
+
+        var state = new SkyMapState
+        {
+            Mode = SkyMapMode.Equatorial,
+            CenterRA = 12.0,
+            CenterDec = 0.0,
+            FieldOfViewDeg = 10.0,
+        };
+        var viewMatrix = state.ComputeViewMatrix();
+        var rect = new RectF32(0, 0, 1000, 1000);
+        var output = new List<OverlayCandidate>();
+
+        // Not pinned -> dropped by the type gate (SFR is neither extended nor a star).
+        OverlayEngine.GatherSkyMapOverlayCandidates(
+            viewMatrix, state.FieldOfViewDeg, rect, 1.0f, db, pinnedCatalogIndices: null, output);
+        output.ShouldNotContain(c => c.CatalogIndex == cloud.Index,
+            "an unpinned Star Forming Region is not an extended type, so it is filtered out");
+
+        // Pinned -> survives the type gate and is gathered as a pinned landmark.
+        OverlayEngine.GatherSkyMapOverlayCandidates(
+            viewMatrix, state.FieldOfViewDeg, rect, 1.0f, db,
+            new HashSet<CatalogIndex> { cloud.Index }, output);
+        var gathered = output.ShouldHaveSingleItem();
+        gathered.CatalogIndex.ShouldBe(cloud.Index);
+        gathered.IsPinned.ShouldBeTrue("a pinned target must render regardless of its object type");
     }
 
     /// <summary>

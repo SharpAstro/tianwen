@@ -83,21 +83,16 @@ public static class OverlayEngine
         var lines = new List<string>(4);
         var canonical = obj.Index.ToCanonical();
 
-        // Get best common name (sorted by priority)
-        string? bestName = null;
-        if (obj.CommonNames.Count > 0)
-        {
-            var bestScore = int.MaxValue;
-            foreach (var name in obj.CommonNames)
-            {
-                var score = GetNamePriority(name);
-                if (score < bestScore)
-                {
-                    bestScore = score;
-                    bestName = name;
-                }
-            }
-        }
+        // Primary label name. Delegate to CelestialObject.DisplayName so the overlay
+        // label and the sky-map info panel (SkyMapInfoPanelData.FromCatalogObject, which
+        // reads DisplayName) ALWAYS pick the same name. A bare lowest-score scan keeps the
+        // FIRST equal-priority name in HashSet iteration order, which surfaced an arbitrary
+        // short alias (e.g. "OPHIUCUS" instead of "Ophiuchus Molecular Cloud") for objects
+        // carrying several IAU-style names. DisplayName breaks priority ties by
+        // longest-then-alphabetical, so the two agree. DisplayName itself falls back to the
+        // canonical designation when there are no common names; we keep null in that case so
+        // the `?? canonical` below — and the "add canonical" logic further down — are unchanged.
+        string? bestName = obj.CommonNames.Count > 0 ? obj.DisplayName : null;
 
         if (zoom <= 0.5f)
         {
@@ -799,20 +794,14 @@ public static class OverlayEngine
                     var isExtended = IsExtendedObjectType(obj.ObjectType);
                     var isStar = IsStarType(obj.ObjectType);
 
-                    if (!isExtended && !isStar)
-                    {
-                        continue;
-                    }
-
-                    // Screen-size filter for DarkNeb: hide when on-screen size drops
-                    // below ~6 px (illegible anyway). Pinned planner targets bypass
-                    // this so the user always sees them. Entries without shape data
-                    // (e.g. Simbad NAME-only, no VizieR match) are hidden entirely --
-                    // they'd otherwise clutter wide views with placeholder circles.
-                    // Pin recognition has to cover obj.Index (canonical), catIdx (the
-                    // spatial-grid key we happened to enter on), AND any cross-refs --
-                    // otherwise a pinned target indexed under a different catalog
-                    // variant than the saved one would get filtered out here.
+                    // Pin recognition has to cover obj.Index (canonical), catIdx (the spatial-grid
+                    // key we happened to enter on), AND any cross-refs -- otherwise a pinned target
+                    // indexed under a different catalog variant than the saved one would be missed.
+                    // Computed UP FRONT so pinned planner targets bypass not only the magnitude and
+                    // dark-nebula filters but also the object-TYPE gate below: otherwise a pinned
+                    // target of a type the overlay doesn't normally draw (e.g. a Star Forming Region /
+                    // molecular cloud, which is not an "extended" type) would be dropped here and
+                    // never render, even though the user explicitly pinned it.
                     var isPinnedEarly = false;
                     if (pinnedCatalogIndices is not null)
                     {
@@ -829,6 +818,19 @@ public static class OverlayEngine
                             }
                         }
                     }
+
+                    // Only extended objects (galaxies / nebulae / clusters) and stars are drawn --
+                    // unless the object is pinned, in which case the user wants to see it regardless
+                    // of its type.
+                    if (!isExtended && !isStar && !isPinnedEarly)
+                    {
+                        continue;
+                    }
+
+                    // Screen-size filter for DarkNeb: hide when on-screen size drops below ~6 px
+                    // (illegible anyway). Pinned planner targets bypass this too. Entries without
+                    // shape data (e.g. Simbad NAME-only, no VizieR match) are hidden entirely --
+                    // they'd otherwise clutter wide views with placeholder circles.
                     if (obj.ObjectType == ObjectType.DarkNeb && !isPinnedEarly)
                     {
                         if (!db.TryGetShape(catIdx, out var dnShape) || Half.IsNaN(dnShape.MajorAxis))
@@ -860,11 +862,12 @@ public static class OverlayEngine
                         }
                     }
 
-                    // Pinned planner targets bypass magnitude cutoff and dark-nebula
-                    // filter so the user always sees their planned targets on the map.
-                    var isPinned = pinnedCatalogIndices is not null
-                        && obj.Index != default
-                        && pinnedCatalogIndices.Contains(obj.Index);
+                    // Pinned planner targets bypass the magnitude cutoff (and the type / dark-nebula
+                    // filters above) so the user always sees their planned targets on the map. Reuse
+                    // the full recognition from isPinnedEarly (obj.Index + catIdx + cross-refs) rather
+                    // than an obj.Index-only check, so a target pinned under any catalog variant both
+                    // survives the filters AND renders as the orange landmark.
+                    var isPinned = isPinnedEarly;
 
                     if (!isPinned)
                     {
