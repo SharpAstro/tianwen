@@ -34,8 +34,15 @@
   bespoke `_accumulated*` term math) -- best sequenced AFTER steps 6-7, since migrating the
   `SetupGuidedMount` guide tests to the coupling harness shrinks `FakeMountDriver`'s disturbance-knob
   consumers to just `FakeMountDriverTests`, making the checkpoint->on-read-delta rewrite low-risk.
-- **Open**: migrate the wind/cable-snag/combined `SetupGuidedMount` tests to the coupling harness
-  (steps 6-7), then finish step 5's model composition.
+- **Step 6 (partial)**: `SetupCoupledGuidedMount` gained wind / flexure / cable-snag params (set on the
+  FakeSkywatcher's composed model). The wind+PE (`GivenWindGustsWhenNeuralGuiding...`) and cable-snag+PE
+  (`GivenCableSnagWhenNeuralGuiding...`) tests are migrated off `SetupGuidedMount` -- they now record
+  119 real samples (was ~2) and assert `TotalSamples > 50`. Wind+PE RMS 0.484 px, cable-snag 0.061 px,
+  both far under the 15 px bound.
+- **Open**: the **combined** test (`GivenCombinedDisturbancesWhenNeuralGuiding...`) still uses
+  `SetupGuidedMount` because it needs **seeing**, which is camera-side (`AtmosphericSeeingTerm` ->
+  `SensorDelta`) and not yet wired into `FakeCameraDriver`'s coupling render path (step 7). Then finish
+  step 5's model composition into `FakeMountDriver`.
 
 ### Design refinement adopted during implementation
 

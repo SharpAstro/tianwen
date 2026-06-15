@@ -768,8 +768,10 @@ public class GuideLoopTests(ITestOutputHelper output)
     public async Task GivenWindGustsWhenNeuralGuidingThenRmsBounded()
     {
         var ct = TestContext.Current.CancellationToken;
-        var (mount, guideLoop, tracker, calResult, RenderFrame) = await SetupGuidedMount(ct,
-            peAmplitude: 10.0, windAmplitude: 2.0);
+        // Honest coupling harness (misaligned FakeSkywatcher + coupled guide cam, loop closed
+        // through mount pulses): worm PE + wind gusts, both on the mount's true pointing.
+        var (mount, guideLoop, tracker, calResult, RenderFrame) = await SetupCoupledGuidedMount(ct,
+            pePeakToPeakArcsec: 20.0, windAmplitudeArcsec: 2.0);
 
         var model = new NeuralGuideModel();
         model.InitializeRandom(seed: 42);
@@ -783,7 +785,9 @@ public class GuideLoopTests(ITestOutputHelper output)
 
         await RunGuideIterations(guideLoop, RenderFrame, IterationsForPeCycles(480.0), ct);
 
-        output.WriteLine($"Wind+PE RMS: {guideLoop.ErrorTracker.TotalRmsAll:F3} px");
+        output.WriteLine($"Wind+PE RMS: {guideLoop.ErrorTracker.TotalRmsAll:F3} px (samples={guideLoop.ErrorTracker.TotalSamples})");
+        guideLoop.ErrorTracker.TotalSamples.ShouldBeGreaterThan(50u,
+            "the coupling harness must keep the guide star in frame and record real samples");
         guideLoop.ErrorTracker.TotalRmsAll.ShouldBeLessThan(15.0,
             "guiding with PE + wind should keep RMS bounded");
     }
@@ -792,8 +796,10 @@ public class GuideLoopTests(ITestOutputHelper output)
     public async Task GivenCableSnagWhenNeuralGuidingThenRecovers()
     {
         var ct = TestContext.Current.CancellationToken;
-        var (mount, guideLoop, tracker, calResult, RenderFrame) = await SetupGuidedMount(ct,
-            peAmplitude: 10.0, cableSnagTime: 20.0, cableSnagRa: 8.0, cableSnagDec: -4.0);
+        // Honest coupling harness: worm PE plus a cable-snag step (a sudden RA+Dec tube shift), both
+        // on the mount's true pointing. The guider must absorb the step and keep recording samples.
+        var (mount, guideLoop, tracker, calResult, RenderFrame) = await SetupCoupledGuidedMount(ct,
+            pePeakToPeakArcsec: 20.0, cableSnagTimeSeconds: 20.0, cableSnagRaArcsec: 8.0, cableSnagDecArcsec: -4.0);
 
         var model = new NeuralGuideModel();
         model.InitializeRandom(seed: 42);
@@ -807,8 +813,9 @@ public class GuideLoopTests(ITestOutputHelper output)
 
         await RunGuideIterations(guideLoop, RenderFrame, IterationsForPeCycles(480.0), ct);
 
-        output.WriteLine($"CableSnag RMS: {guideLoop.ErrorTracker.TotalRmsAll:F3} px");
-        guideLoop.ErrorTracker.TotalSamples.ShouldBeGreaterThan(0u);
+        output.WriteLine($"CableSnag RMS: {guideLoop.ErrorTracker.TotalRmsAll:F3} px (samples={guideLoop.ErrorTracker.TotalSamples})");
+        guideLoop.ErrorTracker.TotalSamples.ShouldBeGreaterThan(50u,
+            "the coupling harness must keep the guide star in frame and record real samples through the snag");
     }
 
     [Fact(Timeout = 60_000)]
@@ -1158,7 +1165,12 @@ public class GuideLoopTests(ITestOutputHelper output)
         SetupCoupledGuidedMount(CancellationToken ct,
             double pePeakToPeakArcsec = 0,
             double polarMisalignAzArcmin = 30.0,
-            double polarMisalignAltArcmin = -10.0)
+            double polarMisalignAltArcmin = -10.0,
+            double windAmplitudeArcsec = 0,
+            double flexureRateDecArcsecPerHaHour = 0,
+            double cableSnagTimeSeconds = 0,
+            double cableSnagRaArcsec = 0,
+            double cableSnagDecArcsec = 0)
     {
         var timeProvider = new FakeTimeProviderWrapper(new DateTimeOffset(2025, 6, 15, 22, 0, 0, TimeSpan.Zero));
         var external = new FakeExternal(output, timeProvider);
@@ -1190,15 +1202,21 @@ public class GuideLoopTests(ITestOutputHelper output)
         await mount.SetTrackingAsync(true, ct);
         await mount.SyncRaDecAsync(6.0, 45.0, ct);
 
-        // Worm PE is the second disturbance: a MOUNT term now (FakeSkywatcher's positional
-        // PeriodicErrorTerm, keyed to its own RA worm encoder), so it rides on the true pointing
-        // and the coupled guide camera observes it through the live projection centre -- the camera
-        // no longer applies its own PE when coupled. Setting it here (not on the camera) is what
-        // makes pePeakToPeakArcsec=0 a genuinely PE-free "polar misalignment only" scenario.
-        if (pePeakToPeakArcsec > 0)
-        {
-            ((FakeSkywatcherMountDriver)mount).PePeakTopeakArcsec = pePeakToPeakArcsec;
-        }
+        // Additive mount disturbances, all on the FakeSkywatcher's TRUE pointing (its composed
+        // DisturbanceModel), observed by the coupled guide camera through the live projection centre:
+        //  - Worm PE: a MOUNT term now (positional PeriodicErrorTerm keyed to the RA worm encoder),
+        //    so the camera no longer applies its own PE when coupled. Setting it here (not on the
+        //    camera) is what makes pePeakToPeakArcsec=0 a genuinely PE-free scenario.
+        //  - Wind / flexure / cable snag: the same terms that used to live on FakeMountDriver's
+        //    hand-rolled UpdateTrackingState; the coupling harness now configures them in one place.
+        // All default 0 (off), so an unconfigured call is behaviour-neutral.
+        var skywatcher = (FakeSkywatcherMountDriver)mount;
+        skywatcher.PePeakTopeakArcsec = pePeakToPeakArcsec;
+        skywatcher.WindGustAmplitudeArcsec = windAmplitudeArcsec;
+        skywatcher.FlexureDriftRateDecArcsecPerHaHour = flexureRateDecArcsecPerHaHour;
+        skywatcher.CableSnagTimeSeconds = cableSnagTimeSeconds;
+        skywatcher.CableSnagAmplitudeRaArcsec = cableSnagRaArcsec;
+        skywatcher.CableSnagAmplitudeDecArcsec = cableSnagDecArcsec;
 
         // Coupled guide camera (URI names it GuideCam -> couples to the mount drift).
         var guideCam = (FakeCameraDriver)await hub.ConnectAsync(
