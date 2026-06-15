@@ -168,9 +168,6 @@ internal sealed class FakeMountDriver(FakeDevice fakeDevice, IServiceProvider se
     private Random? _windRng;
     private long _windLastUpdateTicks;
 
-    // Cable snag state
-    private bool _cableSnagApplied;
-
     // Gear noise state (Ornstein-Uhlenbeck process, like wind but faster-decaying)
     private double _gearNoiseStateRa;
     private double _gearNoiseStateDec;
@@ -329,7 +326,7 @@ internal sealed class FakeMountDriver(FakeDevice fakeDevice, IServiceProvider se
 
     // --- Encoder simulation ---
     // Simulates encoder ticks: 360° = EncoderTicksPerRevolution ticks
-    private const int EncoderTicksPerRevolution = 11_520_000; // typical high-res encoder
+    internal const int EncoderTicksPerRevolution = 11_520_000; // typical high-res encoder
 
     // 180 worm teeth (like EQ6), PE period = 11520000/180 = 64000 steps (~8 min at sidereal rate)
     private const int WormTeeth = 180;
@@ -694,9 +691,6 @@ internal sealed class FakeMountDriver(FakeDevice fakeDevice, IServiceProvider se
         _windRng = WindGustAmplitudeArcsec > 0 ? new Random(WindGustSeed) : null;
         _windLastUpdateTicks = _trackingCheckpointTicks;
 
-        // Reset cable snag
-        _cableSnagApplied = false;
-
         // Reset gear noise OU state and RNG
         _gearNoiseStateRa = 0;
         _gearNoiseStateDec = 0;
@@ -739,10 +733,24 @@ internal sealed class FakeMountDriver(FakeDevice fakeDevice, IServiceProvider se
 
         if (elapsedSeconds <= 0) return;
 
-        // 1. Sidereal tracking: RA advances to compensate for Earth rotation
-        _accumulatedRaHours = SIDEREAL_RATE_HOURS_PER_SECOND * elapsedSeconds;
+        // Reset the per-call accumulators. Every disturbance term below recomputes its
+        // contribution as a pure function of elapsed-since-checkpoint (not incrementally),
+        // so they must start from zero each call -- otherwise a flexure/wind-only config
+        // (no term that assigns Dec with '=') would accumulate per getter-call instead of
+        // tracking elapsed time.
+        _accumulatedRaHours = 0;
+        _accumulatedDecDegrees = 0;
 
-        // 2. Periodic error: sinusoidal RA error
+        // NOTE: NO sidereal term. A tracking mount HOLDS the target, so reported RA/Dec stay at
+        // the commanded position (plus the small disturbances below) and it is the RA-axis ENCODER
+        // (HA = LST - RA, see GetAxisPositionAsync) that advances at sidereal rate as the worm turns.
+        // The old `_accumulatedRaHours = sidereal * elapsed` made reported RA race at sidereal rate
+        // AND, because the encoder is derived from `LST - (_ra + _accumulatedRaHours)`, re-froze the
+        // axis encoder -- directly contradicting the axis-encoder model and producing the 2-sample
+        // guide-loop vacuity documented in docs/known-limitations.md. Worm PE keyed to the encoder
+        // therefore now correlates with real worm rotation.
+
+        // 1. Periodic error: sinusoidal RA error
         if (PeriodicErrorAmplitudeArcsec > 0 && PeriodicErrorPeriodSeconds > 0)
         {
             _accumulatedPeRaArcsec = PeriodicErrorAmplitudeArcsec
@@ -750,21 +758,21 @@ internal sealed class FakeMountDriver(FakeDevice fakeDevice, IServiceProvider se
             _accumulatedRaHours += _accumulatedPeRaArcsec / (ARCSEC_PER_DEGREE * HOURS2DEG);
         }
 
-        // 3. Polar misalignment drift in Dec
+        // 2. Polar misalignment drift in Dec
         if (PolarDriftRateDecArcsecPerSec != 0)
         {
             _accumulatedPolarDriftDecArcsec = PolarDriftRateDecArcsecPerSec * elapsedSeconds;
-            _accumulatedDecDegrees = _accumulatedPolarDriftDecArcsec / ARCSEC_PER_DEGREE;
+            _accumulatedDecDegrees += _accumulatedPolarDriftDecArcsec / ARCSEC_PER_DEGREE;
         }
 
-        // 4. Polar misalignment drift in RA
+        // 3. Polar misalignment drift in RA
         if (PolarDriftRateRaArcsecPerSec != 0)
         {
             _accumulatedPolarDriftRaArcsec = PolarDriftRateRaArcsecPerSec * elapsedSeconds;
             _accumulatedRaHours += _accumulatedPolarDriftRaArcsec / (ARCSEC_PER_DEGREE * HOURS2DEG);
         }
 
-        // 5. Wind gusts (Ornstein-Uhlenbeck process)
+        // 4. Wind gusts (Ornstein-Uhlenbeck process)
         if (WindGustAmplitudeArcsec > 0 && _windRng is not null)
         {
             var windDt = (double)(currentTicks - _windLastUpdateTicks) / TimeProvider.TimestampFrequency;
@@ -784,15 +792,17 @@ internal sealed class FakeMountDriver(FakeDevice fakeDevice, IServiceProvider se
             _accumulatedDecDegrees += _accumulatedWindDecArcsec / ARCSEC_PER_DEGREE;
         }
 
-        // 6. Cable snag (step impulse at a specific time)
-        if (CableSnagTimeSeconds > 0 && elapsedSeconds >= CableSnagTimeSeconds && !_cableSnagApplied)
+        // 5. Cable snag: a persistent step that switches on at CableSnagTimeSeconds. Evaluated as
+        // a pure function of elapsed (on whenever elapsed >= the trigger), not a one-shot latch --
+        // the accumulators are zeroed each call, so a latched single application would vanish on the
+        // next read. Idempotent and matches the Disturbance subsystem's CableSnagTerm.
+        if (CableSnagTimeSeconds > 0 && elapsedSeconds >= CableSnagTimeSeconds)
         {
             _accumulatedRaHours += CableSnagAmplitudeRaArcsec / (ARCSEC_PER_DEGREE * HOURS2DEG);
             _accumulatedDecDegrees += CableSnagAmplitudeDecArcsec / ARCSEC_PER_DEGREE;
-            _cableSnagApplied = true;
         }
 
-        // 7. Flexure drift (Dec drift proportional to HA elapsed)
+        // 6. Flexure drift (Dec drift proportional to HA elapsed)
         if (FlexureDriftRateDecArcsecPerHaHour != 0)
         {
             var haHours = elapsedSeconds * SIDEREAL_RATE_HOURS_PER_SECOND;
@@ -800,7 +810,7 @@ internal sealed class FakeMountDriver(FakeDevice fakeDevice, IServiceProvider se
             _accumulatedDecDegrees += _accumulatedFlexureDecArcsec / ARCSEC_PER_DEGREE;
         }
 
-        // 8. Gear noise (Ornstein-Uhlenbeck process — time-correlated)
+        // 7. Gear noise (Ornstein-Uhlenbeck process -- time-correlated)
         // Unlike wind (slow, atmospheric), gear noise is fast-decaying mechanical jitter.
         // The OU process ensures reads at the same time instant return the same noise value,
         // and the noise evolves realistically between time steps.

@@ -21,8 +21,21 @@
   a genuinely PE-free scenario (previously the camera's 20" default leaked in) and applies the
   physical `cos(dec)` factor PE picks up on conversion to sensor pixels. Verified: adding 15" PE
   nearly doubles the P-only RA RMS (0.026 -> 0.049 px) with Dec ~flat -- the RA-dominant signature.
-- **Open**: retire `FakeMountDriver._accumulated*` + the sidereal-into-RA bug (step 5), migrate the
-  wind/cable-snag/combined `SetupGuidedMount` tests (steps 6-7).
+- **Step 5 (partial)**: the **sidereal-into-RA bug is removed**. A tracking `FakeMountDriver` now holds
+  the commanded RA/Dec while the RA-axis ENCODER (`HA = LST - RA`) advances at the sidereal rate --
+  completing the half-landed axis-encoder fix (the old `_accumulatedRaHours = sidereal * elapsed` both
+  made reported RA race and re-froze the encoder, contradicting `GetAxisPositionAsync`). Two latent
+  bugs fell out and were fixed in the same pass: `UpdateTrackingState` now zeroes both accumulators at
+  the top (a flexure/wind-only config previously accumulated Dec per getter-call), and the cable snag
+  is a pure function of elapsed (the `_cableSnagApplied` latch is gone -- with per-call resets a latched
+  one-shot would vanish on the next read). Blast radius was exactly two `FakeMountDriverTests` self-tests
+  that pinned the bug; both rewritten to assert the correct behaviour (RA held + axis at 1.0027 sidereal
+  h/h). **Still open**: composing the shared `DisturbanceModel` into `FakeMountDriver` (retiring the
+  bespoke `_accumulated*` term math) -- best sequenced AFTER steps 6-7, since migrating the
+  `SetupGuidedMount` guide tests to the coupling harness shrinks `FakeMountDriver`'s disturbance-knob
+  consumers to just `FakeMountDriverTests`, making the checkpoint->on-read-delta rewrite low-risk.
+- **Open**: migrate the wind/cable-snag/combined `SetupGuidedMount` tests to the coupling harness
+  (steps 6-7), then finish step 5's model composition.
 
 ### Design refinement adopted during implementation
 

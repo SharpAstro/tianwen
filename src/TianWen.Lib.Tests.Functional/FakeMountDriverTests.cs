@@ -39,7 +39,7 @@ public class FakeMountDriverTests(ITestOutputHelper output)
     }
 
     [Fact(Timeout = 60_000)]
-    public async Task GivenTrackingMountWhenTimeAdvancesThenRaTracksCorrectly()
+    public async Task GivenTrackingMountWhenTimeAdvancesThenRaHeldAndAxisRotatesAtSiderealRate()
     {
         var ct = TestContext.Current.CancellationToken;
         var (mount, timeProvider, _) = CreateMount();
@@ -49,19 +49,33 @@ public class FakeMountDriverTests(ITestOutputHelper output)
         await mount.SetTrackingAsync(true, ct);
 
         var ra0 = await mount.GetRightAscensionAsync(ct);
+        var axis0 = await mount.GetAxisPositionAsync(TelescopeAxis.Primary, ct);
 
         // Advance 1 hour
         await timeProvider.SleepAsync(TimeSpan.FromHours(1), ct);
 
         var ra1 = await mount.GetRightAscensionAsync(ct);
+        var axis1 = await mount.GetAxisPositionAsync(TelescopeAxis.Primary, ct);
+        axis0.ShouldNotBeNull();
+        axis1.ShouldNotBeNull();
 
-        // RA should have advanced by ~1 sidereal hour (to track the object)
-        // Sidereal rate: 24h / 86164s * 3600s ≈ 1.0027 hours per hour
-        var delta = ra1 - ra0;
-        if (delta < -12) delta += 24;
-        if (delta > 12) delta -= 24;
-        output.WriteLine($"RA delta after 1h: {delta:F6} hours");
-        delta.ShouldBe(1.0027, 0.01);
+        // A tracking mount HOLDS the target: reported RA stays at the commanded position
+        // (the mount counter-rotates against Earth). The old fake folded the sidereal rate
+        // INTO reported RA, which both made RA race and froze the axis encoder -- the
+        // sidereal-into-RA bug. Reported RA must now stay put...
+        var raDelta = ra1 - ra0;
+        if (raDelta < -12) raDelta += 24;
+        if (raDelta > 12) raDelta -= 24;
+        output.WriteLine($"RA delta after 1h: {raDelta * 3600.0:F2} arcsec (should be ~0)");
+        Math.Abs(raDelta).ShouldBeLessThan(0.005, "a tracking mount holds the target RA");
+
+        // ...while the RA AXIS ENCODER (HA = LST - RA) advances at the sidereal rate as the
+        // worm physically turns. In 1 solar hour LST advances ~1.0027 sidereal hours.
+        var axisDeltaHours = (axis1.Value - axis0.Value) / (double)FakeMountDriver.EncoderTicksPerRevolution * 24.0;
+        if (axisDeltaHours < -12) axisDeltaHours += 24;
+        if (axisDeltaHours > 12) axisDeltaHours -= 24;
+        output.WriteLine($"RA axis delta after 1h: {axisDeltaHours:F6} hours (should be ~1.0027)");
+        axisDeltaHours.ShouldBe(1.0027, 0.01, "the RA axis rotates at sidereal rate while tracking");
     }
 
     [Fact(Timeout = 60_000)]
