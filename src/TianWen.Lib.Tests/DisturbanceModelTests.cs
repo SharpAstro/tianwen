@@ -52,6 +52,20 @@ public class DisturbanceModelTests
     }
 
     [Fact]
+    public void GivenLinearDriftWhenTrackingThenBothAxesDriftLinearlyInElapsed()
+    {
+        var drift = new LinearDriftTerm(raArcsecPerSec: 0.2, decArcsecPerSec: 0.5);
+
+        var (ra1, dec1) = drift.Evaluate(Ctx(10.0));
+        var (ra2, dec2) = drift.Evaluate(Ctx(20.0));
+
+        ra1.ShouldBe(2.0, 1e-9);  // 0.2"/s * 10s
+        dec1.ShouldBe(5.0, 1e-9); // 0.5"/s * 10s
+        ra2.ShouldBe(ra1 * 2.0, 1e-9);   // linear in elapsed
+        dec2.ShouldBe(dec1 * 2.0, 1e-9);
+    }
+
+    [Fact]
     public void GivenCableSnagWhenBeforeAndAfterTriggerThenZeroThenStep()
     {
         var snag = new CableSnagTerm(atSeconds: 20.0, raArcsec: 8.0, decArcsec: -4.0);

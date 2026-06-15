@@ -5,6 +5,8 @@ using System.Threading.Tasks;
 using TianWen.DAL;
 using TianWen.Lib.Astrometry;
 using TianWen.Lib.Astrometry.SOFA;
+using TianWen.Lib.Devices.Fake.Disturbance;
+using TianWen.Lib.Devices.Fake.Disturbance.Terms;
 using static TianWen.Lib.Astrometry.Constants;
 
 namespace TianWen.Lib.Devices.Fake;
@@ -18,9 +20,9 @@ namespace TianWen.Lib.Devices.Fake;
 internal sealed class FakeMountDriver(FakeDevice fakeDevice, IServiceProvider serviceProvider) : FakeDeviceDriverBase(fakeDevice, serviceProvider), IMountDriver
 {
     // --- Physical constants ---
-    private const double SIDEREAL_RATE_HOURS_PER_SECOND = 24.0 / 86164.0905;
     private const double DEFAULT_GUIDE_RATE_DEG_PER_SEC = SIDEREAL_RATE * 2.0 / 3.0 / 3600.0;
     private const double ARCSEC_PER_DEGREE = 3600.0;
+    private const double ARCSEC_PER_RA_HOUR = 3600.0 * 15.0; // RA-coordinate arcsec per hour
     private const double DEFAULT_SLEW_RATE = 1.5; // degrees per second
 
     // --- Mount state (guarded by _sem) ---
@@ -37,11 +39,17 @@ internal sealed class FakeMountDriver(FakeDevice fakeDevice, IServiceProvider se
     private double _raRate; // seconds of RA per sidereal second
     private double _decRate; // arcsec per SI second
 
-    // On-demand tracking: we store the timestamp when tracking was checkpointed
-    // and compute the sidereal advance + errors on each coordinate read.
-    private long _trackingCheckpointTicks;
-    private double _accumulatedRaHours; // tracking RA accumulated since last checkpoint
-    private double _accumulatedDecDegrees; // tracking Dec drift accumulated since last checkpoint
+    // On-demand disturbances: the believed pointing (_ra/_dec) is the commanded position; the
+    // additive disturbances (PE, polar drift, wind, flexure, cable snag, gear) are computed on each
+    // coordinate read as a pure function of elapsed-since-epoch, via the shared DisturbanceModel --
+    // the same subsystem FakeSkywatcher uses. FakeMountDriver is a believed-only fake (no hidden
+    // true-pointing seam), so the disturbances LEAK into the public reads (that is what the guider
+    // chases). Built lazily on the first tracked read (after the knobs are set), then cached so the
+    // stochastic terms (wind / gear) keep their state across frames. The epoch re-bases when the
+    // position is commanded (slew / sync / set-position) or tracking (re)starts -- NOT on guide
+    // pulses, so the disturbance keeps accumulating while the guider corrects _ra/_dec underneath it.
+    private DisturbanceModel? _disturbances;
+    private DateTimeOffset? _disturbanceEpoch;
 
     // Pulse guide state
     private int _activePulseGuides; // count of active pulse guide timers
@@ -138,13 +146,13 @@ internal sealed class FakeMountDriver(FakeDevice fakeDevice, IServiceProvider se
 
     /// <summary>
     /// Gear noise amplitude (1-sigma) in arcseconds. Models gear mesh imperfections
-    /// and encoder noise as a time-correlated Ornstein-Uhlenbeck process. The noise
-    /// is consistent across reads at the same time instant and evolves with a decay
-    /// time of <see cref="GearNoiseDecayTimeSeconds"/>.
-    /// Default: 0.3 arcsec (typical for mid-range gear trains).
-    /// Set to 0 for a perfect mount.
+    /// and encoder noise as a time-correlated Ornstein-Uhlenbeck process (the shared
+    /// <see cref="GearNoiseTerm"/>). The noise is consistent across reads at the same time
+    /// instant and evolves with a decay time of <see cref="GearNoiseDecayTimeSeconds"/>.
+    /// Default: 0 (off) -- an unconfigured mount is a perfect mount, matching FakeSkywatcher.
+    /// Set &gt; 0 (typical ~0.3 arcsec for mid-range gear trains) to inject jitter.
     /// </summary>
-    public double GearNoiseArcsec { get; set; } = 0.3;
+    public double GearNoiseArcsec { get; set; }
 
     /// <summary>
     /// Gear noise decay time constant (tau) in seconds. Controls the frequency
@@ -158,54 +166,30 @@ internal sealed class FakeMountDriver(FakeDevice fakeDevice, IServiceProvider se
     /// </summary>
     public int GearNoiseSeed { get; set; } = 17;
 
-    // Backlash tracking
+    // Backlash tracking (applied in PulseGuideAsync, independent of the disturbance model)
     private int _lastDecDirection; // +1 = north, -1 = south, 0 = none
     private double _backlashRemaining; // arcsec of backlash still to be consumed
 
-    // Wind gust state (Ornstein-Uhlenbeck process)
-    private double _windStateRa;
-    private double _windStateDec;
-    private Random? _windRng;
-    private long _windLastUpdateTicks;
-
-    // Gear noise state (Ornstein-Uhlenbeck process, like wind but faster-decaying)
-    private double _gearNoiseStateRa;
-    private double _gearNoiseStateDec;
-    private Random _gearNoiseRng = new Random(17);
-    private long _gearNoiseLastUpdateTicks;
-
-    // --- Accumulated tracking error from PE and polar drift ---
-    // These accumulate over time and represent the "true" position error
-    // that the guider must correct.
-    private double _accumulatedPeRaArcsec; // accumulated PE in RA
-    private double _accumulatedPolarDriftDecArcsec; // accumulated polar drift in Dec
-    private double _accumulatedPolarDriftRaArcsec; // accumulated polar drift in RA
-    private double _accumulatedWindRaArcsec; // accumulated wind gust in RA
-    private double _accumulatedWindDecArcsec; // accumulated wind gust in Dec
-    private double _accumulatedFlexureDecArcsec; // accumulated flexure drift in Dec
-
     /// <summary>
-    /// Gets the current accumulated tracking error in RA (arcseconds).
-    /// Includes periodic error and polar drift RA component.
-    /// Positive = east of nominal.
+    /// Gets the current tracking error in RA (arcseconds) = the disturbance model's RA pointing
+    /// delta (PE + polar drift + wind + cable snag + gear). Positive = east of nominal. Zero when
+    /// not tracking.
     /// </summary>
     public async ValueTask<double> GetTrackingErrorRaArcsecAsync(CancellationToken cancellationToken = default)
     {
         using var @lock = await _sem.AcquireLockAsync(cancellationToken);
-        UpdateTrackingState();
-        return _accumulatedPeRaArcsec + _accumulatedPolarDriftRaArcsec + _accumulatedWindRaArcsec;
+        return DisturbancePointingDeltaArcsec().RaArcsec;
     }
 
     /// <summary>
-    /// Gets the current accumulated tracking error in Dec (arcseconds).
-    /// Includes polar drift Dec component, wind gusts, and flexure drift.
-    /// Positive = north of nominal.
+    /// Gets the current tracking error in Dec (arcseconds) = the disturbance model's Dec pointing
+    /// delta (polar drift + wind + flexure + cable snag + gear). Positive = north of nominal. Zero
+    /// when not tracking.
     /// </summary>
     public async ValueTask<double> GetTrackingErrorDecArcsecAsync(CancellationToken cancellationToken = default)
     {
         using var @lock = await _sem.AcquireLockAsync(cancellationToken);
-        UpdateTrackingState();
-        return _accumulatedPolarDriftDecArcsec + _accumulatedWindDecArcsec + _accumulatedFlexureDecArcsec;
+        return DisturbancePointingDeltaArcsec().DecArcsec;
     }
 
     // --- IMountDriver implementation ---
@@ -253,11 +237,9 @@ internal sealed class FakeMountDriver(FakeDevice fakeDevice, IServiceProvider se
         using var @lock = await _sem.AcquireLockAsync(cancellationToken);
         if (tracking && !_isTracking)
         {
-            Checkpoint();
-        }
-        else if (!tracking && _isTracking)
-        {
-            Checkpoint();
+            // Disturbances accumulate from when tracking starts (a fresh field), so re-base the
+            // epoch and reset the stochastic terms here.
+            RebaseDisturbances();
         }
         _isTracking = tracking;
     }
@@ -303,25 +285,15 @@ internal sealed class FakeMountDriver(FakeDevice fakeDevice, IServiceProvider se
     public async ValueTask<double> GetRightAscensionAsync(CancellationToken cancellationToken)
     {
         using var @lock = await _sem.AcquireLockAsync(cancellationToken);
-        UpdateTrackingState();
-        var ra = ConditionRA(_ra + _accumulatedRaHours);
-        if (GearNoiseArcsec > 0 && _isTracking)
-        {
-            ra += _gearNoiseStateRa / (ARCSEC_PER_DEGREE * HOURS2DEG);
-        }
-        return ConditionRA(ra);
+        var (raArcsec, _) = DisturbancePointingDeltaArcsec();
+        return ConditionRA(_ra + raArcsec / ARCSEC_PER_RA_HOUR);
     }
 
     public async ValueTask<double> GetDeclinationAsync(CancellationToken cancellationToken)
     {
         using var @lock = await _sem.AcquireLockAsync(cancellationToken);
-        UpdateTrackingState();
-        var dec = _dec + _accumulatedDecDegrees;
-        if (GearNoiseArcsec > 0 && _isTracking)
-        {
-            dec += _gearNoiseStateDec / ARCSEC_PER_DEGREE;
-        }
-        return Math.Clamp(dec, -90, 90);
+        var (_, decArcsec) = DisturbancePointingDeltaArcsec();
+        return Math.Clamp(_dec + decArcsec / ARCSEC_PER_DEGREE, -90, 90);
     }
 
     // --- Encoder simulation ---
@@ -339,16 +311,18 @@ internal sealed class FakeMountDriver(FakeDevice fakeDevice, IServiceProvider se
     public async ValueTask<long?> GetAxisPositionAsync(TelescopeAxis axis, CancellationToken cancellationToken)
     {
         using var @lock = await _sem.AcquireLockAsync(cancellationToken);
-        UpdateTrackingState();
+        var (raArcsec, decArcsec) = DisturbancePointingDeltaArcsec();
+        var reportedRa = ConditionRA(_ra + raArcsec / ARCSEC_PER_RA_HOUR);
+        var reportedDec = _dec + decArcsec / ARCSEC_PER_DEGREE;
         return axis switch
         {
             // The RA axis encoder reads the MECHANICAL axis angle, which follows the hour
             // angle (LST - RA): while tracking, RA stays constant but the axis (and worm)
             // physically rotates at sidereal rate. Deriving the encoder from RA (the old
-            // behaviour) froze it during tracking — the worm never turned, so encoder-phase
+            // behaviour) froze it during tracking -- the worm never turned, so encoder-phase
             // features and any PE keyed to worm rotation were decorrelated from reality.
-            TelescopeAxis.Primary => (long)(ConditionRA(LocalSiderealTime() - (_ra + _accumulatedRaHours)) / 24.0 * EncoderTicksPerRevolution),
-            TelescopeAxis.Seconary => (long)((_dec + _accumulatedDecDegrees + 90.0) / 360.0 * EncoderTicksPerRevolution),
+            TelescopeAxis.Primary => (long)(ConditionRA(LocalSiderealTime() - reportedRa) / 24.0 * EncoderTicksPerRevolution),
+            TelescopeAxis.Seconary => (long)((reportedDec + 90.0) / 360.0 * EncoderTicksPerRevolution),
             _ => null
         };
     }
@@ -443,9 +417,10 @@ internal sealed class FakeMountDriver(FakeDevice fakeDevice, IServiceProvider se
 
         using (await _sem.AcquireLockAsync(cancellationToken))
         {
-            // Checkpoint tracking state before applying the pulse,
-            // so the pulse applies on top of the current (drifted) position.
-            Checkpoint();
+            // The pulse adjusts the believed/commanded position (_ra/_dec) directly. Disturbances
+            // are added on read off a stable epoch (NOT folded here), so the pulse correction and
+            // the ongoing disturbance compose exactly as on a real rig: the guider drives _ra/_dec
+            // to keep (believed + disturbance) on the lock position.
             switch (direction)
             {
                 case GuideDirection.East:
@@ -673,171 +648,61 @@ internal sealed class FakeMountDriver(FakeDevice fakeDevice, IServiceProvider se
 
     private void ResetTrackingErrors()
     {
-        _accumulatedPeRaArcsec = 0;
-        _accumulatedPolarDriftDecArcsec = 0;
-        _accumulatedPolarDriftRaArcsec = 0;
-        _accumulatedWindRaArcsec = 0;
-        _accumulatedWindDecArcsec = 0;
-        _accumulatedFlexureDecArcsec = 0;
         _backlashRemaining = 0;
         _lastDecDirection = 0;
-        _accumulatedRaHours = 0;
-        _accumulatedDecDegrees = 0;
-        _trackingCheckpointTicks = TimeProvider.GetTimestamp();
-
-        // Reset wind OU state and RNG
-        _windStateRa = 0;
-        _windStateDec = 0;
-        _windRng = WindGustAmplitudeArcsec > 0 ? new Random(WindGustSeed) : null;
-        _windLastUpdateTicks = _trackingCheckpointTicks;
-
-        // Reset gear noise OU state and RNG
-        _gearNoiseStateRa = 0;
-        _gearNoiseStateDec = 0;
-        _gearNoiseRng = new Random(GearNoiseSeed);
-        _gearNoiseLastUpdateTicks = _trackingCheckpointTicks;
+        RebaseDisturbances();
     }
 
     /// <summary>
-    /// Folds accumulated tracking (sidereal, PE, drift) into base coordinates,
-    /// then resets the tracking accumulator. Must be called within the _sem.
+    /// Re-bases the disturbance epoch to now and resets the stochastic terms, so the additive
+    /// disturbances accumulate afresh from the current commanded position. Called when the position
+    /// is commanded (slew / sync / set-position) or tracking (re)starts. Must be called within _sem.
     /// </summary>
-    private void Checkpoint()
+    private void RebaseDisturbances()
     {
-        UpdateTrackingState();
-        _ra = ConditionRA(_ra + _accumulatedRaHours);
-        _dec = Math.Clamp(_dec + _accumulatedDecDegrees, -90, 90);
-        _accumulatedRaHours = 0;
-        _accumulatedDecDegrees = 0;
-        _accumulatedPeRaArcsec = 0;
-        _accumulatedPolarDriftDecArcsec = 0;
-        _accumulatedPolarDriftRaArcsec = 0;
-        _accumulatedWindRaArcsec = 0;
-        _accumulatedWindDecArcsec = 0;
-        _accumulatedFlexureDecArcsec = 0;
-        _trackingCheckpointTicks = TimeProvider.GetTimestamp();
+        _disturbances?.Reset();
+        _disturbanceEpoch = TimeProvider.GetUtcNow();
     }
 
     /// <summary>
-    /// Computes the current tracking state on-demand. Called by coordinate getters.
-    /// Updates accumulated RA/Dec based on elapsed time since last checkpoint.
-    /// Must be called within the _sem.
+    /// The current additive disturbance in native arcsec (RA-coordinate arcsec, Dec arcsec), as a
+    /// pure function of elapsed-since-epoch via the shared <see cref="DisturbanceModel"/> -- the same
+    /// subsystem FakeSkywatcher uses. Returns (0, 0) when not tracking, mid-slew, or before tracking
+    /// has started. The model is built lazily on the first tracked read (after the knobs are set) and
+    /// cached so the stochastic terms keep their state. Must be called within _sem.
     /// </summary>
-    private void UpdateTrackingState()
+    private (double RaArcsec, double DecArcsec) DisturbancePointingDeltaArcsec()
     {
-        if (!_isTracking || _isSlewing) return;
-
-        var currentTicks = TimeProvider.GetTimestamp();
-        var elapsedTicks = currentTicks - _trackingCheckpointTicks;
-        var elapsedSeconds = (double)elapsedTicks / TimeProvider.TimestampFrequency;
-
-        if (elapsedSeconds <= 0) return;
-
-        // Reset the per-call accumulators. Every disturbance term below recomputes its
-        // contribution as a pure function of elapsed-since-checkpoint (not incrementally),
-        // so they must start from zero each call -- otherwise a flexure/wind-only config
-        // (no term that assigns Dec with '=') would accumulate per getter-call instead of
-        // tracking elapsed time.
-        _accumulatedRaHours = 0;
-        _accumulatedDecDegrees = 0;
-
-        // NOTE: NO sidereal term. A tracking mount HOLDS the target, so reported RA/Dec stay at
-        // the commanded position (plus the small disturbances below) and it is the RA-axis ENCODER
-        // (HA = LST - RA, see GetAxisPositionAsync) that advances at sidereal rate as the worm turns.
-        // The old `_accumulatedRaHours = sidereal * elapsed` made reported RA race at sidereal rate
-        // AND, because the encoder is derived from `LST - (_ra + _accumulatedRaHours)`, re-froze the
-        // axis encoder -- directly contradicting the axis-encoder model and producing the 2-sample
-        // guide-loop vacuity documented in docs/known-limitations.md. Worm PE keyed to the encoder
-        // therefore now correlates with real worm rotation.
-
-        // 1. Periodic error: sinusoidal RA error
-        if (PeriodicErrorAmplitudeArcsec > 0 && PeriodicErrorPeriodSeconds > 0)
+        if (!_isTracking || _isSlewing || _disturbanceEpoch is not { } epoch)
         {
-            _accumulatedPeRaArcsec = PeriodicErrorAmplitudeArcsec
-                * Math.Sin(2.0 * Math.PI * elapsedSeconds / PeriodicErrorPeriodSeconds);
-            _accumulatedRaHours += _accumulatedPeRaArcsec / (ARCSEC_PER_DEGREE * HOURS2DEG);
+            return (0.0, 0.0);
         }
-
-        // 2. Polar misalignment drift in Dec
-        if (PolarDriftRateDecArcsecPerSec != 0)
+        var elapsedSeconds = (TimeProvider.GetUtcNow() - epoch).TotalSeconds;
+        if (elapsedSeconds <= 0.0)
         {
-            _accumulatedPolarDriftDecArcsec = PolarDriftRateDecArcsecPerSec * elapsedSeconds;
-            _accumulatedDecDegrees += _accumulatedPolarDriftDecArcsec / ARCSEC_PER_DEGREE;
+            return (0.0, 0.0);
         }
-
-        // 3. Polar misalignment drift in RA
-        if (PolarDriftRateRaArcsecPerSec != 0)
-        {
-            _accumulatedPolarDriftRaArcsec = PolarDriftRateRaArcsecPerSec * elapsedSeconds;
-            _accumulatedRaHours += _accumulatedPolarDriftRaArcsec / (ARCSEC_PER_DEGREE * HOURS2DEG);
-        }
-
-        // 4. Wind gusts (Ornstein-Uhlenbeck process)
-        if (WindGustAmplitudeArcsec > 0 && _windRng is not null)
-        {
-            var windDt = (double)(currentTicks - _windLastUpdateTicks) / TimeProvider.TimestampFrequency;
-            if (windDt > 0)
-            {
-                var tau = WindGustDecayTimeSeconds;
-                var decay = Math.Exp(-windDt / tau);
-                // sigma_OU such that stationary variance = amplitude²
-                var diffusion = WindGustAmplitudeArcsec * Math.Sqrt(1.0 - decay * decay);
-                _windStateRa = _windStateRa * decay + diffusion * NextGaussian(_windRng);
-                _windStateDec = _windStateDec * decay + diffusion * NextGaussian(_windRng);
-                _windLastUpdateTicks = currentTicks;
-            }
-            _accumulatedWindRaArcsec = _windStateRa;
-            _accumulatedWindDecArcsec = _windStateDec;
-            _accumulatedRaHours += _accumulatedWindRaArcsec / (ARCSEC_PER_DEGREE * HOURS2DEG);
-            _accumulatedDecDegrees += _accumulatedWindDecArcsec / ARCSEC_PER_DEGREE;
-        }
-
-        // 5. Cable snag: a persistent step that switches on at CableSnagTimeSeconds. Evaluated as
-        // a pure function of elapsed (on whenever elapsed >= the trigger), not a one-shot latch --
-        // the accumulators are zeroed each call, so a latched single application would vanish on the
-        // next read. Idempotent and matches the Disturbance subsystem's CableSnagTerm.
-        if (CableSnagTimeSeconds > 0 && elapsedSeconds >= CableSnagTimeSeconds)
-        {
-            _accumulatedRaHours += CableSnagAmplitudeRaArcsec / (ARCSEC_PER_DEGREE * HOURS2DEG);
-            _accumulatedDecDegrees += CableSnagAmplitudeDecArcsec / ARCSEC_PER_DEGREE;
-        }
-
-        // 6. Flexure drift (Dec drift proportional to HA elapsed)
-        if (FlexureDriftRateDecArcsecPerHaHour != 0)
-        {
-            var haHours = elapsedSeconds * SIDEREAL_RATE_HOURS_PER_SECOND;
-            _accumulatedFlexureDecArcsec = FlexureDriftRateDecArcsecPerHaHour * haHours;
-            _accumulatedDecDegrees += _accumulatedFlexureDecArcsec / ARCSEC_PER_DEGREE;
-        }
-
-        // 7. Gear noise (Ornstein-Uhlenbeck process -- time-correlated)
-        // Unlike wind (slow, atmospheric), gear noise is fast-decaying mechanical jitter.
-        // The OU process ensures reads at the same time instant return the same noise value,
-        // and the noise evolves realistically between time steps.
-        if (GearNoiseArcsec > 0)
-        {
-            var gearDt = (double)(currentTicks - _gearNoiseLastUpdateTicks) / TimeProvider.TimestampFrequency;
-            if (gearDt > 0)
-            {
-                var tau = GearNoiseDecayTimeSeconds;
-                var decay = Math.Exp(-gearDt / tau);
-                var diffusion = GearNoiseArcsec * Math.Sqrt(1.0 - decay * decay);
-                _gearNoiseStateRa = _gearNoiseStateRa * decay + diffusion * NextGaussian(_gearNoiseRng);
-                _gearNoiseStateDec = _gearNoiseStateDec * decay + diffusion * NextGaussian(_gearNoiseRng);
-                _gearNoiseLastUpdateTicks = currentTicks;
-            }
-        }
+        _disturbances ??= BuildDisturbanceModel();
+        // No worm encoder is wired on this simple fake, so the PE term falls back to its wall-clock
+        // sine (worm phase = NaN). NOTE: NO sidereal term -- a tracking mount HOLDS the commanded
+        // RA/Dec; it is the RA-axis ENCODER (HA = LST - RA, see GetAxisPositionAsync) that advances
+        // at the sidereal rate. The disturbances LEAK into the public reads here (believed-only fake),
+        // which is what the guider chases.
+        return _disturbances.PointingDelta(new DisturbanceContext(elapsedSeconds, double.NaN));
     }
 
-    /// <summary>
-    /// Box-Muller transform for generating standard normal random variates.
-    /// </summary>
-    private static double NextGaussian(Random rng)
+    private DisturbanceModel BuildDisturbanceModel() => new(new IDisturbanceTerm[]
     {
-        var u1 = rng.NextDouble();
-        var u2 = rng.NextDouble();
-        return Math.Sqrt(-2.0 * Math.Log(u1)) * Math.Cos(2.0 * Math.PI * u2);
-    }
+        // The knob is the PEAK amplitude; the term takes peak-to-peak.
+        new PeriodicErrorTerm(2.0 * PeriodicErrorAmplitudeArcsec, PeriodicErrorPeriodSeconds),
+        // Polar misalignment as a simplified constant-rate drift in both axes (the realistic
+        // HA-dependent tilt is modelled properly by FakeSkywatcher's believed->true transform).
+        new LinearDriftTerm(PolarDriftRateRaArcsecPerSec, PolarDriftRateDecArcsecPerSec),
+        new WindGustTerm(WindGustAmplitudeArcsec, WindGustDecayTimeSeconds, WindGustSeed),
+        new CableSnagTerm(CableSnagTimeSeconds, CableSnagAmplitudeRaArcsec, CableSnagAmplitudeDecArcsec),
+        new FlexureTerm(FlexureDriftRateDecArcsecPerHaHour),
+        new GearNoiseTerm(GearNoiseArcsec, GearNoiseDecayTimeSeconds, GearNoiseSeed),
+    });
 
     private static double ConditionRA(double ra)
     {

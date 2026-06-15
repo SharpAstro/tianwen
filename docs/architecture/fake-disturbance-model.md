@@ -1,6 +1,8 @@
 # Fake Mount/Camera Disturbance Model
 
-**Status: IN PROGRESS.**
+**Status: DONE.** All disturbance physics now lives in one place -- the `Disturbance/` subsystem --
+composed by both `FakeSkywatcher` (true-pointing seam) and `FakeMountDriver` (believed-only leak), plus
+the camera's `SensorDelta` seeing. No bespoke duplicate term math remains.
 
 - **Steps 1-2 DONE** (commit f8e71a9): the pure `Disturbance/` subsystem -- `IDisturbanceTerm`,
   `DisturbanceModel` (`PointingDelta` vs `SensorDelta`), `CorrectionActuator` (derived
@@ -21,19 +23,21 @@
   a genuinely PE-free scenario (previously the camera's 20" default leaked in) and applies the
   physical `cos(dec)` factor PE picks up on conversion to sensor pixels. Verified: adding 15" PE
   nearly doubles the P-only RA RMS (0.026 -> 0.049 px) with Dec ~flat -- the RA-dominant signature.
-- **Step 5 (partial)**: the **sidereal-into-RA bug is removed**. A tracking `FakeMountDriver` now holds
-  the commanded RA/Dec while the RA-axis ENCODER (`HA = LST - RA`) advances at the sidereal rate --
-  completing the half-landed axis-encoder fix (the old `_accumulatedRaHours = sidereal * elapsed` both
-  made reported RA race and re-froze the encoder, contradicting `GetAxisPositionAsync`). Two latent
-  bugs fell out and were fixed in the same pass: `UpdateTrackingState` now zeroes both accumulators at
-  the top (a flexure/wind-only config previously accumulated Dec per getter-call), and the cable snag
-  is a pure function of elapsed (the `_cableSnagApplied` latch is gone -- with per-call resets a latched
-  one-shot would vanish on the next read). Blast radius was exactly two `FakeMountDriverTests` self-tests
-  that pinned the bug; both rewritten to assert the correct behaviour (RA held + axis at 1.0027 sidereal
-  h/h). **Still open**: composing the shared `DisturbanceModel` into `FakeMountDriver` (retiring the
-  bespoke `_accumulated*` term math) -- best sequenced AFTER steps 6-7, since migrating the
-  `SetupGuidedMount` guide tests to the coupling harness shrinks `FakeMountDriver`'s disturbance-knob
-  consumers to just `FakeMountDriverTests`, making the checkpoint->on-read-delta rewrite low-risk.
+- **Step 5 DONE**: removed the sidereal-into-RA bug first (5a) -- a tracking `FakeMountDriver` holds the
+  commanded RA/Dec while the RA-axis ENCODER (`HA = LST - RA`) advances at the sidereal rate, completing
+  the half-landed axis-encoder fix; two latent bugs (per-call Dec accumulation; one-shot cable-snag
+  latch) were fixed in the same pass. Then (5b) `FakeMountDriver` was rearchitected from its
+  checkpoint-fold model to the same **on-read disturbance delta** FakeSkywatcher uses: `_ra`/`_dec` are
+  the commanded position and the additive disturbances are computed per read as a pure function of
+  elapsed-since-a-stable-epoch via the shared `DisturbanceModel`. The epoch re-bases on slew / sync /
+  set-position / tracking-start, NOT on guide pulses, so the disturbance keeps accumulating while the
+  guider corrects `_ra`/`_dec` underneath it (the checkpoint-on-pulse reset was incompatible with the
+  OU terms' monotonic-elapsed assumption -- that is why the rearchitecture was required, not a swap).
+  Deleted: the bespoke `_accumulated*` term math, the duplicate OU/Gaussian code, and `Checkpoint` /
+  `UpdateTrackingState`. Polar drift became a new shared `LinearDriftTerm` (constant-rate, MountAxis
+  stage); `GetTrackingError*` returns the model's pointing-delta directly. `GearNoiseArcsec` now
+  defaults to 0 (matching FakeSkywatcher) so an unconfigured mount is truly perfect -- disturbance
+  values are now exact (cable-snag Dec exactly -5.00", was -4.77" under the old always-on 0.3" jitter).
 - **Steps 6 + 7 DONE**: `SetupCoupledGuidedMount` gained wind / flexure / cable-snag params (on the
   FakeSkywatcher's composed model) and a `seeingArcsec` param (on the guide camera). `FakeCameraDriver`
   now has a `SeeingArcsec` knob wired through `SeeingOffsetPixels()` -- a one-term `DisturbanceModel`
@@ -44,10 +48,6 @@
   ~2) and asserts `TotalSamples > 50`: wind+PE RMS 0.484 px, cable-snag 0.061 px, combined 0.362 px
   (~= the pure 2" seeing floor of ~0.34 px -- seeing dominates, as expected for an un-correctable
   disturbance), all far under the 15 px bound.
-- **Open (only remaining)**: finish step 5's model composition -- compose the shared `DisturbanceModel`
-  into `FakeMountDriver` and retire its bespoke `_accumulated*` term math. Now low-risk: the guide
-  tests no longer use `FakeMountDriver` disturbances, so the only consumers are `FakeMountDriverTests`
-  plus a few inline-PE `GuideLoopTests`.
 
 ### Design refinement adopted during implementation
 
@@ -213,14 +213,14 @@ sequenceDiagram
 
 | Term | Stage | Character | Correctable by mount pulse? | Source today |
 |---|---|---|:--:|---|
-| Periodic error | Drivetrain | periodic (worm phase) | yes | `FakeSkywatcher` (positional `PeriodicErrorTerm`, on the TRUE pointing) -- DONE; `FakeMountDriver` (legacy time-based) still to retire (step 5) |
-| Polar misalignment | MountAxis | drift (HA-dependent) | yes | `FakeSkywatcher` (real tilt) -- keep, make a term |
-| Flexure | OpticalTube | drift (HA-dependent) | yes | `FakeSkywatcher` `FlexureTerm` (on TRUE pointing) -- DONE; `FakeMountDriver` legacy still to retire (step 5) |
-| Cable snag | OpticalTube | impulse (at HA/time) | yes (as a step) | `FakeSkywatcher` `CableSnagTerm` -- DONE; `FakeMountDriver` legacy still to retire (step 5) |
-| Backlash | Drivetrain | dead-zone on correction | partially (interacts with pulses) | none (mounts) |
-| Wind gust | OpticalTube | stochastic (OU, slow) | partially (bandwidth-limited) | `FakeSkywatcher` `WindGustTerm` -- DONE; `FakeMountDriver` legacy still to retire (step 5) |
-| Gear noise | Drivetrain | stochastic (OU, fast) | no (too fast for 0.5 Hz) | `FakeSkywatcher` `GearNoiseTerm` (term exists); `FakeMountDriver` legacy still to retire (step 5) |
-| Atmospheric seeing | Atmosphere | stochastic (zero-mean, per-frame) | no with mount; yes with AO | `FakeCamera.SeeingArcsec` -> `AtmosphericSeeingTerm` / `SensorDelta` -- DONE |
+| Periodic error | Drivetrain | periodic (worm phase) | yes | `PeriodicErrorTerm` -- FakeSkywatcher positional (worm encoder); FakeMountDriver wall-clock fallback |
+| Polar misalignment | MountAxis | drift (HA-dependent) | yes | FakeSkywatcher: real believed->true tilt transform (the carrier). FakeMountDriver: `LinearDriftTerm` stand-in |
+| Flexure | OpticalTube | drift (HA-dependent) | yes | `FlexureTerm` (both fakes) |
+| Cable snag | OpticalTube | impulse (at HA/time) | yes (as a step) | `CableSnagTerm` (both fakes) |
+| Backlash | Drivetrain | dead-zone on correction | partially (interacts with pulses) | `FakeMountDriver` (applied in PulseGuide, not a disturbance term) |
+| Wind gust | OpticalTube | stochastic (OU, slow) | partially (bandwidth-limited) | `WindGustTerm` (both fakes) |
+| Gear noise | Drivetrain | stochastic (OU, fast) | no (too fast for 0.5 Hz) | `GearNoiseTerm` (both fakes; default off) |
+| Atmospheric seeing | Atmosphere | stochastic (zero-mean, per-frame) | no with mount; yes with AO | `FakeCamera.SeeingArcsec` -> `AtmosphericSeeingTerm` / `SensorDelta` |
 
 ## Migration plan
 
@@ -230,7 +230,7 @@ sequenceDiagram
 | 2 | Port the existing math into terms: `PeriodicError`, `PolarMisalignment`, `Flexure`, `CableSnag`, `WindGust`, `GearNoise`, `AtmosphericSeeing` (lift from `FakeMountDriver.UpdateTrackingState` + the `FakeCamera` PE + `SyntheticStarFieldRenderer` seeing hook) | M |
 | 3 | **DONE.** `FakeSkywatcherMountDriver` composes a `DisturbanceModel`; `GetTruePointingNativeAsync` = believed + `PointingDelta`. | M |
 | 4 | **DONE.** Worm PE is now a mount Drivetrain term (positional, on the TRUE pointing via `ReadRaWormPhaseRadiansAsync`); `FakeCameraDriver.IntegratePeDrift` applies camera-side PE only standalone. | S |
-| 5 | **PARTIAL.** The sidereal-into-RA term is **removed** (reported RA held, axis encoder rotates) plus two latent bugs fixed (accumulator reset, cable-snag latch). **Still open**: compose the shared `DisturbanceModel` into `FakeMountDriver` and retire the bespoke `_accumulated*` term math. | M |
+| 5 | **DONE.** Sidereal-into-RA term removed (5a). `FakeMountDriver` rearchitected to the on-read disturbance-delta model composing the shared `DisturbanceModel` (5b); bespoke `_accumulated*` term math + `Checkpoint`/`UpdateTrackingState` deleted; polar drift -> shared `LinearDriftTerm`; gear default off. | M |
 | 6 | **DONE.** All three `SetupGuidedMount` guide tests (wind+PE, cable-snag+PE, combined+seeing) drive frames through a `FakeCamera` coupled to a `FakeSkywatcher` via `DeviceHub`; the legacy `SetupGuidedMount` helper is deleted. Records 119 real samples (was ~2). | L |
 | 7 | **DONE.** Wind + flexure + cable-snag are mount knobs on the coupling path; `AtmosphericSeeing` is a `FakeCamera.SeeingArcsec` knob via `SensorDelta`. The coupling harness can configure the full disturbance palette. | S |
 
