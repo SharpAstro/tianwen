@@ -1,0 +1,21 @@
+# TODO -- Astrometry
+
+Part of the TianWen TODO set. See [TODO.md](../../TODO.md) for the index and the active/high-priority list.
+
+## Astrometry / Catalogs
+
+- [x] Update lib to accept spans in `CatalogUtils` (`CatalogUtils.cs:326,360`)
+- [ ] Better Tycho VT->V transform (Bessell 2000) for the moderately-red population. Today `CelestialObjectDB.cs` uses the ESA *linear* relation `V = VT - 0.090(BT-VT)`, `B-V = 0.850(BT-VT)` — duplicated in the single-star decode (`TryGetTycho2StarByTycId`) and the bulk render loop (`CopyTycho2Stars`). Per the ESA Tycho Catalogue **Vol 1 §2.2** (formulas 2.2.1/2.2.2) this is valid only for `-0.2 < (BT-VT) < 1.8` **and only for unreddened main-sequence stars**. The same doc's Field T5 note is the stronger caveat: the catalog's own V (derived via the fuller transform in **§1.3 Appendix 4**) has *"much larger systematic errors ... especially for red stars, i.e. with B-V > 1.5 mag."* Antares is `B-V = 1.84` — so per ESA itself, **no Tycho VT->V transform reliably yields its V**, independent of the colour-range bound. Bessell (2000, PASP 112, 961) is a better fit but is a cubic-spline **lookup table defined only to `(BT-VT) = 2.0`**, and Antares (`BT-VT ≈ 2.20`) / R Leporis (`≈ 5.80`) are beyond even that. That's why `PreferCrossRefMagnitude` (commit aad748e) defers bright stars to a curated SIMBAD/HR V, and that backstop must stay regardless of which transform we use. Adopting Bessell would still help the `BT-VT ≈ 1.5–2.0`, `B-V < 1.5` population (mostly the rendered Tycho buffer): (1) source the exact table accurately (paper / AstroCalc source / §1.3 App.4 — do **not** guess coefficients), (2) unify the two transform sites into one helper, (3) re-baseline every Tycho-magnitude test incl. R Lep's pinned `8.28` (extrapolated). Refs: ESA Tycho Cat Vol 1 §2.2 + §1.3 App.4 (local: `OneDrive/Dokumente/Astro-Info/TYC_Photometry_sect2_02.pdf`), Bessell 2000 (`iopscience.iop.org/article/10.1086/316598`), projectpluto.com/photomet.htm.
+
+## Astrometry / Plate Solving
+
+- [ ] Extract distortion model (SIP polynomial coefficients) from plate solver output
+- [ ] Implement image undistortion using extracted distortion model
+- [x] `CatalogPlateSolver` can't solve drizzle outputs from the CLI (`tianwen solve <fits>`) -- root cause was **`ICelestialObjectDB.InitDBAsync` was never called from the CLI's solve path**. The `StackingPipeline` path works because `MasterPostProcessor.cs:114` explicitly awaits `InitDBAsync(waitForTycho2BulkLoad: true, ct)` before invoking the solver; the CLI's `solve` subcommand skipped it. Without init, the catalog query returned 0 stars and the solver bailed in ~50 ms with no useful diagnostic (the ctor accepted `ILogger? logger = null` and DI's non-generic `ILogger` resolution silently left it `null`, so internal `_logger?.LogDebug` lines never fired). Fix: (1) self-init inside `CatalogPlateSolver.SolveImageAsync` via the idempotent `_isInitialized` fast path so any caller works; (2) DI registration switched to a factory lambda in `AstrometryServiceCollectionExtensions.cs` that resolves `ILogger<CatalogPlateSolver>` and upcasts to the ctor's non-generic `ILogger`. Verified: SoL drizzle + drizzle_autocrop both solve cleanly via CLI (RA=11.196h Dec=-61.35°, 887/969 and 663/753 stars matched; ~580 ms cold including Tycho-2 bulk decode, ~70 ms warm).
+- [ ] `IncrementalSolver` polar-align fast path is *slower* than the full solve (~1.2 s vs ~0.85 s) -- `FindOffsetAndRotationWithRetryAsync` starts the quad-tolerance sweep at 0.0001 and burns ~50 `FindFit` iterations before reaching the converging range (~0.005-0.05). Fixes: bias the start tolerance higher (~0.005) for the polar-align caller, and/or cache the previous frame's resolved tolerance and start each refine at `prev x 0.5`. Perf-only; correctness + gauge stability already fixed (see `docs/known-limitations.md` "Near-pole plate-solve").
+- [ ] Rewrite the skipped `IncrementalSolverTests` for the quad-matching contract -- the old tests targeted the retired ROI-centroid path (`[Fact(Skip = ...)]`); the solver now quad-matches against a frozen seed via `StarReferenceTable.FindFit`.
+
+## Astrometry / Catalogs (Queries)
+
+- [ ] Check if SIMBAD supports angular size + dimensions in queries
+

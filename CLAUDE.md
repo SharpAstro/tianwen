@@ -19,7 +19,9 @@ Canonical project state lives in these markdown files — read the relevant ones
 | `docs/plans/summary.md` | Current status of every plan in `docs/plans/` (DONE / PARTIAL / NOT STARTED) cross-checked against the codebase |
 | `docs/plans/*.md` | Per-feature implementation plans with phasing tables |
 | `docs/architecture/*.md` | Architecture deep-dives with mermaid diagrams (e.g. `docs/architecture/driver-resilience.md`, `docs/architecture/fov-obstruction.md`) |
-| `TODO.md` | Working list of unchecked tasks grouped by area (stays at repo root) |
+| `TODO.md` | Active / high-priority task list (repo root) |
+| `docs/todo/*.md` | Full backlog + done-archive + unsorted inbox, split by area |
+| `docs/known-limitations.md` | Root causes of limitations/bugs (the *why*); read before "fixing" a suspected bug |
 
 ## Custom Skills
 

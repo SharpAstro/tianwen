@@ -6,7 +6,7 @@ description: Mark a TODO item done in TODO.md and propagate updates to CLAUDE.md
 Usage: `/tick-todo <search text>` or pass the search text as an argument. Examples: `DrawEllipse`, `Mosaic panel support`.
 
 Steps:
-1. Search `TODO.md` for the item matching the given text
+1. Search `TODO.md` (active/high-priority list) AND the area files under `docs/todo/` for the item matching the given text
 2. Change `- [ ]` to `- [x]` for the matched item
 3. If the item has a brief description, optionally expand it with what was done
 4. Check if the item is mentioned in `CLAUDE.md` and update if needed
