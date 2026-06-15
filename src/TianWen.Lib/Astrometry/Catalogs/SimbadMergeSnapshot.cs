@@ -20,7 +20,7 @@ namespace TianWen.Lib.Astrometry.Catalogs;
 /// hash-verifies the snapshot against the embedded SIMBAD + NGC catalog inputs; on hit it
 /// applies the snapshot and skips both the parse step (~80 ms across 14 prefetched files)
 /// and the merge step (~100-150 ms of serial dict mutation). On hash miss the runtime falls
-/// back to the live path with a phase-timing entry. See <c>PLAN-catalog-binary-format.md</c> § 2B.</para>
+/// back to the live path with a phase-timing entry. See <c>docs/plans/catalog-binary-format.md</c> § 2B.</para>
 ///
 /// <para>Determinism note: stored entries are the FINAL post-SIMBAD-merge values for keys
 /// that the SIMBAD phase added or modified. The pre-SIMBAD state (predefined objects + NGC

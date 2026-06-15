@@ -49,7 +49,7 @@ Goal (as realized): replace the hardcoded `SitePressure = 1010` / `SiteTemperatu
 `IWeatherDriver.Pressure`/`Temperature` when a weather device is connected, (2) standard
 atmosphere as fallback, with pressure derived from the profile's static elevation. Matters for
 refraction at low altitudes (a lat-15 deg pole sees ~3.4 arcmin of refraction lift; lat-35 deg
-still ~1.4 arcmin) and unblocks the polar-alignment refraction work (PLAN-polar-alignment.md
+still ~1.4 arcmin) and unblocks the polar-alignment refraction work (polar-alignment.md
 "Refraction at low pole altitudes" names exactly this tier chain).
 
 ## Current state (verified facts)
@@ -190,7 +190,7 @@ it is a pure function; freshness is the caller's existing concern
 | 3 | `TryGetTransformAsync` optional param (drop 1010 -> NaN auto-derive); Session helper + 4 call sites; `TransformFactory.FromProfile` | M |
 | 4 | Polar-align handler swap to resolver (tier 2 inserted) | S |
 | 5 | Equipment tab GUI + TUI site-section inputs + `EquipmentActions.SetSite` extension | M |
-| 6 | Docs: tick TODO items (`IMountDriver.cs:344-347` trio + the Sequencing/Session item), PLAN-polar-alignment cross-ref, PLAN-summary row | S |
+| 6 | Docs: tick TODO items (`IMountDriver.cs:344-347` trio + the Sequencing/Session item), polar-alignment.md cross-ref, summary.md row | S |
 
 ## Tests
 
@@ -217,7 +217,7 @@ do rather than re-pinning blind).
 ## Out of scope
 
 - Refracted-pole back-projection in `PolarOverlay` (`RefractedPoleRaHours` aliasing the
-  true pole) - separate "Phase 4 polish" item in PLAN-polar-alignment.md; this plan
+  true pole) - separate "Phase 4 polish" item in polar-alignment.md; this plan
   only feeds it correct inputs.
 - Using weather temperature for camera warm-up target (`CoolCamerasToAmbientAsync`
   ambient) - separate TODO item, different consumer.

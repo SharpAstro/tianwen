@@ -1,4 +1,4 @@
-# PLAN-icc.md — ICC profile support across our image I/O paths
+# ICC profile support across our image I/O paths
 
 ## Goal
 

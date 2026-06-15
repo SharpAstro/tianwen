@@ -4,7 +4,7 @@
     Build-time tool: bake CelestialObjectDB.BuildHdHipCrossIndicesViaTyc's output into
     src/TianWen.Lib/Astrometry/Catalogs/hd_hip_cross.bin.gz so cold-start init can apply
     the snapshot directly (~30 to 50 ms) instead of recomputing it (~280 ms). See
-    PLAN-catalog-binary-format.md section 2A and tools/precompute-hd-hip-cross.ps1.
+    docs/plans/catalog-binary-format.md section 2A and tools/precompute-hd-hip-cross.ps1.
 
     Not part of the solution; not packed; not shipped. Invoke via dotnet run with
     project path, or via the wrapper script.

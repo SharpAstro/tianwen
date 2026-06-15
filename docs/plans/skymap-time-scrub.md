@@ -179,7 +179,7 @@ mirrors existing fields).
 | 2 | Key bindings incl. `N` midnight jump + `0`/`T` resets; remove planner-date mutation from sky-map arrows | M |
 | 3 | HUD offset chip in `DrawInfoStrip` | S |
 | 4 | Inspector appState exposure + live GUI verification (below) | S |
-| 5 | Docs: TODO ticks (time-adjuster + "N to midnight" items), PLAN-summary row | S |
+| 5 | Docs: TODO ticks (time-adjuster + "N to midnight" items), summary.md row | S |
 
 ## Tests
 

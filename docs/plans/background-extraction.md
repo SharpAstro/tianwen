@@ -34,7 +34,7 @@ preview/exclude-polygon UI.
   specific gradient mismatches.
 - **Multi-frame consistency.** ABE operates on a single integrated image; if
   multiple frames need matched backgrounds, run ABE per frame then matched
-  normalisation downstream (cross-reference `PLAN-stacking.md`).
+  normalisation downstream (cross-reference `stacking.md`).
 
 ## Pipeline placement
 
@@ -49,7 +49,7 @@ Siril, GraXpert all run pre-stretch for exactly this reason.
 calibration -> stacking -> cosmetic correction
   -> ABE (gradient removal)           <- THIS PLAN (linear domain)
   -> color calibration (SPCC, BG neutralisation, WB)
-  -> Image.MtfStretch                 <- enter non-linear/display domain (PLAN-ai-enhancement)
+  -> Image.MtfStretch                 <- enter non-linear/display domain (ai-enhancement.md)
   -> Darkstar (star removal)
   -> split: starless + stars-only
   -> StellarSharpener  |  NonStellarDeconvolver
@@ -57,7 +57,7 @@ calibration -> stacking -> cosmetic correction
   -> Image.MtfUnstretch (skip if exporting display PNG)
 ```
 
-`SharpenPipeline.SharpenRequest.Source` (from `PLAN-ai-enhancement.md`)
+`SharpenPipeline.SharpenRequest.Source` (from `ai-enhancement.md`)
 already assumes its input is the post-ABE + post-color-calibration image, so
 no design change is needed there. ABE produces clean linear input for
 downstream consumers.
@@ -186,7 +186,7 @@ extends it with Stage 2. DI picks one by config.
   before stretch; they don't substitute for each other.
 - **White balance.** Also separate, see `Tycho2ColorCalibration`.
 - **Star reduction / starless extraction.** That's `IStarRemover` in the
-  AI enhancement pipeline (`PLAN-ai-enhancement.md`).
+  AI enhancement pipeline (`ai-enhancement.md`).
 - **Vignetting correction.** Should already be handled by flat-field
   calibration upstream. If residual vignetting survives stacking it
   *will* be picked up by the polynomial fit and removed, but the right
@@ -227,13 +227,13 @@ extends it with Stage 2. DI picks one by config.
 
 ## Cross-references
 
-- [PLAN-ai-enhancement.md](PLAN-ai-enhancement.md) -- `SharpenPipeline`
+- [ai-enhancement.md](ai-enhancement.md) -- `SharpenPipeline`
   expects post-ABE input. No coupling beyond that.
-- [PLAN-stacking.md](PLAN-stacking.md) -- ABE runs *after* stacking. The
+- [stacking.md](stacking.md) -- ABE runs *after* stacking. The
   `Normalizer` step in the stacking pipeline does per-frame intensity
   normalisation, not spatial gradient removal -- ABE is the separate,
   later step.
-- [CLAUDE.md](CLAUDE.md) "BackgroundNeutralization" -- the existing
+- [CLAUDE.md](../../CLAUDE.md) "BackgroundNeutralization" -- the existing
   per-channel offset alignment. Different concern from ABE; both run on
   linear data.
 - SAS Pro reference: `../../other/setiastrosuitepro/src/setiastro/saspro/abe.py`.

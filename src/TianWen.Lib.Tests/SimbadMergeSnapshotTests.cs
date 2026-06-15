@@ -10,7 +10,7 @@ namespace TianWen.Lib.Tests;
 
 /// <summary>
 /// Guards the build-time simbad_merge.bin.gz snapshot wired up by Phase 2B of
-/// PLAN-catalog-binary-format.md. Two responsibilities:
+/// docs/plans/catalog-binary-format.md. Two responsibilities:
 ///   1. Catch staleness in CI (input hash mismatch) so a SIMBAD/NGC catalog edit that forgets
 ///      to re-bake the snapshot fails loudly instead of silently regressing init time.
 ///   2. Catch divergence between the live SIMBAD merge path and the snapshot apply path for

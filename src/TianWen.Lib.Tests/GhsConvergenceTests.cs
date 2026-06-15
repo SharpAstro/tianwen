@@ -8,7 +8,7 @@ namespace TianWen.Lib.Tests;
 
 /// <summary>
 /// Validation tests for <see cref="Image.ConvergeGhsStretchFactor"/>
-/// (PLAN-ghs.md Phase 5). Covers: median convergence on diverse synthetic
+/// (docs/plans/ghs.md Phase 5). Covers: median convergence on diverse synthetic
 /// histograms, determinism, safe fallback for empty input, non-default
 /// target respected, and that the log-slope R^2 metric is computed without
 /// throwing.

@@ -4,7 +4,7 @@ namespace TianWen.Lib.Imaging.Stacking;
 
 /// <summary>
 /// Shared tile-sizing math for the tile-pipelined / staged strategies.
-/// PLAN-stacking.md:107-124 sketches the formula; this is its single source
+/// docs/plans/stacking.md:107-124 sketches the formula; this is its single source
 /// of truth so all three tile-based strategies pick the same tile size for a
 /// given probe and the log lines stay consistent.
 /// </summary>

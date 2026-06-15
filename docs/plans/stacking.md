@@ -1050,7 +1050,7 @@ plane. PartialFitsReader's tile read is what TilePipelined actually drives.
   FITS.Lib's bulk-swap path. `Vector<uint>` + `BinaryPrimitives.ReverseEndianness`
   closes the gap. Low priority: production hot path never does full reads
   through `PartialFitsReader` (it does sub-tile reads where the gap is moot).
-- **PLAN-summary.md entry** for PLAN-stacking.md (untracked today).
+- **summary.md entry** for stacking.md (untracked today).
 - ~~**Promote `PartialFitsReader` to FITS.Lib**~~ -- DONE (FITS.Lib 4.6.0,
   namespace `nom.tam.fits.IO`, net10.0-only target).
 - ~~**SIMD byte-swap in `PartialFitsReader`**~~ -- DONE (Vector128.Shuffle

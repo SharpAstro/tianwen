@@ -6,7 +6,7 @@ namespace TianWen.Lib.Imaging.Stacking;
 
 /// <summary>
 /// Frame-at-a-time online accumulator (Welford mean + variance) for live
-/// stacking during a capture session. PLAN-stacking Phase 14
+/// stacking during a capture session. docs/plans/stacking.md Phase 14
 /// <c>LiveStacker</c>. Only selectable when the probe sets
 /// <see cref="IntegrationProbe.LiveStacking"/> -- batch strategies expose
 /// equivalent fidelity at lower complexity when all frames are available
@@ -81,7 +81,7 @@ public sealed class LiveAccumulatorStrategy : IIntegrationStrategy
 
     public ValueTask<IntegrationResult> RunAsync(IntegrationJob job, CancellationToken ct) =>
         throw new NotImplementedException(
-            "LiveAccumulatorStrategy is PLAN-stacking Phase 14 -- the Welford online accumulator class " +
+            "LiveAccumulatorStrategy is docs/plans/stacking.md Phase 14 -- the Welford online accumulator class " +
             "doesn't exist yet. Wire it up alongside the session-loop live preview, then this strategy " +
             "just becomes the dispatch adapter.");
 }

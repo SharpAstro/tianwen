@@ -17,7 +17,7 @@ namespace TianWen.Lib.Astrometry.Catalogs;
 /// hash-verifies the snapshot against the embedded catalog inputs; on hit it applies the
 /// snapshot directly (~30-50 ms) and skips the ~280 ms parallel scan + bulk-merge that
 /// produced the same end state. On hash miss the runtime falls back to the live path with
-/// a warning. See <c>PLAN-catalog-binary-format.md</c> § 2A.</para>
+/// a warning. See <c>docs/plans/catalog-binary-format.md</c> § 2A.</para>
 ///
 /// <para>Determinism note: stored edge entries are the final post-<see cref="CelestialObjectDB.MergeEdgesBulk"/>
 /// <c>(i1, ext[])</c> tuple for each affected key, NOT the pre-merge edge delta. This sidesteps

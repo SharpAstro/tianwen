@@ -149,7 +149,7 @@ waiting so session logs stay legible.
 | 1 | `WaitForScheduledStartAsync` + `ScheduledStartOutcome` in Session.Timing.cs + `ScheduledStartLeadTime` knob | S |
 | 2 | Call site at top of `ObservationLoopAsync` body + log lines | S |
 | 3 | Functional tests (below) | M |
-| 4 | Docs: CLAUDE.md Session section sentence + TODO.md tick + PLAN-summary row | S |
+| 4 | Docs: CLAUDE.md Session section sentence + TODO.md tick + summary.md row | S |
 
 ## Tests (`SessionObservationLoopTests` harness, `[Collection("Session")]`)
 

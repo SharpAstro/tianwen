@@ -25,7 +25,7 @@ to .NET 10 with `Microsoft.ML.OnnxRuntime`.
 - **Super-resolution** (`superres_2x/3x/4x.onnx`). Not on the critical path; defer.
 - **Satellite trail detection + removal** (`satelliteRemovalAI4.onnx` +
   `satellite_trail_detector_*.onnx`). Logically belongs in the stacking pipeline as a
-  pre-rejection filter, not here. Cross-reference [PLAN-stacking.md](PLAN-stacking.md)
+  pre-rejection filter, not here. Cross-reference [stacking.md](stacking.md)
   when the time comes.
 - **Classical (non-ONNX) fallbacks** for every enhancer except `IStarRemover`.
   Lucy-Richardson, unsharp-mask, bilateral, etc. exist and are worth having later
@@ -350,7 +350,7 @@ model is on disk, leaving the classical fallback for absent ones.
 
 ## Cross-references
 
-- [tools/tianwen-ai-models-fetch.ps1](tools/tianwen-ai-models-fetch.ps1) — dev model fetch (hardlink from SAS Pro, else download)
-- [PLAN-stacking.md](PLAN-stacking.md) — satellite trail removal belongs there as a pre-rejection filter
-- [CLAUDE.md](CLAUDE.md) — "Plate Solving" section's factory-lambda note (same DI gotcha for `ILogger` ctor params)
-- [CLAUDE.md](CLAUDE.md) — "Stretch Pipeline: CPU/GPU Mirror" — `Image.MtfStretch` is the MTF-only entry into the same math `Image.StretchValue` already uses; the multi-stage viewer chain is for display, not for ONNX input prep
+- [tools/tianwen-ai-models-fetch.ps1](../../tools/tianwen-ai-models-fetch.ps1) — dev model fetch (hardlink from SAS Pro, else download)
+- [stacking.md](stacking.md) — satellite trail removal belongs there as a pre-rejection filter
+- [CLAUDE.md](../../CLAUDE.md) — "Plate Solving" section's factory-lambda note (same DI gotcha for `ILogger` ctor params)
+- [CLAUDE.md](../../CLAUDE.md) — "Stretch Pipeline: CPU/GPU Mirror" — `Image.MtfStretch` is the MTF-only entry into the same math `Image.StretchValue` already uses; the multi-stage viewer chain is for display, not for ONNX input prep

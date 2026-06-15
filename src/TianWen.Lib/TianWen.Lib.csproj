@@ -50,7 +50,7 @@
     <EmbeddedResource Include="Astrometry/Catalogs/simbad_merge.bin.gz" WithCulture="false" />
     <!-- Catalogs migrated to the ASCII-separated .gs.gz format: keep the .json.lz on
          disk as preprocessor input but exclude it from the assembly so only the
-         faster path ships. See PLAN-catalog-binary-format.md. -->
+         faster path ships. See docs/plans/catalog-binary-format.md. -->
     <EmbeddedResource Remove="Astrometry/Catalogs/HR.json.lz" />
     <EmbeddedResource Remove="Astrometry/Catalogs/GUM.json.lz" />
     <EmbeddedResource Remove="Astrometry/Catalogs/RCW.json.lz" />
@@ -118,7 +118,7 @@
 
   <!-- Convert source .json.lz catalogs to the ASCII-separated .gs.gz format consumed
        by AsciiRecordReader at runtime. Re-runs only when an input is newer than its
-       output. See tools/preprocess-catalog.ps1 + PLAN-catalog-binary-format.md. -->
+       output. See tools/preprocess-catalog.ps1 + docs/plans/catalog-binary-format.md. -->
   <Target Name="PreprocessCatalogs"
           BeforeTargets="AssignTargetPaths"
           Inputs="@(CatalogPreprocess)"

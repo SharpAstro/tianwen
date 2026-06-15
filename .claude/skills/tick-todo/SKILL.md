@@ -1,6 +1,6 @@
 ---
 name: tick-todo
-description: Mark a TODO item done in TODO.md and propagate updates to CLAUDE.md, PLAN-*.md files, and related memory entries. Use when the user asks to tick off, check off, mark done, or close out a TODO item.
+description: Mark a TODO item done in TODO.md and propagate updates to CLAUDE.md, docs/plans/*.md files, and related memory entries. Use when the user asks to tick off, check off, mark done, or close out a TODO item.
 ---
 
 Usage: `/tick-todo <search text>` or pass the search text as an argument. Examples: `DrawEllipse`, `Mosaic panel support`.
@@ -11,7 +11,7 @@ Steps:
 3. If the item has a brief description, optionally expand it with what was done
 4. Check if the item is mentioned in `CLAUDE.md` and update if needed
    (e.g. architecture docs that reference the feature)
-5. Check if there's a related `PLAN-*.md` file and mark the corresponding
+5. Check if there's a related `docs/plans/*.md` file and mark the corresponding
    phase/step as done
 6. Check memory files in the `.claude/` memory directory for related project
    entries that should be updated (e.g. move from "todo" to "done")

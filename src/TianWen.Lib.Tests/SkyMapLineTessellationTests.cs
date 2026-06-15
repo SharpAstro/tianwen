@@ -12,7 +12,7 @@ using Xunit;
 namespace TianWen.Lib.Tests;
 
 /// <summary>
-/// Followup F from PLAN-gpu-stretch-tests.md: deterministic-output checks for the CPU-side
+/// Followup F from docs/plans/gpu-stretch-tests.md: deterministic-output checks for the CPU-side
 /// great-circle line tessellation that feeds <see cref="VkSkyMapPipeline"/>'s Line pipeline.
 ///
 /// No GPU dependency -- the tessellators produce <see cref="List{Single}"/> on the CPU side

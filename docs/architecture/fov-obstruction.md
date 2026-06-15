@@ -2,8 +2,8 @@
 
 Architecture reference for the predictive scout + altitude-nudge probe shipped on
 branch `fov-obstruction-detection`. Designed in
-[`PLAN-fov-obstruction-detection.md`](PLAN-fov-obstruction-detection.md);
-sub-plan 2 of [`PLAN-first-light-resilience.md`](PLAN-first-light-resilience.md).
+[`fov-obstruction-detection.md`](../plans/fov-obstruction-detection.md);
+sub-plan 2 of [`first-light-resilience.md`](../plans/first-light-resilience.md).
 
 **Goal:** detect fixed FOV obstructions (tree, building, neighbour's roof) before
 the imaging loop has committed to guiding + full-length exposures. Either wait
@@ -126,7 +126,7 @@ won't gain altitude, so there's no point walking the lookahead loop forward.
 ## Resilience layering — how the scout composes with `ResilientCall`
 
 This is the canonical worked example of the three-layer composite-retry pattern
-described in [`ARCH-driver-resilience.md`](ARCH-driver-resilience.md) "Composite
+described in [`driver-resilience.md`](driver-resilience.md) "Composite
 operations: layering retry on top of `ResilientCall`". Read that section first
 for the abstract pattern; this section is the scout-specific instantiation.
 
@@ -260,7 +260,7 @@ visible record so unattended-session reviewers can see what happened overnight.
 
 Three first-light scenarios where an obstruction can still bite because the
 scout's preconditions aren't met. Detail in
-[`PLAN-fov-obstruction-detection.md`](PLAN-fov-obstruction-detection.md)
+[`fov-obstruction-detection.md`](../plans/fov-obstruction-detection.md)
 "Known limitations" section.
 
 1. **First observation of the night** — no prior baseline → scout returns

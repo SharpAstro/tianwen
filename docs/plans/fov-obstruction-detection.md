@@ -1,6 +1,6 @@
 # Plan: Live FOV Obstruction Detection
 
-Sub-plan of [`PLAN-first-light-resilience.md`](PLAN-first-light-resilience.md).
+Sub-plan of [`first-light-resilience.md`](first-light-resilience.md).
 
 Goal: detect fixed FOV obstructions (tree, building, neighbour's roof) as
 early as possible in a target window, decide whether they'll clear within
@@ -235,5 +235,5 @@ scout in v2 should weigh them before adding more orthogonal features.
 ## Memory updates after landing
 
 Replace the content of `project_fov_obstruction_detection.md` with a pointer
-to this PLAN doc (two-line "designed in `PLAN-fov-obstruction-detection.md`;
+to this PLAN doc (two-line "designed in `fov-obstruction-detection.md`;
 status: <phase>"). Don't double-source design.

@@ -22,7 +22,7 @@ namespace TianWen.Lib.Sequencing;
 /// never blocked), so it means cloud; the session holds and re-gauges before sinking the night
 /// into thick cloud.</item>
 /// </list>
-/// See <c>PLAN-obstruction-first-light-oracle.md</c>.
+/// See <c>docs/plans/obstruction-first-light-oracle.md</c>.
 /// </summary>
 internal partial record Session
 {

@@ -12,7 +12,7 @@ using static Vortice.Vulkan.Vulkan;
 namespace TianWen.Lib.Tests;
 
 /// <summary>
-/// Followup D from PLAN-gpu-stretch-tests.md: drive the same primitive draw through both
+/// Followup D from docs/plans/gpu-stretch-tests.md: drive the same primitive draw through both
 /// <see cref="RgbaImageRenderer"/> (CPU) and <see cref="VkRenderer"/> (GPU, via offscreen
 /// Vulkan) and assert RGBA-byte parity within a tolerance per primitive.
 ///

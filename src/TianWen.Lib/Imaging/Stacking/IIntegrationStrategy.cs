@@ -16,7 +16,7 @@ public enum IntegrationStrategyKind
     /// disk. Highest fidelity, smallest RAM headroom.</summary>
     InRamAllFrames,
 
-    /// <summary>PLAN-stacking Phase 8: re-read raw lights tile-by-tile, calibrate
+    /// <summary>docs/plans/stacking.md Phase 8: re-read raw lights tile-by-tile, calibrate
     /// + warp + normalize + stack in-memory per tile. No staging on disk; OS
     /// page cache absorbs the repeated raw reads.</summary>
     TilePipelined,
@@ -37,7 +37,7 @@ public enum IntegrationStrategyKind
     /// fidelity warning logged.</summary>
     ChunkedTwoPass,
 
-    /// <summary>Frame-at-a-time Welford online accumulator (PLAN-stacking
+    /// <summary>Frame-at-a-time Welford online accumulator (docs/plans/stacking.md
     /// Phase 14 <c>LiveStacker</c>). Selected only when the probe sets
     /// <see cref="IntegrationProbe.LiveStacking"/>; not interchangeable with
     /// batch strategies because rejection is per-frame relative to the

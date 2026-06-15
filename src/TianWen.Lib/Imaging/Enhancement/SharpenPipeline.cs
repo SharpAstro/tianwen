@@ -311,7 +311,7 @@ public sealed class SharpenPipeline(
                     {
                         // Generalised Hyperbolic Stretch on the most-processed
                         // starless plate. Cranfield's reference implementation
-                        // (see PLAN-ghs.md). All curve mechanics live in
+                        // (see docs/plans/ghs.md). All curve mechanics live in
                         // ApplyGhsChain, shared with GhsStretchFinalStep.
                         var inputPlate = denoisedStarless ?? deconvolvedStarless ?? Require(starless);
                         var (stretched, spLabel, convergenceLabel) = ApplyGhsChain(
@@ -1046,7 +1046,7 @@ public sealed record StretchStarsStep(double Amount = 2.0) : SharpenStep;
 /// match Paul (Polymath Astro)'s video walkthrough for the case-1
 /// (linear -> display) stretch: <c>B = 8</c> (hyperbolic branch),
 /// SP auto-detect via histogram lift-off, <c>HP = 0.8</c>.
-/// See PLAN-ghs.md for the math.
+/// See docs/plans/ghs.md for the math.
 /// </summary>
 /// <param name="LnD">User-facing stretch factor in the
 /// <c>ln(D + 1)</c> convention -- internally <c>D = exp(LnD) - 1</c>.</param>

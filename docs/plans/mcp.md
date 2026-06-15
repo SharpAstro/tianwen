@@ -1,4 +1,4 @@
-# PLAN-mcp.md — TianWen MCP server for AI-driven debugging
+# TianWen MCP server for AI-driven debugging
 
 ## Goal
 
@@ -257,7 +257,7 @@ Total estimate: ~8-10 days of focused work. Phase A alone delivers a usable scaf
 
 1. ~~**AOT vs JIT publish**~~: settled — AOT, with `PublishAot=true`, `InvariantGlobalization=true`, `WithTools<T>()` chained per class. Expected binary size ~30-40 MB after trim.
 2. **Reference to `UI.Abstractions`**: `MasterPreviewRenderer` lives there for layering reasons (it pulls in `AstroImageDocument`, the stretch pipeline, etc.). The MCP server probably needs *just* the render-from-FITS-to-PNG path. Options: (a) project-reference UI.Abstractions in MCP (cheap, but couples MCP to the UI assembly tree), (b) extract `RenderPngFromMaster` into a thin Lib-level helper. Lean (b) for layering.
-3. **Process model**: MCP servers are long-lived per-client (stdio session lasts as long as the client is connected). The TianWen catalog DB takes ~270 ms warm to init (`PLAN-catalog-binary-format.md`); init once on first tool call that needs it, the `_isInitialized` fast path makes subsequent calls free. Same singleton-via-DI pattern as `seq-mcp`'s `SeqConnection`.
+3. **Process model**: MCP servers are long-lived per-client (stdio session lasts as long as the client is connected). The TianWen catalog DB takes ~270 ms warm to init (`catalog-binary-format.md`); init once on first tool call that needs it, the `_isInitialized` fast path makes subsequent calls free. Same singleton-via-DI pattern as `seq-mcp`'s `SeqConnection`.
 4. **Device-source enumeration safety** (Phase F): each `IDeviceSource<T>.EnumerateAsync` must be audited to confirm it doesn't open serial ports or set `IDeviceDriver.Connected = true`. ASCOM Alpaca UDP discovery is benign. OnStep mDNS scan is benign. Native SDK enumerate (ZWO/QHY) is benign — but check. Meade serial / Skywatcher serial enumerate via `SerialPort.GetPortNames()` (just lists COM names, doesn't open). Document the audit result in the tool's XML doc + add an integration test that asserts no driver moves into `Connected` state during enumeration.
 5. **Security**: MCP servers can receive any path. The tool surface accepts absolute paths for `fits.*` / `log.*`; we don't sandbox. Acceptable for a developer-tool context. Document it explicitly.
 

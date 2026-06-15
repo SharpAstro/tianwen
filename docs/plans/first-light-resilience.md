@@ -8,15 +8,15 @@ what isn't, and in what order we tackle it**.
 
 ## Sub-plans
 
-1. [`PLAN-driver-resilience.md`](PLAN-driver-resilience.md) — per-call
+1. [`driver-resilience.md`](driver-resilience.md) — per-call
    reconnect + retry + fault-counter escalation. Wraps hot-path driver
    calls so a USB hiccup, COM fault, or TCP drop doesn't end the session.
-   **Status: SHIPPED (merged to main).** See [`ARCH-driver-resilience.md`](ARCH-driver-resilience.md).
-2. [`PLAN-fov-obstruction-detection.md`](PLAN-fov-obstruction-detection.md) —
+   **Status: SHIPPED (merged to main).** See [`../architecture/driver-resilience.md`](../architecture/driver-resilience.md).
+2. [`fov-obstruction-detection.md`](fov-obstruction-detection.md) —
    predictive scout frame + altitude-nudge disambiguation + trajectory-aware
    wait decision, so a target behind a tree is detected fast and either
    waited out or skipped cleanly. **Status: SHIPPED on branch
-   `fov-obstruction-detection`.** See [`ARCH-fov-obstruction.md`](ARCH-fov-obstruction.md).
+   `fov-obstruction-detection`.** See [`../architecture/fov-obstruction.md`](../architecture/fov-obstruction.md).
    **Known gaps not closed by v1** (detail in the plan + arch doc):
    - First observation of the night returns `Healthy` unconditionally
      (no prior baseline to compare against).
@@ -107,7 +107,7 @@ Apply across all sub-plans:
 After each sub-plan ships, the corresponding memory entry becomes a
 **pointer** to the PLAN doc, not a duplicate of the design:
 
-- `project_fov_obstruction_detection.md` -> `PLAN-fov-obstruction-detection.md`
-- New `project_driver_resilience.md` -> `PLAN-driver-resilience.md`
+- `project_fov_obstruction_detection.md` -> `fov-obstruction-detection.md`
+- New `project_driver_resilience.md` -> `driver-resilience.md`
 - New `project_first_light_resilience.md` -> this meta-plan (trail map for
   future sessions)

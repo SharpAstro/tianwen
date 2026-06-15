@@ -11,7 +11,7 @@ namespace TianWen.Lib.Tests;
 
 /// <summary>
 /// Guards the build-time hd_hip_cross.bin.gz snapshot wired up by Phase 2A of
-/// PLAN-catalog-binary-format.md. Two responsibilities:
+/// docs/plans/catalog-binary-format.md. Two responsibilities:
 ///   1. Catch staleness in CI (input hash mismatch) so a catalog edit that forgets
 ///      to re-bake the snapshot fails loudly instead of silently regressing init time.
 ///   2. Catch divergence between the live BuildHdHipCrossIndicesViaTyc path and the

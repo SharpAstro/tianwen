@@ -9,7 +9,7 @@ using TianWen.Lib.Imaging.Calibration;
 namespace TianWen.Lib.Imaging.Stacking;
 
 /// <summary>
-/// PLAN-stacking Phase 8: re-read raw lights as needed, calibrate + debayer +
+/// docs/plans/stacking.md Phase 8: re-read raw lights as needed, calibrate + debayer +
 /// warp + normalize + reject + combine in memory per output strip. Caches
 /// debayered frames in RAM when memory allows so the common case becomes
 /// "one decode per frame, just like InRam"; falls back to re-decode on miss

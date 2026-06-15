@@ -448,7 +448,7 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
         phaseSw.Restart();
         // Fast path: apply embedded simbad_merge.bin.gz snapshot if its input hash matches
         // the embedded SIMBAD/NGC catalog inputs; otherwise fall back to live parse + merge.
-        // See PLAN-catalog-binary-format.md § 2B.
+        // See docs/plans/catalog-binary-format.md § 2B.
         PreSimbadCaptureState? preSimbadState = null;
         var simbadAppliedFromSnapshot = simbadSnapshotResource is not null
             && await TryApplySimbadMergeSnapshotFromEmbeddedAsync(assembly, manifestNames, simbadSnapshotResource);
@@ -579,7 +579,7 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
         // (must happen after all catalog loading so HIP cross-refs to HR, vdB etc. are present).
         // Fast path: apply embedded hd_hip_cross.bin.gz snapshot if its input hash matches
         // the embedded catalog inputs; otherwise fall back to live compute. See
-        // PLAN-catalog-binary-format.md § 2A.
+        // docs/plans/catalog-binary-format.md § 2A.
         if (ForceLiveHdHipCrossWithCapture)
         {
             // Live build needs _tycho2Data + _tycho2RaDecIndex; the bulk task is in flight.
@@ -2474,7 +2474,7 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
     /// Prefers the ASCII-separated <c>.gs.gz</c> format (produced by
     /// <c>tools/preprocess-catalog.ps1</c>) when an embedded resource matches;
     /// falls back to the legacy <c>.json.lz</c> path for catalogs that have not
-    /// yet been migrated. See <c>PLAN-catalog-binary-format.md</c>.
+    /// yet been migrated. See <c>docs/plans/catalog-binary-format.md</c>.
     /// </remarks>
     private static async Task<List<SimbadCatalogDto>?> ParseSimbadFileAsync(Assembly assembly, string[] manifestNames, string jsonName, CancellationToken cancellationToken)
     {

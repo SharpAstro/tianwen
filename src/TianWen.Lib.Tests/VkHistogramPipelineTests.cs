@@ -10,7 +10,7 @@ using static Vortice.Vulkan.Vulkan;
 namespace TianWen.Lib.Tests;
 
 /// <summary>
-/// Followup B from PLAN-gpu-stretch-tests.md: comp test for
+/// Followup B from docs/plans/gpu-stretch-tests.md: comp test for
 /// <see cref="VkFitsImagePipeline.RecordHistogramDraw"/>. The histogram pipeline renders
 /// R/G/B histograms as overlapping coloured bars; the fragment shader samples the per-bin
 /// values from R32_SFLOAT textures and outputs <c>vec4(color, alpha)</c> which is then

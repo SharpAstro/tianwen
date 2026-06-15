@@ -21,7 +21,7 @@ using static Vortice.Vulkan.Vulkan;
 namespace TianWen.Lib.Tests;
 
 /// <summary>
-/// Phase 1 of PLAN-gpu-stretch-tests.md: smoke test that runs the synthetic SPCC starfield
+/// Phase 1 of docs/plans/gpu-stretch-tests.md: smoke test that runs the synthetic SPCC starfield
 /// through both <see cref="Image.RenderStretchedRgba"/> (CPU) and the offscreen
 /// <see cref="VkFitsImagePipeline"/> (GPU), comparing the resulting RGBA bytes within a
 /// tolerance. Catches CPU/GPU divergences in the stretch shader (the kind of regression that
@@ -267,7 +267,7 @@ public sealed class GpuStretchPipelineTests : IClassFixture<OffscreenGpuFixture>
     }
 
     /// <summary>
-    /// Phase 3 of PLAN-gpu-stretch-tests.md: drive the same 8 stretch cases the CPU-only
+    /// Phase 3 of docs/plans/gpu-stretch-tests.md: drive the same 8 stretch cases the CPU-only
     /// <c>StretchTests_NewPipeline.GivenColorFitsWhenRenderingThroughCpuPipelineThenWritesTiff</c>
     /// theory exercises through both the CPU mirror and the GPU offscreen pipeline, then assert
     /// per-pixel byte parity within tolerance. Catches regressions in any GLSL stretch stage

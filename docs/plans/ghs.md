@@ -182,19 +182,19 @@ metric is meaningful.
    and `Histogram Transformation` in the same dispatch. Worth
    adding a `--ghs-type` switch to expose them? **Vote:** not in
    v1. Arcsinh is requested in
-   [[PLAN-ai-enhancement-next]] as a separate
+   [[ai-enhancement-next]] as a separate
    `AsinhStretchTransform`; HT is what `Image.MtfStretch` already
    provides. Keep GHS focused on the GHS-Integral family.
 
 ## Cross-references
 
-- [`PLAN-ai-enhancement-next.md`](PLAN-ai-enhancement-next.md) --
+- [`ai-enhancement-next.md`](ai-enhancement-next.md) --
   the "Productionise GHS starless stretch" entry there is
   superseded by this plan
-- [`TODO.md`](TODO.md) -- the productionisation hypothesis list under
+- [`TODO.md`](../../TODO.md) -- the productionisation hypothesis list under
   "AI Enhancement" predates the reference-impl discovery; once
-  this plan ships, that entry collapses to "DONE per PLAN-ghs.md"
-- [`CLAUDE.md`](CLAUDE.md) "Stretch Pipeline: CPU/GPU Mirror" --
+  this plan ships, that entry collapses to "DONE per ghs.md"
+- [`CLAUDE.md`](../../CLAUDE.md) "Stretch Pipeline: CPU/GPU Mirror" --
   GHS is CPU-only (no GPU mirror) and stays that way; it's a
   one-time pipeline step, not a live viewer mode
 

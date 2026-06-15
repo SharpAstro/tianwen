@@ -11,7 +11,7 @@ namespace TianWen.Lib.Sequencing;
 /// FOV obstruction detection — predictive scout + altitude-nudge disambiguation.
 /// Runs after <c>CenterOnTargetAsync</c> and before guider/imaging commitment so a
 /// target behind a tree or roof is detected fast and either waited out (if the trajectory
-/// will clear it soon) or skipped cleanly. See <c>PLAN-fov-obstruction-detection.md</c>.
+/// will clear it soon) or skipped cleanly. See <c>docs/plans/fov-obstruction-detection.md</c>.
 /// </summary>
 internal partial record Session
 {
@@ -161,7 +161,7 @@ internal partial record Session
         if (prevBaseline is null)
         {
             // First observation of the night: no same-night baseline. Fall back to the zenith-anchored
-            // first-scout oracle (PLAN-obstruction-first-light-oracle). Healthy / inconclusive -> proceed;
+            // first-scout oracle (docs/plans/obstruction-first-light-oracle.md). Healthy / inconclusive -> proceed;
             // a shortfall routes into the same altitude-nudge disambiguation as the baseline path.
             var oracle = await ClassifyFirstScoutAgainstZenithAsync(observation, preMetrics, scoutExposure, cancellationToken);
             if (oracle is not { } firstScoutClass)

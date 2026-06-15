@@ -446,7 +446,7 @@ public class SessionObservationLoopTests(ITestOutputHelper output)
     /// <summary>
     /// Two visible targets where the second is scheduled 45 min later than the first. The loop must
     /// image the first immediately, then <em>wait</em> until the second's (Start - lead) before
-    /// imaging it -- the headline behaviour of PLAN-scheduled-starts.
+    /// imaging it -- the headline behaviour of docs/plans/scheduled-starts.md.
     /// </summary>
     [Fact(Timeout = 120_000)]
     public async Task GivenSecondObservationStartsLaterWhenLoopRunsThenImagingWaitsForScheduledStart()

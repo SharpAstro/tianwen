@@ -2,7 +2,7 @@
 
 Architecture reference for the driver-reconnect + retry layer shipped on branch
 `driver-resilience` as PRs B1-B6. Designed in
-[`PLAN-driver-resilience.md`](PLAN-driver-resilience.md).
+[`driver-resilience.md`](../plans/driver-resilience.md).
 
 **Goal:** a single USB bump, COM glitch, or TCP drop must not end the session.
 Previously, every driver call in the imaging hot path was a naked `await` — the
@@ -54,7 +54,7 @@ flowchart TD
 arrows are wrapped via `ResilientInvokeAsync`.
 
 ✦ = predictive FOV obstruction probe added on branch `fov-obstruction-detection`.
-Detail in [`ARCH-fov-obstruction.md`](ARCH-fov-obstruction.md).
+Detail in [`fov-obstruction.md`](fov-obstruction.md).
 
 ## ResilientCall.InvokeAsync
 
@@ -240,7 +240,7 @@ test for the canonical example. New fake-driver test seams should follow the
 same pattern.
 
 The first concrete user of all three layers is the FOV obstruction scout — see
-[`ARCH-fov-obstruction.md`](ARCH-fov-obstruction.md) "Resilience layering" for
+[`fov-obstruction.md`](fov-obstruction.md) "Resilience layering" for
 the worked example with its specific failure-class table.
 
 ## CatchAsync vs ResilientInvokeAsync vs PollDriverReadAsync

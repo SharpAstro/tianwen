@@ -20,7 +20,7 @@ namespace TianWen.AI.Imaging.Onnx;
 /// <para>Domain semantics: linear-units in / linear-units out, but the
 /// transformation is NOT a linear-domain function of the input -- star
 /// removal globally rewrites the histogram (stellar pixels collapse to the
-/// local nebula level). See PLAN-ai-enhancement.md "Domain semantics" for
+/// local nebula level). See docs/plans/ai-enhancement.md "Domain semantics" for
 /// the implications when chaining with other linear-domain tools.</para>
 ///
 /// <para>Session lifecycle: registered as a singleton via

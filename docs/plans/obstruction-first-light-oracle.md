@@ -19,8 +19,8 @@ Delivered:
   2 functional (`SessionScoutAndProbeTests` oracle + gauge), plus the existing 11 scout + 41
   full-session functional tests still green.
 
-Follow-up to [`PLAN-fov-obstruction-detection.md`](PLAN-fov-obstruction-detection.md)
-(Known limitations #1) and [`ARCH-fov-obstruction.md`](ARCH-fov-obstruction.md).
+Follow-up to [`fov-obstruction-detection.md`](fov-obstruction-detection.md)
+(Known limitations #1) and [`../architecture/fov-obstruction.md`](../architecture/fov-obstruction.md).
 
 ## The core idea: zenith is the night's calibration anchor
 
@@ -203,7 +203,7 @@ telemetry / sky-map HUD and (optionally) the ongoing condition-deterioration log
 | 3 | **A** — `TryClassifyAgainstZenithGaugeAsync` in Obstruction.cs (gauge-calibrated expected, catalog-floor fallback, sparse + narrowband guards) replacing the early-out; knobs; maxStars 200->1000 hygiene fix | M |
 | 4 | **C** — cloud gate after rough focus: efficiency < floor -> condition-wait/recovery (mirror Session.Imaging.cs:891-914) | M |
 | 5 | Functional tests (below) incl. updating `GivenFirstObservationNoBaselineWhenScoutThenHealthy` | M |
-| 6 | Docs: parent-plan limitation resolved, ARCH touch-up, TODO tick, PLAN-summary row; note B as the next follow-up | S |
+| 6 | Docs: parent-plan limitation resolved, ARCH touch-up, TODO tick, summary.md row; note B as the next follow-up | S |
 
 ## Tests
 

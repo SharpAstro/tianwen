@@ -18,7 +18,7 @@ namespace TianWen.Lib.Imaging.Enhancement;
 /// stretched out). The output's <i>units</i> match the input, but the
 /// transformation applied is <i>not</i> a linear-domain function of the
 /// input -- star removal globally rewrites the histogram (stellar pixels
-/// collapse to the local nebula level). See PLAN-ai-enhancement.md "Domain
+/// collapse to the local nebula level). See docs/plans/ai-enhancement.md "Domain
 /// semantics" for the implications when chaining with other linear-domain
 /// tools.</para>
 /// </remarks>

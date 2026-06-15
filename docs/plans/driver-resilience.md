@@ -1,6 +1,6 @@
 # Plan: Driver-Level Resilience (Reconnect + Retry)
 
-Sub-plan of [`PLAN-first-light-resilience.md`](PLAN-first-light-resilience.md).
+Sub-plan of [`first-light-resilience.md`](first-light-resilience.md).
 
 Goal: a single dropped USB cable, COM glitch, or TCP disconnect must **not**
 end the session. Today every driver call in the imaging hot path is a naked

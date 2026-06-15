@@ -254,7 +254,7 @@ internal sealed class ImageSubCommand(
         };
         var starlessStretchModeOpt = new Option<StarlessStretchMode>("--starless-stretch-mode")
         {
-            Description = "Stretch type for the starless plate under --dual-stretch. 'mtf' (default) = midtones-balance with --stretch-starless-median. 'ghs' = Mike Cranfield's Generalised Hyperbolic Stretch chain (https://github.com/mikec1485/GHS) driven by --ghs-lnd / --ghs-b / --ghs-lp / --ghs-hp / --ghs-sp / --ghs-passes / --ghs-stages / --ghs-target / --ghs-target-value / --ghs-converge. GHS defaults match Paul (Polymath Astro)'s case-1 recipe: LnD=1.30, B=8.0 (hyperbolic), LP=0, HP=0.8, SP=auto (Image.EstimateRisingEdge), passes=1, stages=1. See PLAN-ghs.md for the curve math. Setting this implies --dual-stretch.",
+            Description = "Stretch type for the starless plate under --dual-stretch. 'mtf' (default) = midtones-balance with --stretch-starless-median. 'ghs' = Mike Cranfield's Generalised Hyperbolic Stretch chain (https://github.com/mikec1485/GHS) driven by --ghs-lnd / --ghs-b / --ghs-lp / --ghs-hp / --ghs-sp / --ghs-passes / --ghs-stages / --ghs-target / --ghs-target-value / --ghs-converge. GHS defaults match Paul (Polymath Astro)'s case-1 recipe: LnD=1.30, B=8.0 (hyperbolic), LP=0, HP=0.8, SP=auto (Image.EstimateRisingEdge), passes=1, stages=1. See docs/plans/ghs.md for the curve math. Setting this implies --dual-stretch.",
             DefaultValueFactory = _ => StarlessStretchMode.Mtf,
         };
         var stretchModeOpt = new Option<CombinedStretchMode>("--stretch-mode")

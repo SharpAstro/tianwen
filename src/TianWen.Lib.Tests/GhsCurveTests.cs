@@ -6,7 +6,7 @@ using Xunit;
 namespace TianWen.Lib.Tests;
 
 /// <summary>
-/// Validation tests for the ported GHS curve (PLAN-ghs.md Phase 2).
+/// Validation tests for the ported GHS curve (docs/plans/ghs.md Phase 2).
 /// Asserts the 4-branch math against:
 ///   - identity at LnD = 0,
 ///   - boundary conditions (curve passes through (0, 0) and (1, 1)),

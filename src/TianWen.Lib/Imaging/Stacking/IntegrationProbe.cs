@@ -76,7 +76,7 @@ public enum DiskKind
 /// <param name="EmitRejectionMap">Whether the output buffer includes a
 /// rejection map (doubles peak output RAM).</param>
 /// <param name="LiveStacking">True when the caller wants frame-at-a-time
-/// incremental accumulation (Welford online; PLAN-stacking Phase 14).
+/// incremental accumulation (Welford online; docs/plans/stacking.md Phase 14).
 /// Filters the strategy set down to live-capable implementations.</param>
 public sealed record IntegrationProbe(
     int FrameCount,

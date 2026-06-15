@@ -12,14 +12,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Tracking Docs
 
-Canonical project state lives in repo-root markdown files — read these before starting non-trivial work:
+Canonical project state lives in these markdown files — read the relevant ones before starting non-trivial work:
 
 | File | Purpose |
 |------|---------|
-| `PLAN-summary.md` | Current status of every `PLAN-*.md` (DONE / PARTIAL / NOT STARTED) cross-checked against the codebase |
-| `PLAN-*.md` | Per-feature implementation plans with phasing tables |
-| `ARCH-*.md` | Architecture deep-dives with mermaid diagrams (e.g. `ARCH-driver-resilience.md`, `ARCH-fov-obstruction.md`) |
-| `TODO.md` | Working list of unchecked tasks grouped by area |
+| `docs/plans/summary.md` | Current status of every plan in `docs/plans/` (DONE / PARTIAL / NOT STARTED) cross-checked against the codebase |
+| `docs/plans/*.md` | Per-feature implementation plans with phasing tables |
+| `docs/architecture/*.md` | Architecture deep-dives with mermaid diagrams (e.g. `docs/architecture/driver-resilience.md`, `docs/architecture/fov-obstruction.md`) |
+| `TODO.md` | Working list of unchecked tasks grouped by area (stays at repo root) |
 
 ## Custom Skills
 
@@ -274,7 +274,7 @@ clock (`GetMountUtcNowAsync`) as the loop condition.
 
 All driver calls reachable from the session hot path go through `Session.ResilientInvokeAsync(...)`,
 a thin wrapper over `ResilientCall.InvokeAsync` with `OnDriverReconnect` as the fault callback. See
-[`ARCH-driver-resilience.md`](ARCH-driver-resilience.md).
+[`docs/architecture/driver-resilience.md`](docs/architecture/driver-resilience.md).
 
 - **Never introduce a raw `await driver.X(...)` on the session hot path.** Grep PRs for regressions.
 - **Pick the preset:** `IdempotentRead` (status/position polls — 3 attempts, exponential backoff +
@@ -304,7 +304,7 @@ session-end. Wire-up: `BacklashEstimator`, `BacklashHistoryPersistence`, `Sessio
 
 `PolarAlignmentSession` (`TianWen.Lib/Sequencing/PolarAlignment/`) is a SharpCap-style two-frame
 plate-solve routine that runs **outside** of `Session.RunAsync` against a manually-connected mount.
-See `PLAN-polar-alignment.md` for the math/algorithm.
+See `docs/plans/polar-alignment.md` for the math/algorithm.
 
 ### Hosting API (`TianWen.Hosting` + `TianWen.Server`)
 

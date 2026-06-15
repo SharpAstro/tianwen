@@ -16,7 +16,7 @@ scheduled_tasks.lock
 # Catalog preprocessor output: derived from src/TianWen.Lib/Astrometry/Catalogs/*.json.lz
 # via tools/preprocess-catalog.ps1. Built locally by the PreprocessCatalogs MSBuild
 # target (pure .NET, no external binaries) and on CI by the `build` job, then shared
-# with downstream jobs as the `preprocessed-catalogs` artifact. See PLAN-catalog-binary-format.md.
+# with downstream jobs as the `preprocessed-catalogs` artifact. See docs/plans/catalog-binary-format.md.
 src/TianWen.Lib/Astrometry/Catalogs/*.gs.gz
 
 # SASP filter/sensor/SED data is produced by tools/import-sasp-data (downloads

@@ -4,31 +4,31 @@ Status of every `PLAN-*.md` in the repo root, cross-checked against the codebase
 
 | Plan | Status |
 |------|--------|
-| [PLAN-serial-probe](PLAN-serial-probe.md) | **DONE ~90%** |
-| [PLAN-skymap-milkyway](PLAN-skymap-milkyway.md) | **DONE ~75%** |
-| [PLAN-skymap-gpu-overlays](PLAN-skymap-gpu-overlays.md) | **PARTIAL ~35%** |
-| [PLAN-tui-live-session-parity](PLAN-tui-live-session-parity.md) | **PARTIAL ~20%** |
-| [PLAN-first-light-resilience](PLAN-first-light-resilience.md) | **DONE** (2 of 3 sub-plans shipped; sub-plan 3 deferred) |
-| [PLAN-driver-resilience](PLAN-driver-resilience.md) | **DONE** (merged to main as 6 PRs + ARCH doc) |
-| [PLAN-fov-obstruction-detection](PLAN-fov-obstruction-detection.md) | **DONE** (merged to main; scout UI/WebSocket surfacing, single-frame retry, Layer-2 recovery test all shipped) |
-| [PLAN-catalog-binary-format](PLAN-catalog-binary-format.md) | **PARTIAL ~85%** (Option D + Phase 2A + 2B shipped; Phase 2C Tycho-2 bulk load deferred) |
-| [PLAN-polar-alignment](PLAN-polar-alignment.md) | **DONE ~85%** (Phases 1-5 shipped; refraction-corrected apparent pole + live pressure/temperature still pending) |
-| [PLAN-gpu-stretch-tests](PLAN-gpu-stretch-tests.md) | **DONE ~90%** (Phases 1-4 + follow-ups D & F shipped; Phase 5 separate-CI-job replaced by inline `test-unit` run with mesa-vulkan-drivers) |
-| [PLAN-icc](PLAN-icc.md) | **DONE ~95%** (Tiff 3.0 + new SharpAstro.Jpeg consumed; display helper + Nina JPEG injection wired) |
-| [PLAN-stacking](PLAN-stacking.md) | **DONE ~85%** (Phases 1-12 + 8.0-8.3 shipped — selector + 6 strategies + FrameCache + PartialFitsReader; Phase 13 CLI orchestrator + 14/15 LiveStacker wiring + 10 MMF sink still pending) |
-| [PLAN-ai-enhancement](PLAN-ai-enhancement.md) | **DONE Phases 0-7** (CLI side, merged via PR #10) -- model fetch, MTF helpers, ChunkedInference, IStarRemover/IStellarSharpener/INonStellarDeconvolver/IDenoiseEnhancer/IGradientCorrector atomic enhancers, step-based `SharpenPipeline` orchestrator with `SharpenIntermediates` retention selector, ChunkedNafnetRunner shared, GraXpert BGE gradient correction with `--save-gradient`, dual-stretch pipeline (Frank StarStretch + auto-MTF or opt-in GHS + bg-reduce + Reinhard highlight roll-off + Screen recombine + per-plate float TIFFs), `tianwen image {sharpen,remove-stars,flatten,render,stats}` CLI verbs. Plus refinements: 16-px chunk pad, ArrayPool input tensors, `--png` flag, `SubtractiveChromaticNoise` + `Lerp`, `StarsScnrMode` + per-step AI blends, DirectML-on-Adreno for win-arm64 (2.4x speedup), pre-stretched-input auto-detect, `Image.Histogram` median bugfix, `Image.BilinearResize`, `ModelResolver` cross-platform path-separator guard. Phase 7 GUI menu entry + Phases 8-10 (runtime model self-bootstrap, classical fallbacks, NPU INT8 quant) NOT STARTED -- see [PLAN-ai-enhancement-next.md](PLAN-ai-enhancement-next.md) for the priority order of follow-on work. |
-| [PLAN-ai-enhancement-next](PLAN-ai-enhancement-next.md) | **NOT STARTED** (Frank-parity Star Stretch port: ColorSaturation + SCNR `preserveLightness`; per-plate stretch via `StretchTransform` abstraction with asinh + GHS + gamma + MTF concrete impls; reroutes the deferred items from PLAN-ai-enhancement into priority order) |
-| [PLAN-ghs](PLAN-ghs.md) | **DONE ~90%** (Phases 0-11 shipped on branch `ghs-converge`: reference math port + B-branch curve + auto-converge `Image.ConvergeGhsStretchFactor`. Subsequent work added mode-target convergence so the bg peak (not the median) lifts to ~0.25 -- median-target left the output dim because median sits above mode for typical astro frames. `--ghs-stages 1|2|3` exposes Cranfield's canonical multi-stage chain (gh-astro 2.7-2.9). CLI refactored to three orthogonal selectors `--star-stretch-mode / --starless-stretch-mode / --stretch-mode` + `--ghs-converge auto|manual`. Post-recombine stretch wired via new `MtfStretchFinalStep` + `GhsStretchFinalStep` (single-pass only on final); `ApplyGhsChain` helper shared between starless + final dispatchers. GHS stays **opt-in** per `feedback_ghs_not_default` -- MTF remains the default starless stretch. Canonical recipe = `--dual-stretch --starless-stretch-mode Ghs --ghs-target Mode --ghs-target-value 0.25 --ghs-stages 3`. {broadband, narrowband, single-light} corpus validation outside SoL drizzle still pending; `--star-stretch-mode mtf|ghs` and multi-stage on `GhsStretchFinalStep` parked.) |
-| [PLAN-background-extraction](PLAN-background-extraction.md) | **NOT STARTED** (design captured; classical poly + optional RBF gradient removal, ports SAS Pro `abe.py`; placed pre-stretch / pre-AI in the linear domain) |
-| [PLAN-moon-avoidance](PLAN-moon-avoidance.md) | **DONE** (branch `feat/moon-avoidance`, 2026-06-12): per-bin Moon penalty in `ScoreTarget` via shared `MoonGrid` - illumination x quadratic proximity, Moon-below-horizon gate; radius is an optional param on Schedule/TonightsBest/ScoreTarget (default 30, ON, 0 disables). Dropped the planned `SessionConfiguration` knobs - the session never scores (planner-only path) so they would have been dead code. 6 tests in `MoonAvoidanceTests.cs`; full unit (2596) + functional (286) suites green |
-| [PLAN-scheduled-starts](PLAN-scheduled-starts.md) | **DONE** (branch `feat/top-5-todo`, 2026-06-12): `WaitForScheduledStartAsync` + `ScheduledStartOutcome` in `Session.Timing.cs`, called at top of `ObservationLoopAsync`; waits until `Start - ScheduledStartLeadTime` (new `SessionConfiguration` knob, default 3 min) on the mount clock. Same-/past-Start short-circuits (hosted API + legacy + existing tests unchanged), beyond-session-end skips cleanly, late starts proceed unclamped, cancellation unwinds via OCE. 4 tests in `SessionObservationLoopTests` (branch outcomes, real wait with frame-timestamp gap, session-end skip, cancel-during-wait); full unit (2596) + functional (290) green |
-| [PLAN-site-conditions](PLAN-site-conditions.md) | **DONE** (branch `feat/top-5-todo`, 2026-06-12): pure `SiteConditions.Resolve(IWeatherDriver?)` (live weather -> standard, per value) + `ApplyTo(Transform)`; `IMountDriver.TryGetTransformAsync(SiteConditions, ct)` overload drops the 1010/10 hardcode (standard tier auto-derives pressure from elevation -> retires the `IMountDriver.cs:344/345` TODOs); `Session.ResolveSiteConditions()` reads the live weather driver and feeds 4 session call sites; polar-align swapped to the resolver. **Design correction:** the proposed profile-stored pressure/temp override was dropped -- they are varying values (unlike static lat/long/elevation) so they are never persisted; the no-weather fallback derives pressure from the profile's static elevation. `SiteConditionsTests` (7 unit tests) |
-| [PLAN-skymap-time-scrub](PLAN-skymap-time-scrub.md) | **DONE** (branch `feat/top-5-todo`, 2026-06-12): `SkyMapState.TimeOffset` stacks on the base instant in the single `viewingTime` derivation in `SkyMapTab.Render`, so it drives sky color / LST / planets / horizon downstream with no rendering refactor. `SkyMapTab.HandleKey` re-points the arrows at the offset (Up/Down +-1h, Shift +-10m; Left/Right -+1d; PageUp/PageDown +-1w), adds `N` (`ComputeMidnightOffset`), `0` (offset reset), `T` (full reset) - redraw-only, never planner recompute. HUD offset chip via `SkyMapState.FormatOffset`; inspector exposes `mapTimeOffset`. 20 unit tests (`SkyMapTimeScrubTests`: FormatOffset, ComputeMidnightOffset, day->night sun-altitude propagation); verified live (inspector): Up x3 / `N` / `0`. Mount reticle stays wall-clock |
-| [PLAN-obstruction-first-light-oracle](PLAN-obstruction-first-light-oracle.md) | **A + C DONE** (branch `feat/top-5-todo`, 2026-06-13; B follow-up): pivoted from catalog-floor-only to a **zenith calibration anchor** - the rough-focus zenith frame calibrates `detected/catalog-predicted` = transparency x detection efficiency. **A** (oracle): first scout vs `catalog(target, scout-limit, airmass-dimmed) x zenithEfficiency x OracleFactor`, shortfall -> existing `NudgeTestAsync`; catalog-floor fallback + narrowband/sparse/missing-DB guards. **C** (cloud gate): crushed zenith efficiency -> hold-and-re-gauge after rough focus. New `StarDetectionModel` / `CatalogStarCounter` / `NightSkyGauge` / `Session.Imaging.SkyGauge.cs`; 4 `SessionConfiguration` knobs; scout `maxStars` 200->1000. 16 unit + 2 functional tests (existing 11 scout + 41 full-session still green). **B** (transparency HUD from `EffectiveLimitMag`) deferred |
+| [serial-probe](serial-probe.md) | **DONE ~90%** |
+| [skymap-milkyway](skymap-milkyway.md) | **DONE ~75%** |
+| [skymap-gpu-overlays](skymap-gpu-overlays.md) | **PARTIAL ~35%** |
+| [tui-live-session-parity](tui-live-session-parity.md) | **PARTIAL ~20%** |
+| [first-light-resilience](first-light-resilience.md) | **DONE** (2 of 3 sub-plans shipped; sub-plan 3 deferred) |
+| [driver-resilience](driver-resilience.md) | **DONE** (merged to main as 6 PRs + ARCH doc) |
+| [fov-obstruction-detection](fov-obstruction-detection.md) | **DONE** (merged to main; scout UI/WebSocket surfacing, single-frame retry, Layer-2 recovery test all shipped) |
+| [catalog-binary-format](catalog-binary-format.md) | **PARTIAL ~85%** (Option D + Phase 2A + 2B shipped; Phase 2C Tycho-2 bulk load deferred) |
+| [polar-alignment](polar-alignment.md) | **DONE ~85%** (Phases 1-5 shipped; refraction-corrected apparent pole + live pressure/temperature still pending) |
+| [gpu-stretch-tests](gpu-stretch-tests.md) | **DONE ~90%** (Phases 1-4 + follow-ups D & F shipped; Phase 5 separate-CI-job replaced by inline `test-unit` run with mesa-vulkan-drivers) |
+| [icc](icc.md) | **DONE ~95%** (Tiff 3.0 + new SharpAstro.Jpeg consumed; display helper + Nina JPEG injection wired) |
+| [stacking](stacking.md) | **DONE ~85%** (Phases 1-12 + 8.0-8.3 shipped — selector + 6 strategies + FrameCache + PartialFitsReader; Phase 13 CLI orchestrator + 14/15 LiveStacker wiring + 10 MMF sink still pending) |
+| [ai-enhancement](ai-enhancement.md) | **DONE Phases 0-7** (CLI side, merged via PR #10) -- model fetch, MTF helpers, ChunkedInference, IStarRemover/IStellarSharpener/INonStellarDeconvolver/IDenoiseEnhancer/IGradientCorrector atomic enhancers, step-based `SharpenPipeline` orchestrator with `SharpenIntermediates` retention selector, ChunkedNafnetRunner shared, GraXpert BGE gradient correction with `--save-gradient`, dual-stretch pipeline (Frank StarStretch + auto-MTF or opt-in GHS + bg-reduce + Reinhard highlight roll-off + Screen recombine + per-plate float TIFFs), `tianwen image {sharpen,remove-stars,flatten,render,stats}` CLI verbs. Plus refinements: 16-px chunk pad, ArrayPool input tensors, `--png` flag, `SubtractiveChromaticNoise` + `Lerp`, `StarsScnrMode` + per-step AI blends, DirectML-on-Adreno for win-arm64 (2.4x speedup), pre-stretched-input auto-detect, `Image.Histogram` median bugfix, `Image.BilinearResize`, `ModelResolver` cross-platform path-separator guard. Phase 7 GUI menu entry + Phases 8-10 (runtime model self-bootstrap, classical fallbacks, NPU INT8 quant) NOT STARTED -- see [ai-enhancement-next.md](ai-enhancement-next.md) for the priority order of follow-on work. |
+| [ai-enhancement-next](ai-enhancement-next.md) | **NOT STARTED** (Frank-parity Star Stretch port: ColorSaturation + SCNR `preserveLightness`; per-plate stretch via `StretchTransform` abstraction with asinh + GHS + gamma + MTF concrete impls; reroutes the deferred items from ai-enhancement into priority order) |
+| [ghs](ghs.md) | **DONE ~90%** (Phases 0-11 shipped on branch `ghs-converge`: reference math port + B-branch curve + auto-converge `Image.ConvergeGhsStretchFactor`. Subsequent work added mode-target convergence so the bg peak (not the median) lifts to ~0.25 -- median-target left the output dim because median sits above mode for typical astro frames. `--ghs-stages 1|2|3` exposes Cranfield's canonical multi-stage chain (gh-astro 2.7-2.9). CLI refactored to three orthogonal selectors `--star-stretch-mode / --starless-stretch-mode / --stretch-mode` + `--ghs-converge auto|manual`. Post-recombine stretch wired via new `MtfStretchFinalStep` + `GhsStretchFinalStep` (single-pass only on final); `ApplyGhsChain` helper shared between starless + final dispatchers. GHS stays **opt-in** per `feedback_ghs_not_default` -- MTF remains the default starless stretch. Canonical recipe = `--dual-stretch --starless-stretch-mode Ghs --ghs-target Mode --ghs-target-value 0.25 --ghs-stages 3`. {broadband, narrowband, single-light} corpus validation outside SoL drizzle still pending; `--star-stretch-mode mtf|ghs` and multi-stage on `GhsStretchFinalStep` parked.) |
+| [background-extraction](background-extraction.md) | **NOT STARTED** (design captured; classical poly + optional RBF gradient removal, ports SAS Pro `abe.py`; placed pre-stretch / pre-AI in the linear domain) |
+| [moon-avoidance](moon-avoidance.md) | **DONE** (branch `feat/moon-avoidance`, 2026-06-12): per-bin Moon penalty in `ScoreTarget` via shared `MoonGrid` - illumination x quadratic proximity, Moon-below-horizon gate; radius is an optional param on Schedule/TonightsBest/ScoreTarget (default 30, ON, 0 disables). Dropped the planned `SessionConfiguration` knobs - the session never scores (planner-only path) so they would have been dead code. 6 tests in `MoonAvoidanceTests.cs`; full unit (2596) + functional (286) suites green |
+| [scheduled-starts](scheduled-starts.md) | **DONE** (branch `feat/top-5-todo`, 2026-06-12): `WaitForScheduledStartAsync` + `ScheduledStartOutcome` in `Session.Timing.cs`, called at top of `ObservationLoopAsync`; waits until `Start - ScheduledStartLeadTime` (new `SessionConfiguration` knob, default 3 min) on the mount clock. Same-/past-Start short-circuits (hosted API + legacy + existing tests unchanged), beyond-session-end skips cleanly, late starts proceed unclamped, cancellation unwinds via OCE. 4 tests in `SessionObservationLoopTests` (branch outcomes, real wait with frame-timestamp gap, session-end skip, cancel-during-wait); full unit (2596) + functional (290) green |
+| [site-conditions](site-conditions.md) | **DONE** (branch `feat/top-5-todo`, 2026-06-12): pure `SiteConditions.Resolve(IWeatherDriver?)` (live weather -> standard, per value) + `ApplyTo(Transform)`; `IMountDriver.TryGetTransformAsync(SiteConditions, ct)` overload drops the 1010/10 hardcode (standard tier auto-derives pressure from elevation -> retires the `IMountDriver.cs:344/345` TODOs); `Session.ResolveSiteConditions()` reads the live weather driver and feeds 4 session call sites; polar-align swapped to the resolver. **Design correction:** the proposed profile-stored pressure/temp override was dropped -- they are varying values (unlike static lat/long/elevation) so they are never persisted; the no-weather fallback derives pressure from the profile's static elevation. `SiteConditionsTests` (7 unit tests) |
+| [skymap-time-scrub](skymap-time-scrub.md) | **DONE** (branch `feat/top-5-todo`, 2026-06-12): `SkyMapState.TimeOffset` stacks on the base instant in the single `viewingTime` derivation in `SkyMapTab.Render`, so it drives sky color / LST / planets / horizon downstream with no rendering refactor. `SkyMapTab.HandleKey` re-points the arrows at the offset (Up/Down +-1h, Shift +-10m; Left/Right -+1d; PageUp/PageDown +-1w), adds `N` (`ComputeMidnightOffset`), `0` (offset reset), `T` (full reset) - redraw-only, never planner recompute. HUD offset chip via `SkyMapState.FormatOffset`; inspector exposes `mapTimeOffset`. 20 unit tests (`SkyMapTimeScrubTests`: FormatOffset, ComputeMidnightOffset, day->night sun-altitude propagation); verified live (inspector): Up x3 / `N` / `0`. Mount reticle stays wall-clock |
+| [obstruction-first-light-oracle](obstruction-first-light-oracle.md) | **A + C DONE** (branch `feat/top-5-todo`, 2026-06-13; B follow-up): pivoted from catalog-floor-only to a **zenith calibration anchor** - the rough-focus zenith frame calibrates `detected/catalog-predicted` = transparency x detection efficiency. **A** (oracle): first scout vs `catalog(target, scout-limit, airmass-dimmed) x zenithEfficiency x OracleFactor`, shortfall -> existing `NudgeTestAsync`; catalog-floor fallback + narrowband/sparse/missing-DB guards. **C** (cloud gate): crushed zenith efficiency -> hold-and-re-gauge after rough focus. New `StarDetectionModel` / `CatalogStarCounter` / `NightSkyGauge` / `Session.Imaging.SkyGauge.cs`; 4 `SessionConfiguration` knobs; scout `maxStars` 200->1000. 16 unit + 2 functional tests (existing 11 scout + 41 full-session still green). **B** (transparency HUD from `EffectiveLimitMag`) deferred |
 
 ---
 
-## PLAN-serial-probe — DONE ~90%
+## serial-probe — DONE ~90%
 
 - Phase 1 (plumbing / core types): **DONE** — `ISerialProbe`, `ISerialProbeService`, `SerialProbeService`, `SerialProbeMatch`, `ProbeExclusivity`, `ProbeFraming` under `src/TianWen.Lib/Devices/Discovery/`. `ProbeAllAsync` wired into `DeviceDiscovery.RunSerialProbesAsync` (`DeviceDiscovery.cs:164`).
 - Phase 2 (logger scopes): **DONE** — scope instrumentation lives in `SerialProbeService` itself; per-source migration made per-loop scopes moot.
@@ -38,7 +38,7 @@ Status of every `PLAN-*.md` in the repo root, cross-checked against the codebase
 - Tests: **DONE** — `SerialProbeServiceTests`, `SkywatcherSerialProbeTests`, `OnStepQuirkProbeTests`, `ActiveProfilePinnedSerialPortsProviderTests`, `SerialPortNamesTests`.
 - Evolution: `ISerialProbe` uses `ProbeFraming` (ordering within baud group) instead of the simpler `Exclusivity`-only model in the plan — beneficial addition, not a shortfall.
 
-## PLAN-skymap-milkyway — DONE ~75%
+## skymap-milkyway — DONE ~75%
 
 - Phase 1 (shader + full-screen quad): **DONE** — `_milkyWayPipeline` in `VkSkyMapPipeline.cs`, alpha push-constant, sun-altitude fade, `ShowMilkyWay` toggle with `[S]` key, `TryLoadMilkyWayTexture` in `SkyMapTab.cs`.
 - Phase 2 (texture pipeline + shipped file): **DONE** — `milkyway.bgra.lz` exists at `src/TianWen.UI.Gui/Resources/`, 8-byte header format + lzip compression via `MilkyWayTextureBaker.cs`.
@@ -46,7 +46,7 @@ Status of every `PLAN-*.md` in the repo root, cross-checked against the codebase
 - Phase 4 (Planck HEALPix reader): **PARTIAL** — `tools/reproject_planck_dust.cs` exists, but no FITS download / `ang2pix` verified; dust input path in `MilkyWayBakerInputs.LoadAsync` reads a pre-converted float32 file, not raw FITS.
 - Phase 5 (brightness/atmosphere integration): **NOT STARTED** — Bortle index modulation, HSV saturation slider, horizon fade absent; only the Phase 1 sun-altitude fade is present.
 
-## PLAN-skymap-gpu-overlays — PARTIAL ~35%
+## skymap-gpu-overlays — PARTIAL ~35%
 
 - Phase 1 (mosaic panels + sensor FOV to `LinePipeline`): **DONE** — `BuildFovLines` at `VkSkyMapTab.cs:726` replaces the old CPU `DrawFovQuadrilateral`; sensor FOV + mosaic panels loop into `_fovFloats` and are emitted via `WriteToRingBuffer`/`DrawLineBuffer` (`VkSkyMapTab.cs:164-183`).
 - Phase 2 (planet dots to GPU): **NOT STARTED** — no planet instance buffer, no dedicated planet pipeline.
@@ -54,7 +54,7 @@ Status of every `PLAN-*.md` in the repo root, cross-checked against the codebase
 - Phase 4 (kill CPU RA/Dec grid scan): **NOT STARTED** — `poleInView` branch still active at `OverlayEngine.cs:620-631`; overlay path doesn't iterate `AllObjectIndices`.
 - Phase 5 (cache meridian line geometry): **PARTIAL** — `_meridianFloats` / `_horizonFloats` exist (`VkSkyMapTab.cs:29-30`) and are keyed via `_lastStaticGeomKey` (`VkSkyMapTab.cs:39`), which invalidates only on LST change. Plan's explicit `lstThreshold` sub-pixel guard not separately called out but equivalent behaviour from `_cachedLiveTime` 1s granularity.
 
-## PLAN-tui-live-session-parity — PARTIAL ~20%
+## tui-live-session-parity — PARTIAL ~20%
 
 - Phase 1 (extract renderer-agnostic draw helpers): **NOT STARTED** — `GuideGraphRenderer` class exists (`src/TianWen.UI.Abstractions/GuideGraphRenderer.cs`) but no generic `Render<TSurface>` static helper; `RenderCompactGuideGraph`, `RenderVCurveChart`, `RenderTimeline`, `RenderMiniSparkline` remain instance methods on `LiveSessionTab<TSurface>` (lines 473, 713, 946, 1151).
 - Phase 2 (timeline band in TUI): **NOT STARTED** — no timeline `Panel` row in `TuiLiveSessionTab`.
@@ -66,7 +66,7 @@ Status of every `PLAN-*.md` in the repo root, cross-checked against the codebase
 - Phase 8 (per-camera sparkline colors): **NOT STARTED** — `BuildSparkline` at line 600 is monochrome Unicode.
 - Phase 9 (integration tests): **NOT STARTED**.
 
-## PLAN-first-light-resilience — PARTIAL (meta only)
+## first-light-resilience — PARTIAL (meta only)
 
 - Meta-plan document (sequencing, non-goals, prior-art inventory): **DONE** as a coordination document.
 - Sub-plan 1 (driver resilience): **NOT STARTED** — see below.
@@ -74,10 +74,10 @@ Status of every `PLAN-*.md` in the repo root, cross-checked against the codebase
 - Sub-plan 3 (site horizon mask): **NOT STARTED** — explicitly deferred.
 - Cross-cutting conventions (`ITimeProvider.SleepAsync`, Device/Phase logger scopes, `SessionConfiguration` XML docs): in place from prior work, but the new wrappers that would use them haven't been written.
 
-## PLAN-driver-resilience — DONE ~95%
+## driver-resilience — DONE ~95%
 
 Shipped on branch `driver-resilience` as 6 commits (PR-B1..B6). See
-[`ARCH-driver-resilience.md`](ARCH-driver-resilience.md) for the full architecture
+[`../architecture/driver-resilience.md`](../architecture/driver-resilience.md) for the full architecture
 with mermaid state diagrams.
 
 - Phase 1 (`ResilientCall` helper): **DONE** — `src/TianWen.Lib/Sequencing/ResilientCall.cs` +
@@ -102,7 +102,7 @@ with mermaid state diagrams.
 
 Not shipped: lost-frame detector (Phase 3 optional extension). Everything else is in.
 
-## PLAN-fov-obstruction-detection — DONE ~95%
+## fov-obstruction-detection — DONE ~95%
 
 Shipped on branch `fov-obstruction-detection` after driver-resilience merged to main.
 
@@ -115,7 +115,7 @@ Shipped on branch `fov-obstruction-detection` after driver-resilience merged to 
 
 Not shipped: scout frames are not yet emitted via a `ScoutCompletedEventArgs` for the live-session UI (plan flagged as optional v1). `SaveScoutFrames` config key exists but no FITS write path yet (always discards, matching the false default).
 
-## PLAN-polar-alignment — DONE ~85%
+## polar-alignment — DONE ~85%
 
 Shipped on `main` between 2026-04-26 and 2026-05-01 (~50 commits).
 
@@ -131,7 +131,7 @@ Not shipped (TODO.md lines 142, 146):
 - **Refraction-corrected apparent pole.** `PolarAlignmentSession.cs:658-659` literally sets `RefractedPoleRaHours: trueRa` / `RefractedPoleDecDeg: trueDec` — the apparent-pole rings draw on the true pole. Decomposition gauges already use refraction-aware math (correct numbers), only the overlay center is stale. Matters most at lat ≤ 35°.
 - **Live site pressure/temperature.** DONE (`feat/top-5-todo`, 2026-06-12) via `SiteConditions.Resolve(IWeatherDriver?)` -> the 1010/10 hardcode is gone; live weather feeds refraction, else pressure derives from elevation. Unblocks polar-alignment refraction. (Values deliberately not profile-stored -- they vary.)
 
-## PLAN-catalog-binary-format — PARTIAL ~85%
+## catalog-binary-format — PARTIAL ~85%
 
 Plan now leads with **Option D** (ASCII-separated text + `tools/preprocess-catalog.ps1`
 MSBuild step) instead of Option A (MessagePack). Tycho2 stays untouched (parallel
@@ -163,7 +163,7 @@ The hot phases are now dict-mutation work, not parse work — what Phase 2 is fo
 	- 2B SHIPPED (2026-05-05): `tools/precompute-simbad-merge.ps1` bakes the post-SIMBAD-merge state into `simbad_merge.bin.gz` (~754 KB embedded). Runtime apply skips ~180 ms of parse + dict-mutation work across 14 catalogs. Same hash-verify-then-apply pattern as 2A. CI guards in `SimbadMergeSnapshotTests` (commit `8da9b16`). Re-bake via `pwsh tools/precompute-simbad-merge.ps1`.
 	- 2C: Tycho-2 bulk load **deferred**; BFS pooling for secondary lookups also not started.
 
-## PLAN-gpu-stretch-tests — DONE ~90%
+## gpu-stretch-tests — DONE ~90%
 
 GPU-vs-CPU pixel-parity tests for the stretch pipeline. Enabled by the offscreen
 path that shipped in `SdlVulkan.Renderer` (`VulkanContext.CreateOffscreen` +
@@ -194,7 +194,7 @@ path that shipped in `SdlVulkan.Renderer` (`VulkanContext.CreateOffscreen` +
   stars), G (milky way), H (overlay ellipses). All optional extensions to the same
   `OffscreenGpuFixture`.
 
-## PLAN-icc — DONE ~95%
+## icc — DONE ~95%
 
 ICC profile tagging across our display output paths. Sibling work landed under
 `../sharpastro/StbImageSharp/` as new packages `SharpAstro.Color.Icc`, `SharpAstro.Jpeg`,
@@ -233,7 +233,7 @@ and a breaking-change bump on `SharpAstro.Tiff`.
 Sub-plan 3 (static azimuth horizon mask) is intentionally deferred — only spin up if 1+2
 in production show too many runtime scout trips against known obstructions.
 
-## PLAN-stacking — DONE ~85%
+## stacking — DONE ~85%
 
 The original phasing table (Phases 1-12) is shipped: `Image` arithmetic, masters,
 calibrator, registrator, normalizer, rejectors (sigma + winsorized + LFC +
@@ -279,6 +279,6 @@ six executors picked at runtime by an `IntegrationStrategySelector` against an
 - SIMD byte-swap in `PartialFitsReader` for full-image reads (production hot
   path only does tile reads where mmap already wins 36×, so low priority).
 
-See `PLAN-stacking.md` § "Phase 8 implementation status (2026-05-16)" for the
+See `stacking.md` § "Phase 8 implementation status (2026-05-16)" for the
 cold-start guide to the codebase: every file that holds the strategy machinery,
 the test entry points, and the benchmark numbers worth remembering.

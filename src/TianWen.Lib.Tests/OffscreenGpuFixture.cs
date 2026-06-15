@@ -10,7 +10,7 @@ namespace TianWen.Lib.Tests;
 /// xUnit class fixture that owns a single offscreen Vulkan stack (VkInstance +
 /// <see cref="VulkanContext"/> + <see cref="VkRenderer"/> + <see cref="VkFitsImagePipeline"/>)
 /// shared across every test in <see cref="GpuStretchPipelineTests"/>. Created once, disposed
-/// once. Mirrors PLAN-gpu-stretch-tests.md Phase 1's "Class fixture so all theory cases share
+/// once. Mirrors docs/plans/gpu-stretch-tests.md Phase 1's "Class fixture so all theory cases share
 /// one context" recommendation.
 ///
 /// Why: without this, every [Theory] case (and every [Fact]) used to call vkInitialize +

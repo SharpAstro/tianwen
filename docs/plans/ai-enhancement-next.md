@@ -2,7 +2,7 @@
 
 > Status: **NOT STARTED**. Captures the work surfaced by the first
 > end-to-end runs against real masters on branch `ai-enhancement`. Companion
-> to [`PLAN-ai-enhancement.md`](PLAN-ai-enhancement.md) (Phases 0-6 shipped
+> to [`ai-enhancement.md`](ai-enhancement.md) (Phases 0-6 shipped
 > there + see "Shipped since the original plan" below).
 
 ## Goal
@@ -24,7 +24,7 @@ Three buckets of follow-on work, in order of immediate user-visible value:
 ## Shipped since the original plan
 
 Branch `ai-enhancement` carries quality + perf wins that landed after
-Phases 0-6 of the original plan and aren't in `PLAN-summary.md` yet:
+Phases 0-6 of the original plan and aren't in `summary.md` yet:
 
 | Commit | Topic |
 |---|---|
@@ -193,7 +193,7 @@ Both invertible; safe to apply + reverse.
 
 ## 3. Other deferred items (cross-refs)
 
-Existing `PLAN-ai-enhancement.md` Section "Phasing" lists Phases 7-10
+Existing `ai-enhancement.md` Section "Phasing" lists Phases 7-10
 already; restating the priority order with current state:
 
 | Item | Status | Reference |
@@ -204,7 +204,7 @@ already; restating the priority order with current state:
 | Classical (non-AI) fallbacks (`AddTianWenClassicalEnhancers`) | NOT STARTED. Lucy-Richardson deconv, unsharp-mask, bilateral/NLM denoise. No fallback for star removal. | Original Phase 9 / TODO |
 | `IUpscaleEnhancer` (`superres_{2,3,4}x.onnx`) | NOT STARTED. | TODO "image upscale" |
 | `IWalkingNoiseEnhancer` (`deep_denoise_*_AI4_1w.onnx`) | NOT STARTED. Could be a `--walking` flag on denoise. | TODO "image denoise-walking" |
-| `ITrailRemover` (`satelliteRemovalAI4.onnx`) | NOT STARTED. Belongs in stacking pre-rejection per `PLAN-stacking.md` but standalone verb useful too. | TODO "image remove-trails" |
+| `ITrailRemover` (`satelliteRemovalAI4.onnx`) | NOT STARTED. Belongs in stacking pre-rejection per `stacking.md` but standalone verb useful too. | TODO "image remove-trails" |
 | `IAberrationCorrector` (`riccardoalberghi/abberation_models`) | NOT STARTED. Separate model repo; needs its own fetcher branch. | TODO "image correct-aberration" |
 | Hexagon NPU INT8 quant (win-arm64) | NOT STARTED. Current DirectML-on-Adreno gives the GPU win for FP32. INT8 quant moves matmuls to the NPU. Swap `Microsoft.ML.OnnxRuntime.DirectML` -> `Microsoft.ML.OnnxRuntime.QNN` when ready. | Original Phase 10 / TODO |
 | Per-chunk SEP-based PSF re-measurement | NOT STARTED. Current `HfdPsfEstimator` returns a whole-image scalar. | Original PLAN "Open questions" |
@@ -228,16 +228,16 @@ already; restating the priority order with current state:
 
 ## Cross-references
 
-- [`PLAN-ai-enhancement.md`](PLAN-ai-enhancement.md) -- original plan;
+- [`ai-enhancement.md`](ai-enhancement.md) -- original plan;
   Phases 0-6 shipped.
-- [`PLAN-background-extraction.md`](PLAN-background-extraction.md) -- ABE /
+- [`background-extraction.md`](background-extraction.md) -- ABE /
   flatten; sits *before* the AI enhancement chain in the post-stack flow.
-- [`PLAN-stacking.md`](PLAN-stacking.md) -- satellite removal belongs there
+- [`stacking.md`](stacking.md) -- satellite removal belongs there
   as a pre-rejection filter; cross-link when `ITrailRemover` lands.
-- [`CLAUDE.md`](CLAUDE.md) "Stretch Pipeline: CPU/GPU Mirror" -- existing
+- [`CLAUDE.md`](../../CLAUDE.md) "Stretch Pipeline: CPU/GPU Mirror" -- existing
   display-stretch primitives that `MasterPreviewRenderer` already uses;
   `StretchTransform.MtfStretchTransform` wraps the same math.
-- [`TODO.md`](TODO.md) "AI Enhancement" section -- per-verb TODOs that
+- [`TODO.md`](../../TODO.md) "AI Enhancement" section -- per-verb TODOs that
   this plan groups under Sections 1-3.
 
 ## Reference files
