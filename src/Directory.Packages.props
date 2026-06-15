@@ -65,8 +65,10 @@
          widgets. Lockstep with SdlVulkan.Renderer 5.1, which implements the clip hooks
          via Vulkan scissor, so the two must move together.
          4.5 adds PixelWidgetBase.MeasureValueColumnWidth (shared stepper value-column
-         sizing); released in lockstep with Console.Lib 2.18 + SdlVulkan.Renderer 6.1. -->
-    <PackageVersion Include="DIR.Lib" Version="4.5.*" />
+         sizing); released in lockstep with Console.Lib 2.18 + SdlVulkan.Renderer 6.1.
+         4.6 adds PinchSource on InputEvent.Pinch (touchpad vs touchscreen classification);
+         additive, so Console.Lib 2.18 stays as-is. Lockstep with SdlVulkan.Renderer 6.3. -->
+    <PackageVersion Include="DIR.Lib" Version="4.6.*" />
     <!-- DIR.Lib 3.0 extracted its codec layer to these sibling packages, which
          ship as a lockstep family from the StbImageSharp repo. 3.0 brought a
          binary-breaking SharpAstro.Tiff change (TiffPageOptions.IccProfile is
@@ -106,8 +108,10 @@
          hang the UI thread. Repinned to DIR.Lib 4.5 (lockstep with Console.Lib 2.18).
          6.2 (PR #27) extends that: bounded swapchain readback (no unbounded vkQueueWaitIdle),
          TryWaitPriorFramesIdle for font-atlas grow/evict, and a once-per-storm
-         SdlWindowView.OnRenderDegraded callback so the app can load-shed to a safe view. -->
-    <PackageVersion Include="SdlVulkan.Renderer" Version="6.2.*" />
+         SdlWindowView.OnRenderDegraded callback so the app can load-shed to a safe view.
+         6.3 classifies pinch device type (touchpad vs touchscreen) on OnPinch, passing a
+         PinchSource so the app can anchor zoom sensibly. Repinned to DIR.Lib 4.6. -->
+    <PackageVersion Include="SdlVulkan.Renderer" Version="6.3.*" />
     <PackageVersion Include="SDL3-CS" Version="3.5.0-preview.20260213-150035" />
     <PackageVersion Include="SDL3-CS.Native" Version="3.5.0-preview.20260205-174353" />
     <!-- Canon DSLR -->
