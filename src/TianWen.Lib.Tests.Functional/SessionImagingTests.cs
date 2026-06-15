@@ -98,19 +98,7 @@ public class SessionImagingTests(ITestOutputHelper output)
         ctx.TimeProvider.ExternalTimePump = true;
         var imagingTask = Task.Run(async () => await ctx.Session.ImagingLoopAsync(observation, hourAngle, cancellationToken: ct));
 
-        // Wait for the loop to park at its first SleepAsync before pumping fake time --
-        // see FakeTimeProviderWrapper.WaitForFirstWaiterAsync for the race this avoids.
-        await ctx.TimeProvider.WaitForFirstWaiterAsync(imagingTask, ct);
-
-        var pumpIncrement = TimeSpan.FromSeconds(5);
-        var maxFakeTime = TimeSpan.FromHours(4);
-        var pumped = TimeSpan.Zero;
-        while (pumped < maxFakeTime && !imagingTask.IsCompleted && !ct.IsCancellationRequested)
-        {
-            ctx.TimeProvider.Advance(pumpIncrement);
-            pumped += pumpIncrement;
-            await Task.Delay(1, ct);
-        }
+        await ctx.TimeProvider.PumpUntilCompletedAsync(imagingTask, TimeSpan.FromSeconds(5), TimeSpan.FromHours(4), cancellationToken: ct);
 
         imagingTask.IsCompleted.ShouldBeTrue("imaging loop should have completed within timeout");
         var result = await imagingTask;
@@ -174,19 +162,7 @@ public class SessionImagingTests(ITestOutputHelper output)
         ctx.TimeProvider.ExternalTimePump = true;
         var imagingTask = Task.Run(async () => await ctx.Session.ImagingLoopAsync(observation, hourAngle, cancellationToken: ct));
 
-        // Wait for the loop to park at its first SleepAsync before pumping fake time --
-        // see FakeTimeProviderWrapper.WaitForFirstWaiterAsync for the race this avoids.
-        await ctx.TimeProvider.WaitForFirstWaiterAsync(imagingTask, ct);
-
-        var pumpIncrement = TimeSpan.FromSeconds(5);
-        var maxFakeTime = TimeSpan.FromHours(4);
-        var pumped = TimeSpan.Zero;
-        while (pumped < maxFakeTime && !imagingTask.IsCompleted && !ct.IsCancellationRequested)
-        {
-            ctx.TimeProvider.Advance(pumpIncrement);
-            pumped += pumpIncrement;
-            await Task.Delay(1, ct);
-        }
+        await ctx.TimeProvider.PumpUntilCompletedAsync(imagingTask, TimeSpan.FromSeconds(5), TimeSpan.FromHours(4), cancellationToken: ct);
 
         imagingTask.IsCompleted.ShouldBeTrue("imaging loop should have completed within timeout");
         var result = await imagingTask;
@@ -233,19 +209,7 @@ public class SessionImagingTests(ITestOutputHelper output)
         ctx.TimeProvider.ExternalTimePump = true;
         var loopTask = Task.Run(async () => await ctx.Session.ObservationLoopAsync(ct), ct);
 
-        // Wait for the loop to park at its first SleepAsync before pumping fake time --
-        // see FakeTimeProviderWrapper.WaitForFirstWaiterAsync for the race this avoids.
-        await ctx.TimeProvider.WaitForFirstWaiterAsync(loopTask, ct);
-
-        var pumpIncrement = TimeSpan.FromSeconds(5);
-        var maxFakeTime = TimeSpan.FromHours(4);
-        var pumped = TimeSpan.Zero;
-        while (pumped < maxFakeTime && !loopTask.IsCompleted && !ct.IsCancellationRequested)
-        {
-            ctx.TimeProvider.Advance(pumpIncrement);
-            pumped += pumpIncrement;
-            await Task.Delay(1, ct);
-        }
+        await ctx.TimeProvider.PumpUntilCompletedAsync(loopTask, TimeSpan.FromSeconds(5), TimeSpan.FromHours(4), cancellationToken: ct);
 
         loopTask.IsCompleted.ShouldBeTrue("observation loop should have completed within timeout");
         await loopTask;
@@ -310,36 +274,23 @@ public class SessionImagingTests(ITestOutputHelper output)
         ctx.TimeProvider.ExternalTimePump = true;
         var imagingTask = Task.Run(async () => await ctx.Session.ImagingLoopAsync(observation, hourAngle, cancellationToken: ct));
 
-        // Wait for the loop to park at its first SleepAsync before pumping fake time --
-        // see FakeTimeProviderWrapper.WaitForFirstWaiterAsync for the race this avoids.
-        await ctx.TimeProvider.WaitForFirstWaiterAsync(imagingTask, ct);
-
-        var pumpIncrement = TimeSpan.FromSeconds(5);
-        var maxFakeTime = TimeSpan.FromHours(4);
-        var pumped = TimeSpan.Zero;
-        var pumpIteration = 0;
-        while (pumped < maxFakeTime && !imagingTask.IsCompleted && !ct.IsCancellationRequested)
-        {
-            ctx.TimeProvider.Advance(pumpIncrement);
-            pumped += pumpIncrement;
-            pumpIteration++;
-
-            // After baseline is established (2 frames), defocus by moving focuser away
-            if (!defocused && ctx.Session.BaselineByObservation.ContainsKey(0))
+        await ctx.TimeProvider.PumpUntilCompletedAsync(imagingTask, TimeSpan.FromSeconds(5), TimeSpan.FromHours(4),
+            onIteration: async iteration =>
             {
-                output.WriteLine($"Baseline established after pump {pumpIteration}, defocusing by 80 steps");
-                var currentPos = await ctx.Focuser.GetPositionAsync(ct);
-                await ctx.Focuser.BeginMoveAsync(currentPos + 80, ct);
-                while (await ctx.Focuser.GetIsMovingAsync(ct))
+                // After baseline is established (2 frames), defocus by moving focuser away
+                if (!defocused && ctx.Session.BaselineByObservation.ContainsKey(0))
                 {
-                    ctx.TimeProvider.Advance(TimeSpan.FromMilliseconds(100));
-                    pumped += TimeSpan.FromMilliseconds(100);
+                    output.WriteLine($"Baseline established after pump {iteration}, defocusing by 80 steps");
+                    var currentPos = await ctx.Focuser.GetPositionAsync(ct);
+                    await ctx.Focuser.BeginMoveAsync(currentPos + 80, ct);
+                    while (await ctx.Focuser.GetIsMovingAsync(ct))
+                    {
+                        ctx.TimeProvider.Advance(TimeSpan.FromMilliseconds(100));
+                    }
+                    defocused = true;
                 }
-                defocused = true;
-            }
-
-            await Task.Delay(1, ct);
-        }
+            },
+            cancellationToken: ct);
 
         imagingTask.IsCompleted.ShouldBeTrue("imaging loop should have completed within timeout");
         await imagingTask;
@@ -402,19 +353,7 @@ public class SessionImagingTests(ITestOutputHelper output)
         ctx.TimeProvider.ExternalTimePump = true;
         var imagingTask = Task.Run(async () => await ctx.Session.ImagingLoopAsync(observation, hourAngle, cancellationToken: ct));
 
-        // Wait for the loop to park at its first SleepAsync before pumping fake time --
-        // see FakeTimeProviderWrapper.WaitForFirstWaiterAsync for the race this avoids.
-        await ctx.TimeProvider.WaitForFirstWaiterAsync(imagingTask, ct);
-
-        var pumpIncrement = TimeSpan.FromSeconds(5);
-        var maxFakeTime = TimeSpan.FromHours(4);
-        var pumped = TimeSpan.Zero;
-        while (pumped < maxFakeTime && !imagingTask.IsCompleted && !ct.IsCancellationRequested)
-        {
-            ctx.TimeProvider.Advance(pumpIncrement);
-            pumped += pumpIncrement;
-            await Task.Delay(1, ct);
-        }
+        await ctx.TimeProvider.PumpUntilCompletedAsync(imagingTask, TimeSpan.FromSeconds(5), TimeSpan.FromHours(4), cancellationToken: ct);
 
         imagingTask.IsCompleted.ShouldBeTrue("imaging loop should have completed within timeout");
         var result = await imagingTask;
@@ -480,37 +419,26 @@ public class SessionImagingTests(ITestOutputHelper output)
         ctx.TimeProvider.ExternalTimePump = true;
         var imagingTask = Task.Run(async () => await ctx.Session.ImagingLoopAsync(observation, hourAngle, cancellationToken: ct));
 
-        // Wait for the loop to park at its first SleepAsync before pumping fake time --
-        // see FakeTimeProviderWrapper.WaitForFirstWaiterAsync for the race this avoids.
-        await ctx.TimeProvider.WaitForFirstWaiterAsync(imagingTask, ct);
-
-        var pumpIncrement = TimeSpan.FromSeconds(5);
-        var maxFakeTime = TimeSpan.FromHours(4);
-        var pumped = TimeSpan.Zero;
-        var pumpIteration = 0;
-        while (pumped < maxFakeTime && !imagingTask.IsCompleted && !ct.IsCancellationRequested)
-        {
-            ctx.TimeProvider.Advance(pumpIncrement);
-            pumped += pumpIncrement;
-            pumpIteration++;
-
-            // After baseline established, inject heavy clouds
-            if (!cloudsInjected && ctx.Session.BaselineByObservation.ContainsKey(0))
+        await ctx.TimeProvider.PumpUntilCompletedAsync(imagingTask, TimeSpan.FromSeconds(5), TimeSpan.FromHours(4),
+            onIteration: iteration =>
             {
-                output.WriteLine($"Baseline established at pump {pumpIteration}, injecting clouds (coverage=0.8)");
-                ctx.Camera.CloudCoverage = 0.8;
-                cloudsInjected = true;
-            }
-            // After a few cloudy pump iterations, clear the sky so recovery can succeed
-            else if (cloudsInjected && !cloudsCleared && pumpIteration > 10)
-            {
-                output.WriteLine($"Clearing clouds at pump {pumpIteration}");
-                ctx.Camera.CloudCoverage = 0;
-                cloudsCleared = true;
-            }
-
-            await Task.Delay(1, ct);
-        }
+                // After baseline established, inject heavy clouds
+                if (!cloudsInjected && ctx.Session.BaselineByObservation.ContainsKey(0))
+                {
+                    output.WriteLine($"Baseline established at pump {iteration}, injecting clouds (coverage=0.8)");
+                    ctx.Camera.CloudCoverage = 0.8;
+                    cloudsInjected = true;
+                }
+                // After a few cloudy pump iterations, clear the sky so recovery can succeed
+                else if (cloudsInjected && !cloudsCleared && iteration > 10)
+                {
+                    output.WriteLine($"Clearing clouds at pump {iteration}");
+                    ctx.Camera.CloudCoverage = 0;
+                    cloudsCleared = true;
+                }
+                return ValueTask.CompletedTask;
+            },
+            cancellationToken: ct);
 
         imagingTask.IsCompleted.ShouldBeTrue("imaging loop should have completed within timeout");
         var result = await imagingTask;
@@ -578,29 +506,21 @@ public class SessionImagingTests(ITestOutputHelper output)
         ctx.TimeProvider.ExternalTimePump = true;
         var imagingTask = Task.Run(async () => await ctx.Session.ImagingLoopAsync(observation, hourAngle, cancellationToken: ct));
 
-        // Wait for the loop to park at its first SleepAsync before pumping fake time --
-        // see FakeTimeProviderWrapper.WaitForFirstWaiterAsync for the race this avoids.
-        await ctx.TimeProvider.WaitForFirstWaiterAsync(imagingTask, ct);
-
-        var pumpIncrement = TimeSpan.FromSeconds(5);
-        var maxFakeTime = TimeSpan.FromHours(4);
-        var pumped = TimeSpan.Zero;
-        while (pumped < maxFakeTime && !imagingTask.IsCompleted && !ct.IsCancellationRequested)
-        {
-            ctx.TimeProvider.Advance(pumpIncrement);
-            pumped += pumpIncrement;
-
-            if (!recoveryStarted && ctx.Session.TotalFramesWritten >= 1)
+        await ctx.TimeProvider.PumpUntilCompletedAsync(imagingTask, TimeSpan.FromSeconds(5), TimeSpan.FromHours(4),
+            onIteration: iteration =>
             {
-                attemptsAtRecoveryStart = guider.GuideStartAttempts;
-                framesAtRecoveryStart = ctx.Session.TotalFramesWritten;
-                guider.BeginSimulatedInPlaceRecovery(TimeSpan.FromSeconds(90));
-                recoveryStarted = true;
-                output.WriteLine($"Injected in-place recovery at pump {pumped}: GuideStartAttempts={attemptsAtRecoveryStart}, frames={framesAtRecoveryStart}");
-            }
-
-            await Task.Delay(1, ct);
-        }
+                if (!recoveryStarted && ctx.Session.TotalFramesWritten >= 1)
+                {
+                    attemptsAtRecoveryStart = guider.GuideStartAttempts;
+                    framesAtRecoveryStart = ctx.Session.TotalFramesWritten;
+                    guider.BeginSimulatedInPlaceRecovery(TimeSpan.FromSeconds(90));
+                    recoveryStarted = true;
+                    var pumped = TimeSpan.FromSeconds(5) * iteration;
+                    output.WriteLine($"Injected in-place recovery at pump {pumped}: GuideStartAttempts={attemptsAtRecoveryStart}, frames={framesAtRecoveryStart}");
+                }
+                return ValueTask.CompletedTask;
+            },
+            cancellationToken: ct);
 
         imagingTask.IsCompleted.ShouldBeTrue("imaging loop should have completed within timeout");
         var result = await imagingTask;

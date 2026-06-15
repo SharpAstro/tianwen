@@ -76,30 +76,9 @@ public class SessionObservationLoopTests(ITestOutputHelper output)
 
         var loopTask = Task.Run(async () => await ctx.Session.ObservationLoopAsync(cancellationToken), cancellationToken);
 
-        // Don't start pumping until the loop has actually parked at its first
-        // SleepAsync. Without this barrier, on CI's contended runners the pump
-        // could rip through several minutes of fake time before the Task.Run
-        // continuation was scheduled, at which point the loop's first iteration
-        // read GetUtcNow() past the observation window and exited without
-        // capturing a frame. WaitForFirstWaiterAsync is the explicit barrier --
-        // it polls FakeTimeProviderWrapper.WaiterCount (incremented inside the
-        // ExternalTimePump branch of SleepAsync) so we know at least one task
-        // is genuinely parked before we start advancing time.
-        await ctx.TimeProvider.WaitForFirstWaiterAsync(loopTask, cancellationToken);
-
         // Pump time in small increments — the obs loop yields on SleepAsync until
         // we advance past its target time, ensuring deterministic sequencing.
-        var pumpIncrement = TimeSpan.FromSeconds(5);
-        var maxFakeTime = TimeSpan.FromHours(24);
-        var pumped = TimeSpan.Zero;
-        while (pumped < maxFakeTime && !loopTask.IsCompleted && !cancellationToken.IsCancellationRequested)
-        {
-            ctx.TimeProvider.Advance(pumpIncrement);
-            pumped += pumpIncrement;
-
-            // Yield to let the observation loop process events triggered by the time advance
-            await Task.Delay(1, cancellationToken);
-        }
+        await ctx.TimeProvider.PumpUntilCompletedAsync(loopTask, TimeSpan.FromSeconds(5), TimeSpan.FromHours(24), cancellationToken: cancellationToken);
 
         loopTask.IsCompleted.ShouldBeTrue("observation loop should have completed within timeout");
         await loopTask;

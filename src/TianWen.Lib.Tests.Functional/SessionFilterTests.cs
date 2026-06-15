@@ -99,19 +99,7 @@ public class SessionFilterTests(ITestOutputHelper output)
         ctx.TimeProvider.ExternalTimePump = true;
         var loopTask = Task.Run(async () => await ctx.Session.ImagingLoopAsync(observation, hourAngle, cancellationToken: ct), ct);
 
-        // Wait for the loop to park at its first SleepAsync before pumping fake time --
-        // see FakeTimeProviderWrapper.WaitForFirstWaiterAsync for the race this avoids.
-        await ctx.TimeProvider.WaitForFirstWaiterAsync(loopTask, ct);
-
-        var pumpIncrement = TimeSpan.FromSeconds(5);
-        var maxFakeTime = TimeSpan.FromHours(4);
-        var pumped = TimeSpan.Zero;
-        while (pumped < maxFakeTime && !loopTask.IsCompleted && !ct.IsCancellationRequested)
-        {
-            ctx.TimeProvider.Advance(pumpIncrement);
-            pumped += pumpIncrement;
-            await Task.Delay(1, ct);
-        }
+        await ctx.TimeProvider.PumpUntilCompletedAsync(loopTask, TimeSpan.FromSeconds(5), TimeSpan.FromHours(4), cancellationToken: ct);
 
         loopTask.IsCompleted.ShouldBeTrue("imaging loop should complete within timeout");
         await loopTask;
