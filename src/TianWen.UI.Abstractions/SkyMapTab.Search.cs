@@ -212,13 +212,17 @@ namespace TianWen.UI.Abstractions
                 textX, py + row, textW, rowH, fontSize * 1.1f, SearchText, TextAlign.Near, TextAlign.Near);
             row += rowH * 1.15f;
 
-            // Canonical designation + constellation + type
-            var canon = string.IsNullOrEmpty(info.Canonical) ? "(no designation)" : info.Canonical;
+            // Designation + constellation + type — show whichever pieces are known, joined by two
+            // spaces. Planets carry no catalog designation but DO have a type (Planet) and a current
+            // constellation, so an empty designation must NOT suppress those (nor show the misleading
+            // "(no designation)" placeholder when there's still real info to show).
+            var canon = info.Canonical ?? "";
             var constell = info.Constellation != default ? info.Constellation.ToString() : "";
             var objType = info.ObjType != ObjectType.Unknown ? info.ObjType.ToString() : "";
-            var subtitle = constell.Length > 0 && objType.Length > 0
-                ? $"{canon}  {constell}  {objType}"
-                : canon;
+            var subtitle = canon;
+            if (constell.Length > 0) subtitle = subtitle.Length > 0 ? $"{subtitle}  {constell}" : constell;
+            if (objType.Length > 0) subtitle = subtitle.Length > 0 ? $"{subtitle}  {objType}" : objType;
+            if (subtitle.Length == 0) subtitle = "(no designation)";
             DrawText(subtitle.AsSpan(), fontPath,
                 textX, py + row, textW, rowH, fontSize * 0.9f, SearchDimText, TextAlign.Near, TextAlign.Center);
             row += rowH;

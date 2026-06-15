@@ -223,6 +223,90 @@ public class SkyMapSearchActionsTests
         pinned.InfoPanel.ShouldNotBeNull().Name.ShouldBe("TestDarkNeb");
     }
 
+    // Planets are ephemeris-computed (GetPlanetPositionsCached), so they are NOT in the
+    // fixed-position DSO/star spatial grids the resolver searches -- a click on a planet dot used
+    // to resolve to nothing. The resolver now hit-tests the live planet positions too. EmptyDb
+    // makes the DSO/star passes find nothing, so the planet pass is what resolves the click. The
+    // expected position is read from the ephemeris (not hardcoded), so the test is robust to which
+    // bodies VSOP87a reduces.
+    [Fact]
+    public void ClickOnPlanetSelectsItViaLiveEphemeris()
+    {
+        var skyMap = new SkyMapState
+        {
+            Mode = SkyMapMode.Equatorial,
+            FieldOfViewDeg = 10.0,
+        };
+        var viewingUtc = new DateTimeOffset(2026, 6, 15, 22, 0, 0, TimeSpan.Zero);
+
+        var positions = skyMap.GetPlanetPositionsCached(viewingUtc);
+        positions.Length.ShouldBeGreaterThan(0, "the ephemeris must yield at least one planet to click");
+        var (planetIdx, pRa, pDec) = positions[0];
+
+        // Centre the view on the planet so it projects to the screen centre, then click there.
+        skyMap.CenterRA = pRa;
+        skyMap.CenterDec = pDec;
+        var viewMatrix = skyMap.ComputeViewMatrix();
+        const float height = 1000f;
+        var ppr = SkyMapProjection.PixelsPerRadian(height, skyMap.FieldOfViewDeg);
+        const float cx = 500f, cy = 500f;
+        SkyMapProjection.ProjectWithMatrix(pRa, pDec, viewMatrix, ppr, cx, cy, out var sx, out var sy)
+            .ShouldBeTrue();
+
+        var site = SiteContext.Create(0, 0, viewingUtc);
+        var search = new SkyMapSearchState();
+        SkyMapSearchActions.SelectObjectByClick(
+            search, skyMap, new EmptyDb(), 0, 0, viewingUtc, site,
+            sx, sy, viewMatrix, ppr, cx, cy).ShouldBeTrue();
+
+        var expectedName = planetIdx == CatalogIndex.Moon ? "Moon"
+            : planetIdx == CatalogIndex.Sol ? "Sun"
+            : planetIdx.ToCanonical();
+        var info = search.InfoPanel.ShouldNotBeNull();
+        info.Name.ShouldBe(expectedName);
+        info.RA.ShouldBe(pRa, 1e-6);   // live ephemeris RA/Dec, not a stale catalog entry
+        info.Dec.ShouldBe(pDec, 1e-6);
+    }
+
+    // Committing a planet search result (Enter on "Jupiter") used to bail out: planets carry NaN
+    // catalog coords ("not supported in Phase 1"), so CommitResult returned false and Enter did
+    // nothing. It now resolves the live ephemeris position and commits to that.
+    [Fact]
+    public void CommitResultForPlanetResolvesLiveEphemeris()
+    {
+        var skyMap = new SkyMapState { Mode = SkyMapMode.Equatorial, FieldOfViewDeg = 10.0 };
+        var viewingUtc = new DateTimeOffset(2026, 6, 15, 22, 0, 0, TimeSpan.Zero);
+
+        var positions = skyMap.GetPlanetPositionsCached(viewingUtc);
+        positions.Length.ShouldBeGreaterThan(0, "the ephemeris must yield at least one planet to commit");
+        var (planetIdx, pRa, pDec) = positions[0];
+
+        // The catalog returns the planet as a NaN-coord solar-system stub (as the real DB does).
+        var db = new PlanetStubDb(planetIdx, "TestPlanet");
+        var search = new SkyMapSearchState
+        {
+            IsOpen = true,
+            Results = [new SkyMapSearchResult(Display: "TestPlanet", Index: planetIdx, ObjType: ObjectType.Unknown, VMag: float.NaN)],
+            SelectedResultIndex = 0,
+        };
+
+        var site = SiteContext.Create(0, 0, viewingUtc);
+        SkyMapSearchActions.CommitResult(search, skyMap, db, 0, 0, viewingUtc, site).ShouldBeTrue();
+
+        var info = search.InfoPanel.ShouldNotBeNull();
+        info.Name.ShouldBe("TestPlanet");
+        info.RA.ShouldBe(pRa, 1e-6);   // committed to the LIVE position, not the NaN catalog stub
+        info.Dec.ShouldBe(pDec, 1e-6);
+        info.ObjType.ShouldBe(ObjectType.Planet, "the predefined planet type carries into the panel");
+        info.VMag.ShouldBe(-2.2f, 0.01f);  // predefined reference magnitude, not NaN ("mag -")
+        // Constellation is computed from the LIVE position (planets wander) -- not the catalog stub.
+        if (ConstellationBoundary.TryFindConstellation(pRa, pDec, out var expectedConstellation))
+        {
+            info.Constellation.ShouldBe(expectedConstellation);
+        }
+        search.IsOpen.ShouldBeFalse("a successful commit closes the modal");
+    }
+
     // Minimal ICelestialObjectDB stub — only CreateAutoCompleteList and TryLookupByIndex
     // are needed for the tests above. Rest throw to catch accidental usage.
     private class EmptyDb : TianWen.Lib.Astrometry.Catalogs.ICelestialObjectDB
@@ -302,6 +386,26 @@ public class SkyMapSearchActionsTests
         private sealed class FixedIndex(params CatalogIndex[] items) : IRaDecIndex
         {
             public IReadOnlyCollection<CatalogIndex> this[double ra, double dec] => items;
+        }
+    }
+
+    // Returns the given index as a NaN-coord solar-system stub (mirrors how planets sit in the real
+    // catalog: a named entry with no fixed RA/Dec, since their position is ephemeris-computed).
+    private sealed class PlanetStubDb(CatalogIndex planetIndex, string name) : EmptyDb
+    {
+        public override bool TryLookupByIndex(CatalogIndex index, out CelestialObject celestialObject)
+        {
+            if (index == planetIndex)
+            {
+                // Predefined planet metadata as the real catalog holds it: type Planet, reference
+                // magnitude, NaN coords (position is ephemeris-computed), no fixed constellation.
+                celestialObject = new CelestialObject(planetIndex, ObjectType.Planet,
+                    double.NaN, double.NaN, default, (Half)(-2.2), Half.NaN, (Half)0.83,
+                    new HashSet<string> { name });
+                return true;
+            }
+            celestialObject = default;
+            return false;
         }
     }
 }

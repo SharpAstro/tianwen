@@ -266,7 +266,21 @@ public static class SkyMapSearchActions
 
         if (double.IsNaN(obj.RA) || double.IsNaN(obj.Dec))
         {
-            // Solar-system stubs in the DB have NaN coords — not supported in Phase 1.
+            // Solar-system bodies (Sun / Moon / planets) carry NaN catalog coords -- their position
+            // is ephemeris-computed. Resolve the LIVE position from the planet cache (the same source
+            // the sky map renders from, keyed on the same viewing time) and commit to that, so e.g.
+            // searching "Jupiter" + Enter actually slews there instead of doing nothing. Bodies not in
+            // the cache (VSOP87a reduction failed for this instant) still can't commit.
+            foreach (var (planetIdx, pRa, pDec) in skyMap.GetPlanetPositionsCached(viewingUtc))
+            {
+                if (planetIdx == catIdx)
+                {
+                    SlewTo(skyMap, pRa, pDec);
+                    search.InfoPanel = PlanetInfoPanel(db, catIdx, pRa, pDec, siteLat, siteLon, viewingUtc, site);
+                    CloseSearch(search);
+                    return true;
+                }
+            }
             return false;
         }
 
@@ -452,6 +466,42 @@ public static class SkyMapSearchActions
             }
         }
 
+        // Planets (Sun / Moon / major planets) are ephemeris-computed, so they are NOT in the
+        // fixed-position DSO/star spatial grids the passes above search. Hit-test the live planet
+        // positions directly -- the same cache the renderer's DrawPlanetLabels draws from, keyed on
+        // the same viewing time -- so a click on a planet dot resolves to it. A planet wins when it
+        // is the closest hit within tolerance: it is a prominent target and its live position is
+        // exactly what the user clicked. Built via FromPosition because the catalog entry's stored
+        // RA/Dec is not the live ephemeris position.
+        var bestPlanetDistSq = double.MaxValue;
+        CatalogIndex? bestPlanetIdx = null;
+        double bestPlanetRa = 0.0, bestPlanetDec = 0.0;
+        foreach (var (planetIdx, pRa, pDec) in skyMap.GetPlanetPositionsCached(viewingUtc))
+        {
+            if (!SkyMapProjection.ProjectWithMatrix(pRa, pDec, viewMatrix, pixelsPerRadian, centerX, centerY,
+                    out var sx, out var sy))
+            {
+                continue;
+            }
+
+            var dx = sx - clickScreenX;
+            var dy = sy - clickScreenY;
+            var distSq = dx * dx + dy * dy;
+            if (distSq <= ClickToleranceScreenPx * ClickToleranceScreenPx && distSq < bestPlanetDistSq)
+            {
+                bestPlanetDistSq = distSq;
+                bestPlanetIdx = planetIdx;
+                bestPlanetRa = pRa;
+                bestPlanetDec = pDec;
+            }
+        }
+
+        if (bestPlanetIdx is { } pIdx && (bestIdx is null || bestPlanetDistSq <= bestDistSq))
+        {
+            search.InfoPanel = PlanetInfoPanel(db, pIdx, bestPlanetRa, bestPlanetDec, siteLat, siteLon, viewingUtc, site);
+            return true;
+        }
+
         if (bestIdx is not { } hit || !db.TryLookupByIndex(hit, out var obj))
         {
             return false;
@@ -511,6 +561,45 @@ public static class SkyMapSearchActions
         }
         obj = default;
         return false;
+    }
+
+    /// <summary>
+    /// Builds an info panel for a solar-system body: the LIVE ephemeris RA/Dec, the planet's
+    /// PREDEFINED catalog metadata (<see cref="ObjectType.Planet"/>, reference magnitude, name), and
+    /// the constellation it is CURRENTLY in -- computed from the live position via
+    /// <see cref="ConstellationBoundary.TryFindConstellation(double, double, out Constellation)"/>,
+    /// since planets wander and have no fixed constellation in the catalog. Falls back to a bare named
+    /// position when the catalog has no entry for the index (e.g. a minimal test DB).
+    /// </summary>
+    private static SkyMapInfoPanelData PlanetInfoPanel(
+        ICelestialObjectDB db, CatalogIndex planetIdx, double raHours, double decDeg,
+        double siteLat, double siteLon, DateTimeOffset viewingUtc, in SiteContext site)
+    {
+        var constellation = ConstellationBoundary.TryFindConstellation(raHours, decDeg, out var c)
+            ? c
+            : default;
+
+        if (db.TryLookupByIndex(planetIdx, out var obj))
+        {
+            return SkyMapInfoPanelData.FromPosition(
+                obj.DisplayName, raHours, decDeg, siteLat, siteLon, viewingUtc, site)
+                with
+                {
+                    ObjType = obj.ObjectType,
+                    VMag = (float)obj.V_Mag,
+                    BMinusV = (float)obj.BMinusV,
+                    Constellation = constellation,
+                    Index = planetIdx,
+                };
+        }
+
+        // No catalog entry (minimal DB / tests): a bare named position, still tagged with the
+        // current constellation.
+        var name = planetIdx == CatalogIndex.Moon ? "Moon"
+            : planetIdx == CatalogIndex.Sol ? "Sun"
+            : planetIdx.ToCanonical();
+        return SkyMapInfoPanelData.FromPosition(name, raHours, decDeg, siteLat, siteLon, viewingUtc, site)
+            with { Constellation = constellation };
     }
 
     private static CelestialObjectShape? ResolveShape(ICelestialObjectDB db, CatalogIndex idx)

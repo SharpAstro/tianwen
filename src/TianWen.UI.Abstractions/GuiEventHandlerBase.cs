@@ -356,6 +356,30 @@ namespace TianWen.UI.Abstractions
                 }
             }
 
+            // Sky-map F3 search: arrow keys navigate the result list. The tab's own
+            // TryHandleSearchKey only runs when NO text input is active, but the search input IS
+            // active here -- and this method swallows all keys (see the final return) -- so the
+            // navigation has to happen here too, mirroring the planner block above. Without this,
+            // Up/Down never reach the result list while the user is typing in the search box.
+            var skySearch = _chrome.SkyMapState.Search;
+            if (activeInput == skySearch.SearchInput && skySearch.Results.Length > 0)
+            {
+                if (key == InputKey.Down)
+                {
+                    skySearch.SelectedResultIndex = Math.Min(
+                        skySearch.SelectedResultIndex + 1, skySearch.Results.Length - 1);
+                    _appState.NeedsRedraw = true;
+                    return true;
+                }
+                if (key == InputKey.Up)
+                {
+                    skySearch.SelectedResultIndex = Math.Max(
+                        skySearch.SelectedResultIndex - 1, 0);
+                    _appState.NeedsRedraw = true;
+                    return true;
+                }
+            }
+
             var textKey = key.ToTextInputKey(modifiers);
 
             // Tab cycling through text inputs on the active tab

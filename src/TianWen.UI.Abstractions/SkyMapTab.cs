@@ -569,6 +569,18 @@ namespace TianWen.UI.Abstractions
                     DrawText(name.AsSpan(), fontPath,
                         sx + 10, sy - fontSize, 100, fontSize * 1.2f,
                         fontSize, planetColor, TextAlign.Near, TextAlign.Center);
+
+                    // Make the label clickable. The dot itself is already selectable via the map-wide
+                    // click resolver (the planet pass hit-tests within ClickToleranceScreenPx of the
+                    // dot), but the label text sits ~10px to the right and is ~100px wide -- well
+                    // outside that tolerance -- so it was unclickable. Register a hit box over the
+                    // label that synthesizes a click-select at the DOT position, so the same resolver
+                    // selects the planet. Mirrors how catalog-object labels are made clickable.
+                    var planetScreenX = sx;
+                    var planetScreenY = sy;
+                    RegisterClickable(sx + 10, sy - fontSize, 100, fontSize * 1.2f,
+                        new HitResult.ButtonHit($"SkyMapPlanetLabel:{name}"),
+                        _ => PostSignal(new SkyMapClickSelectSignal(planetScreenX, planetScreenY, InputModifier.None)));
                 }
             }
         }

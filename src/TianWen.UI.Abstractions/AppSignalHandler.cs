@@ -813,7 +813,10 @@ namespace TianWen.UI.Abstractions
             bus.Subscribe<SkyMapSearchCommitSignal>(_ =>
             {
                 var db = sp.GetRequiredService<ICelestialObjectDB>();
-                var viewingUtc = plannerState.PlanningDate?.ToUniversalTime() ?? _timeProvider.GetUtcNow();
+                // Include the sky-map scrub offset so a planet commit resolves the SAME live position
+                // the map is showing (and reads the render's planet cache without thrashing it).
+                var viewingUtc = (plannerState.PlanningDate?.ToUniversalTime() ?? _timeProvider.GetUtcNow())
+                    + skyMapState.TimeOffset;
                 var site = SiteContext.Create(plannerState.SiteLatitude, plannerState.SiteLongitude, viewingUtc);
                 SkyMapSearchActions.CommitResult(
                     skySearch, skyMapState, db,
@@ -997,7 +1000,12 @@ namespace TianWen.UI.Abstractions
                 var ppr = SkyMapProjection.PixelsPerRadian(rect.Height, skyMapState.FieldOfViewDeg);
                 var cx = rect.X + rect.Width * 0.5f;
                 var cy = rect.Y + rect.Height * 0.5f;
-                var viewingUtc = plannerState.PlanningDate?.ToUniversalTime() ?? _timeProvider.GetUtcNow();
+                // Match the render's viewing instant: base date/now PLUS the sky-map scrub offset
+                // (State.TimeOffset). Planet positions are ephemeris-computed and move with time, so
+                // hit-testing them (and the panel's alt/az) must use the same instant the renderer
+                // drew -- otherwise a scrubbed planet dot is unclickable.
+                var viewingUtc = (plannerState.PlanningDate?.ToUniversalTime() ?? _timeProvider.GetUtcNow())
+                    + skyMapState.TimeOffset;
                 var site = SiteContext.Create(plannerState.SiteLatitude, plannerState.SiteLongitude, viewingUtc);
 
                 SkyMapSearchActions.SelectObjectByClick(
