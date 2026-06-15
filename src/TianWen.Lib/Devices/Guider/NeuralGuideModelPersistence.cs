@@ -11,9 +11,9 @@ namespace TianWen.Lib.Devices.Guider;
 /// that was active when the model was trained. Keyed by optical train identity.
 /// </summary>
 /// <remarks>
-/// File format v1 (little-endian):
+/// File format (little-endian):
 ///   [0..1]   Magic: 0x4E47 ('NG')
-///   [2..3]   Version: 0x0001
+///   [2..3]   Version: 0x0002
 ///   [4..7]   InputSize (int32)
 ///   [8..11]  Hidden1Size (int32)
 ///   [12..15] Hidden2Size (int32)
@@ -22,14 +22,25 @@ namespace TianWen.Lib.Devices.Guider;
 ///   [68..]   Model weights: TotalParams floats
 ///   Total: 20 + 48 + TotalParams*4 bytes
 ///
-/// v1 used InputSize=22 (1,298 params). v2 uses InputSize=26 (1,426 params) with encoder phase features.
-/// Files with mismatched InputSize are rejected by TryLoadAsync (architecture dimension check),
-/// causing the model to be re-initialized with fresh weights.
+/// TryLoadAsync gates compatibility two ways and DELETES any file that fails either, so a
+/// stale cache can never be re-read or reused on a later load:
+///   * Architecture dimensions -- the four size ints must equal the current model constants.
+///     (The InputSize 22 -> 26 bump that added the encoder-phase features is caught here:
+///     a 1,298-param file no longer matches the current 1,426-param model.)
+///   * Format version -- bumped 0x0001 -> 0x0002 by the meridian-side calibration fix
+///     (commit 173e3b4). That fix made guider calibration learn the Dec guide sense EAST of
+///     the meridian, on the pre-flip pier side. A model trained online under the old (west,
+///     possibly inverted-Dec) calibration has that sense baked into its weights; the runtime
+///     meridian-flip handler can negate the *calibration* but not the model's learned output.
+///     So every pre-fix model is discarded and retrained under the corrected calibration.
+/// When a file is rejected the model is left untouched and re-initialised with fresh weights.
 /// </remarks>
 internal static class NeuralGuideModelPersistence
 {
     private const ushort Magic = 0x4E47;
-    private const ushort Version = 0x0001;
+    // v2: the meridian-side calibration fix (173e3b4) changed the learned Dec guide sense, so
+    // every model trained under v1 is invalidated -- see the class remarks for the full reason.
+    private const ushort Version = 0x0002;
     private const int HeaderSize = 4 + 16; // magic(2) + version(2) + 4 ints(16)
     private const int CalibrationSize = 6 * sizeof(double); // 48 bytes
     private const int WeightsSize = NeuralGuideModel.TotalParams * sizeof(float);
@@ -120,9 +131,18 @@ internal static class NeuralGuideModelPersistence
             return null;
         }
 
+        // A file that fails any compatibility gate below is a stale cache this binary cannot
+        // use (wrong size, bad magic, older format version, or an older architecture). Delete
+        // it so it is not re-read on the next load -- the caller then trains a fresh model.
+        void DiscardIncompatible()
+        {
+            try { newest.Delete(); } catch { /* ignore cleanup failures */ }
+        }
+
         var buffer = await File.ReadAllBytesAsync(newest.FullName, cancellationToken);
         if (buffer.Length != TotalFileSize)
         {
+            DiscardIncompatible();
             return null;
         }
 
@@ -133,6 +153,7 @@ internal static class NeuralGuideModelPersistence
         var version = BinaryPrimitives.ReadUInt16LittleEndian(span[2..]);
         if (magic != Magic || version != Version)
         {
+            DiscardIncompatible();
             return null;
         }
 
@@ -146,6 +167,7 @@ internal static class NeuralGuideModelPersistence
             || hidden2Size != NeuralGuideModel.Hidden2Size
             || outputSize != NeuralGuideModel.OutputSize)
         {
+            DiscardIncompatible();
             return null;
         }
 

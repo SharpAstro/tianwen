@@ -102,7 +102,7 @@ public class NeuralGuideModelPersistenceTests : IDisposable
         var filePath = Path.Combine(dir.FullName, "00000000.ngm");
 
         // Compute what the file would look like with wrong dims
-        var wrongInputSize = 10; // doesn't match current 16
+        var wrongInputSize = 10; // doesn't match current 26
         var wrongTotalParams = (wrongInputSize * 32 + 32) + (32 * 16 + 16) + (16 * 2 + 2); // 882
         var wrongWeightsSize = wrongTotalParams * sizeof(float);
         var headerSize = 20; // magic(2) + version(2) + 4 ints(16)
@@ -112,7 +112,7 @@ public class NeuralGuideModelPersistenceTests : IDisposable
         var buffer = new byte[totalSize];
         var span = buffer.AsSpan();
         BinaryPrimitives.WriteUInt16LittleEndian(span, 0x4E47); // magic
-        BinaryPrimitives.WriteUInt16LittleEndian(span[2..], 0x0001); // version
+        BinaryPrimitives.WriteUInt16LittleEndian(span[2..], 0x0002); // current version, so the dimension check (not the version gate) is what rejects
         BinaryPrimitives.WriteInt32LittleEndian(span[4..], wrongInputSize); // wrong!
         BinaryPrimitives.WriteInt32LittleEndian(span[8..], 32); // Hidden1Size
         BinaryPrimitives.WriteInt32LittleEndian(span[12..], 16); // Hidden2Size
@@ -123,6 +123,7 @@ public class NeuralGuideModelPersistenceTests : IDisposable
         var model = new NeuralGuideModel();
         var result = await NeuralGuideModelPersistence.TryLoadAsync(model, _tempDir, ct);
         result.ShouldBeNull("wrong architecture should be rejected");
+        File.Exists(filePath).ShouldBeFalse("a rejected stale model must be deleted, not left to be re-read on the next load");
     }
 
     [Fact]
