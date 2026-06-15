@@ -613,7 +613,10 @@ namespace TianWen.UI.Abstractions
                 : $"FOV: {State.FieldOfViewDeg:F1}\u00B0";
             var modeLabel = State.Mode == SkyMapMode.Equatorial ? "EQ" : "AZ";
             var skyHint = State.MilkyWayAvailable ? " [S]ky" : "";
-            var info = $"RA: {State.CenterRA:F2}h  Dec: {State.CenterDec:F1}\u00B0    {fovText}    [{modeLabel}]  [H]orizon [G]rid [A]lt/Az [B]oundaries [C]onst [P]roj [O]bjects [D]ark [M]ount{skyHint}";
+            // Limiting magnitude actually rendered (FOV-aware; grows as you zoom in). Gives the
+            // +/- magnitude-floor keys visible feedback, which they previously lacked.
+            var magText = $"Lim mag {State.EffectiveMagnitudeLimit:F1}";
+            var info = $"RA: {State.CenterRA:F2}h  Dec: {State.CenterDec:F1}\u00B0    {fovText}    {magText}    [{modeLabel}]  [H]orizon [G]rid [A]lt/Az [B]oundaries [C]onst [P]roj [O]bjects [D]ark [M]ount{skyHint}";
 
             DrawText(info.AsSpan(), fontPath,
                 rect.X + 8, stripY, rect.Width - 16, stripH,
@@ -690,7 +693,7 @@ namespace TianWen.UI.Abstractions
         public override bool HandleInput(InputEvent evt) => evt switch
         {
             InputEvent.Scroll(var scrollY, var mx, var my, _) => HandleZoom(scrollY, mx, my),
-            InputEvent.Pinch(var scale, var px, var py) => HandlePinchZoom(scale, px, py),
+            InputEvent.Pinch p => HandlePinchZoom(p.Scale, p.X, p.Y, p.Source),
             InputEvent.PinchEnd => HandlePinchEnd(),
             InputEvent.MouseDown(var x, var y, _, var mods, _) => HandleDragStart(x, y, mods),
             InputEvent.MouseUp(var x, var y, _) => HandleMouseUp(x, y),
@@ -706,7 +709,7 @@ namespace TianWen.UI.Abstractions
             return HandleDragEnd();
         }
 
-        private bool HandlePinchZoom(float scale, float centerX, float centerY)
+        private bool HandlePinchZoom(float scale, float centerX, float centerY, PinchSource source)
         {
             _sincePinch.Restart(); // keep the wheel-dedup grace window fresh for the whole gesture
             if (!State.IsPinching)
@@ -722,9 +725,13 @@ namespace TianWen.UI.Abstractions
                 }
             }
 
-            // Convert relative per-frame pinch scale to proportional zoom
-            // scale ~1.01 per frame → small zoom step
-            return HandleZoomByFactor(1.0 / scale, centerX, centerY);
+            // Convert relative per-frame pinch scale to proportional zoom (scale ~1.01/frame → small step).
+            // A touchscreen pinch carries a real on-screen finger midpoint, so anchor the zoom there.
+            // A touchpad pinch's coords don't map to the screen, so zoom around the view CENTRE
+            // (spin-free, like the wheel) -- the renderer has already tagged the source for us.
+            return source == PinchSource.Touchscreen
+                ? HandleZoomByFactor(1.0 / scale, centerX, centerY)
+                : HandleZoomByFactor(1.0 / scale);
         }
 
         private bool HandlePinchEnd()
@@ -750,6 +757,11 @@ namespace TianWen.UI.Abstractions
         private readonly System.Diagnostics.Stopwatch _sincePinch = new();
         private const long PinchWheelGraceMs = 300;
 
+        // Keyboard zoom (Ctrl +/-) FOV multipliers: < 1 zooms in (smaller FOV), > 1 zooms out.
+        // ~20% per press; centre-anchored like the wheel, so it never spins.
+        private const double KeyboardZoomInFactor = 0.8;
+        private const double KeyboardZoomOutFactor = 1.25;
+
         private bool HandleZoom(float scrollY, float mouseX, float mouseY)
         {
             // While a pinch is active -- or just ended -- the simultaneous mouse-wheel events are the
@@ -763,42 +775,58 @@ namespace TianWen.UI.Abstractions
                 return true; // consume the duplicate wheel event without zooming
             }
 
-            // Scale proportionally to scroll magnitude — each unit ≈ 15% zoom
+            // Scale proportionally to scroll magnitude — each unit ≈ 15% zoom.
+            // Wheel zoom anchors at the view CENTRE (not the cursor) so it never swings RA and can't
+            // spin near the pole/zenith. mouseX/mouseY are intentionally unused here.
             var factor = Math.Pow(0.85, scrollY);
-            return HandleZoomByFactor(factor, mouseX, mouseY);
+            return HandleZoomByFactor(factor);
         }
 
-        private bool HandleZoomByFactor(double factor, float mouseX, float mouseY)
+        // A null anchor zooms around the view CENTRE: only the FOV changes, the centre stays put.
+        // Because the centre's RA never moves, the view can't roll, so this is spin-free even at the
+        // pole / zenith (the old cursor-anchored path recomputed the centre, and near the pole that
+        // swung RA and spun the field). A non-null anchor keeps the sky point under the anchor fixed
+        // on screen -- used only for a touchscreen finger pinch, where the anchor is a real on-screen
+        // location the user is touching.
+        private bool HandleZoomByFactor(double factor, float? anchorX = null, float? anchorY = null)
         {
             var oldFovDeg = State.FieldOfViewDeg;
 
-            // Center-point zoom: zoom toward the sky position under the mouse cursor
-            var ppr = SkyMapProjection.PixelsPerRadian(_contentHeight, State.FieldOfViewDeg);
-            var screenCx = _contentX + _contentWidth * 0.5f;
-            var screenCy = _contentY + _contentHeight * 0.5f;
-
-            // Sky position under the mouse before zoom
-            var (mouseRA, mouseDec) = SkyMapProjection.UnprojectWithMatrix(
-                mouseX, mouseY, State.CurrentViewMatrix, ppr, screenCx, screenCy);
-
-            // Apply zoom
-            State.FieldOfViewDeg = Math.Clamp(State.FieldOfViewDeg * factor, 0.5, 180.0);
-
-            // Recompute ppr after zoom and find where the mouse sky position would end up
-            var newPpr = SkyMapProjection.PixelsPerRadian(_contentHeight, State.FieldOfViewDeg);
-            SkyMapProjection.ProjectWithMatrix(mouseRA, mouseDec, State.CurrentViewMatrix,
-                newPpr, screenCx, screenCy, out var newMx, out var newMy);
-
-            // Shift the view center so the mouse sky position stays under the cursor
-            // by unprojecting the delta
-            if (!float.IsNaN(newMx))
+            if (anchorX is { } ax && anchorY is { } ay)
             {
-                var (centerRA, centerDec) = SkyMapProjection.UnprojectWithMatrix(
-                    screenCx + (mouseX - newMx), screenCy + (mouseY - newMy),
-                    State.CurrentViewMatrix, newPpr, screenCx, screenCy);
-                State.CenterRA = centerRA;
-                State.CenterDec = centerDec;
-                State.NormalizeCenter();
+                // Anchored zoom: keep the sky position under the anchor fixed.
+                var ppr = SkyMapProjection.PixelsPerRadian(_contentHeight, State.FieldOfViewDeg);
+                var screenCx = _contentX + _contentWidth * 0.5f;
+                var screenCy = _contentY + _contentHeight * 0.5f;
+
+                // Sky position under the anchor before zoom
+                var (anchorRA, anchorDec) = SkyMapProjection.UnprojectWithMatrix(
+                    ax, ay, State.CurrentViewMatrix, ppr, screenCx, screenCy);
+
+                // Apply zoom
+                State.FieldOfViewDeg = Math.Clamp(State.FieldOfViewDeg * factor, 0.5, 180.0);
+
+                // Recompute ppr after zoom and find where the anchor sky position would end up
+                var newPpr = SkyMapProjection.PixelsPerRadian(_contentHeight, State.FieldOfViewDeg);
+                SkyMapProjection.ProjectWithMatrix(anchorRA, anchorDec, State.CurrentViewMatrix,
+                    newPpr, screenCx, screenCy, out var newMx, out var newMy);
+
+                // Shift the view center so the anchor sky position stays under the anchor
+                // by unprojecting the delta
+                if (!float.IsNaN(newMx))
+                {
+                    var (centerRA, centerDec) = SkyMapProjection.UnprojectWithMatrix(
+                        screenCx + (ax - newMx), screenCy + (ay - newMy),
+                        State.CurrentViewMatrix, newPpr, screenCx, screenCy);
+                    State.CenterRA = centerRA;
+                    State.CenterDec = centerDec;
+                    State.NormalizeCenter();
+                }
+            }
+            else
+            {
+                // Centre-anchored: FOV only, centre untouched (no RA swing => no spin).
+                State.FieldOfViewDeg = Math.Clamp(State.FieldOfViewDeg * factor, 0.5, 180.0);
             }
 
             State.NeedsRedraw = true;
@@ -897,6 +925,7 @@ namespace TianWen.UI.Abstractions
             }
 
             var fineStep = (modifiers & InputModifier.Shift) != 0;
+            var ctrl = (modifiers & InputModifier.Ctrl) != 0;
 
             switch (key)
             {
@@ -942,6 +971,12 @@ namespace TianWen.UI.Abstractions
                         : SkyMapMode.Equatorial;
                     State.NeedsRedraw = true;
                     return true;
+                // Ctrl +/- : keyboard zoom (centre-anchored, spin-free). Plain +/- adjusts the
+                // magnitude-limit floor (surfaced in the status strip below as "Lim mag").
+                case InputKey.Plus when ctrl:
+                    return HandleZoomByFactor(KeyboardZoomInFactor);
+                case InputKey.Minus when ctrl:
+                    return HandleZoomByFactor(KeyboardZoomOutFactor);
                 case InputKey.Plus:
                     State.MagnitudeLimit = Math.Min(State.MagnitudeLimit + 0.5f, 12f);
                     State.NeedsRedraw = true;
@@ -970,13 +1005,16 @@ namespace TianWen.UI.Abstractions
                     State.TimeOffset -= TimeSpan.FromDays(1);
                     State.NeedsRedraw = true;
                     return true;
-                case InputKey.PageUp:
-                    State.TimeOffset += TimeSpan.FromDays(7);
-                    State.NeedsRedraw = true;
+                // PgUp/PgDn move the planning DATE by a day -- the keyboard twin of the on-screen
+                // [<] [>] buttons (PlannerActions.ShiftPlanningDate), which recompute the night.
+                // Previously a +/-7-day VISUAL scrub, which was a surprising week-long jump. Like the
+                // N/T keys below, this operates on the planner date, not the sky-map scrub offset.
+                // Direction preserved from the old binding: PgUp = next night, PgDn = previous night.
+                case InputKey.PageUp when _plannerState is not null && _timeProvider is not null:
+                    PlannerActions.ShiftPlanningDate(_plannerState, _timeProvider, +1, State);
                     return true;
-                case InputKey.PageDown:
-                    State.TimeOffset -= TimeSpan.FromDays(7);
-                    State.NeedsRedraw = true;
+                case InputKey.PageDown when _plannerState is not null && _timeProvider is not null:
+                    PlannerActions.ShiftPlanningDate(_plannerState, _timeProvider, -1, State);
                     return true;
                 case InputKey.N when _timeProvider is not null && _plannerState is not null:
                     // Jump to the midnight of the current observing night, computed in the

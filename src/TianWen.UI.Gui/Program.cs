@@ -236,9 +236,9 @@ var loop = new SdlEventLoop(sdlWindow, renderer)
         return true;
     },
 
-    OnPinch = (scale, mx, my) =>
+    OnPinch = (scale, mx, my, source) =>
     {
-        handlers.HandleInput(new InputEvent.Pinch(scale, mx, my));
+        handlers.HandleInput(new InputEvent.Pinch(scale, mx, my) { Source = source });
     },
 
     OnPinchEnd = () =>
