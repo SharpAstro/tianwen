@@ -60,3 +60,24 @@ Part of the TianWen TODO set. See [TODO.md](../../TODO.md) for the index and the
 
 Vulkan/SDL migration rationale moved to `../SdlVulkan.Renderer/README.md` ("Rationale: Why SDL3 + Vortice.Vulkan" section).
 
+## Sky Map (first-open perf, LOW PRIORITY)
+
+Context: the first Sky Atlas open stalled ~800 ms in dev. Most of it is already fixed or
+AOT-free after the `perf(skymap)` commits (async Milky Way decode + VSOP87 pre-warm); full
+anatomy in the `reference_skymap_first_open_perf` memory. These two are the remaining optional
+levers, both low priority because production (NativeAOT) first-open is already fast.
+
+- [ ] (b) Pre-warm `VkSkyMapPipeline` at GUI startup. The ~140 ms pipeline shaderc compile
+  (runtime GLSL-to-SPIR-V) is the ONLY real production first-open cost; NativeAOT does not
+  eliminate it. Construct the pipeline once `renderer.Context` is live (overlapping the
+  cold-start font-atlas warmup) so it is off the first tab-open frame. Higher risk: touches the
+  GPU-context lifecycle. Alternative: compile the sky-map shaders to SPIR-V offline at build
+  time (measured ~117 ms, earlier deemed not worth the MSBuild machinery; revisit if pursuing).
+- [ ] (c) Data-encode the VSOP87 coefficients (astrometry). `MarsX.cs` etc. are ~24 giant
+  `GetX/GetY/GetZ` methods of thousands of inline `x += c*Math.Cos(p + f*t)` statements (~3.6 MB
+  of source). Re-encode as `static readonly double[]` (or a packed binary resource) plus one
+  generic evaluation loop. Eliminates the dev-only ~330 ms first-call JIT (measured 467 ms dev
+  vs 7 ms AOT), shrinks the AOT binary, and speeds the AOT publish. Full accuracy retained (same
+  coefficients) so the GOTO/pointing consumers (`Transform.cs`) stay correct. Pure cleanup, NOT
+  a production-perf fix. Cross-ref: also tracked under astrometry.
+
