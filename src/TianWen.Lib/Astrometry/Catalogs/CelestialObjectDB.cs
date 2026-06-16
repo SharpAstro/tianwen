@@ -1992,6 +1992,37 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
     }
 
     /// <summary>
+    /// Tier-1-only HIP lookup for bulk star-dot seeding (overrides the
+    /// <see cref="ICelestialObjectDB.TryGetHipStarLite"/> default). Reads RA/Dec/photometry
+    /// straight from the Tycho-2 array and deliberately skips the per-star
+    /// <see cref="ConstellationBoundary.TryFindConstellation"/> polygon test, cross-reference
+    /// magnitude refinement, and object-type inheritance that <see cref="TryLookupHIP"/> runs --
+    /// none of which a plotted dot needs, and which were ~all of the sky-map HIP seed's cost.
+    /// HIP stars with no Tycho-2 entry (the Tier 2-4 fallbacks) are simply omitted from the seed;
+    /// the async full Tycho-2 build renders the complete catalogue a beat later. Uses raw Tycho-2
+    /// photometry, matching the bulk Tycho-2 vertex path (<c>SkyMapState.FillTycho2StarVertices</c>).
+    /// </summary>
+    public bool TryGetHipStarLite(int hipNumber, out double ra, out double dec, out float vMag, out float bv)
+    {
+        ra = 0;
+        dec = 0;
+        vMag = float.NaN;
+        bv = float.NaN;
+
+        if (_hipToTyc is { } hipToTyc && hipNumber > 0 && hipNumber <= hipToTyc.Length)
+        {
+            var tycIndex = hipToTyc[hipNumber - 1];
+            if (tycIndex != 0 && TryGetTycho2RaDec(tycIndex, out ra, out dec, out var vMagHalf, out bv))
+            {
+                vMag = (float)vMagHalf;
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
     /// Core HIP resolution with 3-tier fallback:
     /// 1. Tycho-2 array (O(1), covers ~99% of HIP stars)
     /// 2. Cross-reference table (HIP → HR/HD for bright stars loaded via SIMBAD)

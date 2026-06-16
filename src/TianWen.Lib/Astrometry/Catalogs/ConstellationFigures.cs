@@ -116,6 +116,32 @@ public static class ConstellationFigures
             [Constellation.Volans] = [[37504, 34481, 39794, 37504], [39794, 35228], [39794, 41312, 44382, 39794]],
             [Constellation.Vulpecula] = [[95771, 98543]],
         }.ToFrozenDictionary();
+
+    /// <summary>
+    /// Every unique HIP star number referenced by any constellation stick figure (the line
+    /// endpoints across all polylines) -- on the order of ~1000 bright stars. The sky map uses
+    /// this to seed its instant star field with exactly the stars the figures connect, instead
+    /// of walking the full ~118k HIP catalogue (each HIP lookup is an O(partition) Tycho-2 scan,
+    /// so a bounded set is the cheap path). The full Tycho-2 catalogue streams in asynchronously
+    /// a beat later.
+    /// </summary>
+    public static FrozenSet<int> AllFigureStarHipNumbers { get; } = BuildAllFigureStarHipNumbers();
+
+    private static FrozenSet<int> BuildAllFigureStarHipNumbers()
+    {
+        var set = new HashSet<int>(1024);
+        foreach (var polylines in _figures.Values)
+        {
+            foreach (var polyline in polylines)
+            {
+                foreach (var hip in polyline)
+                {
+                    set.Add(hip);
+                }
+            }
+        }
+        return set.ToFrozenSet();
+    }
 }
 
 public static class ConstellationFigureExtensions

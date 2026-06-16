@@ -120,6 +120,17 @@ public interface ICelestialObjectDB
     bool TryLookupHIP(int hipNumber, out double ra, out double dec, out float vMag, out float bv);
 
     /// <summary>
+    /// Lightweight HIP → RA/Dec/mag/color for bulk star-dot seeding. Unlike
+    /// <see cref="TryLookupHIP"/>, it skips constellation-boundary assignment, cross-reference
+    /// magnitude refinement, and object-type inheritance — none of which a plotted star dot
+    /// needs, and which dominate the per-star cost at catalogue scale (the sky-map HIP seed).
+    /// Default delegates to <see cref="TryLookupHIP"/>; <c>CelestialObjectDB</c> overrides with
+    /// a Tycho-2-array fast path.
+    /// </summary>
+    bool TryGetHipStarLite(int hipNumber, out double ra, out double dec, out float vMag, out float bv)
+        => TryLookupHIP(hipNumber, out ra, out dec, out vMag, out bv);
+
+    /// <summary>
     /// Number of entries in the HIP→Tycho-2 cross-reference array.
     /// Iterate 1..HipStarCount with <see cref="TryLookupHIP"/> to access all HIP stars.
     /// </summary>

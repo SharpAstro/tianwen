@@ -118,6 +118,14 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
     // mark, leave only above the high-water mark.
     private bool _useCollisionPlacement;
 
+    /// <summary>
+    /// True while the pipeline is showing the HIP bright-star seed and the full Tycho-2 star
+    /// buffer is still building in the background (drives the base class's "Loading stars..."
+    /// hint). Once geometry exists but the full buffer hasn't been installed yet, this is true;
+    /// it flips false the moment the async Tycho-2 build swaps in.
+    /// </summary>
+    protected override bool FullStarsLoading => _pipeline is { GeometryReady: true, FullStarsReady: false };
+
     protected override void RenderSkyMap(
         ICelestialObjectDB db, RectF32 contentRect, string fontPath,
         DateTimeOffset viewingTime, double siteLat, double siteLon, SiteContext site)
@@ -129,8 +137,15 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
             return;
         }
 
-        // Lazy-create the pipeline
-        _pipeline ??= new VkSkyMapPipeline(renderer.Context);
+        // Lazy-create the pipeline. Wire RequestRedraw so a completed async star build wakes
+        // the NeedsRedraw-gated render loop and lets TryApplyPendingStarBuild swap the full
+        // Tycho-2 buffer in -- without it the swap frame would not fire while the user sits
+        // idle on the tab after the first (HIP-seed) frame paints.
+        if (_pipeline is null)
+        {
+            _pipeline = new VkSkyMapPipeline(renderer.Context);
+            _pipeline.RequestRedraw = () => State.NeedsRedraw = true;
+        }
 
         // Build persistent geometry on first frame after catalog is available, and
         // request a Tycho-2 star buffer rebuild with pm propagation whenever
