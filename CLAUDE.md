@@ -530,6 +530,19 @@ Canonical example: `AppSignalHandler.PollCameraTelemetry` and `EquipmentTabState
 - `CancellationToken` propagated throughout
 - `ValueTask` for allocation-free async paths
 - **Never use `.GetAwaiter().GetResult()`** — make the method `async` and `await`
+- **Prefer a lock-free hand-off over `lock {}` blocks.** For producer/consumer hand-off (a
+  background task feeding a render or poll loop), return the result *through* the `Task<T>` and let
+  the consumer poll it: `if (_task is { IsCompleted: true } t) { _task = null; if (t.IsCompletedSuccessfully && t.Result is { } x) use(x); }`. The Task is the synchronisation primitive, so no shared
+  mutable field crosses threads; in a synchronous loop where you can't `await`, that poll is the
+  stand-in for `await _task`. For a single grab-and-clear reference, use `Interlocked.Exchange`.
+  Rationale: a `lock (new object())` block serialises a hot path, hides the ownership model, and is
+  almost always avoidable with a Task hand-off or an atomic swap. (Canonical example: `SkyMapTab`'s
+  async Milky Way load uses `Task<DecodedMilkyWay?>` polled on the render thread, mirroring
+  `TryApplyPendingStarBuild`.)
+- **If a lock is genuinely warranted, use `System.Threading.Lock`** (C# 13), never `lock (new object())`.
+  Rationale: the dedicated type is faster (no monitor syncblock), self-documents intent, and lets the
+  compiler enforce correct `lock`-statement usage. The ring-buffer accumulator in the Background-Task
+  State table above is the rare case where a lock fits; use `Lock` there too.
 
 ### Code Quality Guidelines
 
