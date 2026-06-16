@@ -211,11 +211,32 @@ namespace TianWen.UI.Abstractions
             FillRect(cx - 10, cy, 20, 1, crossColor);
             FillRect(cx, cy - 10, 1, 20, crossColor);
 
+            // First-load hint: while the full Tycho-2 star field is still building off-thread
+            // (the first frame shows only the HIP bright-star seed), show an unobtrusive top-left
+            // chip so the user knows fainter stars are still streaming in. Auto-hides once the
+            // async build swaps in (FullStarsLoading flips false). The sky is already fully
+            // interactive — this is purely a "more stars are coming" cue.
+            if (FullStarsLoading)
+            {
+                DrawText("Loading stars...".AsSpan(), fontPath,
+                    contentRect.X + 12f * dpiScale, contentRect.Y + 10f * dpiScale,
+                    220f * dpiScale, 18f * dpiScale,
+                    BaseFontSize * dpiScale * 0.85f, InfoText, TextAlign.Near, TextAlign.Center);
+            }
+
             // Search modal + info panel — drawn LAST so their clickable regions win
             // hit testing (paint order = z-order).
             DrawSearchAndInfoPanel(plannerState, contentRect, fontPath, dpiScale, db,
                 siteLat, siteLon, viewingTime, site, ppr, cx, cy);
         }
+
+        /// <summary>
+        /// True while the full star catalog is still being built in the background and only the
+        /// bright-star seed is currently displayed, so <see cref="Render"/> shows a "Loading
+        /// stars..." hint. Base implementation is <c>false</c> (software / TUI fallback has no
+        /// progressive star buffer); the GPU subclass overrides it from its pipeline state.
+        /// </summary>
+        protected virtual bool FullStarsLoading => false;
 
         /// <summary>
         /// Override in the GPU subclass to draw the <c>[O]</c> object overlay (ellipses

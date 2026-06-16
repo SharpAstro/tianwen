@@ -757,16 +757,33 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
     public bool GeometryReady => _geometryBuilt;
 
     /// <summary>
+    /// True once the full Tycho-2 star buffer has been installed for some month. False only
+    /// during the very first frames, while the HIP bright-star seed is showing and the async
+    /// Tycho-2 build is still in flight (a routine month-crossing rebuild keeps the previous
+    /// full buffer displayed, so this stays true through it). The tab shows a "Loading stars..."
+    /// hint while this is false.
+    /// </summary>
+    public bool FullStarsReady => _starBufferMonthKey != int.MinValue;
+
+    /// <summary>
+    /// Optional callback invoked (on a thread-pool thread) when an async star-buffer build
+    /// completes, so the host can wake its <c>NeedsRedraw</c>-gated render loop and let
+    /// <see cref="TryApplyPendingStarBuild"/> swap the new buffer in. Without it the swap frame
+    /// would not fire while the user sits idle on the tab after the first (HIP-seed) frame.
+    /// </summary>
+    public Action? RequestRedraw { get; set; }
+
+    /// <summary>
     /// Build all persistent vertex buffers from the star catalog, with Tycho-2
     /// stars propagated from J2000 to <paramref name="starEpoch"/> via per-star
     /// proper motion. Safe to call every frame -- early-returns when the
     /// already-built buffer is current for the requested epoch's month
     /// (Tycho-2 pm-induced drift inside a single month is sub-arcsec, far
     /// below sky-map pixel scale, so monthly cache granularity is correct).
-    /// Crossing a month boundary rebuilds only the star buffer (one
-    /// <see cref="BuildStarBuffer"/> pass, ~1 s on a 2.5M-star catalog);
-    /// constellations, grid, and the ecliptic are epoch-independent and
-    /// stay in place.
+    /// Crossing a month boundary rebuilds only the star buffer, off-thread via
+    /// <see cref="StartStarBufferRebuildAsync"/> (the CPU pass is ~1 s on a 2.5M-star
+    /// catalog, so it never blocks the render thread); constellations, grid, and the
+    /// ecliptic are epoch-independent and stay in place.
     /// </summary>
     public void BuildGeometry(ICelestialObjectDB db, DateTimeOffset starEpoch)
     {
@@ -775,24 +792,34 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
 
         if (!_geometryBuilt)
         {
-            // First build: synchronous so the first frame can actually draw.
-            // The interactive freeze on first launch already happens during
-            // catalog init, so adding the ~1 s here is in line with prior UX.
+            // First build is PROGRESSIVE so the tab paints immediately instead of freezing
+            // ~1 s on the synchronous 2.5M-star Tycho-2 vertex build:
+            //   1. Cheap epoch-independent geometry (constellations, grid, ecliptic) -- all small.
+            //   2. Seed the star field from the ~1000 constellation-figure HIP stars, so the
+            //      figures sit on visible dots immediately (renders at J2000; pm drift is
+            //      sub-pixel at sky-map scale until the full buffer swaps in).
+            //   3. Dispatch the full ~2.5M-star Tycho-2 build on the async path; a later frame's
+            //      TryApplyPendingStarBuild installs it and frees the seed in the swap.
+            // _starBufferMonthKey is deliberately LEFT at its sentinel (int.MinValue) so the
+            // steady-state branch (next frame) does not mistake the seed for the current
+            // month's full buffer -- it keeps no-op'ing until the async Tycho build lands.
             var sw = System.Diagnostics.Stopwatch.StartNew();
-            var dtYr = MonthBakeEpoch(starEpoch).JulianYearsSinceJ2000();
 
-            BuildStarBuffer(db, dtYr);
-            var starMs = sw.Elapsed.TotalMilliseconds;
             BuildConstellationFigureBuffer(db);
             BuildConstellationBoundaryBuffer();
             BuildGridBuffers();
             BuildEclipticBuffer();
+            BuildStarBufferFromHip(db);
 
             _geometryBuilt = true;
-            _starBufferMonthKey = monthKey;
             System.Console.Error.WriteLine(
-                $"[VkSkyMapPipeline] first build (month-key {monthKey}, dtYr={dtYr:F3}): " +
-                $"stars {starMs:N0} ms ({_starCount}), full geometry {sw.Elapsed.TotalMilliseconds:N0} ms");
+                $"[VkSkyMapPipeline] first build (seed, month-key {monthKey}): " +
+                $"{_starCount} figure stars + geometry in {sw.Elapsed.TotalMilliseconds:N0} ms; " +
+                $"full Tycho-2 build dispatched async");
+
+            // monthKey was stored in _starBufferRequestedMonthKey at the top of BuildGeometry,
+            // so TryApplyPendingStarBuild's stale-check is valid for this dispatch.
+            StartStarBufferRebuildAsync(db, monthKey);
             return;
         }
 
@@ -817,11 +844,10 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
     }
 
     /// <summary>
-    /// Kicks off a background <see cref="Task.Run"/> that produces a fresh
-    /// star vertex array + magnitude bins for <paramref name="monthKey"/>.
-    /// Pure-CPU work (Tycho-2 walk, pm propagation, sort, mag bins) -- no
-    /// Vulkan calls happen on the background thread. The render-thread swap
-    /// runs in <see cref="TryApplyPendingStarBuild"/> next frame.
+    /// Kicks off the background task that produces a fresh star vertex array + magnitude bins
+    /// for <paramref name="monthKey"/>. Pure-CPU work (Tycho-2 walk, pm propagation, sort, mag
+    /// bins) -- no Vulkan calls happen on the background thread. The render-thread swap runs in
+    /// <see cref="TryApplyPendingStarBuild"/> next frame.
     /// </summary>
     private void StartStarBufferRebuildAsync(ICelestialObjectDB db, int monthKey)
     {
@@ -829,20 +855,33 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
         var month = (monthKey % 12) + 1;
         var bake = new DateTimeOffset(year, month, 1, 12, 0, 0, TimeSpan.Zero);
         var dtYr = bake.JulianYearsSinceJ2000();
-        var tycCount = db.Tycho2StarCount;
         const int floatsPerStar = SkyMapState.FloatsPerStar;
 
         var sw = System.Diagnostics.Stopwatch.StartNew();
-        _starRebuildTask = Task.Run(() =>
+
+        // The Tycho-2 bulk decode is kicked off (unawaited) during catalog init. Chain the vertex
+        // build off EnsureTycho2DataLoadedAsync so it only runs once the binary is loaded --
+        // otherwise Tycho2StarCount returns 0 (it does NOT block) and we'd swap an empty buffer
+        // over the HIP seed on the first build. EnsureTycho2DataLoadedAsync returns the SAME single
+        // in-flight decode task (no second decode). ContinueWith rather than async/await because
+        // this class is `unsafe` and await is disallowed in an unsafe context; the continuation is
+        // pure CPU on the thread pool (TaskScheduler.Default), never the render thread.
+        _starRebuildTask = db.EnsureTycho2DataLoadedAsync().ContinueWith(_ =>
         {
+            var tycCount = db.Tycho2StarCount;
             var verts = new float[tycCount * floatsPerStar];
             var written = SkyMapState.FillTycho2StarVertices(db, dtYr, verts);
             var chunks = ChunkAndSortStars(verts.AsSpan(0, written * floatsPerStar), floatsPerStar);
             System.Console.Error.WriteLine(
                 $"[VkSkyMapPipeline] async star build month-key {monthKey} (dtYr={dtYr:F3}): " +
-                $"CPU {sw.Elapsed.TotalMilliseconds:N0} ms ({written} stars)");
+                $"{sw.Elapsed.TotalMilliseconds:N0} ms incl. decode wait ({written} stars)");
+
+            // Wake the render loop so TryApplyPendingStarBuild runs and swaps this result in. The
+            // GUI loop is NeedsRedraw-gated, not continuous, so without this nudge the swap frame
+            // would never fire while the user sits idle on the tab after the seed paints.
+            RequestRedraw?.Invoke();
             return new StarBuildResult(verts, (uint)written, chunks, monthKey);
-        });
+        }, TaskScheduler.Default);
     }
 
     /// <summary>
@@ -868,6 +907,19 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
             System.Console.Error.WriteLine(
                 $"[VkSkyMapPipeline] discarded stale build for month-key {result.MonthKey} " +
                 $"(latest requested {_starBufferRequestedMonthKey})");
+            return;
+        }
+
+        // Empty result: the catalog has no Tycho-2 data for this build (legacy DB without the
+        // binary, or a decode fault). Keep the HIP bright-star seed rather than swapping in an
+        // empty buffer that would blank the star field. Record the month-key anyway so we stop
+        // re-dispatching and the "Loading stars..." hint clears (FullStarsReady flips true).
+        if (result.StarCount == 0)
+        {
+            _starBufferMonthKey = result.MonthKey;
+            System.Console.Error.WriteLine(
+                $"[VkSkyMapPipeline] async build for month-key {result.MonthKey} produced 0 stars; " +
+                $"keeping HIP seed");
             return;
         }
 
@@ -911,18 +963,6 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
     {
         var u = epoch.UtcDateTime;
         return u.Year * 12 + (u.Month - 1);
-    }
-
-    /// <summary>
-    /// The fixed anchor inside a month that the cached star buffer is baked
-    /// against -- noon UTC on day 1. Half-month worst-case pm drift from
-    /// the anchor at typical Tycho-2 pm (7 mas/yr median) is ~0.3 mas,
-    /// invisible at any usable sky-map pixel scale.
-    /// </summary>
-    private static DateTimeOffset MonthBakeEpoch(DateTimeOffset epoch)
-    {
-        var u = epoch.UtcDateTime;
-        return new DateTimeOffset(u.Year, u.Month, 1, 12, 0, 0, TimeSpan.Zero);
     }
 
     /// <summary>
@@ -1369,41 +1409,6 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
 
     // ────────────────────────────────────────────────── Geometry builders
 
-    private void BuildStarBuffer(ICelestialObjectDB db, double dtJulianYears)
-    {
-        // Stream the full Tycho-2 catalog (~2.5M stars). HIP stars are a subset so we
-        // don't lose any bright stars by skipping the dedicated HIP loop. The existing
-        // vertex-shader magnitude cull means the GPU only rasterises the few thousand
-        // stars that actually pass the current EffectiveMagnitudeLimit each frame.
-        var tycCount = db.Tycho2StarCount;
-        if (tycCount == 0)
-        {
-            // Fallback: older databases without the Tycho-2 binary still populate HIP.
-            // No pm available via the HIP TryLookup path, so this fallback renders
-            // at J2000 unconditionally. Acceptable -- it only fires on legacy DBs
-            // that don't have the Tycho-2 bulk data shipped in this build anyway.
-            BuildStarBufferFromHip(db);
-            return;
-        }
-
-        // The per-star vertex compute lives in SkyMapState so the benchmark
-        // project can measure it without needing a Vulkan context. The pipeline
-        // still owns the spatial chunking + per-chunk sort + GPU upload that follow.
-        const int floatsPerStar = SkyMapState.FloatsPerStar;
-        var verts = new float[tycCount * floatsPerStar];
-        var written = SkyMapState.FillTycho2StarVertices(db, dtJulianYears, verts);
-        _starCount = (uint)written;
-
-        var floats = verts.AsSpan(0, written * floatsPerStar);
-
-        // Group into spatial chunks + sort each chunk by magnitude (brightest first), so the
-        // draw can cull whole chunks by view cone and then submit only each visible chunk's
-        // magnitude-prefix — instead of streaming the entire catalog to the GPU every frame.
-        _starChunks = ChunkAndSortStars(floats, floatsPerStar);
-
-        (_starBuffer, _starMemory) = _ctx.CreatePersistentVertexBuffer(floats);
-    }
-
     /// <summary>
     /// Sorts the flat star float array by the magnitude field (index 3 of each 5-float record).
     /// Uses Array.Sort on a temporary index array to avoid copying 20-byte records.
@@ -1585,16 +1590,24 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
     }
 
     /// <summary>
-    /// Legacy HIP-only path. Used when no Tycho-2 binary is available
-    /// (e.g. stripped-down test doubles of <see cref="ICelestialObjectDB"/>).
+    /// Instant seed star buffer: just the ~1000 HIP stars referenced by the constellation
+    /// figures (<see cref="ConstellationFigures.AllFigureStarHipNumbers"/>), so the figures sit
+    /// on visible dots the moment the tab opens. Bounding to that set is what makes the seed
+    /// cheap -- each HIP lookup is an O(partition) Tycho-2 scan, so walking all ~118k HIP would
+    /// cost ~hundreds of ms; ~1000 lookups is a couple ms. The async build swaps in the full
+    /// ~2.5M-star Tycho-2 catalogue a beat later (<see cref="StartStarBufferRebuildAsync"/>).
     /// </summary>
     private void BuildStarBufferFromHip(ICelestialObjectDB db)
     {
-        var floats = new List<float>(db.HipStarCount * 5);
+        var hipNumbers = ConstellationFigures.AllFigureStarHipNumbers;
+        var floats = new List<float>(hipNumbers.Count * 5);
 
-        for (var hip = 1; hip <= db.HipStarCount; hip++)
+        foreach (var hip in hipNumbers)
         {
-            if (!db.TryLookupHIP(hip, out var ra, out var dec, out var vMag, out var bv))
+            // Lite lookup: ra/dec/mag/bv straight from the Tycho-2 array, skipping the per-star
+            // constellation polygon test + cross-ref/type machinery that TryLookupHIP runs. A
+            // plotted seed dot needs none of it.
+            if (!db.TryGetHipStarLite(hip, out var ra, out var dec, out var vMag, out var bv))
             {
                 continue;
             }
