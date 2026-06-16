@@ -6,6 +6,39 @@ Part of the TianWen TODO set. See [TODO.md](../../TODO.md) for the index and the
 
 - [ ] Consider using external temp sensor if no heatsink temp is available (`ICameraDriver.cs:314`)
 
+## Rotator (new device type, per-OTA)
+
+No field-rotator support today: there is no `IRotatorDriver` and no `DeviceType.Rotator` (only WCS
+position-angle math exists). Wrapping one is the same dispatch-interop pattern already proven for
+`ICoverDriver`/`ISwitchDriver` -- ASCOM exposes `IRotatorV4` (Position / IsMoving / MoveAbsolute /
+mechanical-vs-sky PA / Reverse) and Alpaca mirrors it. No vendor-native rotator SDKs exist, so
+ASCOM + Alpaca is full coverage for this device class. **Full phased plan: [docs/plans/rotator.md](../plans/rotator.md).**
+
+- [ ] `IRotatorDriver` interface (mechanical position, sky PA, IsMoving, MoveAbsolute, MoveMechanical, Reverse, StepSize) + `DeviceType.Rotator`
+- [ ] `AscomRotatorDriver` (wrap a new `AscomDispatchRotator`, mirror `AscomCoverCalibratorDriver`) + `AlpacaRotatorDriver`
+- [ ] `FakeRotatorDriver` (settle model + reverse) for tests
+- [ ] **Per-OTA wiring** -- the rotator lives on each `Setup.Telescopes[i]` next to its camera/FW/focuser, NOT as a singleton on the mount. Multi-OTA rigs frame each tube independently, so this is the design constraint that makes it harder than a single-train app's one rotator.
+- [ ] Framing-angle automation: a target carries a desired sky PA; on slew/center, drive each OTA's rotator to its PA using the plate-solved field rotation
+- [ ] Post-meridian-flip re-rotate: a GEM flip rotates the field 180deg, so re-issue the PA to preserve framing (today nothing drives a physical rotator across a flip)
+- [ ] `$$ROTATORANGLE$$` (per-OTA) token for the configurable FITS path/header template (pairs with the path-template item in `sequencing.md`)
+- [ ] Equipment-tab slot + profile URI persistence (sky-PA offset, reverse flag)
+
+## Dome (new device type, per-site)
+
+No dome support today. ASCOM `IDomeV3` / Alpaca expose shutter + azimuth; the real value is
+**slaving** the dome to the single `Setup.Mount` -- compute the topocentric dome azimuth from scope
+coordinates + pier side + mount/dome geometry. A per-site singleton (one dome per mount), so
+simpler than the per-OTA rotator.
+
+- [ ] `IDomeDriver` interface (shutter open/close, slew-to-az, IsSlewing, CanSlave, park) + `DeviceType.Dome`
+- [ ] `AscomDomeDriver` + `AlpacaDomeDriver` (same dispatch-interop pattern)
+- [ ] `FakeDomeDriver` for tests
+- [ ] Dome-follower loop: target az from mount RA/Dec + pier side + geometry offsets; resync on slew + meridian flip; park the dome on session finalise
+- [ ] Imaging gate: hold capture while the shutter is not open or the dome is still slewing (mirror the existing safety-gate pattern)
+
+> The third commonly-missing device type, **SafetyMonitor** (ASCOM `ISafetyMonitorV3`, also a
+> per-site singleton), is already tracked in [TODO.md](../../TODO.md) "Next Up".
+
 ## DAL Camera Driver
 
 - [ ] Implement trigger for ReadoutMode (`DALCameraDriver.cs:290`)

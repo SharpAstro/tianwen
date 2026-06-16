@@ -100,4 +100,17 @@ Part of the TianWen TODO set. See [TODO.md](../../TODO.md) for the index and the
 - [x] Write `FOCALLEN` and `FOCUSPOS` to FITS output headers (currently read on load but never written)
 - [x] Write `DATAMIN` to FITS output headers (only `DATAMAX` was written)
 - [x] `FocusDriftThreshold` default changed from 1.3 (30%) to 1.07 (7%); already a `SessionConfiguration` setting
+- [ ] Discrete auto-focus triggers as explicit, configurable conditions on top of today's single-frame HFD-drift check (`ImagingLoopAsync` + `FocusDriftThreshold`): after filter change, after N exposures, after a temperature delta, after elapsed time, and a suppress-when-approaching-meridian guard. The HFR-regression-over-N-frames trigger is already tracked in [TODO.md](../../TODO.md); the avoid-AF-near-meridian note is in [inbox.md](inbox.md). Folding them into one trigger set makes each refocus decision explicit and unit-testable instead of a single ratio heuristic.
+
+## Flat-frame acquisition (automation)
+
+`FrameType.Flat`, the cover/calibrator device (`ICoverDriver`), and the stacking calibrator
+(`MasterFrameBuilder`) all exist, but there is no automated flat *capture* -- flats must be shot by
+hand. The painpoint: a fully automated session still needs a manual flats step.
+
+- [ ] Auto-exposure flat routine: bracket exposure to converge mean ADU to a target (~0.5 of full well) per filter, driving the cover/calibrator panel brightness where available
+- [ ] Sky-flat (twilight) variant: ramp exposure as sky brightness changes through dusk/dawn
+- [ ] **Per-OTA fan-out** -- each OTA flats its own train (panel, exposure, and filter set differ per tube), same multi-OTA shape as capture
+- [ ] Sequence integration: an end-of-session (or on-demand) flat block that writes `FrameType.Flat` frames into the path template so the stacker's `MasterFrameBuilder` consumes them automatically
+- [ ] Auto-pick flats by matching object time + filter at stack time (also noted in [inbox.md](inbox.md))
 
