@@ -651,6 +651,40 @@ $cats.GetEnumerator() | ForEach-Object {
             }
         }
 
+        # Sort each GSC-region stream ascending by (tyc2, tyc3). The main catalogue is
+        # already in that order, but Supplement-1 is appended after it (above) without a
+        # merge, leaving an unsorted tail. Both the runtime binary search in
+        # TryGetTycho2StarByTycId and the early-exit in SearchTycho2ByPrefix REQUIRE each
+        # region to be fully sorted, so re-sort the per-region .bin files in place here.
+        # Entry = 17 bytes; tyc2 is the little-endian u16 at byte 0, tyc3 the u8 at byte 2.
+        # Reading those bytes individually keeps the key host-endianness-independent, and the
+        # entry size is unchanged so the precomputed stream offsets below stay valid.
+        if ($folder -eq 'tyc2' -and $needsProcessing) {
+            Write-Host "Sorting each GSC region by (tyc2, tyc3)..."
+            $entrySize = 17
+            for ($i = 0; $i -lt $cat.StreamCount; $i++) {
+                $formattedStreamId = $($i + 1).ToString('D4')
+                $tmpBinFolder = [System.IO.Path]::Combine($location, 'out', $formattedStreamId[0])
+                $regionFile = [System.IO.Path]::Combine($tmpBinFolder, "$($folder)_$($formattedStreamId).bin")
+                if (-not (Test-Path $regionFile)) { continue }
+                $bytes = [System.IO.File]::ReadAllBytes($regionFile)
+                $n = [int]($bytes.Length / $entrySize)
+                if ($n -le 1) { continue }
+                $order = (0..($n - 1)) | Sort-Object @{ Expression = {
+                    $o = $_ * $entrySize
+                    # (tyc2 << 8) | tyc3, with tyc2 = bytes[o] | bytes[o+1]<<8 (LE).
+                    ([int]$bytes[$o + 1] -shl 16) -bor ([int]$bytes[$o] -shl 8) -bor [int]$bytes[$o + 2]
+                } }
+                $sorted = [byte[]]::new($bytes.Length)
+                $w = 0
+                foreach ($idx in $order) {
+                    [array]::Copy($bytes, $idx * $entrySize, $sorted, $w, $entrySize)
+                    $w += $entrySize
+                }
+                [System.IO.File]::WriteAllBytes($regionFile, $sorted)
+            }
+        }
+
         if ($folder -eq 'tyc2' -and $needsProcessing) {
             Write-Host "Writing HIP cross-reference..."
             Write-CrossRefFiles `

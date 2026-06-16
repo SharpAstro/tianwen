@@ -1717,13 +1717,31 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
             : _tycho2Data.Length;
         var entryCount = (endOffset - startOffset) / entrySize;
 
-        for (int i = 0; i < entryCount; i++)
+        // Entries within a tyc1 (GSC region) partition are stored ascending by (tyc2, tyc3) -- the
+        // baker sorts each region (see Get-Tycho2Catalogs.ps1; the prefix-search early-exit in
+        // SearchTycho2ByPrefix relies on the same invariant). A region can hold thousands of
+        // entries and this lookup is hit per-star by the sky-map figure-star seed, plate-solve
+        // annotation, and SPCC matching, so binary-search it: O(log n) instead of O(n) per call.
+        var lo = 0;
+        var hi = entryCount - 1;
+        while (lo <= hi)
         {
+            var i = lo + ((hi - lo) >> 1);
             var entry = data[(startOffset + i * entrySize)..];
             var entryTyc2 = BinaryPrimitives.ReadUInt16LittleEndian(entry);
             var entryTyc3 = entry[2];
 
-            if (entryTyc2 == tyc2 && entryTyc3 == tyc3)
+            // Order key is (tyc2, tyc3): compare tyc2 first, tyc3 only on a tie.
+            var cmp = entryTyc2 != tyc2 ? entryTyc2.CompareTo(tyc2) : entryTyc3.CompareTo(tyc3);
+            if (cmp < 0)
+            {
+                lo = i + 1;
+            }
+            else if (cmp > 0)
+            {
+                hi = i - 1;
+            }
+            else
             {
                 var raHours = BinaryPrimitives.ReadSingleLittleEndian(entry[3..]);
                 var decDeg  = BinaryPrimitives.ReadSingleLittleEndian(entry[7..]);
