@@ -283,6 +283,23 @@ namespace TianWen.UI.Abstractions
         }
 
         /// <summary>
+        /// Pre-warm the VSOP87a planet ephemeris. The first <see cref="VSOP87a.ReduceJ2000"/>
+        /// call pays a one-time ~330 ms JIT + static-table init cost; this is the dominant
+        /// stall on the first Sky Atlas open (it lands on the render thread inside
+        /// <c>DrawPlanetLabels</c> -> <see cref="GetPlanetPositionsCached"/>). Calling this on a
+        /// background thread during startup warm-up pays that cost off the critical path. Any
+        /// instant works -- we are warming JIT + static state, not caching a position.
+        /// </summary>
+        public static void PrewarmPlanetEphemeris()
+        {
+            var when = new DateTimeOffset(2000, 1, 1, 12, 0, 0, TimeSpan.Zero);
+            foreach (var idx in SkyMapRenderer.PlanetIndices)
+            {
+                VSOP87a.ReduceJ2000(idx, when, out _, out _, out _);
+            }
+        }
+
+        /// <summary>
         /// Maps sun altitude to a sky-map background colour, matching the planner's
         /// civil / nautical / astronomical twilight zones but shifted darker so it
         /// reads as "sky, not chart axis". Pass <see cref="double.NaN"/> (no site) to

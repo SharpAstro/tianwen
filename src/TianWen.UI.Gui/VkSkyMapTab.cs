@@ -156,8 +156,11 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
         // path where no work is pending.
         _pipeline.BuildGeometry(db, viewingTime);
         _pipeline.TryApplyPendingStarBuild();
+        // Apply a completed async Milky Way decode (GPU upload on this render thread).
+        TryApplyPendingMilkyWay();
 
-        // Try loading the Milky Way texture from disk (once, after pipeline is ready)
+        // Kick the async Milky Way load (once, after pipeline is ready). The decode runs
+        // on a background thread; TryApplyPendingMilkyWay above uploads it on a later frame.
         if (!_milkyWayLoadAttempted)
         {
             _milkyWayLoadAttempted = true;

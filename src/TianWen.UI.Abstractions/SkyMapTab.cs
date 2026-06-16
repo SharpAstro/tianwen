@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Numerics;
+using System.Threading.Tasks;
 using DIR.Lib;
 using Microsoft.Extensions.Logging;
 using TianWen.Lib.Astrometry;
@@ -32,6 +33,17 @@ namespace TianWen.UI.Abstractions
         private PlannerState? _plannerState;
         private ITimeProvider? _timeProvider;
         protected bool _milkyWayLoadAttempted;
+
+        // Async Milky Way load: the file read + lzip decompress (~270 ms for the raw BGRA
+        // texture) runs on a background thread so it never stalls the first sky-map frame.
+        // The decoded bytes are stashed here and the GPU upload (OnMilkyWayLoaded) is applied
+        // on a later render frame via TryApplyPendingMilkyWay -- mirroring the async Tycho-2
+        // star-buffer swap. Guarded by _milkyWayGate (background writes, render thread reads).
+        private readonly object _milkyWayGate = new();
+        private byte[]? _pendingMilkyWayRaw;
+        private int _pendingMilkyWayWidth;
+        private int _pendingMilkyWayHeight;
+        private Task? _milkyWayLoadTask;
 
         // Cached live viewing time -- refreshed once per second to avoid per-frame GetUtcNow() calls.
         // GetTimestamp() is a cheap stopwatch read; GetUtcNow() is a heavier system call.
@@ -668,36 +680,75 @@ namespace TianWen.UI.Abstractions
                 return;
             }
 
-            try
+            // Decode (file read + lzip decompress, ~270 ms) on a background thread so it never
+            // blocks the first sky-map frame. The GPU upload happens later on the render thread
+            // in TryApplyPendingMilkyWay. The inner try/catch keeps this fire-and-forget task
+            // from tearing down the process on a bad/corrupt file.
+            _milkyWayLoadTask = Task.Run(() =>
             {
-                Logger?.LogInformation("Loading Milky Way texture from {Path}", texturePath);
-                var compressed = File.ReadAllBytes(texturePath);
-                var raw = LzipDecoder.Decompress(compressed);
-
-                // Header: 4 bytes width + 4 bytes height (little-endian int32)
-                if (raw.Length < 8)
+                try
                 {
-                    Logger?.LogWarning("Milky Way texture file too small ({Length} bytes)", raw.Length);
-                    return;
-                }
+                    Logger?.LogInformation("Loading Milky Way texture from {Path}", texturePath);
+                    var compressed = File.ReadAllBytes(texturePath);
+                    var raw = LzipDecoder.Decompress(compressed);
 
-                var width = BitConverter.ToInt32(raw, 0);
-                var height = BitConverter.ToInt32(raw, 4);
-                var expectedSize = 8 + width * height * 4;
-                if (raw.Length < expectedSize || width <= 0 || height <= 0)
+                    // Header: 4 bytes width + 4 bytes height (little-endian int32)
+                    if (raw.Length < 8)
+                    {
+                        Logger?.LogWarning("Milky Way texture file too small ({Length} bytes)", raw.Length);
+                        return;
+                    }
+
+                    var width = BitConverter.ToInt32(raw, 0);
+                    var height = BitConverter.ToInt32(raw, 4);
+                    var expectedSize = 8 + width * height * 4;
+                    if (raw.Length < expectedSize || width <= 0 || height <= 0)
+                    {
+                        Logger?.LogWarning("Milky Way texture header invalid: {Width}x{Height}, file {Length} bytes",
+                            width, height, raw.Length);
+                        return;
+                    }
+
+                    Logger?.LogInformation("Milky Way texture {Width}x{Height} decompressed ({RawSize} bytes)", width, height, raw.Length);
+
+                    // Hand the decoded bytes to the render thread; it does the GPU upload.
+                    lock (_milkyWayGate)
+                    {
+                        _pendingMilkyWayRaw = raw;
+                        _pendingMilkyWayWidth = width;
+                        _pendingMilkyWayHeight = height;
+                    }
+                    State.NeedsRedraw = true; // wake the NeedsRedraw-gated loop to apply the upload
+                }
+                catch (Exception ex)
                 {
-                    Logger?.LogWarning("Milky Way texture header invalid: {Width}x{Height}, file {Length} bytes",
-                        width, height, raw.Length);
-                    return;
+                    Logger?.LogWarning(ex, "Failed to load Milky Way texture from {Path}", texturePath);
                 }
+            });
+        }
 
-                Logger?.LogInformation("Milky Way texture {Width}x{Height} decompressed ({RawSize} bytes)", width, height, raw.Length);
+        /// <summary>
+        /// Render-thread half of the async Milky Way load: if a background decode has completed,
+        /// upload the decoded BGRA texture (via <see cref="OnMilkyWayLoaded"/>) and clear the
+        /// pending slot. Cheap no-op when nothing is pending. Keeps the GPU upload on the render
+        /// thread; mirrors the Tycho-2 star-buffer swap.
+        /// </summary>
+        protected void TryApplyPendingMilkyWay()
+        {
+            byte[]? raw;
+            int width, height;
+            lock (_milkyWayGate)
+            {
+                raw = _pendingMilkyWayRaw;
+                width = _pendingMilkyWayWidth;
+                height = _pendingMilkyWayHeight;
+                _pendingMilkyWayRaw = null;
+            }
+
+            if (raw is not null)
+            {
                 OnMilkyWayLoaded(raw.AsSpan(8, width * height * 4), width, height);
                 Logger?.LogInformation("Milky Way texture loaded, available={Available}", State.MilkyWayAvailable);
-            }
-            catch (Exception ex)
-            {
-                Logger?.LogWarning(ex, "Failed to load Milky Way texture from {Path}", texturePath);
             }
         }
 

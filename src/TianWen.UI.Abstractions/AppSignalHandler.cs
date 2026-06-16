@@ -97,6 +97,14 @@ namespace TianWen.UI.Abstractions
         public async Task InitializePlannerAsync(Transform transform, CancellationToken cancellationToken)
         {
             _logger.LogInformation("InitializePlanner: starting");
+
+            // Pre-warm the VSOP87a planet ephemeris concurrently with the catalog load. The first
+            // ReduceJ2000 call costs ~330 ms (one-time JIT + static-table init); doing it here keeps
+            // it off the first Sky Atlas open, where it otherwise stalls DrawPlanetLabels on the
+            // render thread. Tracked (not raw fire-and-forget) so a failure is logged, not swallowed.
+            _tracker.Run(() => Task.Run(SkyMapState.PrewarmPlanetEphemeris, cancellationToken),
+                "Pre-warm planet ephemeris");
+
             var objectDb = _sp.GetRequiredService<ICelestialObjectDB>();
             var swInit = System.Diagnostics.Stopwatch.StartNew();
             await objectDb.InitDBAsync(cancellationToken: cancellationToken);
