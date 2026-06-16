@@ -240,10 +240,25 @@ internal sealed class Tycho2RaDecIndex
         var entryCount = (endOffset - startOffset) / entrySize;
         var data = _tycho2Data.AsSpan();
 
-        for (int i = 0; i < entryCount; i++)
+        // Entries within a region are stored ascending by (tyc2, tyc3) -- the baker
+        // sorts each region (Get-Tycho2Catalogs.ps1), so binary-search the existence
+        // check instead of a linear scan: O(log n) per call. Same order key as
+        // CelestialObjectDB.TryGetTycho2StarByTycId.
+        var lo = 0;
+        var hi = entryCount - 1;
+        while (lo <= hi)
         {
+            var i = lo + ((hi - lo) >> 1);
             var entry = data[(startOffset + i * entrySize)..];
-            if (BinaryPrimitives.ReadUInt16LittleEndian(entry) == tyc2 && entry[2] == tyc3)
+            var entryTyc2 = BinaryPrimitives.ReadUInt16LittleEndian(entry);
+            var entryTyc3 = entry[2];
+
+            var cmp = entryTyc2 != tyc2 ? entryTyc2.CompareTo(tyc2) : entryTyc3.CompareTo(tyc3);
+            if (cmp < 0)
+                lo = i + 1;
+            else if (cmp > 0)
+                hi = i - 1;
+            else
                 return true;
         }
 
