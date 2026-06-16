@@ -35,15 +35,16 @@ namespace TianWen.UI.Abstractions
         protected bool _milkyWayLoadAttempted;
 
         // Async Milky Way load: the file read + lzip decompress (~270 ms for the raw BGRA
-        // texture) runs on a background thread so it never stalls the first sky-map frame.
-        // The decoded bytes are stashed here and the GPU upload (OnMilkyWayLoaded) is applied
-        // on a later render frame via TryApplyPendingMilkyWay -- mirroring the async Tycho-2
-        // star-buffer swap. Guarded by _milkyWayGate (background writes, render thread reads).
-        private readonly object _milkyWayGate = new();
-        private byte[]? _pendingMilkyWayRaw;
-        private int _pendingMilkyWayWidth;
-        private int _pendingMilkyWayHeight;
-        private Task? _milkyWayLoadTask;
+        // texture) runs on a background thread so it never stalls the first sky-map frame. The
+        // Task itself is the cross-thread handoff -- TryApplyPendingMilkyWay polls it and does
+        // the GPU upload (OnMilkyWayLoaded) on a later render frame once it completes, mirroring
+        // the async Tycho-2 star-buffer swap. No lock needed: the field is only touched on the
+        // render thread, and the decoded payload travels via the Task's result (TPL-safe).
+        private Task<DecodedMilkyWay?>? _milkyWayLoadTask;
+
+        /// <summary>Decoded Milky Way texture awaiting GPU upload: the lzip-decompressed buffer
+        /// (8-byte width/height header followed by BGRA pixels) plus its dimensions.</summary>
+        private readonly record struct DecodedMilkyWay(byte[] Raw, int Width, int Height);
 
         // Cached live viewing time -- refreshed once per second to avoid per-frame GetUtcNow() calls.
         // GetTimestamp() is a cheap stopwatch read; GetUtcNow() is a heavier system call.
@@ -681,10 +682,11 @@ namespace TianWen.UI.Abstractions
             }
 
             // Decode (file read + lzip decompress, ~270 ms) on a background thread so it never
-            // blocks the first sky-map frame. The GPU upload happens later on the render thread
-            // in TryApplyPendingMilkyWay. The inner try/catch keeps this fire-and-forget task
-            // from tearing down the process on a bad/corrupt file.
-            _milkyWayLoadTask = Task.Run(() =>
+            // blocks the first sky-map frame; the decoded buffer is returned through the Task and
+            // TryApplyPendingMilkyWay does the GPU upload on a later render frame. The inner
+            // try/catch returns null on a bad/corrupt file (logged) so a failure reads as "no
+            // Milky Way" instead of tearing down the process.
+            var task = Task.Run<DecodedMilkyWay?>(() =>
             {
                 try
                 {
@@ -696,7 +698,7 @@ namespace TianWen.UI.Abstractions
                     if (raw.Length < 8)
                     {
                         Logger?.LogWarning("Milky Way texture file too small ({Length} bytes)", raw.Length);
-                        return;
+                        return null;
                     }
 
                     var width = BitConverter.ToInt32(raw, 0);
@@ -706,48 +708,45 @@ namespace TianWen.UI.Abstractions
                     {
                         Logger?.LogWarning("Milky Way texture header invalid: {Width}x{Height}, file {Length} bytes",
                             width, height, raw.Length);
-                        return;
+                        return null;
                     }
 
                     Logger?.LogInformation("Milky Way texture {Width}x{Height} decompressed ({RawSize} bytes)", width, height, raw.Length);
-
-                    // Hand the decoded bytes to the render thread; it does the GPU upload.
-                    lock (_milkyWayGate)
-                    {
-                        _pendingMilkyWayRaw = raw;
-                        _pendingMilkyWayWidth = width;
-                        _pendingMilkyWayHeight = height;
-                    }
-                    State.NeedsRedraw = true; // wake the NeedsRedraw-gated loop to apply the upload
+                    return new DecodedMilkyWay(raw, width, height);
                 }
                 catch (Exception ex)
                 {
                     Logger?.LogWarning(ex, "Failed to load Milky Way texture from {Path}", texturePath);
+                    return null;
                 }
             });
+            _milkyWayLoadTask = task;
+
+            // Wake the NeedsRedraw-gated render loop once the decode finishes so the next frame's
+            // TryApplyPendingMilkyWay observes the completed Task and uploads. The continuation
+            // runs after completion, so the Task is guaranteed observable when NeedsRedraw is set.
+            _ = task.ContinueWith(_ => State.NeedsRedraw = true, TaskScheduler.Default);
         }
 
         /// <summary>
-        /// Render-thread half of the async Milky Way load: if a background decode has completed,
-        /// upload the decoded BGRA texture (via <see cref="OnMilkyWayLoaded"/>) and clear the
-        /// pending slot. Cheap no-op when nothing is pending. Keeps the GPU upload on the render
-        /// thread; mirrors the Tycho-2 star-buffer swap.
+        /// Render-thread half of the async Milky Way load: once the background decode Task has
+        /// completed, read its result and upload the texture (via <see cref="OnMilkyWayLoaded"/>),
+        /// then drop the Task so the upload happens exactly once. Cheap no-op while the decode is
+        /// still in flight. Keeps the GPU upload on the render thread; mirrors the Tycho-2 swap.
         /// </summary>
         protected void TryApplyPendingMilkyWay()
         {
-            byte[]? raw;
-            int width, height;
-            lock (_milkyWayGate)
+            if (_milkyWayLoadTask is not { IsCompleted: true } task)
             {
-                raw = _pendingMilkyWayRaw;
-                width = _pendingMilkyWayWidth;
-                height = _pendingMilkyWayHeight;
-                _pendingMilkyWayRaw = null;
+                return;
             }
+            _milkyWayLoadTask = null;
 
-            if (raw is not null)
+            // IsCompletedSuccessfully filters out a faulted/cancelled decode; a null result is the
+            // already-logged "bad file" path. Reading .Result on a completed Task does not block.
+            if (task.IsCompletedSuccessfully && task.Result is { } decoded)
             {
-                OnMilkyWayLoaded(raw.AsSpan(8, width * height * 4), width, height);
+                OnMilkyWayLoaded(decoded.Raw.AsSpan(8, decoded.Width * decoded.Height * 4), decoded.Width, decoded.Height);
                 Logger?.LogInformation("Milky Way texture loaded, available={Available}", State.MilkyWayAvailable);
             }
         }
