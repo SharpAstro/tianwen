@@ -15,19 +15,19 @@ namespace TianWen.UI.Abstractions
     public class GuiderTab<TSurface>(Renderer<TSurface> renderer) : PixelWidgetBase<TSurface>(renderer)
     {
         // Layout constants (at 1x scale)
-        private const float BaseFontSize = 14f;
-        private const float BasePadding = 8f;
+        private static readonly float BaseFontSize = GuiTheme.Metrics.BaseFontSize;
+        private static readonly float BasePadding = GuiTheme.Metrics.Padding;
         private const float BaseHeaderHeight = 32f;
         private const float BaseStatsWidth = 220f;
         private const float BaseCameraFraction = 0.4f; // guide camera gets 40% of width
 
         // Colors
-        private static readonly RGBAColor32 ContentBg = new RGBAColor32(0x16, 0x16, 0x1e, 0xff);
-        private static readonly RGBAColor32 PanelBg = new RGBAColor32(0x1e, 0x1e, 0x28, 0xff);
-        private static readonly RGBAColor32 HeaderBg = new RGBAColor32(0x22, 0x22, 0x30, 0xff);
-        private static readonly RGBAColor32 HeaderText = new RGBAColor32(0x88, 0xaa, 0xdd, 0xff);
-        private static readonly RGBAColor32 BodyText = new RGBAColor32(0xcc, 0xcc, 0xcc, 0xff);
-        private static readonly RGBAColor32 DimText = new RGBAColor32(0x88, 0x88, 0x88, 0xff);
+        private static readonly RGBAColor32 ContentBg = GuiTheme.Palette.ContentBg;
+        private static readonly RGBAColor32 PanelBg = GuiTheme.Palette.PanelBg;
+        private static readonly RGBAColor32 HeaderBg = GuiTheme.Palette.HeaderBg;
+        private static readonly RGBAColor32 HeaderText = GuiTheme.Palette.HeaderText;
+        private static readonly RGBAColor32 BodyText = GuiTheme.Palette.BodyText;
+        private static readonly RGBAColor32 DimText = GuiTheme.Palette.DimText;
         private static readonly RGBAColor32 PlaceholderText = new RGBAColor32(0x66, 0x66, 0x88, 0xff);
         private static readonly RGBAColor32 AlertText = new RGBAColor32(0xff, 0x55, 0x44, 0xff);
 

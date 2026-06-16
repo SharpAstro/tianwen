@@ -32,7 +32,7 @@ namespace TianWen.UI.Abstractions
         private RectF32 _viewerImageRect;
 
         // Layout constants (at 1x scale)
-        private const float BaseFontSize       = 14f;
+        private static readonly float BaseFontSize = GuiTheme.Metrics.BaseFontSize;
         private const float BaseTopStripHeight = 28f;
         private const float BaseTimelineHeight = 48f;
         private const float BaseBotStripHeight = 100f;
@@ -44,14 +44,14 @@ namespace TianWen.UI.Abstractions
         private const float BaseProgressBarH   = 14f;
 
         // Colors
-        private static readonly RGBAColor32 ContentBg        = new RGBAColor32(0x16, 0x16, 0x1e, 0xff);
-        private static readonly RGBAColor32 PanelBg          = new RGBAColor32(0x1e, 0x1e, 0x28, 0xff);
-        private static readonly RGBAColor32 HeaderBg         = new RGBAColor32(0x22, 0x22, 0x30, 0xff);
-        private static readonly RGBAColor32 HeaderText       = new RGBAColor32(0x88, 0xaa, 0xdd, 0xff);
-        private static readonly RGBAColor32 BodyText         = new RGBAColor32(0xcc, 0xcc, 0xcc, 0xff);
-        private static readonly RGBAColor32 DimText          = new RGBAColor32(0x88, 0x88, 0x88, 0xff);
+        private static readonly RGBAColor32 ContentBg        = GuiTheme.Palette.ContentBg;
+        private static readonly RGBAColor32 PanelBg          = GuiTheme.Palette.PanelBg;
+        private static readonly RGBAColor32 HeaderBg         = GuiTheme.Palette.HeaderBg;
+        private static readonly RGBAColor32 HeaderText       = GuiTheme.Palette.HeaderText;
+        private static readonly RGBAColor32 BodyText         = GuiTheme.Palette.BodyText;
+        private static readonly RGBAColor32 DimText          = GuiTheme.Palette.DimText;
         private static readonly RGBAColor32 BrightText       = new RGBAColor32(0xff, 0xff, 0xff, 0xff);
-        private static readonly RGBAColor32 SeparatorColor   = new RGBAColor32(0x33, 0x33, 0x44, 0xff);
+        private static readonly RGBAColor32 SeparatorColor   = GuiTheme.Palette.Separator;
         private static readonly RGBAColor32 GraphBg          = new RGBAColor32(0x12, 0x12, 0x1a, 0xff);
         private static readonly RGBAColor32 RaColor          = new RGBAColor32(0x44, 0x88, 0xff, 0xff); // blue
         private static readonly RGBAColor32 DecColor         = new RGBAColor32(0xff, 0x88, 0x44, 0xff); // orange
@@ -268,7 +268,7 @@ namespace TianWen.UI.Abstractions
             // by the trigger inside RenderTopStrip.
             if (state.ModeDropdown.IsOpen)
             {
-                var dropdownBg = new RGBAColor32(0x22, 0x22, 0x30, 0xff);
+                var dropdownBg = GuiTheme.Palette.HeaderBg;
                 var highlight  = new RGBAColor32(0x44, 0x66, 0x99, 0xff);
                 var border     = new RGBAColor32(0x44, 0x44, 0x55, 0xff);
                 RenderDropdownMenu(state.ModeDropdown, fontPath, fs,
