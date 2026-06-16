@@ -19,12 +19,12 @@ namespace TianWen.UI.Abstractions
 
         // Layout constants (at 1x scale)
         private const float BaseProfilePanelWidth = 500f;
-        private const float BaseFontSize          = 14f;
-        private const float BaseItemHeight        = 24f;
+        private static readonly float BaseFontSize     = GuiTheme.Metrics.BaseFontSize;
+        private static readonly float BaseItemHeight   = GuiTheme.Metrics.ItemHeight;
         private const float BaseBottomBarHeight   = 50f;
-        private const float BasePadding           = 8f;
-        private const float BaseHeaderHeight      = 28f;
-        private const float BaseButtonHeight      = 28f;
+        private static readonly float BasePadding      = GuiTheme.Metrics.Padding;
+        private static readonly float BaseHeaderHeight = GuiTheme.Metrics.HeaderHeight;
+        private static readonly float BaseButtonHeight = GuiTheme.Metrics.ButtonHeight;
         private const float BaseBadgeWidth        = 68f;
         private const float BaseCheckmarkWidth    = 20f;
         private const float BaseArrowWidth        = 22f;
@@ -41,14 +41,14 @@ namespace TianWen.UI.Abstractions
         private static readonly RGBAColor32 AssignedGreen    = new RGBAColor32(0x40, 0xc0, 0x40, 0xff);
         private static readonly RGBAColor32 DimmedText       = new RGBAColor32(0x60, 0x60, 0x70, 0xff);
         private static readonly RGBAColor32 CreateButton     = new RGBAColor32(0x30, 0x60, 0x90, 0xff);
-        private static readonly RGBAColor32 HeaderText       = new RGBAColor32(0x88, 0xaa, 0xdd, 0xff);
-        private static readonly RGBAColor32 BodyText         = new RGBAColor32(0xcc, 0xcc, 0xcc, 0xff);
-        private static readonly RGBAColor32 DimText          = new RGBAColor32(0x88, 0x88, 0x88, 0xff);
-        private static readonly RGBAColor32 SeparatorColor   = new RGBAColor32(0x33, 0x33, 0x44, 0xff);
+        private static readonly RGBAColor32 HeaderText       = GuiTheme.Palette.HeaderText;
+        private static readonly RGBAColor32 BodyText         = GuiTheme.Palette.BodyText;
+        private static readonly RGBAColor32 DimText          = GuiTheme.Palette.DimText;
+        private static readonly RGBAColor32 SeparatorColor   = GuiTheme.Palette.Separator;
         private static readonly RGBAColor32 BadgeBg          = new RGBAColor32(0x28, 0x28, 0x38, 0xff);
         private static readonly RGBAColor32 SiteText         = new RGBAColor32(0x99, 0xbb, 0x99, 0xff);
         private static readonly RGBAColor32 OtaHeaderBg      = new RGBAColor32(0x24, 0x24, 0x32, 0xff);
-        private static readonly RGBAColor32 ContentBg        = new RGBAColor32(0x16, 0x16, 0x1e, 0xff);
+        private static readonly RGBAColor32 ContentBg        = GuiTheme.Palette.ContentBg;
         private static readonly RGBAColor32 BottomBarBg      = new RGBAColor32(0x14, 0x14, 0x1c, 0xff);
         private static readonly RGBAColor32 AccentInstruct   = new RGBAColor32(0x88, 0xcc, 0xff, 0xff);
         private static readonly RGBAColor32 FilterTableBg    = new RGBAColor32(0x1a, 0x1a, 0x26, 0xff);

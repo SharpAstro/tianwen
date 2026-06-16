@@ -12,9 +12,9 @@ namespace TianWen.UI.Abstractions
     public class NotificationsTab<TSurface>(Renderer<TSurface> renderer) : PixelWidgetBase<TSurface>(renderer)
     {
         // Colours — muted, readable on the standard dark chrome background.
-        private static readonly RGBAColor32 ContentBg    = new(0x16, 0x16, 0x1e, 0xff);
-        private static readonly RGBAColor32 HeaderBg     = new(0x22, 0x22, 0x30, 0xff);
-        private static readonly RGBAColor32 HeaderText   = new(0x88, 0xaa, 0xdd, 0xff);
+        private static readonly RGBAColor32 ContentBg    = GuiTheme.Palette.ContentBg;
+        private static readonly RGBAColor32 HeaderBg     = GuiTheme.Palette.HeaderBg;
+        private static readonly RGBAColor32 HeaderText   = GuiTheme.Palette.HeaderText;
         private static readonly RGBAColor32 RowAltBg     = new(0x1a, 0x1a, 0x24, 0xff);
         private static readonly RGBAColor32 BodyText     = new(0xdd, 0xdd, 0xdd, 0xff);
         private static readonly RGBAColor32 DimText      = new(0x80, 0x80, 0x90, 0xff);

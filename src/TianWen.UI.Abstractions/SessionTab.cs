@@ -14,10 +14,10 @@ namespace TianWen.UI.Abstractions
     public class SessionTab<TSurface>(Renderer<TSurface> renderer) : PixelWidgetBase<TSurface>(renderer)
     {
         // Layout constants (at 1x scale)
-        private const float BaseFontSize      = 14f;
+        private static readonly float BaseFontSize     = GuiTheme.Metrics.BaseFontSize;
         private const float BaseItemHeight    = 26f;
-        private const float BaseHeaderHeight  = 28f;
-        private const float BasePadding       = 8f;
+        private static readonly float BaseHeaderHeight = GuiTheme.Metrics.HeaderHeight;
+        private static readonly float BasePadding      = GuiTheme.Metrics.Padding;
         private const float BaseStepperBtnW   = 28f;
         private const float BaseValueW        = 80f;
         private const float BaseLabelW        = 160f;
@@ -26,13 +26,13 @@ namespace TianWen.UI.Abstractions
         private const float BaseObsPanelWidth = 440f;
 
         // Colors
-        private static readonly RGBAColor32 ContentBg      = new RGBAColor32(0x16, 0x16, 0x1e, 0xff);
-        private static readonly RGBAColor32 PanelBg        = new RGBAColor32(0x1e, 0x1e, 0x28, 0xff);
-        private static readonly RGBAColor32 HeaderBg       = new RGBAColor32(0x22, 0x22, 0x30, 0xff);
-        private static readonly RGBAColor32 HeaderText     = new RGBAColor32(0x88, 0xaa, 0xdd, 0xff);
-        private static readonly RGBAColor32 BodyText       = new RGBAColor32(0xcc, 0xcc, 0xcc, 0xff);
-        private static readonly RGBAColor32 DimText        = new RGBAColor32(0x88, 0x88, 0x88, 0xff);
-        private static readonly RGBAColor32 SeparatorColor = new RGBAColor32(0x33, 0x33, 0x44, 0xff);
+        private static readonly RGBAColor32 ContentBg      = GuiTheme.Palette.ContentBg;
+        private static readonly RGBAColor32 PanelBg        = GuiTheme.Palette.PanelBg;
+        private static readonly RGBAColor32 HeaderBg       = GuiTheme.Palette.HeaderBg;
+        private static readonly RGBAColor32 HeaderText     = GuiTheme.Palette.HeaderText;
+        private static readonly RGBAColor32 BodyText       = GuiTheme.Palette.BodyText;
+        private static readonly RGBAColor32 DimText        = GuiTheme.Palette.DimText;
+        private static readonly RGBAColor32 SeparatorColor = GuiTheme.Palette.Separator;
         private static readonly RGBAColor32 StepperBg      = new RGBAColor32(0x2a, 0x2a, 0x3a, 0xff);
         private static readonly RGBAColor32 ToggleOnBg     = new RGBAColor32(0x30, 0x60, 0x40, 0xff);
         private static readonly RGBAColor32 ToggleOffBg    = new RGBAColor32(0x40, 0x30, 0x30, 0xff);
@@ -43,7 +43,7 @@ namespace TianWen.UI.Abstractions
         private static readonly RGBAColor32 HintText       = new RGBAColor32(0x55, 0x55, 0x66, 0xff);
         private static readonly RGBAColor32 OtaHeaderBg    = new RGBAColor32(0x24, 0x24, 0x32, 0xff);
         private static readonly RGBAColor32 FrameCountText = new RGBAColor32(0x88, 0xdd, 0x88, 0xff);
-        private static readonly RGBAColor32 SelectedRowBg  = new RGBAColor32(0x20, 0x30, 0x50, 0xff);
+        private static readonly RGBAColor32 SelectedRowBg  = GuiTheme.Palette.Selection;
 
         private float _totalConfigHeight;
 

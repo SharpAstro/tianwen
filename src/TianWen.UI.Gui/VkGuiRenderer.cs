@@ -83,7 +83,7 @@ namespace TianWen.UI.Gui
         // Base layout constants (at 1x scale)
         private const float BaseSidebarWidth = 52f;
         private const float BaseStatusBarHeight = 28f;
-        private const float BaseFontSize = 14f;
+        private static readonly float BaseFontSize = TianWen.UI.Abstractions.GuiTheme.Metrics.BaseFontSize;
 
         // Scaled accessors
         private float SidebarWidth => BaseSidebarWidth * DpiScale;
@@ -123,7 +123,7 @@ namespace TianWen.UI.Gui
         private static readonly RGBAColor32 StatusText    = new RGBAColor32(0xaa, 0xaa, 0xaa, 0xff);
 
         // Content area placeholder
-        private static readonly RGBAColor32 ContentBg     = new RGBAColor32(0x16, 0x16, 0x1e, 0xff);
+        private static readonly RGBAColor32 ContentBg     = TianWen.UI.Abstractions.GuiTheme.Palette.ContentBg;
         private static readonly RGBAColor32 PlaceholderText = new RGBAColor32(0x55, 0x55, 0x66, 0xff);
 
         public VkGuiRenderer(VkRenderer renderer, uint width, uint height, SignalBus? bus = null, ILogger? logger = null) : base(renderer)
