@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using TianWen.Lib.Devices;
 
 namespace TianWen.UI.Abstractions;
@@ -30,6 +31,67 @@ public readonly record struct FilterSlotRow(
     int Position,
     string Name,
     int FocusOffset);
+
+/// <summary>Semantic vertical-gap sizes used by <see cref="PanelSection.Spacer"/>; the renderer maps them to scaled padding.</summary>
+public enum PanelGap
+{
+    /// <summary>Half the panel padding.</summary>
+    Half,
+    /// <summary>The full panel padding.</summary>
+    Full,
+}
+
+/// <summary>
+/// One vertical section of the profile/equipment panel, in render order. The panel is described as a
+/// data-driven list of these (see <see cref="EquipmentContent.GetProfilePanelSections"/>): the host walks
+/// the list and dispatches each section to its renderer, so the panel's order lives in the content model,
+/// not in a hand-sequenced cursor walk (TODO.md:57). Surface-neutral -- a section carries only structural
+/// keys (device URI, OTA index, slot row), never runtime/UI state; the renderer pulls live state (hub,
+/// input fields) when it draws. Sections whose visibility depends on runtime state (telemetry /
+/// device-settings shown only when a device is hub-connected or declares settings) are always emitted --
+/// their renderer self-gates to a no-op.
+/// </summary>
+public abstract record PanelSection
+{
+    /// <summary>The profile-name header row.</summary>
+    public sealed record ProfileHeader : PanelSection;
+
+    /// <summary>A full-width 1px divider followed by a padding-sized gap.</summary>
+    public sealed record Separator : PanelSection;
+
+    /// <summary>A vertical gap (semantic size; the renderer maps it to scaled padding).</summary>
+    public sealed record Spacer(PanelGap Gap) : PanelSection;
+
+    /// <summary>A device-slot row (click to assign).</summary>
+    public sealed record Slot(DeviceSlotRow Row) : PanelSection;
+
+    /// <summary>The site latitude/longitude/elevation block (display, edit, or "set site").</summary>
+    public sealed record Site : PanelSection;
+
+    /// <summary>The guide-scope focal-length input row.</summary>
+    public sealed record GuideFocalLength : PanelSection;
+
+    /// <summary>Per-device settings sub-section for <paramref name="Device"/> (self-gates when unassigned / no settings).</summary>
+    public sealed record DeviceSettings(Uri? Device, string Label) : PanelSection;
+
+    /// <summary>Mount RA/Dec/slew/track telemetry expander (self-gates when the mount is not hub-connected).</summary>
+    public sealed record MountTelemetry(Uri? Mount) : PanelSection;
+
+    /// <summary>Camera cooler + temperature telemetry expander (self-gates when the camera is not hub-connected).</summary>
+    public sealed record CameraTelemetry(Uri? Camera) : PanelSection;
+
+    /// <summary>An OTA section header with its Remove / Edit buttons.</summary>
+    public sealed record OtaHeader(int Index) : PanelSection;
+
+    /// <summary>The OTA's optical properties (inline editors when editing, summary otherwise).</summary>
+    public sealed record OtaProps(int Index) : PanelSection;
+
+    /// <summary>The OTA's filter table (emitted only when a filter wheel is assigned).</summary>
+    public sealed record FilterTable(int OtaIndex) : PanelSection;
+
+    /// <summary>The Add-OTA + Connect-All action row.</summary>
+    public sealed record AddOta : PanelSection;
+}
 
 /// <summary>
 /// Content helper for the equipment/profile tab.
@@ -137,6 +199,83 @@ public class EquipmentContent(IDeviceHub? registry = null)
         }
 
         return rows;
+    }
+
+    /// <summary>
+    /// Builds the ordered, data-driven section list for the profile/equipment panel. The host renders each
+    /// section in order (advancing a cursor), so the panel's structure -- including the per-OTA loop -- lives
+    /// here rather than in a hardcoded cursor walk (TODO.md:57). ProfileData-derivable visibility (e.g. a
+    /// filter table only when a filter wheel is assigned) is decided here; runtime-only visibility
+    /// (telemetry / settings shown when a device is hub-connected) is NOT -- those sections are always
+    /// emitted and their renderer self-gates. Surface-neutral: consumable by the GPU and (later) TUI host alike.
+    /// </summary>
+    public ImmutableArray<PanelSection> GetProfilePanelSections(ProfileData data)
+    {
+        var b = ImmutableArray.CreateBuilder<PanelSection>();
+
+        // Profile name header + divider.
+        b.Add(new PanelSection.ProfileHeader());
+        b.Add(new PanelSection.Separator());
+
+        // Core profile slots are [Mount, Guider, Guider Cam, Guider Foc] (see GetCoreProfileSlots).
+        var core = GetCoreProfileSlots(data);
+
+        // Mount: slot, live telemetry, driver settings, then the site block.
+        b.Add(new PanelSection.Slot(core[0]));
+        b.Add(new PanelSection.MountTelemetry(data.Mount));
+        b.Add(new PanelSection.DeviceSettings(data.Mount, "Mount Settings"));
+        b.Add(new PanelSection.Site());
+        b.Add(new PanelSection.Spacer(PanelGap.Half));
+
+        // Guider group: guider, guide camera, guide focuser, guide-scope focal length, guider settings.
+        b.Add(new PanelSection.Slot(core[1]));
+        b.Add(new PanelSection.Slot(core[2]));
+        b.Add(new PanelSection.Slot(core[3]));
+        b.Add(new PanelSection.GuideFocalLength());
+        b.Add(new PanelSection.DeviceSettings(data.Guider, "Guider Settings"));
+
+        b.Add(new PanelSection.Spacer(PanelGap.Full));
+        b.Add(new PanelSection.Separator());
+
+        // Extra profile slots (Weather, future device types) + their settings.
+        foreach (var slot in GetExtraProfileSlots(data))
+        {
+            b.Add(new PanelSection.Slot(slot));
+            b.Add(new PanelSection.DeviceSettings(EquipmentActions.GetAssignedDevice(data, slot.Slot), $"{slot.Label} Settings"));
+        }
+
+        b.Add(new PanelSection.Spacer(PanelGap.Full));
+        b.Add(new PanelSection.Separator());
+
+        // Per-OTA sections -- the data-driven loop (no hardcoded count).
+        foreach (var ota in GetOtaSummaries(data))
+        {
+            var otaData = data.OTAs[ota.Index];
+            b.Add(new PanelSection.OtaHeader(ota.Index));
+            b.Add(new PanelSection.OtaProps(ota.Index));
+
+            // Sub-slots are [Camera, Focuser, Filter Wheel, Cover]; indent the labels to match the panel.
+            var sub = ota.DeviceSlots;
+            b.Add(new PanelSection.Slot(Indent(sub[0])));                                  // Camera
+            b.Add(new PanelSection.DeviceSettings(otaData.Camera, "Camera Settings"));
+            b.Add(new PanelSection.CameraTelemetry(otaData.Camera));
+            b.Add(new PanelSection.Slot(Indent(sub[1])));                                  // Focuser
+            b.Add(new PanelSection.DeviceSettings(otaData.Focuser, "Focuser Settings"));
+            b.Add(new PanelSection.Slot(Indent(sub[2])));                                  // Filter Wheel
+            if (ota.Filters is not null)                                                   // filter wheel assigned
+            {
+                b.Add(new PanelSection.FilterTable(ota.Index));
+            }
+            b.Add(new PanelSection.Slot(Indent(sub[3])));                                  // Cover
+            b.Add(new PanelSection.Spacer(PanelGap.Half));
+        }
+
+        // Add-OTA / Connect-All action row.
+        b.Add(new PanelSection.AddOta());
+
+        return b.ToImmutable();
+
+        static DeviceSlotRow Indent(DeviceSlotRow row) => row with { Label = "  " + row.Label };
     }
 
     /// <summary>
