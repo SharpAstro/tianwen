@@ -119,7 +119,7 @@ tree are fully shared.
 |------|-------|---------|------|
 | **1** ✅ | `UiTheme` (palette + metrics) record; migrate consumers off duplicated constants | DIR.Lib (type) + TianWen + chess (instances) | constants deduped; pixel output unchanged — **DONE for the core chrome roles** |
 | **2** 🔧 | Layout engine: `LayoutNode` tree, Measure/Arrange, Stack/Row/Dock/Grid, Fixed/Auto/Star, width-oracle, auto-clickable; unify `TerminalLayout` onto `DockLayout<int>` | DIR.Lib + Console.Lib | one TianWen tab (Equipment profile panel) ported, GPU+TUI parity — **engine core + 15 tests DONE; painters + port pending** |
-| **3** | Extract shared widgets: `PixelTextBar`, `PixelScrollableList`, overlay/modal, surface-agnostic `PixelMenuWidget` | DIR.Lib (+ chess + TianWen consume) | chess + TianWen both drop their hand-rolled copies |
+| **3** 🔧 | Extract shared widgets: `PixelTextBar`, `PixelScrollableList`, overlay/modal, surface-agnostic `PixelMenuWidget` | DIR.Lib (+ chess + TianWen consume) | chess + TianWen both drop their hand-rolled copies — **`RenderTextBar` + `DrawScrim` SHIPPED in-tree (canary proven, both apps build green); `ScrollBar` not warranted (1 consumer); `PixelMenuWidget` deferred to release (breaking SdlVulkan API + defcon1)** |
 | **4** | **(gated)** Layout DSL on LALR.CC: build-baked grammar, runtime-parsed `.layout` -> visitor -> `LayoutNode` tree; hot-reload in dev | LALR.CC grammar + DIR.Lib loader | one screen authored in the DSL renders on both surfaces |
 
 ### Phase 1 -- `UiTheme`
@@ -283,18 +283,35 @@ tree are fully shared.
 
 ### Phase 3 -- shared widgets
 
-Extract the patterns both consumers hand-roll into DIR.Lib, built on Phase 2:
+Extract the patterns both consumers hand-roll into DIR.Lib, built on Phase 2. Applied the same
+value/risk bar as #20/#21/#22: extract where there is a genuine second consumer and the change is
+additive; skip pure relocations and breaking cross-library moves that only pay off for a hypothetical
+future consumer.
 
-- `PixelTextBar` -- fill + left/right aligned text (chess `RenderStatusBar`, TianWen footers,
-  Console.Lib already has `TextBar`).
-- `PixelScrollableList` -- row-based, per-row `RegisterClickable`, scroll offset, viewport-row count,
-  scrollbar (chess `RenderHistoryPanel`, TianWen `PlannerTargetList`; Console.Lib already has
-  `ScrollableList<T>` -- mirror its API so the TUI/GPU lists converge).
-- `RenderOverlay(rect, dim, content)` -- modal/popup (chess promotion popup + `VkMenuWidget`, TianWen
-  keymap help + dropdowns).
-- `PixelMenuWidget` -- move `VkMenuWidget` down from `SdlVulkan.Renderer` to a surface-agnostic base in
-  DIR.Lib so `Chess.Lib` (DIR.Lib-only) can use the same menu path as the startup screen without a
-  GPU-package dependency (called out as a tension in chess `MIGRATION-VK.md`).
+- `PixelTextBar` -- **SHIPPED** (DIR.Lib `74f9107`). Added `RenderTextBar` to `PixelWidgetBase<TSurface>`
+  (fill + padding + horizontally/vertically aligned text). Two real consumers across two repos: TianWen
+  `ImageRendererBase.RenderStatusBar` (`576325b`, ViewerTheme colours, top-aligned) and chess
+  `VkGameDisplay.RenderStatusBar` (`2711c82`, StatusBarBg/FontColor, centre-aligned). This is the
+  cross-repo canary -- one DIR.Lib helper, both apps drop their hand-rolled fill+DrawText.
+- `RenderOverlay` / modal scrim -- **SHIPPED** as `DrawScrim` on `Renderer<TSurface>` (DIR.Lib `90dd1b8`):
+  a virtual dim-layer primitive (overridable for a GPU alpha-blend fast path) that names the scrim intent.
+  Consumed by chess's 4 `Chess.Lib/UI/GameUI.cs` overlays (`687dc66`; also fixed a `Checkmate or Checkmate`
+  copy-paste bug -> `Stalemate`). Only the scrim was shared -- the 4 sites' panel/text content differs, so
+  a heavier `RenderOverlay(rect, dim, content)` was not warranted. TianWen's `RenderAbortConfirm`
+  (`LiveSessionTab.cs`) is a single centred strip, not a full-bounds scrim -> not wired (no match).
+- `PixelScrollableList` / `ScrollBar -> DIR.Lib` -- **NOT WARRANTED (now).** Single TianWen consumer
+  (`PlannerTargetList`); chess's history panel is not currently a shared-list consumer. Relocating the
+  scrollbar/list across the repo boundary with no second consumer is pure churn + release coupling for no
+  immediate reuse (same call as #22). Revisit when a second consumer (e.g. a chess history list on the
+  shared widget) actually materialises.
+- `PixelMenuWidget` -- **DEFERRED to the release-coordinated work**, not skipped. `VkMenuWidget` is
+  *already* a shared widget: consumed by both chess `Chess.GUI/VkStartupMenu.cs` and
+  `defcon1/Defcon1.GUI/VkStartupMenu.cs` via `SdlVulkan.Renderer`. Moving it down to a surface-agnostic
+  `PixelMenuWidget` in DIR.Lib (so `Chess.Lib` can use the same menu path without the GPU package -- the
+  tension in chess `MIGRATION-VK.md`) is a **breaking change to `SdlVulkan.Renderer`'s public API** plus a
+  third-repo update (defcon1), and only pays off once a non-Vulkan (e.g. TUI) menu consumer exists. Because
+  it changes two published libraries' surface, it must be done atomically with the dependency-ordered
+  release (Phase / #24), not speculatively before it. Gated on the user wanting a surface-agnostic menu.
 
 ### Phase 4 -- LALR.CC layout DSL (gated on Phase 2 + verbosity proving out)
 
