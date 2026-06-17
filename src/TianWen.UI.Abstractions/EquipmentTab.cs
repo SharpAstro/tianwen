@@ -381,308 +381,312 @@ namespace TianWen.UI.Abstractions
 
             var cursor = y + padding;
 
-            // Profile name header
-            DrawText(
-                $"Profile: {profile.DisplayName}".AsSpan(),
-                fontPath,
-                x + padding, cursor, w - padding * 2f, headerH,
-                fontSize * 1.1f, HeaderText, TextAlign.Near, TextAlign.Center);
-            cursor += headerH;
-
-            // Separator
-            FillRect(x + padding, cursor, w - padding * 2f, 1f, SeparatorColor);
-            cursor += padding;
-
             if (data is { } pd)
             {
-                // Mount slot
-                cursor = RenderProfileSlot(
-                    "Mount", pd.Mount, new AssignTarget.ProfileLevel("Mount"),
-                    x, cursor, w, itemH, dpiScale, fontPath, fontSize, padding, arrowW, appState, pd, emojiFontPath);
-
-                // Live mount status expander (RA/Dec/IsSlewing/IsTracking) — only when hub-connected.
-                cursor = RenderMountTelemetryIfAny(appState, pd.Mount, liveSessionState,
-                    x, cursor, w, itemH, dpiScale, fontPath, fontSize, padding);
-
-                // Mount-driver settings (e.g. Fake Skywatcher polar misalignment knobs)
-                cursor = RenderDeviceSettingsIfAny(appState, pd, pd.Mount, "Mount Settings",
-                    x, cursor, w, itemH, dpiScale, fontPath, fontSize, padding);
-
-                // Site info — clickable to edit
-                var site = EquipmentActions.GetSiteFromProfile(pd);
-                if (State.IsEditingSite)
+                // The panel's vertical flow is a data-driven section list (TODO.md:57): the order lives in
+                // EquipmentContent.GetProfilePanelSections, not in a hardcoded cursor walk. Each section is
+                // dispatched to its renderer (which advances the cursor); runtime-conditional sections
+                // (mount/camera telemetry, device settings) self-gate to a no-op when their device isn't
+                // hub-connected / declares no settings, exactly as the inline calls did before.
+                foreach (var section in _content.GetProfilePanelSections(pd))
                 {
-                    // Show editable lat/lon/elevation fields
-                    var fieldH = (int)(itemH * 1.2f);
-                    var fieldW = (int)(w - padding * 2f);
-                    var fieldX = (int)(x + padding);
-
-                    DrawText("  Lat:".AsSpan(), fontPath, x + padding, cursor, 50f * dpiScale, itemH, fontSize * 0.85f, DimText, TextAlign.Near, TextAlign.Center);
-                    RenderTextInput(State.LatitudeInput, fieldX + (int)(50f * dpiScale), (int)cursor, fieldW - (int)(50f * dpiScale), fieldH, fontPath, fontSize * 0.9f);
-                    cursor += fieldH + 2;
-
-                    DrawText("  Lon:".AsSpan(), fontPath, x + padding, cursor, 50f * dpiScale, itemH, fontSize * 0.85f, DimText, TextAlign.Near, TextAlign.Center);
-                    RenderTextInput(State.LongitudeInput, fieldX + (int)(50f * dpiScale), (int)cursor, fieldW - (int)(50f * dpiScale), fieldH, fontPath, fontSize * 0.9f);
-                    cursor += fieldH + 2;
-
-                    DrawText("  Elev:".AsSpan(), fontPath, x + padding, cursor, 50f * dpiScale, itemH, fontSize * 0.85f, DimText, TextAlign.Near, TextAlign.Center);
-                    RenderTextInput(State.ElevationInput, fieldX + (int)(50f * dpiScale), (int)cursor, fieldW - (int)(50f * dpiScale), fieldH, fontPath, fontSize * 0.9f);
-                    cursor += fieldH + 2;
-
-                    // Tie-breaker selector: which side wins on mount connect when both have a site?
-                    DrawText("  Tie:".AsSpan(), fontPath, x + padding, cursor, 50f * dpiScale, itemH, fontSize * 0.85f, DimText, TextAlign.Near, TextAlign.Center);
-                    var tbX = fieldX + (int)(50f * dpiScale);
-                    var tbW = (fieldW - (int)(50f * dpiScale)) / 2 - 2;
-                    var isMountWins = pd.SiteTieBreaker == SiteTieBreaker.Mount;
-                    RenderButton("Mount", tbX, cursor, tbW, buttonH, fontPath, fontSize,
-                        isMountWins ? SlotActive : CreateButton, BodyText, "TieMount",
-                        _ => PostSignal(new UpdateProfileSignal(EquipmentActions.SetSiteTieBreaker(pd, SiteTieBreaker.Mount))));
-                    RenderButton("Profile", tbX + tbW + 4, cursor, tbW, buttonH, fontPath, fontSize,
-                        !isMountWins ? SlotActive : CreateButton, BodyText, "TieProfile",
-                        _ => PostSignal(new UpdateProfileSignal(EquipmentActions.SetSiteTieBreaker(pd, SiteTieBreaker.Profile))));
-                    cursor += buttonH + 2;
-
-                    // Save button
-                    var saveBtnW = Renderer.MeasureText("Save Site".AsSpan(), fontPath, fontSize).Width + padding * 4f;
-                    RenderButton("Save Site", x + padding, cursor, saveBtnW, buttonH, fontPath, fontSize, CreateButton, BodyText, "SaveSite",
-                        _ => State.LatitudeInput.OnCommit?.Invoke(State.LatitudeInput.Text));
-                    cursor += buttonH + padding;
-                }
-                else if (site.HasValue)
-                {
-                    var (lat, lon, elev) = site.Value;
-                    var latStr = lat >= 0 ? $"{lat:F1}°N" : $"{-lat:F1}°S";
-                    var lonStr = lon >= 0 ? $"{lon:F1}°E" : $"{-lon:F1}°W";
-                    var elevStr = elev.HasValue ? $", {elev.Value:F0}m" : "";
-                    var siteStr = $"  Site: {latStr}, {lonStr}{elevStr}";
-
-                    var siteBtnW = w - padding * 2f;
-                    FillRect(x + padding, cursor, siteBtnW, itemH, SlotNormal);
-                    RegisterClickable(x + padding, cursor, siteBtnW, itemH, new HitResult.ButtonHit("EditSite"),
-                        _ => PostSignal(new EditSiteSignal()));
-                    DrawText(siteStr.AsSpan(), fontPath, x + padding, cursor, siteBtnW - arrowW, itemH, fontSize * 0.9f, SiteText, TextAlign.Near, TextAlign.Center);
-                    DrawText("[>]".AsSpan(), fontPath, x + w - padding - arrowW, cursor, arrowW, itemH, fontSize * 0.85f, DimText, TextAlign.Center, TextAlign.Center);
-                    cursor += itemH;
-                }
-                else
-                {
-                    // No site configured — show "Set Site" button
-                    var setSiteBtnW = Renderer.MeasureText("Set Site".AsSpan(), fontPath, fontSize).Width + padding * 4f;
-                    RenderButton("Set Site", x + padding, cursor, setSiteBtnW, buttonH, fontPath, fontSize, CreateButton, BodyText, "EditSite",
-                        _ => PostSignal(new EditSiteSignal()));
-                    cursor += buttonH;
-                }
-
-                cursor += padding / 2f;
-
-                // Guider slot
-                cursor = RenderProfileSlot(
-                    "Guider", pd.Guider, new AssignTarget.ProfileLevel("Guider"),
-                    x, cursor, w, itemH, dpiScale, fontPath, fontSize, padding, arrowW, appState, pd, emojiFontPath);
-
-                // Guider Camera slot
-                cursor = RenderProfileSlot(
-                    "Guider Cam", pd.GuiderCamera, new AssignTarget.ProfileLevel("GuiderCamera"),
-                    x, cursor, w, itemH, dpiScale, fontPath, fontSize, padding, arrowW, appState, pd, emojiFontPath);
-
-                // Guider Focuser slot
-                cursor = RenderProfileSlot(
-                    "Guider Foc", pd.GuiderFocuser, new AssignTarget.ProfileLevel("GuiderFocuser"),
-                    x, cursor, w, itemH, dpiScale, fontPath, fontSize, padding, arrowW, appState, pd, emojiFontPath);
-
-                // Guide scope focal length
-                {
-                    var labelW = w * 0.35f;
-                    var fieldW = (int)(w - padding * 2f - labelW);
-                    var fieldX = (int)(x + padding + labelW);
-                    var fieldH = (int)(itemH * 0.9f);
-
-                    // Initialize from profile if not already set
-                    if (State.GuiderFocalLengthInput.Text.Length == 0 && pd.GuiderFocalLength is > 0)
-                    {
-                        State.GuiderFocalLengthInput.Text = pd.GuiderFocalLength.Value.ToString();
-                        State.GuiderFocalLengthInput.CursorPos = State.GuiderFocalLengthInput.Text.Length;
-                    }
-
-                    DrawText("Guide FL (mm):".AsSpan(), fontPath, x + padding, cursor, labelW, itemH,
-                        fontSize * 0.85f, DimText, TextAlign.Near, TextAlign.Center);
-                    RenderTextInput(State.GuiderFocalLengthInput, fieldX, (int)cursor, fieldW, fieldH, fontPath, fontSize * 0.9f);
-                    cursor += fieldH + 2;
-                }
-
-                // Device settings for guider (if it declares any)
-                cursor = RenderDeviceSettingsIfAny(appState, pd, pd.Guider, "Guider Settings",
-                    x, cursor, w, itemH, dpiScale, fontPath, fontSize, padding);
-
-                cursor += padding;
-                FillRect(x + padding, cursor, w - padding * 2f, 1f, SeparatorColor);
-                cursor += padding;
-
-                // Extra profile-level slots (Weather, future device types) — rendered dynamically
-                foreach (var extraSlot in _content.GetExtraProfileSlots(pd))
-                {
-                    var extraDeviceUri = EquipmentActions.GetAssignedDevice(pd, extraSlot.Slot);
-                    cursor = RenderProfileSlot(
-                        extraSlot.Label, extraDeviceUri, extraSlot.Slot,
-                        x, cursor, w, itemH, dpiScale, fontPath, fontSize, padding, arrowW, appState, pd, emojiFontPath);
-                    cursor = RenderDeviceSettingsIfAny(appState, pd, extraDeviceUri, $"{extraSlot.Label} Settings",
-                        x, cursor, w, itemH, dpiScale, fontPath, fontSize, padding);
-                }
-
-                cursor += padding;
-                FillRect(x + padding, cursor, w - padding * 2f, 1f, SeparatorColor);
-                cursor += padding;
-
-                // OTA sections
-                for (var i = 0; i < pd.OTAs.Length; i++)
-                {
-                    var ota = pd.OTAs[i];
-
-                    // OTA header with [Remove] + [Edit] buttons
-                    FillRect(x, cursor, w, itemH, OtaHeaderBg);
-                    var isEditingOta = State.EditingOtaIndex == i;
-                    var editBtnW = 50f * dpiScale;
-                    var removeBtnW = 74f * dpiScale;
-                    var btnGap = 4f * dpiScale;
-                    var capturedI = i;
-
-                    // Title reserves room for both the Remove and Edit buttons on the right.
-                    DrawText(
-                        $"Telescope #{i}: {ota.Name}".AsSpan(),
-                        fontPath,
-                        x + padding, cursor, w - padding * 2f - editBtnW - btnGap - removeBtnW, itemH,
-                        fontSize, HeaderText, TextAlign.Near, TextAlign.Center);
-
-                    // [Remove] button (left of [Edit]). Gated: removable only when NO device assigned to
-                    // this OTA is currently hub-connected -- you can't pull an OTA out from under live
-                    // hardware. First click arms it ("Confirm?"); a second click on the same OTA removes it
-                    // (Esc cancels). Disabled-grey + non-clickable when a device is connected.
-                    var removeBtnX = x + w - padding - editBtnW - btnGap - removeBtnW;
-                    var hub = appState.DeviceHub;
-                    bool OtaDeviceConnected(Uri? u) =>
-                        u is not null && u != NoneDevice.Instance.DeviceUri && hub?.IsConnected(u) == true;
-                    var otaHasConnectedDevice = OtaDeviceConnected(ota.Camera) || OtaDeviceConnected(ota.Focuser)
-                        || OtaDeviceConnected(ota.FilterWheel) || OtaDeviceConnected(ota.Cover);
-
-                    if (otaHasConnectedDevice)
-                    {
-                        FillRect(removeBtnX, cursor, removeBtnW, itemH, SegmentDisabled);
-                        DrawText("Remove".AsSpan(), fontPath, removeBtnX, cursor, removeBtnW, itemH,
-                            fontSize * 0.85f, DimmedText, TextAlign.Center, TextAlign.Center);
-                    }
-                    else
-                    {
-                        var armed = State.PendingRemoveOtaIndex == i;
-                        RenderButton(armed ? "Confirm?" : "Remove", removeBtnX, cursor, removeBtnW, itemH,
-                            fontPath, fontSize * 0.85f, armed ? ConfirmDangerBg : RemoveButtonBg, BodyText, $"RemoveOta{i}",
-                            _ =>
-                            {
-                                if (State.PendingRemoveOtaIndex == capturedI)
-                                {
-                                    State.PendingRemoveOtaIndex = -1;
-                                    if (appState.ActiveProfile is { Data: { } removeData })
-                                    {
-                                        PostSignal(new UpdateProfileSignal(EquipmentActions.RemoveOTA(removeData, capturedI)));
-                                    }
-                                }
-                                else
-                                {
-                                    State.PendingRemoveOtaIndex = capturedI;
-                                    appState.NeedsRedraw = true;
-                                }
-                            });
-                    }
-
-                    // [Edit]/[Save] toggle button
-                    var editLabel = isEditingOta ? "Save" : "Edit";
-                    RenderButton(editLabel, x + w - padding - editBtnW, cursor, editBtnW, itemH, fontPath, fontSize * 0.85f, EditButtonBg, BodyText, $"EditOta{i}",
-                        _ =>
-                        {
-                            if (isEditingOta)
-                            {
-                                // Commit OTA property edits
-                                if (appState.ActiveProfile is { } prof && prof.Data is { } editData)
-                                {
-                                    var newName = State.OtaNameInput.Text is { Length: > 0 } n ? n : null;
-                                    int? newFl = int.TryParse(State.FocalLengthInput.Text, out var fl) && fl > 0 ? fl : null;
-                                    int? newAp = int.TryParse(State.ApertureInput.Text, out var ap) ? ap : null;
-                                    var newData = EquipmentActions.UpdateOTA(editData, capturedI,
-                                        name: newName, focalLength: newFl, aperture: newAp);
-                                    PostSignal(new UpdateProfileSignal(newData));
-                                }
-                                State.StopEditingOta();
-                            }
-                            else
-                            {
-                                State.BeginEditingOta(capturedI, ota);
-                            }
-                        });
-                    cursor += itemH;
-
-                    // OTA property editors (when editing)
-                    if (isEditingOta)
-                    {
-                        cursor = RenderOtaPropertyEditors(appState, i, ota, x, cursor, w, itemH, dpiScale, fontPath, fontSize, padding, buttonH);
-                    }
-                    else
-                    {
-                        // Show OTA properties summary
-                        cursor = RenderOtaPropertiesSummary(ota, x, cursor, w, itemH, fontPath, fontSize, padding);
-                    }
-
-                    // OTA sub-slots
-                    cursor = RenderProfileSlot(
-                        "  Camera", ota.Camera, new AssignTarget.OTALevel(i, "Camera"),
-                        x, cursor, w, itemH, dpiScale, fontPath, fontSize, padding, arrowW, appState, pd, emojiFontPath);
-                    // Device settings for camera (if it declares any)
-                    cursor = RenderDeviceSettingsIfAny(appState, pd, ota.Camera, "Camera Settings",
-                        x, cursor, w, itemH, dpiScale, fontPath, fontSize, padding);
-                    // Live cooler control + telemetry graph (only when hub-connected)
-                    cursor = RenderCameraTelemetryIfAny(appState, ota.Camera,
-                        x, cursor, w, itemH, dpiScale, fontPath, fontSize, padding);
-                    cursor = RenderProfileSlot(
-                        "  Focuser", ota.Focuser, new AssignTarget.OTALevel(i, "Focuser"),
-                        x, cursor, w, itemH, dpiScale, fontPath, fontSize, padding, arrowW, appState, pd, emojiFontPath);
-                    cursor = RenderDeviceSettingsIfAny(appState, pd, ota.Focuser, "Focuser Settings",
-                        x, cursor, w, itemH, dpiScale, fontPath, fontSize, padding);
-                    cursor = RenderProfileSlot(
-                        "  Filter Wheel", ota.FilterWheel, new AssignTarget.OTALevel(i, "FilterWheel"),
-                        x, cursor, w, itemH, dpiScale, fontPath, fontSize, padding, arrowW, appState, pd, emojiFontPath);
-
-                    // Filter table (shown when a filter wheel is assigned)
-                    if (ota.FilterWheel is not null && ota.FilterWheel != NoneDevice.Instance.DeviceUri)
-                    {
-                        cursor = RenderFilterTable(appState, i, pd, x, cursor, w, itemH, dpiScale, fontPath, fontSize, padding, buttonH);
-                    }
-
-                    cursor = RenderProfileSlot(
-                        "  Cover", ota.Cover, new AssignTarget.OTALevel(i, "Cover"),
-                        x, cursor, w, itemH, dpiScale, fontPath, fontSize, padding, arrowW, appState, pd, emojiFontPath);
-
-                    cursor += padding / 2f;
-                }
-
-                // [+ Add OTA] button (left) and [Connect All] (right) on a shared row.
-                // Connect All is hidden when the profile has no assigned devices, and
-                // greyed when any URI isn't yet discovered or a transition is pending.
-                var addOtaBtnY = cursor;
-                var addOtaBtnW = 120f * dpiScale;
-                if (addOtaBtnY + buttonH < y + h - padding)
-                {
-                    RenderButton("+ Add OTA", x + padding, addOtaBtnY, addOtaBtnW, buttonH, fontPath, fontSize, CreateButton, BodyText, "AddOta",
-                        _ => PostSignal(new AddOtaSignal()));
-
-                    RenderConnectAllButton(appState, pd, x, addOtaBtnY, w, buttonH, dpiScale, fontPath, fontSize, padding);
+                    cursor = RenderSection(section, appState, pd, profile, liveSessionState,
+                        x, cursor, w, y, h, dpiScale, fontPath, emojiFontPath,
+                        fontSize, padding, itemH, arrowW, headerH, buttonH);
                 }
             }
             else
             {
+                cursor = RenderProfileHeaderSection(profile, x, cursor, w, fontPath, fontSize, padding, headerH);
+                FillRect(x + padding, cursor, w - padding * 2f, 1f, SeparatorColor);
+                cursor += padding;
                 DrawText(
                     "Profile has no data.".AsSpan(),
                     fontPath,
                     x + padding, cursor, w - padding * 2f, itemH,
                     fontSize, DimText, TextAlign.Near, TextAlign.Center);
             }
+        }
+
+        /// <summary>
+        /// Dispatches one <see cref="PanelSection"/> to its renderer at the current cursor Y, returning the
+        /// new cursor. Static rows (slots / header / separator) go through the engine-backed helpers;
+        /// interactive + variable-height widgets stay as imperative section helpers. This is the single
+        /// switch the data-driven section loop (<see cref="EquipmentContent.GetProfilePanelSections"/>) walks,
+        /// replacing the old hardcoded cursor sequence.
+        /// </summary>
+        private float RenderSection(PanelSection section, GuiAppState appState, ProfileData pd, Profile profile,
+            LiveSessionState? liveSessionState, float x, float cursor, float w, float y, float h,
+            float dpiScale, string fontPath, string? emojiFontPath,
+            float fontSize, float padding, float itemH, float arrowW, float headerH, float buttonH)
+        {
+            switch (section)
+            {
+                case PanelSection.ProfileHeader:
+                    return RenderProfileHeaderSection(profile, x, cursor, w, fontPath, fontSize, padding, headerH);
+
+                case PanelSection.Separator:
+                    FillRect(x + padding, cursor, w - padding * 2f, 1f, SeparatorColor);
+                    return cursor + padding;
+
+                case PanelSection.Spacer spacer:
+                    return cursor + (spacer.Gap == PanelGap.Full ? padding : padding / 2f);
+
+                case PanelSection.Slot slot:
+                    return RenderProfileSlot(slot.Row.Label, EquipmentActions.GetAssignedDevice(pd, slot.Row.Slot), slot.Row.Slot,
+                        x, cursor, w, itemH, dpiScale, fontPath, fontSize, padding, arrowW, appState, pd, emojiFontPath);
+
+                case PanelSection.MountTelemetry:
+                    return RenderMountTelemetryIfAny(appState, pd.Mount, liveSessionState,
+                        x, cursor, w, itemH, dpiScale, fontPath, fontSize, padding);
+
+                case PanelSection.DeviceSettings ds:
+                    return RenderDeviceSettingsIfAny(appState, pd, ds.Device, ds.Label,
+                        x, cursor, w, itemH, dpiScale, fontPath, fontSize, padding);
+
+                case PanelSection.Site:
+                    return RenderSiteSection(pd, x, cursor, w, dpiScale, fontPath, fontSize, padding, itemH, buttonH, arrowW);
+
+                case PanelSection.GuideFocalLength:
+                    return RenderGuideFocalLengthSection(pd, x, cursor, w, dpiScale, fontPath, fontSize, padding, itemH);
+
+                case PanelSection.CameraTelemetry ct:
+                    return RenderCameraTelemetryIfAny(appState, ct.Camera,
+                        x, cursor, w, itemH, dpiScale, fontPath, fontSize, padding);
+
+                case PanelSection.OtaHeader oh:
+                    return RenderOtaHeaderSection(appState, pd, oh.Index, x, cursor, w, dpiScale, fontPath, fontSize, padding, itemH);
+
+                case PanelSection.OtaProps op:
+                {
+                    var otaData = pd.OTAs[op.Index];
+                    return State.EditingOtaIndex == op.Index
+                        ? RenderOtaPropertyEditors(appState, op.Index, otaData, x, cursor, w, itemH, dpiScale, fontPath, fontSize, padding, buttonH)
+                        : RenderOtaPropertiesSummary(otaData, x, cursor, w, itemH, fontPath, fontSize, padding);
+                }
+
+                case PanelSection.FilterTable ft:
+                    return RenderFilterTable(appState, ft.OtaIndex, pd, x, cursor, w, itemH, dpiScale, fontPath, fontSize, padding, buttonH);
+
+                case PanelSection.AddOta:
+                    return RenderAddOtaSection(appState, pd, x, cursor, w, y, h, dpiScale, fontPath, fontSize, padding, buttonH);
+
+                default:
+                    return cursor;
+            }
+        }
+
+        /// <summary>Profile-name header row. Returns the new cursor Y.</summary>
+        private float RenderProfileHeaderSection(Profile profile, float x, float cursor, float w,
+            string fontPath, float fontSize, float padding, float headerH)
+        {
+            DrawText(
+                $"Profile: {profile.DisplayName}".AsSpan(),
+                fontPath,
+                x + padding, cursor, w - padding * 2f, headerH,
+                fontSize * 1.1f, HeaderText, TextAlign.Near, TextAlign.Center);
+            return cursor + headerH;
+        }
+
+        /// <summary>Site latitude/longitude/elevation block (edit fields, display row, or "set site" button). Returns the new cursor Y.</summary>
+        private float RenderSiteSection(ProfileData pd, float x, float cursor, float w, float dpiScale,
+            string fontPath, float fontSize, float padding, float itemH, float buttonH, float arrowW)
+        {
+            // Site info — clickable to edit
+            var site = EquipmentActions.GetSiteFromProfile(pd);
+            if (State.IsEditingSite)
+            {
+                // Show editable lat/lon/elevation fields
+                var fieldH = (int)(itemH * 1.2f);
+                var fieldW = (int)(w - padding * 2f);
+                var fieldX = (int)(x + padding);
+
+                DrawText("  Lat:".AsSpan(), fontPath, x + padding, cursor, 50f * dpiScale, itemH, fontSize * 0.85f, DimText, TextAlign.Near, TextAlign.Center);
+                RenderTextInput(State.LatitudeInput, fieldX + (int)(50f * dpiScale), (int)cursor, fieldW - (int)(50f * dpiScale), fieldH, fontPath, fontSize * 0.9f);
+                cursor += fieldH + 2;
+
+                DrawText("  Lon:".AsSpan(), fontPath, x + padding, cursor, 50f * dpiScale, itemH, fontSize * 0.85f, DimText, TextAlign.Near, TextAlign.Center);
+                RenderTextInput(State.LongitudeInput, fieldX + (int)(50f * dpiScale), (int)cursor, fieldW - (int)(50f * dpiScale), fieldH, fontPath, fontSize * 0.9f);
+                cursor += fieldH + 2;
+
+                DrawText("  Elev:".AsSpan(), fontPath, x + padding, cursor, 50f * dpiScale, itemH, fontSize * 0.85f, DimText, TextAlign.Near, TextAlign.Center);
+                RenderTextInput(State.ElevationInput, fieldX + (int)(50f * dpiScale), (int)cursor, fieldW - (int)(50f * dpiScale), fieldH, fontPath, fontSize * 0.9f);
+                cursor += fieldH + 2;
+
+                // Tie-breaker selector: which side wins on mount connect when both have a site?
+                DrawText("  Tie:".AsSpan(), fontPath, x + padding, cursor, 50f * dpiScale, itemH, fontSize * 0.85f, DimText, TextAlign.Near, TextAlign.Center);
+                var tbX = fieldX + (int)(50f * dpiScale);
+                var tbW = (fieldW - (int)(50f * dpiScale)) / 2 - 2;
+                var isMountWins = pd.SiteTieBreaker == SiteTieBreaker.Mount;
+                RenderButton("Mount", tbX, cursor, tbW, buttonH, fontPath, fontSize,
+                    isMountWins ? SlotActive : CreateButton, BodyText, "TieMount",
+                    _ => PostSignal(new UpdateProfileSignal(EquipmentActions.SetSiteTieBreaker(pd, SiteTieBreaker.Mount))));
+                RenderButton("Profile", tbX + tbW + 4, cursor, tbW, buttonH, fontPath, fontSize,
+                    !isMountWins ? SlotActive : CreateButton, BodyText, "TieProfile",
+                    _ => PostSignal(new UpdateProfileSignal(EquipmentActions.SetSiteTieBreaker(pd, SiteTieBreaker.Profile))));
+                cursor += buttonH + 2;
+
+                // Save button
+                var saveBtnW = Renderer.MeasureText("Save Site".AsSpan(), fontPath, fontSize).Width + padding * 4f;
+                RenderButton("Save Site", x + padding, cursor, saveBtnW, buttonH, fontPath, fontSize, CreateButton, BodyText, "SaveSite",
+                    _ => State.LatitudeInput.OnCommit?.Invoke(State.LatitudeInput.Text));
+                cursor += buttonH + padding;
+            }
+            else if (site.HasValue)
+            {
+                var (lat, lon, elev) = site.Value;
+                var latStr = lat >= 0 ? $"{lat:F1}°N" : $"{-lat:F1}°S";
+                var lonStr = lon >= 0 ? $"{lon:F1}°E" : $"{-lon:F1}°W";
+                var elevStr = elev.HasValue ? $", {elev.Value:F0}m" : "";
+                var siteStr = $"  Site: {latStr}, {lonStr}{elevStr}";
+
+                var siteBtnW = w - padding * 2f;
+                FillRect(x + padding, cursor, siteBtnW, itemH, SlotNormal);
+                RegisterClickable(x + padding, cursor, siteBtnW, itemH, new HitResult.ButtonHit("EditSite"),
+                    _ => PostSignal(new EditSiteSignal()));
+                DrawText(siteStr.AsSpan(), fontPath, x + padding, cursor, siteBtnW - arrowW, itemH, fontSize * 0.9f, SiteText, TextAlign.Near, TextAlign.Center);
+                DrawText("[>]".AsSpan(), fontPath, x + w - padding - arrowW, cursor, arrowW, itemH, fontSize * 0.85f, DimText, TextAlign.Center, TextAlign.Center);
+                cursor += itemH;
+            }
+            else
+            {
+                // No site configured — show "Set Site" button
+                var setSiteBtnW = Renderer.MeasureText("Set Site".AsSpan(), fontPath, fontSize).Width + padding * 4f;
+                RenderButton("Set Site", x + padding, cursor, setSiteBtnW, buttonH, fontPath, fontSize, CreateButton, BodyText, "EditSite",
+                    _ => PostSignal(new EditSiteSignal()));
+                cursor += buttonH;
+            }
+            return cursor;
+        }
+
+        /// <summary>Guide-scope focal-length input row. Returns the new cursor Y.</summary>
+        private float RenderGuideFocalLengthSection(ProfileData pd, float x, float cursor, float w, float dpiScale,
+            string fontPath, float fontSize, float padding, float itemH)
+        {
+            var labelW = w * 0.35f;
+            var fieldW = (int)(w - padding * 2f - labelW);
+            var fieldX = (int)(x + padding + labelW);
+            var fieldH = (int)(itemH * 0.9f);
+
+            // Initialize from profile if not already set
+            if (State.GuiderFocalLengthInput.Text.Length == 0 && pd.GuiderFocalLength is > 0)
+            {
+                State.GuiderFocalLengthInput.Text = pd.GuiderFocalLength.Value.ToString();
+                State.GuiderFocalLengthInput.CursorPos = State.GuiderFocalLengthInput.Text.Length;
+            }
+
+            DrawText("Guide FL (mm):".AsSpan(), fontPath, x + padding, cursor, labelW, itemH,
+                fontSize * 0.85f, DimText, TextAlign.Near, TextAlign.Center);
+            RenderTextInput(State.GuiderFocalLengthInput, fieldX, (int)cursor, fieldW, fieldH, fontPath, fontSize * 0.9f);
+            cursor += fieldH + 2;
+            return cursor;
+        }
+
+        /// <summary>OTA section header with the Remove / Edit buttons. Returns the new cursor Y.</summary>
+        private float RenderOtaHeaderSection(GuiAppState appState, ProfileData pd, int index, float x, float cursor, float w,
+            float dpiScale, string fontPath, float fontSize, float padding, float itemH)
+        {
+            var ota = pd.OTAs[index];
+
+            // OTA header with [Remove] + [Edit] buttons
+            FillRect(x, cursor, w, itemH, OtaHeaderBg);
+            var isEditingOta = State.EditingOtaIndex == index;
+            var editBtnW = 50f * dpiScale;
+            var removeBtnW = 74f * dpiScale;
+            var btnGap = 4f * dpiScale;
+            var capturedI = index;
+
+            // Title reserves room for both the Remove and Edit buttons on the right.
+            DrawText(
+                $"Telescope #{index}: {ota.Name}".AsSpan(),
+                fontPath,
+                x + padding, cursor, w - padding * 2f - editBtnW - btnGap - removeBtnW, itemH,
+                fontSize, HeaderText, TextAlign.Near, TextAlign.Center);
+
+            // [Remove] button (left of [Edit]). Gated: removable only when NO device assigned to
+            // this OTA is currently hub-connected -- you can't pull an OTA out from under live
+            // hardware. First click arms it ("Confirm?"); a second click on the same OTA removes it
+            // (Esc cancels). Disabled-grey + non-clickable when a device is connected.
+            var removeBtnX = x + w - padding - editBtnW - btnGap - removeBtnW;
+            var hub = appState.DeviceHub;
+            bool OtaDeviceConnected(Uri? u) =>
+                u is not null && u != NoneDevice.Instance.DeviceUri && hub?.IsConnected(u) == true;
+            var otaHasConnectedDevice = OtaDeviceConnected(ota.Camera) || OtaDeviceConnected(ota.Focuser)
+                || OtaDeviceConnected(ota.FilterWheel) || OtaDeviceConnected(ota.Cover);
+
+            if (otaHasConnectedDevice)
+            {
+                FillRect(removeBtnX, cursor, removeBtnW, itemH, SegmentDisabled);
+                DrawText("Remove".AsSpan(), fontPath, removeBtnX, cursor, removeBtnW, itemH,
+                    fontSize * 0.85f, DimmedText, TextAlign.Center, TextAlign.Center);
+            }
+            else
+            {
+                var armed = State.PendingRemoveOtaIndex == index;
+                RenderButton(armed ? "Confirm?" : "Remove", removeBtnX, cursor, removeBtnW, itemH,
+                    fontPath, fontSize * 0.85f, armed ? ConfirmDangerBg : RemoveButtonBg, BodyText, $"RemoveOta{index}",
+                    _ =>
+                    {
+                        if (State.PendingRemoveOtaIndex == capturedI)
+                        {
+                            State.PendingRemoveOtaIndex = -1;
+                            if (appState.ActiveProfile is { Data: { } removeData })
+                            {
+                                PostSignal(new UpdateProfileSignal(EquipmentActions.RemoveOTA(removeData, capturedI)));
+                            }
+                        }
+                        else
+                        {
+                            State.PendingRemoveOtaIndex = capturedI;
+                            appState.NeedsRedraw = true;
+                        }
+                    });
+            }
+
+            // [Edit]/[Save] toggle button
+            var editLabel = isEditingOta ? "Save" : "Edit";
+            RenderButton(editLabel, x + w - padding - editBtnW, cursor, editBtnW, itemH, fontPath, fontSize * 0.85f, EditButtonBg, BodyText, $"EditOta{index}",
+                _ =>
+                {
+                    if (isEditingOta)
+                    {
+                        // Commit OTA property edits
+                        if (appState.ActiveProfile is { } prof && prof.Data is { } editData)
+                        {
+                            var newName = State.OtaNameInput.Text is { Length: > 0 } n ? n : null;
+                            int? newFl = int.TryParse(State.FocalLengthInput.Text, out var fl) && fl > 0 ? fl : null;
+                            int? newAp = int.TryParse(State.ApertureInput.Text, out var ap) ? ap : null;
+                            var newData = EquipmentActions.UpdateOTA(editData, capturedI,
+                                name: newName, focalLength: newFl, aperture: newAp);
+                            PostSignal(new UpdateProfileSignal(newData));
+                        }
+                        State.StopEditingOta();
+                    }
+                    else
+                    {
+                        State.BeginEditingOta(capturedI, ota);
+                    }
+                });
+            return cursor + itemH;
+        }
+
+        /// <summary>Add-OTA + Connect-All action row (drawn only if it fits before the panel bottom). Returns the new cursor Y.</summary>
+        private float RenderAddOtaSection(GuiAppState appState, ProfileData pd, float x, float cursor, float w, float y, float h,
+            float dpiScale, string fontPath, float fontSize, float padding, float buttonH)
+        {
+            // [+ Add OTA] button (left) and [Connect All] (right) on a shared row.
+            // Connect All is hidden when the profile has no assigned devices, and
+            // greyed when any URI isn't yet discovered or a transition is pending.
+            var addOtaBtnY = cursor;
+            var addOtaBtnW = 120f * dpiScale;
+            if (addOtaBtnY + buttonH < y + h - padding)
+            {
+                RenderButton("+ Add OTA", x + padding, addOtaBtnY, addOtaBtnW, buttonH, fontPath, fontSize, CreateButton, BodyText, "AddOta",
+                    _ => PostSignal(new AddOtaSignal()));
+
+                RenderConnectAllButton(appState, pd, x, addOtaBtnY, w, buttonH, dpiScale, fontPath, fontSize, padding);
+            }
+            return cursor;
         }
 
         /// <summary>
