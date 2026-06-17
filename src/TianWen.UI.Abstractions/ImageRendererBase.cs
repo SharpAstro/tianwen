@@ -1805,10 +1805,6 @@ namespace TianWen.UI.Abstractions
             }
 
             var barY = Height - StatusBarHeight;
-            FillRect(0, barY, Width, StatusBarHeight, ViewerTheme.StatusBarBg);
-
-            var x = PanelPadding;
-            var y = barY + 4f;
 
             var statusParts = new List<string>();
 
@@ -1838,7 +1834,9 @@ namespace TianWen.UI.Abstractions
             }
 
             var statusText = string.Join("  |  ", statusParts);
-            DrawText(statusText.AsSpan(), _fontPath!, x, y, Width - x, StatusBarHeight, FontSize, ViewerTheme.Palette.BodyText, TextAlign.Near, TextAlign.Near);
+            RenderTextBar(statusText.AsSpan(), _fontPath!, 0, barY, Width, StatusBarHeight,
+                FontSize, ViewerTheme.StatusBarBg, ViewerTheme.Palette.BodyText,
+                horizontalPadding: PanelPadding, alignX: TextAlign.Near, alignY: TextAlign.Near);
         }
 
         // -----------------------------------------------------------------------
