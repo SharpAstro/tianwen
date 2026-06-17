@@ -244,12 +244,30 @@ tree are fully shared.
     add-OTA adds a section, 4 sub-slots per OTA, slot Hit carries the target, active highlight, onClick
     wiring, filter rows). **This is the data-driven per-OTA panel (TODO.md:57) as a tested, surface-neutral
     tree -- consumed by BOTH painters.**
-  - **PENDING:** wire `EquipmentPanelLayout` into the live `EquipmentTab.RenderProfilePanel` (replace the
-    imperative cursor walk for the slot/OTA skeleton; keep site editor / telemetry / dropdowns as `Fill`
-    escape-hatch callbacks) + the TUI path, then verify GPU/TUI visual parity via run-gui. Same treatment
-    for the **FitsViewer** (`ImageRendererBase` -> its own `UiTheme` instance at 18px + `LayoutNode` panels).
-    These wiring steps touch live production UI and need visual verification, so they are done with the GUI
-    running, not blind.
+  - **GPU slot row wired (DONE).** `EquipmentTab.RenderProfileSlot` consumes `EquipmentPanelLayout.SlotRow`
+    (the design-unit row rendered at real DpiScale via `RenderLayout`); the indicator is a surface-neutral
+    `Fill` slot painted by the panel's reachability-dot / `[>]` callback. Verified byte-identical geometry +
+    pixels via the SDL inspector.
+  - **FitsViewer theme adoption (DONE, 2026-06-17).** `ImageRendererBase` got its own 18px `UiTheme`
+    instance (`ViewerTheme`); the status bar, info panel, toolbar, file list, and histogram chrome all read
+    from it, the per-widget state colours moved to named `RGBAColor32` fields at the draw site, and BOTH
+    float drawing overloads (`FillRect(...,r,g,b,a)` / `DrawText(...,r,g,b)`) were deleted -- the viewer now
+    draws through the single base `RGBAColor32` surface. Inspector-verified (toolbar / file list / histogram
+    screenshot-identical). FitsViewer requirement (a) [theme] is satisfied; (b) [panel `LayoutNode` trees]
+    remains open (the panels work + are verified, so this is a structural-only follow-up).
+  - **DEFERRED -- full GPU panel tree port is a redesign, not a wiring step.** `RenderProfilePanel` (~330 lines)
+    is a deeply interactive editor: site lat/lon/elev text inputs + tie-breaker buttons, Remove/Edit/Save-OTA
+    buttons, in-place OTA property editors, per-device settings sub-sections, mount + camera telemetry graphs,
+    filter-offset editors, Add-OTA / Connect-All. `EquipmentPanelLayout.Build` models only the STATIC skeleton
+    (header, slots, properties-as-text, filter table). Wiring `Build` wholesale would regress every interactive
+    widget; doing it properly means extending `Build` to model them as `Fill`/button nodes (large) or a hybrid
+    that defeats the one-tree purpose. Treated as a multi-session redesign to schedule deliberately, not as the
+    remaining slice of 2D.
+  - **TUI path -- no CellLayout consumer yet.** `TuiEquipmentTab` is built on Console.Lib `ScrollableList`
+    (cursor-driven scrollable list), a different + well-working interaction model than the static `LayoutNode`
+    arrange/paint. The cell painter (`CellLayout`) is tested but has no production consumer; whether to port a
+    simpler/static TUI panel onto it, port the equipment tab (UX-changing), or keep `CellLayout` as forward infra
+    is an open decision.
 
 ### Phase 3 -- shared widgets
 
@@ -307,9 +325,9 @@ The refactor is not "the GUI tabs only". Every `PixelWidgetBase<TSurface>` consu
   (`BaseFontSize=18`, `BaseInfoPanelWidth=300`, `BaseToolbarHeight=40`, histogram/button metrics) and
   hand-rolls its info panel / toolbar / file-list / histogram layout. It must (a) adopt a `UiTheme`
   instance for chrome colours + metrics (its 18px font is a deliberate viewer-scale divergence -> its
-  own metrics instance, NOT GuiTheme's 14px), and (b) port its panels to `LayoutNode` trees in 2D/3.
-  Versioned in lockstep with the rest of TianWen (6.0.0). Do not ship the layout refactor while the
-  FitsViewer still hand-codes constants.
+  own metrics instance, NOT GuiTheme's 14px) -- **DONE: `ViewerTheme`, all chrome migrated, float drawing
+  overloads deleted, inspector-verified** -- and (b) port its panels to `LayoutNode` trees in 2D/3 --
+  **OPEN (structural-only follow-up).** Versioned in lockstep with the rest of TianWen (6.0.0).
 - **TianWen TUI** (`TianWen.Cli`, via Console.Lib cell painter) -- Phase 2C cell painter ready.
 - **chess** (`Chess.GUI`/`Chess.Lib`) -- the second-consumer canary.
 
