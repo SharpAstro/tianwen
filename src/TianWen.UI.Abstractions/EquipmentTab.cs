@@ -649,47 +649,19 @@ namespace TianWen.UI.Abstractions
             var isActive = State.ActiveAssignment == slot;
             var bgColor = isActive ? SlotActive : SlotNormal;
 
-            FillRect(x, y, w, itemH, bgColor);
-            var capturedSlot = slot;
-            var capturedAppState = appState;
-            RegisterClickable(x, y, w, itemH, new HitResult.SlotHit<AssignTarget>(slot),
-                _ =>
-                {
-                    State.ActiveAssignment = State.ActiveAssignment == capturedSlot ? null : capturedSlot;
-                    if (capturedAppState is not null) capturedAppState.NeedsRedraw = true;
-                });
-
-            // Separator line at bottom of slot
-            FillRect(x, y + itemH - 1f, w, 1f, SeparatorColor);
-
-            // Label column (~35% of width)
-            var labelW = w * 0.35f;
-            DrawText(
-                label.AsSpan(),
-                fontPath,
-                x + padding, y, labelW, itemH,
-                fontSize * 0.9f, DimText, TextAlign.Near, TextAlign.Center);
-
             // Device name (fills remaining space minus arrow/indicator column).
             // Truncate with an ellipsis if it would visually overflow into the indicator —
-            // DrawText doesn't clip on TextAlign.Near, so we have to do it ourselves.
-            var deviceLabel = EquipmentActions.DeviceLabel(deviceUri, registry: null);
-            var nameX = x + labelW;
+            // the engine's Text leaf doesn't clip on Near alignment, so we pre-truncate to the
+            // column width just as the old imperative path did.
+            var labelW = w * 0.35f;
             var nameW = w - labelW - arrowW - padding;
+            var deviceLabel = EquipmentActions.DeviceLabel(deviceUri, registry: null);
             var truncated = TruncateToWidth(deviceLabel, fontPath, fontSize, nameW);
-            DrawText(
-                truncated.AsSpan(),
-                fontPath,
-                nameX, y, nameW, itemH,
-                fontSize, isActive ? BodyText : BodyText, TextAlign.Near, TextAlign.Center);
 
             // Right-edge indicator. When a device is assigned and we have access to the live
             // hub + discovery snapshot, draw a coloured square via FillRect (font-independent)
             // so the user sees per-slot reachability without leaving the profile panel.
             // Active assignment-mode highlight always wins and shows the original [>] arrow.
-            var arrowX = x + w - arrowW;
-            var arrowColor = isActive ? AccentInstruct : DimText;
-
             EquipmentActions.DeviceReachability? slotReach = null;
             if (!isActive && deviceUri is not null && deviceUri != NoneDevice.Instance.DeviceUri
                 && profileData is { } pd && appState is { })
@@ -702,28 +674,63 @@ namespace TianWen.UI.Abstractions
                 }
             }
 
-            if (slotReach is { } reach)
-            {
-                var dotColor = reach switch
+            // One declarative row: [pad][label .35][name *][indicator arrowW]. The whole row carries the
+            // Hit + OnClick (a click anywhere toggles assignment) and the background, so draw-rect == hit-rect
+            // by construction. Each column's Height is Star so it stretches to the full row height for vertical
+            // centring. All the inputs are already DPI-scaled, so the engine runs at dpiScale 1.
+            var capturedSlot = slot;
+            var capturedAppState = appState;
+            var arrowColor = isActive ? AccentInstruct : DimText;
+
+            var row = new LayoutNode.Stack(
+            [
+                new LayoutNode.Leaf(new LayoutContent.Box(0f, 0f)) { Width = Sizing.Fixed(padding), Height = Sizing.Star() },
+                new LayoutNode.Leaf(new LayoutContent.Text(label, fontSize * 0.9f) { Color = DimText, VAlign = TextAlign.Center })
                 {
-                    EquipmentActions.DeviceReachability.Connected    => ReachConnected,
-                    EquipmentActions.DeviceReachability.Disconnected => ReachDisconnected,
-                    EquipmentActions.DeviceReachability.Offline      => ReachOffline,
-                    _                                                => DimText
-                };
-                var dotSize = MathF.Min(itemH * 0.45f, arrowW * 0.55f);
-                var dotX = arrowX + (arrowW - padding / 2f - dotSize) * 0.5f;
-                var dotY = y + (itemH - dotSize) * 0.5f;
-                FillRect(dotX, dotY, dotSize, dotSize, dotColor);
-            }
-            else
+                    Width = Sizing.Fixed(labelW), Height = Sizing.Star(),
+                },
+                new LayoutNode.Leaf(new LayoutContent.Text(truncated, fontSize) { Color = BodyText, VAlign = TextAlign.Center })
+                {
+                    Width = Sizing.Star(), Height = Sizing.Star(),
+                },
+                new LayoutNode.Leaf(new LayoutContent.Fill()) { Width = Sizing.Fixed(arrowW), Height = Sizing.Star() },
+            ], LayoutAxis.Horizontal)
             {
-                DrawText(
-                    ">".AsSpan(),
-                    fontPath,
-                    arrowX, y, arrowW - padding / 2f, itemH,
-                    fontSize, arrowColor, TextAlign.Center, TextAlign.Center);
-            }
+                Background = bgColor,
+                Hit = new HitResult.SlotHit<AssignTarget>(slot),
+                OnClick = _ =>
+                {
+                    State.ActiveAssignment = State.ActiveAssignment == capturedSlot ? null : capturedSlot;
+                    if (capturedAppState is not null) capturedAppState.NeedsRedraw = true;
+                },
+            };
+
+            RenderLayout(row, new RectF32(x, y, w, itemH), fontPath, dpiScale: 1f,
+                drawFill: (_, r) =>
+                {
+                    if (slotReach is { } reach)
+                    {
+                        var dotColor = reach switch
+                        {
+                            EquipmentActions.DeviceReachability.Connected    => ReachConnected,
+                            EquipmentActions.DeviceReachability.Disconnected => ReachDisconnected,
+                            EquipmentActions.DeviceReachability.Offline      => ReachOffline,
+                            _                                                => DimText
+                        };
+                        var dotSize = MathF.Min(r.Height * 0.45f, arrowW * 0.55f);
+                        var dotX = r.X + (r.Width - padding / 2f - dotSize) * 0.5f;
+                        var dotY = r.Y + (r.Height - dotSize) * 0.5f;
+                        FillRect(dotX, dotY, dotSize, dotSize, dotColor);
+                    }
+                    else
+                    {
+                        DrawText(">".AsSpan(), fontPath, r.X, r.Y, r.Width - padding / 2f, r.Height,
+                            fontSize, arrowColor, TextAlign.Center, TextAlign.Center);
+                    }
+                });
+
+            // Separator line at bottom of slot (painted on top of the row background).
+            FillRect(x, y + itemH - 1f, w, 1f, SeparatorColor);
 
             return y + itemH;
         }
