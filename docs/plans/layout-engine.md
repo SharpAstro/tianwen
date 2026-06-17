@@ -230,9 +230,26 @@ tree are fully shared.
   clamp + viewport wiring. Public surface unchanged (`Panel` + existing tests untouched). 6 new
   `CellLayoutTests` (dock geometry, oversized-strip clamp, hit-test map, OnClick dispatch, bg+text paint,
   center-align) + existing `TerminalViewportTests` all pass; TianWen.Cli builds clean against the local chain.
-- **2D -- first consumer (PENDING).** Port `EquipmentTab.RenderProfilePanel` (36 `cursor += itemH`) to a
-  `Stack` tree from the content model; assert GPU render == TUI item list. This is where the data-driven
-  per-OTA panel (TODO.md:57) lands.
+- **2D -- first consumer (STARTED, 2026-06-17).** Two pieces done:
+  - **Model refinement:** `Hit`/`OnClick` moved from `LayoutContent` (leaf-only) onto `LayoutNode` (any
+    node), so a whole slot row / panel is clickable, not just a leaf. Both painters updated (GPU
+    `PaintLayout` registers `node.Hit`; TUI `CellLayout.HitTest` reads `node.Hit`); inner nodes register
+    later so they still win the hit. Existing painter tests green.
+  - **Data-driven panel tree:** `EquipmentPanelLayout.Build` bridges the existing `EquipmentContent` models
+    (`DeviceSlotRow` / `OtaSummaryRow`) into ONE `LayoutNode` tree -- profile header -> profile slot rows ->
+    per-OTA sections (loop over the OTA set, no hardcoded count) each with header / properties / 4 sub-slot
+    rows / optional filter sub-table. Each slot row is a clickable `Stack` carrying `SlotHit<AssignTarget>`
+    + an `onSlotClick` handler; active slot gets `SlotActive` bg. `EquipmentPanelStyle.Default` holds the
+    equipment-specific colours (slot states, OTA header). 7 `EquipmentPanelLayoutTests` (per-OTA loop,
+    add-OTA adds a section, 4 sub-slots per OTA, slot Hit carries the target, active highlight, onClick
+    wiring, filter rows). **This is the data-driven per-OTA panel (TODO.md:57) as a tested, surface-neutral
+    tree -- consumed by BOTH painters.**
+  - **PENDING:** wire `EquipmentPanelLayout` into the live `EquipmentTab.RenderProfilePanel` (replace the
+    imperative cursor walk for the slot/OTA skeleton; keep site editor / telemetry / dropdowns as `Fill`
+    escape-hatch callbacks) + the TUI path, then verify GPU/TUI visual parity via run-gui. Same treatment
+    for the **FitsViewer** (`ImageRendererBase` -> its own `UiTheme` instance at 18px + `LayoutNode` panels).
+    These wiring steps touch live production UI and need visual verification, so they are done with the GUI
+    running, not blind.
 
 ### Phase 3 -- shared widgets
 
