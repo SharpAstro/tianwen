@@ -269,11 +269,17 @@ tree are fully shared.
     list is surface-neutral (a future TUI panel can consume it), and the full single-tree port is no longer
     needed. Verified via the SDL inspector: all elements present, correct order + footprint, FW-gated filter
     table, site-edit variable-height reflow.
-  - **TUI path -- no CellLayout consumer yet.** `TuiEquipmentTab` is built on Console.Lib `ScrollableList`
-    (cursor-driven scrollable list), a different + well-working interaction model than the static `LayoutNode`
-    arrange/paint. The cell painter (`CellLayout`) is tested but has no production consumer; whether to port a
-    simpler/static TUI panel onto it, port the equipment tab (UX-changing), or keep `CellLayout` as forward infra
-    is an open decision.
+  - **First CellLayout production consumer: periodic-table-viewer (DONE, 2026-06-17, `sebgod/periodic-table-viewer`
+    branch `feature/cell-layout`, commit `aac5af5`).** `TuiEquipmentTab` was the wrong fit (it is built on
+    Console.Lib `ScrollableList`, a cursor-driven model that works well). Instead the `pt-tui` periodic table --
+    a natural grid that hand-rolled forward (`ToTerminal`) + inverse (`ElementAtTerminal`) cell arithmetic -- was
+    ported to a `LayoutNode` tree (two 18-column `Grid`s + a gap leaf; each element a 5x3 cell `Stack` of Text
+    leaves with a `Background` + `ListItemHit`) rendered via `CellLayout.Paint`, with click handling via
+    `CellLayout.HitTest` on the same arranged tree (draw-rect == hit-rect, deleting the inverse arithmetic).
+    `SgrColor` <-> `RGBAColor32` bridges via `SgrColor.ToRgba()`. 6 new arrange/hit parity tests + 218 existing
+    pass. This validates the cell painter end-to-end in a real app; `TuiEquipmentTab` keeping `ScrollableList`
+    is fine. NOTE: pt-tui's CI uses the published Console.Lib, so it can't be pushed until the Console.Lib
+    carrying `CellLayout` ships (rides the same release as the rest of this work).
 
 ### Phase 3 -- shared widgets
 
