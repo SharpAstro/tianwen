@@ -222,7 +222,10 @@ var loop = new SdlEventLoop(sdlWindow, renderer)
         var (mx, _) = state.MouseScreenPosition;
         var listW = imageRenderer.ScaledFileListWidth;
         var handleSlop = 6f * imageRenderer.DpiScale;
+        // Don't show the resize cursor while a dropdown overlay is open -- it's capturing the pointer,
+        // and the dropdown can overlap the file-list resize-handle X.
         var overHandle = state.ShowFileList
+            && !state.ToolbarDropdown.IsOpen
             && mx >= listW - handleSlop
             && mx <= listW + handleSlop;
         sdlWindow.SetSystemCursor(state.IsResizingFileList || overHandle

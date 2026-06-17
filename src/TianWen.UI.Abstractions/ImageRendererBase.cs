@@ -529,7 +529,7 @@ namespace TianWen.UI.Abstractions
                 var enabled = IsToolbarButtonEnabled(action, document);
                 var active = IsToolbarButtonActive(action, document, state);
 
-                var hovered = enabled && mouseX >= x && mouseX < x + btnW && mouseY >= btnY && mouseY < btnY + btnH;
+                var hovered = enabled && !state.ToolbarDropdown.IsOpen && mouseX >= x && mouseX < x + btnW && mouseY >= btnY && mouseY < btnY + btnH;
 
                 if (!enabled)
                 {
@@ -963,7 +963,11 @@ namespace TianWen.UI.Abstractions
                 var itemY = y + i * itemHeight;
 
                 var isSelected = fileIndex == state.SelectedFileIndex;
-                var isHovered = mouseX >= 0 && mouseX < FileListWidth
+                // Suppress hover highlight while a dropdown overlay is open: the pointer is captured
+                // by the dropdown, so the list underneath must not react to it. Selection (the loaded
+                // file) is NOT gated -- it should stay highlighted regardless.
+                var isHovered = !state.ToolbarDropdown.IsOpen
+                    && mouseX >= 0 && mouseX < FileListWidth
                     && mouseY >= itemY && mouseY < itemY + itemHeight;
 
                 if (isSelected)
@@ -1645,7 +1649,7 @@ namespace TianWen.UI.Abstractions
                 var (bx, by, bw, bh) = GetHistogramLogButtonRect(state);
                 var mouseX = state.MouseScreenPosition.X;
                 var mouseY = state.MouseScreenPosition.Y;
-                var hovered = mouseX >= bx && mouseX < bx + bw && mouseY >= by && mouseY < by + bh;
+                var hovered = !state.ToolbarDropdown.IsOpen && mouseX >= bx && mouseX < bx + bw && mouseY >= by && mouseY < by + bh;
 
                 if (state.HistogramLogScale)
                 {
