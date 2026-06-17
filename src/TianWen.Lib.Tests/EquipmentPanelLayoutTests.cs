@@ -174,5 +174,50 @@ namespace TianWen.Lib.Tests
             var names = TextLeaves(tree).Where(t => t is "L" or "R" or "G").ToList();
             names.ShouldBe(["L", "R", "G"], ignoreOrder: true);
         }
+
+        [Fact]
+        public void ToggleHeaderRow_HasHitAndLabel()
+        {
+            var row = EquipmentPanelLayout.ToggleHeaderRow(
+                "    Filters (3) [+]", 20f,
+                new RGBAColor32(0x1a, 0x1a, 0x26, 0xff), new RGBAColor32(0xff, 0xff, 0xff, 0xff),
+                12f, new HitResult.ButtonHit("ToggleFilters0"), _ => { });
+            row.Hit.ShouldNotBeNull();
+            row.Hit.ShouldBeOfType<HitResult.ButtonHit>();
+            TextLeaves(row).ShouldContain("    Filters (3) [+]");
+        }
+
+        [Fact]
+        public void LabeledInputRow_HasLabelAndFill()
+        {
+            var row = EquipmentPanelLayout.LabeledInputRow(
+                "  Lat:", 50f, 24f, 6f, 12f, new RGBAColor32(0x80, 0x80, 0x80, 0xff));
+            TextLeaves(row).ShouldContain("  Lat:");
+            var fills = Flatten(row).OfType<LayoutNode.Leaf>().Where(l => l.Content is LayoutContent.Fill).ToList();
+            fills.ShouldHaveSingleItem();
+        }
+
+        [Fact]
+        public void StepperRow_HasDecValueInc()
+        {
+            var clicked = new List<string>();
+            var row = EquipmentPanelLayout.StepperRow(
+                "Offset", "+5", 20f, 4f, 12f, 24f,
+                new RGBAColor32(0x1a, 0x1a, 0x26, 0xff),
+                new RGBAColor32(0x2a, 0x40, 0x5a, 0xff),
+                new RGBAColor32(0x80, 0x80, 0x80, 0xff),
+                new RGBAColor32(0xff, 0xff, 0xff, 0xff),
+                new RGBAColor32(0xff, 0xff, 0xff, 0xff),
+                "Dec", _ => clicked.Add("dec"),
+                "Inc", _ => clicked.Add("inc"));
+            TextLeaves(row).ShouldContain("Offset");
+            TextLeaves(row).ShouldContain("+5");
+            TextLeaves(row).ShouldContain("-");
+            TextLeaves(row).ShouldContain("+");
+            var dec = Flatten(row).First(n => n.Hit is HitResult.ButtonHit { Action: "Dec" });
+            dec.OnClick.ShouldNotBeNull();
+            dec.OnClick!(InputModifier.None);
+            clicked.ShouldContain("dec");
+        }
     }
 }
