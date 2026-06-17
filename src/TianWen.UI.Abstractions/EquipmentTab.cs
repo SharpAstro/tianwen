@@ -34,8 +34,10 @@ namespace TianWen.UI.Abstractions
         // Colors
         private static readonly RGBAColor32 ProfilePanelBg   = new RGBAColor32(0x1e, 0x1e, 0x28, 0xff);
         private static readonly RGBAColor32 DeviceListBg     = new RGBAColor32(0x18, 0x18, 0x22, 0xff);
-        private static readonly RGBAColor32 SlotNormal       = new RGBAColor32(0x2a, 0x2a, 0x35, 0xff);
-        private static readonly RGBAColor32 SlotActive       = new RGBAColor32(0x2a, 0x6b, 0xb8, 0xff);
+        // Slot/OTA/filter chrome colours live on EquipmentPanelStyle.Default (the single source shared
+        // with the data-driven EquipmentPanelLayout); reference them here rather than re-declaring literals.
+        private static readonly RGBAColor32 SlotNormal       = EquipmentPanelStyle.Default.SlotNormal;
+        private static readonly RGBAColor32 SlotActive       = EquipmentPanelStyle.Default.SlotActive;
         private static readonly RGBAColor32 DeviceRowBg      = new RGBAColor32(0x20, 0x20, 0x2c, 0xff);
         private static readonly RGBAColor32 DeviceRowBgAlt   = new RGBAColor32(0x25, 0x25, 0x33, 0xff);
         private static readonly RGBAColor32 AssignedGreen    = new RGBAColor32(0x40, 0xc0, 0x40, 0xff);
@@ -47,11 +49,11 @@ namespace TianWen.UI.Abstractions
         private static readonly RGBAColor32 SeparatorColor   = GuiTheme.Palette.Separator;
         private static readonly RGBAColor32 BadgeBg          = new RGBAColor32(0x28, 0x28, 0x38, 0xff);
         private static readonly RGBAColor32 SiteText         = new RGBAColor32(0x99, 0xbb, 0x99, 0xff);
-        private static readonly RGBAColor32 OtaHeaderBg      = new RGBAColor32(0x24, 0x24, 0x32, 0xff);
+        private static readonly RGBAColor32 OtaHeaderBg      = EquipmentPanelStyle.Default.OtaHeaderBg;
         private static readonly RGBAColor32 ContentBg        = GuiTheme.Palette.ContentBg;
         private static readonly RGBAColor32 BottomBarBg      = new RGBAColor32(0x14, 0x14, 0x1c, 0xff);
         private static readonly RGBAColor32 AccentInstruct   = new RGBAColor32(0x88, 0xcc, 0xff, 0xff);
-        private static readonly RGBAColor32 FilterTableBg    = new RGBAColor32(0x1a, 0x1a, 0x26, 0xff);
+        private static readonly RGBAColor32 FilterTableBg    = EquipmentPanelStyle.Default.FilterTableBg;
         private static readonly RGBAColor32 FilterRowAlt     = new RGBAColor32(0x20, 0x20, 0x2e, 0xff);
         private static readonly RGBAColor32 EditButtonBg     = new RGBAColor32(0x2a, 0x40, 0x5a, 0xff);
         // Reachability indicator colors (⏻ glyph + segmented On|Off button highlight)
@@ -647,14 +649,11 @@ namespace TianWen.UI.Abstractions
             string? emojiFontPath = null)
         {
             var isActive = State.ActiveAssignment == slot;
-            var bgColor = isActive ? SlotActive : SlotNormal;
 
-            // Device name (fills remaining space minus arrow/indicator column).
-            // Truncate with an ellipsis if it would visually overflow into the indicator —
-            // the engine's Text leaf doesn't clip on Near alignment, so we pre-truncate to the
-            // column width just as the old imperative path did.
-            var labelW = w * 0.35f;
-            var nameW = w - labelW - arrowW - padding;
+            // Device name -- pre-truncate to the name column width (the engine's Text leaf doesn't clip).
+            // Name column = (1 - LabelShare) of the space left after the lead pad + indicator, matching
+            // EquipmentPanelLayout.SlotRow's [pad | label .35 | name * | indicator] split.
+            var nameW = (1f - EquipmentPanelLayout.LabelShare) * (w - padding - arrowW);
             var deviceLabel = EquipmentActions.DeviceLabel(deviceUri, registry: null);
             var truncated = TruncateToWidth(deviceLabel, fontPath, fontSize, nameW);
 
@@ -666,46 +665,34 @@ namespace TianWen.UI.Abstractions
             if (!isActive && deviceUri is not null && deviceUri != NoneDevice.Instance.DeviceUri
                 && profileData is { } pd && appState is { })
             {
-                var r = EquipmentActions.GetReachability(pd, appState.DeviceHub,
+                var reach0 = EquipmentActions.GetReachability(pd, appState.DeviceHub,
                     State.DiscoveredDevices, deviceUri);
-                if (r != EquipmentActions.DeviceReachability.NotAssigned)
+                if (reach0 != EquipmentActions.DeviceReachability.NotAssigned)
                 {
-                    slotReach = r;
+                    slotReach = reach0;
                 }
             }
 
-            // One declarative row: [pad][label .35][name *][indicator arrowW]. The whole row carries the
-            // Hit + OnClick (a click anywhere toggles assignment) and the background, so draw-rect == hit-rect
-            // by construction. Each column's Height is Star so it stretches to the full row height for vertical
-            // centring. All the inputs are already DPI-scaled, so the engine runs at dpiScale 1.
+            // Build the row through the SHARED EquipmentPanelLayout.SlotRow so the live GPU panel and the
+            // (eventual) TUI panel render the exact same structure -- one path, guarded by the bridge's tests.
+            // SlotRow works in design units, so we render it at the real DpiScale; its indicator is a Fill
+            // slot we paint below (reachability dot, or the [>] arrow when unassigned / in assignment mode).
             var capturedSlot = slot;
             var capturedAppState = appState;
             var arrowColor = isActive ? AccentInstruct : DimText;
+            var isAssigned = deviceUri is not null && deviceUri != NoneDevice.Instance.DeviceUri;
 
-            var row = new LayoutNode.Stack(
-            [
-                new LayoutNode.Leaf(new LayoutContent.Box(0f, 0f)) { Width = Sizing.Fixed(padding), Height = Sizing.Star() },
-                new LayoutNode.Leaf(new LayoutContent.Text(label, fontSize * 0.9f) { Color = DimText, VAlign = TextAlign.Center })
-                {
-                    Width = Sizing.Fixed(labelW), Height = Sizing.Star(),
-                },
-                new LayoutNode.Leaf(new LayoutContent.Text(truncated, fontSize) { Color = BodyText, VAlign = TextAlign.Center })
-                {
-                    Width = Sizing.Star(), Height = Sizing.Star(),
-                },
-                new LayoutNode.Leaf(new LayoutContent.Fill()) { Width = Sizing.Fixed(arrowW), Height = Sizing.Star() },
-            ], LayoutAxis.Horizontal)
-            {
-                Background = bgColor,
-                Hit = new HitResult.SlotHit<AssignTarget>(slot),
-                OnClick = _ =>
+            var row = EquipmentPanelLayout.SlotRow(
+                new DeviceSlotRow(label, truncated, isAssigned, slot),
+                EquipmentPanelStyle.Default,
+                activeSlot: isActive ? slot : null,
+                onSlotClick: _ => _ =>
                 {
                     State.ActiveAssignment = State.ActiveAssignment == capturedSlot ? null : capturedSlot;
                     if (capturedAppState is not null) capturedAppState.NeedsRedraw = true;
-                },
-            };
+                });
 
-            RenderLayout(row, new RectF32(x, y, w, itemH), fontPath, dpiScale: 1f,
+            RenderLayout(row, new RectF32(x, y, w, itemH), fontPath, dpiScale,
                 drawFill: (_, r) =>
                 {
                     if (slotReach is { } reach)

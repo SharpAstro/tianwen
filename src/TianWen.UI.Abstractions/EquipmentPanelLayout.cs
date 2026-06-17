@@ -41,7 +41,8 @@ namespace TianWen.UI.Abstractions
         private const float ArrowWidth = 22f;
 
         // Label column share of a slot row (matches EquipmentTab's labelW = 0.35 * width).
-        private const float LabelShare = 0.35f;
+        // Internal so the live EquipmentTab can size its name-column truncation to the same split.
+        internal const float LabelShare = 0.35f;
 
         /// <summary>
         /// Builds the panel tree. <paramref name="activeSlot"/> highlights the row currently in assignment
@@ -120,7 +121,16 @@ namespace TianWen.UI.Abstractions
                 Width = Sizing.Star(),
             };
 
-        private static LayoutNode SlotRow(
+        /// <summary>
+        /// Builds one device-slot row: <c>[pad | label .35 | name * | indicator]</c> as a horizontal Stack
+        /// whose whole rect carries the click <see cref="HitResult.SlotHit{T}"/> + handler + background
+        /// (draw-rect == hit-rect by construction). The indicator is a surface-neutral <see cref="LayoutContent.Fill"/>
+        /// slot painted by the caller's <c>drawFill</c> (the GPU panel draws a reachability dot or the
+        /// <c>[&gt;]</c> arrow; a terminal panel draws its own glyph) -- which is what lets the live equipment
+        /// panel and the (eventual) TUI panel share this exact structure. Public so the live
+        /// <c>EquipmentTab</c> consumes it directly instead of re-deriving the row inline.
+        /// </summary>
+        public static LayoutNode SlotRow(
             DeviceSlotRow slot, EquipmentPanelStyle style, AssignTarget? activeSlot,
             Func<AssignTarget, Action<InputModifier>?>? onSlotClick)
         {
@@ -128,22 +138,21 @@ namespace TianWen.UI.Abstractions
             var metrics = style.Theme.Metrics;
             var isActive = activeSlot is not null && activeSlot == slot.Slot;
 
+            // Lead pad gives the label its left inset; every column's Height is Star so it stretches to
+            // the full row height for vertical centring (Auto would collapse a Text leaf to glyph height).
+            var pad = new LayoutNode.Leaf(new LayoutContent.Box(0f, 0f)) { Width = Sizing.Fixed(metrics.Padding), Height = Sizing.Star() };
             var label = new LayoutNode.Leaf(new LayoutContent.Text(slot.Label, metrics.BaseFontSize * 0.9f) { Color = palette.DimText })
             {
-                Width = Sizing.Star(LabelShare),
+                Width = Sizing.Star(LabelShare), Height = Sizing.Star(),
             };
             var name = new LayoutNode.Leaf(new LayoutContent.Text(slot.DeviceName, metrics.BaseFontSize) { Color = palette.BodyText })
             {
-                Width = Sizing.Star(1f - LabelShare),
+                Width = Sizing.Star(1f - LabelShare), Height = Sizing.Star(),
             };
-            var indicator = new LayoutNode.Leaf(
-                new LayoutContent.Text(">", metrics.BaseFontSize) { Color = isActive ? palette.HeaderText : palette.DimText, HAlign = TextAlign.Center })
-            {
-                Width = Sizing.Fixed(ArrowWidth),
-            };
+            var indicator = new LayoutNode.Leaf(new LayoutContent.Fill()) { Width = Sizing.Fixed(ArrowWidth), Height = Sizing.Star() };
 
             // The whole row is clickable (Hit on the Stack), so a click anywhere toggles assignment.
-            return new LayoutNode.Stack([label, name, indicator], LayoutAxis.Horizontal)
+            return new LayoutNode.Stack([pad, label, name, indicator], LayoutAxis.Horizontal)
             {
                 Height = Sizing.Fixed(metrics.ItemHeight),
                 Width = Sizing.Star(),
