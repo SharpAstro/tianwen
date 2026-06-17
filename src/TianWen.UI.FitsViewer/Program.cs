@@ -251,6 +251,19 @@ loop.OnKeyDown = (inputKey, inputModifier) =>
     return true;
 };
 
+#if DEBUG
+// Live UI debug inspector (DEBUG only -- compiled out of Release). Exposes this process to the
+// SdlVulkan.Renderer.Inspector MCP sidecar so an agent can discover it, read the clickable-region
+// tree, and screenshot the window. The viewer renders all chrome through the single imageRenderer
+// widget, so its registered regions are the whole UI. This block is the only wiring.
+using var debugInspector = DebugInspector.Attach(loop, new DebugInspectorOptions
+{
+    AppName = "FitsViewer",
+    WindowTitle = () => "Fits viewer",
+    GetRegions = () => imageRenderer.GetRegisteredRegions(),
+});
+#endif
+
 loop.Run(cts.Token);
 
 // Cleanup

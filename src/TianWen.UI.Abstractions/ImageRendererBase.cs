@@ -1676,34 +1676,34 @@ namespace TianWen.UI.Abstractions
             }
 
             var panelLeft = Width - InfoPanelWidth;
-            FillRect(panelLeft, ToolbarHeight, InfoPanelWidth, Height - ToolbarHeight - StatusBarHeight, 0.15f, 0.15f, 0.15f, 0.85f);
+            FillRect(panelLeft, ToolbarHeight, InfoPanelWidth, Height - ToolbarHeight - StatusBarHeight, ViewerTheme.InfoPanelBg);
 
             var y = (float)ToolbarHeight + PanelPadding;
             var x = panelLeft + PanelPadding;
 
             var maxTextWidth = InfoPanelWidth - PanelPadding * 2;
 
-            DrawTextLine(ref y, x, "-- Metadata --", 0.6f, 0.8f, 1f);
+            DrawTextLine(ref y, x, "-- Metadata --", ViewerTheme.Palette.HeaderText);
             foreach (var line in InfoPanelData.GetMetadataLines(document))
             {
-                DrawWrappedTextLine(ref y, x, line, maxTextWidth, 0.9f, 0.9f, 0.9f);
+                DrawWrappedTextLine(ref y, x, line, maxTextWidth, ViewerTheme.Palette.BodyText);
             }
 
             y += FontSize;
 
-            DrawTextLine(ref y, x, "-- Statistics --", 0.6f, 0.8f, 1f);
+            DrawTextLine(ref y, x, "-- Statistics --", ViewerTheme.Palette.HeaderText);
             foreach (var line in InfoPanelData.GetStatisticsLines(document))
             {
-                DrawTextLine(ref y, x, line, 0.9f, 0.9f, 0.9f);
+                DrawTextLine(ref y, x, line, ViewerTheme.Palette.BodyText);
             }
 
             if (state.CursorPixelInfo is not null)
             {
                 y += FontSize;
-                DrawTextLine(ref y, x, "-- Cursor --", 0.6f, 0.8f, 1f);
+                DrawTextLine(ref y, x, "-- Cursor --", ViewerTheme.Palette.HeaderText);
                 foreach (var line in InfoPanelData.GetCursorLines(state))
                 {
-                    DrawTextLine(ref y, x, line, 0.9f, 0.9f, 0.9f);
+                    DrawTextLine(ref y, x, line, ViewerTheme.Palette.BodyText);
                 }
             }
 
@@ -1745,13 +1745,11 @@ namespace TianWen.UI.Abstractions
                 {
                     var isHeader = i == 0;
                     DrawTextLine(ref y, x, controlLabels[i],
-                        isHeader ? 0.6f : 0.7f,
-                        isHeader ? 0.8f : 0.7f,
-                        isHeader ? 1f : 0.7f);
+                        isHeader ? ViewerTheme.Palette.HeaderText : ViewerTheme.Palette.DimText);
                 }
                 if (clipped)
                 {
-                    DrawTextLine(ref y, x, "...", 0.5f, 0.5f, 0.5f);
+                    DrawTextLine(ref y, x, "...", ViewerTheme.Palette.DimText);
                 }
             }
         }
@@ -1768,7 +1766,7 @@ namespace TianWen.UI.Abstractions
             }
 
             var barY = Height - StatusBarHeight;
-            FillRect(0, barY, Width, StatusBarHeight, 0.2f, 0.2f, 0.2f, 0.95f);
+            FillRect(0, barY, Width, StatusBarHeight, ViewerTheme.StatusBarBg);
 
             var x = PanelPadding;
             var y = barY + 4f;
@@ -1801,32 +1799,34 @@ namespace TianWen.UI.Abstractions
             }
 
             var statusText = string.Join("  |  ", statusParts);
-            DrawText(statusText, x, y, FontSize, 0.8f, 0.8f, 0.8f);
+            DrawText(statusText.AsSpan(), _fontPath!, x, y, Width - x, StatusBarHeight, FontSize, ViewerTheme.Palette.BodyText, TextAlign.Near, TextAlign.Near);
         }
 
         // -----------------------------------------------------------------------
         // Text helpers
         // -----------------------------------------------------------------------
 
-        private void DrawTextLine(ref float y, float x, string text, float r, float g, float b)
+        private void DrawTextLine(ref float y, float x, string text, RGBAColor32 color)
         {
-            DrawText(text, x, y, FontSize, r, g, b);
+            // Canonical RGBAColor32 path (the inherited PixelWidgetBase.DrawText), fed from ViewerTheme.
+            // Near/Near + a generous width preserves the old left-aligned, non-clipped behaviour.
+            DrawText(text.AsSpan(), _fontPath!, x, y, Width - x, FontSize * 1.3f, FontSize, color, TextAlign.Near, TextAlign.Near);
             y += FontSize + 2f;
         }
 
-        private void DrawWrappedTextLine(ref float y, float x, string text, float maxWidth, float r, float g, float b)
+        private void DrawWrappedTextLine(ref float y, float x, string text, float maxWidth, RGBAColor32 color)
         {
             var textWidth = MeasureText(text, FontSize);
             if (textWidth <= maxWidth)
             {
-                DrawTextLine(ref y, x, text, r, g, b);
+                DrawTextLine(ref y, x, text, color);
                 return;
             }
 
             var colonIdx = text.IndexOf(": ", StringComparison.Ordinal);
             if (colonIdx < 0)
             {
-                DrawTextLine(ref y, x, text, r, g, b);
+                DrawTextLine(ref y, x, text, color);
                 return;
             }
 
@@ -1842,7 +1842,7 @@ namespace TianWen.UI.Abstractions
                 var lineText = prefix + remaining;
                 if (MeasureText(lineText, FontSize) <= maxWidth)
                 {
-                    DrawTextLine(ref y, x, lineText, r, g, b);
+                    DrawTextLine(ref y, x, lineText, color);
                     break;
                 }
 
@@ -1867,7 +1867,7 @@ namespace TianWen.UI.Abstractions
                     fit = breakAt;
                 }
 
-                DrawTextLine(ref y, x, prefix + remaining[..fit], r, g, b);
+                DrawTextLine(ref y, x, prefix + remaining[..fit], color);
                 remaining = remaining[fit..];
                 firstLine = false;
             }
