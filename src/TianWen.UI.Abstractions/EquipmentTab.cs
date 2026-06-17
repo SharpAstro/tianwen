@@ -501,16 +501,22 @@ namespace TianWen.UI.Abstractions
                 var fieldW = (int)(w - padding * 2f);
                 var fieldX = (int)(x + padding);
 
-                DrawText("  Lat:".AsSpan(), fontPath, x + padding, cursor, 50f * dpiScale, itemH, fontSize * 0.85f, DimText, TextAlign.Near, TextAlign.Center);
-                RenderTextInput(State.LatitudeInput, fieldX + (int)(50f * dpiScale), (int)cursor, fieldW - (int)(50f * dpiScale), fieldH, fontPath, fontSize * 0.9f);
+                var labelW_site = 50f * dpiScale;
+                var rowW_site = w - padding * 2f;
+
+                var latRow = EquipmentPanelLayout.LabeledInputRow("  Lat:", labelW_site, fieldH, padding, fontSize * 0.85f, DimText);
+                RenderLayout(latRow, new RectF32(x + padding, cursor, rowW_site, fieldH), fontPath, dpiScale,
+                    drawFill: (_, r) => RenderTextInput(State.LatitudeInput, (int)r.X, (int)r.Y, (int)r.Width, (int)r.Height, fontPath, fontSize * 0.9f));
                 cursor += fieldH + 2;
 
-                DrawText("  Lon:".AsSpan(), fontPath, x + padding, cursor, 50f * dpiScale, itemH, fontSize * 0.85f, DimText, TextAlign.Near, TextAlign.Center);
-                RenderTextInput(State.LongitudeInput, fieldX + (int)(50f * dpiScale), (int)cursor, fieldW - (int)(50f * dpiScale), fieldH, fontPath, fontSize * 0.9f);
+                var lonRow = EquipmentPanelLayout.LabeledInputRow("  Lon:", labelW_site, fieldH, padding, fontSize * 0.85f, DimText);
+                RenderLayout(lonRow, new RectF32(x + padding, cursor, rowW_site, fieldH), fontPath, dpiScale,
+                    drawFill: (_, r) => RenderTextInput(State.LongitudeInput, (int)r.X, (int)r.Y, (int)r.Width, (int)r.Height, fontPath, fontSize * 0.9f));
                 cursor += fieldH + 2;
 
-                DrawText("  Elev:".AsSpan(), fontPath, x + padding, cursor, 50f * dpiScale, itemH, fontSize * 0.85f, DimText, TextAlign.Near, TextAlign.Center);
-                RenderTextInput(State.ElevationInput, fieldX + (int)(50f * dpiScale), (int)cursor, fieldW - (int)(50f * dpiScale), fieldH, fontPath, fontSize * 0.9f);
+                var elevRow = EquipmentPanelLayout.LabeledInputRow("  Elev:", labelW_site, fieldH, padding, fontSize * 0.85f, DimText);
+                RenderLayout(elevRow, new RectF32(x + padding, cursor, rowW_site, fieldH), fontPath, dpiScale,
+                    drawFill: (_, r) => RenderTextInput(State.ElevationInput, (int)r.X, (int)r.Y, (int)r.Width, (int)r.Height, fontPath, fontSize * 0.9f));
                 cursor += fieldH + 2;
 
                 // Tie-breaker selector: which side wins on mount connect when both have a site?
@@ -541,19 +547,36 @@ namespace TianWen.UI.Abstractions
                 var siteStr = $"  Site: {latStr}, {lonStr}{elevStr}";
 
                 var siteBtnW = w - padding * 2f;
-                FillRect(x + padding, cursor, siteBtnW, itemH, SlotNormal);
-                RegisterClickable(x + padding, cursor, siteBtnW, itemH, new HitResult.ButtonHit("EditSite"),
-                    _ => PostSignal(new EditSiteSignal()));
-                DrawText(siteStr.AsSpan(), fontPath, x + padding, cursor, siteBtnW - arrowW, itemH, fontSize * 0.9f, SiteText, TextAlign.Near, TextAlign.Center);
-                DrawText("[>]".AsSpan(), fontPath, x + w - padding - arrowW, cursor, arrowW, itemH, fontSize * 0.85f, DimText, TextAlign.Center, TextAlign.Center);
+                var siteRow = new LayoutNode.Stack(
+                [
+                    new LayoutNode.Leaf(new LayoutContent.Text(siteStr, fontSize * 0.9f) { Color = SiteText, HAlign = TextAlign.Near, VAlign = TextAlign.Center })
+                        { Width = Sizing.Star(), Height = Sizing.Star() },
+                    new LayoutNode.Leaf(new LayoutContent.Text("[>]", fontSize * 0.85f) { Color = DimText, HAlign = TextAlign.Center, VAlign = TextAlign.Center })
+                        { Width = Sizing.Fixed(arrowW), Height = Sizing.Star() },
+                ], LayoutAxis.Horizontal)
+                {
+                    Width = Sizing.Fixed(siteBtnW),
+                    Height = Sizing.Fixed(itemH),
+                    Background = SlotNormal,
+                    Hit = new HitResult.ButtonHit("EditSite"),
+                    OnClick = _ => PostSignal(new EditSiteSignal()),
+                };
+                RenderLayout(siteRow, new RectF32(x + padding, cursor, siteBtnW, itemH), fontPath, dpiScale);
                 cursor += itemH;
             }
             else
             {
                 // No site configured — show "Set Site" button
                 var setSiteBtnW = Renderer.MeasureText("Set Site".AsSpan(), fontPath, fontSize).Width + padding * 4f;
-                RenderButton("Set Site", x + padding, cursor, setSiteBtnW, buttonH, fontPath, fontSize, CreateButton, BodyText, "EditSite",
-                    _ => PostSignal(new EditSiteSignal()));
+                var setSiteLeaf = new LayoutNode.Leaf(new LayoutContent.Text("Set Site", fontSize) { Color = BodyText, HAlign = TextAlign.Center, VAlign = TextAlign.Center })
+                {
+                    Width = Sizing.Fixed(setSiteBtnW),
+                    Height = Sizing.Fixed(buttonH),
+                    Background = CreateButton,
+                    Hit = new HitResult.ButtonHit("EditSite"),
+                    OnClick = _ => PostSignal(new EditSiteSignal()),
+                };
+                RenderLayout(setSiteLeaf, new RectF32(x + padding, cursor, setSiteBtnW, buttonH), fontPath, dpiScale);
                 cursor += buttonH;
             }
             return cursor;
@@ -564,8 +587,6 @@ namespace TianWen.UI.Abstractions
             string fontPath, float fontSize, float padding, float itemH)
         {
             var labelW = w * 0.35f;
-            var fieldW = (int)(w - padding * 2f - labelW);
-            var fieldX = (int)(x + padding + labelW);
             var fieldH = (int)(itemH * 0.9f);
 
             // Initialize from profile if not already set
@@ -575,9 +596,9 @@ namespace TianWen.UI.Abstractions
                 State.GuiderFocalLengthInput.CursorPos = State.GuiderFocalLengthInput.Text.Length;
             }
 
-            DrawText("Guide FL (mm):".AsSpan(), fontPath, x + padding, cursor, labelW, itemH,
-                fontSize * 0.85f, DimText, TextAlign.Near, TextAlign.Center);
-            RenderTextInput(State.GuiderFocalLengthInput, fieldX, (int)cursor, fieldW, fieldH, fontPath, fontSize * 0.9f);
+            var guideRow = EquipmentPanelLayout.LabeledInputRow("Guide FL (mm):", labelW, fieldH, padding, fontSize * 0.85f, DimText);
+            RenderLayout(guideRow, new RectF32(x + padding, cursor, w - padding * 2f, fieldH), fontPath, dpiScale,
+                drawFill: (_, r) => RenderTextInput(State.GuiderFocalLengthInput, (int)r.X, (int)r.Y, (int)r.Width, (int)r.Height, fontPath, fontSize * 0.9f));
             cursor += fieldH + 2;
             return cursor;
         }
@@ -589,43 +610,50 @@ namespace TianWen.UI.Abstractions
             var ota = pd.OTAs[index];
 
             // OTA header with [Remove] + [Edit] buttons
-            FillRect(x, cursor, w, itemH, OtaHeaderBg);
             var isEditingOta = State.EditingOtaIndex == index;
             var editBtnW = 50f * dpiScale;
             var removeBtnW = 74f * dpiScale;
             var btnGap = 4f * dpiScale;
             var capturedI = index;
 
-            // Title reserves room for both the Remove and Edit buttons on the right.
-            DrawText(
-                $"Telescope #{index}: {ota.Name}".AsSpan(),
-                fontPath,
-                x + padding, cursor, w - padding * 2f - editBtnW - btnGap - removeBtnW, itemH,
-                fontSize, HeaderText, TextAlign.Near, TextAlign.Center);
-
-            // [Remove] button (left of [Edit]). Gated: removable only when NO device assigned to
-            // this OTA is currently hub-connected -- you can't pull an OTA out from under live
-            // hardware. First click arms it ("Confirm?"); a second click on the same OTA removes it
-            // (Esc cancels). Disabled-grey + non-clickable when a device is connected.
-            var removeBtnX = x + w - padding - editBtnW - btnGap - removeBtnW;
             var hub = appState.DeviceHub;
             bool OtaDeviceConnected(Uri? u) =>
                 u is not null && u != NoneDevice.Instance.DeviceUri && hub?.IsConnected(u) == true;
             var otaHasConnectedDevice = OtaDeviceConnected(ota.Camera) || OtaDeviceConnected(ota.Focuser)
                 || OtaDeviceConnected(ota.FilterWheel) || OtaDeviceConnected(ota.Cover);
 
+            // Title leaf (left, takes remaining width after the two buttons)
+            var titleLeaf = new LayoutNode.Leaf(
+                new LayoutContent.Text($"Telescope #{index}: {ota.Name}", fontSize) { Color = HeaderText, HAlign = TextAlign.Near, VAlign = TextAlign.Center })
+            {
+                Width = Sizing.Star(),
+                Height = Sizing.Star(),
+            };
+
+            // [Remove] button leaf -- disabled grey when a device is connected; armed/normal otherwise
+            LayoutNode removeLeaf;
             if (otaHasConnectedDevice)
             {
-                FillRect(removeBtnX, cursor, removeBtnW, itemH, SegmentDisabled);
-                DrawText("Remove".AsSpan(), fontPath, removeBtnX, cursor, removeBtnW, itemH,
-                    fontSize * 0.85f, DimmedText, TextAlign.Center, TextAlign.Center);
+                removeLeaf = new LayoutNode.Leaf(
+                    new LayoutContent.Text("Remove", fontSize * 0.85f) { Color = DimmedText, HAlign = TextAlign.Center, VAlign = TextAlign.Center })
+                {
+                    Width = Sizing.Fixed(removeBtnW),
+                    Height = Sizing.Star(),
+                    Background = SegmentDisabled,
+                    // No Hit, no OnClick -- disabled
+                };
             }
             else
             {
                 var armed = State.PendingRemoveOtaIndex == index;
-                RenderButton(armed ? "Confirm?" : "Remove", removeBtnX, cursor, removeBtnW, itemH,
-                    fontPath, fontSize * 0.85f, armed ? ConfirmDangerBg : RemoveButtonBg, BodyText, $"RemoveOta{index}",
-                    _ =>
+                removeLeaf = new LayoutNode.Leaf(
+                    new LayoutContent.Text(armed ? "Confirm?" : "Remove", fontSize * 0.85f) { Color = BodyText, HAlign = TextAlign.Center, VAlign = TextAlign.Center })
+                {
+                    Width = Sizing.Fixed(removeBtnW),
+                    Height = Sizing.Star(),
+                    Background = armed ? ConfirmDangerBg : RemoveButtonBg,
+                    Hit = new HitResult.ButtonHit($"RemoveOta{index}"),
+                    OnClick = _ =>
                     {
                         if (State.PendingRemoveOtaIndex == capturedI)
                         {
@@ -640,13 +668,27 @@ namespace TianWen.UI.Abstractions
                             State.PendingRemoveOtaIndex = capturedI;
                             appState.NeedsRedraw = true;
                         }
-                    });
+                    },
+                };
             }
 
-            // [Edit]/[Save] toggle button
+            // Gap leaf between Remove and Edit
+            var gapLeaf = new LayoutNode.Leaf(new LayoutContent.Box(0f, 0f))
+            {
+                Width = Sizing.Fixed(btnGap),
+                Height = Sizing.Star(),
+            };
+
+            // [Edit]/[Save] toggle button leaf
             var editLabel = isEditingOta ? "Save" : "Edit";
-            RenderButton(editLabel, x + w - padding - editBtnW, cursor, editBtnW, itemH, fontPath, fontSize * 0.85f, EditButtonBg, BodyText, $"EditOta{index}",
-                _ =>
+            var editLeaf = new LayoutNode.Leaf(
+                new LayoutContent.Text(editLabel, fontSize * 0.85f) { Color = BodyText, HAlign = TextAlign.Center, VAlign = TextAlign.Center })
+            {
+                Width = Sizing.Fixed(editBtnW),
+                Height = Sizing.Star(),
+                Background = EditButtonBg,
+                Hit = new HitResult.ButtonHit($"EditOta{index}"),
+                OnClick = _ =>
                 {
                     if (isEditingOta)
                     {
@@ -666,7 +708,17 @@ namespace TianWen.UI.Abstractions
                     {
                         State.BeginEditingOta(capturedI, ota);
                     }
-                });
+                },
+            };
+
+            // Build the full header row as a horizontal Stack
+            var headerRow = new LayoutNode.Stack([titleLeaf, removeLeaf, gapLeaf, editLeaf], LayoutAxis.Horizontal)
+            {
+                Width = Sizing.Fixed(w),
+                Height = Sizing.Fixed(itemH),
+                Background = OtaHeaderBg,
+            };
+            RenderLayout(headerRow, new RectF32(x, cursor, w, itemH), fontPath, dpiScale);
             return cursor + itemH;
         }
 
@@ -1345,22 +1397,24 @@ namespace TianWen.UI.Abstractions
         {
             var fieldH = (int)(itemH * 1.1f);
             var labelW = 80f * dpiScale;
-            var fieldW = (int)(w - padding * 2f - labelW);
-            var fieldX = (int)(x + padding + labelW);
+            var rowW_ota = w - padding * 2f;
 
             // Name
-            DrawText("  Name:".AsSpan(), fontPath, x + padding, cursor, labelW, itemH, fontSize * 0.85f, DimText, TextAlign.Near, TextAlign.Center);
-            RenderTextInput(State.OtaNameInput, fieldX, (int)cursor, fieldW, fieldH, fontPath, fontSize * 0.9f);
+            var nameRow = EquipmentPanelLayout.LabeledInputRow("  Name:", labelW, fieldH, padding, fontSize * 0.85f, DimText);
+            RenderLayout(nameRow, new RectF32(x + padding, cursor, rowW_ota, fieldH), fontPath, dpiScale,
+                drawFill: (_, r) => RenderTextInput(State.OtaNameInput, (int)r.X, (int)r.Y, (int)r.Width, (int)r.Height, fontPath, fontSize * 0.9f));
             cursor += fieldH + 2;
 
             // Focal length
-            DrawText("  FL (mm):".AsSpan(), fontPath, x + padding, cursor, labelW, itemH, fontSize * 0.85f, DimText, TextAlign.Near, TextAlign.Center);
-            RenderTextInput(State.FocalLengthInput, fieldX, (int)cursor, fieldW, fieldH, fontPath, fontSize * 0.9f);
+            var flRow = EquipmentPanelLayout.LabeledInputRow("  FL (mm):", labelW, fieldH, padding, fontSize * 0.85f, DimText);
+            RenderLayout(flRow, new RectF32(x + padding, cursor, rowW_ota, fieldH), fontPath, dpiScale,
+                drawFill: (_, r) => RenderTextInput(State.FocalLengthInput, (int)r.X, (int)r.Y, (int)r.Width, (int)r.Height, fontPath, fontSize * 0.9f));
             cursor += fieldH + 2;
 
             // Aperture
-            DrawText("  Aper (mm):".AsSpan(), fontPath, x + padding, cursor, labelW, itemH, fontSize * 0.85f, DimText, TextAlign.Near, TextAlign.Center);
-            RenderTextInput(State.ApertureInput, fieldX, (int)cursor, fieldW, fieldH, fontPath, fontSize * 0.9f);
+            var apRow = EquipmentPanelLayout.LabeledInputRow("  Aper (mm):", labelW, fieldH, padding, fontSize * 0.85f, DimText);
+            RenderLayout(apRow, new RectF32(x + padding, cursor, rowW_ota, fieldH), fontPath, dpiScale,
+                drawFill: (_, r) => RenderTextInput(State.ApertureInput, (int)r.X, (int)r.Y, (int)r.Width, (int)r.Height, fontPath, fontSize * 0.9f));
             cursor += fieldH + 2;
 
             // Optical design cycle button
@@ -1402,8 +1456,9 @@ namespace TianWen.UI.Abstractions
             var headerLabel = isExpanded
                 ? $"    Filters ({savedFilters.Count}) [-]"
                 : $"    Filters ({savedFilters.Count}) [+]";
-            FillRect(x + padding, cursor, w - padding * 2f, rowH, FilterTableBg);
-            RegisterClickable(x + padding, cursor, w - padding * 2f, rowH, new HitResult.ButtonHit($"ToggleFilters{otaIndex}"),
+            var toggleHeader = EquipmentPanelLayout.ToggleHeaderRow(
+                headerLabel, rowH, FilterTableBg, HeaderText, fontSize * 0.85f,
+                new HitResult.ButtonHit($"ToggleFilters{otaIndex}"),
                 _ =>
                 {
                     if (isExpanded)
@@ -1417,11 +1472,7 @@ namespace TianWen.UI.Abstractions
                         State.BeginEditingFilters(savedFilters);
                     }
                 });
-            DrawText(
-                headerLabel.AsSpan(),
-                fontPath,
-                x + padding * 2f, cursor, w - padding * 4f, rowH,
-                fontSize * 0.85f, HeaderText, TextAlign.Near, TextAlign.Center);
+            RenderLayout(toggleHeader, new RectF32(x + padding, cursor, w - padding * 2f, rowH), fontPath, dpiScale);
             cursor += rowH;
 
             if (!isExpanded || State.EditingFilters is not { } filters)
@@ -1616,15 +1667,11 @@ namespace TianWen.UI.Abstractions
             var isOpen = State.ExpandedDeviceSettingsUri == paneKey;
             var headerLabel = isOpen ? "    Cooler Control [-]" : "    Cooler Control [+]";
 
-            FillRect(x + padding, cursor, w - padding * 2f, rowH, FilterTableBg);
-            RegisterClickable(x + padding, cursor, w - padding * 2f, rowH, new HitResult.ButtonHit(headerKey),
-                _ =>
-                {
-                    State.ExpandedDeviceSettingsUri = isOpen ? null : paneKey;
-                });
-            DrawText(headerLabel.AsSpan(), fontPath,
-                x + padding * 2f, cursor, w - padding * 4f, rowH,
-                fontSize * 0.85f, HeaderText, TextAlign.Near, TextAlign.Center);
+            var camToggle = EquipmentPanelLayout.ToggleHeaderRow(
+                headerLabel, rowH, FilterTableBg, HeaderText, fontSize * 0.85f,
+                new HitResult.ButtonHit(headerKey),
+                _ => State.ExpandedDeviceSettingsUri = isOpen ? null : paneKey);
+            RenderLayout(camToggle, new RectF32(x + padding, cursor, w - padding * 2f, rowH), fontPath, dpiScale);
             cursor += rowH;
 
             if (!isOpen) return cursor;
@@ -1844,12 +1891,11 @@ namespace TianWen.UI.Abstractions
             var isOpen = State.ExpandedDeviceSettingsUri == paneKey;
             var headerLabel = isOpen ? "    Mount Status [-]" : "    Mount Status [+]";
 
-            FillRect(x + padding, cursor, w - padding * 2f, rowH, FilterTableBg);
-            RegisterClickable(x + padding, cursor, w - padding * 2f, rowH, new HitResult.ButtonHit(headerKey),
+            var mountToggle = EquipmentPanelLayout.ToggleHeaderRow(
+                headerLabel, rowH, FilterTableBg, HeaderText, fontSize * 0.85f,
+                new HitResult.ButtonHit(headerKey),
                 _ => State.ExpandedDeviceSettingsUri = isOpen ? null : paneKey);
-            DrawText(headerLabel.AsSpan(), fontPath,
-                x + padding * 2f, cursor, w - padding * 4f, rowH,
-                fontSize * 0.85f, HeaderText, TextAlign.Near, TextAlign.Center);
+            RenderLayout(mountToggle, new RectF32(x + padding, cursor, w - padding * 2f, rowH), fontPath, dpiScale);
             cursor += rowH;
 
             if (!isOpen) return cursor;
@@ -2061,8 +2107,9 @@ namespace TianWen.UI.Abstractions
 
             // Toggle header
             var headerLabel = isExpanded ? $"    {sectionLabel} [-]" : $"    {sectionLabel} [+]";
-            FillRect(x + padding, cursor, w - padding * 2f, rowH, FilterTableBg);
-            RegisterClickable(x + padding, cursor, w - padding * 2f, rowH, new HitResult.ButtonHit($"Toggle_{deviceKey}"),
+            var devToggle = EquipmentPanelLayout.ToggleHeaderRow(
+                headerLabel, rowH, FilterTableBg, HeaderText, fontSize * 0.85f,
+                new HitResult.ButtonHit($"Toggle_{deviceKey}"),
                 _ =>
                 {
                     if (isExpanded)
@@ -2074,11 +2121,7 @@ namespace TianWen.UI.Abstractions
                         State.BeginEditingDeviceSettings(savedDeviceUri);
                     }
                 });
-            DrawText(
-                headerLabel.AsSpan(),
-                fontPath,
-                x + padding * 2f, cursor, w - padding * 4f, rowH,
-                fontSize * 0.85f, HeaderText, TextAlign.Near, TextAlign.Center);
+            RenderLayout(devToggle, new RectF32(x + padding, cursor, w - padding * 2f, rowH), fontPath, dpiScale);
             cursor += rowH;
 
             if (!isExpanded || State.EditingDeviceUri is not { } editingUri)
@@ -2213,10 +2256,11 @@ namespace TianWen.UI.Abstractions
             {
                 var advancedExpanded = State.AdvancedDeviceSettingsExpanded;
                 var advancedLabel = advancedExpanded ? "      Advanced [-]" : "      Advanced [+]";
-                FillRect(x + padding, cursor, w - padding * 2f, rowH, FilterTableBg);
-                RegisterClickable(x + padding, cursor, w - padding * 2f, rowH, new HitResult.ButtonHit($"ToggleAdvanced_{deviceKey}"),
+                var advancedToggle = EquipmentPanelLayout.ToggleHeaderRow(
+                    advancedLabel, rowH, FilterTableBg, DimText, fontSize * 0.85f,
+                    new HitResult.ButtonHit($"ToggleAdvanced_{deviceKey}"),
                     _ => State.AdvancedDeviceSettingsExpanded = !advancedExpanded);
-                DrawText(advancedLabel.AsSpan(), fontPath, x + padding * 2f, cursor, w - padding * 4f, rowH, fontSize * 0.85f, DimText, TextAlign.Near, TextAlign.Center);
+                RenderLayout(advancedToggle, new RectF32(x + padding, cursor, w - padding * 2f, rowH), fontPath, dpiScale);
                 cursor += rowH;
 
                 if (advancedExpanded)

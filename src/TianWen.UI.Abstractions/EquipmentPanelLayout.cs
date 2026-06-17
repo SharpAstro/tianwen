@@ -190,5 +190,96 @@ namespace TianWen.UI.Abstractions
                 Background = style.FilterTableBg,
             };
         }
+
+        /// <summary>
+        /// Builds a clickable toggle-header row: background + hit + label text.
+        /// Used for collapsible sections (Filter table, Cooler Control, Mount Status, Device Settings, Advanced sub-section).
+        /// </summary>
+        public static LayoutNode ToggleHeaderRow(
+            string label, float rowH,
+            RGBAColor32 bg, RGBAColor32 textColor, float fontSize,
+            HitResult hit, Action<InputModifier>? onClick)
+        {
+            return new LayoutNode.Leaf(new LayoutContent.Text(label, fontSize) { Color = textColor, HAlign = TextAlign.Near, VAlign = TextAlign.Center })
+            {
+                Width = Sizing.Star(),
+                Height = Sizing.Fixed(rowH),
+                Background = bg,
+                Hit = hit,
+                OnClick = onClick,
+            };
+        }
+
+        /// <summary>
+        /// Builds a horizontal labeled-input row: [label fixed-labelW | Fill *].
+        /// The Fill is the escape hatch for the caller's RenderTextInput call (one per RenderLayout).
+        /// </summary>
+        public static LayoutNode LabeledInputRow(
+            string label, float labelW, float rowH, float padding, float fontSize,
+            RGBAColor32 textColor, RGBAColor32? bg = null)
+        {
+            var labelLeaf = new LayoutNode.Leaf(new LayoutContent.Text(label, fontSize) { Color = textColor, HAlign = TextAlign.Near, VAlign = TextAlign.Center })
+            {
+                Width = Sizing.Fixed(labelW),
+                Height = Sizing.Star(),
+            };
+            var fillLeaf = new LayoutNode.Leaf(new LayoutContent.Fill())
+            {
+                Width = Sizing.Star(),
+                Height = Sizing.Star(),
+            };
+            return new LayoutNode.Stack([labelLeaf, fillLeaf], LayoutAxis.Horizontal)
+            {
+                Width = Sizing.Star(),
+                Height = Sizing.Fixed(rowH),
+                Background = bg,
+            };
+        }
+
+        /// <summary>
+        /// Builds a horizontal stepper row: [label * | [-] valueText [+]].
+        /// Disabled dec/inc = no Hit on the respective button leaf.
+        /// </summary>
+        public static LayoutNode StepperRow(
+            string label, string valueText, float rowH, float padding,
+            float fontSize, float stepBtnW,
+            RGBAColor32 rowBg, RGBAColor32 btnBg, RGBAColor32 labelColor, RGBAColor32 valueColor, RGBAColor32 bodyText,
+            string decHitKey, Action<InputModifier>? onDec,
+            string incHitKey, Action<InputModifier>? onInc,
+            bool decEnabled = true, bool incEnabled = true)
+        {
+            var labelLeaf = new LayoutNode.Leaf(new LayoutContent.Text(label, fontSize) { Color = labelColor, HAlign = TextAlign.Near, VAlign = TextAlign.Center })
+            {
+                Width = Sizing.Star(),
+                Height = Sizing.Star(),
+            };
+            var decLeaf = new LayoutNode.Leaf(new LayoutContent.Text("-", fontSize) { Color = bodyText, HAlign = TextAlign.Center, VAlign = TextAlign.Center })
+            {
+                Width = Sizing.Fixed(stepBtnW),
+                Height = Sizing.Star(),
+                Background = decEnabled ? btnBg : (RGBAColor32?)null,
+                Hit = decEnabled ? new HitResult.ButtonHit(decHitKey) : null,
+                OnClick = decEnabled ? onDec : null,
+            };
+            var valueLeaf = new LayoutNode.Leaf(new LayoutContent.Text(valueText, fontSize) { Color = valueColor, HAlign = TextAlign.Center, VAlign = TextAlign.Center })
+            {
+                Width = Sizing.Fixed(stepBtnW * 2f),
+                Height = Sizing.Star(),
+            };
+            var incLeaf = new LayoutNode.Leaf(new LayoutContent.Text("+", fontSize) { Color = bodyText, HAlign = TextAlign.Center, VAlign = TextAlign.Center })
+            {
+                Width = Sizing.Fixed(stepBtnW),
+                Height = Sizing.Star(),
+                Background = incEnabled ? btnBg : (RGBAColor32?)null,
+                Hit = incEnabled ? new HitResult.ButtonHit(incHitKey) : null,
+                OnClick = incEnabled ? onInc : null,
+            };
+            return new LayoutNode.Stack([labelLeaf, decLeaf, valueLeaf, incLeaf], LayoutAxis.Horizontal)
+            {
+                Width = Sizing.Star(),
+                Height = Sizing.Fixed(rowH),
+                Background = rowBg,
+            };
+        }
     }
 }
