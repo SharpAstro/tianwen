@@ -56,6 +56,7 @@ namespace TianWen.UI.Abstractions
         private static readonly RGBAColor32 FilterTableBg    = EquipmentPanelStyle.Default.FilterTableBg;
         private static readonly RGBAColor32 FilterRowAlt     = new RGBAColor32(0x20, 0x20, 0x2e, 0xff);
         private static readonly RGBAColor32 EditButtonBg     = new RGBAColor32(0x2a, 0x40, 0x5a, 0xff);
+        private static readonly RGBAColor32 RemoveButtonBg   = new RGBAColor32(0x6a, 0x2a, 0x2a, 0xff); // muted red: arm OTA removal
         // Reachability indicator colors (⏻ glyph + segmented On|Off button highlight)
         private static readonly RGBAColor32 ReachConnected   = new RGBAColor32(0x40, 0xc0, 0x40, 0xff);
         private static readonly RGBAColor32 ReachDisconnected= new RGBAColor32(0xc0, 0x90, 0x30, 0xff);
@@ -179,6 +180,12 @@ namespace TianWen.UI.Abstractions
             if (State.IsEditingSite)
             {
                 State.IsEditingSite = false;
+                dismissed = true;
+            }
+
+            if (State.PendingRemoveOtaIndex >= 0)
+            {
+                State.PendingRemoveOtaIndex = -1;
                 dismissed = true;
             }
 
@@ -531,19 +538,63 @@ namespace TianWen.UI.Abstractions
                 {
                     var ota = pd.OTAs[i];
 
-                    // OTA header with [Edit] button
+                    // OTA header with [Remove] + [Edit] buttons
                     FillRect(x, cursor, w, itemH, OtaHeaderBg);
                     var isEditingOta = State.EditingOtaIndex == i;
                     var editBtnW = 50f * dpiScale;
+                    var removeBtnW = 74f * dpiScale;
+                    var btnGap = 4f * dpiScale;
+                    var capturedI = i;
+
+                    // Title reserves room for both the Remove and Edit buttons on the right.
                     DrawText(
                         $"Telescope #{i}: {ota.Name}".AsSpan(),
                         fontPath,
-                        x + padding, cursor, w - padding * 2f - editBtnW, itemH,
+                        x + padding, cursor, w - padding * 2f - editBtnW - btnGap - removeBtnW, itemH,
                         fontSize, HeaderText, TextAlign.Near, TextAlign.Center);
+
+                    // [Remove] button (left of [Edit]). Gated: removable only when NO device assigned to
+                    // this OTA is currently hub-connected -- you can't pull an OTA out from under live
+                    // hardware. First click arms it ("Confirm?"); a second click on the same OTA removes it
+                    // (Esc cancels). Disabled-grey + non-clickable when a device is connected.
+                    var removeBtnX = x + w - padding - editBtnW - btnGap - removeBtnW;
+                    var hub = appState.DeviceHub;
+                    bool OtaDeviceConnected(Uri? u) =>
+                        u is not null && u != NoneDevice.Instance.DeviceUri && hub?.IsConnected(u) == true;
+                    var otaHasConnectedDevice = OtaDeviceConnected(ota.Camera) || OtaDeviceConnected(ota.Focuser)
+                        || OtaDeviceConnected(ota.FilterWheel) || OtaDeviceConnected(ota.Cover);
+
+                    if (otaHasConnectedDevice)
+                    {
+                        FillRect(removeBtnX, cursor, removeBtnW, itemH, SegmentDisabled);
+                        DrawText("Remove".AsSpan(), fontPath, removeBtnX, cursor, removeBtnW, itemH,
+                            fontSize * 0.85f, DimmedText, TextAlign.Center, TextAlign.Center);
+                    }
+                    else
+                    {
+                        var armed = State.PendingRemoveOtaIndex == i;
+                        RenderButton(armed ? "Confirm?" : "Remove", removeBtnX, cursor, removeBtnW, itemH,
+                            fontPath, fontSize * 0.85f, armed ? ConfirmDangerBg : RemoveButtonBg, BodyText, $"RemoveOta{i}",
+                            _ =>
+                            {
+                                if (State.PendingRemoveOtaIndex == capturedI)
+                                {
+                                    State.PendingRemoveOtaIndex = -1;
+                                    if (appState.ActiveProfile is { Data: { } removeData })
+                                    {
+                                        PostSignal(new UpdateProfileSignal(EquipmentActions.RemoveOTA(removeData, capturedI)));
+                                    }
+                                }
+                                else
+                                {
+                                    State.PendingRemoveOtaIndex = capturedI;
+                                    appState.NeedsRedraw = true;
+                                }
+                            });
+                    }
 
                     // [Edit]/[Save] toggle button
                     var editLabel = isEditingOta ? "Save" : "Edit";
-                    var capturedI = i;
                     RenderButton(editLabel, x + w - padding - editBtnW, cursor, editBtnW, itemH, fontPath, fontSize * 0.85f, EditButtonBg, BodyText, $"EditOta{i}",
                         _ =>
                         {
