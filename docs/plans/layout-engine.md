@@ -119,7 +119,7 @@ tree are fully shared.
 |------|-------|---------|------|
 | **1** ✅ | `UiTheme` (palette + metrics) record; migrate consumers off duplicated constants | DIR.Lib (type) + TianWen + chess (instances) | constants deduped; pixel output unchanged — **DONE for the core chrome roles** |
 | **2** 🔧 | Layout engine: `LayoutNode` tree, Measure/Arrange, Stack/Row/Dock/Grid, Fixed/Auto/Star, width-oracle, auto-clickable; unify `TerminalLayout` onto `DockLayout<int>` | DIR.Lib + Console.Lib | one TianWen tab (Equipment profile panel) ported, GPU+TUI parity — **engine core + 15 tests DONE; painters + port pending** |
-| **3** 🔧 | Extract shared widgets: `PixelTextBar`, `PixelScrollableList`, overlay/modal, surface-agnostic `PixelMenuWidget` | DIR.Lib (+ chess + TianWen consume) | chess + TianWen both drop their hand-rolled copies — **`RenderTextBar` + `DrawScrim` SHIPPED in-tree (canary proven, both apps build green); `ScrollBar` not warranted (1 consumer); `PixelMenuWidget` deferred to release (breaking SdlVulkan API + defcon1)** |
+| **3** ✅ | Extract shared widgets: `PixelTextBar`, `PixelScrollableList`, overlay/modal, surface-agnostic `PixelMenuWidget` | DIR.Lib (+ chess + TianWen + Console.Lib consume) | chess + TianWen both drop their hand-rolled copies — **`RenderTextBar` + `DrawScrim` + surface-agnostic `PixelMenuWidget`/`MenuWidget` SHIPPED in-tree (menu is the first widget rendering one BuildTree on BOTH GPU + TUI; all consumers build green); `ScrollBar` not warranted (same-surface, 1 consumer). Release of the SdlVulkan API break held by user (#24)** |
 | **4** | **(gated)** Layout DSL on LALR.CC: build-baked grammar, runtime-parsed `.layout` -> visitor -> `LayoutNode` tree; hot-reload in dev | LALR.CC grammar + DIR.Lib loader | one screen authored in the DSL renders on both surfaces |
 
 ### Phase 1 -- `UiTheme`
@@ -285,8 +285,8 @@ tree are fully shared.
 
 Extract the patterns both consumers hand-roll into DIR.Lib, built on Phase 2. Applied the same
 value/risk bar as #20/#21/#22: extract where there is a genuine second consumer and the change is
-additive; skip pure relocations and breaking cross-library moves that only pay off for a hypothetical
-future consumer.
+additive; skip pure relocations; do a breaking cross-library move only when a real second-SURFACE
+consumer justifies it (the menu's TUI consumer did; a same-surface relocation like ScrollBar did not).
 
 - `PixelTextBar` -- **SHIPPED** (DIR.Lib `74f9107`). Added `RenderTextBar` to `PixelWidgetBase<TSurface>`
   (fill + padding + horizontally/vertically aligned text). Two real consumers across two repos: TianWen
@@ -304,14 +304,21 @@ future consumer.
   scrollbar/list across the repo boundary with no second consumer is pure churn + release coupling for no
   immediate reuse (same call as #22). Revisit when a second consumer (e.g. a chess history list on the
   shared widget) actually materialises.
-- `PixelMenuWidget` -- **DEFERRED to the release-coordinated work**, not skipped. `VkMenuWidget` is
-  *already* a shared widget: consumed by both chess `Chess.GUI/VkStartupMenu.cs` and
-  `defcon1/Defcon1.GUI/VkStartupMenu.cs` via `SdlVulkan.Renderer`. Moving it down to a surface-agnostic
-  `PixelMenuWidget` in DIR.Lib (so `Chess.Lib` can use the same menu path without the GPU package -- the
-  tension in chess `MIGRATION-VK.md`) is a **breaking change to `SdlVulkan.Renderer`'s public API** plus a
-  third-repo update (defcon1), and only pays off once a non-Vulkan (e.g. TUI) menu consumer exists. Because
-  it changes two published libraries' surface, it must be done atomically with the dependency-ordered
-  release (Phase / #24), not speculatively before it. Gated on the user wanting a surface-agnostic menu.
+- `PixelMenuWidget` -- **SHIPPED in-tree** (DIR.Lib `4647e07`, SdlVulkan.Renderer `22df86b`, chess
+  `ffa2515`, Console.Lib `5f80871`). I first judged this a deferred/speculative move (VkMenuWidget was
+  already shared by chess + defcon1 via `SdlVulkan.Renderer`); the user corrected that on 2026-06-17: a
+  menu matters for **Console.Lib in its own right** (Turbo-Pascal / `edit.com`-style text-mode menus), so
+  this is a NEW cross-SURFACE capability, not a same-surface relocation. Built as a surface-neutral core in
+  DIR.Lib -- `MenuModel` (state + Up/Down/Enter/digit input logic) + `MenuColors` + `MenuLayout.BuildTree`
+  -> `LayoutNode` (each item leaf carries `Hit` + `OnClick`), 27 tests -- with two thin surface shells:
+  `PixelMenuWidget<TSurface>` (GPU, via `PixelWidgetBase.RenderLayout`; chess `VkStartupMenu` now lazily
+  drives `PixelMenuWidget<VulkanContext>`) and Console.Lib `MenuWidget` (TUI, via `CellLayout.Paint`/
+  `HitTest`, 13 tests). **This is the FIRST widget to render one `BuildTree` on BOTH surfaces** -- the
+  payoff the whole engine was built for. `VkMenuWidget`'s 201 lines of manual cursor math were deleted.
+  defcon1 (a NuGet consumer, not in-tree) is untouched -- it keeps the published `VkMenuWidget` until the
+  release re-homes it. The breaking `SdlVulkan.Renderer` public-API removal lands with the dependency-
+  ordered release (#24), which the user is holding; chess + TianWen + Console.Lib all build green in-tree
+  against the change today.
 
 ### Phase 4 -- LALR.CC layout DSL (gated on Phase 2 + verbosity proving out)
 
