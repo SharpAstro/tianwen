@@ -255,14 +255,20 @@ tree are fully shared.
     draws through the single base `RGBAColor32` surface. Inspector-verified (toolbar / file list / histogram
     screenshot-identical). FitsViewer requirement (a) [theme] is satisfied; (b) [panel `LayoutNode` trees]
     remains open (the panels work + are verified, so this is a structural-only follow-up).
-  - **DEFERRED -- full GPU panel tree port is a redesign, not a wiring step.** `RenderProfilePanel` (~330 lines)
-    is a deeply interactive editor: site lat/lon/elev text inputs + tie-breaker buttons, Remove/Edit/Save-OTA
-    buttons, in-place OTA property editors, per-device settings sub-sections, mount + camera telemetry graphs,
-    filter-offset editors, Add-OTA / Connect-All. `EquipmentPanelLayout.Build` models only the STATIC skeleton
-    (header, slots, properties-as-text, filter table). Wiring `Build` wholesale would regress every interactive
-    widget; doing it properly means extending `Build` to model them as `Fill`/button nodes (large) or a hybrid
-    that defeats the one-tree purpose. Treated as a multi-session redesign to schedule deliberately, not as the
-    remaining slice of 2D.
+  - **GPU panel data-driven via a section-driver (DONE, 2026-06-17, commit `31dc4e3`) -- TODO.md:57.**
+    `RenderProfilePanel` (~330 lines) is a deeply interactive editor: site lat/lon/elev text inputs +
+    tie-breaker buttons, Remove/Edit/Save-OTA buttons, in-place OTA property editors, per-device settings
+    sub-sections, mount + camera telemetry graphs, filter-offset editors, Add-OTA / Connect-All. Forcing it
+    into one static `LayoutNode` tree was rejected (would need a DIR.Lib `Fill`-dispatch-tag change + splitting
+    ~8 interactive helpers into measure+draw, with drift risk, for weak benefit -- the TUI uses `ScrollableList`
+    not this tree, and slot rows already get draw==hit). Instead the panel's vertical flow is now a data-driven
+    **section list**: `EquipmentContent.GetProfilePanelSections(ProfileData)` emits an ordered surface-neutral
+    `PanelSection` list, and `RenderProfilePanel` walks it + dispatches each section via `RenderSection` (static
+    rows reuse the engine-backed `SlotRow`; interactive/variable-height widgets stay imperative behind the
+    dispatch). The per-OTA loop is genuinely data-driven (add a slot type = model entry + one switch arm), the
+    list is surface-neutral (a future TUI panel can consume it), and the full single-tree port is no longer
+    needed. Verified via the SDL inspector: all elements present, correct order + footprint, FW-gated filter
+    table, site-edit variable-height reflow.
   - **TUI path -- no CellLayout consumer yet.** `TuiEquipmentTab` is built on Console.Lib `ScrollableList`
     (cursor-driven scrollable list), a different + well-working interaction model than the static `LayoutNode`
     arrange/paint. The cell painter (`CellLayout`) is tested but has no production consumer; whether to port a
