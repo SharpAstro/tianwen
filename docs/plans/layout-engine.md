@@ -339,7 +339,11 @@ The refactor is not "the GUI tabs only". Every `PixelWidgetBase<TSurface>` consu
   instance for chrome colours + metrics (its 18px font is a deliberate viewer-scale divergence -> its
   own metrics instance, NOT GuiTheme's 14px) -- **DONE: `ViewerTheme`, all chrome migrated, float drawing
   overloads deleted, inspector-verified** -- and (b) port its panels to `LayoutNode` trees in 2D/3 --
-  **OPEN (structural-only follow-up).** Versioned in lockstep with the rest of TianWen (6.0.0).
+  **RESOLVED as NOT WARRANTED:** the info panel is read-only text (no clickables -> the engine's draw==hit
+  binding adds nothing; wrapping + bottom-anchored controls add cost), and the toolbar/file-list/histogram-LOG
+  are interactive but already working + inspector-verified (marginal benefit vs. real regression risk on
+  just-verified code). Same judgment as the #20 section-driver and #21 (TuiEquipmentTab stays on ScrollableList):
+  apply the engine where it adds clear value, not dogmatically. Versioned in lockstep with the rest of TianWen (6.0.0).
 - **TianWen TUI** (`TianWen.Cli`, via Console.Lib cell painter) -- Phase 2C cell painter ready.
 - **chess** (`Chess.GUI`/`Chess.Lib`) -- the second-consumer canary.
 
