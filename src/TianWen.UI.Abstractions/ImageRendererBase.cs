@@ -162,6 +162,39 @@ namespace TianWen.UI.Abstractions
         /// <summary>Scaled info panel width in pixels.</summary>
         public float ScaledInfoPanelWidth => InfoPanelWidth;
 
+        // -----------------------------------------------------------------------
+        // Local chrome colours
+        //
+        // The shared/role colours (toolbar strip, panel backgrounds, header text,
+        // separators, file-selection highlight) live on ViewerTheme. These are the
+        // per-widget *state* colours -- button hover/active lerps, the file-list
+        // hover band, scrollbar, resize handle, grid-label green, histogram LOG
+        // toggle states -- which ViewerTheme deliberately keeps at the draw site.
+        // Values match the float literals they replaced (via RGBAColor32.FromFloat)
+        // so adopting them is a pure dedup with no visual change.
+        // -----------------------------------------------------------------------
+
+        private static readonly RGBAColor32 ToolbarButtonBg = RGBAColor32.FromFloat(0.25f, 0.25f, 0.28f, 1f);
+        private static readonly RGBAColor32 ToolbarButtonHoverBg = RGBAColor32.FromFloat(0.35f, 0.35f, 0.40f, 1f);
+        private static readonly RGBAColor32 ToolbarButtonActiveBg = RGBAColor32.FromFloat(0.20f, 0.30f, 0.50f, 1f);
+        private static readonly RGBAColor32 ToolbarButtonDisabledBg = RGBAColor32.FromFloat(0.20f, 0.20f, 0.22f, 1f);
+
+        private static readonly RGBAColor32 FileListHoverBg = RGBAColor32.FromFloat(0.22f, 0.22f, 0.28f, 1f);
+        private static readonly RGBAColor32 FileListItemText = RGBAColor32.FromFloat(0.80f, 0.80f, 0.80f, 1f);
+        private static readonly RGBAColor32 FileListItemTextSelected = RGBAColor32.FromFloat(1f, 1f, 1f, 1f);
+        private static readonly RGBAColor32 ScrollBarColor = RGBAColor32.FromFloat(0.40f, 0.40f, 0.45f, 0.8f);
+        private static readonly RGBAColor32 ResizeHandleActiveColor = RGBAColor32.FromFloat(0.45f, 0.55f, 0.70f, 1f);
+        private static readonly RGBAColor32 ResizeHandleIdleColor = RGBAColor32.FromFloat(0.30f, 0.30f, 0.35f, 0.7f);
+
+        private static readonly RGBAColor32 GridLabelColor = RGBAColor32.FromFloat(0f, 0.85f, 0f, 1f);
+
+        // Histogram LOG-scale toggle button: log-on (blue) and log-off (grey) families,
+        // each with a hover-brightened variant. Alpha 0.9 (the histogram is an overlay).
+        private static readonly RGBAColor32 HistogramLogOnBg = RGBAColor32.FromFloat(0.20f, 0.30f, 0.50f, 0.9f);
+        private static readonly RGBAColor32 HistogramLogOnHoverBg = RGBAColor32.FromFloat(0.25f, 0.35f, 0.55f, 0.9f);
+        private static readonly RGBAColor32 HistogramLogOffBg = RGBAColor32.FromFloat(0.25f, 0.25f, 0.28f, 0.9f);
+        private static readonly RGBAColor32 HistogramLogOffHoverBg = RGBAColor32.FromFloat(0.35f, 0.35f, 0.40f, 0.9f);
+
         // Toolbar button definitions (label, action, group)
         private static readonly (string Label, ToolbarAction Action, int Group)[] ToolbarButtons =
         [
@@ -493,7 +526,7 @@ namespace TianWen.UI.Abstractions
 
         private void RenderToolbar(AstroImageDocument? document, ViewerState state)
         {
-            FillRect(0, 0, Width, ToolbarHeight, 0.18f, 0.18f, 0.20f, 1f);
+            FillRect(0, 0, Width, ToolbarHeight, ViewerTheme.ToolbarBg);
 
             // Recompute button bounds every frame — labels can change width
             // (e.g. "Stars" -> "Stars: 5893") which shifts later buttons.
@@ -533,27 +566,29 @@ namespace TianWen.UI.Abstractions
 
                 if (!enabled)
                 {
-                    FillRect(x, btnY, btnW, btnH, 0.20f, 0.20f, 0.22f, 1f);
+                    FillRect(x, btnY, btnW, btnH, ToolbarButtonDisabledBg);
                 }
                 else if (active && hovered)
                 {
-                    FillRect(x, btnY, btnW, btnH, 0.25f, 0.35f, 0.55f, 1f);
+                    // Active + hover = the brightest selection blue (matches ViewerTheme's selected role).
+                    FillRect(x, btnY, btnW, btnH, ViewerTheme.Palette.Selection);
                 }
                 else if (active)
                 {
-                    FillRect(x, btnY, btnW, btnH, 0.20f, 0.30f, 0.50f, 1f);
+                    FillRect(x, btnY, btnW, btnH, ToolbarButtonActiveBg);
                 }
                 else if (hovered)
                 {
-                    FillRect(x, btnY, btnW, btnH, 0.35f, 0.35f, 0.40f, 1f);
+                    FillRect(x, btnY, btnW, btnH, ToolbarButtonHoverBg);
                 }
                 else
                 {
-                    FillRect(x, btnY, btnW, btnH, 0.25f, 0.25f, 0.28f, 1f);
+                    FillRect(x, btnY, btnW, btnH, ToolbarButtonBg);
                 }
 
                 var textBrightness = enabled ? 0.9f : 0.45f;
-                DrawText(displayLabel, x + ButtonPaddingH, textY, ToolbarFontSize, textBrightness, textBrightness, textBrightness);
+                DrawText(displayLabel, x + ButtonPaddingH, textY, ToolbarFontSize,
+                    RGBAColor32.FromFloat(textBrightness, textBrightness, textBrightness, 1f));
 
                 if (enabled)
                 {
@@ -937,7 +972,7 @@ namespace TianWen.UI.Abstractions
             var listTop = ToolbarHeight;
             var listHeight = Height - ToolbarHeight - StatusBarHeight;
 
-            FillRect(0, listTop, FileListWidth, listHeight, 0.13f, 0.13f, 0.15f, 0.95f);
+            FillRect(0, listTop, FileListWidth, listHeight, ViewerTheme.FileListBg);
 
             if (_fontPath is null)
             {
@@ -945,10 +980,10 @@ namespace TianWen.UI.Abstractions
             }
 
             var y = (float)listTop + PanelPadding;
-            DrawText("Files", PanelPadding, y, FontSize, 0.6f, 0.8f, 1f);
+            DrawText("Files", PanelPadding, y, FontSize, ViewerTheme.Palette.HeaderText);
             y += FontSize + 4f;
 
-            FillRect(PanelPadding, y, FileListWidth - PanelPadding * 2, 1, 0.3f, 0.3f, 0.35f, 1f);
+            FillRect(PanelPadding, y, FileListWidth - PanelPadding * 2, 1, ViewerTheme.Palette.Separator);
             y += 3f;
 
             var itemHeight = FontSize + 4f;
@@ -972,18 +1007,18 @@ namespace TianWen.UI.Abstractions
 
                 if (isSelected)
                 {
-                    FillRect(2, itemY, FileListWidth - 4, itemHeight, 0.25f, 0.35f, 0.55f, 1f);
+                    FillRect(2, itemY, FileListWidth - 4, itemHeight, ViewerTheme.Palette.Selection);
                 }
                 else if (isHovered)
                 {
-                    FillRect(2, itemY, FileListWidth - 4, itemHeight, 0.22f, 0.22f, 0.28f, 1f);
+                    FillRect(2, itemY, FileListWidth - 4, itemHeight, FileListHoverBg);
                 }
 
                 var maxChars = (int)((FileListWidth - PanelPadding * 2) / (FontSize * 0.6f));
                 var displayName = fileName.Length > maxChars ? fileName[..(maxChars - 2)] + ".." : fileName;
 
-                var textColor = isSelected ? (R: 1f, G: 1f, B: 1f) : (R: 0.8f, G: 0.8f, B: 0.8f);
-                DrawText(displayName, PanelPadding, itemY + 2f, FontSize, textColor.R, textColor.G, textColor.B);
+                DrawText(displayName, PanelPadding, itemY + 2f, FontSize,
+                    isSelected ? FileListItemTextSelected : FileListItemText);
 
                 RegisterClickable(0, itemY, FileListWidth, itemHeight, new HitResult.ListItemHit("FileList", fileIndex));
             }
@@ -993,7 +1028,7 @@ namespace TianWen.UI.Abstractions
                 var scrollFraction = (float)state.FileListScrollOffset / Math.Max(1, state.ImageFileNames.Count - visibleCount);
                 var scrollBarH = Math.Max(20f, listHeight * visibleCount / state.ImageFileNames.Count);
                 var scrollBarY = listTop + scrollFraction * (listHeight - scrollBarH);
-                FillRect(FileListWidth - 4, scrollBarY, 3, scrollBarH, 0.4f, 0.4f, 0.45f, 0.8f);
+                FillRect(FileListWidth - 4, scrollBarY, 3, scrollBarH, ScrollBarColor);
             }
 
             // Resize handle at the right edge -- thin vertical bar, brighter
@@ -1001,10 +1036,8 @@ namespace TianWen.UI.Abstractions
             // cursor leaves the panel during a fast drag.
             var handleW = FileListResizeHandleWidth;
             var handleX = FileListWidth - handleW * 0.5f;
-            var (hr, hg, hb, ha) = state.IsResizingFileList
-                ? (0.45f, 0.55f, 0.70f, 1f)
-                : (0.30f, 0.30f, 0.35f, 0.7f);
-            FillRect(handleX, listTop, handleW, listHeight, hr, hg, hb, ha);
+            FillRect(handleX, listTop, handleW, listHeight,
+                state.IsResizingFileList ? ResizeHandleActiveColor : ResizeHandleIdleColor);
             RegisterClickable(handleX - 2f, listTop, handleW + 4f, listHeight, new ResizeHandleHit("FileList"));
         }
 
@@ -1271,13 +1304,13 @@ namespace TianWen.UI.Abstractions
             {
                 var labelX = isFirstEdge ? lx + lineOffset : lx - MeasureText(label, labelSize) - lineOffset;
                 var labelY = isFirstEdge ? ly + labelPad : ly - labelSize - labelPad;
-                DrawText(label, labelX, labelY, labelSize, 0.0f, 0.85f, 0.0f);
+                DrawText(label, labelX, labelY, labelSize, GridLabelColor);
             }
             else
             {
                 var labelX = isFirstEdge ? lx + labelPad : lx - MeasureText(label, labelSize) - labelPad;
                 var labelY = isFirstEdge ? ly + lineOffset : ly - labelSize - lineOffset;
-                DrawText(label, labelX, labelY, labelSize, 0.0f, 0.85f, 0.0f);
+                DrawText(label, labelX, labelY, labelSize, GridLabelColor);
             }
         }
 
@@ -1481,7 +1514,7 @@ namespace TianWen.UI.Abstractions
                             placement.ScreenX + placement.RadiusScreenPx + labelPad,
                             placement.ScreenY - labelSize * 0.5f,
                             labelSize,
-                            ring.Color.RedF, ring.Color.GreenF, ring.Color.BlueF);
+                            ring.Color);
                     }
                 }
             }
@@ -1518,7 +1551,7 @@ namespace TianWen.UI.Abstractions
                             placement.ScreenX + marker.SizePx + labelPad,
                             placement.ScreenY - labelSize * 0.5f,
                             labelSize,
-                            marker.Color.RedF, marker.Color.GreenF, marker.Color.BlueF);
+                            marker.Color);
                     }
                 }
             }
@@ -1570,7 +1603,7 @@ namespace TianWen.UI.Abstractions
                             placement.EndScreenX + labelPad,
                             placement.EndScreenY - labelSize * 0.5f,
                             labelSize,
-                            arrow.Color.RedF, arrow.Color.GreenF, arrow.Color.BlueF);
+                            arrow.Color);
                     }
                 }
             }
@@ -1580,8 +1613,10 @@ namespace TianWen.UI.Abstractions
         {
             for (int li = 0; li < lines.Count; li++)
             {
-                var alpha = li == 0 ? 1.0f : 0.7f;
-                DrawText(lines[li], x, y + li * lineH, fontSize, r * alpha, g * alpha, b * alpha);
+                // First line full intensity; continuation lines dimmed. Dim by scaling
+                // the RGB toward black (the original behaviour) rather than via alpha.
+                var dim = li == 0 ? 1.0f : 0.7f;
+                DrawText(lines[li], x, y + li * lineH, fontSize, RGBAColor32.FromFloat(r * dim, g * dim, b * dim, 1f));
             }
         }
 
@@ -1638,7 +1673,7 @@ namespace TianWen.UI.Abstractions
             var (histLeft, histTop, histW, histH) = GetHistogramRect(state);
 
             // Semi-transparent background
-            FillRect(histLeft, histTop, histW, histH, 0f, 0f, 0f, 0.6f);
+            FillRect(histLeft, histTop, histW, histH, ViewerTheme.HistogramBg);
 
             RenderHistogramQuad(stretch, histogramDisplay, state,
                 histLeft, histTop, histLeft + histW, histTop + histH, Width, Height);
@@ -1653,15 +1688,15 @@ namespace TianWen.UI.Abstractions
 
                 if (state.HistogramLogScale)
                 {
-                    FillRect(bx, by, bw, bh, hovered ? 0.25f : 0.20f, hovered ? 0.35f : 0.30f, hovered ? 0.55f : 0.50f, 0.9f);
+                    FillRect(bx, by, bw, bh, hovered ? HistogramLogOnHoverBg : HistogramLogOnBg);
                 }
                 else
                 {
-                    FillRect(bx, by, bw, bh, hovered ? 0.35f : 0.25f, hovered ? 0.35f : 0.25f, hovered ? 0.40f : 0.28f, 0.9f);
+                    FillRect(bx, by, bw, bh, hovered ? HistogramLogOffHoverBg : HistogramLogOffBg);
                 }
 
                 var textY = by + (bh - ToolbarFontSize) / 2f;
-                DrawText("LOG", bx + ButtonPaddingH / 2f, textY, ToolbarFontSize, 0.9f, 0.9f, 0.9f);
+                DrawText("LOG", bx + ButtonPaddingH / 2f, textY, ToolbarFontSize, ViewerTheme.Palette.BodyText);
 
                 RegisterClickable(bx, by, bw, bh, new HitResult.ButtonHit("HistogramLog"),
                     _ => { state.HistogramLogScale = !state.HistogramLogScale; });
@@ -1891,35 +1926,24 @@ namespace TianWen.UI.Abstractions
         }
 
         /// <summary>
-        /// Draws text at the given screen position using float color components.
+        /// Draws a single line of text at the given screen position, left/top-aligned.
+        /// The destination rect spans to the viewport's right edge so the text is never
+        /// clipped horizontally; vertical extent is one line height (fontSize * 1.3).
+        /// This is the viewer's only string-overload text helper -- chrome colours come
+        /// from <see cref="ViewerTheme"/> or the local state-colour fields.
         /// </summary>
-        protected void DrawText(string text, float screenX, float screenY, float fontSize, float r, float g, float b)
+        protected void DrawText(string text, float screenX, float screenY, float fontSize, RGBAColor32 color)
         {
             if (_fontPath is null)
             {
                 return;
             }
 
-            var color = RGBAColor32.FromFloat(r, g, b, 1f);
             var lh = (int)(fontSize * 1.3f);
             var rect = new RectInt(
                 new PointInt((int)(screenX + Width), (int)screenY + lh),
                 new PointInt((int)screenX, (int)screenY));
             Renderer.DrawText(text.AsSpan(), _fontPath, fontSize, color, rect, TextAlign.Near, TextAlign.Near);
-        }
-
-        /// <summary>
-        /// Fills a rectangle using float color components.
-        /// </summary>
-        protected void FillRect(float x, float y, float w, float h, float r, float g, float b, float a)
-        {
-            var ix = (int)x;
-            var iy = (int)y;
-            var iw = (int)w;
-            var ih = (int)h;
-            Renderer.FillRectangle(
-                new RectInt(new PointInt(ix + iw, iy + ih), new PointInt(ix, iy)),
-                RGBAColor32.FromFloat(r, g, b, a));
         }
 
         // -----------------------------------------------------------------------
