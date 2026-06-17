@@ -126,6 +126,11 @@ public class EquipmentTabState
 
     // OTA property editing: which OTA is being edited (-1 = none)
     public int EditingOtaIndex { get; set; } = -1;
+
+    /// <summary>OTA index armed for removal (-1 = none). First click on a removable OTA's Remove
+    /// button arms it (the button turns into a "Confirm?" affordance); a second click on the same
+    /// OTA actually removes it. Cleared on Esc (DismissActiveState) or after the removal dispatches.</summary>
+    public int PendingRemoveOtaIndex { get; set; } = -1;
     public TextInputState OtaNameInput { get; } = new() { Placeholder = "OTA name" };
     public TextInputState FocalLengthInput { get; } = new() { Placeholder = "Focal length (mm)" };
     public TextInputState ApertureInput { get; } = new() { Placeholder = "Aperture (mm)" };
