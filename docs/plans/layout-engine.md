@@ -15,8 +15,14 @@ EquipmentTab and **reverted** -- it degraded to a facade (`Fill` leaves wrapping
 +713 lines, dead code, a double-DPI header bug). Per-row is the deliberate, low-risk level.
 
 Shipped on `feature/layout` (unpushed; release held):
-- Equipment: section/row positioning on the engine + the design-unit font fix (PaintLayout does
-  `text.FontSize * dpiScale`, so Text-leaf fonts must be raw `BaseFontSize`, never pre-DPI-scaled).
+- **Phase 0** -- shared row builders consolidated into `FormRowLayout` (`StepperControl`,
+  `LabeledInputRow`, `ToggleHeaderRow`, `StepperRow`, `InsetPillButton`); Equipment + Session point at
+  one neutral set.
+- **Phase 1 (Planner)** -- target-list rows render as one draw==hit `LayoutNode` (select hit + Remove/Add pin).
+- **Phase 2 (Equipment)** -- all 14 separate `RegisterClickable` pairs converted: cooler-off + disconnect
+  confirm/force strips and the On|Off connect segment compose `FormRowLayout.InsetPillButton` (inset-bg /
+  full-height-hit via Star spacers); the device-list row and Connect All became single draw==hit leaves.
+  Plus the earlier section/row positioning + design-unit font fix. File normalized to ASCII / `\uXXXX`.
 - Session: config-form rows + camera/obs steppers (shared `StepperControl`) + a wheel-scroll clamp.
 - Notifications: Clear button as one draw==hit leaf. Guider: untouched (pure visualization dashboard).
 
@@ -33,17 +39,19 @@ sparklines, graphs, gauges) and lone atomic `RenderButton` calls (already draw==
 | Tab | structure on engine | remaining real work |
 |---|---|---|
 | Session / Notifications / Guider | done / done / n-a | none |
-| Equipment | partial (16 RenderLayout) | expanded device-setting steppers, cooler-control, profile/device dropdowns, edit Save/Cancel (~35 imperative calls) |
-| Planner | none | target-list rows (ListItemHit + Remove/Add), suggestion dropdown |
+| Equipment | **done** | none (device-setting steppers + Save/Cancel are atomic `RenderButton`s, stay; filter-name dropdown uses the shared framework `DrawDropdown`) |
+| Planner | **done** (target rows) | suggestion dropdown (low-value/transient, left imperative) |
 | LiveSession | none | preview capture controls + steppers, polar setup config rows (31 buttons total; toolbars + charts stay imperative) |
 
 ### Execution order (decided)
 
-0. **Consolidate shared row builders** -- one neutral set (`StepperControl`, `LabeledInputRow`,
-   `SlotRow`, toggle/cycle); Equipment + Session point at it (drop the duplicate
-   `EquipmentPanelLayout.StepperRow` vs `SessionTab.StepperControl` split). Foundation, done first.
-1. **Planner** -- target rows + suggestion dropdown via the shared builders.
-2. **Equipment cleanup** -- the structural leftovers via the shared builders.
+0. **DONE** -- Consolidate shared row builders into one neutral `FormRowLayout` set
+   (`StepperControl`, `LabeledInputRow`, `ToggleHeaderRow`, `StepperRow`, `InsetPillButton`); Equipment +
+   Session point at it (dropped the `EquipmentPanelLayout.StepperRow` vs `SessionTab.StepperControl` split).
+1. **DONE (Planner)** -- target rows as draw==hit `LayoutNode`. Suggestion dropdown left imperative
+   (transient, low value).
+2. **DONE (Equipment)** -- all separate draw + `RegisterClickable` pairs converted via the shared builders
+   (`InsetPillButton` for the inset-pill confirm strips + On|Off segment; leaves for device row + Connect All).
 3. **LiveSession** -- sub-sliced per render method (capture controls, polar config rows); scout each
    render method first; leave toolbars + charts imperative.
 4. **Full single-panel tree** -- DEFERRED until 0-3 land, then decide. If done, the Session config form
