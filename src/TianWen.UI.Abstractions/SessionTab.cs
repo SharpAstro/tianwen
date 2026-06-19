@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.Threading.Tasks;
 using DIR.Lib;
 using TianWen.Lib.Devices;
@@ -270,6 +271,24 @@ namespace TianWen.UI.Abstractions
         // Declared after the colours above so the static field initializer reads them initialized.
         private static readonly FormRowLayout.StepperStyle SessionStepperStyle = new(
             StepperBg, BodyText, DisabledBtnBg, DimText, BaseFontSize, BaseStepperBtnW);
+
+        // Design-unit toggle / cycle button widths (the config form's two non-stepper control kinds).
+        private const float BaseToggleBtnW = 60f;
+        private const float BaseCycleBtnW  = 140f;
+
+        // Bundles every colour + design-unit metric the config form needs into one value so
+        // SessionConfigLayout.Build reads them from a single place (mirrors EquipmentPanelStyle).
+        // Declared after the colours + SessionStepperStyle above so the field initializers see them set.
+        private static readonly SessionConfigStyle ConfigStyle = new(
+            Stepper: SessionStepperStyle,
+            HeaderBg: HeaderBg, HeaderText: HeaderText,
+            BodyText: BodyText, DimText: DimText,
+            RowBg: ContentBg, RowAltBg: RowAltBg, SelectedRowBg: SelectedRowBg,
+            ToggleOnBg: ToggleOnBg, ToggleOffBg: ToggleOffBg, CycleBg: CycleBg,
+            DisabledBg: DisabledBtnBg,
+            FontSize: BaseFontSize, HeaderHeight: BaseHeaderHeight, ItemHeight: BaseItemHeight,
+            LabelWidth: BaseLabelW, Padding: BasePadding,
+            ToggleButtonWidth: BaseToggleBtnW, CycleButtonWidth: BaseCycleBtnW);
 
         private void RenderRightPanel(
             PlannerState plannerState,
@@ -673,215 +692,100 @@ namespace TianWen.UI.Abstractions
             float dpiScale,
             string fontPath)
         {
-            var fontSize = BaseFontSize * dpiScale;
-            var padding = BasePadding * dpiScale;
-            var itemH = BaseItemHeight * dpiScale;
-            var headerH = BaseHeaderHeight * dpiScale;
-            var labelW = BaseLabelW * dpiScale;
-            var stepperBtnW = BaseStepperBtnW * dpiScale;
-
             FillRect(rect.X, rect.Y, rect.Width, rect.Height, ContentBg);
 
-            _fieldYPositions.Clear();
-            var cursor = rect.Y - State.ConfigScrollOffset;
             var groups = SessionConfigGroups.Groups;
-            var globalFieldIdx = 0;
 
-            // Measurement-driven value column: size the [-] value [+] cell to the widest current
-            // stepper value (e.g. "Auto (3min)") so long strings are neither clipped nor collide
-            // with the steppers, while every stepper stays aligned in one shared column. Clamp to
-            // the space actually available in the panel; MeasureValueColumnWidth falls back to the
-            // minimum when no font is available (headless tests).
+            // --- Shared stepper value column (design units) ---------------------------------------
+            // Size the [-] value [+] cell to the widest current stepper value (e.g. "Auto (3min)") so
+            // long strings neither clip nor collide with the buttons, while every stepper aligns in one
+            // column. Measured in DESIGN units (BaseFontSize + design min/max) so it slots straight into
+            // the design-unit tree below -- the single RenderLayout(dpiScale) scales the whole form at
+            // once. MeasureValueColumnWidth returns the minimum when no font is available (headless tests).
             _stepperValueScratch.Clear();
+            var totalFields = 0;
             for (var gi = 0; gi < groups.Length; gi++)
             {
                 var fields = groups[gi].Fields;
                 for (var fi = 0; fi < fields.Length; fi++)
                 {
-                    var field = fields[fi];
-                    if (field.Kind is ConfigFieldKind.BoolToggle or ConfigFieldKind.EnumCycle)
+                    totalFields++;
+                    if (fields[fi].Kind is ConfigFieldKind.BoolToggle or ConfigFieldKind.EnumCycle)
                     {
                         continue; // toggles / cycles size their own button, not the value cell
                     }
 
-                    _stepperValueScratch.Add(FormatStepperDisplay(field, State.Configuration));
+                    _stepperValueScratch.Add(SessionConfigLayout.FormatStepperDisplay(fields[fi], State.Configuration));
                 }
             }
 
-            var valueW = MeasureValueColumnWidth(
-                _stepperValueScratch, fontPath, fontSize,
-                minWidth: BaseValueW * dpiScale,
-                maxWidth: rect.Width - padding * 3f - labelW - stepperBtnW * 2f,
-                horizontalPadding: padding);
+            State.FieldCount = totalFields;
 
+            var availDesignW = rect.Width / dpiScale;
+            var valueWidth = MeasureValueColumnWidth(
+                _stepperValueScratch, fontPath, BaseFontSize,
+                minWidth: BaseValueW,
+                maxWidth: availDesignW - BasePadding * 3f - BaseLabelW - BaseStepperBtnW * 2f,
+                horizontalPadding: BasePadding);
+
+            // --- Field Y positions (scaled px, relative to scroll origin) + total content height -----
+            // Derived arithmetically from the fixed row structure (header + N items + group gap, per
+            // group) so it exactly matches the tree the engine arranges below; used by EnsureFieldVisible
+            // and the scroll clamp. (Cheaper than measuring the arranged tree, and structurally identical.)
+            _fieldYPositions.Clear();
+            var yDesign = 0f;
             for (var gi = 0; gi < groups.Length; gi++)
             {
-                var group = groups[gi];
-
-                // Section header
-                if (cursor + headerH > rect.Y - headerH && cursor < rect.Y + rect.Height)
+                yDesign += BaseHeaderHeight;
+                var fields = groups[gi].Fields;
+                for (var fi = 0; fi < fields.Length; fi++)
                 {
-                    var visibleY = Math.Max(cursor, rect.Y);
-                    FillRect(rect.X, visibleY, rect.Width, headerH, HeaderBg);
-                    DrawText(group.Name, fontPath,
-                        rect.X + padding, visibleY, rect.Width - padding * 2, headerH,
-                        fontSize, HeaderText, TextAlign.Near, TextAlign.Center);
+                    _fieldYPositions.Add(yDesign * dpiScale);
+                    yDesign += BaseItemHeight;
                 }
-                cursor += headerH;
-
-                for (var fi = 0; fi < group.Fields.Length; fi++)
-                {
-                    var field = group.Fields[fi];
-                    var fieldIdx = globalFieldIdx++;
-
-                    // Track Y position relative to scroll origin (for EnsureFieldVisible)
-                    _fieldYPositions.Add(cursor - rect.Y + State.ConfigScrollOffset);
-
-                    // Skip rows completely outside the visible area
-                    if (cursor + itemH <= rect.Y || cursor >= rect.Y + rect.Height)
-                    {
-                        cursor += itemH;
-                        continue;
-                    }
-
-                    // Row background — highlight selected
-                    var isSelected = fieldIdx == State.SelectedFieldIndex;
-                    var rowBg = isSelected ? SelectedRowBg
-                        : fi % 2 == 0 ? ContentBg : RowAltBg;
-                    FillRect(rect.X, cursor, rect.Width, itemH, rowBg);
-
-                    // Clickable row — selects the field
-                    var capturedIdx = fieldIdx;
-                    RegisterClickable(rect.X, cursor, labelW + padding, itemH,
-                        new HitResult.ListItemHit("ConfigField", fieldIdx),
-                        _ => { State.SelectedFieldIndex = capturedIdx; State.NeedsRedraw = true; });
-
-                    // Label
-                    DrawText(field.Label, fontPath,
-                        rect.X + padding, cursor, labelW, itemH,
-                        fontSize, BodyText, TextAlign.Near, TextAlign.Center);
-
-                    // Controls
-                    var controlX = rect.X + padding + labelW;
-
-                    switch (field.Kind)
-                    {
-                        case ConfigFieldKind.BoolToggle:
-                            RenderToggleRow(field, controlX, cursor, itemH, dpiScale, fontPath);
-                            break;
-
-                        case ConfigFieldKind.EnumCycle:
-                            RenderCycleRow(field, controlX, cursor, itemH, dpiScale, fontPath);
-                            break;
-
-                        default:
-                            RenderStepperRow(field, controlX, cursor, stepperBtnW, valueW, itemH, dpiScale, fontPath);
-                            break;
-                    }
-
-                    cursor += itemH;
-                }
-
-                // Small gap between groups
-                cursor += padding * 0.5f;
+                yDesign += BasePadding * 0.5f;
             }
 
-            State.FieldCount = globalFieldIdx;
+            _totalConfigHeight = yDesign * dpiScale;
 
-            _totalConfigHeight = cursor - (rect.Y - State.ConfigScrollOffset);
-
-            // Clamp scroll offset
+            // Clamp scroll to the scrollable range before painting.
             var maxScroll = Math.Max(0, (int)(_totalConfigHeight - rect.Height));
-            if (State.ConfigScrollOffset > maxScroll)
+            State.ConfigScrollOffset = Math.Clamp(State.ConfigScrollOffset, 0, maxScroll);
+
+            // --- One tree for the whole form; scroll via the root-bounds Y offset, clipped to the panel ---
+            var tree = SessionConfigLayout.Build(
+                groups, State.Configuration, State.SelectedFieldIndex, State.IsSessionRunning,
+                valueWidth, ConfigStyle,
+                onSelectField: idx => _ => { State.SelectedFieldIndex = idx; State.NeedsRedraw = true; },
+                onDecrement: field => _ => { State.Configuration = field.Decrement(State.Configuration); State.IsDirty = true; State.NeedsRedraw = true; },
+                onIncrement: field => _ => { State.Configuration = field.Increment(State.Configuration); State.IsDirty = true; State.NeedsRedraw = true; });
+
+            var contentTop = rect.Y - State.ConfigScrollOffset;
+            var arranged = ArrangeLayout(tree, new RectF32(rect.X, contentTop, rect.Width, _totalConfigHeight), fontPath, dpiScale);
+
+            // A single tree arranges every row at an absolute rect -- including rows scrolled off the top
+            // or bottom. Painting those would draw outside the panel AND register clickable regions beyond
+            // the viewport, so drop any node that does not intersect the panel before painting (this is
+            // what the per-row index-virtualised path used to get for free by skipping off-screen rows).
+            var top = rect.Y;
+            var bottom = rect.Y + rect.Height;
+            var visible = ImmutableArray.CreateBuilder<ArrangedNode<float>>(arranged.Length);
+            foreach (var node in arranged)
             {
-                State.ConfigScrollOffset = maxScroll;
+                var b = node.Bounds;
+                if (b.Y < bottom && b.Y + b.Height > top)
+                {
+                    visible.Add(node);
+                }
             }
-        }
 
-        // -----------------------------------------------------------------------
-        // Stepper row: [-] value [+]
-        // -----------------------------------------------------------------------
-
-        /// <summary>Value text (value + optional unit) shown in a stepper's centre cell.</summary>
-        private static string FormatStepperDisplay(ConfigFieldDescriptor field, SessionConfiguration config)
-        {
-            var valueStr = field.FormatValue(config);
-            var unitStr = field.Unit.Length > 0 ? $" {field.Unit}" : "";
-            return $"{valueStr}{unitStr}";
-        }
-
-        private void RenderStepperRow(
-            ConfigFieldDescriptor field,
-            float x, float y,
-            float btnW, float valW, float h,
-            float dpiScale, string fontPath)
-        {
-            var displayStr = FormatStepperDisplay(field, State.Configuration);
-            var running = State.IsSessionRunning;
-
-            // The bounds rect spans btnW + valW + btnW, so the Star value cell exactly fills the shared
-            // measured value column (see StepperControl).
-            var ctrl = FormRowLayout.StepperControl(SessionStepperStyle,
-                "\u2212", $"Dec:{field.Label}",
-                _ => { State.Configuration = field.Decrement(State.Configuration); State.IsDirty = true; State.NeedsRedraw = true; },
-                "+", $"Inc:{field.Label}",
-                _ => { State.Configuration = field.Increment(State.Configuration); State.IsDirty = true; State.NeedsRedraw = true; },
-                displayStr, BaseFontSize, running ? DimText : BodyText, enabled: !running);
-
-            RenderLayout(ctrl, new RectF32(x, y, btnW + valW + btnW, h), fontPath, dpiScale);
-        }
-
-        // -----------------------------------------------------------------------
-        // Toggle row: [ON] or [OFF]
-        // -----------------------------------------------------------------------
-
-        private void RenderToggleRow(
-            ConfigFieldDescriptor field,
-            float x, float y, float h,
-            float dpiScale, string fontPath)
-        {
-            var valueStr = field.FormatValue(State.Configuration);
-            var isOn = valueStr == "ON";
-            var btnW = 60f * dpiScale;
-            var running = State.IsSessionRunning;
-
-            // Single ON/OFF button as a declarative leaf (raw design-unit font; PaintLayout re-applies dpiScale).
-            var btn = new LayoutNode.Leaf(
-                new LayoutContent.Text(valueStr, BaseFontSize) { Color = running ? DimText : BodyText, HAlign = TextAlign.Center, VAlign = TextAlign.Center })
-            {
-                Width = Sizing.Star(),
-                Height = Sizing.Star(),
-                Background = running ? DisabledBtnBg : (isOn ? ToggleOnBg : ToggleOffBg),
-                Hit = new HitResult.ButtonHit($"Toggle:{field.Label}"),
-                OnClick = running ? null : (_ => { State.Configuration = field.Increment(State.Configuration); State.IsDirty = true; State.NeedsRedraw = true; }),
-            };
-            RenderLayout(btn, new RectF32(x, y, btnW, h), fontPath, dpiScale);
-        }
-
-        // -----------------------------------------------------------------------
-        // Cycle row: [Value ▶]
-        // -----------------------------------------------------------------------
-
-        private void RenderCycleRow(
-            ConfigFieldDescriptor field,
-            float x, float y, float h,
-            float dpiScale, string fontPath)
-        {
-            var valueStr = field.FormatValue(State.Configuration);
-            var btnW = 140f * dpiScale;
-            var running = State.IsSessionRunning;
-
-            // Single cycle button [value >] as a declarative leaf (raw design-unit font * 0.9).
-            var btn = new LayoutNode.Leaf(
-                new LayoutContent.Text($"{valueStr} \u25B6", BaseFontSize * 0.9f) { Color = running ? DimText : BodyText, HAlign = TextAlign.Center, VAlign = TextAlign.Center })
-            {
-                Width = Sizing.Star(),
-                Height = Sizing.Star(),
-                Background = running ? DisabledBtnBg : CycleBg,
-                Hit = new HitResult.ButtonHit($"Cycle:{field.Label}"),
-                OnClick = running ? null : (_ => { State.Configuration = field.Increment(State.Configuration); State.IsDirty = true; State.NeedsRedraw = true; }),
-            };
-            RenderLayout(btn, new RectF32(x, y, btnW, h), fontPath, dpiScale);
+            // Scissor partially-visible top/bottom rows to the panel edge (the proper clip the old header
+            // "Math.Max(cursor, rect.Y)" hack stood in for; section headers now scroll naturally).
+            Renderer.PushClip(new RectInt(
+                new PointInt((int)(rect.X + rect.Width), (int)bottom),
+                new PointInt((int)rect.X, (int)top)));
+            PaintLayout(visible.ToImmutable(), fontPath, dpiScale);
+            Renderer.PopClip();
         }
     }
 }
