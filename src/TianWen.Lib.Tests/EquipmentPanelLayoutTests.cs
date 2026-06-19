@@ -257,5 +257,46 @@ namespace TianWen.Lib.Tests
             Flatten(row).Where(n => n.Background is not null).ToList().ShouldHaveSingleItem();
             TextLeaves(row).ShouldContain("On");
         }
+
+        private static readonly FormRowLayout.StepperStyle TestStepperStyle = new(
+            new RGBAColor32(0x2a, 0x2a, 0x35, 0xff), new RGBAColor32(0xff, 0xff, 0xff, 0xff),
+            new RGBAColor32(0x33, 0x33, 0x33, 0xff), new RGBAColor32(0x80, 0x80, 0x80, 0xff),
+            12f, 24f);
+
+        [Fact]
+        public void StepperControl_IsDecValueInc_WithClickableButtons()
+        {
+            var clicked = new List<string>();
+            var ctrl = FormRowLayout.StepperControl(TestStepperStyle,
+                "-", "Dec:Exp", _ => clicked.Add("dec"),
+                "+", "Inc:Exp", _ => clicked.Add("inc"),
+                "5s", 12f, new RGBAColor32(0xff, 0xff, 0xff, 0xff), enabled: true);
+
+            // Control-only stepper: [dec | value | inc] in order, value carries no hit.
+            TextLeaves(ctrl).ShouldBe(["-", "5s", "+"]);
+
+            var dec = Flatten(ctrl).First(n => n.Hit is HitResult.ButtonHit { Action: "Dec:Exp" });
+            var inc = Flatten(ctrl).First(n => n.Hit is HitResult.ButtonHit { Action: "Inc:Exp" });
+            dec.Background.ShouldNotBeNull();
+            inc.Background.ShouldNotBeNull();
+            dec.OnClick.ShouldNotBeNull();
+            dec.OnClick!(InputModifier.None);
+            inc.OnClick!(InputModifier.None);
+            clicked.ShouldBe(["dec", "inc"]);
+        }
+
+        [Fact]
+        public void StepperControl_Disabled_KeepsHitSurfaceButDropsHandlers()
+        {
+            var ctrl = FormRowLayout.StepperControl(TestStepperStyle,
+                "-", "Dec", _ => { }, "+", "Inc", _ => { },
+                "5s", 12f, new RGBAColor32(0xff, 0xff, 0xff, 0xff), enabled: false);
+
+            // Disabled keeps the hit regions (layout / hit-test surface is unchanged) but drops the
+            // click handlers so the dimmed control reads as inert.
+            var dec = Flatten(ctrl).First(n => n.Hit is HitResult.ButtonHit { Action: "Dec" });
+            dec.Hit.ShouldNotBeNull();
+            dec.OnClick.ShouldBeNull();
+        }
     }
 }
