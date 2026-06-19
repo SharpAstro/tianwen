@@ -14,7 +14,7 @@
 - [x] `SessionImagingTests.GivenDitherEveryNth...DitheringTriggered` — fixed: same root cause (SleepAsync pump race)
 - [x] `SessionImagingTests.GivenFocusDrift...AutoRefocusTriggered` — fixed: same root cause
 - [x] `SessionPhaseTests.AbortDuringCooling_StopsRampAndWarmsBack` — fixed: removed wall-clock CancellationTokenSource timeouts
-- [ ] `SessionObservationLoopTests.GivenAcrossMeridianTargetWhenHACrossesDeadbandThenFlipAndContinueImaging` -- intermittently fails with `TotalFramesWritten=0`; surfaced during the stretch-tests branch, not introduced by it. Likely the same cooperative-time-pump class as the fixed flakes above.
+- [x] `SessionObservationLoopTests.GivenAcrossMeridianTargetWhenHACrossesDeadbandThenFlipAndContinueImaging` -- fixed: root cause was `PlateSolveAndSyncCoreAsync` (`Session.Focus.cs`) being the only `StartExposureAsync` call site with no Idle/abort precondition. During a meridian flip (`PerformMeridianFlipAsync` -> `CenterOnTargetAsync` -> 5s plate-solve frame) the prior science sub-exposure could still be `Exposing` under the two-thread time-pump interleaving, so the driver rejected the solve frame with `InvalidOperationException: camera state being Exposing` (which also surfaced as `TotalFramesWritten=0` when it aborted the flip). Now aborts any in-progress exposure and lets `Download->Idle` settle before the solve exposure, mirroring the condition-recovery / obstruction-scout guards. Verified 20/20 green.
 
 ## Next Up
 

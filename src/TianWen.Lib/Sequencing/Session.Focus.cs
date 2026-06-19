@@ -806,6 +806,19 @@ internal partial record Session
 
         try
         {
+            // A plate-solve / centering frame must start from Idle. Unlike the imaging loop
+            // (which only starts an exposure when the camera reads Idle) and the condition-
+            // recovery / obstruction-scout paths (which abort first), this path can be entered
+            // straight off a meridian flip while a science sub-exposure is still in flight, so
+            // abort any in-progress exposure and let the Download->Idle transition settle before
+            // the short solve exposure. Without this the driver -- real ASCOM/Alpaca and the
+            // FakeCameraDriver alike -- rejects StartExposure while CameraState is Exposing.
+            if (await ResilientInvokeAsync(camDriver, camDriver.GetCameraStateAsync, ResilientCallOptions.IdempotentRead, cancellationToken) is Devices.CameraState.Exposing)
+            {
+                await ResilientInvokeAsync(camDriver, camDriver.AbortExposureAsync, ResilientCallOptions.NonIdempotentAction, cancellationToken);
+                await _timeProvider.SleepAsync(TimeSpan.FromSeconds(1), cancellationToken);
+            }
+
             // Take a short exposure
             await camDriver.StartExposureAsync(exposureTime, cancellationToken: cancellationToken);
 
