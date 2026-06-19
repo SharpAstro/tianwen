@@ -219,5 +219,43 @@ namespace TianWen.Lib.Tests
             dec.OnClick!(InputModifier.None);
             clicked.ShouldContain("dec");
         }
+
+        [Fact]
+        public void InsetPillButton_PutsHitOnOuterNode_BackgroundOnInnerPill()
+        {
+            var clicked = false;
+            var row = FormRowLayout.InsetPillButton(
+                "Cancel", 12f,
+                new RGBAColor32(0x35, 0x35, 0x42, 0xff), new RGBAColor32(0xff, 0xff, 0xff, 0xff),
+                new HitResult.ButtonHit("CancelForce"), _ => clicked = true);
+
+            // Full-height click target lives on the OUTER stack (so margin clicks hit the button, not
+            // whatever is behind it); the coloured background lives on the INNER pill (the inset band).
+            row.ShouldBeOfType<LayoutNode.Stack>();
+            row.Hit.ShouldBeOfType<HitResult.ButtonHit>();
+            row.Background.ShouldBeNull();
+            TextLeaves(row).ShouldContain("Cancel");
+
+            var pillBackgrounds = Flatten(row).Where(n => n.Background is not null).ToList();
+            pillBackgrounds.ShouldHaveSingleItem();
+
+            row.OnClick.ShouldNotBeNull();
+            row.OnClick!(InputModifier.None);
+            clicked.ShouldBeTrue();
+        }
+
+        [Fact]
+        public void InsetPillButton_NullHit_LeavesCellInertButStillDrawn()
+        {
+            var row = FormRowLayout.InsetPillButton(
+                "On", 12f,
+                new RGBAColor32(0x30, 0x60, 0x90, 0xff), new RGBAColor32(0xff, 0xff, 0xff, 0xff),
+                hit: null, onClick: null);
+
+            // A pending/inert segment registers no hit (clicks fall through) but still paints its pill.
+            row.Hit.ShouldBeNull();
+            Flatten(row).Where(n => n.Background is not null).ToList().ShouldHaveSingleItem();
+            TextLeaves(row).ShouldContain("On");
+        }
     }
 }

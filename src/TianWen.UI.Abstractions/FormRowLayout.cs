@@ -67,6 +67,39 @@ namespace TianWen.UI.Abstractions
         }
 
         /// <summary>
+        /// One "pill" button for a confirmation / segmented strip: a full-cell click target whose coloured
+        /// background is inset vertically to <paramref name="fillFraction"/> of the cell height (the classic
+        /// inset-pill look), with the label centred over the whole cell. The engine binds both
+        /// <see cref="LayoutNode.Background"/> and <see cref="LayoutNode.Hit"/> to a node's <i>whole</i> rect, so
+        /// an inset background and a full-height hit cannot share one leaf -- this is a vertical Stack
+        /// <c>[spacer | pill | spacer]</c> with the Hit on the outer Stack (full height) and the Background on
+        /// the inner pill (the inset band). The spacers are <c>Star</c>-sized, so the inset stays a true
+        /// fraction of the row at any DPI with no pixel/design-unit conversion. A null <paramref name="hit"/>
+        /// (or <paramref name="onClick"/>) leaves the cell inert -- clicks fall through to whatever is behind.
+        /// </summary>
+        public static LayoutNode InsetPillButton(
+            string label, float fontSize, RGBAColor32 bg, RGBAColor32 textColor,
+            HitResult? hit, Action<InputModifier>? onClick,
+            float widthWeight = 1f, float fillFraction = 0.7f)
+        {
+            var insetWeight = (1f - fillFraction) * 0.5f;
+            LayoutNode Spacer() => new LayoutNode.Leaf(new LayoutContent.Box(0f, 0f)) { Height = Sizing.Star(insetWeight) };
+            var pill = new LayoutNode.Leaf(new LayoutContent.Text(label, fontSize) { Color = textColor, HAlign = TextAlign.Center, VAlign = TextAlign.Center })
+            {
+                Width = Sizing.Star(),
+                Height = Sizing.Star(fillFraction),
+                Background = bg,
+            };
+            return new LayoutNode.Stack([Spacer(), pill, Spacer()], LayoutAxis.Vertical)
+            {
+                Width = Sizing.Star(widthWeight),
+                Height = Sizing.Star(),
+                Hit = hit,
+                OnClick = onClick,
+            };
+        }
+
+        /// <summary>
         /// Builds a clickable toggle-header row: background + hit + label text.
         /// Used for collapsible sections (Filter table, Cooler Control, Mount Status, Device Settings, Advanced sub-section).
         /// </summary>
