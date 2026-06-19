@@ -88,6 +88,15 @@ namespace TianWen.UI.Abstractions
             new RGBAColor32(0xff, 0xaa, 0x66, 0xff), // peach
         ];
 
+        // Shared stepper button styling for the preview capture controls (exposure / gain). Values are
+        // design units -- the layout engine scales the [-]/[+] button width and glyph font by dpiScale.
+        // The disabled colours are unused (the preview steppers are always enabled) but the style record
+        // requires them. Button bg matches the former local stepBg.
+        private static readonly FormRowLayout.StepperStyle PreviewStepperStyle = new(
+            new RGBAColor32(0x2a, 0x2a, 0x3a, 0xff), BodyText,
+            new RGBAColor32(0x33, 0x33, 0x33, 0xff), DimText,
+            BaseFontSize * 0.85f, 28f);
+
         /// <summary>Render the complete live session tab.</summary>
         public void Render(
             LiveSessionState state,
@@ -246,7 +255,7 @@ namespace TianWen.UI.Abstractions
             if (logW > 0)
             {
                 var rightRect = new RectF32(logX, mainY, logW, mainH);
-                RenderExposureLog(state, rightRect, fontPath, fs, pad, rowH);
+                RenderExposureLog(state, rightRect, fontPath, fs, dpiScale, pad, rowH);
             }
 
             // Mini viewer toolbar (on top of the image, after panels)
@@ -557,15 +566,18 @@ namespace TianWen.UI.Abstractions
                 var pillLabel = inPolar ? "POLAR \u25BE" : "PREVIEW \u25BE";
                 var pillX = rect.X + pad;
                 var pillY = rect.Y + pad;
-                FillRect(pillX, pillY, pillW, pillH, modePillColor);
-                DrawText(pillLabel, fontPath,
-                    pillX, rect.Y, pillW, rect.Height,
-                    fontSize * 0.9f, AbortText, TextAlign.Center, TextAlign.Center);
-
-                // Click-to-open: anchor the dropdown directly under the pill.
+                // Click-to-open: anchor the dropdown directly under the pill. The pill is a single
+                // draw==hit leaf -- background, label, and click region all bind to one node's rect
+                // (rendered via the layout engine) so the hit target can never drift from the paint.
                 var dropdown = state.ModeDropdown;
-                RegisterClickable(pillX, pillY, pillW, pillH, new HitResult.ButtonHit("ModePill"),
-                    _ =>
+                var modeLeaf = new LayoutNode.Leaf(
+                    new LayoutContent.Text(pillLabel, fontSize * 0.9f / dpiScale) { Color = AbortText, HAlign = TextAlign.Center, VAlign = TextAlign.Center })
+                {
+                    Width = Sizing.Star(),
+                    Height = Sizing.Star(),
+                    Background = modePillColor,
+                    Hit = new HitResult.ButtonHit("ModePill"),
+                    OnClick = _ =>
                     {
                         if (dropdown.IsOpen)
                         {
@@ -627,7 +639,9 @@ namespace TianWen.UI.Abstractions
                                 }
                             });
                         state.NeedsRedraw = true;
-                    });
+                    },
+                };
+                RenderLayout(modeLeaf, new RectF32(pillX, pillY, pillW, pillH), fontPath, dpiScale);
 
                 // Current time is shown by the global status-bar clock (top-right on every
                 // tab) -- no separate in-content clock here, to avoid a duplicate display.
@@ -1649,40 +1663,31 @@ namespace TianWen.UI.Abstractions
                 return;
             }
 
-            var stepBg = new RGBAColor32(0x2a, 0x2a, 0x3a, 0xff);
-            var stepBtnW = 28f * dpiScale;
-            var stepBtnH = rowH * 0.85f;
-            var stepBtnY = y + (rowH - stepBtnH) / 2;
-
-            // Exposure row: [-] value [+]   [Capture]
+            // Exposure row: [-] value [+]   [Capture]. The stepper fills the row minus the
+            // right-anchored [Capture] button; the [-] value [+] control is one declarative node
+            // (each cell its own draw==hit leaf) instead of two RenderButton calls bracketing a
+            // hand-positioned value DrawText.
             var expSec = otaIndex < state.PreviewExposureSeconds.Length
                 ? state.PreviewExposureSeconds[otaIndex] : 5.0;
 
-            var expX = x;
-            RenderButton("-", expX, stepBtnY, stepBtnW, stepBtnH,
-                fontPath, smallFs, stepBg, BodyText, $"ExpDec{otaIndex}",
+            var expStepW = w - capBtnW - 4 * dpiScale;
+            var expCtrl = FormRowLayout.StepperControl(PreviewStepperStyle,
+                "-", $"ExpDec{otaIndex}",
                 _ =>
                 {
                     if (otaIndex >= state.PreviewExposureSeconds.Length) return;
                     state.PreviewExposureSeconds[otaIndex] = LiveSessionActions.StepExposure(
                         state.PreviewExposureSeconds[otaIndex], direction: -1);
-                });
-            expX += stepBtnW + 2;
-
-            var labelW = w - stepBtnW * 2 - 4 - capBtnW - 4 * dpiScale;
-            DrawText($"Exp: {LiveSessionActions.FormatExposureLabel(expSec)}", fontPath,
-                expX, y, labelW, rowH,
-                smallFs, BodyText, TextAlign.Center, TextAlign.Center);
-            expX += labelW + 2;
-
-            RenderButton("+", expX, stepBtnY, stepBtnW, stepBtnH,
-                fontPath, smallFs, stepBg, BodyText, $"ExpInc{otaIndex}",
+                },
+                "+", $"ExpInc{otaIndex}",
                 _ =>
                 {
                     if (otaIndex >= state.PreviewExposureSeconds.Length) return;
                     state.PreviewExposureSeconds[otaIndex] = LiveSessionActions.StepExposure(
                         state.PreviewExposureSeconds[otaIndex], direction: +1);
-                });
+                },
+                $"Exp: {LiveSessionActions.FormatExposureLabel(expSec)}", BaseFontSize * 0.85f, BodyText, enabled: true);
+            RenderLayout(expCtrl, new RectF32(x, y, expStepW, rowH), fontPath, dpiScale);
 
             // [Capture] button -- disabled while polar alignment is running so the
             // user can't fire a manual exposure that would interleave with the
@@ -1718,35 +1723,28 @@ namespace TianWen.UI.Abstractions
                 || (tel.UsesGainMode && tel.GainModes.Length > 0);
             if (hasGainControl)
             {
-                stepBtnY = y + (rowH - stepBtnH) / 2;
                 var gainVal = otaIndex < state.PreviewGain.Length ? state.PreviewGain[otaIndex] : null;
+                var gainLabel = LiveSessionActions.FormatGainLabel(gainVal, tel);
 
-                var gx = x;
-                RenderButton("-", gx, stepBtnY, stepBtnW, stepBtnH,
-                    fontPath, smallFs, stepBg, BodyText, $"GainDec{otaIndex}",
+                // [-] gain-value [+] as one declarative stepper (each cell draw==hit) replacing the
+                // two RenderButton calls + hand-positioned value DrawText.
+                var gainCtrl = FormRowLayout.StepperControl(PreviewStepperStyle,
+                    "-", $"GainDec{otaIndex}",
                     _ =>
                     {
                         if (otaIndex >= state.PreviewGain.Length) return;
                         state.PreviewGain[otaIndex] = LiveSessionActions.StepGain(
                             state.PreviewGain[otaIndex], tel, direction: -1);
-                    });
-                gx += stepBtnW + 2;
-
-                var gainLabel = LiveSessionActions.FormatGainLabel(gainVal, tel);
-                var gainLabelW = w - stepBtnW * 2 - 4;
-                DrawText(gainLabel, fontPath,
-                    gx, y, gainLabelW, rowH,
-                    smallFs, gainVal.HasValue ? BodyText : DimText, TextAlign.Center, TextAlign.Center);
-                gx += gainLabelW + 2;
-
-                RenderButton("+", gx, stepBtnY, stepBtnW, stepBtnH,
-                    fontPath, smallFs, stepBg, BodyText, $"GainInc{otaIndex}",
+                    },
+                    "+", $"GainInc{otaIndex}",
                     _ =>
                     {
                         if (otaIndex >= state.PreviewGain.Length) return;
                         state.PreviewGain[otaIndex] = LiveSessionActions.StepGain(
                             state.PreviewGain[otaIndex], tel, direction: +1);
-                    });
+                    },
+                    gainLabel, BaseFontSize * 0.85f, gainVal.HasValue ? BodyText : DimText, enabled: true);
+                RenderLayout(gainCtrl, new RectF32(x, y, w, rowH), fontPath, dpiScale);
                 y += rowH;
             }
 
@@ -1833,7 +1831,7 @@ namespace TianWen.UI.Abstractions
         // -----------------------------------------------------------------------
 
         private void RenderExposureLog(LiveSessionState state, RectF32 rect, string fontPath,
-            float fontSize, float pad, float rowH)
+            float fontSize, float dpiScale, float pad, float rowH)
         {
             FillRect(rect.X, rect.Y, rect.Width, rect.Height, PanelBg);
 
@@ -1842,7 +1840,7 @@ namespace TianWen.UI.Abstractions
 
             if (!state.IsRunning && state.Mode == LiveSessionMode.PolarAlign)
             {
-                RenderPolarSidePanel(state, rect, fontPath, fontSize, pad, rowH);
+                RenderPolarSidePanel(state, rect, fontPath, fontSize, dpiScale, pad, rowH);
                 return;
             }
 
@@ -2034,7 +2032,7 @@ namespace TianWen.UI.Abstractions
         /// <see cref="LiveSessionMode.PolarAlign"/> is active.
         /// </summary>
         private void RenderPolarSidePanel(LiveSessionState state, RectF32 rect, string fontPath,
-            float fontSize, float pad, float rowH)
+            float fontSize, float dpiScale, float pad, float rowH)
         {
             var x0 = rect.X + pad;
             var w = rect.Width - pad * 2;
@@ -2094,7 +2092,7 @@ namespace TianWen.UI.Abstractions
             // of state.PolarSetupConfig as the captured Configuration.
             if (state.PolarPhase == PolarAlignmentPhase.Idle && state.PolarAlignmentCts is null)
             {
-                RenderPolarSetupRows(state, rect, x0, sourceY + rowH + pad, w, rowH, fontPath, fontSize, pad);
+                RenderPolarSetupRows(state, rect, x0, sourceY + rowH + pad, w, rowH, fontPath, fontSize, dpiScale, pad);
                 return;
             }
 
@@ -2203,7 +2201,7 @@ namespace TianWen.UI.Abstractions
         /// </summary>
         private void RenderPolarSetupRows(
             LiveSessionState state, RectF32 rect,
-            float x0, float y, float w, float rowH, string fontPath, float fontSize, float pad)
+            float x0, float y, float w, float rowH, string fontPath, float fontSize, float dpiScale, float pad)
         {
             var labelW = w * 0.42f;
             var btnW = (w - labelW) / 4f;
@@ -2213,7 +2211,7 @@ namespace TianWen.UI.Abstractions
             // ---- Rotation (DeltaRaDeg) ---------------------------------------
             y = RenderConfigRow(
                 "Rotation", $"{state.PolarSetupConfig.RotationDeg:F0}\u00B0",
-                x0, y, labelW, btnW, valW, rowH, fontPath, smallFs, pad,
+                x0, y, labelW, btnW, valW, rowH, fontPath, smallFs, dpiScale, pad,
                 "PolarSetupRotMinus",
                 () =>
                 {
@@ -2232,7 +2230,7 @@ namespace TianWen.UI.Abstractions
             // ---- Settle (SettleSeconds) --------------------------------------
             y = RenderConfigRow(
                 "Settle", $"{state.PolarSetupConfig.SettleSeconds:F0}s",
-                x0, y, labelW, btnW, valW, rowH, fontPath, smallFs, pad,
+                x0, y, labelW, btnW, valW, rowH, fontPath, smallFs, dpiScale, pad,
                 "PolarSetupSettleMinus",
                 () =>
                 {
@@ -2251,7 +2249,7 @@ namespace TianWen.UI.Abstractions
             // ---- Target accuracy (TargetAccuracyArcmin) ----------------------
             y = RenderConfigRow(
                 "Target acc", $"{state.PolarSetupConfig.TargetAccuracyArcmin:F1}\u2032",
-                x0, y, labelW, btnW, valW, rowH, fontPath, smallFs, pad,
+                x0, y, labelW, btnW, valW, rowH, fontPath, smallFs, dpiScale, pad,
                 "PolarSetupAccMinus",
                 () =>
                 {
@@ -2270,7 +2268,7 @@ namespace TianWen.UI.Abstractions
             // ---- Min stars for solve -----------------------------------------
             y = RenderConfigRow(
                 "Min stars", $"{state.PolarSetupConfig.MinStarsForSolve}",
-                x0, y, labelW, btnW, valW, rowH, fontPath, smallFs, pad,
+                x0, y, labelW, btnW, valW, rowH, fontPath, smallFs, dpiScale, pad,
                 "PolarSetupMinStarsMinus",
                 () =>
                 {
@@ -2294,7 +2292,7 @@ namespace TianWen.UI.Abstractions
                 : $"{state.PolarSetupConfig.RefineFullSolveInterval}";
             y = RenderConfigRow(
                 "Re-seed every", reseedText,
-                x0, y, labelW, btnW, valW, rowH, fontPath, smallFs, pad,
+                x0, y, labelW, btnW, valW, rowH, fontPath, smallFs, dpiScale, pad,
                 "PolarSetupReseedMinus",
                 () =>
                 {
@@ -2321,11 +2319,14 @@ namespace TianWen.UI.Abstractions
                 _ => "?"
             };
             DrawText("On done", fontPath, x0, y, labelW, rowH, smallFs, DimText, TextAlign.Near, TextAlign.Center);
-            RenderButton(onDoneLabel, x0 + labelW, y + 2, w - labelW, rowH - 4,
-                fontPath, smallFs,
-                new RGBAColor32(0x44, 0x66, 0x99, 0xff), BodyText,
-                "PolarSetupOnDone",
-                _ =>
+            var onDoneBtn = new LayoutNode.Leaf(
+                new LayoutContent.Text(onDoneLabel, smallFs / dpiScale) { Color = BodyText, HAlign = TextAlign.Center, VAlign = TextAlign.Center })
+            {
+                Width = Sizing.Star(),
+                Height = Sizing.Star(),
+                Background = new RGBAColor32(0x44, 0x66, 0x99, 0xff),
+                Hit = new HitResult.ButtonHit("PolarSetupOnDone"),
+                OnClick = _ =>
                 {
                     var next = state.PolarSetupConfig.OnDone switch
                     {
@@ -2335,7 +2336,9 @@ namespace TianWen.UI.Abstractions
                     };
                     state.PolarSetupConfig = state.PolarSetupConfig with { OnDone = next };
                     state.NeedsRedraw = true;
-                });
+                },
+            };
+            RenderLayout(onDoneBtn, new RectF32(x0 + labelW, y, w - labelW, rowH), fontPath, dpiScale);
             y += rowH;
 
             // ---- Save frames toggle ------------------------------------------
@@ -2344,14 +2347,20 @@ namespace TianWen.UI.Abstractions
                 ? new RGBAColor32(0x44, 0x66, 0x99, 0xff)
                 : new RGBAColor32(0x2a, 0x2a, 0x35, 0xff);
             DrawText("Save frames", fontPath, x0, y, labelW, rowH, smallFs, DimText, TextAlign.Near, TextAlign.Center);
-            RenderButton(saveLabel, x0 + labelW, y + 2, w - labelW, rowH - 4,
-                fontPath, smallFs, saveBg, BodyText,
-                "PolarSetupSaveFrames",
-                _ =>
+            var saveBtn = new LayoutNode.Leaf(
+                new LayoutContent.Text(saveLabel, smallFs / dpiScale) { Color = BodyText, HAlign = TextAlign.Center, VAlign = TextAlign.Center })
+            {
+                Width = Sizing.Star(),
+                Height = Sizing.Star(),
+                Background = saveBg,
+                Hit = new HitResult.ButtonHit("PolarSetupSaveFrames"),
+                OnClick = _ =>
                 {
                     state.PolarSetupConfig = state.PolarSetupConfig with { SaveFrames = !state.PolarSetupConfig.SaveFrames };
                     state.NeedsRedraw = true;
-                });
+                },
+            };
+            RenderLayout(saveBtn, new RectF32(x0 + labelW, y, w - labelW, rowH), fontPath, dpiScale);
             y += rowH;
 
             // ---- Incremental-solver toggle (diagnostic / safe fallback) ------
@@ -2360,14 +2369,20 @@ namespace TianWen.UI.Abstractions
                 ? new RGBAColor32(0x44, 0x66, 0x99, 0xff)
                 : new RGBAColor32(0x2a, 0x2a, 0x35, 0xff);
             DrawText("Incremental", fontPath, x0, y, labelW, rowH, smallFs, DimText, TextAlign.Near, TextAlign.Center);
-            RenderButton(incLabel, x0 + labelW, y + 2, w - labelW, rowH - 4,
-                fontPath, smallFs, incBg, BodyText,
-                "PolarSetupUseIncremental",
-                _ =>
+            var incBtn = new LayoutNode.Leaf(
+                new LayoutContent.Text(incLabel, smallFs / dpiScale) { Color = BodyText, HAlign = TextAlign.Center, VAlign = TextAlign.Center })
+            {
+                Width = Sizing.Star(),
+                Height = Sizing.Star(),
+                Background = incBg,
+                Hit = new HitResult.ButtonHit("PolarSetupUseIncremental"),
+                OnClick = _ =>
                 {
                     state.PolarSetupConfig = state.PolarSetupConfig with { UseIncrementalSolver = !state.PolarSetupConfig.UseIncrementalSolver };
                     state.NeedsRedraw = true;
-                });
+                },
+            };
+            RenderLayout(incBtn, new RectF32(x0 + labelW, y, w - labelW, rowH), fontPath, dpiScale);
 
             // ---- Start button (anchored at panel bottom, full width) ---------
             // Cancel-back-to-Preview lives above Start so the Start button sits
@@ -2415,17 +2430,23 @@ namespace TianWen.UI.Abstractions
         private float RenderConfigRow(
             string label, string valueText,
             float x0, float y, float labelW, float btnW, float valW, float rowH,
-            string fontPath, float fontSize, float pad,
+            string fontPath, float fontSize, float dpiScale, float pad,
             string minusAction, Action onMinus,
             string plusAction, Action onPlus)
         {
+            // Caller draws the dim label cell; the [-] value [+] control is one declarative stepper
+            // node (each cell its own draw==hit leaf) instead of two RenderButton calls bracketing a
+            // hand-positioned value DrawText. The bounds rect spans btnW+valW+btnW so the Star value
+            // cell exactly fills the original value column; font / button width convert back to design
+            // units (the engine re-applies dpiScale). pad is kept for signature stability (unused).
             DrawText(label, fontPath, x0, y, labelW, rowH, fontSize, DimText, TextAlign.Near, TextAlign.Center);
             var btnBg = new RGBAColor32(0x2a, 0x2a, 0x35, 0xff);
-            RenderButton("-", x0 + labelW, y + 2, btnW - 2, rowH - 4,
-                fontPath, fontSize, btnBg, BodyText, minusAction, _ => onMinus());
-            DrawText(valueText, fontPath, x0 + labelW + btnW, y, valW, rowH, fontSize, BrightText, TextAlign.Center, TextAlign.Center);
-            RenderButton("+", x0 + labelW + btnW + valW, y + 2, btnW - 2, rowH - 4,
-                fontPath, fontSize, btnBg, BodyText, plusAction, _ => onPlus());
+            var style = new FormRowLayout.StepperStyle(btnBg, BodyText, btnBg, DimText, fontSize / dpiScale, btnW / dpiScale);
+            var ctrl = FormRowLayout.StepperControl(style,
+                "-", minusAction, _ => onMinus(),
+                "+", plusAction, _ => onPlus(),
+                valueText, fontSize / dpiScale, BrightText, enabled: true);
+            RenderLayout(ctrl, new RectF32(x0 + labelW, y, btnW + valW + btnW, rowH), fontPath, dpiScale);
             return y + rowH;
         }
 
