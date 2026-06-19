@@ -178,7 +178,7 @@ namespace TianWen.Lib.Tests
         [Fact]
         public void ToggleHeaderRow_HasHitAndLabel()
         {
-            var row = EquipmentPanelLayout.ToggleHeaderRow(
+            var row = FormRowLayout.ToggleHeaderRow(
                 "    Filters (3) [+]", 20f,
                 new RGBAColor32(0x1a, 0x1a, 0x26, 0xff), new RGBAColor32(0xff, 0xff, 0xff, 0xff),
                 12f, new HitResult.ButtonHit("ToggleFilters0"), _ => { });
@@ -190,7 +190,7 @@ namespace TianWen.Lib.Tests
         [Fact]
         public void LabeledInputRow_HasLabelAndFill()
         {
-            var row = EquipmentPanelLayout.LabeledInputRow(
+            var row = FormRowLayout.LabeledInputRow(
                 "  Lat:", 50f, 24f, 6f, 12f, new RGBAColor32(0x80, 0x80, 0x80, 0xff));
             TextLeaves(row).ShouldContain("  Lat:");
             var fills = Flatten(row).OfType<LayoutNode.Leaf>().Where(l => l.Content is LayoutContent.Fill).ToList();
@@ -201,7 +201,7 @@ namespace TianWen.Lib.Tests
         public void StepperRow_HasDecValueInc()
         {
             var clicked = new List<string>();
-            var row = EquipmentPanelLayout.StepperRow(
+            var row = FormRowLayout.StepperRow(
                 "Offset", "+5", 20f, 4f, 12f, 24f,
                 new RGBAColor32(0x1a, 0x1a, 0x26, 0xff),
                 new RGBAColor32(0x2a, 0x40, 0x5a, 0xff),
