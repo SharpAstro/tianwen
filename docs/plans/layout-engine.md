@@ -5,16 +5,24 @@ consumption in `../Console.Lib`, `../SdlVulkan.Renderer`, TianWen, and `../../se
 lives in TianWen's `docs/plans/` because TianWen is the driving consumer, but Phases 1-3 are DIR.Lib
 changes that also benefit chess.
 
-## Status (2026-06-19) -- per-row breadth in progress on `feature/layout`; finish roadmap
+## Status (2026-06-19) -- MERGED to `main` + released; Phase 4 (single-panel tree) landed on the Session form
 
-Phases 1-3 (theme, engine, shared widgets) shipped in-tree. Tab consumption is **in progress** via a
-**per-row** model: each interactive row (slot / stepper / toggle / labeled-input / button) is its own
-`LayoutNode` subtree rendered by its own `RenderLayout` into a per-row rect; the vertical flow
-(cursor / scroll / section order) stays imperative. The full single-panel tree was attempted on
-EquipmentTab and **reverted** -- it degraded to a facade (`Fill` leaves wrapping nested `RenderLayout`,
-+713 lines, dead code, a double-DPI header bug). Per-row is the deliberate, low-risk level.
+Phases 0-3 (theme, engine, shared widgets + the per-row tab adoption) **merged to `main`** (PR #34,
+rebased) and the DIR.Lib 5.0 / SdlVulkan.Renderer 6.4 / Console.Lib 3.0 release chain is published on
+NuGet. **Phase 4 (full single-panel tree)** is now done for the Session configuration form -- the whole
+form is built as ONE `LayoutNode` tree (`SessionConfigLayout.Build`) and arranged + painted in a single
+pass, scroll via a root-bounds Y offset + `PushClip` (no `cursor += itemH` walk left). This is the
+deliberate, real-subtree version of the whole-panel port: the earlier EquipmentTab attempt was
+**reverted** because it degraded to a facade (`Fill` leaves wrapping nested `RenderLayout`, +713 lines,
+dead code, a double-DPI header bug); the Session form was always the cleaner candidate (flat,
+data-driven `SessionConfigGroups.Groups`), so it builds genuine Text/Box/control subtrees, never a
+`Fill`-dispatch facade.
 
-Shipped on `feature/layout` (unpushed; release held):
+The per-row model (each row its own `RenderLayout`) still stands for the other tabs where a whole-tree
+port is not warranted (see the remaining-work table) -- Phase 4 is applied where it adds clear value
+(a flat, data-driven form), not dogmatically.
+
+Shipped (Phases 0-3 merged to `main`; Phase 4 on the Session form):
 - **Phase 0** -- shared row builders consolidated into `FormRowLayout` (`StepperControl`,
   `LabeledInputRow`, `ToggleHeaderRow`, `StepperRow`, `InsetPillButton`); Equipment + Session point at
   one neutral set.
@@ -30,7 +38,15 @@ Shipped on `feature/layout` (unpushed; release held):
   `RenderExposureLog -> RenderPolarSidePanel -> RenderPolarSetupRows -> RenderConfigRow` so the engine can
   scale. Atomic full-width `RenderButton`s (Cancel / Start / Go / abort / Capture / Save / Solve / source
   toggle), the viewer toolbar, jog arrows, and all charts/gauges stay imperative by design.
-- Session: config-form rows + camera/obs steppers (shared `StepperControl`) + a wheel-scroll clamp.
+- Session: camera/obs steppers (shared `StepperControl`) + a wheel-scroll clamp.
+- **Phase 4 (Session config form)** -- the entire left config form is now ONE `LayoutNode` tree
+  (`SessionConfigLayout.Build`): a vertical `Stack` of section headers + field rows (`[pad | label]`
+  select cell + the per-kind control: shared `StepperControl` for steppers, a single draw==hit leaf for
+  the ON/OFF toggle + the `value ▶` cycle), arranged once into a tall bounds offset by the scroll
+  position and clipped to the panel with `PushClip`. Off-panel rows are filtered out before paint so a
+  scrolled-away row neither draws nor registers a clickable (what the old per-row index walk got for
+  free). The old `cursor += itemH` walk + the header `Math.Max(cursor, rect.Y)` clip hack are gone;
+  section headers now scroll naturally. 9 `SessionConfigLayoutTests` cover the structure.
 - Notifications: Clear button as one draw==hit leaf. Guider: untouched (pure visualization dashboard).
 
 ### Definition of done (bounded)
@@ -45,7 +61,8 @@ sparklines, graphs, gauges) and lone atomic `RenderButton` calls (already draw==
 
 | Tab | structure on engine | remaining real work |
 |---|---|---|
-| Session / Notifications / Guider | done / done / n-a | none |
+| Session | **done -- whole config form is one tree (Phase 4)**; camera/obs steppers per-row | none (the right-hand camera-settings + observation list stay imperative -- variable-height, interactive, not a flat form) |
+| Notifications / Guider | done / n-a | none |
 | Equipment | **done** | none (device-setting steppers + Save/Cancel are atomic `RenderButton`s, stay; filter-name dropdown uses the shared framework `DrawDropdown`) |
 | Planner | **done** (target rows) | suggestion dropdown (low-value/transient, left imperative) |
 | LiveSession | **done** | none (ModePill, exposure/gain steppers, polar config rows + toggles on the engine; the 1 separate `RegisterClickable` was the ModePill. Remaining atomic `RenderButton`s -- Cancel/Start/Go/abort/Capture/Save/Solve/source toggle, viewer toolbar, jog -- stay; charts/gauges stay) |
@@ -62,15 +79,23 @@ sparklines, graphs, gauges) and lone atomic `RenderButton` calls (already draw==
 3. **DONE (LiveSession)** -- ModePill -> draw==hit leaf; exposure/gain steppers + polar config rows via
    shared `StepperControl`; On-done/Save/Incremental toggles -> leaves. Toolbars, jog, single full-width
    action buttons, and charts left imperative (atomic `RenderButton` is already draw==hit).
-4. **Full single-panel tree** -- DEFERRED until 0-3 land, then decide. If done, the Session config form
-   is the cleanest first candidate (flat, data-driven; scroll via root-bounds offset; real subtrees,
-   NOT the reverted Fill-wrapping facade).
+4. **DONE (Session config form) -- full single-panel tree.** `SessionConfigLayout.Build` emits the whole
+   form as one `LayoutNode.Stack`; `SessionTab.RenderConfigForm` arranges it once into a tall bounds
+   offset by the scroll position, filters off-panel nodes, and paints inside a `PushClip`. Real
+   Text/Box/control subtrees (NOT the reverted `Fill`-wrapping facade); design units throughout (one
+   `RenderLayout(dpiScale)` scales the whole form, so no double-DPI). Verified via the SDL inspector:
+   geometry pixel-faithful (select cell 252 = (8 + 160) x 1.5, dec/inc 42 = 28 x 1.5, group gap 48 =
+   header 42 + gap 6), all 21 fields + headers + the toggle/cycle controls present. The other tabs stay
+   per-row by design (no flat-form whole-tree candidate among them). The LALR.CC **layout DSL** (the
+   other "Phase 4", in the phase table below) remains gated -- deferred until the tree builder proves
+   verbose, decided once the tree work is settled.
 
 ### Per-phase bar
 
-Inspector before/after pixel- + hit-geometry-identical; build 0 warnings; design-unit fonts; CRLF; no
-em-dashes; python-script fallback when editing `\uXXXX`-bearing lines (the Edit tool can't match them).
-No push -- release held; the tab work is tianwen-only (no sibling release needed).
+Inspector before/after pixel- + hit-geometry-faithful (all elements present + same footprint, not a
+pixel-diff); build 0 warnings; design-unit fonts; CRLF; no em-dashes; python-script fallback when
+editing `\uXXXX`-bearing lines (the Edit tool can't match them). Phases 0-3 + the DIR.Lib 5.0 chain are
+merged to `main` + released; the Phase 4 config-form tree is tianwen-only (no sibling release needed).
 
 ## Painpoint
 
@@ -185,9 +210,9 @@ tree are fully shared.
 | Phase | Scope | Repo(s) | Gate |
 |------|-------|---------|------|
 | **1** ✅ | `UiTheme` (palette + metrics) record; migrate consumers off duplicated constants | DIR.Lib (type) + TianWen + chess (instances) | constants deduped; pixel output unchanged — **DONE for the core chrome roles** |
-| **2** 🔧 | Layout engine: `LayoutNode` tree, Measure/Arrange, Stack/Row/Dock/Grid, Fixed/Auto/Star, width-oracle, auto-clickable; unify `TerminalLayout` onto `DockLayout<int>` | DIR.Lib + Console.Lib | one TianWen tab (Equipment profile panel) ported, GPU+TUI parity — **engine core + 15 tests DONE; painters + port pending** |
-| **3** ✅ | Extract shared widgets: `PixelTextBar`, `PixelScrollableList`, overlay/modal, surface-agnostic `PixelMenuWidget` | DIR.Lib (+ chess + TianWen + Console.Lib consume) | chess + TianWen both drop their hand-rolled copies — **`RenderTextBar` + `DrawScrim` + surface-agnostic `PixelMenuWidget`/`MenuWidget` SHIPPED in-tree (menu is the first widget rendering one BuildTree on BOTH GPU + TUI; all consumers build green); `ScrollBar` not warranted (same-surface, 1 consumer). Release of the SdlVulkan API break held by user (#24)** |
-| **4** | **(gated)** Layout DSL on LALR.CC: build-baked grammar, runtime-parsed `.layout` -> visitor -> `LayoutNode` tree; hot-reload in dev | LALR.CC grammar + DIR.Lib loader | one screen authored in the DSL renders on both surfaces |
+| **2** ✅ | Layout engine: `LayoutNode` tree, Measure/Arrange, Stack/Row/Dock/Grid, Fixed/Auto/Star, width-oracle, auto-clickable; unify `TerminalLayout` onto `DockLayout<int>` | DIR.Lib + Console.Lib | one TianWen tab (Equipment profile panel) ported, GPU+TUI parity — **DONE: engine + both painters; Equipment + Session config-form (Phase 4) ported** |
+| **3** ✅ | Extract shared widgets: `PixelTextBar`, `PixelScrollableList`, overlay/modal, surface-agnostic `PixelMenuWidget` | DIR.Lib (+ chess + TianWen + Console.Lib consume) | chess + TianWen both drop their hand-rolled copies — **`RenderTextBar` + `DrawScrim` + surface-agnostic `PixelMenuWidget`/`MenuWidget` SHIPPED in-tree (menu is the first widget rendering one BuildTree on BOTH GPU + TUI; all consumers build green); `ScrollBar` not warranted (same-surface, 1 consumer). Released: DIR.Lib 5.0 / SdlVulkan.Renderer 6.4 / Console.Lib 3.0 on NuGet; merged to main (PR #34)** |
+| **4 (DSL)** | **(gated, deferred)** Layout DSL on LALR.CC (the single-panel *tree* -- execution-order Phase 4 -- shipped on the Session form; this row is only the optional DSL front-end): build-baked grammar, runtime-parsed `.layout` -> visitor -> `LayoutNode` tree; hot-reload in dev | LALR.CC grammar + DIR.Lib loader | one screen authored in the DSL renders on both surfaces |
 
 ### Phase 1 -- `UiTheme`
 
@@ -382,10 +407,10 @@ consumer justifies it (the menu's TUI consumer did; a same-surface relocation li
   drives `PixelMenuWidget<VulkanContext>`) and Console.Lib `MenuWidget` (TUI, via `CellLayout.Paint`/
   `HitTest`, 13 tests). **This is the FIRST widget to render one `BuildTree` on BOTH surfaces** -- the
   payoff the whole engine was built for. `VkMenuWidget`'s 201 lines of manual cursor math were deleted.
-  defcon1 (a NuGet consumer, not in-tree) is untouched -- it keeps the published `VkMenuWidget` until the
-  release re-homes it. The breaking `SdlVulkan.Renderer` public-API removal lands with the dependency-
-  ordered release (#24), which the user is holding; chess + TianWen + Console.Lib all build green in-tree
-  against the change today.
+  defcon1 (a NuGet consumer, not in-tree) is untouched -- it keeps the published `VkMenuWidget` until it
+  bumps to the new package. The breaking `SdlVulkan.Renderer` public-API removal **shipped** with the
+  dependency-ordered release (DIR.Lib 5.0 -> SdlVulkan.Renderer 6.4 + Console.Lib 3.0, all on NuGet);
+  TianWen's pins were bumped and merged to `main` (PR #34).
 
 ### Phase 4 -- LALR.CC layout DSL (gated on Phase 2 + verbosity proving out)
 
