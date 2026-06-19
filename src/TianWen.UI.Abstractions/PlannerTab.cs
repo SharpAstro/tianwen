@@ -277,7 +277,6 @@ namespace TianWen.UI.Abstractions
             if (ScrollOffset > maxScroll) ScrollOffset = maxScroll;
 
             var pinnedCount = state.PinnedCount;
-            var removeBtnW = fontSize * 1.5f;
             var drawnSeparator = false;
 
             for (var i = ScrollOffset; i < totalItems; i++)
@@ -307,65 +306,9 @@ namespace TianWen.UI.Abstractions
                                  : isPinned   ? PinnedText
                                               : ItemText;
 
-                FillRect(rect.X, rowY, listW, itemHeight, rowBg);
                 var capturedIdx = i;
-                RegisterClickable(rect.X, rowY, listW - removeBtnW, itemHeight,
-                    new HitResult.ListItemHit("TargetList", i),
-                    _ => { state.SelectedTargetIndex = capturedIdx; state.NeedsRedraw = true; });
 
-                // Pin/unpin button on the right
-                var btnX = rect.X + listW - removeBtnW;
-                if (isPinned)
-                {
-                    FillRect(btnX, rowY, removeBtnW, itemHeight, RemoveBtnBg);
-                    DrawText("\u2212".AsSpan(), fontPath,
-                        btnX, rowY, removeBtnW, itemHeight,
-                        fontSize, RemoveBtnText, TextAlign.Center, TextAlign.Center);
-
-                    var capturedPinIdx = PlannerActions.FindProposalIndex(state.Proposals, scored.Target);
-                    if (capturedPinIdx >= 0)
-                    {
-                        RegisterClickable(btnX, rowY, removeBtnW, itemHeight,
-                            new HitResult.ButtonHit("RemoveProposal"),
-                            _ =>
-                            {
-                                PlannerActions.RemoveProposal(state, capturedPinIdx);
-                                if (state.SelectedTargetIndex >= state.PinnedCount)
-                                {
-                                    state.SelectedTargetIndex = Math.Max(0, state.SelectedTargetIndex - 1);
-                                }
-                            });
-                    }
-                }
-                else
-                {
-                    // Unpinned: [+] pin button
-                    FillRect(btnX, rowY, removeBtnW, itemHeight, PinnedBg);
-                    DrawText("+".AsSpan(), fontPath,
-                        btnX, rowY, removeBtnW, itemHeight,
-                        fontSize, PinnedText, TextAlign.Center, TextAlign.Center);
-
-                    var capturedTarget = scored.Target;
-                    RegisterClickable(btnX, rowY, removeBtnW, itemHeight,
-                        new HitResult.ButtonHit("AddProposal"),
-                        _ => { PlannerActions.ToggleProposal(state, capturedTarget); });
-                }
-
-                // Target name
-                var nameX = rect.X + padding;
-                var typeW = fontSize * 3.2f; // fixed width for 3-4 char abbreviations
-                var nameW = listW - typeW - padding * 2f - removeBtnW - fontSize * 3.5f; // remainder after type + info + button
-                DrawText(scored.Target.Name.AsSpan(), fontPath,
-                    nameX, rowY, nameW, itemHeight,
-                    fontSize, rowTextColor, TextAlign.Near, TextAlign.Center);
-
-                // Object type abbreviation (Gx, OC, PN, etc.)
-                var typeX = nameX + nameW;
-                DrawText(scored.ObjectType.ToAbbreviation().AsSpan(), fontPath,
-                    typeX, rowY, typeW, itemHeight,
-                    fontSize * 0.85f, DimText, TextAlign.Near, TextAlign.Center);
-
-                // Altitude / peak time right-aligned
+                // Altitude / peak time shown right-aligned (start time for pinned, peak altitude otherwise).
                 string infoStr;
                 if (isPinned)
                 {
@@ -378,13 +321,69 @@ namespace TianWen.UI.Abstractions
                 }
                 else
                 {
-                    infoStr = $"{scored.OptimalAltitude:F0}°";
+                    infoStr = $"{scored.OptimalAltitude:F0}\u00b0";
                 }
-                var infoX = typeX + typeW;
-                var infoW = listW - nameW - typeW - padding * 2f - removeBtnW;
-                DrawText(infoStr.AsSpan(), fontPath,
-                    infoX, rowY, infoW, itemHeight,
-                    fontSize, isSelected ? SelectedText : DimText, TextAlign.Far, TextAlign.Center);
+
+                // Pin/unpin button leaf: [-] removes a pinned target, [+] pins an unpinned one. Its own
+                // hit wins over the row-selection hit for the button column (inner registrations win).
+                LayoutNode pinLeaf;
+                if (isPinned)
+                {
+                    var capturedPinIdx = PlannerActions.FindProposalIndex(state.Proposals, scored.Target);
+                    pinLeaf = new LayoutNode.Leaf(new LayoutContent.Text("\u2212", BaseFontSize) { Color = RemoveBtnText, HAlign = TextAlign.Center, VAlign = TextAlign.Center })
+                    {
+                        Width = Sizing.Fixed(BaseFontSize * 1.5f),
+                        Height = Sizing.Star(),
+                        Background = RemoveBtnBg,
+                        Hit = capturedPinIdx >= 0 ? new HitResult.ButtonHit("RemoveProposal") : null,
+                        OnClick = capturedPinIdx >= 0 ? (Action<InputModifier>)(_ =>
+                        {
+                            PlannerActions.RemoveProposal(state, capturedPinIdx);
+                            if (state.SelectedTargetIndex >= state.PinnedCount)
+                            {
+                                state.SelectedTargetIndex = Math.Max(0, state.SelectedTargetIndex - 1);
+                            }
+                        }) : null,
+                    };
+                }
+                else
+                {
+                    var capturedTarget = scored.Target;
+                    pinLeaf = new LayoutNode.Leaf(new LayoutContent.Text("+", BaseFontSize) { Color = PinnedText, HAlign = TextAlign.Center, VAlign = TextAlign.Center })
+                    {
+                        Width = Sizing.Fixed(BaseFontSize * 1.5f),
+                        Height = Sizing.Star(),
+                        Background = PinnedBg,
+                        Hit = new HitResult.ButtonHit("AddProposal"),
+                        OnClick = _ => PlannerActions.ToggleProposal(state, capturedTarget),
+                    };
+                }
+
+                // Whole row: [pad | name * | type | info | pad | pin]. Column widths + fonts are raw design
+                // units (the engine applies dpiScale); the bounds rect is listW px wide so the Star name cell
+                // fills exactly what the old nameW computed. The row carries the select hit; pinLeaf its own.
+                LayoutNode Spacer() => new LayoutNode.Leaf(new LayoutContent.Box(0f, 0f)) { Width = Sizing.Fixed(BasePadding), Height = Sizing.Star() };
+                LayoutNode Cell(string text, float fontMul, RGBAColor32 color, TextAlign halign, float widthDesign) =>
+                    new LayoutNode.Leaf(new LayoutContent.Text(text, BaseFontSize * fontMul) { Color = color, HAlign = halign, VAlign = TextAlign.Center })
+                    {
+                        Width = widthDesign > 0f ? Sizing.Fixed(widthDesign) : Sizing.Star(),
+                        Height = Sizing.Star(),
+                    };
+                var row = new LayoutNode.Stack(
+                [
+                    Spacer(),
+                    Cell(scored.Target.Name, 1f, rowTextColor, TextAlign.Near, 0f),
+                    Cell(scored.ObjectType.ToAbbreviation(), 0.85f, DimText, TextAlign.Near, BaseFontSize * 3.2f),
+                    Cell(infoStr, 1f, isSelected ? SelectedText : DimText, TextAlign.Far, BaseFontSize * 3.5f),
+                    Spacer(),
+                    pinLeaf,
+                ], LayoutAxis.Horizontal)
+                {
+                    Background = rowBg,
+                    Hit = new HitResult.ListItemHit("TargetList", i),
+                    OnClick = _ => { state.SelectedTargetIndex = capturedIdx; state.NeedsRedraw = true; },
+                };
+                RenderLayout(row, new RectF32(rect.X, rowY, listW, itemHeight), fontPath, dpiScale);
             }
 
             var sbX = rect.X + listW;
