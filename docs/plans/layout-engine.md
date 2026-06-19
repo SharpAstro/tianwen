@@ -5,6 +5,57 @@ consumption in `../Console.Lib`, `../SdlVulkan.Renderer`, TianWen, and `../../se
 lives in TianWen's `docs/plans/` because TianWen is the driving consumer, but Phases 1-3 are DIR.Lib
 changes that also benefit chess.
 
+## Status (2026-06-19) -- per-row breadth in progress on `feature/layout`; finish roadmap
+
+Phases 1-3 (theme, engine, shared widgets) shipped in-tree. Tab consumption is **in progress** via a
+**per-row** model: each interactive row (slot / stepper / toggle / labeled-input / button) is its own
+`LayoutNode` subtree rendered by its own `RenderLayout` into a per-row rect; the vertical flow
+(cursor / scroll / section order) stays imperative. The full single-panel tree was attempted on
+EquipmentTab and **reverted** -- it degraded to a facade (`Fill` leaves wrapping nested `RenderLayout`,
++713 lines, dead code, a double-DPI header bug). Per-row is the deliberate, low-risk level.
+
+Shipped on `feature/layout` (unpushed; release held):
+- Equipment: section/row positioning on the engine + the design-unit font fix (PaintLayout does
+  `text.FontSize * dpiScale`, so Text-leaf fonts must be raw `BaseFontSize`, never pre-DPI-scaled).
+- Session: config-form rows + camera/obs steppers (shared `StepperControl`) + a wheel-scroll clamp.
+- Notifications: Clear button as one draw==hit leaf. Guider: untouched (pure visualization dashboard).
+
+### Definition of done (bounded)
+
+Every interactive, multi-element panel renders its row/widget structure through the engine (draw==hit,
+design-unit fonts) from **one shared set of row builders**, so GPU + TUI can share the trees. This is
+NOT "100% of pixels via the engine." Staying imperative by design: visualization (charts, overlays,
+sparklines, graphs, gauges) and lone atomic `RenderButton` calls (already draw==hit in one call). Only
+**separate** draw + `RegisterClickable` pairs (the drift-prone pattern) get converted.
+
+### Remaining work (measured 2026-06-19)
+
+| Tab | structure on engine | remaining real work |
+|---|---|---|
+| Session / Notifications / Guider | done / done / n-a | none |
+| Equipment | partial (16 RenderLayout) | expanded device-setting steppers, cooler-control, profile/device dropdowns, edit Save/Cancel (~35 imperative calls) |
+| Planner | none | target-list rows (ListItemHit + Remove/Add), suggestion dropdown |
+| LiveSession | none | preview capture controls + steppers, polar setup config rows (31 buttons total; toolbars + charts stay imperative) |
+
+### Execution order (decided)
+
+0. **Consolidate shared row builders** -- one neutral set (`StepperControl`, `LabeledInputRow`,
+   `SlotRow`, toggle/cycle); Equipment + Session point at it (drop the duplicate
+   `EquipmentPanelLayout.StepperRow` vs `SessionTab.StepperControl` split). Foundation, done first.
+1. **Planner** -- target rows + suggestion dropdown via the shared builders.
+2. **Equipment cleanup** -- the structural leftovers via the shared builders.
+3. **LiveSession** -- sub-sliced per render method (capture controls, polar config rows); scout each
+   render method first; leave toolbars + charts imperative.
+4. **Full single-panel tree** -- DEFERRED until 0-3 land, then decide. If done, the Session config form
+   is the cleanest first candidate (flat, data-driven; scroll via root-bounds offset; real subtrees,
+   NOT the reverted Fill-wrapping facade).
+
+### Per-phase bar
+
+Inspector before/after pixel- + hit-geometry-identical; build 0 warnings; design-unit fonts; CRLF; no
+em-dashes; python-script fallback when editing `\uXXXX`-bearing lines (the Edit tool can't match them).
+No push -- release held; the tab work is tianwen-only (no sibling release needed).
+
 ## Painpoint
 
 Tab/panel UI today is hand-laid-out with duplicated constants and no real layout engine. Concretely,
