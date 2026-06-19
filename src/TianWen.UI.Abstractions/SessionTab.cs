@@ -760,15 +760,15 @@ namespace TianWen.UI.Abstractions
                     switch (field.Kind)
                     {
                         case ConfigFieldKind.BoolToggle:
-                            RenderToggleRow(field, controlX, cursor, itemH, dpiScale, fontPath, fontSize);
+                            RenderToggleRow(field, controlX, cursor, itemH, dpiScale, fontPath);
                             break;
 
                         case ConfigFieldKind.EnumCycle:
-                            RenderCycleRow(field, controlX, cursor, itemH, dpiScale, fontPath, fontSize);
+                            RenderCycleRow(field, controlX, cursor, itemH, dpiScale, fontPath);
                             break;
 
                         default:
-                            RenderStepperRow(field, controlX, cursor, stepperBtnW, valueW, itemH, fontPath, fontSize);
+                            RenderStepperRow(field, controlX, cursor, stepperBtnW, valueW, itemH, dpiScale, fontPath);
                             break;
                     }
 
@@ -807,21 +807,46 @@ namespace TianWen.UI.Abstractions
             ConfigFieldDescriptor field,
             float x, float y,
             float btnW, float valW, float h,
-            string fontPath, float fontSize)
+            float dpiScale, string fontPath)
         {
             var displayStr = FormatStepperDisplay(field, State.Configuration);
+            var running = State.IsSessionRunning;
+            var btnBg = running ? DisabledBtnBg : StepperBg;
+            var btnText = running ? DimText : BodyText;
 
-            ConfigButton("\u2212", x, y, btnW, h, fontPath, fontSize,
-                StepperBg, $"Dec:{field.Label}",
-                _ => { State.Configuration = field.Decrement(State.Configuration); State.IsDirty = true; State.NeedsRedraw = true; });
+            // [-] value [+] as one declarative row. The buttons are Fixed at the design-unit stepper width
+            // (the engine scales them by dpiScale via ToSurface); the value cell takes the remaining space,
+            // which equals the shared measured value column because the bounds rect spans btnW + valW + btnW.
+            // Font sizes are raw design units -- PaintLayout re-applies dpiScale (LayoutContent.Text sizes are
+            // design units, like every Fixed/padding value). The disabled (session-running) button keeps its
+            // hit region but drops the click handler, mirroring the old ConfigButton path.
+            LayoutNode StepperButton(string glyph, string hitId, Action<InputModifier> onClick) =>
+                new LayoutNode.Leaf(new LayoutContent.Text(glyph, BaseFontSize) { Color = btnText, HAlign = TextAlign.Center, VAlign = TextAlign.Center })
+                {
+                    Width = Sizing.Fixed(BaseStepperBtnW),
+                    Height = Sizing.Star(),
+                    Background = btnBg,
+                    Hit = new HitResult.ButtonHit(hitId),
+                    OnClick = running ? null : onClick,
+                };
 
-            DrawText(displayStr, fontPath,
-                x + btnW, y, valW, h,
-                fontSize, State.IsSessionRunning ? DimText : BodyText, TextAlign.Center, TextAlign.Center);
+            var valueLeaf = new LayoutNode.Leaf(
+                new LayoutContent.Text(displayStr, BaseFontSize) { Color = running ? DimText : BodyText, HAlign = TextAlign.Center, VAlign = TextAlign.Center })
+            {
+                Width = Sizing.Star(),
+                Height = Sizing.Star(),
+            };
 
-            ConfigButton("+", x + btnW + valW, y, btnW, h, fontPath, fontSize,
-                StepperBg, $"Inc:{field.Label}",
-                _ => { State.Configuration = field.Increment(State.Configuration); State.IsDirty = true; State.NeedsRedraw = true; });
+            var row = new LayoutNode.Stack(
+            [
+                StepperButton("\u2212", $"Dec:{field.Label}",
+                    _ => { State.Configuration = field.Decrement(State.Configuration); State.IsDirty = true; State.NeedsRedraw = true; }),
+                valueLeaf,
+                StepperButton("+", $"Inc:{field.Label}",
+                    _ => { State.Configuration = field.Increment(State.Configuration); State.IsDirty = true; State.NeedsRedraw = true; }),
+            ], LayoutAxis.Horizontal);
+
+            RenderLayout(row, new RectF32(x, y, btnW + valW + btnW, h), fontPath, dpiScale);
         }
 
         // -----------------------------------------------------------------------
@@ -831,46 +856,50 @@ namespace TianWen.UI.Abstractions
         private void RenderToggleRow(
             ConfigFieldDescriptor field,
             float x, float y, float h,
-            float dpiScale, string fontPath, float fontSize)
+            float dpiScale, string fontPath)
         {
             var valueStr = field.FormatValue(State.Configuration);
             var isOn = valueStr == "ON";
             var btnW = 60f * dpiScale;
+            var running = State.IsSessionRunning;
 
-            ConfigButton(valueStr, x, y, btnW, h, fontPath, fontSize,
-                isOn ? ToggleOnBg : ToggleOffBg, $"Toggle:{field.Label}",
-                _ => { State.Configuration = field.Increment(State.Configuration); State.IsDirty = true; State.NeedsRedraw = true; });
+            // Single ON/OFF button as a declarative leaf (raw design-unit font; PaintLayout re-applies dpiScale).
+            var btn = new LayoutNode.Leaf(
+                new LayoutContent.Text(valueStr, BaseFontSize) { Color = running ? DimText : BodyText, HAlign = TextAlign.Center, VAlign = TextAlign.Center })
+            {
+                Width = Sizing.Star(),
+                Height = Sizing.Star(),
+                Background = running ? DisabledBtnBg : (isOn ? ToggleOnBg : ToggleOffBg),
+                Hit = new HitResult.ButtonHit($"Toggle:{field.Label}"),
+                OnClick = running ? null : (_ => { State.Configuration = field.Increment(State.Configuration); State.IsDirty = true; State.NeedsRedraw = true; }),
+            };
+            RenderLayout(btn, new RectF32(x, y, btnW, h), fontPath, dpiScale);
         }
 
         // -----------------------------------------------------------------------
         // Cycle row: [Value ▶]
         // -----------------------------------------------------------------------
 
-        /// <summary>Renders a button that is disabled (dimmed, no click) when the session is running.</summary>
-        private void ConfigButton(string label, float x, float y, float w, float h,
-            string fontPath, float fontSize, RGBAColor32 bg, string hitId, Action<InputModifier>? onClick)
-        {
-            if (State.IsSessionRunning)
-            {
-                RenderButton(label, x, y, w, h, fontPath, fontSize, DisabledBtnBg, DimText, hitId, null);
-            }
-            else
-            {
-                RenderButton(label, x, y, w, h, fontPath, fontSize, bg, BodyText, hitId, onClick);
-            }
-        }
-
         private void RenderCycleRow(
             ConfigFieldDescriptor field,
             float x, float y, float h,
-            float dpiScale, string fontPath, float fontSize)
+            float dpiScale, string fontPath)
         {
             var valueStr = field.FormatValue(State.Configuration);
             var btnW = 140f * dpiScale;
+            var running = State.IsSessionRunning;
 
-            ConfigButton($"{valueStr} \u25B6", x, y, btnW, h, fontPath, fontSize * 0.9f,
-                CycleBg, $"Cycle:{field.Label}",
-                _ => { State.Configuration = field.Increment(State.Configuration); State.IsDirty = true; State.NeedsRedraw = true; });
+            // Single cycle button [value >] as a declarative leaf (raw design-unit font * 0.9).
+            var btn = new LayoutNode.Leaf(
+                new LayoutContent.Text($"{valueStr} \u25B6", BaseFontSize * 0.9f) { Color = running ? DimText : BodyText, HAlign = TextAlign.Center, VAlign = TextAlign.Center })
+            {
+                Width = Sizing.Star(),
+                Height = Sizing.Star(),
+                Background = running ? DisabledBtnBg : CycleBg,
+                Hit = new HitResult.ButtonHit($"Cycle:{field.Label}"),
+                OnClick = running ? null : (_ => { State.Configuration = field.Increment(State.Configuration); State.IsDirty = true; State.NeedsRedraw = true; }),
+            };
+            RenderLayout(btn, new RectF32(x, y, btnW, h), fontPath, dpiScale);
         }
     }
 }
