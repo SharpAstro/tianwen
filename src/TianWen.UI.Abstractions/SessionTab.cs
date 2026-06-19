@@ -265,6 +265,12 @@ namespace TianWen.UI.Abstractions
         private static readonly RGBAColor32 DisabledBtnBg    = new RGBAColor32(0x33, 0x33, 0x3a, 0xff);
         private static readonly RGBAColor32 DisabledBtnText  = new RGBAColor32(0x66, 0x66, 0x77, 0xff);
 
+        // Shared stepper button styling for this tab (design-unit [-]/[+] look), passed to
+        // FormRowLayout.StepperControl so the config + camera steppers share one definition.
+        // Declared after the colours above so the static field initializer reads them initialized.
+        private static readonly FormRowLayout.StepperStyle SessionStepperStyle = new(
+            StepperBg, BodyText, DisabledBtnBg, DimText, BaseFontSize, BaseStepperBtnW);
+
         private void RenderRightPanel(
             PlannerState plannerState,
             RectF32 rect,
@@ -418,7 +424,7 @@ namespace TianWen.UI.Abstractions
                         listRect.X + padding, cursor, labelW, itemH,
                         fontSize * 0.9f, DimText, TextAlign.Near, TextAlign.Center);
 
-                    var setCtrl = StepperControl(
+                    var setCtrl = FormRowLayout.StepperControl(SessionStepperStyle,
                         "\u2212", $"Dec:Setpoint:{i}",
                         _ => { State.CameraSettings[capturedI].SetpointTempC = (sbyte)Math.Max(State.CameraSettings[capturedI].SetpointTempC - 1, -40); State.IsDirty = true; State.NeedsRedraw = true; },
                         "+", $"Inc:Setpoint:{i}",
@@ -440,7 +446,7 @@ namespace TianWen.UI.Abstractions
                     var modeName = cam.Gain >= 0 && cam.Gain < cam.GainModes.Count
                         ? cam.GainModes[cam.Gain]
                         : $"Mode {cam.Gain}";
-                    var modeCtrl = StepperControl(
+                    var modeCtrl = FormRowLayout.StepperControl(SessionStepperStyle,
                         "\u25C0", $"Dec:Gain:{i}",
                         _ => { var c = State.CameraSettings[capturedI]; c.Gain = (c.Gain - 1 + c.GainModes.Count) % c.GainModes.Count; State.IsDirty = true; State.NeedsRedraw = true; },
                         "\u25B6", $"Inc:Gain:{i}",
@@ -451,7 +457,7 @@ namespace TianWen.UI.Abstractions
                 else
                 {
                     // Numeric gain
-                    var gainCtrl = StepperControl(
+                    var gainCtrl = FormRowLayout.StepperControl(SessionStepperStyle,
                         "\u2212", $"Dec:Gain:{i}",
                         _ => { State.CameraSettings[capturedI].Gain = Math.Max(State.CameraSettings[capturedI].Gain - 10, 0); State.IsDirty = true; State.NeedsRedraw = true; },
                         "+", $"Inc:Gain:{i}",
@@ -804,43 +810,6 @@ namespace TianWen.UI.Abstractions
             return $"{valueStr}{unitStr}";
         }
 
-        /// <summary>
-        /// Builds a [dec | value | inc] stepper control as one LayoutNode, shared by the config form and
-        /// the per-OTA camera settings. The buttons are Fixed at the design-unit stepper width (the engine
-        /// scales them by dpiScale via ToSurface); the value cell is Star so it fills the remaining width --
-        /// callers size the bounds rect = btnW + valueW + btnW so the value column equals the shared measured
-        /// width and every stepper stays aligned. Font sizes are raw design units (PaintLayout re-applies
-        /// dpiScale). A disabled control keeps its hit regions but drops the click handlers (dimmed),
-        /// mirroring the old ConfigButton path.
-        /// </summary>
-        private LayoutNode StepperControl(
-            string decGlyph, string decHit, Action<InputModifier> onDec,
-            string incGlyph, string incHit, Action<InputModifier> onInc,
-            string valueText, float valueFontSize, RGBAColor32 valueColor, bool enabled)
-        {
-            var btnBg = enabled ? StepperBg : DisabledBtnBg;
-            var btnText = enabled ? BodyText : DimText;
-
-            LayoutNode Btn(string glyph, string hit, Action<InputModifier> onClick) =>
-                new LayoutNode.Leaf(new LayoutContent.Text(glyph, BaseFontSize) { Color = btnText, HAlign = TextAlign.Center, VAlign = TextAlign.Center })
-                {
-                    Width = Sizing.Fixed(BaseStepperBtnW),
-                    Height = Sizing.Star(),
-                    Background = btnBg,
-                    Hit = new HitResult.ButtonHit(hit),
-                    OnClick = enabled ? onClick : null,
-                };
-
-            var value = new LayoutNode.Leaf(
-                new LayoutContent.Text(valueText, valueFontSize) { Color = valueColor, HAlign = TextAlign.Center, VAlign = TextAlign.Center })
-            {
-                Width = Sizing.Star(),
-                Height = Sizing.Star(),
-            };
-
-            return new LayoutNode.Stack([Btn(decGlyph, decHit, onDec), value, Btn(incGlyph, incHit, onInc)], LayoutAxis.Horizontal);
-        }
-
         private void RenderStepperRow(
             ConfigFieldDescriptor field,
             float x, float y,
@@ -852,7 +821,7 @@ namespace TianWen.UI.Abstractions
 
             // The bounds rect spans btnW + valW + btnW, so the Star value cell exactly fills the shared
             // measured value column (see StepperControl).
-            var ctrl = StepperControl(
+            var ctrl = FormRowLayout.StepperControl(SessionStepperStyle,
                 "\u2212", $"Dec:{field.Label}",
                 _ => { State.Configuration = field.Decrement(State.Configuration); State.IsDirty = true; State.NeedsRedraw = true; },
                 "+", $"Inc:{field.Label}",
