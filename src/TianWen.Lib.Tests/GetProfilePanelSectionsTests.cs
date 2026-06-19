@@ -19,7 +19,7 @@ namespace TianWen.Lib.Tests
 
         private static OTAData Ota(string name, Uri? camera = null, Uri? filterWheel = null) =>
             new OTAData(name, 1000,
-                Camera: camera, Cover: null, Focuser: null, FilterWheel: filterWheel,
+                Camera: camera ?? None, Cover: null, Focuser: null, FilterWheel: filterWheel,
                 PreferOutwardFocus: null, OutwardIsPositive: null);
 
         private static ProfileData Data(params OTAData[] otas) =>
