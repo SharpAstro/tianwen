@@ -61,16 +61,24 @@ namespace TianWen.UI.Abstractions
                 var btnH = headerH - 6f * dpiScale;
                 var btnX = contentRect.X + contentRect.Width - btnW - pad;
                 var btnY = contentRect.Y + 3f * dpiScale;
-                FillRect(btnX, btnY, btnW, btnH, new RGBAColor32(0x3a, 0x3a, 0x46, 0xff));
-                DrawText("Clear".AsSpan(), fontPath,
-                    btnX, btnY, btnW, btnH, fontSize * 0.95f, BodyText, TextAlign.Center, TextAlign.Center);
-                RegisterClickable(btnX, btnY, btnW, btnH,
-                    new HitResult.ButtonHit("NotificationsClear"),
-                    _ =>
+
+                // Clear button as one draw==hit LayoutNode leaf instead of separate FillRect +
+                // DrawText + RegisterClickable (which can drift). Font is a raw design unit --
+                // PaintLayout re-applies dpiScale.
+                var clearBtn = new LayoutNode.Leaf(
+                    new LayoutContent.Text("Clear", BaseFontSize * 0.95f) { Color = BodyText, HAlign = TextAlign.Center, VAlign = TextAlign.Center })
+                {
+                    Width = Sizing.Star(),
+                    Height = Sizing.Star(),
+                    Background = new RGBAColor32(0x3a, 0x3a, 0x46, 0xff),
+                    Hit = new HitResult.ButtonHit("NotificationsClear"),
+                    OnClick = _ =>
                     {
                         appState.ClearNotifications();
                         appState.NeedsRedraw = true;
-                    });
+                    },
+                };
+                RenderLayout(clearBtn, new RectF32(btnX, btnY, btnW, btnH), fontPath, dpiScale);
             }
 
             // List area
