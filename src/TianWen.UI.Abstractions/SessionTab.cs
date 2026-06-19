@@ -135,8 +135,14 @@ namespace TianWen.UI.Abstractions
 
         private bool HandleConfigScroll(float scrollY)
         {
-            State.ConfigScrollOffset = Math.Max(0,
-                State.ConfigScrollOffset - (int)(scrollY * ScrollLineHeight));
+            // Clamp to the actual scrollable range so the wheel is a no-op when the form fits
+            // (maxScroll == 0). The upper clamp at the end of RenderConfigForm runs only AFTER the
+            // content is painted, so without clamping here each wheel tick would paint one scrolled
+            // frame and then snap back. _totalConfigHeight + ConfigPanelRect are from the last render
+            // (both 0 before the first frame, where maxScroll is also 0, so the wheel stays inert).
+            var maxScroll = Math.Max(0, (int)(_totalConfigHeight - ConfigPanelRect.Height));
+            State.ConfigScrollOffset = Math.Clamp(
+                State.ConfigScrollOffset - (int)(scrollY * ScrollLineHeight), 0, maxScroll);
             State.NeedsRedraw = true;
             return true;
         }
