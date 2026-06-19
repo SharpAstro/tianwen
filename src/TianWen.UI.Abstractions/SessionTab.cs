@@ -418,15 +418,13 @@ namespace TianWen.UI.Abstractions
                         listRect.X + padding, cursor, labelW, itemH,
                         fontSize * 0.9f, DimText, TextAlign.Near, TextAlign.Center);
 
-                    RenderButton("\u2212", controlX, cursor, stepperBtnW, itemH, fontPath, fontSize,
-                        StepperBg, BodyText, $"Dec:Setpoint:{i}",
-                        _ => { State.CameraSettings[capturedI].SetpointTempC = (sbyte)Math.Max(State.CameraSettings[capturedI].SetpointTempC - 1, -40); State.IsDirty = true; State.NeedsRedraw = true; });
-                    DrawText($"{cam.SetpointTempC}°C", fontPath,
-                        controlX + stepperBtnW, cursor, valueW, itemH,
-                        fontSize, BodyText, TextAlign.Center, TextAlign.Center);
-                    RenderButton("+", controlX + stepperBtnW + valueW, cursor, stepperBtnW, itemH, fontPath, fontSize,
-                        StepperBg, BodyText, $"Inc:Setpoint:{i}",
-                        _ => { State.CameraSettings[capturedI].SetpointTempC = (sbyte)Math.Min(State.CameraSettings[capturedI].SetpointTempC + 1, 30); State.IsDirty = true; State.NeedsRedraw = true; });
+                    var setCtrl = StepperControl(
+                        "\u2212", $"Dec:Setpoint:{i}",
+                        _ => { State.CameraSettings[capturedI].SetpointTempC = (sbyte)Math.Max(State.CameraSettings[capturedI].SetpointTempC - 1, -40); State.IsDirty = true; State.NeedsRedraw = true; },
+                        "+", $"Inc:Setpoint:{i}",
+                        _ => { State.CameraSettings[capturedI].SetpointTempC = (sbyte)Math.Min(State.CameraSettings[capturedI].SetpointTempC + 1, 30); State.IsDirty = true; State.NeedsRedraw = true; },
+                        $"{cam.SetpointTempC}°C", BaseFontSize, BodyText, enabled: true);
+                    RenderLayout(setCtrl, new RectF32(controlX, cursor, stepperBtnW + valueW + stepperBtnW, itemH), fontPath, dpiScale);
                     cursor += itemH;
                 }
 
@@ -442,40 +440,24 @@ namespace TianWen.UI.Abstractions
                     var modeName = cam.Gain >= 0 && cam.Gain < cam.GainModes.Count
                         ? cam.GainModes[cam.Gain]
                         : $"Mode {cam.Gain}";
-                    RenderButton("\u25C0", controlX, cursor, stepperBtnW, itemH, fontPath, fontSize,
-                        StepperBg, BodyText, $"Dec:Gain:{i}",
-                        _ =>
-                        {
-                            var c = State.CameraSettings[capturedI];
-                            c.Gain = (c.Gain - 1 + c.GainModes.Count) % c.GainModes.Count;
-                            State.IsDirty = true;
-                            State.NeedsRedraw = true;
-                        });
-                    DrawText(modeName, fontPath,
-                        controlX + stepperBtnW, cursor, valueW, itemH,
-                        fontSize * 0.9f, BodyText, TextAlign.Center, TextAlign.Center);
-                    RenderButton("\u25B6", controlX + stepperBtnW + valueW, cursor, stepperBtnW, itemH, fontPath, fontSize,
-                        StepperBg, BodyText, $"Inc:Gain:{i}",
-                        _ =>
-                        {
-                            var c = State.CameraSettings[capturedI];
-                            c.Gain = (c.Gain + 1) % c.GainModes.Count;
-                            State.IsDirty = true;
-                            State.NeedsRedraw = true;
-                        });
+                    var modeCtrl = StepperControl(
+                        "\u25C0", $"Dec:Gain:{i}",
+                        _ => { var c = State.CameraSettings[capturedI]; c.Gain = (c.Gain - 1 + c.GainModes.Count) % c.GainModes.Count; State.IsDirty = true; State.NeedsRedraw = true; },
+                        "\u25B6", $"Inc:Gain:{i}",
+                        _ => { var c = State.CameraSettings[capturedI]; c.Gain = (c.Gain + 1) % c.GainModes.Count; State.IsDirty = true; State.NeedsRedraw = true; },
+                        modeName, BaseFontSize * 0.9f, BodyText, enabled: true);
+                    RenderLayout(modeCtrl, new RectF32(controlX, cursor, stepperBtnW + valueW + stepperBtnW, itemH), fontPath, dpiScale);
                 }
                 else
                 {
                     // Numeric gain
-                    RenderButton("\u2212", controlX, cursor, stepperBtnW, itemH, fontPath, fontSize,
-                        StepperBg, BodyText, $"Dec:Gain:{i}",
-                        _ => { State.CameraSettings[capturedI].Gain = Math.Max(State.CameraSettings[capturedI].Gain - 10, 0); State.IsDirty = true; State.NeedsRedraw = true; });
-                    DrawText($"{cam.Gain}", fontPath,
-                        controlX + stepperBtnW, cursor, valueW, itemH,
-                        fontSize, BodyText, TextAlign.Center, TextAlign.Center);
-                    RenderButton("+", controlX + stepperBtnW + valueW, cursor, stepperBtnW, itemH, fontPath, fontSize,
-                        StepperBg, BodyText, $"Inc:Gain:{i}",
-                        _ => { State.CameraSettings[capturedI].Gain = Math.Min(State.CameraSettings[capturedI].Gain + 10, 600); State.IsDirty = true; State.NeedsRedraw = true; });
+                    var gainCtrl = StepperControl(
+                        "\u2212", $"Dec:Gain:{i}",
+                        _ => { State.CameraSettings[capturedI].Gain = Math.Max(State.CameraSettings[capturedI].Gain - 10, 0); State.IsDirty = true; State.NeedsRedraw = true; },
+                        "+", $"Inc:Gain:{i}",
+                        _ => { State.CameraSettings[capturedI].Gain = Math.Min(State.CameraSettings[capturedI].Gain + 10, 600); State.IsDirty = true; State.NeedsRedraw = true; },
+                        $"{cam.Gain}", BaseFontSize, BodyText, enabled: true);
+                    RenderLayout(gainCtrl, new RectF32(controlX, cursor, stepperBtnW + valueW + stepperBtnW, itemH), fontPath, dpiScale);
                 }
                 cursor += itemH;
 
@@ -582,45 +564,58 @@ namespace TianWen.UI.Abstractions
                 DrawText(proposal.Target.Name, fontPath, colTargetX, cursor, colTargetW, rowH,
                     fontSize, BodyText, TextAlign.Near, TextAlign.Center);
 
-                // Exposure stepper
+                // Exposure stepper: [-] value [+]. The value cell is a Fill leaf so the engine positions it;
+                // the drawFill closure renders a text input while editing, otherwise the value text plus the
+                // double-click-to-edit region taken from the arranged rect (imperative pixel font sizes, as before).
                 var expStr = SessionContent.FormatExposure(subExp);
                 var expBtnW = stepperBtnW;
                 var expValW = colExpW - expBtnW * 2;
 
-                RenderButton("\u2212", colExpX, cursor, expBtnW, rowH, fontPath, fontSize * 0.85f,
-                    StepperBg, BodyText, $"Dec:Exp:{i}",
-                    _ =>
+                LayoutNode ExpButton(string glyph, string hit, Action<InputModifier> onClick) =>
+                    new LayoutNode.Leaf(new LayoutContent.Text(glyph, BaseFontSize * 0.85f) { Color = BodyText, HAlign = TextAlign.Center, VAlign = TextAlign.Center })
                     {
-                        var p = plannerState.Proposals[capturedI];
-                        var cur = p.SubExposure ?? TimeSpan.FromSeconds(defaultExpSec);
-                        plannerState.Proposals = plannerState.Proposals.SetItem(
-                            capturedI, p with { SubExposure = SessionTabState.StepExposure(cur, false) });
-                        State.NeedsRedraw = true;
-                    });
+                        Width = Sizing.Fixed(BaseStepperBtnW * 0.85f),
+                        Height = Sizing.Star(),
+                        Background = StepperBg,
+                        Hit = new HitResult.ButtonHit(hit),
+                        OnClick = onClick,
+                    };
 
-                // Exposure value: text input when editing, plain text otherwise
-                var expValX = colExpX + expBtnW;
-                if (State.EditingExposureIndex == capturedI)
-                {
-                    RenderTextInput(State.ExposureInput, (int)expValX, (int)cursor, (int)expValW, (int)rowH,
-                        fontPath, fontSize * 0.9f);
-                }
-                else
-                {
-                    DrawText(expStr, fontPath, expValX, cursor, expValW, rowH,
-                        fontSize * 0.9f, BodyText, TextAlign.Center, TextAlign.Center);
-                    _exposureValueRegions.Add((new RectF32(expValX, cursor, expValW, rowH), capturedI));
-                }
+                var expRow = new LayoutNode.Stack(
+                [
+                    ExpButton("\u2212", $"Dec:Exp:{i}",
+                        _ =>
+                        {
+                            var p = plannerState.Proposals[capturedI];
+                            var cur = p.SubExposure ?? TimeSpan.FromSeconds(defaultExpSec);
+                            plannerState.Proposals = plannerState.Proposals.SetItem(
+                                capturedI, p with { SubExposure = SessionTabState.StepExposure(cur, false) });
+                            State.NeedsRedraw = true;
+                        }),
+                    new LayoutNode.Leaf(new LayoutContent.Fill(Key: "exp")) { Width = Sizing.Star(), Height = Sizing.Star() },
+                    ExpButton("+", $"Inc:Exp:{i}",
+                        _ =>
+                        {
+                            var p = plannerState.Proposals[capturedI];
+                            var cur = p.SubExposure ?? TimeSpan.FromSeconds(defaultExpSec);
+                            plannerState.Proposals = plannerState.Proposals.SetItem(
+                                capturedI, p with { SubExposure = SessionTabState.StepExposure(cur, true) });
+                            State.NeedsRedraw = true;
+                        }),
+                ], LayoutAxis.Horizontal);
 
-                RenderButton("+", colExpX + expBtnW + expValW, cursor, expBtnW, rowH, fontPath, fontSize * 0.85f,
-                    StepperBg, BodyText, $"Inc:Exp:{i}",
-                    _ =>
+                RenderLayout(expRow, new RectF32(colExpX, cursor, expBtnW + expValW + expBtnW, rowH), fontPath, dpiScale,
+                    drawFill: (_, r) =>
                     {
-                        var p = plannerState.Proposals[capturedI];
-                        var cur = p.SubExposure ?? TimeSpan.FromSeconds(defaultExpSec);
-                        plannerState.Proposals = plannerState.Proposals.SetItem(
-                            capturedI, p with { SubExposure = SessionTabState.StepExposure(cur, true) });
-                        State.NeedsRedraw = true;
+                        if (State.EditingExposureIndex == capturedI)
+                        {
+                            RenderTextInput(State.ExposureInput, (int)r.X, (int)r.Y, (int)r.Width, (int)r.Height, fontPath, fontSize * 0.9f);
+                        }
+                        else
+                        {
+                            DrawText(expStr, fontPath, r.X, r.Y, r.Width, r.Height, fontSize * 0.9f, BodyText, TextAlign.Center, TextAlign.Center);
+                            _exposureValueRegions.Add((r, capturedI));
+                        }
                     });
 
                 // Frame estimate
@@ -809,6 +804,43 @@ namespace TianWen.UI.Abstractions
             return $"{valueStr}{unitStr}";
         }
 
+        /// <summary>
+        /// Builds a [dec | value | inc] stepper control as one LayoutNode, shared by the config form and
+        /// the per-OTA camera settings. The buttons are Fixed at the design-unit stepper width (the engine
+        /// scales them by dpiScale via ToSurface); the value cell is Star so it fills the remaining width --
+        /// callers size the bounds rect = btnW + valueW + btnW so the value column equals the shared measured
+        /// width and every stepper stays aligned. Font sizes are raw design units (PaintLayout re-applies
+        /// dpiScale). A disabled control keeps its hit regions but drops the click handlers (dimmed),
+        /// mirroring the old ConfigButton path.
+        /// </summary>
+        private LayoutNode StepperControl(
+            string decGlyph, string decHit, Action<InputModifier> onDec,
+            string incGlyph, string incHit, Action<InputModifier> onInc,
+            string valueText, float valueFontSize, RGBAColor32 valueColor, bool enabled)
+        {
+            var btnBg = enabled ? StepperBg : DisabledBtnBg;
+            var btnText = enabled ? BodyText : DimText;
+
+            LayoutNode Btn(string glyph, string hit, Action<InputModifier> onClick) =>
+                new LayoutNode.Leaf(new LayoutContent.Text(glyph, BaseFontSize) { Color = btnText, HAlign = TextAlign.Center, VAlign = TextAlign.Center })
+                {
+                    Width = Sizing.Fixed(BaseStepperBtnW),
+                    Height = Sizing.Star(),
+                    Background = btnBg,
+                    Hit = new HitResult.ButtonHit(hit),
+                    OnClick = enabled ? onClick : null,
+                };
+
+            var value = new LayoutNode.Leaf(
+                new LayoutContent.Text(valueText, valueFontSize) { Color = valueColor, HAlign = TextAlign.Center, VAlign = TextAlign.Center })
+            {
+                Width = Sizing.Star(),
+                Height = Sizing.Star(),
+            };
+
+            return new LayoutNode.Stack([Btn(decGlyph, decHit, onDec), value, Btn(incGlyph, incHit, onInc)], LayoutAxis.Horizontal);
+        }
+
         private void RenderStepperRow(
             ConfigFieldDescriptor field,
             float x, float y,
@@ -817,42 +849,17 @@ namespace TianWen.UI.Abstractions
         {
             var displayStr = FormatStepperDisplay(field, State.Configuration);
             var running = State.IsSessionRunning;
-            var btnBg = running ? DisabledBtnBg : StepperBg;
-            var btnText = running ? DimText : BodyText;
 
-            // [-] value [+] as one declarative row. The buttons are Fixed at the design-unit stepper width
-            // (the engine scales them by dpiScale via ToSurface); the value cell takes the remaining space,
-            // which equals the shared measured value column because the bounds rect spans btnW + valW + btnW.
-            // Font sizes are raw design units -- PaintLayout re-applies dpiScale (LayoutContent.Text sizes are
-            // design units, like every Fixed/padding value). The disabled (session-running) button keeps its
-            // hit region but drops the click handler, mirroring the old ConfigButton path.
-            LayoutNode StepperButton(string glyph, string hitId, Action<InputModifier> onClick) =>
-                new LayoutNode.Leaf(new LayoutContent.Text(glyph, BaseFontSize) { Color = btnText, HAlign = TextAlign.Center, VAlign = TextAlign.Center })
-                {
-                    Width = Sizing.Fixed(BaseStepperBtnW),
-                    Height = Sizing.Star(),
-                    Background = btnBg,
-                    Hit = new HitResult.ButtonHit(hitId),
-                    OnClick = running ? null : onClick,
-                };
+            // The bounds rect spans btnW + valW + btnW, so the Star value cell exactly fills the shared
+            // measured value column (see StepperControl).
+            var ctrl = StepperControl(
+                "\u2212", $"Dec:{field.Label}",
+                _ => { State.Configuration = field.Decrement(State.Configuration); State.IsDirty = true; State.NeedsRedraw = true; },
+                "+", $"Inc:{field.Label}",
+                _ => { State.Configuration = field.Increment(State.Configuration); State.IsDirty = true; State.NeedsRedraw = true; },
+                displayStr, BaseFontSize, running ? DimText : BodyText, enabled: !running);
 
-            var valueLeaf = new LayoutNode.Leaf(
-                new LayoutContent.Text(displayStr, BaseFontSize) { Color = running ? DimText : BodyText, HAlign = TextAlign.Center, VAlign = TextAlign.Center })
-            {
-                Width = Sizing.Star(),
-                Height = Sizing.Star(),
-            };
-
-            var row = new LayoutNode.Stack(
-            [
-                StepperButton("\u2212", $"Dec:{field.Label}",
-                    _ => { State.Configuration = field.Decrement(State.Configuration); State.IsDirty = true; State.NeedsRedraw = true; }),
-                valueLeaf,
-                StepperButton("+", $"Inc:{field.Label}",
-                    _ => { State.Configuration = field.Increment(State.Configuration); State.IsDirty = true; State.NeedsRedraw = true; }),
-            ], LayoutAxis.Horizontal);
-
-            RenderLayout(row, new RectF32(x, y, btnW + valW + btnW, h), fontPath, dpiScale);
+            RenderLayout(ctrl, new RectF32(x, y, btnW + valW + btnW, h), fontPath, dpiScale);
         }
 
         // -----------------------------------------------------------------------
