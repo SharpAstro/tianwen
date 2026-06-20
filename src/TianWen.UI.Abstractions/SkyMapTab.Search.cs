@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Immutable;
 using System.Numerics;
 using DIR.Lib;
 using TianWen.Lib.Astrometry;
@@ -80,11 +81,19 @@ namespace TianWen.UI.Abstractions
             DateTimeOffset viewingTime,
             in SiteContext site)
         {
-            // Full-content backdrop — swallows clicks outside the panel.
-            FillRect(contentRect.X, contentRect.Y, contentRect.Width, contentRect.Height, SearchBackdrop);
-            RegisterClickable(contentRect.X, contentRect.Y, contentRect.Width, contentRect.Height,
-                new HitResult.ButtonHit("SearchBackdrop"),
-                _ => PostSignal(new CloseSkyMapSearchSignal()));
+            // Full-content backdrop -- swallows clicks outside the panel. One draw==hit Box
+            // leaf (fill and hit are the same arranged rect) instead of a FillRect +
+            // RegisterClickable pair whose rects could silently drift apart.
+            RenderLayout(
+                new LayoutNode.Leaf(new LayoutContent.Box(0f, 0f))
+                {
+                    Width = Sizing.Star(),
+                    Height = Sizing.Star(),
+                    Background = SearchBackdrop,
+                    Hit = new HitResult.ButtonHit("SearchBackdrop"),
+                    OnClick = _ => PostSignal(new CloseSkyMapSearchSignal()),
+                },
+                contentRect, fontPath, dpiScale);
 
             var pw = SearchPanelWidth * dpiScale;
             var ph = SearchPanelHeight * dpiScale;
@@ -101,13 +110,19 @@ namespace TianWen.UI.Abstractions
             DrawText("Search window".AsSpan(), fontPath,
                 px, py, pw, headerH, fontSize, SearchText, TextAlign.Center, TextAlign.Center);
 
-            // Close X button
+            // Close X button -- draw==hit Text leaf (the "X" glyph box and the click
+            // surface are the same arranged rect). Font is a raw design unit
+            // (fontSize / dpiScale); RenderLayout re-applies dpiScale.
             var closeW = headerH;
-            RegisterClickable(px + pw - closeW, py, closeW, headerH,
-                new HitResult.ButtonHit("SearchClose"),
-                _ => PostSignal(new CloseSkyMapSearchSignal()));
-            DrawText("X".AsSpan(), fontPath,
-                px + pw - closeW, py, closeW, headerH, fontSize, SearchText, TextAlign.Center, TextAlign.Center);
+            RenderLayout(
+                new LayoutNode.Leaf(new LayoutContent.Text("X", fontSize / dpiScale) { Color = SearchText, HAlign = TextAlign.Center, VAlign = TextAlign.Center })
+                {
+                    Width = Sizing.Star(),
+                    Height = Sizing.Star(),
+                    Hit = new HitResult.ButtonHit("SearchClose"),
+                    OnClick = _ => PostSignal(new CloseSkyMapSearchSignal()),
+                },
+                new RectF32(px + pw - closeW, py, closeW, headerH), fontPath, dpiScale);
 
             // Search input
             var inputY = py + headerH + 12f * dpiScale;
@@ -123,7 +138,7 @@ namespace TianWen.UI.Abstractions
             var listH = py + ph - listY - 12f * dpiScale;
             DrawResults(State.Search.Results, State.Search.SelectedResultIndex,
                 px + inputPadX, listY, pw - inputPadX * 2f, listH,
-                SearchRowHeight * dpiScale, fontPath, fontSize);
+                SearchRowHeight * dpiScale, fontPath, fontSize, dpiScale);
 
             // db + site are passed to keep the hot path closure-free; right now they
             // are only needed for click-to-select on the map, not inside the modal.
@@ -133,10 +148,10 @@ namespace TianWen.UI.Abstractions
         }
 
         private void DrawResults(
-            System.Collections.Immutable.ImmutableArray<SkyMapSearchResult> results,
+            ImmutableArray<SkyMapSearchResult> results,
             int selectedIndex,
             float x, float y, float w, float h,
-            float rowH, string fontPath, float fontSize)
+            float rowH, string fontPath, float fontSize, float dpiScale)
         {
             if (results.IsDefaultOrEmpty)
             {
@@ -148,41 +163,51 @@ namespace TianWen.UI.Abstractions
             var visibleRows = (int)(h / rowH);
             var count = Math.Min(results.Length, visibleRows);
 
+            // Raw design-unit fonts; RenderLayout re-applies dpiScale to the row tree.
+            var nameFont = fontSize / dpiScale;
+            var magFont = nameFont * 0.9f;
+            var selectedTextColor = new RGBAColor32(0x00, 0x00, 0x00, 0xFF);
+
             for (var i = 0; i < count; i++)
             {
                 var rowY = y + i * rowH;
                 var entry = results[i];
                 var isSelected = i == selectedIndex;
+                var capturedIndex = i;
 
-                if (isSelected)
+                // Each row is one draw==hit Stack: the selected-row highlight, the name +
+                // optional V-mag text, and the click surface are all the same arranged rect,
+                // so the hit region can no longer drift away from what's drawn.
+                var rowChildren = ImmutableArray.CreateBuilder<LayoutNode>();
+                rowChildren.Add(new LayoutNode.Leaf(new LayoutContent.Box(0f, 0f)) { Width = Sizing.Fixed(12f), Height = Sizing.Star() });
+                rowChildren.Add(new LayoutNode.Leaf(new LayoutContent.Text(entry.Display, nameFont) { Color = isSelected ? selectedTextColor : SearchText, HAlign = TextAlign.Near, VAlign = TextAlign.Center })
                 {
-                    FillRect(x, rowY, w, rowH, SearchRowHover);
-                }
-
-                // Row contents: name + optional V-mag in smaller dim text on the right.
-                var namePad = 12f;
-                DrawText(entry.Display.AsSpan(), fontPath,
-                    x + namePad, rowY, w - 80f, rowH, fontSize,
-                    isSelected ? new RGBAColor32(0x00, 0x00, 0x00, 0xFF) : SearchText,
-                    TextAlign.Near, TextAlign.Center);
-
+                    Width = Sizing.Star(),
+                    Height = Sizing.Star(),
+                });
                 if (!float.IsNaN(entry.VMag))
                 {
-                    var magText = $"{entry.VMag:F1}m";
-                    DrawText(magText.AsSpan(), fontPath,
-                        x + w - 60f, rowY, 50f, rowH, fontSize * 0.9f,
-                        isSelected ? new RGBAColor32(0x00, 0x00, 0x00, 0xFF) : SearchDimText,
-                        TextAlign.Far, TextAlign.Center);
+                    rowChildren.Add(new LayoutNode.Leaf(new LayoutContent.Text($"{entry.VMag:F1}m", magFont) { Color = isSelected ? selectedTextColor : SearchDimText, HAlign = TextAlign.Far, VAlign = TextAlign.Center })
+                    {
+                        Width = Sizing.Fixed(52f),
+                        Height = Sizing.Star(),
+                    });
                 }
+                rowChildren.Add(new LayoutNode.Leaf(new LayoutContent.Box(0f, 0f)) { Width = Sizing.Fixed(10f), Height = Sizing.Star() });
 
-                var capturedIndex = i;
-                RegisterClickable(x, rowY, w, rowH,
-                    new HitResult.ListItemHit("SearchResult", capturedIndex),
-                    _ =>
+                var rowNode = new LayoutNode.Stack(rowChildren.ToImmutable(), LayoutAxis.Horizontal)
+                {
+                    Width = Sizing.Star(),
+                    Height = Sizing.Star(),
+                    Background = isSelected ? SearchRowHover : (RGBAColor32?)null,
+                    Hit = new HitResult.ListItemHit("SearchResult", capturedIndex),
+                    OnClick = _ =>
                     {
                         State.Search.SelectedResultIndex = capturedIndex;
                         PostSignal(new SkyMapSearchCommitSignal());
-                    });
+                    },
+                };
+                RenderLayout(rowNode, new RectF32(x, rowY, w, rowH), fontPath, dpiScale);
             }
         }
 
@@ -339,18 +364,22 @@ namespace TianWen.UI.Abstractions
                         pinName, pinRA, pinDec, pinIndex, pinType)));
             }
 
-            // Close button — top-right of the info panel.
+            // Close button -- top-right of the info panel. Draw==hit Text leaf so the
+            // glyph box and the click surface are the same arranged rect.
             var closeSize = 20f * dpiScale;
-            RegisterClickable(px + pw - closeSize, py, closeSize, closeSize,
-                new HitResult.ButtonHit("InfoPanelClose"),
-                _ =>
+            RenderLayout(
+                new LayoutNode.Leaf(new LayoutContent.Text("X", fontSize / dpiScale * 0.9f) { Color = SearchDimText, HAlign = TextAlign.Center, VAlign = TextAlign.Center })
                 {
-                    State.Search.InfoPanel = null;
-                    State.NeedsRedraw = true;
-                });
-            DrawText("X".AsSpan(), fontPath,
-                px + pw - closeSize, py, closeSize, closeSize, fontSize * 0.9f,
-                SearchDimText, TextAlign.Center, TextAlign.Center);
+                    Width = Sizing.Star(),
+                    Height = Sizing.Star(),
+                    Hit = new HitResult.ButtonHit("InfoPanelClose"),
+                    OnClick = _ =>
+                    {
+                        State.Search.InfoPanel = null;
+                        State.NeedsRedraw = true;
+                    },
+                },
+                new RectF32(px + pw - closeSize, py, closeSize, closeSize), fontPath, dpiScale);
 
             // Selection marker on the map itself. For objects with a known shape
             // (nebulae, galaxies, clusters) we trace the projected ellipse so the
