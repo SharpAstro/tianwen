@@ -75,8 +75,15 @@
          5.1 adds markdown image parsing (![alt](url) -> MdImage node). Lockstep with
          Console.Lib 3.1 + SdlVulkan.Renderer 6.5.
          5.2 adds LayoutNode.Split (two resizable panes + a draw==hit divider), consumed by
-         the FITS-viewer single-source layout. Lockstep with Console.Lib 3.2 + SdlVulkan.Renderer 6.6. -->
-    <PackageVersion Include="DIR.Lib" Version="5.2.*" />
+         the FITS-viewer single-source layout. Lockstep with Console.Lib 3.2 + SdlVulkan.Renderer 6.6.
+         6.0 (MAJOR) moves the layout engine into a new DIR.Lib.Layout namespace and drops the redundant
+         `Layout` prefix (LayoutNode -> Layout.Node, LayoutEngine -> Layout.Engine, LayoutContent ->
+         Layout.Content, LayoutAxis -> Layout.Axis; Sizing/SizeKind/Size/DockChild/DockSide/ArrangedNode/
+         IMeasureContext move into the namespace too) + adds the Layout.Builder DSL & fluent Node modifiers
+         (.RowH()/.WStar()/.Bg()/.Clickable()/...). Source-breaking: consumers alias
+         `using Layout = DIR.Lib.Layout;` and write Layout.Node / Layout.Builder / Layout.Sizing. Lockstep
+         with Console.Lib 3.3 + SdlVulkan.Renderer 6.7. -->
+    <PackageVersion Include="DIR.Lib" Version="6.0.*" />
     <!-- DIR.Lib 3.0 extracted its codec layer to these sibling packages, which
          ship as a lockstep family from the StbImageSharp repo. 3.0 brought a
          binary-breaking SharpAstro.Tiff change (TiffPageOptions.IccProfile is
@@ -108,8 +115,9 @@
          against DIR.Lib 5.0 (lockstep with SdlVulkan.Renderer 6.4).
          3.1 renders markdown images (![alt](url)) to the terminal; rebuilt against
          DIR.Lib 5.1 (lockstep with SdlVulkan.Renderer 6.5).
-         3.2 is a no-code lockstep rebuild against DIR.Lib 5.2. -->
-    <PackageVersion Include="Console.Lib" Version="3.2.*" />
+         3.2 is a no-code lockstep rebuild against DIR.Lib 5.2.
+         3.3 is a no-code lockstep rebuild against DIR.Lib 6.0 (layout namespace + Layout.Builder DSL). -->
+    <PackageVersion Include="Console.Lib" Version="3.3.*" />
     <!-- SdlVulkan.Renderer 5.0 adds a multi-page SDF glyph atlas (no more grow
          stall / Adreno submit-wedge) on top of 4.1's SetSystemCursor + anisotropic
          glyph xScale. 5.1 implements DIR.Lib 4.4's PushClip/PopClip via Vulkan
@@ -128,8 +136,9 @@
          VkMenuWidget, superseded by DIR.Lib's surface-agnostic PixelMenuWidget.
          6.5 adds live-device offscreen thumbnail capture + per-page SDF LRU eviction;
          repinned to DIR.Lib 5.1 (lockstep with Console.Lib 3.1).
-         6.6 is a no-code lockstep rebuild against DIR.Lib 5.2 (LayoutNode.Split). -->
-    <PackageVersion Include="SdlVulkan.Renderer" Version="6.6.*" />
+         6.6 is a no-code lockstep rebuild against DIR.Lib 5.2 (LayoutNode.Split).
+         6.7 is a no-code lockstep rebuild against DIR.Lib 6.0 (layout namespace + Layout.Builder DSL). -->
+    <PackageVersion Include="SdlVulkan.Renderer" Version="6.7.*" />
     <PackageVersion Include="SDL3-CS" Version="3.5.0-preview.20260213-150035" />
     <PackageVersion Include="SDL3-CS.Native" Version="3.5.0-preview.20260205-174353" />
     <!-- Canon DSLR -->

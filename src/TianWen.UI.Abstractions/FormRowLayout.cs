@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Immutable;
 using DIR.Lib;
 
 namespace TianWen.UI.Abstractions
@@ -12,6 +11,11 @@ namespace TianWen.UI.Abstractions
     /// truth, so the GPU panel and a future TUI panel build the same trees. Equipment-panel structure
     /// that is genuinely equipment-typed (the per-OTA <see cref="EquipmentPanelLayout.Build"/>,
     /// <c>SlotRow</c>, header/properties/filter-table) stays in <see cref="EquipmentPanelLayout"/>.
+    /// <para>
+    /// Built with the <c>Layout.Builder</c> DSL: factories (<c>Text</c>/<c>HStack</c>/<c>Spacer</c>) plus
+    /// fluent modifiers (<c>.WFixed()</c>/<c>.RowH()</c>/<c>.Bg()</c>/<c>.Clickable()</c>) emit the same
+    /// <c>Layout.Node</c> records a hand-written initializer would, with the chrome read as a chain.
+    /// </para>
     /// </summary>
     public static class FormRowLayout
     {
@@ -26,7 +30,7 @@ namespace TianWen.UI.Abstractions
             float ButtonFontSize, float ButtonDesignW);
 
         /// <summary>
-        /// Builds a control-only stepper <c>[dec | value | inc]</c> as one <see cref="LayoutNode"/>.
+        /// Builds a control-only stepper <c>[dec | value | inc]</c> as one <see cref="Layout.Node"/>.
         /// The buttons are <c>Fixed</c> at <see cref="StepperStyle.ButtonDesignW"/> design units (the
         /// engine scales by dpiScale); the value cell is <c>Star</c> so it fills the remaining width --
         /// callers size the bounds rect = buttonW + valueW + buttonW so the value column equals the
@@ -34,7 +38,7 @@ namespace TianWen.UI.Abstractions
         /// (PaintLayout re-applies dpiScale). A disabled control keeps its hit regions but drops the
         /// click handlers (dimmed), so the layout/hit-test surface is unchanged.
         /// </summary>
-        public static LayoutNode StepperControl(
+        public static Layout.Node StepperControl(
             in StepperStyle style,
             string decGlyph, string decHit, Action<InputModifier> onDec,
             string incGlyph, string incHit, Action<InputModifier> onInc,
@@ -46,102 +50,66 @@ namespace TianWen.UI.Abstractions
             var btnW = style.ButtonDesignW;
             var canClick = enabled;
 
-            LayoutNode Btn(string glyph, string hit, Action<InputModifier> onClick) =>
-                new LayoutNode.Leaf(new LayoutContent.Text(glyph, btnFont) { Color = btnText, HAlign = TextAlign.Center, VAlign = TextAlign.Center })
-                {
-                    Width = Sizing.Fixed(btnW),
-                    Height = Sizing.Star(),
-                    Background = btnBg,
-                    Hit = new HitResult.ButtonHit(hit),
-                    OnClick = canClick ? onClick : null,
-                };
+            Layout.Node Btn(string glyph, string hit, Action<InputModifier> onClick) =>
+                Layout.Builder.Text(glyph, btnFont, btnText, TextAlign.Center, TextAlign.Center)
+                    .WFixed(btnW).HStar().Bg(btnBg)
+                    .Clickable(new HitResult.ButtonHit(hit), canClick ? onClick : null);
 
-            var value = new LayoutNode.Leaf(
-                new LayoutContent.Text(valueText, valueFontSize) { Color = valueColor, HAlign = TextAlign.Center, VAlign = TextAlign.Center })
-            {
-                Width = Sizing.Star(),
-                Height = Sizing.Star(),
-            };
+            var value = Layout.Builder.Text(valueText, valueFontSize, valueColor, TextAlign.Center, TextAlign.Center).Stretch();
 
-            return new LayoutNode.Stack([Btn(decGlyph, decHit, onDec), value, Btn(incGlyph, incHit, onInc)], LayoutAxis.Horizontal);
+            return Layout.Builder.HStack(Btn(decGlyph, decHit, onDec), value, Btn(incGlyph, incHit, onInc));
         }
 
         /// <summary>
         /// One "pill" button for a confirmation / segmented strip: a full-cell click target whose coloured
         /// background is inset vertically to <paramref name="fillFraction"/> of the cell height (the classic
         /// inset-pill look), with the label centred over the whole cell. The engine binds both
-        /// <see cref="LayoutNode.Background"/> and <see cref="LayoutNode.Hit"/> to a node's <i>whole</i> rect, so
+        /// <see cref="Layout.Node.Background"/> and <see cref="Layout.Node.Hit"/> to a node's <i>whole</i> rect, so
         /// an inset background and a full-height hit cannot share one leaf -- this is a vertical Stack
         /// <c>[spacer | pill | spacer]</c> with the Hit on the outer Stack (full height) and the Background on
         /// the inner pill (the inset band). The spacers are <c>Star</c>-sized, so the inset stays a true
         /// fraction of the row at any DPI with no pixel/design-unit conversion. A null <paramref name="hit"/>
         /// (or <paramref name="onClick"/>) leaves the cell inert -- clicks fall through to whatever is behind.
         /// </summary>
-        public static LayoutNode InsetPillButton(
+        public static Layout.Node InsetPillButton(
             string label, float fontSize, RGBAColor32 bg, RGBAColor32 textColor,
             HitResult? hit, Action<InputModifier>? onClick,
             float widthWeight = 1f, float fillFraction = 0.7f)
         {
             var insetWeight = (1f - fillFraction) * 0.5f;
-            LayoutNode Spacer() => new LayoutNode.Leaf(new LayoutContent.Box(0f, 0f)) { Height = Sizing.Star(insetWeight) };
-            var pill = new LayoutNode.Leaf(new LayoutContent.Text(label, fontSize) { Color = textColor, HAlign = TextAlign.Center, VAlign = TextAlign.Center })
-            {
-                Width = Sizing.Star(),
-                Height = Sizing.Star(fillFraction),
-                Background = bg,
-            };
-            return new LayoutNode.Stack([Spacer(), pill, Spacer()], LayoutAxis.Vertical)
-            {
-                Width = Sizing.Star(widthWeight),
-                Height = Sizing.Star(),
-                Hit = hit,
-                OnClick = onClick,
-            };
+            Layout.Node Spacer() => Layout.Builder.Spacer().HStar(insetWeight);
+            var pill = Layout.Builder.Text(label, fontSize, textColor, TextAlign.Center, TextAlign.Center)
+                .WStar().HStar(fillFraction).Bg(bg);
+            return Layout.Builder.VStack(Spacer(), pill, Spacer())
+                .WStar(widthWeight).HStar()
+                .Clickable(hit, onClick);
         }
 
         /// <summary>
         /// Builds a clickable toggle-header row: background + hit + label text.
         /// Used for collapsible sections (Filter table, Cooler Control, Mount Status, Device Settings, Advanced sub-section).
         /// </summary>
-        public static LayoutNode ToggleHeaderRow(
+        public static Layout.Node ToggleHeaderRow(
             string label, float rowH,
             RGBAColor32 bg, RGBAColor32 textColor, float fontSize,
             HitResult hit, Action<InputModifier>? onClick)
         {
-            return new LayoutNode.Leaf(new LayoutContent.Text(label, fontSize) { Color = textColor, HAlign = TextAlign.Near, VAlign = TextAlign.Center })
-            {
-                Width = Sizing.Star(),
-                Height = Sizing.Fixed(rowH),
-                Background = bg,
-                Hit = hit,
-                OnClick = onClick,
-            };
+            return Layout.Builder.Text(label, fontSize, textColor)
+                .RowH(rowH).Bg(bg).Clickable(hit, onClick);
         }
 
         /// <summary>
         /// Builds a horizontal labeled-input row: [label fixed-labelW | Fill *].
         /// The Fill is the escape hatch for the caller's RenderTextInput call (one per RenderLayout).
         /// </summary>
-        public static LayoutNode LabeledInputRow(
+        public static Layout.Node LabeledInputRow(
             string label, float labelW, float rowH, float padding, float fontSize,
             RGBAColor32 textColor, RGBAColor32? bg = null)
         {
-            var labelLeaf = new LayoutNode.Leaf(new LayoutContent.Text(label, fontSize) { Color = textColor, HAlign = TextAlign.Near, VAlign = TextAlign.Center })
-            {
-                Width = Sizing.Fixed(labelW),
-                Height = Sizing.Star(),
-            };
-            var fillLeaf = new LayoutNode.Leaf(new LayoutContent.Fill())
-            {
-                Width = Sizing.Star(),
-                Height = Sizing.Star(),
-            };
-            return new LayoutNode.Stack([labelLeaf, fillLeaf], LayoutAxis.Horizontal)
-            {
-                Width = Sizing.Star(),
-                Height = Sizing.Fixed(rowH),
-                Background = bg,
-            };
+            var labelLeaf = Layout.Builder.Text(label, fontSize, textColor).WFixed(labelW).HStar();
+            var fillLeaf = Layout.Builder.Fill().Stretch();
+            var row = Layout.Builder.HStack(labelLeaf, fillLeaf).WStar().HFixed(rowH);
+            return bg is { } b ? row.Bg(b) : row;
         }
 
         /// <summary>
@@ -149,7 +117,7 @@ namespace TianWen.UI.Abstractions
         /// Disabled dec/inc = no Hit on the respective button leaf. (The control-only variant, where the
         /// label is drawn by the caller, is <see cref="StepperControl"/>.)
         /// </summary>
-        public static LayoutNode StepperRow(
+        public static Layout.Node StepperRow(
             string label, string valueText, float rowH, float padding,
             float fontSize, float stepBtnW,
             RGBAColor32 rowBg, RGBAColor32 btnBg, RGBAColor32 labelColor, RGBAColor32 valueColor, RGBAColor32 bodyText,
@@ -157,38 +125,22 @@ namespace TianWen.UI.Abstractions
             string incHitKey, Action<InputModifier>? onInc,
             bool decEnabled = true, bool incEnabled = true)
         {
-            var labelLeaf = new LayoutNode.Leaf(new LayoutContent.Text(label, fontSize) { Color = labelColor, HAlign = TextAlign.Near, VAlign = TextAlign.Center })
+            var labelLeaf = Layout.Builder.Text(label, fontSize, labelColor).Stretch();
+
+            // A disabled step button keeps its cell but drops the background fill + hit + handler (dimmed).
+            Layout.Node StepBtn(string glyph, string hitKey, Action<InputModifier>? onClick, bool stepEnabled)
             {
-                Width = Sizing.Star(),
-                Height = Sizing.Star(),
-            };
-            var decLeaf = new LayoutNode.Leaf(new LayoutContent.Text("-", fontSize) { Color = bodyText, HAlign = TextAlign.Center, VAlign = TextAlign.Center })
-            {
-                Width = Sizing.Fixed(stepBtnW),
-                Height = Sizing.Star(),
-                Background = decEnabled ? btnBg : (RGBAColor32?)null,
-                Hit = decEnabled ? new HitResult.ButtonHit(decHitKey) : null,
-                OnClick = decEnabled ? onDec : null,
-            };
-            var valueLeaf = new LayoutNode.Leaf(new LayoutContent.Text(valueText, fontSize) { Color = valueColor, HAlign = TextAlign.Center, VAlign = TextAlign.Center })
-            {
-                Width = Sizing.Fixed(stepBtnW * 2f),
-                Height = Sizing.Star(),
-            };
-            var incLeaf = new LayoutNode.Leaf(new LayoutContent.Text("+", fontSize) { Color = bodyText, HAlign = TextAlign.Center, VAlign = TextAlign.Center })
-            {
-                Width = Sizing.Fixed(stepBtnW),
-                Height = Sizing.Star(),
-                Background = incEnabled ? btnBg : (RGBAColor32?)null,
-                Hit = incEnabled ? new HitResult.ButtonHit(incHitKey) : null,
-                OnClick = incEnabled ? onInc : null,
-            };
-            return new LayoutNode.Stack([labelLeaf, decLeaf, valueLeaf, incLeaf], LayoutAxis.Horizontal)
-            {
-                Width = Sizing.Star(),
-                Height = Sizing.Fixed(rowH),
-                Background = rowBg,
-            };
+                var btn = Layout.Builder.Text(glyph, fontSize, bodyText, TextAlign.Center, TextAlign.Center).WFixed(stepBtnW).HStar();
+                return stepEnabled
+                    ? btn.Bg(btnBg).Clickable(new HitResult.ButtonHit(hitKey), onClick)
+                    : btn;
+            }
+
+            var decLeaf = StepBtn("-", decHitKey, onDec, decEnabled);
+            var valueLeaf = Layout.Builder.Text(valueText, fontSize, valueColor, TextAlign.Center, TextAlign.Center).WFixed(stepBtnW * 2f).HStar();
+            var incLeaf = StepBtn("+", incHitKey, onInc, incEnabled);
+
+            return Layout.Builder.HStack(labelLeaf, decLeaf, valueLeaf, incLeaf).RowH(rowH).Bg(rowBg);
         }
     }
 }

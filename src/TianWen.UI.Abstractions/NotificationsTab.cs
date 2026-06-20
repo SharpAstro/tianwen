@@ -62,14 +62,14 @@ namespace TianWen.UI.Abstractions
                 var btnX = contentRect.X + contentRect.Width - btnW - pad;
                 var btnY = contentRect.Y + 3f * dpiScale;
 
-                // Clear button as one draw==hit LayoutNode leaf instead of separate FillRect +
+                // Clear button as one draw==hit Layout.Node leaf instead of separate FillRect +
                 // DrawText + RegisterClickable (which can drift). Font is a raw design unit --
                 // PaintLayout re-applies dpiScale.
-                var clearBtn = new LayoutNode.Leaf(
-                    new LayoutContent.Text("Clear", BaseFontSize * 0.95f) { Color = BodyText, HAlign = TextAlign.Center, VAlign = TextAlign.Center })
+                var clearBtn = new Layout.Node.Leaf(
+                    new Layout.Content.Text("Clear", BaseFontSize * 0.95f) { Color = BodyText, HAlign = TextAlign.Center, VAlign = TextAlign.Center })
                 {
-                    Width = Sizing.Star(),
-                    Height = Sizing.Star(),
+                    Width = Layout.Sizing.Star(),
+                    Height = Layout.Sizing.Star(),
                     Background = new RGBAColor32(0x3a, 0x3a, 0x46, 0xff),
                     Hit = new HitResult.ButtonHit("NotificationsClear"),
                     OnClick = _ =>

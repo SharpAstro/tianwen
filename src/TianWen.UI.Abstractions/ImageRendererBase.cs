@@ -306,7 +306,7 @@ namespace TianWen.UI.Abstractions
         // Single-source layout pass
         //
         // The whole below-toolbar chrome derives its geometry from ONE arrangement:
-        // LayoutNode.Split (file list + draggable divider) wrapping a Dock (right-edge
+        // Layout.Node.Split (file list + draggable divider) wrapping a Dock (right-edge
         // info panel + fill image). Every consumer reads the arranged pane rects + the
         // single image placement below -- the fileListW/panelW/areaW/offsetX formula is
         // no longer copy-pasted per consumer and "happens to agree". The divider is the
@@ -318,7 +318,7 @@ namespace TianWen.UI.Abstractions
         private readonly record struct ImagePlacement(float OffsetX, float OffsetY, float DrawW, float DrawH, float Scale);
 
         private ViewerLayout _layout;
-        private ImmutableArray<ArrangedNode<float>> _layoutArranged;
+        private ImmutableArray<Layout.ArrangedNode<float>> _layoutArranged;
         private ImagePlacement _placement;
 
         /// <summary>Design-unit thickness of the file-list resize divider (the Split divider IS the grab bar).</summary>
@@ -328,17 +328,17 @@ namespace TianWen.UI.Abstractions
         {
             var below = new RectF32(0f, ToolbarHeight, Width, Height - ToolbarHeight - StatusBarHeight);
 
-            LayoutNode content = state.ShowInfoPanel
-                ? new LayoutNode.Dock(
-                    [new DockChild(DockSide.Right, new LayoutNode.Leaf(new LayoutContent.Fill(Key: "infoPanel")), Sizing.Fixed(BaseInfoPanelWidth))],
-                    new LayoutNode.Leaf(new LayoutContent.Fill(Key: "image")))
-                : new LayoutNode.Leaf(new LayoutContent.Fill(Key: "image"));
+            Layout.Node content = state.ShowInfoPanel
+                ? new Layout.Node.Dock(
+                    [new Layout.DockChild(Layout.DockSide.Right, new Layout.Node.Leaf(new Layout.Content.Fill(Key: "infoPanel")), Layout.Sizing.Fixed(BaseInfoPanelWidth))],
+                    new Layout.Node.Leaf(new Layout.Content.Fill(Key: "image")))
+                : new Layout.Node.Leaf(new Layout.Content.Fill(Key: "image"));
 
-            LayoutNode root = state.ShowFileList
-                ? new LayoutNode.Split(
-                    new LayoutNode.Leaf(new LayoutContent.Fill(Key: "fileList")),
+            Layout.Node root = state.ShowFileList
+                ? new Layout.Node.Split(
+                    new Layout.Node.Leaf(new Layout.Content.Fill(Key: "fileList")),
                     content,
-                    LayoutAxis.Horizontal,
+                    Layout.Axis.Horizontal,
                     FirstExtent: state.FileListWidthBase,
                     DividerThickness: BaseFileListDividerWidth,
                     DividerHit: new ResizeHandleHit("FileList"),
@@ -350,7 +350,7 @@ namespace TianWen.UI.Abstractions
             RectF32 fileList = default, image = default, infoPanel = default;
             foreach (var (node, b) in _layoutArranged)
             {
-                if (node is LayoutNode.Leaf { Content: LayoutContent.Fill fill })
+                if (node is Layout.Node.Leaf { Content: Layout.Content.Fill fill })
                 {
                     var r = new RectF32(b.X, b.Y, b.Width, b.Height);
                     switch (fill.Key)

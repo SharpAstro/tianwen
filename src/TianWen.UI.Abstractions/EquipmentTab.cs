@@ -547,16 +547,16 @@ namespace TianWen.UI.Abstractions
                 var siteStr = $"  Site: {latStr}, {lonStr}{elevStr}";
 
                 var siteBtnW = w - padding * 2f;
-                var siteRow = new LayoutNode.Stack(
+                var siteRow = new Layout.Node.Stack(
                 [
-                    new LayoutNode.Leaf(new LayoutContent.Text(siteStr, BaseFontSize * 0.9f) { Color = SiteText, HAlign = TextAlign.Near, VAlign = TextAlign.Center })
-                        { Width = Sizing.Star(), Height = Sizing.Star() },
-                    new LayoutNode.Leaf(new LayoutContent.Text("[>]", BaseFontSize * 0.85f) { Color = DimText, HAlign = TextAlign.Center, VAlign = TextAlign.Center })
-                        { Width = Sizing.Fixed(arrowW), Height = Sizing.Star() },
-                ], LayoutAxis.Horizontal)
+                    new Layout.Node.Leaf(new Layout.Content.Text(siteStr, BaseFontSize * 0.9f) { Color = SiteText, HAlign = TextAlign.Near, VAlign = TextAlign.Center })
+                        { Width = Layout.Sizing.Star(), Height = Layout.Sizing.Star() },
+                    new Layout.Node.Leaf(new Layout.Content.Text("[>]", BaseFontSize * 0.85f) { Color = DimText, HAlign = TextAlign.Center, VAlign = TextAlign.Center })
+                        { Width = Layout.Sizing.Fixed(arrowW), Height = Layout.Sizing.Star() },
+                ], Layout.Axis.Horizontal)
                 {
-                    Width = Sizing.Fixed(siteBtnW),
-                    Height = Sizing.Fixed(itemH),
+                    Width = Layout.Sizing.Fixed(siteBtnW),
+                    Height = Layout.Sizing.Fixed(itemH),
                     Background = SlotNormal,
                     Hit = new HitResult.ButtonHit("EditSite"),
                     OnClick = _ => PostSignal(new EditSiteSignal()),
@@ -568,10 +568,10 @@ namespace TianWen.UI.Abstractions
             {
                 // No site configured -- show "Set Site" button
                 var setSiteBtnW = Renderer.MeasureText("Set Site".AsSpan(), fontPath, fontSize).Width + padding * 4f;
-                var setSiteLeaf = new LayoutNode.Leaf(new LayoutContent.Text("Set Site", BaseFontSize) { Color = BodyText, HAlign = TextAlign.Center, VAlign = TextAlign.Center })
+                var setSiteLeaf = new Layout.Node.Leaf(new Layout.Content.Text("Set Site", BaseFontSize) { Color = BodyText, HAlign = TextAlign.Center, VAlign = TextAlign.Center })
                 {
-                    Width = Sizing.Fixed(setSiteBtnW),
-                    Height = Sizing.Fixed(buttonH),
+                    Width = Layout.Sizing.Fixed(setSiteBtnW),
+                    Height = Layout.Sizing.Fixed(buttonH),
                     Background = CreateButton,
                     Hit = new HitResult.ButtonHit("EditSite"),
                     OnClick = _ => PostSignal(new EditSiteSignal()),
@@ -623,22 +623,22 @@ namespace TianWen.UI.Abstractions
                 || OtaDeviceConnected(ota.FilterWheel) || OtaDeviceConnected(ota.Cover);
 
             // Title leaf (left, takes remaining width after the two buttons)
-            var titleLeaf = new LayoutNode.Leaf(
-                new LayoutContent.Text($"Telescope #{index}: {ota.Name}", BaseFontSize) { Color = HeaderText, HAlign = TextAlign.Near, VAlign = TextAlign.Center })
+            var titleLeaf = new Layout.Node.Leaf(
+                new Layout.Content.Text($"Telescope #{index}: {ota.Name}", BaseFontSize) { Color = HeaderText, HAlign = TextAlign.Near, VAlign = TextAlign.Center })
             {
-                Width = Sizing.Star(),
-                Height = Sizing.Star(),
+                Width = Layout.Sizing.Star(),
+                Height = Layout.Sizing.Star(),
             };
 
             // [Remove] button leaf -- disabled grey when a device is connected; armed/normal otherwise
-            LayoutNode removeLeaf;
+            Layout.Node removeLeaf;
             if (otaHasConnectedDevice)
             {
-                removeLeaf = new LayoutNode.Leaf(
-                    new LayoutContent.Text("Remove", BaseFontSize * 0.85f) { Color = DimmedText, HAlign = TextAlign.Center, VAlign = TextAlign.Center })
+                removeLeaf = new Layout.Node.Leaf(
+                    new Layout.Content.Text("Remove", BaseFontSize * 0.85f) { Color = DimmedText, HAlign = TextAlign.Center, VAlign = TextAlign.Center })
                 {
-                    Width = Sizing.Fixed(removeBtnW),
-                    Height = Sizing.Star(),
+                    Width = Layout.Sizing.Fixed(removeBtnW),
+                    Height = Layout.Sizing.Star(),
                     Background = SegmentDisabled,
                     // No Hit, no OnClick -- disabled
                 };
@@ -646,11 +646,11 @@ namespace TianWen.UI.Abstractions
             else
             {
                 var armed = State.PendingRemoveOtaIndex == index;
-                removeLeaf = new LayoutNode.Leaf(
-                    new LayoutContent.Text(armed ? "Confirm?" : "Remove", BaseFontSize * 0.85f) { Color = BodyText, HAlign = TextAlign.Center, VAlign = TextAlign.Center })
+                removeLeaf = new Layout.Node.Leaf(
+                    new Layout.Content.Text(armed ? "Confirm?" : "Remove", BaseFontSize * 0.85f) { Color = BodyText, HAlign = TextAlign.Center, VAlign = TextAlign.Center })
                 {
-                    Width = Sizing.Fixed(removeBtnW),
-                    Height = Sizing.Star(),
+                    Width = Layout.Sizing.Fixed(removeBtnW),
+                    Height = Layout.Sizing.Star(),
                     Background = armed ? ConfirmDangerBg : RemoveButtonBg,
                     Hit = new HitResult.ButtonHit($"RemoveOta{index}"),
                     OnClick = _ =>
@@ -673,19 +673,19 @@ namespace TianWen.UI.Abstractions
             }
 
             // Gap leaf between Remove and Edit
-            var gapLeaf = new LayoutNode.Leaf(new LayoutContent.Box(0f, 0f))
+            var gapLeaf = new Layout.Node.Leaf(new Layout.Content.Box(0f, 0f))
             {
-                Width = Sizing.Fixed(btnGap),
-                Height = Sizing.Star(),
+                Width = Layout.Sizing.Fixed(btnGap),
+                Height = Layout.Sizing.Star(),
             };
 
             // [Edit]/[Save] toggle button leaf
             var editLabel = isEditingOta ? "Save" : "Edit";
-            var editLeaf = new LayoutNode.Leaf(
-                new LayoutContent.Text(editLabel, BaseFontSize * 0.85f) { Color = BodyText, HAlign = TextAlign.Center, VAlign = TextAlign.Center })
+            var editLeaf = new Layout.Node.Leaf(
+                new Layout.Content.Text(editLabel, BaseFontSize * 0.85f) { Color = BodyText, HAlign = TextAlign.Center, VAlign = TextAlign.Center })
             {
-                Width = Sizing.Fixed(editBtnW),
-                Height = Sizing.Star(),
+                Width = Layout.Sizing.Fixed(editBtnW),
+                Height = Layout.Sizing.Star(),
                 Background = EditButtonBg,
                 Hit = new HitResult.ButtonHit($"EditOta{index}"),
                 OnClick = _ =>
@@ -712,10 +712,10 @@ namespace TianWen.UI.Abstractions
             };
 
             // Build the full header row as a horizontal Stack
-            var headerRow = new LayoutNode.Stack([titleLeaf, removeLeaf, gapLeaf, editLeaf], LayoutAxis.Horizontal)
+            var headerRow = new Layout.Node.Stack([titleLeaf, removeLeaf, gapLeaf, editLeaf], Layout.Axis.Horizontal)
             {
-                Width = Sizing.Fixed(w),
-                Height = Sizing.Fixed(itemH),
+                Width = Layout.Sizing.Fixed(w),
+                Height = Layout.Sizing.Fixed(itemH),
                 Background = OtaHeaderBg,
             };
             RenderLayout(headerRow, new RectF32(x, cursor, w, itemH), fontPath, dpiScale);
@@ -906,7 +906,7 @@ namespace TianWen.UI.Abstractions
                 var capturedIdx = i;
                 // Row background + whole-row select hit as one draw==hit leaf; the badge/name/status/segment
                 // content draws on top below (later registrations win, so the segment beats the row hit).
-                var rowLeaf = new LayoutNode.Leaf(new LayoutContent.Box(0f, 0f))
+                var rowLeaf = new Layout.Node.Leaf(new Layout.Content.Box(0f, 0f))
                 {
                     Background = isCurrentForSlot ? SlotActive : baseBg,
                     Hit = new HitResult.ListItemHit("Devices", i),
@@ -1107,7 +1107,7 @@ namespace TianWen.UI.Abstractions
             var capUri = cameraUri;
             const float font = 0.78f;
             // Three equal inset pills; gap is a design unit (2 du) so it scales with DPI.
-            var strip = new LayoutNode.Stack(
+            var strip = new Layout.Node.Stack(
             [
                 FormRowLayout.InsetPillButton("Warm up & Off", BaseFontSize * font, ConfirmWarmBg, BodyText,
                     new HitResult.ButtonHit("WarmCoolerOff"), _ => PostSignal(new WarmAndCoolerOffSignal(capUri))),
@@ -1125,7 +1125,7 @@ namespace TianWen.UI.Abstractions
                         State.PendingCoolerOffConfirm = null;
                         State.PendingCoolerOffForceConfirm = null;
                     }),
-            ], LayoutAxis.Horizontal, 2f);
+            ], Layout.Axis.Horizontal, 2f);
             RenderLayout(strip, new RectF32(x, y, w, h), fontPath, dpiScale);
 
             return y + h;
@@ -1140,7 +1140,7 @@ namespace TianWen.UI.Abstractions
         {
             var capUri = cameraUri;
             // [Cancel] LEFT, destructive [REALLY FORCE] RIGHT (anti-double-click position swap); two pills, gap 4 du.
-            var strip = new LayoutNode.Stack(
+            var strip = new Layout.Node.Stack(
             [
                 FormRowLayout.InsetPillButton("Cancel", BaseFontSize * 0.8f, ConfirmCancelBg, BodyText,
                     new HitResult.ButtonHit("CancelForceCoolerOff"),
@@ -1156,7 +1156,7 @@ namespace TianWen.UI.Abstractions
                         State.PendingCoolerOffForceConfirm = null;
                         PostSignal(new SetCoolerOffSignal(capUri));
                     }),
-            ], LayoutAxis.Horizontal, 4f);
+            ], Layout.Axis.Horizontal, 4f);
             RenderLayout(strip, new RectF32(x, y, w, h), fontPath, dpiScale);
 
             return y + h;
@@ -1184,7 +1184,7 @@ namespace TianWen.UI.Abstractions
             var capUri = deviceUri;
             const float font = 0.75f;
             // Order: [Warm/Wait & Off] [Force Off -> escalates to stage 2] [Cancel]; three equal inset pills, gap 2 du.
-            var strip = new LayoutNode.Stack(
+            var strip = new Layout.Node.Stack(
             [
                 FormRowLayout.InsetPillButton(safetyLabel, BaseFontSize * font, ConfirmWarmBg, BodyText,
                     new HitResult.ButtonHit("WarmDisconnect"), _ => PostSignal(new WarmAndDisconnectDeviceSignal(capUri))),
@@ -1202,7 +1202,7 @@ namespace TianWen.UI.Abstractions
                         State.PendingDisconnectConfirm = null;
                         State.PendingForceConfirm = null;
                     }),
-            ], LayoutAxis.Horizontal, 2f);
+            ], Layout.Axis.Horizontal, 2f);
             RenderLayout(strip, new RectF32(x, y, w, h), fontPath, dpiScale);
         }
 
@@ -1219,7 +1219,7 @@ namespace TianWen.UI.Abstractions
             // [Cancel] LEFT (where [Warm & Off] was), destructive [REALLY FORCE] RIGHT (where [Cancel] was):
             // the reversed pairing means a double-click that started on [Force Off] (middle of stage 1) lands
             // on the [Cancel] half, never the destructive button. Two equal inset pills, gap 4 du.
-            var strip = new LayoutNode.Stack(
+            var strip = new Layout.Node.Stack(
             [
                 FormRowLayout.InsetPillButton("Cancel", BaseFontSize * 0.8f, ConfirmCancelBg, BodyText,
                     new HitResult.ButtonHit("CancelForce"),
@@ -1235,7 +1235,7 @@ namespace TianWen.UI.Abstractions
                         State.PendingForceConfirm = null;
                         PostSignal(new ForceDisconnectDeviceSignal(capUri));
                     }),
-            ], LayoutAxis.Horizontal, 4f);
+            ], Layout.Axis.Horizontal, 4f);
             RenderLayout(strip, new RectF32(x, y, w, h), fontPath, dpiScale);
         }
 
@@ -1273,13 +1273,13 @@ namespace TianWen.UI.Abstractions
             var capturedUri = deviceUri;
             Action<InputModifier> onAction = _ => { if (!isConnected) PostSignal(new ConnectDeviceSignal(capturedUri)); };
             Action<InputModifier> offAction = _ => { if (isConnected) PostSignal(new DisconnectDeviceSignal(capturedUri)); };
-            var seg = new LayoutNode.Stack(
+            var seg = new Layout.Node.Stack(
             [
                 FormRowLayout.InsetPillButton(onLabel, BaseFontSize * 0.85f, onBg, BodyText,
                     pending ? null : new HitResult.ButtonHit("Connect"), pending ? null : onAction),
                 FormRowLayout.InsetPillButton(offLabel, BaseFontSize * 0.85f, offBg, BodyText,
                     pending ? null : new HitResult.ButtonHit("Disconnect"), pending ? null : offAction),
-            ], LayoutAxis.Horizontal, 1f);
+            ], Layout.Axis.Horizontal, 1f);
             RenderLayout(seg, new RectF32(x, y, w, h), fontPath, dpiScale);
         }
 
@@ -1821,7 +1821,7 @@ namespace TianWen.UI.Abstractions
             var btnW = Math.Max(measured, minBtnW);
             var btnX = x + w - padding - btnW;
             // Background + label + (enabled-only) hit as one draw==hit leaf.
-            var connectAllBtn = new LayoutNode.Leaf(new LayoutContent.Text(label, BaseFontSize * 0.95f) { Color = BodyText, HAlign = TextAlign.Center, VAlign = TextAlign.Center })
+            var connectAllBtn = new Layout.Node.Leaf(new Layout.Content.Text(label, BaseFontSize * 0.95f) { Color = BodyText, HAlign = TextAlign.Center, VAlign = TextAlign.Center })
             {
                 Background = bg,
                 Hit = enabled ? new HitResult.ButtonHit("ConnectAll") : null,
