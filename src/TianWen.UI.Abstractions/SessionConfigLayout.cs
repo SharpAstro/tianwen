@@ -25,17 +25,17 @@ namespace TianWen.UI.Abstractions
 
     /// <summary>
     /// Builds the entire <see cref="SessionConfiguration"/> form as ONE surface-agnostic
-    /// <see cref="LayoutNode"/> tree -- the "full single-panel tree" (Phase 4 of the layout-engine plan).
+    /// <see cref="Layout.Node"/> tree -- the "full single-panel tree" (Phase 4 of the layout-engine plan).
     /// Earlier tabs adopted the engine per row (each stepper / toggle its own <c>RenderLayout</c>, the
     /// vertical flow still an imperative <c>cursor += itemH</c> walk); this builder owns the <i>whole</i>
     /// vertical flow -- section headers, alternating row backgrounds, the selected-row highlight, the
-    /// per-field label + control -- as a single declarative <see cref="LayoutNode.Stack"/>. The host
+    /// per-field label + control -- as a single declarative <see cref="Layout.Node.Stack"/>. The host
     /// arranges it once into a tall bounds offset by the scroll position and clips to the panel
     /// (scroll-via-root-bounds-offset), so there is no per-row cursor math left.
     ///
     /// The config form is the cleanest candidate for this because it is flat and data-driven
     /// (<see cref="SessionConfigGroups.Groups"/> -> groups -> typed fields). Every node is a real
-    /// Text / Box / control subtree -- NOT a <see cref="LayoutContent.Fill"/> leaf that re-dispatches to an
+    /// Text / Box / control subtree -- NOT a <see cref="Layout.Content.Fill"/> leaf that re-dispatches to an
     /// imperative renderer, which is the facade the EquipmentTab whole-tree attempt degraded into and was
     /// reverted for. Interactive widgets that genuinely resist the static engine (the right-hand camera
     /// settings + observation list) stay imperative; this is only the left config form.
@@ -62,7 +62,7 @@ namespace TianWen.UI.Abstractions
         /// request a redraw. When <paramref name="running"/> is true the controls keep their hit surface
         /// but drop their handlers (dimmed / inert), matching the rest of the tabs.
         /// </summary>
-        public static LayoutNode Build(
+        public static Layout.Node Build(
             ImmutableArray<ConfigGroup> groups,
             SessionConfiguration config,
             int selectedFieldIndex,
@@ -74,7 +74,7 @@ namespace TianWen.UI.Abstractions
             Func<ConfigFieldDescriptor, Action<InputModifier>?>? onIncrement = null)
         {
             var btnW = style.Stepper.ButtonDesignW;
-            var children = ImmutableArray.CreateBuilder<LayoutNode>();
+            var children = ImmutableArray.CreateBuilder<Layout.Node>();
             var globalIdx = 0;
 
             for (var gi = 0; gi < groups.Length; gi++)
@@ -97,39 +97,39 @@ namespace TianWen.UI.Abstractions
                 children.Add(GroupGap(style.Padding * 0.5f));
             }
 
-            return new LayoutNode.Stack(children.ToImmutable(), LayoutAxis.Vertical)
+            return new Layout.Node.Stack(children.ToImmutable(), Layout.Axis.Vertical)
             {
-                Width = Sizing.Star(),
-                Height = Sizing.Auto,
+                Width = Layout.Sizing.Star(),
+                Height = Layout.Sizing.Auto,
             };
         }
 
         // Section header: inset label over a header-coloured band. A Text leaf cannot carry padding (the
         // painter draws it at the node's full rect), so the left inset is a fixed pad cell in a Stack.
-        private static LayoutNode Header(string name, in SessionConfigStyle style) =>
-            new LayoutNode.Stack(
+        private static Layout.Node Header(string name, in SessionConfigStyle style) =>
+            new Layout.Node.Stack(
             [
                 Pad(style.Padding),
-                new LayoutNode.Leaf(new LayoutContent.Text(name, style.FontSize) { Color = style.HeaderText, HAlign = TextAlign.Near, VAlign = TextAlign.Center })
+                new Layout.Node.Leaf(new Layout.Content.Text(name, style.FontSize) { Color = style.HeaderText, HAlign = TextAlign.Near, VAlign = TextAlign.Center })
                 {
-                    Width = Sizing.Star(),
-                    Height = Sizing.Star(),
+                    Width = Layout.Sizing.Star(),
+                    Height = Layout.Sizing.Star(),
                 },
-            ], LayoutAxis.Horizontal)
+            ], Layout.Axis.Horizontal)
             {
-                Width = Sizing.Star(),
-                Height = Sizing.Fixed(style.HeaderHeight),
+                Width = Layout.Sizing.Star(),
+                Height = Layout.Sizing.Fixed(style.HeaderHeight),
                 Background = style.HeaderBg,
             };
 
-        private static LayoutNode GroupGap(float height) =>
-            new LayoutNode.Leaf(new LayoutContent.Box(0f, 0f)) { Width = Sizing.Star(), Height = Sizing.Fixed(height) };
+        private static Layout.Node GroupGap(float height) =>
+            new Layout.Node.Leaf(new Layout.Content.Box(0f, 0f)) { Width = Layout.Sizing.Star(), Height = Layout.Sizing.Fixed(height) };
 
-        private static LayoutNode Pad(float width) =>
-            new LayoutNode.Leaf(new LayoutContent.Box(0f, 0f)) { Width = Sizing.Fixed(width), Height = Sizing.Star() };
+        private static Layout.Node Pad(float width) =>
+            new Layout.Node.Leaf(new Layout.Content.Box(0f, 0f)) { Width = Layout.Sizing.Fixed(width), Height = Layout.Sizing.Star() };
 
         // One field row: [ pad | label ]  [ control ]  over a full-width row background.
-        private static LayoutNode FieldRow(
+        private static Layout.Node FieldRow(
             ConfigFieldDescriptor field, int idx, RGBAColor32 rowBg,
             SessionConfiguration config, float valueWidth, float btnW, bool running, in SessionConfigStyle style,
             Func<int, Action<InputModifier>?>? onSelectField,
@@ -139,32 +139,32 @@ namespace TianWen.UI.Abstractions
             // pad + label = the select-clickable region. Height = Star so the whole-row-height hit matches
             // the old RegisterClickable(rect.X, cursor, labelW + padding, itemH) exactly -- the control
             // buttons register later (children win), so dec/inc still get their own clicks.
-            var selectCell = new LayoutNode.Stack(
+            var selectCell = new Layout.Node.Stack(
             [
                 Pad(style.Padding),
-                new LayoutNode.Leaf(new LayoutContent.Text(field.Label, style.FontSize) { Color = style.BodyText, HAlign = TextAlign.Near, VAlign = TextAlign.Center })
+                new Layout.Node.Leaf(new Layout.Content.Text(field.Label, style.FontSize) { Color = style.BodyText, HAlign = TextAlign.Near, VAlign = TextAlign.Center })
                 {
-                    Width = Sizing.Fixed(style.LabelWidth),
-                    Height = Sizing.Star(),
+                    Width = Layout.Sizing.Fixed(style.LabelWidth),
+                    Height = Layout.Sizing.Star(),
                 },
-            ], LayoutAxis.Horizontal)
+            ], Layout.Axis.Horizontal)
             {
-                Height = Sizing.Star(),
+                Height = Layout.Sizing.Star(),
                 Hit = new HitResult.ListItemHit("ConfigField", idx),
                 OnClick = onSelectField?.Invoke(idx),
             };
 
             var control = Control(field, config, valueWidth, btnW, running, style, onDecrement, onIncrement);
 
-            return new LayoutNode.Stack([selectCell, control], LayoutAxis.Horizontal)
+            return new Layout.Node.Stack([selectCell, control], Layout.Axis.Horizontal)
             {
-                Width = Sizing.Star(),
-                Height = Sizing.Fixed(style.ItemHeight),
+                Width = Layout.Sizing.Star(),
+                Height = Layout.Sizing.Fixed(style.ItemHeight),
                 Background = rowBg,
             };
         }
 
-        private static LayoutNode Control(
+        private static Layout.Node Control(
             ConfigFieldDescriptor field, SessionConfiguration config, float valueWidth, float btnW, bool running,
             in SessionConfigStyle style,
             Func<ConfigFieldDescriptor, Action<InputModifier>?>? onDecrement,
@@ -176,10 +176,10 @@ namespace TianWen.UI.Abstractions
                 {
                     var valueStr = field.FormatValue(config);
                     var isOn = valueStr == "ON";
-                    return new LayoutNode.Leaf(new LayoutContent.Text(valueStr, style.FontSize) { Color = running ? style.DimText : style.BodyText, HAlign = TextAlign.Center, VAlign = TextAlign.Center })
+                    return new Layout.Node.Leaf(new Layout.Content.Text(valueStr, style.FontSize) { Color = running ? style.DimText : style.BodyText, HAlign = TextAlign.Center, VAlign = TextAlign.Center })
                     {
-                        Width = Sizing.Fixed(style.ToggleButtonWidth),
-                        Height = Sizing.Star(),
+                        Width = Layout.Sizing.Fixed(style.ToggleButtonWidth),
+                        Height = Layout.Sizing.Star(),
                         Background = running ? style.DisabledBg : (isOn ? style.ToggleOnBg : style.ToggleOffBg),
                         Hit = new HitResult.ButtonHit($"Toggle:{field.Label}"),
                         OnClick = running ? null : onIncrement?.Invoke(field),
@@ -189,10 +189,10 @@ namespace TianWen.UI.Abstractions
                 case ConfigFieldKind.EnumCycle:
                 {
                     var valueStr = field.FormatValue(config);
-                    return new LayoutNode.Leaf(new LayoutContent.Text($"{valueStr} \u25B6", style.FontSize * 0.9f) { Color = running ? style.DimText : style.BodyText, HAlign = TextAlign.Center, VAlign = TextAlign.Center })
+                    return new Layout.Node.Leaf(new Layout.Content.Text($"{valueStr} \u25B6", style.FontSize * 0.9f) { Color = running ? style.DimText : style.BodyText, HAlign = TextAlign.Center, VAlign = TextAlign.Center })
                     {
-                        Width = Sizing.Fixed(style.CycleButtonWidth),
-                        Height = Sizing.Star(),
+                        Width = Layout.Sizing.Fixed(style.CycleButtonWidth),
+                        Height = Layout.Sizing.Star(),
                         Background = running ? style.DisabledBg : style.CycleBg,
                         Hit = new HitResult.ButtonHit($"Cycle:{field.Label}"),
                         OnClick = running ? null : onIncrement?.Invoke(field),
@@ -209,7 +209,7 @@ namespace TianWen.UI.Abstractions
                         "+", $"Inc:{field.Label}", onIncrement?.Invoke(field) ?? NoOp,
                         display, style.FontSize, running ? style.DimText : style.BodyText, enabled: !running);
 
-                    return ctrl with { Width = Sizing.Fixed(btnW * 2f + valueWidth), Height = Sizing.Star() };
+                    return ctrl with { Width = Layout.Sizing.Fixed(btnW * 2f + valueWidth), Height = Layout.Sizing.Star() };
                 }
             }
         }

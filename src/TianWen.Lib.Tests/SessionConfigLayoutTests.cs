@@ -11,7 +11,7 @@ namespace TianWen.Lib.Tests
 {
     /// <summary>
     /// Structural tests for <see cref="SessionConfigLayout"/> -- the "full single-panel tree" (Phase 4):
-    /// the whole <see cref="SessionConfiguration"/> form built as ONE <see cref="LayoutNode"/> tree
+    /// the whole <see cref="SessionConfiguration"/> form built as ONE <see cref="Layout.Node"/> tree
     /// instead of a per-row cursor walk. Asserts one header per group, one selectable row per field with
     /// sequential indices, the right control per <see cref="ConfigFieldKind"/>, the selected-row
     /// highlight, the running-state handler drop, and that the click callbacks are wired.
@@ -42,47 +42,47 @@ namespace TianWen.Lib.Tests
         private static ConfigFieldDescriptor Field(string label) =>
             Groups.SelectMany(g => g.Fields).First(f => f.Label == label);
 
-        private static IEnumerable<LayoutNode> Flatten(LayoutNode node)
+        private static IEnumerable<Layout.Node> Flatten(Layout.Node node)
         {
             yield return node;
             switch (node)
             {
-                case LayoutNode.Stack s:
+                case Layout.Node.Stack s:
                     foreach (var child in s.Children)
                     {
                         foreach (var n in Flatten(child)) yield return n;
                     }
                     break;
-                case LayoutNode.Dock d:
+                case Layout.Node.Dock d:
                     foreach (var dc in d.Docked)
                     {
                         foreach (var n in Flatten(dc.Child)) yield return n;
                     }
                     foreach (var n in Flatten(d.Fill)) yield return n;
                     break;
-                case LayoutNode.Grid g:
+                case Layout.Node.Grid g:
                     foreach (var cell in g.Cells)
                     {
                         foreach (var n in Flatten(cell)) yield return n;
                     }
                     break;
-                case LayoutNode.Overlay o:
+                case Layout.Node.Overlay o:
                     foreach (var n in Flatten(o.Base)) yield return n;
                     foreach (var n in Flatten(o.Top)) yield return n;
                     break;
             }
         }
 
-        private static IEnumerable<string> TextLeaves(LayoutNode tree) =>
+        private static IEnumerable<string> TextLeaves(Layout.Node tree) =>
             Flatten(tree)
-                .OfType<LayoutNode.Leaf>()
+                .OfType<Layout.Node.Leaf>()
                 .Select(l => l.Content)
-                .OfType<LayoutContent.Text>()
+                .OfType<Layout.Content.Text>()
                 .Select(t => t.Value);
 
         // The top-level row for a given field index: the root child whose subtree carries that ConfigField hit.
-        private static LayoutNode RowFor(LayoutNode tree, int index) =>
-            ((LayoutNode.Stack)tree).Children.First(c =>
+        private static Layout.Node RowFor(Layout.Node tree, int index) =>
+            ((Layout.Node.Stack)tree).Children.First(c =>
                 Flatten(c).Any(n => n.Hit is HitResult.ListItemHit { ListId: "ConfigField" } li && li.Index == index));
 
         [Fact]

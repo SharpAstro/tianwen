@@ -570,11 +570,11 @@ namespace TianWen.UI.Abstractions
                 // draw==hit leaf -- background, label, and click region all bind to one node's rect
                 // (rendered via the layout engine) so the hit target can never drift from the paint.
                 var dropdown = state.ModeDropdown;
-                var modeLeaf = new LayoutNode.Leaf(
-                    new LayoutContent.Text(pillLabel, fontSize * 0.9f / dpiScale) { Color = AbortText, HAlign = TextAlign.Center, VAlign = TextAlign.Center })
+                var modeLeaf = new Layout.Node.Leaf(
+                    new Layout.Content.Text(pillLabel, fontSize * 0.9f / dpiScale) { Color = AbortText, HAlign = TextAlign.Center, VAlign = TextAlign.Center })
                 {
-                    Width = Sizing.Star(),
-                    Height = Sizing.Star(),
+                    Width = Layout.Sizing.Star(),
+                    Height = Layout.Sizing.Star(),
                     Background = modePillColor,
                     Hit = new HitResult.ButtonHit("ModePill"),
                     OnClick = _ =>
@@ -2319,11 +2319,11 @@ namespace TianWen.UI.Abstractions
                 _ => "?"
             };
             DrawText("On done", fontPath, x0, y, labelW, rowH, smallFs, DimText, TextAlign.Near, TextAlign.Center);
-            var onDoneBtn = new LayoutNode.Leaf(
-                new LayoutContent.Text(onDoneLabel, smallFs / dpiScale) { Color = BodyText, HAlign = TextAlign.Center, VAlign = TextAlign.Center })
+            var onDoneBtn = new Layout.Node.Leaf(
+                new Layout.Content.Text(onDoneLabel, smallFs / dpiScale) { Color = BodyText, HAlign = TextAlign.Center, VAlign = TextAlign.Center })
             {
-                Width = Sizing.Star(),
-                Height = Sizing.Star(),
+                Width = Layout.Sizing.Star(),
+                Height = Layout.Sizing.Star(),
                 Background = new RGBAColor32(0x44, 0x66, 0x99, 0xff),
                 Hit = new HitResult.ButtonHit("PolarSetupOnDone"),
                 OnClick = _ =>
@@ -2347,11 +2347,11 @@ namespace TianWen.UI.Abstractions
                 ? new RGBAColor32(0x44, 0x66, 0x99, 0xff)
                 : new RGBAColor32(0x2a, 0x2a, 0x35, 0xff);
             DrawText("Save frames", fontPath, x0, y, labelW, rowH, smallFs, DimText, TextAlign.Near, TextAlign.Center);
-            var saveBtn = new LayoutNode.Leaf(
-                new LayoutContent.Text(saveLabel, smallFs / dpiScale) { Color = BodyText, HAlign = TextAlign.Center, VAlign = TextAlign.Center })
+            var saveBtn = new Layout.Node.Leaf(
+                new Layout.Content.Text(saveLabel, smallFs / dpiScale) { Color = BodyText, HAlign = TextAlign.Center, VAlign = TextAlign.Center })
             {
-                Width = Sizing.Star(),
-                Height = Sizing.Star(),
+                Width = Layout.Sizing.Star(),
+                Height = Layout.Sizing.Star(),
                 Background = saveBg,
                 Hit = new HitResult.ButtonHit("PolarSetupSaveFrames"),
                 OnClick = _ =>
@@ -2369,11 +2369,11 @@ namespace TianWen.UI.Abstractions
                 ? new RGBAColor32(0x44, 0x66, 0x99, 0xff)
                 : new RGBAColor32(0x2a, 0x2a, 0x35, 0xff);
             DrawText("Incremental", fontPath, x0, y, labelW, rowH, smallFs, DimText, TextAlign.Near, TextAlign.Center);
-            var incBtn = new LayoutNode.Leaf(
-                new LayoutContent.Text(incLabel, smallFs / dpiScale) { Color = BodyText, HAlign = TextAlign.Center, VAlign = TextAlign.Center })
+            var incBtn = new Layout.Node.Leaf(
+                new Layout.Content.Text(incLabel, smallFs / dpiScale) { Color = BodyText, HAlign = TextAlign.Center, VAlign = TextAlign.Center })
             {
-                Width = Sizing.Star(),
-                Height = Sizing.Star(),
+                Width = Layout.Sizing.Star(),
+                Height = Layout.Sizing.Star(),
                 Background = incBg,
                 Hit = new HitResult.ButtonHit("PolarSetupUseIncremental"),
                 OnClick = _ =>

@@ -85,10 +85,10 @@ namespace TianWen.UI.Abstractions
             // leaf (fill and hit are the same arranged rect) instead of a FillRect +
             // RegisterClickable pair whose rects could silently drift apart.
             RenderLayout(
-                new LayoutNode.Leaf(new LayoutContent.Box(0f, 0f))
+                new Layout.Node.Leaf(new Layout.Content.Box(0f, 0f))
                 {
-                    Width = Sizing.Star(),
-                    Height = Sizing.Star(),
+                    Width = Layout.Sizing.Star(),
+                    Height = Layout.Sizing.Star(),
                     Background = SearchBackdrop,
                     Hit = new HitResult.ButtonHit("SearchBackdrop"),
                     OnClick = _ => PostSignal(new CloseSkyMapSearchSignal()),
@@ -115,10 +115,10 @@ namespace TianWen.UI.Abstractions
             // (fontSize / dpiScale); RenderLayout re-applies dpiScale.
             var closeW = headerH;
             RenderLayout(
-                new LayoutNode.Leaf(new LayoutContent.Text("X", fontSize / dpiScale) { Color = SearchText, HAlign = TextAlign.Center, VAlign = TextAlign.Center })
+                new Layout.Node.Leaf(new Layout.Content.Text("X", fontSize / dpiScale) { Color = SearchText, HAlign = TextAlign.Center, VAlign = TextAlign.Center })
                 {
-                    Width = Sizing.Star(),
-                    Height = Sizing.Star(),
+                    Width = Layout.Sizing.Star(),
+                    Height = Layout.Sizing.Star(),
                     Hit = new HitResult.ButtonHit("SearchClose"),
                     OnClick = _ => PostSignal(new CloseSkyMapSearchSignal()),
                 },
@@ -178,27 +178,27 @@ namespace TianWen.UI.Abstractions
                 // Each row is one draw==hit Stack: the selected-row highlight, the name +
                 // optional V-mag text, and the click surface are all the same arranged rect,
                 // so the hit region can no longer drift away from what's drawn.
-                var rowChildren = ImmutableArray.CreateBuilder<LayoutNode>();
-                rowChildren.Add(new LayoutNode.Leaf(new LayoutContent.Box(0f, 0f)) { Width = Sizing.Fixed(12f), Height = Sizing.Star() });
-                rowChildren.Add(new LayoutNode.Leaf(new LayoutContent.Text(entry.Display, nameFont) { Color = isSelected ? selectedTextColor : SearchText, HAlign = TextAlign.Near, VAlign = TextAlign.Center })
+                var rowChildren = ImmutableArray.CreateBuilder<Layout.Node>();
+                rowChildren.Add(new Layout.Node.Leaf(new Layout.Content.Box(0f, 0f)) { Width = Layout.Sizing.Fixed(12f), Height = Layout.Sizing.Star() });
+                rowChildren.Add(new Layout.Node.Leaf(new Layout.Content.Text(entry.Display, nameFont) { Color = isSelected ? selectedTextColor : SearchText, HAlign = TextAlign.Near, VAlign = TextAlign.Center })
                 {
-                    Width = Sizing.Star(),
-                    Height = Sizing.Star(),
+                    Width = Layout.Sizing.Star(),
+                    Height = Layout.Sizing.Star(),
                 });
                 if (!float.IsNaN(entry.VMag))
                 {
-                    rowChildren.Add(new LayoutNode.Leaf(new LayoutContent.Text($"{entry.VMag:F1}m", magFont) { Color = isSelected ? selectedTextColor : SearchDimText, HAlign = TextAlign.Far, VAlign = TextAlign.Center })
+                    rowChildren.Add(new Layout.Node.Leaf(new Layout.Content.Text($"{entry.VMag:F1}m", magFont) { Color = isSelected ? selectedTextColor : SearchDimText, HAlign = TextAlign.Far, VAlign = TextAlign.Center })
                     {
-                        Width = Sizing.Fixed(52f),
-                        Height = Sizing.Star(),
+                        Width = Layout.Sizing.Fixed(52f),
+                        Height = Layout.Sizing.Star(),
                     });
                 }
-                rowChildren.Add(new LayoutNode.Leaf(new LayoutContent.Box(0f, 0f)) { Width = Sizing.Fixed(10f), Height = Sizing.Star() });
+                rowChildren.Add(new Layout.Node.Leaf(new Layout.Content.Box(0f, 0f)) { Width = Layout.Sizing.Fixed(10f), Height = Layout.Sizing.Star() });
 
-                var rowNode = new LayoutNode.Stack(rowChildren.ToImmutable(), LayoutAxis.Horizontal)
+                var rowNode = new Layout.Node.Stack(rowChildren.ToImmutable(), Layout.Axis.Horizontal)
                 {
-                    Width = Sizing.Star(),
-                    Height = Sizing.Star(),
+                    Width = Layout.Sizing.Star(),
+                    Height = Layout.Sizing.Star(),
                     Background = isSelected ? SearchRowHover : (RGBAColor32?)null,
                     Hit = new HitResult.ListItemHit("SearchResult", capturedIndex),
                     OnClick = _ =>
@@ -368,10 +368,10 @@ namespace TianWen.UI.Abstractions
             // glyph box and the click surface are the same arranged rect.
             var closeSize = 20f * dpiScale;
             RenderLayout(
-                new LayoutNode.Leaf(new LayoutContent.Text("X", fontSize / dpiScale * 0.9f) { Color = SearchDimText, HAlign = TextAlign.Center, VAlign = TextAlign.Center })
+                new Layout.Node.Leaf(new Layout.Content.Text("X", fontSize / dpiScale * 0.9f) { Color = SearchDimText, HAlign = TextAlign.Center, VAlign = TextAlign.Center })
                 {
-                    Width = Sizing.Star(),
-                    Height = Sizing.Star(),
+                    Width = Layout.Sizing.Star(),
+                    Height = Layout.Sizing.Star(),
                     Hit = new HitResult.ButtonHit("InfoPanelClose"),
                     OnClick = _ =>
                     {

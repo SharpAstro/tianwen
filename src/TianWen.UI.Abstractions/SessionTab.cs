@@ -596,17 +596,17 @@ namespace TianWen.UI.Abstractions
                 var expBtnW = stepperBtnW;
                 var expValW = colExpW - expBtnW * 2;
 
-                LayoutNode ExpButton(string glyph, string hit, Action<InputModifier> onClick) =>
-                    new LayoutNode.Leaf(new LayoutContent.Text(glyph, BaseFontSize * 0.85f) { Color = BodyText, HAlign = TextAlign.Center, VAlign = TextAlign.Center })
+                Layout.Node ExpButton(string glyph, string hit, Action<InputModifier> onClick) =>
+                    new Layout.Node.Leaf(new Layout.Content.Text(glyph, BaseFontSize * 0.85f) { Color = BodyText, HAlign = TextAlign.Center, VAlign = TextAlign.Center })
                     {
-                        Width = Sizing.Fixed(BaseStepperBtnW * 0.85f),
-                        Height = Sizing.Star(),
+                        Width = Layout.Sizing.Fixed(BaseStepperBtnW * 0.85f),
+                        Height = Layout.Sizing.Star(),
                         Background = StepperBg,
                         Hit = new HitResult.ButtonHit(hit),
                         OnClick = onClick,
                     };
 
-                var expRow = new LayoutNode.Stack(
+                var expRow = new Layout.Node.Stack(
                 [
                     ExpButton("\u2212", $"Dec:Exp:{i}",
                         _ =>
@@ -617,7 +617,7 @@ namespace TianWen.UI.Abstractions
                                 capturedI, p with { SubExposure = SessionTabState.StepExposure(cur, false) });
                             State.NeedsRedraw = true;
                         }),
-                    new LayoutNode.Leaf(new LayoutContent.Fill(Key: "exp")) { Width = Sizing.Star(), Height = Sizing.Star() },
+                    new Layout.Node.Leaf(new Layout.Content.Fill(Key: "exp")) { Width = Layout.Sizing.Star(), Height = Layout.Sizing.Star() },
                     ExpButton("+", $"Inc:Exp:{i}",
                         _ =>
                         {
@@ -627,7 +627,7 @@ namespace TianWen.UI.Abstractions
                                 capturedI, p with { SubExposure = SessionTabState.StepExposure(cur, true) });
                             State.NeedsRedraw = true;
                         }),
-                ], LayoutAxis.Horizontal);
+                ], Layout.Axis.Horizontal);
 
                 RenderLayout(expRow, new RectF32(colExpX, cursor, expBtnW + expValW + expBtnW, rowH), fontPath, dpiScale,
                     drawFill: (_, r) =>
@@ -769,7 +769,7 @@ namespace TianWen.UI.Abstractions
             // what the per-row index-virtualised path used to get for free by skipping off-screen rows).
             var top = rect.Y;
             var bottom = rect.Y + rect.Height;
-            var visible = ImmutableArray.CreateBuilder<ArrangedNode<float>>(arranged.Length);
+            var visible = ImmutableArray.CreateBuilder<Layout.ArrangedNode<float>>(arranged.Length);
             foreach (var node in arranged)
             {
                 var b = node.Bounds;

@@ -326,14 +326,14 @@ namespace TianWen.UI.Abstractions
 
                 // Pin/unpin button leaf: [-] removes a pinned target, [+] pins an unpinned one. Its own
                 // hit wins over the row-selection hit for the button column (inner registrations win).
-                LayoutNode pinLeaf;
+                Layout.Node pinLeaf;
                 if (isPinned)
                 {
                     var capturedPinIdx = PlannerActions.FindProposalIndex(state.Proposals, scored.Target);
-                    pinLeaf = new LayoutNode.Leaf(new LayoutContent.Text("\u2212", BaseFontSize) { Color = RemoveBtnText, HAlign = TextAlign.Center, VAlign = TextAlign.Center })
+                    pinLeaf = new Layout.Node.Leaf(new Layout.Content.Text("\u2212", BaseFontSize) { Color = RemoveBtnText, HAlign = TextAlign.Center, VAlign = TextAlign.Center })
                     {
-                        Width = Sizing.Fixed(BaseFontSize * 1.5f),
-                        Height = Sizing.Star(),
+                        Width = Layout.Sizing.Fixed(BaseFontSize * 1.5f),
+                        Height = Layout.Sizing.Star(),
                         Background = RemoveBtnBg,
                         Hit = capturedPinIdx >= 0 ? new HitResult.ButtonHit("RemoveProposal") : null,
                         OnClick = capturedPinIdx >= 0 ? (Action<InputModifier>)(_ =>
@@ -349,10 +349,10 @@ namespace TianWen.UI.Abstractions
                 else
                 {
                     var capturedTarget = scored.Target;
-                    pinLeaf = new LayoutNode.Leaf(new LayoutContent.Text("+", BaseFontSize) { Color = PinnedText, HAlign = TextAlign.Center, VAlign = TextAlign.Center })
+                    pinLeaf = new Layout.Node.Leaf(new Layout.Content.Text("+", BaseFontSize) { Color = PinnedText, HAlign = TextAlign.Center, VAlign = TextAlign.Center })
                     {
-                        Width = Sizing.Fixed(BaseFontSize * 1.5f),
-                        Height = Sizing.Star(),
+                        Width = Layout.Sizing.Fixed(BaseFontSize * 1.5f),
+                        Height = Layout.Sizing.Star(),
                         Background = PinnedBg,
                         Hit = new HitResult.ButtonHit("AddProposal"),
                         OnClick = _ => PlannerActions.ToggleProposal(state, capturedTarget),
@@ -362,14 +362,14 @@ namespace TianWen.UI.Abstractions
                 // Whole row: [pad | name * | type | info | pad | pin]. Column widths + fonts are raw design
                 // units (the engine applies dpiScale); the bounds rect is listW px wide so the Star name cell
                 // fills exactly what the old nameW computed. The row carries the select hit; pinLeaf its own.
-                LayoutNode Spacer() => new LayoutNode.Leaf(new LayoutContent.Box(0f, 0f)) { Width = Sizing.Fixed(BasePadding), Height = Sizing.Star() };
-                LayoutNode Cell(string text, float fontMul, RGBAColor32 color, TextAlign halign, float widthDesign) =>
-                    new LayoutNode.Leaf(new LayoutContent.Text(text, BaseFontSize * fontMul) { Color = color, HAlign = halign, VAlign = TextAlign.Center })
+                Layout.Node Spacer() => new Layout.Node.Leaf(new Layout.Content.Box(0f, 0f)) { Width = Layout.Sizing.Fixed(BasePadding), Height = Layout.Sizing.Star() };
+                Layout.Node Cell(string text, float fontMul, RGBAColor32 color, TextAlign halign, float widthDesign) =>
+                    new Layout.Node.Leaf(new Layout.Content.Text(text, BaseFontSize * fontMul) { Color = color, HAlign = halign, VAlign = TextAlign.Center })
                     {
-                        Width = widthDesign > 0f ? Sizing.Fixed(widthDesign) : Sizing.Star(),
-                        Height = Sizing.Star(),
+                        Width = widthDesign > 0f ? Layout.Sizing.Fixed(widthDesign) : Layout.Sizing.Star(),
+                        Height = Layout.Sizing.Star(),
                     };
-                var row = new LayoutNode.Stack(
+                var row = new Layout.Node.Stack(
                 [
                     Spacer(),
                     Cell(scored.Target.Name, 1f, rowTextColor, TextAlign.Near, 0f),
@@ -377,7 +377,7 @@ namespace TianWen.UI.Abstractions
                     Cell(infoStr, 1f, isSelected ? SelectedText : DimText, TextAlign.Far, BaseFontSize * 3.5f),
                     Spacer(),
                     pinLeaf,
-                ], LayoutAxis.Horizontal)
+                ], Layout.Axis.Horizontal)
                 {
                     Background = rowBg,
                     Hit = new HitResult.ListItemHit("TargetList", i),

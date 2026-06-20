@@ -10,7 +10,7 @@ namespace TianWen.Lib.Tests
     /// <summary>
     /// Structural tests for <see cref="EquipmentPanelLayout"/> -- the bridge that turns the data-driven
     /// equipment content models (<see cref="DeviceSlotRow"/> / <see cref="OtaSummaryRow"/>) into the single
-    /// <see cref="LayoutNode"/> tree both the GPU and TUI painters consume. Asserts the per-OTA loop, the
+    /// <see cref="Layout.Node"/> tree both the GPU and TUI painters consume. Asserts the per-OTA loop, the
     /// whole-row clickable Hit carrying the <see cref="AssignTarget"/>, and the active-slot highlight.
     /// </summary>
     public class EquipmentPanelLayoutTests
@@ -29,42 +29,42 @@ namespace TianWen.Lib.Tests
             new DeviceSlotRow("Guider", "None", false, new AssignTarget.ProfileLevel("Guider")),
         ];
 
-        private static IEnumerable<LayoutNode> Flatten(LayoutNode node)
+        private static IEnumerable<Layout.Node> Flatten(Layout.Node node)
         {
             yield return node;
             switch (node)
             {
-                case LayoutNode.Stack s:
+                case Layout.Node.Stack s:
                     foreach (var child in s.Children)
                     {
                         foreach (var n in Flatten(child)) yield return n;
                     }
                     break;
-                case LayoutNode.Dock d:
+                case Layout.Node.Dock d:
                     foreach (var dc in d.Docked)
                     {
                         foreach (var n in Flatten(dc.Child)) yield return n;
                     }
                     foreach (var n in Flatten(d.Fill)) yield return n;
                     break;
-                case LayoutNode.Grid g:
+                case Layout.Node.Grid g:
                     foreach (var cell in g.Cells)
                     {
                         foreach (var n in Flatten(cell)) yield return n;
                     }
                     break;
-                case LayoutNode.Overlay o:
+                case Layout.Node.Overlay o:
                     foreach (var n in Flatten(o.Base)) yield return n;
                     foreach (var n in Flatten(o.Top)) yield return n;
                     break;
             }
         }
 
-        private static IEnumerable<string> TextLeaves(LayoutNode tree) =>
+        private static IEnumerable<string> TextLeaves(Layout.Node tree) =>
             Flatten(tree)
-                .OfType<LayoutNode.Leaf>()
+                .OfType<Layout.Node.Leaf>()
                 .Select(l => l.Content)
-                .OfType<LayoutContent.Text>()
+                .OfType<Layout.Content.Text>()
                 .Select(t => t.Value);
 
         [Fact]
@@ -124,7 +124,7 @@ namespace TianWen.Lib.Tests
                 n.Hit is HitResult.SlotHit<AssignTarget> { Slot: AssignTarget.ProfileLevel { Field: "Mount" } });
 
             mount.ShouldNotBeNull();
-            mount.ShouldBeOfType<LayoutNode.Stack>(); // the whole row, not just a leaf
+            mount.ShouldBeOfType<Layout.Node.Stack>(); // the whole row, not just a leaf
         }
 
         [Fact]
@@ -135,7 +135,7 @@ namespace TianWen.Lib.Tests
 
             var tree = EquipmentPanelLayout.Build("Rig", ProfileSlots(), [], style, activeSlot: active);
 
-            LayoutNode? RowFor(string field) => Flatten(tree).FirstOrDefault(n =>
+            Layout.Node? RowFor(string field) => Flatten(tree).FirstOrDefault(n =>
                 n.Hit is HitResult.SlotHit<AssignTarget> { Slot: AssignTarget.ProfileLevel p } && p.Field == field);
 
             RowFor("Mount")!.Background.ShouldBe(style.SlotActive);
@@ -193,7 +193,7 @@ namespace TianWen.Lib.Tests
             var row = FormRowLayout.LabeledInputRow(
                 "  Lat:", 50f, 24f, 6f, 12f, new RGBAColor32(0x80, 0x80, 0x80, 0xff));
             TextLeaves(row).ShouldContain("  Lat:");
-            var fills = Flatten(row).OfType<LayoutNode.Leaf>().Where(l => l.Content is LayoutContent.Fill).ToList();
+            var fills = Flatten(row).OfType<Layout.Node.Leaf>().Where(l => l.Content is Layout.Content.Fill).ToList();
             fills.ShouldHaveSingleItem();
         }
 
@@ -231,7 +231,7 @@ namespace TianWen.Lib.Tests
 
             // Full-height click target lives on the OUTER stack (so margin clicks hit the button, not
             // whatever is behind it); the coloured background lives on the INNER pill (the inset band).
-            row.ShouldBeOfType<LayoutNode.Stack>();
+            row.ShouldBeOfType<Layout.Node.Stack>();
             row.Hit.ShouldBeOfType<HitResult.ButtonHit>();
             row.Background.ShouldBeNull();
             TextLeaves(row).ShouldContain("Cancel");
