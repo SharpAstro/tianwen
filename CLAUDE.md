@@ -484,8 +484,8 @@ to catch the channel-collapse regressions we hit during the WB+shadow coordinate
 GUI/TUI panels are built from a surface-agnostic declarative layout engine in DIR.Lib (`DIR.Lib.Layout`):
 author a tree of immutable `Layout.Node` records, `Layout.Engine.Arrange` measures + arranges it, and
 `PixelWidgetBase.PaintLayout` draws + binds clicks **from the same arranged rect** (draw == hit by
-construction — no second hit-rect arithmetic that can drift). See
-[`docs/architecture/layout-dsl.md`](docs/architecture/layout-dsl.md).
+construction; no second hit-rect arithmetic that can drift). The full engine + DSL reference lives in
+**DIR.Lib's README** under "Declarative Layout (`DIR.Lib.Layout`)" -- it owns the engine; TianWen is a consumer.
 
 - **Build trees with the `Layout.Builder` DSL, never `new Layout.Node.X { }` initializers or `cursor += h`
   placement.** Factories: `Layout.Builder.VStack/HStack/Text/Box/Fill/Spacer/Grid/Overlay/Split/Dock(...)`.
