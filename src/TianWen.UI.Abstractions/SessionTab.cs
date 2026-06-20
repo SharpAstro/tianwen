@@ -597,17 +597,11 @@ namespace TianWen.UI.Abstractions
                 var expValW = colExpW - expBtnW * 2;
 
                 Layout.Node ExpButton(string glyph, string hit, Action<InputModifier> onClick) =>
-                    new Layout.Node.Leaf(new Layout.Content.Text(glyph, BaseFontSize * 0.85f) { Color = BodyText, HAlign = TextAlign.Center, VAlign = TextAlign.Center })
-                    {
-                        Width = Layout.Sizing.Fixed(BaseStepperBtnW * 0.85f),
-                        Height = Layout.Sizing.Star(),
-                        Background = StepperBg,
-                        Hit = new HitResult.ButtonHit(hit),
-                        OnClick = onClick,
-                    };
+                    Layout.Builder.Text(glyph, BaseFontSize * 0.85f, BodyText, TextAlign.Center, TextAlign.Center)
+                        .WFixed(BaseStepperBtnW * 0.85f).HStar().Bg(StepperBg)
+                        .Clickable(new HitResult.ButtonHit(hit), onClick);
 
-                var expRow = new Layout.Node.Stack(
-                [
+                var expRow = Layout.Builder.HStack(
                     ExpButton("\u2212", $"Dec:Exp:{i}",
                         _ =>
                         {
@@ -617,7 +611,7 @@ namespace TianWen.UI.Abstractions
                                 capturedI, p with { SubExposure = SessionTabState.StepExposure(cur, false) });
                             State.NeedsRedraw = true;
                         }),
-                    new Layout.Node.Leaf(new Layout.Content.Fill(Key: "exp")) { Width = Layout.Sizing.Star(), Height = Layout.Sizing.Star() },
+                    Layout.Builder.Fill(key: "exp").Stretch(),
                     ExpButton("+", $"Inc:Exp:{i}",
                         _ =>
                         {
@@ -626,8 +620,7 @@ namespace TianWen.UI.Abstractions
                             plannerState.Proposals = plannerState.Proposals.SetItem(
                                 capturedI, p with { SubExposure = SessionTabState.StepExposure(cur, true) });
                             State.NeedsRedraw = true;
-                        }),
-                ], Layout.Axis.Horizontal);
+                        }));
 
                 RenderLayout(expRow, new RectF32(colExpX, cursor, expBtnW + expValW + expBtnW, rowH), fontPath, dpiScale,
                     drawFill: (_, r) =>

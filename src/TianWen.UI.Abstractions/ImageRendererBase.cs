@@ -329,20 +329,20 @@ namespace TianWen.UI.Abstractions
             var below = new RectF32(0f, ToolbarHeight, Width, Height - ToolbarHeight - StatusBarHeight);
 
             Layout.Node content = state.ShowInfoPanel
-                ? new Layout.Node.Dock(
-                    [new Layout.DockChild(Layout.DockSide.Right, new Layout.Node.Leaf(new Layout.Content.Fill(Key: "infoPanel")), Layout.Sizing.Fixed(BaseInfoPanelWidth))],
-                    new Layout.Node.Leaf(new Layout.Content.Fill(Key: "image")))
-                : new Layout.Node.Leaf(new Layout.Content.Fill(Key: "image"));
+                ? Layout.Builder.Dock(
+                    Layout.Builder.Fill(key: "image"),
+                    Layout.Builder.Right(Layout.Builder.Fill(key: "infoPanel"), BaseInfoPanelWidth))
+                : Layout.Builder.Fill(key: "image");
 
             Layout.Node root = state.ShowFileList
-                ? new Layout.Node.Split(
-                    new Layout.Node.Leaf(new Layout.Content.Fill(Key: "fileList")),
+                ? Layout.Builder.Split(
+                    Layout.Builder.Fill(key: "fileList"),
                     content,
                     Layout.Axis.Horizontal,
-                    FirstExtent: state.FileListWidthBase,
-                    DividerThickness: BaseFileListDividerWidth,
-                    DividerHit: new ResizeHandleHit("FileList"),
-                    DividerColor: state.IsResizingFileList ? ResizeHandleActiveColor : ResizeHandleIdleColor)
+                    firstExtent: state.FileListWidthBase,
+                    dividerThickness: BaseFileListDividerWidth,
+                    dividerHit: new ResizeHandleHit("FileList"),
+                    dividerColor: state.IsResizingFileList ? ResizeHandleActiveColor : ResizeHandleIdleColor)
                 : content;
 
             _layoutArranged = ArrangeLayout(root, below, fontPath, DpiScale);

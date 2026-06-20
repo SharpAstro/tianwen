@@ -97,36 +97,23 @@ namespace TianWen.UI.Abstractions
                 children.Add(GroupGap(style.Padding * 0.5f));
             }
 
-            return new Layout.Node.Stack(children.ToImmutable(), Layout.Axis.Vertical)
-            {
-                Width = Layout.Sizing.Star(),
-                Height = Layout.Sizing.Auto,
-            };
+            return Layout.Builder.VStack(children.ToImmutable().AsSpan())
+                .WStar();
         }
 
         // Section header: inset label over a header-coloured band. A Text leaf cannot carry padding (the
         // painter draws it at the node's full rect), so the left inset is a fixed pad cell in a Stack.
         private static Layout.Node Header(string name, in SessionConfigStyle style) =>
-            new Layout.Node.Stack(
-            [
+            Layout.Builder.HStack(
                 Pad(style.Padding),
-                new Layout.Node.Leaf(new Layout.Content.Text(name, style.FontSize) { Color = style.HeaderText, HAlign = TextAlign.Near, VAlign = TextAlign.Center })
-                {
-                    Width = Layout.Sizing.Star(),
-                    Height = Layout.Sizing.Star(),
-                },
-            ], Layout.Axis.Horizontal)
-            {
-                Width = Layout.Sizing.Star(),
-                Height = Layout.Sizing.Fixed(style.HeaderHeight),
-                Background = style.HeaderBg,
-            };
+                Layout.Builder.Text(name, style.FontSize, style.HeaderText).Stretch())
+            .RowH(style.HeaderHeight).Bg(style.HeaderBg);
 
         private static Layout.Node GroupGap(float height) =>
-            new Layout.Node.Leaf(new Layout.Content.Box(0f, 0f)) { Width = Layout.Sizing.Star(), Height = Layout.Sizing.Fixed(height) };
+            Layout.Builder.Spacer().RowH(height);
 
         private static Layout.Node Pad(float width) =>
-            new Layout.Node.Leaf(new Layout.Content.Box(0f, 0f)) { Width = Layout.Sizing.Fixed(width), Height = Layout.Sizing.Star() };
+            Layout.Builder.Spacer().ColW(width);
 
         // One field row: [ pad | label ]  [ control ]  over a full-width row background.
         private static Layout.Node FieldRow(
@@ -139,29 +126,16 @@ namespace TianWen.UI.Abstractions
             // pad + label = the select-clickable region. Height = Star so the whole-row-height hit matches
             // the old RegisterClickable(rect.X, cursor, labelW + padding, itemH) exactly -- the control
             // buttons register later (children win), so dec/inc still get their own clicks.
-            var selectCell = new Layout.Node.Stack(
-            [
+            var selectCell = Layout.Builder.HStack(
                 Pad(style.Padding),
-                new Layout.Node.Leaf(new Layout.Content.Text(field.Label, style.FontSize) { Color = style.BodyText, HAlign = TextAlign.Near, VAlign = TextAlign.Center })
-                {
-                    Width = Layout.Sizing.Fixed(style.LabelWidth),
-                    Height = Layout.Sizing.Star(),
-                },
-            ], Layout.Axis.Horizontal)
-            {
-                Height = Layout.Sizing.Star(),
-                Hit = new HitResult.ListItemHit("ConfigField", idx),
-                OnClick = onSelectField?.Invoke(idx),
-            };
+                Layout.Builder.Text(field.Label, style.FontSize, style.BodyText).WFixed(style.LabelWidth).HStar())
+            .HStar()
+            .Clickable(new HitResult.ListItemHit("ConfigField", idx), onSelectField?.Invoke(idx));
 
             var control = Control(field, config, valueWidth, btnW, running, style, onDecrement, onIncrement);
 
-            return new Layout.Node.Stack([selectCell, control], Layout.Axis.Horizontal)
-            {
-                Width = Layout.Sizing.Star(),
-                Height = Layout.Sizing.Fixed(style.ItemHeight),
-                Background = rowBg,
-            };
+            return Layout.Builder.HStack(selectCell, control)
+                .RowH(style.ItemHeight).Bg(rowBg);
         }
 
         private static Layout.Node Control(
@@ -176,27 +150,19 @@ namespace TianWen.UI.Abstractions
                 {
                     var valueStr = field.FormatValue(config);
                     var isOn = valueStr == "ON";
-                    return new Layout.Node.Leaf(new Layout.Content.Text(valueStr, style.FontSize) { Color = running ? style.DimText : style.BodyText, HAlign = TextAlign.Center, VAlign = TextAlign.Center })
-                    {
-                        Width = Layout.Sizing.Fixed(style.ToggleButtonWidth),
-                        Height = Layout.Sizing.Star(),
-                        Background = running ? style.DisabledBg : (isOn ? style.ToggleOnBg : style.ToggleOffBg),
-                        Hit = new HitResult.ButtonHit($"Toggle:{field.Label}"),
-                        OnClick = running ? null : onIncrement?.Invoke(field),
-                    };
+                    return Layout.Builder.Text(valueStr, style.FontSize, running ? style.DimText : style.BodyText, TextAlign.Center, TextAlign.Center)
+                        .WFixed(style.ToggleButtonWidth).HStar()
+                        .Bg(running ? style.DisabledBg : (isOn ? style.ToggleOnBg : style.ToggleOffBg))
+                        .Clickable(new HitResult.ButtonHit($"Toggle:{field.Label}"), running ? null : onIncrement?.Invoke(field));
                 }
 
                 case ConfigFieldKind.EnumCycle:
                 {
                     var valueStr = field.FormatValue(config);
-                    return new Layout.Node.Leaf(new Layout.Content.Text($"{valueStr} \u25B6", style.FontSize * 0.9f) { Color = running ? style.DimText : style.BodyText, HAlign = TextAlign.Center, VAlign = TextAlign.Center })
-                    {
-                        Width = Layout.Sizing.Fixed(style.CycleButtonWidth),
-                        Height = Layout.Sizing.Star(),
-                        Background = running ? style.DisabledBg : style.CycleBg,
-                        Hit = new HitResult.ButtonHit($"Cycle:{field.Label}"),
-                        OnClick = running ? null : onIncrement?.Invoke(field),
-                    };
+                    return Layout.Builder.Text($"{valueStr} \u25B6", style.FontSize * 0.9f, running ? style.DimText : style.BodyText, TextAlign.Center, TextAlign.Center)
+                        .WFixed(style.CycleButtonWidth).HStar()
+                        .Bg(running ? style.DisabledBg : style.CycleBg)
+                        .Clickable(new HitResult.ButtonHit($"Cycle:{field.Label}"), running ? null : onIncrement?.Invoke(field));
                 }
 
                 default:
