@@ -139,10 +139,6 @@ namespace TianWen.UI.Abstractions
         private float FileListWidth =>
             (_state is { } s ? s.FileListWidthBase : BaseFileListWidth) * DpiScale;
 
-        /// <summary>Width of the draggable resize handle at the right edge of
-        /// the file list, in raw screen pixels. ~6px gives a comfortable target
-        /// without claiming visible real estate.</summary>
-        private float FileListResizeHandleWidth => 6f * DpiScale;
         private float FontSize => BaseFontSize * DpiScale;
         private float ToolbarFontSize => BaseToolbarFontSize * DpiScale;
         private float PanelPadding => BasePanelPadding * DpiScale;
@@ -290,14 +286,106 @@ namespace TianWen.UI.Abstractions
 
         /// <summary>
         /// Returns the image area dimensions (excluding toolbar, sidebar, info panel, status bar).
+        /// Derived from the single <see cref="ComputeLayout"/> pass so every consumer agrees with the
+        /// arranged image-pane rect rather than recomputing the fileListW/panelW formula independently.
         /// </summary>
         public (float Width, float Height) GetImageAreaSize(ViewerState state)
         {
+            if (_layout.ImageArea is { Width: > 0 } area)
+            {
+                return (area.Width, area.Height);
+            }
+
+            // Pre-first-frame fallback (no arrangement computed yet -- e.g. an early layout query).
             var fileListW = state.ShowFileList ? FileListWidth : 0;
             var panelW = state.ShowInfoPanel ? InfoPanelWidth : 0;
-            var areaW = (float)(Width - fileListW - panelW);
-            var areaH = (float)(Height - ToolbarHeight - StatusBarHeight);
-            return (areaW, areaH);
+            return (Width - fileListW - panelW, Height - ToolbarHeight - StatusBarHeight);
+        }
+
+        // -----------------------------------------------------------------------
+        // Single-source layout pass
+        //
+        // The whole below-toolbar chrome derives its geometry from ONE arrangement:
+        // LayoutNode.Split (file list + draggable divider) wrapping a Dock (right-edge
+        // info panel + fill image). Every consumer reads the arranged pane rects + the
+        // single image placement below -- the fileListW/panelW/areaW/offsetX formula is
+        // no longer copy-pasted per consumer and "happens to agree". The divider is the
+        // Split's draw==hit node, so the resize grab region IS the drawn bar.
+        // -----------------------------------------------------------------------
+
+        private readonly record struct ViewerLayout(RectF32 FileList, RectF32 ImageArea, RectF32 InfoPanel);
+
+        private readonly record struct ImagePlacement(float OffsetX, float OffsetY, float DrawW, float DrawH, float Scale);
+
+        private ViewerLayout _layout;
+        private ImmutableArray<ArrangedNode<float>> _layoutArranged;
+        private ImagePlacement _placement;
+
+        /// <summary>Design-unit thickness of the file-list resize divider (the Split divider IS the grab bar).</summary>
+        private const float BaseFileListDividerWidth = 6f;
+
+        private void ComputeLayout(ViewerState state, string fontPath)
+        {
+            var below = new RectF32(0f, ToolbarHeight, Width, Height - ToolbarHeight - StatusBarHeight);
+
+            LayoutNode content = state.ShowInfoPanel
+                ? new LayoutNode.Dock(
+                    [new DockChild(DockSide.Right, new LayoutNode.Leaf(new LayoutContent.Fill(Key: "infoPanel")), Sizing.Fixed(BaseInfoPanelWidth))],
+                    new LayoutNode.Leaf(new LayoutContent.Fill(Key: "image")))
+                : new LayoutNode.Leaf(new LayoutContent.Fill(Key: "image"));
+
+            LayoutNode root = state.ShowFileList
+                ? new LayoutNode.Split(
+                    new LayoutNode.Leaf(new LayoutContent.Fill(Key: "fileList")),
+                    content,
+                    LayoutAxis.Horizontal,
+                    FirstExtent: state.FileListWidthBase,
+                    DividerThickness: BaseFileListDividerWidth,
+                    DividerHit: new ResizeHandleHit("FileList"),
+                    DividerColor: state.IsResizingFileList ? ResizeHandleActiveColor : ResizeHandleIdleColor)
+                : content;
+
+            _layoutArranged = ArrangeLayout(root, below, fontPath, DpiScale);
+
+            RectF32 fileList = default, image = default, infoPanel = default;
+            foreach (var (node, b) in _layoutArranged)
+            {
+                if (node is LayoutNode.Leaf { Content: LayoutContent.Fill fill })
+                {
+                    var r = new RectF32(b.X, b.Y, b.Width, b.Height);
+                    switch (fill.Key)
+                    {
+                        case "fileList": fileList = r; break;
+                        case "image": image = r; break;
+                        case "infoPanel": infoPanel = r; break;
+                    }
+                }
+            }
+
+            _layout = new ViewerLayout(fileList, image, infoPanel);
+        }
+
+        private void ComputeImagePlacement(ViewerState state)
+        {
+            var area = _layout.ImageArea;
+            if (ImageWidth <= 0 || ImageHeight <= 0)
+            {
+                _placement = new ImagePlacement(area.X, area.Y, 0f, 0f, state.Zoom);
+                return;
+            }
+
+            var fitScale = MathF.Min(area.Width / ImageWidth, area.Height / ImageHeight);
+            if (state.ZoomToFit)
+            {
+                state.Zoom = fitScale;
+            }
+
+            var scale = state.Zoom;
+            var drawW = ImageWidth * scale;
+            var drawH = ImageHeight * scale;
+            var offsetX = area.X + (area.Width - drawW) / 2f + state.PanOffset.X;
+            var offsetY = area.Y + (area.Height - drawH) / 2f + state.PanOffset.Y;
+            _placement = new ImagePlacement(offsetX, offsetY, drawW, drawH, scale);
         }
 
         /// <summary>
@@ -424,6 +512,11 @@ namespace TianWen.UI.Abstractions
                 }
             }
 
+            // Single layout pass: every pane rect (file list / image / info panel) and the image
+            // placement below derive from this ONE arrangement -- no per-consumer recomputation.
+            ComputeLayout(state, _fontPath ?? string.Empty);
+            ComputeImagePlacement(state);
+
             // Draw image FIRST so UI chrome paints on top of it
             if (ImageWidth > 0 && ImageHeight > 0)
             {
@@ -442,6 +535,11 @@ namespace TianWen.UI.Abstractions
             {
                 RenderFileList(state);
             }
+
+            // Paint + hit-bind the file-list resize divider (the Split's draw==hit node) from the
+            // single layout pass -- the grab region is exactly the drawn bar. No-op when there is no
+            // file list (no divider node was arranged).
+            PaintLayout(_layoutArranged, _fontPath ?? string.Empty, DpiScale);
 
             if (state.ShowGrid && document?.Wcs is { HasCDMatrix: true } wcs)
             {
@@ -499,25 +597,11 @@ namespace TianWen.UI.Abstractions
 
         private void RenderImage(AstroImageDocument? document, ViewerState state, StretchUniforms stretch, WCS? gridWcs)
         {
-            var fileListW = state.ShowFileList ? FileListWidth : 0;
-            var panelW = state.ShowInfoPanel ? InfoPanelWidth : 0;
-            var areaW = (float)(Width - fileListW - panelW);
-            var areaH = (float)(Height - ToolbarHeight - StatusBarHeight);
-
-            var fitScale = MathF.Min(areaW / ImageWidth, areaH / ImageHeight);
-            if (state.ZoomToFit)
-            {
-                state.Zoom = fitScale;
-            }
-
-            var scale = state.Zoom;
-            var drawW = ImageWidth * scale;
-            var drawH = ImageHeight * scale;
-            var offsetX = fileListW + (areaW - drawW) / 2f + state.PanOffset.X;
-            var offsetY = ToolbarHeight + (areaH - drawH) / 2f + state.PanOffset.Y;
-
+            // Placement (fit/zoom/pan/centering) was computed once in ComputeImagePlacement
+            // from the arranged image-pane rect -- read it rather than recompute the formula.
+            var p = _placement;
             RenderImageQuad(document, state, stretch, gridWcs,
-                offsetX, offsetY, offsetX + drawW, offsetY + drawH, Width, Height);
+                p.OffsetX, p.OffsetY, p.OffsetX + p.DrawW, p.OffsetY + p.DrawH, Width, Height);
         }
 
         // -----------------------------------------------------------------------
@@ -1031,14 +1115,9 @@ namespace TianWen.UI.Abstractions
                 FillRect(FileListWidth - 4, scrollBarY, 3, scrollBarH, ScrollBarColor);
             }
 
-            // Resize handle at the right edge -- thin vertical bar, brighter
-            // while dragging so the affordance stays visible even when the
-            // cursor leaves the panel during a fast drag.
-            var handleW = FileListResizeHandleWidth;
-            var handleX = FileListWidth - handleW * 0.5f;
-            FillRect(handleX, listTop, handleW, listHeight,
-                state.IsResizingFileList ? ResizeHandleActiveColor : ResizeHandleIdleColor);
-            RegisterClickable(handleX - 2f, listTop, handleW + 4f, listHeight, new ResizeHandleHit("FileList"));
+            // The resize divider between the file list and the content area is now the Split's
+            // draw==hit divider node, painted once in Render() from the single layout pass -- no
+            // more hand-rolled FillRect handle + widened RegisterClickable straddling the boundary.
         }
 
         /// <summary>
@@ -1096,21 +1175,17 @@ namespace TianWen.UI.Abstractions
                 return;
             }
 
-            var fileListW = state.ShowFileList ? FileListWidth : 0;
-            var panelW = state.ShowInfoPanel ? InfoPanelWidth : 0;
-            var areaW = (float)(Width - fileListW - panelW);
-            var areaH = (float)(Height - ToolbarHeight - StatusBarHeight);
-            var scale = state.Zoom;
-            var drawW = ImageWidth * scale;
-            var drawH = ImageHeight * scale;
-            var imgOffsetX = fileListW + (areaW - drawW) / 2f + state.PanOffset.X;
-            var imgOffsetY = ToolbarHeight + (areaH - drawH) / 2f + state.PanOffset.Y;
+            // All geometry from the single layout pass (arranged image-pane rect + image placement).
+            var area = _layout.ImageArea;
+            var scale = _placement.Scale;
+            var imgOffsetX = _placement.OffsetX;
+            var imgOffsetY = _placement.OffsetY;
 
-            // Visible image pixel bounds (1-based FITS coordinates)
-            var visLeft = Math.Max(1.0, (fileListW - imgOffsetX) / scale + 1);
-            var visRight = Math.Min((double)ImageWidth, (fileListW + areaW - imgOffsetX) / scale + 1);
-            var visTop = Math.Max(1.0, (ToolbarHeight - imgOffsetY) / scale + 1);
-            var visBottom = Math.Min((double)ImageHeight, (ToolbarHeight + areaH - imgOffsetY) / scale + 1);
+            // Visible image pixel bounds (1-based FITS coordinates), clamped to the image-area pane.
+            var visLeft = Math.Max(1.0, (area.X - imgOffsetX) / scale + 1);
+            var visRight = Math.Min((double)ImageWidth, (area.X + area.Width - imgOffsetX) / scale + 1);
+            var visTop = Math.Max(1.0, (area.Y - imgOffsetY) / scale + 1);
+            var visBottom = Math.Min((double)ImageHeight, (area.Y + area.Height - imgOffsetY) / scale + 1);
 
             if (visLeft >= visRight || visTop >= visBottom)
             {
@@ -1169,7 +1244,7 @@ namespace TianWen.UI.Abstractions
 
             // Compute grid spacing in sky units
             var pixelScaleArcsec = wcs.PixelScaleArcsec;
-            var viewImagePixels = MathF.Min(areaW, areaH) / scale;
+            var viewImagePixels = MathF.Min(area.Width, area.Height) / scale;
             var viewArcsec = viewImagePixels * pixelScaleArcsec;
             var spacingArcsec = GridSpacingsArcsec[^1];
             foreach (var candidate in GridSpacingsArcsec)
@@ -1358,20 +1433,15 @@ namespace TianWen.UI.Abstractions
 
         private void RenderStarOverlay(ViewerState state, StarList stars)
         {
-            var fileListW = state.ShowFileList ? FileListWidth : 0;
-            var panelW = state.ShowInfoPanel ? InfoPanelWidth : 0;
-            var areaW = (float)(Width - fileListW - panelW);
-            var areaH = (float)(Height - ToolbarHeight - StatusBarHeight);
+            // Geometry from the single layout pass -- consistent with the rendered image by construction.
+            var area = _layout.ImageArea;
+            var offsetX = _placement.OffsetX;
+            var offsetY = _placement.OffsetY;
 
-            var drawW = ImageWidth * state.Zoom;
-            var drawH = ImageHeight * state.Zoom;
-            var offsetX = fileListW + (areaW - drawW) / 2f + state.PanOffset.X;
-            var offsetY = ToolbarHeight + (areaH - drawH) / 2f + state.PanOffset.Y;
-
-            var clipLeft = fileListW;
-            var clipTop = (float)ToolbarHeight;
-            var clipRight = fileListW + areaW;
-            var clipBottom = ToolbarHeight + areaH;
+            var clipLeft = area.X;
+            var clipTop = area.Y;
+            var clipRight = area.X + area.Width;
+            var clipBottom = area.Y + area.Height;
 
             foreach (var star in stars)
             {
@@ -1402,10 +1472,8 @@ namespace TianWen.UI.Abstractions
                 return;
             }
 
-            var fileListW = state.ShowFileList ? FileListWidth : 0;
-            var panelW = state.ShowInfoPanel ? InfoPanelWidth : 0;
-            var areaW = (float)(Width - fileListW - panelW);
-            var areaH = (float)(Height - ToolbarHeight - StatusBarHeight);
+            // Image-area pane rect from the single layout pass.
+            var area = _layout.ImageArea;
 
             var layout = new ViewportLayout(
                 WindowWidth: Width,
@@ -1414,10 +1482,10 @@ namespace TianWen.UI.Abstractions
                 ImageHeight: ImageHeight,
                 Zoom: state.Zoom,
                 PanOffset: state.PanOffset,
-                AreaLeft: fileListW,
-                AreaTop: ToolbarHeight,
-                AreaWidth: areaW,
-                AreaHeight: areaH,
+                AreaLeft: area.X,
+                AreaTop: area.Y,
+                AreaWidth: area.Width,
+                AreaHeight: area.Height,
                 DpiScale: DpiScale
             );
 
@@ -1477,10 +1545,8 @@ namespace TianWen.UI.Abstractions
         {
             if (ImageWidth <= 0 || ImageHeight <= 0) return;
 
-            var fileListW = state.ShowFileList ? FileListWidth : 0;
-            var panelW = state.ShowInfoPanel ? InfoPanelWidth : 0;
-            var areaW = (float)(Width - fileListW - panelW);
-            var areaH = (float)(Height - ToolbarHeight - StatusBarHeight);
+            // Image-area pane rect from the single layout pass.
+            var area = _layout.ImageArea;
 
             var layout = new ViewportLayout(
                 WindowWidth: Width,
@@ -1489,10 +1555,10 @@ namespace TianWen.UI.Abstractions
                 ImageHeight: ImageHeight,
                 Zoom: state.Zoom,
                 PanOffset: state.PanOffset,
-                AreaLeft: fileListW,
-                AreaTop: ToolbarHeight,
-                AreaWidth: areaW,
-                AreaHeight: areaH,
+                AreaLeft: area.X,
+                AreaTop: area.Y,
+                AreaWidth: area.Width,
+                AreaHeight: area.Height,
                 DpiScale: DpiScale);
 
             var labelSize = FontSize * 0.85f;
@@ -1632,7 +1698,9 @@ namespace TianWen.UI.Abstractions
             var histW = BaseHistogramWidth * DpiScale;
             var histH = BaseHistogramHeight * DpiScale;
             var margin = BaseHistogramMargin * DpiScale;
-            var rightEdge = state.ShowInfoPanel ? Width - InfoPanelWidth : (float)Width;
+            // Right edge of the image-area pane (abuts the info panel or the window edge) from the layout pass.
+            var area = _layout.ImageArea;
+            var rightEdge = area.Width > 0 ? area.X + area.Width : (float)Width;
             return (rightEdge - histW - margin, ToolbarHeight + margin, histW, histH);
         }
 
@@ -1714,13 +1782,14 @@ namespace TianWen.UI.Abstractions
                 return;
             }
 
-            var panelLeft = Width - InfoPanelWidth;
-            FillRect(panelLeft, ToolbarHeight, InfoPanelWidth, Height - ToolbarHeight - StatusBarHeight, ViewerTheme.InfoPanelBg);
+            // Info-panel rect from the single layout pass (docked right by the Split's content Dock).
+            var panel = _layout.InfoPanel;
+            FillRect(panel.X, panel.Y, panel.Width, panel.Height, ViewerTheme.InfoPanelBg);
 
-            var y = (float)ToolbarHeight + PanelPadding;
-            var x = panelLeft + PanelPadding;
+            var y = panel.Y + PanelPadding;
+            var x = panel.X + PanelPadding;
 
-            var maxTextWidth = InfoPanelWidth - PanelPadding * 2;
+            var maxTextWidth = panel.Width - PanelPadding * 2;
 
             DrawTextLine(ref y, x, "-- Metadata --", ViewerTheme.Palette.HeaderText);
             foreach (var line in InfoPanelData.GetMetadataLines(document))
@@ -2254,10 +2323,9 @@ namespace TianWen.UI.Abstractions
 
             // Only redraw when cursor moves to a different image pixel
             var prevPos = state.CursorImagePosition;
-            var fileListW = state.ShowFileList ? ScaledFileListWidth : 0;
-            var toolbarH = ScaledToolbarHeight;
-            var (areaW, areaH) = GetImageAreaSize(state);
-            ViewerActions.UpdateCursorFromScreenPosition(_document, state, px, py, fileListW, toolbarH, areaW, areaH);
+            // Image-area pane rect (origin + size) from the single layout pass.
+            var area = _layout.ImageArea;
+            ViewerActions.UpdateCursorFromScreenPosition(_document, state, px, py, area.X, area.Y, area.Width, area.Height);
             return state.CursorImagePosition != prevPos;
         }
 
@@ -2290,12 +2358,10 @@ namespace TianWen.UI.Abstractions
                 return true;
             }
 
-            // Zoom: inside the image viewport
-            var fileListW = state.ShowFileList ? ScaledFileListWidth : 0;
-            var toolbarH = ScaledToolbarHeight;
-            var (areaW, areaH) = GetImageAreaSize(state);
-            var inImageViewport = mouseX >= fileListW && mouseX < fileListW + areaW
-                               && mouseY >= toolbarH && mouseY < toolbarH + areaH;
+            // Zoom: inside the image viewport (image-area pane rect from the single layout pass)
+            var area = _layout.ImageArea;
+            var inImageViewport = mouseX >= area.X && mouseX < area.X + area.Width
+                               && mouseY >= area.Y && mouseY < area.Y + area.Height;
 
             if (inImageViewport)
             {
@@ -2303,8 +2369,8 @@ namespace TianWen.UI.Abstractions
                 var oldZoom = state.Zoom;
                 var newZoom = MathF.Max(0.01f, oldZoom * zoomFactor);
 
-                var cx = mouseX - fileListW - areaW / 2f - state.PanOffset.X;
-                var cy = mouseY - toolbarH - areaH / 2f - state.PanOffset.Y;
+                var cx = mouseX - area.X - area.Width / 2f - state.PanOffset.X;
+                var cy = mouseY - area.Y - area.Height / 2f - state.PanOffset.Y;
 
                 state.PanOffset = (
                     state.PanOffset.X - cx * (newZoom / oldZoom - 1f),
