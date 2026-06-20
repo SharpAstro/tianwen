@@ -570,14 +570,9 @@ namespace TianWen.UI.Abstractions
                 // draw==hit leaf -- background, label, and click region all bind to one node's rect
                 // (rendered via the layout engine) so the hit target can never drift from the paint.
                 var dropdown = state.ModeDropdown;
-                var modeLeaf = new Layout.Node.Leaf(
-                    new Layout.Content.Text(pillLabel, fontSize * 0.9f / dpiScale) { Color = AbortText, HAlign = TextAlign.Center, VAlign = TextAlign.Center })
-                {
-                    Width = Layout.Sizing.Star(),
-                    Height = Layout.Sizing.Star(),
-                    Background = modePillColor,
-                    Hit = new HitResult.ButtonHit("ModePill"),
-                    OnClick = _ =>
+                var modeLeaf = Layout.Builder.Text(pillLabel, fontSize * 0.9f / dpiScale, AbortText, TextAlign.Center, TextAlign.Center)
+                    .Stretch().Bg(modePillColor)
+                    .Clickable(new HitResult.ButtonHit("ModePill"), _ =>
                     {
                         if (dropdown.IsOpen)
                         {
@@ -639,8 +634,7 @@ namespace TianWen.UI.Abstractions
                                 }
                             });
                         state.NeedsRedraw = true;
-                    },
-                };
+                    });
                 RenderLayout(modeLeaf, new RectF32(pillX, pillY, pillW, pillH), fontPath, dpiScale);
 
                 // Current time is shown by the global status-bar clock (top-right on every
@@ -2319,14 +2313,9 @@ namespace TianWen.UI.Abstractions
                 _ => "?"
             };
             DrawText("On done", fontPath, x0, y, labelW, rowH, smallFs, DimText, TextAlign.Near, TextAlign.Center);
-            var onDoneBtn = new Layout.Node.Leaf(
-                new Layout.Content.Text(onDoneLabel, smallFs / dpiScale) { Color = BodyText, HAlign = TextAlign.Center, VAlign = TextAlign.Center })
-            {
-                Width = Layout.Sizing.Star(),
-                Height = Layout.Sizing.Star(),
-                Background = new RGBAColor32(0x44, 0x66, 0x99, 0xff),
-                Hit = new HitResult.ButtonHit("PolarSetupOnDone"),
-                OnClick = _ =>
+            var onDoneBtn = Layout.Builder.Text(onDoneLabel, smallFs / dpiScale, BodyText, TextAlign.Center, TextAlign.Center)
+                .Stretch().Bg(new RGBAColor32(0x44, 0x66, 0x99, 0xff))
+                .Clickable(new HitResult.ButtonHit("PolarSetupOnDone"), _ =>
                 {
                     var next = state.PolarSetupConfig.OnDone switch
                     {
@@ -2336,8 +2325,7 @@ namespace TianWen.UI.Abstractions
                     };
                     state.PolarSetupConfig = state.PolarSetupConfig with { OnDone = next };
                     state.NeedsRedraw = true;
-                },
-            };
+                });
             RenderLayout(onDoneBtn, new RectF32(x0 + labelW, y, w - labelW, rowH), fontPath, dpiScale);
             y += rowH;
 
@@ -2347,19 +2335,13 @@ namespace TianWen.UI.Abstractions
                 ? new RGBAColor32(0x44, 0x66, 0x99, 0xff)
                 : new RGBAColor32(0x2a, 0x2a, 0x35, 0xff);
             DrawText("Save frames", fontPath, x0, y, labelW, rowH, smallFs, DimText, TextAlign.Near, TextAlign.Center);
-            var saveBtn = new Layout.Node.Leaf(
-                new Layout.Content.Text(saveLabel, smallFs / dpiScale) { Color = BodyText, HAlign = TextAlign.Center, VAlign = TextAlign.Center })
-            {
-                Width = Layout.Sizing.Star(),
-                Height = Layout.Sizing.Star(),
-                Background = saveBg,
-                Hit = new HitResult.ButtonHit("PolarSetupSaveFrames"),
-                OnClick = _ =>
+            var saveBtn = Layout.Builder.Text(saveLabel, smallFs / dpiScale, BodyText, TextAlign.Center, TextAlign.Center)
+                .Stretch().Bg(saveBg)
+                .Clickable(new HitResult.ButtonHit("PolarSetupSaveFrames"), _ =>
                 {
                     state.PolarSetupConfig = state.PolarSetupConfig with { SaveFrames = !state.PolarSetupConfig.SaveFrames };
                     state.NeedsRedraw = true;
-                },
-            };
+                });
             RenderLayout(saveBtn, new RectF32(x0 + labelW, y, w - labelW, rowH), fontPath, dpiScale);
             y += rowH;
 
@@ -2369,19 +2351,13 @@ namespace TianWen.UI.Abstractions
                 ? new RGBAColor32(0x44, 0x66, 0x99, 0xff)
                 : new RGBAColor32(0x2a, 0x2a, 0x35, 0xff);
             DrawText("Incremental", fontPath, x0, y, labelW, rowH, smallFs, DimText, TextAlign.Near, TextAlign.Center);
-            var incBtn = new Layout.Node.Leaf(
-                new Layout.Content.Text(incLabel, smallFs / dpiScale) { Color = BodyText, HAlign = TextAlign.Center, VAlign = TextAlign.Center })
-            {
-                Width = Layout.Sizing.Star(),
-                Height = Layout.Sizing.Star(),
-                Background = incBg,
-                Hit = new HitResult.ButtonHit("PolarSetupUseIncremental"),
-                OnClick = _ =>
+            var incBtn = Layout.Builder.Text(incLabel, smallFs / dpiScale, BodyText, TextAlign.Center, TextAlign.Center)
+                .Stretch().Bg(incBg)
+                .Clickable(new HitResult.ButtonHit("PolarSetupUseIncremental"), _ =>
                 {
                     state.PolarSetupConfig = state.PolarSetupConfig with { UseIncrementalSolver = !state.PolarSetupConfig.UseIncrementalSolver };
                     state.NeedsRedraw = true;
-                },
-            };
+                });
             RenderLayout(incBtn, new RectF32(x0 + labelW, y, w - labelW, rowH), fontPath, dpiScale);
 
             // ---- Start button (anchored at panel bottom, full width) ---------

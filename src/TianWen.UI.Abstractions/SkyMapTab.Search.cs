@@ -85,14 +85,8 @@ namespace TianWen.UI.Abstractions
             // leaf (fill and hit are the same arranged rect) instead of a FillRect +
             // RegisterClickable pair whose rects could silently drift apart.
             RenderLayout(
-                new Layout.Node.Leaf(new Layout.Content.Box(0f, 0f))
-                {
-                    Width = Layout.Sizing.Star(),
-                    Height = Layout.Sizing.Star(),
-                    Background = SearchBackdrop,
-                    Hit = new HitResult.ButtonHit("SearchBackdrop"),
-                    OnClick = _ => PostSignal(new CloseSkyMapSearchSignal()),
-                },
+                Layout.Builder.Spacer().Stretch().Bg(SearchBackdrop)
+                    .Clickable(new HitResult.ButtonHit("SearchBackdrop"), _ => PostSignal(new CloseSkyMapSearchSignal())),
                 contentRect, fontPath, dpiScale);
 
             var pw = SearchPanelWidth * dpiScale;
@@ -115,13 +109,9 @@ namespace TianWen.UI.Abstractions
             // (fontSize / dpiScale); RenderLayout re-applies dpiScale.
             var closeW = headerH;
             RenderLayout(
-                new Layout.Node.Leaf(new Layout.Content.Text("X", fontSize / dpiScale) { Color = SearchText, HAlign = TextAlign.Center, VAlign = TextAlign.Center })
-                {
-                    Width = Layout.Sizing.Star(),
-                    Height = Layout.Sizing.Star(),
-                    Hit = new HitResult.ButtonHit("SearchClose"),
-                    OnClick = _ => PostSignal(new CloseSkyMapSearchSignal()),
-                },
+                Layout.Builder.Text("X", fontSize / dpiScale, SearchText, TextAlign.Center, TextAlign.Center)
+                    .Stretch()
+                    .Clickable(new HitResult.ButtonHit("SearchClose"), _ => PostSignal(new CloseSkyMapSearchSignal())),
                 new RectF32(px + pw - closeW, py, closeW, headerH), fontPath, dpiScale);
 
             // Search input
@@ -179,34 +169,22 @@ namespace TianWen.UI.Abstractions
                 // optional V-mag text, and the click surface are all the same arranged rect,
                 // so the hit region can no longer drift away from what's drawn.
                 var rowChildren = ImmutableArray.CreateBuilder<Layout.Node>();
-                rowChildren.Add(new Layout.Node.Leaf(new Layout.Content.Box(0f, 0f)) { Width = Layout.Sizing.Fixed(12f), Height = Layout.Sizing.Star() });
-                rowChildren.Add(new Layout.Node.Leaf(new Layout.Content.Text(entry.Display, nameFont) { Color = isSelected ? selectedTextColor : SearchText, HAlign = TextAlign.Near, VAlign = TextAlign.Center })
-                {
-                    Width = Layout.Sizing.Star(),
-                    Height = Layout.Sizing.Star(),
-                });
+                rowChildren.Add(Layout.Builder.Spacer().ColW(12f).HStar());
+                rowChildren.Add(Layout.Builder.Text(entry.Display, nameFont, isSelected ? selectedTextColor : SearchText).Stretch());
                 if (!float.IsNaN(entry.VMag))
                 {
-                    rowChildren.Add(new Layout.Node.Leaf(new Layout.Content.Text($"{entry.VMag:F1}m", magFont) { Color = isSelected ? selectedTextColor : SearchDimText, HAlign = TextAlign.Far, VAlign = TextAlign.Center })
-                    {
-                        Width = Layout.Sizing.Fixed(52f),
-                        Height = Layout.Sizing.Star(),
-                    });
+                    rowChildren.Add(Layout.Builder.Text($"{entry.VMag:F1}m", magFont, isSelected ? selectedTextColor : SearchDimText, TextAlign.Far).WFixed(52f).HStar());
                 }
-                rowChildren.Add(new Layout.Node.Leaf(new Layout.Content.Box(0f, 0f)) { Width = Layout.Sizing.Fixed(10f), Height = Layout.Sizing.Star() });
+                rowChildren.Add(Layout.Builder.Spacer().ColW(10f).HStar());
 
-                var rowNode = new Layout.Node.Stack(rowChildren.ToImmutable(), Layout.Axis.Horizontal)
-                {
-                    Width = Layout.Sizing.Star(),
-                    Height = Layout.Sizing.Star(),
-                    Background = isSelected ? SearchRowHover : (RGBAColor32?)null,
-                    Hit = new HitResult.ListItemHit("SearchResult", capturedIndex),
-                    OnClick = _ =>
+                var rowNode = Layout.Builder.HStack(rowChildren.ToImmutable().AsSpan())
+                    .Stretch()
+                    .Clickable(new HitResult.ListItemHit("SearchResult", capturedIndex), _ =>
                     {
                         State.Search.SelectedResultIndex = capturedIndex;
                         PostSignal(new SkyMapSearchCommitSignal());
-                    },
-                };
+                    });
+                if (isSelected) rowNode = rowNode.Bg(SearchRowHover);
                 RenderLayout(rowNode, new RectF32(x, rowY, w, rowH), fontPath, dpiScale);
             }
         }
@@ -368,17 +346,13 @@ namespace TianWen.UI.Abstractions
             // glyph box and the click surface are the same arranged rect.
             var closeSize = 20f * dpiScale;
             RenderLayout(
-                new Layout.Node.Leaf(new Layout.Content.Text("X", fontSize / dpiScale * 0.9f) { Color = SearchDimText, HAlign = TextAlign.Center, VAlign = TextAlign.Center })
-                {
-                    Width = Layout.Sizing.Star(),
-                    Height = Layout.Sizing.Star(),
-                    Hit = new HitResult.ButtonHit("InfoPanelClose"),
-                    OnClick = _ =>
+                Layout.Builder.Text("X", fontSize / dpiScale * 0.9f, SearchDimText, TextAlign.Center, TextAlign.Center)
+                    .Stretch()
+                    .Clickable(new HitResult.ButtonHit("InfoPanelClose"), _ =>
                     {
                         State.Search.InfoPanel = null;
                         State.NeedsRedraw = true;
-                    },
-                },
+                    }),
                 new RectF32(px + pw - closeSize, py, closeSize, closeSize), fontPath, dpiScale);
 
             // Selection marker on the map itself. For objects with a known shape

@@ -330,59 +330,44 @@ namespace TianWen.UI.Abstractions
                 if (isPinned)
                 {
                     var capturedPinIdx = PlannerActions.FindProposalIndex(state.Proposals, scored.Target);
-                    pinLeaf = new Layout.Node.Leaf(new Layout.Content.Text("\u2212", BaseFontSize) { Color = RemoveBtnText, HAlign = TextAlign.Center, VAlign = TextAlign.Center })
-                    {
-                        Width = Layout.Sizing.Fixed(BaseFontSize * 1.5f),
-                        Height = Layout.Sizing.Star(),
-                        Background = RemoveBtnBg,
-                        Hit = capturedPinIdx >= 0 ? new HitResult.ButtonHit("RemoveProposal") : null,
-                        OnClick = capturedPinIdx >= 0 ? (Action<InputModifier>)(_ =>
-                        {
-                            PlannerActions.RemoveProposal(state, capturedPinIdx);
-                            if (state.SelectedTargetIndex >= state.PinnedCount)
+                    pinLeaf = Layout.Builder.Text("\u2212", BaseFontSize, RemoveBtnText, TextAlign.Center, TextAlign.Center)
+                        .WFixed(BaseFontSize * 1.5f).HStar().Bg(RemoveBtnBg)
+                        .Clickable(
+                            capturedPinIdx >= 0 ? new HitResult.ButtonHit("RemoveProposal") : null,
+                            capturedPinIdx >= 0 ? (Action<InputModifier>)(_ =>
                             {
-                                state.SelectedTargetIndex = Math.Max(0, state.SelectedTargetIndex - 1);
-                            }
-                        }) : null,
-                    };
+                                PlannerActions.RemoveProposal(state, capturedPinIdx);
+                                if (state.SelectedTargetIndex >= state.PinnedCount)
+                                {
+                                    state.SelectedTargetIndex = Math.Max(0, state.SelectedTargetIndex - 1);
+                                }
+                            }) : null);
                 }
                 else
                 {
                     var capturedTarget = scored.Target;
-                    pinLeaf = new Layout.Node.Leaf(new Layout.Content.Text("+", BaseFontSize) { Color = PinnedText, HAlign = TextAlign.Center, VAlign = TextAlign.Center })
-                    {
-                        Width = Layout.Sizing.Fixed(BaseFontSize * 1.5f),
-                        Height = Layout.Sizing.Star(),
-                        Background = PinnedBg,
-                        Hit = new HitResult.ButtonHit("AddProposal"),
-                        OnClick = _ => PlannerActions.ToggleProposal(state, capturedTarget),
-                    };
+                    pinLeaf = Layout.Builder.Text("+", BaseFontSize, PinnedText, TextAlign.Center, TextAlign.Center)
+                        .WFixed(BaseFontSize * 1.5f).HStar().Bg(PinnedBg)
+                        .Clickable(new HitResult.ButtonHit("AddProposal"), _ => PlannerActions.ToggleProposal(state, capturedTarget));
                 }
 
                 // Whole row: [pad | name * | type | info | pad | pin]. Column widths + fonts are raw design
                 // units (the engine applies dpiScale); the bounds rect is listW px wide so the Star name cell
                 // fills exactly what the old nameW computed. The row carries the select hit; pinLeaf its own.
-                Layout.Node Spacer() => new Layout.Node.Leaf(new Layout.Content.Box(0f, 0f)) { Width = Layout.Sizing.Fixed(BasePadding), Height = Layout.Sizing.Star() };
+                Layout.Node Spacer() => Layout.Builder.Spacer().ColW(BasePadding);
                 Layout.Node Cell(string text, float fontMul, RGBAColor32 color, TextAlign halign, float widthDesign) =>
-                    new Layout.Node.Leaf(new Layout.Content.Text(text, BaseFontSize * fontMul) { Color = color, HAlign = halign, VAlign = TextAlign.Center })
-                    {
-                        Width = widthDesign > 0f ? Layout.Sizing.Fixed(widthDesign) : Layout.Sizing.Star(),
-                        Height = Layout.Sizing.Star(),
-                    };
-                var row = new Layout.Node.Stack(
-                [
+                    widthDesign > 0f
+                        ? Layout.Builder.Text(text, BaseFontSize * fontMul, color, halign, TextAlign.Center).WFixed(widthDesign).HStar()
+                        : Layout.Builder.Text(text, BaseFontSize * fontMul, color, halign, TextAlign.Center).Stretch();
+                var row = Layout.Builder.HStack(
                     Spacer(),
                     Cell(scored.Target.Name, 1f, rowTextColor, TextAlign.Near, 0f),
                     Cell(scored.ObjectType.ToAbbreviation(), 0.85f, DimText, TextAlign.Near, BaseFontSize * 3.2f),
                     Cell(infoStr, 1f, isSelected ? SelectedText : DimText, TextAlign.Far, BaseFontSize * 3.5f),
                     Spacer(),
-                    pinLeaf,
-                ], Layout.Axis.Horizontal)
-                {
-                    Background = rowBg,
-                    Hit = new HitResult.ListItemHit("TargetList", i),
-                    OnClick = _ => { state.SelectedTargetIndex = capturedIdx; state.NeedsRedraw = true; },
-                };
+                    pinLeaf)
+                    .Bg(rowBg)
+                    .Clickable(new HitResult.ListItemHit("TargetList", i), _ => { state.SelectedTargetIndex = capturedIdx; state.NeedsRedraw = true; });
                 RenderLayout(row, new RectF32(rect.X, rowY, listW, itemHeight), fontPath, dpiScale);
             }
 

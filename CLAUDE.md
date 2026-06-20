@@ -479,6 +479,30 @@ range + AutoLevel quantum-range assertions to all four legacy stretch test files
 Pattern when extending tests: assert per-channel byte/float means stay inside `(epsilon, max-epsilon)`
 to catch the channel-collapse regressions we hit during the WB+shadow coordinate-space refactor.
 
+### Layout DSL (`DIR.Lib.Layout`)
+
+GUI/TUI panels are built from a surface-agnostic declarative layout engine in DIR.Lib (`DIR.Lib.Layout`):
+author a tree of immutable `Layout.Node` records, `Layout.Engine.Arrange` measures + arranges it, and
+`PixelWidgetBase.PaintLayout` draws + binds clicks **from the same arranged rect** (draw == hit by
+construction — no second hit-rect arithmetic that can drift). See
+[`docs/architecture/layout-dsl.md`](docs/architecture/layout-dsl.md).
+
+- **Build trees with the `Layout.Builder` DSL, never `new Layout.Node.X { }` initializers or `cursor += h`
+  placement.** Factories: `Layout.Builder.VStack/HStack/Text/Box/Fill/Spacer/Grid/Overlay/Split/Dock(...)`.
+  Chrome via fluent **instance methods** on `Layout.Node`: `.WFixed/.WStar/.RowH/.ColW/.Stretch/.Bg/.Pad/
+  .Clickable/.WithGap`. Each is a pure `this with { ... }` transform emitting the same records.
+- **Alias, don't import.** Keep `using DIR.Lib;` and add a per-project `global using Layout =
+  DIR.Lib.Layout;` (or csproj `<Using ... Alias="Layout"/>`); write the qualified `Layout.Node` /
+  `Layout.Builder`. Do NOT `using DIR.Lib.Layout;` — it drops the collision-prone barewords (`Node`,
+  `Content`, `Size<T>`) into scope. A consumer owning its own `Layout` type must rename it (PTV did:
+  `Layout` -> `ElementGrid`).
+- **Conditional background:** `.Bg(color)` always sets a value, so for a nullable bg build the base then
+  `if (cond) n = n.Bg(color);` — never `.Bg(default)` (paints transparent, not null).
+- **Interactive sub-widgets** (text inputs, charts, sky map) emit a `Layout.Builder.Fill(key: "...")` leaf
+  and draw into its rect via `PaintLayout`'s `drawFill` callback.
+- Engine geometry is headless-testable (stub `Layout.IMeasureContext`); `EquipmentPanelLayoutTests` /
+  `SessionConfigLayoutTests` pin arranged rects. Shipped DIR.Lib 6.0 / Console.Lib 3.3 / SdlVulkan.Renderer 6.7.
+
 ### Signal Handler Pattern — Route, Don't Implement
 
 The lightweight `SignalBus` is our alternative to MediatR/MVVM. `AppSignalHandler.cs` subscribe
