@@ -71,8 +71,10 @@
          5.0 ships the LayoutNode layout engine (Stack/Dock/Grid/Overlay, Fixed/Auto/Star,
          RenderLayout draw==hit) + surface-agnostic PixelMenuWidget/MenuLayout + DrawScrim.
          Major; consumed by the per-row tab migration (FormRowLayout). Lockstep with
-         SdlVulkan.Renderer 6.4 + Console.Lib 3.0. -->
-    <PackageVersion Include="DIR.Lib" Version="5.0.*" />
+         SdlVulkan.Renderer 6.4 + Console.Lib 3.0.
+         5.1 adds markdown image parsing (![alt](url) -> MdImage node). Lockstep with
+         Console.Lib 3.1 + SdlVulkan.Renderer 6.5. -->
+    <PackageVersion Include="DIR.Lib" Version="5.1.*" />
     <!-- DIR.Lib 3.0 extracted its codec layer to these sibling packages, which
          ship as a lockstep family from the StbImageSharp repo. 3.0 brought a
          binary-breaking SharpAstro.Tiff change (TiffPageOptions.IccProfile is
@@ -101,8 +103,10 @@
          (on top of 2.13-2.16 widget work). 2.18 is a no-code lockstep rebuild against
          DIR.Lib 4.5, same sibling family as SdlVulkan.Renderer 6.1.
          3.0 adds the cell-surface MenuWidget on DIR.Lib's shared MenuLayout; rebuilt
-         against DIR.Lib 5.0 (lockstep with SdlVulkan.Renderer 6.4). -->
-    <PackageVersion Include="Console.Lib" Version="3.0.*" />
+         against DIR.Lib 5.0 (lockstep with SdlVulkan.Renderer 6.4).
+         3.1 renders markdown images (![alt](url)) to the terminal; rebuilt against
+         DIR.Lib 5.1 (lockstep with SdlVulkan.Renderer 6.5). -->
+    <PackageVersion Include="Console.Lib" Version="3.1.*" />
     <!-- SdlVulkan.Renderer 5.0 adds a multi-page SDF glyph atlas (no more grow
          stall / Adreno submit-wedge) on top of 4.1's SetSystemCursor + anisotropic
          glyph xScale. 5.1 implements DIR.Lib 4.4's PushClip/PopClip via Vulkan
@@ -118,8 +122,10 @@
          6.3 classifies pinch device type (touchpad vs touchscreen) on OnPinch, passing a
          PinchSource so the app can anchor zoom sensibly. Repinned to DIR.Lib 4.6.
          6.4 rebuilt against DIR.Lib 5.0 (layout engine + PixelMenuWidget); removes
-         VkMenuWidget, superseded by DIR.Lib's surface-agnostic PixelMenuWidget. -->
-    <PackageVersion Include="SdlVulkan.Renderer" Version="6.4.*" />
+         VkMenuWidget, superseded by DIR.Lib's surface-agnostic PixelMenuWidget.
+         6.5 adds live-device offscreen thumbnail capture + per-page SDF LRU eviction;
+         repinned to DIR.Lib 5.1 (lockstep with Console.Lib 3.1). -->
+    <PackageVersion Include="SdlVulkan.Renderer" Version="6.5.*" />
     <PackageVersion Include="SDL3-CS" Version="3.5.0-preview.20260213-150035" />
     <PackageVersion Include="SDL3-CS.Native" Version="3.5.0-preview.20260205-174353" />
     <!-- Canon DSLR -->
