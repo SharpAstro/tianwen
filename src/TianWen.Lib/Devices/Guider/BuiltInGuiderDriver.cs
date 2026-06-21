@@ -23,7 +23,7 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
     private ICameraDriver? _camera;
     private IPulseGuideTarget? _pulseTarget;
 
-    private GuideLoop? _guideLoop;
+    private volatile GuideLoop? _guideLoop;
     private CancellationTokenSource? _guideCts;
     private Task? _guideLoopTask;
     private GuiderCalibrationResult? _lastCalibration;
@@ -369,11 +369,7 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
         // Reverse DEC direction in existing calibration data
         if (_lastCalibration is { } cal)
         {
-            _lastCalibration = cal with
-            {
-                DecRatePixPerSec = -cal.DecRatePixPerSec,
-                DecDisplacementPx = -cal.DecDisplacementPx
-            };
+            _lastCalibration = cal.WithMeridianFlip();
             // Toggle pier side so a subsequent auto-detect doesn't double-flip
             _calibrationPierSide = _calibrationPierSide?.Flipped;
         }
@@ -601,11 +597,7 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
                 var currentPierSide = await mount.GetSideOfPierAsync(ct);
                 if (_calibrationPierSide is { } calPier && calPier != currentPierSide)
                 {
-                    var flipped = calResult.Value with
-                    {
-                        DecRatePixPerSec = -calResult.Value.DecRatePixPerSec,
-                        DecDisplacementPx = -calResult.Value.DecDisplacementPx
-                    };
+                    var flipped = calResult.Value.WithMeridianFlip();
                     calResult = flipped;
                     _lastCalibration = flipped;
                     _calibrationPierSide = currentPierSide;
@@ -792,8 +784,6 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
         return await camera.GetImageAsync(ct) ?? throw new GuiderException("Failed to capture guide frame — no image data");
     }
 
-    private static readonly Random _ditherRng = new Random();
-
     public ValueTask DitherAsync(double ditherPixels, double settlePixels, double settleTime, double settleTimeout, bool raOnly = false, CancellationToken cancellationToken = default)
     {
         var current = CurrentState;
@@ -807,8 +797,10 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
         // creating the dither offset on the imaging camera.
         if (_guideLoop is { } loop)
         {
-            var angle = _ditherRng.NextDouble() * 2 * Math.PI;
-            var distance = ditherPixels * (0.5 + 0.5 * _ditherRng.NextDouble()); // 50-100% of requested
+            // Random.Shared is thread-safe (unlike a shared Random instance); dither direction
+            // does not need determinism, so no per-driver seeded RNG is required.
+            var angle = Random.Shared.NextDouble() * 2 * Math.PI;
+            var distance = ditherPixels * (0.5 + 0.5 * Random.Shared.NextDouble()); // 50-100% of requested
             var dx = distance * Math.Cos(angle);
             var dy = raOnly ? 0 : distance * Math.Sin(angle);
             loop.Tracker.OffsetLockPosition(dx, dy);
@@ -818,8 +810,10 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
         _settleTime = settleTime;
         _settleTimeout = settleTimeout;
 
-        ForceState(GuiderState.Settling);
+        // Record the settle-phase timestamps BEFORE flipping to Settling, so a poll that observes
+        // the Settling state never reads a stale phase-start tick (mirrors GuideAsync's ordering).
         RecordSettlePhaseStart();
+        ForceState(GuiderState.Settling);
 
         return ValueTask.CompletedTask;
     }

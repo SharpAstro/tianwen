@@ -610,6 +610,76 @@ public class GuiderCalibrationTests(ITestOutputHelper output)
         corr.DecPulseMs.ShouldBeLessThan(0, "a drift toward North must be corrected toward South -- not amplified");
     }
 
+    [Theory(Timeout = 60_000)]
+    [InlineData(-1.0)] // northern-style sensor: North is CCW from West (North sweep = -Y)
+    [InlineData(1.0)]  // southern-style / flipped sensor: North is CW from West (North sweep = +Y)
+    public async Task GivenCalibratedGuiderWhenMeridianFlipThenCorrectionsStillConverge(double northDy)
+    {
+        // A GEM meridian flip reverses the DEC axis relative to the sky (the PHD2 "reverse Dec after
+        // flip" convention BuiltInGuiderDriver implements via GuiderCalibrationResult.WithMeridianFlip):
+        // on the post-flip pier side the DEC guide RESPONSE on the sensor inverts while RA is unchanged.
+        // This pins that the flipped calibration drives a post-flip error back to the lock point AND --
+        // the load-bearing negative check -- that WITHOUT the flip the same DEC error runs away. It must
+        // be a pure-math test: the fake guide camera does NOT model the flip's 180deg field change, so an
+        // end-to-end fake session could not catch a flip sign error here.
+        var ct = TestContext.Current.CancellationToken;
+        var timeProvider = new FakeTimeProviderWrapper(new DateTimeOffset(2025, 6, 15, 22, 0, 0, TimeSpan.Zero));
+
+        var tracker = new GuiderCentroidTracker(maxStars: 1);
+        var rig = new DirectionalStarRig { WestResponse = (-1.0, 0.0), NorthResponse = (0.0, northDy) };
+
+        ValueTask<Image> Render(CancellationToken token)
+        {
+            ReadOnlySpan<ProjectedStar> stars = [new ProjectedStar(160 + rig.X, 120 + rig.Y, Magnitude: 5.0)];
+            return ValueTask.FromResult(Image.FromChannel(SyntheticStarFieldRenderer.Render(
+                320, 240, 0, stars, offsetX: 0, offsetY: 0, exposureSeconds: 2.0, pixelScaleArcsec: PixelScaleArcsec)));
+        }
+
+        tracker.ProcessFrame((await Render(ct)).GetChannelArray(0));
+        tracker.IsAcquired.ShouldBeTrue();
+
+        var calibration = new GuiderCalibration { CalibrationPulseDuration = TimeSpan.FromSeconds(1), CalibrationSteps = 3 };
+        var cal = (await calibration.CalibrateAsync(rig, tracker, Render, timeProvider, ct)).ShouldNotBeNull();
+
+        var flipped = cal.WithMeridianFlip();
+
+        // Post-flip rig: the DEC sweep response inverts, RA unchanged (the established GEM-flip behavior).
+        DirectionalStarRig PostFlipRig() => new()
+        {
+            RatePxPerSec = rig.RatePxPerSec,
+            WestResponse = (-1.0, 0.0),
+            NorthResponse = (0.0, -northDy),
+        };
+
+        var controller = new ProportionalGuideController { MinPulseMs = 0 };
+
+        // With the flip applied, a combined RA+DEC offset on the post-flip sensor is driven to ~zero.
+        var converging = PostFlipRig();
+        converging.X = 4.0;
+        converging.Y = 5.0;
+        var startErr = Math.Sqrt(converging.X * converging.X + converging.Y * converging.Y);
+        for (var i = 0; i < 8; i++)
+        {
+            await ApplyCorrectionAsync(converging, controller.Compute(flipped, converging.X, converging.Y), ct);
+        }
+        var flippedErr = Math.Sqrt(converging.X * converging.X + converging.Y * converging.Y);
+        output.WriteLine($"northDy={northDy} flipped: |err| {startErr:F2} -> {flippedErr:F2}px");
+        flippedErr.ShouldBeLessThan(startErr * 0.2,
+            "WithMeridianFlip must keep the loop converging on the post-flip pier side");
+
+        // Negative check: WITHOUT the flip the same DEC error runs away (the classic post-flip Dec runaway).
+        var diverging = PostFlipRig();
+        diverging.X = 4.0;
+        diverging.Y = 5.0;
+        for (var i = 0; i < 4; i++)
+        {
+            await ApplyCorrectionAsync(diverging, controller.Compute(cal, diverging.X, diverging.Y), ct);
+        }
+        output.WriteLine($"northDy={northDy} no-flip: DEC {5.0:F2} -> {diverging.Y:F2}px");
+        Math.Abs(diverging.Y).ShouldBeGreaterThan(5.0,
+            "without WithMeridianFlip the DEC error must diverge on the flipped pier side");
+    }
+
     [Fact]
     public void SweepLinearityScoresMonotonicHighAndWanderingLow()
     {
@@ -626,6 +696,22 @@ public class GuiderCalibrationTests(ITestOutputHelper output)
             new CalibrationStep(8, 0), new CalibrationStep(2, 0), new CalibrationStep(9, 0));
         GuiderCalibration.SweepLinearity(origin, wandering, netDisplacementPx: 9.0)
             .ShouldBeLessThan(0.6, "a wandering sweep (unstable rate) must score below the reject threshold");
+    }
+
+    /// <summary>Applies a controller correction to the rig, mapping signed pulse-ms to guide directions
+    /// exactly as <c>GuideLoop</c> does (positive RA pulse = West, positive Dec pulse = North).</summary>
+    private static async ValueTask ApplyCorrectionAsync(DirectionalStarRig rig, GuideCorrection correction, CancellationToken ct)
+    {
+        if (correction.RaPulseMs != 0)
+        {
+            await rig.PulseGuideAsync(correction.RaPulseMs > 0 ? GuideDirection.West : GuideDirection.East,
+                TimeSpan.FromMilliseconds(Math.Abs(correction.RaPulseMs)), ct);
+        }
+        if (correction.DecPulseMs != 0)
+        {
+            await rig.PulseGuideAsync(correction.DecPulseMs > 0 ? GuideDirection.North : GuideDirection.South,
+                TimeSpan.FromMilliseconds(Math.Abs(correction.DecPulseMs)), ct);
+        }
     }
 
     /// <summary>Pulse target that moves a single tracked star by a per-axis response vector (camera px).</summary>

@@ -672,6 +672,24 @@ internal readonly record struct GuiderCalibrationResult(
     public readonly double DecAngleDeg => DecAngleRad * 180.0 / Math.PI;
 
     /// <summary>
+    /// Returns the calibration with the DEC sense reversed for a German-mount meridian flip
+    /// (PHD2's "reverse Dec output after meridian flip"). Across a GEM flip the Dec axis mechanically
+    /// reverses relative to the sky while RA tracks the same way, so the Dec guide RESPONSE on the
+    /// sensor inverts but the RA response does not. Only the Dec rate/displacement sign flips here —
+    /// the measured axis ANGLES still describe where the motor axes point on the sensor and are left
+    /// unchanged. Negating <see cref="DecRatePixPerSec"/> inverts the Dec correction direction the
+    /// <see cref="ProportionalGuideController"/> derives, which is exactly what keeps the loop
+    /// converging on the post-flip pier side. Single source of truth for both flip sites in
+    /// <c>BuiltInGuiderDriver</c>; pinned by the post-flip convergence test in GuiderCalibrationTests.
+    /// </summary>
+    public readonly GuiderCalibrationResult WithMeridianFlip()
+        => this with
+        {
+            DecRatePixPerSec = -DecRatePixPerSec,
+            DecDisplacementPx = -DecDisplacementPx,
+        };
+
+    /// <summary>
     /// Decomposes a pixel-space error (dX, dY) onto the two MEASURED mount-axis directions
     /// (RA-West at <see cref="CameraAngleRad"/>, Dec-North at <see cref="DecAngleRad"/>) by solving
     /// the 2x2 basis. This honours the measured Dec SENSE (so a sensor whose North is clockwise from
