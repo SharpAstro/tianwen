@@ -41,8 +41,14 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
     private int _posDec;
     private volatile bool _isSlewingRa;
     private volatile bool _isSlewingDec;
-    private bool _isTracking;
     private bool _isParked;
+
+    // Number of guide pulses currently executing (Interlocked inc/dec around PulseGuideAsync).
+    // A pulse runs the axis "running, not tracking" -- the same wire signature as a slew -- so
+    // IsSlewingAsync masks axis motion while this is > 0 and IsPulseGuidingAsync reports it
+    // instead. This mirrors the ASCOM contract: Slewing is False during a PulseGuide; the
+    // separate IsPulseGuiding property carries pulse-guide motion.
+    private int _pulseGuideInFlight;
 
     /// <summary>
     /// Most recent RA encoder reading (steps from home), refreshed by
@@ -224,12 +230,10 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
                 await SendCommandAsync('I', '1', SkywatcherProtocol.EncodeUInt24(t1), cancellationToken);
                 await SendCommandAsync('J', '1', null, cancellationToken);
             }
-            _isTracking = true;
         }
         else
         {
             await SendCommandAsync('K', '1', null, cancellationToken); // decelerate stop RA
-            _isTracking = false;
         }
     }
 
@@ -301,10 +305,15 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
 
     public async ValueTask<bool> IsSlewingAsync(CancellationToken cancellationToken)
     {
+        // A guide pulse runs the axis "running, not tracking" -- the same axis-status signature
+        // as a slew. Per the ASCOM contract, Slewing must be False during a PulseGuide (the
+        // separate IsPulseGuiding property reports that motion), so mask axis motion while a
+        // pulse is in flight. Without this, calibration/guide pulses read as a perpetual slew.
+        var pulseInFlight = Volatile.Read(ref _pulseGuideInFlight) > 0;
         var statusRa = await QueryAxisStatusAsync('1', cancellationToken);
         var statusDec = await QueryAxisStatusAsync('2', cancellationToken);
-        _isSlewingRa = statusRa.IsRunning && !statusRa.IsTracking;
-        _isSlewingDec = statusDec.IsRunning && !statusDec.IsTracking;
+        _isSlewingRa = statusRa.IsRunning && !statusRa.IsTracking && !pulseInFlight;
+        _isSlewingDec = statusDec.IsRunning && !statusDec.IsTracking && !pulseInFlight;
         var result = _isSlewingRa || _isSlewingDec;
         if (result)
         {
@@ -351,6 +360,22 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
                     }
                 }
                 _gotoTargetRa = double.NaN; // arrived (or attempts exhausted) -- goto complete
+
+                // A completed GoTo resumes sidereal tracking on a real SkyWatcher rig -- this mirrors
+                // GSServer's SkyServer.GoToAsync, which ends with `Tracking = tracking || Tracking`.
+                // This is our only post-goto hook (BeginSlew is fire-and-forget; completion is
+                // poll-detected here), and it runs exactly once per goto under the _gotoRefineInFlight
+                // gate. SetTrackingAsync is idempotent when the axis already auto-resumed (it only
+                // re-times the step period via :I). Best-effort: a tracking-resume hiccup must not
+                // break slew-completion detection -- let cancellation propagate, swallow the rest.
+                try
+                {
+                    await SetTrackingAsync(true, cancellationToken);
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    Logger.LogWarning(ex, "Post-goto tracking resume failed; relying on firmware auto-resume.");
+                }
             }
             finally
             {
@@ -386,8 +411,10 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
     {
         // Stop both axes and wait for FullStop: :K only STARTS a deceleration, and
         // real firmware rejects the goto's :G with !2 until the motor has stopped.
-        // _isTracking (tracking DESIRED) is deliberately left alone — the firmware
-        // auto-resumes sidereal tracking once the goto completes.
+        // No tracking command is issued here. Tracking is resumed at the goto-completion point in
+        // IsSlewingAsync (mirroring GSServer's post-GoTo `Tracking = ...`), and PulseGuideAsync reads
+        // the LIVE tracking status (a fresh axis-status query, not a cached flag) to pick the RA
+        // pulse branch -- so the RA pulse decision can never desync from the actual axis state.
         await StopAxisAndWaitAsync('1', cancellationToken);
         await StopAxisAndWaitAsync('2', cancellationToken);
 
@@ -535,6 +562,22 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
             return;
         }
 
+        // Mark a pulse in flight so IsSlewingAsync does not report this motion as a slew and
+        // IsPulseGuidingAsync reports it instead (ASCOM semantics). Counter, not a flag, so an
+        // overlapping RA+Dec pulse pair clears only when BOTH complete.
+        Interlocked.Increment(ref _pulseGuideInFlight);
+        try
+        {
+            await PulseGuideCoreAsync(direction, duration, cancellationToken);
+        }
+        finally
+        {
+            Interlocked.Decrement(ref _pulseGuideInFlight);
+        }
+    }
+
+    private async ValueTask PulseGuideCoreAsync(GuideDirection direction, TimeSpan duration, CancellationToken cancellationToken)
+    {
         var guideFraction = SkywatcherProtocol.GuideSpeedFraction(_guideSpeedIndex);
         var siderealDegPerSec = SIDEREAL_RATE / 3600.0;
 
@@ -555,7 +598,13 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
             var t1Pulse = SkywatcherProtocol.EncodeUInt24(
                 SkywatcherProtocol.ComputeT1Preset(_tmrFreq, _cprRa, guideSpeed, false, _highSpeedRatio));
 
-            if (_isTracking)
+            // Decide the RA branch from the LIVE tracking status (a fresh axis-status query), not a
+            // cached flag. A real SkyWatcher (and the fake) resumes sidereal tracking when a goto
+            // completes; a cached "desired tracking" flag was NOT synced on that path, so the first
+            // post-slew RA pulse took the stop/start branch and :K-stopped the just-resumed tracking,
+            // de-tracking the mount through guider calibration (the garbage-data root cause). One
+            // status round-trip per pulse always reflects reality and cannot desync.
+            if (await IsTrackingAsync(cancellationToken))
             {
                 // The axis is already running at sidereal in the tracking direction and the
                 // combined rate never changes sign (f <= 1): change ONLY the step period
@@ -669,7 +718,7 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
     }
 
     public ValueTask<bool> IsPulseGuidingAsync(CancellationToken cancellationToken)
-        => ValueTask.FromResult(false);
+        => ValueTask.FromResult(Volatile.Read(ref _pulseGuideInFlight) > 0);
 
     #endregion
 
@@ -844,7 +893,6 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
         // :G is rejected with !2 on a moving motor.
         await StopAxisAndWaitAsync('1', cancellationToken);
         await StopAxisAndWaitAsync('2', cancellationToken);
-        _isTracking = false;
         // Slew to home position (0x800000 = step 0)
         await SlewAxisToAsync('1', _posRa, 0, cancellationToken);
         await SlewAxisToAsync('2', _posDec, 0, cancellationToken);

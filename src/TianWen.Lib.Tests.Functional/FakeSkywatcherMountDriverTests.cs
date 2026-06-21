@@ -360,6 +360,85 @@ public class FakeSkywatcherMountDriverTests(ITestOutputHelper output)
             "a North pulse must move the reported Dec even in the post-sync drift regime");
     }
 
+    /// <summary>
+    /// A guide pulse runs the axis "running, not tracking" -- the same axis-status signature as a
+    /// slew. Per the ASCOM contract, Slewing must be False during a PulseGuide (the separate
+    /// IsPulseGuiding property reports that motion). Regression for the live symptom: guider
+    /// calibration pulse-guides continuously, so a mount that reported IsSlewing=true throughout
+    /// looked like it was "endlessly slewing during calibration". Uses the external time pump to
+    /// hold the (Dec) pulse open and observe mid-pulse.
+    /// </summary>
+    [Fact(Timeout = 60_000)]
+    public async Task GivenPulseGuideInFlightThenReportsPulseGuidingNotSlewing()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (mount, external) = await CreateConnectedMountAsync(ct);
+        external.TimeProvider.ExternalTimePump = true;
+
+        var serial = mount.SerialConnection.ShouldBeOfType<FakeSkywatcherSerialDevice>();
+        var before = serial.CommandLogSnapshot.Length;
+
+        // North pulse: Dec has no tracking baseline, so it runs the axis as a low-speed slew
+        // (:G2/:I2/:J2 ... :K2) -- "running, not tracking", which without the mask trips IsSlewing.
+        var pulse = mount.PulseGuideAsync(GuideDirection.North, TimeSpan.FromSeconds(2), ct);
+
+        // Wait until the Dec axis has actually started (the :J2 start command was sent), so the
+        // axis is physically running when we sample -- the case the mask must cover.
+        while (!serial.CommandLogSnapshot.Skip(before).Any(c => c.StartsWith(":J2")) && !ct.IsCancellationRequested)
+        {
+            await Task.Delay(1, ct);
+        }
+
+        (await mount.IsPulseGuidingAsync(ct)).ShouldBeTrue("a pulse is in flight");
+        (await mount.IsSlewingAsync(ct)).ShouldBeFalse(
+            "a guide pulse must not report as slewing (ASCOM: Slewing is False during PulseGuide)");
+
+        // Let the pulse run to completion, then the in-flight state clears.
+        external.TimeProvider.Advance(TimeSpan.FromSeconds(2));
+        await pulse;
+
+        (await mount.IsPulseGuidingAsync(ct)).ShouldBeFalse("the pulse has completed");
+    }
+
+    /// <summary>
+    /// A completed GoTo resumes sidereal tracking on a real SkyWatcher rig (the SynScan HC /
+    /// EQMOD / GSServer all turn Tracking on after a goto). The driver must sync its tracking
+    /// state at the goto-completion point so a guide pulse that immediately follows a slew --
+    /// exactly the guider-calibration sequence (slew to HA -0.5h, then calibrate) -- takes the
+    /// live ":I" rate-change branch, NOT the stop/start (:G/:J/:K) "not tracking" branch that
+    /// would de-track the mount mid-calibration and corrupt every per-pulse measurement.
+    /// Regression for the garbage-calibration root cause: the driver left its cached tracking
+    /// state false after a goto, so the first RA pulse stopped the axis.
+    /// </summary>
+    [Fact(Timeout = 60_000)]
+    public async Task GivenSlewCompletedWhenRaPulsingThenTrackingResumedAndOnlyStepPeriodChanges()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (mount, external) = await CreateConnectedMountAsync(ct);
+        await mount.SyncRaDecAsync(6.0, 45.0, ct);
+
+        // Slew and let the goto complete -- the arrival point resumes tracking. NOTE: no explicit
+        // SetTrackingAsync(true) here; tracking-after-slew is the behaviour under test.
+        await mount.BeginSlewRaDecAsync(8.0, 30.0, ct);
+        await PumpUntilNotSlewingAsync(mount, external, ct, TimeSpan.FromSeconds(40));
+
+        (await mount.IsTrackingAsync(ct)).ShouldBeTrue("a completed GoTo resumes sidereal tracking");
+
+        var serial = mount.SerialConnection.ShouldBeOfType<FakeSkywatcherSerialDevice>();
+        var before = serial.CommandLogSnapshot.Length;
+
+        await mount.PulseGuideAsync(GuideDirection.West, TimeSpan.FromSeconds(2), ct);
+
+        var motionCmds = serial.CommandLogSnapshot.Skip(before)
+            .Where(c => c.Length > 1 && c[1] is 'G' or 'I' or 'J' or 'K' or 'L')
+            .ToList();
+        output.WriteLine(string.Join(" ", motionCmds));
+        motionCmds.ShouldAllBe(c => c.StartsWith(":I1"),
+            "after a slew the mount is tracking, so an RA pulse is a live :I rate change, never a stop/start");
+
+        (await mount.IsTrackingAsync(ct)).ShouldBeTrue("the post-slew RA pulse must not stop tracking");
+    }
+
     #endregion
 
     #region Southern Hemisphere
