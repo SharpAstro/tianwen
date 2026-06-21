@@ -80,9 +80,31 @@ public static class MeridianFlipDecision
     /// </summary>
     /// <param name="hourAngleHours">Current HA, signed hours.</param>
     /// <param name="pierSideChanged">Has the pier side changed since slew time? (i.e. <c>!IsOnSamePierSide</c>)</param>
+    /// <param name="alreadyOnCorrectSide">Is the mount's current pier side the destination side for the
+    /// current pointing? When <c>true</c> the rig is already configured for where it points, so no flip is
+    /// needed even though HA is past the meridian — the case where we slewed straight to a target that had
+    /// already crossed (joined an in-progress <c>AcrossMeridian</c> observation, or re-acquired post-flip).
+    /// This is what stops the flip from re-firing forever on a mount whose pier side never changes
+    /// (e.g. SkyWatcher reporting Normal throughout a west-of-meridian track).</param>
+    /// <param name="hasFlipped">Have we already performed (or detected) a flip for the current target?
+    /// A GEM flips at most once per target; this is the belt-and-suspenders backstop that prevents a
+    /// re-trigger even if the side check is inconclusive. Reset by the caller on each new slew.</param>
     /// <param name="config">Active session configuration.</param>
-    public static FlipAction DecideFlipAction(double hourAngleHours, bool pierSideChanged, SessionConfiguration config)
+    public static FlipAction DecideFlipAction(
+        double hourAngleHours,
+        bool pierSideChanged,
+        bool alreadyOnCorrectSide,
+        bool hasFlipped,
+        SessionConfiguration config)
     {
+        if (hasFlipped)
+        {
+            // Already flipped (or detected a flip) for this target — never flip twice. We are past the
+            // meridian on the new side; keep imaging. The pre-meridian obstruction zone cannot recur for
+            // this target, so there is nothing to wait for.
+            return FlipAction.Continue;
+        }
+
         if (pierSideChanged)
         {
             // Mount flipped without us — firmware auto-flip past limit, handbox press, or
@@ -95,8 +117,11 @@ public static class MeridianFlipDecision
         {
             HourAngleZone.EastOfMeridian => FlipAction.Continue,
             HourAngleZone.InObstructionZone => FlipAction.WaitForObstructionClear,
-            HourAngleZone.InFlipWindow => FlipAction.CommandFlip,
-            HourAngleZone.PastFlipWindow => FlipAction.CommandFlip,
+            // Past the meridian: only command a flip if the mount is actually on the wrong pier side for
+            // where it points. If it already sits on the destination side (slewed straight to a target that
+            // had already crossed), there is nothing to flip — continue imaging.
+            HourAngleZone.InFlipWindow => alreadyOnCorrectSide ? FlipAction.Continue : FlipAction.CommandFlip,
+            HourAngleZone.PastFlipWindow => alreadyOnCorrectSide ? FlipAction.Continue : FlipAction.CommandFlip,
             _ => throw new ArgumentOutOfRangeException(nameof(hourAngleHours)),
         };
     }
