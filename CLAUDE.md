@@ -164,6 +164,50 @@ while (pumped < TimeSpan.FromHours(4) && !loopTask.IsCompleted && !ct.IsCancella
 hasn't been scheduled yet, causing targets to "set" before imaging starts. `Advance` fires timers
 synchronously; `Task.Delay(1)` yields to the thread pool.
 
+### Unattended end-to-end GUI testing with fake devices
+
+Drive a full `RunAsync` session against simulated hardware with **no human in the loop and no
+screenshot-poll-and-OCR**. Three pieces compose:
+
+1. **A fake-device profile.** Fakes share the real URI shape with host `FakeDevice` (`FakeDeviceSource`):
+   `Mount://FakeDevice/FakeMount1?latitude=…&longitude=…&port=SkyWatcher`, `Camera://FakeDevice/FakeCamera1`,
+   `Camera://FakeDevice/FakeGuideCam`, `Guider://FakeDevice/FakeGuider1`, `Focuser://FakeDevice/FakeFocuser1`,
+   `FilterWheel://FakeDevice/FakeFilterWheel1`, `Weather://FakeDevice/FakeWeather1`. **`port=SkyWatcher`** on
+   the mount selects `FakeSkywatcherMountDriver` (believed/true pointing seam + polar-misalignment + worm PE —
+   the variant that exercises the meridian-flip and Dec-sense paths); omit `port` for the lightweight
+   believed-only `FakeMountDriver`. Fakes only surface from discovery when `IncludeFake:true`; the GUI
+   auto-includes them at startup when the active profile already references any fake URI
+   (`Program.cs` → `ProfileData.ReferencesAnyFakeDevice`), otherwise Shift+Discover. `ProfileData.SiteLatitude/
+   Longitude` **must** match the mount URI's `latitude/longitude` (a split site throws "Could not calculate
+   timezone"). Canonical wiring (URIs, connect order, guider→mount `LinkDevices`, guide-scope FL):
+   `SessionTestHelper.CreateSessionAsync(mountPort:"SkyWatcher", latitude, longitude)`.
+
+2. **Anchor the clock** with `TIANWEN_NOW` (see the TimeProvider section above) to a real night at that site,
+   so the planner computes visible targets and the session leaves `WaitingForDark` at once instead of stalling
+   in daylight.
+
+3. **Drive + observe via the DEBUG inspector — not screenshots.** A **DEBUG** GUI build attaches
+   `DebugInspector` (`Program.cs`, compiled out of Release entirely), exposing this process to the
+   `sdl-ui-inspector` MCP sidecar (`.mcp.json` → `dnx SdlVulkan.Renderer.Inspector`, UDP-multicast discovery).
+   It gives three surfaces:
+   - **Describe/state snapshot** (the `AppState` block): `activeTab`, `profile`, `sessionRunning`, `phase`,
+     `mountConnected/Name/RaJ2000/DecJ2000/mountSlewing/mountTracking`, `lastNotification`, sky-map viewport.
+     **Poll this for coarse session state** (phase transitions, stuck-slewing, notifications) — it replaces a
+     screenshot+OCR loop.
+   - **Programmatic signals** (`SignalFactories`): `DiscoverDevices{includeFake}`, `BuildSchedule`,
+     **`StartSession`**, `SkyMapSetView`, `SkyMapSolveSync`, `TakePreview`. Posting `StartSession` runs the
+     whole `RunAsync` with no clicking.
+   - **Clickable regions** (`GetRegions`): click-by-label for any action without a dedicated signal.
+
+   `StartSession` needs ≥1 pinned target (`PlannerState.Proposals.Length > 0`, else it no-ops with "pin
+   targets in the Planner first"). Planner pins persist **per-profile** to `AppData/Planner` and reload at
+   startup (`PlannerPersistence.TryLoadAsync`), so pin once and every later unattended run reuses them.
+
+**Ground truth for fine telemetry is the Debug log, not the inspector snapshot.** The `AppState` snapshot
+reads `LiveSessionState`, which can lag during the guide loop; per-frame guide stats (errDec/corrDec/RMS),
+HA, and pier side come from `%LOCALAPPDATA%/TianWen/Logs/<date>/GUI_*.log`. The describe path is the right
+tool for orchestration and coarse state; the log is the source of truth for what the drivers actually did.
+
 ## Coding Style
 
 Enforced via `.editorconfig`:
@@ -182,6 +226,17 @@ Enforced via `.editorconfig`:
   `FakeTimeProvider`'s `SleepAsync` auto-advances fake time; `Task.Delay` with `FakeTimeProvider`
   hangs waiting for external advancement. All code should be testable.
 - `LoggerCatchExtensions` provides `ILogger.Catch/CatchAsync` for best-effort fallbacks
+
+**`TIANWEN_NOW` startup clock anchor (dev/test):** set the `TIANWEN_NOW` env var to an ISO-8601
+timestamp (ideally with an explicit offset, e.g. `2026-06-21T22:00:00+10:00`; no offset = machine-local)
+to anchor the *entire* system clock to a simulated instant that then advances at real-time rate. This
+lets you run a real night at the configured site while the machine clock says daytime, with **no fake-time
+pump**. Single wiring point: the `ITimeProvider` registration in `AddExternal`
+(`ExternalServiceCollectionExtensions.cs`) wraps `TimeProvider.System` in an `OffsetTimeProvider` when
+`StartupTimeOverride.TryGet` returns an offset. Because planner, session loop, fake mount/camera, and
+mount-reported UTC all resolve the clock from DI, they jump together. `StartupTimeOverride` (`Devices/`)
+freezes the offset once at process start; the GUI logs a WARNING (`SIMULATED CLOCK ACTIVE`) when active.
+Absent/unparseable → real system clock (previous behaviour). Pinned by `StartupTimeOverrideTests`.
 
 ### Device Management
 
@@ -271,6 +326,25 @@ schedules (hosted API stamping `Start = now`, legacy callers, existing tests) sh
 advance linearly, so that path is unchanged. Late starts proceed without clamping (the full `Duration` still
 runs); a lead-adjusted start beyond session end skips the observation cleanly. The wait uses the same mount
 clock (`GetMountUtcNowAsync`) as the loop condition.
+
+**Meridian-flip oscillation invariant:** `MeridianFlipDecision.DecideFlipAction` must be gated so the
+imaging loop can never re-issue a flip it already performed. Two backstops, in order: `if (hasFlipped)
+return Continue` (a per-observation flag set after a successful flip in `Session.Imaging.cs`), then
+`if (pierSideChanged) return AlreadyFlipped`. The HA-zone switch only reaches `CommandFlip` when
+`!alreadyOnCorrectSide`, where `alreadyOnCorrectSide` compares the current pier side against
+`DestinationSideOfPierAsync(target)`. **Why this is load-bearing on SkyWatcher:** the SkyWatcher driver
+derives pier side from the Dec encoder (`GetSideOfPierAsync` → Normal while `0 < pos < CPR/2`), so a GEM
+tracking west still reports `Normal` and a naive "flip when HA > 0" check is trivially true forever →
+mount stuck `Slewing`, zero exposures. Never re-introduce a flip-success check like `HA > 0`; gate on the
+*destination* side + the `hasFlipped` memory. Pinned by `MeridianFlipDecisionTests` (joined-already-west
+→ Continue, hasFlipped backstop, precedence) + a `mountPort:"SkyWatcher"` observation-loop test.
+
+**No-astro-dark night-window fallback:** `SessionEndTimeAsync` (`Session.Timing.cs`) derives the dark
+window via `ObservationScheduler.CalculateNightWindow`, which has a fallback chain (astronomical −18° →
+amateur-astro −15° → nautical −12° → polar-night 24h). It must **never** demand `EventTimes(...).Count == 1`
+for astronomical twilight: at high-summer mid-latitudes (e.g. 50.9°N at solstice the sun bottoms ~−15.7°)
+the sun never reaches −18°, and the old strict read threw, killing the session at a site that simply has
+no astro-dark. Pinned by a no-dark German-solstice test in `SessionLifecycleTests`.
 
 ### Driver Resilience on the Hot Path
 
