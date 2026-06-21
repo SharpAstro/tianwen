@@ -43,6 +43,31 @@ public class SessionLifecycleTests(ITestOutputHelper output)
         output.WriteLine($"Start: {startTime:u}, End: {endTime:u}, Duration: {duration}");
     }
 
+    [Fact(Timeout = 120_000)]
+    public async Task GivenHighLatitudeSummerNoAstroDarkWhenSessionEndTimeThenFallsBackInsteadOfThrowing()
+    {
+        // 50.9N / 8.2E (the user's German test site) on the June solstice: the sun bottoms at
+        // ~-15.7 deg, so astronomical twilight (-18) is NEVER reached. A bare
+        // EventTimes(AstronomicalTwilight) call returns zero rise events -> the old code threw
+        // "Failed to retrieve astro event time". CalculateNightWindow falls back to
+        // amateur-astronomical/nautical twilight, so the session gets a real (short) night window
+        // and runs instead of crashing.
+        var ct = TestContext.Current.CancellationToken;
+        var solsticeEvening = new DateTimeOffset(2026, 6, 20, 22, 0, 0, TimeSpan.FromHours(2)); // 22:00 CEST
+        using var ctx = await SessionTestHelper.CreateSessionAsync(
+            output, now: solsticeEvening, latitude: 50.9, longitude: 8.2, cancellationToken: ct);
+
+        var startTime = ctx.TimeProvider.GetUtcNow().UtcDateTime;
+        var endTime = await ctx.Session.SessionEndTimeAsync(startTime, ct); // must not throw
+
+        endTime.ShouldBeGreaterThan(startTime);
+        var duration = endTime - startTime;
+        duration.TotalHours.ShouldBeGreaterThan(0.5, "a high-latitude summer night via the twilight fallback is still a real (if short) window");
+        duration.TotalHours.ShouldBeLessThan(12, "and never a full astronomical night this far north at the solstice");
+
+        output.WriteLine($"Start: {startTime:u}, End: {endTime:u}, Duration: {duration}");
+    }
+
     // --- WaitUntilTenMinutesBeforeAmateurAstroTwilightEndsAsync ---
 
     [Fact(Timeout = 120_000)]

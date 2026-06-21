@@ -22,17 +22,6 @@ internal partial record Session
     private SiteConditions ResolveSiteConditions()
         => SiteConditions.Resolve(Setup.Weather?.Driver is { Connected: true } weather ? weather : null);
 
-    /// <summary>
-    /// Converts a UTC <see cref="DateTime"/> to a local <see cref="DateTimeOffset"/> at the site's timezone,
-    /// then returns the start of that local day as a <see cref="DateTimeOffset"/>.
-    /// </summary>
-    private static DateTimeOffset LocalStartOfDay(DateTime utc, TimeSpan siteTimeZone)
-    {
-        var localDto = new DateTimeOffset(utc, TimeSpan.Zero).ToOffset(siteTimeZone);
-        var localMidnight = localDto.Date; // DateTimeKind.Unspecified
-        return new DateTimeOffset(localMidnight, siteTimeZone);
-    }
-
     internal async ValueTask WaitUntilTenMinutesBeforeAmateurAstroTwilightEndsAsync(CancellationToken cancellationToken)
     {
         // Wait until 10 minutes before the first scheduled observation starts.
@@ -163,19 +152,15 @@ internal partial record Session
             throw new InvalidOperationException("Failed to retrieve time transformation from mount");
         }
 
-        // advance one day
-        var nowPlusOneDay = transform.DateTime = startTime.AddDays(1);
-        var (_, rise, _) = transform.EventTimes(Astrometry.SOFA.EventType.AstronomicalTwilight);
-
-        if (rise is { Count: 1 })
-        {
-            var tomorrowLocalStart = LocalStartOfDay(nowPlusOneDay, transform.SiteTimeZone);
-            return (tomorrowLocalStart + rise[0]).UtcDateTime;
-        }
-        else
-        {
-            throw new InvalidOperationException($"Failed to retrieve astro event time for {transform.DateTime}");
-        }
+        // The session runs until the night's morning twilight (when it gets too light). Delegate to
+        // the planner's CalculateNightWindow, which falls back through nautical twilight -- and a
+        // full 24h window for polar night -- at high-latitude sites where astronomical dark is never
+        // reached. This is the same window the schedule was built against, and it means the session
+        // no longer throws at a no-astronomical-dark site (e.g. 50N midsummer) the way a bare
+        // EventTimes(AstronomicalTwilight) call did.
+        transform.DateTime = startTime;
+        var (_, astroTwilight) = ObservationScheduler.CalculateNightWindow(transform);
+        return astroTwilight.UtcDateTime;
     }
 
 
