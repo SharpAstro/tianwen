@@ -273,6 +273,86 @@ public class FakeCameraMountCouplingTests(ITestOutputHelper output)
     }
 
     /// <summary>
+    /// Regression: a dither must SETTLE (not time out) when the only thing polling settle status is
+    /// <see cref="IGuider.GetSettleProgressAsync"/> -- which is exactly what the dither-wait loop in
+    /// <c>IGuider.DitherAsync</c> uses. The settle state machine (Settling -> Guiding) is advanced by
+    /// <c>TryCompleteSettle</c>; it used to be driven only by IsGuidingAsync/IsSettlingAsync, so during
+    /// a dither the error settled instantly yet Done never flipped and every dither aborted at the
+    /// settle timeout. This test reaches Guiding, dithers, then polls ONLY GetSettleProgressAsync and
+    /// asserts Done flips true well within the timeout.
+    /// </summary>
+    [Fact(Timeout = 120_000)]
+    public async Task GivenGuidingWhenDitherThenSettleCompletesViaGetSettleProgressAlone()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var timeProvider = new FakeTimeProviderWrapper(new DateTimeOffset(2025, 6, 15, 22, 0, 0, TimeSpan.Zero));
+        var external = new FakeExternal(output, timeProvider);
+        await using var sp = BuildHubServiceProvider(external);
+        var hub = sp.GetRequiredService<IDeviceHub>();
+
+        var mount = await ConnectMisalignedMountAsync(hub, ct);
+        await mount.SetTrackingAsync(true, ct);
+        await mount.SyncRaDecAsync(6.0, 45.0, ct);
+
+        var guideCam = (FakeCameraDriver)await hub.ConnectAsync(
+            new FakeDevice(new Uri("camera://FakeDevice/FakeGuideCam1#Fake Guide Cam")), ct);
+        guideCam.FocalLength = 130;
+        guideCam.BinX = 1;
+        guideCam.NumX = 800;
+        guideCam.NumY = 600;
+
+        var guiderDevice = new BuiltInGuiderDevice(
+            new Uri("guider://BuiltInGuiderDevice/builtin?pulseGuideSource=Camera#Built-in Guider"));
+        var guider = new BuiltInGuiderDriver(guiderDevice, sp);
+        await guider.ConnectAsync(ct);
+        guider.LinkDevices(mount, guideCam);
+
+        string? guidingError = null;
+        guider.GuidingErrorEvent += (_, e) => guidingError = e.Message;
+
+        timeProvider.ExternalTimePump = true;
+        await guider.GuideAsync(settlePixels: 1.5, settleTime: 3.0, settleTimeout: 90.0, ct);
+
+        var increment = TimeSpan.FromMilliseconds(250);
+        var pumped = TimeSpan.Zero;
+        while (pumped < TimeSpan.FromMinutes(10) && guidingError is null && !await guider.IsGuidingAsync(ct))
+        {
+            timeProvider.Advance(increment);
+            pumped += increment;
+            await Task.Delay(1, ct);
+        }
+        guidingError.ShouldBeNull("calibration must not error");
+        (await guider.IsGuidingAsync(ct)).ShouldBeTrue("must reach Guiding before dithering");
+
+        // Dither, then poll ONLY GetSettleProgressAsync (the dither-wait loop's sole poll) -- never
+        // IsGuiding/IsSettling, which would mask the bug by driving the transition themselves.
+        const double settleTimeoutSec = 60.0;
+        await guider.DitherAsync(ditherPixels: 3.0, settlePixels: 1.5, settleTime: 3.0, settleTimeout: settleTimeoutSec, cancellationToken: ct);
+
+        var settled = false;
+        var pumpedDuringSettle = TimeSpan.Zero;
+        while (pumpedDuringSettle < TimeSpan.FromSeconds(settleTimeoutSec + 30) && guidingError is null)
+        {
+            if (await guider.GetSettleProgressAsync(ct) is { Done: true } progress)
+            {
+                settled = true;
+                output.WriteLine($"Settled after {pumpedDuringSettle.TotalSeconds:F1}s (dist={progress.Distance:F2}px, settlePx={progress.SettlePx}).");
+                break;
+            }
+            timeProvider.Advance(increment);
+            pumpedDuringSettle += increment;
+            await Task.Delay(1, ct);
+        }
+
+        guidingError.ShouldBeNull("dither settle must not raise an error");
+        settled.ShouldBeTrue("the dither must settle (Done=true) via GetSettleProgressAsync alone, not time out");
+        pumpedDuringSettle.TotalSeconds.ShouldBeLessThan(settleTimeoutSec,
+            "settle must complete well within the timeout, not ride it out");
+
+        await guider.StopCaptureAsync(TimeSpan.FromSeconds(5), ct);
+    }
+
+    /// <summary>
     /// Recovery validation via a simulated cloud: a cloud sits over the guide star during the first
     /// calibration attempt so it cannot acquire; the driver RETRIES rather than abandoning the
     /// session, and once the cloud clears the retry calibrates cleanly and guiding starts. Daytime is
