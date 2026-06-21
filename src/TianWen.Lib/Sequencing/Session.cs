@@ -143,6 +143,9 @@ internal partial record Session(
     public int TotalFramesWritten => Volatile.Read(ref _totalFramesWritten);
     public TimeSpan TotalExposureTime => TimeSpan.FromTicks(Interlocked.Read(ref _totalExposureTimeTicks));
     public int CurrentObservationIndex => _activeObservation;
+    /// <summary>Number of meridian flips actually performed or detected this session. Test seam used to
+    /// assert that a non-German mount (fork / Alt-Az) images across the meridian without ever flipping.</summary>
+    internal int MeridianFlipCount { get; private set; }
     public ImmutableArray<FocusRunRecord> FocusHistory => [.. _focusHistory];
     public ImmutableArray<(int Position, float Hfd)> ActiveFocusSamples => _activeFocusSamples;
     public ImmutableArray<GuideErrorSample> GuideSamples => [.. _guideSamples];
