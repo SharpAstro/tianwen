@@ -72,6 +72,7 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
     private readonly int _maxRecalibrationAttempts;
     private readonly TimeSpan _calibrationRetryDelay;
     private readonly double _neuralSettleFailSafeFraction;
+    private readonly bool _assumeDecOrthogonal;
 
     private enum GuiderState
     {
@@ -96,6 +97,7 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
         _maxRecalibrationAttempts = device.MaxRecalibrationAttempts;
         _calibrationRetryDelay = device.CalibrationRetryDelay;
         _neuralSettleFailSafeFraction = device.NeuralSettleFailSafeFraction;
+        _assumeDecOrthogonal = device.AssumeDecOrthogonal;
     }
 
     public string Name => _device.DisplayName;
@@ -448,6 +450,7 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
         var calibration = new GuiderCalibration
         {
             BacklashClearingEnabled = true,
+            AssumeDecOrthogonal = _assumeDecOrthogonal,
             Logger = Logger,
         };
 

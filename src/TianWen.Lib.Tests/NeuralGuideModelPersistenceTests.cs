@@ -28,6 +28,7 @@ public class NeuralGuideModelPersistenceTests : IDisposable
     {
         return new GuiderCalibrationResult(
             CameraAngleRad: 0.1,
+            DecAngleRad: 0.1 + Math.PI / 2.0,
             RaRatePixPerSec: 5.0,
             DecRatePixPerSec: 4.5,
             RaDisplacementPx: 15.0,
@@ -53,6 +54,7 @@ public class NeuralGuideModelPersistenceTests : IDisposable
 
         loaded.ShouldNotBeNull();
         loaded.Value.CameraAngleRad.ShouldBe(cal.CameraAngleRad, 1e-10);
+        loaded.Value.DecAngleRad.ShouldBe(cal.DecAngleRad, 1e-10);
         loaded.Value.RaRatePixPerSec.ShouldBe(cal.RaRatePixPerSec, 1e-10);
         loaded.Value.DecRatePixPerSec.ShouldBe(cal.DecRatePixPerSec, 1e-10);
 
@@ -146,7 +148,7 @@ public class NeuralGuideModelPersistenceTests : IDisposable
         // Save again with different weights
         var model2 = new NeuralGuideModel();
         model2.InitializeRandom(seed: 99);
-        var cal2 = new GuiderCalibrationResult(0.2, 6.0, 5.5, 18.0, 16.5, 8.0);
+        var cal2 = new GuiderCalibrationResult(0.2, 0.2 + Math.PI / 2.0, 6.0, 5.5, 18.0, 16.5, 8.0);
         await NeuralGuideModelPersistence.SaveAsync(model2, cal2, _tempDir, ct);
 
         // Load should get the most recent

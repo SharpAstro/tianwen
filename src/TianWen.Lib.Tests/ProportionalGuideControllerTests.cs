@@ -11,10 +11,14 @@ public class ProportionalGuideControllerTests
     private static GuiderCalibrationResult MakeCalibration(
         double cameraAngleRad = 0,
         double raRatePixPerSec = 5.0,
-        double decRatePixPerSec = 5.0)
+        double decRatePixPerSec = 5.0,
+        double decAngleRad = double.NaN)
     {
         return new GuiderCalibrationResult(
             CameraAngleRad: cameraAngleRad,
+            // Default: Dec orthogonal at RA + 90deg (matches the classic transform); pass an explicit
+            // angle to exercise the measured / non-orthogonal path.
+            DecAngleRad: double.IsNaN(decAngleRad) ? cameraAngleRad + Math.PI / 2.0 : decAngleRad,
             RaRatePixPerSec: raRatePixPerSec,
             DecRatePixPerSec: decRatePixPerSec,
             RaDisplacementPx: 15.0,
@@ -186,5 +190,53 @@ public class ProportionalGuideControllerTests
             (correction.RaPulseMs * raErr).ShouldBeLessThanOrEqualTo(0,
                 $"At angle={cameraAngleRad:F2}rad, raErr={raErr:F2}, but raPulseMs={correction.RaPulseMs:F2} — correction should oppose error");
         }
+    }
+
+    /// <summary>
+    /// Regression for the Dec runaway: the Dec correction direction must follow the MEASURED Dec
+    /// axis sense. On a sensor where North is clockwise (-90deg) from West -- the southern-hemisphere
+    /// / flipped-sensor case -- a Dec error must pulse the OPPOSITE way to an orthogonal +90deg sensor,
+    /// else the correction amplifies the error (errDec -31 -> -92px in the field). With the old fixed
+    /// +90deg transform both produced the same (wrong-for-the-south) sign.
+    /// </summary>
+    [Fact]
+    public void GivenFlippedDecSenseWhenComputeThenDecCorrectionReverses()
+    {
+        var controller = new ProportionalGuideController { AggressivenessDec = 1.0, MinPulseMs = 0 };
+        var northCcwCal = MakeCalibration(cameraAngleRad: 0, decAngleRad: Math.PI / 2.0);   // North +90 (CCW)
+        var northCwCal = MakeCalibration(cameraAngleRad: 0, decAngleRad: -Math.PI / 2.0);   // North -90 (CW)
+
+        // Pure +Y pixel drift.
+        var ccwCorr = controller.Compute(northCcwCal, 0, 5.0);
+        var cwCorr = controller.Compute(northCwCal, 0, 5.0);
+
+        ccwCorr.DecPulseMs.ShouldNotBe(0);
+        cwCorr.DecPulseMs.ShouldNotBe(0);
+        // Same physical drift, opposite measured Dec sense => opposite Dec pulse direction.
+        Math.Sign(ccwCorr.DecPulseMs).ShouldBe(-Math.Sign(cwCorr.DecPulseMs));
+        // RA is unaffected by the Dec-axis sense for a pure-Y drift on an aligned camera.
+        ccwCorr.RaPulseMs.ShouldBe(cwCorr.RaPulseMs, 1e-9);
+    }
+
+    /// <summary>
+    /// The 2-axis transform must reduce to the classic rotation when Dec is exactly +90deg from RA,
+    /// so existing orthogonal calibrations are byte-for-byte unchanged.
+    /// </summary>
+    [Theory]
+    [InlineData(0.0)]
+    [InlineData(0.5)]
+    [InlineData(-1.2)]
+    public void GivenOrthogonalDecWhenTransformThenMatchesClassicRotation(double cameraAngleRad)
+    {
+        var cal = MakeCalibration(cameraAngleRad: cameraAngleRad, decAngleRad: cameraAngleRad + Math.PI / 2.0);
+        var (raPx, decPx) = cal.TransformToMountAxes(3.0, -2.0);
+
+        var cos = Math.Cos(cameraAngleRad);
+        var sin = Math.Sin(cameraAngleRad);
+        var expectedRa = 3.0 * cos + -2.0 * sin;
+        var expectedDec = -3.0 * sin + -2.0 * cos;
+
+        raPx.ShouldBe(expectedRa, 1e-9);
+        decPx.ShouldBe(expectedDec, 1e-9);
     }
 }
