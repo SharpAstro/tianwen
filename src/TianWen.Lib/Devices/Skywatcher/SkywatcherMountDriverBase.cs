@@ -80,6 +80,41 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
     private readonly bool _decPulseGoTo =
         bool.TryParse(device.Query.QueryValue(DeviceQueryKey.DecPulseGoTo), out var decPulseGoTo) && decPulseGoTo;
 
+    /// <summary>
+    /// Mount alignment mode (<c>?alignment=GermanPolar|Polar|AltAz</c>; default German equatorial).
+    /// This is a USER setting, mirroring GSServer: the same AZ/EQ hardware (e.g. a SkyWatcher AZ-GTi
+    /// on a wedge vs flat) reports the identical motor-controller model code, so the protocol cannot
+    /// tell which way it is mounted — the SynScan app asks at connect; we make it configurable.
+    /// <para>
+    /// German/Polar drive the equatorial HA/Dec encoder-step transforms in this class. <b>Alt-az is
+    /// REPORTED</b> (so the session skips meridian-flip + pier-side logic) but coordinate slews,
+    /// sidereal tracking, and RA/Dec sync are <b>REFUSED</b>: the step transforms here are equatorial,
+    /// so honouring an alt-az target would silently point the mount wrong. Full alt-az support is
+    /// scoped in <c>docs/plans/altaz-mount-support.md</c>.
+    /// </para>
+    /// </summary>
+    private readonly AlignmentMode _alignmentMode =
+        Enum.TryParse<AlignmentMode>(device.Query.QueryValue(DeviceQueryKey.Alignment), ignoreCase: true, out var alignment)
+            ? alignment
+            : AlignmentMode.GermanPolar;
+
+    /// <summary>
+    /// Fails loudly for a coordinate operation we cannot yet perform in a non-equatorial alignment.
+    /// The SkyWatcher transforms in this driver are equatorial (HA/Dec -&gt; encoder steps); an RA/Dec
+    /// slew, sidereal tracking, or sync issued in alt-az mode would point the mount wrong, so we throw
+    /// rather than execute it silently. See <c>docs/plans/altaz-mount-support.md</c>.
+    /// </summary>
+    private void EnsureEquatorialAlignment(string operation)
+    {
+        if (_alignmentMode == AlignmentMode.AltAz)
+        {
+            throw new NotSupportedException(
+                $"{operation} is not supported in alt-azimuth alignment mode. The TianWen SkyWatcher driver " +
+                "drives equatorial mounts only — put the mount on an equatorial wedge and set alignment=GermanPolar. " +
+                "Full alt-az support is tracked in docs/plans/altaz-mount-support.md.");
+        }
+    }
+
     // Site
     private double _siteLatitude = double.NaN;
     private double _siteLongitude = double.NaN;
@@ -174,7 +209,7 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
     public EquatorialCoordinateType EquatorialSystem => EquatorialCoordinateType.Topocentric;
 
     public ValueTask<AlignmentMode> GetAlignmentAsync(CancellationToken cancellationToken)
-        => ValueTask.FromResult(AlignmentMode.GermanPolar);
+        => ValueTask.FromResult(_alignmentMode);
 
     public ValueTask<TrackingSpeed> GetTrackingSpeedAsync(CancellationToken cancellationToken)
         => ValueTask.FromResult(TrackingSpeed.Sidereal); // Skywatcher only supports sidereal tracking natively
@@ -199,6 +234,9 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
     {
         if (tracking)
         {
+            // Sidereal single-axis tracking is equatorial-only; alt-az needs a dual-axis predictor.
+            EnsureEquatorialAlignment("Tracking");
+
             if (_cprRa == 0 || _tmrFreq == 0)
             {
                 return;
@@ -387,6 +425,8 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
 
     public virtual async ValueTask BeginSlewRaDecAsync(double ra, double dec, CancellationToken cancellationToken)
     {
+        EnsureEquatorialAlignment("Slewing to RA/Dec");
+
         if (_cprRa == 0 || _cprDec == 0)
         {
             throw new InvalidOperationException("Mount not initialized");
@@ -489,6 +529,8 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
 
     public virtual async ValueTask SyncRaDecAsync(double ra, double dec, CancellationToken cancellationToken)
     {
+        EnsureEquatorialAlignment("Sync to RA/Dec");
+
         var raSteps = RaToSteps(ra);
         var decSteps = DecToSteps(dec);
 
@@ -789,6 +831,13 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
 
     public async ValueTask<PointingState> GetSideOfPierAsync(CancellationToken cancellationToken)
     {
+        // Alt-az mounts have no pier side. Reporting Unknown also makes the session's GEM-only flip
+        // gate skip meridian-flip handling for this mount.
+        if (_alignmentMode == AlignmentMode.AltAz)
+        {
+            return PointingState.Unknown;
+        }
+
         // Pier side is determined from the Dec encoder position (the physical orientation of
         // the telescope), not from HA (which only tells you where the target is in the sky).
         // Following GSServer GermanPolar convention:
@@ -810,6 +859,13 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
 
     public ValueTask<PointingState> DestinationSideOfPierAsync(double ra, double dec, CancellationToken cancellationToken)
     {
+        // Alt-az has no pier side; returning Unknown also makes BeginSlewToTargetAsync refuse the
+        // (equatorial) slew for an alt-az mount instead of pointing it wrong.
+        if (_alignmentMode == AlignmentMode.AltAz)
+        {
+            return ValueTask.FromResult(PointingState.Unknown);
+        }
+
         // Determine pier side based on hour angle
         var transform = new Transform(TimeProvider);
         transform.RefreshDateTimeFromTimeProvider();
@@ -852,6 +908,10 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
     private async ValueTask MaybeSyncToPoleAfterSiteSetAsync(CancellationToken cancellationToken)
     {
         if (!Connected) return;
+        // "Parked at the pole" is an equatorial reporting convenience. In alt-az the home IS the raw
+        // encoder zero (az 0 = north, alt 0 = horizontal), so there is nothing to sync — and an RA/Dec
+        // sync is refused in alt-az anyway. Skip it so setting the site never fails for an alt-az mount.
+        if (_alignmentMode == AlignmentMode.AltAz) return;
         if (_cprRa == 0 || _cprDec == 0) return;
         if (double.IsNaN(_siteLatitude) || double.IsNaN(_siteLongitude)) return;
         if (_posRa != 0 || _posDec != 0) return;

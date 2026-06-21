@@ -20,7 +20,8 @@ public class FakeSkywatcherMountDriverTests(ITestOutputHelper output)
         double azMisalignmentArcmin = 0.0,
         double altMisalignmentArcmin = 0.0,
         DateTimeOffset? now = null,
-        bool decPulseGoTo = false)
+        bool decPulseGoTo = false,
+        string? alignment = null)
     {
         var external = new FakeExternal(output, now: now ?? new DateTimeOffset(2025, 6, 15, 22, 0, 0, TimeSpan.Zero));
         var query = new NameValueCollection
@@ -35,6 +36,10 @@ public class FakeSkywatcherMountDriverTests(ITestOutputHelper output)
         {
             query.Add("decPulseGoto", "true");
         }
+        if (alignment is not null)
+        {
+            query.Add("alignment", alignment);
+        }
         var device = new FakeDevice(DeviceType.Mount, 1, query);
         var mount = new FakeSkywatcherMountDriver(device, external.BuildServiceProvider());
         return (mount, external);
@@ -47,9 +52,10 @@ public class FakeSkywatcherMountDriverTests(ITestOutputHelper output)
         double azMisalignmentArcmin = 0.0,
         double altMisalignmentArcmin = 0.0,
         DateTimeOffset? now = null,
-        bool decPulseGoTo = false)
+        bool decPulseGoTo = false,
+        string? alignment = null)
     {
-        var (mount, external) = CreateMount(latitude, longitude, azMisalignmentArcmin, altMisalignmentArcmin, now, decPulseGoTo);
+        var (mount, external) = CreateMount(latitude, longitude, azMisalignmentArcmin, altMisalignmentArcmin, now, decPulseGoTo, alignment);
         await mount.ConnectAsync(ct);
         await mount.SetSiteLatitudeAsync(latitude, ct);
         await mount.SetSiteLongitudeAsync(longitude, ct);
@@ -361,6 +367,42 @@ public class FakeSkywatcherMountDriverTests(ITestOutputHelper output)
             .ShouldBeTrue("constant-speed pulse uses the low-speed SLEW func, not the GOTO func (:G22)");
         statusIdx.ShouldBeGreaterThanOrEqualTo(0, "the Dec pulse must query axis status (:f2) before :G2");
         statusIdx.ShouldBeLessThan(gIdx, "status must be checked BEFORE :G2 so a still-decelerating axis is stopped first");
+    }
+
+    /// <summary>Default (no ?alignment query) is German equatorial — the existing behaviour is unchanged.</summary>
+    [Fact(Timeout = 60_000)]
+    public async Task GivenNoAlignmentQueryThenDefaultsToGermanPolar()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (mount, _) = await CreateConnectedMountAsync(ct);
+        (await mount.GetAlignmentAsync(ct)).ShouldBe(AlignmentMode.GermanPolar);
+    }
+
+    /// <summary>
+    /// Alt-az alignment (e.g. an AZ-GTi off its equatorial wedge) is REPORT-ONLY in this driver:
+    /// GetAlignment returns AltAz and both pier-side reads are Unknown (so the session's GEM-only flip
+    /// gate skips this mount), but coordinate slews / sidereal tracking / RA-Dec sync are REFUSED with
+    /// NotSupported — the encoder transforms here are equatorial, so honouring an alt-az target would
+    /// silently point the mount wrong. Stopping tracking stays allowed. See docs/plans/altaz-mount-support.md.
+    /// </summary>
+    [Fact(Timeout = 60_000)]
+    public async Task GivenAltAzAlignmentThenReportedButCoordinateOpsRefused()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (mount, _) = await CreateConnectedMountAsync(ct, alignment: "AltAz");
+
+        (await mount.GetAlignmentAsync(ct)).ShouldBe(AlignmentMode.AltAz);
+        mount.CanSetSideOfPier.ShouldBeFalse();
+        (await mount.GetSideOfPierAsync(ct)).ShouldBe(PointingState.Unknown);
+        (await mount.DestinationSideOfPierAsync(6.0, 45.0, ct)).ShouldBe(PointingState.Unknown);
+
+        // Coordinate operations are refused — never silently point an equatorial transform at alt-az.
+        await Should.ThrowAsync<NotSupportedException>(async () => await mount.BeginSlewRaDecAsync(6.0, 45.0, ct));
+        await Should.ThrowAsync<NotSupportedException>(async () => await mount.SyncRaDecAsync(6.0, 45.0, ct));
+        await Should.ThrowAsync<NotSupportedException>(async () => await mount.SetTrackingAsync(true, ct));
+
+        // Stopping tracking is always safe and must not throw.
+        await Should.NotThrowAsync(async () => await mount.SetTrackingAsync(false, ct));
     }
 
     /// <summary>

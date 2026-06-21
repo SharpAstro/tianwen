@@ -26,6 +26,12 @@ public record SkywatcherDevice(Uri DeviceUri) : DeviceBase(DeviceUri)
 
     private static readonly ImmutableArray<DeviceSettingDescriptor> MountSettings =
     [
+        // Alignment is a user choice (the AZ/EQ-capable hardware reports the same model code either
+        // way, so it cannot be auto-detected). AltAz is currently REPORT-ONLY — the driver refuses
+        // coordinate slews/tracking in alt-az; see docs/plans/altaz-mount-support.md.
+        DeviceSettingHelper.EnumSetting<AlignmentMode>(
+            DeviceQueryKey.Alignment.Key, "Alignment",
+            defaultValue: AlignmentMode.GermanPolar),
         DeviceSettingHelper.BoolSetting(
             DeviceQueryKey.DecPulseGoTo.Key, "Dec Pulse as GOTO",
             defaultValue: false,

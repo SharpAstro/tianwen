@@ -37,6 +37,7 @@ public enum DeviceQueryKey
     PolarMisalignmentAzArcmin,
     PolarMisalignmentAltArcmin,
     DecPulseGoTo,
+    Alignment,
 }
 
 public static class DeviceQueryKeyExtensions
@@ -91,6 +92,7 @@ public static class DeviceQueryKeyExtensions
             DeviceQueryKey.PolarMisalignmentAzArcmin => "polarMisalignmentAzArcmin",
             DeviceQueryKey.PolarMisalignmentAltArcmin => "polarMisalignmentAltArcmin",
             DeviceQueryKey.DecPulseGoTo => "decPulseGoto",
+            DeviceQueryKey.Alignment => "alignment",
             _ => key.ToString().ToLowerInvariant()
         };
     }
