@@ -12,6 +12,9 @@ namespace TianWen.Lib.Devices.Guider;
 ///   <item><c>pulseGuideSource</c> — <see cref="PulseGuideSource"/> (Auto, Camera, Mount)</item>
 ///   <item><c>reuseCalibration</c> — reuse a saved calibration after a quick pulse validation (default true)</item>
 ///   <item><c>reverseDecAfterFlip</c> — reverse DEC corrections after a meridian flip (default true)</item>
+///   <item><c>assumeDecOrthogonal</c> — force the Dec axis exactly perpendicular to RA during
+///     calibration (default false = use the measured Dec angle, like PHD2). See PHD2's
+///     "Assume Dec orthogonal to RA"; the Dec sense always comes from the measurement either way.</item>
 ///   <item><c>useNeuralGuider</c> / <c>neuralBlendFactor</c> — opt-in neural guiding + blend (0-1)</item>
 ///   <item>Advanced: <c>maxCalibrationAttempts</c>, <c>maxRecalibrationAttempts</c>,
 ///     <c>calibrationRetryDelaySeconds</c>, <c>neuralSettleFailSafeFraction</c> (0-1)</item>
@@ -61,6 +64,10 @@ public record class BuiltInGuiderDevice(Uri DeviceUri) : GuiderDeviceBase(Device
         DeviceSettingHelper.BoolSetting(
             DeviceQueryKey.ReverseDecAfterFlip.Key, "Rev DEC on Flip",
             defaultValue: true),
+        DeviceSettingHelper.BoolSetting(
+            DeviceQueryKey.AssumeDecOrthogonal.Key, "Assume DEC Ortho",
+            defaultValue: false, trueLabel: "On", falseLabel: "Off",
+            isAdvanced: true),
         DeviceSettingHelper.BoolSetting(
             UseNeuralKey, "Neural Guider",
             defaultValue: false, trueLabel: "On", falseLabel: "Off"),
@@ -132,6 +139,23 @@ public record class BuiltInGuiderDevice(Uri DeviceUri) : GuiderDeviceBase(Device
         {
             var value = Query.QueryValue(DeviceQueryKey.ReverseDecAfterFlip);
             return value is null || !bool.TryParse(value, out var result) || result;
+        }
+    }
+
+    /// <summary>
+    /// When true, guider calibration forces the Dec axis exactly perpendicular to RA (RA +/- 90deg,
+    /// sense taken from the measured North sweep). When false (default, matching PHD2's "Assume Dec
+    /// orthogonal to RA" being off) it uses the independently MEASURED Dec angle, which also tolerates
+    /// a non-perpendicular Dec axis (cone error / camera tilt). Either way the Dec sense is measured,
+    /// never assumed -- so this never causes a Dec runaway, it only trades non-orthogonality handling
+    /// for a cleaner angle when the Dec sweep is noisy (heavy backlash).
+    /// </summary>
+    internal bool AssumeDecOrthogonal
+    {
+        get
+        {
+            var value = Query.QueryValue(DeviceQueryKey.AssumeDecOrthogonal);
+            return value is not null && bool.TryParse(value, out var result) && result;
         }
     }
 

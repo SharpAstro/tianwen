@@ -141,6 +141,7 @@ public class GuiderCalibrationTests(ITestOutputHelper output)
         // Given a 45° camera rotation
         var cal = new GuiderCalibrationResult(
             CameraAngleRad: Math.PI / 4, // 45°
+            DecAngleRad: Math.PI / 4 + Math.PI / 2, // Dec orthogonal at +90deg
             RaRatePixPerSec: 5.0,
             DecRatePixPerSec: 5.0,
             RaDisplacementPx: 15.0,
@@ -416,6 +417,7 @@ public class GuiderCalibrationTests(ITestOutputHelper output)
         {
             var originalCalibration = new GuiderCalibrationResult(
                 CameraAngleRad: -Math.PI,
+                DecAngleRad: -Math.PI / 2.0,
                 RaRatePixPerSec: 1.95,
                 DecRatePixPerSec: 1.97,
                 RaDisplacementPx: 17.5,
@@ -440,6 +442,7 @@ public class GuiderCalibrationTests(ITestOutputHelper output)
 
             // Calibration should match
             loadedCalibration.Value.CameraAngleRad.ShouldBe(originalCalibration.CameraAngleRad, 0.001);
+            loadedCalibration.Value.DecAngleRad.ShouldBe(originalCalibration.DecAngleRad, 0.001);
             loadedCalibration.Value.RaRatePixPerSec.ShouldBe(originalCalibration.RaRatePixPerSec, 0.001);
             loadedCalibration.Value.DecRatePixPerSec.ShouldBe(originalCalibration.DecRatePixPerSec, 0.001);
             loadedCalibration.Value.RaDisplacementPx.ShouldBe(originalCalibration.RaDisplacementPx, 0.001);
@@ -557,6 +560,54 @@ public class GuiderCalibrationTests(ITestOutputHelper output)
         output.WriteLine($"Validation result: {result}");
         result.ShouldBe(CalibrationValidationResult.Valid,
             "a calibration that passed the fresh orthogonality gate must re-validate on the same rig");
+    }
+
+    [Theory(Timeout = 60_000)]
+    [InlineData(false)] // measured Dec angle (PHD2 default)
+    [InlineData(true)]  // assume Dec orthogonal (sense still from measurement)
+    public async Task GivenNorthClockwiseFromWestWhenCalibrateThenDecSenseFromMeasurement(bool assumeOrthogonal)
+    {
+        // Southern-hemisphere / flipped-sensor rig: the North sweep moves the star CLOCKWISE from
+        // the West sweep on the sensor (West = -X, North = +Y). The old fixed "+90deg from RA"
+        // transform would invert Dec here and run the axis away (errDec -31 -> -92px in the field).
+        // The fix takes the Dec SENSE from the measured North sweep -- in BOTH modes -- so a drift
+        // toward North is corrected with a South pulse, and guiding converges.
+        var ct = TestContext.Current.CancellationToken;
+        var timeProvider = new FakeTimeProviderWrapper(new DateTimeOffset(2025, 6, 15, 22, 0, 0, TimeSpan.Zero));
+
+        var tracker = new GuiderCentroidTracker(maxStars: 1);
+        var rig = new DirectionalStarRig { WestResponse = (-1.0, 0.0), NorthResponse = (0.0, 1.0) };
+
+        ValueTask<Image> Render(CancellationToken token)
+        {
+            ReadOnlySpan<ProjectedStar> stars = [new ProjectedStar(160 + rig.X, 120 + rig.Y, Magnitude: 5.0)];
+            return ValueTask.FromResult(Image.FromChannel(SyntheticStarFieldRenderer.Render(
+                320, 240, 0, stars, offsetX: 0, offsetY: 0, exposureSeconds: 2.0, pixelScaleArcsec: PixelScaleArcsec)));
+        }
+
+        tracker.ProcessFrame((await Render(ct)).GetChannelArray(0));
+        tracker.IsAcquired.ShouldBeTrue();
+
+        var calibration = new GuiderCalibration
+        {
+            CalibrationPulseDuration = TimeSpan.FromSeconds(1),
+            CalibrationSteps = 3,
+            AssumeDecOrthogonal = assumeOrthogonal,
+        };
+
+        var result = await calibration.CalibrateAsync(rig, tracker, Render, timeProvider, ct);
+        result.ShouldNotBeNull();
+
+        // The measured Dec sense is clockwise from West: sin(DecAngle - CameraAngle) < 0.
+        var cross = Math.Sin(result.Value.DecAngleRad - result.Value.CameraAngleRad);
+        output.WriteLine($"camAngle={result.Value.CameraAngleDeg:F1} decAngle={result.Value.DecAngleDeg:F1} cross={cross:F3}");
+        cross.ShouldBeLessThan(0, "the Dec sense must come from the measured (clockwise) North sweep, not an assumed +90deg");
+
+        // A star that drifted toward North (+Y on this rig) must be corrected with a SOUTH pulse
+        // (negative DecPulseMs); the old inverted sense would have commanded North and diverged.
+        var controller = new ProportionalGuideController { MinPulseMs = 0 };
+        var corr = controller.Compute(result.Value, 0, 5.0);
+        corr.DecPulseMs.ShouldBeLessThan(0, "a drift toward North must be corrected toward South -- not amplified");
     }
 
     [Fact]

@@ -169,7 +169,7 @@ public class GuideLoopTests(ITestOutputHelper output)
         var pController = new ProportionalGuideController { AggressivenessRa = 0.7, AggressivenessDec = 0.7, MinPulseMs = 20 };
         var guideLoop = new GuideLoop(pulseTarget, tracker, pController, timeProvider);
         guideLoop.SetCalibration(new GuiderCalibrationResult(
-            CameraAngleRad: 0, RaRatePixPerSec: 2.0, DecRatePixPerSec: 2.0,
+            CameraAngleRad: 0, DecAngleRad: Math.PI / 2.0, RaRatePixPerSec: 2.0, DecRatePixPerSec: 2.0,
             RaDisplacementPx: 18, DecDisplacementPx: 18, TotalCalibrationTimeSec: 9));
 
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
@@ -243,7 +243,7 @@ public class GuideLoopTests(ITestOutputHelper output)
         var pController = new ProportionalGuideController { AggressivenessRa = 0.7, AggressivenessDec = 0.7, MinPulseMs = 20 };
         var guideLoop = new GuideLoop(pulseTarget, tracker, pController, timeProvider);
         guideLoop.SetCalibration(new GuiderCalibrationResult(
-            CameraAngleRad: 0, RaRatePixPerSec: 2.0, DecRatePixPerSec: 2.0,
+            CameraAngleRad: 0, DecAngleRad: Math.PI / 2.0, RaRatePixPerSec: 2.0, DecRatePixPerSec: 2.0,
             RaDisplacementPx: 18, DecDisplacementPx: 18, TotalCalibrationTimeSec: 9));
 
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
@@ -958,7 +958,7 @@ public class GuideLoopTests(ITestOutputHelper output)
         var pController = new ProportionalGuideController { AggressivenessRa = 0.7, AggressivenessDec = 0.7, MinPulseMs = 20 };
         var guideLoop = new GuideLoop(pulseTarget, tracker, pController, timeProvider);
         guideLoop.SetCalibration(new GuiderCalibrationResult(
-            CameraAngleRad: 0, RaRatePixPerSec: 2.0, DecRatePixPerSec: 2.0,
+            CameraAngleRad: 0, DecAngleRad: Math.PI / 2.0, RaRatePixPerSec: 2.0, DecRatePixPerSec: 2.0,
             RaDisplacementPx: 18, DecDisplacementPx: 18, TotalCalibrationTimeSec: 9));
 
         var model = new NeuralGuideModel();
@@ -1023,7 +1023,7 @@ public class GuideLoopTests(ITestOutputHelper output)
         var pController = new ProportionalGuideController { AggressivenessRa = 0.7, AggressivenessDec = 0.7, MinPulseMs = 20 };
         var guideLoop = new GuideLoop(pulseTarget, tracker, pController, timeProvider);
         guideLoop.SetCalibration(new GuiderCalibrationResult(
-            CameraAngleRad: 0, RaRatePixPerSec: 2.0, DecRatePixPerSec: 2.0,
+            CameraAngleRad: 0, DecAngleRad: Math.PI / 2.0, RaRatePixPerSec: 2.0, DecRatePixPerSec: 2.0,
             RaDisplacementPx: 18, DecDisplacementPx: 18, TotalCalibrationTimeSec: 9));
         guideLoop.RecalibrationDivergencePixels = 10.0; // small bound so a clear offset trips it
         guideLoop.RecalibrationDivergenceFrames = 8;     // and only a few sustained frames
@@ -1085,7 +1085,7 @@ public class GuideLoopTests(ITestOutputHelper output)
         var pController = new ProportionalGuideController { AggressivenessRa = 0.7, AggressivenessDec = 0.7, MinPulseMs = 20 };
         var guideLoop = new GuideLoop(pulseTarget, tracker, pController, timeProvider);
         guideLoop.SetCalibration(new GuiderCalibrationResult(
-            CameraAngleRad: 0, RaRatePixPerSec: 2.0, DecRatePixPerSec: 2.0,
+            CameraAngleRad: 0, DecAngleRad: Math.PI / 2.0, RaRatePixPerSec: 2.0, DecRatePixPerSec: 2.0,
             RaDisplacementPx: 18, DecDisplacementPx: 18, TotalCalibrationTimeSec: 9));
         guideLoop.RecalibrationDivergencePixels = 10.0;
         guideLoop.RecalibrationDivergenceFrames = 8;

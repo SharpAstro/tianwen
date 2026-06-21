@@ -97,6 +97,16 @@ internal sealed class GuiderCalibration
     public double MinSweepLinearity { get; set; } = 0.6;
 
     /// <summary>
+    /// When true, force the Dec axis exactly perpendicular to RA (Dec angle = RA angle +/- 90deg),
+    /// taking only the SIGN (which side is North) from the measured North sweep. When false (the
+    /// default, matching PHD2's "Assume Dec orthogonal to RA" being off), use the independently
+    /// MEASURED Dec sweep angle, which also tolerates a non-perpendicular Dec axis (cone error,
+    /// camera/OTA tilt). Either way the Dec SENSE comes from the measurement -- the orthogonal
+    /// assumption only snaps the angle, it never invents the sign.
+    /// </summary>
+    public bool AssumeDecOrthogonal { get; set; }
+
+    /// <summary>
     /// Duration of each calibration pulse.
     /// </summary>
     public TimeSpan CalibrationPulseDuration { get; set; } = TimeSpan.FromMilliseconds(DefaultCalibrationPulseMs);
@@ -309,12 +319,26 @@ internal sealed class GuiderCalibration
         // West pulse should move stars along the RA direction on the sensor
         var cameraAngleRad = Math.Atan2(raDy, raDx);
 
+        // Dec axis angle: the MEASURED direction the North sweep moved the star on the sensor.
+        // Carrying this (rather than assuming RA + 90deg) is what gets the Dec SENSE right -- on a
+        // sensor where North is clockwise from West (southern hemisphere / certain pier sides) the
+        // assumed +90deg inverts Dec corrections and guiding runs away. With AssumeDecOrthogonal we
+        // still take the sense from the measurement (sign of the RA->Dec cross product) but snap the
+        // angle to an exact perpendicular; otherwise we keep the measured angle (handles cone error
+        // / camera tilt). This mirrors PHD2's "Assume Dec orthogonal to RA" option (default off).
+        var measuredDecAngleRad = Math.Atan2(decDy, decDx);
+        var northIsCcwFromWest = Math.Sin(measuredDecAngleRad - cameraAngleRad) >= 0;
+        var decAngleRad = AssumeDecOrthogonal
+            ? cameraAngleRad + (northIsCcwFromWest ? Math.PI / 2.0 : -Math.PI / 2.0)
+            : measuredDecAngleRad;
+
         // Guide rates in pixels per second
         var raRatePixPerSec = raDisplacementPx / totalRaTimeSec;
         var decRatePixPerSec = decDisplacementPx / totalDecTimeSec;
 
         return new GuiderCalibrationResult(
             CameraAngleRad: cameraAngleRad,
+            DecAngleRad: decAngleRad,
             RaRatePixPerSec: raRatePixPerSec,
             DecRatePixPerSec: decRatePixPerSec,
             RaDisplacementPx: raDisplacementPx,
@@ -615,7 +639,9 @@ internal readonly record struct BacklashClearingResult(int StepsUsed, bool Movem
 /// <summary>
 /// Result of guider calibration.
 /// </summary>
-/// <param name="CameraAngleRad">Angle of the RA axis on the sensor in radians.</param>
+/// <param name="CameraAngleRad">Angle of the RA (West) axis on the sensor in radians.</param>
+/// <param name="DecAngleRad">Measured angle of the Dec (North) axis on the sensor in radians. Carries
+/// the Dec SENSE and any non-orthogonality; see <see cref="TransformToMountAxes"/>.</param>
 /// <param name="RaRatePixPerSec">RA guide rate in pixels per second.</param>
 /// <param name="DecRatePixPerSec">Dec guide rate in pixels per second.</param>
 /// <param name="RaDisplacementPx">Total RA displacement measured during calibration (pixels).</param>
@@ -625,6 +651,7 @@ internal readonly record struct BacklashClearingResult(int StepsUsed, bool Movem
 /// <param name="BacklashClearingStepsDec">Number of backlash clearing steps used for Dec axis.</param>
 internal readonly record struct GuiderCalibrationResult(
     double CameraAngleRad,
+    double DecAngleRad,
     double RaRatePixPerSec,
     double DecRatePixPerSec,
     double RaDisplacementPx,
@@ -635,26 +662,42 @@ internal readonly record struct GuiderCalibrationResult(
     CalibrationOverlayData? Overlay = null)
 {
     /// <summary>
-    /// Camera angle in degrees.
+    /// Camera (RA-axis) angle in degrees.
     /// </summary>
     public readonly double CameraAngleDeg => CameraAngleRad * 180.0 / Math.PI;
 
     /// <summary>
-    /// Transforms a pixel-space error (dX, dY) into RA/Dec corrections
-    /// using the calibrated camera angle.
+    /// Dec-axis angle in degrees.
+    /// </summary>
+    public readonly double DecAngleDeg => DecAngleRad * 180.0 / Math.PI;
+
+    /// <summary>
+    /// Decomposes a pixel-space error (dX, dY) onto the two MEASURED mount-axis directions
+    /// (RA-West at <see cref="CameraAngleRad"/>, Dec-North at <see cref="DecAngleRad"/>) by solving
+    /// the 2x2 basis. This honours the measured Dec SENSE (so a sensor whose North is clockwise from
+    /// West yields correctly-signed decPixels instead of the inverted value a fixed +90deg rotation
+    /// gives) and any non-orthogonality (cone error / camera tilt). For an exactly-orthogonal +90deg
+    /// Dec axis it reduces to the classic rotation.
     /// </summary>
     /// <param name="deltaX">Error in X pixels.</param>
     /// <param name="deltaY">Error in Y pixels.</param>
     /// <returns>Error decomposed into (raPixels, decPixels) along the mount axes.</returns>
     public readonly (double RaPixels, double DecPixels) TransformToMountAxes(double deltaX, double deltaY)
     {
-        var cos = Math.Cos(CameraAngleRad);
-        var sin = Math.Sin(CameraAngleRad);
-
-        // Rotate from camera frame to mount frame
-        var raPixels = deltaX * cos + deltaY * sin;
-        var decPixels = -deltaX * sin + deltaY * cos;
-
+        var cosRa = Math.Cos(CameraAngleRad);
+        var sinRa = Math.Sin(CameraAngleRad);
+        var cosDec = Math.Cos(DecAngleRad);
+        var sinDec = Math.Sin(DecAngleRad);
+        // Solve [deltaX; deltaY] = ra*u_ra + dec*u_dec for (ra, dec). det = sin(DecAngle - CameraAngle),
+        // i.e. +/-1 when the axes are orthogonal, ~0 when degenerate (parallel).
+        var det = cosRa * sinDec - cosDec * sinRa;
+        if (Math.Abs(det) < 1e-6)
+        {
+            // Degenerate axes (should be rejected upstream): fall back to the orthogonal projection.
+            return (deltaX * cosRa + deltaY * sinRa, -deltaX * sinRa + deltaY * cosRa);
+        }
+        var raPixels = (deltaX * sinDec - deltaY * cosDec) / det;
+        var decPixels = (-deltaX * sinRa + deltaY * cosRa) / det;
         return (raPixels, decPixels);
     }
 }

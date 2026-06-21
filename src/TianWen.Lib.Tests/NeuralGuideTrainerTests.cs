@@ -12,6 +12,7 @@ public class NeuralGuideTrainerTests(ITestOutputHelper output)
     {
         return new GuiderCalibrationResult(
             CameraAngleRad: 0,
+            DecAngleRad: Math.PI / 2.0,
             RaRatePixPerSec: 5.0,
             DecRatePixPerSec: 5.0,
             RaDisplacementPx: 15.0,

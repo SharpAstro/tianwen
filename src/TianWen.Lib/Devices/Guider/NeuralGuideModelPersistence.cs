@@ -18,9 +18,9 @@ namespace TianWen.Lib.Devices.Guider;
 ///   [8..11]  Hidden1Size (int32)
 ///   [12..15] Hidden2Size (int32)
 ///   [16..19] OutputSize (int32)
-///   [20..67] CalibrationResult: 6 doubles (CameraAngleRad, RaRate, DecRate, RaDisp, DecDisp, TotalTime)
-///   [68..]   Model weights: TotalParams floats
-///   Total: 20 + 48 + TotalParams*4 bytes
+///   [20..75] CalibrationResult: 7 doubles (CameraAngleRad, RaRate, DecRate, RaDisp, DecDisp, TotalTime, DecAngleRad)
+///   [76..]   Model weights: TotalParams floats
+///   Total: 20 + 56 + TotalParams*4 bytes
 ///
 /// TryLoadAsync gates compatibility two ways and DELETES any file that fails either, so a
 /// stale cache can never be re-read or reused on a later load:
@@ -33,16 +33,20 @@ namespace TianWen.Lib.Devices.Guider;
 ///     possibly inverted-Dec) calibration has that sense baked into its weights; the runtime
 ///     meridian-flip handler can negate the *calibration* but not the model's learned output.
 ///     So every pre-fix model is discarded and retrained under the corrected calibration.
+///   * v2 -> v3 adds the measured Dec-axis angle (DecAngleRad) so calibration carries the Dec
+///     sense / non-orthogonality from the measurement instead of assuming RA + 90deg. The Dec
+///     sense changed for flipped-sensor configs (southern hemisphere), so v2 models are discarded.
 /// When a file is rejected the model is left untouched and re-initialised with fresh weights.
 /// </remarks>
 internal static class NeuralGuideModelPersistence
 {
     private const ushort Magic = 0x4E47;
-    // v2: the meridian-side calibration fix (173e3b4) changed the learned Dec guide sense, so
-    // every model trained under v1 is invalidated -- see the class remarks for the full reason.
-    private const ushort Version = 0x0002;
+    // v2: the meridian-side calibration fix (173e3b4) changed the learned Dec guide sense.
+    // v3: the measured Dec-axis angle was added (2-axis transform), again changing the Dec sense
+    // for flipped-sensor configs -- every model trained under an earlier version is invalidated.
+    private const ushort Version = 0x0003;
     private const int HeaderSize = 4 + 16; // magic(2) + version(2) + 4 ints(16)
-    private const int CalibrationSize = 6 * sizeof(double); // 48 bytes
+    private const int CalibrationSize = 7 * sizeof(double); // 56 bytes
     private const int WeightsSize = NeuralGuideModel.TotalParams * sizeof(float);
     private const int TotalFileSize = HeaderSize + CalibrationSize + WeightsSize;
 
@@ -79,6 +83,7 @@ internal static class NeuralGuideModelPersistence
         BinaryPrimitives.WriteDoubleLittleEndian(calSpan[24..], calibration.RaDisplacementPx);
         BinaryPrimitives.WriteDoubleLittleEndian(calSpan[32..], calibration.DecDisplacementPx);
         BinaryPrimitives.WriteDoubleLittleEndian(calSpan[40..], calibration.TotalCalibrationTimeSec);
+        BinaryPrimitives.WriteDoubleLittleEndian(calSpan[48..], calibration.DecAngleRad);
 
         // Model weights
         var weights = model.ExportParameters();
@@ -175,6 +180,7 @@ internal static class NeuralGuideModelPersistence
         var calSpan = span[HeaderSize..];
         var calibration = new GuiderCalibrationResult(
             CameraAngleRad: BinaryPrimitives.ReadDoubleLittleEndian(calSpan),
+            DecAngleRad: BinaryPrimitives.ReadDoubleLittleEndian(calSpan[48..]),
             RaRatePixPerSec: BinaryPrimitives.ReadDoubleLittleEndian(calSpan[8..]),
             DecRatePixPerSec: BinaryPrimitives.ReadDoubleLittleEndian(calSpan[16..]),
             RaDisplacementPx: BinaryPrimitives.ReadDoubleLittleEndian(calSpan[24..]),

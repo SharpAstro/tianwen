@@ -43,6 +43,7 @@ public class BuiltInGuiderDeviceTests
         var advancedKeys = device.Settings.Where(s => s.IsAdvanced).Select(s => s.Key).ToArray();
 
         advancedKeys.ShouldBe([
+            DeviceQueryKey.AssumeDecOrthogonal.Key,
             DeviceQueryKey.MaxCalibrationAttempts.Key,
             DeviceQueryKey.MaxRecalibrationAttempts.Key,
             DeviceQueryKey.CalibrationRetryDelaySeconds.Key,

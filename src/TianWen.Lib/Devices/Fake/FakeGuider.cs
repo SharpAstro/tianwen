@@ -466,7 +466,8 @@ internal class FakeGuider(FakeDevice fakeDevice, IServiceProvider serviceProvide
             var pulseTarget = new PulseGuideRouter(PulseGuideSource.Auto, camera, mount);
             var pController = new ProportionalGuideController { AggressivenessRa = 0.7, AggressivenessDec = 0.7, MinPulseMs = 20 };
             var guideLoop = new GuideLoop(pulseTarget, tracker, pController, TimeProvider);
-            guideLoop.SetCalibration(new GuiderCalibrationResult(0, 1.0, 1.0, 0, 0, 0));
+            // CameraAngle=0 (RA along +x), Dec orthogonal at +90deg, unit rates.
+            guideLoop.SetCalibration(new GuiderCalibrationResult(0, Math.PI / 2.0, 1.0, 1.0, 0, 0, 0));
             _guideLoop = guideLoop;
 
             var declination = await mount.GetDeclinationAsync(ct);
