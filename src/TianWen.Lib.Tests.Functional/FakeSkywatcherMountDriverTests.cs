@@ -328,6 +328,42 @@ public class FakeSkywatcherMountDriverTests(ITestOutputHelper output)
     }
 
     /// <summary>
+    /// Regression (fix-sw): the DEFAULT constant-speed DEC pulse (decPulseGoTo=false) must query the
+    /// axis status (:f2) BEFORE the motion-mode command (:G2). Real firmware rejects :G on a
+    /// still-running axis with !2 (which <c>SendCommandAsync</c> would otherwise discard, silently
+    /// dropping the pulse); the guard checks status and stops a decelerating axis first, matching the
+    /// micro-GOTO / slew paths and the GSS client contract (stop running axis before :G).
+    /// </summary>
+    [Theory(Timeout = 60_000)]
+    [InlineData(GuideDirection.North)]
+    [InlineData(GuideDirection.South)]
+    public async Task GivenConstantSpeedDecPulseThenAxisStatusCheckedBeforeMotionMode(GuideDirection direction)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (mount, _) = await CreateConnectedMountAsync(ct); // decPulseGoTo defaults false -> rate mode
+        await mount.SyncRaDecAsync(6.0, 45.0, ct);
+        await mount.SetTrackingAsync(true, ct);
+
+        var serial = mount.SerialConnection.ShouldBeOfType<FakeSkywatcherSerialDevice>();
+        var before = serial.CommandLogSnapshot.Length;
+
+        await mount.PulseGuideAsync(direction, TimeSpan.FromSeconds(2), ct);
+
+        var decCmds = serial.CommandLogSnapshot.Skip(before)
+            .Where(c => c.Length > 2 && c[2] == '2')
+            .ToList();
+        output.WriteLine(string.Join(" ", decCmds));
+
+        var gIdx = decCmds.FindIndex(c => c.StartsWith(":G2", StringComparison.Ordinal));
+        var statusIdx = decCmds.FindIndex(c => c.StartsWith(":f2", StringComparison.Ordinal));
+        gIdx.ShouldBeGreaterThanOrEqualTo(0, "a constant-speed Dec pulse must command a motion mode (:G2)");
+        decCmds[gIdx].StartsWith(":G21", StringComparison.Ordinal)
+            .ShouldBeTrue("constant-speed pulse uses the low-speed SLEW func, not the GOTO func (:G22)");
+        statusIdx.ShouldBeGreaterThanOrEqualTo(0, "the Dec pulse must query axis status (:f2) before :G2");
+        statusIdx.ShouldBeLessThan(gIdx, "status must be checked BEFORE :G2 so a still-decelerating axis is stopped first");
+    }
+
+    /// <summary>
     /// Regression: after an away-from-pole sync the misalignment model anchors TRUE
     /// pointing to the sync reference plus time-based drift — and used to FREEZE OUT the
     /// live encoder entirely, making guide pulses invisible in pointing reads (the
