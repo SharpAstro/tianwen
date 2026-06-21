@@ -320,7 +320,7 @@ public interface IGuider : IDeviceDriver
         var settleTimeout = settleTime * SETTLE_TIMEOUT_FACTOR;
 
         Logger.LogInformation("Start dithering pixel={DitherPixel} settlePixel={SettlePixel} settleTime={SettleTime}, timeout={SettleTimeout}",
-            ditherPixel, settlePixel, settlePixel, settleTimeout);
+            ditherPixel, settlePixel, settleTime, settleTimeout);
 
         await DitherAsync(ditherPixel, settlePixel, settleTime.TotalSeconds, settleTimeout.TotalSeconds, cancellationToken: cancellationToken);
 
