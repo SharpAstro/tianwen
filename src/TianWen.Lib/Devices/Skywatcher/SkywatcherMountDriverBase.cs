@@ -659,6 +659,15 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
                 return;
             }
 
+            // Real firmware rejects :G while the axis is still decelerating from the previous
+            // pulse's :K2 (error !2, silently discarded by SendCommandAsync) — the pulse is then
+            // lost. Mirror the decPulseGoTo / slew paths: ensure a full stop before :G2. Cheap
+            // when already stopped (one status round-trip).
+            if ((await QueryAxisStatusAsync('2', cancellationToken)).IsRunning)
+            {
+                await StopAxisAndWaitAsync('2', cancellationToken);
+            }
+
             await SendCommandAsync('G', '2', SkywatcherProtocol.EncodeMotionMode(SkywatcherMotionFunc.LowSpeedSlew, forward, IsSouthernHemisphere), cancellationToken);
             var t1 = SkywatcherProtocol.ComputeT1Preset(_tmrFreq, _cprDec, guideSpeed, false, _highSpeedRatio);
             await SendCommandAsync('I', '2', SkywatcherProtocol.EncodeUInt24(t1), cancellationToken);
@@ -1128,8 +1137,15 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
         {
             throw new InvalidOperationException($"Failed to write command :{cmd}{axis}");
         }
-        // Read and discard acknowledgment
-        await port.TryReadTerminatedAsync(CrTerminator, cancellationToken);
+        // Read the acknowledgment. A response beginning with '!' is a firmware error (e.g. !2 =
+        // motor not stopped / :G on a running axis, !0 = unknown command). These were previously
+        // discarded silently, which hid dropped commands: a rejected :G no-ops the whole
+        // G/H/M/J goto/pulse sequence with no exception. Surface them so the gap is diagnosable.
+        var ack = await port.TryReadTerminatedAsync(CrTerminator, cancellationToken);
+        if (ack is { Length: > 0 } && ack[0] == '!')
+        {
+            Logger.LogWarning("Skywatcher command :{Cmd}{Axis} rejected with error response {Ack}", cmd, axis, ack);
+        }
     }
 
     private record struct AxisStatus(bool IsRunning, bool IsTracking, bool IsForward, bool IsInitDone);
