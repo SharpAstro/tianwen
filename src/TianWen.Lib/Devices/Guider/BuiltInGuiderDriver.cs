@@ -253,6 +253,12 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
 
     public ValueTask<SettleProgress?> GetSettleProgressAsync(CancellationToken cancellationToken = default)
     {
+        // Drive the settle state machine, exactly like IsGuidingAsync / IsSettlingAsync do. The
+        // dither-wait loop (IGuider.DitherAsync) polls THIS method, not those, so without this the
+        // Settling -> Guiding transition was never evaluated during a dither: the error settled
+        // instantly yet Done stayed false until the settle timeout, aborting every dither.
+        TryCompleteSettle();
+
         var state = CurrentState;
 
         if (state is GuiderState.Settling or GuiderState.Calibrating)
