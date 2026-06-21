@@ -58,6 +58,15 @@ var external = sp.GetRequiredService<IExternal>();
 var logger = sp.GetRequiredService<ILoggerFactory>().CreateLogger("TianWen.UI.Gui");
 var timeProvider = sp.GetRequiredService<ITimeProvider>();
 
+// Dev/test: TIANWEN_NOW anchors the whole system clock to a simulated instant (see StartupTimeOverride).
+// Surface it loudly so a shifted "now" is never mistaken for a bug.
+if (StartupTimeOverride.TryGet(out var simulatedNow, out var clockOffset))
+{
+    logger.LogWarning(
+        "SIMULATED CLOCK ACTIVE ({EnvVar}={Raw}): now anchored to {SimulatedNow:o} (offset {Offset} from the real clock), advancing at real-time rate. Planner, session and fake devices all use this clock. Dev/test only.",
+        StartupTimeOverride.EnvVarName, StartupTimeOverride.RawValue, simulatedNow, clockOffset);
+}
+
 // Resolve profile — auto-select if exactly one, otherwise none for now
 var profiles = await sp.GetRequiredService<IDeviceDiscovery>()
     .Let(async dm =>
