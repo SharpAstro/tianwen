@@ -65,7 +65,7 @@ public class MeridianFlipDecisionTests
         // the pier-side change and skip the re-slew.
         var config = MakeConfig();
 
-        var action = MeridianFlipDecision.DecideFlipAction(hourAngleHours: -0.5, pierSideChanged: true, config);
+        var action = MeridianFlipDecision.DecideFlipAction(hourAngleHours: -0.5, pierSideChanged: true, alreadyOnCorrectSide: false, hasFlipped: false, config);
 
         action.ShouldBe(FlipAction.AlreadyFlipped);
     }
@@ -75,7 +75,7 @@ public class MeridianFlipDecisionTests
     {
         var config = MakeConfig();
 
-        var action = MeridianFlipDecision.DecideFlipAction(hourAngleHours: -1.0, pierSideChanged: false, config);
+        var action = MeridianFlipDecision.DecideFlipAction(hourAngleHours: -1.0, pierSideChanged: false, alreadyOnCorrectSide: false, hasFlipped: false, config);
 
         action.ShouldBe(FlipAction.Continue);
     }
@@ -86,7 +86,7 @@ public class MeridianFlipDecisionTests
         var config = MakeConfig(obstructionMinutesBefore: 5);
 
         // 3 min east of meridian, inside the 5-min obstruction zone
-        var action = MeridianFlipDecision.DecideFlipAction(hourAngleHours: -0.05, pierSideChanged: false, config);
+        var action = MeridianFlipDecision.DecideFlipAction(hourAngleHours: -0.05, pierSideChanged: false, alreadyOnCorrectSide: false, hasFlipped: false, config);
 
         action.ShouldBe(FlipAction.WaitForObstructionClear);
     }
@@ -97,7 +97,7 @@ public class MeridianFlipDecisionTests
         var config = MakeConfig();
 
         // 7 min past meridian — inside [5, 10] window
-        var action = MeridianFlipDecision.DecideFlipAction(hourAngleHours: 7.0 / 60.0, pierSideChanged: false, config);
+        var action = MeridianFlipDecision.DecideFlipAction(hourAngleHours: 7.0 / 60.0, pierSideChanged: false, alreadyOnCorrectSide: false, hasFlipped: false, config);
 
         action.ShouldBe(FlipAction.CommandFlip);
     }
@@ -110,9 +110,50 @@ public class MeridianFlipDecisionTests
         // past its tracking limit.
         var config = MakeConfig();
 
-        var action = MeridianFlipDecision.DecideFlipAction(hourAngleHours: 0.5, pierSideChanged: false, config);
+        var action = MeridianFlipDecision.DecideFlipAction(hourAngleHours: 0.5, pierSideChanged: false, alreadyOnCorrectSide: false, hasFlipped: false, config);
 
         action.ShouldBe(FlipAction.CommandFlip);
+    }
+
+    [Fact]
+    public void GivenPastMeridianButAlreadyOnCorrectSideWhenDecideThenContinue()
+    {
+        // The regression that caused the infinite flip loop: we joined an AcrossMeridian observation
+        // that had already crossed (target +30 min west), and the mount was slewed straight onto its
+        // destination pier side. HA is in the flip window, but no flip is needed — keep imaging instead
+        // of commanding a no-op flip every tick.
+        var config = MakeConfig();
+
+        var action = MeridianFlipDecision.DecideFlipAction(
+            hourAngleHours: 0.5, pierSideChanged: false, alreadyOnCorrectSide: true, hasFlipped: false, config);
+
+        action.ShouldBe(FlipAction.Continue);
+    }
+
+    [Fact]
+    public void GivenAlreadyFlippedWhenStillInFlipWindowThenContinue()
+    {
+        // Backstop: once we have flipped for this target, never flip again even though HA stays past
+        // the meridian (and the mount's reported pier side may not change, e.g. SkyWatcher).
+        var config = MakeConfig();
+
+        var action = MeridianFlipDecision.DecideFlipAction(
+            hourAngleHours: 7.0 / 60.0, pierSideChanged: false, alreadyOnCorrectSide: false, hasFlipped: true, config);
+
+        action.ShouldBe(FlipAction.Continue);
+    }
+
+    [Fact]
+    public void GivenAlreadyFlippedTakesPrecedenceOverPierSideChanged()
+    {
+        // hasFlipped is checked first: a pier-side change we already accounted for must not re-trigger
+        // the AlreadyFlipped recenter path.
+        var config = MakeConfig();
+
+        var action = MeridianFlipDecision.DecideFlipAction(
+            hourAngleHours: 0.5, pierSideChanged: true, alreadyOnCorrectSide: false, hasFlipped: true, config);
+
+        action.ShouldBe(FlipAction.Continue);
     }
 
     [Fact]

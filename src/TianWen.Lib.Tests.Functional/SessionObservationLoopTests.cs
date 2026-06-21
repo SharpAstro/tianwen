@@ -362,6 +362,55 @@ public class SessionObservationLoopTests(ITestOutputHelper output)
     }
 
     /// <summary>
+    /// Regression for the SkyWatcher meridian-flip infinite loop (the observation-loop "endless slew"):
+    /// join an <c>AcrossMeridian=true</c> observation whose target has <em>already</em> crossed the
+    /// meridian (HA ≈ +0.8h west at the start of imaging). The SkyWatcher fake reports its pier side
+    /// from the Dec encoder, so it stays Normal throughout a west-of-meridian track and never signals a
+    /// pier-side change. The old code re-commanded a (no-op) flip every tick — aborting every exposure,
+    /// writing zero frames, and slewing forever. The fix (destination-side gate + hasFlipped backstop)
+    /// recognises the mount is already on the correct side and just images. We assert frames are written
+    /// and the loop completes (before the fix it would never complete and TotalFramesWritten stays 0).
+    /// At Dec 15 22:00 UTC from Vienna LST ≈ 4.74h, so RA = 3.94h → HA = +0.8h (west of meridian).
+    /// </summary>
+    [Fact(Timeout = 120_000)]
+    public async Task GivenSkywatcherJoinsAcrossMeridianTargetAlreadyWestThenImagesWithoutFlipLoop()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var subExposure = TimeSpan.FromSeconds(30);
+
+        var observations = new[]
+        {
+            new ScheduledObservation(
+                new Target(3.94, 20.0, "JoinedWestTarget", null),
+                WinterNightStart,
+                TimeSpan.FromMinutes(10),
+                AcrossMeridian: true,
+                FilterPlan: FilterPlanBuilder.BuildSingleFilterPlan(subExposure),
+                Gain: 0,
+                Offset: 0
+            )
+        };
+
+        using var ctx = await CreateWinterSessionAsync(observations, mountPort: "SkyWatcher", cancellationToken: ct);
+
+        // The SkyWatcher driver defaults to NaN site (real mounts learn it via the protocol); the live
+        // session pushes it in InitialisationAsync, which this direct-loop harness bypasses. Set it so the
+        // transform can resolve the site time zone (Vienna), matching CreateSessionAsync's URI coords.
+        await ctx.Mount.SetSiteLatitudeAsync(48.2, ct);
+        await ctx.Mount.SetSiteLongitudeAsync(16.3, ct);
+
+        await RunObservationLoopWithTimePumpAsync(ctx, subExposure, ct);
+
+        // Before the fix: 0 frames (every exposure aborted by a perpetual flip) and the loop never ends.
+        ctx.Session.TotalFramesWritten.ShouldBeGreaterThan(0,
+            "an already-past-meridian target must image, not flip forever on a SkyWatcher");
+        ctx.Session.CurrentObservationIndex.ShouldBeGreaterThanOrEqualTo(1,
+            "observation should advance after completing its duration instead of looping");
+
+        output.WriteLine($"Frames written: {ctx.Session.TotalFramesWritten}");
+    }
+
+    /// <summary>
     /// Branch coverage for <see cref="Session.WaitForScheduledStartAsync"/> without the time pump:
     /// past start -> StartedLate, start within the lead window (== now and just inside lead) ->
     /// Proceed (no sleep), start beyond session end -> SessionEnded. The actual parked wait is

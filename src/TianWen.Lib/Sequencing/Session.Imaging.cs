@@ -322,6 +322,9 @@ internal partial record Session
         var filterCursors = new int[scopes];
         var filterFrameCounters = new int[scopes];
         var filterAscending = hourAngleAtSlewTime < 0; // HA < 0 means east of meridian (rising)
+        // A GEM flips at most once per target. Set after a successful (or detected) flip so the HA-window
+        // decision can never re-fire for this observation — the backstop behind the destination-side gate.
+        var hasFlipped = false;
         var currentSubExposuresSec = new int[scopes];
 
         for (var i = 0; i < scopes; i++)
@@ -712,9 +715,22 @@ internal partial record Session
                         && currentPier != PointingState.Unknown
                         && currentPier != pierSideAtSlewTime;
 
+                    // Is the mount already on the destination side for where it points? If so, no flip is
+                    // needed even though HA is past the meridian — we slewed straight to a target that had
+                    // already crossed (joined an in-progress AcrossMeridian observation), or we are already
+                    // re-acquired on the new side. Without this, a mount whose reported pier side never
+                    // changes (SkyWatcher: Dec-encoder Normal throughout a west track) flips forever.
+                    var destinationPier = await CatchAsync(
+                        ct => mount.Driver.DestinationSideOfPierAsync(observation.Target.RA, observation.Target.Dec, ct),
+                        cancellationToken, PointingState.Unknown);
+                    var alreadyOnCorrectSide = currentPier != PointingState.Unknown
+                        && destinationPier != PointingState.Unknown
+                        && currentPier == destinationPier;
+
                     if (!double.IsNaN(currentHA))
                     {
-                        flipAction = MeridianFlipDecision.DecideFlipAction(currentHA, pierSideChanged, Configuration);
+                        flipAction = MeridianFlipDecision.DecideFlipAction(
+                            currentHA, pierSideChanged, alreadyOnCorrectSide, hasFlipped, Configuration);
                     }
                 }
                 else if (!await mount.Driver.IsOnSamePierSideAsync(hourAngleAtSlewTime, cancellationToken))
@@ -787,6 +803,8 @@ internal partial record Session
                     if (flipResult.Success)
                     {
                         hourAngleAtSlewTime = flipResult.HourAngle;
+                        // A flip happened (commanded or detected) — never flip again for this target.
+                        hasFlipped = true;
                         // Update the pier-side baseline so the next out-of-band-flip detection
                         // compares against where we are now, not where we were three flips ago.
                         if (flipResult.PierSide != PointingState.Unknown)
