@@ -325,6 +325,15 @@ internal partial record Session
         // A GEM flips at most once per target. Set after a successful (or detected) flip so the HA-window
         // decision can never re-fire for this observation — the backstop behind the destination-side gate.
         var hasFlipped = false;
+
+        // The meridian flip + pre-meridian obstruction pause are a GERMAN-equatorial concern ONLY: the GEM's
+        // counterweight bar would collide with the pier if it tracked past the meridian on the same side.
+        // Fork/equatorial (AlignmentMode.Polar — OTA rides between the fork arms) and Alt-Az mounts track
+        // straight across the meridian and never flip, so the entire detection block below is skipped for
+        // them. Read once (cheap, effectively constant per session); default to GermanPolar on a read failure
+        // so a transient glitch can never stop a real GEM from flipping.
+        var isGermanEquatorial =
+            await CatchAsync(mount.Driver.GetAlignmentAsync, cancellationToken, AlignmentMode.GermanPolar) == AlignmentMode.GermanPolar;
         var currentSubExposuresSec = new int[scopes];
 
         for (var i = 0; i < scopes; i++)
@@ -705,7 +714,7 @@ internal partial record Session
             // For non-AcrossMeridian targets: keep the legacy HA-jump detection — if the pier side
             //   changes unexpectedly, abort the target.
             var flipAction = FlipAction.Continue;
-            if (!await CatchAsync(mount.Driver.IsSlewingAsync, cancellationToken))
+            if (isGermanEquatorial && !await CatchAsync(mount.Driver.IsSlewingAsync, cancellationToken))
             {
                 if (observation.AcrossMeridian)
                 {
@@ -805,6 +814,7 @@ internal partial record Session
                         hourAngleAtSlewTime = flipResult.HourAngle;
                         // A flip happened (commanded or detected) — never flip again for this target.
                         hasFlipped = true;
+                        MeridianFlipCount++;
                         // Update the pier-side baseline so the next out-of-band-flip detection
                         // compares against where we are now, not where we were three flips ago.
                         if (flipResult.PierSide != PointingState.Unknown)

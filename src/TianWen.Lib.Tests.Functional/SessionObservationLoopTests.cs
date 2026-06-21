@@ -353,12 +353,62 @@ public class SessionObservationLoopTests(ITestOutputHelper output)
         // Should have produced frames (some before the flip, some after)
         ctx.Session.TotalFramesWritten.ShouldBeGreaterThan(0, "should have written frames across meridian flip");
 
+        // A German equatorial mount MUST flip here (contrast: the non-German theory below asserts 0).
+        ctx.Session.MeridianFlipCount.ShouldBeGreaterThan(0,
+            "a GEM crossing the meridian must perform a flip");
+
         // Observation should have advanced (completed its scheduled duration)
         ctx.Session.CurrentObservationIndex.ShouldBeGreaterThanOrEqualTo(1,
             "observation should have advanced after completing duration");
 
         output.WriteLine($"Frames written: {ctx.Session.TotalFramesWritten}");
         output.WriteLine($"Total exposure: {ctx.Session.TotalExposureTime}");
+    }
+
+    /// <summary>
+    /// A fork/equatorial (<see cref="AlignmentMode.Polar"/>) or Alt-Az mount never meridian-flips —
+    /// only a German equatorial mount's counterweight bar would collide with the pier past the meridian.
+    /// Same geometry as <see cref="GivenAcrossMeridianTargetWhenHACrossesDeadbandThenFlipAndContinueImaging"/>
+    /// (a target that crosses the meridian mid-observation), but the mount reports a non-German alignment,
+    /// so the imaging loop must track straight across: frames keep being written and ZERO flips occur.
+    /// </summary>
+    [Theory(Timeout = 120_000)]
+    [InlineData(AlignmentMode.Polar)] // fork on an equatorial wedge
+    [InlineData(AlignmentMode.AltAz)] // alt-azimuth
+    public async Task GivenNonGermanMountWhenTargetCrossesMeridianThenImagesWithoutFlipping(AlignmentMode alignment)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var subExposure = TimeSpan.FromSeconds(30);
+
+        // Same crossing geometry as the GEM flip test: HA starts ~-0.15h, crosses to +0.1h after ~15 min.
+        var observations = new[]
+        {
+            new ScheduledObservation(
+                new Target(4.89, 20.0, "MeridianCrosser", null),
+                WinterNightStart,
+                TimeSpan.FromMinutes(30),
+                AcrossMeridian: true,
+                FilterPlan: FilterPlanBuilder.BuildSingleFilterPlan(subExposure),
+                Gain: 0,
+                Offset: 0
+            )
+        };
+
+        using var ctx = await CreateWinterSessionAsync(observations, mountPort: null, cancellationToken: ct);
+
+        // Make the (otherwise German) fake report a non-German alignment — a fork or Alt-Az mount.
+        ((FakeMountDriver)ctx.Mount).Alignment = alignment;
+
+        await RunObservationLoopWithTimePumpAsync(ctx, subExposure, ct);
+
+        ctx.Session.MeridianFlipCount.ShouldBe(0,
+            "a fork / Alt-Az mount tracks across the meridian and must never flip");
+        ctx.Session.TotalFramesWritten.ShouldBeGreaterThan(0,
+            "imaging must continue straight across the meridian");
+        ctx.Session.CurrentObservationIndex.ShouldBeGreaterThanOrEqualTo(1,
+            "observation should advance after completing its duration");
+
+        output.WriteLine($"alignment={alignment} frames={ctx.Session.TotalFramesWritten} flips={ctx.Session.MeridianFlipCount}");
     }
 
     /// <summary>

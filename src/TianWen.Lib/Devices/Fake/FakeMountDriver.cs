@@ -226,8 +226,15 @@ internal sealed class FakeMountDriver(FakeDevice fakeDevice, IServiceProvider se
 
     public bool TimeIsSetByUs { get; private set; }
 
+    /// <summary>
+    /// Alignment mode this fake reports. Defaults to German equatorial (the mount type that
+    /// meridian-flips). Settable so tests can simulate a fork/equatorial (<see cref="AlignmentMode.Polar"/>)
+    /// or Alt-Az mount, which track across the meridian without flipping.
+    /// </summary>
+    internal AlignmentMode Alignment { get; set; } = AlignmentMode.GermanPolar;
+
     public ValueTask<AlignmentMode> GetAlignmentAsync(CancellationToken cancellationToken)
-        => ValueTask.FromResult(AlignmentMode.GermanPolar);
+        => ValueTask.FromResult(Alignment);
 
     public ValueTask<bool> IsTrackingAsync(CancellationToken cancellationToken)
         => ValueTask.FromResult(_isTracking);
