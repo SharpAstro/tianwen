@@ -24,8 +24,10 @@ namespace TianWen.UI.Abstractions;
 /// </summary>
 public sealed class AstroImageDocument : IPreviewSource
 {
-    /// <summary>Supported file extensions for the image viewer.</summary>
-    public static readonly ImmutableArray<string> SupportedExtensions = [".fits", ".fit", ".fts", ".tif", ".tiff", ".cr2", ".cr3"];
+    /// <summary>Supported file extensions for the image viewer. <c>.ser</c> is a multi-frame planetary
+    /// video handled by <see cref="SerPreviewSource"/> (not this document's file loader), but it is listed
+    /// here so folder scan / drag-drop / the file dialog accept it; <see cref="ViewerController"/> routes it.</summary>
+    public static readonly ImmutableArray<string> SupportedExtensions = [".fits", ".fit", ".fts", ".tif", ".tiff", ".cr2", ".cr3", ".ser"];
 
     /// <summary>Glob patterns matching all supported file extensions (for folder scanning).</summary>
     public static readonly ImmutableArray<string> SupportedPatterns = [.. SupportedExtensions.Select(ext => "*" + ext)];
@@ -36,6 +38,7 @@ public sealed class AstroImageDocument : IPreviewSource
         ("FITS files", [".fits", ".fit", ".fts"]),
         ("TIFF files", [".tif", ".tiff"]),
         ("Canon RAW", [".cr2", ".cr3"]),
+        ("SER video", [".ser"]),
     ];
 
     private readonly string _filePath;
