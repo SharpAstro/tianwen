@@ -51,9 +51,9 @@ public sealed class VkImageRenderer : ImageRendererBase<VulkanContext>, IDisposa
         _fitsPipeline.UploadChannelTexture(data, channel, imageWidth, imageHeight);
     }
 
-    public override void UploadHistogramData(AstroImageDocument document)
+    public override void UploadHistogramData(IPreviewSource source)
     {
-        _histogramDisplay = new HistogramDisplay(document.ChannelStatistics);
+        _histogramDisplay = new HistogramDisplay(source.ChannelStatistics);
         _histogramLastStretchMode = null; // force re-upload on next render
     }
 
@@ -79,12 +79,12 @@ public sealed class VkImageRenderer : ImageRendererBase<VulkanContext>, IDisposa
         }
     }
 
-    protected override void RenderImageQuad(AstroImageDocument? doc, ViewerState state,
+    protected override void RenderImageQuad(IPreviewSource? source, ViewerState state,
         StretchUniforms stretch, WCS? gridWcs,
         float left, float top, float right, float bottom, uint projW, uint projH)
     {
-        var bgLevel = doc is not null
-            ? stretch.ComputePostStretchBackground(doc.PerChannelBackground, doc.LumaBackground)
+        var bgLevel = source is not null
+            ? stretch.ComputePostStretchBackground(source.PerChannelBackground, source.LumaBackground)
             : 0.15f;
 
         // WCS grid parameters

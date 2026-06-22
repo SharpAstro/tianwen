@@ -68,6 +68,12 @@ namespace TianWen.UI.Abstractions
         /// <summary>Reference to the document from the last Render call.</summary>
         private AstroImageDocument? _document;
 
+        // The source being previewed. For a still image this is the same object as _document
+        // (AstroImageDocument implements IPreviewSource); for a SER it is a SerPreviewSource and
+        // _document is null (still-only features inactive). The display path reads _source; the
+        // still-only features (plate solve / stars / colour cal / info panel) read _document.
+        private IPreviewSource? _source;
+
         /// <summary>Width of the viewport in pixels.</summary>
         protected uint Width { get; set; }
 
@@ -220,7 +226,7 @@ namespace TianWen.UI.Abstractions
         /// <summary>
         /// Renders the image quad with stretch uniforms, optional WCS grid, and viewport placement.
         /// </summary>
-        protected abstract void RenderImageQuad(AstroImageDocument? doc, ViewerState state,
+        protected abstract void RenderImageQuad(IPreviewSource? source, ViewerState state,
             StretchUniforms stretch, WCS? wcs,
             float left, float top, float right, float bottom, uint projW, uint projH);
 
@@ -261,9 +267,9 @@ namespace TianWen.UI.Abstractions
             int imageWidth, int imageHeight);
 
         /// <summary>
-        /// Uploads histogram data from a document. Called once per image load.
+        /// Uploads histogram data from a preview source. Called once per image load (or sequence open).
         /// </summary>
-        public abstract void UploadHistogramData(AstroImageDocument document);
+        public abstract void UploadHistogramData(IPreviewSource source);
 
         /// <summary>
         /// Returns the histogram display, or null if not yet initialized.
@@ -402,52 +408,51 @@ namespace TianWen.UI.Abstractions
         /// Uploads document textures based on the current channel view.
         /// Call when <see cref="ViewerState.NeedsTextureUpdate"/> is true.
         /// </summary>
-        public void UploadDocumentTextures(AstroImageDocument document, ViewerState state)
+        public void UploadDocumentTextures(IPreviewSource source, ViewerState state)
         {
             state.NeedsTextureUpdate = false;
             state.StatusMessage = "Preparing display...";
 
-            var image = document.UnstretchedImage;
-            var pixelWidth = image.Width;
-            var pixelHeight = image.Height;
+            var pixelWidth = source.Width;
+            var pixelHeight = source.Height;
 
             // Raw Bayer: upload single channel, GPU shader does bilinear debayer
-            if (image.ImageMeta.SensorType is TianWen.Lib.Imaging.SensorType.RGGB && image.ChannelCount == 1
+            if (source.SensorType is TianWen.Lib.Imaging.SensorType.RGGB && source.ChannelCount == 1
                 && state.ChannelView is ChannelView.Composite)
             {
                 ChannelTextureCount = 3; // shader produces RGB
                 ImageSourceMode = 2; // RawBayer
-                BayerOffsetX = image.ImageMeta.BayerOffsetX;
-                BayerOffsetY = image.ImageMeta.BayerOffsetY;
-                UploadChannelTexture(image.GetChannelSpan(0), 0, pixelWidth, pixelHeight);
+                BayerOffsetX = source.BayerOffsetX;
+                BayerOffsetY = source.BayerOffsetY;
+                UploadChannelTexture(source.GetChannelData(0), 0, pixelWidth, pixelHeight);
             }
-            else if (state.ChannelView is ChannelView.Composite && image.ChannelCount >= 3)
+            else if (state.ChannelView is ChannelView.Composite && source.ChannelCount >= 3)
             {
                 ChannelTextureCount = 3;
                 ImageSourceMode = 0; // ProcessedChannels
 
                 for (var i = 0; i < 3; i++)
                 {
-                    UploadChannelTexture(image.GetChannelSpan(i), i, pixelWidth, pixelHeight);
+                    UploadChannelTexture(source.GetChannelData(i), i, pixelWidth, pixelHeight);
                 }
             }
             else
             {
                 ChannelTextureCount = 1;
-                ImageSourceMode = image.ChannelCount == 1 ? 1 : 0; // RawMono or ProcessedChannels
+                ImageSourceMode = source.ChannelCount == 1 ? 1 : 0; // RawMono or ProcessedChannels
 
                 var channelIndex = state.ChannelView switch
                 {
                     ChannelView.Composite or ChannelView.Channel0 or ChannelView.Red => 0,
-                    ChannelView.Channel1 or ChannelView.Green => Math.Min(1, image.ChannelCount - 1),
-                    ChannelView.Channel2 or ChannelView.Blue => Math.Min(2, image.ChannelCount - 1),
+                    ChannelView.Channel1 or ChannelView.Green => Math.Min(1, source.ChannelCount - 1),
+                    ChannelView.Channel2 or ChannelView.Blue => Math.Min(2, source.ChannelCount - 1),
                     var cv => throw new InvalidOperationException($"Invalid channel view {cv}")
                 };
 
-                UploadChannelTexture(image.GetChannelSpan(channelIndex), 0, pixelWidth, pixelHeight);
+                UploadChannelTexture(source.GetChannelData(channelIndex), 0, pixelWidth, pixelHeight);
             }
 
-            UploadHistogramData(document);
+            UploadHistogramData(source);
             state.StatusMessage = null;
         }
 
@@ -475,9 +480,13 @@ namespace TianWen.UI.Abstractions
         // Main render orchestration
         // -----------------------------------------------------------------------
 
-        public void Render(AstroImageDocument? document, ViewerState state)
+        public void Render(IPreviewSource? source, ViewerState state)
         {
             _state = state;
+            _source = source;
+            // Still-only features (plate solve, stars, colour calibration, WCS overlays, info panel)
+            // operate on a document; a SER source is not one, so document is null and they stay inactive.
+            var document = source as AstroImageDocument;
             _document = document;
             BeginFrame();
 
@@ -520,12 +529,12 @@ namespace TianWen.UI.Abstractions
             // Draw image FIRST so UI chrome paints on top of it
             if (ImageWidth > 0 && ImageHeight > 0)
             {
-                var stretch = document?.ComputeStretchUniforms(
+                var stretch = source?.ComputeStretchUniforms(
                         state.StretchMode, state.StretchParameters,
                         bgNeutralizationStrength: state.BackgroundNeutralizationStrength)
                     ?? new StretchUniforms(StretchMode.None, 1f, default, default, default, default, default);
                 var gridWcs = state.ShowGrid && document?.Wcs is { HasCDMatrix: true } w ? w : (WCS?)null;
-                RenderImage(document, state, stretch, gridWcs);
+                RenderImage(source, state, stretch, gridWcs);
             }
 
             // UI chrome (drawn on top of image)
@@ -564,9 +573,9 @@ namespace TianWen.UI.Abstractions
                 RenderWcsAnnotation(state, annotationWcs);
             }
 
-            if (state.ShowHistogram && document is not null)
+            if (state.ShowHistogram && source is not null)
             {
-                RenderHistogram(document, state);
+                RenderHistogram(source, state);
             }
 
             if (state.ShowInfoPanel && document is not null)
@@ -595,12 +604,12 @@ namespace TianWen.UI.Abstractions
         // Image rendering — computes placement, delegates to abstract
         // -----------------------------------------------------------------------
 
-        private void RenderImage(AstroImageDocument? document, ViewerState state, StretchUniforms stretch, WCS? gridWcs)
+        private void RenderImage(IPreviewSource? source, ViewerState state, StretchUniforms stretch, WCS? gridWcs)
         {
             // Placement (fit/zoom/pan/centering) was computed once in ComputeImagePlacement
             // from the arranged image-pane rect -- read it rather than recompute the formula.
             var p = _placement;
-            RenderImageQuad(document, state, stretch, gridWcs,
+            RenderImageQuad(source, state, stretch, gridWcs,
                 p.OffsetX, p.OffsetY, p.OffsetX + p.DrawW, p.OffsetY + p.DrawH, Width, Height);
         }
 
@@ -1727,14 +1736,14 @@ namespace TianWen.UI.Abstractions
             return screenX >= bx && screenX < bx + bw && screenY >= by && screenY < by + bh;
         }
 
-        private void RenderHistogram(AstroImageDocument document, ViewerState state)
+        private void RenderHistogram(IPreviewSource source, ViewerState state)
         {
             if (GetHistogramDisplay() is not { ChannelCount: > 0 } histogramDisplay)
             {
                 return;
             }
 
-            var stretch = document.ComputeStretchUniforms(
+            var stretch = source.ComputeStretchUniforms(
                 state.StretchMode, state.StretchParameters,
                 bgNeutralizationStrength: state.BackgroundNeutralizationStrength);
 

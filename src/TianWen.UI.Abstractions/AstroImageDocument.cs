@@ -22,7 +22,7 @@ namespace TianWen.UI.Abstractions;
 /// and conversion to display-ready RGBA pixels.
 /// Stretch is performed entirely on the GPU via shader uniforms.
 /// </summary>
-public sealed class AstroImageDocument
+public sealed class AstroImageDocument : IPreviewSource
 {
     /// <summary>Supported file extensions for the image viewer.</summary>
     public static readonly ImmutableArray<string> SupportedExtensions = [".fits", ".fit", ".fts", ".tif", ".tiff", ".cr2", ".cr3"];
@@ -116,6 +116,23 @@ public sealed class AstroImageDocument
 
     /// <summary>Background neutralization gains from pivot1 sampling (1,1,1) = no neutralization.</summary>
     public (float R, float G, float B)? BackgroundNeutralization { get; set; }
+
+    // --- IPreviewSource (a still image is a single frame) ---
+    // ChannelStatistics / PerChannelBackground / LumaBackground / ComputeStretchUniforms above already
+    // satisfy the interface implicitly; the geometry, per-frame data, and frame-nav members are explicit
+    // so they don't widen this class's public API (the renderer reaches them via the IPreviewSource ref).
+    int IPreviewSource.Width => UnstretchedImage.Width;
+    int IPreviewSource.Height => UnstretchedImage.Height;
+    int IPreviewSource.ChannelCount => UnstretchedImage.ChannelCount;
+    SensorType IPreviewSource.SensorType => UnstretchedImage.ImageMeta.SensorType;
+    int IPreviewSource.BayerOffsetX => UnstretchedImage.ImageMeta.BayerOffsetX;
+    int IPreviewSource.BayerOffsetY => UnstretchedImage.ImageMeta.BayerOffsetY;
+    ReadOnlySpan<float> IPreviewSource.GetChannelData(int channel) => UnstretchedImage.GetChannelSpan(channel);
+    int IPreviewSource.FrameCount => 1;
+    int IPreviewSource.FrameIndex => 0;
+    bool IPreviewSource.SelectFrame(int index) => false;
+    bool IPreviewSource.HasTimestamps => false;
+    DateTimeOffset IPreviewSource.TimestampOf(int index) => DateTimeOffset.MinValue;
 
     /// <summary>Per-method cache of computed background-neutralization gains. Switching
     /// method on a loaded document is a dict lookup + uniform write, not a recompute.
