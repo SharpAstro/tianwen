@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Net.Http;
+using System.Net.Http.Headers;
 using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
 using System.Threading;
@@ -147,6 +148,35 @@ internal sealed class AlpacaClient(HttpClient httpClient)
         using var response = await httpClient.PutAsync(url, content, cancellationToken);
         var result = await DeserializeResponseAsync(response, AlpacaJsonSerializerContext.Default.AlpacaMethodResponse, cancellationToken);
         ThrowOnError(result.ErrorNumber, result.ErrorMessage);
+    }
+
+    /// <summary>
+    /// GET an image array endpoint using the binary ImageBytes transfer. Offers
+    /// <c>application/imagebytes</c> first (then <c>application/json</c>) via the
+    /// <c>Accept</c> header and returns the raw ImageBytes payload when the server honours it.
+    /// Throws <see cref="NotSupportedException"/> if the server responds with JSON instead —
+    /// the legacy (slow) JSON ImageArray decode is intentionally not implemented, since
+    /// effectively all current Alpaca camera servers support ImageBytes. Decode the returned
+    /// payload via <see cref="AlpacaImageBytes.DecodeChannel"/>.
+    /// </summary>
+    public async Task<byte[]> GetImageArrayBytesAsync(string baseUrl, string deviceType, int deviceNumber, string endpoint, CancellationToken cancellationToken = default)
+    {
+        var url = BuildGetUrl(baseUrl, deviceType, deviceNumber, endpoint);
+        using var request = new HttpRequestMessage(HttpMethod.Get, url);
+        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue(AlpacaImageBytes.MimeType));
+        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+
+        using var response = await httpClient.SendAsync(request, cancellationToken);
+        response.EnsureSuccessStatusCode();
+
+        var mediaType = response.Content.Headers.ContentType?.MediaType;
+        if (!string.Equals(mediaType, AlpacaImageBytes.MimeType, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new NotSupportedException(
+                $"Alpaca server returned '{mediaType ?? "(none)"}' for '{endpoint}'; only the binary '{AlpacaImageBytes.MimeType}' transfer is supported (the JSON ImageArray fallback is not implemented).");
+        }
+
+        return await response.Content.ReadAsByteArrayAsync(cancellationToken);
     }
 
     /// <summary>
