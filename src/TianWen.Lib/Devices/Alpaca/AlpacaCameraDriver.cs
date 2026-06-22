@@ -273,8 +273,21 @@ internal class AlpacaCameraDriver(AlpacaDevice device, IServiceProvider serviceP
         return ValueTask.CompletedTask;
     }
 
-    public Imaging.Channel? ImageData => null; // TODO: Alpaca imagearray endpoint requires special binary handling
-public void ReleaseImageData() { }
+    // Frame downloaded + decoded once when the server first reports the image ready
+    // (see GetImageReadyAsync), then read by the default ICameraDriver.GetImageAsync via the
+    // sync ImageData property. No buffer recycling — the float[,] is GC-managed per frame.
+    private Imaging.Channel? _imageData;
+    private Imaging.ChannelBuffer? _channelBuffer;
+
+    public Imaging.Channel? ImageData => _imageData;
+
+    Imaging.ChannelBuffer? ICameraDriver.ChannelBuffer => _channelBuffer;
+
+    public void ReleaseImageData()
+    {
+        _imageData = null;
+        _channelBuffer = null;
+    }
 
     public DateTimeOffset? LastExposureStartTime { get; private set; }
 
@@ -295,7 +308,23 @@ public void ReleaseImageData() { }
 
     // Async-primary members — native async HTTP calls
     public async ValueTask<bool> GetImageReadyAsync(CancellationToken cancellationToken = default)
-        => await Client.GetBoolAsync(BaseUrl, AlpacaDeviceType, AlpacaDeviceNumber, "imageready", cancellationToken);
+    {
+        var ready = await Client.GetBoolAsync(BaseUrl, AlpacaDeviceType, AlpacaDeviceNumber, "imageready", cancellationToken);
+
+        // Download + decode the frame once, when the server first reports it ready, so the
+        // synchronous ImageData property (read by the default GetImageAsync) is populated.
+        // Uses the binary ImageBytes transfer; a failed fetch leaves _imageData null so a
+        // later poll/retry re-downloads.
+        if (ready && _imageData is null)
+        {
+            var bytes = await Client.GetImageArrayBytesAsync(BaseUrl, AlpacaDeviceType, AlpacaDeviceNumber, "imagearray", cancellationToken);
+            var channel = AlpacaImageBytes.DecodeChannel(bytes);
+            _channelBuffer = new Imaging.ChannelBuffer(channel.Data, onRelease: static _ => { });
+            _imageData = channel;
+        }
+
+        return ready;
+    }
 
     public async ValueTask<CameraState> GetCameraStateAsync(CancellationToken cancellationToken = default)
         => (CameraState)await Client.GetIntAsync(BaseUrl, AlpacaDeviceType, AlpacaDeviceNumber, "camerastate", cancellationToken);
@@ -335,6 +364,10 @@ public void ReleaseImageData() { }
 
     public async ValueTask<DateTimeOffset> StartExposureAsync(TimeSpan duration, FrameType frameType = FrameType.Light, CancellationToken cancellationToken = default)
     {
+        // Drop any previous frame so GetImageReadyAsync re-downloads when this one is ready.
+        _imageData = null;
+        _channelBuffer = null;
+
         await PutMethodAsync("startexposure",
         [
             new("Duration", duration.TotalSeconds.ToString(CultureInfo.InvariantCulture)),

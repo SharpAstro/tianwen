@@ -22,6 +22,7 @@ builder.Services
     .AddZWO()
     .AddQHY()
     .AddAscom()
+    .AddAlpaca()
     .AddMeade()
     .AddOnStep()
     .AddIOptron()

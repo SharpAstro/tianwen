@@ -30,6 +30,7 @@ services
     .AddZWO()
     .AddQHY()
     .AddAscom()
+    .AddAlpaca()
     .AddMeade()
     .AddOnStep()
     .AddIOptron()
