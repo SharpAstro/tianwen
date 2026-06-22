@@ -775,11 +775,11 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
     {
         await camera.StartExposureAsync(exposure, FrameType.Light, ct);
 
-        // Poll until image is ready
-        while (!await camera.GetImageReadyAsync(ct))
-        {
-            await timeProvider.SleepAsync(imageReadyPollInterval, ct);
-        }
+        // Adaptive wait: sleep through the exposure's dead time in one chunk, then
+        // tighten the poll cadence as the predicted end approaches (coarse, then 1 ms
+        // in the final window) so pickup latency stays minimal without burning poll
+        // round-trips. No overall timeout — the guide loop's own token bounds this.
+        await camera.WaitForImageReadyAsync(exposure, timeProvider, imageReadyPollInterval, timeout: null, ct);
 
         return await camera.GetImageAsync(ct) ?? throw new GuiderException("Failed to capture guide frame — no image data");
     }
