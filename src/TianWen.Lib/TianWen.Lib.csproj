@@ -155,7 +155,6 @@
     <PackageReference Include="System.IO.Ports" />
     <PackageReference Include="System.Numerics.Tensors" />
     <PackageReference Include="FC.SDK" />
-    <PackageReference Include="QHYCCD.SDK" />
     <PackageReference Include="ZWOptical.SDK" />
     <!-- Every device driver in Devices/ does `using TianWen.DAL`. Declaring it
          directly here (rather than relying on the transitive via QHYCCD.SDK /
@@ -209,13 +208,24 @@
   </ItemGroup>
 
   <!-- FITS.Lib: FITS read/write under Image.Fits.cs. Sibling repo's csproj
-       lives at ../FITS.Lib/CSharpFITS/CSharpFITS.csproj (no src/Lib/Lib pattern).
-       Gated on UseLocalFitsLib (not UseLocalSiblings) — see Directory.Build.props. -->
-  <ItemGroup Condition="'$(UseLocalFitsLib)' == 'true'">
+       lives at ../FITS.Lib/CSharpFITS/CSharpFITS.csproj (no src/Lib/Lib pattern). -->
+  <ItemGroup Condition="'$(UseLocalSiblings)' == 'true'">
     <ProjectReference Include="..\..\..\FITS.Lib\CSharpFITS\CSharpFITS.csproj" />
   </ItemGroup>
-  <ItemGroup Condition="'$(UseLocalFitsLib)' != 'true'">
+  <ItemGroup Condition="'$(UseLocalSiblings)' != 'true'">
     <PackageReference Include="FITS.Lib" />
+  </ItemGroup>
+
+  <!-- QHYCCD.SDK: native QHY camera/filter-wheel/focuser drivers (Devices/QHYCCD).
+       Sibling repo's csproj lives at the repo root (../QHYCCD.SDK/QHYCCD.SDK.csproj,
+       no src/Lib/Lib pattern). Folded into UseLocalSiblings so local edits to the SDK
+       wrapper are picked up without a NuGet round-trip; CI (no sibling) uses the
+       published package. -->
+  <ItemGroup Condition="'$(UseLocalSiblings)' == 'true'">
+    <ProjectReference Include="..\..\..\QHYCCD.SDK\QHYCCD.SDK.csproj" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(UseLocalSiblings)' != 'true'">
+    <PackageReference Include="QHYCCD.SDK" />
   </ItemGroup>
 
 </Project>

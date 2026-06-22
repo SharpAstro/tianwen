@@ -94,24 +94,27 @@ every sibling uses `src/<Lib>/<Lib>.csproj`.
 | `DIR.Lib` | `../DIR.Lib` | `src/DIR.Lib/DIR.Lib.csproj` | ✅ |
 | `SdlVulkan.Renderer` | `../SdlVulkan.Renderer` | `src/SdlVulkan.Renderer/SdlVulkan.Renderer.csproj` | ✅ |
 | `Console.Lib` | `../Console.Lib` | `src/Console.Lib/Console.Lib.csproj` | ✅ |
-| `FITS.Lib` | `../FITS.Lib` | `CSharpFITS/CSharpFITS.csproj` (package name is `FITS.Lib`) | ✅ (separate `UseLocalFitsLib` switch) |
+| `FITS.Lib` | `../FITS.Lib` | `CSharpFITS/CSharpFITS.csproj` (package name is `FITS.Lib`) | ✅ |
 | `FC.SDK` | `../FC.SDK` | `src/FC.SDK/FC.SDK.csproj` | ❌ |
 | `ZWOptical.SDK` | `../zwo-sdk-nuget` | `ZWOptical.SDK.csproj` (repo root) | ❌ |
-| `QHYCCD.SDK` | `../QHYCCD.SDK` | `QHYCCD.SDK.csproj` (repo root) | ❌ |
+| `QHYCCD.SDK` | `../QHYCCD.SDK` | `QHYCCD.SDK.csproj` (repo root) | ✅ |
 | `SharpAstro.Fonts` | `../Fonts.Lib` | `src/SharpAstro.Fonts/SharpAstro.Fonts.csproj` | transitive |
 | `TianWen.DAL` | `../TianWen.DAL` | — | ❌ |
 
-**Auto-detection** (`Directory.Build.props`): for `DIR.Lib`, `Console.Lib`, `SdlVulkan.Renderer`,
-`StbImageSharp`, `SharpAstro.Tiff`, the build switches to ProjectReference when all five sibling
-working copies exist, otherwise PackageReference. Single property `UseLocalSiblings`. Override:
-`dotnet build -p:UseLocalSiblings=false`. CI always uses PackageReference. `Fonts.Lib` is transitive
-via DIR.Lib's own `UseLocalFontsLib` switch. **`FITS.Lib` has its own independent switch**
-(`UseLocalFitsLib`): it auto-detects when `../FITS.Lib/CSharpFITS/CSharpFITS.csproj` exists, decoupled
-from `UseLocalSiblings` because FITS.Lib has no transitive coupling to the DIR.Lib/Console.Lib chain.
-Override: `dotnet build -p:UseLocalFitsLib=false`.
+**Auto-detection** (`Directory.Build.props`): a **single** property `UseLocalSiblings` gates them all.
+The build switches to ProjectReference when **every** sibling working copy exists — `DIR.Lib`,
+`Console.Lib`, `SdlVulkan.Renderer`, the `StbImageSharp` family (`StbImageSharp`, `SharpAstro.Tiff`,
+`SharpAstro.Exif`, `SharpAstro.Png`, `SharpAstro.Color.Icc`, `SharpAstro.Jxr`,
+`SharpAstro.Jpeg.IccInjector`, `SharpAstro.Exr`), `QHYCCD.SDK`, and `FITS.Lib` — otherwise it falls
+through to PackageReference. Override: `dotnet build -p:UseLocalSiblings=false`. CI always uses
+PackageReference. `Fonts.Lib` is transitive via DIR.Lib's own `UseLocalFontsLib` switch. `QHYCCD.SDK`
+(`../QHYCCD.SDK/QHYCCD.SDK.csproj`) and `FITS.Lib` (`../FITS.Lib/CSharpFITS/CSharpFITS.csproj`) used to
+be outliers (the latter via a separate `UseLocalFitsLib` switch) but were folded into the one switch —
+there is **no** per-library switch anymore. Trade-off: a missing checkout of *any* listed sibling flips
+the whole set back to packages (all-or-nothing), which is fine on a dev box that has them all.
 
-For libraries without auto-detection (`FC.SDK`, `ZWOptical.SDK`, `QHYCCD.SDK`, `TianWen.DAL`),
-prefer to extend the `UseLocalSiblings` (or add an analogous `UseLocalXxx`) switch in
+For libraries without auto-detection (`FC.SDK`, `ZWOptical.SDK`, `TianWen.DAL`),
+prefer to extend the `UseLocalSiblings` switch in
 `Directory.Build.props` + add a conditional `ProjectReference` in the consuming `.csproj`
 rather than reaching for local nupkg feeds. When that's not viable (e.g. cross-team release
 cadence forces a version bump), commit + push + wait for NuGet publish — **do not** create

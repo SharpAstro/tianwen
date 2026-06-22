@@ -27,6 +27,7 @@ Status of every `PLAN-*.md` in the repo root, cross-checked against the codebase
 | [layout-engine](layout-engine.md) | **DONE -- Phases 0-3 merged to main (PR #34) + released; Phase 4 (single-panel tree) on the Session config form** (2026-06-19). **Theme + engine + shared widgets** (DIR.Lib 5.0): `UiTheme`/`UiPalette`/`UiMetrics`; `LayoutNode` tree (Stack/Dock/Grid/Overlay/Leaf + Fixed/Auto/Star) + `LayoutEngine.Measure`/`Arrange`; pixel painter (`ArrangeLayout`/`PaintLayout`/`RenderLayout` on `PixelWidgetBase`, auto-`RegisterClickable`) + Console.Lib `CellLayout` cell painter over the same arranged tree; surface-agnostic `PixelMenuWidget`/`MenuWidget` (first widget rendering one BuildTree on BOTH GPU + TUI). **Per-row tab adoption** via one shared `FormRowLayout` builder set: Planner target rows, Equipment (all 14 separate `RegisterClickable` pairs -> `InsetPillButton`/leaves + data-driven per-OTA `EquipmentPanelLayout` / section-driver, TODO.md:57), LiveSession (ModePill + steppers + polar config rows + toggles), Notifications Clear button -- all draw==hit. **Phase 4 (single-panel tree):** `SessionConfigLayout.Build` emits the whole Session config form as ONE `LayoutNode` tree (section headers + field rows + per-kind controls), arranged once into a scroll-offset bounds, off-panel nodes filtered, painted inside `PushClip` -- the `cursor += itemH` walk + header clip-hack are gone. 9 `SessionConfigLayoutTests` + 14 `EquipmentPanelLayoutTests`; inspector-verified geometry. **Released chain:** DIR.Lib 5.0 -> SdlVulkan.Renderer 6.4 + Console.Lib 3.0 on NuGet; TianWen pins bumped + merged. **Remaining/deferred:** LALR.CC layout DSL (the *tree* -- execution-order Phase 4 -- is done; the DSL front-end stays gated until the C# builder proves verbose); FitsViewer panel `LayoutNode` port + TUI consumption of the section list judged NOT warranted. |
 | [rotator](rotator.md) | **NOT STARTED** (per-OTA field rotation; new `DeviceType.Rotator` + `IRotatorDriver` + ASCOM `IRotatorV4` / Alpaca / Fake drivers; mirrors the `CoverCalibrator` device-type wiring; novel logic is framing-on-center + post-flip re-rotate fanned out over `Setup.Telescopes`. Validates against `FakeRotatorDriver` + ASCOM/Alpaca simulators; real-hardware check deferred -- no rotator at hand) |
 | [obstruction-first-light-oracle](obstruction-first-light-oracle.md) | **A + C DONE** (branch `feat/top-5-todo`, 2026-06-13; B follow-up): pivoted from catalog-floor-only to a **zenith calibration anchor** - the rough-focus zenith frame calibrates `detected/catalog-predicted` = transparency x detection efficiency. **A** (oracle): first scout vs `catalog(target, scout-limit, airmass-dimmed) x zenithEfficiency x OracleFactor`, shortfall -> existing `NudgeTestAsync`; catalog-floor fallback + narrowband/sparse/missing-DB guards. **C** (cloud gate): crushed zenith efficiency -> hold-and-re-gauge after rough focus. New `StarDetectionModel` / `CatalogStarCounter` / `NightSkyGauge` / `Session.Imaging.SkyGauge.cs`; 4 `SessionConfiguration` knobs; scout `maxStars` 200->1000. 16 unit + 2 functional tests (existing 11 scout + 41 full-session still green). **B** (transparency HUD from `EffectiveLimitMag`) deferred |
+| [altaz-mount-support](altaz-mount-support.md) | **Phase 0 DONE — Phases 1-3 NOT STARTED** (2026-06-22, PRs #47 + #48): SkyWatcher AZ-GTi-class dual-mode mounts. **Phase 0 (safe):** user-selectable `?alignment=GermanPolar\|Polar\|AltAz` setting (default GermanPolar; AZ/EQ is *not* protocol-detectable, so it can't be auto-detected); `AltAz` is **report-only** — `GetAlignmentAsync` returns it + pier reads return `Unknown`, but coordinate slew/track/sync are **refused** (`EnsureEquatorialAlignment` throws) so an alt-az mount can never silently mis-point; the session's meridian-flip gate is now **GEM-only** (`Session.Imaging.cs` reads `AlignmentMode`, fork/AltAz skip the flip cycle). **Phases 1-3 (usable) NOT STARTED:** Az/Alt↔step transforms, `BeginSlewToTargetAsync` pier-gate bypass, dual-axis tracking, position reads (Phase 1 → visual/EAA/plate-solve); alt-az guiding (Phase 2); long-exposure alt-az **imaging** (Phase 3) is **blocked on rotator support** (field rotation; `IRotatorDriver` doesn't exist — see [rotator](rotator.md) + TODO.md). Recommendation in the plan: pursue Phase 1 only on demand, defer Phase 3 until a derotator lands. |
 
 ---
 
@@ -284,3 +285,37 @@ six executors picked at runtime by an `IntegrationStrategySelector` against an
 See `stacking.md` § "Phase 8 implementation status (2026-05-16)" for the
 cold-start guide to the codebase: every file that holds the strategy machinery,
 the test entry points, and the benchmark numbers worth remembering.
+
+## altaz-mount-support — Phase 0 DONE (Phases 1-3 NOT STARTED)
+
+SkyWatcher mounts like the AZ-GTi are dual-mode (equatorial on a wedge / alt-azimuth flat).
+The driver is equatorial-only; this plan covers making alt-az *safe* (shipped) then *usable*
+(deferred). See [altaz-mount-support.md](altaz-mount-support.md) for the full gap analysis.
+
+- **Phase 0 (safe — make an alt-az mount un-mis-pointable): DONE** (2026-06-22, PRs #47 + #48).
+  - `?alignment=GermanPolar|Polar|AltAz` device setting (`SkywatcherDevice` / `DeviceQueryKey.Alignment`),
+    default `GermanPolar`. AZ vs EQ is **not protocol-detectable** (same model code, `:q CanAzEq`
+    only means "supports both"), so it's a user setting mirroring GSServer — never auto-detected.
+  - `AltAz` is **report-only**: `GetAlignmentAsync` returns it and pier reads return `Unknown`, but
+    `BeginSlewRaDecAsync` / `SyncRaDecAsync` / `SetTrackingAsync(true)` are **refused** via
+    `SkywatcherMountDriverBase.EnsureEquatorialAlignment` (throws `NotSupportedException`).
+    `MaybeSyncToPoleAfterSiteSetAsync` is skipped for alt-az (home is the raw encoder zero — az 0
+    / alt 0, not the equatorial pole).
+  - Meridian flip is now **GEM-only**: `ImagingLoopAsync` reads `AlignmentMode.GermanPolar` and
+    fork/AltAz skip the whole flip cycle (PR #47). Pinned by the `Polar`/`AltAz` `[Theory]` in
+    `SessionObservationLoopTests` (`MeridianFlipCount == 0`).
+  - Tests: `FakeSkywatcherMountDriverTests` (`GivenAltAzAlignmentThenReportedButCoordinateOpsRefused`,
+    `GivenNoAlignmentQueryThenDefaultsToGermanPolar`) + the GEM-only flip `[Theory]`.
+- **Phase 1 (correct GOTO + tracking + position — visual/EAA/plate-solve, no imaging): NOT STARTED.**
+  Az/Alt↔encoder-step transforms, `BeginSlewToTargetAsync` pier-gate bypass for alt-az (an
+  `IMountDriver`-layer change that also unblocks ASCOM/Alpaca alt-az mounts), dual-axis predictor
+  tracking, and Az/Alt→RA/Dec position reads. Tracked in TODO.md.
+- **Phase 2 (alt-az guiding): NOT STARTED**, gated on Phase 1 (field rotates continuously, so the
+  fixed-angle calibration assumption breaks; likely short unguided subs or a different guide model).
+- **Phase 3 (long-exposure alt-az imaging): BLOCKED** on field-rotation handling — needs a mechanical
+  derotator (`IRotatorDriver` / `DeviceType.Rotator`, which doesn't exist — see the `rotator` plan +
+  TODO.md) or software derotation in the stacker.
+
+**Recommendation (from the plan):** Phase 0 makes the alt-az case safe rather than silently wrong;
+most AZ-GTi *imagers* run EQ-on-a-wedge anyway (already works as `GermanPolar`). Pursue Phase 1 only
+on demand; defer Phase 3 until rotator support lands.
