@@ -173,18 +173,13 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
 
             await _camera.StartExposureAsync(exposure, FrameType.Light, ct);
 
-            // Poll for image-ready. Time budget is exposure + 5s for download/digest.
-            // The driver may extend the actual exposure (e.g. CMOS rolling shutter),
-            // so we pad rather than fail strictly at exposure end.
+            // Adaptive poll for image-ready: sleep through the exposure's dead time, then
+            // tighten the cadence near the predicted end (coarse, then 1 ms). Time budget is
+            // exposure + 5s for download/digest -- the driver may extend the actual exposure
+            // (e.g. CMOS rolling shutter), so we pad rather than fail strictly at exposure end.
             var pollStart = System.Diagnostics.Stopwatch.GetTimestamp();
             var timeout = exposure + TimeSpan.FromSeconds(5);
-            var deadline = _timeProvider.GetTimestamp() + (long)(timeout.TotalSeconds * _timeProvider.TimestampFrequency);
-            while (_timeProvider.GetTimestamp() < deadline)
-            {
-                ct.ThrowIfCancellationRequested();
-                if (await _camera.GetImageReadyAsync(ct)) break;
-                await _timeProvider.SleepAsync(_imageReadyPollInterval, ct);
-            }
+            await _camera.WaitForImageReadyAsync(exposure, _timeProvider, _imageReadyPollInterval, timeout, ct);
             var pollElapsed = System.Diagnostics.Stopwatch.GetElapsedTime(pollStart);
 
             var getImageStart = System.Diagnostics.Stopwatch.GetTimestamp();

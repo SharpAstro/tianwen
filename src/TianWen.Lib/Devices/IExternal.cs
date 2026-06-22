@@ -124,8 +124,11 @@ public interface IExternal
     }
 
     /// <summary>
-    /// Interval between polls when waiting for camera image readiness.
-    /// Default is 50ms. Override for testing or low-latency hardware.
+    /// Lead margin for adaptive camera image-ready polling (see
+    /// <see cref="CameraDriverExtensions.WaitForImageReadyAsync"/>): how far before the
+    /// predicted exposure end to switch from one long sleep through the dead time to
+    /// active polling (which then tightens to a 10ms then 1ms cadence). Default is 50ms.
+    /// Override for testing or low-latency hardware.
     /// </summary>
     TimeSpan ImageReadyPollInterval => TimeSpan.FromMilliseconds(50);
 
