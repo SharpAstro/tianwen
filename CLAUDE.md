@@ -248,6 +248,29 @@ URI-addressed: `DeviceBase` (URI identity), `IDeviceSource<T>` (driver backends)
 Each subclass reads query keys (`?key=value`) defined in `DeviceQueryKey`. See class XML doc comments
 for supported keys.
 
+### Alpaca Backend (ASCOM Remote / Alpaca HTTP)
+
+`AddAlpaca()` is a **fully functional** device source (camera, telescope, focuser, filter wheel,
+switch, cover-calibrator) over the ASCOM Alpaca REST API — wired into CLI / Server / GUI alongside
+`AddAscom()`. It is the primary cross-platform path for a headless Linux / Raspberry Pi host, where
+the Windows-only native ASCOM COM bridge is unavailable.
+
+**Camera image transfer goes through the binary `application/imagebytes` protocol, NOT the legacy
+JSON `imagearray`.** JSON encodes every pixel as a decimal-ASCII integer (an order of magnitude
+slower for full frames); ImageBytes sends a 44-byte little-endian `ArrayMetadataV1` header followed
+by raw pixels. `AlpacaImageBytes.DecodeChannel` is the pure decoder (`AlpacaImageBytes.cs`);
+`AlpacaClient.GetImageArrayBytesAsync` negotiates it via `Accept: application/imagebytes,
+application/json` and verifies the response `Content-Type`. **Wire-order gotcha:** ImageBytes is
+laid out `[Dimension1 = Width(X), Dimension2 = Height(Y)]` row-major (last index fastest) — i.e.
+column-major in image terms, flat index of `(x, y)` is `y + x*Height`. `DecodeChannel` transposes
+that into `Channel`'s `[y, x]` row-major layout (see `AlpacaImageBytesTests`). `AlpacaCameraDriver`
+downloads + decodes **once** when the server first reports `imageready`, populating `ImageData` /
+`ChannelBuffer` for the default `ICameraDriver.GetImageAsync`; `StartExposureAsync` clears them so the
+next frame re-downloads. Before this, `ImageData => null` meant the camera connected but never
+returned a frame — which is why `AddAlpaca()` was previously left unregistered. **Not yet validated
+against a live Omni/Alpaca Simulator** — the decoder is byte-exact + unit-pinned but the HTTP
+round-trip is unverified.
+
 ### Device Secrets (Credential Store)
 
 Secrets (API keys) are **not** stored on the device URI or in the profile JSON. `ICredentialStore`

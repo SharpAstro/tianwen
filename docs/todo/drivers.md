@@ -51,10 +51,10 @@ simpler than the per-OTA rotator.
 - [ ] Query tracking rates from Alpaca when endpoint supports enumeration (`AlpacaTelescopeDriver.cs:46`)
 - [ ] Parse axis rates from Alpaca response (`AlpacaTelescopeDriver.cs:315`)
 - [x] Implement string[] and int[] typed getters for filter names and focus offsets (`AlpacaClient.cs`)
-- [ ] Parse string[] from Alpaca for `Offsets` (`AlpacaCameraDriver.cs:238`)
-- [ ] Parse string[] from Alpaca for `Gains` (`AlpacaCameraDriver.cs:248`)
-- [ ] Alpaca `imagearray` endpoint requires special binary handling (`AlpacaCameraDriver.cs:258`)
-- [ ] Async call to `lastexposureduration` endpoint (`AlpacaCameraDriver.cs:262`)
+- [ ] Parse string[] from Alpaca for `Offsets` (`AlpacaCameraDriver.cs:241`)
+- [ ] Parse string[] from Alpaca for `Gains` (`AlpacaCameraDriver.cs:254`)
+- [x] Alpaca `imagearray` endpoint requires special binary handling — done via the `application/imagebytes` binary transfer (`AlpacaImageBytes.DecodeChannel` + `AlpacaClient.GetImageArrayBytesAsync`); `GetImageReadyAsync` downloads + decodes once on first-ready into `ImageData`/`ChannelBuffer`. `AddAlpaca()` now wired into CLI/Server/GUI. (PR #51)
+- [ ] Async call to `lastexposureduration` endpoint (`AlpacaCameraDriver.cs:294`)
 
 ## ASCOM Drivers
 
