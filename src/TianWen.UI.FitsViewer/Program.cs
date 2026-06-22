@@ -208,12 +208,12 @@ var loop = new SdlEventLoop(sdlWindow, renderer)
             ViewerActions.Reprocess(state);
         }
 
-        if (controller.Document is not null && state.NeedsTextureUpdate)
+        if (controller.Source is not null && state.NeedsTextureUpdate)
         {
-            imageRenderer.UploadDocumentTextures(controller.Document, state);
+            imageRenderer.UploadDocumentTextures(controller.Source, state);
         }
 
-        imageRenderer.Render(controller.Document, state);
+        imageRenderer.Render(controller.Source, state);
 
         // Cursor feedback: show the horizontal-resize cursor when hovering or
         // actively dragging the file-list resize handle, default otherwise.

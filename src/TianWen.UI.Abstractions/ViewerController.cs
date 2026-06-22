@@ -27,8 +27,17 @@ public sealed class ViewerController(
     private Task? _starDetectionTask;
     private CancellationTokenSource? _starDetectionCts;
 
-    /// <summary>The currently loaded document. Null until the first file is loaded.</summary>
+    /// <summary>
+    /// The currently loaded document, or null when the active source is not a document (e.g. a SER
+    /// sequence). Still-only features (plate solve, star detection) operate on this.
+    /// </summary>
     public AstroImageDocument? Document { get; private set; }
+
+    /// <summary>
+    /// The source the renderer previews. For a still image this is the same object as
+    /// <see cref="Document"/>; for a SER it is a sequence source and <see cref="Document"/> is null.
+    /// </summary>
+    public IPreviewSource? Source { get; private set; }
 
     /// <summary>
     /// Fires with the loaded filename after a document is successfully opened.
@@ -71,6 +80,7 @@ public sealed class ViewerController(
             if (newDoc is not null)
             {
                 Document = newDoc;
+                Source = newDoc;
                 state.NeedsTextureUpdate = true;
                 state.CursorImagePosition = null;
                 state.CursorPixelInfo = null;

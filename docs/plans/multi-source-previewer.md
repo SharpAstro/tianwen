@@ -67,7 +67,7 @@ mode, manual WB) lights up in the GUI viewer tab too.
 | Phase | Scope | Status |
 |---|---|---|
 | 1 | Wire SER.Lib sibling (`Directory.Build.props`/`Directory.Packages.props`/`TianWen.Lib.csproj`) + pure `SerImageBridge` + tests | **DONE** |
-| 2 | `IPreviewSource` + make `AstroImageDocument` implement it; migrate `ImageRendererBase`/`ViewerController` (FITS/TIFF unchanged) | NOT STARTED |
+| 2 | `IPreviewSource` + make `AstroImageDocument` implement it; migrate `ImageRendererBase`/`ViewerController` (FITS/TIFF unchanged) | **DONE** |
 | 3 | `SerPreviewSource` + `.ser` open + auto-switch; `SupportedExtensions`/filters/`FileAssociationRegistrar` += `.ser` | NOT STARTED |
 | 4 | Playback + transport bar (cheap per-frame upload reusing fixed uniforms) | NOT STARTED |
 | 5 | Port Malvar-He-Cutler debayer into `VkFitsImagePipeline` (selectable; bilinear stays as fallback) | NOT STARTED |
