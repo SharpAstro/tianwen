@@ -16,6 +16,10 @@
          (matches the SdlVulkan.Renderer / DIR.Lib / Console.Lib convention).
          Bump the prefix manually on minor (4.6 -> 4.7) or major (4.X -> 5.X). -->
     <PackageVersion Include="FITS.Lib" Version="4.6.*" />
+    <!-- SER.Lib: SER planetary-video reader (SharpAstro.Ser). Sibling-tracked; floats 1.0.*
+         to pick up CI patch publishes. TianWen.Lib's SerImageBridge consumes it; the FITS
+         viewer's SerPreviewSource gets it transitively. -->
+    <PackageVersion Include="SER.Lib" Version="1.0.*" />
     <PackageVersion Include="GeoTimeZone" Version="6.1.0" />
     <!-- Microsoft packages -->
     <PackageVersion Include="Microsoft.Extensions.DependencyInjection" Version="10.0.5" />

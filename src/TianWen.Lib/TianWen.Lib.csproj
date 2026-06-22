@@ -216,6 +216,16 @@
     <PackageReference Include="FITS.Lib" />
   </ItemGroup>
 
+  <!-- SER.Lib: SER planetary-video reader (SharpAstro.Ser). Imaging/SerImageBridge.cs maps SER
+       frames -> Image; the viewer's SerPreviewSource (TianWen.UI.Abstractions) gets it transitively.
+       Sibling repo's csproj lives at ../SER.Lib/src/SER.Lib/SER.Lib.csproj. -->
+  <ItemGroup Condition="'$(UseLocalSiblings)' == 'true'">
+    <ProjectReference Include="..\..\..\SER.Lib\src\SER.Lib\SER.Lib.csproj" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(UseLocalSiblings)' != 'true'">
+    <PackageReference Include="SER.Lib" />
+  </ItemGroup>
+
   <!-- QHYCCD.SDK: native QHY camera/filter-wheel/focuser drivers (Devices/QHYCCD).
        Sibling repo's csproj lives at the repo root (../QHYCCD.SDK/QHYCCD.SDK.csproj,
        no src/Lib/Lib pattern). Folded into UseLocalSiblings so local edits to the SDK
