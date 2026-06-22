@@ -68,7 +68,8 @@ mode, manual WB) lights up in the GUI viewer tab too.
 |---|---|---|
 | 1 | Wire SER.Lib sibling (`Directory.Build.props`/`Directory.Packages.props`/`TianWen.Lib.csproj`) + pure `SerImageBridge` + tests | **DONE** |
 | 2 | `IPreviewSource` + make `AstroImageDocument` implement it; migrate `ImageRendererBase`/`ViewerController` (FITS/TIFF unchanged) | **DONE** |
-| 3 | `SerPreviewSource` + `.ser` open + auto-switch; `SupportedExtensions`/filters/`FileAssociationRegistrar` += `.ser` | NOT STARTED |
+| 3 | `SerPreviewSource` + `.ser` open + auto-switch; `SupportedExtensions`/filters += `.ser` (OS `FileAssociationRegistrar` left FITS-only, as it is for TIFF/CR2/CR3) | **DONE** |
+| 3.5 | HDD-validation hardening: linear-default stretch for SER; lazy trailer in `SerReader` (no end-of-file seek per open); cancel + supersede in-flight loads (off-thread, never block the render thread) | **DONE** |
 | 4 | Playback + transport bar (cheap per-frame upload reusing fixed uniforms) | NOT STARTED |
 | 5 | Port Malvar-He-Cutler debayer into `VkFitsImagePipeline` (selectable; bilinear stays as fallback) | NOT STARTED |
 | 6 | Manual R/G/B WB sliders → `ComputeStretchUniforms` → GPU `WhiteBalance` (shared across formats) | NOT STARTED |
@@ -91,3 +92,10 @@ mode, manual WB) lights up in the GUI viewer tab too.
   kept seek-agnostic to allow this later.
 - `SerFrameSource : IFrameSource` for the stacking pipeline (closes the `stacking.md` SER deferral).
 - SER export/writer UI; CYGM Bayer families (TianWen models only RGGB) fall back to mono.
+- **SER.Lib release dependency**: the Phase-3.5 lazy-trailer change lives in the `SER.Lib` sibling. It
+  is active locally via ProjectReference (`UseLocalSiblings`), but a TianWen binary release must first
+  publish `SER.Lib` + repin `Directory.Packages.props`. The public API is unchanged, so CI builds fine
+  against the currently published `SER.Lib` until then — it just won't have the lazy behaviour yet.
+- **No blocking I/O on the render thread** (standing review check): all `.ser` disk access (header, frame
+  decode, lazy fps/timestamp trailer) must stay on the `Task.Run` load thread; the render thread reads
+  only managed buffers. Phase 4 playback must decode-ahead, never `SelectFrame` inline in `OnRender`.

@@ -27,6 +27,16 @@ public sealed class ViewerController(
     private Task? _starDetectionTask;
     private CancellationTokenSource? _starDetectionCts;
 
+    // Per-load cancellation: a load in flight is cancelled when the user navigates to a different file,
+    // so a slow open (e.g. a large SER off a spinning disk) doesn't pin the load slot and stall the
+    // switch. _loadingPath is the file the in-flight _loadTask is opening.
+    private CancellationTokenSource? _loadCts;
+    private string? _loadingPath;
+
+    // A previous source (e.g. a SerPreviewSource holding a memory-mapped file) replaced by a new load.
+    // Disposed in ReleaseCompletedTasks (post-frame, UI thread) so no in-flight render still reads it.
+    private IDisposable? _pendingDisposeSource;
+
     /// <summary>
     /// The currently loaded document, or null when the active source is not a document (e.g. a SER
     /// sequence). Still-only features (plate solve, star detection) operate on this.
@@ -58,13 +68,29 @@ public sealed class ViewerController(
     /// </summary>
     public void HandleFileRequest(CancellationToken appToken)
     {
-        if (state.RequestedFilePath is not { } requestedPath
-            || (_loadTask is not null && !_loadTask.IsCompleted))
+        if (state.RequestedFilePath is not { } requestedPath)
         {
             return;
         }
 
+        // A load is already running. If the user has since picked a different file, cancel the stale
+        // load so it abandons its (now-pointless) open + decode + stats and frees the slot promptly;
+        // the newest RequestedFilePath is then started on a later frame (latest-wins). A repeat request
+        // for the same in-flight file is left alone to finish.
+        if (_loadTask is { IsCompleted: false })
+        {
+            // Capture the in-flight load's CTS so we cancel exactly that instance (not whatever _loadCts
+            // may later point at). The render thread sets _loadTask + _loadCts together, so they pair up.
+            if (_loadCts is { } loadCts
+                && !string.Equals(requestedPath, _loadingPath, StringComparison.OrdinalIgnoreCase))
+            {
+                loadCts.Cancel();
+            }
+            return;
+        }
+
         state.RequestedFilePath = null;
+        _loadingPath = requestedPath;
         state.StatusMessage = $"Loading {Path.GetFileName(requestedPath)}...";
 
         // Cancel any in-progress star detection from previous image
@@ -72,15 +98,96 @@ public sealed class ViewerController(
         _starDetectionCts?.Dispose();
         _starDetectionCts = null;
 
+        // Fresh per-load cancellation token, linked to the app token. Cancelled if a later request
+        // supersedes this load (see the in-flight branch above).
+        _loadCts?.Dispose();
+        _loadCts = CancellationTokenSource.CreateLinkedTokenSource(appToken);
+        var loadToken = _loadCts.Token;
+
         var debayerAlgorithm = state.DebayerAlgorithm;
+        var isSer = string.Equals(Path.GetExtension(requestedPath), ".ser", StringComparison.OrdinalIgnoreCase);
 
         _loadTask = Task.Run(async () =>
         {
-            var newDoc = await documentCache.GetOrLoadAsync(requestedPath, debayerAlgorithm, appToken);
+            var previousSource = Source;
+
+            // SER planetary video: a multi-frame sequence handled by SerPreviewSource, NOT the document
+            // file loader. Stats are computed once from frame 0; the viewer auto-switches to playback mode.
+            if (isSer)
+            {
+                try
+                {
+                    var serSource = await SerPreviewSource.OpenAsync(requestedPath, loadToken);
+                    if (loadToken.IsCancellationRequested)
+                    {
+                        // Superseded between OpenAsync returning and here -- drop the just-opened reader
+                        // and leave the previous Source untouched (the newer request loads next frame).
+                        serSource.Dispose();
+                        return;
+                    }
+                    var wasSequence = state.IsSequence;
+                    Document = null;
+                    Source = serSource;
+                    state.IsSequence = true;
+                    state.FrameCount = serSource.FrameCount;
+                    state.FrameIndex = 0;
+                    state.IsPlaying = serSource.FrameCount > 1;
+                    state.PlaybackFps = serSource.FramesPerSecond is { } fps and > 0 ? (float)fps : 30f;
+                    // Planetary SER is a bright disk on a near-black sky. The deep-sky MTF auto-stretch
+                    // (Unlinked/Linked/Luma map the median to ~0.25) over-amplifies that dark background
+                    // into colour speckle and blows the disk to white -- stable on some frames, runaway
+                    // on others (exactly the "first frame ok, others broken" report). Match the standalone
+                    // SER viewer instead: show the linear [0,1] frame (StretchMode.None); FillUnitFloat has
+                    // already normalised the raw samples by the SER bit depth. Only reset the mode when
+                    // entering sequence mode, so the user's pick is preserved while scrubbing SER->SER.
+                    if (!wasSequence)
+                    {
+                        state.StretchMode = StretchMode.None;
+                    }
+                    state.HistogramLogScale = state.StretchMode is StretchMode.None;
+                    state.NeedsTextureUpdate = true;
+                    state.CursorImagePosition = null;
+                    state.CursorPixelInfo = null;
+                    state.StatusMessage = null;
+                    FileLoaded?.Invoke(Path.GetFileName(requestedPath));
+                }
+                catch (OperationCanceledException) { logger.LogDebug("SER open cancelled (superseded or shutdown)"); }
+                catch (Exception ex)
+                {
+                    logger.LogWarning(ex, "Failed to open SER file: {FilePath}", requestedPath);
+                    state.StatusMessage = $"Failed to open: {Path.GetFileName(requestedPath)}";
+                }
+
+                StashForDispose(previousSource);
+                return;
+            }
+
+            AstroImageDocument? newDoc;
+            try
+            {
+                newDoc = await documentCache.GetOrLoadAsync(requestedPath, debayerAlgorithm, loadToken);
+            }
+            catch (OperationCanceledException)
+            {
+                logger.LogDebug("Image load cancelled (superseded or shutdown): {FilePath}", requestedPath);
+                return;
+            }
+
+            if (loadToken.IsCancellationRequested)
+            {
+                // Superseded after the load completed; don't clobber the newer selection.
+                return;
+            }
+
             if (newDoc is not null)
             {
                 Document = newDoc;
                 Source = newDoc;
+                state.IsSequence = false;
+                state.IsPlaying = false;
+                state.FrameCount = 1;
+                state.FrameIndex = 0;
+                StashForDispose(previousSource);
                 state.NeedsTextureUpdate = true;
                 state.CursorImagePosition = null;
                 state.CursorPixelInfo = null;
@@ -199,6 +306,23 @@ public sealed class ViewerController(
         if (_loadTask is { IsCompleted: true }) _loadTask = null;
         if (_starDetectionTask is { IsCompleted: true }) _starDetectionTask = null;
         if (_backgroundTask is { IsCompleted: true }) _backgroundTask = null;
+
+        // Dispose a source replaced by a newer load, post-frame, so no render still references it.
+        if (_pendingDisposeSource is { } stale)
+        {
+            _pendingDisposeSource = null;
+            stale.Dispose();
+        }
+    }
+
+    // Queues a replaced source for post-frame disposal (only disposable sources -- SerPreviewSource holds
+    // a memory-mapped file; an AstroImageDocument has nothing unmanaged and is left to the GC).
+    private void StashForDispose(IPreviewSource? previous)
+    {
+        if (previous is IDisposable d && !ReferenceEquals(previous, Source))
+        {
+            _pendingDisposeSource = d;
+        }
     }
 
     /// <summary>
@@ -209,6 +333,11 @@ public sealed class ViewerController(
         _starDetectionCts?.Cancel();
         _starDetectionCts?.Dispose();
 
+        // Cancel an in-flight load so it bails (and disposes its own half-opened reader) before we tear
+        // down. Await it first, THEN dispose Source -- otherwise a load completing mid-shutdown could
+        // assign a fresh Source after we already disposed the previous one, leaking the new reader.
+        _loadCts?.Cancel();
+
         if (_loadTask is not null)
         {
             try { await _loadTask; } catch (OperationCanceledException) { logger.LogDebug("Load task cancelled during shutdown"); }
@@ -217,5 +346,10 @@ public sealed class ViewerController(
         {
             try { await _backgroundTask; } catch (OperationCanceledException) { logger.LogDebug("Background task cancelled during shutdown"); }
         }
+
+        _loadCts?.Dispose();
+        _pendingDisposeSource?.Dispose();
+        _pendingDisposeSource = null;
+        (Source as IDisposable)?.Dispose();
     }
 }

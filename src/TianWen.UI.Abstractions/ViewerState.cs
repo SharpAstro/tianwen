@@ -137,6 +137,23 @@ public sealed class ViewerState
     /// <summary>Last mouse position during panning.</summary>
     public (float X, float Y) PanStart { get; set; }
 
+    // --- Frame playback (multi-frame sources: SER planetary video; later a live camera stream) ---
+
+    /// <summary>True when the active source is a multi-frame sequence -- gates the transport bar.</summary>
+    public bool IsSequence { get; set; }
+
+    /// <summary>Total frames in the active sequence (1 for a still image).</summary>
+    public int FrameCount { get; set; } = 1;
+
+    /// <summary>Currently displayed frame index.</summary>
+    public int FrameIndex { get; set; }
+
+    /// <summary>Whether sequence playback is running.</summary>
+    public bool IsPlaying { get; set; }
+
+    /// <summary>Playback rate in frames per second.</summary>
+    public float PlaybackFps { get; set; } = 30f;
+
     // --- File list sidebar ---
 
     /// <summary>Current folder path being browsed.</summary>
