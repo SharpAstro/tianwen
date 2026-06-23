@@ -29,6 +29,18 @@ internal sealed class PlanetaryStackSubCommand(
         Gradient,
     }
 
+    private enum SharpenPreset
+    {
+        /// <summary>Boosts the finest band hardest (<see cref="WaveletSharpenOptions.PlanetaryDefault"/>).</summary>
+        Default,
+
+        /// <summary>Boosts the mid belt-structure band, holds the finest down (<see cref="WaveletSharpenOptions.Bandpass"/>).</summary>
+        Bandpass,
+
+        /// <summary>Boosts fine AND mid in one pass -- AutoStakkert-sharpen + bandpass (<see cref="WaveletSharpenOptions.Combo"/>).</summary>
+        Combo,
+    }
+
     public Command Build()
     {
         var serArg = new Argument<string>("ser-file")
@@ -60,13 +72,17 @@ internal sealed class PlanetaryStackSubCommand(
         };
         var drizzleOpt = new Option<float>("--drizzle")
         {
-            Description = "Bayer drizzle at this output scale (e.g. 1.5 = Drizzle1.5). Forward-scatters raw CFA samples onto an upscaled grid with NO interpolation/demosaic -- sharper than the mesh-warp path and recovers sub-Bayer resolution. 0 (default) = off (mesh/translate integrator). Bayer source only; alignment is whole-disk global.",
+            Description = "Bayer drizzle at this output scale (e.g. 1.5 = Drizzle1.5). Forward-scatters raw CFA samples onto an upscaled grid with NO interpolation/demosaic -- recovers sub-Bayer resolution, and (by default) forward-scatters through the per-AP displacement mesh so it also gets the local seeing de-warp. 0 (default) = off (mesh/translate integrator). Bayer source only; see --drizzle-global to use whole-disk alignment instead.",
             DefaultValueFactory = _ => 0f,
         };
         var drizzlePixfracOpt = new Option<float>("--drizzle-pixfrac")
         {
             Description = "Drizzle drop size in (0, 1]. 1.0 (default) = full unit drop (robust coverage). Lower (0.6-0.8) is sharper but needs more frames. Ignored unless --drizzle > 0.",
             DefaultValueFactory = _ => 1.0f,
+        };
+        var drizzleGlobalOpt = new Option<bool>("--drizzle-global")
+        {
+            Description = "Drizzle with whole-disk global alignment only, skipping the per-AP displacement mesh. The mesh (on by default) forward-scatters each raw sample through the local seeing de-warp for sharper, more even detail; this flag is the cheaper whole-disk A/B baseline. Ignored unless --drizzle > 0.",
         };
         var noPerPointOpt = new Option<bool>("--no-per-point")
         {
@@ -80,9 +96,14 @@ internal sealed class PlanetaryStackSubCommand(
         {
             Description = "Skip wavelet sharpening. By default a mild a-trous sharpen (PlanetaryDefault, or --sharpen-gains) is applied to a separate master_*_sharpened.fits and to the PNG; the raw linear master is never sharpened.",
         };
+        var sharpenPresetOpt = new Option<SharpenPreset>("--sharpen-preset")
+        {
+            Description = "Wavelet sharpening profile (an a-trous decomposition is a bank of frequency bands; the preset is the gain curve over them): 'default' boosts the finest band hardest; 'bandpass' boosts the mid belt-structure band and holds the finest down (cleaner belt detail, less limb noise); 'combo' boosts fine AND mid in one pass (AutoStakkert-sharpen + bandpass). Ignored under --no-sharpen or when --sharpen-gains is given.",
+            DefaultValueFactory = _ => SharpenPreset.Default,
+        };
         var sharpenGainsOpt = new Option<string?>("--sharpen-gains")
         {
-            Description = "Override the wavelet per-scale gains as a comma list, finest scale first (e.g. '2,1.8,1.4,1.1,1'). Length sets the scale count. Default = PlanetaryDefault (5 scales). Ignored under --no-sharpen.",
+            Description = "Override the wavelet per-scale gains as a comma list, finest scale first (e.g. '2,1.8,1.4,1.1,1'). Length sets the scale count. Takes precedence over --sharpen-preset. Ignored under --no-sharpen.",
         };
         var noPngOpt = new Option<bool>("--no-png")
         {
@@ -125,9 +146,9 @@ internal sealed class PlanetaryStackSubCommand(
             Arguments = { serArg },
             Options =
             {
-                outputOpt, labelOpt, keepOpt, qualityOpt, globalOpt, drizzleOpt, drizzlePixfracOpt,
+                outputOpt, labelOpt, keepOpt, qualityOpt, globalOpt, drizzleOpt, drizzlePixfracOpt, drizzleGlobalOpt,
                 noPerPointOpt, noSignalGateOpt,
-                noSharpenOpt, sharpenGainsOpt, noPngOpt, pngGammaOpt,
+                noSharpenOpt, sharpenPresetOpt, sharpenGainsOpt, noPngOpt, pngGammaOpt,
                 tileSizeOpt, apSpacingOpt, maxApOpt, patchSizeOpt, meshSpacingOpt,
             },
         };
@@ -166,7 +187,12 @@ internal sealed class PlanetaryStackSubCommand(
                 var gainsArg = parseResult.GetValue(sharpenGainsOpt);
                 if (string.IsNullOrWhiteSpace(gainsArg))
                 {
-                    sharpenOptions = WaveletSharpenOptions.PlanetaryDefault;
+                    sharpenOptions = parseResult.GetValue(sharpenPresetOpt) switch
+                    {
+                        SharpenPreset.Bandpass => WaveletSharpenOptions.Bandpass,
+                        SharpenPreset.Combo => WaveletSharpenOptions.Combo,
+                        _ => WaveletSharpenOptions.PlanetaryDefault,
+                    };
                 }
                 else if (TryParseGains(gainsArg, out var gains))
                 {
@@ -201,7 +227,8 @@ internal sealed class PlanetaryStackSubCommand(
                 PerPointQualityWeighting = !parseResult.GetValue(noPerPointOpt),
                 PerPointSignalGate = !parseResult.GetValue(noSignalGateOpt),
                 Drizzle = drizzleScale > 0f
-                    ? new PlanetaryDrizzleOptions(drizzleScale, parseResult.GetValue(drizzlePixfracOpt))
+                    ? new PlanetaryDrizzleOptions(drizzleScale, parseResult.GetValue(drizzlePixfracOpt),
+                        AlignmentPointMesh: !parseResult.GetValue(drizzleGlobalOpt))
                     : null,
                 // The raw integrated master stays linear/unsharpened (downstream-friendly); the sharpen
                 // pass is applied separately below so we can emit both the raw and sharpened masters.

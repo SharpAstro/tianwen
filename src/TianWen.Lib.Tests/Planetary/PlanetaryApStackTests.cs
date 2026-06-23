@@ -370,6 +370,67 @@ public class PlanetaryApStackTests
     }
 
     [Fact]
+    public async Task Drizzle_global_alignment_emits_covered_disk()
+    {
+        // The default drizzle now forward-scatters through the AP mesh; this pins the whole-disk
+        // (AlignmentPointMesh: false) fallback so both drizzle branches stay covered.
+        var path = PlanetarySerFixtures.NewTempPath();
+        try
+        {
+            const int n = 32;
+            var rng = new Random(7);
+            var frames = new ushort[20][];
+            for (var i = 0; i < 20; i++)
+            {
+                var a = new float[n, n];
+                var cx = 16 + ((rng.NextDouble() * 2) - 1);
+                var cy = 16 + ((rng.NextDouble() * 2) - 1);
+                for (var y = 0; y < n; y++)
+                {
+                    for (var x = 0; x < n; x++)
+                    {
+                        var d2 = ((x - cx) * (x - cx)) + ((y - cy) * (y - cy));
+                        a[y, x] = (float)(0.2 + (0.7 * Math.Exp(-d2 / (2 * 6.0 * 6.0))));
+                    }
+                }
+
+                frames[i] = ToU16(a);
+            }
+
+            PlanetarySerFixtures.WriteSer(path, n, n, SerColorId.BayerRGGB, frames);
+
+            using var stream = SerFrameStream.Open(path);
+            var result = await new LuckyImagingStacker().StackDrizzleAsync(stream,
+                new PlanetaryStackOptions { KeepFraction = 1.0, Drizzle = new PlanetaryDrizzleOptions(Scale: 1.5f, Pixfrac: 1.0f, AlignmentPointMesh: false) },
+                TestContext.Current.CancellationToken);
+
+            result.Master.ChannelCount.ShouldBe(3);
+            result.Master.Width.ShouldBe(48);
+            result.Master.Height.ShouldBe(48);
+
+            for (var c = 0; c < 3; c++)
+            {
+                double sum = 0;
+                var cnt = 0;
+                for (var y = 18; y < 30; y++)
+                {
+                    for (var x = 18; x < 30; x++)
+                    {
+                        sum += result.Master[c, y, x];
+                        cnt++;
+                    }
+                }
+
+                (sum / cnt).ShouldBeGreaterThan(0.1);
+            }
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
     public void Signal_gate_makes_a_faint_region_an_unbiased_mean()
     {
         // A faint region (signal confidence -> 0) where the "brighter" frame also carries the higher local

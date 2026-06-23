@@ -6,6 +6,24 @@ using System.Runtime.CompilerServices;
 namespace TianWen.Lib.Imaging.Stacking;
 
 /// <summary>
+/// Maps a source pixel <c>(xSrc, ySrc)</c> to its centre position on the drizzle canvas. Implemented as a
+/// struct so the JIT monomorphises + inlines <see cref="Map"/> into the deposit loop -- the per-pixel
+/// forward-scatter pays no virtual-call cost. <see cref="AffineMap"/> is the affine (deep-sky / whole-disk)
+/// case; the planetary AP-mesh path supplies its own per-pixel displacement-field map.
+/// </summary>
+internal interface ISourceToCanvas
+{
+    Vector2 Map(int xSrc, int ySrc);
+}
+
+/// <summary>The affine source -&gt; canvas map: a single <see cref="Matrix3x2"/> applied per pixel.</summary>
+internal readonly struct AffineMap(Matrix3x2 transform) : ISourceToCanvas
+{
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public Vector2 Map(int xSrc, int ySrc) => Vector2.Transform(new Vector2(xSrc, ySrc), transform);
+}
+
+/// <summary>
 /// Shared forward-projection kernel for the drizzle family of strategies
 /// (<see cref="DrizzleStrategy"/>, <see cref="TilePipelinedDrizzleStrategy"/>).
 /// Per-frame, iterates a source-pixel rectangle and deposits each valid CFA
@@ -73,6 +91,32 @@ internal static class DrizzleKernel
         Rectangle sourceRect,
         BitMatrix badPixelMask,
         bool hasBadPixelMask)
+        => IterateAndDeposit(
+            raw, new AffineMap(transform), pattern, halfP, flux, weight,
+            xStart, xEnd, yStart, yEnd, sourceRect, badPixelMask, hasBadPixelMask);
+
+    /// <summary>
+    /// Generic over the source -&gt; canvas <paramref name="map"/> so the planetary AP-mesh path can
+    /// forward-scatter through a per-pixel displacement field while the deep-sky path uses a single affine,
+    /// both sharing this one deposit loop. <typeparamref name="TMap"/> is a struct constraint so the JIT
+    /// inlines <see cref="ISourceToCanvas.Map"/> with no virtual dispatch. The <see cref="Matrix3x2"/>
+    /// overload above is the affine entry point the deep-sky strategies call.
+    /// </summary>
+    public static void IterateAndDeposit<TMap>(
+        Image raw,
+        TMap map,
+        int[,] pattern,
+        float halfP,
+        float[][,] flux,
+        float[][,] weight,
+        int xStart,
+        int xEnd,
+        int yStart,
+        int yEnd,
+        Rectangle sourceRect,
+        BitMatrix badPixelMask,
+        bool hasBadPixelMask)
+        where TMap : struct, ISourceToCanvas
     {
         var srcX0 = sourceRect.X;
         var srcX1 = sourceRect.X + sourceRect.Width;
@@ -95,7 +139,7 @@ internal static class DrizzleKernel
                     // Fast path: no per-pixel mask check needed.
                     for (; xSrc < chunkEnd; xSrc++)
                     {
-                        DepositOne(xSrc, ySrc, raw, transform, pattern, halfP, flux, weight, xStart, xEnd, yStart, yEnd);
+                        DepositOne(xSrc, ySrc, raw, map, pattern, halfP, flux, weight, xStart, xEnd, yStart, yEnd);
                     }
                 }
                 else
@@ -105,7 +149,7 @@ internal static class DrizzleKernel
                     for (; xSrc < chunkEnd; xSrc++)
                     {
                         if ((maskWord & (1UL << (xSrc & 63))) != 0UL) continue;
-                        DepositOne(xSrc, ySrc, raw, transform, pattern, halfP, flux, weight, xStart, xEnd, yStart, yEnd);
+                        DepositOne(xSrc, ySrc, raw, map, pattern, halfP, flux, weight, xStart, xEnd, yStart, yEnd);
                     }
                 }
             }
@@ -124,16 +168,17 @@ internal static class DrizzleKernel
     /// the per-frame rotation residuals will reappear as visible artifacts.
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static void DepositOne(
+    private static void DepositOne<TMap>(
         int xSrc, int ySrc,
-        Image raw, Matrix3x2 transform, int[,] pattern, float halfP,
+        Image raw, TMap map, int[,] pattern, float halfP,
         float[][,] flux, float[][,] weight,
         int xStart, int xEnd, int yStart, int yEnd)
+        where TMap : struct, ISourceToCanvas
     {
         var v = raw[0, ySrc, xSrc];
         if (float.IsNaN(v)) return;
 
-        var p = Vector2.Transform(new Vector2(xSrc, ySrc), transform);
+        var p = map.Map(xSrc, ySrc);
         var xLo = p.X - halfP;
         var xHi = p.X + halfP;
         var yLo = p.Y - halfP;

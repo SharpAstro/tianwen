@@ -341,10 +341,23 @@ belts resolved). The CPU engine lives in `TianWen.Lib.Imaging` (`WaveletSharpen`
 + `TianWen.Lib.Imaging.Planetary` + `TianWen.Lib.Stat`; the CLI is `TianWen.Cli/PlanetaryStackSubCommand`.
 Phase 6's optional **Bayer drizzle** is now implemented (`LuckyImagingStacker.StackDrizzleAsync` +
 `PlanetaryDrizzleOptions`, CLI `--drizzle <scale>`): forward-scatters raw CFA samples through the shared
-`Stacking/DrizzleKernel` onto an upscaled grid (no interpolation, no demosaic). On the test SER it gives a
-higher-res, cleaner-colour, faster master but only a modest sharpness gain -- that capture is
-seeing-limited and the AS!3 reference's edge was full-res 439-point local de-warp, which the half-res
-split-CFA AP path does not match.
+`Stacking/DrizzleKernel` onto an upscaled grid (no interpolation, no demosaic). **AP-mesh drizzle** (default
+on; `--drizzle-global` for whole-disk-only): `DrizzleKernel` was generalised over an internal
+`ISourceToCanvas` struct map (JIT-monomorphised, no virtual dispatch; the deep-sky `Matrix3x2` path is now a
+byte-identical wrapper over `AffineMap`), and the planetary path supplies a `MeshSourceToCanvas` that
+forward-scatters each raw sample through the per-AP `DisplacementMesh` -- so drizzle gets the local seeing
+de-warp on top of sub-Bayer resolution (it reduces to the affine `(mosaic - 2*shift)*scale` when residuals
+-> 0). On the test SER the mesh-vs-global drizzle difference is subtle (small, well-tracked, seeing-limited
+planet -- resolution/seeing dominates), but it is correct and matters more under stronger differential
+seeing. The AS!3 reference's edge was full-res 439-point local de-warp, which the half-res split-CFA path
+still cannot fully match.
+
+**Wavelet sharpening presets (Phase 7) + CLI `--sharpen-preset`:** an a-trous decomposition is a bank of
+frequency bands, so the per-scale gain curve IS a bandpass. `default` peaks the finest (noisiest) band;
+`bandpass` peaks the mid belt-structure band and holds the finest down (cleaner belts, less limb noise);
+`combo` lifts fine AND mid in one pass (AutoStakkert-sharpen + bandpass -- and since reconstruction is
+linear, stacking two sharpenings is just one gain profile, so "which order" is moot). `--sharpen-gains`
+overrides the preset.
 
 Real-data validation surfaced + fixed a Phase-6 integrator bug: the per-AP per-pixel best-of weight
 (`FrameSharpnessMap`, local Sobel energy) **amplified a faint real halo into a bright ring** -- in a
@@ -355,9 +368,10 @@ dark trough). Fixed with `PlanetaryDisk.SignalConfidence` + a confidence gate in
 weighting stays full on the bright disk body, blends to an unbiased mean in faint regions. Gated radial
 profile now matches the true baseline to ~0.001 while keeping disk-body sharpening.
 
-Still soft vs an AutoStakkert ap439+Drizzle1.5 reference: the gaps are AP count (CLI default 64, just a
-param), the deferred Phase-6 drizzle path, and sharpening strength (tuning). Phase 6's drizzle and live
-UI are still deferred. Phases 9-13 are not started.
+Still soft vs an AutoStakkert ap439+Drizzle1.5 reference: the remaining gaps are AP count (CLI default 64,
+just a param) and -- the structural ceiling -- the half-res split-CFA resolution vs a full-res 439-AP local
+de-warp, not the sharpen (bandpass/combo presets + AP-mesh drizzle now cover the sharpen + local-de-warp
+levers). The live UI (Phase 9) and Phases 10-13 are not started.
 
 | Phase | Scope | Depends on | Risk | Status |
 |---|---|---|:--:|:--:|
