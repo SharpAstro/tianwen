@@ -52,6 +52,13 @@ public class DebayerRegressionTests
             DebayerAlgorithm.AHD,
             expectedSha256: "c0db123e76a930186385d6d7ab0b59478ccd6490e309a0782f0be1291c163a97");
 
+    [Fact]
+    public async Task DebayerMHC_OnIMX533Fixture_OutputHashStable()
+        => await AssertDebayerHashAsync(
+            DebayerAlgorithm.MHC,
+            // Pinned 2026-06-23 when MHC landed (Phase 5 of the multi-source previewer).
+            expectedSha256: "84c1977c327062f1c442495f8c0d0c60f65645bf39e8750baa184b3ae62ee60b");
+
     private static async Task AssertDebayerHashAsync(DebayerAlgorithm algo, string expectedSha256)
     {
         var raw = await SharedTestData.ExtractGZippedFitsImageAsync(FixtureName, isReadOnly: false);

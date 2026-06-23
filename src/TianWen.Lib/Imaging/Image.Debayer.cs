@@ -24,6 +24,7 @@ public partial class Image
             DebayerAlgorithm.BilinearMono => DebayerBilinearMonoAsync(scale, cancellationToken),
             DebayerAlgorithm.VNG => DebayerVNGAsync(scale, cancellationToken),
             DebayerAlgorithm.AHD => DebayerAHDAsync(scale, cancellationToken),
+            DebayerAlgorithm.MHC => DebayerMHCAsync(scale, cancellationToken),
             DebayerAlgorithm.None => throw new ArgumentException("Must specify an algorithm", nameof(debayerAlgorithm)),
             _ => throw new NotSupportedException($"Debayer algorithm {debayerAlgorithm} is not supported"),
         };
@@ -140,6 +141,7 @@ public partial class Image
         {
             DebayerAlgorithm.BilinearMono => await DebayerBilinearMonoAsync(s, cancellationToken, destArrays),
             DebayerAlgorithm.AHD => await DebayerAHDAsync(s, cancellationToken, destArrays),
+            DebayerAlgorithm.MHC => await DebayerMHCAsync(s, cancellationToken, destArrays),
             _ => throw new NotSupportedException($"DebayerIntoAsync does not support {debayerAlgorithm}"),
         };
     }
@@ -204,6 +206,132 @@ public partial class Image
                 BayerOffsetY = 0,
                 Filter = Filter.Luminance
             });
+    }
+
+    /// <summary>
+    /// Malvar-He-Cutler (2004) gradient-corrected linear demosaic to RGB. The exact CPU mirror of the
+    /// GPU <c>debayerMhc</c> branch in <c>VkFitsImagePipeline</c> and of <c>SharpAstro.Ser.SerImaging.DebayerMhc</c>:
+    /// each missing channel is a 5x5 linear filter on the raw mosaic and every kernel sums to 8
+    /// (x0.125 = unity gain, no brightness shift). Bilinear-class cost, far fewer edge zipper / false-colour
+    /// artifacts, and (unlike AHD) it never manufactures detail on a single noisy planetary frame.
+    /// Output values are linear (not clamped to [0, 1]) -- clamping is a display-domain concern handled by
+    /// the GPU shader / stretch pipeline, exactly as <see cref="DebayerAHDAsync"/> and <see cref="DebayerVNGAsync"/> do.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
+    private async Task<Image> DebayerMHCAsync(float scale, CancellationToken cancellationToken, float[][,]? destination = null)
+    {
+        var width = Width;
+        var height = Height;
+        var debayered = destination ?? CreateChannelData(3, height, width); // RGB output
+        var src = data[0];
+        var dstR = debayered[0];
+        var dstG = debayered[1];
+        var dstB = debayered[2];
+
+        // Red-site parity from the Bayer offset (RGGB => (0, 0) => red at even/even), matching the
+        // SensorType offsets, the GPU shader's bx/by, and SerImaging's redOffset convention.
+        var rx = imageMeta.BayerOffsetX & 1;
+        var ry = imageMeta.BayerOffsetY & 1;
+
+        var parallelOptions = new ParallelOptions { CancellationToken = cancellationToken };
+        Parallel.For(0, height, parallelOptions, y =>
+        {
+            var yRed = (y & 1) == ry;
+            for (var x = 0; x < width; x++)
+            {
+                var c = src[y, x];
+                var xRed = (x & 1) == rx;
+
+                float r, g, b;
+                if (xRed && yRed) // red site
+                {
+                    r = c;
+                    g = MhcGreen(src, width, height, x, y);
+                    b = MhcDiagonal(src, width, height, x, y);
+                }
+                else if (!xRed && !yRed) // blue site
+                {
+                    b = c;
+                    g = MhcGreen(src, width, height, x, y);
+                    r = MhcDiagonal(src, width, height, x, y);
+                }
+                else // green site
+                {
+                    g = c;
+                    if (yRed) // red row: red neighbours horizontal, blue vertical
+                    {
+                        r = MhcHorizontal(src, width, height, x, y);
+                        b = MhcVertical(src, width, height, x, y);
+                    }
+                    else // blue row: red neighbours vertical, blue horizontal
+                    {
+                        r = MhcVertical(src, width, height, x, y);
+                        b = MhcHorizontal(src, width, height, x, y);
+                    }
+                }
+
+                dstR[y, x] = r * scale;
+                dstG[y, x] = g * scale;
+                dstB[y, x] = b * scale;
+            }
+        });
+
+        var normalized = scale < 1.0f;
+        return new Image(debayered, BitDepth.Float32,
+            normalized ? 1.0f : maxValue,
+            normalized ? minValue / maxValue : minValue,
+            normalized ? pedestal / maxValue : pedestal,
+            imageMeta with
+            {
+                SensorType = SensorType.Color,
+                BayerOffsetX = 0,
+                BayerOffsetY = 0
+            });
+    }
+
+    // MHC 5x5 kernels (coefficients identical to SerImaging.DebayerMhc / the GPU shader).
+    // Green at a red/blue site (gain alpha = 1/2).
+    [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
+    private static float MhcGreen(float[,] s, int w, int h, int x, int y)
+        => ((4f * AtClamped(s, w, h, x, y))
+            + (2f * (AtClamped(s, w, h, x, y - 1) + AtClamped(s, w, h, x, y + 1) + AtClamped(s, w, h, x - 1, y) + AtClamped(s, w, h, x + 1, y)))
+            - (AtClamped(s, w, h, x, y - 2) + AtClamped(s, w, h, x, y + 2) + AtClamped(s, w, h, x - 2, y) + AtClamped(s, w, h, x + 2, y)))
+           * 0.125f;
+
+    // Red at a blue site / blue at a red site (gain gamma = 3/4): same-colour neighbours are the 4 diagonals.
+    [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
+    private static float MhcDiagonal(float[,] s, int w, int h, int x, int y)
+        => ((6f * AtClamped(s, w, h, x, y))
+            + (2f * (AtClamped(s, w, h, x - 1, y - 1) + AtClamped(s, w, h, x + 1, y - 1) + AtClamped(s, w, h, x - 1, y + 1) + AtClamped(s, w, h, x + 1, y + 1)))
+            - (1.5f * (AtClamped(s, w, h, x, y - 2) + AtClamped(s, w, h, x, y + 2) + AtClamped(s, w, h, x - 2, y) + AtClamped(s, w, h, x + 2, y))))
+           * 0.125f;
+
+    // Red/blue at a green site whose same-colour neighbours lie in the same ROW (gain beta = 5/8).
+    [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
+    private static float MhcHorizontal(float[,] s, int w, int h, int x, int y)
+        => ((5f * AtClamped(s, w, h, x, y))
+            + (4f * (AtClamped(s, w, h, x - 1, y) + AtClamped(s, w, h, x + 1, y)))
+            - (AtClamped(s, w, h, x - 1, y - 1) + AtClamped(s, w, h, x + 1, y - 1) + AtClamped(s, w, h, x - 1, y + 1) + AtClamped(s, w, h, x + 1, y + 1))
+            + (0.5f * (AtClamped(s, w, h, x, y - 2) + AtClamped(s, w, h, x, y + 2)))
+            - (AtClamped(s, w, h, x - 2, y) + AtClamped(s, w, h, x + 2, y)))
+           * 0.125f;
+
+    // Red/blue at a green site whose same-colour neighbours lie in the same COLUMN (transpose of the row case).
+    [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
+    private static float MhcVertical(float[,] s, int w, int h, int x, int y)
+        => ((5f * AtClamped(s, w, h, x, y))
+            + (4f * (AtClamped(s, w, h, x, y - 1) + AtClamped(s, w, h, x, y + 1)))
+            - (AtClamped(s, w, h, x - 1, y - 1) + AtClamped(s, w, h, x + 1, y - 1) + AtClamped(s, w, h, x - 1, y + 1) + AtClamped(s, w, h, x + 1, y + 1))
+            + (0.5f * (AtClamped(s, w, h, x - 2, y) + AtClamped(s, w, h, x + 2, y)))
+            - (AtClamped(s, w, h, x, y - 2) + AtClamped(s, w, h, x, y + 2)))
+           * 0.125f;
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
+    private static float AtClamped(float[,] s, int w, int h, int x, int y)
+    {
+        if (x < 0) x = 0; else if (x >= w) x = w - 1;
+        if (y < 0) y = 0; else if (y >= h) y = h - 1;
+        return s[y, x];
     }
 
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
