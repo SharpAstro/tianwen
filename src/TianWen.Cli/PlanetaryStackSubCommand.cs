@@ -14,9 +14,10 @@ namespace TianWen.Cli;
 /// SER video: grade the frames by sharpness, keep the best N%, align (global disk-COM + phase correlation,
 /// then feature-driven alignment points + a per-AP displacement mesh), integrate with per-AP "best-of"
 /// quality weighting, and optionally wavelet-sharpen. Wraps <see cref="LuckyImagingStacker"/>. Writes the
-/// linear integrated master as FITS, an optional wavelet-sharpened master FITS, and a stretched PNG preview
-/// (auto-stretch + sky-bg white balance via <see cref="MasterPreviewRenderer"/>; no plate-solve / SPCC --
-/// a planet has no field stars).
+/// linear integrated master as FITS, an optional wavelet-sharpened master FITS, and a high-key planetary
+/// PNG preview via <see cref="MasterPreviewRenderer.RenderPlanetaryAsync"/> (per-channel black point +
+/// common-scale + gentle gamma -- the deep-sky MTF auto-stretch would blow a bright disk out to white;
+/// no plate-solve / SPCC, a planet has no field stars).
 /// </summary>
 internal sealed class PlanetaryStackSubCommand(
     IConsoleHost consoleHost,
@@ -87,6 +88,11 @@ internal sealed class PlanetaryStackSubCommand(
         {
             Description = "Skip the stretched PNG preview (just the linear master FITS outputs).",
         };
+        var pngGammaOpt = new Option<double>("--png-gamma")
+        {
+            Description = "Midtones gamma for the high-key planetary PNG preview. 1.0 = pure linear (planets need little stretching); lower lifts the belts. Default 0.75. Ignored under --no-png.",
+            DefaultValueFactory = _ => 0.75,
+        };
 
         // Advanced alignment knobs (sensible defaults; only touch for tuning).
         var tileSizeOpt = new Option<int>("--align-tile")
@@ -121,7 +127,7 @@ internal sealed class PlanetaryStackSubCommand(
             {
                 outputOpt, labelOpt, keepOpt, qualityOpt, globalOpt, drizzleOpt, drizzlePixfracOpt,
                 noPerPointOpt, noSignalGateOpt,
-                noSharpenOpt, sharpenGainsOpt, noPngOpt,
+                noSharpenOpt, sharpenGainsOpt, noPngOpt, pngGammaOpt,
                 tileSizeOpt, apSpacingOpt, maxApOpt, patchSizeOpt, meshSpacingOpt,
             },
         };
@@ -247,17 +253,15 @@ internal sealed class PlanetaryStackSubCommand(
                 var pngPath = Path.Combine(outputDir, $"{prefix}master_{baseName}.png");
                 try
                 {
-                    // No WCS / catalog: MasterPreviewRenderer skips SPCC and falls back to auto-stretch +
-                    // sky-bg white balance, which is exactly right for a planet (no field stars to solve).
-                    await previewRenderer.RenderAsync(
+                    // Planets are a bright disk on a dark sky: use the high-key PLANETARY stretch
+                    // (per-channel black point + common scale + gentle gamma), NOT the deep-sky MTF
+                    // auto-stretch, which targets a faint background and blows the disk out to a white blob.
+                    await previewRenderer.RenderPlanetaryAsync(
                         display,
-                        display.ImageMeta,
-                        wcs: null,
-                        statsSource: display,
                         pngPath,
-                        statsWcs: null,
+                        gamma: parseResult.GetValue(pngGammaOpt),
                         ct: ct);
-                    consoleHost.WriteScrollable($"[planetary] wrote {Path.GetFileName(pngPath)} (stretched preview)");
+                    consoleHost.WriteScrollable($"[planetary] wrote {Path.GetFileName(pngPath)} (high-key planetary preview)");
                 }
                 catch (Exception ex)
                 {

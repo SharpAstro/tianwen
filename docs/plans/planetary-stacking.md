@@ -397,9 +397,14 @@ each where one existed):
 5. **Live AP -> global align only.** The live 5-min-window path uses disk-centroid + phase-correlation
    global align; full feature-driven AP stays batch-only (AP-live is a later stretch).
 6. **Output -> mirror the deep-sky stacking output.** Emit the linear master (FITS/TIFF) **and** a
-   display PNG + autocrop, matching what the deep-sky `StackingEndToEndManualTest` already writes
-   (minus the deep-sky-only plate-solve / SPCC steps, which don't apply to a planet). For planetary
-   the PNG is the wavelet-sharpened display image.
+   display PNG, minus the deep-sky-only plate-solve / SPCC steps (don't apply to a planet). For
+   planetary the PNG is the wavelet-sharpened display image. **DONE (deviation from deep-sky):** the
+   deep-sky `MasterPreviewRenderer` auto-stretch is an MTF that targets a faint background and so
+   blows a bright disk out to a white blob -- planetary uses its own gentle, near-linear stretch
+   instead: `Image.ComputePlanetaryStretchUniforms` (per-channel black point at p0.5% + a single
+   COMMON scale so the sky stays colour-neutral + a mild gamma->MTF midtones lift), rendered through
+   the single-source `Image.RenderStretchedRgba16` via `MasterPreviewRenderer.RenderPlanetaryAsync`
+   (CLI `--png-gamma`, default 0.75). No autocrop (the disk is small and centred; the full frame is fine).
 
 ## Remaining open questions
 
