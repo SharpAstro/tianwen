@@ -1,8 +1,10 @@
 using System;
 using System.Collections.Immutable;
 using System.Drawing;
+using System.Numerics;
 using System.Threading;
 using System.Threading.Tasks;
+using TianWen.Lib.Imaging.Stacking;
 
 namespace TianWen.Lib.Imaging.Planetary;
 
@@ -103,6 +105,98 @@ public sealed class LuckyImagingStacker
 
         var stacked = Normalize(channelAccum, weightAccum, ctx);
         var master = await FinalizeAsync(stacked, stream.Layout, options, cancellationToken).ConfigureAwait(false);
+        return new PlanetaryStackResult(master, ctx.ReferenceIndex, used, ctx.Grades.Length);
+    }
+
+    /// <summary>
+    /// Stacks a Bayer (split-CFA) source by <b>Bayer drizzle</b> (Phase 6): each selected frame is
+    /// whole-disk globally aligned, its raw CFA mosaic forward-scattered onto an upscaled output grid via
+    /// the shared <see cref="DrizzleKernel"/> (each sample lands only in its own R/G/B channel -- no
+    /// interpolation, no demosaic), and the per-channel flux divided by coverage. Avoids the bilinear-warp
+    /// softening that caps the mesh path and recovers sub-Bayer resolution when <see cref="PlanetaryDrizzleOptions.Scale"/>
+    /// &gt; 1. Alignment is global only; drizzle's per-frame sub-pixel diversity fills each colour grid.
+    /// </summary>
+    public async Task<PlanetaryStackResult> StackDrizzleAsync(IPlanetaryFrameStream stream, PlanetaryStackOptions? options = null, CancellationToken cancellationToken = default)
+    {
+        options ??= new PlanetaryStackOptions();
+        var drizzle = options.Drizzle ?? new PlanetaryDrizzleOptions();
+        if (stream.Layout != PlanetaryFrameLayout.SplitCfa)
+        {
+            throw new InvalidOperationException($"Bayer drizzle requires a Bayer (split-CFA) source; got layout {stream.Layout}.");
+        }
+
+        var ctx = await PrepareAsync(stream, options, includeAlignmentPoints: false, cancellationToken).ConfigureAwait(false);
+
+        // ctx.Width/Height are the half-res CFA sub-plane dims; the mosaic (and thus the drizzle canvas) is
+        // twice that, scaled by the requested output scale.
+        var scale = drizzle.Scale;
+        var mosaicW = ctx.Width * 2;
+        var mosaicH = ctx.Height * 2;
+        var canvasW = Math.Max(1, (int)MathF.Round(mosaicW * scale));
+        var canvasH = Math.Max(1, (int)MathF.Round(mosaicH * scale));
+
+        var flux = Image.CreateChannelData(3, canvasH, canvasW);
+        var weight = Image.CreateChannelData(3, canvasH, canvasW);
+        var halfP = drizzle.Pixfrac * 0.5f;
+        var pattern = ctx.MasterMeta.SensorType.GetBayerPatternMatrix(ctx.MasterMeta.BayerOffsetX, ctx.MasterMeta.BayerOffsetY);
+
+        var used = 0;
+        foreach (var index in ctx.Selected)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (ctx.ScoreByIndex[index] <= 0f)
+            {
+                continue;
+            }
+
+            var frame = await stream.LoadAsync(index, cancellationToken).ConfigureAwait(false);
+            try
+            {
+                var shift = ctx.Aligner.Estimate(frame, PlanetaryDisk.BoundingBox(frame));
+                var mosaic = frame.MergeBayerChannels();
+                // canvas = (mosaic - mosaicShift) * scale, with mosaicShift = 2 * sub-plane shift (the
+                // aligner works at sub-plane resolution). DrizzleKernel applies p * transform.
+                var transform = Matrix3x2.CreateTranslation((float)(-2.0 * shift.Dx), (float)(-2.0 * shift.Dy))
+                    * Matrix3x2.CreateScale(scale);
+
+                DrizzleKernel.IterateAndDeposit(
+                    mosaic, transform, pattern, halfP, flux, weight,
+                    xStart: 0, xEnd: canvasW, yStart: 0, yEnd: canvasH,
+                    new Rectangle(0, 0, mosaic.Width, mosaic.Height),
+                    badPixelMask: default, hasBadPixelMask: false);
+                used++;
+            }
+            finally
+            {
+                frame.Release();
+            }
+        }
+
+        DrizzleKernel.FinaliseDivide(flux, weight, invMaxValue: 1f, canvasH, canvasW);
+        // Uncovered cells come back NaN; planetary masters want a solid background, so floor them to 0
+        // (also keeps a NaN out of the optional wavelet pass).
+        for (var c = 0; c < 3; c++)
+        {
+            var plane = flux[c];
+            for (var y = 0; y < canvasH; y++)
+            {
+                for (var x = 0; x < canvasW; x++)
+                {
+                    if (float.IsNaN(plane[y, x]))
+                    {
+                        plane[y, x] = 0f;
+                    }
+                }
+            }
+        }
+
+        var masterMeta = ctx.MasterMeta with { SensorType = SensorType.Color };
+        var master = new Image(flux, BitDepth.Float32, 1f, 0f, 0f, masterMeta);
+        if (options.Sharpen is { } sharpen)
+        {
+            master = WaveletSharpen.Sharpen(master, sharpen);
+        }
+
         return new PlanetaryStackResult(master, ctx.ReferenceIndex, used, ctx.Grades.Length);
     }
 
