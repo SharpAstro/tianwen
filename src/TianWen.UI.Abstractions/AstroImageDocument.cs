@@ -419,13 +419,28 @@ public sealed class AstroImageDocument : IPreviewSource
         float curvesMidpoint = 0.25f,
         float hdrAmount = 0f,
         float hdrKnee = 0.8f,
-        float bgNeutralizationStrength = 1f)
+        float bgNeutralizationStrength = 1f,
+        (float R, float G, float B)? manualWhiteBalance = null)
     {
         var stats = PerChannelStats;
         var luma = LumaStats;
         var factor = parameters.Factor;
         var clipping = parameters.ShadowsClipping;
         var weights = ResolveLumaWeights(weighting);
+
+        // White balance enters the pipeline two ways, and manual vs auto WB use them differently:
+        //   * stat scaling  -- the AUTO calibration (ColorCalibration) scales the per-channel stats so the
+        //     shadow clip stays in the post-WB coordinate space (keeps the background neutral; see the
+        //     static overload's doc). This is what makes auto calibration a colour *correction*.
+        //   * shader multiply -- uniforms.WhiteBalance, applied per channel in the GLSL/CPU stretch.
+        // If the MANUAL WB also scaled the stats, a per-channel auto-normalised stretch (Unlinked / the
+        // SER linear default) would re-derive each channel's curve from the scaled stats and *cancel* the
+        // multiplier -- the slider would appear to do nothing. So manual WB is applied ONLY as the shader
+        // multiply (autoWb scales the stats; autoWb x manual is the multiply), giving a direct, always-
+        // visible colour shift. A neutral/null manual triple leaves shaderWb == autoWb, so the existing
+        // auto-only numeric path is bit-identical.
+        var autoWb = ColorCalibration;
+        var shaderWb = ComposeWhiteBalance(autoWb, manualWhiteBalance);
 
         if (UseIterativeConvergence && StarMaskedStats is { } masked)
         {
@@ -440,10 +455,10 @@ public sealed class AstroImageDocument : IPreviewSource
             if (hist is not null)
             {
                 // For luma convergence the WB scalar is the weighting-profile-weighted
-                // average; for channel-0 fallback it's wb.R. The per-channel rendering
-                // scales stats by the same factor inside ComputeStretchUniforms, so
-                // convergence and rendering operate in matched coordinate spaces.
-                var wbScalar = ColorCalibration is { } wb
+                // average; for channel-0 fallback it's wb.R. Convergence operates in the
+                // stat-scaled coordinate space, which only the AUTO WB scales, so this
+                // uses autoWb (manual WB is a pure shader multiply and never scales stats).
+                var wbScalar = autoWb is { } wb
                     ? (luma is not null ? weights.R * wb.R + weights.G * wb.G + weights.B * wb.B : wb.R)
                     : 1f;
 
@@ -453,7 +468,7 @@ public sealed class AstroImageDocument : IPreviewSource
             }
         }
 
-        var uniforms = ComputeStretchUniforms(mode, new StretchParameters(factor, clipping), stats, luma, UnstretchedImage.MaxValue, ColorCalibration, weights);
+        var uniforms = ComputeStretchUniforms(mode, new StretchParameters(factor, clipping), stats, luma, UnstretchedImage.MaxValue, autoWb, weights, shaderWb);
         if (BackgroundNeutralization is { } bn)
         {
             // Lerp the gain toward identity by `strength`. Cheap: no recompute,
@@ -488,6 +503,23 @@ public sealed class AstroImageDocument : IPreviewSource
     }
 
     /// <summary>
+    /// Composes a manual WB triple on top of an auto color-calibration WB by component-wise multiply.
+    /// A neutral (1,1,1) or null <paramref name="manual"/> returns <paramref name="auto"/> verbatim (so the
+    /// auto-only numeric path is bit-identical); a null <paramref name="auto"/> with a non-neutral manual
+    /// returns the manual triple alone.
+    /// </summary>
+    internal static (float R, float G, float B)? ComposeWhiteBalance(
+        (float R, float G, float B)? auto, (float R, float G, float B)? manual)
+    {
+        if (manual is not { } m || (m.R == 1f && m.G == 1f && m.B == 1f))
+        {
+            return auto;
+        }
+        var a = auto ?? (R: 1f, G: 1f, B: 1f);
+        return (a.R * m.R, a.G * m.G, a.B * m.B);
+    }
+
+    /// <summary>
     /// Computes stretch shader uniforms from stats directly — no <see cref="AstroImageDocument"/> needed.
     /// When <paramref name="whiteBalance"/> is non-null, per-channel stats are scaled by the WB
     /// multipliers before deriving shadows/midtones/rescale, so the shadow clip lands in the
@@ -495,6 +527,14 @@ public sealed class AstroImageDocument : IPreviewSource
     /// adjustment, channels reduced by WB (e.g. B with wb=0.94) would have their post-WB norm
     /// fall below the un-adjusted shadow and clamp to zero, tinting the bg toward the boosted
     /// channels.
+    /// <para>
+    /// <paramref name="shaderWhiteBalance"/> is the triple written to <see cref="StretchUniforms.WhiteBalance"/>
+    /// (the per-channel shader multiply). It defaults to <paramref name="whiteBalance"/>, so a single-WB
+    /// caller is unchanged. Passing a <i>different</i> value decouples the shader multiply from the
+    /// stat scaling: that is how a MANUAL WB slider stays visible even in a per-channel auto-normalised
+    /// stretch (the manual portion multiplies but does not scale the stats, so the curve can't re-absorb
+    /// it), while the AUTO calibration keeps scaling the stats to preserve a neutral background.
+    /// </para>
     /// </summary>
     public static StretchUniforms ComputeStretchUniforms(
         StretchMode mode,
@@ -503,16 +543,24 @@ public sealed class AstroImageDocument : IPreviewSource
         ChannelStretchStats? lumaStats,
         float imageMaxValue,
         (float R, float G, float B)? whiteBalance = null,
-        (float R, float G, float B)? lumaWeights = null)
+        (float R, float G, float B)? lumaWeights = null,
+        (float R, float G, float B)? shaderWhiteBalance = null)
     {
         // Default luma weighting is Rec.709 — matches the previous hardcoded constants
         // and keeps existing callers (no lumaWeights argument) on the same numerical path.
         var weights = lumaWeights ?? LumaWeighting.Rec709.Weights;
 
+        // The shader multiply defaults to the stat-scaling WB, so single-WB callers are unchanged.
+        var shaderWb = shaderWhiteBalance ?? whiteBalance ?? (1f, 1f, 1f);
+
         if (mode is StretchMode.None)
         {
+            // Linear display: there is no stretch curve to carry a WB multiply, so the WB is applied
+            // directly in the None path of the shader / CPU renderer from this uniform. A neutral shaderWb
+            // leaves the previous default-(1,1,1) behaviour identical. This is what lets a manual WB slider
+            // (or auto calibration) act on a SER, which opens in linear mode (StretchMode.None).
             return new StretchUniforms(StretchMode.None, 1f, default, default, default, default, default)
-            { LumaWeights = weights };
+            { LumaWeights = weights, WhiteBalance = shaderWb };
         }
 
         var normFactor = imageMaxValue > 1.0f + float.Epsilon ? 1f / imageMaxValue : 1f;
@@ -554,7 +602,7 @@ public sealed class AstroImageDocument : IPreviewSource
                 Highlights: ((float)lp0.Highlights, (float)lp1.Highlights, (float)lp2.Highlights),
                 Rescale: ((float)lp0.Rescale, (float)lp1.Rescale, (float)lp2.Rescale))
             {
-                WhiteBalance = wb,
+                WhiteBalance = shaderWb,
                 LumaWeights = weights,
                 LumaStretch = ((float)s, (float)m, (float)r),
             };
@@ -587,7 +635,7 @@ public sealed class AstroImageDocument : IPreviewSource
             Midtones: ((float)p0.Midtones, (float)p1.Midtones, (float)p2.Midtones),
             Highlights: ((float)p0.Highlights, (float)p1.Highlights, (float)p2.Highlights),
             Rescale: ((float)p0.Rescale, (float)p1.Rescale, (float)p2.Rescale))
-        { WhiteBalance = wb, LumaWeights = weights };
+        { WhiteBalance = shaderWb, LumaWeights = weights };
     }
 
     /// <summary>

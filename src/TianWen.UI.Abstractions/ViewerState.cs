@@ -85,6 +85,20 @@ public sealed class ViewerState
     /// written — no pixel work, no extra shader uniform. 1.0 = full effect.</summary>
     public float BackgroundNeutralizationStrength { get; set; } = 1f;
 
+    /// <summary>Manual per-channel white-balance multipliers. (1,1,1) = neutral. Applied <i>on top of</i>
+    /// any auto color calibration (Tycho-2 / SPCC): the renderer composes this with
+    /// <see cref="AstroImageDocument.ColorCalibration"/> when computing the stretch uniforms, so the auto
+    /// WB stays in effect and these sliders nudge it. Lives on the shared <see cref="ViewerState"/>, so the
+    /// adjustment applies to any colour source (FITS / TIFF / SER) and the GUI viewer tab inherits it too.
+    /// Recompute is cheap (uniforms from cached stats, no pixel pass), so only <see cref="NeedsRedraw"/> is
+    /// set on change — never <see cref="NeedsTextureUpdate"/>.</summary>
+    public (float R, float G, float B) ManualWhiteBalance { get; set; } = (1f, 1f, 1f);
+
+    /// <summary>Channel (0=R, 1=G, 2=B) of the WB slider currently being dragged, or -1 when idle. Mirrors
+    /// the <see cref="IsScrubbing"/> transport-drag pattern: a press begins the drag, mouse-move tracks it,
+    /// release clears it.</summary>
+    public int WhiteBalanceDragChannel { get; set; } = -1;
+
     /// <summary>Whether detected star circles are visible.</summary>
     public bool ShowStarOverlay { get; set; }
 

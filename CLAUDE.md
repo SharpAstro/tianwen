@@ -552,6 +552,19 @@ are in the same coordinate space. `ConvergeStretchFactor` takes a `whiteBalance`
 operates entirely in post-WB space (median, mad, binNorm all multiplied) so the converged
 stretchFactor matches the per-channel rendering.
 
+**Two WB facts the viewer's manual WB sliders depend on (don't regress):** (1) The stat scaling only
+makes sense for the AUTO calibration (`ColorCalibration`) — its whole job is to keep the background
+neutral. A MANUAL WB multiplier that ALSO scaled the stats would be cancelled by a per-channel
+auto-normalised stretch (Unlinked / linear), so the producer takes a separate `shaderWhiteBalance`
+(= auto × manual) that goes to `StretchUniforms.WhiteBalance` while only the auto WB scales the stats.
+A neutral manual triple leaves `shaderWhiteBalance == whiteBalance`, so the auto-only path is
+bit-identical. (2) **WB is applied in the `StretchMode.None` (linear) path** in the GLSL `else`
+branch + the CPU `RenderStretchedRgba`/`RenderStretchedRgba16` + `ConsoleImageRenderer` None branches.
+This is load-bearing: a SER opens in linear mode (`ViewerController`), and the old None path was a
+pure passthrough that ignored `WhiteBalance` — so WB (manual OR auto Calibrate/SPCC) did nothing
+until a non-linear stretch was toggled on. The mono None path stays a straight passthrough (WB is
+meaningless for one channel), mirroring the GLSL mono branch.
+
 Luma weights live in `StretchUniforms.LumaWeights` (Rec.709 / Rec.601 / Rec.2020 / SensorMatched
 via the `LumaWeighting` enum, default Rec.709). The CPU `StretchLumaPixelCpu`, GLSL Luma branch,
 and `StretchUniforms.ComputePostStretchBackground` all read from the uniform — never hardcode
