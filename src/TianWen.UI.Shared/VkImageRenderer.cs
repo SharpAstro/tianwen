@@ -53,7 +53,28 @@ public sealed class VkImageRenderer : ImageRendererBase<VulkanContext>, IDisposa
 
     public override void UploadHistogramData(IPreviewSource source)
     {
-        _histogramDisplay = new HistogramDisplay(source.ChannelStatistics);
+        var stats = source.ChannelStatistics;
+        var channels = Math.Min(stats.Length, 3);
+        var rawBins = channels > 0 ? stats[0].Histogram.Length : 0;
+
+        // Recycle to avoid per-frame GC pressure: only (re)allocate when the geometry changes (a new
+        // file with different channel/bin counts). For a multi-frame sequence, refresh the existing
+        // display's raw bins IN PLACE from the current frame so the histogram tracks playback while the
+        // cached stretch stats stay fixed -- per-frame-accurate, zero allocation. A still image keeps
+        // its frame-0 bins (re-binning the same pixels would be wasted work).
+        if (_histogramDisplay is null || _histogramDisplay.ChannelCount != channels || _histogramDisplay.RawBinCount != rawBins)
+        {
+            _histogramDisplay = new HistogramDisplay(stats);
+        }
+        else if (source.FrameCount > 1)
+        {
+            var n = Math.Min(_histogramDisplay.ChannelCount, source.ChannelCount);
+            for (var c = 0; c < n; c++)
+            {
+                _histogramDisplay.UpdateRawBins(c, source.GetChannelData(c));
+            }
+        }
+
         _histogramLastStretchMode = null; // force re-upload on next render
     }
 

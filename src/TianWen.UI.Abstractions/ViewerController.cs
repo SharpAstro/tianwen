@@ -37,6 +37,14 @@ public sealed class ViewerController(
     // Disposed in ReleaseCompletedTasks (post-frame, UI thread) so no in-flight render still reads it.
     private IDisposable? _pendingDisposeSource;
 
+    // Sequence playback (SER). The player is touched ONLY on the render thread (TickPlayback /
+    // IsPlaybackActive, both called from OnRender / CheckNeedsRedraw) -- it rebinds itself when Source
+    // changes, so the background load thread never races it. The clock is monotonic elapsed-seconds for
+    // wall-clock frame advance (animation timing, not a display clock).
+    private readonly SequencePlayer _player = new SequencePlayer();
+    private readonly System.Diagnostics.Stopwatch _playbackClock = System.Diagnostics.Stopwatch.StartNew();
+    private IPreviewSource? _playerBoundSource;
+
     /// <summary>
     /// The currently loaded document, or null when the active source is not a document (e.g. a SER
     /// sequence). Still-only features (plate solve, star detection) operate on this.
@@ -132,7 +140,14 @@ public sealed class ViewerController(
                     state.FrameCount = serSource.FrameCount;
                     state.FrameIndex = 0;
                     state.IsPlaying = serSource.FrameCount > 1;
-                    state.PlaybackFps = serSource.FramesPerSecond is { } fps and > 0 ? (float)fps : 30f;
+                    // Default to a comfortable review rate, NOT the file's native capture rate: planetary
+                    // lucky-imaging runs at hundreds of fps (unviewable as playback, and it would race
+                    // through the whole memory-mapped file, ballooning the working set). Cap at 30; the
+                    // user raises it with Up / the transport. Native fps is still available via the file.
+                    state.PlaybackFps = serSource.FramesPerSecond is { } fps and > 0 ? Math.Clamp((float)fps, 1f, 30f) : 30f;
+                    // Nominal capture rate, shown in the transport as info (often hundreds of fps for
+                    // planetary lucky-imaging -- unviewable, hence the display cap above).
+                    state.SourceFps = serSource.FramesPerSecond is { } srcFps and > 0 ? (float)srcFps : null;
                     // Planetary SER is a bright disk on a near-black sky. The deep-sky MTF auto-stretch
                     // (Unlinked/Linked/Luma map the median to ~0.25) over-amplifies that dark background
                     // into colour speckle and blows the disk to white -- stable on some frames, runaway
@@ -187,6 +202,7 @@ public sealed class ViewerController(
                 state.IsPlaying = false;
                 state.FrameCount = 1;
                 state.FrameIndex = 0;
+                state.SourceFps = null;
                 StashForDispose(previousSource);
                 state.NeedsTextureUpdate = true;
                 state.CursorImagePosition = null;
@@ -299,6 +315,39 @@ public sealed class ViewerController(
     }
 
     /// <summary>
+    /// Advances SER sequence playback by one tick. Call from the render loop's <c>CheckNeedsRedraw</c>
+    /// (it runs every loop iteration, including idle WaitEvent polls -- which is how playback stays paced
+    /// without busy-spinning). All frame decode happens off the render thread; this only polls for a
+    /// finished decode and kicks the next one ahead. Returns true when the loop should render this tick
+    /// (a frame was published, or a seek is still resolving). Steady playback between frames returns
+    /// false so the loop idles and the GPU/disk go quiet. No-op (false) for a still image.
+    /// </summary>
+    public bool TickPlayback()
+    {
+        var src = Source;
+        if (!ReferenceEquals(src, _playerBoundSource))
+        {
+            // Source changed (new SER opened, or cleared) -- reset playback timing. Done here on the
+            // render thread, never on the background load thread, so the player is single-threaded.
+            _player.Reset();
+            _playerBoundSource = src;
+        }
+
+        if (src is not ISequencePlaybackSource seq || !state.IsSequence)
+        {
+            return false;
+        }
+
+        var published = _player.Tick(seq, state, _playbackClock.Elapsed.TotalSeconds);
+        if (published)
+        {
+            state.NeedsTextureUpdate = true;
+        }
+
+        return published || _player.SeekPending;
+    }
+
+    /// <summary>
     /// Called from OnPostFrame to release completed task closures so captured documents can be GC'd.
     /// </summary>
     public void ReleaseCompletedTasks()
@@ -310,6 +359,14 @@ public sealed class ViewerController(
         // Dispose a source replaced by a newer load, post-frame, so no render still references it.
         if (_pendingDisposeSource is { } stale)
         {
+            // Never release a SER reader's memory-mapped file while a background decode is still reading
+            // it (use-after-free). The player has already rebound away from this stale source, so its
+            // in-flight decode just runs to completion; retry next frame (sub-ms, clears almost at once).
+            if (stale is ISequencePlaybackSource { IsDecoding: true })
+            {
+                return;
+            }
+
             _pendingDisposeSource = null;
             stale.Dispose();
         }

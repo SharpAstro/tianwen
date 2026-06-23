@@ -151,8 +151,28 @@ public sealed class ViewerState
     /// <summary>Whether sequence playback is running.</summary>
     public bool IsPlaying { get; set; }
 
-    /// <summary>Playback rate in frames per second.</summary>
+    /// <summary>Display/playback rate in frames per second -- the rate frames are actually shown at,
+    /// capped to a viewable value (the screen can't show hundreds of fps). User-adjustable.</summary>
     public float PlaybackFps { get; set; } = 30f;
+
+    /// <summary>The source's nominal (capture) frame rate from its timestamps, shown in the transport as
+    /// info; null when unknown / not a sequence. Distinct from <see cref="PlaybackFps"/>: a planetary
+    /// capture's nominal rate is often hundreds of fps, far above any viewable display rate.</summary>
+    public float? SourceFps { get; set; }
+
+    /// <summary>
+    /// A one-shot seek request (scrub / step / Home / End). Set by the UI; consumed once by
+    /// <see cref="SequencePlayer.Tick"/>, which decodes the target off the render thread. Nullable so a
+    /// request and "frame 0" are distinguishable. Decoupling via this field keeps the renderer / input
+    /// handlers from reaching into the player's timing state.
+    /// </summary>
+    public int? RequestedFrame { get; set; }
+
+    /// <summary>True while the user is dragging the transport scrub handle.</summary>
+    public bool IsScrubbing { get; set; }
+
+    /// <summary>Selectable playback rates (fps) cycled by the transport speed control / Up-Down keys.</summary>
+    public static readonly float[] PlaybackRates = [1f, 5f, 10f, 15f, 24f, 30f, 50f, 75f, 100f, 150f, 200f];
 
     // --- File list sidebar ---
 

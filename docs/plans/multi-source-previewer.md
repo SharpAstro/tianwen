@@ -70,7 +70,7 @@ mode, manual WB) lights up in the GUI viewer tab too.
 | 2 | `IPreviewSource` + make `AstroImageDocument` implement it; migrate `ImageRendererBase`/`ViewerController` (FITS/TIFF unchanged) | **DONE** |
 | 3 | `SerPreviewSource` + `.ser` open + auto-switch; `SupportedExtensions`/filters += `.ser` (OS `FileAssociationRegistrar` left FITS-only, as it is for TIFF/CR2/CR3) | **DONE** |
 | 3.5 | HDD-validation hardening: linear-default stretch for SER; lazy trailer in `SerReader` (no end-of-file seek per open); cancel + supersede in-flight loads (off-thread, never block the render thread) | **DONE** |
-| 4 | Playback + transport bar (cheap per-frame upload reusing fixed uniforms) | NOT STARTED |
+| 4 | Playback + transport bar. **Off-thread, frame-paced** decode-ahead: `ISequencePlaybackSource` + double-buffered `SerPreviewSource` (background decode into a back buffer, render-thread swap on publish); `SequencePlayer` decodes the next frame ahead during the inter-frame gap and publishes only when due, so `CheckNeedsRedraw` returns true only on a frame change -> the loop idles between frames (low GPU, mirroring the standalone). Display fps capped at 30 (the file's **nominal** capture fps is shown in the readout); per-frame histogram **recycled in place** (no per-frame alloc, tracks the current frame); transport bar = play/pause + scrub + frame/timestamp/nominal-fps readout; keys Space/Tab (play/pause), Left/Right (step), Home/End, Up/Down (speed). | **DONE** |
 | 5 | Port Malvar-He-Cutler debayer into `VkFitsImagePipeline` (selectable; bilinear stays as fallback) | NOT STARTED |
 | 6 | Manual R/G/B WB sliders → `ComputeStretchUniforms` → GPU `WhiteBalance` (shared across formats) | NOT STARTED |
 | 7 | Remove the standalone `SER.Viewer` from `SER.Lib` (library + tests only) | NOT STARTED |
@@ -92,10 +92,12 @@ mode, manual WB) lights up in the GUI viewer tab too.
   kept seek-agnostic to allow this later.
 - `SerFrameSource : IFrameSource` for the stacking pipeline (closes the `stacking.md` SER deferral).
 - SER export/writer UI; CYGM Bayer families (TianWen models only RGGB) fall back to mono.
-- **SER.Lib release dependency**: the Phase-3.5 lazy-trailer change lives in the `SER.Lib` sibling. It
-  is active locally via ProjectReference (`UseLocalSiblings`), but a TianWen binary release must first
-  publish `SER.Lib` + repin `Directory.Packages.props`. The public API is unchanged, so CI builds fine
-  against the currently published `SER.Lib` until then — it just won't have the lazy behaviour yet.
-- **No blocking I/O on the render thread** (standing review check): all `.ser` disk access (header, frame
-  decode, lazy fps/timestamp trailer) must stay on the `Task.Run` load thread; the render thread reads
-  only managed buffers. Phase 4 playback must decode-ahead, never `SelectFrame` inline in `OnRender`.
+- **SER.Lib release dependency**: the Phase-3.5 lazy-trailer change shipped in `SER.Lib` (PR #1, merged +
+  published). TianWen pins `SER.Lib` as floating `1.0.*` in `Directory.Packages.props`, so a restore
+  auto-resolves to it — no manual repin needed. The public API is unchanged; Phase 4 is purely
+  TianWen-side (no further `SER.Lib` change).
+- **No blocking I/O on the render thread** (standing review check, **upheld in Phase 4**): all `.ser` disk
+  access (header, frame decode, lazy fps/timestamp trailer) stays off the render thread. The trailer is
+  materialised once at open (off-thread) and cached as managed `SerPreviewSource` fields; per-frame decode
+  runs on a background `Task` into a back buffer (`TryStartDecode`); the render thread only swaps the
+  finished buffer in (`TryPublishDecoded`) and uploads it. Never `SelectFrame` inline in `OnRender`.
