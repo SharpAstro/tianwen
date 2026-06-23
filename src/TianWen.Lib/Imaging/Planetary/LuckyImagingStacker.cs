@@ -137,7 +137,11 @@ public sealed class LuckyImagingStacker
 
         var flux = Image.CreateChannelData(3, canvasH, canvasW);
         var weight = Image.CreateChannelData(3, canvasH, canvasW);
-        var halfP = drizzle.Pixfrac * 0.5f;
+        // Drop half-extent in OUTPUT pixels. The drop is pixfrac of an INPUT pixel, which is `scale` output
+        // pixels wide -- so the output-space half-extent is pixfrac*scale/2. (The deep-sky DrizzleKernel
+        // hardcodes pixfrac/2 because it only runs at scale=1; at scale>1 that under-sizes the drop and
+        // leaves periodic gaps between drops -- a visible dot-grid pattern.)
+        var halfP = drizzle.Pixfrac * scale * 0.5f;
         var pattern = ctx.MasterMeta.SensorType.GetBayerPatternMatrix(ctx.MasterMeta.BayerOffsetX, ctx.MasterMeta.BayerOffsetY);
 
         var used = 0;
