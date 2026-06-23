@@ -62,15 +62,17 @@ public static class ViewerActions
         state.StatusMessage = $"Channel: {state.ChannelView}";
     }
 
-    private const int DebayerAlgorithmCount = 4; // None, BilinearMono, VNG, AHD
+    private const int DebayerAlgorithmCount = 5; // None, BilinearMono, VNG, AHD, MHC (contiguous enum values)
 
     public static void CycleDebayerAlgorithm(ViewerState state, bool reverse = false)
     {
         var idx = (int)state.DebayerAlgorithm;
         idx = (idx + (reverse ? DebayerAlgorithmCount - 1 : 1)) % DebayerAlgorithmCount;
         state.DebayerAlgorithm = (DebayerAlgorithm)idx;
-        state.NeedsRedraw = true;
-        state.StatusMessage = $"Debayer (next load): {state.DebayerAlgorithm.DisplayName}";
+        // RawBayer (SER / raw Bayer FITS) re-derives the GPU demosaic mode in UploadDocumentTextures,
+        // so the bilinear<->MHC switch is live (a CPU-debayered colour FITS is unaffected).
+        state.NeedsTextureUpdate = true;
+        state.StatusMessage = $"Debayer: {state.DebayerAlgorithm.DisplayName}";
     }
 
     public static void CycleCurvesBoost(ViewerState state, bool reverse = false)

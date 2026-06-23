@@ -98,6 +98,27 @@ namespace TianWen.UI.Abstractions
         /// <summary>Bayer pattern Y offset (0 or 1).</summary>
         public int BayerOffsetY { get; set; }
 
+        /// <summary>In-shader Bayer demosaic for the RawBayer path: 0 = bilinear, 1 = MHC.
+        /// Derived from <see cref="ViewerState.DebayerAlgorithm"/> via <see cref="GpuDebayerMode"/>
+        /// and refreshed in <see cref="UploadDocumentTextures"/>.</summary>
+        public int RawBayerDebayerMode { get; set; } = 1;
+
+        /// <summary>Maps a <see cref="DebayerAlgorithm"/> to the GPU live-demosaic mode written into
+        /// <c>stretchBlend.z</c> for the RawBayer shader path: <c>0</c> = bilinear colour, <c>1</c> = MHC colour,
+        /// <c>2</c> = raw mosaic (no demosaic, grey CFA pattern), <c>3</c> = monochrome. Each menu entry behaves
+        /// as its name implies: <see cref="DebayerAlgorithm.None"/> shows the raw pattern,
+        /// <see cref="DebayerAlgorithm.BilinearMono"/> is greyscale, <see cref="DebayerAlgorithm.VNG"/> is the
+        /// simple colour demosaic, and <see cref="DebayerAlgorithm.AHD"/>/<see cref="DebayerAlgorithm.MHC"/> both
+        /// use MHC (the GPU's best gradient-corrected colour demosaic; AHD has no GPU implementation). The default
+        /// <see cref="DebayerAlgorithm.AHD"/> therefore gives MHC colour, matching the standalone SER viewer.</summary>
+        public static int GpuDebayerMode(DebayerAlgorithm algorithm) => algorithm switch
+        {
+            DebayerAlgorithm.None => 2,         // raw mosaic, no demosaic
+            DebayerAlgorithm.BilinearMono => 3, // monochrome
+            DebayerAlgorithm.VNG => 0,          // bilinear colour (no GPU VNG)
+            _ => 1,                             // MHC colour (AHD falls back to MHC)
+        };
+
         /// <summary>DPI scale factor. Set from framebuffer size / window size ratio.</summary>
         public float DpiScale { get; set; } = 1f;
 
@@ -443,7 +464,7 @@ namespace TianWen.UI.Abstractions
             var pixelWidth = source.Width;
             var pixelHeight = source.Height;
 
-            // Raw Bayer: upload single channel, GPU shader does bilinear debayer
+            // Raw Bayer: upload single channel, GPU shader debayers (bilinear or MHC per DebayerAlgorithm)
             if (source.SensorType is TianWen.Lib.Imaging.SensorType.RGGB && source.ChannelCount == 1
                 && state.ChannelView is ChannelView.Composite)
             {
@@ -451,6 +472,7 @@ namespace TianWen.UI.Abstractions
                 ImageSourceMode = 2; // RawBayer
                 BayerOffsetX = source.BayerOffsetX;
                 BayerOffsetY = source.BayerOffsetY;
+                RawBayerDebayerMode = GpuDebayerMode(state.DebayerAlgorithm);
                 UploadChannelTexture(source.GetChannelData(0), 0, pixelWidth, pixelHeight);
             }
             else if (state.ChannelView is ChannelView.Composite && source.ChannelCount >= 3)
@@ -751,11 +773,12 @@ namespace TianWen.UI.Abstractions
         private static readonly ImmutableArray<string> ChannelViewLabels = BuildLabels(
             ChannelViewOrder, v => v switch { ChannelView.Composite => "RGB", _ => v.ToString() });
 
-        /// <summary>Debayer-algorithm selector — all 4 algorithms always shown.
-        /// Order matches the <see cref="DebayerAlgorithm"/> enum so the click
-        /// handler can cast `idx` directly.</summary>
+        /// <summary>Debayer-algorithm selector — all algorithms always shown. The click handler
+        /// indexes this array directly, so the order is independent of the enum's numeric values.
+        /// MHC sits next to the other Bayer-to-RGB algorithms; for the GPU live (RawBayer) path it
+        /// and VNG/AHD all resolve to the shader's MHC demosaic (see <see cref="GpuDebayerMode"/>).</summary>
         private static readonly DebayerAlgorithm[] DebayerAlgorithmOrder =
-            [DebayerAlgorithm.None, DebayerAlgorithm.BilinearMono, DebayerAlgorithm.VNG, DebayerAlgorithm.AHD];
+            [DebayerAlgorithm.None, DebayerAlgorithm.BilinearMono, DebayerAlgorithm.MHC, DebayerAlgorithm.VNG, DebayerAlgorithm.AHD];
 
         private static readonly ImmutableArray<string> DebayerLabels = BuildLabels(
             DebayerAlgorithmOrder, a => a.DisplayName);
@@ -831,7 +854,7 @@ namespace TianWen.UI.Abstractions
                             state.StatusMessage = $"Stretch: {state.StretchMode}";
                             state.NeedsRedraw = true;
                         }
-                    });
+                    }, Array.IndexOf(ViewerActions.StretchLinkModes, state.StretchMode));
                     return true;
 
                 case ToolbarAction.Channel:
@@ -843,7 +866,7 @@ namespace TianWen.UI.Abstractions
                             state.NeedsTextureUpdate = true;
                             state.StatusMessage = $"Channel: {state.ChannelView}";
                         }
-                    });
+                    }, Array.IndexOf(ChannelViewOrder, state.ChannelView));
                     return true;
 
                 case ToolbarAction.Debayer:
@@ -852,10 +875,13 @@ namespace TianWen.UI.Abstractions
                         if ((uint)idx < (uint)DebayerAlgorithmOrder.Length)
                         {
                             state.DebayerAlgorithm = DebayerAlgorithmOrder[idx];
-                            state.NeedsRedraw = true;
-                            state.StatusMessage = $"Debayer (next load): {state.DebayerAlgorithm.DisplayName}";
+                            // RawBayer (SER / raw Bayer FITS) re-derives the GPU demosaic mode in
+                            // UploadDocumentTextures, so the bilinear<->MHC switch is live; a CPU-debayered
+                            // colour FITS is unaffected (it was demosaiced at load).
+                            state.NeedsTextureUpdate = true;
+                            state.StatusMessage = $"Debayer: {state.DebayerAlgorithm.DisplayName}";
                         }
-                    });
+                    }, Array.IndexOf(DebayerAlgorithmOrder, state.DebayerAlgorithm));
                     return true;
 
                 case ToolbarAction.StretchParams:
@@ -869,7 +895,7 @@ namespace TianWen.UI.Abstractions
                             state.NeedsRedraw = true;
                             state.StatusMessage = $"Stretch: {state.StretchParameters}";
                         }
-                    });
+                    }, state.StretchPresetIndex);
                     return true;
 
                 case ToolbarAction.CurvesBoost:
@@ -883,7 +909,7 @@ namespace TianWen.UI.Abstractions
                             state.NeedsRedraw = true;
                             state.StatusMessage = state.CurvesBoost > 0f ? $"Curves Boost: {state.CurvesBoost:P0}" : "Curves Boost: Off";
                         }
-                    });
+                    }, state.CurvesBoostIndex);
                     return true;
 
                 case ToolbarAction.Hdr:
@@ -900,7 +926,7 @@ namespace TianWen.UI.Abstractions
                                 ? $"HDR: {presets[idx].Amount:F1} (knee {presets[idx].Knee:F2})"
                                 : "HDR: Off";
                         }
-                    });
+                    }, state.HdrPresetIndex);
                     return true;
 
                 case ToolbarAction.BackgroundNeutralize:
@@ -944,7 +970,7 @@ namespace TianWen.UI.Abstractions
             }
         }
 
-        private void OpenDropdown(ViewerState state, RectF32 bounds, ImmutableArray<string> labels, Action<int, string> onSelect)
+        private void OpenDropdown(ViewerState state, RectF32 bounds, ImmutableArray<string> labels, Action<int, string> onSelect, int selectedIndex = -1)
         {
             // Width = max(button width, widest label + horizontal padding).
             // RenderDropdownMenu draws each label with 0.5*fontSize padding per
@@ -965,12 +991,18 @@ namespace TianWen.UI.Abstractions
                 width,
                 labels,
                 onSelect);
+            // Mark the current selection so the menu shows the active item on open
+            // (RenderDropdownMenu highlights HighlightIndex; Open resets it to -1).
+            state.ToolbarDropdown.HighlightIndex = selectedIndex;
             state.NeedsRedraw = true;
         }
 
         private bool IsToolbarButtonEnabled(ToolbarAction action, AstroImageDocument? document) => action switch
         {
-            ToolbarAction.Debayer => document?.UnstretchedImage.ImageMeta.SensorType is SensorType.RGGB,
+            // Gate on the active source's sensor type, not on AstroImageDocument -- a SER is a
+            // SerPreviewSource (document == null) but is a raw RGGB Bayer source the GPU debayers,
+            // so the demosaic selector must stay enabled for it too.
+            ToolbarAction.Debayer => _source?.SensorType is SensorType.RGGB,
             ToolbarAction.Channel => document is not null && document.UnstretchedImage.ChannelCount > 1,
             ToolbarAction.CurvesBoost => document?.Stars is { Count: > 0 },
             ToolbarAction.Hdr => document is not null,
@@ -1001,7 +1033,10 @@ namespace TianWen.UI.Abstractions
             {
                 ToolbarAction.StretchToggle or ToolbarAction.StretchLink or ToolbarAction.StretchParams
                     => state.StretchMode is not StretchMode.None,
-                ToolbarAction.Debayer => document?.DebayerAlgorithm == state.DebayerAlgorithm
+                // Highlight whenever a Bayer source is loaded and a demosaic is selected -- the GPU
+                // applies state.DebayerAlgorithm live (re-derived in UploadDocumentTextures), so it's
+                // never stale against an immutable document.DebayerAlgorithm. Works for SER + Bayer FITS.
+                ToolbarAction.Debayer => _source?.SensorType is SensorType.RGGB
                     && state.DebayerAlgorithm is not DebayerAlgorithm.None,
                 ToolbarAction.CurvesBoost => state.CurvesBoost > 0f,
                 ToolbarAction.Hdr => state.HdrAmount > 0f,

@@ -81,7 +81,7 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
             vec4  curveData[9];        // offset 224  (33 knots packed into 9 vec4s; last 3 floats unused)
             vec4  lumaWeights;         // offset 368  (xyz = R/G/B luma weights, w = pad). Rec.709 default.
             vec4  lumaStretch;         // offset 384  (x = lumaShadow, y = lumaMidtones, z = lumaRescale, w = pad)
-            vec4  stretchBlend;        // offset 400  (x = lumaBlend in [0,1], y = normalizeScale, zw = pad)
+            vec4  stretchBlend;        // offset 400  (x = lumaBlend in [0,1], y = normalizeScale, z = debayerMode 0=bilinear/1=MHC, w = pad)
         } ubo;
 
         layout(set = 1, binding = 0) uniform sampler2D uChannel0;
@@ -235,13 +235,96 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
             return vec3(rr, gg, bb);
         }
 
+        // Clamp-to-edge texel fetch on the raw mosaic. texelFetch does NOT clamp coordinates;
+        // MHC's 5x5 reach would otherwise read 0 outside the image and stain a 2px border.
+        // Mirrors SerImaging.At / Image.AtClamped.
+        float rawAt(ivec2 p) {
+            ivec2 m = ivec2(ubo.imageSize) - ivec2(1, 1);
+            p = clamp(p, ivec2(0, 0), m);
+            return texelFetch(uChannel0, p, 0).r;
+        }
+
+        // Malvar-He-Cutler (2004) gradient-corrected linear demosaic. The exact CPU mirror lives in
+        // Image.DebayerMHCAsync and SharpAstro.Ser SerImaging.DebayerMhc -- same 5x5 kernels, each
+        // summing to 8 (x0.125 = unity gain, no brightness shift). Clamped to [0,1] to match the CPU
+        // display reference. Bilinear-class cost, far fewer edge zipper / false-colour artifacts.
+        vec3 debayerMhc(vec2 uv) {
+            vec2 texSize = ubo.imageSize;
+            vec2 pixCoord = uv * texSize - 0.5;
+            ivec2 px = ivec2(floor(pixCoord));
+            int offX = ubo.bayerPat % 65536;
+            int offY = ubo.bayerPat / 65536;
+            int bx = (px.x + offX) % 2;
+            int by = (px.y + offY) % 2;
+
+            float c  = rawAt(px);
+            float n  = rawAt(px + ivec2( 0,-1));
+            float s  = rawAt(px + ivec2( 0, 1));
+            float e  = rawAt(px + ivec2( 1, 0));
+            float w  = rawAt(px + ivec2(-1, 0));
+            float nn = rawAt(px + ivec2( 0,-2));
+            float ss = rawAt(px + ivec2( 0, 2));
+            float ee = rawAt(px + ivec2( 2, 0));
+            float ww = rawAt(px + ivec2(-2, 0));
+            float ne = rawAt(px + ivec2( 1,-1));
+            float nw = rawAt(px + ivec2(-1,-1));
+            float se = rawAt(px + ivec2( 1, 1));
+            float sw = rawAt(px + ivec2(-1, 1));
+
+            float orthoNear = n + s + e + w;
+            float orthoFar  = nn + ss + ee + ww;
+            float diag      = ne + nw + se + sw;
+
+            // Green at a red/blue site (alpha = 1/2).
+            float gAtRB  = (4.0 * c + 2.0 * orthoNear - orthoFar) * 0.125;
+            // Red at a blue site / blue at a red site (gamma = 3/4); same-colour neighbours are the diagonals.
+            float diagRB = (6.0 * c + 2.0 * diag - 1.5 * orthoFar) * 0.125;
+            // Red/blue at a green site, same-colour neighbours in the same ROW (beta = 5/8).
+            float hG = (5.0 * c + 4.0 * (w + e) - diag + 0.5 * (nn + ss) - (ww + ee)) * 0.125;
+            // Red/blue at a green site, same-colour neighbours in the same COLUMN.
+            float vG = (5.0 * c + 4.0 * (n + s) - diag + 0.5 * (ww + ee) - (nn + ss)) * 0.125;
+
+            float rr, gg, bb;
+            if (bx == 0 && by == 0) {          // red site
+                rr = c;  gg = gAtRB;  bb = diagRB;
+            } else if (bx == 1 && by == 1) {   // blue site
+                bb = c;  gg = gAtRB;  rr = diagRB;
+            } else if (bx == 1 && by == 0) {   // green on a red row: red horizontal, blue vertical
+                gg = c;  rr = hG;  bb = vG;
+            } else {                            // green on a blue row: blue horizontal, red vertical
+                gg = c;  bb = hG;  rr = vG;
+            }
+            return clamp(vec3(rr, gg, bb), 0.0, 1.0);
+        }
+
+        // No demosaic: the raw mosaic value at each pixel, shown as grey -- reveals the CFA checkerboard.
+        float debayerRaw(vec2 uv) {
+            return rawAt(ivec2(floor(uv * ubo.imageSize - 0.5)));
+        }
+
+        // Monochrome debayer: average the 2x2 Bayer quad to one luminance-ish grey value. Mirrors
+        // Image.DebayerBilinearMonoAsync (current + right + down + down-right, /4).
+        float debayerMono(vec2 uv) {
+            ivec2 px = ivec2(floor(uv * ubo.imageSize - 0.5));
+            return (rawAt(px) + rawAt(px + ivec2(1, 0)) + rawAt(px + ivec2(0, 1)) + rawAt(px + ivec2(1, 1))) * 0.25;
+        }
+
         void main() {
             int src = ubo.imgSource;
+            // RawBayer demosaic mode (stretchBlend.z): 0 = bilinear colour, 1 = MHC colour, 2 = raw mosaic, 3 = mono.
+            int dm = (src == 2) ? int(ubo.stretchBlend.z) : -1;
+            // Raw passthrough and mono both yield a single grey value -> route them through the mono stretch
+            // path so they render as true greyscale (the per-channel colour stretch would tint an equal RGB triple).
+            bool rawBayerGrey = (dm == 2 || dm == 3);
             float r, g, b;
 
-            if (src == 2) {
-                vec3 rgb = debayerBilinear(vTexCoord);
+            if (src == 2 && !rawBayerGrey) {
+                // 1 = MHC, else bilinear (fallback). Both produce colour.
+                vec3 rgb = (dm == 1) ? debayerMhc(vTexCoord) : debayerBilinear(vTexCoord);
                 r = rgb.r; g = rgb.g; b = rgb.b;
+            } else if (rawBayerGrey) {
+                r = (dm == 2) ? debayerRaw(vTexCoord) : debayerMono(vTexCoord);
+                g = r; b = r;
             } else if (src == 1 || ubo.channelCount < 3) {
                 r = texture(uChannel0, vTexCoord).r;
                 g = r; b = r;
@@ -251,8 +334,8 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
                 b = texture(uChannel2, vTexCoord).r;
             }
 
-            // Mono path
-            if (src <= 1 && ubo.channelCount < 3) {
+            // Mono path (also covers the RawBayer raw / mono greyscale modes)
+            if ((src <= 1 && ubo.channelCount < 3) || rawBayerGrey) {
                 if (ubo.stretchMode >= 1) {
                     r = stretchChannel(r, 0);
                 }
@@ -684,7 +767,8 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
         (float R, float G, float B) lumaWeights = default,
         (float Shadow, float Midtones, float Rescale) lumaStretch = default,
         float lumaBlend = 1f,
-        float normalizeScale = 1f)
+        float normalizeScale = 1f,
+        int debayerMode = 1)
     {
         var p = _stretchUboMapped;
 
@@ -803,10 +887,11 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
         WriteFloat(p, 392, lumaStretch.Rescale);
         WriteFloat(p, 396, 0f);
 
-        // stretchBlend (vec4 at offset 400) -- (lumaBlend, normalizeScale, pad, pad)
+        // stretchBlend (vec4 at offset 400) -- (lumaBlend, normalizeScale, debayerMode, pad).
+        // debayerMode (z) selects the in-shader Bayer demosaic for the RawBayer path: 1 = MHC, else bilinear.
         WriteFloat(p, 400, lumaBlend);
         WriteFloat(p, 404, normalizeScale);
-        WriteFloat(p, 408, 0f);
+        WriteFloat(p, 408, debayerMode);
         WriteFloat(p, 412, 0f);
     }
 

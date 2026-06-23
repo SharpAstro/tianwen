@@ -162,7 +162,8 @@ public sealed class VkViewerTab : ImageRendererBase<VulkanContext>, IDisposable
             lumaWeights: (stretch.LumaWeights.R, stretch.LumaWeights.G, stretch.LumaWeights.B),
             lumaStretch: (stretch.LumaStretch.Shadow, stretch.LumaStretch.Midtones, stretch.LumaStretch.Rescale),
             lumaBlend: stretch.LumaBlend,
-            normalizeScale: stretch.NormalizeScale);
+            normalizeScale: stretch.NormalizeScale,
+            debayerMode: RawBayerDebayerMode);
 
         _fitsPipeline.RecordImageDraw(
             cmd,
