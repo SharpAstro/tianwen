@@ -334,13 +334,13 @@ source touches `TianWen.UI.Abstractions`; the CLI touches `TianWen.Cli`. End-to-
 to a sharpened master" ships at **Phase 6** (global + AP + stack + wavelets); derotation and live
 follow.
 
-**Status (2026-06-23):** Phases 1-6 are **implemented + unit-tested** on branch
-`feat/planetary-stacking` (the AP-mesh core; 78 tests). A SER stacks end-to-end into a
-sharpened RGB/mono master with feature-driven, per-AP-quality-weighted alignment. The CPU
-engine lives entirely in `TianWen.Lib.Imaging.Planetary` + `TianWen.Lib.Stat`. Not yet wired
-to a CLI/live UI, not yet validated on a real on-sky SER, and Phase 6's optional drizzle path
-is deferred (the integrator uses the quality-weighted mean; `DrizzleKernel` reuse is a follow-up).
-Phases 7-13 are not started.
+**Status (2026-06-23):** Phases 1-7 are **implemented + unit-tested** on branch
+`feat/planetary-stacking` (the AP-mesh core + wavelet sharpen; 86 tests). A SER stacks end-to-end
+into a wavelet-sharpened RGB/mono master with feature-driven, per-AP-quality-weighted alignment. The
+CPU engine lives entirely in `TianWen.Lib.Imaging` (`WaveletSharpen`/`ATrousWaveletTransform`) +
+`TianWen.Lib.Imaging.Planetary` + `TianWen.Lib.Stat`. Not yet wired to a CLI/live UI, not yet
+validated on a real on-sky SER, and Phase 6's optional drizzle path is deferred (the integrator uses
+the quality-weighted mean; `DrizzleKernel` reuse is a follow-up). Phases 8-13 are not started.
 
 | Phase | Scope | Depends on | Risk | Status |
 |---|---|---|:--:|:--:|
@@ -350,7 +350,7 @@ Phases 7-13 are not started.
 | 4 | **Global align**: disk-centroid + phase-correlation translate; first end-to-end stack (best-of mean, no AP) on a real SER | 1,2,3 | Medium | DONE |
 | 5 | **Alignment points**: feature-detector AP placement + per-AP local match + `Image.WarpByMeshAsync` (mesh warp); luminance-proxy mesh applied to all CFA sub-planes | 3,4 | High | DONE |
 | 6 | **Planetary integrator**: per-AP quality-weighted best-of stack + tile blend + optional drizzle; **end-to-end milestone** | 4,5 | High | DONE (drizzle deferred) |
-| 7 | **`WaveletSharpen`** (a-trous, per-scale gain/denoise) | 6 | Medium | |
+| 7 | **`WaveletSharpen`** (a-trous, per-scale gain/denoise) | 6 | Medium | DONE |
 | 8 | **CLI**: `tianwen planetary-stack` (or `tianwen stack --planetary`) orchestrator | 6,7 | Low |
 | 9 | **Live**: `RollingWindowStacker` (5-min window) + `LiveStackPreviewSource` push-stream wired into the previewer (GUI + tianwen-fits) | 4,6 | Medium |
 | 10 | **De-rotation 6a** (within-capture): Meeus per-planet CM + disk geometry + spheroid reproject; derotate-to-midpoint before stack | 6 | High |
