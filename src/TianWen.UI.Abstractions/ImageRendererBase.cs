@@ -368,10 +368,11 @@ namespace TianWen.UI.Abstractions
         // the source is monochrome (no WB sliders drawn).
         private readonly RectF32[] _wbTrackRects = new RectF32[3];
 
-        // White-balance slider range. Log-mapped so neutral (1.0) sits at the track midpoint and an equal
-        // gain/cut is symmetric (0.5x left edge <-> 2.0x right edge).
-        private const float WbMin = 0.5f;
-        private const float WbMax = 2.0f;
+        // White-balance slider range (canonical values live on AutoWhiteBalance so the slider extent and the
+        // auto-WB clamp stay in lock-step). Log-mapped so neutral (1.0) sits at the track midpoint and an
+        // equal gain/cut is symmetric (0.5x left edge <-> 2.0x right edge).
+        private const float WbMin = AutoWhiteBalance.MinMultiplier;
+        private const float WbMax = AutoWhiteBalance.MaxMultiplier;
 
         /// <summary>Design-unit thickness of the file-list resize divider (the Split divider IS the grab bar).</summary>
         private const float BaseFileListDividerWidth = 6f;
@@ -2038,16 +2039,34 @@ namespace TianWen.UI.Abstractions
                 y = rowY + rowH;
             }
 
-            // Reset button: self-contained via OnClick (both mouse-down paths run HitTestAndDispatch, and
-            // "ResetWhiteBalance" is not a ToolbarAction so it falls through to the OnClick-already-ran path).
+            // Auto + Reset buttons row: both self-contained via OnClick (both mouse-down paths run
+            // HitTestAndDispatch, and neither label is a ToolbarAction so each falls through to the
+            // OnClick-already-ran path). Auto runs gray-world over the current frame and drops the result
+            // into the sliders -- which then act as the fine-tune.
+            var btnH = FontSize + gap;
+
+            const string autoLabel = "Auto";
+            var autoW = MeasureText(autoLabel, FontSize) + gap * 2f;
+            FillRect(x, y, autoW, btnH, ToolbarButtonBg);
+            DrawText(autoLabel, x + gap, y + gap / 2f, FontSize, ViewerTheme.Palette.BodyText);
+            RegisterClickable(x, y, autoW, btnH, new HitResult.ButtonHit("AutoWhiteBalance"),
+                _ =>
+                {
+                    if (_source is { } src && AutoWhiteBalance.GrayWorld(src) is { } auto)
+                    {
+                        state.ManualWhiteBalance = auto;
+                        state.NeedsRedraw = true;
+                    }
+                });
+
             const string resetLabel = "Reset WB";
             var resetW = MeasureText(resetLabel, FontSize) + gap * 2f;
-            var resetH = FontSize + gap;
-            FillRect(x, y, resetW, resetH, ToolbarButtonBg);
-            DrawText(resetLabel, x + gap, y + gap / 2f, FontSize, ViewerTheme.Palette.BodyText);
-            RegisterClickable(x, y, resetW, resetH, new HitResult.ButtonHit("ResetWhiteBalance"),
+            var resetX = x + autoW + gap;
+            FillRect(resetX, y, resetW, btnH, ToolbarButtonBg);
+            DrawText(resetLabel, resetX + gap, y + gap / 2f, FontSize, ViewerTheme.Palette.BodyText);
+            RegisterClickable(resetX, y, resetW, btnH, new HitResult.ButtonHit("ResetWhiteBalance"),
                 _ => { state.ManualWhiteBalance = (1f, 1f, 1f); state.NeedsRedraw = true; });
-            y += resetH + FontSize;
+            y += btnH + FontSize;
         }
 
         private static float WbValueToFrac(float value)
