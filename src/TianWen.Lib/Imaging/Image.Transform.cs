@@ -469,8 +469,16 @@ public partial class Image
     /// lucky-imaging "different disk regions sharp in different frames" stack. <paramref name="frameLocalQuality"/>
     /// is in this image's coordinates (same dimensions); it is sampled nearest-neighbour (it is already a
     /// smooth, slowly-varying map). Out-of-bounds data samples contribute nothing.
+    /// <para>
+    /// <paramref name="signalConfidence"/> (optional, in OUTPUT coordinates) gates the per-pixel sharpness
+    /// weight: the effective weight is <c>globalWeight * (conf * localQ + (1 - conf))</c>. Where confidence
+    /// is ~1 (the bright disk body) the lucky-imaging best-of weighting applies in full; where it is ~0
+    /// (faint halo / sky) it blends to a uniform weight, so the integrator is an unbiased mean there. This
+    /// stops the local-sharpness weight from amplifying a real-but-subtle halo into a bright ring (it would
+    /// otherwise preferentially pick the frames where the faint region was brightest). Null = no gate.
+    /// </para>
     /// </summary>
-    internal void AccumulateByMeshWeightedInto(float[][,] channelAccum, float[,] weightAccum, Planetary.DisplacementMesh mesh, float[,] frameLocalQuality, float globalWeight)
+    internal void AccumulateByMeshWeightedInto(float[][,] channelAccum, float[,] weightAccum, Planetary.DisplacementMesh mesh, float[,] frameLocalQuality, float globalWeight, float[,]? signalConfidence = null)
     {
         var outH = weightAccum.GetLength(0);
         var outW = weightAccum.GetLength(1);
@@ -507,7 +515,14 @@ public partial class Image
 
                 var qx = Math.Clamp((int)MathF.Round(sx), 0, width - 1);
                 var qy = Math.Clamp((int)MathF.Round(sy), 0, height - 1);
-                var weight = globalWeight * frameLocalQuality[qy, qx];
+                var localQ = frameLocalQuality[qy, qx];
+                // Gate the per-pixel sharpness weight by output-space signal confidence: blend toward a
+                // uniform weight (1) wherever there is little real signal, so faint regions are an unbiased
+                // mean instead of a brightness-biased "best-of" that amplifies the halo.
+                var q = signalConfidence is null
+                    ? localQ
+                    : (signalConfidence[y, x] * localQ) + (1f - signalConfidence[y, x]);
+                var weight = globalWeight * q;
                 if (weight <= 0f)
                 {
                     continue;

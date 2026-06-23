@@ -307,6 +307,47 @@ public class PlanetaryApStackTests
         MeanAbsDiff(weighted, baseDisk, region).ShouldBeLessThan(MeanAbsDiff(equal, baseDisk, region));
     }
 
+    [Fact]
+    public void Signal_gate_makes_a_faint_region_an_unbiased_mean()
+    {
+        // A faint region (signal confidence -> 0) where the "brighter" frame also carries the higher local
+        // quality weight -- exactly the correlation that makes the un-gated best-of mean drift bright.
+        const int n = 16;
+        var bright = Image.FromChannel(Filled(n, 0.3f));
+        var dark = Image.FromChannel(Filled(n, 0.1f));
+        var qBright = Filled(n, 2f);
+        var qDark = Filled(n, 0.5f);
+        var identity = DisplacementMesh.Build(n, n, 0, 0, ReadOnlySpan<AlignmentPointShift>.Empty);
+
+        var ungated = StackCenter(bright, dark, qBright, qDark, identity, conf: null, n);
+        var gated = StackCenter(bright, dark, qBright, qDark, identity, conf: Filled(n, 0f), n);   // faint -> uniform
+        var onDisk = StackCenter(bright, dark, qBright, qDark, identity, conf: Filled(n, 1f), n);  // bright body
+
+        ungated.ShouldBe(0.26f, 0.001f); // (2*0.3 + 0.5*0.1)/2.5 -- biased toward the bright frame
+        gated.ShouldBe(0.20f, 0.001f);   // (0.3 + 0.1)/2 -- the true unbiased mean
+        onDisk.ShouldBe(ungated, 0.001f); // confidence 1 -> gate is a no-op (full best-of on the disk body)
+    }
+
+    [Fact]
+    public void Signal_confidence_is_high_on_the_disk_and_low_in_the_sky()
+    {
+        const int n = 64;
+        var conf = PlanetaryDisk.SignalConfidence(Image.FromChannel(TexturedDisk(n, 32, 32, 22)));
+
+        conf[32, 32].ShouldBeGreaterThan(0.9f); // disk centre
+        conf[2, 2].ShouldBeLessThan(0.1f);       // corner sky
+    }
+
+    private static float StackCenter(Image bright, Image dark, float[,] qB, float[,] qD, DisplacementMesh mesh, float[,]? conf, int n)
+    {
+        var acc = Image.CreateChannelData(1, n, n);
+        var wacc = new float[n, n];
+        bright.AccumulateByMeshWeightedInto(acc, wacc, mesh, qB, 1f, conf);
+        dark.AccumulateByMeshWeightedInto(acc, wacc, mesh, qD, 1f, conf);
+        var c = n / 2;
+        return wacc[c, c] > 0 ? acc[0][c, c] / wacc[c, c] : 0f;
+    }
+
     private static float[,] Filled(int n, float v)
     {
         var a = new float[n, n];
