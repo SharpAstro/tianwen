@@ -33,6 +33,13 @@ public sealed record PlanetaryStackOptions
     /// edge. When false, frames are folded in with their global quality weight only.
     /// </summary>
     public bool PerPointQualityWeighting { get; init; } = true;
+
+    /// <summary>
+    /// Optional multi-scale wavelet sharpening applied to the final linear master (Phase 7). <c>null</c>
+    /// (default) returns the raw integrated master untouched; otherwise the master is sharpened after the
+    /// CFA merge + demosaic, so a split-CFA stack sharpens the demosaiced RGB, not the sub-planes.
+    /// </summary>
+    public WaveletSharpenOptions? Sharpen { get; init; }
 }
 
 /// <summary>

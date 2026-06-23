@@ -50,7 +50,7 @@ public sealed class LuckyImagingStacker
         }
 
         var stacked = Normalize(channelAccum, weightAccum, ctx);
-        var master = await FinalizeAsync(stacked, stream.Layout, cancellationToken).ConfigureAwait(false);
+        var master = await FinalizeAsync(stacked, stream.Layout, options, cancellationToken).ConfigureAwait(false);
         return new PlanetaryStackResult(master, ctx.ReferenceIndex, used, ctx.Grades.Length);
     }
 
@@ -102,7 +102,7 @@ public sealed class LuckyImagingStacker
         }
 
         var stacked = Normalize(channelAccum, weightAccum, ctx);
-        var master = await FinalizeAsync(stacked, stream.Layout, cancellationToken).ConfigureAwait(false);
+        var master = await FinalizeAsync(stacked, stream.Layout, options, cancellationToken).ConfigureAwait(false);
         return new PlanetaryStackResult(master, ctx.ReferenceIndex, used, ctx.Grades.Length);
     }
 
@@ -182,17 +182,28 @@ public sealed class LuckyImagingStacker
 
     /// <summary>
     /// For a split-CFA stack the integrated master is four CFA sub-planes; merge them into a full-resolution
-    /// mosaic and demosaic once (MHC). Mono / RGB masters pass through unchanged.
+    /// mosaic and demosaic once (MHC). Mono / RGB masters pass through unchanged. Phase 7: when
+    /// <see cref="PlanetaryStackOptions.Sharpen"/> is set, the demosaiced linear master is wavelet-sharpened.
     /// </summary>
-    private static async Task<Image> FinalizeAsync(Image stacked, PlanetaryFrameLayout layout, CancellationToken cancellationToken)
+    private static async Task<Image> FinalizeAsync(Image stacked, PlanetaryFrameLayout layout, PlanetaryStackOptions options, CancellationToken cancellationToken)
     {
+        Image master;
         if (layout == PlanetaryFrameLayout.SplitCfa && stacked.ChannelCount == 4)
         {
             var mosaic = stacked.MergeBayerChannels();
-            return await mosaic.DebayerAsync(DebayerAlgorithm.MHC, normalizeToUnit: false, cancellationToken).ConfigureAwait(false);
+            master = await mosaic.DebayerAsync(DebayerAlgorithm.MHC, normalizeToUnit: false, cancellationToken).ConfigureAwait(false);
+        }
+        else
+        {
+            master = stacked;
         }
 
-        return stacked;
+        if (options.Sharpen is { } sharpen)
+        {
+            master = WaveletSharpen.Sharpen(master, sharpen);
+        }
+
+        return master;
     }
 
     private static int NextPowerOfTwo(int value)
