@@ -56,6 +56,33 @@ public sealed record WaveletSharpenOptions
         Gains = [3.5f, 3.0f, 2.2f, 1.6f, 1.2f, 1.0f],
         DenoiseThresholds = [0.005f, 0.0025f, 0f, 0f, 0f, 0f],
     };
+
+    /// <summary>
+    /// A bandpass profile: instead of peaking the finest (noisiest) layer like <see cref="PlanetaryDefault"/>,
+    /// it peaks the MID layers (scales 2-3, the belt / festoon structure band) and holds the finest layer
+    /// down (gain near 1 + a slightly stronger denoise). This is what planetary processors mean by "bandpass
+    /// sharpening" -- an a-trous decomposition IS a bank of frequency bands, and a mid-peaked gain curve is a
+    /// bandpass over them. Cleaner belt edges with less amplified limb / sensor grain than the finest-peaked
+    /// default.
+    /// </summary>
+    public static WaveletSharpenOptions Bandpass { get; } = new()
+    {
+        Gains = [1.2f, 3.0f, 3.4f, 2.4f, 1.5f, 1.0f],
+        DenoiseThresholds = [0.006f, 0.003f, 0f, 0f, 0f, 0f],
+    };
+
+    /// <summary>
+    /// A combined fine + mid boost in a single a-trous pass: lifts both the fine detail band (the
+    /// AutoStakkert-style "sharpen") AND the mid belt-structure band (the bandpass) at once. Because the
+    /// reconstruction is linear, stacking a fine-sharpen and a bandpass is just one gain profile -- order
+    /// does not matter, the two collapse into this single set of gains. The strongest belt-detail recovery
+    /// of the three presets; needs reasonable seeing / frame count or it will pull up noise.
+    /// </summary>
+    public static WaveletSharpenOptions Combo { get; } = new()
+    {
+        Gains = [2.5f, 3.5f, 3.5f, 2.2f, 1.4f, 1.0f],
+        DenoiseThresholds = [0.005f, 0.0025f, 0f, 0f, 0f, 0f],
+    };
 }
 
 /// <summary>

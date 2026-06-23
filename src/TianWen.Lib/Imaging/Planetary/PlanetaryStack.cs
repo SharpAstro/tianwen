@@ -54,8 +54,9 @@ public sealed record PlanetaryStackOptions
     /// Optional Bayer drizzle (Phase 6): forward-scatter each raw CFA sample onto an upscaled output grid
     /// instead of bilinearly mesh-warping and demosaicing. Avoids the interpolation softening that limits
     /// the mesh path, and recovers sub-Bayer resolution when upscaled. <c>null</c> (default) uses the mesh /
-    /// translate integrator. Only meaningful for a Bayer (split-CFA) source; the alignment is whole-disk
-    /// global (no AP mesh) -- drizzle's per-sample sub-pixel diversity is what fills the grid.
+    /// translate integrator. Only meaningful for a Bayer (split-CFA) source. Alignment defaults to the per-AP
+    /// displacement mesh (see <see cref="PlanetaryDrizzleOptions.AlignmentPointMesh"/>) so each raw sample is
+    /// scattered through the local de-warp, not just a whole-disk translation.
     /// </summary>
     public PlanetaryDrizzleOptions? Drizzle { get; init; }
 }
@@ -64,9 +65,12 @@ public sealed record PlanetaryStackOptions
 /// Bayer-drizzle knobs for a planetary stack. <paramref name="Scale"/> is the output grid upscale relative
 /// to the native mosaic (1.0 = same grid, 1.5 / 2.0 = sub-Bayer resolution recovery, matching the classic
 /// "Drizzle1.5"). <paramref name="Pixfrac"/> is the linear drop size in (0, 1]; smaller is sharper but needs
-/// more frames for full coverage.
+/// more frames for full coverage. <paramref name="AlignmentPointMesh"/> (default true) forward-scatters each
+/// raw sample through the per-AP displacement mesh (the same local de-warp the mesh integrator uses) instead
+/// of a single whole-disk translation -- combines drizzle's sub-Bayer resolution with the seeing-distortion
+/// correction; set false for whole-disk-only drizzle (cheaper, A/B baseline).
 /// </summary>
-public sealed record PlanetaryDrizzleOptions(float Scale = 1.5f, float Pixfrac = 1.0f);
+public sealed record PlanetaryDrizzleOptions(float Scale = 1.5f, float Pixfrac = 1.0f, bool AlignmentPointMesh = true);
 
 /// <summary>
 /// The product of a planetary stack: the integrated master plus diagnostics. The master carries the

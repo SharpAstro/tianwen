@@ -114,7 +114,10 @@ public sealed class LuckyImagingStacker
     /// the shared <see cref="DrizzleKernel"/> (each sample lands only in its own R/G/B channel -- no
     /// interpolation, no demosaic), and the per-channel flux divided by coverage. Avoids the bilinear-warp
     /// softening that caps the mesh path and recovers sub-Bayer resolution when <see cref="PlanetaryDrizzleOptions.Scale"/>
-    /// &gt; 1. Alignment is global only; drizzle's per-frame sub-pixel diversity fills each colour grid.
+    /// &gt; 1. By default (<see cref="PlanetaryDrizzleOptions.AlignmentPointMesh"/>) each raw sample is
+    /// forward-scattered through the per-AP displacement mesh, so drizzle gets the same local seeing de-warp
+    /// as the mesh integrator on top of its sub-Bayer resolution; with the mesh off it falls back to a
+    /// whole-disk global translation (drizzle's per-frame sub-pixel diversity still fills each colour grid).
     /// </summary>
     public async Task<PlanetaryStackResult> StackDrizzleAsync(IPlanetaryFrameStream stream, PlanetaryStackOptions? options = null, CancellationToken cancellationToken = default)
     {
@@ -125,7 +128,7 @@ public sealed class LuckyImagingStacker
             throw new InvalidOperationException($"Bayer drizzle requires a Bayer (split-CFA) source; got layout {stream.Layout}.");
         }
 
-        var ctx = await PrepareAsync(stream, options, includeAlignmentPoints: false, cancellationToken).ConfigureAwait(false);
+        var ctx = await PrepareAsync(stream, options, includeAlignmentPoints: drizzle.AlignmentPointMesh, cancellationToken).ConfigureAwait(false);
 
         // ctx.Width/Height are the half-res CFA sub-plane dims; the mosaic (and thus the drizzle canvas) is
         // twice that, scaled by the requested output scale.
@@ -158,16 +161,31 @@ public sealed class LuckyImagingStacker
             {
                 var shift = ctx.Aligner.Estimate(frame, PlanetaryDisk.BoundingBox(frame));
                 var mosaic = frame.MergeBayerChannels();
-                // canvas = (mosaic - mosaicShift) * scale, with mosaicShift = 2 * sub-plane shift (the
-                // aligner works at sub-plane resolution). DrizzleKernel applies p * transform.
-                var transform = Matrix3x2.CreateTranslation((float)(-2.0 * shift.Dx), (float)(-2.0 * shift.Dy))
-                    * Matrix3x2.CreateScale(scale);
+                var sourceRect = new Rectangle(0, 0, mosaic.Width, mosaic.Height);
+                if (ctx.Matcher is { } matcher)
+                {
+                    // AP-mesh drizzle: forward-scatter each raw sample through the per-AP displacement mesh.
+                    // The mesh is built at sub-plane resolution; MeshSourceToCanvas samples it at the
+                    // mosaic pixel's sub-plane position, doubles the offset into mosaic space, and applies
+                    // the output scale -- so drizzle gets the local de-warp, not just a whole-disk shift.
+                    var mesh = matcher.BuildMesh(frame, (float)shift.Dx, (float)shift.Dy, options.MeshNodeSpacing);
+                    DrizzleKernel.IterateAndDeposit(
+                        mosaic, new MeshSourceToCanvas(mesh, scale), pattern, halfP, flux, weight,
+                        xStart: 0, xEnd: canvasW, yStart: 0, yEnd: canvasH,
+                        sourceRect, badPixelMask: default, hasBadPixelMask: false);
+                }
+                else
+                {
+                    // Whole-disk drizzle: canvas = (mosaic - 2 * sub-plane shift) * scale (the aligner works
+                    // at sub-plane resolution). DrizzleKernel applies p * transform.
+                    var transform = Matrix3x2.CreateTranslation((float)(-2.0 * shift.Dx), (float)(-2.0 * shift.Dy))
+                        * Matrix3x2.CreateScale(scale);
+                    DrizzleKernel.IterateAndDeposit(
+                        mosaic, transform, pattern, halfP, flux, weight,
+                        xStart: 0, xEnd: canvasW, yStart: 0, yEnd: canvasH,
+                        sourceRect, badPixelMask: default, hasBadPixelMask: false);
+                }
 
-                DrizzleKernel.IterateAndDeposit(
-                    mosaic, transform, pattern, halfP, flux, weight,
-                    xStart: 0, xEnd: canvasW, yStart: 0, yEnd: canvasH,
-                    new Rectangle(0, 0, mosaic.Width, mosaic.Height),
-                    badPixelMask: default, hasBadPixelMask: false);
                 used++;
             }
             finally
@@ -202,6 +220,23 @@ public sealed class LuckyImagingStacker
         }
 
         return new PlanetaryStackResult(master, ctx.ReferenceIndex, used, ctx.Grades.Length);
+    }
+
+    /// <summary>
+    /// Source(mosaic) -&gt; drizzle-canvas map driven by the per-frame AP displacement mesh. The mesh is
+    /// built at split-CFA sub-plane resolution, so a mosaic pixel (2x the sub-plane grid) samples the mesh
+    /// at half its coordinate and the returned sub-plane offset is doubled into mosaic space. The reference
+    /// mosaic position is <c>mosaic - 2*offset</c> (the mesh offset already folds in the global shift), and
+    /// the canvas position is that scaled by the output <c>scale</c> -- the per-pixel generalisation of the
+    /// whole-disk affine <c>(mosaic - 2*shift) * scale</c>.
+    /// </summary>
+    private readonly struct MeshSourceToCanvas(DisplacementMesh mesh, float scale) : ISourceToCanvas
+    {
+        public Vector2 Map(int xSrc, int ySrc)
+        {
+            var (offX, offY) = mesh.Sample(xSrc * 0.5f, ySrc * 0.5f);
+            return new Vector2((xSrc - (2f * offX)) * scale, (ySrc - (2f * offY)) * scale);
+        }
     }
 
     private sealed record StackContext(
