@@ -371,7 +371,19 @@ profile now matches the true baseline to ~0.001 while keeping disk-body sharpeni
 Still soft vs an AutoStakkert ap439+Drizzle1.5 reference: the remaining gaps are AP count (CLI default 64,
 just a param) and -- the structural ceiling -- the half-res split-CFA resolution vs a full-res 439-AP local
 de-warp, not the sharpen (bandpass/combo presets + AP-mesh drizzle now cover the sharpen + local-de-warp
-levers). The live UI (Phase 9) and Phases 10-13 are not started.
+levers).
+
+**Phase 9 (live) MVP shipped (2026-06-24):** `RollingWindowStacker` (`TianWen.Lib/Imaging/Planetary/`) +
+`LiveStackPreviewSource` (`TianWen.UI.Abstractions/`) + a RAW/STACK toggle (transport-bar button + `K`) in
+`tianwen-fits` (and the GUI viewer tab, via the shared `ViewerState`/`ImageRendererBase`). It is the
+**follow-the-playhead** variant: the raw `SerPreviewSource` stays the playback driver, and the live stack
+shows the quality-weighted global-aligned mean of the time-bounded window ending at the current frame,
+re-folding on the fly (O(pixels) add/evict, full rebuild on backward jump / reference age-out). Global
+align only (full AP stays the batch path, per non-goal #1). Demosaic-once and normalise reuse the shared
+`PlanetaryMaster` helper, so the live and batch masters can never drift. Verified end-to-end in
+`tianwen-fits` on a real RGGB SER + a 40-frame mono SER (toggle denoises the disk, no crash). Not yet done:
+wavelet-sharpen on the live master (hook present, default off), the independent "EAA free-run" stack mode,
+and Phases 10-13.
 
 | Phase | Scope | Depends on | Risk | Status |
 |---|---|---|:--:|:--:|
@@ -383,7 +395,7 @@ levers). The live UI (Phase 9) and Phases 10-13 are not started.
 | 6 | **Planetary integrator**: per-AP quality-weighted best-of stack + tile blend + optional drizzle; **end-to-end milestone** | 4,5 | High | DONE |
 | 7 | **`WaveletSharpen`** (a-trous, per-scale gain/denoise) | 6 | Medium | DONE |
 | 8 | **CLI**: `tianwen planetary-stack` (or `tianwen stack --planetary`) orchestrator | 6,7 | Low | DONE |
-| 9 | **Live**: `RollingWindowStacker` (5-min window) + `LiveStackPreviewSource` push-stream wired into the previewer (GUI + tianwen-fits) | 4,6 | Medium |
+| 9 | **Live**: `RollingWindowStacker` (5-min window) + `LiveStackPreviewSource` push-stream wired into the previewer (GUI + tianwen-fits) | 4,6 | Medium | DONE (MVP: follow-the-playhead, global align; sharpen/EAA-free-run deferred) |
 | 10 | **De-rotation 6a** (within-capture): Meeus per-planet CM + disk geometry + spheroid reproject; derotate-to-midpoint before stack | 6 | High |
 | 11 | **De-rotation 6b** (multi-stack / RGB temporal): derotate finished stacks to a common epoch + combine | 10 | High |
 | 12 | **Live camera stream** (`LiveCameraFrameStream`) feeding the same windowed stacker (true EAA) | 9 | Medium |

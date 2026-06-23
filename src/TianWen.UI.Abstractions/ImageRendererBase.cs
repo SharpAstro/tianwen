@@ -2212,6 +2212,20 @@ namespace TianWen.UI.Abstractions
             RegisterClickable(btnX, btnY, btnSize, btnSize, new HitResult.ButtonHit("PlayPause"),
                 _ => { state.IsPlaying = !state.IsPlaying; state.NeedsRedraw = true; });
 
+            // RAW / STACK toggle: switch between the raw frame and the live rolling-window lucky-imaging
+            // stack (which follows the playhead). Active (blue) when stacking; "STACK..." while the first
+            // master is still computing (the displayed source is still the raw one until then).
+            var stacking = state.ShowStacked;
+            var stackLive = _source is LiveStackPreviewSource;
+            var stackLabel = !stacking ? "RAW" : (stackLive ? "STACK" : "STACK...");
+            var stackLabelW = MeasureText(stackLabel, fs);
+            var stackBtnX = btnX + btnSize + pad;
+            var stackBtnW = stackLabelW + pad * 2;
+            FillRect(stackBtnX, btnY, stackBtnW, btnSize, stacking ? TransportTrackFill : ToolbarButtonBg);
+            DrawText(stackLabel, stackBtnX + (stackBtnW - stackLabelW) / 2f, textY, fs, RGBAColor32.FromFloat(0.92f, 0.92f, 0.95f, 1f));
+            RegisterClickable(stackBtnX, btnY, stackBtnW, btnSize, new HitResult.ButtonHit("StackToggle"),
+                _ => { state.ShowStacked = !state.ShowStacked; state.NeedsTextureUpdate = true; state.NeedsRedraw = true; });
+
             // Right-aligned readout: frame n/total, capture timestamp (if present), playback fps.
             var idx = state.FrameIndex;
             var total = state.FrameCount;
@@ -2234,8 +2248,8 @@ namespace TianWen.UI.Abstractions
             var readoutX = r.X + r.Width - pad - readoutW;
             DrawText(readout, readoutX, textY, fs, RGBAColor32.FromFloat(0.85f, 0.85f, 0.85f, 1f));
 
-            // Scrub track fills the gap between the button and the readout.
-            var trackX = btnX + btnSize + pad * 2;
+            // Scrub track fills the gap between the buttons and the readout.
+            var trackX = stackBtnX + stackBtnW + pad * 2;
             var trackRight = readoutX - pad * 2;
             var trackW = MathF.Max(0f, trackRight - trackX);
             if (trackW <= 0f)
@@ -2489,6 +2503,16 @@ namespace TianWen.UI.Abstractions
                     return true;
                 case InputKey.I:
                     state.ShowInfoPanel = !state.ShowInfoPanel;
+                    return true;
+                case InputKey.K:
+                    // Toggle the live rolling-window stack vs the raw frame (sequence-only). The controller
+                    // keeps showing the raw frame until the first master is built.
+                    if (state.IsSequence)
+                    {
+                        state.ShowStacked = !state.ShowStacked;
+                        state.NeedsTextureUpdate = true;
+                        state.NeedsRedraw = true;
+                    }
                     return true;
                 case InputKey.L:
                     state.ShowFileList = !state.ShowFileList;
