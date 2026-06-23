@@ -57,6 +57,16 @@ internal sealed class PlanetaryStackSubCommand(
         {
             Description = "Use whole-disk translation only (the cheap global align), skipping alignment points + the mesh warp. Faster, but no per-region distortion correction.",
         };
+        var drizzleOpt = new Option<float>("--drizzle")
+        {
+            Description = "Bayer drizzle at this output scale (e.g. 1.5 = Drizzle1.5). Forward-scatters raw CFA samples onto an upscaled grid with NO interpolation/demosaic -- sharper than the mesh-warp path and recovers sub-Bayer resolution. 0 (default) = off (mesh/translate integrator). Bayer source only; alignment is whole-disk global.",
+            DefaultValueFactory = _ => 0f,
+        };
+        var drizzlePixfracOpt = new Option<float>("--drizzle-pixfrac")
+        {
+            Description = "Drizzle drop size in (0, 1]. 1.0 (default) = full unit drop (robust coverage). Lower (0.6-0.8) is sharper but needs more frames. Ignored unless --drizzle > 0.",
+            DefaultValueFactory = _ => 1.0f,
+        };
         var noPerPointOpt = new Option<bool>("--no-per-point")
         {
             Description = "Disable per-AP best-of weighting (each output pixel drawn more from frames locally sharp there). Folds frames in with their global quality weight only. Ignored under --global.",
@@ -109,7 +119,8 @@ internal sealed class PlanetaryStackSubCommand(
             Arguments = { serArg },
             Options =
             {
-                outputOpt, labelOpt, keepOpt, qualityOpt, globalOpt, noPerPointOpt, noSignalGateOpt,
+                outputOpt, labelOpt, keepOpt, qualityOpt, globalOpt, drizzleOpt, drizzlePixfracOpt,
+                noPerPointOpt, noSignalGateOpt,
                 noSharpenOpt, sharpenGainsOpt, noPngOpt,
                 tileSizeOpt, apSpacingOpt, maxApOpt, patchSizeOpt, meshSpacingOpt,
             },
@@ -138,6 +149,8 @@ internal sealed class PlanetaryStackSubCommand(
 
             var metric = parseResult.GetValue(qualityOpt);
             var useGlobal = parseResult.GetValue(globalOpt);
+            var drizzleScale = parseResult.GetValue(drizzleOpt);
+            var useDrizzle = drizzleScale > 0f;
 
             // Parse the optional wavelet gains override before doing any heavy work so a typo fails fast.
             var sharpen = !parseResult.GetValue(noSharpenOpt);
@@ -181,6 +194,9 @@ internal sealed class PlanetaryStackSubCommand(
                 MeshNodeSpacing = parseResult.GetValue(meshSpacingOpt),
                 PerPointQualityWeighting = !parseResult.GetValue(noPerPointOpt),
                 PerPointSignalGate = !parseResult.GetValue(noSignalGateOpt),
+                Drizzle = drizzleScale > 0f
+                    ? new PlanetaryDrizzleOptions(drizzleScale, parseResult.GetValue(drizzlePixfracOpt))
+                    : null,
                 // The raw integrated master stays linear/unsharpened (downstream-friendly); the sharpen
                 // pass is applied separately below so we can emit both the raw and sharpened masters.
             };
@@ -195,12 +211,15 @@ internal sealed class PlanetaryStackSubCommand(
             {
                 consoleHost.WriteScrollable(
                     $"[planetary] {baseName}: {stream.FrameCount} frames, {stream.Width}x{stream.Height}, layout {stream.Layout}");
+                var mode = useDrizzle ? $"Bayer drizzle x{drizzleScale:0.0#}"
+                    : useGlobal ? "global-translate"
+                    : "alignment-point mesh";
                 consoleHost.WriteScrollable(
-                    $"[planetary] grading + {(useGlobal ? "global-translate" : "alignment-point mesh")} stack, keeping best {keep:P0}...");
+                    $"[planetary] grading + {mode} stack, keeping best {keep:P0}...");
 
                 var stacker = new LuckyImagingStacker();
-                result = useGlobal
-                    ? await stacker.StackGlobalAsync(stream, options, ct)
+                result = useDrizzle ? await stacker.StackDrizzleAsync(stream, options, ct)
+                    : useGlobal ? await stacker.StackGlobalAsync(stream, options, ct)
                     : await stacker.StackAsync(stream, options, ct);
             }
 

@@ -339,6 +339,12 @@ follow.
 30,000-frame Bayer Jupiter SER** (`tianwen planetary-stack` -> linear + sharpened FITS masters + a PNG;
 belts resolved). The CPU engine lives in `TianWen.Lib.Imaging` (`WaveletSharpen`/`ATrousWaveletTransform`)
 + `TianWen.Lib.Imaging.Planetary` + `TianWen.Lib.Stat`; the CLI is `TianWen.Cli/PlanetaryStackSubCommand`.
+Phase 6's optional **Bayer drizzle** is now implemented (`LuckyImagingStacker.StackDrizzleAsync` +
+`PlanetaryDrizzleOptions`, CLI `--drizzle <scale>`): forward-scatters raw CFA samples through the shared
+`Stacking/DrizzleKernel` onto an upscaled grid (no interpolation, no demosaic). On the test SER it gives a
+higher-res, cleaner-colour, faster master but only a modest sharpness gain -- that capture is
+seeing-limited and the AS!3 reference's edge was full-res 439-point local de-warp, which the half-res
+split-CFA AP path does not match.
 
 Real-data validation surfaced + fixed a Phase-6 integrator bug: the per-AP per-pixel best-of weight
 (`FrameSharpnessMap`, local Sobel energy) **amplified a faint real halo into a bright ring** -- in a
@@ -360,7 +366,7 @@ UI are still deferred. Phases 9-13 are not started.
 | 3 | 2D FFT + sub-pixel **phase correlation** in `Stat/` (synthetic-shift tests) | - | Medium | DONE |
 | 4 | **Global align**: disk-centroid + phase-correlation translate; first end-to-end stack (best-of mean, no AP) on a real SER | 1,2,3 | Medium | DONE |
 | 5 | **Alignment points**: feature-detector AP placement + per-AP local match + `Image.WarpByMeshAsync` (mesh warp); luminance-proxy mesh applied to all CFA sub-planes | 3,4 | High | DONE |
-| 6 | **Planetary integrator**: per-AP quality-weighted best-of stack + tile blend + optional drizzle; **end-to-end milestone** | 4,5 | High | DONE (drizzle deferred) |
+| 6 | **Planetary integrator**: per-AP quality-weighted best-of stack + tile blend + optional drizzle; **end-to-end milestone** | 4,5 | High | DONE |
 | 7 | **`WaveletSharpen`** (a-trous, per-scale gain/denoise) | 6 | Medium | DONE |
 | 8 | **CLI**: `tianwen planetary-stack` (or `tianwen stack --planetary`) orchestrator | 6,7 | Low | DONE |
 | 9 | **Live**: `RollingWindowStacker` (5-min window) + `LiveStackPreviewSource` push-stream wired into the previewer (GUI + tianwen-fits) | 4,6 | Medium |
