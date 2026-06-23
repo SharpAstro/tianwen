@@ -319,6 +319,58 @@ public partial class Image
     }
 
     /// <summary>
+    /// Accumulates this image -- translated by (<paramref name="dx"/>, <paramref name="dy"/>) and scaled
+    /// by <paramref name="weight"/> -- into caller-owned per-channel accumulators plus a shared per-pixel
+    /// weight plane. For output pixel <c>(x, y)</c> it samples this image at <c>(x + dx, y + dy)</c> via
+    /// the shared bilinear <see cref="SubpixelValue"/>; a pixel whose sample falls out of bounds (or whose
+    /// neighbourhood is incomplete -> NaN) contributes nothing and its weight is not added, so the
+    /// integrated edges stay unbiased. The output grid size is taken from <paramref name="weightAccum"/>.
+    /// This is the translate-and-average kernel of the planetary global-align integrator (a pure
+    /// translation; the per-AP mesh warp is a separate Phase 5 primitive).
+    /// </summary>
+    internal void AccumulateTranslatedInto(float[][,] channelAccum, float[,] weightAccum, float dx, float dy, float weight)
+    {
+        var outH = weightAccum.GetLength(0);
+        var outW = weightAccum.GetLength(1);
+        var channels = ChannelCount;
+
+        Span<float> samples = stackalloc float[channels];
+        for (var y = 0; y < outH; y++)
+        {
+            var sy = y + dy;
+            for (var x = 0; x < outW; x++)
+            {
+                var sx = x + dx;
+
+                var ok = true;
+                for (var c = 0; c < channels; c++)
+                {
+                    var v = SubpixelValue(c, sx, sy);
+                    if (float.IsNaN(v))
+                    {
+                        ok = false;
+                        break;
+                    }
+
+                    samples[c] = v;
+                }
+
+                if (!ok)
+                {
+                    continue;
+                }
+
+                for (var c = 0; c < channels; c++)
+                {
+                    channelAccum[c][y, x] += weight * samples[c];
+                }
+
+                weightAccum[y, x] += weight;
+            }
+        }
+    }
+
+    /// <summary>
     /// Returns a binned copy of this image where every <paramref name="factor"/> x
     /// <paramref name="factor"/> block of source pixels becomes one mean-pooled
     /// pixel in the output. Used by the plate solver to drop the per-pass cost
