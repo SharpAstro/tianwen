@@ -82,4 +82,67 @@ public static class PlanetaryDisk
             ArrayPool<float>.Shared.Return(rented);
         }
     }
+
+    /// <summary>
+    /// Intensity-weighted centre of mass of the bright disk over <paramref name="region"/>, on the
+    /// luminance proxy with the region mean subtracted (only above-mean pixels contribute, so a uniform
+    /// background does not pull the centroid). This is the cheap, every-frame coarse find that removes
+    /// bulk drift before sub-pixel phase correlation. It is a <i>relative</i> anchor (consistent
+    /// frame-to-frame, which is all registration needs) -- NOT the true geometric centre on a partial
+    /// phase (crescent / gibbous): de-rotation's absolute centre must come from the Phase 5/10 limb fit,
+    /// never from this. Returns the region centre when there is no signal.
+    /// </summary>
+    public static (double X, double Y) CenterOfMass(Image frame, Rectangle region)
+    {
+        if (region.IsEmpty)
+        {
+            region = LumaProxy.FullFrame(frame);
+        }
+
+        var rw = region.Width;
+        var rh = region.Height;
+        var count = rw * rh;
+        var fallback = (region.Left + (rw / 2.0), region.Top + (rh / 2.0));
+        if (count == 0)
+        {
+            return fallback;
+        }
+
+        var rented = ArrayPool<float>.Shared.Rent(count);
+        try
+        {
+            var luma = rented.AsSpan(0, count);
+            LumaProxy.Fill(frame, region, luma);
+
+            double sum = 0;
+            for (var i = 0; i < count; i++)
+            {
+                sum += luma[i];
+            }
+
+            var mean = sum / count;
+
+            double sw = 0, sx = 0, sy = 0;
+            for (var yy = 0; yy < rh; yy++)
+            {
+                var rowBase = yy * rw;
+                for (var xx = 0; xx < rw; xx++)
+                {
+                    var v = luma[rowBase + xx] - mean;
+                    if (v > 0)
+                    {
+                        sw += v;
+                        sx += v * (region.Left + xx);
+                        sy += v * (region.Top + yy);
+                    }
+                }
+            }
+
+            return sw > 0 ? (sx / sw, sy / sw) : fallback;
+        }
+        finally
+        {
+            ArrayPool<float>.Shared.Return(rented);
+        }
+    }
 }
