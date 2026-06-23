@@ -462,6 +462,68 @@ public partial class Image
     }
 
     /// <summary>
+    /// Per-AP "best-of" accumulate: like <see cref="AccumulateByMeshInto"/>, but the per-pixel weight is
+    /// <c>globalWeight * frameLocalQuality(sourcePixel)</c> -- the frame's local sharpness sampled at the
+    /// same mesh-warped source location as the data. So each output pixel is drawn more from the frames
+    /// that were locally sharp at the feature landing there: a continuous, seam-free version of the
+    /// lucky-imaging "different disk regions sharp in different frames" stack. <paramref name="frameLocalQuality"/>
+    /// is in this image's coordinates (same dimensions); it is sampled nearest-neighbour (it is already a
+    /// smooth, slowly-varying map). Out-of-bounds data samples contribute nothing.
+    /// </summary>
+    internal void AccumulateByMeshWeightedInto(float[][,] channelAccum, float[,] weightAccum, Planetary.DisplacementMesh mesh, float[,] frameLocalQuality, float globalWeight)
+    {
+        var outH = weightAccum.GetLength(0);
+        var outW = weightAccum.GetLength(1);
+        var channels = ChannelCount;
+        var width = Width;
+        var height = Height;
+
+        Span<float> samples = stackalloc float[channels];
+        for (var y = 0; y < outH; y++)
+        {
+            for (var x = 0; x < outW; x++)
+            {
+                var (ox, oy) = mesh.Sample(x, y);
+                var sx = x + ox;
+                var sy = y + oy;
+
+                var ok = true;
+                for (var c = 0; c < channels; c++)
+                {
+                    var v = SubpixelValue(c, sx, sy);
+                    if (float.IsNaN(v))
+                    {
+                        ok = false;
+                        break;
+                    }
+
+                    samples[c] = v;
+                }
+
+                if (!ok)
+                {
+                    continue;
+                }
+
+                var qx = Math.Clamp((int)MathF.Round(sx), 0, width - 1);
+                var qy = Math.Clamp((int)MathF.Round(sy), 0, height - 1);
+                var weight = globalWeight * frameLocalQuality[qy, qx];
+                if (weight <= 0f)
+                {
+                    continue;
+                }
+
+                for (var c = 0; c < channels; c++)
+                {
+                    channelAccum[c][y, x] += weight * samples[c];
+                }
+
+                weightAccum[y, x] += weight;
+            }
+        }
+    }
+
+    /// <summary>
     /// Returns a binned copy of this image where every <paramref name="factor"/> x
     /// <paramref name="factor"/> block of source pixels becomes one mean-pooled
     /// pixel in the output. Used by the plate solver to drop the per-pass cost

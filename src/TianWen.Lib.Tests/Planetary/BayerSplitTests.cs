@@ -112,4 +112,43 @@ public class BayerSplitTests
 
         Should.Throw<InvalidOperationException>(() => mono.SplitBayerChannels());
     }
+
+    [Theory]
+    [InlineData(0, 0)]
+    [InlineData(1, 0)]
+    [InlineData(0, 1)]
+    [InlineData(1, 1)]
+    public void Split_then_merge_round_trips_the_mosaic(int offsetX, int offsetY)
+    {
+        var px = new float[6, 6];
+        for (var y = 0; y < 6; y++)
+        {
+            for (var x = 0; x < 6; x++)
+            {
+                px[y, x] = (y * 10) + x;
+            }
+        }
+
+        var merged = Mosaic(px, offsetX, offsetY).SplitBayerChannels().MergeBayerChannels();
+
+        merged.ChannelCount.ShouldBe(1);
+        merged.Width.ShouldBe(6);
+        merged.Height.ShouldBe(6);
+        for (var y = 0; y < 6; y++)
+        {
+            for (var x = 0; x < 6; x++)
+            {
+                merged[0, y, x].ShouldBe(px[y, x]);
+            }
+        }
+    }
+
+    [Fact]
+    public void Merge_throws_on_non_subplane_image()
+    {
+        var rgb = new Image([new float[4, 4], new float[4, 4], new float[4, 4]], BitDepth.Float32, 1f, 0f, 0f,
+            new ImageMeta { SensorType = SensorType.Color });
+
+        Should.Throw<InvalidOperationException>(() => rgb.MergeBayerChannels());
+    }
 }
