@@ -195,8 +195,14 @@ var loop = new SdlEventLoop(sdlWindow, renderer)
 
     OnDropFile = (path) => { if (path is not null) ViewerActions.HandleFileDrop(state, path); },
 
+    // TickPlayback() FIRST (and always, via || short-circuit order): it runs every loop iteration --
+    // including the idle WaitEventTimeout polls -- which is how SER playback stays frame-paced without
+    // busy-spinning. It decodes the next frame ahead off the render thread and returns true only when a
+    // frame should actually be shown now (or a seek is resolving); between frames it returns false so
+    // the loop idles and the GPU/disk go quiet (mirroring the standalone viewer's low-idle behaviour).
     CheckNeedsRedraw = () =>
-        state.NeedsRedraw || state.NeedsTextureUpdate || state.RequestedFilePath is not null
+        controller.TickPlayback()
+        || state.NeedsRedraw || state.NeedsTextureUpdate || state.RequestedFilePath is not null
         || controller.IsLoadPending,
 
     OnRender = () =>
@@ -323,9 +329,15 @@ void HandleMouseDown(byte button, float px, float py)
             return;
         }
 
+        if (hit is TransportScrubHit)
+        {
+            imageRenderer.BeginScrubAt(px);
+            return;
+        }
+
         if (hit is not null)
         {
-            return; // OnClick already handled it (e.g. HistogramLog)
+            return; // OnClick already handled it (e.g. HistogramLog, PlayPause)
         }
     }
 

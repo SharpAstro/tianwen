@@ -49,6 +49,30 @@ public sealed class HistogramDisplay
     }
 
     /// <summary>
+    /// Refreshes one channel's raw bins from the current frame's normalized <c>[0,1]</c> pixel data, in
+    /// place (no allocation). Used for per-frame playback histograms: the display tracks the current
+    /// frame while the cached stretch statistics (median/MAD -> shadows/midtones) stay fixed. Geometry
+    /// (channel count, bin count) is unchanged; only the counts are recomputed. Call <see cref="Recompute"/>
+    /// afterwards to regenerate the display bins.
+    /// </summary>
+    public void UpdateRawBins(int channel, ReadOnlySpan<float> normalized)
+    {
+        if ((uint)channel >= (uint)ChannelCount || RawBinCount <= 0)
+        {
+            return;
+        }
+
+        var bins = MemoryMarshal.CreateSpan(ref _rawBins[channel, 0], RawBinCount);
+        bins.Clear();
+        var scale = RawBinCount - 1;
+        foreach (var v in normalized)
+        {
+            var idx = (int)(Math.Clamp(v, 0f, 1f) * scale);
+            bins[idx] += 1f;
+        }
+    }
+
+    /// <summary>
     /// Recomputes display bins. When stretch is off, downsamples raw bins by summing groups.
     /// When stretch is on, applies the stretch function to each full-resolution bin and
     /// accumulates into display bins.

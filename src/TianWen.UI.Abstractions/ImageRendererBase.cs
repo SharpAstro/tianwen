@@ -130,6 +130,9 @@ namespace TianWen.UI.Abstractions
         private const float BaseButtonSpacing = 4f;
         private const float BaseButtonGroupSpacing = 14f;
 
+        // SER transport bar: a thin strip at the bottom of the image pane (shown only for a sequence).
+        private const float BaseTransportHeight = 34f;
+
         // Histogram constants
         private const float BaseHistogramWidth = 256f;
         private const float BaseHistogramHeight = 128f;
@@ -139,6 +142,7 @@ namespace TianWen.UI.Abstractions
         private float InfoPanelWidth => BaseInfoPanelWidth * DpiScale;
         private float StatusBarHeight => BaseStatusBarHeight * DpiScale;
         private float ToolbarHeight => BaseToolbarHeight * DpiScale;
+        private float TransportHeight => BaseTransportHeight * DpiScale;
         // Honor the user-resizable width when state is bound; fall back to the
         // historical 300px constant when state hasn't been attached yet (e.g.
         // during initial layout queries before Render(state) has run).
@@ -189,6 +193,12 @@ namespace TianWen.UI.Abstractions
         private static readonly RGBAColor32 ResizeHandleIdleColor = RGBAColor32.FromFloat(0.30f, 0.30f, 0.35f, 0.7f);
 
         private static readonly RGBAColor32 GridLabelColor = RGBAColor32.FromFloat(0f, 0.85f, 0f, 1f);
+
+        // SER transport bar: strip background, scrub track (unfilled), played-portion fill, and handle.
+        private static readonly RGBAColor32 TransportBg = RGBAColor32.FromFloat(0.16f, 0.16f, 0.18f, 0.95f);
+        private static readonly RGBAColor32 TransportTrackBg = RGBAColor32.FromFloat(0.30f, 0.30f, 0.34f, 1f);
+        private static readonly RGBAColor32 TransportTrackFill = RGBAColor32.FromFloat(0.30f, 0.50f, 0.80f, 1f);
+        private static readonly RGBAColor32 TransportHandle = RGBAColor32.FromFloat(0.85f, 0.85f, 0.90f, 1f);
 
         // Histogram LOG-scale toggle button: log-on (blue) and log-off (grey) families,
         // each with a hover-brightened variant. Alpha 0.9 (the histogram is an overlay).
@@ -327,6 +337,11 @@ namespace TianWen.UI.Abstractions
         private ImmutableArray<Layout.ArrangedNode<float>> _layoutArranged;
         private ImagePlacement _placement;
 
+        // SER transport bar geometry, computed in ComputeLayout (default/empty for a still image): the
+        // whole strip and, within it, the scrub track rect that maps cursor-X <-> frame index.
+        private RectF32 _transportRect;
+        private RectF32 _scrubTrackRect;
+
         /// <summary>Design-unit thickness of the file-list resize divider (the Split divider IS the grab bar).</summary>
         private const float BaseFileListDividerWidth = 6f;
 
@@ -366,6 +381,18 @@ namespace TianWen.UI.Abstractions
                         case "infoPanel": infoPanel = r; break;
                     }
                 }
+            }
+
+            // Reserve the transport strip at the bottom of the image pane for a sequence, shrinking the
+            // image area so the strip never overlaps the picture. The file list / info panel keep their
+            // full height -- the transport belongs to the image column only.
+            _transportRect = default;
+            if (state.IsSequence)
+            {
+                var th = MathF.Min(TransportHeight, image.Height);
+                var shrunk = new RectF32(image.X, image.Y, image.Width, image.Height - th);
+                _transportRect = new RectF32(image.X, shrunk.Y + shrunk.Height, image.Width, th);
+                image = shrunk;
             }
 
             _layout = new ViewerLayout(fileList, image, infoPanel);
@@ -581,6 +608,12 @@ namespace TianWen.UI.Abstractions
             if (state.ShowInfoPanel && document is not null)
             {
                 RenderInfoPanel(document, state);
+            }
+
+            // SER transport bar in its reserved strip (only present for a multi-frame sequence).
+            if (state.IsSequence)
+            {
+                RenderTransportBar(state);
             }
 
             RenderStatusBar(document, state);
@@ -1918,6 +1951,133 @@ namespace TianWen.UI.Abstractions
         }
 
         // -----------------------------------------------------------------------
+        // SER transport bar (play/pause, scrub, frame + timestamp + fps readout)
+        //
+        // Drawn into the reserved _transportRect (the image pane was shrunk in ComputeLayout so the strip
+        // never overlaps the picture). Reads only ViewerState + the cached _source accessors -- timestamp
+        // lookups hit the source's managed cache, never the lazy file-tail trailer, so nothing here does
+        // disk I/O. The scrub track rect is captured for the press/drag -> frame mapping in ScrubAt.
+        // -----------------------------------------------------------------------
+
+        private void RenderTransportBar(ViewerState state)
+        {
+            var r = _transportRect;
+            if (r.Width <= 0 || r.Height <= 0 || _fontPath is null)
+            {
+                _scrubTrackRect = default;
+                return;
+            }
+
+            FillRect(r.X, r.Y, r.Width, r.Height, TransportBg);
+
+            var pad = PanelPadding;
+            var fs = ToolbarFontSize;
+            var contentH = r.Height - pad * 2;
+            if (contentH <= 0f)
+            {
+                // Window minimized to a sliver -- nothing usable to draw; bail before any size math.
+                _scrubTrackRect = default;
+                return;
+            }
+            var textY = r.Y + (r.Height - fs) / 2f;
+
+            // Play/pause button (ASCII glyphs to stay font/atlas-safe): show the action's target -- ">"
+            // when paused (click to play), "||" when playing (click to pause). Self-contained via OnClick,
+            // so both mouse-down paths (FitsViewer Program + GUI tab) toggle it without bespoke handling.
+            var btnX = r.X + pad;
+            var btnY = r.Y + pad;
+            var btnSize = contentH;
+            var ppLabel = state.IsPlaying ? "||" : ">";
+            FillRect(btnX, btnY, btnSize, btnSize, ToolbarButtonBg);
+            var ppW = MeasureText(ppLabel, fs);
+            DrawText(ppLabel, btnX + (btnSize - ppW) / 2f, textY, fs, RGBAColor32.FromFloat(0.9f, 0.9f, 0.9f, 1f));
+            RegisterClickable(btnX, btnY, btnSize, btnSize, new HitResult.ButtonHit("PlayPause"),
+                _ => { state.IsPlaying = !state.IsPlaying; state.NeedsRedraw = true; });
+
+            // Right-aligned readout: frame n/total, capture timestamp (if present), playback fps.
+            var idx = state.FrameIndex;
+            var total = state.FrameCount;
+            var timestamp = string.Empty;
+            if (_source is { HasTimestamps: true } src)
+            {
+                var ts = src.TimestampOf(idx);
+                if (ts != DateTimeOffset.MinValue)
+                {
+                    timestamp = ts.ToString("HH:mm:ss.fff") + " UT   ";
+                }
+            }
+
+            // Show the file's nominal capture rate (often hundreds of fps for planetary lucky-imaging);
+            // the actual display advance is still capped by PlaybackFps. Fall back to PlaybackFps when the
+            // source has no timestamps to derive a nominal rate.
+            var fps = state.SourceFps ?? state.PlaybackFps;
+            var readout = $"{idx + 1}/{total}   {timestamp}{fps:F0} fps";
+            var readoutW = MeasureText(readout, fs);
+            var readoutX = r.X + r.Width - pad - readoutW;
+            DrawText(readout, readoutX, textY, fs, RGBAColor32.FromFloat(0.85f, 0.85f, 0.85f, 1f));
+
+            // Scrub track fills the gap between the button and the readout.
+            var trackX = btnX + btnSize + pad * 2;
+            var trackRight = readoutX - pad * 2;
+            var trackW = MathF.Max(0f, trackRight - trackX);
+            if (trackW <= 0f)
+            {
+                _scrubTrackRect = default;
+                return;
+            }
+
+            var barH = MathF.Max(4f, 6f * DpiScale);
+            var barY2 = r.Y + (r.Height - barH) / 2f;
+            FillRect(trackX, barY2, trackW, barH, TransportTrackBg);
+
+            var frac = total > 1 ? (float)idx / (total - 1) : 0f;
+            FillRect(trackX, barY2, trackW * frac, barH, TransportTrackFill);
+
+            // Handle marker at the current position. Guard the clamp's upper bound: in a slim track
+            // (trackW < handleW) trackX + trackW - handleW < trackX, which would make Math.Clamp's max <
+            // min and throw (the minimize-to-sliver crash).
+            var handleW = MathF.Max(4f, 6f * DpiScale);
+            var handleMax = MathF.Max(trackX, trackX + trackW - handleW);
+            var handleX = Math.Clamp(trackX + trackW * frac - handleW / 2f, trackX, handleMax);
+            FillRect(handleX, btnY, handleW, contentH, TransportHandle);
+
+            // The press/drag hit region is the full-height track band; _scrubTrackRect's X/Width drive the
+            // px -> frame mapping in ScrubAt (Y/Height are only the clickable extent).
+            _scrubTrackRect = new RectF32(trackX, btnY, trackW, contentH);
+            RegisterClickable(trackX, btnY, trackW, contentH, new TransportScrubHit());
+        }
+
+        /// <summary>
+        /// Begins a transport scrub (press on the scrub track): pauses playback and seeks to the press X.
+        /// Shared by the FitsViewer mouse-down path and the GUI viewer-tab path so both behave identically.
+        /// </summary>
+        public void BeginScrubAt(float px)
+        {
+            if (_state is not { } state)
+            {
+                return;
+            }
+
+            state.IsScrubbing = true;
+            state.IsPlaying = false; // pause while scrubbing; resume is an explicit play
+            ScrubAt(px);
+        }
+
+        // Maps a cursor X onto a frame index against the captured scrub track and requests that frame.
+        // The SequencePlayer decodes it off the render thread, so dragging never blocks the UI.
+        private void ScrubAt(float px)
+        {
+            if (_state is not { } state || _scrubTrackRect.Width <= 0f || state.FrameCount <= 1)
+            {
+                return;
+            }
+
+            var frac = Math.Clamp((px - _scrubTrackRect.X) / _scrubTrackRect.Width, 0f, 1f);
+            state.RequestedFrame = (int)MathF.Round(frac * (state.FrameCount - 1));
+            state.NeedsRedraw = true;
+        }
+
+        // -----------------------------------------------------------------------
         // Text helpers
         // -----------------------------------------------------------------------
 
@@ -2055,6 +2215,15 @@ namespace TianWen.UI.Abstractions
             var ctrl = (modifiers & InputModifier.Ctrl) != 0;
             var shift = (modifiers & InputModifier.Shift) != 0;
 
+            // SER transport keys take priority while a sequence is loaded -- they deliberately claim
+            // Space / arrows / Home / End / Up / Down (Up/Down would otherwise step the file list) for
+            // playback. Seeks route through state.RequestedFrame so decode stays off the render thread.
+            if (state.IsSequence && !ctrl && HandleTransportKey(key, state))
+            {
+                state.NeedsRedraw = true;
+                return true;
+            }
+
             if (ctrl)
             {
                 switch (key)
@@ -2168,6 +2337,43 @@ namespace TianWen.UI.Abstractions
                     {
                         ViewerActions.SelectFile(state, state.SelectedFileIndex + 1);
                     }
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
+        // SER transport keys (sequence-only): play/pause, step, jump to ends, speed. Step/Home/End pause
+        // and request a frame; the SequencePlayer decodes it off the render thread next tick.
+        private bool HandleTransportKey(InputKey key, ViewerState state)
+        {
+            switch (key)
+            {
+                case InputKey.Space:
+                case InputKey.Tab:
+                    state.IsPlaying = !state.IsPlaying;
+                    return true;
+                case InputKey.Left:
+                    state.IsPlaying = false;
+                    state.RequestedFrame = Math.Max(0, state.FrameIndex - 1);
+                    return true;
+                case InputKey.Right:
+                    state.IsPlaying = false;
+                    state.RequestedFrame = Math.Min(state.FrameCount - 1, state.FrameIndex + 1);
+                    return true;
+                case InputKey.Home:
+                    state.IsPlaying = false;
+                    state.RequestedFrame = 0;
+                    return true;
+                case InputKey.End:
+                    state.IsPlaying = false;
+                    state.RequestedFrame = state.FrameCount - 1;
+                    return true;
+                case InputKey.Up:
+                    ViewerActions.CyclePlaybackSpeed(state, faster: true);
+                    return true;
+                case InputKey.Down:
+                    ViewerActions.CyclePlaybackSpeed(state, faster: false);
                     return true;
                 default:
                     return false;
@@ -2295,9 +2501,15 @@ namespace TianWen.UI.Abstractions
                 return true;
             }
 
+            if (hit is TransportScrubHit)
+            {
+                BeginScrubAt(px);
+                return true;
+            }
+
             if (hit is not null)
             {
-                return true; // OnClick already handled it (e.g. HistogramLog)
+                return true; // OnClick already handled it (e.g. HistogramLog, PlayPause)
             }
 
             // No hit — start panning
@@ -2313,6 +2525,13 @@ namespace TianWen.UI.Abstractions
             }
 
             state.MouseScreenPosition = (px, py);
+
+            // Transport scrub drag: continuously seek to the dragged frame (decoded off the render thread).
+            if (state.IsScrubbing)
+            {
+                ScrubAt(px);
+                return true;
+            }
 
             // File-list resize drag: width tracks the cursor's X position in
             // DPI-independent units. Clamped by FileListWidthBase's setter.
@@ -2342,6 +2561,11 @@ namespace TianWen.UI.Abstractions
         {
             if (_state is { } state)
             {
+                if (state.IsScrubbing)
+                {
+                    state.IsScrubbing = false;
+                    state.NeedsRedraw = true;
+                }
                 if (state.IsResizingFileList)
                 {
                     state.IsResizingFileList = false;

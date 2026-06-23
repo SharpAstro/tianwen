@@ -277,6 +277,29 @@ public static class ViewerActions
     }
 
     /// <summary>
+    /// Snaps <see cref="ViewerState.PlaybackFps"/> to the next (<paramref name="faster"/>) or previous
+    /// entry in <see cref="ViewerState.PlaybackRates"/>. Used by the transport speed control and Up/Down
+    /// keys while a sequence is loaded.
+    /// </summary>
+    public static void CyclePlaybackSpeed(ViewerState state, bool faster)
+    {
+        var rates = ViewerState.PlaybackRates;
+        // Find the current rate's slot (nearest), then step one notch and clamp to the table ends.
+        var idx = 0;
+        for (var i = 1; i < rates.Length; i++)
+        {
+            if (Math.Abs(rates[i] - state.PlaybackFps) < Math.Abs(rates[idx] - state.PlaybackFps))
+            {
+                idx = i;
+            }
+        }
+
+        idx = Math.Clamp(idx + (faster ? 1 : -1), 0, rates.Length - 1);
+        state.PlaybackFps = rates[idx];
+        state.NeedsRedraw = true;
+    }
+
+    /// <summary>
     /// Begins a pan drag at the given screen position.
     /// </summary>
     public static void BeginPan(ViewerState state, float px, float py)
