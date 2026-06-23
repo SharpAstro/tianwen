@@ -39,6 +39,10 @@ internal sealed class PlanetaryStackSubCommand(
         {
             Description = "Output directory for master_*.fits / *.png. Defaults to the SER file's directory.",
         };
+        var labelOpt = new Option<string?>("--label")
+        {
+            Description = "Filename prefix for this run's outputs (e.g. 'k10_ap400'), so multiple experiments can share one output folder without colliding. Empty = no prefix.",
+        };
         var keepOpt = new Option<double>("--keep")
         {
             Description = "Fraction of frames to keep, sharpest first (lucky imaging). 0.25 = best 25%.",
@@ -105,7 +109,7 @@ internal sealed class PlanetaryStackSubCommand(
             Arguments = { serArg },
             Options =
             {
-                outputOpt, keepOpt, qualityOpt, globalOpt, noPerPointOpt, noSignalGateOpt,
+                outputOpt, labelOpt, keepOpt, qualityOpt, globalOpt, noPerPointOpt, noSignalGateOpt,
                 noSharpenOpt, sharpenGainsOpt, noPngOpt,
                 tileSizeOpt, apSpacingOpt, maxApOpt, patchSizeOpt, meshSpacingOpt,
             },
@@ -147,7 +151,15 @@ internal sealed class PlanetaryStackSubCommand(
                 }
                 else if (TryParseGains(gainsArg, out var gains))
                 {
-                    sharpenOptions = new WaveletSharpenOptions { Gains = gains };
+                    // Match PlanetaryDefault's grain control: soft-threshold the two finest scales so custom
+                    // gains do not amplify limb / sensor noise.
+                    var denoise = System.Collections.Immutable.ImmutableArray.CreateBuilder<float>(gains.Length);
+                    for (var i = 0; i < gains.Length; i++)
+                    {
+                        denoise.Add(i == 0 ? 0.005f : i == 1 ? 0.0025f : 0f);
+                    }
+
+                    sharpenOptions = new WaveletSharpenOptions { Gains = gains, DenoiseThresholds = denoise.MoveToImmutable() };
                 }
                 else
                 {
@@ -165,7 +177,7 @@ internal sealed class PlanetaryStackSubCommand(
                 AlignTileSize = parseResult.GetValue(tileSizeOpt),
                 AlignmentPointSpacing = parseResult.GetValue(apSpacingOpt),
                 MaxAlignmentPoints = parseResult.GetValue(maxApOpt),
-                AlignmentPatchSize = parseResult.GetValue(patchSizeOpt),
+                AlignmentPatchSize = RoundUpToPowerOfTwo(parseResult.GetValue(patchSizeOpt)),
                 MeshNodeSpacing = parseResult.GetValue(meshSpacingOpt),
                 PerPointQualityWeighting = !parseResult.GetValue(noPerPointOpt),
                 PerPointSignalGate = !parseResult.GetValue(noSignalGateOpt),
@@ -173,6 +185,8 @@ internal sealed class PlanetaryStackSubCommand(
                 // pass is applied separately below so we can emit both the raw and sharpened masters.
             };
 
+            var label = parseResult.GetValue(labelOpt);
+            var prefix = string.IsNullOrWhiteSpace(label) ? "" : label.Trim() + "_";
             var baseName = Path.GetFileNameWithoutExtension(serPath);
             var sw = Stopwatch.StartNew();
 
@@ -195,7 +209,7 @@ internal sealed class PlanetaryStackSubCommand(
                 $"[planetary] {baseName}: stacked {result.FramesUsed}/{result.FramesGraded} frames " +
                 $"(reference #{result.ReferenceIndex}) in {sw.Elapsed.TotalSeconds:F1}s");
 
-            var masterFits = Path.Combine(outputDir, $"master_{baseName}.fits");
+            var masterFits = Path.Combine(outputDir, $"{prefix}master_{baseName}.fits");
             master.WriteToFitsFile(masterFits);
             consoleHost.WriteScrollable($"[planetary] wrote {Path.GetFileName(masterFits)} (linear master, {master.ChannelCount}ch {master.Width}x{master.Height})");
 
@@ -204,14 +218,14 @@ internal sealed class PlanetaryStackSubCommand(
             if (sharpenOptions is { } so)
             {
                 display = WaveletSharpen.Sharpen(master, so);
-                var sharpenedFits = Path.Combine(outputDir, $"master_{baseName}_sharpened.fits");
+                var sharpenedFits = Path.Combine(outputDir, $"{prefix}master_{baseName}_sharpened.fits");
                 display.WriteToFitsFile(sharpenedFits);
                 consoleHost.WriteScrollable($"[planetary] wrote {Path.GetFileName(sharpenedFits)} (wavelet-sharpened, {so.ScaleCount} scales)");
             }
 
             if (!parseResult.GetValue(noPngOpt))
             {
-                var pngPath = Path.Combine(outputDir, $"master_{baseName}.png");
+                var pngPath = Path.Combine(outputDir, $"{prefix}master_{baseName}.png");
                 try
                 {
                     // No WCS / catalog: MasterPreviewRenderer skips SPCC and falls back to auto-stretch +
@@ -237,6 +251,23 @@ internal sealed class PlanetaryStackSubCommand(
         });
 
         return command;
+    }
+
+    // The AP matcher FFTs each patch, so the patch edge must be a power of two; round up rather than throw.
+    private static int RoundUpToPowerOfTwo(int value)
+    {
+        if (value <= 1)
+        {
+            return 1;
+        }
+
+        var p = 1;
+        while (p < value)
+        {
+            p <<= 1;
+        }
+
+        return p;
     }
 
     private static bool TryParseGains(string arg, out System.Collections.Immutable.ImmutableArray<float> gains)
