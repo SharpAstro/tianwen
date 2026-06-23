@@ -124,6 +124,11 @@ var rootCommand = new RootCommand
             services.GetRequiredService<ILogger<TianWen.UI.Abstractions.MasterPreviewRenderer>>(),
             services.GetRequiredService<TianWen.Lib.Astrometry.Catalogs.ICelestialObjectDB>(),
             services.GetRequiredService<SharpenPipeline>()).Build(),
+        new PlanetaryStackSubCommand(
+            consoleHost,
+            new TianWen.UI.Abstractions.MasterPreviewRenderer(
+                services.GetRequiredService<TianWen.Lib.Astrometry.Catalogs.ICelestialObjectDB>(),
+                services.GetRequiredService<ILogger<TianWen.UI.Abstractions.MasterPreviewRenderer>>())).Build(),
         new SolveSubCommand(
             consoleHost,
             services.GetRequiredService<TianWen.Lib.Astrometry.PlateSolve.IPlateSolverFactory>(),

@@ -145,4 +145,77 @@ public static class PlanetaryDisk
             ArrayPool<float>.Shared.Return(rented);
         }
     }
+
+    /// <summary>
+    /// Per-pixel "signal confidence" in [0,1] from the luminance proxy: ~1 on the bright disk body, ramping
+    /// smoothly to ~0 in the faint surround and sky. Computed once from a reference frame and used to gate
+    /// the per-AP "best-of" weighting -- where confidence is high the lucky-imaging local-sharpness weighting
+    /// applies; where it is low the integrator falls back to an unbiased mean. This stops the local-sharpness
+    /// weight from inflating faint structure: in a low-signal region the weight is highest in exactly the
+    /// frames where that region happened to be brightest, so a naive weighted mean drifts toward the bright
+    /// realisations and amplifies a real-but-subtle planetary halo into a bright ring. <paramref name="lowFraction"/>
+    /// and <paramref name="highFraction"/> are the smoothstep edges as fractions of the background-to-peak
+    /// luminance span. The map is in the frame's coordinates (same dimensions), which is the integrator's
+    /// output space (frames are warped to this reference).
+    /// </summary>
+    public static float[,] SignalConfidence(Image reference, float lowFraction = 0.12f, float highFraction = 0.45f)
+    {
+        int w = reference.Width, h = reference.Height;
+        var map = new float[h, w];
+        var n = w * h;
+        if (n == 0)
+        {
+            return map;
+        }
+
+        var rented = ArrayPool<float>.Shared.Rent(n);
+        var sortBuf = ArrayPool<float>.Shared.Rent(n);
+        try
+        {
+            var luma = rented.AsSpan(0, n);
+            LumaProxy.Fill(reference, new Rectangle(0, 0, w, h), luma);
+
+            // Most of a planetary frame is sky, so a low percentile is the background and a high percentile
+            // is the disk peak -- robust to hot pixels / cosmic hits at the extremes.
+            luma.CopyTo(sortBuf.AsSpan(0, n));
+            Array.Sort(sortBuf, 0, n);
+            var bg = sortBuf[(int)Math.Clamp(0.20 * (n - 1), 0, n - 1)];
+            var peak = sortBuf[(int)Math.Clamp(0.995 * (n - 1), 0, n - 1)];
+            var span = peak - bg;
+
+            if (span <= 0f)
+            {
+                // No contrast: trust every pixel equally (the gate becomes a no-op -> uniform mean).
+                for (var y = 0; y < h; y++)
+                {
+                    for (var x = 0; x < w; x++)
+                    {
+                        map[y, x] = 1f;
+                    }
+                }
+
+                return map;
+            }
+
+            var edge0 = bg + (lowFraction * span);
+            var edge1 = bg + (highFraction * span);
+            var inv = 1f / MathF.Max(edge1 - edge0, 1e-6f);
+            for (var y = 0; y < h; y++)
+            {
+                var row = y * w;
+                for (var x = 0; x < w; x++)
+                {
+                    var t = Math.Clamp((luma[row + x] - edge0) * inv, 0f, 1f);
+                    map[y, x] = t * t * (3f - (2f * t)); // smoothstep
+                }
+            }
+
+            return map;
+        }
+        finally
+        {
+            ArrayPool<float>.Shared.Return(rented);
+            ArrayPool<float>.Shared.Return(sortBuf);
+        }
+    }
 }

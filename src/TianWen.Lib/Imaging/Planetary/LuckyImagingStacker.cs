@@ -86,7 +86,7 @@ public sealed class LuckyImagingStacker
                 if (options.PerPointQualityWeighting)
                 {
                     var quality = FrameSharpnessMap.Build(frame);
-                    frame.AccumulateByMeshWeightedInto(channelAccum, weightAccum, mesh, quality, weight);
+                    frame.AccumulateByMeshWeightedInto(channelAccum, weightAccum, mesh, quality, weight, ctx.SignalConfidence);
                 }
                 else
                 {
@@ -113,6 +113,7 @@ public sealed class LuckyImagingStacker
         float[] ScoreByIndex,
         GlobalAligner Aligner,
         AlignmentPointMatcher? Matcher,
+        float[,]? SignalConfidence,
         int Width,
         int Height,
         int Channels,
@@ -147,13 +148,21 @@ public sealed class LuckyImagingStacker
             var aligner = GlobalAligner.FromReference(reference, refRegion, tileSize);
 
             AlignmentPointMatcher? matcher = null;
+            float[,]? signalConfidence = null;
             if (includeAlignmentPoints)
             {
                 var aps = FeatureDetector.DetectAlignmentPoints(reference, refRegion, options.AlignmentPointSpacing, options.MaxAlignmentPoints);
                 matcher = AlignmentPointMatcher.FromReference(reference, aps, options.AlignmentPatchSize);
+
+                // The signal-confidence gate is computed once from the reference (= the integrator's output
+                // space, since frames are warped to it). Only needed when best-of weighting is on.
+                if (options.PerPointQualityWeighting && options.PerPointSignalGate)
+                {
+                    signalConfidence = PlanetaryDisk.SignalConfidence(reference);
+                }
             }
 
-            return new StackContext(grades, referenceIndex, selected, scoreByIndex, aligner, matcher,
+            return new StackContext(grades, referenceIndex, selected, scoreByIndex, aligner, matcher, signalConfidence,
                 reference.Width, reference.Height, reference.ChannelCount, reference.ImageMeta);
         }
         finally

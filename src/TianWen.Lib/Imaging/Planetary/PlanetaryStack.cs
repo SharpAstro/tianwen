@@ -35,6 +35,15 @@ public sealed record PlanetaryStackOptions
     public bool PerPointQualityWeighting { get; init; } = true;
 
     /// <summary>
+    /// Gate the per-AP best-of weighting by a signal-confidence mask (default true): on the bright disk
+    /// body the local-sharpness weighting applies in full; in faint regions (halo / sky) it falls back to
+    /// an unbiased mean. Without this, the local-sharpness weight amplifies a real-but-subtle planetary halo
+    /// into a bright ring (it preferentially picks the frames where the faint region was brightest). Only
+    /// relevant when <see cref="PerPointQualityWeighting"/> is set.
+    /// </summary>
+    public bool PerPointSignalGate { get; init; } = true;
+
+    /// <summary>
     /// Optional multi-scale wavelet sharpening applied to the final linear master (Phase 7). <c>null</c>
     /// (default) returns the raw integrated master untouched; otherwise the master is sharpened after the
     /// CFA merge + demosaic, so a split-CFA stack sharpens the demosaiced RGB, not the sub-planes.

@@ -334,13 +334,24 @@ source touches `TianWen.UI.Abstractions`; the CLI touches `TianWen.Cli`. End-to-
 to a sharpened master" ships at **Phase 6** (global + AP + stack + wavelets); derotation and live
 follow.
 
-**Status (2026-06-23):** Phases 1-7 are **implemented + unit-tested** on branch
-`feat/planetary-stacking` (the AP-mesh core + wavelet sharpen; 86 tests). A SER stacks end-to-end
-into a wavelet-sharpened RGB/mono master with feature-driven, per-AP-quality-weighted alignment. The
-CPU engine lives entirely in `TianWen.Lib.Imaging` (`WaveletSharpen`/`ATrousWaveletTransform`) +
-`TianWen.Lib.Imaging.Planetary` + `TianWen.Lib.Stat`. Not yet wired to a CLI/live UI, not yet
-validated on a real on-sky SER, and Phase 6's optional drizzle path is deferred (the integrator uses
-the quality-weighted mean; `DrizzleKernel` reuse is a follow-up). Phases 8-13 are not started.
+**Status (2026-06-23):** Phases 1-8 are **implemented + unit-tested** on branch
+`feat/planetary-stacking` (AP-mesh core + wavelet sharpen + CLI; 88 tests) and **validated on a real
+30,000-frame Bayer Jupiter SER** (`tianwen planetary-stack` -> linear + sharpened FITS masters + a PNG;
+belts resolved). The CPU engine lives in `TianWen.Lib.Imaging` (`WaveletSharpen`/`ATrousWaveletTransform`)
++ `TianWen.Lib.Imaging.Planetary` + `TianWen.Lib.Stat`; the CLI is `TianWen.Cli/PlanetaryStackSubCommand`.
+
+Real-data validation surfaced + fixed a Phase-6 integrator bug: the per-AP per-pixel best-of weight
+(`FrameSharpnessMap`, local Sobel energy) **amplified a faint real halo into a bright ring** -- in a
+low-signal region the weight is highest in exactly the frames where that region was brightest, so the
+weighted mean drifted bright (radial profile: halo r=144 inflated 0.087 -> 0.165, ~2x, plus a spurious
+dark trough). Fixed with `PlanetaryDisk.SignalConfidence` + a confidence gate in
+`Image.AccumulateByMeshWeightedInto` (`PlanetaryStackOptions.PerPointSignalGate`, default on): best-of
+weighting stays full on the bright disk body, blends to an unbiased mean in faint regions. Gated radial
+profile now matches the true baseline to ~0.001 while keeping disk-body sharpening.
+
+Still soft vs an AutoStakkert ap439+Drizzle1.5 reference: the gaps are AP count (CLI default 64, just a
+param), the deferred Phase-6 drizzle path, and sharpening strength (tuning). Phase 6's drizzle and live
+UI are still deferred. Phases 9-13 are not started.
 
 | Phase | Scope | Depends on | Risk | Status |
 |---|---|---|:--:|:--:|
@@ -351,7 +362,7 @@ the quality-weighted mean; `DrizzleKernel` reuse is a follow-up). Phases 8-13 ar
 | 5 | **Alignment points**: feature-detector AP placement + per-AP local match + `Image.WarpByMeshAsync` (mesh warp); luminance-proxy mesh applied to all CFA sub-planes | 3,4 | High | DONE |
 | 6 | **Planetary integrator**: per-AP quality-weighted best-of stack + tile blend + optional drizzle; **end-to-end milestone** | 4,5 | High | DONE (drizzle deferred) |
 | 7 | **`WaveletSharpen`** (a-trous, per-scale gain/denoise) | 6 | Medium | DONE |
-| 8 | **CLI**: `tianwen planetary-stack` (or `tianwen stack --planetary`) orchestrator | 6,7 | Low |
+| 8 | **CLI**: `tianwen planetary-stack` (or `tianwen stack --planetary`) orchestrator | 6,7 | Low | DONE |
 | 9 | **Live**: `RollingWindowStacker` (5-min window) + `LiveStackPreviewSource` push-stream wired into the previewer (GUI + tianwen-fits) | 4,6 | Medium |
 | 10 | **De-rotation 6a** (within-capture): Meeus per-planet CM + disk geometry + spheroid reproject; derotate-to-midpoint before stack | 6 | High |
 | 11 | **De-rotation 6b** (multi-stack / RGB temporal): derotate finished stacks to a common epoch + combine | 10 | High |
