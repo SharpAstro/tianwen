@@ -371,6 +371,97 @@ public partial class Image
     }
 
     /// <summary>
+    /// Warps this image onto the reference grid by a per-pixel <see cref="Planetary.DisplacementMesh"/>:
+    /// output pixel <c>(x, y)</c> samples this image at <c>(x + ox, y + oy)</c> where <c>(ox, oy)</c> is
+    /// the mesh displacement there, via the shared bilinear <see cref="SubpixelValue"/>. The same mesh
+    /// (built on the luminance proxy) is applied to every channel, so CFA sub-planes stay co-registered.
+    /// Out-of-bounds samples become NaN (the integrator treats those as zero-weight). The output is the
+    /// same size as this image. This is the alignment-point analogue of the affine
+    /// <see cref="WarpToReferenceGridAsync"/> -- it corrects seeing distortion that varies across the disk.
+    /// </summary>
+    public Task<Image> WarpByMeshAsync(Planetary.DisplacementMesh mesh, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(mesh);
+        var channelCount = ChannelCount;
+        var width = Width;
+        var height = Height;
+        var warped = CreateChannelData(channelCount, height, width);
+
+        var parallelOptions = new ParallelOptions
+        {
+            CancellationToken = cancellationToken,
+            MaxDegreeOfParallelism = Environment.ProcessorCount,
+        };
+
+        Parallel.For(0, height, parallelOptions, y =>
+        {
+            for (var x = 0; x < width; x++)
+            {
+                var (ox, oy) = mesh.Sample(x, y);
+                var sx = x + ox;
+                var sy = y + oy;
+                var inBounds = sx >= 0 && sx < width && sy >= 0 && sy < height;
+                for (var c = 0; c < channelCount; c++)
+                {
+                    warped[c][y, x] = inBounds ? SubpixelValue(c, sx, sy) : float.NaN;
+                }
+            }
+        });
+
+        return Task.FromResult(new Image(warped, BitDepth.Float32, maxValue, minValue, pedestal, imageMeta));
+    }
+
+    /// <summary>
+    /// Accumulates this image, warped onto the reference grid by <paramref name="mesh"/> and scaled by
+    /// <paramref name="weight"/>, into caller-owned per-channel accumulators + a shared per-pixel weight
+    /// plane (the mesh-warp analogue of <see cref="AccumulateTranslatedInto"/>). Out-of-bounds samples
+    /// contribute nothing and add no weight, so integrated edges stay unbiased. Used by the per-AP
+    /// planetary integrator to fold a frame in with no intermediate warped-image allocation.
+    /// </summary>
+    internal void AccumulateByMeshInto(float[][,] channelAccum, float[,] weightAccum, Planetary.DisplacementMesh mesh, float weight)
+    {
+        var outH = weightAccum.GetLength(0);
+        var outW = weightAccum.GetLength(1);
+        var channels = ChannelCount;
+
+        Span<float> samples = stackalloc float[channels];
+        for (var y = 0; y < outH; y++)
+        {
+            for (var x = 0; x < outW; x++)
+            {
+                var (ox, oy) = mesh.Sample(x, y);
+                var sx = x + ox;
+                var sy = y + oy;
+
+                var ok = true;
+                for (var c = 0; c < channels; c++)
+                {
+                    var v = SubpixelValue(c, sx, sy);
+                    if (float.IsNaN(v))
+                    {
+                        ok = false;
+                        break;
+                    }
+
+                    samples[c] = v;
+                }
+
+                if (!ok)
+                {
+                    continue;
+                }
+
+                for (var c = 0; c < channels; c++)
+                {
+                    channelAccum[c][y, x] += weight * samples[c];
+                }
+
+                weightAccum[y, x] += weight;
+            }
+        }
+    }
+
+    /// <summary>
     /// Returns a binned copy of this image where every <paramref name="factor"/> x
     /// <paramref name="factor"/> block of source pixels becomes one mean-pooled
     /// pixel in the output. Used by the plate solver to drop the per-pass cost

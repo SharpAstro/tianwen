@@ -54,7 +54,7 @@ public sealed class GlobalAligner
         var rcx = Math.Round(cx);
         var rcy = Math.Round(cy);
         var tile = new float[tileSize * tileSize];
-        ExtractLumaTile(reference, rcx, rcy, tileSize, tile);
+        PlanetaryTile.ExtractLuma(reference, rcx, rcy, tileSize, tile);
         return new GlobalAligner(tileSize, tile, rcx, rcy);
     }
 
@@ -71,7 +71,7 @@ public sealed class GlobalAligner
         var rcy = Math.Round(cy);
 
         var tile = new float[_tileSize * _tileSize];
-        ExtractLumaTile(frame, rcx, rcy, _tileSize, tile);
+        PlanetaryTile.ExtractLuma(frame, rcx, rcy, _tileSize, tile);
 
         // Bulk shift = integer rounded-COM difference (matches the tile centring); the phase-correlation
         // residual is the full sub-pixel remainder between the two integer-centred tiles. Window on --
@@ -81,39 +81,5 @@ public sealed class GlobalAligner
         var dx = (rcx - _refCenterX) + residual.Dx;
         var dy = (rcy - _refCenterY) + residual.Dy;
         return new PhaseCorrelation.Shift(dx, dy, residual.PeakValue);
-    }
-
-    /// <summary>
-    /// Fills <paramref name="dst"/> (length <c>size*size</c>) with a luminance-proxy tile centred on the
-    /// integer-rounded disk centre, zero-padded where the tile extends past the frame edge.
-    /// </summary>
-    private static void ExtractLumaTile(Image frame, double centerX, double centerY, int size, float[] dst)
-    {
-        var originX = (int)Math.Round(centerX) - (size / 2);
-        var originY = (int)Math.Round(centerY) - (size / 2);
-        int w = frame.Width, h = frame.Height, channels = frame.ChannelCount;
-        var inv = 1f / channels;
-
-        for (var ty = 0; ty < size; ty++)
-        {
-            var sy = originY + ty;
-            var dstRow = ty * size;
-            for (var tx = 0; tx < size; tx++)
-            {
-                var sx = originX + tx;
-                var v = 0f;
-                if (sx >= 0 && sx < w && sy >= 0 && sy < h)
-                {
-                    for (var c = 0; c < channels; c++)
-                    {
-                        v += frame[c, sy, sx];
-                    }
-
-                    v *= inv;
-                }
-
-                dst[dstRow + tx] = v;
-            }
-        }
     }
 }
