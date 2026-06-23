@@ -47,11 +47,21 @@ public sealed class LiveStackPreviewSource : IPreviewSource, IDisposable
     private readonly int _expectedChannels;
     private readonly SensorType _expectedSensor;
 
-    private AstroImageDocument? _doc;   // the current published master, as a stats-bearing document
-    private Task<Built>? _stackTask;    // single in-flight background stack (null = idle)
+    private AstroImageDocument? _doc;   // the current published master (sharpened), as a stats-bearing document
+    private Image? _rawMaster;          // the latest UN-sharpened stacker output, kept so a wavelet-param
+                                        // change can re-sharpen without re-running the window integration
+    private int _builtRaw = -1;         // playhead _rawMaster was stacked for
+    private Task<Built>? _stackTask;    // single in-flight background stack/sharpen (null = idle)
     private int _target;                // latest requested playhead
     private int _built = -1;            // playhead the current _doc was built for
+    private WaveletSharpenOptions? _requestedSharpen; // latest wavelet params (null = sharpening off)
+    private bool _sharpenDirty;         // wavelet params changed -> rebuild the display even if the playhead didn't move
     private bool _disposed;
+
+    // Identity wavelet (all-1 gains, no denoise) reconstructs the input exactly -- used as the "sharpening
+    // off" case so the display image is always a FRESH copy to adopt (AdoptImageAsync normalises in place),
+    // never the cached raw master.
+    private static readonly WaveletSharpenOptions IdentitySharpen = WaveletSharpenOptions.Uniform(6, 1f);
 
     private readonly record struct Built(AstroImageDocument Doc, int Index);
 
@@ -104,6 +114,19 @@ public sealed class LiveStackPreviewSource : IPreviewSource, IDisposable
     }
 
     /// <summary>
+    /// Sets the wavelet-sharpen parameters applied to the stacked master (<c>null</c> = off). Re-sharpens
+    /// the cached master off-thread on the next idle slot -- a slider drag does NOT re-run the window
+    /// integration, only the (cheap) wavelet pass. Render-thread only; coalesces like
+    /// <see cref="RequestFollow"/>.
+    /// </summary>
+    public void SetSharpen(WaveletSharpenOptions? options)
+    {
+        _requestedSharpen = options;
+        _sharpenDirty = true;
+        StartIfIdle();
+    }
+
+    /// <summary>
     /// If the in-flight stack finished, swaps its master in as the displayed document and returns true (the
     /// caller re-uploads the texture). Render-thread only; no I/O. Call before <see cref="RequestFollow"/>
     /// each tick so a completed result is consumed before the next stack is kicked.
@@ -135,21 +158,36 @@ public sealed class LiveStackPreviewSource : IPreviewSource, IDisposable
             return;
         }
 
-        // Nothing to do when the current master already represents the requested frame.
-        if (_doc is not null && _target == _built)
+        // Work to do iff: no master yet, the playhead moved, or the wavelet params changed.
+        if (_doc is not null && _target == _built && !_sharpenDirty)
         {
             return;
         }
 
         var target = _target;
+        var sharpen = _requestedSharpen;
+        _sharpenDirty = false;
         var token = _cts.Token;
         _stackTask = Task.Run(async () =>
         {
-            var master = await _stacker.StackToAsync(target, token).ConfigureAwait(false);
-            // Adopt the (linear, [0,1]) master into a stats-bearing document off the render thread; None =
-            // no CPU debayer (the master is already RGB / mono). This computes the stretch stats once per
-            // published master -- affordable because publishes are infrequent (the window lags the playhead).
-            var doc = await AstroImageDocument.AdoptImageAsync(master, DebayerAlgorithm.None, filePath: _path, cancellationToken: token).ConfigureAwait(false);
+            // Re-stack only when the playhead moved (or on the first run); a sharpen-only change reuses the
+            // cached raw master, so dragging a wavelet slider re-runs just the wavelet pass, not the window
+            // integration.
+            if (_rawMaster is null || target != _builtRaw)
+            {
+                _rawMaster = await _stacker.StackToAsync(target, token).ConfigureAwait(false);
+                _builtRaw = target;
+            }
+
+            // Always produce a FRESH image to adopt (AdoptImageAsync normalises in place); identity gains
+            // when sharpening is off, so the cached raw master is never consumed. WaveletSharpen.Sharpen
+            // returns a new image and leaves _rawMaster intact for the next re-sharpen.
+            var display = WaveletSharpen.Sharpen(_rawMaster, sharpen ?? IdentitySharpen);
+
+            // Adopt the (linear, [0,1]) display master into a stats-bearing document off the render thread;
+            // None = no CPU debayer (already RGB / mono). Stretch stats are computed once per publish --
+            // affordable because publishes are infrequent (the window lags the playhead).
+            var doc = await AstroImageDocument.AdoptImageAsync(display, DebayerAlgorithm.None, filePath: _path, cancellationToken: token).ConfigureAwait(false);
             return new Built(doc, target);
         }, token);
     }

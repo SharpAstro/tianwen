@@ -374,6 +374,13 @@ public sealed class ViewerController(
         var masterPublished = false;
         if (_liveSource is { } live && state.ShowStacked)
         {
+            // Push changed wavelet-sharpen params (null = off); the source re-sharpens the cached master
+            // off-thread without re-stacking. Cheap no-op compare via the dirty flag, so this runs per tick.
+            if (state.WaveletDirty)
+            {
+                live.SetSharpen(state.WaveletSharpenEnabled ? BuildWaveletOptions(state) : null);
+                state.WaveletDirty = false;
+            }
             masterPublished = live.TryPublishMaster();
             live.RequestFollow(state.FrameIndex);
         }
@@ -423,6 +430,15 @@ public sealed class ViewerController(
 
     private static bool StillInUse(IDisposable d)
         => d is ISequencePlaybackSource { IsDecoding: true } or LiveStackPreviewSource { IsBusy: true };
+
+    // Builds the live-stack wavelet options from the panel sliders. Reuses the validated planetary fine-scale
+    // denoise (the single source) so amplified gains don't pull up limb / sensor grain.
+    private static WaveletSharpenOptions BuildWaveletOptions(ViewerState state)
+        => new WaveletSharpenOptions
+        {
+            Gains = state.WaveletGains,
+            DenoiseThresholds = WaveletSharpenOptions.PlanetaryDefault.DenoiseThresholds,
+        };
 
     // Queues replaced sources for post-frame disposal (only disposable sources -- SerPreviewSource /
     // LiveStackPreviewSource hold a memory-mapped file; an AstroImageDocument has nothing unmanaged and is

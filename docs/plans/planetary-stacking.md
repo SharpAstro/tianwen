@@ -381,9 +381,14 @@ shows the quality-weighted global-aligned mean of the time-bounded window ending
 re-folding on the fly (O(pixels) add/evict, full rebuild on backward jump / reference age-out). Global
 align only (full AP stays the batch path, per non-goal #1). Demosaic-once and normalise reuse the shared
 `PlanetaryMaster` helper, so the live and batch masters can never drift. Verified end-to-end in
-`tianwen-fits` on a real RGGB SER + a 40-frame mono SER (toggle denoises the disk, no crash). Not yet done:
-wavelet-sharpen on the live master (hook present, default off), the independent "EAA free-run" stack mode,
-and Phases 10-13.
+`tianwen-fits` on a real RGGB SER + a 40-frame mono SER (toggle denoises the disk, no crash).
+
+Live wavelet sharpen is now **adjustable in the viewer**: 6 Registax-style per-a-trous-layer gain sliders
+(finest first) + an on/off + reset, in the info panel directly under the RGB white-balance sliders, shown
+for the stacked view. `LiveStackPreviewSource` caches the un-sharpened master and re-applies the wavelet
+pass off-thread on a slider change (no re-stack), so dragging a layer updates the image within a frame or
+two; the validated planetary fine-scale denoise is reused so amplified gains don't pull up limb grain. Not
+yet done: the independent "EAA free-run" stack mode, and Phases 10-13.
 
 | Phase | Scope | Depends on | Risk | Status |
 |---|---|---|:--:|:--:|

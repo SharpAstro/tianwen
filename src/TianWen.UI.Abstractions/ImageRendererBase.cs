@@ -374,6 +374,12 @@ namespace TianWen.UI.Abstractions
         private const float WbMin = AutoWhiteBalance.MinMultiplier;
         private const float WbMax = AutoWhiteBalance.MaxMultiplier;
 
+        // Wavelet-sharpen layer slider track rects (6 a-trous scales, finest first), captured in
+        // RenderWaveletControls each frame; map a cursor-X <-> per-layer gain. Only drawn for the live
+        // stacked view. Linear gain in [0, WaveletGainMax]; neutral 1.0.
+        private readonly RectF32[] _waveletTrackRects = new RectF32[6];
+        private const float WaveletGainMax = 5f;
+
         /// <summary>Design-unit thickness of the file-list resize divider (the Split divider IS the grab bar).</summary>
         private const float BaseFileListDividerWidth = 6f;
 
@@ -1926,6 +1932,21 @@ namespace TianWen.UI.Abstractions
                 _wbTrackRects[0] = _wbTrackRects[1] = _wbTrackRects[2] = default;
             }
 
+            // Wavelet-sharpen layer sliders -- only for the live stacked view (they re-sharpen the stacked
+            // master; they have no effect on a raw frame). Sit right under the white-balance sliders.
+            if (state.ShowStacked)
+            {
+                y += FontSize;
+                RenderWaveletControls(state, ref y, x, maxTextWidth);
+            }
+            else
+            {
+                for (var i = 0; i < _waveletTrackRects.Length; i++)
+                {
+                    _waveletTrackRects[i] = default;
+                }
+            }
+
             // Controls help at bottom of panel
             ReadOnlySpan<string> controlLabels =
             [
@@ -2123,6 +2144,128 @@ namespace TianWen.UI.Abstractions
         }
 
         // -----------------------------------------------------------------------
+        // Wavelet-sharpen layer sliders (info panel; live stacked view only)
+        //
+        // The Registax / AstroSurface 6-layer convention: one slider per a-trous detail scale, finest first.
+        // Linear gain in [0, WaveletGainMax], neutral 1.0. Dragging a layer turns sharpening on and re-pushes
+        // the params; the controller re-sharpens the cached stacked master off-thread (no re-stack), so the
+        // image follows within a frame or two. Same press + drag + release model as the WB sliders.
+        // -----------------------------------------------------------------------
+
+        private void RenderWaveletControls(ViewerState state, ref float y, float x, float panelWidth)
+        {
+            DrawTextLine(ref y, x, "-- Wavelet Sharpen --", ViewerTheme.Palette.HeaderText);
+
+            var gap = 6f * DpiScale;
+            var btnH = FontSize + gap;
+
+            // On/Off toggle (active = blue) + Reset-to-default, both self-contained via OnClick.
+            var toggleLabel = state.WaveletSharpenEnabled ? "Sharpen: On" : "Sharpen: Off";
+            var toggleW = MeasureText(toggleLabel, FontSize) + gap * 2f;
+            FillRect(x, y, toggleW, btnH, state.WaveletSharpenEnabled ? TransportTrackFill : ToolbarButtonBg);
+            DrawText(toggleLabel, x + gap, y + gap / 2f, FontSize, ViewerTheme.Palette.BodyText);
+            RegisterClickable(x, y, toggleW, btnH, new HitResult.ButtonHit("WaveletToggle"),
+                _ => { state.WaveletSharpenEnabled = !state.WaveletSharpenEnabled; state.WaveletDirty = true; state.NeedsRedraw = true; });
+
+            const string resetLabel = "Reset";
+            var resetW = MeasureText(resetLabel, FontSize) + gap * 2f;
+            var resetX = x + toggleW + gap;
+            FillRect(resetX, y, resetW, btnH, ToolbarButtonBg);
+            DrawText(resetLabel, resetX + gap, y + gap / 2f, FontSize, ViewerTheme.Palette.BodyText);
+            RegisterClickable(resetX, y, resetW, btnH, new HitResult.ButtonHit("WaveletReset"),
+                _ => { state.WaveletGains = WaveletSharpenOptions.PlanetaryDefault.Gains; state.WaveletDirty = true; state.NeedsRedraw = true; });
+            y += btnH + gap;
+
+            var rowH = FontSize + gap;
+            var labelW = MeasureText("6", FontSize) + gap;
+            var valueW = MeasureText("0.0", FontSize) + gap;
+            var barH = MathF.Max(4f, 6f * DpiScale);
+            var handleW = MathF.Max(4f, 6f * DpiScale);
+            // Brighter track fill when active; dim when sharpening is off (the sliders still work -- a drag
+            // re-enables -- but read as inactive).
+            var fill = state.WaveletSharpenEnabled
+                ? RGBAColor32.FromFloat(0.45f, 0.72f, 0.78f, 1f)
+                : RGBAColor32.FromFloat(0.40f, 0.45f, 0.48f, 1f);
+
+            var gains = state.WaveletGains;
+            for (var b = 0; b < _waveletTrackRects.Length; b++)
+            {
+                if (b >= gains.Length)
+                {
+                    _waveletTrackRects[b] = default;
+                    continue;
+                }
+
+                var rowY = y;
+                DrawText((b + 1).ToString(), x, rowY, FontSize, ViewerTheme.Palette.BodyText);
+
+                var trackX = x + labelW;
+                var trackRight = x + panelWidth - valueW;
+                var trackW = MathF.Max(0f, trackRight - trackX);
+                if (trackW > 0f)
+                {
+                    var barY = rowY + (FontSize - barH) / 2f;
+                    FillRect(trackX, barY, trackW, barH, TransportTrackBg);
+                    var frac = Math.Clamp(gains[b] / WaveletGainMax, 0f, 1f);
+                    FillRect(trackX, barY, trackW * frac, barH, fill);
+
+                    var handleMax = MathF.Max(trackX, trackX + trackW - handleW);
+                    var handleX = Math.Clamp(trackX + trackW * frac - handleW / 2f, trackX, handleMax);
+                    FillRect(handleX, rowY, handleW, FontSize, TransportHandle);
+
+                    var hitY = rowY - gap / 2f;
+                    var hitH = FontSize + gap;
+                    _waveletTrackRects[b] = new RectF32(trackX, hitY, trackW, hitH);
+                    RegisterClickable(trackX, hitY, trackW, hitH, new WaveletSliderHit(b));
+                }
+                else
+                {
+                    _waveletTrackRects[b] = default;
+                }
+
+                DrawText(gains[b].ToString("0.0"), trackRight, rowY, FontSize, ViewerTheme.Palette.DimText);
+                y = rowY + rowH;
+            }
+        }
+
+        /// <summary>
+        /// Begins a wavelet-layer slider drag (press on a layer track). Public so both mouse-down paths
+        /// (FitsViewer Program + GUI viewer tab) dispatch identically, mirroring <see cref="BeginWhiteBalanceDragAt"/>.
+        /// Touching a layer turns sharpening on.
+        /// </summary>
+        public void BeginWaveletDragAt(int band, float px)
+        {
+            if (_state is not { } state || (uint)band >= (uint)_waveletTrackRects.Length)
+            {
+                return;
+            }
+
+            state.WaveletDragBand = band;
+            state.WaveletSharpenEnabled = true;
+            UpdateWaveletDrag(px);
+        }
+
+        // Maps a cursor X onto a per-layer gain for the active drag band against its captured track rect.
+        private void UpdateWaveletDrag(float px)
+        {
+            if (_state is not { } state)
+            {
+                return;
+            }
+            var b = state.WaveletDragBand;
+            if ((uint)b >= (uint)_waveletTrackRects.Length || _waveletTrackRects[b].Width <= 0f || b >= state.WaveletGains.Length)
+            {
+                return;
+            }
+
+            var track = _waveletTrackRects[b];
+            var frac = Math.Clamp((px - track.X) / track.Width, 0f, 1f);
+            state.WaveletGains = state.WaveletGains.SetItem(b, frac * WaveletGainMax);
+            state.WaveletDirty = true;
+            state.NeedsRedraw = true;
+        }
+
+        // -----------------------------------------------------------------------
         // Status bar
         // -----------------------------------------------------------------------
 
@@ -2224,7 +2367,7 @@ namespace TianWen.UI.Abstractions
             FillRect(stackBtnX, btnY, stackBtnW, btnSize, stacking ? TransportTrackFill : ToolbarButtonBg);
             DrawText(stackLabel, stackBtnX + (stackBtnW - stackLabelW) / 2f, textY, fs, RGBAColor32.FromFloat(0.92f, 0.92f, 0.95f, 1f));
             RegisterClickable(stackBtnX, btnY, stackBtnW, btnSize, new HitResult.ButtonHit("StackToggle"),
-                _ => { state.ShowStacked = !state.ShowStacked; state.NeedsTextureUpdate = true; state.NeedsRedraw = true; });
+                _ => { state.ShowStacked = !state.ShowStacked; state.WaveletDirty = true; state.NeedsTextureUpdate = true; state.NeedsRedraw = true; });
 
             // Right-aligned readout: frame n/total, capture timestamp (if present), playback fps.
             var idx = state.FrameIndex;
@@ -2510,6 +2653,7 @@ namespace TianWen.UI.Abstractions
                     if (state.IsSequence)
                     {
                         state.ShowStacked = !state.ShowStacked;
+                        state.WaveletDirty = true; // push the current sharpen state when (re)entering stacked
                         state.NeedsTextureUpdate = true;
                         state.NeedsRedraw = true;
                     }
@@ -2755,6 +2899,12 @@ namespace TianWen.UI.Abstractions
                 return true;
             }
 
+            if (hit is WaveletSliderHit { Band: var wlBand })
+            {
+                BeginWaveletDragAt(wlBand, px);
+                return true;
+            }
+
             if (hit is not null)
             {
                 return true; // OnClick already handled it (e.g. HistogramLog, PlayPause)
@@ -2785,6 +2935,13 @@ namespace TianWen.UI.Abstractions
             if (state.WhiteBalanceDragChannel >= 0)
             {
                 UpdateWhiteBalanceDrag(px);
+                return true;
+            }
+
+            // Wavelet-layer slider drag: continuously re-derive the per-layer gain from cursor-X.
+            if (state.WaveletDragBand >= 0)
+            {
+                UpdateWaveletDrag(px);
                 return true;
             }
 
@@ -2824,6 +2981,11 @@ namespace TianWen.UI.Abstractions
                 if (state.WhiteBalanceDragChannel >= 0)
                 {
                     state.WhiteBalanceDragChannel = -1;
+                    state.NeedsRedraw = true;
+                }
+                if (state.WaveletDragBand >= 0)
+                {
+                    state.WaveletDragBand = -1;
                     state.NeedsRedraw = true;
                 }
                 if (state.IsResizingFileList)
