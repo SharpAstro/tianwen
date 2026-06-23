@@ -185,6 +185,15 @@ public sealed class ViewerState
     /// <summary>True while the user is dragging the transport scrub handle.</summary>
     public bool IsScrubbing { get; set; }
 
+    /// <summary>
+    /// When true, a multi-frame source is shown as a <b>live rolling-window stack</b> (lucky imaging)
+    /// instead of the raw frame. Only meaningful for a SER sequence with a live-stack source available;
+    /// the controller keeps showing the raw frame until the first master is built. Toggled from the
+    /// transport bar / the <c>K</c> key. The raw playhead keeps advancing underneath, so the stacked view
+    /// follows the current frame.
+    /// </summary>
+    public bool ShowStacked { get; set; }
+
     /// <summary>Selectable playback rates (fps) cycled by the transport speed control / Up-Down keys.</summary>
     public static readonly float[] PlaybackRates = [1f, 5f, 10f, 15f, 24f, 30f, 50f, 75f, 100f, 150f, 200f];
 

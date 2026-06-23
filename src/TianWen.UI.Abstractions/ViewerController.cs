@@ -33,9 +33,10 @@ public sealed class ViewerController(
     private CancellationTokenSource? _loadCts;
     private string? _loadingPath;
 
-    // A previous source (e.g. a SerPreviewSource holding a memory-mapped file) replaced by a new load.
-    // Disposed in ReleaseCompletedTasks (post-frame, UI thread) so no in-flight render still reads it.
-    private IDisposable? _pendingDisposeSource;
+    // Previous sources (e.g. a SerPreviewSource / LiveStackPreviewSource holding a memory-mapped file)
+    // replaced by a new load. Disposed in ReleaseCompletedTasks (post-frame, UI thread) once no longer
+    // busy, so no in-flight render/decode/stack still reads them.
+    private readonly List<IDisposable> _pendingDispose = new();
 
     // Sequence playback (SER). The player is touched ONLY on the render thread (TickPlayback /
     // IsPlaybackActive, both called from OnRender / CheckNeedsRedraw) -- it rebinds itself when Source
@@ -51,11 +52,22 @@ public sealed class ViewerController(
     /// </summary>
     public AstroImageDocument? Document { get; private set; }
 
+    // The raw source: the document (still) or the SerPreviewSource (SER). Always the playback driver -- the
+    // SequencePlayer advances THIS even while the stacked view is shown, so the playhead keeps moving and
+    // the live stack can follow it.
+    private IPreviewSource? _rawSource;
+
+    // The live rolling-window stack over the same SER (null for stills / non-stacked). Built lazily; shown
+    // only once it has produced its first master (HasMaster).
+    private LiveStackPreviewSource? _liveSource;
+
     /// <summary>
-    /// The source the renderer previews. For a still image this is the same object as
-    /// <see cref="Document"/>; for a SER it is a sequence source and <see cref="Document"/> is null.
+    /// The source the renderer previews. The raw frame normally; the live rolling-window stack when
+    /// <see cref="ViewerState.ShowStacked"/> is set AND that stack has a master to show (otherwise the raw
+    /// frame keeps showing while the first stack computes). For a still image this is the same object as
+    /// <see cref="Document"/>; for a SER the raw source is a sequence source and <see cref="Document"/> is null.
     /// </summary>
-    public IPreviewSource? Source { get; private set; }
+    public IPreviewSource? Source => state.ShowStacked && _liveSource is { HasMaster: true } ? _liveSource : _rawSource;
 
     /// <summary>
     /// Fires with the loaded filename after a document is successfully opened.
@@ -117,7 +129,8 @@ public sealed class ViewerController(
 
         _loadTask = Task.Run(async () =>
         {
-            var previousSource = Source;
+            var previousRaw = _rawSource;
+            var previousLive = _liveSource;
 
             // SER planetary video: a multi-frame sequence handled by SerPreviewSource, NOT the document
             // file loader. Stats are computed once from frame 0; the viewer auto-switches to playback mode.
@@ -126,16 +139,26 @@ public sealed class ViewerController(
                 try
                 {
                     var serSource = await SerPreviewSource.OpenAsync(requestedPath, loadToken);
+                    // The live rolling-window stack over the SAME file (its own SER reader). Constructed
+                    // here, off the render thread; it stacks lazily once the user toggles to the stacked
+                    // view. A failure to open it is non-fatal -- raw playback still works.
+                    LiveStackPreviewSource? liveSource = null;
+                    try { liveSource = LiveStackPreviewSource.Open(requestedPath); }
+                    catch (Exception ex) { logger.LogWarning(ex, "Failed to open live-stack source for {FilePath}", requestedPath); }
+
                     if (loadToken.IsCancellationRequested)
                     {
-                        // Superseded between OpenAsync returning and here -- drop the just-opened reader
+                        // Superseded between OpenAsync returning and here -- drop the just-opened readers
                         // and leave the previous Source untouched (the newer request loads next frame).
                         serSource.Dispose();
+                        liveSource?.Dispose();
                         return;
                     }
                     var wasSequence = state.IsSequence;
                     Document = null;
-                    Source = serSource;
+                    _rawSource = serSource;
+                    _liveSource = liveSource;
+                    state.ShowStacked = false; // a fresh file starts on the raw view (its stack has no master yet)
                     state.IsSequence = true;
                     state.FrameCount = serSource.FrameCount;
                     state.FrameIndex = 0;
@@ -173,7 +196,7 @@ public sealed class ViewerController(
                     state.StatusMessage = $"Failed to open: {Path.GetFileName(requestedPath)}";
                 }
 
-                StashForDispose(previousSource);
+                StashForDispose(previousRaw, previousLive);
                 return;
             }
 
@@ -197,13 +220,15 @@ public sealed class ViewerController(
             if (newDoc is not null)
             {
                 Document = newDoc;
-                Source = newDoc;
+                _rawSource = newDoc;
+                _liveSource = null;
+                state.ShowStacked = false; // stacking is a sequence-only mode
                 state.IsSequence = false;
                 state.IsPlaying = false;
                 state.FrameCount = 1;
                 state.FrameIndex = 0;
                 state.SourceFps = null;
-                StashForDispose(previousSource);
+                StashForDispose(previousRaw, previousLive);
                 state.NeedsTextureUpdate = true;
                 state.CursorImagePosition = null;
                 state.CursorPixelInfo = null;
@@ -324,27 +349,50 @@ public sealed class ViewerController(
     /// </summary>
     public bool TickPlayback()
     {
-        var src = Source;
-        if (!ReferenceEquals(src, _playerBoundSource))
+        // The RAW source is always the playback driver -- even while the stacked view is shown -- so the
+        // playhead keeps advancing and the live stack can follow it. We never bind the player to the live
+        // source (it is not seekable; it follows).
+        var raw = _rawSource;
+        if (!ReferenceEquals(raw, _playerBoundSource))
         {
-            // Source changed (new SER opened, or cleared) -- reset playback timing. Done here on the
+            // Raw source changed (new SER opened, or cleared) -- reset playback timing. Done here on the
             // render thread, never on the background load thread, so the player is single-threaded.
             _player.Reset();
-            _playerBoundSource = src;
+            _playerBoundSource = raw;
         }
 
-        if (src is not ISequencePlaybackSource seq || !state.IsSequence)
+        if (raw is not ISequencePlaybackSource seq || !state.IsSequence)
         {
             return false;
         }
 
-        var published = _player.Tick(seq, state, _playbackClock.Elapsed.TotalSeconds);
-        if (published)
+        var rawPublished = _player.Tick(seq, state, _playbackClock.Elapsed.TotalSeconds);
+
+        // Live rolling-window stack: consume any finished master first (so the just-completed result is
+        // published before we kick the next one), then follow the current playhead. Only runs while the
+        // stacked view is requested -- no CPU spent stacking when showing the raw frame.
+        var masterPublished = false;
+        if (_liveSource is { } live && state.ShowStacked)
+        {
+            masterPublished = live.TryPublishMaster();
+            live.RequestFollow(state.FrameIndex);
+        }
+
+        // Upload whichever source is actually on screen. A raw frame advance only re-uploads when the raw
+        // frame is shown; a new master always becomes the displayed image (it only publishes while stacked).
+        var showingStacked = state.ShowStacked && _liveSource is { HasMaster: true };
+        if (rawPublished && !showingStacked)
+        {
+            state.NeedsTextureUpdate = true;
+        }
+        if (masterPublished)
         {
             state.NeedsTextureUpdate = true;
         }
 
-        return published || _player.SeekPending;
+        // A raw advance still warrants a redraw while stacked (the transport playhead moved), just not a
+        // texture re-upload.
+        return rawPublished || masterPublished || _player.SeekPending;
     }
 
     /// <summary>
@@ -356,29 +404,37 @@ public sealed class ViewerController(
         if (_starDetectionTask is { IsCompleted: true }) _starDetectionTask = null;
         if (_backgroundTask is { IsCompleted: true }) _backgroundTask = null;
 
-        // Dispose a source replaced by a newer load, post-frame, so no render still references it.
-        if (_pendingDisposeSource is { } stale)
+        // Dispose sources replaced by a newer load, post-frame, so no render still references them. Never
+        // release a memory-mapped SER reader while a background decode (SerPreviewSource) or window stack
+        // (LiveStackPreviewSource) is still reading it (use-after-free); leave those for a later frame --
+        // their in-flight work runs to completion (sub-ms) and clears almost at once.
+        for (var i = _pendingDispose.Count - 1; i >= 0; i--)
         {
-            // Never release a SER reader's memory-mapped file while a background decode is still reading
-            // it (use-after-free). The player has already rebound away from this stale source, so its
-            // in-flight decode just runs to completion; retry next frame (sub-ms, clears almost at once).
-            if (stale is ISequencePlaybackSource { IsDecoding: true })
+            var stale = _pendingDispose[i];
+            if (StillInUse(stale))
             {
-                return;
+                continue;
             }
 
-            _pendingDisposeSource = null;
             stale.Dispose();
+            _pendingDispose.RemoveAt(i);
         }
     }
 
-    // Queues a replaced source for post-frame disposal (only disposable sources -- SerPreviewSource holds
-    // a memory-mapped file; an AstroImageDocument has nothing unmanaged and is left to the GC).
-    private void StashForDispose(IPreviewSource? previous)
+    private static bool StillInUse(IDisposable d)
+        => d is ISequencePlaybackSource { IsDecoding: true } or LiveStackPreviewSource { IsBusy: true };
+
+    // Queues replaced sources for post-frame disposal (only disposable sources -- SerPreviewSource /
+    // LiveStackPreviewSource hold a memory-mapped file; an AstroImageDocument has nothing unmanaged and is
+    // left to the GC). Skips anything still wired as the current raw / live source.
+    private void StashForDispose(params IPreviewSource?[] previous)
     {
-        if (previous is IDisposable d && !ReferenceEquals(previous, Source))
+        foreach (var p in previous)
         {
-            _pendingDisposeSource = d;
+            if (p is IDisposable d && !ReferenceEquals(p, _rawSource) && !ReferenceEquals(p, _liveSource))
+            {
+                _pendingDispose.Add(d);
+            }
         }
     }
 
@@ -405,8 +461,12 @@ public sealed class ViewerController(
         }
 
         _loadCts?.Dispose();
-        _pendingDisposeSource?.Dispose();
-        _pendingDisposeSource = null;
-        (Source as IDisposable)?.Dispose();
+        foreach (var d in _pendingDispose)
+        {
+            d.Dispose();
+        }
+        _pendingDispose.Clear();
+        (_rawSource as IDisposable)?.Dispose();
+        _liveSource?.Dispose();
     }
 }

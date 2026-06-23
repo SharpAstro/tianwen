@@ -305,22 +305,7 @@ public sealed class LuckyImagingStacker
     }
 
     private static Image Normalize(float[][,] channelAccum, float[,] weightAccum, StackContext ctx)
-    {
-        for (var c = 0; c < ctx.Channels; c++)
-        {
-            var plane = channelAccum[c];
-            for (var y = 0; y < ctx.Height; y++)
-            {
-                for (var x = 0; x < ctx.Width; x++)
-                {
-                    var wv = weightAccum[y, x];
-                    plane[y, x] = wv > 0f ? plane[y, x] / wv : 0f;
-                }
-            }
-        }
-
-        return new Image(channelAccum, BitDepth.Float32, 1f, 0f, 0f, ctx.MasterMeta);
-    }
+        => PlanetaryMaster.NormalizeInPlace(channelAccum, weightAccum, ctx.MasterMeta);
 
     /// <summary>
     /// For a split-CFA stack the integrated master is four CFA sub-planes; merge them into a full-resolution
@@ -329,16 +314,7 @@ public sealed class LuckyImagingStacker
     /// </summary>
     private static async Task<Image> FinalizeAsync(Image stacked, PlanetaryFrameLayout layout, PlanetaryStackOptions options, CancellationToken cancellationToken)
     {
-        Image master;
-        if (layout == PlanetaryFrameLayout.SplitCfa && stacked.ChannelCount == 4)
-        {
-            var mosaic = stacked.MergeBayerChannels();
-            master = await mosaic.DebayerAsync(DebayerAlgorithm.MHC, normalizeToUnit: false, cancellationToken).ConfigureAwait(false);
-        }
-        else
-        {
-            master = stacked;
-        }
+        var master = await PlanetaryMaster.MergeAndDemosaicAsync(stacked, layout, cancellationToken).ConfigureAwait(false);
 
         if (options.Sharpen is { } sharpen)
         {
