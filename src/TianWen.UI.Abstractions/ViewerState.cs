@@ -194,6 +194,25 @@ public sealed class ViewerState
     /// </summary>
     public bool ShowStacked { get; set; }
 
+    // --- Wavelet sharpening (live stacked view only) ---
+
+    /// <summary>Whether multi-scale wavelet sharpening is applied to the live stacked master. Off = the
+    /// stacked view is the pure quality-weighted mean (denoised, not sharpened).</summary>
+    public bool WaveletSharpenEnabled { get; set; }
+
+    /// <summary>Per-a-trous-layer sharpening gains, finest scale first (the Registax 6-layer convention).
+    /// 1.0 = neutral. Adjusted by the info-panel wavelet sliders; pushed to the live stack source on change.
+    /// Defaults to the validated planetary curve so enabling gives a good look immediately.</summary>
+    public ImmutableArray<float> WaveletGains { get; set; } = WaveletSharpenOptions.PlanetaryDefault.Gains;
+
+    /// <summary>Layer (0=finest .. 5=coarsest) of the wavelet slider currently being dragged, or -1 when
+    /// idle. Mirrors <see cref="WhiteBalanceDragChannel"/>.</summary>
+    public int WaveletDragBand { get; set; } = -1;
+
+    /// <summary>Set when the wavelet parameters change so the controller re-pushes them to the live stack
+    /// source (which re-sharpens the cached master off-thread, no re-stack). Cleared once pushed.</summary>
+    public bool WaveletDirty { get; set; }
+
     /// <summary>Selectable playback rates (fps) cycled by the transport speed control / Up-Down keys.</summary>
     public static readonly float[] PlaybackRates = [1f, 5f, 10f, 15f, 24f, 30f, 50f, 75f, 100f, 150f, 200f];
 
