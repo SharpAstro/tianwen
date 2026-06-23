@@ -17,7 +17,10 @@ async / strong-typed Span\<float\> in C#.
   data but high-effort and orthogonal to the core pipeline; defer to a follow-up plan.
 - **Comet stacking**. Template-match + StarNet/DarkStar star removal + dual-stack blend
   is a worthwhile feature but materially distinct from sidereal stacking. Defer.
-- **SER/AVI video stack** (planetary). Different domain, different cadence, separate plan.
+- **SER/AVI video stack** (planetary). Different domain, different cadence; the separate plan is
+  [`planetary-stacking.md`](planetary-stacking.md) (lucky imaging: quality grading, feature-driven
+  alignment points + mesh warp, per-AP split-CFA stack + Bayer drizzle, Meeus-CM derotation,
+  wavelet sharpening, and a rolling-window live path).
 - **Dark scaling by exposure**. SetiAstro doesn't do it either; nearest-match selection
   is enough for amateur data. Revisit only if users report mismatched-darks artifacts.
 - **Cosmetic correction / satellite masking**. Useful but orthogonal — add later as
