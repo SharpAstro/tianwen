@@ -1,6 +1,5 @@
 using System;
 using System.IO;
-using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using SharpAstro.Ser;
@@ -13,31 +12,10 @@ namespace TianWen.Lib.Tests;
 
 public class SerFrameStreamTests
 {
-    private static string NewTempPath() => Path.Combine(Path.GetTempPath(), $"ser-stream-{Guid.NewGuid():N}.ser");
-
-    /// <summary>Writes a 16-bit synthetic SER. Each frame is <c>width*height*planes</c> ushorts.</summary>
-    private static void WriteSer(string path, int width, int height, SerColorId colorId, ushort[][] frames,
-        DateTimeOffset[]? timestamps = null)
-    {
-        using var writer = new SerWriter(path, width, height, colorId, pixelDepthPerPlane: 16);
-        for (var i = 0; i < frames.Length; i++)
-        {
-            var bytes = MemoryMarshal.AsBytes<ushort>(frames[i]);
-            if (timestamps is not null)
-            {
-                writer.AppendFrame(bytes, timestamps[i]);
-            }
-            else
-            {
-                writer.AppendFrame(bytes);
-            }
-        }
-    }
-
     [Fact]
     public async Task Bayer_source_yields_split_cfa_half_resolution()
     {
-        var path = NewTempPath();
+        var path = PlanetarySerFixtures.NewTempPath();
         try
         {
             // Two 4x4 RGGB frames; frame 1 = frame 0 + a constant so they differ.
@@ -49,7 +27,7 @@ public class SerFrameStreamTests
                 f1[i] = (ushort)((i * 1000) + 500);
             }
 
-            WriteSer(path, 4, 4, SerColorId.BayerRGGB, [f0, f1]);
+            PlanetarySerFixtures.WriteSer(path, 4, 4, SerColorId.BayerRGGB, [f0, f1]);
 
             using var stream = SerFrameStream.Open(path);
 
@@ -84,10 +62,10 @@ public class SerFrameStreamTests
     [Fact]
     public async Task Bayer_source_without_split_yields_full_resolution_mosaic()
     {
-        var path = NewTempPath();
+        var path = PlanetarySerFixtures.NewTempPath();
         try
         {
-            WriteSer(path, 4, 4, SerColorId.BayerRGGB, [new ushort[16]]);
+            PlanetarySerFixtures.WriteSer(path, 4, 4, SerColorId.BayerRGGB, [new ushort[16]]);
 
             using var stream = SerFrameStream.Open(path, splitBayer: false);
 
@@ -109,10 +87,10 @@ public class SerFrameStreamTests
     [Fact]
     public async Task Mono_source_yields_single_full_resolution_plane()
     {
-        var path = NewTempPath();
+        var path = PlanetarySerFixtures.NewTempPath();
         try
         {
-            WriteSer(path, 4, 3, SerColorId.Mono, [new ushort[12]]);
+            PlanetarySerFixtures.WriteSer(path, 4, 3, SerColorId.Mono, [new ushort[12]]);
 
             using var stream = SerFrameStream.Open(path);
 
@@ -132,11 +110,11 @@ public class SerFrameStreamTests
     [Fact]
     public async Task Rgb_source_yields_three_planes()
     {
-        var path = NewTempPath();
+        var path = PlanetarySerFixtures.NewTempPath();
         try
         {
             // 2x2 RGB -> 4 pixels * 3 planes = 12 samples.
-            WriteSer(path, 2, 2, SerColorId.Rgb, [new ushort[12]]);
+            PlanetarySerFixtures.WriteSer(path, 2, 2, SerColorId.Rgb, [new ushort[12]]);
 
             using var stream = SerFrameStream.Open(path);
 
@@ -156,12 +134,12 @@ public class SerFrameStreamTests
     [Fact]
     public void Timestamps_round_trip_and_out_of_range_is_null()
     {
-        var path = NewTempPath();
+        var path = PlanetarySerFixtures.NewTempPath();
         try
         {
             var t0 = new DateTimeOffset(2024, 12, 15, 12, 33, 50, TimeSpan.Zero);
             var t1 = t0.AddMilliseconds(40);
-            WriteSer(path, 2, 2, SerColorId.Mono, [new ushort[4], new ushort[4]], [t0, t1]);
+            PlanetarySerFixtures.WriteSer(path, 2, 2, SerColorId.Mono, [new ushort[4], new ushort[4]], [t0, t1]);
 
             using var stream = SerFrameStream.Open(path);
 
@@ -180,10 +158,10 @@ public class SerFrameStreamTests
     [Fact]
     public async Task LoadAsync_honors_cancellation()
     {
-        var path = NewTempPath();
+        var path = PlanetarySerFixtures.NewTempPath();
         try
         {
-            WriteSer(path, 2, 2, SerColorId.Mono, [new ushort[4]]);
+            PlanetarySerFixtures.WriteSer(path, 2, 2, SerColorId.Mono, [new ushort[4]]);
             using var stream = SerFrameStream.Open(path);
 
             using var cts = new CancellationTokenSource();
