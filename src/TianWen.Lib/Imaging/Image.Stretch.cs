@@ -1245,6 +1245,111 @@ public partial class Image
     }
 
     /// <summary>
+    /// Builds <see cref="StretchUniforms"/> for a high-key PLANETARY preview: a gentle,
+    /// near-linear stretch tuned for a bright disk on a dark sky -- the opposite regime
+    /// from the deep-sky <c>MasterPreviewRenderer</c> auto-stretch, whose MTF targets a
+    /// FAINT background and so blows a planetary disk out to a white blob.
+    /// <para>
+    /// The recipe (validated against AutoStakkert-style references): subtract a PER-CHANNEL
+    /// black point at <paramref name="blackPercentile"/>, then apply a single COMMON scale so
+    /// the brightest channel's <paramref name="whitePercentile"/> value lands at 1.0. The
+    /// common scale is the load-bearing bit -- a per-channel white point renormalises each
+    /// channel independently and tints the faint sky (typically blue, since B sits on a higher
+    /// floor); a shared scale preserves channel ratios so the background stays colour-neutral.
+    /// A mild midtones lift approximating gamma <paramref name="gamma"/> opens up the belts
+    /// without the heavy lift a nebula needs.
+    /// </para>
+    /// </summary>
+    /// <remarks>
+    /// Returned as <see cref="StretchMode.Unlinked"/> (the per-channel render branch) with
+    /// <see cref="StretchUniforms.Pedestal"/> = the per-channel black point, a shared
+    /// <see cref="StretchUniforms.Rescale"/>, and <see cref="StretchUniforms.Midtones"/>
+    /// derived from <paramref name="gamma"/> via <see cref="MidtonesBalanceFor"/>. The whole
+    /// affine map (subtract percentile, divide by percentile range) is scale-invariant, so it
+    /// is computed in the image's native value space with <c>NormFactor = 1</c>; the result is
+    /// identical regardless of <see cref="MaxValue"/>. Mono images replicate channel 0's
+    /// black point + scale across the output triple. Feed the result straight to
+    /// <see cref="RenderStretchedRgba16"/> / <see cref="RenderStretchedRgba"/>.
+    /// </remarks>
+    /// <param name="blackPercentile">Per-channel black point, fractional rank in [0, 1).
+    /// Default 0.005 (0.5th percentile) sits just below the sky noise floor, so the sky reads
+    /// as a faint neutral grey rather than crushed black (keeps the halo visible).</param>
+    /// <param name="whitePercentile">White point, fractional rank in (0, 1]. Default 0.999
+    /// keeps the disk just under clipping while ignoring hot-pixel outliers.</param>
+    /// <param name="gamma">Midtones gamma. 1.0 = pure linear (midtones = identity); &lt; 1
+    /// lifts midtones (default 0.75, a gentle belt-opening lift); &gt; 1 darkens.</param>
+    public StretchUniforms ComputePlanetaryStretchUniforms(
+        double blackPercentile = 0.005,
+        double whitePercentile = 0.999,
+        double gamma = 0.75)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(blackPercentile);
+        ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual(blackPercentile, 1.0);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(whitePercentile);
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(whitePercentile, 1.0);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(gamma);
+
+        var (channels, width, height) = Shape;
+        var pixelCount = width * height;
+        var statChannels = Math.Min(channels, 3);
+
+        Span<float> lo = stackalloc float[3];
+        Span<float> hi = stackalloc float[3];
+        var scratch = ArrayPool<float>.Shared.Rent(pixelCount);
+        try
+        {
+            for (var c = 0; c < statChannels; c++)
+            {
+                var src = GetChannelSpan(c);
+                // Collect non-NaN samples, then read both percentiles off the (in-place
+                // permuted) buffer -- the second PercentileFast re-partitions the first's
+                // permutation, which is fine since it does not require sorted input.
+                var count = 0;
+                for (var i = 0; i < pixelCount; i++)
+                {
+                    var v = src[i];
+                    if (!float.IsNaN(v)) scratch[count++] = v;
+                }
+                if (count == 0) { lo[c] = 0f; hi[c] = 1f; continue; }
+                var buf = scratch.AsSpan(0, count);
+                lo[c] = PercentileFast(buf, blackPercentile);
+                hi[c] = PercentileFast(buf, whitePercentile);
+            }
+        }
+        finally
+        {
+            ArrayPool<float>.Shared.Return(scratch);
+        }
+
+        // Common scale: the largest per-channel dynamic range maps to [0, 1]; the others
+        // map below 1.0, preserving the channel ratios (neutral sky).
+        var commonRange = 0f;
+        for (var c = 0; c < statChannels; c++)
+        {
+            commonRange = MathF.Max(commonRange, hi[c] - lo[c]);
+        }
+        var commonScale = commonRange > 0f ? 1f / commonRange : 1f;
+
+        // gamma -> MTF midtones: choose midtones so MTF(midtones, 0.5) == 0.5^gamma, i.e. the
+        // curve matches a gamma at the midpoint. gamma == 1 -> midtones 0.5 (identity).
+        var midtones = (float)MidtonesBalanceFor(0.5, Math.Pow(0.5, gamma));
+
+        // Mono: replicate channel 0's black point + scale so the grey output triple matches.
+        var loTriple = statChannels >= 3
+            ? (lo[0], lo[1], lo[2])
+            : (lo[0], lo[0], lo[0]);
+
+        return new StretchUniforms(
+            StretchMode.Unlinked,
+            NormFactor: 1f,
+            Pedestal: loTriple,
+            Shadows: (0f, 0f, 0f),
+            Midtones: (midtones, midtones, midtones),
+            Highlights: (1f, 1f, 1f),
+            Rescale: (commonScale, commonScale, commonScale));
+    }
+
+    /// <summary>
     /// CPU mirror of the full GLSL fragment shader (image path) — renders this image into an RGBA
     /// buffer at native resolution. Used by tests and headless renderers that cannot use the GPU.
     /// The pipeline order matches GLSL exactly: stretch (per-channel or luma) -> curves

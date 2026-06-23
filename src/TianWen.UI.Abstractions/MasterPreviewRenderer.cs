@@ -305,4 +305,42 @@ public sealed class MasterPreviewRenderer(ICelestialObjectDB? catalogDb, ILogger
 
         return spccDiagnostics;
     }
+
+    /// <summary>
+    /// Render <paramref name="master"/> to a high-key PLANETARY preview PNG. Unlike
+    /// <see cref="RenderAsync"/> -- which is deep-sky (SPCC / sky-bg WB plus an MTF
+    /// auto-stretch that targets a faint background and so blows a bright planetary disk
+    /// out to white) -- this uses <see cref="Image.ComputePlanetaryStretchUniforms"/>: a
+    /// gentle near-linear percentile black-point + common-scale stretch that keeps the disk
+    /// in range and the sky colour-neutral. No catalogue / WCS / star detection (a planet
+    /// has no field stars to solve), so it is also much faster.
+    /// </summary>
+    /// <param name="master">Integrated (optionally wavelet-sharpened) master. Not mutated.</param>
+    /// <param name="outputPath">PNG path to write (16-bit per channel, sRGB cICP).</param>
+    /// <param name="blackPercentile">Per-channel black point (fractional rank). See
+    /// <see cref="Image.ComputePlanetaryStretchUniforms"/>.</param>
+    /// <param name="whitePercentile">White point (fractional rank).</param>
+    /// <param name="gamma">Midtones gamma; 1 = pure linear, &lt; 1 lifts the belts.</param>
+    public async Task RenderPlanetaryAsync(
+        Image master,
+        string outputPath,
+        double blackPercentile = 0.005,
+        double whitePercentile = 0.999,
+        double gamma = 0.75,
+        CancellationToken ct = default)
+    {
+        var sw = Stopwatch.StartNew();
+        var (channelCount, width, height) = master.Shape;
+        var uniforms = master.ComputePlanetaryStretchUniforms(blackPercentile, whitePercentile, gamma);
+
+        // 16-bit per channel + sRGB cICP, mirroring RenderAsync's encode tail so the planetary
+        // path produces the same well-formed PNG (no 8-bit banding on the smooth disk gradient).
+        var rgba = new ushort[width * height * 4];
+        master.RenderStretchedRgba16(uniforms, rgba);
+        var png = PngWriter.EncodeRgba16(rgba, width, height, new PngWriteOptions { Cicp = CicpChunk.Srgb });
+        await File.WriteAllBytesAsync(outputPath, png, ct);
+
+        logger.LogInformation("  [planetaryPreview] wrote {Path} ({Ms} ms, {Ch}ch {W}x{H}, gamma={Gamma:F2})",
+            outputPath, sw.ElapsedMilliseconds, channelCount, width, height, gamma);
+    }
 }

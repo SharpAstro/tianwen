@@ -75,6 +75,27 @@ public static class StatisticsHelper
     }
 
     /// <summary>
+    /// Returns the value at fractional rank <paramref name="p"/> (0..1) via
+    /// quickselect -- expected <c>O(n)</c>, no full sort. The span is permuted
+    /// in place (not sorted), so successive calls for different percentiles on
+    /// the same buffer are fine. <paramref name="p"/> is clamped to [0, 1];
+    /// the rank index is <c>(int)(p * (n - 1))</c> (truncated, matching a
+    /// <c>sorted[(int)(p * (len - 1))]</c> lookup). Returns NaN for an empty
+    /// span.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
+    public static float PercentileFast(Span<float> values, double p)
+    {
+        var n = values.Length;
+        if (n == 0) return float.NaN;
+        if (n == 1) return values[0];
+
+        var k = (int)Math.Clamp(p * (n - 1), 0, n - 1);
+        QuickSelect(values, k);
+        return values[k];
+    }
+
+    /// <summary>
     /// Double-precision counterpart to <see cref="MedianFast(Span{float})"/>.
     /// Same algorithm, same trade-offs.
     /// </summary>
