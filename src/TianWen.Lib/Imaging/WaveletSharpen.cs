@@ -45,13 +45,16 @@ public sealed record WaveletSharpenOptions
     }
 
     /// <summary>
-    /// A mild planetary default: 5 scales, boosting fine and mid detail while leaving coarse structure near
-    /// unity, with light denoise on the two finest layers (where amplifying noise is worst).
+    /// A planetary default: 6 a-trous layers (the Registax / AstroSurface convention), boosting fine and
+    /// mid detail to pull out belt structure while leaving the coarsest scale near unity. The two finest
+    /// layers carry a soft-threshold denoise so the gain does not amplify limb / sensor grain. Tuned on a
+    /// real Jupiter SER -- 6 levels with these gains recover visibly more detail than a mild 5-level pass,
+    /// and the denoise keeps the limb clean.
     /// </summary>
     public static WaveletSharpenOptions PlanetaryDefault { get; } = new()
     {
-        Gains = [2.0f, 1.8f, 1.4f, 1.1f, 1.0f],
-        DenoiseThresholds = [0.004f, 0.002f, 0f, 0f, 0f],
+        Gains = [3.5f, 3.0f, 2.2f, 1.6f, 1.2f, 1.0f],
+        DenoiseThresholds = [0.005f, 0.0025f, 0f, 0f, 0f, 0f],
     };
 }
 
