@@ -56,4 +56,47 @@ public partial class Image
         // the original pattern; the channel layout is the documented [R, G1, G2, B] sub-plane contract.
         return new Image(planes, BitDepth.Float32, MaxValue, MinValue, Pedestal, imageMeta);
     }
+
+    /// <summary>
+    /// Reassembles a four-channel <c>[R, G1, G2, B]</c> CFA sub-plane image (as produced by
+    /// <see cref="SplitBayerChannels"/> and then independently stacked) back into a single full-resolution
+    /// Bayer mosaic, placing each sub-plane sample at its CFA photosite per the image's
+    /// <see cref="ImageMeta.BayerOffsetX"/> / <see cref="ImageMeta.BayerOffsetY"/>. The result is a
+    /// single-channel <see cref="SensorType.RGGB"/> mosaic (<c>2*width x 2*height</c>) ready for a single
+    /// final demosaic -- the "merge" half of the split-CFA stacking seam.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">The image is not a four-channel Bayer sub-plane set.</exception>
+    public Image MergeBayerChannels()
+    {
+        if (ChannelCount != 4 || imageMeta.SensorType is not SensorType.RGGB)
+        {
+            throw new InvalidOperationException(
+                $"MergeBayerChannels requires a four-channel Bayer sub-plane image (SensorType.RGGB); got {ChannelCount} channel(s), {imageMeta.SensorType}.");
+        }
+
+        var ox = imageMeta.BayerOffsetX & 1;
+        var oy = imageMeta.BayerOffsetY & 1;
+        var pw = Width;
+        var ph = Height;
+        var mosaic = CreateChannelData(1, ph * 2, pw * 2);
+        var dst = mosaic[0];
+        float[,] r = data[0], g1 = data[1], g2 = data[2], b = data[3];
+
+        for (var sy = 0; sy < ph; sy++)
+        {
+            var yR = (sy * 2) + oy;
+            var yB = (sy * 2) + (1 - oy);
+            for (var sx = 0; sx < pw; sx++)
+            {
+                var xR = (sx * 2) + ox;
+                var xB = (sx * 2) + (1 - ox);
+                dst[yR, xR] = r[sy, sx];
+                dst[yR, xB] = g1[sy, sx];
+                dst[yB, xR] = g2[sy, sx];
+                dst[yB, xB] = b[sy, sx];
+            }
+        }
+
+        return new Image(mosaic, BitDepth.Float32, MaxValue, MinValue, Pedestal, imageMeta);
+    }
 }
