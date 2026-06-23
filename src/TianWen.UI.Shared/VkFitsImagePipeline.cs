@@ -418,6 +418,13 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
                     g = lumaG;
                     b = lumaB;
                 }
+            } else {
+                // stretchMode == 0 (None / linear): no stretch curve to carry the WB multiply, so apply
+                // WhiteBalance directly. stretchChannel already applies it for modes 1/2/3, so this only
+                // runs for None and never double-applies. Neutral WB leaves the passthrough unchanged.
+                r = max(r * ubo.whiteBalance[0], 0.0);
+                g = max(g * ubo.whiteBalance[1], 0.0);
+                b = max(b * ubo.whiteBalance[2], 0.0);
             }
 
             if (ubo.curvesMode == 1) {

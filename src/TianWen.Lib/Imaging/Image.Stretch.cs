@@ -1313,8 +1313,11 @@ public partial class Image
                 }
                 else if (u.Mode is StretchMode.None)
                 {
-                    // GLSL Mode==None passes texture sample through unmodified
-                    rOut = rRaw; gOut = gRaw; bOut = bRaw;
+                    // Linear display: no stretch curve to carry the WB multiply, so apply WhiteBalance
+                    // directly here (mirrors the GLSL None path). Neutral WB == passthrough.
+                    rOut = MathF.Max(rRaw * u.WhiteBalance.R, 0f);
+                    gOut = MathF.Max(gRaw * u.WhiteBalance.G, 0f);
+                    bOut = MathF.Max(bRaw * u.WhiteBalance.B, 0f);
                 }
                 else
                 {
@@ -1325,6 +1328,8 @@ public partial class Image
             }
             else
             {
+                // Mono: WB is meaningless for a single channel, so None stays a straight passthrough
+                // (mirrors the GLSL mono path, which does not apply WhiteBalance in None mode).
                 var raw = ch0[i];
                 rOut = u.Mode is StretchMode.None ? raw : StretchChannelCpu(raw, 0, u);
                 gOut = bOut = rOut;
@@ -1440,7 +1445,11 @@ public partial class Image
                 }
                 else if (u.Mode is StretchMode.None)
                 {
-                    rOut = rRaw; gOut = gRaw; bOut = bRaw;
+                    // Linear display: apply WhiteBalance directly (mirrors the GLSL None path and the
+                    // 8-bit RenderStretchedRgba above). Neutral WB == passthrough.
+                    rOut = MathF.Max(rRaw * u.WhiteBalance.R, 0f);
+                    gOut = MathF.Max(gRaw * u.WhiteBalance.G, 0f);
+                    bOut = MathF.Max(bRaw * u.WhiteBalance.B, 0f);
                 }
                 else
                 {
@@ -1451,6 +1460,7 @@ public partial class Image
             }
             else
             {
+                // Mono: WB is meaningless for a single channel; None stays a straight passthrough.
                 var raw = ch0[i];
                 rOut = u.Mode is StretchMode.None ? raw : StretchChannelCpu(raw, 0, u);
                 gOut = bOut = rOut;

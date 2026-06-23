@@ -335,6 +335,12 @@ void HandleMouseDown(byte button, float px, float py)
             return;
         }
 
+        if (hit is WhiteBalanceSliderHit { Channel: var wbChannel })
+        {
+            imageRenderer.BeginWhiteBalanceDragAt(wbChannel, px);
+            return;
+        }
+
         if (hit is not null)
         {
             return; // OnClick already handled it (e.g. HistogramLog, PlayPause)

@@ -114,7 +114,11 @@ internal sealed class ConsoleImageRenderer
                     }
                     else if (stretch.Mode is StretchMode.None)
                     {
-                        rv = rRaw; gv = gRaw; bv = bRaw;
+                        // Linear display: apply WhiteBalance directly (mirrors the GLSL / RenderStretchedRgba
+                        // None path). Neutral WB == passthrough.
+                        rv = MathF.Max(rRaw * stretch.WhiteBalance.R, 0f);
+                        gv = MathF.Max(gRaw * stretch.WhiteBalance.G, 0f);
+                        bv = MathF.Max(bRaw * stretch.WhiteBalance.B, 0f);
                     }
                     else
                     {
