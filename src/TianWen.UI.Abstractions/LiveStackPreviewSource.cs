@@ -56,6 +56,8 @@ public sealed class LiveStackPreviewSource : IPreviewSource, IDisposable
     private int _built = -1;            // playhead the current _doc was built for
     private WaveletSharpenOptions? _requestedSharpen; // latest wavelet params (null = sharpening off)
     private bool _sharpenDirty;         // wavelet params changed -> rebuild the display even if the playhead didn't move
+    private CancellationTokenSource? _workCts; // per in-flight task, linked to _cts; cancelled to preempt a stale stack
+    private bool _inFlightIsStack;      // the in-flight task is a (slow) window stack, eligible for sharpen-preempt
     private bool _disposed;
 
     // Identity wavelet (all-1 gains, no denoise) reconstructs the input exactly -- used as the "sharpening
@@ -63,7 +65,9 @@ public sealed class LiveStackPreviewSource : IPreviewSource, IDisposable
     // never the cached raw master.
     private static readonly WaveletSharpenOptions IdentitySharpen = WaveletSharpenOptions.Uniform(6, 1f);
 
-    private readonly record struct Built(AstroImageDocument Doc, int Index);
+    // A finished background result. Stacked=false means a sharpen-only re-render (the cached raw master was
+    // reused, the playhead did not advance); Stacked=true means the window was re-integrated to Playhead.
+    private readonly record struct Built(AstroImageDocument Doc, Image RawMaster, int Playhead, bool Stacked);
 
     /// <summary>
     /// Wraps <paramref name="stream"/> (which this source owns and disposes). Construct off the render
@@ -139,56 +143,92 @@ public sealed class LiveStackPreviewSource : IPreviewSource, IDisposable
         }
 
         _stackTask = null;
+        var published = false;
         if (task.IsCompletedSuccessfully)
         {
-            _doc = task.Result.Doc;
-            _built = task.Result.Index;
-            return true;
+            var b = task.Result;
+            // Cache the freshly-integrated master on the render thread (so the background side never shares
+            // these fields); a sharpen-only result reused the existing one and leaves them untouched.
+            if (b.Stacked)
+            {
+                _rawMaster = b.RawMaster;
+                _builtRaw = b.Playhead;
+            }
+            _doc = b.Doc;
+            _built = b.Playhead;
+            published = true;
         }
+        // else: cancelled (preempted) or faulted -> drop it. A cancelled stack invalidated its window, so
+        // its next StackToAsync rebuilds; the live view self-heals rather than wedging.
 
-        // Faulted / cancelled: drop it. The next RequestFollow restarts toward the latest target, so a
-        // transient stack failure self-heals on the following frame rather than wedging the live view.
-        return false;
+        // Pump any work deferred while this task ran -- the preempting sharpen, or a playhead that moved on.
+        StartIfIdle();
+        return published;
     }
 
     private void StartIfIdle()
     {
-        if (_disposed || _stackTask is { IsCompleted: false })
+        if (_disposed)
         {
             return;
         }
 
-        // Work to do iff: no master yet, the playhead moved, or the wavelet params changed.
-        if (_doc is not null && _target == _built && !_sharpenDirty)
+        if (_stackTask is { IsCompleted: false })
         {
+            // A task is already running. If the wavelet params just changed and the in-flight task is a
+            // (slow) window stack, PREEMPT it so the cheap sharpen takes the slot now -- sharpen priority,
+            // even mid-stack. Playback stacks (no sharpen change) are left to finish and coalesce, so steady
+            // playhead advance never thrashes. The cancelled stack invalidates its window (StackToAsync) and
+            // re-pumps from TryPublishMaster.
+            if (_sharpenDirty && _inFlightIsStack && _rawMaster is not null)
+            {
+                _workCts?.Cancel();
+            }
             return;
         }
+
+        var needStack = _rawMaster is null || _target != _builtRaw; // master stale vs the requested playhead
+        var needSharpen = _sharpenDirty;
+        if (!needStack && !needSharpen)
+        {
+            return; // nothing changed
+        }
+
+        // SHARPEN PRIORITY: if the wavelet params changed and we already have a master, re-sharpen THAT now
+        // and defer the (slower) window re-stack to a later iteration. A slider drag then gets instant
+        // feedback off the cached master even while playback would otherwise keep re-stacking every tick.
+        var doStack = needStack && !(needSharpen && _rawMaster is not null);
 
         var target = _target;
         var sharpen = _requestedSharpen;
+        var rawForSharpen = _rawMaster;                       // captured on the render thread; immutable snapshot
+        var resultPlayhead = doStack ? target : _builtRaw;     // a sharpen-only result keeps the displayed playhead
         _sharpenDirty = false;
-        var token = _cts.Token;
+        _inFlightIsStack = doStack;
+
+        // Fresh per-work CTS linked to the lifetime token, so a newer request can cancel just this task
+        // (not tear down the whole source). The previous task has completed (we are past the in-flight
+        // guard above), so disposing its CTS here is safe.
+        _workCts?.Dispose();
+        _workCts = CancellationTokenSource.CreateLinkedTokenSource(_cts.Token);
+        var token = _workCts.Token;
         _stackTask = Task.Run(async () =>
         {
-            // Re-stack only when the playhead moved (or on the first run); a sharpen-only change reuses the
-            // cached raw master, so dragging a wavelet slider re-runs just the wavelet pass, not the window
-            // integration.
-            if (_rawMaster is null || target != _builtRaw)
-            {
-                _rawMaster = await _stacker.StackToAsync(target, token).ConfigureAwait(false);
-                _builtRaw = target;
-            }
+            // Re-stack only when following the playhead; a sharpen-only pass reuses the captured master so it
+            // re-runs just the (cheap) wavelet pass, not the window integration.
+            var raw = doStack
+                ? await _stacker.StackToAsync(target, token).ConfigureAwait(false)
+                : rawForSharpen!;
 
             // Always produce a FRESH image to adopt (AdoptImageAsync normalises in place); identity gains
             // when sharpening is off, so the cached raw master is never consumed. WaveletSharpen.Sharpen
-            // returns a new image and leaves _rawMaster intact for the next re-sharpen.
-            var display = WaveletSharpen.Sharpen(_rawMaster, sharpen ?? IdentitySharpen);
+            // returns a new image and leaves the raw master intact for the next re-sharpen.
+            var display = WaveletSharpen.Sharpen(raw, sharpen ?? IdentitySharpen);
 
             // Adopt the (linear, [0,1]) display master into a stats-bearing document off the render thread;
-            // None = no CPU debayer (already RGB / mono). Stretch stats are computed once per publish --
-            // affordable because publishes are infrequent (the window lags the playhead).
+            // None = no CPU debayer (already RGB / mono).
             var doc = await AstroImageDocument.AdoptImageAsync(display, DebayerAlgorithm.None, filePath: _path, cancellationToken: token).ConfigureAwait(false);
-            return new Built(doc, target);
+            return new Built(doc, raw, resultPlayhead, doStack);
         }, token);
     }
 
@@ -241,12 +281,13 @@ public sealed class LiveStackPreviewSource : IPreviewSource, IDisposable
         }
 
         _disposed = true;
-        _cts.Cancel();
+        _cts.Cancel(); // cancels the linked per-work CTS too
         // The background stack reads the memory-mapped SER; it MUST finish before the stream releases the
         // mapping. ViewerController defers disposal until IsBusy is false, so this is a non-blocking safety
         // net; a single in-flight window stack drains quickly.
         try { _stackTask?.Wait(); } catch { /* faulted / cancelled stack has nothing to release */ }
         _stackTask = null;
+        _workCts?.Dispose();
         _cts.Dispose();
         _stream.Dispose();
     }
