@@ -58,7 +58,7 @@ namespace TianWen.UI.Abstractions
     /// star overlay, object overlay, histogram chrome, keyboard and mouse wheel handling.
     /// Subclasses implement 6 abstract methods for the GPU-specific rendering.
     /// </summary>
-    public abstract class ImageRendererBase<TSurface>(Renderer<TSurface> renderer) : PixelWidgetBase<TSurface>(renderer)
+    public abstract class ImageRendererBase<TSurface>(Renderer<TSurface> renderer) : PixelWidgetBase<TSurface>(renderer), ISelfDispatchingInputWidget
     {
         private string? _fontPath;
 
@@ -79,6 +79,32 @@ namespace TianWen.UI.Abstractions
 
         /// <summary>Height of the viewport in pixels.</summary>
         protected uint Height { get; set; }
+
+        // -----------------------------------------------------------------------
+        // Content region (embedding seam)
+        //
+        // The widget normally owns the whole surface (tianwen-fits is full-screen). When embedded in a host
+        // that owns chrome of its own (the GUI's 🪐 tab, with a left sidebar + top status bar + a capture
+        // control strip), the host hands it a content rect via SetContentRegion. That rect is simply the
+        // ROOT the single layout pass arranges within -- exactly like every GUI tab arranges within the rect
+        // GetContentArea() hands it. Toolbar, image pane, info panel and status bar are all leaves of that one
+        // arranged tree (see ComputeLayout), so "embed" is "arrange at a different root" with no per-site
+        // offset math. The GPU image/histogram quads still project over the FULL surface (projW/projH =
+        // Width/Height); only the placement rects move. Default (empty) = full surface, so tianwen-fits is
+        // byte-identical.
+        // -----------------------------------------------------------------------
+
+        private RectF32 _contentRect;
+
+        /// <summary>The region the layout + chrome are arranged within: the host rect when embedded, else the full surface.</summary>
+        private RectF32 ContentRegion =>
+            _contentRect is { Width: > 0f, Height: > 0f } ? _contentRect : new RectF32(0f, 0f, Width, Height);
+
+        /// <summary>
+        /// Sets the content region the layout pass roots at. Pass an empty rect (default) to use the full
+        /// surface. The GPU projection stays full-surface; only the arranged layout/chrome placement moves.
+        /// </summary>
+        public void SetContentRegion(RectF32 region) => _contentRect = region;
 
         /// <summary>Width of the loaded image in pixels.</summary>
         protected int ImageWidth { get; set; }
@@ -228,8 +254,10 @@ namespace TianWen.UI.Abstractions
         private static readonly RGBAColor32 HistogramLogOffBg = RGBAColor32.FromFloat(0.25f, 0.25f, 0.28f, 0.9f);
         private static readonly RGBAColor32 HistogramLogOffHoverBg = RGBAColor32.FromFloat(0.35f, 0.35f, 0.40f, 0.9f);
 
-        // Toolbar button definitions (label, action, group)
-        private static readonly (string Label, ToolbarAction Action, int Group)[] ToolbarButtons =
+        // Full toolbar button set (label, action, group) -- the standalone FITS viewer (tianwen-fits) shows
+        // all of these. Group breaks insert extra spacing: 0 file, 1 stretch, 2 channel/debayer/curves,
+        // 3 zoom, 4 astrometry/stars/colour.
+        private static readonly ImmutableArray<(string Label, ToolbarAction Action, int Group)> DefaultToolbarButtons =
         [
             ("Open", ToolbarAction.Open, 0),
             ("STF", ToolbarAction.StretchToggle, 1),
@@ -249,6 +277,15 @@ namespace TianWen.UI.Abstractions
             ("NeutBg", ToolbarAction.BackgroundNeutralize, 4),
             ("SPCC", ToolbarAction.SpccCalibrate, 4),
         ];
+
+        /// <summary>
+        /// The toolbar buttons this viewer surfaces, in order. The base (tianwen-fits) shows the full set; a
+        /// subclass embedding the viewer for a narrower job overrides this to a relevant subset, so buttons
+        /// that can never apply (e.g. plate solve / star detection / colour calibration on a featureless
+        /// planetary disk) are <b>hidden</b> rather than shown-but-disabled. The render + hit-test loops read
+        /// this property, so both stay in lock-step automatically.
+        /// </summary>
+        protected virtual ImmutableArray<(string Label, ToolbarAction Action, int Group)> ToolbarButtons => DefaultToolbarButtons;
 
         // -----------------------------------------------------------------------
         // Abstract methods — GPU-specific rendering
@@ -336,21 +373,24 @@ namespace TianWen.UI.Abstractions
             // Pre-first-frame fallback (no arrangement computed yet -- e.g. an early layout query).
             var fileListW = state.ShowFileList ? FileListWidth : 0;
             var panelW = state.ShowInfoPanel ? InfoPanelWidth : 0;
-            return (Width - fileListW - panelW, Height - ToolbarHeight - StatusBarHeight);
+            var region = ContentRegion;
+            return (region.Width - fileListW - panelW, region.Height - ToolbarHeight - StatusBarHeight);
         }
 
         // -----------------------------------------------------------------------
         // Single-source layout pass
         //
-        // The whole below-toolbar chrome derives its geometry from ONE arrangement:
-        // Layout.Node.Split (file list + draggable divider) wrapping a Dock (right-edge
-        // info panel + fill image). Every consumer reads the arranged pane rects + the
-        // single image placement below -- the fileListW/panelW/areaW/offsetX formula is
-        // no longer copy-pasted per consumer and "happens to agree". The divider is the
-        // Split's draw==hit node, so the resize grab region IS the drawn bar.
+        // The WHOLE widget chrome derives its geometry from ONE arrangement rooted at ContentRegion (the
+        // full surface, or the host rect when embedded): an outer Dock pins the toolbar strip to the top and
+        // the status bar to the bottom; the remaining middle band holds a Split (file list + draggable
+        // divider) wrapping a Dock (right-edge info panel + fill image). Every consumer reads the arranged
+        // pane rects + the single image placement below -- no chrome is hand-placed at (0,0,Width,...), so
+        // embedding is "arrange at a different root" with no offset math. The Split divider is the draw==hit
+        // node, so the resize grab region IS the drawn bar.
         // -----------------------------------------------------------------------
 
-        private readonly record struct ViewerLayout(RectF32 FileList, RectF32 ImageArea, RectF32 InfoPanel);
+        private readonly record struct ViewerLayout(
+            RectF32 Toolbar, RectF32 FileList, RectF32 ImageArea, RectF32 InfoPanel, RectF32 StatusBar);
 
         private readonly record struct ImagePlacement(float OffsetX, float OffsetY, float DrawW, float DrawH, float Scale);
 
@@ -385,15 +425,13 @@ namespace TianWen.UI.Abstractions
 
         private void ComputeLayout(ViewerState state, string fontPath)
         {
-            var below = new RectF32(0f, ToolbarHeight, Width, Height - ToolbarHeight - StatusBarHeight);
-
             Layout.Node content = state.ShowInfoPanel
                 ? Layout.Builder.Dock(
                     Layout.Builder.Fill(key: "image"),
                     Layout.Builder.Right(Layout.Builder.Fill(key: "infoPanel"), BaseInfoPanelWidth))
                 : Layout.Builder.Fill(key: "image");
 
-            Layout.Node root = state.ShowFileList
+            Layout.Node middle = state.ShowFileList
                 ? Layout.Builder.Split(
                     Layout.Builder.Fill(key: "fileList"),
                     content,
@@ -404,9 +442,17 @@ namespace TianWen.UI.Abstractions
                     dividerColor: state.IsResizingFileList ? ResizeHandleActiveColor : ResizeHandleIdleColor)
                 : content;
 
-            _layoutArranged = ArrangeLayout(root, below, fontPath, DpiScale);
+            // Outer chrome as part of the SAME arrangement: toolbar pinned top, status bar pinned bottom
+            // (design-unit extents -- the engine scales them by DpiScale, matching the old ToolbarHeight /
+            // StatusBarHeight pixel reservations), the middle band fills the remainder.
+            Layout.Node root = Layout.Builder.Dock(
+                middle,
+                Layout.Builder.Top(Layout.Builder.Fill(key: "toolbar"), BaseToolbarHeight),
+                Layout.Builder.Bottom(Layout.Builder.Fill(key: "statusBar"), BaseStatusBarHeight));
 
-            RectF32 fileList = default, image = default, infoPanel = default;
+            _layoutArranged = ArrangeLayout(root, ContentRegion, fontPath, DpiScale);
+
+            RectF32 toolbar = default, fileList = default, image = default, infoPanel = default, statusBar = default;
             foreach (var (node, b) in _layoutArranged)
             {
                 if (node is Layout.Node.Leaf { Content: Layout.Content.Fill fill })
@@ -414,9 +460,11 @@ namespace TianWen.UI.Abstractions
                     var r = new RectF32(b.X, b.Y, b.Width, b.Height);
                     switch (fill.Key)
                     {
+                        case "toolbar": toolbar = r; break;
                         case "fileList": fileList = r; break;
                         case "image": image = r; break;
                         case "infoPanel": infoPanel = r; break;
+                        case "statusBar": statusBar = r; break;
                     }
                 }
             }
@@ -433,7 +481,7 @@ namespace TianWen.UI.Abstractions
                 image = shrunk;
             }
 
-            _layout = new ViewerLayout(fileList, image, infoPanel);
+            _layout = new ViewerLayout(toolbar, fileList, image, infoPanel, statusBar);
         }
 
         private void ComputeImagePlacement(ViewerState state)
@@ -692,7 +740,8 @@ namespace TianWen.UI.Abstractions
 
         private void RenderToolbar(AstroImageDocument? document, ViewerState state)
         {
-            FillRect(0, 0, Width, ToolbarHeight, ViewerTheme.ToolbarBg);
+            var tb = _layout.Toolbar;
+            FillRect(tb.X, tb.Y, tb.Width, tb.Height, ViewerTheme.ToolbarBg);
 
             // Recompute button bounds every frame — labels can change width
             // (e.g. "Stars" -> "Stars: 5893") which shifts later buttons.
@@ -706,10 +755,10 @@ namespace TianWen.UI.Abstractions
             var mouseX = state.MouseScreenPosition.X;
             var mouseY = state.MouseScreenPosition.Y;
 
-            var x = PanelPadding;
-            var btnH = ToolbarHeight - ButtonSpacing * 2;
-            var btnY = ButtonSpacing;
-            var textY = (ToolbarHeight - ToolbarFontSize) / 2f;
+            var x = tb.X + PanelPadding;
+            var btnH = tb.Height - ButtonSpacing * 2;
+            var btnY = tb.Y + ButtonSpacing;
+            var textY = tb.Y + (tb.Height - ToolbarFontSize) / 2f;
             var prevGroup = -1;
 
             for (var i = 0; i < ToolbarButtons.Length; i++)
@@ -1110,12 +1159,13 @@ namespace TianWen.UI.Abstractions
         /// </summary>
         public ToolbarAction? HitTestToolbar(float screenX, float screenY, AstroImageDocument? document, ViewerState state)
         {
-            if (screenY < ButtonSpacing || screenY >= ToolbarHeight - ButtonSpacing || _fontPath is null)
+            var tb = _layout.Toolbar;
+            if (screenY < tb.Y + ButtonSpacing || screenY >= tb.Y + tb.Height - ButtonSpacing || _fontPath is null)
             {
                 return null;
             }
 
-            var x = PanelPadding;
+            var x = tb.X + PanelPadding;
             var prevGroup = -1;
 
             for (var i = 0; i < ToolbarButtons.Length; i++)
@@ -1148,21 +1198,25 @@ namespace TianWen.UI.Abstractions
 
         private void RenderFileList(ViewerState state)
         {
-            var listTop = ToolbarHeight;
-            var listHeight = Height - ToolbarHeight - StatusBarHeight;
+            // Pane geometry from the single arranged layout (the Split's first pane), not re-derived from
+            // the outer toolbar/status heights.
+            var fl = _layout.FileList;
+            var lx = fl.X;
+            var listTop = fl.Y;
+            var listHeight = fl.Height;
 
-            FillRect(0, listTop, FileListWidth, listHeight, ViewerTheme.FileListBg);
+            FillRect(lx, listTop, FileListWidth, listHeight, ViewerTheme.FileListBg);
 
             if (_fontPath is null)
             {
                 return;
             }
 
-            var y = (float)listTop + PanelPadding;
-            DrawText("Files", PanelPadding, y, FontSize, ViewerTheme.Palette.HeaderText);
+            var y = listTop + PanelPadding;
+            DrawText("Files", lx + PanelPadding, y, FontSize, ViewerTheme.Palette.HeaderText);
             y += FontSize + 4f;
 
-            FillRect(PanelPadding, y, FileListWidth - PanelPadding * 2, 1, ViewerTheme.Palette.Separator);
+            FillRect(lx + PanelPadding, y, FileListWidth - PanelPadding * 2, 1, ViewerTheme.Palette.Separator);
             y += 3f;
 
             var itemHeight = FontSize + 4f;
@@ -1181,25 +1235,25 @@ namespace TianWen.UI.Abstractions
                 // by the dropdown, so the list underneath must not react to it. Selection (the loaded
                 // file) is NOT gated -- it should stay highlighted regardless.
                 var isHovered = !state.ToolbarDropdown.IsOpen
-                    && mouseX >= 0 && mouseX < FileListWidth
+                    && mouseX >= lx && mouseX < lx + FileListWidth
                     && mouseY >= itemY && mouseY < itemY + itemHeight;
 
                 if (isSelected)
                 {
-                    FillRect(2, itemY, FileListWidth - 4, itemHeight, ViewerTheme.Palette.Selection);
+                    FillRect(lx + 2, itemY, FileListWidth - 4, itemHeight, ViewerTheme.Palette.Selection);
                 }
                 else if (isHovered)
                 {
-                    FillRect(2, itemY, FileListWidth - 4, itemHeight, FileListHoverBg);
+                    FillRect(lx + 2, itemY, FileListWidth - 4, itemHeight, FileListHoverBg);
                 }
 
                 var maxChars = (int)((FileListWidth - PanelPadding * 2) / (FontSize * 0.6f));
                 var displayName = fileName.Length > maxChars ? fileName[..(maxChars - 2)] + ".." : fileName;
 
-                DrawText(displayName, PanelPadding, itemY + 2f, FontSize,
+                DrawText(displayName, lx + PanelPadding, itemY + 2f, FontSize,
                     isSelected ? FileListItemTextSelected : FileListItemText);
 
-                RegisterClickable(0, itemY, FileListWidth, itemHeight, new HitResult.ListItemHit("FileList", fileIndex));
+                RegisterClickable(lx, itemY, FileListWidth, itemHeight, new HitResult.ListItemHit("FileList", fileIndex));
             }
 
             if (state.ImageFileNames.Count > visibleCount)
@@ -1207,7 +1261,7 @@ namespace TianWen.UI.Abstractions
                 var scrollFraction = (float)state.FileListScrollOffset / Math.Max(1, state.ImageFileNames.Count - visibleCount);
                 var scrollBarH = Math.Max(20f, listHeight * visibleCount / state.ImageFileNames.Count);
                 var scrollBarY = listTop + scrollFraction * (listHeight - scrollBarH);
-                FillRect(FileListWidth - 4, scrollBarY, 3, scrollBarH, ScrollBarColor);
+                FillRect(lx + FileListWidth - 4, scrollBarY, 3, scrollBarH, ScrollBarColor);
             }
 
             // The resize divider between the file list and the content area is now the Split's
@@ -1220,12 +1274,13 @@ namespace TianWen.UI.Abstractions
         /// </summary>
         public int HitTestFileList(float screenX, float screenY, ViewerState state)
         {
-            if (!state.ShowFileList || screenX < 0 || screenX >= FileListWidth)
+            var fl = _layout.FileList;
+            if (!state.ShowFileList || screenX < fl.X || screenX >= fl.X + FileListWidth)
             {
                 return -1;
             }
 
-            var listTop = ToolbarHeight;
+            var listTop = fl.Y;
             var headerOffset = PanelPadding + FontSize + 4f + 3f;
             var itemHeight = FontSize + 4f;
             var relY = screenY - listTop - headerOffset;
@@ -1793,10 +1848,12 @@ namespace TianWen.UI.Abstractions
             var histW = BaseHistogramWidth * DpiScale;
             var histH = BaseHistogramHeight * DpiScale;
             var margin = BaseHistogramMargin * DpiScale;
-            // Right edge of the image-area pane (abuts the info panel or the window edge) from the layout pass.
+            // Right edge + top of the image-area pane (abuts the info panel / region edge) from the layout pass.
             var area = _layout.ImageArea;
-            var rightEdge = area.Width > 0 ? area.X + area.Width : (float)Width;
-            return (rightEdge - histW - margin, ToolbarHeight + margin, histW, histH);
+            var region = ContentRegion;
+            var rightEdge = area.Width > 0 ? area.X + area.Width : region.X + region.Width;
+            var top = (area.Height > 0 ? area.Y : region.Y + ToolbarHeight) + margin;
+            return (rightEdge - histW - margin, top, histW, histH);
         }
 
         private (float X, float Y, float W, float H) GetHistogramLogButtonRect(ViewerState state)
@@ -1973,14 +2030,17 @@ namespace TianWen.UI.Abstractions
                 "Esc: Quit",
             ];
 
+            // Footer pins to the bottom of the info-panel pane (= top of the arranged status bar), not the
+            // outer window bottom, so it lands correctly when the viewer is embedded in a content rect.
+            var panelBottom = _layout.StatusBar.Height > 0 ? _layout.StatusBar.Y : Height - StatusBarHeight;
             var lineHeight = FontSize + 2f;
-            var availableLines = (int)((Height - StatusBarHeight - PanelPadding - y - lineHeight) / lineHeight);
+            var availableLines = (int)((panelBottom - PanelPadding - y - lineHeight) / lineHeight);
             if (availableLines >= 2)
             {
                 var clipped = availableLines < controlLabels.Length;
                 var linesToDraw = clipped ? availableLines - 1 : controlLabels.Length;
                 var totalLines = clipped ? linesToDraw + 1 : linesToDraw;
-                y = Height - StatusBarHeight - lineHeight * totalLines - PanelPadding;
+                y = panelBottom - lineHeight * totalLines - PanelPadding;
                 for (var i = 0; i < linesToDraw; i++)
                 {
                     var isHeader = i == 0;
@@ -2276,7 +2336,7 @@ namespace TianWen.UI.Abstractions
                 return;
             }
 
-            var barY = Height - StatusBarHeight;
+            var sb = _layout.StatusBar;
 
             var statusParts = new List<string>();
 
@@ -2306,7 +2366,7 @@ namespace TianWen.UI.Abstractions
             }
 
             var statusText = string.Join("  |  ", statusParts);
-            RenderTextBar(statusText.AsSpan(), _fontPath!, 0, barY, Width, StatusBarHeight,
+            RenderTextBar(statusText.AsSpan(), _fontPath!, sb.X, sb.Y, sb.Width, sb.Height,
                 FontSize, ViewerTheme.StatusBarBg, ViewerTheme.Palette.BodyText,
                 horizontalPadding: PanelPadding, alignX: TextAlign.Near, alignY: TextAlign.Near);
         }
@@ -3006,8 +3066,10 @@ namespace TianWen.UI.Abstractions
                 return false;
             }
 
-            // Scroll file list when hovering over it
-            if (state.ShowFileList && mouseX >= 0 && mouseX < ScaledFileListWidth && mouseY > ScaledToolbarHeight)
+            // Scroll file list when hovering over it (pane rect from the single arranged layout).
+            var fileListPane = _layout.FileList;
+            if (state.ShowFileList && mouseX >= fileListPane.X && mouseX < fileListPane.X + fileListPane.Width
+                && mouseY > fileListPane.Y)
             {
                 ViewerActions.ScrollFileList(state, -(int)scrollY * 3);
                 return true;

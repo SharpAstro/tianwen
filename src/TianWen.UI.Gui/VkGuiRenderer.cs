@@ -23,13 +23,13 @@ namespace TianWen.UI.Gui
         private readonly VkPlannerTab _plannerTab;
         private readonly VkEquipmentTab _equipmentTab;
         private readonly VkSessionTab _sessionTab;
-        private readonly VkViewerTab _viewerTab;
         private readonly VkSkyMapTab _skyMapTab;
         private readonly VkLiveSessionTab _liveSessionTab;
         private readonly GuiderTab<VulkanContext> _guiderTab;
         private readonly VkNotificationsTab _notificationsTab;
         private readonly VkMiniViewerWidget _guiderMiniViewer;
         private readonly VkMiniViewerWidget _miniViewer;
+        private readonly VkPlanetaryTab _planetaryTab;
         private ScheduledObservationTree? _cachedSchedule;
         private Target? _cachedActiveTarget;
         private string? _fontPath;
@@ -49,8 +49,18 @@ namespace TianWen.UI.Gui
         /// <summary>Exposes the session tab for scroll control and state access.</summary>
         public VkSessionTab SessionTab => _sessionTab;
 
-        /// <summary>Exposes the viewer tab for file loading and texture upload.</summary>
-        public VkViewerTab ViewerTab => _viewerTab;
+        /// <summary>The live planetary capture controller. Set by the host (resolved from DI); forwarded to the
+        /// Live Session tab so it can drive the planetary mode (and to the standalone tab during migration).</summary>
+        private PlanetaryCaptureController? _planetaryCapture;
+        public PlanetaryCaptureController? PlanetaryCapture
+        {
+            get => _planetaryCapture;
+            set
+            {
+                _planetaryCapture = value;
+                _liveSessionTab.PlanetaryCapture = value;
+            }
+        }
 
         /// <summary>The currently active tab as an <see cref="IPixelWidget"/> for tab-specific hit testing.</summary>
         public IPixelWidget? ActiveTab { get; private set; }
@@ -93,8 +103,10 @@ namespace TianWen.UI.Gui
         // Live Session sidebar icon reflects session state (overridden per-frame in RenderSidebar):
         // idle = camera, running = camera with flash. The rocket marks the Session Setup tab as the
         // "set up and launch here" entry point so the Start Session button is easy to find.
-        private const string LiveSessionIdleIcon    = "\U0001F4F7"; // camera
-        private const string LiveSessionRunningIcon = "\U0001F4F8"; // camera with flash
+        private const string LiveSessionIdleIcon      = "\U0001F4F7"; // camera (Preview)
+        private const string LiveSessionRunningIcon   = "\U0001F4F8"; // camera with flash (running session)
+        private const string LiveSessionPolarIcon     = "\U0001F9ED"; // compass (Polar Align mode)
+        private const string LiveSessionPlanetaryIcon = "\U0001FA90"; // ringed planet (Planetary mode)
 
         // Per-tab sidebar chrome (icon + hover tooltip with the Ctrl+letter shortcut). The sidebar
         // ORDER comes from GuiAppState.TabOrder (shared with Ctrl+Tab cycling) so the visual order
@@ -135,13 +147,17 @@ namespace TianWen.UI.Gui
             _plannerTab = new VkPlannerTab(renderer) { Bus = bus };
             _equipmentTab = new VkEquipmentTab(renderer) { Bus = bus };
             _sessionTab = new VkSessionTab(renderer) { Bus = bus };
-            _viewerTab = new VkViewerTab(renderer, width, height) { Bus = bus };
             _skyMapTab = new VkSkyMapTab(renderer) { Bus = bus, Logger = logger };
             _miniViewer = new VkMiniViewerWidget(renderer);
             _liveSessionTab = new VkLiveSessionTab(renderer) { Bus = bus, MiniViewer = _miniViewer };
             _guiderMiniViewer = new VkMiniViewerWidget(renderer);
             _guiderTab = new GuiderTab<VulkanContext>(renderer) { Bus = bus, GuideCameraViewer = _guiderMiniViewer };
             _notificationsTab = new VkNotificationsTab(renderer) { Bus = bus };
+            // The 🪐 tab IS a full image viewer (shares VkImageRenderer with tianwen-fits) + a capture strip,
+            // so it gets the same stretch pipeline / RAW-STACK toggle / wavelet sliders as the FITS viewer.
+            _planetaryTab = new VkPlanetaryTab(renderer, width, height) { Bus = bus };
+            // The planetary tab IS also the Live Session planetary-mode view (one instance, one ViewerState).
+            _liveSessionTab.PlanetaryView = _planetaryTab;
             ResolveFontPath();
         }
 
@@ -171,10 +187,10 @@ namespace TianWen.UI.Gui
             _equipmentTab.FrameCount++;
             _plannerTab.FrameCount++;
             _sessionTab.FrameCount++;
-            _viewerTab.FrameCount++;
             _skyMapTab.FrameCount++;
             _liveSessionTab.FrameCount++;
             _guiderTab.FrameCount++;
+            _planetaryTab.FrameCount++;
             _notificationsTab.FrameCount++;
 
             ActiveTab = appState.ActiveTab switch
@@ -210,7 +226,7 @@ namespace TianWen.UI.Gui
         public void Dispose()
         {
             _miniViewer.Dispose();
-            _viewerTab.Dispose();
+            _planetaryTab.Dispose();
             _plannerTab.Dispose();
             // VkRenderer is owned by the caller; do not dispose here.
         }
@@ -243,10 +259,19 @@ namespace TianWen.UI.Gui
             {
                 var tab = tabs[i];
                 var (icon, tooltip) = TabChrome[tab];
-                // Live Session icon flips to "camera with flash" while a session is actually running.
-                if (tab is GuiTab.LiveSession && LiveSessionState.IsRunning)
+                // Live Session icon reflects the active mode: a running session flips to "camera with
+                // flash"; otherwise the mode picks the glyph -- compass for Polar Align, ringed planet for
+                // Planetary, camera for Preview. (Mirrors the mode pill so the sidebar reads at a glance.)
+                if (tab is GuiTab.LiveSession)
                 {
-                    icon = LiveSessionRunningIcon;
+                    icon = LiveSessionState.IsRunning
+                        ? LiveSessionRunningIcon
+                        : LiveSessionState.Mode switch
+                        {
+                            LiveSessionMode.PolarAlign => LiveSessionPolarIcon,
+                            LiveSessionMode.Planetary => LiveSessionPlanetaryIcon,
+                            _ => LiveSessionIdleIcon,
+                        };
                 }
                 var btnY = startY + i * buttonSize;
                 var isActive = appState.ActiveTab == tab;
@@ -404,6 +429,48 @@ namespace TianWen.UI.Gui
                     RegisterClickable(labelX, 0, labelW, sbh,
                         new HitResult.ButtonHit("DateTonight"),
                         _ => { PlannerActions.ResetPlanningDate(plannerState); });
+                }
+            }
+
+            // Connect All (chrome) — globally accessible on every tab, sits just left of the
+            // wall clock. Visible whenever the active profile has assigned devices; only
+            // actionable once discovery has finished (the gate is computed in one place by
+            // EquipmentActions.ComputeConnectAllStatus, shared with the equipment panel).
+            if (appState.ActiveProfile?.Data is { } connectAllProfile)
+            {
+                var ca = EquipmentActions.ComputeConnectAllStatus(
+                    connectAllProfile, appState.DeviceHub,
+                    EquipmentState.DiscoveredDevices, EquipmentState.PendingTransitions,
+                    EquipmentState.IsDiscovering);
+                if (ca.Visible)
+                {
+                    var caFontSize = FontSize * 0.9f;
+                    var (clockW, _) = _renderer.MeasureText(clockText.AsSpan(), _fontPath, FontSize);
+                    var caPad = 12f * DpiScale;
+                    var (lblW, _) = _renderer.MeasureText(ca.Label.AsSpan(), _fontPath, caFontSize);
+                    var caBtnW = lblW + caPad * 2f;
+                    var caInset = 4f * DpiScale;
+                    var caBtnH = sbh - caInset * 2f;
+                    var caBtnY = caInset;
+                    // Right-align against the clock's measured left edge (the clock's right edge is w - 4).
+                    var caBtnX = (w - 4f - clockW) - 14f * DpiScale - caBtnW;
+                    // Only draw if it clears the date-nav region (skip on an implausibly narrow window).
+                    if (caBtnX > w * 0.70f)
+                    {
+                        if (ca.Enabled)
+                        {
+                            RenderButton(ca.Label, caBtnX, caBtnY, caBtnW, caBtnH, _fontPath, caFontSize,
+                                new RGBAColor32(0x2e, 0x7d, 0x32, 0xff), StatusText, "ConnectAll",
+                                _ => { PostSignal(new ConnectAllDevicesSignal()); });
+                        }
+                        else
+                        {
+                            // Disabled: muted fill + greyed label, no clickable region registered.
+                            FillRect(caBtnX, caBtnY, caBtnW, caBtnH, new RGBAColor32(0x30, 0x30, 0x3a, 0xff));
+                            DrawText(ca.Label.AsSpan(), _fontPath, caBtnX, caBtnY, caBtnW, caBtnH,
+                                caFontSize, new RGBAColor32(0x99, 0x99, 0xa3, 0xff), TextAlign.Center, TextAlign.Center);
+                        }
+                    }
                 }
             }
 

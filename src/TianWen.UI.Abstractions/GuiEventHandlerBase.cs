@@ -103,6 +103,23 @@ namespace TianWen.UI.Abstractions
                 return true;
             }
 
+            // A self-dispatching widget (the shared image viewer) owns its hit-testing + position-aware
+            // dispatch: its toolbar buttons and WB/wavelet/transport sliders need the press X/Y, which an
+            // OnClick handler can't carry, so they run inside HandleInput (HandleViewerMouseDown), not as
+            // per-region OnClicks. Route the raw press straight there instead of pre-dispatching + short-
+            // circuiting via HitTestAndDispatch. The chrome (sidebar/status) already got first crack above.
+            if (hit is null && _chrome.ActiveTab is ISelfDispatchingInputWidget)
+            {
+                if (_appState.ActiveTextInput is { IsActive: true })
+                {
+                    DeactivateTextInput();
+                }
+                var consumed = _chrome.ActiveTab.HandleInput(
+                    new InputEvent.MouseDown(px, py, Modifiers: modifiers, ClickCount: clicks));
+                _appState.NeedsRedraw = true;
+                return consumed;
+            }
+
             // If chrome didn't handle it, try the active tab
             if (hit is null)
             {
@@ -285,7 +302,7 @@ namespace TianWen.UI.Abstractions
         }
 
         /// <summary>
-        /// Ctrl+E/P/S/L/M/G tab shortcuts. M = Sky Map, the rest map by first letter.
+        /// Ctrl+E/P/S/L/M/G/Y/N tab shortcuts. M = Sky Map, Y = Planetary, the rest map by first letter.
         /// </summary>
         private bool TrySwitchTabByShortcut(InputKey key)
         {

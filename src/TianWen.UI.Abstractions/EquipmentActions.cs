@@ -36,6 +36,64 @@ public static class EquipmentActions
     /// </summary>
     public static string FilterDisplayName(InstalledFilter filter) => filter.DisplayName;
 
+    /// <summary>
+    /// Visibility + interactivity + label for the shared "Connect All" action, computed once
+    /// and consumed by both the app chrome (top bar) and any panel that wants to surface it.
+    /// </summary>
+    public readonly record struct ConnectAllStatus(bool Visible, bool Enabled, string Label);
+
+    /// <summary>
+    /// Computes the <see cref="ConnectAllStatus"/> for the active profile. The button is:
+    /// <list type="bullet">
+    ///   <item>hidden when the profile has no assigned devices;</item>
+    ///   <item>enabled only once discovery has <b>finished</b> (<paramref name="isDiscovering"/> is
+    ///   false), every assigned URI is resolvable (hub-connected, hub-known, or freshly discovered),
+    ///   at least one assigned URI is not yet connected, and no connect/disconnect transition is in
+    ///   flight;</item>
+    ///   <item>otherwise shown disabled with a status label ("Discovering...", "All Connected",
+    ///   "Connecting...", "Discover first").</item>
+    /// </list>
+    /// </summary>
+    public static ConnectAllStatus ComputeConnectAllStatus(
+        ProfileData pd, IDeviceHub? hub,
+        IReadOnlyList<DeviceBase> discoveredDevices,
+        IReadOnlyDictionary<Uri, byte> pendingTransitions,
+        bool isDiscovering)
+    {
+        var anyAssigned = false;
+        var allDiscoverable = true;
+        var anyNotConnected = false;
+        var anyPending = false;
+        foreach (var u in pd.AssignedDeviceUris)
+        {
+            anyAssigned = true;
+            var connected = hub?.IsConnected(u) == true;
+            if (!connected) anyNotConnected = true;
+            if (pendingTransitions.ContainsKey(u)) anyPending = true;
+
+            var resolvable = (hub is not null && hub.TryGetDeviceFromUri(u, out _))
+                || connected
+                || discoveredDevices.Any(d => DeviceBase.SameDevice(d.DeviceUri, u));
+            if (!resolvable) allDiscoverable = false;
+        }
+
+        if (!anyAssigned)
+        {
+            return new ConnectAllStatus(false, false, "Connect All");
+        }
+
+        // Only actionable once discovery has finished and there is something to connect.
+        var enabled = !isDiscovering && allDiscoverable && anyNotConnected && !anyPending;
+        string label;
+        if (isDiscovering) label = "Discovering…";
+        else if (!anyNotConnected) label = "All Connected";
+        else if (anyPending) label = "Connecting…";
+        else if (!allDiscoverable) label = "Discover first";
+        else label = "Connect All";
+
+        return new ConnectAllStatus(true, enabled, label);
+    }
+
     public static async Task<Profile> CreateProfileAsync(string name, IExternal external, CancellationToken ct)
     {
         var profile = new Profile(Guid.NewGuid(), name, ProfileData.Empty);

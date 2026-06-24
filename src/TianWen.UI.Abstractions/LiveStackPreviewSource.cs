@@ -36,6 +36,7 @@ namespace TianWen.UI.Abstractions;
 public sealed class LiveStackPreviewSource : IPreviewSource, IDisposable
 {
     private readonly IPlanetaryFrameStream _stream;
+    private readonly bool _ownsStream;
     private readonly RollingWindowStacker _stacker;
     private readonly string _path;
     private readonly CancellationTokenSource _cts = new();
@@ -50,6 +51,8 @@ public sealed class LiveStackPreviewSource : IPreviewSource, IDisposable
     private AstroImageDocument? _doc;   // the current published master (sharpened), as a stats-bearing document
     private Image? _rawMaster;          // the latest UN-sharpened stacker output, kept so a wavelet-param
                                         // change can re-sharpen without re-running the window integration
+    private Image? _displayMaster;      // the [0,1]-normalised display master (== _doc's adopted image),
+                                        // exposed so a mini viewer can render the stack without the doc
     private int _builtRaw = -1;         // playhead _rawMaster was stacked for
     private Task<Built>? _stackTask;    // single in-flight background stack/sharpen (null = idle)
     private int _target;                // latest requested playhead
@@ -67,17 +70,21 @@ public sealed class LiveStackPreviewSource : IPreviewSource, IDisposable
 
     // A finished background result. Stacked=false means a sharpen-only re-render (the cached raw master was
     // reused, the playhead did not advance); Stacked=true means the window was re-integrated to Playhead.
-    private readonly record struct Built(AstroImageDocument Doc, Image RawMaster, int Playhead, bool Stacked);
+    private readonly record struct Built(AstroImageDocument Doc, Image RawMaster, Image Display, int Playhead, bool Stacked);
 
     /// <summary>
-    /// Wraps <paramref name="stream"/> (which this source owns and disposes). Construct off the render
-    /// thread -- it pre-warms the stream's timestamp trailer so later render-thread timestamp reads do no
-    /// disk I/O.
+    /// Wraps <paramref name="stream"/>. Construct off the render thread -- it pre-warms the stream's
+    /// timestamp trailer so later render-thread timestamp reads do no disk I/O. When
+    /// <paramref name="ownsStream"/> is <see langword="true"/> (the default, for a file-backed SER stream
+    /// scoped to this view) the stream is disposed with this source; pass <see langword="false"/> for a
+    /// live camera stream that the capture session owns and that outlives any one preview.
     /// </summary>
-    public LiveStackPreviewSource(IPlanetaryFrameStream stream, string path, RollingWindowOptions? options = null)
+    public LiveStackPreviewSource(
+        IPlanetaryFrameStream stream, string path, RollingWindowOptions? options = null, bool ownsStream = true)
     {
         ArgumentNullException.ThrowIfNull(stream);
         _stream = stream;
+        _ownsStream = ownsStream;
         _path = path;
         _stacker = new RollingWindowStacker(stream, options);
 
@@ -101,6 +108,16 @@ public sealed class LiveStackPreviewSource : IPreviewSource, IDisposable
     /// <summary>True once at least one master has been built and is ready to display.</summary>
     public bool HasMaster => _doc is not null;
 
+    /// <summary>
+    /// The latest <b>display-ready</b> master: the [0,1]-normalised, optionally wavelet-sharpened stack
+    /// image (the same pixels <see cref="_doc"/> shows), or null before the first stack. Exposed for a
+    /// live-camera consumer (the GUI planetary tab) that renders the stack into a content rect via an
+    /// <c>IMiniViewerWidget</c> rather than the full FITS-viewer chrome. Render-thread only, like the other
+    /// follow/publish members. (The raw stacker output is in the input ADU scale and not display-ready, so
+    /// it is deliberately not exposed.)
+    /// </summary>
+    public Image? DisplayMaster => _displayMaster;
+
     /// <summary>True while a background stack is running (the stream's reader is in use -- don't dispose).</summary>
     public bool IsBusy => _stackTask is { IsCompleted: false };
 
@@ -115,6 +132,19 @@ public sealed class LiveStackPreviewSource : IPreviewSource, IDisposable
     {
         _target = playhead;
         StartIfIdle();
+    }
+
+    /// <summary>
+    /// Requests the stack to follow the latest frame the stream has (for a live camera with no playhead:
+    /// the EAA free-run case). No-ops until the first frame has been pushed. Render-thread only.
+    /// </summary>
+    public void RequestFollowLatest()
+    {
+        var count = _stream.FrameCount;
+        if (count > 0)
+        {
+            RequestFollow(count - 1);
+        }
     }
 
     /// <summary>
@@ -155,6 +185,7 @@ public sealed class LiveStackPreviewSource : IPreviewSource, IDisposable
                 _builtRaw = b.Playhead;
             }
             _doc = b.Doc;
+            _displayMaster = b.Display;
             _built = b.Playhead;
             published = true;
         }
@@ -187,11 +218,15 @@ public sealed class LiveStackPreviewSource : IPreviewSource, IDisposable
             return;
         }
 
-        var needStack = _rawMaster is null || _target != _builtRaw; // master stale vs the requested playhead
-        var needSharpen = _sharpenDirty;
+        // A window stack needs at least one buffered frame; a live camera stream starts empty, so guard
+        // against kicking a stack the RollingWindowStacker would reject (it throws on an empty stream). A
+        // file-backed SER stream always reports a positive count, so this is a no-op for that path.
+        var hasFrames = _stream.FrameCount > 0;
+        var needStack = hasFrames && (_rawMaster is null || _target != _builtRaw); // master stale vs the requested playhead
+        var needSharpen = _sharpenDirty && _rawMaster is not null;                 // re-sharpen only an existing master
         if (!needStack && !needSharpen)
         {
-            return; // nothing changed
+            return; // nothing to do yet
         }
 
         // SHARPEN PRIORITY: if the wavelet params changed and we already have a master, re-sharpen THAT now
@@ -228,7 +263,10 @@ public sealed class LiveStackPreviewSource : IPreviewSource, IDisposable
             // Adopt the (linear, [0,1]) display master into a stats-bearing document off the render thread;
             // None = no CPU debayer (already RGB / mono).
             var doc = await AstroImageDocument.AdoptImageAsync(display, DebayerAlgorithm.None, filePath: _path, cancellationToken: token).ConfigureAwait(false);
-            return new Built(doc, raw, resultPlayhead, doStack);
+            // `display` is normalised to [0,1] in place by AdoptImageAsync and its arrays are now owned by
+            // `doc`; we retain it read-only as the display master (a mini viewer renders it; doc renders the
+            // same pixels via IPreviewSource).
+            return new Built(doc, raw, display, resultPlayhead, doStack);
         }, token);
     }
 
@@ -289,6 +327,9 @@ public sealed class LiveStackPreviewSource : IPreviewSource, IDisposable
         _stackTask = null;
         _workCts?.Dispose();
         _cts.Dispose();
-        _stream.Dispose();
+        if (_ownsStream)
+        {
+            _stream.Dispose();
+        }
     }
 }
