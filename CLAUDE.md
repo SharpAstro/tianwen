@@ -408,6 +408,41 @@ session-end. Wire-up: `BacklashEstimator`, `BacklashHistoryPersistence`, `Sessio
 plate-solve routine that runs **outside** of `Session.RunAsync` against a manually-connected mount.
 See `docs/plans/polar-alignment.md` for the math/algorithm.
 
+### Planetary Lucky-Imaging Stack (`TianWen.Lib.Imaging.Planetary`)
+
+A CPU-first planetary stacker, **completely separate** from the deep-sky `Imaging.Stacking` pipeline
+(star-quad align + sigma-clip rejection don't apply to a featureless disk). Plan + status:
+`docs/plans/planetary-stacking.md`.
+
+- **Batch** (`LuckyImagingStacker`, CLI `tianwen planetary-stack`): grade frames by sharpness
+  (`IFrameQualityEstimator`, Laplacian default) → keep the best N% → disk-COM + phase-correlation global
+  align (`GlobalAligner`) → feature-driven alignment points + per-AP displacement-mesh warp → per-AP
+  quality-weighted split-CFA integrate → **Bayer drizzle** (forward-scatter raw CFA through the AP mesh,
+  `DrizzleKernel` over an `ISourceToCanvas` struct) → demosaic-once → 6-level **wavelet sharpen**
+  (`WaveletSharpen`, à-trous; `PlanetaryDefault`/`Bandpass`/`Combo` presets).
+- **Live (`RollingWindowStacker`)**: the streaming counterpart of `StackGlobalAsync`. Maintains a
+  **frame-capped** sliding window (`RollingWindowOptions.MaxWindowFrames`, default 500 — caps the window by
+  count regardless of the time span, since a dense capture would otherwise pull the whole capture into a
+  5-min window and make every update a full batch stack). O(pixels) `add`/`evict`: eviction re-folds a
+  frame's cached contribution with a **negated weight** (the accumulate kernel is linear, so +w then -w
+  cancels exactly — no per-frame contribution images stored). The hot path is **align-bound** (~85-89%),
+  so `GlobalAligner` caches the reference tile's forward FFT once (`PhaseCorrelation.PrepareReferenceSpectrum`)
+  — lossless, ~1 of 3 FFTs/frame eliminated.
+- **`PlanetaryMaster`** is the single shared "accumulators → master" finalize (normalize + CFA-merge + MHC
+  demosaic), so the batch and live masters can never drift.
+- **Live viewer integration** (`LiveStackPreviewSource : IPreviewSource`, in `.UI.Abstractions`): a RAW/STACK
+  toggle (transport-bar button + `K`) and Registax-style 6-layer wavelet sliders (under the WB sliders) in
+  `tianwen-fits` and the GUI viewer tab (shared `ViewerState`). **Follow-the-playhead**: the raw
+  `SerPreviewSource` stays the playback driver; the live stack shows the window ending at the current frame.
+  All stacking/sharpening is **off the render thread** with **sharpen-priority** (a wavelet-slider change
+  re-sharpens the cached master immediately — ~30 ms — and defers the slower re-stack) and **per-request
+  cancellation** (a per-work CTS lets a slider preempt an in-flight stack; `StackToAsync` invalidates the
+  window on cancel so the next call rebuilds cleanly). `_rawMaster`/`_doc` are render-thread-only (the
+  background task hands results back through its `Task<T>` — the project's lock-free hand-off).
+- **Benchmarks/profiling**: `TianWen.UI.Benchmarks` `PlanetaryStackBenchmarks` / `PlanetaryMasterBenchmarks`,
+  and `dotnet run --project TianWen.UI.Benchmarks -- profile planetary [--frames N]` prints a per-stage
+  breakdown (load/grade/align/fold + wavelet/adopt) and tight-loops for `dotnet-trace`.
+
 ### Hosting API (`TianWen.Hosting` + `TianWen.Server`)
 
 Headless REST + WebSocket API. Two API layers on the same ASP.NET Core host:
