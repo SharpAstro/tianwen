@@ -272,7 +272,7 @@ public sealed class PlanetaryCaptureController(
                 return false; // no frame buffered yet -> nothing to display
             }
 
-            _source = new LiveStackPreviewSource(stream, "live://camera", _stackOptions, ownsStream: false);
+            _source = new LiveStackPreviewSource(stream, "live://camera", timeProvider, _stackOptions, ownsStream: false);
         }
 
         var live = _source;
@@ -306,8 +306,18 @@ public sealed class PlanetaryCaptureController(
         state.IsSequence = false;
     }
 
-    /// <summary>Stops the capture loop and waits for it to drain. Safe to call when not capturing.</summary>
-    public async Task StopAsync()
+    /// <summary>
+    /// Stops the capture loop and waits for it to drain. Safe to call when not capturing.
+    /// <para>
+    /// <paramref name="drainTimeout"/> <b>bounds</b> the wait for the loop to finish (the wait is NEVER
+    /// unbounded): pass a cancelled-on-timeout token (e.g. from a <see cref="CancellationTokenSource"/>
+    /// created with a TimeSpan + the injected <see cref="ITimeProvider"/>) so a slow or stuck drain cannot
+    /// hang process shutdown. The loop is a background <see cref="Task"/>; on timeout it is abandoned (it
+    /// sees the cancellation and unwinds, or is torn down as the process exits). The token is required --
+    /// every caller must decide its bound (a long-lived caller can pass a generously-timed one).
+    /// </para>
+    /// </summary>
+    public async Task StopAsync(CancellationToken drainTimeout)
     {
         var cts = _cts;
         if (cts is not null)
@@ -320,11 +330,15 @@ public sealed class PlanetaryCaptureController(
         {
             try
             {
-                await task.ConfigureAwait(false);
+                // Bounded by the caller's token (never a raw `await task`); the loop polls its own
+                // cancellation and unwinds, so a timeout only fires if it is genuinely stuck.
+                await task.WaitAsync(drainTimeout).ConfigureAwait(false);
             }
             catch (OperationCanceledException)
             {
-                logger.LogInformation("Planetary capture stop: loop cancelled.");
+                // Either the loop cancelled cleanly (OCE from the loop) or the bounded drain elapsed (OCE
+                // from WaitAsync) -- both are acceptable here; a still-running loop is abandoned at shutdown.
+                logger.LogInformation("Planetary capture stop: loop cancelled or drain timed out.");
             }
         }
 
@@ -337,11 +351,19 @@ public sealed class PlanetaryCaptureController(
     /// <inheritdoc/>
     public async ValueTask DisposeAsync()
     {
-        await StopAsync().ConfigureAwait(false);
+        // Bound the capture-loop drain so a slow/stuck loop can't hang process shutdown (Not Responding).
+        // The CTS fires off the injected TimeProvider (FakeTimeProvider-controllable in tests), not the raw
+        // system clock, per the project's time-provider discipline.
+        using var drainTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(3), timeProvider.System);
+        await StopAsync(drainTimeout.Token).ConfigureAwait(false);
 
-        // Dispose the source first (it drains any in-flight stack), then the stream we own (ownsStream:false
-        // on the source means the source never disposes it).
-        _source?.Dispose();
+        // Dispose the source first -- DisposeAsync AWAITS any in-flight window stack to drain (bounded, no
+        // thread-blocking .Wait()) so it stops reading the stream before we release it -- then the stream we
+        // own (ownsStream:false on the source means the source never disposes it).
+        if (_source is { } source)
+        {
+            await source.DisposeAsync().ConfigureAwait(false);
+        }
         _source = null;
         _stream?.Dispose();
         _stream = null;

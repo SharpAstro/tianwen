@@ -276,8 +276,44 @@ enum + `TabOrder`, its `TabChrome` entry, the `ActiveTab` + `RenderContent` case
 `StartVideoCaptureSignal` now lands in Live Session planetary mode (`liveSessionState.Mode = Planetary;
 ActiveTab = LiveSession`) instead of the old tab. `_planetaryTab` stays constructed + wired as the Live
 Session `PlanetaryView` (+ FrameCount++ / Dispose). Verified: sidebar shows 7 tabs, no standalone planetary;
-full solution builds clean. Remaining: (4) focuser jog reuse + ROI/test-control panels in planetary mode,
-then the richer controls (ROI PiP + `RoiConstraints`, fake `IVideoSimulationControls`, GOTO + Solve&Center).
+full solution builds clean.
+
+**Step 4a + 4b DONE + verified live (2026-06-25).** The interim top capture strip became a **left control
+panel** (~280 design-units, carved from the content rect like the strip was) built with the
+`DIR.Lib.Layout` engine (a `Layout.Builder` VStack of fixed-height rows -- weights + spacers, no pixel
+math). It holds a **CAPTURE** section (Start/Stop, Exp/Gain/ROI steppers, fps/frames/dropped readout, moved
+off the top strip) and a **FOCUSER** section (position + temp readout + a `[«][‹][»][»]` jog row that posts
+the same `JogFocuserSignal(0, ±10/±100)` the Live Session OTA panel uses -- one focuser-control path). The
+seam (`IPlanetaryViewWidget.RenderPlanetary`) now carries `PreviewOTATelemetry` (OTA 0's focuser) from
+`LiveSessionTab`; the viewer fills the content minus the panel via `SetContentRegion`. Verified: panel
+renders, focuser shows the connected fake (Pos 980, 15 deg C), capture runs at the readout's fps.
+
+**Shutdown slowness during planetary capture (found via 4b verification, fixed 2026-06-25).** Quitting
+*while a planetary capture was running* left the GUI "Not Responding" for ~25-30 s before it finally exited
+(intermittently). **Root cause** (user's diagnosis, confirmed): the rolling-window stacker's fold/evict
+loops only polled the token indirectly via `IPlanetaryFrameStream.LoadAsync`. For a **file-backed SER**
+stream that I/O check aborts promptly (so it "worked in the standalone tab / SER playback"); but the live
+path's blocking `_stackTask.Wait()` in `LiveStackPreviewSource.Dispose` (the planetary controller disposes
+it WITHOUT ViewerController's IsBusy gate, on the shutdown thread) waited on a window stack that didn't
+abort fast enough. **Fix (the cancellation token threaded + respected everywhere):**
+1. The capture is **linked** to the app shutdown token -- `Start` receives `backgroundCts.Token`, so
+   `backgroundCts.Cancel()` in `RequestQuit` cancels it (no imperative `Stop()` in the quit path).
+2. `RollingWindowStacker`'s fold/evict loops (incremental + rebuild) now `ThrowIfCancellationRequested()`
+   **every iteration**, so a cancel aborts the window stack promptly (not after the whole window).
+3. No thread-blocking waits in the shutdown path. `LiveStackPreviewSource` is now `IAsyncDisposable`:
+   `DisposeAsync` **awaits** the in-flight stack via `task.WaitAsync(3 s)` (the planetary controller disposes
+   it async); the sync `Dispose` defers cleanup to a continuation instead of `.Wait()`. `StopAsync` accepts a
+   `CancellationToken` (`DisposeAsync` passes a 3 s timeout) and `tracker.DrainAsync()` is `WaitAsync`-bounded
+   to 5 s -- backstops so no drain can hang unbounded (the timeout the Program.cs comment always promised).
+4. `FakeCameraDriver.CaptureVideoAsync` bails (`yield break`) if the camera disconnects mid-stream.
+
+19 planetary unit tests pass. Verified: a quit-during-capture run now disconnects the cameras and exits
+promptly (exit 0, no post-disconnect heartbeat spam, vs. the ~30 s "Not Responding" before). Intermittency
+made inspector ESC automation flaky, so a final confirm in the real close-the-window flow is welcome.
+
+Remaining: (4c) ROI PiP + `RoiConstraints` (queried from the camera) + draw-on-stream; (4d) fake
+`IVideoSimulationControls` test panel (defocus/seeing/noise/drift); then GOTO + Solve&Center, and Phase C
+(COM recenter).
 
 ### SharpCap-informed UI redesign (user, 2026-06-24, with a SharpCap Pro reference shot)
 

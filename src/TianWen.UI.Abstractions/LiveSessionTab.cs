@@ -139,7 +139,12 @@ namespace TianWen.UI.Abstractions
                     contentRect.Width, contentRect.Height - topH);
                 if (PlanetaryView is { } planetaryView)
                 {
-                    planetaryView.RenderPlanetary(PlanetaryCapture, planetaryRect, dpiScale, fontPath);
+                    // Planetary captures a single OTA (index 0); hand its focuser telemetry to the view so the
+                    // control panel can show position + jog (the jog posts JogFocuserSignal(0, ...)).
+                    var focuser = state.PreviewOTATelemetry.Length > 0
+                        ? state.PreviewOTATelemetry[0]
+                        : PreviewOTATelemetry.Unknown;
+                    planetaryView.RenderPlanetary(PlanetaryCapture, focuser, planetaryRect, dpiScale, fontPath);
                 }
                 else
                 {

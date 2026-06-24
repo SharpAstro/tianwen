@@ -17,11 +17,16 @@ namespace TianWen.UI.Abstractions
     public interface IPlanetaryViewWidget
     {
         /// <summary>
-        /// Renders the planetary capture view (viewer + control strip) into <paramref name="contentRect"/>.
-        /// The <see cref="ViewerState"/> is taken from <paramref name="controller"/> (the DI-singleton the
-        /// capture loop shares), so wavelet/stretch changes round-trip to the live stack.
+        /// Renders the planetary capture view (left control panel + the shared image viewer) into
+        /// <paramref name="contentRect"/>. The <see cref="ViewerState"/> is taken from
+        /// <paramref name="controller"/> (the DI-singleton the capture loop shares), so wavelet/stretch
+        /// changes round-trip to the live stack. <paramref name="focuser"/> is the active OTA's focuser
+        /// telemetry (<see cref="PreviewOTATelemetry.Unknown"/> when none), driving the panel's focuser
+        /// readout + jog row -- the jog buttons post the same <c>JogFocuserSignal</c> the Live Session OTA
+        /// panel uses (one focuser-control path, shared via the signal).
         /// </summary>
-        void RenderPlanetary(PlanetaryCaptureController? controller, RectF32 contentRect, float dpiScale, string fontPath);
+        void RenderPlanetary(PlanetaryCaptureController? controller, PreviewOTATelemetry focuser,
+            RectF32 contentRect, float dpiScale, string fontPath);
 
         /// <summary>Forwards a raw input event to the view's own hit dispatch (toolbar / sliders / strip).</summary>
         bool HandleInput(InputEvent evt);

@@ -62,7 +62,7 @@ public class PlanetaryCaptureControllerTests(ITestOutputHelper output)
         source.ChannelCount.ShouldBe(1);                 // mono planetary sensor
         state.FrameCount.ShouldBeGreaterThan(0);
 
-        await controller.StopAsync();
+        await controller.StopAsync(ct);
         controller.IsCapturing.ShouldBeFalse();
     }
 
@@ -103,7 +103,7 @@ public class PlanetaryCaptureControllerTests(ITestOutputHelper output)
         controller.Source.ShouldNotBeNull();
         controller.Source.ChannelCount.ShouldBe(1);    // stream layout came from the mono frames
 
-        await controller.StopAsync();
+        await controller.StopAsync(ct);
     }
 
     [Fact(Timeout = 30_000)]
@@ -123,7 +123,7 @@ public class PlanetaryCaptureControllerTests(ITestOutputHelper output)
             new RollingWindowOptions { FallbackWindowFrames = 8, MaxWindowFrames = 12 });
 
         // Stop when never started is a no-op.
-        await controller.StopAsync();
+        await controller.StopAsync(ct);
 
         controller.Start(camera, new VideoCaptureOptions(TimeSpan.FromMilliseconds(2)), ct);
         var firstReceived = controller.FramesReceived;
@@ -132,7 +132,7 @@ public class PlanetaryCaptureControllerTests(ITestOutputHelper output)
         controller.Start(camera, new VideoCaptureOptions(TimeSpan.FromMilliseconds(2)), ct);
         controller.IsCapturing.ShouldBeTrue();
 
-        await controller.StopAsync();
+        await controller.StopAsync(ct);
         controller.IsCapturing.ShouldBeFalse();
         state.IsSequence.ShouldBeFalse();
     }

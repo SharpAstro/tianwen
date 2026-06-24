@@ -6,6 +6,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using TianWen.Lib.Astrometry.PlateSolve;
+using TianWen.Lib.Devices;
 using TianWen.Lib.Imaging;
 
 namespace TianWen.UI.Abstractions;
@@ -20,6 +21,7 @@ public sealed class ViewerController(
     IDocumentCache documentCache,
     IFileDialogHelper fileDialog,
     IPlateSolverFactory plateSolverFactory,
+    ITimeProvider timeProvider,
     ILogger<ViewerController> logger)
 {
     private Task? _loadTask;
@@ -138,12 +140,12 @@ public sealed class ViewerController(
             {
                 try
                 {
-                    var serSource = await SerPreviewSource.OpenAsync(requestedPath, loadToken);
+                    var serSource = await SerPreviewSource.OpenAsync(requestedPath, timeProvider, loadToken);
                     // The live rolling-window stack over the SAME file (its own SER reader). Constructed
                     // here, off the render thread; it stacks lazily once the user toggles to the stacked
                     // view. A failure to open it is non-fatal -- raw playback still works.
                     LiveStackPreviewSource? liveSource = null;
-                    try { liveSource = LiveStackPreviewSource.Open(requestedPath); }
+                    try { liveSource = LiveStackPreviewSource.Open(requestedPath, timeProvider); }
                     catch (Exception ex) { logger.LogWarning(ex, "Failed to open live-stack source for {FilePath}", requestedPath); }
 
                     if (loadToken.IsCancellationRequested)
@@ -478,7 +480,18 @@ public sealed class ViewerController(
             d.Dispose();
         }
         _pendingDispose.Clear();
-        (_rawSource as IDisposable)?.Dispose();
-        _liveSource?.Dispose();
+        // Prefer the async drain (SerPreviewSource / LiveStackPreviewSource hold a memory-mapped reader and
+        // await any in-flight decode/stack before releasing it -- bounded, non-blocking). Falls back to the
+        // sync Dispose (which itself defers the release to a continuation rather than blocking) for any
+        // source that is only IDisposable.
+        switch (_rawSource)
+        {
+            case IAsyncDisposable rawAsync: await rawAsync.DisposeAsync(); break;
+            case IDisposable rawSync: rawSync.Dispose(); break;
+        }
+        if (_liveSource is { } live)
+        {
+            await live.DisposeAsync();
+        }
     }
 }

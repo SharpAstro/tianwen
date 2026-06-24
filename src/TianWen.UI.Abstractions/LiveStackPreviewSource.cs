@@ -1,6 +1,7 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using TianWen.Lib.Devices;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Planetary;
 
@@ -33,7 +34,7 @@ namespace TianWen.UI.Abstractions;
 /// stream's frame reads) exclusively while running.
 /// </para>
 /// </summary>
-public sealed class LiveStackPreviewSource : IPreviewSource, IDisposable
+public sealed class LiveStackPreviewSource : IPreviewSource, IDisposable, IAsyncDisposable
 {
     private readonly IPlanetaryFrameStream _stream;
     private readonly bool _ownsStream;
@@ -63,6 +64,11 @@ public sealed class LiveStackPreviewSource : IPreviewSource, IDisposable
     private bool _inFlightIsStack;      // the in-flight task is a (slow) window stack, eligible for sharpen-preempt
     private bool _disposed;
 
+    // Clock for the bounded drain in DisposeAsync. Required and always threaded through (never an implicit
+    // system clock): a test's FakeTimeProvider then controls the timeout, and production resolves the real
+    // ITimeProvider from DI. We read its BCL TimeProvider via .System for WaitAsync(TimeSpan, TimeProvider).
+    private readonly ITimeProvider _timeProvider;
+
     // Identity wavelet (all-1 gains, no denoise) reconstructs the input exactly -- used as the "sharpening
     // off" case so the display image is always a FRESH copy to adopt (AdoptImageAsync normalises in place),
     // never the cached raw master.
@@ -74,18 +80,22 @@ public sealed class LiveStackPreviewSource : IPreviewSource, IDisposable
 
     /// <summary>
     /// Wraps <paramref name="stream"/>. Construct off the render thread -- it pre-warms the stream's
-    /// timestamp trailer so later render-thread timestamp reads do no disk I/O. When
+    /// timestamp trailer so later render-thread timestamp reads do no disk I/O. <paramref name="timeProvider"/>
+    /// is required and bounds the <see cref="DisposeAsync"/> drain (never an implicit system clock). When
     /// <paramref name="ownsStream"/> is <see langword="true"/> (the default, for a file-backed SER stream
     /// scoped to this view) the stream is disposed with this source; pass <see langword="false"/> for a
     /// live camera stream that the capture session owns and that outlives any one preview.
     /// </summary>
     public LiveStackPreviewSource(
-        IPlanetaryFrameStream stream, string path, RollingWindowOptions? options = null, bool ownsStream = true)
+        IPlanetaryFrameStream stream, string path, ITimeProvider timeProvider,
+        RollingWindowOptions? options = null, bool ownsStream = true)
     {
         ArgumentNullException.ThrowIfNull(stream);
+        ArgumentNullException.ThrowIfNull(timeProvider);
         _stream = stream;
         _ownsStream = ownsStream;
         _path = path;
+        _timeProvider = timeProvider;
         _stacker = new RollingWindowStacker(stream, options);
 
         // Master geometry once stacked: a split-CFA source demosaics back to the full mosaic resolution;
@@ -102,8 +112,8 @@ public sealed class LiveStackPreviewSource : IPreviewSource, IDisposable
     }
 
     /// <summary>Opens <paramref name="path"/> as a live-stack source over its own SER reader.</summary>
-    public static LiveStackPreviewSource Open(string path, RollingWindowOptions? options = null)
-        => new LiveStackPreviewSource(SerFrameStream.Open(path), path, options);
+    public static LiveStackPreviewSource Open(string path, ITimeProvider timeProvider, RollingWindowOptions? options = null)
+        => new LiveStackPreviewSource(SerFrameStream.Open(path), path, timeProvider, options);
 
     /// <summary>True once at least one master has been built and is ready to display.</summary>
     public bool HasMaster => _doc is not null;
@@ -319,11 +329,59 @@ public sealed class LiveStackPreviewSource : IPreviewSource, IDisposable
         }
 
         _disposed = true;
-        _cts.Cancel(); // cancels the linked per-work CTS too
+        _cts.Cancel(); // cancels the linked per-work CTS too; the stacker loops poll it and unwind
         // The background stack reads the memory-mapped SER; it MUST finish before the stream releases the
-        // mapping. ViewerController defers disposal until IsBusy is false, so this is a non-blocking safety
-        // net; a single in-flight window stack drains quickly.
-        try { _stackTask?.Wait(); } catch { /* faulted / cancelled stack has nothing to release */ }
+        // mapping -- but we NEVER block a thread to wait (no .Wait()). ViewerController only disposes once
+        // IsBusy is false (a busy source is deferred to _pendingDispose), so the task is normally already
+        // done and we free inline. If one is still in flight (e.g. at FITS-viewer shutdown), defer the
+        // resource release to a continuation that runs once the (now-cancelled) stack unwinds, rather than
+        // tearing the stream out from under it. A caller that must await the drain uses DisposeAsync.
+        if (_stackTask is { IsCompleted: false } task)
+        {
+            task.ContinueWith(static (_, s) => ((LiveStackPreviewSource)s!).DisposeCore(), this, TaskScheduler.Default);
+        }
+        else
+        {
+            DisposeCore();
+        }
+    }
+
+    /// <summary>
+    /// Async disposal that <b>awaits</b> the in-flight window stack to drain before releasing the stream --
+    /// for callers that dispose WITHOUT gating on <see cref="IsBusy"/> (e.g. <c>PlanetaryCaptureController</c>
+    /// at shutdown). Never blocks a thread: the await is non-blocking and bounded (a slow/stuck stack can't
+    /// stall process exit -- the stacker loops poll the token we cancel, so the drain is normally instant).
+    /// </summary>
+    public async ValueTask DisposeAsync()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        _disposed = true;
+        _cts.Cancel(); // cancels the linked per-work CTS too; the stacker loops poll it and unwind
+        if (_stackTask is { } task)
+        {
+            try
+            {
+                // Bounded via the injected TimeProvider (a test's FakeTimeProvider controls it) -- not the
+                // raw system clock -- per the project's time-provider discipline.
+                await task.WaitAsync(TimeSpan.FromSeconds(3), _timeProvider.System).ConfigureAwait(false);
+            }
+            catch
+            {
+                // Faulted / cancelled / timed-out stack has nothing left to release; fall through to free.
+            }
+        }
+        DisposeCore();
+    }
+
+    // Frees the per-work + lifetime CTS and (when owned) the stream. Runs only after any in-flight stack has
+    // stopped reading the stream -- the sync path defers it to the stack's continuation (or runs it inline
+    // when not busy); the async path awaits the stack first.
+    private void DisposeCore()
+    {
         _stackTask = null;
         _workCts?.Dispose();
         _cts.Dispose();

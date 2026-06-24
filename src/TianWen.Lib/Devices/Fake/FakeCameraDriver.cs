@@ -1426,6 +1426,14 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver, IV
             var frameIndex = 0;
             while (!cancellationToken.IsCancellationRequested)
             {
+                // The camera being disconnected out from under an active stream (e.g. during app
+                // shutdown) is a stop signal too -- complete the sequence cleanly rather than keep
+                // yielding frames from a disconnected device.
+                if (!Connected)
+                {
+                    yield break;
+                }
+
                 yield return RenderVideoFrame(roiW, roiH, frameIndex);
                 frameIndex++;
 

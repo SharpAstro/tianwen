@@ -36,6 +36,7 @@ namespace TianWen.UI.Abstractions
             PlannerState plannerState,
             IGuiChrome chrome,
             CancellationTokenSource cts,
+            CancellationToken shutdownToken,
             IExternal external,
             BackgroundTaskTracker tracker)
         {
@@ -49,7 +50,7 @@ namespace TianWen.UI.Abstractions
             // Create shared signal handler (all business logic)
             _signalHandler = new AppSignalHandler(sp, appState, plannerState,
                 chrome.SessionState, chrome.EquipmentState, chrome.LiveSessionState,
-                chrome.SkyMapState, bus, tracker, cts, external);
+                chrome.SkyMapState, bus, tracker, cts, shutdownToken, external);
 
             // Wire the ensure-visible callback to the pixel widget's scroll mechanism
             _signalHandler.OnPlannerEnsureVisible = index => chrome.PlannerEnsureVisible(index);

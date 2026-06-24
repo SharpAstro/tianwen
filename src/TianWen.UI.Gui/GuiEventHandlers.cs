@@ -13,8 +13,9 @@ public sealed class GuiEventHandlers(
     PlannerState plannerState,
     VkGuiRenderer guiRenderer,
     CancellationTokenSource cts,
+    CancellationToken shutdownToken,
     IExternal external,
     BackgroundTaskTracker tracker)
-    : GuiEventHandlerBase(sp, appState, plannerState, guiRenderer, cts, external, tracker)
+    : GuiEventHandlerBase(sp, appState, plannerState, guiRenderer, cts, shutdownToken, external, tracker)
 {
 }

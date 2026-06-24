@@ -3,6 +3,7 @@ using System.Collections.Immutable;
 using System.Threading;
 using System.Threading.Tasks;
 using SharpAstro.Ser;
+using TianWen.Lib.Devices;
 using TianWen.Lib.Imaging;
 
 namespace TianWen.UI.Abstractions;
@@ -21,7 +22,7 @@ namespace TianWen.UI.Abstractions;
 /// in managed fields.
 /// </para>
 /// </summary>
-public sealed class SerPreviewSource : IPreviewSource, ISequencePlaybackSource, IDisposable
+public sealed class SerPreviewSource : IPreviewSource, ISequencePlaybackSource, IDisposable, IAsyncDisposable
 {
     private readonly SerReader _reader;
     private readonly AstroImageDocument _statsFrame; // frame 0: stretch stats + histogram + background
@@ -44,11 +45,18 @@ public sealed class SerPreviewSource : IPreviewSource, ISequencePlaybackSource, 
     private Task<int>? _decodeTask; // in-flight background decode of a frame into _back; null when idle
     private bool _disposed;
 
+    // Clock for the bounded drain in DisposeAsync. Required and always threaded through (never an implicit
+    // system clock): a test's FakeTimeProvider controls the timeout, production resolves the real
+    // ITimeProvider from DI. (The sync Dispose path needs no clock -- it defers the reader release to the
+    // decode's continuation rather than waiting.)
+    private readonly ITimeProvider _timeProvider;
+
     private SerPreviewSource(SerReader reader, AstroImageDocument statsFrame, int channelCount,
-        SensorType sensorType, int bayerOffsetX, int bayerOffsetY)
+        SensorType sensorType, int bayerOffsetX, int bayerOffsetY, ITimeProvider timeProvider)
     {
         _reader = reader;
         _statsFrame = statsFrame;
+        _timeProvider = timeProvider;
         _sensorType = sensorType;
         _bayerOffsetX = bayerOffsetX;
         _bayerOffsetY = bayerOffsetY;
@@ -74,7 +82,7 @@ public sealed class SerPreviewSource : IPreviewSource, ISequencePlaybackSource, 
     }
 
     /// <summary>Opens a SER file and builds the source, computing frame-0 stretch statistics once.</summary>
-    public static async Task<SerPreviewSource> OpenAsync(string path, CancellationToken cancellationToken = default)
+    public static async Task<SerPreviewSource> OpenAsync(string path, ITimeProvider timeProvider, CancellationToken cancellationToken = default)
     {
         var reader = SerReader.Open(path);
         try
@@ -89,7 +97,7 @@ public sealed class SerPreviewSource : IPreviewSource, ISequencePlaybackSource, 
             var frame0 = SerImageBridge.ToImage(reader, 0);
             var statsFrame = await AstroImageDocument.AdoptImageAsync(
                 frame0, DebayerAlgorithm.None, filePath: path, cancellationToken: cancellationToken);
-            return new SerPreviewSource(reader, statsFrame, channelCount, sensor, ox, oy);
+            return new SerPreviewSource(reader, statsFrame, channelCount, sensor, ox, oy, timeProvider);
         }
         catch
         {
@@ -212,10 +220,67 @@ public sealed class SerPreviewSource : IPreviewSource, ISequencePlaybackSource, 
 
         _disposed = true;
         // The background decode reads the memory-mapped file; it MUST complete before the reader releases
-        // the mapped pointer, or the read faults a freed pointer. Normally ViewerController defers disposal
-        // until IsDecoding is false, so this is a never-blocking safety net; the decode of one small frame
-        // is sub-millisecond if it is somehow still running at teardown.
-        try { _decodeTask?.Wait(); } catch { /* a faulted/cancelled decode has nothing to release */ }
+        // the mapped pointer, or the read faults a freed pointer -- but we NEVER block a thread to wait (no
+        // .Wait()). Normally ViewerController defers disposal until IsDecoding is false, so the task is
+        // already done and we free inline. If one is still in flight (e.g. at FITS-viewer shutdown), defer
+        // the reader release to a continuation that runs once the (uncancellable, sub-ms) decode finishes,
+        // rather than tearing the mapping out from under it. A caller that must await the drain uses
+        // DisposeAsync.
+        if (_decodeTask is { IsCompleted: false } task)
+        {
+            task.ContinueWith(static (_, s) => ((SerPreviewSource)s!).DisposeCore(), this, TaskScheduler.Default);
+        }
+        else
+        {
+            DisposeCore();
+        }
+    }
+
+    /// <summary>
+    /// Async disposal that <b>awaits</b> the in-flight frame decode to drain before releasing the reader --
+    /// for callers that dispose in an async context (e.g. <c>ViewerController.ShutdownAsync</c>). Never
+    /// blocks a thread: the await is non-blocking and bounded via the injected <see cref="ITimeProvider"/>.
+    /// The decode is uncancellable (a single sub-ms memory-mapped read), so on the pathological timeout we
+    /// defer the reader release to the decode's continuation rather than freeing the mapping while the read
+    /// is still touching it (use-after-free).
+    /// </summary>
+    public async ValueTask DisposeAsync()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        _disposed = true;
+        if (_decodeTask is { } task)
+        {
+            try
+            {
+                // Bounded via the injected TimeProvider (a test's FakeTimeProvider controls it) -- not the
+                // raw system clock -- per the project's time-provider discipline.
+                await task.WaitAsync(TimeSpan.FromSeconds(3), _timeProvider.System).ConfigureAwait(false);
+            }
+            catch (TimeoutException)
+            {
+                // The uncancellable decode is still reading the mapped file; freeing the reader now would
+                // fault a freed pointer. Defer the release to a continuation that runs once the read finishes
+                // (intentionally not awaited -- the disposing caller must not block on a stuck disk read).
+                _ = task.ContinueWith(static (_, s) => ((SerPreviewSource)s!).DisposeCore(), this, TaskScheduler.Default);
+                return;
+            }
+            catch
+            {
+                // A faulted decode threw before completing the read; it has nothing left to release.
+            }
+        }
+        DisposeCore();
+    }
+
+    // Frees the decode-task reference and the memory-mapped reader. Runs only after any in-flight decode has
+    // stopped reading the mapping -- the sync path defers it to the decode's continuation (or runs it inline
+    // when not decoding); the async path awaits the decode first.
+    private void DisposeCore()
+    {
         _decodeTask = null;
         _reader.Dispose();
     }

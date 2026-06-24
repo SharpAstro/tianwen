@@ -680,6 +680,7 @@ namespace TianWen.UI.Abstractions
             SignalBus bus,
             BackgroundTaskTracker tracker,
             CancellationTokenSource cts,
+            CancellationToken shutdownToken,
             IExternal external)
         {
             _sp = sp;
@@ -2855,8 +2856,10 @@ namespace TianWen.UI.Abstractions
                 }
 
                 var (roiW, roiH) = PlanetaryCaptureActions.ConfigureRoi(camera, sig.RoiWidth, sig.RoiHeight);
+                // Bind the capture's lifetime to the app shutdown token: quitting cancels it (its loops poll
+                // the token), so the camera is released without an imperative Stop() in the quit path.
                 planetaryCapture.Start(camera,
-                    new VideoCaptureOptions(TimeSpan.FromMilliseconds(sig.ExposureMs), sig.Gain), cts.Token);
+                    new VideoCaptureOptions(TimeSpan.FromMilliseconds(sig.ExposureMs), sig.Gain), shutdownToken);
                 // Planetary capture is now a Live Session mode (not a standalone tab): show it there.
                 liveSessionState.Mode = LiveSessionMode.Planetary;
                 appState.ActiveTab = GuiTab.LiveSession;

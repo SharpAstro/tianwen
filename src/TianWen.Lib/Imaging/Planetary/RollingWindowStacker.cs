@@ -137,13 +137,16 @@ public sealed class RollingWindowStacker
             else
             {
                 // Grow the leading edge, then drop the trailing edge. Order matters only for peak memory;
-                // both are O(pixels) per frame touched.
+                // both are O(pixels) per frame touched. Poll the token each iteration so a cancel aborts
+                // promptly even when AddAsync short-circuits a cached frame (no per-frame LoadAsync token check).
                 for (var i = _windowEnd + 1; i <= f; i++)
                 {
+                    cancellationToken.ThrowIfCancellationRequested();
                     await AddAsync(i, cancellationToken).ConfigureAwait(false);
                 }
                 for (var i = _windowStart; i < windowStart; i++)
                 {
+                    cancellationToken.ThrowIfCancellationRequested();
                     await EvictAsync(i, cancellationToken).ConfigureAwait(false);
                 }
                 _windowStart = windowStart;
@@ -242,11 +245,15 @@ public sealed class RollingWindowStacker
             reference.Release();
         }
 
-        // 3. Fold the whole window in.
+        // 3. Fold the whole window in. Poll the token each iteration: this is the expensive loop (up to
+        // MaxWindowFrames align+fold passes), so a cancel during a rebuild must abort it promptly rather
+        // than run the whole window -- LiveStackPreviewSource.DisposeAsync awaits exactly this stack at
+        // shutdown, so a prompt abort keeps the (bounded) drain short.
         _windowStart = windowStart;
         _windowEnd = f;
         for (var i = windowStart; i <= f; i++)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             await AddAsync(i, cancellationToken).ConfigureAwait(false);
         }
     }
