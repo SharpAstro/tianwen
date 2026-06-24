@@ -360,82 +360,95 @@ namespace TianWen.UI.Gui
 
             var now = timeProvider.GetUtcNow().ToOffset(plannerState.SiteTimeZone);
             var clockText = now.ToString("ddd d MMM HH:mm:ss");
+            var sessionRunning = LiveSessionState.IsRunning;
+            SessionState.IsSessionRunning = sessionRunning;
 
-            // Profile name (left)
-            var profileName = appState.ActiveProfile?.DisplayName ?? "No profile";
-            DrawText(profileName.AsSpan(), _fontPath,
-                SidebarWidth + 6f, 0, w * 0.35f, sbh,
-                FontSize, StatusText, TextAlign.Near, TextAlign.Center);
-
-            // Date navigation with night window: [<] date (HH:mm – HH:mm) [>]
-            // Locked during a running session to prevent confusion
+            // Date + night-window label string (data only): [<] date (HH:mm-HH:mm) [>].
+            var planDate = plannerState.PlanningDate ?? now;
+            var isTonight = !plannerState.PlanningDate.HasValue || planDate.Date == now.Date;
+            string dateStr;
+            if (isTonight && plannerState.AstroDark != default)
             {
-                var centerX = w * 0.35f;
-                var centerW = w * 0.35f;
-                var arrowW = sbh; // square arrow buttons
-                var arrowFontSize = FontSize * 0.9f;
-                var arrowBg = new RGBAColor32(0x2a, 0x2a, 0x35, 0xff);
-                var sessionRunning = LiveSessionState.IsRunning;
-                SessionState.IsSessionRunning = sessionRunning;
-
-                // Measure the date label text to place arrows snugly around it
-                var arrowInset = w * 0.06f; // tighten arrows toward center
-
-                if (!sessionRunning)
-                {
-                    // [<] previous day — closer to the date text
-                    RenderButton("\u25C0", centerX + arrowInset, 0, arrowW, sbh, _fontPath, arrowFontSize,
-                        arrowBg, StatusText, "DatePrev",
-                        _ => { PlannerActions.ShiftPlanningDate(plannerState, timeProvider, -1, _skyMapTab.State); });
-
-                    // [>] next day — closer to the date text
-                    RenderButton("\u25B6", centerX + centerW - arrowW - arrowInset, 0, arrowW, sbh, _fontPath, arrowFontSize,
-                        arrowBg, StatusText, "DateNext",
-                        _ => { PlannerActions.ShiftPlanningDate(plannerState, timeProvider, +1, _skyMapTab.State); });
-                }
-
-                // Date + night window label between arrows
-                var labelX = centerX + arrowInset + arrowW;
-                var labelW = centerW - (arrowInset + arrowW) * 2;
-                var planDate = plannerState.PlanningDate ?? now;
-                var isTonight = !plannerState.PlanningDate.HasValue || planDate.Date == now.Date;
-                string dateStr;
-
-                if (isTonight && plannerState.AstroDark != default)
-                {
-                    var dark = plannerState.AstroDark.ToOffset(plannerState.SiteTimeZone);
-                    var twilight = plannerState.AstroTwilight.ToOffset(plannerState.SiteTimeZone);
-                    dateStr = $"Tonight {dark:HH:mm}-{twilight:HH:mm}";
-                }
-                else if (plannerState.AstroDark != default)
-                {
-                    var dark = plannerState.AstroDark.ToOffset(plannerState.SiteTimeZone);
-                    var twilight = plannerState.AstroTwilight.ToOffset(plannerState.SiteTimeZone);
-                    dateStr = $"{planDate:ddd d MMM} {dark:HH:mm}-{twilight:HH:mm}";
-                }
-                else
-                {
-                    dateStr = isTonight ? "Tonight" : planDate.ToString("ddd d MMM");
-                }
-
-                var dateColor = plannerState.PlanningDate.HasValue ? new RGBAColor32(0x88, 0xcc, 0xff, 0xff) : StatusText;
-                DrawText(dateStr.AsSpan(), _fontPath,
-                    labelX, 0, labelW, sbh,
-                    FontSize, dateColor, TextAlign.Center, TextAlign.Center);
-
-                // Click on date label resets to tonight (disabled during session)
-                if (plannerState.PlanningDate.HasValue && !sessionRunning)
-                {
-                    RegisterClickable(labelX, 0, labelW, sbh,
-                        new HitResult.ButtonHit("DateTonight"),
-                        _ => { PlannerActions.ResetPlanningDate(plannerState); });
-                }
+                var dark = plannerState.AstroDark.ToOffset(plannerState.SiteTimeZone);
+                var twilight = plannerState.AstroTwilight.ToOffset(plannerState.SiteTimeZone);
+                dateStr = $"Tonight {dark:HH:mm}-{twilight:HH:mm}";
             }
+            else if (plannerState.AstroDark != default)
+            {
+                var dark = plannerState.AstroDark.ToOffset(plannerState.SiteTimeZone);
+                var twilight = plannerState.AstroTwilight.ToOffset(plannerState.SiteTimeZone);
+                dateStr = $"{planDate:ddd d MMM} {dark:HH:mm}-{twilight:HH:mm}";
+            }
+            else
+            {
+                dateStr = isTonight ? "Tonight" : planDate.ToString("ddd d MMM");
+            }
+            var dateColor = plannerState.PlanningDate.HasValue ? new RGBAColor32(0x88, 0xcc, 0xff, 0xff) : StatusText;
 
-            // Connect All (chrome) — globally accessible on every tab, sits just left of the
-            // wall clock. Visible whenever the active profile has assigned devices; only
-            // actionable once discovery has finished (the gate is computed in one place by
-            // EquipmentActions.ComputeConnectAllStatus, shared with the equipment panel).
+            // The whole bar is one layout tree: three star-weighted zones (left | centre | right), so
+            // placement is "weights + spacers", not pixel arithmetic. Sizes/fonts are design units;
+            // RenderLayout scales them by DpiScale. Every leaf is .HStar() so it fills the bar height and
+            // VAlign=Center centres the glyph (a horizontal stack top-aligns Auto-height children).
+            var arrowBg = new RGBAColor32(0x2a, 0x2a, 0x35, 0xff);
+            const float gapDu = 6f; // design-unit inter-element gap
+
+            // LEFT: profile name + (truncated) status message.
+            var profileName = appState.ActiveProfile?.DisplayName ?? "No profile";
+            var profileNode = Layout.Builder.Text(profileName, BaseFontSize, StatusText, TextAlign.Near, TextAlign.Center)
+                .WAuto().HStar();
+            Layout.Node statusNode;
+            if (appState.StatusMessage is { Length: > 0 } msg)
+            {
+                // Truncation needs a target width (intrinsic to ellipsising). Estimate the status cell as
+                // the left third (each zone is 1/3 of the content area) minus the profile name + gap.
+                var contentW = w - (SidebarWidth + 6f) - 4f;
+                var profW = _renderer.MeasureText(profileName.AsSpan(), _fontPath, FontSize).Width;
+                var msgCellW = Math.Max(contentW / 3f - profW - gapDu * DpiScale, 40f);
+                var displayMsg = TruncateToFit(msg, msgCellW, FontSize * 0.85f);
+                statusNode = Layout.Builder.Text(displayMsg, BaseFontSize * 0.85f, new RGBAColor32(0xff, 0xcc, 0x66, 0xff), TextAlign.Near, TextAlign.Center)
+                    .WStar().HStar();
+            }
+            else
+            {
+                statusNode = Layout.Builder.Spacer().WStar();
+            }
+            var leftZone = Layout.Builder.HStack(profileNode, Layout.Builder.Spacer().WFixed(gapDu), statusNode)
+                .WStar().HStar();
+
+            // CENTRE: [<] date [>], centred via flanking star spacers. Arrows hidden during a session.
+            var dateLabel = Layout.Builder.Text(dateStr, BaseFontSize, dateColor, TextAlign.Center, TextAlign.Center)
+                .WAuto().HStar();
+            if (plannerState.PlanningDate.HasValue && !sessionRunning)
+            {
+                dateLabel = dateLabel.Clickable(new HitResult.ButtonHit("DateTonight"),
+                    _ => { PlannerActions.ResetPlanningDate(plannerState); });
+            }
+            Layout.Node dateGroup;
+            if (!sessionRunning)
+            {
+                var prev = Layout.Builder.Text("◀", BaseFontSize * 0.9f, StatusText, TextAlign.Center, TextAlign.Center)
+                    .WFixed(BaseStatusBarHeight).HStar().Bg(arrowBg)
+                    .Clickable(new HitResult.ButtonHit("DatePrev"),
+                        _ => { PlannerActions.ShiftPlanningDate(plannerState, timeProvider, -1, _skyMapTab.State); });
+                var next = Layout.Builder.Text("▶", BaseFontSize * 0.9f, StatusText, TextAlign.Center, TextAlign.Center)
+                    .WFixed(BaseStatusBarHeight).HStar().Bg(arrowBg)
+                    .Clickable(new HitResult.ButtonHit("DateNext"),
+                        _ => { PlannerActions.ShiftPlanningDate(plannerState, timeProvider, +1, _skyMapTab.State); });
+                dateGroup = Layout.Builder.HStack(prev, dateLabel, next).WAuto().HStar().WithGap(gapDu);
+            }
+            else
+            {
+                dateGroup = dateLabel;
+            }
+            var centreZone = Layout.Builder.HStack(Layout.Builder.Spacer().WStar(), dateGroup, Layout.Builder.Spacer().WStar())
+                .WStar().HStar();
+
+            // RIGHT: [Connect All] + wall clock, right-aligned via a leading star spacer. Connect All is
+            // globally reachable on every tab; visible whenever the active profile has assigned devices and
+            // only actionable once discovery has finished (gate computed by EquipmentActions, shared with
+            // the equipment panel). The trailing gap rides with the button so the clock stays flush right
+            // when the button is absent.
+            Layout.Node connectAll = Layout.Builder.Spacer().WFixed(0f);
             if (appState.ActiveProfile?.Data is { } connectAllProfile)
             {
                 var ca = EquipmentActions.ComputeConnectAllStatus(
@@ -444,57 +457,30 @@ namespace TianWen.UI.Gui
                     EquipmentState.IsDiscovering);
                 if (ca.Visible)
                 {
-                    var caFontSize = FontSize * 0.9f;
-                    var (clockW, _) = _renderer.MeasureText(clockText.AsSpan(), _fontPath, FontSize);
-                    var caPad = 12f * DpiScale;
-                    var (lblW, _) = _renderer.MeasureText(ca.Label.AsSpan(), _fontPath, caFontSize);
-                    var caBtnW = lblW + caPad * 2f;
-                    var caInset = 4f * DpiScale;
-                    var caBtnH = sbh - caInset * 2f;
-                    var caBtnY = caInset;
-                    // Right-align against the clock's measured left edge (the clock's right edge is w - 4).
-                    var caBtnX = (w - 4f - clockW) - 14f * DpiScale - caBtnW;
-                    // Only draw if it clears the date-nav region (skip on an implausibly narrow window).
-                    if (caBtnX > w * 0.70f)
+                    var caLabelColor = ca.Enabled ? StatusText : new RGBAColor32(0x99, 0x99, 0xa3, 0xff);
+                    var caBg = ca.Enabled ? new RGBAColor32(0x2e, 0x7d, 0x32, 0xff) : new RGBAColor32(0x30, 0x30, 0x3a, 0xff);
+                    var caButton = Layout.Builder.HStack(
+                            Layout.Builder.Spacer().WFixed(gapDu * 2f),
+                            Layout.Builder.Text(ca.Label, BaseFontSize * 0.9f, caLabelColor, TextAlign.Center, TextAlign.Center).WAuto().HStar(),
+                            Layout.Builder.Spacer().WFixed(gapDu * 2f))
+                        .WAuto().HStar().Bg(caBg);
+                    // Only the enabled state registers a click region (mirrors the prior behaviour).
+                    if (ca.Enabled)
                     {
-                        if (ca.Enabled)
-                        {
-                            RenderButton(ca.Label, caBtnX, caBtnY, caBtnW, caBtnH, _fontPath, caFontSize,
-                                new RGBAColor32(0x2e, 0x7d, 0x32, 0xff), StatusText, "ConnectAll",
-                                _ => { PostSignal(new ConnectAllDevicesSignal()); });
-                        }
-                        else
-                        {
-                            // Disabled: muted fill + greyed label, no clickable region registered.
-                            FillRect(caBtnX, caBtnY, caBtnW, caBtnH, new RGBAColor32(0x30, 0x30, 0x3a, 0xff));
-                            DrawText(ca.Label.AsSpan(), _fontPath, caBtnX, caBtnY, caBtnW, caBtnH,
-                                caFontSize, new RGBAColor32(0x99, 0x99, 0xa3, 0xff), TextAlign.Center, TextAlign.Center);
-                        }
+                        caButton = caButton.Clickable(new HitResult.ButtonHit("ConnectAll"),
+                            _ => { PostSignal(new ConnectAllDevicesSignal()); });
                     }
+                    connectAll = Layout.Builder.HStack(caButton, Layout.Builder.Spacer().WFixed(gapDu * 2f)).WAuto().HStar();
                 }
             }
+            var clockNode = Layout.Builder.Text(clockText, BaseFontSize, StatusText, TextAlign.Far, TextAlign.Center)
+                .WAuto().HStar();
+            var rightZone = Layout.Builder.HStack(Layout.Builder.Spacer().WStar(), connectAll, clockNode)
+                .WStar().HStar();
 
-            // Wall clock (right) - shown on every tab for consistent placement.
-            DrawText(clockText.AsSpan(), _fontPath,
-                w * 0.7f, 0, w * 0.3f - 4f, sbh,
-                FontSize, StatusText, TextAlign.Far, TextAlign.Center);
-
-            // Status message — placed after the profile name (measured, not assumed) and
-            // bounded by the date-arrow region to the right. Over-long messages are
-            // truncated with an ellipsis so they don't overlap the profile or date text.
-            // Full history will live in the Notifications tab (future).
-            if (appState.StatusMessage is { Length: > 0 } msg)
-            {
-                var msgFontSize = FontSize * 0.85f;
-                var (profW, _) = _renderer.MeasureText(profileName.AsSpan(), _fontPath, FontSize);
-                var msgX = SidebarWidth + 6f + profW + 16f;
-                // Date block begins at centerX = w * 0.35f — leave a 6px gap before it.
-                var msgW = System.Math.Max(w * 0.35f - msgX - 6f, 50f);
-                var displayMsg = TruncateToFit(msg, msgW, msgFontSize);
-                DrawText(displayMsg.AsSpan(), _fontPath,
-                    msgX, 0, msgW, sbh,
-                    msgFontSize, new RGBAColor32(0xff, 0xcc, 0x66, 0xff), TextAlign.Near, TextAlign.Center);
-            }
+            // Arrange + paint the bar over the content area (right of the sidebar gutter, small right margin).
+            var bar = Layout.Builder.HStack(leftZone, centreZone, rightZone);
+            RenderLayout(bar, new RectF32(SidebarWidth + 6f, 0f, w - (SidebarWidth + 6f) - 4f, sbh), _fontPath, DpiScale);
         }
 
         // Truncate with ellipsis so the string fits within maxWidth at the given font size.
