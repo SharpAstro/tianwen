@@ -45,15 +45,15 @@ public sealed record WaveletSharpenOptions
     }
 
     /// <summary>
-    /// A planetary default: 6 a-trous layers (the Registax / AstroSurface convention), boosting fine and
-    /// mid detail to pull out belt structure while leaving the coarsest scale near unity. The two finest
-    /// layers carry a soft-threshold denoise so the gain does not amplify limb / sensor grain. Tuned on a
-    /// real Jupiter SER -- 6 levels with these gains recover visibly more detail than a mild 5-level pass,
-    /// and the denoise keeps the limb clean.
+    /// A planetary default: 6 a-trous layers (the Registax / AstroSurface convention), strongly boosting the
+    /// fine + mid detail bands to pull out belt structure while SUPPRESSING the coarsest scale (gain &lt; 1)
+    /// to flatten the large-scale brightness gradient so disk detail stands out. The two finest layers carry
+    /// a soft-threshold denoise so the steep fine gain does not amplify limb / sensor grain. Tuned live on a
+    /// real 30k-frame Jupiter SER via the tianwen-fits wavelet sliders.
     /// </summary>
     public static WaveletSharpenOptions PlanetaryDefault { get; } = new()
     {
-        Gains = [3.5f, 3.0f, 2.2f, 1.6f, 1.2f, 1.0f],
+        Gains = [4.8f, 4.3f, 3.7f, 2.7f, 1.5f, 0.6f],
         DenoiseThresholds = [0.005f, 0.0025f, 0f, 0f, 0f, 0f],
     };
 
@@ -75,8 +75,8 @@ public sealed record WaveletSharpenOptions
     /// A combined fine + mid boost in a single a-trous pass: lifts both the fine detail band (the
     /// AutoStakkert-style "sharpen") AND the mid belt-structure band (the bandpass) at once. Because the
     /// reconstruction is linear, stacking a fine-sharpen and a bandpass is just one gain profile -- order
-    /// does not matter, the two collapse into this single set of gains. The strongest belt-detail recovery
-    /// of the three presets; needs reasonable seeing / frame count or it will pull up noise.
+    /// does not matter, the two collapse into this single set of gains. A strong belt-detail recovery;
+    /// needs reasonable seeing / frame count or it will pull up noise.
     /// </summary>
     public static WaveletSharpenOptions Combo { get; } = new()
     {
