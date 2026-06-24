@@ -19,6 +19,15 @@ public sealed record RollingWindowOptions
     /// <summary>Window size in frames when the stream has no timestamps to derive a capture-time span.</summary>
     public int FallbackWindowFrames { get; init; } = 300;
 
+    /// <summary>
+    /// Hard upper bound on the number of frames in the window, applied REGARDLESS of the time span -- the
+    /// window is <c>min(time-bound, this)</c>. The per-frame fold/align cost dominates, so a dense capture
+    /// (e.g. 30k frames in ~77 s at 387 fps) would otherwise pull the entire capture into a "5-minute"
+    /// window and make every stack a full batch integration (tens of seconds per update, not live). Capping
+    /// the count -- not just the time span -- is what keeps the live stack responsive.
+    /// </summary>
+    public int MaxWindowFrames { get; init; } = 500;
+
     /// <summary>The sharpness metric, weighting each frame's contribution (quality-weighted mean). Laplacian variance by default.</summary>
     public IFrameQualityEstimator QualityEstimator { get; init; } = new LaplacianEnergyEstimator();
 
@@ -119,45 +128,74 @@ public sealed class RollingWindowStacker
             || windowStart > _windowEnd + 1     // forward jump leaving a gap -> window no longer contiguous
             || _refIndex < windowStart;         // alignment reference aged out of the window
 
-        if (needRebuild)
+        try
         {
-            await RebuildAsync(windowStart, f, cancellationToken).ConfigureAwait(false);
+            if (needRebuild)
+            {
+                await RebuildAsync(windowStart, f, cancellationToken).ConfigureAwait(false);
+            }
+            else
+            {
+                // Grow the leading edge, then drop the trailing edge. Order matters only for peak memory;
+                // both are O(pixels) per frame touched.
+                for (var i = _windowEnd + 1; i <= f; i++)
+                {
+                    await AddAsync(i, cancellationToken).ConfigureAwait(false);
+                }
+                for (var i = _windowStart; i < windowStart; i++)
+                {
+                    await EvictAsync(i, cancellationToken).ConfigureAwait(false);
+                }
+                _windowStart = windowStart;
+                _windowEnd = f;
+            }
         }
-        else
+        catch (OperationCanceledException)
         {
-            // Grow the leading edge, then drop the trailing edge. Order matters only for peak memory;
-            // both are O(pixels) per frame touched.
-            for (var i = _windowEnd + 1; i <= f; i++)
-            {
-                await AddAsync(i, cancellationToken).ConfigureAwait(false);
-            }
-            for (var i = _windowStart; i < windowStart; i++)
-            {
-                await EvictAsync(i, cancellationToken).ConfigureAwait(false);
-            }
-            _windowStart = windowStart;
-            _windowEnd = f;
+            // A cancel mid fold/evict leaves the accumulators + window bookkeeping partial and inconsistent.
+            // Invalidate so the NEXT StackToAsync does a clean full rebuild (the score cache stays valid --
+            // scores don't change). Cheap to throw the partial work away; the window is re-capped + fast.
+            Invalidate();
+            throw;
         }
 
         return await BuildMasterAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>Drops the current window/reference so the next <see cref="StackToAsync"/> rebuilds from
+    /// scratch. Used after a cancellation left the accumulators in a partial state. Keeps the grade cache.</summary>
+    private void Invalidate()
+    {
+        _refIndex = -1;
+        _windowStart = -1;
+        _windowEnd = -2;
+        _window.Clear();
     }
 
     // The window's first frame: walk back from f while still within WindowDuration of capture time, else
     // a fixed frame count. Both clamp to 0.
     internal int ComputeWindowStart(int f)
     {
+        int start;
         if (_stream.HasTimestamps && _stream.TimestampOf(f) is { } tEnd)
         {
             var cutoff = tEnd - _options.WindowDuration;
-            var start = f;
+            start = f;
             while (start > 0 && _stream.TimestampOf(start - 1) is { } tPrev && tPrev >= cutoff)
             {
                 start--;
             }
-            return start;
+        }
+        else
+        {
+            start = Math.Max(0, f - _options.FallbackWindowFrames + 1);
         }
 
-        return Math.Max(0, f - _options.FallbackWindowFrames + 1);
+        // Cap the frame count regardless of the time span: a dense, high-fps capture spans the whole
+        // capture in a 5-minute window, and the per-frame fold/align cost makes that a multi-second batch
+        // stack rather than a live one. min(time-bound, frame-cap).
+        var maxStart = f - _options.MaxWindowFrames + 1;
+        return Math.Max(start, maxStart);
     }
 
     private async Task RebuildAsync(int windowStart, int f, CancellationToken cancellationToken)

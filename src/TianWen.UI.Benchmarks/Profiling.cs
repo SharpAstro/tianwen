@@ -57,6 +57,15 @@ internal static class Profiling
             return;
         }
 
+        // `planetary` mode prints a per-stage breakdown of a live rolling-window stack
+        // (load/grade/align/fold + the per-publish wavelet+adopt), then tight-loops the full stack so
+        // dotnet-trace can pinpoint method hotspots. `--frames N` sets the window size (default 300).
+        if (fmt == "planetary")
+        {
+            ProfilePlanetary(seconds, args);
+            return;
+        }
+
         var fixturesDir = Path.Combine(AppContext.BaseDirectory, "Fixtures");
         var path = fmt switch
         {
@@ -64,7 +73,7 @@ internal static class Profiling
             "cr3" => Path.Combine(fixturesDir, "CR3", "Canon_EOS_R5_CRAW.CR3"),
             "tiff" => SetupSyntheticTiff(),
             _ => throw new ArgumentException(
-                $"unknown format '{format}', expected cr2 / cr3 / tiff / ljpeg / findstars", nameof(format))
+                $"unknown format '{format}', expected cr2 / cr3 / tiff / ljpeg / findstars / planetary", nameof(format))
         };
         if (!File.Exists(path))
         {
@@ -165,6 +174,80 @@ internal static class Profiling
         Console.WriteLine($"decoded {count} strips in {sw.Elapsed.TotalSeconds:F2}s " +
             $"({sw.Elapsed.TotalMilliseconds / Math.Max(1, count):F1} ms/strip)");
     }
+
+    /// <summary>Prints a per-stage breakdown of a live rolling-window stack (so the hotspot is obvious
+    /// without an external profiler), then tight-loops the full stack for <paramref name="seconds"/> so
+    /// dotnet-trace can capture method-level hotspots. <c>--frames N</c> sets the window size.</summary>
+    private static void ProfilePlanetary(int seconds, string[] args)
+    {
+        var frames = 300;
+        for (var i = 0; i < args.Length - 1; i++)
+        {
+            if (args[i] == "--frames" && int.TryParse(args[i + 1], out var fr)) frames = fr;
+        }
+
+        var stack = new PlanetaryStackBenchmarks { Frames = frames };
+        stack.Setup();
+        var master = new PlanetaryMasterBenchmarks { Size = 512 };
+        master.Setup();
+
+        var load = TimeMs(() => stack.Load());
+        var grade = TimeMs(() => stack.Grade());
+        var align = TimeMs(() => stack.Align());
+        var fold = TimeMs(() => stack.Fold());
+        var full = TimeMs(() => stack.FullStack().GetAwaiter().GetResult());
+        var sharpen = TimeMs(() => master.Sharpen());
+        var adopt = TimeMs(() => master.Adopt().GetAwaiter().GetResult());
+
+        var perFrameTotal = load + grade + align + fold;
+        Console.WriteLine();
+        Console.WriteLine($"Live rolling-window stack stage breakdown -- {frames} frames @ {PlanetaryStackBenchmarks.Size}px sub-plane:");
+        Console.WriteLine($"  load    {load,9:F1} ms   {Pct(load, perFrameTotal)}");
+        Console.WriteLine($"  grade   {grade,9:F1} ms   {Pct(grade, perFrameTotal)}");
+        Console.WriteLine($"  align   {align,9:F1} ms   {Pct(align, perFrameTotal)}");
+        Console.WriteLine($"  fold    {fold,9:F1} ms   {Pct(fold, perFrameTotal)}");
+        Console.WriteLine($"  ---------------------------------");
+        Console.WriteLine($"  FULL window stack  {full,9:F1} ms");
+        Console.WriteLine();
+        Console.WriteLine($"Per-publish display cost (512px RGB master -- runs on every slider change):");
+        Console.WriteLine($"  wavelet sharpen   {sharpen,9:F1} ms");
+        Console.WriteLine($"  adopt (stats)     {adopt,9:F1} ms");
+        Console.WriteLine();
+
+        Console.WriteLine($"Tight-looping FullStack({frames}) for {seconds}s.");
+        PrintAttachInstructions(seconds);
+        var deadline = TimeSpan.FromSeconds(seconds);
+        var sw = Stopwatch.StartNew();
+        var count = 0;
+        while (sw.Elapsed < deadline)
+        {
+            stack.FullStack().GetAwaiter().GetResult();
+            count++;
+        }
+        sw.Stop();
+        Console.WriteLine();
+        Console.WriteLine($"ran {count} full stacks in {sw.Elapsed.TotalSeconds:F2}s " +
+            $"({sw.Elapsed.TotalMilliseconds / Math.Max(1, count):F0} ms/stack)");
+    }
+
+    // Warm once, then report the fastest of 3 runs (steady-state, GC/JIT excluded).
+    private static double TimeMs(Action action)
+    {
+        action();
+        var best = double.MaxValue;
+        for (var i = 0; i < 3; i++)
+        {
+            var sw = Stopwatch.StartNew();
+            action();
+            sw.Stop();
+            best = Math.Min(best, sw.Elapsed.TotalMilliseconds);
+        }
+
+        return best;
+    }
+
+    private static string Pct(double part, double whole)
+        => whole > 0 ? $"({100 * part / whole,3:F0}%)" : "(  -)";
 
     private static void PrintAttachInstructions(int seconds)
     {

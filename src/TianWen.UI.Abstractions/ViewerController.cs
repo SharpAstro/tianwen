@@ -398,8 +398,13 @@ public sealed class ViewerController(
         }
 
         // A raw advance still warrants a redraw while stacked (the transport playhead moved), just not a
-        // texture re-upload.
-        return rawPublished || masterPublished || _player.SeekPending;
+        // texture re-upload. Also keep the loop awake while a stack/sharpen is in flight: its result is
+        // published by TryPublishMaster on a later tick, but the render loop only ticks on input or a
+        // timeout -- without this, a re-sharpen kicked by a slider drag would not be displayed until the
+        // next mouse event (the "doesn't live adjust while paused" symptom). IsBusy self-clears on publish,
+        // so this briefly spins for the ~task duration, then the loop idles again.
+        return rawPublished || masterPublished || _player.SeekPending
+            || (state.ShowStacked && _liveSource is { IsBusy: true });
     }
 
     /// <summary>
