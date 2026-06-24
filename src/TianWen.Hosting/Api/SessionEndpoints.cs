@@ -163,12 +163,14 @@ internal static class SessionEndpoints
 
         // --- Target management (pre-session) ---
 
-        // GET /api/v1/session/targets — list pending targets
+        // GET /api/v1/session/targets — list pending targets.
+        // Concrete PendingTarget[] (not ResponseEnvelope<object>) so the source-gen JSON context
+        // can resolve the payload statically -- a polymorphic object payload throws under AOT.
         group.MapGet("/targets", (IHostedSession hosted) =>
         {
             return Results.Json(
-                ResponseEnvelope<object>.Ok(hosted.PendingTargets),
-                HostingJsonContext.Default.ResponseEnvelopeObject);
+                ResponseEnvelope<PendingTarget[]>.Ok([.. hosted.PendingTargets]),
+                HostingJsonContext.Default.ResponseEnvelopePendingTargetArray);
         });
 
         // POST /api/v1/session/targets — add a target

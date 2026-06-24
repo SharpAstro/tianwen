@@ -455,6 +455,36 @@ to `PhaseChanged` / `FrameWritten` / `PlateSolveCompleted` and pushes through `E
 
 Run: `dotnet run --project TianWen.Server` or `tianwen-server [--port 1888]`.
 
+**Native-AOT correctness (the `tianwen-server` binary is `PublishAot=true`).** Three things keep the
+minimal API working under AOT — none are optional, and a normal `dotnet build` will NOT flag a
+regression (the IL2026/IL3050 trim/AOT warnings only surface on `dotnet publish -r <rid>`):
+
+1. **RDG runs in `TianWen.Hosting`, not just the server.** The Request Delegate Generator only
+   intercepts `Map*` call sites in the project where it is enabled, and all the endpoints live in the
+   `TianWen.Hosting` *library*. So `TianWen.Hosting.csproj` sets `<IsAotCompatible>true</IsAotCompatible>`
+   + `<EnableRequestDelegateGenerator>true</EnableRequestDelegateGenerator>`. Without this the AOT
+   publish emitted ~130 IL2026/IL3050 warnings (one pair per `Map*`) and the endpoints fell back to
+   reflection-based delegates. `IsAotCompatible` also turns the trim/AOT analyzers on for the Hosting
+   code itself, catching regressions at library-build time.
+2. **Both JSON source-gen contexts are registered via `ConfigureHttpJsonOptions`** (in
+   `AddHostedSession`): `HostingJsonContext` (camelCase) then `NinaApiJsonContext` (PascalCase) on the
+   `TypeInfoResolverChain`. This is what makes **request-body binding** AOT-safe — the POST/PUT
+   endpoints that take a complex body (`CreateProfileRequest`, `PendingTarget`, `SetProfileRequest`)
+   would otherwise throw `NotSupportedException` at runtime. Responses don't depend on it — every
+   `Results.Json(...)` passes an explicit `JsonTypeInfo`.
+3. **No `ResponseEnvelope<object>` payloads.** A polymorphic `object` payload can't be resolved by a
+   source-gen context under AOT (it needs the runtime type's metadata). The two offenders were replaced
+   with concrete types: `GET /api/v1/session/targets` → `ResponseEnvelope<PendingTarget[]>`, and the
+   ninaAPI `list-devices`/`rescan` anonymous types → `NinaDeviceListItemDto[]`. **Never reintroduce a
+   `ResponseEnvelope<object>` or an anonymous-type payload** — register a concrete DTO in the relevant
+   `JsonSerializerContext` instead.
+
+Verify after any endpoint change by *publishing* (not just building) and smoke-testing the binary:
+`dotnet publish TianWen.Server -c Release -r win-arm64` then run `tianwen-server.exe --port <p>` and
+`curl` a GET, a complex-body POST, and a previously-`object` endpoint. The only expected publish
+warnings are 2 third-party rollups (IL2104/IL3053) from `LibUsbDotNet` (optional Canon-over-USB
+discovery; the lib ships no AOT annotations and we don't mask the warning).
+
 ### Image Pipeline & Buffer Lifecycle
 
 Camera → `ChannelBuffer` → `Image` → consumer → `image.Release()` → camera recycles. See

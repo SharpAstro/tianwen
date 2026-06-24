@@ -534,31 +534,29 @@ internal static class NinaEquipmentEndpoints
         {
             group.MapGet($"/{device}/list-devices", (IHostedSession hosted) =>
             {
-                var name = GetDeviceName(hosted, device);
-                var devices = name is not null
-                    ? new[] { new { Id = name, DisplayName = name } }
-                    : Array.Empty<object>();
-
                 return Results.Json(
-                    ResponseEnvelope<object>.Ok(devices),
-                    NinaApiJsonContext.Default.ResponseEnvelopeObject);
+                    ResponseEnvelope<NinaDeviceListItemDto[]>.Ok(ListDevices(hosted, device)),
+                    NinaApiJsonContext.Default.ResponseEnvelopeNinaDeviceListItemDtoArray);
             });
 
             group.MapGet($"/{device}/rescan", (IHostedSession hosted) =>
             {
-                var name = GetDeviceName(hosted, device);
-                var devices = name is not null
-                    ? new[] { new { Id = name, DisplayName = name } }
-                    : Array.Empty<object>();
-
                 return Results.Json(
-                    ResponseEnvelope<object>.Ok(devices),
-                    NinaApiJsonContext.Default.ResponseEnvelopeObject);
+                    ResponseEnvelope<NinaDeviceListItemDto[]>.Ok(ListDevices(hosted, device)),
+                    NinaApiJsonContext.Default.ResponseEnvelopeNinaDeviceListItemDtoArray);
             });
 
             group.MapGet($"/{device}/connect", () => NinaOk("Connected"));
             group.MapGet($"/{device}/disconnect", () => NinaOk("Disconnected"));
         }
+    }
+
+    private static NinaDeviceListItemDto[] ListDevices(IHostedSession hosted, string device)
+    {
+        var name = GetDeviceName(hosted, device);
+        return name is not null
+            ? [new NinaDeviceListItemDto { Id = name, DisplayName = name }]
+            : [];
     }
 
     private static string? GetDeviceName(IHostedSession hosted, string device)

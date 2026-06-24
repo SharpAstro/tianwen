@@ -15,7 +15,7 @@ namespace TianWen.Hosting.Dto;
 [JsonSerializable(typeof(ResponseEnvelope<OtaInfoDto[]>))]
 [JsonSerializable(typeof(ResponseEnvelope<string>))]
 [JsonSerializable(typeof(ResponseEnvelope<string[]>))]
-[JsonSerializable(typeof(ResponseEnvelope<object>))]
+[JsonSerializable(typeof(ResponseEnvelope<PendingTarget[]>))]
 [JsonSerializable(typeof(ResponseEnvelope<ProfileDetailDto>))]
 [JsonSerializable(typeof(ResponseEnvelope<Api.ProfileSummaryDto[]>))]
 [JsonSerializable(typeof(ResponseEnvelope<SessionConfigApiDto>))]

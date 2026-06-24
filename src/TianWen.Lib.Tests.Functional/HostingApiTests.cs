@@ -212,4 +212,54 @@ public class HostingApiTests(ITestOutputHelper outputHelper) : IAsyncLifetime
         var doc = JsonDocument.Parse(json);
         doc.RootElement.GetProperty("success").GetBoolean().ShouldBeFalse();
     }
+
+    // --- Native-AOT-fragile paths ---
+    // These guard the wiring that the AOT publish needs but a plain `dotnet build` cannot flag:
+    // complex JSON request-body binding (source-gen JsonSerializerContext via ConfigureHttpJsonOptions)
+    // and concrete-DTO payloads (no ResponseEnvelope<object>). Since AddHostedSession registers the
+    // source-gen contexts, the test host serializes through the same path as the native binary.
+
+    [Fact(Timeout = 10_000)]
+    public async Task SessionTargets_PostJsonBody_AddsAndRoundTrips()
+    {
+        var ct = TestContext.Current.CancellationToken;
+
+        // POST a PendingTarget as a JSON body (not query params) -- this is the body-binding path
+        // that throws NotSupportedException under AOT when the JSON context isn't registered.
+        var body = new StringContent(
+            """{"name":"Vega","ra":18.6156,"dec":38.7837,"durationMinutes":45}""",
+            System.Text.Encoding.UTF8, "application/json");
+        var post = await _client.PostAsync("/api/v1/session/targets", body, ct);
+        post.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var postDoc = JsonDocument.Parse(await post.Content.ReadAsStringAsync(ct));
+        postDoc.RootElement.GetProperty("success").GetBoolean().ShouldBeTrue();
+
+        // GET returns a concrete PendingTarget[] payload (was ResponseEnvelope<object>) and must
+        // round-trip the bound values.
+        var get = await _client.GetAsync("/api/v1/session/targets", ct);
+        get.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var arr = JsonDocument.Parse(await get.Content.ReadAsStringAsync(ct)).RootElement.GetProperty("response");
+        arr.GetArrayLength().ShouldBe(1);
+        var target = arr[0];
+        target.GetProperty("name").GetString().ShouldBe("Vega");
+        target.GetProperty("ra").GetDouble().ShouldBe(18.6156, 1e-6);
+        target.GetProperty("dec").GetDouble().ShouldBe(38.7837, 1e-6);
+        target.GetProperty("durationMinutes").GetDouble().ShouldBe(45.0, 1e-6);
+    }
+
+    [Fact(Timeout = 10_000)]
+    public async Task NinaListDevices_ReturnsSuccessEnvelopeWithArray()
+    {
+        var ct = TestContext.Current.CancellationToken;
+
+        // ninaAPI list-devices returns a concrete NinaDeviceListItemDto[] payload (was an
+        // anonymous-type ResponseEnvelope<object>, which can't be serialized under AOT).
+        var response = await _client.GetAsync("/v2/api/equipment/camera/list-devices", ct);
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync(ct));
+        // ninaAPI v2 uses PascalCase.
+        doc.RootElement.GetProperty("Success").GetBoolean().ShouldBeTrue();
+        doc.RootElement.GetProperty("Response").ValueKind.ShouldBe(JsonValueKind.Array);
+    }
 }

@@ -8,6 +8,7 @@ using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
 using TianWen.Hosting.Api;
 using TianWen.Hosting.Api.NinaV2;
+using TianWen.Hosting.Dto;
 using TianWen.Hosting.WebSocket;
 using TianWen.Lib.Devices;
 
@@ -24,6 +25,21 @@ public static class HostedSessionServiceCollectionExtensions
         services.AddSingleton<IHostedSession>(sp => sp.GetRequiredService<HostedSession>());
         services.AddSingleton<EventHub>();
         services.AddHostedService<EventBroadcaster>();
+
+        // Register the source-gen JSON contexts with the HTTP JSON options so minimal-API
+        // request-body binding (the POST/PUT endpoints that take a complex body --
+        // CreateProfileRequest, PendingTarget, SetProfileRequest) resolves type metadata
+        // statically instead of via reflection. Required for the native-AOT tianwen-server:
+        // without it, body binding throws NotSupportedException at runtime under AOT.
+        // Responses already pass an explicit JsonTypeInfo to Results.Json, so they don't rely
+        // on this chain. Hosting (camelCase) is inserted first; Nina (PascalCase) second -- the
+        // only implicitly-bound types are the three Hosting request DTOs, so there is no clash.
+        services.ConfigureHttpJsonOptions(options =>
+        {
+            options.SerializerOptions.TypeInfoResolverChain.Insert(0, HostingJsonContext.Default);
+            options.SerializerOptions.TypeInfoResolverChain.Insert(1, NinaApiJsonContext.Default);
+        });
+
         return services;
     }
 
