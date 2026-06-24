@@ -91,4 +91,27 @@ public class PhaseCorrelationTests
     {
         Should.Throw<ArgumentException>(() => PhaseCorrelation.Estimate(new float[6 * 4], new float[6 * 4], 6, 4));
     }
+
+    // The precomputed-reference-spectrum path (PrepareReferenceSpectrum + the Complex overload) only avoids
+    // recomputing the FIXED reference's forward FFT -- it must return a BIT-IDENTICAL shift to the single
+    // float-tile call. This pins the "caching the reference FFT is lossless" guarantee that GlobalAligner
+    // relies on for its per-frame speedup.
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void Precomputed_reference_spectrum_matches_single_call_exactly(bool applyWindow)
+    {
+        const int w = 32, h = 32;
+        var reference = Texture(w, h);
+        var moving = CircularShift(reference, w, h, 3, -2);
+
+        var direct = PhaseCorrelation.Estimate(reference, moving, w, h, applyWindow);
+
+        var spectrum = PhaseCorrelation.PrepareReferenceSpectrum(reference, w, h, applyWindow);
+        var cached = PhaseCorrelation.Estimate(spectrum, moving, w, h, applyWindow);
+
+        cached.Dx.ShouldBe(direct.Dx);            // exact equality -- same FFTs, same math, same rounding
+        cached.Dy.ShouldBe(direct.Dy);
+        cached.PeakValue.ShouldBe(direct.PeakValue);
+    }
 }
