@@ -34,6 +34,9 @@ It ships as a NuGet library (`TianWen.Lib`), a cross-platform CLI with interacti
   - Celestial object annotation overlay (NGC, IC, Messier, etc.) when plate-solved.
   - Per-channel histogram overlay (R/G/B colored) with log/linear scale toggle and stretch-aware bin remapping.
   - Plate solving via ASTAP or astrometry.net.
+  - Multi-source: opens FITS, TIFF, and **SER** planetary video — a SER auto-switches to frame playback (off-thread decode-ahead, transport scrub/play/pause, timestamp readout).
+  - **Live planetary lucky-imaging stack**: a RAW/STACK toggle runs a rolling-window stack of a SER that follows the playhead (sharpness-graded, globally aligned), with Registax-style 6-layer wavelet-sharpen sliders. All off the render thread, so slider adjustments stay instant regardless of stack time.
+  - Manual per-channel white-balance sliders + gray-world Auto, shared across FITS / TIFF / SER.
 
 - **External Integration**:
   - Interfaces for external operations such as logging, `TimeProvider` based time management, and file management.
@@ -416,6 +419,23 @@ tianwen device discover                         # Force rediscovery
 tianwen view <path>                             # Render to terminal (Sixel or ASCII)
 tianwen <path>                                  # Shorthand for view <path>
 ```
+
+#### Planetary Stacking
+
+Stack a planetary SER video into a sharpened lucky-imaging master (linear + sharpened FITS + a high-key PNG):
+
+```
+tianwen planetary-stack <ser-file> [-o <dir>]
+    --keep <0..1>                # fraction of sharpest frames to keep (default 0.25)
+    --quality <Laplacian|Gradient>
+    --drizzle <scale>            # Bayer drizzle, e.g. 1.5 (sub-Bayer resolution); --drizzle-global for whole-disk
+    --sharpen-preset <default|bandpass|combo>   # or --sharpen-gains "g1,g2,..."; --no-sharpen to skip
+    --global                     # whole-disk align only (skip alignment-point mesh)
+    --png-gamma <g>              # high-key PNG midtones lift (default 0.75); --no-png to skip
+    # advanced: --ap-spacing / --max-ap / --ap-patch / --mesh-spacing / --align-tile
+```
+
+For interactive planetary work (live rolling-window stack + wavelet sliders), open the SER in the FITS viewer (`tianwen-fits <file.ser>`) and press `K`.
 
 #### Observation Planner
 
