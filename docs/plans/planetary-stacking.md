@@ -387,8 +387,20 @@ Live wavelet sharpen is now **adjustable in the viewer**: 6 Registax-style per-a
 (finest first) + an on/off + reset, in the info panel directly under the RGB white-balance sliders, shown
 for the stacked view. `LiveStackPreviewSource` caches the un-sharpened master and re-applies the wavelet
 pass off-thread on a slider change (no re-stack), so dragging a layer updates the image within a frame or
-two; the validated planetary fine-scale denoise is reused so amplified gains don't pull up limb grain. Not
-yet done: the independent "EAA free-run" stack mode, and Phases 10-13.
+two; the validated planetary fine-scale denoise is reused so amplified gains don't pull up limb grain.
+
+**Live perf (2026-06-24).** A real 30k-frame / 77s / 387fps capture initially took ~30s per update because
+the 5-min time window covered the WHOLE capture. Fixes: (1) `RollingWindowOptions.MaxWindowFrames`
+(default 500) caps the window by frame count regardless of the time span -> a full rebuild dropped from
+~30s to ~1.8s; (2) **sharpen-priority** -- a wavelet-slider change re-sharpens the cached master (~30ms)
+and defers the slower re-stack; (3) **per-request cancellation** (a per-work CTS) lets a slider preempt an
+in-flight stack, and `StackToAsync` invalidates the window on cancel so the next call rebuilds cleanly. The
+hot path is align-bound (~85-89%), so `GlobalAligner` caches the reference tile's forward FFT once (lossless,
+~1 of 3 FFTs/frame). The default wavelet curve was retuned live to `[4.8, 4.3, 3.7, 2.7, 1.5, 0.6]` (hard
+fine/mid boost + coarse-band suppression to flatten the gradient). BenchmarkDotNet benches + a
+`profile planetary` per-stage breakdown live in `TianWen.UI.Benchmarks`.
+
+Not yet done: the independent "EAA free-run" stack mode, and Phases 10-13.
 
 | Phase | Scope | Depends on | Risk | Status |
 |---|---|---|:--:|:--:|
@@ -400,7 +412,7 @@ yet done: the independent "EAA free-run" stack mode, and Phases 10-13.
 | 6 | **Planetary integrator**: per-AP quality-weighted best-of stack + tile blend + optional drizzle; **end-to-end milestone** | 4,5 | High | DONE |
 | 7 | **`WaveletSharpen`** (a-trous, per-scale gain/denoise) | 6 | Medium | DONE |
 | 8 | **CLI**: `tianwen planetary-stack` (or `tianwen stack --planetary`) orchestrator | 6,7 | Low | DONE |
-| 9 | **Live**: `RollingWindowStacker` (5-min window) + `LiveStackPreviewSource` push-stream wired into the previewer (GUI + tianwen-fits) | 4,6 | Medium | DONE (MVP: follow-the-playhead, global align; sharpen/EAA-free-run deferred) |
+| 9 | **Live**: `RollingWindowStacker` (5-min window) + `LiveStackPreviewSource` push-stream wired into the previewer (GUI + tianwen-fits) | 4,6 | Medium | DONE (follow-the-playhead, global align, adjustable wavelet sliders, perf-tuned; EAA-free-run deferred) |
 | 10 | **De-rotation 6a** (within-capture): Meeus per-planet CM + disk geometry + spheroid reproject; derotate-to-midpoint before stack | 6 | High |
 | 11 | **De-rotation 6b** (multi-stack / RGB temporal): derotate finished stacks to a common epoch + combine | 10 | High |
 | 12 | **Live camera stream** (`LiveCameraFrameStream`) feeding the same windowed stacker (true EAA) | 9 | Medium |
