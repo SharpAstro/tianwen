@@ -2835,6 +2835,44 @@ namespace TianWen.UI.Abstractions
                 }, $"JogFocuser OTA{sig.OtaIndex}");
             });
 
+            // Live planetary capture: route Start/Stop to the shared PlanetaryCaptureController (the capture
+            // loop + rolling-window stack live there; this only resolves the camera + configures the ROI).
+            var planetaryCapture = sp.GetRequiredService<PlanetaryCaptureController>();
+
+            bus.Subscribe<StartVideoCaptureSignal>(sig =>
+            {
+                if (liveSessionState.IsRunning) return;
+                if (appState.ActiveProfile?.Data is not { OTAs: var otas } || sig.OtaIndex >= otas.Length) return;
+                if (appState.DeviceHub is not { } hub) return;
+
+                var ota = otas[sig.OtaIndex];
+                if (!hub.TryGetConnectedDriver<ICameraDriver>(ota.Camera, out var camera) || camera is null)
+                {
+                    appState.AppendNotification(_timeProvider.GetUtcNow(),
+                        NotificationSeverity.Warning, "Connect a camera to start a planetary capture");
+                    appState.NeedsRedraw = true;
+                    return;
+                }
+
+                var (roiW, roiH) = PlanetaryCaptureActions.ConfigureRoi(camera, sig.RoiWidth, sig.RoiHeight);
+                planetaryCapture.Start(camera,
+                    new VideoCaptureOptions(TimeSpan.FromMilliseconds(sig.ExposureMs), sig.Gain), cts.Token);
+                // Planetary capture is now a Live Session mode (not a standalone tab): show it there.
+                liveSessionState.Mode = LiveSessionMode.Planetary;
+                appState.ActiveTab = GuiTab.LiveSession;
+                appState.AppendNotification(_timeProvider.GetUtcNow(),
+                    NotificationSeverity.Info, $"Planetary capture started ({roiW}x{roiH}, {sig.ExposureMs:F0} ms)");
+                appState.NeedsRedraw = true;
+            });
+
+            bus.Subscribe<StopVideoCaptureSignal>(_ =>
+            {
+                planetaryCapture.Stop();
+                appState.AppendNotification(_timeProvider.GetUtcNow(),
+                    NotificationSeverity.Info, "Planetary capture stopped");
+                appState.NeedsRedraw = true;
+            });
+
             bus.Subscribe<GotoFocuserSignal>(sig =>
             {
                 if (liveSessionState.IsRunning) return;

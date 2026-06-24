@@ -45,6 +45,8 @@ services
     .AddDevices()
     .AddSessionFactory()
     .AddFitsViewer()
+    // Live planetary capture controller (drives the 🪐 tab's video capture + rolling-window stack).
+    .AddSingleton<PlanetaryCaptureController>()
     .AddSingleton(sp => new GuiAppState { DeviceHub = sp.GetService<IDeviceHub>() })
     // Profile-aware pinned-port provider: any COM port currently referenced by the
     // active profile is excluded from discovery probing. Absent this registration,
@@ -108,6 +110,10 @@ var guiRenderer = new VkGuiRenderer(renderer, (uint)pixW, (uint)pixH, bus, logge
 {
     DpiScale = sdlWindow.DisplayScale
 };
+// The 🪐 planetary tab renders the live capture/stack via this shared controller (also driven by
+// StartVideoCaptureSignal/StopVideoCaptureSignal in AppSignalHandler).
+var planetaryCapture = sp.GetRequiredService<PlanetaryCaptureController>();
+guiRenderer.PlanetaryCapture = planetaryCapture;
 
 // Event handler setup
 var cts = new CancellationTokenSource();
@@ -665,6 +671,17 @@ using var debugInspector = DebugInspector.Attach(loop, new DebugInspectorOptions
             ExposureSeconds: el.OptDouble("exposureSeconds") ?? 1.0,
             Gain: el.OptInt("gain"),
             Binning: (short)(el.OptInt("binning") ?? 1))),
+
+        // Live planetary capture: start a video stream from the OTA camera into the 🪐 tab's
+        // rolling-window stack (drifting synthetic planet on the fake camera), and stop it. Posting
+        // Start switches to the Planetary tab; poll the AppState + the GUI log for frames/fps.
+        ["StartVideoCapture"] = el => bus.Post(new StartVideoCaptureSignal(
+            OtaIndex: el.OptInt("otaIndex") ?? 0,
+            ExposureMs: el.OptDouble("exposureMs") ?? 10.0,
+            Gain: el.OptInt("gain") is { } vg ? (short)vg : null,
+            RoiWidth: el.OptInt("roiWidth") ?? 640,
+            RoiHeight: el.OptInt("roiHeight") ?? 320)),
+        ["StopVideoCapture"] = _ => bus.Post(new StopVideoCaptureSignal()),
     },
 });
 #endif
@@ -677,6 +694,9 @@ cts.Cancel();
 
 // Drain completes quickly — warm-up already finished while the loop was alive.
 await tracker.DrainAsync();
+
+// Stop + dispose the planetary capture (cancels the capture loop, drains any in-flight stack).
+await planetaryCapture.DisposeAsync();
 
 guiRenderer.Dispose();
 renderer.Dispose();

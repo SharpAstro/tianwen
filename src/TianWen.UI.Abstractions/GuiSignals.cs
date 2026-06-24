@@ -175,6 +175,23 @@ public readonly record struct JogFocuserSignal(int OtaIndex, int Steps);
 public readonly record struct GotoFocuserSignal(int OtaIndex, int TargetPosition);
 
 /// <summary>
+/// Start a live planetary video capture from the OTA's camera into the 🪐 tab's rolling-window stack.
+/// Only valid when no session is running and the camera is connected. Defaults give a sensible planetary
+/// run (10 ms exposure, 640x320 sub-frame ROI); the DEBUG inspector / capture strip can override any field.
+/// <para>
+/// Deliberately a <b>record class</b>, NOT a <c>record struct</c>: a struct's <c>new StartVideoCaptureSignal()</c>
+/// invokes the implicit parameterless constructor that zero-initialises every field, silently ignoring the
+/// primary-constructor defaults below -- which is exactly how the strip's Start button used to post a 0 ms
+/// exposure + a 0x0 (-> clamped 16x16) ROI. As a class, <c>new()</c> runs the primary ctor, so the defaults apply.
+/// </para>
+/// </summary>
+public sealed record StartVideoCaptureSignal(
+    int OtaIndex = 0, double ExposureMs = 10.0, short? Gain = null, int RoiWidth = 640, int RoiHeight = 320);
+
+/// <summary>Stop the live planetary video capture started by <see cref="StartVideoCaptureSignal"/>.</summary>
+public readonly record struct StopVideoCaptureSignal;
+
+/// <summary>
 /// Open the F3 sky-map search modal. Posted from the sky-map tab's key handler;
 /// subscriber wires up callbacks and lazy-builds the catalog index.
 /// </summary>

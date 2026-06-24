@@ -22,6 +22,12 @@ namespace TianWen.UI.Abstractions
         /// <summary>Optional mini viewer widget for showing the last captured frame. Set by the host.</summary>
         public IMiniViewerWidget? MiniViewer { get; set; }
 
+        /// <summary>Full planetary capture view (viewer + control strip), shown in <see cref="LiveSessionMode.Planetary"/>. Set by the host.</summary>
+        public IPlanetaryViewWidget? PlanetaryView { get; set; }
+
+        /// <summary>The live planetary capture controller driving <see cref="LiveSessionMode.Planetary"/>. Set by the host (DI singleton).</summary>
+        public PlanetaryCaptureController? PlanetaryCapture { get; set; }
+
         /// <summary>Tracks which image reference is currently displayed to avoid redundant uploads.</summary>
         private Image? _displayedImage;
 
@@ -122,6 +128,39 @@ namespace TianWen.UI.Abstractions
             // Top strip: phase pill + activity + clock
             var topRect = new RectF32(contentRect.X, contentRect.Y, contentRect.Width, topH);
             RenderTopStrip(state, topRect, fontPath, fs, dpiScale, timeProvider);
+
+            // Planetary mode: the full image viewer + capture strip own everything below the top strip and
+            // reuse the focuser/mount controls via signals -- the session timeline / OTA / exposure-log panels
+            // don't apply, so render the planetary view (which draws its own chrome) and return. The mode-pill
+            // dropdown overlay is re-drawn here so mode switching still works.
+            if (state.Mode == LiveSessionMode.Planetary)
+            {
+                var planetaryRect = new RectF32(contentRect.X, contentRect.Y + topH,
+                    contentRect.Width, contentRect.Height - topH);
+                if (PlanetaryView is { } planetaryView)
+                {
+                    planetaryView.RenderPlanetary(PlanetaryCapture, planetaryRect, dpiScale, fontPath);
+                }
+                else
+                {
+                    FillRect(planetaryRect.X, planetaryRect.Y, planetaryRect.Width, planetaryRect.Height, GraphBg);
+                    DrawText("Planetary view unavailable", fontPath,
+                        planetaryRect.X, planetaryRect.Y, planetaryRect.Width, planetaryRect.Height,
+                        fs, DimText, TextAlign.Center, TextAlign.Center);
+                }
+
+                if (state.ModeDropdown.IsOpen)
+                {
+                    RenderDropdownMenu(state.ModeDropdown, fontPath, fs,
+                        bgColor: GuiTheme.Palette.HeaderBg,
+                        highlightColor: new RGBAColor32(0x44, 0x66, 0x99, 0xff),
+                        textColor: BodyText,
+                        borderColor: new RGBAColor32(0x44, 0x44, 0x55, 0xff),
+                        viewportWidth: Renderer.Width,
+                        viewportHeight: Renderer.Height);
+                }
+                return;
+            }
 
             // Timeline: phase bars + observation segments + now needle
             var timelineRect = new RectF32(contentRect.X, contentRect.Y + topH, contentRect.Width, timelineH);
@@ -411,6 +450,15 @@ namespace TianWen.UI.Abstractions
                 return false;
             }
 
+            // Planetary mode: the planetary view does its own position-aware hit dispatch (toolbar / sliders /
+            // Start-Stop), so forward raw MOUSE events straight to it. Keys are NOT forwarded so global
+            // shortcuts (Esc, mode switching) stay free.
+            if (state.Mode == LiveSessionMode.Planetary && PlanetaryView is { } planetaryView
+                && evt is InputEvent.MouseDown or InputEvent.MouseMove or InputEvent.MouseUp or InputEvent.Scroll)
+            {
+                return planetaryView.HandleInput(evt);
+            }
+
             switch (evt)
             {
                 case InputEvent.KeyDown(InputKey.Escape, _) when state.ShowAbortConfirm:
@@ -560,10 +608,13 @@ namespace TianWen.UI.Abstractions
                 // (re-validated by AppSignalHandler); selecting Preview while polar
                 // is active posts a Cancel. Caret hint indicates the click affordance.
                 var inPolar = state.Mode == LiveSessionMode.PolarAlign;
+                var inPlanetary = state.Mode == LiveSessionMode.Planetary;
                 var modePillColor = inPolar
                     ? StatusSolving                                    // cyan while PA running
-                    : new RGBAColor32(0x55, 0x33, 0x88, 0xff);         // purple for plain Preview
-                var pillLabel = inPolar ? "POLAR \u25BE" : "PREVIEW \u25BE";
+                    : inPlanetary
+                        ? new RGBAColor32(0x40, 0x33, 0x66, 0xff)      // muted purple-blue for Planetary
+                        : new RGBAColor32(0x55, 0x33, 0x88, 0xff);     // purple for plain Preview
+                var pillLabel = inPolar ? "POLAR \u25BE" : inPlanetary ? "PLANETARY \u25BE" : "PREVIEW \u25BE";
                 var pillX = rect.X + pad;
                 var pillY = rect.Y + pad;
                 // Click-to-open: anchor the dropdown directly under the pill. The pill is a single
@@ -581,57 +632,74 @@ namespace TianWen.UI.Abstractions
                         }
                         dropdown.Open(
                             pillX, pillY + pillH, pillW,
-                            ImmutableArray.Create("Preview", "Polar Align"),
+                            ImmutableArray.Create("Preview", "Polar Align", "Planetary"),
                             (idx, _) =>
                             {
-                                if (idx == 0 && inPolar)
+                                var target = idx switch
                                 {
-                                    if (state.PolarAlignmentCts is null && state.PolarPhase == PolarAlignmentPhase.Idle)
-                                    {
-                                        // Setup phase: no routine running, just flip back
-                                        // to Preview without going through the cancel
-                                        // signal (which would try to abort a non-existent
-                                        // CTS and leave the user in an awkward "cancelling
-                                        // forever" state).
-                                        state.Mode = LiveSessionMode.Preview;
-                                        state.PolarStatusMessage = "";
-                                        state.NeedsRedraw = true;
-                                    }
-                                    else
-                                    {
-                                        PostSignal(new CancelPolarAlignmentSignal());
-                                    }
+                                    1 => LiveSessionMode.PolarAlign,
+                                    2 => LiveSessionMode.Planetary,
+                                    _ => LiveSessionMode.Preview,
+                                };
+                                if (target == state.Mode)
+                                {
+                                    return;
                                 }
-                                else if (idx == 1 && !inPolar)
+
+                                // Leaving an ACTIVE polar-align routine tears it down via the cancel
+                                // signal, which flips Mode back to Preview itself -- so don't also set
+                                // the target here (that would race the async handler); the user re-picks
+                                // once it has stopped. An idle (setup-phase) polar flips directly below.
+                                if (state.Mode == LiveSessionMode.PolarAlign
+                                    && !(state.PolarAlignmentCts is null && state.PolarPhase == PolarAlignmentPhase.Idle))
                                 {
-                                    var (polarEnabled, polarReason) = EvaluatePolarPreconditions(state);
-                                    if (polarEnabled)
+                                    PostSignal(new CancelPolarAlignmentSignal());
+                                    if (target != LiveSessionMode.Preview)
                                     {
-                                        // Switch into PolarAlign mode but DON'T fire
-                                        // StartPolarAlignmentSignal yet -- the setup panel
-                                        // (rendered in PolarPhase.Idle) lets the user review
-                                        // / edit the configuration before committing. The
-                                        // panel's Start button posts the signal with
-                                        // state.PolarSetupConfig as the captured config.
-                                        if (MiniViewer?.State is { } ms)
+                                        state.PolarStatusMessage = "Polar align stopped -- pick the mode again";
+                                    }
+                                    state.NeedsRedraw = true;
+                                    return;
+                                }
+
+                                if (state.Mode == LiveSessionMode.PolarAlign)
+                                {
+                                    state.PolarStatusMessage = "";
+                                }
+
+                                switch (target)
+                                {
+                                    case LiveSessionMode.PolarAlign:
+                                    {
+                                        var (polarEnabled, polarReason) = EvaluatePolarPreconditions(state);
+                                        if (polarEnabled)
                                         {
-                                            // Auto-enable the WCS grid -- once the first probe
-                                            // frame plate-solves, the grid will appear and the
-                                            // user sees meridians converging on the celestial
-                                            // pole alongside the configured-axis ring.
-                                            ms.ShowGrid = true;
+                                            // Switch into PolarAlign setup (PolarPhase.Idle); the panel's
+                                            // Start button fires StartPolarAlignmentSignal after the user
+                                            // reviews the config. Auto-enable the WCS grid so meridians
+                                            // appear once the first probe frame solves.
+                                            if (MiniViewer?.State is { } ms)
+                                            {
+                                                ms.ShowGrid = true;
+                                            }
+                                            state.Mode = LiveSessionMode.PolarAlign;
+                                            state.PolarPhase = PolarAlignmentPhase.Idle;
+                                            state.PolarStatusMessage = "Configure and click Start";
                                         }
-                                        state.Mode = LiveSessionMode.PolarAlign;
-                                        state.PolarPhase = PolarAlignmentPhase.Idle;
-                                        state.PolarStatusMessage = "Configure and click Start";
-                                        state.NeedsRedraw = true;
+                                        else
+                                        {
+                                            state.PolarStatusMessage = polarReason;
+                                        }
+                                        break;
                                     }
-                                    else
-                                    {
-                                        state.PolarStatusMessage = polarReason;
-                                        state.NeedsRedraw = true;
-                                    }
+                                    case LiveSessionMode.Planetary:
+                                        state.Mode = LiveSessionMode.Planetary;
+                                        break;
+                                    default:
+                                        state.Mode = LiveSessionMode.Preview;
+                                        break;
                                 }
+                                state.NeedsRedraw = true;
                             });
                         state.NeedsRedraw = true;
                     });

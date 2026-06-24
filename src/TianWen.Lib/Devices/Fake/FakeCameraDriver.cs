@@ -16,7 +16,7 @@ using TianWen.Lib.Imaging;
 
 namespace TianWen.Lib.Devices.Fake;
 
-internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver
+internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver, IVideoCameraDriver
 {
     public FakeCameraDriver(FakeDevice fakeDevice, IServiceProvider serviceProvider) : base(fakeDevice, serviceProvider)
     {
@@ -1342,6 +1342,179 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver
     /// the last render fell back to the random star field.
     /// </summary>
     internal (double RaJ2000, double DecJ2000)? LastCatalogRenderCentre { get; private set; }
+
+    // ── Video / planetary lucky-imaging capture (IVideoCameraDriver) ─────────────
+    // The fake renders a drifting synthetic planet disk (SyntheticPlanetRenderer) into a software ROI
+    // window over the virtual full sensor. JogRoiAsync pans that window -- the COM-recenter actuator --
+    // so the recenter loop can null the disk's drift with no mount involved (Phase C). Frames are mono,
+    // deterministic, and paced at the requested exposure via the (fake) TimeProvider so a FakeTimeProvider
+    // pump drives the whole live-stack loop in CI. The video path is independent of the single-shot
+    // StartExposureAsync exposure path (you stream OR expose, not both).
+    private int _videoActive;             // 0/1; gates CanJogRoi + enforces one concurrent stream
+    private int _droppedFrames;           // always 0 for the fake (no buffer starvation to model)
+    private readonly Lock _videoRoiLock = new();
+    private int _videoRoiStartX;          // ROI window top-left on the virtual sensor (unbinned px)
+    private int _videoRoiStartY;
+    private int _videoRoiWidth;           // ROI (frame) size, captured at stream start
+    private int _videoRoiHeight;
+    private long _videoStartTimestamp;    // capture start, for deterministic drift phase
+
+    /// <summary>Planet drift across the virtual sensor in X (px/s) -- the residual the recenter loop chases.</summary>
+    internal double PlanetDriftPixelsPerSecX { get; set; } = 0.9;
+
+    /// <summary>Planet drift across the virtual sensor in Y (px/s).</summary>
+    internal double PlanetDriftPixelsPerSecY { get; set; } = 0.5;
+
+    /// <summary>Synthetic planet disk radius in pixels.</summary>
+    internal double PlanetRadiusPixels { get; set; } = 70.0;
+
+    /// <summary>Deterministic base seed for the per-frame seeing draw + pixel noise.</summary>
+    internal int VideoBaseSeed { get; set; } = 1234;
+
+    /// <inheritdoc/>
+    public bool CanVideoCapture => true;
+
+    /// <inheritdoc/>
+    public bool CanJogRoi => Volatile.Read(ref _videoActive) == 1;
+
+    /// <inheritdoc/>
+    public int DroppedFrames => Volatile.Read(ref _droppedFrames);
+
+    /// <inheritdoc/>
+    public async IAsyncEnumerable<Image> CaptureVideoAsync(
+        VideoCaptureOptions options,
+        [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
+    {
+        if (!Connected)
+        {
+            throw new InvalidOperationException("Camera is not connected");
+        }
+
+        if (Interlocked.CompareExchange(ref _videoActive, 1, 0) != 0)
+        {
+            throw new InvalidOperationException("A video capture is already running on this camera.");
+        }
+
+        try
+        {
+            if (options.Gain is { } gain)
+            {
+                await SetGainAsync(gain, cancellationToken).ConfigureAwait(false);
+            }
+
+            // ROI frame size = the configured sub-frame (NumX/NumY), clamped to a sane planetary window.
+            int roiW, roiH;
+            lock (_lock)
+            {
+                roiW = _cameraSettings.Width;
+                roiH = _cameraSettings.Height;
+            }
+            roiW = Math.Clamp(roiW, 16, CameraXSize);
+            roiH = Math.Clamp(roiH, 16, CameraYSize);
+
+            Interlocked.Exchange(ref _droppedFrames, 0);
+            _videoStartTimestamp = TimeProvider.GetTimestamp();
+            lock (_videoRoiLock)
+            {
+                _videoRoiWidth = roiW;
+                _videoRoiHeight = roiH;
+                // Centre the ROI window on the virtual sensor; the disk starts centred within it.
+                _videoRoiStartX = Math.Clamp((CameraXSize - roiW) / 2, 0, Math.Max(0, CameraXSize - roiW));
+                _videoRoiStartY = Math.Clamp((CameraYSize - roiH) / 2, 0, Math.Max(0, CameraYSize - roiH));
+            }
+
+            var frameIndex = 0;
+            while (!cancellationToken.IsCancellationRequested)
+            {
+                yield return RenderVideoFrame(roiW, roiH, frameIndex);
+                frameIndex++;
+
+                // Pace at the exposure cadence. FakeTimeProvider.SleepAsync auto-advances fake time;
+                // a cancel is the stop signal, so swallow the OCE and complete the sequence cleanly.
+                var cancelled = false;
+                try
+                {
+                    await TimeProvider.SleepAsync(options.Exposure, cancellationToken).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                    cancelled = true;
+                }
+                if (cancelled)
+                {
+                    yield break;
+                }
+            }
+        }
+        finally
+        {
+            Interlocked.Exchange(ref _videoActive, 0);
+        }
+    }
+
+    /// <inheritdoc/>
+    public ValueTask JogRoiAsync(int dxPixels, int dyPixels, CancellationToken cancellationToken = default)
+    {
+        if (Volatile.Read(ref _videoActive) != 1)
+        {
+            throw new InvalidOperationException("ROI jog requires an active video capture.");
+        }
+
+        cancellationToken.ThrowIfCancellationRequested();
+
+        lock (_videoRoiLock)
+        {
+            // Snap the start to even pixels (Bayer-safe alignment, mirroring a real CMOS ROI constraint)
+            // and clamp so the window stays fully on the virtual sensor.
+            var nx = (_videoRoiStartX + dxPixels) & ~1;
+            var ny = (_videoRoiStartY + dyPixels) & ~1;
+            _videoRoiStartX = Math.Clamp(nx, 0, Math.Max(0, CameraXSize - _videoRoiWidth));
+            _videoRoiStartY = Math.Clamp(ny, 0, Math.Max(0, CameraYSize - _videoRoiHeight));
+        }
+
+        return ValueTask.CompletedTask;
+    }
+
+    private Image RenderVideoFrame(int roiW, int roiH, int frameIndex)
+    {
+        var elapsedSec = TimeProvider.GetElapsedTime(_videoStartTimestamp).TotalSeconds;
+
+        // Planet true position on the virtual sensor: starts centred, drifts deterministically.
+        var planetVirtualX = (CameraXSize / 2.0) + (PlanetDriftPixelsPerSecX * elapsedSec);
+        var planetVirtualY = (CameraYSize / 2.0) + (PlanetDriftPixelsPerSecY * elapsedSec);
+
+        int startX, startY;
+        lock (_videoRoiLock)
+        {
+            startX = _videoRoiStartX;
+            startY = _videoRoiStartY;
+        }
+
+        // Lucky-imaging seeing: per-frame blur sigma, deterministic from the base seed + frame index.
+        // Most frames are moderately soft; a minority are sharp -- exactly what the grader ranks.
+        var seeingRng = new Random(unchecked((VideoBaseSeed * 31) + frameIndex));
+        var blurSigma = 0.6 + (2.4 * Math.Abs(NextGaussian(seeingRng)));
+
+        var array = SyntheticPlanetRenderer.Render(
+            roiW, roiH,
+            centerX: planetVirtualX - startX,
+            centerY: planetVirtualY - startY,
+            radius: PlanetRadiusPixels,
+            blurSigma: blurSigma,
+            maxAdu: MaxADU,
+            noiseSeed: unchecked(VideoBaseSeed + frameIndex));
+
+        return new Image(
+            [array], Imaging.BitDepth.Int16, maxValue: MaxADU, minValue: 0f, pedestal: 0f,
+            new Imaging.ImageMeta { SensorType = Imaging.SensorType.Monochrome });
+    }
+
+    private static double NextGaussian(Random rng)
+    {
+        var u1 = 1.0 - rng.NextDouble();
+        var u2 = 1.0 - rng.NextDouble();
+        return Math.Sqrt(-2.0 * Math.Log(u1)) * Math.Cos(2.0 * Math.PI * u2);
+    }
 
     protected override void Dispose(bool disposing)
     {

@@ -213,6 +213,22 @@ public sealed class ViewerState
     /// source (which re-sharpens the cached master off-thread, no re-stack). Cleared once pushed.</summary>
     public bool WaveletDirty { get; set; }
 
+    /// <summary>
+    /// Builds the live-stack wavelet-sharpen options from the panel sliders, or <c>null</c> when sharpening
+    /// is disabled. The single source for every live-stack driver (the <c>tianwen-fits</c>
+    /// <c>ViewerController</c> and the GUI planetary capture controller), so they can never sharpen
+    /// differently. Reuses the validated planetary fine-scale denoise thresholds so amplified gains don't
+    /// pull up limb / sensor grain.
+    /// </summary>
+    public WaveletSharpenOptions? BuildWaveletOptions()
+        => WaveletSharpenEnabled
+            ? new WaveletSharpenOptions
+            {
+                Gains = WaveletGains,
+                DenoiseThresholds = WaveletSharpenOptions.PlanetaryDefault.DenoiseThresholds,
+            }
+            : null;
+
     /// <summary>Selectable playback rates (fps) cycled by the transport speed control / Up-Down keys.</summary>
     public static readonly float[] PlaybackRates = [1f, 5f, 10f, 15f, 24f, 30f, 50f, 75f, 100f, 150f, 200f];
 

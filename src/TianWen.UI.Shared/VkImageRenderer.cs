@@ -12,7 +12,7 @@ namespace TianWen.UI.Shared;
 /// Extends <see cref="ImageRendererBase{TSurface}"/> with Vulkan-specific GPU rendering
 /// via <see cref="VkFitsImagePipeline"/>.
 /// </summary>
-public sealed class VkImageRenderer : ImageRendererBase<VulkanContext>, IDisposable
+public class VkImageRenderer : ImageRendererBase<VulkanContext>, IDisposable
 {
     private readonly VkRenderer _renderer;
     private readonly VkFitsImagePipeline _fitsPipeline;

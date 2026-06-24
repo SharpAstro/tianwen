@@ -684,21 +684,19 @@ namespace TianWen.UI.Abstractions
             return cursor + itemH;
         }
 
-        /// <summary>Add-OTA + Connect-All action row (drawn only if it fits before the panel bottom). Returns the new cursor Y.</summary>
+        /// <summary>Add-OTA action row (drawn only if it fits before the panel bottom). Returns the new cursor Y.</summary>
         private float RenderAddOtaSection(GuiAppState appState, ProfileData pd, float x, float cursor, float w, float y, float h,
             float dpiScale, string fontPath, float fontSize, float padding, float buttonH)
         {
-            // [+ Add OTA] button (left) and [Connect All] (right) on a shared row.
-            // Connect All is hidden when the profile has no assigned devices, and
-            // greyed when any URI isn't yet discovered or a transition is pending.
+            // [+ Add OTA] button. "Connect All" used to share this row but now lives in the app
+            // chrome (top bar) so it is reachable from every tab — see VkGuiRenderer.RenderStatusBar
+            // + EquipmentActions.ComputeConnectAllStatus.
             var addOtaBtnY = cursor;
             var addOtaBtnW = 120f * dpiScale;
             if (addOtaBtnY + buttonH < y + h - padding)
             {
                 RenderButton("+ Add OTA", x + padding, addOtaBtnY, addOtaBtnW, buttonH, fontPath, fontSize, CreateButton, BodyText, "AddOta",
                     _ => PostSignal(new AddOtaSignal()));
-
-                RenderConnectAllButton(appState, pd, x, addOtaBtnY, w, buttonH, dpiScale, fontPath, fontSize, padding);
             }
             return cursor;
         }
@@ -1720,66 +1718,6 @@ namespace TianWen.UI.Abstractions
             cursor += graphH + padding * 0.5f;
 
             return cursor;
-        }
-
-        /// <summary>
-        /// Renders the bulk "Connect All" action on the right side of the row that hosts
-        /// the [+ Add OTA] button. No-ops when the profile has no assigned devices.
-        /// <para>
-        /// Enable rules:
-        /// <list type="bullet">
-        ///   <item>All assigned URIs must be either already hub-connected, hub-known, or
-        ///   present in <see cref="EquipmentTabState.DiscoveredDevices"/>.</item>
-        ///   <item>At least one assigned URI must not yet be connected (otherwise nothing to do).</item>
-        ///   <item>No transition may be in flight (avoid spawning a second connect on top of one).</item>
-        /// </list>
-        /// </para>
-        /// </summary>
-        private void RenderConnectAllButton(
-            GuiAppState appState, ProfileData pd,
-            float x, float btnY, float w, float buttonH,
-            float dpiScale, string fontPath, float fontSize, float padding)
-        {
-            var assigned = new List<Uri>();
-            foreach (var u in pd.AssignedDeviceUris) assigned.Add(u);
-            if (assigned.Count == 0) return;
-
-            var hub = appState.DeviceHub;
-            var allDiscoverable = true;
-            var anyNotConnected = false;
-            var anyPending = false;
-            foreach (var u in assigned)
-            {
-                var connected = hub?.IsConnected(u) == true;
-                if (!connected) anyNotConnected = true;
-                if (State.PendingTransitions.ContainsKey(u)) anyPending = true;
-
-                var resolvable = (hub is not null && hub.TryGetDeviceFromUri(u, out _))
-                    || connected
-                    || State.DiscoveredDevices.Any(d => DeviceBase.SameDevice(d.DeviceUri, u));
-                if (!resolvable) allDiscoverable = false;
-            }
-
-            var enabled = allDiscoverable && anyNotConnected && !anyPending;
-            string label;
-            if (!anyNotConnected) label = "All Connected";
-            else if (anyPending) label = "Connecting\u2026";
-            else if (!allDiscoverable) label = "Discover first";
-            else label = "Connect All";
-
-            var bg = enabled ? CreateButton : EditButtonBg;
-            // Width fitted to the label so a long "Discover first" doesn't push past the panel
-            // edge, but with a sensible minimum so a short "Connect All" stays a reasonable click target.
-            var measured = Renderer.MeasureText(label.AsSpan(), fontPath, fontSize).Width + padding * 4f;
-            var minBtnW = 110f * dpiScale;
-            var btnW = Math.Max(measured, minBtnW);
-            var btnX = x + w - padding - btnW;
-            // Background + label + (enabled-only) hit as one draw==hit leaf.
-            var connectAllBtn = Layout.Builder.Text(label, BaseFontSize * 0.95f, BodyText, TextAlign.Center, TextAlign.Center)
-                .Bg(bg)
-                .Clickable(enabled ? new HitResult.ButtonHit("ConnectAll") : null,
-                    enabled ? (Action<InputModifier>)(_ => PostSignal(new ConnectAllDevicesSignal())) : null);
-            RenderLayout(connectAllBtn, new RectF32(btnX, btnY, btnW, buttonH), fontPath, dpiScale);
         }
 
         /// <summary>

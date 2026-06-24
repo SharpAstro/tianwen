@@ -22,11 +22,20 @@ namespace TianWen.UI.Abstractions
     /// panel + drives the renderer's <see cref="Overlays.WcsAnnotation"/>
     /// with pole/ring overlays. Mutually exclusive with <c>Session</c> mode.
     /// </para>
+    /// <para>
+    /// <b>Planetary</b> — live planetary lucky-imaging capture: the manually
+    /// connected camera streams in video mode into the rolling-window stacker.
+    /// The centre swaps the mini viewer for the full image viewer (stretch +
+    /// RAW/STACK + wavelet sharpen) and shows a capture-control strip; the
+    /// existing focuser jog / mount controls are reused. Mutually exclusive
+    /// with <c>Session</c> mode (same manual-control precondition as PolarAlign).
+    /// </para>
     /// </remarks>
     public enum LiveSessionMode
     {
         Preview = 0,
         Session = 1,
         PolarAlign = 2,
+        Planetary = 3,
     }
 }

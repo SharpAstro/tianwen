@@ -415,7 +415,7 @@ Not yet done: the independent "EAA free-run" stack mode, and Phases 10-13.
 | 9 | **Live**: `RollingWindowStacker` (5-min window) + `LiveStackPreviewSource` push-stream wired into the previewer (GUI + tianwen-fits) | 4,6 | Medium | DONE (follow-the-playhead, global align, adjustable wavelet sliders, perf-tuned; EAA-free-run deferred) |
 | 10 | **De-rotation 6a** (within-capture): Meeus per-planet CM + disk geometry + spheroid reproject; derotate-to-midpoint before stack | 6 | High |
 | 11 | **De-rotation 6b** (multi-stack / RGB temporal): derotate finished stacks to a common epoch + combine | 10 | High |
-| 12 | **Live camera stream** (`LiveCameraFrameStream`) feeding the same windowed stacker (true EAA) | 9 | Medium |
+| 12 | **Live camera stream** (`LiveCameraFrameStream`) feeding the same windowed stacker (true EAA) | 9 | Medium | IN PROGRESS (backend done 2026-06-24: `IVideoCameraDriver` vendor-neutral contract, `LiveCameraFrameStream` push-stream, `PlanetaryCaptureController` w/ rapid-exposure fallback, fake-camera video w/ drifting synthetic planet + ROI jog; see [live-planetary-capture.md](live-planetary-capture.md). Remaining: 🪐 GUI tab + recenter loop) |
 | 13 | **GPU compute acceleration**: headless compute capability in `SdlVulkan.Renderer` (storage buffers, no swapchain) + GPU impls of FFT/quality/NCC/warp/drizzle-scatter/integrate/wavelet, capability-probed; CPU mirror stays source of truth + fallback; software-Vulkan CI shader-exercise | 6,7 | Medium |
 
 ## Resolved design decisions (2026-06-23)
