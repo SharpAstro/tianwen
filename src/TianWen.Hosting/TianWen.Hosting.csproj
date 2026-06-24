@@ -5,6 +5,14 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <Platforms>AnyCPU</Platforms>
+    <!-- This library is consumed by the AOT-published tianwen-server. Declaring it AOT-compatible
+         turns on the trim/AOT analyzers for our own code AND, together with the explicit switch
+         below, runs the Request Delegate Generator HERE so the minimal-API Map* call sites are
+         intercepted in this assembly. Without it the RDG (which only runs in the project where it
+         is enabled) never sees these endpoints, and the AOT publish of TianWen.Server falls back to
+         reflection-based request delegates -> IL2026/IL3050 + runtime NotSupportedException risk. -->
+    <IsAotCompatible>true</IsAotCompatible>
+    <EnableRequestDelegateGenerator>true</EnableRequestDelegateGenerator>
   </PropertyGroup>
 
   <ItemGroup>

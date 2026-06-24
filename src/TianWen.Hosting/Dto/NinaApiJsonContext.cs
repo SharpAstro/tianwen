@@ -21,7 +21,7 @@ namespace TianWen.Hosting.Dto;
 [JsonSerializable(typeof(ResponseEnvelope<NinaEventDto[]>))]
 [JsonSerializable(typeof(ResponseEnvelope<NinaImageHistoryDto[]>))]
 [JsonSerializable(typeof(ResponseEnvelope<NinaGuideStepDto[]>))]
-[JsonSerializable(typeof(ResponseEnvelope<object>))]
+[JsonSerializable(typeof(ResponseEnvelope<NinaDeviceListItemDto[]>))]
 [JsonSerializable(typeof(ResponseEnvelope<Api.ProfileSummaryDto[]>))]
 [JsonSerializable(typeof(ResponseEnvelope<WebSocketEventDto>))]
 [JsonSourceGenerationOptions(DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
