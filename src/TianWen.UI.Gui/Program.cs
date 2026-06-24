@@ -117,9 +117,13 @@ guiRenderer.PlanetaryCapture = planetaryCapture;
 
 // Event handler setup
 var cts = new CancellationTokenSource();
+// Separate CTS for non-session background work (planner init, weather, live planetary capture) -- cancelled
+// on quit (RequestQuit) without tearing down the SDL loop early or affecting running sessions. Its token is
+// handed to the planetary capture's Start, so quitting cancels the capture (and its token-polling loops).
+var backgroundCts = CancellationTokenSource.CreateLinkedTokenSource(cts.Token);
 var tracker = new BackgroundTaskTracker();
 var lastWindowTitle = "\U0001F52D TianWen";
-var handlers = new GuiEventHandlers(sp, appState, plannerState, guiRenderer, cts, external, tracker)
+var handlers = new GuiEventHandlers(sp, appState, plannerState, guiRenderer, cts, backgroundCts.Token, external, tracker)
 {
     GetClipboardText = GetClipboardText,
     SetClipboardText = text => SetClipboardText(text)
@@ -151,8 +155,6 @@ bus.Subscribe<DeactivateTextInputSignal>(_ =>
 // BuildScheduleSignal is now handled inside AppSignalHandler — no host-level subscription needed
 
 // Load saved session configuration + initialize planner (shared logic in AppSignalHandler)
-// Separate CTS for non-session background tasks — cancelled on quit without affecting running sessions.
-var backgroundCts = CancellationTokenSource.CreateLinkedTokenSource(cts.Token);
 // ESC quit confirmation: first ESC shows message, second ESC within 3s actually quits
 long escConfirmTimestamp = 0;
 int _lastShutdownPendingCount = -1;
@@ -403,7 +405,10 @@ void RequestQuit()
         sessionCts2.Cancel();
     }
 
-    // Cancel non-session background tasks (planner init, weather fetch) immediately
+    // Cancel non-session background tasks (planner init, weather fetch) AND the live planetary capture, which
+    // is bound to this token (its Start received backgroundCts.Token). The capture loop + the rolling-window
+    // stacker loops poll the token, so they unwind promptly -- releasing the camera before the disconnect
+    // tasks below run, with no imperative Stop() in the quit path.
     backgroundCts.Cancel();
 
     // Out-of-session safety: enumerate hub-connected cameras and queue disconnect tasks.
@@ -692,10 +697,20 @@ loop.Run(cts.Token);
 // Use a timeout so force-quit (second X press) doesn't hang on warm-up tasks.
 cts.Cancel();
 
-// Drain completes quickly — warm-up already finished while the loop was alive.
-await tracker.DrainAsync();
+// Drain completes quickly — warm-up already finished while the loop was alive. Bound it anyway so a
+// straggler that won't cancel (e.g. a slow network discovery) can't leave the window Not Responding while
+// the process exits -- the timeout the comment above always promised but never actually had.
+try
+{
+    // Bounded via the injected TimeProvider (FakeTimeProvider-controllable), not the raw system clock.
+    await tracker.DrainAsync().WaitAsync(TimeSpan.FromSeconds(5), timeProvider.System);
+}
+catch (TimeoutException)
+{
+    logger.LogWarning("Shutdown: background tasks did not drain within 5s; abandoning them.");
+}
 
-// Stop + dispose the planetary capture (cancels the capture loop, drains any in-flight stack).
+// Stop + dispose the planetary capture (cancels the capture loop; bounded drain of any in-flight stack).
 await planetaryCapture.DisposeAsync();
 
 guiRenderer.Dispose();

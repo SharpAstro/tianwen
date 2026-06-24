@@ -80,7 +80,9 @@ internal class TuiSubCommand(
         var skyMapState = new SkyMapState();
 
         // Wire shared business logic
-        var signalHandler = new AppSignalHandler(sp, appState, plannerState, sessionState, eqState, liveSessionState, skyMapState, bus, tracker, cts, external);
+        // shutdownToken == cts.Token: the TUI has no separate background-CTS, so the app token doubles as
+        // the planetary-capture shutdown signal (cancelled when the TUI exits).
+        var signalHandler = new AppSignalHandler(sp, appState, plannerState, sessionState, eqState, liveSessionState, skyMapState, bus, tracker, cts, cts.Token, external);
         signalHandler.OnPlannerEnsureVisible = index =>
         {
             plannerState.SelectedTargetIndex = index;

@@ -8,40 +8,53 @@ using TianWen.UI.Shared;
 namespace TianWen.UI.Gui;
 
 /// <summary>
-/// Vulkan-pinned 🪐 planetary capture tab. It <b>is</b> the shared FITS image viewer
-/// (<see cref="VkImageRenderer"/>, the same concretion <c>tianwen-fits</c> uses) embedded in the GUI
-/// content area, with a thin <b>capture control strip</b> across the top. By reusing the real viewer it
-/// inherits the full stretch pipeline, the RAW/STACK toggle, the 6 wavelet-sharpen sliders, white balance,
-/// histogram and zoom/pan for free -- no stripped-down mini viewer, no drift between the two surfaces.
+/// Vulkan-pinned 🪐 planetary capture view. It <b>is</b> the shared FITS image viewer
+/// (<see cref="VkImageRenderer"/>, the same concretion <c>tianwen-fits</c> uses) embedded in the Live
+/// Session planetary mode, with a <b>left control panel</b> carved out of the content rect. By reusing the
+/// real viewer it inherits the full stretch pipeline, the RAW/STACK toggle, the 6 wavelet-sharpen sliders,
+/// white balance, histogram and zoom/pan for free -- no stripped-down mini viewer, no drift between the two
+/// surfaces.
 /// <para>
 /// The viewer is told to arrange within a content rect (<see cref="ImageRendererBase{TSurface}.SetContentRegion"/>)
-/// = the tab content area minus the capture strip; the GPU image quad still projects over the full surface.
-/// Per frame: <see cref="PlanetaryCaptureController.Tick"/> publishes the latest live-stack master, then the
-/// base viewer renders <see cref="PlanetaryCaptureController.Source"/>. Start/Stop are posted as signals
-/// (the tab only routes; the capture wiring lives in <c>AppSignalHandler</c>).
+/// = the content area minus the left panel; the GPU image quad still projects over the full surface. Per
+/// frame: <see cref="PlanetaryCaptureController.Tick"/> publishes the latest live-stack master, then the base
+/// viewer renders <see cref="PlanetaryCaptureController.Source"/>, then the panel draws on top. Capture
+/// (Start/Stop, exposure, gain, ROI) and the focuser jog are posted as signals (the view only routes; the
+/// capture wiring lives in <c>AppSignalHandler</c>, the focuser jog reuses <c>JogFocuserSignal</c>).
+/// </para>
+/// <para>
+/// The panel is built with the <c>DIR.Lib.Layout</c> engine (a <c>Layout.Builder</c> tree of star-weighted
+/// rows), not pixel arithmetic -- placement is weights + spacers, and draw == hit by construction.
 /// </para>
 /// </summary>
 public sealed class VkPlanetaryTab : VkImageRenderer, IPlanetaryViewWidget
 {
-    // Named to avoid hiding the inherited ImageRendererBase.BaseFontSize (the viewer's chrome size); the
-    // capture strip follows the GUI's standard metrics so it matches the other tabs' chrome.
-    private static readonly float StripFontSize = GuiTheme.Metrics.BaseFontSize;
-    private static readonly float StripPadding = GuiTheme.Metrics.Padding;
-    private const float BaseStripHeight = 38f;
+    // Panel text follows the GUI's standard metrics (design units; RenderLayout scales by DpiScale) so it
+    // matches the other tabs' chrome. Named to avoid hiding the inherited ImageRendererBase.BaseFontSize.
+    private static readonly float PanelFontSize = GuiTheme.Metrics.BaseFontSize;
+    private const float BasePanelWidth = 280f;
+    private const float BaseRowHeight = 26f;
+    private const float BasePanelPad = 8f;
+    private const float BaseGap = 5f;
+
+    // Planetary captures a single OTA; its focuser jog targets OTA index 0 (mirrors the single-OTA focus path).
+    private const int PlanetaryOtaIndex = 0;
 
     private static readonly RGBAColor32 ContentBg = new RGBAColor32(0x06, 0x06, 0x08, 0xff);
-    private static readonly RGBAColor32 StripBg = GuiTheme.Palette.HeaderBg;
+    private static readonly RGBAColor32 PanelBg = GuiTheme.Palette.HeaderBg;
     private static readonly RGBAColor32 HeaderText = GuiTheme.Palette.HeaderText;
     private static readonly RGBAColor32 DimText = GuiTheme.Palette.DimText;
     private static readonly RGBAColor32 StartBg = new RGBAColor32(0x1e, 0x5e, 0x2e, 0xff);
     private static readonly RGBAColor32 StopBg = new RGBAColor32(0x6e, 0x24, 0x24, 0xff);
     private static readonly RGBAColor32 ButtonText = new RGBAColor32(0xff, 0xff, 0xff, 0xff);
-    private static readonly RGBAColor32 LiveDot = new RGBAColor32(0x44, 0xdd, 0x55, 0xff);
-    private static readonly RGBAColor32 IdleDot = new RGBAColor32(0x66, 0x66, 0x66, 0xff);
+    private static readonly RGBAColor32 SectionText = new RGBAColor32(0x88, 0x99, 0xbb, 0xff);
+    private static readonly RGBAColor32 Divider = new RGBAColor32(0x33, 0x33, 0x40, 0xff);
+    private static readonly RGBAColor32 MovingText = new RGBAColor32(0xff, 0xcc, 0x66, 0xff);
     private static readonly RGBAColor32 StepBtnBg = new RGBAColor32(0x2c, 0x2c, 0x33, 0xff);
     private static readonly RGBAColor32 StepBtnDisabledBg = new RGBAColor32(0x1c, 0x1c, 0x20, 0xff);
+    private static readonly RGBAColor32 JogBg = new RGBAColor32(0x2a, 0x2a, 0x3a, 0xff);
 
-    // Capture settings, edited by the strip steppers and posted on Start. Mutated only on the render thread
+    // Capture settings, edited by the panel steppers and posted on Start. Mutated only on the render thread
     // (in click handlers dispatched synchronously from input), so plain fields are fine.
     private static readonly double[] ExposurePresetsMs = [0.5, 1, 2, 5, 10, 20, 50, 100, 200, 500];
     private int _exposureIdx = 4;                 // 10 ms
@@ -54,7 +67,11 @@ public sealed class VkPlanetaryTab : VkImageRenderer, IPlanetaryViewWidget
         [(320, 240), (512, 512), (640, 320), (640, 480), (800, 600), (1024, 768), (1280, 960)];
     private int _roiIdx = 2;                      // 640x320
 
-    // One-time, planetary-appropriate defaults pushed onto the shared ViewerState the first time the tab
+    // The active OTA's focuser telemetry, refreshed each frame by RenderPlanetary (drives the focuser readout
+    // + whether the jog row is shown). Render-thread only.
+    private PreviewOTATelemetry _focuser = PreviewOTATelemetry.Unknown;
+
+    // One-time, planetary-appropriate defaults pushed onto the shared ViewerState the first time the view
     // renders: show the live stack (RAW/STACK starts on STACK), expose the info panel (the wavelet-sharpen +
     // WB sliders live there), and never the file list. Set once so the user's later toggles stick.
     private bool _configured;
@@ -83,20 +100,33 @@ public sealed class VkPlanetaryTab : VkImageRenderer, IPlanetaryViewWidget
     }
 
     /// <summary>
-    /// Renders the tab: the capture strip across the top of <paramref name="contentRect"/> and the live
-    /// rolling-window stack (via the shared viewer) below it. Drives <paramref name="controller"/> off the
-    /// shared <paramref name="state"/> (the same DI-singleton <see cref="ViewerState"/> the controller holds,
-    /// so wavelet-slider changes in the info panel reach the capture loop's sharpen).
+    /// <see cref="IPlanetaryViewWidget"/> entry point: renders the left control panel + the live
+    /// rolling-window stack (via the shared viewer). Drives <paramref name="controller"/> off the shared
+    /// <see cref="PlanetaryCaptureController.ViewerState"/> (the same DI-singleton the controller holds, so
+    /// wavelet-slider changes in the info panel reach the capture loop's sharpen).
     /// </summary>
-    public void RenderTab(PlanetaryCaptureController? controller, ViewerState state,
+    public void RenderPlanetary(PlanetaryCaptureController? controller, PreviewOTATelemetry focuser,
         RectF32 contentRect, float dpiScale, string fontPath)
     {
+        _focuser = focuser;
         DpiScale = dpiScale;
 
         // Keep the GPU projection full-surface: the placement rects are full-surface pixel coords, and the
         // base maps [0, Width] x [0, Height] -> NDC over the whole window. Set the dimensions directly (not
         // via Resize(), whose OnResize would re-resize the shared VkRenderer the GUI already owns).
         SyncSurfaceSize();
+
+        // Dark letterbox behind everything (the viewer only paints its image quad + chrome, not the gaps).
+        FillRect(contentRect.X, contentRect.Y, contentRect.Width, contentRect.Height, ContentBg);
+
+        if (controller?.ViewerState is not { } state)
+        {
+            // No capture controller wired -- draw a placeholder so the mode isn't blank.
+            DrawText("Planetary capture unavailable", fontPath,
+                contentRect.X, contentRect.Y, contentRect.Width, contentRect.Height,
+                PanelFontSize * dpiScale, DimText, TextAlign.Center, TextAlign.Center);
+            return;
+        }
 
         if (!_configured)
         {
@@ -106,52 +136,28 @@ public sealed class VkPlanetaryTab : VkImageRenderer, IPlanetaryViewWidget
             _configured = true;
         }
 
-        var stripH = BaseStripHeight * dpiScale;
-        var stripRect = new RectF32(contentRect.X, contentRect.Y, contentRect.Width, stripH);
-        var viewerRect = new RectF32(contentRect.X, contentRect.Y + stripH,
-            contentRect.Width, MathF.Max(0f, contentRect.Height - stripH));
+        var panelW = MathF.Min(BasePanelWidth * dpiScale, contentRect.Width * 0.5f);
+        var panelRect = new RectF32(contentRect.X, contentRect.Y, panelW, contentRect.Height);
+        var viewerRect = new RectF32(contentRect.X + panelW, contentRect.Y,
+            MathF.Max(0f, contentRect.Width - panelW), contentRect.Height);
 
         // The viewer arranges its whole chrome (toolbar / image / info panel / status bar) within this rect.
         SetContentRegion(viewerRect);
 
-        // Dark letterbox behind everything (the viewer only paints its image quad + chrome, not the gaps).
-        FillRect(contentRect.X, contentRect.Y, contentRect.Width, contentRect.Height, ContentBg);
-
         // Advance the live stack (publish a finished master + follow the latest captured frame), then upload
         // + render through the shared viewer -- mirroring the FITS viewer's OnRender drive sequence.
-        controller?.Tick();
-        var source = controller?.Source;
+        controller.Tick();
+        var source = controller.Source;
         if (source is not null && state.NeedsTextureUpdate)
         {
             UploadDocumentTextures(source, state);
         }
 
         // base.Render calls BeginFrame() (which clears the clickable tracker) before drawing the viewer
-        // chrome, so the capture strip's clickable MUST be registered AFTER this call to survive.
+        // chrome, so the panel's clickables MUST be registered AFTER this call to survive.
         Render(source, state);
 
-        RenderCaptureStrip(controller, stripRect, dpiScale, fontPath);
-    }
-
-    /// <summary>
-    /// <see cref="IPlanetaryViewWidget"/> entry point used when this widget is hosted as the Live Session
-    /// planetary mode (not the standalone tab). Renders against the controller's shared <see cref="ViewerState"/>.
-    /// </summary>
-    public void RenderPlanetary(PlanetaryCaptureController? controller, RectF32 contentRect, float dpiScale, string fontPath)
-    {
-        if (controller?.ViewerState is { } state)
-        {
-            RenderTab(controller, state, contentRect, dpiScale, fontPath);
-            return;
-        }
-
-        // No capture controller wired -- draw a placeholder so the mode isn't blank.
-        DpiScale = dpiScale;
-        SyncSurfaceSize();
-        FillRect(contentRect.X, contentRect.Y, contentRect.Width, contentRect.Height, ContentBg);
-        DrawText("Planetary capture unavailable", fontPath,
-            contentRect.X, contentRect.Y, contentRect.Width, contentRect.Height,
-            StripFontSize * dpiScale, DimText, TextAlign.Center, TextAlign.Center);
+        RenderControlPanel(controller, panelRect, dpiScale, fontPath);
     }
 
     private void SyncSurfaceSize()
@@ -165,41 +171,20 @@ public sealed class VkPlanetaryTab : VkImageRenderer, IPlanetaryViewWidget
         }
     }
 
-    private void RenderCaptureStrip(PlanetaryCaptureController? controller, RectF32 strip, float dpiScale, string fontPath)
+    // Builds + paints the left control panel as one Layout.Builder tree (a VStack of fixed-height rows). The
+    // base viewer already cleared + re-armed the clickable tracker in Render(); the layout's .Clickable leaves
+    // register here, after that, so they survive. Design-unit sizes/fonts are scaled by RenderLayout(dpiScale).
+    private void RenderControlPanel(PlanetaryCaptureController controller, RectF32 panel, float dpiScale, string fontPath)
     {
-        var fontSize = StripFontSize * dpiScale;
-        var padding = StripPadding * dpiScale;
+        var capturing = controller.IsCapturing;
+        var canEdit = !capturing;
 
-        FillRect(strip.X, strip.Y, strip.Width, strip.Height, StripBg);
-
-        var capturing = controller?.IsCapturing ?? false;
-
-        // Status dot.
-        var dotR = 5f * dpiScale;
-        var dotCx = strip.X + padding + dotR;
-        var dotCy = strip.Y + strip.Height / 2f;
-        FillCircle(dotCx, dotCy, dotR, capturing ? LiveDot : IdleDot);
-        var x = dotCx + dotR + padding;
-
-        if (controller is null)
-        {
-            DrawText("Planetary capture unavailable", fontPath, x, strip.Y, strip.Width - x, strip.Height,
-                fontSize, DimText, TextAlign.Near, TextAlign.Center);
-            return;
-        }
-
-        // Start/Stop toggle. Posts the configured settings (exposure / gain / ROI); AppSignalHandler wires it.
-        var btnLabel = capturing ? "Stop" : "Start";
-        var btnW = MathF.Max(78f * dpiScale, MeasureStripText(btnLabel, fontPath, fontSize) + padding * 3f);
-        var btnH = strip.Height - padding;
-        var btnY = strip.Y + (strip.Height - btnH) / 2f;
-        FillRect(x, btnY, btnW, btnH, capturing ? StopBg : StartBg);
-        DrawText(btnLabel, fontPath, x, btnY, btnW, btnH, fontSize, ButtonText, TextAlign.Center, TextAlign.Center);
-        var isCapturing = capturing;
-        RegisterClickable(x, btnY, btnW, btnH, new HitResult.ButtonHit("PlanetaryCaptureToggle"),
-            _ =>
+        // --- Capture section ---
+        var startStop = Layout.Builder.Text(capturing ? "Stop" : "Start", PanelFontSize, ButtonText, TextAlign.Center, TextAlign.Center)
+            .Bg(capturing ? StopBg : StartBg).RowH(BaseRowHeight)
+            .Clickable(new HitResult.ButtonHit("PlanetaryCaptureToggle"), _ =>
             {
-                if (isCapturing)
+                if (capturing)
                 {
                     Bus?.Post(new StopVideoCaptureSignal());
                 }
@@ -212,77 +197,96 @@ public sealed class VkPlanetaryTab : VkImageRenderer, IPlanetaryViewWidget
                         RoiHeight: RoiPresets[_roiIdx].H));
                 }
             });
-        x += btnW + padding * 1.5f;
 
-        // Exposure / Gain / ROI steppers -- editable only while idle (changing them mid-run does nothing
-        // until the next Start, so they're disabled during capture to make that obvious; Stop to reconfigure).
-        var canEdit = !capturing;
         var exposureMs = ExposurePresetsMs[_exposureIdx];
-        x = DrawStepper(x, strip.Y, strip.Height, fontSize, padding, fontPath,
-            "Exp", $"{exposureMs:0.##} ms", "888 ms", canEdit, "Exposure",
-            () => _exposureIdx = Math.Max(0, _exposureIdx - 1),
-            () => _exposureIdx = Math.Min(ExposurePresetsMs.Length - 1, _exposureIdx + 1));
-
-        x = DrawStepper(x, strip.Y, strip.Height, fontSize, padding, fontPath,
-            "Gain", _gain.ToString(), "8888", canEdit, "Gain",
-            () => _gain = Math.Max(0, _gain - GainStep),
-            () => _gain = Math.Min(GainMax, _gain + GainStep));
-
         var roi = RoiPresets[_roiIdx];
-        x = DrawStepper(x, strip.Y, strip.Height, fontSize, padding, fontPath,
-            "ROI", $"{roi.W}x{roi.H}", "8888x8888", canEdit, "Roi",
-            () => _roiIdx = Math.Max(0, _roiIdx - 1),
-            () => _roiIdx = Math.Min(RoiPresets.Length - 1, _roiIdx + 1));
 
-        // Live readout, right-aligned (frames / fps / dropped while capturing).
+        var rows = ImmutableArray.CreateBuilder<Layout.Node>();
+        rows.Add(SectionHeader("CAPTURE"));
+        rows.Add(startStop);
+        // Steppers are editable only while idle (changing them mid-run does nothing until the next Start, so
+        // they're disabled during capture to make that obvious; Stop to reconfigure).
+        rows.Add(Stepper("Exp", $"{exposureMs:0.##} ms", canEdit, "Exposure",
+            () => _exposureIdx = Math.Max(0, _exposureIdx - 1),
+            () => _exposureIdx = Math.Min(ExposurePresetsMs.Length - 1, _exposureIdx + 1)));
+        rows.Add(Stepper("Gain", _gain.ToString(), canEdit, "Gain",
+            () => _gain = Math.Max(0, _gain - GainStep),
+            () => _gain = Math.Min(GainMax, _gain + GainStep)));
+        rows.Add(Stepper("ROI", $"{roi.W}x{roi.H}", canEdit, "Roi",
+            () => _roiIdx = Math.Max(0, _roiIdx - 1),
+            () => _roiIdx = Math.Min(RoiPresets.Length - 1, _roiIdx + 1)));
         if (capturing)
         {
-            var readout = $"{controller.MeasuredFps:F0} fps  -  {controller.FramesReceived} frames  -  {controller.DroppedFrames} dropped";
-            var readoutW = MeasureStripText(readout, fontPath, fontSize);
-            DrawText(readout, fontPath, strip.X + strip.Width - readoutW - padding, strip.Y, readoutW, strip.Height,
-                fontSize, HeaderText, TextAlign.Near, TextAlign.Center);
+            var readout = $"{controller.MeasuredFps:F0} fps   {controller.FramesReceived} frm   {controller.DroppedFrames} drop";
+            rows.Add(Layout.Builder.Text(readout, PanelFontSize * 0.85f, HeaderText, TextAlign.Near, TextAlign.Center).RowH(BaseRowHeight));
         }
-    }
 
-    // Draws "Label [-] value [+]" starting at x; returns the x after it. The -/+ buttons register clickables
-    // (with OnClick) only when enabled; a click runs the action, and GuiEventHandlerBase sets NeedsRedraw, so
-    // the new value shows next frame. Value column is sized to widthSample so the +/- don't jump as it changes.
-    private float DrawStepper(float x, float y, float h, float fontSize, float padding, string fontPath,
-        string label, string value, string widthSample, bool enabled, string idPrefix, Action onDec, Action onInc)
-    {
-        var gap = padding * 0.4f;
-        var btn = h - padding;
-        var btnY = y + (h - btn) / 2f;
-
-        var labelW = MeasureStripText(label, fontPath, fontSize);
-        DrawText(label, fontPath, x, y, labelW, h, fontSize, DimText, TextAlign.Near, TextAlign.Center);
-        x += labelW + gap;
-
-        DrawStepButton("-", x, btnY, btn, fontSize, fontPath, enabled);
-        if (enabled)
+        // --- Focuser section (reuses JogFocuserSignal -- the same path the Live Session OTA panel posts) ---
+        rows.Add(Layout.Builder.Spacer().RowH(BaseGap));
+        rows.Add(Layout.Builder.Spacer().RowH(1f).Bg(Divider));
+        rows.Add(SectionHeader("FOCUSER"));
+        if (_focuser.FocuserConnected)
         {
-            RegisterClickable(x, btnY, btn, btn, new HitResult.ButtonHit(idPrefix + "Dec"), _ => onDec());
+            var focLabel = $"Pos: {_focuser.FocusPosition}";
+            if (!double.IsNaN(_focuser.FocuserTempC))
+            {
+                focLabel += $"   {_focuser.FocuserTempC:F1}°C";
+            }
+            if (_focuser.FocuserIsMoving)
+            {
+                focLabel += "   ⇄";
+            }
+            rows.Add(Layout.Builder.Text(focLabel, PanelFontSize, _focuser.FocuserIsMoving ? MovingText : HeaderText, TextAlign.Near, TextAlign.Center)
+                .RowH(BaseRowHeight));
+
+            // Jog row: [<<] [<] [>] [>>] -- coarse +/-100, fine +/-10 (matches the Live Session OTA panel).
+            rows.Add(Layout.Builder.HStack(
+                    JogButton("«", "FocCoarseIn", -100),
+                    JogButton("‹", "FocFineIn", -10),
+                    JogButton("›", "FocFineOut", 10),
+                    JogButton("»", "FocCoarseOut", 100))
+                .RowH(BaseRowHeight).WithGap(BaseGap * 0.6f));
+            rows.Add(Layout.Builder.Text("fine 10  /  coarse 100", PanelFontSize * 0.8f, DimText, TextAlign.Center, TextAlign.Center)
+                .RowH(BaseRowHeight * 0.7f));
         }
-        x += btn + gap;
-
-        var valueW = MeasureStripText(widthSample, fontPath, fontSize);
-        DrawText(value, fontPath, x, y, valueW, h, fontSize, enabled ? HeaderText : DimText, TextAlign.Center, TextAlign.Center);
-        x += valueW + gap;
-
-        DrawStepButton("+", x, btnY, btn, fontSize, fontPath, enabled);
-        if (enabled)
+        else
         {
-            RegisterClickable(x, btnY, btn, btn, new HitResult.ButtonHit(idPrefix + "Inc"), _ => onInc());
+            rows.Add(Layout.Builder.Text("No focuser connected", PanelFontSize, DimText, TextAlign.Near, TextAlign.Center)
+                .RowH(BaseRowHeight));
         }
-        return x + btn + padding;
+
+        var panelTree = Layout.Builder.VStack(rows.ToArray())
+            .Pad(BasePanelPad).WithGap(BaseGap).Bg(PanelBg);
+        RenderLayout(panelTree, panel, fontPath, dpiScale);
     }
 
-    private void DrawStepButton(string glyph, float x, float y, float size, float fontSize, string fontPath, bool enabled)
+    private static Layout.Node SectionHeader(string text)
+        => Layout.Builder.Text(text, PanelFontSize, SectionText, TextAlign.Near, TextAlign.Center).RowH(BaseRowHeight);
+
+    // "label [-] value [+]" as one fixed-height row. The -/+ leaves register clickables only when enabled; a
+    // click runs the action and GuiEventHandlerBase sets NeedsRedraw, so the new value shows next frame.
+    private Layout.Node Stepper(string label, string value, bool enabled, string idPrefix, Action onDec, Action onInc)
     {
-        FillRect(x, y, size, size, enabled ? StepBtnBg : StepBtnDisabledBg);
-        DrawText(glyph, fontPath, x, y, size, size, fontSize, enabled ? ButtonText : DimText, TextAlign.Center, TextAlign.Center);
+        var btnBg = enabled ? StepBtnBg : StepBtnDisabledBg;
+        var valueColor = enabled ? HeaderText : DimText;
+        var dec = Layout.Builder.Text("-", PanelFontSize, enabled ? ButtonText : DimText, TextAlign.Center, TextAlign.Center)
+            .WFixed(BaseRowHeight).HStar().Bg(btnBg)
+            .Clickable(enabled ? new HitResult.ButtonHit(idPrefix + "Dec") : null,
+                enabled ? (Action<InputModifier>)(_ => onDec()) : null);
+        var inc = Layout.Builder.Text("+", PanelFontSize, enabled ? ButtonText : DimText, TextAlign.Center, TextAlign.Center)
+            .WFixed(BaseRowHeight).HStar().Bg(btnBg)
+            .Clickable(enabled ? new HitResult.ButtonHit(idPrefix + "Inc") : null,
+                enabled ? (Action<InputModifier>)(_ => onInc()) : null);
+        return Layout.Builder.HStack(
+                Layout.Builder.Text(label, PanelFontSize, DimText, TextAlign.Near, TextAlign.Center).WFixed(52f).HStar(),
+                dec,
+                Layout.Builder.Text(value, PanelFontSize, valueColor, TextAlign.Center, TextAlign.Center).WStar().HStar(),
+                inc)
+            .RowH(BaseRowHeight).WithGap(BaseGap * 0.6f);
     }
 
-    private float MeasureStripText(string text, string fontPath, float fontSize)
-        => Renderer.MeasureText(text.AsSpan(), fontPath, fontSize).Width;
+    private Layout.Node JogButton(string glyph, string id, int steps)
+        => Layout.Builder.Text(glyph, PanelFontSize, ButtonText, TextAlign.Center, TextAlign.Center)
+            .WStar().HStar().Bg(JogBg)
+            .Clickable(new HitResult.ButtonHit(id), _ => Bus?.Post(new JogFocuserSignal(PlanetaryOtaIndex, steps)));
 }

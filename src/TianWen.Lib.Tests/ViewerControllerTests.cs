@@ -27,8 +27,9 @@ public class ViewerControllerTests
         var cache = Substitute.For<IDocumentCache>();
         var dialog = Substitute.For<IFileDialogHelper>();
         var factory = Substitute.For<IPlateSolverFactory>();
+        var timeProvider = new FakeTimeProviderWrapper();
         var logger = NullLogger<ViewerController>.Instance;
-        var controller = new ViewerController(state, cache, dialog, factory, logger);
+        var controller = new ViewerController(state, cache, dialog, factory, timeProvider, logger);
         return (controller, state, cache, dialog, factory);
     }
 
