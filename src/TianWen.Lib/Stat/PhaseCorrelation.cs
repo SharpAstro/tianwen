@@ -35,20 +35,80 @@ public static class PhaseCorrelation
     /// </param>
     public static Shift Estimate(ReadOnlySpan<float> reference, ReadOnlySpan<float> moving, int width, int height, bool applyWindow = true)
     {
-        if (!ComplexFft.IsPowerOfTwo(width) || !ComplexFft.IsPowerOfTwo(height))
+        ValidateTile(width, height);
+        if (reference.Length != width * height)
         {
-            throw new ArgumentException($"Phase correlation tile dimensions must each be a power of two, got {width}x{height}.");
+            throw new ArgumentException($"reference must be {width * height} samples ({width}x{height}).");
         }
 
+        // Equivalent to the precomputed-reference path below: build the reference spectrum, then correlate.
+        // Callers that hold a FIXED reference across many frames (e.g. GlobalAligner) should instead call
+        // PrepareReferenceSpectrum once and reuse it -- skipping this forward FFT per frame.
+        var referenceSpectrum = PrepareReferenceSpectrum(reference, width, height, applyWindow);
+        return Estimate(referenceSpectrum, moving, width, height, applyWindow);
+    }
+
+    /// <summary>
+    /// Forward-transforms a FIXED reference tile (optionally Hann-windowed) into the spectrum
+    /// <see cref="Estimate(ReadOnlySpan{Complex}, ReadOnlySpan{float}, int, int, bool)"/> consumes. Compute
+    /// it ONCE for a reference that is correlated against many moving tiles -- the reference's forward FFT
+    /// is identical every time, so recomputing it per frame is pure dead work. The returned array must not
+    /// be mutated (the Estimate overload reads it without modifying it) and <paramref name="applyWindow"/>
+    /// must match the value passed to that overload.
+    /// </summary>
+    public static Complex[] PrepareReferenceSpectrum(ReadOnlySpan<float> reference, int width, int height, bool applyWindow = true)
+    {
+        ValidateTile(width, height);
+        if (reference.Length != width * height)
+        {
+            throw new ArgumentException($"reference must be {width * height} samples ({width}x{height}).");
+        }
+
+        var spectrum = new Complex[width * height];
+        FillWindowed(reference, spectrum, width, height, applyWindow);
+        Fft2D.Forward(spectrum, width, height);
+        return spectrum;
+    }
+
+    /// <summary>
+    /// Phase correlation against a precomputed reference spectrum (from <see cref="PrepareReferenceSpectrum"/>).
+    /// Numerically identical to <see cref="Estimate(ReadOnlySpan{float}, ReadOnlySpan{float}, int, int, bool)"/>
+    /// but skips the reference's forward FFT (~half the per-frame transform work for a fixed reference).
+    /// <paramref name="applyWindow"/> must match the value used to build <paramref name="referenceSpectrum"/>.
+    /// </summary>
+    public static Shift Estimate(ReadOnlySpan<Complex> referenceSpectrum, ReadOnlySpan<float> moving, int width, int height, bool applyWindow = true)
+    {
+        ValidateTile(width, height);
         var n = width * height;
-        if (reference.Length != n || moving.Length != n)
+        if (referenceSpectrum.Length != n || moving.Length != n)
         {
-            throw new ArgumentException($"reference/moving must both be {n} samples ({width}x{height}).");
+            throw new ArgumentException($"referenceSpectrum/moving must both be {n} samples ({width}x{height}).");
         }
 
-        var f1 = new Complex[n];
+        // Forward-transform the moving tile into per-call scratch; the cross-power spectrum then overwrites
+        // it (the cached reference spectrum is never mutated).
         var f2 = new Complex[n];
+        FillWindowed(moving, f2, width, height, applyWindow);
+        Fft2D.Forward(f2, width, height);
 
+        // Normalised cross-power spectrum R = F1 * conj(F2) / |F1 * conj(F2)| (F1 = reference spectrum).
+        for (var i = 0; i < n; i++)
+        {
+            var c = referenceSpectrum[i] * Complex.Conjugate(f2[i]);
+            var mag = c.Magnitude;
+            f2[i] = mag > 1e-12 ? c / mag : Complex.Zero;
+        }
+
+        Fft2D.Inverse(f2, width, height);
+
+        return PeakShift(f2, width, height);
+    }
+
+    // Windows (or copies) a real tile into a complex buffer. The window multiply keeps the original
+    // operation order -- w = wx*wy first, then src*w -- so the precomputed-reference path is bit-identical
+    // to the single-call path (float multiply is not associative).
+    private static void FillWindowed(ReadOnlySpan<float> src, Complex[] dst, int width, int height, bool applyWindow)
+    {
         if (applyWindow)
         {
             // Separable Hann window, precomputed per axis.
@@ -60,39 +120,30 @@ public static class PhaseCorrelation
                 {
                     var i = (y * width) + x;
                     var w = wx[x] * wy[y];
-                    f1[i] = new Complex(reference[i] * w, 0);
-                    f2[i] = new Complex(moving[i] * w, 0);
+                    dst[i] = new Complex(src[i] * w, 0);
                 }
             }
         }
         else
         {
-            for (var i = 0; i < n; i++)
+            for (var i = 0; i < src.Length; i++)
             {
-                f1[i] = new Complex(reference[i], 0);
-                f2[i] = new Complex(moving[i], 0);
+                dst[i] = new Complex(src[i], 0);
             }
         }
+    }
 
-        Fft2D.Forward(f1, width, height);
-        Fft2D.Forward(f2, width, height);
-
-        // Normalised cross-power spectrum R = F1 * conj(F2) / |F1 * conj(F2)|.
-        for (var i = 0; i < n; i++)
-        {
-            var c = f1[i] * Complex.Conjugate(f2[i]);
-            var mag = c.Magnitude;
-            f1[i] = mag > 1e-12 ? c / mag : Complex.Zero;
-        }
-
-        Fft2D.Inverse(f1, width, height);
+    // Locates the correlation peak on the inverse-transformed surface and refines it to sub-pixel.
+    private static Shift PeakShift(Complex[] surface, int width, int height)
+    {
+        var n = width * height;
 
         // Integer peak over the real correlation surface.
         var peakIndex = 0;
         var peak = double.NegativeInfinity;
         for (var i = 0; i < n; i++)
         {
-            var v = f1[i].Real;
+            var v = surface[i].Real;
             if (v > peak)
             {
                 peak = v;
@@ -105,13 +156,13 @@ public static class PhaseCorrelation
 
         // Sub-pixel parabolic refinement with circular neighbours.
         var subX = ParabolicOffset(
-            f1[(py * width) + Wrap(px - 1, width)].Real,
-            f1[(py * width) + px].Real,
-            f1[(py * width) + Wrap(px + 1, width)].Real);
+            surface[(py * width) + Wrap(px - 1, width)].Real,
+            surface[(py * width) + px].Real,
+            surface[(py * width) + Wrap(px + 1, width)].Real);
         var subY = ParabolicOffset(
-            f1[(Wrap(py - 1, height) * width) + px].Real,
-            f1[(py * width) + px].Real,
-            f1[(Wrap(py + 1, height) * width) + px].Real);
+            surface[(Wrap(py - 1, height) * width) + px].Real,
+            surface[(py * width) + px].Real,
+            surface[(Wrap(py + 1, height) * width) + px].Real);
 
         // The correlation peak sits at -shift (mod N); wrap each index into [-N/2, N/2] then negate.
         var signedX = px <= width / 2 ? px : px - width;
@@ -120,6 +171,14 @@ public static class PhaseCorrelation
         var dy = -(signedY + subY);
 
         return new Shift(dx, dy, peak);
+    }
+
+    private static void ValidateTile(int width, int height)
+    {
+        if (!ComplexFft.IsPowerOfTwo(width) || !ComplexFft.IsPowerOfTwo(height))
+        {
+            throw new ArgumentException($"Phase correlation tile dimensions must each be a power of two, got {width}x{height}.");
+        }
     }
 
     private static double[] HannWindow(int length)
