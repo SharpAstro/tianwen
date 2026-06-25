@@ -84,6 +84,18 @@ internal static class SyntheticPlanetRenderer
         var body = blurSigma > 0.35 ? GaussianBlur(sharp, width, height, blurSigma) : sharp;
 
         // 3) Compose: sky background + body + (shot (+) read) noise, deterministic per noiseSeed.
+        return ComposeWithNoise(body, width, height, maxAdu, skyBackground, readNoise, noiseSeed, dest);
+    }
+
+    /// <summary>
+    /// Composes a (blurred) body buffer into the final frame: adds sky background + shot (+) read noise,
+    /// deterministic per <paramref name="noiseSeed"/>, clamped to [0, <paramref name="maxAdu"/>]. Shared by
+    /// the procedural disk and the image-based <see cref="JupiterTextureRenderer"/> so both noise identically.
+    /// </summary>
+    internal static float[,] ComposeWithNoise(
+        float[,] body, int width, int height, double maxAdu, double skyBackground, double readNoise,
+        int noiseSeed, float[,]? dest = null)
+    {
         var outArr = dest is not null && dest.GetLength(0) == height && dest.GetLength(1) == width
             ? dest
             : new float[height, width];
@@ -104,7 +116,7 @@ internal static class SyntheticPlanetRenderer
     }
 
     // Separable Gaussian blur with edge clamping. Kernel radius = ceil(3*sigma).
-    private static float[,] GaussianBlur(float[,] src, int width, int height, double sigma)
+    internal static float[,] GaussianBlur(float[,] src, int width, int height, double sigma)
     {
         var radius = (int)Math.Ceiling(3.0 * sigma);
         var kernel = new double[(2 * radius) + 1];

@@ -1365,8 +1365,19 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver, IV
     /// <summary>Planet drift across the virtual sensor in Y (px/s).</summary>
     internal double PlanetDriftPixelsPerSecY { get; set; } = 0.5;
 
-    /// <summary>Synthetic planet disk radius in pixels.</summary>
+    /// <summary>Synthetic planet disk radius in pixels. Used as the fallback disk size when no
+    /// <see cref="FocalLength"/> is configured (e.g. unit tests); otherwise the radius is derived
+    /// physically from the pixel scale + <see cref="SimJupiterArcsec"/>.</summary>
     internal double PlanetRadiusPixels { get; set; } = 70.0;
+
+    /// <summary>Jupiter's apparent equatorial diameter in arcsec (near opposition ~44-48"). Together with
+    /// the pixel scale (<see cref="PixelSizeX"/> + <see cref="FocalLength"/>) this sets the physically-correct
+    /// disk size; when <see cref="FocalLength"/> is unset (0) the renderer falls back to
+    /// <see cref="PlanetRadiusPixels"/>.</summary>
+    internal double SimJupiterArcsec { get; set; } = 44.0;
+
+    /// <summary>Telescope aperture in mm, for the diffraction-limited PSF (Phase 2). Default 200 mm (8").</summary>
+    internal double SimApertureMm { get; set; } = 200.0;
 
     /// <summary>Deterministic base seed for the per-frame seeing draw + pixel noise.</summary>
     internal int VideoBaseSeed { get; set; } = 1234;
@@ -1516,11 +1527,17 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver, IV
         var seeingRng = new Random(unchecked((VideoBaseSeed * 31) + frameIndex));
         var blurSigma = 0.6 + (2.4 * Math.Abs(NextGaussian(seeingRng)));
 
-        var array = SyntheticPlanetRenderer.Render(
+        // Physically-scaled disk: Jupiter's apparent diameter / the pixel scale (pixel size + focal length).
+        // Falls back to the fixed PlanetRadiusPixels when no focal length is configured (e.g. unit tests).
+        var pixelScale = FocalLength > 0 ? Astrometry.CoordinateUtils.PixelScaleArcsec(PixelSizeX, FocalLength) : 0.0;
+        var equatorialRadius = pixelScale > 0 ? (SimJupiterArcsec / 2.0) / pixelScale : PlanetRadiusPixels;
+
+        // Render the real Jupiter texture (NASA OPAL) scaled to that radius, drifting, with the seeing blur.
+        var array = JupiterTextureRenderer.Render(
             roiW, roiH,
             centerX: planetVirtualX - startX,
             centerY: planetVirtualY - startY,
-            radius: PlanetRadiusPixels,
+            equatorialRadius: equatorialRadius,
             blurSigma: blurSigma,
             maxAdu: MaxADU,
             noiseSeed: unchecked(VideoBaseSeed + frameIndex));

@@ -48,6 +48,11 @@
     <EmbeddedResource Include="Astrometry/Catalogs/pickles_sed.gs.gz" WithCulture="false" />
     <EmbeddedResource Include="Astrometry/Catalogs/sensor_qe.gs.gz" WithCulture="false" />
     <EmbeddedResource Include="Astrometry/Catalogs/simbad_merge.bin.gz" WithCulture="false" />
+    <!-- Fake planetary capture: NASA/ESA Hubble OPAL 2024 Jupiter (public domain), cropped to the disk
+         + stored as a gzipped raw RGB blob (8-byte LE width/height header + row-major RGB). The fake
+         camera's video path scales it to the correct angular size and runs it through the optical chain.
+         Source: https://science.nasa.gov/asset/hubble/jupiter-opal-2024/ -->
+    <EmbeddedResource Include="Devices/Fake/Data/jupiter.rgb.gz" WithCulture="false" />
     <!-- Catalogs migrated to the ASCII-separated .gs.gz format: keep the .json.lz on
          disk as preprocessor input but exclude it from the assembly so only the
          faster path ships. See docs/plans/catalog-binary-format.md. -->

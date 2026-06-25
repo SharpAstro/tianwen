@@ -332,7 +332,24 @@ free rect within hardware constraints, not a fixed list:
   origin stays driver-centred until the **Phase C** recenter loop pans it -- pan here positions the PiP/overlay
   SELECTION). `CurrentImageRect` was added to `ImageRendererBase` for the overlay.
 
-Remaining: (4d) fake `IVideoSimulationControls` test panel (defocus/seeing/noise/drift); then GOTO +
+**Image-based Jupiter simulation (started 2026-06-25).** The fake's procedural disk is replaced by a REAL
+Jupiter image (NASA/ESA Hubble OPAL 2024, public domain) put through the optical chain, so the fake is a
+physically-faithful lucky-imaging test rig. Phased:
+- **P1 DONE + tested:** `JupiterTextureRenderer` loads the embedded `jupiter.rgb.gz` (cropped disk, gzipped
+  raw RGB, 8-byte LE w/h header -- the repo's `.bin.gz` convention, zero new deps), scales the disk to the
+  physically-correct **equatorial radius** (`SimJupiterArcsec / pixelScale`, pixelScale from `PixelSizeX` +
+  `FocalLength`; falls back to `PlanetRadiusPixels` when no FL is configured, e.g. unit tests), applies
+  Jupiter's geometric oblateness (polar = 0.935 x equatorial), and reuses `SyntheticPlanetRenderer`'s seeing
+  blur + shot/read-noise compose (extracted to a shared `ComposeWithNoise`). `RenderVideoFrame` now calls it.
+  Output is mono luminance (Rec.709) -- the fake's existing 1-channel path. `SimApertureMm` added for P2.
+  `JupiterTextureRendererTests` + the existing `FakeCameraVideoTests` (COM / brightness / jog / stack) pass.
+- **P2 (next):** the PSF chain -- diffraction (Airy, from `SimApertureMm`) + per-frame seeing + defocus from
+  the fake focuser position (jog the focuser -> watch it sharpen).
+- **P3:** per-frame turbulence (tip-tilt + low-order warp) + exposure/gain-driven shot+read noise.
+- **P4:** `IVideoSimulationControls` (the 4d panel) to drive seeing / noise / turbulence / defocus live, plus
+  a colour (Bayer) emission mode so the stack debayers to a colour Jupiter.
+
+Remaining: P2-P4 above; (4d) the `IVideoSimulationControls` test panel folds into P4; then GOTO +
 Solve&Center, and Phase C (COM recenter + the deferred ROI drag-to-set + origin plumbing).
 
 ### SharpCap-informed UI redesign (user, 2026-06-24, with a SharpCap Pro reference shot)
