@@ -311,9 +311,29 @@ abort fast enough. **Fix (the cancellation token threaded + respected everywhere
 promptly (exit 0, no post-disconnect heartbeat spam, vs. the ~30 s "Not Responding" before). Intermittency
 made inspector ESC automation flaky, so a final confirm in the real close-the-window flow is welcome.
 
-Remaining: (4c) ROI PiP + `RoiConstraints` (queried from the camera) + draw-on-stream; (4d) fake
-`IVideoSimulationControls` test panel (defocus/seeing/noise/drift); then GOTO + Solve&Center, and Phase C
-(COM recenter).
+**Step 4c DONE + tested (2026-06-25): ROI PiP + `RoiConstraints` + draw-on-stream.** The ROI is now a
+free rect within hardware constraints, not a fixed list:
+- **New `RoiConstraints` / `RoiRect` Lib types** (`TianWen.Lib/Devices/RoiConstraints.cs`): step / alignment
+  (`WidthStep`/`HeightStep`/`OriginStepX`/`OriginStepY`) + min/max, with pure `Snap(RoiRect)` (size -> step,
+  origin -> step, clamp to sensor). `ICameraDriver.RoiConstraints` is a **default interface method** returning
+  a free step-1 rect over the sensor; `FakeCameraDriver` overrides it with ZWO-style 8 / 2 so the snap path is
+  exercised end-to-end. `RoiConstraintsTests` pins the math (16 cases).
+- **Queried from the connected camera off the render thread**: `SampleOTATelemetryAsync` snapshots the camera's
+  `CameraXSize/YSize` + `RoiConstraints` into `PreviewOTATelemetry` (sensor dims + constraints), so the picker
+  reflects the REAL camera pre-capture without ever touching the driver on the render thread (a fallback sensor
+  is used until a camera reports). `PlanetaryCaptureActions.ConfigureRoi` now snaps via `RoiConstraints.Snap`
+  (single source of truth).
+- **ROI section in the left panel** (`VkPlanetaryTab`): a **PiP** sensor-proportioned thumbnail with the red
+  ROI rectangle, size presets snapped to the constraints, `[<][>][^][v]` pan (snapped + clamped), and a
+  **`[x] Show ROI on image`** toggle that outlines the displayed frame (= the ROI crop) on the live stream
+  (clamped to the viewer area). Editing is idle-only; `Start` posts the snapped `_roi` size.
+- **Deferred by decision:** drag-to-set the ROI directly on the image (user chose PiP + controls; the drag
+  would conflict with the viewer's pan/zoom and needs a mode toggle), and pan-into-capture-origin (the readout
+  origin stays driver-centred until the **Phase C** recenter loop pans it -- pan here positions the PiP/overlay
+  SELECTION). `CurrentImageRect` was added to `ImageRendererBase` for the overlay.
+
+Remaining: (4d) fake `IVideoSimulationControls` test panel (defocus/seeing/noise/drift); then GOTO +
+Solve&Center, and Phase C (COM recenter + the deferred ROI drag-to-set + origin plumbing).
 
 ### SharpCap-informed UI redesign (user, 2026-06-24, with a SharpCap Pro reference shot)
 

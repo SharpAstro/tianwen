@@ -2,6 +2,7 @@ using System;
 using System.Collections.Immutable;
 using DIR.Lib;
 using SdlVulkan.Renderer;
+using TianWen.Lib.Devices;
 using TianWen.UI.Abstractions;
 using TianWen.UI.Shared;
 
@@ -53,6 +54,11 @@ public sealed class VkPlanetaryTab : VkImageRenderer, IPlanetaryViewWidget
     private static readonly RGBAColor32 StepBtnBg = new RGBAColor32(0x2c, 0x2c, 0x33, 0xff);
     private static readonly RGBAColor32 StepBtnDisabledBg = new RGBAColor32(0x1c, 0x1c, 0x20, 0xff);
     private static readonly RGBAColor32 JogBg = new RGBAColor32(0x2a, 0x2a, 0x3a, 0xff);
+    // ROI picture-in-picture + the red ROI rectangle (PiP sensor thumbnail + the on-stream overlay).
+    private static readonly RGBAColor32 PipSensorBg = new RGBAColor32(0x10, 0x12, 0x18, 0xff);
+    private static readonly RGBAColor32 PipSensorBorder = new RGBAColor32(0x44, 0x4a, 0x5a, 0xff);
+    private static readonly RGBAColor32 RoiColor = new RGBAColor32(0xff, 0x40, 0x40, 0xff);
+    private static readonly RGBAColor32 CheckOnBg = new RGBAColor32(0x1e, 0x5e, 0x2e, 0xff);
 
     // Capture settings, edited by the panel steppers and posted on Start. Mutated only on the render thread
     // (in click handlers dispatched synchronously from input), so plain fields are fine.
@@ -63,9 +69,34 @@ public sealed class VkPlanetaryTab : VkImageRenderer, IPlanetaryViewWidget
     private const int GainMax = 1000;
     private int _gain = 100;
 
-    private static readonly (int W, int H)[] RoiPresets =
-        [(320, 240), (512, 512), (640, 320), (640, 480), (800, 600), (1024, 768), (1280, 960)];
-    private int _roiIdx = 2;                      // 640x320
+    // ROI is a FREE rect within the camera's hardware constraints, not a fixed list -- these presets are just
+    // snapped-to-constraint convenience sizes the size stepper cycles. The chosen rect (_roi) is snapped to the
+    // connected camera's RoiConstraints (step / alignment / sensor bounds) every frame.
+    private static readonly (int W, int H)[] RoiSizePresets =
+        [(320, 240), (512, 512), (640, 360), (640, 480), (800, 600), (1024, 768), (1280, 960)];
+    private int _roiSizeIdx = 2;                  // 640x360
+
+    // Fallback sensor when no camera is connected yet, so the PiP still renders a plausible frame. A typical
+    // small planetary CMOS (e.g. IMX585-class); replaced by the real sensor dims the moment a camera reports.
+    private const int FallbackSensorW = 1936;
+    private const int FallbackSensorH = 1096;
+
+    // The current ROI selection (origin + snapped size), the sensor it was snapped against, and whether the
+    // ROI rectangle is overlaid on the live stream. Render-thread only (mutated in click handlers).
+    private RoiRect _roi;
+    private RoiConstraints _roiConstraints = RoiConstraints.ForSensor(FallbackSensorW, FallbackSensorH);
+    private int _sensorW = FallbackSensorW;
+    private int _sensorH = FallbackSensorH;
+    private bool _roiInitialised;
+    private bool _roiOverlay = true;              // draw the ROI extent on the live stream
+    private RectF32 _viewerRect;                  // the viewer area this frame (to clamp the on-stream overlay)
+
+    // PiP drag: the sensor-thumbnail rect + sensor->pixel scale captured in DrawRoiPip, so HandleInput can
+    // hit-test the PiP and map the cursor back to sensor coords to reposition the ROI. Drag is idle-only.
+    private RectF32 _pipSensorRect;
+    private float _pipScale;
+    private bool _pipDragging;
+    private bool _capturing;                      // mirrors controller.IsCapturing, for the HandleInput gate
 
     // The active OTA's focuser telemetry, refreshed each frame by RenderPlanetary (drives the focuser readout
     // + whether the jog row is shown). Render-thread only.
@@ -136,10 +167,17 @@ public sealed class VkPlanetaryTab : VkImageRenderer, IPlanetaryViewWidget
             _configured = true;
         }
 
+        // Resolve the ROI rules + sensor dims from the OTA telemetry snapshot (populated off-thread from the
+        // connected camera) -- so the picker reflects the REAL camera's constraints, pre-capture, without ever
+        // touching the driver on the render thread. Falls back to a plausible sensor before a camera reports.
+        _capturing = controller.IsCapturing; // mirrored for the PiP-drag gate in HandleInput (idle-only)
+        ResolveAndEnsureRoi();
+
         var panelW = MathF.Min(BasePanelWidth * dpiScale, contentRect.Width * 0.5f);
         var panelRect = new RectF32(contentRect.X, contentRect.Y, panelW, contentRect.Height);
         var viewerRect = new RectF32(contentRect.X + panelW, contentRect.Y,
             MathF.Max(0f, contentRect.Width - panelW), contentRect.Height);
+        _viewerRect = viewerRect;
 
         // The viewer arranges its whole chrome (toolbar / image / info panel / status bar) within this rect.
         SetContentRegion(viewerRect);
@@ -156,6 +194,14 @@ public sealed class VkPlanetaryTab : VkImageRenderer, IPlanetaryViewWidget
         // base.Render calls BeginFrame() (which clears the clickable tracker) before drawing the viewer
         // chrome, so the panel's clickables MUST be registered AFTER this call to survive.
         Render(source, state);
+
+        // The ROI overlay + panel both draw on top of the rendered viewer via FillRect (same as the panel),
+        // so they survive Render. The overlay outlines the displayed frame: the live stream IS the ROI crop,
+        // so the ROI rect maps to the whole displayed image (clamped to the viewer area when zoomed in).
+        if (_roiOverlay && source is not null)
+        {
+            DrawRoiOnStream(dpiScale, fontPath);
+        }
 
         RenderControlPanel(controller, panelRect, dpiScale, fontPath);
     }
@@ -193,13 +239,12 @@ public sealed class VkPlanetaryTab : VkImageRenderer, IPlanetaryViewWidget
                     Bus?.Post(new StartVideoCaptureSignal(
                         ExposureMs: ExposurePresetsMs[_exposureIdx],
                         Gain: (short)_gain,
-                        RoiWidth: RoiPresets[_roiIdx].W,
-                        RoiHeight: RoiPresets[_roiIdx].H));
+                        RoiWidth: _roi.Width,
+                        RoiHeight: _roi.Height));
                 }
             });
 
         var exposureMs = ExposurePresetsMs[_exposureIdx];
-        var roi = RoiPresets[_roiIdx];
 
         var rows = ImmutableArray.CreateBuilder<Layout.Node>();
         rows.Add(SectionHeader("CAPTURE"));
@@ -212,14 +257,31 @@ public sealed class VkPlanetaryTab : VkImageRenderer, IPlanetaryViewWidget
         rows.Add(Stepper("Gain", _gain.ToString(), canEdit, "Gain",
             () => _gain = Math.Max(0, _gain - GainStep),
             () => _gain = Math.Min(GainMax, _gain + GainStep)));
-        rows.Add(Stepper("ROI", $"{roi.W}x{roi.H}", canEdit, "Roi",
-            () => _roiIdx = Math.Max(0, _roiIdx - 1),
-            () => _roiIdx = Math.Min(RoiPresets.Length - 1, _roiIdx + 1)));
         if (capturing)
         {
             var readout = $"{controller.MeasuredFps:F0} fps   {controller.FramesReceived} frm   {controller.DroppedFrames} drop";
             rows.Add(Layout.Builder.Text(readout, PanelFontSize * 0.85f, HeaderText, TextAlign.Near, TextAlign.Center).RowH(BaseRowHeight));
         }
+
+        // --- Region of Interest section: PiP sensor thumbnail + the ROI rect, size presets (snapped to the
+        // camera's RoiConstraints), pan, and the on-stream overlay toggle. Editing is idle-only (the size is
+        // applied on the next Start; the readout origin is centred by the driver until the Phase-C recenter
+        // loop pans it -- pan here positions the SELECTION shown in the PiP + overlay).
+        rows.Add(Layout.Builder.Spacer().RowH(BaseGap));
+        rows.Add(Layout.Builder.Spacer().RowH(1f).Bg(Divider));
+        rows.Add(SectionHeader("REGION (ROI)"));
+        rows.Add(Layout.Builder.Fill(key: "RoiPip").RowH(BaseRowHeight * 3f));
+        rows.Add(Stepper("Size", $"{_roi.Width}x{_roi.Height}", canEdit, "RoiSize",
+            () => SetRoiSize(_roiSizeIdx - 1),
+            () => SetRoiSize(_roiSizeIdx + 1)));
+        rows.Add(Layout.Builder.HStack(
+                Layout.Builder.Text("Pan", PanelFontSize, DimText, TextAlign.Near, TextAlign.Center).WFixed(40f).HStar(),
+                RoiPanButton("◀", "RoiPanLeft", canEdit, -1, 0),
+                RoiPanButton("▶", "RoiPanRight", canEdit, 1, 0),
+                RoiPanButton("▲", "RoiPanUp", canEdit, 0, -1),
+                RoiPanButton("▼", "RoiPanDown", canEdit, 0, 1))
+            .RowH(BaseRowHeight).WithGap(BaseGap * 0.6f));
+        rows.Add(OverlayToggleRow());
 
         // --- Focuser section (reuses JogFocuserSignal -- the same path the Live Session OTA panel posts) ---
         rows.Add(Layout.Builder.Spacer().RowH(BaseGap));
@@ -257,7 +319,9 @@ public sealed class VkPlanetaryTab : VkImageRenderer, IPlanetaryViewWidget
 
         var panelTree = Layout.Builder.VStack(rows.ToArray())
             .Pad(BasePanelPad).WithGap(BaseGap).Bg(PanelBg);
-        RenderLayout(panelTree, panel, fontPath, dpiScale);
+        // The panel's only Fill leaf is the ROI PiP, so the draw callback unconditionally paints it.
+        RenderLayout(panelTree, panel, fontPath, dpiScale,
+            drawFill: (_, r) => DrawRoiPip(r, dpiScale, fontPath));
     }
 
     private static Layout.Node SectionHeader(string text)
@@ -289,4 +353,197 @@ public sealed class VkPlanetaryTab : VkImageRenderer, IPlanetaryViewWidget
         => Layout.Builder.Text(glyph, PanelFontSize, ButtonText, TextAlign.Center, TextAlign.Center)
             .WStar().HStar().Bg(JogBg)
             .Clickable(new HitResult.ButtonHit(id), _ => Bus?.Post(new JogFocuserSignal(PlanetaryOtaIndex, steps)));
+
+    // --- ROI selection (4c) -------------------------------------------------------------------------------
+
+    // Resolve the sensor dims + ROI constraints from the OTA telemetry snapshot (off-thread populated, so the
+    // render thread never touches the driver), falling back to a plausible sensor until a camera reports. The
+    // ROI is (re)centred on first use or a sensor change, and otherwise re-snapped so it stays legal if the
+    // constraints refresh. Render-thread only.
+    private void ResolveAndEnsureRoi()
+    {
+        int sw, sh;
+        RoiConstraints c;
+        if (_focuser.CameraConnected && _focuser.SensorWidth > 0 && _focuser.SensorHeight > 0)
+        {
+            sw = _focuser.SensorWidth;
+            sh = _focuser.SensorHeight;
+            // A connected camera always reports valid constraints (the DIM default is a free rect over the
+            // sensor); guard against an all-zero default just in case the snapshot predates the camera read.
+            c = _focuser.RoiConstraints.MaxWidth > 0 ? _focuser.RoiConstraints : RoiConstraints.ForSensor(sw, sh);
+        }
+        else
+        {
+            sw = FallbackSensorW;
+            sh = FallbackSensorH;
+            c = RoiConstraints.ForSensor(sw, sh);
+        }
+
+        _roiConstraints = c;
+        var sensorChanged = sw != _sensorW || sh != _sensorH;
+        _sensorW = sw;
+        _sensorH = sh;
+
+        if (!_roiInitialised || sensorChanged)
+        {
+            var p = RoiSizePresets[_roiSizeIdx];
+            _roi = c.Snap(RoiRect.Centered(sw, sh, p.W, p.H));
+            _roiInitialised = true;
+        }
+        else
+        {
+            _roi = c.Snap(_roi); // keep it legal against the (possibly refreshed) constraints
+        }
+    }
+
+    // Cycle the size preset, snapping to the current constraints; keep the current origin (Snap re-clamps so
+    // the new size still fits the sensor).
+    private void SetRoiSize(int idx)
+    {
+        _roiSizeIdx = Math.Clamp(idx, 0, RoiSizePresets.Length - 1);
+        var p = RoiSizePresets[_roiSizeIdx];
+        _roi = _roiConstraints.Snap(new RoiRect(_roi.X, _roi.Y, p.W, p.H));
+    }
+
+    // Pan the ROI origin by ~5% of the sensor per click (>= one origin step), then snap to alignment + bounds.
+    private void PanRoi(int dirX, int dirY)
+    {
+        var dx = dirX * Math.Max(_roiConstraints.OriginStepX, _sensorW / 20);
+        var dy = dirY * Math.Max(_roiConstraints.OriginStepY, _sensorH / 20);
+        _roi = _roiConstraints.Snap(new RoiRect(_roi.X + dx, _roi.Y + dy, _roi.Width, _roi.Height));
+    }
+
+    private Layout.Node RoiPanButton(string glyph, string id, bool enabled, int dirX, int dirY)
+        => Layout.Builder.Text(glyph, PanelFontSize, enabled ? ButtonText : DimText, TextAlign.Center, TextAlign.Center)
+            .WStar().HStar().Bg(enabled ? JogBg : StepBtnDisabledBg)
+            .Clickable(enabled ? new HitResult.ButtonHit(id) : null,
+                enabled ? (Action<InputModifier>)(_ => PanRoi(dirX, dirY)) : null);
+
+    // "[x] Show ROI on image" -- toggles the on-stream overlay. Allowed any time (a display toggle, not a
+    // capture setting), so it is not gated on the idle state like the steppers.
+    private Layout.Node OverlayToggleRow()
+    {
+        var label = (_roiOverlay ? "[x] " : "[ ] ") + "Show ROI on image";
+        return Layout.Builder.Text(label, PanelFontSize * 0.9f, _roiOverlay ? HeaderText : DimText, TextAlign.Near, TextAlign.Center)
+            .RowH(BaseRowHeight).Bg(_roiOverlay ? CheckOnBg : StepBtnBg)
+            .Clickable(new HitResult.ButtonHit("RoiOverlayToggle"), _ => _roiOverlay = !_roiOverlay);
+    }
+
+    // The PiP: a sensor-proportioned thumbnail (dark box) with the red ROI rectangle drawn at its mapped
+    // position -- the primary "where on the sensor does my high-speed crop sit" visualisation.
+    private void DrawRoiPip(RectF32 area, float dpiScale, string fontPath)
+    {
+        var inset = 4f * dpiScale;
+        var availW = area.Width - 2f * inset;
+        var availH = area.Height - 2f * inset;
+        if (_sensorW <= 0 || _sensorH <= 0 || availW <= 1f || availH <= 1f)
+        {
+            return;
+        }
+
+        var s = MathF.Min(availW / _sensorW, availH / _sensorH);
+        var boxW = _sensorW * s;
+        var boxH = _sensorH * s;
+        var boxX = area.X + (area.Width - boxW) * 0.5f;
+        var boxY = area.Y + (area.Height - boxH) * 0.5f;
+        FillRect(boxX, boxY, boxW, boxH, PipSensorBg);
+        StrokeRect(boxX, boxY, boxW, boxH, MathF.Max(1f, dpiScale), PipSensorBorder);
+
+        // Remember the sensor box + scale so HandleInput can map a drag in the PiP back to sensor coords.
+        _pipSensorRect = new RectF32(boxX, boxY, boxW, boxH);
+        _pipScale = s;
+
+        var rx = boxX + _roi.X * s;
+        var ry = boxY + _roi.Y * s;
+        var rw = MathF.Max(1f, _roi.Width * s);
+        var rh = MathF.Max(1f, _roi.Height * s);
+        StrokeRect(rx, ry, rw, rh, MathF.Max(1.5f, 1.5f * dpiScale), RoiColor);
+    }
+
+    // The on-stream overlay: outline the displayed frame (= the ROI crop) + a "ROI WxH" tag, clamped to the
+    // viewer area so a zoomed-in image's overflow doesn't paint over the panel / chrome.
+    private void DrawRoiOnStream(float dpiScale, string fontPath)
+    {
+        var ir = CurrentImageRect;
+        if (ir.Width <= 1f || ir.Height <= 1f)
+        {
+            return;
+        }
+
+        var l = MathF.Max(ir.X, _viewerRect.X);
+        var t = MathF.Max(ir.Y, _viewerRect.Y);
+        var r = MathF.Min(ir.X + ir.Width, _viewerRect.X + _viewerRect.Width);
+        var b = MathF.Min(ir.Y + ir.Height, _viewerRect.Y + _viewerRect.Height);
+        if (r <= l || b <= t)
+        {
+            return;
+        }
+
+        StrokeRect(l, t, r - l, b - t, MathF.Max(2f, 2f * dpiScale), RoiColor);
+        DrawText($"ROI {_roi.Width}x{_roi.Height}", fontPath,
+            l + 4f * dpiScale, t + 3f * dpiScale, r - l, BaseRowHeight * dpiScale,
+            PanelFontSize * 0.8f * dpiScale, RoiColor, TextAlign.Near, TextAlign.Near);
+    }
+
+    // A rectangle outline drawn as four thin FillRects (so it composites on top of the rendered viewer, like
+    // the panel -- DrawLineOverlay is for the in-Render overlay layer, which is already closed by this point).
+    private void StrokeRect(float x, float y, float w, float h, float t, RGBAColor32 color)
+    {
+        if (w <= 0f || h <= 0f)
+        {
+            return;
+        }
+
+        t = MathF.Min(t, MathF.Min(w, h));
+        FillRect(x, y, w, t, color);             // top
+        FillRect(x, y + h - t, w, t, color);     // bottom
+        FillRect(x, y, t, h, color);             // left
+        FillRect(x + w - t, y, t, h, color);     // right
+    }
+
+    /// <summary>
+    /// Intercepts ROI drags inside the PiP before the base viewer. A press inside the PiP sensor thumbnail
+    /// begins a drag that re-centres the ROI on the cursor (mapped to sensor coords + snapped); without this
+    /// the press would fall through to the base and start an image pan (the PiP Fill leaf has no clickable).
+    /// Idle-only -- the ROI is fixed during a running capture, matching the disabled pan/size steppers. All
+    /// other events defer to the base (toolbar / WB + wavelet sliders / pan / zoom).
+    /// </summary>
+    public override bool HandleInput(InputEvent evt)
+    {
+        switch (evt)
+        {
+            case InputEvent.MouseDown(var px, var py, _, _, _) when !_capturing && InPipSensor(px, py):
+                _pipDragging = true;
+                SetRoiCentreFromPip(px, py);
+                return true;
+            case InputEvent.MouseMove(var px, var py) when _pipDragging:
+                SetRoiCentreFromPip(px, py);
+                return true;
+            case InputEvent.MouseUp(_, _, _) when _pipDragging:
+                _pipDragging = false;
+                return true;
+        }
+
+        return base.HandleInput(evt);
+    }
+
+    private bool InPipSensor(float px, float py)
+        => _pipScale > 0f
+           && px >= _pipSensorRect.X && px < _pipSensorRect.X + _pipSensorRect.Width
+           && py >= _pipSensorRect.Y && py < _pipSensorRect.Y + _pipSensorRect.Height;
+
+    // Map a cursor position in the PiP to sensor coords and centre the ROI on it (snapped + clamped).
+    private void SetRoiCentreFromPip(float px, float py)
+    {
+        if (_pipScale <= 0f)
+        {
+            return;
+        }
+
+        var sx = (px - _pipSensorRect.X) / _pipScale;
+        var sy = (py - _pipSensorRect.Y) / _pipScale;
+        var x = (int)MathF.Round(sx - _roi.Width / 2f);
+        var y = (int)MathF.Round(sy - _roi.Height / 2f);
+        _roi = _roiConstraints.Snap(new RoiRect(x, y, _roi.Width, _roi.Height));
+    }
 }

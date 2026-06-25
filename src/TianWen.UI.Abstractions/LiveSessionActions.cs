@@ -170,6 +170,9 @@ namespace TianWen.UI.Abstractions
             var usesGainMode = false;
             short gainMin = 0, gainMax = 0, currentGain = 0;
             var gainModes = ImmutableArray<string>.Empty;
+            var sensorWidth = 0;
+            var sensorHeight = 0;
+            var roiConstraints = default(RoiConstraints);
             var cameraConnected = hub.TryGetConnectedDriver<ICameraDriver>(ota.Camera, out var camera);
             if (cameraConnected && camera is not null)
             {
@@ -186,6 +189,11 @@ namespace TianWen.UI.Abstractions
                 {
                     gainModes = [.. gains];
                 }
+                // Sensor geometry + ROI step/alignment rules for the planetary ROI picker (synchronous reads;
+                // RoiConstraints is the default free rect unless the driver overrides with its vendor rule).
+                sensorWidth = camera.CameraXSize;
+                sensorHeight = camera.CameraYSize;
+                roiConstraints = camera.RoiConstraints;
             }
 
             // Focuser
@@ -239,7 +247,10 @@ namespace TianWen.UI.Abstractions
                 GainMin: gainMin,
                 GainMax: gainMax,
                 CurrentGain: currentGain,
-                GainModes: gainModes);
+                GainModes: gainModes,
+                SensorWidth: sensorWidth,
+                SensorHeight: sensorHeight,
+                RoiConstraints: roiConstraints);
         }
 
         /// <summary>

@@ -115,6 +115,15 @@ public interface ICameraDriver : IDeviceDriver
     /// </summary>
     int CameraYSize { get; }
 
+    /// <summary>
+    /// The hardware constraints on the sub-frame / region-of-interest rectangle (step / alignment / min /
+    /// max) in the <see cref="NumX"/> coordinate space. The default is a free rect over the full sensor
+    /// (any size, any origin -- ASCOM / Alpaca / the universal fallback); cameras with alignment rules
+    /// (ZWO width % 8 / height % 2, QHY, ...) override. The planetary ROI picker snaps the user's chosen
+    /// rect to this and clamps it to the sensor, so the UI never encodes a per-vendor rule.
+    /// </summary>
+    RoiConstraints RoiConstraints => Devices.RoiConstraints.ForSensor(CameraXSize, CameraYSize);
+
     ValueTask<string?> GetReadoutModeAsync(CancellationToken cancellationToken = default);
 
     ValueTask SetReadoutModeAsync(string? value, CancellationToken cancellationToken = default);

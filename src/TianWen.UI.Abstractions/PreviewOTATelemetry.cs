@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using TianWen.Lib.Devices;
 
 namespace TianWen.UI.Abstractions
 {
@@ -26,7 +27,13 @@ namespace TianWen.UI.Abstractions
         short GainMin = 0,
         short GainMax = 0,
         short CurrentGain = 0,
-        ImmutableArray<string> GainModes = default)
+        ImmutableArray<string> GainModes = default,
+        // Sensor geometry + ROI rules of the connected camera, snapshotted here so the planetary ROI picker
+        // (PiP + size presets) reads the REAL constraints off the render thread without touching the driver.
+        // SensorWidth <= 0 means "no camera connected / not yet sampled" -> the picker uses a fallback.
+        int SensorWidth = 0,
+        int SensorHeight = 0,
+        RoiConstraints RoiConstraints = default)
     {
         /// <summary>Default instance with NaN temperatures and no connections.</summary>
         public static readonly PreviewOTATelemetry Unknown = new PreviewOTATelemetry(
