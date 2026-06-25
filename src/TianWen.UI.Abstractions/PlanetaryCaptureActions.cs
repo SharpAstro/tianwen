@@ -11,10 +11,12 @@ namespace TianWen.UI.Abstractions
     {
         /// <summary>
         /// Configures a camera's sub-frame (ROI) for planetary video: bin 1 + a <paramref name="width"/> x
-        /// <paramref name="height"/> readout, each axis clamped to the sensor. Sets only the readout SIZE
-        /// (NumX/NumY); the readout origin is left at the driver default for now -- the fake camera centres
-        /// its synthetic disk in the ROI internally, and native cameras keep their default origin until the
-        /// Phase-C recenter loop pans them. Returns the applied (width, height) after clamping.
+        /// <paramref name="height"/> readout SIZE, <b>snapped to the camera's <see cref="RoiConstraints"/></b>
+        /// (step / alignment / min / max) -- the single source of truth, so e.g. a ZWO width rounds to a
+        /// multiple of 8 and a height to a multiple of 2. Sets only the size (NumX/NumY); the readout origin
+        /// is left at the driver default for now -- the fake centres its synthetic disk in the ROI, and native
+        /// cameras keep their default origin until the Phase-C recenter loop pans them. Returns the applied
+        /// (width, height) after snapping.
         /// </summary>
         public static (int Width, int Height) ConfigureRoi(ICameraDriver camera, int width, int height)
         {
@@ -29,10 +31,13 @@ namespace TianWen.UI.Abstractions
                 camera.BinY = 1;
             }
 
-            // NumX/NumY must stay strictly below the (unbinned) sensor extent; clamp each axis independently
-            // so a non-square ROI (e.g. 640x320) is honoured rather than squared off.
-            var w = Math.Clamp(width, 16, Math.Max(16, camera.CameraXSize - 2));
-            var h = Math.Clamp(height, 16, Math.Max(16, camera.CameraYSize - 2));
+            // Snap the requested size to the camera's real ROI rule (free step-1 default for ASCOM / Alpaca;
+            // the fake reports ZWO-style 8 / 2). Snap leaves the origin at 0 and the fake recentres the disk
+            // internally, so only the size is applied here. Keep the size strictly below the sensor extent so
+            // the NumX/NumY setters (which validate value < CameraXSize) accept it.
+            var snapped = camera.RoiConstraints.Snap(new RoiRect(0, 0, width, height));
+            var w = Math.Min(snapped.Width, Math.Max(16, camera.CameraXSize - camera.RoiConstraints.WidthStep));
+            var h = Math.Min(snapped.Height, Math.Max(16, camera.CameraYSize - camera.RoiConstraints.HeightStep));
             camera.NumX = w;
             camera.NumY = h;
             return (w, h);

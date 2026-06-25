@@ -398,6 +398,13 @@ namespace TianWen.UI.Abstractions
         private ImmutableArray<Layout.ArrangedNode<float>> _layoutArranged;
         private ImagePlacement _placement;
 
+        /// <summary>
+        /// The on-screen rectangle the image is currently drawn into (fit / zoom / pan applied), in surface
+        /// pixels. Empty (zero size) before the first frame. Exposed so a subclass can draw an overlay aligned
+        /// to the displayed image -- e.g. the planetary ROI rectangle on the live stream.
+        /// </summary>
+        protected RectF32 CurrentImageRect => new RectF32(_placement.OffsetX, _placement.OffsetY, _placement.DrawW, _placement.DrawH);
+
         // SER transport bar geometry, computed in ComputeLayout (default/empty for a still image): the
         // whole strip and, within it, the scrub track rect that maps cursor-X <-> frame index.
         private RectF32 _transportRect;
@@ -502,9 +509,31 @@ namespace TianWen.UI.Abstractions
             var scale = state.Zoom;
             var drawW = ImageWidth * scale;
             var drawH = ImageHeight * scale;
-            var offsetX = area.X + (area.Width - drawW) / 2f + state.PanOffset.X;
-            var offsetY = area.Y + (area.Height - drawH) / 2f + state.PanOffset.Y;
+            var centeredX = area.X + (area.Width - drawW) / 2f;
+            var centeredY = area.Y + (area.Height - drawH) / 2f;
+            var offsetX = centeredX + state.PanOffset.X;
+            var offsetY = centeredY + state.PanOffset.Y;
+
+            // Confine the image to its viewport: zoomed IN (image larger than the area) it must stay covering
+            // the area; zoomed OUT (smaller) it must stay fully inside. So a drag can't fling the image off
+            // into the chrome / off-screen. Both cases reduce to clamping the top-left into the slack range.
+            offsetX = ConfineToViewport(offsetX, area.X, area.Width, drawW);
+            offsetY = ConfineToViewport(offsetY, area.Y, area.Height, drawH);
+
+            // Write the clamped position back so a drag held against the edge doesn't accumulate hidden offset
+            // (the image would otherwise "stick" until you dragged all the slack back).
+            state.PanOffset = (offsetX - centeredX, offsetY - centeredY);
             _placement = new ImagePlacement(offsetX, offsetY, drawW, drawH, scale);
+        }
+
+        // Clamp a top-left coordinate so a draw of <paramref name="drawSize"/> stays confined to the viewport
+        // axis [areaStart, areaStart + areaSize]: covering it when larger, inside it when smaller.
+        private static float ConfineToViewport(float offset, float areaStart, float areaSize, float drawSize)
+        {
+            var slack = areaSize - drawSize;
+            var lo = areaStart + MathF.Min(0f, slack);
+            var hi = areaStart + MathF.Max(0f, slack);
+            return Math.Clamp(offset, lo, hi);
         }
 
         /// <summary>
@@ -2970,8 +2999,16 @@ namespace TianWen.UI.Abstractions
                 return true; // OnClick already handled it (e.g. HistogramLog, PlayPause)
             }
 
-            // No hit — start panning
-            ViewerActions.BeginPan(state, px, py);
+            // No hit — start panning, but ONLY when the press is inside the image viewport. Otherwise a press
+            // in the side panels / toolbar gaps / letterbox would grab the image and pan it (e.g. clicking the
+            // planetary control panel must not drag the stream). Confines the drag to its viewport.
+            var imgArea = _layout.ImageArea;
+            var inViewport = px >= imgArea.X && px < imgArea.X + imgArea.Width
+                          && py >= imgArea.Y && py < imgArea.Y + imgArea.Height;
+            if (inViewport)
+            {
+                ViewerActions.BeginPan(state, px, py);
+            }
             return false;
         }
 

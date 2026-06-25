@@ -1375,6 +1375,19 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver, IV
     public bool CanVideoCapture => true;
 
     /// <inheritdoc/>
+    // Report ZWO-style alignment (width % 8 == 0, height % 2 == 0, origin on the same steps) so the ROI
+    // picker's snap + clamp path is exercised end-to-end against a fake -- not the free step-1 default.
+    public RoiConstraints RoiConstraints => new(
+        MaxWidth: CameraXSize,
+        MaxHeight: CameraYSize,
+        MinWidth: 16,
+        MinHeight: 16,
+        WidthStep: 8,
+        HeightStep: 2,
+        OriginStepX: 8,
+        OriginStepY: 2);
+
+    /// <inheritdoc/>
     public bool CanJogRoi => Volatile.Read(ref _videoActive) == 1;
 
     /// <inheritdoc/>
