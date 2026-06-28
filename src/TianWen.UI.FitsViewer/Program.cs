@@ -270,6 +270,7 @@ using var debugInspector = DebugInspector.Attach(loop, new DebugInspectorOptions
     AppName = "FitsViewer",
     WindowTitle = () => "Fits viewer",
     GetRegions = () => imageRenderer.GetRegisteredRegions(),
+    GetLayout = () => imageRenderer.GetCapturedLayout(),
 });
 #endif
 
