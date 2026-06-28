@@ -1,6 +1,7 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Planetary;
@@ -64,6 +65,14 @@ public sealed class LiveStackPreviewSource : IPreviewSource, IDisposable, IAsync
     private bool _inFlightIsStack;      // the in-flight task is a (slow) window stack, eligible for sharpen-preempt
     private bool _disposed;
 
+    // Defensive breadcrumbs (render thread only): time each background stack so a wedged one is visible in the
+    // log (the prime suspect if the live view ever stalls -- "start" with no "done"), and WARN once if a stack
+    // overruns. Optional logger (null = no logging) so the SER-playback callers are unaffected.
+    private readonly ILogger? _logger;
+    private long _stackStartTimestamp;  // GetTimestamp() when the in-flight _stackTask started
+    private bool _stallWarned;          // one-shot WARN guard for the current in-flight task
+    private const double StackStallWarnMs = 2000.0; // a stack in flight longer than this is logged as a possible stall
+
     // Clock for the bounded drain in DisposeAsync. Required and always threaded through (never an implicit
     // system clock): a test's FakeTimeProvider then controls the timeout, and production resolves the real
     // ITimeProvider from DI. We read its BCL TimeProvider via .System for WaitAsync(TimeSpan, TimeProvider).
@@ -88,7 +97,7 @@ public sealed class LiveStackPreviewSource : IPreviewSource, IDisposable, IAsync
     /// </summary>
     public LiveStackPreviewSource(
         IPlanetaryFrameStream stream, string path, ITimeProvider timeProvider,
-        RollingWindowOptions? options = null, bool ownsStream = true)
+        RollingWindowOptions? options = null, bool ownsStream = true, ILogger? logger = null)
     {
         ArgumentNullException.ThrowIfNull(stream);
         ArgumentNullException.ThrowIfNull(timeProvider);
@@ -96,6 +105,7 @@ public sealed class LiveStackPreviewSource : IPreviewSource, IDisposable, IAsync
         _ownsStream = ownsStream;
         _path = path;
         _timeProvider = timeProvider;
+        _logger = logger;
         _stacker = new RollingWindowStacker(stream, options);
 
         // Master geometry once stacked: a split-CFA source demosaics back to the full mosaic resolution;
@@ -112,8 +122,8 @@ public sealed class LiveStackPreviewSource : IPreviewSource, IDisposable, IAsync
     }
 
     /// <summary>Opens <paramref name="path"/> as a live-stack source over its own SER reader.</summary>
-    public static LiveStackPreviewSource Open(string path, ITimeProvider timeProvider, RollingWindowOptions? options = null)
-        => new LiveStackPreviewSource(SerFrameStream.Open(path), path, timeProvider, options);
+    public static LiveStackPreviewSource Open(string path, ITimeProvider timeProvider, RollingWindowOptions? options = null, ILogger? logger = null)
+        => new LiveStackPreviewSource(SerFrameStream.Open(path), path, timeProvider, options, ownsStream: true, logger: logger);
 
     /// <summary>True once at least one master has been built and is ready to display.</summary>
     public bool HasMaster => _doc is not null;
@@ -202,6 +212,27 @@ public sealed class LiveStackPreviewSource : IPreviewSource, IDisposable, IAsync
         // else: cancelled (preempted) or faulted -> drop it. A cancelled stack invalidated its window, so
         // its next StackToAsync rebuilds; the live view self-heals rather than wedging.
 
+        // Defensive breadcrumb: report the task's outcome + duration so a slow or silently-faulting stack is
+        // visible (a fault here was previously dropped with no trace). Reading task.Exception on a faulted
+        // task does not rethrow; we never touch .Result off the success branch.
+        if (_logger is { } log)
+        {
+            var elapsedMs = _timeProvider.GetElapsedTime(_stackStartTimestamp).TotalMilliseconds;
+            if (task.IsFaulted)
+            {
+                log.LogWarning(task.Exception?.GetBaseException(),
+                    "Live stack faulted after {ElapsedMs:F0} ms -- dropped (the next request rebuilds).", elapsedMs);
+            }
+            else if (task.IsCanceled)
+            {
+                log.LogDebug("Live stack cancelled after {ElapsedMs:F0} ms (preempted).", elapsedMs);
+            }
+            else
+            {
+                log.LogDebug("Live stack done in {ElapsedMs:F0} ms (published {Published}).", elapsedMs, published);
+            }
+        }
+
         // Pump any work deferred while this task ran -- the preempting sharpen, or a playhead that moved on.
         StartIfIdle();
         return published;
@@ -224,6 +255,21 @@ public sealed class LiveStackPreviewSource : IPreviewSource, IDisposable, IAsync
             if (_sharpenDirty && _inFlightIsStack && _rawMaster is not null)
             {
                 _workCts?.Cancel();
+            }
+
+            // Defensive breadcrumb: a stack that has been in flight far longer than a frame is the prime
+            // suspect if the live view ever stalls. Log it ONCE per task so the GUI log shows a "start" that
+            // never reached "done" -- the signal we'd otherwise have to guess at.
+            if (!_stallWarned)
+            {
+                var inflightMs = _timeProvider.GetElapsedTime(_stackStartTimestamp).TotalMilliseconds;
+                if (inflightMs > StackStallWarnMs)
+                {
+                    _stallWarned = true;
+                    _logger?.LogWarning(
+                        "Live stack still running after {ElapsedMs:F0} ms (playhead {Target}, isStack {IsStack}) -- possible stall.",
+                        inflightMs, _target, _inFlightIsStack);
+                }
             }
             return;
         }
@@ -257,6 +303,13 @@ public sealed class LiveStackPreviewSource : IPreviewSource, IDisposable, IAsync
         _workCts?.Dispose();
         _workCts = CancellationTokenSource.CreateLinkedTokenSource(_cts.Token);
         var token = _workCts.Token;
+
+        // Stamp the start + reset the stall guard so TryPublishMaster can report this task's duration and the
+        // in-flight branch above can WARN if it overruns.
+        _stackStartTimestamp = _timeProvider.GetTimestamp();
+        _stallWarned = false;
+        _logger?.LogDebug("Live stack start: {Kind} playhead {Target}.", doStack ? "stack" : "sharpen", target);
+
         _stackTask = Task.Run(async () =>
         {
             // Re-stack only when following the playhead; a sharpen-only pass reuses the captured master so it

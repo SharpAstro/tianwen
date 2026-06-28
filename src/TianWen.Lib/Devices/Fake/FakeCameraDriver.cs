@@ -1352,12 +1352,15 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver, IV
     // StartExposureAsync exposure path (you stream OR expose, not both).
     private int _videoActive;             // 0/1; gates CanJogRoi + enforces one concurrent stream
     private int _droppedFrames;           // always 0 for the fake (no buffer starvation to model)
-    private readonly Lock _videoRoiLock = new();
+    // The ROI window (origin + size) is written and read ONLY on the active capture loop's thread
+    // (CaptureVideoAsync, the per-frame resize, JogRoiAsync drained on that loop, and RenderVideoFrame all
+    // run there), so no lock is needed -- a lock here would be dead synchronisation. Lock-free by ownership.
     private int _videoRoiStartX;          // ROI window top-left on the virtual sensor (unbinned px)
     private int _videoRoiStartY;
-    private int _videoRoiWidth;           // ROI (frame) size, captured at stream start
+    private int _videoRoiWidth;           // ROI (frame) size; re-read from NumX/NumY each frame (live-resizable)
     private int _videoRoiHeight;
     private long _videoStartTimestamp;    // capture start, for deterministic drift phase
+    private long _videoExposureTicks;     // current per-frame exposure; live-tunable via ApplyVideoControlsAsync
 
     /// <summary>Planet drift across the virtual sensor in X (px/s) -- the residual the recenter loop chases.</summary>
     internal double PlanetDriftPixelsPerSecX { get; set; } = 0.9;
@@ -1378,6 +1381,14 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver, IV
 
     /// <summary>Telescope aperture in mm, for the diffraction-limited PSF (Phase 2). Default 200 mm (8").</summary>
     internal double SimApertureMm { get; set; } = 200.0;
+
+    /// <summary>Reference exposure (ms) at which the simulated disk fills ~50% of the well at <see cref="RefGain"/>.
+    /// A short planetary live exposure (~10 ms) peaks mid-histogram, not near saturation, so the linear
+    /// preview shows the belts; longer exposures scale up toward clipping.</summary>
+    private const double RefExposureMs = 10.0;
+
+    /// <summary>Reference gain for the photon-budget calibration (the planetary panel's default gain).</summary>
+    private const double RefGain = 100.0;
 
     /// <summary>Deterministic base seed for the per-frame seeing draw + pixel noise.</summary>
     internal int VideoBaseSeed { get; set; } = 1234;
@@ -1426,26 +1437,19 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver, IV
                 await SetGainAsync(gain, cancellationToken).ConfigureAwait(false);
             }
 
-            // ROI frame size = the configured sub-frame (NumX/NumY), clamped to a sane planetary window.
-            int roiW, roiH;
-            lock (_lock)
-            {
-                roiW = _cameraSettings.Width;
-                roiH = _cameraSettings.Height;
-            }
-            roiW = Math.Clamp(roiW, 16, CameraXSize);
-            roiH = Math.Clamp(roiH, 16, CameraYSize);
-
             Interlocked.Exchange(ref _droppedFrames, 0);
+            Volatile.Write(ref _videoExposureTicks, options.Exposure.Ticks);
             _videoStartTimestamp = TimeProvider.GetTimestamp();
-            lock (_videoRoiLock)
-            {
-                _videoRoiWidth = roiW;
-                _videoRoiHeight = roiH;
-                // Centre the ROI window on the virtual sensor; the disk starts centred within it.
-                _videoRoiStartX = Math.Clamp((CameraXSize - roiW) / 2, 0, Math.Max(0, CameraXSize - roiW));
-                _videoRoiStartY = Math.Clamp((CameraYSize - roiH) / 2, 0, Math.Max(0, CameraYSize - roiH));
-            }
+
+            // Initial ROI window = the configured sub-frame (NumX/NumY), centred on the virtual sensor; the
+            // disk starts centred within it. The size is re-read from NumX/NumY every frame below, so a live
+            // resize (the panel's Size stepper mid-capture) takes effect on the next frame. All ROI-window
+            // state below is owned by this capture loop thread, so no lock is taken.
+            var (initW, initH) = ClampRoiSize();
+            _videoRoiWidth = initW;
+            _videoRoiHeight = initH;
+            _videoRoiStartX = Math.Clamp((CameraXSize - initW) / 2, 0, Math.Max(0, CameraXSize - initW));
+            _videoRoiStartY = Math.Clamp((CameraYSize - initH) / 2, 0, Math.Max(0, CameraYSize - initH));
 
             var frameIndex = 0;
             while (!cancellationToken.IsCancellationRequested)
@@ -1458,15 +1462,31 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver, IV
                     yield break;
                 }
 
-                yield return RenderVideoFrame(roiW, roiH, frameIndex);
+                // Re-read the (live-tunable) ROI size each frame: when NumX/NumY changed mid-stream, resize
+                // the window and re-clamp the origin so it stays on the sensor (keep the top-left, the
+                // recenter loop / pan will re-position). The consumer resizes its frame stream on the size
+                // change. ClampRoiSize reads NumX/NumY under _lock; the ROI-window fields are this loop's own.
+                var (w, h) = ClampRoiSize();
+                if (w != _videoRoiWidth || h != _videoRoiHeight)
+                {
+                    _videoRoiWidth = w;
+                    _videoRoiHeight = h;
+                    _videoRoiStartX = Math.Clamp(_videoRoiStartX, 0, Math.Max(0, CameraXSize - w));
+                    _videoRoiStartY = Math.Clamp(_videoRoiStartY, 0, Math.Max(0, CameraYSize - h));
+                }
+
+                var roiW = _videoRoiWidth;
+                var roiH = _videoRoiHeight;
+
+                yield return RenderVideoFrame(roiW, roiH, frameIndex, new TimeSpan(Volatile.Read(ref _videoExposureTicks)));
                 frameIndex++;
 
-                // Pace at the exposure cadence. FakeTimeProvider.SleepAsync auto-advances fake time;
+                // Pace at the (live) exposure cadence. FakeTimeProvider.SleepAsync auto-advances fake time;
                 // a cancel is the stop signal, so swallow the OCE and complete the sequence cleanly.
                 var cancelled = false;
                 try
                 {
-                    await TimeProvider.SleepAsync(options.Exposure, cancellationToken).ConfigureAwait(false);
+                    await TimeProvider.SleepAsync(new TimeSpan(Volatile.Read(ref _videoExposureTicks)), cancellationToken).ConfigureAwait(false);
                 }
                 catch (OperationCanceledException)
                 {
@@ -1494,20 +1514,50 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver, IV
 
         cancellationToken.ThrowIfCancellationRequested();
 
-        lock (_videoRoiLock)
-        {
-            // Snap the start to even pixels (Bayer-safe alignment, mirroring a real CMOS ROI constraint)
-            // and clamp so the window stays fully on the virtual sensor.
-            var nx = (_videoRoiStartX + dxPixels) & ~1;
-            var ny = (_videoRoiStartY + dyPixels) & ~1;
-            _videoRoiStartX = Math.Clamp(nx, 0, Math.Max(0, CameraXSize - _videoRoiWidth));
-            _videoRoiStartY = Math.Clamp(ny, 0, Math.Max(0, CameraYSize - _videoRoiHeight));
-        }
+        // The ROI window is owned by the capture loop. Callers serialise with it (the GUI drains JogRoi on
+        // the loop, between frames; the test pauses the enumerator before jogging), so this read-modify-write
+        // never runs concurrently with RenderVideoFrame -- no lock needed. Snap the start to even pixels
+        // (Bayer-safe alignment, mirroring a real CMOS ROI constraint) and clamp it fully onto the sensor.
+        var nx = (_videoRoiStartX + dxPixels) & ~1;
+        var ny = (_videoRoiStartY + dyPixels) & ~1;
+        _videoRoiStartX = Math.Clamp(nx, 0, Math.Max(0, CameraXSize - _videoRoiWidth));
+        _videoRoiStartY = Math.Clamp(ny, 0, Math.Max(0, CameraYSize - _videoRoiHeight));
 
         return ValueTask.CompletedTask;
     }
 
-    private Image RenderVideoFrame(int roiW, int roiH, int frameIndex)
+    /// <inheritdoc/>
+    public async ValueTask ApplyVideoControlsAsync(VideoCaptureOptions controls, CancellationToken cancellationToken = default)
+    {
+        // Live-tune the running stream: exposure (the loop re-reads _videoExposureTicks each frame) + gain
+        // (RenderVideoFrame reads _gain each frame). ROI size goes through NumX/NumY (re-read per frame);
+        // ROI position through JogRoiAsync. No-op gain when null. Safe to call when idle (just stages values).
+        if (controls.Exposure > TimeSpan.Zero)
+        {
+            Volatile.Write(ref _videoExposureTicks, controls.Exposure.Ticks);
+        }
+
+        if (controls.Gain is { } gain)
+        {
+            await SetGainAsync(gain, cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    // The current ROI (frame) size = NumX/NumY clamped to a sane planetary window [16, sensor]. Reads
+    // _cameraSettings under _lock (its guard); the ROI-window fields it feeds are the capture loop's own.
+    private (int Width, int Height) ClampRoiSize()
+    {
+        int w, h;
+        lock (_lock)
+        {
+            w = _cameraSettings.Width;
+            h = _cameraSettings.Height;
+        }
+
+        return (Math.Clamp(w, 16, CameraXSize), Math.Clamp(h, 16, CameraYSize));
+    }
+
+    private Image RenderVideoFrame(int roiW, int roiH, int frameIndex, TimeSpan exposure)
     {
         var elapsedSec = TimeProvider.GetElapsedTime(_videoStartTimestamp).TotalSeconds;
 
@@ -1515,12 +1565,9 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver, IV
         var planetVirtualX = (CameraXSize / 2.0) + (PlanetDriftPixelsPerSecX * elapsedSec);
         var planetVirtualY = (CameraYSize / 2.0) + (PlanetDriftPixelsPerSecY * elapsedSec);
 
-        int startX, startY;
-        lock (_videoRoiLock)
-        {
-            startX = _videoRoiStartX;
-            startY = _videoRoiStartY;
-        }
+        // ROI origin is owned by this capture loop (RenderVideoFrame runs on it), so read it directly.
+        var startX = _videoRoiStartX;
+        var startY = _videoRoiStartY;
 
         // Lucky-imaging seeing: per-frame blur sigma, deterministic from the base seed + frame index.
         // Most frames are moderately soft; a minority are sharp -- exactly what the grader ranks.
@@ -1532,19 +1579,56 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver, IV
         var pixelScale = FocalLength > 0 ? Astrometry.CoordinateUtils.PixelScaleArcsec(PixelSizeX, FocalLength) : 0.0;
         var equatorialRadius = pixelScale > 0 ? (SimJupiterArcsec / 2.0) / pixelScale : PlanetRadiusPixels;
 
-        // Render the real Jupiter texture (NASA OPAL) scaled to that radius, drifting, with the seeing blur.
-        var array = JupiterTextureRenderer.Render(
-            roiW, roiH,
-            centerX: planetVirtualX - startX,
-            centerY: planetVirtualY - startY,
-            equatorialRadius: equatorialRadius,
-            blurSigma: blurSigma,
-            maxAdu: MaxADU,
-            noiseSeed: unchecked(VideoBaseSeed + frameIndex));
+        // Photon budget: the disk peak scales with EXPOSURE x GAIN. Calibrated so the reference 10 ms at
+        // gain 100 fills ~50% of the well -- a real planetary live preview at this short an exposure peaks
+        // around mid-histogram, NOT near saturation, so the (correct) linear preview stretch shows the belts
+        // instead of clipping the disk to flat white. Longer exposures / higher gain approach saturation;
+        // clamped just below full scale. An unset gain (_gain == 0, the GainMin default) is treated as the
+        // nominal RefGain so an unconfigured fake still renders a usable planet; an explicit gain scales it.
+        var gain = _gain > 0 ? _gain : RefGain;
+        var bodyLevel = Math.Clamp(exposure.TotalMilliseconds / RefExposureMs * (gain / RefGain) * 0.5, 0.02, 0.95);
 
-        return new Image(
-            [array], Imaging.BitDepth.Int16, maxValue: MaxADU, minValue: 0f, pedestal: 0f,
-            new Imaging.ImageMeta { SensorType = Imaging.SensorType.Monochrome });
+        // Render the real Jupiter texture (NASA OPAL) scaled to that radius, drifting, with the seeing blur.
+        // A colour (RGGB) sensor delivers a raw Bayer mosaic so the live stack debayers to colour Jupiter and
+        // the wavelet deblur runs on real colour data; a mono sensor delivers luminance. Mirrors the
+        // SensorType branch in the single-shot star-field path.
+        float[,] array;
+        Imaging.ImageMeta meta;
+        if (SensorType is Imaging.SensorType.RGGB)
+        {
+            array = JupiterTextureRenderer.RenderBayer(
+                roiW, roiH,
+                centerX: planetVirtualX - startX,
+                centerY: planetVirtualY - startY,
+                equatorialRadius: equatorialRadius,
+                bayerOffsetX: BayerOffsetX,
+                bayerOffsetY: BayerOffsetY,
+                blurSigma: blurSigma,
+                maxAdu: MaxADU,
+                bodyLevel: bodyLevel,
+                noiseSeed: unchecked(VideoBaseSeed + frameIndex));
+            meta = new Imaging.ImageMeta
+            {
+                SensorType = Imaging.SensorType.RGGB,
+                BayerOffsetX = BayerOffsetX,
+                BayerOffsetY = BayerOffsetY,
+            };
+        }
+        else
+        {
+            array = JupiterTextureRenderer.Render(
+                roiW, roiH,
+                centerX: planetVirtualX - startX,
+                centerY: planetVirtualY - startY,
+                equatorialRadius: equatorialRadius,
+                blurSigma: blurSigma,
+                maxAdu: MaxADU,
+                bodyLevel: bodyLevel,
+                noiseSeed: unchecked(VideoBaseSeed + frameIndex));
+            meta = new Imaging.ImageMeta { SensorType = Imaging.SensorType.Monochrome };
+        }
+
+        return new Image([array], Imaging.BitDepth.Int16, maxValue: MaxADU, minValue: 0f, pedestal: 0f, meta);
     }
 
     private static double NextGaussian(Random rng)

@@ -192,7 +192,7 @@ screenshot-poll-and-OCR**. Three pieces compose:
 3. **Drive + observe via the DEBUG inspector — not screenshots.** A **DEBUG** GUI build attaches
    `DebugInspector` (`Program.cs`, compiled out of Release entirely), exposing this process to the
    `sdl-ui-inspector` MCP sidecar (`.mcp.json` → `dnx SdlVulkan.Renderer.Inspector`, UDP-multicast discovery).
-   It gives three surfaces:
+   It gives four surfaces:
    - **Describe/state snapshot** (the `AppState` block): `activeTab`, `profile`, `sessionRunning`, `phase`,
      `mountConnected/Name/RaJ2000/DecJ2000/mountSlewing/mountTracking`, `lastNotification`, sky-map viewport.
      **Poll this for coarse session state** (phase transitions, stuck-slewing, notifications) — it replaces a
@@ -201,6 +201,12 @@ screenshot-poll-and-OCR**. Three pieces compose:
      **`StartSession`**, `SkyMapSetView`, `SkyMapSolveSync`, `TakePreview`. Posting `StartSession` runs the
      whole `RunAsync` with no clicking.
    - **Clickable regions** (`GetRegions`): click-by-label for any action without a dedicated signal.
+   - **Render-thread watchdog** (`render_liveness`, `SdlVulkan.Renderer.Inspector` 6.8+): the inspector runs
+     every command (incl. `ping`) ON the render thread, so a `ping` that round-trips proves the render loop is
+     pumping; a connected-but-silent probe means it's blocked (a hang) while the process is still up.
+     `render_liveness` classifies ALIVE/BLOCKED/DEAD (and on BLOCKED prints the `dotnet-stack report -p <pid>`
+     to capture the frozen frame); `watchSeconds>0` polls until it wedges. Use this — not screenshot/describe —
+     to decide IF the render thread is stuck (those also block when it is).
 
    `StartSession` needs ≥1 pinned target (`PlannerState.Proposals.Length > 0`, else it no-ops with "pin
    targets in the Planner first"). Planner pins persist **per-profile** to `AppData/Planner` and reload at
@@ -430,6 +436,23 @@ A CPU-first planetary stacker, **completely separate** from the deep-sky `Imagin
   — lossless, ~1 of 3 FFTs/frame eliminated.
 - **`PlanetaryMaster`** is the single shared "accumulators → master" finalize (normalize + CFA-merge + MHC
   demosaic), so the batch and live masters can never drift.
+- **Live camera capture** (`PlanetaryCaptureController` in `.UI.Abstractions`, driven by the Live Session
+  `Planetary` mode): streams a camera in video mode (`IVideoCameraDriver.CaptureVideoAsync`, or a
+  rapid-exposure loop fallback for any `ICameraDriver`) into a `LiveCameraFrameStream` (bounded ring) feeding
+  the same rolling-window stacker. **Camera ADU frames normalise to [0,1] at the stream boundary**
+  (`LiveCameraFrameStream.DeepCopy`) — the convention the SER bridge also follows — so the coverage-normalised
+  master is display-ready (an un-normalised ADU master clamps to white). A colour (RGGB) sensor's video frame
+  is a 1-channel **Bayer mosaic**; the stream layout is derived from the ACTUAL frame (1ch+RGGB → SplitCfa →
+  per-photosite stack → single demosaic → colour master), NOT the camera's `SensorType`. Planetary preview
+  defaults to **linear** stretch (`StretchMode.None`); the fake's disk brightness scales with exposure×gain
+  (10 ms ≈ mid-histogram, not saturated), with shot+read noise modelled in the **electron domain** calibrated
+  to a real planetary SER. **Exposure / gain / ROI size / ROI pan are live-tunable during capture**: the
+  render thread stages the change, the capture loop drains + applies it (`ApplyVideoControlsAsync` /
+  `NumX`/`NumY` / `JogRoiAsync`) — no driver call crosses onto the render thread, and the fake's ROI-window
+  state is capture-loop-owned (lock-free, no `_videoRoiLock`). Defensive breadcrumbs land in `GUI_*.log`
+  (Debug + WARN): live-control-applied, a capture heartbeat (every 250 frames), and per-stack start/done +
+  duration with a long-running-stack WARN — the trail to diagnose a future stall (pair with the inspector
+  `render_liveness` watchdog above).
 - **Live viewer integration** (`LiveStackPreviewSource : IPreviewSource`, in `.UI.Abstractions`): a RAW/STACK
   toggle (transport-bar button + `K`) and Registax-style 6-layer wavelet sliders (under the WB sliders) in
   `tianwen-fits` and the GUI viewer tab (shared `ViewerState`). **Follow-the-playhead**: the raw

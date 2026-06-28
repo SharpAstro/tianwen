@@ -83,31 +83,47 @@ internal static class SyntheticPlanetRenderer
         // 2) Seeing blur (separable Gaussian). Small sigma -> sharp ("lucky") frame, skipped below the floor.
         var body = blurSigma > 0.35 ? GaussianBlur(sharp, width, height, blurSigma) : sharp;
 
-        // 3) Compose: sky background + body + (shot (+) read) noise, deterministic per noiseSeed.
-        return ComposeWithNoise(body, width, height, maxAdu, skyBackground, readNoise, noiseSeed, dest);
+        // 3) Compose: sky background + body + (shot (+) read) noise, deterministic per noiseSeed. The
+        // procedural disk keeps the legacy unity-gain noise (fullWell == maxAdu => 1 e-/ADU, read in ADU) so
+        // the renderer-grading unit tests stay stable; the image-based JupiterTextureRenderer drives the
+        // realistic low-electron planetary noise instead.
+        return ComposeWithNoise(body, width, height, maxAdu, skyBackground,
+            fullWellElectrons: maxAdu, readNoiseElectrons: readNoise, noiseSeed, dest);
     }
 
     /// <summary>
     /// Composes a (blurred) body buffer into the final frame: adds sky background + shot (+) read noise,
     /// deterministic per <paramref name="noiseSeed"/>, clamped to [0, <paramref name="maxAdu"/>]. Shared by
     /// the procedural disk and the image-based <see cref="JupiterTextureRenderer"/> so both noise identically.
+    /// <para>
+    /// Noise is modelled in the <b>electron</b> domain, not ADU: shot noise is Poisson in collected electrons
+    /// (variance = electron count), and a short, high-gain planetary frame collects only a few hundred
+    /// electrons even when the disk sits near mid-ADU -- so a single frame is genuinely grainy (the
+    /// lucky-imaging premise; the stack averages it out). <paramref name="fullWellElectrons"/> is the electron
+    /// count at <paramref name="maxAdu"/> (the system gain = <c>maxAdu / fullWellElectrons</c> ADU per
+    /// electron); a low value = high gain = noisier. Modelling noise directly in ADU (the old
+    /// <c>sqrt(signalAdu)</c> form) implies ~1 electron per ADU -> unrealistically clean frames. Calibrated
+    /// against a real 8-bit planetary SER: disk at ~40% scale showed ~8% per-frame grain (~170 e-).
+    /// </para>
     /// </summary>
     internal static float[,] ComposeWithNoise(
-        float[,] body, int width, int height, double maxAdu, double skyBackground, double readNoise,
-        int noiseSeed, float[,]? dest = null)
+        float[,] body, int width, int height, double maxAdu, double skyBackground,
+        double fullWellElectrons, double readNoiseElectrons, int noiseSeed, float[,]? dest = null)
     {
         var outArr = dest is not null && dest.GetLength(0) == height && dest.GetLength(1) == width
             ? dest
             : new float[height, width];
         var rng = new Random(noiseSeed);
-        var readVar = readNoise * readNoise;
+        var aduPerElectron = maxAdu / Math.Max(1.0, fullWellElectrons);
+        var readVarE = readNoiseElectrons * readNoiseElectrons;
         for (var y = 0; y < height; y++)
         {
             for (var x = 0; x < width; x++)
             {
-                var signal = body[y, x] + skyBackground;
-                var sigma = Math.Sqrt(Math.Max(0.0, signal) + readVar);
-                var v = signal + (NextGaussian(rng) * sigma);
+                var signalAdu = Math.Max(0.0, body[y, x] + skyBackground);
+                var signalE = signalAdu / aduPerElectron;                  // collected electrons
+                var noiseE = Math.Sqrt(signalE + readVarE);                // shot (Poisson) (+) read, in e-
+                var v = signalAdu + (NextGaussian(rng) * noiseE * aduPerElectron);
                 outArr[y, x] = (float)Math.Clamp(v, 0.0, maxAdu);
             }
         }

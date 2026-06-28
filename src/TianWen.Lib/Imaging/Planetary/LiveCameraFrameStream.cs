@@ -1,4 +1,5 @@
 using System;
+using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -155,13 +156,37 @@ public sealed class LiveCameraFrameStream : IPlanetaryFrameStream
     {
         var channels = src.ChannelCount;
         var dst = Image.CreateChannelData(channels, src.Height, src.Width);
+
+        // The planetary stack pipeline operates in [0,1] (PlanetaryMaster.NormalizeInPlace declares the
+        // master MaxValue = 1, and the SER bridge decodes raw frames straight to [0,1]). A live camera,
+        // however, delivers ADU (MaxValue = sensor full-scale), so normalise the owned copy to [0,1] here.
+        // Without this the coverage-normalised master keeps ADU values while declaring MaxValue = 1, and the
+        // viewer clamps every pixel to white -> a flat, structureless frame. Already-[0,1] sources (SER,
+        // MaxValue <= 1) pass through unscaled (scale == 1).
+        var scale = src.MaxValue > 1f ? 1f / src.MaxValue : 1f;
         for (var c = 0; c < channels; c++)
         {
             var plane = src.GetChannelArray(c);
-            Array.Copy(plane, dst[c], plane.Length);
+            var outPlane = dst[c];
+            if (scale == 1f)
+            {
+                Array.Copy(plane, outPlane, plane.Length);
+            }
+            else
+            {
+                var srcSpan = MemoryMarshal.CreateReadOnlySpan(ref plane[0, 0], plane.Length);
+                var dstSpan = MemoryMarshal.CreateSpan(ref outPlane[0, 0], outPlane.Length);
+                for (var i = 0; i < srcSpan.Length; i++)
+                {
+                    dstSpan[i] = srcSpan[i] * scale;
+                }
+            }
         }
 
-        return new Image(dst, src.BitDepth, src.MaxValue, src.MinValue, src.Pedestal, src.ImageMeta);
+        // After scaling, the data is fractional [0,1] floats regardless of the source bit depth.
+        var bitDepth = scale == 1f ? src.BitDepth : BitDepth.Float32;
+        var maxValue = scale == 1f ? src.MaxValue : 1f;
+        return new Image(dst, bitDepth, maxValue, src.MinValue * scale, src.Pedestal * scale, src.ImageMeta);
     }
 
     /// <inheritdoc/>

@@ -405,6 +405,13 @@ namespace TianWen.UI.Abstractions
         /// </summary>
         protected RectF32 CurrentImageRect => new RectF32(_placement.OffsetX, _placement.OffsetY, _placement.DrawW, _placement.DrawH);
 
+        /// <summary>
+        /// The arranged image-area rectangle (the region between the toolbar and the info panel / file list /
+        /// status bar), in surface pixels, as of the last <see cref="Render"/>. Exposed so a subclass can clamp
+        /// an on-image overlay to where the image is actually shown -- not over the surrounding chrome.
+        /// </summary>
+        protected RectF32 ImageAreaRect => _layout.ImageArea;
+
         // SER transport bar geometry, computed in ComputeLayout (default/empty for a still image): the
         // whole strip and, within it, the scrub track rect that maps cursor-X <-> frame index.
         private RectF32 _transportRect;
