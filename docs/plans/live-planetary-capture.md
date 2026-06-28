@@ -400,3 +400,40 @@ interface. The interim top-strip steppers (step 3, done) fold into the panel.
 
 Verify unattended via the fake-device + `sdl-ui-inspector` harness (per CLAUDE.md): open 🪐, post
 `StartVideoCapture`, assert frames climb + a stretched (not blown) planet renders + sliders present.
+
+### Shipped 2026-06-28: colour capture + realistic noise + live controls + render-thread diagnostics
+
+Closes most of P4 (colour) + the live-control gap and adds hang diagnostics:
+
+- **Colour (Bayer) capture.** The fake's RGGB sensor emits a raw Bayer **mosaic** in video mode; the capture
+  loop derives the stream layout from the ACTUAL frame (1ch + `SensorType.RGGB` -> `SplitCfa`, not the assumed
+  RGB that dropped every mono-shaped frame) -> per-photosite stack -> single demosaic -> COLOUR master, so the
+  wavelet deblur runs on real colour data. (`JupiterTextureRenderer.RenderBayer`.)
+- **ADU -> [0,1] at the stream boundary** (`LiveCameraFrameStream.DeepCopy`): a live camera delivers ADU
+  (MaxValue = full-scale) but the planetary master declares MaxValue = 1; without normalising, the viewer
+  clamped every pixel to white (flat frame). Fixed for mono + colour; the SER path (already [0,1]) is
+  unaffected (scale == 1 passthrough). This was the "flat white/black preview" bug.
+- **Exposure-driven brightness + linear preview.** Disk peak scales with exposure x gain (10 ms at gain 100
+  ~ 50% of full well); planetary preview defaults to `StretchMode.None` so the disk + belts show at true
+  relative brightness instead of an auto-stretch blowing the disk to white.
+- **Realistic noise** (`SyntheticPlanetRenderer.ComposeWithNoise`): shot+read noise in the **electron domain**
+  (Poisson in electrons, not ADU), calibrated against a real planetary SER (~340 e- effective full-well,
+  ~1.3 e- read -> ~8% per-frame disk grain at 10 ms). Single frames realistically grainy; the stack averages
+  clean.
+- **ROI overlay clamped to the image area** (not the viewer rect that overlapped the right info panel).
+- **Live Exp / Gain / ROI size / ROI pan during capture** (supersedes "steppers disabled during capture" in
+  step 3 above): `IVideoCameraDriver.ApplyVideoControlsAsync`; the render thread stages the change (Volatile /
+  Interlocked), the capture loop drains + applies it after the next frame; a ROI-size change rebuilds the
+  frame stream + swaps the preview source. The fake's ROI-window state is capture-loop-owned (removed the
+  needless `_videoRoiLock`).
+- **Two concurrency fixes:** lock-free `Image.InvalidateStarListCache` (dropped a synchronous
+  `SemaphoreSlim.Wait()`); removed the dead `FakeCameraDriver._videoRoiLock`.
+- **Hang diagnostics.** (1) Defensive breadcrumbs in the live path (`GUI_*.log`, Debug+WARN):
+  live-control-applied, a 250-frame capture heartbeat, and per-stack start/done/duration + a long-running WARN
+  in `LiveStackPreviewSource`. (2) A render-thread **watchdog in the inspector** -- `render_liveness`
+  (`SdlVulkan.Renderer.Inspector` 6.8) classifies ALIVE/BLOCKED/DEAD via a short-budget ping that round-trips
+  ON the render thread; on BLOCKED it prints the `dotnet-stack` to capture the frozen frame. (A reported
+  "hang" did NOT reproduce on the rebuilt binary; these are the diagnosis trail if it recurs.)
+
+Tests green: `FakeCameraVideoTests`, `PlanetaryCaptureControllerTests`, `JupiterTextureRendererTests`,
+`LiveCameraFrameStreamTests`, + star-detection.

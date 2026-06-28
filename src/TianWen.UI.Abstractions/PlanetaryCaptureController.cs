@@ -42,18 +42,30 @@ public sealed class PlanetaryCaptureController(
     private readonly RollingWindowOptions _stackOptions = stackOptions ?? new RollingWindowOptions();
     private readonly TimeSpan _readyPollInterval = TimeSpan.FromMilliseconds(5);
 
+    private const int NoGain = -1;
+
     // Created lazily on the first captured frame by the capture loop (background thread) and read by the
     // render thread via Volatile -- LiveCameraFrameStream is internally thread-safe.
     private LiveCameraFrameStream? _stream;
     private LiveStackPreviewSource? _source;       // created + driven on the render thread only
+    private LiveCameraFrameStream? _sourceStream;  // the stream _source wraps (render-thread); swap on rebuild
     private CancellationTokenSource? _cts;
     private Task? _captureTask;
     private ICameraDriver? _camera;
 
     private int _captureActive;                    // 0/1
     private int _framesReceived;
-    private int _mismatchedFrames;
     private long _captureStartTimestamp;
+
+    // Live-control changes staged by the render thread (the panel's Exp / Gain / Size / Pan steppers during
+    // capture) and drained + applied by the capture loop after each frame -- so no driver call crosses onto
+    // the render thread. 0 / NoGain = nothing pending.
+    private long _pendingExposureTicks;
+    private int _pendingGain = NoGain;
+    private int _pendingRoiW;
+    private int _pendingRoiH;
+    private int _pendingJogX;
+    private int _pendingJogY;
 
     /// <summary>True while a capture loop is running.</summary>
     public bool IsCapturing => Volatile.Read(ref _captureActive) == 1;
@@ -125,12 +137,20 @@ public sealed class PlanetaryCaptureController(
         // already drained (captureActive was 0 when we got here), so touching these is safe.
         _source?.Dispose();
         _source = null;
+        _sourceStream = null;
         _stream?.Dispose();
         Volatile.Write(ref _stream, null);
 
+        // Clear any live-control changes staged before/after the previous run so they don't bleed into this one.
+        Volatile.Write(ref _pendingExposureTicks, 0);
+        Volatile.Write(ref _pendingGain, NoGain);
+        Volatile.Write(ref _pendingRoiW, 0);
+        Volatile.Write(ref _pendingRoiH, 0);
+        Interlocked.Exchange(ref _pendingJogX, 0);
+        Interlocked.Exchange(ref _pendingJogY, 0);
+
         _camera = camera;
         Interlocked.Exchange(ref _framesReceived, 0);
-        _mismatchedFrames = 0;
         _captureStartTimestamp = timeProvider.GetTimestamp();
 
         state.IsSequence = true;
@@ -153,34 +173,64 @@ public sealed class PlanetaryCaptureController(
         {
             await foreach (var frame in Frames(camera, options, token).ConfigureAwait(false))
             {
-                if (stream is null)
+                // Size + layout come from the ACTUAL frame, not the camera's SensorType (a video frame may be
+                // mono even on a colour sensor):
+                //   >=3 channels                 -> RGB (already-debayered colour, e.g. Canon Live View JPEG)
+                //   1 channel + SensorType.RGGB  -> SplitCfa: split each frame into four half-res CFA sub-planes
+                //                                   (mirroring SerFrameStream), so the stacker integrates each
+                //                                   photosite colour and demosaics once into a colour master.
+                //   otherwise                    -> Mono.
+                var isBayer = frame.ChannelCount == 1 && frame.ImageMeta.SensorType == SensorType.RGGB;
+                var layout = frame.ChannelCount >= 3 ? PlanetaryFrameLayout.Rgb
+                    : isBayer ? PlanetaryFrameLayout.SplitCfa
+                    : PlanetaryFrameLayout.Mono;
+                // SplitCfa sub-planes are half-resolution; the merge+demosaic restores full res.
+                var planeW = layout == PlanetaryFrameLayout.SplitCfa ? frame.Width / 2 : frame.Width;
+                var planeH = layout == PlanetaryFrameLayout.SplitCfa ? frame.Height / 2 : frame.Height;
+
+                // (Re)build the stream on the first frame AND whenever the frame dimensions change -- a live
+                // ROI resize mid-capture (the panel's Size stepper) yields a different-sized frame. The old
+                // stream is left for GC (not disposed) so a render-thread stack still in flight on it can't hit
+                // a disposed ring; the render thread swaps its preview source to the new stream in Tick().
+                if (stream is null || stream.Width != planeW || stream.Height != planeH || stream.Layout != layout)
                 {
-                    // Size + layout come from the ACTUAL first frame, not the camera's SensorType: a video
-                    // frame may be mono even on a colour sensor (the fake), and a native colour stream is a
-                    // 1-channel Bayer mosaic until Phase D splits CFA. 1 channel -> Mono, >=3 -> RGB.
-                    var layout = frame.ChannelCount >= 3 ? PlanetaryFrameLayout.Rgb : PlanetaryFrameLayout.Mono;
                     var capacity = Math.Max(_stackOptions.MaxWindowFrames * 2, 1024);
-                    stream = new LiveCameraFrameStream(frame.Width, frame.Height, layout, capacity);
-                    Volatile.Write(ref _stream, stream);
+                    var rebuilt = new LiveCameraFrameStream(planeW, planeH, layout, capacity);
+                    Volatile.Write(ref _stream, rebuilt);
                     logger.LogInformation(
-                        "Planetary capture: first frame {W}x{H}x{C} -> stream layout {Layout}.",
-                        frame.Width, frame.Height, frame.ChannelCount, layout);
+                        "Planetary capture: {Kind} {W}x{H}x{C} ({Sensor}) -> stream {SW}x{SH} layout {Layout}.",
+                        stream is null ? "first frame" : "ROI resized",
+                        frame.Width, frame.Height, frame.ChannelCount, frame.ImageMeta.SensorType,
+                        rebuilt.Width, rebuilt.Height, layout);
+                    stream = rebuilt;
                 }
 
-                if (frame.Width == stream.Width && frame.Height == stream.Height)
+                // A Bayer source is split into its four CFA sub-planes here (the ring stores half-res planes,
+                // exactly as SerFrameStream does on load); mono / RGB push through unchanged. The stream is sized
+                // to this frame above, so the dimensions always match.
+                var toPush = stream.Layout == PlanetaryFrameLayout.SplitCfa ? frame.SplitBayerChannels() : frame;
+                stream.Push(toPush, timeProvider.GetUtcNow());
+                var received = Interlocked.Increment(ref _framesReceived);
+
+                // Defensive heartbeat: a steady cadence in the log confirms the capture loop is alive; the last
+                // heartbeat before a freeze bounds when the loop (or the thread it feeds) stopped advancing.
+                if (received % 250 == 0)
                 {
-                    stream.Push(frame, timeProvider.GetUtcNow());
-                    Interlocked.Increment(ref _framesReceived);
-                }
-                else if (Interlocked.Increment(ref _mismatchedFrames) == 1)
-                {
-                    logger.LogWarning(
-                        "Planetary capture: dropping frame {W}x{H}; stream is {SW}x{SH}.",
-                        frame.Width, frame.Height, stream.Width, stream.Height);
+                    logger.LogDebug(
+                        "Planetary capture heartbeat: received {Received}, stream {StreamCount}, {Fps:F0} fps, {Dropped} dropped.",
+                        received, stream.FrameCount, MeasuredFps, DroppedFrames);
                 }
 
+                // The split is a transient (the ring deep-copied it); release it separately from the camera frame.
+                if (!ReferenceEquals(toPush, frame))
+                {
+                    toPush.Release();
+                }
                 frame.Release();
                 state.NeedsRedraw = true;
+
+                // Apply any live-control changes (exposure / gain / ROI size / pan) staged by the render thread.
+                await ApplyPendingControlsAsync(camera, token).ConfigureAwait(false);
             }
         }
         catch (OperationCanceledException)
@@ -251,6 +301,96 @@ public sealed class PlanetaryCaptureController(
         }
     }
 
+    // ── Live capture controls (render thread stages; the capture loop drains + applies) ──────────────
+    // These are the "adjustable while capturing" knobs, mirroring how a real planetary capture lets you tune
+    // exposure / gain / ROI on the fly. The render thread only writes the staging fields (no driver call
+    // crosses threads); the background loop applies them after the next frame.
+
+    /// <summary>Sets the per-frame exposure for the running stream (takes effect on the next frame).</summary>
+    public void SetExposure(TimeSpan exposure)
+        => Volatile.Write(ref _pendingExposureTicks, Math.Max(MinExposure.Ticks, exposure.Ticks));
+
+    /// <summary>Sets the gain for the running stream (takes effect on the next frame).</summary>
+    public void SetGain(int gain) => Volatile.Write(ref _pendingGain, Math.Max(0, gain));
+
+    /// <summary>Resizes the readout window (ROI) of the running stream; the frame stream rebuilds at the new
+    /// size on the next frame (the live stack restarts cleanly at the new framing).</summary>
+    public void SetRoiSize(int width, int height)
+    {
+        Volatile.Write(ref _pendingRoiW, width);
+        Volatile.Write(ref _pendingRoiH, height);
+    }
+
+    /// <summary>Pans the readout window (ROI) of the running stream by a pixel delta (accumulated until the
+    /// next frame) -- the fast, mount-free recenter / framing nudge.</summary>
+    public void JogRoi(int dxPixels, int dyPixels)
+    {
+        Interlocked.Add(ref _pendingJogX, dxPixels);
+        Interlocked.Add(ref _pendingJogY, dyPixels);
+    }
+
+    // Drains the staged live-control changes and applies them to the camera. Runs on the capture loop, so the
+    // awaits are in the loop's own context (no render-thread driver calls). A control-apply fault must not
+    // kill the capture, so non-cancellation exceptions are logged and swallowed.
+    private async Task ApplyPendingControlsAsync(ICameraDriver camera, CancellationToken token)
+    {
+        var video = camera as IVideoCameraDriver;
+
+        // ROI size: NumX/NumY (the streaming driver re-reads them per frame; the loop rebuilds the stream when
+        // the next frame's dimensions change).
+        var rw = Interlocked.Exchange(ref _pendingRoiW, 0);
+        var rh = Interlocked.Exchange(ref _pendingRoiH, 0);
+        var expTicks = Interlocked.Exchange(ref _pendingExposureTicks, 0);
+        var gain = Interlocked.Exchange(ref _pendingGain, NoGain);
+        var jx = Interlocked.Exchange(ref _pendingJogX, 0);
+        var jy = Interlocked.Exchange(ref _pendingJogY, 0);
+
+        if (rw <= 0 && rh <= 0 && expTicks <= 0 && gain < 0 && jx == 0 && jy == 0)
+        {
+            return; // nothing staged
+        }
+
+        try
+        {
+            if (rw > 0 && rh > 0)
+            {
+                camera.NumX = rw;
+                camera.NumY = rh;
+            }
+
+            if (video is not null && (expTicks > 0 || gain >= 0))
+            {
+                await video.ApplyVideoControlsAsync(
+                    new VideoCaptureOptions(expTicks > 0 ? new TimeSpan(expTicks) : TimeSpan.Zero, gain >= 0 ? (short)gain : null),
+                    token).ConfigureAwait(false);
+            }
+            else if (gain >= 0)
+            {
+                // Universal fallback path (no IVideoCameraDriver): gain is still a standard camera setting.
+                await camera.SetGainAsync((short)gain, token).ConfigureAwait(false);
+            }
+
+            if (video is { CanJogRoi: true } && (jx != 0 || jy != 0))
+            {
+                await video.JogRoiAsync(jx, jy, token).ConfigureAwait(false);
+            }
+
+            // Defensive breadcrumb: these live-control changes are the actions that correlate with a stall, so
+            // log exactly what was applied -- the last such line before a freeze pinpoints the trigger.
+            logger.LogDebug(
+                "Planetary live control applied: roi={RoiW}x{RoiH} exposureTicks={ExpTicks} gain={Gain} jog=({Jx},{Jy}).",
+                rw, rh, expTicks, gain, jx, jy);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Planetary capture: applying a live control change failed; capture continues.");
+        }
+    }
+
     /// <summary>
     /// Render-thread drive, mirroring <c>ViewerController.TickPlayback</c>'s live-stack steps: push changed
     /// wavelet-sharpen params, publish a finished master, then follow the latest frame. Lazily creates the
@@ -265,6 +405,14 @@ public sealed class PlanetaryCaptureController(
             return false;
         }
 
+        // The capture loop rebuilds the stream on a live ROI resize; drop the stale source so it's recreated
+        // against the new stream below (ownsStream:false, so disposing the source never touches the stream).
+        if (_source is not null && !ReferenceEquals(_sourceStream, stream))
+        {
+            _source.Dispose();
+            _source = null;
+        }
+
         if (_source is null)
         {
             if (stream.FrameCount <= 0)
@@ -272,7 +420,8 @@ public sealed class PlanetaryCaptureController(
                 return false; // no frame buffered yet -> nothing to display
             }
 
-            _source = new LiveStackPreviewSource(stream, "live://camera", timeProvider, _stackOptions, ownsStream: false);
+            _source = new LiveStackPreviewSource(stream, "live://camera", timeProvider, _stackOptions, ownsStream: false, logger: logger);
+            _sourceStream = stream;
         }
 
         var live = _source;
@@ -365,6 +514,7 @@ public sealed class PlanetaryCaptureController(
             await source.DisposeAsync().ConfigureAwait(false);
         }
         _source = null;
+        _sourceStream = null;
         _stream?.Dispose();
         _stream = null;
     }

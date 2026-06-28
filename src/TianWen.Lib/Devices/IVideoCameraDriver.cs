@@ -73,4 +73,15 @@ public interface IVideoCameraDriver : ICameraDriver
     /// Implementations clamp to the sensor and snap the start position to the alignment the SDK requires.
     /// </summary>
     ValueTask JogRoiAsync(int dxPixels, int dyPixels, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Applies new per-frame controls to a <b>running</b> stream without restarting it -- the live-tuning
+    /// path for the planetary tab's exposure / gain steppers (a real planetary capture lets you tweak these
+    /// on the fly). Takes effect from the next frame; <see cref="VideoCaptureOptions.Gain"/> <c>null</c>
+    /// leaves the gain unchanged. The readout-window <b>size</b> is changed through the standard
+    /// <see cref="ICameraDriver.NumX"/> / <see cref="ICameraDriver.NumY"/> setters, which a streaming driver
+    /// re-reads per frame (the consumer resizes its frame stream when the yielded frame dimensions change);
+    /// the window <b>position</b> through <see cref="JogRoiAsync"/>. No-op when not streaming.
+    /// </summary>
+    ValueTask ApplyVideoControlsAsync(VideoCaptureOptions controls, CancellationToken cancellationToken = default);
 }

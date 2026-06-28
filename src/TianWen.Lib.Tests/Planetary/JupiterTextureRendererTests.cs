@@ -53,6 +53,47 @@ public class JupiterTextureRendererTests
         large.ShouldBeGreaterThan(small * 3); // area scales ~ radius^2 (150/60)^2 ~ 6.25x
     }
 
+    [Fact]
+    public void RenderBayer_encodes_a_warm_coloured_disk_in_the_mosaic()
+    {
+        // The colour Bayer mosaic carries Jupiter's tan/brown colour. With offset (0,0), red sits at
+        // (even, even) photosites and blue at (odd, odd); averaging the red-CFA samples against the blue-CFA
+        // samples across the disk, red exceeds blue. (No sky/read noise so the disk mask is clean; shot noise
+        // on the bright disk is negligible against the R/B colour difference.)
+        var arr = JupiterTextureRenderer.RenderBayer(
+            400, 400, centerX: 200, centerY: 200, equatorialRadius: 150,
+            bayerOffsetX: 0, bayerOffsetY: 0, blurSigma: 0.4, maxAdu: MaxAdu,
+            skyBackground: 0, readNoiseElectrons: 0, noiseSeed: 5);
+
+        double rSum = 0, bSum = 0;
+        long rN = 0, bN = 0;
+        for (var y = 0; y < 400; y++)
+        {
+            for (var x = 0; x < 400; x++)
+            {
+                if (arr[y, x] < MaxAdu * 0.02f)
+                {
+                    continue; // skip the dark sky so the colour signal isn't diluted
+                }
+
+                if ((x & 1) == 0 && (y & 1) == 0)
+                {
+                    rSum += arr[y, x];
+                    rN++;
+                }
+                else if ((x & 1) == 1 && (y & 1) == 1)
+                {
+                    bSum += arr[y, x];
+                    bN++;
+                }
+            }
+        }
+
+        rN.ShouldBeGreaterThan(0);
+        bN.ShouldBeGreaterThan(0);
+        (rSum / rN).ShouldBeGreaterThan(bSum / bN);
+    }
+
     // First-to-last index above threshold along a centre row (isRow) or column.
     private static int Extent(float[,] arr, int line, bool isRow, float threshold)
     {

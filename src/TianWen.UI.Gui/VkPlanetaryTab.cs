@@ -3,6 +3,7 @@ using System.Collections.Immutable;
 using DIR.Lib;
 using SdlVulkan.Renderer;
 using TianWen.Lib.Devices;
+using TianWen.Lib.Imaging;
 using TianWen.UI.Abstractions;
 using TianWen.UI.Shared;
 
@@ -89,7 +90,6 @@ public sealed class VkPlanetaryTab : VkImageRenderer, IPlanetaryViewWidget
     private int _sensorH = FallbackSensorH;
     private bool _roiInitialised;
     private bool _roiOverlay = true;              // draw the ROI extent on the live stream
-    private RectF32 _viewerRect;                  // the viewer area this frame (to clamp the on-stream overlay)
 
     // PiP drag: the sensor-thumbnail rect + sensor->pixel scale captured in DrawRoiPip, so HandleInput can
     // hit-test the PiP and map the cursor back to sensor coords to reposition the ROI. Drag is idle-only.
@@ -164,6 +164,10 @@ public sealed class VkPlanetaryTab : VkImageRenderer, IPlanetaryViewWidget
             state.ShowStacked = true;     // RAW/STACK starts on STACK (the live lucky-imaging stack)
             state.ShowInfoPanel = true;   // wavelet-sharpen + WB sliders live in the info panel
             state.ShowFileList = false;   // a live capture has no file list
+            // Planets are bright: a linear preview shows the disk + belts at their true relative brightness,
+            // where an auto-stretch (the viewer's Unlinked default, tuned for faint deep-sky) blows the disk
+            // out to flat white. The wavelet sharpen + WB still operate on the linear data.
+            state.StretchMode = StretchMode.None;
             _configured = true;
         }
 
@@ -177,7 +181,6 @@ public sealed class VkPlanetaryTab : VkImageRenderer, IPlanetaryViewWidget
         var panelRect = new RectF32(contentRect.X, contentRect.Y, panelW, contentRect.Height);
         var viewerRect = new RectF32(contentRect.X + panelW, contentRect.Y,
             MathF.Max(0f, contentRect.Width - panelW), contentRect.Height);
-        _viewerRect = viewerRect;
 
         // The viewer arranges its whole chrome (toolbar / image / info panel / status bar) within this rect.
         SetContentRegion(viewerRect);
@@ -223,7 +226,10 @@ public sealed class VkPlanetaryTab : VkImageRenderer, IPlanetaryViewWidget
     private void RenderControlPanel(PlanetaryCaptureController controller, RectF32 panel, float dpiScale, string fontPath)
     {
         var capturing = controller.IsCapturing;
-        var canEdit = !capturing;
+        // Exposure / gain / ROI size + pan are all live-tunable WHILE capturing now (just like a real
+        // planetary capture), so the steppers stay enabled; a change updates the local value and, when a
+        // capture is running, is pushed to the controller to take effect on the next frame.
+        var canEdit = true;
 
         // --- Capture section ---
         var startStop = Layout.Builder.Text(capturing ? "Stop" : "Start", PanelFontSize, ButtonText, TextAlign.Center, TextAlign.Center)
@@ -249,14 +255,14 @@ public sealed class VkPlanetaryTab : VkImageRenderer, IPlanetaryViewWidget
         var rows = ImmutableArray.CreateBuilder<Layout.Node>();
         rows.Add(SectionHeader("CAPTURE"));
         rows.Add(startStop);
-        // Steppers are editable only while idle (changing them mid-run does nothing until the next Start, so
-        // they're disabled during capture to make that obvious; Stop to reconfigure).
+        // Steppers stay editable during capture: a change updates the local value and, if a capture is
+        // running, pushes it to the controller so it takes effect on the next frame (live exposure / gain).
         rows.Add(Stepper("Exp", $"{exposureMs:0.##} ms", canEdit, "Exposure",
-            () => _exposureIdx = Math.Max(0, _exposureIdx - 1),
-            () => _exposureIdx = Math.Min(ExposurePresetsMs.Length - 1, _exposureIdx + 1)));
+            () => { _exposureIdx = Math.Max(0, _exposureIdx - 1); PushExposure(controller, capturing); },
+            () => { _exposureIdx = Math.Min(ExposurePresetsMs.Length - 1, _exposureIdx + 1); PushExposure(controller, capturing); }));
         rows.Add(Stepper("Gain", _gain.ToString(), canEdit, "Gain",
-            () => _gain = Math.Max(0, _gain - GainStep),
-            () => _gain = Math.Min(GainMax, _gain + GainStep)));
+            () => { _gain = Math.Max(0, _gain - GainStep); if (capturing) controller.SetGain(_gain); },
+            () => { _gain = Math.Min(GainMax, _gain + GainStep); if (capturing) controller.SetGain(_gain); }));
         if (capturing)
         {
             var readout = $"{controller.MeasuredFps:F0} fps   {controller.FramesReceived} frm   {controller.DroppedFrames} drop";
@@ -264,22 +270,23 @@ public sealed class VkPlanetaryTab : VkImageRenderer, IPlanetaryViewWidget
         }
 
         // --- Region of Interest section: PiP sensor thumbnail + the ROI rect, size presets (snapped to the
-        // camera's RoiConstraints), pan, and the on-stream overlay toggle. Editing is idle-only (the size is
-        // applied on the next Start; the readout origin is centred by the driver until the Phase-C recenter
-        // loop pans it -- pan here positions the SELECTION shown in the PiP + overlay).
+        // camera's RoiConstraints), pan, and the on-stream overlay toggle. All live during capture: Size
+        // rebuilds the stream at the new framing on the next frame; Pan jogs the readout window (the fast,
+        // mount-free recenter actuator). While idle they position the SELECTION shown in the PiP + overlay,
+        // applied on the next Start.
         rows.Add(Layout.Builder.Spacer().RowH(BaseGap));
         rows.Add(Layout.Builder.Spacer().RowH(1f).Bg(Divider));
         rows.Add(SectionHeader("REGION (ROI)"));
         rows.Add(Layout.Builder.Fill(key: "RoiPip").RowH(BaseRowHeight * 3f));
         rows.Add(Stepper("Size", $"{_roi.Width}x{_roi.Height}", canEdit, "RoiSize",
-            () => SetRoiSize(_roiSizeIdx - 1),
-            () => SetRoiSize(_roiSizeIdx + 1)));
+            () => { SetRoiSize(_roiSizeIdx - 1); if (capturing) controller.SetRoiSize(_roi.Width, _roi.Height); },
+            () => { SetRoiSize(_roiSizeIdx + 1); if (capturing) controller.SetRoiSize(_roi.Width, _roi.Height); }));
         rows.Add(Layout.Builder.HStack(
                 Layout.Builder.Text("Pan", PanelFontSize, DimText, TextAlign.Near, TextAlign.Center).WFixed(40f).HStar(),
-                RoiPanButton("◀", "RoiPanLeft", canEdit, -1, 0),
-                RoiPanButton("▶", "RoiPanRight", canEdit, 1, 0),
-                RoiPanButton("▲", "RoiPanUp", canEdit, 0, -1),
-                RoiPanButton("▼", "RoiPanDown", canEdit, 0, 1))
+                RoiPanButton("◀", "RoiPanLeft", canEdit, -1, 0, controller, capturing),
+                RoiPanButton("▶", "RoiPanRight", canEdit, 1, 0, controller, capturing),
+                RoiPanButton("▲", "RoiPanUp", canEdit, 0, -1, controller, capturing),
+                RoiPanButton("▼", "RoiPanDown", canEdit, 0, 1, controller, capturing))
             .RowH(BaseRowHeight).WithGap(BaseGap * 0.6f));
         rows.Add(OverlayToggleRow());
 
@@ -405,19 +412,43 @@ public sealed class VkPlanetaryTab : VkImageRenderer, IPlanetaryViewWidget
         _roi = _roiConstraints.Snap(new RoiRect(_roi.X, _roi.Y, p.W, p.H));
     }
 
-    // Pan the ROI origin by ~5% of the sensor per click (>= one origin step), then snap to alignment + bounds.
+    // One pan step in sensor pixels: ~5% of the sensor per click (at least one origin step).
+    private (int Dx, int Dy) RoiPanDelta(int dirX, int dirY)
+        => (dirX * Math.Max(_roiConstraints.OriginStepX, _sensorW / 20),
+            dirY * Math.Max(_roiConstraints.OriginStepY, _sensorH / 20));
+
+    // Pan the ROI selection origin (the PiP / overlay), then snap to alignment + bounds.
     private void PanRoi(int dirX, int dirY)
     {
-        var dx = dirX * Math.Max(_roiConstraints.OriginStepX, _sensorW / 20);
-        var dy = dirY * Math.Max(_roiConstraints.OriginStepY, _sensorH / 20);
+        var (dx, dy) = RoiPanDelta(dirX, dirY);
         _roi = _roiConstraints.Snap(new RoiRect(_roi.X + dx, _roi.Y + dy, _roi.Width, _roi.Height));
     }
 
-    private Layout.Node RoiPanButton(string glyph, string id, bool enabled, int dirX, int dirY)
+    private Layout.Node RoiPanButton(string glyph, string id, bool enabled, int dirX, int dirY,
+        PlanetaryCaptureController controller, bool capturing)
         => Layout.Builder.Text(glyph, PanelFontSize, enabled ? ButtonText : DimText, TextAlign.Center, TextAlign.Center)
             .WStar().HStar().Bg(enabled ? JogBg : StepBtnDisabledBg)
             .Clickable(enabled ? new HitResult.ButtonHit(id) : null,
-                enabled ? (Action<InputModifier>)(_ => PanRoi(dirX, dirY)) : null);
+                enabled ? (Action<InputModifier>)(_ =>
+                {
+                    // Move the SELECTION (PiP / overlay); while capturing also jog the live readout window by
+                    // the same pixel delta -- the fast, mount-free recenter actuator.
+                    if (capturing)
+                    {
+                        var (dx, dy) = RoiPanDelta(dirX, dirY);
+                        controller.JogRoi(dx, dy);
+                    }
+                    PanRoi(dirX, dirY);
+                }) : null);
+
+    // Pushes the currently-selected exposure preset to a running capture (no-op while idle; applied on Start).
+    private void PushExposure(PlanetaryCaptureController controller, bool capturing)
+    {
+        if (capturing)
+        {
+            controller.SetExposure(TimeSpan.FromMilliseconds(ExposurePresetsMs[_exposureIdx]));
+        }
+    }
 
     // "[x] Show ROI on image" -- toggles the on-stream overlay. Allowed any time (a display toggle, not a
     // capture setting), so it is not gated on the idle state like the steppers.
@@ -461,7 +492,8 @@ public sealed class VkPlanetaryTab : VkImageRenderer, IPlanetaryViewWidget
     }
 
     // The on-stream overlay: outline the displayed frame (= the ROI crop) + a "ROI WxH" tag, clamped to the
-    // viewer area so a zoomed-in image's overflow doesn't paint over the panel / chrome.
+    // IMAGE AREA (between the toolbar and the right info panel), so a zoomed-in image's overflow -- or a
+    // letterboxed fit -- never paints over the WB / wavelet / controls panel or the chrome.
     private void DrawRoiOnStream(float dpiScale, string fontPath)
     {
         var ir = CurrentImageRect;
@@ -470,10 +502,11 @@ public sealed class VkPlanetaryTab : VkImageRenderer, IPlanetaryViewWidget
             return;
         }
 
-        var l = MathF.Max(ir.X, _viewerRect.X);
-        var t = MathF.Max(ir.Y, _viewerRect.Y);
-        var r = MathF.Min(ir.X + ir.Width, _viewerRect.X + _viewerRect.Width);
-        var b = MathF.Min(ir.Y + ir.Height, _viewerRect.Y + _viewerRect.Height);
+        var area = ImageAreaRect;
+        var l = MathF.Max(ir.X, area.X);
+        var t = MathF.Max(ir.Y, area.Y);
+        var r = MathF.Min(ir.X + ir.Width, area.X + area.Width);
+        var b = MathF.Min(ir.Y + ir.Height, area.Y + area.Height);
         if (r <= l || b <= t)
         {
             return;

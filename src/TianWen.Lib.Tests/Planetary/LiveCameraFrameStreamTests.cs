@@ -26,6 +26,20 @@ public class LiveCameraFrameStreamTests
         return Image.FromChannel(a, 1f, 0f);
     }
 
+    private static Image ConstantMonoAdu(int n, float aduValue, float maxAdu)
+    {
+        var a = new float[n, n];
+        for (var y = 0; y < n; y++)
+        {
+            for (var x = 0; x < n; x++)
+            {
+                a[y, x] = aduValue;
+            }
+        }
+
+        return Image.FromChannel(a, maxAdu, 0f);
+    }
+
     private static Image Disk(int n)
     {
         var a = new float[n, n];
@@ -83,6 +97,22 @@ public class LiveCameraFrameStreamTests
 
         var loaded = await stream.LoadAsync(0, TestContext.Current.CancellationToken);
         loaded[0, 5, 5].ShouldBe(0.42f, 1e-6f);
+    }
+
+    [Fact]
+    public async Task Push_normalises_an_ADU_frame_to_unit_range()
+    {
+        // A live camera delivers ADU (MaxValue = sensor full-scale), but the planetary stack pipeline works
+        // in [0,1] (PlanetaryMaster.NormalizeInPlace declares the master MaxValue = 1, and the SER bridge
+        // decodes raw frames to [0,1]). The stream normalises on copy so the coverage-normalised master
+        // isn't left holding ADU values that the viewer then clamps to a flat white frame.
+        using var stream = new LiveCameraFrameStream(N, N, PlanetaryFrameLayout.Mono);
+        const float maxAdu = 65535f;
+        stream.Push(ConstantMonoAdu(N, 0.6f * maxAdu, maxAdu));
+
+        var loaded = await stream.LoadAsync(0, TestContext.Current.CancellationToken);
+        loaded.MaxValue.ShouldBe(1f);
+        loaded[0, N / 2, N / 2].ShouldBe(0.6f, 1e-4f); // 0.6 * MaxADU, scaled back into [0,1]
     }
 
     [Fact]

@@ -67,18 +67,20 @@ public class PlanetaryCaptureControllerTests(ITestOutputHelper output)
     }
 
     [Fact(Timeout = 60_000)]
-    public async Task Color_sensor_with_mono_video_frames_still_stacks()
+    public async Task Color_sensor_emits_bayer_video_and_stacks_to_a_colour_master()
     {
-        // Regression: the stream layout must be derived from the ACTUAL frames, not the camera's
-        // SensorType. A colour sensor (RGGB) whose video frames are mono (1 channel, as the fake emits)
-        // used to size the stream as RGB (expects 3 channels) and drop every frame -> "nothing shows up".
+        // The fake's RGGB sensor delivers a raw Bayer mosaic in video mode. The capture controller derives
+        // the stream layout from the ACTUAL frame (1 channel + SensorType.RGGB -> SplitCfa, NOT an assumed
+        // RGB that drops every mono-shaped frame), splits each frame into four half-res CFA sub-planes
+        // (mirroring SerFrameStream), stacks per-photosite, and demosaics ONCE -> a COLOUR master. This is
+        // the path that lets the wavelet deblur run on real colour data.
         var ct = TestContext.Current.CancellationToken;
         var timeProvider = new FakeTimeProviderWrapper(new DateTimeOffset(2026, 6, 24, 22, 0, 0, TimeSpan.Zero));
         var external = new FakeExternal(output, timeProvider);
         // id 5 = IMX585C, an RGGB (colour) planetary sensor.
         var camera = new FakeCameraDriver(new FakeDevice(DeviceType.Camera, 5), external.BuildServiceProvider());
         await camera.ConnectAsync(ct);
-        camera.SensorType.ShouldBe(SensorType.RGGB); // the camera reports colour...
+        camera.SensorType.ShouldBe(SensorType.RGGB);
         camera.NumX = 128;
         camera.NumY = 128;
         camera.PlanetRadiusPixels = 40;
@@ -98,12 +100,98 @@ public class PlanetaryCaptureControllerTests(ITestOutputHelper output)
         }
 
         output.WriteLine($"frames received={controller.FramesReceived}, iterations={iterations}");
-        controller.HasMaster.ShouldBeTrue();           // ...but the mono video frames still flow + stack
+        controller.HasMaster.ShouldBeTrue();
         controller.FramesReceived.ShouldBeGreaterThan(0);
-        controller.Source.ShouldNotBeNull();
-        controller.Source.ChannelCount.ShouldBe(1);    // stream layout came from the mono frames
+
+        var source = controller.Source;
+        source.ShouldNotBeNull();
+        source.ChannelCount.ShouldBe(3);   // colour master: SplitCfa -> merge -> single demosaic
+        source.Width.ShouldBe(128);        // the half-res (64) CFA planes demosaic back to the full mosaic res
+        source.Height.ShouldBe(128);
+
+        // The master is actually COLOURED, not a grey disk: Jupiter's tan/brown disk carries more red than
+        // blue, so the red-channel mean across the central disk exceeds the blue-channel mean. (DisplayMaster
+        // is the linear [0,1] master -- WB/stretch are render-time uniforms -- so channel ratios survive.)
+        var master = controller.CurrentMaster;
+        master.ShouldNotBeNull();
+        master.ChannelCount.ShouldBe(3);
+        var (rMean, bMean) = ChannelMeansInCentre(master);
+        output.WriteLine($"central disk mean R={rMean:F4} B={bMean:F4}");
+        rMean.ShouldBeGreaterThan(bMean);
 
         await controller.StopAsync(ct);
+    }
+
+    [Fact(Timeout = 60_000)]
+    public async Task Live_ROI_resize_rebuilds_the_stream_and_swaps_the_preview_source()
+    {
+        // A live ROI resize (the panel's Size stepper mid-capture) stages a NumX/NumY change; the capture loop
+        // applies it, the fake yields a smaller frame, the loop rebuilds the frame stream at the new size, and
+        // Tick swaps the preview source -- so Source.Width tracks the new ROI without a Stop/Start.
+        var ct = TestContext.Current.CancellationToken;
+        var timeProvider = new FakeTimeProviderWrapper(new DateTimeOffset(2026, 6, 24, 22, 0, 0, TimeSpan.Zero));
+        var external = new FakeExternal(output, timeProvider);
+        var camera = new FakeCameraDriver(new FakeDevice(DeviceType.Camera, 8), external.BuildServiceProvider()); // mono
+        await camera.ConnectAsync(ct);
+        camera.NumX = 128;
+        camera.NumY = 128;
+        camera.PlanetRadiusPixels = 40;
+
+        var state = new ViewerState();
+        await using var controller = new PlanetaryCaptureController(
+            state, external.TimeProvider, NullLogger<PlanetaryCaptureController>.Instance,
+            new RollingWindowOptions { FallbackWindowFrames = 8, MaxWindowFrames = 16 });
+
+        controller.Start(camera, new VideoCaptureOptions(TimeSpan.FromMilliseconds(2)), ct);
+
+        var iterations = 0;
+        while (!controller.HasMaster && iterations++ < 5000 && !ct.IsCancellationRequested)
+        {
+            controller.Tick();
+            await Task.Delay(2, ct);
+        }
+
+        controller.HasMaster.ShouldBeTrue();
+        controller.Source.ShouldNotBeNull();
+        controller.Source.Width.ShouldBe(128);
+
+        // Resize the ROI live; the source should track down to the new size within a bounded number of ticks.
+        controller.SetRoiSize(96, 96);
+        var resized = false;
+        var loops = 0;
+        while (!resized && loops++ < 5000 && !ct.IsCancellationRequested)
+        {
+            controller.Tick();
+            resized = controller.Source is { Width: 96 };
+            await Task.Delay(2, ct);
+        }
+
+        output.WriteLine($"after resize: source={controller.Source?.Width}x{controller.Source?.Height}, loops={loops}");
+        controller.Source.ShouldNotBeNull();
+        controller.Source.Width.ShouldBe(96);
+        controller.Source.Height.ShouldBe(96);
+
+        await controller.StopAsync(ct);
+    }
+
+    // Mean of the red (channel 0) and blue (channel 2) planes over the central half of the image (the disk).
+    private static (double R, double B) ChannelMeansInCentre(Image img)
+    {
+        int w = img.Width, h = img.Height;
+        int x0 = w / 4, x1 = 3 * w / 4, y0 = h / 4, y1 = 3 * h / 4;
+        double rSum = 0, bSum = 0;
+        long n = 0;
+        for (var y = y0; y < y1; y++)
+        {
+            for (var x = x0; x < x1; x++)
+            {
+                rSum += img[0, y, x];
+                bSum += img[2, y, x];
+                n++;
+            }
+        }
+
+        return (rSum / n, bSum / n);
     }
 
     [Fact(Timeout = 30_000)]

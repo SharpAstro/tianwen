@@ -133,6 +133,71 @@ public class FakeCameraVideoTests(ITestOutputHelper output)
     }
 
     [Fact]
+    public async Task ApplyVideoControls_changes_gain_mid_stream_and_brightens_the_frame()
+    {
+        // Live gain: a real planetary capture lets you tweak gain on the fly. ApplyVideoControlsAsync on a
+        // running stream raises the gain, and the very next frame is brighter (gain scales the disk level).
+        var ct = TestContext.Current.CancellationToken;
+        var (camera, _) = await CreateCameraAsync();
+        camera.NumX = 200;
+        camera.NumY = 200;
+        camera.PlanetRadiusPixels = 60;
+
+        await using var e = camera.CaptureVideoAsync(new VideoCaptureOptions(TimeSpan.FromMilliseconds(5)), ct).GetAsyncEnumerator(ct);
+        (await e.MoveNextAsync()).ShouldBeTrue();
+        var before = FrameMean(e.Current);
+        e.Current.Release();
+
+        await camera.ApplyVideoControlsAsync(new VideoCaptureOptions(TimeSpan.FromMilliseconds(5), Gain: 400), ct);
+        (await e.MoveNextAsync()).ShouldBeTrue();
+        var after = FrameMean(e.Current);
+        e.Current.Release();
+
+        output.WriteLine($"frame mean before={before:F0}, after gain 400={after:F0}");
+        after.ShouldBeGreaterThan(before * 1.5); // default gain ~100 -> 400 = ~4x brighter
+    }
+
+    [Fact]
+    public async Task Live_ROI_resize_changes_frame_dimensions_on_the_next_frame()
+    {
+        // Live ROI size: the streaming loop re-reads NumX/NumY each frame, so resizing mid-stream takes effect
+        // on the next frame (no Stop/Start). The consumer rebuilds its frame stream on the size change.
+        var ct = TestContext.Current.CancellationToken;
+        var (camera, _) = await CreateCameraAsync();
+        camera.NumX = 320;
+        camera.NumY = 240;
+
+        await using var e = camera.CaptureVideoAsync(new VideoCaptureOptions(TimeSpan.FromMilliseconds(2)), ct).GetAsyncEnumerator(ct);
+        (await e.MoveNextAsync()).ShouldBeTrue();
+        e.Current.Width.ShouldBe(320);
+        e.Current.Height.ShouldBe(240);
+        e.Current.Release();
+
+        camera.NumX = 192;
+        camera.NumY = 144;
+        (await e.MoveNextAsync()).ShouldBeTrue();
+        e.Current.Width.ShouldBe(192);     // resized mid-stream
+        e.Current.Height.ShouldBe(144);
+        e.Current.Release();
+    }
+
+    private static double FrameMean(Image img)
+    {
+        double sum = 0;
+        var n = 0;
+        for (var y = 0; y < img.Height; y++)
+        {
+            for (var x = 0; x < img.Width; x++)
+            {
+                sum += img[0, y, x];
+                n++;
+            }
+        }
+
+        return sum / n;
+    }
+
+    [Fact]
     public async Task Live_video_feeds_the_rolling_window_stacker_end_to_end()
     {
         var ct = TestContext.Current.CancellationToken;
@@ -144,7 +209,9 @@ public class FakeCameraVideoTests(ITestOutputHelper output)
 
         using var stream = new LiveCameraFrameStream(roi, roi, PlanetaryFrameLayout.Mono);
         var pushed = 0;
-        await foreach (var frame in camera.CaptureVideoAsync(new VideoCaptureOptions(TimeSpan.FromMilliseconds(2)), ct))
+        // 10 ms = the reference exposure: the fake disk peaks near ~50% of full scale (a short planetary
+        // exposure is mid-histogram, not saturated), so the stacked master centre is comfortably bright.
+        await foreach (var frame in camera.CaptureVideoAsync(new VideoCaptureOptions(TimeSpan.FromMilliseconds(10)), ct))
         {
             stream.Push(frame);
             frame.Release();
@@ -159,15 +226,16 @@ public class FakeCameraVideoTests(ITestOutputHelper output)
         var stacker = new RollingWindowStacker(stream, new RollingWindowOptions { FallbackWindowFrames = 8 });
         var master = await stacker.StackToAsync(stream.LatestIndex, ct);
 
-        // The master is the coverage-normalised MEAN in the input ADU scale (PlanetaryMaster.NormalizeInPlace),
-        // not [0,1]. The disk peaks near 0.55 * MaxADU; the sky sits near the ~300 ADU background.
+        // The master is the coverage-normalised MEAN, normalised to [0,1] at the stream boundary
+        // (LiveCameraFrameStream copies the camera's ADU frame into the [0,1] planetary-frame convention the
+        // SER bridge also follows). The disk centre is bright (near the body level); the sky corner stays dark.
         master.ChannelCount.ShouldBe(1);
         master.Width.ShouldBe(roi);
         var centre = master[0, roi / 2, roi / 2];
         var corner = master[0, 6, 6];
-        output.WriteLine($"master centre={centre:F0} ADU, corner={corner:F0} ADU");
-        centre.ShouldBeGreaterThan(5000f);     // stacked disk centre is bright
-        corner.ShouldBeLessThan(2000f);        // sky corner stays dark
+        output.WriteLine($"master centre={centre:F3}, corner={corner:F3}");
+        centre.ShouldBeGreaterThan(0.1f);      // stacked disk centre is bright (normalised [0,1])
+        corner.ShouldBeLessThan(0.05f);        // sky corner stays dark
         centre.ShouldBeGreaterThan(corner * 10f);
     }
 
