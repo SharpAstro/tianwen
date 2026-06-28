@@ -143,7 +143,7 @@
          6.6 is a no-code lockstep rebuild against DIR.Lib 5.2 (LayoutNode.Split).
          6.7 is a no-code lockstep rebuild against DIR.Lib 6.0 (layout namespace + Layout.Builder DSL).
          6.8 adds the inspector render-thread watchdog (render_liveness).
-         6.9 adds the inspector describe_layout MCP tool -- serializes the full arranged DIR.Lib.Layout
+         6.9 adds the inspector describe_layout MCP tool: serializes the full arranged DIR.Lib.Layout
          tree (depth + kind + rect + chrome), not just the clickable subset; needs DIR.Lib 6.0.1161
          (ArrangedNode.Depth + PixelWidgetBase.GetCapturedLayout + LayoutInspection). -->
     <PackageVersion Include="SdlVulkan.Renderer" Version="6.9.*" />
