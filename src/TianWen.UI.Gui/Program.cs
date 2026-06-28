@@ -596,6 +596,18 @@ using var debugInspector = DebugInspector.Attach(loop, new DebugInspectorOptions
         }
         return regions;
     },
+    GetLayout = () =>
+    {
+        // Full arranged layout tree (chrome + active tab), the structural counterpart to GetRegions
+        // (which only exposes the clickable subset). Both rebuilt each frame, read on the render thread.
+        var nodes = new List<Layout.ArrangedNode<float>>();
+        nodes.AddRange(guiRenderer.GetCapturedLayout());
+        if (guiRenderer.ActiveTab is PixelWidgetBase<VulkanContext> activeTab)
+        {
+            nodes.AddRange(activeTab.GetCapturedLayout());
+        }
+        return nodes;
+    },
     AppState = s =>
     {
         // Curated snapshot (NOT a full GuiAppState dump -- it holds non-serializable handles).

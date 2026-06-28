@@ -192,7 +192,7 @@ screenshot-poll-and-OCR**. Three pieces compose:
 3. **Drive + observe via the DEBUG inspector — not screenshots.** A **DEBUG** GUI build attaches
    `DebugInspector` (`Program.cs`, compiled out of Release entirely), exposing this process to the
    `sdl-ui-inspector` MCP sidecar (`.mcp.json` → `dnx SdlVulkan.Renderer.Inspector`, UDP-multicast discovery).
-   It gives four surfaces:
+   It gives five surfaces:
    - **Describe/state snapshot** (the `AppState` block): `activeTab`, `profile`, `sessionRunning`, `phase`,
      `mountConnected/Name/RaJ2000/DecJ2000/mountSlewing/mountTracking`, `lastNotification`, sky-map viewport.
      **Poll this for coarse session state** (phase transitions, stuck-slewing, notifications) — it replaces a
@@ -200,7 +200,16 @@ screenshot-poll-and-OCR**. Three pieces compose:
    - **Programmatic signals** (`SignalFactories`): `DiscoverDevices{includeFake}`, `BuildSchedule`,
      **`StartSession`**, `SkyMapSetView`, `SkyMapSolveSync`, `TakePreview`. Posting `StartSession` runs the
      whole `RunAsync` with no clicking.
-   - **Clickable regions** (`GetRegions`): click-by-label for any action without a dedicated signal.
+   - **Clickable regions** (`GetRegions`, `describe_ui`): click-by-label for any action without a dedicated signal.
+   - **Arranged layout tree** (`GetLayout`, `describe_layout`, `SdlVulkan.Renderer.Inspector` 6.9+): the FULL
+     `DIR.Lib.Layout` tree the chrome + active tab painted this frame — every node with its `depth` (pre-order,
+     so the flat list reconstructs the nesting), `kind` (Stack/Dock/Grid/Overlay/Split/Leaf), rect, `axis`,
+     `columns`, `text`+`fontSize`, `fillKey`, `bg`, and `hitRole`/`hitLabel`. The STRUCTURAL counterpart to the
+     clickable-only `describe_ui` (which only shows interactive leaves) — use it to debug placement (clipping,
+     gaps, why a panel is the size it is, nesting). Gated by DIR.Lib's `LayoutInspection.Enabled` (flipped on in
+     `DebugInspector.Attach` when `GetLayout` is wired; widgets retain their arranged tree via
+     `PixelWidgetBase.GetCapturedLayout()`), so production paints carry no overhead. Empty if the app draws
+     without the layout DSL.
    - **Render-thread watchdog** (`render_liveness`, `SdlVulkan.Renderer.Inspector` 6.8+): the inspector runs
      every command (incl. `ping`) ON the render thread, so a `ping` that round-trips proves the render loop is
      pumping; a connected-but-silent probe means it's blocked (a hang) while the process is still up.
