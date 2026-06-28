@@ -90,15 +90,11 @@ public partial class Image
     /// </summary>
     public void InvalidateStarListCache()
     {
-        _starListCacheLock.Wait();
-        try
-        {
-            _starListCacheValue = null;
-        }
-        finally
-        {
-            _starListCacheLock.Release();
-        }
+        // Lock-free invalidation: a reference write is atomic, and the fast-path read in FindStarsAsync is
+        // already lock-free and tolerant of a torn read (it re-checks under the semaphore on the slow path).
+        // So nulling the slot without taking _starListCacheLock is safe -- and avoids a synchronous
+        // SemaphoreSlim.Wait() that would block whatever thread calls this (never block a thread on a wait).
+        Volatile.Write(ref _starListCacheValue, null);
     }
 
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
