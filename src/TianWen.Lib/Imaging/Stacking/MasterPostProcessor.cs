@@ -328,6 +328,22 @@ internal sealed class MasterPostProcessor(ILogger logger, ICelestialObjectDB? ca
     {
         Debug.Assert(sharpenPipeline is not null, "EnhanceAndWriteAsync called without SharpenPipeline -- guard upstream");
         var sw = Stopwatch.StartNew();
+
+        // Reclaim the integration working set before enhancing. The input-frame
+        // arrays (held by the InRam sink) are dead by now but linger on the LOH.
+        // The AI enhancers run on DirectML, and on an INTEGRATED GPU (e.g. the
+        // Snapdragon Adreno on win-arm64) system RAM IS VRAM -- a bloated managed
+        // heap starves GPU allocations and triggers a device-removed / TDR
+        // (887A0007). This bites hardest with the RC-Astro backend: it's a separate
+        // process that re-hydrates its OWN copy of the image + ONNX/GPU staging on
+        // top of our heap. A one-shot compacting collect decommits the dead frames
+        // back to the OS so the unified memory is available. Gated to the enhance
+        // path, so the normal stack loop never pays for it.
+        var heapBeforeGB = GC.GetTotalMemory(forceFullCollection: false) / 1e9;
+        GC.Collect(GC.MaxGeneration, GCCollectionMode.Forced, blocking: true, compacting: true);
+        logger.LogDebug("  [enhance] reclaimed heap before enhance: {Before:F2} GB -> {After:F2} GB",
+            heapBeforeGB, GC.GetTotalMemory(forceFullCollection: false) / 1e9);
+
         try
         {
             // Linear-in / linear-out, with the per-step Blend exposed via
