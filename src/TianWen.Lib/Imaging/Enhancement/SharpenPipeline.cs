@@ -51,14 +51,26 @@ public sealed class SharpenPipeline(
         ArgumentNullException.ThrowIfNull(request.Source);
         ValidateRequest(request);
 
+        // BayerDrizzle (and any partial-coverage) masters carry non-finite
+        // coverage holes. The enhancers -- SAS ONNX and RC-Astro alike --
+        // compute non-NaN-aware global normalisation, so a single NaN poisons
+        // the whole output to NaN. Sanitise once at the boundary so every
+        // downstream enhancer (and the EstimateNoiseProfile baseline below)
+        // sees finite input. No-op + same instance when already clean.
+        var source = request.Source.ReplaceNonFiniteWithChannelMean();
+        if (!ReferenceEquals(source, request.Source))
+        {
+            logger?.LogWarning("SharpenPipeline: source had non-finite samples (e.g. drizzle coverage holes); filled with per-channel mean before enhancement.");
+        }
+
         var totalSw = Stopwatch.StartNew();
-        var (channels, srcW, srcH) = request.Source.Shape;
+        var (channels, srcW, srcH) = source.Shape;
         // Capture entry noise before any step runs so the result has a clean
         // baseline for "how much grain did the AI pipeline remove" deltas.
         // MAD-based estimator naturally rejects bright outliers (stars, nebula
         // cores) so this is background σ even without segmentation. See
         // Image.EstimateNoiseProfile xmldoc.
-        var inputNoise = request.Source.EstimateNoiseProfile();
+        var inputNoise = source.EstimateNoiseProfile();
         logger?.LogDebug("SharpenPipeline.ProcessAsync: input {W}x{H}x{C} σ=[{Sigma}] steps=[{Steps}]",
             srcW, srcH, channels, FormatNoise(inputNoise),
             string.Join(", ", request.Steps.Select(s => s.GetType().Name)));
@@ -98,9 +110,9 @@ public sealed class SharpenPipeline(
                     {
                         // Removes the smooth background gradient at the head
                         // of the pipeline. All downstream steps that consume
-                        // the source pick `gradientCorrected ?? request.Source`
+                        // the source pick `gradientCorrected ?? source`
                         // so they see the cleaned plate.
-                        gradientCorrected = await Require(gradientCorrector).EnhanceAsync(request.Source, cancellationToken);
+                        gradientCorrected = await Require(gradientCorrector).EnhanceAsync(source, cancellationToken);
                         timings.Add(("gradient-correction", phaseSw.ElapsedMilliseconds, gradientCorrected.EstimateNoiseProfile()));
                         break;
                     }
@@ -109,7 +121,7 @@ public sealed class SharpenPipeline(
                     {
                         // Read from the corrected plate when GradientCorrectionStep
                         // ran upstream; falls back to the original source otherwise.
-                        var starsInput = gradientCorrected ?? request.Source;
+                        var starsInput = gradientCorrected ?? source;
                         starless = await Require(starRemover).EnhanceAsync(starsInput, cancellationToken);
                         // Pixel split:
                         //   Additive (default): StarsOnly = max(Source - Starless, 0).

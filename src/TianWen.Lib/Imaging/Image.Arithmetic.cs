@@ -8,6 +8,72 @@ namespace TianWen.Lib.Imaging;
 public partial class Image
 {
     /// <summary>
+    /// Returns a copy with every non-finite (NaN / +/-Inf) sample replaced by
+    /// the per-channel mean of the finite samples (0 when a channel is entirely
+    /// non-finite). Returns the SAME instance -- no allocation -- when every
+    /// sample is already finite, so the clean-input path is bit-identical.
+    /// </summary>
+    /// <remarks>
+    /// BayerDrizzle (and any partial-coverage) masters carry non-finite
+    /// coverage holes. The AI enhancers -- the SETI Astro ONNX models and the
+    /// RC-Astro CLI alike -- compute non-NaN-aware global normalisation
+    /// (median / MAD / min-max), so a single NaN poisons the entire output to
+    /// NaN. <see cref="Enhancement.SharpenPipeline"/> calls this at its input
+    /// boundary so every downstream enhancer (and the noise baseline) sees
+    /// finite data. The filled samples sit in the sparse-coverage border that
+    /// autocrop discards, so the exact fill value is not critical -- the
+    /// per-channel mean is a cheap, smooth, range-safe choice.
+    /// </remarks>
+    public Image ReplaceNonFiniteWithChannelMean()
+    {
+        var (channels, width, height) = Shape;
+        var means = new float[channels];
+        var hasNonFinite = false;
+        for (var c = 0; c < channels; c++)
+        {
+            var span = GetChannelSpan(c);
+            var sum = 0.0;
+            var finite = 0L;
+            for (var i = 0; i < span.Length; i++)
+            {
+                var v = span[i];
+                if (float.IsFinite(v))
+                {
+                    sum += v;
+                    finite++;
+                }
+                else
+                {
+                    hasNonFinite = true;
+                }
+            }
+            means[c] = finite > 0 ? (float)(sum / finite) : 0f;
+        }
+
+        if (!hasNonFinite)
+        {
+            return this;
+        }
+
+        var filled = new float[channels][,];
+        for (var c = 0; c < channels; c++)
+        {
+            var src = GetChannelSpan(c);
+            var dst = new float[height, width];
+            var dstSpan = MemoryMarshal.CreateSpan(ref dst[0, 0], dst.Length);
+            var fill = means[c];
+            for (var i = 0; i < src.Length; i++)
+            {
+                var v = src[i];
+                dstSpan[i] = float.IsFinite(v) ? v : fill;
+            }
+            filled[c] = dst;
+        }
+
+        return new Image(filled, bitDepth, maxValue, minValue, pedestal, imageMeta);
+    }
+
+    /// <summary>
     /// Returns <c>this - other + addedPedestal</c> per pixel, clamped to &gt;= 0.
     /// Used by calibration as <c>(light - bias - dark) + addedPedestal</c>: the
     /// optional constant offset prevents negative pixels when the dark mean
