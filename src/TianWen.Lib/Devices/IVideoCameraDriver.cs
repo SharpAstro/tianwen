@@ -60,6 +60,15 @@ public interface IVideoCameraDriver : ICameraDriver
     int DroppedFrames { get; }
 
     /// <summary>
+    /// The current readout window (origin + size, unbinned sensor px) of the running stream -- the live
+    /// position <see cref="JogRoiAsync"/> pans. The recenter loop reads this to know how much pan range is
+    /// left before an edge (when the window is at the sensor edge it hands off to the mount). A snapshot;
+    /// the size matches the yielded frame, the origin reflects the jogs applied so far. Defaults to a
+    /// sensor-sized window at the origin when not streaming.
+    /// </summary>
+    RoiRect VideoRoi { get; }
+
+    /// <summary>
     /// Streams frames in video mode until the enumerator is disposed or <paramref name="cancellationToken"/>
     /// is cancelled. Only call when <see cref="CanVideoCapture"/> is <see langword="true"/>. Run the
     /// enumeration off the render / UI thread. See the type remarks for frame-ownership rules.

@@ -1,4 +1,5 @@
 using DIR.Lib;
+using TianWen.DAL;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Sequencing.PolarAlignment;
 
@@ -190,6 +191,14 @@ public sealed record StartVideoCaptureSignal(
 
 /// <summary>Stop the live planetary video capture started by <see cref="StartVideoCaptureSignal"/>.</summary>
 public readonly record struct StopVideoCaptureSignal;
+
+/// <summary>
+/// Nudge the mount by a small angular step in a cardinal guide direction -- the manual coarse-recenter /
+/// framing control on the planetary panel (the same pulse-guide actuator the COM recenter loop uses for its
+/// edge-blocked fallback). Only valid when no session is running and a mount supporting pulse-guide is
+/// connected.
+/// </summary>
+public readonly record struct JogMountSignal(GuideDirection Direction, double Arcsec);
 
 /// <summary>
 /// Open the F3 sky-map search modal. Posted from the sky-map tab's key handler;

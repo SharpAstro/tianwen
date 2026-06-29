@@ -174,6 +174,102 @@ public class PlanetaryCaptureControllerTests(ITestOutputHelper output)
         await controller.StopAsync(ct);
     }
 
+    [Fact(Timeout = 60_000)]
+    public async Task Auto_recenter_jogs_the_roi_window_to_follow_a_drifting_planet()
+    {
+        // Phase C end-to-end: with auto-recenter on, the capture loop measures the disk COM each frame and
+        // jogs the readout window to follow the planet's drift across the sensor (the fast, mount-free path).
+        var ct = TestContext.Current.CancellationToken;
+        var timeProvider = new FakeTimeProviderWrapper(new DateTimeOffset(2026, 6, 24, 22, 0, 0, TimeSpan.Zero));
+        var external = new FakeExternal(output, timeProvider);
+        var camera = new FakeCameraDriver(new FakeDevice(DeviceType.Camera, 8), external.BuildServiceProvider()); // mono
+        await camera.ConnectAsync(ct);
+        camera.NumX = 200;
+        camera.NumY = 200;
+        camera.PlanetRadiusPixels = 40;
+        camera.PlanetDriftPixelsPerSecX = 120.0;  // strong rightward drift, X-only for a clean assertion
+        camera.PlanetDriftPixelsPerSecY = 0.0;
+
+        var state = new ViewerState();
+        await using var controller = new PlanetaryCaptureController(
+            state, external.TimeProvider, NullLogger<PlanetaryCaptureController>.Instance,
+            new RollingWindowOptions { FallbackWindowFrames = 8, MaxWindowFrames = 16 });
+
+        controller.ConfigureRecenter(auto: true, mountJog: false, deadbandPixels: 2, gain: 0.5);
+        controller.Start(camera, new VideoCaptureOptions(TimeSpan.FromMilliseconds(5)), ct);
+
+        // Capture the ROI origin once streaming has produced a frame, then run until the window has followed
+        // the drift to the right (the recenter loop panned it).
+        var iterations = 0;
+        while (controller.FramesReceived == 0 && iterations++ < 5000 && !ct.IsCancellationRequested)
+        {
+            controller.Tick();
+            await Task.Delay(2, ct);
+        }
+
+        var startX = camera.VideoRoi.X;
+        var startY = camera.VideoRoi.Y;
+        iterations = 0;
+        while (camera.VideoRoi.X < startX + 10 && iterations++ < 5000 && !ct.IsCancellationRequested)
+        {
+            controller.Tick();
+            await Task.Delay(2, ct);
+        }
+
+        var endX = camera.VideoRoi.X;
+        output.WriteLine($"ROI X: start={startX} end={endX} Y={camera.VideoRoi.Y}, frames={controller.FramesReceived}");
+        endX.ShouldBeGreaterThan(startX + 8);          // the window chased the drifting disk right
+        // Y drift was 0 and the deadband is per-axis, so the centred Y axis isn't dragged by the large X
+        // offset; at most one rare single-frame COM-noise excursion past the deadband nudges it a pixel.
+        Math.Abs(camera.VideoRoi.Y - startY).ShouldBeLessThanOrEqualTo(2);
+
+        await controller.StopAsync(ct);
+    }
+
+    [Fact(Timeout = 60_000)]
+    public async Task Auto_recenter_off_leaves_the_roi_window_fixed()
+    {
+        // The control case: same drift, auto-recenter OFF -> the loop never jogs, so the window stays put even
+        // as the planet drifts off it. Proves the jog in the test above is the recenter loop, not capture itself.
+        var ct = TestContext.Current.CancellationToken;
+        var timeProvider = new FakeTimeProviderWrapper(new DateTimeOffset(2026, 6, 24, 22, 0, 0, TimeSpan.Zero));
+        var external = new FakeExternal(output, timeProvider);
+        var camera = new FakeCameraDriver(new FakeDevice(DeviceType.Camera, 8), external.BuildServiceProvider());
+        await camera.ConnectAsync(ct);
+        camera.NumX = 200;
+        camera.NumY = 200;
+        camera.PlanetRadiusPixels = 40;
+        camera.PlanetDriftPixelsPerSecX = 120.0;
+
+        var state = new ViewerState();
+        await using var controller = new PlanetaryCaptureController(
+            state, external.TimeProvider, NullLogger<PlanetaryCaptureController>.Instance,
+            new RollingWindowOptions { FallbackWindowFrames = 8, MaxWindowFrames = 16 });
+
+        controller.ConfigureRecenter(auto: false, mountJog: false, deadbandPixels: 2, gain: 0.5);
+        controller.Start(camera, new VideoCaptureOptions(TimeSpan.FromMilliseconds(5)), ct);
+
+        var iterations = 0;
+        while (controller.FramesReceived == 0 && iterations++ < 5000 && !ct.IsCancellationRequested)
+        {
+            controller.Tick();
+            await Task.Delay(2, ct);
+        }
+
+        var startX = camera.VideoRoi.X;
+        // Run a good while; the planet drifts but the window must not move.
+        for (var i = 0; i < 600 && !ct.IsCancellationRequested; i++)
+        {
+            controller.Tick();
+            await Task.Delay(2, ct);
+        }
+
+        output.WriteLine($"ROI X: start={startX} end={camera.VideoRoi.X}, frames={controller.FramesReceived}");
+        camera.VideoRoi.X.ShouldBe(startX);   // no recenter -> unmoved
+
+        await controller.StopAsync(ct);
+    }
+
     // Mean of the red (channel 0) and blue (channel 2) planes over the central half of the image (the disk).
     private static (double R, double B) ChannelMeansInCentre(Image img)
     {

@@ -4,6 +4,7 @@ using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
+using TianWen.DAL;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Planetary;
@@ -67,6 +68,33 @@ public sealed class PlanetaryCaptureController(
     private int _pendingJogX;
     private int _pendingJogY;
 
+    // ── COM recenter loop (Phase C) ──────────────────────────────────────────────────────────────────
+    // Recenter config staged by the render thread (the panel's RECENTER toggles/steppers) and read by the
+    // capture loop each frame. Individual Volatile reads/writes: a transiently-mixed read (e.g. new toggle,
+    // old deadband) self-corrects on the next frame, so no lock is needed. The mount + pixel scale are set
+    // once on Start (single-threaded) via AttachMount and only read during the run.
+    private IMountDriver? _mount;
+    private double _pixelScaleArcsec = double.NaN;
+    private int _autoRecenter;                          // 0/1
+    private int _mountJogEnabled;                       // 0/1
+    private int _recenterDeadbandPx = 4;
+    private int _recenterGainPermille = 500;            // gain * 1000 (int so the cross-thread write is atomic)
+    private int _flipRa;                                // 0/1
+    private int _flipDec;                               // 0/1
+
+    // Mount-pulse single-flight + cooldown so the (rarely-fired, edge-blocked) coarse nudge never stacks
+    // pulses faster than they execute, and never blocks the capture loop (it's fired-and-tracked).
+    private int _mountPulseBusy;                        // 0/1, Interlocked CAS gate
+    private long _lastMountPulseTimestamp;
+    private static readonly TimeSpan MountPulseCooldown = TimeSpan.FromSeconds(1);
+    private static readonly TimeSpan MaxMountPulse = TimeSpan.FromSeconds(1);
+
+    // Latest recenter telemetry for the panel readout (doubles stored as long bits so the cross-thread
+    // write is atomic; the UI reads a coherent-but-possibly-stale value).
+    private long _lastOffsetXBits;
+    private long _lastOffsetYBits;
+    private int _lastActuator;
+
     /// <summary>True while a capture loop is running.</summary>
     public bool IsCapturing => Volatile.Read(ref _captureActive) == 1;
 
@@ -115,6 +143,14 @@ public sealed class PlanetaryCaptureController(
         }
     }
 
+    /// <summary>Last measured disk centre-of-mass offset from the frame centre (px), for the recenter readout.</summary>
+    public (double X, double Y) LastComOffset
+        => (BitConverter.Int64BitsToDouble(Volatile.Read(ref _lastOffsetXBits)),
+            BitConverter.Int64BitsToDouble(Volatile.Read(ref _lastOffsetYBits)));
+
+    /// <summary>Which actuator the most recent recenter frame engaged (for the panel readout).</summary>
+    public RecenterActuator LastRecenterActuator => (RecenterActuator)Volatile.Read(ref _lastActuator);
+
     /// <summary>
     /// Starts streaming from <paramref name="camera"/>. The ROI / sensor type is read from the camera's
     /// current sub-frame config (set the camera's <c>NumX</c>/<c>NumY</c> before calling). No-ops if a
@@ -148,6 +184,13 @@ public sealed class PlanetaryCaptureController(
         Volatile.Write(ref _pendingRoiH, 0);
         Interlocked.Exchange(ref _pendingJogX, 0);
         Interlocked.Exchange(ref _pendingJogY, 0);
+
+        // Clear stale recenter telemetry / pulse gate (the toggles + deadband persist across runs).
+        Interlocked.Exchange(ref _mountPulseBusy, 0);
+        Volatile.Write(ref _lastMountPulseTimestamp, 0);
+        Volatile.Write(ref _lastActuator, (int)RecenterActuator.None);
+        Interlocked.Exchange(ref _lastOffsetXBits, 0);
+        Interlocked.Exchange(ref _lastOffsetYBits, 0);
 
         _camera = camera;
         Interlocked.Exchange(ref _framesReceived, 0);
@@ -211,6 +254,13 @@ public sealed class PlanetaryCaptureController(
                 var toPush = stream.Layout == PlanetaryFrameLayout.SplitCfa ? frame.SplitBayerChannels() : frame;
                 stream.Push(toPush, timeProvider.GetUtcNow());
                 var received = Interlocked.Increment(ref _framesReceived);
+
+                // COM recenter (Phase C): measure the disk on the just-captured frame (still alive here, before
+                // the Release below) and pull it back to the frame centre -- via the ROI window (fast, mount-free)
+                // or, when the ROI is edge-blocked and mount jog is enabled, a coarse mount nudge. Runs on the
+                // capture loop (off the render thread); a staged ROI jog is drained by ApplyPendingControlsAsync
+                // below in the same iteration.
+                await MaybeRecenterAsync(camera, frame, token).ConfigureAwait(false);
 
                 // Defensive heartbeat: a steady cadence in the log confirms the capture loop is alive; the last
                 // heartbeat before a freeze bounds when the loop (or the thread it feeds) stopped advancing.
@@ -327,6 +377,156 @@ public sealed class PlanetaryCaptureController(
     {
         Interlocked.Add(ref _pendingJogX, dxPixels);
         Interlocked.Add(ref _pendingJogY, dyPixels);
+    }
+
+    // ── COM recenter (Phase C) ───────────────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Attaches the coupled mount + the OTA pixel scale (arcsec/px) for the recenter loop's coarse mount-jog
+    /// fallback. Call before <see cref="Start"/> (single-threaded); pass <c>null</c> / <see cref="double.NaN"/>
+    /// to disable the mount path. The pixel scale comes from
+    /// <c>CoordinateUtils.PixelScaleArcsec(camera.PixelSizeX, ota.FocalLength)</c>.
+    /// </summary>
+    public void AttachMount(IMountDriver? mount, double pixelScaleArcsec)
+    {
+        _mount = mount;
+        _pixelScaleArcsec = pixelScaleArcsec;
+    }
+
+    /// <summary>
+    /// Stages the recenter-loop configuration (render thread). The capture loop reads these per frame, so a
+    /// change takes effect on the next frame. <paramref name="gain"/> is the fraction of the measured offset
+    /// corrected per frame (0..1]; <paramref name="mountJog"/> opts into the coarse mount nudge when the ROI is
+    /// at the sensor edge; <paramref name="flipRa"/>/<paramref name="flipDec"/> invert the (uncalibrated)
+    /// pixel->mount-direction mapping.
+    /// </summary>
+    public void ConfigureRecenter(bool auto, bool mountJog, int deadbandPixels, double gain, bool flipRa = false, bool flipDec = false)
+    {
+        Volatile.Write(ref _autoRecenter, auto ? 1 : 0);
+        Volatile.Write(ref _mountJogEnabled, mountJog ? 1 : 0);
+        Volatile.Write(ref _recenterDeadbandPx, Math.Max(0, deadbandPixels));
+        Volatile.Write(ref _recenterGainPermille, (int)Math.Round(Math.Clamp(gain, 0.0, 1.0) * 1000.0));
+        Volatile.Write(ref _flipRa, flipRa ? 1 : 0);
+        Volatile.Write(ref _flipDec, flipDec ? 1 : 0);
+    }
+
+    // Measures the disk on the captured frame and acts on the recenter decision. A no-op when auto-recenter is
+    // off. Runs on the capture loop; a recenter fault must never kill the capture (logged + swallowed).
+    private async Task MaybeRecenterAsync(ICameraDriver camera, Image frame, CancellationToken token)
+    {
+        if (Volatile.Read(ref _autoRecenter) != 1)
+        {
+            return;
+        }
+
+        try
+        {
+            // Coarse, every-frame centroid on the luminance proxy (bbox-masked) -- the relative anchor the
+            // registration path already uses; cheap on a small planetary ROI.
+            var bbox = PlanetaryDisk.BoundingBox(frame);
+            var com = PlanetaryDisk.CenterOfMass(frame, bbox);
+
+            var video = camera as IVideoCameraDriver;
+            var canJog = video is { CanJogRoi: true };
+            var roi = canJog ? video!.VideoRoi : new RoiRect(0, 0, frame.Width, frame.Height);
+            var sensorW = camera.CameraXSize > 0 ? camera.CameraXSize : frame.Width;
+            var sensorH = camera.CameraYSize > 0 ? camera.CameraYSize : frame.Height;
+
+            var options = new RecenterOptions(
+                DeadbandPixels: Volatile.Read(ref _recenterDeadbandPx),
+                Gain: Volatile.Read(ref _recenterGainPermille) / 1000.0,
+                MountJogEnabled: Volatile.Read(ref _mountJogEnabled) == 1,
+                PixelScaleArcsec: _pixelScaleArcsec,
+                FlipRa: Volatile.Read(ref _flipRa) == 1,
+                FlipDec: Volatile.Read(ref _flipDec) == 1);
+
+            var decision = PlanetaryRecenterController.Decide(
+                com, frame.Width, frame.Height, roi, sensorW, sensorH, canJog, options);
+
+            Interlocked.Exchange(ref _lastOffsetXBits, BitConverter.DoubleToInt64Bits(decision.OffsetX));
+            Interlocked.Exchange(ref _lastOffsetYBits, BitConverter.DoubleToInt64Bits(decision.OffsetY));
+            Volatile.Write(ref _lastActuator, (int)decision.Actuator);
+
+            if (decision.RoiDx != 0 || decision.RoiDy != 0)
+            {
+                // Stage the pan -- ApplyPendingControlsAsync drains it onto the camera this same iteration.
+                JogRoi(decision.RoiDx, decision.RoiDy);
+                logger.LogDebug(
+                    "Planetary recenter: ROI jog ({Dx},{Dy}) for COM offset ({Ox:F1},{Oy:F1}) px.",
+                    decision.RoiDx, decision.RoiDy, decision.OffsetX, decision.OffsetY);
+            }
+
+            if (decision.MountRaArcsec != 0.0 || decision.MountDecArcsec != 0.0)
+            {
+                TryPulseMount(decision, token);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Planetary recenter failed for a frame; capture continues.");
+        }
+    }
+
+    // Fires the coarse mount nudge non-blocking + single-flight: a cooldown bounds how often it can fire, and a
+    // CAS gate stops a second nudge while one is in flight, so the rarely-needed mount path never stacks pulses
+    // or stalls the high-fps capture loop.
+    private void TryPulseMount(RecenterDecision decision, CancellationToken token)
+    {
+        if (_mount is not { } mount || !mount.CanPulseGuide)
+        {
+            return;
+        }
+
+        if (timeProvider.GetElapsedTime(Volatile.Read(ref _lastMountPulseTimestamp)) < MountPulseCooldown)
+        {
+            return;
+        }
+
+        if (Interlocked.CompareExchange(ref _mountPulseBusy, 1, 0) != 0)
+        {
+            return; // a pulse is already running
+        }
+
+        Volatile.Write(ref _lastMountPulseTimestamp, timeProvider.GetTimestamp());
+        _ = PulseMountAsync(mount, decision, token);
+    }
+
+    private async Task PulseMountAsync(IMountDriver mount, RecenterDecision decision, CancellationToken token)
+    {
+        try
+        {
+            if (Math.Abs(decision.MountRaArcsec) > 0.0)
+            {
+                var dir = decision.MountRaArcsec > 0.0 ? GuideDirection.East : GuideDirection.West;
+                await MountActions.PulseGuideArcsecAsync(
+                    mount, dir, Math.Abs(decision.MountRaArcsec), timeProvider, MaxMountPulse, logger, token)
+                    .ConfigureAwait(false);
+            }
+
+            if (Math.Abs(decision.MountDecArcsec) > 0.0)
+            {
+                var dir = decision.MountDecArcsec > 0.0 ? GuideDirection.North : GuideDirection.South;
+                await MountActions.PulseGuideArcsecAsync(
+                    mount, dir, Math.Abs(decision.MountDecArcsec), timeProvider, MaxMountPulse, logger, token)
+                    .ConfigureAwait(false);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            logger.LogInformation("Planetary recenter mount pulse cancelled.");
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Planetary recenter mount pulse failed; capture continues.");
+        }
+        finally
+        {
+            Interlocked.Exchange(ref _mountPulseBusy, 0);
+        }
     }
 
     // Drains the staged live-control changes and applies them to the camera. Runs on the capture loop, so the
