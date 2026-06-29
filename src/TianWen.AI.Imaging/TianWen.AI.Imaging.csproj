@@ -25,4 +25,10 @@
     <None Include="../.editorconfig" Link=".editorconfig" />
   </ItemGroup>
 
+  <!-- Expose internals (e.g. the RcAstro NDJSON event parser) to the test
+       project so it can be unit-tested without reflection. -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="TianWen.Lib.Tests" />
+  </ItemGroup>
+
 </Project>

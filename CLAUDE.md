@@ -489,6 +489,37 @@ A CPU-first planetary stacker, **completely separate** from the deep-sky `Imagin
   and `dotnet run --project TianWen.UI.Benchmarks -- profile planetary [--frames N]` prints a per-stage
   breakdown (load/grade/align/fold + wavelet/adopt) and tight-loops for `dotnet-trace`.
 
+### AI Image Enhancement: SETI Astro (ONNX) + RC-Astro (CLI)
+
+`SharpenPipeline` (`TianWen.Lib/Imaging/Enhancement/`) orchestrates role-typed enhancers
+(`IStarRemover` / `IStellarSharpener` / `INonStellarDeconvolver` / `IDenoiseEnhancer` /
+`IGradientCorrector`) over an immutable `SharpenStep[]` program. Two backends implement these roles:
+
+- **SETI Astro (SAS Pro AI4)** -- plain ONNX models loaded in-proc via ONNX Runtime
+  (`TianWen.AI.Imaging/Onnx/*`, `AddTianWenAi()`). Models under `%LOCALAPPDATA%\TianWen\models`
+  (`tools/tianwen-ai-models-fetch.ps1`).
+- **RC-Astro (BlurX/NoiseX/StarXTerminator)** -- `TianWen.AI.Imaging/RcAstro/*`, `AddRcAstroAi()`.
+  RC-Astro's `.onnx` files are **encrypted at rest** (only the official binary can decrypt them; the
+  license forbids extracting the weights), so they are driven through the `rc-astro` CLI's `--json`
+  NDJSON protocol, **not** loaded into ORT. `RcAstroEnhancerBase` writes the plate to a temp FITS
+  (`WriteToFitsFile`, BITPIX=-32), runs `rc-astro <product> <in> -o <out> --depth 32F --engine auto
+  --overwrite --json`, parses the NDJSON event stream (`RcAstroCli` + `RcAstroEvent`), and reads the
+  result back (`TryReadFitsFile`). RC normalises to [0,1] internally, so no rescaling. Role mapping:
+  sxt -> `IStarRemover` (default `-o` is the starless plate), nxt -> `IDenoiseEnhancer`
+  (noise-adaptive `--dn` from `EstimateNoiseProfile`, log-mapped 0.70-0.95), bxt ->
+  `INonStellarDeconvolver` (on the starless plate: `--sn`, auto-PSF). Confirmed GPU-accelerated under
+  win-arm64 x64 emulation (DirectML -> native Adreno).
+
+**Selection is RC-preferred, deferred, and license-gated.** `AddRcAstroAi()` calls `AddTianWenAi()`
+then `Replace`s the three RC-servable roles with **`DeferredEnhancer` proxies**: the RC-vs-SAS choice
+AND its blocking license probe (`rc-astro <product> --license`) run on the FIRST `EnhanceAsync`, never
+at DI registration/resolution -- so composing a service collection (or resolving `SharpenPipeline`)
+spawns **no** `rc-astro` process. RC wins only when the CLI is present
+(`RcAstroCli.LocateExecutable`: `RC_ASTRO_CLI` env -> documented per-OS default install dir -> PATH;
+RC-Astro writes **no** registry footprint, so no Uninstall/App-Paths probe) AND the product is
+licensed (cached); else the SAS ONNX enhancer is used. `IStellarSharpener` / `IGradientCorrector` stay
+SAS (no CLI equivalent). Wired in `TianWen.Cli/Program.cs`. Plan: `docs/plans/rc-astro-enhancers.md`.
+
 ### Hosting API (`TianWen.Hosting` + `TianWen.Server`)
 
 Headless REST + WebSocket API. Two API layers on the same ASP.NET Core host:

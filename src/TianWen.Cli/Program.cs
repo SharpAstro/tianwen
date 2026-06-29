@@ -6,6 +6,7 @@ using Pastel;
 using System.CommandLine;
 using System.Text;
 using TianWen.AI.Imaging;
+using TianWen.AI.Imaging.RcAstro;
 using TianWen.Cli;
 using TianWen.Cli.Plan;
 using TianWen.Cli.View;
@@ -57,7 +58,10 @@ builder.Services
     .AddDevices()
     .AddSessionFactory()
     .AddFitsViewer()
-    .AddTianWenAi()
+    // RC-preferred: uses RC-Astro (sxt/nxt/bxt) when the CLI is installed and the
+    // product is licensed, else falls back to the SETI Astro ONNX enhancers.
+    // AddRcAstroAi() calls AddTianWenAi() internally, so the SAS baseline stands.
+    .AddRcAstroAi()
     .AddSingleton<IVirtualTerminal, VirtualTerminal>()
     .AddSingleton<DocumentCache>()
     .AddSingleton<IConsoleHost, ConsoleHost>();
