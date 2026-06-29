@@ -128,6 +128,10 @@ internal sealed class StackSubCommand(
             Description = "Uniform AI strength for the sharpen pass in [0, 1]. 0 = each AI step is a no-op (master passes through unmodified); 1 = full AI output. Applied to the stellar-sharpen, non-stellar deconv, and denoise steps. Implies --enhance.",
             DefaultValueFactory = _ => 1.0f,
         };
+        var splitPlatesOpt = new Option<bool>("--split-plates")
+        {
+            Description = "Also emit edit-ready, dual-stretched per-plate TIFFs (master_*_stars.tif + master_*_starless.tif) from the SAME enhance pass -- no second AI run. The stars-only and starless plates produced internally by the BlurX-first enhance are stretched (StarStretch / MTF + reduce-bg + compress-highlights, fixed defaults) and written as sRGB-ICC float TIFFs, cropped to the autocrop AABB, for layering in Photoshop / Affinity (Screen-blend stars over starless). Implies --enhance.",
+        };
 
         var stackCommand = new Command("stack", "Stack a folder of FITS lights into a master frame.")
         {
@@ -142,7 +146,7 @@ internal sealed class StackSubCommand(
                 splitByPierSideOpt, hotPixelSigmaOpt,
                 qualityRejectSigmaOpt, referenceFrameHintOpt,
                 noBayerDrizzleOpt, includeIntegrationsOpt,
-                enhanceOpt, enhanceBlendOpt,
+                enhanceOpt, enhanceBlendOpt, splitPlatesOpt,
             },
         };
         stackCommand.SetAction(async (parseResult, ct) =>
@@ -183,7 +187,10 @@ internal sealed class StackSubCommand(
             // blend value would otherwise be silently ignored, which would
             // be more confusing than auto-on).
             var enhanceBlendArg = Math.Clamp(parseResult.GetValue(enhanceBlendOpt), 0f, 1f);
-            var enhanceArg = parseResult.GetValue(enhanceOpt) || enhanceBlendArg < 1.0f;
+            // --split-plates needs the enhance pass to produce the stars/starless
+            // plates, so it implies --enhance just like a sub-1 blend does.
+            var splitPlatesArg = parseResult.GetValue(splitPlatesOpt);
+            var enhanceArg = parseResult.GetValue(enhanceOpt) || enhanceBlendArg < 1.0f || splitPlatesArg;
             var options = new StackingOptions(
                 DataRoot: dataRoot,
                 OutputDir: outputDir,
@@ -203,7 +210,8 @@ internal sealed class StackSubCommand(
                 DisableBayerDrizzle: disableBayerDrizzle,
                 IncludeIntegrations: parseResult.GetValue(includeIntegrationsOpt),
                 Enhance: enhanceArg,
-                EnhanceBlend: enhanceBlendArg);
+                EnhanceBlend: enhanceBlendArg,
+                SplitPlates: splitPlatesArg);
 
             var format = parseResult.GetValue(formatOpt);
             var skipPlateSolve = parseResult.GetValue(noPlateSolveOpt);
@@ -228,6 +236,18 @@ internal sealed class StackSubCommand(
             {
                 switch (p.Phase)
                 {
+                    case StackingPhase.Scanning when p.Scan is { } s:
+                    {
+                        // Post-walk summary. Always report the scanned count;
+                        // append what was dropped so a re-ingested TianWen
+                        // product (the silent footgun) is never invisible.
+                        var summary = $"[stack] scanned: {s.FramesScanned} FITS";
+                        if (s.ProductsSkipped > 0) summary += $", ignored {s.ProductsSkipped} TianWen product(s) (pass --include-integrations to keep)";
+                        if (s.RejectionMapsSkipped > 0) summary += $", ignored {s.RejectionMapsSkipped} rejection map(s)";
+                        if (s.ProductsKept > 0) summary += $", kept {s.ProductsKept} integration(s) as input";
+                        consoleHost.WriteScrollable(summary);
+                        break;
+                    }
                     case StackingPhase.Scanning:
                         consoleHost.WriteScrollable("[stack] scanning...");
                         break;
@@ -342,45 +362,55 @@ internal sealed class StackSubCommand(
 
                 if (renderer is not null && result.Result is { } intResult && result.MasterFitsPath is { } masterPath)
                 {
-                    // The master FITS we just wrote has WCS embedded
-                    // (if plate-solve ran). Re-read it so the renderer
-                    // gets the exact pixels + WCS the file holds. Render
-                    // both the full master and the autocrop variant (the
-                    // autocrop is what most users actually look at -- it
-                    // strips the NaN-edge ring -- so emitting just one
-                    // PNG left half the deliverables off-disk).
-                    //
-                    // Load the autocrop FIRST so we can pass it as the
-                    // stats source for the full-canvas render. Without
-                    // this the full PNG's WB + bg-neut would be derived
-                    // from the partial-coverage edges (drizzle's per-
-                    // Bayer-position uncovered cells, or just the NaN
-                    // ring around any registered stack) and diverge from
-                    // the autocrop's stats; the two PNGs then end up
-                    // with different colour casts on identical data.
+                    // A PNG is a display / quick-look artifact, so it is ALWAYS
+                    // the autocropped, NaN-ring-free render -- never the full
+                    // canvas with its ragged partial-coverage edges (drizzle's
+                    // per-Bayer-position uncovered cells, or the NaN ring around
+                    // any registered + drifted / meridian-flipped stack). The
+                    // uncropped linear pixels live in the canonical FITS (+ EXR),
+                    // which is where full-frame data belongs; there is no
+                    // uncropped PNG. When coverage is full there is no
+                    // _autocrop.fits, so the full frame IS the autocrop and the
+                    // bare master_<slug>.png is it.
                     var autocropFitsPath = Path.Combine(
                         Path.GetDirectoryName(masterPath) ?? string.Empty,
                         Path.GetFileNameWithoutExtension(masterPath) + "_autocrop.fits");
-                    Image? cropImage = null;
-                    WCS? cropWcs = null;
-                    if (File.Exists(autocropFitsPath))
+
+                    // Prefer the autocrop FITS; fall back to the full master only
+                    // when no crop was emitted (full coverage). The rendered image
+                    // is its OWN stats source -- it is already the clean region, so
+                    // WB + bg-neut can never be poisoned by partial-coverage edges.
+                    Image? renderImage = null;
+                    WCS? renderWcs = null;
+                    string pngPath;
+                    if (File.Exists(autocropFitsPath)
+                        && Image.TryReadFitsFile(autocropFitsPath, out renderImage, out renderWcs)
+                        && renderImage is not null)
                     {
-                        Image.TryReadFitsFile(autocropFitsPath, out cropImage, out cropWcs);
+                        pngPath = Path.ChangeExtension(autocropFitsPath, ".png");
+                    }
+                    else if (Image.TryReadFitsFile(masterPath, out renderImage, out renderWcs) && renderImage is not null)
+                    {
+                        pngPath = result.PreviewPngPath ?? Path.ChangeExtension(masterPath, ".png");
+                    }
+                    else
+                    {
+                        renderImage = null;
+                        pngPath = string.Empty;
                     }
 
                     SpccDiagnostics? spcc = null;
-                    if (Image.TryReadFitsFile(masterPath, out var masterImage, out var wcs) && masterImage is not null)
+                    if (renderImage is not null)
                     {
-                        var pngPath = result.PreviewPngPath ?? Path.ChangeExtension(masterPath, ".png");
                         try
                         {
                             spcc = await renderer.RenderAsync(
-                                masterImage,
-                                masterImage.ImageMeta,
-                                wcs,
-                                statsSource: cropImage,
+                                renderImage,
+                                renderImage.ImageMeta,
+                                renderWcs,
+                                statsSource: renderImage,
                                 pngPath,
-                                statsWcs: cropWcs,
+                                statsWcs: renderWcs,
                                 ct: ct);
                         }
                         catch (Exception ex)
@@ -431,32 +461,6 @@ internal sealed class StackSubCommand(
                             $"TR={f.TR.Detected}/{f.TR.TolMissed}/{f.TR.RejMagDiff}/{f.TR.Accepted}  " +
                             $"BL={f.BL.Detected}/{f.BL.TolMissed}/{f.BL.RejMagDiff}/{f.BL.Accepted}  " +
                             $"BR={f.BR.Detected}/{f.BR.TolMissed}/{f.BR.RejMagDiff}/{f.BR.Accepted}");
-                    }
-                    if (cropImage is not null)
-                    {
-                        // Pass cropImage as statsSource explicitly even
-                        // though it equals master here -- keeps both call
-                        // sites symmetric: "always use the autocrop region
-                        // as the stats source, regardless of which image
-                        // we're rendering pixels of."
-                        var cropPngPath = Path.ChangeExtension(autocropFitsPath, ".png");
-                        try
-                        {
-                            // Discard the autocrop's SpccDiagnostics return: it computes the
-                            // same WB on the same stats source we already reported above.
-                            _ = await renderer.RenderAsync(
-                                cropImage,
-                                cropImage.ImageMeta,
-                                cropWcs,
-                                statsSource: cropImage,
-                                cropPngPath,
-                                statsWcs: cropWcs,
-                                ct: ct);
-                        }
-                        catch (Exception ex)
-                        {
-                            consoleHost.WriteError($"[stack] {result.GroupSlug}: autocrop PNG render failed: {ex.Message}");
-                        }
                     }
                 }
             }

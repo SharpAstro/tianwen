@@ -119,4 +119,5 @@ public sealed record StackingOptions(
     bool DisableBayerDrizzle = false,
     bool IncludeIntegrations = false,
     bool Enhance = false,
-    float EnhanceBlend = 1.0f);
+    float EnhanceBlend = 1.0f,
+    bool SplitPlates = false);

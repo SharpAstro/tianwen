@@ -95,13 +95,27 @@ public static class IntegrationFitsWriter
     }
 
     /// <summary>
+    /// Returns true when a <c>SWCREATE</c> header value marks a TianWen-produced
+    /// image -- a stacking master, rejection map, or any DERIVED product (an AI
+    /// sharpen / enhance output inherits the master's <c>SWCREATE</c>). TianWen
+    /// never writes raw light subs to disk, so any TianWen-stamped FITS is a
+    /// processed output, never a fresh light. The scanner uses this to keep
+    /// processed outputs parked alongside the lights from being re-ingested as
+    /// frames -- once sharpened they carry no <c>STACK_N</c> and an
+    /// <c>IMAGETYP=Light</c> copied from the original subs, so the STACK_N
+    /// filter alone misses them.
+    /// </summary>
+    public static bool IsTianWenProduct(string? swcreate)
+        => swcreate?.StartsWith(SoftwareCreatorPrefix, StringComparison.Ordinal) == true;
+
+    /// <summary>
     /// Returns true when <paramref name="path"/> is a FITS file whose
     /// <c>SWCREATE</c> header was stamped by this writer (any TianWen
-    /// stacking master / rejection map). Used to safely wipe stale outputs
-    /// at the start of a run without touching unrelated FITS files that
-    /// share the output directory. Header-only read -- no pixel data.
-    /// Returns false for any read failure (missing file, corrupt header,
-    /// not a FITS file, no SWCREATE).
+    /// stacking master / rejection map / derived product). Used to safely
+    /// wipe stale outputs at the start of a run without touching unrelated
+    /// FITS files that share the output directory. Header-only read -- no
+    /// pixel data. Returns false for any read failure (missing file, corrupt
+    /// header, not a FITS file, no SWCREATE).
     /// </summary>
     public static bool IsTianWenMaster(string path)
     {
@@ -110,8 +124,7 @@ public static class IntegrationFitsWriter
             using var bufferedReader = new BufferedFile(path, FileAccess.Read, FileShare.Read, 4 * 2880);
             using var fitsFile = new Fits(bufferedReader, path.EndsWith(".gz", StringComparison.OrdinalIgnoreCase));
             var hdu = fitsFile.ReadHDUHeaderOnly();
-            var swcreate = hdu?.Header?.GetStringValue("SWCREATE");
-            return swcreate?.StartsWith(SoftwareCreatorPrefix, StringComparison.Ordinal) == true;
+            return IsTianWenProduct(hdu?.Header?.GetStringValue("SWCREATE"));
         }
         catch
         {

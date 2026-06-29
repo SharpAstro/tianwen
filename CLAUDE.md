@@ -423,6 +423,62 @@ session-end. Wire-up: `BacklashEstimator`, `BacklashHistoryPersistence`, `Sessio
 plate-solve routine that runs **outside** of `Session.RunAsync` against a manually-connected mount.
 See `docs/plans/polar-alignment.md` for the math/algorithm.
 
+### Deep-Sky Stacking + Enhance Pipeline (`TianWen.Lib.Imaging.Stacking`)
+
+`StackingPipeline.RunAsync` (CLI `tianwen stack`) is the deep-sky integration pipeline:
+scan DataRoot -> build bias/dark/flat masters -> per light group register (star-quad match)
+-> integrate (strategy auto-picked: Bayer drizzle on RGGB with >= `DrizzleOptions.MinFrameCount`,
+else AHD + sigma-clip rejection) -> `MasterPostProcessor.WriteMasterAsync` (plate-solve, SPCC
+WB, FITS + autocrop + optional enhance + previews). Sibling of, but **completely separate
+from**, the Planetary stacker below.
+
+**Output contract is by data type -- do not regress it:**
+- **Linear (canonical)**: FITS, written full-frame `master_<slug>.fits` AND cropped
+  `master_<slug>_autocrop.fits`. `--output-format exr` mirrors both as float-true HDR `.exr`
+  (Affinity-readable). Full-frame linear pixels live here -- the only place an uncropped raster
+  exists.
+- **Display / stretched (ALWAYS autocropped)**: the PNG quick-look and the `--split-plates`
+  TIFFs. A PNG is a display artifact, so the CLI renders ONLY the autocrop
+  (`master_<slug>_autocrop.png`); the bare `master_<slug>.png` appears only when coverage is
+  full and there is no `_autocrop.fits` (then the full frame IS the autocrop). There is no
+  uncropped PNG. The rendered image is its own stats source, so WB / bg-neut can never be
+  poisoned by the partial-coverage / NaN-ring edges. The autocrop rect is a geometric
+  footprint-intersection AABB, decoupled from the NaN-fill guard inside `SharpenPipeline`.
+
+**Provenance skip (never re-ingest our own outputs).** The scan drops any TianWen-produced
+FITS so a processed image parked alongside the lights is never re-stacked as a fresh sub. Two
+markers, both gated by `--include-integrations`: `STACK_N > 0` (a master) OR a TianWen
+`SWCREATE` (`IntegrationFitsWriter.IsTianWenProduct` -- catches AI sharpen / enhance outputs,
+which inherit the master's `SWCREATE` but carry NO `STACK_N` and an `IMAGETYP=Light` copied
+from the original subs, so the STACK_N check alone misses them, and they silently re-stack into
+a ghost master). The scan reports a `ScanSummary` on the progress channel (CLI prints
+`[stack] scanned: N FITS, ignored M TianWen product(s)`) -- silent re-ingestion was the footgun.
+
+**`--enhance`** runs `SharpenPipeline` on the master ONCE and writes `_sharpened.fits`
+(+ `_sharpened_autocrop.fits`); the linear masters are never overwritten. The step program is
+deblurrer-aware (`SharpenPipeline.SupportsDeblur`): RC-Astro present -> BlurX-first (deblur
+whole frame -> gradient -> remove stars -> denoise starless + SCNR stars -> recombine, matching
+the PixInsight OSC flow, NO stellar-sharpen); no RC deblurrer -> SAS-shaped (remove stars ->
+sharpen stars -> deconvolve + denoise starless -> recombine).
+
+**`--split-plates` is a SINGLE AI pass.** It sets `KeepIntermediates:
+SharpenIntermediates.StarsAndStarlessLineage` on the SAME enhance `ProcessAsync`, then exports
+the kept stars-only + denoised-starless plates as edit-ready stretched sRGB-ICC float TIFFs
+(`_stars.tif` / `_starless.tif`, autocropped) for Photoshop / Affinity layering (Screen-blend
+stars over starless). NO second enhance runs -- `WriteSplitPlatesAsync` only crops (copy) +
+stretches (`DualStretchPlates`, pure math reusing the `SharpenStep` record defaults as the param
+source) + writes. `Image.WriteStretchedTiffAsync` (verbatim [0,1] floats -- no `1/MaxValue`
+rescale -- + `IccProfiles.SRgbV4`) is the one stretched-TIFF writer shared by
+`stack --split-plates` and `image sharpen`.
+
+**Stellar-sharpen is opt-in (`image sharpen --stellar-sharpen`, default OFF).** The SAS stellar
+sharpener (NAFNet) over-sharpens already-tight star cores into square white clipped blocks; when
+a deblurrer (BlurX) is live the stars are already tightened, so the option is **hard-skipped**
+even if requested (with a warning). RC-vs-SAS roles: RC-Astro is preferred + license-gated (sxt
+/ bxt / nxt -> `IStarRemover` / `INonStellarDeconvolver` / `IDenoiseEnhancer`); SAS ONNX is the
+free fallback tier; `IStellarSharpener` / `IGradientCorrector` stay SAS (no RC equivalent). See
+`docs/plans/rc-astro-enhancers.md`.
+
 ### Planetary Lucky-Imaging Stack (`TianWen.Lib.Imaging.Planetary`)
 
 A CPU-first planetary stacker, **completely separate** from the deep-sky `Imaging.Stacking` pipeline
