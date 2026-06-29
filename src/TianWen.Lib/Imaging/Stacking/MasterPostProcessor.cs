@@ -55,6 +55,7 @@ internal sealed class MasterPostProcessor(ILogger logger, ICelestialObjectDB? ca
         IntegrationStrategyKind strategy,
         bool enhance,
         float enhanceBlend,
+        bool splitPlates,
         CancellationToken ct)
     {
         var sw = Stopwatch.StartNew();
@@ -226,7 +227,7 @@ internal sealed class MasterPostProcessor(ILogger logger, ICelestialObjectDB? ca
         {
             await EnhanceAndWriteAsync(
                 result, masterPath, solvedWcs, strategy,
-                croppedResult, autocropRect, enhanceBlend, ct);
+                croppedResult, autocropRect, enhanceBlend, splitPlates, ct);
         }
         else if (enhance && sharpenPipeline is null)
         {
@@ -324,6 +325,7 @@ internal sealed class MasterPostProcessor(ILogger logger, ICelestialObjectDB? ca
         IntegrationResult? croppedResult,
         Rectangle autocropRect,
         float enhanceBlend,
+        bool splitPlates,
         CancellationToken ct)
     {
         Debug.Assert(sharpenPipeline is not null, "EnhanceAndWriteAsync called without SharpenPipeline -- guard upstream");
@@ -372,7 +374,10 @@ internal sealed class MasterPostProcessor(ILogger logger, ICelestialObjectDB? ca
                     new DeconvolveStarlessStep(Blend: blend),
                     new DenoiseStarlessStep(Blend: blend),
                     new RecombineStep());
-            var request = new SharpenRequest(master.Master, steps, KeepIntermediates: SharpenIntermediates.None);
+            // --split-plates keeps the stars / starless lineage so the SAME pass
+            // feeds the per-plate TIFF export; otherwise discard intermediates.
+            var request = new SharpenRequest(master.Master, steps,
+                KeepIntermediates: splitPlates ? SharpenIntermediates.StarsAndStarlessLineage : SharpenIntermediates.None);
             var sharpenResult = await sharpenPipeline.ProcessAsync(request, ct);
             if (sharpenResult.Final is not { } enhancedMaster)
             {
@@ -399,6 +404,21 @@ internal sealed class MasterPostProcessor(ILogger logger, ICelestialObjectDB? ca
             }
 
             enhancedMaster.Release();
+
+            // Split-plate export (--split-plates): NO second AI pass. The BlurX-first
+            // program already produced the stars-only + denoised-starless plates
+            // internally; we kept them (StarsAndStarlessLineage above) instead of
+            // discarding them. Stretch copies (pure math) and write edit-ready
+            // sRGB-ICC TIFFs for Photoshop / Affinity layering.
+            if (splitPlates)
+            {
+                await WriteSplitPlatesAsync(sharpenResult, masterPath, croppedResult, autocropRect, ct);
+                sharpenResult.Starless?.Release();
+                sharpenResult.StarsOnly?.Release();
+                sharpenResult.SharpenedStars?.Release();
+                sharpenResult.DeconvolvedStarless?.Release();
+                sharpenResult.DenoisedStarless?.Release();
+            }
         }
         catch (OperationCanceledException)
         {
@@ -408,6 +428,54 @@ internal sealed class MasterPostProcessor(ILogger logger, ICelestialObjectDB? ca
         catch (Exception ex)
         {
             logger.LogWarning("  [enhance] failed after {Ms} ms: {Type}: {Msg}", sw.ElapsedMilliseconds, ex.GetType().Name, ex.Message);
+        }
+    }
+
+    /// <summary>
+    /// Writes the per-plate dual-stretch TIFFs from the already-computed
+    /// <see cref="SharpenResult"/> -- the <c>--split-plates</c> deliverable. No AI
+    /// runs here: the stars-only + starless plates are the kept intermediates from
+    /// the single enhance pass. Each plate is cropped to the intersection AABB
+    /// (clean histogram stats for the starless auto-stretch -- not the NaN-fill
+    /// ring), stretched with the fixed approach-A curve, and written as an
+    /// sRGB-ICC float TIFF for layering in Photoshop / Affinity (Screen-blend the
+    /// stars over the starless).
+    /// </summary>
+    private async Task WriteSplitPlatesAsync(
+        SharpenResult result, string masterPath, IntegrationResult? croppedResult, Rectangle autocropRect, CancellationToken ct)
+    {
+        // Most-processed plate of each lineage (mirrors the image-sharpen selectors).
+        var stars = result.SharpenedStars ?? result.StarsOnly;
+        var starless = result.DenoisedStarless ?? result.DeconvolvedStarless ?? result.Starless;
+        var doCrop = croppedResult is not null;
+        if (stars is not null)
+        {
+            await WriteOneSplitPlateAsync(stars, WithSuffix(masterPath, "_stars"), DualStretchPlates.StretchStars, doCrop, autocropRect, ct);
+        }
+        if (starless is not null)
+        {
+            await WriteOneSplitPlateAsync(starless, WithSuffix(masterPath, "_starless"), DualStretchPlates.StretchStarless, doCrop, autocropRect, ct);
+        }
+    }
+
+    /// <summary>Crop (for clean stats) -&gt; stretch -&gt; write one stretched plate TIFF.
+    /// The input <paramref name="plate"/> is owned by the caller; only the crop copy
+    /// and the stretched result are released here.</summary>
+    private async Task WriteOneSplitPlateAsync(
+        Image plate, string fitsBasePath, Func<Image, Image> stretch, bool doCrop, Rectangle autocropRect, CancellationToken ct)
+    {
+        var source = doCrop ? CropImage(plate, autocropRect) : plate;
+        var stretched = stretch(source);
+        if (doCrop) source.Release(); // CropImage allocated a copy; the original plate is released by the caller
+        try
+        {
+            var tifPath = Path.ChangeExtension(fitsBasePath, ".tif");
+            await stretched.WriteStretchedTiffAsync(tifPath, ct);
+            logger.LogInformation("  wrote {Path} (split plate, stretched)", tifPath);
+        }
+        finally
+        {
+            stretched.Release();
         }
     }
 

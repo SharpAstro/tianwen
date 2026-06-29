@@ -176,16 +176,22 @@ public sealed class StackingPipeline(
                 rejectionMapSkipped++;
                 continue;
             }
-            // STACK_N marks any integration product (master or rejection map);
-            // the rejection branch above has already filtered the latter, so
-            // reaching here with STACK_N>0 means an integrated master. Default
-            // policy is to drop them -- stale masters in adjacent output-*/
-            // dirs from prior runs would otherwise look like ordinary 1-frame
-            // FITS to the scan and partition the lights into ghost
-            // MasterGroupKey buckets. IncludeIntegrations opts in for
+            // Two markers identify a TianWen-produced FITS that must not be
+            // re-ingested as a fresh light:
+            //   * STACK_N > 0 -- a stacking master (the rejection branch above
+            //     already filtered rejection maps, so this is an integrated
+            //     master).
+            //   * A TianWen SWCREATE -- ANY of our derived products. An AI
+            //     sharpen / enhance output inherits the master's SWCREATE but
+            //     carries NO STACK_N and an IMAGETYP=Light copied from the
+            //     original subs, so the STACK_N check alone misses it -- which
+            //     is exactly how processed outputs in an adjacent output-*/ dir
+            //     get partitioned into ghost MasterGroupKey buckets and silently
+            //     re-stacked.
+            // Default policy is to drop both. IncludeIntegrations opts in for
             // two-stage mosaic stacking where each panel is integrated
             // separately, then the panel masters are re-stacked.
-            if (frame.StackedFrameCount > 0)
+            if (frame.StackedFrameCount > 0 || IntegrationFitsWriter.IsTianWenProduct(frame.Meta.SWCreator))
             {
                 if (options.IncludeIntegrations)
                 {
@@ -205,7 +211,7 @@ public sealed class StackingPipeline(
         }
         if (integrationSkipped > 0)
         {
-            logger.LogInformation("[scan] ignored {Count} integration(s) (STACK_N set); pass --include-integrations to keep them",
+            logger.LogInformation("[scan] ignored {Count} TianWen product(s) (STACK_N or TianWen SWCREATE); pass --include-integrations to keep them",
                 integrationSkipped);
         }
         if (integrationKept > 0)
@@ -214,6 +220,13 @@ public sealed class StackingPipeline(
                 integrationKept);
         }
         logger.LogInformation("[scan] {Count} frames in {ElapsedMs} ms", allFrames.Count, sw.ElapsedMilliseconds);
+        // Surface the scan summary on the progress channel (a CLI / TUI floors
+        // its console at Warning, so the LogInformation lines above are file-only
+        // -- and a silently re-ingested product is exactly the footgun this run
+        // just guarded against, so it must be visible).
+        progress?.Report(new StackingProgress(
+            StackingPhase.Scanning, "", 0, 0,
+            Scan: new ScanSummary(allFrames.Count, integrationSkipped, rejectionMapSkipped, integrationKept)));
         hostTracker.Log(logger, "scan");
 
         var byType = allFrames.GroupBy(f => f.FrameType).ToDictionary(g => g.Key, g => g.ToList());
@@ -936,7 +949,7 @@ public sealed class StackingPipeline(
         var postProcessor = new MasterPostProcessor(logger, catalogDb, options.Enhance ? sharpenPipeline : null);
         var postResult = await postProcessor.WriteMasterAsync(
             intResult, masterPath, searchHint, refImageDim, referenceRaw.ImageMeta, statsRect, selection.Chosen.Kind,
-            enhance: options.Enhance, enhanceBlend: options.EnhanceBlend, ct);
+            enhance: options.Enhance, enhanceBlend: options.EnhanceBlend, splitPlates: options.SplitPlates, ct);
         if (intResult.TotalRejections > 0)
         {
             logger.LogInformation("  wrote {Path}", IntegrationFitsWriter.RejectionPathFor(masterPath));

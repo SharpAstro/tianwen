@@ -74,9 +74,36 @@ public enum StackingPhase
 /// <param name="Integration">Strategy's own structured progress, forwarded
 /// when the pipeline is inside <see cref="StackingPhase.Integrating"/>.
 /// Null for other phases.</param>
+/// <param name="Scan">One-shot scan summary, set on the SECOND
+/// <see cref="StackingPhase.Scanning"/> tick (after the DataRoot walk
+/// completes). Null on the initial "scanning..." tick and every other phase.</param>
 public sealed record StackingProgress(
     StackingPhase Phase,
     string GroupSlug,
     int CompletedItems,
     int TotalItems,
-    IntegrationProgress? Integration = null);
+    IntegrationProgress? Integration = null,
+    ScanSummary? Scan = null);
+
+/// <summary>
+/// One-shot scan summary, reported once via <see cref="StackingPhase.Scanning"/>
+/// after <see cref="StackingOptions.DataRoot"/> is fully walked. Lets a CLI / TUI
+/// surface what the scan DROPPED -- silently re-ingesting a TianWen product (a
+/// stale master, or a sharpen / enhance output that inherited the master's
+/// <c>SWCREATE</c>) as a fresh light is a footgun, and a silent skip reads as
+/// "there was nothing there to skip". Reported in addition to the initial bare
+/// "scanning..." tick, not instead of it.
+/// </summary>
+/// <param name="FramesScanned">FITS kept after filtering, across ALL frame types
+/// (lights + calibration + any integrations kept via IncludeIntegrations).</param>
+/// <param name="ProductsSkipped">TianWen products dropped: STACK_N masters plus
+/// SWCREATE-stamped derived outputs (sharpen / enhance). Zero unless such files
+/// sat alongside the inputs; always 0 when IncludeIntegrations is set.</param>
+/// <param name="RejectionMapsSkipped">Per-pixel <c>.rejection.fits</c> maps dropped.</param>
+/// <param name="ProductsKept">TianWen products kept as input under
+/// IncludeIntegrations (two-stage mosaic re-stacking).</param>
+public sealed record ScanSummary(
+    int FramesScanned,
+    int ProductsSkipped,
+    int RejectionMapsSkipped,
+    int ProductsKept);

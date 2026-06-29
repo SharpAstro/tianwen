@@ -1,3 +1,4 @@
+using SharpAstro.Color.Icc;
 using SharpAstro.Exr;
 using SharpAstro.Jxr;
 using SharpAstro.Tiff;
@@ -82,6 +83,70 @@ public partial class Image
             SMinSampleValue = 0f,
             SMaxSampleValue = Q16HdriQuantumMax,
             Compression = TiffCompression.Deflate,
+        }, cancellationToken);
+        await writer.FlushAsync(cancellationToken);
+    }
+
+    /// <summary>
+    /// Writes a stretched (display-referred) <c>[0, 1]</c> image as a 32-bit
+    /// IEEE-float TIFF tagged with the bundled sRGB v4 ICC profile. Unlike
+    /// <see cref="WriteTiffAsync"/> this writes the float values <b>verbatim</b>
+    /// (no <c>1/MaxValue</c> rescale) and assumes the data is already debayered
+    /// (mono or RGB) and in stretched <c>[0, 1]</c> space -- it is the per-plate
+    /// export for the dual-stretch workflow (layer stars + starless in
+    /// Photoshop / Affinity with the "Screen" blend mode). The embedded sRGB ICC
+    /// is what makes colour-managed viewers display the values 1:1 (an EXR, which
+    /// carries no transfer tag and is assumed scene-linear, would re-apply the
+    /// sRGB OETF and over-brighten -- hence TIFF, not EXR, for stretched plates).
+    /// Shared by the <c>image sharpen --dual-stretch</c> and
+    /// <c>stack --split-plates</c> paths so both emit byte-identical containers.
+    /// </summary>
+    /// <param name="path">Output <c>.tif</c> path.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <exception cref="ArgumentException">When the image is not 1- or 3-channel.</exception>
+    public async Task WriteStretchedTiffAsync(string path, CancellationToken cancellationToken = default)
+    {
+        var (channels, width, height) = Shape;
+        if (channels is not (1 or 3))
+        {
+            throw new ArgumentException(
+                $"Stretched-TIFF export requires a debayered 1- or 3-channel image; got {channels}.", nameof(path));
+        }
+
+        // Pack channel-planar floats into a pixel-interleaved (PlanarConfig=1)
+        // byte buffer via MemoryMarshal -- one allocation, no float[]->byte[] hop.
+        var pixelCount = width * height;
+        var byteBuffer = new byte[pixelCount * channels * sizeof(float)];
+        var floats = MemoryMarshal.Cast<byte, float>(byteBuffer.AsSpan());
+        if (channels == 1)
+        {
+            GetChannelSpan(0).CopyTo(floats);
+        }
+        else
+        {
+            var r = GetChannelSpan(0);
+            var g = GetChannelSpan(1);
+            var b = GetChannelSpan(2);
+            for (var i = 0; i < pixelCount; i++)
+            {
+                floats[i * 3 + 0] = r[i];
+                floats[i * 3 + 1] = g[i];
+                floats[i * 3 + 2] = b[i];
+            }
+        }
+
+        await using var writer = TiffWriter.Create(path);
+        await writer.AddPageAsync(byteBuffer, width, height, new TiffPageOptions
+        {
+            SampleFormat = TiffSampleFormat.IeeeFloat,
+            BitsPerSample = 32,
+            SamplesPerPixel = channels,
+            Photometric = channels == 1 ? TiffPhotometric.MinIsBlack : TiffPhotometric.Rgb,
+            IccProfile = IccProfiles.SRgbV4,
+            SMinSampleValue = 0f,
+            SMaxSampleValue = 1f,
+            Compression = TiffCompression.Deflate,
+            Software = "TianWen",
         }, cancellationToken);
         await writer.FlushAsync(cancellationToken);
     }

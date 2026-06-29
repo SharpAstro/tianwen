@@ -4,13 +4,10 @@ using System.Collections.Immutable;
 using System.CommandLine;
 using System.CommandLine.Parsing;
 using System.IO;
-using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
-using SharpAstro.Color.Icc;
 using SharpAstro.Png;
-using SharpAstro.Tiff;
 using TianWen.Lib.Astrometry;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Enhancement;
@@ -171,9 +168,9 @@ internal sealed class ImageSubCommand(
             Description = "Split/recombine math: 'additive' (default, linear-light correct) or 'screen' (matches NAFNet's stretched-space training identity).",
             DefaultValueFactory = _ => "additive",
         };
-        var noStellarOpt = new Option<bool>("--no-stellar-sharpen")
+        var stellarSharpenOpt = new Option<bool>("--stellar-sharpen")
         {
-            Description = "Skip the stellar-sharpening pass. Stars pass through unmodified into the recombine step (or output as-is when --no-recombine).",
+            Description = "Opt in to the SAS stellar-sharpening pass on the extracted stars (default OFF). Stars from a registered/drizzled stack are already round, and the SAS NAFNet over-sharpens bright cores -- it pushes them past 1.0 (hard clamp) and hardens the edges into square white blocks. Left off, stars pass through to StarStretch/recombine unmodified. Hard override: when a BlurX deblurrer is live (RC-Astro present) this pass is skipped even if requested, since the BlurX-first flow deblurs whole-frame before star extraction.",
         };
         var noDeconvOpt = new Option<bool>("--no-deconv")
         {
@@ -205,7 +202,7 @@ internal sealed class ImageSubCommand(
         };
         var stellarBlendOpt = new Option<float>("--stellar-blend")
         {
-            Description = "AI strength for the stellar sharpening pass in [0, 1]. 0 = stars untouched (= --no-stellar-sharpen); 1 = full AI output; ~0.5 is a typical good value for tight star fields where AI4 over-sharpens.",
+            Description = "AI strength for the stellar sharpening pass in [0, 1], applied only when --stellar-sharpen is set. 0 = stars untouched; 1 = full AI output; ~0.5 is a typical good value for tight star fields where AI4 over-sharpens.",
             DefaultValueFactory = _ => 1.0f,
         };
         var deconvBlendOpt = new Option<float>("--deconv-blend")
@@ -354,7 +351,7 @@ internal sealed class ImageSubCommand(
         var cmd = new Command("sharpen", "Full AI4 NAFNet sharpen pipeline: remove stars, sharpen the stars-only plate, deconvolve + denoise the starless plate, optional SCNR on stars, recombine.")
         {
             Arguments = { inputArg },
-            Options = { outputOpt, modeOpt, noStellarOpt, noDeconvOpt, noDenoiseOpt, noRecombineOpt, formatOpt, pngPqPeakNitsOpt, pngPqGamutOpt, stellarBlendOpt, deconvBlendOpt, denoiseBlendOpt, denoiseVariantOpt, scnrOpt, scnrAmountOpt, dualStretchOpt, stretchStarsAmountOpt, stretchStarlessMedianOpt, starStretchModeOpt, starlessStretchModeOpt, stretchModeOpt, ghsConvergeOpt, ghsLnDOpt, ghsBOpt, ghsLpOpt, ghsHpOpt, ghsSpOpt, ghsPassesOpt, ghsStagesOpt, ghsAutoTargetValueOpt, ghsAutoTargetOpt, asinhBetaOpt, asinhBlackPointOpt, asinhLumaOpt, noReduceBgOpt, reduceBgCompressionOpt, noCompressHighlightsOpt, highlightKneeOpt, highlightAmountOpt },
+            Options = { outputOpt, modeOpt, stellarSharpenOpt, noDeconvOpt, noDenoiseOpt, noRecombineOpt, formatOpt, pngPqPeakNitsOpt, pngPqGamutOpt, stellarBlendOpt, deconvBlendOpt, denoiseBlendOpt, denoiseVariantOpt, scnrOpt, scnrAmountOpt, dualStretchOpt, stretchStarsAmountOpt, stretchStarlessMedianOpt, starStretchModeOpt, starlessStretchModeOpt, stretchModeOpt, ghsConvergeOpt, ghsLnDOpt, ghsBOpt, ghsLpOpt, ghsHpOpt, ghsSpOpt, ghsPassesOpt, ghsStagesOpt, ghsAutoTargetValueOpt, ghsAutoTargetOpt, asinhBetaOpt, asinhBlackPointOpt, asinhLumaOpt, noReduceBgOpt, reduceBgCompressionOpt, noCompressHighlightsOpt, highlightKneeOpt, highlightAmountOpt },
         };
         cmd.SetAction(async (parseResult, ct) =>
         {
@@ -378,7 +375,7 @@ internal sealed class ImageSubCommand(
                 return 1;
             }
 
-            var noStellar = parseResult.GetValue(noStellarOpt);
+            var stellarOptIn = parseResult.GetValue(stellarSharpenOpt);
             var noDeconv = parseResult.GetValue(noDeconvOpt);
             var noDenoise = parseResult.GetValue(noDenoiseOpt);
             var noRecombine = parseResult.GetValue(noRecombineOpt);
@@ -513,11 +510,28 @@ internal sealed class ImageSubCommand(
             // belongs AFTER StretchStarsStep in the order below.
             var effectiveScnrMode = dualStretch && scnrMode == ScnrMode.None ? ScnrMode.Average : scnrMode;
 
+            // Stellar-sharpen is opt-in (default OFF). Stars from a registered/
+            // drizzled stack are already round, and the SAS NAFNet over-sharpens
+            // bright cores -- it pushes them past 1.0 (hard clamp) and hardens the
+            // edges into square white blocks (measured ~89k clipped px on a dense
+            // field; 0 with it off). So it stays off unless --stellar-sharpen is
+            // passed. Hard override: when a BlurX deblurrer is live (RC-Astro
+            // present) it is skipped even if opted in -- the BlurX-first (PixInsight
+            // OSC) flow deblurs whole-frame before star extraction, so re-sharpening
+            // the split stars double-dips.
+            var deblurLive = sharpenPipeline.SupportsDeblur;
+            var doStellar = stellarOptIn && !deblurLive;
+            if (stellarOptIn && deblurLive)
+            {
+                consoleHost.WriteScrollable(
+                    "[sharpen] --stellar-sharpen ignored: BlurX deblurrer live (deblur is whole-frame upstream; re-sharpening extracted stars over-sharpens).");
+            }
+
             // Build the SharpenStep list in canonical order. CLI flags toggle
             // step presence; the pipeline interprets the array in declared
             // order so this is also the execution order.
             var steps = new List<SharpenStep> { new RemoveStarsStep(SplitMode: mode) };
-            if (!noStellar) steps.Add(new SharpenStarsStep(Blend: stellarBlend));
+            if (doStellar) steps.Add(new SharpenStarsStep(Blend: stellarBlend));
             if (!noDeconv) steps.Add(new DeconvolveStarlessStep(Blend: deconvBlend));
             if (!noDenoise) steps.Add(new DenoiseStarlessStep(Blend: denoiseBlend, Variant: denoiseVariant));
             // Per-plate stretch (linear -> stretched) AFTER all AI ops.
@@ -726,7 +740,7 @@ internal sealed class ImageSubCommand(
                 : "";
             consoleHost.WriteScrollable(
                 $"[sharpen] {input} {src.Width}x{src.Height}x{src.ChannelCount} mode={mode} " +
-                $"stellar={!noStellar}({stellarBlend:F2}) deconv={!noDeconv}({deconvBlend:F2}) " +
+                $"stellar={doStellar}({stellarBlend:F2}) deconv={!noDeconv}({deconvBlend:F2}) " +
                 $"denoise={!noDenoise}({denoiseBlend:F2},{denoiseVariant}) scnr={effectiveScnrMode}({scnrAmount:F2}){dualStretchDesc} recombine={!noRecombine}");
 
             SharpenResult result;
@@ -1357,73 +1371,24 @@ internal sealed class ImageSubCommand(
     }
 
     /// <summary>
-    /// Write an <see cref="Image"/> with [0, 1] float values as a 32-bit
-    /// IEEE float TIFF tagged with the bundled sRGB v4 ICC. Used for the
-    /// per-plate dual-stretch export so users can layer stars + starless
-    /// in PS / Affinity with the "Screen" blend mode to reproduce the
-    /// in-pipeline recombine.
-    ///
-    /// <para><b>Always linear floats, always sRGB ICC, regardless of
-    /// <see cref="ImageOutputFormat"/>.</b> An earlier iteration injected
-    /// an ICC v4.4 <c>cicp</c> tag matching the PNG-PQ output (HDR10
-    /// PQ-encoded floats + cicp HDR10), but Affinity Photo didn't honour
-    /// the cicp tag on TIFFs and rendered the PQ-coded values as plain
-    /// sRGB display-referred -- which is the "muted / washed-out" look
-    /// from the colour ladder. PNGs continue to honour PNG-3 cICP in
-    /// Affinity; only the TIFF reader path is gamut-ignorant. So the
-    /// TIFFs stay in the linear sRGB convention that every editor reads
-    /// without surprises, and the PNG companion alone carries the HDR
-    /// signal for HDR-display viewing.</para>
+    /// Per-plate stretched-TIFF export for <c>--dual-stretch</c>. Delegates to the
+    /// shared <see cref="Image.WriteStretchedTiffAsync"/> (TianWen.Lib) -- 32-bit
+    /// IEEE float, written verbatim, tagged with the bundled sRGB v4 ICC so
+    /// colour-managed viewers (Photoshop / Affinity) display the stretched values
+    /// 1:1. Sharing the writer keeps this path and <c>stack --split-plates</c>
+    /// byte-identical. (EXR is deliberately NOT used here: it carries no transfer
+    /// tag and is assumed scene-linear, so stretched values would be re-gamma'd
+    /// and over-brightened -- EXR is reserved for the linear master.)
     /// </summary>
     private async Task WriteStretchedFloatTiffAsync(Image image, string path, CancellationToken ct)
     {
-        var (channels, w, h) = image.Shape;
+        var (channels, _, _) = image.Shape;
         if (channels is not (1 or 3))
         {
             consoleHost.WriteError($"TIFF export requires 1 or 3 channels, got {channels}; skipping {path}");
             return;
         }
-
-        // Allocate the byte buffer directly and write floats into it via
-        // MemoryMarshal -- avoids the float[] then byte[] double allocation.
-        // Layout is contig (PlanarConfig=1): RGBRGBRGB for color, just G for mono.
-        var pixelCount = w * h;
-        var totalFloats = pixelCount * channels;
-        var byteBuffer = new byte[totalFloats * sizeof(float)];
-        var floatView = MemoryMarshal.Cast<byte, float>(byteBuffer.AsSpan());
-
-        if (channels == 1)
-        {
-            image.GetChannelSpan(0).CopyTo(floatView);
-        }
-        else
-        {
-            var r = image.GetChannelSpan(0);
-            var g = image.GetChannelSpan(1);
-            var b = image.GetChannelSpan(2);
-            for (var i = 0; i < pixelCount; i++)
-            {
-                floatView[i * 3 + 0] = r[i];
-                floatView[i * 3 + 1] = g[i];
-                floatView[i * 3 + 2] = b[i];
-            }
-        }
-
-        var options = new TiffPageOptions
-        {
-            SampleFormat = TiffSampleFormat.IeeeFloat,
-            BitsPerSample = 32,
-            SamplesPerPixel = channels,
-            Photometric = channels == 1 ? TiffPhotometric.MinIsBlack : TiffPhotometric.Rgb,
-            IccProfile = IccProfiles.SRgbV4,
-            SMinSampleValue = 0f,
-            SMaxSampleValue = 1f,
-            Software = "TianWen.Cli (dual-stretch)",
-        };
-
-        await using var writer = TiffWriter.Create(path);
-        await writer.AddPageAsync(byteBuffer, w, h, options, ct);
-        await writer.FlushAsync(ct);
+        await image.WriteStretchedTiffAsync(path, ct);
         consoleHost.WriteScrollable($"[sharpen] wrote {path}");
     }
 

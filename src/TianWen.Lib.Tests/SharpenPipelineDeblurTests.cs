@@ -106,7 +106,7 @@ public class SharpenPipelineDeblurTests
             starRemover: identity,
             denoiser: identity);
 
-        var result = await pipe.ProcessAsync(SharpenRequest.DeblurFirst(Rgb(8, 8, 0.1f)));
+        var result = await pipe.ProcessAsync(SharpenRequest.DeblurFirst(Rgb(8, 8, 0.1f)), TestContext.Current.CancellationToken);
 
         result.Final.ShouldNotBeNull();
         // deblur x2 -> 0.2; identity star split leaves stars=0, starless=0.2;
@@ -124,7 +124,7 @@ public class SharpenPipelineDeblurTests
             starRemover: identity,
             denoiser: identity);
 
-        var result = await pipe.ProcessAsync(SharpenRequest.DeblurFirst(Rgb(8, 8, 0.1f)));
+        var result = await pipe.ProcessAsync(SharpenRequest.DeblurFirst(Rgb(8, 8, 0.1f)), TestContext.Current.CancellationToken);
 
         result.Final.ShouldNotBeNull();
         result.Final.GetChannelSpan(0)[0].ShouldBe(0.1f, 1e-4f); // source unchanged
