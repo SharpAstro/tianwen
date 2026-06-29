@@ -81,6 +81,38 @@ public partial class Image
         return true;
     }
 
+    // Pointing intent for the master / re-solve hint. Captures the INTENDED
+    // target -- decimal RA/DEC degrees (NINA writes these; never throws),
+    // falling back to sexagesimal OBJCTRA/OBJCTDEC -- NOT the solved WCS centre
+    // (CRVAL, which WCS.FromHeader handles separately). Mirrors WCS.FromHeader's
+    // RA/DEC -> OBJCTRA/OBJCTDEC fallback order so a master written WITHOUT an
+    // embedded WCS still carries the coordinates needed to (re-)plate-solve it.
+    private static (double RaHours, double DecDeg) ParseTargetCoords(Header header)
+    {
+        var raDeg = header.GetDoubleValue("RA", double.NaN);
+        var decDeg = header.GetDoubleValue("DEC", double.NaN);
+        if (!double.IsNaN(raDeg) && !double.IsNaN(decDeg))
+        {
+            return (raDeg / 15.0, decDeg);
+        }
+
+        // OBJCTRA "HH MM SS", OBJCTDEC "+DD MM SS" (space-separated). Only
+        // reached when RA/DEC are absent, matching WCS.FromHeader's order.
+        var objctRa = header.GetStringValue("OBJCTRA");
+        var objctDec = header.GetStringValue("OBJCTDEC");
+        if (!string.IsNullOrWhiteSpace(objctRa) && !string.IsNullOrWhiteSpace(objctDec))
+        {
+            var hours = CoordinateUtils.HMSToHours(objctRa.Replace(' ', ':'));
+            var deg = CoordinateUtils.DMSToDegree(objctDec.Replace(' ', ':'));
+            if (!double.IsNaN(hours) && !double.IsNaN(deg))
+            {
+                return (hours, deg);
+            }
+        }
+
+        return (double.NaN, double.NaN);
+    }
+
     // Shared metadata parse — pulled out of TryReadFitsFile so the header-only
     // path uses the same logic. Min/max value computation stays in the pixel
     // read path because the header DATAMIN/DATAMAX fields are often missing or
@@ -132,6 +164,7 @@ public partial class Image
         // / "West" / "pierEast" / "pierWest"). ASCOM also defines numeric variants
         // (0 = Normal/East, 1 = ThroughThePole/West). Try both.
         var pierSide = ParsePierSide(hdu.Header.GetStringValue("PIERSIDE"));
+        var (targetRa, targetDec) = ParseTargetCoords(hdu.Header);
 
         return new ImageMeta(
             instrument,
@@ -161,6 +194,8 @@ public partial class Image
             SWCreator: swCreator,
             Aperture: aperture,
             SensorModel: sensorModel,
+            TargetRA: targetRa,
+            TargetDec: targetDec,
             PierSide: pierSide
         );
     }
@@ -368,6 +403,7 @@ public partial class Image
             }
         }
 
+        var (targetRa, targetDec) = ParseTargetCoords(hdu.Header);
         var imageMeta = new ImageMeta(
             instrument,
             exposureStartTime,
@@ -396,6 +432,8 @@ public partial class Image
             SWCreator: swCreator,
             Aperture: aperture,
             SensorModel: sensorModel,
+            TargetRA: targetRa,
+            TargetDec: targetDec,
             PierSide: pierSide
         );
         image = new Image(imgChannels, bitDepth, maxValue, minValue, pedestal, imageMeta);
