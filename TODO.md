@@ -18,6 +18,7 @@
 
 ## Next Up
 
+- [ ] RC-Astro enhancer integration — drive RC-Astro StarX/NoiseX/BlurXTerminator (encrypted ONNX, so via the `rc-astro` `--json` CLI, not in-proc ORT), preferred over the SETI Astro ONNX enhancers when the CLI is installed + the product is licensed. **Phase 1+2 SHIPPED:** `RcAstroCli` + NDJSON parser + FITS round-trip base, `RcAstroStarRemover`/`RcAstroDenoiser` (noise-adaptive `--dn`)/`RcAstroNonStellarDeconvolver`, deferred license-gated selector (`DeferredEnhancer` proxy — no subprocess at DI build/resolve), wired into `TianWen.Cli`. 13 tests. **Phase 3 remaining:** options/UI surface (per-product params + "prefer RC" toggle), NDJSON progress -> live UI, wire into GUI/Server if/when they consume the SharpenPipeline. See `docs/plans/rc-astro-enhancers.md`.
 - [x] QHYCCD device support — native camera, filter wheel (camera-cable + standalone serial QHYCFW3), and QFOC focuser (Standard + High Precision) drivers. JSON-over-serial protocol for QFOC with typed records and AOT-safe `QfocJsonContext`. Three-phase discovery in `QHYDeviceSource`: cameras → serial probe → camera-cable CFW check
 - [x] Weather overlay in planner — hourly forecast from Open-Meteo (free, no API key) with layered color emoji (rain/snow/thunder/fog/cloud/sun/moon), file-cached with 1h TTL + offline fallback. Weather as full device type (IWeatherDriver) with equipment/profile integration
 - [x] Planner: show Moon phase + position — altitude curve on the chart with phase emoji (hemisphere-aware). Uses Meeus lunar ephemeris via VSOP87a pipeline
