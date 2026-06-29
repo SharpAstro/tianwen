@@ -131,8 +131,8 @@ public sealed class LiveStackPreviewSource : IPreviewSource, IDisposable, IAsync
     /// <summary>
     /// The latest <b>display-ready</b> master: the [0,1]-normalised, optionally wavelet-sharpened stack
     /// image (the same pixels <see cref="_doc"/> shows), or null before the first stack. Exposed for a
-    /// live-camera consumer (the GUI planetary tab) that renders the stack into a content rect via an
-    /// <c>IMiniViewerWidget</c> rather than the full FITS-viewer chrome. Render-thread only, like the other
+    /// live-camera consumer (the GUI planetary tab) that renders the stack into a content rect via the shared
+    /// image viewer configured chromeless rather than the full FITS-viewer chrome. Render-thread only, like the other
     /// follow/publish members. (The raw stacker output is in the input ADU scale and not display-ready, so
     /// it is deliberately not exposed.)
     /// </summary>

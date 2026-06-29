@@ -238,7 +238,7 @@ namespace TianWen.UI.Abstractions
 
         /// <summary>
         /// Source preference for the next polar-alignment run started from the toolbar:
-        /// false = main camera at <see cref="MiniViewerState.SelectedCameraIndex"/>,
+        /// false = main camera at <see cref="ViewerState.SelectedCameraIndex"/>,
         /// true = the connected guider (PHD2 or built-in). Toggled by the small "G"
         /// button next to the "PA" toolbar button. Persists across runs within a
         /// session so a user with a guide-cam-only setup doesn't have to re-toggle
