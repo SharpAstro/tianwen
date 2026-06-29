@@ -43,8 +43,16 @@ public sealed class SharpenPipeline(
     INonStellarDeconvolver? nonStellarDeconvolver = null,
     IDenoiseEnhancer? denoiser = null,
     IGradientCorrector? gradientCorrector = null,
+    IImageDeblurrer? deblurrer = null,
     ILogger<SharpenPipeline>? logger = null)
 {
+    /// <summary>
+    /// True when a full-image deblurrer (RC-Astro BlurXTerminator) is registered,
+    /// so callers can prefer the BlurX-first <see cref="SharpenRequest.DeblurFirst"/>
+    /// canonical over the SAS-shaped <see cref="SharpenRequest.Canonical"/>.
+    /// </summary>
+    public bool SupportsDeblur => deblurrer is not null;
+
     public async Task<SharpenResult> ProcessAsync(SharpenRequest request, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
@@ -81,6 +89,12 @@ public sealed class SharpenPipeline(
         // works off starless/stars lineages -- pick gradientCorrected if
         // present, else fall back to request.Source. This keeps the request
         // immutable.
+        // Full-image deblur (BlurX) output. When DeblurStep runs at the head it
+        // replaces the working source for every downstream step (gradient, star
+        // removal) via the `deblurred ?? source` fallback -- the BlurX-first
+        // (PixInsight OSC) shape, where stars are tightened before removal so no
+        // separate stellar-sharpen step is needed.
+        Image? deblurred = null;
         Image? gradientCorrected = null;
         Image? starless = null;
         Image? starsOnly = null;
@@ -106,13 +120,36 @@ public sealed class SharpenPipeline(
                 phaseSw.Restart();
                 switch (step)
                 {
+                    case DeblurStep deblurStep:
+                    {
+                        // Full-image deconvolution (BlurX) at the head: tightens
+                        // stars AND non-stellar structure on the source before any
+                        // split, so downstream steps consume `deblurred ?? source`.
+                        // Replaces the SAS remove-then-sharpen-stars approach.
+                        var raw = await Require(deblurrer).EnhanceAsync(source, cancellationToken);
+                        if (ReferenceEquals(raw, source))
+                        {
+                            // No-op passthrough (e.g. bxt present but unlicensed):
+                            // leave `deblurred` null so downstream falls back to
+                            // `source` and we never release the caller's image.
+                            timings.Add(("deblur(skipped)", phaseSw.ElapsedMilliseconds, default));
+                            break;
+                        }
+                        deblurred = deblurStep.Blend < 1f
+                            ? source.Lerp(raw, deblurStep.Blend)
+                            : raw;
+                        if (!ReferenceEquals(deblurred, raw)) raw.Release();
+                        timings.Add(("deblur", phaseSw.ElapsedMilliseconds, deblurred.EstimateNoiseProfile()));
+                        break;
+                    }
+
                     case GradientCorrectionStep:
                     {
                         // Removes the smooth background gradient at the head
                         // of the pipeline. All downstream steps that consume
                         // the source pick `gradientCorrected ?? source`
                         // so they see the cleaned plate.
-                        gradientCorrected = await Require(gradientCorrector).EnhanceAsync(source, cancellationToken);
+                        gradientCorrected = await Require(gradientCorrector).EnhanceAsync(deblurred ?? source, cancellationToken);
                         timings.Add(("gradient-correction", phaseSw.ElapsedMilliseconds, gradientCorrected.EstimateNoiseProfile()));
                         break;
                     }
@@ -121,7 +158,7 @@ public sealed class SharpenPipeline(
                     {
                         // Read from the corrected plate when GradientCorrectionStep
                         // ran upstream; falls back to the original source otherwise.
-                        var starsInput = gradientCorrected ?? source;
+                        var starsInput = gradientCorrected ?? deblurred ?? source;
                         starless = await Require(starRemover).EnhanceAsync(starsInput, cancellationToken);
                         // Pixel split:
                         //   Additive (default): StarsOnly = max(Source - Starless, 0).
@@ -144,6 +181,14 @@ public sealed class SharpenPipeline(
                         {
                             gradientCorrected.Release();
                             gradientCorrected = null;
+                        }
+                        // deblurred fed the star remover + the split above; it's
+                        // an internal plate (never exposed on SharpenResult), so
+                        // release it unconditionally once consumed.
+                        if (deblurred is not null)
+                        {
+                            deblurred.Release();
+                            deblurred = null;
                         }
                         break;
                     }
@@ -457,6 +502,7 @@ public sealed class SharpenPipeline(
         {
             // On failure release everything we've allocated so the camera
             // buffer pool doesn't grow unboundedly across failed runs.
+            deblurred?.Release();
             gradientCorrected?.Release();
             starless?.Release();
             starsOnly?.Release();
@@ -674,6 +720,11 @@ public sealed class SharpenPipeline(
             }
             switch (step)
             {
+                case DeblurStep:
+                    if (i != 0) throw new ArgumentException(
+                        $"SharpenRequest.Steps[{i}]: DeblurStep must be the FIRST step -- it deconvolves the full source (stars + non-stellar) before gradient correction / star removal (BlurX-first / PixInsight OSC order).",
+                        nameof(request));
+                    break;
                 case GradientCorrectionStep:
                     if (hasStarless) throw new ArgumentException(
                         $"SharpenRequest.Steps[{i}]: GradientCorrectionStep must run BEFORE RemoveStarsStep -- Frank Sackenheim's canonical order is gradient -> stars -> detail -> stretch. Move the gradient step to the head of the request.",
@@ -862,6 +913,10 @@ public sealed class SharpenPipeline(
         {
             switch (step)
             {
+                case DeblurStep when deblurrer is null:
+                    throw new InvalidOperationException(
+                        "SharpenPipeline: DeblurStep requested but no IImageDeblurrer registered. " +
+                        "DeblurFirst requires RC-Astro BlurXTerminator (AddRcAstroAi()); the SAS backend has no full-image deblur.");
                 case GradientCorrectionStep when gradientCorrector is null:
                     throw new InvalidOperationException(
                         "SharpenPipeline: GradientCorrectionStep requested but no IGradientCorrector registered. " +
@@ -888,6 +943,18 @@ public sealed class SharpenPipeline(
 /// <see cref="SharpenPipeline"/> can execute. Concrete steps bundle "what
 /// to do" with the parameters that govern it.</summary>
 public abstract record SharpenStep;
+
+/// <summary>Full-image deconvolution (RC-Astro BlurXTerminator): sharpens stars
+/// AND non-stellar structure on the source, at the HEAD of the pipeline (before
+/// gradient correction and star removal) -- the BlurX-first / PixInsight OSC
+/// shape. Because stars are tightened in place, no separate
+/// <see cref="SharpenStarsStep"/> is needed. Backed by
+/// <see cref="IImageDeblurrer"/> (RC-Astro only; the SAS backend has no
+/// full-image deblur). Must be the first step.</summary>
+/// <param name="Blend">AI strength in [0, 1], applied as a post-hoc lerp toward
+/// the source (0 = source untouched; 1 = full deblur). The product's own
+/// stellar / non-stellar sharpening amounts are configured on the enhancer.</param>
+public sealed record DeblurStep(float Blend = 1.0f) : SharpenStep;
 
 /// <summary>Gradient / background correction. Slots at the head of the
 /// canonical Frank Sackenheim flow (gradient -> stars -> detail -> stretch)
@@ -1258,6 +1325,26 @@ public sealed record SharpenRequest(Image Source, ImmutableArray<SharpenStep> St
         new SharpenStarsStep(),
         new DeconvolveStarlessStep(),
         new DenoiseStarlessStep(),
+        new RecombineStep(),
+    ]);
+
+    /// <summary>
+    /// BlurX-first canonical for the RC-Astro / PixInsight OSC flow: full-image
+    /// deblur (BlurXTerminator) -&gt; gradient correction -&gt; remove stars -&gt;
+    /// denoise the starless plate + SCNR the stars plate -&gt; recombine. There is
+    /// NO stellar sharpener (BlurX already tightened the stars) and NO baked
+    /// stretch -- the output is a LINEAR master to be stretched downstream, just
+    /// like <see cref="Canonical"/>. Requires an <see cref="IImageDeblurrer"/>
+    /// (RC-Astro); choose this over <see cref="Canonical"/> when
+    /// <see cref="SharpenPipeline.SupportsDeblur"/> is true.
+    /// </summary>
+    public static SharpenRequest DeblurFirst(Image source) => new(source,
+    [
+        new DeblurStep(),
+        new GradientCorrectionStep(),
+        new RemoveStarsStep(),
+        new DenoiseStarlessStep(),
+        new ScnrStarsStep(ScnrMode.Average),
         new RecombineStep(),
     ]);
 }

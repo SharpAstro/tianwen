@@ -64,6 +64,15 @@ namespace TianWen.AI.Imaging.RcAstro
     {
     }
 
+    /// <summary>Deferred bxt -&gt; <see cref="IImageDeblurrer"/> dispatcher
+    /// (full-image deconvolution). Falls back to a no-op passthrough when bxt is
+    /// present but unlicensed.</summary>
+    internal sealed class DeferredDeblurrer(
+        IRcAstroCli cli, Func<IImageEnhancer> rcFactory, Func<IImageEnhancer> fallbackFactory)
+        : DeferredEnhancer(cli, "bxt", rcFactory, fallbackFactory), IImageDeblurrer
+    {
+    }
+
     /// <summary>Deferred nxt -&gt; <see cref="IDenoiseEnhancer"/> dispatcher.</summary>
     internal sealed class DeferredDenoiser(
         IRcAstroCli cli, Func<IImageEnhancer> rcFactory, Func<IImageEnhancer> fallbackFactory)

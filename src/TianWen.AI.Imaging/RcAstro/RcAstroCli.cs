@@ -53,6 +53,14 @@ namespace TianWen.AI.Imaging.RcAstro
         /// <inheritdoc/>
         public bool IsAvailable => ExecutablePath is not null;
 
+        /// <summary>
+        /// Cheap filesystem check (no subprocess) for whether the rc-astro CLI is
+        /// installed. Gates <c>IImageDeblurrer</c> registration -- and thereby the
+        /// BlurX-first canonical -- without a startup license probe (the bxt
+        /// license check stays deferred to first use).
+        /// </summary>
+        public static bool IsInstalled => LocateExecutable() is not null;
+
         /// <inheritdoc/>
         public bool IsLicensed(string productKey)
             => ExecutablePath is not null && _licenseCache.GetOrAdd(productKey, ProbeLicense);
