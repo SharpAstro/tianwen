@@ -19,8 +19,25 @@ namespace TianWen.UI.Abstractions
         /// <summary>The live session state for keyboard handling. Set during Render.</summary>
         public LiveSessionState? State { get; set; }
 
-        /// <summary>Optional mini viewer widget for showing the last captured frame. Set by the host.</summary>
-        public IMiniViewerWidget? MiniViewer { get; set; }
+        /// <summary>
+        /// The shared full image viewer (same widget as the FITS viewer / planetary tab) used to show the
+        /// last captured frame in Preview / PolarAlign modes. Set by the host. Configured chromeless
+        /// (<see cref="ViewerState.HideChrome"/>) with a lightweight <see cref="LiveFramePreviewSource"/> feed,
+        /// so it is a strict superset of the old mini viewer (stretch / WB / grid / zoom-pan / WCS overlays).
+        /// </summary>
+        public ImageRendererBase<TSurface>? PreviewView { get; set; }
+
+        /// <summary>Lightweight live-frame source feeding <see cref="PreviewView"/> (subsampled stats, no per-frame document).</summary>
+        private readonly LiveFramePreviewSource _previewSource = new();
+
+        /// <summary>Per-instance viewer state for the embedded preview: chromeless, image-only (no info panel / file list / histogram).</summary>
+        private readonly ViewerState _previewState = new()
+        {
+            HideChrome = true,
+            ShowInfoPanel = false,
+            ShowFileList = false,
+            ShowHistogram = false,
+        };
 
         /// <summary>Full planetary capture view (viewer + control strip), shown in <see cref="LiveSessionMode.Planetary"/>. Set by the host.</summary>
         public IPlanetaryViewWidget? PlanetaryView { get; set; }
@@ -187,47 +204,47 @@ namespace TianWen.UI.Abstractions
             var viewerW = contentRect.Width - otaTotalW - logW;
 
             // Center: mini viewer — rendered FIRST so panels paint over any overflow
-            if (viewerW > 100 && MiniViewer is { } viewer)
+            if (viewerW > 100 && PreviewView is { } viewer)
             {
-                // Polar mode publishes a refreshed WcsAnnotation each frame from the
-                // latest live solve so the renderer can overlay the pole crosses,
-                // 5'/15'/30' rings, and axis CircledCross on the live frame. Before
-                // the first Phase A solve completes (LastPolarSolve still null),
-                // fall back to the lightweight "J2000 pole preview" so the user
-                // already sees the crosshair + 30' ring while the rotation runs.
-                // Cleared when polar mode exits so the annotation doesn't leak.
+                var pst = _previewState;
+
+                // Polar mode publishes a refreshed WcsAnnotation each frame from the latest live solve so the
+                // viewer overlays the pole crosses, 5'/15'/30' rings, and axis CircledCross on the live frame.
+                // Before the first Phase A solve completes (LastPolarSolve still null), fall back to the
+                // lightweight "J2000 pole preview" so the user already sees the crosshair + 30' ring while the
+                // rotation runs. Cleared when polar mode exits so the annotation doesn't leak. The annotation
+                // is on the WIDGET; its projection WCS comes from OverrideWcs (set below) since a live frame
+                // is document-less.
                 if (state.Mode == LiveSessionMode.PolarAlign)
                 {
                     if (state.LastPolarSolve is { Overlay: { } overlay })
                     {
-                        viewer.State.Annotation = PolarAnnotationBuilder.Build(overlay);
+                        viewer.Annotation = PolarAnnotationBuilder.Build(overlay);
                     }
                     else if (state.PreviewPlateSolveResult?.Solution is { } wcs)
                     {
-                        viewer.State.Annotation = PolarAnnotationBuilder.BuildJ2000PolePreview(wcs.CenterDec);
+                        viewer.Annotation = PolarAnnotationBuilder.BuildJ2000PolePreview(wcs.CenterDec);
                     }
                     else
                     {
-                        viewer.State.Annotation = WcsAnnotation.Empty;
+                        viewer.Annotation = WcsAnnotation.Empty;
                     }
-                    // Freeze stretch only while refining: probe rungs ramp
-                    // exposure 50x (100ms -> 5000ms) and the stretch must
-                    // track each rung. Once locked at one exposure for the
-                    // refining loop the stretch is stable, so we freeze to
-                    // skip the per-frame 300ms histogram on the UI thread.
-                    viewer.State.FreezeStretchStats = state.PolarPhase
+                    // Freeze stretch only while refining: probe rungs ramp exposure 50x (100ms -> 5000ms) and
+                    // the stretch must track each rung. Once locked at one exposure for the refining loop the
+                    // stretch is stable, so we freeze to skip the per-frame subsampled scan on the UI thread.
+                    pst.FreezeStretchStats = state.PolarPhase
                         is PolarAlignmentPhase.Refining
                         or PolarAlignmentPhase.Aligned;
                 }
                 else
                 {
-                    viewer.State.Annotation = WcsAnnotation.Empty;
-                    viewer.State.FreezeStretchStats = false;
+                    viewer.Annotation = WcsAnnotation.Empty;
+                    pst.FreezeStretchStats = false;
                 }
 
                 // Check if a new frame arrived for the selected camera
                 var images = state.LastCapturedImages;
-                var selectedIdx = viewer.State.SelectedCameraIndex;
+                var selectedIdx = pst.SelectedCameraIndex;
                 Image? latestImage = null;
                 if (selectedIdx >= 0 && selectedIdx < images.Length)
                 {
@@ -249,30 +266,38 @@ namespace TianWen.UI.Abstractions
                 if (latestImage is not null && !ReferenceEquals(latestImage, _displayedImage))
                 {
                     _displayedImage = latestImage;
-                    viewer.QueueImage(latestImage);
-                    // A fresh frame invalidates any prior solve until the user
-                    // requests a new plate solve. Without this, the grid would
-                    // be drawn over a frame the WCS doesn't actually describe.
-                    viewer.Wcs = null;
+                    // Normalise + (unless frozen) re-scan stats into the live source, then flag a re-upload.
+                    _previewSource.AcceptFrame(latestImage, pst.FreezeStretchStats);
+                    pst.NeedsTextureUpdate = true;
+                    // A fresh frame invalidates any prior solve until the user requests a new plate solve.
+                    // Without this, the grid would be drawn over a frame the WCS doesn't actually describe.
+                    viewer.OverrideWcs = null;
                 }
 
-                // Bind the live preview's plate-solve result whenever the displayed
-                // frame is the one that produced it. The signal handler stores the
-                // solve into LiveSessionState; we just hand it down to the renderer
-                // so the GLSL grid path can switch on without a separate plumbing
-                // pass each frame.
+                // Bind the live preview's plate-solve result whenever the displayed frame is the one that
+                // produced it. The signal handler stores the solve into LiveSessionState; we hand it to the
+                // viewer as the projection WCS (the live source is document-less, so OverrideWcs is how the
+                // GLSL grid + WcsAnnotation paths get a WCS).
                 if (state.PreviewPlateSolveResult?.Solution is { } solveWcs
                     && _displayedImage is not null
                     && ReferenceEquals(_displayedImage, latestImage))
                 {
-                    viewer.Wcs = solveWcs;
+                    viewer.OverrideWcs = solveWcs;
                 }
 
-                // Image area (below where toolbar will go)
+                // Image area (below where the preview toolbar goes). The viewer projects over the full surface
+                // and arranges its (chromeless) layout within this content rect.
                 var toolbarH = BaseRowHeight * dpiScale;
                 var imageRect = new RectF32(viewerX, mainY + toolbarH, viewerW, mainH - toolbarH);
                 _viewerImageRect = imageRect;
-                viewer.Render(imageRect, Renderer.Width, Renderer.Height);
+
+                viewer.SetSurfaceSize((uint)Renderer.Width, (uint)Renderer.Height);
+                viewer.SetContentRegion(imageRect);
+                if (pst.NeedsTextureUpdate && _previewSource.Width > 0)
+                {
+                    viewer.UploadDocumentTextures(_previewSource, pst);
+                }
+                viewer.Render(_previewSource, pst);
             }
             else if (viewerW > 0)
             {
@@ -302,12 +327,12 @@ namespace TianWen.UI.Abstractions
                 RenderExposureLog(state, rightRect, fontPath, fs, dpiScale, pad, rowH);
             }
 
-            // Mini viewer toolbar (on top of the image, after panels)
-            if (viewerW > 100 && MiniViewer is { } viewer2)
+            // Preview toolbar (on top of the image, after panels)
+            if (viewerW > 100 && PreviewView is not null)
             {
                 var toolbarH = BaseRowHeight * dpiScale;
                 var toolbarRect = new RectF32(viewerX, mainY, viewerW, toolbarH);
-                RenderMiniViewerToolbar(viewer2.State, toolbarRect, fontPath, fs, dpiScale);
+                RenderMiniViewerToolbar(_previewState, toolbarRect, fontPath, fs, dpiScale);
             }
 
             // Abort confirmation overlay
@@ -338,7 +363,24 @@ namespace TianWen.UI.Abstractions
         // Mini viewer toolbar: [Fit] [1:1] [T] [S] [B]
         // -----------------------------------------------------------------------
 
-        private void RenderMiniViewerToolbar(MiniViewerState vs, RectF32 rect, string fontPath, float fontSize, float dpiScale)
+        /// <summary>
+        /// Cycles the preview viewer's stretch mode None -&gt; Unlinked -&gt; Linked -&gt; Luma -&gt; None (the
+        /// embedded preview's [T] button + key). Preserves the old mini viewer's 4-way cycle; the full viewer's
+        /// own [T] is a 2-way toggle, but the preview keeps the cycle so all modes stay reachable chromeless.
+        /// </summary>
+        private static void CyclePreviewStretch(ViewerState s)
+        {
+            s.StretchMode = s.StretchMode switch
+            {
+                StretchMode.None => StretchMode.Unlinked,
+                StretchMode.Unlinked => StretchMode.Linked,
+                StretchMode.Linked => StretchMode.Luma,
+                StretchMode.Luma => StretchMode.None,
+                _ => StretchMode.Unlinked
+            };
+        }
+
+        private void RenderMiniViewerToolbar(ViewerState vs, RectF32 rect, string fontPath, float fontSize, float dpiScale)
         {
             FillRect(rect.X, rect.Y, rect.Width, rect.Height, HeaderBg);
 
@@ -375,31 +417,31 @@ namespace TianWen.UI.Abstractions
             };
             RenderButton(stretchLabel, x, btnY, btnW, btnH, fontPath, btnFs,
                 vs.StretchMode is not StretchMode.None ? activeBg : inactiveBg, BodyText, "ViewerStretch",
-                _ => { vs.CycleStretch(); });
+                _ => { CyclePreviewStretch(vs); });
             x += btnW + pad;
 
             // [S] — cycle stretch preset
             var presetLabel = $"{vs.StretchParameters}";
             RenderButton("S", x, btnY, btnW * 0.8f, btnH, fontPath, btnFs,
                 inactiveBg, BodyText, "ViewerPreset",
-                _ => { vs.CycleStretchPreset(); });
+                _ => { ViewerActions.CycleStretchPreset(vs); });
             x += btnW * 0.8f + pad;
 
             // [B] — cycle boost
             var boostActive = vs.CurvesBoost > 0;
             RenderButton("B", x, btnY, btnW * 0.8f, btnH, fontPath, btnFs,
                 boostActive ? activeBg : inactiveBg, BodyText, "ViewerBoost",
-                _ => { vs.CycleBoost(); });
+                _ => { ViewerActions.CycleCurvesBoost(vs); });
             x += btnW * 0.8f + pad;
 
             // [G] -- WCS coordinate grid overlay. Enabled only once the preview frame
             // has been plate-solved (we need a WCS to project RA/Dec lines). Lit when
             // active. Polar-alignment mode switching now lives on the top-strip mode
             // pill dropdown -- the toolbar stays focused on viewer chrome.
-            if (State is { } liveState && MiniViewer is { State: { } miniState })
+            if (State is { } liveState)
             {
                 var hasWcs = liveState.PreviewPlateSolveResult?.Solution is not null;
-                var gridActive = miniState.ShowGrid;
+                var gridActive = vs.ShowGrid;
                 var gridBg = gridActive ? activeBg : inactiveBg;
                 var gridFg = hasWcs || gridActive ? BodyText : DimText;
                 RenderButton("G", x, btnY, btnW * 0.6f, btnH, fontPath, btnFs,
@@ -408,7 +450,7 @@ namespace TianWen.UI.Abstractions
                     {
                         if (hasWcs)
                         {
-                            miniState.ShowGrid = !miniState.ShowGrid;
+                            vs.ShowGrid = !vs.ShowGrid;
                             liveState.NeedsRedraw = true;
                         }
                     });
@@ -513,8 +555,9 @@ namespace TianWen.UI.Abstractions
                     return true;
                 }
 
-                case InputEvent.Scroll(var scrollY, var mx, var my, _) when MiniViewer is { State: { ZoomToFit: false } vs }:
+                case InputEvent.Scroll(var scrollY, var mx, var my, _) when PreviewView is not null && !_previewState.ZoomToFit:
                 {
+                    var vs = _previewState;
                     // Center-point zoom toward cursor position
                     var zoomFactor = scrollY > 0 ? 1.15f : 1f / 1.15f;
                     var oldZoom = vs.Zoom;
@@ -539,15 +582,15 @@ namespace TianWen.UI.Abstractions
                     state.NeedsRedraw = true;
                     return true;
 
-                // Mini viewer mouse drag for panning
-                case InputEvent.MouseDown(var mx, var my, _, _, _) when MiniViewer is { State: { ZoomToFit: false } }:
+                // Preview viewer mouse drag for panning
+                case InputEvent.MouseDown(var mx, var my, _, _, _) when PreviewView is not null && !_previewState.ZoomToFit:
                     _dragStart = (mx, my);
                     return true;
 
-                case InputEvent.MouseMove(var mx, var my) when _dragStart is { } drag && MiniViewer is { State: { } vs }:
+                case InputEvent.MouseMove(var mx, var my) when _dragStart is { } drag && PreviewView is not null:
                     var dx = mx - drag.X;
                     var dy = my - drag.Y;
-                    vs.PanOffset = (vs.PanOffset.X + dx, vs.PanOffset.Y + dy);
+                    _previewState.PanOffset = (_previewState.PanOffset.X + dx, _previewState.PanOffset.Y + dy);
                     _dragStart = (mx, my);
                     state.NeedsRedraw = true;
                     return true;
@@ -560,31 +603,31 @@ namespace TianWen.UI.Abstractions
                     }
                     return false;
 
-                // Mini viewer keyboard shortcuts
-                case InputEvent.KeyDown(InputKey.F, _) when MiniViewer is { State: { } vs }:
-                    vs.ZoomToFit = true;
+                // Preview viewer keyboard shortcuts
+                case InputEvent.KeyDown(InputKey.F, _) when PreviewView is not null:
+                    _previewState.ZoomToFit = true;
                     state.NeedsRedraw = true;
                     return true;
 
-                case InputEvent.KeyDown(InputKey.R, _) when MiniViewer is { State: { } vs }:
-                    vs.ZoomToFit = false;
-                    vs.Zoom = 1f;
-                    vs.PanOffset = (0, 0);
+                case InputEvent.KeyDown(InputKey.R, _) when PreviewView is not null:
+                    _previewState.ZoomToFit = false;
+                    _previewState.Zoom = 1f;
+                    _previewState.PanOffset = (0, 0);
                     state.NeedsRedraw = true;
                     return true;
 
-                case InputEvent.KeyDown(InputKey.T, _) when MiniViewer is { State: { } vs }:
-                    vs.CycleStretch();
+                case InputEvent.KeyDown(InputKey.T, _) when PreviewView is not null:
+                    CyclePreviewStretch(_previewState);
                     state.NeedsRedraw = true;
                     return true;
 
-                case InputEvent.KeyDown(InputKey.B, _) when MiniViewer is { State: { } vs }:
-                    vs.CycleBoost();
+                case InputEvent.KeyDown(InputKey.B, _) when PreviewView is not null:
+                    ViewerActions.CycleCurvesBoost(_previewState);
                     state.NeedsRedraw = true;
                     return true;
 
-                case InputEvent.KeyDown(InputKey.S, _) when MiniViewer is { State: { } vs }:
-                    vs.CycleStretchPreset();
+                case InputEvent.KeyDown(InputKey.S, _) when PreviewView is not null:
+                    ViewerActions.CycleStretchPreset(_previewState);
                     state.NeedsRedraw = true;
                     return true;
 
@@ -683,9 +726,9 @@ namespace TianWen.UI.Abstractions
                                             // Start button fires StartPolarAlignmentSignal after the user
                                             // reviews the config. Auto-enable the WCS grid so meridians
                                             // appear once the first probe frame solves.
-                                            if (MiniViewer?.State is { } ms)
+                                            if (PreviewView is not null)
                                             {
-                                                ms.ShowGrid = true;
+                                                _previewState.ShowGrid = true;
                                             }
                                             state.Mode = LiveSessionMode.PolarAlign;
                                             state.PolarPhase = PolarAlignmentPhase.Idle;
@@ -2462,7 +2505,7 @@ namespace TianWen.UI.Abstractions
                 _ =>
                 {
                     if (!canStart) return;
-                    var miniIdx = MiniViewer?.State.SelectedCameraIndex ?? -1;
+                    var miniIdx = PreviewView is not null ? _previewState.SelectedCameraIndex : -1;
                     var otaIdx = miniIdx >= 0 ? miniIdx : 0;
                     PostSignal(new StartPolarAlignmentSignal(
                         OtaIndex: otaIdx,

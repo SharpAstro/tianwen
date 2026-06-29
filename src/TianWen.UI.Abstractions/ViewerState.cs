@@ -117,6 +117,28 @@ public sealed class ViewerState
     /// <summary>Whether the display texture needs to be re-uploaded.</summary>
     public bool NeedsTextureUpdate { get; set; } = true;
 
+    /// <summary>
+    /// Drop the toolbar + status-bar chrome from the layout and skip rendering them, so the image fills the
+    /// whole content region. Used by an embedded live preview (Live Session / guide cam / polar-align) that
+    /// wants only the image + overlays, never the standalone-viewer chrome. Overlays (WCS annotation, grid,
+    /// stars) and the info panel / histogram are governed by their own flags and unaffected.
+    /// </summary>
+    public bool HideChrome { get; set; }
+
+    /// <summary>
+    /// Freeze the display stretch statistics: while set, a live source reuses its cached median/MAD instead of
+    /// rescanning each frame, so the stretch does not re-fire on every exposure. A polar-align correctness
+    /// requirement (keeps the field visually stable across the slow refine exposures); a one-shot recompute
+    /// fires on the off -&gt; on edge. Honoured by <see cref="LiveFramePreviewSource"/>.
+    /// </summary>
+    public bool FreezeStretchStats { get; set; }
+
+    /// <summary>
+    /// Which camera/OTA index an embedded multi-OTA live preview shows (0-based); -1 = auto (first
+    /// available). Unused by the standalone file viewer (single source).
+    /// </summary>
+    public int SelectedCameraIndex { get; set; } = -1;
+
     /// <summary>Whether the debayer menu is open.</summary>
     public bool ShowDebayerMenu { get; set; }
 

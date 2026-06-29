@@ -33,8 +33,25 @@ namespace TianWen.UI.Abstractions
 
         public GuiderTabState State { get; } = new GuiderTabState();
 
-        /// <summary>Optional mini viewer widget for the guide camera image. Set by the host.</summary>
-        public IMiniViewerWidget? GuideCameraViewer { get; set; }
+        /// <summary>
+        /// The shared full image viewer (same widget as the FITS viewer) used to show the guide camera frame.
+        /// Set by the host. Configured chromeless with a lightweight <see cref="LiveFramePreviewSource"/> feed;
+        /// the guide-star crosshair + calibration L-shape are drawn by this tab ON TOP after the viewer renders.
+        /// </summary>
+        public ImageRendererBase<TSurface>? GuideCameraViewer { get; set; }
+
+        /// <summary>Lightweight live-frame source feeding <see cref="GuideCameraViewer"/>.</summary>
+        private readonly LiveFramePreviewSource _guideSource = new();
+
+        /// <summary>Per-instance viewer state for the guide preview: chromeless, image-only, fit-to-window.</summary>
+        private readonly ViewerState _guideState = new()
+        {
+            HideChrome = true,
+            ShowInfoPanel = false,
+            ShowFileList = false,
+            ShowHistogram = false,
+            ZoomToFit = true,
+        };
 
         /// <summary>Tracks which guide frame reference is displayed to avoid redundant uploads.</summary>
         private Image? _displayedGuideFrame;
@@ -137,19 +154,26 @@ namespace TianWen.UI.Abstractions
 
             var image = State.LastGuideFrame;
 
-            // Queue new guide frame to the mini viewer if changed
+            // Feed a new guide frame to the shared viewer if changed
             if (GuideCameraViewer is { } viewer)
             {
                 if (image is not null && !ReferenceEquals(image, _displayedGuideFrame))
                 {
                     _displayedGuideFrame = image;
                     _guideFrameCount++;
-                    viewer.QueueImage(image);
+                    _guideSource.AcceptFrame(image, freezeStats: false);
+                    _guideState.NeedsTextureUpdate = true;
                 }
 
-                if (viewer.HasImage)
+                if (_displayedGuideFrame is not null)
                 {
-                    viewer.Render(rect, Renderer.Width, Renderer.Height);
+                    viewer.SetSurfaceSize((uint)Renderer.Width, (uint)Renderer.Height);
+                    viewer.SetContentRegion(rect);
+                    if (_guideState.NeedsTextureUpdate && _guideSource.Width > 0)
+                    {
+                        viewer.UploadDocumentTextures(_guideSource, _guideState);
+                    }
+                    viewer.Render(_guideSource, _guideState);
 
                     // Compute image→screen transform for overlays
                     if (image is not null)

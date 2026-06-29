@@ -8,6 +8,7 @@ using TianWen.Lib.Astrometry;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Sequencing;
 using TianWen.UI.Abstractions;
+using TianWen.UI.Shared;
 
 namespace TianWen.UI.Gui
 {
@@ -27,8 +28,8 @@ namespace TianWen.UI.Gui
         private readonly VkLiveSessionTab _liveSessionTab;
         private readonly GuiderTab<VulkanContext> _guiderTab;
         private readonly VkNotificationsTab _notificationsTab;
-        private readonly VkMiniViewerWidget _guiderMiniViewer;
-        private readonly VkMiniViewerWidget _miniViewer;
+        private readonly VkImageRenderer _guiderViewer;
+        private readonly VkImageRenderer _previewViewer;
         private readonly VkPlanetaryTab _planetaryTab;
         private ScheduledObservationTree? _cachedSchedule;
         private Target? _cachedActiveTarget;
@@ -148,10 +149,12 @@ namespace TianWen.UI.Gui
             _equipmentTab = new VkEquipmentTab(renderer) { Bus = bus };
             _sessionTab = new VkSessionTab(renderer) { Bus = bus };
             _skyMapTab = new VkSkyMapTab(renderer) { Bus = bus, Logger = logger };
-            _miniViewer = new VkMiniViewerWidget(renderer);
-            _liveSessionTab = new VkLiveSessionTab(renderer) { Bus = bus, MiniViewer = _miniViewer };
-            _guiderMiniViewer = new VkMiniViewerWidget(renderer);
-            _guiderTab = new GuiderTab<VulkanContext>(renderer) { Bus = bus, GuideCameraViewer = _guiderMiniViewer };
+            // Preview + guide-cam now use the SAME full image viewer as the FITS viewer + planetary tab
+            // (configured chromeless via ViewerState.HideChrome), not a separate mini widget.
+            _previewViewer = new VkImageRenderer(renderer, width, height);
+            _liveSessionTab = new VkLiveSessionTab(renderer) { Bus = bus, PreviewView = _previewViewer };
+            _guiderViewer = new VkImageRenderer(renderer, width, height);
+            _guiderTab = new GuiderTab<VulkanContext>(renderer) { Bus = bus, GuideCameraViewer = _guiderViewer };
             _notificationsTab = new VkNotificationsTab(renderer) { Bus = bus };
             // The 🪐 tab IS a full image viewer (shares VkImageRenderer with tianwen-fits) + a capture strip,
             // so it gets the same stretch pipeline / RAW-STACK toggle / wavelet sliders as the FITS viewer.
@@ -225,7 +228,8 @@ namespace TianWen.UI.Gui
 
         public void Dispose()
         {
-            _miniViewer.Dispose();
+            _previewViewer.Dispose();
+            _guiderViewer.Dispose();
             _planetaryTab.Dispose();
             _plannerTab.Dispose();
             // VkRenderer is owned by the caller; do not dispose here.
@@ -844,12 +848,8 @@ namespace TianWen.UI.Gui
                 }
             }
 
-            // Propagate to mini viewers so their WCS-annotation overlay can
-            // draw ring / marker labels with the same face the rest of the
-            // GUI uses. Set after _fontPath resolves so we hand them a valid
-            // path (mini viewer skips label drawing when null).
-            _miniViewer.FontPath = _fontPath;
-            _guiderMiniViewer.FontPath = _fontPath;
+            // The preview + guide-cam viewers self-resolve their font in their ctor
+            // (VkImageRenderer -> ResolveFontPath), so no propagation is needed here.
         }
     }
 }

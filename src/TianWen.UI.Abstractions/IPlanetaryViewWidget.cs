@@ -4,9 +4,10 @@ namespace TianWen.UI.Abstractions
 {
     /// <summary>
     /// Seam for hosting the full planetary capture view (the shared image viewer + capture-control strip)
-    /// inside the renderer-agnostic <c>LiveSessionTab</c>, the same way <see cref="IMiniViewerWidget"/> is
-    /// injected for the preview/polar mini viewer. In <see cref="LiveSessionMode.Planetary"/> the Live
-    /// Session screen renders this instead of the mini viewer and forwards mouse input to it.
+    /// inside the renderer-agnostic <c>LiveSessionTab</c>, the same way the chromeless preview viewer
+    /// (<see cref="ImageRendererBase{TSurface}"/>) is injected for the preview/polar modes. In
+    /// <see cref="LiveSessionMode.Planetary"/> the Live Session screen renders this instead of the preview
+    /// viewer and forwards mouse input to it.
     /// <para>
     /// The Vulkan implementation (<c>VkPlanetaryTab</c>) is the full <c>VkImageRenderer</c> + capture strip;
     /// it does its own position-aware hit dispatch (toolbar / wavelet + WB sliders / Start-Stop), so the host
