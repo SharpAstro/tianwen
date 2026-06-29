@@ -330,19 +330,32 @@ internal sealed class MasterPostProcessor(ILogger logger, ICelestialObjectDB? ca
         var sw = Stopwatch.StartNew();
         try
         {
-            // Canonical linear-in / linear-out flow per SharpenRequest.Canonical(),
-            // with the per-step Blend exposed via --enhance-blend. GhsStretch and
-            // dual-stretch are deliberately NOT included -- a stacked master must
-            // stay in linear photon-space so downstream PixInsight / Affinity /
-            // tianwen-render workflows still apply their own stretch.
+            // Linear-in / linear-out, with the per-step Blend exposed via
+            // --enhance-blend. GhsStretch / dual-stretch are deliberately NOT
+            // included -- a stacked master stays in linear photon-space so
+            // downstream PixInsight / Affinity / tianwen-render workflows apply
+            // their own stretch. Two shapes:
+            //  - BlurX-first (RC-Astro present): full-image deblur tightens stars
+            //    AND nebula, so NO stellar-sharpen step; stars get SCNR, the
+            //    starless plate gets denoise. Matches the PixInsight OSC flow.
+            //  - SAS-shaped (no RC deblurrer): remove stars, sharpen the stars
+            //    plate, deconvolve + denoise the starless plate.
             var blend = Math.Clamp(enhanceBlend, 0f, 1f);
-            var steps = ImmutableArray.Create<SharpenStep>(
-                new GradientCorrectionStep(),
-                new RemoveStarsStep(),
-                new SharpenStarsStep(Blend: blend),
-                new DeconvolveStarlessStep(Blend: blend),
-                new DenoiseStarlessStep(Blend: blend),
-                new RecombineStep());
+            var steps = sharpenPipeline.SupportsDeblur
+                ? ImmutableArray.Create<SharpenStep>(
+                    new DeblurStep(Blend: blend),
+                    new GradientCorrectionStep(),
+                    new RemoveStarsStep(),
+                    new DenoiseStarlessStep(Blend: blend),
+                    new ScnrStarsStep(ScnrMode.Average),
+                    new RecombineStep())
+                : ImmutableArray.Create<SharpenStep>(
+                    new GradientCorrectionStep(),
+                    new RemoveStarsStep(),
+                    new SharpenStarsStep(Blend: blend),
+                    new DeconvolveStarlessStep(Blend: blend),
+                    new DenoiseStarlessStep(Blend: blend),
+                    new RecombineStep());
             var request = new SharpenRequest(master.Master, steps, KeepIntermediates: SharpenIntermediates.None);
             var sharpenResult = await sharpenPipeline.ProcessAsync(request, ct);
             if (sharpenResult.Final is not { } enhancedMaster)

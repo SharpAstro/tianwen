@@ -50,6 +50,21 @@ namespace TianWen.AI.Imaging.RcAstro
                     () => new RcAstroNonStellarDeconvolver(sp.GetRequiredService<IRcAstroCli>(), sp.GetService<ILogger<RcAstroNonStellarDeconvolver>>()),
                     () => sp.GetRequiredService<OnnxNonStellarDeconvolver>()));
 
+            // IImageDeblurrer (full-image BlurX) is RC-only -- the SAS backend has
+            // no full-image deblur. Register it (which flips
+            // SharpenPipeline.SupportsDeblur on, selecting the BlurX-first
+            // canonical) ONLY when the CLI is installed: a cheap filesystem check,
+            // no subprocess. The bxt license probe stays deferred; an installed-
+            // but-unlicensed bxt resolves to a no-op passthrough the pipeline skips.
+            if (RcAstroCli.IsInstalled)
+            {
+                services.TryAddSingleton<IImageDeblurrer>(sp =>
+                    new DeferredDeblurrer(
+                        sp.GetRequiredService<IRcAstroCli>(),
+                        () => new RcAstroDeblurrer(sp.GetRequiredService<IRcAstroCli>(), sp.GetService<ILogger<RcAstroDeblurrer>>()),
+                        () => new PassthroughDeblurrer()));
+            }
+
             return services;
         }
 
