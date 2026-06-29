@@ -2,6 +2,7 @@ using System;
 using System.Collections.Immutable;
 using DIR.Lib;
 using SdlVulkan.Renderer;
+using TianWen.DAL;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Imaging;
 using TianWen.UI.Abstractions;
@@ -101,6 +102,18 @@ public sealed class VkPlanetaryTab : VkImageRenderer, IPlanetaryViewWidget
     // The active OTA's focuser telemetry, refreshed each frame by RenderPlanetary (drives the focuser readout
     // + whether the jog row is shown). Render-thread only.
     private PreviewOTATelemetry _focuser = PreviewOTATelemetry.Unknown;
+
+    // --- RECENTER (Phase C): COM auto-recenter via ROI jog + opt-in coarse mount jog. Render-thread only;
+    // synced to the controller (ConfigureRecenter) once per render. Auto-recenter defaults ON -- it's
+    // zero-disturbance (ROI window only; a no-disk frame yields a centred COM -> no jog) and matches the
+    // SharpCap "Track Planet: Center" default. Mount jog stays opt-in OFF (it moves the scope). ---
+    private bool _autoRecenter = true;
+    private bool _mountJog;
+    private static readonly int[] DeadbandPresetsPx = [2, 4, 8, 16, 32];
+    private int _deadbandIdx = 1;                 // 4 px
+    private static readonly int[] RecenterGainPresetsPct = [10, 25, 50, 75, 100];
+    private int _gainIdx = 2;                      // 50%
+    private const double MountNudgeArcsec = 30.0;  // manual N/S/E/W nudge step
 
     // One-time, planetary-appropriate defaults pushed onto the shared ViewerState the first time the view
     // renders: show the live stack (RAW/STACK starts on STACK), expose the info panel (the wavelet-sharpen +
@@ -231,6 +244,10 @@ public sealed class VkPlanetaryTab : VkImageRenderer, IPlanetaryViewWidget
         // capture is running, is pushed to the controller to take effect on the next frame.
         var canEdit = true;
 
+        // Keep the controller's recenter config in lock-step with the panel toggles/steppers (cheap volatile
+        // writes; one sync point picks up the initial default + any change, no per-click plumbing).
+        PushRecenter(controller);
+
         // --- Capture section ---
         var startStop = Layout.Builder.Text(capturing ? "Stop" : "Start", PanelFontSize, ButtonText, TextAlign.Center, TextAlign.Center)
             .Bg(capturing ? StopBg : StartBg).RowH(BaseRowHeight)
@@ -289,6 +306,36 @@ public sealed class VkPlanetaryTab : VkImageRenderer, IPlanetaryViewWidget
                 RoiPanButton("▼", "RoiPanDown", canEdit, 0, 1, controller, capturing))
             .RowH(BaseRowHeight).WithGap(BaseGap * 0.6f));
         rows.Add(OverlayToggleRow());
+
+        // --- Recenter section (Phase C): keep the planet centred. Auto-recenter jogs the readout window
+        // (fast, mount-free) to null the disk's COM drift; the opt-in Mount jog is the coarse fallback when the
+        // ROI reaches the sensor edge. Deadband/Gain tune the loop; the N/S/E/W buttons are a manual nudge. ---
+        rows.Add(Layout.Builder.Spacer().RowH(BaseGap));
+        rows.Add(Layout.Builder.Spacer().RowH(1f).Bg(Divider));
+        rows.Add(SectionHeader("RECENTER"));
+        rows.Add(CheckRow("Auto-recenter (ROI)", _autoRecenter, "RecenterAuto", () => _autoRecenter = !_autoRecenter));
+        rows.Add(Stepper("Deadband", $"{DeadbandPresetsPx[_deadbandIdx]} px", true, "RecenterDeadband",
+            () => _deadbandIdx = Math.Max(0, _deadbandIdx - 1),
+            () => _deadbandIdx = Math.Min(DeadbandPresetsPx.Length - 1, _deadbandIdx + 1)));
+        rows.Add(Stepper("Gain", $"{RecenterGainPresetsPct[_gainIdx]}%", true, "RecenterGain",
+            () => _gainIdx = Math.Max(0, _gainIdx - 1),
+            () => _gainIdx = Math.Min(RecenterGainPresetsPct.Length - 1, _gainIdx + 1)));
+        if (capturing && _autoRecenter)
+        {
+            var (ox, oy) = controller.LastComOffset;
+            rows.Add(Layout.Builder.Text(
+                    $"off {ox:+0.0;-0.0},{oy:+0.0;-0.0} px   {controller.LastRecenterActuator}",
+                    PanelFontSize * 0.8f, DimText, TextAlign.Near, TextAlign.Center)
+                .RowH(BaseRowHeight * 0.8f));
+        }
+        rows.Add(CheckRow("Mount jog (coarse)", _mountJog, "RecenterMount", () => _mountJog = !_mountJog));
+        rows.Add(Layout.Builder.HStack(
+                Layout.Builder.Text("Nudge", PanelFontSize, DimText, TextAlign.Near, TextAlign.Center).WFixed(40f).HStar(),
+                MountNudgeButton("N", "MountNudgeN", GuideDirection.North),
+                MountNudgeButton("S", "MountNudgeS", GuideDirection.South),
+                MountNudgeButton("E", "MountNudgeE", GuideDirection.East),
+                MountNudgeButton("W", "MountNudgeW", GuideDirection.West))
+            .RowH(BaseRowHeight).WithGap(BaseGap * 0.6f));
 
         // --- Focuser section (reuses JogFocuserSignal -- the same path the Live Session OTA panel posts) ---
         rows.Add(Layout.Builder.Spacer().RowH(BaseGap));
@@ -453,12 +500,28 @@ public sealed class VkPlanetaryTab : VkImageRenderer, IPlanetaryViewWidget
     // "[x] Show ROI on image" -- toggles the on-stream overlay. Allowed any time (a display toggle, not a
     // capture setting), so it is not gated on the idle state like the steppers.
     private Layout.Node OverlayToggleRow()
-    {
-        var label = (_roiOverlay ? "[x] " : "[ ] ") + "Show ROI on image";
-        return Layout.Builder.Text(label, PanelFontSize * 0.9f, _roiOverlay ? HeaderText : DimText, TextAlign.Near, TextAlign.Center)
-            .RowH(BaseRowHeight).Bg(_roiOverlay ? CheckOnBg : StepBtnBg)
-            .Clickable(new HitResult.ButtonHit("RoiOverlayToggle"), _ => _roiOverlay = !_roiOverlay);
-    }
+        => CheckRow("Show ROI on image", _roiOverlay, "RoiOverlayToggle", () => _roiOverlay = !_roiOverlay);
+
+    // A "[x]/[ ] label" checkbox row: green bg when on, neutral when off. The base re-armed the clickable
+    // tracker in Render(), so this .Clickable registers after that and survives.
+    private Layout.Node CheckRow(string label, bool on, string id, Action onClick)
+        => Layout.Builder.Text((on ? "[x] " : "[ ] ") + label, PanelFontSize * 0.9f,
+                on ? HeaderText : DimText, TextAlign.Near, TextAlign.Center)
+            .RowH(BaseRowHeight).Bg(on ? CheckOnBg : StepBtnBg)
+            .Clickable(new HitResult.ButtonHit(id), _ => onClick());
+
+    // A single-glyph mount-nudge button (manual coarse recenter / framing) -- posts the same JogMountSignal /
+    // pulse-guide actuator the COM recenter loop uses for its edge-blocked fallback.
+    private Layout.Node MountNudgeButton(string glyph, string id, GuideDirection direction)
+        => Layout.Builder.Text(glyph, PanelFontSize, ButtonText, TextAlign.Center, TextAlign.Center)
+            .WStar().HStar().Bg(JogBg)
+            .Clickable(new HitResult.ButtonHit(id), _ => Bus?.Post(new JogMountSignal(direction, MountNudgeArcsec)));
+
+    // Pushes the current recenter config to the controller (called on every toggle / stepper change). Cheap;
+    // the controller stages it for the capture loop to read next frame.
+    private void PushRecenter(PlanetaryCaptureController controller)
+        => controller.ConfigureRecenter(_autoRecenter, _mountJog,
+            DeadbandPresetsPx[_deadbandIdx], RecenterGainPresetsPct[_gainIdx] / 100.0);
 
     // The PiP: a sensor-proportioned thumbnail (dark box) with the red ROI rectangle drawn at its mapped
     // position -- the primary "where on the sensor does my high-speed crop sit" visualisation.

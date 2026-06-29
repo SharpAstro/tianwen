@@ -1416,6 +1416,15 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver, IV
     public int DroppedFrames => Volatile.Read(ref _droppedFrames);
 
     /// <inheritdoc/>
+    public RoiRect VideoRoi =>
+        // The ROI-window fields are owned by the capture loop (where the recenter loop reads this); when not
+        // streaming, report a sensor-sized window at the origin. int reads are atomic, so a cross-thread peek
+        // (e.g. a UI telemetry probe) is coherent if slightly stale.
+        Volatile.Read(ref _videoActive) == 1
+            ? new RoiRect(_videoRoiStartX, _videoRoiStartY, _videoRoiWidth, _videoRoiHeight)
+            : new RoiRect(0, 0, CameraXSize, CameraYSize);
+
+    /// <inheritdoc/>
     public async IAsyncEnumerable<Image> CaptureVideoAsync(
         VideoCaptureOptions options,
         [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)

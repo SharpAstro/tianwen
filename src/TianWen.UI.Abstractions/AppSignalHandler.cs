@@ -2856,6 +2856,20 @@ namespace TianWen.UI.Abstractions
                 }
 
                 var (roiW, roiH) = PlanetaryCaptureActions.ConfigureRoi(camera, sig.RoiWidth, sig.RoiHeight);
+
+                // Wire the coupled mount + OTA pixel scale for the COM recenter loop's coarse mount-jog
+                // fallback (Phase C). No-op when no mount is connected or the scale is unknown (NaN) -- the
+                // recenter loop then stays ROI-only.
+                IMountDriver? recenterMount = null;
+                if (appState.ActiveProfile?.Data is { } capturePdata
+                    && capturePdata.Mount is { Scheme: not "none" } mountUri
+                    && hub.TryGetConnectedDriver<IMountDriver>(mountUri, out var rcMount) && rcMount is not null)
+                {
+                    recenterMount = rcMount;
+                }
+                planetaryCapture.AttachMount(
+                    recenterMount, CoordinateUtils.PixelScaleArcsec(camera.PixelSizeX, ota.FocalLength));
+
                 // Bind the capture's lifetime to the app shutdown token: quitting cancels it (its loops poll
                 // the token), so the camera is released without an imperative Stop() in the quit path.
                 planetaryCapture.Start(camera,
@@ -2874,6 +2888,39 @@ namespace TianWen.UI.Abstractions
                 appState.AppendNotification(_timeProvider.GetUtcNow(),
                     NotificationSeverity.Info, "Planetary capture stopped");
                 appState.NeedsRedraw = true;
+            });
+
+            // Manual mount nudge (planetary panel coarse-recenter buttons) -> the same pulse-guide actuator the
+            // COM recenter loop uses. Mirrors the focuser-jog route: resolve the connected mount, pulse on the
+            // tracker. Gated on no running session + a pulse-guide-capable mount.
+            bus.Subscribe<JogMountSignal>(sig =>
+            {
+                if (liveSessionState.IsRunning) return;
+                if (appState.ActiveProfile?.Data is not { } pdata) return;
+                if (pdata.Mount is not { Scheme: not "none" } mountUri) return;
+                if (appState.DeviceHub is not { } hub) return;
+                if (!hub.TryGetConnectedDriver<IMountDriver>(mountUri, out var mount) || mount is null) return;
+
+                tracker.Run(async () =>
+                {
+                    try
+                    {
+                        await MountActions.PulseGuideArcsecAsync(
+                            mount, sig.Direction, sig.Arcsec, _timeProvider, logger: logger, cancellationToken: cts.Token);
+                        appState.AppendNotification(_timeProvider.GetUtcNow(),
+                            NotificationSeverity.Info, $"Mount nudge {sig.Direction} {sig.Arcsec:F0} arcsec");
+                    }
+                    catch (Exception ex)
+                    {
+                        logger.LogWarning(ex, "Mount jog failed ({Dir})", sig.Direction);
+                        appState.AppendNotification(_timeProvider.GetUtcNow(),
+                            NotificationSeverity.Error, $"Mount jog failed: {ex.Message}");
+                    }
+                    finally
+                    {
+                        appState.NeedsRedraw = true;
+                    }
+                }, $"JogMount {sig.Direction}");
             });
 
             bus.Subscribe<GotoFocuserSignal>(sig =>
