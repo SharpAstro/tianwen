@@ -57,10 +57,15 @@ seam, a controller + tab on top, and a recenter controller.
 |---|---|:--:|:--:|
 | A | `IVideoCameraDriver` + `LiveCameraFrameStream` + engine gaps (non-owning stream, follow-latest, empty-stream guard) | no | DONE 2026-06-24 |
 | B | rapid-exposure fallback + Fake video (`SyntheticPlanetRenderer`) + `PlanetaryCaptureController` + 🪐 tab + signals | no | backend DONE; GUI tab remaining |
-| C | `PlanetaryRecenterController` (ROI auto + mount opt-in) + `JogMountSignal` + manual nudge | no | TODO |
-| D | native ZWO + QHY raw video (DAL `ICMOSNativeInterface` + ring buffer + ROI-jog bypass) | **yes (DAL -> 2 SDKs -> TianWen)** | TODO |
-| E | Canon Live View `IVideoCameraDriver` (JPEG) via FC.SDK | no | TODO |
-| F | decompose the ~3000-line `ImageRendererBase` (see below) | no | TODO |
+| C | `PlanetaryRecenterController` (ROI auto + mount opt-in) + `JogMountSignal` + manual nudge | no | DONE 2026-06-28 |
+| D | native ZWO + QHY raw video (DAL `ICMOSNativeInterface` + ring buffer + ROI-jog bypass) | **yes (DAL -> 2 SDKs -> TianWen)** | TODO -- detailed plan: [planetary-native-video.md](planetary-native-video.md) |
+| E | Canon Live View `IVideoCameraDriver` (JPEG) via FC.SDK | no | TODO -- detailed plan: [planetary-native-video.md](planetary-native-video.md) |
+
+> **Phases D + E are fleshed out in [`planetary-native-video.md`](planetary-native-video.md)** (the two
+> real-hardware phases behind the same `IVideoCameraDriver` contract; grounded in the actual sibling-SDK
+> symbol inventory). Recommended order there is **E before D** (E is a single low-risk in-tree commit against
+> the already-published FC.SDK Live View; D is the High-risk DAL -> 2 SDKs -> TianWen NuGet chain).
+| F | decompose the ~3000-line `ImageRendererBase` (see below) | no | DONE 2026-06-28 |
 
 ## Phase F: decompose `ImageRendererBase` (~3000 lines)
 
@@ -87,6 +92,30 @@ cursor-X -> value mapping against a captured track rect. Extract a single `Track
 `BeginDragAt`/`UpdateDrag` against a `RectF32`) and have all three call it. That removes the triplicated
 slider math, not just the file length. **`magic` (source generators) is NOT warranted** — there's no
 repetitive generated surface here; partials + one extracted widget is the right tool.
+
+### Phase F DONE (2026-06-28)
+
+`ImageRendererBase<TSurface>` (was one 3,149-line file) is now a `partial class` across 11 files, organised
+by concern -- pure file organisation, **no behaviour change**:
+
+- `ImageRendererBase.cs` -- abstract GPU seam + `Render` orchestration + shared fields/constants/colours +
+  the `DrawText`/`MeasureText`/`DrawWrappedTextLine` text helpers + `UploadDocumentTextures` + `Resize`.
+- `.Layout.cs` -- the single-source `ComputeLayout` / `ComputeImagePlacement` / `ConfineToViewport`, the
+  `ViewerLayout`/`ImagePlacement` records, the `_layout`/`_placement` fields, content-region seam.
+- `.Toolbar.cs` -- toolbar render + the shared dropdown overlays + button enable/active/label + hit-test +
+  the `DefaultToolbarButtons` set.
+- `.FileList.cs` / `.Overlays.cs` (grid labels + star + object + WCS-annotation) / `.Histogram.cs` /
+  `.InfoPanel.cs` (info panel + WB + wavelet sliders) / `.StatusBar.cs` / `.Transport.cs` (SER scrub) /
+  `.Input.cs` (all keyboard + mouse handlers).
+- `.TrackSlider.cs` -- the extracted dedup. `DrawTrackSlider(trackX, trackW, barCenterY, handleY, handleH,
+  frac, fillColor, hitBand, hit)` + `static TrackFrac(RectF32, px)` are the one render + one drag-math
+  primitive; the WB sliders, the 6 wavelet sliders, and the transport scrub all call them (geometry is
+  byte-identical to the old triplicated sites; only the fill colour + per-frame fraction vary).
+
+Done as an exact line-range split (verbatim byte copies, member-line count reconciled) + a
+behaviour-preserving helper extraction. Full solution builds 0 warnings / 0 errors; the FITS viewer (the
+`VkImageRenderer` concretion of this class) renders unchanged live (toolbar / file list / image pane /
+chrome all correct).
 
 A+B+C = a complete, demonstrable 🪐 live-stacking tab with recenter on the Fake camera (no external
 releases). D and E are hardware/quality upgrades behind the same contract.
@@ -242,6 +271,26 @@ jog / mount / plate-solve / preview that already live there ("we also need the f
     preview/polar/guider keep the mini viewer. Consolidation is a SEPARATE follow-up pass (the 3 capabilities
     above -> swap the 3 mini-viewer consumers -> delete it), with `FreezeStretchStats`/polar correctness the
     careful bit. Tracked alongside Phase F (viewer decomposition).
+
+  **DONE (2026-06-29): one viewer, mini viewer deleted.** `VkMiniViewerWidget` + `IMiniViewerWidget` +
+  `MiniViewerState` are removed; the Live Session preview, polar-align, and guide-cam all host the shared
+  full viewer (`ImageRendererBase`/`VkImageRenderer`) configured chromeless. The three capabilities the mini
+  viewer had that the full viewer lacked are now first-class on the full viewer:
+  - `LiveFramePreviewSource : IPreviewSource` (`TianWen.UI.Abstractions`) -- normalises each frame to [0,1] and
+    keeps the subsampled median/MAD stretch-stats trick (`GetPedestralMedianAndMADScaledToUnit` strided to
+    ~1M samples); `ComputeStretchUniforms` delegates to the shared static `AstroImageDocument.ComputeStretchUniforms`
+    (one path). `AcceptFrame(image, freezeStats)` does the freeze (reuse cached stats; one-shot recompute on the
+    off->on edge). **It must expose a non-empty `PerChannelBackground` sized to the channel count** -- the
+    renderer's `StretchUniforms.ComputePostStretchBackground` reads `[0..2]` and an empty array crashes
+    (pinned by `LiveFramePreviewSourceTests`). 7 unit tests.
+  - `ViewerState.HideChrome` -- `ComputeLayout` drops the toolbar/status rows; `Render` skips painting them.
+  - `ViewerState.FreezeStretchStats` (consumer sets it from polar phase, passes to `AcceptFrame`).
+  - `ImageRendererBase.OverrideWcs` -- supplies the grid + `WcsAnnotation` projection WCS for a document-less
+    live source (a plate-solved preview frame). `SetSurfaceSize(w,h)` sets the GPU projection dims without
+    `OnResize` (the embedded viewer shares the host renderer's surface). The guide reticle / polar rings stay
+    consumer-drawn on top after `Render` (each `PixelWidgetBase` has its own clickable tracker, so the embedded
+    viewer's `BeginFrame` doesn't wipe the host tab's clickables). Verified live: preview renders through the
+    full stretch pipeline; plate-solve -> `OverrideWcs` -> the GPU RA/Dec grid renders the pole grid.
 - **Mode-aware sidebar icon** (new user ask): the Live Session icon reflects `LiveSessionState.Mode` --
   extend the per-frame override at `VkGuiRenderer.cs:250-254` (today only running -> camera-with-flash).
   Proposed: Preview = camera `\U0001F4F7`, running session = camera-flash `\U0001F4F8`, PolarAlign = compass
@@ -437,3 +486,42 @@ Closes most of P4 (colour) + the live-control gap and adds hang diagnostics:
 
 Tests green: `FakeCameraVideoTests`, `PlanetaryCaptureControllerTests`, `JupiterTextureRendererTests`,
 `LiveCameraFrameStreamTests`, + star-detection.
+
+### Phase C DONE 2026-06-28: COM recenter loop (ROI auto + mount opt-in) + manual mount nudge
+
+The "hold the planet centred" loop. Layering: a **pure** decision in `TianWen.Lib`, the capture-loop hook +
+mount actuation in the controller, and a RECENTER panel section on top.
+
+- **`PlanetaryRecenterController.Decide(...)`** (`TianWen.Lib/Imaging/Planetary/`, pure/static): disk COM ->
+  per-axis offset from the frame centre -> **per-axis deadband** (a large offset on one axis never drags the
+  other, otherwise-centred axis -- the subtle bug a distance deadband would have) -> a damped (`Gain`) ROI jog
+  toward the disk on each axis that has pan range, and a **coarse mount nudge** (sized `offset x
+  PixelScaleArcsec`, capped) on any axis that is edge-blocked (window at the sensor edge, no pan range, or the
+  camera can't ROI-jog). Returns a `RecenterDecision` (ROI dx/dy + signed RA/Dec arcsec + telemetry offsets);
+  both actuators can fire in one frame. Mount sign is **uncalibrated** (`FlipRa`/`FlipDec`), so the cap bounds a
+  wrong guess to a small mis-move, never a runaway -- the manual nudge buttons are the safe primary mount control.
+- **`IVideoCameraDriver.VideoRoi`** (new) -- the live readout window (origin + size) so the loop knows how much
+  pan range is left before an edge. The fake reports its capture-loop-owned ROI window; not-streaming -> a
+  sensor-sized window.
+- **Capture-loop hook** (`PlanetaryCaptureController.MaybeRecenterAsync`): runs on the capture loop (off the
+  render thread) after each push on the still-alive frame -- `PlanetaryDisk.BoundingBox` + `CenterOfMass` ->
+  `Decide` -> stage a ROI jog (drained by `ApplyPendingControlsAsync` the same iteration) and/or fire the mount
+  pulse. Config (`auto`, `mountJog`, deadband, gain, flips) is staged by the render thread via
+  `ConfigureRecenter`; the mount + pixel scale are attached on Start (`AttachMount`). Auto-recenter defaults ON
+  (zero-disturbance, ROI-only; a no-disk frame yields a centred COM -> no jog); mount jog opt-in OFF.
+- **Mount actuation -- one shared actuator.** `MountActions.PulseGuideArcsecAsync` converts arcsec -> a
+  guide-rate-sized, capped `PulseGuideAsync`; used by BOTH the auto loop (single-flight + cooldown, fired
+  non-blocking so it never stalls the high-fps loop) and the manual `JogMountSignal` (N/S/E/W buttons,
+  focuser-jog routing model: gated on no-running-session + a connected pulse-guide mount).
+- **RECENTER panel section** (`VkPlanetaryTab`, between REGION and FOCUSER): `[x] Auto-recenter (ROI)`, Deadband
+  + Gain steppers, a live `off dx,dy px [actuator]` readout while capturing, `[ ] Mount jog (coarse)`, and a
+  `Nudge N/S/E/W` row. Config synced to the controller once per render. The duplicate `[x]/[ ]` overlay-toggle
+  row was refactored into a shared `CheckRow` helper.
+- Tests: `PlanetaryRecenterControllerTests` (11 pure cases: centred/deadband/ROI jog sign + clamp/edge handoff/
+  mount-disabled/no-ROI-cap mount-only/flip/cap/no-scale) + two e2e in `PlanetaryCaptureControllerTests`
+  (auto-recenter jogs the window to follow a drifting fake planet; auto-off leaves it fixed). 40 planetary
+  tests green; full solution builds 0/0.
+
+**Out of scope (deferred):** a guider-style mount-jog **calibration** (to learn the on-sky sign + scale instead
+of the uncalibrated flip flags), and drag-to-set ROI on the image. The coarse auto mount-jog + manual nudge are
+enough for first light; calibration is the natural next refinement.

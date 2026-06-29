@@ -462,6 +462,20 @@ A CPU-first planetary stacker, **completely separate** from the deep-sky `Imagin
   (Debug + WARN): live-control-applied, a capture heartbeat (every 250 frames), and per-stack start/done +
   duration with a long-running-stack WARN — the trail to diagnose a future stall (pair with the inspector
   `render_liveness` watchdog above).
+- **COM recenter loop** (Phase C — hold the planet centred): `PlanetaryRecenterController.Decide` (pure, in
+  `TianWen.Lib/Imaging/Planetary/`) takes the disk centre of mass + the readout-window geometry and returns a
+  `RecenterDecision` — a **per-axis-deadband** (not distance — a big offset on one axis must not drag the other
+  centred axis) damped ROI jog toward the disk on each axis with pan range, plus a coarse mount nudge (sized
+  `offset × pixelScaleArcsec`, capped) on any axis that is edge-blocked (window at the sensor edge / no pan
+  range / camera can't `JogRoi`). `PlanetaryCaptureController.MaybeRecenterAsync` runs it on the capture loop
+  per frame (`BoundingBox`+`CenterOfMass` on the live frame) and actuates: a staged `JogRoi` (drained the same
+  iteration) and/or a **single-flight, fired-non-blocking** mount pulse. The new `IVideoCameraDriver.VideoRoi`
+  exposes the live window so the loop knows its remaining pan range. **One mount actuator**:
+  `MountActions.PulseGuideArcsecAsync` (arcsec → guide-rate-sized capped `PulseGuideAsync`) serves both the auto
+  loop and the manual `JogMountSignal` (RECENTER panel N/S/E/W buttons, focuser-jog routing model). Auto-recenter
+  defaults ON (ROI-only, zero mount disturbance; a no-disk frame → centred COM → no jog); mount jog is opt-in OFF.
+  The mount **sign is uncalibrated** (`FlipRa`/`FlipDec` + the per-axis cap bound a wrong guess; a guider-style
+  calibration is the deferred refinement). `ConfigureRecenter`/`AttachMount` stage config + the mount on Start.
 - **Live viewer integration** (`LiveStackPreviewSource : IPreviewSource`, in `.UI.Abstractions`): a RAW/STACK
   toggle (transport-bar button + `K`) and Registax-style 6-layer wavelet sliders (under the WB sliders) in
   `tianwen-fits` and the GUI viewer tab (shared `ViewerState`). **Follow-the-playhead**: the raw
@@ -617,6 +631,37 @@ See `DIR.Lib.Tests/TiffWriterRoundTripTests.cs` for the byte-level reader probe 
   LE / MM on BE) so multi-byte tag values and pixel samples can be written
   verbatim from native memory with no swap step. The reader honours either
   order, so round-trip is correct regardless of host architecture.
+
+### FITS Viewer Widget (`ImageRendererBase<TSurface>`)
+
+The renderer-agnostic viewer (shared by `tianwen-fits` and the GUI 🪐 tab via the `VkImageRenderer`
+concretion) is a `partial class` split **by concern** across files -- `ImageRendererBase.cs` holds the
+abstract GPU seam + `Render` orchestration + shared fields/colours + the text helpers, and one file each
+for `.Layout` (`ComputeLayout`/placement), `.Toolbar`, `.FileList`, `.Overlays` (grid + star + object +
+WCS annotation), `.Histogram`, `.InfoPanel` (incl. WB + wavelet sliders), `.StatusBar`, `.Transport`
+(SER scrub) and `.Input`. Add a new concern as a new partial; don't grow the core file back into a
+monolith. The whole chrome is arranged from ONE layout pass rooted at `ContentRegion` (see the
+`.Layout.cs` banner) -- never hand-place chrome at `(0,0,Width,...)`.
+
+**One slider widget.** The WB sliders, the 6 wavelet-layer sliders, and the SER transport scrub are the
+same horizontal press/drag/release track. `ImageRendererBase.TrackSlider.cs` is the single source:
+`DrawTrackSlider(trackX, trackW, barCenterY, handleY, handleH, frac, fillColor, hitBand, hit)` (render +
+register the drag hit-band) and `static TrackFrac(RectF32, px)` (the cursor-X -> fraction drag math). A
+new track-style control calls these; never re-triplicate the bar/fill/handle/clamp math.
+
+**One viewer (no mini viewer).** There is no separate "mini viewer" -- the Live Session preview, polar-align,
+and guide-cam all host this same full viewer configured chromeless (`ViewerState.HideChrome` drops the
+toolbar/status rows). The feed is `LiveFramePreviewSource : IPreviewSource` (`TianWen.UI.Abstractions`): it
+normalises each camera frame to `[0,1]` and keeps a subsampled median/MAD stretch-stats scan (NOT the heavy
+`AstroImageDocument.AdoptImageAsync` per frame), with `AcceptFrame(image, freezeStats)` doing the freeze
+(`ViewerState.FreezeStretchStats`, set from polar phase; one-shot recompute on the off->on edge). Its
+`ComputeStretchUniforms` delegates to the shared static `AstroImageDocument.ComputeStretchUniforms` (one path).
+A document-less live source has no `document.Wcs`, so `ImageRendererBase.OverrideWcs` supplies the WCS for the
+GPU grid + `WcsAnnotation` overlay (a plate-solved preview frame). Embedded hosts call `SetSurfaceSize(w,h)`
+(sets the GPU projection dims, NOT `Resize`/`OnResize`, since they share the host renderer's surface) each
+frame and draw any reticle/rings on top after `Render` returns. **`LiveFramePreviewSource.PerChannelBackground`
+must be non-empty + channel-sized** -- the renderer's `ComputePostStretchBackground` indexes `[0]`
+unconditionally (an empty array crashed the GUI; pinned by `LiveFramePreviewSourceTests`).
 
 ### Sky Map / FITS Viewer GLSL
 
