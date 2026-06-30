@@ -69,6 +69,70 @@ native params (the model is nonlinear in strength), not the pipeline's post-hoc
 |-------|-------|--------|
 | 1 | Foundation (`RcAstroCli` + NDJSON + FITS round-trip base) + `RcAstroStarRemover` (sxt) + `AddRcAstroAi` selector for `IStarRemover` + tests | DONE |
 | 2 | `RcAstroDenoiser` (nxt, noise-adaptive `--dn`) + `RcAstroNonStellarDeconvolver` (bxt); selector extended to all three roles via a DRY `PreferRcAstro<TRole, TFallback>` helper; tests | DONE |
-| 3 | Wire `AddRcAstroAi()` into composition roots + docs (CLAUDE.md arch note, TODO) DONE; options surface (per-product params + "prefer RC" toggle) in CLI/GUI + NDJSON progress -> UI still TODO | PARTIAL |
+| 3 | Wire `AddRcAstroAi()` into composition roots (CLI) + docs (CLAUDE.md arch note, TODO) | DONE |
+| 3a | **Options surface + backend control (CLI).** Immutable `EnhanceOptions`/`EnhanceTuning` threaded through `SharpenPipeline.ProcessAsync` -> a non-breaking `IImageEnhancer.EnhanceAsync(input, options, progress, ct)` default-interface-method overload. `DeferredEnhancer` reads `Backend` (Auto/ForceRcAstro/ForceSas) per call; RC `BuildArgs` reads `Tuning` (null = today's auto behaviour). CLI flags `--ai-backend`, `--bxt-sharpen`, `--nxt-denoise`, `--nxt-iterations` on `image sharpen` + `stack`. | TODO |
+| 3b | **Progress -> CLI.** `EnhanceProgress(StepName, StepIndex, StepCount, StepPercent, Eta)`; the pipeline stamps step identity and forwards the per-product NDJSON ticks (already wired through `RcAstroCli`/`IProgress<RcAstroProgress>`, today swallowed in `RcAstroEnhancerBase`); CLI `Progress<T>` print mirroring `StackingProgress`. | TODO |
+| 3c | **GUI enhance action.** `AddRcAstroAi()` in `TianWen.UI.Gui`; `EnhanceImageSignal` -> `EnhanceActions` (route-only handler) running `ProcessAsync` off the render thread (viewer background-task / Task-handoff pattern) + progress to status line + `AdoptImageAsync` result; toolbar button + a backend toggle bound to existing viewer/UI state (snapshotted into `EnhanceOptions` per click -- no global). | TODO |
+| 3d | **Server enhance endpoint.** `AddRcAstroAi()` in `TianWen.Server`; `POST /api/v1/image/enhance` + `ENHANCE-PROGRESS` WebSocket via `EventBroadcaster`; AOT-safe concrete DTOs in `HostingJsonContext` (publish + smoke-test per the AOT rule, not just build). | TODO |
 
 `IStellarSharpener` and `IGradientCorrector` stay SAS (no CLI equivalent).
+
+## Phase 3 design -- threaded options + progress (no mutable singleton)
+
+The enhancer interface is param-less (`EnhanceAsync(Image, ct)`) and the enhancers are
+DI singletons, so backend preference + RC-native strength have no natural pass-through.
+The chosen design threads an **immutable options record per call** rather than a
+process-global mutable holder (which would be the wrong abstraction and would tear the
+moment two enhances diverge -- e.g. concurrent server requests). The progress sink rides
+the same mechanism, so it is one plumbing change, not two.
+
+Backend-agnostic types in `TianWen.Lib/Imaging/Enhancement/` (RC maps them to native CLI
+args; SAS ignores them):
+
+```csharp
+public enum EnhanceBackend { Auto, ForceRcAstro, ForceSas }   // Auto = "RC when present + licensed" (today's behaviour)
+
+public sealed record EnhanceTuning(
+    float? DeblurSharpen     = null,   // RC bxt --sn ; SAS has no analogue -> ignored
+    float? DenoiseStrength   = null,   // RC nxt --dn ; null = noise-adaptive auto (today)
+    int?   DenoiseIterations = null);  // RC nxt --it
+
+public sealed record EnhanceOptions(EnhanceBackend Backend = EnhanceBackend.Auto, EnhanceTuning? Tuning = null)
+{
+    public static readonly EnhanceOptions Default = new();
+}
+
+public sealed record EnhanceProgress(string StepName, int StepIndex, int StepCount, float StepPercent, double EtaSeconds);
+```
+
+Non-breaking interface extension (the ~5 SAS impls + all existing call sites compile
+untouched -- the default body ignores both new args):
+
+```csharp
+Task<Image> EnhanceAsync(Image input, EnhanceOptions options, IProgress<float>? progress = null, CancellationToken ct = default)
+    => EnhanceAsync(input, ct);
+```
+
+Threading (no shared mutable state anywhere):
+
+- **`SharpenPipeline.ProcessAsync(request, EnhanceOptions options, IProgress<EnhanceProgress>? progress, ct)`**
+  owns step identity. Per step *i* of *n* it builds a per-step `IProgress<float>` that stamps
+  the step name/index and forwards into the caller's `IProgress<EnhanceProgress>`, then calls
+  `enhancer.EnhanceAsync(img, options, stepProgress, ct)`. Caller sees `(StepName, i/n, %)`;
+  the enhancer only deals with its own 0..1.
+- **`DeferredEnhancer`** overrides the options overload: `options.Backend` decides RC-vs-SAS
+  per call (`Auto` -> cached `cli.IsLicensed` probe; `ForceSas`/`ForceRcAstro` short-circuit).
+  It still lazily memoizes the two stateless instances, so "no `rc-astro` subprocess at DI
+  build, license probe only on first Auto/RC use" is intact -- what is gone is the *cached
+  decision*, now per-call.
+- **`RcAstroEnhancerBase`** overrides it: `BuildArgs` reads `options.Tuning` (null ->
+  bit-identical to today's auto behaviour), and reports the NDJSON `RcAstroProgress` ticks
+  into the passed `progress`.
+- **SAS ONNX impls** do not override -> default ignores both; their progress is the coarse
+  step-boundary tick the pipeline already emits.
+
+Where the preference *lives* (the part that replaces the rejected singleton): nowhere new and
+mutable -- each entry point snapshots an immutable `EnhanceOptions` at the call site. CLI from
+flags (once per invocation); GUI from existing viewer/UI state into a fresh record per Enhance
+click; Server deserialized from the request DTO per request (naturally per-call, supports
+concurrent divergent enhances).
