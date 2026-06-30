@@ -1,7 +1,6 @@
 using TianWen.Lib.Astrometry.SOFA;
-using TianWen.Lib.Devices;
 
-namespace TianWen.UI.Abstractions;
+namespace TianWen.Lib.Devices;
 
 /// <summary>
 /// Creates a <see cref="Transform"/> from a profile's stored site coordinates.
