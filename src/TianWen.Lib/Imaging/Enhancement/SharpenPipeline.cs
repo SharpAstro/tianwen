@@ -53,10 +53,21 @@ public sealed class SharpenPipeline(
     /// </summary>
     public bool SupportsDeblur => deblurrer is not null;
 
-    public async Task<SharpenResult> ProcessAsync(SharpenRequest request, CancellationToken cancellationToken = default)
+    /// <summary>Auto-backend, no-tuning convenience overload (pre-Phase-3 behaviour).</summary>
+    public Task<SharpenResult> ProcessAsync(SharpenRequest request, CancellationToken cancellationToken = default)
+        => ProcessAsync(request, EnhanceOptions.Default, null, cancellationToken);
+
+    /// <summary>
+    /// Runs the step program with per-operation <paramref name="options"/> (backend selection +
+    /// RC-Astro tuning) threaded to every enhancer. <paramref name="progress"/> receives a stamped
+    /// <see cref="EnhanceProgress"/> per step (the per-step forwarding is wired in Phase 3b; the
+    /// parameter is part of the final signature so callers bind against it now).
+    /// </summary>
+    public async Task<SharpenResult> ProcessAsync(SharpenRequest request, EnhanceOptions options, IProgress<EnhanceProgress>? progress = null, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(request.Source);
+        ArgumentNullException.ThrowIfNull(options);
         ValidateRequest(request);
 
         // BayerDrizzle (and any partial-coverage) masters carry non-finite
@@ -126,7 +137,7 @@ public sealed class SharpenPipeline(
                         // stars AND non-stellar structure on the source before any
                         // split, so downstream steps consume `deblurred ?? source`.
                         // Replaces the SAS remove-then-sharpen-stars approach.
-                        var raw = await Require(deblurrer).EnhanceAsync(source, cancellationToken);
+                        var raw = await Require(deblurrer).EnhanceAsync(source, options, cancellationToken: cancellationToken);
                         if (ReferenceEquals(raw, source))
                         {
                             // No-op passthrough (e.g. bxt present but unlicensed):
@@ -149,7 +160,7 @@ public sealed class SharpenPipeline(
                         // of the pipeline. All downstream steps that consume
                         // the source pick `gradientCorrected ?? source`
                         // so they see the cleaned plate.
-                        gradientCorrected = await Require(gradientCorrector).EnhanceAsync(deblurred ?? source, cancellationToken);
+                        gradientCorrected = await Require(gradientCorrector).EnhanceAsync(deblurred ?? source, options, cancellationToken: cancellationToken);
                         timings.Add(("gradient-correction", phaseSw.ElapsedMilliseconds, gradientCorrected.EstimateNoiseProfile()));
                         break;
                     }
@@ -159,7 +170,7 @@ public sealed class SharpenPipeline(
                         // Read from the corrected plate when GradientCorrectionStep
                         // ran upstream; falls back to the original source otherwise.
                         var starsInput = gradientCorrected ?? deblurred ?? source;
-                        starless = await Require(starRemover).EnhanceAsync(starsInput, cancellationToken);
+                        starless = await Require(starRemover).EnhanceAsync(starsInput, options, cancellationToken: cancellationToken);
                         // Pixel split:
                         //   Additive (default): StarsOnly = max(Source - Starless, 0).
                         //     Physically correct in linear-light photon space.
@@ -199,7 +210,7 @@ public sealed class SharpenPipeline(
                         // starsOnly normally, or an SCNR'd version if ScnrStarsStep
                         // ran earlier in the same request.
                         var inputPlate = Require(starsOnly);
-                        var raw = await Require(stellarSharpener).EnhanceAsync(inputPlate, cancellationToken);
+                        var raw = await Require(stellarSharpener).EnhanceAsync(inputPlate, options, cancellationToken: cancellationToken);
                         sharpenedStars = sharpStep.Blend < 1f
                             ? inputPlate.Lerp(raw, sharpStep.Blend)
                             : raw;
@@ -211,7 +222,7 @@ public sealed class SharpenPipeline(
                     case DeconvolveStarlessStep deconvStep:
                     {
                         var inputPlate = Require(starless);
-                        var raw = await Require(nonStellarDeconvolver).EnhanceAsync(inputPlate, cancellationToken);
+                        var raw = await Require(nonStellarDeconvolver).EnhanceAsync(inputPlate, options, cancellationToken: cancellationToken);
                         deconvolvedStarless = deconvStep.Blend < 1f
                             ? inputPlate.Lerp(raw, deconvStep.Blend)
                             : raw;
@@ -235,7 +246,7 @@ public sealed class SharpenPipeline(
                         // output if a DeconvolveStarlessStep ran earlier,
                         // otherwise the raw starless plate.
                         var inputPlate = deconvolvedStarless ?? Require(starless);
-                        var raw = await Require(denoiser).EnhanceAsync(inputPlate, denoiseStep.Variant, cancellationToken);
+                        var raw = await Require(denoiser).EnhanceAsync(inputPlate, denoiseStep.Variant, options, cancellationToken: cancellationToken);
                         denoisedStarless = denoiseStep.Blend < 1f
                             ? inputPlate.Lerp(raw, denoiseStep.Blend)
                             : raw;

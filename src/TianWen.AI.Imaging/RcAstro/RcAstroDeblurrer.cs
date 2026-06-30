@@ -31,11 +31,15 @@ namespace TianWen.AI.Imaging.RcAstro
         // (--ss) and non-stellar (--sn) sharpening, so stars are tightened before
         // star removal. (Contrast RcAstroNonStellarDeconvolver, which runs bxt on
         // the starless plate with ss=0.)
-        protected override IReadOnlyList<string> BuildArgs(Image input) =>
-        [
-            "--ss", sharpenStars.ToString("0.00", CultureInfo.InvariantCulture),
-            "--sn", sharpenNonStellar.ToString("0.00", CultureInfo.InvariantCulture),
-        ];
+        protected override IReadOnlyList<string> BuildArgs(Image input, EnhanceTuning? tuning)
+        {
+            var sn = tuning?.DeblurSharpen is { } v ? (double)v : sharpenNonStellar;
+            return
+            [
+                "--ss", sharpenStars.ToString("0.00", CultureInfo.InvariantCulture),
+                "--sn", sn.ToString("0.00", CultureInfo.InvariantCulture),
+            ];
+        }
     }
 
     /// <summary>

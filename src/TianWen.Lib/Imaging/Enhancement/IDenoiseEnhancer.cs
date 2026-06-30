@@ -1,3 +1,4 @@
+using System;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -32,6 +33,16 @@ public interface IDenoiseEnhancer : IImageEnhancer
     /// </summary>
     Task<Image> EnhanceAsync(Image input, DenoiseVariant variant, CancellationToken cancellationToken = default)
         => EnhanceAsync(input, cancellationToken);
+
+    /// <summary>
+    /// Variant + options + progress overload. Default impl drops <paramref name="options"/>
+    /// and <paramref name="progress"/> and delegates to the variant overload (correct for SAS:
+    /// it has no RC tuning and only coarse step-boundary progress). The RC nxt wrapper overrides
+    /// this to read <see cref="EnhanceTuning"/> and relay NDJSON progress, ignoring the variant
+    /// (nxt is a single model).
+    /// </summary>
+    Task<Image> EnhanceAsync(Image input, DenoiseVariant variant, EnhanceOptions options, IProgress<float>? progress = null, CancellationToken cancellationToken = default)
+        => EnhanceAsync(input, variant, cancellationToken);
 }
 
 /// <summary>

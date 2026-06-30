@@ -45,24 +45,31 @@ namespace TianWen.AI.Imaging.RcAstro
         /// so it is ignored and the base denoise path runs.
         /// </summary>
         public Task<Image> EnhanceAsync(Image input, DenoiseVariant variant, CancellationToken cancellationToken = default)
+            => EnhanceAsync(input, variant, EnhanceOptions.Default, null, cancellationToken);
+
+        public Task<Image> EnhanceAsync(Image input, DenoiseVariant variant, EnhanceOptions options, IProgress<float>? progress = null, CancellationToken cancellationToken = default)
         {
             if (variant != DenoiseVariant.Default)
             {
                 logger?.LogDebug("RC-Astro nxt ignores DenoiseVariant.{Variant} (single model).", variant);
             }
-            return EnhanceAsync(input, cancellationToken);
+            // nxt is a single model -> variant is irrelevant; route to the options-aware base path
+            // so --dn / --it tuning overrides and progress relay still apply.
+            return EnhanceAsync(input, options, progress, cancellationToken);
         }
 
-        protected override IReadOnlyList<string> BuildArgs(Image input)
+        protected override IReadOnlyList<string> BuildArgs(Image input, EnhanceTuning? tuning)
         {
-            var dn = autoStrength
-                ? MapNoiseToStrength(input.EstimateNoiseProfile(), minDenoise, maxDenoise)
-                : denoise;
-            logger?.LogDebug("RC-Astro nxt dn={Dn:F2} (auto={Auto}) it={It}", dn, autoStrength, iterations);
+            var auto = autoStrength && tuning?.DenoiseStrength is null;
+            var dn = tuning?.DenoiseStrength is { } d
+                ? (double)d
+                : (autoStrength ? MapNoiseToStrength(input.EstimateNoiseProfile(), minDenoise, maxDenoise) : denoise);
+            var it = tuning?.DenoiseIterations ?? iterations;
+            logger?.LogDebug("RC-Astro nxt dn={Dn:F2} (auto={Auto}) it={It}", dn, auto, it);
             return
             [
                 "--dn", dn.ToString("0.00", CultureInfo.InvariantCulture),
-                "--it", iterations.ToString(CultureInfo.InvariantCulture),
+                "--it", it.ToString(CultureInfo.InvariantCulture),
             ];
         }
 

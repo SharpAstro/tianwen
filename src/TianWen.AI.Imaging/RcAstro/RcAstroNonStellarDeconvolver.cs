@@ -27,7 +27,10 @@ namespace TianWen.AI.Imaging.RcAstro
         // no-ops (no stars), and --ansr (auto nonstellar PSF radius) defaults to
         // true, so we pass only --sn. bxt estimates the PSF itself, so unlike
         // OnnxNonStellarDeconvolver there is no IPsfEstimator dependency.
-        protected override IReadOnlyList<string> BuildArgs(Image input) =>
-            ["--sn", sharpenNonStellar.ToString("0.00", CultureInfo.InvariantCulture)];
+        protected override IReadOnlyList<string> BuildArgs(Image input, EnhanceTuning? tuning)
+        {
+            var sn = tuning?.DeblurSharpen is { } v ? (double)v : sharpenNonStellar;
+            return ["--sn", sn.ToString("0.00", CultureInfo.InvariantCulture)];
+        }
     }
 }
