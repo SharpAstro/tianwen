@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Collections.Immutable;
 using DIR.Lib;
 using TianWen.Lib.Imaging;
+using TianWen.Lib.Imaging.Enhancement;
 
 namespace TianWen.UI.Abstractions;
 
@@ -61,6 +62,20 @@ public sealed class ViewerState
 
     /// <summary>Whether a plate solve is currently in progress.</summary>
     public bool IsPlateSolving { get; set; }
+
+    /// <summary>Whether an AI enhance pass is currently running. Set on the render thread when the
+    /// enhance is kicked, cleared on the render thread when the result is applied (or it fails).
+    /// Drives the toolbar button's "Enhancing N%" label + active highlight.</summary>
+    public bool IsEnhancing { get; set; }
+
+    /// <summary>Progress of the in-flight enhance pass in [0, 100]. Updated from the background
+    /// enhance task via the SharpenPipeline progress sink; only meaningful while <see cref="IsEnhancing"/>.</summary>
+    public float EnhanceProgressPct { get; set; }
+
+    /// <summary>Preferred AI enhancer backend for the next enhance, snapshotted into an
+    /// <see cref="EnhanceOptions"/> per click. Auto = RC-Astro when present + licensed, else SAS ONNX.
+    /// Cycled by the Enhance toolbar dropdown.</summary>
+    public EnhanceBackend PreferredEnhanceBackend { get; set; } = EnhanceBackend.Auto;
 
     /// <summary>Whether the WCS coordinate grid overlay is visible.</summary>
     public bool ShowGrid { get; set; }

@@ -510,6 +510,20 @@ even if requested (with a warning). RC-vs-SAS roles: RC-Astro is preferred + lic
 free fallback tier; `IStellarSharpener` / `IGradientCorrector` stay SAS (no RC equivalent). See
 `docs/plans/rc-astro-enhancers.md`.
 
+**CLI flags + viewer Enhance action.** `image sharpen` and `stack --enhance` both take
+`--ai-backend auto|rc|sas`, `--bxt-sharpen`, `--nxt-denoise`, `--nxt-iterations`, threaded as an
+immutable `EnhanceOptions` (backend + `EnhanceTuning`) through `SharpenPipeline.ProcessAsync` to
+each enhancer -- **no mutable settings singleton** (parallel enhances can't tear). The same
+overload reports per-step `EnhanceProgress` (boundary tick + RC-Astro NDJSON sub-step %, relayed
+via `StepProgressRelay`); the CLI prints it through `EnhanceProgressConsole`. **`tianwen-fits` has an
+interactive Enhance action** (`ToolbarAction.Enhance` + 'E'): `EnhanceActions.EnhanceAsync` runs the
+pipeline off the render thread and adopts the result back via `ViewerController._enhanceTask` +
+`TryApplyPendingEnhance` (the SkyMap async-result hand-off -- no spin-render, so it doesn't contend
+the GPU the AI work uses). Left-click runs, right-click cycles the backend (shown on the button
+label). The button is presence-gated by the renderer's `EnhanceAvailable` (hidden where no
+`SharpenPipeline` is wired), so `tianwen-fits` registers `AddRcAstroAi()`; the GUI has no
+document-viewer tab so it carries no enhance UI yet.
+
 ### Planetary Lucky-Imaging Stack (`TianWen.Lib.Imaging.Planetary`)
 
 A CPU-first planetary stacker, **completely separate** from the deep-sky `Imaging.Stacking` pipeline

@@ -29,6 +29,8 @@
 
   <ItemGroup>
     <ProjectReference Include="..\TianWen.UI.Shared\TianWen.UI.Shared.csproj" />
+    <!-- AI enhancers (SAS ONNX + RC-Astro CLI wrappers) for the viewer's Enhance action. -->
+    <ProjectReference Include="..\TianWen.AI.Imaging\TianWen.AI.Imaging.csproj" />
   </ItemGroup>
 
   <Import Project="..\VCRuntimeRedist.targets" />

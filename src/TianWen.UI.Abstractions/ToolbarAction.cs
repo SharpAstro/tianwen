@@ -22,4 +22,5 @@ public enum ToolbarAction
     ColorCalibrate,
     BackgroundNeutralize,
     SpccCalibrate,
+    Enhance,
 }

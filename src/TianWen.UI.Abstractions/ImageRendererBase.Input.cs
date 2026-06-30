@@ -157,6 +157,13 @@ namespace TianWen.UI.Abstractions
                 case InputKey.P:
                     PostSignal(new PlateSolveSignal());
                     return true;
+                case InputKey.E:
+                    // AI enhance — only where a SharpenPipeline is wired (the button is hidden otherwise).
+                    if (EnhanceAvailable)
+                    {
+                        PostSignal(new EnhanceImageSignal());
+                    }
+                    return true;
                 case InputKey.F:
                     ViewerActions.ZoomToFit(state);
                     return true;
