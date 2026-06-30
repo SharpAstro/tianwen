@@ -7,6 +7,7 @@ using Microsoft.Extensions.Logging;
 using TianWen.Lib.Astrometry;
 using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Imaging;
+using TianWen.Lib.Imaging.Enhancement;
 using TianWen.Lib.Imaging.Stacking;
 using TianWen.UI.Abstractions;
 
@@ -132,6 +133,28 @@ internal sealed class StackSubCommand(
         {
             Description = "Also emit edit-ready, dual-stretched per-plate TIFFs (master_*_stars.tif + master_*_starless.tif) from the SAME enhance pass -- no second AI run. The stars-only and starless plates produced internally by the BlurX-first enhance are stretched (StarStretch / MTF + reduce-bg + compress-highlights, fixed defaults) and written as sRGB-ICC float TIFFs, cropped to the autocrop AABB, for layering in Photoshop / Affinity (Screen-blend stars over starless). Implies --enhance.",
         };
+        // RC-Astro vs SAS backend control + per-product strength overrides (Phase 3a),
+        // mirrored from `image sharpen` so `stack --enhance` honours the same knobs.
+        var aiBackendOpt = new Option<string>("--ai-backend")
+        {
+            Description = "AI enhancer backend for the RC-servable roles (star removal / deblur / deconvolution / denoise): 'auto' (RC-Astro when present + licensed, else SAS ONNX -- default), 'rc' (force RC-Astro whenever the CLI is installed, skipping the license probe), or 'sas' (force SAS ONNX even when RC-Astro is licensed). No effect on stellar-sharpen / gradient-correction (SAS-only). Implies --enhance unless 'auto'.",
+            DefaultValueFactory = _ => "auto",
+        };
+        var bxtSharpenOpt = new Option<double>("--bxt-sharpen")
+        {
+            Description = "RC-Astro BlurXTerminator non-stellar sharpen (bxt --sn) in [0, 1], applied to the full-image deblur and the starless deconvolution. < 0 (default) = the enhancer's own default (0.90). Only affects the RC-Astro backend. Implies --enhance.",
+            DefaultValueFactory = _ => -1.0,
+        };
+        var nxtDenoiseOpt = new Option<double>("--nxt-denoise")
+        {
+            Description = "RC-Astro NoiseXTerminator strength (nxt --dn) in [0, 1]. < 0 (default) = noise-adaptive auto. Only affects the RC-Astro backend. Implies --enhance.",
+            DefaultValueFactory = _ => -1.0,
+        };
+        var nxtIterationsOpt = new Option<int>("--nxt-iterations")
+        {
+            Description = "RC-Astro NoiseXTerminator iterations (nxt --it). < 1 (default) = the enhancer's own default (2). Only affects the RC-Astro backend. Implies --enhance.",
+            DefaultValueFactory = _ => 0,
+        };
 
         var stackCommand = new Command("stack", "Stack a folder of FITS lights into a master frame.")
         {
@@ -147,6 +170,7 @@ internal sealed class StackSubCommand(
                 qualityRejectSigmaOpt, referenceFrameHintOpt,
                 noBayerDrizzleOpt, includeIntegrationsOpt,
                 enhanceOpt, enhanceBlendOpt, splitPlatesOpt,
+                aiBackendOpt, bxtSharpenOpt, nxtDenoiseOpt, nxtIterationsOpt,
             },
         };
         stackCommand.SetAction(async (parseResult, ct) =>
@@ -190,7 +214,38 @@ internal sealed class StackSubCommand(
             // --split-plates needs the enhance pass to produce the stars/starless
             // plates, so it implies --enhance just like a sub-1 blend does.
             var splitPlatesArg = parseResult.GetValue(splitPlatesOpt);
-            var enhanceArg = parseResult.GetValue(enhanceOpt) || enhanceBlendArg < 1.0f || splitPlatesArg;
+
+            // RC-Astro / SAS backend + per-product tuning (mirrors `image sharpen`):
+            // a non-default backend or any tuning override is built into the immutable
+            // EnhanceOptions threaded to SharpenPipeline. Like a sub-1 blend, these also
+            // imply --enhance (a backend/tuning flag without --enhance would otherwise be
+            // silently ignored).
+            var backendStr = (parseResult.GetValue(aiBackendOpt) ?? "auto").ToLowerInvariant();
+            EnhanceBackend backend = backendStr switch
+            {
+                "auto" => EnhanceBackend.Auto,
+                "rc" or "rcastro" or "rc-astro" => EnhanceBackend.ForceRcAstro,
+                "sas" => EnhanceBackend.ForceSas,
+                _ => (EnhanceBackend)(-1),
+            };
+            if ((int)backend < 0)
+            {
+                consoleHost.WriteError($"--ai-backend must be 'auto', 'rc', or 'sas', got '{backendStr}'");
+                return 1;
+            }
+            var bxtSharpen = parseResult.GetValue(bxtSharpenOpt);
+            var nxtDenoise = parseResult.GetValue(nxtDenoiseOpt);
+            var nxtIterations = parseResult.GetValue(nxtIterationsOpt);
+            EnhanceTuning? tuning = bxtSharpen >= 0 || nxtDenoise >= 0 || nxtIterations >= 1
+                ? new EnhanceTuning(
+                    DeblurSharpen: bxtSharpen >= 0 ? (float)bxtSharpen : null,
+                    DenoiseStrength: nxtDenoise >= 0 ? (float)nxtDenoise : null,
+                    DenoiseIterations: nxtIterations >= 1 ? nxtIterations : null)
+                : null;
+            var enhanceOptions = new EnhanceOptions(backend, tuning);
+
+            var enhanceArg = parseResult.GetValue(enhanceOpt) || enhanceBlendArg < 1.0f || splitPlatesArg
+                || backend != EnhanceBackend.Auto || tuning is not null;
             var options = new StackingOptions(
                 DataRoot: dataRoot,
                 OutputDir: outputDir,
@@ -212,6 +267,7 @@ internal sealed class StackSubCommand(
                 Enhance: enhanceArg,
                 EnhanceBlend: enhanceBlendArg,
                 SplitPlates: splitPlatesArg,
+                EnhanceOptions: enhanceOptions,
                 // The pipeline (MasterPostProcessor) renders the preview PNG now, so
                 // the PNG + split-plate TIFFs share one WB + bg-neut solve. Only the
                 // Png output format wants the PNG; Exr/None suppress it.
@@ -226,6 +282,21 @@ internal sealed class StackSubCommand(
             {
                 consoleHost.WriteError("--output-format jxr is not a stacking master format (JXR is for stretched/processed output via the 'image' command). Use 'exr' for the unstretched HDR master, or 'png' / 'none'.");
                 return 1;
+            }
+
+            // Echo the resolved enhance configuration once so the chosen backend /
+            // blend / tuning is captured in the run log (the actual RC-vs-SAS pick
+            // is deferred to first EnhanceAsync; this prints the requested intent).
+            if (options.Enhance)
+            {
+                var tuneSummary = tuning is null
+                    ? "defaults"
+                    : $"bxt-sn={tuning.DeblurSharpen?.ToString("0.00") ?? "def"} " +
+                      $"nxt-dn={tuning.DenoiseStrength?.ToString("0.00") ?? "auto"} " +
+                      $"nxt-it={tuning.DenoiseIterations?.ToString() ?? "def"}";
+                consoleHost.WriteScrollable(
+                    $"[stack] enhance: backend={backend} blend={enhanceBlendArg:0.00} " +
+                    $"split-plates={(splitPlatesArg ? "on" : "off")} tuning={tuneSummary}");
             }
 
             // Forward in-flight pipeline progress to the console. Per-group

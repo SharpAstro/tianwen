@@ -59,6 +59,7 @@ internal sealed class MasterPostProcessor(ILogger logger, ICelestialObjectDB? ca
         bool enhance,
         float enhanceBlend,
         bool splitPlates,
+        EnhanceOptions enhanceOptions,
         bool renderPreviewPng,
         CancellationToken ct)
     {
@@ -238,7 +239,7 @@ internal sealed class MasterPostProcessor(ILogger logger, ICelestialObjectDB? ca
         {
             spcc = await EnhanceAndWriteAsync(
                 result, masterPath, solvedWcs, croppedWcs, strategy,
-                croppedResult, autocropRect, enhanceBlend, splitPlates,
+                croppedResult, autocropRect, enhanceBlend, splitPlates, enhanceOptions,
                 refMeta, renderer, renderPreviewPng, ct);
         }
         else if (enhance && sharpenPipeline is null)
@@ -352,6 +353,7 @@ internal sealed class MasterPostProcessor(ILogger logger, ICelestialObjectDB? ca
         Rectangle autocropRect,
         float enhanceBlend,
         bool splitPlates,
+        EnhanceOptions enhanceOptions,
         ImageMeta refMeta,
         MasterPreviewRenderer? renderer,
         bool renderPreviewPng,
@@ -407,7 +409,7 @@ internal sealed class MasterPostProcessor(ILogger logger, ICelestialObjectDB? ca
             // feeds the per-plate TIFF export; otherwise discard intermediates.
             var request = new SharpenRequest(master.Master, steps,
                 KeepIntermediates: splitPlates ? SharpenIntermediates.StarsAndStarlessLineage : SharpenIntermediates.None);
-            var sharpenResult = await sharpenPipeline.ProcessAsync(request, ct);
+            var sharpenResult = await sharpenPipeline.ProcessAsync(request, enhanceOptions, cancellationToken: ct);
             if (sharpenResult.Final is not { } enhancedMaster)
             {
                 logger.LogWarning("  [enhance] SharpenPipeline returned no Final image; skipping write");
