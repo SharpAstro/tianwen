@@ -511,7 +511,9 @@ free fallback tier; `IStellarSharpener` / `IGradientCorrector` stay SAS (no RC e
 `docs/plans/rc-astro-enhancers.md`.
 
 **CLI flags + viewer Enhance action.** `image sharpen` and `stack --enhance` both take
-`--ai-backend auto|rc|sas`, `--bxt-sharpen`, `--nxt-denoise`, `--nxt-iterations`, threaded as an
+`--ai-backend auto|rc|sas`, `--bxt-sharpen`, `--nxt-denoise`, `--nxt-iterations`, parsed by the
+shared **`EnhanceOptions.TryParse`** (the single source of truth for the `auto`/`rc`/`sas` + tuning
+mapping -- also used by the server endpoint below; never re-inline the switch) and threaded as an
 immutable `EnhanceOptions` (backend + `EnhanceTuning`) through `SharpenPipeline.ProcessAsync` to
 each enhancer -- **no mutable settings singleton** (parallel enhances can't tear). The same
 overload reports per-step `EnhanceProgress` (boundary tick + RC-Astro NDJSON sub-step %, relayed
@@ -523,6 +525,21 @@ the GPU the AI work uses). Left-click runs, right-click cycles the backend (show
 label). The button is presence-gated by the renderer's `EnhanceAvailable` (hidden where no
 `SharpenPipeline` is wired), so `tianwen-fits` registers `AddRcAstroAi()`; the GUI has no
 document-viewer tab so it carries no enhance UI yet.
+
+**Server enhance endpoint (`tianwen-server`).** `TianWen.Server` calls `AddRcAstroAi()` (registers
+`SharpenPipeline`; the RC-vs-SAS probe stays deferred, so startup spawns no `rc-astro`). The
+single-flight `HostedImageEnhancer` (an `Interlocked` gate) runs `ProcessAsync` on a background task
+tied to **`ApplicationStopping`, not the request** (so it outlives the POST and dies only on
+shutdown), with a **synchronous** `IProgress` relay that swaps an immutable `EnhanceStatusDto`
+snapshot atomically (lock-free read; `Progress<T>` would post out-of-order and could clobber the
+terminal status). `POST /api/v1/image/enhance` (path-in/path-out via `EnhanceRequestDto`, mirroring
+`image sharpen` rather than uploading pixels) returns `Enhance started` / `409 already running` /
+`404` / parse-error; `GET /api/v1/image/enhance/status` returns the concrete `EnhanceStatusDto`;
+`ENHANCE-PROGRESS` + `ENHANCE-COMPLETED` push through `EventBroadcaster` -> `EventHub` on the same
+`WebSocketEventDto` + `Dictionary<string,object?>` path as the session events. AOT: the three DTOs
+(`EnhanceRequestDto`, `EnhanceStatusDto`, `ResponseEnvelope<EnhanceStatusDto>`) are registered in
+`HostingJsonContext` -- verify by **publishing** `win-arm64` + smoke-testing the binary (body
+binding + the concrete status DTO are the AOT-fragile parts), not just building.
 
 ### Planetary Lucky-Imaging Stack (`TianWen.Lib.Imaging.Planetary`)
 

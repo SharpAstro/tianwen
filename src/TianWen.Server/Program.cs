@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using TianWen.AI.Imaging.RcAstro;
 using TianWen.Lib.Extensions;
 using TianWen.Hosting.Extensions;
 using TianWen.Lib.Logging;
@@ -36,6 +37,9 @@ builder.Services
     .AddOpenWeatherMap()
     .AddDevices()
     .AddSessionFactory()
+    // RC-Astro (preferred when present + licensed) + SAS ONNX fallback for the enhance endpoint.
+    // Registers SharpenPipeline; the RC-vs-SAS probe is deferred to first use, so this is cheap.
+    .AddRcAstroAi()
     .AddHostedSession();
 
 builder.Logging.SetMinimumLevel(Debugger.IsAttached ? LogLevel.Debug : LogLevel.Information);

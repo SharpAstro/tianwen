@@ -24,6 +24,10 @@ public static class HostedSessionServiceCollectionExtensions
         services.AddSingleton<HostedSession>();
         services.AddSingleton<IHostedSession>(sp => sp.GetRequiredService<HostedSession>());
         services.AddSingleton<EventHub>();
+        // Single-flight server-side AI enhancer behind POST /api/v1/image/enhance. Constructing it
+        // (and the SharpenPipeline it depends on) spawns no rc-astro process -- the RC-vs-SAS choice
+        // is deferred to the first EnhanceAsync (DeferredEnhancer), so this is cheap at startup.
+        services.AddSingleton<HostedImageEnhancer>();
         services.AddHostedService<EventBroadcaster>();
 
         // Register the source-gen JSON contexts with the HTTP JSON options so minimal-API
@@ -56,6 +60,7 @@ public static class HostedSessionServiceCollectionExtensions
         app.MapMountApi();
         app.MapGuiderApi();
         app.MapDeviceApi();
+        app.MapImageApi();
         app.MapWebSocketEndpoint();
 
         // ninaAPI v2 compatibility shim for Touch N Stars
