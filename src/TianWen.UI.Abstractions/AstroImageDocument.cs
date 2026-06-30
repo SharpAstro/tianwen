@@ -328,12 +328,7 @@ public sealed class AstroImageDocument : IPreviewSource
         }
 
         var channelCount = processedRawImage.ChannelCount;
-        var perChannelStats = new ChannelStretchStats[channelCount];
-        for (var c = 0; c < channelCount; c++)
-        {
-            var (ped, med, mad) = processedRawImage.GetPedestralMedianAndMADScaledToUnit(c);
-            perChannelStats[c] = new ChannelStretchStats(ped, med, mad);
-        }
+        var perChannelStats = StretchSolver.CollectPerChannelStats(processedRawImage, channelCount);
 
         ChannelStretchStats? lumaStats = null;
         if (channelCount >= 3)
@@ -392,14 +387,7 @@ public sealed class AstroImageDocument : IPreviewSource
     /// falls back to Rec.709 if the database is not loaded or the sensor name cannot be matched.
     /// </summary>
     public (float R, float G, float B) ResolveLumaWeights(LumaWeighting weighting)
-    {
-        if (weighting is LumaWeighting.SensorMatched
-            && FilterCurveDatabase.TryComputeSensorLumaWeights(UnstretchedImage.ImageMeta, out var sensorW))
-        {
-            return sensorW;
-        }
-        return weighting.Weights;
-    }
+        => StretchSolver.ResolveLumaWeights(weighting, UnstretchedImage.ImageMeta);
 
     /// <summary>
     /// Computes stretch shader uniforms for the current stretch mode and parameters.
@@ -440,7 +428,7 @@ public sealed class AstroImageDocument : IPreviewSource
         // visible colour shift. A neutral/null manual triple leaves shaderWb == autoWb, so the existing
         // auto-only numeric path is bit-identical.
         var autoWb = ColorCalibration;
-        var shaderWb = ComposeWhiteBalance(autoWb, manualWhiteBalance);
+        var shaderWb = StretchSolver.ComposeWhiteBalance(autoWb, manualWhiteBalance);
 
         if (UseIterativeConvergence && StarMaskedStats is { } masked)
         {
@@ -500,23 +488,6 @@ public sealed class AstroImageDocument : IPreviewSource
             uniforms = uniforms with { NormalizeScale = scale };
         }
         return uniforms;
-    }
-
-    /// <summary>
-    /// Composes a manual WB triple on top of an auto color-calibration WB by component-wise multiply.
-    /// A neutral (1,1,1) or null <paramref name="manual"/> returns <paramref name="auto"/> verbatim (so the
-    /// auto-only numeric path is bit-identical); a null <paramref name="auto"/> with a non-neutral manual
-    /// returns the manual triple alone.
-    /// </summary>
-    internal static (float R, float G, float B)? ComposeWhiteBalance(
-        (float R, float G, float B)? auto, (float R, float G, float B)? manual)
-    {
-        if (manual is not { } m || (m.R == 1f && m.G == 1f && m.B == 1f))
-        {
-            return auto;
-        }
-        var a = auto ?? (R: 1f, G: 1f, B: 1f);
-        return (a.R * m.R, a.G * m.G, a.B * m.B);
     }
 
     /// <summary>

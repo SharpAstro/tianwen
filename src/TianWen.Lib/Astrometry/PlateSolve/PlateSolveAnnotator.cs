@@ -4,11 +4,10 @@ using System.Threading;
 using System.Threading.Tasks;
 using DIR.Lib;
 using SharpAstro.Png;
-using TianWen.Lib.Astrometry;
 using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Imaging;
 
-namespace TianWen.UI.Abstractions;
+namespace TianWen.Lib.Astrometry.PlateSolve;
 
 /// <summary>
 /// Renders a plate-solve verification overlay: a stretched master in greyscale-ish
@@ -19,7 +18,7 @@ namespace TianWen.UI.Abstractions;
 /// in one direction, it's a global offset; if they bias toward one half of
 /// the image, it's a lens decentre or stacking registration residual.
 /// <para>
-/// Stretch reuses the same <see cref="AstroImageDocument.ComputeStretchUniforms"/>
+/// Stretch reuses the same <see cref="StretchSolver.ComputeStretchUniforms"/>
 /// + <see cref="Image.RenderStretchedRgba"/> path the PNG previews use, so what
 /// the annotator paints on is byte-identical to <c>master.png</c>.
 /// </para>
@@ -71,7 +70,7 @@ public static class PlateSolveAnnotator
             var (ped, med, mad) = image.GetPedestralMedianAndMADScaledToUnit(c);
             perChannelStats[c] = new ChannelStretchStats(ped, med, mad);
         }
-        var uniforms = AstroImageDocument.ComputeStretchUniforms(
+        var uniforms = StretchSolver.ComputeStretchUniforms(
             StretchMode.Unlinked,
             StretchParameters.Default,
             perChannelStats,

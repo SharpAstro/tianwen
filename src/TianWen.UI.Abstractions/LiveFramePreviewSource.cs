@@ -23,7 +23,7 @@ namespace TianWen.UI.Abstractions
     /// </list>
     /// Channel data is normalised to <c>[0, 1]</c> at accept time (so every stretch mode -- including the
     /// linear <see cref="StretchMode.None"/> path -- displays correctly), and <see cref="ComputeStretchUniforms"/>
-    /// delegates to the shared static <see cref="AstroImageDocument.ComputeStretchUniforms(StretchMode, StretchParameters, ChannelStretchStats[], ChannelStretchStats?, float, ValueTuple{float, float, float}?, ValueTuple{float, float, float}?, ValueTuple{float, float, float}?)"/>
+    /// delegates to the shared <see cref="StretchSolver.ComputeStretchUniforms(StretchMode, StretchParameters, ChannelStretchStats[], ChannelStretchStats?, float, ValueTuple{float, float, float}?, ValueTuple{float, float, float}?, ValueTuple{float, float, float}?)"/>
     /// producer so the stretch math is identical to the document/SER path. There is no document, so still-only
     /// features (plate solve / stars / colour cal / info-panel metadata) are inactive for a live source.
     /// </summary>
@@ -130,8 +130,8 @@ namespace TianWen.UI.Abstractions
             // HDR/background-neutralization are document features with no live-raw analogue, so they are not
             // applied here. The static producer is the single source of the stretch math (shared with the
             // document + SER paths).
-            var shaderWb = AstroImageDocument.ComposeWhiteBalance(null, manualWhiteBalance);
-            return AstroImageDocument.ComputeStretchUniforms(
+            var shaderWb = StretchSolver.ComposeWhiteBalance(null, manualWhiteBalance);
+            return StretchSolver.ComputeStretchUniforms(
                 mode, parameters, _stats, lumaStats: null, imageMaxValue: 1f,
                 whiteBalance: null, lumaWeights: null, shaderWhiteBalance: shaderWb);
         }

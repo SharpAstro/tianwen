@@ -408,26 +408,19 @@ public sealed class MasterPreviewRenderer(ICelestialObjectDB? catalogDb, ILogger
         // ------------------------------------------------------------
         // Bg-neut gains. The shader applies bg-neut BEFORE WB:
         //   out = (raw * bn + (1 - bn)) * wb
-        // For the post-shader bg to be neutral across channels we need
-        //   (bg_X * bn_X + (1 - bn_X)) * wb_X = K
-        // Solving for MinPivot (K = min over X of bg_X * wb_X):
-        //   bn_X = (K / wb_X - 1) / (bg_X - 1)
+        // The post-WB MinPivot solve lives in BackgroundNeutralization.ComputeGains
+        // (one home for the pivot1 math); passing the WB makes the background neutral
+        // AFTER the shader's per-channel WB multiply.
         // ------------------------------------------------------------
         (float R, float G, float B)? bgGains = null;
         if (perChannelBg is { Length: >= 3 } bg)
         {
             var wb = wbGains ?? (1f, 1f, 1f);
-            var bgRWb = bg[0] * wb.R;
-            var bgGWb = bg[1] * wb.G;
-            var bgBWb = bg[2] * wb.B;
-            var pivot = MathF.Min(bgRWb, MathF.Min(bgGWb, bgBWb));
-            float Solve(float bgX, float wbX) =>
-                MathF.Abs(bgX - 1f) < 1e-6f ? 1f
-                    : Math.Clamp((pivot / wbX - 1f) / (bgX - 1f), 0f, 10f);
-            var bn = (Solve(bg[0], wb.R), Solve(bg[1], wb.G), Solve(bg[2], wb.B));
-            bgGains = bn;
+            var gains = BackgroundNeutralization.ComputeGains(bg, BackgroundNeutralizationMethod.MinPivot, wb);
+            bgGains = gains;
+            var pivot = MathF.Min(bg[0] * wb.R, MathF.Min(bg[1] * wb.G, bg[2] * wb.B));
             logger.LogInformation("  [bgNeut/MinPivot-postWB] target={Target:F4} gains=({R:F3}, {G:F3}, {B:F3})",
-                pivot, bn.Item1, bn.Item2, bn.Item3);
+                pivot, gains.R, gains.G, gains.B);
         }
 
         // ------------------------------------------------------------
@@ -437,20 +430,21 @@ public sealed class MasterPreviewRenderer(ICelestialObjectDB? catalogDb, ILogger
         // short-circuits to a single-channel stretch.
         // ------------------------------------------------------------
         var channelCount = renderImage.ChannelCount;
+        var baseStats = StretchSolver.CollectPerChannelStats(stats, channelCount);
         var perChannelStats = new ChannelStretchStats[channelCount];
         Span<float> bgPerCh = stackalloc float[3];
         if (bgGains is { } gIn) { bgPerCh[0] = gIn.R; bgPerCh[1] = gIn.G; bgPerCh[2] = gIn.B; }
         else { bgPerCh[0] = bgPerCh[1] = bgPerCh[2] = 1f; }
         for (var c = 0; c < channelCount; c++)
         {
-            var (ped, med, mad) = stats.GetPedestralMedianAndMADScaledToUnit(c);
+            var s = baseStats[c];
             // Pre-adjust into post-bg-neut coordinate space so the
             // shadow lands where the shader sees the pixel after
             // norm = norm * bn + (1 - bn).
             var bn = c < 3 ? bgPerCh[c] : 1f;
-            var adjMed = med * bn + (1f - bn);
-            var adjMad = mad * MathF.Abs(bn);
-            perChannelStats[c] = new ChannelStretchStats(ped, adjMed, adjMad);
+            var adjMed = s.Median * bn + (1f - bn);
+            var adjMad = s.Mad * MathF.Abs(bn);
+            perChannelStats[c] = new ChannelStretchStats(s.Pedestal, adjMed, adjMad);
         }
         var uniforms = StretchSolver.ComputeStretchUniforms(
             StretchMode.Unlinked,

@@ -187,4 +187,56 @@ public static class StretchSolver
 
         return (Math.Clamp(medG / medR, 0.5f, 2f), 1f, Math.Clamp(medG / medB, 0.5f, 2f));
     }
+
+    /// <summary>
+    /// Composes a manual WB triple on top of an auto colour-calibration WB by component-wise
+    /// multiply. A neutral (1,1,1) or null <paramref name="manual"/> returns <paramref name="auto"/>
+    /// verbatim (so the auto-only numeric path is bit-identical); a null <paramref name="auto"/>
+    /// with a non-neutral manual returns the manual triple alone. Pure -- shared by the viewer
+    /// document, the live-frame preview, and any in-pipeline render that layers manual over auto WB.
+    /// </summary>
+    public static (float R, float G, float B)? ComposeWhiteBalance(
+        (float R, float G, float B)? auto, (float R, float G, float B)? manual)
+    {
+        if (manual is not { } m || (m.R == 1f && m.G == 1f && m.B == 1f))
+        {
+            return auto;
+        }
+        var a = auto ?? (R: 1f, G: 1f, B: 1f);
+        return (a.R * m.R, a.G * m.G, a.B * m.B);
+    }
+
+    /// <summary>
+    /// Resolves a <see cref="LumaWeighting"/> profile to the concrete (R,G,B) triple stored in
+    /// <see cref="StretchUniforms.LumaWeights"/>. For <see cref="LumaWeighting.SensorMatched"/>
+    /// queries <see cref="FilterCurveDatabase"/> for the sensor's broadband response (keyed on
+    /// <paramref name="meta"/>); falls back to Rec.709 if the database is not loaded or the sensor
+    /// name cannot be matched. Pure -- the viewer document forwards to this.
+    /// </summary>
+    public static (float R, float G, float B) ResolveLumaWeights(LumaWeighting weighting, ImageMeta meta)
+    {
+        if (weighting is LumaWeighting.SensorMatched
+            && FilterCurveDatabase.TryComputeSensorLumaWeights(meta, out var sensorW))
+        {
+            return sensorW;
+        }
+        return weighting.Weights;
+    }
+
+    /// <summary>
+    /// Collects the per-channel (pedestal, median, MAD) stretch stats for <paramref name="channelCount"/>
+    /// channels of <paramref name="image"/> via <see cref="Image.GetPedestralMedianAndMADScaledToUnit"/>.
+    /// The plain stat-scan loop shared by the viewer document and the in-pipeline preview renderer
+    /// (each then layers its own WB / bg-neut adjustment on top).
+    /// </summary>
+    public static ChannelStretchStats[] CollectPerChannelStats(Image image, int channelCount)
+    {
+        var perChannelStats = new ChannelStretchStats[channelCount];
+        for (var c = 0; c < channelCount; c++)
+        {
+            var (ped, med, mad) = image.GetPedestralMedianAndMADScaledToUnit(c);
+            perChannelStats[c] = new ChannelStretchStats(ped, med, mad);
+        }
+        return perChannelStats;
+    }
 }

@@ -226,7 +226,7 @@ internal sealed class SolveSubCommand(
                     // ~270 ms Tycho-2 bulk-decode if the solver hasn't already triggered it.
                     await catalogDb.InitDBAsync(waitForTycho2BulkLoad: true, ct);
                     var annotSearchArcsec = parseResult.GetValue(annotateSearchRadiusOpt);
-                    await TianWen.UI.Abstractions.PlateSolveAnnotator.RenderAnnotatedAsync(
+                    await TianWen.Lib.Astrometry.PlateSolve.PlateSolveAnnotator.RenderAnnotatedAsync(
                         image, solvedWcs, stars, catalogDb, annotPath,
                         matchRadiusArcsec: 5f,
                         searchRadiusArcsec: annotSearchArcsec,
