@@ -14,6 +14,7 @@ public enum SessionPhase
     AutoFocus,
     CalibratingGuider,
     Observing,
+    Flats,
     Finalising,
     Complete,
     Failed,

@@ -401,6 +401,15 @@ internal partial record Session(
             SetPhase(SessionPhase.Observing);
             await ObservationLoopAsync(cancellationToken).ConfigureAwait(false);
 
+            // Optional end-of-session flat block. Runs on normal completion only (an abort/exception
+            // skips straight to Finalise), and BEFORE Finalise warms the cameras so the flats are taken
+            // at the imaging setpoint temperature.
+            if (Configuration.TakeFlatsOnSessionEnd)
+            {
+                SetPhase(SessionPhase.Flats);
+                await TakeFlatsAsync(cancellationToken).ConfigureAwait(false);
+            }
+
             SetPhase(SessionPhase.Complete);
         }
         catch (OperationCanceledException)
