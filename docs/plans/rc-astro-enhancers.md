@@ -77,6 +77,11 @@ native params (the model is nonlinear in strength), not the pipeline's post-hoc
 
 `IStellarSharpener` and `IGradientCorrector` stay SAS (no CLI equivalent).
 
+**Deferred / nice-to-have:** the Phase 3d server endpoint is **single-flight** (one enhance at a
+time, no job id; the client polls the status singleton or subscribes to the WebSocket). A job-id +
+small-queue model (concurrency / history / targeted cancel) is captured separately in
+[server-enhance-job-model.md](server-enhance-job-model.md) -- build only when a client needs it.
+
 ## Phase 3 design -- threaded options + progress (no mutable singleton)
 
 The enhancer interface is param-less (`EnhanceAsync(Image, ct)`) and the enhancers are
