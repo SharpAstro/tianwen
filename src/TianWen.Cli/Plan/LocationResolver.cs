@@ -1,6 +1,5 @@
 using TianWen.Lib.Astrometry.SOFA;
 using TianWen.Lib.Devices;
-using TianWen.UI.Abstractions;
 
 namespace TianWen.Cli.Plan;
 

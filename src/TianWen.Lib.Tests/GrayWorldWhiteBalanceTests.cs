@@ -1,15 +1,15 @@
 using Shouldly;
-using TianWen.UI.Abstractions;
+using TianWen.Lib.Imaging;
 using Xunit;
 
 namespace TianWen.Lib.Tests;
 
 /// <summary>
-/// Unit tests for <see cref="AutoWhiteBalance"/> gray-world: it must equalise the channel means of the
+/// Unit tests for <see cref="GrayWorldWhiteBalance"/> gray-world: it must equalise the channel means of the
 /// illuminated pixels, normalise so the dimmest channel stays at 1.0 (only attenuate, never amplify), and
 /// sample a Bayer mosaic at its CFA sites.
 /// </summary>
-public class AutoWhiteBalanceTests
+public class GrayWorldWhiteBalanceTests
 {
     private const double Tol = 1e-4;
 
@@ -22,7 +22,7 @@ public class AutoWhiteBalanceTests
         var b = new float[64];
         for (var i = 0; i < 64; i++) { r[i] = 0.8f; g[i] = 0.4f; b[i] = 0.4f; }
 
-        var wb = AutoWhiteBalance.GrayWorldRgb(r, g, b);
+        var wb = GrayWorldWhiteBalance.GrayWorldRgb(r, g, b);
 
         wb.HasValue.ShouldBeTrue();
         var (mr, mg, mb) = wb!.Value;
@@ -39,7 +39,7 @@ public class AutoWhiteBalanceTests
         var b = new float[16];
         for (var i = 0; i < 16; i++) { r[i] = 0.6f; g[i] = 0.6f; b[i] = 0.6f; }
 
-        var wb = AutoWhiteBalance.GrayWorldRgb(r, g, b);
+        var wb = GrayWorldWhiteBalance.GrayWorldRgb(r, g, b);
 
         wb.HasValue.ShouldBeTrue();
         var (mr, mg, mb) = wb!.Value;
@@ -60,7 +60,7 @@ public class AutoWhiteBalanceTests
         for (var i = 0; i < 100; i++) { r[i] = 0.01f; g[i] = 0.01f; b[i] = 0.01f; } // sky
         for (var i = 0; i < 10; i++) { r[i] = 1.0f; g[i] = 0.5f; b[i] = 0.5f; }       // planet (R 2x G/B)
 
-        var wb = AutoWhiteBalance.GrayWorldRgb(r, g, b);
+        var wb = GrayWorldWhiteBalance.GrayWorldRgb(r, g, b);
 
         wb.HasValue.ShouldBeTrue();
         var (mr, mg, mb) = wb!.Value;
@@ -87,7 +87,7 @@ public class AutoWhiteBalanceTests
             }
         }
 
-        var wb = AutoWhiteBalance.GrayWorldBayer(mosaic, w, h, bayerOffsetX: 0, bayerOffsetY: 0);
+        var wb = GrayWorldWhiteBalance.GrayWorldBayer(mosaic, w, h, bayerOffsetX: 0, bayerOffsetY: 0);
 
         wb.HasValue.ShouldBeTrue();
         var (mr, mg, mb) = wb!.Value;
@@ -105,7 +105,7 @@ public class AutoWhiteBalanceTests
         var b = new float[16];
         for (var i = 0; i < 16; i++) { r[i] = 0.9f; g[i] = 0.7f; b[i] = 0.3f; }
 
-        var wb = AutoWhiteBalance.GrayWorldRgb(r, g, b);
+        var wb = GrayWorldWhiteBalance.GrayWorldRgb(r, g, b);
 
         wb.HasValue.ShouldBeTrue();
         var (mr, mg, mb) = wb!.Value;
@@ -118,14 +118,14 @@ public class AutoWhiteBalanceTests
     public void GrayWorldRgb_AllBlack_ReturnsNull()
     {
         var black = new float[16];
-        AutoWhiteBalance.GrayWorldRgb(black, black, black).HasValue.ShouldBeFalse();
+        GrayWorldWhiteBalance.GrayWorldRgb(black, black, black).HasValue.ShouldBeFalse();
     }
 
     [Fact]
     public void GrayWorldBayer_DimensionMismatch_ReturnsNull()
     {
         var mosaic = new float[10];
-        AutoWhiteBalance.GrayWorldBayer(mosaic, width: 4, height: 4, bayerOffsetX: 0, bayerOffsetY: 0)
+        GrayWorldWhiteBalance.GrayWorldBayer(mosaic, width: 4, height: 4, bayerOffsetX: 0, bayerOffsetY: 0)
             .HasValue.ShouldBeFalse();
     }
 }

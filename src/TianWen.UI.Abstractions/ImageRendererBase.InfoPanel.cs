@@ -19,11 +19,11 @@ namespace TianWen.UI.Abstractions
         // the source is monochrome (no WB sliders drawn).
         private readonly RectF32[] _wbTrackRects = new RectF32[3];
 
-        // White-balance slider range (canonical values live on AutoWhiteBalance so the slider extent and the
-        // auto-WB clamp stay in lock-step). Log-mapped so neutral (1.0) sits at the track midpoint and an
+        // White-balance slider range (canonical values live on GrayWorldWhiteBalance so the slider extent and
+        // the auto-WB clamp stay in lock-step). Log-mapped so neutral (1.0) sits at the track midpoint and an
         // equal gain/cut is symmetric (0.5x left edge <-> 2.0x right edge).
-        private const float WbMin = AutoWhiteBalance.MinMultiplier;
-        private const float WbMax = AutoWhiteBalance.MaxMultiplier;
+        private const float WbMin = GrayWorldWhiteBalance.MinMultiplier;
+        private const float WbMax = GrayWorldWhiteBalance.MaxMultiplier;
 
         // Wavelet-sharpen layer slider track rects (6 a-trous scales, finest first), captured in
         // RenderWaveletControls each frame; map a cursor-X <-> per-layer gain. Only drawn for the live
