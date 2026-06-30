@@ -8,6 +8,7 @@ using Microsoft.Extensions.Logging;
 using TianWen.Lib.Astrometry.PlateSolve;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Imaging;
+using TianWen.Lib.Imaging.Enhancement;
 
 namespace TianWen.UI.Abstractions;
 
@@ -27,6 +28,7 @@ public sealed class ViewerController(
     private Task? _loadTask;
     private Task? _backgroundTask;
     private Task? _starDetectionTask;
+    private Task<AstroImageDocument?>? _enhanceTask;
     private CancellationTokenSource? _starDetectionCts;
 
     // Per-load cancellation: a load in flight is cancelled when the user navigates to a different file,
@@ -53,6 +55,17 @@ public sealed class ViewerController(
     /// sequence). Still-only features (plate solve, star detection) operate on this.
     /// </summary>
     public AstroImageDocument? Document { get; private set; }
+
+    /// <summary>
+    /// The AI sharpen pipeline used by the Enhance action, or null when no AI services are wired
+    /// (e.g. a minimal viewer host). Set by the host after resolving it from DI. When null the
+    /// Enhance toolbar button is hidden (the renderer's <c>EnhanceAvailable</c> flag) and the
+    /// <see cref="ToolbarAction.Enhance"/> dispatch is a no-op.
+    /// </summary>
+    public SharpenPipeline? EnhancePipeline { get; set; }
+
+    /// <summary>True while an AI enhance pass is in flight; used by the render loop's redraw gate.</summary>
+    public bool IsEnhancePending => _enhanceTask is { IsCompleted: false };
 
     // The raw source: the document (still) or the SerPreviewSource (SER). Always the playback driver -- the
     // SequencePlayer advances THIS even while the stacked view is shown, so the playhead keeps moving and
@@ -338,7 +351,76 @@ public sealed class ViewerController(
                     _backgroundTask = ViewerActions.PlateSolveAsync(Document, state, plateSolverFactory, appToken);
                 }
                 break;
+
+            case ToolbarAction.Enhance:
+                if (reverse)
+                {
+                    // Right-click cycles the preferred backend (Auto -> RC -> SAS); no enhance is kicked.
+                    // The button label reflects the new pick.
+                    state.PreferredEnhanceBackend = state.PreferredEnhanceBackend switch
+                    {
+                        EnhanceBackend.Auto => EnhanceBackend.ForceRcAstro,
+                        EnhanceBackend.ForceRcAstro => EnhanceBackend.ForceSas,
+                        _ => EnhanceBackend.Auto,
+                    };
+                    state.StatusMessage = $"Enhance backend: {state.PreferredEnhanceBackend}";
+                    state.NeedsRedraw = true;
+                    break;
+                }
+                if (Document is { } enhanceDoc && EnhancePipeline is { } pipeline
+                    && !state.IsEnhancing && _enhanceTask is null)
+                {
+                    state.IsEnhancing = true;
+                    state.EnhanceProgressPct = 0f;
+                    state.StatusMessage = "Enhancing...";
+                    state.NeedsRedraw = true;
+                    // Snapshot the backend preference into immutable options per click (no global).
+                    var options = new EnhanceOptions(state.PreferredEnhanceBackend);
+                    var debayer = state.DebayerAlgorithm;
+                    // Off the render thread: ProcessAsync's sync prefix (sanitise + noise estimate) and the
+                    // AI work all run on the pool, so the render loop never hitches (important on integrated
+                    // GPUs where the AI work itself contends for the GPU -- we do NOT spin-render meanwhile).
+                    // The ContinueWith wakes the loop once on completion so TryApplyPendingEnhance applies it.
+                    _enhanceTask = Task.Run(
+                        () => EnhanceActions.EnhanceAsync(enhanceDoc, state, pipeline, options, debayer, appToken),
+                        appToken);
+                    _ = _enhanceTask.ContinueWith(_ => state.NeedsRedraw = true, TaskScheduler.Default);
+                }
+                break;
         }
+    }
+
+    /// <summary>
+    /// Applies a finished AI-enhance result on the render thread: swaps the displayed document for the
+    /// enhanced one (<see cref="ViewerState.NeedsTextureUpdate"/> triggers the GPU re-upload next frame)
+    /// and clears the in-progress flag. Poll every frame from OnRender, mirroring the SER-playback /
+    /// sky-map async-result hand-offs. No-op until the background enhance task completes; on cancel /
+    /// failure it just clears the flag -- <see cref="EnhanceActions"/> already wrote the reason to the
+    /// status line.
+    /// </summary>
+    public void TryApplyPendingEnhance()
+    {
+        if (_enhanceTask is not { IsCompleted: true } task)
+        {
+            return;
+        }
+        _enhanceTask = null;
+        state.IsEnhancing = false;
+
+        if (task.IsCompletedSuccessfully && task.Result is { } enhancedDoc)
+        {
+            Document = enhancedDoc;
+            _rawSource = enhancedDoc;
+            _liveSource = null;
+            state.IsSequence = false;
+            state.NeedsTextureUpdate = true;
+        }
+        else if (task.IsFaulted)
+        {
+            // EnhanceActions catches its own exceptions; a fault here is an unexpected escape.
+            state.StatusMessage = $"Enhance failed: {task.Exception?.GetBaseException().Message}";
+        }
+        state.NeedsRedraw = true;
     }
 
     /// <summary>
@@ -472,6 +554,10 @@ public sealed class ViewerController(
         if (_backgroundTask is not null)
         {
             try { await _backgroundTask; } catch (OperationCanceledException) { logger.LogDebug("Background task cancelled during shutdown"); }
+        }
+        if (_enhanceTask is not null)
+        {
+            try { await _enhanceTask; } catch (OperationCanceledException) { logger.LogDebug("Enhance task cancelled during shutdown"); }
         }
 
         _loadCts?.Dispose();

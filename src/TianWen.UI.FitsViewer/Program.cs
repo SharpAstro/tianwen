@@ -7,6 +7,8 @@ using TianWen.UI.Abstractions.Extensions;
 using TianWen.UI.FitsViewer;
 using TianWen.UI.Shared;
 using TianWen.Lib.Extensions;
+using TianWen.Lib.Imaging.Enhancement;
+using TianWen.AI.Imaging.RcAstro;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using static SDL3.SDL;
@@ -18,12 +20,17 @@ services
     .AddFitsViewer()
     .AddExternal()
     .AddAstrometry()
+    // RC-preferred AI enhancers (sxt/nxt/bxt when the rc-astro CLI is installed + licensed, else the
+    // SETI Astro ONNX baseline). Registers SharpenPipeline for the viewer's Enhance action.
+    .AddRcAstroAi()
     .AddSingleton<ViewerController>();
 
 var sp = services.BuildServiceProvider();
 var state = sp.GetRequiredService<ViewerState>();
 var logger = sp.GetRequiredService<ILoggerFactory>().CreateLogger("TianWen.UI.FitsViewer");
 var controller = sp.GetRequiredService<ViewerController>();
+// Wire the AI enhance pipeline so the Enhance toolbar button (+ 'E' shortcut) is active.
+controller.EnhancePipeline = sp.GetRequiredService<SharpenPipeline>();
 
 // --- Command-line definition ---
 var pathArg = new Argument<string?>("path")
@@ -155,7 +162,9 @@ var imageRenderer = new VkImageRenderer(renderer, (uint)pixW, (uint)pixH)
 {
     Bus = bus,
     DpiScale = sdlWindow.DisplayScale,
-    CelestialObjectDB = celestialObjectDB
+    CelestialObjectDB = celestialObjectDB,
+    // SharpenPipeline is registered (AddRcAstroAi above), so surface the Enhance toolbar button.
+    EnhanceAvailable = true
 };
 
 // Kick off DB init eagerly so it's ready when user toggles overlays
@@ -209,6 +218,10 @@ var loop = new SdlEventLoop(sdlWindow, renderer)
     {
         controller.HandleFileRequest(cts.Token);
 
+        // Apply a finished AI-enhance result (swaps in the enhanced document + flags a texture
+        // re-upload). No-op until the background enhance task completes.
+        controller.TryApplyPendingEnhance();
+
         if (state.NeedsReprocess)
         {
             ViewerActions.Reprocess(state);
@@ -252,6 +265,8 @@ bus.Subscribe<RequestExitSignal>(_ => loop.Stop());
 bus.Subscribe<ToggleFullscreenSignal>(_ => sdlWindow.ToggleFullscreen());
 bus.Subscribe<PlateSolveSignal>(_ =>
     controller.HandleToolbarAction(ToolbarAction.PlateSolve, reverse: false, cts.Token));
+bus.Subscribe<EnhanceImageSignal>(_ =>
+    controller.HandleToolbarAction(ToolbarAction.Enhance, reverse: false, cts.Token));
 
 // OnKeyDown wired separately — imageRenderer.HandleInput handles F11 via signal bus
 loop.OnKeyDown = (inputKey, inputModifier) =>

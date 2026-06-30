@@ -8,6 +8,7 @@ using TianWen.Lib.Astrometry;
 using TianWen.Lib.Astrometry.PlateSolve;
 using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Imaging;
+using TianWen.Lib.Imaging.Enhancement;
 using TianWen.UI.Abstractions.Overlays;
 
 namespace TianWen.UI.Abstractions
@@ -38,14 +39,28 @@ namespace TianWen.UI.Abstractions
             ("SPCC", ToolbarAction.SpccCalibrate, 4),
         ];
 
+        // The full set plus the AI "Enhance" button (group 4). A separate static array (not an
+        // append-per-frame) keeps the per-frame render + hit-test loops allocation-free. Selected by
+        // ToolbarButtons when the host sets EnhanceAvailable.
+        private static readonly ImmutableArray<(string Label, ToolbarAction Action, int Group)> DefaultToolbarButtonsWithEnhance =
+            DefaultToolbarButtons.Add(("Enhance", ToolbarAction.Enhance, 4));
+
         /// <summary>
-        /// The toolbar buttons this viewer surfaces, in order. The base (tianwen-fits) shows the full set; a
-        /// subclass embedding the viewer for a narrower job overrides this to a relevant subset, so buttons
-        /// that can never apply (e.g. plate solve / star detection / colour calibration on a featureless
-        /// planetary disk) are <b>hidden</b> rather than shown-but-disabled. The render + hit-test loops read
-        /// this property, so both stay in lock-step automatically.
+        /// Set by the host when an AI <see cref="TianWen.Lib.Imaging.Enhancement.SharpenPipeline"/> is wired
+        /// (e.g. tianwen-fits with AddRcAstroAi). When false the Enhance button is hidden entirely -- per the
+        /// "hide what can never apply" rule -- so a viewer with no AI services never shows a dead button.
         /// </summary>
-        protected virtual ImmutableArray<(string Label, ToolbarAction Action, int Group)> ToolbarButtons => DefaultToolbarButtons;
+        public bool EnhanceAvailable { get; set; }
+
+        /// <summary>
+        /// The toolbar buttons this viewer surfaces, in order. The base (tianwen-fits) shows the full set
+        /// (plus Enhance when <see cref="EnhanceAvailable"/>); a subclass embedding the viewer for a narrower
+        /// job overrides this to a relevant subset, so buttons that can never apply (e.g. plate solve / star
+        /// detection / colour calibration on a featureless planetary disk) are <b>hidden</b> rather than
+        /// shown-but-disabled. The render + hit-test loops read this property, so both stay in lock-step.
+        /// </summary>
+        protected virtual ImmutableArray<(string Label, ToolbarAction Action, int Group)> ToolbarButtons =>
+            EnhanceAvailable ? DefaultToolbarButtonsWithEnhance : DefaultToolbarButtons;
 
 
         // -----------------------------------------------------------------------
@@ -405,6 +420,9 @@ namespace TianWen.UI.Abstractions
                     || document.UnstretchedImage.ImageMeta.SensorType is SensorType.RGGB),
             ToolbarAction.PlateSolve => document is not null && !document.IsPlateSolved,
             ToolbarAction.ZoomFit or ToolbarAction.ZoomActual => document is not null,
+            // Only in the button set when EnhanceAvailable, so the gate here is just "have an image".
+            // Re-click while a pass runs is harmless -- the controller guards on IsEnhancing.
+            ToolbarAction.Enhance => document is not null,
             _ => true,
         };
 
@@ -429,6 +447,7 @@ namespace TianWen.UI.Abstractions
                 ToolbarAction.SpccCalibrate => state.ColorCalibrationEnabled,
                 ToolbarAction.ZoomFit => state.ZoomToFit,
                 ToolbarAction.ZoomActual => !state.ZoomToFit && MathF.Abs(state.Zoom - 1f) < 0.001f,
+                ToolbarAction.Enhance => state.IsEnhancing,
                 _ => false,
             };
         }
@@ -464,6 +483,14 @@ namespace TianWen.UI.Abstractions
                 ToolbarAction.SpccCalibrate when state.ColorCalibrationEnabled => $"SPCC: {document?.ColorCalibration?.R:F2}/{document?.ColorCalibration?.B:F2}",
                 ToolbarAction.PlateSolve when state.IsPlateSolving => "Solving...",
                 ToolbarAction.PlateSolve when document?.IsPlateSolved == true => "Solved",
+                ToolbarAction.Enhance when state.IsEnhancing => $"Enhancing {state.EnhanceProgressPct:F0}%",
+                // Show the selected backend (right-click cycles it); left-click runs the enhance.
+                ToolbarAction.Enhance => state.PreferredEnhanceBackend switch
+                {
+                    EnhanceBackend.ForceRcAstro => "Enhance (RC)",
+                    EnhanceBackend.ForceSas => "Enhance (SAS)",
+                    _ => "Enhance (Auto)",
+                },
                 _ => baseLabel,
             };
         }
