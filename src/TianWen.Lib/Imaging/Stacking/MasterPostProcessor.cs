@@ -35,7 +35,7 @@ internal readonly record struct MasterWriteResult(IntegrationResult Result, WCS?
 /// intersection rectangle and shifts the WCS CRPIX so the cropped FITS
 /// still maps to the same sky coordinates.
 /// </summary>
-internal sealed class MasterPostProcessor(ILogger logger, ICelestialObjectDB? catalogDb, SharpenPipeline? sharpenPipeline = null)
+internal sealed class MasterPostProcessor(ILogger logger, ICelestialObjectDB? catalogDb, SharpenPipeline? sharpenPipeline = null, IProgress<EnhanceProgress>? enhanceProgress = null)
 {
     /// <summary>
     /// Writes <paramref name="result"/>'s master FITS to <paramref name="masterPath"/>
@@ -409,7 +409,7 @@ internal sealed class MasterPostProcessor(ILogger logger, ICelestialObjectDB? ca
             // feeds the per-plate TIFF export; otherwise discard intermediates.
             var request = new SharpenRequest(master.Master, steps,
                 KeepIntermediates: splitPlates ? SharpenIntermediates.StarsAndStarlessLineage : SharpenIntermediates.None);
-            var sharpenResult = await sharpenPipeline.ProcessAsync(request, enhanceOptions, cancellationToken: ct);
+            var sharpenResult = await sharpenPipeline.ProcessAsync(request, enhanceOptions, enhanceProgress, ct);
             if (sharpenResult.Final is not { } enhancedMaster)
             {
                 logger.LogWarning("  [enhance] SharpenPipeline returned no Final image; skipping write");

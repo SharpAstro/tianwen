@@ -46,12 +46,16 @@ namespace TianWen.Lib.Imaging.Stacking;
 /// <param name="progress">Optional structured progress sink. The pipeline
 /// emits a tick per phase transition + once per integrated frame /
 /// strip via the strategy's own progress callback.</param>
+/// <param name="enhanceProgress">Optional per-step AI-enhance progress sink,
+/// forwarded to the SharpenPipeline during the <c>--enhance</c> pass so the long
+/// deblur / denoise steps aren't a silent terminal.</param>
 public sealed class StackingPipeline(
     StackingOptions options,
     ILogger logger,
     ICelestialObjectDB? catalogDb = null,
     IProgress<StackingProgress>? progress = null,
-    Enhancement.SharpenPipeline? sharpenPipeline = null)
+    Enhancement.SharpenPipeline? sharpenPipeline = null,
+    IProgress<Enhancement.EnhanceProgress>? enhanceProgress = null)
 {
     /// <summary>Ladder of quadTolerance values to try per frame, ascending.
     /// First-match wins. The lower rungs (0.008, 0.02, 0.05) are tuned for the
@@ -946,7 +950,7 @@ public sealed class StackingPipeline(
             : "";
         var masterPath = Path.Combine(outputDir, $"master_{slug}{strategySuffix}.fits");
         var refImageDim = referenceRaw.GetImageDim();
-        var postProcessor = new MasterPostProcessor(logger, catalogDb, options.Enhance ? sharpenPipeline : null);
+        var postProcessor = new MasterPostProcessor(logger, catalogDb, options.Enhance ? sharpenPipeline : null, enhanceProgress);
         var postResult = await postProcessor.WriteMasterAsync(
             intResult, masterPath, searchHint, refImageDim, referenceRaw.ImageMeta, statsRect, selection.Chosen.Kind,
             enhance: options.Enhance, enhanceBlend: options.EnhanceBlend, splitPlates: options.SplitPlates,
