@@ -22,6 +22,16 @@ internal static class ImageEndpoints
         // ENHANCE-COMPLETED WebSocket events or GET /api/v1/image/enhance/status.
         group.MapPost("/enhance", (EnhanceRequestDto request, HostedImageEnhancer enhancer, IHostApplicationLifetime lifetime) =>
         {
+            // Presence gate: AddRcAstroAi()/AddTianWenAi() registers the pipeline; a host without it
+            // (no AI models) can't enhance anything, so reject with 503 -- mirrors the viewer hiding
+            // its Enhance button when no pipeline is wired (renderer EnhanceAvailable).
+            if (!enhancer.IsAvailable)
+            {
+                return Results.Json(
+                    ResponseEnvelope<string>.Fail("AI enhance is not available on this server (no enhancement pipeline registered)", 503),
+                    HostingJsonContext.Default.ResponseEnvelopeString);
+            }
+
             if (string.IsNullOrWhiteSpace(request.InputPath))
             {
                 return Results.Json(
