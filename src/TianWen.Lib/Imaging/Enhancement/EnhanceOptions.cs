@@ -52,6 +52,51 @@ public sealed record EnhanceOptions(EnhanceBackend Backend = EnhanceBackend.Auto
 {
     /// <summary>Auto backend, no tuning overrides -- identical to the pre-option behaviour.</summary>
     public static readonly EnhanceOptions Default = new();
+
+    /// <summary>
+    /// Parses an immutable <see cref="EnhanceOptions"/> from a backend string and per-product
+    /// strength overrides. The single source of truth for the <c>auto</c>/<c>rc</c>/<c>sas</c>
+    /// mapping and the "null override =&gt; enhancer default" tuning gate, shared by the CLI
+    /// (<c>image sharpen</c>, <c>stack --enhance</c>) and the server enhance endpoint so they
+    /// never drift. Callers convert their own sentinels (e.g. the CLI's <c>-1</c> "unset") to a
+    /// <c>null</c> before calling.
+    /// </summary>
+    /// <param name="backend"><c>auto</c> (<c>null</c>/empty =&gt; auto), <c>rc</c>/<c>rcastro</c>/<c>rc-astro</c>,
+    /// or <c>sas</c> (case-insensitive). Anything else =&gt; <c>false</c> with <paramref name="error"/> set.</param>
+    /// <param name="deblurSharpen">RC <c>bxt --sn</c> override, or <c>null</c> for the enhancer default.</param>
+    /// <param name="denoiseStrength">RC <c>nxt --dn</c> override, or <c>null</c> for noise-adaptive auto.</param>
+    /// <param name="denoiseIterations">RC <c>nxt --it</c> override, or <c>null</c> for the enhancer default.</param>
+    /// <param name="options">The parsed options (<see cref="Default"/> when this returns <c>false</c>).</param>
+    /// <param name="error">A human-readable reason when this returns <c>false</c>; otherwise <c>null</c>.</param>
+    public static bool TryParse(
+        string? backend,
+        float? deblurSharpen,
+        float? denoiseStrength,
+        int? denoiseIterations,
+        out EnhanceOptions options,
+        out string? error)
+    {
+        error = null;
+        EnhanceBackend parsed;
+        switch ((backend ?? "auto").Trim().ToLowerInvariant())
+        {
+            case "" or "auto": parsed = EnhanceBackend.Auto; break;
+            case "rc" or "rcastro" or "rc-astro": parsed = EnhanceBackend.ForceRcAstro; break;
+            case "sas": parsed = EnhanceBackend.ForceSas; break;
+            default:
+                options = Default;
+                error = $"Unknown AI backend '{backend}' (expected 'auto', 'rc', or 'sas')";
+                return false;
+        }
+
+        // A null on every override means "use each enhancer's own default", which is exactly
+        // EnhanceTuning == null (no per-product steering) -- bit-identical to the pre-option path.
+        var tuning = deblurSharpen.HasValue || denoiseStrength.HasValue || denoiseIterations.HasValue
+            ? new EnhanceTuning(deblurSharpen, denoiseStrength, denoiseIterations)
+            : null;
+        options = new EnhanceOptions(parsed, tuning);
+        return true;
+    }
 }
 
 /// <summary>

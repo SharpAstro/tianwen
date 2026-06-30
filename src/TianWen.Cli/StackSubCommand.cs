@@ -220,32 +220,24 @@ internal sealed class StackSubCommand(
             // EnhanceOptions threaded to SharpenPipeline. Like a sub-1 blend, these also
             // imply --enhance (a backend/tuning flag without --enhance would otherwise be
             // silently ignored).
-            var backendStr = (parseResult.GetValue(aiBackendOpt) ?? "auto").ToLowerInvariant();
-            EnhanceBackend backend = backendStr switch
-            {
-                "auto" => EnhanceBackend.Auto,
-                "rc" or "rcastro" or "rc-astro" => EnhanceBackend.ForceRcAstro,
-                "sas" => EnhanceBackend.ForceSas,
-                _ => (EnhanceBackend)(-1),
-            };
-            if ((int)backend < 0)
-            {
-                consoleHost.WriteError($"--ai-backend must be 'auto', 'rc', or 'sas', got '{backendStr}'");
-                return 1;
-            }
             var bxtSharpen = parseResult.GetValue(bxtSharpenOpt);
             var nxtDenoise = parseResult.GetValue(nxtDenoiseOpt);
             var nxtIterations = parseResult.GetValue(nxtIterationsOpt);
-            EnhanceTuning? tuning = bxtSharpen >= 0 || nxtDenoise >= 0 || nxtIterations >= 1
-                ? new EnhanceTuning(
-                    DeblurSharpen: bxtSharpen >= 0 ? (float)bxtSharpen : null,
-                    DenoiseStrength: nxtDenoise >= 0 ? (float)nxtDenoise : null,
-                    DenoiseIterations: nxtIterations >= 1 ? nxtIterations : null)
-                : null;
-            var enhanceOptions = new EnhanceOptions(backend, tuning);
+            // Shared backend + tuning parse (see EnhanceOptions.TryParse) -- same source of truth
+            // as `image sharpen` and the server enhance endpoint. CLI sentinels (-1 / 0) map to null.
+            if (!EnhanceOptions.TryParse(
+                    parseResult.GetValue(aiBackendOpt),
+                    bxtSharpen >= 0 ? (float)bxtSharpen : null,
+                    nxtDenoise >= 0 ? (float)nxtDenoise : null,
+                    nxtIterations >= 1 ? nxtIterations : null,
+                    out var enhanceOptions, out var enhanceError))
+            {
+                consoleHost.WriteError(enhanceError!);
+                return 1;
+            }
 
             var enhanceArg = parseResult.GetValue(enhanceOpt) || enhanceBlendArg < 1.0f || splitPlatesArg
-                || backend != EnhanceBackend.Auto || tuning is not null;
+                || enhanceOptions.Backend != EnhanceBackend.Auto || enhanceOptions.Tuning is not null;
             var options = new StackingOptions(
                 DataRoot: dataRoot,
                 OutputDir: outputDir,
@@ -289,13 +281,14 @@ internal sealed class StackSubCommand(
             // is deferred to first EnhanceAsync; this prints the requested intent).
             if (options.Enhance)
             {
+                var tuning = enhanceOptions.Tuning;
                 var tuneSummary = tuning is null
                     ? "defaults"
                     : $"bxt-sn={tuning.DeblurSharpen?.ToString("0.00") ?? "def"} " +
                       $"nxt-dn={tuning.DenoiseStrength?.ToString("0.00") ?? "auto"} " +
                       $"nxt-it={tuning.DenoiseIterations?.ToString() ?? "def"}";
                 consoleHost.WriteScrollable(
-                    $"[stack] enhance: backend={backend} blend={enhanceBlendArg:0.00} " +
+                    $"[stack] enhance: backend={enhanceOptions.Backend} blend={enhanceBlendArg:0.00} " +
                     $"split-plates={(splitPlatesArg ? "on" : "off")} tuning={tuneSummary}");
             }
 

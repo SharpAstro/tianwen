@@ -398,29 +398,24 @@ internal sealed class ImageSubCommand(
                 return 1;
             }
 
-            var backendStr = (parseResult.GetValue(aiBackendOpt) ?? "auto").ToLowerInvariant();
-            EnhanceBackend backend = backendStr switch
-            {
-                "auto" => EnhanceBackend.Auto,
-                "rc" or "rcastro" or "rc-astro" => EnhanceBackend.ForceRcAstro,
-                "sas" => EnhanceBackend.ForceSas,
-                _ => (EnhanceBackend)(-1),
-            };
-            if ((int)backend < 0)
-            {
-                consoleHost.WriteError($"--ai-backend must be 'auto', 'rc', or 'sas', got '{backendStr}'");
-                return 1;
-            }
             var bxtSharpen = parseResult.GetValue(bxtSharpenOpt);
             var nxtDenoise = parseResult.GetValue(nxtDenoiseOpt);
             var nxtIterations = parseResult.GetValue(nxtIterationsOpt);
-            EnhanceTuning? tuning = bxtSharpen >= 0 || nxtDenoise >= 0 || nxtIterations >= 1
-                ? new EnhanceTuning(
-                    DeblurSharpen: bxtSharpen >= 0 ? (float)bxtSharpen : null,
-                    DenoiseStrength: nxtDenoise >= 0 ? (float)nxtDenoise : null,
-                    DenoiseIterations: nxtIterations >= 1 ? nxtIterations : null)
-                : null;
-            var enhanceOptions = new EnhanceOptions(backend, tuning);
+            // Backend + per-product tuning parse is shared with `stack --enhance` and the server
+            // enhance endpoint via EnhanceOptions.TryParse (single source of truth). CLI sentinels
+            // (-1 / 0 = "unset") map to a null override before the call.
+            if (!EnhanceOptions.TryParse(
+                    parseResult.GetValue(aiBackendOpt),
+                    bxtSharpen >= 0 ? (float)bxtSharpen : null,
+                    nxtDenoise >= 0 ? (float)nxtDenoise : null,
+                    nxtIterations >= 1 ? nxtIterations : null,
+                    out var enhanceOptions, out var enhanceError))
+            {
+                consoleHost.WriteError(enhanceError!);
+                return 1;
+            }
+            var backend = enhanceOptions.Backend;
+            var tuning = enhanceOptions.Tuning;
 
             var stellarOptIn = parseResult.GetValue(stellarSharpenOpt);
             var noDeconv = parseResult.GetValue(noDeconvOpt);

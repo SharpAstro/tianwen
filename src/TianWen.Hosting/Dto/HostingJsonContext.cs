@@ -25,6 +25,9 @@ namespace TianWen.Hosting.Dto;
 [JsonSerializable(typeof(Api.SetProfileRequest))]
 [JsonSerializable(typeof(WebSocketEventDto))]
 [JsonSerializable(typeof(ResponseEnvelope<WebSocketEventDto>))]
+[JsonSerializable(typeof(EnhanceRequestDto))]
+[JsonSerializable(typeof(EnhanceStatusDto))]
+[JsonSerializable(typeof(ResponseEnvelope<EnhanceStatusDto>))]
 [JsonSerializable(typeof(Dictionary<string, object?>))]
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,

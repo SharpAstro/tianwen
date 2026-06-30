@@ -5,16 +5,19 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using TianWen.Hosting.Dto;
+using TianWen.Lib.Imaging.Enhancement;
 using TianWen.Lib.Sequencing;
 
 namespace TianWen.Hosting.WebSocket;
 
 /// <summary>
-/// Background service that subscribes to <see cref="ISession"/> events and broadcasts them
-/// to all connected WebSocket clients via <see cref="EventHub"/>.
+/// Background service that subscribes to <see cref="ISession"/> events (and the
+/// <see cref="HostedImageEnhancer"/> job) and broadcasts them to all connected WebSocket clients
+/// via <see cref="EventHub"/>.
 /// </summary>
 internal sealed class EventBroadcaster(
     IHostedSession hostedSession,
+    HostedImageEnhancer imageEnhancer,
     EventHub eventHub,
     ILogger<EventBroadcaster> logger
 ) : BackgroundService
@@ -24,6 +27,11 @@ internal sealed class EventBroadcaster(
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         logger.LogInformation("EventBroadcaster started, waiting for session");
+
+        // The enhancer is a process-lifetime singleton, so subscribe once up front (unlike the
+        // session, which comes and goes and is (un)subscribed inside the loop below).
+        imageEnhancer.Progressed += OnEnhanceProgress;
+        imageEnhancer.Completed += OnEnhanceCompleted;
 
         while (!stoppingToken.IsCancellationRequested)
         {
@@ -56,10 +64,48 @@ internal sealed class EventBroadcaster(
             }
         }
 
+        imageEnhancer.Progressed -= OnEnhanceProgress;
+        imageEnhancer.Completed -= OnEnhanceCompleted;
+
         if (_subscribedSession is not null)
         {
             UnsubscribeFromSession(_subscribedSession);
         }
+    }
+
+    private void OnEnhanceProgress(object? sender, EnhanceProgress e)
+    {
+        var overall = e.StepCount > 0
+            ? (e.StepIndex + System.Math.Clamp(e.StepPercent, 0f, 1f)) / e.StepCount * 100f
+            : 0f;
+        _ = BroadcastSafeAsync(new WebSocketEventDto
+        {
+            Event = "ENHANCE-PROGRESS",
+            Data = new Dictionary<string, object?>
+            {
+                ["StepName"] = e.StepName,
+                ["StepIndex"] = e.StepIndex,
+                ["StepCount"] = e.StepCount,
+                ["StepPercent"] = e.StepPercent,
+                ["Percent"] = overall,
+                ["EtaSeconds"] = e.EtaSeconds
+            }
+        });
+    }
+
+    private void OnEnhanceCompleted(object? sender, EnhanceJobCompletedEventArgs e)
+    {
+        _ = BroadcastSafeAsync(new WebSocketEventDto
+        {
+            Event = "ENHANCE-COMPLETED",
+            Data = new Dictionary<string, object?>
+            {
+                ["InputPath"] = e.InputPath,
+                ["OutputPath"] = e.OutputPath,
+                ["Succeeded"] = e.Succeeded,
+                ["Error"] = e.Error
+            }
+        });
     }
 
     private void SubscribeToSession(ISession session)

@@ -21,6 +21,8 @@
   <ItemGroup>
     <ProjectReference Include="..\TianWen.Lib\TianWen.Lib.csproj" />
     <ProjectReference Include="..\TianWen.Hosting\TianWen.Hosting.csproj" />
+    <!-- AI enhancers (RC-Astro CLI wrappers + SAS ONNX fallback) for POST /api/v1/image/enhance. -->
+    <ProjectReference Include="..\TianWen.AI.Imaging\TianWen.AI.Imaging.csproj" />
   </ItemGroup>
 
 </Project>
