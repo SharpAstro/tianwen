@@ -32,6 +32,7 @@ namespace TianWen.UI.Abstractions
             SessionPhase.AutoFocus => "Auto-Focus",
             SessionPhase.CalibratingGuider => "Calibrating Guider",
             SessionPhase.Observing => "Observing",
+            SessionPhase.Flats => "Taking Flats",
             SessionPhase.Finalising => "Finalising",
             SessionPhase.Complete => "Complete",
             SessionPhase.Failed => "Failed",

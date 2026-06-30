@@ -60,6 +60,8 @@ internal static class SessionTestHelper
         string? mountPort = null,
         double latitude = 48.2,
         double longitude = 16.3,
+        bool withCoverCalibrator = false,
+        bool withFilterWheel = false,
         CancellationToken cancellationToken = default)
     {
         var timeProvider = new FakeTimeProviderWrapper(now ?? new DateTimeOffset(2025, 6, 15, 22, 0, 0, TimeSpan.Zero));
@@ -81,14 +83,28 @@ internal static class SessionTestHelper
         cameraDriver.NumX = 512;
         cameraDriver.NumY = 512;
 
+        Cover? cover = null;
+        if (withCoverCalibrator)
+        {
+            cover = new Cover(new FakeDevice(DeviceType.CoverCalibrator, 1), sp);
+            await cover.Driver.ConnectAsync(cancellationToken);
+        }
+
+        FilterWheel? filterWheel = null;
+        if (withFilterWheel)
+        {
+            filterWheel = new FilterWheel(new FakeDevice(DeviceType.FilterWheel, 1), sp);
+            await filterWheel.Driver.ConnectAsync(cancellationToken);
+        }
+
         var ota = new OTA(
             "Test Telescope",
             focalLength,
             camera,
-            Cover: null,
+            cover,
             focuser,
             new FocusDirection(PreferOutward: true, OutwardIsPositive: true),
-            FilterWheel: null,
+            filterWheel,
             Switches: null
         );
 
@@ -133,7 +149,7 @@ internal static class SessionTestHelper
 
         var session = new Session(setup, config, plateSolver, external, sp, new ScheduledObservationTree(obs));
 
-        return new SessionTestContext(session, external, timeProvider, cameraDriver, focuserDriver, mount.Driver);
+        return new SessionTestContext(session, external, timeProvider, cameraDriver, focuserDriver, mount.Driver, cover?.Driver, filterWheel?.Driver);
     }
 
     /// <summary>
@@ -302,7 +318,9 @@ internal record SessionTestContext(
     FakeTimeProviderWrapper TimeProvider,
     FakeCameraDriver Camera,
     FakeFocuserDriver Focuser,
-    IMountDriver Mount
+    IMountDriver Mount,
+    ICoverDriver? Cover = null,
+    IFilterWheelDriver? FilterWheel = null
 ) : IDisposable
 {
     public void Dispose()

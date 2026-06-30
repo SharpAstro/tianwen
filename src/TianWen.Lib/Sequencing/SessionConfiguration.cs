@@ -143,7 +143,37 @@ public record struct SessionConfiguration(
     /// <see cref="ConditionRecoveryTimeout"/>) instead of imaging into cloud. Zenith can't be blocked,
     /// so a crushed ratio there is transparency, never obstruction.
     /// </summary>
-    float CloudGateEfficiencyFloor = 0.15f
+    float CloudGateEfficiencyFloor = 0.15f,
+    /// <summary>
+    /// When <c>true</c>, an automated panel/calibrator flat block runs at the end of a normally
+    /// completed session (after the observation loop, before <c>Finalise</c> warms the cameras, so the
+    /// flats are taken at the imaging setpoint temperature). Per OTA: close the cover, turn the
+    /// calibrator on, and for each installed filter auto-expose to <see cref="FlatTargetAduFraction"/>
+    /// then write <see cref="Imaging.FrameType.Flat"/> frames the stacker's <c>MasterFrameBuilder</c>
+    /// consumes automatically. Default OFF; the same routine is exposed as an on-demand method.
+    /// Skipped on abort/failure (a user who stopped the session wants a quick shutdown).
+    /// </summary>
+    bool TakeFlatsOnSessionEnd = false,
+    /// <summary>Target flat level as a fraction of the sensor ceiling (median ADU / max ADU). Default 0.5 = half full well.</summary>
+    double FlatTargetAduFraction = 0.5,
+    /// <summary>Half-width of the acceptance band around <see cref="FlatTargetAduFraction"/>. Default 0.05.</summary>
+    double FlatAduTolerance = 0.05,
+    /// <summary>Maximum metering exposures the auto-exposure routine takes per filter before giving up. Default 6.</summary>
+    int FlatMaxBrackets = 6,
+    /// <summary>Number of flat frames written per filter once the exposure has converged. Default 15.</summary>
+    int FlatsPerFilter = 15,
+    /// <summary>First metering exposure. <c>null</c> = <see cref="DefaultFlatInitialExposure"/> (1 s).</summary>
+    TimeSpan? FlatInitialExposure = null,
+    /// <summary>Shortest flat exposure the solver will use. <c>null</c> = <see cref="DefaultFlatMinExposure"/> (0.1 s).</summary>
+    TimeSpan? FlatMinExposure = null,
+    /// <summary>Longest flat exposure before the solver fails ("panel too dim"). <c>null</c> = <see cref="DefaultFlatMaxExposure"/> (30 s).</summary>
+    TimeSpan? FlatMaxExposure = null,
+    /// <summary>
+    /// Calibrator panel brightness as a percentage of the driver's <c>MaxBrightness</c> (a coarse
+    /// pre-set; exposure does the fine convergence). When <c>MaxBrightness</c> is unknown (-1) the
+    /// value is passed through as an absolute brightness. Default 50.
+    /// </summary>
+    int FlatCalibratorBrightnessPercent = 50
 )
 {
     /// <summary>Effective default for <see cref="GuiderRecoveryGrace"/> when unset.</summary>
@@ -151,4 +181,13 @@ public record struct SessionConfiguration(
 
     /// <summary>Effective default for <see cref="ScheduledStartLeadTime"/> when unset.</summary>
     public static readonly TimeSpan DefaultScheduledStartLeadTime = TimeSpan.FromMinutes(3);
+
+    /// <summary>Effective default for <see cref="FlatInitialExposure"/> when unset.</summary>
+    public static readonly TimeSpan DefaultFlatInitialExposure = TimeSpan.FromSeconds(1);
+
+    /// <summary>Effective default for <see cref="FlatMinExposure"/> when unset.</summary>
+    public static readonly TimeSpan DefaultFlatMinExposure = TimeSpan.FromSeconds(0.1);
+
+    /// <summary>Effective default for <see cref="FlatMaxExposure"/> when unset.</summary>
+    public static readonly TimeSpan DefaultFlatMaxExposure = TimeSpan.FromSeconds(30);
 }
