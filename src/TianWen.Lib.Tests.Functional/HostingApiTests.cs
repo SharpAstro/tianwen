@@ -248,6 +248,27 @@ public class HostingApiTests(ITestOutputHelper outputHelper) : IAsyncLifetime
     }
 
     [Fact(Timeout = 10_000)]
+    public async Task ImageEnhance_WithNoPipelineRegistered_ReturnsServiceUnavailable()
+    {
+        var ct = TestContext.Current.CancellationToken;
+
+        // This host wires the device chain but NOT AddRcAstroAi()/AddTianWenAi(), so no SharpenPipeline
+        // is registered. The enhancer must report IsAvailable == false and the endpoint must reject with
+        // an in-band 503 -- this is the exact regression that crashed host startup when HostedImageEnhancer
+        // took a required SharpenPipeline (the whole functional suite failed to start). The body-binding
+        // path also exercises the AOT-fragile EnhanceRequestDto deserialization.
+        var body = new StringContent(
+            """{"inputPath":"/does/not/matter.fits","backend":"sas"}""",
+            System.Text.Encoding.UTF8, "application/json");
+        var response = await _client.PostAsync("/api/v1/image/enhance", body, ct);
+
+        var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync(ct));
+        doc.RootElement.GetProperty("success").GetBoolean().ShouldBeFalse();
+        doc.RootElement.GetProperty("statusCode").GetInt32().ShouldBe(503);
+        doc.RootElement.GetProperty("error").GetString().ShouldNotBeNull().ShouldContain("not available");
+    }
+
+    [Fact(Timeout = 10_000)]
     public async Task NinaListDevices_ReturnsSuccessEnvelopeWithArray()
     {
         var ct = TestContext.Current.CancellationToken;

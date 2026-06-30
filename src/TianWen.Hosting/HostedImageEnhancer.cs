@@ -18,8 +18,15 @@ namespace TianWen.Hosting;
 /// <see cref="EnhanceStatusDto"/> swapped atomically per tick (lock-free read); the in-flight gate is an
 /// <see cref="Interlocked"/> CAS so a second POST while one is running is rejected (409) rather than racing.
 /// </summary>
+/// <remarks>
+/// The <see cref="SharpenPipeline"/> is <b>optional</b>: it is registered only by <c>AddRcAstroAi()</c> /
+/// <c>AddTianWenAi()</c>, which a host (e.g. the functional-test host, or a headless server with no AI
+/// models) need not wire. When absent <see cref="IsAvailable"/> is <c>false</c> and the endpoint returns
+/// 503 -- mirroring the viewer's presence-gated Enhance button (renderer <c>EnhanceAvailable</c>). Resolving
+/// the dependency via <c>GetService</c> (not <c>GetRequiredService</c>) is what keeps a no-AI host startable.
+/// </remarks>
 internal sealed class HostedImageEnhancer(
-    SharpenPipeline pipeline,
+    SharpenPipeline? pipeline,
     ILogger<HostedImageEnhancer> logger)
 {
     // 0 = idle, 1 = a run is in flight. CAS on start; reset in the run's finally.
@@ -30,6 +37,10 @@ internal sealed class HostedImageEnhancer(
 
     /// <summary>Latest immutable status snapshot (safe to read from any thread).</summary>
     public EnhanceStatusDto Status => _status;
+
+    /// <summary><c>true</c> when an enhancement pipeline is wired (AI services registered). When
+    /// <c>false</c> the endpoint must reject with 503 -- there is nothing to run.</summary>
+    public bool IsAvailable => pipeline is not null;
 
     /// <summary>Raised on each pipeline progress tick. The broadcaster turns it into a WebSocket push.</summary>
     public event EventHandler<EnhanceProgress>? Progressed;
@@ -69,7 +80,13 @@ internal sealed class HostedImageEnhancer(
         string? error = null;
         try
         {
-            if (!Image.TryReadFitsFile(inputPath, out var src, out var wcs))
+            // Defensive: the endpoint gates on IsAvailable before TryStart, so this should be
+            // unreachable. Narrows the nullable pipeline for the rest of the method.
+            if (pipeline is not { } pipe)
+            {
+                error = "AI enhance is not available (no enhancement pipeline registered)";
+            }
+            else if (!Image.TryReadFitsFile(inputPath, out var src, out var wcs))
             {
                 error = $"Failed to read FITS file: {inputPath}";
             }
@@ -82,7 +99,7 @@ internal sealed class HostedImageEnhancer(
                 // BlurX-first program when a deblurrer is registered (RC-Astro), else the SAS-shaped
                 // canonical -- the same selection the viewer + MasterPostProcessor make, via the shared
                 // SharpenRequest factories (single source of truth for the step program).
-                var request = pipeline.SupportsDeblur
+                var request = pipe.SupportsDeblur
                     ? SharpenRequest.DeblurFirst(normalised)
                     : SharpenRequest.Canonical(normalised);
 
@@ -105,7 +122,7 @@ internal sealed class HostedImageEnhancer(
                     Progressed?.Invoke(this, p);
                 });
 
-                var result = await pipeline.ProcessAsync(request, options, progress, ct).ConfigureAwait(false);
+                var result = await pipe.ProcessAsync(request, options, progress, ct).ConfigureAwait(false);
 
                 if (result.Final is { } final)
                 {

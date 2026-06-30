@@ -24,10 +24,17 @@ public static class HostedSessionServiceCollectionExtensions
         services.AddSingleton<HostedSession>();
         services.AddSingleton<IHostedSession>(sp => sp.GetRequiredService<HostedSession>());
         services.AddSingleton<EventHub>();
-        // Single-flight server-side AI enhancer behind POST /api/v1/image/enhance. Constructing it
-        // (and the SharpenPipeline it depends on) spawns no rc-astro process -- the RC-vs-SAS choice
-        // is deferred to the first EnhanceAsync (DeferredEnhancer), so this is cheap at startup.
-        services.AddSingleton<HostedImageEnhancer>();
+        // Single-flight server-side AI enhancer behind POST /api/v1/image/enhance. The SharpenPipeline
+        // is OPTIONAL -- it is registered only by AddRcAstroAi()/AddTianWenAi(), which a host (the
+        // functional-test host, or a server with no AI models) need not wire. Resolve it via GetService
+        // (not GetRequiredService) so a no-AI host still starts; the enhancer then reports
+        // IsAvailable == false and the endpoint returns 503. Using GetService also drops the old
+        // ordering requirement (AddRcAstroAi before AddHostedSession), since it resolves lazily at
+        // activation time when every registration is already in place. Constructing it spawns no
+        // rc-astro process -- the RC-vs-SAS choice is deferred to the first EnhanceAsync (DeferredEnhancer).
+        services.AddSingleton<HostedImageEnhancer>(sp => new HostedImageEnhancer(
+            sp.GetService<TianWen.Lib.Imaging.Enhancement.SharpenPipeline>(),
+            sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<HostedImageEnhancer>>()));
         services.AddHostedService<EventBroadcaster>();
 
         // Register the source-gen JSON contexts with the HTTP JSON options so minimal-API
