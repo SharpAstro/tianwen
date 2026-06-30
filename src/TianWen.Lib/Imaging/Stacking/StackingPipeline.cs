@@ -950,6 +950,7 @@ public sealed class StackingPipeline(
         var postResult = await postProcessor.WriteMasterAsync(
             intResult, masterPath, searchHint, refImageDim, referenceRaw.ImageMeta, statsRect, selection.Chosen.Kind,
             enhance: options.Enhance, enhanceBlend: options.EnhanceBlend, splitPlates: options.SplitPlates,
+            enhanceOptions: options.EnhanceOptions ?? Enhancement.EnhanceOptions.Default,
             renderPreviewPng: options.RenderPreviewPng, ct);
         if (intResult.TotalRejections > 0)
         {

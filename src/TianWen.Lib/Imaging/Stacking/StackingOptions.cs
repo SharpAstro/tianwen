@@ -1,5 +1,6 @@
 using System;
 using TianWen.Lib.Imaging.Calibration;
+using TianWen.Lib.Imaging.Enhancement;
 
 namespace TianWen.Lib.Imaging.Stacking;
 
@@ -121,4 +122,8 @@ public sealed record StackingOptions(
     bool Enhance = false,
     float EnhanceBlend = 1.0f,
     bool SplitPlates = false,
-    bool RenderPreviewPng = true);
+    bool RenderPreviewPng = true,
+    // RC-Astro vs SAS backend selection + per-product strength overrides for the
+    // --enhance pass. null = EnhanceOptions.Default (Auto backend, no overrides) --
+    // identical to the pre-option behaviour. Threaded immutably to SharpenPipeline.
+    EnhanceOptions? EnhanceOptions = null);
