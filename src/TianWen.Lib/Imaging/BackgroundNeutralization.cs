@@ -39,10 +39,18 @@ public static class BackgroundNeutralization
     /// <param name="method">Pivot target choice — affects which channel(s) stay fixed.
     /// Defaults to <see cref="BackgroundNeutralizationMethod.Mean"/> to preserve
     /// the behaviour expected by existing tests + call sites.</param>
+    /// <param name="whiteBalance">Optional per-channel WB multiply applied AFTER bg-neut in the
+    /// shader (<c>out = (val*g + (1-g)) * wb</c>). Only honoured for
+    /// <see cref="BackgroundNeutralizationMethod.MinPivot"/>, where the gains are solved so the
+    /// POST-WB background is neutral: pivot <c>K = min(bg_X*wb_X)</c>, per-channel target
+    /// <c>t_X = K/wb_X</c>. Null (or a neutral triple) reduces to the WB-uncoupled MinPivot
+    /// (<c>K = min(bg)</c>, one shared target) — bit-identical to the prior behaviour. Ignored by
+    /// Mean / GreenPivot (no in-pipeline caller couples those to WB).</param>
     /// <returns>Per-channel gains where out = val * g + (1-g). Default (1,1,1) = no change.</returns>
     public static (float R, float G, float B) ComputeGains(
         ReadOnlySpan<float> perChannelBg,
-        BackgroundNeutralizationMethod method = BackgroundNeutralizationMethod.Mean)
+        BackgroundNeutralizationMethod method = BackgroundNeutralizationMethod.Mean,
+        (float R, float G, float B)? whiteBalance = null)
     {
         if (perChannelBg.Length < 3)
             return (1f, 1f, 1f);
@@ -50,10 +58,22 @@ public static class BackgroundNeutralization
         var mR = perChannelBg[0];
         var mG = perChannelBg[1];
         var mB = perChannelBg[2];
+
+        if (method is BackgroundNeutralizationMethod.MinPivot)
+        {
+            // Post-WB MinPivot: choose gains so every channel's background lands on the same
+            // post-WB level K. With wb=(1,1,1) the per-channel targets all collapse to min(bg) --
+            // exactly the WB-uncoupled MinPivot. This is the in-pipeline preview/plate path
+            // (MasterPreviewRenderer); the WB-coupling keeps the background neutral AFTER the
+            // shader's per-channel WB multiply.
+            var wb = whiteBalance ?? (1f, 1f, 1f);
+            var k = MathF.Min(mR * wb.R, MathF.Min(mG * wb.G, mB * wb.B));
+            return (ComputeChannelGain(mR, k / wb.R), ComputeChannelGain(mG, k / wb.G), ComputeChannelGain(mB, k / wb.B));
+        }
+
         var t = method switch
         {
             BackgroundNeutralizationMethod.GreenPivot => mG,
-            BackgroundNeutralizationMethod.MinPivot   => MathF.Min(mR, MathF.Min(mG, mB)),
             _                                         => (mR + mG + mB) / 3f,
         };
 
