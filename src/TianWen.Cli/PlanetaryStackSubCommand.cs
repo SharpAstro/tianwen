@@ -5,6 +5,7 @@ using System.Globalization;
 using System.IO;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Planetary;
+using TianWen.Lib.Imaging.Stacking;
 using TianWen.UI.Abstractions;
 
 namespace TianWen.Cli;

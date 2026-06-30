@@ -34,7 +34,8 @@ public sealed record GroupResult(
     string? MasterFitsPath,
     string? PreviewPngPath,
     TimeSpan Elapsed,
-    string SkipReason = "");
+    string SkipReason = "",
+    SpccDiagnostics? Spcc = null);
 
 /// <summary>
 /// Coarse phase markers used by <see cref="StackingPipeline.RunAsync"/>

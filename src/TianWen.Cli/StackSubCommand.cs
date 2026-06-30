@@ -15,13 +15,13 @@ namespace TianWen.Cli;
 /// <summary>
 /// <c>tianwen stack &lt;data-root&gt;</c> -- end-to-end stacking against a
 /// folder of FITS lights + calibration. Wraps
-/// <see cref="StackingPipeline"/> with arg parsing and an optional PNG
-/// preview render via <see cref="MasterPreviewRenderer"/>.
+/// <see cref="StackingPipeline"/> with arg parsing. The preview PNG + split-plate
+/// TIFFs are rendered inside the pipeline (<see cref="MasterPostProcessor"/>), so no
+/// renderer is composed here.
 /// </summary>
 internal sealed class StackSubCommand(
     IConsoleHost consoleHost,
     ILogger<StackingPipeline> pipelineLogger,
-    ILogger<MasterPreviewRenderer> rendererLogger,
     ICelestialObjectDB catalogDb,
     TianWen.Lib.Imaging.Enhancement.SharpenPipeline sharpenPipeline)
 {
@@ -211,7 +211,11 @@ internal sealed class StackSubCommand(
                 IncludeIntegrations: parseResult.GetValue(includeIntegrationsOpt),
                 Enhance: enhanceArg,
                 EnhanceBlend: enhanceBlendArg,
-                SplitPlates: splitPlatesArg);
+                SplitPlates: splitPlatesArg,
+                // The pipeline (MasterPostProcessor) renders the preview PNG now, so
+                // the PNG + split-plate TIFFs share one WB + bg-neut solve. Only the
+                // Png output format wants the PNG; Exr/None suppress it.
+                RenderPreviewPng: parseResult.GetValue(formatOpt) == ImageOutputFormat.Png);
 
             var format = parseResult.GetValue(formatOpt);
             var skipPlateSolve = parseResult.GetValue(noPlateSolveOpt);
@@ -300,11 +304,10 @@ internal sealed class StackSubCommand(
                 catalogDb: skipPlateSolve ? null : catalogDb,
                 progress: progress,
                 sharpenPipeline: options.Enhance ? sharpenPipeline : null);
-            // Only the PNG path needs the renderer (SPCC + auto-stretch +
-            // sRGB ICC). EXR writes the master FITS verbatim via
-            // Image.WriteExrAsync -- no SPCC, no stretch (the unstretched linear
-            // master) -- so the renderer is unused on that path. None needs neither.
-            var renderer = format == ImageOutputFormat.Png ? new MasterPreviewRenderer(catalogDb, rendererLogger) : null;
+            // The preview PNG + split-plate TIFFs are rendered INSIDE the pipeline
+            // (MasterPostProcessor) now, so they share one WB + bg-neut solve and the
+            // plates come out colour-matched to the preview. EXR is still written here
+            // from the emitted FITS; the SPCC summary comes back on GroupResult.Spcc.
 
             var groupCount = 0;
             var integratedCount = 0;
@@ -360,76 +363,19 @@ internal sealed class StackSubCommand(
                     }
                 }
 
-                if (renderer is not null && result.Result is { } intResult && result.MasterFitsPath is { } masterPath)
+                // SPCC summary + per-gate funnel from the pipeline's preview solve
+                // (computed in MasterPostProcessor now, against the ENHANCED master when
+                // enhancing -- so it reflects the actual output the PNG + split plates
+                // share). Release console is Warning-floored, so the renderer's ILogger
+                // lines are file-only; surface the summary here through IConsoleHost.
+                //
+                // Funnel reads: "of <detected> stars FindStarsAsync reported, breakdown by
+                // gate to the photometric kappa-sigma stage" -- lets us answer "why are we
+                // losing X% of stars" by which counter dominates (no-cand = catalog missing,
+                // tol-miss = WCS distortion, no-bv = Tycho-2 photometry gaps, k-rej =
+                // kappa-sigma outliers after the match).
                 {
-                    // A PNG is a display / quick-look artifact, so it is ALWAYS
-                    // the autocropped, NaN-ring-free render -- never the full
-                    // canvas with its ragged partial-coverage edges (drizzle's
-                    // per-Bayer-position uncovered cells, or the NaN ring around
-                    // any registered + drifted / meridian-flipped stack). The
-                    // uncropped linear pixels live in the canonical FITS (+ EXR),
-                    // which is where full-frame data belongs; there is no
-                    // uncropped PNG. When coverage is full there is no
-                    // _autocrop.fits, so the full frame IS the autocrop and the
-                    // bare master_<slug>.png is it.
-                    var autocropFitsPath = Path.Combine(
-                        Path.GetDirectoryName(masterPath) ?? string.Empty,
-                        Path.GetFileNameWithoutExtension(masterPath) + "_autocrop.fits");
-
-                    // Prefer the autocrop FITS; fall back to the full master only
-                    // when no crop was emitted (full coverage). The rendered image
-                    // is its OWN stats source -- it is already the clean region, so
-                    // WB + bg-neut can never be poisoned by partial-coverage edges.
-                    Image? renderImage = null;
-                    WCS? renderWcs = null;
-                    string pngPath;
-                    if (File.Exists(autocropFitsPath)
-                        && Image.TryReadFitsFile(autocropFitsPath, out renderImage, out renderWcs)
-                        && renderImage is not null)
-                    {
-                        pngPath = Path.ChangeExtension(autocropFitsPath, ".png");
-                    }
-                    else if (Image.TryReadFitsFile(masterPath, out renderImage, out renderWcs) && renderImage is not null)
-                    {
-                        pngPath = result.PreviewPngPath ?? Path.ChangeExtension(masterPath, ".png");
-                    }
-                    else
-                    {
-                        renderImage = null;
-                        pngPath = string.Empty;
-                    }
-
-                    SpccDiagnostics? spcc = null;
-                    if (renderImage is not null)
-                    {
-                        try
-                        {
-                            spcc = await renderer.RenderAsync(
-                                renderImage,
-                                renderImage.ImageMeta,
-                                renderWcs,
-                                statsSource: renderImage,
-                                pngPath,
-                                statsWcs: renderWcs,
-                                ct: ct);
-                        }
-                        catch (Exception ex)
-                        {
-                            consoleHost.WriteError($"[stack] {result.GroupSlug}: PNG render failed: {ex.Message}");
-                        }
-                    }
-
-                    // Emit SPCC summary + per-gate funnel as part of the deterministic stack
-                    // output. The renderer also logs at Information level for the file logger,
-                    // but Release console is Warning-floored so we surface it here through
-                    // IConsoleHost instead.
-                    //
-                    // Funnel reads: "of <detected> stars FindStarsAsync reported, breakdown by
-                    // gate to the photometric kappa-sigma stage" -- lets us answer "why are we
-                    // losing X% of stars" by which counter dominates (no-cand = catalog missing,
-                    // tol-miss = WCS distortion, no-bv = Tycho-2 photometry gaps, k-rej =
-                    // kappa-sigma outliers after the match).
-                    if (spcc is { } s)
+                    if (result.Spcc is { } s)
                     {
                         consoleHost.WriteScrollable(
                             $"[stack] {result.GroupSlug}: SPCC WB=({s.WbR:F3}, {s.WbG:F3}, {s.WbB:F3}) " +

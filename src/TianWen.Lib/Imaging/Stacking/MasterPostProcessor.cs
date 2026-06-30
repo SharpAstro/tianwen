@@ -17,11 +17,14 @@ namespace TianWen.Lib.Imaging.Stacking;
 /// <summary>
 /// Return value of <see cref="MasterPostProcessor.WriteMasterAsync"/>:
 /// the (possibly updated) <see cref="IntegrationResult"/> after MaxValue
-/// + focal-length backfill, and the WCS produced by plate-solve (null when
-/// no catalog DB was supplied or the solve failed). Named record rather
-/// than a tuple so callers can deconstruct or assert by field name.
+/// + focal-length backfill, the WCS produced by plate-solve (null when
+/// no catalog DB was supplied or the solve failed), and the SPCC outcome of
+/// the preview render (null when no preview was rendered or SPCC was skipped)
+/// so the CLI can print the deterministic <c>[stack] ... SPCC=...</c> summary.
+/// Named record rather than a tuple so callers can deconstruct or assert by
+/// field name.
 /// </summary>
-internal readonly record struct MasterWriteResult(IntegrationResult Result, WCS? SolvedWcs);
+internal readonly record struct MasterWriteResult(IntegrationResult Result, WCS? SolvedWcs, SpccDiagnostics? Spcc);
 
 /// <summary>
 /// Post-integration disk side-effects: MaxValue header fix-up, plate-solve
@@ -56,6 +59,7 @@ internal sealed class MasterPostProcessor(ILogger logger, ICelestialObjectDB? ca
         bool enhance,
         float enhanceBlend,
         bool splitPlates,
+        bool renderPreviewPng,
         CancellationToken ct)
     {
         var sw = Stopwatch.StartNew();
@@ -213,21 +217,29 @@ internal sealed class MasterPostProcessor(ILogger logger, ICelestialObjectDB? ca
         IntegrationFitsWriter.Write(masterPath, result, solvedWcs, strategy);
         logger.LogInformation("  wrote {Path}{Wcs}", masterPath, solvedWcs is null ? "" : " (WCS embedded)");
 
-        // 2.5) AI enhancement: run SharpenRequest.Canonical()-style pipeline
-        //      (gradient correction -> remove stars -> sharpen stars ->
-        //      deconvolve starless -> denoise starless -> recombine) on the
-        //      master and write _sharpened.fits + (when autocrop is active)
-        //      _sharpened_autocrop.fits sibling files. The raw masters are
-        //      never overwritten. Cropping the enhanced master here rather
-        //      than re-running enhancement on the pre-cropped image keeps
-        //      it to a single forward pass and guarantees the sharpened
-        //      autocrop is byte-identical to the autocrop of the sharpened
-        //      full.
+        // The preview PNG + the --split-plates TIFFs are display-side outputs that
+        // both need ONE SPCC + bg-neut solve (MasterPreviewRenderer). Build it once
+        // when either is requested. croppedWcs (autocrop CRPIX shifted by the crop
+        // origin) is shared by the autocrop FITS write, the preview, and the plates.
+        var renderer = (renderPreviewPng || splitPlates) ? new MasterPreviewRenderer(catalogDb, logger) : null;
+        WCS? croppedWcs = solvedWcs is { } cw && croppedResult is not null
+            ? cw with { CRPix1 = cw.CRPix1 - autocropRect.X, CRPix2 = cw.CRPix2 - autocropRect.Y }
+            : null;
+        SpccDiagnostics? spcc = null;
+
+        // 2.5) AI enhancement: BlurX-first / SAS-shaped pipeline on the master ->
+        //      _sharpened.fits (+ _sharpened_autocrop.fits). The raw masters are never
+        //      overwritten. When enhancing, ONE SPCC solve is computed on the enhanced
+        //      (gradient-corrected, with-stars) master -- matching the PixInsight OSC flow
+        //      (gradient correction -> SPCC once, stars in) -- and that single white
+        //      balance renders the preview PNG AND stretches the --split-plates stars /
+        //      starless TIFFs, so all three share the one colour calibration.
         if (enhance && sharpenPipeline is not null)
         {
-            await EnhanceAndWriteAsync(
-                result, masterPath, solvedWcs, strategy,
-                croppedResult, autocropRect, enhanceBlend, splitPlates, ct);
+            spcc = await EnhanceAndWriteAsync(
+                result, masterPath, solvedWcs, croppedWcs, strategy,
+                croppedResult, autocropRect, enhanceBlend, splitPlates,
+                refMeta, renderer, renderPreviewPng, ct);
         }
         else if (enhance && sharpenPipeline is null)
         {
@@ -241,9 +253,6 @@ internal sealed class MasterPostProcessor(ILogger logger, ICelestialObjectDB? ca
         {
             try
             {
-                WCS? croppedWcs = solvedWcs is { } w
-                    ? w with { CRPix1 = w.CRPix1 - autocropRect.X, CRPix2 = w.CRPix2 - autocropRect.Y }
-                    : null;
                 var cropFitsPath = WithSuffix(masterPath, "_autocrop");
                 IntegrationFitsWriter.Write(cropFitsPath, croppedResult, croppedWcs, strategy);
                 logger.LogInformation("  wrote {Path} (crop {W}x{H})", cropFitsPath, autocropRect.Width, autocropRect.Height);
@@ -254,8 +263,18 @@ internal sealed class MasterPostProcessor(ILogger logger, ICelestialObjectDB? ca
             }
         }
 
+        // 3.5) Raw-master preview PNG -- only when NOT enhancing (the enhance path renders
+        //      its own preview from the enhanced master's SPCC solve above). The raw master
+        //      is its own stats source here (no gradient correction available pre-enhance).
+        if (!enhance && renderPreviewPng && renderer is not null)
+        {
+            spcc = await RenderPreviewAsync(
+                renderer, master, croppedResult?.Master, refMeta, solvedWcs, croppedWcs,
+                masterPath, autocropRect, ct);
+        }
+
         logger.LogInformation("  [post] total {Ms} ms", sw.ElapsedMilliseconds);
-        return new MasterWriteResult(result, solvedWcs);
+        return new MasterWriteResult(result, solvedWcs, spcc);
     }
 
     /// <summary>
@@ -314,18 +333,28 @@ internal sealed class MasterPostProcessor(ILogger logger, ICelestialObjectDB? ca
     /// writes the sharpened sibling FITS files. Cropping the enhanced master
     /// to <paramref name="autocropRect"/> reuses the same single forward pass
     /// for the autocrop variant; the raw master FITS (already on disk) is
-    /// untouched. Failures log + return without throwing so a misbehaving
-    /// model never breaks the canonical stacking output.
+    /// untouched. Then computes ONE SPCC + bg-neut solve on the enhanced
+    /// (gradient-corrected, with-stars) master -- the PixInsight OSC order
+    /// (gradient correction, then a single SPCC with stars in) -- and uses that
+    /// one white balance to render the preview PNG and (with
+    /// <paramref name="splitPlates"/>) stretch the stars / starless TIFFs, so
+    /// all three share the calibration and the plates Screen-blend back to the
+    /// preview. Failures log + return without throwing so a misbehaving model
+    /// never breaks the canonical stacking output.
     /// </summary>
-    private async Task EnhanceAndWriteAsync(
+    private async Task<SpccDiagnostics?> EnhanceAndWriteAsync(
         IntegrationResult master,
         string masterPath,
         WCS? solvedWcs,
+        WCS? croppedWcs,
         IntegrationStrategyKind strategy,
         IntegrationResult? croppedResult,
         Rectangle autocropRect,
         float enhanceBlend,
         bool splitPlates,
+        ImageMeta refMeta,
+        MasterPreviewRenderer? renderer,
+        bool renderPreviewPng,
         CancellationToken ct)
     {
         Debug.Assert(sharpenPipeline is not null, "EnhanceAndWriteAsync called without SharpenPipeline -- guard upstream");
@@ -382,7 +411,7 @@ internal sealed class MasterPostProcessor(ILogger logger, ICelestialObjectDB? ca
             if (sharpenResult.Final is not { } enhancedMaster)
             {
                 logger.LogWarning("  [enhance] SharpenPipeline returned no Final image; skipping write");
-                return;
+                return null;
             }
 
             // Reuse the original IntegrationResult shell (FrameCount, RejectionMap,
@@ -392,33 +421,68 @@ internal sealed class MasterPostProcessor(ILogger logger, ICelestialObjectDB? ca
             IntegrationFitsWriter.Write(sharpenedPath, master with { Master = enhancedMaster }, solvedWcs, strategy);
             logger.LogInformation("  wrote {Path} (enhance blend={Blend:F2}, {Ms} ms)", sharpenedPath, blend, sw.ElapsedMilliseconds);
 
+            Image? enhancedCropped = null;
             if (croppedResult is not null)
             {
-                var enhancedCropped = CropImage(enhancedMaster, autocropRect);
-                WCS? croppedWcs = solvedWcs is { } w
-                    ? w with { CRPix1 = w.CRPix1 - autocropRect.X, CRPix2 = w.CRPix2 - autocropRect.Y }
-                    : null;
+                enhancedCropped = CropImage(enhancedMaster, autocropRect);
                 var sharpenedCropPath = WithSuffix(masterPath, "_sharpened_autocrop");
                 IntegrationFitsWriter.Write(sharpenedCropPath, croppedResult with { Master = enhancedCropped }, croppedWcs, strategy);
                 logger.LogInformation("  wrote {Path} (crop {W}x{H})", sharpenedCropPath, autocropRect.Width, autocropRect.Height);
             }
 
-            enhancedMaster.Release();
+            // ONE SPCC + bg-neut solve on the ENHANCED master (gradient-corrected, with
+            // stars) -- the PixInsight OSC order: gradient correction, then a single SPCC
+            // with the stars in. That single white balance renders the preview PNG AND
+            // stretches the --split-plates stars / starless TIFFs, so all three share the
+            // calibration and the plates Screen-blend back to the preview. The stars-only
+            // + denoised-starless plates are the kept lineage (StarsAndStarlessLineage
+            // above) -- NO second AI pass.
+            SpccDiagnostics? spcc = null;
+            if (renderer is not null && (renderPreviewPng || splitPlates))
+            {
+                var solveImg = enhancedCropped ?? enhancedMaster;
+                var solveWcs = enhancedCropped is not null ? croppedWcs : solvedWcs;
+                var pngPath = renderPreviewPng
+                    ? (enhancedCropped is not null
+                        ? Path.ChangeExtension(WithSuffix(masterPath, "_autocrop"), ".png")
+                        : Path.ChangeExtension(masterPath, ".png"))
+                    : string.Empty;   // solve-only: the renderer skips the PNG write on an empty path
+                var render = await renderer.RenderAsync(
+                    solveImg, refMeta, solveWcs, statsSource: solveImg, pngPath, statsWcs: solveWcs, ct: ct);
+                spcc = render.Spcc;
 
-            // Split-plate export (--split-plates): NO second AI pass. The BlurX-first
-            // program already produced the stars-only + denoised-starless plates
-            // internally; we kept them (StarsAndStarlessLineage above) instead of
-            // discarding them. Stretch copies (pure math) and write edit-ready
-            // sRGB-ICC TIFFs for Photoshop / Affinity layering.
+                if (splitPlates)
+                {
+                    // Each plate self-stretches from its own pixels and shares ONLY the
+                    // master's one SPCC white balance (render.WhiteBalance) -- the
+                    // PixInsight order: WB once, then a per-plate stretch. Sharing the
+                    // master's full uniforms (render.Uniforms) would graft the master's
+                    // bg-neut onto a plate whose background differs and tint it.
+                    var stars = sharpenResult.SharpenedStars ?? sharpenResult.StarsOnly;
+                    var starless = sharpenResult.DenoisedStarless ?? sharpenResult.DeconvolvedStarless ?? sharpenResult.Starless;
+                    var doCrop = croppedResult is not null;
+                    if (stars is not null)
+                    {
+                        await RenderPlateTiffAsync(renderer, stars, render.WhiteBalance, WithSuffix(masterPath, "_stars"), doCrop, autocropRect, ct);
+                    }
+                    if (starless is not null)
+                    {
+                        await RenderPlateTiffAsync(renderer, starless, render.WhiteBalance, WithSuffix(masterPath, "_starless"), doCrop, autocropRect, ct);
+                    }
+                }
+            }
+
+            enhancedCropped?.Release();
+            enhancedMaster.Release();
             if (splitPlates)
             {
-                await WriteSplitPlatesAsync(sharpenResult, masterPath, croppedResult, autocropRect, ct);
                 sharpenResult.Starless?.Release();
                 sharpenResult.StarsOnly?.Release();
                 sharpenResult.SharpenedStars?.Release();
                 sharpenResult.DeconvolvedStarless?.Release();
                 sharpenResult.DenoisedStarless?.Release();
             }
+            return spcc;
         }
         catch (OperationCanceledException)
         {
@@ -428,54 +492,53 @@ internal sealed class MasterPostProcessor(ILogger logger, ICelestialObjectDB? ca
         catch (Exception ex)
         {
             logger.LogWarning("  [enhance] failed after {Ms} ms: {Type}: {Msg}", sw.ElapsedMilliseconds, ex.GetType().Name, ex.Message);
+            return null;
         }
     }
 
     /// <summary>
-    /// Writes the per-plate dual-stretch TIFFs from the already-computed
-    /// <see cref="SharpenResult"/> -- the <c>--split-plates</c> deliverable. No AI
-    /// runs here: the stars-only + starless plates are the kept intermediates from
-    /// the single enhance pass. Each plate is cropped to the intersection AABB
-    /// (clean histogram stats for the starless auto-stretch -- not the NaN-fill
-    /// ring), stretched with the fixed approach-A curve, and written as an
-    /// sRGB-ICC float TIFF for layering in Photoshop / Affinity (Screen-blend the
-    /// stars over the starless).
+    /// Renders the preview PNG from the RAW master -- always the autocrop (NaN-ring-free)
+    /// unless coverage is full and there is no <c>_autocrop.fits</c>, in which case the
+    /// bare master PNG is it. The render image IS its own stats source (raw stats + raw
+    /// render): this is the only solve combination that is colour-neutral for BOTH the
+    /// near-zero-background drizzle masters and the high-pedestal non-drizzle masters.
+    /// (The split plates are rendered separately from the enhanced master in
+    /// <see cref="EnhanceAndWriteAsync"/>.) Returns the SPCC diagnostics for the CLI
+    /// summary.
     /// </summary>
-    private async Task WriteSplitPlatesAsync(
-        SharpenResult result, string masterPath, IntegrationResult? croppedResult, Rectangle autocropRect, CancellationToken ct)
+    private async Task<SpccDiagnostics?> RenderPreviewAsync(
+        MasterPreviewRenderer renderer,
+        Image fullMaster, Image? cropMaster, ImageMeta sensorMeta,
+        WCS? fullWcs, WCS? cropWcs, string masterPath, Rectangle autocropRect, CancellationToken ct)
     {
-        // Most-processed plate of each lineage (mirrors the image-sharpen selectors).
-        var stars = result.SharpenedStars ?? result.StarsOnly;
-        var starless = result.DenoisedStarless ?? result.DeconvolvedStarless ?? result.Starless;
-        var doCrop = croppedResult is not null;
-        if (stars is not null)
-        {
-            await WriteOneSplitPlateAsync(stars, WithSuffix(masterPath, "_stars"), DualStretchPlates.StretchStars, doCrop, autocropRect, ct);
-        }
-        if (starless is not null)
-        {
-            await WriteOneSplitPlateAsync(starless, WithSuffix(masterPath, "_starless"), DualStretchPlates.StretchStarless, doCrop, autocropRect, ct);
-        }
+        var previewImg = cropMaster ?? fullMaster;
+        var previewWcs = cropMaster is not null ? cropWcs : fullWcs;
+        var pngPath = cropMaster is not null
+            ? Path.ChangeExtension(WithSuffix(masterPath, "_autocrop"), ".png")
+            : Path.ChangeExtension(masterPath, ".png");
+
+        var render = await renderer.RenderAsync(
+            previewImg, sensorMeta, previewWcs, statsSource: previewImg, pngPath, statsWcs: previewWcs, ct: ct);
+        return render.Spcc;
     }
 
-    /// <summary>Crop (for clean stats) -&gt; stretch -&gt; write one stretched plate TIFF.
-    /// The input <paramref name="plate"/> is owned by the caller; only the crop copy
-    /// and the stretched result are released here.</summary>
-    private async Task WriteOneSplitPlateAsync(
-        Image plate, string fitsBasePath, Func<Image, Image> stretch, bool doCrop, Rectangle autocropRect, CancellationToken ct)
+    /// <summary>Crop the plate to the autocrop AABB (so it matches the preview's stats
+    /// region) then write its stretched float TIFF -- the plate self-stretches from its own
+    /// pixels and shares only <paramref name="sharedWb"/> (the master's SPCC white balance).
+    /// The input <paramref name="plate"/> is owned by the caller; only the crop copy is
+    /// released here.</summary>
+    private async Task RenderPlateTiffAsync(
+        MasterPreviewRenderer renderer, Image plate, (float R, float G, float B)? sharedWb,
+        string fitsBasePath, bool doCrop, Rectangle autocropRect, CancellationToken ct)
     {
-        var source = doCrop ? CropImage(plate, autocropRect) : plate;
-        var stretched = stretch(source);
-        if (doCrop) source.Release(); // CropImage allocated a copy; the original plate is released by the caller
+        var src = doCrop ? CropImage(plate, autocropRect) : plate;
         try
         {
-            var tifPath = Path.ChangeExtension(fitsBasePath, ".tif");
-            await stretched.WriteStretchedTiffAsync(tifPath, ct);
-            logger.LogInformation("  wrote {Path} (split plate, stretched)", tifPath);
+            await renderer.RenderStretchedPlateTiffAsync(src, sharedWb, Path.ChangeExtension(fitsBasePath, ".tif"), ct);
         }
         finally
         {
-            stretched.Release();
+            if (doCrop) src.Release(); // CropImage allocated a copy; the original plate is released by the caller
         }
     }
 

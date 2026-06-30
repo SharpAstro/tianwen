@@ -438,12 +438,13 @@ from**, the Planetary stacker below.
   (Affinity-readable). Full-frame linear pixels live here -- the only place an uncropped raster
   exists.
 - **Display / stretched (ALWAYS autocropped)**: the PNG quick-look and the `--split-plates`
-  TIFFs. A PNG is a display artifact, so the CLI renders ONLY the autocrop
-  (`master_<slug>_autocrop.png`); the bare `master_<slug>.png` appears only when coverage is
-  full and there is no `_autocrop.fits` (then the full frame IS the autocrop). There is no
-  uncropped PNG. The rendered image is its own stats source, so WB / bg-neut can never be
-  poisoned by the partial-coverage / NaN-ring edges. The autocrop rect is a geometric
-  footprint-intersection AABB, decoupled from the NaN-fill guard inside `SharpenPipeline`.
+  TIFFs. A PNG is a display artifact, so the pipeline (`MasterPostProcessor`, NOT the CLI -- see
+  the unified-render note below) renders ONLY the autocrop (`master_<slug>_autocrop.png`); the
+  bare `master_<slug>.png` appears only when coverage is full and there is no `_autocrop.fits`
+  (then the full frame IS the autocrop). There is no uncropped PNG. The rendered image is its own
+  stats source, so WB / bg-neut can never be poisoned by the partial-coverage / NaN-ring edges.
+  The autocrop rect is a geometric footprint-intersection AABB, decoupled from the NaN-fill guard
+  inside `SharpenPipeline`.
 
 **Provenance skip (never re-ingest our own outputs).** The scan drops any TianWen-produced
 FITS so a processed image parked alongside the lights is never re-stacked as a fresh sub. Two
@@ -465,11 +466,41 @@ sharpen stars -> deconvolve + denoise starless -> recombine).
 SharpenIntermediates.StarsAndStarlessLineage` on the SAME enhance `ProcessAsync`, then exports
 the kept stars-only + denoised-starless plates as edit-ready stretched sRGB-ICC float TIFFs
 (`_stars.tif` / `_starless.tif`, autocropped) for Photoshop / Affinity layering (Screen-blend
-stars over starless). NO second enhance runs -- `WriteSplitPlatesAsync` only crops (copy) +
-stretches (`DualStretchPlates`, pure math reusing the `SharpenStep` record defaults as the param
-source) + writes. `Image.WriteStretchedTiffAsync` (verbatim [0,1] floats -- no `1/MaxValue`
-rescale -- + `IccProfiles.SRgbV4`) is the one stretched-TIFF writer shared by
-`stack --split-plates` and `image sharpen`.
+stars over starless). NO second enhance runs. `Image.WriteStretchedTiffAsync` (verbatim [0,1]
+floats -- no `1/MaxValue` rescale -- + `IccProfiles.SRgbV4`) is the one stretched-TIFF writer
+shared by `stack --split-plates` and `image sharpen`.
+
+**Render model: WB once, per-plate self-stretch (the PixInsight OSC order).** Mirrors PI:
+gradient correction -> **SPCC / WB once (stars in)** -> star removal -> a **per-plate stretch**.
+`EnhanceAndWriteAsync` computes ONE SPCC white balance on the enhanced (gradient-corrected,
+with-stars) master, renders the preview PNG from it, and then stretches the stars / starless
+plates **sharing only that WB triple** -- each plate computes its OWN background-neutralisation +
+MTF from its own pixels (`MasterPreviewRenderer.RenderStretchedPlateTiffAsync` passes the shared
+WB; `ComputeStretchUniformsAsync` is the single solve). Sharing only WB (not the master's full
+uniforms) is load-bearing: grafting the master's bg-neut onto a plate whose background differs
+double-corrects it into a colour cast (the original `--split-plates` regression). Star colours
+stay on the SPCC calibration; every plate's background lands neutral.
+
+**Zero-pedestal render (parity fix -- do not regress).** The stretch derives per-channel shadows
+from the **pedestal-subtracted** median (`GetPedestralMedianAndMADScaledToUnit` subtracts
+`MinValue/MaxValue`). Raw masters have `MinValue ~ 0` so this is a no-op -- the *only* reason the
+historical render path was neutral. An **enhanced** master is GraXpert-flattened to a half-scale
+floor (`MinValue ~ 0.16-0.41`); subtracting it leaves faint per-channel medians as tiny residues
+where small differences explode (R-ped 0.012 vs G-ped 0.002 -> green crushed) or go negative
+(drizzle -> frame renders black). `MasterPreviewRenderer.WithZeroPedestal` rewraps the stats image
+with `MinValue=0` (a cheap by-reference array share, no pixel copy) so the auto-stretch's own
+shadow clipping sets the black point and the enhanced master behaves like the raw path.
+
+**Unified display render.** `MasterPreviewRenderer` (SPCC + sky-bg WB + MinPivot bg-neut + MTF +
+16-bit sRGB PNG) and `StretchSolver` (the stretch-uniform math the GLSL + CPU paths agree on) both
+live in **`TianWen.Lib`** (CPU-only), so `MasterPostProcessor` drives them in-pipeline. The CLI
+renders nothing: it sets `StackingOptions.RenderPreviewPng`, writes EXR from the emitted FITS, and
+prints the SPCC summary from `GroupResult.Spcc`. The viewer's
+`AstroImageDocument.ComputeStretchUniforms` / `ComputeSkyBackgroundWB` forward to `StretchSolver`,
+keeping it the single producer. (This replaced the old CLI-side render + the self-contained
+`DualStretchPlates`, whose plate stretch lacked the PNG's WB + bg-neut and came out with a
+background cast: measured drizzle starless R/G=1.20 / B/G=0.94 old vs 1.04 / 1.02 now.) Full
+flowcharts: [`docs/architecture/stacking-render-pipeline.md`](docs/architecture/stacking-render-pipeline.md).
 
 **Stellar-sharpen is opt-in (`image sharpen --stellar-sharpen`, default OFF).** The SAS stellar
 sharpener (NAFNet) over-sharpens already-tight star cores into square white clipped blocks; when

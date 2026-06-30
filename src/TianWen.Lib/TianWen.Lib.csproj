@@ -204,6 +204,18 @@
     <PackageReference Include="SharpAstro.Exr" />
   </ItemGroup>
 
+  <!-- SharpAstro.Png: MasterPreviewRenderer's 16-bit PNG preview encode
+       (PngWriter.EncodeRgba16 + cICP colour signalling, incl. HDR10/PQ via
+       Bt2020Pq). The renderer moved down from TianWen.UI.Abstractions so the
+       stacking post-processor can produce previews in-pipeline; this brings its
+       PNG encoder dependency with it. -->
+  <ItemGroup Condition="'$(UseLocalSiblings)' == 'true'">
+    <ProjectReference Include="..\..\..\StbImageSharp\src\SharpAstro.Png\SharpAstro.Png.csproj" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(UseLocalSiblings)' != 'true'">
+    <PackageReference Include="SharpAstro.Png" />
+  </ItemGroup>
+
   <!-- DIR.Lib: TiffWriter + PngWriter on the production path (Image.Export.cs). -->
   <ItemGroup Condition="'$(UseLocalSiblings)' == 'true'">
     <ProjectReference Include="..\..\..\DIR.Lib\src\DIR.Lib\DIR.Lib.csproj" />

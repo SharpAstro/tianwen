@@ -11,6 +11,7 @@ using SharpAstro.Png;
 using TianWen.Lib.Astrometry;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Enhancement;
+using TianWen.Lib.Imaging.Stacking;
 using TianWen.UI.Abstractions;
 
 namespace TianWen.Cli;
