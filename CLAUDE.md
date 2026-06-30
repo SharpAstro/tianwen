@@ -423,6 +423,33 @@ session-end. Wire-up: `BacklashEstimator`, `BacklashHistoryPersistence`, `Sessio
 plate-solve routine that runs **outside** of `Session.RunAsync` against a manually-connected mount.
 See `docs/plans/polar-alignment.md` for the math/algorithm.
 
+### Flat-Frame Acquisition (automation)
+
+`Session.TakeFlatsAsync` (`Session.Flats.cs`) is automated **panel/calibrator** flat capture. It runs
+in `RunAsync` after `ObservationLoopAsync` on **normal completion only** (abort/exception skips to
+`Finalise`) and **before** `Finalise` warms the cameras -- so flats are taken at the imaging setpoint
+temperature -- gated on the opt-in `SessionConfiguration.TakeFlatsOnSessionEnd`. The same method is the
+on-demand entry point. Per OTA: close the cover (`MoveTelescopeCoversToStateAsync(Closed)`), gate on a
+controllable calibrator (`ICoverDriver.GetCalibratorStateAsync != NotPresent`; **skip with a warning**
+otherwise), turn the panel on, then per installed filter auto-expose and write `FrameType.Flat` frames.
+Supported hardware = flip-flat (motorised cover + built-in panel) **or** a standalone lightbox/fixed
+panel; a motorised cover with **no** panel, or no flat device, is skipped.
+
+- **Auto-exposure is a pure solver.** `FlatExposureSolver` (`Imaging/Calibration/`) brackets exposure
+  under a linear panel model toward `FlatTargetAduFraction` (~0.5 full well): `Capture` in tolerance,
+  `Adjust` (clamped to `[FlatMinExposure, FlatMaxExposure]`), `Fail` on panel-too-bright-at-min /
+  too-dim-at-max / out-of-brackets. Side-effect-free + unit-tested; the orchestration measures the
+  whole-frame median (`Image.Statistics(0)`) and discards metering frames.
+- **Output contract:** frames carry `IMAGETYP/FRAMETYP=Flat` + the same denorm metadata as lights
+  (filter, `CCD-TEMP`, gain, binning, sensor) written under `Flats/<date>/<filter>/Flat/`. The path is
+  cosmetic -- `MasterFrameBuilder` groups + matches by FITS headers (`MasterGroupKey`), not folder
+  layout -- so the stacker consumes them with **no extra wiring**. Never make flat-master matching
+  depend on the path.
+- **Deferred (`docs/plans/flat-frame-automation.md`):** Phase 2 twilight sky-flats; Phase 3 on-demand
+  CLI/API + a **manual** flat-panel mode. A manual (dumb, user-switched) panel has no driver to gate
+  on, so it is **out of session** -- it belongs on the on-demand surface (a dropdown picking the
+  illumination source, with a 💡 entry for the manual panel), never the unattended end-of-session hook.
+
 ### Deep-Sky Stacking + Enhance Pipeline (`TianWen.Lib.Imaging.Stacking`)
 
 `StackingPipeline.RunAsync` (CLI `tianwen stack`) is the deep-sky integration pipeline:
