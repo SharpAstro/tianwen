@@ -11,7 +11,7 @@ using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.ColorCalibration;
 using TianWen.Lib.Stat;
 
-namespace TianWen.UI.Abstractions;
+namespace TianWen.Lib.Imaging.Stacking;
 
 /// <summary>
 /// Per-render SPCC outcome surfaced by <see cref="MasterPreviewRenderer.RenderAsync"/>
@@ -35,13 +35,28 @@ public readonly record struct SpccDiagnostics(
     TimeSpan Elapsed);
 
 /// <summary>
+/// Result of <see cref="MasterPreviewRenderer.RenderAsync"/>: the SPCC outcome
+/// (for the console summary), the <see cref="StretchUniforms"/> the master was
+/// rendered with, and the white-balance triple actually used. The PixInsight OSC
+/// flow computes the white balance ONCE (gradient correction -> SPCC with stars in),
+/// then star-removal and a per-plate stretch follow. So <see cref="MasterPostProcessor"/>
+/// reuses only <see cref="WhiteBalance"/> for the <c>--split-plates</c> TIFFs --
+/// each plate self-stretches its own background + MTF, sharing just the one colour
+/// calibration. (NOT the full <see cref="Uniforms"/>: a plate whose background
+/// differs from the master would inherit the wrong bg-neut and pick up a cast.)
+/// </summary>
+public readonly record struct PreviewRender(
+    SpccDiagnostics? Spcc, StretchUniforms Uniforms, (float R, float G, float B)? WhiteBalance);
+
+/// <summary>
 /// Display-side post-processing for a stacking master: SPCC + sky-bg
 /// fallback WB, background neutralisation gain solve, then a stretched
-/// PNG preview with sRGB ICC. Pulled out of the original
-/// <c>StackingEndToEndManualTest.PostProcessAndWriteAsync</c> so the
-/// <see cref="TianWen.Lib.Imaging.Stacking.StackingPipeline"/> can stay
-/// Lib-only (no <c>AstroImageDocument</c> dep) while the CLI / test
-/// composes the renderer on top.
+/// PNG preview with sRGB ICC. CPU-only (no GPU), so it lives in
+/// <c>TianWen.Lib</c> and <see cref="MasterPostProcessor"/> drives it
+/// in-pipeline: the master PNG and the <c>--split-plates</c> TIFFs all share
+/// ONE WB + bg-neut solve, so the plates come out colour-matched to the PNG.
+/// The viewer-side stretch math it relies on (<see cref="StretchSolver"/>)
+/// moved down from <c>AstroImageDocument</c> for the same reason.
 /// </summary>
 public sealed class MasterPreviewRenderer(ICelestialObjectDB? catalogDb, ILogger logger)
 {
@@ -75,10 +90,14 @@ public sealed class MasterPreviewRenderer(ICelestialObjectDB? catalogDb, ILogger
     /// <paramref name="statsSource"/> is null or shares the master's
     /// grid.</param>
     /// <param name="outputPath">PNG path to write.</param>
+    /// <param name="whiteBalanceOverride">When set, this exact WB triple is used and the
+    /// SPCC / sky-bg solve is skipped -- the per-plate stretch path passes the one shared
+    /// SPCC balance so each plate self-stretches its own background + MTF while inheriting
+    /// the master's colour calibration. Null = solve the WB from this image.</param>
     /// <returns>SPCC diagnostics when SPCC ran and produced a gain triple; null when
     /// SPCC was skipped (mono master, missing WCS / catalog, insufficient throughput
-    /// data, or fewer than 3 stars).</returns>
-    public async Task<SpccDiagnostics?> RenderAsync(
+    /// data, fewer than 3 stars, or a WB override was supplied).</returns>
+    public async Task<PreviewRender> RenderAsync(
         Image master,
         ImageMeta sensorMeta,
         WCS? wcs,
@@ -88,9 +107,9 @@ public sealed class MasterPreviewRenderer(ICelestialObjectDB? catalogDb, ILogger
         bool hdr10Pq = false,
         float peakNits = 1000f,
         bool gamutToBt2020 = true,
+        (float R, float G, float B)? whiteBalanceOverride = null,
         CancellationToken ct = default)
     {
-        SpccDiagnostics? spccDiagnostics = null;
         var sw = Stopwatch.StartNew();
         var stats = statsSource ?? master;
         // When stats is just master, statsWcs naturally collapses to wcs.
@@ -100,9 +119,180 @@ public sealed class MasterPreviewRenderer(ICelestialObjectDB? catalogDb, ILogger
         // catalogue stars onto the cropped pixel grid.
         var effectiveWcs = statsWcs ?? wcs;
 
+        var (uniforms, spccDiagnostics, wbGains) = await ComputeStretchUniformsAsync(
+            master, stats, effectiveWcs, sensorMeta, whiteBalanceOverride, ct);
+
         // ------------------------------------------------------------
-        // Scan per-channel background medians (used to anchor the
-        // shader's bg-neut math against the post-WB coordinate space).
+        // Render PNG from the computed uniforms.
+        // ------------------------------------------------------------
+        var renderSw = Stopwatch.StartNew();
+        var (channelCount, width, height) = master.Shape;
+        // 16-bit per channel via SharpAstro.Png 3.0's EncodeRgba16 path.
+        // 65,536 levels per channel eliminates the banding the 8-bit path
+        // produced on smooth nebula gradients (visible after MTF stretch).
+        //
+        // Colour signalling: PNG-3 cICP -- 4-byte chunk instead of an ICC
+        // profile. Default is {sRGB primaries, sRGB transfer, RGB, full
+        // range} for SDR display-referred output. When hdr10Pq=true, the
+        // rgba buffer is re-encoded to BT.2020+PQ via Bt2020Pq.EncodeInPlace
+        // and tagged with cICP Hdr10Pq -- modern browsers + HDR displays
+        // interpret it as actual HDR. peakNits sets the "1.0 stretched
+        // value -> X nits" mapping (default 1000 nits, cinema HDR10).
+        var rgba = new ushort[width * height * 4];
+        master.RenderStretchedRgba16(uniforms, rgba);
+        CicpChunk cicp;
+        if (hdr10Pq)
+        {
+            Bt2020Pq.EncodeInPlace(rgba, peakNits, gamutToBt2020);
+            // BT.2020 + PQ is canonical HDR10. sRGB-primaries + PQ is the
+            // "narrow-gamut HDR" variant (cICP {1, 16, 0, 1}) -- non-standard
+            // but valid PNG-3 / ICC v4.4 and avoids gamut-mismatch
+            // desaturation on consumer HDR pipelines that don't apply the
+            // inverse BT.2020-to-display matrix on output.
+            cicp = gamutToBt2020 ? CicpChunk.Hdr10Pq : CicpChunk.SrgbPq;
+        }
+        else
+        {
+            cicp = CicpChunk.Srgb;
+        }
+        // Empty outputPath = solve-only: the caller (MasterPostProcessor) just needs
+        // the uniforms to stretch the split plates, e.g. --split-plates with
+        // --output-format exr/none. Skip the PNG write in that case.
+        if (outputPath is { Length: > 0 })
+        {
+            var pngOpts = new PngWriteOptions { Cicp = cicp };
+            var png = PngWriter.EncodeRgba16(rgba, width, height, pngOpts);
+            await File.WriteAllBytesAsync(outputPath, png, ct);
+            logger.LogInformation("  wrote {Path} ({TotalMs} ms render+encode)",
+                outputPath, renderSw.ElapsedMilliseconds);
+        }
+
+        logger.LogInformation("  [preview] total {Ms} ms", sw.ElapsedMilliseconds);
+
+        return new PreviewRender(spccDiagnostics, uniforms, wbGains);
+    }
+
+    /// <summary>
+    /// Stretches <paramref name="plate"/> (a stars-only or starless lineage plate) for the
+    /// <c>--split-plates</c> export and writes a display-referred float TIFF (sRGB ICC) for
+    /// Photoshop / Affinity layering. The plate SELF-STRETCHES -- its own per-channel
+    /// background neutralisation + shadow/MTF, computed from its own pixels -- and only the
+    /// <paramref name="sharedWhiteBalance"/> (the master's one SPCC triple) is shared, so
+    /// each plate's background lands neutral while the star colours stay on the master's
+    /// colour calibration. (Sharing the master's FULL stretch instead would inherit its
+    /// bg-neut, which double-corrects a plate whose own background differs and produces a
+    /// cast.) The stretch is the exact CPU mirror of the PNG render
+    /// (<see cref="Image.RenderStretchedRgba16"/>), 16-bit per channel -> [0,1] float. The
+    /// input <paramref name="plate"/> is not mutated.
+    /// </summary>
+    public async Task RenderStretchedPlateTiffAsync(
+        Image plate, (float R, float G, float B)? sharedWhiteBalance, string tiffPath, CancellationToken ct = default)
+    {
+        // Per-plate solve: WB is supplied (shared), bg-neut + shadow/MTF come from the
+        // plate's own statistics. No WCS / catalog -- the WB override skips SPCC.
+        var (uniforms, _, _) = await ComputeStretchUniformsAsync(
+            plate, plate, effectiveWcs: null, plate.ImageMeta, sharedWhiteBalance, ct);
+
+        var (channelCount, width, height) = plate.Shape;
+        var rgba = new ushort[width * height * 4];
+        plate.RenderStretchedRgba16(uniforms, rgba);
+
+        // RGBA16 -> [0,1] float Image (R[,G,B]; alpha dropped). Mono plate keeps 1
+        // channel; colour keeps 3. WriteStretchedTiffAsync writes the floats verbatim.
+        var outCh = channelCount >= 3 ? 3 : 1;
+        var data = Image.CreateChannelData(outCh, height, width);
+        for (var y = 0; y < height; y++)
+        {
+            var row = y * width;
+            for (var x = 0; x < width; x++)
+            {
+                var i = (row + x) * 4;
+                data[0][y, x] = rgba[i] / 65535f;
+                if (outCh == 3)
+                {
+                    data[1][y, x] = rgba[i + 1] / 65535f;
+                    data[2][y, x] = rgba[i + 2] / 65535f;
+                }
+            }
+        }
+
+        var stretched = new Image(data, BitDepth.Float32, 1f, 0f, 0f, plate.ImageMeta);
+        try
+        {
+            await stretched.WriteStretchedTiffAsync(tiffPath, ct);
+            logger.LogInformation("  wrote {Path} (split plate, self-stretch + shared WB)", tiffPath);
+        }
+        finally
+        {
+            stretched.Release();
+        }
+    }
+
+    /// <summary>
+    /// Rewraps <paramref name="img"/> with <c>MinValue = 0</c> so the stretch sees a zero
+    /// pedestal (see the rationale in <see cref="ComputeStretchUniformsAsync"/>). Shares the
+    /// channel arrays by reference -- no pixel copy -- so it is cheap to call per render.
+    /// Returns the input unchanged when its pedestal is already ~0 (the common raw-master case).
+    /// </summary>
+    private static Image WithZeroPedestal(Image img)
+    {
+        if (img.MinValue is 0f or float.NaN) return img;
+        var data = new float[img.ChannelCount][,];
+        for (var c = 0; c < img.ChannelCount; c++)
+        {
+            data[c] = img.GetChannelArray(c);
+        }
+        return new Image(data, img.BitDepth, img.MaxValue, 0f, 0f, img.ImageMeta);
+    }
+
+    /// <summary>
+    /// The shared solve behind both <see cref="RenderAsync"/> (PNG) and
+    /// <see cref="RenderStretchedPlateTiffAsync"/> (split-plate TIFF): scan the per-channel
+    /// background, settle the white balance, derive the MinPivot bg-neut, and build the
+    /// per-channel stretch uniforms -- the single source of the bg-neut + stretch math so
+    /// the PNG and the plates never drift. White balance is either SOLVED here (SPCC needs
+    /// <paramref name="effectiveWcs"/> + the catalog DB and stars in <paramref name="statsImage"/>;
+    /// sky-bg WB is the fallback) or SUPPLIED via <paramref name="wbOverride"/> (the one
+    /// shared SPCC triple, so a split plate self-stretches its own background + MTF while
+    /// keeping the master's colour calibration). Stats come from <paramref name="statsImage"/>;
+    /// the uniforms are sized to <paramref name="renderImage"/> (the image that will be
+    /// stretched). Returns the uniforms, the SPCC diagnostics (null when WB was supplied or
+    /// SPCC was skipped), and the WB actually used (so the caller can share it across plates).
+    /// </summary>
+    private async Task<(StretchUniforms Uniforms, SpccDiagnostics? Spcc, (float R, float G, float B)? Wb)>
+        ComputeStretchUniformsAsync(
+            Image renderImage,
+            Image statsImage,
+            WCS? effectiveWcs,
+            ImageMeta sensorMeta,
+            (float R, float G, float B)? wbOverride,
+            CancellationToken ct)
+    {
+        SpccDiagnostics? spccDiagnostics = null;
+
+        // Force the stretch to a ZERO pedestal. The pedestal (MinValue/MaxValue)
+        // is subtracted from the per-channel median inside
+        // GetPedestralMedianAndMADScaledToUnit; for a GraXpert-flattened master
+        // the floor sits at ~half-scale, so subtracting it leaves the faint
+        // per-channel medians as tiny near-zero residues where small absolute
+        // differences EXPLODE in relative terms (R-ped=0.012 vs G-ped=0.002 ->
+        // 6x -> green crushed) or go negative (drizzle median 0.012 - pedestal
+        // 0.164 -> the whole frame renders black). The auto-stretch's own
+        // shadow clipping (median - k*MAD) already removes the black point, so
+        // the floor is just a uniform DC offset best left in place. Rewrapping
+        // with MinValue=0 (a cheap view-share, no pixel copy) makes the enhanced
+        // master behave exactly like the proven raw-master path (which only ever
+        // worked because raw masters happen to have MinValue ~ 0). The render
+        // images themselves are stretched elsewhere with the resulting
+        // Pedestal=0 uniform, so render + stats stay in one coordinate space.
+        var stats = WithZeroPedestal(statsImage);
+
+        // ------------------------------------------------------------
+        // Scan per-channel background medians (anchor the bg-neut gains).
+        // The shader applies bg-neut to norm = raw*NormFactor - Pedestal;
+        // with the zero-pedestal stats above, Pedestal == 0 so the absolute
+        // background ScanBackgroundRegion returns (zero pedestal in) IS the
+        // shader's coordinate space -- no mismatch.
         // ------------------------------------------------------------
         float[]? perChannelBg = null;
         if (stats.ChannelCount >= 3)
@@ -114,15 +304,21 @@ public sealed class MasterPreviewRenderer(ICelestialObjectDB? catalogDb, ILogger
         }
 
         // ------------------------------------------------------------
-        // White balance: SPCC first, sky-bg fallback, else identity.
-        // All photometry / catalog / sky-bg sampling runs on `stats`,
-        // not `master`, so the WB gains are anchored to the well-
-        // covered region. When the caller passes an autocrop as
-        // statsSource, the resulting gains are then applied to the
-        // full master via the shader uniforms below.
+        // White balance: a supplied (shared) triple short-circuits the
+        // solve -- that is the per-plate path, where the master's one
+        // SPCC balance is reused and only the bg-neut + stretch below
+        // are recomputed from this plate's own pixels. Otherwise SPCC
+        // first, sky-bg fallback, else identity. All photometry / catalog
+        // / sky-bg sampling runs on `stats`, not `renderImage`, so the
+        // gains are anchored to the well-covered region.
         // ------------------------------------------------------------
-        (float R, float G, float B)? wbGains = null;
-        if (stats.ChannelCount >= 3)
+        (float R, float G, float B)? wbGains = wbOverride;
+        if (wbGains is { } shared)
+        {
+            logger.LogInformation("  [WB] shared SPCC white balance ({R:F3}, {G:F3}, {B:F3}) -- plate self-stretches its own bg + MTF",
+                shared.R, shared.G, shared.B);
+        }
+        else if (stats.ChannelCount >= 3)
         {
             // Detect stars once (cap at 500 -- SPCC's photometry +
             // catalog match scales with detection count and the
@@ -200,7 +396,7 @@ public sealed class MasterPreviewRenderer(ICelestialObjectDB? catalogDb, ILogger
 
             if (wbGains is null && statsStars is { StarMask: { } mask })
             {
-                var skyWb = AstroImageDocument.ComputeSkyBackgroundWB(stats, mask);
+                var skyWb = StretchSolver.ComputeSkyBackgroundWB(stats, mask);
                 if (skyWb is { } w2)
                 {
                     wbGains = w2;
@@ -235,12 +431,12 @@ public sealed class MasterPreviewRenderer(ICelestialObjectDB? catalogDb, ILogger
         }
 
         // ------------------------------------------------------------
-        // Render PNG. Stretch uniforms carry bg-neut + WB so the
-        // shader runs per-channel-normalize -> bg-neut -> WB ->
-        // shadow/MTF. Mono short-circuits to a single-channel stretch.
+        // Per-channel stretch uniforms (sized to the render image).
+        // Stretch uniforms carry bg-neut + WB so the shader runs
+        // per-channel-normalize -> bg-neut -> WB -> shadow/MTF. Mono
+        // short-circuits to a single-channel stretch.
         // ------------------------------------------------------------
-        var renderSw = Stopwatch.StartNew();
-        var (channelCount, width, height) = master.Shape;
+        var channelCount = renderImage.ChannelCount;
         var perChannelStats = new ChannelStretchStats[channelCount];
         Span<float> bgPerCh = stackalloc float[3];
         if (bgGains is { } gIn) { bgPerCh[0] = gIn.R; bgPerCh[1] = gIn.G; bgPerCh[2] = gIn.B; }
@@ -256,54 +452,18 @@ public sealed class MasterPreviewRenderer(ICelestialObjectDB? catalogDb, ILogger
             var adjMad = mad * MathF.Abs(bn);
             perChannelStats[c] = new ChannelStretchStats(ped, adjMed, adjMad);
         }
-        var uniforms = AstroImageDocument.ComputeStretchUniforms(
+        var uniforms = StretchSolver.ComputeStretchUniforms(
             StretchMode.Unlinked,
             StretchParameters.Default,
             perChannelStats,
             lumaStats: null,
-            imageMaxValue: master.MaxValue,
+            imageMaxValue: renderImage.MaxValue,
             whiteBalance: wbGains);
         if (bgGains is { } bg2)
         {
             uniforms = uniforms with { BackgroundNeutralization = bg2 };
         }
-        // 16-bit per channel via SharpAstro.Png 3.0's EncodeRgba16 path.
-        // 65,536 levels per channel eliminates the banding the 8-bit path
-        // produced on smooth nebula gradients (visible after MTF stretch).
-        //
-        // Colour signalling: PNG-3 cICP -- 4-byte chunk instead of an ICC
-        // profile. Default is {sRGB primaries, sRGB transfer, RGB, full
-        // range} for SDR display-referred output. When hdr10Pq=true, the
-        // rgba buffer is re-encoded to BT.2020+PQ via Bt2020Pq.EncodeInPlace
-        // and tagged with cICP Hdr10Pq -- modern browsers + HDR displays
-        // interpret it as actual HDR. peakNits sets the "1.0 stretched
-        // value -> X nits" mapping (default 1000 nits, cinema HDR10).
-        var rgba = new ushort[width * height * 4];
-        master.RenderStretchedRgba16(uniforms, rgba);
-        CicpChunk cicp;
-        if (hdr10Pq)
-        {
-            Bt2020Pq.EncodeInPlace(rgba, peakNits, gamutToBt2020);
-            // BT.2020 + PQ is canonical HDR10. sRGB-primaries + PQ is the
-            // "narrow-gamut HDR" variant (cICP {1, 16, 0, 1}) -- non-standard
-            // but valid PNG-3 / ICC v4.4 and avoids gamut-mismatch
-            // desaturation on consumer HDR pipelines that don't apply the
-            // inverse BT.2020-to-display matrix on output.
-            cicp = gamutToBt2020 ? CicpChunk.Hdr10Pq : CicpChunk.SrgbPq;
-        }
-        else
-        {
-            cicp = CicpChunk.Srgb;
-        }
-        var pngOpts = new PngWriteOptions { Cicp = cicp };
-        var png = PngWriter.EncodeRgba16(rgba, width, height, pngOpts);
-        await File.WriteAllBytesAsync(outputPath, png, ct);
-        logger.LogInformation("  wrote {Path} ({TotalMs} ms render+encode)",
-            outputPath, renderSw.ElapsedMilliseconds);
-
-        logger.LogInformation("  [preview] total {Ms} ms", sw.ElapsedMilliseconds);
-
-        return spccDiagnostics;
+        return (uniforms, spccDiagnostics, wbGains);
     }
 
     /// <summary>

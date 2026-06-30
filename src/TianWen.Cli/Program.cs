@@ -125,14 +125,13 @@ var rootCommand = new RootCommand
         new StackSubCommand(
             consoleHost,
             services.GetRequiredService<ILogger<TianWen.Lib.Imaging.Stacking.StackingPipeline>>(),
-            services.GetRequiredService<ILogger<TianWen.UI.Abstractions.MasterPreviewRenderer>>(),
             services.GetRequiredService<TianWen.Lib.Astrometry.Catalogs.ICelestialObjectDB>(),
             services.GetRequiredService<SharpenPipeline>()).Build(),
         new PlanetaryStackSubCommand(
             consoleHost,
-            new TianWen.UI.Abstractions.MasterPreviewRenderer(
+            new TianWen.Lib.Imaging.Stacking.MasterPreviewRenderer(
                 services.GetRequiredService<TianWen.Lib.Astrometry.Catalogs.ICelestialObjectDB>(),
-                services.GetRequiredService<ILogger<TianWen.UI.Abstractions.MasterPreviewRenderer>>())).Build(),
+                services.GetRequiredService<ILogger<TianWen.Lib.Imaging.Stacking.MasterPreviewRenderer>>())).Build(),
         new SolveSubCommand(
             consoleHost,
             services.GetRequiredService<TianWen.Lib.Astrometry.PlateSolve.IPlateSolverFactory>(),
@@ -142,9 +141,9 @@ var rootCommand = new RootCommand
             services.GetRequiredService<SharpenPipeline>(),
             services.GetRequiredService<IStarRemover>(),
             services.GetRequiredService<IGradientCorrector>(),
-            new TianWen.UI.Abstractions.MasterPreviewRenderer(
+            new TianWen.Lib.Imaging.Stacking.MasterPreviewRenderer(
                 services.GetRequiredService<TianWen.Lib.Astrometry.Catalogs.ICelestialObjectDB>(),
-                services.GetRequiredService<ILogger<TianWen.UI.Abstractions.MasterPreviewRenderer>>()),
+                services.GetRequiredService<ILogger<TianWen.Lib.Imaging.Stacking.MasterPreviewRenderer>>()),
             services.GetService<ILogger<ImageSubCommand>>()).Build(),
         new TuiSubCommand(services, consoleHost, plannerState, profileSelector).Build()
     }

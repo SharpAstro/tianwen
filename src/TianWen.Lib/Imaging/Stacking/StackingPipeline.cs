@@ -949,7 +949,8 @@ public sealed class StackingPipeline(
         var postProcessor = new MasterPostProcessor(logger, catalogDb, options.Enhance ? sharpenPipeline : null);
         var postResult = await postProcessor.WriteMasterAsync(
             intResult, masterPath, searchHint, refImageDim, referenceRaw.ImageMeta, statsRect, selection.Chosen.Kind,
-            enhance: options.Enhance, enhanceBlend: options.EnhanceBlend, splitPlates: options.SplitPlates, ct);
+            enhance: options.Enhance, enhanceBlend: options.EnhanceBlend, splitPlates: options.SplitPlates,
+            renderPreviewPng: options.RenderPreviewPng, ct);
         if (intResult.TotalRejections > 0)
         {
             logger.LogInformation("  wrote {Path}", IntegrationFitsWriter.RejectionPathFor(masterPath));
@@ -962,7 +963,8 @@ public sealed class StackingPipeline(
             Result: postResult.Result,
             MasterFitsPath: masterPath,
             PreviewPngPath: previewPath,
-            Elapsed: groupSw.Elapsed);
+            Elapsed: groupSw.Elapsed,
+            Spcc: postResult.Spcc);
     }
 
     // =====================================================================

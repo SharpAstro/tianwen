@@ -120,4 +120,5 @@ public sealed record StackingOptions(
     bool IncludeIntegrations = false,
     bool Enhance = false,
     float EnhanceBlend = 1.0f,
-    bool SplitPlates = false);
+    bool SplitPlates = false,
+    bool RenderPreviewPng = true);
