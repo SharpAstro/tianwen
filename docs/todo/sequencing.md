@@ -105,12 +105,13 @@ Part of the TianWen TODO set. See [TODO.md](../../TODO.md) for the index and the
 ## Flat-frame acquisition (automation)
 
 `FrameType.Flat`, the cover/calibrator device (`ICoverDriver`), and the stacking calibrator
-(`MasterFrameBuilder`) all exist, but there is no automated flat *capture* -- flats must be shot by
-hand. The painpoint: a fully automated session still needs a manual flats step.
+(`MasterFrameBuilder`) all exist. **Phase 1 SHIPPED** (panel/calibrator flats): see
+[docs/plans/flat-frame-automation.md](../plans/flat-frame-automation.md).
 
-- [ ] Auto-exposure flat routine: bracket exposure to converge mean ADU to a target (~0.5 of full well) per filter, driving the cover/calibrator panel brightness where available
-- [ ] Sky-flat (twilight) variant: ramp exposure as sky brightness changes through dusk/dawn
-- [ ] **Per-OTA fan-out** -- each OTA flats its own train (panel, exposure, and filter set differ per tube), same multi-OTA shape as capture
-- [ ] Sequence integration: an end-of-session (or on-demand) flat block that writes `FrameType.Flat` frames into the path template so the stacker's `MasterFrameBuilder` consumes them automatically
+- [x] Auto-exposure flat routine: bracket exposure to converge mean/median ADU to a target (~0.5 of full well) per filter -- pure `FlatExposureSolver` (`Imaging/Calibration/`) + `Session.TakeFlatsAsync` driving the cover/calibrator panel brightness. 12 + 2 tests.
+- [ ] Sky-flat (twilight) variant: ramp exposure as sky brightness changes through dusk/dawn (Phase 2)
+- [x] **Per-OTA fan-out** -- each OTA flats its own train; `TakeFlatsAsync` loops `Setup.Telescopes`, gated on a controllable calibrator (flip-flat or standalone lightbox), per-filter via `SwitchFilterIfNeededAsync`.
+- [x] Sequence integration: opt-in `SessionConfiguration.TakeFlatsOnSessionEnd` end-of-session block (after the observation loop, before `Finalise` warms cameras), writing `FrameType.Flat` frames under `Flats/<date>/<filter>/Flat/` that the stacker's `MasterFrameBuilder` consumes automatically (grouped by FITS headers, not path).
+- [ ] **Manual flat-panel mode -- OUT OF SESSION** (Phase 3): a dumb EL panel the user switches on by hand has no driver to gate on, so it can't live in the unattended end-of-session hook. It belongs on the on-demand surface (CLI/API), where the user explicitly starts a flat run that skips all cover/calibrator control and just auto-exposes + captures against the manual light. UI shape: a dropdown to pick the illumination source with a **light-bulb (💡)** entry for the manual panel (alongside auto-calibrator / sky-flat). Misconfigured illumination just fails the solver gracefully.
 - [ ] Auto-pick flats by matching object time + filter at stack time (also noted in [inbox.md](inbox.md))
 
