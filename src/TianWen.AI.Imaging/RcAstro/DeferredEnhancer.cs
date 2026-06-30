@@ -20,34 +20,52 @@ namespace TianWen.AI.Imaging.RcAstro
         Func<IImageEnhancer> rcFactory,
         Func<IImageEnhancer> fallbackFactory)
     {
-        private IImageEnhancer? _backend;
+        private IImageEnhancer? _rc;
+        private IImageEnhancer? _sas;
+
+        // The two backend instances are constructed lazily + memoized (stateless wrappers, so a
+        // lost race just discards a duplicate). The RC-vs-SAS DECISION is no longer cached: it is
+        // re-evaluated per call from EnhanceOptions.Backend (see Resolve), so a caller can force
+        // SAS for one enhance and Auto for the next. The (blocking, subprocess-backed) license
+        // probe is still only hit on the first Auto/ForceRcAstro call -- never at DI build -- and
+        // is itself cached in RcAstroCli.
+        private IImageEnhancer Rc => Memoize(ref _rc, rcFactory);
+        private IImageEnhancer Sas => Memoize(ref _sas, fallbackFactory);
+
+        private static IImageEnhancer Memoize(ref IImageEnhancer? slot, Func<IImageEnhancer> factory)
+        {
+            var existing = slot;
+            if (existing is not null)
+            {
+                return existing;
+            }
+            var candidate = factory();
+            return Interlocked.CompareExchange(ref slot, candidate, null) ?? candidate;
+        }
 
         /// <summary>
-        /// The resolved backend: RC-Astro when the CLI is present AND
-        /// <paramref name="productKey"/> is licensed, else the SAS fallback.
-        /// The license probe runs here, on first access, and is itself cached in
-        /// <see cref="RcAstroCli"/>. Lock-free single init via
-        /// <see cref="Interlocked.CompareExchange{T}(ref T, T, T)"/>; a lost
-        /// race just discards a stateless duplicate wrapper.
+        /// Picks the backend for <paramref name="backend"/>: <see cref="EnhanceBackend.ForceSas"/>
+        /// -&gt; SAS unconditionally; <see cref="EnhanceBackend.ForceRcAstro"/> -&gt; RC whenever the
+        /// CLI binary is present (license gate skipped); <see cref="EnhanceBackend.Auto"/> -&gt; RC
+        /// when present AND licensed, else SAS.
         /// </summary>
-        internal IImageEnhancer Backend
+        private protected IImageEnhancer Resolve(EnhanceBackend backend) => backend switch
         {
-            get
-            {
-                var existing = _backend;
-                if (existing is not null)
-                {
-                    return existing;
-                }
-                var candidate = cli.IsAvailable && cli.IsLicensed(productKey) ? rcFactory() : fallbackFactory();
-                return Interlocked.CompareExchange(ref _backend, candidate, null) ?? candidate;
-            }
-        }
+            EnhanceBackend.ForceSas      => Sas,
+            EnhanceBackend.ForceRcAstro  => cli.IsAvailable ? Rc : Sas,
+            _                            => cli.IsAvailable && cli.IsLicensed(productKey) ? Rc : Sas,
+        };
+
+        /// <summary>The Auto-resolved backend (used by <see cref="Name"/> and the param-less path).</summary>
+        internal IImageEnhancer Backend => Resolve(EnhanceBackend.Auto);
 
         public string Name => Backend.Name;
 
         public Task<Image> EnhanceAsync(Image input, CancellationToken cancellationToken = default)
             => Backend.EnhanceAsync(input, cancellationToken);
+
+        public Task<Image> EnhanceAsync(Image input, EnhanceOptions options, IProgress<float>? progress = null, CancellationToken cancellationToken = default)
+            => Resolve(options.Backend).EnhanceAsync(input, options, progress, cancellationToken);
     }
 
     /// <summary>Deferred sxt -&gt; <see cref="IStarRemover"/> dispatcher.</summary>
@@ -82,5 +100,13 @@ namespace TianWen.AI.Imaging.RcAstro
             => Backend is IDenoiseEnhancer denoiser
                 ? denoiser.EnhanceAsync(input, variant, cancellationToken)
                 : EnhanceAsync(input, cancellationToken);
+
+        public Task<Image> EnhanceAsync(Image input, DenoiseVariant variant, EnhanceOptions options, IProgress<float>? progress = null, CancellationToken cancellationToken = default)
+        {
+            var backend = Resolve(options.Backend);
+            return backend is IDenoiseEnhancer denoiser
+                ? denoiser.EnhanceAsync(input, variant, options, progress, cancellationToken)
+                : backend.EnhanceAsync(input, options, progress, cancellationToken);
+        }
     }
 }

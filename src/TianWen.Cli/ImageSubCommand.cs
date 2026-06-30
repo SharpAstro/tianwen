@@ -349,10 +349,32 @@ internal sealed class ImageSubCommand(
             DefaultValueFactory = _ => 1.0,
         };
 
+        // RC-Astro vs SAS backend control + per-product strength overrides (Phase 3a).
+        var aiBackendOpt = new Option<string>("--ai-backend")
+        {
+            Description = "AI enhancer backend for the RC-servable roles (star removal / deblur / deconvolution / denoise): 'auto' (RC-Astro when present + licensed, else SAS ONNX -- default), 'rc' (force RC-Astro whenever the CLI is installed, skipping the license probe), or 'sas' (force SAS ONNX even when RC-Astro is licensed). No effect on stellar-sharpen / gradient-correction (SAS-only).",
+            DefaultValueFactory = _ => "auto",
+        };
+        var bxtSharpenOpt = new Option<double>("--bxt-sharpen")
+        {
+            Description = "RC-Astro BlurXTerminator non-stellar sharpen (bxt --sn) in [0, 1], applied to the full-image deblur and the starless deconvolution. < 0 (default) = the enhancer's own default (0.90). Only affects the RC-Astro backend.",
+            DefaultValueFactory = _ => -1.0,
+        };
+        var nxtDenoiseOpt = new Option<double>("--nxt-denoise")
+        {
+            Description = "RC-Astro NoiseXTerminator strength (nxt --dn) in [0, 1]. < 0 (default) = noise-adaptive auto. Only affects the RC-Astro backend.",
+            DefaultValueFactory = _ => -1.0,
+        };
+        var nxtIterationsOpt = new Option<int>("--nxt-iterations")
+        {
+            Description = "RC-Astro NoiseXTerminator iterations (nxt --it). < 1 (default) = the enhancer's own default (2). Only affects the RC-Astro backend.",
+            DefaultValueFactory = _ => 0,
+        };
+
         var cmd = new Command("sharpen", "Full AI4 NAFNet sharpen pipeline: remove stars, sharpen the stars-only plate, deconvolve + denoise the starless plate, optional SCNR on stars, recombine.")
         {
             Arguments = { inputArg },
-            Options = { outputOpt, modeOpt, stellarSharpenOpt, noDeconvOpt, noDenoiseOpt, noRecombineOpt, formatOpt, pngPqPeakNitsOpt, pngPqGamutOpt, stellarBlendOpt, deconvBlendOpt, denoiseBlendOpt, denoiseVariantOpt, scnrOpt, scnrAmountOpt, dualStretchOpt, stretchStarsAmountOpt, stretchStarlessMedianOpt, starStretchModeOpt, starlessStretchModeOpt, stretchModeOpt, ghsConvergeOpt, ghsLnDOpt, ghsBOpt, ghsLpOpt, ghsHpOpt, ghsSpOpt, ghsPassesOpt, ghsStagesOpt, ghsAutoTargetValueOpt, ghsAutoTargetOpt, asinhBetaOpt, asinhBlackPointOpt, asinhLumaOpt, noReduceBgOpt, reduceBgCompressionOpt, noCompressHighlightsOpt, highlightKneeOpt, highlightAmountOpt },
+            Options = { outputOpt, modeOpt, stellarSharpenOpt, noDeconvOpt, noDenoiseOpt, noRecombineOpt, formatOpt, pngPqPeakNitsOpt, pngPqGamutOpt, stellarBlendOpt, deconvBlendOpt, denoiseBlendOpt, denoiseVariantOpt, scnrOpt, scnrAmountOpt, dualStretchOpt, stretchStarsAmountOpt, stretchStarlessMedianOpt, starStretchModeOpt, starlessStretchModeOpt, stretchModeOpt, ghsConvergeOpt, ghsLnDOpt, ghsBOpt, ghsLpOpt, ghsHpOpt, ghsSpOpt, ghsPassesOpt, ghsStagesOpt, ghsAutoTargetValueOpt, ghsAutoTargetOpt, asinhBetaOpt, asinhBlackPointOpt, asinhLumaOpt, noReduceBgOpt, reduceBgCompressionOpt, noCompressHighlightsOpt, highlightKneeOpt, highlightAmountOpt, aiBackendOpt, bxtSharpenOpt, nxtDenoiseOpt, nxtIterationsOpt },
         };
         cmd.SetAction(async (parseResult, ct) =>
         {
@@ -375,6 +397,30 @@ internal sealed class ImageSubCommand(
                 consoleHost.WriteError($"--mode must be 'additive' or 'screen', got '{modeStr}'");
                 return 1;
             }
+
+            var backendStr = (parseResult.GetValue(aiBackendOpt) ?? "auto").ToLowerInvariant();
+            EnhanceBackend backend = backendStr switch
+            {
+                "auto" => EnhanceBackend.Auto,
+                "rc" or "rcastro" or "rc-astro" => EnhanceBackend.ForceRcAstro,
+                "sas" => EnhanceBackend.ForceSas,
+                _ => (EnhanceBackend)(-1),
+            };
+            if ((int)backend < 0)
+            {
+                consoleHost.WriteError($"--ai-backend must be 'auto', 'rc', or 'sas', got '{backendStr}'");
+                return 1;
+            }
+            var bxtSharpen = parseResult.GetValue(bxtSharpenOpt);
+            var nxtDenoise = parseResult.GetValue(nxtDenoiseOpt);
+            var nxtIterations = parseResult.GetValue(nxtIterationsOpt);
+            EnhanceTuning? tuning = bxtSharpen >= 0 || nxtDenoise >= 0 || nxtIterations >= 1
+                ? new EnhanceTuning(
+                    DeblurSharpen: bxtSharpen >= 0 ? (float)bxtSharpen : null,
+                    DenoiseStrength: nxtDenoise >= 0 ? (float)nxtDenoise : null,
+                    DenoiseIterations: nxtIterations >= 1 ? nxtIterations : null)
+                : null;
+            var enhanceOptions = new EnhanceOptions(backend, tuning);
 
             var stellarOptIn = parseResult.GetValue(stellarSharpenOpt);
             var noDeconv = parseResult.GetValue(noDeconvOpt);
@@ -742,12 +788,12 @@ internal sealed class ImageSubCommand(
             consoleHost.WriteScrollable(
                 $"[sharpen] {input} {src.Width}x{src.Height}x{src.ChannelCount} mode={mode} " +
                 $"stellar={doStellar}({stellarBlend:F2}) deconv={!noDeconv}({deconvBlend:F2}) " +
-                $"denoise={!noDenoise}({denoiseBlend:F2},{denoiseVariant}) scnr={effectiveScnrMode}({scnrAmount:F2}){dualStretchDesc} recombine={!noRecombine}");
+                $"denoise={!noDenoise}({denoiseBlend:F2},{denoiseVariant}) scnr={effectiveScnrMode}({scnrAmount:F2}){dualStretchDesc} recombine={!noRecombine} backend={backend}{(tuning is null ? "" : $" tuning(sn={tuning.DeblurSharpen?.ToString("F2") ?? "-"},dn={tuning.DenoiseStrength?.ToString("F2") ?? "-"},it={tuning.DenoiseIterations?.ToString() ?? "-"})")}");
 
             SharpenResult result;
             try
             {
-                result = await sharpenPipeline.ProcessAsync(request, ct);
+                result = await sharpenPipeline.ProcessAsync(request, enhanceOptions, cancellationToken: ct);
             }
             catch (Exception ex)
             {

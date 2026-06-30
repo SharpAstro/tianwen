@@ -35,12 +35,18 @@ namespace TianWen.AI.Imaging.RcAstro
         /// <summary>
         /// Product-specific CLI flags appended after the shared
         /// input/-o/--depth/--engine/--overwrite/--json arguments. Return an
-        /// empty list to run the product on its defaults.
+        /// empty list to run the product on its defaults. <paramref name="tuning"/>
+        /// carries optional per-product strength overrides (null fields = the
+        /// enhancer's own defaults, i.e. today's behaviour).
         /// </summary>
-        protected abstract IReadOnlyList<string> BuildArgs(Image input);
+        protected abstract IReadOnlyList<string> BuildArgs(Image input, EnhanceTuning? tuning);
 
-        /// <inheritdoc cref="IImageEnhancer.EnhanceAsync"/>
-        public async Task<Image> EnhanceAsync(Image input, CancellationToken cancellationToken = default)
+        /// <inheritdoc cref="IImageEnhancer.EnhanceAsync(Image, CancellationToken)"/>
+        public Task<Image> EnhanceAsync(Image input, CancellationToken cancellationToken = default)
+            => EnhanceAsync(input, EnhanceOptions.Default, null, cancellationToken);
+
+        /// <inheritdoc cref="IImageEnhancer.EnhanceAsync(Image, EnhanceOptions, IProgress{float}, CancellationToken)"/>
+        public async Task<Image> EnhanceAsync(Image input, EnhanceOptions options, IProgress<float>? stepProgress = null, CancellationToken cancellationToken = default)
         {
             ArgumentNullException.ThrowIfNull(input);
 
@@ -55,11 +61,14 @@ namespace TianWen.AI.Imaging.RcAstro
                 input.WriteToFitsFile(inputPath);
 
                 var progress = new Progress<RcAstroProgress>(p =>
+                {
                     logger?.LogDebug("RC-Astro {Product}: {Done:F1}% ({Mp:F1} MP/s, eta {Eta:F0}s)",
-                        ProductKey, p.PercentDone, p.MegapixelsPerSecond, p.EtaSeconds));
+                        ProductKey, p.PercentDone, p.MegapixelsPerSecond, p.EtaSeconds);
+                    stepProgress?.Report((float)(p.PercentDone / 100.0));
+                });
 
                 var sw = Stopwatch.StartNew();
-                var result = await cli.RunAsync(ProductKey, inputPath, outputPath, BuildArgs(input), progress, cancellationToken)
+                var result = await cli.RunAsync(ProductKey, inputPath, outputPath, BuildArgs(input, options.Tuning), progress, cancellationToken)
                     .ConfigureAwait(false);
 
                 if (!Image.TryReadFitsFile(outputPath, out var enhanced))

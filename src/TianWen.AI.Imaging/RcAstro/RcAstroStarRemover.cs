@@ -22,6 +22,6 @@ namespace TianWen.AI.Imaging.RcAstro
         // sxt removes stars on its defaults (tile overlap 0.2). We intentionally
         // do NOT pass --stars: that would also emit a separate stars-only file,
         // which the pipeline computes itself.
-        protected override IReadOnlyList<string> BuildArgs(Image input) => [];
+        protected override IReadOnlyList<string> BuildArgs(Image input, EnhanceTuning? tuning) => [];
     }
 }
