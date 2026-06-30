@@ -793,7 +793,9 @@ internal sealed class ImageSubCommand(
             SharpenResult result;
             try
             {
-                result = await sharpenPipeline.ProcessAsync(request, enhanceOptions, cancellationToken: ct);
+                // Per-step progress to the console (step transitions + RC-Astro sub-step %).
+                var enhanceProgress = EnhanceProgressConsole.Create(consoleHost, "[sharpen]");
+                result = await sharpenPipeline.ProcessAsync(request, enhanceOptions, enhanceProgress, ct);
             }
             catch (Exception ex)
             {

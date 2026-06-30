@@ -128,6 +128,86 @@ public class SharpenPipelineTests(ITestOutputHelper output)
             new ImageMeta { SensorType = SensorType.Color });
     }
 
+    /// <summary>Synchronous <see cref="IProgress{T}"/> collector. The pipeline reports on the
+    /// awaiting thread and the fakes complete synchronously, so a plain list captures every tick
+    /// in order with no async-dispatch reordering (unlike <see cref="Progress{T}"/>).</summary>
+    private sealed class CollectingProgress<T> : IProgress<T>
+    {
+        public System.Collections.Generic.List<T> Items { get; } = [];
+        public void Report(T value) => Items.Add(value);
+    }
+
+    /// <summary>Star remover that reports two sub-step ticks (0.5 then 1.0) through the options
+    /// overload, standing in for an RC-Astro NDJSON percent stream.</summary>
+    private sealed class ProgressingStarRemover : IStarRemover
+    {
+        public string Name => "Test/ProgressingStarRemover";
+        public Task<Image> EnhanceAsync(Image input, CancellationToken cancellationToken = default)
+            => Task.FromResult(input);
+        public Task<Image> EnhanceAsync(Image input, EnhanceOptions options, IProgress<float>? progress = null, CancellationToken cancellationToken = default)
+        {
+            progress?.Report(0.5f);
+            progress?.Report(1.0f);
+            return Task.FromResult(input);
+        }
+    }
+
+    // --- Progress reporting (Phase 3b) ---------------------------------
+
+    [Fact]
+    public async Task ProcessAsync_ReportsOneBoundaryTickPerStep()
+    {
+        // ConstantStarRemover (not identity) for the star remover so `starless` is a fresh
+        // plate -- mirrors ProcessAsync_CanonicalWithIdentityEnhancers, which releases the
+        // identity gradientCorrected (== source) safely because starless is distinct.
+        var pipeline = new SharpenPipeline(
+            starRemover: new ConstantStarRemover(0.2f),
+            gradientCorrector: new IdentityEnhancer("identity"));
+        var src = SyntheticRgb(8, 8, 0.5f);
+        var progress = new CollectingProgress<EnhanceProgress>();
+
+        await pipeline.ProcessAsync(
+            new SharpenRequest(src, [new GradientCorrectionStep(), new RemoveStarsStep(), new RecombineStep()]),
+            EnhanceOptions.Default, progress, TestContext.Current.CancellationToken);
+
+        // Neither fake emits sub-step ticks, so exactly one boundary tick (StepPercent 0) per step.
+        progress.Items.Count.ShouldBe(3);
+        progress.Items[0].StepName.ShouldBe("gradient-correction");
+        progress.Items[1].StepName.ShouldBe("remove-stars");
+        progress.Items[2].StepName.ShouldBe("recombine");
+        for (var i = 0; i < progress.Items.Count; i++)
+        {
+            progress.Items[i].StepIndex.ShouldBe(i);
+            progress.Items[i].StepCount.ShouldBe(3);
+            progress.Items[i].StepPercent.ShouldBe(0f);
+        }
+    }
+
+    [Fact]
+    public async Task ProcessAsync_ForwardsEnhancerSubStepTicks()
+    {
+        var pipeline = new SharpenPipeline(starRemover: new ProgressingStarRemover());
+        var src = SyntheticRgb(8, 8, 0.5f);
+        var progress = new CollectingProgress<EnhanceProgress>();
+
+        await pipeline.ProcessAsync(
+            new SharpenRequest(src, [new RemoveStarsStep()]),
+            EnhanceOptions.Default, progress, TestContext.Current.CancellationToken);
+
+        // Boundary tick (0) then the enhancer's two forwarded sub-step ticks (0.5, 1.0), all
+        // stamped under the single remove-stars step identity.
+        progress.Items.Count.ShouldBe(3);
+        foreach (var p in progress.Items)
+        {
+            p.StepName.ShouldBe("remove-stars");
+            p.StepIndex.ShouldBe(0);
+            p.StepCount.ShouldBe(1);
+        }
+        progress.Items[0].StepPercent.ShouldBe(0f);
+        progress.Items[1].StepPercent.ShouldBe(0.5f);
+        progress.Items[2].StepPercent.ShouldBe(1.0f);
+    }
+
     // --- Request validation: topology --------------------------------
 
     [Fact]

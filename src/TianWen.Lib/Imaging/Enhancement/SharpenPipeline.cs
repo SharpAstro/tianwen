@@ -60,8 +60,10 @@ public sealed class SharpenPipeline(
     /// <summary>
     /// Runs the step program with per-operation <paramref name="options"/> (backend selection +
     /// RC-Astro tuning) threaded to every enhancer. <paramref name="progress"/> receives a stamped
-    /// <see cref="EnhanceProgress"/> per step (the per-step forwarding is wired in Phase 3b; the
-    /// parameter is part of the final signature so callers bind against it now).
+    /// <see cref="EnhanceProgress"/> at each step boundary (StepPercent 0); the enhancer-backed
+    /// steps additionally forward their backend's sub-step ticks (RC-Astro's NDJSON percent stream,
+    /// relayed through <see cref="StepProgressRelay"/>) under the same step identity with a rising
+    /// StepPercent. CPU-only steps emit only the boundary tick.
     /// </summary>
     public async Task<SharpenResult> ProcessAsync(SharpenRequest request, EnhanceOptions options, IProgress<EnhanceProgress>? progress = null, CancellationToken cancellationToken = default)
     {
@@ -123,12 +125,21 @@ public sealed class SharpenPipeline(
         // Anchors the headline "AI removed X% noise" delta in SharpenResult.
         var linearStarlessNoise = inputNoise;
         var phaseSw = Stopwatch.StartNew();
+        var stepCount = request.Steps.Length;
+        var stepIndex = 0;
 
         try
         {
             foreach (var step in request.Steps)
             {
                 phaseSw.Restart();
+                // Per-step progress identity (pipeline-owned). The boundary tick (StepPercent 0)
+                // fires for every step so the consumer sees even the fast CPU-only steps; the
+                // enhancer-backed steps below pass `stepProgress` so their backend's sub-step
+                // ticks re-stamp under this same identity with a rising StepPercent.
+                var stepName = StepDisplayName(step);
+                progress?.Report(new EnhanceProgress(stepName, stepIndex, stepCount, 0f, 0));
+                var stepProgress = progress is null ? null : new StepProgressRelay(progress, stepName, stepIndex, stepCount);
                 switch (step)
                 {
                     case DeblurStep deblurStep:
@@ -137,7 +148,7 @@ public sealed class SharpenPipeline(
                         // stars AND non-stellar structure on the source before any
                         // split, so downstream steps consume `deblurred ?? source`.
                         // Replaces the SAS remove-then-sharpen-stars approach.
-                        var raw = await Require(deblurrer).EnhanceAsync(source, options, cancellationToken: cancellationToken);
+                        var raw = await Require(deblurrer).EnhanceAsync(source, options, stepProgress, cancellationToken);
                         if (ReferenceEquals(raw, source))
                         {
                             // No-op passthrough (e.g. bxt present but unlicensed):
@@ -160,7 +171,7 @@ public sealed class SharpenPipeline(
                         // of the pipeline. All downstream steps that consume
                         // the source pick `gradientCorrected ?? source`
                         // so they see the cleaned plate.
-                        gradientCorrected = await Require(gradientCorrector).EnhanceAsync(deblurred ?? source, options, cancellationToken: cancellationToken);
+                        gradientCorrected = await Require(gradientCorrector).EnhanceAsync(deblurred ?? source, options, stepProgress, cancellationToken);
                         timings.Add(("gradient-correction", phaseSw.ElapsedMilliseconds, gradientCorrected.EstimateNoiseProfile()));
                         break;
                     }
@@ -170,7 +181,7 @@ public sealed class SharpenPipeline(
                         // Read from the corrected plate when GradientCorrectionStep
                         // ran upstream; falls back to the original source otherwise.
                         var starsInput = gradientCorrected ?? deblurred ?? source;
-                        starless = await Require(starRemover).EnhanceAsync(starsInput, options, cancellationToken: cancellationToken);
+                        starless = await Require(starRemover).EnhanceAsync(starsInput, options, stepProgress, cancellationToken);
                         // Pixel split:
                         //   Additive (default): StarsOnly = max(Source - Starless, 0).
                         //     Physically correct in linear-light photon space.
@@ -210,7 +221,7 @@ public sealed class SharpenPipeline(
                         // starsOnly normally, or an SCNR'd version if ScnrStarsStep
                         // ran earlier in the same request.
                         var inputPlate = Require(starsOnly);
-                        var raw = await Require(stellarSharpener).EnhanceAsync(inputPlate, options, cancellationToken: cancellationToken);
+                        var raw = await Require(stellarSharpener).EnhanceAsync(inputPlate, options, stepProgress, cancellationToken);
                         sharpenedStars = sharpStep.Blend < 1f
                             ? inputPlate.Lerp(raw, sharpStep.Blend)
                             : raw;
@@ -222,7 +233,7 @@ public sealed class SharpenPipeline(
                     case DeconvolveStarlessStep deconvStep:
                     {
                         var inputPlate = Require(starless);
-                        var raw = await Require(nonStellarDeconvolver).EnhanceAsync(inputPlate, options, cancellationToken: cancellationToken);
+                        var raw = await Require(nonStellarDeconvolver).EnhanceAsync(inputPlate, options, stepProgress, cancellationToken);
                         deconvolvedStarless = deconvStep.Blend < 1f
                             ? inputPlate.Lerp(raw, deconvStep.Blend)
                             : raw;
@@ -246,7 +257,7 @@ public sealed class SharpenPipeline(
                         // output if a DeconvolveStarlessStep ran earlier,
                         // otherwise the raw starless plate.
                         var inputPlate = deconvolvedStarless ?? Require(starless);
-                        var raw = await Require(denoiser).EnhanceAsync(inputPlate, denoiseStep.Variant, options, cancellationToken: cancellationToken);
+                        var raw = await Require(denoiser).EnhanceAsync(inputPlate, denoiseStep.Variant, options, stepProgress, cancellationToken);
                         denoisedStarless = denoiseStep.Blend < 1f
                             ? inputPlate.Lerp(raw, denoiseStep.Blend)
                             : raw;
@@ -507,6 +518,8 @@ public sealed class SharpenPipeline(
                         throw new NotSupportedException(
                             $"SharpenPipeline: unhandled step type {step.GetType().Name}.");
                 }
+
+                stepIndex++;
             }
         }
         catch
@@ -559,6 +572,48 @@ public sealed class SharpenPipeline(
     {
         if (sigmas.IsDefaultOrEmpty) return "n/a";
         return string.Join("/", sigmas.Select(s => s.ToString("E2", System.Globalization.CultureInfo.InvariantCulture)));
+    }
+
+    /// <summary>
+    /// Stable short display name for a step, used as <see cref="EnhanceProgress.StepName"/>.
+    /// Matches the base label the per-step timing log uses (minus the parameter suffixes) so
+    /// the progress lines and the timing summary read as the same steps.
+    /// </summary>
+    private static string StepDisplayName(SharpenStep step) => step switch
+    {
+        DeblurStep => "deblur",
+        GradientCorrectionStep => "gradient-correction",
+        RemoveStarsStep => "remove-stars",
+        SharpenStarsStep => "sharpen-stars",
+        DeconvolveStarlessStep => "deconv-starless",
+        DenoiseStarlessStep => "denoise-starless",
+        BackgroundReduceStep => "background-reduce",
+        CompressHighlightsStep => "compress-highlights",
+        ScnrStarsStep => "scnr-stars",
+        StretchStarsStep => "stretch-stars",
+        AsinhStretchStarsStep => "asinh-stretch-stars",
+        GhsStretchStarlessStep => "ghs-stretch-starless",
+        StretchStarlessStep => "stretch-starless",
+        AsinhStretchStarlessStep => "asinh-stretch-starless",
+        RecombineStep => "recombine",
+        MtfStretchFinalStep => "mtf-stretch-final",
+        GhsStretchFinalStep => "ghs-stretch-final",
+        AsinhStretchFinalStep => "asinh-stretch-final",
+        _ => step.GetType().Name,
+    };
+
+    /// <summary>
+    /// Forwards an enhancer's sub-step fraction (0..1) as a fully-stamped
+    /// <see cref="EnhanceProgress"/> under the pipeline-owned step identity. A synchronous
+    /// relay (not <see cref="Progress{T}"/>) so the backend's tick order is preserved on the
+    /// way to the consumer. EtaSeconds is 0: the <see cref="IProgress{T}"/>-of-float contract
+    /// carries only the fraction (RC-Astro's NDJSON eta is logged in the wrapper but not
+    /// surfaced through this hop).
+    /// </summary>
+    private sealed class StepProgressRelay(IProgress<EnhanceProgress> sink, string name, int index, int count) : IProgress<float>
+    {
+        public void Report(float fraction)
+            => sink.Report(new EnhanceProgress(name, index, count, Math.Clamp(fraction, 0f, 1f), 0));
     }
 
     /// <summary>

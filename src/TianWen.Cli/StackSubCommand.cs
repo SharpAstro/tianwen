@@ -374,7 +374,10 @@ internal sealed class StackSubCommand(
                 pipelineLogger,
                 catalogDb: skipPlateSolve ? null : catalogDb,
                 progress: progress,
-                sharpenPipeline: options.Enhance ? sharpenPipeline : null);
+                sharpenPipeline: options.Enhance ? sharpenPipeline : null,
+                // Per-step enhance progress (deblur / denoise can run for minutes) -- only
+                // wired when enhancing; otherwise ProcessAsync is never reached.
+                enhanceProgress: options.Enhance ? EnhanceProgressConsole.Create(consoleHost, "[stack] enhance:") : null);
             // The preview PNG + split-plate TIFFs are rendered INSIDE the pipeline
             // (MasterPostProcessor) now, so they share one WB + bg-neut solve and the
             // plates come out colour-matched to the preview. EXR is still written here
