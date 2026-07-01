@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.CommandLine;
 using System.Globalization;
 using System.IO;
@@ -80,7 +80,7 @@ internal sealed class SolveSubCommand(
         };
         var minStarsOpt = new Option<int>("--min-stars")
         {
-            Description = "Retry threshold for star detection -- forces a second pass at lower SNR when the first pass returns fewer than this.",
+            Description = "Retry threshold for star detection - forces a second pass at lower SNR when the first pass returns fewer than this.",
             DefaultValueFactory = _ => 100,
         };
         var maxStarsOpt = new Option<int>("--max-stars")
@@ -106,7 +106,7 @@ internal sealed class SolveSubCommand(
 
         var annotateOpt = new Option<string?>("--annotate")
         {
-            Description = "Write a plate-solve verification PNG to this path. Overlays detected stars (green circles), nearest Tycho-2 projections (red crosses), and residual lines (green<=tolerance, yellow<=3x, red>3x). Makes the tol-miss pattern visible at a glance -- if lines all point one direction it's a global offset, fan out it's distortion. Requires a successful solve.",
+            Description = "Write a plate-solve verification PNG to this path. Overlays detected stars (green circles), nearest Tycho-2 projections (red crosses), and residual lines (green<=tolerance, yellow<=3x, red>3x). Makes the tol-miss pattern visible at a glance - if lines all point one direction it's a global offset, fan out it's distortion. Requires a successful solve.",
         };
         var annotateSearchRadiusOpt = new Option<float>("--annotate-search-arcsec")
         {
