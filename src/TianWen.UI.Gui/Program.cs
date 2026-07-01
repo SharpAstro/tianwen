@@ -35,6 +35,7 @@ services
     .AddOnStep()
     .AddIOptron()
     .AddSkywatcher()
+    .AddGemini()
     .AddProfiles()
     .AddFake()
     .AddPHD2()

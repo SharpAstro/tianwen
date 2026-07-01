@@ -68,6 +68,6 @@ public record SkywatcherDevice(Uri DeviceUri) : DeviceBase(DeviceUri)
             baud = uriBaud;
         }
 
-        return await external.OpenSerialDeviceAsync(port, baud, encoding ?? Encoding.ASCII, cancellationToken);
+        return await external.OpenSerialDeviceAsync(port, baud, encoding ?? Encoding.ASCII, cancellationToken: cancellationToken);
     }
 }

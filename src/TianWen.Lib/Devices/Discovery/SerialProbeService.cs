@@ -387,7 +387,7 @@ internal sealed class SerialProbeService : ISerialProbeService
         {
             try
             {
-                var c = await _external.OpenSerialDeviceAsync(port, baud, encoding, cancellationToken);
+                var c = await _external.OpenSerialDeviceAsync(port, baud, encoding, cancellationToken: cancellationToken);
                 // Log the exact handshake at Info during probes; drivers opening the
                 // same port for session use do not touch this flag.
                 c.LogVerbose = true;

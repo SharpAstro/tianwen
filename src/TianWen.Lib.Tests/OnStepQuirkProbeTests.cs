@@ -116,7 +116,7 @@ public class OnStepQuirkProbeTests(ITestOutputHelper output)
         public override IReadOnlyList<string> EnumerateAvailableSerialPorts(ResourceLock _) => [_port];
 
         public override ValueTask<ISerialConnection> OpenSerialDeviceAsync(
-            string address, int baud, Encoding encoding, CancellationToken cancellationToken = default)
+            string address, int baud, Encoding encoding, bool assertControlLines = false, CancellationToken cancellationToken = default)
             => ValueTask.FromResult(_conn);
     }
 

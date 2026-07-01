@@ -424,7 +424,7 @@ public class SerialProbeServiceTests(ITestOutputHelper output)
         public List<string> Ports { get; set; } = [];
         public ConcurrentBag<(string Port, int Baud)> OpenCalls { get; } = [];
 
-        public override ValueTask<ISerialConnection> OpenSerialDeviceAsync(string address, int baud, Encoding encoding, CancellationToken cancellationToken = default)
+        public override ValueTask<ISerialConnection> OpenSerialDeviceAsync(string address, int baud, Encoding encoding, bool assertControlLines = false, CancellationToken cancellationToken = default)
         {
             OpenCalls.Add((address, baud));
             ISerialConnection conn = new StubSerialConnection(address, baud, encoding);

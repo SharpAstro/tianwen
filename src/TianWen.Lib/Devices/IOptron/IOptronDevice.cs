@@ -37,7 +37,7 @@ public record IOptronDevice(Uri DeviceUri) : DeviceBase(DeviceUri)
             Query.QueryValue(DeviceQueryKey.Port) ?? throw new InvalidOperationException("No port specified"),
             baud,
             encoding ?? Encoding.ASCII,
-            cancellationToken
+            cancellationToken: cancellationToken
         );
     }
 }
