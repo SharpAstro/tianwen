@@ -41,9 +41,10 @@ Available in `.claude/skills/<name>/SKILL.md` — auto-invocable when the reques
 ## Project Overview
 
 TianWen is a .NET 10 library for astronomical device management, image processing, and astrometry.
-Supports cameras, mounts, focusers, filter wheels, and guiders via ASCOM, Alpaca (HTTP), ZWO, QHYCCD,
-Meade LX200, Skywatcher, OnStep (serial + WiFi/mDNS), iOptron SkyGuider Pro, PHD2, and a built-in
-guider. Published as `TianWen.Lib` on NuGet, plus four AOT-published binaries (`tianwen` CLI,
+Supports cameras, mounts, focusers, filter wheels, cover/calibrators, and guiders via ASCOM, Alpaca (HTTP),
+ZWO, QHYCCD, Meade LX200, Skywatcher, OnStep (serial + WiFi/mDNS), iOptron SkyGuider Pro, Gemini FlatPanel
+Lite (native serial cover/calibrator), PHD2, and a built-in guider. Published as `TianWen.Lib` on NuGet,
+plus four AOT-published binaries (`tianwen` CLI,
 `tianwen-server` headless, `tianwen-gui`, `tianwen-fits`).
 
 Repository: https://github.com/SharpAstro/tianwen
@@ -175,7 +176,12 @@ screenshot-poll-and-OCR**. Three pieces compose:
 1. **A fake-device profile.** Fakes share the real URI shape with host `FakeDevice` (`FakeDeviceSource`):
    `Mount://FakeDevice/FakeMount1?latitude=…&longitude=…&port=SkyWatcher`, `Camera://FakeDevice/FakeCamera1`,
    `Camera://FakeDevice/FakeGuideCam`, `Guider://FakeDevice/FakeGuider1`, `Focuser://FakeDevice/FakeFocuser1`,
-   `FilterWheel://FakeDevice/FakeFilterWheel1`, `Weather://FakeDevice/FakeWeather1`. **`port=SkyWatcher`** on
+   `FilterWheel://FakeDevice/FakeFilterWheel1`, `Weather://FakeDevice/FakeWeather1`. Discovery surfaces **two**
+   cover/calibrators (both ASCOM-`CoverCalibrator` class): `CoverCalibrator://FakeDevice/FakeCoverCalibrator1`
+   is a flip-flat (motorised cover flap + panel), and `CoverCalibrator://FakeDevice/FakeCoverCalibrator2?hasCover=false`
+   is a driver-controlled light panel with **no** flap (models the Gemini FlatPanel Lite — reports
+   `CoverStatus.NotPresent`, calibrator only). `hasCover=false` on the URI is what selects the flap-less
+   behaviour in `FakeCoverDriver`; absent = flip-flat. **`port=SkyWatcher`** on
    the mount selects `FakeSkywatcherMountDriver` (believed/true pointing seam + polar-misalignment + worm PE —
    the variant that exercises the meridian-flip and Dec-sense paths); omit `port` for the lightweight
    believed-only `FakeMountDriver`. Fakes only surface from discovery when `IncludeFake:true`; the GUI
@@ -429,18 +435,21 @@ See `docs/plans/polar-alignment.md` for the math/algorithm.
 `RunAsync` after `ObservationLoopAsync` on **normal completion only** (abort/exception skips to
 `Finalise`) and **before** `Finalise` warms the cameras -- so flats are taken at the imaging setpoint
 temperature -- gated on the opt-in `SessionConfiguration.TakeFlatsOnSessionEnd`. It **dispatches on
-`SessionConfiguration.FlatSource`**: `Calibrator` (default) runs panel/calibrator flats; `TwilightSky`
-runs **dawn** sky-flats (`TakeSkyFlatsAsync(TwilightPeriod.Dawn)`); `ManualPanel` runs the same
-panel-capture loop with **no** cover/calibrator control (on-demand only -- see below). The **same routines
-are reachable on-demand** (outside a session) via `ISession.RunFlatsOnlyAsync` -> CLI `tianwen flats` /
-`POST /api/v1/session/flats`.
+`SessionConfiguration.FlatSource`** (just two values): `Calibrator` (default) runs cover/calibrator flats
+against **any** `ICoverDriver` device; `TwilightSky` runs **dawn** sky-flats
+(`TakeSkyFlatsAsync(TwilightPeriod.Dawn)`). A **manual** hand-switched panel is **not** a source -- it is a
+`ManualCoverDevice` (a device, like `ManualFilterWheelDevice`) assigned to the OTA's cover slot and captured
+through the **same** `Calibrator` path with no branching. The **same routines are reachable on-demand**
+(outside a session) via `ISession.RunFlatsOnlyAsync` -> CLI `tianwen flats` / `POST /api/v1/session/flats`.
 
-- **Panel/calibrator flats** (`FlatIlluminationSource.Calibrator`). Per OTA: close the cover
-  (`MoveTelescopeCoversToStateAsync(Closed)`), gate on a controllable calibrator
+- **Cover/calibrator flats** (`FlatIlluminationSource.Calibrator`). **One path for every `ICoverDriver`**,
+  no device-kind branching. Per OTA: close the cover (`MoveTelescopeCoversToStateAsync(Closed)` -- a
+  `CoverStatus.NotPresent` cover is skipped gracefully), gate on a controllable calibrator
   (`ICoverDriver.GetCalibratorStateAsync != NotPresent`; **skip with a warning** otherwise), turn the
   panel on, then per installed filter auto-expose and write `FrameType.Flat` frames. Supported hardware =
-  flip-flat (motorised cover + built-in panel) **or** a standalone lightbox/fixed panel; a motorised
-  cover with **no** panel, or no flat device, is skipped. Auto-exposure is a pure solver:
+  flip-flat (motorised cover + built-in panel), a standalone lightbox/driver panel (e.g. Gemini FlatPanel
+  Lite, which reports `CoverStatus.NotPresent`), **or** a hand-switched `ManualCoverDevice` (below); a
+  motorised cover with **no** panel, or no flat device, is skipped. Auto-exposure is a pure solver:
   `FlatExposureSolver` (`Imaging/Calibration/`) brackets exposure under a linear panel model toward
   `FlatTargetAduFraction` (~0.5 full well): `Capture` in tolerance, `Adjust` (clamped to
   `[FlatMinExposure, FlatMaxExposure]`), `Fail` on panel-too-bright-at-min / too-dim-at-max /
@@ -464,11 +473,31 @@ are reachable on-demand** (outside a session) via `ISession.RunFlatsOnlyAsync` -
   -- sleep `FlatSkySettleInterval` and retry), `Stop` (this filter's window has closed). Bounded by
   `FlatSkyMaxDuration`. Dusk flats run at whatever focus the focuser is at (pre-AutoFocus) -- a known
   focus-match tradeoff accepted for the cloud-insurance value; dawn flats are post-session, fully focused.
-- **Manual panel** (`FlatIlluminationSource.ManualPanel`): a dumb, hand-switched panel with no driver to
-  gate on. `TakeFlatsAsync` skips **all** cover/calibrator control (no cover close, no calibrator
-  gate/on/off) and runs the identical auto-exposure + capture loop against whatever light is arranged;
-  bad illumination just fails the solver gracefully. **On-demand only** -- never selected by the
-  unattended hooks (there is no device to switch the panel on).
+- **Manual panel = a device, not a source** (`ManualCoverDevice` + `ManualCoverDriver`, `TianWen.Lib/Devices/`).
+  A dumb hand-switched panel (e.g. an analog LED pad with a physical brightness knob) modelled as a
+  **degenerate `ICoverDriver`**, mirroring `ManualFilterWheelDevice`/`Driver`: `GetCoverStateAsync =>
+  NotPresent` (no flap), `BeginOpen`/`BeginClose` no-op, `BeginCalibratorOn` reports the panel `Ready` on
+  demand (trusting the user switched it on) and cannot set the analog brightness -- so the exposure solver
+  does the levelling; bad illumination fails the solver gracefully. Assign it to the OTA's cover slot and it
+  flows through the **same** `Calibrator` path -- no `ManualPanel` enum, no session branching. Unlike
+  `ManualFilterWheelDevice` (which has **no** keyed factory, a latent round-trip gap), `ManualCoverDevice`
+  is registered via `AddDeviceType(uri => new ManualCoverDevice(uri))` in `AddDevices()`, so a stored
+  `CoverCalibrator://ManualCoverDevice/manual` URI reconstructs through `DeviceHub.TryGetDeviceFromUri`
+  (the path `SessionFactory` uses) instead of throwing. `MaxBrightness => 255`, matching the Gemini panel.
+- **Native Gemini FlatPanel Lite driver** (`TianWen.Lib/Devices/Gemini/`, `AddGemini()`): an **ASCOM-free**
+  serial `ICoverDriver` for the Gemini FlatPanel Lite (a driver-controlled panel, no flap -> reports
+  `CoverStatus.NotPresent`). `GeminiFlatPanelProtocol` is the pure `>x#` wire codec (H/V/S/J queries, L/D/B
+  actions) over `ISerialConnection`, reused by the driver, the probe, and the tests. `GeminiFlatPanelSerialProbe`
+  (`ProbeFraming.HashTerminated`, 9600 baud, shares the LX200 probe group) auto-discovers it by matching the
+  `>HGeminiFlatPanelLite#` handshake. Wire spec: `docs/architecture/gemini-flatpanel-lite-protocol.md`.
+  **DTR/RTS:** the controller needs DTR+RTS asserted on open, so `GeminiDevice.ConnectSerialDeviceAsync` opens
+  via the new **opt-in** `IExternal.OpenSerialDeviceAsync(..., assertControlLines: true)` (default false ->
+  `SerialConnection` sets `DtrEnable`/`RtsEnable` before `Open()`; every other device is byte-for-byte
+  unchanged). **Discovery does NOT assert DTR** (the probe service opens one shared handle per COM port for
+  all 9600 probes; asserting DTR there could reset a DTR-triggered controller -- e.g. some OnStep boards --
+  on a *different* port). So if a panel needs DTR to answer `>H#`, auto-discovery may miss it; assigning the
+  device manually still works because the driver's own connect asserts DTR. Only the connect path is
+  hardware-validated by design intent -- probe-time DTR is a deferred, hardware-gated refinement.
 - **On-demand surface** (`Session.FlatsOnDemand.cs`, `ISession.RunFlatsOnlyAsync(TwilightPeriod, ct)`):
   a self-contained connect -> cool -> capture -> finalise cycle **outside** `RunAsync` (no wait-for-dark /
   focus / guider / observation loop). Same try/catch/finally + phase shape as `RunAsync`. `ConnectForFlatsAsync`
@@ -481,18 +510,20 @@ are reachable on-demand** (outside a session) via `ISession.RunFlatsOnlyAsync` -
   `HostingJsonContext`; mirrors `/session/start` -- 409-if-running, `?profileId=`/active, background run,
   poll `/state`). Source/period strings map through the shared `FlatRunParsing` (one parser for CLI + API,
   mirroring `EnhanceOptions.TryParse`).
-- **Shared, one-path:** `ResolveFilterPositions` + `PrepareFilterForFlatsAsync` (filter switch + denorm
-  stamp) and `CaptureFlatFrameAsync` / `MeasureFlatLevel` / `WriteFlatToFitsFileAsync` are used by the
-  panel, sky **and** manual paths; `RunFlatsOnlyAsync` reuses `RunAsync`'s `AllocateObservableState` +
-  `ConnectTelescopeAsync`.
+- **Shared, one-path:** the calibrator path handles flip-flat, driver panel, and manual cover uniformly
+  (device-kind is invisible to `TakeFlatsAsync`); `ResolveFilterPositions` + `PrepareFilterForFlatsAsync`
+  (filter switch + denorm stamp) and `CaptureFlatFrameAsync` / `MeasureFlatLevel` / `WriteFlatToFitsFileAsync`
+  are shared by the calibrator **and** sky paths; `RunFlatsOnlyAsync` reuses `RunAsync`'s
+  `AllocateObservableState` + `ConnectTelescopeAsync`.
 - **Output contract (identical for all):** frames carry `IMAGETYP/FRAMETYP=Flat` + the same denorm
   metadata as lights (filter, `CCD-TEMP`, gain, binning, sensor) written under
   `Flats/<date>/<filter>/Flat/`. The path is cosmetic -- `MasterFrameBuilder` groups + matches by FITS
   headers (`MasterGroupKey`), not folder layout -- so the stacker consumes them with **no extra wiring**.
   Never make flat-master matching depend on the path.
-- **Deferred (`docs/plans/flat-frame-automation.md`):** a **GUI** illumination-source dropdown (💡 entry
-  for the manual panel) + interactive "switch panel on, press Continue" prompt -- the GUI has no
-  document/flats tab yet, so the on-demand CLI + API are the surfaces for now.
+- **Deferred (`docs/plans/flat-frame-automation.md`):** a **GUI** flats tab -- an equipment affordance to
+  assign a `ManualCoverDevice` (💡) + an illumination-source dropdown + an interactive "switch panel on,
+  press Continue" prompt for the manual panel. The GUI has no document/flats tab yet, so the on-demand CLI
+  + API are the surfaces for now.
 
 ### Deep-Sky Stacking + Enhance Pipeline (`TianWen.Lib.Imaging.Stacking`)
 
