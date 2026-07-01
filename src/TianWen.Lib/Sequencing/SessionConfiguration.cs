@@ -173,7 +173,51 @@ public record struct SessionConfiguration(
     /// pre-set; exposure does the fine convergence). When <c>MaxBrightness</c> is unknown (-1) the
     /// value is passed through as an absolute brightness. Default 50.
     /// </summary>
-    int FlatCalibratorBrightnessPercent = 50
+    int FlatCalibratorBrightnessPercent = 50,
+    /// <summary>
+    /// Illumination source for the end-of-session flat block (gated by <see cref="TakeFlatsOnSessionEnd"/>):
+    /// <see cref="FlatIlluminationSource.Calibrator"/> (default) runs a controllable panel/flip-flat; with
+    /// <see cref="FlatIlluminationSource.TwilightSky"/> the end-of-session block instead shoots
+    /// <em>dawn</em> twilight sky-flats (see <see cref="TakeSkyFlatsAtDusk"/> for the evening counterpart).
+    /// </summary>
+    FlatIlluminationSource FlatSource = FlatIlluminationSource.Calibrator,
+    /// <summary>
+    /// When <c>true</c>, a <em>dusk</em> (evening) twilight sky-flat run executes at session start -- after
+    /// cooling to the imaging setpoint but before the wait-for-dark, while the sky is still in twilight.
+    /// Independent of <see cref="TakeFlatsOnSessionEnd"/> so both dusk and dawn flats can be captured in one
+    /// session (insurance against a clouded dawn). Always uses the twilight-sky strategy (a dumb panel is
+    /// time-independent, so there is no "dusk panel" mode). Default OFF.
+    /// </summary>
+    bool TakeSkyFlatsAtDusk = false,
+    /// <summary>
+    /// Hour-angle offset from the meridian toward the anti-solar sky for sky-flat pointing (applied west of
+    /// the meridian at dawn, east at dusk, both at Dec = site latitude) to minimise the twilight gradient
+    /// across the frame. <c>null</c> = <see cref="DefaultFlatSkyMeridianTilt"/> (1 h ~ 15 deg).
+    /// </summary>
+    TimeSpan? FlatSkyMeridianTilt = null,
+    /// <summary>
+    /// Maximum wall-clock duration of a single sky-flat run; bounds the total time spent waiting for the
+    /// twilight sky to enter the usable band. <c>null</c> = <see cref="DefaultFlatSkyMaxDuration"/> (25 min).
+    /// </summary>
+    TimeSpan? FlatSkyMaxDuration = null,
+    /// <summary>
+    /// Sleep between re-meters while waiting for the twilight sky to ramp into the usable band (a
+    /// <see cref="Imaging.Calibration.SkyFlatAction.Wait"/> verdict). <c>null</c> =
+    /// <see cref="DefaultFlatSkySettleInterval"/> (20 s).
+    /// </summary>
+    TimeSpan? FlatSkySettleInterval = null,
+    /// <summary>
+    /// Solar altitude (degrees) above which the twilight sky is too bright for flats (the bright edge of the
+    /// usable window). Used only for the coarse start gate that skips a run whose window has clearly already
+    /// passed; the per-frame exposure solver does the fine convergence. Default -3.
+    /// </summary>
+    double FlatSkySunAltitudeBrightDeg = -3,
+    /// <summary>
+    /// Solar altitude (degrees) below which the twilight sky is too dark for flats (the dark edge of the
+    /// usable window). Used only for the coarse start gate (see <see cref="FlatSkySunAltitudeBrightDeg"/>).
+    /// Default -14.
+    /// </summary>
+    double FlatSkySunAltitudeDarkDeg = -14
 )
 {
     /// <summary>Effective default for <see cref="GuiderRecoveryGrace"/> when unset.</summary>
@@ -190,4 +234,13 @@ public record struct SessionConfiguration(
 
     /// <summary>Effective default for <see cref="FlatMaxExposure"/> when unset.</summary>
     public static readonly TimeSpan DefaultFlatMaxExposure = TimeSpan.FromSeconds(30);
+
+    /// <summary>Effective default for <see cref="FlatSkyMeridianTilt"/> when unset (1 h ~ 15 deg of anti-solar tilt).</summary>
+    public static readonly TimeSpan DefaultFlatSkyMeridianTilt = TimeSpan.FromHours(1);
+
+    /// <summary>Effective default for <see cref="FlatSkyMaxDuration"/> when unset.</summary>
+    public static readonly TimeSpan DefaultFlatSkyMaxDuration = TimeSpan.FromMinutes(25);
+
+    /// <summary>Effective default for <see cref="FlatSkySettleInterval"/> when unset.</summary>
+    public static readonly TimeSpan DefaultFlatSkySettleInterval = TimeSpan.FromSeconds(20);
 }
