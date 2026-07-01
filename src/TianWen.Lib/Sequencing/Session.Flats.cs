@@ -14,21 +14,29 @@ namespace TianWen.Lib.Sequencing;
 internal partial record Session
 {
     /// <summary>
-    /// Automated panel/calibrator flat acquisition. Per OTA it closes the cover (flip-flat panels
-    /// illuminate the closed cover), turns the calibrator on at a coarse brightness, then for every
-    /// installed filter auto-exposes to <see cref="SessionConfiguration.FlatTargetAduFraction"/> (via
-    /// the pure <see cref="FlatExposureSolver"/>) and writes <see cref="FrameType.Flat"/> frames. The
-    /// frames carry the same denormalised FITS metadata (filter, temperature, gain, binning, sensor)
-    /// the lights do, so the stacker's <c>MasterFrameBuilder</c> groups + matches them with no extra
-    /// wiring. Runs at the imaging setpoint temperature (before <c>Finalise</c> warms the cameras).
+    /// Automated end-of-session flat acquisition. Dispatches on <see cref="SessionConfiguration.FlatSource"/>:
+    /// <see cref="FlatIlluminationSource.TwilightSky"/> runs <em>dawn</em> sky-flats
+    /// (<see cref="TakeSkyFlatsAsync"/>); otherwise (the default) it runs panel/calibrator flats. Per OTA the
+    /// panel path closes the cover (flip-flat panels illuminate the closed cover), turns the calibrator on at
+    /// a coarse brightness, then for every installed filter auto-exposes to
+    /// <see cref="SessionConfiguration.FlatTargetAduFraction"/> (via the pure <see cref="FlatExposureSolver"/>)
+    /// and writes <see cref="FrameType.Flat"/> frames. The frames carry the same denormalised FITS metadata
+    /// (filter, temperature, gain, binning, sensor) the lights do, so the stacker's <c>MasterFrameBuilder</c>
+    /// groups + matches them with no extra wiring. Runs at the imaging setpoint temperature (before
+    /// <c>Finalise</c> warms the cameras).
     /// </summary>
     /// <remarks>
-    /// Phase 1 covers panel/calibrator flats only. OTAs without a calibrator panel are skipped with a
-    /// warning (twilight sky-flats are a planned follow-up). The mount sign and pointing are untouched;
-    /// the cover is left closed for <c>Finalise</c> to handle.
+    /// OTAs without a calibrator panel are skipped with a warning on the panel path. The mount sign and
+    /// pointing are untouched on the panel path; the cover is left closed for <c>Finalise</c> to handle.
     /// </remarks>
     internal async ValueTask TakeFlatsAsync(CancellationToken cancellationToken)
     {
+        if (Configuration.FlatSource is FlatIlluminationSource.TwilightSky)
+        {
+            await TakeSkyFlatsAsync(TwilightPeriod.Dawn, cancellationToken).ConfigureAwait(false);
+            return;
+        }
+
         var cfg = Configuration;
         var target = cfg.FlatTargetAduFraction;
         var tolerance = cfg.FlatAduTolerance;
@@ -53,7 +61,7 @@ internal partial record Session
 
             if (telescope.Cover?.Driver is not { } cover)
             {
-                _logger.LogWarning("Telescope #{TelescopeNumber} '{Name}': no cover/calibrator device; skipping panel flats (sky-flats are a planned follow-up).",
+                _logger.LogWarning("Telescope #{TelescopeNumber} '{Name}': no cover/calibrator device; skipping panel flats (set FlatSource=TwilightSky for sky-flats instead).",
                     i + 1, telescope.Name);
                 continue;
             }
@@ -101,9 +109,7 @@ internal partial record Session
         TimeSpan maxExposure,
         CancellationToken cancellationToken)
     {
-        var filterWheel = telescope.FilterWheel?.Driver is { Connected: true } fw ? fw : null;
-        var filterCount = filterWheel?.Filters.Count ?? 0;
-        var positions = filterCount > 0 ? Enumerable.Range(0, filterCount).ToArray() : [-1];
+        var (filterWheel, positions) = ResolveFilterPositions(telescope);
 
         foreach (var position in positions)
         {
@@ -112,24 +118,7 @@ internal partial record Session
                 break;
             }
 
-            if (position >= 0 && filterWheel is not null)
-            {
-                await SwitchFilterIfNeededAsync(otaIndex, filterWheel, position, cancellationToken).ConfigureAwait(false);
-            }
-
-            // Stamp filter / focuser denorm onto the camera so the FITS headers + output folder are
-            // correct (same helper the imaging loop, polar alignment and the preview button use).
-            await CameraExposureActions.StampDenormAsync(
-                camDriver,
-                otaName: telescope.Name,
-                focalLengthMm: telescope.FocalLength,
-                apertureMm: telescope.Aperture,
-                focuser: telescope.Focuser?.Driver,
-                filterWheel: filterWheel,
-                logger: _logger,
-                ct: cancellationToken).ConfigureAwait(false);
-
-            var filterName = camDriver.Filter.Name;
+            var filterName = await PrepareFilterForFlatsAsync(otaIndex, telescope, camDriver, filterWheel, position, cancellationToken).ConfigureAwait(false);
 
             // Auto-exposure: bracket toward the target level, discarding the metering frames.
             var exposure = Clamp(initialExposure, minExposure, maxExposure);
@@ -314,6 +303,44 @@ internal partial record Session
 
         _lastFramePath = fitsFilePath;
         return fitsFilePath;
+    }
+
+    /// <summary>
+    /// Resolves the connected filter wheel (if any) and the list of filter positions to iterate for flats.
+    /// Returns a single <c>-1</c> "no filter" pass when there is no connected wheel. Shared by the panel and
+    /// twilight-sky flat paths.
+    /// </summary>
+    private static (IFilterWheelDriver? FilterWheel, int[] Positions) ResolveFilterPositions(OTA telescope)
+    {
+        var filterWheel = telescope.FilterWheel?.Driver is { Connected: true } fw ? fw : null;
+        var filterCount = filterWheel?.Filters.Count ?? 0;
+        return (filterWheel, filterCount > 0 ? Enumerable.Range(0, filterCount).ToArray() : [-1]);
+    }
+
+    /// <summary>
+    /// Switches to <paramref name="position"/> (when a wheel is present) and stamps the filter / focuser
+    /// denorm onto the camera so the FITS headers + output folder are correct -- the same helper the imaging
+    /// loop, polar alignment and the preview button use. Returns the resulting filter name. Shared by the
+    /// panel and twilight-sky flat paths.
+    /// </summary>
+    private async ValueTask<string> PrepareFilterForFlatsAsync(int otaIndex, OTA telescope, ICameraDriver camDriver, IFilterWheelDriver? filterWheel, int position, CancellationToken cancellationToken)
+    {
+        if (position >= 0 && filterWheel is not null)
+        {
+            await SwitchFilterIfNeededAsync(otaIndex, filterWheel, position, cancellationToken).ConfigureAwait(false);
+        }
+
+        await CameraExposureActions.StampDenormAsync(
+            camDriver,
+            otaName: telescope.Name,
+            focalLengthMm: telescope.FocalLength,
+            apertureMm: telescope.Aperture,
+            focuser: telescope.Focuser?.Driver,
+            filterWheel: filterWheel,
+            logger: _logger,
+            ct: cancellationToken).ConfigureAwait(false);
+
+        return camDriver.Filter.Name;
     }
 
     private static TimeSpan Clamp(TimeSpan value, TimeSpan min, TimeSpan max)

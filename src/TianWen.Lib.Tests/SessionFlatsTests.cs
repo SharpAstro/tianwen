@@ -15,6 +15,12 @@ namespace TianWen.Lib.Tests;
 /// we assert the orchestration: cover closed, calibrator on then off, every installed filter cycled,
 /// and N <c>FrameType.Flat</c> frames written per filter.
 /// </summary>
+/// <remarks>
+/// Shares <c>[Collection("Flats")]</c> with <see cref="SessionSkyFlatsTests"/> so the flat-writing tests
+/// run sequentially: they all write into one shared fake output subtree (keyed by the test helper name)
+/// and clear it on entry, so running them concurrently would clobber each other's file counts.
+/// </remarks>
+[Collection("Flats")]
 public class SessionFlatsTests(ITestOutputHelper output)
 {
     [Fact(Timeout = 60_000)]
