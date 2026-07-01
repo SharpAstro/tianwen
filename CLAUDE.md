@@ -430,7 +430,10 @@ See `docs/plans/polar-alignment.md` for the math/algorithm.
 `Finalise`) and **before** `Finalise` warms the cameras -- so flats are taken at the imaging setpoint
 temperature -- gated on the opt-in `SessionConfiguration.TakeFlatsOnSessionEnd`. It **dispatches on
 `SessionConfiguration.FlatSource`**: `Calibrator` (default) runs panel/calibrator flats; `TwilightSky`
-runs **dawn** sky-flats (`TakeSkyFlatsAsync(TwilightPeriod.Dawn)`).
+runs **dawn** sky-flats (`TakeSkyFlatsAsync(TwilightPeriod.Dawn)`); `ManualPanel` runs the same
+panel-capture loop with **no** cover/calibrator control (on-demand only -- see below). The **same routines
+are reachable on-demand** (outside a session) via `ISession.RunFlatsOnlyAsync` -> CLI `tianwen flats` /
+`POST /api/v1/session/flats`.
 
 - **Panel/calibrator flats** (`FlatIlluminationSource.Calibrator`). Per OTA: close the cover
   (`MoveTelescopeCoversToStateAsync(Closed)`), gate on a controllable calibrator
@@ -461,18 +464,35 @@ runs **dawn** sky-flats (`TakeSkyFlatsAsync(TwilightPeriod.Dawn)`).
   -- sleep `FlatSkySettleInterval` and retry), `Stop` (this filter's window has closed). Bounded by
   `FlatSkyMaxDuration`. Dusk flats run at whatever focus the focuser is at (pre-AutoFocus) -- a known
   focus-match tradeoff accepted for the cloud-insurance value; dawn flats are post-session, fully focused.
+- **Manual panel** (`FlatIlluminationSource.ManualPanel`): a dumb, hand-switched panel with no driver to
+  gate on. `TakeFlatsAsync` skips **all** cover/calibrator control (no cover close, no calibrator
+  gate/on/off) and runs the identical auto-exposure + capture loop against whatever light is arranged;
+  bad illumination just fails the solver gracefully. **On-demand only** -- never selected by the
+  unattended hooks (there is no device to switch the panel on).
+- **On-demand surface** (`Session.FlatsOnDemand.cs`, `ISession.RunFlatsOnlyAsync(TwilightPeriod, ct)`):
+  a self-contained connect -> cool -> capture -> finalise cycle **outside** `RunAsync` (no wait-for-dark /
+  focus / guider / observation loop). Same try/catch/finally + phase shape as `RunAsync`. `ConnectForFlatsAsync`
+  connects only the flat-relevant subset -- each OTA's camera / focuser / filter wheel / cover (via the
+  shared `ConnectTelescopeAsync` extracted from `InitialisationAsync`), **plus the mount only for
+  sky-flats, never the guider**; `FinaliseFlatsAsync` is a focused counterpart to `Finalise` (no
+  guider/park steps a flat run never used, so no spurious "partial shutdown" log). Sky dispatch calls
+  `TakeSkyFlatsAsync(period)` **directly** so the caller-chosen dawn/dusk is honoured. Backed by CLI
+  `tianwen flats` (`FlatsSubCommand`) and `POST /api/v1/session/flats` (`FlatsRequestDto`, registered in
+  `HostingJsonContext`; mirrors `/session/start` -- 409-if-running, `?profileId=`/active, background run,
+  poll `/state`). Source/period strings map through the shared `FlatRunParsing` (one parser for CLI + API,
+  mirroring `EnhanceOptions.TryParse`).
 - **Shared, one-path:** `ResolveFilterPositions` + `PrepareFilterForFlatsAsync` (filter switch + denorm
-  stamp) and `CaptureFlatFrameAsync` / `MeasureFlatLevel` / `WriteFlatToFitsFileAsync` are used by **both**
-  the panel and sky paths.
-- **Output contract (identical for both):** frames carry `IMAGETYP/FRAMETYP=Flat` + the same denorm
+  stamp) and `CaptureFlatFrameAsync` / `MeasureFlatLevel` / `WriteFlatToFitsFileAsync` are used by the
+  panel, sky **and** manual paths; `RunFlatsOnlyAsync` reuses `RunAsync`'s `AllocateObservableState` +
+  `ConnectTelescopeAsync`.
+- **Output contract (identical for all):** frames carry `IMAGETYP/FRAMETYP=Flat` + the same denorm
   metadata as lights (filter, `CCD-TEMP`, gain, binning, sensor) written under
   `Flats/<date>/<filter>/Flat/`. The path is cosmetic -- `MasterFrameBuilder` groups + matches by FITS
   headers (`MasterGroupKey`), not folder layout -- so the stacker consumes them with **no extra wiring**.
   Never make flat-master matching depend on the path.
-- **Deferred (`docs/plans/flat-frame-automation.md`):** Phase 3 on-demand surface (CLI `tianwen flats` +
-  `POST /api/v1/session/flats`) + a **manual** flat-panel mode. A manual (dumb, user-switched) panel has
-  no driver to gate on, so it is **out of session** -- it belongs on the on-demand surface (a dropdown
-  picking the illumination source, with a 💡 entry for the manual panel), never the unattended session hooks.
+- **Deferred (`docs/plans/flat-frame-automation.md`):** a **GUI** illumination-source dropdown (💡 entry
+  for the manual panel) + interactive "switch panel on, press Continue" prompt -- the GUI has no
+  document/flats tab yet, so the on-demand CLI + API are the surfaces for now.
 
 ### Deep-Sky Stacking + Enhance Pipeline (`TianWen.Lib.Imaging.Stacking`)
 
