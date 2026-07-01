@@ -16,7 +16,7 @@ Automated flat capture so a fully unattended session no longer needs a manual fl
 | `FlatsSubCommand` (`tianwen flats`) | `TianWen.Cli/FlatsSubCommand.cs` | CLI surface: resolves the active profile, builds the flat config (site from `ProfileData`), `ISessionFactory.InitializeAsync` + `Create([])` + `RunFlatsOnlyAsync`, reports phases + written-frame count. `--source calibrator\|manual\|sky`, `--period dawn\|dusk`, `--count/--target/--tolerance/--min-exposure/--max-exposure/--initial-exposure/--brightness/--brackets`. |
 | `POST /api/v1/session/flats` | `TianWen.Hosting/Api/SessionEndpoints.cs` + `Dto/FlatsRequestDto.cs` | API surface: mirrors `/session/start` (409 if running, `?profileId=` or active, background run, poll `/state`). Body = `FlatsRequestDto` (source / period / flat knobs; site falls back to the mount's own). AOT: `FlatsRequestDto` registered in `HostingJsonContext`. |
 | `FlatRunParsing` | `TianWen.Lib/Sequencing/FlatRunParsing.cs` | Single source of truth mapping the `source` / `period` strings onto their enums (case-insensitive + aliases), shared by the CLI and the API endpoint so the accepted spellings never drift (mirrors `EnhanceOptions.TryParse`). |
-| Config knobs | `SessionConfiguration` | Panel: `TakeFlatsOnSessionEnd`, `FlatTargetAduFraction` (0.5), `FlatAduTolerance` (0.05), `FlatMaxBrackets` (6), `FlatsPerFilter` (15), `FlatInitialExposure`/`FlatMinExposure`/`FlatMaxExposure`, `FlatCalibratorBrightnessPercent` (50). Sky: `FlatSource` (**Calibrator / TwilightSky / ManualPanel**), `TakeSkyFlatsAtDusk`, `FlatSkyMeridianTilt` (1 h), `FlatSkyMaxDuration` (25 min), `FlatSkySettleInterval` (20 s), `FlatSkySunAltitude{Bright,Dark}Deg` (-3 / -14). |
+| Config knobs | `SessionConfiguration` | Panel: `TakeFlatsOnSessionEnd`, `FlatTargetAduFraction` (0.5), `FlatAduTolerance` (0.05), `FlatMaxBrackets` (6), `FlatsPerFilter` (15), `FlatInitialExposure`/`FlatMinExposure`/`FlatMaxExposure`, `FlatCalibratorBrightnessPercent` (50). Sky: `FlatSource` (**Calibrator / TwilightSky**; a manual panel is a `ManualCoverDevice`, not a source), `TakeSkyFlatsAtDusk`, `FlatSkyMeridianTilt` (1 h), `FlatSkyMaxDuration` (25 min), `FlatSkySettleInterval` (20 s), `FlatSkySunAltitude{Bright,Dark}Deg` (-3 / -14). |
 | `SessionPhase.Flats` | `SessionPhase` | Phase ("Taking Flats" UI label), reused for panel + sky (dawn + dusk) + on-demand blocks. |
 
 ## Capture flow (Phase 1 -- panel/calibrator flats)
@@ -86,8 +86,9 @@ metadata under `Flats/<date>/<filter>/Flat/`), so the stacker consumes sky-flats
 
 The end-of-session hooks are for a fully unattended night. Phase 3 adds an **on-demand** surface so the
 same routines can be triggered outside a session (e.g. a dedicated flat-panel session in daylight, or
-catching a twilight window without imaging), plus a **manual-panel** source for a dumb, hand-switched
-panel that has no driver to gate on.
+catching a twilight window without imaging), plus a **manual-panel device** (`ManualCoverDevice`) for a
+dumb, hand-switched panel -- modelled as a degenerate `ICoverDriver` (like `ManualFilterWheelDevice`) so it
+flows through the ordinary calibrator path with no session branching.
 
 - **`ISession.RunFlatsOnlyAsync(TwilightPeriod, ct)`** (`Session.FlatsOnDemand.cs`) is the shared entry
   point behind both the CLI and the API. It runs a self-contained cycle -- `SetPhase(Initialising)` ->
@@ -104,13 +105,18 @@ panel that has no driver to gate on.
     touches the guider, it avoids the full finaliser's spurious "partial shutdown" report for devices a
     flat run never used.
   - Dispatch: `TwilightSky` calls `TakeSkyFlatsAsync(period)` **directly** so the caller-chosen dawn/dusk
-    is honoured (`TakeFlatsAsync` would default to Dawn); `Calibrator` + `ManualPanel` flow through
-    `TakeFlatsAsync`.
-- **Manual panel** (`FlatIlluminationSource.ManualPanel`): the `TakeFlatsAsync` dispatch skips **all**
-  cover/calibrator hardware control (no cover close, no calibrator gate/on/off) and runs the identical
-  auto-exposure + capture loop against whatever light the user arranged. Misconfigured illumination just
-  fails the solver gracefully ("too dim/bright at the bound"). It is an **on-demand source only** -- there
-  is no device to switch the panel on, so it is never selected by the unattended session hooks.
+    is honoured (`TakeFlatsAsync` would default to Dawn); `Calibrator` flows through `TakeFlatsAsync`.
+- **Manual panel = a device** (`ManualCoverDevice` + `ManualCoverDriver`, `TianWen.Lib/Devices/`): a dumb
+  hand-switched panel (e.g. an analog LED pad with a physical brightness knob) modelled as a degenerate
+  `ICoverDriver`, mirroring `ManualFilterWheelDevice`/`Driver`. It reports `GetCoverStateAsync => NotPresent`
+  (no flap), `BeginOpen`/`BeginClose` no-op, and `BeginCalibratorOn` reports the panel `Ready` on demand
+  (trusting the user switched it on) with no analog-brightness control -- so the exposure solver does the
+  levelling and misconfigured light fails the solver gracefully. Assigned to an OTA's cover slot, it runs
+  through the **same** `Calibrator` path -- there is no `ManualPanel` source and no session branching.
+  Registered via `AddDeviceType(uri => new ManualCoverDevice(uri))` in `AddDevices()` so a stored
+  `CoverCalibrator://ManualCoverDevice/manual` URI round-trips through `DeviceHub.TryGetDeviceFromUri` (the
+  resolution path `SessionFactory` uses) -- closing a latent gap `ManualFilterWheelDevice` still has (no
+  keyed factory registered).
 - **CLI** `tianwen flats` and **API** `POST /api/v1/session/flats` are thin adapters over
   `RunFlatsOnlyAsync`; source/period strings map through the shared `FlatRunParsing`. Output contract is
   unchanged (`Flats/<date>/<filter>/Flat/`).
@@ -121,18 +127,18 @@ panel that has no driver to gate on.
 |-------|-------|--------|
 | 1 | Panel/calibrator flats: `FlatExposureSolver` + `TakeFlatsAsync` + config + `SessionPhase.Flats` + end-of-session hook + tests | **DONE** |
 | 2 | Twilight **sky-flats** (dawn + dusk): `SkyFlatExposureSolver` + `TakeSkyFlatsAsync` + anti-solar zenith pointing (tracking off) + solar-altitude window gate + `FlatSource` dispatch + dusk `RunAsync` hook + config + tests | **DONE** |
-| 3 | **On-demand surface** (`ISession.RunFlatsOnlyAsync` + CLI `tianwen flats` + `POST /api/v1/session/flats`) + **manual flat-panel mode** (`FlatIlluminationSource.ManualPanel`). | **DONE** |
+| 3 | **On-demand surface** (`ISession.RunFlatsOnlyAsync` + CLI `tianwen flats` + `POST /api/v1/session/flats`) + **manual flat-panel device** (`ManualCoverDevice`/`ManualCoverDriver`, a degenerate `ICoverDriver` captured through the ordinary calibrator path; keyed-factory registered so it round-trips). | **DONE** |
 
-## Deferred: GUI illumination-source dropdown + interactive prompt
+## Deferred: GUI flats tab (assign manual panel + source dropdown + prompt)
 
-The manual-panel **source** ships in Phase 3 (`FlatIlluminationSource.ManualPanel`, exposed via
-`tianwen flats --source manual` and `POST /session/flats {"source":"manual"}`). What remains deferred is
-a **GUI** surface for it: a **dropdown** to pick the flat illumination source -- a **light-bulb (💡)**
-entry for the manual panel alongside the auto calibrator / sky-flat options -- plus a fully interactive
-"switch the panel on, press Continue" prompt. The GUI has no document/flats tab yet, so there is nowhere
-to host it; the on-demand CLI + API are the surfaces for now. (The manual routine already skips all
-cover/calibrator hardware control and fails the solver gracefully on misconfigured illumination -- only
-the interactive UI is missing.)
+The manual-panel **device** ships in Phase 3 (`ManualCoverDevice`/`ManualCoverDriver`, assigned to an OTA
+cover slot and captured through the `Calibrator` path). What remains deferred is a **GUI** surface: an
+equipment affordance to **add / assign a Manual Light Panel** (a **light-bulb 💡** entry, the way a Manual
+Filter Holder is added), an illumination-source **dropdown** (calibrator / sky), and a fully interactive
+"switch the panel on, press Continue" prompt for the manual panel. The GUI has no document/flats tab yet,
+so there is nowhere to host it; the on-demand CLI + API are the surfaces for now. (The manual driver
+already reports `Ready` on demand and the solver handles misconfigured light gracefully -- only the
+interactive UI is missing.)
 
 ## Tests
 
@@ -142,11 +148,16 @@ the interactive UI is missing.)
 - `SkyFlatExposureSolverTests` (10) -- in-tolerance capture with a re-centred next exposure, recoverable
   adjust, and the direction-aware wait/stop classification (dawn too-dim -> Wait, dawn too-bright -> Stop,
   dusk too-bright -> Wait, dusk too-dim -> Stop), clamp + near-zero guard.
-- `SessionFlatsTests` (4) -- panel orchestration: 4 filters x N flats written into `Flat` frame-type
-  folders, calibrator off + cover closed afterwards; the no-calibrator skip writes nothing; the
-  **manual-panel** source writes flats with **no** cover/calibrator present (the calibrator path would
-  skip every OTA here); and the **on-demand `RunFlatsOnlyAsync`** happy path connects -> cools -> captures
-  -> finalises to `SessionPhase.Complete` with the expected frame count.
+- `SessionFlatsTests` (4) -- calibrator orchestration: 4 filters x N flats written into `Flat` frame-type
+  folders, calibrator off + cover closed afterwards; the no-calibrator skip writes nothing; a
+  **`ManualCoverDevice`** assigned to the OTA writes flats through the **same** calibrator path (proving no
+  branching); and the **on-demand `RunFlatsOnlyAsync`** happy path connects -> cools -> captures ->
+  finalises to `SessionPhase.Complete` with the expected frame count.
+- `ManualCoverDriverTests` (4) -- the manual panel as a degenerate `ICoverDriver`: cover `NotPresent` +
+  no-op flap, calibrator `Ready`-on-demand then `Off`, `MaxBrightness` 255, and the keyed-factory
+  round-trip through `IDeviceHub.TryGetDeviceFromUri`.
+- `FakeCoverCalibratorDiscoveryTests` (4) -- the fake cover/calibrator is discoverable and models both a
+  flip-flat and a flap-less driver panel (`hasCover=false` -> `NotPresent`, calibrator still cycles).
 - `SessionSkyFlatsTests` (3) -- sky-flat orchestration: dawn + dusk each write 4 filters x N flats into
   `Flat` folders with tracking off; and the window-already-past gate skips without writing. Shares
   `[Collection("Flats")]` with `SessionFlatsTests` so the shared-output-folder tests run sequentially.
