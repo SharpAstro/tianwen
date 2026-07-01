@@ -105,11 +105,11 @@ Part of the TianWen TODO set. See [TODO.md](../../TODO.md) for the index and the
 ## Flat-frame acquisition (automation)
 
 `FrameType.Flat`, the cover/calibrator device (`ICoverDriver`), and the stacking calibrator
-(`MasterFrameBuilder`) all exist. **Phase 1 SHIPPED** (panel/calibrator flats): see
+(`MasterFrameBuilder`) all exist. **Phases 1+2 SHIPPED** (panel/calibrator + twilight sky-flats): see
 [docs/plans/flat-frame-automation.md](../plans/flat-frame-automation.md).
 
 - [x] Auto-exposure flat routine: bracket exposure to converge mean/median ADU to a target (~0.5 of full well) per filter -- pure `FlatExposureSolver` (`Imaging/Calibration/`) + `Session.TakeFlatsAsync` driving the cover/calibrator panel brightness. 12 + 2 tests.
-- [ ] Sky-flat (twilight) variant: ramp exposure as sky brightness changes through dusk/dawn (Phase 2)
+- [x] Sky-flat (twilight) variant: ramp exposure as sky brightness changes through dusk/dawn (Phase 2) -- pure `SkyFlatExposureSolver` (re-metered per frame: Capture/Adjust/Wait/Stop) + `Session.TakeSkyFlatsAsync`. Opens covers, coarse solar-altitude window gate (`VSOP87a.Reduce(Sol)`), slews near the anti-solar zenith (`BeginSlewToZenithAsync`, west@dawn/east@dusk) with **tracking off** so stars average out. **Two independently-gated hooks**: `FlatSource=TwilightSky` dispatches dawn at the end-of-session block; `TakeSkyFlatsAtDusk` adds a session-start dusk block (cooled to setpoint first) as insurance against a clouded dawn. 10 solver + 3 orchestration tests.
 - [x] **Per-OTA fan-out** -- each OTA flats its own train; `TakeFlatsAsync` loops `Setup.Telescopes`, gated on a controllable calibrator (flip-flat or standalone lightbox), per-filter via `SwitchFilterIfNeededAsync`.
 - [x] Sequence integration: opt-in `SessionConfiguration.TakeFlatsOnSessionEnd` end-of-session block (after the observation loop, before `Finalise` warms cameras), writing `FrameType.Flat` frames under `Flats/<date>/<filter>/Flat/` that the stacker's `MasterFrameBuilder` consumes automatically (grouped by FITS headers, not path).
 - [ ] **Manual flat-panel mode -- OUT OF SESSION** (Phase 3): a dumb EL panel the user switches on by hand has no driver to gate on, so it can't live in the unattended end-of-session hook. It belongs on the on-demand surface (CLI/API), where the user explicitly starts a flat run that skips all cover/calibrator control and just auto-exposes + captures against the manual light. UI shape: a dropdown to pick the illumination source with a **light-bulb (💡)** entry for the manual panel (alongside auto-calibrator / sky-flat). Misconfigured illumination just fails the solver gracefully.

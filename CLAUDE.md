@@ -425,30 +425,54 @@ See `docs/plans/polar-alignment.md` for the math/algorithm.
 
 ### Flat-Frame Acquisition (automation)
 
-`Session.TakeFlatsAsync` (`Session.Flats.cs`) is automated **panel/calibrator** flat capture. It runs
-in `RunAsync` after `ObservationLoopAsync` on **normal completion only** (abort/exception skips to
+`Session.TakeFlatsAsync` (`Session.Flats.cs`) is the automated end-of-session flat block. It runs in
+`RunAsync` after `ObservationLoopAsync` on **normal completion only** (abort/exception skips to
 `Finalise`) and **before** `Finalise` warms the cameras -- so flats are taken at the imaging setpoint
-temperature -- gated on the opt-in `SessionConfiguration.TakeFlatsOnSessionEnd`. The same method is the
-on-demand entry point. Per OTA: close the cover (`MoveTelescopeCoversToStateAsync(Closed)`), gate on a
-controllable calibrator (`ICoverDriver.GetCalibratorStateAsync != NotPresent`; **skip with a warning**
-otherwise), turn the panel on, then per installed filter auto-expose and write `FrameType.Flat` frames.
-Supported hardware = flip-flat (motorised cover + built-in panel) **or** a standalone lightbox/fixed
-panel; a motorised cover with **no** panel, or no flat device, is skipped.
+temperature -- gated on the opt-in `SessionConfiguration.TakeFlatsOnSessionEnd`. It **dispatches on
+`SessionConfiguration.FlatSource`**: `Calibrator` (default) runs panel/calibrator flats; `TwilightSky`
+runs **dawn** sky-flats (`TakeSkyFlatsAsync(TwilightPeriod.Dawn)`).
 
-- **Auto-exposure is a pure solver.** `FlatExposureSolver` (`Imaging/Calibration/`) brackets exposure
-  under a linear panel model toward `FlatTargetAduFraction` (~0.5 full well): `Capture` in tolerance,
-  `Adjust` (clamped to `[FlatMinExposure, FlatMaxExposure]`), `Fail` on panel-too-bright-at-min /
-  too-dim-at-max / out-of-brackets. Side-effect-free + unit-tested; the orchestration measures the
-  whole-frame median (`Image.Statistics(0)`) and discards metering frames.
-- **Output contract:** frames carry `IMAGETYP/FRAMETYP=Flat` + the same denorm metadata as lights
-  (filter, `CCD-TEMP`, gain, binning, sensor) written under `Flats/<date>/<filter>/Flat/`. The path is
-  cosmetic -- `MasterFrameBuilder` groups + matches by FITS headers (`MasterGroupKey`), not folder
-  layout -- so the stacker consumes them with **no extra wiring**. Never make flat-master matching
-  depend on the path.
-- **Deferred (`docs/plans/flat-frame-automation.md`):** Phase 2 twilight sky-flats; Phase 3 on-demand
-  CLI/API + a **manual** flat-panel mode. A manual (dumb, user-switched) panel has no driver to gate
-  on, so it is **out of session** -- it belongs on the on-demand surface (a dropdown picking the
-  illumination source, with a 💡 entry for the manual panel), never the unattended end-of-session hook.
+- **Panel/calibrator flats** (`FlatIlluminationSource.Calibrator`). Per OTA: close the cover
+  (`MoveTelescopeCoversToStateAsync(Closed)`), gate on a controllable calibrator
+  (`ICoverDriver.GetCalibratorStateAsync != NotPresent`; **skip with a warning** otherwise), turn the
+  panel on, then per installed filter auto-expose and write `FrameType.Flat` frames. Supported hardware =
+  flip-flat (motorised cover + built-in panel) **or** a standalone lightbox/fixed panel; a motorised
+  cover with **no** panel, or no flat device, is skipped. Auto-exposure is a pure solver:
+  `FlatExposureSolver` (`Imaging/Calibration/`) brackets exposure under a linear panel model toward
+  `FlatTargetAduFraction` (~0.5 full well): `Capture` in tolerance, `Adjust` (clamped to
+  `[FlatMinExposure, FlatMaxExposure]`), `Fail` on panel-too-bright-at-min / too-dim-at-max /
+  out-of-brackets. The orchestration measures the whole-frame median (`Image.Statistics(0)`) and
+  **discards** the metering frames, then shoots `FlatsPerFilter` at the converged exposure.
+- **Twilight sky-flats** (`FlatIlluminationSource.TwilightSky`), `Session.SkyFlats.cs`
+  `TakeSkyFlatsAsync(TwilightPeriod)`. **Two hooks, independently gated** so both can run in one night
+  (dusk = insurance against a clouded dawn): **dawn** at the end-of-session block (via `TakeFlatsAsync`),
+  **dusk** at session start -- a **new** `RunAsync` hook after the initial poll, **before** the
+  wait-for-dark (sky still in twilight), that cools to setpoint first, gated on
+  `SessionConfiguration.TakeSkyFlatsAtDusk`. Covers are **opened** (opposite the panel path); a coarse
+  solar-altitude gate (`VSOP87a.Reduce(CatalogIndex.Sol,…)` vs `FlatSkySunAltitude{Bright,Dark}Deg`)
+  skips a run whose window has already passed in the terminal direction. Pointing: near zenith tilted
+  toward the anti-solar sky (`IMountDriver.BeginSlewToZenithAsync(distMeridian)` at Dec = site latitude,
+  **west** at dawn / **east** at dusk by `FlatSkyMeridianTilt`), then **tracking OFF** so the field
+  drifts frame-to-frame and stars average out of the master (no dither slews). Because the sky brightness
+  ramps, **every frame is re-metered** (unlike the converge-once panel path): the pure
+  `SkyFlatExposureSolver.Decide(period,…)` wraps `FlatExposureSolver` and adds twilight-direction
+  awareness -- `Capture` (keep the in-tolerance frame, re-centre the *next* exposure against the drift),
+  `Adjust`, `Wait` (pinned at a bound but the sky ramping *toward* target: dawn-too-dim / dusk-too-bright
+  -- sleep `FlatSkySettleInterval` and retry), `Stop` (this filter's window has closed). Bounded by
+  `FlatSkyMaxDuration`. Dusk flats run at whatever focus the focuser is at (pre-AutoFocus) -- a known
+  focus-match tradeoff accepted for the cloud-insurance value; dawn flats are post-session, fully focused.
+- **Shared, one-path:** `ResolveFilterPositions` + `PrepareFilterForFlatsAsync` (filter switch + denorm
+  stamp) and `CaptureFlatFrameAsync` / `MeasureFlatLevel` / `WriteFlatToFitsFileAsync` are used by **both**
+  the panel and sky paths.
+- **Output contract (identical for both):** frames carry `IMAGETYP/FRAMETYP=Flat` + the same denorm
+  metadata as lights (filter, `CCD-TEMP`, gain, binning, sensor) written under
+  `Flats/<date>/<filter>/Flat/`. The path is cosmetic -- `MasterFrameBuilder` groups + matches by FITS
+  headers (`MasterGroupKey`), not folder layout -- so the stacker consumes them with **no extra wiring**.
+  Never make flat-master matching depend on the path.
+- **Deferred (`docs/plans/flat-frame-automation.md`):** Phase 3 on-demand surface (CLI `tianwen flats` +
+  `POST /api/v1/session/flats`) + a **manual** flat-panel mode. A manual (dumb, user-switched) panel has
+  no driver to gate on, so it is **out of session** -- it belongs on the on-demand surface (a dropdown
+  picking the illumination source, with a 💡 entry for the manual panel), never the unattended session hooks.
 
 ### Deep-Sky Stacking + Enhance Pipeline (`TianWen.Lib.Imaging.Stacking`)
 
