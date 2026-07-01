@@ -370,6 +370,20 @@ internal partial record Session(
             // Initial device state poll after all devices are connected
             await PollDeviceStatesAsync(cancellationToken);
 
+            // Optional dusk (evening) twilight sky-flat block. Runs at session start -- while the sky is still
+            // in twilight, before the wait-for-dark -- and cools to the imaging setpoint first so the flats
+            // match the light-frame temperature. Independent of the end-of-session (dawn) hook so both dusk
+            // and dawn flats can be captured in one night (insurance against a clouded dawn). Skipped cleanly
+            // when the dusk window has already passed (see TakeSkyFlatsAsync).
+            if (Configuration.TakeSkyFlatsAtDusk)
+            {
+                SetPhase(SessionPhase.Cooling);
+                await CoolCamerasToSetpointAsync(Configuration.SetpointCCDTemperature, Configuration.CooldownRampInterval, 80, SetupointDirection.Down, cancellationToken).ConfigureAwait(false);
+
+                SetPhase(SessionPhase.Flats);
+                await TakeSkyFlatsAsync(TwilightPeriod.Dusk, cancellationToken).ConfigureAwait(false);
+            }
+
             SetPhase(SessionPhase.WaitingForDark);
             await WaitUntilTenMinutesBeforeAmateurAstroTwilightEndsAsync(cancellationToken).ConfigureAwait(false);
 
