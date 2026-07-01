@@ -163,7 +163,7 @@ public interface IExternal
     /// so that cancellation is respected and no driver thread is blocked during the
     /// ~10–100 ms port open.
     /// </summary>
-    ValueTask<ISerialConnection> OpenSerialDeviceAsync(string address, int baud, Encoding encoding, CancellationToken cancellationToken = default);
+    ValueTask<ISerialConnection> OpenSerialDeviceAsync(string address, int baud, Encoding encoding, bool assertControlLines = false, CancellationToken cancellationToken = default);
 
     IPEndPoint DefaultGuiderAddress => new IPEndPoint(IPAddress.Loopback, 4400);
 

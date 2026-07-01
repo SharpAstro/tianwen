@@ -56,6 +56,7 @@ public abstract record class DeviceBase(Uri DeviceUri)
                 "OpenPHD2GuiderDevice" => "PHD2",
                 "BuiltInGuiderDevice" => "Built-in",
                 "ManualFilterWheelDevice" => "Manual",
+                "ManualCoverDevice" => "Manual",
                 "OpenMeteoDevice" => "Open-Meteo",
                 "OpenWeatherMapDevice" => "OpenWeather",
                 "NoneDevice" => "",
@@ -129,7 +130,7 @@ public abstract record class DeviceBase(Uri DeviceUri)
                 || port.Split('/', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)[^1].StartsWith("tty", StringComparison.Ordinal)
             )
             {
-                return await external.OpenSerialDeviceAsync(port, selectedBaud, encoding ?? Encoding.ASCII, cancellationToken);
+                return await external.OpenSerialDeviceAsync(port, selectedBaud, encoding ?? Encoding.ASCII, cancellationToken: cancellationToken);
             }
         }
 

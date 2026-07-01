@@ -7,7 +7,7 @@ using System.Text;
 
 namespace TianWen.Lib.Connections;
 
-internal sealed class SerialConnection(string portName, int baud, Encoding encoding, ILogger logger)
+internal sealed class SerialConnection(string portName, int baud, Encoding encoding, ILogger logger, bool assertControlLines = false)
     : SerialConnectionBase(encoding, logger)
 {
     public static IReadOnlyList<string> EnumerateSerialPorts()
@@ -27,6 +27,14 @@ internal sealed class SerialConnection(string portName, int baud, Encoding encod
 
     protected override Stream OpenStream()
     {
+        // Assert DTR + RTS before opening for bridges that hold the MCU in reset otherwise
+        // (e.g. the Gemini FlatPanel's CH341). Opt-in — off for every device that doesn't need it.
+        if (assertControlLines)
+        {
+            _port.DtrEnable = true;
+            _port.RtsEnable = true;
+        }
+
         _port.Open();
         return _port.BaseStream;
     }

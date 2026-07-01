@@ -68,7 +68,7 @@ internal class External(
 
     public ValueTask<ResourceLock> WaitForSerialPortEnumerationAsync(CancellationToken cancellationToken) => _serialPortEnumerationSemaphore.AcquireLockAsync(cancellationToken);
 
-    public async ValueTask<ISerialConnection> OpenSerialDeviceAsync(string address, int baud, Encoding encoding, CancellationToken cancellationToken = default)
+    public async ValueTask<ISerialConnection> OpenSerialDeviceAsync(string address, int baud, Encoding encoding, bool assertControlLines = false, CancellationToken cancellationToken = default)
     {
         // BCL SerialPort.Open is a synchronous blocking call (opens the OS handle,
         // queries the line state, etc.) — no real async equivalent exists. Offload
@@ -81,7 +81,9 @@ internal class External(
             ),
             cancellationToken);
 
-        ISerialConnection OpenSerialConnection(string portName) => new SerialConnection(portName, baud, encoding, logger);
+        // assertControlLines asserts DTR + RTS on open (needed by some USB-serial bridges, e.g. the
+        // Gemini FlatPanel's CH341). Default false preserves the existing behaviour for every other device.
+        ISerialConnection OpenSerialConnection(string portName) => new SerialConnection(portName, baud, encoding, logger, assertControlLines);
     }
 
     public Task<IUtf8TextBasedConnection> ConnectGuiderAsync(EndPoint address, CommunicationProtocol protocol = CommunicationProtocol.JsonRPC, CancellationToken cancellationToken = default)

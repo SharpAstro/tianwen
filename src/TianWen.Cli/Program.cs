@@ -48,6 +48,7 @@ builder.Services
     .AddOnStep()
     .AddIOptron()
     .AddSkywatcher()
+    .AddGemini()
     .AddProfiles()
     .AddFake()
     .AddPHD2()
