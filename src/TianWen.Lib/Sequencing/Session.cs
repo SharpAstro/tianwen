@@ -335,19 +335,29 @@ internal partial record Session(
         _lastGuideStats = stats;
     }
 
+    /// <summary>
+    /// Allocates the per-telescope observable-surface arrays (camera states, last-captured images, viewer
+    /// channels, frame metrics + history) so the telemetry properties don't index empty arrays. Called at the
+    /// top of every run entry point (<see cref="RunAsync"/>, <see cref="RunFlatsOnlyAsync"/>).
+    /// </summary>
+    private void AllocateObservableState()
+    {
+        _cameraStates = new CameraExposureState[Setup.Telescopes.Length];
+        _lastCapturedImages = new Image?[Setup.Telescopes.Length];
+        _viewerChannels = new Imaging.Channel[]?[Setup.Telescopes.Length];
+        _lastFrameMetrics = new FrameMetrics[Setup.Telescopes.Length];
+        _frameMetricsHistory = new CircularBuffer<FrameMetrics>[Setup.Telescopes.Length];
+        for (var i = 0; i < Setup.Telescopes.Length; i++)
+        {
+            _frameMetricsHistory[i] = new CircularBuffer<FrameMetrics>(30); // last 30 frames per OTA
+        }
+    }
+
     public async Task RunAsync(CancellationToken cancellationToken)
     {
         try
         {
-            _cameraStates = new CameraExposureState[Setup.Telescopes.Length];
-                _lastCapturedImages = new Image?[Setup.Telescopes.Length];
-                _viewerChannels = new Imaging.Channel[]?[Setup.Telescopes.Length];
-                _lastFrameMetrics = new FrameMetrics[Setup.Telescopes.Length];
-                _frameMetricsHistory = new CircularBuffer<FrameMetrics>[Setup.Telescopes.Length];
-                for (var i = 0; i < Setup.Telescopes.Length; i++)
-                {
-                    _frameMetricsHistory[i] = new CircularBuffer<FrameMetrics>(30); // last 30 frames per OTA
-                }
+            AllocateObservableState();
             var active = AdvanceObservation();
             // run initialisation code
             if (active == 0)

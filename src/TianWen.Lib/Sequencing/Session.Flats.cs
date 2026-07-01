@@ -14,20 +14,24 @@ namespace TianWen.Lib.Sequencing;
 internal partial record Session
 {
     /// <summary>
-    /// Automated end-of-session flat acquisition. Dispatches on <see cref="SessionConfiguration.FlatSource"/>:
-    /// <see cref="FlatIlluminationSource.TwilightSky"/> runs <em>dawn</em> sky-flats
-    /// (<see cref="TakeSkyFlatsAsync"/>); otherwise (the default) it runs panel/calibrator flats. Per OTA the
-    /// panel path closes the cover (flip-flat panels illuminate the closed cover), turns the calibrator on at
-    /// a coarse brightness, then for every installed filter auto-exposes to
-    /// <see cref="SessionConfiguration.FlatTargetAduFraction"/> (via the pure <see cref="FlatExposureSolver"/>)
-    /// and writes <see cref="FrameType.Flat"/> frames. The frames carry the same denormalised FITS metadata
-    /// (filter, temperature, gain, binning, sensor) the lights do, so the stacker's <c>MasterFrameBuilder</c>
-    /// groups + matches them with no extra wiring. Runs at the imaging setpoint temperature (before
-    /// <c>Finalise</c> warms the cameras).
+    /// Automated flat acquisition (end-of-session or on-demand). Dispatches on
+    /// <see cref="SessionConfiguration.FlatSource"/>: <see cref="FlatIlluminationSource.TwilightSky"/> runs
+    /// <em>dawn</em> sky-flats (<see cref="TakeSkyFlatsAsync"/>); <see cref="FlatIlluminationSource.Calibrator"/>
+    /// (the default) runs controllable panel/calibrator flats; <see cref="FlatIlluminationSource.ManualPanel"/>
+    /// runs the same auto-exposure + capture but with <em>no</em> cover/calibrator hardware control (a dumb
+    /// panel the user switched on by hand). Per OTA the calibrator path closes the cover (flip-flat panels
+    /// illuminate the closed cover), turns the calibrator on at a coarse brightness, then for every installed
+    /// filter auto-exposes to <see cref="SessionConfiguration.FlatTargetAduFraction"/> (via the pure
+    /// <see cref="FlatExposureSolver"/>) and writes <see cref="FrameType.Flat"/> frames; the manual path skips
+    /// the cover/calibrator steps and meters against whatever light is arranged. The frames carry the same
+    /// denormalised FITS metadata (filter, temperature, gain, binning, sensor) the lights do, so the stacker's
+    /// <c>MasterFrameBuilder</c> groups + matches them with no extra wiring. Runs at the imaging setpoint
+    /// temperature (before <c>Finalise</c> warms the cameras).
     /// </summary>
     /// <remarks>
-    /// OTAs without a calibrator panel are skipped with a warning on the panel path. The mount sign and
-    /// pointing are untouched on the panel path; the cover is left closed for <c>Finalise</c> to handle.
+    /// OTAs without a calibrator panel are skipped with a warning on the calibrator path (the manual path has
+    /// no such gate). The mount sign and pointing are untouched; on the calibrator path the cover is left
+    /// closed for <c>Finalise</c> to handle.
     /// </remarks>
     internal async ValueTask TakeFlatsAsync(CancellationToken cancellationToken)
     {
@@ -36,6 +40,10 @@ internal partial record Session
             await TakeSkyFlatsAsync(TwilightPeriod.Dawn, cancellationToken).ConfigureAwait(false);
             return;
         }
+
+        // ManualPanel = a dumb, user-switched panel: skip all cover/calibrator hardware control and just
+        // meter + capture. Everything else (auto-exposure, per-filter loop, FITS output) is identical.
+        var manual = Configuration.FlatSource is FlatIlluminationSource.ManualPanel;
 
         var cfg = Configuration;
         var target = cfg.FlatTargetAduFraction;
@@ -47,37 +55,47 @@ internal partial record Session
         var maxExposure = cfg.FlatMaxExposure ?? SessionConfiguration.DefaultFlatMaxExposure;
 
         _logger.LogInformation(
-            "Flat acquisition starting: target {Target:P0} +/- {Tolerance:P0}, {Count} frame(s)/filter, up to {Brackets} bracket(s), exposure [{Min:F3}s, {Max:F3}s].",
-            target, tolerance, flatsPerFilter, maxBrackets, minExposure.TotalSeconds, maxExposure.TotalSeconds);
+            "Flat acquisition starting ({Mode}): target {Target:P0} +/- {Tolerance:P0}, {Count} frame(s)/filter, up to {Brackets} bracket(s), exposure [{Min:F3}s, {Max:F3}s].",
+            manual ? "manual panel" : "calibrator panel", target, tolerance, flatsPerFilter, maxBrackets, minExposure.TotalSeconds, maxExposure.TotalSeconds);
 
-        // Close any covers up-front. NotPresent covers are handled gracefully; a pure calibrator
-        // panel without a cover is unaffected.
-        await MoveTelescopeCoversToStateAsync(CoverStatus.Closed, cancellationToken).ConfigureAwait(false);
+        // Close any covers up-front (flip-flat panels illuminate the closed cover). NotPresent covers are
+        // handled gracefully; a pure calibrator panel without a cover is unaffected. Skipped for the manual
+        // path -- the user arranges the illumination; we do not move the cover.
+        if (!manual)
+        {
+            await MoveTelescopeCoversToStateAsync(CoverStatus.Closed, cancellationToken).ConfigureAwait(false);
+        }
 
         for (var i = 0; i < Setup.Telescopes.Length && !cancellationToken.IsCancellationRequested; i++)
         {
             var telescope = Setup.Telescopes[i];
             var camDriver = telescope.Camera.Driver;
 
-            if (telescope.Cover?.Driver is not { } cover)
+            ICoverDriver? cover = null;
+            if (!manual)
             {
-                _logger.LogWarning("Telescope #{TelescopeNumber} '{Name}': no cover/calibrator device; skipping panel flats (set FlatSource=TwilightSky for sky-flats instead).",
-                    i + 1, telescope.Name);
-                continue;
-            }
+                if (telescope.Cover?.Driver is not { } coverDriver)
+                {
+                    _logger.LogWarning("Telescope #{TelescopeNumber} '{Name}': no cover/calibrator device; skipping panel flats (use FlatSource=ManualPanel for a hand-switched panel, or TwilightSky for sky-flats).",
+                        i + 1, telescope.Name);
+                    continue;
+                }
 
-            await cover.ConnectAsync(cancellationToken).ConfigureAwait(false);
-            if (await cover.GetCalibratorStateAsync(cancellationToken) is CalibratorStatus.NotPresent)
-            {
-                _logger.LogWarning("Telescope #{TelescopeNumber} '{Name}': cover has no calibrator panel; skipping panel flats.", i + 1, telescope.Name);
-                continue;
-            }
+                await coverDriver.ConnectAsync(cancellationToken).ConfigureAwait(false);
+                if (await coverDriver.GetCalibratorStateAsync(cancellationToken) is CalibratorStatus.NotPresent)
+                {
+                    _logger.LogWarning("Telescope #{TelescopeNumber} '{Name}': cover has no calibrator panel; skipping panel flats.", i + 1, telescope.Name);
+                    continue;
+                }
 
-            var brightness = ResolveCalibratorBrightness(cover.MaxBrightness, cfg.FlatCalibratorBrightnessPercent);
-            if (!await TurnCalibratorOnAndWaitAsync(cover, brightness, i, cancellationToken).ConfigureAwait(false))
-            {
-                _logger.LogError("Telescope #{TelescopeNumber} '{Name}': calibrator did not become ready; skipping flats for this OTA.", i + 1, telescope.Name);
-                continue;
+                var brightness = ResolveCalibratorBrightness(coverDriver.MaxBrightness, cfg.FlatCalibratorBrightnessPercent);
+                if (!await TurnCalibratorOnAndWaitAsync(coverDriver, brightness, i, cancellationToken).ConfigureAwait(false))
+                {
+                    _logger.LogError("Telescope #{TelescopeNumber} '{Name}': calibrator did not become ready; skipping flats for this OTA.", i + 1, telescope.Name);
+                    continue;
+                }
+
+                cover = coverDriver;
             }
 
             try
@@ -87,8 +105,11 @@ internal partial record Session
             }
             finally
             {
-                // Always turn the panel off, even if a filter failed mid-way.
-                await CatchAsync(cover.TurnOffCalibratorAndWaitAsync, cancellationToken, false).ConfigureAwait(false);
+                // Always turn the panel off, even if a filter failed mid-way. No-op on the manual path (cover null).
+                if (cover is not null)
+                {
+                    await CatchAsync(cover.TurnOffCalibratorAndWaitAsync, cancellationToken, false).ConfigureAwait(false);
+                }
             }
         }
 

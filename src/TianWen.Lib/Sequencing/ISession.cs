@@ -129,4 +129,15 @@ public interface ISession : IAsyncDisposable
     event EventHandler<GuiderStateChangedEventArgs>? GuiderStateChanged;
 
     Task RunAsync(CancellationToken cancellationToken);
+
+    /// <summary>
+    /// On-demand flat-frame run outside the normal <see cref="RunAsync"/> workflow: connects only the devices
+    /// flats need (cameras / covers / filter wheels / focusers, plus the mount for sky-flats -- never the
+    /// guider), cools to the imaging setpoint, captures flats per <see cref="SessionConfiguration.FlatSource"/>
+    /// (<paramref name="skyFlatPeriod"/> selects dawn vs dusk for <see cref="FlatIlluminationSource.TwilightSky"/>),
+    /// then finalises (abort exposures, close covers, warm cameras, park + disconnect). Skips wait-for-dark,
+    /// focus, guider calibration and the observation loop entirely. Backs the CLI <c>tianwen flats</c> command
+    /// and the <c>POST /api/v1/session/flats</c> endpoint.
+    /// </summary>
+    Task RunFlatsOnlyAsync(TwilightPeriod skyFlatPeriod, CancellationToken cancellationToken);
 }
