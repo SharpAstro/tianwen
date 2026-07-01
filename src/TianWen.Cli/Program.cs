@@ -136,6 +136,10 @@ var rootCommand = new RootCommand
             consoleHost,
             services.GetRequiredService<TianWen.Lib.Astrometry.PlateSolve.IPlateSolverFactory>(),
             services.GetRequiredService<TianWen.Lib.Astrometry.Catalogs.ICelestialObjectDB>()).Build(),
+        new FlatsSubCommand(
+            consoleHost,
+            services.GetRequiredService<TianWen.Lib.Sequencing.ISessionFactory>(),
+            profileSelector).Build(),
         new ImageSubCommand(
             consoleHost,
             services.GetRequiredService<SharpenPipeline>(),

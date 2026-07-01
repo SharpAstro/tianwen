@@ -20,6 +20,7 @@ namespace TianWen.Hosting.Dto;
 [JsonSerializable(typeof(ResponseEnvelope<Api.ProfileSummaryDto[]>))]
 [JsonSerializable(typeof(ResponseEnvelope<SessionConfigApiDto>))]
 [JsonSerializable(typeof(SessionConfigApiDto))]
+[JsonSerializable(typeof(FlatsRequestDto))]
 [JsonSerializable(typeof(PendingTarget))]
 [JsonSerializable(typeof(Api.CreateProfileRequest))]
 [JsonSerializable(typeof(Api.SetProfileRequest))]

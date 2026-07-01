@@ -141,6 +141,127 @@ internal static class SessionEndpoints
                 HostingJsonContext.Default.ResponseEnvelopeString);
         });
 
+        /// <summary>
+        /// Starts an on-demand flat run (no observations) for the given profile via
+        /// <see cref="ISession.RunFlatsOnlyAsync"/> and runs it in a background task. Returns immediately;
+        /// poll /state for phase progress. Accepts an optional JSON body (<see cref="FlatsRequestDto"/>)
+        /// selecting the source (calibrator / manual / sky), period, and flat knobs.
+        /// </summary>
+        group.MapPost("/flats", async (HttpContext httpContext, IHostedSession hosted, ISessionFactory factory, CancellationToken ct) =>
+        {
+            if (hosted.CurrentSession is not null)
+            {
+                return Results.Json(
+                    ResponseEnvelope<string>.Fail("A session is already running", 409),
+                    HostingJsonContext.Default.ResponseEnvelopeString);
+            }
+
+            // Optional body: source / period / flat knobs. Absent body = calibrator defaults. Validate the
+            // request shape before the profile lookup so a bad source/period surfaces regardless of profile.
+            FlatsRequestDto? request = null;
+            if (httpContext.Request.ContentLength > 0)
+            {
+                try
+                {
+                    request = await httpContext.Request.ReadFromJsonAsync(HostingJsonContext.Default.FlatsRequestDto, ct);
+                }
+                catch
+                {
+                    return Results.Json(
+                        ResponseEnvelope<string>.Fail("Malformed flats request body"),
+                        HostingJsonContext.Default.ResponseEnvelopeString);
+                }
+            }
+
+            if (!FlatRunParsing.TryParseSource(request?.Source, out var source) && request?.Source is not null)
+            {
+                return Results.Json(
+                    ResponseEnvelope<string>.Fail($"Invalid source '{request.Source}'. Use 'calibrator', 'manual', or 'sky'."),
+                    HostingJsonContext.Default.ResponseEnvelopeString);
+            }
+            if (!FlatRunParsing.TryParsePeriod(request?.Period, out var period) && request?.Period is not null)
+            {
+                return Results.Json(
+                    ResponseEnvelope<string>.Fail($"Invalid period '{request.Period}'. Use 'dawn' or 'dusk'."),
+                    HostingJsonContext.Default.ResponseEnvelopeString);
+            }
+
+            // Profile ID from query string or active profile.
+            var profileIdStr = httpContext.Request.Query["profileId"].FirstOrDefault();
+            Guid? profileId = null;
+            if (profileIdStr is not null)
+            {
+                if (!Guid.TryParse(profileIdStr, out var parsed))
+                {
+                    return Results.Json(
+                        ResponseEnvelope<string>.Fail($"Invalid profile ID '{profileIdStr}'"),
+                        HostingJsonContext.Default.ResponseEnvelopeString);
+                }
+                profileId = parsed;
+            }
+            profileId ??= hosted.ActiveProfileId;
+
+            if (profileId is null)
+            {
+                return Results.Json(
+                    ResponseEnvelope<string>.Fail("No profile ID specified. Set via ?profileId= or /api/v1/session/profile"),
+                    HostingJsonContext.Default.ResponseEnvelopeString);
+            }
+
+            // Site is left at NaN so RunFlatsOnlyAsync falls back to the mount's own configured site
+            // (the headless rig's mount carries its site); only the flat knobs are overlaid onto defaults.
+            var defaults = new SessionConfiguration();
+            var config = defaults with
+            {
+                FlatSource = source,
+                FlatsPerFilter = request?.Count ?? defaults.FlatsPerFilter,
+                FlatTargetAduFraction = request?.Target ?? defaults.FlatTargetAduFraction,
+                FlatAduTolerance = request?.Tolerance ?? defaults.FlatAduTolerance,
+                FlatMaxBrackets = request?.MaxBrackets ?? defaults.FlatMaxBrackets,
+                FlatCalibratorBrightnessPercent = request?.BrightnessPercent ?? defaults.FlatCalibratorBrightnessPercent,
+                FlatInitialExposure = request?.InitialExposureSeconds is { } ie ? TimeSpan.FromSeconds(ie) : defaults.FlatInitialExposure,
+                FlatMinExposure = request?.MinExposureSeconds is { } mn ? TimeSpan.FromSeconds(mn) : defaults.FlatMinExposure,
+                FlatMaxExposure = request?.MaxExposureSeconds is { } mx ? TimeSpan.FromSeconds(mx) : defaults.FlatMaxExposure,
+            };
+
+            ISession session;
+            try
+            {
+                session = factory.Create(profileId.Value, config, []);
+            }
+            catch (ArgumentException ex)
+            {
+                return Results.Json(
+                    ResponseEnvelope<string>.Fail(ex.Message, 404),
+                    HostingJsonContext.Default.ResponseEnvelopeString);
+            }
+
+            if (hosted is HostedSession hostedSession)
+            {
+                hostedSession.SetSession(session);
+                hostedSession.SetActiveProfile(profileId.Value);
+            }
+
+            // Run in background — caller polls /state for progress (phase Flats -> Complete/Failed). The
+            // session stays set on completion (mirrors /start) so the terminal phase is observable; POST
+            // /abort disposes + clears it before the next run.
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await session.RunFlatsOnlyAsync(period, ct);
+                }
+                catch (OperationCanceledException)
+                {
+                    // Expected on abort.
+                }
+            }, ct);
+
+            return Results.Json(
+                ResponseEnvelope<string>.Ok("Flats started"),
+                HostingJsonContext.Default.ResponseEnvelopeString);
+        });
+
         group.MapPost("/abort", (IHostedSession hosted) =>
         {
             if (hosted.CurrentSession is null)
