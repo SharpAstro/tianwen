@@ -74,24 +74,26 @@ public class SessionFlatsTests(ITestOutputHelper output)
     }
 
     [Fact(Timeout = 60_000)]
-    public async Task TakeFlatsAsync_ManualPanel_WritesFlatsWithoutCalibrator()
+    public async Task TakeFlatsAsync_ManualCover_WritesFlatsViaCalibratorPath()
     {
         var ct = TestContext.Current.CancellationToken;
 
         var config = SessionTestHelper.DefaultConfiguration with
         {
-            FlatSource = FlatIlluminationSource.ManualPanel,
+            // A manual panel is now a device (ManualCoverDevice), captured through the SAME Calibrator path
+            // as a flip-flat -- no ManualPanel source, no session branching.
+            FlatSource = FlatIlluminationSource.Calibrator,
             FlatAduTolerance = 1.0,   // any metering frame is "in tolerance" -> Capture on attempt 0
             FlatsPerFilter = 2,
             FlatMaxBrackets = 2,
             FlatInitialExposure = TimeSpan.FromSeconds(1),
         };
 
-        // No cover/calibrator on the OTA: the Calibrator path would skip every OTA here ("no cover/calibrator
-        // device"), but the ManualPanel path never gates on one -- it just meters + captures against whatever
-        // light is arranged, so it must still write flats.
+        // A ManualCoverDevice assigned to the OTA cover slot: it reports no flap (CoverStatus.NotPresent) and
+        // the calibrator Ready on demand, so the ordinary Calibrator path drives it and writes flats -- exactly
+        // like a real hand-switched analog panel the user turned on.
         using var ctx = await SessionTestHelper.CreateSessionAsync(
-            output, configuration: config, withCoverCalibrator: false, withFilterWheel: true, cancellationToken: ct);
+            output, configuration: config, withManualCover: true, withFilterWheel: true, cancellationToken: ct);
 
         ctx.External.MaxFitsWrites = 100;
 

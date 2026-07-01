@@ -61,6 +61,7 @@ internal static class SessionTestHelper
         double latitude = 48.2,
         double longitude = 16.3,
         bool withCoverCalibrator = false,
+        bool withManualCover = false,
         bool withFilterWheel = false,
         CancellationToken cancellationToken = default)
     {
@@ -87,6 +88,12 @@ internal static class SessionTestHelper
         if (withCoverCalibrator)
         {
             cover = new Cover(new FakeDevice(DeviceType.CoverCalibrator, 1), sp);
+            await cover.Driver.ConnectAsync(cancellationToken);
+        }
+        else if (withManualCover)
+        {
+            // A dumb hand-switched panel: no flap (CoverStatus.NotPresent), calibrator Ready on demand.
+            cover = new Cover(new ManualCoverDevice(), sp);
             await cover.Driver.ConnectAsync(cancellationToken);
         }
 

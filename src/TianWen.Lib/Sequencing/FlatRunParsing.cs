@@ -10,16 +10,17 @@ namespace TianWen.Lib.Sequencing;
 /// </summary>
 public static class FlatRunParsing
 {
-    /// <summary>Parses a flat illumination source: <c>calibrator</c>/<c>panel</c>, <c>manual</c>, or <c>sky</c>/<c>twilight</c>.</summary>
+    /// <summary>
+    /// Parses a flat illumination source: <c>calibrator</c>/<c>panel</c> or <c>sky</c>/<c>twilight</c>. A manual
+    /// (hand-switched) panel is not a source — it is a <see cref="Devices.ManualCoverDevice"/> assigned to the
+    /// OTA's cover slot, captured through the <c>calibrator</c> path.
+    /// </summary>
     public static bool TryParseSource(string? text, out FlatIlluminationSource source)
     {
         switch (text?.Trim().ToLowerInvariant())
         {
             case "calibrator" or "panel":
                 source = FlatIlluminationSource.Calibrator;
-                return true;
-            case "manual" or "manual-panel" or "manualpanel":
-                source = FlatIlluminationSource.ManualPanel;
                 return true;
             case "sky" or "twilight" or "twilightsky":
                 source = FlatIlluminationSource.TwilightSky;
