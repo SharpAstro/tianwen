@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.CommandLine;
@@ -171,7 +171,7 @@ internal sealed class ImageSubCommand(
         };
         var stellarSharpenOpt = new Option<bool>("--stellar-sharpen")
         {
-            Description = "Opt in to the SAS stellar-sharpening pass on the extracted stars (default OFF). Stars from a registered/drizzled stack are already round, and the SAS NAFNet over-sharpens bright cores -- it pushes them past 1.0 (hard clamp) and hardens the edges into square white blocks. Left off, stars pass through to StarStretch/recombine unmodified. Hard override: when a BlurX deblurrer is live (RC-Astro present) this pass is skipped even if requested, since the BlurX-first flow deblurs whole-frame before star extraction.",
+            Description = "Opt in to the SAS stellar-sharpening pass on the extracted stars (default OFF). Stars from a registered/drizzled stack are already round, and the SAS NAFNet over-sharpens bright cores - it pushes them past 1.0 (hard clamp) and hardens the edges into square white blocks. Left off, stars pass through to StarStretch/recombine unmodified. Hard override: when a BlurX deblurrer is live (RC-Astro present) this pass is skipped even if requested, since the BlurX-first flow deblurs whole-frame before star extraction.",
         };
         var noDeconvOpt = new Option<bool>("--no-deconv")
         {
@@ -198,7 +198,7 @@ internal sealed class ImageSubCommand(
         };
         var pngPqGamutOpt = new Option<PngPqGamut>("--png-pq-gamut")
         {
-            Description = "Colour primaries for PNG-PQ output. 'srgb' (default) skips the BT.2020 gamut matrix; cICP {1, 16, 0, 1} tells viewers 'sRGB primaries, PQ transfer' so colours stay at sRGB saturation regardless of whether the viewer correctly inverts BT.2020-to-display. 'bt2020' performs the canonical sRGB-to-BT.2020 matrix conversion and tags cICP {9, 16, 0, 1} (HDR10 canonical) -- correct per spec but consumer viewers that skip the inverse gamut tonemap render this muted.",
+            Description = "Colour primaries for PNG-PQ output. 'srgb' (default) skips the BT.2020 gamut matrix; cICP {1, 16, 0, 1} tells viewers 'sRGB primaries, PQ transfer' so colours stay at sRGB saturation regardless of whether the viewer correctly inverts BT.2020-to-display. 'bt2020' performs the canonical sRGB-to-BT.2020 matrix conversion and tags cICP {9, 16, 0, 1} (HDR10 canonical) - correct per spec but consumer viewers that skip the inverse gamut tonemap render this muted.",
             DefaultValueFactory = _ => PngPqGamut.Srgb,
         };
         var stellarBlendOpt = new Option<float>("--stellar-blend")
@@ -247,7 +247,7 @@ internal sealed class ImageSubCommand(
         };
         var starStretchModeOpt = new Option<StarStretchMode>("--star-stretch-mode")
         {
-            Description = "Stretch type for the stars-only plate under --dual-stretch. 'starstretch' (default) = Frank Sackenheim's fixed-curve stars stretch (preserves star colour + shape, gentle on highlights, almost always correct). 'mtf' = midtones-balance reusing --stretch-stars-amount as the target. 'ghs' = full GHS chain (--ghs-* family); rarely useful on stars -- it pinches cores. Setting this implies --dual-stretch.",
+            Description = "Stretch type for the stars-only plate under --dual-stretch. 'starstretch' (default) = Frank Sackenheim's fixed-curve stars stretch (preserves star colour + shape, gentle on highlights, almost always correct). 'mtf' = midtones-balance reusing --stretch-stars-amount as the target. 'ghs' = full GHS chain (--ghs-* family); rarely useful on stars - it pinches cores. Setting this implies --dual-stretch.",
             DefaultValueFactory = _ => StarStretchMode.StarStretch,
         };
         var starlessStretchModeOpt = new Option<StarlessStretchMode>("--starless-stretch-mode")
@@ -257,7 +257,7 @@ internal sealed class ImageSubCommand(
         };
         var stretchModeOpt = new Option<CombinedStretchMode>("--stretch-mode")
         {
-            Description = "Stretch type applied to the recombined (non-split) plate. 'mtf' (default) = midtones-balance with --stretch-starless-median. 'ghs' = GHS chain with the --ghs-* family. Mutually exclusive with --dual-stretch / --star-stretch-mode / --starless-stretch-mode -- those control the split workflow and there is no recombined plate to stretch.",
+            Description = "Stretch type applied to the recombined (non-split) plate. 'mtf' (default) = midtones-balance with --stretch-starless-median. 'ghs' = GHS chain with the --ghs-* family. Mutually exclusive with --dual-stretch / --star-stretch-mode / --starless-stretch-mode - those control the split workflow and there is no recombined plate to stretch.",
             DefaultValueFactory = _ => CombinedStretchMode.Mtf,
         };
         var ghsConvergeOpt = new Option<GhsConvergeMode>("--ghs-converge")
@@ -267,7 +267,7 @@ internal sealed class ImageSubCommand(
         };
         var ghsLnDOpt = new Option<double>("--ghs-lnd")
         {
-            Description = "GHS stretch factor in the PixInsight slider convention -- the value the script displays is ln(D + 1); internally D = exp(LnD) - 1. 0 = identity. Default 1.30 = D~2.67. Honoured when --ghs-converge=Manual; ignored when --ghs-converge=Auto (bisection solves LnD instead).",
+            Description = "GHS stretch factor in the PixInsight slider convention - the value the script displays is ln(D + 1); internally D = exp(LnD) - 1. 0 = identity. Default 1.30 = D~2.67. Honoured when --ghs-converge=Manual; ignored when --ghs-converge=Auto (bisection solves LnD instead).",
             DefaultValueFactory = _ => 1.30,
         };
         var ghsBOpt = new Option<double>("--ghs-b")
@@ -277,17 +277,17 @@ internal sealed class ImageSubCommand(
         };
         var ghsLpOpt = new Option<double>("--ghs-lp")
         {
-            Description = "GHS shadow protection point in [0, SP]. Below LP the curve is linear at the gradient evaluated at LP -- preserves shadow texture. Default 0. Honoured when --starless-stretch-mode=Ghs (or --stretch-mode=Ghs).",
+            Description = "GHS shadow protection point in [0, SP]. Below LP the curve is linear at the gradient evaluated at LP - preserves shadow texture. Default 0. Honoured when --starless-stretch-mode=Ghs (or --stretch-mode=Ghs).",
             DefaultValueFactory = _ => 0.0,
         };
         var ghsHpOpt = new Option<double>("--ghs-hp")
         {
-            Description = "GHS highlight protection point in [SP, 1]. Above HP the curve is linear at the gradient evaluated at HP -- prevents the upper tail from being compressed. Default 0.8 (Paul's recommendation). Honoured when --starless-stretch-mode=Ghs (or --stretch-mode=Ghs).",
+            Description = "GHS highlight protection point in [SP, 1]. Above HP the curve is linear at the gradient evaluated at HP - prevents the upper tail from being compressed. Default 0.8 (Paul's recommendation). Honoured when --starless-stretch-mode=Ghs (or --stretch-mode=Ghs).",
             DefaultValueFactory = _ => 0.8,
         };
         var ghsSpOpt = new Option<double>("--ghs-sp")
         {
-            Description = "GHS symmetry point -- the input pixel value where the curve has maximum gradient (its inflection point). Pass a value in (0, 1) to override; default <=0 means auto-detect via Image.EstimateRisingEdge (histogram lift-off). Honoured when --starless-stretch-mode=Ghs (or --stretch-mode=Ghs).",
+            Description = "GHS symmetry point - the input pixel value where the curve has maximum gradient (its inflection point). Pass a value in (0, 1) to override; default <=0 means auto-detect via Image.EstimateRisingEdge (histogram lift-off). Honoured when --starless-stretch-mode=Ghs (or --stretch-mode=Ghs).",
             DefaultValueFactory = _ => -1.0,
         };
         var ghsPassesOpt = new Option<int>("--ghs-passes")
@@ -302,17 +302,17 @@ internal sealed class ImageSubCommand(
         };
         var ghsStagesOpt = new Option<int>("--ghs-stages")
         {
-            Description = "Number of distinct GHS stages in the canonical Cranfield chain (gh-astro doc 2.7-2.9). 1 (default) = single GHS pass with caller's --ghs-* params. 2 = pass 1 -> BackgroundReduceStep ('linear prestretch') -> pass 2 (B=2.5, HP=0.95, LP=0, SP=auto, auto-converge on same target -- redistributes contrast and pushes signal toward highlights). 3 = stages 2 + pass 3 (B=-1 log branch, HP=0.99, LP=0, SP=auto, LnD=0.5 fixed, no auto-converge -- highlight refinement per case-2 recipe). Stages >= 2 force an implicit BackgroundReduceStep between passes 1 and 2 regardless of --no-reduce-bg. Implies --ghs-starless != off + --dual-stretch.",
+            Description = "Number of distinct GHS stages in the canonical Cranfield chain (gh-astro doc 2.7-2.9). 1 (default) = single GHS pass with caller's --ghs-* params. 2 = pass 1 -> BackgroundReduceStep ('linear prestretch') -> pass 2 (B=2.5, HP=0.95, LP=0, SP=auto, auto-converge on same target - redistributes contrast and pushes signal toward highlights). 3 = stages 2 + pass 3 (B=-1 log branch, HP=0.99, LP=0, SP=auto, LnD=0.5 fixed, no auto-converge - highlight refinement per case-2 recipe). Stages >= 2 force an implicit BackgroundReduceStep between passes 1 and 2 regardless of --no-reduce-bg. Implies --ghs-starless != off + --dual-stretch.",
             DefaultValueFactory = _ => 1,
         };
         var ghsAutoTargetOpt = new Option<Image.GhsConvergeTarget>("--ghs-target")
         {
-            Description = "Which post-stretch metric --ghs-converge=Auto bisects against. 'median' is the PixInsight STF default; 'mode' targets the bg peak (Paul / Polymath Astro's recipe -- lifts the histogram peak to ~0.25 instead of converging the median to it). Mode-target produces a visibly brighter result on typical linear astro frames because the median sits well above the mode (long signal tail). Default median for back-compat. Honoured only when --ghs-converge=Auto.",
+            Description = "Which post-stretch metric --ghs-converge=Auto bisects against. 'median' is the PixInsight STF default; 'mode' targets the bg peak (Paul / Polymath Astro's recipe - lifts the histogram peak to ~0.25 instead of converging the median to it). Mode-target produces a visibly brighter result on typical linear astro frames because the median sits well above the mode (long signal tail). Default median for back-compat. Honoured only when --ghs-converge=Auto.",
             DefaultValueFactory = _ => Image.GhsConvergeTarget.Median,
         };
         var asinhBetaOpt = new Option<double>("--asinh-beta")
         {
-            Description = "Stretch strength for Siril-style asinh stretches (Siril's 'stretch' parameter). Range [1, 1000]. Larger = more aggressive lift. Honoured when any --*-stretch-mode=Asinh. Default 10 -- a moderate lift; linear stars-only plates usually want 10-50, already-stretched starless 3-10.",
+            Description = "Stretch strength for Siril-style asinh stretches (Siril's 'stretch' parameter). Range [1, 1000]. Larger = more aggressive lift. Honoured when any --*-stretch-mode=Asinh. Default 10 - a moderate lift; linear stars-only plates usually want 10-50, already-stretched starless 3-10.",
             DefaultValueFactory = _ => 10.0,
         };
         var asinhBlackPointOpt = new Option<double>("--asinh-black-point")
@@ -352,7 +352,7 @@ internal sealed class ImageSubCommand(
         // RC-Astro vs SAS backend control + per-product strength overrides (Phase 3a).
         var aiBackendOpt = new Option<string>("--ai-backend")
         {
-            Description = "AI enhancer backend for the RC-servable roles (star removal / deblur / deconvolution / denoise): 'auto' (RC-Astro when present + licensed, else SAS ONNX -- default), 'rc' (force RC-Astro whenever the CLI is installed, skipping the license probe), or 'sas' (force SAS ONNX even when RC-Astro is licensed). No effect on stellar-sharpen / gradient-correction (SAS-only).",
+            Description = "AI enhancer backend for the RC-servable roles (star removal / deblur / deconvolution / denoise): 'auto' (RC-Astro when present + licensed, else SAS ONNX - default), 'rc' (force RC-Astro whenever the CLI is installed, skipping the license probe), or 'sas' (force SAS ONNX even when RC-Astro is licensed). No effect on stellar-sharpen / gradient-correction (SAS-only).",
             DefaultValueFactory = _ => "auto",
         };
         var bxtSharpenOpt = new Option<double>("--bxt-sharpen")
@@ -961,7 +961,7 @@ internal sealed class ImageSubCommand(
         };
         var formatOpt = new Option<ImageOutputFormat>("--output-format")
         {
-            Description = "2D-viewer companion file alongside the FITS output. 'none' (default) = no companion. 'png' = 16-bit cICP sRGB (SDR). 'png-pq' = 16-bit cICP HDR10 PQ. 'jxr' = float-true HDR. The --save-gradient surface PNG is unaffected -- it stays PNG (min-max contrast visualisation, not banding-sensitive).",
+            Description = "2D-viewer companion file alongside the FITS output. 'none' (default) = no companion. 'png' = 16-bit cICP sRGB (SDR). 'png-pq' = 16-bit cICP HDR10 PQ. 'jxr' = float-true HDR. The --save-gradient surface PNG is unaffected - it stays PNG (min-max contrast visualisation, not banding-sensitive).",
             DefaultValueFactory = _ => ImageOutputFormat.None,
             CustomParser = ParseOutputFormat,
         };
@@ -977,7 +977,7 @@ internal sealed class ImageSubCommand(
         };
         var saveGradientOpt = new Option<bool>("--save-gradient")
         {
-            Description = "Also write the estimated background surface as <output>_gradient.fits (+ .png if --png is set). Useful for sanity-checking the gradient model -- you can see whether it picked up light pollution vs vignette vs sky-glow asymmetry. Skipped by default to avoid leaking a 120 MB plate per call on large drizzles.",
+            Description = "Also write the estimated background surface as <output>_gradient.fits (+ .png if --png is set). Useful for sanity-checking the gradient model - you can see whether it picked up light pollution vs vignette vs sky-glow asymmetry. Skipped by default to avoid leaking a 120 MB plate per call on large drizzles.",
         };
 
         var cmd = new Command("flatten", "AI gradient correction via GraXpert BGE ONNX (subtractive). " +
@@ -1163,7 +1163,7 @@ internal sealed class ImageSubCommand(
         };
         var snrMinOpt = new Option<float>("--snr-min")
         {
-            Description = "Minimum star SNR for detection. Default 20 -- matches FindStarsAsync default. Lower values pick up more (noisier) stars.",
+            Description = "Minimum star SNR for detection. Default 20 - matches FindStarsAsync default. Lower values pick up more (noisier) stars.",
             DefaultValueFactory = _ => 20f,
         };
         var maxStarsOpt = new Option<int>("--max-stars")

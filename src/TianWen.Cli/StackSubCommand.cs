@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.CommandLine;
 using System.IO;
 using System.Threading;
@@ -78,7 +78,7 @@ internal sealed class StackSubCommand(
         };
         var formatOpt = new Option<ImageOutputFormat>("--output-format")
         {
-            Description = "2D-viewer companion alongside master_*.fits + master_*_autocrop.fits. 'png' (default) = stretched 8-bit-per-channel RGBA via MasterPreviewRenderer (SPCC + WB + auto-stretch + sRGB ICC). 'exr' = OpenEXR with float-true HDR pixels (FLOAT mono + RGB) -- writes the master FITS verbatim with NO SPCC / stretch baked in (the unstretched linear master); SPCC diagnostics are skipped for the EXR path. Open .exr in PixInsight / Siril / Affinity / Photoshop / Blender. 'none' = no companion (just the FITS outputs). ('jxr' is for stretched/processed output via the 'image' command, not a stacking master format.)",
+            Description = "2D-viewer companion alongside master_*.fits + master_*_autocrop.fits. 'png' (default) = stretched 8-bit-per-channel RGBA via MasterPreviewRenderer (SPCC + WB + auto-stretch + sRGB ICC). 'exr' = OpenEXR with float-true HDR pixels (FLOAT mono + RGB) - writes the master FITS verbatim with NO SPCC / stretch baked in (the unstretched linear master); SPCC diagnostics are skipped for the EXR path. Open .exr in PixInsight / Siril / Affinity / Photoshop / Blender. 'none' = no companion (just the FITS outputs). ('jxr' is for stretched/processed output via the 'image' command, not a stacking master format.)",
             DefaultValueFactory = _ => ImageOutputFormat.Png,
         };
         var noPlateSolveOpt = new Option<bool>("--no-plate-solve")
@@ -106,15 +106,15 @@ internal sealed class StackSubCommand(
         };
         var qualityRejectSigmaOpt = new Option<float?>("--quality-reject-sigma")
         {
-            Description = "Enable per-frame quality filtering at this sigma threshold: a frame is dropped from integration when its median HFD or ellipticity exceeds median + sigma * 1.4826 * MAD of the session. An 80% keep floor caps rejection at the worst 20% by severity. 3.0 is a conservative starting value -- catches clear outliers (bloated low-altitude frames, wind-trailed frames) without biting into the body of the distribution. Off by default.",
+            Description = "Enable per-frame quality filtering at this sigma threshold: a frame is dropped from integration when its median HFD or ellipticity exceeds median + sigma * 1.4826 * MAD of the session. An 80% keep floor caps rejection at the worst 20% by severity. 3.0 is a conservative starting value - catches clear outliers (bloated low-altitude frames, wind-trailed frames) without biting into the body of the distribution. Off by default.",
         };
         var referenceFrameHintOpt = new Option<string?>("--reference-frame")
         {
-            Description = "Debug knob: pin the reference frame to the first candidate whose path contains this case-insensitive substring (e.g. '_0233' to pin to that filename). Falls back to the composite-quality score picker when unset or no match. Use to isolate per-frame artifacts that correlate with reference choice -- a frame near the session's temporal middle keeps per-frame rotation residuals symmetric, which balances per-channel drizzle coverage.",
+            Description = "Debug knob: pin the reference frame to the first candidate whose path contains this case-insensitive substring (e.g. '_0233' to pin to that filename). Falls back to the composite-quality score picker when unset or no match. Use to isolate per-frame artifacts that correlate with reference choice - a frame near the session's temporal middle keeps per-frame rotation residuals symmetric, which balances per-channel drizzle coverage.",
         };
         var noBayerDrizzleOpt = new Option<bool>("--no-bayer-drizzle")
         {
-            Description = "Opt out of drizzle auto-selection. On RGGB sensors with >= 60 matched frames the selector picks BayerDrizzle / TilePipelinedDrizzle by default (3-5x faster than the standard AHD-debayer path on big-N sessions); this flag forces the standard path instead. Useful for A/B against a reference master, or when you specifically want kappa-sigma rejection rather than drizzle's per-cell coverage map. --strategy overrides still win -- forcing BayerDrizzle bypasses this flag.",
+            Description = "Opt out of drizzle auto-selection. On RGGB sensors with >= 60 matched frames the selector picks BayerDrizzle / TilePipelinedDrizzle by default (3-5x faster than the standard AHD-debayer path on big-N sessions); this flag forces the standard path instead. Useful for A/B against a reference master, or when you specifically want kappa-sigma rejection rather than drizzle's per-cell coverage map. --strategy overrides still win - forcing BayerDrizzle bypasses this flag.",
         };
         var includeIntegrationsOpt = new Option<bool>("--include-integrations")
         {
@@ -131,13 +131,13 @@ internal sealed class StackSubCommand(
         };
         var splitPlatesOpt = new Option<bool>("--split-plates")
         {
-            Description = "Also emit edit-ready, dual-stretched per-plate TIFFs (master_*_stars.tif + master_*_starless.tif) from the SAME enhance pass -- no second AI run. The stars-only and starless plates produced internally by the BlurX-first enhance are stretched (StarStretch / MTF + reduce-bg + compress-highlights, fixed defaults) and written as sRGB-ICC float TIFFs, cropped to the autocrop AABB, for layering in Photoshop / Affinity (Screen-blend stars over starless). Implies --enhance.",
+            Description = "Also emit edit-ready, dual-stretched per-plate TIFFs (master_*_stars.tif + master_*_starless.tif) from the SAME enhance pass - no second AI run. The stars-only and starless plates produced internally by the BlurX-first enhance are stretched (StarStretch / MTF + reduce-bg + compress-highlights, fixed defaults) and written as sRGB-ICC float TIFFs, cropped to the autocrop AABB, for layering in Photoshop / Affinity (Screen-blend stars over starless). Implies --enhance.",
         };
         // RC-Astro vs SAS backend control + per-product strength overrides (Phase 3a),
         // mirrored from `image sharpen` so `stack --enhance` honours the same knobs.
         var aiBackendOpt = new Option<string>("--ai-backend")
         {
-            Description = "AI enhancer backend for the RC-servable roles (star removal / deblur / deconvolution / denoise): 'auto' (RC-Astro when present + licensed, else SAS ONNX -- default), 'rc' (force RC-Astro whenever the CLI is installed, skipping the license probe), or 'sas' (force SAS ONNX even when RC-Astro is licensed). No effect on stellar-sharpen / gradient-correction (SAS-only). Implies --enhance unless 'auto'.",
+            Description = "AI enhancer backend for the RC-servable roles (star removal / deblur / deconvolution / denoise): 'auto' (RC-Astro when present + licensed, else SAS ONNX - default), 'rc' (force RC-Astro whenever the CLI is installed, skipping the license probe), or 'sas' (force SAS ONNX even when RC-Astro is licensed). No effect on stellar-sharpen / gradient-correction (SAS-only). Implies --enhance unless 'auto'.",
             DefaultValueFactory = _ => "auto",
         };
         var bxtSharpenOpt = new Option<double>("--bxt-sharpen")

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.CommandLine;
 using System.Diagnostics;
 using System.Globalization;
@@ -73,7 +73,7 @@ internal sealed class PlanetaryStackSubCommand(
         };
         var drizzleOpt = new Option<float>("--drizzle")
         {
-            Description = "Bayer drizzle at this output scale (e.g. 1.5 = Drizzle1.5). Forward-scatters raw CFA samples onto an upscaled grid with NO interpolation/demosaic -- recovers sub-Bayer resolution, and (by default) forward-scatters through the per-AP displacement mesh so it also gets the local seeing de-warp. 0 (default) = off (mesh/translate integrator). Bayer source only; see --drizzle-global to use whole-disk alignment instead.",
+            Description = "Bayer drizzle at this output scale (e.g. 1.5 = Drizzle1.5). Forward-scatters raw CFA samples onto an upscaled grid with NO interpolation/demosaic - recovers sub-Bayer resolution, and (by default) forward-scatters through the per-AP displacement mesh so it also gets the local seeing de-warp. 0 (default) = off (mesh/translate integrator). Bayer source only; see --drizzle-global to use whole-disk alignment instead.",
             DefaultValueFactory = _ => 0f,
         };
         var drizzlePixfracOpt = new Option<float>("--drizzle-pixfrac")
