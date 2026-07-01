@@ -6,10 +6,20 @@ namespace TianWen.Lib.Devices.Fake;
 
 internal class FakeCoverDriver(FakeDevice fakeDevice, IServiceProvider serviceProvider) : FakeDeviceDriverBase(fakeDevice, serviceProvider), ICoverDriver
 {
-    private volatile CoverStatus _coverState = CoverStatus.Closed;
+    // The ASCOM CoverCalibrator interface fuses two independent capabilities, and either half may be
+    // absent. Two real hardware classes model as this fake:
+    //   * a flip-flat (motorised cover + built-in panel) -- the default; has a cover flap.
+    //   * a driver-controlled light panel with NO flap (e.g. the Gemini FlatPanel Lite), which reports
+    //     CoverStatus.NotPresent -- selected by hasCover=false on the device URI.
+    private volatile CoverStatus _coverState = HasCoverFlap(fakeDevice) ? CoverStatus.Closed : CoverStatus.NotPresent;
     private volatile CalibratorStatus _calibratorState = CalibratorStatus.Off;
     private int _brightness;
     private ITimer? _coverTimer;
+
+    // Absent / unparseable defaults to a flip-flat WITH a motorised cover; only an explicit
+    // hasCover=false models a bare light panel that has no flap to open or close.
+    private static bool HasCoverFlap(FakeDevice fakeDevice)
+        => !bool.TryParse(fakeDevice.Query.QueryValue(DeviceQueryKey.HasCover), out var hasCover) || hasCover;
 
     /// <summary>
     /// Simulated time for the cover to transition from Moving to Open/Closed.
@@ -29,6 +39,12 @@ internal class FakeCoverDriver(FakeDevice fakeDevice, IServiceProvider servicePr
 
     public Task BeginOpen(CancellationToken cancellationToken = default)
     {
+        // A flap-less light panel has no cover to move; leave it NotPresent.
+        if (_coverState is CoverStatus.NotPresent)
+        {
+            return Task.CompletedTask;
+        }
+
         _coverState = CoverStatus.Moving;
         ScheduleCoverTransition(CoverStatus.Open);
         return Task.CompletedTask;
@@ -36,6 +52,12 @@ internal class FakeCoverDriver(FakeDevice fakeDevice, IServiceProvider servicePr
 
     public Task BeginClose(CancellationToken cancellationToken = default)
     {
+        // A flap-less light panel has no cover to move; leave it NotPresent.
+        if (_coverState is CoverStatus.NotPresent)
+        {
+            return Task.CompletedTask;
+        }
+
         _coverState = CoverStatus.Moving;
         ScheduleCoverTransition(CoverStatus.Closed);
         return Task.CompletedTask;

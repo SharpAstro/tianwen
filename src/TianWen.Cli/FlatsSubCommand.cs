@@ -13,9 +13,10 @@ namespace TianWen.Cli;
 /// (warm cameras, close covers, disconnect). Frames land under <c>&lt;output&gt;/Flats/&lt;date&gt;/&lt;filter&gt;/Flat/</c>
 /// with the same denormalised FITS headers as lights, so the stacker matches them with no extra wiring.
 ///
-/// <para>Three illumination sources: <c>calibrator</c> (a controllable panel / flip-flat -- the default),
-/// <c>manual</c> (a dumb panel the user switched on by hand -- no cover/calibrator control), and <c>sky</c>
-/// (twilight sky-flats; <c>--period dawn|dusk</c> selects the ramp direction and needs the mount).</para>
+/// <para>Two illumination sources: <c>calibrator</c> (any cover/calibrator device assigned to the OTA -- a
+/// flip-flat, a driver lightbox / panel, or a <c>ManualCoverDevice</c> hand-switched panel; the default) and
+/// <c>sky</c> (twilight sky-flats; <c>--period dawn|dusk</c> selects the ramp direction and needs the mount).
+/// A manual panel is selected by assigning a Manual Light Panel to the OTA cover slot, not by a source flag.</para>
 /// </summary>
 internal sealed class FlatsSubCommand(
     IConsoleHost consoleHost,
@@ -26,12 +27,12 @@ internal sealed class FlatsSubCommand(
     {
         var sourceOpt = new Option<string>("--source")
         {
-            Description = "Illumination source: 'calibrator' (controllable panel/flip-flat, default), 'manual' (hand-switched dumb panel, no cover/calibrator control), or 'sky' (twilight sky-flats).",
+            Description = "Illumination source. 'calibrator' (default) uses any cover/calibrator assigned to the OTA: a flip-flat, a driver panel, or a hand-switched Manual Light Panel. 'sky' uses twilight sky-flats.",
             DefaultValueFactory = _ => "calibrator",
         };
         var periodOpt = new Option<string>("--period")
         {
-            Description = "Twilight period for --source sky: 'dusk' (evening, exposures lengthen; default) or 'dawn' (morning, exposures shorten). Ignored for calibrator/manual.",
+            Description = "Twilight period for --source sky: 'dusk' (evening, exposures lengthen; default) or 'dawn' (morning, exposures shorten). Ignored for calibrator.",
             DefaultValueFactory = _ => "dusk",
         };
         var countOpt = new Option<int?>("--count")
@@ -56,7 +57,7 @@ internal sealed class FlatsSubCommand(
         };
         var initExpOpt = new Option<double?>("--initial-exposure")
         {
-            Description = "First metering exposure in seconds (calibrator/manual only; the solver brackets from here).",
+            Description = "First metering exposure in seconds (calibrator source only; the solver brackets from here).",
         };
         var brightnessOpt = new Option<int?>("--brightness")
         {
@@ -64,10 +65,10 @@ internal sealed class FlatsSubCommand(
         };
         var bracketsOpt = new Option<int?>("--brackets")
         {
-            Description = "Maximum auto-exposure metering brackets before giving up (calibrator/manual only).",
+            Description = "Maximum auto-exposure metering brackets before giving up (calibrator only).",
         };
 
-        var flatsCommand = new Command("flats", "Capture flat frames on-demand (calibrator panel, manual panel, or twilight sky).")
+        var flatsCommand = new Command("flats", "Capture flat frames on-demand from a cover/calibrator device (flip-flat, driver panel, or manual panel) or the twilight sky.")
         {
             Options = { sourceOpt, periodOpt, countOpt, targetOpt, toleranceOpt, minExpOpt, maxExpOpt, initExpOpt, brightnessOpt, bracketsOpt },
         };
@@ -77,7 +78,7 @@ internal sealed class FlatsSubCommand(
             var sourceStr = parseResult.GetValue(sourceOpt) ?? "calibrator";
             if (!FlatRunParsing.TryParseSource(sourceStr, out var source))
             {
-                consoleHost.WriteError($"--source must be 'calibrator', 'manual', or 'sky', got '{sourceStr}'");
+                consoleHost.WriteError($"--source must be 'calibrator' or 'sky', got '{sourceStr}'");
                 return 1;
             }
 
@@ -117,8 +118,7 @@ internal sealed class FlatsSubCommand(
             var sourceLabel = source switch
             {
                 FlatIlluminationSource.TwilightSky => $"sky ({period.ToString().ToLowerInvariant()})",
-                FlatIlluminationSource.ManualPanel => "manual panel",
-                _ => "calibrator panel",
+                _ => "calibrator",
             };
             consoleHost.WriteScrollable($"[flats] profile '{profile.DisplayName}', source={sourceLabel}, {config.FlatsPerFilter} frame(s)/filter, target {config.FlatTargetAduFraction:P0}.");
 

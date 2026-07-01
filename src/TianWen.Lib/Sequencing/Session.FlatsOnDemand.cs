@@ -14,12 +14,13 @@ internal partial record Session
     /// connect -> cool -> capture -> finalise cycle against the flat-relevant device subset, without the
     /// wait-for-dark / focus / guider-calibration / observation-loop stages of <see cref="RunAsync"/>.
     /// Dispatches capture on <see cref="SessionConfiguration.FlatSource"/> exactly like the end-of-session
-    /// hook (calibrator / manual panel / twilight sky), so the output contract is identical.
+    /// hook (a cover/calibrator device — flip-flat, lightbox, Gemini panel, or manual panel — or the twilight
+    /// sky), so the output contract is identical.
     /// </summary>
     public async Task RunFlatsOnlyAsync(TwilightPeriod skyFlatPeriod, CancellationToken cancellationToken)
     {
-        // Sky-flats need the mount (slew to the anti-solar zenith, tracking off). Panel / manual flats do
-        // not touch the mount and never connect the guider.
+        // Sky-flats need the mount (slew to the anti-solar zenith, tracking off). Cover/calibrator flats
+        // (incl. a manual panel) do not touch the mount and never connect the guider.
         var needMount = Configuration.FlatSource is FlatIlluminationSource.TwilightSky;
         var mountConnected = false;
 
@@ -51,7 +52,8 @@ internal partial record Session
             }
             else
             {
-                // Calibrator + ManualPanel both flow through TakeFlatsAsync's dispatch.
+                // Any cover/calibrator device (flip-flat, lightbox, Gemini panel, manual panel) flows through
+                // TakeFlatsAsync's single calibrator path.
                 await TakeFlatsAsync(cancellationToken).ConfigureAwait(false);
             }
 

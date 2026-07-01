@@ -8,7 +8,7 @@ namespace TianWen.Lib.Devices.Fake;
 
 internal class FakeDeviceSource : IDeviceSource<FakeDevice>
 {
-    public IEnumerable<DeviceType> RegisteredDeviceTypes => [DeviceType.Mount, DeviceType.Camera, DeviceType.Focuser, DeviceType.FilterWheel, DeviceType.Guider, DeviceType.Weather];
+    public IEnumerable<DeviceType> RegisteredDeviceTypes => [DeviceType.Mount, DeviceType.Camera, DeviceType.Focuser, DeviceType.FilterWheel, DeviceType.CoverCalibrator, DeviceType.Guider, DeviceType.Weather];
 
     // Fake mounts with different protocol stacks
     private static readonly (string Port, string DisplaySuffix)[] _mountProtocols =
@@ -21,6 +21,20 @@ internal class FakeDeviceSource : IDeviceSource<FakeDevice>
 
     public IEnumerable<FakeDevice> RegisteredDevices(DeviceType deviceType)
     {
+        if (deviceType is DeviceType.CoverCalibrator)
+        {
+            // Both hardware classes under the ASCOM CoverCalibrator umbrella, so a profile can be wired
+            // against either without live hardware:
+            //   1. a flip-flat (motorised cover + built-in panel) -- has a cover flap;
+            //   2. a driver-controlled light panel with NO flap (e.g. Gemini FlatPanel Lite), which reports
+            //      CoverStatus.NotPresent -- modelled via hasCover=false.
+            yield return new FakeDevice(new Uri(
+                $"{deviceType}://{nameof(FakeDevice)}/FakeCoverCalibrator1#Fake Flip-Flat (cover + panel)"));
+            yield return new FakeDevice(new Uri(
+                $"{deviceType}://{nameof(FakeDevice)}/FakeCoverCalibrator2?{DeviceQueryKey.HasCover.Key}=false#Fake Light Panel (no cover)"));
+            yield break;
+        }
+
         var count = deviceType switch
         {
             DeviceType.Guider => 1,

@@ -7,8 +7,12 @@ namespace TianWen.Lib.Sequencing;
 public enum FlatIlluminationSource
 {
     /// <summary>
-    /// A controllable calibrator panel / flip-flat (illuminated closed cover or standalone lightbox).
-    /// Time-independent: converge the exposure once, then shoot the flats at a fixed exposure.
+    /// A cover/calibrator device — any <see cref="Devices.ICoverDriver"/>: a flip-flat (illuminated closed
+    /// cover), a standalone driver-controlled lightbox / panel (e.g. Gemini FlatPanel Lite, which reports
+    /// <see cref="Devices.CoverStatus.NotPresent"/>), or a <see cref="Devices.ManualCoverDevice"/> (a dumb
+    /// hand-switched panel modelled as a degenerate driver). Time-independent: converge the exposure once,
+    /// then shoot the flats at a fixed exposure. Manual illumination that is misconfigured simply fails the
+    /// solver gracefully ("too dim/bright at the bound").
     /// </summary>
     Calibrator,
 
@@ -16,17 +20,7 @@ public enum FlatIlluminationSource
     /// The twilight sky (dawn and/or dusk). The exposure is re-metered per frame as the sky
     /// brightness ramps, and the pointing is near the anti-solar zenith with tracking off.
     /// </summary>
-    TwilightSky,
-
-    /// <summary>
-    /// A manual (dumb) flat panel or light source the user switches on by hand -- no ASCOM/Alpaca
-    /// cover/calibrator to gate on or control. The routine skips all cover/calibrator hardware steps
-    /// and just runs the same auto-exposure convergence + capture against whatever light is arranged;
-    /// misconfigured illumination simply fails the solver gracefully ("too dim/bright at the bound").
-    /// Because there is no device to switch the panel on, this is an <em>on-demand</em> source only
-    /// (<see cref="Session.RunFlatsOnlyAsync"/>) -- it is never selected by the unattended session hooks.
-    /// </summary>
-    ManualPanel
+    TwilightSky
 }
 
 /// <summary>
