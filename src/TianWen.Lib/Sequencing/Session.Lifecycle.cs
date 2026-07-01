@@ -251,44 +251,12 @@ internal partial record Session
             _logger.LogWarning("Init: site coordinates not set (NaN) — mount will use defaults");
         }
 
+        // Site coordinates for the per-camera denorm stamp (read once; fixed for the session).
+        var siteLatitude = await mount.Driver.GetSiteLatitudeAsync(cancellationToken);
+        var siteLongitude = await mount.Driver.GetSiteLongitudeAsync(cancellationToken);
         for (var i = 0; i < Setup.Telescopes.Length; i++)
         {
-            var telescope = Setup.Telescopes[i];
-            var camera = telescope.Camera;
-            _currentActivity = $"Connecting {telescope.Name}\u2026";
-            _logger.LogDebug("Init: connecting OTA #{OtaIndex} camera {Camera}", i, camera);
-            await camera.Driver.ConnectAsync(cancellationToken).ConfigureAwait(false);
-
-            if (telescope.Focuser is { } focuser)
-            {
-                _logger.LogDebug("Init: connecting OTA #{OtaIndex} focuser {Focuser}", i, focuser);
-                await focuser.Driver.ConnectAsync(cancellationToken).ConfigureAwait(false);
-            }
-
-            if (telescope.FilterWheel is { } filterWheel)
-            {
-                _logger.LogDebug("Init: connecting OTA #{OtaIndex} filter wheel {FilterWheel}", i, filterWheel);
-                await filterWheel.Driver.ConnectAsync(cancellationToken).ConfigureAwait(false);
-            }
-
-            if (telescope.Cover is { } cover)
-            {
-                _logger.LogDebug("Init: connecting OTA #{OtaIndex} cover {Cover}", i, cover);
-                await cover.Driver.ConnectAsync(cancellationToken).ConfigureAwait(false);
-            }
-
-            // copy over denormalised properties if required
-            camera.Driver.Telescope ??= telescope.Name;
-            if (camera.Driver.FocalLength is <= 0)
-            {
-                camera.Driver.FocalLength = telescope.FocalLength;
-            }
-            if (camera.Driver.Aperture is null or <= 0 && telescope.Aperture is int apertureMm and > 0)
-            {
-                camera.Driver.Aperture = apertureMm;
-            }
-            camera.Driver.Latitude ??= await mount.Driver.GetSiteLatitudeAsync(cancellationToken);
-            camera.Driver.Longitude ??= await mount.Driver.GetSiteLongitudeAsync(cancellationToken);
+            await ConnectTelescopeAsync(Setup.Telescopes[i], i, siteLatitude, siteLongitude, cancellationToken).ConfigureAwait(false);
         }
 
         _currentActivity = "Checking cooler sensor temp\u2026";
@@ -361,6 +329,49 @@ internal partial record Session
         return true;
     }
 
+    /// <summary>
+    /// Connects one OTA's devices (camera, focuser, filter wheel, cover) and stamps the camera's
+    /// denormalised properties (telescope name, focal length, aperture, site lat/lon). Shared by the
+    /// full-session <see cref="InitialisationAsync"/> and the on-demand <see cref="ConnectForFlatsAsync"/>,
+    /// so both connect an OTA identically.
+    /// </summary>
+    private async ValueTask ConnectTelescopeAsync(OTA telescope, int index, double siteLatitude, double siteLongitude, CancellationToken cancellationToken)
+    {
+        var camera = telescope.Camera;
+        _currentActivity = $"Connecting {telescope.Name}…";
+        _logger.LogDebug("Init: connecting OTA #{OtaIndex} camera {Camera}", index, camera);
+        await camera.Driver.ConnectAsync(cancellationToken).ConfigureAwait(false);
 
+        if (telescope.Focuser is { } focuser)
+        {
+            _logger.LogDebug("Init: connecting OTA #{OtaIndex} focuser {Focuser}", index, focuser);
+            await focuser.Driver.ConnectAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        if (telescope.FilterWheel is { } filterWheel)
+        {
+            _logger.LogDebug("Init: connecting OTA #{OtaIndex} filter wheel {FilterWheel}", index, filterWheel);
+            await filterWheel.Driver.ConnectAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        if (telescope.Cover is { } cover)
+        {
+            _logger.LogDebug("Init: connecting OTA #{OtaIndex} cover {Cover}", index, cover);
+            await cover.Driver.ConnectAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        // copy over denormalised properties if required
+        camera.Driver.Telescope ??= telescope.Name;
+        if (camera.Driver.FocalLength is <= 0)
+        {
+            camera.Driver.FocalLength = telescope.FocalLength;
+        }
+        if (camera.Driver.Aperture is null or <= 0 && telescope.Aperture is int apertureMm and > 0)
+        {
+            camera.Driver.Aperture = apertureMm;
+        }
+        camera.Driver.Latitude ??= siteLatitude;
+        camera.Driver.Longitude ??= siteLongitude;
+    }
 
 }

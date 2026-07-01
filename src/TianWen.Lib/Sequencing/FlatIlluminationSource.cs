@@ -16,7 +16,17 @@ public enum FlatIlluminationSource
     /// The twilight sky (dawn and/or dusk). The exposure is re-metered per frame as the sky
     /// brightness ramps, and the pointing is near the anti-solar zenith with tracking off.
     /// </summary>
-    TwilightSky
+    TwilightSky,
+
+    /// <summary>
+    /// A manual (dumb) flat panel or light source the user switches on by hand -- no ASCOM/Alpaca
+    /// cover/calibrator to gate on or control. The routine skips all cover/calibrator hardware steps
+    /// and just runs the same auto-exposure convergence + capture against whatever light is arranged;
+    /// misconfigured illumination simply fails the solver gracefully ("too dim/bright at the bound").
+    /// Because there is no device to switch the panel on, this is an <em>on-demand</em> source only
+    /// (<see cref="Session.RunFlatsOnlyAsync"/>) -- it is never selected by the unattended session hooks.
+    /// </summary>
+    ManualPanel
 }
 
 /// <summary>
