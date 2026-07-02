@@ -145,7 +145,8 @@ internal static class SessionEndpoints
         /// Starts an on-demand flat run (no observations) for the given profile via
         /// <see cref="ISession.RunFlatsOnlyAsync"/> and runs it in a background task. Returns immediately;
         /// poll /state for phase progress. Accepts an optional JSON body (<see cref="FlatsRequestDto"/>)
-        /// selecting the source (calibrator / manual / sky), period, and flat knobs.
+        /// selecting the source (calibrator / sky), period, and flat knobs. A manual hand-switched panel
+        /// is a <c>ManualCoverDevice</c> assigned to the OTA's cover slot, captured via <c>calibrator</c>.
         /// </summary>
         group.MapPost("/flats", async (HttpContext httpContext, IHostedSession hosted, ISessionFactory factory, CancellationToken ct) =>
         {
@@ -176,7 +177,7 @@ internal static class SessionEndpoints
             if (!FlatRunParsing.TryParseSource(request?.Source, out var source) && request?.Source is not null)
             {
                 return Results.Json(
-                    ResponseEnvelope<string>.Fail($"Invalid source '{request.Source}'. Use 'calibrator', 'manual', or 'sky'."),
+                    ResponseEnvelope<string>.Fail($"Invalid source '{request.Source}'. Use 'calibrator' or 'sky' (a manual panel is a Manual Light Panel device on the OTA's cover slot, captured via 'calibrator')."),
                     HostingJsonContext.Default.ResponseEnvelopeString);
             }
             if (!FlatRunParsing.TryParsePeriod(request?.Period, out var period) && request?.Period is not null)
