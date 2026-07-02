@@ -16,6 +16,7 @@ public static class DeviceServiceCollectionExtensions
     public static IServiceCollection AddDevices(this IServiceCollection services) => services
         .AddDeviceType(uri => new NoneDevice(uri))
         .AddDeviceType(uri => new ManualCoverDevice(uri))
+        .AddDeviceType(uri => new ManualFilterWheelDevice(uri))
         .AddSingleton<IDeviceHub, DeviceHub>()
         .AddSingleton<ISerialProbeService, SerialProbeService>()
         .AddSingleton<IDeviceDiscovery, DeviceDiscovery>();

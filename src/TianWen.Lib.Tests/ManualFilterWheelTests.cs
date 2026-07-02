@@ -2,6 +2,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Shouldly;
 using System.Threading.Tasks;
 using TianWen.Lib.Devices;
+using TianWen.Lib.Extensions;
 using TianWen.Lib.Imaging;
 using Xunit;
 
@@ -71,5 +72,25 @@ public class ManualFilterWheelTests(ITestOutputHelper output)
         var device = new ManualFilterWheelDevice(Filter.SulphurII);
         device.DeviceUri.Query.ShouldContain("filter1=SulphurII");
         device.InstalledFilter.ShouldBe(Filter.SulphurII);
+    }
+
+    [Fact]
+    public void ManualFilterWheelDevice_roundtrips_through_the_keyed_uri_factory()
+    {
+        // The profile -> session path (SessionFactory.DeviceFromUri) resolves a stored filter-wheel URI via
+        // IDeviceHub.TryGetDeviceFromUri, keyed on the URI host. AddDevices() registers the factory so a
+        // ManualFilterWheelDevice URI reconstructs as a ManualFilterWheelDevice (and would otherwise throw),
+        // with the installed filter surviving on the query.
+        var sp = new ServiceCollection()
+            .AddLogging()
+            .AddDevices()
+            .BuildServiceProvider();
+        var hub = sp.GetRequiredService<IDeviceHub>();
+
+        var stored = new ManualFilterWheelDevice(Filter.HydrogenAlpha).DeviceUri;
+        hub.TryGetDeviceFromUri(stored, out var device).ShouldBeTrue();
+        var resolved = device.ShouldBeOfType<ManualFilterWheelDevice>();
+        resolved.DeviceType.ShouldBe(DeviceType.FilterWheel);
+        resolved.InstalledFilter.ShouldBe(Filter.HydrogenAlpha);
     }
 }
