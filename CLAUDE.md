@@ -358,6 +358,18 @@ or "re-order" logic must operate on the OTA set as a single unit.
 `InitialRoughFocusAsync` → `AutoFocusAllTelescopesAsync` → `CalibrateGuiderAsync` → `ObservationLoopAsync`.
 See class XML doc + `PLAN-*.md` for details on each phase.
 
+**Session failure surfacing (`ISession.FailureReason`):** when a run ends `SessionPhase.Failed`, the
+session carries a plain-language, user-actionable reason (which device to check, what to do) -- surfaced
+verbatim by the GUI notification feed ("Session failed: …"), the hosted `/state` endpoint
+(`SessionStateDto.FailureReason`), and the CLI. Throw `SessionFailedException(userMessage, inner)` for
+failures with a clear user explanation (the inner exception carries the technical cause to the log);
+anything unhandled falls to the generic catch, which reports "Unexpected error: …". Init device connects
+go through `ConnectOrFailAsync` (`Session.Lifecycle.cs`), which names the device + telescope and is
+**deliberately fail-fast** -- a device that cannot connect at init makes the night pointless (a flip-flat
+we cannot open leaves the OTA blind), so fail at init rather than discover it at dawn. The END-of-session
+flat block is the opposite: best-effort (a flats failure after a successful night never flips the session
+to Failed; see the try/catch around `TakeFlatsAsync` in `RunAsync`). Pinned by `SessionFailureReasonTests`.
+
 **Guider calibration pier-side invariant:** `CalibrateGuiderAsync` (`Session.Lifecycle.cs`) slews to
 HA **−0.5h** (30 min *east* of the meridian, target still approaching transit) before calibrating, NOT
 west. `HA = LST − RA`, so HA < 0 = east = *before* crossing. East keeps the GEM on its pre-flip pier
@@ -479,11 +491,11 @@ through the **same** `Calibrator` path with no branching. The **same routines ar
   NotPresent` (no flap), `BeginOpen`/`BeginClose` no-op, `BeginCalibratorOn` reports the panel `Ready` on
   demand (trusting the user switched it on) and cannot set the analog brightness -- so the exposure solver
   does the levelling; bad illumination fails the solver gracefully. Assign it to the OTA's cover slot and it
-  flows through the **same** `Calibrator` path -- no `ManualPanel` enum, no session branching. Unlike
-  `ManualFilterWheelDevice` (which has **no** keyed factory, a latent round-trip gap), `ManualCoverDevice`
-  is registered via `AddDeviceType(uri => new ManualCoverDevice(uri))` in `AddDevices()`, so a stored
-  `CoverCalibrator://ManualCoverDevice/manual` URI reconstructs through `DeviceHub.TryGetDeviceFromUri`
-  (the path `SessionFactory` uses) instead of throwing. `MaxBrightness => 255`, matching the Gemini panel.
+  flows through the **same** `Calibrator` path -- no `ManualPanel` enum, no session branching. Both manual
+  devices (`ManualCoverDevice` and `ManualFilterWheelDevice`) are registered via `AddDeviceType(uri => ...)`
+  in `AddDevices()`, so a stored `CoverCalibrator://ManualCoverDevice/manual` (or manual filter wheel) URI
+  reconstructs through `DeviceHub.TryGetDeviceFromUri` (the path `SessionFactory` uses) instead of throwing.
+  `MaxBrightness => 255`, matching the Gemini panel.
 - **Native Gemini FlatPanel Lite driver** (`TianWen.Lib/Devices/Gemini/`, `AddGemini()`): an **ASCOM-free**
   serial `ICoverDriver` for the Gemini FlatPanel Lite (a driver-controlled panel, no flap -> reports
   `CoverStatus.NotPresent`). `GeminiFlatPanelProtocol` is the pure `>x#` wire codec (H/V/S/J queries, L/D/B
@@ -525,10 +537,12 @@ through the **same** `Calibrator` path with no branching. The **same routines ar
   `Flats/<date>/<filter>/Flat/`. The path is cosmetic -- `MasterFrameBuilder` groups + matches by FITS
   headers (`MasterGroupKey`), not folder layout -- so the stacker consumes them with **no extra wiring**.
   Never make flat-master matching depend on the path.
-- **Deferred (`docs/plans/flat-frame-automation.md`):** a **GUI** flats tab -- an equipment affordance to
-  assign a `ManualCoverDevice` (💡) + an illumination-source dropdown + an interactive "switch panel on,
-  press Continue" prompt for the manual panel. The GUI has no document/flats tab yet, so the on-demand CLI
-  + API are the surfaces for now.
+- **Deferred (`docs/plans/flat-frame-automation.md`):** a **GUI** Flats surface -- NOT a new tab, but
+  another `LiveSessionMode` on the Live Session tab (the way PolarAlign / Planetary joined Preview /
+  Session): a `LiveSessionMode.Flats` entry driving `ISession.RunFlatsOnlyAsync` with the live preview
+  showing metering/capture frames, plus an equipment affordance to assign a `ManualCoverDevice` (💡), an
+  illumination-source dropdown, and an interactive "switch panel on, press Continue" prompt for the
+  manual panel. The on-demand CLI + API are the surfaces until then.
 
 ### Deep-Sky Stacking + Enhance Pipeline (`TianWen.Lib.Imaging.Stacking`)
 
