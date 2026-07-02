@@ -1,7 +1,9 @@
 using System;
 using System.IO;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
+using NSubstitute;
 using Shouldly;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Sequencing;
@@ -167,6 +169,41 @@ public class SessionFlatsTests(ITestOutputHelper output)
         ctx.External.MaxFitsWrites = 100;
 
         // Clear any carried-over Flats subtree (shared fake output folder, see the other test).
+        var flatsRoot = Path.Combine(ctx.External.ImageOutputFolder.FullName, "Flats");
+        if (Directory.Exists(flatsRoot)) Directory.Delete(flatsRoot, recursive: true);
+
+        await ctx.Session.TakeFlatsAsync(ct);
+
+        if (Directory.Exists(flatsRoot))
+        {
+            Directory.GetFiles(flatsRoot, "*.fits", SearchOption.AllDirectories).Length.ShouldBe(0);
+        }
+    }
+
+    /// <summary>A cover device whose driver always fails to connect (models a dead / unplugged panel).</summary>
+    private sealed record BrokenCoverDevice() : DeviceBase(new Uri("covercalibrator://BrokenCoverDevice/broken#Broken Panel"))
+    {
+        protected override IDeviceDriver? NewInstanceFromDevice(IServiceProvider sp)
+        {
+            var driver = Substitute.For<ICoverDriver>();
+            driver.ConnectAsync(Arg.Any<CancellationToken>())
+                .Returns(_ => ValueTask.FromException(new InvalidOperationException("Could not open serial port for Broken Panel")));
+            return driver;
+        }
+    }
+
+    [Fact(Timeout = 30_000)]
+    public async Task TakeFlatsAsync_CoverConnectFailure_SkipsOtaInsteadOfThrowing()
+    {
+        var ct = TestContext.Current.CancellationToken;
+
+        // A cover whose connect throws (realistic for a serial panel: port unplugged/busy, identity
+        // mismatch) must be skipped like any other missing-precondition OTA -- an escaping exception
+        // here would fail the WHOLE session from the end-of-session flats hook.
+        using var ctx = await SessionTestHelper.CreateSessionAsync(
+            output, withFilterWheel: true, coverFactory: sp => new Cover(new BrokenCoverDevice(), sp), cancellationToken: ct);
+        ctx.External.MaxFitsWrites = 100;
+
         var flatsRoot = Path.Combine(ctx.External.ImageOutputFolder.FullName, "Flats");
         if (Directory.Exists(flatsRoot)) Directory.Delete(flatsRoot, recursive: true);
 

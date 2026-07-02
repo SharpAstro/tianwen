@@ -72,7 +72,15 @@ internal partial record Session
                 continue;
             }
 
-            await coverDriver.ConnectAsync(cancellationToken).ConfigureAwait(false);
+            // A failing cover connect (port unplugged/busy, identity mismatch) must skip this OTA like the
+            // sibling precondition checks -- not abort the whole flat run (and, from RunAsync, fail a night
+            // whose observation loop already completed).
+            if (!await CatchAsync(coverDriver.ConnectAsync, cancellationToken).ConfigureAwait(false))
+            {
+                _logger.LogWarning("Telescope #{TelescopeNumber} '{Name}': could not connect cover/calibrator; skipping flats for this OTA.", i + 1, telescope.Name);
+                continue;
+            }
+
             if (await coverDriver.GetCalibratorStateAsync(cancellationToken) is CalibratorStatus.NotPresent)
             {
                 _logger.LogWarning("Telescope #{TelescopeNumber} '{Name}': cover has no calibrator panel; skipping flats.", i + 1, telescope.Name);
