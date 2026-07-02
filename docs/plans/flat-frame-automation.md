@@ -115,8 +115,8 @@ flows through the ordinary calibrator path with no session branching.
   through the **same** `Calibrator` path -- there is no `ManualPanel` source and no session branching.
   Registered via `AddDeviceType(uri => new ManualCoverDevice(uri))` in `AddDevices()` so a stored
   `CoverCalibrator://ManualCoverDevice/manual` URI round-trips through `DeviceHub.TryGetDeviceFromUri` (the
-  resolution path `SessionFactory` uses) -- closing a latent gap `ManualFilterWheelDevice` still has (no
-  keyed factory registered).
+  resolution path `SessionFactory` uses). `ManualFilterWheelDevice` had the same latent gap (no keyed
+  factory) and is now registered too.
 - **CLI** `tianwen flats` and **API** `POST /api/v1/session/flats` are thin adapters over
   `RunFlatsOnlyAsync`; source/period strings map through the shared `FlatRunParsing`. Output contract is
   unchanged (`Flats/<date>/<filter>/Flat/`).
@@ -129,16 +129,18 @@ flows through the ordinary calibrator path with no session branching.
 | 2 | Twilight **sky-flats** (dawn + dusk): `SkyFlatExposureSolver` + `TakeSkyFlatsAsync` + anti-solar zenith pointing (tracking off) + solar-altitude window gate + `FlatSource` dispatch + dusk `RunAsync` hook + config + tests | **DONE** |
 | 3 | **On-demand surface** (`ISession.RunFlatsOnlyAsync` + CLI `tianwen flats` + `POST /api/v1/session/flats`) + **manual flat-panel device** (`ManualCoverDevice`/`ManualCoverDriver`, a degenerate `ICoverDriver` captured through the ordinary calibrator path; keyed-factory registered so it round-trips). | **DONE** |
 
-## Deferred: GUI flats tab (assign manual panel + source dropdown + prompt)
+## Deferred: GUI Flats mode in the Live Session tab (assign manual panel + source dropdown + prompt)
 
 The manual-panel **device** ships in Phase 3 (`ManualCoverDevice`/`ManualCoverDriver`, assigned to an OTA
-cover slot and captured through the `Calibrator` path). What remains deferred is a **GUI** surface: an
-equipment affordance to **add / assign a Manual Light Panel** (a **light-bulb 💡** entry, the way a Manual
-Filter Holder is added), an illumination-source **dropdown** (calibrator / sky), and a fully interactive
-"switch the panel on, press Continue" prompt for the manual panel. The GUI has no document/flats tab yet,
-so there is nowhere to host it; the on-demand CLI + API are the surfaces for now. (The manual driver
-already reports `Ready` on demand and the solver handles misconfigured light gracefully -- only the
-interactive UI is missing.)
+cover slot and captured through the `Calibrator` path). What remains deferred is the **GUI** surface, and
+it has a natural host: **another `LiveSessionMode` on the Live Session tab**, exactly the way PolarAlign
+and Planetary joined the Preview/Session modes -- a `LiveSessionMode.Flats` entry driving
+`ISession.RunFlatsOnlyAsync` with the live preview showing the metering/capture frames. The pieces:
+an equipment affordance to **add / assign a Manual Light Panel** (a **light-bulb 💡** entry, the way a
+Manual Filter Holder is added), an illumination-source **dropdown** (calibrator / sky + dawn/dusk), and a
+fully interactive "switch the panel on, press Continue" prompt for the manual panel. The on-demand CLI +
+API are the surfaces until then. (The manual driver already reports `Ready` on demand and the solver
+handles misconfigured light gracefully -- only the interactive UI is missing.)
 
 ## Tests
 
