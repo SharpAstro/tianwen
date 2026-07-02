@@ -23,6 +23,12 @@ internal sealed class FakeGeminiFlatPanelSerialDevice(string identity = "GeminiF
     public int Brightness { get; private set; }
     public List<string> WrittenCommands { get; } = [];
 
+    /// <summary>
+    /// Models a dead USB bridge (unplugged CH341): <see cref="IsOpen"/> keeps reading true but the
+    /// controller stops answering -- writes are accepted into the OS buffer, no reply is ever enqueued.
+    /// </summary>
+    public bool Dead { get; set; }
+
     public bool IsOpen { get; private set; } = true;
     public Encoding Encoding => Encoding.ASCII;
     public bool TryClose() { IsOpen = false; return true; }
@@ -32,6 +38,11 @@ internal sealed class FakeGeminiFlatPanelSerialDevice(string identity = "GeminiF
 
     public ValueTask<bool> TryWriteAsync(ReadOnlyMemory<byte> data, CancellationToken cancellationToken)
     {
+        if (Dead)
+        {
+            return ValueTask.FromResult(true);
+        }
+
         var raw = Encoding.GetString(data.Span);
 
         // Extract the framed command body between '>' and '#' (tolerant of any trailing newline).

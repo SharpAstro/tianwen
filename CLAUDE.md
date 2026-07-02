@@ -497,7 +497,12 @@ through the **same** `Calibrator` path with no branching. The **same routines ar
   all 9600 probes; asserting DTR there could reset a DTR-triggered controller -- e.g. some OnStep boards --
   on a *different* port). So if a panel needs DTR to answer `>H#`, auto-discovery may miss it; assigning the
   device manually still works because the driver's own connect asserts DTR. Only the connect path is
-  hardware-validated by design intent -- probe-time DTR is a deferred, hardware-gated refinement.
+  hardware-validated by design intent -- probe-time DTR is a deferred, hardware-gated refinement
+  (tracked in `docs/todo/drivers.md`). **Reconnect liveness:** `SerialPort.IsOpen` is not a liveness
+  signal (a dead/unplugged CH341 keeps reporting open), so `ConnectAsync` re-verifies a nominally-open
+  connection with the cheap `>H#` handshake and rebuilds it (TryClose -> reopen; the close also evicts
+  it from `IExternal`'s per-address cache) when the panel goes silent -- otherwise `ResilientCall`'s
+  reconnect would no-op against a dead handle forever.
 - **On-demand surface** (`Session.FlatsOnDemand.cs`, `ISession.RunFlatsOnlyAsync(TwilightPeriod, ct)`):
   a self-contained connect -> cool -> capture -> finalise cycle **outside** `RunAsync` (no wait-for-dark /
   focus / guider / observation loop). Same try/catch/finally + phase shape as `RunAsync`. `ConnectForFlatsAsync`

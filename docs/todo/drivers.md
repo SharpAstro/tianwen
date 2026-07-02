@@ -6,6 +6,24 @@ Part of the TianWen TODO set. See [TODO.md](../../TODO.md) for the index and the
 
 - [ ] Consider using external temp sensor if no heatsink temp is available (`ICameraDriver.cs:314`)
 
+## Cover / Calibrator (`ICoverDriver`)
+
+Shipped: ASCOM/Alpaca `CoverCalibrator`, the discoverable fake (flip-flat + flap-less `hasCover=false`
+variants), `ManualCoverDevice` (a hand-switched panel as a degenerate driver), and a native ASCOM-free
+serial driver for the Gemini FlatPanel Lite (`AddGemini()`; wire spec:
+[docs/architecture/gemini-flatpanel-lite-protocol.md](../architecture/gemini-flatpanel-lite-protocol.md)).
+The driver's connect asserts DTR+RTS (opt-in `IExternal.OpenSerialDeviceAsync(..., assertControlLines: true)`)
+and re-verifies identity on a nominally-open connection (`SerialPort.IsOpen` is not liveness -- a dead CH341
+keeps reporting open), rebuilding the connection when the handshake goes silent.
+
+- [ ] **Gemini FlatPanel Lite: validate discovery against real hardware.** The probe deliberately does NOT
+      assert DTR (the probe service opens one shared 9600-baud handle per COM port; DTR there could reset a
+      DTR-triggered controller, e.g. some OnStep boards, on another port), so a panel that only answers
+      `>H#` with DTR asserted is auto-discovery-invisible and needs manual assignment
+      (`CoverCalibrator://GeminiDevice/…?port=serial:COMx` -- the driver's own connect asserts DTR). If real
+      hardware shows discovery misses it, consider a dedicated DTR-asserting probe pass for ports that stayed
+      silent on the shared handle.
+
 ## Rotator (new device type, per-OTA)
 
 No field-rotator support today: there is no `IRotatorDriver` and no `DeviceType.Rotator` (only WCS
