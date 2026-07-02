@@ -623,6 +623,21 @@ keeping it the single producer. (This replaced the old CLI-side render + the sel
 background cast: measured drizzle starless R/G=1.20 / B/G=0.94 old vs 1.04 / 1.02 now.) Full
 flowcharts: [`docs/architecture/stacking-render-pipeline.md`](docs/architecture/stacking-render-pipeline.md).
 
+**Masked finishing boost (opt-in display stage).** `Image.MaskedBoost` (`Image.Masks.cs`) composes
+the mask primitives (`LuminanceRangeMask` -> `Saturate` / `ContrastBoost` -> `BlendThroughMask`)
+into the Affinity "masked contrast boost + saturation" finishing macro; basic mask support
+(`Invert`, `Binarize`, `GaussianBlur` = feathering, scalar `Multiply` for partial-strength masks)
+lives alongside. `stack --saturation X --contrast-boost Y` (and the same flags on `image render`,
+for iterating against an existing master without re-stacking) bake it into the rendered preview
+PNG ONLY, applied to the STRETCHED rgba16 buffer between `RenderStretchedRgba16` and the PNG/PQ
+encode (`MasterPreviewRenderer.ApplyMaskedBoost`). **Never apply the mask primitives to a LINEAR
+master** -- the luminance mask degenerates to ~0 everywhere (background at ~0, star cores rolled
+off, nebulosity a few percent of peak), which is why this is a render stage and not a
+`SharpenStep`; the linear FITS / EXR masters and the `--split-plates` TIFFs are never touched (the
+plates stay edit-ready for the user's own finishing). Identity options collapse to null so the
+untouched render path is byte-identical. Pinned by `ImageMaskTests` +
+`MasterPreviewMaskedBoostTests`.
+
 **Stellar-sharpen is opt-in (`image sharpen --stellar-sharpen`, default OFF).** The SAS stellar
 sharpener (NAFNet) over-sharpens already-tight star cores into square white clipped blocks; when
 a deblurrer (BlurX) is live the stars are already tightened, so the option is **hard-skipped**

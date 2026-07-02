@@ -20,8 +20,14 @@ namespace TianWen.AI.Imaging.RcAstro
         protected override string ProductKey => "sxt";
 
         // sxt removes stars on its defaults (tile overlap 0.2). We intentionally
-        // do NOT pass --stars: that would also emit a separate stars-only file,
-        // which the pipeline computes itself.
+        // do NOT pass --stars: per `sxt --help` that output is defined as
+        // "original minus starless" -- exactly the pipeline's own additive split
+        // (StarsOnly = max(Source - Starless, 0); both sides clamp negatives),
+        // and `--stars --unscreen` is likewise the pipeline's Screen split
+        // (Image.Unscreen). Emitting it would be a duplicate plate plus a file
+        // round-trip, and the split-mode choice must live in the pipeline where
+        // RecombineStep.Mode has to match it. sxt has NO star-mask output --
+        // derive a mask from the stars plate instead (Binarize + GaussianBlur).
         protected override IReadOnlyList<string> BuildArgs(Image input, EnhanceTuning? tuning) => [];
     }
 }

@@ -47,6 +47,10 @@ Each verb maps to an enhancer / classical implementation that hasn't been wired 
 
 Learnings from PixInsight Statistical Stretch (SetiAstro, v2.3).
 
+- [x] **Masked finishing boost for the preview render** (2026-07-03) — `Image.MaskedBoost` composes the new mask primitives (`LuminanceRangeMask` + `BlendThroughMask` + `Saturate` / `ContrastBoost`, `Image.Masks.cs`) into the Affinity masked-contrast-boost + saturation macro; surfaced as `stack --saturation/--contrast-boost` + the same flags on `image render`, applied to the stretched preview PNG only (`MasterPreviewRenderer.ApplyMaskedBoost`). Basic mask support shipped alongside: `Invert`, `Binarize`, `GaussianBlur` (feathering), scalar `Multiply` (partial-strength masks). Linear masters + split-plate TIFFs untouched by design.
+- [ ] **`tianwen image adjust` standalone verb** — apply `Image.MaskedBoost` (and the raw mask primitives, e.g. `--export-mask` for previewing what a step will touch) to an already-stretched TIFF/FITS plate outside the stack/render flow. The primitives + CLI parsing shape (mirror `image render`'s flags) are in place; deferred until a concrete need.
+- [ ] **Mask morphology (dilate / erode)** — the remaining classic mask ops beyond invert/feather/binarize; useful for growing a star mask before protection. Deferred until a consumer exists.
+
 - [x] Luma-only stretch mode (Rec. 709 luminance, stretch Y, scale RGB by Y'/Y)
 - [x] HDR compression in GPU shader (Hermite soft-knee, `uHdrAmount`/`uHdrKnee` uniforms)
 - [x] Normalize after stretch (2026-05-11) — `StretchUniforms.NormalizeScale` carries a precomputed `1/max` so the GPU stays single-pass. `Image.PredictPostStretchMaxScale` walks the top non-zero histogram bin of each channel and pushes it through the full chain (stretch + curves + HDR); CPU and GPU multiply the post-HDR value before the final clamp. Producer surfaces a `normalize: bool` knob on `AstroImageDocument.ComputeStretchUniforms`; tests in `StretchTests_NewPipeline.GivenColorFitsWithHdrWhenNormalizingThenPeakLiftedToFullRange` + `GpuStretchPipelineTests.GpuMatchesCpuForHdrNormalize`.

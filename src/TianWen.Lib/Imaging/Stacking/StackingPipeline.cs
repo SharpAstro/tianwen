@@ -955,7 +955,7 @@ public sealed class StackingPipeline(
             intResult, masterPath, searchHint, refImageDim, referenceRaw.ImageMeta, statsRect, selection.Chosen.Kind,
             enhance: options.Enhance, enhanceBlend: options.EnhanceBlend, splitPlates: options.SplitPlates,
             enhanceOptions: options.EnhanceOptions ?? Enhancement.EnhanceOptions.Default,
-            renderPreviewPng: options.RenderPreviewPng, ct);
+            renderPreviewPng: options.RenderPreviewPng, previewBoost: options.PreviewBoost, ct: ct);
         if (intResult.TotalRejections > 0)
         {
             logger.LogInformation("  wrote {Path}", IntegrationFitsWriter.RejectionPathFor(masterPath));
