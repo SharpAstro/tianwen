@@ -201,7 +201,7 @@ internal partial record Session
 
         _currentActivity = "Connecting mount\u2026";
         _logger.LogDebug("Init: connecting mount {Mount}", mount);
-        await mount.Driver.ConnectAsync(cancellationToken).ConfigureAwait(false);
+        await ConnectOrFailAsync(mount.Driver, $"mount '{mount.Device.DisplayName}'", null, cancellationToken).ConfigureAwait(false);
 
         // Diagnostic snapshot: site + believed pointing right after the (borrowed, already-connected)
         // mount is reused. If site is NaN here the manual connect never pushed it; if RA/Dec are
@@ -216,7 +216,7 @@ internal partial record Session
 
         _currentActivity = "Connecting guider\u2026";
         _logger.LogDebug("Init: connecting guider {Guider}", guider);
-        await guider.Driver.ConnectAsync(cancellationToken).ConfigureAwait(false);
+        await ConnectOrFailAsync(guider.Driver, $"guider '{guider.Device.DisplayName}'", null, cancellationToken).ConfigureAwait(false);
 
         _logger.LogDebug("Init: checking park state");
         if (await mount.Driver.AtParkAsync(cancellationToken)
@@ -290,7 +290,7 @@ internal partial record Session
         {
             _currentActivity = "Connecting guider camera\u2026";
             _logger.LogDebug("Init: connecting guider camera {GuiderCam}", guiderCam);
-            await guiderCam.Driver.ConnectAsync(cancellationToken).ConfigureAwait(false);
+            await ConnectOrFailAsync(guiderCam.Driver, $"guide camera '{guiderCam.Device.DisplayName}'", null, cancellationToken).ConfigureAwait(false);
 
             // Guide scope focal length: explicit profile setting wins (covers OAG-before-reducer
             // and dedicated guide scopes), then OAG parent OTA as fallback
@@ -335,29 +335,53 @@ internal partial record Session
     /// full-session <see cref="InitialisationAsync"/> and the on-demand <see cref="ConnectForFlatsAsync"/>,
     /// so both connect an OTA identically.
     /// </summary>
+    /// <summary>
+    /// Connects a device during initialisation, converting a driver failure into a session abort with a
+    /// user-facing reason (<see cref="SessionFailedException"/>): the observer needs to know WHICH device
+    /// to check and what to do, not a stack trace. Deliberately fail-fast: a device that cannot even
+    /// connect makes the night pointless (e.g. a flip-flat we cannot open leaves the OTA blind), so fail
+    /// now rather than discover it at dawn. Contrast the END-of-session flat block, which is best-effort.
+    /// </summary>
+    private static async ValueTask ConnectOrFailAsync(IDeviceDriver driver, string deviceDescription, string? extraHint, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await driver.ConnectAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            throw new SessionFailedException(
+                $"Could not connect to the {deviceDescription}. Check that it is plugged in and powered, and that no other program is using it.{(extraHint is null ? "" : $" {extraHint}")}",
+                ex);
+        }
+    }
+
     private async ValueTask ConnectTelescopeAsync(OTA telescope, int index, double siteLatitude, double siteLongitude, CancellationToken cancellationToken)
     {
         var camera = telescope.Camera;
         _currentActivity = $"Connecting {telescope.Name}…";
         _logger.LogDebug("Init: connecting OTA #{OtaIndex} camera {Camera}", index, camera);
-        await camera.Driver.ConnectAsync(cancellationToken).ConfigureAwait(false);
+        await ConnectOrFailAsync(camera.Driver, $"camera '{camera.Device.DisplayName}' on telescope '{telescope.Name}'", null, cancellationToken).ConfigureAwait(false);
 
         if (telescope.Focuser is { } focuser)
         {
             _logger.LogDebug("Init: connecting OTA #{OtaIndex} focuser {Focuser}", index, focuser);
-            await focuser.Driver.ConnectAsync(cancellationToken).ConfigureAwait(false);
+            await ConnectOrFailAsync(focuser.Driver, $"focuser '{focuser.Device.DisplayName}' on telescope '{telescope.Name}'", null, cancellationToken).ConfigureAwait(false);
         }
 
         if (telescope.FilterWheel is { } filterWheel)
         {
             _logger.LogDebug("Init: connecting OTA #{OtaIndex} filter wheel {FilterWheel}", index, filterWheel);
-            await filterWheel.Driver.ConnectAsync(cancellationToken).ConfigureAwait(false);
+            await ConnectOrFailAsync(filterWheel.Driver, $"filter wheel '{filterWheel.Device.DisplayName}' on telescope '{telescope.Name}'", null, cancellationToken).ConfigureAwait(false);
         }
 
         if (telescope.Cover is { } cover)
         {
             _logger.LogDebug("Init: connecting OTA #{OtaIndex} cover {Cover}", index, cover);
-            await cover.Driver.ConnectAsync(cancellationToken).ConfigureAwait(false);
+            // Fail-fast: the scope typically sits with a flip-flat CLOSED -- if we cannot talk to it we
+            // cannot open it, and a night behind a closed cover is worthless.
+            await ConnectOrFailAsync(cover.Driver, $"cover/flat panel '{cover.Device.DisplayName}' on telescope '{telescope.Name}'",
+                "The session was stopped because the telescope may still be covered.", cancellationToken).ConfigureAwait(false);
         }
 
         // copy over denormalised properties if required

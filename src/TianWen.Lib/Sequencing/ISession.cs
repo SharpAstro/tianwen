@@ -89,6 +89,13 @@ public interface ISession : IAsyncDisposable
     /// </summary>
     string? CurrentActivity { get; }
 
+    /// <summary>
+    /// User-facing reason the session entered <see cref="SessionPhase.Failed"/> (e.g. which device could
+    /// not be connected and what to check) -- plain language, no stack traces. Null while the session has
+    /// not failed. Surfaces in the GUI notification feed, the hosted <c>/state</c> endpoint, and the CLI.
+    /// </summary>
+    string? FailureReason { get; }
+
     /// <summary>Polled mount state (RA, Dec, HA, pier side, slewing, tracking).</summary>
     MountState MountState { get; }
 

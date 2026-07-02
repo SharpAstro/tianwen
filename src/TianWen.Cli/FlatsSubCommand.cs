@@ -155,6 +155,10 @@ internal sealed class FlatsSubCommand(
             var written = Math.Max(0, CountFlats(flatsRoot) - before);
             var ok = session.Phase is SessionPhase.Complete;
             consoleHost.WriteScrollable($"[flats] {(ok ? "complete" : session.Phase.ToString())}: {written} flat frame(s) written to {flatsRoot}.");
+            if (!ok && session.FailureReason is { } reason)
+            {
+                consoleHost.WriteError($"[flats] {reason}");
+            }
             return ok ? 0 : 2;
         });
 
