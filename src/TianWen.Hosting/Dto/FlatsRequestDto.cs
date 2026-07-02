@@ -10,8 +10,10 @@ namespace TianWen.Hosting.Dto;
 /// </summary>
 public sealed class FlatsRequestDto
 {
-    /// <summary>Illumination source: <c>calibrator</c> (controllable panel, default), <c>manual</c>
-    /// (hand-switched dumb panel), or <c>sky</c> (twilight sky-flats -- needs the mount).</summary>
+    /// <summary>Illumination source: <c>calibrator</c> (any cover/calibrator assigned to the OTA -- a
+    /// flip-flat, a driver panel, or a hand-switched <c>ManualCoverDevice</c>; the default) or <c>sky</c>
+    /// (twilight sky-flats -- needs the mount). A manual panel is selected by assigning a Manual Light
+    /// Panel device to the OTA's cover slot, not by a source value.</summary>
     public string? Source { get; init; }
 
     /// <summary>Twilight period for <c>sky</c>: <c>dusk</c> (default) or <c>dawn</c>. Ignored otherwise.</summary>
@@ -32,7 +34,7 @@ public sealed class FlatsRequestDto
     /// <summary>Maximum auto-exposure clamp in seconds. Null = config default.</summary>
     public double? MaxExposureSeconds { get; init; }
 
-    /// <summary>First metering exposure in seconds (calibrator/manual). Null = config default.</summary>
+    /// <summary>First metering exposure in seconds (calibrator source only). Null = config default.</summary>
     public double? InitialExposureSeconds { get; init; }
 
     /// <summary>Calibrator panel brightness percentage, 0..100 (calibrator source only). Null = config default.</summary>
