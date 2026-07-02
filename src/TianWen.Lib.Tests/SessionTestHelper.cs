@@ -63,6 +63,7 @@ internal static class SessionTestHelper
         bool withCoverCalibrator = false,
         bool withManualCover = false,
         bool withFilterWheel = false,
+        Func<IServiceProvider, Cover>? coverFactory = null,
         CancellationToken cancellationToken = default)
     {
         var timeProvider = new FakeTimeProviderWrapper(now ?? new DateTimeOffset(2025, 6, 15, 22, 0, 0, TimeSpan.Zero));
@@ -85,7 +86,13 @@ internal static class SessionTestHelper
         cameraDriver.NumY = 512;
 
         Cover? cover = null;
-        if (withCoverCalibrator)
+        if (coverFactory is not null)
+        {
+            // Caller-supplied cover (e.g. a driver that fails to connect); deliberately NOT connected
+            // here -- the session code under test owns cover connection.
+            cover = coverFactory(sp);
+        }
+        else if (withCoverCalibrator)
         {
             cover = new Cover(new FakeDevice(DeviceType.CoverCalibrator, 1), sp);
             await cover.Driver.ConnectAsync(cancellationToken);

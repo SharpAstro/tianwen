@@ -93,13 +93,13 @@ at connect time; those are optional for flat capture.)
 
 Auto-detected by `GeminiFlatPanelSerialProbe` (`ISerialProbe`, `HashTerminated`, 9600 baud): it writes
 `>H#` and matches the `>HGeminiFlatPanelLite#` reply, then publishes a
-`CoverCalibrator://Gemini/Gemini_<port>?port=serial:<port>` URI. It shares the 9600-baud probe group with
+`CoverCalibrator://GeminiDevice/Gemini_<port>?port=serial:<port>` URI. It shares the 9600-baud probe group with
 the LX200-family mounts, so the port handle is opened once and reused.
 
 **DTR/RTS during discovery.** The connect path asserts DTR + RTS (above). The discovery probe deliberately
 does **not**: the probe service opens one shared serial handle per COM port and runs every 9600-baud probe
 against it, and asserting DTR at that open could reset a DTR-triggered controller (e.g. some OnStep boards)
 on another port. Consequence: if a panel only answers `>H#` with DTR asserted, auto-discovery may miss it —
-assign it manually (`CoverCalibrator://Gemini/…?port=serial:COMx`) and the driver's own connect (which does
+assign it manually (`CoverCalibrator://GeminiDevice/…?port=serial:COMx`) and the driver's own connect (which does
 assert DTR) drives it. In practice many CH341-bridged panels answer without DTR, so discovery usually works;
 this is a hardware-validation item.
