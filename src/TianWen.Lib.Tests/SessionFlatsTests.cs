@@ -180,18 +180,6 @@ public class SessionFlatsTests(ITestOutputHelper output)
         }
     }
 
-    /// <summary>A cover device whose driver always fails to connect (models a dead / unplugged panel).</summary>
-    private sealed record BrokenCoverDevice() : DeviceBase(new Uri("covercalibrator://BrokenCoverDevice/broken#Broken Panel"))
-    {
-        protected override IDeviceDriver? NewInstanceFromDevice(IServiceProvider sp)
-        {
-            var driver = Substitute.For<ICoverDriver>();
-            driver.ConnectAsync(Arg.Any<CancellationToken>())
-                .Returns(_ => ValueTask.FromException(new InvalidOperationException("Could not open serial port for Broken Panel")));
-            return driver;
-        }
-    }
-
     [Fact(Timeout = 30_000)]
     public async Task TakeFlatsAsync_CoverConnectFailure_SkipsOtaInsteadOfThrowing()
     {

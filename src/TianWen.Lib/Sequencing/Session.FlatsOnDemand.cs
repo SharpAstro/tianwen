@@ -24,6 +24,7 @@ internal partial record Session
         var needMount = Configuration.FlatSource is FlatIlluminationSource.TwilightSky;
         var mountConnected = false;
 
+        _failureReason = null;
         try
         {
             AllocateObservableState();
@@ -32,6 +33,7 @@ internal partial record Session
             if (!await ConnectForFlatsAsync(needMount, cancellationToken).ConfigureAwait(false))
             {
                 _logger.LogError("On-demand flat run: device connect failed, aborting.");
+                _failureReason = "Could not connect the devices needed for flats. Check the log for the device that failed.";
                 SetPhase(SessionPhase.Failed);
                 return;
             }
@@ -63,9 +65,16 @@ internal partial record Session
         {
             SetPhase(SessionPhase.Aborted);
         }
+        catch (SessionFailedException sfe)
+        {
+            _logger.LogError(sfe.InnerException ?? sfe, "On-demand flat run failed: {Reason}", sfe.Message);
+            _failureReason = sfe.Message;
+            SetPhase(SessionPhase.Failed);
+        }
         catch (Exception e)
         {
             _logger.LogError(e, "Exception during on-demand flat run, aborting.");
+            _failureReason = $"Unexpected error: {e.Message}";
             SetPhase(SessionPhase.Failed);
         }
         finally

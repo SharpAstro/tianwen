@@ -2206,7 +2206,9 @@ namespace TianWen.UI.Abstractions
                             {
                                 SessionPhase.Complete => ("Session complete", NotificationSeverity.Info),
                                 SessionPhase.Aborted => ("Session aborted", NotificationSeverity.Warning),
-                                SessionPhase.Failed => ("Session failed", NotificationSeverity.Error),
+                                // Session.FailureReason carries the user-facing "which device / what to
+                                // check" text; without it fall back to the bare phase.
+                                SessionPhase.Failed => (session.FailureReason is { } why ? $"Session failed: {why}" : "Session failed", NotificationSeverity.Error),
                                 _ => (null, NotificationSeverity.Info)
                             };
                             if (phaseMsg is not null)

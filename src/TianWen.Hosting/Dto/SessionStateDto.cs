@@ -12,6 +12,8 @@ public sealed class SessionStateDto
 {
     public required SessionPhase Phase { get; init; }
     public required string? CurrentActivity { get; init; }
+    /// <summary>User-facing reason when <see cref="Phase"/> is Failed (which device / what to check); null otherwise.</summary>
+    public required string? FailureReason { get; init; }
     public required int TotalFramesWritten { get; init; }
     public required double TotalExposureTimeSeconds { get; init; }
     public required int CurrentObservationIndex { get; init; }
@@ -52,6 +54,7 @@ public sealed class SessionStateDto
         {
             Phase = session.Phase,
             CurrentActivity = session.CurrentActivity,
+            FailureReason = session.FailureReason,
             TotalFramesWritten = session.TotalFramesWritten,
             TotalExposureTimeSeconds = session.TotalExposureTime.TotalSeconds,
             CurrentObservationIndex = session.CurrentObservationIndex,

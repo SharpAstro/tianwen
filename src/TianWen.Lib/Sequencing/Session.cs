@@ -72,6 +72,7 @@ internal partial record Session(
     // --- Observable session surface ---
     private volatile SessionPhase _phase;
     private volatile string? _currentActivity;
+    private volatile string? _failureReason;
     private readonly ConcurrentQueue<FocusRunRecord> _focusHistory = [];
     private ImmutableArray<(int Position, float Hfd)> _activeFocusSamples = [];
     private readonly CircularBuffer<GuideErrorSample> _guideSamples = new CircularBuffer<GuideErrorSample>(300);
@@ -88,6 +89,7 @@ internal partial record Session(
 
     public SessionPhase Phase => _phase;
     public string? CurrentActivity => _currentActivity;
+    public string? FailureReason => _failureReason;
     public MountState MountState => _mountState;
     // Start "unknown" (all-NaN coords), not default(MountState) which would read as a real RA0/Dec0.
     // The first PollDeviceStatesAsync (RunAsync, right after InitialisationAsync) fills it in. UI
@@ -355,6 +357,7 @@ internal partial record Session(
 
     public async Task RunAsync(CancellationToken cancellationToken)
     {
+        _failureReason = null;
         try
         {
             AllocateObservableState();
@@ -366,6 +369,7 @@ internal partial record Session(
                 if (!await InitialisationAsync(cancellationToken))
                 {
                     _logger.LogError("Initialization failed, aborting session.");
+                    _failureReason = "Could not get the equipment ready. Check the log for the step that failed.";
                     SetPhase(SessionPhase.Failed);
                     return;
                 }
@@ -404,6 +408,7 @@ internal partial record Session(
             if (!await InitialRoughFocusAsync(cancellationToken))
             {
                 _logger.LogError("Failed to focus cameras (first time), aborting session.");
+                _failureReason = "Could not achieve initial focus. Check that the covers are open, the sky is clear, and the focuser is near focus.";
                 SetPhase(SessionPhase.Failed);
                 return;
             }
@@ -431,7 +436,19 @@ internal partial record Session(
             if (Configuration.TakeFlatsOnSessionEnd)
             {
                 SetPhase(SessionPhase.Flats);
-                await TakeFlatsAsync(cancellationToken).ConfigureAwait(false);
+                try
+                {
+                    await TakeFlatsAsync(cancellationToken).ConfigureAwait(false);
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    // Best-effort backstop: a flats failure at the END of a successful night (flaky cover
+                    // I/O, capture error) must never flip the session to Failed -- the night's exposures
+                    // are unaffected. Contrast init, where a cover that fails to CONNECT fails the session
+                    // deliberately (a flip-flat we cannot open leaves the OTA blind). Cancellation still
+                    // propagates to the abort path.
+                    _logger.LogError(ex, "End-of-session flats failed; continuing to Finalise.");
+                }
             }
 
             SetPhase(SessionPhase.Complete);
@@ -440,9 +457,18 @@ internal partial record Session(
         {
             SetPhase(SessionPhase.Aborted);
         }
+        catch (SessionFailedException sfe)
+        {
+            // A deliberate abort with a user-facing reason (e.g. a device that failed to connect at init).
+            // The message goes to FailureReason verbatim; the technical cause to the log.
+            _logger.LogError(sfe.InnerException ?? sfe, "Session failed: {Reason}", sfe.Message);
+            _failureReason = sfe.Message;
+            SetPhase(SessionPhase.Failed);
+        }
         catch (Exception e)
         {
             _logger.LogError(e, "Exception while in main run loop, unrecoverable, aborting session.");
+            _failureReason = $"Unexpected error: {e.Message}";
             SetPhase(SessionPhase.Failed);
         }
         finally
