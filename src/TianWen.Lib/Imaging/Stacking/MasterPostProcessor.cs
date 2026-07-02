@@ -61,7 +61,8 @@ internal sealed class MasterPostProcessor(ILogger logger, ICelestialObjectDB? ca
         bool splitPlates,
         EnhanceOptions enhanceOptions,
         bool renderPreviewPng,
-        CancellationToken ct)
+        MaskedBoostOptions? previewBoost = null,
+        CancellationToken ct = default)
     {
         var sw = Stopwatch.StartNew();
         var master = result.Master;
@@ -240,7 +241,7 @@ internal sealed class MasterPostProcessor(ILogger logger, ICelestialObjectDB? ca
             spcc = await EnhanceAndWriteAsync(
                 result, masterPath, solvedWcs, croppedWcs, strategy,
                 croppedResult, autocropRect, enhanceBlend, splitPlates, enhanceOptions,
-                refMeta, renderer, renderPreviewPng, ct);
+                refMeta, renderer, renderPreviewPng, previewBoost, ct);
         }
         else if (enhance && sharpenPipeline is null)
         {
@@ -271,7 +272,7 @@ internal sealed class MasterPostProcessor(ILogger logger, ICelestialObjectDB? ca
         {
             spcc = await RenderPreviewAsync(
                 renderer, master, croppedResult?.Master, refMeta, solvedWcs, croppedWcs,
-                masterPath, autocropRect, ct);
+                masterPath, autocropRect, previewBoost, ct);
         }
 
         logger.LogInformation("  [post] total {Ms} ms", sw.ElapsedMilliseconds);
@@ -357,6 +358,7 @@ internal sealed class MasterPostProcessor(ILogger logger, ICelestialObjectDB? ca
         ImageMeta refMeta,
         MasterPreviewRenderer? renderer,
         bool renderPreviewPng,
+        MaskedBoostOptions? previewBoost,
         CancellationToken ct)
     {
         Debug.Assert(sharpenPipeline is not null, "EnhanceAndWriteAsync called without SharpenPipeline -- guard upstream");
@@ -450,7 +452,8 @@ internal sealed class MasterPostProcessor(ILogger logger, ICelestialObjectDB? ca
                         : Path.ChangeExtension(masterPath, ".png"))
                     : string.Empty;   // solve-only: the renderer skips the PNG write on an empty path
                 var render = await renderer.RenderAsync(
-                    solveImg, refMeta, solveWcs, statsSource: solveImg, pngPath, statsWcs: solveWcs, ct: ct);
+                    solveImg, refMeta, solveWcs, statsSource: solveImg, pngPath, statsWcs: solveWcs,
+                    maskedBoost: previewBoost, ct: ct);
                 spcc = render.Spcc;
 
                 if (splitPlates)
@@ -511,7 +514,8 @@ internal sealed class MasterPostProcessor(ILogger logger, ICelestialObjectDB? ca
     private async Task<SpccDiagnostics?> RenderPreviewAsync(
         MasterPreviewRenderer renderer,
         Image fullMaster, Image? cropMaster, ImageMeta sensorMeta,
-        WCS? fullWcs, WCS? cropWcs, string masterPath, Rectangle autocropRect, CancellationToken ct)
+        WCS? fullWcs, WCS? cropWcs, string masterPath, Rectangle autocropRect,
+        MaskedBoostOptions? previewBoost, CancellationToken ct)
     {
         var previewImg = cropMaster ?? fullMaster;
         var previewWcs = cropMaster is not null ? cropWcs : fullWcs;
@@ -520,7 +524,8 @@ internal sealed class MasterPostProcessor(ILogger logger, ICelestialObjectDB? ca
             : Path.ChangeExtension(masterPath, ".png");
 
         var render = await renderer.RenderAsync(
-            previewImg, sensorMeta, previewWcs, statsSource: previewImg, pngPath, statsWcs: previewWcs, ct: ct);
+            previewImg, sensorMeta, previewWcs, statsSource: previewImg, pngPath, statsWcs: previewWcs,
+            maskedBoost: previewBoost, ct: ct);
         return render.Spcc;
     }
 

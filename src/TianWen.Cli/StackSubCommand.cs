@@ -155,6 +155,19 @@ internal sealed class StackSubCommand(
             Description = "RC-Astro NoiseXTerminator iterations (nxt --it). < 1 (default) = the enhancer's own default (2). Only affects the RC-Astro backend. Implies --enhance.",
             DefaultValueFactory = _ => 0,
         };
+        // Masked finishing boost for the preview PNG (Image.MaskedBoost): applied AFTER the
+        // stretch through a luminance range mask, so background and star cores stay untouched.
+        // Display-render only -- the linear masters and --split-plates TIFFs are never boosted.
+        var saturationOpt = new Option<float>("--saturation")
+        {
+            Description = "Masked saturation boost baked into the rendered preview PNG only (background and star cores are protected by a luminance range mask). 1.0 = off (default); typical 1.3-2.0. The linear masters (FITS / EXR) and --split-plates TIFFs are never touched.",
+            DefaultValueFactory = _ => 1.0f,
+        };
+        var contrastBoostOpt = new Option<float>("--contrast-boost")
+        {
+            Description = "Masked S-curve contrast boost baked into the rendered preview PNG only (same protective luminance mask as --saturation; the curve is the stretch pipeline's boost curve pivoting at the estimated background level). 0 = off (default); typical 0.25-1.5.",
+            DefaultValueFactory = _ => 0f,
+        };
 
         var stackCommand = new Command("stack", "Stack a folder of FITS lights into a master frame.")
         {
@@ -171,6 +184,7 @@ internal sealed class StackSubCommand(
                 noBayerDrizzleOpt, includeIntegrationsOpt,
                 enhanceOpt, enhanceBlendOpt, splitPlatesOpt,
                 aiBackendOpt, bxtSharpenOpt, nxtDenoiseOpt, nxtIterationsOpt,
+                saturationOpt, contrastBoostOpt,
             },
         };
         stackCommand.SetAction(async (parseResult, ct) =>
@@ -236,6 +250,20 @@ internal sealed class StackSubCommand(
                 return 1;
             }
 
+            // Masked preview boost: identity values collapse to null so the render path
+            // stays byte-identical to the pre-option behaviour when the flags are unused.
+            var saturationArg = parseResult.GetValue(saturationOpt);
+            var contrastBoostArg = parseResult.GetValue(contrastBoostOpt);
+            if (saturationArg < 0f || !float.IsFinite(saturationArg) ||
+                contrastBoostArg < 0f || !float.IsFinite(contrastBoostArg))
+            {
+                consoleHost.WriteError("--saturation and --contrast-boost must be finite values >= 0.");
+                return 1;
+            }
+            var previewBoost = saturationArg != 1.0f || contrastBoostArg != 0f
+                ? new MaskedBoostOptions(saturationArg, contrastBoostArg)
+                : null;
+
             var enhanceArg = parseResult.GetValue(enhanceOpt) || enhanceBlendArg < 1.0f || splitPlatesArg
                 || enhanceOptions.Backend != EnhanceBackend.Auto || enhanceOptions.Tuning is not null;
             var options = new StackingOptions(
@@ -263,10 +291,17 @@ internal sealed class StackSubCommand(
                 // The pipeline (MasterPostProcessor) renders the preview PNG now, so
                 // the PNG + split-plate TIFFs share one WB + bg-neut solve. Only the
                 // Png output format wants the PNG; Exr/None suppress it.
-                RenderPreviewPng: parseResult.GetValue(formatOpt) == ImageOutputFormat.Png);
+                RenderPreviewPng: parseResult.GetValue(formatOpt) == ImageOutputFormat.Png,
+                PreviewBoost: previewBoost);
 
             var format = parseResult.GetValue(formatOpt);
             var skipPlateSolve = parseResult.GetValue(noPlateSolveOpt);
+
+            if (previewBoost is not null && !options.RenderPreviewPng)
+            {
+                consoleHost.WriteScrollable(
+                    $"[stack] warning: --saturation/--contrast-boost only affect the preview PNG; ignored with --output-format={format.ToString().ToLowerInvariant()}");
+            }
 
             // JXR is for stretched/processed output (the 'image' command), not a stacking
             // master format; EXR is the unstretched linear HDR master here.

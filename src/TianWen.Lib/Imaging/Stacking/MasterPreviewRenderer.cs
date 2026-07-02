@@ -94,6 +94,12 @@ public sealed class MasterPreviewRenderer(ICelestialObjectDB? catalogDb, ILogger
     /// SPCC / sky-bg solve is skipped -- the per-plate stretch path passes the one shared
     /// SPCC balance so each plate self-stretches its own background + MTF while inheriting
     /// the master's colour calibration. Null = solve the WB from this image.</param>
+    /// <param name="maskedBoost">Opt-in masked finishing boost (saturation / contrast through
+    /// a shared <see cref="Image.LuminanceRangeMask"/>, see <see cref="Image.MaskedBoost"/>)
+    /// baked into the rendered PNG AFTER the stretch -- the mask primitives expect stretched
+    /// [0, 1] data; on the linear master the mask degenerates to ~0 everywhere. Display-render
+    /// stage only: the linear FITS / EXR masters and the split-plate TIFFs are never touched.
+    /// Null or all-identity = the render path is byte-identical to before this option existed.</param>
     /// <returns>SPCC diagnostics when SPCC ran and produced a gain triple; null when
     /// SPCC was skipped (mono master, missing WCS / catalog, insufficient throughput
     /// data, fewer than 3 stars, or a WB override was supplied).</returns>
@@ -108,6 +114,7 @@ public sealed class MasterPreviewRenderer(ICelestialObjectDB? catalogDb, ILogger
         float peakNits = 1000f,
         bool gamutToBt2020 = true,
         (float R, float G, float B)? whiteBalanceOverride = null,
+        MaskedBoostOptions? maskedBoost = null,
         CancellationToken ct = default)
     {
         var sw = Stopwatch.StartNew();
@@ -140,6 +147,16 @@ public sealed class MasterPreviewRenderer(ICelestialObjectDB? catalogDb, ILogger
         // value -> X nits" mapping (default 1000 nits, cinema HDR10).
         var rgba = new ushort[width * height * 4];
         master.RenderStretchedRgba16(uniforms, rgba);
+        // Masked finishing boost runs on the STRETCHED buffer, before the (optional) PQ
+        // re-encode below -- i.e. in SDR display-referred space, mirroring where the manual
+        // Affinity masked-contrast-boost + saturation layers sit.
+        if (maskedBoost is { IsNoOp: false } boost)
+        {
+            var boostSw = Stopwatch.StartNew();
+            ApplyMaskedBoost(rgba, channelCount, width, height, master.ImageMeta, boost);
+            logger.LogInformation("  [maskedBoost] saturation={Sat:F2} contrast={Con:F2} ({Ms} ms)",
+                boost.Saturation, boost.ContrastBoost, boostSw.ElapsedMilliseconds);
+        }
         CicpChunk cicp;
         if (hdr10Pq)
         {
@@ -199,6 +216,26 @@ public sealed class MasterPreviewRenderer(ICelestialObjectDB? catalogDb, ILogger
 
         // RGBA16 -> [0,1] float Image (R[,G,B]; alpha dropped). Mono plate keeps 1
         // channel; colour keeps 3. WriteStretchedTiffAsync writes the floats verbatim.
+        var stretched = StretchedImageFromRgba16(rgba, channelCount, width, height, plate.ImageMeta);
+        try
+        {
+            await stretched.WriteStretchedTiffAsync(tiffPath, ct);
+            logger.LogInformation("  wrote {Path} (split plate, self-stretch + shared WB)", tiffPath);
+        }
+        finally
+        {
+            stretched.Release();
+        }
+    }
+
+    /// <summary>
+    /// RGBA16 -> [0, 1] float <see cref="Image"/> (R[,G,B]; alpha dropped). Mono keeps 1
+    /// channel (RenderStretchedRgba16 replicates gray into R/G/B, so channel 0 carries it);
+    /// colour keeps 3. The single rgba-to-Image conversion shared by the split-plate TIFF
+    /// export and the masked-boost stage.
+    /// </summary>
+    internal static Image StretchedImageFromRgba16(ushort[] rgba, int channelCount, int width, int height, ImageMeta meta)
+    {
         var outCh = channelCount >= 3 ? 3 : 1;
         var data = Image.CreateChannelData(outCh, height, width);
         for (var y = 0; y < height; y++)
@@ -215,17 +252,45 @@ public sealed class MasterPreviewRenderer(ICelestialObjectDB? catalogDb, ILogger
                 }
             }
         }
+        return new Image(data, BitDepth.Float32, 1f, 0f, 0f, meta);
+    }
 
-        var stretched = new Image(data, BitDepth.Float32, 1f, 0f, 0f, plate.ImageMeta);
+    /// <summary>
+    /// Applies the masked finishing boost (<see cref="Image.MaskedBoost"/>) to a STRETCHED
+    /// rgba16 buffer in place: convert to a float <see cref="Image"/>, boost, write the
+    /// boosted channels back (alpha untouched; mono is replicated back into R/G/B like
+    /// <see cref="Image.RenderStretchedRgba16"/> emits it). Static + buffer-in/buffer-out so
+    /// tests can drive it without a renderer instance or a PNG round-trip.
+    /// </summary>
+    internal static void ApplyMaskedBoost(ushort[] rgba, int channelCount, int width, int height, ImageMeta meta, MaskedBoostOptions boost)
+    {
+        var stretched = StretchedImageFromRgba16(rgba, channelCount, width, height, meta);
+        var boosted = stretched.MaskedBoost(boost);
         try
         {
-            await stretched.WriteStretchedTiffAsync(tiffPath, ct);
-            logger.LogInformation("  wrote {Path} (split plate, self-stretch + shared WB)", tiffPath);
+            var outCh = boosted.ChannelCount;
+            var r = boosted.GetChannelSpan(0);
+            var g = outCh >= 3 ? boosted.GetChannelSpan(1) : r;
+            var b = outCh >= 3 ? boosted.GetChannelSpan(2) : r;
+            var n = width * height;
+            for (var i = 0; i < n; i++)
+            {
+                var o = i * 4;
+                rgba[o] = ToU16(r[i]);
+                rgba[o + 1] = ToU16(g[i]);
+                rgba[o + 2] = ToU16(b[i]);
+            }
         }
         finally
         {
+            if (!ReferenceEquals(boosted, stretched))
+            {
+                boosted.Release();
+            }
             stretched.Release();
         }
+
+        static ushort ToU16(float v) => (ushort)MathF.Min(MathF.Max(v, 0f) * 65535f + 0.5f, 65535f);
     }
 
     /// <summary>

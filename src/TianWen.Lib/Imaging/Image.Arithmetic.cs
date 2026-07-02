@@ -147,6 +147,24 @@ public partial class Image
     }
 
     /// <summary>
+    /// Returns <c>this * scalar</c> per pixel, all channels. The partial-strength-mask
+    /// primitive: <see cref="BlendThroughMask"/> uses its mask verbatim, so
+    /// <c>mask.Multiply(0.5f)</c> is how a caller applies a masked operation at half
+    /// strength. No clamp; NaN propagates.
+    /// </summary>
+    public Image Multiply(float scalar)
+    {
+        var dst = CreateChannelData(ChannelCount, Height, Width);
+        for (var c = 0; c < ChannelCount; c++)
+        {
+            var src = GetChannelSpan(c);
+            var output = MemoryMarshal.CreateSpan(ref dst[c][0, 0], dst[c].Length);
+            TensorPrimitives.Multiply(src, scalar, output);
+        }
+        return new Image(dst, BitDepth.Float32, maxValue, minValue, pedestal, imageMeta);
+    }
+
+    /// <summary>
     /// Returns <c>this + other</c> per pixel. NaN-preserving via
     /// <see cref="TensorPrimitives.Add(ReadOnlySpan{float}, ReadOnlySpan{float}, Span{float})"/>.
     /// Used by the <c>SharpenPipeline</c> recombine step

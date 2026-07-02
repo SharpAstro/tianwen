@@ -1102,11 +1102,24 @@ internal sealed class ImageSubCommand(
             Description = "Colour primaries for HDR PQ output. 'srgb' (default) = cICP {1, 16, 0, 1}; 'bt2020' = canonical HDR10 cICP {9, 16, 0, 1}.",
             DefaultValueFactory = _ => PngPqGamut.Srgb,
         };
+        // Masked finishing boost (Image.MaskedBoost) -- mirrors `stack --saturation` /
+        // `--contrast-boost` so the preview look can be iterated against an existing
+        // master FITS without re-stacking.
+        var saturationOpt = new Option<float>("--saturation")
+        {
+            Description = "Masked saturation boost baked into the stretched PNG output (background and star cores are protected by a luminance range mask). 1.0 = off (default); typical 1.3-2.0. PNG / PNG-PQ only; ignored for --output-format jxr (verbatim float output).",
+            DefaultValueFactory = _ => 1.0f,
+        };
+        var contrastBoostOpt = new Option<float>("--contrast-boost")
+        {
+            Description = "Masked S-curve contrast boost baked into the stretched PNG output (same protective luminance mask as --saturation). 0 = off (default); typical 0.25-1.5. PNG / PNG-PQ only; ignored for --output-format jxr.",
+            DefaultValueFactory = _ => 0f,
+        };
 
         var cmd = new Command("render", "Render a FITS file to a stretched PNG (default), HDR PQ PNG (--output-format png-pq), or float-true HDR JPEG XR (--output-format jxr).")
         {
             Arguments = { inputArg },
-            Options = { outputOpt, formatOpt, pngPqPeakNitsOpt, pngPqGamutOpt },
+            Options = { outputOpt, formatOpt, pngPqPeakNitsOpt, pngPqGamutOpt, saturationOpt, contrastBoostOpt },
         };
         cmd.SetAction(async (parseResult, ct) =>
         {
@@ -1131,6 +1144,24 @@ internal sealed class ImageSubCommand(
                 consoleHost.WriteError("--output-format=none is invalid for `image render` (it would produce no output).");
                 return 1;
             }
+            // Masked preview boost: identity values collapse to null (no render change);
+            // JXR writes the input floats verbatim, so the boost cannot apply there.
+            var saturation = parseResult.GetValue(saturationOpt);
+            var contrastBoost = parseResult.GetValue(contrastBoostOpt);
+            if (saturation < 0f || !float.IsFinite(saturation) ||
+                contrastBoost < 0f || !float.IsFinite(contrastBoost))
+            {
+                consoleHost.WriteError("--saturation and --contrast-boost must be finite values >= 0.");
+                return 1;
+            }
+            var maskedBoost = saturation != 1.0f || contrastBoost != 0f
+                ? new MaskedBoostOptions(saturation, contrastBoost)
+                : null;
+            if (maskedBoost is not null && format == ImageOutputFormat.Jxr)
+            {
+                consoleHost.WriteScrollable("[render] warning: --saturation/--contrast-boost only affect the stretched PNG paths; ignored with --output-format=jxr");
+                maskedBoost = null;
+            }
             // `render` writes the chosen format AS the primary output; passing
             // primaryPath = dst means ReplaceExtension is a no-op when the
             // extension already matches. ImageOutputFormat.None was rejected
@@ -1142,6 +1173,7 @@ internal sealed class ImageSubCommand(
                 useStretchedPng: false,
                 peakNits: Math.Clamp(parseResult.GetValue(pngPqPeakNitsOpt), 1f, 10000f),
                 gamutToBt2020: parseResult.GetValue(pngPqGamutOpt) == PngPqGamut.Bt2020,
+                maskedBoost: maskedBoost,
                 ct: ct);
             return 0;
         });
@@ -1346,13 +1378,19 @@ internal sealed class ImageSubCommand(
     /// whether the sRGB-to-BT.2020 gamut matrix is applied (true,
     /// canonical HDR10) or skipped (false, narrow-gamut sRGB+PQ).
     /// Ignored for other formats.</param>
+    /// <param name="maskedBoost">Opt-in masked finishing boost baked into the
+    /// renderer-stretched PNG paths (see <see cref="Image.MaskedBoost"/>).
+    /// Ignored for JXR (verbatim floats) and the pre-stretched byte-encode
+    /// paths (<paramref name="useStretchedPng"/>). Only the render verb
+    /// passes a non-null value today.</param>
     private async Task WriteCompanionAsync(
         Image image, string primaryPath, ImageOutputFormat format,
         ImageMeta sensorMeta, WCS? wcs, string tag,
         bool useStretchedPng,
         float peakNits,
         bool gamutToBt2020,
-        CancellationToken ct)
+        MaskedBoostOptions? maskedBoost = null,
+        CancellationToken ct = default)
     {
         if (format == ImageOutputFormat.None) return;
         var path = ReplaceExtension(primaryPath, ExtensionFor(format));
@@ -1377,10 +1415,10 @@ internal sealed class ImageSubCommand(
                 await WriteStretchedPngAsync(image, path, hdr10Pq: true, peakNits, gamutToBt2020, ct);
                 break;
             case ImageOutputFormat.Png:
-                await RenderPngAsync(image, sensorMeta, wcs, path, hdr10Pq: false, peakNits, gamutToBt2020, ct);
+                await RenderPngAsync(image, sensorMeta, wcs, path, hdr10Pq: false, peakNits, gamutToBt2020, maskedBoost, ct);
                 break;
             case ImageOutputFormat.PngPq:
-                await RenderPngAsync(image, sensorMeta, wcs, path, hdr10Pq: true, peakNits, gamutToBt2020, ct);
+                await RenderPngAsync(image, sensorMeta, wcs, path, hdr10Pq: true, peakNits, gamutToBt2020, maskedBoost, ct);
                 break;
             case ImageOutputFormat.Exr:
                 // EXR is the unstretched linear master emitted by the 'stack' command;
@@ -1396,12 +1434,13 @@ internal sealed class ImageSubCommand(
     /// <paramref name="img"/>. SPCC is computed at render time and only
     /// baked into the PNG; the source FITS stays untouched.
     /// </summary>
-    private async Task RenderPngAsync(Image img, ImageMeta sensorMeta, WCS? wcs, string pngPath, bool hdr10Pq, float peakNits, bool gamutToBt2020, CancellationToken ct)
+    private async Task RenderPngAsync(Image img, ImageMeta sensorMeta, WCS? wcs, string pngPath, bool hdr10Pq, float peakNits, bool gamutToBt2020, MaskedBoostOptions? maskedBoost, CancellationToken ct)
     {
         try
         {
             await previewRenderer.RenderAsync(img, sensorMeta, wcs, statsSource: null, pngPath,
-                hdr10Pq: hdr10Pq, peakNits: peakNits, gamutToBt2020: gamutToBt2020, ct: ct);
+                hdr10Pq: hdr10Pq, peakNits: peakNits, gamutToBt2020: gamutToBt2020,
+                maskedBoost: maskedBoost, ct: ct);
             var suffix = hdr10Pq
                 ? $" (HDR PQ, {peakNits:F0} nits, {(gamutToBt2020 ? "BT.2020" : "sRGB")} primaries)"
                 : "";
