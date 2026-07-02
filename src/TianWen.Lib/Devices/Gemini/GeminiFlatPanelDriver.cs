@@ -87,10 +87,33 @@ internal sealed class GeminiFlatPanelDriver(GeminiDevice device, IServiceProvide
 
     public async ValueTask ConnectAsync(CancellationToken cancellationToken = default)
     {
-        if (_conn is { IsOpen: true })
+        // SerialPort.IsOpen only records that Open() succeeded -- a dead USB bridge (unplugged CH341,
+        // re-enumerated port) keeps reporting IsOpen until an actual read/write fails. Re-verify with the
+        // cheap identity handshake so a reconnect (e.g. ResilientCall's fault callback, which calls
+        // ConnectAsync directly) rebuilds the connection instead of no-opping against a dead handle.
+        // TryClose marks the stale connection not-open, which also evicts it from IExternal's
+        // per-address connection cache on the reopen below.
+        if (_conn is { IsOpen: true } existing)
         {
-            _connected = true;
-            return;
+            string? identity = null;
+            try
+            {
+                identity = await GeminiFlatPanelProtocol.IdentifyAsync(existing, cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                Logger.LogWarning(ex, "Gemini FlatPanel {DeviceId}: liveness handshake threw on a nominally open connection.", device.DeviceId);
+            }
+
+            if (identity == GeminiFlatPanelProtocol.Identity)
+            {
+                _connected = true;
+                return;
+            }
+
+            Logger.LogWarning("Gemini FlatPanel {DeviceId}: open connection did not answer the identity handshake; rebuilding the connection.", device.DeviceId);
+            existing.TryClose();
+            _conn = null;
         }
 
         if (await device.ConnectSerialDeviceAsync(External, Logger, TimeProvider, GeminiFlatPanelProtocol.Baud, Encoding.ASCII, cancellationToken).ConfigureAwait(false)
