@@ -198,6 +198,25 @@ jobs:
           try { $p.Kill($true) } catch { Write-Host "kill: $_" }
           exit 1
         }
+    # Diagnostic: dump the ASCOM registry tree in BOTH views so we can see where Platform 7 registers
+    # the Platform version + the "<Type> Drivers" driver lists (32-bit Wow6432Node vs native 64-bit) --
+    # this is what AscomDeviceIterator reads, and confirms the both-views fix hits the right keys.
+    - name: Dump ASCOM registry tree (diagnostic)
+      if: always()
+      continue-on-error: true
+      shell: pwsh
+      run: |
+        "ProcessArchitecture: $([System.Runtime.InteropServices.RuntimeInformation]::ProcessArchitecture); Is64BitProcess: $([Environment]::Is64BitProcess)" | Write-Host
+        foreach ($root in 'HKLM:\SOFTWARE\ASCOM','HKLM:\SOFTWARE\WOW6432Node\ASCOM') {
+          Write-Host "===== $root ====="
+          if (Test-Path $root) {
+            Get-ChildItem $root -Recurse -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Name | Write-Host
+          } else { Write-Host "(absent)" }
+        }
+        Write-Host "===== Platform version values (both views) ====="
+        foreach ($p in 'HKLM:\SOFTWARE\ASCOM\Platform','HKLM:\SOFTWARE\WOW6432Node\ASCOM\Platform') {
+          if (Test-Path $p) { Write-Host "$p ->"; (Get-ItemProperty $p | Format-List | Out-String) | Write-Host } else { Write-Host "$p (absent)" }
+        }
     - name: Restore
       run: dotnet restore $env:TEST_PROJECT
       working-directory: src

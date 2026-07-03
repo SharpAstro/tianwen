@@ -26,8 +26,11 @@ public class AscomDeviceTests(ITestOutputHelper testOutputHelper)
     // lookup wrong), so discover the simulator by name-match instead of a fixed ProgID, logging the
     // candidates so the actual registered IDs are on record. Falls back to the sole device of the
     // type (on a fresh runner the only registered devices are the Platform's own simulators).
-    private AscomDevice? ResolveSimulator(AscomDeviceIterator iterator, DeviceType type)
+    private async Task<AscomDevice?> ResolveSimulatorAsync(AscomDeviceIterator iterator, DeviceType type, CancellationToken ct)
     {
+        // RegisteredDevices is populated ONLY by DiscoverAsync -- the tests used to skip it, so every
+        // type came back empty ("0 registered"). Discover first, then pick the simulator by name.
+        await iterator.DiscoverAsync(ct);
         var devices = iterator.RegisteredDevices(type).ToList();
         testOutputHelper.WriteLine($"{type}: {devices.Count} registered -> {string.Join(", ", devices.Select(d => $"'{d.DeviceId}' ({d.DisplayName})"))}");
         return devices.FirstOrDefault(d => d.DeviceId.Contains("Sim", StringComparison.OrdinalIgnoreCase)
@@ -63,7 +66,7 @@ public class AscomDeviceTests(ITestOutputHelper testOutputHelper)
 
         var external = new FakeExternal(testOutputHelper);
         var deviceIterator = new AscomDeviceIterator(NullLogger<AscomDeviceIterator>.Instance);
-        var device = ResolveSimulator(deviceIterator, type);
+        var device = await ResolveSimulatorAsync(deviceIterator, type, TestContext.Current.CancellationToken);
 
         device.ShouldNotBeNull();
         device.DeviceClass.ShouldBe(nameof(AscomDevice), StringCompareShould.IgnoreCase);
@@ -91,7 +94,7 @@ public class AscomDeviceTests(ITestOutputHelper testOutputHelper)
         var cancellationToken = TestContext.Current.CancellationToken;
         var external = new FakeExternal(testOutputHelper);
         var deviceIterator = new AscomDeviceIterator(NullLogger<AscomDeviceIterator>.Instance);
-        var simTelescopeDevice = ResolveSimulator(deviceIterator, DeviceType.Telescope);
+        var simTelescopeDevice = await ResolveSimulatorAsync(deviceIterator, DeviceType.Telescope, cancellationToken);
 
         // when
         var sp = new ServiceCollection().AddSingleton<IExternal>(external).BuildServiceProvider();
@@ -115,7 +118,7 @@ public class AscomDeviceTests(ITestOutputHelper testOutputHelper)
         var cancellationToken = TestContext.Current.CancellationToken;
         var external = new FakeExternal(testOutputHelper);
         var deviceIterator = new AscomDeviceIterator(NullLogger<AscomDeviceIterator>.Instance);
-        var simCameraDevice = ResolveSimulator(deviceIterator, DeviceType.Camera);
+        var simCameraDevice = await ResolveSimulatorAsync(deviceIterator, DeviceType.Camera, cancellationToken);
 
         // when / then
         var sp2 = new ServiceCollection().AddSingleton<IExternal>(external).BuildServiceProvider();
@@ -159,7 +162,7 @@ public class AscomDeviceTests(ITestOutputHelper testOutputHelper)
         var ct = TestContext.Current.CancellationToken;
         var external = new FakeExternal(testOutputHelper);
         var deviceIterator = new AscomDeviceIterator(NullLogger<AscomDeviceIterator>.Instance);
-        var simDevice = ResolveSimulator(deviceIterator, DeviceType.Focuser);
+        var simDevice = await ResolveSimulatorAsync(deviceIterator, DeviceType.Focuser, ct);
 
         var sp = new ServiceCollection().AddSingleton<IExternal>(external).BuildServiceProvider();
         if (simDevice?.TryInstantiateDriver(sp, out IFocuserDriver? focuser) is true)
@@ -197,7 +200,7 @@ public class AscomDeviceTests(ITestOutputHelper testOutputHelper)
         var ct = TestContext.Current.CancellationToken;
         var external = new FakeExternal(testOutputHelper);
         var deviceIterator = new AscomDeviceIterator(NullLogger<AscomDeviceIterator>.Instance);
-        var simDevice = ResolveSimulator(deviceIterator, DeviceType.FilterWheel);
+        var simDevice = await ResolveSimulatorAsync(deviceIterator, DeviceType.FilterWheel, ct);
 
         var sp = new ServiceCollection().AddSingleton<IExternal>(external).BuildServiceProvider();
         if (simDevice?.TryInstantiateDriver(sp, out IFilterWheelDriver? fw) is true)
@@ -235,7 +238,7 @@ public class AscomDeviceTests(ITestOutputHelper testOutputHelper)
         var ct = TestContext.Current.CancellationToken;
         var external = new FakeExternal(testOutputHelper);
         var deviceIterator = new AscomDeviceIterator(NullLogger<AscomDeviceIterator>.Instance);
-        var simDevice = ResolveSimulator(deviceIterator, DeviceType.CoverCalibrator);
+        var simDevice = await ResolveSimulatorAsync(deviceIterator, DeviceType.CoverCalibrator, ct);
 
         var sp = new ServiceCollection().AddSingleton<IExternal>(external).BuildServiceProvider();
         if (simDevice?.TryInstantiateDriver(sp, out ICoverDriver? cover) is true)
