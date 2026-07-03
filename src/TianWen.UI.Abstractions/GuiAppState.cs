@@ -128,6 +128,35 @@ public class GuiAppState
     /// <summary>Wall-clock expiry of <see cref="PendingSunSlewIndex"/>.</summary>
     public DateTimeOffset? PendingSunSlewExpiresAt { get; set; }
 
+    /// <summary>Result of <see cref="GateSunSlew"/>: proceed with the slew, or arm and wait for a confirming click.</summary>
+    public enum SunSlewGate
+    {
+        /// <summary>A prior arming click is still within its window: clear the pending state and slew.</summary>
+        Confirmed,
+        /// <summary>First click (or the window lapsed): pending state is (re)armed; the caller should abort this slew.</summary>
+        Armed
+    }
+
+    /// <summary>
+    /// Advances the two-click Sun-slew confirmation state machine for <paramref name="index"/>.
+    /// Returns <see cref="SunSlewGate.Confirmed"/> when a still-valid arming click precedes this
+    /// one (and clears the pending state); otherwise (re)arms with a fresh <paramref name="window"/>
+    /// expiry and returns <see cref="SunSlewGate.Armed"/>. Extracted from the SkyMapSlewToObject
+    /// handler so the lambda routes only; unit-testable without a signal bus.
+    /// </summary>
+    public SunSlewGate GateSunSlew(CatalogIndex index, DateTimeOffset now, TimeSpan window)
+    {
+        if (PendingSunSlewIndex == index && PendingSunSlewExpiresAt is { } exp && exp > now)
+        {
+            PendingSunSlewIndex = null;
+            PendingSunSlewExpiresAt = null;
+            return SunSlewGate.Confirmed;
+        }
+        PendingSunSlewIndex = index;
+        PendingSunSlewExpiresAt = now + window;
+        return SunSlewGate.Armed;
+    }
+
     /// <summary>
     /// Bounded ring of recent notifications. Newest entry is at index 0. Capped at
     /// <see cref="MaxNotifications"/>; older entries are dropped silently.
