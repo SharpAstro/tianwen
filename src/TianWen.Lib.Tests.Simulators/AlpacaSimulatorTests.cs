@@ -3,7 +3,6 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Shouldly;
 using System;
-using System.Diagnostics;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -11,6 +10,7 @@ using TianWen.Lib;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Devices.Alpaca;
 using TianWen.Lib.Extensions;
+using TianWen.Lib.Imaging;
 using Xunit;
 
 namespace TianWen.Lib.Tests.Simulators;
@@ -36,13 +36,16 @@ public class AlpacaSimulatorTests(ITestOutputHelper testOutputHelper)
 
     /// <summary>Builds a service provider wired exactly like the app (<see cref="AlpacaServiceCollectionExtensions.AddAlpaca"/>),
     /// so the resolved <see cref="AlpacaClient"/> + drivers are the production types. Uses <see cref="FakeExternal"/>
-    /// for the IExternal/ITimeProvider/logging trio the driver base resolves from DI.</summary>
+    /// for IExternal + logging, but a real <see cref="SystemTimeProvider"/> for the clock the driver base
+    /// resolves from DI (the fake clock would not advance for a live server running in real time).</summary>
     private (ServiceProvider Sp, AlpacaClient Client) BuildAlpaca()
     {
         var external = new FakeExternal(testOutputHelper);
         var sp = new ServiceCollection()
             .AddSingleton<IExternal>(external)
-            .AddSingleton<ITimeProvider>(external.TimeProvider)
+            // Real System clock, not external's fake one: these drive a live server in wall-clock time
+            // (LastExposureStartTime etc. should be real, and the settle waits must not auto-advance).
+            .AddSingleton<ITimeProvider>(SystemTimeProvider.Instance)
             .AddLogging(b => b.AddProvider(new XUnitLoggerProvider(testOutputHelper, false)))
             .AddAlpaca()
             .BuildServiceProvider();
@@ -61,20 +64,6 @@ public class AlpacaSimulatorTests(ITestOutputHelper testOutputHelper)
 
         var uri = new Uri(baseUrl);
         return new AlpacaDevice(type, match!.UniqueID, uri.Host, uri.Port, match.DeviceNumber, match.DeviceName) { Client = client };
-    }
-
-    /// <summary>Polls <paramref name="condition"/> against a real clock (the fake IExternal clock would
-    /// busy-spin) until it returns true or the timeout elapses. The driver calls used here do not sleep
-    /// internally, so the caller owns the wait.</summary>
-    private static async Task<bool> WaitAsync(Func<Task<bool>> condition, TimeSpan timeout, CancellationToken ct)
-    {
-        var sw = Stopwatch.StartNew();
-        while (sw.Elapsed < timeout)
-        {
-            if (await condition()) return true;
-            await Task.Delay(200, ct);
-        }
-        return await condition();
     }
 
     [Fact]
@@ -112,7 +101,7 @@ public class AlpacaSimulatorTests(ITestOutputHelper testOutputHelper)
                 // Full frame at the simulator's default ROI/binning (StartExposureAsync sends neither).
                 await cam.StartExposureAsync(TimeSpan.FromSeconds(1), cancellationToken: ct);
 
-                var ready = await WaitAsync(async () => await cam.GetImageReadyAsync(ct), TimeSpan.FromSeconds(30), ct);
+                var ready = await SimulatorTestHelpers.WaitAsync(SystemTimeProvider.Instance, async () => await cam.GetImageReadyAsync(ct), TimeSpan.FromSeconds(30), ct);
                 ready.ShouldBeTrue();
 
                 // The payoff: GetImageReadyAsync downloads via GetImageArrayBytesAsync (Accept:
@@ -128,6 +117,13 @@ public class AlpacaSimulatorTests(ITestOutputHelper testOutputHelper)
                 image.MaxValue.ShouldBeGreaterThan(0f);
                 channel.Data.GetLength(1).ShouldBe(image.Width);
                 channel.Data.GetLength(0).ShouldBe(image.Height);
+
+                // LastExposureDuration was hardcoded null (zeroing the FITS EXPTIME on every Alpaca
+                // frame); it is now baselined at StartExposure and refined from the server, and must
+                // flow into the produced Image's metadata.
+                var exposureDuration = cam.LastExposureDuration.ShouldNotBeNull();
+                exposureDuration.ShouldBeGreaterThan(TimeSpan.Zero);
+                image.ImageMeta.ExposureDuration.ShouldBe(exposureDuration);
 
                 await cam.DisconnectAsync(ct);
             }
@@ -193,7 +189,7 @@ public class AlpacaSimulatorTests(ITestOutputHelper testOutputHelper)
                     : Math.Min(focuser.MaxStep, start + 500);
                 await focuser.BeginMoveAsync(target, ct);
 
-                var settled = await WaitAsync(async () => !await focuser.GetIsMovingAsync(ct), TimeSpan.FromSeconds(30), ct);
+                var settled = await SimulatorTestHelpers.WaitAsync(SystemTimeProvider.Instance, async () => !await focuser.GetIsMovingAsync(ct), TimeSpan.FromSeconds(30), ct);
                 settled.ShouldBeTrue();
                 (await focuser.GetPositionAsync(ct)).ShouldBe(target);
 
@@ -224,7 +220,7 @@ public class AlpacaSimulatorTests(ITestOutputHelper testOutputHelper)
                 await fw.BeginMoveAsync(target, ct);
 
                 // A moving filter wheel reports position -1 (ASCOM), so it equals target only once settled.
-                var settled = await WaitAsync(async () => await fw.GetPositionAsync(ct) == target, TimeSpan.FromSeconds(30), ct);
+                var settled = await SimulatorTestHelpers.WaitAsync(SystemTimeProvider.Instance, async () => await fw.GetPositionAsync(ct) == target, TimeSpan.FromSeconds(30), ct);
                 settled.ShouldBeTrue();
 
                 await fw.DisconnectAsync(ct);
@@ -254,12 +250,113 @@ public class AlpacaSimulatorTests(ITestOutputHelper testOutputHelper)
 
                 var brightness = Math.Max(1, cover.MaxBrightness / 2);
                 await cover.BeginCalibratorOn(brightness, ct);
-                var ready = await WaitAsync(async () => await cover.GetCalibratorStateAsync(ct) == CalibratorStatus.Ready, TimeSpan.FromSeconds(30), ct);
+                var ready = await SimulatorTestHelpers.WaitAsync(SystemTimeProvider.Instance, async () => await cover.GetCalibratorStateAsync(ct) == CalibratorStatus.Ready, TimeSpan.FromSeconds(30), ct);
                 ready.ShouldBeTrue();
                 (await cover.GetBrightnessAsync(ct)).ShouldBe(brightness);
 
                 await cover.BeginCalibratorOff(ct);
                 await cover.DisconnectAsync(ct);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Pins the connect-time metadata the driver reads in <c>InitDeviceAsync</c>: sensor type + Bayer
+    /// offsets (the unconditional Bayer read was the mono-camera connect bug), the gain/offset lists
+    /// (were hardcoded empty), and the readout-mode round-trip (was a local-only no-op). Capability-
+    /// aware: it asserts whichever gain/offset mode the simulator actually exposes and logs the rest,
+    /// so it validates the parsing without pretending coverage of a path the sim doesn't have.
+    /// </summary>
+    [Fact]
+    public async Task Camera_ReadsSensorGainOffsetAndReadoutMetadata()
+    {
+        var baseUrl = RequireSim();
+        var ct = TestContext.Current.CancellationToken;
+        var (sp, client) = BuildAlpaca();
+        await using (sp)
+        {
+            var device = await ResolveDeviceAsync(client, baseUrl, DeviceType.Camera, ct);
+            device.TryInstantiateDriver<ICameraDriver>(sp, out var cam).ShouldBeTrue();
+            await using (cam)
+            {
+                await cam.ConnectAsync(ct);
+                cam.Connected.ShouldBeTrue();
+
+                // Sensor type must be a defined enum; a Bayer sensor must have read its offsets.
+                Enum.IsDefined(cam.SensorType).ShouldBeTrue();
+                testOutputHelper.WriteLine($"SensorType={cam.SensorType}");
+                if (cam.SensorType is SensorType.RGGB)
+                {
+                    cam.BayerOffsetX.ShouldBeGreaterThanOrEqualTo(0);
+                    cam.BayerOffsetY.ShouldBeGreaterThanOrEqualTo(0);
+                }
+
+                // Gain: value-mode and index-mode are mutually exclusive. Whichever the sim exposes,
+                // the matching path must be populated (the Gains list used to be hardcoded empty).
+                (cam.UsesGainValue && cam.UsesGainMode).ShouldBeFalse();
+                if (cam.UsesGainMode)
+                {
+                    cam.Gains.ShouldNotBeEmpty();
+                    var mode = (await cam.GetGainModeAsync(ct)).ShouldNotBeNull();
+                    testOutputHelper.WriteLine($"Gain mode: {cam.Gains.Count} option(s), current='{mode}'");
+                }
+                else if (cam.UsesGainValue)
+                {
+                    cam.GainMax.ShouldBeGreaterThanOrEqualTo(cam.GainMin);
+                    testOutputHelper.WriteLine($"Gain value in [{cam.GainMin},{cam.GainMax}]");
+                }
+                else
+                {
+                    testOutputHelper.WriteLine("Camera reports no gain control");
+                }
+
+                // Offset: same value-vs-index shape.
+                (cam.UsesOffsetValue && cam.UsesOffsetMode).ShouldBeFalse();
+                if (cam.UsesOffsetMode)
+                {
+                    cam.Offsets.ShouldNotBeEmpty();
+                    (await cam.GetOffsetModeAsync(ct)).ShouldNotBeNull();
+                    testOutputHelper.WriteLine($"Offset mode: {cam.Offsets.Count} option(s)");
+                }
+                else if (cam.UsesOffsetValue)
+                {
+                    cam.OffsetMax.ShouldBeGreaterThanOrEqualTo(cam.OffsetMin);
+                    testOutputHelper.WriteLine($"Offset value in [{cam.OffsetMin},{cam.OffsetMax}]");
+                }
+
+                // Readout mode must round-trip through the server (was a local-only no-op stub).
+                var readout = await cam.GetReadoutModeAsync(ct);
+                testOutputHelper.WriteLine($"ReadoutMode='{readout}'");
+                if (readout is not null)
+                {
+                    await cam.SetReadoutModeAsync(readout, ct);
+                    (await cam.GetReadoutModeAsync(ct)).ShouldBe(readout);
+                }
+
+                await cam.DisconnectAsync(ct);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Switch is a bare <see cref="ISwitchDriver"/> (no operations yet), so this is a connect smoke
+    /// test -- it still guards against a connect-time throw of the class that broke the mono camera.
+    /// </summary>
+    [Fact]
+    public async Task Switch_Connects()
+    {
+        var baseUrl = RequireSim();
+        var ct = TestContext.Current.CancellationToken;
+        var (sp, client) = BuildAlpaca();
+        await using (sp)
+        {
+            var device = await ResolveDeviceAsync(client, baseUrl, DeviceType.Switch, ct);
+            device.TryInstantiateDriver<ISwitchDriver>(sp, out var sw).ShouldBeTrue();
+            await using (sw)
+            {
+                await sw.ConnectAsync(ct);
+                sw.Connected.ShouldBeTrue();
+                await sw.DisconnectAsync(ct);
             }
         }
     }

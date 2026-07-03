@@ -138,4 +138,123 @@ public class AscomDeviceTests(ITestOutputHelper testOutputHelper)
             Assert.Fail($"Could not instantiate camera device {simCameraDevice}");
         }
     }
+
+    [Fact]
+    public async Task GivenAConnectedAscomSimulatorFocuserWhenMovedThenItReachesTarget()
+    {
+        Assert.SkipUnless(RuntimeInformation.IsOSPlatform(OSPlatform.Windows) && SimulatorGate.AscomCiEnabled,
+            $"Skipped unless on Windows with the ASCOM Platform + simulators installed and {SimulatorGate.AscomCiVar} set");
+
+        var ct = TestContext.Current.CancellationToken;
+        var external = new FakeExternal(testOutputHelper);
+        var deviceIterator = new AscomDeviceIterator(NullLogger<AscomDeviceIterator>.Instance);
+        var simDevice = deviceIterator.RegisteredDevices(DeviceType.Focuser)
+            .FirstOrDefault(e => e.DeviceId == "ASCOM.Simulator." + DeviceType.Focuser);
+
+        var sp = new ServiceCollection().AddSingleton<IExternal>(external).BuildServiceProvider();
+        if (simDevice?.TryInstantiateDriver(sp, out IFocuserDriver? focuser) is true)
+        {
+            await using (focuser)
+            {
+                await focuser.ConnectAsync(ct);
+                focuser.Connected.ShouldBeTrue();
+                Assert.SkipUnless(focuser.Absolute, "Focuser is not absolute; skipping absolute-move assertion");
+                focuser.MaxStep.ShouldBeGreaterThan(0);
+
+                var start = await focuser.GetPositionAsync(ct);
+                var target = start > focuser.MaxStep / 2 ? Math.Max(0, start - 500) : Math.Min(focuser.MaxStep, start + 500);
+                await focuser.BeginMoveAsync(target, ct);
+
+                var settled = await SimulatorTestHelpers.WaitAsync(SystemTimeProvider.Instance, async () => !await focuser.GetIsMovingAsync(ct), TimeSpan.FromSeconds(30), ct);
+                settled.ShouldBeTrue();
+                (await focuser.GetPositionAsync(ct)).ShouldBe(target);
+
+                await focuser.DisconnectAsync(ct);
+            }
+        }
+        else
+        {
+            Assert.Fail($"Could not instantiate focuser device {simDevice}");
+        }
+    }
+
+    [Fact]
+    public async Task GivenAConnectedAscomSimulatorFilterWheelWhenMovedThenPositionChanges()
+    {
+        Assert.SkipUnless(RuntimeInformation.IsOSPlatform(OSPlatform.Windows) && SimulatorGate.AscomCiEnabled,
+            $"Skipped unless on Windows with the ASCOM Platform + simulators installed and {SimulatorGate.AscomCiVar} set");
+
+        var ct = TestContext.Current.CancellationToken;
+        var external = new FakeExternal(testOutputHelper);
+        var deviceIterator = new AscomDeviceIterator(NullLogger<AscomDeviceIterator>.Instance);
+        var simDevice = deviceIterator.RegisteredDevices(DeviceType.FilterWheel)
+            .FirstOrDefault(e => e.DeviceId == "ASCOM.Simulator." + DeviceType.FilterWheel);
+
+        var sp = new ServiceCollection().AddSingleton<IExternal>(external).BuildServiceProvider();
+        if (simDevice?.TryInstantiateDriver(sp, out IFilterWheelDriver? fw) is true)
+        {
+            await using (fw)
+            {
+                await fw.ConnectAsync(ct);
+                fw.Connected.ShouldBeTrue();
+                var count = fw.Filters.Count;
+                count.ShouldBeGreaterThan(0);
+
+                var start = await fw.GetPositionAsync(ct);
+                var target = count == 1 ? 0 : (Math.Max(start, 0) + 1) % count;
+                await fw.BeginMoveAsync(target, ct);
+
+                // A moving filter wheel reports position -1 (ASCOM), so it equals target only once settled.
+                var settled = await SimulatorTestHelpers.WaitAsync(SystemTimeProvider.Instance, async () => await fw.GetPositionAsync(ct) == target, TimeSpan.FromSeconds(30), ct);
+                settled.ShouldBeTrue();
+
+                await fw.DisconnectAsync(ct);
+            }
+        }
+        else
+        {
+            Assert.Fail($"Could not instantiate filter wheel device {simDevice}");
+        }
+    }
+
+    [Fact]
+    public async Task GivenAConnectedAscomSimulatorCoverCalibratorWhenCalibratorToggledThenStateReflects()
+    {
+        Assert.SkipUnless(RuntimeInformation.IsOSPlatform(OSPlatform.Windows) && SimulatorGate.AscomCiEnabled,
+            $"Skipped unless on Windows with the ASCOM Platform + simulators installed and {SimulatorGate.AscomCiVar} set");
+
+        var ct = TestContext.Current.CancellationToken;
+        var external = new FakeExternal(testOutputHelper);
+        var deviceIterator = new AscomDeviceIterator(NullLogger<AscomDeviceIterator>.Instance);
+        var simDevice = deviceIterator.RegisteredDevices(DeviceType.CoverCalibrator)
+            .FirstOrDefault(e => e.DeviceId == "ASCOM.Simulator." + DeviceType.CoverCalibrator);
+
+        var sp = new ServiceCollection().AddSingleton<IExternal>(external).BuildServiceProvider();
+        if (simDevice?.TryInstantiateDriver(sp, out ICoverDriver? cover) is true)
+        {
+            await using (cover)
+            {
+                await cover.ConnectAsync(ct);
+                cover.Connected.ShouldBeTrue();
+
+                (await cover.GetCoverStateAsync(ct)).ShouldNotBe(CoverStatus.Error);
+                (await cover.GetCalibratorStateAsync(ct)).ShouldNotBe(CalibratorStatus.Error);
+
+                Assert.SkipUnless(cover.MaxBrightness > 0, "Cover has no controllable calibrator; skipping calibrator toggle");
+
+                var brightness = Math.Max(1, cover.MaxBrightness / 2);
+                await cover.BeginCalibratorOn(brightness, ct);
+                var ready = await SimulatorTestHelpers.WaitAsync(SystemTimeProvider.Instance, async () => await cover.GetCalibratorStateAsync(ct) == CalibratorStatus.Ready, TimeSpan.FromSeconds(30), ct);
+                ready.ShouldBeTrue();
+                (await cover.GetBrightnessAsync(ct)).ShouldBe(brightness);
+
+                await cover.BeginCalibratorOff(ct);
+                await cover.DisconnectAsync(ct);
+            }
+        }
+        else
+        {
+            Assert.Fail($"Could not instantiate cover calibrator device {simDevice}");
+        }
+    }
 }
