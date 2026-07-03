@@ -912,25 +912,17 @@ namespace TianWen.UI.Abstractions
                 }
 
                 // Two-click confirmation for Sun slew. First click arms, second click
-                // within the window proceeds. Any other interaction silently expires.
-                if (sig.Index == CatalogIndex.Sol)
+                // within the window proceeds. The arm/confirm state machine lives on
+                // GuiAppState; this routes.
+                if (sig.Index == CatalogIndex.Sol
+                    && appState.GateSunSlew(CatalogIndex.Sol, _timeProvider.GetUtcNow(), TimeSpan.FromSeconds(5))
+                        == GuiAppState.SunSlewGate.Armed)
                 {
-                    var now = _timeProvider.GetUtcNow();
-                    var confirmed = appState.PendingSunSlewIndex == CatalogIndex.Sol
-                                    && appState.PendingSunSlewExpiresAt is { } exp
-                                    && exp > now;
-                    if (!confirmed)
-                    {
-                        appState.PendingSunSlewIndex = CatalogIndex.Sol;
-                        appState.PendingSunSlewExpiresAt = now + TimeSpan.FromSeconds(5);
-                        appState.StatusMessage =
-                            "\u26A0 SUN \u2014 click Goto again within 5s to confirm. Verify a solar filter is installed.";
-                        skyMapState.NeedsRedraw = true;
-                        appState.NeedsRedraw = true;
-                        return;
-                    }
-                    appState.PendingSunSlewIndex = null;
-                    appState.PendingSunSlewExpiresAt = null;
+                    appState.StatusMessage =
+                        "\u26A0 SUN \u2014 click Goto again within 5s to confirm. Verify a solar filter is installed.";
+                    skyMapState.NeedsRedraw = true;
+                    appState.NeedsRedraw = true;
+                    return;
                 }
 
                 var minAlt = System.Math.Max((int)plannerState.MinHeightAboveHorizon, 1);
@@ -1114,19 +1106,9 @@ namespace TianWen.UI.Abstractions
                     return;
                 }
 
-                // Optional per-OTA devices for FITS denorm stamping (same as TakePreview).
-                IFocuserDriver? ssFocuser = null;
-                if (ota.Focuser is { } ssFocUri
-                    && hub.TryGetConnectedDriver<IFocuserDriver>(ssFocUri, out var ssFocDrv))
-                {
-                    ssFocuser = ssFocDrv;
-                }
-                IFilterWheelDriver? ssFilterWheel = null;
-                if (ota.FilterWheel is { } ssFwUri
-                    && hub.TryGetConnectedDriver<IFilterWheelDriver>(ssFwUri, out var ssFwDrv))
-                {
-                    ssFilterWheel = ssFwDrv;
-                }
+                // Optional per-OTA devices for FITS denorm stamping (same as TakePreview);
+                // the mount is resolved separately above, so discard it here.
+                var (ssFocuser, ssFilterWheel, _) = EquipmentActions.ResolveOtaCaptureDevices(hub, pdata, sig.OtaIndex);
 
                 // Mirror the preview-capture progress UI while the solve frame exposes.
                 // ExposureSeconds is now trustworthy even for the button's parameterless
@@ -1236,7 +1218,8 @@ namespace TianWen.UI.Abstractions
                 eqState.ProfileNameInput.Clear();
             };
 
-            // Site inputs share a commit: save site on Enter from any of the three fields
+            // Site inputs share a commit: save site on Enter from any of the three fields.
+            // Parse/validate + the mount push live in EquipmentActions; this routes.
             Func<Task> saveSite = async () =>
             {
                 if (appState.ActiveProfile is not { } siteProfile)
@@ -1244,60 +1227,38 @@ namespace TianWen.UI.Abstractions
                     return;
                 }
 
-                if (double.TryParse(eqState.LatitudeInput.Text, System.Globalization.CultureInfo.InvariantCulture, out var sLat) &&
-                    double.TryParse(eqState.LongitudeInput.Text, System.Globalization.CultureInfo.InvariantCulture, out var sLon) &&
-                    sLat is >= -90 and <= 90 && sLon is >= -180 and <= 180)
-                {
-                    double? sElev = double.TryParse(eqState.ElevationInput.Text, System.Globalization.CultureInfo.InvariantCulture, out var e) ? e : null;
-                    var sData = siteProfile.Data ?? ProfileData.Empty;
-                    var newSiteData = EquipmentActions.SetSite(sData, sLat, sLon, sElev);
-                    var updatedSite = siteProfile.WithData(newSiteData);
-                    // Update UI immediately, save in background
-                    appState.ActiveProfile = updatedSite;
-                    eqState.IsEditingSite = false;
-                    bus.Post(new DeactivateTextInputSignal());
-                    plannerState.SiteLatitude = sLat;
-                    plannerState.SiteLongitude = sLon;
-                    plannerState.NeedsRecompute = true;
-                    appState.NeedsRedraw = true;
-
-                    // If the catalog was blocked on a missing site, load it now.
-                    if (plannerState.ObjectDb is null
-                        && TransformFactory.FromProfile(updatedSite, _timeProvider, out _) is { } siteTransform)
-                    {
-                        _tracker.Run(() => InitializePlannerAsync(siteTransform, cts.Token),
-                            "Load catalog after site edit");
-                    }
-
-                    // If a mount is connected and the tie-breaker says Profile wins,
-                    // push the new site to the mount hardware.
-                    if (newSiteData.SiteTieBreaker == SiteTieBreaker.Profile
-                        && appState.DeviceHub is { } hubForPush
-                        && hubForPush.TryGetConnectedDriver<IMountDriver>(newSiteData.Mount, out var mountForPush)
-                        && mountForPush is not null)
-                    {
-                        try
-                        {
-                            await mountForPush.SetSiteLatitudeAsync(sLat, cts.Token);
-                            await mountForPush.SetSiteLongitudeAsync(sLon, cts.Token);
-                            if (sElev is { } elevForPush)
-                            {
-                                await mountForPush.SetSiteElevationAsync(elevForPush, cts.Token);
-                            }
-                        }
-                        catch (Exception pushEx)
-                        {
-                            logger.LogWarning(pushEx, "Failed to push site to connected mount.");
-                        }
-                    }
-
-                    await updatedSite.SaveAsync(external, cts.Token);
-                }
-                else
+                if (!EquipmentActions.TryParseSite(
+                        eqState.LatitudeInput.Text, eqState.LongitudeInput.Text, eqState.ElevationInput.Text,
+                        out var sLat, out var sLon, out var sElev))
                 {
                     appState.AppendNotification(_timeProvider.GetUtcNow(),
                         NotificationSeverity.Warning, "Invalid coordinates (lat: -90..90, lon: -180..180)");
+                    return;
                 }
+
+                var sData = siteProfile.Data ?? ProfileData.Empty;
+                var newSiteData = EquipmentActions.SetSite(sData, sLat, sLon, sElev);
+                var updatedSite = siteProfile.WithData(newSiteData);
+                // Update UI immediately, save in background
+                appState.ActiveProfile = updatedSite;
+                eqState.IsEditingSite = false;
+                bus.Post(new DeactivateTextInputSignal());
+                plannerState.SiteLatitude = sLat;
+                plannerState.SiteLongitude = sLon;
+                plannerState.NeedsRecompute = true;
+                appState.NeedsRedraw = true;
+
+                // If the catalog was blocked on a missing site, load it now.
+                if (plannerState.ObjectDb is null
+                    && TransformFactory.FromProfile(updatedSite, _timeProvider, out _) is { } siteTransform)
+                {
+                    _tracker.Run(() => InitializePlannerAsync(siteTransform, cts.Token),
+                        "Load catalog after site edit");
+                }
+
+                await EquipmentActions.PushSiteToMountIfProfileWinsAsync(
+                    appState.DeviceHub, newSiteData, sLat, sLon, sElev, logger, cts.Token);
+                await updatedSite.SaveAsync(external, cts.Token);
             };
 
             Action cancelSite = () =>
@@ -1359,19 +1320,15 @@ namespace TianWen.UI.Abstractions
                 var value = eqState.StringSettingInput.Text;
                 eqState.EditingStringSettingKey = null;
 
-                // A masked setting (e.g. an API key) is a secret: persist it to the OS credential
-                // store keyed by device, NEVER onto the device URI / profile JSON — that would leak
-                // the secret into plaintext config AND lose it when the URI is replaced on a provider
-                // switch (the bug this fixes). The credential key is derived from the device id so it
-                // stays stable across URI changes and is shared across profiles.
-                var device = EquipmentActions.TryDeviceFromUri(editUri);
-                if (device is not null && device.Settings.Any(s => s.Key == key && s.Mask))
+                // The masked-secret-vs-URI-param decision (credential-store write for secrets,
+                // query-param URI for the rest) lives in EquipmentActions; this routes.
+                var commit = EquipmentActions.CommitDeviceSetting(
+                    editUri, key, value, sp.GetRequiredService<ICredentialStore>());
+                if (commit.Kind == EquipmentActions.DeviceSettingCommitKind.StoredSecret)
                 {
-                    sp.GetRequiredService<ICredentialStore>().Set(ICredentialStore.KeyFor(device.DeviceId, key), value);
-
                     // The URI/profile is unchanged, so the refetch-on-weather-URI-change path won't
                     // fire; re-fetch here now that the key may have become available.
-                    if (DeviceTypeHelper.TryParseDeviceType(editUri.Scheme) is DeviceType.Weather)
+                    if (commit.IsWeatherSecret)
                     {
                         await FetchWeatherForecastAsync(cts.Token);
                     }
@@ -1380,8 +1337,8 @@ namespace TianWen.UI.Abstractions
                 }
 
                 // Non-secret: keep as a query param on the device URI (existing behaviour).
-                eqState.EditingDeviceUri = DeviceSettingHelper.WithQueryParam(editUri, key, value);
-                if (appState.ActiveProfile is { Data: { } data } && eqState.EditingDeviceUri is { } newUri
+                eqState.EditingDeviceUri = commit.NewUri;
+                if (appState.ActiveProfile is { Data: { } data } && commit.NewUri is { } newUri
                     && eqState.SavedDeviceSettingsUri is { } savedUri)
                 {
                     var newData = EquipmentActions.UpdateDeviceUri(data, savedUri, newUri);
@@ -2035,162 +1992,22 @@ namespace TianWen.UI.Abstractions
                 }
                 var solverFactory = sp.GetRequiredService<IPlateSolverFactory>();
 
-                // Build the capture source. Two paths:
-                //  (a) UseGuider=true  -> wrap the connected IGuider; needs guider camera
-                //                         pixel size + profile-recorded guider focal length.
-                //                         The orchestrator will also stop any in-progress
-                //                         guiding before starting (handled via the guider
-                //                         driver's StopCaptureAsync below).
-                //  (b) UseGuider=false -> wrap the OTA's main camera (default).
-                ICaptureSource source;
-                IGuider? activeGuider = null;
-                if (sig.UseGuider)
+                // Build the capture source (guider or main-camera path) + site; the
+                // device-resolution + capture-source wiring lives in PolarAlignmentActions
+                // so this lambda routes only.
+                var built = PolarAlignmentActions.BuildCaptureSource(
+                    sig, profileData, hub, mount, liveSessionState,
+                    external, sp.GetRequiredService<ICelestialObjectDB>(), _timeProvider, logger);
+                if (built.Error is { } buildError)
                 {
-                    if (!hub.TryGetConnectedDriver<IGuider>(profileData.Guider, out var guider) || guider is null)
-                    {
-                        appState.AppendNotification(_timeProvider.GetUtcNow(),
-                            NotificationSeverity.Warning, "Guider not connected \u2014 connect a guider or untoggle Use Guider");
-                        return;
-                    }
-                    if (profileData.GuiderCamera is not { } guideCamUri
-                        || !hub.TryGetConnectedDriver<ICameraDriver>(guideCamUri, out var guideCam)
-                        || guideCam is null)
-                    {
-                        appState.AppendNotification(_timeProvider.GetUtcNow(),
-                            NotificationSeverity.Warning, "Guider camera not connected \u2014 cannot determine pixel scale");
-                        return;
-                    }
-                    if (profileData.GuiderFocalLength is not { } guiderFlMm || guiderFlMm <= 0)
-                    {
-                        appState.AppendNotification(_timeProvider.GetUtcNow(),
-                            NotificationSeverity.Warning, "Guider focal length not set in profile \u2014 required for plate scale");
-                        return;
-                    }
-
-                    // Aperture isn't strictly recorded for guide scopes; assume f/4 if absent
-                    // (a typical 50mm/200mm-ish mini guider). Used only for ranking heuristics
-                    // and a UI hint string.
-                    var guiderApertureMm = guiderFlMm / 4.0;
-                    var guiderMount = mount;
-                    Func<CancellationToken, ValueTask<(double RaHours, double DecDeg)?>> guiderSearchOrigin = async tok =>
-                    {
-                        var ra = await guiderMount.GetRightAscensionAsync(tok).ConfigureAwait(false);
-                        var dec = await guiderMount.GetDeclinationAsync(tok).ConfigureAwait(false);
-                        return (ra, dec);
-                    };
-                    source = new GuiderCaptureSource(
-                        guider,
-                        displayName: $"Guider \u2014 {guider.Name}",
-                        focalLengthMm: guiderFlMm,
-                        apertureMm: guiderApertureMm,
-                        pixelSizeMicrons: guideCam.PixelSizeX,
-                        external,
-                        logger,
-                        searchOriginAsync: guiderSearchOrigin);
-                    activeGuider = guider;
+                    appState.AppendNotification(_timeProvider.GetUtcNow(),
+                        NotificationSeverity.Warning, buildError);
+                    return;
                 }
-                else
-                {
-                    var otaIndex = sig.OtaIndex >= 0 && sig.OtaIndex < profileData.OTAs.Length
-                        ? sig.OtaIndex
-                        : 0;
-                    var ota = profileData.OTAs[otaIndex];
-                    if (!hub.TryGetConnectedDriver<ICameraDriver>(ota.Camera, out var camera) || camera is null)
-                    {
-                        appState.AppendNotification(_timeProvider.GetUtcNow(),
-                            NotificationSeverity.Warning, $"OTA #{otaIndex + 1} camera not connected");
-                        return;
-                    }
+                var source = built.Source!;
+                var activeGuider = built.ActiveGuider;
 
-                    // Resolve focuser / filter wheel; the capture source's per-frame
-                    // CameraExposureActions.StampDenormAsync call handles all denorm
-                    // (telescope, focal length, aperture, site, focuser, filter, Target,
-                    // catalog DB) -- shared with Session.Imaging and the live preview
-                    // path so the three never drift.
-                    IFocuserDriver? otaFocuser = null;
-                    if (ota.Focuser is { } focuserUri
-                        && hub.TryGetConnectedDriver<IFocuserDriver>(focuserUri, out var focuserDriver))
-                    {
-                        otaFocuser = focuserDriver;
-                    }
-                    IFilterWheelDriver? otaFilterWheel = null;
-                    if (ota.FilterWheel is { } fwUri
-                        && hub.TryGetConnectedDriver<IFilterWheelDriver>(fwUri, out var fwDriver))
-                    {
-                        otaFilterWheel = fwDriver;
-                    }
-
-                    // Publish each captured probe frame into the shared
-                    // LastCapturedImages slot so the live mini viewer renders
-                    // the live frame during the multi-rung ramp -- without
-                    // this the user stares at a black panel for the entire
-                    // 5-30s solve and assumes the routine is hung. The
-                    // callback transfers ownership of the Image to the UI
-                    // (capture source skips Release), so we keep the previous
-                    // slot's image around until it gets replaced; nothing
-                    // else holds a strong reference to it after the next
-                    // assignment, so the buffer pool reclaims naturally.
-                    var publishOtaIndex = otaIndex;
-                    source = new MainCameraCaptureSource(
-                        camera,
-                        displayName: $"OTA #{otaIndex + 1} \u2014 {ota.Name}",
-                        focalLengthMm: ota.FocalLength,
-                        apertureMm: ota.Aperture ?? Math.Max(1, ota.FocalLength / 5),
-                        otaName: ota.Name,
-                        focuser: otaFocuser,
-                        filterWheel: otaFilterWheel,
-                        mount: mount,
-                        targetName: "Polar Align",
-                        catalogDb: sp.GetRequiredService<ICelestialObjectDB>(),
-                        timeProvider: _timeProvider,
-                        imageReadyPollInterval: _external.ImageReadyPollInterval,
-                        logger: logger,
-                        onFrameCaptured: img =>
-                        {
-                            if (publishOtaIndex < liveSessionState.LastCapturedImages.Length)
-                            {
-                                // Release the previous frame before replacing it,
-                                // otherwise its ChannelBuffer ref never drops and the
-                                // camera can't recycle -- a 60MP polar refine at a
-                                // few Hz leaks hundreds of MB / second. The UI render
-                                // thread may briefly read recycled pixels during the
-                                // swap (one frame of flicker, worst case); paying that
-                                // for a bounded heap is the right trade.
-                                liveSessionState.LastCapturedImages[publishOtaIndex]?.Release();
-                                liveSessionState.LastCapturedImages[publishOtaIndex] = img;
-                                liveSessionState.NeedsRedraw = true;
-                            }
-                        },
-                        // Each rotation/probe solve refreshes the preview WCS so
-                        // the mini viewer's grid + WCS-anchored markers track
-                        // the live field as it sweeps past the pole. Failed
-                        // solves still publish (Solution=null) so a stale grid
-                        // doesn't linger on a frame the WCS no longer fits.
-                        onFrameSolved: result =>
-                        {
-                            liveSessionState.PreviewPlateSolveResult = result;
-                            liveSessionState.NeedsRedraw = true;
-                        });
-                }
-
-                // Refraction inputs: a connected weather device supplies the live values, else the
-                // standard atmosphere -- the same two-tier chain the session uses
-                // (SiteConditions.Resolve). PolarAlignmentSite needs concrete numbers, so the
-                // standard tier collapses to SiteConditions.StandardPressureHPa here rather than
-                // the elevation auto-derive used where a Transform is the consumer.
-                IWeatherDriver? weather = null;
-                if (profileData.Weather is { } weatherUri)
-                {
-                    hub.TryGetConnectedDriver<IWeatherDriver>(weatherUri, out weather);
-                }
-                var conditions = SiteConditions.Resolve(weather);
-
-                var site = new PolarAlignmentSite(
-                    LatitudeDeg: lat,
-                    LongitudeDeg: lon,
-                    ElevationM: profileData.SiteElevation ?? 0,
-                    PressureHPa: conditions.PressureHPa,
-                    TemperatureC: conditions.TemperatureCelsius);
+                var site = PolarAlignmentActions.BuildSite(profileData, hub, lat, lon);
 
                 // Setup-panel path supplies the full configuration. Toolbar /
                 // legacy callers leave Configuration null and pin only
@@ -2491,32 +2308,14 @@ namespace TianWen.UI.Abstractions
                     {
                         appState.StatusMessage = "Plate solving\u2026";
                         appState.NeedsRedraw = true;
-                        var solver = sp.GetRequiredService<IPlateSolverFactory>();
 
-                        // Feed the captured frame's pointing into the solver as a search
-                        // origin. The built-in CatalogPlateSolver isn't a blind solver and
-                        // ASTAP converges dramatically faster with a hint -- without one,
-                        // we get the "imageDim=null searchOrigin=null" log and both solvers
-                        // give up on a 9576x6388 frame. The pointing was stamped into
-                        // ImageMeta when the frame was captured (CameraExposureActions
-                        // .StampDenormAsync writes camera.Target before each exposure).
-                        WCS? searchOrigin = !double.IsNaN(image.ImageMeta.TargetRA)
-                                            && !double.IsNaN(image.ImageMeta.TargetDec)
-                            ? new WCS(image.ImageMeta.TargetRA, image.ImageMeta.TargetDec)
-                            : null;
-                        var result = await solver.SolveImageAsync(image, searchOrigin: searchOrigin, cancellationToken: cts.Token);
+                        // Solve orchestration (search-origin derivation + result-to-message
+                        // mapping) lives in LiveSessionActions so this lambda routes only.
+                        var (result, message, solved) = await LiveSessionActions.SolvePreviewFrameAsync(
+                            sp.GetRequiredService<IPlateSolverFactory>(), image, cts.Token);
                         liveSessionState.PreviewPlateSolveResult = result;
-                        if (result.Solution is { } wcs)
-                        {
-                            appState.AppendNotification(_timeProvider.GetUtcNow(),
-                                NotificationSeverity.Info,
-                                $"Solved: RA {wcs.CenterRA:F3}h Dec {wcs.CenterDec:F2}\u00B0");
-                        }
-                        else
-                        {
-                            appState.AppendNotification(_timeProvider.GetUtcNow(),
-                                NotificationSeverity.Warning, "Plate solve failed \u2014 no match");
-                        }
+                        appState.AppendNotification(_timeProvider.GetUtcNow(),
+                            solved ? NotificationSeverity.Info : NotificationSeverity.Warning, message);
                     }
                     catch (Exception ex)
                     {

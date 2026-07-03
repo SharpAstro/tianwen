@@ -147,6 +147,94 @@ public static class EquipmentActions
     public static ProfileData SetSite(ProfileData data, double lat, double lon, double? elevation = null)
         => data with { SiteLatitude = lat, SiteLongitude = lon, SiteElevation = elevation };
 
+    /// <summary>
+    /// Parses + range-validates the three site text-input fields (invariant culture,
+    /// lat -90..90 / lon -180..180; elevation optional). Pure -- extracted from the site
+    /// text-input commit callback so the callback routes only. Returns false (and leaves
+    /// outputs unspecified) when latitude/longitude don't parse or fall out of range.
+    /// </summary>
+    public static bool TryParseSite(string latText, string lonText, string elevText,
+        out double lat, out double lon, out double? elev)
+    {
+        elev = null;
+        if (double.TryParse(latText, CultureInfo.InvariantCulture, out lat)
+            && double.TryParse(lonText, CultureInfo.InvariantCulture, out lon)
+            && lat is >= -90 and <= 90 && lon is >= -180 and <= 180)
+        {
+            elev = double.TryParse(elevText, CultureInfo.InvariantCulture, out var e) ? e : null;
+            return true;
+        }
+        lon = 0;
+        return false;
+    }
+
+    /// <summary>
+    /// Pushes the site to the connected mount hardware when the tie-breaker says the profile
+    /// wins (best-effort: a failed push is logged, not thrown). No-op when the tie-breaker is
+    /// Mount, the hub is null, or no mount is connected. Extracted from the site commit callback.
+    /// </summary>
+    public static async ValueTask PushSiteToMountIfProfileWinsAsync(
+        IDeviceHub? hub, ProfileData siteData, double lat, double lon, double? elev,
+        ILogger logger, CancellationToken cancellationToken)
+    {
+        if (siteData.SiteTieBreaker == SiteTieBreaker.Profile
+            && hub is not null
+            && hub.TryGetConnectedDriver<IMountDriver>(siteData.Mount, out var mount)
+            && mount is not null)
+        {
+            try
+            {
+                await mount.SetSiteLatitudeAsync(lat, cancellationToken);
+                await mount.SetSiteLongitudeAsync(lon, cancellationToken);
+                if (elev is { } elevForPush)
+                {
+                    await mount.SetSiteElevationAsync(elevForPush, cancellationToken);
+                }
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "Failed to push site to connected mount.");
+            }
+        }
+    }
+
+    /// <summary>Whether a committed device setting was stored as a secret or must be applied to the URI.</summary>
+    public enum DeviceSettingCommitKind
+    {
+        /// <summary>A masked setting (e.g. an API key) was written to the credential store; the URI is unchanged.</summary>
+        StoredSecret,
+        /// <summary>A non-secret setting; <see cref="DeviceSettingCommitResult.NewUri"/> carries the updated device URI.</summary>
+        UriParam
+    }
+
+    /// <summary>Outcome of <see cref="CommitDeviceSetting"/>.</summary>
+    public readonly record struct DeviceSettingCommitResult(
+        DeviceSettingCommitKind Kind, Uri? NewUri, bool IsWeatherSecret);
+
+    /// <summary>
+    /// Commits a device string setting. A masked setting (a secret, e.g. an API key) is
+    /// persisted to the OS credential store keyed by device -- NEVER onto the device URI /
+    /// profile JSON, which would leak it into plaintext config AND lose it when the URI is
+    /// replaced on a provider switch; the credential key derives from the device id so it stays
+    /// stable across URI changes and shared across profiles. A non-secret setting is returned as
+    /// a new URI with the value as a query param. Extracted from the string-setting commit
+    /// callback so the callback routes only (it applies the returned URI / re-fetches weather).
+    /// </summary>
+    public static DeviceSettingCommitResult CommitDeviceSetting(
+        Uri editUri, string key, string value, ICredentialStore credentialStore)
+    {
+        var device = TryDeviceFromUri(editUri);
+        if (device is not null && device.Settings.Any(s => s.Key == key && s.Mask))
+        {
+            credentialStore.Set(ICredentialStore.KeyFor(device.DeviceId, key), value);
+            var isWeather = DeviceTypeHelper.TryParseDeviceType(editUri.Scheme) is DeviceType.Weather;
+            return new DeviceSettingCommitResult(DeviceSettingCommitKind.StoredSecret, null, isWeather);
+        }
+
+        var newUri = DeviceSettingHelper.WithQueryParam(editUri, key, value);
+        return new DeviceSettingCommitResult(DeviceSettingCommitKind.UriParam, newUri, false);
+    }
+
     public static ProfileData SetSiteTieBreaker(ProfileData data, SiteTieBreaker tieBreaker)
         => data with { SiteTieBreaker = tieBreaker };
 

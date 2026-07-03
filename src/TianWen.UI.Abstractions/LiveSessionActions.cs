@@ -6,6 +6,8 @@ using System.Threading;
 using System.Threading.Tasks;
 using DIR.Lib;
 using Microsoft.Extensions.Logging;
+using TianWen.Lib.Astrometry;
+using TianWen.Lib.Astrometry.PlateSolve;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Extensions;
 using TianWen.Lib.Imaging;
@@ -286,6 +288,30 @@ namespace TianWen.UI.Abstractions
             }
 
             return await camera.GetImageAsync(ct);
+        }
+
+        /// <summary>
+        /// Plate-solves a captured preview frame. Feeds the frame's stamped pointing
+        /// (<see cref="ImageMeta.TargetRA"/>/<c>TargetDec</c>, written by
+        /// <c>CameraExposureActions.StampDenormAsync</c> before each exposure) in as a search
+        /// origin -- the built-in <c>CatalogPlateSolver</c> isn't a blind solver and ASTAP
+        /// converges dramatically faster with a hint. Returns the solve result plus a
+        /// user-facing message + a solved flag for the notification feed. Extracted from the
+        /// PlateSolvePreviewSignal handler so the lambda routes only.
+        /// </summary>
+        public static async Task<(PlateSolveResult Result, string Message, bool Solved)> SolvePreviewFrameAsync(
+            IPlateSolverFactory solver, Image image, CancellationToken ct)
+        {
+            WCS? searchOrigin = !double.IsNaN(image.ImageMeta.TargetRA)
+                                && !double.IsNaN(image.ImageMeta.TargetDec)
+                ? new WCS(image.ImageMeta.TargetRA, image.ImageMeta.TargetDec)
+                : null;
+            var result = await solver.SolveImageAsync(image, searchOrigin: searchOrigin, cancellationToken: ct);
+            if (result.Solution is { } wcs)
+            {
+                return (result, $"Solved: RA {wcs.CenterRA:F3}h Dec {wcs.CenterDec:F2}\u00B0", true);
+            }
+            return (result, "Plate solve failed \u2014 no match", false);
         }
 
         /// <summary>
