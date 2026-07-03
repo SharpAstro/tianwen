@@ -29,6 +29,7 @@ Part of the TianWen TODO set. See [TODO.md](../../TODO.md) for the index and the
     - [x] `SkyMapSlewToObjectSignal` — largely already routing (two `MountActions` calls); the two-click Sun-slew confirmation state machine → testable `GuiAppState.GateSunSlew`.
     - [x] TextInput commit callbacks — `saveSite` parse/validate → `EquipmentActions.TryParseSite`, mount push → `EquipmentActions.PushSiteToMountIfProfileWinsAsync`; `StringSettingInput.OnCommit` masked-secret/URI decision → `EquipmentActions.CommitDeviceSetting`. (`ProfileName`/`GuiderFL`/`saveOta` left as-is: already thin — single helper call or single-field set + save.)
   - Pinned by `RouteOnlyExtractionTests` (`TryParseSite`, `CommitDeviceSetting`, `GateSunSlew`).
+- [ ] **Signal-handler boilerplate reduction** -- the 42 now-thin handlers still hand-roll three idioms ~72/72/16 times (notify+redraw, guard ladders, tracked-run error scaffolding), ~850-900 lines total. Plan with measured counts, tiered helpers (`Notify` / `TryRequire*` / `RunTracked`), and explicit non-goals (no DSL / MediatR / source-gen): [docs/plans/signal-handler-boilerplate.md](../plans/signal-handler-boilerplate.md).
 - [ ] **OnStep follow-ups** (leftover from the OnStep commit series):
   - [ ] MoveAxis via `:Mn/:Ms/:Me/:Mw#` + `:Qe/Qw/Qn/Qs#` + `:RA/:RE` rates — enables direct jog buttons in GUI
   - [ ] Per-axis guide-rate setter via `:Rn#` (index 0–9) + `:GX90#` query — enables `CanSetGuideRates = true` on the OnStep override
