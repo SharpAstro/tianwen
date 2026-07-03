@@ -1,75 +1,37 @@
-using System;
-using System.Collections;
-using System.Collections.Generic;
+using System.Collections.Immutable;
 
 namespace TianWen.Lib.Sequencing;
 
 /// <summary>
-/// Thread-safe fixed-capacity circular buffer. When full, new items overwrite the oldest.
-/// Implements <see cref="IReadOnlyList{T}"/> for snapshot reads (index 0 = oldest).
+/// Lock-free fixed-capacity ring of the most recent <paramref name="capacity"/> items
+/// (index 0 = oldest). Backed by an <see cref="ImmutableArray{T}"/> that is atomically
+/// replaced on <see cref="Add"/> -- the shared-state pattern from CLAUDE.md -- so readers
+/// take a torn-free snapshot with a single reference read instead of a lock-and-copy per
+/// poll. Append pays the O(capacity) copy, which suits the low-rate producers this backs
+/// (one guide sample per guide exposure, one frame metric per sub-exposure) polled by
+/// high-rate readers (the GUI render thread reads <c>Session.GuideSamples</c> every frame).
 /// </summary>
-internal sealed class CircularBuffer<T>(int capacity) : IReadOnlyList<T>
+internal sealed class CircularBuffer<T>(int capacity)
 {
-    private readonly T[] _buffer = new T[capacity];
-    private readonly object _lock = new object();
-    private int _head; // next write position
-    private int _count;
+    private ImmutableArray<T> _items = [];
 
-    public int Count
-    {
-        get { lock (_lock) return _count; }
-    }
+    /// <summary>Torn-free snapshot of the current window, oldest first.</summary>
+    public ImmutableArray<T> Snapshot => _items;
 
-    public T this[int index]
-    {
-        get
-        {
-            lock (_lock)
-            {
-                if (index < 0 || index >= _count)
-                {
-                    throw new ArgumentOutOfRangeException(nameof(index));
-                }
-                // oldest item is at (_head - _count + capacity) % capacity
-                var actualIndex = (_head - _count + index + capacity) % capacity;
-                return _buffer[actualIndex];
-            }
-        }
-    }
+    public int Count => _items.Length;
 
     public void Add(T item)
     {
-        lock (_lock)
+        // CAS loop: each instance has a single logical writer today, but this keeps a
+        // second writer from silently losing an append should that ever change.
+        ImmutableArray<T> current, next;
+        do
         {
-            _buffer[_head] = item;
-            _head = (_head + 1) % capacity;
-            if (_count < capacity)
-            {
-                _count++;
-            }
+            current = _items;
+            next = current.Length < capacity ? current.Add(item) : current.RemoveAt(0).Add(item);
         }
+        while (ImmutableInterlocked.InterlockedCompareExchange(ref _items, next, current) != current);
     }
 
-    public List<T> ToList()
-    {
-        lock (_lock)
-        {
-            var list = new List<T>(_count);
-            for (var i = 0; i < _count; i++)
-            {
-                var actualIndex = (_head - _count + i + capacity) % capacity;
-                list.Add(_buffer[actualIndex]);
-            }
-            return list;
-        }
-    }
-
-    public IEnumerator<T> GetEnumerator()
-    {
-        // Snapshot to avoid holding lock during enumeration
-        var snapshot = ToList();
-        return snapshot.GetEnumerator();
-    }
-
-    IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
+    public void Clear() => _items = [];
 }

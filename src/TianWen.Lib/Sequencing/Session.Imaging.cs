@@ -306,11 +306,7 @@ internal partial record Session
         if (_lastFrameMetrics.Length != scopes)
         {
             _lastFrameMetrics = new FrameMetrics[scopes];
-            _frameMetricsHistory = new CircularBuffer<FrameMetrics>[scopes];
-            for (var j = 0; j < scopes; j++)
-            {
-                _frameMetricsHistory[j] = new CircularBuffer<FrameMetrics>(30);
-            }
+            _frameMetricsHistory = CreateFrameMetricsHistory(scopes);
         }
         var frameNumbers = new int[scopes];
 
@@ -866,38 +862,12 @@ internal partial record Session
                             continue;
                         }
 
-                        // Trend-based drift detection: use linear regression over last N frames
-                        // instead of single-frame comparison (reduces false triggers from noisy frames)
-                        var history = _frameMetricsHistory[i];
-                        var trendHfd = currentMetrics.MedianHfd;
-
-                        if (history.Count >= 5) // need at least 5 samples for a meaningful trend
-                        {
-                            // Simple linear regression: y = slope*x + intercept over frame indices
-                            var n = history.Count;
-                            double sumX = 0, sumY = 0, sumXY = 0, sumX2 = 0;
-                            for (var k = 0; k < n; k++)
-                            {
-                                var sample = history[k];
-                                if (sample.StarCount <= 3 || !sample.IsComparableTo(currentBaselines[i]))
-                                {
-                                    continue;
-                                }
-                                sumX += k;
-                                sumY += sample.MedianHfd;
-                                sumXY += k * sample.MedianHfd;
-                                sumX2 += k * k;
-                            }
-
-                            var denom = n * sumX2 - sumX * sumX;
-                            if (denom > 0)
-                            {
-                                var slope = (n * sumXY - sumX * sumY) / denom;
-                                var intercept = (sumY - slope * sumX) / n;
-                                // Project trend HFD at the latest point
-                                trendHfd = (float)(slope * (n - 1) + intercept);
-                            }
-                        }
+                        // Trend-based drift detection: least-squares fit over the recent comparable
+                        // frames (FocusDriftDetector) instead of a single-frame comparison, so one
+                        // bloated frame (wind, passing haze) does not trigger a spurious refocus.
+                        var trendHfd = FocusDriftDetector.EstimateTrendHfd(
+                            _frameMetricsHistory[i].Snapshot.AsSpan(), currentBaselines[i],
+                            fallbackHfd: currentMetrics.MedianHfd, Configuration.FocusDriftMinSamples);
 
                         var ratio = trendHfd / currentBaselines[i].MedianHfd;
 
@@ -905,6 +875,11 @@ internal partial record Session
                         {
                             _logger.LogWarning("Focus drift detected on telescope #{TelescopeNumber}: trend HFD={TrendHFD:F2} (current={CurrentHFD:F2}) vs baseline={BaselineHFD:F2} (ratio={Ratio:F2}), triggering auto-refocus.",
                                 i + 1, trendHfd, currentMetrics.MedianHfd, currentBaselines[i].MedianHfd, ratio);
+
+                            // The focuser is about to move: pre-refocus samples no longer describe
+                            // the new focus position, and a stale high-HFD window fitted against the
+                            // fresh baseline would re-trigger immediately (refocus oscillation).
+                            _frameMetricsHistory[i].Clear();
 
                             // Write pending images before refocusing
                             await WriteQueuedImagesToFitsFilesAsync();
