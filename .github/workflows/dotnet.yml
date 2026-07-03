@@ -280,6 +280,16 @@ jobs:
 
     runs-on: ${{ matrix.os }}
     steps:
+    # Defender real-time scanning in-lines every file write; on the compile-heavy
+    # AOT publish legs (ILC + MSVC link churn thousands of objects) that made the
+    # two Windows legs the slowest in the matrix (~6.5-7 min vs ~4-5 min Linux on
+    # identical work) -- and the release job gates on the whole matrix, so the
+    # Windows legs ARE the release wall time. Excluding the workspace + temp +
+    # NuGet cache BEFORE checkout lands any files is the cheap, well-known fix.
+    - name: Exclude work dirs from Defender (Windows CI speedup)
+      if: runner.os == 'Windows'
+      shell: pwsh
+      run: Add-MpPreference -ExclusionPath "$env:GITHUB_WORKSPACE", "$env:RUNNER_TEMP", "$env:USERPROFILE\.nuget"
     - uses: actions/checkout@v6
       with:
         submodules: recursive
