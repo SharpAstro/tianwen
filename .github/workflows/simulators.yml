@@ -6,9 +6,15 @@ name: Device Simulators (on-demand)
 #     previously unverified against a live server).
 #   - ascom-sim: the native ASCOM Platform + COM simulators on Windows -- validates the COM
 #     interop seam (Windows-only, so it cannot live in the Linux PR test matrix).
-# Deliberately workflow_dispatch only (like publish-apps/release): provisioning a simulator per
+# Deliberately kept off the push/PR path (like publish-apps/release): provisioning a simulator per
 # run -- an OmniSim download, or a full ASCOM Platform install -- is too heavy for every push.
-# Trigger: gh workflow run simulators.yml [-f suite=alpaca|ascom|both]
+# Two entry points:
+#   - workflow_dispatch: run either or both suites on demand.
+#       gh workflow run simulators.yml [-f suite=alpaca|ascom|both]
+#   - schedule (weekly): runs the ALPACA leg only, so the Alpaca drivers stay honest without anyone
+#     remembering to dispatch (it caught two real driver bugs on its first run). The Windows ASCOM
+#     leg stays dispatch-only -- a full Platform install every week is not worth the cost for a seam
+#     the Alpaca run already covers semantically.
 on:
   workflow_dispatch:
     inputs:
@@ -17,6 +23,9 @@ on:
         type: choice
         options: [both, alpaca, ascom]
         default: both
+  schedule:
+    # Mondays 06:00 UTC. Alpaca-only regression guard (see the ascom-sim `if`).
+    - cron: '0 6 * * 1'
 
 env:
   BUILD_CONF: Release
@@ -58,7 +67,8 @@ jobs:
 
   alpaca-sim:
     needs: catalogs
-    if: ${{ github.event.inputs.suite == 'both' || github.event.inputs.suite == 'alpaca' }}
+    # Runs on the weekly schedule (inputs.suite is empty there) and on a dispatch selecting alpaca/both.
+    if: ${{ github.event_name == 'schedule' || github.event.inputs.suite == 'both' || github.event.inputs.suite == 'alpaca' }}
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v6
@@ -149,18 +159,41 @@ jobs:
     - name: Refresh preprocessed catalog mtimes
       shell: pwsh
       run: Get-ChildItem src/TianWen.Lib/Astrometry/Catalogs/ -Filter *.gs.gz | ForEach-Object { $_.LastWriteTime = Get-Date }
-    # Silent-install the ASCOM Platform (Inno Setup). This registers the ASCOM.Simulator.* COM
-    # drivers the tests instantiate. GitHub Windows runners run elevated, so no UAC prompt.
+    # The ASCOM Platform installer REQUIRES .NET Framework 3.5, but windows-latest enables only 4.x.
+    # Under /VERYSILENT the installer's "activate .NET 3.5" prompt is suppressed with nothing to answer
+    # it, so it hangs forever (it ate a whole runner before we caught it). Enable the feature up front;
+    # this is idempotent and the payload is present on the runner image.
+    - name: Enable .NET Framework 3.5 (ASCOM Platform prerequisite)
+      shell: pwsh
+      run: |
+        Write-Host "Enabling NetFx3..."
+        Enable-WindowsOptionalFeature -Online -FeatureName NetFx3 -All -NoRestart | Out-Null
+        "NetFx3 state: " + (Get-WindowsOptionalFeature -Online -FeatureName NetFx3).State
+    # Install the ASCOM Platform (Inno Setup) UNATTENDED (no human), but not muted: /SILENT (shows a
+    # progress window, no wizard pages) + /LOG keeps full diagnostics, vs /VERYSILENT which hid the
+    # failure above. /SUPPRESSMSGBOXES + /NORESTART are what make it non-interactive. timeout-minutes
+    # caps a future hang at 15 min instead of the 6h job default. Registers the ASCOM.Simulator.* COM
+    # drivers the tests instantiate; GitHub runners are elevated, so no UAC prompt.
     - name: Install ASCOM Platform
+      timeout-minutes: 15
       shell: pwsh
       run: |
         $url = "https://github.com/ASCOMInitiative/ASCOMPlatform/releases/download/$env:ASCOM_PLATFORM_TAG/$env:ASCOM_PLATFORM_INSTALLER"
         Write-Host "Downloading $url"
         Invoke-WebRequest -Uri $url -OutFile ascom-platform.exe
-        Write-Host "Installing silently"
-        $p = Start-Process -FilePath .\ascom-platform.exe -ArgumentList '/SP-','/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART' -Wait -PassThru
+        Write-Host "Installing (unattended: /SILENT + /LOG)"
+        $log = "$env:GITHUB_WORKSPACE\ascom-install.log"
+        $p = Start-Process -FilePath .\ascom-platform.exe -ArgumentList '/SP-','/SILENT','/SUPPRESSMSGBOXES','/NORESTART',"/LOG=$log" -Wait -PassThru
         Write-Host "Installer exit code: $($p.ExitCode)"
         if ($p.ExitCode -ne 0) { exit $p.ExitCode }
+    - name: Upload ASCOM install log
+      if: always()
+      uses: actions/upload-artifact@v7
+      with:
+        name: ascom-install-log
+        path: ascom-install.log
+        if-no-files-found: ignore
+        retention-days: 7
     - name: Restore
       run: dotnet restore $env:TEST_PROJECT
       working-directory: src
