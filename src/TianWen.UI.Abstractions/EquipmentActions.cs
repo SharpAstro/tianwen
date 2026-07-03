@@ -344,6 +344,25 @@ public static class EquipmentActions
     }
 
     /// <summary>
+    /// Applies a discovered device to the slot described by <paramref name="target"/> --
+    /// the single dispatch for profile-level fields (mount / guider / guider camera /
+    /// guider focuser / weather) and per-OTA slots. Pure transformation; unknown targets
+    /// return <paramref name="data"/> unchanged. Extracted from AssignDeviceSignal so the
+    /// handler routes only.
+    /// </summary>
+    public static ProfileData ApplyAssignment(ProfileData data, AssignTarget target, DeviceType deviceType, Uri deviceUri)
+        => target switch
+        {
+            AssignTarget.ProfileLevel { Field: "Mount" } => AssignMount(data, deviceUri),
+            AssignTarget.ProfileLevel { Field: "Guider" } => AssignGuider(data, deviceUri),
+            AssignTarget.ProfileLevel { Field: "GuiderCamera" } => AssignGuiderCamera(data, deviceUri),
+            AssignTarget.ProfileLevel { Field: "GuiderFocuser" } => AssignGuiderFocuser(data, deviceUri),
+            AssignTarget.ProfileLevel { Field: "Weather" } => AssignWeather(data, deviceUri),
+            AssignTarget.OTALevel otaTarget => AssignDeviceToOTA(data, otaTarget.OtaIndex, deviceType, deviceUri),
+            _ => data
+        };
+
+    /// <summary>
     /// Checks if a device URI is assigned anywhere in the profile.
     /// </summary>
     public static bool IsDeviceAssigned(ProfileData data, Uri deviceUri)
@@ -646,6 +665,129 @@ public static class EquipmentActions
             (true, false)  => DisconnectSafety.Busy,
             (true, true)   => DisconnectSafety.BusyAndCool
         };
+    }
+
+    /// <summary>Result of <see cref="AutoDisconnectOrphanAsync"/>.</summary>
+    public enum OrphanDisconnectOutcome
+    {
+        /// <summary>No orphan to handle: no previous URI, same device re-assigned, or not connected.</summary>
+        NotApplicable,
+        /// <summary>Orphan was safe and has been disconnected.</summary>
+        Disconnected,
+        /// <summary>Disconnect threw (already logged); the orphan may still be connected.</summary>
+        DisconnectFailed,
+        /// <summary>Orphan is cool/busy -- left connected so the warm-up ramp can run under user control.</summary>
+        LeftConnected
+    }
+
+    /// <summary>
+    /// After a slot re-assignment, disconnects the previously-assigned device iff it is
+    /// still connected and safe (cooler off, idle). Cool/busy orphans are left connected
+    /// (never yank a cold camera silently). Extracted from AssignDeviceSignal so the
+    /// handler routes only; the caller maps the outcome to notifications.
+    /// </summary>
+    public static async ValueTask<(OrphanDisconnectOutcome Outcome, DisconnectSafety Safety)> AutoDisconnectOrphanAsync(
+        IDeviceHub hub, Uri? prevSlotUri, Uri newUri, ILogger logger, CancellationToken cancellationToken)
+    {
+        if (prevSlotUri is null
+            || DeviceBase.SameDevice(prevSlotUri, newUri)
+            || !hub.IsConnected(prevSlotUri))
+        {
+            return (OrphanDisconnectOutcome.NotApplicable, DisconnectSafety.Safe);
+        }
+
+        var safety = await GetDisconnectSafetyAsync(hub, prevSlotUri, cancellationToken);
+        if (safety != DisconnectSafety.Safe)
+        {
+            return (OrphanDisconnectOutcome.LeftConnected, safety);
+        }
+
+        try
+        {
+            await hub.DisconnectAsync(prevSlotUri, cancellationToken);
+            return (OrphanDisconnectOutcome.Disconnected, safety);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Auto-disconnect of orphan {Uri} failed", prevSlotUri);
+            return (OrphanDisconnectOutcome.DisconnectFailed, safety);
+        }
+    }
+
+    /// <summary>
+    /// Sets the cooler setpoint and switches the cooler on (when supported). The
+    /// immediate counterpart to the ramped <see cref="WarmAndCoolerOffAsync"/>.
+    /// Extracted from SetCoolerSetpointSignal so the handler routes only.
+    /// </summary>
+    public static async ValueTask SetCoolerSetpointAsync(ICameraDriver camera, double setpointC, CancellationToken cancellationToken)
+    {
+        await camera.SetSetCCDTemperatureAsync(setpointC, cancellationToken);
+        if (camera.CanSetCoolerOn)
+        {
+            await camera.SetCoolerOnAsync(true, cancellationToken);
+        }
+    }
+
+    /// <summary>
+    /// Switches the cooler off immediately, no warm-up ramp (see
+    /// <see cref="WarmAndCoolerOffAsync"/> for the condensation-safe ramped path).
+    /// Extracted from SetCoolerOffSignal so the handler routes only.
+    /// </summary>
+    public static async ValueTask SetCoolerOffAsync(ICameraDriver camera, CancellationToken cancellationToken)
+    {
+        if (camera.CanSetCoolerOn)
+        {
+            await camera.SetCoolerOnAsync(false, cancellationToken);
+        }
+    }
+
+    /// <summary>
+    /// Resolves the device instance for a connect request: prefers the hub-registered
+    /// device (carries query-param config), falling back to a freshly-discovered match
+    /// by URI equality. Extracted from ConnectDeviceSignal so the handler routes only.
+    /// </summary>
+    public static DeviceBase? ResolveDeviceForConnect(IDeviceHub hub, IReadOnlyList<DeviceBase> discoveredDevices, Uri uri)
+    {
+        if (hub.TryGetDeviceFromUri(uri, out var resolved))
+        {
+            return resolved;
+        }
+        foreach (var d in discoveredDevices)
+        {
+            if (DeviceBase.SameDevice(d.DeviceUri, uri))
+            {
+                return d;
+            }
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// Resolves the connected optional drivers around an OTA's camera for per-capture
+    /// FITS denorm stamping: the OTA's focuser and filter wheel plus the profile mount
+    /// (each null when unassigned or not connected). Extracted from TakePreviewSignal
+    /// so the handler routes only.
+    /// </summary>
+    public static (IFocuserDriver? Focuser, IFilterWheelDriver? FilterWheel, IMountDriver? Mount) ResolveOtaCaptureDevices(
+        IDeviceHub hub, ProfileData data, int otaIndex)
+    {
+        var ota = data.OTAs[otaIndex];
+        IFocuserDriver? focuser = null;
+        if (ota.Focuser is { } focUri && hub.TryGetConnectedDriver<IFocuserDriver>(focUri, out var focDrv))
+        {
+            focuser = focDrv;
+        }
+        IFilterWheelDriver? filterWheel = null;
+        if (ota.FilterWheel is { } fwUri && hub.TryGetConnectedDriver<IFilterWheelDriver>(fwUri, out var fwDrv))
+        {
+            filterWheel = fwDrv;
+        }
+        IMountDriver? mount = null;
+        if (data.Mount is { } mountUri && hub.TryGetConnectedDriver<IMountDriver>(mountUri, out var mountDrv))
+        {
+            mount = mountDrv;
+        }
+        return (focuser, filterWheel, mount);
     }
 
     /// <summary>
