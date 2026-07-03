@@ -19,6 +19,9 @@ internal class AlpacaCameraDriver(AlpacaDevice device, IServiceProvider serviceP
     private double _fullWellCapacity, _electronsPerADU, _exposureResolution;
     private SensorType _sensorType;
     private int _bayerOffsetX, _bayerOffsetY;
+    private string[] _gains = [];
+    private string[] _offsets = [];
+    private string[] _readoutModes = [];
 
     // Write-through cached properties (set locally, PUT async on write)
     private int _binX = 1, _binY = 1;
@@ -29,6 +32,7 @@ internal class AlpacaCameraDriver(AlpacaDevice device, IServiceProvider serviceP
     private bool _fastReadout;
     private bool _coolerOn;
     private double _setCCDTemperature;
+    private TimeSpan? _lastExposureDuration;
 
     protected override async ValueTask<bool> InitDeviceAsync(CancellationToken cancellationToken)
     {
@@ -112,9 +116,12 @@ internal class AlpacaCameraDriver(AlpacaDevice device, IServiceProvider serviceP
             {
                 try
                 {
-                    await Client.GetIntAsync(BaseUrl, AlpacaDeviceType, AlpacaDeviceNumber, "offset", cancellationToken);
-                    await Client.GetStringAsync(BaseUrl, AlpacaDeviceType, AlpacaDeviceNumber, "offsets", cancellationToken);
-                    UsesOffsetMode = true;
+                    // Offset-mode camera: "offset" is an index into the "offsets" string list. Read
+                    // the list (an ARRAY endpoint -- GetStringAsync would mis-deserialize) so Offsets
+                    // is populated and GetOffsetModeAsync can resolve the current index to a name.
+                    _offsets = await Client.GetStringArrayAsync(BaseUrl, AlpacaDeviceType, AlpacaDeviceNumber, "offsets", cancellationToken) ?? [];
+                    _offset = await Client.GetIntAsync(BaseUrl, AlpacaDeviceType, AlpacaDeviceNumber, "offset", cancellationToken);
+                    UsesOffsetMode = _offsets.Length > 0;
                 }
                 catch
                 {
@@ -141,14 +148,28 @@ internal class AlpacaCameraDriver(AlpacaDevice device, IServiceProvider serviceP
         {
             try
             {
-                await Client.GetIntAsync(BaseUrl, AlpacaDeviceType, AlpacaDeviceNumber, "gain", cancellationToken);
-                await Client.GetStringAsync(BaseUrl, AlpacaDeviceType, AlpacaDeviceNumber, "gains", cancellationToken);
-                UsesGainMode = true;
+                // Gain-mode camera: "gain" is an index into the "gains" string list. Read the list
+                // (an ARRAY endpoint -- GetStringAsync would mis-deserialize) so Gains is populated
+                // and GetGainModeAsync can resolve the current index to a name.
+                _gains = await Client.GetStringArrayAsync(BaseUrl, AlpacaDeviceType, AlpacaDeviceNumber, "gains", cancellationToken) ?? [];
+                _gain = (short)await Client.GetIntAsync(BaseUrl, AlpacaDeviceType, AlpacaDeviceNumber, "gain", cancellationToken);
+                UsesGainMode = _gains.Length > 0;
             }
             catch
             {
                 UsesGainMode = false;
             }
+        }
+
+        // Readout modes (ICameraV2+). Always available in principle, but gate defensively: a driver
+        // that throws PropertyNotImplemented here must not fail connect (the mono-BayerOffset lesson).
+        try
+        {
+            _readoutModes = await Client.GetStringArrayAsync(BaseUrl, AlpacaDeviceType, AlpacaDeviceNumber, "readoutmodes", cancellationToken) ?? [];
+        }
+        catch
+        {
+            _readoutModes = [];
         }
 
         return true;
@@ -246,7 +267,7 @@ internal class AlpacaCameraDriver(AlpacaDevice device, IServiceProvider serviceP
 
     public int OffsetMin { get; private set; }
     public int OffsetMax { get; private set; }
-    public IReadOnlyList<string> Offsets => []; // TODO: parse string[] from Alpaca
+    public IReadOnlyList<string> Offsets => _offsets;
 
     public ValueTask<short> GetGainAsync(CancellationToken cancellationToken = default)
         => ValueTask.FromResult(_gain);
@@ -259,9 +280,7 @@ internal class AlpacaCameraDriver(AlpacaDevice device, IServiceProvider serviceP
 
     public short GainMin { get; private set; }
     public short GainMax { get; private set; }
-    public IReadOnlyList<string> Gains => []; // TODO: parse string[] from Alpaca
-
-    private string? _readoutMode;
+    public IReadOnlyList<string> Gains => _gains;
 
     public ValueTask<bool> GetFastReadoutAsync(CancellationToken cancellationToken = default)
         => ValueTask.FromResult(_fastReadout);
@@ -272,13 +291,22 @@ internal class AlpacaCameraDriver(AlpacaDevice device, IServiceProvider serviceP
         _fastReadout = value;
     }
 
-    public ValueTask<string?> GetReadoutModeAsync(CancellationToken cancellationToken = default)
-        => ValueTask.FromResult(_readoutMode);
-
-    public ValueTask SetReadoutModeAsync(string? value, CancellationToken cancellationToken = default)
+    // "readoutmode" is a server-side index into the "readoutmodes" list (cached at init); map it to
+    // a name on read and back to an index on write, so the mode actually round-trips to the device
+    // instead of living in a local field (the previous stub never talked to the server).
+    public async ValueTask<string?> GetReadoutModeAsync(CancellationToken cancellationToken = default)
     {
-        _readoutMode = value;
-        return ValueTask.CompletedTask;
+        if (_readoutModes.Length == 0) return null;
+        var idx = await Client.GetIntAsync(BaseUrl, AlpacaDeviceType, AlpacaDeviceNumber, "readoutmode", cancellationToken);
+        return idx >= 0 && idx < _readoutModes.Length ? _readoutModes[idx] : null;
+    }
+
+    public async ValueTask SetReadoutModeAsync(string? value, CancellationToken cancellationToken = default)
+    {
+        if (value is null) return;
+        var idx = Array.IndexOf(_readoutModes, value);
+        if (idx < 0) return;
+        await PutPropertyAsync("readoutmode", "ReadoutMode", idx);
     }
 
     // Frame downloaded + decoded once when the server first reports the image ready
@@ -299,7 +327,10 @@ internal class AlpacaCameraDriver(AlpacaDevice device, IServiceProvider serviceP
 
     public DateTimeOffset? LastExposureStartTime { get; private set; }
 
-    public TimeSpan? LastExposureDuration => null; // TODO: requires async call to lastexposureduration
+    // Baseline = the requested duration (recorded at StartExposureAsync); refined to the server's
+    // actual "lastexposureduration" once the frame is ready (see GetImageReadyAsync). Was null,
+    // which zeroed the FITS EXPTIME on every Alpaca frame.
+    public TimeSpan? LastExposureDuration => _lastExposureDuration;
 
     public FrameType LastExposureFrameType { get; internal set; }
 
@@ -329,6 +360,18 @@ internal class AlpacaCameraDriver(AlpacaDevice device, IServiceProvider serviceP
             var channel = AlpacaImageBytes.DecodeChannel(bytes);
             _channelBuffer = new Imaging.ChannelBuffer(channel.Data, onRelease: static _ => { });
             _imageData = channel;
+
+            // Refine the exposure duration to the server-reported actual (valid once the exposure
+            // completes); keep the requested-duration baseline if the read is unsupported/fails.
+            try
+            {
+                var actualSec = await Client.GetDoubleAsync(BaseUrl, AlpacaDeviceType, AlpacaDeviceNumber, "lastexposureduration", cancellationToken);
+                if (actualSec > 0) _lastExposureDuration = TimeSpan.FromSeconds(actualSec);
+            }
+            catch
+            {
+                // keep baseline
+            }
         }
 
         return ready;
@@ -375,6 +418,8 @@ internal class AlpacaCameraDriver(AlpacaDevice device, IServiceProvider serviceP
         // Drop any previous frame so GetImageReadyAsync re-downloads when this one is ready.
         _imageData = null;
         _channelBuffer = null;
+        // Baseline the exposure duration to the request; GetImageReadyAsync refines it to the actual.
+        _lastExposureDuration = duration;
 
         await PutMethodAsync("startexposure",
         [
