@@ -66,8 +66,16 @@ internal class AlpacaCameraDriver(AlpacaDevice device, IServiceProvider serviceP
         _electronsPerADU = await Client.GetDoubleAsync(BaseUrl, AlpacaDeviceType, AlpacaDeviceNumber, "electronsperadu", cancellationToken);
         _exposureResolution = await Client.GetDoubleAsync(BaseUrl, AlpacaDeviceType, AlpacaDeviceNumber, "exposureresolution", cancellationToken);
         _sensorType = (SensorType)await Client.GetIntAsync(BaseUrl, AlpacaDeviceType, AlpacaDeviceNumber, "sensortype", cancellationToken);
-        _bayerOffsetX = await Client.GetIntAsync(BaseUrl, AlpacaDeviceType, AlpacaDeviceNumber, "bayeroffsetx", cancellationToken);
-        _bayerOffsetY = await Client.GetIntAsync(BaseUrl, AlpacaDeviceType, AlpacaDeviceNumber, "bayeroffsety", cancellationToken);
+
+        // BayerOffsetX/Y exist only for Bayer-matrix sensors; monochrome and direct-colour sensors
+        // throw PropertyNotImplemented per the ASCOM ICameraV3 spec (an unconditional read here
+        // failed connect against a mono Alpaca camera), so read them only when applicable. The
+        // fields default to 0.
+        if (_sensorType is not SensorType.Monochrome and not SensorType.Color)
+        {
+            _bayerOffsetX = await Client.GetIntAsync(BaseUrl, AlpacaDeviceType, AlpacaDeviceNumber, "bayeroffsetx", cancellationToken);
+            _bayerOffsetY = await Client.GetIntAsync(BaseUrl, AlpacaDeviceType, AlpacaDeviceNumber, "bayeroffsety", cancellationToken);
+        }
 
         // Cache initial write-through values
         _binX = await Client.GetIntAsync(BaseUrl, AlpacaDeviceType, AlpacaDeviceNumber, "binx", cancellationToken);
