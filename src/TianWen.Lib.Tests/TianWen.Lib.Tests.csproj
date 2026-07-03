@@ -84,6 +84,7 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="TianWen.Lib.Tests.Functional" />
+    <InternalsVisibleTo Include="TianWen.Lib.Tests.Simulators" />
   </ItemGroup>
 
 </Project>

@@ -2,7 +2,6 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Shouldly;
 using System;
-using System.Diagnostics;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Threading;
@@ -11,8 +10,15 @@ using TianWen.Lib.Devices;
 using TianWen.Lib.Devices.Ascom;
 using Xunit;
 
-namespace TianWen.Lib.Tests.Functional;
+namespace TianWen.Lib.Tests.Simulators;
 
+/// <summary>
+/// Native ASCOM (COM) driver tests. These require the Windows-only ASCOM Platform + its
+/// <c>ASCOM.Simulator.*</c> COM drivers, so the device-touching cases are gated on
+/// <see cref="SimulatorGate.AscomCiEnabled"/> (env var <c>TIANWEN_ASCOM_CI</c>) AND Windows.
+/// Formerly gated on <c>Debugger.IsAttached</c> (dev-machine only); the env gate lets CI run
+/// them on a Windows runner that has silently installed the Platform.
+/// </summary>
 public class AscomDeviceTests(ITestOutputHelper testOutputHelper)
 {
     [Fact]
@@ -38,7 +44,8 @@ public class AscomDeviceTests(ITestOutputHelper testOutputHelper)
     [InlineData(DeviceType.Switch)]
     public async Task GivenSimulatorDeviceTypeVersionAndNameAreReturned(DeviceType type)
     {
-        Assert.SkipUnless(RuntimeInformation.IsOSPlatform(OSPlatform.Windows) && Debugger.IsAttached, "Skipped as this test is only run when on Windows and debugger is attached");
+        Assert.SkipUnless(RuntimeInformation.IsOSPlatform(OSPlatform.Windows) && SimulatorGate.AscomCiEnabled,
+            $"Skipped unless on Windows with the ASCOM Platform + simulators installed and {SimulatorGate.AscomCiVar} set");
 
         var external = new FakeExternal(testOutputHelper);
         var deviceIterator = new AscomDeviceIterator(NullLogger<AscomDeviceIterator>.Instance);
@@ -64,7 +71,8 @@ public class AscomDeviceTests(ITestOutputHelper testOutputHelper)
     [Fact]
     public async Task GivenAConnectedAscomSimulatorTelescopeWhenConnectedThenTrackingRatesArePopulated()
     {
-        Assert.SkipUnless(RuntimeInformation.IsOSPlatform(OSPlatform.Windows) && Debugger.IsAttached, "Skipped as this test is only run when on Windows and debugger is attached");
+        Assert.SkipUnless(RuntimeInformation.IsOSPlatform(OSPlatform.Windows) && SimulatorGate.AscomCiEnabled,
+            $"Skipped unless on Windows with the ASCOM Platform + simulators installed and {SimulatorGate.AscomCiVar} set");
 
         // given
         var cancellationToken = TestContext.Current.CancellationToken;
@@ -87,7 +95,8 @@ public class AscomDeviceTests(ITestOutputHelper testOutputHelper)
     [Fact]
     public async Task GivenAConnectedAscomSimulatorCameraWhenImageReadyThenItCanBeDownloaded()
     {
-        Assert.SkipUnless(RuntimeInformation.IsOSPlatform(OSPlatform.Windows) && Debugger.IsAttached, "Skipped as this test is only run when on Windows and debugger is attached");
+        Assert.SkipUnless(RuntimeInformation.IsOSPlatform(OSPlatform.Windows) && SimulatorGate.AscomCiEnabled,
+            $"Skipped unless on Windows with the ASCOM Platform + simulators installed and {SimulatorGate.AscomCiVar} set");
 
         // given
         const int channel = 0;

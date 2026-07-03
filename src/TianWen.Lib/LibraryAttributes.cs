@@ -2,6 +2,7 @@
 
 [assembly: InternalsVisibleTo("TianWen.Lib.Tests")]
 [assembly: InternalsVisibleTo("TianWen.Lib.Tests.Functional")]
+[assembly: InternalsVisibleTo("TianWen.Lib.Tests.Simulators")]
 [assembly: InternalsVisibleTo("TianWen.UI.Abstractions")]
 [assembly: InternalsVisibleTo("TianWen.UI.Benchmarks")]
 [assembly: InternalsVisibleTo("TianWen.UI.Gui")]
