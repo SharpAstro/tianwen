@@ -169,31 +169,35 @@ jobs:
         Write-Host "Enabling NetFx3..."
         Enable-WindowsOptionalFeature -Online -FeatureName NetFx3 -All -NoRestart | Out-Null
         "NetFx3 state: " + (Get-WindowsOptionalFeature -Online -FeatureName NetFx3).State
-    # Install the ASCOM Platform (Inno Setup) UNATTENDED (no human), but not muted: /SILENT (shows a
-    # progress window, no wizard pages) + /LOG keeps full diagnostics, vs /VERYSILENT which hid the
-    # failure above. /SUPPRESSMSGBOXES + /NORESTART are what make it non-interactive. timeout-minutes
-    # caps a future hang at 15 min instead of the 6h job default. Registers the ASCOM.Simulator.* COM
-    # drivers the tests instantiate; GitHub runners are elevated, so no UAC prompt.
+    # Install the ASCOM Platform UNATTENDED. Platform 7 is an INSTALLAWARE package, whose silent switch
+    # is /s -- NOT Inno's /SILENT|/VERYSILENT. Passing Inno switches made the InstallAware bootstrapper
+    # ignore them and bring up its UI to wait for input, hanging forever (diagnosed via the process-tree
+    # dump: the inner ASCOMPlatform*.exe sat idle in C:\ProgramData\mia*.tmp with no Inno /LOG created).
+    # We still launch non-blocking + wait 6 min + dump the live process tree on no-exit, as a safety net
+    # (InstallAware writes no Inno log, so the process tree is the useful signal). timeout-minutes backstops.
     - name: Install ASCOM Platform
-      timeout-minutes: 15
+      timeout-minutes: 12
       shell: pwsh
       run: |
         $url = "https://github.com/ASCOMInitiative/ASCOMPlatform/releases/download/$env:ASCOM_PLATFORM_TAG/$env:ASCOM_PLATFORM_INSTALLER"
         Write-Host "Downloading $url"
         Invoke-WebRequest -Uri $url -OutFile ascom-platform.exe
-        Write-Host "Installing (unattended: /SILENT + /LOG)"
-        $log = "$env:GITHUB_WORKSPACE\ascom-install.log"
-        $p = Start-Process -FilePath .\ascom-platform.exe -ArgumentList '/SP-','/SILENT','/SUPPRESSMSGBOXES','/NORESTART',"/LOG=$log" -Wait -PassThru
-        Write-Host "Installer exit code: $($p.ExitCode)"
-        if ($p.ExitCode -ne 0) { exit $p.ExitCode }
-    - name: Upload ASCOM install log
-      if: always()
-      uses: actions/upload-artifact@v7
-      with:
-        name: ascom-install-log
-        path: ascom-install.log
-        if-no-files-found: ignore
-        retention-days: 7
+        Write-Host "Launching installer (InstallAware unattended: /s)"
+        $p = Start-Process -FilePath .\ascom-platform.exe -ArgumentList '/s' -PassThru
+        $deadlineSec = 360
+        if ($p.WaitForExit($deadlineSec * 1000)) {
+          Write-Host "Installer exited with code $($p.ExitCode)"
+          if ($p.ExitCode -ne 0) { exit $p.ExitCode }
+        } else {
+          Write-Host "::error::Installer did not exit within $deadlineSec s -- dumping diagnostics"
+          Write-Host "===== Running install-related processes ====="
+          Get-Process | Where-Object { $_.ProcessName -match 'ascom|setup|install|msiexec|dotnet|vc_?redist|dism|rundll32|drvinst' } |
+            Format-Table Id,ProcessName,StartTime,Path -AutoSize | Out-String -Width 400 | Write-Host
+          Write-Host "===== Pending reboot flag ====="
+          Write-Host ("CBS RebootPending: " + (Test-Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Component Based Servicing\RebootPending'))
+          try { $p.Kill($true) } catch { Write-Host "kill: $_" }
+          exit 1
+        }
     - name: Restore
       run: dotnet restore $env:TEST_PROJECT
       working-directory: src
