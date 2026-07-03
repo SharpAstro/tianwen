@@ -115,15 +115,17 @@ public class AlpacaSimulatorTests(ITestOutputHelper testOutputHelper)
                 var ready = await WaitAsync(async () => await cam.GetImageReadyAsync(ct), TimeSpan.FromSeconds(30), ct);
                 ready.ShouldBeTrue();
 
-                // The payoff: GetImageAsync downloads via GetImageArrayBytesAsync (Accept:
-                // application/imagebytes) and decodes with AlpacaImageBytes.DecodeChannel -- the
-                // binary transfer that was unit-pinned but never round-tripped against a live server.
+                // The payoff: GetImageReadyAsync downloads via GetImageArrayBytesAsync (Accept:
+                // application/imagebytes) and decodes with AlpacaImageBytes.DecodeChannel into
+                // ImageData -- the binary transfer that was unit-pinned but never round-tripped
+                // against a live server. Capture ImageData now: GetImageAsync transfers the buffer
+                // to the Image and nulls it.
+                var channel = cam.ImageData.ShouldNotBeNull();
+
                 var image = (await cam.GetImageAsync(ct)).ShouldNotBeNull();
                 image.Width.ShouldBeGreaterThan(0);
                 image.Height.ShouldBeGreaterThan(0);
                 image.MaxValue.ShouldBeGreaterThan(0f);
-
-                var channel = cam.ImageData.ShouldNotBeNull();
                 channel.Data.GetLength(1).ShouldBe(image.Width);
                 channel.Data.GetLength(0).ShouldBe(image.Height);
 
