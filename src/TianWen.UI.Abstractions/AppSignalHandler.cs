@@ -2251,64 +2251,51 @@ namespace TianWen.UI.Abstractions
                 }
                 appState.NeedsRedraw = true;
 
-                tracker.Run(async () =>
+                RunTracked($"PreviewCapture OTA{sig.OtaIndex}", "Preview failed", async ct =>
                 {
-                    try
-                    {
-                        // Stamp denorm fields before exposing -- shared with Session.Imaging
-                        // and polar alignment so the live preview's FITS headers (and the
-                        // FakeCameraDriver's synthetic-catalog rendering) match the other
-                        // capture paths exactly.
-                        await CameraExposureActions.StampDenormAsync(
-                            camera,
-                            ota.Name,
-                            ota.FocalLength,
-                            ota.Aperture,
-                            previewFocuser,
-                            previewFilterWheel,
-                            previewMount,
-                            targetName: previewMount is not null ? "Preview" : null,
-                            catalogDb: sp.GetRequiredService<ICelestialObjectDB>(),
-                            logger: logger,
-                            ct: cts.Token).ConfigureAwait(false);
+                    // Stamp denorm fields before exposing -- shared with Session.Imaging
+                    // and polar alignment so the live preview's FITS headers (and the
+                    // FakeCameraDriver's synthetic-catalog rendering) match the other
+                    // capture paths exactly.
+                    await CameraExposureActions.StampDenormAsync(
+                        camera,
+                        ota.Name,
+                        ota.FocalLength,
+                        ota.Aperture,
+                        previewFocuser,
+                        previewFilterWheel,
+                        previewMount,
+                        targetName: previewMount is not null ? "Preview" : null,
+                        catalogDb: sp.GetRequiredService<ICelestialObjectDB>(),
+                        logger: logger,
+                        ct: ct).ConfigureAwait(false);
 
-                        var image = await LiveSessionActions.CaptureCameraPreviewAsync(
-                            camera,
-                            TimeSpan.FromSeconds(sig.ExposureSeconds),
-                            sig.Gain is { } g ? (short)g : null,
-                            sig.Binning,
-                            _timeProvider,
-                            cts.Token);
+                    var image = await LiveSessionActions.CaptureCameraPreviewAsync(
+                        camera,
+                        TimeSpan.FromSeconds(sig.ExposureSeconds),
+                        sig.Gain is { } g ? (short)g : null,
+                        sig.Binning,
+                        _timeProvider,
+                        ct);
 
-                        if (image is not null
-                            && sig.OtaIndex < liveSessionState.LastCapturedImages.Length)
-                        {
-                            // Release the previous slot's image before replacing -- otherwise
-                            // its ChannelBuffer ref never drops and the camera can't recycle
-                            // (mirrors the polar-refine onFrameCaptured leak fix).
-                            liveSessionState.LastCapturedImages[sig.OtaIndex]?.Release();
-                            liveSessionState.LastCapturedImages[sig.OtaIndex] = image;
-                            Notify(NotificationSeverity.Info, $"Preview captured: OTA {sig.OtaIndex + 1}");
-                        }
-                    }
-                    catch (OperationCanceledException)
+                    if (image is not null
+                        && sig.OtaIndex < liveSessionState.LastCapturedImages.Length)
                     {
-                        Notify(NotificationSeverity.Warning, "Preview cancelled");
+                        // Release the previous slot's image before replacing -- otherwise
+                        // its ChannelBuffer ref never drops and the camera can't recycle
+                        // (mirrors the polar-refine onFrameCaptured leak fix).
+                        liveSessionState.LastCapturedImages[sig.OtaIndex]?.Release();
+                        liveSessionState.LastCapturedImages[sig.OtaIndex] = image;
+                        Notify(NotificationSeverity.Info, $"Preview captured: OTA {sig.OtaIndex + 1}");
                     }
-                    catch (Exception ex)
+                }, onFinally: () =>
+                {
+                    if (sig.OtaIndex < liveSessionState.PreviewCapturing.Length)
                     {
-                        logger.LogWarning(ex, "Preview capture failed for OTA {Index}", sig.OtaIndex);
-                        Notify(NotificationSeverity.Error, $"Preview failed: {ex.Message}");
+                        liveSessionState.PreviewCapturing[sig.OtaIndex] = false;
                     }
-                    finally
-                    {
-                        if (sig.OtaIndex < liveSessionState.PreviewCapturing.Length)
-                        {
-                            liveSessionState.PreviewCapturing[sig.OtaIndex] = false;
-                        }
-                        appState.NeedsRedraw = true;
-                    }
-                }, $"PreviewCapture OTA{sig.OtaIndex}");
+                    appState.NeedsRedraw = true;
+                }, cancelMessage: "Preview cancelled");
             });
 
             bus.Subscribe<SaveSnapshotSignal>(sig =>
@@ -2321,24 +2308,12 @@ namespace TianWen.UI.Abstractions
                     return;
                 }
 
-                tracker.Run(async () =>
+                RunTracked("SaveSnapshot", "Snapshot failed", async _ =>
                 {
-                    try
-                    {
-                        var fileName = await LiveSessionActions.SaveSnapshotAsync(
-                            image, sig.OtaIndex, external, _timeProvider);
-                        Notify(NotificationSeverity.Info, $"Snapshot saved: {fileName}");
-                    }
-                    catch (Exception ex)
-                    {
-                        logger.LogWarning(ex, "Snapshot save failed");
-                        Notify(NotificationSeverity.Error, $"Snapshot failed: {ex.Message}");
-                    }
-                    finally
-                    {
-                        appState.NeedsRedraw = true;
-                    }
-                }, "SaveSnapshot");
+                    var fileName = await LiveSessionActions.SaveSnapshotAsync(
+                        image, sig.OtaIndex, external, _timeProvider);
+                    Notify(NotificationSeverity.Info, $"Snapshot saved: {fileName}");
+                }, onFinally: () => appState.NeedsRedraw = true);
             });
 
             bus.Subscribe<PlateSolvePreviewSignal>(sig =>
@@ -2366,58 +2341,37 @@ namespace TianWen.UI.Abstractions
                 liveSessionState.NeedsRedraw = true;
                 appState.NeedsRedraw = true;
 
-                tracker.Run(async () =>
+                RunTracked("PreviewPlateSolve", "Plate solve error", async ct =>
                 {
-                    try
-                    {
-                        appState.StatusMessage = "Plate solving\u2026";
-                        appState.NeedsRedraw = true;
+                    appState.StatusMessage = "Plate solving\u2026";
+                    appState.NeedsRedraw = true;
 
-                        // Solve orchestration (search-origin derivation + result-to-message
-                        // mapping) lives in LiveSessionActions so this lambda routes only.
-                        var (result, message, solved) = await LiveSessionActions.SolvePreviewFrameAsync(
-                            sp.GetRequiredService<IPlateSolverFactory>(), image, cts.Token);
-                        liveSessionState.PreviewPlateSolveResult = result;
-                        Notify(solved ? NotificationSeverity.Info : NotificationSeverity.Warning, message);
-                    }
-                    catch (Exception ex)
+                    // Solve orchestration (search-origin derivation + result-to-message
+                    // mapping) lives in LiveSessionActions so this lambda routes only.
+                    var (result, message, solved) = await LiveSessionActions.SolvePreviewFrameAsync(
+                        sp.GetRequiredService<IPlateSolverFactory>(), image, ct);
+                    liveSessionState.PreviewPlateSolveResult = result;
+                    Notify(solved ? NotificationSeverity.Info : NotificationSeverity.Warning, message);
+                }, onFinally: () =>
+                {
+                    if (sig.OtaIndex < liveSessionState.PreviewPlateSolving.Length)
                     {
-                        logger.LogWarning(ex, "Preview plate solve failed");
-                        Notify(NotificationSeverity.Error, $"Plate solve error: {ex.Message}");
+                        liveSessionState.PreviewPlateSolving[sig.OtaIndex] = false;
                     }
-                    finally
-                    {
-                        if (sig.OtaIndex < liveSessionState.PreviewPlateSolving.Length)
-                        {
-                            liveSessionState.PreviewPlateSolving[sig.OtaIndex] = false;
-                        }
-                        liveSessionState.NeedsRedraw = true;
-                        appState.NeedsRedraw = true;
-                    }
-                }, "PreviewPlateSolve");
+                    liveSessionState.NeedsRedraw = true;
+                    appState.NeedsRedraw = true;
+                });
             });
 
             bus.Subscribe<JogFocuserSignal>(sig =>
             {
                 if (!TryResolveIdleOtaFocuser(sig.OtaIndex, out var focuser)) return;
 
-                tracker.Run(async () =>
+                RunTracked($"JogFocuser OTA{sig.OtaIndex}", "Focuser jog failed", async ct =>
                 {
-                    try
-                    {
-                        var targetPos = await LiveSessionActions.JogFocuserAsync(focuser, sig.Steps, cts.Token);
-                        Notify(NotificationSeverity.Info, $"Focuser \u2192 {targetPos}");
-                    }
-                    catch (Exception ex)
-                    {
-                        logger.LogWarning(ex, "Focuser jog failed for OTA {Index}", sig.OtaIndex);
-                        Notify(NotificationSeverity.Error, $"Focuser jog failed: {ex.Message}");
-                    }
-                    finally
-                    {
-                        appState.NeedsRedraw = true;
-                    }
-                }, $"JogFocuser OTA{sig.OtaIndex}");
+                    var targetPos = await LiveSessionActions.JogFocuserAsync(focuser, sig.Steps, ct);
+                    Notify(NotificationSeverity.Info, $"Focuser \u2192 {targetPos}");
+                }, onFinally: () => appState.NeedsRedraw = true);
             });
 
             // Live planetary capture: route Start/Stop to the shared PlanetaryCaptureController (the capture
@@ -2475,47 +2429,23 @@ namespace TianWen.UI.Abstractions
                 if (appState.DeviceHub is not { } hub) return;
                 if (!hub.TryGetConnectedDriver<IMountDriver>(mountUri, out var mount) || mount is null) return;
 
-                tracker.Run(async () =>
+                RunTracked($"JogMount {sig.Direction}", "Mount jog failed", async ct =>
                 {
-                    try
-                    {
-                        await MountActions.PulseGuideArcsecAsync(
-                            mount, sig.Direction, sig.Arcsec, _timeProvider, logger: logger, cancellationToken: cts.Token);
-                        Notify(NotificationSeverity.Info, $"Mount nudge {sig.Direction} {sig.Arcsec:F0} arcsec");
-                    }
-                    catch (Exception ex)
-                    {
-                        logger.LogWarning(ex, "Mount jog failed ({Dir})", sig.Direction);
-                        Notify(NotificationSeverity.Error, $"Mount jog failed: {ex.Message}");
-                    }
-                    finally
-                    {
-                        appState.NeedsRedraw = true;
-                    }
-                }, $"JogMount {sig.Direction}");
+                    await MountActions.PulseGuideArcsecAsync(
+                        mount, sig.Direction, sig.Arcsec, _timeProvider, logger: logger, cancellationToken: ct);
+                    Notify(NotificationSeverity.Info, $"Mount nudge {sig.Direction} {sig.Arcsec:F0} arcsec");
+                }, onFinally: () => appState.NeedsRedraw = true);
             });
 
             bus.Subscribe<GotoFocuserSignal>(sig =>
             {
                 if (!TryResolveIdleOtaFocuser(sig.OtaIndex, out var focuser)) return;
 
-                tracker.Run(async () =>
+                RunTracked($"GotoFocuser OTA{sig.OtaIndex}", "Focuser goto failed", async ct =>
                 {
-                    try
-                    {
-                        await focuser.BeginMoveAsync(sig.TargetPosition, cts.Token);
-                        Notify(NotificationSeverity.Info, $"Focuser \u2192 {sig.TargetPosition}");
-                    }
-                    catch (Exception ex)
-                    {
-                        logger.LogWarning(ex, "Focuser goto failed for OTA {Index}", sig.OtaIndex);
-                        Notify(NotificationSeverity.Error, $"Focuser goto failed: {ex.Message}");
-                    }
-                    finally
-                    {
-                        appState.NeedsRedraw = true;
-                    }
-                }, $"GotoFocuser OTA{sig.OtaIndex}");
+                    await focuser.BeginMoveAsync(sig.TargetPosition, ct);
+                    Notify(NotificationSeverity.Info, $"Focuser \u2192 {sig.TargetPosition}");
+                }, onFinally: () => appState.NeedsRedraw = true);
             });
 
             // ---------------------------------------------------------------
@@ -2624,5 +2554,31 @@ namespace TianWen.UI.Abstractions
             if (otas[otaIndex].Focuser is not { } focUri) return false;
             return hub.TryGetConnectedDriver(focUri, out focuser);
         }
+
+        /// <summary>
+        /// Submits <paramref name="work"/> to the background tracker under <paramref name="name"/> with
+        /// the standard error surface: any exception notifies (Error)
+        /// "<paramref name="failurePrefix"/>: {message}"; cancellation notifies (Warning)
+        /// <paramref name="cancelMessage"/> when non-null (log-only otherwise); and
+        /// <paramref name="onFinally"/> (busy-flag clear + redraws) always runs. The generic
+        /// run/log/route/finally scaffold lives in <see cref="BackgroundTaskTracker.RunGuarded"/> (it is
+        /// not TianWen-specific); this only wires the notification callbacks. The exception is caught in
+        /// the tracker, so the task completes non-faulted and its own ProcessCompletions LogError does not
+        /// double-fire. The log records <paramref name="name"/> (which already encodes per-call context
+        /// like the OTA index or jog direction), so no structured detail is lost. Keep the handler's sync
+        /// prefix (busy flag, tab switch, status message) inline BEFORE this call so the render-thread /
+        /// background split point stays explicit.
+        /// </summary>
+        private void RunTracked(
+            string name,
+            string failurePrefix,
+            Func<CancellationToken, Task> work,
+            Action? onFinally = null,
+            string? cancelMessage = null)
+            => _tracker.RunGuarded(
+                work, _cts.Token, _logger, name,
+                onError: ex => Notify(NotificationSeverity.Error, $"{failurePrefix}: {ex.Message}"),
+                onCancel: cancelMessage is null ? null : () => Notify(NotificationSeverity.Warning, cancelMessage),
+                onFinally: onFinally);
     }
 }
