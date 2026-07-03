@@ -405,6 +405,23 @@ for astronomical twilight: at high-summer mid-latitudes (e.g. 50.9°N at solstic
 the sun never reaches −18°, and the old strict read threw, killing the session at a site that simply has
 no astro-dark. Pinned by a no-dark German-solstice test in `SessionLifecycleTests`.
 
+**Focus-drift refocus trigger (trend, not single-frame):** the imaging loop's drift check compares
+`FocusDriftDetector.EstimateTrendHfd` -- a least-squares fit of median HFD over the last
+`SessionConfiguration.FocusDriftSampleSize` frames (default 30; only samples that are valid and
+comparable to the baseline participate: same exposure + gain, enough stars; below
+`FocusDriftMinSamples` comparable samples it falls back to the newest frame's raw HFD) -- against
+the per-target baseline at `FocusDriftThreshold` (the NINA `AutofocusAfterHFRIncreaseTrigger`
+analogue), so one bloated frame (wind gust, passing haze) cannot trigger a spurious refocus. Two
+invariants: the LSQ divisor is the INCLUDED-sample count, not the window length (dividing by the
+window length biases slope + intercept whenever a sample is skipped -- the bug in the original
+inline implementation); and the history window is cleared on a drift-triggered refocus and on
+target change, so the fit never sees frames from a different focus position (a stale high-HFD
+window fitted against the fresh post-refocus baseline would re-trigger immediately -- refocus
+oscillation). The window lives in `CircularBuffer<T>`, the lock-free most-recent-N ring
+(ImmutableArray + CAS replace; `Snapshot` is a torn-free reference read -- the GUI render thread
+polls `Session.GuideSamples` off the same type every frame). Pinned by `FocusDriftDetectorTests` +
+`CircularBufferTests`.
+
 ### Driver Resilience on the Hot Path
 
 All driver calls reachable from the session hot path go through `Session.ResilientInvokeAsync(...)`,
@@ -1081,7 +1098,7 @@ but every continuation after `await` runs on a thread pool thread. Crashes show 
 | Per-key in-flight set | `HashSet<TKey>` + `Add`/`Remove` | `ConcurrentDictionary<TKey, byte>` + `TryAdd`/`TryRemove` |
 | Per-key value buffers | `Dictionary<TKey, T>` | `ConcurrentDictionary<TKey, T>` (T also thread-safe if mutated) |
 | Single-flag in-flight gate | `bool _busy` | `int _busy` + `Interlocked.CompareExchange(ref _busy, 1, 0)` |
-| Ring buffer / accumulator | unguarded `_ring`/`_count`/`_head` | `lock (_gate)` on mutate + read; readers return snapshot array, not lazy `IEnumerable` |
+| Ring buffer / accumulator | unguarded `_ring`/`_count`/`_head` (or `lock` around them) | lock-free `CircularBuffer<T>` (ImmutableArray + CAS replace); readers take `Snapshot`, not lazy `IEnumerable` |
 | Large `record struct` cross-thread | unguarded auto-property `set` | private field + `lock` (struct writes > pointer-size aren't atomic) |
 
 **Telemetry-poll-only state** can stay non-concurrent if it is genuinely only written from the
@@ -1103,10 +1120,17 @@ Canonical example: `AppSignalHandler.PollCameraTelemetry` and `EquipmentTabState
   almost always avoidable with a Task hand-off or an atomic swap. (Canonical example: `SkyMapTab`'s
   async Milky Way load uses `Task<DecodedMilkyWay?>` polled on the render thread, mirroring
   `TryApplyPendingStarBuild`.)
-- **If a lock is genuinely warranted, use `System.Threading.Lock`** (C# 13), never `lock (new object())`.
-  Rationale: the dedicated type is faster (no monitor syncblock), self-documents intent, and lets the
-  compiler enforce correct `lock`-statement usage. The ring-buffer accumulator in the Background-Task
-  State table above is the rare case where a lock fits; use `Lock` there too.
+- **Standing rule for `lock () {}`** (any lock, anywhere): (1) it needs a strong justification as a
+  comment at the lock site -- why a Task hand-off / `Interlocked` / ImmutableArray-CAS swap doesn't
+  fit; (2) the locked path should not be reachable from a rendering thread (a contended lock there
+  is a frame stall -- hand the render thread an immutable snapshot instead); (3) if the lock stays,
+  it must be `System.Threading.Lock` (C# 13) -- never `lock` on an `object`, a collection, or any
+  other reachable instance. Rationale for `Lock`: faster (no monitor syncblock), self-documents
+  intent, compiler-enforced correct usage. Remaining `object`-based sites are inventoried as a
+  sweep item in [docs/todo/infra.md](docs/todo/infra.md). For a most-recent-N window polled by
+  readers (guide samples, frame metrics), prefer the lock-free `CircularBuffer<T>`
+  (`TianWen.Lib/Sequencing`): ImmutableArray + CAS replace, torn-free `Snapshot` reads, O(capacity)
+  appends -- right when producers are low-rate (per exposure) and pollers are high-rate (per frame).
 
 ### Code Quality Guidelines
 

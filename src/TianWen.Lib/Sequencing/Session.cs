@@ -140,7 +140,6 @@ internal partial record Session(
     }
 
     /// <summary>Per-camera frame metrics history for drift detection regression. Last N results per OTA.</summary>
-    internal CircularBuffer<FrameMetrics>[] FrameMetricsHistory => _frameMetricsHistory;
     private CircularBuffer<FrameMetrics>[] _frameMetricsHistory = [];
     public int TotalFramesWritten => Volatile.Read(ref _totalFramesWritten);
     public TimeSpan TotalExposureTime => TimeSpan.FromTicks(Interlocked.Read(ref _totalExposureTimeTicks));
@@ -150,7 +149,7 @@ internal partial record Session(
     internal int MeridianFlipCount { get; private set; }
     public ImmutableArray<FocusRunRecord> FocusHistory => [.. _focusHistory];
     public ImmutableArray<(int Position, float Hfd)> ActiveFocusSamples => _activeFocusSamples;
-    public ImmutableArray<GuideErrorSample> GuideSamples => [.. _guideSamples];
+    public ImmutableArray<GuideErrorSample> GuideSamples => _guideSamples.Snapshot;
     public GuideStats? LastGuideStats => _lastGuideStats;
     public string? GuiderState => _guiderState;
     public SettleProgress? GuiderSettleProgress => _guiderSettleProgress;
@@ -202,10 +201,10 @@ internal partial record Session(
     private int AdvanceObservation()
     {
         _spareIndex = 0;
-        // Re-create frame history on target change — drift baseline is per-target
+        // Reset frame history on target change — drift baseline is per-target
         for (var i = 0; i < _frameMetricsHistory.Length; i++)
         {
-            _frameMetricsHistory[i] = new CircularBuffer<FrameMetrics>(30);
+            _frameMetricsHistory[i].Clear();
         }
         return Interlocked.Increment(ref _activeObservation);
     }
@@ -348,11 +347,21 @@ internal partial record Session(
         _lastCapturedImages = new Image?[Setup.Telescopes.Length];
         _viewerChannels = new Imaging.Channel[]?[Setup.Telescopes.Length];
         _lastFrameMetrics = new FrameMetrics[Setup.Telescopes.Length];
-        _frameMetricsHistory = new CircularBuffer<FrameMetrics>[Setup.Telescopes.Length];
-        for (var i = 0; i < Setup.Telescopes.Length; i++)
+        _frameMetricsHistory = CreateFrameMetricsHistory(Setup.Telescopes.Length);
+    }
+
+    /// <summary>
+    /// One buffer per OTA, sized to the drift-trend window
+    /// (<see cref="SessionConfiguration.FocusDriftSampleSize"/>).
+    /// </summary>
+    private CircularBuffer<FrameMetrics>[] CreateFrameMetricsHistory(int scopes)
+    {
+        var history = new CircularBuffer<FrameMetrics>[scopes];
+        for (var i = 0; i < scopes; i++)
         {
-            _frameMetricsHistory[i] = new CircularBuffer<FrameMetrics>(30); // last 30 frames per OTA
+            history[i] = new CircularBuffer<FrameMetrics>(Math.Max(1, Configuration.FocusDriftSampleSize));
         }
+        return history;
     }
 
     public async Task RunAsync(CancellationToken cancellationToken)

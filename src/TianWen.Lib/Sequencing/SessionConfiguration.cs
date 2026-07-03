@@ -217,7 +217,21 @@ public record struct SessionConfiguration(
     /// usable window). Used only for the coarse start gate (see <see cref="FlatSkySunAltitudeBrightDeg"/>).
     /// Default -14.
     /// </summary>
-    double FlatSkySunAltitudeDarkDeg = -14
+    double FlatSkySunAltitudeDarkDeg = -14,
+    /// <summary>
+    /// Window length (frames per OTA) of the metrics history the focus-drift trend regression
+    /// runs over -- the analogue of NINA's <c>AutofocusAfterHFRIncreaseTrigger.SampleSize</c>
+    /// (its amount threshold maps to <see cref="FocusDriftThreshold"/>). The history is
+    /// re-created on target change and cleared after a drift-triggered refocus, so the fit only
+    /// ever sees frames taken at the current focus position. Default 30.
+    /// </summary>
+    int FocusDriftSampleSize = 30,
+    /// <summary>
+    /// Minimum number of baseline-comparable samples (same exposure + gain, enough stars) in the
+    /// history window before the trend fit is trusted; below this the drift check falls back to
+    /// the newest frame's raw HFD (the pre-trend single-frame behaviour). Default 5.
+    /// </summary>
+    int FocusDriftMinSamples = 5
 )
 {
     /// <summary>Effective default for <see cref="GuiderRecoveryGrace"/> when unset.</summary>
