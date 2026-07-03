@@ -45,14 +45,47 @@ depends on an external process, and each simulator gets its own CI job).
     `GetImageArrayBytesAsync` (`Accept: application/imagebytes`) -> `AlpacaImageBytes.DecodeChannel`.
   - `Telescope_ConnectsReadsCoordinatesAndTracking`, `Focuser_MovesToAbsolutePosition`,
     `FilterWheel_MovesToPosition`, `CoverCalibrator_ReadsStateAndTogglesCalibrator`.
-  - Poll loops use a real `Stopwatch` + `Task.Delay` (the fake `IExternal` clock would busy-spin);
-    the driver calls used here don't sleep internally, so nothing stalls.
+  - `Camera_ReadsSensorGainOffsetAndReadoutMetadata` -- pins the connect-time metadata that used to
+    be stubbed (see "Driver bugs found" below); capability-aware so it validates whichever gain/offset
+    mode the sim exposes. `Switch_Connects` -- a connect smoke test (`ISwitchDriver` has no ops yet).
+  - Poll loops go through the shared `SimulatorTestHelpers.WaitAsync`, which uses `ITimeProvider`
+    (`SleepAsync` + `GetElapsedTime`) rather than raw `Task.Delay`/`Stopwatch` -- but the suites pass a
+    real `SystemTimeProvider.Instance` (NOT the fake clock, whose auto-advancing `SleepAsync` would
+    busy-spin against a live server). The `AddAlpaca` service provider registers the same real clock.
 - **`AscomDeviceTests`** -- moved here from `.Functional`, re-gated `Debugger.IsAttached` ->
   `SimulatorGate.AscomCiEnabled` (still Windows-only) so CI can run it on a provisioned Windows runner.
+  Now mirrors the Alpaca device coverage: focuser move, filter-wheel move, and cover-calibrator toggle
+  in addition to the original camera / telescope / device-type cases.
 
-## CI (`.github/workflows/simulators.yml`, `workflow_dispatch`)
+## Driver bugs found (the suite paid for itself)
 
-`gh workflow run simulators.yml [-f suite=alpaca|ascom|both]` (default `both`).
+The first live Alpaca dispatch caught two pre-existing driver bugs -- both "this path never actually
+worked" defects that had shipped because nothing exercised the HTTP round-trip:
+
+- **Mono cameras could not connect** -- `AlpacaCameraDriver` read `BayerOffsetX/Y` unconditionally at
+  init, but mono/direct-colour sensors throw `PropertyNotImplemented` per ICameraV3. Now gated on sensor type.
+- **The filter wheel never populated its slots** -- `AlpacaFilterWheelDriver` never overrode the base
+  no-op `InitDeviceAsync`, so `Filters` was always empty and `BeginMoveAsync` always threw.
+
+A follow-up audit fixed the same class of latent stub in `AlpacaCameraDriver`, each now pinned by
+`Camera_ReadsSensorGainOffsetAndReadoutMetadata` / the exposure-duration assertion:
+
+- `Gains` / `Offsets` were hardcoded `[]` (gain/offset-*mode* cameras got empty dropdowns) -- now parse
+  the `gains`/`offsets` string lists at init.
+- `LastExposureDuration` was hardcoded `null` (zeroed the FITS `EXPTIME` on every Alpaca frame) -- now
+  baselined at `StartExposure` and refined from the server's `lastexposureduration`.
+- `ReadoutMode` get/set were local-only no-ops -- now round-trip through the server via the
+  `readoutmodes` index list.
+
+## CI (`.github/workflows/simulators.yml`)
+
+Two entry points:
+- **`workflow_dispatch`**: `gh workflow run simulators.yml [-f suite=alpaca|ascom|both]` (default `both`).
+- **`schedule`** (weekly, Mondays 06:00 UTC): runs the **Alpaca leg only** as an unattended regression
+  guard (`inputs.suite` is empty on a schedule event, so the `alpaca-sim` `if` also checks
+  `github.event_name == 'schedule'` while `ascom-sim` does not). The Windows ASCOM leg stays
+  dispatch-only -- a full Platform install every week is not worth it for a COM seam the Alpaca run
+  already covers semantically.
 
 - **`catalogs`** (ubuntu) -- the only job needing `lzip` + the `*.lz` LFS objects; builds
   `TianWen.Lib` to produce the `*.gs.gz` preprocessed catalogs and uploads them as the
@@ -80,28 +113,25 @@ TIANWEN_ASCOM_CI=1 dotnet test TianWen.Lib.Tests.Simulators
 
 ## Status
 
-**Phases 1-3 DONE** (branch `test/device-simulator-ci`):
+**Phases 1-4 DONE + shipped** (merged via #72/#73; follow-up expansion in progress):
 
 | Phase | Scope | Status |
 |-------|-------|--------|
 | 1 | New `TianWen.Lib.Tests.Simulators` project (csproj, slnx, `InternalsVisibleTo`, `xunit.runner.json` serial), `SimulatorGate`, move + re-gate `AscomDeviceTests` | DONE |
 | 2 | `AlpacaSimulatorTests` -- management API + camera ImageBytes + telescope/focuser/filterwheel/covercalibrator | DONE |
-| 3 | `simulators.yml` on-demand workflow (catalogs artifact + Linux OmniSim + Windows ASCOM Platform) | DONE |
+| 3 | `simulators.yml` workflow (catalogs artifact + Linux OmniSim + Windows ASCOM Platform) | DONE |
+| 4 | **Live validation** -- Alpaca suite green against OmniSim v0.4.0 (found + fixed 2 driver bugs, see above) | DONE |
+| 5 | Weekly Alpaca `schedule:` guard; Alpaca camera-metadata + switch tests; driver-stub fixes; ASCOM device-coverage mirror | DONE (this change) |
 
-Verified locally: the project builds and all 12 sim-gated cases skip cleanly with no env var set.
-The against-a-live-simulator green run happens on the first `workflow_dispatch`.
+Verified: the Alpaca suite is green against a live OmniSim; the project builds and every sim-gated case
+skips cleanly with no env var set. The Windows `ascom-sim` leg is validated via `-f suite=ascom` dispatch.
 
 ## Deferred / known risks
 
-- **First dispatch is the real validation.** OmniSim's exact launch flags and the ASCOM Platform
-  silent-install switches are handled empirically (the OmniSim step is self-diagnosing: it discovers
-  the port from the log and dumps the log on failure). Specific simulator behaviours (e.g. a device
-  type OmniSim doesn't expose, or a covercalibrator that needs the cover closed first) may need small
-  assertion tweaks after the first run -- the tests are independent, so one failing case never blocks
-  the others.
 - **UDP discovery (`AlpacaDeviceSource.DiscoverAsync`) is still untested** -- these tests
   deliberately bypass it (direct-addressing) because multicast is unreliable on hosted runners.
-- **A nightly `schedule:` trigger** could be added later if we want unattended regression coverage
-  without remembering to dispatch.
+- **The sim's camera gain/offset mode is unknown up front**, so the metadata test is capability-aware:
+  it asserts whichever mode OmniSim exposes and logs the rest. If OmniSim reports no gain control at
+  all, the gain-list parsing goes exercised only by the (separate) `AlpacaImageBytesTests` unit pins.
 - **Rotator + alt-az** device coverage will slot into the same project once those drivers land
   (see [rotator](rotator.md), [altaz-mount-support](altaz-mount-support.md)).

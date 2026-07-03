@@ -156,11 +156,18 @@ opt-in via `SimulatorGate` and **skips (never fails) with no simulator present**
 - **ASCOM** (`AscomDeviceTests`, Windows COM): set `TIANWEN_ASCOM_CI` with the ASCOM Platform +
   `ASCOM.Simulator.*` installed. (Moved here from `.Functional`; re-gated off `Debugger.IsAttached`.)
 
-Run on demand via `.github/workflows/simulators.yml` (`workflow_dispatch` only, like
-`publish-apps`/`release` -- too heavy for every push): `gh workflow run simulators.yml
-[-f suite=alpaca|ascom|both]`. A shared `catalogs` job feeds the `*.gs.gz` artifact so the Windows
-leg needs no `lzip`. The PR `dotnet.yml` loop only *compiles* the project; the live-sim run is the
-dispatch. See [docs/plans/device-simulator-ci.md](docs/plans/device-simulator-ci.md).
+Kept off the push/PR path (like `publish-apps`/`release` -- an OmniSim download / a full Platform
+install is too heavy for every push). Two entry points on `.github/workflows/simulators.yml`:
+`workflow_dispatch` (`gh workflow run simulators.yml [-f suite=alpaca|ascom|both]`) and a **weekly
+`schedule`** that runs the **Alpaca leg only** as an unattended regression guard (the Windows ASCOM
+leg stays dispatch-only). A shared `catalogs` job feeds the `*.gs.gz` artifact so the Windows leg
+needs no `lzip`. The PR `dotnet.yml` loop only *compiles* the project; the live-sim run is the
+dispatch/schedule. **This suite earned its keep on the first run** -- it caught two real Alpaca driver
+bugs (mono camera couldn't connect; filter wheel never populated slots) plus a stub audit
+(`Gains`/`Offsets`/`ReadoutMode`/`LastExposureDuration`). Real-time settle waits go through a real
+`SystemTimeProvider` (never a fake clock -- its auto-advancing `SleepAsync` would busy-spin), so the
+"no raw `Task.Delay`" rule holds even for genuine wall-clock waits.
+See [docs/plans/device-simulator-ci.md](docs/plans/device-simulator-ci.md).
 
 ### Test Collections & Parallelism
 
