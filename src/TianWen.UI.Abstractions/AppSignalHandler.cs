@@ -636,15 +636,13 @@ namespace TianWen.UI.Abstractions
                     }
                     else
                     {
-                        _appState.AppendNotification(_timeProvider.GetUtcNow(),
-                            NotificationSeverity.Warning, "Set site coordinates in Equipment tab");
+                        Notify(NotificationSeverity.Warning, "Set site coordinates in Equipment tab");
                     }
                 }
                 catch (Exception ex)
                 {
                     _logger.LogWarning(ex, "Recompute failed");
-                    _appState.AppendNotification(_timeProvider.GetUtcNow(),
-                        NotificationSeverity.Error, $"Recompute failed: {ex.InnerException?.Message ?? ex.Message}");
+                    Notify(NotificationSeverity.Error, $"Recompute failed: {ex.InnerException?.Message ?? ex.Message}");
                 }
                 finally
                 {
@@ -942,26 +940,20 @@ namespace TianWen.UI.Abstractions
             {
                 if (liveSessionState.IsRunning)
                 {
-                    appState.AppendNotification(_timeProvider.GetUtcNow(),
-                        NotificationSeverity.Warning, "Cannot slew manually while a session is running");
-                    appState.NeedsRedraw = true;
+                    Notify(NotificationSeverity.Warning, "Cannot slew manually while a session is running");
                     return;
                 }
                 if (appState.ActiveProfile is not { Data: { } pdata } profile
                     || pdata.Mount is not { Scheme: not "none" } mountUri)
                 {
-                    appState.AppendNotification(_timeProvider.GetUtcNow(),
-                        NotificationSeverity.Warning, "No mount configured in the active profile");
-                    appState.NeedsRedraw = true;
+                    Notify(NotificationSeverity.Warning, "No mount configured in the active profile");
                     return;
                 }
                 if (appState.DeviceHub is not { } hub
                     || !hub.TryGetConnectedDriver<IMountDriver>(mountUri, out var mount)
                     || mount is null)
                 {
-                    appState.AppendNotification(_timeProvider.GetUtcNow(),
-                        NotificationSeverity.Warning, "Mount is not connected \u2014 connect it from the Equipment tab first");
-                    appState.NeedsRedraw = true;
+                    Notify(NotificationSeverity.Warning, "Mount is not connected \u2014 connect it from the Equipment tab first");
                     return;
                 }
 
@@ -995,9 +987,8 @@ namespace TianWen.UI.Abstractions
                         var severity = post == SlewPostCondition.Slewing
                             ? NotificationSeverity.Info
                             : NotificationSeverity.Warning;
-                        appState.AppendNotification(_timeProvider.GetUtcNow(), severity, msg);
+                        Notify(severity, msg);
                         skyMapState.NeedsRedraw = true;
-                        appState.NeedsRedraw = true;
 
                         // Follow up with a "Reached <name>" / "Slew timed out" notification when
                         // the mount actually stops slewing, so the status bar isn't permanently
@@ -1019,7 +1010,7 @@ namespace TianWen.UI.Abstractions
                             var completionSeverity = completion == MountActions.SlewCompletion.Reached
                                 ? NotificationSeverity.Info
                                 : NotificationSeverity.Warning;
-                            appState.AppendNotification(_timeProvider.GetUtcNow(), completionSeverity, completionMsg);
+                            Notify(completionSeverity, completionMsg);
                         }
                     }
                     catch (OperationCanceledException oce)
@@ -1031,8 +1022,7 @@ namespace TianWen.UI.Abstractions
                     catch (Exception ex)
                     {
                         logger.LogWarning(ex, "Slew to {Name} failed", capturedSig.Name);
-                        appState.AppendNotification(_timeProvider.GetUtcNow(),
-                            NotificationSeverity.Error, $"Slew failed: {ex.Message}");
+                        Notify(NotificationSeverity.Error, $"Slew failed: {ex.Message}");
                     }
                     finally
                     {
@@ -1121,9 +1111,7 @@ namespace TianWen.UI.Abstractions
             {
                 if (liveSessionState.IsRunning)
                 {
-                    appState.AppendNotification(_timeProvider.GetUtcNow(),
-                        NotificationSeverity.Warning, "Cannot solve & sync while a session is running");
-                    appState.NeedsRedraw = true;
+                    Notify(NotificationSeverity.Warning, "Cannot solve & sync while a session is running");
                     return;
                 }
                 // Re-entrancy guard: ignore a second click while a solve is already in
@@ -1136,33 +1124,25 @@ namespace TianWen.UI.Abstractions
                 if (appState.ActiveProfile is not { Data: { } pdata } profile
                     || pdata.Mount is not { Scheme: not "none" } mountUri)
                 {
-                    appState.AppendNotification(_timeProvider.GetUtcNow(),
-                        NotificationSeverity.Warning, "No mount configured in the active profile");
-                    appState.NeedsRedraw = true;
+                    Notify(NotificationSeverity.Warning, "No mount configured in the active profile");
                     return;
                 }
                 if (appState.DeviceHub is not { } hub
                     || !hub.TryGetConnectedDriver<IMountDriver>(mountUri, out var mount)
                     || mount is null)
                 {
-                    appState.AppendNotification(_timeProvider.GetUtcNow(),
-                        NotificationSeverity.Warning, "Mount is not connected \u2014 connect it from the Equipment tab first");
-                    appState.NeedsRedraw = true;
+                    Notify(NotificationSeverity.Warning, "Mount is not connected \u2014 connect it from the Equipment tab first");
                     return;
                 }
                 if (pdata.OTAs is not { Length: > 0 } otas || sig.OtaIndex >= otas.Length)
                 {
-                    appState.AppendNotification(_timeProvider.GetUtcNow(),
-                        NotificationSeverity.Warning, "No OTA configured in the active profile");
-                    appState.NeedsRedraw = true;
+                    Notify(NotificationSeverity.Warning, "No OTA configured in the active profile");
                     return;
                 }
                 var ota = otas[sig.OtaIndex];
                 if (!hub.TryGetConnectedDriver<ICameraDriver>(ota.Camera, out var camera) || camera is null)
                 {
-                    appState.AppendNotification(_timeProvider.GetUtcNow(),
-                        NotificationSeverity.Warning, "Camera not connected");
-                    appState.NeedsRedraw = true;
+                    Notify(NotificationSeverity.Warning, "Camera not connected");
                     return;
                 }
 
@@ -1224,7 +1204,7 @@ namespace TianWen.UI.Abstractions
                         var severity = outcome.Result == MountActions.SolveSyncResult.Synced
                             ? NotificationSeverity.Info
                             : NotificationSeverity.Warning;
-                        appState.AppendNotification(_timeProvider.GetUtcNow(), severity, outcome.StatusMessage);
+                        Notify(severity, outcome.StatusMessage);
                     }
                     catch (OperationCanceledException oce)
                     {
@@ -1234,8 +1214,7 @@ namespace TianWen.UI.Abstractions
                     catch (Exception ex)
                     {
                         logger.LogWarning(ex, "Solve & sync failed");
-                        appState.AppendNotification(_timeProvider.GetUtcNow(),
-                            NotificationSeverity.Error, $"Solve & sync failed: {ex.Message}");
+                        Notify(NotificationSeverity.Error, $"Solve & sync failed: {ex.Message}");
                     }
                     finally
                     {
@@ -1291,8 +1270,7 @@ namespace TianWen.UI.Abstractions
                         eqState.LatitudeInput.Text, eqState.LongitudeInput.Text, eqState.ElevationInput.Text,
                         out var sLat, out var sLon, out var sElev))
                 {
-                    appState.AppendNotification(_timeProvider.GetUtcNow(),
-                        NotificationSeverity.Warning, "Invalid coordinates (lat: -90..90, lon: -180..180)");
+                    Notify(NotificationSeverity.Warning, "Invalid coordinates (lat: -90..90, lon: -180..180)");
                     return;
                 }
 
@@ -1457,16 +1435,14 @@ namespace TianWen.UI.Abstractions
                 catch (Exception ex)
                 {
                     logger.LogWarning(ex, "Device discovery failed");
-                    appState.AppendNotification(_timeProvider.GetUtcNow(),
-                        NotificationSeverity.Error, "Discovery failed");
+                    Notify(NotificationSeverity.Error, "Discovery failed");
                 }
                 finally
                 {
                     eqState.IsDiscovering = false;
                     if (eqState.DiscoveredDevices.Count > 0)
                     {
-                        appState.AppendNotification(_timeProvider.GetUtcNow(),
-                            NotificationSeverity.Info, $"Found {eqState.DiscoveredDevices.Count} devices");
+                        Notify(NotificationSeverity.Info, $"Found {eqState.DiscoveredDevices.Count} devices");
                     }
                     appState.NeedsRedraw = true;
                 }
@@ -1529,8 +1505,7 @@ namespace TianWen.UI.Abstractions
 
                     if (device.DeviceType != target.ExpectedDeviceType)
                     {
-                        appState.AppendNotification(_timeProvider.GetUtcNow(),
-                            NotificationSeverity.Warning, $"Expected {target.ExpectedDeviceType}, got {device.DeviceType}");
+                        Notify(NotificationSeverity.Warning, $"Expected {target.ExpectedDeviceType}, got {device.DeviceType}");
                         return;
                     }
 
@@ -1571,12 +1546,10 @@ namespace TianWen.UI.Abstractions
                         switch (outcome)
                         {
                             case EquipmentActions.OrphanDisconnectOutcome.Disconnected:
-                                appState.AppendNotification(_timeProvider.GetUtcNow(),
-                                    NotificationSeverity.Info, $"Previous {target.ExpectedDeviceType} disconnected");
+                                Notify(NotificationSeverity.Info, $"Previous {target.ExpectedDeviceType} disconnected");
                                 break;
                             case EquipmentActions.OrphanDisconnectOutcome.LeftConnected:
-                                appState.AppendNotification(_timeProvider.GetUtcNow(),
-                                    NotificationSeverity.Warning, $"Previous {target.ExpectedDeviceType} left connected ({safety}). Click Off on its row to warm up.");
+                                Notify(NotificationSeverity.Warning, $"Previous {target.ExpectedDeviceType} left connected ({safety}). Click Off on its row to warm up.");
                                 break;
                         }
                         if (outcome != EquipmentActions.OrphanDisconnectOutcome.NotApplicable)
@@ -1634,8 +1607,7 @@ namespace TianWen.UI.Abstractions
             {
                 if (appState.DeviceHub is not { } hub)
                 {
-                    appState.AppendNotification(_timeProvider.GetUtcNow(),
-                        NotificationSeverity.Warning, "Device hub unavailable");
+                    Notify(NotificationSeverity.Warning, "Device hub unavailable");
                     return;
                 }
 
@@ -1653,14 +1625,12 @@ namespace TianWen.UI.Abstractions
 
                     if (device is null)
                     {
-                        appState.AppendNotification(_timeProvider.GetUtcNow(),
-                            NotificationSeverity.Warning, "Cannot resolve device URI for connect");
+                        Notify(NotificationSeverity.Warning, "Cannot resolve device URI for connect");
                         return;
                     }
 
                     await RunDeviceOpOffRenderThreadAsync(() => hub.ConnectAsync(device, cts.Token).AsTask(), cts.Token);
-                    appState.AppendNotification(_timeProvider.GetUtcNow(),
-                        NotificationSeverity.Info, $"Connected: {device.DisplayName}");
+                    Notify(NotificationSeverity.Info, $"Connected: {device.DisplayName}");
 
                     // Mount connect → reconcile site between mount hardware and profile,
                     // per SiteTieBreaker. Updates ProfileState + PlannerState; persists
@@ -1720,8 +1690,7 @@ namespace TianWen.UI.Abstractions
                 catch (Exception ex)
                 {
                     logger.LogWarning(ex, "Connect failed for {Uri}", sig.DeviceUri);
-                    appState.AppendNotification(_timeProvider.GetUtcNow(),
-                        NotificationSeverity.Error, $"Connect failed: {ex.Message}");
+                    Notify(NotificationSeverity.Error, $"Connect failed: {ex.Message}");
                 }
                 finally
                 {
@@ -1759,14 +1728,12 @@ namespace TianWen.UI.Abstractions
                 try
                 {
                     await RunDeviceOpOffRenderThreadAsync(() => hub.DisconnectAsync(sig.DeviceUri, cts.Token).AsTask(), cts.Token);
-                    appState.AppendNotification(_timeProvider.GetUtcNow(),
-                        NotificationSeverity.Info, "Device disconnected");
+                    Notify(NotificationSeverity.Info, "Device disconnected");
                 }
                 catch (Exception ex)
                 {
                     logger.LogWarning(ex, "Disconnect failed for {Uri}", sig.DeviceUri);
-                    appState.AppendNotification(_timeProvider.GetUtcNow(),
-                        NotificationSeverity.Error, $"Disconnect failed: {ex.Message}");
+                    Notify(NotificationSeverity.Error, $"Disconnect failed: {ex.Message}");
                 }
                 finally
                 {
@@ -1794,15 +1761,13 @@ namespace TianWen.UI.Abstractions
                 try
                 {
                     await RunDeviceOpOffRenderThreadAsync(() => hub.DisconnectAsync(sig.DeviceUri, cts.Token).AsTask(), cts.Token);
-                    appState.AppendNotification(_timeProvider.GetUtcNow(),
-                        NotificationSeverity.Info, "Device force-disconnected (no warm-up)");
+                    Notify(NotificationSeverity.Info, "Device force-disconnected (no warm-up)");
                     logger.LogWarning("Force-disconnect of {Uri} (bypassed safety check)", sig.DeviceUri);
                 }
                 catch (Exception ex)
                 {
                     logger.LogWarning(ex, "Force-disconnect failed for {Uri}", sig.DeviceUri);
-                    appState.AppendNotification(_timeProvider.GetUtcNow(),
-                        NotificationSeverity.Error, $"Force-disconnect failed: {ex.Message}");
+                    Notify(NotificationSeverity.Error, $"Force-disconnect failed: {ex.Message}");
                 }
                 finally
                 {
@@ -1829,19 +1794,16 @@ namespace TianWen.UI.Abstractions
                 try
                 {
                     await RunDeviceOpOffRenderThreadAsync(() => EquipmentActions.WarmAndDisconnectAsync(hub, sig.DeviceUri, _logger, cts.Token).AsTask(), cts.Token);
-                    appState.AppendNotification(_timeProvider.GetUtcNow(),
-                        NotificationSeverity.Info, "Camera warmed and disconnected");
+                    Notify(NotificationSeverity.Info, "Camera warmed and disconnected");
                 }
                 catch (OperationCanceledException)
                 {
-                    appState.AppendNotification(_timeProvider.GetUtcNow(),
-                        NotificationSeverity.Warning, "Warm-up cancelled");
+                    Notify(NotificationSeverity.Warning, "Warm-up cancelled");
                 }
                 catch (Exception ex)
                 {
                     logger.LogWarning(ex, "Warm-and-disconnect failed for {Uri}", sig.DeviceUri);
-                    appState.AppendNotification(_timeProvider.GetUtcNow(),
-                        NotificationSeverity.Error, $"Warm-up failed: {ex.Message}");
+                    Notify(NotificationSeverity.Error, $"Warm-up failed: {ex.Message}");
                 }
                 finally
                 {
@@ -1855,22 +1817,18 @@ namespace TianWen.UI.Abstractions
                 if (appState.DeviceHub is not { } hub) return;
                 if (!hub.TryGetConnectedDriver<TianWen.Lib.Devices.ICameraDriver>(sig.DeviceUri, out var camera))
                 {
-                    appState.AppendNotification(_timeProvider.GetUtcNow(),
-                        NotificationSeverity.Warning, "Camera not connected");
+                    Notify(NotificationSeverity.Warning, "Camera not connected");
                     return;
                 }
                 try
                 {
                     await EquipmentActions.SetCoolerSetpointAsync(camera, sig.SetpointC, cts.Token);
-                    appState.AppendNotification(_timeProvider.GetUtcNow(),
-                        NotificationSeverity.Info, $"Cooling to {sig.SetpointC:F1}\u00b0C");
-                    appState.NeedsRedraw = true;
+                    Notify(NotificationSeverity.Info, $"Cooling to {sig.SetpointC:F1}\u00b0C");
                 }
                 catch (Exception ex)
                 {
                     logger.LogWarning(ex, "SetCoolerSetpoint failed for {Uri}", sig.DeviceUri);
-                    appState.AppendNotification(_timeProvider.GetUtcNow(),
-                        NotificationSeverity.Error, $"Cooler setpoint failed: {ex.Message}");
+                    Notify(NotificationSeverity.Error, $"Cooler setpoint failed: {ex.Message}");
                 }
             });
 
@@ -1884,19 +1842,16 @@ namespace TianWen.UI.Abstractions
                 try
                 {
                     await EquipmentActions.WarmAndCoolerOffAsync(hub, sig.DeviceUri, _logger, cts.Token);
-                    appState.AppendNotification(_timeProvider.GetUtcNow(),
-                        NotificationSeverity.Info, "Camera warmed; cooler off");
+                    Notify(NotificationSeverity.Info, "Camera warmed; cooler off");
                 }
                 catch (OperationCanceledException)
                 {
-                    appState.AppendNotification(_timeProvider.GetUtcNow(),
-                        NotificationSeverity.Warning, "Warm-up cancelled");
+                    Notify(NotificationSeverity.Warning, "Warm-up cancelled");
                 }
                 catch (Exception ex)
                 {
                     logger.LogWarning(ex, "Warm-and-cooler-off failed for {Uri}", sig.DeviceUri);
-                    appState.AppendNotification(_timeProvider.GetUtcNow(),
-                        NotificationSeverity.Error, $"Warm-up failed: {ex.Message}");
+                    Notify(NotificationSeverity.Error, $"Warm-up failed: {ex.Message}");
                 }
                 finally { appState.NeedsRedraw = true; }
             });
@@ -1911,15 +1866,12 @@ namespace TianWen.UI.Abstractions
                 try
                 {
                     await EquipmentActions.SetCoolerOffAsync(camera, cts.Token);
-                    appState.AppendNotification(_timeProvider.GetUtcNow(),
-                        NotificationSeverity.Info, "Cooler off");
-                    appState.NeedsRedraw = true;
+                    Notify(NotificationSeverity.Info, "Cooler off");
                 }
                 catch (Exception ex)
                 {
                     logger.LogWarning(ex, "SetCoolerOff failed for {Uri}", sig.DeviceUri);
-                    appState.AppendNotification(_timeProvider.GetUtcNow(),
-                        NotificationSeverity.Error, $"Cooler off failed: {ex.Message}");
+                    Notify(NotificationSeverity.Error, $"Cooler off failed: {ex.Message}");
                 }
             });
 
@@ -2019,22 +1971,19 @@ namespace TianWen.UI.Abstractions
             {
                 if (liveSessionState.IsRunning)
                 {
-                    appState.AppendNotification(_timeProvider.GetUtcNow(),
-                        NotificationSeverity.Warning, "Session already running");
+                    Notify(NotificationSeverity.Warning, "Session already running");
                     return;
                 }
 
                 if (appState.ActiveProfile is not { } profile)
                 {
-                    appState.AppendNotification(_timeProvider.GetUtcNow(),
-                        NotificationSeverity.Warning, "No profile selected");
+                    Notify(NotificationSeverity.Warning, "No profile selected");
                     return;
                 }
 
                 if (plannerState.Proposals is not { Length: > 0 })
                 {
-                    appState.AppendNotification(_timeProvider.GetUtcNow(),
-                        NotificationSeverity.Warning, "No targets \u2014 pin targets in the Planner first");
+                    Notify(NotificationSeverity.Warning, "No targets \u2014 pin targets in the Planner first");
                     return;
                 }
 
@@ -2063,38 +2012,32 @@ namespace TianWen.UI.Abstractions
             {
                 if (liveSessionState.IsRunning)
                 {
-                    appState.AppendNotification(_timeProvider.GetUtcNow(),
-                        NotificationSeverity.Warning, "Session is running \u2014 polar alignment unavailable");
+                    Notify(NotificationSeverity.Warning, "Session is running \u2014 polar alignment unavailable");
                     return;
                 }
                 if (liveSessionState.PolarAlignmentCts is not null)
                 {
-                    appState.AppendNotification(_timeProvider.GetUtcNow(),
-                        NotificationSeverity.Warning, "Polar alignment already running");
+                    Notify(NotificationSeverity.Warning, "Polar alignment already running");
                     return;
                 }
                 if (appState.ActiveProfile?.Data is not { } profileData || profileData.OTAs.Length == 0)
                 {
-                    appState.AppendNotification(_timeProvider.GetUtcNow(),
-                        NotificationSeverity.Warning, "No profile / OTA configured");
+                    Notify(NotificationSeverity.Warning, "No profile / OTA configured");
                     return;
                 }
                 if (appState.DeviceHub is not { } hub)
                 {
-                    appState.AppendNotification(_timeProvider.GetUtcNow(),
-                        NotificationSeverity.Warning, "Device hub not available");
+                    Notify(NotificationSeverity.Warning, "Device hub not available");
                     return;
                 }
                 if (!hub.TryGetConnectedDriver<IMountDriver>(profileData.Mount, out var mount) || mount is null)
                 {
-                    appState.AppendNotification(_timeProvider.GetUtcNow(),
-                        NotificationSeverity.Warning, "Mount not connected \u2014 connect a mount first");
+                    Notify(NotificationSeverity.Warning, "Mount not connected \u2014 connect a mount first");
                     return;
                 }
                 if (profileData.SiteLatitude is not { } lat || profileData.SiteLongitude is not { } lon)
                 {
-                    appState.AppendNotification(_timeProvider.GetUtcNow(),
-                        NotificationSeverity.Warning, "Site location not configured for this profile");
+                    Notify(NotificationSeverity.Warning, "Site location not configured for this profile");
                     return;
                 }
                 var solverFactory = sp.GetRequiredService<IPlateSolverFactory>();
@@ -2107,8 +2050,7 @@ namespace TianWen.UI.Abstractions
                     external, sp.GetRequiredService<ICelestialObjectDB>(), _timeProvider, logger);
                 if (built.Error is { } buildError)
                 {
-                    appState.AppendNotification(_timeProvider.GetUtcNow(),
-                        NotificationSeverity.Warning, buildError);
+                    Notify(NotificationSeverity.Warning, buildError);
                     return;
                 }
                 var source = built.Source!;
@@ -2166,8 +2108,7 @@ namespace TianWen.UI.Abstractions
                         logger.LogError(ex, "Polar alignment routine failed");
                         liveSessionState.PolarPhase = PolarAlignmentPhase.Failed;
                         liveSessionState.PolarStatusMessage = $"Polar alignment error: {ex.Message}";
-                        appState.AppendNotification(_timeProvider.GetUtcNow(),
-                            NotificationSeverity.Error, $"Polar alignment failed: {ex.Message}");
+                        Notify(NotificationSeverity.Error, $"Polar alignment failed: {ex.Message}");
                     }
                     finally
                     {
@@ -2313,14 +2254,12 @@ namespace TianWen.UI.Abstractions
             {
                 if (liveSessionState.IsRunning)
                 {
-                    appState.AppendNotification(_timeProvider.GetUtcNow(),
-                        NotificationSeverity.Warning, "Session is running \u2014 preview unavailable");
+                    Notify(NotificationSeverity.Warning, "Session is running \u2014 preview unavailable");
                     return;
                 }
                 if (appState.ActiveProfile?.Data is not { } previewData || sig.OtaIndex >= previewData.OTAs.Length)
                 {
-                    appState.AppendNotification(_timeProvider.GetUtcNow(),
-                        NotificationSeverity.Warning, "Invalid OTA index");
+                    Notify(NotificationSeverity.Warning, "Invalid OTA index");
                     return;
                 }
                 if (appState.DeviceHub is not { } hub) return;
@@ -2328,8 +2267,7 @@ namespace TianWen.UI.Abstractions
                 var ota = previewData.OTAs[sig.OtaIndex];
                 if (!hub.TryGetConnectedDriver<ICameraDriver>(ota.Camera, out var camera) || camera is null)
                 {
-                    appState.AppendNotification(_timeProvider.GetUtcNow(),
-                        NotificationSeverity.Warning, "Camera not connected");
+                    Notify(NotificationSeverity.Warning, "Camera not connected");
                     return;
                 }
 
@@ -2385,20 +2323,17 @@ namespace TianWen.UI.Abstractions
                             // (mirrors the polar-refine onFrameCaptured leak fix).
                             liveSessionState.LastCapturedImages[sig.OtaIndex]?.Release();
                             liveSessionState.LastCapturedImages[sig.OtaIndex] = image;
-                            appState.AppendNotification(_timeProvider.GetUtcNow(),
-                                NotificationSeverity.Info, $"Preview captured: OTA {sig.OtaIndex + 1}");
+                            Notify(NotificationSeverity.Info, $"Preview captured: OTA {sig.OtaIndex + 1}");
                         }
                     }
                     catch (OperationCanceledException)
                     {
-                        appState.AppendNotification(_timeProvider.GetUtcNow(),
-                            NotificationSeverity.Warning, "Preview cancelled");
+                        Notify(NotificationSeverity.Warning, "Preview cancelled");
                     }
                     catch (Exception ex)
                     {
                         logger.LogWarning(ex, "Preview capture failed for OTA {Index}", sig.OtaIndex);
-                        appState.AppendNotification(_timeProvider.GetUtcNow(),
-                            NotificationSeverity.Error, $"Preview failed: {ex.Message}");
+                        Notify(NotificationSeverity.Error, $"Preview failed: {ex.Message}");
                     }
                     finally
                     {
@@ -2417,8 +2352,7 @@ namespace TianWen.UI.Abstractions
                 if (sig.OtaIndex >= liveSessionState.LastCapturedImages.Length) return;
                 if (liveSessionState.LastCapturedImages[sig.OtaIndex] is not { } image)
                 {
-                    appState.AppendNotification(_timeProvider.GetUtcNow(),
-                        NotificationSeverity.Warning, "No preview image to save");
+                    Notify(NotificationSeverity.Warning, "No preview image to save");
                     return;
                 }
 
@@ -2428,14 +2362,12 @@ namespace TianWen.UI.Abstractions
                     {
                         var fileName = await LiveSessionActions.SaveSnapshotAsync(
                             image, sig.OtaIndex, external, _timeProvider);
-                        appState.AppendNotification(_timeProvider.GetUtcNow(),
-                            NotificationSeverity.Info, $"Snapshot saved: {fileName}");
+                        Notify(NotificationSeverity.Info, $"Snapshot saved: {fileName}");
                     }
                     catch (Exception ex)
                     {
                         logger.LogWarning(ex, "Snapshot save failed");
-                        appState.AppendNotification(_timeProvider.GetUtcNow(),
-                            NotificationSeverity.Error, $"Snapshot failed: {ex.Message}");
+                        Notify(NotificationSeverity.Error, $"Snapshot failed: {ex.Message}");
                     }
                     finally
                     {
@@ -2450,8 +2382,7 @@ namespace TianWen.UI.Abstractions
                 if (sig.OtaIndex >= liveSessionState.LastCapturedImages.Length) return;
                 if (liveSessionState.LastCapturedImages[sig.OtaIndex] is not { } image)
                 {
-                    appState.AppendNotification(_timeProvider.GetUtcNow(),
-                        NotificationSeverity.Warning, "No preview image to solve");
+                    Notify(NotificationSeverity.Warning, "No preview image to solve");
                     return;
                 }
                 // Drop duplicate clicks: if a solve is already running for this OTA,
@@ -2482,14 +2413,12 @@ namespace TianWen.UI.Abstractions
                         var (result, message, solved) = await LiveSessionActions.SolvePreviewFrameAsync(
                             sp.GetRequiredService<IPlateSolverFactory>(), image, cts.Token);
                         liveSessionState.PreviewPlateSolveResult = result;
-                        appState.AppendNotification(_timeProvider.GetUtcNow(),
-                            solved ? NotificationSeverity.Info : NotificationSeverity.Warning, message);
+                        Notify(solved ? NotificationSeverity.Info : NotificationSeverity.Warning, message);
                     }
                     catch (Exception ex)
                     {
                         logger.LogWarning(ex, "Preview plate solve failed");
-                        appState.AppendNotification(_timeProvider.GetUtcNow(),
-                            NotificationSeverity.Error, $"Plate solve error: {ex.Message}");
+                        Notify(NotificationSeverity.Error, $"Plate solve error: {ex.Message}");
                     }
                     finally
                     {
@@ -2518,14 +2447,12 @@ namespace TianWen.UI.Abstractions
                     try
                     {
                         var targetPos = await LiveSessionActions.JogFocuserAsync(focuser, sig.Steps, cts.Token);
-                        appState.AppendNotification(_timeProvider.GetUtcNow(),
-                            NotificationSeverity.Info, $"Focuser \u2192 {targetPos}");
+                        Notify(NotificationSeverity.Info, $"Focuser \u2192 {targetPos}");
                     }
                     catch (Exception ex)
                     {
                         logger.LogWarning(ex, "Focuser jog failed for OTA {Index}", sig.OtaIndex);
-                        appState.AppendNotification(_timeProvider.GetUtcNow(),
-                            NotificationSeverity.Error, $"Focuser jog failed: {ex.Message}");
+                        Notify(NotificationSeverity.Error, $"Focuser jog failed: {ex.Message}");
                     }
                     finally
                     {
@@ -2547,9 +2474,7 @@ namespace TianWen.UI.Abstractions
                 var ota = otas[sig.OtaIndex];
                 if (!hub.TryGetConnectedDriver<ICameraDriver>(ota.Camera, out var camera) || camera is null)
                 {
-                    appState.AppendNotification(_timeProvider.GetUtcNow(),
-                        NotificationSeverity.Warning, "Connect a camera to start a planetary capture");
-                    appState.NeedsRedraw = true;
+                    Notify(NotificationSeverity.Warning, "Connect a camera to start a planetary capture");
                     return;
                 }
 
@@ -2575,17 +2500,13 @@ namespace TianWen.UI.Abstractions
                 // Planetary capture is now a Live Session mode (not a standalone tab): show it there.
                 liveSessionState.Mode = LiveSessionMode.Planetary;
                 appState.ActiveTab = GuiTab.LiveSession;
-                appState.AppendNotification(_timeProvider.GetUtcNow(),
-                    NotificationSeverity.Info, $"Planetary capture started ({roiW}x{roiH}, {sig.ExposureMs:F0} ms)");
-                appState.NeedsRedraw = true;
+                Notify(NotificationSeverity.Info, $"Planetary capture started ({roiW}x{roiH}, {sig.ExposureMs:F0} ms)");
             });
 
             bus.Subscribe<StopVideoCaptureSignal>(_ =>
             {
                 planetaryCapture.Stop();
-                appState.AppendNotification(_timeProvider.GetUtcNow(),
-                    NotificationSeverity.Info, "Planetary capture stopped");
-                appState.NeedsRedraw = true;
+                Notify(NotificationSeverity.Info, "Planetary capture stopped");
             });
 
             // Manual mount nudge (planetary panel coarse-recenter buttons) -> the same pulse-guide actuator the
@@ -2605,14 +2526,12 @@ namespace TianWen.UI.Abstractions
                     {
                         await MountActions.PulseGuideArcsecAsync(
                             mount, sig.Direction, sig.Arcsec, _timeProvider, logger: logger, cancellationToken: cts.Token);
-                        appState.AppendNotification(_timeProvider.GetUtcNow(),
-                            NotificationSeverity.Info, $"Mount nudge {sig.Direction} {sig.Arcsec:F0} arcsec");
+                        Notify(NotificationSeverity.Info, $"Mount nudge {sig.Direction} {sig.Arcsec:F0} arcsec");
                     }
                     catch (Exception ex)
                     {
                         logger.LogWarning(ex, "Mount jog failed ({Dir})", sig.Direction);
-                        appState.AppendNotification(_timeProvider.GetUtcNow(),
-                            NotificationSeverity.Error, $"Mount jog failed: {ex.Message}");
+                        Notify(NotificationSeverity.Error, $"Mount jog failed: {ex.Message}");
                     }
                     finally
                     {
@@ -2636,14 +2555,12 @@ namespace TianWen.UI.Abstractions
                     try
                     {
                         await focuser.BeginMoveAsync(sig.TargetPosition, cts.Token);
-                        appState.AppendNotification(_timeProvider.GetUtcNow(),
-                            NotificationSeverity.Info, $"Focuser \u2192 {sig.TargetPosition}");
+                        Notify(NotificationSeverity.Info, $"Focuser \u2192 {sig.TargetPosition}");
                     }
                     catch (Exception ex)
                     {
                         logger.LogWarning(ex, "Focuser goto failed for OTA {Index}", sig.OtaIndex);
-                        appState.AppendNotification(_timeProvider.GetUtcNow(),
-                            NotificationSeverity.Error, $"Focuser goto failed: {ex.Message}");
+                        Notify(NotificationSeverity.Error, $"Focuser goto failed: {ex.Message}");
                     }
                     finally
                     {
@@ -2682,6 +2599,27 @@ namespace TianWen.UI.Abstractions
 
             // Store autocomplete cache setter as a public action
             SetAutoCompleteCache = cache => autoCompleteCache = cache;
+        }
+
+        // -----------------------------------------------------------------------------
+        // Routing helpers (see docs/plans/signal-handler-boilerplate.md).
+        // Instance methods so the ctor's subscribe lambdas reach them through captured
+        // `this`; they hold no state beyond the injected fields every handler already uses.
+        // -----------------------------------------------------------------------------
+
+        /// <summary>
+        /// Records a notification stamped with the current time and kicks an
+        /// <see cref="_appState"/> redraw. Replaces the
+        /// <c>appState.AppendNotification(_timeProvider.GetUtcNow(), ...)</c> ceremony so the
+        /// timestamp can never be forgotten. The redraw deliberately targets only
+        /// <see cref="_appState"/>: a handler whose surface also needs the kick (sky map, live
+        /// session, planner) sets that state's <c>NeedsRedraw</c> explicitly at the call site —
+        /// a redraw-everything hammer would mask missing-redraw bugs and cost frames.
+        /// </summary>
+        private void Notify(NotificationSeverity severity, string message)
+        {
+            _appState.AppendNotification(_timeProvider.GetUtcNow(), severity, message);
+            _appState.NeedsRedraw = true;
         }
     }
 }
