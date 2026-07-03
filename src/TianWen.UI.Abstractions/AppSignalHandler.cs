@@ -2,6 +2,7 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Collections.Immutable;
+using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.IO;
 using System.Linq;
@@ -938,11 +939,7 @@ namespace TianWen.UI.Abstractions
 
             bus.Subscribe<SkyMapSlewToObjectSignal>(sig =>
             {
-                if (liveSessionState.IsRunning)
-                {
-                    Notify(NotificationSeverity.Warning, "Cannot slew manually while a session is running");
-                    return;
-                }
+                if (!EnsureSessionIdle("Cannot slew manually while a session is running")) return;
                 if (appState.ActiveProfile is not { Data: { } pdata } profile
                     || pdata.Mount is not { Scheme: not "none" } mountUri)
                 {
@@ -1109,11 +1106,7 @@ namespace TianWen.UI.Abstractions
 
             bus.Subscribe<SkyMapSolveSyncSignal>(sig =>
             {
-                if (liveSessionState.IsRunning)
-                {
-                    Notify(NotificationSeverity.Warning, "Cannot solve & sync while a session is running");
-                    return;
-                }
+                if (!EnsureSessionIdle("Cannot solve & sync while a session is running")) return;
                 // Re-entrancy guard: ignore a second click while a solve is already in
                 // flight (the button also shows "Solving ..." and drops its handler, but
                 // a queued signal could still arrive). UI-thread-only read here.
@@ -1140,11 +1133,7 @@ namespace TianWen.UI.Abstractions
                     return;
                 }
                 var ota = otas[sig.OtaIndex];
-                if (!hub.TryGetConnectedDriver<ICameraDriver>(ota.Camera, out var camera) || camera is null)
-                {
-                    Notify(NotificationSeverity.Warning, "Camera not connected");
-                    return;
-                }
+                if (!TryGetConnected<ICameraDriver>(hub, ota.Camera, "Camera", out var camera)) return;
 
                 // Optional per-OTA devices for FITS denorm stamping (same as TakePreview);
                 // the mount is resolved separately above, so discard it here.
@@ -1815,11 +1804,7 @@ namespace TianWen.UI.Abstractions
             bus.Subscribe<SetCoolerSetpointSignal>(async sig =>
             {
                 if (appState.DeviceHub is not { } hub) return;
-                if (!hub.TryGetConnectedDriver<TianWen.Lib.Devices.ICameraDriver>(sig.DeviceUri, out var camera))
-                {
-                    Notify(NotificationSeverity.Warning, "Camera not connected");
-                    return;
-                }
+                if (!TryGetConnected<ICameraDriver>(hub, sig.DeviceUri, "Camera", out var camera)) return;
                 try
                 {
                     await EquipmentActions.SetCoolerSetpointAsync(camera, sig.SetpointC, cts.Token);
@@ -1969,11 +1954,7 @@ namespace TianWen.UI.Abstractions
 
             bus.Subscribe<StartSessionSignal>(async _ =>
             {
-                if (liveSessionState.IsRunning)
-                {
-                    Notify(NotificationSeverity.Warning, "Session already running");
-                    return;
-                }
+                if (!EnsureSessionIdle("Session already running")) return;
 
                 if (appState.ActiveProfile is not { } profile)
                 {
@@ -2010,11 +1991,7 @@ namespace TianWen.UI.Abstractions
 
             bus.Subscribe<StartPolarAlignmentSignal>(sig =>
             {
-                if (liveSessionState.IsRunning)
-                {
-                    Notify(NotificationSeverity.Warning, "Session is running \u2014 polar alignment unavailable");
-                    return;
-                }
+                if (!EnsureSessionIdle("Session is running \u2014 polar alignment unavailable")) return;
                 if (liveSessionState.PolarAlignmentCts is not null)
                 {
                     Notify(NotificationSeverity.Warning, "Polar alignment already running");
@@ -2030,11 +2007,7 @@ namespace TianWen.UI.Abstractions
                     Notify(NotificationSeverity.Warning, "Device hub not available");
                     return;
                 }
-                if (!hub.TryGetConnectedDriver<IMountDriver>(profileData.Mount, out var mount) || mount is null)
-                {
-                    Notify(NotificationSeverity.Warning, "Mount not connected \u2014 connect a mount first");
-                    return;
-                }
+                if (!TryGetConnected<IMountDriver>(hub, profileData.Mount, "Mount", out var mount, "Mount not connected \u2014 connect a mount first")) return;
                 if (profileData.SiteLatitude is not { } lat || profileData.SiteLongitude is not { } lon)
                 {
                     Notify(NotificationSeverity.Warning, "Site location not configured for this profile");
@@ -2252,11 +2225,7 @@ namespace TianWen.UI.Abstractions
 
             bus.Subscribe<TakePreviewSignal>(sig =>
             {
-                if (liveSessionState.IsRunning)
-                {
-                    Notify(NotificationSeverity.Warning, "Session is running \u2014 preview unavailable");
-                    return;
-                }
+                if (!EnsureSessionIdle("Session is running \u2014 preview unavailable")) return;
                 if (appState.ActiveProfile?.Data is not { } previewData || sig.OtaIndex >= previewData.OTAs.Length)
                 {
                     Notify(NotificationSeverity.Warning, "Invalid OTA index");
@@ -2265,11 +2234,7 @@ namespace TianWen.UI.Abstractions
                 if (appState.DeviceHub is not { } hub) return;
 
                 var ota = previewData.OTAs[sig.OtaIndex];
-                if (!hub.TryGetConnectedDriver<ICameraDriver>(ota.Camera, out var camera) || camera is null)
-                {
-                    Notify(NotificationSeverity.Warning, "Camera not connected");
-                    return;
-                }
+                if (!TryGetConnected<ICameraDriver>(hub, ota.Camera, "Camera", out var camera)) return;
 
                 // Resolve the OTA's other devices for per-capture FITS denorm. Mount is
                 // optional (preview can fire without one) but unlocks Target stamping
@@ -2434,13 +2399,7 @@ namespace TianWen.UI.Abstractions
 
             bus.Subscribe<JogFocuserSignal>(sig =>
             {
-                if (liveSessionState.IsRunning) return;
-                if (appState.ActiveProfile?.Data is not { OTAs: var otas } || sig.OtaIndex >= otas.Length) return;
-                if (appState.DeviceHub is not { } hub) return;
-
-                var ota = otas[sig.OtaIndex];
-                if (ota.Focuser is not { } focUri) return;
-                if (!hub.TryGetConnectedDriver<IFocuserDriver>(focUri, out var focuser) || focuser is null) return;
+                if (!TryResolveIdleOtaFocuser(sig.OtaIndex, out var focuser)) return;
 
                 tracker.Run(async () =>
                 {
@@ -2472,11 +2431,7 @@ namespace TianWen.UI.Abstractions
                 if (appState.DeviceHub is not { } hub) return;
 
                 var ota = otas[sig.OtaIndex];
-                if (!hub.TryGetConnectedDriver<ICameraDriver>(ota.Camera, out var camera) || camera is null)
-                {
-                    Notify(NotificationSeverity.Warning, "Connect a camera to start a planetary capture");
-                    return;
-                }
+                if (!TryGetConnected<ICameraDriver>(hub, ota.Camera, "Camera", out var camera, "Connect a camera to start a planetary capture")) return;
 
                 var (roiW, roiH) = PlanetaryCaptureActions.ConfigureRoi(camera, sig.RoiWidth, sig.RoiHeight);
 
@@ -2542,13 +2497,7 @@ namespace TianWen.UI.Abstractions
 
             bus.Subscribe<GotoFocuserSignal>(sig =>
             {
-                if (liveSessionState.IsRunning) return;
-                if (appState.ActiveProfile?.Data is not { OTAs: var otas } || sig.OtaIndex >= otas.Length) return;
-                if (appState.DeviceHub is not { } hub) return;
-
-                var ota = otas[sig.OtaIndex];
-                if (ota.Focuser is not { } focUri) return;
-                if (!hub.TryGetConnectedDriver<IFocuserDriver>(focUri, out var focuser) || focuser is null) return;
+                if (!TryResolveIdleOtaFocuser(sig.OtaIndex, out var focuser)) return;
 
                 tracker.Run(async () =>
                 {
@@ -2613,13 +2562,67 @@ namespace TianWen.UI.Abstractions
         /// <c>appState.AppendNotification(_timeProvider.GetUtcNow(), ...)</c> ceremony so the
         /// timestamp can never be forgotten. The redraw deliberately targets only
         /// <see cref="_appState"/>: a handler whose surface also needs the kick (sky map, live
-        /// session, planner) sets that state's <c>NeedsRedraw</c> explicitly at the call site —
-        /// a redraw-everything hammer would mask missing-redraw bugs and cost frames.
+        /// session, planner) sets that state's <c>NeedsRedraw</c> explicitly at the call site
+        /// -- a redraw-everything hammer would mask missing-redraw bugs and cost frames.
         /// </summary>
         private void Notify(NotificationSeverity severity, string message)
         {
             _appState.AppendNotification(_timeProvider.GetUtcNow(), severity, message);
             _appState.NeedsRedraw = true;
+        }
+
+        /// <summary>
+        /// Guards an action that must not run during a session. Returns true (proceed) when idle;
+        /// when a session is running it notifies <paramref name="message"/> (Warning) and returns
+        /// false. Call as <c>if (!EnsureSessionIdle("...")) return;</c>. The message is bespoke per
+        /// action ("Cannot slew manually ...", "Session already running", ...), so it is a required
+        /// argument rather than a templated default.
+        /// </summary>
+        private bool EnsureSessionIdle(string message)
+        {
+            if (!_liveSessionState.IsRunning)
+            {
+                return true;
+            }
+            Notify(NotificationSeverity.Warning, message);
+            return false;
+        }
+
+        /// <summary>
+        /// Resolves a connected driver of type <typeparamref name="T"/> for <paramref name="uri"/>.
+        /// Returns true with a non-null <paramref name="driver"/> when connected; otherwise notifies
+        /// (Warning) "<paramref name="label"/> not connected" (or <paramref name="message"/> when the
+        /// wording is bespoke) and returns false. Collapses the
+        /// <c>TryGetConnectedDriver + "|| x is null" + Notify + return</c> guard to one line; the
+        /// <c>|| x is null</c> was dead code (<see cref="IDeviceHub.TryGetConnectedDriver"/> is
+        /// <c>[NotNullWhen(true)]</c>).
+        /// </summary>
+        private bool TryGetConnected<T>(IDeviceHub hub, Uri uri, string label,
+            [NotNullWhen(true)] out T? driver, string? message = null)
+            where T : class, IDeviceDriver
+        {
+            if (hub.TryGetConnectedDriver(uri, out driver))
+            {
+                return true;
+            }
+            Notify(NotificationSeverity.Warning, message ?? $"{label} not connected");
+            return false;
+        }
+
+        /// <summary>
+        /// Silent Live-Session prologue shared by the focuser jog/goto handlers: requires no running
+        /// session, a valid OTA index in the active profile, a device hub, and a connected focuser
+        /// assigned to that OTA. Returns false (deliberately without a notification: these are
+        /// click-driven and self-explanatory) if any link is missing.
+        /// </summary>
+        private bool TryResolveIdleOtaFocuser(int otaIndex, [NotNullWhen(true)] out IFocuserDriver? focuser)
+        {
+            focuser = null;
+            if (_liveSessionState.IsRunning) return false;
+            if (_appState.ActiveProfile?.Data is not { OTAs: var otas } || otaIndex >= otas.Length) return false;
+            if (_appState.DeviceHub is not { } hub) return false;
+            if (otas[otaIndex].Focuser is not { } focUri) return false;
+            return hub.TryGetConnectedDriver(focUri, out focuser);
         }
     }
 }
