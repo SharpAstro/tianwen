@@ -24,15 +24,21 @@ internal partial class AscomDeviceIterator(ILogger<AscomDeviceIterator> logger) 
     [SupportedOSPlatform("windows")]
     internal static bool CheckMininumAscomPlatformVersion(Version minVersion)
     {
-        using var hklm32 = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, RegistryView.Registry32);
-
-        if (hklm32.OpenSubKey(string.Join('\\', "SOFTWARE", "ASCOM", "Platform"), false) is { } platformKey
-            // Platform <= 6.x writes "PlatformVersion"; Platform 7.x renamed it to "Platform Version" (with a space).
-            && ((platformKey.GetValue("PlatformVersion") ?? platformKey.GetValue("Platform Version")) is string versionString and { Length: > 0 })
-            && Version.TryParse(versionString, out var version)
-        )
+        // Platform <= 6.x (32-bit) writes the key under the Wow6432Node (32-bit) view; Platform 7.x
+        // is .NET-based and may register it 64-bit-only -- check both views (the 64-bit gap is why
+        // discovery came up empty on a Platform 7 x64 host).
+        foreach (var view in new[] { RegistryView.Registry32, RegistryView.Registry64 })
         {
-            return version >= minVersion;
+            using var hklm = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, view);
+
+            if (hklm.OpenSubKey(string.Join('\\', "SOFTWARE", "ASCOM", "Platform"), false) is { } platformKey
+                // Platform <= 6.x writes "PlatformVersion"; Platform 7.x renamed it to "Platform Version" (with a space).
+                && ((platformKey.GetValue("PlatformVersion") ?? platformKey.GetValue("Platform Version")) is string versionString and { Length: > 0 })
+                && Version.TryParse(versionString, out var version)
+                && version >= minVersion)
+            {
+                return true;
+            }
         }
         return false;
     }
@@ -56,7 +62,10 @@ internal partial class AscomDeviceIterator(ILogger<AscomDeviceIterator> logger) 
         _ => throw new ArgumentOutOfRangeException(nameof(deviceType), deviceType, null)
     };
 
-    private static readonly DeviceType[] _allSupportedDeviceTypes = [DeviceType.Camera, DeviceType.FilterWheel, DeviceType.Focuser, DeviceType.Telescope];
+    // All six types have an Ascom*Driver + an AscomRegistryKeyName mapping + a TryInstantiateDriver
+    // arm; CoverCalibrator and Switch were omitted here (so DiscoverAsync never enumerated them) --
+    // a discovery-list oversight, now corrected.
+    private static readonly DeviceType[] _allSupportedDeviceTypes = [DeviceType.Camera, DeviceType.CoverCalibrator, DeviceType.FilterWheel, DeviceType.Focuser, DeviceType.Switch, DeviceType.Telescope];
 
     private Dictionary<DeviceType, List<AscomDevice>> _devices = [];
 
@@ -66,29 +75,40 @@ internal partial class AscomDeviceIterator(ILogger<AscomDeviceIterator> logger) 
     private List<AscomDevice> GetDriversFromRegistry(DeviceType deviceType)
     {
         var devices = new List<AscomDevice>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var keyName = AscomRegistryKeyName(deviceType);
 
-        using var hklm32 = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, RegistryView.Registry32);
-        using var driversKey = hklm32.OpenSubKey($@"SOFTWARE\ASCOM\{keyName} Drivers", false);
-
-        if (driversKey is null)
+        // Platform 6 writes the ASCOM Profile driver list under the 32-bit view; Platform 7 may use
+        // the 64-bit view -- read both and merge (dedup by ProgID) so discovery is view-agnostic.
+        foreach (var view in new[] { RegistryView.Registry32, RegistryView.Registry64 })
         {
-            return devices;
-        }
+            using var hklm = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, view);
+            using var driversKey = hklm.OpenSubKey($@"SOFTWARE\ASCOM\{keyName} Drivers", false);
 
-        foreach (var progId in driversKey.GetSubKeyNames())
-        {
-            using var progIdKey = driversKey.OpenSubKey(progId, false);
-            var displayName = progIdKey?.GetValue(null) as string ?? progId;
-
-            if (!IsComServerRegistered(progId, out var reason))
+            if (driversKey is null)
             {
-                logger.LogDebug("Skipping stale ASCOM {Type} registration {ProgId} ({DisplayName}): {Reason}",
-                    deviceType, progId, displayName, reason);
                 continue;
             }
 
-            devices.Add(new AscomDevice(deviceType, progId, displayName));
+            foreach (var progId in driversKey.GetSubKeyNames())
+            {
+                if (!seen.Add(progId))
+                {
+                    continue;
+                }
+
+                using var progIdKey = driversKey.OpenSubKey(progId, false);
+                var displayName = progIdKey?.GetValue(null) as string ?? progId;
+
+                if (!IsComServerRegistered(progId, out var reason))
+                {
+                    logger.LogDebug("Skipping stale ASCOM {Type} registration {ProgId} ({DisplayName}): {Reason}",
+                        deviceType, progId, displayName, reason);
+                    continue;
+                }
+
+                devices.Add(new AscomDevice(deviceType, progId, displayName));
+            }
         }
 
         return devices;
