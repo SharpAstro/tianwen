@@ -138,6 +138,12 @@ public interface ICameraDriver : IDeviceDriver
     /// Signals that the consumer is done with the current image data returned by <see cref="ImageData"/>.
     /// The camera driver may reuse the backing <c>float[,]</c> arrays for the next exposure.
     /// Must be called after FITS writing and any processing that reads the raw pixel data.
+    /// <para>
+    /// The default <see cref="GetImageAsync"/> calls this after transferring buffer ownership to the
+    /// returned <see cref="Image"/>, so <see cref="ImageData"/> reads null once <see cref="GetImageAsync"/>
+    /// returns. If you need the raw <see cref="Imaging.Channel"/> directly, read <see cref="ImageData"/>
+    /// <em>before</em> calling <see cref="GetImageAsync"/>.
+    /// </para>
     /// </summary>
     void ReleaseImageData();
 
