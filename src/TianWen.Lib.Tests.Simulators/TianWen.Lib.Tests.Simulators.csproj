@@ -1,0 +1,45 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Integration tests that drive real device drivers against a live device simulator
+       provisioned out-of-process (an ASCOM Alpaca "OmniSim" server, or the native ASCOM
+       Platform + COM simulators on Windows). Every test in here is opt-in via an environment
+       variable (see SimulatorGate) and skips cleanly when the simulator is absent, so a bare
+       `dotnet test` on a dev box without a simulator is green. CI provisions the simulator and
+       sets the gate variable per leg. Kept in a separate project (not TianWen.Lib.Tests or
+       .Functional) so the fast unit + fake-device functional suites never depend on an external
+       process, and so each simulator gets its own CI job. -->
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <Platforms>AnyCPU</Platforms>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Meziantou.Extensions.Logging.Xunit.v3" />
+    <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="Shouldly" />
+    <PackageReference Include="xunit.runner.visualstudio">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+    <PackageReference Include="coverlet.collector">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+    <PackageReference Include="xunit.v3" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="xunit.runner.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\TianWen.Lib\TianWen.Lib.csproj" />
+    <!-- FakeExternal + the xUnit logging helpers live here. -->
+    <ProjectReference Include="..\TianWen.Lib.Tests\TianWen.Lib.Tests.csproj" />
+  </ItemGroup>
+
+</Project>

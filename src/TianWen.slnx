@@ -19,6 +19,7 @@
   <Project Path="TianWen.Server/TianWen.Server.csproj" />
   <Project Path="TianWen.Lib.SourceGenerators/TianWen.Lib.SourceGenerators.csproj" />
   <Project Path="TianWen.Lib.Tests.Functional/TianWen.Lib.Tests.Functional.csproj" />
+  <Project Path="TianWen.Lib.Tests.Simulators/TianWen.Lib.Tests.Simulators.csproj" />
   <Project Path="TianWen.Lib.Tests/TianWen.Lib.Tests.csproj" />
   <Project Path="TianWen.Lib/TianWen.Lib.csproj" />
   <Project Path="TianWen.UI.Abstractions/TianWen.UI.Abstractions.csproj" />

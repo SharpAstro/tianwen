@@ -141,6 +141,27 @@ will still pull from nuget.org and a local-only nupkg will mask version-skew bug
 - **Never use reflection in tests** — add an `internal` property/method instead (test project has `InternalsVisibleTo`)
 - **Avoid duplication** — extract shared setup to helpers (e.g., `SessionTestHelper`)
 
+### Device-Simulator Integration Tests (on-demand)
+
+`TianWen.Lib.Tests.Simulators` drives the **real** device drivers against **live simulators** --
+separate from the fast unit (`TianWen.Lib.Tests`) and fake-device functional
+(`TianWen.Lib.Tests.Functional`) suites so neither depends on an external process. Every test is
+opt-in via `SimulatorGate` and **skips (never fails) with no simulator present**, so a bare
+`dotnet test` stays green:
+- **Alpaca** (`AlpacaSimulatorTests`, cross-platform HTTP): set `TIANWEN_ALPACA_SIM` to a running
+  ASCOM Alpaca "OmniSim" base URL (e.g. `http://localhost:11111`). Resolves devices via the
+  management API (NOT UDP discovery -- unreliable on runners) + direct-addressed `AlpacaDevice`s,
+  then exercises the production `AlpacaClient`/drivers incl. the camera **ImageBytes** round-trip
+  (the path `AlpacaImageBytesTests` only byte-pinned).
+- **ASCOM** (`AscomDeviceTests`, Windows COM): set `TIANWEN_ASCOM_CI` with the ASCOM Platform +
+  `ASCOM.Simulator.*` installed. (Moved here from `.Functional`; re-gated off `Debugger.IsAttached`.)
+
+Run on demand via `.github/workflows/simulators.yml` (`workflow_dispatch` only, like
+`publish-apps`/`release` -- too heavy for every push): `gh workflow run simulators.yml
+[-f suite=alpaca|ascom|both]`. A shared `catalogs` job feeds the `*.gs.gz` artifact so the Windows
+leg needs no `lzip`. The PR `dotnet.yml` loop only *compiles* the project; the live-sim run is the
+dispatch. See [docs/plans/device-simulator-ci.md](docs/plans/device-simulator-ci.md).
+
 ### Test Collections & Parallelism
 
 Tests grouped into `[Collection("X")]` by functional area. All `Session*Tests` share `[Collection("Session")]`

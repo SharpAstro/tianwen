@@ -1,0 +1,174 @@
+name: Device Simulators (on-demand)
+
+# On-demand integration tests that drive the real device drivers against a live simulator:
+#   - alpaca-sim: the ASCOM Alpaca "OmniSim" (cross-platform HTTP) on Linux -- validates the
+#     Alpaca transport end-to-end incl. the camera ImageBytes round-trip (unit-pinned but
+#     previously unverified against a live server).
+#   - ascom-sim: the native ASCOM Platform + COM simulators on Windows -- validates the COM
+#     interop seam (Windows-only, so it cannot live in the Linux PR test matrix).
+# Deliberately workflow_dispatch only (like publish-apps/release): provisioning a simulator per
+# run -- an OmniSim download, or a full ASCOM Platform install -- is too heavy for every push.
+# Trigger: gh workflow run simulators.yml [-f suite=alpaca|ascom|both]
+on:
+  workflow_dispatch:
+    inputs:
+      suite:
+        description: Which simulator suite(s) to run
+        type: choice
+        options: [both, alpaca, ascom]
+        default: both
+
+env:
+  BUILD_CONF: Release
+  TEST_PROJECT: TianWen.Lib.Tests.Simulators
+  OMNISIM_TAG: v0.4.0
+  ASCOM_PLATFORM_TAG: v7.1.3
+  ASCOM_PLATFORM_INSTALLER: ASCOMPlatform713.4851.exe
+
+jobs:
+  # Produce the *.gs.gz preprocessed catalogs once (the only step needing lzip + the *.lz LFS
+  # objects) and share them with the sim jobs, mirroring how dotnet.yml's build job feeds its
+  # test jobs. This is what lets the Windows leg build TianWen.Lib without lzip.
+  catalogs:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Install lzip
+      run: sudo apt-get update && sudo apt-get install -y lzip
+    - uses: actions/checkout@v6
+      with:
+        submodules: recursive
+        lfs: false
+    - name: Fetch catalog LFS objects
+      run: git lfs pull --include="*.lz,*.bin.gz"
+    - uses: actions/setup-dotnet@v5
+      with:
+        dotnet-version: 10.0.x
+        cache: true
+        cache-dependency-path: src/Directory.Packages.props
+    # Building TianWen.Lib runs the PreprocessCatalogs MSBuild target as a side effect.
+    - name: Build TianWen.Lib (runs PreprocessCatalogs)
+      run: dotnet build TianWen.Lib/TianWen.Lib.csproj -c $BUILD_CONF
+      working-directory: src
+    - name: Upload preprocessed catalogs
+      uses: actions/upload-artifact@v7
+      with:
+        name: preprocessed-catalogs
+        path: src/TianWen.Lib/Astrometry/Catalogs/*.gs.gz
+        retention-days: 1
+
+  alpaca-sim:
+    needs: catalogs
+    if: ${{ github.event.inputs.suite == 'both' || github.event.inputs.suite == 'alpaca' }}
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v6
+      with:
+        submodules: recursive
+        lfs: false
+    - uses: actions/setup-dotnet@v5
+      with:
+        dotnet-version: 10.0.x
+        cache: true
+        cache-dependency-path: src/Directory.Packages.props
+    # Skip PreprocessCatalogs by dropping in the prebuilt *.gs.gz and making them newer than the
+    # *.lz sources (MSBuild Inputs/Outputs check). No LFS pull: the Alpaca sim tests load nothing
+    # from LFS, and the embedded *.bin.gz (LFS pointer text here) is never read at runtime.
+    - name: Download preprocessed catalogs
+      uses: actions/download-artifact@v8
+      with:
+        name: preprocessed-catalogs
+        path: src/TianWen.Lib/Astrometry/Catalogs/
+    - name: Refresh preprocessed catalog mtimes
+      run: touch src/TianWen.Lib/Astrometry/Catalogs/*.gs.gz
+    # Download the self-contained OmniSim, launch it headless, discover the port it bound (from
+    # its startup log, falling back to the Alpaca default 11111) and export the base URL so the
+    # test suite's TIANWEN_ALPACA_SIM gate opens.
+    - name: Launch ASCOM Alpaca Simulator (OmniSim)
+      run: |
+        set -euo pipefail
+        url="https://github.com/ASCOMInitiative/ASCOM.Alpaca.Simulators/releases/download/${OMNISIM_TAG}/ascom.alpaca.simulators.linux-x64.tar.xz"
+        echo "Downloading $url"
+        curl -fsSL -o omnisim.tar.xz "$url"
+        mkdir -p omnisim && tar -xJf omnisim.tar.xz -C omnisim
+        exe=$(find omnisim -maxdepth 3 -type f -name 'ascom.alpaca.simulators' | head -1)
+        [ -n "$exe" ] || { echo "OmniSim executable not found in archive:"; find omnisim -maxdepth 3 -type f | head -50; exit 1; }
+        chmod +x "$exe"
+        echo "Launching $exe"
+        nohup "$exe" > "$GITHUB_WORKSPACE/omnisim.log" 2>&1 &
+        base=""
+        for i in $(seq 1 60); do
+          port=$(grep -oE 'https?://(127\.0\.0\.1|localhost|0\.0\.0\.0|\[::\]):[0-9]+' "$GITHUB_WORKSPACE/omnisim.log" 2>/dev/null | grep -oE '[0-9]+$' | head -1 || true)
+          for cand in "$port" 11111; do
+            [ -n "$cand" ] || continue
+            if curl -fsS "http://localhost:${cand}/management/apiversions" >/dev/null 2>&1; then base="http://localhost:${cand}"; break; fi
+          done
+          [ -n "$base" ] && break
+          sleep 1
+        done
+        [ -n "$base" ] || { echo "OmniSim did not become ready. Log:"; cat "$GITHUB_WORKSPACE/omnisim.log"; exit 1; }
+        echo "OmniSim ready at $base"
+        curl -fsS "$base/management/v1/configureddevices" && echo
+        echo "TIANWEN_ALPACA_SIM=$base" >> "$GITHUB_ENV"
+    - name: Restore
+      run: dotnet restore $TEST_PROJECT
+      working-directory: src
+    - name: Build
+      run: dotnet build $TEST_PROJECT -c $BUILD_CONF --no-restore
+      working-directory: src
+    - name: Alpaca simulator tests
+      run: dotnet test $TEST_PROJECT -c $BUILD_CONF --no-build --logger "console;verbosity=detailed"
+      working-directory: src
+    - name: Upload OmniSim log
+      if: always()
+      uses: actions/upload-artifact@v7
+      with:
+        name: omnisim-log
+        path: omnisim.log
+        if-no-files-found: ignore
+        retention-days: 7
+
+  ascom-sim:
+    needs: catalogs
+    if: ${{ github.event.inputs.suite == 'both' || github.event.inputs.suite == 'ascom' }}
+    runs-on: windows-latest
+    steps:
+    - uses: actions/checkout@v6
+      with:
+        submodules: recursive
+        lfs: false
+    - uses: actions/setup-dotnet@v5
+      with:
+        dotnet-version: 10.0.x
+        cache: true
+        cache-dependency-path: src/Directory.Packages.props
+    - name: Download preprocessed catalogs
+      uses: actions/download-artifact@v8
+      with:
+        name: preprocessed-catalogs
+        path: src/TianWen.Lib/Astrometry/Catalogs/
+    - name: Refresh preprocessed catalog mtimes
+      shell: pwsh
+      run: Get-ChildItem src/TianWen.Lib/Astrometry/Catalogs/ -Filter *.gs.gz | ForEach-Object { $_.LastWriteTime = Get-Date }
+    # Silent-install the ASCOM Platform (Inno Setup). This registers the ASCOM.Simulator.* COM
+    # drivers the tests instantiate. GitHub Windows runners run elevated, so no UAC prompt.
+    - name: Install ASCOM Platform
+      shell: pwsh
+      run: |
+        $url = "https://github.com/ASCOMInitiative/ASCOMPlatform/releases/download/$env:ASCOM_PLATFORM_TAG/$env:ASCOM_PLATFORM_INSTALLER"
+        Write-Host "Downloading $url"
+        Invoke-WebRequest -Uri $url -OutFile ascom-platform.exe
+        Write-Host "Installing silently"
+        $p = Start-Process -FilePath .\ascom-platform.exe -ArgumentList '/SP-','/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART' -Wait -PassThru
+        Write-Host "Installer exit code: $($p.ExitCode)"
+        if ($p.ExitCode -ne 0) { exit $p.ExitCode }
+    - name: Restore
+      run: dotnet restore $env:TEST_PROJECT
+      working-directory: src
+    - name: Build
+      run: dotnet build $env:TEST_PROJECT -c $env:BUILD_CONF --no-restore
+      working-directory: src
+    - name: ASCOM simulator tests
+      env:
+        TIANWEN_ASCOM_CI: "1"
+      run: dotnet test $env:TEST_PROJECT -c $env:BUILD_CONF --no-build --logger "console;verbosity=detailed"
+      working-directory: src
