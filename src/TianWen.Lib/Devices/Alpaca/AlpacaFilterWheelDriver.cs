@@ -58,6 +58,17 @@ internal class AlpacaFilterWheelDriver(AlpacaDevice device, IServiceProvider ser
     }
 
     /// <summary>
+    /// Populates the filter slot config on connect. Without this, <see cref="Filters"/> stays empty
+    /// (so <see cref="BeginMoveAsync"/> always throws) -- the base <see cref="DeviceDriverBase{TDevice,TDeviceInfo}.InitDeviceAsync"/>
+    /// is a no-op, and every other Alpaca driver overrides it, so the filter wheel must too.
+    /// </summary>
+    protected override async ValueTask<bool> InitDeviceAsync(CancellationToken cancellationToken)
+    {
+        await ReadFilterConfigAsync(cancellationToken);
+        return true;
+    }
+
+    /// <summary>
     /// Reads filter names and focus offsets from the Alpaca API after connecting.
     /// </summary>
     internal async Task ReadFilterConfigAsync(CancellationToken cancellationToken)
