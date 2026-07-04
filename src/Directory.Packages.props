@@ -92,8 +92,9 @@
          IMeasureContext move into the namespace too) + adds the Layout.Builder DSL & fluent Node modifiers
          (.RowH()/.WStar()/.Bg()/.Clickable()/...). Source-breaking: consumers alias
          `using Layout = DIR.Lib.Layout;` and write Layout.Node / Layout.Builder / Layout.Sizing. Lockstep
-         with Console.Lib 3.3 + SdlVulkan.Renderer 6.7. -->
-    <PackageVersion Include="DIR.Lib" Version="6.0.*" />
+         with Console.Lib 3.3 + SdlVulkan.Renderer 6.7.
+         6.3 bumped alongside SdlVulkan.Renderer 6.10 (which requires DIR.Lib >= 6.3.1201). -->
+    <PackageVersion Include="DIR.Lib" Version="6.3.*" />
     <!-- DIR.Lib 3.0 extracted its codec layer to these sibling packages, which
          ship as a lockstep family from the StbImageSharp repo. 3.0 brought a
          binary-breaking SharpAstro.Tiff change (TiffPageOptions.IccProfile is
@@ -151,8 +152,10 @@
          6.8 adds the inspector render-thread watchdog (render_liveness).
          6.9 adds the inspector describe_layout MCP tool: serializes the full arranged DIR.Lib.Layout
          tree (depth + kind + rect + chrome), not just the clickable subset; needs DIR.Lib 6.0.1161
-         (ArrangedNode.Depth + PixelWidgetBase.GetCapturedLayout + LayoutInspection). -->
-    <PackageVersion Include="SdlVulkan.Renderer" Version="6.9.*" />
+         (ArrangedNode.Depth + PixelWidgetBase.GetCapturedLayout + LayoutInspection).
+         6.10 adds DebugSignalArgs (JsonElement OptInt/OptDouble/OptBool/OptString extension members) used by
+         Program.cs's DebugInspector SignalFactories; without this bump the GUI DEBUG build fails CS1061. -->
+    <PackageVersion Include="SdlVulkan.Renderer" Version="6.10.*" />
     <PackageVersion Include="SDL3-CS" Version="3.5.0-preview.20260213-150035" />
     <PackageVersion Include="SDL3-CS.Native" Version="3.5.0-preview.20260205-174353" />
     <!-- Canon DSLR -->
