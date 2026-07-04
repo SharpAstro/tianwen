@@ -1,5 +1,13 @@
 # ASCOM COM drivers: STA + message-pump host (plan)
 
+> **⚠️ SUPERSEDED (2026-07-04) by [ascom-oop-host.md](ascom-oop-host.md).** The STA message-pump
+> mitigation proposed below is the **wrong fix**: the `0xC0000409` crash is a **CET (hardware
+> shadow-stack) violation** of the in-proc .NET Framework CLR, a native `RtlFailFast` that **no
+> client-side message pump can catch** (four pump/no-pump experiments all crashed identically). The
+> correct fix is `<CETCompat>false</CETCompat>` on the executable that loads the driver, delivered via a
+> tiny out-of-process CET-off helper so the main app keeps CET on. This doc is kept only for the
+> root-cause investigation + driver survey below; **do not implement the STA-pump mitigation.**
+
 **Status: NOT STARTED (design + finding captured).** Found during the Gemini FlatPanel Lite bring-up
 (branch `fix/gemini-flat-panel`) while trying to cross-check the panel via the vendor ASCOM driver.
 TianWen's ASCOM-over-COM path (`AscomDevice` / `AscomDispatchDevice`) cannot reliably **connect** an

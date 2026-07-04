@@ -40,6 +40,9 @@
     <ProjectReference Include="..\TianWen.Lib\TianWen.Lib.csproj" />
     <!-- FakeExternal + the xUnit logging helpers live here. -->
     <ProjectReference Include="..\TianWen.Lib.Tests\TianWen.Lib.Tests.csproj" />
+    <!-- Build-only: AscomHostProcessTests spawns the built tianwen-ascomhost.exe and locates it by
+         path, so we don't want its assembly referenced, only built before the tests run. -->
+    <ProjectReference Include="..\TianWen.AscomHost\TianWen.AscomHost.csproj" ReferenceOutputAssembly="false" Private="false" SkipGetTargetFrameworkProperties="true" />
   </ItemGroup>
 
 </Project>
