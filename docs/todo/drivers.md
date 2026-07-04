@@ -158,6 +158,13 @@ The fakes now model this honestly, and the sky map gained the discovery tool:
 ## Device Management
 
 - [ ] Try to parse URI manually in Profile fallback (`Profile.cs:130`)
+- [ ] **Post-connect mount liveness probe (ASCOM hubs / GS Server).** GS Server is a COM *hub*: a
+      client's `Connected = true` attaches the client but doesn't force the hub↔mount link, so a
+      driver can report connected while returning RA=0 / tracking=false (observed 2026-07-04 — the
+      GSS form showed disconnected until the mount was connected *inside* GSS). After `Connected =
+      true`, read RA/Dec (or `AtPark`/`Tracking`) and surface a warning ("connected but not
+      reporting position — connect the mount inside GS Server") instead of silently proceeding into
+      a session against a dead link. Cross-ref [../plans/ascom-com-sta-message-pump.md](../plans/ascom-com-sta-message-pump.md).
 
 ## Protocol Support
 

@@ -67,6 +67,31 @@ Part of the TianWen TODO set. See [TODO.md](../../TODO.md) for the index and the
       `ScanBackgroundRegion` accepts optional `BitMatrix? starMask`, re-scanned with
       48×48 squares after detection. Star mask reused from `StarList.StarMask`.
 
+## Build / dev environment (local siblings)
+
+- [x] **NuGet graph-restore source-key alignment** (DONE 2026-07-04, `src/NuGet.config`). With all
+      sibling repos cloned, `UseLocalSiblings` project-references them, so a restore builds a graph
+      spanning `../DIR.Lib`, `../StbImageSharp`, `../FITS.Lib`, `../SER.Lib`, … and MSBuild merges
+      *their* `nuget.config`s into the settings. `packageSourceMapping` matches by source **key**, so
+      the key mismatch (`api.nuget.org` in tianwen/siblings vs the user-wide `nuget.org`) made the
+      winning mapping point at a source that didn't survive the merge → spurious NU1100
+      "PackageSourceMapping is enabled … nuget.org not considered" for FC.SDK / ZWOptical.SDK /
+      TianWen.DAL / SharpAstro.LALR.CC / FC.SDK.Raw. Fix: `src/NuGet.config` uses key `nuget.org`
+      (same URL) so a plain `dotnet restore` / VS restore is deterministic regardless of which
+      siblings are checked out. `RestoreConfigFile` in `Directory.Build.props` does **not** work here
+      — it only applies to tianwen projects, not the sibling projects in the graph; a CLI
+      `-p:RestoreConfigFile=` (global property) does, but isn't automatic for VS. CI is unaffected
+      (PackageReference from nuget.org, single consistent key).
+- [ ] **`TianWen.DAL/NuGet.config` has an empty `<packageSourceMapping><clear/></packageSourceMapping>`**
+      (maps nothing → breaks restore for anything using that config). Fixed locally 2026-07-04 to map
+      `*`→`nuget.org`, but that lives in the **sibling repo**, not tianwen — the fix must be committed
+      + pushed in the TianWen.DAL repo to be durable (a fresh clone reintroduces the broken config).
+- [ ] **Keep `open-vs.ps1`'s "Siblings" folder in sync with `Directory.Build.props`'
+      `UseLocalSiblings` set** (currently: DIR.Lib, Console.Lib, SdlVulkan.Renderer, StbImageSharp
+      family, QHYCCD.SDK, FITS.Lib, SER.Lib, Lzip.Lib, + transitive Fonts.Lib for
+      `SharpAstro.Fonts.Tables.OpenTypeMath`). If a new sibling is added to the switch, add it here
+      too or VS Go-To-Definition drops into the stale NuGet package instead of source.
+
 ## Upstream Extraction (to SharpAstro NuGet packages)
 
 - [ ] Move `FileDialogHelper` to DIR.Lib — cross-platform native file picker (comdlg32/zenity/osascript), zero TianWen dependencies

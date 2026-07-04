@@ -40,6 +40,7 @@ command.
 | yes | `ASCOM.iOptron2017.Focuser` | suspected (same signature; not traced) |
 | yes | `ASCOM.iOptron2017.Telescope` | suspected |
 | yes | `ASCOM.QHYFWRS232.FilterWheel` | suspected |
+| ? | `ASCOM.GS.Sky.Telescope` (GS Server) | **slow connect CONFIRMED** — ~5.4 s wall-clock on `Connected = true` (GUI log 2026-07-04, 18:10:33→18:10:39); DoEvents not source-verified but the blocking-connect signature matches |
 | no | ZWO EAF/EFW, PlayerOne, ASI, QHYCCD cameras, DeepSkyDad, SynScan, qfoc, **OmniSim** | clean |
 
 It's a **vendor cluster** (Gemini Astro + iOptron copy-paste the same `PauseForTime`), not universal:
@@ -82,3 +83,19 @@ mystery `0xC0000409` on connect.
   about making the *fallback* (vendor ASCOM COM on Windows) robust, not the primary path.
 - Verifying a `DoEvents` driver headlessly is itself hard (it crashes the test host); the STA-pump host
   is exactly what lets a gated integration test drive it without crashing.
+- **Interim mitigation shipped (2026-07-04, this branch):** the GUI no longer *freezes* on these
+  drivers because device connect/disconnect is offloaded off the render thread
+  (`AppSignalHandler.RunDeviceOpOffRenderThreadAsync` — see [ui.md](../todo/ui.md)). The busy-spin
+  still burns ~1–5 s on a thread-pool thread, but the render loop stays live. This is a freeze
+  mitigation, **not** the correctness fix — the STA-pump host is still needed because (a) an MTA
+  pool thread has no message pump, so a driver relying on `DoEvents`/`Control.Invoke` to update its
+  own UI still misbehaves, and (b) a no-pump host can still hard-crash on the worst offenders.
+- **GS Server (GSS) form-refresh + hub-connection finding (2026-07-04).** GSS is an out-of-process
+  COM *hub/server*, not a plain driver. A client's `Connected = true` attaches the **client** but
+  does **not** force GSS's own link to the mount/simulator — so GSS's form can show *disconnected*
+  even though our connect succeeded, until the user connects inside GSS (or enables its
+  auto-connect-on-client option). Two consequences: (1) the STA-pump host would likely also fix the
+  vendor-form-refresh symptom (GSS updates its form via a message pump the MTA pool thread lacks);
+  (2) for a hub, "client connected" ≠ "mount live" — a session could start against a driver that
+  reports connected but returns RA=0. That motivates the **post-connect mount liveness probe** open
+  item in [../todo/drivers.md](../todo/drivers.md).
