@@ -92,13 +92,15 @@ internal sealed unsafe class DispatchObject : IDisposable
         }
     }
 
+    // ASCOM array properties come back as SAFEARRAYs. ComVariant.As<T[]>() throws "Unsupported type"
+    // for SAFEARRAYs, so pull the parray out of the VARIANT and marshal it by hand (SafeArrayMarshal).
+    // Marshal inside the try (copies the data out) BEFORE the finally VariantClears the SAFEARRAY.
     public string[] GetStringArray(string name)
     {
         var variant = GetPropertyVariant(name);
         try
         {
-            // ASCOM returns string arrays as SAFEARRAY of BSTR
-            return variant.As<string[]>() ?? [];
+            return SafeArrayMarshal.ToStringArray(SafeArrayPtr(ref variant));
         }
         finally
         {
@@ -111,7 +113,7 @@ internal sealed unsafe class DispatchObject : IDisposable
         var variant = GetPropertyVariant(name);
         try
         {
-            return variant.As<int[]>() ?? [];
+            return SafeArrayMarshal.ToInt32Array(SafeArrayPtr(ref variant));
         }
         finally
         {
@@ -124,13 +126,18 @@ internal sealed unsafe class DispatchObject : IDisposable
         var variant = GetPropertyVariant(name);
         try
         {
-            return variant.As<int[,]>() ?? new int[0, 0];
+            return SafeArrayMarshal.ToInt32Array2D(SafeArrayPtr(ref variant));
         }
         finally
         {
             variant.Dispose();
         }
     }
+
+    // VT_ARRAY variants hold the SAFEARRAY* in the VARIANT data union; hand it to SafeArrayMarshal.
+    // Returns 0 for a non-array variant (the marshaler then yields an empty array).
+    private static nint SafeArrayPtr(ref ComVariant variant)
+        => ((int)variant.VarType & (int)VarEnum.VT_ARRAY) != 0 ? variant.GetRawDataRef<nint>() : 0;
 
     public object? GetObject(string name)
     {

@@ -36,4 +36,29 @@ internal static partial class NativeMethods
 
     [LibraryImport("oleaut32.dll")]
     internal static partial int VariantClear(nint pvarg);
+
+    // --- SAFEARRAY (VT_ARRAY) read APIs. ComVariant.As<T[]>() does NOT marshal SAFEARRAYs (it throws
+    // "Unsupported type"), so array-typed ASCOM properties (camera ImageArray, filter-wheel Names /
+    // FocusOffsets, gains/offsets) are marshaled by hand via these OLE Automation calls in
+    // SafeArrayMarshal. See docs/plans/ascom-safearray-marshaling.md. ---
+    [LibraryImport("oleaut32.dll")]
+    internal static partial uint SafeArrayGetDim(nint psa);
+
+    [LibraryImport("oleaut32.dll")]
+    internal static partial uint SafeArrayGetElemsize(nint psa);
+
+    [LibraryImport("oleaut32.dll")]
+    internal static partial int SafeArrayGetVartype(nint psa, out ushort pvt);
+
+    [LibraryImport("oleaut32.dll")]
+    internal static partial int SafeArrayGetLBound(nint psa, uint nDim, out int plLbound);
+
+    [LibraryImport("oleaut32.dll")]
+    internal static partial int SafeArrayGetUBound(nint psa, uint nDim, out int plUbound);
+
+    [LibraryImport("oleaut32.dll")]
+    internal static partial int SafeArrayAccessData(nint psa, out nint ppvData);
+
+    [LibraryImport("oleaut32.dll")]
+    internal static partial int SafeArrayUnaccessData(nint psa);
 }
