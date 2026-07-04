@@ -13,7 +13,6 @@
       AND Exists('$(MSBuildThisFileDirectory)..\..\DIR.Lib\src\DIR.Lib\DIR.Lib.csproj')
       AND Exists('$(MSBuildThisFileDirectory)..\..\Console.Lib\src\Console.Lib\Console.Lib.csproj')
       AND Exists('$(MSBuildThisFileDirectory)..\..\SdlVulkan.Renderer\src\SdlVulkan.Renderer\SdlVulkan.Renderer.csproj')
-      AND Exists('$(MSBuildThisFileDirectory)..\..\StbImageSharp\src\StbImageSharp\StbImageSharp.csproj')
       AND Exists('$(MSBuildThisFileDirectory)..\..\StbImageSharp\src\SharpAstro.Tiff\SharpAstro.Tiff.csproj')
       AND Exists('$(MSBuildThisFileDirectory)..\..\StbImageSharp\src\SharpAstro.Exif\SharpAstro.Exif.csproj')
       AND Exists('$(MSBuildThisFileDirectory)..\..\StbImageSharp\src\SharpAstro.Png\SharpAstro.Png.csproj')

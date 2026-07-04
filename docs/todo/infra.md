@@ -69,23 +69,30 @@ Part of the TianWen TODO set. See [TODO.md](../../TODO.md) for the index and the
 
 ## Build / dev environment (local siblings)
 
-- [x] **NuGet graph-restore source-key alignment** (DONE 2026-07-04, `src/NuGet.config`). With all
-      sibling repos cloned, `UseLocalSiblings` project-references them, so a restore builds a graph
-      spanning `../DIR.Lib`, `../StbImageSharp`, `../FITS.Lib`, `../SER.Lib`, … and MSBuild merges
-      *their* `nuget.config`s into the settings. `packageSourceMapping` matches by source **key**, so
-      the key mismatch (`api.nuget.org` in tianwen/siblings vs the user-wide `nuget.org`) made the
-      winning mapping point at a source that didn't survive the merge → spurious NU1100
-      "PackageSourceMapping is enabled … nuget.org not considered" for FC.SDK / ZWOptical.SDK /
-      TianWen.DAL / SharpAstro.LALR.CC / FC.SDK.Raw. Fix: `src/NuGet.config` uses key `nuget.org`
-      (same URL) so a plain `dotnet restore` / VS restore is deterministic regardless of which
-      siblings are checked out. `RestoreConfigFile` in `Directory.Build.props` does **not** work here
-      — it only applies to tianwen projects, not the sibling projects in the graph; a CLI
-      `-p:RestoreConfigFile=` (global property) does, but isn't automatic for VS. CI is unaffected
-      (PackageReference from nuget.org, single consistent key).
-- [ ] **`TianWen.DAL/NuGet.config` has an empty `<packageSourceMapping><clear/></packageSourceMapping>`**
-      (maps nothing → breaks restore for anything using that config). Fixed locally 2026-07-04 to map
-      `*`→`nuget.org`, but that lives in the **sibling repo**, not tianwen — the fix must be committed
-      + pushed in the TianWen.DAL repo to be durable (a fresh clone reintroduces the broken config).
+- [x] **NuGet graph-restore source-key alignment — standardized on `nuget.org`** (DONE 2026-07-04,
+      re-diagnosed + fixed properly). With all sibling repos cloned, `UseLocalSiblings`
+      project-references them, so a restore builds a graph spanning `../DIR.Lib`, `../StbImageSharp`,
+      `../FITS.Lib`, `../SER.Lib`, … and MSBuild merges *their* `nuget.config`s into one settings
+      object. `packageSourceMapping` matches by source **key**, so a key mismatch across the merged
+      configs makes the winning mapping point at a source that didn't survive the merge → NU1100
+      "PackageSourceMapping is enabled … not considered" for FC.SDK / FC.SDK.Raw / ZWOptical.SDK /
+      TianWen.DAL / SharpAstro.LALR.CC. **The correct key is `nuget.org`** — proven to be the
+      NuGet fresh-install default (an empty user config auto-writes `<add key="nuget.org"
+      value="https://api.nuget.org/v3/index.json" protocolVersion="3" />`). The earlier note here had
+      the premise **inverted** (it claimed the user-wide key was `nuget.org` and briefly flipped
+      `src/NuGet.config` to `api.nuget.org`); in fact the user-wide config on the arm64 box had drifted
+      to a non-standard `api.nuget.org` key **and** a `packageSourceMapping` routing `*` there — that
+      mapping was the real root cause. Fix: renamed the `api.nuget.org` **key** → `nuget.org` (URL
+      unchanged) in the user-wide config **and** `FITS.Lib` / `SER.Lib` / `zwo-sdk-nuget` configs, and
+      kept `src/NuGet.config` on `nuget.org`. `TianWen.DAL` was already on `nuget.org`. After that,
+      `dotnet build TianWen.Lib` restores clean. CI is unaffected (fresh runners = `nuget.org` default).
+      `RestoreConfigFile` in `Directory.Build.props` does **not** help — it only applies to tianwen
+      projects, not the sibling projects in the graph.
+- [x] **`TianWen.DAL/NuGet.config`** — now maps `*`→`nuget.org` (fixed in the sibling repo). Was an
+      empty `<packageSourceMapping><clear/></packageSourceMapping>` that mapped nothing. NB: TianWen.DAL
+      is consumed by tianwen as a **package**, not a project ref, so its config was never actually in
+      tianwen's restore graph — the graph-poisoning configs were `FITS.Lib` / `SER.Lib` (project refs)
+      plus the user-wide config, all now on `nuget.org`.
 - [ ] **Keep `open-vs.ps1`'s "Siblings" folder in sync with `Directory.Build.props`'
       `UseLocalSiblings` set** (currently: DIR.Lib, Console.Lib, SdlVulkan.Renderer, StbImageSharp
       family, QHYCCD.SDK, FITS.Lib, SER.Lib, Lzip.Lib, + transitive Fonts.Lib for

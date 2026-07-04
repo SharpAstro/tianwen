@@ -2,8 +2,10 @@
 # Generates TianWen.local.slnx at the repo root with sibling project references,
 # then opens it in Visual Studio. This gives Go To Definition into every sibling
 # that Directory.Build.props' UseLocalSiblings switch project-references (DIR.Lib,
-# Console.Lib, SdlVulkan.Renderer, the StbImageSharp family, QHYCCD.SDK, FITS.Lib,
-# SER.Lib, Lzip.Lib). Keep this list in sync with Directory.Build.props.
+# Console.Lib, SdlVulkan.Renderer, the SharpAstro codec projects in the StbImageSharp
+# repo, QHYCCD.SDK, FITS.Lib, SER.Lib, Lzip.Lib). Keep this list in sync with
+# Directory.Build.props. NB: the stb_image port itself (StbImageSharp.csproj) is not
+# listed — TianWen consumes only the SharpAstro.* codecs, not the port.
 #
 # The base TianWen.slnx in src/ stays untouched (used by CI and dotnet build).
 
@@ -32,7 +34,9 @@ $siblings = @"
     <Project Path="../Fonts.Lib/src/SharpAstro.Fonts/SharpAstro.Fonts.csproj" />
     <Project Path="../Console.Lib/src/Console.Lib/Console.Lib.csproj" />
     <Project Path="../SdlVulkan.Renderer/src/SdlVulkan.Renderer/SdlVulkan.Renderer.csproj" />
-    <Project Path="../StbImageSharp/src/StbImageSharp/StbImageSharp.csproj" />
+    <!-- SharpAstro.* codec projects from the StbImageSharp repo. The stb_image
+         port (StbImageSharp.csproj) is intentionally omitted: nothing in the
+         solution references it (Fonts decodes CBDT PNGs via SharpAstro.Png). -->
     <Project Path="../StbImageSharp/src/SharpAstro.Tiff/SharpAstro.Tiff.csproj" />
     <Project Path="../StbImageSharp/src/SharpAstro.Exif/SharpAstro.Exif.csproj" />
     <Project Path="../StbImageSharp/src/SharpAstro.Png/SharpAstro.Png.csproj" />
