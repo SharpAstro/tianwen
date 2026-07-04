@@ -1,11 +1,12 @@
 # ASCOM SAFEARRAY marshaling bug (handoff for the x64 box)
 
-**Status:** OPEN. Blocks the last 2 ASCOM simulator tests (leg is 8/10). Found by the device-simulator
-CI ([device-simulator-ci.md](device-simulator-ci.md)) running the native-COM ASCOM leg against
-Platform 7 on a `windows-latest` runner. Continue this on a real Windows + ASCOM Platform x64 box
-(the fix is Windows-COM-only and best validated locally against a live SAFEARRAY).
-
-Branch: `feat/sim-ci-followup` (PR #74). Everything below except the SAFEARRAY fix is already committed.
+**Status:** RESOLVED (commit `51ea379` on `feat/sim-ci-followup` / PR #74). The ASCOM leg is now
+**10/10**. Found by the device-simulator CI ([device-simulator-ci.md](device-simulator-ci.md)) running
+the native-COM ASCOM leg against Platform 7 on a `windows-latest` runner. Fixed with manual SAFEARRAY
+marshaling (`SafeArrayMarshal` + `SafeArray*` P/Invokes), validated **locally** on win-arm64 by
+`SafeArrayMarshalTests` (5/5, builds real SAFEARRAYs via `SafeArrayCreate`/`PutElement` -- no ASCOM
+Platform needed) **and end-to-end in CI** (ascom-sim run 28689588967: Passed 10). The doc below is kept
+as the root-cause record; the x64-box handoff is no longer needed.
 
 ## Root cause (the third real bug the sim CI found)
 

@@ -128,10 +128,10 @@ skips cleanly with no env var set. The Windows `ascom-sim` leg is validated via 
 
 ## Deferred / known risks
 
-- **ASCOM array-property marshaling is broken (SAFEARRAY)** -- the native ASCOM leg is 8/10; the
-  camera `ImageArray` + filter-wheel `Names` tests fail because `ComVariant.As<T[]>()` cannot marshal
-  SAFEARRAYs. Root cause + fix plan + branch state:
-  [ascom-safearray-marshaling.md](ascom-safearray-marshaling.md) (continue on a Windows + ASCOM x64 box).
+- **ASCOM array-property marshaling (SAFEARRAY) -- RESOLVED.** `ComVariant.As<T[]>()` cannot marshal
+  SAFEARRAYs, which broke camera `ImageArray` + filter-wheel `Names`; fixed with manual SAFEARRAY
+  marshaling (`SafeArrayMarshal`), taking the ASCOM leg to 10/10. Root-cause record:
+  [ascom-safearray-marshaling.md](ascom-safearray-marshaling.md).
 - **UDP discovery (`AlpacaDeviceSource.DiscoverAsync`) is still untested** -- these tests
   deliberately bypass it (direct-addressing) because multicast is unreliable on hosted runners.
 - **The sim's camera gain/offset mode is unknown up front**, so the metadata test is capability-aware:
