@@ -27,7 +27,8 @@
 //
 // Options map 1:1 to MilkyWayBakerOptions fields (see its XML docs for defaults).
 //
-// Requires: `lzip` CLI on PATH.
+// Compresses the output with the managed lzip encoder (SharpAstro.Lzip) -- no external
+// `lzip` binary required.
 
 using System;
 using System.Diagnostics;
@@ -35,6 +36,7 @@ using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
+using SharpAstro.Lzip;
 using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Extensions;
 
@@ -114,25 +116,14 @@ var rawPath = output.EndsWith(".lz") ? output[..^3] : output + ".raw";
 MilkyWayTextureBaker.WriteRaw(rawPath, width, height, bgra);
 Console.WriteLine($"Raw size: {new FileInfo(rawPath).Length:N0} bytes");
 
-Console.WriteLine("Compressing with lzip -9 -b 2MiB ...");
-var lzip = Process.Start(new ProcessStartInfo("lzip", $"-9 -b 2MiB -f \"{rawPath}\"")
-{
-    UseShellExecute = false,
-    RedirectStandardError = true
-}) ?? throw new InvalidOperationException("failed to start lzip");
-await lzip.WaitForExitAsync();
-if (lzip.ExitCode != 0)
-{
-    Console.Error.WriteLine(await lzip.StandardError.ReadToEndAsync());
-    return lzip.ExitCode;
-}
-
-var finalPath = rawPath + ".lz";
-if (finalPath != output)
-{
-    if (File.Exists(output)) File.Delete(output);
-    File.Move(finalPath, output);
-}
+// Compress with the managed lzip encoder (SharpAstro.Lzip) -- no external `lzip` binary.
+// Level 9 + 2 MiB members mirrors the former `lzip -9 -b 2MiB`; the multi-member layout lets
+// SkyMapTab's loader decode the blob across cores.
+Console.WriteLine("Compressing with managed Lzip.Lib (level 9, 2 MiB members) ...");
+var raw = await File.ReadAllBytesAsync(rawPath);
+var compressed = LzipEncoder.Compress(raw, new LzipOptions { Level = 9, MemberSize = 2 << 20 });
+await File.WriteAllBytesAsync(output, compressed);
+File.Delete(rawPath);
 Console.WriteLine($"Compressed: {new FileInfo(output).Length:N0} bytes -> {output}");
 return 0;
 

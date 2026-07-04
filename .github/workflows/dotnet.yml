@@ -21,13 +21,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     # The PreprocessCatalogs MSBuild target produces the *.gs.gz embedded
-    # resources from *.json.lz / *.csv.lz sources. The pwsh script shells out
-    # to `lzip -dc` to decompress the .lz inputs, then writes the .gs.gz output
-    # via .NET GZipStream. *.gs.gz is gitignored, so a fresh checkout must
-    # regenerate it during build. lzip is tiny (~80 KB) so a direct apt install
-    # is simpler than caching.
-    - name: Install lzip
-      run: sudo apt-get update && sudo apt-get install -y lzip
+    # resources from *.json.lz / *.csv.lz sources, decoding the .lz inputs with
+    # the managed lzip decoder (Lzip.Lib) and writing the .gs.gz output via .NET
+    # GZipStream -- no external `lzip` binary is needed. *.gs.gz is gitignored,
+    # so a fresh checkout regenerates it during build.
     - uses: actions/checkout@v6
       with:
         submodules: recursive
@@ -63,10 +60,10 @@ jobs:
     - name: Build
       run: dotnet build -c $BUILD_CONF --no-restore -p:Version=${VERSION_PREFIX}${VERSION_REV}${VERSION_HASH} -p:FileVersion=${VERSION_PREFIX}.${VERSION_REV} -p:ContinuousIntegrationBuild=true
       working-directory: src
-    # Share the preprocessed catalog .gs.gz files with the test + publish jobs
-    # so they don't need lzip installed (esp. publish-apps, which runs on a
-    # cross-platform matrix). Downstream jobs download into the same path and
-    # rely on file mtime > *.json.lz mtime to skip the PreprocessCatalogs target.
+    # Share the preprocessed catalog .gs.gz files with the test + publish jobs so
+    # they skip re-running PreprocessCatalogs (and the catalog LFS pull), esp.
+    # publish-apps on its cross-platform matrix. Downstream jobs download into the
+    # same path and rely on file mtime > *.json.lz mtime to skip the target.
     - name: Upload preprocessed catalogs
       uses: actions/upload-artifact@v7
       with:

@@ -1,8 +1,10 @@
 # Lzip.Lib — managed lzip codec sibling repo (plan)
 
-**Status:** P1 **DONE** (repo `SharpAstro/Lzip.Lib`, decoder-only, published `Lzip.Lib 1.0.21`).
-P1.5 **DONE** (TianWen re-pointed at the package; in-tree `LzipDecoder` deleted; branch
-`feat/lzip-lib-repoint`). P2 (encoder) + P3 (de-externalize build/regeneration) remain.
+**Status: COMPLETE.** P1 **DONE** (repo `SharpAstro/Lzip.Lib`, decoder, published `Lzip.Lib 1.0.21`).
+P1.5 **DONE** (TianWen runtime re-pointed; in-tree `LzipDecoder` deleted; PR #75). P2 **DONE**
+(managed encoder via vendored PD 7-Zip LZMA SDK, published `Lzip.Lib 1.1.41`; Lzip.Lib PR #1).
+P3 **DONE** (tianwen build decode + milkyway encode swapped to managed; external `lzip` installs
+dropped from CI). The external `lzip` binary is fully retired.
 
 Extract the managed lzip codec into its own SharpAstro sibling repo (like `SharpAstro.Jpeg` /
 `SER.Lib` / `DIR.Lib`), published to NuGet, and have TianWen depend on it -- so we drop the external
@@ -115,12 +117,18 @@ Never push TianWen referencing an unpublished package version -- publish to NuGe
 2. **DONE (P1.5).** Deleted `src/TianWen.Lib/Astrometry/Catalogs/LzipDecoder.cs`; the only two callers
    (`CelestialObjectDB`, `SkyMapTab`) now `using SharpAstro.Lzip;` (SkyMapTab gets the package
    transitively through TianWen.Lib). 349 catalog tests green against the extracted decoder.
-3. Replace external `lzip -dc` in `tools/preprocess-catalog.ps1` with a tiny `dotnet` decode step (or
-   port the whole preprocess to a small `tools/` .NET tool) using `SharpAstro.Lzip`.
-4. Replace `Compress-WithLzip` (`Get-Tycho2Catalogs.ps1`) and `generate_milkyway.cs`'s `lzip -9` with
-   the `SharpAstro.Lzip` encoder.
-5. Drop the `lzip` install from `dotnet.yml` + `simulators.yml` (`catalogs` job) once nothing shells
-   out to it. Update the CLAUDE.md / preprocess-catalog.ps1 docstrings that mention "lzip on PATH".
+3. **DONE (P3).** Replaced the `lzip -dc` shell-out in `tools/preprocess-catalog.ps1` with a managed
+   decode (`Initialize-Lzip` loads `Lzip.Lib.dll` via `Add-Type`; MSBuild's `PreprocessCatalogs` target
+   passes the resolved reference as `-LzipAssembly`, with a sibling/NuGet-cache probe fallback for
+   standalone runs). Verified: all 15 `.gs.gz` regenerate **byte-identically** to the lzip-produced
+   ones, with `lzip` stripped from PATH.
+4. **DONE (P3).** `generate_milkyway.cs` now encodes via `LzipEncoder.Compress(raw, { Level = 9,
+   MemberSize = 2<<20 })` instead of `lzip -9 -b 2MiB`. (There was no `Compress-WithLzip` in
+   `Get-Tycho2Catalogs.ps1` -- the milkyway blob was the only encode touchpoint in `tools/`.) Verified:
+   a real bake's multi-member output passes real `lzip -t`.
+5. **DONE (P3).** Dropped the `lzip` `apt install` from `dotnet.yml` + `simulators.yml` (`catalogs`
+   job); updated the CLAUDE.md + `preprocess-catalog.ps1` docstrings. Bumped the tianwen pin to
+   `Lzip.Lib 1.1.*`.
 
 ## Phasing
 
@@ -128,11 +136,11 @@ Never push TianWen referencing an unpublished package version -- publish to NuGe
 |---|---|---|---|
 | P1 | New repo skeleton + conventions; move `LzipDecoder` (+ tests) verbatim; publish decoder-only | `Lzip.Lib` 1.0 | **DONE** (1.0.21) |
 | P1.5 | Re-point TianWen to the package; delete the local decoder (integration steps 1-2) | TianWen consuming it | **DONE** (`feat/lzip-lib-repoint`) |
-| P2 | Add `LzipEncoder` (vendor LZMA SDK + framing + chunking) + tests | `Lzip.Lib` 1.1 | TODO |
-| P3 | TianWen: swap build decode + regeneration encode to managed; remove all external `lzip` (steps 3-5) | zero external lzip | TODO |
+| P2 | Add `LzipEncoder` (vendor LZMA SDK + framing + chunking) + tests | `Lzip.Lib` 1.1 | **DONE** (1.1.41, PR #1) |
+| P3 | TianWen: swap build decode + regeneration encode to managed; remove all external `lzip` (steps 3-5) | zero external lzip | **DONE** (`feat/lzip-p3-deexternalize`) |
 
-P1/P1.5 are low-risk and immediately give the sibling structure + a NuGet package; P2 is the big lift
-(the encoder); P3 finishes the de-externalization.
+All phases complete: the sibling ships both codec halves (1.1.41), TianWen consumes it at runtime + build
++ regeneration, and no external `lzip` binary is installed or shelled out to anywhere.
 
 ## Decisions (resolved)
 
