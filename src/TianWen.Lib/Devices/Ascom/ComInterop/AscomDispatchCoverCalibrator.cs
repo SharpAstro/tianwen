@@ -7,7 +7,7 @@ namespace TianWen.Lib.Devices.Ascom.ComInterop;
 [DispatchInterface]
 internal sealed partial class AscomDispatchCoverCalibrator : IDisposable
 {
-    public AscomDispatchCoverCalibrator(DispatchObject dispatch)
+    public AscomDispatchCoverCalibrator(IDispatchTransport dispatch)
     {
         _dispatch = dispatch;
     }

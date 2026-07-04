@@ -7,7 +7,7 @@ namespace TianWen.Lib.Devices.Ascom.ComInterop;
 [DispatchInterface]
 internal sealed partial class AscomDispatchFilterWheel : IDisposable
 {
-    public AscomDispatchFilterWheel(DispatchObject dispatch)
+    public AscomDispatchFilterWheel(IDispatchTransport dispatch)
     {
         _dispatch = dispatch;
     }

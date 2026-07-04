@@ -11,9 +11,12 @@ namespace TianWen.Lib.Devices.Ascom.ComInterop;
 [DispatchInterface]
 internal sealed partial class AscomDispatchDevice : IDisposable
 {
-    public AscomDispatchDevice(string progId)
+    public AscomDispatchDevice(string progId, IServiceProvider? serviceProvider = null)
     {
-        _dispatch = new DispatchObject(progId);
+        // The transport is in-proc DispatchObject for CET-safe drivers, or an out-of-process CET-off host
+        // for in-proc .NET Framework drivers that would otherwise fastfail on connect. See
+        // DispatchTransportFactory + docs/plans/ascom-oop-host.md.
+        _dispatch = DispatchTransportFactory.Create(progId, serviceProvider);
     }
 
     // Common ASCOM device members — generated implementations via source generator
@@ -30,9 +33,9 @@ internal sealed partial class AscomDispatchDevice : IDisposable
     public partial void Disconnect();
 
     /// <summary>
-    /// Access the underlying dispatch object for device-specific calls.
+    /// Access the underlying dispatch transport for device-specific calls (in-proc or out-of-process).
     /// </summary>
-    internal DispatchObject Dispatch => _dispatch;
+    internal IDispatchTransport Dispatch => _dispatch;
 
     public void Dispose() => _dispatch.Dispose();
 }
