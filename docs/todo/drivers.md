@@ -16,13 +16,48 @@ The driver's connect asserts DTR+RTS (opt-in `IExternal.OpenSerialDeviceAsync(..
 and re-verifies identity on a nominally-open connection (`SerialPort.IsOpen` is not liveness -- a dead CH341
 keeps reporting open), rebuilding the connection when the handshake goes silent.
 
-- [ ] **Gemini FlatPanel Lite: validate discovery against real hardware.** The probe deliberately does NOT
-      assert DTR (the probe service opens one shared 9600-baud handle per COM port; DTR there could reset a
-      DTR-triggered controller, e.g. some OnStep boards, on another port), so a panel that only answers
-      `>H#` with DTR asserted is auto-discovery-invisible and needs manual assignment
-      (`CoverCalibrator://GeminiDevice/…?port=serial:COMx` -- the driver's own connect asserts DTR). If real
-      hardware shows discovery misses it, consider a dedicated DTR-asserting probe pass for ports that stayed
-      silent on the shared handle.
+- [x] **Gemini FlatPanel Lite: validated against real hardware** (`fix/gemini-flat-panel`, 2026-07-04, FW 205
+      on a CH341/COM3). Both driver connect (ramp + beep, reproducible via a live-hardware test gated on
+      `TIANWEN_GEMINI_FPLITE_PORT`) and **auto-discovery** now work. Real hardware corrected the spec + code:
+      (1) response sigil is **`*`** not `>` (`ParsePayload` accepts both); (2) ~2 s **boot delay** after open
+      (sleep-through, not poll-through — writing during boot yields dropped writes + duplicate replies that
+      desync); (3) every command is **acked** incl. actions (drain in `SendAsync`); (4) DTR **is** required
+      cold (the "not required" reading was a confound). Discovery: `ISerialProbe.Warmup` + `AssertControlLines`
+      (isolated pass 2 only), and probes moved to the cancellable **`SynchronousReads`** path (async
+      `SerialPort.BaseStream` reads spuriously abort on CH34x). See the protocol doc + [../plans/soft-discovery.md](../plans/soft-discovery.md).
+- [ ] **Pinned-verify tier skips a DTR-only device.** `SerialProbeService.VerifyPinnedPortsAsync` probes on
+      the shared handle (`isolatePerProbe: false`), so with the new DTR-skip a pinned Gemini is skipped in
+      verification and falls to Stage 2 (direct URI connect of a pinned panel still works). Fix: isolate
+      (assert DTR + warmup) for probes that need control lines. Tracked in [../plans/soft-discovery.md](../plans/soft-discovery.md).
+
+## Serial I/O reliability (cross-cutting)
+
+- [ ] **.NET `SerialPort` async reads are unreliable — roll our own serial lib.** Async `BaseStream` reads
+      spuriously abort (`ERROR_OPERATION_ABORTED`) after the first read on CH34x bridges, and the BCL "async"
+      is blocking-on-a-thread underneath anyway (dotnet/runtime#28968). Interim fix shipped: cancellable
+      `SynchronousReads` path in `SerialConnection`. Proper fix: a `Serial.Lib` sibling repo (Lzip.Lib-style).
+      Plan: [../plans/serial-lib.md](../plans/serial-lib.md).
+- [ ] **ASCOM COM drivers that busy-spin `Application.DoEvents()` crash headless connect** (Gemini
+      FlatPanel + Focuser Pro confirmed; iOptron ×2, QHYFWRS232 suspected). Mainstream drivers (OmniSim,
+      ZWO/ASI/PlayerOne/QHYCCD) are clean. Fix: host ASCOM COM calls on an STA thread with a real message
+      pump. Plan: [../plans/ascom-com-sta-message-pump.md](../plans/ascom-com-sta-message-pump.md).
+
+## GUI (runtime, unrelated to the driver work — flagged during bring-up)
+
+- [ ] **GUI preview render crashes on this box (native, Release).** Reproducible: on the Equipment tab, right
+      after `AppSignalHandler` logs `Preview mount first sample: RA=0 Dec=0…` (mount sample succeeds, sets
+      `NeedsRedraw`), the process dies during the ensuing render — exit 127, **no managed dump** (even with
+      `DOTNET_DbgEnableMiniDump=1`), no stderr, no WER event ⇒ a native SDL/Vulkan/GPU render fault, not a
+      managed exception. Independent of the Gemini/serial work (all in `Lib`, test-validated). To debug: needs
+      either a native WER LocalDump (registry) / debugger, or the DEBUG build + `sdl-ui-inspector` — which
+      needs the missing sibling checkouts (below).
+- [ ] **DEBUG GUI build needs the sibling checkouts.** `DebugInspector`'s `SignalFactories` consume
+      SdlVulkan.Renderer's `DebugSignalArgs` (`JsonElement.OptInt/OptDouble`, C# 14 `extension` members),
+      which are `#if DEBUG` → **stripped from the published Release package**. So a DEBUG build (and thus the
+      MCP inspector) only works with `UseLocalSiblings=true`, i.e. all siblings cloned (QHYCCD.SDK, FITS.Lib,
+      SER.Lib, StbImageSharp, Lzip.Lib were absent on the bring-up box → `UseLocalSiblings=false` → Release
+      package → CS1061). Release GUI builds/runs fine. (Pin bumped SdlVulkan.Renderer 6.9→6.10 + DIR.Lib
+      6.0→6.3 for currency; that alone can't fix DEBUG since the members are DEBUG-only in the package.)
 
 ## Rotator (new device type, per-OTA)
 
