@@ -20,6 +20,9 @@ internal class SkywatcherDeviceSource(ISerialProbeService probeService, ILogger<
 
     public IEnumerable<DeviceType> RegisteredDeviceTypes => [DeviceType.Mount];
 
+    // Reads serial-probe matches from ISerialProbeService, so must run after the serial probe pass.
+    public bool ConsumesSerialProbe => true;
+
     public ValueTask<bool> CheckSupportAsync(CancellationToken cancellationToken) => ValueTask.FromResult(true);
 
     public IEnumerable<SkywatcherDevice> RegisteredDevices(DeviceType deviceType) =>

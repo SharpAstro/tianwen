@@ -158,6 +158,9 @@ internal class QHYDeviceSource(ISerialProbeService probeService) : IDeviceSource
         .Select(p => p.Key)
         .ToList();
 
+    // Reads serial-probe matches (QhyCfw3 / Qfoc) from ISerialProbeService, so must run after the probe pass.
+    public bool ConsumesSerialProbe => true;
+
     public IEnumerable<QHYDevice> RegisteredDevices(DeviceType deviceType)
     {
         if (_supportedDeviceTypes.TryGetValue(deviceType, out var isSupported) && isSupported)

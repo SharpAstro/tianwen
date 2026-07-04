@@ -117,6 +117,9 @@ internal partial class MeadeDeviceSource(ISerialProbeService probeService) : IDe
 
     public IEnumerable<DeviceType> RegisteredDeviceTypes => [DeviceType.Mount];
 
+    // Reads serial-probe matches from ISerialProbeService, so must run after the serial probe pass.
+    public bool ConsumesSerialProbe => true;
+
     public IEnumerable<MeadeDevice> RegisteredDevices(DeviceType deviceType)
     {
         if (_cachedDevices != null && _cachedDevices.TryGetValue(deviceType, out var devices))

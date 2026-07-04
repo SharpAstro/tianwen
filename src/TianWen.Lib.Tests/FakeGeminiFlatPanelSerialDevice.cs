@@ -34,6 +34,10 @@ internal sealed class FakeGeminiFlatPanelSerialDevice(string identity = "GeminiF
     public bool TryClose() { IsOpen = false; return true; }
     public void Dispose() => TryClose();
 
+    // Mirror real hardware + the driver's discard-before-every-command: clear any unread '*'-framed acks so
+    // they don't offset the next query's read. Called under the protocol's WaitAsync lock, so no extra guard.
+    public void DiscardInBuffer() => _readBuffer.Clear();
+
     public ValueTask<ResourceLock> WaitAsync(CancellationToken cancellationToken) => _sem.AcquireLockAsync(cancellationToken);
 
     public ValueTask<bool> TryWriteAsync(ReadOnlyMemory<byte> data, CancellationToken cancellationToken)
@@ -61,31 +65,41 @@ internal sealed class FakeGeminiFlatPanelSerialDevice(string identity = "GeminiF
 
     private void HandleCommand(string body)
     {
+        // Real hardware answers '*'-framed (NOT '>' as the wire spec claimed) and acks EVERY command,
+        // including the actions the spec called fire-and-forget (>L# -> *L0#, >D# -> *D<b>#, >B<n> -> *B<n>#,
+        // >T<x> -> *T<x>#). The fake mirrors that so the codec's sigil handling + ack draining are exercised.
         switch (body)
         {
             case "H":
-                Enqueue($">H{identity}#");
+                Enqueue($"*H{identity}#");
                 break;
             case "V":
-                Enqueue($">V{firmware.ToString(CultureInfo.InvariantCulture)}#");
+                Enqueue($"*V{firmware.ToString(CultureInfo.InvariantCulture)}#");
                 break;
             case "S":
-                Enqueue($">S{(LightOn ? 1 : 0)}#");
+                Enqueue($"*S{(LightOn ? "100" : "000")}#");
                 break;
             case "J":
-                Enqueue($">J{Brightness.ToString(CultureInfo.InvariantCulture)}#");
+                Enqueue($"*J{Brightness.ToString(CultureInfo.InvariantCulture)}#");
                 break;
             case "L":
                 LightOn = true;
+                Enqueue("*L0#");
                 break;
             case "D":
                 LightOn = false;
+                Enqueue($"*D{Brightness.ToString(CultureInfo.InvariantCulture)}#");
                 break;
             default:
-                // >B<n># set brightness; >Y#/>T#/>X# accepted with no reply.
+                // >B<n># set brightness; >T0#/>T1# beeper; >Y#/>X# accepted — all acked with *<letter>...#.
                 if (body.StartsWith('B') && int.TryParse(body.AsSpan(1), NumberStyles.Integer, CultureInfo.InvariantCulture, out var b))
                 {
                     Brightness = Math.Clamp(b, 0, 255);
+                    Enqueue($"*B{Brightness.ToString(CultureInfo.InvariantCulture)}#");
+                }
+                else if (body.Length >= 1)
+                {
+                    Enqueue($"*{body}#");
                 }
                 break;
         }

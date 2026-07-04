@@ -41,6 +41,9 @@ internal abstract class SerialConnectionBase : ISerialConnection
     /// <inheritdoc />
     public string? VerboseTag { get; set; }
 
+    /// <inheritdoc />
+    public bool SynchronousReads { get; set; }
+
     public ValueTask<ResourceLock> WaitAsync(CancellationToken cancellationToken) => _semaphore.AcquireLockAsync(cancellationToken);
 
     /// <summary>
@@ -142,7 +145,7 @@ internal abstract class SerialConnectionBase : ISerialConnection
         }
     }
 
-    public async ValueTask<int> TryReadTerminatedRawAsync(Memory<byte> message, ReadOnlyMemory<byte> terminators, CancellationToken cancellationToken)
+    public virtual async ValueTask<int> TryReadTerminatedRawAsync(Memory<byte> message, ReadOnlyMemory<byte> terminators, CancellationToken cancellationToken)
     {
         int bytesRead = 0;
         int terminatorIndex;
@@ -233,7 +236,7 @@ internal abstract class SerialConnectionBase : ISerialConnection
         }
     }
 
-    public async ValueTask<bool> TryReadExactlyRawAsync(Memory<byte> message, CancellationToken cancellationToken)
+    public virtual async ValueTask<bool> TryReadExactlyRawAsync(Memory<byte> message, CancellationToken cancellationToken)
     {
         try
         {

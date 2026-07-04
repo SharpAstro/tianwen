@@ -17,6 +17,9 @@ internal sealed class GeminiDeviceSource(ISerialProbeService probeService) : IDe
 
     public IEnumerable<DeviceType> RegisteredDeviceTypes => [DeviceType.CoverCalibrator];
 
+    // Reads serial-probe matches from ISerialProbeService, so must run after the serial probe pass.
+    public bool ConsumesSerialProbe => true;
+
     public ValueTask<bool> CheckSupportAsync(CancellationToken cancellationToken) => ValueTask.FromResult(true);
 
     public IEnumerable<GeminiDevice> RegisteredDevices(DeviceType deviceType) =>

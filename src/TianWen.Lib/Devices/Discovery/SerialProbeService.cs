@@ -336,12 +336,16 @@ internal sealed class SerialProbeService : ISerialProbeService
         // only when >1 probe shares the baud group — pass 1 keeps the fast
         // shared-handle path for clean responders, and pass 2 escalates to
         // isolation for the ports that didn't match pass 1 anyway.
-        var isolateEachProbe = isolatePerProbe && probesToRun.Length > 1;
+        // Isolate per probe on pass 2, and also whenever a probe needs control lines asserted (its DTR/RTS
+        // open must be on its own handle, not shared) — even if it's the only probe in its baud group.
+        var isolateEachProbe = isolatePerProbe && (probesToRun.Length > 1 || Array.Exists(probesToRun, static p => p.AssertControlLines));
 
         ISerialConnection? conn = null;
         if (!isolateEachProbe)
         {
-            conn = await TryOpenAsync();
+            // Shared handle for the whole group: never assert control lines here — toggling DTR on a handle
+            // other probes reuse could reset a different DTR-triggered controller on this port.
+            conn = await TryOpenAsync(assertControlLines: false);
             if (conn is null) return;
         }
 
@@ -351,9 +355,18 @@ internal sealed class SerialProbeService : ISerialProbeService
             {
                 if (cancellationToken.IsCancellationRequested) return;
 
+                // On the shared handle DTR is never asserted, so a probe that REQUIRES it cannot answer here.
+                // Skip it (it gets its own DTR-asserted open on the isolated pass) instead of burning its
+                // Warmup + a doomed handshake on a connection where it can never match.
+                if (!isolateEachProbe && probe.AssertControlLines)
+                {
+                    continue;
+                }
+
                 if (isolateEachProbe)
                 {
-                    conn = await TryOpenAsync();
+                    // Own handle per probe on this pass, so it is safe to honour the probe's DTR/RTS request.
+                    conn = await TryOpenAsync(probe.AssertControlLines);
                 }
 
                 if (conn is null) continue;
@@ -383,14 +396,19 @@ internal sealed class SerialProbeService : ISerialProbeService
             }
         }
 
-        async ValueTask<ISerialConnection?> TryOpenAsync()
+        async ValueTask<ISerialConnection?> TryOpenAsync(bool assertControlLines)
         {
             try
             {
-                var c = await _external.OpenSerialDeviceAsync(port, baud, encoding, cancellationToken: cancellationToken);
+                var c = await _external.OpenSerialDeviceAsync(port, baud, encoding, assertControlLines: assertControlLines, cancellationToken: cancellationToken);
                 // Log the exact handshake at Info during probes; drivers opening the
                 // same port for session use do not touch this flag.
                 c.LogVerbose = true;
+                // Use the cancellable synchronous read path for probing. .NET's async SerialPort BaseStream
+                // reads spuriously abort with ERROR_OPERATION_ABORTED on some USB bridges (CH34x) after the
+                // first read, which was silently sinking probe replies on those ports (every probe logged
+                // "no response"); synchronous reads are immune (see ISerialConnection.SynchronousReads).
+                c.SynchronousReads = true;
                 // Open/close framing at Info so every exchange in the log is visibly
                 // bracketed by the baud rate it ran at — otherwise the baud only
                 // shows up inside a _logger scope, which most formatters drop.
@@ -442,6 +460,16 @@ internal sealed class SerialProbeService : ISerialProbeService
         // the real reply. Matches the DiscardInBuffer() pattern in a from-scratch
         // PowerShell handshake: every exchange starts clean.
         conn.DiscardInBuffer();
+
+        // Boot warm-up: some controllers reboot when the port opens (their USB bridge toggles DTR/RTS) and
+        // ignore input until booted. Wait ISerialProbe.Warmup AFTER open, BEFORE the first handshake — not
+        // counted against the per-attempt budget — then clear any boot-time chatter. Because the service
+        // reopens the port per probe, the boot restarts each time, so this must run per probe. Default zero.
+        if (probe.Warmup > TimeSpan.Zero)
+        {
+            await _timeProvider.SleepAsync(probe.Warmup, cancellationToken);
+            conn.DiscardInBuffer();
+        }
 
         try
         {
