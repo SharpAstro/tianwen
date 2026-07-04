@@ -243,6 +243,17 @@
     <PackageReference Include="SER.Lib" />
   </ItemGroup>
 
+  <!-- Lzip.Lib: pure-managed lzip (LZMA1) decoder (SharpAstro.Lzip). CelestialObjectDB decompresses
+       the .gs.gz catalog snapshots and SkyMapTab (TianWen.UI.Abstractions, gets it transitively) the
+       baked Milky Way blob. Replaces the in-tree Astrometry/Catalogs/LzipDecoder.
+       Sibling repo's csproj lives at ../Lzip.Lib/src/Lzip.Lib/Lzip.Lib.csproj. -->
+  <ItemGroup Condition="'$(UseLocalSiblings)' == 'true'">
+    <ProjectReference Include="..\..\..\Lzip.Lib\src\Lzip.Lib\Lzip.Lib.csproj" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(UseLocalSiblings)' != 'true'">
+    <PackageReference Include="Lzip.Lib" />
+  </ItemGroup>
+
   <!-- QHYCCD.SDK: native QHY camera/filter-wheel/focuser drivers (Devices/QHYCCD).
        Sibling repo's csproj lives at the repo root (../QHYCCD.SDK/QHYCCD.SDK.csproj,
        no src/Lib/Lib pattern). Folded into UseLocalSiblings so local edits to the SDK

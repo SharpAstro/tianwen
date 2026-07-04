@@ -23,7 +23,8 @@
       AND Exists('$(MSBuildThisFileDirectory)..\..\StbImageSharp\src\SharpAstro.Exr\SharpAstro.Exr.csproj')
       AND Exists('$(MSBuildThisFileDirectory)..\..\QHYCCD.SDK\QHYCCD.SDK.csproj')
       AND Exists('$(MSBuildThisFileDirectory)..\..\FITS.Lib\CSharpFITS\CSharpFITS.csproj')
-      AND Exists('$(MSBuildThisFileDirectory)..\..\SER.Lib\src\SER.Lib\SER.Lib.csproj')">true</UseLocalSiblings>
+      AND Exists('$(MSBuildThisFileDirectory)..\..\SER.Lib\src\SER.Lib\SER.Lib.csproj')
+      AND Exists('$(MSBuildThisFileDirectory)..\..\Lzip.Lib\src\Lzip.Lib\Lzip.Lib.csproj')">true</UseLocalSiblings>
   </PropertyGroup>
 
 </Project>

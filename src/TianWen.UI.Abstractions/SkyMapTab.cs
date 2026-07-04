@@ -5,6 +5,7 @@ using System.Numerics;
 using System.Threading.Tasks;
 using DIR.Lib;
 using Microsoft.Extensions.Logging;
+using SharpAstro.Lzip;
 using TianWen.Lib.Astrometry;
 using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Astrometry.SOFA;

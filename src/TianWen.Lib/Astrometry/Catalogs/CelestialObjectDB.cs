@@ -16,6 +16,7 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
+using SharpAstro.Lzip;
 using static TianWen.Lib.Astrometry.Catalogs.CatalogUtils;
 using static TianWen.Lib.Astrometry.CoordinateUtils;
 using static TianWen.Lib.EnumHelper;
