@@ -1,6 +1,6 @@
 # ASCOM COM drivers: out-of-process CET-off host (plan)
 
-**Status: Phases 1–3 DONE** (branch `feat/ascom-oop-host`, 2026-07-04). Supersedes the mitigation in
+**Status: Phases 1–4 DONE** (branch `feat/ascom-oop-host`, 2026-07-04). Supersedes the mitigation in
 [ascom-com-sta-message-pump.md](ascom-com-sta-message-pump.md) — the STA message pump was the **wrong
 fix** (see "Corrected root cause" below).
 
@@ -88,8 +88,36 @@ Phase 4 when generalizing to the mount.
 | P1 | Extract the JSON-RPC client buried in the PHD2 driver into a shared `JsonRpcClient` (spine for both PHD2 and the host); refactor `OpenPHD2GuiderDriver` onto it | **DONE** (`d1471d58`; unit + live-PHD2 smoke tests) |
 | P2 | `JsonRpcServer` + server-side `JsonRpcOverTcpConnection`; loopback round-trip test | **DONE** (`8ffe2254`) |
 | P3 | `tianwen-ascomhost` exe = `JsonRpcServer` + `AscomComHost` handler over `DispatchObject`; port handshake; STA thread; E2E test (spawn exe → handshake → drive real COM); AOT-publish + verify `CETCompat=false` in the PE header | **DONE** (this commit; E2E test green against `Scripting.Dictionary`; PE header confirmed CET-off) |
-| P4 | Parent side: `IDispatchTransport` seam (`LocalDispatchTransport` in-proc / `RemoteDispatchTransport` over `JsonRpcClient`); `mscoree` registry detection at `AscomDevice.NewInstanceFromDevice`; helper process lifecycle (spawn + JobObject to tie lifetime); wire so the 8 `AscomXxxDriver` classes stay unchanged | NOT STARTED |
-| P5 | Prove cover-first on the **real Gemini FlatPanel Lite** through the helper (the actual 0xC0000409 driver); generalize to mount/focuser/FW/switch (adds sub-dispatch handles); confirm win-arm64 publish | NOT STARTED |
+| P4 | Parent side: `IDispatchTransport` seam (in-proc `DispatchObject` / out-of-proc `RemoteDispatchTransport`); `mscoree` registry detection (`AscomComServerClassifier`); helper process lifecycle (`AscomHostProcess` spawn + PORT handshake + `AscomHostJob` kill-on-close); wire so the 8 `AscomXxxDriver` classes stay unchanged | **DONE** (this commit) |
+| P5 | Prove cover-first on the **real Gemini FlatPanel Lite** through the helper (the actual 0xC0000409 driver); generalize to the mount (adds sub-dispatch handles — telescope `AxisRates`/`Item`, currently `NotSupported` on the remote transport); confirm win-arm64 publish + ship the helper beside the app | NOT STARTED |
+
+### Phase 4 design notes
+
+- **`DispatchObject` *is* the local transport.** `IDispatchTransport` was extracted from its exact public
+  surface, so `DispatchObject : IDispatchTransport` with no wrapper class. The `[DispatchInterface]`
+  generator now emits an `IDispatchTransport _dispatch` field, so every wrapper is transport-agnostic.
+- **Routing** happens in `AscomDispatchDevice`'s ctor via `DispatchTransportFactory.Create(progId, sp)`:
+  classify → if `mscoree` in-proc and the helper is locatable, spawn `RemoteDispatchTransport`; else
+  `new DispatchObject`. If the helper is needed but missing/unstartable, it **falls back to in-proc with a
+  warning** (no worse than pre-Phase-4). The factory resolves an `ILoggerFactory` from the DI
+  `serviceProvider` (a base primary-ctor param, in scope for the field initializer) to log the decision.
+- **Synchronous transport.** The ASCOM COM surface is inherently synchronous/single-apartment, so
+  `RemoteDispatchTransport` does a **synchronous, single-flight** loopback round-trip (a blocking COM call
+  becomes a blocking loopback call) — it does *not* reuse the async `JsonRpcClient` (that exists for
+  PHD2's event-pushing stream). The helper serves sequentially and never pushes, so the reply to request
+  N is the next line; a `System.Threading.Lock` serializes the write/read pair.
+- **HResult fidelity.** A COM failure on the helper is re-thrown as `JsonRpcException(msg, HResult)`; the
+  transport reconstructs `COMException(msg, HResult)`. This keeps the driver's Platform-6 fallback
+  (`catch (COMException) when (HResult == DISP_E_UNKNOWNNAME)`) working across the wire.
+- **Helper location:** `TIANWEN_ASCOMHOST` env override → beside the running app → sibling build output
+  (dev/test).
+- **Not yet supported over the wire:** opaque `GetObject`/`InvokeMethodObject` VARIANTs and sub-dispatch
+  (`InvokeMethodDispatch`/`GetPropertyDispatch`, i.e. telescope `AxisRates`) throw `NotSupportedException`
+  — none of the crash-cluster devices (cover/focuser/FW/switch) use them; the mount is Phase 5.
+- **Validated:** `RemoteDispatchTransportTests` drives the typed transport against the real helper +
+  `Scripting.Dictionary` (get/set/invoke round-trip + a `COMException`-with-HResult on an illegal call);
+  `AscomComServerClassifier` correctly leaves a native in-proc server in-proc. Full E2E against the real
+  Gemini panel is Phase 5 (needs the hardware).
 
 ## Notes
 

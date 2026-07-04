@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 using System.Text.Json;
 using System.Threading;
@@ -33,6 +34,20 @@ internal sealed class AscomComHost(StaComThread sta) : IDisposable
 
     /// <summary>The <see cref="JsonRpcRequestHandler"/> passed to <see cref="JsonRpcServer"/>.</summary>
     public async ValueTask HandleAsync(string method, JsonElement p, Utf8JsonWriter result, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await DispatchAsync(method, p, result).ConfigureAwait(false);
+        }
+        catch (COMException ce)
+        {
+            // Carry the COM HResult across as the JSON-RPC error code so the parent's driver can still do
+            // `catch (COMException) when (HResult == DISP_E_UNKNOWNNAME)` -- the Platform-6 fallback path.
+            throw new JsonRpcException(ce.Message, ce.HResult);
+        }
+    }
+
+    private async ValueTask DispatchAsync(string method, JsonElement p, Utf8JsonWriter result)
     {
         switch (method)
         {

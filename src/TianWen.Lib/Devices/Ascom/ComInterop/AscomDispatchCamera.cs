@@ -11,7 +11,7 @@ namespace TianWen.Lib.Devices.Ascom.ComInterop;
 [DispatchInterface]
 internal sealed partial class AscomDispatchCamera : IDisposable
 {
-    public AscomDispatchCamera(DispatchObject dispatch)
+    public AscomDispatchCamera(IDispatchTransport dispatch)
     {
         _dispatch = dispatch;
     }

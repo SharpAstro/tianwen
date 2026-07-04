@@ -34,6 +34,7 @@
     <Compile Include="..\TianWen.Lib\Connections\JsonRpcException.cs" Link="Connections\JsonRpcException.cs" />
     <Compile Include="..\TianWen.Lib\Connections\JsonRpcOverTcpConnection.cs" Link="Connections\JsonRpcOverTcpConnection.cs" />
     <Compile Include="..\TianWen.Lib\Connections\JsonRpcServer.cs" Link="Connections\JsonRpcServer.cs" />
+    <Compile Include="..\TianWen.Lib\Devices\Ascom\ComInterop\IDispatchTransport.cs" Link="ComInterop\IDispatchTransport.cs" />
     <Compile Include="..\TianWen.Lib\Devices\Ascom\ComInterop\NativeMethods.cs" Link="ComInterop\NativeMethods.cs" />
     <Compile Include="..\TianWen.Lib\Devices\Ascom\ComInterop\SafeArrayMarshal.cs" Link="ComInterop\SafeArrayMarshal.cs" />
     <Compile Include="..\TianWen.Lib\Devices\Ascom\ComInterop\DispatchObject.cs" Link="ComInterop\DispatchObject.cs" />

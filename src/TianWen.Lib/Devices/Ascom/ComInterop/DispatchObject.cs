@@ -11,7 +11,7 @@ namespace TianWen.Lib.Devices.Ascom.ComInterop;
 /// Uses raw vtable function pointers — no reflection, no dynamic, no Type.InvokeMember.
 /// </summary>
 [SupportedOSPlatform("windows")]
-internal sealed unsafe class DispatchObject : IDisposable
+internal sealed unsafe class DispatchObject : IDispatchTransport
 {
     private nint _pDispatch;
     private readonly Dictionary<string, int> _dispIdCache = new(StringComparer.OrdinalIgnoreCase);
@@ -249,7 +249,7 @@ internal sealed unsafe class DispatchObject : IDisposable
     /// Invokes a method that returns an IDispatch object (e.g. <c>AxisRates(axis)</c> → <c>IAxisRates</c>).
     /// Returns a new <see cref="DispatchObject"/> wrapping the sub-dispatch; the caller owns and must dispose it.
     /// </summary>
-    public DispatchObject InvokeMethodDispatch(string name, params object[] args)
+    public IDispatchTransport InvokeMethodDispatch(string name, params object[] args)
     {
         var variants = ArgsToVariants(args);
         try
@@ -268,7 +268,7 @@ internal sealed unsafe class DispatchObject : IDisposable
     /// Reads a parameterized property that returns an IDispatch object (e.g. <c>Item(index)</c> on an
     /// ASCOM collection → <c>IRate</c>). Collection default properties use <see cref="NativeMethods.DISPATCH_PROPERTYGET"/>.
     /// </summary>
-    public DispatchObject GetPropertyDispatch(string name, params object[] args)
+    public IDispatchTransport GetPropertyDispatch(string name, params object[] args)
     {
         var variants = ArgsToVariants(args);
         try

@@ -21,7 +21,9 @@ internal abstract class AscomDeviceDriverBase(AscomDevice device, IServiceProvid
     // and fall back.
     private const int DISP_E_UNKNOWNNAME = unchecked((int)0x80020006);
 
-    protected readonly AscomDispatchDevice _dispatchDevice = new(device.DeviceId);
+    // serviceProvider is the base primary-ctor parameter (in scope for field initializers); the factory
+    // resolves an ILoggerFactory from it to log the in-proc-vs-out-of-process routing decision.
+    protected readonly AscomDispatchDevice _dispatchDevice = new(device.DeviceId, serviceProvider);
 
     public override string Name => SafeGet(() => _dispatchDevice.Name, _device.DisplayName);
 

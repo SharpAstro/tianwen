@@ -7,7 +7,7 @@ namespace TianWen.Lib.Devices.Ascom.ComInterop;
 [DispatchInterface]
 internal sealed partial class AscomDispatchFocuser : IDisposable
 {
-    public AscomDispatchFocuser(DispatchObject dispatch)
+    public AscomDispatchFocuser(IDispatchTransport dispatch)
     {
         _dispatch = dispatch;
     }

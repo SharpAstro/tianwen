@@ -11,7 +11,7 @@ namespace TianWen.Lib.Devices.Ascom.ComInterop;
 [DispatchInterface]
 internal sealed partial class AscomDispatchTelescope : IDisposable
 {
-    public AscomDispatchTelescope(DispatchObject dispatch)
+    public AscomDispatchTelescope(IDispatchTransport dispatch)
     {
         _dispatch = dispatch;
     }
@@ -76,12 +76,13 @@ internal sealed partial class AscomDispatchTelescope : IDisposable
     public partial void MoveAxis(int Axis, double Rate);
 
     /// <summary>
-    /// Calls <c>AxisRates(axis)</c> and returns the resulting <c>IAxisRates</c> collection wrapped as a
-    /// <see cref="DispatchObject"/>. Caller disposes. The collection exposes <c>Count</c> plus a 1-indexed
-    /// <c>Item(i)</c> parameterized property that yields an <c>IRate</c> with <c>Minimum</c>/<c>Maximum</c>.
-    /// Hand-written because the source generator only emits primitive COM return types.
+    /// Calls <c>AxisRates(axis)</c> and returns the resulting <c>IAxisRates</c> collection as an
+    /// <see cref="IDispatchTransport"/>. Caller disposes. The collection exposes <c>Count</c> plus a
+    /// 1-indexed <c>Item(i)</c> parameterized property that yields an <c>IRate</c> with
+    /// <c>Minimum</c>/<c>Maximum</c>. Hand-written because the source generator only emits primitive
+    /// COM return types.
     /// </summary>
-    public DispatchObject AxisRates(int Axis) => _dispatch.InvokeMethodDispatch("AxisRates", Axis);
+    public IDispatchTransport AxisRates(int Axis) => _dispatch.InvokeMethodDispatch("AxisRates", Axis);
 
     public void Dispose() { /* dispatch owned by AscomDispatchDevice */ }
 }

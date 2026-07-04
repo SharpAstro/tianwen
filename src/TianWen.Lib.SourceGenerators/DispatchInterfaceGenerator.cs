@@ -139,7 +139,7 @@ internal sealed class DispatchInterfaceAttribute : global::System.Attribute
 
         sb.AppendLine($"{accessibility} partial class {classInfo.ClassName}");
         sb.AppendLine("{");
-        sb.AppendLine("    private readonly global::TianWen.Lib.Devices.Ascom.ComInterop.DispatchObject _dispatch;");
+        sb.AppendLine("    private readonly global::TianWen.Lib.Devices.Ascom.ComInterop.IDispatchTransport _dispatch;");
         sb.AppendLine();
 
         // Generate property implementations
