@@ -1,6 +1,8 @@
 # ASCOM COM drivers: out-of-process CET-off host (plan)
 
-**Status: Phases 1–4.5 DONE** (branch `feat/ascom-oop-host`, 2026-07-04). Supersedes the mitigation in
+**Status: Phases 1–4.5 DONE, Phase 5 PARTIAL** (branch `feat/ascom-oop-host`, 2026-07-04). The real
+0xC0000409 driver (`ASCOM.GeminiFPLite.CoverCalibrator`) now connects through the helper without
+fastfailing the process (see Phase 5 below). Supersedes the mitigation in
 [ascom-com-sta-message-pump.md](ascom-com-sta-message-pump.md) — the STA message pump was the **wrong
 fix** (see "Corrected root cause" below).
 
@@ -100,7 +102,30 @@ Phase 4 when generalizing to the mount.
 | P3 | `tianwen-ascomhost` exe = `JsonRpcServer` + `AscomComHost` handler over `DispatchObject`; port handshake; STA thread; E2E test (spawn exe → handshake → drive real COM); AOT-publish + verify `CETCompat=false` in the PE header | **DONE** (this commit; E2E test green against `Scripting.Dictionary`; PE header confirmed CET-off) |
 | P4 | Parent side: `IDispatchTransport` seam (in-proc `DispatchObject` / out-of-proc `RemoteDispatchTransport`); `mscoree` registry detection (`AscomComServerClassifier`); helper process lifecycle (`AscomHostProcess` spawn + connect + `AscomHostJob` kill-on-close); wire so the 8 `AscomXxxDriver` classes stay unchanged | **DONE** |
 | P4.5 | Replace loopback TCP with a per-user **named pipe**: transport-agnostic `JsonRpcServer.ServeAsync(IUtf8TextBasedConnection)`, `NamedPipeConnection`, parent-owns-server + GUID-name launch arg (drops the stdout `PORT` handshake). AOT-publish re-verified. | **DONE** (this commit) |
-| P5 | Prove cover-first on the **real Gemini FlatPanel Lite** through the helper (the actual 0xC0000409 driver); generalize to the mount (adds sub-dispatch handles — telescope `AxisRates`/`Item`, currently `NotSupported` on the remote transport); confirm win-arm64 publish + ship the helper beside the app | NOT STARTED |
+| P5 | Prove cover-first on the **real Gemini FlatPanel Lite** through the helper (the actual 0xC0000409 driver); generalize to the mount (adds sub-dispatch handles — telescope `AxisRates`/`Item`, currently `NotSupported` on the remote transport); confirm win-arm64 publish + ship the helper beside the app | **PARTIAL** — real-driver survival proven (below); panel illumination (needs hardware) + mount sub-dispatch + win-arm64/packaging pending |
+
+### Phase 5 — enemy contact (2026-07-04, dev box)
+
+Tested against the **real ASCOM drivers registered on the bring-up machine**, not just a synthetic COM
+object (`AscomOutOfProcessConnectTests`):
+
+- **Classification is correct on real drivers (7/7).** `AscomComServerClassifier` routes
+  `ASCOM.GeminiFPLite.CoverCalibrator`, `ASCOM.GeminiFocuserPro.Focuser`, `ASCOM.DeepSkyDad.FP.*`,
+  `ASCOM.iOptron2017.*` (all `mscoree.dll`) **out-of-process**, and leaves `ASCOM.Simulator.*` /
+  `ASCOM.GS.Sky.Telescope` (`LocalServer32`) **and** `CCDSimulator.Camera` (native in-proc
+  `CCDSimulator.dll`, *not* mscoree) **in-proc**. The native-in-proc negative case is the subtle one and
+  it passed.
+- **The actual 0xC0000409 driver survives through the helper.** Connecting
+  `ASCOM.GeminiFPLite.CoverCalibrator` via `AscomDispatchDevice` (→ factory → helper) runs its
+  `Connected=true` `Application.DoEvents()` busy-spin — the exact CET shadow-stack tripwire — inside the
+  CET-off helper and returns cleanly (`Connected=False`, no panel attached, **no exception, no fastfail**).
+  In-proc this would have `RtlFailFast`'d the process before returning. The ~3 s runtime confirms the
+  busy-spin actually executed rather than being a no-op, and a helper crash would have surfaced as a
+  pipe-break `IOException` (test would fail) rather than the clean null result observed. No helper
+  processes leaked.
+
+Still hardware-gated: verifying the panel actually illuminates + meters a flat (needs the physical
+Gemini panel), the mount sub-dispatch path (`AxisRates`), and the win-arm64 publish / ship-beside-app.
 
 ### Phase 4 design notes
 
