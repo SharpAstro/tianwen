@@ -71,11 +71,14 @@ public class GeminiFlatPanelProtocolTests
     }
 
     [Theory]
-    [InlineData(">HGeminiFlatPanelLite#", 'H', "GeminiFlatPanelLite")] // full frame
+    [InlineData("*HGeminiFlatPanelLite#", 'H', "GeminiFlatPanelLite")] // real hardware '*' response sigil
+    [InlineData("*V205#", 'V', "205")]
+    [InlineData("*S100#", 'S', "100")]                                 // real on-status payload
+    [InlineData(">HGeminiFlatPanelLite#", 'H', "GeminiFlatPanelLite")] // full frame, legacy '>' sigil still parses
     [InlineData("HGeminiFlatPanelLite", 'H', "GeminiFlatPanelLite")]   // terminator + prefix already stripped
     [InlineData(">V205#", 'V', "205")]
     [InlineData(">S1#", 'S', "1")]
-    [InlineData(">V205#", 'H', null)]                                  // wrong echoed letter
+    [InlineData("*V205#", 'H', null)]                                  // wrong echoed letter
     [InlineData(null, 'H', null)]                                      // no reply
     public void ParsePayload_extracts_the_payload_when_the_letter_matches(string? raw, char expected, string? payload)
     {

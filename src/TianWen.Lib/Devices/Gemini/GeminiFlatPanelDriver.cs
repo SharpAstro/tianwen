@@ -21,6 +21,17 @@ internal sealed class GeminiFlatPanelDriver(GeminiDevice device, IServiceProvide
     // controller reliably registers both.
     private static readonly TimeSpan CommandSettle = TimeSpan.FromMilliseconds(250);
 
+    // The controller reboots when the port opens (the USB bridge toggles DTR/RTS) and ignores input for ~2s
+    // while it boots — the vendor ASCOM driver hard-sleeps 2000ms here. We SLEEP THROUGH the boot before the
+    // first handshake: writing >H# during the boot just yields dropped writes and, once it wakes, a storm of
+    // duplicate replies that desync every later read. After the sleep it is booted, so a couple of clean
+    // handshake attempts suffice. Reconnect goes through the liveness path (already-open conn), not here, so
+    // this ~2s cost is paid only on a genuine cold open.
+    private static readonly TimeSpan BootDelay = TimeSpan.FromMilliseconds(2200);
+    private const int HandshakeAttempts = 3;
+    private static readonly TimeSpan HandshakeTimeout = TimeSpan.FromSeconds(1);
+    private static readonly TimeSpan HandshakeRetryInterval = TimeSpan.FromMilliseconds(400);
+
     private volatile ISerialConnection? _conn;
     private volatile bool _connected;
 
@@ -62,6 +73,16 @@ internal sealed class GeminiFlatPanelDriver(GeminiDevice device, IServiceProvide
         if (_conn is { IsOpen: true } conn)
         {
             await GeminiFlatPanelProtocol.SetLightAsync(conn, on: false, cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>Diagnostic hook (not part of <see cref="ICoverDriver"/>): pulses the panel beeper
+    /// (<c>&gt;T1#</c> / <c>&gt;T0#</c>). Used by the live-hardware test for an audible confirmation.</summary>
+    internal async Task SetBeeperAsync(bool on, CancellationToken cancellationToken = default)
+    {
+        if (_conn is { IsOpen: true } conn)
+        {
+            await GeminiFlatPanelProtocol.SetBeeperAsync(conn, on, cancellationToken).ConfigureAwait(false);
         }
     }
 
@@ -124,7 +145,35 @@ internal sealed class GeminiFlatPanelDriver(GeminiDevice device, IServiceProvide
 
         try
         {
-            var identity = await GeminiFlatPanelProtocol.IdentifyAsync(conn, cancellationToken).ConfigureAwait(false);
+            // Sleep through the controller's power-on-reset boot before the first handshake (see BootDelay).
+            await TimeProvider.SleepAsync(BootDelay, cancellationToken).ConfigureAwait(false);
+
+            // Booted now: a couple of clean handshake attempts. Retry only on NO answer; a definitive wrong
+            // identity means a different device, so fail fast. QueryAsync clears stale bytes before each read.
+            string? identity = null;
+            for (var attempt = 0; attempt < HandshakeAttempts; attempt++)
+            {
+                using (var attemptCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken))
+                {
+                    attemptCts.CancelAfter(HandshakeTimeout);
+                    try
+                    {
+                        identity = await GeminiFlatPanelProtocol.IdentifyAsync(conn, attemptCts.Token).ConfigureAwait(false);
+                    }
+                    catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+                    {
+                        identity = null;
+                    }
+                }
+
+                if (identity is not null)
+                {
+                    break;
+                }
+
+                await TimeProvider.SleepAsync(HandshakeRetryInterval, cancellationToken).ConfigureAwait(false);
+            }
+
             if (identity != GeminiFlatPanelProtocol.Identity)
             {
                 throw new InvalidOperationException($"Device on {device.DeviceId} is not a Gemini FlatPanel (identity: '{identity ?? "<none>"}')");

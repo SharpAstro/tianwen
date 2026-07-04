@@ -38,6 +38,13 @@ public record class GeminiDevice(Uri DeviceUri) : DeviceBase(DeviceUri)
 
         // The Gemini controller needs DTR + RTS asserted on open (the CH341 USB bridge otherwise holds the
         // MCU in reset and it never answers >H#).
-        return await external.OpenSerialDeviceAsync(port, GeminiFlatPanelProtocol.Baud, encoding ?? Encoding.ASCII, assertControlLines: true, cancellationToken);
+        var conn = await external.OpenSerialDeviceAsync(port, GeminiFlatPanelProtocol.Baud, encoding ?? Encoding.ASCII, assertControlLines: true, cancellationToken);
+        if (conn is not null)
+        {
+            // The CH341 bridge spuriously aborts async BaseStream reads (ERROR_OPERATION_ABORTED) after the
+            // first read, so use the cancellable synchronous read path (see ISerialConnection.SynchronousReads).
+            conn.SynchronousReads = true;
+        }
+        return conn;
     }
 }

@@ -28,4 +28,12 @@ public interface IDeviceSource<out TDevice> : IAsyncSupportedCheck where TDevice
     /// <param name="deviceType">The type of device.</param>
     /// <returns>A collection of registered devices of the specified type.</returns>
     IEnumerable<TDevice> RegisteredDevices(DeviceType deviceType);
+
+    /// <summary>
+    /// True when <see cref="DiscoverAsync(CancellationToken)"/> reads matches published by the centralised
+    /// <see cref="Discovery.ISerialProbeService"/> (serial device families) and therefore must run AFTER the
+    /// serial probe pass. Sources that return false are independent of serial probing and can run concurrently
+    /// with it (network/USB families: Alpaca, Canon, PHD2, weather, ZWO, …). Default false.
+    /// </summary>
+    bool ConsumesSerialProbe => false;
 }

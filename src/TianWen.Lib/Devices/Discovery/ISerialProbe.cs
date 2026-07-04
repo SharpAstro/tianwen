@@ -72,6 +72,24 @@ public interface ISerialProbe
     int MaxAttempts => 1;
 
     /// <summary>
+    /// Quiet delay the service waits AFTER opening the port and BEFORE the first handshake, not counted
+    /// against <see cref="Budget"/>. For controllers that reboot when the port opens (their USB bridge
+    /// toggles DTR/RTS on open) and ignore input until booted — e.g. the Gemini FlatPanel's CH341, ~2s.
+    /// Because the service opens/closes the port per probe, the boot restarts every probe, so the delay must
+    /// live in the probe rather than being amortised across the baud group. Default zero (no warm-up).
+    /// </summary>
+    TimeSpan Warmup => TimeSpan.Zero;
+
+    /// <summary>
+    /// When true, the service asserts DTR + RTS when opening the port for this probe — needed by bridges that
+    /// hold the MCU in reset until DTR is asserted (e.g. the Gemini FlatPanel's CH341, which never answers
+    /// otherwise). Honoured ONLY on the isolated per-probe pass (each probe has its own handle there); on the
+    /// shared first pass it is ignored, because toggling DTR on a handle shared with other probes could reset
+    /// a different DTR-triggered controller (e.g. some OnStep boards) on the same port. Default false.
+    /// </summary>
+    bool AssertControlLines => false;
+
+    /// <summary>
     /// Device-URI host names this probe can verify for pinned-port verification
     /// (see <see cref="ISerialProbeService"/>'s two-tier algorithm). Typically a
     /// single entry — the name of the <see cref="IDeviceSource{TDevice}"/> host that

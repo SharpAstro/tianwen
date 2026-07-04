@@ -111,20 +111,20 @@ internal class DeviceDiscovery(
         // themselves. Safe no-op when no ISerialProbe is registered (Phase 1 default).
         await RunSerialProbesAsync(cancellationToken);
 
-        foreach (var source in _supportedSources)
-        {
-            if (source.RegisteredDeviceTypes.Contains(type))
+        await Parallel.ForEachAsync(
+            _supportedSources.Where(s => s.RegisteredDeviceTypes.Contains(type)),
+            cancellationToken,
+            async (source, ct) =>
             {
                 try
                 {
-                    await source.DiscoverAsync(cancellationToken);
+                    await source.DiscoverAsync(ct);
                 }
                 catch (Exception e)
                 {
-                    logger.LogError(e, "Error while discovering devices of type {DeviceType}", type);
+                    logger.LogError(e, "Error while discovering devices of type {DeviceType} from {DeviceSource}", type, source.GetType().Name);
                 }
-            }
-        }
+            });
     }
 
     public async ValueTask DiscoverAsync(CancellationToken cancellationToken)
@@ -142,19 +142,38 @@ internal class DeviceDiscovery(
             await RefreshUnsupportedAsync(cancellationToken);
         }
 
-        await RunSerialProbesAsync(cancellationToken);
+        // Start serial probing CONCURRENTLY with the per-source discovery rather than strictly before it.
+        // Sources that consume the probe results (ConsumesSerialProbe: OnStep/Meade/iOptron/Skywatcher/Gemini/
+        // QHYCCD) await it before their DiscoverAsync; the independent network/USB sources (Alpaca/Canon/PHD2/
+        // weather/ZWO) run alongside the multi-second serial pass instead of serialising after it. Per-source
+        // discovery is independent (each populates its own list) and mostly I/O-bound, so run them in parallel
+        // with a per-source try/catch so one failure never sinks the rest (mirrors ProbeSupportAsync).
+        // RunSerialProbesAsync swallows its own non-cancellation exceptions, and AsTask() lets the consuming
+        // sources all await the one probe pass.
+        var serialProbeTask = RunSerialProbesAsync(cancellationToken).AsTask();
 
-        foreach (var source in _supportedSources)
-        {
-            try
+        await Parallel.ForEachAsync(
+            _supportedSources,
+            cancellationToken,
+            async (source, ct) =>
             {
-                await source.DiscoverAsync(cancellationToken);
-            }
-            catch (Exception e)
-            {
-                logger.LogError(e, "Error while discovering devices");
-            }
-        }
+                try
+                {
+                    if (source.ConsumesSerialProbe)
+                    {
+                        await serialProbeTask;
+                    }
+                    await source.DiscoverAsync(ct);
+                }
+                catch (Exception e)
+                {
+                    logger.LogError(e, "Error while discovering devices from {DeviceSource}", source.GetType().Name);
+                }
+            });
+
+        // Observe the probe pass even if no consuming source awaited it (e.g. none supported) — surfaces a
+        // cancellation and ensures it has completed before DiscoverAsync returns.
+        await serialProbeTask;
     }
 
     private async ValueTask RunSerialProbesAsync(CancellationToken cancellationToken)
