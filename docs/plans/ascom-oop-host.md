@@ -1,6 +1,6 @@
 # ASCOM COM drivers: out-of-process CET-off host (plan)
 
-**Status: Phases 1–4 DONE** (branch `feat/ascom-oop-host`, 2026-07-04). Supersedes the mitigation in
+**Status: Phases 1–4.5 DONE** (branch `feat/ascom-oop-host`, 2026-07-04). Supersedes the mitigation in
 [ascom-com-sta-message-pump.md](ascom-com-sta-message-pump.md) — the STA message pump was the **wrong
 fix** (see "Corrected root cause" below).
 
@@ -35,7 +35,7 @@ Evidence that settled it:
 We do **not** want to disable CET for the whole TianWen product (CET is a real exploit-mitigation, and
 we don't ship .NET Framework with the product). Instead: **one small out-of-process helper hosts the
 CET-incompatible driver with CET off**, and the CET-on main app drives it remotely over the **same
-JSON-RPC-over-TCP protocol PHD2 already uses** (loopback only).
+JSON-RPC protocol PHD2 already uses**, carried on a per-user named pipe (local only).
 
 - **`tianwen-ascomhost`** (`src/TianWen.AscomHost/`): AOT-native, `<CETCompat>false</CETCompat>`,
   Windows-only. Hosts a `DispatchObject` (the AOT-safe raw-vtable IDispatch wrapper) and exposes its
@@ -46,12 +46,22 @@ JSON-RPC-over-TCP protocol PHD2 already uses** (loopback only).
 - **Cameras stay in-proc** — the `ImageArray` SAFEARRAY is too big to marshal per frame, and no camera
   driver in the crash cluster is one we can't already reach natively.
 
-### Port handshake (ephemeral, helper → parent)
+### Named-pipe transport (Phase 4.5 — replaced loopback TCP)
 
-`JsonRpcServer` binds `TcpListener(IPAddress.Loopback, 0)` — the OS assigns a free port. The helper
-prints `PORT <n>` as its **first stdout line** once the socket is bound; the parent reads that line,
-then connects a `JsonRpcClient` to `127.0.0.1:<n>`. The port flows **helper → parent** (not
-parent-picks-and-passes), so there is no TOCTOU race between probing a free port and binding it.
+The transport is a **per-user named pipe**, not a loopback TCP socket. Rationale: a loopback port is
+connectable by any local process, shows up in `netstat`, and goes through the full TCP stack where
+corporate AV/firewall/EDR products routinely inspect, delay, or block loopback connections — all real
+liabilities on the managed Windows boxes this runs on. A named pipe has none of that: no network stack,
+no port, no firewall involvement, and an ACL scoped to the current user (`PipeOptions.CurrentUserOnly`).
+
+To avoid a create-vs-connect race, the **parent owns the pipe server**: it creates a
+`NamedPipeServerStream` with a GUID name, passes that name to the helper as `argv[0]`, spawns it, then
+waits for the helper (the pipe **client**, `NamedPipeClientStream`) to connect. No stdout handshake —
+the name is a launch argument, and the server pipe exists before the child starts, so there is no race
+and no TOCTOU. `JsonRpcServer` is transport-agnostic (`ServeAsync(IUtf8TextBasedConnection, ct)`); the
+helper serves over a `NamedPipeConnection`, and PHD2 keeps its own TCP `JsonRpcOverTcpConnection` (it is
+a real network client). Lifetime: when the parent exits the pipe breaks and the helper's serve loop ends
+(the job object is the hard backstop).
 
 ### STA affinity
 
@@ -88,7 +98,8 @@ Phase 4 when generalizing to the mount.
 | P1 | Extract the JSON-RPC client buried in the PHD2 driver into a shared `JsonRpcClient` (spine for both PHD2 and the host); refactor `OpenPHD2GuiderDriver` onto it | **DONE** (`d1471d58`; unit + live-PHD2 smoke tests) |
 | P2 | `JsonRpcServer` + server-side `JsonRpcOverTcpConnection`; loopback round-trip test | **DONE** (`8ffe2254`) |
 | P3 | `tianwen-ascomhost` exe = `JsonRpcServer` + `AscomComHost` handler over `DispatchObject`; port handshake; STA thread; E2E test (spawn exe → handshake → drive real COM); AOT-publish + verify `CETCompat=false` in the PE header | **DONE** (this commit; E2E test green against `Scripting.Dictionary`; PE header confirmed CET-off) |
-| P4 | Parent side: `IDispatchTransport` seam (in-proc `DispatchObject` / out-of-proc `RemoteDispatchTransport`); `mscoree` registry detection (`AscomComServerClassifier`); helper process lifecycle (`AscomHostProcess` spawn + PORT handshake + `AscomHostJob` kill-on-close); wire so the 8 `AscomXxxDriver` classes stay unchanged | **DONE** (this commit) |
+| P4 | Parent side: `IDispatchTransport` seam (in-proc `DispatchObject` / out-of-proc `RemoteDispatchTransport`); `mscoree` registry detection (`AscomComServerClassifier`); helper process lifecycle (`AscomHostProcess` spawn + connect + `AscomHostJob` kill-on-close); wire so the 8 `AscomXxxDriver` classes stay unchanged | **DONE** |
+| P4.5 | Replace loopback TCP with a per-user **named pipe**: transport-agnostic `JsonRpcServer.ServeAsync(IUtf8TextBasedConnection)`, `NamedPipeConnection`, parent-owns-server + GUID-name launch arg (drops the stdout `PORT` handshake). AOT-publish re-verified. | **DONE** (this commit) |
 | P5 | Prove cover-first on the **real Gemini FlatPanel Lite** through the helper (the actual 0xC0000409 driver); generalize to the mount (adds sub-dispatch handles — telescope `AxisRates`/`Item`, currently `NotSupported` on the remote transport); confirm win-arm64 publish + ship the helper beside the app | NOT STARTED |
 
 ### Phase 4 design notes
@@ -102,8 +113,8 @@ Phase 4 when generalizing to the mount.
   warning** (no worse than pre-Phase-4). The factory resolves an `ILoggerFactory` from the DI
   `serviceProvider` (a base primary-ctor param, in scope for the field initializer) to log the decision.
 - **Synchronous transport.** The ASCOM COM surface is inherently synchronous/single-apartment, so
-  `RemoteDispatchTransport` does a **synchronous, single-flight** loopback round-trip (a blocking COM call
-  becomes a blocking loopback call) — it does *not* reuse the async `JsonRpcClient` (that exists for
+  `RemoteDispatchTransport` does a **synchronous, single-flight** pipe round-trip (a blocking COM call
+  becomes a blocking pipe call) — it does *not* reuse the async `JsonRpcClient` (that exists for
   PHD2's event-pushing stream). The helper serves sequentially and never pushes, so the reply to request
   N is the next line; a `System.Threading.Lock` serializes the write/read pair.
 - **HResult fidelity.** A COM failure on the helper is re-thrown as `JsonRpcException(msg, HResult)`; the

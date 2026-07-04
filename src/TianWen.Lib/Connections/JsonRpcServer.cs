@@ -1,7 +1,5 @@
 using System;
 using System.Buffers;
-using System.Net;
-using System.Net.Sockets;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -18,43 +16,21 @@ namespace TianWen.Lib.Connections;
 internal delegate ValueTask JsonRpcRequestHandler(string method, JsonElement @params, Utf8JsonWriter resultWriter, CancellationToken cancellationToken);
 
 /// <summary>
-/// Minimal JSON-RPC 2.0 server over loopback TCP: binds an auto-assigned loopback port, accepts a
-/// single client, and serves requests through a <see cref="JsonRpcRequestHandler"/> until the client
-/// disconnects or cancellation fires. The server side of the same wire format
-/// <see cref="JsonRpcClient"/> speaks, so the two interoperate directly (client's
-/// <c>{"method","id","params"?}</c> in, this server's <c>{"jsonrpc":"2.0","id",result|error}</c> out).
+/// Minimal JSON-RPC 2.0 server: serves requests on an already-connected
+/// <see cref="IUtf8TextBasedConnection"/> through a <see cref="JsonRpcRequestHandler"/> until the peer
+/// disconnects or cancellation fires. Transport-agnostic — the caller owns the listen/accept (a named
+/// pipe for the out-of-process ASCOM host, or a TCP accept) and hands the connected transport to
+/// <see cref="ServeAsync"/>. It speaks the server side of the same wire format <see cref="JsonRpcClient"/>
+/// speaks (client's <c>{"method","id","params"?}</c> in, this server's
+/// <c>{"jsonrpc":"2.0","id",result|error}</c> out).
 /// <para>
-/// Used by the out-of-process ASCOM COM host (one server per hosted device, on 127.0.0.1). Requests
-/// are served sequentially on the accept loop, which is exactly what a single COM object wants.
+/// Requests are served sequentially on the calling task, which is exactly what a single COM object wants.
 /// </para>
 /// </summary>
-internal sealed class JsonRpcServer(JsonRpcRequestHandler handler, Action<Exception, string>? onError = null) : IDisposable
+internal sealed class JsonRpcServer(JsonRpcRequestHandler handler, Action<Exception, string>? onError = null)
 {
-    private readonly TcpListener _listener = new(IPAddress.Loopback, 0);
-    private bool _started;
-
-    /// <summary>Binds and starts listening on an OS-assigned loopback port; returns that port.</summary>
-    public int Start()
-    {
-        _listener.Start();
-        _started = true;
-        return ((IPEndPoint)_listener.LocalEndpoint).Port;
-    }
-
-    /// <summary>Accepts one client and serves its requests until it disconnects or <paramref name="cancellationToken"/> fires.</summary>
-    public async Task RunAsync(CancellationToken cancellationToken)
-    {
-        if (!_started)
-        {
-            Start();
-        }
-
-        using var tcp = await _listener.AcceptTcpClientAsync(cancellationToken).ConfigureAwait(false);
-        using var connection = new JsonRpcOverTcpConnection(tcp);
-        await ServeAsync(connection, cancellationToken).ConfigureAwait(false);
-    }
-
-    private async Task ServeAsync(IUtf8TextBasedConnection connection, CancellationToken cancellationToken)
+    /// <summary>Serves requests on <paramref name="connection"/> until it disconnects or <paramref name="cancellationToken"/> fires.</summary>
+    public async Task ServeAsync(IUtf8TextBasedConnection connection, CancellationToken cancellationToken)
     {
         while (!cancellationToken.IsCancellationRequested)
         {
@@ -75,7 +51,7 @@ internal sealed class JsonRpcServer(JsonRpcRequestHandler handler, Action<Except
 
             if (line is null)
             {
-                break; // client disconnected
+                break; // peer disconnected
             }
 
             JsonDocument request;
@@ -153,6 +129,4 @@ internal sealed class JsonRpcServer(JsonRpcRequestHandler handler, Action<Except
             }
         }
     }
-
-    public void Dispose() => _listener.Stop();
 }
