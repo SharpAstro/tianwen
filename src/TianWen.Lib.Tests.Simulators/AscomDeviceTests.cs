@@ -1,4 +1,6 @@
+using Meziantou.Extensions.Logging.Xunit.v3;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Shouldly;
 using System;
@@ -21,6 +23,16 @@ namespace TianWen.Lib.Tests.Simulators;
 /// </summary>
 public class AscomDeviceTests(ITestOutputHelper testOutputHelper)
 {
+    // DeviceDriverBase resolves ILoggerFactory + ITimeProvider from the SP (not just IExternal), so a
+    // bare AddSingleton<IExternal> throws "No service for type ILoggerFactory" on TryInstantiateDriver.
+    // Mirror BuildAlpaca: real System clock (a live COM sim runs in wall-clock time) + xUnit logging.
+    private ServiceProvider BuildServiceProvider(FakeExternal external) =>
+        new ServiceCollection()
+            .AddSingleton<IExternal>(external)
+            .AddSingleton<ITimeProvider>(SystemTimeProvider.Instance)
+            .AddLogging(b => b.AddProvider(new XUnitLoggerProvider(testOutputHelper, false)))
+            .BuildServiceProvider();
+
     // Platform 7 registers the OmniSimulator under version-specific ProgIDs -- the classic
     // "ASCOM.Simulator.<type>" is NOT guaranteed (CI against Platform 7 proved the old hardcoded
     // lookup wrong), so discover the simulator by name-match instead of a fixed ProgID, logging the
@@ -33,8 +45,17 @@ public class AscomDeviceTests(ITestOutputHelper testOutputHelper)
         await iterator.DiscoverAsync(ct);
         var devices = iterator.RegisteredDevices(type).ToList();
         testOutputHelper.WriteLine($"{type}: {devices.Count} registered -> {string.Join(", ", devices.Select(d => $"'{d.DeviceId}' ({d.DisplayName})"))}");
-        return devices.FirstOrDefault(d => d.DeviceId.Contains("Sim", StringComparison.OrdinalIgnoreCase)
-                                        || d.DisplayName.Contains("Sim", StringComparison.OrdinalIgnoreCase))
+
+        // Deterministic, OmniSim-first preference. Registry enumeration order is NOT a stable contract,
+        // and each type exposes several simulators (OmniSim + classic ASCOM.Simulator.* + a legacy
+        // short-ProgID sim like CCDSimulator/FocusSim), so a bare FirstOrDefault(Sim) picks arbitrarily
+        // and could exercise a different -- or broken -- sim run-to-run. Prefer OmniSim (the same sim
+        // the Alpaca leg drives), then the classic ASCOM.Simulator.*, then any remaining sim.
+        static bool IsSim(AscomDevice d) => d.DeviceId.Contains("Sim", StringComparison.OrdinalIgnoreCase)
+                                         || d.DisplayName.Contains("Sim", StringComparison.OrdinalIgnoreCase);
+        return devices.FirstOrDefault(d => d.DeviceId.Contains("OmniSim", StringComparison.OrdinalIgnoreCase))
+            ?? devices.FirstOrDefault(d => d.DeviceId.StartsWith("ASCOM.Simulator.", StringComparison.OrdinalIgnoreCase))
+            ?? devices.FirstOrDefault(IsSim)
             ?? (devices.Count == 1 ? devices[0] : null);
     }
 
@@ -74,7 +95,7 @@ public class AscomDeviceTests(ITestOutputHelper testOutputHelper)
         device.DeviceType.ShouldBe(type);
         device.DisplayName.ShouldNotBeNullOrEmpty();
 
-        var sp = new ServiceCollection().AddSingleton<IExternal>(external).BuildServiceProvider();
+        var sp = BuildServiceProvider(external);
         device.TryInstantiateDriver<IDeviceDriver>(sp, out var driver).ShouldBeTrue();
 
         await using (driver)
@@ -97,7 +118,7 @@ public class AscomDeviceTests(ITestOutputHelper testOutputHelper)
         var simTelescopeDevice = await ResolveSimulatorAsync(deviceIterator, DeviceType.Telescope, cancellationToken);
 
         // when
-        var sp = new ServiceCollection().AddSingleton<IExternal>(external).BuildServiceProvider();
+        var sp = BuildServiceProvider(external);
         if (simTelescopeDevice?.TryInstantiateDriver(sp, out IMountDriver? driver) is true)
         {
             await using (driver)
@@ -121,7 +142,7 @@ public class AscomDeviceTests(ITestOutputHelper testOutputHelper)
         var simCameraDevice = await ResolveSimulatorAsync(deviceIterator, DeviceType.Camera, cancellationToken);
 
         // when / then
-        var sp2 = new ServiceCollection().AddSingleton<IExternal>(external).BuildServiceProvider();
+        var sp2 = BuildServiceProvider(external);
         if (simCameraDevice?.TryInstantiateDriver(sp2, out ICameraDriver? driver) is true)
         {
             await using (driver)
@@ -164,7 +185,7 @@ public class AscomDeviceTests(ITestOutputHelper testOutputHelper)
         var deviceIterator = new AscomDeviceIterator(NullLogger<AscomDeviceIterator>.Instance);
         var simDevice = await ResolveSimulatorAsync(deviceIterator, DeviceType.Focuser, ct);
 
-        var sp = new ServiceCollection().AddSingleton<IExternal>(external).BuildServiceProvider();
+        var sp = BuildServiceProvider(external);
         if (simDevice?.TryInstantiateDriver(sp, out IFocuserDriver? focuser) is true)
         {
             await using (focuser)
@@ -202,7 +223,7 @@ public class AscomDeviceTests(ITestOutputHelper testOutputHelper)
         var deviceIterator = new AscomDeviceIterator(NullLogger<AscomDeviceIterator>.Instance);
         var simDevice = await ResolveSimulatorAsync(deviceIterator, DeviceType.FilterWheel, ct);
 
-        var sp = new ServiceCollection().AddSingleton<IExternal>(external).BuildServiceProvider();
+        var sp = BuildServiceProvider(external);
         if (simDevice?.TryInstantiateDriver(sp, out IFilterWheelDriver? fw) is true)
         {
             await using (fw)
@@ -240,7 +261,7 @@ public class AscomDeviceTests(ITestOutputHelper testOutputHelper)
         var deviceIterator = new AscomDeviceIterator(NullLogger<AscomDeviceIterator>.Instance);
         var simDevice = await ResolveSimulatorAsync(deviceIterator, DeviceType.CoverCalibrator, ct);
 
-        var sp = new ServiceCollection().AddSingleton<IExternal>(external).BuildServiceProvider();
+        var sp = BuildServiceProvider(external);
         if (simDevice?.TryInstantiateDriver(sp, out ICoverDriver? cover) is true)
         {
             await using (cover)
