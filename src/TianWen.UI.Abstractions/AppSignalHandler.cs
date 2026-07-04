@@ -80,6 +80,21 @@ namespace TianWen.UI.Abstractions
         }
 
         /// <summary>
+        /// Runs a device connect/disconnect on a thread-pool thread so its <b>synchronous prefix
+        /// never executes on the render thread</b>. <see cref="SignalBus.ProcessPending"/> invokes
+        /// async signal handlers inline on the render thread, running each handler up to its first
+        /// yielding <c>await</c> before the returned task is handed to the tracker. Several drivers
+        /// block synchronously <i>before</i> that first await — most notably ASCOM COM drivers whose
+        /// <c>Connected = true/false</c> setter busy-spins <c>Application.DoEvents()</c> for ~1&#160;s
+        /// (Gemini FlatPanel Lite, iOptron, …). Left inline that freezes the GUI (Not Responding), and
+        /// on a host with no message pump it can crash the process. Offloading the call moves that
+        /// blocking prefix off the render loop. The fake devices connect instantly precisely because
+        /// they have no such blocking prefix.
+        /// </summary>
+        private static Task RunDeviceOpOffRenderThreadAsync(Func<Task> deviceOp, CancellationToken ct)
+            => Task.Run(deviceOp, ct);
+
+        /// <summary>
         /// Applies site coordinates from a transform to the planner state.
         /// </summary>
         public static void ApplySiteFromTransform(PlannerState plannerState, Transform transform)
@@ -1571,7 +1586,7 @@ namespace TianWen.UI.Abstractions
                         return;
                     }
 
-                    await hub.ConnectAsync(device, cts.Token);
+                    await RunDeviceOpOffRenderThreadAsync(() => hub.ConnectAsync(device, cts.Token).AsTask(), cts.Token);
                     appState.AppendNotification(_timeProvider.GetUtcNow(),
                         NotificationSeverity.Info, $"Connected: {device.DisplayName}");
 
@@ -1651,7 +1666,7 @@ namespace TianWen.UI.Abstractions
 
                 try
                 {
-                    await hub.DisconnectAsync(sig.DeviceUri, cts.Token);
+                    await RunDeviceOpOffRenderThreadAsync(() => hub.DisconnectAsync(sig.DeviceUri, cts.Token).AsTask(), cts.Token);
                     appState.AppendNotification(_timeProvider.GetUtcNow(),
                         NotificationSeverity.Info, "Device disconnected");
                 }
@@ -1686,7 +1701,7 @@ namespace TianWen.UI.Abstractions
 
                 try
                 {
-                    await hub.DisconnectAsync(sig.DeviceUri, cts.Token);
+                    await RunDeviceOpOffRenderThreadAsync(() => hub.DisconnectAsync(sig.DeviceUri, cts.Token).AsTask(), cts.Token);
                     appState.AppendNotification(_timeProvider.GetUtcNow(),
                         NotificationSeverity.Info, "Device force-disconnected (no warm-up)");
                     logger.LogWarning("Force-disconnect of {Uri} (bypassed safety check)", sig.DeviceUri);
@@ -1721,7 +1736,7 @@ namespace TianWen.UI.Abstractions
 
                 try
                 {
-                    await EquipmentActions.WarmAndDisconnectAsync(hub, sig.DeviceUri, _logger, cts.Token);
+                    await RunDeviceOpOffRenderThreadAsync(() => EquipmentActions.WarmAndDisconnectAsync(hub, sig.DeviceUri, _logger, cts.Token).AsTask(), cts.Token);
                     appState.AppendNotification(_timeProvider.GetUtcNow(),
                         NotificationSeverity.Info, "Camera warmed and disconnected");
                 }

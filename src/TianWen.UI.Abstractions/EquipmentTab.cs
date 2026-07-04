@@ -137,6 +137,50 @@ namespace TianWen.UI.Abstractions
         }
 
         /// <summary>
+        /// When a slot on the left is activated for assignment, scroll the discovered-device
+        /// list so the relevant row is visible: the device currently assigned to that slot if
+        /// any, otherwise the first device of the slot's expected type. Without this the
+        /// highlighted/matching row can sit off-screen (the list is not reordered per slot),
+        /// so the user has to hunt for it (e.g. the Gemini cover buried below the switches).
+        /// No-op if the target is already visible, so it never fights an in-progress scroll.
+        /// </summary>
+        private void ScrollActiveSlotDeviceIntoView(GuiAppState appState)
+        {
+            if (State.ActiveAssignment is not { } slot) return;
+
+            var devices = State.DiscoveredDevices;
+            if (devices.Count == 0) return;
+
+            var assignedUri = appState.ActiveProfile?.Data is { } data
+                ? EquipmentActions.GetAssignedDevice(data, slot)
+                : null;
+
+            var target = -1;
+            if (assignedUri is not null)
+            {
+                for (var i = 0; i < devices.Count; i++)
+                {
+                    if (DeviceBase.SameDevice(devices[i].DeviceUri, assignedUri)) { target = i; break; }
+                }
+            }
+            if (target < 0)
+            {
+                for (var i = 0; i < devices.Count; i++)
+                {
+                    if (devices[i].DeviceType == slot.ExpectedDeviceType) { target = i; break; }
+                }
+            }
+            if (target < 0) return;
+
+            var visibleRows = Math.Max(1, _deviceListVisibleRows);
+            // Already on-screen -> don't jump.
+            if (target >= State.DeviceScrollOffset && target < State.DeviceScrollOffset + visibleRows) return;
+
+            var maxOffset = Math.Max(0, devices.Count - visibleRows);
+            State.DeviceScrollOffset = Math.Clamp(target, 0, maxOffset);
+        }
+
+        /// <summary>
         /// Clears any active selection, assignment mode, confirmation strip, or expanded
         /// device settings. Returns true (consumed) if anything was dismissed, false otherwise
         /// so ESC can bubble up to the global quit handler.
@@ -755,7 +799,9 @@ namespace TianWen.UI.Abstractions
                 activeSlot: isActive ? slot : null,
                 onSlotClick: _ => _ =>
                 {
-                    State.ActiveAssignment = State.ActiveAssignment == capturedSlot ? null : capturedSlot;
+                    var nowActive = State.ActiveAssignment != capturedSlot;
+                    State.ActiveAssignment = nowActive ? capturedSlot : null;
+                    if (nowActive && capturedAppState is not null) ScrollActiveSlotDeviceIntoView(capturedAppState);
                     if (capturedAppState is not null) capturedAppState.NeedsRedraw = true;
                 });
 
@@ -2186,6 +2232,7 @@ namespace TianWen.UI.Abstractions
                 DeviceType.FilterWheel    => "FW",
                 DeviceType.CoverCalibrator=> "Cover",
                 DeviceType.Guider         => "Guider",
+                DeviceType.Switch         => "Switch",
                 DeviceType.Weather        => "WX",
                 DeviceType.Profile        => "Profile",
                 _                         => "?"
