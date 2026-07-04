@@ -44,11 +44,12 @@ namespace TianWen.Lib.Devices.OpenPHD2;
 
 internal class OpenPHD2GuiderDriver : IGuider, IDeviceSource<OpenPHD2GuiderDevice>
 {
-    private readonly ConcurrentDictionary<long, JsonDocument> _responses = [];
     private readonly OpenPHD2GuiderDevice _guiderDevice;
     private readonly SemaphoreSlim _sync = new(1, 1);
-    private readonly AsyncManualResetEvent _receiveResponseSignal = new(false);
     private IUtf8TextBasedConnection? _connection;
+    // JSON-RPC id-correlation + the receive loop now live in the shared JsonRpcClient; this driver
+    // supplies only the PHD2-specific concerns (event handling, param serialization, error wrapping).
+    private JsonRpcClient? _rpcClient;
     private string? _selectedProfileName;
     private List<OpenPHD2GuiderDevice> _equipmentProfiles = [];
     private CancellationTokenSource _cts = new();
@@ -132,82 +133,6 @@ internal class OpenPHD2GuiderDriver : IGuider, IDeviceSource<OpenPHD2GuiderDevic
     /// <param name="deviceType"></param>
     /// <returns></returns>
     public IEnumerable<OpenPHD2GuiderDevice> RegisteredDevices(DeviceType deviceType) => deviceType is DeviceType.Guider ? _equipmentProfiles : [];
-
-    private async Task ReceiveMessagesAsync(CancellationToken cancellationToken)
-    {
-        string? line = null;
-        try
-        {
-            while (_connection is { } connection && !cancellationToken.IsCancellationRequested)
-            {
-                try
-                {
-                    line = await connection.ReadLineAsync(cancellationToken).ConfigureAwait(false);
-                }
-                catch (OperationCanceledException oce) when (oce.CancellationToken.IsCancellationRequested)
-                {
-                    // cancellation requested
-                    break;
-                }
-                catch (Exception ex)
-                {
-                    OnGuidingErrorEvent(new GuidingErrorEventArgs(ActiveGuiderDevice, $"Error {ex.Message} while reading from input stream", ex));
-                    // use recovery logic
-                }
-
-                if (line == null)
-                {
-                    // phd2 disconnected
-                    // todo: re-connect (?)
-                    break;
-                }
-
-                JsonDocument j;
-                try
-                {
-                    j = JsonDocument.Parse(line);
-                }
-                catch (JsonException ex)
-                {
-                    OnGuidingErrorEvent(new GuidingErrorEventArgs(
-                        ActiveGuiderDevice,
-                        $"ignoring invalid json from server: {ex.Message}: {line}",
-                        ex
-                    ));
-                    continue;
-                }
-
-                if (j.RootElement.TryGetProperty("jsonrpc", out var _)
-                    && j.RootElement.TryGetProperty("id", out var idProp)
-                    && idProp.ValueKind is JsonValueKind.Number
-                    && idProp.TryGetInt32(out var id)
-                )
-                {
-                    _ = _responses.AddOrUpdate(id, j,
-                        (_, old) =>
-                        {
-                            old.Dispose();
-                            return j;
-                        }
-                    );
-
-                    _receiveResponseSignal.Set(true);
-                }
-                else
-                {
-                    await HandleEventAsync(j, cancellationToken);
-                }
-            }
-        }
-        catch (Exception ex)
-        {
-            OnGuidingErrorEvent(new GuidingErrorEventArgs(ActiveGuiderDevice, $"caught exception in worker thread while processing: {line}: {ex.Message}", ex));
-        }
-        finally
-        {
-            Interlocked.Exchange(ref _connection, null)?.Dispose();
-        }
-    }
 
     private async ValueTask HandleEventAsync(JsonDocument @event, CancellationToken cancellationToken = default)
     {
@@ -340,81 +265,65 @@ internal class OpenPHD2GuiderDriver : IGuider, IDeviceSource<OpenPHD2GuiderDevic
         OnGuiderStateChangedEvent(new GuiderStateChangedEventArgs(ActiveGuiderDevice, eventName ?? "Unknown", newAppState ?? "Unknown"));
     }
 
-    static long MessageId = 0;
-
-    static long MakeJsonRPCCall(IBufferWriter<byte> buffer, string method, params object[] @params)
+    // PHD2 parameter serialization (array form: primitives, null, and the SettleRequest object),
+    // lifted verbatim from the old MakeJsonRPCCall. The JSON-RPC envelope (method/id) and response
+    // correlation are now the shared JsonRpcClient's job; this writes only the `params` value.
+    static void WriteParams(Utf8JsonWriter req, object[] @params)
     {
-        using var req = new Utf8JsonWriter(buffer, new JsonWriterOptions { Indented = false });
-        var id = Interlocked.Increment(ref MessageId);
-
-        req.WriteStartObject();
-        req.WriteString("method", method);
-        req.WriteNumber("id", id);
-
-        if (@params is { Length: > 0 })
+        req.WriteStartArray();
+        foreach (var param in @params)
         {
-            req.WritePropertyName("params");
-
-            req.WriteStartArray();
-            foreach (var param in @params)
+            if (param is null)
             {
-                if (param is null)
+                req.WriteNullValue();
+            }
+            else
+            {
+                var typeCode = Type.GetTypeCode(param.GetType());
+                switch (typeCode)
                 {
-                    req.WriteNullValue();
-                }
-                else
-                {
-                    var typeCode = Type.GetTypeCode(param.GetType());
-                    switch (typeCode)
-                    {
-                        case TypeCode.Boolean:
-                            req.WriteBooleanValue((bool)param);
-                            break;
+                    case TypeCode.Boolean:
+                        req.WriteBooleanValue((bool)param);
+                        break;
 
-                        case TypeCode.Int32:
-                            req.WriteNumberValue((int)param);
-                            break;
+                    case TypeCode.Int32:
+                        req.WriteNumberValue((int)param);
+                        break;
 
-                        case TypeCode.Int64:
-                            req.WriteNumberValue((long)param);
-                            break;
+                    case TypeCode.Int64:
+                        req.WriteNumberValue((long)param);
+                        break;
 
-                        case TypeCode.Single:
-                            req.WriteNumberValue((float)param);
-                            break;
+                    case TypeCode.Single:
+                        req.WriteNumberValue((float)param);
+                        break;
 
-                        case TypeCode.Double:
-                            req.WriteNumberValue((double)param);
-                            break;
+                    case TypeCode.Double:
+                        req.WriteNumberValue((double)param);
+                        break;
 
-                        case TypeCode.Object:
-                            if (param is SettleRequest settleRequest)
-                            {
-                                req.WriteStartObject();
-                                req.WriteNumber("pixels", settleRequest.Pixels);
-                                req.WriteNumber("time", settleRequest.Time);
-                                req.WriteNumber("timeout", settleRequest.Timeout);
-                                req.WriteEndObject();
-                            }
-                            else
-                            {
-                                throw new ArgumentException($"Param {param} of type {param.GetType()} which is an object is not handled", nameof(@params));
-                            }
-                            break;
+                    case TypeCode.Object:
+                        if (param is SettleRequest settleRequest)
+                        {
+                            req.WriteStartObject();
+                            req.WriteNumber("pixels", settleRequest.Pixels);
+                            req.WriteNumber("time", settleRequest.Time);
+                            req.WriteNumber("timeout", settleRequest.Timeout);
+                            req.WriteEndObject();
+                        }
+                        else
+                        {
+                            throw new ArgumentException($"Param {param} of type {param.GetType()} which is an object is not handled", nameof(@params));
+                        }
+                        break;
 
-                        default:
-                            throw new ArgumentException($"Param {param} of type {param.GetType()} which is type code {typeCode} is not handled", nameof(@params));
-                    }
+                    default:
+                        throw new ArgumentException($"Param {param} of type {param.GetType()} which is type code {typeCode} is not handled", nameof(@params));
                 }
             }
-            req.WriteEndArray();
         }
-
-        req.WriteEndObject();
-        return id;
+        req.WriteEndArray();
     }
-
-    static bool IsFailedResponse(JsonDocument response) => response.RootElement.TryGetProperty("error", out _);
 
     public void Dispose()
     {
@@ -427,6 +336,7 @@ internal class OpenPHD2GuiderDriver : IGuider, IDeviceSource<OpenPHD2GuiderDevic
         if (disposing)
         {
             _cts.Dispose();
+            Interlocked.Exchange(ref _rpcClient, null)?.Dispose();
             Interlocked.Exchange(ref _connection, null)?.Dispose();
         }
     }
@@ -474,9 +384,24 @@ internal class OpenPHD2GuiderDriver : IGuider, IDeviceSource<OpenPHD2GuiderDevic
             try
             {
                 Interlocked.Exchange(ref _connection, connection)?.Dispose();
+
+                // The shared JsonRpcClient owns id-correlation + the receive loop over this connection.
+                // PHD2 supplies: notifications -> HandleEventAsync (which then owns/disposes the doc), and
+                // read/parse faults -> a guiding-error event. Reconnect makes a fresh client each time.
+                var rpcClient = new JsonRpcClient(
+                    connection,
+                    onNotification: async (doc, ct) =>
+                    {
+                        try { await HandleEventAsync(doc, ct).ConfigureAwait(false); }
+                        finally { doc.Dispose(); }
+                    },
+                    onError: (ex, context) => OnGuidingErrorEvent(
+                        new GuidingErrorEventArgs(ActiveGuiderDevice, $"Error {ex.Message} while {context}", ex)));
+                Interlocked.Exchange(ref _rpcClient, rpcClient)?.Dispose();
+
                 var cts = new CancellationTokenSource();
                 var oldCts = Interlocked.Exchange(ref _cts, cts);
-                var oldTask = Interlocked.Exchange(ref _receiveTask, ReceiveMessagesAsync(cts.Token));
+                var oldTask = Interlocked.Exchange(ref _receiveTask, rpcClient.ReceiveLoopAsync(cts.Token));
                 try
                 {
                     if (oldTask is { IsCanceled: false })
@@ -507,6 +432,7 @@ internal class OpenPHD2GuiderDriver : IGuider, IDeviceSource<OpenPHD2GuiderDevic
             {
                 oldCts.Dispose();
             }
+            Interlocked.Exchange(ref _rpcClient, null)?.Dispose();
             Interlocked.Exchange(ref _connection, null)?.Dispose();
         }
 
@@ -534,35 +460,23 @@ internal class OpenPHD2GuiderDriver : IGuider, IDeviceSource<OpenPHD2GuiderDevic
     {
         EnsureConnected();
 
-        var buffer = new ArrayBufferWriter<byte>(128);
-        var id = MakeJsonRPCCall(buffer, method, @params);
-
-        // send request
-        if (_connection is not { } connection || !await connection.WriteLineAsync(buffer.WrittenMemory, cancellationToken).ConfigureAwait(false))
+        if (_rpcClient is not { } client)
         {
-            throw new GuiderException($"Failed to send message {method} params: {string.Join(", ", @params)}");
+            throw new GuiderException($"Not connected to {_guiderDevice.DisplayName}; cannot send '{method}'");
         }
 
-        // wait for response
-        JsonDocument? response;
-        while (!_responses.TryRemove(id, out response))
+        try
         {
-            await _receiveResponseSignal.WaitAsync(cancellationToken);
+            return await client.CallAsync(
+                method,
+                @params is { Length: > 0 } ? writer => WriteParams(writer, @params) : null,
+                cancellationToken).ConfigureAwait(false);
         }
-
-        if (IsFailedResponse(response))
+        catch (JsonRpcException ex)
         {
-            throw new GuiderException(
-                (response.RootElement.GetProperty("error").TryGetProperty("message", out var message) ? message.GetString() : null)
-                    ?? "error response did not contain error message");
+            // Preserve the driver's existing exception contract (callers catch GuiderException).
+            throw new GuiderException(ex.Message, ex);
         }
-
-        if (!response.RootElement.TryGetProperty("id", out var responseIdElement) || !responseIdElement.TryGetInt32(out int responseId) || responseId != id)
-        {
-            throw new GuiderException($"Response id was not {id}: {response.RootElement}");
-        }
-
-        return response;
     }
 
     public IEnumerable<DeviceType> RegisteredDeviceTypes => [DriverType];
