@@ -32,7 +32,7 @@
     <Compile Include="..\TianWen.Lib\Connections\CommunicationProtocol.cs" Link="Connections\CommunicationProtocol.cs" />
     <Compile Include="..\TianWen.Lib\Connections\IUtf8TextBasedConnection.cs" Link="Connections\IUtf8TextBasedConnection.cs" />
     <Compile Include="..\TianWen.Lib\Connections\JsonRpcException.cs" Link="Connections\JsonRpcException.cs" />
-    <Compile Include="..\TianWen.Lib\Connections\JsonRpcOverTcpConnection.cs" Link="Connections\JsonRpcOverTcpConnection.cs" />
+    <Compile Include="..\TianWen.Lib\Connections\NamedPipeConnection.cs" Link="Connections\NamedPipeConnection.cs" />
     <Compile Include="..\TianWen.Lib\Connections\JsonRpcServer.cs" Link="Connections\JsonRpcServer.cs" />
     <Compile Include="..\TianWen.Lib\Devices\Ascom\ComInterop\IDispatchTransport.cs" Link="ComInterop\IDispatchTransport.cs" />
     <Compile Include="..\TianWen.Lib\Devices\Ascom\ComInterop\NativeMethods.cs" Link="ComInterop\NativeMethods.cs" />
