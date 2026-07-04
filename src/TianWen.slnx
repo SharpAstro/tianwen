@@ -14,6 +14,7 @@
   <Project Path="TianWen.AI/TianWen.AI.csproj" />
   <Project Path="TianWen.AI.Imaging/TianWen.AI.Imaging.csproj" />
   <Project Path="TianWen.AI.MCP/TianWen.AI.MCP.csproj" />
+  <Project Path="TianWen.AscomHost/TianWen.AscomHost.csproj" />
   <Project Path="TianWen.Cli/TianWen.Cli.csproj" />
   <Project Path="TianWen.Hosting/TianWen.Hosting.csproj" />
   <Project Path="TianWen.Server/TianWen.Server.csproj" />

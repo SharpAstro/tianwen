@@ -34,13 +34,6 @@ using System.Threading.Tasks;
 
 namespace TianWen.Lib.Connections;
 
-/// <summary>Thrown when a JSON-RPC call fails to send, times out its correlation, or the peer returns an <c>error</c> object.</summary>
-internal sealed class JsonRpcException(string message, int? code = null) : Exception(message)
-{
-    /// <summary>The JSON-RPC <c>error.code</c>, when the peer supplied one.</summary>
-    public int? Code { get; } = code;
-}
-
 /// <summary>
 /// Generic JSON-RPC peer over an <see cref="IUtf8TextBasedConnection"/> (one line == one message).
 /// Owns request-<c>id</c> correlation, the receive loop, and response-vs-notification routing; the

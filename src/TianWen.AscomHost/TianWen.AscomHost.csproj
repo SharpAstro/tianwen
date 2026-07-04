@@ -1,0 +1,42 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <!-- net10.0-windows: this exe only ever runs on Windows (it hosts legacy in-proc COM ASCOM
+         drivers), so the -windows platform silences the CA1416 warnings the [SupportedOSPlatform]
+         DispatchObject members would otherwise raise, and it never runs anywhere else. -->
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>tianwen-ascomhost</AssemblyName>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <Platforms>AnyCPU</Platforms>
+    <PublishAot>true</PublishAot>
+    <!-- THE POINT OF THIS PROCESS. Disabling CET (Control-flow Enforcement Technology / hardware
+         shadow stack) removes shadow-stack enforcement for this process only. The .NET Framework
+         4.x CLR that legacy ASCOM COM drivers load in-proc (mscoree.dll, v4.0.30319) is not
+         CET-compatible: a driver's Connected=true DoEvents pump trips a native RtlFailFast
+         (0xC0000409 STATUS_STACK_BUFFER_OVERRUN). The main TianWen app keeps CET on and offloads
+         those drivers to this helper over JSON-RPC. See docs/plans/ascom-oop-host.md. -->
+    <CETCompat>false</CETCompat>
+    <!-- We use only the low-level System.Text.Json reader/writer (no JsonSerializer reflection),
+         raw-vtable COM interop, and TCP: all AOT-safe and no XML doc consumers. -->
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <DebugType Condition="'$(Configuration)' == 'Release'">none</DebugType>
+  </PropertyGroup>
+
+  <!-- Bare-minimum shared sources LINKED (not a TianWen.Lib ProjectReference) so this helper stays
+       tiny and AOT-clean: it must not pull the whole library (catalogs, imaging, native camera SDKs)
+       into the native binary. These files are self-contained (BCL + raw COM interop only). -->
+  <ItemGroup>
+    <Compile Include="..\TianWen.Lib\Connections\CommunicationProtocol.cs" Link="Connections\CommunicationProtocol.cs" />
+    <Compile Include="..\TianWen.Lib\Connections\IUtf8TextBasedConnection.cs" Link="Connections\IUtf8TextBasedConnection.cs" />
+    <Compile Include="..\TianWen.Lib\Connections\JsonRpcException.cs" Link="Connections\JsonRpcException.cs" />
+    <Compile Include="..\TianWen.Lib\Connections\JsonRpcOverTcpConnection.cs" Link="Connections\JsonRpcOverTcpConnection.cs" />
+    <Compile Include="..\TianWen.Lib\Connections\JsonRpcServer.cs" Link="Connections\JsonRpcServer.cs" />
+    <Compile Include="..\TianWen.Lib\Devices\Ascom\ComInterop\NativeMethods.cs" Link="ComInterop\NativeMethods.cs" />
+    <Compile Include="..\TianWen.Lib\Devices\Ascom\ComInterop\SafeArrayMarshal.cs" Link="ComInterop\SafeArrayMarshal.cs" />
+    <Compile Include="..\TianWen.Lib\Devices\Ascom\ComInterop\DispatchObject.cs" Link="ComInterop\DispatchObject.cs" />
+  </ItemGroup>
+
+</Project>
