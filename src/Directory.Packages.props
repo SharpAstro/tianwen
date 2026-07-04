@@ -94,7 +94,7 @@
          `using Layout = DIR.Lib.Layout;` and write Layout.Node / Layout.Builder / Layout.Sizing. Lockstep
          with Console.Lib 3.3 + SdlVulkan.Renderer 6.7.
          6.3 bumped alongside SdlVulkan.Renderer 6.10 (which requires DIR.Lib >= 6.3.1201). -->
-    <PackageVersion Include="DIR.Lib" Version="6.3.*" />
+    <PackageVersion Include="DIR.Lib" Version="6.4.*" />
     <!-- DIR.Lib 3.0 extracted its codec layer to these sibling packages, which
          ship as a lockstep family from the StbImageSharp repo. 3.0 brought a
          binary-breaking SharpAstro.Tiff change (TiffPageOptions.IccProfile is
@@ -108,17 +108,20 @@
          matched set.
          The whole family floats to 3.3.* in lockstep so all members resolve to the
          matched set (mixing minors across a lockstep break is a runtime hazard). -->
-    <PackageVersion Include="SharpAstro.Tiff" Version="3.3.*" />
-    <PackageVersion Include="SharpAstro.Exif" Version="3.3.*" />
-    <PackageVersion Include="SharpAstro.Png" Version="3.3.*" />
-    <PackageVersion Include="SharpAstro.Color.Icc" Version="3.3.*" />
-    <PackageVersion Include="SharpAstro.Jpeg.IccInjector" Version="3.3.*" />
+    <PackageVersion Include="SharpAstro.Tiff" Version="3.4.*" />
+    <PackageVersion Include="SharpAstro.Exif" Version="3.4.*" />
+    <PackageVersion Include="SharpAstro.Png" Version="3.4.*" />
+    <PackageVersion Include="SharpAstro.Color.Icc" Version="3.4.*" />
+    <PackageVersion Include="SharpAstro.Jpeg.IccInjector" Version="3.4.*" />
+    <!-- SharpAstro.Jpeg (SOF3 lossless + baseline decoder): consumed transitively
+         (FC.SDK.Raw / Console.Lib) and directly by TianWen.UI.Benchmarks' LosslessJpeg bench. -->
+    <PackageVersion Include="SharpAstro.Jpeg" Version="3.4.*" />
     <!-- Pure-managed JPEG XR (T.832) + OpenEXR codecs. Image.WriteJxrAsync emits
          HDR float pixels (BD32F mono / BD16F RGB); Image.WriteExrAsync emits OpenEXR
          (FLOAT mono / HALF RGB). Same StbImageSharp repo + 3.3.* lockstep as the
          other SharpAstro codec siblings. -->
-    <PackageVersion Include="SharpAstro.Jxr" Version="3.3.*" />
-    <PackageVersion Include="SharpAstro.Exr" Version="3.3.*" />
+    <PackageVersion Include="SharpAstro.Jxr" Version="3.4.*" />
+    <PackageVersion Include="SharpAstro.Exr" Version="3.4.*" />
     <!-- Console.Lib 2.17 adds ScrollableList + TreeView opt-in auto wheel routing
          (on top of 2.13-2.16 widget work). 2.18 is a no-code lockstep rebuild against
          DIR.Lib 4.5, same sibling family as SdlVulkan.Renderer 6.1.
@@ -128,7 +131,7 @@
          DIR.Lib 5.1 (lockstep with SdlVulkan.Renderer 6.5).
          3.2 is a no-code lockstep rebuild against DIR.Lib 5.2.
          3.3 is a no-code lockstep rebuild against DIR.Lib 6.0 (layout namespace + Layout.Builder DSL). -->
-    <PackageVersion Include="Console.Lib" Version="3.3.*" />
+    <PackageVersion Include="Console.Lib" Version="3.5.*" />
     <!-- SdlVulkan.Renderer 5.0 adds a multi-page SDF glyph atlas (no more grow
          stall / Adreno submit-wedge) on top of 4.1's SetSystemCursor + anisotropic
          glyph xScale. 5.1 implements DIR.Lib 4.4's PushClip/PopClip via Vulkan
@@ -155,13 +158,13 @@
          (ArrangedNode.Depth + PixelWidgetBase.GetCapturedLayout + LayoutInspection).
          6.10 adds DebugSignalArgs (JsonElement OptInt/OptDouble/OptBool/OptString extension members) used by
          Program.cs's DebugInspector SignalFactories; without this bump the GUI DEBUG build fails CS1061. -->
-    <PackageVersion Include="SdlVulkan.Renderer" Version="6.10.*" />
+    <PackageVersion Include="SdlVulkan.Renderer" Version="6.11.*" />
     <PackageVersion Include="SDL3-CS" Version="3.5.0-preview.20260213-150035" />
     <PackageVersion Include="SDL3-CS.Native" Version="3.5.0-preview.20260205-174353" />
     <!-- Canon DSLR -->
-    <PackageVersion Include="FC.SDK" Version="1.3.*" />
+    <PackageVersion Include="FC.SDK" Version="1.4.*" />
     <!-- Floating: Canon raw decoder (.cr2/.cr3 -> mosaic). Tracks FC.SDK repo CI (1.3.x). -->
-    <PackageVersion Include="FC.SDK.Raw" Version="1.3.*" />
+    <PackageVersion Include="FC.SDK.Raw" Version="1.4.*" />
     <!-- Image encoding -->
     <PackageVersion Include="StbImageWriteSharp" Version="1.16.7" />
     <!-- Other packages -->
