@@ -38,6 +38,22 @@ internal class JsonRpcOverTcpConnection : IUtf8TextBasedConnection
     private TcpClient? _tcpClient;
     private StreamReader? _streamReader;
 
+    /// <summary>Client-side: call <see cref="ConnectAsync"/> to dial an endpoint.</summary>
+    public JsonRpcOverTcpConnection()
+    {
+    }
+
+    /// <summary>
+    /// Server-side: wrap a client already accepted by a listener. The read/write-line semantics are
+    /// identical to the dialled path; only setup differs (accept vs connect), so <see cref="ConnectAsync"/>
+    /// is not used in this mode.
+    /// </summary>
+    internal JsonRpcOverTcpConnection(TcpClient acceptedClient)
+    {
+        _tcpClient = acceptedClient;
+        _streamReader = new StreamReader(acceptedClient.GetStream());
+    }
+
     public async ValueTask ConnectAsync(EndPoint endPoint, CancellationToken cancellationToken = default)
     {
         _tcpClient = new TcpClient();
