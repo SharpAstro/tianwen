@@ -81,3 +81,23 @@ levers, both low priority because production (NativeAOT) first-open is already f
   coefficients) so the GOTO/pointing consumers (`Transform.cs`) stay correct. Pure cleanup, NOT
   a production-perf fix. Cross-ref: also tracked under astrometry.
 
+## SignalBus / render-thread invariants
+
+- [x] **No device connect/disconnect may run its synchronous prefix on the render thread** (DONE
+      2026-07-04). `SignalBus.ProcessPending` runs per-frame on the render thread and invokes async
+      handlers *inline* (`var task = handler(signal)`) up to their first yielding `await` — the
+      `BackgroundTaskTracker` only tracks the already-started task, it does **not** offload the
+      prefix. A driver that blocks before its first await (ASCOM COM `Connected = true/false`
+      busy-spinning `Application.DoEvents()` — Gemini FlatPanel, iOptron, GS Server) therefore froze
+      the GUI. Fix: all four connect/disconnect sites route through
+      `AppSignalHandler.RunDeviceOpOffRenderThreadAsync` (a `Task.Run` offload). **Invariant for new
+      code:** any signal handler that may call a blocking driver op must offload it the same way —
+      never `await hub.XAsync(...)` directly in an inline-invoked handler. The deeper ASCOM
+      correctness fix (STA + message pump) is [../plans/ascom-com-sta-message-pump.md](../plans/ascom-com-sta-message-pump.md).
+- [ ] Consider fixing this at the `SignalBus` level (DIR.Lib): the documented contract says async
+      handlers are "submitted to the tracker," but the implementation runs their prefix inline.
+      Making `tracker.Run(() => handler(signal), ...)` invoke the handler *inside* the tracked
+      delegate would offload every async handler — but it's a broad DIR.Lib behaviour change (some
+      handlers may rely on running their prefix on the render thread) and needs its own release, so
+      the per-call-site offload above is the surgical fix for now.
+
