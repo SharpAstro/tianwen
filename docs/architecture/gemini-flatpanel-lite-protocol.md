@@ -25,27 +25,37 @@ toggling DTR resets the MCU).
 
 ## Framing
 
-Every message — in both directions — is `>` … `#`.
+> **Corrected 2026-07-04 from real hardware (FW 205) + the vendor ASCOM driver's decompiled source.**
+> The earlier spec below said responses echo `>`; the controller actually answers with a **`*`** sigil,
+> and the "fire-and-forget" action commands are in fact **acked** too. `GeminiFlatPanelProtocol` /
+> `FakeGeminiFlatPanelSerialDevice` were fixed to match. Commands still go out `>`-framed.
+
+Commands are `>` … `#`; responses are `*` … `#`.
 
 - **Command (host → device):** `>` + command letter + optional argument + `#`.
-- **Response (device → host):** `>` + command letter (echoing the query) + payload + `#`.
+- **Response (device → host):** `*` + command letter (echoing the query) + payload + `#`.
 
 Reads terminate on the `#` byte (`ProbeFraming.HashTerminated`, the same framing family as LX200). The
-payload of a response is everything between the command letter and the `#`.
+payload of a response is everything between the command letter and the `#`. `ParsePayload` accepts either
+a leading `*` (real hardware) or `>` (the old spec / fakes).
 
 ## Query commands (request → response)
 
 Each query blocks for a `#`-terminated reply (retry with a short budget; the controller answers within a
-few hundred ms once past the post-open reset).
+few tens of ms once past the ~2 s post-open reset).
 
-| Command | Response | Meaning |
+| Command | Response (real hardware) | Meaning |
 |---------|----------|---------|
-| `>H#` | `>HGeminiFlatPanelLite#` | Identity handshake. The payload must equal `GeminiFlatPanelLite`; anything else is not this device. |
-| `>V#` | `>V<int>#` | Firmware version (integer). Minimum supported firmware is **203**. |
-| `>S#` | `>S<0\|1>#` | Light status. `1` = on, `0` = off (first payload char). |
-| `>J#` | `>J<0-255>#` | Current brightness (0–255). |
+| `>H#` | `*HGeminiFlatPanelLite#` | Identity handshake. The payload must equal `GeminiFlatPanelLite`; anything else is not this device. |
+| `>V#` | `*V<int>#` (e.g. `*V205#`) | Firmware version (integer). Minimum supported firmware is **203**. |
+| `>S#` | `*S<1\|0>xx#` (e.g. `*S100#` on / `*S000#` off) | Light status — **first** payload char is 1/0. |
+| `>J#` | `*J<0-255>#` | Current brightness (0–255). |
 
-## Action commands (fire-and-forget)
+## Action commands — also acked (spec originally said fire-and-forget)
+
+Real hardware acks every action with a framed `*<letter>…#` reply too (`>L#` → `*L0#`, `>D#` → `*D<b>#`,
+`>B128#` → `*B128#`). The driver's `SendAsync` drains that ack (bounded async read) so it can't offset
+the next query's read. The list below is otherwise as-is:
 
 These are not acknowledged with a parsed reply; issue the write and allow ~100 ms to settle.
 
@@ -92,14 +102,27 @@ at connect time; those are optional for flat capture.)
 ## Discovery
 
 Auto-detected by `GeminiFlatPanelSerialProbe` (`ISerialProbe`, `HashTerminated`, 9600 baud): it writes
-`>H#` and matches the `>HGeminiFlatPanelLite#` reply, then publishes a
-`CoverCalibrator://GeminiDevice/Gemini_<port>?port=serial:<port>` URI. It shares the 9600-baud probe group with
-the LX200-family mounts, so the port handle is opened once and reused.
+`>H#` and matches the `*HGeminiFlatPanelLite#` reply, then publishes a
+`CoverCalibrator://GeminiDevice/Gemini_<port>?port=serial:<port>` URI.
 
-**DTR/RTS during discovery.** The connect path asserts DTR + RTS (above). The discovery probe deliberately
-does **not**: the probe service opens one shared serial handle per COM port and runs every 9600-baud probe
-against it, and asserting DTR at that open could reset a DTR-triggered controller (e.g. some OnStep boards)
-on another port. Consequence: if a panel only answers `>H#` with DTR asserted, auto-discovery may miss it —
-assign it manually (`CoverCalibrator://GeminiDevice/…?port=serial:COMx`) and the driver's own connect (which does
-assert DTR) drives it. In practice many CH341-bridged panels answer without DTR, so discovery usually works;
-this is a hardware-validation item.
+**DTR/RTS + boot delay during discovery (validated 2026-07-04, `fix/gemini-flat-panel`).** The panel is
+a **pass-2** discovery device: the CH341 holds the MCU in reset until DTR is asserted (a cold-open with
+DTR de-asserted never answers — an earlier "DTR not required" observation was a test confound: the panel
+had already been booted by a prior DTR-asserting open), and it needs ~2 s to boot after the port opens.
+So the probe declares:
+- `Warmup = 2200 ms` — the service waits after opening, before `>H#` (`ISerialProbe.Warmup`).
+- `AssertControlLines = true` — asserts DTR+RTS, honoured **only on the isolated per-probe pass**
+  (`ISerialProbe.AssertControlLines`), because toggling DTR on the shared pass-1 handle could reset a
+  different DTR-triggered controller (e.g. some OnStep boards) on the same port.
+
+On the shared pass 1 the probe is **skipped** (it can't match without DTR), so the 2.2 s warmup is paid
+once, in pass 2, where it now matches and auto-discovery finds the panel. Probe reads use the cancellable
+**synchronous** path (`ISerialConnection.SynchronousReads`), because CH34x bridges spuriously abort async
+`BaseStream` reads (`ERROR_OPERATION_ABORTED`) after the first read — see
+[../plans/serial-lib.md](../plans/serial-lib.md). Manual assignment
+(`CoverCalibrator://GeminiDevice/…?port=serial:COMx`) also works — that path reconstructs the device from
+the URI and the driver's own connect asserts DTR + boot-waits.
+
+> **Known gap:** the pinned-port *verification* tier (`VerifyPinnedPortsAsync`) runs on the shared handle
+> (no DTR), so it skips a pinned Gemini and falls through to Stage 2. Direct URI connect of a pinned panel
+> works regardless. Fix tracked in [../plans/soft-discovery.md](../plans/soft-discovery.md).
