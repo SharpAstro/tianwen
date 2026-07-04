@@ -2,7 +2,7 @@ using System;
 using System.Diagnostics;
 using System.IO;
 using System.Threading.Tasks;
-using StbImageSharp;
+using SharpAstro.Jpeg;
 using TianWen.Lib.Imaging;
 
 namespace TianWen.UI.Benchmarks;

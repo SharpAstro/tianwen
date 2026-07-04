@@ -2,7 +2,7 @@ using System;
 using System.Buffers.Binary;
 using System.IO;
 using BenchmarkDotNet.Attributes;
-using StbImageSharp;
+using SharpAstro.Jpeg;
 
 namespace TianWen.UI.Benchmarks;
 
