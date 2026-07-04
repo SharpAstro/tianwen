@@ -35,14 +35,13 @@ env:
   ASCOM_PLATFORM_INSTALLER: ASCOMPlatform713.4851.exe
 
 jobs:
-  # Produce the *.gs.gz preprocessed catalogs once (the only step needing lzip + the *.lz LFS
-  # objects) and share them with the sim jobs, mirroring how dotnet.yml's build job feeds its
-  # test jobs. This is what lets the Windows leg build TianWen.Lib without lzip.
+  # Produce the *.gs.gz preprocessed catalogs once (needs the *.lz LFS objects) and share them
+  # with the sim jobs, mirroring how dotnet.yml's build job feeds its test jobs. The .lz inputs are
+  # decoded by the managed lzip decoder (Lzip.Lib), so no external `lzip` binary is installed; this
+  # also spares the Windows leg from pulling the catalog LFS objects itself.
   catalogs:
     runs-on: ubuntu-latest
     steps:
-    - name: Install lzip
-      run: sudo apt-get update && sudo apt-get install -y lzip
     - uses: actions/checkout@v6
       with:
         submodules: recursive

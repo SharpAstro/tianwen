@@ -20,11 +20,12 @@
          to pick up CI patch publishes. TianWen.Lib's SerImageBridge consumes it; the FITS
          viewer's SerPreviewSource gets it transitively. -->
     <PackageVersion Include="SER.Lib" Version="1.0.*" />
-    <!-- Lzip.Lib: pure-managed lzip (LZMA1) codec (SharpAstro.Lzip). Decompresses the .gs.gz
-         catalog snapshots (CelestialObjectDB) + the baked Milky Way blob (SkyMapTab); replaces
-         the in-tree LzipDecoder that used to live under Astrometry/Catalogs. Sibling-tracked;
-         floats 1.0.* to pick up CI patch publishes. Decoder-only in 1.0 (an encoder follows). -->
-    <PackageVersion Include="Lzip.Lib" Version="1.0.*" />
+    <!-- Lzip.Lib: pure-managed lzip (LZMA1) codec (SharpAstro.Lzip). Runtime decode of the
+         tyc2.bin.lz + baked Milky Way blob (CelestialObjectDB / SkyMapTab); build-time decode of
+         the .json.lz/.csv.lz catalog inputs (tools/preprocess-catalog.ps1); and encode of the
+         milkyway .bgra.lz (tools/generate_milkyway.cs), so no external lzip binary is needed.
+         1.1 added the encoder; floats 1.1.* to pick up CI patch publishes. -->
+    <PackageVersion Include="Lzip.Lib" Version="1.1.*" />
     <PackageVersion Include="GeoTimeZone" Version="6.1.0" />
     <!-- Microsoft packages -->
     <PackageVersion Include="Microsoft.Extensions.DependencyInjection" Version="10.0.5" />

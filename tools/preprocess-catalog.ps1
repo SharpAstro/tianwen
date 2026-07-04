@@ -36,9 +36,10 @@ decoder runs ~7-8x faster than the managed LzipDecoder for ~30% larger
 compressed bytes. On a ~1 MB total payload that's +344 KB on disk for ~35 ms
 saved at cold start.
 
-Note the *input* .lz files are still decompressed by shelling out to `lzip -dc`,
-so a working `lzip` binary must be on PATH at build time. Local Windows boxes
-get this via the lzip CLI; CI installs it via SharpAstro/cache-apt-pkgs-action.
+The *input* .lz files are decompressed with the managed lzip decoder
+(SharpAstro.Lzip / Lzip.Lib) via Initialize-Lzip -- no external `lzip` binary
+is required. MSBuild passes the resolved Lzip.Lib.dll as -LzipAssembly; a
+standalone run falls back to a sibling-build / NuGet-cache probe.
 
 .EXAMPLE
 pwsh -NoProfile -File tools/preprocess-catalog.ps1 `
@@ -48,10 +49,59 @@ pwsh -NoProfile -File tools/preprocess-catalog.ps1 `
 [CmdletBinding()]
 param(
     [Parameter(Mandatory)] [Alias('Input')] [string] $InputPath,
-    [Parameter(Mandatory)] [Alias('Output')] [string] $OutputPath
+    [Parameter(Mandatory)] [Alias('Output')] [string] $OutputPath,
+    # Path to Lzip.Lib.dll (the managed lzip decoder). MSBuild passes the resolved reference;
+    # standalone runs fall back to a sibling-build / NuGet-cache probe. See Initialize-Lzip.
+    [string] $LzipAssembly
 )
 
 $ErrorActionPreference = 'Stop'
+
+# Load the managed lzip decoder (SharpAstro.Lzip / Lzip.Lib) once. This replaces the former
+# `lzip -dc` shell-out so the build needs no external `lzip` binary on PATH.
+$script:LzipLoaded = $false
+function Initialize-Lzip {
+    if ($script:LzipLoaded) { return }
+
+    $dll = $null
+    if ($LzipAssembly -and (Test-Path -LiteralPath $LzipAssembly)) {
+        $dll = $LzipAssembly
+    }
+    else {
+        # Fallbacks for standalone invocation (MSBuild normally supplies -LzipAssembly).
+        $candidates = @()
+        # 1. Local sibling build output (UseLocalSiblings dev boxes): ../../Lzip.Lib/src/Lzip.Lib/bin.
+        $siblingBin = Join-Path $PSScriptRoot '..\..\Lzip.Lib\src\Lzip.Lib\bin'
+        if (Test-Path -LiteralPath $siblingBin) {
+            $candidates += Get-ChildItem -LiteralPath $siblingBin -Recurse -Filter 'Lzip.Lib.dll' -ErrorAction SilentlyContinue |
+                Sort-Object LastWriteTime -Descending
+        }
+        # 2. NuGet global-packages cache (CI + package consumers): lzip.lib/<ver>/lib/netX/Lzip.Lib.dll.
+        $nugetRoot = if ($env:NUGET_PACKAGES) { $env:NUGET_PACKAGES } else { Join-Path $HOME '.nuget\packages' }
+        $lzipPkg = Join-Path $nugetRoot 'lzip.lib'
+        if (Test-Path -LiteralPath $lzipPkg) {
+            $candidates += Get-ChildItem -LiteralPath $lzipPkg -Recurse -Filter 'Lzip.Lib.dll' -ErrorAction SilentlyContinue |
+                Where-Object { $_.FullName -match '[\\/]lib[\\/]net' } | Sort-Object FullName -Descending
+        }
+        $dll = ($candidates | Select-Object -First 1).FullName
+    }
+
+    if (-not $dll -or -not (Test-Path -LiteralPath $dll)) {
+        throw "Could not locate Lzip.Lib.dll. Pass -LzipAssembly <path>, build the Lzip.Lib sibling, or restore the Lzip.Lib package."
+    }
+
+    Add-Type -LiteralPath $dll
+    $script:LzipLoaded = $true
+}
+
+# Decompress an lzip (.lz) file to $OutPath using the managed decoder. Writes the decoded bytes
+# verbatim (the payload is already UTF-8 JSON/CSV), so there is no encoding round-trip.
+function Expand-LzToFile([string] $LzPath, [string] $OutPath) {
+    Initialize-Lzip
+    $compressed = [System.IO.File]::ReadAllBytes($LzPath)
+    $plain = [SharpAstro.Lzip.LzipDecoder]::Decompress($compressed)
+    [System.IO.File]::WriteAllBytes($OutPath, $plain)
+}
 
 # ASCII control codes used as separators. These bytes do not appear in any
 # SIMBAD/NGC field value, so no escaping is ever needed.
@@ -89,8 +139,7 @@ function Append-Record([System.Text.StringBuilder] $sb, [bool] $isFirst, [string
 function Encode-Simbad([string] $InputPath, [System.Text.StringBuilder] $sb) {
     $tempJson = [System.IO.Path]::GetTempFileName() + '.json'
     try {
-        & lzip -dc -- $InputPath | Set-Content -LiteralPath $tempJson -Encoding utf8NoBOM
-        if ($LASTEXITCODE -ne 0) { throw "lzip -dc failed for $InputPath (exit $LASTEXITCODE)" }
+        Expand-LzToFile $InputPath $tempJson
 
         $jsonText = [System.IO.File]::ReadAllText($tempJson)
         $records = $jsonText | ConvertFrom-Json
@@ -138,8 +187,7 @@ function Encode-Simbad([string] $InputPath, [System.Text.StringBuilder] $sb) {
 function Encode-Ngc([string] $InputPath, [System.Text.StringBuilder] $sb) {
     $tempCsv = [System.IO.Path]::GetTempFileName() + '.csv'
     try {
-        & lzip -dc -- $InputPath | Set-Content -LiteralPath $tempCsv -Encoding utf8NoBOM
-        if ($LASTEXITCODE -ne 0) { throw "lzip -dc failed for $InputPath (exit $LASTEXITCODE)" }
+        Expand-LzToFile $InputPath $tempCsv
 
         $csvText = [System.IO.File]::ReadAllText($tempCsv)
         # Import-Csv handles ';' delimiter and "..."-quoted fields with embedded ';' or commas.
@@ -220,8 +268,8 @@ $summary =
 
 # Compress raw UTF-8 bytes straight into $OutputPath via .NET GZipStream. No
 # temp file -- the runtime reads back through System.IO.Compression.GZipStream,
-# so encoder + decoder match one-to-one. (Input .lz decompression above does
-# still shell out to `lzip -dc`; output .gs.gz emission stays managed.)
+# so encoder + decoder match one-to-one. (Input .lz decompression above uses the
+# managed SharpAstro.Lzip decoder; the whole preprocess is now external-lzip-free.)
 $bytes = [System.Text.Encoding]::UTF8.GetBytes($sb.ToString())
 
 $outDir = Split-Path -Parent $OutputPath

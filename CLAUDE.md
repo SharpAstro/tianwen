@@ -161,7 +161,8 @@ install is too heavy for every push). Two entry points on `.github/workflows/sim
 `workflow_dispatch` (`gh workflow run simulators.yml [-f suite=alpaca|ascom|both]`) and a **weekly
 `schedule`** that runs the **Alpaca leg only** as an unattended regression guard (the Windows ASCOM
 leg stays dispatch-only). A shared `catalogs` job feeds the `*.gs.gz` artifact so the Windows leg
-needs no `lzip`. The PR `dotnet.yml` loop only *compiles* the project; the live-sim run is the
+skips the catalog LFS pull + preprocess (the `.lz` decode is managed via `Lzip.Lib`, so no leg needs
+an external `lzip` binary). The PR `dotnet.yml` loop only *compiles* the project; the live-sim run is the
 dispatch/schedule. **This suite earned its keep on the first run** -- it caught two real Alpaca driver
 bugs (mono camera couldn't connect; filter wheel never populated slots) plus a stub audit
 (`Gains`/`Offsets`/`ReadoutMode`/`LastExposureDuration`). Real-time settle waits go through a real

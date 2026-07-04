@@ -123,12 +123,20 @@
 
   <!-- Convert source .json.lz catalogs to the ASCII-separated .gs.gz format consumed
        by AsciiRecordReader at runtime. Re-runs only when an input is newer than its
-       output. See tools/preprocess-catalog.ps1 + docs/plans/catalog-binary-format.md. -->
+       output. See tools/preprocess-catalog.ps1 + docs/plans/catalog-binary-format.md.
+       DependsOnTargets="ResolveReferences" ensures the Lzip.Lib reference (the managed
+       lzip decoder that replaced the external `lzip -dc`) is resolved + copied, so we can
+       hand its dll path to the script via -LzipAssembly (works for both the sibling
+       ProjectReference and the NuGet PackageReference). -->
   <Target Name="PreprocessCatalogs"
           BeforeTargets="AssignTargetPaths"
+          DependsOnTargets="ResolveReferences"
           Inputs="@(CatalogPreprocess)"
           Outputs="@(CatalogPreprocess->'%(OutputPath)')">
-    <Exec Command="pwsh -NoProfile -File &quot;$(MSBuildThisFileDirectory)..\..\tools\preprocess-catalog.ps1&quot; -Input &quot;%(CatalogPreprocess.FullPath)&quot; -Output &quot;$(MSBuildThisFileDirectory)%(CatalogPreprocess.OutputPath)&quot;" />
+    <PropertyGroup>
+      <_LzipLibDll>@(ReferenceCopyLocalPaths->WithMetadataValue('FileName','Lzip.Lib')->WithMetadataValue('Extension','.dll'))</_LzipLibDll>
+    </PropertyGroup>
+    <Exec Command="pwsh -NoProfile -File &quot;$(MSBuildThisFileDirectory)..\..\tools\preprocess-catalog.ps1&quot; -Input &quot;%(CatalogPreprocess.FullPath)&quot; -Output &quot;$(MSBuildThisFileDirectory)%(CatalogPreprocess.OutputPath)&quot; -LzipAssembly &quot;$(_LzipLibDll)&quot;" />
   </Target>
 
   <!-- Register the generated .gs.gz outputs as EmbeddedResource items.
