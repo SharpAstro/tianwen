@@ -96,7 +96,7 @@
          6.3 bumped alongside SdlVulkan.Renderer 6.10 (which requires DIR.Lib >= 6.3.1201). -->
     <PackageVersion Include="DIR.Lib" Version="6.4.*" />
     <!-- DIR.Lib 3.0 extracted its codec layer to these sibling packages, which
-         ship as a lockstep family from the StbImageSharp repo. 3.0 brought a
+         ship as a lockstep family from the Codecs repo. 3.0 brought a
          binary-breaking SharpAstro.Tiff change (TiffPageOptions.IccProfile is
          ReadOnlyMemory<byte>) plus the JpegIccInjector sibling (now packaged as
          SharpAstro.Jpeg.IccInjector) for APP2 ICC embedding.
@@ -104,7 +104,7 @@
          raw bytes to H.273 enums (binary-breaking) + SharpAstro.Color.Icc adds
          the H.273 enums + IccProfiles.WithCicp helper.
          3.2 = the new SharpAstro.Exr (OpenEXR read+write) package joins the family.
-         3.3 = family minor bump (StbImageSharp repo); members continue to ship as a
+         3.3 = family minor bump (Codecs repo); members continue to ship as a
          matched set.
          The whole family floats to 3.3.* in lockstep so all members resolve to the
          matched set (mixing minors across a lockstep break is a runtime hazard). -->
@@ -118,7 +118,7 @@
     <PackageVersion Include="SharpAstro.Jpeg" Version="3.4.*" />
     <!-- Pure-managed JPEG XR (T.832) + OpenEXR codecs. Image.WriteJxrAsync emits
          HDR float pixels (BD32F mono / BD16F RGB); Image.WriteExrAsync emits OpenEXR
-         (FLOAT mono / HALF RGB). Same StbImageSharp repo + 3.3.* lockstep as the
+         (FLOAT mono / HALF RGB). Same Codecs repo + 3.3.* lockstep as the
          other SharpAstro codec siblings. -->
     <PackageVersion Include="SharpAstro.Jxr" Version="3.4.*" />
     <PackageVersion Include="SharpAstro.Exr" Version="3.4.*" />

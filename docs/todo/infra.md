@@ -71,7 +71,7 @@ Part of the TianWen TODO set. See [TODO.md](../../TODO.md) for the index and the
 
 - [x] **NuGet graph-restore source-key alignment — standardized on `nuget.org`** (DONE 2026-07-04,
       re-diagnosed + fixed properly). With all sibling repos cloned, `UseLocalSiblings`
-      project-references them, so a restore builds a graph spanning `../DIR.Lib`, `../StbImageSharp`,
+      project-references them, so a restore builds a graph spanning `../DIR.Lib`, `../Codecs`,
       `../FITS.Lib`, `../SER.Lib`, … and MSBuild merges *their* `nuget.config`s into one settings
       object. `packageSourceMapping` matches by source **key**, so a key mismatch across the merged
       configs makes the winning mapping point at a source that didn't survive the merge → NU1100
@@ -94,7 +94,7 @@ Part of the TianWen TODO set. See [TODO.md](../../TODO.md) for the index and the
       tianwen's restore graph — the graph-poisoning configs were `FITS.Lib` / `SER.Lib` (project refs)
       plus the user-wide config, all now on `nuget.org`.
 - [ ] **Keep `open-vs.ps1`'s "Siblings" folder in sync with `Directory.Build.props`'
-      `UseLocalSiblings` set** (currently: DIR.Lib, Console.Lib, SdlVulkan.Renderer, StbImageSharp
+      `UseLocalSiblings` set** (currently: DIR.Lib, Console.Lib, SdlVulkan.Renderer, Codecs
       family, QHYCCD.SDK, FITS.Lib, SER.Lib, Lzip.Lib, + transitive Fonts.Lib for
       `SharpAstro.Fonts.Tables.OpenTypeMath`). If a new sibling is added to the switch, add it here
       too or VS Go-To-Definition drops into the stale NuGet package instead of source.

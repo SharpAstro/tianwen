@@ -104,7 +104,7 @@ every sibling uses `src/<Lib>/<Lib>.csproj`.
 
 **Auto-detection** (`Directory.Build.props`): a **single** property `UseLocalSiblings` gates them all.
 The build switches to ProjectReference when **every** sibling working copy exists — `DIR.Lib`,
-`Console.Lib`, `SdlVulkan.Renderer`, the `StbImageSharp` family (`StbImageSharp`, `SharpAstro.Tiff`,
+`Console.Lib`, `SdlVulkan.Renderer`, the `Codecs`-repo codec family (`SharpAstro.Tiff`,
 `SharpAstro.Exif`, `SharpAstro.Png`, `SharpAstro.Color.Icc`, `SharpAstro.Jxr`,
 `SharpAstro.Jpeg.IccInjector`, `SharpAstro.Exr`), `QHYCCD.SDK`, and `FITS.Lib` — otherwise it falls
 through to PackageReference. Override: `dotnet build -p:UseLocalSiblings=false`. CI always uses

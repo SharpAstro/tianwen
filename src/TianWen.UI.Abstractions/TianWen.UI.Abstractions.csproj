@@ -24,8 +24,8 @@
        cICP-tagged PNG via PngWriter; the cICP enums (ColorPrimaries /
        TransferFunction / MatrixCoefficients) come from SharpAstro.Color.Icc. -->
   <ItemGroup Condition="'$(UseLocalSiblings)' == 'true'">
-    <ProjectReference Include="..\..\..\StbImageSharp\src\SharpAstro.Png\SharpAstro.Png.csproj" />
-    <ProjectReference Include="..\..\..\StbImageSharp\src\SharpAstro.Color.Icc\SharpAstro.Color.Icc.csproj" />
+    <ProjectReference Include="..\..\..\Codecs\src\SharpAstro.Png\SharpAstro.Png.csproj" />
+    <ProjectReference Include="..\..\..\Codecs\src\SharpAstro.Color.Icc\SharpAstro.Color.Icc.csproj" />
   </ItemGroup>
   <ItemGroup Condition="'$(UseLocalSiblings)' != 'true'">
     <PackageReference Include="SharpAstro.Png" />

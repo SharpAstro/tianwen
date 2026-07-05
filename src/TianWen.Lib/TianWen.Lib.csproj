@@ -181,8 +181,8 @@
        extraction), so tianwen declares them itself: sibling ProjectReference during
        local dev, NuGet PackageReference for CI / package builds. -->
   <ItemGroup Condition="'$(UseLocalSiblings)' == 'true'">
-    <ProjectReference Include="..\..\..\StbImageSharp\src\SharpAstro.Tiff\SharpAstro.Tiff.csproj" />
-    <ProjectReference Include="..\..\..\StbImageSharp\src\SharpAstro.Exif\SharpAstro.Exif.csproj" />
+    <ProjectReference Include="..\..\..\Codecs\src\SharpAstro.Tiff\SharpAstro.Tiff.csproj" />
+    <ProjectReference Include="..\..\..\Codecs\src\SharpAstro.Exif\SharpAstro.Exif.csproj" />
   </ItemGroup>
   <ItemGroup Condition="'$(UseLocalSiblings)' != 'true'">
     <PackageReference Include="SharpAstro.Tiff" />
@@ -195,7 +195,7 @@
        3.1.* codec family, so both the local sibling (ProjectReference) and the
        published package (PackageReference, version 3.1.* below) expose the new API. -->
   <ItemGroup Condition="'$(UseLocalSiblings)' == 'true'">
-    <ProjectReference Include="..\..\..\StbImageSharp\src\SharpAstro.Jxr\SharpAstro.Jxr.csproj" />
+    <ProjectReference Include="..\..\..\Codecs\src\SharpAstro.Jxr\SharpAstro.Jxr.csproj" />
   </ItemGroup>
   <ItemGroup Condition="'$(UseLocalSiblings)' != 'true'">
     <PackageReference Include="SharpAstro.Jxr" />
@@ -206,7 +206,7 @@
        OpenEXR). Joined the 3.2.* lockstep family, so both the local sibling and the
        published package (version 3.2.* below) expose it. -->
   <ItemGroup Condition="'$(UseLocalSiblings)' == 'true'">
-    <ProjectReference Include="..\..\..\StbImageSharp\src\SharpAstro.Exr\SharpAstro.Exr.csproj" />
+    <ProjectReference Include="..\..\..\Codecs\src\SharpAstro.Exr\SharpAstro.Exr.csproj" />
   </ItemGroup>
   <ItemGroup Condition="'$(UseLocalSiblings)' != 'true'">
     <PackageReference Include="SharpAstro.Exr" />
@@ -218,7 +218,7 @@
        stacking post-processor can produce previews in-pipeline; this brings its
        PNG encoder dependency with it. -->
   <ItemGroup Condition="'$(UseLocalSiblings)' == 'true'">
-    <ProjectReference Include="..\..\..\StbImageSharp\src\SharpAstro.Png\SharpAstro.Png.csproj" />
+    <ProjectReference Include="..\..\..\Codecs\src\SharpAstro.Png\SharpAstro.Png.csproj" />
   </ItemGroup>
   <ItemGroup Condition="'$(UseLocalSiblings)' != 'true'">
     <PackageReference Include="SharpAstro.Png" />
