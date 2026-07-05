@@ -34,7 +34,7 @@ namespace TianWen.AI.Imaging.RcAstro
 
         /// <summary>
         /// Product-specific CLI flags appended after the shared
-        /// input/-o/--depth/--engine/--overwrite/--json arguments. Return an
+        /// input/-o/--depth/--overwrite/--json arguments. Return an
         /// empty list to run the product on its defaults. <paramref name="tuning"/>
         /// carries optional per-product strength overrides (null fields = the
         /// enhancer's own defaults, i.e. today's behaviour).
