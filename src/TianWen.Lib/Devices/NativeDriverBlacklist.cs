@@ -29,15 +29,17 @@ internal static class NativeDriverBlacklist
 {
     // ASCOM ProgID -> DeviceClass (URI host, == the native device type name) of the family that supersedes
     // it. Only vendors whose native driver is a genuine, complete replacement for the SAME device type are
-    // listed. Deliberately excluded: ASCOM.GeminiFocuserPro (a different Gemini product, not natively
-    // implemented) and the mount drivers (ASCOM.iOptron2017/OnStep/SkyWatcher), whose native equivalents
-    // cover only a vendor subset -- e.g. native iOptron is the SkyGuider Pro, not the CEM/GEM/HEM range
-    // ASCOM.iOptron2017.Telescope drives -- so hiding them would remove mounts we cannot otherwise control.
+    // listed. Deliberately excluded: the mount drivers (ASCOM.iOptron2017/OnStep/SkyWatcher), whose native
+    // equivalents cover only a vendor subset -- e.g. native iOptron is the SkyGuider Pro, not the CEM/GEM/HEM
+    // range ASCOM.iOptron2017.Telescope drives -- so hiding them would remove mounts we cannot otherwise control.
     private static readonly IReadOnlyDictionary<string, string> _nativeClassByProgId =
         new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         {
             // Gemini FlatPanel Lite -- native serial cover/calibrator (GeminiDevice, AddGemini).
             ["ASCOM.GeminiFPLite.CoverCalibrator"] = "GeminiDevice",
+
+            // Gemini Focuser Pro -- native serial focuser, a rebadged myFocuserPro2 (GeminiFocuserDevice, AddGemini).
+            ["ASCOM.GeminiFocuserPro.Focuser"] = "GeminiFocuserDevice",
 
             // ZWO ASI camera / EAF focuser / EFW filter wheel -- native ZWO SDK (ZWODevice, AddZWO).
             ["ASCOM.ASICamera2.Camera"] = "ZWODevice",

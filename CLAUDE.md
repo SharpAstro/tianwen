@@ -43,7 +43,8 @@ Available in `.claude/skills/<name>/SKILL.md` — auto-invocable when the reques
 TianWen is a .NET 10 library for astronomical device management, image processing, and astrometry.
 Supports cameras, mounts, focusers, filter wheels, cover/calibrators, and guiders via ASCOM, Alpaca (HTTP),
 ZWO, QHYCCD, Meade LX200, Skywatcher, OnStep (serial + WiFi/mDNS), iOptron SkyGuider Pro, Gemini FlatPanel
-Lite (native serial cover/calibrator), PHD2, and a built-in guider. Published as `TianWen.Lib` on NuGet,
+Lite (native serial cover/calibrator), Gemini Focuser Pro (native serial focuser, a rebadged myFocuserPro2),
+PHD2, and a built-in guider. Published as `TianWen.Lib` on NuGet,
 plus four AOT-published binaries (`tianwen` CLI,
 `tianwen-server` headless, `tianwen-gui`, `tianwen-fits`).
 

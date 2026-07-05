@@ -64,10 +64,21 @@ public class NativeDriverBlacklistTests
     }
 
     [Fact]
-    public void GivenGeminiFocuserProThenItIsNotHiddenByTheNativeGeminiCoverFamily()
+    public void GivenGeminiFocuserProWithNativeFocuserPresentThenAscomGeminiFocuserIsHidden()
     {
-        // GeminiFocuserPro is a different product with no native impl -- must survive even if a native
-        // GeminiDevice (the flat panel) is present.
+        // The native Gemini Focuser Pro (a rebadged myFocuserPro2) supersedes its ASCOM twin.
+        var ids = FilterIds(
+            Ascom(DeviceType.Focuser, "ASCOM.GeminiFocuserPro.Focuser"),
+            Native("GeminiFocuserDevice", DeviceType.Focuser, "COM5"));
+
+        ids.ShouldBe(["COM5"]);
+    }
+
+    [Fact]
+    public void GivenGeminiFocuserProThenItIsNotHiddenByTheFlatPanelCoverFamily()
+    {
+        // The flat-panel cover family (GeminiDevice) is a DIFFERENT native class from the focuser
+        // (GeminiFocuserDevice), so its presence must not hide the ASCOM focuser.
         var ids = FilterIds(
             Ascom(DeviceType.Focuser, "ASCOM.GeminiFocuserPro.Focuser"),
             Native("GeminiDevice", DeviceType.Focuser, "COM3"));
@@ -77,6 +88,7 @@ public class NativeDriverBlacklistTests
 
     [Theory]
     [InlineData("ASCOM.GeminiFPLite.CoverCalibrator", "GeminiDevice")]
+    [InlineData("ASCOM.GeminiFocuserPro.Focuser", "GeminiFocuserDevice")]
     [InlineData("ascom.asicamera2.camera", "ZWODevice")] // case-insensitive ProgID match
     [InlineData("ASCOM.EFW2_2.FilterWheel", "ZWODevice")]
     [InlineData("ASCOM.qfoc.Focuser", "QHYDevice")]
@@ -89,7 +101,6 @@ public class NativeDriverBlacklistTests
 
     [Theory]
     [InlineData("ASCOM.PlayerOne.Camera")]
-    [InlineData("ASCOM.GeminiFocuserPro.Focuser")]
     [InlineData("ASCOM.iOptron2017.Telescope")]
     public void GivenUnlistedProgIdThenNoNativeClass(string progId)
         => NativeDriverBlacklist.TryGetNativeClass(progId, out _).ShouldBeFalse();
