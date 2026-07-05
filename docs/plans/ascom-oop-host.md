@@ -1,8 +1,10 @@
 # ASCOM COM drivers: out-of-process CET-off host (plan)
 
-**Status: Phases 1–4.5 DONE, Phase 5 PARTIAL** (branch `feat/ascom-oop-host`, 2026-07-04). The real
-0xC0000409 driver (`ASCOM.GeminiFPLite.CoverCalibrator`) now connects through the helper without
-fastfailing the process (see Phase 5 below). Supersedes the mitigation in
+**Status: Phases 1–4.5 DONE, Phase 5 PARTIAL, native-driver blacklist DONE** (branch
+`feat/ascom-oop-host`, 2026-07-05). The real 0xC0000409 driver (`ASCOM.GeminiFPLite.CoverCalibrator`)
+now connects through the helper without fastfailing the process (see Phase 5 below), and ASCOM drivers
+we reimplement natively are hidden from discovery when the native family is present (see "Native-driver
+blacklist"). Supersedes the mitigation in
 [ascom-com-sta-message-pump.md](ascom-com-sta-message-pump.md) — the STA message pump was the **wrong
 fix** (see "Corrected root cause" below).
 
@@ -126,6 +128,61 @@ object (`AscomOutOfProcessConnectTests`):
 
 Still hardware-gated: verifying the panel actually illuminates + meters a flat (needs the physical
 Gemini panel), the mount sub-dispatch path (`AxisRates`), and the win-arm64 publish / ship-beside-app.
+
+#### Why the ASCOM Gemini won't illuminate through the helper (decompiled, 2026-07-05)
+
+With the physical panel on COM3 the transport is proven fully working (identity reads, `get_Connected`,
+`set_Connected` all round-trip cleanly through the CET-off helper) — but `Connected` stays `False` after
+the connect. Decompiling `ASCOM.GeminiFPLite.CoverCalibrator` (v6.6, `[ClassInterface(None)] :
+ICoverCalibratorV1`) settled two things:
+
+- **There was never a `Connected`-getter fault.** The getter is a trivial `return connectedState`. The
+  `DISP_E_UNKNOWNNAME` (0x80020006) seen while polling was `Connecting` (a Platform-7 member absent on
+  this V1 driver) being evaluated *first* in an interpolated log line — a diagnostic artifact, not a
+  transport or dispid-stability problem. Typelib dispids are stable per the COM contract; no re-resolve
+  workaround is warranted.
+- **The driver connects against an empty COM port when hosted by us.** Its `Connected=true` setter opens
+  `Settings.Default.MyComPort` — a **user-scoped `.NET ApplicationSettingsBase` (`user.config`) setting**,
+  whose on-disk location is keyed to the *hosting process's* assembly identity. The COM port the user
+  picked in the driver's SetupDialog (or NINA, or Device Hub) lives in *those* hosts' `user.config`; our
+  `tianwen-ascomhost` has never written one, so `MyComPort` reads its `[DefaultSettingValue("")]` empty
+  default, `SerialPort.Open("")` throws, the driver swallows it, and `connectedState` stays false. (The
+  driver *does* read the global ASCOM Profile `"COM Port"` into a field during `ReadProfile()`, but never
+  uses it to connect — a driver bug.) Confirmed empirically: four different hosts on this box hold four
+  different `MyComPort` values (COM3/COM5/COM7). This is the general hazard of hosting any legacy .NET
+  COM driver out-of-process — anything persisted via `user.config` does not travel between hosts.
+
+The practical answer is the **native-driver blacklist** below: steer users to TianWen's own serial
+`GeminiFlatPanelDriver`, which has neither the CET crash nor the per-host-port bug. Seeding the helper's
+`user.config` from the global ASCOM Profile is a possible future refinement for *other* `user.config`-
+based CET-incompatible drivers, but is not needed for Gemini.
+
+## Native-driver blacklist — hide ASCOM twins of native backends
+
+`NativeDriverBlacklist` (`TianWen.Lib/Devices/`) drops an ASCOM COM driver from discovery when TianWen
+ships a first-class native backend for it, so the picker shows one entry per physical device instead of
+the native driver plus its redundant (often buggier) ASCOM twin. Gemini is the motivating case (CET
+crash **and** the per-host `MyComPort` bug above); the native serial path has neither problem.
+
+- **Conditional on native availability.** The hide fires only when the discovery pass actually surfaced a
+  native device of the superseding family, matched by `DeviceBase.DeviceClass` (the URI host, e.g.
+  `ZWODevice`/`QHYDevice`/`GeminiDevice`). If the native SDK can't load or no device is present, no native
+  device is discovered and the ASCOM twin passes through as the fallback — the user is never stranded.
+- **Zero coupling / no cycles.** The correlation is pure data (ASCOM ProgID → native `DeviceClass`
+  string) matched against already-discovered devices in the neutral `DeviceDiscovery.RegisteredDevices`
+  aggregation. No device family references another, no per-source vendor interface was added, and the
+  ASCOM subsystem stays ignorant of the native ones. (`DeviceClass` comes from `Uri.Host`, which URI
+  normalisation lower-cases, so the match is case-insensitive — pinned by a test that caught this.)
+- **Scope (curated, exact ProgID match).** Gemini FlatPanel Lite (`ASCOM.GeminiFPLite.CoverCalibrator` →
+  `GeminiDevice`); ZWO ASI/EAF/EFW (`ASCOM.ASICamera2[_2].Camera`, `ASCOM.EAF[_2].Focuser`,
+  `ASCOM.EFW2[_2].FilterWheel` → `ZWODevice`); QHYCCD cam/CFW/qfoc (`ASCOM.QHYCCD[_CAM2|_GUIDER].Camera`,
+  `ASCOM.QHYCFW[2st]`/`ASCOM.QHYFWRS232.FilterWheel`, `ASCOM.qfoc.Focuser` → `QHYDevice`).
+- **Deliberately excluded:** `ASCOM.GeminiFocuserPro` (a different Gemini product, no native impl) and the
+  mount drivers (`ASCOM.iOptron2017`/`OnStep`/`SkyWatcher`), whose native equivalents cover only a vendor
+  subset — e.g. native iOptron is the SkyGuider Pro, not the CEM/GEM/HEM range `ASCOM.iOptron2017.Telescope`
+  drives — so hiding them would remove mounts we can't otherwise control.
+- Pinned by `NativeDriverBlacklistTests` (hidden-when-native-present, kept-as-fallback, non-blacklisted
+  kept, GeminiFocuserPro survives, case-insensitive ProgID + DeviceClass).
 
 ### Phase 4 design notes
 

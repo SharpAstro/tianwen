@@ -95,7 +95,8 @@ internal class DeviceDiscovery(
 
     public IEnumerable<DeviceType> RegisteredDeviceTypes => _supportedSources.SelectMany(s => s.RegisteredDeviceTypes).ToHashSet();
 
-    public IEnumerable<DeviceBase> RegisteredDevices(DeviceType type) => _supportedSources.SelectMany(s => s.RegisteredDevices(type));
+    public IEnumerable<DeviceBase> RegisteredDevices(DeviceType type)
+        => NativeDriverBlacklist.FilterSuperseded(_supportedSources.SelectMany(s => s.RegisteredDevices(type)), logger);
 
     public async ValueTask DiscoverOnlyDeviceType(DeviceType type, CancellationToken cancellationToken)
     {
