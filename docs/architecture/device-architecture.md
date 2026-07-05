@@ -46,6 +46,13 @@ graph LR
         QHYFocuserDriver
     end
 
+    subgraph Gemini
+        GeminiDevice
+        GeminiFlatPanelDriver
+        GeminiFocuserDevice
+        GeminiFocuserDriver
+    end
+
     subgraph Meade
         MeadeDevice
         MeadeLX200ProtocolMountDriver
@@ -93,6 +100,8 @@ graph LR
     DeviceBase --> AlpacaDevice
     DeviceBase --> ZWODevice
     DeviceBase --> QHYDevice
+    DeviceBase --> GeminiDevice
+    DeviceBase --> GeminiFocuserDevice
     DeviceBase --> MeadeDevice
     DeviceBase --> IOptronDevice
     DeviceBase --> OnStepDevice
@@ -126,6 +135,9 @@ graph LR
     QHYDevice -.-> QHYCameraControlledFilterWheelDriver
     QHYDevice -.-> QHYSerialControlledFilterWheelDriver
     QHYDevice -.-> QHYFocuserDriver
+
+    GeminiDevice -.-> GeminiFlatPanelDriver
+    GeminiFocuserDevice -.-> GeminiFocuserDriver
 
     MeadeDevice -.-> MeadeLX200ProtocolMountDriver
     IOptronDevice -.-> SgpMountDriver

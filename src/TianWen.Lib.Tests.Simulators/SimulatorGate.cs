@@ -23,6 +23,11 @@ internal static class SimulatorGate
     /// Gemini simulator -- so it is opt-in and skips when unset.</summary>
     public const string GeminiFlatPanelPortVar = "TIANWEN_GEMINI_FPLITE_PORT";
 
+    /// <summary>Serial port of a physically-connected Gemini Focuser Pro (a rebadged myFocuserPro2), e.g.
+    /// <c>serial:COM5</c> or bare <c>COM5</c> / <c>/dev/ttyUSB0</c>. Like the FlatPanel this needs REAL
+    /// hardware on a real port -- there is no Gemini simulator -- so it is opt-in and skips when unset.</summary>
+    public const string GeminiFocuserPortVar = "TIANWEN_GEMINI_FOCUSER_PORT";
+
     /// <summary>The configured Alpaca simulator base URL (trailing slash trimmed), or <see langword="null"/> when unset.</summary>
     public static string? AlpacaBaseUrl =>
         Environment.GetEnvironmentVariable(AlpacaBaseUrlVar) is { Length: > 0 } url ? url.TrimEnd('/') : null;
@@ -35,6 +40,13 @@ internal static class SimulatorGate
     /// <see langword="null"/> when unset. A bare port name (<c>COM3</c>) gains the <c>serial:</c> prefix.</summary>
     public static string? GeminiFlatPanelPort =>
         Environment.GetEnvironmentVariable(GeminiFlatPanelPortVar) is { Length: > 0 } port
+            ? (port.Contains(':') ? port : $"serial:{port}")
+            : null;
+
+    /// <summary>The Gemini Focuser Pro serial port, normalised to the <c>serial:</c> URI form, or
+    /// <see langword="null"/> when unset. A bare port name (<c>COM5</c>) gains the <c>serial:</c> prefix.</summary>
+    public static string? GeminiFocuserPort =>
+        Environment.GetEnvironmentVariable(GeminiFocuserPortVar) is { Length: > 0 } port
             ? (port.Contains(':') ? port : $"serial:{port}")
             : null;
 }
