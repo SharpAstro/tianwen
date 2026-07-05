@@ -26,20 +26,16 @@ namespace TianWen.AI.Imaging.RcAstro
         private const int LicenseProbeTimeoutMs = 15_000;
 
         private readonly ILogger<RcAstroCli>? _logger;
-        private readonly string _engine;
         private readonly ConcurrentDictionary<string, bool> _licenseCache = new();
 
         /// <param name="logger">Optional diagnostics logger.</param>
-        /// <param name="engine">Value for <c>--engine</c>: "auto" (default; resolves
-        /// to GPU/DirectML when available), "dml", or "cpu".</param>
-        public RcAstroCli(ILogger<RcAstroCli>? logger = null, string engine = "auto")
+        public RcAstroCli(ILogger<RcAstroCli>? logger = null)
         {
             _logger = logger;
-            _engine = engine;
             ExecutablePath = LocateExecutable();
             if (ExecutablePath is not null)
             {
-                _logger?.LogDebug("RC-Astro CLI located at {Path} (engine={Engine})", ExecutablePath, _engine);
+                _logger?.LogDebug("RC-Astro CLI located at {Path}", ExecutablePath);
             }
             else
             {
@@ -93,8 +89,10 @@ namespace TianWen.AI.Imaging.RcAstro
             psi.ArgumentList.Add(outputPath);
             psi.ArgumentList.Add("--depth");
             psi.ArgumentList.Add("32F");
-            psi.ArgumentList.Add("--engine");
-            psi.ArgumentList.Add(_engine);
+            // Compute device is left to the CLI default (auto -> GPU/DirectML when available). We used to
+            // pass "--engine auto", but RC-Astro renamed that flag to "--device" (v0.9.x), which made the
+            // old flag a hard error (exit 109). Omitting it entirely keeps us decoupled from the flag name
+            // across CLI versions -- "auto" is the default anyway.
             psi.ArgumentList.Add("--overwrite");
             psi.ArgumentList.Add("--json");
             foreach (var arg in extraArgs)

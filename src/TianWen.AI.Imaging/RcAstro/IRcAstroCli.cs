@@ -34,7 +34,7 @@ namespace TianWen.AI.Imaging.RcAstro
 
         /// <summary>
         /// Runs <c>rc-astro &lt;productKey&gt; &lt;inputPath&gt; -o &lt;outputPath&gt;</c>
-        /// with the shared machine-mode flags (<c>--depth 32F --engine ... --overwrite --json</c>)
+        /// with the shared machine-mode flags (<c>--depth 32F --overwrite --json</c>)
         /// plus <paramref name="extraArgs"/>, streaming progress out of the
         /// NDJSON event stream. Throws <see cref="RcAstroCliException"/> on a
         /// non-zero exit or an <c>error</c> event.

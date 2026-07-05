@@ -802,8 +802,10 @@ A CPU-first planetary stacker, **completely separate** from the deep-sky `Imagin
   RC-Astro's `.onnx` files are **encrypted at rest** (only the official binary can decrypt them; the
   license forbids extracting the weights), so they are driven through the `rc-astro` CLI's `--json`
   NDJSON protocol, **not** loaded into ORT. `RcAstroEnhancerBase` writes the plate to a temp FITS
-  (`WriteToFitsFile`, BITPIX=-32), runs `rc-astro <product> <in> -o <out> --depth 32F --engine auto
-  --overwrite --json`, parses the NDJSON event stream (`RcAstroCli` + `RcAstroEvent`), and reads the
+  (`WriteToFitsFile`, BITPIX=-32), runs `rc-astro <product> <in> -o <out> --depth 32F --overwrite
+  --json` (compute device left to the CLI default `auto` -- RC-Astro renamed the old `--engine` flag to
+  `--device` in v0.9.x, so we omit it rather than track the name), parses the NDJSON event stream
+  (`RcAstroCli` + `RcAstroEvent`), and reads the
   result back (`TryReadFitsFile`). RC normalises to [0,1] internally, so no rescaling. Role mapping:
   sxt -> `IStarRemover` (default `-o` is the starless plate), nxt -> `IDenoiseEnhancer`
   (noise-adaptive `--dn` from `EstimateNoiseProfile`, log-mapped 0.70-0.95), bxt ->
