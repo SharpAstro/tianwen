@@ -18,7 +18,7 @@
 
   <!-- LosslessJpegBenchmarks measures SharpAstro.Jpeg's SOF3 lossless JPEG decoder
        directly. The package arrives transitively (FC.SDK.Raw), but when the
-       StbImageSharp repo (which hosts SharpAstro.Jpeg) is checked out locally we
+       Codecs repo (which hosts SharpAstro.Jpeg) is checked out locally we
        want to benchmark against the sibling source so iteration on the decoder
        (Huffman fast-paths, predictor tweaks, etc.) is visible without a NuGet
        republish round-trip. ProjectReference here overrides the transitive/direct
@@ -29,7 +29,7 @@
     <NoWarn>$(NoWarn);NU1605</NoWarn>
   </PropertyGroup>
   <ItemGroup Condition="'$(UseLocalSiblings)' == 'true'">
-    <ProjectReference Include="..\..\..\StbImageSharp\src\SharpAstro.Jpeg\SharpAstro.Jpeg.csproj" />
+    <ProjectReference Include="..\..\..\Codecs\src\SharpAstro.Jpeg\SharpAstro.Jpeg.csproj" />
   </ItemGroup>
   <ItemGroup Condition="'$(UseLocalSiblings)' != 'true'">
     <PackageReference Include="SharpAstro.Jpeg" />

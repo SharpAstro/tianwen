@@ -27,8 +27,8 @@
        Color.Icc (IccProfiles.SRgbV4): sibling ProjectReference during local dev,
        NuGet PackageReference for CI / package builds. -->
   <ItemGroup Condition="'$(UseLocalSiblings)' == 'true'">
-    <ProjectReference Include="..\..\..\StbImageSharp\src\SharpAstro.Jpeg.IccInjector\SharpAstro.Jpeg.IccInjector.csproj" />
-    <ProjectReference Include="..\..\..\StbImageSharp\src\SharpAstro.Color.Icc\SharpAstro.Color.Icc.csproj" />
+    <ProjectReference Include="..\..\..\Codecs\src\SharpAstro.Jpeg.IccInjector\SharpAstro.Jpeg.IccInjector.csproj" />
+    <ProjectReference Include="..\..\..\Codecs\src\SharpAstro.Color.Icc\SharpAstro.Color.Icc.csproj" />
   </ItemGroup>
   <ItemGroup Condition="'$(UseLocalSiblings)' != 'true'">
     <PackageReference Include="SharpAstro.Jpeg.IccInjector" />
