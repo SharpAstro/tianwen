@@ -100,7 +100,7 @@ public class StackEnhanceTests
                 result, masterPath, searchHint: null, imageDim: null, refMeta: master.ImageMeta,
                 autocropRect: autocrop, strategy: IntegrationStrategyKind.InRamAllFrames,
                 enhance: true, enhanceBlend: 1.0f, splitPlates: false, enhanceOptions: EnhanceOptions.Default,
-                renderPreviewPng: false, ct: TestContext.Current.CancellationToken);
+                outputs: MasterRenderOutputs.None, ct: TestContext.Current.CancellationToken);
 
             // The post-processor returns the same Master back (potentially
             // with MaxValue patched). SolvedWcs is null here because no
@@ -166,7 +166,7 @@ public class StackEnhanceTests
                 result, masterPath, searchHint: null, imageDim: null, refMeta: master.ImageMeta,
                 autocropRect: autocrop, strategy: IntegrationStrategyKind.InRamAllFrames,
                 enhance: false, enhanceBlend: 1.0f, splitPlates: false, enhanceOptions: EnhanceOptions.Default,
-                renderPreviewPng: false, ct: TestContext.Current.CancellationToken);
+                outputs: MasterRenderOutputs.None, ct: TestContext.Current.CancellationToken);
             postResult.SolvedWcs.ShouldBeNull();
 
             File.Exists(masterPath).ShouldBeTrue();

@@ -1619,6 +1619,140 @@ public partial class Image
     }
 
     /// <summary>
+    /// Renders this image to display-referred LINEAR RGB float (3 channels, interleaved,
+    /// row-major, 1.0 = SDR white) -- the HDR half of the Ultra HDR gain-map pair fed to
+    /// <c>SharpAstro.Jpeg.JpegGainMap.Compute</c>. It deliberately BYPASSES the MTF blowout:
+    /// <see cref="MidtonesTransferFunction"/> clamps its input to [0, 1], so a bright core
+    /// (star / nebula / galaxy) that the linear master captured with full structure is
+    /// flattened to a white plate by <see cref="RenderStretchedRgba16"/>. Here the per-channel
+    /// signal is taken PRE-MTF -- <c>rescaled = (norm - shadows) * rescale</c>, the linear value
+    /// where 1.0 == the stretch's white point -- which is unbounded, so a core keeps its true
+    /// multiple of SDR white and its gradient.
+    /// <para>
+    /// The rendition matches the SDR base below the clip and only diverges above it, so the
+    /// fitted gain map is ~0 over the faint nebula (identical on SDR + HDR) and carries real
+    /// boost only where the SDR stretch clipped. Per pixel: <c>base_lin = sRGB-EOTF(sdr)</c>;
+    /// where NO channel clipped (<c>rescaled &lt;= 1</c>) the output is <c>base_lin</c> verbatim
+    /// (gain 1); where it clipped, <c>out = base_lin * G</c> with
+    /// <c>G = Rec709(rescaled) / Rec709(base_lin)</c> rolled off toward <paramref name="headroom"/>.
+    /// Gating on the clip (not on the raw luminance ratio) is load-bearing: the MTF lifts shadows
+    /// while the sRGB EOTF pulls them back, so <c>rescaled &gt; base_lin</c> in the faint field too
+    /// -- reading that as a boost would push the background into HDR. Multiplying the (already
+    /// colour-calibrated) base by ONE luminance gain preserves its hue -- a gray gain map recovers
+    /// highlight STRUCTURE, not saturation (per-channel re-saturation would need an RGB gain map,
+    /// a later refinement).
+    /// </para>
+    /// </summary>
+    /// <param name="u">The SAME uniforms the SDR render used. Only the per-channel path
+    /// (<see cref="StretchMode.Unlinked"/> / <see cref="StretchMode.Linked"/>) is supported --
+    /// what <c>MasterPreviewRenderer</c> always uses; Luma / None are not modelled here.</param>
+    /// <param name="sdrRgba"><see cref="RenderStretchedRgba16"/>'s output (host-order RGBA
+    /// ushorts, length &gt;= Width*Height*4): the display-referred base the HDR rendition is
+    /// anchored to, so below the clip HDR == SDR (gain 0).</param>
+    /// <param name="hdrRgb">Output: Width*Height*3 interleaved linear-light floats, 1.0 = SDR white.</param>
+    /// <param name="headroom">Linear display headroom cap (&gt;= 1): cores roll off smoothly
+    /// toward this multiple of SDR white so the fitted <c>HdrCapacityMax</c> is a reachable
+    /// peak. 1 disables the boost (flat map).</param>
+    public void RenderHdrLinearRgb(in StretchUniforms u, ReadOnlySpan<ushort> sdrRgba, Span<float> hdrRgb, float headroom)
+    {
+        var (channelCount, width, height) = Shape;
+        var pixelCount = width * height;
+        if (sdrRgba.Length < pixelCount * 4)
+            throw new ArgumentException($"sdrRgba length ({sdrRgba.Length}) too small for {width}x{height} ({pixelCount * 4} ushorts needed)", nameof(sdrRgba));
+        if (hdrRgb.Length < pixelCount * 3)
+            throw new ArgumentException($"hdrRgb length ({hdrRgb.Length}) too small for {width}x{height} ({pixelCount * 3} floats needed)", nameof(hdrRgb));
+
+        var isColor = channelCount >= 3;
+        var ch0 = GetChannelSpan(0);
+        var ch1 = isColor ? GetChannelSpan(1) : default;
+        var ch2 = isColor ? GetChannelSpan(2) : default;
+        var (lw, gw, bw) = u.LumaWeights;
+
+        for (var i = 0; i < pixelCount; i++)
+        {
+            // Pre-MTF linear signal (1.0 = SDR white) per channel. The core gradient
+            // survives here -- MTF would clamp it to a flat 1.0.
+            float rr, rg, rb;
+            if (isColor)
+            {
+                rr = RescaledLinear(ch0[i], 0, u);
+                rg = RescaledLinear(ch1[i], 1, u);
+                rb = RescaledLinear(ch2[i], 2, u);
+            }
+            else
+            {
+                rr = rg = rb = RescaledLinear(ch0[i], 0, u);
+            }
+
+            // Base linear = the SDR display value linearized (the encoded base the gain map
+            // reconstructs from), so below the clip HDR == SDR and the fitted gain lands at 0.
+            var o4 = i * 4;
+            var br = Bt2020Pq.SrgbEotf(sdrRgba[o4] / 65535f);
+            var bg = Bt2020Pq.SrgbEotf(sdrRgba[o4 + 1] / 65535f);
+            var bb = Bt2020Pq.SrgbEotf(sdrRgba[o4 + 2] / 65535f);
+
+            // A pixel enters the HDR recovery zone only where the MTF stretch CLIPPED it -- some
+            // channel's pre-MTF linear signal exceeded the white point (rescaled > 1, the value the
+            // MTF flattens to 1.0). Below the clip the HDR rendition equals the linearized SDR base
+            // EXACTLY (gain 1), so SDR and HDR agree across the whole faint field and the fitted gain
+            // map is ~0 there; the MTF's shadow-lift vs the sRGB EOTF must NOT be read as a boost
+            // (that spurious ratio is why the gate is on the clip, not on Rec709(rescaled)/base).
+            // Above the clip the pixel is boosted by the luminance ratio of the recovered linear
+            // signal to the (saturated) SDR luminance, rolled off toward the display headroom. One
+            // gain for all three channels preserves the base's hue.
+            var maxRescaled = MathF.Max(rr, MathF.Max(rg, rb));
+            float gain;
+            if (maxRescaled <= 1f)
+            {
+                gain = 1f;
+            }
+            else
+            {
+                var yBase = lw * br + gw * bg + bw * bb;
+                var yRescaled = lw * rr + gw * rg + bw * rb;
+                var g = yBase > 1e-6f ? yRescaled / yBase : 1f;
+                gain = g <= 1f ? 1f : RollOffHeadroom(g, headroom);
+            }
+
+            var o3 = i * 3;
+            hdrRgb[o3] = br * gain;
+            hdrRgb[o3 + 1] = bg * gain;
+            hdrRgb[o3 + 2] = bb * gain;
+        }
+    }
+
+    /// <summary>Per-channel PRE-MTF linear signal in the stretch's coordinate space
+    /// (1.0 == the white point): the same normalize -&gt; bg-neut -&gt; WB chain as
+    /// <see cref="StretchChannelCpu"/>, then <c>(norm - shadows) * rescale</c> WITHOUT the
+    /// midtones transfer function (which clamps to [0, 1] and flattens the highlight).
+    /// Clamped at 0 below.</summary>
+    private static float RescaledLinear(float raw, int channel, in StretchUniforms u)
+    {
+        var ped = PickChannel(u.Pedestal, channel);
+        var bn = PickChannel(u.BackgroundNeutralization, channel);
+        var wb = PickChannel(u.WhiteBalance, channel);
+        var sh = PickChannel(u.Shadows, channel);
+        var re = PickChannel(u.Rescale, channel);
+
+        var norm = raw * u.NormFactor - ped;
+        norm = norm * bn + (1f - bn);
+        norm = MathF.Max(norm * wb, 0f);
+        return MathF.Max((norm - sh) * re, 0f);
+    }
+
+    /// <summary>Smooth, monotonic soft cap for the highlight luminance gain: identity at
+    /// <paramref name="gain"/> == 1, asymptotes to <paramref name="headroom"/> as the gain
+    /// grows, so a 50-100x core lands in reachable display headroom (the fitted
+    /// <c>HdrCapacityMax</c>) instead of a peak no display reaches. <paramref name="gain"/>
+    /// is assumed &gt;= 1; <paramref name="headroom"/> &lt;= 1 disables HDR (returns 1).</summary>
+    private static float RollOffHeadroom(float gain, float headroom)
+    {
+        if (headroom <= 1f) return 1f;
+        var t = gain - 1f;
+        return 1f + t / (1f + t / (headroom - 1f));
+    }
+
+    /// <summary>
     /// Iteratively adjusts <c>stretchFactor</c> until the post-stretch median of the histogram
     /// converges to <paramref name="targetMedian"/>. Uses bisection over the histogram bins
     /// — each bin's midpoint value is fed through <see cref="StretchValue"/> with the current

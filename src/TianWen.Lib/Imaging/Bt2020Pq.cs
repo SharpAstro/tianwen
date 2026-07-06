@@ -157,11 +157,15 @@ public static class Bt2020Pq
     }
 
     /// <summary>
-    /// sRGB EOTF -- maps a perceptual sRGB code value in [0, 1] to a linear
-    /// sRGB intensity in [0, 1]. Piecewise linear/gamma per IEC 61966-2-1.
+    /// sRGB EOTF -- maps a perceptual sRGB code value to a linear sRGB intensity.
+    /// Piecewise linear/gamma per IEC 61966-2-1. On [0, 1] this is the standard
+    /// transform; the gamma branch is a smooth monotonic function that also extrapolates
+    /// for inputs &gt; 1 (used by the Ultra HDR export, where a stretch overshoot code
+    /// value above 1.0 maps to super-SDR-white linear headroom). The single source of
+    /// the sRGB EOTF in <c>TianWen.Lib</c>: reused by <see cref="Image.RenderHdrLinearRgb"/>.
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static float SrgbEotf(float v)
+    internal static float SrgbEotf(float v)
         => v <= 0.04045f
             ? v / 12.92f
             : MathF.Pow((v + 0.055f) / 1.055f, 2.4f);

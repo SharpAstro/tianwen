@@ -4,6 +4,7 @@ using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
+using SharpAstro.Jpeg;
 using SharpAstro.Png;
 using TianWen.Lib.Astrometry;
 using TianWen.Lib.Astrometry.Catalogs;
@@ -100,6 +101,13 @@ public sealed class MasterPreviewRenderer(ICelestialObjectDB? catalogDb, ILogger
     /// [0, 1] data; on the linear master the mask degenerates to ~0 everywhere. Display-render
     /// stage only: the linear FITS / EXR masters and the split-plate TIFFs are never touched.
     /// Null or all-identity = the render path is byte-identical to before this option existed.</param>
+    /// <param name="ultraHdrPath">When set, ALSO writes an Ultra HDR (gain-map / hdrgm 1.0)
+    /// JPEG to this path alongside the PNG. The SDR base is the same stretched raster the PNG
+    /// carries; the HDR rendition recovers the highlights the MTF stretch clipped (see
+    /// <see cref="Image.RenderHdrLinearRgb"/>). Display-referred raster only -- never the
+    /// linear FITS/EXR masters or the split-plate TIFFs. Null = no gain-map JPEG.</param>
+    /// <param name="ultraHdrQuality">Baseline-JPEG quality (1..100) for both Ultra HDR
+    /// renditions. Default 90 (the encoder's default).</param>
     /// <returns>SPCC diagnostics when SPCC ran and produced a gain triple; null when
     /// SPCC was skipped (mono master, missing WCS / catalog, insufficient throughput
     /// data, fewer than 3 stars, or a WB override was supplied).</returns>
@@ -115,6 +123,8 @@ public sealed class MasterPreviewRenderer(ICelestialObjectDB? catalogDb, ILogger
         bool gamutToBt2020 = true,
         (float R, float G, float B)? whiteBalanceOverride = null,
         MaskedBoostOptions? maskedBoost = null,
+        string? ultraHdrPath = null,
+        int ultraHdrQuality = 90,
         CancellationToken ct = default)
     {
         var sw = Stopwatch.StartNew();
@@ -157,6 +167,13 @@ public sealed class MasterPreviewRenderer(ICelestialObjectDB? catalogDb, ILogger
             logger.LogInformation("  [maskedBoost] saturation={Sat:F2} contrast={Con:F2} ({Ms} ms)",
                 boost.Saturation, boost.ContrastBoost, boostSw.ElapsedMilliseconds);
         }
+        // Ultra HDR (gain-map JPEG) emit -- taken from the sRGB `rgba` here, BEFORE any PQ
+        // re-encode below mutates it in place. Shares the one stretch solve with the PNG,
+        // and recovers the highlights the SDR stretch clipped (see RenderHdrLinearRgb).
+        if (ultraHdrPath is { Length: > 0 })
+        {
+            await WriteUltraHdrAsync(master, uniforms, rgba, width, height, peakNits, ultraHdrQuality, ultraHdrPath, ct);
+        }
         CicpChunk cicp;
         if (hdr10Pq)
         {
@@ -187,6 +204,57 @@ public sealed class MasterPreviewRenderer(ICelestialObjectDB? catalogDb, ILogger
         logger.LogInformation("  [preview] total {Ms} ms", sw.ElapsedMilliseconds);
 
         return new PreviewRender(spccDiagnostics, uniforms, wbGains);
+    }
+
+    /// <summary>
+    /// Assembles an Ultra HDR (Android Ultra HDR v1 / Adobe hdrgm 1.0) gain-map JPEG from the
+    /// already-rendered SDR raster: down-convert the 16-bit sRGB buffer to the 8-bit SDR base,
+    /// render the highlight-recovering HDR-linear rendition (<see cref="Image.RenderHdrLinearRgb"/>),
+    /// fit the gain map (<c>JpegGainMap.Compute</c>), encode both renditions as baseline JPEG
+    /// (<c>JpegEncoder.Encode</c>), and splice the GContainer XMP + MPF (<c>JpegGainMap.Assemble</c>).
+    /// The gain map is ~0 over the faint nebula (so SDR viewers and HDR viewers agree there) and
+    /// carries boost only where the SDR stretch clipped, so the file is a superset of the SDR PNG:
+    /// legacy viewers see the base, HDR viewers recover the core structure the stretch flattened.
+    /// </summary>
+    private async Task WriteUltraHdrAsync(
+        Image master, StretchUniforms uniforms, ushort[] rgba, int width, int height,
+        float peakNits, int quality, string outputPath, CancellationToken ct)
+    {
+        var sw = Stopwatch.StartNew();
+        var pixelCount = width * height;
+
+        // SDR base: 16-bit sRGB RGBA -> 8-bit sRGB RGB. This IS the base rendition the gain
+        // map reconstructs from, so it carries the same display look as the SDR PNG.
+        var sdr8 = new byte[pixelCount * 3];
+        for (var i = 0; i < pixelCount; i++)
+        {
+            var s = i * 4;
+            var d = i * 3;
+            sdr8[d] = To8(rgba[s]);
+            sdr8[d + 1] = To8(rgba[s + 1]);
+            sdr8[d + 2] = To8(rgba[s + 2]);
+        }
+
+        // HDR-linear rendition (1.0 = SDR white). SDR reference white per ITU-R BT.2408 is
+        // 203 nits, so peakNits sets the linear display headroom the cores roll off toward.
+        var headroom = MathF.Max(peakNits / 203f, 1f);
+        var hdr = new float[pixelCount * 3];
+        master.RenderHdrLinearRgb(uniforms, rgba, hdr, headroom);
+
+        // Fit the gain map, encode both renditions (baseline JPEG), splice Ultra HDR v1.
+        var gm = JpegGainMap.Compute(hdr, sdr8, width, height);
+        var opts = new JpegEncodeOptions { Quality = quality };
+        var baseJpeg = JpegEncoder.Encode(sdr8, width, height, 3, opts);
+        var mapJpeg = JpegEncoder.Encode(gm.GainMapGray8, gm.Width, gm.Height, 1, opts);
+        var uhdr = JpegGainMap.Assemble(baseJpeg, mapJpeg, gm.Metadata);
+        await File.WriteAllBytesAsync(outputPath, uhdr, ct);
+
+        logger.LogInformation(
+            "  wrote {Path} (Ultra HDR gain-map JPEG, q{Q}, headroom {H:F1}x, capMax {Cap:F2}, {Ms} ms)",
+            outputPath, quality, headroom, gm.Metadata.HdrCapacityMax, sw.ElapsedMilliseconds);
+
+        // 16-bit -> 8-bit with round-to-nearest ((v*255 + 32767) / 65535).
+        static byte To8(ushort v) => (byte)((v * 255 + 32767) / 65535);
     }
 
     /// <summary>

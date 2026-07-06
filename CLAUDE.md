@@ -685,6 +685,30 @@ plates stay edit-ready for the user's own finishing). Identity options collapse 
 untouched render path is byte-identical. Pinned by `ImageMaskTests` +
 `MasterPreviewMaskedBoostTests`.
 
+**Ultra HDR (gain-map JPEG) export -- highlight recovery, opt-in display output.** Emits an Android
+Ultra HDR v1 / Adobe hdrgm 1.0 gain-map JPEG alongside the SDR PNG (`stack --output-format uhdr`
+`--hdr-peak-nits`; `image render/sharpen --output-format uhdr` with `--png-pq-peak-nits`). Selected
+via the `MasterRenderOutputs` `[Flags]` enum (`StackingOptions.RenderOutputs`; `PreviewPng` +
+`UltraHdr` are independent) and `ImageOutputFormat.UltraHdr`. **Its value over the cICP-PQ PNG is
+per-pixel highlight recovery**, so the two are not interchangeable: the PQ path uniformly re-maps the
+already-clamped SDR raster, whereas `Image.RenderHdrLinearRgb` builds a display-referred *linear*
+rendition (1.0 = SDR white) from the **PRE-MTF** signal (`rescaled = (norm - shadows) * rescale`) --
+the value `MidtonesTransferFunction` clamps to `[0,1]` (a bright core the stretch over-blew to a flat
+white plate). So the gain map restores the core's structure + gradient on HDR viewers while the faint
+field matches SDR. **Two load-bearing invariants:** (1) the recovery gain is **gated on the clip**
+(`maxRescaled > 1`) and is exactly 1 below it -- do NOT derive it from `Rec709(rescaled)/Rec709(base_lin)`
+across the whole frame, because the MTF's shadow-lift vs the sRGB EOTF makes `rescaled > base_lin` in
+the faint field too, which would push the background into HDR (the bug the `RenderHdrLinearRgb`
+background test caught); (2) ONE luminance gain multiplies all three channels, preserving the SDR
+base's hue -- a gray gain map recovers luminance/**structure, not saturation** (per-channel
+re-saturation needs an RGB gain map, deferred). Headroom = peak nits / 203-nit BT.2408 SDR reference
+white; cores roll off smoothly toward the cap via `RollOffHeadroom`. Chain:
+`RenderAsync(ultraHdrPath:)` -> SDR-8 base + HDR-linear -> `JpegGainMap.Compute` -> `JpegEncoder.Encode`
+x2 -> `JpegGainMap.Assemble`. Display raster only (never the linear FITS/EXR masters or split-plate
+TIFFs, same rule as `MaskedBoost`); can only recover headroom the master actually holds (a
+sensor-saturated core stays flat). Pinned by `MasterPreviewUltraHdrTests`. Full flow:
+[`docs/architecture/stacking-render-pipeline.md`](docs/architecture/stacking-render-pipeline.md).
+
 **Stellar-sharpen is opt-in (`image sharpen --stellar-sharpen`, default OFF).** The SAS stellar
 sharpener (NAFNet) over-sharpens already-tight star cores into square white clipped blocks; when
 a deblurrer (BlurX) is live the stars are already tightened, so the option is **hard-skipped**

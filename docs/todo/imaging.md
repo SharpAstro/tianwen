@@ -16,18 +16,24 @@ The `SharpAstro.Codecs 3.6.*` facade (sniff → dispatch: PNG/JPEG/TIFF/JXR/EXR/
 fallback (`Image.Import.TryReadViaCodecs`; full arc in [`../plans/image-codecs-facade.md`](../plans/image-codecs-facade.md)).
 Open gaps:
 
-- [ ] **Gain-map JPEG export during stacking / rendering (UNBLOCKED — tianwen wiring left).** Emit Ultra
-  HDR (hdrgm 1.0 / Android Ultra HDR) gain-map JPEGs from the stacking/render preview path — a
-  broadly-supported HDR delivery format (Android / Chrome / Adobe) alongside the existing cICP-PQ PNG HDR
-  previews. The upstream encoder shipped in **Codecs 3.6**: `SharpAstro.Jpeg.JpegEncoder.Encode` (baseline
-  sequential, 4:4:4 / 4:2:0, quality 1..100) plus `SharpAstro.Jpeg.GainMap` `Compute` (fit gain map from an
-  aligned HDR-linear/SDR pair) + `Assemble` (splice GContainer XMP + MPF around the renditions) — Ultra HDR
-  generation is now fully in-family, no external encoder. Remaining work is tianwen-side: produce the
-  HDR-linear + SDR rendition pair from `MasterPreviewRenderer` (the unified display render; output contract in
-  [`../architecture/stacking-render-pipeline.md`](../architecture/stacking-render-pipeline.md)) and wire it
-  into the `stack` / `image render` flows. Applies to the stretched display raster only — never the linear
-  FITS/EXR masters or split-plate TIFFs (same rule as `MaskedBoost`). Distinct from, and larger than, the
-  read-path gaps below.
+- [x] **Gain-map JPEG export during stacking / rendering (DONE).** Emits Ultra HDR (hdrgm 1.0 / Android
+  Ultra HDR v1) gain-map JPEGs from the stacking/render preview path — a broadly-supported HDR delivery
+  format (Android / Chrome / Adobe) alongside the existing cICP-PQ PNG HDR previews. Unlike the PQ preview
+  (a uniform re-map of the already-clamped SDR raster), the gain map performs **per-pixel highlight
+  recovery**: `Image.RenderHdrLinearRgb` renders a display-referred *linear* rendition (1.0 = SDR white)
+  from the master's PRE-MTF signal — the value the midtones transfer function flattens to a white plate in
+  SDR — so a bright core (star / nebula / galaxy) that the stretch over-blew keeps its structure and gradient
+  on HDR viewers while the faint background matches SDR exactly (gain ~0 below the clip). Wiring:
+  `MasterPreviewRenderer.RenderAsync(ultraHdrPath:)` builds the SDR base + HDR-linear pair, `JpegGainMap.Compute`
+  fits the map, `JpegEncoder.Encode` encodes both renditions, `JpegGainMap.Assemble` splices GContainer XMP +
+  MPF. Selected via the `MasterRenderOutputs` `[Flags]` enum on `StackingOptions.RenderOutputs`
+  (`stack --output-format uhdr`, `--hdr-peak-nits`) and `ImageOutputFormat.UltraHdr` (`image render/sharpen
+  --output-format uhdr`, headroom from `--png-pq-peak-nits`). Headroom = peak nits / 203-nit BT.2408 SDR
+  reference white; cores roll off smoothly toward the cap. Stretched display raster only — never the linear
+  FITS/EXR masters or split-plate TIFFs (same rule as `MaskedBoost`). Pinned by `MasterPreviewUltraHdrTests`.
+  **Caveat:** a gray gain map recovers highlight *structure/luminance*, not saturation (the recovered core
+  keeps the SDR base's hue) — per-channel re-saturation would need an RGB gain map (a later refinement) —
+  and it can only recover headroom the linear master actually holds (a sensor-saturated core stays flat).
 - [ ] **Honour `IDecodedImage.ColorEncoding` on facade read.** `TryReadViaCodecs` ingests `ToFloats()`
   verbatim as `[0,1]` (container-only), so a PQ/HLG or non-sRGB HDR raster (incl. tianwen's own cICP-PQ
   PNG previews) is read as if linear — wrong for display. Linearise / tone-map per `ColorEncoding` on

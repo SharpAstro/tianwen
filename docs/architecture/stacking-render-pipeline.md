@@ -97,13 +97,26 @@ poisoned by partial-coverage edges. The CLI renders nothing; it sets
 `StackingOptions.RenderPreviewPng`, writes EXR from the emitted FITS, and prints
 the SPCC summary from `GroupResult.Spcc`.
 
-**Planned (upstream shipped; tianwen wiring left):** a gain-map (Ultra HDR / hdrgm 1.0)
-JPEG display-tier output alongside the cICP-PQ PNG -- a broadly-supported HDR delivery
-format (Android / Chrome / Adobe). It rides the same stretched display raster this section
-renders (never the linear FITS/EXR masters or split-plate TIFFs, same rule as `MaskedBoost`).
-The Codecs 3.6 family now supplies both halves -- `SharpAstro.Jpeg.JpegEncoder.Encode` (baseline
-JPEG) + `SharpAstro.Jpeg.GainMap` `Compute`/`Assemble` -- so all that remains is emitting the
-HDR-linear + SDR rendition pair here. Backlog: [`../todo/imaging.md`](../todo/imaging.md) (Codecs facade).
+**Ultra HDR (gain-map JPEG) display output.** Alongside the cICP-PQ PNG, the pipeline emits a
+gain-map (Ultra HDR / hdrgm 1.0) JPEG -- a broadly-supported HDR delivery format (Android / Chrome /
+Adobe). It rides the same stretched display raster this section renders (never the linear FITS/EXR
+masters or split-plate TIFFs, same rule as `MaskedBoost`). Where it *differs* from the cICP-PQ PNG is
+the point: the PQ path is a uniform re-map of the already-clamped SDR raster, whereas the gain map does
+**per-pixel highlight recovery**. `Image.RenderHdrLinearRgb` renders a display-referred *linear*
+rendition (1.0 = SDR white) from the PRE-MTF signal -- `rescaled = (norm - shadows) * rescale`, the
+value the midtones transfer function (which clamps its input to `[0,1]`) flattens to a white plate in
+SDR. So a bright core the stretch over-blew keeps its structure + gradient on HDR viewers, while the
+faint field matches SDR exactly (the gain is gated on the clip -- `rescaled > 1` -- so it is 0 below it,
+NOT read off the MTF-vs-sRGB-EOTF shadow-lift difference). One luminance gain per pixel preserves the
+SDR base's hue (a gray gain map recovers luminance/structure, not saturation). Chain:
+`MasterPreviewRenderer.RenderAsync(ultraHdrPath:)` builds the SDR-8 base + HDR-linear pair ->
+`JpegGainMap.Compute` fits the map (auto-fitting `HdrCapacityMax` to the recovered headroom) ->
+`JpegEncoder.Encode` encodes both renditions -> `JpegGainMap.Assemble` splices GContainer XMP + MPF.
+Selected via the `MasterRenderOutputs` `[Flags]` enum (`stack --output-format uhdr`, `--hdr-peak-nits`)
+or `ImageOutputFormat.UltraHdr` (`image render/sharpen --output-format uhdr`, `--png-pq-peak-nits`);
+headroom = peak nits / 203-nit BT.2408 SDR reference white, cores rolled off smoothly toward the cap.
+Backlog: [`../todo/imaging.md`](../todo/imaging.md) (RGB gain map for saturation recovery; read-side
+reconstruction).
 
 ---
 

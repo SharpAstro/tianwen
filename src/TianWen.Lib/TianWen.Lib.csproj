@@ -237,6 +237,24 @@
     <PackageReference Include="SharpAstro.Codecs" />
   </ItemGroup>
 
+  <!-- SharpAstro.Jpeg + SharpAstro.Jpeg.GainMap: the Ultra HDR (gain-map JPEG) WRITE
+       path for the stacking / render preview. MasterPreviewRenderer emits an
+       hdrgm-1.0 / Android Ultra HDR JPEG via JpegGainMap.Compute (fit the gain map
+       from an aligned HDR-linear/SDR pair) + JpegEncoder.Encode (baseline sequential,
+       shipped in Codecs 3.6) + JpegGainMap.Assemble (splice GContainer XMP + MPF).
+       Both are already pulled in transitively by SharpAstro.Codecs (gain-map decode
+       lives in the facade registry), but tianwen references them directly since it
+       calls the encode API, matching the direct-ref convention of the Tiff/Png/Exr
+       codecs above. All on the 3.6.* lockstep. -->
+  <ItemGroup Condition="'$(UseLocalSiblings)' == 'true'">
+    <ProjectReference Include="..\..\..\Codecs\src\SharpAstro.Jpeg\SharpAstro.Jpeg.csproj" />
+    <ProjectReference Include="..\..\..\Codecs\src\SharpAstro.Jpeg.GainMap\SharpAstro.Jpeg.GainMap.csproj" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(UseLocalSiblings)' != 'true'">
+    <PackageReference Include="SharpAstro.Jpeg" />
+    <PackageReference Include="SharpAstro.Jpeg.GainMap" />
+  </ItemGroup>
+
   <!-- DIR.Lib: TiffWriter + PngWriter on the production path (Image.Export.cs). -->
   <ItemGroup Condition="'$(UseLocalSiblings)' == 'true'">
     <ProjectReference Include="..\..\..\DIR.Lib\src\DIR.Lib\DIR.Lib.csproj" />

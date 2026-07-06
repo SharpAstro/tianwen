@@ -86,8 +86,19 @@ public enum GhsConvergeMode { Auto, Manual }
 ///   when the codestream uses YCbCr 4:4:4 internal colour format; the
 ///   current SharpAstro.Jxr writer emits NComponent (RGB) which Photos
 ///   rejects. YUV 4:4:4 writer support is being added upstream.</description></item>
+///   <item><term><see cref="UltraHdr"/></term><description>Ultra HDR
+///   (Android Ultra HDR v1 / Adobe hdrgm 1.0) gain-map JPEG. The SDR base
+///   is the same stretched sRGB raster the <see cref="Png"/> path produces;
+///   an attached quarter-res gain map recovers the highlights the MTF
+///   stretch clipped (star / nebula / galaxy cores), so HDR-aware viewers
+///   (Chrome, Android, Photoshop / ACR) show the core structure while the
+///   faint background matches SDR, and legacy viewers see only the base.
+///   <c>--png-pq-peak-nits</c> sets the linear display headroom (peak nits
+///   / 203-nit BT.2408 SDR reference white) the recovered cores roll off
+///   toward. A lossy baseline JPEG (display artifact only), never the
+///   linear master.</description></item>
 /// </list></summary>
-public enum ImageOutputFormat { None, Png, PngPq, Jxr, Exr }
+public enum ImageOutputFormat { None, Png, PngPq, Jxr, Exr, UltraHdr }
 
 /// <summary>
 /// Gamut for PNG-PQ output. <see cref="Srgb"/> (default) keeps the
@@ -1352,6 +1363,8 @@ internal sealed class ImageSubCommand(
     {
         ImageOutputFormat.Jxr => ".jxr",
         ImageOutputFormat.Exr => ".exr",
+        // UltraHdr is a JPEG container (baseline SDR base + attached gain map).
+        ImageOutputFormat.UltraHdr => ".jpg",
         // PngPq stays .png -- it's a standard PNG file with cICP HDR10 signaling,
         // not a different container. Tools that don't honour cICP fall back to
         // SDR display via the PNG bit-depth alone.
@@ -1420,6 +1433,9 @@ internal sealed class ImageSubCommand(
             case ImageOutputFormat.PngPq:
                 await RenderPngAsync(image, sensorMeta, wcs, path, hdr10Pq: true, peakNits, gamutToBt2020, maskedBoost, ct);
                 break;
+            case ImageOutputFormat.UltraHdr:
+                await RenderUltraHdrAsync(image, sensorMeta, wcs, path, peakNits, maskedBoost, ct);
+                break;
             case ImageOutputFormat.Exr:
                 // EXR is the unstretched linear master emitted by the 'stack' command;
                 // the 'image' command produces stretched/processed output (jxr / png).
@@ -1450,6 +1466,28 @@ internal sealed class ImageSubCommand(
         {
             consoleHost.WriteError($"PNG render failed for {pngPath}: {ex.Message}");
             logger?.LogError(ex, "PNG render failed for {Path}", pngPath);
+        }
+    }
+
+    /// <summary>
+    /// Emit an Ultra HDR (gain-map) JPEG via the shared <see cref="MasterPreviewRenderer"/>:
+    /// the same SPCC + stretch solve as <see cref="RenderPngAsync"/>, but the renderer writes
+    /// the gain-map JPEG (SDR base + attached highlight-recovery gain map) instead of a PNG.
+    /// The source FITS is untouched; <paramref name="peakNits"/> sets the linear display headroom.
+    /// </summary>
+    private async Task RenderUltraHdrAsync(Image img, ImageMeta sensorMeta, WCS? wcs, string jpgPath, float peakNits, MaskedBoostOptions? maskedBoost, CancellationToken ct)
+    {
+        try
+        {
+            // pngPath empty -> the renderer skips the PNG and only writes the Ultra HDR JPEG.
+            await previewRenderer.RenderAsync(img, sensorMeta, wcs, statsSource: null, outputPath: string.Empty,
+                peakNits: peakNits, maskedBoost: maskedBoost, ultraHdrPath: jpgPath, ct: ct);
+            consoleHost.WriteScrollable($"[render] wrote {jpgPath} (Ultra HDR gain-map JPEG, {peakNits:F0} nits headroom)");
+        }
+        catch (Exception ex)
+        {
+            consoleHost.WriteError($"Ultra HDR render failed for {jpgPath}: {ex.Message}");
+            logger?.LogError(ex, "Ultra HDR render failed for {Path}", jpgPath);
         }
     }
 
@@ -1632,8 +1670,10 @@ internal sealed class ImageSubCommand(
             "png" => ImageOutputFormat.Png,
             "png-pq" or "pngpq" or "hdr10" or "hdr10-pq" => ImageOutputFormat.PngPq,
             "jxr" => ImageOutputFormat.Jxr,
+            "exr" => ImageOutputFormat.Exr,
+            "uhdr" or "ultrahdr" or "ultra-hdr" or "gainmap" or "gain-map" => ImageOutputFormat.UltraHdr,
             _ => throw new ArgumentException(
-                $"--output-format: unknown value '{token}'; expected one of: none, png, png-pq, jxr"),
+                $"--output-format: unknown value '{token}'; expected one of: none, png, png-pq, jxr, exr, uhdr"),
         };
     }
 

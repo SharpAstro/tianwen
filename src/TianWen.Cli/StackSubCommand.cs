@@ -78,8 +78,13 @@ internal sealed class StackSubCommand(
         };
         var formatOpt = new Option<ImageOutputFormat>("--output-format")
         {
-            Description = "2D-viewer companion alongside master_*.fits + master_*_autocrop.fits. 'png' (default) = stretched 8-bit-per-channel RGBA via MasterPreviewRenderer (SPCC + WB + auto-stretch + sRGB ICC). 'exr' = OpenEXR with float-true HDR pixels (FLOAT mono + RGB) - writes the master FITS verbatim with NO SPCC / stretch baked in (the unstretched linear master); SPCC diagnostics are skipped for the EXR path. Open .exr in PixInsight / Siril / Affinity / Photoshop / Blender. 'none' = no companion (just the FITS outputs). ('jxr' is for stretched/processed output via the 'image' command, not a stacking master format.)",
+            Description = "2D-viewer companion alongside master_*.fits + master_*_autocrop.fits. 'png' (default) = stretched 8-bit-per-channel RGBA via MasterPreviewRenderer (SPCC + WB + auto-stretch + sRGB ICC). 'uhdr' = Ultra HDR (gain-map / hdrgm 1.0) JPEG: the same stretched SDR base plus an attached gain map that recovers the highlights the MTF stretch clipped (star / nebula / galaxy cores glow on HDR viewers - Chrome, Android, Photoshop; legacy viewers see the SDR base). See --hdr-peak-nits. 'exr' = OpenEXR with float-true HDR pixels (FLOAT mono + RGB) - writes the master FITS verbatim with NO SPCC / stretch baked in (the unstretched linear master); SPCC diagnostics are skipped for the EXR path. Open .exr in PixInsight / Siril / Affinity / Photoshop / Blender. 'none' = no companion (just the FITS outputs). ('jxr' is for stretched/processed output via the 'image' command, not a stacking master format.)",
             DefaultValueFactory = _ => ImageOutputFormat.Png,
+        };
+        var hdrPeakNitsOpt = new Option<float>("--hdr-peak-nits")
+        {
+            Description = "Ultra HDR (--output-format uhdr) linear display headroom: the peak display luminance mapped to stretched 1.0 (SDR white). Headroom = peak nits / 203-nit BT.2408 SDR reference white, so 1000 (default) is ~4.9x headroom, 4000 is premium-HDR. Range (0, 10000]. Ignored unless --output-format uhdr.",
+            DefaultValueFactory = _ => 1000f,
         };
         var noPlateSolveOpt = new Option<bool>("--no-plate-solve")
         {
@@ -177,7 +182,7 @@ internal sealed class StackSubCommand(
                 outputOpt, groupFilterOpt, groupExcludeOpt, strategyOpt,
                 centroidDebayerOpt, stackDebayerOpt,
                 snrMinOpt, minStarsOpt, quadStarsOpt,
-                formatOpt, noPlateSolveOpt,
+                formatOpt, hdrPeakNitsOpt, noPlateSolveOpt,
                 drizzlePixfracOpt, drizzleMinFramesOpt,
                 splitByPierSideOpt, hotPixelSigmaOpt,
                 qualityRejectSigmaOpt, referenceFrameHintOpt,
@@ -288,19 +293,27 @@ internal sealed class StackSubCommand(
                 EnhanceBlend: enhanceBlendArg,
                 SplitPlates: splitPlatesArg,
                 EnhanceOptions: enhanceOptions,
-                // The pipeline (MasterPostProcessor) renders the preview PNG now, so
-                // the PNG + split-plate TIFFs share one WB + bg-neut solve. Only the
-                // Png output format wants the PNG; Exr/None suppress it.
-                RenderPreviewPng: parseResult.GetValue(formatOpt) == ImageOutputFormat.Png,
+                // The pipeline (MasterPostProcessor) renders the display outputs now, so
+                // the PNG / Ultra HDR JPEG + split-plate TIFFs share one WB + bg-neut solve.
+                // The --output-format selects which display rendition(s) to emit.
+                RenderOutputs: parseResult.GetValue(formatOpt) switch
+                {
+                    ImageOutputFormat.Png => MasterRenderOutputs.PreviewPng,
+                    ImageOutputFormat.UltraHdr => MasterRenderOutputs.UltraHdr,
+                    _ => MasterRenderOutputs.None,
+                },
+                UltraHdrPeakNits: Math.Clamp(parseResult.GetValue(hdrPeakNitsOpt), 1f, 10000f),
                 PreviewBoost: previewBoost);
 
             var format = parseResult.GetValue(formatOpt);
             var skipPlateSolve = parseResult.GetValue(noPlateSolveOpt);
 
-            if (previewBoost is not null && !options.RenderPreviewPng)
+            // The masked boost is baked into any rendered display raster (PNG or the Ultra HDR
+            // SDR base), so it is only truly ignored when no display rendition is emitted.
+            if (previewBoost is not null && options.RenderOutputs == MasterRenderOutputs.None)
             {
                 consoleHost.WriteScrollable(
-                    $"[stack] warning: --saturation/--contrast-boost only affect the preview PNG; ignored with --output-format={format.ToString().ToLowerInvariant()}");
+                    $"[stack] warning: --saturation/--contrast-boost only affect the rendered display outputs (png / uhdr); ignored with --output-format={format.ToString().ToLowerInvariant()}");
             }
 
             // JXR is for stretched/processed output (the 'image' command), not a stacking

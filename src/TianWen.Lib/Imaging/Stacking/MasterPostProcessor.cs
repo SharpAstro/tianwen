@@ -60,8 +60,9 @@ internal sealed class MasterPostProcessor(ILogger logger, ICelestialObjectDB? ca
         float enhanceBlend,
         bool splitPlates,
         EnhanceOptions enhanceOptions,
-        bool renderPreviewPng,
+        MasterRenderOutputs outputs,
         MaskedBoostOptions? previewBoost = null,
+        float ultraHdrPeakNits = 1000f,
         CancellationToken ct = default)
     {
         var sw = Stopwatch.StartNew();
@@ -219,11 +220,13 @@ internal sealed class MasterPostProcessor(ILogger logger, ICelestialObjectDB? ca
         IntegrationFitsWriter.Write(masterPath, result, solvedWcs, strategy);
         logger.LogInformation("  wrote {Path}{Wcs}", masterPath, solvedWcs is null ? "" : " (WCS embedded)");
 
-        // The preview PNG + the --split-plates TIFFs are display-side outputs that
-        // both need ONE SPCC + bg-neut solve (MasterPreviewRenderer). Build it once
-        // when either is requested. croppedWcs (autocrop CRPIX shifted by the crop
-        // origin) is shared by the autocrop FITS write, the preview, and the plates.
-        var renderer = (renderPreviewPng || splitPlates) ? new MasterPreviewRenderer(catalogDb, logger) : null;
+        // The preview PNG, the Ultra HDR JPEG, and the --split-plates TIFFs are display-side
+        // outputs that all need ONE SPCC + bg-neut solve (MasterPreviewRenderer). Build it once
+        // when any is requested. croppedWcs (autocrop CRPIX shifted by the crop origin) is
+        // shared by the autocrop FITS write, the preview, and the plates.
+        var renderPreviewPng = (outputs & MasterRenderOutputs.PreviewPng) != 0;
+        var emitUltraHdr = (outputs & MasterRenderOutputs.UltraHdr) != 0;
+        var renderer = (renderPreviewPng || emitUltraHdr || splitPlates) ? new MasterPreviewRenderer(catalogDb, logger) : null;
         WCS? croppedWcs = solvedWcs is { } cw && croppedResult is not null
             ? cw with { CRPix1 = cw.CRPix1 - autocropRect.X, CRPix2 = cw.CRPix2 - autocropRect.Y }
             : null;
@@ -241,7 +244,7 @@ internal sealed class MasterPostProcessor(ILogger logger, ICelestialObjectDB? ca
             spcc = await EnhanceAndWriteAsync(
                 result, masterPath, solvedWcs, croppedWcs, strategy,
                 croppedResult, autocropRect, enhanceBlend, splitPlates, enhanceOptions,
-                refMeta, renderer, renderPreviewPng, previewBoost, ct);
+                refMeta, renderer, outputs, previewBoost, ultraHdrPeakNits, ct);
         }
         else if (enhance && sharpenPipeline is null)
         {
@@ -268,11 +271,11 @@ internal sealed class MasterPostProcessor(ILogger logger, ICelestialObjectDB? ca
         // 3.5) Raw-master preview PNG -- only when NOT enhancing (the enhance path renders
         //      its own preview from the enhanced master's SPCC solve above). The raw master
         //      is its own stats source here (no gradient correction available pre-enhance).
-        if (!enhance && renderPreviewPng && renderer is not null)
+        if (!enhance && (renderPreviewPng || emitUltraHdr) && renderer is not null)
         {
             spcc = await RenderPreviewAsync(
                 renderer, master, croppedResult?.Master, refMeta, solvedWcs, croppedWcs,
-                masterPath, autocropRect, previewBoost, ct);
+                masterPath, autocropRect, previewBoost, outputs, ultraHdrPeakNits, ct);
         }
 
         logger.LogInformation("  [post] total {Ms} ms", sw.ElapsedMilliseconds);
@@ -357,8 +360,9 @@ internal sealed class MasterPostProcessor(ILogger logger, ICelestialObjectDB? ca
         EnhanceOptions enhanceOptions,
         ImageMeta refMeta,
         MasterPreviewRenderer? renderer,
-        bool renderPreviewPng,
+        MasterRenderOutputs outputs,
         MaskedBoostOptions? previewBoost,
+        float ultraHdrPeakNits,
         CancellationToken ct)
     {
         Debug.Assert(sharpenPipeline is not null, "EnhanceAndWriteAsync called without SharpenPipeline -- guard upstream");
@@ -441,19 +445,25 @@ internal sealed class MasterPostProcessor(ILogger logger, ICelestialObjectDB? ca
             // calibration and the plates Screen-blend back to the preview. The stars-only
             // + denoised-starless plates are the kept lineage (StarsAndStarlessLineage
             // above) -- NO second AI pass.
+            var renderPreviewPng = (outputs & MasterRenderOutputs.PreviewPng) != 0;
+            var emitUltraHdr = (outputs & MasterRenderOutputs.UltraHdr) != 0;
             SpccDiagnostics? spcc = null;
-            if (renderer is not null && (renderPreviewPng || splitPlates))
+            if (renderer is not null && (renderPreviewPng || emitUltraHdr || splitPlates))
             {
                 var solveImg = enhancedCropped ?? enhancedMaster;
                 var solveWcs = enhancedCropped is not null ? croppedWcs : solvedWcs;
+                // The Ultra HDR JPEG and (when requested) the PNG share the same path stem +
+                // crop; the display artifacts are always the autocrop when there is one.
+                var pngStem = enhancedCropped is not null
+                    ? WithSuffix(masterPath, "_autocrop")
+                    : masterPath;
                 var pngPath = renderPreviewPng
-                    ? (enhancedCropped is not null
-                        ? Path.ChangeExtension(WithSuffix(masterPath, "_autocrop"), ".png")
-                        : Path.ChangeExtension(masterPath, ".png"))
-                    : string.Empty;   // solve-only: the renderer skips the PNG write on an empty path
+                    ? Path.ChangeExtension(pngStem, ".png")
+                    : string.Empty;   // solve-only / uhdr-only: the renderer skips the PNG write on an empty path
+                var uhdrPath = emitUltraHdr ? Path.ChangeExtension(pngStem, ".jpg") : null;
                 var render = await renderer.RenderAsync(
                     solveImg, refMeta, solveWcs, statsSource: solveImg, pngPath, statsWcs: solveWcs,
-                    maskedBoost: previewBoost, ct: ct);
+                    peakNits: ultraHdrPeakNits, maskedBoost: previewBoost, ultraHdrPath: uhdrPath, ct: ct);
                 spcc = render.Spcc;
 
                 if (splitPlates)
@@ -515,17 +525,23 @@ internal sealed class MasterPostProcessor(ILogger logger, ICelestialObjectDB? ca
         MasterPreviewRenderer renderer,
         Image fullMaster, Image? cropMaster, ImageMeta sensorMeta,
         WCS? fullWcs, WCS? cropWcs, string masterPath, Rectangle autocropRect,
-        MaskedBoostOptions? previewBoost, CancellationToken ct)
+        MaskedBoostOptions? previewBoost, MasterRenderOutputs outputs, float ultraHdrPeakNits,
+        CancellationToken ct)
     {
         var previewImg = cropMaster ?? fullMaster;
         var previewWcs = cropMaster is not null ? cropWcs : fullWcs;
-        var pngPath = cropMaster is not null
-            ? Path.ChangeExtension(WithSuffix(masterPath, "_autocrop"), ".png")
-            : Path.ChangeExtension(masterPath, ".png");
+        // Display artifacts (PNG + Ultra HDR JPEG) share the same stem + crop.
+        var pngStem = cropMaster is not null ? WithSuffix(masterPath, "_autocrop") : masterPath;
+        var pngPath = (outputs & MasterRenderOutputs.PreviewPng) != 0
+            ? Path.ChangeExtension(pngStem, ".png")
+            : string.Empty;   // uhdr-only: RenderAsync skips the PNG write on an empty path
+        var uhdrPath = (outputs & MasterRenderOutputs.UltraHdr) != 0
+            ? Path.ChangeExtension(pngStem, ".jpg")
+            : null;
 
         var render = await renderer.RenderAsync(
             previewImg, sensorMeta, previewWcs, statsSource: previewImg, pngPath, statsWcs: previewWcs,
-            maskedBoost: previewBoost, ct: ct);
+            peakNits: ultraHdrPeakNits, maskedBoost: previewBoost, ultraHdrPath: uhdrPath, ct: ct);
         return render.Spcc;
     }
 

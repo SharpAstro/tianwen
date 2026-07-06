@@ -122,7 +122,9 @@ public sealed record StackingOptions(
     bool Enhance = false,
     float EnhanceBlend = 1.0f,
     bool SplitPlates = false,
-    bool RenderPreviewPng = true,
+    // Which display-side renditions to emit (preview PNG and/or Ultra HDR gain-map JPEG).
+    // Default = the PNG quick-look, matching the pre-flags behaviour.
+    MasterRenderOutputs RenderOutputs = MasterRenderOutputs.PreviewPng,
     // RC-Astro vs SAS backend selection + per-product strength overrides for the
     // --enhance pass. null = EnhanceOptions.Default (Auto backend, no overrides) --
     // identical to the pre-option behaviour. Threaded immutably to SharpenPipeline.
@@ -133,4 +135,8 @@ public sealed record StackingOptions(
     // never touched: the mask primitives expect stretched [0, 1] data, and the plates
     // stay edit-ready for the user's own Affinity / Photoshop finishing. null = off
     // (render path byte-identical to before).
-    MaskedBoostOptions? PreviewBoost = null);
+    MaskedBoostOptions? PreviewBoost = null,
+    // Linear display headroom for the Ultra HDR rendition (MasterRenderOutputs.UltraHdr):
+    // peak nits / 203-nit BT.2408 SDR reference white sets how far the recovered cores roll
+    // off above SDR white. Ignored unless RenderOutputs includes UltraHdr.
+    float UltraHdrPeakNits = 1000f);

@@ -136,11 +136,16 @@ implement `IDecodedImage` or make DIR.Lib pull the codec stack.
 PNG/JPEG/JXR/EXR/JXL gap (so tianwen can reopen the previews + HDR masters it writes) without touching the
 astro-critical TIFF/CR2/CR3/FITS readers. tianwen keeps its **direct** codec refs (writers + `Color.Icc` /
 `Exif` / `Jpeg.IccInjector`, none of which the facade depends on), so this is *not* the "ref only the facade"
-consolidation Console.Lib did. Deferred: honour `IDecodedImage.ColorEncoding` (linearise PQ/HLG/non-sRGB HDR
-on ingest instead of trusting the `[0,1]` container convention); Phase 6 (FC.SDK → facade); and a gain-map
-JPEG *export* path (Ultra HDR delivery for tianwen's HDR previews, distinct from this read work — now
-*unblocked* by the Codecs 3.6 baseline JPEG encoder + `SharpAstro.Jpeg.GainMap` `Compute`/`Assemble`; only
-the tianwen-side render wiring remains, tracked in [`../todo/imaging.md`](../todo/imaging.md)).
+consolidation Console.Lib did. The gain-map JPEG *export* path (Ultra HDR delivery, distinct from this read
+work) is now **shipped**: `Image.RenderHdrLinearRgb` + `MasterPreviewRenderer.RenderAsync(ultraHdrPath:)`
+drive the Codecs 3.6 `JpegGainMap.Compute`/`Assemble` + `JpegEncoder.Encode`, exposed as
+`stack --output-format uhdr` and `image render/sharpen --output-format uhdr` (full write-up in
+[`../todo/imaging.md`](../todo/imaging.md), render-pipeline placement in
+[`../architecture/stacking-render-pipeline.md`](../architecture/stacking-render-pipeline.md)). Deferred:
+honour `IDecodedImage.ColorEncoding` (linearise PQ/HLG/non-sRGB HDR on ingest instead of trusting the `[0,1]`
+container convention); Phase 6 (FC.SDK → facade); gain-map *reconstruction* on read (decode applies the map
+to recover HDR, not just the SDR base); and an RGB (per-channel) gain map so highlight recovery restores
+saturation, not just luminance.
 
 ## Open questions
 
