@@ -142,10 +142,15 @@ drive the Codecs 3.6 `JpegGainMap.Compute`/`Assemble` + `JpegEncoder.Encode`, ex
 `stack --output-format uhdr` and `image render/sharpen --output-format uhdr` (full write-up in
 [`../todo/imaging.md`](../todo/imaging.md), render-pipeline placement in
 [`../architecture/stacking-render-pipeline.md`](../architecture/stacking-render-pipeline.md)). Deferred:
-honour `IDecodedImage.ColorEncoding` (linearise PQ/HLG/non-sRGB HDR on ingest instead of trusting the `[0,1]`
-container convention); Phase 6 (FC.SDK → facade); gain-map *reconstruction* on read (decode applies the map
-to recover HDR, not just the SDR base); and an RGB (per-channel) gain map so highlight recovery restores
-saturation, not just luminance.
+honour `IDecodedImage.ColorEncoding` on ingest -- both the *transfer* (linearise PQ/HLG/non-sRGB HDR
+instead of trusting the `[0,1]` container convention) and the *gamut* (propagate a Display-P3 / Rec.2020
+base's primaries into the reconstructed float's `ColorEncoding`, which `GainMapDecodedImage` currently
+leaves at the BT709 default -- correct for the common sRGB base, wrong for a wide-gamut one). Our own Ultra
+HDR *export* is unaffected: the whole render pipeline is sRGB/BT709 end to end (both the SDR base and the
+`RenderHdrLinearRgb` rendition), so BT709 is the accurate label and the gap is purely a read-side fidelity
+concern for foreign wide-gamut files. Also deferred: Phase 6 (FC.SDK → facade); gain-map *reconstruction*
+on read (decode applies the map to recover HDR, not just the SDR base); and an RGB (per-channel) gain map
+so highlight recovery restores saturation, not just luminance.
 
 ## Open questions
 

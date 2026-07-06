@@ -225,6 +225,12 @@ public sealed class MasterPreviewRenderer(ICelestialObjectDB? catalogDb, ILogger
 
         // SDR base: 16-bit sRGB RGBA -> 8-bit sRGB RGB. This IS the base rendition the gain
         // map reconstructs from, so it carries the same display look as the SDR PNG.
+        // The base is emitted deliberately untagged (JpegEncodeOptions has no ICC slot): an
+        // untagged JPEG is sRGB by universal convention, every Ultra HDR reader assumes an
+        // sRGB base, and this matches what libultrahdr itself writes. Our whole render path is
+        // sRGB/BT709, so an ICC tag would add nothing while risking an APP2 clash with the
+        // gain map's MPF/XMP markers. Tagging (or a wide-gamut base) is deferred until we ever
+        // render a non-sRGB display master -- see docs/plans/image-codecs-facade.md.
         var sdr8 = new byte[pixelCount * 3];
         for (var i = 0; i < pixelCount; i++)
         {
