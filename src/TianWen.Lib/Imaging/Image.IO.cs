@@ -112,10 +112,10 @@ public partial class Image
             width,
             height,
             (int)bitDepth,
-            BitConverter.SingleToInt32Bits(maxValue),
+            BitConverter.SingleToInt32Bits(MaxValue),
             BitConverter.SingleToInt32Bits(pedestal),
             channelCount,
-            BitConverter.SingleToInt32Bits(minValue)
+            BitConverter.SingleToInt32Bits(MinValue)
         ];
 
         await stream.WriteAsync(BitConverter.GetBytes(header.Length), cancellationToken);
@@ -128,7 +128,7 @@ public partial class Image
         var channelBytes = new byte[channelByteSize];
         for (var c = 0; c < channelCount; c++)
         {
-            Buffer.BlockCopy(data[c], 0, channelBytes, 0, channelByteSize);
+            Buffer.BlockCopy(channels[c].Data, 0, channelBytes, 0, channelByteSize);
             await stream.WriteAsync(channelBytes, cancellationToken);
         }
 

@@ -34,7 +34,7 @@ public partial class Image
         var pw = Width / 2;
         var ph = Height / 2;
         var planes = CreateChannelData(4, ph, pw); // [R, G1, G2, B]
-        var src = data[0];
+        var src = channels[0].Data;
         float[,] r = planes[0], g1 = planes[1], g2 = planes[2], b = planes[3];
 
         for (var sy = 0; sy < ph; sy++)
@@ -80,7 +80,7 @@ public partial class Image
         var ph = Height;
         var mosaic = CreateChannelData(1, ph * 2, pw * 2);
         var dst = mosaic[0];
-        float[,] r = data[0], g1 = data[1], g2 = data[2], b = data[3];
+        float[,] r = channels[0].Data, g1 = channels[1].Data, g2 = channels[2].Data, b = channels[3].Data;
 
         for (var sy = 0; sy < ph; sy++)
         {

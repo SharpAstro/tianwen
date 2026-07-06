@@ -70,7 +70,7 @@ public partial class Image
             filled[c] = dst;
         }
 
-        return new Image(filled, bitDepth, maxValue, minValue, pedestal, imageMeta);
+        return new Image(filled, bitDepth, MaxValue, MinValue, pedestal, imageMeta);
     }
 
     /// <summary>
@@ -97,7 +97,7 @@ public partial class Image
             var output = MemoryMarshal.CreateSpan(ref dst[c][0, 0], dst[c].Length);
             SubtractClampVec(lhs, rhs, addedPedestal, output);
         }
-        return new Image(dst, BitDepth.Float32, maxValue, 0f, pedestal + addedPedestal, imageMeta);
+        return new Image(dst, BitDepth.Float32, MaxValue, 0f, pedestal + addedPedestal, imageMeta);
     }
 
     /// <summary>
@@ -122,7 +122,7 @@ public partial class Image
             var output = MemoryMarshal.CreateSpan(ref dst[c][0, 0], dst[c].Length);
             DivideClampVec(num, den, epsilon, output);
         }
-        return new Image(dst, BitDepth.Float32, maxValue, minValue, pedestal, imageMeta);
+        return new Image(dst, BitDepth.Float32, MaxValue, MinValue, pedestal, imageMeta);
     }
 
     /// <summary>
@@ -143,7 +143,7 @@ public partial class Image
             var output = MemoryMarshal.CreateSpan(ref dst[c][0, 0], dst[c].Length);
             TensorPrimitives.Multiply(lhs, rhs, output);
         }
-        return new Image(dst, BitDepth.Float32, maxValue, minValue, pedestal, imageMeta);
+        return new Image(dst, BitDepth.Float32, MaxValue, MinValue, pedestal, imageMeta);
     }
 
     /// <summary>
@@ -161,7 +161,7 @@ public partial class Image
             var output = MemoryMarshal.CreateSpan(ref dst[c][0, 0], dst[c].Length);
             TensorPrimitives.Multiply(src, scalar, output);
         }
-        return new Image(dst, BitDepth.Float32, maxValue, minValue, pedestal, imageMeta);
+        return new Image(dst, BitDepth.Float32, MaxValue, MinValue, pedestal, imageMeta);
     }
 
     /// <summary>
@@ -188,7 +188,7 @@ public partial class Image
             var output = MemoryMarshal.CreateSpan(ref dst[c][0, 0], dst[c].Length);
             TensorPrimitives.Add(lhs, rhs, output);
         }
-        return new Image(dst, BitDepth.Float32, maxValue, minValue, pedestal, imageMeta);
+        return new Image(dst, BitDepth.Float32, MaxValue, MinValue, pedestal, imageMeta);
     }
 
     /// <summary>
@@ -362,7 +362,8 @@ public partial class Image
         ValidateSameShape(other);
         for (var c = 0; c < ChannelCount; c++)
         {
-            var dst = MemoryMarshal.CreateSpan(ref data[c][0, 0], data[c].Length);
+            var plane = channels[c].Data;
+            var dst = MemoryMarshal.CreateSpan(ref plane[0, 0], plane.Length);
             var src = other.GetChannelSpan(c);
             TensorPrimitives.Add(dst, src, dst);
         }

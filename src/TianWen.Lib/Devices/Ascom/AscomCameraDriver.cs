@@ -274,7 +274,6 @@ internal class AscomCameraDriver : AscomDeviceDriverBase, ICameraDriver
     // that the old computed property silently broke, and StartExposureAsync drops a stale frame so
     // the next read re-downloads — mirroring AlpacaCameraDriver.
     private Imaging.Channel? _imageData;
-    private Imaging.ChannelBuffer? _channelBuffer;
 
     // Recycled frame buffers returned by consumers via ChannelBuffer.onRelease (the DAL pattern);
     // a shape-mismatched buffer (ROI/bin change) is dropped inside FromWxHImageData, never re-added.
@@ -296,20 +295,17 @@ internal class AscomCameraDriver : AscomDeviceDriverBase, ICameraDriver
             var recycled = _freeBuffers.TryTake(out var buffer) ? buffer : null;
             if (SafeGet<Imaging.Channel?>(() => Imaging.Channel.FromWxHImageData(_camera.ImageArray, recycled), null) is { } channel)
             {
-                _channelBuffer = new Imaging.ChannelBuffer(channel.Data, onRelease: recycledBuf => _freeBuffers.Add(recycledBuf));
-                _imageData = channel;
-                return channel;
+                // The ref-counted buffer travels ON the Channel into GetImageAsync's Image.
+                _imageData = channel with { Buffer = new Imaging.ChannelBuffer(channel.Data, onRelease: recycledBuf => _freeBuffers.Add(recycledBuf)) };
+                return _imageData;
             }
             return null;
         }
     }
 
-    Imaging.ChannelBuffer? ICameraDriver.ChannelBuffer => _channelBuffer;
-
     public void ReleaseImageData()
     {
         _imageData = null;
-        _channelBuffer = null;
     }
 
     public int MaxADU => Connected ? SafeGet(() => _camera.MaxADU, 0) : throw new InvalidOperationException("Camera is not connected");
@@ -409,7 +405,6 @@ internal class AscomCameraDriver : AscomDeviceDriverBase, ICameraDriver
     {
         // Drop any previous frame so the next ImageData read re-downloads (mirrors Alpaca).
         _imageData = null;
-        _channelBuffer = null;
         try
         {
             _camera.StartExposure(duration.TotalSeconds, frameType.NeedsOpenShutter);

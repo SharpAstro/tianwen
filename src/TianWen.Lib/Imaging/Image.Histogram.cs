@@ -84,7 +84,7 @@ public partial class Image
         // so single-ADU increments stay exact for any sane image size.
         var total_value = 0.0;
         var pedestralAdjustValue = removePedestral ? MinValue * scaleFactor : 0f;
-        var channelData = data[channel];
+        var channelData = channels[channel].Data;
 
         // pixelStride > 1 subsamples on a fixed grid (every Nth row, every Nth
         // column). Bins remain dense enough for median/MAD on a 9576x6388
@@ -341,7 +341,7 @@ public partial class Image
         var maxSamples = ((width / pixelStride) + 1) * ((height / pixelStride) + 1);
         var samples = new float[maxSamples];
         var count = 0;
-        var channelData = data[channel];
+        var channelData = channels[channel].Data;
 
         for (var y = 0; y < height; y += pixelStride)
         {
@@ -477,7 +477,7 @@ public partial class Image
         var iterations = 0;
 
         var rescaledFactor = histogram.RescaledMaxValue ?? 1.0f;
-        var channelData = data[channel];
+        var channelData = channels[channel].Data;
         // repeat until sd is stable or 7 iterations
         do
         {

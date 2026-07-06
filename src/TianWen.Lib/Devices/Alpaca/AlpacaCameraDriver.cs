@@ -314,20 +314,15 @@ internal class AlpacaCameraDriver(AlpacaDevice device, IServiceProvider serviceP
     // (see GetImageReadyAsync), then read by the default ICameraDriver.GetImageAsync via the
     // sync ImageData property. No buffer recycling — the float[,] is GC-managed per frame.
     private Imaging.Channel? _imageData;
-    private Imaging.ChannelBuffer? _channelBuffer;
-
     // Recycled frame buffers returned by consumers via ChannelBuffer.onRelease (the DAL pattern);
     // a shape-mismatched buffer (ROI/bin change) is dropped inside DecodeChannel, never re-added.
     private readonly ConcurrentBag<float[,]> _freeBuffers = [];
 
     public Imaging.Channel? ImageData => _imageData;
 
-    Imaging.ChannelBuffer? ICameraDriver.ChannelBuffer => _channelBuffer;
-
     public void ReleaseImageData()
     {
         _imageData = null;
-        _channelBuffer = null;
     }
 
     public DateTimeOffset? LastExposureStartTime { get; private set; }
@@ -367,8 +362,8 @@ internal class AlpacaCameraDriver(AlpacaDevice device, IServiceProvider serviceP
             // capture loop stops allocating a fresh full-frame LOH array per frame.
             var recycled = _freeBuffers.TryTake(out var buffer) ? buffer : null;
             var channel = AlpacaImageBytes.DecodeChannel(bytes, recycled);
-            _channelBuffer = new Imaging.ChannelBuffer(channel.Data, onRelease: recycledBuf => _freeBuffers.Add(recycledBuf));
-            _imageData = channel;
+            // The ref-counted buffer travels ON the Channel into GetImageAsync's Image.
+            _imageData = channel with { Buffer = new Imaging.ChannelBuffer(channel.Data, onRelease: recycledBuf => _freeBuffers.Add(recycledBuf)) };
 
             // Refine the exposure duration to the server-reported actual (valid once the exposure
             // completes); keep the requested-duration baseline if the read is unsupported/fails.
@@ -426,7 +421,6 @@ internal class AlpacaCameraDriver(AlpacaDevice device, IServiceProvider serviceP
     {
         // Drop any previous frame so GetImageReadyAsync re-downloads when this one is ready.
         _imageData = null;
-        _channelBuffer = null;
         // Baseline the exposure duration to the request; GetImageReadyAsync refines it to the actual.
         _lastExposureDuration = duration;
 

@@ -192,7 +192,7 @@ public partial class Image
 
         var starList = new ConcurrentBag<ImagedStar>();
         var img_star_area = new BitMatrix(height, width);
-        var channelData = data[channel];
+        var channelData = channels[channel].Data;
 
         // Interleaved chunk processing: two passes (i=0 even chunks, i=1 odd chunks) ensures no two
         // adjacent chunks run simultaneously, so a star near a chunk boundary won't be written into
@@ -344,7 +344,7 @@ public partial class Image
             return false;
         }
 
-        var channelData = data[channel];
+        var channelData = channels[channel].Data;
         Span<float> backgroundScratch = stackalloc float[maxAnnulusBg];
         int backgroundIndex = 0;
 

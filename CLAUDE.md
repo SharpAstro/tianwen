@@ -894,6 +894,15 @@ discovery; the lib ships no AOT annotations and we don't mask the warning).
 Camera → `ChannelBuffer` → `Image` → consumer → `image.Release()` → camera recycles. See
 `ChannelBuffer` XML doc for ownership semantics.
 - Never hold an `Image` from `GetImageAsync` longer than needed — it pins the camera buffer
+- **`Image`'s primary ctor takes `ImmutableArray<Channel>`** (2026-07-06): per-channel
+  `Filter`/min/max live on each `Channel` (via `Image.GetChannel`), image-wide
+  `MaxValue`/`MinValue` are the derived extrema, and a camera's ref-counted buffer travels ON
+  its channel (`Channel.Buffer`, harvested by the ctor). The raw `float[][,]` signature survives
+  as a delegating legacy overload (stamps image-wide values on every channel). Never
+  re-introduce an attach-after-construct buffer step (`WithChannelBuffers` is gone), and a
+  rewrap that shares arrays (e.g. `ScaleFloatValuesToUnitInPlace`) must set `Buffer = null` —
+  release responsibility stays with the original image (double-release guard, pinned by
+  `ImageChannelCtorTests`).
 - Viewers never CPU-debayer: the raw RGGB mosaic is uploaded as-is and the GPU shader debayers
   (`LiveFramePreviewSource.AcceptFrame`, `AstroImageDocument`). CPU `DebayerAsync` is for batch
   paths (stacking, planetary master, tests). `Image.DebayerIntoAsync` (the write-into-caller-buffers

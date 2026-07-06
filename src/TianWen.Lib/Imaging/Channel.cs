@@ -16,6 +16,16 @@ namespace TianWen.Lib.Imaging;
 /// <param name="Index">Channel index within the parent image (0 for mono, 0-2 for RGB).</param>
 public readonly record struct Channel(float[,] Data, Filter Filter, float MinValue, float MaxValue, byte Index)
 {
+    /// <summary>
+    /// Optional ref-counted owner of <see cref="Data"/> — set by camera drivers whose buffers
+    /// recycle (see <c>DALCameraDriver._freeBuffers</c>), so the buffer travels WITH its channel
+    /// into the <see cref="Image"/> constructor (which harvests it for <see cref="Image.Release"/>).
+    /// Carries a single ownership ref: whoever holds the Channel last is responsible for the
+    /// release — do not copy a buffer-carrying Channel into two owners without <c>AddRef</c>.
+    /// Null for channels that own their arrays outright (debayer output, tests, file loads).
+    /// </summary>
+    internal ChannelBuffer? Buffer { get; init; }
+
     /// <summary>Image height (number of rows).</summary>
     public int Height
     {

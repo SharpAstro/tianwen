@@ -137,7 +137,7 @@ public partial class Image
             }, ct));
         }
 
-        return new Image(output, BitDepth.Float32, maxValue, minValue, pedestal, imageMeta);
+        return new Image(output, BitDepth.Float32, MaxValue, MinValue, pedestal, imageMeta);
     }
 
     /// <summary>
@@ -235,7 +235,7 @@ public partial class Image
                 }
             }
             await Task.CompletedTask;
-            return new Image(copied, BitDepth.Float32, maxValue, minValue, pedestal, imageMeta);
+            return new Image(copied, BitDepth.Float32, MaxValue, MinValue, pedestal, imageMeta);
         }
 
         if (!Matrix3x2.Invert(transform, out var inverseTransform))
@@ -272,7 +272,7 @@ public partial class Image
         // synchronous after parallel.for completion, but returning a Task
         // keeps callers consistent with WarpToReferenceGridAsync.
         await Task.CompletedTask;
-        return new Image(output, BitDepth.Float32, maxValue, minValue, pedestal, imageMeta);
+        return new Image(output, BitDepth.Float32, MaxValue, MinValue, pedestal, imageMeta);
     }
 
     private async Task<Image> DoTransformationAsync(Matrix3x2 transform, Vector2 tl, Vector2 br, CancellationToken cancellationToken = default)
@@ -315,7 +315,7 @@ public partial class Image
             }, ct));
         }
 
-        return new Image(transformedData, BitDepth.Float32, maxValue, minValue, pedestal, imageMeta);
+        return new Image(transformedData, BitDepth.Float32, MaxValue, MinValue, pedestal, imageMeta);
     }
 
     /// <summary>
@@ -408,7 +408,7 @@ public partial class Image
             }
         });
 
-        return Task.FromResult(new Image(warped, BitDepth.Float32, maxValue, minValue, pedestal, imageMeta));
+        return Task.FromResult(new Image(warped, BitDepth.Float32, MaxValue, MinValue, pedestal, imageMeta));
     }
 
     /// <summary>
@@ -583,7 +583,7 @@ public partial class Image
         for (var c = 0; c < channelCount; c++)
         {
             dst[c] = new float[dstHeight, dstWidth];
-            var src = data[c];
+            var src = channels[c].Data;
             for (var y = 0; y < dstHeight; y++)
             {
                 var srcY0 = y * factor;
@@ -629,6 +629,6 @@ public partial class Image
             PixelSizeY = imageMeta.PixelSizeY * factor,
         };
 
-        return new Image(dst, bitDepth, maxValue, minValue, pedestal, newMeta);
+        return new Image(dst, bitDepth, MaxValue, MinValue, pedestal, newMeta);
     }
 }
