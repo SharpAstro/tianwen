@@ -148,13 +148,6 @@ public interface ICameraDriver : IDeviceDriver
     void ReleaseImageData();
 
     /// <summary>
-    /// Returns the ref-counted channel buffer for the current image, if the driver supports buffer reuse.
-    /// The default method <see cref="GetImageAsync"/> calls <see cref="Imaging.ChannelBuffer.AddRef"/> on this
-    /// and attaches it to the returned <see cref="Image"/>. Consumers call <see cref="Image.Release"/> when done.
-    /// </summary>
-    internal Imaging.ChannelBuffer? ChannelBuffer => null;
-
-    /// <summary>
     /// Returns bit depth, usually <see cref="BitDepth.Int8"/> or <see cref="BitDepth.Int16"/> or <see langword="null"/> if camera is not initialised.
     /// Will throw if <see cref="CanSetBitDepth"/> is <see langword="false" /> and an attempt to set value is made.
     /// </summary>
@@ -315,11 +308,12 @@ public interface ICameraDriver : IDeviceDriver
         float egain;
         try { egain = (float)ElectronsPerADU; } catch { egain = float.NaN; }
 
+        // Single typed hand-off: the driver's Channel travels whole (per-channel min/max, filter,
+        // and — for buffer-recycling drivers — its ref-counted ChannelBuffer) into the Image,
+        // whose constructor harvests the buffer ref. No destructure + attach-after-construct.
         var image = new Image(
-            [channel.Data],
+            [channel],
             bitDepth,
-            channel.MaxValue,
-            channel.MinValue,
             pedestal: 0f,
             new ImageMeta(
                 Name,
@@ -354,13 +348,13 @@ public interface ICameraDriver : IDeviceDriver
             )
         );
 
-        // Transfer ownership of the channel buffer to the consumer.
-        // Camera drops its ref — the Image is now the sole owner.
-        // When consumer calls image.Release(), onRelease fires → camera gets buffer back.
-        if (ChannelBuffer is { } buf)
+        // Ownership of the channel buffer transferred to the consumer (no AddRef — the camera's
+        // single ref now lives in the Image). When the consumer calls image.Release(), onRelease
+        // fires → camera gets the buffer back. Drivers without a buffer keep their ImageData
+        // (legacy semantics: e.g. Canon re-wraps on a second call).
+        if (channel.Buffer is not null)
         {
-            image.WithChannelBuffers(buf); // transfer camera's ref (no AddRef needed)
-            ReleaseImageData(); // camera drops its state — buffer lives in Image only
+            ReleaseImageData(); // camera drops its state — the buffer ref lives in the Image only
         }
 
         return image;

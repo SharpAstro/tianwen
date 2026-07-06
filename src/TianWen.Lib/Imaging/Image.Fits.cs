@@ -474,7 +474,7 @@ public partial class Image
                     {
                         for (var w = 0; w < width; w++)
                         {
-                            byteArray[h, w] = (byte)data[0][h, w];
+                            byteArray[h, w] = (byte)channels[0].Data[h, w];
                         }
                     }
                     arrayToWrite = byteArray;
@@ -489,7 +489,7 @@ public partial class Image
                         {
                             for (var w = 0; w < width; w++)
                             {
-                                byteChannels[c][h, w] = (byte)data[c][h, w];
+                                byteChannels[c][h, w] = (byte)channels[c].Data[h, w];
                             }
                         }
                     }
@@ -507,7 +507,7 @@ public partial class Image
                     {
                         for (var w = 0; w < width; w++)
                         {
-                            shortArray[h, w] = (short)(data[0][h, w] - bzero);
+                            shortArray[h, w] = (short)(channels[0].Data[h, w] - bzero);
                         }
                     }
                     arrayToWrite = shortArray;
@@ -522,7 +522,7 @@ public partial class Image
                         {
                             for (var w = 0; w < width; w++)
                             {
-                                shortChannels[c][h, w] = (short)(data[c][h, w] - bzero);
+                                shortChannels[c][h, w] = (short)(channels[c].Data[h, w] - bzero);
                             }
                         }
                     }
@@ -533,7 +533,21 @@ public partial class Image
             case BitDepth.Float32:
                 bzero = 0;
                 dataIsInt = false;
-                arrayToWrite = channelCount == 1 ? data[0] : data;
+                if (channelCount == 1)
+                {
+                    arrayToWrite = channels[0].Data;
+                }
+                else
+                {
+                    // Jagged reference projection of the channel planes (no pixel copy) —
+                    // the FITS factory wants the raw float[][,] shape for multi-channel data.
+                    var planes = new float[channelCount][,];
+                    for (var c = 0; c < channelCount; c++)
+                    {
+                        planes[c] = channels[c].Data;
+                    }
+                    arrayToWrite = planes;
+                }
                 break;
 
             default:

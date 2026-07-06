@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Immutable;
 using System.Numerics.Tensors;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
@@ -6,32 +7,107 @@ using System.Threading;
 
 namespace TianWen.Lib.Imaging;
 
-// track minValue and pedestal independently
-public partial class Image(float[][,] data, BitDepth bitDepth, float maxValue, float minValue, float pedestal, ImageMeta imageMeta)
+/// <summary>
+/// Multi-channel image: an immutable view over per-channel <see cref="Channel"/>s (each carrying
+/// its own plane, filter, min/max, and optional ref-counted camera buffer) plus <see cref="ImageMeta"/>.
+/// The image-wide <see cref="MaxValue"/>/<see cref="MinValue"/> are derived across the channels;
+/// the raw-array constructor overload wraps legacy <c>float[][,]</c> call sites.
+/// </summary>
+public partial class Image(ImmutableArray<Channel> channels, BitDepth bitDepth, float pedestal, ImageMeta imageMeta)
 {
     public int Width
     {
         [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
         get;
-    } = data[0].GetLength(1);
+    } = ValidateSameShape(channels)[0].Width;
 
     public int Height
     {
         [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
         get;
-    } = data[0].GetLength(0);
+    } = channels[0].Height;
 
     public int ChannelCount
     {
         [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
         get;
-    } = data.Length;
+    } = channels.Length;
 
     public (int ChannelCount, int Width, int Height) Shape => (ChannelCount, Width, Height);
 
     public BitDepth BitDepth => bitDepth;
-    public float MaxValue => maxValue;
-    public float MinValue => minValue;
+
+    /// <summary>
+    /// Image-wide full-scale value, derived as the maximum over the channels' <see cref="Channel.MaxValue"/>.
+    /// Legacy raw-array constructions stamp the same image-wide value on every channel, so this reads
+    /// back exactly what was passed in; channel-typed constructions keep per-channel maxima intact
+    /// (reachable via <see cref="GetChannel"/>).
+    /// </summary>
+    public float MaxValue { get; } = DeriveMax(channels);
+
+    /// <summary>Image-wide minimum, derived as the minimum over the channels' <see cref="Channel.MinValue"/>.</summary>
+    public float MinValue { get; } = DeriveMin(channels);
+
+    /// <summary>
+    /// Legacy raw-array overload: wraps each plane in a <see cref="Channel"/> carrying the
+    /// image-wide <paramref name="maxValue"/>/<paramref name="minValue"/> (no per-channel stats,
+    /// no buffers). Prefer the <see cref="ImmutableArray{T}"/>-of-<see cref="Channel"/> constructor
+    /// for new code — it keeps per-channel min/max and lets a camera buffer travel with its channel.
+    /// </summary>
+    public Image(float[][,] data, BitDepth bitDepth, float maxValue, float minValue, float pedestal, ImageMeta imageMeta)
+        : this(WrapRawPlanes(data, minValue, maxValue), bitDepth, pedestal, imageMeta)
+    {
+    }
+
+    private static ImmutableArray<Channel> WrapRawPlanes(float[][,] data, float minValue, float maxValue)
+    {
+        var builder = ImmutableArray.CreateBuilder<Channel>(data.Length);
+        for (var c = 0; c < data.Length; c++)
+        {
+            builder.Add(new Channel(data[c], default, minValue, maxValue, (byte)c));
+        }
+        return builder.MoveToImmutable();
+    }
+
+    private static ImmutableArray<Channel> ValidateSameShape(ImmutableArray<Channel> channels)
+    {
+        if (channels.IsDefaultOrEmpty)
+        {
+            throw new ArgumentException("An image needs at least one channel.", nameof(channels));
+        }
+        var (h, w) = (channels[0].Height, channels[0].Width);
+        for (var c = 1; c < channels.Length; c++)
+        {
+            if (channels[c].Height != h || channels[c].Width != w)
+            {
+                throw new ArgumentException(
+                    $"Channel {c} is {channels[c].Width}x{channels[c].Height} but channel 0 is {w}x{h}.", nameof(channels));
+            }
+        }
+        return channels;
+    }
+
+    // MathF.Max/Min propagate NaN, preserving the legacy behaviour where an image constructed
+    // with maxValue = float.NaN (e.g. FromChannel's default) reads MaxValue = NaN.
+    private static float DeriveMax(ImmutableArray<Channel> channels)
+    {
+        var max = channels[0].MaxValue;
+        for (var c = 1; c < channels.Length; c++)
+        {
+            max = MathF.Max(max, channels[c].MaxValue);
+        }
+        return max;
+    }
+
+    private static float DeriveMin(ImmutableArray<Channel> channels)
+    {
+        var min = channels[0].MinValue;
+        for (var c = 1; c < channels.Length; c++)
+        {
+            min = MathF.Min(min, channels[c].MinValue);
+        }
+        return min;
+    }
     /// <summary>
     /// ADU pedestal added to pixel values to keep them non-negative after
     /// calibration subtraction (see <see cref="ImageMeta"/> remarks for the
@@ -66,19 +142,28 @@ public partial class Image(float[][,] data, BitDepth bitDepth, float maxValue, f
     /// <param name="h"></param>
     /// <param name="w"></param>
     /// <returns></returns>
-    public float this[int c, int h, int w] => data[c][h, w];
+    public float this[int c, int h, int w] => channels[c].Data[h, w];
+
+    /// <summary>
+    /// Returns the typed <see cref="Channel"/> for a plane — per-channel filter/min/max travel here
+    /// (the image-wide <see cref="MaxValue"/>/<see cref="MinValue"/> are the derived extrema).
+    /// </summary>
+    public Channel GetChannel(int channel) => channels[channel];
 
     /// <summary>
     /// Returns a flat span over the pixel data for a single channel plane (height * width floats).
     /// </summary>
     public ReadOnlySpan<float> GetChannelSpan(int channel)
-        => MemoryMarshal.CreateReadOnlySpan(ref data[channel][0, 0], data[channel].Length);
+    {
+        var plane = channels[channel].Data;
+        return MemoryMarshal.CreateReadOnlySpan(ref plane[0, 0], plane.Length);
+    }
 
     /// <summary>
     /// Returns the raw backing <c>float[,]</c> for a channel. Internal — use for low-level
     /// interop (guider tracker, FITS write) where span access is insufficient.
     /// </summary>
-    internal float[,] GetChannelArray(int channel) => data[channel];
+    internal float[,] GetChannelArray(int channel) => channels[channel].Data;
 
     /// <summary>
     /// Wraps a single mono <c>float[,]</c> channel in an <see cref="Image"/> with default metadata.
@@ -110,18 +195,25 @@ public partial class Image(float[][,] data, BitDepth bitDepth, float maxValue, f
     }
 
     /// <summary>
-    /// Ref-counted channel buffers — set when the image wraps camera-owned data.
-    /// Null for images created by debayer/normalize (those own their arrays outright).
+    /// Ref-counted channel buffers, harvested from the channels' <see cref="Channel.Buffer"/> at
+    /// construction — set when the image wraps camera-owned data (the buffer travels WITH its
+    /// channel; there is no attach-after-construct step). Null for images whose channels own their
+    /// arrays outright (debayer/normalize output, tests, file loads).
     /// </summary>
-    private ChannelBuffer?[]? _channelBuffers;
+    private ChannelBuffer?[]? _channelBuffers = HarvestBuffers(channels);
 
-    /// <summary>
-    /// Attaches ref-counted channel buffers to this image. Call <see cref="Release"/> when done.
-    /// </summary>
-    internal Image WithChannelBuffers(params ChannelBuffer?[] buffers)
+    private static ChannelBuffer?[]? HarvestBuffers(ImmutableArray<Channel> channels)
     {
-        _channelBuffers = buffers;
-        return this;
+        ChannelBuffer?[]? buffers = null;
+        for (var c = 0; c < channels.Length; c++)
+        {
+            if (channels[c].Buffer is { } buffer)
+            {
+                buffers ??= new ChannelBuffer?[channels.Length];
+                buffers[c] = buffer;
+            }
+        }
+        return buffers;
     }
 
     /// <summary>
@@ -149,7 +241,7 @@ public partial class Image(float[][,] data, BitDepth bitDepth, float maxValue, f
     [MethodImpl(MethodImplOptions.AggressiveOptimization | MethodImplOptions.AggressiveInlining)]
     private float SubpixelValue(int channel, float x1, float y1)
     {
-        var channelData = data[channel];
+        var channelData = channels[channel].Data;
         var width = Width;
         var height = Height;
 
@@ -275,12 +367,12 @@ public partial class Image(float[][,] data, BitDepth bitDepth, float maxValue, f
 
         for (var c = 0; c < channelCount; c++)
         {
-            var src = MemoryMarshal.CreateReadOnlySpan(ref data[c][0, 0], data[c].Length);
+            var src = GetChannelSpan(c);
             var dst = MemoryMarshal.CreateSpan(ref denormalized[c][0, 0], denormalized[c].Length);
             MultiplyScalar(src, newMaxValue, dst);
         }
 
-        return new Image(denormalized, BitDepth.Float32, newMaxValue, minValue * newMaxValue, pedestal * newMaxValue, imageMeta);
+        return new Image(denormalized, BitDepth.Float32, newMaxValue, MinValue * newMaxValue, pedestal * newMaxValue, imageMeta);
     }
 
     /// <summary>
@@ -302,12 +394,12 @@ public partial class Image(float[][,] data, BitDepth bitDepth, float maxValue, f
 
         for (var c = 0; c < channelCount; c++)
         {
-            var src = MemoryMarshal.CreateReadOnlySpan(ref data[c][0, 0], data[c].Length);
+            var src = GetChannelSpan(c);
             var dst = MemoryMarshal.CreateSpan(ref normalized[c][0, 0], normalized[c].Length);
             MultiplyScalar(src, invMax, dst);
         }
 
-        return new Image(normalized, BitDepth.Float32, 1.0f, minValue / maxValue, pedestal / maxValue, imageMeta);
+        return new Image(normalized, BitDepth.Float32, 1.0f, MinValue / MaxValue, pedestal / MaxValue, imageMeta);
     }
 
     /// <summary>
@@ -327,10 +419,26 @@ public partial class Image(float[][,] data, BitDepth bitDepth, float maxValue, f
         for (var c = 0; c < ChannelCount; c++)
         {
             // NaN * invMax = NaN, so NaN values are preserved without branching.
-            var span = MemoryMarshal.CreateSpan(ref data[c][0, 0], data[c].Length);
+            var plane = channels[c].Data;
+            var span = MemoryMarshal.CreateSpan(ref plane[0, 0], plane.Length);
             MultiplyScalar(span, invMax, span);
         }
 
-        return new Image(data, BitDepth.Float32, 1.0f, minValue / maxValue, pedestal / maxValue, imageMeta);
+        // Rewrap the SAME arrays with rescaled per-channel min/max. Buffer deliberately NOT
+        // carried over: the ref-counted release responsibility stays with the original Image
+        // (callers treat the source as consumed but its Release() still owns the recycle) —
+        // carrying the ref here would double-release a refcount-1 buffer.
+        var rescaled = ImmutableArray.CreateBuilder<Channel>(channels.Length);
+        foreach (var channel in channels)
+        {
+            rescaled.Add(channel with
+            {
+                MinValue = channel.MinValue / MaxValue,
+                MaxValue = channel.MaxValue / MaxValue,
+                Buffer = null,
+            });
+        }
+
+        return new Image(rescaled.MoveToImmutable(), BitDepth.Float32, pedestal / MaxValue, imageMeta);
     }
 }

@@ -72,7 +72,6 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver, IV
     }
 
     private Imaging.Channel? _lastImageData;
-    private ChannelBuffer? _channelBuffer;
 
     // Recycled buffers returned by consumers via ChannelBuffer.onRelease.
     // Camera picks from here before allocating fresh in Render(dest:).
@@ -524,15 +523,14 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver, IV
         }
     }
 
-    Imaging.ChannelBuffer? ICameraDriver.ChannelBuffer => _channelBuffer;
-
     public void ReleaseImageData()
     {
         lock (_lock)
         {
-            // Clear channel buffer — ownership was transferred to the Image in GetImageAsync.
+            // Strip the channel's buffer — ownership was transferred to the Image in GetImageAsync,
+            // so a second GetImageAsync must not harvest the same (already-transferred) ref.
             // Keep _lastImageData so GetImageReadyAsync still returns true until next StartExposureAsync.
-            _channelBuffer = null;
+            _lastImageData = _lastImageData is { } channel ? channel with { Buffer = null } : null;
         }
     }
 
@@ -1134,8 +1132,10 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver, IV
                     var dataMin = TensorPrimitives.Min(flatSpan);
                     var dataMax = TensorPrimitives.Max(flatSpan);
 
-                    _channelBuffer = new ChannelBuffer(array, onRelease: recycled => _freeBuffers.Add(recycled));
-                    _lastImageData = new Imaging.Channel(array, Filter, dataMin, dataMax, 0);
+                    // The ref-counted buffer travels ON the Channel into GetImageAsync's Image
+                    // (which harvests the ref); onRelease recycles the float[,] for the next frame.
+                    var buffer = new ChannelBuffer(array, onRelease: recycled => _freeBuffers.Add(recycled));
+                    _lastImageData = new Imaging.Channel(array, Filter, dataMin, dataMax, 0) { Buffer = buffer };
                 }
             }
 
