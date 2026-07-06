@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -135,8 +136,13 @@ public class ViewerControllerTests
 
         controller.HandleToolbarAction(ToolbarAction.Open, reverse: false, CancellationToken.None);
 
-        // Wait for background task
-        await Task.Delay(200, TestContext.Current.CancellationToken);
+        // Wait (bounded, ~5 s) for the background open task to reach the dialog -- a fixed
+        // 200 ms Task.Delay raced the thread pool under full-suite load (maxParallelThreads: 4)
+        // and flaked ~1 in 3 full runs while passing in isolation.
+        for (var i = 0; i < 100 && !dialog.ReceivedCalls().Any(); i++)
+        {
+            await Task.Delay(50, TestContext.Current.CancellationToken);
+        }
         controller.ReleaseCompletedTasks();
 
         await dialog.Received(1).PickAsync(

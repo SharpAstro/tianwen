@@ -103,3 +103,22 @@ The FITS viewer (`AstroImageDocument`) normalizes the raw image to [0,1] in-plac
 ## Guide Camera
 
 The guide camera follows the same `ChannelBuffer` lifecycle. `CaptureGuideFrameAsync` calls `GetImageAsync` → gets an `Image` with transferred `ChannelBuffer`. `GuideLoop.RunAsync` releases the old frame before each new capture. The double-buffer mechanism ensures the camera never overwrites pixel data still being read by the viewer.
+
+## Driver Coverage (audit 2026-07-06; gaps closed same day)
+
+The zero-alloc recycle loop above is the *design*; per-driver state:
+
+| Driver | `ChannelBuffer` | Recycle (`_freeBuffers`) | Notes |
+|--------|:---------------:|:------------------------:|-------|
+| DAL (ZWO / QHY) | ✅ | ✅ | The reference implementation (`DALCameraDriver.cs`) |
+| Fake | ✅ | ✅ | Mirrors DAL |
+| Alpaca | ✅ | ✅ | `AlpacaImageBytes.DecodeChannel(payload, recycled)` decodes into a recycled buffer on shape match (drops it on ROI/bin change); `onRelease` returns it to the bag. (Was a no-op release — fresh LOH alloc per frame — until the 2026-07-06 audit.) |
+| ASCOM | ✅ | ✅ | `ImageData` caches the COM `ImageArray` marshal + `FromWxHImageData(sourceData, recycled)` transpose **once per exposure**; cleared by `ReleaseImageData` + `StartExposureAsync` (mirrors Alpaca). (Was a computed property — full COM re-marshal on every read, no-op release — until the audit. The "reads null after `GetImageAsync`" contract in step 3 now holds for ASCOM too.) |
+| Canon | ❌ | ❌ | Wraps the RAW-decode output array (no copy); decode allocates per frame anyway, so recycling has little to win. Deliberate. |
+
+Consumer-side copies that are **by design** (do not "fix"):
+
+- `LiveCameraFrameStream.Push` deep-copies each pushed frame into a ring-owned image (normalising ADU → `[0,1]`). Required: the camera recycles its buffer immediately, and `LoadAsync` hands out shared references with a "not overwritten for Capacity pushes" guarantee — recycling ring slots would violate it.
+- `LiveFramePreviewSource.AcceptFrame` copies into persistent owned buffers (reused across frames unless geometry changes) while normalising to `[0,1]` — the copy IS the normalisation pass, and it decouples the viewer from the camera recycle.
+- `Image.Arithmetic` / `Image.Masks` identity paths return `CopyChannelData()` — result independence is part of the contract.
+- `RollingWindowStacker.BuildMasterAsync`'s mono/RGB normalise destination — `PlanetaryMaster.NormalizeInto` wraps the destination into the returned master (`MergeAndDemosaicAsync` passes mono/RGB through), so it must own fresh arrays per publish; only the split-CFA sub-planes (consumed by merge+demosaic) reuse the persistent `_sumScratch`. Pinned by `Published_mono_master_stays_valid_after_the_next_publish`.

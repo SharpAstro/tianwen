@@ -66,14 +66,20 @@ public readonly record struct Channel(float[,] Data, Filter Filter, float MinVal
     /// <summary>
     /// Transposes and converts W×H <c>int[,]</c> source data (ASCOM convention) to a H×W <see cref="Channel"/>.
     /// </summary>
-    public static Channel FromWxHImageData(int[,] sourceData)
+    /// <param name="sourceData">The W×H COM <c>ImageArray</c>.</param>
+    /// <param name="recycled">Optional buffer to convert into (a driver recycle bag, see
+    /// <c>DALCameraDriver._freeBuffers</c>); reused when its shape matches the frame, otherwise
+    /// dropped to GC (ROI/bin change) and a fresh array is allocated.</param>
+    public static Channel FromWxHImageData(int[,] sourceData, float[,]? recycled = null)
     {
         var width = sourceData.GetLength(0);
         var height = sourceData.GetLength(1);
 
         var maxValue = 0f;
         var minValue = float.MaxValue;
-        var data = new float[height, width];
+        var data = recycled is not null && recycled.GetLength(0) == height && recycled.GetLength(1) == width
+            ? recycled
+            : new float[height, width];
 
         for (var h = 0; h < height; h++)
         {

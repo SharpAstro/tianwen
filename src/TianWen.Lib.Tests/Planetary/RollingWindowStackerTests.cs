@@ -203,4 +203,26 @@ public class RollingWindowStackerTests
         stacker.WindowStart.ShouldBe(0); // max(0, 2 - 6 + 1)
         master[0, N / 2, N / 2].ShouldBeGreaterThan(0.3f); // still a covered disk after the rebuild
     }
+
+    [Fact]
+    public async Task Published_mono_master_stays_valid_after_the_next_publish()
+    {
+        // Guards the BuildMasterAsync destination rule: for mono/RGB the normalise destination IS the
+        // returned master (MergeAndDemosaicAsync passes it through), so consecutive publishes must own
+        // INDEPENDENT arrays -- the viewer / wavelet re-sharpen may still hold the previous master while
+        // the next one is built. Routing mono through the split-CFA _sumScratch would make masterA alias
+        // masterB's build and this test would see masterA's pixels change under it.
+        var stacker = new RollingWindowStacker(new FakeFrameStream(SharpestAtFive()),
+            new RollingWindowOptions { FallbackWindowFrames = 6 });
+
+        var masterA = await stacker.StackToAsync(5, TestContext.Current.CancellationToken);
+        var centreBefore = masterA[0, N / 2, N / 2];
+        var skyBefore = masterA[0, 1, 1];
+
+        var masterB = await stacker.StackToAsync(8, TestContext.Current.CancellationToken);
+
+        masterB.GetChannelArray(0).ShouldNotBeSameAs(masterA.GetChannelArray(0));
+        masterA[0, N / 2, N / 2].ShouldBe(centreBefore); // untouched by the second publish
+        masterA[0, 1, 1].ShouldBe(skyBefore);
+    }
 }

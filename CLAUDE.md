@@ -894,8 +894,16 @@ discovery; the lib ships no AOT annotations and we don't mask the warning).
 Camera → `ChannelBuffer` → `Image` → consumer → `image.Release()` → camera recycles. See
 `ChannelBuffer` XML doc for ownership semantics.
 - Never hold an `Image` from `GetImageAsync` longer than needed — it pins the camera buffer
-- `DebayerIntoAsync` for viewer output, `DebayerAsync` only for FITS viewer (file-based)
+- Viewers never CPU-debayer: the raw RGGB mosaic is uploaded as-is and the GPU shader debayers
+  (`LiveFramePreviewSource.AcceptFrame`, `AstroImageDocument`). CPU `DebayerAsync` is for batch
+  paths (stacking, planetary master, tests). `Image.DebayerIntoAsync` (the write-into-caller-buffers
+  variant) currently has **zero callers** — wire it or delete it, don't cite it as the viewer path.
 - `Array2DPool` is for scratch only — camera buffers use `ChannelBuffer`/`_freeBuffers`
+- The recycle loop is complete for DAL (ZWO/QHY), Fake, Alpaca, and ASCOM (the latter two closed in
+  the 2026-07-06 buffer audit: Alpaca decodes into a recycled buffer, ASCOM caches the COM
+  `ImageArray` marshal once per exposure — cleared on `ReleaseImageData`/`StartExposureAsync`).
+  Canon wraps its RAW decode output (no recycle, deliberate). Coverage matrix + the by-design
+  consumer copies: [docs/architecture/image-pipeline.md](docs/architecture/image-pipeline.md).
 
 ### Image Mutability — Almost-Immutable with In-Place Escape Hatches
 

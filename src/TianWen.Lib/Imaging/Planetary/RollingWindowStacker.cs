@@ -340,17 +340,38 @@ public sealed class RollingWindowStacker
         return score;
     }
 
+    // Persistent normalise destination for the split-CFA path, where the normalised sub-planes are
+    // transient scratch (merged + demosaiced into a fresh master below, never escaping this class) --
+    // reused across rebuilds so a live master publish stops re-allocating 4 full sub-planes each time.
+    // Shape-checked lazily because the reference (and with it the plane geometry) can change on a
+    // window rebuild. Mono/RGB masters must NOT use it: there NormalizeInto's result IS the returned
+    // master (MergeAndDemosaicAsync passes it through), and the previous master may still be displayed
+    // or cached for a wavelet re-sharpen -- overwriting its backing arrays would corrupt it.
+    private float[][,]? _sumScratch;
+
     private async Task<Image> BuildMasterAsync(CancellationToken cancellationToken)
     {
-        // Normalise a COPY of the running sum so the accumulators keep their integral state for the next
-        // add/evict; _weight is read (not mutated) by NormalizeInPlace.
-        var sumCopy = new float[_channels][,];
-        for (var c = 0; c < _channels; c++)
+        // Normalise into a destination WITHOUT disturbing the accumulators (they keep their integral
+        // state for the next add/evict; _weight is read, not mutated). NormalizeInto fuses the old
+        // Clone()-then-NormalizeInPlace into a single read-sum/write-dst pass.
+        float[][,] dst;
+        // Must mirror MergeAndDemosaicAsync's demosaic gate exactly: only when the sub-planes are
+        // consumed by merge+demosaic is the destination transient enough to be the shared scratch.
+        if (_stream.Layout == PlanetaryFrameLayout.SplitCfa && _channels == 4)
         {
-            sumCopy[c] = (float[,])_sum![c].Clone();
+            if (_sumScratch is not { } scratch || scratch.Length != _channels
+                || scratch[0].GetLength(0) != _planeH || scratch[0].GetLength(1) != _planeW)
+            {
+                _sumScratch = scratch = Image.CreateChannelData(_channels, _planeH, _planeW);
+            }
+            dst = scratch;
+        }
+        else
+        {
+            dst = Image.CreateChannelData(_channels, _planeH, _planeW);
         }
 
-        var stacked = PlanetaryMaster.NormalizeInPlace(sumCopy, _weight!, _meta);
+        var stacked = PlanetaryMaster.NormalizeInto(_sum!, _weight!, dst, _meta);
         return await PlanetaryMaster.MergeAndDemosaicAsync(stacked, _stream.Layout, cancellationToken).ConfigureAwait(false);
     }
 

@@ -108,11 +108,13 @@ simpler than the per-OTA rotator.
 - [ ] Parse string[] from Alpaca for `Gains` (`AlpacaCameraDriver.cs:254`)
 - [x] Alpaca `imagearray` endpoint requires special binary handling — done via the `application/imagebytes` binary transfer (`AlpacaImageBytes.DecodeChannel` + `AlpacaClient.GetImageArrayBytesAsync`); `GetImageReadyAsync` downloads + decodes once on first-ready into `ImageData`/`ChannelBuffer`. `AddAlpaca()` now wired into CLI/Server/GUI. (PR #51)
 - [ ] Async call to `lastexposureduration` endpoint (`AlpacaCameraDriver.cs:294`)
+- [x] Alpaca camera: recycle frame buffers — **DONE (2026-07-06, same-day as the audit)**: `AlpacaCameraDriver` now carries a DAL-style `_freeBuffers` `ConcurrentBag`; `AlpacaImageBytes.DecodeChannel(payload, recycled)` decodes into the recycled buffer when the shape matches (drops it to GC on an ROI/bin change), and `onRelease` returns the `float[,]` to the bag — a steady capture loop no longer allocates a fresh full-frame LOH array per frame. Pinned by the recycle tests in `AlpacaImageBytesTests`.
 
 ## ASCOM Drivers
 
 - [ ] Implement axis rates for telescope (`AscomTelescopeDriver.cs:320`)
 - [ ] Support ASCOM `Setup()` method — call the driver's native setup dialog for device-specific configuration
+- [x] ASCOM camera: cache `ImageData` on first read — **DONE (2026-07-06, same-day as the audit)**: `AscomCameraDriver.ImageData` now materialises the COM `ImageArray` exactly once per exposure into `_imageData` (cleared by `ReleaseImageData` + `StartExposureAsync`, restoring the "reads null after `GetImageAsync`" contract), attaches a recycling `ChannelBuffer`, and `Channel.FromWxHImageData(sourceData, recycled)` converts into a recycled buffer from the DAL-style `_freeBuffers` bag when the shape matches.
 
 ## Mount / Meade LX200 Protocol
 

@@ -57,7 +57,11 @@ internal static class AlpacaImageBytes
     /// </summary>
     /// <exception cref="AlpacaException">The server reported a non-zero error number; the body carries a UTF-8 message.</exception>
     /// <exception cref="NotSupportedException">Unsupported metadata version, rank, element type, or malformed dimensions.</exception>
-    public static Channel DecodeChannel(ReadOnlySpan<byte> payload)
+    /// <param name="payload">The raw <c>application/imagebytes</c> response body.</param>
+    /// <param name="recycled">Optional buffer to decode into (the driver's recycle bag, see
+    /// <c>DALCameraDriver._freeBuffers</c>); reused when its shape matches the frame, otherwise
+    /// dropped to GC (ROI/bin change) and a fresh array is allocated.</param>
+    public static Channel DecodeChannel(ReadOnlySpan<byte> payload, float[,]? recycled = null)
     {
         if (payload.Length < MetadataV1Length)
         {
@@ -105,7 +109,9 @@ internal static class AlpacaImageBytes
         }
 
         var pixels = payload[dataStart..];
-        var channel = new float[height, width];
+        var channel = recycled is not null && recycled.GetLength(0) == height && recycled.GetLength(1) == width
+            ? recycled
+            : new float[height, width];
         float min, max;
 
         switch (transmissionElementType)
