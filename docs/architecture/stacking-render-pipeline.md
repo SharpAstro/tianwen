@@ -97,6 +97,14 @@ poisoned by partial-coverage edges. The CLI renders nothing; it sets
 `StackingOptions.RenderPreviewPng`, writes EXR from the emitted FITS, and prints
 the SPCC summary from `GroupResult.Spcc`.
 
+**Planned (upstream shipped; tianwen wiring left):** a gain-map (Ultra HDR / hdrgm 1.0)
+JPEG display-tier output alongside the cICP-PQ PNG -- a broadly-supported HDR delivery
+format (Android / Chrome / Adobe). It rides the same stretched display raster this section
+renders (never the linear FITS/EXR masters or split-plate TIFFs, same rule as `MaskedBoost`).
+The Codecs 3.6 family now supplies both halves -- `SharpAstro.Jpeg.JpegEncoder.Encode` (baseline
+JPEG) + `SharpAstro.Jpeg.GainMap` `Compute`/`Assemble` -- so all that remains is emitting the
+HDR-linear + SDR rendition pair here. Backlog: [`../todo/imaging.md`](../todo/imaging.md) (Codecs facade).
+
 ---
 
 ## 3. Enhance + render: `EnhanceAndWriteAsync`

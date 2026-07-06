@@ -128,9 +128,19 @@ implement `IDecodedImage` or make DIR.Lib pull the codec stack.
 | 1 | `SharpAstro.Codecs.Abstractions`: `IDecodedImage`, `SampleFormat`, `RasterImage`, `IImageDecoder` | package builds, AOT-clean, unit-pinned |
 | 2 | Implement `IImageDecoder` on PNG + JPEG; `SharpAstro.Codecs` facade with explicit 2-codec registry | `ImageCodecs.TryDecode` round-trips PNG+JPEG in `SharpAstro.Codecs.Tests` |
 | 3 | Migrate Console.Lib onto the facade (delete `ImageDecoder`) | Console.Lib markdown images render via facade; CI green |
-| 4 | Add TIFF / EXR / JXR / JXL decoders to the registry | each format sniffed + decoded |
-| 5 | tianwen `TryReadImageFile` delegates to facade (+ `Image` adapter); retire read-path Magick.NET | tianwen reads all raster formats via facade; import tests green |
-| 6 | FC.SDK references facade instead of individual codecs | skew source removed |
+| 4 ✅ | Add TIFF / EXR / JXR / JXL decoders to the registry | **DONE** (Codecs 3.5 — full-family registry, plus new JPEG XL + `SharpAstro.Jpeg.GainMap` Ultra HDR members) |
+| 5 ✅ | tianwen `TryReadImageFile` falls back to `ImageCodecs.TryDecode` (+ `Image` adapter via `ToFloats()`) for PNG / JPEG / JXR / EXR / JXL | **DONE** — `Image.Import.TryReadViaCodecs`; `CodecsFacadeImportTests` green. TIFF / CR2 / CR3 / FITS stay on their bespoke metadata-carrying paths (facade `IDecodedImage` has no structured EXIF / Bayer / FITS); read-path Magick.NET was already retired pre-facade |
+| 6 | FC.SDK references facade instead of individual codecs | NOT STARTED — skew source removed |
+
+**Status (2026-07-06):** Phases 1–5 shipped. The read fallback is intentionally *additive* — it fills the
+PNG/JPEG/JXR/EXR/JXL gap (so tianwen can reopen the previews + HDR masters it writes) without touching the
+astro-critical TIFF/CR2/CR3/FITS readers. tianwen keeps its **direct** codec refs (writers + `Color.Icc` /
+`Exif` / `Jpeg.IccInjector`, none of which the facade depends on), so this is *not* the "ref only the facade"
+consolidation Console.Lib did. Deferred: honour `IDecodedImage.ColorEncoding` (linearise PQ/HLG/non-sRGB HDR
+on ingest instead of trusting the `[0,1]` container convention); Phase 6 (FC.SDK → facade); and a gain-map
+JPEG *export* path (Ultra HDR delivery for tianwen's HDR previews, distinct from this read work — now
+*unblocked* by the Codecs 3.6 baseline JPEG encoder + `SharpAstro.Jpeg.GainMap` `Compute`/`Assemble`; only
+the tianwen-side render wiring remains, tracked in [`../todo/imaging.md`](../todo/imaging.md)).
 
 ## Open questions
 

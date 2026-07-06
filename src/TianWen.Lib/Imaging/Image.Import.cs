@@ -1,4 +1,5 @@
 using FC.SDK.Raw;
+using SharpAstro.Codecs;
 using SharpAstro.Exif;
 using SharpAstro.Tiff;
 using System;
@@ -6,6 +7,7 @@ using System.Buffers.Binary;
 using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Runtime.InteropServices;
+using CodecSampleFormat = SharpAstro.Codecs.Abstractions.SampleFormat;
 
 namespace TianWen.Lib.Imaging;
 
@@ -20,8 +22,11 @@ public partial class Image
     /// pure-managed decoder. Populates <see cref="ImageMeta.CameraToSrgbMatrix"/> via
     /// the spectral (SASP) or dcraw factory lookup; null when neither matches.</item>
     /// <item><b>FITS</b> (.fits / .fit / .fts) via <see cref="TryReadFitsFile(string, out Image?)"/>.</item>
+    /// <item><b>PNG / JPEG / JPEG XR / OpenEXR / JPEG XL</b> via the <c>SharpAstro.Codecs</c>
+    /// facade (<see cref="TryReadViaCodecs"/>) — the raster formats tianwen writes (PNG previews,
+    /// EXR/JXR HDR masters) but has no bespoke reader for, so an exported frame can be reopened.</item>
     /// </list>
-    /// Anything else returns <c>false</c> — there is no Magick.NET fallback. Pixel values
+    /// Anything the facade cannot sniff returns <c>false</c> — there is no Magick.NET fallback. Pixel values
     /// are normalised to [0, 1] regardless of source bit depth. EXIF metadata is extracted
     /// into <see cref="ImageMeta"/> where present.
     /// </summary>
@@ -44,6 +49,10 @@ public partial class Image
         if (ext is ".fits" or ".fit" or ".fts")
         {
             return TryReadFitsFile(fileName, out image);
+        }
+        if (ext is ".png" or ".jpg" or ".jpeg" or ".jxr" or ".wdp" or ".exr" or ".jxl")
+        {
+            return TryReadViaCodecs(fileName, out image);
         }
 
         image = null;
@@ -182,6 +191,73 @@ public partial class Image
 
             // Values are now in [0, 1] (DecodeTiffPixels normalises by sample-format max).
             image = new Image(channels, bitDepth, 1.0f, 0f, 0f, imageMeta);
+            return true;
+        }
+        catch
+        {
+            image = null;
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Decode a raster the <c>SharpAstro.Codecs</c> facade recognises (PNG / JPEG /
+    /// JPEG XR / OpenEXR / JPEG XL) into a mono or RGB float <see cref="Image"/> — the read
+    /// counterpart to tianwen's own writers (PNG previews, EXR/JXR HDR masters). TIFF is
+    /// deliberately routed through <see cref="TryReadTiff"/> instead, which recovers EXIF into
+    /// <see cref="ImageMeta"/> that the facade's decoded raster does not carry.
+    /// </summary>
+    private static bool TryReadViaCodecs(string fileName, [NotNullWhen(true)] out Image? image)
+    {
+        try
+        {
+            var bytes = File.ReadAllBytes(fileName);
+            if (!ImageCodecs.TryDecode(bytes, out var decoded))
+            {
+                image = null;
+                return false;
+            }
+
+            var width = decoded.Width;
+            var height = decoded.Height;
+            // Image carries mono (1) or RGB (3); drop alpha / gray-alpha's extra channel,
+            // matching TryReadTiff's R/G/B-only extraction.
+            var outChannels = decoded.Channels >= 3 ? 3 : 1;
+
+            // ToFloats widens to interleaved RGBA float32: integer samples normalise to [0, 1]
+            // (endpoints exact), Float32 samples pass through verbatim, gray broadcasts across
+            // R/G/B. Container-only — values keep decoded.ColorEncoding's meaning (a PQ/HLG
+            // raster stays non-linear), which matches the [0, 1] float convention TryReadTiff
+            // already trusts. A tone / linearisation pass for non-sRGB HDR inputs is deferred.
+            var rgba = decoded.ToFloats();
+
+            var channels = CreateChannelData(outChannels, height, width);
+            for (var y = 0; y < height; y++)
+            {
+                var row = y * width;
+                for (var x = 0; x < width; x++)
+                {
+                    var pix = (row + x) * 4; // interleaved RGBA stride
+                    for (var c = 0; c < outChannels; c++)
+                    {
+                        channels[c][y, x] = rgba[pix + c];
+                    }
+                }
+            }
+
+            var bitDepth = decoded.SampleFormat switch
+            {
+                CodecSampleFormat.Float32 => BitDepth.Float32,
+                CodecSampleFormat.UInt16 => BitDepth.Int16,
+                _ => BitDepth.Int8,
+            };
+
+            // The facade's decoded raster carries no structured EXIF, so build a default
+            // "generic light frame, unknown sensor" ImageMeta (null EXIF => NaN pixel size,
+            // empty instrument). Values are already [0, 1] for integer sources and follow the
+            // [0, 1] convention for float, so maxValue = 1 mirrors TryReadTiff.
+            var meta = BuildImageMetaFromExif(null, fileIsLittleEndian: true);
+            image = new Image(channels, bitDepth, 1.0f, 0f, 0f, meta);
             return true;
         }
         catch

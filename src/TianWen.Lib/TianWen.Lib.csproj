@@ -224,6 +224,19 @@
     <PackageReference Include="SharpAstro.Png" />
   </ItemGroup>
 
+  <!-- SharpAstro.Codecs: the image-decode facade. Image.Import's TryReadImageFile
+       falls back to ImageCodecs.TryDecode for the raster formats tianwen writes but
+       has no bespoke reader for (PNG / JPEG / JPEG XR / OpenEXR / JPEG XL) so a
+       preview or HDR master it exported can be reopened. TIFF stays on the bespoke
+       TryReadTiff path (it extracts EXIF -> ImageMeta the facade doesn't carry).
+       Pulls the codec members it wraps in transitively; all on the 3.5.* lockstep. -->
+  <ItemGroup Condition="'$(UseLocalSiblings)' == 'true'">
+    <ProjectReference Include="..\..\..\Codecs\src\SharpAstro.Codecs\SharpAstro.Codecs.csproj" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(UseLocalSiblings)' != 'true'">
+    <PackageReference Include="SharpAstro.Codecs" />
+  </ItemGroup>
+
   <!-- DIR.Lib: TiffWriter + PngWriter on the production path (Image.Export.cs). -->
   <ItemGroup Condition="'$(UseLocalSiblings)' == 'true'">
     <ProjectReference Include="..\..\..\DIR.Lib\src\DIR.Lib\DIR.Lib.csproj" />

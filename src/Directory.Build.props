@@ -20,6 +20,7 @@
       AND Exists('$(MSBuildThisFileDirectory)..\..\Codecs\src\SharpAstro.Jxr\SharpAstro.Jxr.csproj')
       AND Exists('$(MSBuildThisFileDirectory)..\..\Codecs\src\SharpAstro.Jpeg.IccInjector\SharpAstro.Jpeg.IccInjector.csproj')
       AND Exists('$(MSBuildThisFileDirectory)..\..\Codecs\src\SharpAstro.Exr\SharpAstro.Exr.csproj')
+      AND Exists('$(MSBuildThisFileDirectory)..\..\Codecs\src\SharpAstro.Codecs\SharpAstro.Codecs.csproj')
       AND Exists('$(MSBuildThisFileDirectory)..\..\QHYCCD.SDK\QHYCCD.SDK.csproj')
       AND Exists('$(MSBuildThisFileDirectory)..\..\FITS.Lib\CSharpFITS\CSharpFITS.csproj')
       AND Exists('$(MSBuildThisFileDirectory)..\..\SER.Lib\src\SER.Lib\SER.Lib.csproj')

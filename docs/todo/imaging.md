@@ -9,6 +9,35 @@ Part of the TianWen TODO set. See [TODO.md](../../TODO.md) for the index and the
 - [ ] Star detection noise robustness: `FindStarsAsync` with `snrMin: 5` picks up false positives from shot noise halos around bright stars (e.g. M42 synthetic field: 49 rendered stars → 64 detected). Consider deblending or a minimum star separation filter to reject noise peaks near bright stars.
 - [ ] **AHD debayer: SIMD via output-tile chunking** — Phase 3 (homogeneity comparison, ~70% of AHD's cost) is currently scalar with `Unsafe.Add` (commit 958e42e). To vectorise, process 8 output pixels per `Vector<float>` lane: the 5×5 neighbourhoods of consecutive x positions overlap heavily, so each dx offset becomes a single AVX2 load that serves all 8 pixels. Realistic landing: AHD 298 ms → ~140-150 ms (another ~2× on top of what we have). Non-trivial: the `if (diffH < diffV) homH++ else homV++` branch needs `Vector.GreaterThan` + masked accumulate, the direction-select tail needs `Vector.ConditionalSelect`, and `Vector.Sum`'s tree-add will likely change FP rounding order vs scalar sequential add → `DebayerRegressionTests` hashes will need repinning. Code complexity ~3-5× current scalar+unsafe path. Worth taking on if/when AHD perf dominates wall-clock for big groups (SoL 60s and similar 200+ frame stacks). See `Image.Debayer.cs:559-643` Phase 3 + the discussion in commit 958e42e for design context.
 
+## Codecs facade (read + write)
+
+The `SharpAstro.Codecs 3.6.*` facade (sniff → dispatch: PNG/JPEG/TIFF/JXR/EXR/JXL, plus the
+`SharpAstro.Jpeg.GainMap` Ultra HDR member) is consumed for **read** in tianwen as of the Phase-5
+fallback (`Image.Import.TryReadViaCodecs`; full arc in [`../plans/image-codecs-facade.md`](../plans/image-codecs-facade.md)).
+Open gaps:
+
+- [ ] **Gain-map JPEG export during stacking / rendering (UNBLOCKED — tianwen wiring left).** Emit Ultra
+  HDR (hdrgm 1.0 / Android Ultra HDR) gain-map JPEGs from the stacking/render preview path — a
+  broadly-supported HDR delivery format (Android / Chrome / Adobe) alongside the existing cICP-PQ PNG HDR
+  previews. The upstream encoder shipped in **Codecs 3.6**: `SharpAstro.Jpeg.JpegEncoder.Encode` (baseline
+  sequential, 4:4:4 / 4:2:0, quality 1..100) plus `SharpAstro.Jpeg.GainMap` `Compute` (fit gain map from an
+  aligned HDR-linear/SDR pair) + `Assemble` (splice GContainer XMP + MPF around the renditions) — Ultra HDR
+  generation is now fully in-family, no external encoder. Remaining work is tianwen-side: produce the
+  HDR-linear + SDR rendition pair from `MasterPreviewRenderer` (the unified display render; output contract in
+  [`../architecture/stacking-render-pipeline.md`](../architecture/stacking-render-pipeline.md)) and wire it
+  into the `stack` / `image render` flows. Applies to the stretched display raster only — never the linear
+  FITS/EXR masters or split-plate TIFFs (same rule as `MaskedBoost`). Distinct from, and larger than, the
+  read-path gaps below.
+- [ ] **Honour `IDecodedImage.ColorEncoding` on facade read.** `TryReadViaCodecs` ingests `ToFloats()`
+  verbatim as `[0,1]` (container-only), so a PQ/HLG or non-sRGB HDR raster (incl. tianwen's own cICP-PQ
+  PNG previews) is read as if linear — wrong for display. Linearise / tone-map per `ColorEncoding` on
+  ingest instead of trusting the `[0,1]` convention (correct only for the scene-linear TIFF/EXR/JXR
+  masters tianwen writes). Bespoke TIFF / CR2 / CR3 / FITS readers never route through the facade.
+- [ ] **No gain-map reconstruction on read.** A gain-map JPEG decodes to its base SDR image only; the
+  gain map is not applied to recover HDR. Follows the export work + the JPEG encoder.
+- [ ] **Phase 6: FC.SDK → facade.** FC.SDK still references the individual codec packages; pointing it at
+  the facade removes the last version-skew source (`../plans/image-codecs-facade.md` phase 6).
+
 ## AI Enhancement
 
 Shipped on branch `ai-enhancement` (Phases 0-6 of `docs/plans/ai-enhancement.md`): `IStarRemover` + `IStellarSharpener` + `INonStellarDeconvolver` atomic enhancers, `SharpenPipeline` orchestrator (additive + screen modes), shared `ChunkedNafnetRunner`, MTF helpers on `Image.Stretch.cs`, `ChunkedInference` tile/stitch, `HfdPsfEstimator`, `tianwen image {sharpen,remove-stars}` CLI. Items below are deferred follow-ups.

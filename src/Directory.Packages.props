@@ -16,10 +16,12 @@
          (matches the SdlVulkan.Renderer / DIR.Lib / Console.Lib convention).
          Bump the prefix manually on minor (4.6 -> 4.7) or major (4.X -> 5.X). -->
     <PackageVersion Include="FITS.Lib" Version="4.6.*" />
-    <!-- SER.Lib: SER planetary-video reader (SharpAstro.Ser). Sibling-tracked; floats 1.0.*
+    <!-- SER.Lib: SER planetary-video reader (SharpAstro.Ser). Sibling-tracked; floats 1.1.*
          to pick up CI patch publishes. TianWen.Lib's SerImageBridge consumes it; the FITS
-         viewer's SerPreviewSource gets it transitively. -->
-    <PackageVersion Include="SER.Lib" Version="1.0.*" />
+         viewer's SerPreviewSource gets it transitively. Bumped 1.0.* -> 1.1.* manually (the
+         X.Y.* float can't cross a minor): the sibling shipped 1.1.x and the 1.0.* cap left CI
+         restoring the stale 1.0.91 while UseLocalSiblings builds against the 1.1 sibling source. -->
+    <PackageVersion Include="SER.Lib" Version="1.1.*" />
     <!-- Lzip.Lib: pure-managed lzip (LZMA1) codec (SharpAstro.Lzip). Runtime decode of the
          tyc2.bin.lz + baked Milky Way blob (CelestialObjectDB / SkyMapTab); build-time decode of
          the .json.lz/.csv.lz catalog inputs (tools/preprocess-catalog.ps1); and encode of the
@@ -93,7 +95,9 @@
          (.RowH()/.WStar()/.Bg()/.Clickable()/...). Source-breaking: consumers alias
          `using Layout = DIR.Lib.Layout;` and write Layout.Node / Layout.Builder / Layout.Sizing. Lockstep
          with Console.Lib 3.3 + SdlVulkan.Renderer 6.7.
-         6.3 bumped alongside SdlVulkan.Renderer 6.10 (which requires DIR.Lib >= 6.3.1201). -->
+         6.3 bumped alongside SdlVulkan.Renderer 6.10 (which requires DIR.Lib >= 6.3.1201).
+         6.4 is the current pin; the DIR.Lib / SdlVulkan.Renderer / Console.Lib lockstep continues
+         (SdlVulkan.Renderer 6.11 + Console.Lib 3.5). -->
     <PackageVersion Include="DIR.Lib" Version="6.4.*" />
     <!-- DIR.Lib 3.0 extracted its codec layer to these sibling packages, which
          ship as a lockstep family from the Codecs repo. 3.0 brought a
@@ -106,22 +110,39 @@
          3.2 = the new SharpAstro.Exr (OpenEXR read+write) package joins the family.
          3.3 = family minor bump (Codecs repo); members continue to ship as a
          matched set.
-         The whole family floats to 3.3.* in lockstep so all members resolve to the
+         3.4 = the repo left the StbImageSharp fork network and was renamed to
+         Codecs (source-identical republish; the auto-translated stb_image C-port
+         was dropped, so the family no longer decodes BMP/TGA/PSD/GIF/HDR).
+         3.5 = the SharpAstro.Codecs facade grows to the whole family (TIFF/JXR/EXR/JXL
+         join PNG+JPEG decode) with ColorEncoding signalling + ToFloats(), and a new
+         SharpAstro.Jpeg.GainMap member adds gain-map (Ultra HDR / hdrgm 1.0) JPEG.
+         3.6 = SharpAstro.Jpeg gains a baseline JPEG encoder (JpegEncoder.Encode: baseline
+         sequential DCT, 4:4:4 / 4:2:0, quality 1..100; a byte-exact stb_image_write port),
+         so SharpAstro.Jpeg is now a full codec and Ultra HDR generation is fully in-family
+         (encode both renditions + GainMap.Compute/Assemble, no external encoder needed).
+         The whole family floats to 3.6.* in lockstep so all members resolve to the
          matched set (mixing minors across a lockstep break is a runtime hazard). -->
-    <PackageVersion Include="SharpAstro.Tiff" Version="3.4.*" />
-    <PackageVersion Include="SharpAstro.Exif" Version="3.4.*" />
-    <PackageVersion Include="SharpAstro.Png" Version="3.4.*" />
-    <PackageVersion Include="SharpAstro.Color.Icc" Version="3.4.*" />
-    <PackageVersion Include="SharpAstro.Jpeg.IccInjector" Version="3.4.*" />
-    <!-- SharpAstro.Jpeg (SOF3 lossless + baseline decoder): consumed transitively
-         (FC.SDK.Raw / Console.Lib) and directly by TianWen.UI.Benchmarks' LosslessJpeg bench. -->
-    <PackageVersion Include="SharpAstro.Jpeg" Version="3.4.*" />
+    <PackageVersion Include="SharpAstro.Tiff" Version="3.6.*" />
+    <PackageVersion Include="SharpAstro.Exif" Version="3.6.*" />
+    <PackageVersion Include="SharpAstro.Png" Version="3.6.*" />
+    <PackageVersion Include="SharpAstro.Color.Icc" Version="3.6.*" />
+    <PackageVersion Include="SharpAstro.Jpeg.IccInjector" Version="3.6.*" />
+    <!-- SharpAstro.Jpeg: pure-managed JPEG codec: baseline + progressive decode (scaled
+         1/2..1/8), and as of 3.6 a baseline sequential encoder (JpegEncoder.Encode). Consumed
+         transitively (FC.SDK.Raw / Console.Lib) and directly by TianWen.UI.Benchmarks. -->
+    <PackageVersion Include="SharpAstro.Jpeg" Version="3.6.*" />
     <!-- Pure-managed JPEG XR (T.832) + OpenEXR codecs. Image.WriteJxrAsync emits
          HDR float pixels (BD32F mono / BD16F RGB); Image.WriteExrAsync emits OpenEXR
-         (FLOAT mono / HALF RGB). Same Codecs repo + 3.3.* lockstep as the
+         (FLOAT mono / HALF RGB). Same Codecs repo + 3.6.* lockstep as the
          other SharpAstro codec siblings. -->
-    <PackageVersion Include="SharpAstro.Jxr" Version="3.4.*" />
-    <PackageVersion Include="SharpAstro.Exr" Version="3.4.*" />
+    <PackageVersion Include="SharpAstro.Jxr" Version="3.6.*" />
+    <PackageVersion Include="SharpAstro.Exr" Version="3.6.*" />
+    <!-- SharpAstro.Codecs: the image-decode facade (sniff magic bytes -> dispatch to the
+         matching family decoder: PNG/JPEG/TIFF/JXR/EXR/JXL). TianWen.Lib's Image.Import
+         TryReadImageFile falls back to it so tianwen can reopen the raster formats it
+         writes (PNG previews, EXR/JXR HDR masters) but has no bespoke reader for. Same
+         Codecs repo + 3.6.* lockstep as the codec members it wraps. -->
+    <PackageVersion Include="SharpAstro.Codecs" Version="3.6.*" />
     <!-- Console.Lib 2.17 adds ScrollableList + TreeView opt-in auto wheel routing
          (on top of 2.13-2.16 widget work). 2.18 is a no-code lockstep rebuild against
          DIR.Lib 4.5, same sibling family as SdlVulkan.Renderer 6.1.
@@ -130,7 +151,9 @@
          3.1 renders markdown images (![alt](url)) to the terminal; rebuilt against
          DIR.Lib 5.1 (lockstep with SdlVulkan.Renderer 6.5).
          3.2 is a no-code lockstep rebuild against DIR.Lib 5.2.
-         3.3 is a no-code lockstep rebuild against DIR.Lib 6.0 (layout namespace + Layout.Builder DSL). -->
+         3.3 is a no-code lockstep rebuild against DIR.Lib 6.0 (layout namespace + Layout.Builder DSL).
+         3.4-3.5 continue the lockstep rebuilds against DIR.Lib 6.x; 3.5 also carries the codecs-facade
+         migration (Console.Lib references SharpAstro.Codecs for image decode). Current pin 3.5.*. -->
     <PackageVersion Include="Console.Lib" Version="3.5.*" />
     <!-- SdlVulkan.Renderer 5.0 adds a multi-page SDF glyph atlas (no more grow
          stall / Adreno submit-wedge) on top of 4.1's SetSystemCursor + anisotropic
@@ -157,7 +180,8 @@
          tree (depth + kind + rect + chrome), not just the clickable subset; needs DIR.Lib 6.0.1161
          (ArrangedNode.Depth + PixelWidgetBase.GetCapturedLayout + LayoutInspection).
          6.10 adds DebugSignalArgs (JsonElement OptInt/OptDouble/OptBool/OptString extension members) used by
-         Program.cs's DebugInspector SignalFactories; without this bump the GUI DEBUG build fails CS1061. -->
+         Program.cs's DebugInspector SignalFactories; without this bump the GUI DEBUG build fails CS1061.
+         6.11 is the current pin (lockstep rebuild against DIR.Lib 6.4). -->
     <PackageVersion Include="SdlVulkan.Renderer" Version="6.11.*" />
     <PackageVersion Include="SDL3-CS" Version="3.5.0-preview.20260213-150035" />
     <PackageVersion Include="SDL3-CS.Native" Version="3.5.0-preview.20260205-174353" />
