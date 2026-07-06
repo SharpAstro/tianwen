@@ -134,4 +134,45 @@ public class AlpacaImageBytesTests
 
         Should.Throw<NotSupportedException>(() => AlpacaImageBytes.DecodeChannel(truncated));
     }
+
+    [Fact]
+    public void DecodeChannel_MatchingRecycledBuffer_IsReusedAndFullyOverwritten()
+    {
+        // Pre-poison the recycled buffer so a partially-written reuse can't pass.
+        var recycled = new float[2, 3];
+        for (var y = 0; y < 2; y++)
+        {
+            for (var x = 0; x < 3; x++)
+            {
+                recycled[y, x] = -1f;
+            }
+        }
+        var payload = BuildPayload(width: 3, height: 2, transmissionType: Int16, valueAt: (x, y) => x * 10 + y);
+
+        var channel = AlpacaImageBytes.DecodeChannel(payload, recycled);
+
+        channel.Data.ShouldBeSameAs(recycled); // zero-alloc: decoded straight into the recycle-bag buffer
+        for (var x = 0; x < 3; x++)
+        {
+            for (var y = 0; y < 2; y++)
+            {
+                channel[y, x].ShouldBe((float)(x * 10 + y));
+            }
+        }
+        channel.MinValue.ShouldBe(0f);
+        channel.MaxValue.ShouldBe(21f);
+    }
+
+    [Fact]
+    public void DecodeChannel_ShapeMismatchedRecycledBuffer_IsDroppedForAFreshAllocation()
+    {
+        var recycled = new float[4, 4]; // stale shape from before an ROI/bin change
+        var payload = BuildPayload(width: 3, height: 2, transmissionType: Int16, valueAt: (x, y) => x + y);
+
+        var channel = AlpacaImageBytes.DecodeChannel(payload, recycled);
+
+        channel.Data.ShouldNotBeSameAs(recycled);
+        channel.Width.ShouldBe(3);
+        channel.Height.ShouldBe(2);
+    }
 }

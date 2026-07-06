@@ -21,6 +21,17 @@ internal static class PlanetaryMaster
     /// (split-CFA) and a full-frame one (mono / RGB).
     /// </summary>
     internal static Image NormalizeInPlace(float[][,] channelAccum, float[,] weightAccum, ImageMeta meta)
+        => NormalizeInto(channelAccum, weightAccum, channelAccum, meta);
+
+    /// <summary>
+    /// Coverage divide into <paramref name="dst"/>: <c>dst[c][y,x] = channelAccum[c][y,x] / weightAccum[y,x]</c>
+    /// (zero where coverage is zero), then wraps the destination planes as a Float32 <see cref="Image"/>
+    /// carrying <paramref name="meta"/>. With <paramref name="dst"/> distinct from the accumulator this is
+    /// the fused clone+normalise for a live stacker: the accumulators keep their integral state (one read
+    /// pass, one write pass -- no separate <c>Clone()</c>), and the returned image wraps <paramref name="dst"/>,
+    /// so the caller owns its lifetime. <see cref="NormalizeInPlace"/> is the <c>dst == channelAccum</c> case.
+    /// </summary>
+    internal static Image NormalizeInto(float[][,] channelAccum, float[,] weightAccum, float[][,] dst, ImageMeta meta)
     {
         var channels = channelAccum.Length;
         var height = weightAccum.GetLength(0);
@@ -28,18 +39,19 @@ internal static class PlanetaryMaster
 
         for (var c = 0; c < channels; c++)
         {
-            var plane = channelAccum[c];
+            var src = channelAccum[c];
+            var dstPlane = dst[c];
             for (var y = 0; y < height; y++)
             {
                 for (var x = 0; x < width; x++)
                 {
                     var wv = weightAccum[y, x];
-                    plane[y, x] = wv > 0f ? plane[y, x] / wv : 0f;
+                    dstPlane[y, x] = wv > 0f ? src[y, x] / wv : 0f;
                 }
             }
         }
 
-        return new Image(channelAccum, BitDepth.Float32, 1f, 0f, 0f, meta);
+        return new Image(dst, BitDepth.Float32, 1f, 0f, 0f, meta);
     }
 
     /// <summary>

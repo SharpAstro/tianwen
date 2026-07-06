@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Threading;
@@ -315,6 +316,10 @@ internal class AlpacaCameraDriver(AlpacaDevice device, IServiceProvider serviceP
     private Imaging.Channel? _imageData;
     private Imaging.ChannelBuffer? _channelBuffer;
 
+    // Recycled frame buffers returned by consumers via ChannelBuffer.onRelease (the DAL pattern);
+    // a shape-mismatched buffer (ROI/bin change) is dropped inside DecodeChannel, never re-added.
+    private readonly ConcurrentBag<float[,]> _freeBuffers = [];
+
     public Imaging.Channel? ImageData => _imageData;
 
     Imaging.ChannelBuffer? ICameraDriver.ChannelBuffer => _channelBuffer;
@@ -357,8 +362,12 @@ internal class AlpacaCameraDriver(AlpacaDevice device, IServiceProvider serviceP
         if (ready && _imageData is null)
         {
             var bytes = await Client.GetImageArrayBytesAsync(BaseUrl, AlpacaDeviceType, AlpacaDeviceNumber, "imagearray", cancellationToken);
-            var channel = AlpacaImageBytes.DecodeChannel(bytes);
-            _channelBuffer = new Imaging.ChannelBuffer(channel.Data, onRelease: static _ => { });
+            // Decode into a recycled buffer when one is available (the DAL recycle loop):
+            // the consumer's image.Release() returns the float[,] to _freeBuffers, so a steady
+            // capture loop stops allocating a fresh full-frame LOH array per frame.
+            var recycled = _freeBuffers.TryTake(out var buffer) ? buffer : null;
+            var channel = AlpacaImageBytes.DecodeChannel(bytes, recycled);
+            _channelBuffer = new Imaging.ChannelBuffer(channel.Data, onRelease: recycledBuf => _freeBuffers.Add(recycledBuf));
             _imageData = channel;
 
             // Refine the exposure duration to the server-reported actual (valid once the exposure
