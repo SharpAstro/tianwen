@@ -226,7 +226,9 @@ internal sealed class TuiPlannerTab(
                     case InputKey.Enter:
                         if (plannerState.SelectedTargetIndex >= 0 && plannerState.SelectedTargetIndex < filtered.Count)
                         {
-                            PlannerActions.ToggleProposal(plannerState, filtered[plannerState.SelectedTargetIndex].Target);
+                            // followPinnedSelection: the cursor follows the pinned target into the
+                            // pinned section (render's EnsureVisible then scrolls it into view).
+                            PlannerActions.ToggleProposal(plannerState, filtered[plannerState.SelectedTargetIndex].Target, followPinnedSelection: true);
                             NeedsRedraw = true;
                         }
                         return false;

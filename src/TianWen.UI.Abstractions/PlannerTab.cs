@@ -348,7 +348,13 @@ namespace TianWen.UI.Abstractions
                     var capturedTarget = scored.Target;
                     pinLeaf = Layout.Builder.Text("+", BaseFontSize, PinnedText, TextAlign.Center, TextAlign.Center)
                         .WFixed(BaseFontSize * 1.5f).HStar().Bg(PinnedBg)
-                        .Clickable(new HitResult.ButtonHit("AddProposal"), _ => PlannerActions.ToggleProposal(state, capturedTarget));
+                        .Clickable(new HitResult.ButtonHit("AddProposal"), _ =>
+                        {
+                            // Match the keyboard-pin behaviour: the selection follows the pinned target
+                            // up into the pinned section, and we scroll it into view.
+                            PlannerActions.ToggleProposal(state, capturedTarget, followPinnedSelection: true);
+                            EnsureVisible(state.SelectedTargetIndex);
+                        });
                 }
 
                 // Whole row: [pad | name * | type | info | pad | pin]. Column widths + fonts are raw design
@@ -569,7 +575,10 @@ namespace TianWen.UI.Abstractions
                     return true;
 
                 case InputKey.Enter when state.SelectedTargetIndex >= 0 && state.SelectedTargetIndex < filtered.Count:
-                    PlannerActions.ToggleProposal(state, filtered[state.SelectedTargetIndex].Target);
+                    PlannerActions.ToggleProposal(state, filtered[state.SelectedTargetIndex].Target, followPinnedSelection: true);
+                    // On a pin the selection followed the target into the pinned section at the top;
+                    // scroll it into view (a no-op when it's already visible).
+                    EnsureVisible(state.SelectedTargetIndex);
                     return true;
 
                 case InputKey.P when state.SelectedTargetIndex >= 0 && state.SelectedTargetIndex < filtered.Count:
