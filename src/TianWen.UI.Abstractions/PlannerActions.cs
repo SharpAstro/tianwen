@@ -1079,9 +1079,19 @@ public static class PlannerActions
     /// <summary>
     /// Toggles a target: if already proposed, removes it; otherwise adds it.
     /// </summary>
-    public static void ToggleProposal(PlannerState state, Target target, ObservationPriority priority = ObservationPriority.Normal)
+    /// <param name="followPinnedSelection">
+    /// When true and this call PINS the target, moves <see cref="PlannerState.SelectedTargetIndex"/>
+    /// to the target's new row in the pinned-first filtered list (i.e. the cursor follows the object
+    /// you just pinned into the pinned section at the top). The GUI/TUI planner tabs -- which navigate
+    /// the reordered <see cref="GetFilteredTargets"/> list -- pass true so the selection doesn't get
+    /// left at the old index with an unrelated target sliding under it. The <c>plan</c> CLI navigates
+    /// the un-reordered <see cref="PlannerState.TonightsBest"/> directly (same index keeps the same
+    /// object under the cursor), so it leaves this false. Ignored on an unpin.
+    /// </param>
+    public static void ToggleProposal(PlannerState state, Target target, ObservationPriority priority = ObservationPriority.Normal, bool followPinnedSelection = false)
     {
         var existingIndex = FindProposalIndex(state.Proposals, target);
+        var justPinned = existingIndex < 0;
         if (existingIndex >= 0)
         {
             state.Proposals = state.Proposals.RemoveAt(existingIndex);
@@ -1094,10 +1104,28 @@ public static class PlannerActions
         }
         RecomputeHandoffSliders(state);
 
-        // Clamp selection to valid range — cursor stays at same position so the next
-        // item in the list naturally appears under it
         var filtered = GetFilteredTargets(state);
-        if (state.SelectedTargetIndex >= filtered.Count)
+
+        // On a pin (when the caller opts in) the cursor follows the target to its slot in the
+        // pinned section, rather than staying at the old index where the target that shifted up
+        // after the pinned-to-top reorder would appear under it.
+        var followed = false;
+        if (justPinned && followPinnedSelection)
+        {
+            for (var i = 0; i < filtered.Count; i++)
+            {
+                if (filtered[i].Target == target)
+                {
+                    state.SelectedTargetIndex = i;
+                    followed = true;
+                    break;
+                }
+            }
+        }
+
+        // Otherwise clamp selection to valid range — cursor stays put so the next item in the
+        // list naturally appears under it (the unpin path, and the no-follow CLI path).
+        if (!followed && state.SelectedTargetIndex >= filtered.Count)
         {
             state.SelectedTargetIndex = Math.Max(0, filtered.Count - 1);
         }
