@@ -22,6 +22,7 @@ intentionally NOT repeated here.
 - [ ] Share more rendering code between the Sky Map and the FITS viewer (2026-04-04)
 
 ### Planner / Session GUI
+- [ ] Planner: sensor-proximity companion suggestions — when pinning a target, surface catalog neighbours that fit on the same sensor FOV (e.g. pin the Lagoon → suggest the Trifid, ~1.4° away). Needs the active profile's FOV (focal length + sensor size already resolvable from equipment) and an angular-separation scan of the catalog around the pinned target; render as a "nearby: …" hint in the details panel or a pin-adjacent suggestion row. Very nice to have. (2026-07-07)
 - [ ] Second planner view: all unique pinned objects plotted over their bounding visibility timespan (2026-04-18) (confirmed not implemented)
 - [ ] Indicate a "light" / coverage marker under targets that actually have scheduled exposure time (2026-03-25) (the Tonight tab already goes read-only with Start disabled during a running session; only the per-target coverage marker is missing)
 - [ ] Site change should unpin pinned targets when coordinates change, and must NOT invalidate cooler setpoint temps (2026-03-27) (unpin: confirmed not done)
