@@ -364,6 +364,15 @@ namespace TianWen.UI.Abstractions
                 return;
             }
 
+            // Flats mode never sets IsRunning (RunFlatsOnlyAsync is not the full RunAsync), so the tab
+            // keeps the preview layout + mode pill; the run's live state is tracked via FlatsCts and the
+            // session snapshot mirrored by PollSession.
+            if (state.Mode == LiveSessionMode.Flats)
+            {
+                RenderFlatsSidePanel(state, rect, fontPath, fontSize, dpiScale, pad, rowH);
+                return;
+            }
+
             if (!state.IsRunning)
             {
                 // Preview mode: show header + plate solve result if available

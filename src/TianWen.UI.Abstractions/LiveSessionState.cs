@@ -258,6 +258,38 @@ namespace TianWen.UI.Abstractions
         /// </summary>
         public PolarAlignmentConfiguration PolarSetupConfig { get; set; } = PolarAlignmentConfiguration.Default;
 
+        // --- Flats mode (LiveSessionMode.Flats) ---
+
+        /// <summary>
+        /// Working copy of the illumination-source choice the user is editing in the
+        /// Flats setup panel (visible when <see cref="LiveSessionMode.Flats"/> is active
+        /// and no flat run is in flight). The Start button posts it through
+        /// <c>StartFlatsSignal.Source</c>. Persists across mode switches within a session.
+        /// </summary>
+        public FlatIlluminationChoice FlatSetupSource { get; set; } = FlatIlluminationChoice.Calibrator;
+
+        /// <summary>
+        /// Working copy of the flats-per-filter count the user is editing in the Flats
+        /// setup panel. Seeded from <c>SessionConfiguration.FlatsPerFilter</c> (default 15);
+        /// posted through <c>StartFlatsSignal.FlatsPerFilter</c>.
+        /// </summary>
+        public int FlatSetupPerFilter { get; set; } = 15;
+
+        /// <summary>Latest status line for the Flats side panel (phase transitions, errors, per-filter progress).</summary>
+        public string? FlatStatusMessage { get; set; }
+
+        /// <summary>CTS for cancelling an in-flight on-demand flat run. Non-null while a flat run is active.</summary>
+        public CancellationTokenSource? FlatsCts { get; set; }
+
+        /// <summary>
+        /// A pending session-driven user prompt ("switch on the panel, then Continue"), or null when none is
+        /// open. Set from the session's <c>PromptRequested</c> event (via the bootstrapper); the render loop
+        /// draws a confirm overlay while it is non-null, and <c>RespondSessionPromptSignal</c> calls
+        /// <see cref="TianWen.Lib.Sequencing.SessionPromptEventArgs.Respond"/> and clears it. Generic across
+        /// session flows (flats now; dark-frame cover-close later) — not flats-specific.
+        /// </summary>
+        public TianWen.Lib.Sequencing.SessionPromptEventArgs? PendingPrompt { get; set; }
+
         /// <summary>
         /// OTA index currently targeted by keyboard shortcuts and mouse clicks in
         /// preview mode. The GPU tab doesn't need this (each row registers its own

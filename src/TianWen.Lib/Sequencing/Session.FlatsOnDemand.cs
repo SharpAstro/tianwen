@@ -156,6 +156,15 @@ internal partial record Session
         _logger.LogInformation("Finalising flat run: abort exposures, close covers, warm cameras{Mount}, disconnect.",
             mountConnected ? ", park mount" : "");
 
+        // Release any frames still held in the GUI preview slots (published by PublishFlatPreview) so their
+        // ChannelBuffer refs drop back to the camera pool before we disconnect the cameras below.
+        var previewSlots = _lastCapturedImages;
+        for (var i = 0; i < previewSlots.Length; i++)
+        {
+            previewSlots[i]?.Release();
+            previewSlots[i] = null;
+        }
+
         _currentActivity = "Aborting exposures\u2026";
         for (var i = 0; i < Setup.Telescopes.Length; i++)
         {

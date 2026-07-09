@@ -202,4 +202,115 @@ public class SessionFlatsTests(ITestOutputHelper output)
             Directory.GetFiles(flatsRoot, "*.fits", SearchOption.AllDirectories).Length.ShouldBe(0);
         }
     }
+
+    [Fact(Timeout = 60_000)]
+    public async Task TakeFlatsAsync_ManualCover_PromptContinue_CapturesFlats()
+    {
+        var ct = TestContext.Current.CancellationToken;
+
+        var config = SessionTestHelper.DefaultConfiguration with
+        {
+            FlatSource = FlatIlluminationSource.Calibrator,
+            FlatAduTolerance = 1.0,
+            FlatsPerFilter = 2,
+            FlatMaxBrackets = 2,
+            FlatInitialExposure = TimeSpan.FromSeconds(1),
+        };
+
+        // A manual panel can't be dimmed by the driver (CanControlBrightness == false), so the flat routine
+        // pauses for a user prompt before capturing. An interactive handler that answers Continue lets it proceed.
+        using var ctx = await SessionTestHelper.CreateSessionAsync(
+            output, configuration: config, withManualCover: true, withFilterWheel: true, cancellationToken: ct);
+        ctx.External.MaxFitsWrites = 100;
+
+        var prompts = 0;
+        ctx.Session.PromptRequested += (_, e) =>
+        {
+            prompts++;
+            e.Respond(true);
+        };
+
+        var flatsRoot = Path.Combine(ctx.External.ImageOutputFolder.FullName, "Flats");
+        if (Directory.Exists(flatsRoot)) Directory.Delete(flatsRoot, recursive: true);
+
+        await ctx.Session.TakeFlatsAsync(ct);
+
+        prompts.ShouldBe(1); // one OTA with a manual panel -> exactly one prompt
+        var filterCount = ctx.FilterWheel.ShouldNotBeNull().Filters.Count;
+        Directory.Exists(flatsRoot).ShouldBeTrue();
+        Directory.GetFiles(flatsRoot, "*.fits", SearchOption.AllDirectories).Length
+            .ShouldBe(filterCount * config.FlatsPerFilter);
+    }
+
+    [Fact(Timeout = 60_000)]
+    public async Task TakeFlatsAsync_ManualCover_PromptCancel_SkipsOtaWithoutWritingFlats()
+    {
+        var ct = TestContext.Current.CancellationToken;
+
+        var config = SessionTestHelper.DefaultConfiguration with
+        {
+            FlatSource = FlatIlluminationSource.Calibrator,
+            FlatAduTolerance = 1.0,
+            FlatsPerFilter = 2,
+            FlatMaxBrackets = 2,
+            FlatInitialExposure = TimeSpan.FromSeconds(1),
+        };
+
+        using var ctx = await SessionTestHelper.CreateSessionAsync(
+            output, configuration: config, withManualCover: true, withFilterWheel: true, cancellationToken: ct);
+        ctx.External.MaxFitsWrites = 100;
+
+        var prompts = 0;
+        // Declining the prompt (the user isn't ready / can't light the panel) skips the OTA -- it must not
+        // write flats and must not throw or abort.
+        ctx.Session.PromptRequested += (_, e) =>
+        {
+            prompts++;
+            e.Respond(false);
+        };
+
+        var flatsRoot = Path.Combine(ctx.External.ImageOutputFolder.FullName, "Flats");
+        if (Directory.Exists(flatsRoot)) Directory.Delete(flatsRoot, recursive: true);
+
+        await ctx.Session.TakeFlatsAsync(ct);
+
+        prompts.ShouldBe(1);
+        if (Directory.Exists(flatsRoot))
+        {
+            Directory.GetFiles(flatsRoot, "*.fits", SearchOption.AllDirectories).Length.ShouldBe(0);
+        }
+    }
+
+    [Fact(Timeout = 60_000)]
+    public async Task TakeFlatsAsync_ControllablePanel_DoesNotPrompt()
+    {
+        var ct = TestContext.Current.CancellationToken;
+
+        var config = SessionTestHelper.DefaultConfiguration with
+        {
+            FlatSource = FlatIlluminationSource.Calibrator,
+            FlatAduTolerance = 1.0,
+            FlatsPerFilter = 2,
+            FlatMaxBrackets = 2,
+            FlatInitialExposure = TimeSpan.FromSeconds(1),
+        };
+
+        // A driver-controlled calibrator (CanControlBrightness == true) sets its own level -> no prompt.
+        using var ctx = await SessionTestHelper.CreateSessionAsync(
+            output, configuration: config, withCoverCalibrator: true, withFilterWheel: true, cancellationToken: ct);
+        ctx.External.MaxFitsWrites = 100;
+
+        var prompts = 0;
+        ctx.Session.PromptRequested += (_, e) => { prompts++; e.Respond(true); };
+
+        var flatsRoot = Path.Combine(ctx.External.ImageOutputFolder.FullName, "Flats");
+        if (Directory.Exists(flatsRoot)) Directory.Delete(flatsRoot, recursive: true);
+
+        await ctx.Session.TakeFlatsAsync(ct);
+
+        prompts.ShouldBe(0);
+        var filterCount = ctx.FilterWheel.ShouldNotBeNull().Filters.Count;
+        Directory.GetFiles(flatsRoot, "*.fits", SearchOption.AllDirectories).Length
+            .ShouldBe(filterCount * config.FlatsPerFilter);
+    }
 }

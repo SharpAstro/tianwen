@@ -135,6 +135,17 @@ public interface ISession : IAsyncDisposable
     /// so UIs can surface star-loss / recovery transitions as notifications.</summary>
     event EventHandler<GuiderStateChangedEventArgs>? GuiderStateChanged;
 
+    /// <summary>
+    /// Fired when the session needs the user to perform a physical step and confirm before proceeding
+    /// (e.g. "switch on the manual flat panel", or — in a future dark-frame flow — "cover the scope").
+    /// The handler shows a prompt and calls <see cref="SessionPromptEventArgs.Respond"/> with the user's
+    /// decision. A headless caller (CLI / server) that does not subscribe makes the session auto-proceed,
+    /// so this never blocks an unattended run. Gated on driver capability at the call site — e.g. the flat
+    /// routine only prompts for a calibrator that is present but not
+    /// <see cref="Devices.ICoverDriver.CanControlBrightness"/>.
+    /// </summary>
+    event EventHandler<SessionPromptEventArgs>? PromptRequested;
+
     Task RunAsync(CancellationToken cancellationToken);
 
     /// <summary>

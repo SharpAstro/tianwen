@@ -44,6 +44,18 @@ public interface ICoverDriver : IDeviceDriver
     int MaxBrightness { get; }
 
     /// <summary>
+    /// Whether the driver can actually set the calibrator brightness electronically. <c>true</c> for a
+    /// real panel (flip-flat, Gemini FlatPanel Lite, an ASCOM/Alpaca cover-calibrator) whose
+    /// <see cref="BeginCalibratorOn"/> physically drives the light; <c>false</c> for a hand-switched
+    /// <see cref="ManualCoverDevice"/>, where <see cref="BeginCalibratorOn"/> only records a value and a
+    /// human sets the actual level. The flat routine uses this to decide whether it must pause for a user
+    /// prompt ("switch the panel on") before capturing -- it does <b>not</b> gate the motorised-cover
+    /// (dark-frame) axis, which is queried separately via <see cref="GetCoverStateAsync"/>
+    /// (<see cref="CoverStatus.NotPresent"/> = no flap to close). Default <c>true</c>.
+    /// </summary>
+    bool CanControlBrightness => true;
+
+    /// <summary>
     /// Higher-level function to turn off the calibrator (if present)
     /// </summary>
     async ValueTask<bool> TurnOffCalibratorAndWaitAsync(CancellationToken cancellationToken = default)

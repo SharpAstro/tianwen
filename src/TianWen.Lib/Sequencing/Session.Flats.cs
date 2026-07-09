@@ -87,6 +87,23 @@ internal partial record Session
                 continue;
             }
 
+            // A calibrator the driver can't dim (a hand-switched manual panel) needs the human to switch it
+            // on and set a comfortable level first -- the solver then meters whatever light is present. Pause
+            // for a user prompt (a headless caller auto-proceeds); declining skips this OTA. Driver-controlled
+            // panels (flip-flat / Gemini / ASCOM) set their own brightness below and never prompt.
+            if (!coverDriver.CanControlBrightness)
+            {
+                var proceed = await RequestUserConfirmationAsync(
+                    "Manual flat panel",
+                    $"Switch on the flat panel for telescope #{i + 1} ({telescope.Name}) and set a comfortable brightness, then Continue.",
+                    cancellationToken).ConfigureAwait(false);
+                if (!proceed)
+                {
+                    _logger.LogInformation("Telescope #{TelescopeNumber} '{Name}': user skipped manual-panel flats.", i + 1, telescope.Name);
+                    continue;
+                }
+            }
+
             var brightness = ResolveCalibratorBrightness(coverDriver.MaxBrightness, cfg.FlatCalibratorBrightnessPercent);
             if (!await TurnCalibratorOnAndWaitAsync(coverDriver, brightness, i, cancellationToken).ConfigureAwait(false))
             {
@@ -133,6 +150,7 @@ internal partial record Session
             }
 
             var filterName = await PrepareFilterForFlatsAsync(otaIndex, telescope, camDriver, filterWheel, position, cancellationToken).ConfigureAwait(false);
+            _currentActivity = $"OTA {otaIndex + 1} · {filterName} · metering…";
 
             // Auto-exposure: bracket toward the target level, discarding the metering frames.
             var exposure = Clamp(initialExposure, minExposure, maxExposure);
@@ -151,10 +169,17 @@ internal partial record Session
                 {
                     level = MeasureFlatLevel(meteringFrame);
                 }
-                finally
+                catch
                 {
                     meteringFrame.Release();
+                    throw;
                 }
+
+                // Surface the metering frame in the GUI live preview. Ownership transfers to the
+                // observable slot (the previously-published frame is released) -- the same low-risk
+                // hand-off polar-align uses. Flat exposures are seconds apart, so at most one frame per
+                // OTA is in flight and the camera pool is never starved.
+                PublishFlatPreview(otaIndex, meteringFrame);
 
                 var decision = FlatExposureSolver.Solve(level, exposure, target, tolerance, minExposure, maxExposure, attempt, maxBrackets);
                 _logger.LogInformation(
@@ -188,6 +213,7 @@ internal partial record Session
 
             for (var frame = 0; frame < flatsPerFilter && !cancellationToken.IsCancellationRequested; frame++)
             {
+                _currentActivity = $"OTA {otaIndex + 1} · {filterName} · flat {frame + 1}/{flatsPerFilter}";
                 var flat = await CaptureFlatFrameAsync(camDriver, converged, cancellationToken).ConfigureAwait(false);
                 if (flat is null)
                 {
@@ -199,10 +225,14 @@ internal partial record Session
                 {
                     await WriteFlatToFitsFileAsync(flat, otaIndex, flat.ImageMeta.ExposureStartTime, frame + 1).ConfigureAwait(false);
                 }
-                finally
+                catch
                 {
                     flat.Release();
+                    throw;
                 }
+
+                // Publish the kept flat to the GUI live preview (ownership transfer, previous released).
+                PublishFlatPreview(otaIndex, flat);
             }
         }
     }
@@ -246,6 +276,32 @@ internal partial record Session
             && !cancellationToken.IsCancellationRequested);
 
         return null;
+    }
+
+    /// <summary>
+    /// Publishes a captured metering / flat frame to the observable preview slot
+    /// (<see cref="LastCapturedImages"/>) the GUI live preview reads via <c>PollSession</c>. Ownership
+    /// transfers to the slot: the previously-published frame for this OTA is released so its
+    /// <c>ChannelBuffer</c> ref drops (mirrors the polar-align <c>onFrameCaptured</c> hand-off). Flat
+    /// exposures are seconds apart, so at most one frame per OTA is ever in flight -- the camera's recycle
+    /// pool is never starved. Frames are released again in <see cref="FinaliseFlatsAsync"/>. An
+    /// out-of-range OTA index releases the frame immediately (no slot to own it).
+    /// </summary>
+    private void PublishFlatPreview(int otaIndex, Image image)
+    {
+        var slots = _lastCapturedImages;
+        if (otaIndex < 0 || otaIndex >= slots.Length)
+        {
+            image.Release();
+            return;
+        }
+
+        var previous = slots[otaIndex];
+        slots[otaIndex] = image;
+        if (!ReferenceEquals(previous, image))
+        {
+            previous?.Release();
+        }
     }
 
     /// <summary>Robust flat level as a fraction of the sensor ceiling (whole-frame median ADU / max ADU).</summary>

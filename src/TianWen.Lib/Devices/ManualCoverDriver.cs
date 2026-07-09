@@ -27,6 +27,10 @@ internal sealed class ManualCoverDriver(ManualCoverDevice device, IServiceProvid
     // see BeginCalibratorOn).
     public int MaxBrightness => 255;
 
+    // The panel is hand-switched: BeginCalibratorOn only records the requested value; a human sets the
+    // actual light. The flat routine reads this to prompt the user to switch the panel on before capturing.
+    public bool CanControlBrightness => false;
+
     // No motorised flap — a bare light panel, like the Gemini FlatPanel Lite.
     public ValueTask<CoverStatus> GetCoverStateAsync(CancellationToken cancellationToken = default)
         => ValueTask.FromResult(CoverStatus.NotPresent);

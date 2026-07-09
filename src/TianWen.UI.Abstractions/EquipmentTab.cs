@@ -1066,6 +1066,18 @@ namespace TianWen.UI.Abstractions
 
             RenderButton(discoverLabel, discoverBtnX, discoverBtnY, discoverBtnW, buttonH, fontPath, fontSize, CreateButton, BodyText, "Discover",
                 mods => PostSignal(new DiscoverDevicesSignal(IncludeFake: (mods & InputModifier.Shift) != 0)));
+
+            // When a Cover slot is being assigned, offer the Manual Light Panel (a hand-switched dumb
+            // panel -- not discoverable) as an explicit add next to [Discover]. Once assigned it flows
+            // through the ordinary Calibrator flat path, so the user can shoot manual flats with no rig.
+            if (State.ActiveAssignment?.ExpectedDeviceType == DeviceType.CoverCalibrator)
+            {
+                const string manualLabel = "+ Manual Light Panel";
+                var manualBtnW = Renderer.MeasureText(manualLabel.AsSpan(), fontPath, fontSize).Width + padding * 4f;
+                var manualBtnX = discoverBtnX + discoverBtnW + padding;
+                RenderButton(manualLabel, manualBtnX, discoverBtnY, manualBtnW, buttonH, fontPath, fontSize, CreateButton, BodyText, "AddManualCover",
+                    _ => PostSignal(new AssignManualCoverSignal()));
+            }
         }
 
         /// <summary>

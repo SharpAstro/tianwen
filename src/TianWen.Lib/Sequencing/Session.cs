@@ -170,6 +170,43 @@ internal partial record Session(
     public event EventHandler<PlateSolveCompletedEventArgs>? PlateSolveCompleted;
     public event EventHandler<ScoutCompletedEventArgs>? ScoutCompleted;
     public event EventHandler<GuiderStateChangedEventArgs>? GuiderStateChanged;
+    public event EventHandler<SessionPromptEventArgs>? PromptRequested;
+
+    /// <summary>
+    /// Asks the user to perform a physical step and confirm, via <see cref="PromptRequested"/>. Returns
+    /// <c>true</c> to proceed, <c>false</c> to decline (the caller then skips the gated step). When no
+    /// interactive handler is subscribed (CLI / server / tests), it logs the instruction and
+    /// auto-proceeds, so an unattended run never blocks. When a handler is present it raises the prompt and
+    /// awaits the response, bounded by <paramref name="cancellationToken"/> — a session cancel while the
+    /// prompt is open resolves to <c>false</c>.
+    /// </summary>
+    private async ValueTask<bool> RequestUserConfirmationAsync(
+        string title, string message, CancellationToken cancellationToken,
+        string continueLabel = "Continue", string cancelLabel = "Cancel")
+    {
+        var handler = PromptRequested;
+        if (handler is null)
+        {
+            _logger.LogInformation("User step (auto-proceeding, no interactive handler): {Title} — {Message}", title, message);
+            return true;
+        }
+
+        // RunContinuationsAsynchronously: the UI thread calls Respond(); without this the session's
+        // await-continuation would resume inline on that UI thread.
+        var completion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _logger.LogInformation("Waiting for user: {Title} — {Message}", title, message);
+        handler.Invoke(this, new SessionPromptEventArgs(title, message, continueLabel, cancelLabel, completion));
+
+        try
+        {
+            return await completion.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            // Cancelled while the prompt was open — treat as "do not proceed".
+            return false;
+        }
+    }
 
     /// <summary>
     /// Single write path for the polled guider app-state: raises <see cref="GuiderStateChanged"/>
