@@ -230,12 +230,21 @@ screenshot-poll-and-OCR**. Three pieces compose:
    `sdl-ui-inspector` MCP sidecar (`.mcp.json` → `dnx SdlVulkan.Renderer.Inspector`, UDP-multicast discovery).
    It gives five surfaces:
    - **Describe/state snapshot** (the `AppState` block): `activeTab`, `profile`, `sessionRunning`, `phase`,
-     `mountConnected/Name/RaJ2000/DecJ2000/mountSlewing/mountTracking`, `lastNotification`, sky-map viewport.
+     `mountConnected/Name/RaJ2000/DecJ2000/mountSlewing/mountTracking`, `lastNotification`, sky-map viewport,
+     `liveSessionMode` (Preview/PolarAlign/Planetary/Flats) + `flatRunActive`/`flatStatus`.
      **Poll this for coarse session state** (phase transitions, stuck-slewing, notifications) — it replaces a
      screenshot+OCR loop.
-   - **Programmatic signals** (`SignalFactories`): `DiscoverDevices{includeFake}`, `BuildSchedule`,
-     **`StartSession`**, `SkyMapSetView`, `SkyMapSolveSync`, `TakePreview`. Posting `StartSession` runs the
-     whole `RunAsync` with no clicking.
+   - **Programmatic signals** (`SignalFactories`): the **whole app bus is postable by name** — the
+     `SignalFactories` map is **source-generated** over EVERY `*Signal` type in `TianWen.UI.Abstractions`
+     (`DIR.Lib.SourceGenerators.SignalDirectoryGenerator` → `SignalDirectory.BuildFactories(bus)`), so
+     `list_signals` returns all ~40 (e.g. `StartSession`, `StartFlats{source,flatsPerFilter}`,
+     `RespondSessionPrompt{proceed}`, `SkyMapSetView`, `SkyMapSolveSync`, `DiscoverDevices{includeFake}`).
+     JSON keys are the camelCase parameter names; a missing field falls back to the signal's declared ctor
+     default. **No runtime reflection** (the generator is DEBUG-gated + emits `bus.Post(new T(...))`), and
+     the generator + its `DIR.Lib.SignalJson` binder live in **DIR.Lib** — nothing here is TianWen-specific,
+     so any `SignalBus` consumer gets the directory for free. A signal with a required *complex* payload
+     (e.g. a `TextInputState`/`ProfileData`) is skipped (not JSON-postable). Posting `StartSession` runs the
+     whole `RunAsync` with no clicking; posting `StartFlats` drives a flat run regardless of the visible mode.
    - **Clickable regions** (`GetRegions`, `describe_ui`): click-by-label for any action without a dedicated signal.
    - **Arranged layout tree** (`GetLayout`, `describe_layout`, `SdlVulkan.Renderer.Inspector` 6.9+): the FULL
      `DIR.Lib.Layout` tree the chrome + active tab painted this frame — every node with its `depth` (pre-order,

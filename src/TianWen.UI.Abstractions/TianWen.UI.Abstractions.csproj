@@ -10,6 +10,12 @@
 
   <ItemGroup Condition="'$(UseLocalSiblings)' == 'true'">
     <ProjectReference Include="..\..\..\DIR.Lib\src\DIR.Lib\DIR.Lib.csproj" />
+    <!-- DIR.Lib's SignalDirectory source generator (emits the DEBUG-only inspector signal directory over
+         this assembly's *Signal types). Analyzers do NOT flow transitively through a ProjectReference, so
+         it is referenced directly for local (in-tree) builds; the DIR.Lib PACKAGE bundles it under
+         analyzers/, so the PackageReference path below gets it automatically. -->
+    <ProjectReference Include="..\..\..\DIR.Lib\src\DIR.Lib.SourceGenerators\DIR.Lib.SourceGenerators.csproj"
+                      OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
   </ItemGroup>
   <ItemGroup Condition="'$(UseLocalSiblings)' != 'true'">
     <PackageReference Include="DIR.Lib" />
