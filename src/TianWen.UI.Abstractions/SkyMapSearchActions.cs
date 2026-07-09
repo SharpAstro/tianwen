@@ -571,7 +571,9 @@ public static class SkyMapSearchActions
     /// since planets wander and have no fixed constellation in the catalog. Falls back to a bare named
     /// position when the catalog has no entry for the index (e.g. a minimal test DB).
     /// </summary>
-    private static SkyMapInfoPanelData PlanetInfoPanel(
+    // internal (not private) so the per-frame info-panel redraw can rebuild a selected planet's
+    // panel from its LIVE position as the viewing time advances -- see SkyMapTab.DrawSearchAndInfoPanel.
+    internal static SkyMapInfoPanelData PlanetInfoPanel(
         ICelestialObjectDB db, CatalogIndex planetIdx, double raHours, double decDeg,
         double siteLat, double siteLon, DateTimeOffset viewingUtc, in SiteContext site)
     {

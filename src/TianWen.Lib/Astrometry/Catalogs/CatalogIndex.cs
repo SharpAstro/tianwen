@@ -385,6 +385,19 @@ public static class CatalogIndexEx
         return catalog;
     }
 
+    extension(CatalogIndex catalogIndex)
+    {
+        /// <summary>
+        /// True for a solar-system body -- a major planet, the Moon, or Sol (the <see cref="Catalog.Pl"/>
+        /// catalog). Unlike a fixed star/DSO, its true RA/Dec is ephemeris-computed and therefore
+        /// viewing-time dependent, so a caller that resolves live positions (e.g. the sky map's selection
+        /// crosshair) can cheaply gate that path on this instead of scanning the ephemeris set for every
+        /// selection. For now this is exactly the <see cref="Catalog.Pl"/> catalog; were minor planets or
+        /// comets ever given their own catalog they would be added here.
+        /// </summary>
+        public bool IsSolarSystemObject => catalogIndex.ToCatalog() == Catalog.Pl;
+    }
+
     /// <summary>
     /// Identifies the <see cref="Catalog"/> of the given <see cref="CatalogIndex"/> <paramref name="catalogIndex"/>.
     /// Will return 0 for Catalog if Catalog cannot be determined.

@@ -62,6 +62,29 @@ public class CatalogIndexTests
     }
 
     [Theory]
+    // Solar-system bodies (Catalog.Pl): true -- their RA/Dec is ephemeris-computed / time-dependent.
+    [InlineData(CatalogIndex.Sol, true)]
+    [InlineData(CatalogIndex.Moon, true)]
+    [InlineData(CatalogIndex.Mercury, true)]
+    [InlineData(CatalogIndex.Venus, true)]
+    [InlineData(CatalogIndex.Mars, true)]
+    [InlineData(CatalogIndex.Jupiter, true)]
+    [InlineData(CatalogIndex.Saturn, true)]
+    [InlineData(CatalogIndex.Uranus, true)]
+    [InlineData(CatalogIndex.Neptune, true)]
+    // Fixed catalog objects: false -- their catalog RA/Dec never moves with the viewing time.
+    [InlineData(CatalogIndex.NGC7293, false)]
+    [InlineData(CatalogIndex.M042, false)]
+    [InlineData(CatalogIndex.HR1142, false)]
+    [InlineData(CatalogIndex.IC1000, false)]
+    [InlineData(CatalogIndex.PSR_J2144_3933s, false)]
+    public void GivenACatalogIndexWhenIsSolarSystemObjectThenPlanetsAreTrueAndFixedObjectsAreFalse(
+        CatalogIndex catalogIndex, bool expected)
+    {
+        catalogIndex.IsSolarSystemObject.ShouldBe(expected);
+    }
+
+    [Theory]
     [InlineData(CatalogIndex.Barnard_22, "Barnard 22")]
     [InlineData(CatalogIndex.BD_16_1591s, "BD-16 1591")]
     [InlineData(CatalogIndex.C041, "C41")]

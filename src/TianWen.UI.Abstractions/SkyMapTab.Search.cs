@@ -63,6 +63,27 @@ namespace TianWen.UI.Abstractions
             // remain visible after the user closes the search window.
             if (State.Search.InfoPanel is { } info)
             {
+                // A solar-system body's true RA/Dec is viewing-time dependent, so a selection made on an
+                // earlier date/time would otherwise freeze the crosshair + RA/Dec/Alt at that instant while
+                // the live planet dot moves on (the "Venus moved but the crosshair didn't" bug). Only a
+                // Pl-catalog body can move, so gate on IsSolarSystemObject FIRST (O(1) on the index) -- a
+                // fixed star/DSO or the mount marker never enters the ephemeris path at all. For a planet,
+                // re-resolve from the per-frame cache the dot/label draws from (keyed on the SAME
+                // viewingTime) and rebuild the panel via the shared builder, so stepping the date keeps the
+                // marker on the planet and its Alt/RA/Dec live.
+                if (info.Index is { } selIdx && selIdx.IsSolarSystemObject)
+                {
+                    foreach (var (planetIdx, pRa, pDec) in State.GetPlanetPositionsCached(viewingTime))
+                    {
+                        if (planetIdx == selIdx)
+                        {
+                            info = SkyMapSearchActions.PlanetInfoPanel(
+                                db, selIdx, pRa, pDec, siteLat, siteLon, viewingTime, in site);
+                            break;
+                        }
+                    }
+                }
+
                 DrawInfoPanel(plannerState, info, contentRect, fontPath, dpiScale,
                     pixelsPerRadian, cx, cy);
             }
