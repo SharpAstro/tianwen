@@ -30,6 +30,16 @@ namespace TianWen.UI.Abstractions
     /// existing focuser jog / mount controls are reused. Mutually exclusive
     /// with <c>Session</c> mode (same manual-control precondition as PolarAlign).
     /// </para>
+    /// <para>
+    /// <b>Flats</b> — on-demand flat-frame capture driving
+    /// <see cref="TianWen.Lib.Sequencing.ISession.RunFlatsOnlyAsync"/>. Reuses the
+    /// preview viewer (shows the metering / capture frames) and swaps in a
+    /// flats-specific side panel: an illumination-source selector
+    /// (calibrator / sky-dusk / sky-dawn), a flats-per-filter count, and a
+    /// Start button; while running it shows the flat phase + status + Cancel.
+    /// Mutually exclusive with <c>Session</c> mode (same manual-control
+    /// precondition as PolarAlign / Planetary).
+    /// </para>
     /// </remarks>
     public enum LiveSessionMode
     {
@@ -37,5 +47,6 @@ namespace TianWen.UI.Abstractions
         Session = 1,
         PolarAlign = 2,
         Planetary = 3,
+        Flats = 4,
     }
 }

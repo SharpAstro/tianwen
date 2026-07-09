@@ -190,6 +190,13 @@ namespace TianWen.UI.Abstractions
                         viewportWidth: Renderer.Width,
                         viewportHeight: Renderer.Height);
                 }
+
+                // Prompts can fire in any mode -- draw the overlay here too so the planetary early-return
+                // path doesn't swallow it (future dark-frame flows).
+                if (state.PendingPrompt is { } planetaryPrompt)
+                {
+                    RenderSessionPrompt(contentRect, planetaryPrompt, fontPath, fs, dpiScale);
+                }
                 return;
             }
 
@@ -365,6 +372,13 @@ namespace TianWen.UI.Abstractions
                     borderColor: border,
                     viewportWidth: Renderer.Width,
                     viewportHeight: Renderer.Height);
+            }
+
+            // Session-driven user prompt (e.g. "switch on the manual panel") -- topmost overlay so its
+            // buttons win paint-order hit testing over everything below.
+            if (state.PendingPrompt is { } pendingPrompt)
+            {
+                RenderSessionPrompt(contentRect, pendingPrompt, fontPath, fs, dpiScale);
             }
         }
 

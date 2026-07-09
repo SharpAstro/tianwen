@@ -140,6 +140,61 @@ public readonly record struct NudgeFakeMountMisalignmentSignal(
 /// </summary>
 public readonly record struct DonePolarAlignmentSignal;
 
+/// <summary>
+/// UI-level illumination-source choice for the Flats live-session mode. Collapses the
+/// <see cref="TianWen.Lib.Sequencing.FlatIlluminationSource"/> + <see cref="TianWen.Lib.Sequencing.TwilightPeriod"/>
+/// pair into a single flat selector the side panel cycles through. The bootstrapper maps it back:
+/// <see cref="Calibrator"/> -> (Calibrator, period ignored); <see cref="SkyDusk"/> -> (TwilightSky, Dusk);
+/// <see cref="SkyDawn"/> -> (TwilightSky, Dawn).
+/// </summary>
+public enum FlatIlluminationChoice
+{
+    /// <summary>Any cover/calibrator device (flip-flat, lightbox, Gemini panel, or a manual light panel).</summary>
+    Calibrator = 0,
+    /// <summary>Evening twilight sky-flats (exposures lengthen as the sky darkens).</summary>
+    SkyDusk = 1,
+    /// <summary>Morning twilight sky-flats (exposures shorten as the sky brightens).</summary>
+    SkyDawn = 2,
+}
+
+/// <summary>
+/// Start an on-demand flat-frame run from the Flats live-session mode, driving
+/// <see cref="TianWen.Lib.Sequencing.ISession.RunFlatsOnlyAsync"/> as a tracked background task.
+/// The handler re-validates preconditions (no session running, profile + OTA present, device hub,
+/// a cover/calibrator for <see cref="FlatIlluminationChoice.Calibrator"/> or the mount for sky-flats).
+/// </summary>
+/// <param name="Source">Illumination source + twilight period, collapsed into one selector.</param>
+/// <param name="FlatsPerFilter">Frames to keep per installed filter at the converged exposure.</param>
+public readonly record struct StartFlatsSignal(
+    FlatIlluminationChoice Source = FlatIlluminationChoice.Calibrator,
+    int FlatsPerFilter = 15)
+{
+    // Same record-struct trap as SkyMapSolveSyncSignal: a parameterless `new()` zero-inits
+    // every field and SKIPS these primary-ctor defaults, so a plain `new StartFlatsSignal()`
+    // would give FlatsPerFilter = 0 (no frames kept). Route through the primary ctor so a
+    // no-arg construction means "Calibrator source, 15 frames per filter" as declared. Guarded
+    // by SignalDefaultsTests.
+    public StartFlatsSignal() : this(FlatIlluminationChoice.Calibrator, 15) { }
+}
+
+/// <summary>Cancel an in-flight on-demand flat run. The finaliser (close covers, warm, disconnect) still runs.</summary>
+public readonly record struct CancelFlatsSignal;
+
+/// <summary>
+/// The user's answer to the open session prompt (<see cref="LiveSessionState.PendingPrompt"/>):
+/// <c>Proceed=true</c> continues the gated step, <c>false</c> declines/skips it. The handler forwards it
+/// to <see cref="TianWen.Lib.Sequencing.SessionPromptEventArgs.Respond"/> and clears the pending prompt.
+/// </summary>
+public readonly record struct RespondSessionPromptSignal(bool Proceed);
+
+/// <summary>
+/// Assign a Manual Light Panel (a hand-switched <see cref="TianWen.Lib.Devices.ManualCoverDevice"/>) to
+/// the equipment tab's currently-active Cover slot. The manual panel is not discoverable, so it can't be
+/// picked from the discovered-device list; this is the explicit "add" affordance. Once assigned it flows
+/// through the ordinary <see cref="FlatIlluminationChoice.Calibrator"/> flat path with no branching.
+/// </summary>
+public readonly record struct AssignManualCoverSignal;
+
 /// <summary>Request abort — shows confirmation strip in the live session tab.</summary>
 public readonly record struct RequestAbortSessionSignal;
 

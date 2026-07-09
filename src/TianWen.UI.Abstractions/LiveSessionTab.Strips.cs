@@ -32,12 +32,15 @@ namespace TianWen.UI.Abstractions
                 // is active posts a Cancel. Caret hint indicates the click affordance.
                 var inPolar = state.Mode == LiveSessionMode.PolarAlign;
                 var inPlanetary = state.Mode == LiveSessionMode.Planetary;
+                var inFlats = state.Mode == LiveSessionMode.Flats;
                 var modePillColor = inPolar
                     ? StatusSolving                                    // cyan while PA running
                     : inPlanetary
                         ? new RGBAColor32(0x40, 0x33, 0x66, 0xff)      // muted purple-blue for Planetary
-                        : new RGBAColor32(0x55, 0x33, 0x88, 0xff);     // purple for plain Preview
-                var pillLabel = inPolar ? "POLAR \u25BE" : inPlanetary ? "PLANETARY \u25BE" : "PREVIEW \u25BE";
+                        : inFlats
+                            ? new RGBAColor32(0x88, 0x66, 0x22, 0xff)  // warm amber for Flats (light source)
+                            : new RGBAColor32(0x55, 0x33, 0x88, 0xff); // purple for plain Preview
+                var pillLabel = inPolar ? "POLAR \u25BE" : inPlanetary ? "PLANETARY \u25BE" : inFlats ? "FLATS \u25BE" : "PREVIEW \u25BE";
                 var pillX = rect.X + pad;
                 var pillY = rect.Y + pad;
                 // Click-to-open: anchor the dropdown directly under the pill. The pill is a single
@@ -55,13 +58,14 @@ namespace TianWen.UI.Abstractions
                         }
                         dropdown.Open(
                             pillX, pillY + pillH, pillW,
-                            ImmutableArray.Create("Preview", "Polar Align", "Planetary"),
+                            ImmutableArray.Create("Preview", "Polar Align", "Planetary", "Flats"),
                             (idx, _) =>
                             {
                                 var target = idx switch
                                 {
                                     1 => LiveSessionMode.PolarAlign,
                                     2 => LiveSessionMode.Planetary,
+                                    3 => LiveSessionMode.Flats,
                                     _ => LiveSessionMode.Preview,
                                 };
                                 if (target == state.Mode)
@@ -85,9 +89,26 @@ namespace TianWen.UI.Abstractions
                                     return;
                                 }
 
+                                // Same guard for an in-flight flat run: cancel it and let the async
+                                // handler flip Mode back; the user re-picks once it has stopped.
+                                if (state.Mode == LiveSessionMode.Flats && state.FlatsCts is not null)
+                                {
+                                    PostSignal(new CancelFlatsSignal());
+                                    if (target != LiveSessionMode.Preview)
+                                    {
+                                        state.FlatStatusMessage = "Flat run stopping -- pick the mode again";
+                                    }
+                                    state.NeedsRedraw = true;
+                                    return;
+                                }
+
                                 if (state.Mode == LiveSessionMode.PolarAlign)
                                 {
                                     state.PolarStatusMessage = "";
+                                }
+                                if (state.Mode == LiveSessionMode.Flats)
+                                {
+                                    state.FlatStatusMessage = "";
                                 }
 
                                 switch (target)
@@ -117,6 +138,13 @@ namespace TianWen.UI.Abstractions
                                     }
                                     case LiveSessionMode.Planetary:
                                         state.Mode = LiveSessionMode.Planetary;
+                                        break;
+                                    case LiveSessionMode.Flats:
+                                        // Enter Flats setup: the panel's Start button fires StartFlatsSignal
+                                        // after the user picks a source + count. Seed the per-filter count
+                                        // from the working copy (persisted across mode switches).
+                                        state.Mode = LiveSessionMode.Flats;
+                                        state.FlatStatusMessage = "Pick a source and click Start";
                                         break;
                                     default:
                                         state.Mode = LiveSessionMode.Preview;
@@ -314,6 +342,55 @@ namespace TianWen.UI.Abstractions
             DrawText("Abort session? Press Enter to confirm, Escape to cancel", fontPath,
                 contentRect.X, stripY, contentRect.Width, stripH,
                 fontSize, AbortText, TextAlign.Center, TextAlign.Center);
+        }
+
+        /// <summary>
+        /// Session-driven user prompt overlay ("switch on the panel, then Continue"). A centred card with
+        /// the title, message, and clickable [Continue] / [Cancel] buttons; Enter = Continue, Escape =
+        /// Cancel (handled in <c>.Input</c>). Rendered whenever <see cref="LiveSessionState.PendingPrompt"/>
+        /// is non-null, in any mode, so a future dark-frame cover-close prompt reuses it unchanged.
+        /// </summary>
+        private void RenderSessionPrompt(RectF32 contentRect, SessionPromptEventArgs prompt,
+            string fontPath, float fontSize, float dpiScale)
+        {
+            var pad = BasePadding * dpiScale;
+            var rowH = BaseRowHeight * dpiScale;
+            var cardW = MathF.Min(contentRect.Width * 0.7f, 520f * dpiScale);
+            var cardH = rowH * 5f + pad * 2f;
+            var cardX = contentRect.X + (contentRect.Width - cardW) / 2f;
+            var cardY = contentRect.Y + (contentRect.Height - cardH) / 2f;
+
+            // Dim backdrop + card.
+            FillRect(contentRect.X, contentRect.Y, contentRect.Width, contentRect.Height,
+                new RGBAColor32(0x00, 0x00, 0x00, 0xaa));
+            FillRect(cardX, cardY, cardW, cardH, PanelBg);
+            FillRect(cardX, cardY, cardW, 2f, StatusSlewing); // accent bar
+
+            var innerX = cardX + pad;
+            var innerW = cardW - pad * 2f;
+
+            DrawText(prompt.Title, fontPath,
+                innerX, cardY + pad, innerW, rowH,
+                fontSize * 1.1f, BrightText, TextAlign.Near, TextAlign.Center);
+
+            DrawText(prompt.Message, fontPath,
+                innerX, cardY + pad + rowH, innerW, rowH * 2.4f,
+                fontSize, BodyText, TextAlign.Near, TextAlign.Near);
+
+            // Buttons: [Cancel] left, [Continue] right (primary in the muscle-memory spot).
+            var btnH = rowH * 1.3f;
+            var btnW = (innerW - pad) / 2f;
+            var btnY = cardY + cardH - btnH - pad;
+            RenderButton(prompt.CancelLabel, innerX, btnY, btnW, btnH,
+                fontPath, fontSize,
+                new RGBAColor32(0x33, 0x33, 0x3a, 0xff), BodyText,
+                "SessionPromptCancel",
+                _ => PostSignal(new RespondSessionPromptSignal(false)));
+            RenderButton(prompt.ContinueLabel, innerX + btnW + pad, btnY, btnW, btnH,
+                fontPath, fontSize,
+                new RGBAColor32(0x44, 0xaa, 0x66, 0xff), BrightText,
+                "SessionPromptContinue",
+                _ => PostSignal(new RespondSessionPromptSignal(true)));
         }
 
         // -----------------------------------------------------------------------

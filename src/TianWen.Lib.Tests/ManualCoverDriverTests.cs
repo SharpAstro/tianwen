@@ -30,6 +30,9 @@ public class ManualCoverDriverTests(ITestOutputHelper output)
         driver.Connected.ShouldBeTrue();
         driver.MaxBrightness.ShouldBe(255); // matches the Gemini FlatPanel Lite (0-255).
         (await driver.GetCoverStateAsync(TestContext.Current.CancellationToken)).ShouldBe(CoverStatus.NotPresent);
+
+        // A hand-switched panel is not electronically dimmable -> the flat routine must prompt the user.
+        driver.CanControlBrightness.ShouldBeFalse();
     }
 
     [Fact]

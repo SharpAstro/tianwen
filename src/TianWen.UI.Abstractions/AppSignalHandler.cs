@@ -1542,6 +1542,33 @@ namespace TianWen.UI.Abstractions
                 }
             });
 
+            bus.Subscribe<AssignManualCoverSignal>(async _ =>
+            {
+                // The manual light panel is not discoverable, so it never appears in the device list.
+                // Assign its canonical URI straight to the active Cover slot (mirrors the URI-based tail
+                // of AssignDeviceSignal). It then flows through the ordinary calibrator flat path.
+                if (eqState.ActiveAssignment is not { } target || appState.ActiveProfile is not { } profile)
+                {
+                    return;
+                }
+                if (target.ExpectedDeviceType != DeviceType.CoverCalibrator)
+                {
+                    appState.AppendNotification(_timeProvider.GetUtcNow(),
+                        NotificationSeverity.Warning, "Select an OTA's Cover slot first, then add the Manual Light Panel");
+                    return;
+                }
+
+                var manual = new TianWen.Lib.Devices.ManualCoverDevice();
+                var data = profile.Data ?? ProfileData.Empty;
+                var newData = EquipmentActions.ApplyAssignment(data, target, DeviceType.CoverCalibrator, manual.DeviceUri);
+                var updated = profile.WithData(newData);
+                appState.ActiveProfile = updated;
+                appState.NeedsRedraw = true;
+                await updated.SaveAsync(external, cts.Token);
+                appState.AppendNotification(_timeProvider.GetUtcNow(),
+                    NotificationSeverity.Info, "Manual Light Panel assigned - switch it on before capturing flats");
+            });
+
             bus.Subscribe<ConnectAllDevicesSignal>(_ =>
             {
                 if (appState.ActiveProfile?.Data is not { } pdata) return;
@@ -2150,6 +2177,67 @@ namespace TianWen.UI.Abstractions
                 liveSessionState.PolarStatusMessage = "Restoring mount\u2026";
                 liveSessionState.NeedsRedraw = true;
                 appState.NeedsRedraw = true;
+            });
+
+            // ---------------------------------------------------------------
+            // Flats signals (on-demand flat capture -- LiveSessionMode.Flats)
+            // ---------------------------------------------------------------
+
+            bus.Subscribe<StartFlatsSignal>(async sig =>
+            {
+                if (liveSessionState.IsRunning)
+                {
+                    appState.AppendNotification(_timeProvider.GetUtcNow(),
+                        NotificationSeverity.Warning, "Session is running \u2014 flats unavailable");
+                    return;
+                }
+                if (liveSessionState.FlatsCts is not null)
+                {
+                    appState.AppendNotification(_timeProvider.GetUtcNow(),
+                        NotificationSeverity.Warning, "Flat run already running");
+                    return;
+                }
+                if (appState.ActiveProfile is not { Data: { } profileData } profile || profileData.OTAs.Length == 0)
+                {
+                    appState.AppendNotification(_timeProvider.GetUtcNow(),
+                        NotificationSeverity.Warning, "No profile / OTA configured");
+                    return;
+                }
+
+                // Site drives the mount sync + denorm stamp + sky-flat solar-altitude gate; NaN falls back
+                // to the mount's own site inside ConnectForFlatsAsync (matches the CLI path).
+                var siteLat = profileData.SiteLatitude ?? double.NaN;
+                var siteLon = profileData.SiteLongitude ?? double.NaN;
+
+                // Everything past the preconditions -- factory init, config injection, session create,
+                // event wiring, tracked RunFlatsOnlyAsync -- lives in FlatsBootstrapper so this lambda
+                // routes only (see CLAUDE.md "Signal Handler Pattern").
+                await FlatsBootstrapper.BuildAndStartAsync(
+                    sp.GetRequiredService<ISessionFactory>(),
+                    appState, sessionState, liveSessionState, profile,
+                    sig.Source, sig.FlatsPerFilter, siteLat, siteLon,
+                    tracker, _timeProvider, logger, cts.Token);
+            });
+
+            bus.Subscribe<CancelFlatsSignal>(_ =>
+            {
+                // The finaliser (close covers, warm, disconnect) still runs on cancel via RunFlatsOnlyAsync's
+                // finally block; the panel's Cancel button shows the amber "Cancelling..." state meanwhile.
+                liveSessionState.FlatsCts?.Cancel();
+                liveSessionState.NeedsRedraw = true;
+                appState.NeedsRedraw = true;
+            });
+
+            bus.Subscribe<RespondSessionPromptSignal>(sig =>
+            {
+                // Forward the user's Continue/Cancel to the session's awaiting prompt and drop the overlay.
+                if (liveSessionState.PendingPrompt is { } prompt)
+                {
+                    prompt.Respond(sig.Proceed);
+                    liveSessionState.PendingPrompt = null;
+                    liveSessionState.NeedsRedraw = true;
+                    appState.NeedsRedraw = true;
+                }
             });
 
             // ---------------------------------------------------------------

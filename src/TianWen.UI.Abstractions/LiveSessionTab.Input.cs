@@ -34,6 +34,17 @@ namespace TianWen.UI.Abstractions
 
             switch (evt)
             {
+                // A session prompt is modal-ish: Enter = Continue, Escape = Cancel. Handled first so it
+                // wins over abort-confirm / mode shortcuts while open. Mouse clicks reach the [Continue] /
+                // [Cancel] buttons via their registered clickable regions.
+                case InputEvent.KeyDown(InputKey.Enter, _) when state.PendingPrompt is not null:
+                    PostSignal(new RespondSessionPromptSignal(true));
+                    return true;
+
+                case InputEvent.KeyDown(InputKey.Escape, _) when state.PendingPrompt is not null:
+                    PostSignal(new RespondSessionPromptSignal(false));
+                    return true;
+
                 case InputEvent.KeyDown(InputKey.Escape, _) when state.ShowAbortConfirm:
                     state.ShowAbortConfirm = false;
                     state.NeedsRedraw = true;

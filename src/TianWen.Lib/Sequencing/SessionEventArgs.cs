@@ -1,4 +1,5 @@
 using System;
+using System.Threading.Tasks;
 using TianWen.Lib.Devices;
 
 namespace TianWen.Lib.Sequencing;
@@ -10,6 +11,39 @@ public sealed class SessionPhaseChangedEventArgs(SessionPhase oldPhase, SessionP
 {
     public SessionPhase OldPhase { get; } = oldPhase;
     public SessionPhase NewPhase { get; } = newPhase;
+}
+
+/// <summary>
+/// Event args for <see cref="ISession.PromptRequested"/> — a request for the user to perform a physical
+/// step (e.g. "switch on the flat panel", "cover the scope for darks") and confirm before the session
+/// proceeds. The session raises this and awaits <see cref="Respond"/>; a headless caller that does not
+/// subscribe causes the session to auto-proceed. The completion is a
+/// <see cref="TaskCompletionSource{Boolean}"/> created with
+/// <see cref="TaskCreationOptions.RunContinuationsAsynchronously"/>, so the session's awaiting continuation
+/// never runs inline on the UI thread that calls <see cref="Respond"/>.
+/// </summary>
+public sealed class SessionPromptEventArgs(string title, string message, string continueLabel, string cancelLabel, TaskCompletionSource<bool> completion) : EventArgs
+{
+    /// <summary>Short heading (e.g. "Manual flat panel").</summary>
+    public string Title { get; } = title;
+
+    /// <summary>Body instruction (e.g. "Switch on the flat panel for OTA 1, then Continue.").</summary>
+    public string Message { get; } = message;
+
+    /// <summary>Label for the proceed action (default "Continue").</summary>
+    public string ContinueLabel { get; } = continueLabel;
+
+    /// <summary>Label for the decline action (default "Cancel").</summary>
+    public string CancelLabel { get; } = cancelLabel;
+
+    private readonly TaskCompletionSource<bool> _completion = completion;
+
+    /// <summary>
+    /// Signals the session's decision: <c>true</c> = proceed, <c>false</c> = decline (skip this step).
+    /// Idempotent — a second call is ignored (the first response wins), so a Continue click racing a
+    /// session-cancel cannot throw.
+    /// </summary>
+    public void Respond(bool proceed) => _completion.TrySetResult(proceed);
 }
 
 /// <summary>

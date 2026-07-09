@@ -128,19 +128,46 @@ flows through the ordinary calibrator path with no session branching.
 | 1 | Panel/calibrator flats: `FlatExposureSolver` + `TakeFlatsAsync` + config + `SessionPhase.Flats` + end-of-session hook + tests | **DONE** |
 | 2 | Twilight **sky-flats** (dawn + dusk): `SkyFlatExposureSolver` + `TakeSkyFlatsAsync` + anti-solar zenith pointing (tracking off) + solar-altitude window gate + `FlatSource` dispatch + dusk `RunAsync` hook + config + tests | **DONE** |
 | 3 | **On-demand surface** (`ISession.RunFlatsOnlyAsync` + CLI `tianwen flats` + `POST /api/v1/session/flats`) + **manual flat-panel device** (`ManualCoverDevice`/`ManualCoverDriver`, a degenerate `ICoverDriver` captured through the ordinary calibrator path; keyed-factory registered so it round-trips). | **DONE** |
+| 4 | **GUI Flats mode** (`LiveSessionMode.Flats`): source selector + flats-per-filter + Start/Cancel, live preview of metering/capture frames, equipment 💡 add-Manual-Light-Panel, and a general session→UI **user-prompt channel** gated on the new `ICoverDriver.CanControlBrightness` capability. | **DONE** |
 
-## Deferred: GUI Flats mode in the Live Session tab (assign manual panel + source dropdown + prompt)
+## Phase 4: GUI Flats mode in the Live Session tab (DONE)
 
-The manual-panel **device** ships in Phase 3 (`ManualCoverDevice`/`ManualCoverDriver`, assigned to an OTA
-cover slot and captured through the `Calibrator` path). What remains deferred is the **GUI** surface, and
-it has a natural host: **another `LiveSessionMode` on the Live Session tab**, exactly the way PolarAlign
-and Planetary joined the Preview/Session modes -- a `LiveSessionMode.Flats` entry driving
-`ISession.RunFlatsOnlyAsync` with the live preview showing the metering/capture frames. The pieces:
-an equipment affordance to **add / assign a Manual Light Panel** (a **light-bulb 💡** entry, the way a
-Manual Filter Holder is added), an illumination-source **dropdown** (calibrator / sky + dawn/dusk), and a
-fully interactive "switch the panel on, press Continue" prompt for the manual panel. The on-demand CLI +
-API are the surfaces until then. (The manual driver already reports `Ready` on demand and the solver
-handles misconfigured light gracefully -- only the interactive UI is missing.)
+A **`LiveSessionMode.Flats`** entry on the Live Session tab, joining Preview / PolarAlign / Planetary via
+the mode-pill dropdown. It drives `ISession.RunFlatsOnlyAsync` as a tracked background task
+(`FlatsBootstrapper`, the flats counterpart to `SessionBootstrapper`) and does **not** set
+`LiveSessionState.IsRunning` -- so the tab keeps the preview layout + mode pill, and the run is gated on
+`FlatsCts`. The bootstrapper sets `LiveSessionState.ActiveSession` so the per-frame `PollSession` mirrors
+the phase, current-activity, and captured frames into the preview.
+
+- **Side panel** (`LiveSessionTab.Flats.cs`, mirroring `.Polar`): setup form (illumination-source selector
+  cycling Calibrator / Sky-dusk / Sky-dawn, a flats-per-filter stepper, a source hint, Start + Cancel) when
+  idle; a phase pill + per-filter status line + Cancel while running. The `FlatIlluminationChoice` UI enum
+  collapses `(FlatIlluminationSource, TwilightPeriod)` into one selector.
+- **Live preview**: `Session.Flats.cs` publishes each metering + kept frame to the observable
+  `LastCapturedImages` slot via `PublishFlatPreview` (ownership-transfer hand-off, mirroring polar's
+  `onFrameCaptured`; low-rate, so the camera recycle pool is never starved), and sets a per-filter
+  `_currentActivity` (`OTA n · <filter> · flat k/N`). Released in `FinaliseFlatsAsync`.
+- **Equipment 💡**: a "+ Manual Light Panel" button appears next to `[Discover]` when an OTA Cover slot is
+  the active assignment target (`AssignManualCoverSignal` → assigns the `ManualCoverDevice` URI via
+  `EquipmentActions.ApplyAssignment`). The manual panel is not discoverable, so this is the explicit add.
+- **User-prompt channel** (general, reused for darks later): `ISession.PromptRequested` +
+  `SessionPromptEventArgs.Respond(bool)` + `Session.RequestUserConfirmationAsync` (headless callers
+  auto-proceed when unsubscribed). The flat routine prompts **only** when a calibrator is present but the
+  driver reports **`!CanControlBrightness`** (case D — a hand-switched manual panel: "switch it on, then
+  Continue"); declining skips that OTA. Driver-controlled panels never prompt. GUI side: the prompt lands in
+  `LiveSessionState.PendingPrompt`, renders as a centred overlay (`RenderSessionPrompt`, Continue/Cancel +
+  Enter/Escape), and `RespondSessionPromptSignal` forwards the answer.
+
+**Cover-capability model** (from the four hardware cases): the two axes are independent -- the **motorised
+cover** axis is queried via `GetCoverStateAsync == NotPresent` (no flap → C, D), and the **brightness
+control** axis is the new `ICoverDriver.CanControlBrightness` (default `true`; `false` only for
+`ManualCoverDriver`). Flats prompt on `!CanControlBrightness`; a future **dark-frame** flow will prompt on
+`CoverStatus.NotPresent` ("cover the scope") using the **same** `RequestUserConfirmationAsync` channel.
+
+**Deferred within Phase 4:** live-thumbnail publishing for the **sky-flat** path (it already shows a status
+line; only the calibrator path publishes frames so far); the **dark-frame** capture flow itself (the prompt
+channel + capability are in place for it); and a per-filter progress *bar* (the status line is text-only,
+since flats don't flow through `TotalFramesWritten`).
 
 ## Tests
 
