@@ -621,6 +621,14 @@ using var debugInspector = DebugInspector.Attach(loop, new DebugInspectorOptions
         s.Set("phase", ls.Phase.ToString());
         s.Set("unreadNotifications", appState.UnreadNotificationCount);
 
+        // Live Session tab mode (Preview / PolarAlign / Planetary / Flats). Mode entry is local UI
+        // state (not a bus signal), so expose it here for read-back; the flat run itself is driven by
+        // posting StartFlats (which runs regardless of the visible mode) and observed via phase +
+        // these fields.
+        s.Set("liveSessionMode", ls.Mode.ToString());
+        s.Set("flatRunActive", ls.FlatsCts is not null);
+        s.Set("flatStatus", ls.FlatStatusMessage);
+
         // Sky-map viewport — lets the inspector frame the view deterministically (via the
         // SkyMapSetView signal) and read back where it landed instead of eyeballing a screenshot.
         var sky = guiRenderer.SkyMapState;
@@ -656,51 +664,14 @@ using var debugInspector = DebugInspector.Attach(loop, new DebugInspectorOptions
         var notes = appState.Notifications;
         s.Set("lastNotification", notes.IsDefaultOrEmpty ? null : notes[0].Message);
     },
-    SignalFactories = new Dictionary<string, Action<System.Text.Json.JsonElement>>
-    {
-        // Each action closes over `bus` and posts with the signal's concrete type (what the bus
-        // dispatches on). Keep this list curated -- these can trigger real device/session actions.
-        ["DiscoverDevices"] = el => bus.Post(new DiscoverDevicesSignal(
-            IncludeFake: el.TryGetProperty("includeFake", out var f) && f.GetBoolean())),
-        ["BuildSchedule"] = _ => bus.Post(new BuildScheduleSignal()),
-        ["StartSession"] = _ => bus.Post(new StartSessionSignal()),
-
-        // Sky-map view control: frame the map deterministically (on the mount marker, a known
-        // position) without synthesising drag/scroll. Every field optional -> partial update.
-        ["SkyMapSetView"] = el => bus.Post(new SkyMapSetViewSignal(
-            CenterRaHours: el.OptDouble("centerRaHours"),
-            CenterDecDeg: el.OptDouble("centerDec"),
-            FieldOfViewDeg: el.OptDouble("fovDeg"),
-            ShowObjectOverlay: el.OptBool("showObjectOverlay"),
-            ShowDarkNebulae: el.OptBool("showDarkNebulae"))),
-
-        // Solve & Sync: capture -> plate-solve -> sync the mount to truth. Gated handler-side
-        // (no session running, sync-capable mount + camera connected). The arcmin offset lands
-        // in lastNotification; the mount marker (mountRaJ2000/Dec) jumps after the sync.
-        ["SkyMapSolveSync"] = el => bus.Post(new SkyMapSolveSyncSignal(
-            OtaIndex: el.OptInt("otaIndex") ?? 0,
-            ExposureSeconds: el.OptDouble("exposureSeconds") ?? 5.0,
-            Gain: el.OptInt("gain"),
-            Binning: (short)(el.OptInt("binning") ?? 1))),
-
-        // Single transient preview exposure into the mini viewer (no disk write).
-        ["TakePreview"] = el => bus.Post(new TakePreviewSignal(
-            OtaIndex: el.OptInt("otaIndex") ?? 0,
-            ExposureSeconds: el.OptDouble("exposureSeconds") ?? 1.0,
-            Gain: el.OptInt("gain"),
-            Binning: (short)(el.OptInt("binning") ?? 1))),
-
-        // Live planetary capture: start a video stream from the OTA camera into the 🪐 tab's
-        // rolling-window stack (drifting synthetic planet on the fake camera), and stop it. Posting
-        // Start switches to the Planetary tab; poll the AppState + the GUI log for frames/fps.
-        ["StartVideoCapture"] = el => bus.Post(new StartVideoCaptureSignal(
-            OtaIndex: el.OptInt("otaIndex") ?? 0,
-            ExposureMs: el.OptDouble("exposureMs") ?? 10.0,
-            Gain: el.OptInt("gain") is { } vg ? (short)vg : null,
-            RoiWidth: el.OptInt("roiWidth") ?? 640,
-            RoiHeight: el.OptInt("roiHeight") ?? 320)),
-        ["StopVideoCapture"] = _ => bus.Post(new StopVideoCaptureSignal()),
-    },
+    // Every postable *Signal in this assembly is source-generated into the directory (SignalDirectory, by
+    // DIR.Lib's SignalDirectoryGenerator) with no runtime reflection, so the inspector can list + post any
+    // of them by name -- no hand-maintained list. Fully qualified because DIR.Lib generates its own
+    // DIR.Lib.SignalDirectory for its chrome signals, so the bare name is ambiguous. DEBUG-only; nothing is
+    // generated in Release. BuildFactories still takes an optional `overrides` map for a signal that ever
+    // needs a curated JSON shape -- none do today (the generated factories derive keys from the parameter
+    // names and honour each signal's declared ctor defaults), so it is omitted.
+    SignalFactories = TianWen.UI.Abstractions.SignalDirectory.BuildFactories(bus),
 });
 #endif
 
