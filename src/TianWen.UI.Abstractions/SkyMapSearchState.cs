@@ -1,3 +1,5 @@
+using System;
+using System.Collections.Generic;
 using System.Collections.Immutable;
 using DIR.Lib;
 using TianWen.Lib.Astrometry.Catalogs;
@@ -39,10 +41,19 @@ public class SkyMapSearchState
 
     /// <summary>
     /// Flat prefix/substring search index built lazily on first open from
-    /// <see cref="ICelestialObjectDB.CreateAutoCompleteList"/>. Rebuilt on
-    /// catalog reload (atomic replacement).
+    /// <see cref="ICelestialObjectDB.CreateAutoCompleteList"/> merged with comet
+    /// designations + common names. Rebuilt on catalog reload (atomic replacement).
     /// </summary>
     public ImmutableArray<string> SearchIndex { get; set; } = [];
+
+    /// <summary>
+    /// Maps a searchable comet string (canonical designation AND common name, both keys point at the same
+    /// comet) to its <see cref="Catalog.Comet"/> index. Comets are NOT in the object DB, so the filter +
+    /// commit resolve a matched comet entry through this map rather than <see cref="ICelestialObjectDB"/>.
+    /// Built alongside <see cref="SearchIndex"/> in <c>OpenSearch</c>; touched only on the UI thread
+    /// (search open / keystroke / commit), so a plain dictionary is safe.
+    /// </summary>
+    public Dictionary<string, CatalogIndex> CometEntries { get; } = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
     /// Selected object — shown in the info panel after Enter / click / click-on-map.
