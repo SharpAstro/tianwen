@@ -82,7 +82,7 @@ Behaviour contract (the whole point):
 | Phase | Scope | Ships |
 |---|---|---|
 | **P1 — managed wrapper** | Lift TianWen's cancellable `SynchronousReads` path into `Serial.Lib` over `SerialPort` (blocking `Read` on `Task.Run` + `ReadTimeout` slices + token). Immediately reliable, low risk, cross-platform (works wherever `SerialPort` opens). Port enumeration + control lines. | `Serial.Lib` 1.0 |
-| **P2 — native backend (the real "do it well")** | Bypass `SerialStream` entirely. Windows: P/Invoke `CreateFile`/`ReadFile`/`WriteFile` with **correctly-driven overlapped I/O** (an IOCP-bound handle, not thread-affine) + `SetCommTimeouts`/`SetCommState`/`EscapeCommFunction` (DTR/RTS). Linux/macOS: `open`/`read`/`write` + `termios` + `poll` for cancellable timed reads. Pick the backend at open. This is where genuine non-blocking async + rock-solid cancellation come from. | `Serial.Lib` 2.0 |
+| **P2 — native backend (the real "do it well"), Windows-first** | Bypass `SerialStream` entirely on **Windows**: P/Invoke `CreateFile`/`ReadFile`/`WriteFile` with **correctly-driven overlapped I/O** (an IOCP-bound handle, not thread-affine) + `SetCommTimeouts`/`SetCommState`/`EscapeCommFunction` (DTR/RTS). **Linux/macOS may not need a native backend at all** — the `ERROR_OPERATION_ABORTED` abort is Windows-specific (it *is* a Win32 overlapped-I/O error code, and .NET's `SerialStream` is a wholly separate termios/`poll` implementation on Unix; a dotnet/runtime ticket reports the Linux impl behaves acceptably). So the plan is: keep the P1 managed wrapper over stock `SerialPort` on Unix and only write the native Win32 backend, `#if`-selected at open. A native `termios`/`poll` Unix backend stays a *possible* later refinement (true non-blocking async, hot-plug), not a correctness requirement. **macOS unverified** — treat like Linux until a real macOS serial device is tested. | `Serial.Lib` 2.0 |
 | **P3 — re-point TianWen** | Add `Serial.Lib` to `Directory.Packages.props` + the `UseLocalSiblings` set; reimplement `TianWen.Lib/Connections/SerialConnection(.Base)` on top of `SharpAstro.Serial` (or delete them and adapt `ISerialConnection` callers). Delete the interim `SynchronousReads` wrapper. | TianWen consuming it |
 
 Respect the release dance (per CLAUDE.md): publish `Serial.Lib` to NuGet first, then bump the tianwen
@@ -99,7 +99,9 @@ code; other SharpAstro consumers can use it; and it forces the clean API boundar
 
 1. **P1-only vs go straight to native (P2).** P1 (managed wrapper) is what we already have working; it
    fixes the abort but keeps `SerialPort`'s exclusive-open + no-true-async. P2 (native P/Invoke) is the
-   real prize but real work per-OS. Recommend ship P1 to get the codec out of TianWen, then P2.
+   real prize but real work — though, per the P2 note, **only on Windows**: the abort is Windows-specific,
+   so Unix can stay on the P1 wrapper and P2 is a one-platform job, not three. Recommend ship P1 to get
+   the codec out of TianWen, then the Windows-only P2.
 2. **Keep `ISerialConnection` in TianWen or move it to the lib.** Moving it makes the lib the single
    source of the serial abstraction; keeping it lets TianWen adapt. Lean: define `ISerialPort` in the
    lib, adapt TianWen's `ISerialConnection` to it (thin).
