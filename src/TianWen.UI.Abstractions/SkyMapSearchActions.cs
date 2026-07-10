@@ -62,13 +62,15 @@ public static class SkyMapSearchActions
                     continue;
                 }
                 var canonical = el.Designation.ToCanonical();
-                if (search.CometEntries.TryAdd(canonical, idx))
+                // Full label shown in the results list, regardless of which key matched: "10P (Tempel)".
+                var display = el.CommonName is { Length: > 0 } cn ? $"{canonical} ({cn})" : canonical;
+                if (search.CometEntries.TryAdd(canonical, (idx, display)))
                 {
                     entries.Add(canonical);
                 }
-                if (el.CommonName is { Length: > 0 } cn && search.CometEntries.TryAdd(cn, idx))
+                if (el.CommonName is { Length: > 0 } commonName && search.CometEntries.TryAdd(commonName, (idx, display)))
                 {
-                    entries.Add(cn);
+                    entries.Add(commonName);
                 }
             }
         }
@@ -195,14 +197,14 @@ public static class SkyMapSearchActions
                     ObjType: obj.ObjectType,
                     VMag: (float)obj.V_Mag));
             }
-            else if (search.CometEntries.TryGetValue(entry, out var cometIdx))
+            else if (search.CometEntries.TryGetValue(entry, out var cometEntry))
             {
-                if (!seenIndices.Add(cometIdx)) continue;
-                // VMag is time-dependent for a comet; left NaN in the list (the row shows the name only)
-                // and resolved live on commit / selection.
+                if (!seenIndices.Add(cometEntry.Index)) continue;
+                // Show the full "designation (common name)" label whichever key matched; VMag is
+                // time-dependent for a comet, so it's left NaN in the list and resolved live on commit.
                 results.Add(new SkyMapSearchResult(
-                    Display: entry,
-                    Index: cometIdx,
+                    Display: cometEntry.Display,
+                    Index: cometEntry.Index,
                     ObjType: ObjectType.Comet,
                     VMag: float.NaN));
             }

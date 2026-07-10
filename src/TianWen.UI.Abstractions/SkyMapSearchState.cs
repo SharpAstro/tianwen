@@ -48,12 +48,14 @@ public class SkyMapSearchState
 
     /// <summary>
     /// Maps a searchable comet string (canonical designation AND common name, both keys point at the same
-    /// comet) to its <see cref="Catalog.Comet"/> index. Comets are NOT in the object DB, so the filter +
-    /// commit resolve a matched comet entry through this map rather than <see cref="ICelestialObjectDB"/>.
-    /// Built alongside <see cref="SearchIndex"/> in <c>OpenSearch</c>; touched only on the UI thread
-    /// (search open / keystroke / commit), so a plain dictionary is safe.
+    /// comet) to its <see cref="Catalog.Comet"/> index AND its full display label (e.g. both "10P" and
+    /// "Tempel" map to index 10P + display "10P (Tempel)", so a match on either key shows the full name in
+    /// the results list). Comets are NOT in the object DB, so the filter + commit resolve a matched comet
+    /// entry through this map rather than <see cref="ICelestialObjectDB"/>. Built alongside
+    /// <see cref="SearchIndex"/> in <c>OpenSearch</c>; touched only on the UI thread (search open / keystroke
+    /// / commit), so a plain dictionary is safe.
     /// </summary>
-    public Dictionary<string, CatalogIndex> CometEntries { get; } = new(StringComparer.OrdinalIgnoreCase);
+    public Dictionary<string, (CatalogIndex Index, string Display)> CometEntries { get; } = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
     /// Selected object — shown in the info panel after Enter / click / click-on-map.
