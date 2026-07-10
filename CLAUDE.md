@@ -385,6 +385,56 @@ use a factory lambda when a non-generic `ILogger` ctor parameter must be preserv
 (e.g. so the same class can be manually constructed by another component that already
 holds an `ILogger`).
 
+### Comet & Small-Body Ephemeris (`TianWen.Lib.Astrometry.Comets`)
+
+JPL comets are a **dynamic, ephemeris-computed catalog** -- a comet's RA/Dec AND brightness are
+functions of time, computed locally from cached orbital elements, alongside the VSOP87 planets.
+Full design + phasing: [`docs/plans/comet-ephemeris.md`](docs/plans/comet-ephemeris.md).
+
+- **Identity:** `Catalog.Comet` + `ObjectType.Comet`; `CatalogIndex.IsSolarSystemObject` covers it (so
+  the sky-map live-position path applies for free). Designation packing is **structured Base91 bit
+  fields** (`CometDesignation`, same mechanism as `Tycho2`/`PSR`): a 1-bit numbered/provisional
+  discriminant + kind + fragment + either a periodic number or (year + half-month letters + order),
+  100% catalog coverage, `ToCanonical` round-trips to `C/2024 A1`. `CometElements.DisplayName` is the
+  single source of truth for the human label: provisional -> `C/2026 A1 (PANSTARRS)`, periodic ->
+  `10P/Tempel`.
+- **Math** (`CometEphemeris`): universal-variable (Stumpff) two-body Kepler propagation from the
+  perihelion state -- one path for elliptic/parabolic/hyperbolic -- Earth from `VSOP87a`, light-time
+  corrected, rotated to J2000 with the planet matrix. Magnitude is the IAU total law
+  `m = M1 + 5·log10(delta) + K1·log10(r)` (Horizons' T-mag). Arcminute-class near the element epoch;
+  no non-grav / perturbations. Horizons-pinned tests (12P, C/2023 A3).
+- **Data** (`SbdbCometSource` + `CometRepository`): one keyless bulk fetch from the JPL SBDB query API
+  (~4000 comets) IS the database; cached to `AppData/SmallBodies/comets.json` (weather-pattern TTL 7d +
+  stale fallback, `FetchedUtc` envelope, `ITimeProvider`-driven). Position + magnitude at any time are
+  then **pure local computation, offline**. `ICometRepository.TryGetPosition` / `TryGet`. DI in
+  `AddAstrometry`. AOT-safe via `SbdbJsonContext` + `CometDesignationJsonConverter`.
+- **Invariant -- comets are NOT in `ICelestialObjectDB`** (which is immutable after init). Every
+  consumer augments at its own layer from `ICometRepository`: the sky-map F3 search merges comet keys
+  into its index (`SkyMapSearchActions.BuildSearchIndex` + `SkyMapSearchState.CometEntries`); the
+  planner sweeps the repository directly (`ObservationScheduler.TonightsBest`); the planner-tab search
+  threads the repo into `PlannerActions.SearchTargets`/`CommitSuggestion`. Never try to inject comets
+  into the DB.
+- **Consuming surfaces (all shipped, inspector-validated):**
+  - **Sky map** (`SkyMapState`/`SkyMapTab`): dynamic markers (coma dot + ring + anti-solar tail + label,
+    zoom-aware mag limit), `com[e]t` (E key) toggle, click -> info panel with LIVE alt-az/rise-set + a
+    vmag sparkline; **F3 search** by designation or common name; **selection path** (`GetSelectedPathCached`,
+    body-appropriate window Moon 5d / comet 45d / planet 120d) annotated with **orbital events**
+    (`SkyPathEventDetector`: station R/D, greatest-elongation GE, opposition Opp, perihelion q).
+  - **Planner** (`ObservationScheduler.TonightsBest`, gated on an `ICometRepository?`): comets sweep in
+    after the DB/circumpolar sweeps, with a cheap static candidacy gate (peak-ish `M1 + K1*log10(q)`),
+    resolved at astro-midnight, scored via `ScoreTarget(ObjectType.Comet, ...)` with a **vmag-driven
+    bonus** (`(CometPlannerMagnitudeFloor 15 - m) * CometBonusScale 30`, so a naked-eye comet ~300).
+  - **MCP** (`tianwen-mcp catalog.lookup`): a comet designation resolves to a LIVE ephemeris + (with
+    lat/lon) tonight's dark window + a ~6-month best-night outlook, via the pure `CometObservability`.
+- **Cache invariant:** the path + sparkline caches key on `(index, time-BUCKET)` -- Moon 6h / comet 1d /
+  planet 10d ticks -- and **must hit regardless of sample count** (an all-failed-to-solve empty result
+  must still cache, or it re-samples ~49 ephemerides every frame). The planet path costs ~10 ms to
+  rebuild (49 x VSOP series, per `EphemerisBenchmarks`), so the coarse bucket keeps a day-scrub from
+  rebuilding it every frame.
+- **Deferred:** per-object Horizons ephemeris for a pinned comet (sub-arcsec + non-sidereal rates);
+  bright asteroids (`sb-kind=a` + H/G law); a dedicated planner-tab vmag *chart* (the sky-map info-panel
+  sparkline already covers the vmag curve).
+
 ### Session
 
 `Session` (`TianWen.Lib/Sequencing/Session.cs`) is the central orchestrator. **Single-mount /
