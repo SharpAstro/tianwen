@@ -1,6 +1,8 @@
 using System;
 using System.Globalization;
+using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
+using TianWen.Lib.Astrometry.Comets;
 
 namespace TianWen.Lib.Astrometry.Catalogs;
 
@@ -26,17 +28,24 @@ public enum CometOrbitKind : byte
 
 /// <summary>
 /// A parsed IAU comet designation -- either numbered-periodic (<c>13P</c>, <c>73P-C</c>, <c>1I</c>) or
-/// provisional (<c>C/2024 A1</c>, <c>P/2023 X1</c>, <c>C/2019 Y4-D</c>). This is the single source of
-/// truth for the compact packed form used as <see cref="CatalogIndex"/> under <see cref="Catalog.Comet"/>:
-/// a lowercase <c>c</c> catalog tag followed by the designation with all punctuation dropped
-/// (<c>cC2024A1</c>, <c>c73PC</c>) -- the digit/letter alternation of the grammar keeps that lossless,
-/// so it fits the plain 7-bit-ASCII <see cref="CatalogIndex"/> packing (max 9 chars) and stays readable
-/// in the debugger. Parser (<see cref="TryParse"/>) and formatter (<see cref="ToCanonical"/>) both flow
-/// through <see cref="ToCompact"/>, so the packed value is bit-identical no matter which path produced it
-/// (the <c>Pl-Sol</c> free-text-vs-literal mismatch must never be repeated here). Designations whose
-/// compact form exceeds 9 chars (3-digit half-month order plus fragment: SOHO-style sungrazers, never
-/// observable targets) do not fit and are rejected by <see cref="TryToCatalogIndex"/> -- callers skip them.
+/// provisional (<c>C/2024 A1</c>, <c>P/2023 X1</c>, <c>C/2019 Y4-D</c>, <c>C/1882 R1-B</c>). It is the
+/// single source of truth for the compact packed form used as a <see cref="CatalogIndex"/> under
+/// <see cref="Catalog.Comet"/>: a lowercase <c>c</c> catalog tag followed by the designation with all
+/// punctuation dropped (<c>cC2024A1</c>, <c>c73PC</c>). The digit/letter alternation keeps that lossless,
+/// so it fits the plain 7-bit-ASCII <see cref="CatalogIndex"/> packing (9 chars incl. the tag) with no
+/// MSB/Base91 bit-packing and stays readable in the debugger. Parser (<see cref="TryParse"/>), the
+/// free-text catalog cleanup, and the formatter all flow through the one <see cref="ToCompact"/> producer,
+/// so the packed value is bit-identical regardless of which path produced it (the <c>Pl-Sol</c>
+/// free-text-vs-literal mismatch must never recur here).
+///
+/// <para>SBDB's <c>pdes</c> omits the orbit-type prefix for provisional comets (it stores <c>2023 A3</c>,
+/// not <c>C/2023 A3</c>) and keeps it in a separate <c>prefix</c> field, so the data source reconstructs
+/// the canonical string (<c>prefix + "/" + pdes</c>) before parsing. Designations whose compact form
+/// exceeds the 8-char payload budget -- the asteroid-style two-letter half-months of dual-designated
+/// active asteroids (e.g. <c>2001 OG108</c>), ~4% of the catalog and almost all faint -- are rejected by
+/// <see cref="TryToCatalogIndex"/>; the source skips and counts them.</para>
 /// </summary>
+[JsonConverter(typeof(CometDesignationJsonConverter))]
 public readonly partial record struct CometDesignation
 {
     private const int MaxCompactLength = 8; // 9 incl. the 'c' catalog tag
@@ -44,18 +53,19 @@ public readonly partial record struct CometDesignation
     public CometOrbitKind Kind { get; init; }
 
     /// <summary>Periodic number for the numbered form (13 for <c>13P</c>); 0 for a provisional designation.</summary>
-    public ushort PeriodicNumber { get; init; }
+    public int PeriodicNumber { get; init; }
 
-    /// <summary>Discovery year for the provisional form (2024 for <c>C/2024 A1</c>); 0 for a numbered designation.</summary>
-    public ushort Year { get; init; }
+    /// <summary>Discovery year for the provisional form (may be negative for BC comets); 0 for the numbered form.</summary>
+    public int Year { get; init; }
 
-    /// <summary>Half-month discovery letter A..Y (excluding I) for the provisional form; '\0' for a numbered designation.</summary>
-    public char HalfMonth { get; init; }
+    /// <summary>
+    /// The provisional half-month designation for the provisional form: the half-month letter plus the
+    /// order within it (<c>"A1"</c> for <c>C/2024 A1</c>, <c>"Y4"</c> for <c>C/2019 Y4</c>, <c>"R1"</c> for
+    /// <c>C/1882 R1</c>). Empty for the numbered form.
+    /// </summary>
+    public string HalfMonthDesignation { get; init; }
 
-    /// <summary>Order within the half-month for the provisional form (1 for <c>C/2024 A1</c>); 0 for a numbered designation.</summary>
-    public ushort Order { get; init; }
-
-    /// <summary>Fragment letter(s), e.g. "C" for <c>73P-C</c> or "BB" for <c>73P-BB</c>; empty when not a fragment.</summary>
+    /// <summary>Fragment letter(s), e.g. "C" for <c>73P-C</c> or "B" for <c>C/1882 R1-B</c>; empty when not a fragment.</summary>
     public string Fragment { get; init; }
 
     public bool IsNumbered => PeriodicNumber > 0;
@@ -64,13 +74,14 @@ public readonly partial record struct CometDesignation
     [GeneratedRegex(@"^([0-9]{1,4})([PDI])(?:-([A-Z]{1,2}))?(?:/.*)?$", RegexOptions.CultureInvariant)]
     private static partial Regex NumberedPattern { get; }
 
-    // Provisional: "C/2024 A1", "C/2019 Y4-D" -- space optional (the catalog-guess path strips spaces),
-    // optional -fragment, optional trailing "(Name)".
-    [GeneratedRegex(@"^([PCDXAI])/([0-9]{4}) ?([A-HJ-Y])([0-9]{1,3})(?:-([A-Z]{1,2}))?(?: ?\(.*\))?$", RegexOptions.CultureInvariant)]
+    // Provisional: "C/2024 A1", "C/2019 Y4-D", "C/1882 R1-B", "C/-146 P1" (BC). Space optional (the
+    // catalog-guess path strips spaces); the half-month designation is 1-2 letters + 1-3 digits; optional
+    // -fragment; optional trailing "(Name)".
+    [GeneratedRegex(@"^([PCDXAI])/(-?[0-9]{1,4}) ?([A-Z]{1,2}[0-9]{1,3})(?:-([A-Z]{1,2}))?(?: ?\(.*\))?$", RegexOptions.CultureInvariant)]
     private static partial Regex ProvisionalPattern { get; }
 
     // Compact packed payload (after the 'c' tag): "C2024A1", "C2019Y4D", "13P", "73PC", "1I".
-    [GeneratedRegex(@"^(?:([0-9]{1,4})([PDI])([A-Z]{1,2})?|([PCDXAI])([0-9]{4})([A-HJ-Y])([0-9]{1,3})([A-Z]{1,2})?)$", RegexOptions.CultureInvariant)]
+    [GeneratedRegex(@"^(?:([0-9]{1,4})([PDI])([A-Z]{1,2})?|([PCDXAI])(-?[0-9]{1,4})([A-Z]{1,2}[0-9]{1,3})([A-Z]{1,2})?)$", RegexOptions.CultureInvariant)]
     private static partial Regex CompactPattern { get; }
 
     /// <summary>
@@ -81,14 +92,15 @@ public readonly partial record struct CometDesignation
     public static bool TryParse(ReadOnlySpan<char> input, out CometDesignation designation)
     {
         var trimmed = input.Trim();
-        Span<char> upper = stackalloc char[Math.Min(trimmed.Length, 64)];
-        if (trimmed.Length > upper.Length)
+        if (trimmed.Length is 0 or > 64)
         {
             designation = default;
             return false;
         }
+
+        Span<char> upper = stackalloc char[trimmed.Length];
         trimmed.ToUpperInvariant(upper);
-        var candidate = new string(upper[..trimmed.Length]);
+        var candidate = new string(upper);
 
         var numbered = NumberedPattern.Match(candidate);
         if (numbered.Success)
@@ -96,9 +108,9 @@ public readonly partial record struct CometDesignation
             designation = new CometDesignation
             {
                 Kind = (CometOrbitKind)(byte)numbered.Groups[2].ValueSpan[0],
-                PeriodicNumber = ushort.Parse(numbered.Groups[1].ValueSpan, NumberStyles.None, CultureInfo.InvariantCulture),
-                Fragment = numbered.Groups[3].Success ? numbered.Groups[3].Value : "",
-                HalfMonth = '\0'
+                PeriodicNumber = int.Parse(numbered.Groups[1].ValueSpan, NumberStyles.None, CultureInfo.InvariantCulture),
+                HalfMonthDesignation = "",
+                Fragment = numbered.Groups[3].Success ? numbered.Groups[3].Value : ""
             };
             return true;
         }
@@ -109,10 +121,9 @@ public readonly partial record struct CometDesignation
             designation = new CometDesignation
             {
                 Kind = (CometOrbitKind)(byte)provisional.Groups[1].ValueSpan[0],
-                Year = ushort.Parse(provisional.Groups[2].ValueSpan, NumberStyles.None, CultureInfo.InvariantCulture),
-                HalfMonth = provisional.Groups[3].ValueSpan[0],
-                Order = ushort.Parse(provisional.Groups[4].ValueSpan, NumberStyles.None, CultureInfo.InvariantCulture),
-                Fragment = provisional.Groups[5].Success ? provisional.Groups[5].Value : ""
+                Year = int.Parse(provisional.Groups[2].ValueSpan, NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture),
+                HalfMonthDesignation = provisional.Groups[3].Value,
+                Fragment = provisional.Groups[4].Success ? provisional.Groups[4].Value : ""
             };
             return true;
         }
@@ -138,9 +149,9 @@ public readonly partial record struct CometDesignation
             designation = new CometDesignation
             {
                 Kind = (CometOrbitKind)(byte)match.Groups[2].ValueSpan[0],
-                PeriodicNumber = ushort.Parse(match.Groups[1].ValueSpan, NumberStyles.None, CultureInfo.InvariantCulture),
-                Fragment = match.Groups[3].Success ? match.Groups[3].Value : "",
-                HalfMonth = '\0'
+                PeriodicNumber = int.Parse(match.Groups[1].ValueSpan, NumberStyles.None, CultureInfo.InvariantCulture),
+                HalfMonthDesignation = "",
+                Fragment = match.Groups[3].Success ? match.Groups[3].Value : ""
             };
         }
         else
@@ -148,10 +159,9 @@ public readonly partial record struct CometDesignation
             designation = new CometDesignation
             {
                 Kind = (CometOrbitKind)(byte)match.Groups[4].ValueSpan[0],
-                Year = ushort.Parse(match.Groups[5].ValueSpan, NumberStyles.None, CultureInfo.InvariantCulture),
-                HalfMonth = match.Groups[6].ValueSpan[0],
-                Order = ushort.Parse(match.Groups[7].ValueSpan, NumberStyles.None, CultureInfo.InvariantCulture),
-                Fragment = match.Groups[8].Success ? match.Groups[8].Value : ""
+                Year = int.Parse(match.Groups[5].ValueSpan, NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture),
+                HalfMonthDesignation = match.Groups[6].Value,
+                Fragment = match.Groups[7].Success ? match.Groups[7].Value : ""
             };
         }
         return true;
@@ -163,7 +173,7 @@ public readonly partial record struct CometDesignation
     /// </summary>
     public string ToCompact() => IsNumbered
         ? string.Create(CultureInfo.InvariantCulture, $"{PeriodicNumber}{(char)Kind}{Fragment}")
-        : string.Create(CultureInfo.InvariantCulture, $"{(char)Kind}{Year}{HalfMonth}{Order}{Fragment}");
+        : string.Create(CultureInfo.InvariantCulture, $"{(char)Kind}{Year}{HalfMonthDesignation}{Fragment}");
 
     /// <summary>
     /// The canonical IAU display form: <c>C/2024 A1</c>, <c>C/2019 Y4-D</c>, <c>13P</c>, <c>73P-C</c>.
@@ -173,15 +183,15 @@ public readonly partial record struct CometDesignation
             ? string.Create(CultureInfo.InvariantCulture, $"{PeriodicNumber}{(char)Kind}-{Fragment}")
             : string.Create(CultureInfo.InvariantCulture, $"{PeriodicNumber}{(char)Kind}")
         : Fragment is { Length: > 0 }
-            ? string.Create(CultureInfo.InvariantCulture, $"{(char)Kind}/{Year} {HalfMonth}{Order}-{Fragment}")
-            : string.Create(CultureInfo.InvariantCulture, $"{(char)Kind}/{Year} {HalfMonth}{Order}");
+            ? string.Create(CultureInfo.InvariantCulture, $"{(char)Kind}/{Year} {HalfMonthDesignation}-{Fragment}")
+            : string.Create(CultureInfo.InvariantCulture, $"{(char)Kind}/{Year} {HalfMonthDesignation}");
 
     /// <summary>
     /// The full plain-ASCII packed abbreviation (the <c>c</c> catalog tag + <see cref="ToCompact"/>),
     /// i.e. exactly the string whose 7-bit pack IS the <see cref="CatalogIndex"/> value. The single
     /// producer shared by <see cref="TryToCatalogIndex"/> and the free-text catalog-name cleanup, so the
     /// packed ulong can never diverge between the two paths. <c>null</c> when the compact form exceeds
-    /// the 9-char packing budget (SOHO-style high-order fragments).
+    /// the 8-char payload budget (asteroid-style two-letter half-month designations).
     /// </summary>
     internal string? ToPackedAbbreviationOrNull()
     {
@@ -192,7 +202,7 @@ public readonly partial record struct CometDesignation
     /// <summary>
     /// Packs this designation into a <see cref="Catalog.Comet"/> <see cref="CatalogIndex"/>
     /// (plain 7-bit-ASCII packing of <c>c</c> + <see cref="ToCompact"/>). Fails when the compact
-    /// form exceeds the 9-char packing budget (SOHO-style high-order fragments).
+    /// form exceeds the 8-char payload budget (asteroid-style two-letter half-month designations).
     /// </summary>
     public bool TryToCatalogIndex(out CatalogIndex catalogIndex)
     {

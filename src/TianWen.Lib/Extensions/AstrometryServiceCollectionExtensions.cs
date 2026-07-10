@@ -1,4 +1,5 @@
 ﻿using TianWen.Lib.Astrometry.Catalogs;
+using TianWen.Lib.Astrometry.Comets;
 using TianWen.Lib.Astrometry.Focus;
 using TianWen.Lib.Astrometry.PlateSolve;
 using Microsoft.Extensions.DependencyInjection;
@@ -26,5 +27,9 @@ public static class AstrometryServiceCollectionExtensions
         .AddSingleton<IPlateSolver, AstrometryNetPlateSolverMultiPlatform>()
         .AddSingleton<IPlateSolver, AstrometryNetPlateSolverUnix>()
         .AddSingleton<IPlateSolverFactory, PlateSolverFactory>()
-        .AddSingleton<ICelestialObjectDB, CelestialObjectDB>();
+        .AddSingleton<ICelestialObjectDB, CelestialObjectDB>()
+        // Comet elements: a keyless SBDB fetch cached weekly; the source uses a shared static HttpClient
+        // (no per-call typed client needed given the weekly TTL), the repository holds the immutable map.
+        .AddSingleton<ISbdbCometSource, SbdbCometSource>()
+        .AddSingleton<ICometRepository, CometRepository>();
 }
