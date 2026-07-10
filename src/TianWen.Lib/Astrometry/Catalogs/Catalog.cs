@@ -21,6 +21,10 @@ public enum Catalog : ulong
     Collinder = 'C' << 7 | 'r', // Cl is normalised to Cr
     Ced = 'C' << 14 | 'e' << 7 | 'd', // Cederblad
     CG = 'C' << 7 | 'G', // Cometary Globule
+    // Comets by IAU designation (created by author, elements from JPL SBDB/Horizons). Lowercase 'c' tag
+    // so the plain-ASCII packed form ("cC2024A1", "c73PC") cannot collide with Caldwell ('C') in the
+    // leading-byte partition; see CometDesignation for the compact-form grammar.
+    Comet = 'c',
     DG = 'D' << 7 | 'G',
     Dobashi = 'D' << 7 | 'o',
     ESO = 'E',
@@ -97,6 +101,7 @@ public static class CatalogEx
             Catalog.Ced => 4,
             Catalog.CG => 4,
             Catalog.Collinder => 3,
+            Catalog.Comet => 8, // max compact payload, e.g. "C2019Y4D" (see CometDesignation)
             Catalog.DG => 4,
             Catalog.Dobashi => 5,
             Catalog.ESO => 7,

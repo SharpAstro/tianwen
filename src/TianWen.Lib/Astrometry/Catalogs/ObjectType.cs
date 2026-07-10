@@ -61,6 +61,7 @@ public enum ObjectType : ulong
     OH_IRStar = 'O' << 14 | 'H' << 7 | '*',
     LowMassStar = 'L' << 14 | 'M' << 7 | '*',
     Planet = 'P' << 7 | 'l',
+    Comet = 'C' << 14 | 'o' << 7 | 'm', // created by author (Simbad has no solar-system types), like Planet
     PostAGBStar = 'p' << 14 | 'A' << 7 | '*',
     RVTauVStar = 'R' << 14 | 'V' << 7 | '*',
     VariableStar = 'V' << 7 | '*',

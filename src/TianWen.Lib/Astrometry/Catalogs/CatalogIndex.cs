@@ -251,6 +251,15 @@ public static class CatalogIndexEx
         }
         else
         {
+            // Comet designations re-expand from the compact packed payload ("C2024A1" -> "C/2024 A1")
+            // instead of the generic prefix + number formatting below.
+            if (catalog is Catalog.Comet)
+            {
+                return CometDesignation.TryFromCompact(EnumValueToAbbreviation(decoded), out var cometDesignation)
+                    ? cometDesignation.ToCanonical()
+                    : throw new ArgumentException($"Catalog index {catalogIndex} could not be parsed as a comet designation", nameof(catalogIndex));
+            }
+
             var withoutPrefixAsStr = EnumValueToAbbreviation(decoded).AsSpan().TrimStart('-').TrimStart('0');
 
             if (withoutPrefixAsStr.Length is 0)
@@ -389,13 +398,13 @@ public static class CatalogIndexEx
     {
         /// <summary>
         /// True for a solar-system body -- a major planet, the Moon, or Sol (the <see cref="Catalog.Pl"/>
-        /// catalog). Unlike a fixed star/DSO, its true RA/Dec is ephemeris-computed and therefore
-        /// viewing-time dependent, so a caller that resolves live positions (e.g. the sky map's selection
-        /// crosshair) can cheaply gate that path on this instead of scanning the ephemeris set for every
-        /// selection. For now this is exactly the <see cref="Catalog.Pl"/> catalog; were minor planets or
-        /// comets ever given their own catalog they would be added here.
+        /// catalog), or a comet (the <see cref="Catalog.Comet"/> catalog). Unlike a fixed star/DSO, its
+        /// true RA/Dec is ephemeris-computed and therefore viewing-time dependent, so a caller that
+        /// resolves live positions (e.g. the sky map's selection crosshair) can cheaply gate that path
+        /// on this instead of scanning the ephemeris set for every selection. Were minor planets ever
+        /// given their own catalog they would be added here.
         /// </summary>
-        public bool IsSolarSystemObject => catalogIndex.ToCatalog() == Catalog.Pl;
+        public bool IsSolarSystemObject => catalogIndex.ToCatalog() is Catalog.Pl or Catalog.Comet;
     }
 
     /// <summary>
