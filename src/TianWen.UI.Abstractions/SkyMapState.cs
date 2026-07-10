@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Numerics;
 using System.Runtime.CompilerServices;
+using System.Threading.Tasks;
 using DIR.Lib;
 using TianWen.Lib.Astrometry;
 using TianWen.Lib.Astrometry.Catalogs;
@@ -430,27 +431,28 @@ namespace TianWen.UI.Abstractions
         private const double CometPathWindowDays = 45.0;
         private const double PlanetPathWindowDays = 120.0;
 
-        // Selected-object sky-path cache (RA/Dec samples), keyed on (index, viewing DAY) exactly like the
-        // vmag sparkline: sampling is stable within a day, so it recomputes only on selection / day change,
-        // never per frame. The per-frame cost is then just projecting these samples + a polyline.
-        private CatalogIndex _pathIndex;
-        private long _pathBucketKey = long.MinValue;
-        private (double RA, double Dec)[] _pathSamples = [];
-        private int _pathCount;
+        // Selected-object sky-path, sampled OFF the render thread (task #26). A cache miss kicks off a
+        // background compute (~49 VSOP/Kepler solves + event detection; a planet path is ~10 ms) and the
+        // render thread keeps drawing the last adopted snapshot until it lands -- so a held day-scrub never
+        // blocks a frame on the solve. The Task<SelectedPath> is the cross-thread handoff (every field here
+        // is render-thread only; the payload travels via the Task result), mirroring the async Milky Way /
+        // Tycho-2 buffer swaps. VSOP87a/CometEphemeris are pure (stackalloc locals over static-readonly
+        // tables), so the background solve races nothing the render thread also computes.
+        private sealed record SelectedPath(
+            CatalogIndex Index, long BucketKey, (double RA, double Dec)[] Samples, int Count, ImmutableArray<SkyPathEvent> Events);
 
-        // Notable events along the current path (stations, greatest elongation / opposition, perihelion),
-        // recomputed with the path (same bucket) and read by the renderer to annotate the arc. The Sun
-        // track is scratch, sampled at the same instants only for planets (elongation/opposition).
-        private readonly List<SkyPathEvent> _pathEvents = [];
-        private (double RA, double Dec)[] _sunSamples = [];
+        private SelectedPath? _adoptedPath;      // the snapshot the renderer currently draws
+        private Task<SelectedPath>? _pathTask;   // in-flight background compute (null when idle)
+        private CatalogIndex _pathTaskIndex;
+        private long _pathTaskBucketKey = long.MinValue;
+        private ImmutableArray<SkyPathEvent> _currentPathEvents = [];
 
         /// <summary>
-        /// Events detected on the most recently built selected-object path (see
-        /// <see cref="GetSelectedPathCached"/>): stations / retrograde, greatest elongation, opposition,
-        /// perihelion. Valid for whatever selection + bucket the last <see cref="GetSelectedPathCached"/>
-        /// call resolved, so read it right after that call for the same object.
+        /// Events on the selected-object path that <see cref="GetSelectedPathCached"/> served THIS frame
+        /// (stations / retrograde, greatest elongation, opposition, perihelion) -- read it right after that
+        /// call for the same object. Empty while a newly-selected object's first sample is still computing.
         /// </summary>
-        public IReadOnlyList<SkyPathEvent> SelectedPathEvents => _pathEvents;
+        public IReadOnlyList<SkyPathEvent> SelectedPathEvents => _currentPathEvents;
 
         // Path cache granularity by body speed. A planet path costs ~10 ms to rebuild (49 x the full
         // VSOP87 series + reduction, ~150 us each -- measured in EphemerisBenchmarks), so it must NOT rebuild
@@ -463,17 +465,30 @@ namespace TianWen.UI.Abstractions
         private static readonly long PlanetPathBucketTicks = TimeSpan.FromDays(10).Ticks;
 
         /// <summary>
-        /// Cached sky path (J2000 RA/Dec samples) for a selected solar-system object over a body-appropriate
-        /// window centred on <paramref name="viewingTime"/> -- planets via <see cref="VSOP87a.ReduceJ2000"/>,
-        /// comets via <see cref="CometEphemeris.TryGetEquatorialJ2000"/>. Returns an empty span for a
-        /// non-solar-system index (fixed stars/DSOs don't move) or an unknown comet. Recomputed only when the
-        /// selection changes or the viewing instant crosses a per-body cache bucket (planets rebuild rarely
-        /// since their arc barely moves; see the bucket constants). Samples where the ephemeris fails are omitted.
+        /// Sky path (J2000 RA/Dec samples) for a selected solar-system object over a body-appropriate window
+        /// centred on <paramref name="viewingTime"/> -- planets via <see cref="VSOP87a.ReduceJ2000"/>, comets
+        /// via <see cref="CometEphemeris.TryGetEquatorialJ2000"/>. Empty span for a non-solar-system index
+        /// (fixed stars/DSOs don't move) or an unknown comet. Sampled OFF the render thread: a miss on the
+        /// (index, per-body bucket) key dispatches a background compute and this returns the last adopted
+        /// snapshot (or empty for a freshly-selected object) until it lands; completion pokes a redraw. The
+        /// poll happens here since the getter runs every frame the path is drawn.
         /// </summary>
         public ReadOnlySpan<(double RA, double Dec)> GetSelectedPathCached(ICometRepository? comets, CatalogIndex index, DateTimeOffset viewingTime)
         {
+            // Adopt a finished background compute (a faulted/cancelled task is dropped -> "no path").
+            if (_pathTask is { IsCompleted: true } done)
+            {
+                _pathTask = null;
+                if (done.IsCompletedSuccessfully)
+                {
+                    _adoptedPath = done.Result;
+                }
+            }
+
             if (!index.IsSolarSystemObject)
             {
+                _adoptedPath = null;
+                _currentPathEvents = [];
                 return default;
             }
 
@@ -482,35 +497,64 @@ namespace TianWen.UI.Abstractions
                 : isComet ? CometPathBucketTicks
                 : PlanetPathBucketTicks;
             var bucketKey = viewingTime.UtcDateTime.Ticks / bucketTicks;
-            // Hit on (index, bucket) REGARDLESS of sample count: a legitimately empty result (all samples
-            // failed to solve) must still cache, or it would re-sample ~49 ephemerides every frame. A real
-            // solar-system index is never default(CatalogIndex), so the initial default key still misses.
-            if (index == _pathIndex && bucketKey == _pathBucketKey)
+
+            // Fast path: the adopted snapshot already matches (index, bucket). Hits REGARDLESS of sample
+            // count, so a legitimately empty result (all samples failed to solve) still caches instead of
+            // re-dispatching every frame.
+            if (_adoptedPath is { } cur && cur.Index == index && cur.BucketKey == bucketKey)
             {
-                return _pathSamples.AsSpan(0, _pathCount);
+                _currentPathEvents = cur.Events;
+                return cur.Samples.AsSpan(0, cur.Count);
             }
 
-            CometElements cometEl = default;
-            if (isComet && (comets is null || !comets.TryGet(index, out cometEl)))
+            // Not current -- ensure a background compute is running for THIS (index, bucket).
+            if (_pathTask is null || _pathTaskIndex != index || _pathTaskBucketKey != bucketKey)
             {
-                _pathCount = 0;
-                _pathIndex = index;
-                _pathBucketKey = bucketKey;
-                _pathEvents.Clear();
-                return default;
+                // Resolve comet elements on the render thread (repo read); pass them by value to the task.
+                CometElements cometEl = default;
+                if (isComet && (comets is null || !comets.TryGet(index, out cometEl)))
+                {
+                    // Unknown comet -- adopt an empty snapshot for this key so we neither draw nor re-dispatch.
+                    _adoptedPath = new SelectedPath(index, bucketKey, [], 0, []);
+                    _pathTask = null;
+                    _currentPathEvents = [];
+                    return default;
+                }
+
+                _pathTaskIndex = index;
+                _pathTaskBucketKey = bucketKey;
+                var el = cometEl;
+                _pathTask = Task.Run(() => ComputeSelectedPath(index, bucketKey, isComet, el, viewingTime));
+                // Wake the NeedsRedraw-gated loop when the solve lands so the next frame adopts + draws it.
+                _pathTask.ContinueWith(_ => NeedsRedraw = true, TaskScheduler.Default);
             }
 
-            if (_pathSamples.Length < SkyPathSampleCount)
+            // Draw the last adopted snapshot meanwhile, but only for the SAME object (a slightly-stale bucket
+            // of the same path is fine; a different object's arc is not -> empty until the solve lands).
+            if (_adoptedPath is { } prev && prev.Index == index)
             {
-                _pathSamples = new (double, double)[SkyPathSampleCount];
+                _currentPathEvents = prev.Events;
+                return prev.Samples.AsSpan(0, prev.Count);
             }
 
+            _currentPathEvents = [];
+            return default;
+        }
+
+        // Pure, thread-safe path+events solve run on a background thread (task #26): samples
+        // SkyPathSampleCount J2000 positions over the body-appropriate window centred on viewingTime, then
+        // detects the notable events. Reads only its by-value arguments + the pure VSOP87a / CometEphemeris /
+        // SkyPathEventDetector, so it never touches SkyMapState's render-thread-only mutable fields.
+        private static SelectedPath ComputeSelectedPath(
+            CatalogIndex index, long bucketKey, bool isComet, CometElements cometEl, DateTimeOffset viewingTime)
+        {
             var windowDays = index == CatalogIndex.Moon ? MoonPathWindowDays
                 : isComet ? CometPathWindowDays
                 : PlanetPathWindowDays;
             var start = viewingTime - TimeSpan.FromDays(windowDays / 2.0);
             var step = TimeSpan.FromDays(windowDays / (SkyPathSampleCount - 1));
 
+            var samples = new (double RA, double Dec)[SkyPathSampleCount];
             var count = 0;
             for (var i = 0; i < SkyPathSampleCount; i++)
             {
@@ -520,29 +564,26 @@ namespace TianWen.UI.Abstractions
                     : VSOP87a.ReduceJ2000(index, t, out ra, out dec, out _);
                 if (ok)
                 {
-                    _pathSamples[count++] = (ra, dec);
+                    samples[count++] = (ra, dec);
                 }
             }
 
-            _pathCount = count;
-            _pathIndex = index;
-            _pathBucketKey = bucketKey;
-
-            ComputePathEvents(index, isComet, cometEl, start, step, count);
-
-            return _pathSamples.AsSpan(0, count);
+            var events = ComputePathEvents(index, isComet, cometEl, samples, count, start, step);
+            return new SelectedPath(index, bucketKey, samples, count, events);
         }
 
-        // Recompute the path's notable events (see SelectedPathEvents), sharing the path's start/step. Only
+        // Detects the path's notable events (see SelectedPathEvents), sharing the path's start/step. Only
         // runs when every sample solved (count == SkyPathSampleCount), because the detector assumes an even
         // index->time spacing that dropped samples would break. Planets get a Sun track sampled at the same
-        // instants (for greatest elongation / opposition); comets carry their perihelion instant.
-        private void ComputePathEvents(CatalogIndex index, bool isComet, in CometElements cometEl, DateTimeOffset start, TimeSpan step, int count)
+        // instants (for greatest elongation / opposition); comets carry their perihelion instant. Pure (only
+        // its arguments + the pure VSOP87a/detector), so it runs on the background compute thread.
+        private static ImmutableArray<SkyPathEvent> ComputePathEvents(
+            CatalogIndex index, bool isComet, in CometElements cometEl,
+            (double RA, double Dec)[] samples, int count, DateTimeOffset start, TimeSpan step)
         {
-            _pathEvents.Clear();
             if (count != SkyPathSampleCount)
             {
-                return;
+                return [];
             }
 
             var body = ClassifySkyPathBody(index, isComet);
@@ -550,16 +591,13 @@ namespace TianWen.UI.Abstractions
             ReadOnlySpan<(double RA, double Dec)> sun = default;
             if (body is SkyPathBody.InferiorPlanet or SkyPathBody.OuterPlanet)
             {
-                if (_sunSamples.Length < count)
-                {
-                    _sunSamples = new (double, double)[count];
-                }
+                var sunSamples = new (double RA, double Dec)[count];
                 var sunOk = true;
                 for (var i = 0; i < count; i++)
                 {
                     if (VSOP87a.ReduceJ2000(CatalogIndex.Sol, start + step * i, out var sunRa, out var sunDec, out _))
                     {
-                        _sunSamples[i] = (sunRa, sunDec);
+                        sunSamples[i] = (sunRa, sunDec);
                     }
                     else
                     {
@@ -569,7 +607,7 @@ namespace TianWen.UI.Abstractions
                 }
                 if (sunOk)
                 {
-                    sun = _sunSamples.AsSpan(0, count);
+                    sun = sunSamples.AsSpan(0, count);
                 }
             }
 
@@ -577,7 +615,9 @@ namespace TianWen.UI.Abstractions
                 ? JdTtToUtc(cometEl.PerihelionJdTt)
                 : null;
 
-            SkyPathEventDetector.Detect(_pathSamples.AsSpan(0, count), sun, start, step, body, perihelion, _pathEvents);
+            var results = new List<SkyPathEvent>();
+            SkyPathEventDetector.Detect(samples.AsSpan(0, count), sun, start, step, body, perihelion, results);
+            return [.. results];
         }
 
         private static SkyPathBody ClassifySkyPathBody(CatalogIndex index, bool isComet)
