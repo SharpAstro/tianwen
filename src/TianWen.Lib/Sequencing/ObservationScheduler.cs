@@ -971,10 +971,7 @@ internal static class ObservationScheduler
                     continue;
                 }
 
-                var displayName = el.CommonName is { Length: > 0 } cn
-                    ? $"{cometIdx.ToCanonical()} ({cn})"
-                    : cometIdx.ToCanonical();
-                var target = new Target(cometRa, cometDec, displayName, cometIdx);
+                var target = new Target(cometRa, cometDec, el.DisplayName, cometIdx);
                 var scored = ScoreTarget(target, astroms, times, astroDark, astroTwilight, minHeightAboveHorizon,
                     transform.SiteLongitude, ObjectType.Comet, cometBonus, moonGrid);
                 if (scored.TotalScore <= Half.Zero)

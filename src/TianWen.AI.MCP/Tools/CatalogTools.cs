@@ -57,7 +57,7 @@ public class CatalogTools
             await comets.EnsureLoadedAsync(ct);
             if (comets.TryGet(cometIdx, out var elements))
             {
-                return FormatComet(elements, cometIdx, when, hasSite, lat, lon, minAltitudeDeg, timeProvider);
+                return FormatComet(elements, when, hasSite, lat, lon, minAltitudeDeg, timeProvider);
             }
         }
 
@@ -75,13 +75,11 @@ public class CatalogTools
     }
 
     private static string FormatComet(
-        in CometElements el, CatalogIndex idx, DateTimeOffset when,
+        in CometElements el, DateTimeOffset when,
         bool hasSite, double lat, double lon, double minAlt, ITimeProvider tp)
     {
         var sb = new StringBuilder(1024);
-        var canonical = idx.ToCanonical();
-        var title = el.CommonName is { Length: > 0 } cn ? $"{canonical} ({cn})" : canonical;
-        sb.AppendLine($"{title}  [Comet]");
+        sb.AppendLine($"{el.DisplayName}  [Comet]");
 
         if (!CometEphemeris.TryGetEquatorialJ2000(el, when, out var ra, out var dec, out var r, out var delta))
         {
