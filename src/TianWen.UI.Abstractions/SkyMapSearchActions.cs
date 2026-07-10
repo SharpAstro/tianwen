@@ -63,30 +63,12 @@ public static class SkyMapSearchActions
             }
         }
 
-        if (comets is not null)
+        // Every accepted comet key spelling (canonical / common name / parenthetical / slash), from the
+        // shared CometSearchKeys source so the sky-map + planner-tab searches stay identical. The label
+        // is always CometElements.DisplayName ("10P/Tempel" periodic, "C/2026 A1 (PANSTARRS)" provisional).
+        foreach (var (key, idx, display) in CometSearchKeys.Enumerate(comets))
         {
-            foreach (var el in comets.All)
-            {
-                if (el.CatalogIndex is not { } idx)
-                {
-                    continue;
-                }
-                var canonical = el.Designation.ToCanonical();
-                // The label shown for any match is the single-source-of-truth CometElements.DisplayName
-                // ("10P/Tempel" periodic, "C/2026 A1 (PANSTARRS)" provisional).
-                var display = el.DisplayName;
-                AddCometKey(canonical, idx, display);
-                if (el.CommonName is { Length: > 0 } commonName)
-                {
-                    // Every way a user might type the comet resolves to the same index + label:
-                    //   "Tempel"         common name
-                    //   "10P (Tempel)"   parenthetical form
-                    //   "10P/Tempel"     numbered slash form
-                    AddCometKey(commonName, idx, display);
-                    AddCometKey($"{canonical} ({commonName})", idx, display);
-                    AddCometKey($"{canonical}/{commonName}", idx, display);
-                }
-            }
+            AddCometKey(key, idx, display);
         }
 
         entries.Sort(StringComparer.OrdinalIgnoreCase);

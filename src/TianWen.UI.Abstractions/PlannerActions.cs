@@ -564,20 +564,41 @@ public static class PlannerActions
     }
 
     /// <summary>
+    /// Builds the planner autocomplete list: the catalog's
+    /// <see cref="ICelestialObjectDB.CreateAutoCompleteList"/> plus every comet key form (canonical /
+    /// common name / parenthetical / slash) from the shared <see cref="CometSearchKeys"/> source,
+    /// re-sorted ordinal-ignore-case. Comets are not in the DB, so this is how they reach the
+    /// planner-tab suggestions; rebuild it once <see cref="ICometRepository.EnsureLoadedAsync"/>
+    /// completes (comets load in the background after the catalog).
+    /// </summary>
+    public static string[] BuildAutoCompleteList(ICelestialObjectDB objectDb, ICometRepository? comets)
+    {
+        var list = new List<string>(objectDb.CreateAutoCompleteList());
+        foreach (var (key, _, _) in CometSearchKeys.Enumerate(comets))
+        {
+            list.Add(key);
+        }
+        list.Sort(StringComparer.OrdinalIgnoreCase);
+        return [.. list];
+    }
+
+    /// <summary>
     /// Searches the catalog for targets matching the query and scores them.
     /// Results are stored in state.SearchResults and are exempt from filtering.
     /// </summary>
     /// <summary>
     /// Searches the catalog for targets matching the query. If the target is already
     /// in the list, selects it (resetting filter if needed). Otherwise adds it as a
-    /// search result (exempt from rating filter).
+    /// search result (exempt from rating filter). A comet query resolves via
+    /// <paramref name="comets"/> (comets are not in <paramref name="objectDb"/>).
     /// Returns the index in the filtered list to select, or -1.
     /// </summary>
     public static int SearchTargets(
         PlannerState state,
         ICelestialObjectDB objectDb,
         Transform transform,
-        string query)
+        string query,
+        ICometRepository? comets = null)
     {
         state.SearchResults = [];
 
@@ -723,6 +744,22 @@ public static class PlannerActions
             PopulateTargetAlias(state, objectDb, target);
         }
 
+        // Comet result: comets are not in objectDb, so resolve via the repository (same key forms as
+        // the sky-map F3 search) and add at the plan-time position. Search results bypass the rating
+        // filter, so no vmag bonus is applied here (the Tonight's-Best comet boost is the scheduler's
+        // job); an already-proposed comet is selected in place. A real catalog match wins a name tie
+        // (it is added first above, so SearchResults[0] stays the catalog object).
+        if (CometSearchKeys.TryResolve(comets, query, out var cometIdx, out var cometDisplay)
+            && comets!.TryGetPosition(cometIdx, state.AstroDark, out var cometRa, out var cometDec, out _))
+        {
+            var cometExisting = AddCometSearchResult(state, transform, cometIdx, cometDisplay, cometRa, cometDec);
+            if (cometExisting >= 0)
+            {
+                state.NeedsRedraw = true;
+                return cometExisting;
+            }
+        }
+
         state.NeedsRedraw = true;
 
         // Return index of first search result in filtered list
@@ -750,9 +787,32 @@ public static class PlannerActions
         PlannerState state,
         ICelestialObjectDB objectDb,
         Transform transform,
-        string suggestion)
+        string suggestion,
+        ICometRepository? comets = null)
     {
         state.SearchResults = [];
+
+        // A comet suggestion resolves via the repository (comets are not in objectDb). Handled first
+        // so a comet key never falls through to a spurious DB lookup.
+        if (CometSearchKeys.TryResolve(comets, suggestion, out var cometIdx, out var cometDisplay)
+            && comets!.TryGetPosition(cometIdx, state.AstroDark, out var cometRa, out var cometDec, out _))
+        {
+            var cometExisting = AddCometSearchResult(state, transform, cometIdx, cometDisplay, cometRa, cometDec);
+            state.NeedsRedraw = true;
+            if (cometExisting >= 0)
+            {
+                return cometExisting;
+            }
+            var cometFiltered = GetFilteredTargets(state);
+            for (var i = 0; i < cometFiltered.Count; i++)
+            {
+                if (cometFiltered[i].Target.Name.Equals(cometDisplay, StringComparison.OrdinalIgnoreCase))
+                {
+                    return i;
+                }
+            }
+            return -1;
+        }
 
         // Resolve the suggestion to a CatalogIndex
         CatalogIndex? resolved = null;
@@ -850,6 +910,48 @@ public static class PlannerActions
             }
         }
 
+        return -1;
+    }
+
+    // Materializes a resolved comet as a planner search result at (ra, dec): if it is already a
+    // Tonight's-Best proposal (from the scheduler's comet sweep), selects it there and returns its
+    // filtered index; otherwise scores it (ObjectType.Comet, no bonus -- search results bypass the
+    // rating filter, and the boost is the scheduler's job), computes its altitude profile, and
+    // appends it to SearchResults (returns -1 so the caller resolves the new result's index). Comets
+    // carry no objectDb alias, so PopulateTargetAlias is skipped.
+    private static int AddCometSearchResult(PlannerState state, Transform transform,
+        CatalogIndex index, string display, double ra, double dec)
+    {
+        for (var i = 0; i < state.TonightsBest.Length; i++)
+        {
+            if (state.TonightsBest[i].Target.Name.Equals(display, StringComparison.OrdinalIgnoreCase))
+            {
+                state.MinRatingFilter = 0f;
+                var filtered = GetFilteredTargets(state);
+                for (var j = 0; j < filtered.Count; j++)
+                {
+                    if (filtered[j].Target == state.TonightsBest[i].Target)
+                    {
+                        return j;
+                    }
+                }
+                return -1;
+            }
+        }
+
+        var target = new Target(ra, dec, display, index);
+        var scored = ObservationScheduler.ScoreTarget(target, transform,
+            state.AstroDark, state.AstroTwilight, state.MinHeightAboveHorizon, ObjectType.Comet);
+
+        if (!state.AltitudeProfiles.ContainsKey(target))
+        {
+            var (ga, gt) = EnsureAstromGrid(state, transform);
+            state.AltitudeProfiles = state.AltitudeProfiles.SetItem(target,
+                ComputeFineAltitudeProfileFast(target, ga, gt, transform.SiteLatitude, transform.SiteLongitude));
+        }
+
+        state.ScoredTargets = state.ScoredTargets.SetItem(target, scored);
+        state.SearchResults = state.SearchResults.Add(scored);
         return -1;
     }
 
