@@ -678,17 +678,26 @@ namespace TianWen.Lib.Astrometry.SOFA
                 && TimeZoneLookup.GetTimeZone(lat, @long).Result is { Length: > 0 } tzId && tzId.Contains('/')
             )
             {
-                var tzInfo = TimeZoneInfo.FindSystemTimeZoneById(tzId);
-                dt = DateTime;
-                offset = _SiteTimeZoneValue ??= tzInfo.GetUtcOffset(dt);
-                return true;
+                // GeoTimeZone returns an IANA id (e.g. "Australia/Sydney"). Resolving it needs the ICU
+                // timezone database; a host running globalization-invariant (no ICU) throws rather than
+                // resolving. A Try* method must not throw, so treat an unresolvable id as "no timezone"
+                // (the caller falls back to UTC) instead of propagating.
+                try
+                {
+                    var tzInfo = TimeZoneInfo.FindSystemTimeZoneById(tzId);
+                    dt = DateTime;
+                    offset = _SiteTimeZoneValue ??= tzInfo.GetUtcOffset(dt);
+                    return true;
+                }
+                catch (Exception ex) when (ex is TimeZoneNotFoundException or InvalidTimeZoneException)
+                {
+                    // fall through to the failure return below
+                }
             }
-            else
-            {
-                dt = DateTime.MinValue;
-                offset = TimeSpan.MaxValue;
-                return false;
-            }
+
+            dt = DateTime.MinValue;
+            offset = TimeSpan.MaxValue;
+            return false;
         }
 
         #endregion
