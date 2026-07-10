@@ -1,3 +1,4 @@
+using System.Text.Json.Serialization;
 using TianWen.Lib.Astrometry.Catalogs;
 
 namespace TianWen.Lib.Astrometry.Comets;
@@ -31,8 +32,10 @@ public readonly record struct CometElements(
 {
     /// <summary>The comet's identity as a <see cref="Catalog.Comet"/> <see cref="CatalogIndex"/>, or null
     /// when the designation cannot be packed (SOHO-style high-order fragments; never observable targets).</summary>
+    [JsonIgnore]
     public CatalogIndex? CatalogIndex => Designation.TryToCatalogIndex(out var idx) ? idx : null;
 
     /// <summary>True when SBDB supplies both total-magnitude parameters, so a magnitude can be predicted.</summary>
+    [JsonIgnore]
     public bool HasMagnitudeModel => !double.IsNaN(AbsoluteMagnitudeM1) && !double.IsNaN(SlopeK1);
 }
