@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using DIR.Lib;
 using TianWen.Lib.Astrometry;
 using TianWen.Lib.Astrometry.Catalogs;
+using TianWen.Lib.Astrometry.Comets;
 using TianWen.Lib.Astrometry.SOFA;
 using TianWen.Lib.Astrometry.Lunar;
 using TianWen.Lib.Astrometry.VSOP87;
@@ -175,7 +176,8 @@ public static class PlannerActions
         Transform transform,
         byte minHeightAboveHorizon,
         CancellationToken ct,
-        Action<string>? onProgress = null)
+        Action<string>? onProgress = null,
+        ICometRepository? comets = null)
     {
         void Report(string msg)
         {
@@ -198,7 +200,14 @@ public static class PlannerActions
 
         await objectDb.InitDBAsync(cancellationToken: ct);
 
-        var tonightsBest = ObservationScheduler.TonightsBest(objectDb, transform, minHeightAboveHorizon)
+        // Ensure the comet set is loaded so bright comets can be offered as planner targets alongside the
+        // catalog. Null when no repository is wired (older callers / tests) -- the plan is then DSO-only.
+        if (comets is not null)
+        {
+            await comets.EnsureLoadedAsync(ct);
+        }
+
+        var tonightsBest = ObservationScheduler.TonightsBest(objectDb, transform, minHeightAboveHorizon, comets: comets)
             .Take(100)
             .ToImmutableArray();
 

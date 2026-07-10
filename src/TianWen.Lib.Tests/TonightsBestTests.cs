@@ -1,9 +1,11 @@
 using Shouldly;
 using System;
+using System.Collections.Immutable;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using TianWen.Lib.Astrometry.Catalogs;
+using TianWen.Lib.Astrometry.Comets;
 using TianWen.Lib.Astrometry.SOFA;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Sequencing;
@@ -67,6 +69,71 @@ public class TonightsBestTests
         // M13 (NGC6205) should be in the top results
         var m13 = results.FirstOrDefault(r => r.Target.CatalogIndex == CatalogIndex.NGC6205);
         m13.TotalScore.ShouldBeGreaterThan(Half.Zero, "M13 should be visible and scored in Vienna summer");
+    }
+
+    [Fact]
+    public async Task ViennaSummer_BrightCometIsOfferedWithBoost_FaintOneExcluded()
+    {
+        // A bright, well-placed comet must surface as a planner target (ObjectType.Comet) with a positive
+        // magnitude-driven bonus; a comet fainter than the planner floor (mag 15) is excluded even though
+        // it clears the cheap static candidacy gate. Positions are stubbed (both placed circumpolar at
+        // Vienna so they're up all night) to keep the test independent of live ephemeris geometry.
+        var db = await InitDBAsync();
+        var transform = CreateTransform(48.2, 16.4, new DateTimeOffset(2025, 6, 15, 22, 0, 0, TimeSpan.FromHours(2)));
+
+        var bright = MakeComet("12P", m1: 5, k1: 15, q: 0.78);
+        var faint = MakeComet("C/2019 Y4", m1: 5, k1: 15, q: 5.0);
+        var repo = new StubCometRepo(
+            (bright, 12.0, 70.0, 6.0),    // mag 6, circumpolar -> bright bonus, up all night
+            (faint, 6.0, 70.0, 16.5));    // mag 16.5 > floor -> excluded
+
+        var results = ObservationScheduler.TonightsBest(db, transform, 20, comets: repo).ToList();
+
+        var brightIdx = bright.CatalogIndex!.Value;
+        var comet = results.FirstOrDefault(r => r.Target.CatalogIndex == brightIdx);
+        comet.Target.CatalogIndex.ShouldBe(brightIdx, "the bright comet should be offered as a planner target");
+        comet.ObjectType.ShouldBe(ObjectType.Comet);
+        comet.TotalScore.ShouldBeGreaterThan(Half.Zero);
+        ((double)comet.ObjectBonus).ShouldBeGreaterThan(0.0, "a bright comet gets a positive magnitude-driven bonus");
+
+        results.Any(r => r.Target.CatalogIndex == faint.CatalogIndex).ShouldBeFalse(
+            "a comet fainter than the planner magnitude floor must not be offered");
+    }
+
+    private static CometElements MakeComet(string designation, double m1, double k1, double q)
+    {
+        CometDesignation.TryParse(designation, out var d).ShouldBeTrue();
+        // Orbital angles/epoch are irrelevant here -- TryGetPosition is stubbed and the static candidacy
+        // gate only reads M1/K1/q.
+        return new CometElements(d, null, q, 0.9, 60.0, 100.0, 100.0, 2460000.0, 2460000.0, m1, k1);
+    }
+
+    private sealed class StubCometRepo(params (CometElements El, double Ra, double Dec, double Mag)[] comets) : ICometRepository
+    {
+        public ImmutableArray<CometElements> All => [.. comets.Select(c => c.El)];
+
+        public bool TryGet(CatalogIndex index, out CometElements elements)
+        {
+            foreach (var c in comets)
+            {
+                if (c.El.CatalogIndex == index) { elements = c.El; return true; }
+            }
+            elements = default;
+            return false;
+        }
+
+        public bool TryGetPosition(CatalogIndex index, DateTimeOffset time, out double raJ2000Hours, out double decJ2000Deg, out double magnitude)
+        {
+            foreach (var c in comets)
+            {
+                if (c.El.CatalogIndex == index) { raJ2000Hours = c.Ra; decJ2000Deg = c.Dec; magnitude = c.Mag; return true; }
+            }
+            raJ2000Hours = decJ2000Deg = magnitude = double.NaN;
+            return false;
+        }
+
+        public Task EnsureLoadedAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task RefreshAsync(bool forceRefetch = false, CancellationToken cancellationToken = default) => Task.CompletedTask;
     }
 
     [Fact]

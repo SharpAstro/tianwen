@@ -3,6 +3,7 @@ using DIR.Lib;
 using System.CommandLine;
 using System.Linq;
 using TianWen.Lib.Astrometry.Catalogs;
+using TianWen.Lib.Astrometry.Comets;
 using TianWen.Lib.Devices;
 using TianWen.UI.Abstractions;
 
@@ -12,6 +13,7 @@ internal class PlanSubCommand(
     IConsoleHost consoleHost,
     PlannerState plannerState,
     ICelestialObjectDB objectDb,
+    ICometRepository comets,
     ProfileSelector profileSelector
 )
 {
@@ -48,7 +50,8 @@ internal class PlanSubCommand(
         await PlannerActions.ComputeTonightsBestAsync(
             plannerState, objectDb, transform,
             plannerState.MinHeightAboveHorizon, ct,
-            onProgress: msg => System.Console.Error.Write($"\r{msg.PadRight(60)}"));
+            onProgress: msg => System.Console.Error.Write($"\r{msg.PadRight(60)}"),
+            comets: comets);
 
         await RunInlineAsync(transform, ct);
     }
