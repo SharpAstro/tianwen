@@ -246,20 +246,13 @@ public static class CatalogIndexEx
                     BDEncodedIndexToCanonical(prefix, decoded, 0, 2, BDRaMask, BDRaShift, BDDecMask, BDEncOptions),
                 Catalog.Tycho2 =>
                     Tyc2EncodedIndexToCanonical(prefix, decoded),
+                Catalog.Comet =>
+                    CometDesignation.FromPackedValue(decoded).ToCanonical(),
                 _ => throw new ArgumentException($"Catalog index {catalogIndex} with MSB = true could not be parsed", nameof(catalogIndex))
             };
         }
         else
         {
-            // Comet designations re-expand from the compact packed payload ("C2024A1" -> "C/2024 A1")
-            // instead of the generic prefix + number formatting below.
-            if (catalog is Catalog.Comet)
-            {
-                return CometDesignation.TryFromCompact(EnumValueToAbbreviation(decoded), out var cometDesignation)
-                    ? cometDesignation.ToCanonical()
-                    : throw new ArgumentException($"Catalog index {catalogIndex} could not be parsed as a comet designation", nameof(catalogIndex));
-            }
-
             var withoutPrefixAsStr = EnumValueToAbbreviation(decoded).AsSpan().TrimStart('-').TrimStart('0');
 
             if (withoutPrefixAsStr.Length is 0)
