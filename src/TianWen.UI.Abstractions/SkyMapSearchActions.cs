@@ -24,22 +24,57 @@ public static class SkyMapSearchActions
     private const float ClickToleranceScreenPx = 20f;
 
     /// <summary>
-    /// Open the modal and lazily build the search index from the loaded catalog.
-    /// Idempotent — repeat opens just re-focus the search box.
+    /// Open the modal and lazily build the search index from the loaded catalog, merged with the comet set
+    /// (designations + common names). Idempotent — repeat opens just re-focus the search box, but the index
+    /// is rebuilt if the comet repository has since loaded (it loads in the background after startup, so the
+    /// first open may predate it).
     /// </summary>
-    public static void OpenSearch(SkyMapSearchState search, ICelestialObjectDB db)
+    public static void OpenSearch(SkyMapSearchState search, ICelestialObjectDB db, ICometRepository? comets = null)
     {
         search.IsOpen = true;
 
-        // Build the index once per catalog load. The autocomplete list is
-        // canonical + common names — ~200 K entries, enough for live filtering.
-        if (search.SearchIndex.IsDefaultOrEmpty)
+        // Build the index once per catalog load. The autocomplete list is canonical + common names
+        // (~200 K entries); comets add a few thousand more. Rebuild if comets arrived after the first open.
+        var cometsPending = comets is { All.Length: > 0 } && search.CometEntries.Count == 0;
+        if (search.SearchIndex.IsDefaultOrEmpty || cometsPending)
         {
-            search.SearchIndex = [.. db.CreateAutoCompleteList()];
+            search.SearchIndex = BuildSearchIndex(search, db, comets);
         }
 
         search.SearchInput.Activate();
         search.SearchInput.SelectAll();
+    }
+
+    // Merge the catalog autocomplete list with comet designations + common names, keeping the result sorted
+    // ordinal-ignore-case (FilterResults binary-searches it). Each comet contributes up to two searchable
+    // keys (canonical + common name), both routed to its index via SkyMapSearchState.CometEntries.
+    private static ImmutableArray<string> BuildSearchIndex(SkyMapSearchState search, ICelestialObjectDB db, ICometRepository? comets)
+    {
+        var entries = new List<string>(db.CreateAutoCompleteList());
+        search.CometEntries.Clear();
+
+        if (comets is not null)
+        {
+            foreach (var el in comets.All)
+            {
+                if (el.CatalogIndex is not { } idx)
+                {
+                    continue;
+                }
+                var canonical = el.Designation.ToCanonical();
+                if (search.CometEntries.TryAdd(canonical, idx))
+                {
+                    entries.Add(canonical);
+                }
+                if (el.CommonName is { Length: > 0 } cn && search.CometEntries.TryAdd(cn, idx))
+                {
+                    entries.Add(cn);
+                }
+            }
+        }
+
+        entries.Sort(StringComparer.OrdinalIgnoreCase);
+        return [.. entries];
     }
 
     /// <summary>Close the modal. Keeps the info panel so the user still sees the selection.</summary>
@@ -149,14 +184,28 @@ public static class SkyMapSearchActions
         for (var i = 0; i < take; i++)
         {
             var entry = candidates[i].Entry;
-            if (!TryResolveToObject(db, entry, out var obj)) continue;
-            if (!seenIndices.Add(obj.Index)) continue;
-
-            results.Add(new SkyMapSearchResult(
-                Display: entry,
-                Index: obj.Index,
-                ObjType: obj.ObjectType,
-                VMag: (float)obj.V_Mag));
+            // A real catalog object wins a name tie; a comet-only string (designation or common name)
+            // resolves through the comet map (comets are ephemeris-computed, not in the object DB).
+            if (TryResolveToObject(db, entry, out var obj))
+            {
+                if (!seenIndices.Add(obj.Index)) continue;
+                results.Add(new SkyMapSearchResult(
+                    Display: entry,
+                    Index: obj.Index,
+                    ObjType: obj.ObjectType,
+                    VMag: (float)obj.V_Mag));
+            }
+            else if (search.CometEntries.TryGetValue(entry, out var cometIdx))
+            {
+                if (!seenIndices.Add(cometIdx)) continue;
+                // VMag is time-dependent for a comet; left NaN in the list (the row shows the name only)
+                // and resolved live on commit / selection.
+                results.Add(new SkyMapSearchResult(
+                    Display: entry,
+                    Index: cometIdx,
+                    ObjType: ObjectType.Comet,
+                    VMag: float.NaN));
+            }
         }
 
         search.Results = results.ToImmutable();
@@ -254,7 +303,8 @@ public static class SkyMapSearchActions
         ICelestialObjectDB db,
         double siteLat, double siteLon,
         DateTimeOffset viewingUtc,
-        in SiteContext site)
+        in SiteContext site,
+        ICometRepository? comets = null)
     {
         if (search.SelectedResultIndex < 0 || search.SelectedResultIndex >= search.Results.Length)
         {
@@ -263,6 +313,21 @@ public static class SkyMapSearchActions
 
         var result = search.Results[search.SelectedResultIndex];
         if (result.Index is not { } catIdx) return false;
+
+        // Comet: resolve the LIVE ephemeris position + magnitude (it is not in the object DB), slew there,
+        // and build the comet info panel (the sparkline is drawn from the state cache in the panel).
+        if (catIdx.ToCatalog() == Catalog.Comet && comets is not null)
+        {
+            if (!comets.TryGetPosition(catIdx, viewingUtc, out var cometRa, out var cometDec, out var cometMag))
+            {
+                return false;
+            }
+            SlewTo(skyMap, cometRa, cometDec);
+            search.InfoPanel = CometInfoPanel(comets, catIdx, cometRa, cometDec, cometMag, siteLat, siteLon, viewingUtc, site);
+            CloseSearch(search);
+            return true;
+        }
+
         if (!db.TryLookupByIndex(catIdx, out var obj)) return false;
 
         if (double.IsNaN(obj.RA) || double.IsNaN(obj.Dec))

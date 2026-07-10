@@ -832,7 +832,7 @@ namespace TianWen.UI.Abstractions
             bus.Subscribe<OpenSkyMapSearchSignal>(_ =>
             {
                 var db = sp.GetRequiredService<ICelestialObjectDB>();
-                SkyMapSearchActions.OpenSearch(skySearch, db);
+                SkyMapSearchActions.OpenSearch(skySearch, db, plannerState.Comets);
                 bus.Post(new ActivateTextInputSignal(skySearch.SearchInput));
                 skyMapState.NeedsRedraw = true;
                 appState.NeedsRedraw = true;
@@ -857,7 +857,7 @@ namespace TianWen.UI.Abstractions
                 SkyMapSearchActions.CommitResult(
                     skySearch, skyMapState, db,
                     plannerState.SiteLatitude, plannerState.SiteLongitude,
-                    viewingUtc, site);
+                    viewingUtc, site, plannerState.Comets);
                 bus.Post(new DeactivateTextInputSignal());
                 skyMapState.NeedsRedraw = true;
                 appState.NeedsRedraw = true;
