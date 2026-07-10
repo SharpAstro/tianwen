@@ -143,7 +143,7 @@ namespace TianWen.UI.Abstractions
             }, "Load comet ephemerides");
             await PlannerActions.ComputeTonightsBestAsync(
                 _plannerState, objectDb, transform,
-                _plannerState.MinHeightAboveHorizon, cancellationToken);
+                _plannerState.MinHeightAboveHorizon, cancellationToken, comets: comets);
             if (_appState.ActiveProfile is { } profile)
             {
                 await PlannerPersistence.TryLoadAsync(_plannerState, profile, _external, _logger, _timeProvider, cancellationToken);
@@ -608,7 +608,7 @@ namespace TianWen.UI.Abstractions
                         {
                             await PlannerActions.ComputeTonightsBestAsync(
                                 _plannerState, objectDb, transform,
-                                _plannerState.MinHeightAboveHorizon, _cts.Token);
+                                _plannerState.MinHeightAboveHorizon, _cts.Token, comets: _plannerState.Comets);
                             if (_appState.ActiveProfile is { } profile)
                             {
                                 await PlannerPersistence.TryLoadAsync(_plannerState, profile, _external, _logger, _timeProvider, _cts.Token);

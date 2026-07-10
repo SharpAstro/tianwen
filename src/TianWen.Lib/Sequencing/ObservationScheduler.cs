@@ -4,6 +4,7 @@ using System.Collections.Immutable;
 using System.Linq;
 using TianWen.Lib.Astrometry;
 using TianWen.Lib.Astrometry.Catalogs;
+using TianWen.Lib.Astrometry.Comets;
 using TianWen.Lib.Astrometry.Lunar;
 using TianWen.Lib.Astrometry.SOFA;
 using TianWen.Lib.Astrometry.VSOP87;
@@ -22,6 +23,13 @@ internal static class ObservationScheduler
     /// scoring/scheduling overloads' default parameters. A radius of <c>0</c> disables the penalty.
     /// </summary>
     public const double DefaultMoonAvoidanceRadiusDeg = 30.0;
+
+    // Comet planner tuning. A comet fainter than this apparent magnitude is not offered as a planner
+    // target; brighter comets get a magnitude-driven object bonus scaled by CometBonusScale, so a
+    // naked-eye comet (m ~ 5) lands a bonus (~300) comparable to a top named DSO and ranks near the top,
+    // while a mag-15 comet scores ~0 and drops off. This is the user-facing "comets get a boost".
+    private const double CometPlannerMagnitudeFloor = 15.0;
+    private const double CometBonusScale = 30.0;
 
     // Fallback chain: at high latitudes in summer, deeper twilight boundaries may not be reached.
     // CivilTwilight is excluded — too bright for astronomical observation.
@@ -828,7 +836,8 @@ internal static class ObservationScheduler
         ICelestialObjectDB objectDb,
         Transform transform,
         byte minHeightAboveHorizon,
-        double moonAvoidanceRadiusDeg = DefaultMoonAvoidanceRadiusDeg)
+        double moonAvoidanceRadiusDeg = DefaultMoonAvoidanceRadiusDeg,
+        ICometRepository? comets = null)
     {
         var (astroDark, astroTwilight) = CalculateNightWindow(transform);
 
@@ -914,6 +923,64 @@ internal static class ObservationScheduler
                 var scored = ScoreTarget(target, astroms, times, astroDark, astroTwilight, minHeightAboveHorizon,
                     transform.SiteLongitude, obj.ObjectType, objectBonus, moonGrid);
                 if (scored.TotalScore <= Half.Zero) continue;
+
+                candidates.Add(scored);
+            }
+        }
+
+        // Comets: ephemeris-computed, so not in the spatial grid. Resolve each candidate at astronomical
+        // midnight and score its whole-night altitude profile from that position (a comet moves only
+        // arcminutes across one night, so a single position is fine). Bright comets get a magnitude-driven
+        // bonus so they surface prominently; faint ones (fainter than the floor) and those with no
+        // photometric model are skipped. A cheap static gate avoids the ephemeris solve for comets that
+        // could never reach the floor even at their own perihelion.
+        if (comets is not null)
+        {
+            foreach (var el in comets.All)
+            {
+                if (el.CatalogIndex is not { } cometIdx || !el.HasMagnitudeModel)
+                {
+                    continue;
+                }
+
+                var peakish = el.AbsoluteMagnitudeM1 + el.SlopeK1 * Math.Log10(Math.Max(el.PerihelionDistanceAu, 0.05));
+                if (peakish > CometPlannerMagnitudeFloor + 4.0)
+                {
+                    continue;
+                }
+
+                if (!seen.Add(cometIdx))
+                {
+                    continue;
+                }
+                if (!comets.TryGetPosition(cometIdx, astroMidnight, out var cometRa, out var cometDec, out var cometMag)
+                    || double.IsNaN(cometMag) || cometMag > CometPlannerMagnitudeFloor)
+                {
+                    continue;
+                }
+
+                var quickAlt = SOFAHelpers.AltitudeFromAstrom(cometRa, cometDec, in midAstrom);
+                if (quickAlt < minHeightAboveHorizon - 10)
+                {
+                    continue;
+                }
+
+                var cometBonus = Math.Max(0.0, CometPlannerMagnitudeFloor - cometMag) * CometBonusScale;
+                if (cometBonus <= 0)
+                {
+                    continue;
+                }
+
+                var displayName = el.CommonName is { Length: > 0 } cn
+                    ? $"{cometIdx.ToCanonical()} ({cn})"
+                    : cometIdx.ToCanonical();
+                var target = new Target(cometRa, cometDec, displayName, cometIdx);
+                var scored = ScoreTarget(target, astroms, times, astroDark, astroTwilight, minHeightAboveHorizon,
+                    transform.SiteLongitude, ObjectType.Comet, cometBonus, moonGrid);
+                if (scored.TotalScore <= Half.Zero)
+                {
+                    continue;
+                }
 
                 candidates.Add(scored);
             }
