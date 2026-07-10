@@ -125,6 +125,24 @@ public static class CometEphemeris
     }
 
     /// <summary>
+    /// Samples the predicted total magnitude over a time window: fills <paramref name="magsOut"/> with
+    /// <c>magsOut[i] = m(start + step*i)</c> for the IAU total-magnitude law, writing <see cref="double.NaN"/>
+    /// wherever the Kepler solve fails or the comet has no photometric model. Pure and allocation-free --
+    /// the caller owns the span, so a sky-map info-panel sparkline or a planner brightness curve reuses the
+    /// same math the live marker draws from. A non-positive <paramref name="step"/> still fills every slot
+    /// (all with the <paramref name="start"/> magnitude), so callers should pass a positive step.
+    /// </summary>
+    public static void SampleMagnitudeCurve(in CometElements elements, DateTimeOffset start, TimeSpan step, Span<double> magsOut)
+    {
+        for (var i = 0; i < magsOut.Length; i++)
+        {
+            magsOut[i] = TryGetEquatorialJ2000WithMagnitude(elements, start + step * i, out _, out _, out var m)
+                ? m
+                : double.NaN;
+        }
+    }
+
+    /// <summary>
     /// Heliocentric ecliptic-J2000 position (AU) at <paramref name="jdTt"/> by universal-variable
     /// propagation from the perihelion state. <paramref name="heliocentricDistanceAu"/> is |r|.
     /// </summary>

@@ -184,6 +184,13 @@ namespace TianWen.UI.Abstractions
 
             DrawPlanetLabels(db, viewingTime, siteLat, siteLon, contentRect, fontPath, fontSize, ppr, cx, cy, site, dimBelowHorizon);
 
+            // Ephemeris-computed JPL comet markers (candidate set filtered to the zoom-aware magnitude
+            // limit). Drawn after planets so a bright comet's label sits above the planet layer.
+            if (State.ShowComets)
+            {
+                DrawCometLabels(viewingTime, contentRect, fontPath, fontSize, ppr, cx, cy, site, dimBelowHorizon);
+            }
+
             // Always render the object overlay pass — when [O] is off, only pinned
             // planner targets are drawn (the user's planned observations should always
             // be visible as landmarks on the sky map). The showAll flag tells the engine
@@ -620,6 +627,97 @@ namespace TianWen.UI.Abstractions
             }
         }
 
+        private static readonly RGBAColor32 CometColor      = new(0x88, 0xEE, 0xCC, 0xFF);
+        private static readonly RGBAColor32 CometLabelColor = new(0xAA, 0xFF, 0xDD, 0xFF);
+
+        /// <summary>
+        /// Draw ephemeris-computed comet markers + labels, the comet twin of <see cref="DrawPlanetLabels"/>.
+        /// Positions come from <see cref="SkyMapState.GetCometPositionsCached"/> (candidate set, cached per
+        /// viewing time); only comets brighter than the zoom-aware limit draw. Each marker is a coma dot +
+        /// ring + a short anti-solar tail, with a clickable name/mag label that selects the comet at its dot
+        /// (routing through the same <see cref="SkyMapClickSelectSignal"/> resolver the planet labels use).
+        /// </summary>
+        private void DrawCometLabels(
+            DateTimeOffset viewingTime, RectF32 rect, string fontPath, float fontSize,
+            double ppr, float cx, float cy, SiteContext site, bool dimBelowHorizon)
+        {
+            var comets = _plannerState?.Comets;
+            if (comets is null)
+            {
+                return;
+            }
+
+            var markers = State.GetCometPositionsCached(comets, viewingTime);
+            if (markers.Length == 0)
+            {
+                return;
+            }
+
+            var limit = Math.Max(SkyMapState.CometBaseMagnitudeLimit, State.EffectiveMagnitudeLimit);
+
+            // Sun screen position, for the anti-solar tail direction. Sol lives in the planet cache (keyed
+            // on the same viewing time). NaN when off-projection -- the tail is then simply skipped.
+            var sunX = float.NaN;
+            var sunY = float.NaN;
+            foreach (var (pIdx, pRa, pDec) in State.GetPlanetPositionsCached(viewingTime))
+            {
+                if (pIdx == CatalogIndex.Sol)
+                {
+                    SkyMapProjection.ProjectWithMatrix(pRa, pDec, State.CurrentViewMatrix, ppr, cx, cy, out sunX, out sunY);
+                    break;
+                }
+            }
+
+            foreach (var marker in markers)
+            {
+                if (marker.VMag > limit)
+                {
+                    continue;
+                }
+                if (!SkyMapProjection.ProjectWithMatrix(marker.RA, marker.Dec, State.CurrentViewMatrix,
+                        ppr, cx, cy, out var sx, out var sy)
+                    || sx < rect.X || sx >= rect.X + rect.Width
+                    || sy < rect.Y || sy >= rect.Y + rect.Height)
+                {
+                    continue;
+                }
+
+                var below = dimBelowHorizon && !site.IsAboveHorizon(marker.RA, marker.Dec);
+                var comaColor = DimmedIf(CometColor, below);
+                var labelColor = DimmedIf(CometLabelColor, below);
+
+                // Anti-solar tail: a short segment from the coma pointing directly away from the Sun.
+                if (!float.IsNaN(sunX))
+                {
+                    var tdx = sx - sunX;
+                    var tdy = sy - sunY;
+                    var tlen = MathF.Sqrt(tdx * tdx + tdy * tdy);
+                    if (tlen > 1e-3f)
+                    {
+                        const float tailLen = 16f;
+                        DrawLine(sx, sy, sx + tdx / tlen * tailLen, sy + tdy / tlen * tailLen, comaColor);
+                    }
+                }
+
+                // Coma: filled dot + a soft ring so it reads distinctly from a star/planet dot.
+                FillCircle(sx, sy, 3f, comaColor);
+                DrawCircle(sx, sy, 5f, comaColor, 1f);
+
+                // Name + magnitude to the right, clickable (selects the comet at its dot). Mirrors how the
+                // planet label registers a hit box that synthesises a click-select at the marker position.
+                var text = $"{marker.Label}  {marker.VMag:F1}m";
+                DrawText(text.AsSpan(), fontPath,
+                    sx + 10, sy - fontSize, 170, fontSize * 1.2f,
+                    fontSize, labelColor, TextAlign.Near, TextAlign.Center);
+
+                var dotX = sx;
+                var dotY = sy;
+                RegisterClickable(sx + 10, sy - fontSize, 170, fontSize * 1.2f,
+                    new HitResult.ButtonHit($"SkyMapCometLabel:{marker.Label}"),
+                    _ => PostSignal(new SkyMapClickSelectSignal(dotX, dotY, InputModifier.None)));
+            }
+        }
+
         private static readonly RGBAColor32 TimeShiftColor = new(0x88, 0xCC, 0xFF, 0xFF);
 
         private void DrawInfoStrip(RectF32 rect, string fontPath, float fontSize, float dpiScale,
@@ -651,7 +749,7 @@ namespace TianWen.UI.Abstractions
             // Limiting magnitude actually rendered (FOV-aware; grows as you zoom in). Gives the
             // +/- magnitude-floor keys visible feedback, which they previously lacked.
             var magText = $"Lim mag {State.EffectiveMagnitudeLimit:F1}";
-            var info = $"RA: {State.CenterRA:F2}h  Dec: {State.CenterDec:F1}\u00B0    {fovText}    {magText}    [{modeLabel}]  [H]orizon [G]rid [A]lt/Az [B]oundaries [C]onst [P]roj [O]bjects [D]ark [M]ount{skyHint}";
+            var info = $"RA: {State.CenterRA:F2}h  Dec: {State.CenterDec:F1}\u00B0    {fovText}    {magText}    [{modeLabel}]  [H]orizon [G]rid [A]lt/Az [B]oundaries [C]onst [P]roj [O]bjects [D]ark [M]ount com[e]t{skyHint}";
 
             DrawText(info.AsSpan(), fontPath,
                 rect.X + 8, stripY, rect.Width - 16, stripH,
@@ -1035,6 +1133,10 @@ namespace TianWen.UI.Abstractions
                     return true;
                 case InputKey.M:
                     State.ShowMountOverlay = !State.ShowMountOverlay;
+                    State.NeedsRedraw = true;
+                    return true;
+                case InputKey.E:
+                    State.ShowComets = !State.ShowComets;
                     State.NeedsRedraw = true;
                     return true;
                 case InputKey.P:

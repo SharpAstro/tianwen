@@ -12,6 +12,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using TianWen.Lib.Astrometry;
 using TianWen.Lib.Astrometry.Catalogs;
+using TianWen.Lib.Astrometry.Comets;
 using TianWen.Lib.Astrometry.PlateSolve;
 using TianWen.Lib.Astrometry.SOFA;
 using TianWen.Lib.Devices;
@@ -129,6 +130,17 @@ namespace TianWen.UI.Abstractions
             _plannerState.ObjectDb = objectDb;
             _plannerState.NeedsRedraw = true;
             SetAutoCompleteCache(objectDb.CreateAutoCompleteList());
+
+            // Comet ephemerides load in the background (cache read, else an SBDB fetch) so the Sky Atlas
+            // opens immediately; the markers appear as soon as the element set is in. Tracked (not raw
+            // fire-and-forget) so a network failure is logged, and a redraw is poked on completion.
+            var comets = _sp.GetRequiredService<ICometRepository>();
+            _plannerState.Comets = comets;
+            _tracker.Run(async () =>
+            {
+                await comets.EnsureLoadedAsync(cancellationToken);
+                _plannerState.NeedsRedraw = true;
+            }, "Load comet ephemerides");
             await PlannerActions.ComputeTonightsBestAsync(
                 _plannerState, objectDb, transform,
                 _plannerState.MinHeightAboveHorizon, cancellationToken);
@@ -1031,7 +1043,8 @@ namespace TianWen.UI.Abstractions
                     sig.ScreenX, sig.ScreenY,
                     skyMapState.CurrentViewMatrix, ppr, cx, cy,
                     preferPointSource: (sig.Modifiers & InputModifier.Ctrl) != 0,
-                    pinnedCatalogIndices: PlannerActions.GetPinnedCatalogIndices(plannerState.Proposals));
+                    pinnedCatalogIndices: PlannerActions.GetPinnedCatalogIndices(plannerState.Proposals),
+                    comets: plannerState.Comets);
 
                 skyMapState.NeedsRedraw = true;
                 appState.NeedsRedraw = true;

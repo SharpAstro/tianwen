@@ -4,6 +4,7 @@ using System.Collections.Immutable;
 using System.Globalization;
 using System.Numerics;
 using TianWen.Lib.Astrometry.Catalogs;
+using TianWen.Lib.Astrometry.Comets;
 using TianWen.Lib.Astrometry.SOFA;
 
 namespace TianWen.UI.Abstractions;
@@ -317,7 +318,8 @@ public static class SkyMapSearchActions
         in Matrix4x4 viewMatrix,
         double pixelsPerRadian, float centerX, float centerY,
         bool preferPointSource = false,
-        IReadOnlySet<CatalogIndex>? pinnedCatalogIndices = null)
+        IReadOnlySet<CatalogIndex>? pinnedCatalogIndices = null,
+        ICometRepository? comets = null)
     {
         var (clickRa, clickDec) = SkyMapProjection.UnprojectWithMatrix(
             clickScreenX, clickScreenY, viewMatrix, pixelsPerRadian, centerX, centerY);
@@ -496,7 +498,44 @@ public static class SkyMapSearchActions
             }
         }
 
-        if (bestPlanetIdx is { } pIdx && (bestIdx is null || bestPlanetDistSq <= bestDistSq))
+        // Comets (also ephemeris-computed, not in the spatial grids) — same hit-test as planets, over the
+        // live comet marker cache filtered to the same zoom-aware magnitude limit the renderer draws with.
+        var bestCometDistSq = double.MaxValue;
+        SkyMapState.CometMarker? bestComet = null;
+        if (comets is not null)
+        {
+            var cometLimit = Math.Max(SkyMapState.CometBaseMagnitudeLimit, skyMap.EffectiveMagnitudeLimit);
+            foreach (var m in skyMap.GetCometPositionsCached(comets, viewingUtc))
+            {
+                if (m.VMag > cometLimit) continue;
+                if (!SkyMapProjection.ProjectWithMatrix(m.RA, m.Dec, viewMatrix, pixelsPerRadian, centerX, centerY,
+                        out var sx, out var sy))
+                {
+                    continue;
+                }
+                var dx = sx - clickScreenX;
+                var dy = sy - clickScreenY;
+                var distSq = dx * dx + dy * dy;
+                if (distSq <= ClickToleranceScreenPx * ClickToleranceScreenPx && distSq < bestCometDistSq)
+                {
+                    bestCometDistSq = distSq;
+                    bestComet = m;
+                }
+            }
+        }
+
+        // Resolve the nearest hit across catalog objects, planets, and comets. A planet / comet wins on a
+        // tie so a prominent moving body under a faint field star is preferred (matches its own dot being
+        // exactly what the user clicked).
+        var catalogDistSq = bestIdx is null ? double.MaxValue : bestDistSq;
+
+        if (bestComet is { } cm && bestCometDistSq <= catalogDistSq && bestCometDistSq <= bestPlanetDistSq && comets is not null)
+        {
+            search.InfoPanel = CometInfoPanel(comets, cm.Index, cm.RA, cm.Dec, cm.VMag, siteLat, siteLon, viewingUtc, site);
+            return true;
+        }
+
+        if (bestPlanetIdx is { } pIdx && bestPlanetDistSq <= catalogDistSq)
         {
             search.InfoPanel = PlanetInfoPanel(db, pIdx, bestPlanetRa, bestPlanetDec, siteLat, siteLon, viewingUtc, site);
             return true;
@@ -602,6 +641,36 @@ public static class SkyMapSearchActions
             : planetIdx.ToCanonical();
         return SkyMapInfoPanelData.FromPosition(name, raHours, decDeg, siteLat, siteLon, viewingUtc, site)
             with { Constellation = constellation };
+    }
+
+    /// <summary>
+    /// Builds an info panel for a comet: its LIVE ephemeris RA/Dec + predicted magnitude, the
+    /// <see cref="ObjectType.Comet"/> tag, the canonical designation, the common name (folded into the
+    /// display title when SBDB has one), and the constellation the comet is CURRENTLY in (comets wander,
+    /// so the constellation is computed from the live position, exactly like a planet). The vmag sparkline
+    /// is drawn separately from the state-cached curve, so it is not carried on the panel struct.
+    /// </summary>
+    // internal so the per-frame info-panel redraw can rebuild a selected comet's panel from its LIVE
+    // position as the viewing time advances -- see SkyMapTab.DrawSearchAndInfoPanel.
+    internal static SkyMapInfoPanelData CometInfoPanel(
+        ICometRepository comets, CatalogIndex idx,
+        double raHours, double decDeg, double mag,
+        double siteLat, double siteLon, DateTimeOffset viewingUtc, in SiteContext site)
+    {
+        var canonical = idx.ToCanonical();
+        var commonName = comets.TryGet(idx, out var el) ? el.CommonName : null;
+        var name = commonName is { Length: > 0 } ? $"{canonical} ({commonName})" : canonical;
+        var constellation = ConstellationBoundary.TryFindConstellation(raHours, decDeg, out var c) ? c : default;
+
+        return SkyMapInfoPanelData.FromPosition(name, raHours, decDeg, siteLat, siteLon, viewingUtc, site)
+            with
+            {
+                Canonical = canonical,
+                ObjType = ObjectType.Comet,
+                VMag = (float)mag,
+                Constellation = constellation,
+                Index = idx,
+            };
     }
 
     private static CelestialObjectShape? ResolveShape(ICelestialObjectDB db, CatalogIndex idx)

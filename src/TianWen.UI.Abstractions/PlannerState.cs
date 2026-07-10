@@ -3,7 +3,9 @@ using System.Collections.Generic;
 using System.Collections.Immutable;
 using DIR.Lib;
 using TianWen.Lib.Astrometry.Catalogs;
+using TianWen.Lib.Astrometry.Comets;
 using TianWen.Lib.Astrometry.SOFA;
+using TianWen.Lib.Astrometry.VSOP87;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Devices.Weather;
 using TianWen.Lib.Sequencing;
@@ -219,4 +221,12 @@ public class PlannerState
     /// Used by the sky map tab for star positions and constellation data.
     /// </summary>
     public ICelestialObjectDB? ObjectDb { get; set; }
+
+    /// <summary>
+    /// The locally-cached JPL comet set, set alongside <see cref="ObjectDb"/> after
+    /// <see cref="AppSignalHandler.InitializePlannerAsync"/> kicks off its (background) load. Used by the
+    /// sky map tab to draw ephemeris-computed comet markers and their live magnitude, the same way the
+    /// planet markers come from <see cref="VSOP87a"/>. Null until wired; empty until the load completes.
+    /// </summary>
+    public ICometRepository? Comets { get; set; }
 }

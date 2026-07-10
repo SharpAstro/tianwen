@@ -73,19 +73,40 @@ namespace TianWen.UI.Abstractions
                 // marker on the planet and its Alt/RA/Dec live.
                 if (info.Index is { } selIdx && selIdx.IsSolarSystemObject)
                 {
-                    foreach (var (planetIdx, pRa, pDec) in State.GetPlanetPositionsCached(viewingTime))
+                    if (selIdx.ToCatalog() == Catalog.Comet)
                     {
-                        if (planetIdx == selIdx)
+                        // A comet moves AND brightens with time; re-resolve its live position + magnitude
+                        // from the same per-frame cache the marker draws from, keyed on the SAME viewing
+                        // time, so stepping the date keeps the panel (and the sparkline "now" point) live.
+                        if (plannerState.Comets is { } comets)
                         {
-                            info = SkyMapSearchActions.PlanetInfoPanel(
-                                db, selIdx, pRa, pDec, siteLat, siteLon, viewingTime, in site);
-                            break;
+                            foreach (var m in State.GetCometPositionsCached(comets, viewingTime))
+                            {
+                                if (m.Index == selIdx)
+                                {
+                                    info = SkyMapSearchActions.CometInfoPanel(
+                                        comets, selIdx, m.RA, m.Dec, m.VMag, siteLat, siteLon, viewingTime, in site);
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    else
+                    {
+                        foreach (var (planetIdx, pRa, pDec) in State.GetPlanetPositionsCached(viewingTime))
+                        {
+                            if (planetIdx == selIdx)
+                            {
+                                info = SkyMapSearchActions.PlanetInfoPanel(
+                                    db, selIdx, pRa, pDec, siteLat, siteLon, viewingTime, in site);
+                                break;
+                            }
                         }
                     }
                 }
 
                 DrawInfoPanel(plannerState, info, contentRect, fontPath, dpiScale,
-                    pixelsPerRadian, cx, cy);
+                    viewingTime, pixelsPerRadian, cx, cy);
             }
 
             if (State.Search.IsOpen)
@@ -214,12 +235,21 @@ namespace TianWen.UI.Abstractions
             PlannerState plannerState,
             in SkyMapInfoPanelData info,
             RectF32 contentRect, string fontPath, float dpiScale,
+            DateTimeOffset viewingTime,
             double pixelsPerRadian, float cx, float cy)
         {
+            // A comet carries a vmag sparkline under the text rows; fetch the state-cached curve (recomputed
+            // only when the comet / viewing day changes) and grow the panel to make room for it.
+            var isComet = info.Index is { } ci && ci.ToCatalog() == Catalog.Comet;
+            var magCurve = isComet
+                ? State.GetCometMagnitudeCurveCached(plannerState.Comets, info.Index!.Value, viewingTime)
+                : default;
+            var hasCurve = magCurve.Length > 0;
+
             // Widened (300 -> 320 -> 348) to fit three action buttons (Goto / View in
             // Planner / Pin) without the longer "View in Planner" label clipping.
             var pw = 348f * dpiScale;
-            var ph = 205f * dpiScale;
+            var ph = (hasCurve ? 250f : 205f) * dpiScale;
             var px = contentRect.X + 12f * dpiScale;
             var py = contentRect.Y + contentRect.Height - ph - 32f * dpiScale; // above status strip
             var fontSize = 12f * dpiScale;
@@ -282,6 +312,16 @@ namespace TianWen.UI.Abstractions
                         : $"Rise {FormatHHMM(info.RiseTime, tz)}   Transit {FormatHHMM(info.TransitTime, tz)}   Set {FormatHHMM(info.SetTime, tz)}";
             DrawText(rtsLine.AsSpan(), fontPath,
                 textX, py + row, textW, rowH, fontSize, SearchText, TextAlign.Near, TextAlign.Center);
+            row += rowH;
+
+            // Comet vmag sparkline (brighter = up), auto-scaled to the sampled +/-45-day window. The "now"
+            // sample (window centre) is dotted, so the user reads the current trend at a glance.
+            if (hasCurve)
+            {
+                DrawMagnitudeSparkline(magCurve,
+                    textX, py + row + 2f * dpiScale, textW, 30f * dpiScale,
+                    fontPath, fontSize, dpiScale);
+            }
 
             // Action buttons along the bottom of the panel.
             // Copy the in-parameter fields into locals so the click lambda can capture
@@ -488,6 +528,91 @@ namespace TianWen.UI.Abstractions
             DrawLine(centerX - tick, centerY, centerX + tick, centerY, SelectionMarker);
             DrawLine(centerX, centerY - tick, centerX, centerY + tick, SelectionMarker);
             return true;
+        }
+
+        private static readonly RGBAColor32 SparklineAxis = new(0x50, 0x50, 0x58, 0xFF);
+        private static readonly RGBAColor32 SparklineLine = new(0x88, 0xEE, 0xCC, 0xFF);
+        private static readonly RGBAColor32 SparklineNow  = new(0xFF, 0xEE, 0x60, 0xFF);
+
+        /// <summary>
+        /// Draw a small vmag sparkline: magnitude vs time with the axis INVERTED (brighter/lower magnitude
+        /// at the top), auto-scaled to the finite-sample range, with a left gutter carrying the bright/faint
+        /// magnitude bounds and a dotted "now" marker at the window centre. Uses the tab's shared
+        /// <c>DrawLine</c> / <c>FillCircle</c> / <c>DrawText</c> primitives so it works on GPU and TUI alike.
+        /// </summary>
+        private void DrawMagnitudeSparkline(
+            ReadOnlySpan<float> mags, float x, float y, float w, float h,
+            string fontPath, float fontSize, float dpiScale)
+        {
+            var min = float.MaxValue;
+            var max = float.MinValue;
+            var finite = 0;
+            foreach (var m in mags)
+            {
+                if (!float.IsNaN(m))
+                {
+                    if (m < min) min = m;
+                    if (m > max) max = m;
+                    finite++;
+                }
+            }
+
+            if (finite < 2 || max - min < 1e-3f)
+            {
+                // Flat / degenerate curve (e.g. a distant comet whose brightness barely moves): a bare
+                // label reads clearer than a flat line pinned to an arbitrary edge.
+                DrawText("vmag ~flat".AsSpan(), fontPath, x, y, w, h,
+                    fontSize * 0.8f, SearchDimText, TextAlign.Near, TextAlign.Center);
+                return;
+            }
+
+            var gutter = 30f * dpiScale;
+            var plotX = x + gutter;
+            var plotW = w - gutter;
+            var range = max - min;
+
+            // Axis frame (left + bottom).
+            DrawLine(plotX, y, plotX, y + h, SparklineAxis);
+            DrawLine(plotX, y + h, plotX + plotW, y + h, SparklineAxis);
+
+            // Bright (min mag) at top, faint (max mag) at bottom.
+            var labelFont = fontSize * 0.7f;
+            DrawText($"{min:F1}".AsSpan(), fontPath, x, y - labelFont * 0.2f, gutter - 3f, labelFont * 1.4f,
+                labelFont, SearchDimText, TextAlign.Far, TextAlign.Near);
+            DrawText($"{max:F1}".AsSpan(), fontPath, x, y + h - labelFont * 1.2f, gutter - 3f, labelFont * 1.4f,
+                labelFont, SearchDimText, TextAlign.Far, TextAlign.Near);
+
+            var n = mags.Length;
+            var prevX = 0f;
+            var prevY = 0f;
+            var prevValid = false;
+            for (var i = 0; i < n; i++)
+            {
+                if (float.IsNaN(mags[i]))
+                {
+                    prevValid = false;
+                    continue;
+                }
+                var fx = plotX + plotW * (n == 1 ? 0.5f : i / (float)(n - 1));
+                var fy = y + h * ((mags[i] - min) / range); // min -> top, max -> bottom
+                if (prevValid)
+                {
+                    DrawLine(prevX, prevY, fx, fy, SparklineLine);
+                }
+                prevX = fx;
+                prevY = fy;
+                prevValid = true;
+            }
+
+            // "Now" marker: the centre sample (the curve is centred on the viewing instant).
+            var mid = n / 2;
+            if (!float.IsNaN(mags[mid]))
+            {
+                var nx = plotX + plotW * (n == 1 ? 0.5f : mid / (float)(n - 1));
+                var ny = y + h * ((mags[mid] - min) / range);
+                DrawLine(nx, y, nx, y + h, new RGBAColor32(SparklineNow.Red, SparklineNow.Green, SparklineNow.Blue, 0x40));
+                FillCircle(nx, ny, 2.5f, SparklineNow);
+            }
         }
 
         // Rise/Transit/Set are UTC instants; render them in the site timezone, never the

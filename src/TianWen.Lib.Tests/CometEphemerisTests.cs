@@ -79,6 +79,43 @@ public class CometEphemerisTests
     }
 
     [Fact]
+    public void GivenPonsBrooksWhenSamplingMagnitudeCurveThenItBrightensTowardPerihelion()
+    {
+        // 12P's perihelion is 2024-04-21 (JD 2460421.63). Sampling monthly across it, the predicted
+        // magnitude must reach its minimum (brightest) near the perihelion sample -- the whole point of a
+        // "realistic(ish)" vmag curve. Window: 2024-01-01 + 30-day steps, 8 samples (spans ~7 months).
+        var start = new DateTimeOffset(2024, 1, 1, 0, 0, 0, TimeSpan.Zero);
+        Span<double> mags = stackalloc double[8];
+        CometEphemeris.SampleMagnitudeCurve(PonsBrooks, start, TimeSpan.FromDays(30), mags);
+
+        // Every sample is finite (photometry present + solve converges across the whole window).
+        var minMag = double.MaxValue;
+        var minIdx = -1;
+        for (var i = 0; i < mags.Length; i++)
+        {
+            double.IsNaN(mags[i]).ShouldBeFalse($"sample {i} was NaN");
+            if (mags[i] < minMag) { minMag = mags[i]; minIdx = i; }
+        }
+
+        // Perihelion (2024-04-21) sits between sample 3 (Apr 10) and 4 (May 10); the brightest sample
+        // must be one of those, and it must be materially brighter than the Jan 1 start.
+        minIdx.ShouldBeInRange(3, 4);
+        minMag.ShouldBeLessThan(mags[0] - 1.0);
+    }
+
+    [Fact]
+    public void GivenElementsWithoutPhotometryWhenSamplingMagnitudeCurveThenAllSamplesAreNaN()
+    {
+        var noPhotometry = PonsBrooks with { AbsoluteMagnitudeM1 = double.NaN, SlopeK1 = double.NaN };
+        Span<double> mags = stackalloc double[4];
+        CometEphemeris.SampleMagnitudeCurve(noPhotometry, new DateTimeOffset(2024, 1, 1, 0, 0, 0, TimeSpan.Zero), TimeSpan.FromDays(10), mags);
+        foreach (var m in mags)
+        {
+            double.IsNaN(m).ShouldBeTrue();
+        }
+    }
+
+    [Fact]
     public void GivenElementsWithoutPhotometryWhenPredictingMagnitudeThenItIsNaN()
     {
         var noPhotometry = PonsBrooks with { AbsoluteMagnitudeM1 = double.NaN, SlopeK1 = double.NaN };
