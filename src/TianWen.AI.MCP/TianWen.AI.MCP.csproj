@@ -7,7 +7,10 @@
     <Nullable>enable</Nullable>
     <AssemblyName>tianwen-mcp</AssemblyName>
     <PublishAot>true</PublishAot>
-    <InvariantGlobalization>true</InvariantGlobalization>
+    <!-- Globalization (ICU) ON: catalog.lookup resolves the observing site's IANA timezone
+         (GeoTimeZone -> TimeZoneInfo) to report rise/set + best-observing time in LOCAL time.
+         Invariant mode cannot resolve IANA ids, which is why the GUI (same tz path) is not invariant. -->
+    <InvariantGlobalization>false</InvariantGlobalization>
     <Platforms>AnyCPU</Platforms>
     <DebugType Condition="'$(Configuration)' == 'Release'">none</DebugType>
   </PropertyGroup>

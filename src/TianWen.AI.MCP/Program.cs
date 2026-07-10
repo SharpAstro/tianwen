@@ -20,8 +20,11 @@ builder.Logging.AddConsole(options =>
 });
 
 // Wire just the TianWen.Lib service surface the v1 tool set needs. Astrometry
-// gives us ICelestialObjectDB (for catalog tools); the rest comes online as
-// later phases add tools that touch sessions / devices / fits viewers.
+// gives us ICelestialObjectDB + ICometRepository (for catalog tools); AddExternal
+// supplies the ITimeProvider + IExternal the comet cache depends on (weekly-TTL
+// SBDB fetch written to AppData/SmallBodies). The rest comes online as later
+// phases add tools that touch sessions / devices / fits viewers.
+builder.Services.AddExternal();
 builder.Services.AddAstrometry();
 
 builder.Services
