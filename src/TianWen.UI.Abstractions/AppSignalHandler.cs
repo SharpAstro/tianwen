@@ -129,7 +129,7 @@ namespace TianWen.UI.Abstractions
                 swInit.ElapsedMilliseconds);
             _plannerState.ObjectDb = objectDb;
             _plannerState.NeedsRedraw = true;
-            SetAutoCompleteCache(objectDb.CreateAutoCompleteList());
+            SetAutoCompleteCache(PlannerActions.BuildAutoCompleteList(objectDb, null));
 
             // Comet ephemerides load in the background (cache read, else an SBDB fetch) so the Sky Atlas
             // opens immediately; the markers appear as soon as the element set is in. Tracked (not raw
@@ -139,6 +139,9 @@ namespace TianWen.UI.Abstractions
             _tracker.Run(async () =>
             {
                 await comets.EnsureLoadedAsync(cancellationToken);
+                // Rebuild the autocomplete cache now that comet keys exist, so the planner-tab search
+                // suggests comets too (atomic string[] reference swap; the render thread reads the field).
+                SetAutoCompleteCache(PlannerActions.BuildAutoCompleteList(objectDb, comets));
                 _plannerState.NeedsRedraw = true;
             }, "Load comet ephemerides");
             await PlannerActions.ComputeTonightsBestAsync(
@@ -613,7 +616,7 @@ namespace TianWen.UI.Abstractions
                             {
                                 await PlannerPersistence.TryLoadAsync(_plannerState, profile, _external, _logger, _timeProvider, _cts.Token);
                             }
-                            SetAutoCompleteCache(objectDb.CreateAutoCompleteList());
+                            SetAutoCompleteCache(PlannerActions.BuildAutoCompleteList(objectDb, _plannerState.Comets));
                         }
                         await FetchWeatherForecastAsync(_cts.Token);
                         _appState.StatusMessage = null;
@@ -749,7 +752,7 @@ namespace TianWen.UI.Abstractions
                     if (transform is not null)
                     {
                         var db = sp.GetRequiredService<TianWen.Lib.Astrometry.Catalogs.ICelestialObjectDB>();
-                        var resultIdx = PlannerActions.SearchTargets(plannerState, db, transform, text);
+                        var resultIdx = PlannerActions.SearchTargets(plannerState, db, transform, text, plannerState.Comets);
                         if (resultIdx >= 0)
                         {
                             plannerState.SelectedTargetIndex = resultIdx;
@@ -876,7 +879,7 @@ namespace TianWen.UI.Abstractions
                     if (transform is not null && !plannerState.ScoredTargets.ContainsKey(target))
                     {
                         var db = sp.GetRequiredService<ICelestialObjectDB>();
-                        PlannerActions.CommitSuggestion(plannerState, db, transform, sig.Name);
+                        PlannerActions.CommitSuggestion(plannerState, db, transform, sig.Name, plannerState.Comets);
                     }
                 }
 
@@ -2617,7 +2620,7 @@ namespace TianWen.UI.Abstractions
                     if (transform is not null)
                     {
                         var db = sp.GetRequiredService<TianWen.Lib.Astrometry.Catalogs.ICelestialObjectDB>();
-                        var resultIdx = PlannerActions.CommitSuggestion(plannerState, db, transform, suggestion);
+                        var resultIdx = PlannerActions.CommitSuggestion(plannerState, db, transform, suggestion, plannerState.Comets);
                         if (resultIdx >= 0)
                         {
                             plannerState.SelectedTargetIndex = resultIdx;
