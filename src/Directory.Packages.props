@@ -197,9 +197,16 @@
          6.10 adds DebugSignalArgs (JsonElement OptInt/OptDouble/OptBool/OptString extension members) used by
          Program.cs's DebugInspector SignalFactories; without this bump the GUI DEBUG build fails CS1061.
          6.11 was the prior pin (lockstep rebuild against DIR.Lib 6.4).
-         6.16 is the current pin: re-pins its own DIR.Lib floor 6.6.* -> 6.8.* (so it requires DIR.Lib >= 6.8),
-         which is why the DIR.Lib pin above must move to 6.8.* in lockstep. -->
-    <PackageVersion Include="SdlVulkan.Renderer" Version="6.16.*" />
+         6.16 re-pinned its own DIR.Lib floor 6.6.* -> 6.8.* (requires DIR.Lib >= 6.8), which is why the
+         DIR.Lib pin above sits at 6.8.* in lockstep.
+         6.17 hardens GPU-wedge recovery: stuck-fence recovery runs on a sacrificial background task the
+         render thread only polls (a truly hung driver can block inside teardown), + SDF atlas hazard fixes.
+         6.18 is the current pin: idles the render loop while a window is minimized. A minimized window
+         reports a non-zero pixel size on Windows, so the old size guard missed it and the loop busy-spun
+         through swapchain recreation (~270ms/frame) for invisible frames; now gated on the SDL minimized
+         flag (~0% CPU while minimized, instant repaint on restore). Also DEBUG-only inspector additions
+         (minimize/maximize/restore + a per-iteration command pump). No DIR.Lib floor change. -->
+    <PackageVersion Include="SdlVulkan.Renderer" Version="6.18.*" />
     <PackageVersion Include="SDL3-CS" Version="3.5.0-preview.20260213-150035" />
     <PackageVersion Include="SDL3-CS.Native" Version="3.5.0-preview.20260205-174353" />
     <!-- Canon DSLR -->
