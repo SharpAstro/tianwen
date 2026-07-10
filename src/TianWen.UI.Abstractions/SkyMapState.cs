@@ -1,10 +1,12 @@
 using System;
+using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Numerics;
 using System.Runtime.CompilerServices;
 using DIR.Lib;
 using TianWen.Lib.Astrometry;
 using TianWen.Lib.Astrometry.Catalogs;
+using TianWen.Lib.Astrometry.Comets;
 using TianWen.Lib.Astrometry.VSOP87;
 
 namespace TianWen.UI.Abstractions
@@ -47,6 +49,10 @@ namespace TianWen.UI.Abstractions
         public bool ShowConstellationFigures { get; set; } = true;
         public bool ShowGrid { get; set; } = true;
         public bool ShowPlanets { get; set; } = true;
+
+        /// <summary>Show JPL comet markers (E key, "com[e]t"). Comets are ephemeris-computed from the
+        /// cached <see cref="ICometRepository"/> element set, exactly as planets come from VSOP87a.</summary>
+        public bool ShowComets { get; set; } = true;
 
         /// <summary>Show Alt/Az coordinate grid (A key toggles mode + grid).</summary>
         public bool ShowAltAzGrid { get; set; }
@@ -280,6 +286,170 @@ namespace TianWen.UI.Abstractions
             _planetCacheCount = count;
             _planetCacheTime = viewingTime;
             return _planetCache.AsSpan(0, count);
+        }
+
+        /// <summary>
+        /// A ephemeris-computed comet marker for the sky map: its <see cref="Catalog.Comet"/> index, live
+        /// J2000 RA/Dec, predicted total magnitude, and the short display label (common name if SBDB has
+        /// one, else the canonical designation). The comet analogue of the planet cache tuple.
+        /// </summary>
+        public readonly record struct CometMarker(CatalogIndex Index, double RA, double Dec, float VMag, string Label);
+
+        // Base naked-marker magnitude floor for comets. A comet fainter than this at the current view
+        // never draws (unless zooming in raises the effective limit -- see the max() at the call sites),
+        // mirroring how the star field's floor grows with zoom. Comets are sparse, so this is generous.
+        internal const float CometBaseMagnitudeLimit = 12.0f;
+
+        // Static candidacy filter: a comet only enters the per-frame solve if its photometric model could
+        // plausibly reach naked-marker range. Peak-ish brightness ~ M1 + K1*log10(q) (i.e. at r = q with a
+        // 1 AU geocentric distance); the +6 slack over CometBaseMagnitudeLimit covers close approaches
+        // (delta < 1) that brighten a comet beyond this crude estimate. Rebuilt only when the repository
+        // reference or its element count changes -- NOT per frame.
+        private const double CometCandidacyMagnitudeLimit = CometBaseMagnitudeLimit + 6.0;
+        private ICometRepository? _cometCandidatesRepo;
+        private int _cometCandidatesAllLength = -1;
+        private CometElements[] _cometCandidates = [];
+
+        // Per-viewingTime marker cache (positions + magnitudes for the candidate set), keyed on the exact
+        // viewingTime + repository identity, mirroring the planet cache. Zoom-independent: it holds every
+        // candidate with a finite magnitude, and each consumer (draw / click / info panel) applies its own
+        // magnitude limit -- so zooming never invalidates it.
+        private DateTimeOffset _cometCacheTime = DateTimeOffset.MinValue;
+        private ICometRepository? _cometCacheRepo;
+        private CometMarker[] _cometCache = [];
+        private int _cometCacheCount;
+
+        /// <summary>
+        /// Live comet markers at <paramref name="viewingTime"/> for the candidate set, cached until the
+        /// viewingTime (or repository) changes. Returns an empty span when no repository is wired or it has
+        /// not finished loading. The returned markers are NOT magnitude-filtered -- callers compare
+        /// <see cref="CometMarker.VMag"/> against their own limit (the draw path uses
+        /// <c>max(<see cref="CometBaseMagnitudeLimit"/>, <see cref="EffectiveMagnitudeLimit"/>)</c>) so the
+        /// cache stays zoom-independent. Uses <see cref="CometEphemeris.TryGetEquatorialJ2000WithMagnitude"/>,
+        /// the same two-body path the ephemeris tests pin.
+        /// </summary>
+        public ReadOnlySpan<CometMarker> GetCometPositionsCached(ICometRepository? comets, DateTimeOffset viewingTime)
+        {
+            if (comets is null)
+            {
+                return default;
+            }
+
+            RebuildCometCandidatesIfNeeded(comets);
+
+            if (viewingTime == _cometCacheTime && ReferenceEquals(comets, _cometCacheRepo))
+            {
+                return _cometCache.AsSpan(0, _cometCacheCount);
+            }
+
+            if (_cometCache.Length < _cometCandidates.Length)
+            {
+                _cometCache = new CometMarker[_cometCandidates.Length];
+            }
+
+            var count = 0;
+            foreach (var el in _cometCandidates)
+            {
+                if (el.CatalogIndex is not { } idx)
+                {
+                    continue;
+                }
+                if (!CometEphemeris.TryGetEquatorialJ2000WithMagnitude(el, viewingTime, out var ra, out var dec, out var mag)
+                    || double.IsNaN(mag))
+                {
+                    continue;
+                }
+                var label = el.CommonName is { Length: > 0 } cn ? cn : el.Designation.ToCanonical();
+                _cometCache[count++] = new CometMarker(idx, ra, dec, (float)mag, label);
+            }
+            _cometCacheCount = count;
+            _cometCacheTime = viewingTime;
+            _cometCacheRepo = comets;
+            return _cometCache.AsSpan(0, count);
+        }
+
+        /// <summary>Number of samples in a comet info-panel vmag sparkline.</summary>
+        public const int CometCurveSampleCount = 32;
+
+        // Total span of the info-panel vmag sparkline (centred on the viewing instant), so an
+        // approaching/receding perihelion reads as a V. 90 days shows the shoulders of a typical
+        // apparition without flattening the interesting part.
+        private const double CometCurveWindowDays = 90.0;
+
+        // Info-panel vmag sparkline cache for the selected comet. The curve is stable within a day, so it
+        // recomputes only when the selected comet or the viewing DAY changes -- never per frame (which
+        // would be CometCurveSampleCount Kepler+VSOP solves every frame for one selection).
+        private CatalogIndex _cometCurveIndex;
+        private long _cometCurveDayKey = long.MinValue;
+        private float[] _cometCurve = [];
+
+        /// <summary>
+        /// Cached vmag sparkline for a selected comet: <see cref="CometCurveSampleCount"/> predicted
+        /// magnitudes spanning <c>CometCurveWindowDays</c> centred on <paramref name="viewingTime"/> (the
+        /// middle sample is "now"). Recomputed only when the comet or the viewing DAY changes. Returns an
+        /// empty span when the comet is unknown or has no photometric model.
+        /// </summary>
+        public ReadOnlySpan<float> GetCometMagnitudeCurveCached(ICometRepository? comets, CatalogIndex index, DateTimeOffset viewingTime)
+        {
+            if (comets is null || !comets.TryGet(index, out var el) || !el.HasMagnitudeModel)
+            {
+                return default;
+            }
+
+            var dayKey = viewingTime.UtcDateTime.Date.Ticks / TimeSpan.TicksPerDay;
+            if (index == _cometCurveIndex && dayKey == _cometCurveDayKey && _cometCurve.Length == CometCurveSampleCount)
+            {
+                return _cometCurve;
+            }
+
+            if (_cometCurve.Length != CometCurveSampleCount)
+            {
+                _cometCurve = new float[CometCurveSampleCount];
+            }
+
+            Span<double> mags = stackalloc double[CometCurveSampleCount];
+            var start = viewingTime - TimeSpan.FromDays(CometCurveWindowDays / 2.0);
+            var step = TimeSpan.FromDays(CometCurveWindowDays / (CometCurveSampleCount - 1));
+            CometEphemeris.SampleMagnitudeCurve(el, start, step, mags);
+            for (var i = 0; i < CometCurveSampleCount; i++)
+            {
+                _cometCurve[i] = (float)mags[i];
+            }
+            _cometCurveIndex = index;
+            _cometCurveDayKey = dayKey;
+            return _cometCurve;
+        }
+
+        private void RebuildCometCandidatesIfNeeded(ICometRepository comets)
+        {
+            var all = comets.All;
+            if (ReferenceEquals(comets, _cometCandidatesRepo) && all.Length == _cometCandidatesAllLength)
+            {
+                return;
+            }
+
+            var candidates = new List<CometElements>();
+            foreach (var el in all)
+            {
+                if (!el.HasMagnitudeModel || el.CatalogIndex is null)
+                {
+                    continue;
+                }
+                var q = Math.Max(el.PerihelionDistanceAu, 0.05);
+                var peakish = el.AbsoluteMagnitudeM1 + el.SlopeK1 * Math.Log10(q);
+                if (peakish <= CometCandidacyMagnitudeLimit)
+                {
+                    candidates.Add(el);
+                }
+            }
+
+            _cometCandidates = [.. candidates];
+            _cometCandidatesRepo = comets;
+            _cometCandidatesAllLength = all.Length;
+
+            // Force the marker cache to rebuild against the new candidate set.
+            _cometCacheTime = DateTimeOffset.MinValue;
+            _cometCacheRepo = null;
         }
 
         /// <summary>
