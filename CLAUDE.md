@@ -430,7 +430,10 @@ Full design + phasing: [`docs/plans/comet-ephemeris.md`](docs/plans/comet-epheme
   planet 10d ticks -- and **must hit regardless of sample count** (an all-failed-to-solve empty result
   must still cache, or it re-samples ~49 ephemerides every frame). The planet path costs ~10 ms to
   rebuild (49 x VSOP series, per `EphemerisBenchmarks`), so the coarse bucket keeps a day-scrub from
-  rebuilding it every frame.
+  rebuilding it every frame. The path solve additionally runs OFF the render thread (task #26):
+  `GetSelectedPathCached` dispatches a background `Task<SelectedPath>` and draws the last adopted
+  snapshot until it lands (VSOP87a/CometEphemeris are pure -- stackalloc over static-readonly tables --
+  so it races nothing). The vmag sparkline stays synchronous (comet-only, ~0.7 ms).
 - **Deferred:** per-object Horizons ephemeris for a pinned comet (sub-arcsec + non-sidereal rates);
   bright asteroids (`sb-kind=a` + H/G law); a dedicated planner-tab vmag *chart* (the sky-map info-panel
   sparkline already covers the vmag curve).
