@@ -181,12 +181,13 @@ public static partial class CatalogUtils
                 break;
 
             case Catalog.Comet:
-                // Plain-ASCII packed (no MSB/Base91): 'c' tag + compact designation, single producer
-                // shared with CometDesignation.TryToCatalogIndex so the packed value never diverges.
-                cleanedUp = CometDesignation.TryParse(trimmedInput, out var cometDesignation)
-                    ? cometDesignation.ToPackedAbbreviationOrNull()
+                // Base91-packed bit fields (same mechanism as Tycho2/PSR/WDS); the value producer
+                // (CometDesignation.TryToPackedValue) is shared with CometDesignation.TryToCatalogIndex
+                // so the packed index never diverges between the search path and the ingest path.
+                cleanedUp = CometDesignation.TryParse(trimmedInput, out var cometDesignation) && cometDesignation.TryToPackedValue(out var cometValue)
+                    ? EncodeCometCatalogIndex(cometValue)
                     : null;
-                isBase91Encoded = false;
+                isBase91Encoded = true;
                 break;
 
             default:
@@ -349,6 +350,24 @@ public static partial class CatalogUtils
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// Base91-encodes a comet's &le; 48-bit packed field value (from
+    /// <see cref="CometDesignation.TryToPackedValue"/>) into a <see cref="Catalog.Comet"/> abbreviation,
+    /// with the catalog tag in the low 7 bits -- mirrors <see cref="EncodeTyc2CatalogIndex(Catalog, ushort, ushort, byte)"/>.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
+    internal static string EncodeCometCatalogIndex(ulong value)
+    {
+        var idAsLongH = value;
+        idAsLongH <<= ASCIIBits;
+        idAsLongH |= (ulong)Catalog.Comet & ASCIIMask;
+
+        Span<byte> bytesN = stackalloc byte[sizeof(ulong)];
+        BinaryPrimitives.WriteUInt64BigEndian(bytesN, idAsLongH);
+
+        return Base91.EncodeBytes(bytesN[1..]);
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]

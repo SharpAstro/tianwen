@@ -40,6 +40,15 @@ public class CometDesignationTests
     [InlineData("73P-C")]
     [InlineData("1I")]
     [InlineData("P/2023 X1")]
+    // Asteroid-style two-letter half-months + 3-digit order (compact > 8 chars): these overflow a plain
+    // ASCII index and only round-trip because of the Base91 bit-packing.
+    [InlineData("C/2001 OG108")]
+    [InlineData("P/1999 XN120")]
+    [InlineData("C/2014 UN271")]
+    // No-order provisional, BC year, and a letter+digit fragment (SL9 sub-fragment).
+    [InlineData("C/1942 EA")]
+    [InlineData("C/-146 P1")]
+    [InlineData("D/1993 F2-P1")]
     public void GivenACometDesignationWhenPackedToCatalogIndexThenItRoundTripsBackToCanonical(string canonical)
     {
         CometDesignation.TryParse(canonical, out var designation).ShouldBeTrue();

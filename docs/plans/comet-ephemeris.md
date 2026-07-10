@@ -15,13 +15,17 @@ brightness are functions of time, computed locally from cached orbital elements.
   offline with no per-object round-trip. (Per-object Horizons `OBSERVER` fetches are a deferred
   precision upgrade, see Phase 4.)
 - **Identity = `Catalog.Comet`** (a dedicated catalog, not reused `Pl`) + `ObjectType.Comet`.
-  Designations pack into a plain 7-bit-ASCII `CatalogIndex` (`c` tag + punctuation-free compact form,
-  e.g. `cC2024A1`, `c73PC`) — **no MSB/Base91 bit-packing** (user constraint). `IsSolarSystemObject`
-  now covers `Catalog.Comet` too, so the sky-map live-position path applies for free.
-- **Coverage of the plain-ASCII packing:** 98% of the full SBDB catalog and **96% of *observable*
-  comets** (q < 3 AU, with a magnitude model) pack within the 8-char payload budget. The ~4% that
-  overflow are dual-designated active asteroids with asteroid-style two-letter half-month designations
-  (e.g. `2001 OG108`), almost all faint; they are skipped and counted (never silently truncated).
+  `IsSolarSystemObject` now covers `Catalog.Comet` too, so the sky-map live-position path applies for
+  free.
+- **Packing = structured Base91 bit fields** (the same mechanism as `Tycho2`/`PSR`/`WDS`): 1-bit
+  numbered/provisional discriminant + 3-bit kind + 11-bit fragment + either a 14-bit periodic number or
+  (13-bit year + 10-bit half-month letters + 10-bit order) = ≤ 48 bits, Base91-encoded.
+  A first cut used a readable plain-7-bit-ASCII index (`cC2024A1`), but the longest real designations
+  (asteroid-style two-letter half-months of dual-designated active asteroids, e.g. `C/2001 OG108`,
+  compact 10 chars) overflow the 9-char ASCII ceiling. The data settled it: **max compact length is
+  exactly 10 chars and orders/years/numbers all sit in small ranges**, so structured bits reach
+  **100% of the catalog** with no length ceiling. Trade vs. plain ASCII: the raw index is an opaque
+  Base91 value, but `ToCanonical` still round-trips to `C/2024 A1` (what surfaces in search/display).
 
 ## Magnitude & position math
 
@@ -40,8 +44,8 @@ brightness are functions of time, computed locally from cached orbital elements.
 
 | Phase | Scope | Status |
 |-------|-------|--------|
-| **A — identity + math core** | `Catalog.Comet` + `ObjectType.Comet`; `CometDesignation` parse/pack/canonical (plain-ASCII, prefix+pdes reconstruction, BC years, 2-letter half-months); `IsSolarSystemObject`; `CometElements`; `CometEphemeris` (universal-variable Kepler + M1/K1 vmag). Horizons-pinned tests. | **DONE** (commit `beab45ed`) |
-| **B — data source + cache + registry** | `SbdbCometSource` (bulk fetch, `prefix`+`pdes` reconstruction, pure `Parse`, skip+count); `SbdbJsonContext` (source-gen, AOT); `CometRepository` cache `AppData/SmallBodies/comets.json` (weather-pattern TTL 7d + stale fallback, `FetchedUtc` envelope, `ITimeProvider`-driven); `CometDesignationJsonConverter`; `TryGetPosition`. DI in `AddAstrometry`. Live-validated: 3985 comets mapped. | **DONE (data layer)** |
+| **A — identity + math core** | `Catalog.Comet` + `ObjectType.Comet`; `CometDesignation` parse/pack/canonical (structured Base91 bit fields, prefix+pdes reconstruction, BC years, 2-letter half-months, 100% coverage); `IsSolarSystemObject`; `CometElements`; `CometEphemeris` (universal-variable Kepler + M1/K1 vmag). Horizons-pinned tests. | **DONE** (commit `beab45ed` + packing follow-up) |
+| **B — data source + cache + registry** | `SbdbCometSource` (bulk fetch, `prefix`+`pdes` reconstruction, pure `Parse`, skip+count); `SbdbJsonContext` (source-gen, AOT); `CometRepository` cache `AppData/SmallBodies/comets.json` (weather-pattern TTL 7d + stale fallback, `FetchedUtc` envelope, `ITimeProvider`-driven); `CometDesignationJsonConverter`; `TryGetPosition`. DI in `AddAstrometry`. Live-validated: **4068/4068 comets mapped**. | **DONE (data layer)** |
 | **C — search + sky map + planner + scoring + vmag UI** | Ingest comet indices + common names into `CelestialObjectDB` (F3 / autocomplete / `TonightsBest`); `Transform`/resolver position hook (comet branch alongside VSOP87a); sky-map dynamic comet markers (computed vmag < threshold) + info panel live position/vmag/**sparkline**; planner comet proposals (resolve at AstroDark); `CalculateObjectBonus` `ObjectType.Comet` boost driven by **computed current vmag**; `MagnitudeChartRenderer` (mirrors `AltitudeChartRenderer`, inverted Y) + `PlannerState` vmag profiles. | **NOT STARTED** |
 | **D — docs + memory** | This plan, `summary.md` row, `CLAUDE.md` section, project memory. | **IN PROGRESS** |
 
@@ -54,5 +58,3 @@ brightness are functions of time, computed locally from cached orbital elements.
 - **Intra-night non-sidereal tracking** during long exposures (the Session currently treats a target as
   a fixed RA/Dec captured at plan time; nightly re-resolution needs no Session change, per-frame does).
 - **Bright asteroids** via the identical pipeline (`sb-kind=a` + an H/G magnitude law + `Catalog.MinorPlanet`).
-- **Asteroid-style two-letter designations** that overflow the plain-ASCII budget (would need a
-  different packing; low value — faint dual-status objects).
