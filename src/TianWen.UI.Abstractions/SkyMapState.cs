@@ -420,6 +420,87 @@ namespace TianWen.UI.Abstractions
             return _cometCurve;
         }
 
+        /// <summary>Number of samples along a selected solar-system object's sky path.</summary>
+        public const int SkyPathSampleCount = 49;
+
+        // Path window per body kind. The Moon laps in ~27 d and moves ~13 deg/day, so a long window
+        // wraps the sky uselessly -- keep it short. Comets move fast near perihelion (medium window);
+        // planets crawl, so a longer window is needed to show a meaningful arc (incl. retrograde loops).
+        private const double MoonPathWindowDays = 5.0;
+        private const double CometPathWindowDays = 45.0;
+        private const double PlanetPathWindowDays = 120.0;
+
+        // Selected-object sky-path cache (RA/Dec samples), keyed on (index, viewing DAY) exactly like the
+        // vmag sparkline: sampling is stable within a day, so it recomputes only on selection / day change,
+        // never per frame. The per-frame cost is then just projecting these samples + a polyline.
+        private CatalogIndex _pathIndex;
+        private long _pathDayKey = long.MinValue;
+        private (double RA, double Dec)[] _pathSamples = [];
+        private int _pathCount;
+
+        /// <summary>
+        /// Cached sky path (J2000 RA/Dec samples) for a selected solar-system object over a body-appropriate
+        /// window centred on <paramref name="viewingTime"/> -- planets via <see cref="VSOP87a.ReduceJ2000"/>,
+        /// comets via <see cref="CometEphemeris.TryGetEquatorialJ2000"/>. Returns an empty span for a
+        /// non-solar-system index (fixed stars/DSOs don't move) or an unknown comet. Recomputed only when the
+        /// selection or the viewing DAY changes. Samples where the ephemeris fails are omitted.
+        /// </summary>
+        public ReadOnlySpan<(double RA, double Dec)> GetSelectedPathCached(ICometRepository? comets, CatalogIndex index, DateTimeOffset viewingTime)
+        {
+            if (!index.IsSolarSystemObject)
+            {
+                return default;
+            }
+
+            var dayKey = viewingTime.UtcDateTime.Date.Ticks / TimeSpan.TicksPerDay;
+            // Hit on (index, day) REGARDLESS of sample count: a legitimately empty result (all samples
+            // failed to solve) must still cache, or it would re-sample ~49 ephemerides every frame. A real
+            // solar-system index is never default(CatalogIndex), so the initial default key still misses.
+            if (index == _pathIndex && dayKey == _pathDayKey)
+            {
+                return _pathSamples.AsSpan(0, _pathCount);
+            }
+
+            var isComet = index.ToCatalog() == Catalog.Comet;
+            CometElements cometEl = default;
+            if (isComet && (comets is null || !comets.TryGet(index, out cometEl)))
+            {
+                _pathCount = 0;
+                _pathIndex = index;
+                _pathDayKey = dayKey;
+                return default;
+            }
+
+            if (_pathSamples.Length < SkyPathSampleCount)
+            {
+                _pathSamples = new (double, double)[SkyPathSampleCount];
+            }
+
+            var windowDays = index == CatalogIndex.Moon ? MoonPathWindowDays
+                : isComet ? CometPathWindowDays
+                : PlanetPathWindowDays;
+            var start = viewingTime - TimeSpan.FromDays(windowDays / 2.0);
+            var step = TimeSpan.FromDays(windowDays / (SkyPathSampleCount - 1));
+
+            var count = 0;
+            for (var i = 0; i < SkyPathSampleCount; i++)
+            {
+                var t = start + step * i;
+                var ok = isComet
+                    ? CometEphemeris.TryGetEquatorialJ2000(cometEl, t, out var ra, out var dec, out _, out _)
+                    : VSOP87a.ReduceJ2000(index, t, out ra, out dec, out _);
+                if (ok)
+                {
+                    _pathSamples[count++] = (ra, dec);
+                }
+            }
+
+            _pathCount = count;
+            _pathIndex = index;
+            _pathDayKey = dayKey;
+            return _pathSamples.AsSpan(0, count);
+        }
+
         private void RebuildCometCandidatesIfNeeded(ICometRepository comets)
         {
             var all = comets.All;
