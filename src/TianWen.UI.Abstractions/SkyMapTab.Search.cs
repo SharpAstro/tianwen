@@ -416,6 +416,10 @@ namespace TianWen.UI.Abstractions
                     }),
                 new RectF32(px + pw - closeSize, py, closeSize, closeSize), fontPath, dpiScale);
 
+            // Path across the sky for a selected solar-system body (planet / comet): a thin polyline of its
+            // motion over a body-appropriate window, drawn UNDER the reticle so "now" stays on top.
+            DrawSelectedObjectPath(info, plannerState, viewingTime, pixelsPerRadian, cx, cy, contentRect);
+
             // Selection marker on the map itself. For objects with a known shape
             // (nebulae, galaxies, clusters) we trace the projected ellipse so the
             // marker actually hugs the object; for stars and shapeless entries we
@@ -432,6 +436,57 @@ namespace TianWen.UI.Abstractions
                     DrawLine(sx + 8f * dpiScale, sy, sx + 18f * dpiScale, sy, SelectionMarker);
                     DrawLine(sx, sy - 18f * dpiScale, sx, sy - 8f * dpiScale, SelectionMarker);
                     DrawLine(sx, sy + 8f * dpiScale, sx, sy + 18f * dpiScale, SelectionMarker);
+                }
+            }
+        }
+
+        // Draw the selected solar-system body's sky path (planet or comet) as a thin polyline over its
+        // cached RA/Dec samples. Projection is per-frame (the view pans/zooms/scrubs); the samples come
+        // from the day-keyed cache so no ephemeris runs here. Segments that fail to project or that span an
+        // implausibly long screen distance (projection wrap / behind-camera) are skipped.
+        private void DrawSelectedObjectPath(
+            in SkyMapInfoPanelData info, PlannerState plannerState, DateTimeOffset viewingTime,
+            double pixelsPerRadian, float cx, float cy, RectF32 contentRect)
+        {
+            if (info.Index is not { } idx || !idx.IsSolarSystemObject)
+            {
+                return;
+            }
+
+            var path = State.GetSelectedPathCached(plannerState.Comets, idx, viewingTime);
+            if (path.Length < 2)
+            {
+                return;
+            }
+
+            var baseColor = idx.ToCatalog() == Catalog.Comet ? CometColor : SkyMapRenderer.GetPlanetColor(idx);
+            var pathColor = new RGBAColor32(baseColor.Red, baseColor.Green, baseColor.Blue, 0xA0);
+            var maxSegSq = contentRect.Width * contentRect.Width + contentRect.Height * contentRect.Height;
+
+            var prevValid = false;
+            var prevX = 0f;
+            var prevY = 0f;
+            foreach (var (ra, dec) in path)
+            {
+                if (SkyMapProjection.ProjectWithMatrix(ra, dec, State.CurrentViewMatrix,
+                        pixelsPerRadian, cx, cy, out var sx, out var sy))
+                {
+                    if (prevValid)
+                    {
+                        var dx = sx - prevX;
+                        var dy = sy - prevY;
+                        if (dx * dx + dy * dy < maxSegSq)
+                        {
+                            DrawLine(prevX, prevY, sx, sy, pathColor);
+                        }
+                    }
+                    prevX = sx;
+                    prevY = sy;
+                    prevValid = true;
+                }
+                else
+                {
+                    prevValid = false;
                 }
             }
         }
