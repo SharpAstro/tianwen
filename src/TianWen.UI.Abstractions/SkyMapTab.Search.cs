@@ -417,8 +417,9 @@ namespace TianWen.UI.Abstractions
                 new RectF32(px + pw - closeSize, py, closeSize, closeSize), fontPath, dpiScale);
 
             // Path across the sky for a selected solar-system body (planet / comet): a thin polyline of its
-            // motion over a body-appropriate window, drawn UNDER the reticle so "now" stays on top.
-            DrawSelectedObjectPath(info, plannerState, viewingTime, pixelsPerRadian, cx, cy, contentRect);
+            // motion over a body-appropriate window + labelled event markers (stations, elongation,
+            // perihelion), drawn UNDER the reticle so "now" stays on top.
+            DrawSelectedObjectPath(info, plannerState, viewingTime, pixelsPerRadian, cx, cy, contentRect, fontPath, dpiScale);
 
             // Selection marker on the map itself. For objects with a known shape
             // (nebulae, galaxies, clusters) we trace the projected ellipse so the
@@ -444,9 +445,11 @@ namespace TianWen.UI.Abstractions
         // cached RA/Dec samples. Projection is per-frame (the view pans/zooms/scrubs); the samples come
         // from the day-keyed cache so no ephemeris runs here. Segments that fail to project or that span an
         // implausibly long screen distance (projection wrap / behind-camera) are skipped.
+        private static readonly RGBAColor32 PathEventColor = new(0xFF, 0xE0, 0x60, 0xFF);
+
         private void DrawSelectedObjectPath(
             in SkyMapInfoPanelData info, PlannerState plannerState, DateTimeOffset viewingTime,
-            double pixelsPerRadian, float cx, float cy, RectF32 contentRect)
+            double pixelsPerRadian, float cx, float cy, RectF32 contentRect, string fontPath, float dpiScale)
         {
             if (info.Index is not { } idx || !idx.IsSolarSystemObject)
             {
@@ -488,6 +491,24 @@ namespace TianWen.UI.Abstractions
                 {
                     prevValid = false;
                 }
+            }
+
+            // Event markers along the path: a small ring + short label (R/D station, GE/Opp, q perihelion),
+            // computed with the path (SkyMapState.SelectedPathEvents) so no ephemeris runs here.
+            var eventFont = 11f * dpiScale;
+            foreach (var ev in State.SelectedPathEvents)
+            {
+                if (!SkyMapProjection.ProjectWithMatrix(ev.RaJ2000Hours, ev.DecJ2000Deg, State.CurrentViewMatrix,
+                        pixelsPerRadian, cx, cy, out var ex, out var ey)
+                    || ex < contentRect.X || ex >= contentRect.X + contentRect.Width
+                    || ey < contentRect.Y || ey >= contentRect.Y + contentRect.Height)
+                {
+                    continue;
+                }
+                DrawCircle(ex, ey, 4f * dpiScale, PathEventColor, 1.5f);
+                DrawText(ev.Label.AsSpan(), fontPath,
+                    ex + 6f * dpiScale, ey - eventFont, 60f, eventFont * 1.2f,
+                    eventFont, PathEventColor, TextAlign.Near, TextAlign.Center);
             }
         }
 

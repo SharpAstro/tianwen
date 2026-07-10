@@ -438,6 +438,20 @@ namespace TianWen.UI.Abstractions
         private (double RA, double Dec)[] _pathSamples = [];
         private int _pathCount;
 
+        // Notable events along the current path (stations, greatest elongation / opposition, perihelion),
+        // recomputed with the path (same bucket) and read by the renderer to annotate the arc. The Sun
+        // track is scratch, sampled at the same instants only for planets (elongation/opposition).
+        private readonly List<SkyPathEvent> _pathEvents = [];
+        private (double RA, double Dec)[] _sunSamples = [];
+
+        /// <summary>
+        /// Events detected on the most recently built selected-object path (see
+        /// <see cref="GetSelectedPathCached"/>): stations / retrograde, greatest elongation, opposition,
+        /// perihelion. Valid for whatever selection + bucket the last <see cref="GetSelectedPathCached"/>
+        /// call resolved, so read it right after that call for the same object.
+        /// </summary>
+        public IReadOnlyList<SkyPathEvent> SelectedPathEvents => _pathEvents;
+
         // Path cache granularity by body speed. A planet path costs ~10 ms to rebuild (49 x the full
         // VSOP87 series + reduction, ~150 us each -- measured in EphemerisBenchmarks), so it must NOT rebuild
         // every day while scrubbing: a planet's 120-day arc shifts imperceptibly day-to-day, so it only
@@ -482,6 +496,7 @@ namespace TianWen.UI.Abstractions
                 _pathCount = 0;
                 _pathIndex = index;
                 _pathBucketKey = bucketKey;
+                _pathEvents.Clear();
                 return default;
             }
 
@@ -512,8 +527,81 @@ namespace TianWen.UI.Abstractions
             _pathCount = count;
             _pathIndex = index;
             _pathBucketKey = bucketKey;
+
+            ComputePathEvents(index, isComet, cometEl, start, step, count);
+
             return _pathSamples.AsSpan(0, count);
         }
+
+        // Recompute the path's notable events (see SelectedPathEvents), sharing the path's start/step. Only
+        // runs when every sample solved (count == SkyPathSampleCount), because the detector assumes an even
+        // index->time spacing that dropped samples would break. Planets get a Sun track sampled at the same
+        // instants (for greatest elongation / opposition); comets carry their perihelion instant.
+        private void ComputePathEvents(CatalogIndex index, bool isComet, in CometElements cometEl, DateTimeOffset start, TimeSpan step, int count)
+        {
+            _pathEvents.Clear();
+            if (count != SkyPathSampleCount)
+            {
+                return;
+            }
+
+            var body = ClassifySkyPathBody(index, isComet);
+
+            ReadOnlySpan<(double RA, double Dec)> sun = default;
+            if (body is SkyPathBody.InferiorPlanet or SkyPathBody.OuterPlanet)
+            {
+                if (_sunSamples.Length < count)
+                {
+                    _sunSamples = new (double, double)[count];
+                }
+                var sunOk = true;
+                for (var i = 0; i < count; i++)
+                {
+                    if (VSOP87a.ReduceJ2000(CatalogIndex.Sol, start + step * i, out var sunRa, out var sunDec, out _))
+                    {
+                        _sunSamples[i] = (sunRa, sunDec);
+                    }
+                    else
+                    {
+                        sunOk = false;
+                        break;
+                    }
+                }
+                if (sunOk)
+                {
+                    sun = _sunSamples.AsSpan(0, count);
+                }
+            }
+
+            DateTimeOffset? perihelion = isComet && !double.IsNaN(cometEl.PerihelionJdTt)
+                ? JdTtToUtc(cometEl.PerihelionJdTt)
+                : null;
+
+            SkyPathEventDetector.Detect(_pathSamples.AsSpan(0, count), sun, start, step, body, perihelion, _pathEvents);
+        }
+
+        private static SkyPathBody ClassifySkyPathBody(CatalogIndex index, bool isComet)
+        {
+            if (isComet)
+            {
+                return SkyPathBody.Comet;
+            }
+            if (index == CatalogIndex.Mercury || index == CatalogIndex.Venus)
+            {
+                return SkyPathBody.InferiorPlanet;
+            }
+            if (index == CatalogIndex.Mars || index == CatalogIndex.Jupiter || index == CatalogIndex.Saturn
+                || index == CatalogIndex.Uranus || index == CatalogIndex.Neptune)
+            {
+                return SkyPathBody.OuterPlanet;
+            }
+            return SkyPathBody.Other; // Sun, Moon
+        }
+
+        // JD(TT) -> UTC display instant (TT-UTC ~69 s and the OADate epoch offset are far below the sample
+        // spacing, so this is precise enough to pin perihelion to the nearest path sample).
+        private static DateTimeOffset JdTtToUtc(double jdTt)
+            => new(DateTime.SpecifyKind(DateTime.FromOADate(jdTt - 2415018.5), DateTimeKind.Utc));
 
         private void RebuildCometCandidatesIfNeeded(ICometRepository comets)
         {
