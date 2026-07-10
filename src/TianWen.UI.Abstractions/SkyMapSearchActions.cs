@@ -53,6 +53,16 @@ public static class SkyMapSearchActions
         var entries = new List<string>(db.CreateAutoCompleteList());
         search.CometEntries.Clear();
 
+        // Register a searchable comet key -> (index, full display label). Deduped, appended to the sorted
+        // index. The display is always the "designation (common name)" form whichever key matched.
+        void AddCometKey(string key, CatalogIndex idx, string display)
+        {
+            if (search.CometEntries.TryAdd(key, (idx, display)))
+            {
+                entries.Add(key);
+            }
+        }
+
         if (comets is not null)
         {
             foreach (var el in comets.All)
@@ -62,15 +72,23 @@ public static class SkyMapSearchActions
                     continue;
                 }
                 var canonical = el.Designation.ToCanonical();
-                // Full label shown in the results list, regardless of which key matched: "10P (Tempel)".
-                var display = el.CommonName is { Length: > 0 } cn ? $"{canonical} ({cn})" : canonical;
-                if (search.CometEntries.TryAdd(canonical, (idx, display)))
+                if (el.CommonName is { Length: > 0 } commonName)
                 {
-                    entries.Add(canonical);
+                    // Multiple ways a user might type the comet, all -> same index + the same full label:
+                    //   "10P"            bare designation
+                    //   "Tempel"         common name
+                    //   "10P (Tempel)"   the displayed form (and the provisional Wikipedia style,
+                    //                    e.g. "C/2026 A1 (PANSTARRS)")
+                    //   "10P/Tempel"     the numbered Wikipedia slash style
+                    var display = $"{canonical} ({commonName})";
+                    AddCometKey(canonical, idx, display);
+                    AddCometKey(commonName, idx, display);
+                    AddCometKey(display, idx, display);
+                    AddCometKey($"{canonical}/{commonName}", idx, display);
                 }
-                if (el.CommonName is { Length: > 0 } commonName && search.CometEntries.TryAdd(commonName, (idx, display)))
+                else
                 {
-                    entries.Add(commonName);
+                    AddCometKey(canonical, idx, canonical);
                 }
             }
         }
