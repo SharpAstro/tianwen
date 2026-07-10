@@ -434,16 +434,27 @@ namespace TianWen.UI.Abstractions
         // vmag sparkline: sampling is stable within a day, so it recomputes only on selection / day change,
         // never per frame. The per-frame cost is then just projecting these samples + a polyline.
         private CatalogIndex _pathIndex;
-        private long _pathDayKey = long.MinValue;
+        private long _pathBucketKey = long.MinValue;
         private (double RA, double Dec)[] _pathSamples = [];
         private int _pathCount;
+
+        // Path cache granularity by body speed. A planet path costs ~10 ms to rebuild (49 x the full
+        // VSOP87 series + reduction, ~150 us each -- measured in EphemerisBenchmarks), so it must NOT rebuild
+        // every day while scrubbing: a planet's 120-day arc shifts imperceptibly day-to-day, so it only
+        // rebuilds when the viewing instant crosses a coarse bucket. The Moon moves fast (short bucket);
+        // comets are cheap (~23 us/sample) and move fast, so a 1-day bucket. Within a bucket the reticle
+        // still tracks the true live position along the cached arc.
+        private static readonly long MoonPathBucketTicks = TimeSpan.FromHours(6).Ticks;
+        private static readonly long CometPathBucketTicks = TimeSpan.FromDays(1).Ticks;
+        private static readonly long PlanetPathBucketTicks = TimeSpan.FromDays(10).Ticks;
 
         /// <summary>
         /// Cached sky path (J2000 RA/Dec samples) for a selected solar-system object over a body-appropriate
         /// window centred on <paramref name="viewingTime"/> -- planets via <see cref="VSOP87a.ReduceJ2000"/>,
         /// comets via <see cref="CometEphemeris.TryGetEquatorialJ2000"/>. Returns an empty span for a
         /// non-solar-system index (fixed stars/DSOs don't move) or an unknown comet. Recomputed only when the
-        /// selection or the viewing DAY changes. Samples where the ephemeris fails are omitted.
+        /// selection changes or the viewing instant crosses a per-body cache bucket (planets rebuild rarely
+        /// since their arc barely moves; see the bucket constants). Samples where the ephemeris fails are omitted.
         /// </summary>
         public ReadOnlySpan<(double RA, double Dec)> GetSelectedPathCached(ICometRepository? comets, CatalogIndex index, DateTimeOffset viewingTime)
         {
@@ -452,22 +463,25 @@ namespace TianWen.UI.Abstractions
                 return default;
             }
 
-            var dayKey = viewingTime.UtcDateTime.Date.Ticks / TimeSpan.TicksPerDay;
-            // Hit on (index, day) REGARDLESS of sample count: a legitimately empty result (all samples
+            var isComet = index.ToCatalog() == Catalog.Comet;
+            var bucketTicks = index == CatalogIndex.Moon ? MoonPathBucketTicks
+                : isComet ? CometPathBucketTicks
+                : PlanetPathBucketTicks;
+            var bucketKey = viewingTime.UtcDateTime.Ticks / bucketTicks;
+            // Hit on (index, bucket) REGARDLESS of sample count: a legitimately empty result (all samples
             // failed to solve) must still cache, or it would re-sample ~49 ephemerides every frame. A real
             // solar-system index is never default(CatalogIndex), so the initial default key still misses.
-            if (index == _pathIndex && dayKey == _pathDayKey)
+            if (index == _pathIndex && bucketKey == _pathBucketKey)
             {
                 return _pathSamples.AsSpan(0, _pathCount);
             }
 
-            var isComet = index.ToCatalog() == Catalog.Comet;
             CometElements cometEl = default;
             if (isComet && (comets is null || !comets.TryGet(index, out cometEl)))
             {
                 _pathCount = 0;
                 _pathIndex = index;
-                _pathDayKey = dayKey;
+                _pathBucketKey = bucketKey;
                 return default;
             }
 
@@ -497,7 +511,7 @@ namespace TianWen.UI.Abstractions
 
             _pathCount = count;
             _pathIndex = index;
-            _pathDayKey = dayKey;
+            _pathBucketKey = bucketKey;
             return _pathSamples.AsSpan(0, count);
         }
 

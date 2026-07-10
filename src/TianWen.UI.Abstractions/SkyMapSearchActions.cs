@@ -72,23 +72,19 @@ public static class SkyMapSearchActions
                     continue;
                 }
                 var canonical = el.Designation.ToCanonical();
+                // The label shown for any match is the single-source-of-truth CometElements.DisplayName
+                // ("10P/Tempel" periodic, "C/2026 A1 (PANSTARRS)" provisional).
+                var display = el.DisplayName;
+                AddCometKey(canonical, idx, display);
                 if (el.CommonName is { Length: > 0 } commonName)
                 {
-                    // Multiple ways a user might type the comet, all -> same index + the same full label:
-                    //   "10P"            bare designation
+                    // Every way a user might type the comet resolves to the same index + label:
                     //   "Tempel"         common name
-                    //   "10P (Tempel)"   the displayed form (and the provisional Wikipedia style,
-                    //                    e.g. "C/2026 A1 (PANSTARRS)")
-                    //   "10P/Tempel"     the numbered Wikipedia slash style
-                    var display = $"{canonical} ({commonName})";
-                    AddCometKey(canonical, idx, display);
+                    //   "10P (Tempel)"   parenthetical form
+                    //   "10P/Tempel"     numbered slash form
                     AddCometKey(commonName, idx, display);
-                    AddCometKey(display, idx, display);
+                    AddCometKey($"{canonical} ({commonName})", idx, display);
                     AddCometKey($"{canonical}/{commonName}", idx, display);
-                }
-                else
-                {
-                    AddCometKey(canonical, idx, canonical);
                 }
             }
         }
@@ -743,8 +739,7 @@ public static class SkyMapSearchActions
         double siteLat, double siteLon, DateTimeOffset viewingUtc, in SiteContext site)
     {
         var canonical = idx.ToCanonical();
-        var commonName = comets.TryGet(idx, out var el) ? el.CommonName : null;
-        var name = commonName is { Length: > 0 } ? $"{canonical} ({commonName})" : canonical;
+        var name = comets.TryGet(idx, out var el) ? el.DisplayName : canonical;
         var constellation = ConstellationBoundary.TryFindConstellation(raHours, decDeg, out var c) ? c : default;
 
         return SkyMapInfoPanelData.FromPosition(name, raHours, decDeg, siteLat, siteLon, viewingUtc, site)
