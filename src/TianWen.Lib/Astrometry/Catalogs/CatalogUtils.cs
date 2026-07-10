@@ -180,6 +180,15 @@ public static partial class CatalogUtils
                 isBase91Encoded = true;
                 break;
 
+            case Catalog.Comet:
+                // Plain-ASCII packed (no MSB/Base91): 'c' tag + compact designation, single producer
+                // shared with CometDesignation.TryToCatalogIndex so the packed value never diverges.
+                cleanedUp = CometDesignation.TryParse(trimmedInput, out var cometDesignation)
+                    ? cometDesignation.ToPackedAbbreviationOrNull()
+                    : null;
+                isBase91Encoded = false;
+                break;
+
             default:
                 template.CopyTo(chars);
                 int foundDigits = 0;
@@ -401,8 +410,16 @@ public static partial class CatalogUtils
 
         (template, catalog) = noSpaces[0] switch
         {
+            // Numbered comets ("13P", "73P-C", "24P/Schaumasse") must be probed before the 2MASS arms:
+            // "24P/S..." would otherwise satisfy the '2' + [4]=='S' check.
+            >= '0' and <= '9' when CometDesignation.IsNumberedShape(noSpaces) => ("", Catalog.Comet),
             '2' when noSpaces.Length > 5 && noSpaces[4] == 'S' => ("", Catalog.TwoMass),
             '2' when noSpaces.Length > 5 && noSpaces[4] == 'X' => ("", Catalog.TwoMassX),
+            // Provisional comet designations are recognised by their type-letter + slash ("C/2024 A1",
+            // "P/2023 X1", "D/1993 F2", "X/1872 X1", "A/2017 U1", "I/..."); the compact slash-less form
+            // ("C2024A1") is deliberately NOT routed here -- it is internal-only and would be ambiguous
+            // with Caldwell input.
+            'A' or 'C' or 'D' or 'I' or 'P' or 'X' when secondChar == '/' => ("", Catalog.Comet),
             'A' when secondChar == 'C' => ("ACO0000", Catalog.Abell),
             'B' when secondChar == 'D' => ("BD+00 0000", Catalog.BonnerDurchmusterung),
             'B' when secondIsDigit || secondChar is 'A' or 'a' => ("B000", Catalog.Barnard),
