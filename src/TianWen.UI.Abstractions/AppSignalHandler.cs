@@ -699,6 +699,18 @@ namespace TianWen.UI.Abstractions
             }
         }
 
+        /// <summary>
+        /// The UTC instant the sky map is currently displaying: the base planning date (or the
+        /// live clock when no date is pinned) PLUS the sky-map time-scrub offset. EVERY sky-map
+        /// handler that computes alt/az or hit-tests an ephemeris position must resolve the
+        /// viewing time through here so the info panel / selection matches what the renderer
+        /// actually drew -- e.g. a scrubbed Zenith reticle must still report Alt 90 deg, not the
+        /// un-scrubbed altitude. The fixed-point / mount info handlers used to omit TimeOffset and
+        /// drifted from the click-select path once the map was scrubbed.
+        /// </summary>
+        private DateTimeOffset SkyMapViewingUtc()
+            => (_plannerState.PlanningDate?.ToUniversalTime() ?? _timeProvider.GetUtcNow()) + _skyMapState.TimeOffset;
+
         public AppSignalHandler(
             IServiceProvider sp,
             GuiAppState appState,
@@ -854,8 +866,7 @@ namespace TianWen.UI.Abstractions
                 var db = sp.GetRequiredService<ICelestialObjectDB>();
                 // Include the sky-map scrub offset so a planet commit resolves the SAME live position
                 // the map is showing (and reads the render's planet cache without thrashing it).
-                var viewingUtc = (plannerState.PlanningDate?.ToUniversalTime() ?? _timeProvider.GetUtcNow())
-                    + skyMapState.TimeOffset;
+                var viewingUtc = SkyMapViewingUtc();
                 var site = SiteContext.Create(plannerState.SiteLatitude, plannerState.SiteLongitude, viewingUtc);
                 SkyMapSearchActions.CommitResult(
                     skySearch, skyMapState, db,
@@ -1032,11 +1043,10 @@ namespace TianWen.UI.Abstractions
                 var cx = rect.X + rect.Width * 0.5f;
                 var cy = rect.Y + rect.Height * 0.5f;
                 // Match the render's viewing instant: base date/now PLUS the sky-map scrub offset
-                // (State.TimeOffset). Planet positions are ephemeris-computed and move with time, so
-                // hit-testing them (and the panel's alt/az) must use the same instant the renderer
-                // drew -- otherwise a scrubbed planet dot is unclickable.
-                var viewingUtc = (plannerState.PlanningDate?.ToUniversalTime() ?? _timeProvider.GetUtcNow())
-                    + skyMapState.TimeOffset;
+                // (State.TimeOffset), via SkyMapViewingUtc. Planet positions are ephemeris-computed
+                // and move with time, so hit-testing them (and the panel's alt/az) must use the same
+                // instant the renderer drew -- otherwise a scrubbed planet dot is unclickable.
+                var viewingUtc = SkyMapViewingUtc();
                 var site = SiteContext.Create(plannerState.SiteLatitude, plannerState.SiteLongitude, viewingUtc);
 
                 SkyMapSearchActions.SelectObjectByClick(
@@ -1066,19 +1076,25 @@ namespace TianWen.UI.Abstractions
 
             bus.Subscribe<SkyMapShowFixedPointInfoSignal>(sig =>
             {
-                var viewingUtc = plannerState.PlanningDate?.ToUniversalTime() ?? _timeProvider.GetUtcNow();
+                // Must include the sky-map scrub offset (via SkyMapViewingUtc): the Zenith/NCP/SCP
+                // reticles are placed by the renderer at the scrubbed LST, so the panel's alt/az
+                // has to be computed at the SAME instant or a scrubbed Zenith reads e.g. +9.9 deg
+                // instead of +90 deg.
+                var viewingUtc = SkyMapViewingUtc();
                 var site = SiteContext.Create(plannerState.SiteLatitude, plannerState.SiteLongitude, viewingUtc);
                 skySearch.InfoPanel = SkyMapInfoPanelData.FromPosition(
                     sig.Name, sig.RaHours, sig.DecDeg,
                     plannerState.SiteLatitude, plannerState.SiteLongitude,
-                    viewingUtc, site);
+                    viewingUtc, site) with { FixedPoint = sig.FixedPoint };
                 skyMapState.NeedsRedraw = true;
                 appState.NeedsRedraw = true;
             });
 
             bus.Subscribe<SkyMapShowMountInfoSignal>(sig =>
             {
-                var viewingUtc = plannerState.PlanningDate?.ToUniversalTime() ?? _timeProvider.GetUtcNow();
+                // Same scrub-consistency requirement as the fixed-point handler: the mount reticle
+                // is projected at the scrubbed LST, so its reported alt/az must be too.
+                var viewingUtc = SkyMapViewingUtc();
                 var site = SiteContext.Create(plannerState.SiteLatitude, plannerState.SiteLongitude, viewingUtc);
                 skySearch.InfoPanel = SkyMapInfoPanelData.FromMount(
                     sig.Name, sig.RaHours, sig.DecDeg,

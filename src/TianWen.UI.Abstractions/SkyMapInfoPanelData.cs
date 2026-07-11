@@ -28,7 +28,11 @@ public readonly record struct SkyMapInfoPanelData(
     double? AngularSizeDeg,
     CelestialObjectShape? Shape,
     CatalogIndex? Index,
-    bool IsMount = false)
+    bool IsMount = false,
+    // Which fixed reference point (if any) this selection is. SkyFixedPoint.Zenith flags the
+    // panel as horizon-relative so the renderer re-resolves it to the current overhead point each
+    // frame instead of freezing it at the click-time RA/Dec (see SkyFixedPoint).
+    SkyFixedPoint FixedPoint = SkyFixedPoint.None)
 {
     /// <summary>
     /// Build a panel payload for a catalog object at the given site and viewing time.
@@ -132,6 +136,28 @@ public readonly record struct SkyMapInfoPanelData(
         DateTimeOffset viewingUtc,
         in SiteContext site)
         => FromPosition(name, raHours, decDeg, siteLat, siteLon, viewingUtc, site) with { IsMount = true };
+
+    /// <summary>
+    /// Returns a copy with Alt/Az recomputed for the current <paramref name="site"/>, leaving the
+    /// (viewing-time-independent) RA/Dec and the date-resolved rise/transit/set untouched. Alt/Az are
+    /// horizon coordinates -- they swing with the hour angle even for a fixed-RA/Dec star or DSO -- so a
+    /// selection panel left open while the map is time-scrubbed must refresh them or it shows a stale
+    /// altitude (the "Helix still says Alt -30 four hours later" bug). Deliberately cheap: only the O(1)
+    /// <see cref="ComputeAltAz"/> trig runs, so this is safe to call every frame while the panel is
+    /// visible. Rise/transit/set are NOT recomputed here -- they only shift on a DATE change, and the
+    /// iterative Meeus solve is too heavy to re-run per frame. Solar-system bodies and the zenith take
+    /// the fuller per-frame re-resolve instead (their RA/Dec move too); this is the fixed-object path.
+    /// </summary>
+    public SkyMapInfoPanelData WithLiveHorizontal(in SiteContext site)
+    {
+        if (!site.IsValid)
+        {
+            return this;
+        }
+
+        var (altDeg, azDeg) = ComputeAltAz(RA, Dec, site);
+        return this with { AltDeg = altDeg, AzDeg = azDeg };
+    }
 
     // Local-only alt/az from a SiteContext (fast; no SOFA pipeline needed for display).
     // For the precision plate-solving needs the full Transform path — but the info

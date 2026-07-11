@@ -343,7 +343,11 @@ public readonly record struct SkyMapSlewToObjectSignal(
 public readonly record struct SkyMapShowFixedPointInfoSignal(
     string Name,
     double RaHours,
-    double DecDeg);
+    double DecDeg,
+    // Which fixed point was clicked. SkyFixedPoint.Zenith flags the info panel as horizon-relative
+    // so the renderer re-resolves it to the current overhead point each frame; NCP/SCP are
+    // equatorially fixed (no re-resolution).
+    SkyFixedPoint FixedPoint = SkyFixedPoint.None);
 
 /// <summary>
 /// Open the sky-map info panel for the MOUNT marker (the believed pointing reticle).
