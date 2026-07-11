@@ -85,11 +85,13 @@ internal static class FrameQualityFilter
     private const float MadToStdDev = 1.4826f;
 
     /// <summary>
-    /// Maximum fraction of frames we will mark as rejected in one filter
-    /// pass. If the MAD threshold flags more than this, we fall back to
-    /// severity-ranked quantile rejection.
+    /// Default maximum fraction of frames marked rejected in one pass. If the
+    /// MAD threshold flags more than this, we fall back to severity-ranked
+    /// quantile rejection. Stacking's yield-preserving default; the dataset
+    /// builder overrides it higher (purity &gt; yield) via the
+    /// <c>maxRejectFraction</c> parameter on <see cref="Filter"/>.
     /// </summary>
-    private const float MaxRejectFraction = 0.20f;
+    public const float DefaultMaxRejectFraction = 0.20f;
 
     /// <summary>
     /// Minimum input length where MAD-based thresholding is statistically
@@ -102,9 +104,13 @@ internal static class FrameQualityFilter
     /// <summary>
     /// Filter the input <paramref name="metrics"/> at the given
     /// <paramref name="sigma"/> threshold. See class doc for the
-    /// algorithm.
+    /// algorithm. <paramref name="maxRejectFraction"/> caps how many frames
+    /// one pass may reject before the severity-ranked keep-floor engages
+    /// (default <see cref="DefaultMaxRejectFraction"/> — stacking's
+    /// yield-preserving value; the dataset builder passes a higher fraction
+    /// because it favours purity over yield).
     /// </summary>
-    public static FrameQualityFilterResult Filter(ReadOnlySpan<FrameMetrics> metrics, float sigma)
+    public static FrameQualityFilterResult Filter(ReadOnlySpan<FrameMetrics> metrics, float sigma, float maxRejectFraction = DefaultMaxRejectFraction)
     {
         var n = metrics.Length;
         var reasons = new FrameRejectReason[n];
@@ -189,7 +195,7 @@ internal static class FrameQualityFilter
         // Apply the 80% keep floor: at most 20% of frames may end up
         // rejected. If the MAD threshold flagged more, rank the flagged
         // frames by severity and keep only the worst N as rejected.
-        var maxReject = (int)MathF.Floor(MaxRejectFraction * n);
+        var maxReject = (int)MathF.Floor(Math.Clamp(maxRejectFraction, 0f, 1f) * n);
         var floorTriggered = false;
         if (flaggedCount > maxReject)
         {

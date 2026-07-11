@@ -46,6 +46,12 @@ public sealed record DatasetBuildOptions
     /// (zero-star frames are still rejected). Default 3.</summary>
     public float QualityRejectSigma { get; init; } = 3f;
 
+    /// <summary>Keep-floor for the quality gate: the maximum fraction of a session's frames the
+    /// gate may reject before the severity-ranked floor engages. Higher than the stacker's 0.20
+    /// because dataset building favours purity over yield (there are 20k+ subs to draw from, so
+    /// dropping a few good frames to keep clouded ones out is the right trade). Default 0.5.</summary>
+    public float QualityMaxRejectFraction { get; init; } = 0.5f;
+
     /// <summary>Tile edge length in pixels. Must match the inference tiling contract
     /// (<c>ChunkedInference</c> default 256).</summary>
     public int TileSize { get; init; } = 256;

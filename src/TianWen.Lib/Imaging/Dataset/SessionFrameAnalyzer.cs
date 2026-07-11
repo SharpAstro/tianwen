@@ -16,6 +16,24 @@ namespace TianWen.Lib.Imaging.Dataset;
 /// the gate decision is the existing pure <see cref="FrameQualityFilter"/> (MAD-based,
 /// relative to the session's own median — absolute thresholds don't transfer across
 /// focal lengths). One path, one implementation.
+///
+/// <para><b>Which metric actually discriminates</b> (measured on the reference archive's
+/// 2026-02-20 hand-flagged bad frames vs a healthy 2026-02-16 session, same ASI533MC Pro on
+/// a Samyang 135 f/2): <b>star count</b> is the load-bearing metric. On a fast refractor,
+/// ellipticity is a near-constant of the optics (~0.56 median for both good AND bad frames —
+/// corner elongation), so it barely separates and an absolute ceiling would reject everything.
+/// And HFD is <i>inverted</i> under transparency loss: clouded frames measure LOWER median HFD
+/// (2.0 vs 2.8) because only bright, tight stellar cores survive detection. Transparency loss
+/// shows up as a collapse in star count (bad median 1261 vs good p10 2671), which the
+/// left-tail <see cref="FrameRejectReason.StarCountTooLow"/> check catches. HFD/ellipticity are
+/// retained because other rigs/failure modes (defocus, tracking) do move them, but they are not
+/// the discriminator for this archive's dominant failure mode.</para>
+///
+/// <para><b>What the gate cannot catch:</b> a per-frame PSF/transparency gate rejects frames that
+/// are bad <i>for the reasons it measures</i>. Some hand-flagged bad frames are metrically
+/// indistinguishable from good ones (normal star count, HFD, ellipticity) — bad for reasons this
+/// gate doesn't see (satellite trails, gradients, the last clear frame before clouds). Those
+/// survive by design; catching them needs orthogonal detectors, not a tighter PSF threshold.</para>
 /// </summary>
 public static class SessionFrameAnalyzer
 {
@@ -61,7 +79,7 @@ public static class SessionFrameAnalyzer
     /// rejected regardless of the filter (they would poison the session medians and can
     /// never register anyway).
     /// </summary>
-    public static GateResult ApplyGate(IReadOnlyList<AnalyzedFrame> frames, float sigma)
+    public static GateResult ApplyGate(IReadOnlyList<AnalyzedFrame> frames, float sigma, float maxRejectFraction = 0.5f)
     {
         // Zero-star frames are hard-rejected up front: FrameQualityFilter's left-tail
         // star-count check would usually catch them, but its keep-floor could reprieve
@@ -85,7 +103,7 @@ public static class SessionFrameAnalyzer
         {
             metrics[i] = measurable[i].Metrics;
         }
-        var result = FrameQualityFilter.Filter(metrics, sigma);
+        var result = FrameQualityFilter.Filter(metrics, sigma, maxRejectFraction);
 
         var kept = ImmutableArray.CreateBuilder<AnalyzedFrame>(result.KeptCount);
         for (var i = 0; i < measurable.Count; i++)
