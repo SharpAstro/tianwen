@@ -102,7 +102,9 @@ Load-bearing hazards for the dataset builder (all detailed with examples in the 
 dedup across Astro-Pics ↔ BobbyBox-Temp *and* within Astro-Pics itself — content-hash + `DATE-OBS`
 pass (Step 0's `dup-files.csv`); (2) never ingest `AutoSave`/`PROC`/`pixinsight`/XISF processed intermediates — gate on
 `IMAGETYP='Light'` + `EXPTIME` in [10, 300] s from headers, not folder names (BobbyBox-Temp
-especially: raw subs and XISF intermediates share the same session folders); (3) mixed Bayer
+especially: raw subs and XISF intermediates share the same session folders), **and exclude
+simulator cameras by `INSTRUME`** (Step 0 found 139 "Camera V3 simulator" lights from a
+2024-03-15 N.I.N.A. test session — synthetic frames would poison the noise model); (3) mixed Bayer
 patterns (RGGB vs GRBG) and mono+FILTER sessions need per-camera debayer; (4) `2026-02-20 BAD LIGHT
 EXAMPLES` (33 hand-flagged bad frames) is a free validation set for the quality gate; (5) 39+4
 `.7z` archives (~100 GB, mostly pre-2023/planetary, already out of v1 scope) are invisible to a
