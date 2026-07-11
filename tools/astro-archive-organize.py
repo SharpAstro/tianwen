@@ -79,27 +79,68 @@ def parse_night(night: str) -> date | None:
         return None
 
 
-def best_elsewhere(candidates: list[dict], session: str, session_nights: set[str]) -> str:
+def temp_of(rec: dict) -> float | None:
+    """Sensor temperature for matching: the cooler setpoint when present (what the user dialed
+    in and what a dark library is shot at), else the measured CCD temperature (uncooled rigs)."""
+    return rec.get("set_temp") if rec.get("set_temp") is not None else rec.get("ccd_temp")
+
+
+def median_temp(recs: list[dict]) -> float | None:
+    temps = sorted(t for r in recs if (t := temp_of(r)) is not None)
+    return temps[len(temps) // 2] if temps else None
+
+
+def temp_bucket(delta: float | None) -> int:
+    """Dark current doubles every ~6 C, so temp distance dominates dark matching.
+    unknown ranks between 'close' and 'far' rather than winning or losing outright."""
+    if delta is None:
+        return 2
+    return 0 if delta <= 1.0 else 1 if delta <= 2.0 else 3
+
+
+def best_elsewhere(candidates: list[dict], session_nights: set[str],
+                   session_temp: float | None, kind: str) -> str:
     """Rank a calibration pool (minus in-session frames) by containing directory; returns a
-    short human line like '40x in <dir> (±3 d)'."""
+    short human line like '40x in <dir> (dT 0.5C, +/-3 d)'. Darks/bias rank temperature-first
+    (a months-old library at the same setpoint beats a warm same-night set); flats/darkflats
+    rank night-proximity-first (they track the optical train's dust, not the sensor)."""
     session_dates = [d for n in session_nights if (d := parse_night(n))]
-    by_dir: dict[str, dict] = defaultdict(lambda: {"count": 0, "dist": None})
+    by_dir: dict[str, dict] = defaultdict(lambda: {"count": 0, "dist": None, "temps": []})
     for r in candidates:
         dir_ = os.path.dirname(r["path"])
         info = by_dir[dir_]
         info["count"] += 1
+        if (t := temp_of(r)) is not None:
+            info["temps"].append(t)
         cal_date = parse_night(night_of(r["date_obs"]))
         if cal_date and session_dates:
             dist = min(abs((cal_date - s).days) for s in session_dates)
             info["dist"] = dist if info["dist"] is None else min(info["dist"], dist)
     if not by_dir:
         return "none found anywhere"
-    ranked = sorted(by_dir.items(),
-                    key=lambda kv: (kv[1]["dist"] if kv[1]["dist"] is not None else 9999,
-                                    -kv[1]["count"]))
-    dir_, info = ranked[0]
-    dist = f", ±{info['dist']} d" if info["dist"] is not None else ""
-    return f"{info['count']}x in {dir_}{dist}"
+
+    def dir_delta(info: dict) -> float | None:
+        if session_temp is None or not info["temps"]:
+            return None
+        temps = sorted(info["temps"])
+        return abs(temps[len(temps) // 2] - session_temp)
+
+    def rank(kv: tuple) -> tuple:
+        info = kv[1]
+        dist = info["dist"] if info["dist"] is not None else 9999
+        tb = temp_bucket(dir_delta(info))
+        if kind in ("DARK", "BIAS"):
+            return (tb, -info["count"], dist)
+        return (dist, tb, -info["count"])
+
+    dir_, info = sorted(by_dir.items(), key=rank)[0]
+    parts = []
+    if (delta := dir_delta(info)) is not None:
+        parts.append(f"dT {delta:.1f}C" + (" (!)" if delta > 2.0 else ""))
+    if info["dist"] is not None:
+        parts.append(f"+/-{info['dist']} d")
+    detail = f" ({', '.join(parts)})" if parts else ""
+    return f"{info['count']}x in {dir_}{detail}"
 
 
 def cal_key(kind: str, r: dict) -> tuple:
@@ -153,15 +194,18 @@ def write_summaries(records: list[dict], roots: list[str]) -> int:
             groups[(r["filter"] or "-", r["exptime"], r["gain"], r["binning"], r["camera"])] += 1
 
         in_session = {kind: info["cal"].get(kind, []) for kind in ("DARK", "BIAS", "FLAT", "DARKFLAT")}
+        session_temp = median_temp(lights)
+        temp_note = f" @ {session_temp:.0f}C setpoint" if session_temp is not None else ""
         lines = [
             f"# Session summary - {os.path.basename(session)}",
             "",
             f"> Machine-written by `tools/astro-archive-organize.py --write-summaries` on {today};",
             "> safe to delete, regenerated on the next organize run. Matching is by FITS header",
-            "> (camera + exposure + gain + binning [+ filter]); sensor temperature is NOT compared.",
+            "> (camera + exposure + gain + binning [+ filter]); darks/bias rank temperature-first",
+            "> (dT vs the lights' setpoint, >2C flagged), flats rank night-proximity-first.",
             "",
             f"- Nights: {nights[0]} .. {nights[-1]} ({len(nights)})" if nights else "- Nights: unknown",
-            f"- Camera: {', '.join(cameras) or 'unknown'}" + (f" ({', '.join(bayer)})" if bayer else ""),
+            f"- Camera: {', '.join(cameras) or 'unknown'}" + (f" ({', '.join(bayer)})" if bayer else "") + temp_note,
             "",
             "## Lights",
             "",
@@ -189,9 +233,15 @@ def write_summaries(records: list[dict], roots: list[str]) -> int:
                          "FLAT": f"{filt} b{binning}",
                          "DARKFLAT": f"g{gain} b{binning}"}[kind]
                 if own:
-                    lines.append(f"| {kind.title()} | {label} | {len(own)} | - |")
+                    own_cell = str(len(own))
+                    if (own_temp := median_temp(own)) is not None:
+                        delta = abs(own_temp - session_temp) if session_temp is not None else None
+                        own_cell += f" @ {own_temp:.0f}C"
+                        if kind in ("DARK", "BIAS") and delta is not None and delta > 2.0:
+                            own_cell += f" (dT {delta:.1f}C (!))"
+                    lines.append(f"| {kind.title()} | {label} | {own_cell} | - |")
                 else:
-                    elsewhere = best_elsewhere(pools.get(key, []), session, set(nights))
+                    elsewhere = best_elsewhere(pools.get(key, []), set(nights), session_temp, kind)
                     lines.append(f"| {kind.title()} | {label} | 0 | {elsewhere} |")
         lines.append("")
         (Path(session) / "_session-summary.md").write_text("\n".join(lines), encoding="utf-8")
@@ -215,13 +265,21 @@ def main() -> int:
     source = os.path.normpath(args.source)
     canonical = os.path.normpath(args.canonical)
 
-    records = []
+    # The index is append-only (schema upgrades and move re-pointing append updated records),
+    # so the LAST record per path wins — a flat list double-counts every upgraded file — and
+    # records whose file no longer exists (pre-move paths) would create phantom session dirs
+    # and calibration pools pointing at vanished directories.
+    by_path: dict[str, dict] = {}
     with open(args.index, "r", encoding="utf-8") as f:
         for line in f:
             try:
-                records.append(json.loads(line))
-            except json.JSONDecodeError:
+                rec = json.loads(line)
+                by_path[rec["path"]] = rec
+            except (json.JSONDecodeError, KeyError):
                 continue
+    records = [r for r in by_path.values() if os.path.exists(r["path"])]
+    if len(records) != len(by_path):
+        print(f"[index] {len(by_path) - len(records)} stale-path records ignored")
 
     # Header-identity set of every raw light already in the canonical root.
     canonical_lights = set()
