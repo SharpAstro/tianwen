@@ -168,7 +168,10 @@ def main() -> int:
     with open(cache_path, "a", encoding="utf-8") as cache_out:
         for i, (root, path, size, mtime) in enumerate(files):
             cached = cache.get(path)
-            if cached and cached.get("size") == size and abs(cached.get("mtime", 0) - mtime) < 2:
+            # "set_temp" doubles as a schema marker: records written before the temperature
+            # fields existed re-read once, making the temp upgrade resumable without --rehash.
+            if cached and cached.get("size") == size and abs(cached.get("mtime", 0) - mtime) < 2 \
+                    and "set_temp" in cached:
                 records.append(cached)
             else:
                 header = parse_fits_header(path) or {}
