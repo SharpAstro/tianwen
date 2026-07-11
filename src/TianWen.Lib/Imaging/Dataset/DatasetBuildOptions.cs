@@ -40,6 +40,12 @@ public sealed record DatasetBuildOptions
     /// registration + a meaningful master). Default 10.</summary>
     public int MinSubsPerSession { get; init; } = 10;
 
+    /// <summary>MAD threshold (standard-deviation-equivalent units) for the session-relative
+    /// quality gate (<see cref="SessionFrameAnalyzer.ApplyGate"/>); the stacker's
+    /// <c>--quality-reject-sigma</c> semantics. 0 disables the relative gate
+    /// (zero-star frames are still rejected). Default 3.</summary>
+    public float QualityRejectSigma { get; init; } = 3f;
+
     /// <summary>Tile edge length in pixels. Must match the inference tiling contract
     /// (<c>ChunkedInference</c> default 256).</summary>
     public int TileSize { get; init; } = 256;
