@@ -182,8 +182,12 @@ preferred until it passes).
 
 ## 3. Model + training
 
-- **Architecture: NAFNet** (width 32 first, 64 if capacity-limited; ~5–20 M params) — the same
-  family the SAS AI4 models use, so the stride-16 / tile-256 / overlap-64 constraints of
+- **Architecture: NAFNet, width 32, standard block config ≈ 29 M params** (the SXT 21M / NXT 24M /
+  StarNet-V2 30M league; ~115 MB fp32 ONNX, same class as the SAS AI4 files the runtime already
+  handles). Capacity tuning goes DOWN via middle-block count on pinned-split ablations — Croman
+  ("capacity saturated"), Topaz competing at 14M, and our narrower single-user domain all say >30M
+  needs evidence, and width-64 (~116M) is off the table (4× the customer download for nothing).
+  Same family as the SAS AI4 models, so the stride-16 / tile-256 / overlap-64 constraints of
   `ChunkedNafnetRunner` hold by construction. Denoiser: 3-channel in/out (mono handled by the
   runner's channel-tiling, as `OnnxStellarSharpener` does). Deconvolver: image + `psf01` scalar.
 - **Strength control comes free:** train full-strength models; `SharpenPipeline` already applies
