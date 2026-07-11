@@ -5,6 +5,9 @@ param(
     [switch] $SkipStarCats = $false
 )
 
+# Managed lzip (SharpAstro.Lzip encoder) -- no external `lzip` binary needed.
+. "$PSScriptRoot/../../../../tools/lzip-util.ps1"
+
 $commonFilter = "^(Barnard|RCW|LDN|GUM|SH|NAME|NGC|IC|Ced|CG\s+|M\s+|HD|HR|HIP|VDB|HH|Dobashi|DG\s+|Cl\s+\w+)"
 $starCatFilter = '^(HD|HR|HIP|NAME|2MASS|[*]|M\s+|(NGC|IC)\s+\d+[A-Za-z]?$)'
 
@@ -82,7 +85,7 @@ $catalogs.GetEnumerator() | ForEach-Object {
         if (Test-Path $lzFile) { Remove-Item $lzFile }
         $entries | ConvertTo-Json | Out-File -Encoding UTF8NoBOM $outFile
         $uncompressedSize = [int](Get-Item $outFile).Length
-        $null = lzip -9 $outFile
+        Compress-FileToLz $outFile
         if (Test-Path $lzFile) {
             $compressedSize = (Get-Item $lzFile).Length
             $ratio = if ($uncompressedSize -gt 0) { $compressedSize / $uncompressedSize * 100 } else { 0 }

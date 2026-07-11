@@ -36,6 +36,23 @@ public class PlannerState
     /// </para></summary>
     public ImmutableArray<ProposedObservation> Proposals { get; set; } = [];
 
+    /// <summary>
+    /// Primary-OTA camera sensor field of view (width, height) in degrees, or null when the active
+    /// profile has no captured sensor geometry (see <c>ProfileData.PrimarySensorFovDeg</c>). Set by the
+    /// host from the active profile. Gates smart framing: with no FOV there is no frame to group into,
+    /// and <see cref="FramingGroups"/> stays empty so scheduling is byte-identical to the ungrouped path.
+    /// </summary>
+    public (double WidthDeg, double HeightDeg)? SensorFovDeg { get; set; }
+
+    /// <summary>
+    /// Derived "smart framing" groups: pinned proposals plus catalogued neighbours that share one
+    /// sensor frame (e.g. M8 + M20). Recomputed from <see cref="Proposals"/> + <see cref="SensorFovDeg"/>
+    /// whenever either changes (<c>PlannerFramingActions.ComputeFramingGroups</c>). Consumed by the
+    /// schedule build (one pointing per multi-target group) and the sky-map / planner overlays.
+    /// Immutable + atomically replaced, same rationale as <see cref="Proposals"/>.
+    /// </summary>
+    public ImmutableArray<FramingGroup> FramingGroups { get; set; } = [];
+
     /// <summary>Index of the currently selected target in the merged target list.</summary>
     public int SelectedTargetIndex { get; set; }
 

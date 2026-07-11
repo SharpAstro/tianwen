@@ -438,6 +438,42 @@ Full design + phasing: [`docs/plans/comet-ephemeris.md`](docs/plans/comet-epheme
   bright asteroids (`sb-kind=a` + H/G law); a dedicated planner-tab vmag *chart* (the sky-map info-panel
   sparkline already covers the vmag curve).
 
+### Smart Framing (planner co-framing groups)
+
+Pinning M8 with a wide-field profile auto-groups M20 into the same pointing: the planner derives the
+sensor FOV from the profile and collapses co-framable targets into one scheduled observation
+("M8 + M20") at the combined-footprint centroid. Plan + invariants:
+[`docs/plans/smart-framing.md`](docs/plans/smart-framing.md).
+
+- **Pure core in Lib** (`FramingGrouper` + `FramingPlanner`, `TianWen.Lib/Sequencing/`): tangent-plane
+  fit, greedy nearest-accretion, RA-seam wrap. NOT quadratic -- Dec-sorted band binary-search per seed;
+  neighbour discovery is grid-local (`DeepSkyCoordinateGrid` FOV-footprint cells only, never a catalog
+  scan). Identity is index-based via `ObservationScheduler.MarkCrossIndicesSeen` (cross-indices), no
+  name comparison; discovered companions are limited to NAMED non-star DSOs.
+- **Sensor specs persist in the profile JSON** (`OTAData.CameraPixelSizeUm/SensorWidthPx/SensorHeightPx`),
+  auto-captured on first camera connect (`EquipmentActions.CaptureSensorSpecs`, idempotent) -- NOT on
+  the camera URI (re-discovery replaces URIs). Offline FOV: `ProfileData.PrimarySensorFovDeg`
+  (`SensorFovExtensions`). No captured specs -> `FramingGroups` empty -> schedule byte-identical.
+- **Wiring:** `PlannerActions.ComputeFramingGroups` runs from `RecomputeHandoffSliders` (every pin
+  change, BEFORE its pinnedCount<2 early-return -- one pin still discovers neighbours) and
+  `BuildSchedule` (which collapses via `FramingPlanner.CollapseForSchedule`);
+  `AppSignalHandler.RefreshSensorFovAndFraming` pushes profile FOV on planner init / recompute /
+  sensor capture. Sky-map group-frame rendering is deferred.
+
+**SIMBAD merge v4 (catalog identity root-fix, shipped with this):** Messier numbers exist only as
+cross-index aliases of NGC entries, so `MergeSimbadRecords`' bare `TryLookupByIndexDirect` filter
+dropped SIMBAD records whose only main-catalog identifier is an M-number -- e.g. Sh2-25 (= "M 8" in
+SIMBAD, which models NGC 6523 as a *contained* child) landed as a standalone "Lagoon Nebula" duplicate.
+`ResolveToDirectIndex` now follows the cross-index table (strictly widening the old acceptance) and the
+`bestMatches` computation is deliberately LINQ-free (per-record hot path: reused lists + in-place sort,
+no enum-CompareTo boxing). **Any change to the merge logic requires bumping
+`SimbadMergeSnapshot.AlgorithmVersion` + re-running `tools/precompute-simbad-merge.ps1`** (and
+`precompute-hd-hip-cross.ps1` when any `*.gs.gz` input changed) -- the embedded snapshot's hash guard
+covers inputs + version, not code. Catalog refresh flow: `Get-SimbadCatalogs.ps1` + `Copy-OpenNGC.ps1`
+(in `Astrometry/Catalogs/`) re-fetch sources; the build's preprocess target regenerates `*.gs.gz`. All
+lzip I/O (fetch compress + preprocess decompress) goes through the managed `tools/lzip-util.ps1`
+(SharpAstro.Lzip encoder/decoder) -- **no external `lzip` binary anywhere**.
+
 ### Session
 
 `Session` (`TianWen.Lib/Sequencing/Session.cs`) is the central orchestrator. **Single-mount /
