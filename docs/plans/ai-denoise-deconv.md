@@ -155,8 +155,27 @@ raw calibration frames exist for essentially every 2022+ session, so rebuilding 
 reproducible. Per session:
 
 - **Quality gate** per sub: `FindStarsAsync` star count + median HFD + ellipticity, thresholded
-  *relative to the session median* (absolute thresholds don't transfer across focal lengths); drops
-  cloud/trailing/defocus frames. Validated against the BAD LIGHT set.
+  *relative to the session median* via the shared `FrameQualityFilter` (MAD-based; absolute
+  thresholds don't transfer across focal lengths); drops cloud/trailing/defocus frames.
+  **Measured finding (2026-07-11, ASI533MC Pro on a Samyang 135 f/2, BAD-LIGHT vs healthy session):
+  star count is the load-bearing metric, not HFD/ellipticity.** On a fast refractor ellipticity is a
+  rig constant (~0.56 for good AND bad — corner elongation), and HFD *inverts* under transparency
+  loss (clouded frames read a LOWER median HFD, 2.0 vs 2.8, because only bright tight cores survive
+  detection) — so a naive HFD gate would rank clouded frames as *sharper*. Transparency collapse
+  shows as a star-count drop (bad median 1261 vs good p10 2671), caught by the left-tail
+  `StarCountTooLow` check. HFD/ellipticity are retained for rigs/failures that do move them
+  (defocus, tracking) but are not this archive's discriminator. The keep-floor is raised from
+  stacking's 0.20 to 0.50 (`QualityMaxRejectFraction`) — purity over yield, since there are 20k+
+  subs to draw from. **Not a catch-all**: ~3 of the 33 hand-flagged bad frames are metrically
+  identical to good ones (normal star count + PSF — bad for reasons no PSF metric sees: satellite,
+  gradient, the last clear frame before clouds); those survive by design. The exit criterion is
+  "rejects the transparency/focus-bad frames, keeps the good ones", not "100% of hand-flagged".
+  **Validated (cached-metrics test):** mixing the 33 bad frames into the full 400-frame healthy
+  session at a realistic 8% minority, the gate rejects 30/33 bad (the 3 survivors are the
+  metrically-good ones) and trims ~8% of good frames — and that good-frame rejection is *principled*
+  (the rejected good are the measurably softer/thinner tail, not random), which for a training set
+  is a purity feature, not a loss. Yield/purity note: this trims the softest ~5-10% of otherwise-fine
+  frames; acceptable given 20k+ subs, and desirable for deconv (sharper master truth).
 - **Fixed tile grid per session** (256 px cells on the master's frame, sampled ~200–400 cells biased
   toward structure by local signal): every exported sub tile and the master tile share exact
   footprints, so any two subs' cell (i,j) is an N2N pair and the master's cell (i,j) is eval truth.
