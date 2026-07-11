@@ -63,6 +63,19 @@ namespace TianWen.UI.Abstractions
             // remain visible after the user closes the search window.
             if (State.Search.InfoPanel is { } info)
             {
+                // The zenith is horizon-relative: its RA (= LST) and Dec (= latitude) advance with the
+                // viewing time, so a selection made earlier must re-resolve to the CURRENT overhead point
+                // each frame -- the same live treatment the solar-system bodies get below -- or the
+                // crosshair drifts off the amber Zenith marker as the map is date-/time-scrubbed.
+                // Projecting (RA = LST, Dec = latitude) reproduces the marker's own unit vector exactly,
+                // so the re-resolved crosshair lands right on it.
+                if (info.FixedPoint == SkyFixedPoint.Zenith && site.IsValid)
+                {
+                    var zenithRa = site.LST;
+                    var zenithDec = double.RadiansToDegrees(Math.Asin(site.SinLat));
+                    info = SkyMapInfoPanelData.FromPosition("Zenith", zenithRa, zenithDec,
+                        siteLat, siteLon, viewingTime, site) with { FixedPoint = SkyFixedPoint.Zenith };
+                }
                 // A solar-system body's true RA/Dec is viewing-time dependent, so a selection made on an
                 // earlier date/time would otherwise freeze the crosshair + RA/Dec/Alt at that instant while
                 // the live planet dot moves on (the "Venus moved but the crosshair didn't" bug). Only a
@@ -71,7 +84,7 @@ namespace TianWen.UI.Abstractions
                 // re-resolve from the per-frame cache the dot/label draws from (keyed on the SAME
                 // viewingTime) and rebuild the panel via the shared builder, so stepping the date keeps the
                 // marker on the planet and its Alt/RA/Dec live.
-                if (info.Index is { } selIdx && selIdx.IsSolarSystemObject)
+                else if (info.Index is { } selIdx && selIdx.IsSolarSystemObject)
                 {
                     if (selIdx.ToCatalog() == Catalog.Comet)
                     {
@@ -103,6 +116,15 @@ namespace TianWen.UI.Abstractions
                             }
                         }
                     }
+                }
+                else
+                {
+                    // Fixed-RA/Dec selection (star / DSO / plain position / mount marker). Its RA/Dec don't
+                    // move with time, so the reticle already tracks (it projects through the live view
+                    // matrix), but Alt/Az are horizon coordinates that DO swing with the hour angle -- so
+                    // refresh just those from the current site each frame. Cheap (O(1) trig); rise/transit/
+                    // set stay date-resolved (see WithLiveHorizontal).
+                    info = info.WithLiveHorizontal(site);
                 }
 
                 DrawInfoPanel(plannerState, info, contentRect, fontPath, dpiScale,

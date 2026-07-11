@@ -992,12 +992,14 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
         // mount drivers that reject exactly-polar targets; RA is arbitrary at the pole.
         DrawFixedMarker(contentRect, dpiScale, fontPath, fontSize, lineH, ppr, cx, cy,
             ux: 0.0, uy: 0.0, uz: 1.0, label: "NCP", color: _poleColor,
-            slewName: "North Celestial Pole", slewRA: 0.0, slewDec: 89.999, hitTag: "NCP");
+            slewName: "North Celestial Pole", slewRA: 0.0, slewDec: 89.999, hitTag: "NCP",
+            fixedPoint: SkyFixedPoint.NorthCelestialPole);
 
         // South Celestial Pole (Dec=-90).
         DrawFixedMarker(contentRect, dpiScale, fontPath, fontSize, lineH, ppr, cx, cy,
             ux: 0.0, uy: 0.0, uz: -1.0, label: "SCP", color: _poleColor,
-            slewName: "South Celestial Pole", slewRA: 0.0, slewDec: -89.999, hitTag: "SCP");
+            slewName: "South Celestial Pole", slewRA: 0.0, slewDec: -89.999, hitTag: "SCP",
+            fixedPoint: SkyFixedPoint.SouthCelestialPole);
 
         // Zenith, N/S/E/W are only meaningful with a valid site in horizon mode.
         // In equatorial mode the horizon itself isn't drawn, so cardinal labels
@@ -1015,7 +1017,7 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
         DrawFixedMarker(contentRect, dpiScale, fontPath, fontSize, lineH, ppr, cx, cy,
             ux: zx, uy: zy, uz: zz, label: "Zenith", color: _zenithColor,
             slewName: "Zenith", slewRA: site.LST, slewDec: double.RadiansToDegrees(Math.Asin(site.SinLat)),
-            hitTag: "Zenith");
+            hitTag: "Zenith", fixedPoint: SkyFixedPoint.Zenith);
 
         // N/S/E/W horizon labels - orientation only, no slew handler. Skip the reticle
         // circle, just drop a letter at the projected horizon point.
@@ -1042,7 +1044,8 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
         double ppr, float cx, float cy,
         double ux, double uy, double uz,
         string label, RGBAColor32 color,
-        string slewName, double slewRA, double slewDec, string hitTag)
+        string slewName, double slewRA, double slewDec, string hitTag,
+        SkyFixedPoint fixedPoint = SkyFixedPoint.None)
     {
         if (!SkyMapProjection.ProjectUnitVec(ux, uy, uz, State.CurrentViewMatrix, ppr, cx, cy,
                 out var sx, out var sy))
@@ -1071,10 +1074,11 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
         var capturedName = slewName;
         var capturedRA = slewRA;
         var capturedDec = slewDec;
+        var capturedFixedPoint = fixedPoint;
         RegisterClickable(sx - hitSize * 0.5f, sy - hitSize * 0.5f, hitSize, hitSize,
             new HitResult.ButtonHit($"SkyMapFixedMarker:{hitTag}"),
             _ => PostSignal(new SkyMapShowFixedPointInfoSignal(
-                capturedName, capturedRA, capturedDec)));
+                capturedName, capturedRA, capturedDec, capturedFixedPoint)));
     }
 
     /// <summary>

@@ -1,6 +1,7 @@
 using System;
 using DIR.Lib;
 using Shouldly;
+using TianWen.Lib.Astrometry.SOFA;
 using TianWen.UI.Abstractions;
 using Xunit;
 
@@ -77,5 +78,94 @@ public class SkyMapTimeScrubTests
         dayColor.ShouldBe(new RGBAColor32(0x28, 0x34, 0x50, 0xFF));   // daylight dusty blue
         nightColor.ShouldBe(new RGBAColor32(0x02, 0x03, 0x08, 0xFF)); // night
         nightColor.ShouldNotBe(dayColor);
+    }
+
+    // The renderer places the Zenith reticle at RA = LST, Dec = latitude of the sky map's
+    // CURRENT viewing instant (base date + scrub offset). The fixed-point info panel must
+    // resolve its alt/az at that SAME instant -- these two tests pin the math contract that
+    // AppSignalHandler.SkyMapViewingUtc now guarantees for every sky-map handler.
+    // Southern site from the repro screenshot (Dec of the "Zenith" object read -37:52:35).
+    private const double ReproSiteLat = -37.876;
+    private const double ReproSiteLon = 145.0;
+
+    [Fact]
+    public void ZenithInfoPanel_BuiltAtTheMapsViewingInstant_ReadsNinetyDegAltitude()
+    {
+        var viewingUtc = new DateTimeOffset(2026, 7, 11, 8, 33, 0, TimeSpan.Zero);
+        var site = SiteContext.Create(ReproSiteLat, ReproSiteLon, viewingUtc);
+        site.IsValid.ShouldBeTrue();
+
+        // Exactly how VkSkyMapTab.RenderFixedPointMarkers derives the Zenith marker's RA/Dec.
+        var zenithRa = site.LST;                                         // hours
+        var zenithDec = double.RadiansToDegrees(Math.Asin(site.SinLat)); // == latitude
+
+        var panel = SkyMapInfoPanelData.FromPosition(
+            "Zenith", zenithRa, zenithDec, ReproSiteLat, ReproSiteLon, viewingUtc, site);
+
+        panel.AltDeg.ShouldBe(90.0, 0.05);
+    }
+
+    [Fact]
+    public void ZenithInfoPanel_BuiltAtAnUnscrubbedInstant_DivergesFromZenith()
+    {
+        // Regression guard: the fixed-point / mount info handlers used to drop the sky-map
+        // scrub offset, so a scrubbed Zenith was placed at the scrubbed LST but its alt/az was
+        // computed at the un-scrubbed instant. Reproduce that mismatch (the ~7.2h back-solved
+        // from the screenshot's Alt +9.9 deg / Az 229 deg) and confirm it is NOT overhead.
+        var placedUtc = new DateTimeOffset(2026, 7, 11, 8, 33, 0, TimeSpan.Zero);
+        var placed = SiteContext.Create(ReproSiteLat, ReproSiteLon, placedUtc);
+        var zenithRa = placed.LST;
+        var zenithDec = double.RadiansToDegrees(Math.Asin(placed.SinLat));
+
+        var mismatchedUtc = placedUtc + TimeSpan.FromHours(7.2);
+        var mismatched = SiteContext.Create(ReproSiteLat, ReproSiteLon, mismatchedUtc);
+
+        var panel = SkyMapInfoPanelData.FromPosition(
+            "Zenith", zenithRa, zenithDec, ReproSiteLat, ReproSiteLon, mismatchedUtc, mismatched);
+
+        panel.AltDeg.ShouldBeLessThan(20.0); // the exact bug the user saw: far below overhead
+    }
+
+    [Fact]
+    public void WithLiveHorizontal_RefreshesAltAzForTheNewInstant_ButKeepsRaDec()
+    {
+        // A fixed DSO well off the pole so its alt/az swings substantially over a few hours (Helix-ish).
+        const double raHours = 22.494;
+        const double decDeg = -20.837;
+
+        var t1 = new DateTimeOffset(2026, 7, 11, 9, 36, 0, TimeSpan.Zero);
+        var site1 = SiteContext.Create(ReproSiteLat, ReproSiteLon, t1);
+        var panel = SkyMapInfoPanelData.FromPosition(
+            "Helix", raHours, decDeg, ReproSiteLat, ReproSiteLon, t1, site1);
+
+        // Four hours later -- a fixed-RA/Dec object's alt/az must move (this is the staleness the fix cures).
+        var t2 = t1 + TimeSpan.FromHours(4);
+        var site2 = SiteContext.Create(ReproSiteLat, ReproSiteLon, t2);
+        var refreshed = panel.WithLiveHorizontal(site2);
+
+        // RA/Dec are viewing-time independent -- untouched.
+        refreshed.RA.ShouldBe(panel.RA);
+        refreshed.Dec.ShouldBe(panel.Dec);
+
+        // Alt/Az tracked the new instant: moved noticeably, and match a full rebuild at t2 exactly.
+        Math.Abs(refreshed.AltDeg - panel.AltDeg).ShouldBeGreaterThan(5.0);
+        var direct = SkyMapInfoPanelData.FromPosition(
+            "Helix", raHours, decDeg, ReproSiteLat, ReproSiteLon, t2, site2);
+        refreshed.AltDeg.ShouldBe(direct.AltDeg, 1e-9);
+        refreshed.AzDeg.ShouldBe(direct.AzDeg, 1e-9);
+
+        // Rise/transit/set are NOT recomputed here (they only shift on a date change) -- stay as-is.
+        refreshed.TransitTime.ShouldBe(panel.TransitTime);
+    }
+
+    [Fact]
+    public void WithLiveHorizontal_WithInvalidSite_ReturnsUnchanged()
+    {
+        var t1 = new DateTimeOffset(2026, 7, 11, 9, 36, 0, TimeSpan.Zero);
+        var site1 = SiteContext.Create(ReproSiteLat, ReproSiteLon, t1);
+        var panel = SkyMapInfoPanelData.FromPosition(
+            "Helix", 22.494, -20.837, ReproSiteLat, ReproSiteLon, t1, site1);
+
+        panel.WithLiveHorizontal(default).ShouldBe(panel); // default SiteContext.IsValid == false
     }
 }
