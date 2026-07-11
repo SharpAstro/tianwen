@@ -150,6 +150,7 @@ var rootCommand = new RootCommand
                 services.GetRequiredService<TianWen.Lib.Astrometry.Catalogs.ICelestialObjectDB>(),
                 services.GetRequiredService<ILogger<TianWen.Lib.Imaging.Stacking.MasterPreviewRenderer>>()),
             services.GetService<ILogger<ImageSubCommand>>()).Build(),
+        new DatasetSubCommand(consoleHost, services.GetService<ILogger<DatasetSubCommand>>()).Build(),
         new TuiSubCommand(services, consoleHost, plannerState, profileSelector).Build()
     }
 };
