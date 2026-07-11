@@ -8,9 +8,12 @@ distinct copy is replaced by a hardlink to it -- both directory layouts keep wor
 redundant blocks are freed, and nothing is deleted (content is identical by construction).
 
 Safety model:
-  - Copies are verified byte-identical BEFORE linking: full-content SHA-256 by default
-    (doubles as a bit-rot audit -- mismatching "duplicates" are flagged to mismatches.csv and
-    never linked); --quick-verify hashes only first+last MiB + size instead.
+  - Copies are verified BEFORE linking. Default: SHA-256 of first + last MiB + exact size --
+    astro frames are noise-dominated (high entropy), so same sub-second DATE-OBS + same size +
+    same head/tail bytes is decisive, and the head MiB contains the whole FITS header (catches
+    edited-header twins, e.g. WCS written back in place). --full-verify hashes entire files
+    instead (mid-file bit-rot audit; ~10x the reads). Mismatches are flagged to mismatches.csv
+    and never linked either way.
   - Already-hardlinked pairs (same st_ino) are detected via os.stat and skipped.
   - Links are created next to the dup then atomically swapped in with os.replace.
   - Same-volume only (hardlinks cannot cross volumes; guarded by st_dev).
@@ -18,7 +21,7 @@ Safety model:
 
 Usage:
   python tools/astro-archive-hardlink.py --index "D:\\Astro-Reports\\fits-index.jsonl" ^
-      --canonical "D:\\Astro-Pics" --out "D:\\Astro-Reports" [--apply] [--quick-verify]
+      --canonical "D:\\Astro-Pics" --out "D:\\Astro-Reports" [--apply] [--full-verify]
 """
 
 from __future__ import annotations
@@ -65,9 +68,10 @@ def main() -> int:
     ap.add_argument("--canonical", required=True, help="root whose copies are kept as the primary")
     ap.add_argument("--out", required=True, help="directory for plan/log/mismatch CSVs")
     ap.add_argument("--apply", action="store_true", help="create the hardlinks (default: dry-run)")
-    ap.add_argument("--quick-verify", action="store_true",
-                    help="verify first+last MiB + size instead of full content")
+    ap.add_argument("--full-verify", action="store_true",
+                    help="hash entire files instead of first+last MiB + size (~10x the reads)")
     args = ap.parse_args()
+    quick = not args.full_verify
 
     out_dir = Path(args.out)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -139,7 +143,7 @@ def main() -> int:
 
     if not args.apply:
         print("[dry-run] nothing linked; re-run with --apply "
-              f"({'quick' if args.quick_verify else 'FULL'}-content verification before each link)")
+              f"({'FULL' if args.full_verify else 'quick'}-content verification before each link)")
         return 0
 
     log_path = out_dir / "hardlink-log.csv"
@@ -156,9 +160,9 @@ def main() -> int:
         for i, p in enumerate(plan):
             keeper, dup, size = p["keeper"], p["dup"], p["size"]
             if keeper not in keeper_hashes:
-                keeper_hashes[keeper] = sha256_of(keeper, args.quick_verify)
+                keeper_hashes[keeper] = sha256_of(keeper, quick)
             kh = keeper_hashes[keeper]
-            dh = sha256_of(dup, args.quick_verify)
+            dh = sha256_of(dup, quick)
             verified_bytes += size * 2
             if kh is None or dh is None:
                 mw.writerow([keeper, dup, size, "unreadable"])
