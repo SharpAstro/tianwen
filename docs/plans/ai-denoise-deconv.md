@@ -62,11 +62,23 @@ on that carve-out:
 
 ### 2.2 Deconvolver ground truth — synthetic PSF degradation
 
-- Input = sharp master tile convolved with a synthetic PSF; target = the undegraded tile. PSF family:
-  Moffat (β 2.5–4.5) with FWHM swept over [1, 8] px, elongation/PA, mild coma term, optional linear
-  guiding-smear kernel. **Calibrate the sweep to reality:** P0 measures the archive's actual
-  FWHM/ellipticity distribution (`FindStarsAsync` over sampled subs) so the synthetic family covers
-  the observed range instead of a guess.
+- Input = sharp master tile convolved with a synthetic PSF; target = the undegraded tile;
+  **electron-domain noise is added AFTER the blur on every pair** (never optional — deconvolution
+  is ill-posed and noise amplifies under inversion, so noise-free pairs train a brittle sharpener).
+  PSF family: Moffat (β 2.5–4.5) with FWHM swept over [1, 8] px, elongation/PA, coma term, optional
+  linear guiding-smear kernel — and **position-varying**: P0 measures the archive's FWHM/
+  ellipticity/PA distribution **binned by field radius** (`FindStarsAsync` centroids give star
+  positions; fast-lens corners genuinely differ from center), and per-tile degradation samples
+  aberrations from the measured field-position distribution instead of one stationary kernel.
+- **Space-truth tier (experiment, above the own-masters baseline):** own masters are seeing-limited
+  (FWHM ~2–3 px), so they teach only relative sharpening toward their own ceiling. Public HST/JWST
+  FITS from MAST (public domain / CC-BY — degrading *public archive data with our own measured PSF
+  family* is fully independent development; HST/JWST truth is *reported* as BXT's approach in
+  RC-Astro's FAQ and secondary coverage, NOT stated in the 2022 AIC talk, which predates BXT — and
+  our justification is independent of what BXT did) become sharper truth: downsampling to the rigs' 1–3"/px scales crushes HST noise, yielding effectively
+  noiseless linear truth at our sampling. Domain gaps (filter sets ≠ OSC RGB) are handled by
+  luminance/per-channel training — PSF inversion is near-achromatic — and the tier is adopted only
+  if it beats the baseline on the pinned split.
 - **PSF conditioning mirrors the SAS conditional model exactly:** a second scalar ONNX input
   `psf01 ∈ [0,1]`, log2-encoded over [1, 8] px — the *same* encoding `HfdPsfEstimator` already
   produces and `OnnxIoNames.ImagePlusScalar` already classifies. Our model becomes a drop-in for
