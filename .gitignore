@@ -28,3 +28,4 @@ src/TianWen.Lib/Astrometry/Catalogs/*.gs.gz
 !src/TianWen.Lib/Astrometry/Catalogs/pickles_sed.gs.gz
 # Lavapipe min-repro zip (built artifact for upstream bug filing)
 LavapipeMinRepro.zip
+__pycache__/
