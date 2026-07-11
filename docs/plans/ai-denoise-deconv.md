@@ -163,6 +163,11 @@ exact by construction. Four stages, fully license-clean (own data + own syntheti
 2. **Synthetic star injection** onto those plates, drawn from the archive's measured PSF
    distribution (same P0 stats that calibrate the deconv sweep): Moffat cores, lens halos,
    saturation/bloom for the bright tail. Input = plate + injected stars, target = plate.
+   **Injection positions must be uncorrelated with the classical-removal residual sites**
+   (Croman's "the network will faithfully learn all of your mistakes"): if injected stars
+   preferentially land on inpaint artifacts, the net learns that removing a star reveals
+   artifacts — random placement keeps the truth under injected stars overwhelmingly clean
+   background.
    Advantage of this archive: all optics are refractive (Samyang 135, ZS61, FMA180, SH61) — no
    spider vanes, no diffraction spikes — so the morphology distribution is far narrower than a
    general-purpose remover must handle.
@@ -185,7 +190,10 @@ preferred until it passes).
   per-step `Blend` as a post-hoc `Image.Lerp` toward the source — that *is* the user-facing strength
   slider. NXT-style per-frequency knobs are explicitly deferred.
 - **Losses:** L1 (MAE) primary + MS-SSIM auxiliary; plus a **flux-preservation regulariser**
-  (per-tile mean/aperture-sum penalty) — see §7.
+  (per-tile mean/aperture-sum penalty) — see §7. **Adversarial/GAN losses are deliberately
+  excluded**: they optimise for plausibility, which is hallucination pressure — directly opposed
+  to the photometric-integrity gates. If perceptual quality ever needs a boost, prefer feature
+  losses with the flux regulariser as a hard constraint.
 - **Optimisation:** AdamW, cosine schedule, grad-norm clip 1.0, early stop on held-out val, seeded
   end-to-end. Mirrors the Croman talk's recipe and prior in-house ML-pipeline experience.
 - **Discipline (proven in-house ML-pipeline patterns, adopted wholesale):**
@@ -247,7 +255,7 @@ preferred until it passes).
 | **P2 — Deconvolver v1** | Synthetic-PSF pipeline (measured-distribution sweep); psf01-conditioned NAFNet; `OnnxTianWenDeconvolver`; eval incl. FWHM-reduction + artefact checks | Measured FWHM reduction on held-out masters without ringing/worms; photometric gates hold |
 | **P3 — Ship** | Auto-order wiring, fetch-script + release assets, CLI/GUI surfacing, `docs` + CLAUDE.md section | `stack --enhance --ai-backend tianwen` end-to-end on a fresh machine (models auto-fetched) |
 | **P4 — Star remover** | Inject-and-remove bootstrap (§2.5): classical starless plates + measured-PSF star injector + self-refinement; `OnnxTianWenStarRemover : IStarRemover` (additive split) — completes the tier so the full canonical program runs TianWen-only | Injected-star removal completeness + background preservation + stars-plate flux conservation on held-out sessions; bright-saturated tail passes 1:1 spot checks (RC/SAS stay preferred until then) |
-| **P5 — Deferred** | Strength/frequency conditioning beyond Blend-lerp; mono-native models; drizzle-truth sharper tier; frame-quality classifier from BAD-examples; dataset-contribution flow for other users | — |
+| **P5 — Deferred** | Strength/frequency conditioning beyond Blend-lerp; mono-native models; drizzle-truth sharper tier; frame-quality classifier from BAD-examples; dataset-contribution flow for other users; **comet-registered stacking** (P4 unlock: star-remove subs → integrate on the `CometEphemeris`-computed per-frame comet position via WCS → recombine star-registered stars plate — the AIC comet workflow, automated by ephemeris instead of manual alignment) | — |
 
 ## 6. Evaluation (all internal, license-clean)
 
@@ -263,7 +271,9 @@ preferred until it passes).
 ## 7. The differentiator: photometric integrity
 
 Croman's own stated con: AI-processed images "destroy the scientific value" — flux and centroids
-are not conserved. We train and gate on exactly that:
+are not conserved — *"unless they were specifically trained to conserve star flux or conserve the
+positions of star centroids"* (AIC talk, verbatim). That carve-out is this section: we train and
+gate on exactly that:
 
 - **Training:** flux-preservation regulariser (aperture-sum penalty over detected-star apertures +
   per-tile mean preservation).
