@@ -12,9 +12,12 @@ Scope boundaries settled up front:
   Runtime inference only — **no Python, no on-device training** for the imaging models. (On-device
   online learning remains a NeuralGuider-only feature; its PPEC-style per-rig adaptation is out of
   scope here.)
-- **Star removal (SXT-analogue) is out of scope.** It requires hand-edited ground truth (Croman: "no
-  other way"); denoise and deconvolution have self-supervised / synthetic ground truth. Keep
-  `IStarRemover` on RC/SAS.
+- **Star removal (SXT-analogue) is in scope as a LATER phase** (P4, after denoise/deconv prove the
+  pipeline) via the inject-and-remove bootstrap (§2.5). Croman's "hand-edit is the only way" holds
+  only when you need ground truth for *existing* stars; synthetic injection gives exact truth by
+  construction. Until its eval gates pass, `IStarRemover` stays on RC/SAS — but a TianWen remover
+  is required for the tier to run the full canonical program (the starless plate is the workhorse
+  intermediate: `RemoveStarsStep`, `--split-plates`, star/starless dual stretch).
 
 ## 1. Licensing constraint (load-bearing — read first)
 
@@ -139,6 +142,29 @@ inference path uses — `AiNafnetInputs` MTF pre-stretch (target median 0.25, au
 re-implements preprocessing; it consumes tiles as-stored. A `parity-check` diff (export N tiles,
 run the C# stretch and the stored bytes side by side) pins this in CI-able form.
 
+### 2.5 Star-removal ground truth — inject-and-remove bootstrap (P4)
+
+Ground truth for *existing* stars would need hand editing; ground truth for *injected* stars is
+exact by construction. Four stages, fully license-clean (own data + own synthetics + own model):
+
+1. **Classical bootstrap starless plates**: PSF-fit subtraction at `FindStarsAsync` detections +
+   multi-scale inpaint. Imperfections are acceptable — residual artifacts become background the
+   net must *preserve*, never content it must invent.
+2. **Synthetic star injection** onto those plates, drawn from the archive's measured PSF
+   distribution (same P0 stats that calibrate the deconv sweep): Moffat cores, lens halos,
+   saturation/bloom for the bright tail. Input = plate + injected stars, target = plate.
+   Advantage of this archive: all optics are refractive (Samyang 135, ZS61, FMA180, SH61) — no
+   spider vanes, no diffraction spikes — so the morphology distribution is far narrower than a
+   general-purpose remover must handle.
+3. **Self-refinement loop**: run the trained net on real images → better starless plates →
+   re-inject → retrain. Distills only our own model.
+4. **Output contract** matches `RemoveStarsStep`'s additive split (stars = input − starless).
+
+Eval is objective because injected truth is exact: removal completeness on injected stars,
+pixel-level background preservation under them, flux conservation of the stars plate; plus
+existing-star spot checks at 1:1 (the bright-saturated tail is the known hard case — keep RC/SAS
+preferred until it passes).
+
 ## 3. Model + training
 
 - **Architecture: NAFNet** (width 32 first, 64 if capacity-limited; ~5–20 M params) — the same
@@ -210,7 +236,8 @@ run the C# stretch and the stored bytes side by side) pins this in CI-able form.
 | **P1 — Denoiser v1** | `training/` N2N pipeline; NAFNet-32 color run on RunPod; ONNX + contract; `OnnxTianWenDenoiser` + `--ai-backend tianwen`; eval report | Beats classical baseline + no photometric regression (§7) on held-out sessions; visually clean on 3 reference masters |
 | **P2 — Deconvolver v1** | Synthetic-PSF pipeline (measured-distribution sweep); psf01-conditioned NAFNet; `OnnxTianWenDeconvolver`; eval incl. FWHM-reduction + artefact checks | Measured FWHM reduction on held-out masters without ringing/worms; photometric gates hold |
 | **P3 — Ship** | Auto-order wiring, fetch-script + release assets, CLI/GUI surfacing, `docs` + CLAUDE.md section | `stack --enhance --ai-backend tianwen` end-to-end on a fresh machine (models auto-fetched) |
-| **P4 — Deferred** | Strength/frequency conditioning beyond Blend-lerp; mono-native models; drizzle-truth sharper tier; frame-quality classifier from BAD-examples; dataset-contribution flow for other users | — |
+| **P4 — Star remover** | Inject-and-remove bootstrap (§2.5): classical starless plates + measured-PSF star injector + self-refinement; `OnnxTianWenStarRemover : IStarRemover` (additive split) — completes the tier so the full canonical program runs TianWen-only | Injected-star removal completeness + background preservation + stars-plate flux conservation on held-out sessions; bright-saturated tail passes 1:1 spot checks (RC/SAS stay preferred until then) |
+| **P5 — Deferred** | Strength/frequency conditioning beyond Blend-lerp; mono-native models; drizzle-truth sharper tier; frame-quality classifier from BAD-examples; dataset-contribution flow for other users | — |
 
 ## 6. Evaluation (all internal, license-clean)
 
