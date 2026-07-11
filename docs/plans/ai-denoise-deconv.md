@@ -88,9 +88,19 @@ N.I.N.A. headers, per-session BIAS/DARK/DARKFLAT/FLAT — holds an estimated **~
 candidate raw lights** before quality filtering. Older eras (2021–2022, ASI294/QHY178m, ~668 GB)
 are lower value; SER/planetary and CR2/DSLR are excluded in v1.
 
+**Step 0 (archive organization, before any builder code):** `tools/astro-archive-dedup.py` — a
+READ-ONLY scanner producing a resumable per-file header index (`fits-index.jsonl`) plus three
+reports: `dup-files.csv` (exact-dup groups, identity = camera + `DATE-OBS` + exposure + dims,
+hash-confirmed; cross-root flagged), `nights-rollup.csv` (per camera/night light counts split
+dup/unique — the "what in BobbyBox is actually new" answer), and `calibration-coverage.csv` (per
+light group: matching darks/bias found anywhere in the archive — because **calibration masters are
+shared between sessions**, per-session folders cannot be assumed). Any physical
+extraction/filing of BobbyBox uniques into Astro-Pics happens as a user-reviewed step from these
+reports; the script itself never moves or deletes anything.
+
 Load-bearing hazards for the dataset builder (all detailed with examples in the survey doc): (1)
 dedup across Astro-Pics ↔ BobbyBox-Temp *and* within Astro-Pics itself — content-hash + `DATE-OBS`
-pass; (2) never ingest `AutoSave`/`PROC`/`pixinsight`/XISF processed intermediates — gate on
+pass (Step 0's `dup-files.csv`); (2) never ingest `AutoSave`/`PROC`/`pixinsight`/XISF processed intermediates — gate on
 `IMAGETYP='Light'` + `EXPTIME` in [10, 300] s from headers, not folder names (BobbyBox-Temp
 especially: raw subs and XISF intermediates share the same session folders); (3) mixed Bayer
 patterns (RGGB vs GRBG) and mono+FILTER sessions need per-camera debayer; (4) `2026-02-20 BAD LIGHT
@@ -101,8 +111,11 @@ folder scan unless extracted — watch for new ones under future 2024+ sessions.
 ### 2.4 Dataset builder (`tianwen dataset build`, new CLI subcommand)
 
 C# tooling in-repo, reusing existing Lib machinery end-to-end (scan `FitsFolderFrameSource` →
-dedup → quality gate → calibrate with session masters via `MasterFrameBuilder` → debayer → register
-subs to the session master → tile export). Per session:
+dedup → quality gate → calibrate via `MasterFrameBuilder` → debayer → register subs to the session
+master → tile export). **Calibration is resolved by header match across the whole archive, never by
+session folder** (confirmed 2026-07-11: dark/bias libraries are shared between sessions) — the same
+`MasterGroupKey`-style identity (camera, exposure, gain, binning, ±temp) the stacker already uses;
+Step 0's `calibration-coverage.csv` is the coverage map. Per session:
 
 - **Quality gate** per sub: `FindStarsAsync` star count + median HFD + ellipticity, thresholded
   *relative to the session median* (absolute thresholds don't transfer across focal lengths); drops
@@ -113,8 +126,8 @@ subs to the session master → tile export). Per session:
   Export the master tile + a random 4–8 subs per cell (not all subs — bounds dataset size).
 - **Output**: fp16 tiles (npy-compatible raw blobs) + a JSONL manifest per tile: source file,
   session id, camera, gain, exposure, tile coords, per-tile noise σ (MAD), session median FWHM.
-  Manifest rows written via a **canonical sort before any sampling** (bullclip lesson: parallel
-  writers break every downstream seeded operation).
+  Manifest rows written via a **canonical sort before any sampling** (parallel writers break every
+  downstream seeded operation otherwise).
 - Budget: ~60 sessions × ~300 cells × ~9 tiles ≈ 160k tiles ≈ **50–80 GB** — one upload to a cloud
   volume, regenerable from scratch by re-running the command.
 
@@ -136,8 +149,8 @@ run the C# stretch and the stored bytes side by side) pins this in CI-able form.
 - **Losses:** L1 (MAE) primary + MS-SSIM auxiliary; plus a **flux-preservation regulariser**
   (per-tile mean/aperture-sum penalty) — see §7.
 - **Optimisation:** AdamW, cosine schedule, grad-norm clip 1.0, early stop on held-out val, seeded
-  end-to-end. Mirrors both the Croman talk and the bullclip trainer's proven recipe.
-- **Discipline (bullclip patterns, adopted wholesale):**
+  end-to-end. Mirrors the Croman talk's recipe and prior in-house ML-pipeline experience.
+- **Discipline (proven in-house ML-pipeline patterns, adopted wholesale):**
   - `training/EXPERIMENTS.md` — every run logged, ablations base-vs-+change on the **pinned split**,
     negative verdicts recorded to stop re-litigation.
   - **Pinned held-out split by SESSION** (never by tile/frame — adjacent tiles leak noise/PSF stats
@@ -153,12 +166,17 @@ run the C# stretch and the stored bytes side by side) pins this in CI-able form.
 
 - Repo layout: `training/` at repo root (Python: `dataset.py`, `train_denoise.py`,
   `train_deconv.py`, `export_onnx.py`, `parity_check.py`, `requirements.txt`, `EXPERIMENTS.md`,
-  `test-sessions.txt`). Dev smoke runs: torch-CPU under WSL (no win-arm64 wheels — bullclip
-  precedent, `requirements-seq.txt`-style venv bootstrap documented).
-- **Full runs: RunPod Secure Cloud RTX 4090** (~$0.35–0.69/hr, per-second billing, persistent
-  network volume ~$0.07/GB/mo for the tile set). First usable model ≈ 24–72 GPU-h ≈ **$15–50/run**;
-  Vast.ai interruptible (~$0.13–0.37/hr) once checkpoint-resume is proven. Checkpoint every N steps
-  to the volume; pull back only checkpoint + ONNX.
+  `test-sessions.txt`). Dev smoke runs: torch-CPU under WSL (no win-arm64 torch wheels; the venv
+  bootstrap gets documented in `requirements.txt` comments).
+- **Full runs: an internal AKS GPU dev pool as a k8s Job** (Tesla T4 16 GB, 4 vCPU / 28 GB,
+  `nvidia.com/gpu: 1`; the workload-identity Job + blob-storage pattern is already proven
+  in-house). 16 GB VRAM fits NAFNet-32/64 @ 256 px with AMP; T4 ≈ 3–5× slower than a 4090, so a full
+  run is ~4–10 days — fine unattended with checkpoint-every-N-steps (restarts free). The 4-vCPU
+  loader is not a bottleneck (tiles are pre-baked fp16).
+- **Ablation sweeps (optional fast lane): RunPod Secure Cloud RTX 4090** (~$0.35–0.69/hr,
+  per-second billing, network volume ~$0.07/GB/mo) — ≈ 24–72 GPU-h ≈ **$15–50/run** when iteration
+  speed matters; Vast.ai interruptible (~$0.13–0.37/hr) once checkpoint-resume is proven. Pull back
+  only checkpoint + ONNX.
 - Local Adreno/DirectML is for **inference smoke only** (the existing TianWen.AI path); Hexagon NPU
   is inference-only with no vision-model path (verified) — neither trains anything.
 
@@ -185,7 +203,8 @@ run the C# stretch and the stored bytes side by side) pins this in CI-able form.
 
 | Phase | Deliverable | Exit criterion |
 |---|---|---|
-| **P0 — Dataset + stats** | `tianwen dataset build` (scan/dedup/gate/calibrate/register/tile+manifest, zero-skew export); archive PSF/noise distribution report; pinned `test-sessions.txt` | Tile set regenerable one-command; BAD LIGHT set 100% rejected by gate; parity check green |
+| **Step 0 — Archive organization** | `tools/astro-archive-dedup.py` READ-ONLY scan (header index + dup-files / nights-rollup / calibration-coverage reports); user-reviewed filing of BobbyBox uniques into Astro-Pics from the reports | Dup report reviewed; unique-to-BobbyBox sessions identified/filed; calibration coverage map exists (feeds P0's header-matched calibration) |
+| **P0 — Dataset + stats** | `tianwen dataset build` (scan/dedup/gate/calibrate/register/tile+manifest, zero-skew export; calibration header-matched archive-wide, never per-folder); archive PSF/noise distribution report; pinned `test-sessions.txt` | Tile set regenerable one-command; BAD LIGHT set 100% rejected by gate; parity check green |
 | **P1 — Denoiser v1** | `training/` N2N pipeline; NAFNet-32 color run on RunPod; ONNX + contract; `OnnxTianWenDenoiser` + `--ai-backend tianwen`; eval report | Beats classical baseline + no photometric regression (§7) on held-out sessions; visually clean on 3 reference masters |
 | **P2 — Deconvolver v1** | Synthetic-PSF pipeline (measured-distribution sweep); psf01-conditioned NAFNet; `OnnxTianWenDeconvolver`; eval incl. FWHM-reduction + artefact checks | Measured FWHM reduction on held-out masters without ringing/worms; photometric gates hold |
 | **P3 — Ship** | Auto-order wiring, fetch-script + release assets, CLI/GUI surfacing, `docs` + CLAUDE.md section | `stack --enhance --ai-backend tianwen` end-to-end on a fresh machine (models auto-fetched) |
@@ -199,7 +218,7 @@ run the C# stretch and the stored bytes side by side) pins this in CI-able form.
   contrast without ringing); "worm"/hallucination spot-checks at 1:1.
 - **No RC-Astro or SAS outputs in any metric.** Qualitative side-by-sides for a blog post are the
   user's call as an ordinary product comparison — never part of the automated loop.
-- Human adjudication: a tiny local compare page (bullclip's `hand_label_server` lesson: blind A/B,
+- Human adjudication: a tiny local compare page (an in-house-learned lesson: blind A/B,
   don't score against "what the user kept").
 
 ## 7. The differentiator: photometric integrity
