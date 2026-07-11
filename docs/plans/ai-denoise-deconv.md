@@ -120,7 +120,17 @@ dedup → quality gate → calibrate via `MasterFrameBuilder` → debayer → re
 master → tile export). **Calibration is resolved by header match across the whole archive, never by
 session folder** (confirmed 2026-07-11: dark/bias libraries are shared between sessions) — the same
 `MasterGroupKey`-style identity (camera, exposure, gain, binning, ±temp) the stacker already uses;
-Step 0's `calibration-coverage.csv` is the coverage map. Per session:
+Step 0's `calibration-coverage.csv` is the coverage map. **Masters are built once per
+`MasterGroupKey` group and cached on disk** (the `StackingPipeline.BuildMastersAsync` mechanism —
+a shared dark library serving five sessions is one group, one master), with two builder-specific
+requirements: the cache dir is **one shared archive-wide location** (not per-run `outputDir`, so
+build-once holds across all ~180 sessions and re-runs), and the cached master carries an
+**input-set fingerprint** (frame count + content hashes stamped into its header) so a grown dark
+library invalidates its stale master instead of silently cache-hitting on the slug. Foreign
+pre-existing masters (PixInsight XISF / DBE'd TIFs in `PROC` dirs) are deliberately **not**
+reused — unknown rejection/scaling provenance breaks the "pure function of inputs" cache trust;
+raw calibration frames exist for essentially every 2022+ session, so rebuilding is cheap and
+reproducible. Per session:
 
 - **Quality gate** per sub: `FindStarsAsync` star count + median HFD + ellipticity, thresholded
   *relative to the session median* (absolute thresholds don't transfer across focal lengths); drops
