@@ -127,6 +127,16 @@ folder scan unless extracted — watch for new ones under future 2024+ sessions.
 
 ### 2.4 Dataset builder (`tianwen dataset build`, new CLI subcommand)
 
+**CLI contract — no machine specifics in the tool.** The command ships to every user, so nothing
+in the repo encodes this machine: archive locations are **required** parameters (`--archive-root`,
+repeatable; `--out`), with fail-fast errors instead of defaults pointing anywhere. Behavioural
+knobs are parameters with *portable* defaults: exposure gate (`--min/--max-exposure`, default
+10/300 s), instrument exclusion (`--exclude-instrume`, default `*simulator*` — generic, not a
+camera list), tile size/cells/subs-per-cell, split-file path. Machine-specific invocations live in
+the operator's own runner scripts outside the repo (the `run-archive-step0.ps1` pattern) or in
+docs as examples only. The step-0 python helpers already conform (paths appear solely in docstring
+usage examples) — keep that bar.
+
 C# tooling in-repo, reusing existing Lib machinery end-to-end (scan `FitsFolderFrameSource` →
 dedup → quality gate → calibrate via `MasterFrameBuilder` → debayer → register subs to the session
 master → tile export). **Calibration is resolved by header match across the whole archive, never by
