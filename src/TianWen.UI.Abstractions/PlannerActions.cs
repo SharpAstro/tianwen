@@ -1324,6 +1324,11 @@ public static class PlannerActions
     /// </summary>
     public static void RecomputeHandoffSliders(PlannerState state)
     {
+        // Shared post-proposal-change hook (called from every add/remove/toggle/commit/reorder path):
+        // re-derive the smart framing groups here too, BEFORE the pinnedCount < 2 early return below --
+        // a single pinned target still forms a group when it co-frames a discovered neighbour (M8 -> M20).
+        ComputeFramingGroups(state);
+
         // Get sorted pinned targets (call GetFilteredTargets to update PinnedCount)
         var filtered = GetFilteredTargets(state);
         var pinnedCount = state.PinnedCount;
@@ -1580,6 +1585,34 @@ public static class PlannerActions
     /// Per-target observation windows come from <see cref="ApplyHandoffWindows"/>;
     /// <paramref name="defaultObservationTime"/> is only the fallback for proposals without a slider window.
     /// </summary>
+    /// <summary>
+    /// Recomputes <see cref="PlannerState.FramingGroups"/> from the current proposals + sensor FOV:
+    /// the pinned targets plus catalogued neighbours that share one sensor frame (e.g. M8 + M20).
+    /// Clears the groups (leaving the ungrouped path byte-identical) when the FOV is unknown, the
+    /// catalog isn't loaded, or there are no proposals. Grid-local discovery via
+    /// <see cref="FramingPlanner.BuildGroups"/>, so it is safe to call on every pin change.
+    /// </summary>
+    public static void ComputeFramingGroups(PlannerState state)
+    {
+        if (state.SensorFovDeg is not { WidthDeg: > 0, HeightDeg: > 0 } fov
+            || state.ObjectDb is not { } db
+            || state.Proposals.Length == 0)
+        {
+            state.FramingGroups = [];
+            return;
+        }
+
+        var seeds = new Target[state.Proposals.Length];
+        for (var i = 0; i < seeds.Length; i++)
+        {
+            seeds[i] = state.Proposals[i].Target;
+        }
+
+        // EmitSingletons:false -> only genuine multi-target frames surface; ungrouped proposals stay as
+        // themselves and schedule unchanged.
+        state.FramingGroups = FramingPlanner.BuildGroups(db, fov, seeds, new FramingOptions(EmitSingletons: false));
+    }
+
     public static void BuildSchedule(
         PlannerState state,
         SessionTabState sessionState,
@@ -1598,13 +1631,22 @@ public static class PlannerActions
             return;
         }
 
+        // Refresh framing groups so the schedule reflects the current pins + FOV even if the FOV was
+        // captured (camera connected) after the last pin change.
+        ComputeFramingGroups(state);
+
         // Project per-target slider windows into ProposedObservation.ObservationTime so the
         // scheduler honours the handoff layout instead of falling back to defaultObservationTime
         // for every target.
         var proposalsWithWindows = ApplyHandoffWindows(state);
 
+        // Collapse co-framed proposals into one pointing per multi-target group (M8 + M20 -> a single
+        // centroid observation). Identity transform when there are no groups, so the ungrouped schedule
+        // is unchanged.
+        var scheduledProposals = FramingPlanner.CollapseForSchedule(proposalsWithWindows.AsSpan(), state.FramingGroups);
+
         sessionState.Schedule = ObservationScheduler.Schedule(
-            proposalsWithWindows.AsSpan(),
+            scheduledProposals.AsSpan(),
             transform,
             state.AstroDark,
             state.AstroTwilight,

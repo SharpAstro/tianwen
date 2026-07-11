@@ -57,51 +57,12 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
-# Load the managed lzip decoder (SharpAstro.Lzip / Lzip.Lib) once. This replaces the former
-# `lzip -dc` shell-out so the build needs no external `lzip` binary on PATH.
-$script:LzipLoaded = $false
-function Initialize-Lzip {
-    if ($script:LzipLoaded) { return }
-
-    $dll = $null
-    if ($LzipAssembly -and (Test-Path -LiteralPath $LzipAssembly)) {
-        $dll = $LzipAssembly
-    }
-    else {
-        # Fallbacks for standalone invocation (MSBuild normally supplies -LzipAssembly).
-        $candidates = @()
-        # 1. Local sibling build output (UseLocalSiblings dev boxes): ../../Lzip.Lib/src/Lzip.Lib/bin.
-        $siblingBin = Join-Path $PSScriptRoot '..\..\Lzip.Lib\src\Lzip.Lib\bin'
-        if (Test-Path -LiteralPath $siblingBin) {
-            $candidates += Get-ChildItem -LiteralPath $siblingBin -Recurse -Filter 'Lzip.Lib.dll' -ErrorAction SilentlyContinue |
-                Sort-Object LastWriteTime -Descending
-        }
-        # 2. NuGet global-packages cache (CI + package consumers): lzip.lib/<ver>/lib/netX/Lzip.Lib.dll.
-        $nugetRoot = if ($env:NUGET_PACKAGES) { $env:NUGET_PACKAGES } else { Join-Path $HOME '.nuget\packages' }
-        $lzipPkg = Join-Path $nugetRoot 'lzip.lib'
-        if (Test-Path -LiteralPath $lzipPkg) {
-            $candidates += Get-ChildItem -LiteralPath $lzipPkg -Recurse -Filter 'Lzip.Lib.dll' -ErrorAction SilentlyContinue |
-                Where-Object { $_.FullName -match '[\\/]lib[\\/]net' } | Sort-Object FullName -Descending
-        }
-        $dll = ($candidates | Select-Object -First 1).FullName
-    }
-
-    if (-not $dll -or -not (Test-Path -LiteralPath $dll)) {
-        throw "Could not locate Lzip.Lib.dll. Pass -LzipAssembly <path>, build the Lzip.Lib sibling, or restore the Lzip.Lib package."
-    }
-
-    Add-Type -LiteralPath $dll
-    $script:LzipLoaded = $true
-}
-
-# Decompress an lzip (.lz) file to $OutPath using the managed decoder. Writes the decoded bytes
-# verbatim (the payload is already UTF-8 JSON/CSV), so there is no encoding round-trip.
-function Expand-LzToFile([string] $LzPath, [string] $OutPath) {
-    Initialize-Lzip
-    $compressed = [System.IO.File]::ReadAllBytes($LzPath)
-    $plain = [SharpAstro.Lzip.LzipDecoder]::Decompress($compressed)
-    [System.IO.File]::WriteAllBytes($OutPath, $plain)
-}
+# Managed lzip helpers (SharpAstro.Lzip / Lzip.Lib) shared with the catalog fetch scripts
+# (Get-SimbadCatalogs.ps1 / Copy-OpenNGC.ps1) -- one probe + decode/encode implementation, no
+# external `lzip` binary anywhere. MSBuild supplies -LzipAssembly; initialize eagerly so a
+# probe failure surfaces before any parsing work.
+. "$PSScriptRoot/lzip-util.ps1"
+Initialize-Lzip -LzipAssembly $LzipAssembly
 
 # ASCII control codes used as separators. These bytes do not appear in any
 # SIMBAD/NGC field value, so no escaping is ever needed.

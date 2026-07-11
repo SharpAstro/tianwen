@@ -1029,7 +1029,9 @@ internal static class ObservationScheduler
         }
     }
 
-    private static void MarkCrossIndicesSeen(ICelestialObjectDB objectDb, CatalogIndex idx, HashSet<CatalogIndex> seen)
+    // Shared with FramingPlanner -- the single mechanism for collapsing an object's multiple catalog
+    // designations (M 20 / NGC 6514 / ...) so it is only accounted once.
+    internal static void MarkCrossIndicesSeen(ICelestialObjectDB objectDb, CatalogIndex idx, HashSet<CatalogIndex> seen)
     {
         if (objectDb.TryGetCrossIndices(idx, out var crossIndices))
         {

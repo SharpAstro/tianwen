@@ -54,8 +54,13 @@ internal sealed record SimbadMergeSnapshot(
     /// v3: input hasher decompresses .gs.gz before hashing so the input hash is invariant to
     /// gzip-encoder differences across platforms / .NET versions (a Linux CI rebake of the
     /// .gs.gz files now matches a Windows local bake at the hash level).
+    ///
+    /// v4: MergeSimbadRecords resolves record identifiers through the cross-index table
+    /// (ResolveToDirectIndex) so alias-only identifiers -- every Messier number -- anchor on their
+    /// direct entry. Records whose only main-catalog identifier is an M-number (e.g. Sh2-25's
+    /// "M 8" for the Lagoon) now cross-link instead of landing as standalone duplicates.
     /// </summary>
-    public const uint AlgorithmVersion = 3;
+    public const uint AlgorithmVersion = 4;
 }
 
 /// <summary>

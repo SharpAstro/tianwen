@@ -432,6 +432,53 @@ public static class EquipmentActions
     }
 
     /// <summary>
+    /// Captures a just-connected camera's sensor geometry (pixel size + dimensions) into the OTA that
+    /// references it, so the planner can compute the sensor FOV -- and therefore smart framing groups --
+    /// offline later, before any device is connected. Returns the updated <see cref="ProfileData"/> when
+    /// something actually changed (so the caller persists), or <see langword="null"/> when the driver
+    /// reports no usable geometry, the camera isn't part of any OTA, or the specs already match (connect
+    /// is frequent; only a genuine change warrants a save). Pure transformation.
+    /// </summary>
+    public static ProfileData? CaptureSensorSpecs(ProfileData data, Uri cameraUri, ICameraDriver camera)
+    {
+        var pixelSize = camera.PixelSizeX;
+        var sensorW = camera.CameraXSize;
+        var sensorH = camera.CameraYSize;
+        if (!(pixelSize > 0) || sensorW <= 0 || sensorH <= 0)
+        {
+            return null; // driver hasn't reported usable sensor geometry
+        }
+
+        var otas = data.OTAs;
+        for (var i = 0; i < otas.Length; i++)
+        {
+            var ota = otas[i];
+            if (!DeviceBase.SameDevice(ota.Camera, cameraUri))
+            {
+                continue;
+            }
+
+            // Already captured and unchanged -> nothing to persist.
+            if (ota.CameraSensorWidthPx == sensorW
+                && ota.CameraSensorHeightPx == sensorH
+                && ota.CameraPixelSizeUm is { } existing && Math.Abs(existing - pixelSize) < 1e-6)
+            {
+                return null;
+            }
+
+            var updated = ota with
+            {
+                CameraPixelSizeUm = pixelSize,
+                CameraSensorWidthPx = sensorW,
+                CameraSensorHeightPx = sensorH,
+            };
+            return data with { OTAs = otas.SetItem(i, updated) };
+        }
+
+        return null; // camera not assigned to any OTA
+    }
+
+    /// <summary>
     /// Applies a discovered device to the slot described by <paramref name="target"/> --
     /// the single dispatch for profile-level fields (mount / guider / guider camera /
     /// guider focuser / weather) and per-OTA slots. Pure transformation; unknown targets

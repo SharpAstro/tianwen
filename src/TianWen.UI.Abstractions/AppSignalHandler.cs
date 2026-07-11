@@ -153,8 +153,20 @@ namespace TianWen.UI.Abstractions
             }
             await FetchWeatherForecastAsync(cancellationToken);
             _plannerState.SelectedTargetIndex = 0;
+            RefreshSensorFovAndFraming();
             _plannerState.NeedsRedraw = true;
             _logger.LogInformation("InitializePlanner: complete");
+        }
+
+        /// <summary>
+        /// Pushes the active profile's primary-OTA sensor FOV onto the planner and recomputes the smart
+        /// framing groups. Called on planner (re)init, profile-recompute, and right after a camera connect
+        /// captures sensor geometry -- the three moments the FOV or proposal set can change out of band.
+        /// </summary>
+        private void RefreshSensorFovAndFraming()
+        {
+            _plannerState.SensorFovDeg = _appState.ActiveProfile?.Data is { } pd ? pd.PrimarySensorFovDeg : null;
+            PlannerActions.ComputeFramingGroups(_plannerState);
         }
 
         // Per-camera last-poll timestamps, keyed by URI path (host+path, no query).
@@ -620,6 +632,7 @@ namespace TianWen.UI.Abstractions
                         }
                         await FetchWeatherForecastAsync(_cts.Token);
                         _appState.StatusMessage = null;
+                        RefreshSensorFovAndFraming();
                     }
                     else
                     {
@@ -1682,6 +1695,26 @@ namespace TianWen.UI.Abstractions
                                     "Load catalog after site reconcile");
                             }
                         }
+                    }
+
+                    // Camera connect -> capture sensor geometry into the matching OTA so the planner
+                    // can compute the sensor FOV (smart framing groups) offline afterwards. Idempotent:
+                    // CaptureSensorSpecs returns null (no save) once the specs are stored and unchanged.
+                    // ActiveProfile is re-read fresh here; a rare ConnectAll multi-camera race can drop
+                    // one OTA's first capture, which self-heals on the next connect.
+                    if (device.DeviceType == DeviceType.Camera
+                        && appState.ActiveProfile is { } camProfile
+                        && camProfile.Data is { } camData
+                        && hub.TryGetConnectedDriver<ICameraDriver>(sig.DeviceUri, out var cam)
+                        && cam is not null
+                        && EquipmentActions.CaptureSensorSpecs(camData, sig.DeviceUri, cam) is { } capturedData)
+                    {
+                        var updated = camProfile.WithData(capturedData);
+                        await updated.SaveAsync(_external, cts.Token);
+                        appState.ActiveProfile = updated;
+                        // The FOV is now known -> push it to the planner and (re)compute framing groups.
+                        RefreshSensorFovAndFraming();
+                        logger.LogInformation("Captured sensor geometry for {Uri} into profile", sig.DeviceUri);
                     }
                 }
                 catch (Exception ex)

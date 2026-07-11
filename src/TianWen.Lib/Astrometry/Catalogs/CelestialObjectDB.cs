@@ -213,6 +213,29 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
         return false;
     }
 
+    /// <summary>
+    /// Resolves an identifier to the index of a directly-stored entry, following the cross-index
+    /// table when the identifier is only an alias. Every Messier number is such an alias -- the NGC
+    /// ingestion registers e.g. M 8 purely as a cross-ref of NGC 6523, never as its own
+    /// <see cref="_objectsByIndex"/> entry -- so a SIMBAD record whose only main-catalog identifier
+    /// is an M-number would never match a bare <see cref="TryLookupByIndexDirect"/> and its
+    /// cross-links were silently dropped (how Sh2-25 ended up as a standalone "Lagoon Nebula"
+    /// duplicate). Strictly widens the direct check: anything it accepted resolves to itself; a
+    /// followed alias must land on an <see cref="_objectsByIndex"/> entry (the Tycho-2/HD binary
+    /// fallback objects are not directly indexable downstream). Returns 0 when nothing resolves.
+    /// </summary>
+    private CatalogIndex ResolveToDirectIndex(CatalogIndex index)
+    {
+        if (TryLookupByIndexDirect(index, out _, out _, out _))
+        {
+            return index;
+        }
+
+        return TryLookupByIndex(index, out var followed) && _objectsByIndex.ContainsKey(followed.Index)
+            ? followed.Index
+            : 0;
+    }
+
     /// <inheritdoc/>
     public bool TryLookupByIndex(CatalogIndex index, [NotNullWhen(true)] out CelestialObject celestialObject)
     {
@@ -2616,6 +2639,8 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
         var catToAddIdxs = new SortedSet<CatalogIndex>();
         var relevantIds = new Dictionary<Catalog, CatalogIndex[]>();
         var commonNames = new HashSet<string>(8);
+        var bestMatchKeyed = new List<(ulong SortKey, CatalogIndex Resolved)>(8);
+        var bestMatches = new List<CatalogIndex>(8);
 
         foreach (var record in records)
         {
@@ -2664,11 +2689,19 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
                 PopulateSimbadStarEntries(relevantIds, Catalog.HIP, raInHForStars, record.Dec, simbadVMag, simbadBv, simbadObjType);
                 PopulateSimbadStarEntries(relevantIds, Catalog.HD, raInHForStars, record.Dec, simbadVMag, simbadBv, simbadObjType);
 
-                var bestMatches = (
-                    from relevantIdPerCat in relevantIds
-                    from relevantId in relevantIdPerCat.Value
-                    where TryLookupByIndexDirect(relevantId, out _, out _, out _)
-                    let sortKey = relevantIdPerCat.Key switch
+                // Resolve each identifier through the cross-index table (ResolveToDirectIndex) so
+                // alias-only identifiers anchor on their real entry: SIMBAD ties Sh2-25 to the Lagoon
+                // solely via "M 8", and M-numbers have no direct entry -- the old bare direct lookup
+                // dropped them, leaving such records unlinked duplicates. Deduped because an alias and
+                // its target can both appear in one record (M 8 + NGC 6523 -> the same resolved index).
+                // Deliberately LINQ-free: this runs once per SIMBAD record across all catalog files, so
+                // the reused keyed list + in-place Sort + linear dedup avoid the query-iterator /
+                // OrderBy-buffer / Distinct-HashSet allocations. The (SortKey, Resolved) comparer is a
+                // total order, so List.Sort's instability is unobservable.
+                bestMatchKeyed.Clear();
+                foreach (var relevantIdPerCat in relevantIds)
+                {
+                    var sortKey = relevantIdPerCat.Key switch
                     {
                         Catalog.NGC => 1u,
                         Catalog.IC => 2u,
@@ -2676,10 +2709,31 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
                         Catalog.HIP => uint.MaxValue - 1,
                         Catalog.HD => uint.MaxValue,
                         _ => (ulong)relevantIdPerCat.Key
+                    };
+                    foreach (var relevantId in relevantIdPerCat.Value)
+                    {
+                        var resolved = ResolveToDirectIndex(relevantId);
+                        if (resolved != 0)
+                        {
+                            bestMatchKeyed.Add((sortKey, resolved));
+                        }
                     }
-                    orderby sortKey, relevantId
-                    select relevantId
-                ).ToList();
+                }
+                bestMatchKeyed.Sort(static (a, b) =>
+                {
+                    var c = a.SortKey.CompareTo(b.SortKey);
+                    // Compare as ulong: the enum's non-generic CompareTo(object) would box.
+                    return c != 0 ? c : ((ulong)a.Resolved).CompareTo((ulong)b.Resolved);
+                });
+                bestMatches.Clear();
+                foreach (var (_, resolved) in bestMatchKeyed)
+                {
+                    // Tiny list (a handful of identifiers per record): linear Contains beats a HashSet.
+                    if (!bestMatches.Contains(resolved))
+                    {
+                        bestMatches.Add(resolved);
+                    }
+                }
 
                 foreach (var catToAddIdx in catToAddIdxs)
                 {
@@ -2715,7 +2769,10 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
 
                             foreach (var relevantId in relevantIdPerCat.Value)
                             {
-                                if (!bestMatches.Contains(relevantId))
+                                // Compare in RESOLVED form: an alias (M 8) that entered bestMatches as
+                                // its direct entry (NGC 6523) is already linked -- don't re-link it raw.
+                                var resolvedRelevant = ResolveToDirectIndex(relevantId);
+                                if (!bestMatches.Contains(resolvedRelevant != 0 ? resolvedRelevant : relevantId))
                                 {
                                     _crossIndexLookuptable.AddLookupEntry(relevantId, catToAddIdx);
                                     _crossIndexLookuptable.AddLookupEntry(catToAddIdx, relevantId);

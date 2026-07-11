@@ -135,7 +135,9 @@ public class CelestialObjectDBTests
     [InlineData("30 Dor Cluster", CatalogIndex.NGC2070)]
     [InlineData("Orion Nebula", CatalogIndex.NGC1976, CatalogIndex.M042)]
     [InlineData("Great Orion Nebula", CatalogIndex.NGC1976, CatalogIndex.M042)]
-    [InlineData("Hyades", CatalogIndex.C041)]
+    // Mel 25 / Cr 50 joined C41 with the v4 SIMBAD merge (alias identifiers resolve through the
+    // cross-index table now), so all three designations of the one cluster carry the name.
+    [InlineData("Hyades", CatalogIndex.C041, CatalogIndex.Mel025, CatalogIndex.Cr050)]
     [InlineData("Pleiades", CatalogIndex.Mel022, CatalogIndex.M045)]
     [InlineData("Keyhole", CatalogIndex.NGC3372, CatalogIndex.GUM033, CatalogIndex.RCW_0053)]
     [InlineData("Car Nebula", CatalogIndex.NGC3372, CatalogIndex.GUM033, CatalogIndex.RCW_0053)]
