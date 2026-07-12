@@ -136,6 +136,32 @@ namespace TianWen.Lib.Tests
         }
 
         [Fact]
+        public void BestDark_ExcludesAShortDarkFlat_ForALongLight_EvenAtMatchingGain()
+        {
+            // The 4.6s/6.7s -5C "darks" in the archive are DARK-FLATS (matched to the flat exposure,
+            // shot in a DARKFLAT\ folder) that N.I.N.A. labels IMAGETYP=DARK. They must never calibrate
+            // a 60s LIGHT: dark current scales with exposure, so a ~9x-too-short frame is not a valid
+            // light-dark. The matched-exposure dark wins even at the wrong gain (mirrors the stack
+            // pipeline's exposure-primary matcher).
+            var darkFlat = Group(FrameType.Dark, 6.68, -5, gain: 121);      // same gain+temp, ~9x too short
+            var matchedExposure = Group(FrameType.Dark, 60, -5, gain: 212); // right exposure+temp, wrong gain
+            var light = Light(60, -5, gain: 121);
+
+            CalibrationResolver.BestDark([darkFlat, matchedExposure], light).ShouldBe(matchedExposure);
+        }
+
+        [Fact]
+        public void BestDark_OnlyADarkFlatExists_ReturnsNull_SoRequireDarkSkipsTheSession()
+        {
+            // No light-exposure dark, only a short dark-flat -> no valid light-dark -> null, so
+            // RequireDarkCalibration skips the session rather than calibrating lights with a dark-flat.
+            var darkFlatOnly = Group(FrameType.Dark, 6.68, -5, gain: 121);
+            var light = Light(60, -5, gain: 121);
+
+            CalibrationResolver.BestDark([darkFlatOnly], light).ShouldBeNull();
+        }
+
+        [Fact]
         public void BestFlat_SameGainPreferred_WhenFilterAndTempTie()
         {
             var wrongGain = Group(FrameType.Flat, 3, -5, gain: 212);
@@ -192,12 +218,13 @@ namespace TianWen.Lib.Tests
         {
             // A 1-frame group can never build a master (median needs >= 2). If Best* returned it, the
             // resolved dark would be null and RequireDarkCalibration would wrongly skip a session that
-            // DID have a buildable dark. So the buildable short dark must win over the perfect singleton.
+            // DID have a buildable dark. So the buildable (exposure-matched) dark must win over the
+            // gain-perfect singleton -- both are exposure-compatible, isolating the buildable filter.
             var perfectSingleton = Group(FrameType.Dark, 60, -5, gain: 121, frameCount: 1); // score 0, unbuildable
-            var buildableShort = Group(FrameType.Dark, 6.68, -5, gain: 121, frameCount: 2);
+            var buildable = Group(FrameType.Dark, 60, -5, gain: 212, frameCount: 2);        // exposure-matched, wrong gain, buildable
             var light = Light(60, -5, gain: 121);
 
-            CalibrationResolver.BestDark([perfectSingleton, buildableShort], light).ShouldBe(buildableShort);
+            CalibrationResolver.BestDark([perfectSingleton, buildable], light).ShouldBe(buildable);
         }
 
         [Fact]
