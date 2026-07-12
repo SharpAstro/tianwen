@@ -146,6 +146,43 @@ namespace TianWen.Lib.Tests
         }
 
         [Fact]
+        public async Task Run_RequireDark_SkipsSessionWithNoDarkInsteadOfRegisteringUncalibrated()
+        {
+            var ct = TestContext.Current.CancellationToken;
+            var root = Path.Combine(_dir, "archive");
+            // Lights only -- no dark library anywhere, so no master dark can resolve (models a camera
+            // whose darks were never shot, e.g. the QHY294/Newtonian rig in the real 2026 archive).
+            var lightsDir = Path.Combine(root, "M42", "LIGHT");
+            Directory.CreateDirectory(lightsDir);
+            RgbBayerSyntheticFixture.WriteSyntheticLights(lightsDir);
+
+            var outDir = Path.Combine(_dir, "out");
+            var options = new DatasetBuildOptions
+            {
+                ArchiveRoots = [root],
+                OutputDir = outDir,
+                MinExposure = TimeSpan.FromSeconds(0.5),
+                MaxExposure = TimeSpan.FromMinutes(5),
+                MinSubsPerSession = 4,
+                TileSize = 64,
+                CellsPerSession = 20,
+                SubsPerCell = 3,
+                RequireDarkCalibration = true,
+            };
+
+            var result = await DatasetBuildRunner.RunAsync(options, logger: null, progress: null, cancellationToken: ct);
+
+            // The one session is discovered but skipped for lack of a dark -- not registered, not a
+            // failure, and nothing exported (an uncalibrated N2N pair is not a valid training sample).
+            result.Sessions.ShouldBe(1);
+            result.Registered.ShouldBe(0);
+            result.Failed.ShouldBe(0);
+            result.SkippedNoDark.ShouldBe(1);
+            result.TotalTiles.ShouldBe(0);
+            File.Exists(result.ManifestPath).ShouldBeFalse();
+        }
+
+        [Fact]
         public async Task Run_IsIdempotent_ReusesMasterCacheAndReproducesTileCount()
         {
             var ct = TestContext.Current.CancellationToken;
