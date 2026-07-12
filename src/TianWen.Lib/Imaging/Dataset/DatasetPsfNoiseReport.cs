@@ -51,9 +51,9 @@ public static class DatasetPsfNoiseReport
         Percentiles MasterNoiseRelative);
 
     /// <summary>
-    /// Builds the report. Per-sub metrics come from the gate's retained <see cref="FrameMetrics"/>
-    /// (no detection); the field-radius profile re-detects stars on each session master (one
-    /// detection per session, on the sharpest/deepest frame — the one the deconv sweep degrades).
+    /// Builds the report over all <paramref name="sessions"/> at once (convenience for tests +
+    /// small runs). The archive-scale builder should use <see cref="Accumulator"/> instead so each
+    /// session master is released after its stats are folded in, rather than held for the whole run.
     /// </summary>
     public static async Task<Report> BuildAsync(
         IReadOnlyList<SessionRegistrar.RegisteredSession> sessions,
@@ -63,75 +63,109 @@ public static class DatasetPsfNoiseReport
         ILogger? logger = null,
         CancellationToken cancellationToken = default)
     {
-        var fwhm = new List<float>();
-        var hfd = new List<float>();
-        var ecc = new List<float>();
-        var noise = new List<double>();
-        var binFwhm = new List<float>[radiusBins];
-        var binEcc = new List<float>[radiusBins];
-        for (var b = 0; b < radiusBins; b++)
-        {
-            binFwhm[b] = new List<float>();
-            binEcc[b] = new List<float>();
-        }
-
-        var subs = 0;
-        long starsSampled = 0;
+        var acc = new Accumulator(radiusBins, snrMin, maxStars);
         foreach (var session in sessions)
         {
-            cancellationToken.ThrowIfCancellationRequested();
+            await acc.AddAsync(session, logger, cancellationToken);
+        }
+        return acc.Build();
+    }
+
+    /// <summary>
+    /// Incremental report builder: fold one <see cref="SessionRegistrar.RegisteredSession"/> in at a
+    /// time (<see cref="AddAsync"/>) then <see cref="Build"/>. Per-sub metrics come from the gate's
+    /// retained <see cref="FrameMetrics"/> (no detection); the field-radius profile re-detects stars
+    /// on each session master (one detection per session, on the sharpest/deepest frame — the one the
+    /// deconv sweep degrades). Nothing but small accumulators is retained across sessions, so the
+    /// archive-scale build can release each master after folding it in.
+    /// </summary>
+    public sealed class Accumulator
+    {
+        private readonly int _radiusBins;
+        private readonly float _snrMin;
+        private readonly int _maxStars;
+        private readonly List<float> _fwhm = new();
+        private readonly List<float> _hfd = new();
+        private readonly List<float> _ecc = new();
+        private readonly List<double> _noise = new();
+        private readonly List<float>[] _binFwhm;
+        private readonly List<float>[] _binEcc;
+        private int _sessions;
+        private int _subs;
+        private long _starsSampled;
+
+        public Accumulator(int radiusBins = 5, float snrMin = 5f, int maxStars = 3000)
+        {
+            _radiusBins = radiusBins;
+            _snrMin = snrMin;
+            _maxStars = maxStars;
+            _binFwhm = new List<float>[radiusBins];
+            _binEcc = new List<float>[radiusBins];
+            for (var b = 0; b < radiusBins; b++)
+            {
+                _binFwhm[b] = new List<float>();
+                _binEcc[b] = new List<float>();
+            }
+        }
+
+        public async Task AddAsync(SessionRegistrar.RegisteredSession session, ILogger? logger = null, CancellationToken cancellationToken = default)
+        {
+            _sessions++;
             foreach (var sub in session.Subs)
             {
-                fwhm.Add(sub.Metrics.MedianFwhm);
-                hfd.Add(sub.Metrics.MedianHfd);
-                ecc.Add(sub.Metrics.MedianEllipticity);
-                subs++;
+                _fwhm.Add(sub.Metrics.MedianFwhm);
+                _hfd.Add(sub.Metrics.MedianHfd);
+                _ecc.Add(sub.Metrics.MedianEllipticity);
+                _subs++;
             }
 
-            noise.Add(RelativeBackgroundMad(session.Master));
+            _noise.Add(RelativeBackgroundMad(session.Master));
 
-            // Field-radius PSF profile: detect on the master, bin each star by its distance from the
-            // canvas centre (~ the optical field centre) normalised to the half-diagonal (corner = 1).
             var stars = await session.Master.FindStarsAsync(
-                channel: 0, snrMin: snrMin, maxStars: maxStars, cancellationToken: cancellationToken);
+                channel: 0, snrMin: _snrMin, maxStars: _maxStars, cancellationToken: cancellationToken);
             var cx = session.CanvasWidth * 0.5;
             var cy = session.CanvasHeight * 0.5;
             var halfDiag = 0.5 * Math.Sqrt((double)session.CanvasWidth * session.CanvasWidth + (double)session.CanvasHeight * session.CanvasHeight);
-            if (halfDiag <= 0) continue;
-            foreach (var star in stars)
+            if (halfDiag > 0)
             {
-                var dx = star.XCentroid - cx;
-                var dy = star.YCentroid - cy;
-                var rNorm = Math.Sqrt(dx * dx + dy * dy) / halfDiag;
-                var bin = Math.Min(radiusBins - 1, (int)(rNorm * radiusBins));
-                if (bin < 0) bin = 0;
-                binFwhm[bin].Add(star.StarFWHM);
-                binEcc[bin].Add(star.Ellipticity);
-                starsSampled++;
+                foreach (var star in stars)
+                {
+                    var dx = star.XCentroid - cx;
+                    var dy = star.YCentroid - cy;
+                    var rNorm = Math.Sqrt(dx * dx + dy * dy) / halfDiag;
+                    var bin = Math.Min(_radiusBins - 1, (int)(rNorm * _radiusBins));
+                    if (bin < 0) bin = 0;
+                    _binFwhm[bin].Add(star.StarFWHM);
+                    _binEcc[bin].Add(star.Ellipticity);
+                    _starsSampled++;
+                }
             }
             logger?.LogInformation("  [{Session}] PSF sampled {Stars} stars", session.Session.Id, stars.Count);
         }
 
-        var profile = ImmutableArray.CreateBuilder<RadiusBin>(radiusBins);
-        for (var b = 0; b < radiusBins; b++)
+        public Report Build()
         {
-            profile.Add(new RadiusBin(
-                RMin: (double)b / radiusBins,
-                RMax: (double)(b + 1) / radiusBins,
-                MedianFwhm: Median(binFwhm[b]),
-                MedianEllipticity: Median(binEcc[b]),
-                Stars: binFwhm[b].Count));
-        }
+            var profile = ImmutableArray.CreateBuilder<RadiusBin>(_radiusBins);
+            for (var b = 0; b < _radiusBins; b++)
+            {
+                profile.Add(new RadiusBin(
+                    RMin: (double)b / _radiusBins,
+                    RMax: (double)(b + 1) / _radiusBins,
+                    MedianFwhm: Median(_binFwhm[b]),
+                    MedianEllipticity: Median(_binEcc[b]),
+                    Stars: _binFwhm[b].Count));
+            }
 
-        return new Report(
-            Sessions: sessions.Count,
-            Subs: subs,
-            StarsSampled: starsSampled,
-            SubFwhm: PercentilesOf(fwhm),
-            SubHfd: PercentilesOf(hfd),
-            SubEllipticity: PercentilesOf(ecc),
-            FieldRadiusProfile: profile.MoveToImmutable(),
-            MasterNoiseRelative: PercentilesOf(noise));
+            return new Report(
+                Sessions: _sessions,
+                Subs: _subs,
+                StarsSampled: _starsSampled,
+                SubFwhm: PercentilesOf(_fwhm),
+                SubHfd: PercentilesOf(_hfd),
+                SubEllipticity: PercentilesOf(_ecc),
+                FieldRadiusProfile: profile.MoveToImmutable(),
+                MasterNoiseRelative: PercentilesOf(_noise));
+        }
     }
 
     /// <summary>Renders the report as a human-readable Markdown file (the P0 "archive PSF/noise

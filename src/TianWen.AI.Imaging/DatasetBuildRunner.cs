@@ -1,0 +1,161 @@
+using Microsoft.Extensions.Logging;
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
+using TianWen.Lib.Imaging;
+using TianWen.Lib.Imaging.Calibration;
+using TianWen.Lib.Imaging.Dataset;
+
+namespace TianWen.AI.Imaging;
+
+/// <summary>
+/// End-to-end <c>tianwen dataset build</c> orchestration (docs/plans/ai-denoise-deconv.md §2.4, task
+/// P0/#43) — the one-command run that turns a raw archive into a regenerable training tile set. It
+/// scans the archive ONCE, then:
+/// <list type="number">
+///   <item>groups lights into sessions (<see cref="SessionDiscovery"/>) and calibration frames into
+///     master groups (<see cref="CalibrationResolver"/>);</item>
+///   <item>writes the pinned by-session train/test split up front (<see cref="DatasetSplitWriter"/>);</item>
+///   <item>per session: resolves an archive-wide header-matched <c>Calibrator</c> (masters built once
+///     + cached), registers + integrates (<see cref="SessionRegistrar"/>), exports zero-skew tiles +
+///     manifest (<see cref="DatasetTileExporter"/>), folds PSF/noise stats in, and deletes that
+///     session's scratch before moving on (peak disk = one session's warped subs, not the archive's);</item>
+///   <item>runs the zero-skew parity check on the first exported session as an in-run gate;</item>
+///   <item>writes the PSF/noise distribution report.</item>
+/// </list>
+/// Lives here (not in Lib) because it drives <see cref="DatasetTileExporter"/> — the only piece
+/// coupled to the AI input pre-stretch; everything else is Lib.
+/// </summary>
+public static class DatasetBuildRunner
+{
+    /// <summary>Outcome of one build run.</summary>
+    public sealed record RunResult(
+        int Sessions,
+        int Registered,
+        int TotalTiles,
+        int TestSessions,
+        bool ParityChecked,
+        double ParityMaxDiff,
+        string ManifestPath,
+        string SplitPath,
+        string ReportPath);
+
+    public static async Task<RunResult> RunAsync(
+        DatasetBuildOptions options,
+        ILogger? logger = null,
+        IProgress<string>? progress = null,
+        CancellationToken cancellationToken = default)
+    {
+        var outDir = options.OutputDir;
+        Directory.CreateDirectory(outDir);
+
+        // 1. Single scan of every archive root -> sessions + calibration groups from the same frames.
+        var frames = new List<(FrameInfo Frame, string Root)>();
+        foreach (var root in options.ArchiveRoots)
+        {
+            var source = new FitsFolderFrameSource(root, recursive: true);
+            await foreach (var frame in source.EnumerateAsync(cancellationToken))
+            {
+                frames.Add((frame, root));
+            }
+            progress?.Report($"[dataset] scanned {root}: {frames.Count} FITS headers so far");
+        }
+        var (sessions, stats) = SessionDiscovery.GroupSessions(frames, options);
+        var calGroups = CalibrationResolver.GroupCalibration(frames.Select(f => f.Frame));
+        progress?.Report(
+            $"[dataset] {stats.Sessions} sessions / {stats.Lights} lights; " +
+            $"cal groups: {CalCount(calGroups, FrameType.Dark)} dark, {CalCount(calGroups, FrameType.Flat)} flat, {CalCount(calGroups, FrameType.Bias)} bias");
+
+        // 2. Pinned by-session split, written up front (independent of registration).
+        var splitPath = Path.Combine(outDir, DatasetSplitWriter.TestSessionsFileName);
+        var testSessions = await DatasetSplitWriter.WriteAsync(sessions.Select(s => s.Id), options.TestFraction, splitPath, cancellationToken);
+        progress?.Report($"[dataset] pinned test split: {testSessions.Length}/{sessions.Length} sessions held out");
+
+        // Fresh manifest per run (the exporter appends per session).
+        var manifestPath = Path.Combine(outDir, DatasetTileExporter.ManifestFileName);
+        if (File.Exists(manifestPath))
+        {
+            File.Delete(manifestPath);
+        }
+
+        // 3. Per-session pipeline. Scratch (warped subs) is wiped after each session so peak disk is
+        //    bounded by the largest single session, not the whole archive; the masters cache
+        //    (outDir/masters) is separate and preserved for build-once reuse.
+        var masterCache = new MasterCache(Path.Combine(outDir, "masters"), logger);
+        var scratchRoot = Path.Combine(outDir, "_scratch");
+        var reportAcc = new DatasetPsfNoiseReport.Accumulator();
+        var registered = 0;
+        var totalTiles = 0;
+        var parityChecked = false;
+        var parityMaxDiff = 0.0;
+        var idx = 0;
+        foreach (var session in sessions)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            idx++;
+            progress?.Report($"[dataset] ({idx}/{sessions.Length}) {session.Id} ...");
+
+            var calibrator = await CalibrationResolver.ResolveAsync(session, calGroups, masterCache, logger, cancellationToken);
+            var reg = await SessionRegistrar.RegisterAsync(
+                session, calibrator, scratchRoot,
+                options.QualityRejectSigma, options.QualityMaxRejectFraction, options.MinSubsPerSession,
+                logger: logger, cancellationToken: cancellationToken);
+            if (reg is null)
+            {
+                TryDelete(scratchRoot);
+                continue;
+            }
+            registered++;
+
+            var export = await DatasetTileExporter.ExportAsync(
+                reg, outDir, options.TileSize, options.CellsPerSession, options.SubsPerCell, logger, cancellationToken);
+            totalTiles += export.Rows.Length;
+
+            // In-run zero-skew gate: verify the first exported session's stored tiles equal the C#
+            // stretch of their source (before its scratch is wiped).
+            if (!parityChecked && export.Rows.Length > 0)
+            {
+                var parity = await DatasetTileExporter.VerifyParityAsync(reg, outDir, export.Rows, sampleCount: 8, cancellationToken);
+                parityMaxDiff = parity.MaxAbsDiff;
+                parityChecked = true;
+                progress?.Report($"[dataset] parity: maxDiff={parity.MaxAbsDiff} over {parity.Checked} tiles");
+            }
+
+            await reportAcc.AddAsync(reg, logger, cancellationToken);
+            TryDelete(scratchRoot);
+        }
+
+        // 4. PSF/noise distribution report.
+        var reportPath = Path.Combine(outDir, "stats", "psf-noise-report.md");
+        await DatasetPsfNoiseReport.WriteMarkdownAsync(reportAcc.Build(), reportPath, cancellationToken);
+
+        TryDelete(scratchRoot);
+        progress?.Report(
+            $"[dataset] done: {registered}/{sessions.Length} sessions -> {totalTiles} tiles; " +
+            $"parity {(parityChecked ? parityMaxDiff == 0.0 ? "OK" : $"DIFF {parityMaxDiff}" : "n/a")}");
+        return new RunResult(
+            sessions.Length, registered, totalTiles, testSessions.Length,
+            parityChecked, parityMaxDiff, manifestPath, splitPath, reportPath);
+    }
+
+    private static int CalCount(IReadOnlyDictionary<FrameType, List<CalibrationResolver.CalGroup>> groups, FrameType type) =>
+        groups.TryGetValue(type, out var list) ? list.Count : 0;
+
+    private static void TryDelete(string dir)
+    {
+        try
+        {
+            if (Directory.Exists(dir))
+            {
+                Directory.Delete(dir, recursive: true);
+            }
+        }
+        catch (IOException)
+        {
+            // Best-effort scratch hygiene; a locked handle just leaves a temp dir behind.
+        }
+    }
+}
