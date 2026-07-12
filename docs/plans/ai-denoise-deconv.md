@@ -1,6 +1,14 @@
 # TianWen-Trained Denoise + Deconvolution Models ("own AI")
 
-**Status: NOT STARTED (plan approved-pending-review, 2026-07-11).**
+**Status: P0 SHIPPED (2026-07-12); P1+ NOT STARTED.**
+P0 (the full `tianwen dataset build` pipeline: scan -> discover sessions + calibration -> gate ->
+archive-wide header-matched calibrate -> register + integrate -> zero-skew fp16 tile export + JSONL
+manifest -> PSF/noise report -> pinned by-session split -> in-run parity gate) is code-complete and
+validated on synthetic data; the classes are `SessionDiscovery`, `MasterCache`, `SessionFrameAnalyzer`,
+`SessionRegistrar`, `CalibrationResolver` (all `TianWen.Lib/Imaging/Dataset/`), `DatasetTileExporter` +
+`DatasetBuildRunner` (`TianWen.AI.Imaging/`, which own the zero-skew `ChunkedNafnetRunner.ApplyInputStretch`
+seam), and `DatasetPsfNoiseReport` + `DatasetSplitWriter` (Lib). Remaining before the big train: run it on
+the real archive to bake the tiles.
 Goal: train our own CNN denoiser (`IDenoiseEnhancer`) and non-stellar deconvolver
 (`INonStellarDeconvolver`) on the user's own image archive, shipped as versioned ONNX models through
 the existing `TianWen.AI` / `TianWen.AI.Imaging` stack — a third backend tier alongside RC-Astro
@@ -295,7 +303,7 @@ preferred until it passes).
 | Phase | Deliverable | Exit criterion |
 |---|---|---|
 | **Step 0 — Archive organization** | `tools/astro-archive-dedup.py` READ-ONLY scan (header index + dup-files / nights-rollup / calibration-coverage reports); user-reviewed filing of BobbyBox uniques into Astro-Pics from the reports | Dup report reviewed; unique-to-BobbyBox sessions identified/filed; calibration coverage map exists (feeds P0's header-matched calibration) |
-| **P0 — Dataset + stats** | `tianwen dataset build` (scan/dedup/gate/calibrate/register/tile+manifest, zero-skew export; calibration header-matched archive-wide, never per-folder); archive PSF/noise distribution report; pinned `test-sessions.txt` | Tile set regenerable one-command; BAD LIGHT set 100% rejected by gate; parity check green |
+| **P0 — Dataset + stats** ✅ SHIPPED 2026-07-12 | `tianwen dataset build` (scan/dedup/gate/calibrate/register/tile+manifest, zero-skew export; calibration header-matched archive-wide, never per-folder); archive PSF/noise distribution report; pinned `test-sessions.txt` | Tile set regenerable one-command ✅; gate rejects transparency/focus-bad frames (star-count-led; §2.4) ✅; parity check green (maxDiff 0, in-run gate) ✅. **Remaining: run on the real archive to produce the tiles.** |
 | **P1 — Denoiser v1** | `training/` N2N pipeline; NAFNet-32 color run on RunPod; ONNX + contract; `OnnxTianWenDenoiser` + `--ai-backend tianwen`; eval report | Beats classical baseline + no photometric regression (§7) on held-out sessions; visually clean on 3 reference masters |
 | **P2 — Deconvolver v1** | Synthetic-PSF pipeline (measured-distribution sweep); psf01-conditioned NAFNet; `OnnxTianWenDeconvolver`; eval incl. FWHM-reduction + artefact checks | Measured FWHM reduction on held-out masters without ringing/worms; photometric gates hold |
 | **P3 — Ship** | Auto-order wiring, fetch-script + release assets, CLI/GUI surfacing, `docs` + CLAUDE.md section | `stack --enhance --ai-backend tianwen` end-to-end on a fresh machine (models auto-fetched) |
