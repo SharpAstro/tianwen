@@ -42,43 +42,57 @@ public partial class Image
     /// </remarks>
     public static bool TryReadFitsHeader(string fileName, [NotNullWhen(true)] out Calibration.FrameInfo? frameInfo)
     {
-        using var bufferedReader = new BufferedFile(fileName, FileAccess.Read, FileShare.Read, 4 * 2880);
-        using var fitsFile = new Fits(bufferedReader, fileName.EndsWith(".gz"));
-        var hdu = fitsFile.ReadHDUHeaderOnly();
-        if (hdu?.Axes?.Length is not { } axisLength
-            || hdu.Data is not ImageData
-            || !(BitDepth.FromValue(hdu.BitPix) is { } bitDepth))
+        frameInfo = null;
+        // Resilient header read over an UNTRUSTED archive: a malformed / truncated / locked FITS,
+        // or a header FITS.Lib itself can't parse, must be SKIPPED (return false), never fatal -- a
+        // single bad file cannot abort a 20k-frame archive scan. The known offender is
+        // BasicHDU.ObservationDate, which NREs by unboxing a null DateTime when DATE-OBS is missing
+        // or unparseable (FitsDate throws -> result stays null -> (DateTime)null); such frames
+        // (focusing junk, SharpCap captures, non-standard exports) are not usable session frames
+        // anyway. Honour the TryX contract rather than propagate.
+        try
+        {
+            using var bufferedReader = new BufferedFile(fileName, FileAccess.Read, FileShare.Read, 4 * 2880);
+            using var fitsFile = new Fits(bufferedReader, fileName.EndsWith(".gz"));
+            var hdu = fitsFile.ReadHDUHeaderOnly();
+            if (hdu?.Axes?.Length is not { } axisLength
+                || hdu.Data is not ImageData
+                || !(BitDepth.FromValue(hdu.BitPix) is { } bitDepth))
+            {
+                return false;
+            }
+
+            int height, width, channelCount;
+            switch (axisLength)
+            {
+                case 2:
+                    height = hdu.Axes[0];
+                    width = hdu.Axes[1];
+                    channelCount = 1;
+                    break;
+                case 3:
+                    channelCount = hdu.Axes[0];
+                    height = hdu.Axes[1];
+                    width = hdu.Axes[2];
+                    break;
+                default:
+                    return false;
+            }
+
+            var imageMeta = ParseImageMetaFromHeader(hdu, channelCount);
+            // STACK_N is stamped by IntegrationFitsWriter on every stacking product
+            // (masters + rejection maps). Carrying it on FrameInfo lets the
+            // pipeline drop these at scan time when a stale output-*/ dir sits
+            // alongside the lights, otherwise they get treated as fresh frames.
+            var stackedFrameCount = hdu.Header.GetIntValue("STACK_N", 0);
+            frameInfo = new Calibration.FrameInfo(fileName, width, height, channelCount, bitDepth, imageMeta, stackedFrameCount);
+            return true;
+        }
+        catch (Exception)
         {
             frameInfo = null;
             return false;
         }
-
-        int height, width, channelCount;
-        switch (axisLength)
-        {
-            case 2:
-                height = hdu.Axes[0];
-                width = hdu.Axes[1];
-                channelCount = 1;
-                break;
-            case 3:
-                channelCount = hdu.Axes[0];
-                height = hdu.Axes[1];
-                width = hdu.Axes[2];
-                break;
-            default:
-                frameInfo = null;
-                return false;
-        }
-
-        var imageMeta = ParseImageMetaFromHeader(hdu, channelCount);
-        // STACK_N is stamped by IntegrationFitsWriter on every stacking product
-        // (masters + rejection maps). Carrying it on FrameInfo lets the
-        // pipeline drop these at scan time when a stale output-*/ dir sits
-        // alongside the lights, otherwise they get treated as fresh frames.
-        var stackedFrameCount = hdu.Header.GetIntValue("STACK_N", 0);
-        frameInfo = new Calibration.FrameInfo(fileName, width, height, channelCount, bitDepth, imageMeta, stackedFrameCount);
-        return true;
     }
 
     // Pointing intent for the master / re-solve hint. Captures the INTENDED
