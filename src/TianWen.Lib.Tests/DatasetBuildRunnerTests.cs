@@ -26,8 +26,56 @@ namespace TianWen.Lib.Tests
             try { Directory.Delete(_dir, recursive: true); } catch { /* best effort */ }
         }
 
+        /// <summary>Copies the fixture lights as header-valid but data-truncated FITS with shifted
+        /// DATE-OBS (so they don't dedup against the source lights). Discovery only reads headers,
+        /// so the copies form a session that passes the scan and then explodes at register time —
+        /// the fault-isolation case (a bad frame surfacing hours into a bake must skip its session,
+        /// never abort the run).</summary>
+        private static void WriteTruncatedCopies(string srcDir, string dstDir)
+        {
+            Directory.CreateDirectory(dstDir);
+            foreach (var src in Directory.GetFiles(srcDir, "light_*.fits"))
+            {
+                var bytes = File.ReadAllBytes(src);
+                // Shift the minutes of DATE-OBS (fixture stamps T00:00:0i) for dedup-distinct copies.
+                PatchAscii(bytes, "T00:00:0", "T00:59:0");
+                File.WriteAllBytes(Path.Combine(dstDir, Path.GetFileName(src)), bytes[..HeaderEnd(bytes)]);
+            }
+        }
+
+        /// <summary>Patches EVERY occurrence (DATE-OBS plus any sibling date card carrying the same
+        /// timestamp) so the exposure start is guaranteed shifted wherever the parser reads it.</summary>
+        private static void PatchAscii(byte[] bytes, string find, string replace)
+        {
+            var findBytes = System.Text.Encoding.ASCII.GetBytes(find);
+            var replaceBytes = System.Text.Encoding.ASCII.GetBytes(replace);
+            replaceBytes.Length.ShouldBe(findBytes.Length);
+            var patched = 0;
+            for (var idx = bytes.AsSpan().IndexOf(findBytes); idx >= 0;)
+            {
+                replaceBytes.CopyTo(bytes, idx);
+                patched++;
+                var next = bytes.AsSpan(idx + findBytes.Length).IndexOf(findBytes);
+                idx = next < 0 ? -1 : idx + findBytes.Length + next;
+            }
+            patched.ShouldBeGreaterThan(0, $"'{find}' not found -- fixture DATE-OBS format changed?");
+        }
+
+        /// <summary>Byte offset of the end of the primary header (the 2880-block containing END).</summary>
+        private static int HeaderEnd(byte[] bytes)
+        {
+            for (var i = 0; i + 4 <= bytes.Length; i += 80)
+            {
+                if (bytes[i] == 'E' && bytes[i + 1] == 'N' && bytes[i + 2] == 'D' && bytes[i + 3] == ' ')
+                {
+                    return (i / 2880 + 1) * 2880;
+                }
+            }
+            throw new InvalidOperationException("No FITS END card found");
+        }
+
         [Fact]
-        public async Task Run_SyntheticArchive_ProducesTilesManifestSplitReport_ParityGreen()
+        public async Task Run_SyntheticArchive_ProducesTilesManifestSplitReport_ParityGreen_SkipsBrokenSession()
         {
             var ct = TestContext.Current.CancellationToken;
             var root = Path.Combine(_dir, "archive");
@@ -39,6 +87,10 @@ namespace TianWen.Lib.Tests
             Directory.CreateDirectory(darksDir);
             RgbBayerSyntheticFixture.WriteSyntheticLights(lightsDir);
             RgbBayerSyntheticFixture.WriteSyntheticDarks(darksDir);
+            // A second, BROKEN session: header-valid but data-truncated lights. Sorts before M42
+            // ("BROKEN" < "M42" ordinal), so it also proves a leading failure doesn't derail the
+            // parity gate on the session that does export.
+            WriteTruncatedCopies(lightsDir, Path.Combine(root, "BROKEN", "LIGHT"));
 
             var outDir = Path.Combine(_dir, "out");
             var options = new DatasetBuildOptions
@@ -57,9 +109,11 @@ namespace TianWen.Lib.Tests
             var progress = new Progress<string>(output.WriteLine);
             var result = await DatasetBuildRunner.RunAsync(options, logger: null, progress: progress, cancellationToken: ct);
 
-            // One session discovered + registered; tiles produced.
-            result.Sessions.ShouldBe(1);
+            // Both sessions discovered; the good one registered, the broken one fault-isolated
+            // (counted, logged, skipped) instead of aborting the run.
+            result.Sessions.ShouldBe(2);
             result.Registered.ShouldBe(1);
+            result.Failed.ShouldBe(1);
             result.TotalTiles.ShouldBeGreaterThan(0);
 
             // The in-run zero-skew gate ran and is byte-exact.

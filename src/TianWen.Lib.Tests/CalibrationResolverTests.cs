@@ -16,7 +16,7 @@ namespace TianWen.Lib.Tests
     /// </summary>
     public class CalibrationResolverTests
     {
-        private static FrameInfo Cal(FrameType type, double expoSec, float tempC)
+        private static FrameInfo Cal(FrameType type, double expoSec, float tempC, short gain = 100)
         {
             var meta = new ImageMeta(
                 Instrument: "TestCam",
@@ -38,9 +38,16 @@ namespace TianWen.Lib.Tests
                 RowOrder: RowOrder.TopDown,
                 Latitude: float.NaN,
                 Longitude: float.NaN,
-                Gain: 100);
+                Gain: gain,
+                Offset: 25);
             return new FrameInfo("x.fits", 100, 100, 1, BitDepth.Int16, meta);
         }
+
+        private static CalibrationResolver.CalGroup Group(FrameType type, double expoSec, float tempC, short gain = 100)
+            => new(MasterGroupKey.FromFrame(Cal(type, expoSec, tempC, gain)), []);
+
+        private static MasterGroupKey LightKey(double expoSec, float tempC, short gain)
+            => MasterGroupKey.FromFrame(Cal(FrameType.Light, expoSec, tempC, gain));
 
         [Fact]
         public void GroupCalibration_BucketsByTypeAndKey_IgnoresLights()
@@ -72,6 +79,60 @@ namespace TianWen.Lib.Tests
             groups.TryGetValue(FrameType.Flat, out var flats).ShouldBeTrue();
             flats!.Count.ShouldBe(1);
             flats[0].Frames.Length.ShouldBe(2);
+        }
+
+        [Fact]
+        public void BestDark_SameGainWins_OverIdenticalTempAndExposureAtWrongGain()
+        {
+            // Gain participates in the dark score: a wrong-gain dark mis-scales the fixed pattern
+            // that dark subtraction removes for N2N independence, so when a same-gain library
+            // exists it must win — regardless of input order.
+            var wrongGain = Group(FrameType.Dark, 60, -5, gain: 212);
+            var sameGain = Group(FrameType.Dark, 60, -5, gain: 121);
+            var light = LightKey(60, -5, gain: 121);
+
+            CalibrationResolver.BestDark([wrongGain, sameGain], light).ShouldBe(sameGain);
+            CalibrationResolver.BestDark([sameGain, wrongGain], light).ShouldBe(sameGain);
+        }
+
+        [Fact]
+        public void BestDark_WrongGainMatchedExposureAndTemp_BeatsWarmShortSameGainDark()
+        {
+            // The real-archive trade-off (2026: g121/60s/-5C lights, only a g212 60s/-5C library
+            // and g121 4.5s/+22C flat-wizard darks exist): the matched-exposure/temperature dark
+            // is the better of two bad options even at the wrong gain — the warm short dark holds
+            // essentially none of the lights' dark-current pattern. Pins the penalty sizing.
+            var wrongGainRightDark = Group(FrameType.Dark, 60, -5, gain: 212);
+            var sameGainUselessDark = Group(FrameType.Dark, 4.5, 22, gain: 121);
+            var light = LightKey(60, -5, gain: 121);
+
+            CalibrationResolver.BestDark([sameGainUselessDark, wrongGainRightDark], light).ShouldBe(wrongGainRightDark);
+        }
+
+        [Fact]
+        public void BestDark_ScoreTie_BreaksBySlugOrdinal_RegardlessOfInputOrder()
+        {
+            // Exact score ties are real (here: unknown-gain penalty 100 == 10C-off temp penalty
+            // 10x10). Without a deterministic tie-break the winner would follow dictionary /
+            // filesystem enumeration order, breaking the build's re-run determinism claim.
+            var unknownGain = Group(FrameType.Dark, 60, -5, gain: -1);   // slug "dark_60s_-5C"
+            var tempOff = Group(FrameType.Dark, 60, -15, gain: 121);     // slug "dark_60s_-15C_g121"
+            var light = LightKey(60, -5, gain: 121);
+
+            // Ordinal: '1' < '5' at the temp digit, so "dark_60s_-15C_g121" sorts first.
+            CalibrationResolver.BestDark([unknownGain, tempOff], light).ShouldBe(tempOff);
+            CalibrationResolver.BestDark([tempOff, unknownGain], light).ShouldBe(tempOff);
+        }
+
+        [Fact]
+        public void BestFlat_SameGainPreferred_WhenFilterAndTempTie()
+        {
+            var wrongGain = Group(FrameType.Flat, 3, -5, gain: 212);
+            var sameGain = Group(FrameType.Flat, 3, -5, gain: 121);
+            var light = LightKey(60, -5, gain: 121);
+
+            CalibrationResolver.BestFlat([wrongGain, sameGain], light).ShouldBe(sameGain);
+            CalibrationResolver.BestFlat([sameGain, wrongGain], light).ShouldBe(sameGain);
         }
     }
 }

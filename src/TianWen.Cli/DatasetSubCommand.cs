@@ -172,7 +172,8 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, ILogger<Datase
             var result = await DatasetBuildRunner.RunAsync(options, logger, progress, ct);
 
             consoleHost.WriteScrollable(
-                $"[dataset] {result.Registered}/{result.Sessions} sessions -> {result.TotalTiles} tiles; " +
+                $"[dataset] {result.Registered}/{result.Sessions} sessions -> {result.TotalTiles} tiles" +
+                $"{(result.Failed > 0 ? $" ({result.Failed} FAILED, see log)" : "")}; " +
                 $"{result.TestSessions} test sessions held out; " +
                 $"parity {(result.ParityChecked ? result.ParityMaxDiff == 0d ? "OK" : $"DIFF {result.ParityMaxDiff}" : "n/a")}");
             consoleHost.WriteScrollable($"[dataset] manifest: {result.ManifestPath}");

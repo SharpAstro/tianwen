@@ -458,7 +458,12 @@ public static class DatasetTileExporter
         return fwhm[fwhm.Length / 2];
     }
 
-    private static async Task AppendManifestAsync(string manifestPath, ImmutableArray<TileManifestRow> rows, CancellationToken ct)
+    /// <summary>Appends this session's rows to the shared JSONL manifest. Self-healing: a torn
+    /// last line (a previous session's append interrupted mid-write — reachable because the build
+    /// runner fault-isolates per session and keeps going) is truncated back to the last complete
+    /// row first, so a corrupt line can never get buried mid-file where every JSONL consumer would
+    /// choke on it. Internal for the direct healing test.</summary>
+    internal static async Task AppendManifestAsync(string manifestPath, ImmutableArray<TileManifestRow> rows, CancellationToken ct)
     {
         var sb = new System.Text.StringBuilder();
         foreach (var row in rows)
@@ -466,9 +471,40 @@ public static class DatasetTileExporter
             sb.Append(JsonSerializer.Serialize(row, DatasetManifestJsonContext.Default.TileManifestRow));
             sb.Append('\n');
         }
-        await using var stream = new FileStream(manifestPath, FileMode.Append, FileAccess.Write, FileShare.None);
+        // OpenOrCreate + ReadWrite (not FileMode.Append, which forbids the backward scan).
+        await using var stream = new FileStream(manifestPath, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
+        TruncateTornTail(stream);
+        stream.Seek(0, SeekOrigin.End);
         await using var writer = new StreamWriter(stream);
         await writer.WriteAsync(sb.ToString().AsMemory(), ct);
+    }
+
+    /// <summary>Every complete manifest row ends in <c>'\n'</c>; a file not ending in one has a
+    /// torn tail from an interrupted append. Scan backwards to the last newline (the torn tail is
+    /// at most one ~300-byte row, so the byte-wise walk is trivially cheap) and truncate there.</summary>
+    private static void TruncateTornTail(FileStream stream)
+    {
+        if (stream.Length == 0)
+        {
+            return;
+        }
+        var pos = stream.Length - 1;
+        stream.Seek(pos, SeekOrigin.Begin);
+        if (stream.ReadByte() == '\n')
+        {
+            return; // clean tail — every row complete
+        }
+        while (pos > 0)
+        {
+            pos--;
+            stream.Seek(pos, SeekOrigin.Begin);
+            if (stream.ReadByte() == '\n')
+            {
+                stream.SetLength(pos + 1);
+                return;
+            }
+        }
+        stream.SetLength(0); // no newline at all — the whole file is one torn line
     }
 
     /// <summary>
