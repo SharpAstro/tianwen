@@ -89,6 +89,10 @@ public static class DatasetTileExporter
         string ManifestPath,
         ImmutableArray<TileManifestRow> Rows);
 
+    /// <summary>Result of the zero-skew parity check: how many stored tiles were re-derived and the
+    /// largest absolute value difference found. A green check is <see cref="MaxAbsDiff"/> == 0.</summary>
+    public sealed record ParityResult(int Checked, double MaxAbsDiff);
+
     /// <summary>
     /// Exports tiles for one registered session under <paramref name="outDir"/> and appends its
     /// rows to the shared JSONL manifest. Returns the per-session summary. The manifest is written
@@ -234,6 +238,91 @@ public static class DatasetTileExporter
         return new TileExportResult(selected.Count, selected.Count, subTiles, manifestPath, sorted);
     }
 
+    /// <summary>
+    /// Zero-skew parity check (plan §2.4, task P0/#42). For a strided sample of the exported
+    /// <paramref name="rows"/>, re-derives each tile from its source frame through the SAME
+    /// <see cref="ToUnitRange"/> + <see cref="ChunkedNafnetRunner.ApplyInputStretch"/> +
+    /// <see cref="ExtractTileHalfs"/> path and diffs it against the bytes on disk. The point is a
+    /// CI-able pin: if the stored tile ever stops equalling "the C# stretch of the source" — a
+    /// changed stored format, a skipped stretch, a wrong cell mapping, an fp16 regression — the max
+    /// diff goes non-zero and the guarantee that Python trains on exactly what inference sees breaks
+    /// loudly. Requires the session's warped scratch subs to still exist (run before cleanup).
+    /// </summary>
+    public static async Task<ParityResult> VerifyParityAsync(
+        SessionRegistrar.RegisteredSession session,
+        string outDir,
+        ImmutableArray<TileManifestRow> rows,
+        int sampleCount = 8,
+        CancellationToken cancellationToken = default)
+    {
+        if (rows.Length == 0)
+        {
+            return new ParityResult(0, 0.0);
+        }
+
+        var stretchedCache = new Dictionary<string, Image>();
+        var step = Math.Max(1, rows.Length / Math.Max(1, sampleCount));
+        var maxDiff = 0.0;
+        var checkedCount = 0;
+        for (var i = 0; i < rows.Length; i += step)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var row = rows[i];
+            var stretched = ResolveStretched(row);
+            var expected = ExtractTileHalfs(stretched, new Point(row.CellX, row.CellY), row.TileSize, out _);
+
+            var blobPath = Path.Combine(outDir, row.Tile.Replace('/', Path.DirectorySeparatorChar));
+            var storedBytes = await File.ReadAllBytesAsync(blobPath, cancellationToken);
+            var stored = MemoryMarshal.Cast<byte, Half>(storedBytes);
+            checkedCount++;
+            if (stored.Length != expected.Length)
+            {
+                maxDiff = double.PositiveInfinity;
+                continue;
+            }
+            for (var k = 0; k < expected.Length; k++)
+            {
+                var d = Math.Abs((double)(float)expected[k] - (float)stored[k]);
+                if (d > maxDiff) maxDiff = d;
+            }
+        }
+        return new ParityResult(checkedCount, maxDiff);
+
+        Image ResolveStretched(TileManifestRow row)
+        {
+            var key = row.Frame == "master" ? "master" : "sub:" + row.SourceFile;
+            if (stretchedCache.TryGetValue(key, out var cached))
+            {
+                return cached;
+            }
+            Image frame;
+            if (row.Frame == "master")
+            {
+                frame = session.Master;
+            }
+            else
+            {
+                SessionRegistrar.RegisteredSub? match = null;
+                foreach (var sub in session.Subs)
+                {
+                    if (Path.GetFileName(sub.Source.Path) == row.SourceFile)
+                    {
+                        match = sub;
+                        break;
+                    }
+                }
+                if (match is null || !Image.TryReadFitsFile(match.WarpedPath, out var img))
+                {
+                    throw new IOException($"Parity check could not resolve source for {row.Tile} (frame={row.Frame}, source={row.SourceFile}).");
+                }
+                frame = img;
+            }
+            var (stretched, _, _, _) = ChunkedNafnetRunner.ApplyInputStretch(ToUnitRange(frame));
+            stretchedCache[key] = stretched;
+            return stretched;
+        }
+    }
+
     private static int RowOrder(TileManifestRow a, TileManifestRow b)
     {
         var cmp = a.CellY.CompareTo(b.CellY);
@@ -247,15 +336,26 @@ public static class DatasetTileExporter
     }
 
     /// <summary>Writes one CHW fp16 tile at <paramref name="cell"/> and returns the MAD of the
-    /// stored channel-0 tile (the manifest's per-tile noise proxy). NaN samples (which should not
-    /// occur inside StatsRect) are clamped to 0 so a stray edge pixel can never poison training.</summary>
+    /// stored channel-0 tile (the manifest's per-tile noise proxy).</summary>
     private static double WriteTile(Image stretched, Point cell, int tileSize, string path)
+    {
+        var halfs = ExtractTileHalfs(stretched, cell, tileSize, out var ch0Buf);
+        File.WriteAllBytes(path, MemoryMarshal.AsBytes<Half>(halfs).ToArray());
+        return Mad(ch0Buf);
+    }
+
+    /// <summary>Extracts the CHW fp16 samples of one tile at <paramref name="cell"/> (and the
+    /// channel-0 floats via <paramref name="ch0"/>). The single source of the stored tile bytes —
+    /// the parity check re-derives through this exact path so "stored == re-stretched" is pinned.
+    /// NaN samples (which should not occur inside StatsRect) are clamped to 0 so a stray edge pixel
+    /// can never poison training.</summary>
+    private static Half[] ExtractTileHalfs(Image stretched, Point cell, int tileSize, out float[] ch0)
     {
         var channels = stretched.ChannelCount;
         var w = stretched.Width;
         var halfs = new Half[channels * tileSize * tileSize];
+        ch0 = new float[tileSize * tileSize];
         var idx = 0;
-        var ch0Buf = new float[tileSize * tileSize];
         for (var c = 0; c < channels; c++)
         {
             var span = stretched.GetChannelSpan(c);
@@ -267,12 +367,11 @@ public static class DatasetTileExporter
                     var v = span[srcRow + x];
                     if (float.IsNaN(v)) v = 0f;
                     halfs[idx++] = (Half)v;
-                    if (c == 0) ch0Buf[y * tileSize + x] = v;
+                    if (c == 0) ch0[y * tileSize + x] = v;
                 }
             }
         }
-        File.WriteAllBytes(path, MemoryMarshal.AsBytes<Half>(halfs).ToArray());
-        return Mad(ch0Buf);
+        return halfs;
     }
 
     /// <summary>MAD (median absolute deviation from the median) of a cell of the master's channel 0,
