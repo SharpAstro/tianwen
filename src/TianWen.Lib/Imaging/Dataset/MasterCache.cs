@@ -32,19 +32,23 @@ public sealed class MasterCache(string mastersDir, ILogger? logger = null)
     private const string FingerprintCard = "DSETFPR"; // dataset input-set fingerprint (<= 8 chars)
     private const string InputCountCard = "DSETNIN";  // dataset input frame count
 
-    private readonly ConcurrentDictionary<MasterGroupKey, Task<Image?>> _inFlight = new();
+    // Keyed by (sensor-config group, optical train): two cameras that share a sensor model produce
+    // the same MasterGroupKey, so without the train in the key a second body's build would either
+    // cross-serve the first's cached Task (in-flight map) or overwrite its file (same slug) --
+    // silently calibrating one camera's lights with another's master.
+    private readonly ConcurrentDictionary<(MasterGroupKey Key, CalibrationResolver.CalTrain Train), Task<Image?>> _inFlight = new();
 
     /// <summary>
     /// Returns the master for a calibration group, building it if the on-disk cache is missing
     /// or fingerprint-stale, else loading the cached file. Returns null when the group has too
-    /// few frames to combine (&lt; 2). Concurrent calls for the same key share one build.
+    /// few frames to combine (&lt; 2). Concurrent calls for the same key + train share one build.
     /// </summary>
     public Task<Image?> GetOrBuildAsync(
-        MasterGroupKey key, IReadOnlyList<FrameInfo> inputs, CancellationToken cancellationToken = default)
-        => _inFlight.GetOrAdd(key, _ => BuildOrLoadAsync(key, inputs, cancellationToken));
+        MasterGroupKey key, CalibrationResolver.CalTrain train, IReadOnlyList<FrameInfo> inputs, CancellationToken cancellationToken = default)
+        => _inFlight.GetOrAdd((key, train), _ => BuildOrLoadAsync(key, train, inputs, cancellationToken));
 
     private async Task<Image?> BuildOrLoadAsync(
-        MasterGroupKey key, IReadOnlyList<FrameInfo> inputs, CancellationToken ct)
+        MasterGroupKey key, CalibrationResolver.CalTrain train, IReadOnlyList<FrameInfo> inputs, CancellationToken ct)
     {
         if (inputs.Count < 2)
         {
@@ -53,7 +57,9 @@ public sealed class MasterCache(string mastersDir, ILogger? logger = null)
         }
 
         Directory.CreateDirectory(mastersDir);
-        var masterPath = Path.Combine(mastersDir, $"master_{key.Slug()}.fits");
+        // The train suffix keeps two same-sensor cameras' masters on distinct paths (empty for a
+        // header-less archive, preserving the legacy filename).
+        var masterPath = Path.Combine(mastersDir, $"master_{key.Slug()}{train.SlugSuffix()}.fits");
         var fingerprint = ComputeFingerprint(inputs);
 
         if (File.Exists(masterPath))
