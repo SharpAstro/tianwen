@@ -32,9 +32,15 @@ namespace TianWen.AI.Imaging;
 public static class DatasetBuildRunner
 {
     /// <summary>Outcome of one build run.</summary>
+    /// <param name="Failed">Sessions that threw mid-pipeline (unreadable pixel data, I/O faults)
+    /// and were skipped. Discovery only validates HEADERS, so a truncated file with a clean header
+    /// surfaces here, at register time — fault-isolated per session so one bad frame can never
+    /// abort a multi-hour archive bake. Failures are logged per session; a crashed-then-restarted
+    /// run starts fresh (the manifest is regenerated), so partial output never needs repairing.</param>
     public sealed record RunResult(
         int Sessions,
         int Registered,
+        int Failed,
         int TotalTiles,
         int TestSessions,
         bool ParityChecked,
@@ -88,6 +94,7 @@ public static class DatasetBuildRunner
         var scratchRoot = Path.Combine(outDir, "_scratch");
         var reportAcc = new DatasetPsfNoiseReport.Accumulator();
         var registered = 0;
+        var failed = 0;
         var totalTiles = 0;
         var parityChecked = false;
         var parityMaxDiff = 0.0;
@@ -98,34 +105,48 @@ public static class DatasetBuildRunner
             idx++;
             progress?.Report($"[dataset] ({idx}/{sessions.Length}) {session.Id} ...");
 
-            var calibrator = await CalibrationResolver.ResolveAsync(session, calGroups, masterCache, logger, cancellationToken);
-            var reg = await SessionRegistrar.RegisterAsync(
-                session, calibrator, scratchRoot,
-                options.QualityRejectSigma, options.QualityMaxRejectFraction, options.MinSubsPerSession,
-                logger: logger, cancellationToken: cancellationToken);
-            if (reg is null)
+            // Fault-isolated per session: discovery validated only HEADERS, so a truncated /
+            // unreadable file first explodes here (LoadFullAsync -> IOException), potentially hours
+            // into an archive bake. Log + count + move on; cancellation still propagates.
+            try
+            {
+                var calibrator = await CalibrationResolver.ResolveAsync(session, calGroups, masterCache, logger, cancellationToken);
+                var reg = await SessionRegistrar.RegisterAsync(
+                    session, calibrator, scratchRoot,
+                    options.QualityRejectSigma, options.QualityMaxRejectFraction, options.MinSubsPerSession,
+                    logger: logger, cancellationToken: cancellationToken);
+                if (reg is null)
+                {
+                    continue;
+                }
+                registered++;
+
+                var export = await DatasetTileExporter.ExportAsync(
+                    reg, outDir, options.TileSize, options.CellsPerSession, options.SubsPerCell, logger, cancellationToken);
+                totalTiles += export.Rows.Length;
+
+                // In-run zero-skew gate: verify the first exported session's stored tiles equal the C#
+                // stretch of their source (before its scratch is wiped).
+                if (!parityChecked && export.Rows.Length > 0)
+                {
+                    var parity = await DatasetTileExporter.VerifyParityAsync(reg, outDir, export.Rows, sampleCount: 8, cancellationToken);
+                    parityMaxDiff = parity.MaxAbsDiff;
+                    parityChecked = true;
+                    progress?.Report($"[dataset] parity: maxDiff={parity.MaxAbsDiff} over {parity.Checked} tiles");
+                }
+
+                await reportAcc.AddAsync(reg, logger, cancellationToken);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                failed++;
+                logger?.LogError(ex, "  [{Session}] FAILED -- skipped", session.Id);
+                progress?.Report($"[dataset] ({idx}/{sessions.Length}) {session.Id} FAILED: {ex.Message} -- skipped");
+            }
+            finally
             {
                 TryDelete(scratchRoot);
-                continue;
             }
-            registered++;
-
-            var export = await DatasetTileExporter.ExportAsync(
-                reg, outDir, options.TileSize, options.CellsPerSession, options.SubsPerCell, logger, cancellationToken);
-            totalTiles += export.Rows.Length;
-
-            // In-run zero-skew gate: verify the first exported session's stored tiles equal the C#
-            // stretch of their source (before its scratch is wiped).
-            if (!parityChecked && export.Rows.Length > 0)
-            {
-                var parity = await DatasetTileExporter.VerifyParityAsync(reg, outDir, export.Rows, sampleCount: 8, cancellationToken);
-                parityMaxDiff = parity.MaxAbsDiff;
-                parityChecked = true;
-                progress?.Report($"[dataset] parity: maxDiff={parity.MaxAbsDiff} over {parity.Checked} tiles");
-            }
-
-            await reportAcc.AddAsync(reg, logger, cancellationToken);
-            TryDelete(scratchRoot);
         }
 
         // 4. PSF/noise distribution report.
@@ -134,10 +155,10 @@ public static class DatasetBuildRunner
 
         TryDelete(scratchRoot);
         progress?.Report(
-            $"[dataset] done: {registered}/{sessions.Length} sessions -> {totalTiles} tiles; " +
+            $"[dataset] done: {registered}/{sessions.Length} sessions -> {totalTiles} tiles ({failed} failed); " +
             $"parity {(parityChecked ? parityMaxDiff == 0.0 ? "OK" : $"DIFF {parityMaxDiff}" : "n/a")}");
         return new RunResult(
-            sessions.Length, registered, totalTiles, testSessions.Length,
+            sessions.Length, registered, failed, totalTiles, testSessions.Length,
             parityChecked, parityMaxDiff, manifestPath, splitPath, reportPath);
     }
 

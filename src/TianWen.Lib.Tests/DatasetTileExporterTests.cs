@@ -145,5 +145,51 @@ namespace TianWen.Lib.Tests
                 r2.Rows[i].NoiseMad.ShouldBe(r1.Rows[i].NoiseMad);
             }
         }
+
+        private static DatasetTileExporter.TileManifestRow Row(string tile) => new(
+            Tile: tile, SessionId: "b|Cam", Camera: "Cam", Frame: "master",
+            SourceFile: "", CellX: 0, CellY: 0, TileSize: 64, Channels: 3, Gain: 100,
+            ExposureSeconds: 1, NoiseMad: 0.1, SessionMedianFwhm: 2.5);
+
+        [Fact]
+        public async Task AppendManifest_HealsTornTailBeforeAppending()
+        {
+            // A crash mid-append leaves a torn (newline-less) last line; because the build runner
+            // fault-isolates per session and keeps going, the NEXT session's append would bury it
+            // mid-file where every JSONL consumer chokes. The append must truncate it back to the
+            // last complete row first.
+            var ct = TestContext.Current.CancellationToken;
+            Directory.CreateDirectory(_dir);
+            var path = Path.Combine(_dir, "tiles-manifest.jsonl");
+            var complete = /*lang=json*/ """{"Tile":"tiles/a/x0_y0_master.f16"}""";
+            var torn = """{"Tile":"tiles/a/x0_y64_s00""";
+            await File.WriteAllTextAsync(path, complete + "\n" + torn, ct);
+
+            await DatasetTileExporter.AppendManifestAsync(path, [Row("tiles/b/x0_y0_master.f16")], ct);
+
+            var lines = (await File.ReadAllLinesAsync(path, ct)).Where(l => l.Length > 0).ToArray();
+            lines.Length.ShouldBe(2);
+            lines[0].ShouldBe(complete);                    // intact rows preserved verbatim
+            lines[1].ShouldContain("tiles/b/");             // the new row follows them
+            foreach (var line in lines)
+            {
+                Should.NotThrow(() => System.Text.Json.JsonDocument.Parse(line).Dispose(),
+                    $"line is not valid JSON: {line}");
+            }
+        }
+
+        [Fact]
+        public async Task AppendManifest_WholeFileTorn_TruncatesToJustTheNewRows()
+        {
+            var ct = TestContext.Current.CancellationToken;
+            Directory.CreateDirectory(_dir);
+            var path = Path.Combine(_dir, "tiles-manifest.jsonl");
+            await File.WriteAllTextAsync(path, """{"Tile":"tiles/a/never-finis""", ct); // no newline at all
+
+            await DatasetTileExporter.AppendManifestAsync(path, [Row("tiles/b/x0_y0_master.f16")], ct);
+
+            var lines = (await File.ReadAllLinesAsync(path, ct)).Where(l => l.Length > 0).ToArray();
+            lines.ShouldHaveSingleItem().ShouldContain("tiles/b/");
+        }
     }
 }
