@@ -47,6 +47,21 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, ILogger<Datase
                           "(synthetic frames poison the noise model).",
             DefaultValueFactory = _ => "*simulator*",
         };
+        var excludeObjectOpt = new Option<string>("--exclude-object")
+        {
+            Description = "Case-insensitive wildcard on OBJECT; matching lights are excluded " +
+                          "(sessions are grouped by target, so e.g. '*vela*' drops one pointing " +
+                          "cleanly even when it shares a dated LIGHT folder). Empty = no exclusion.",
+            DefaultValueFactory = _ => "",
+        };
+        var excludePathOpt = new Option<string[]>("--exclude-path")
+        {
+            Description = "Case-insensitive wildcard(s) matched against each PATH SEGMENT; a frame " +
+                          "under a matching directory is excluded (repeatable). Appended to the " +
+                          "built-in processed-data exclusions. Use for deliberately-bad or " +
+                          "processed folders, e.g. '*BAD LIGHT*'.",
+            AllowMultipleArgumentsPerToken = true,
+        };
         var minSubsOpt = new Option<int>("--min-subs")
         {
             Description = "Sessions with fewer gated lights are skipped.",
@@ -82,7 +97,7 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, ILogger<Datase
             Options =
             {
                 archiveRootOpt, outOpt,
-                minExposureOpt, maxExposureOpt, excludeInstrumeOpt, minSubsOpt,
+                minExposureOpt, maxExposureOpt, excludeInstrumeOpt, excludeObjectOpt, excludePathOpt, minSubsOpt,
                 tileSizeOpt, cellsOpt, subsPerCellOpt, testFractionOpt, discoverOnlyOpt,
             },
         };
@@ -113,6 +128,7 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, ILogger<Datase
                 MinExposure = TimeSpan.FromSeconds(minExposure),
                 MaxExposure = TimeSpan.FromSeconds(maxExposure),
                 ExcludeInstrumePattern = parseResult.GetValue(excludeInstrumeOpt)!,
+                ExcludeObjectPattern = parseResult.GetValue(excludeObjectOpt)!,
                 MinSubsPerSession = parseResult.GetValue(minSubsOpt),
                 TileSize = parseResult.GetValue(tileSizeOpt),
                 CellsPerSession = parseResult.GetValue(cellsOpt),
@@ -120,13 +136,21 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, ILogger<Datase
                 TestFraction = parseResult.GetValue(testFractionOpt),
             };
 
+            // User path exclusions append to the built-in processed-data defaults (never replace them).
+            var extraExcludePaths = parseResult.GetValue(excludePathOpt);
+            if (extraExcludePaths is { Length: > 0 })
+            {
+                options = options with { ExcludePathSegments = options.ExcludePathSegments.AddRange(extraExcludePaths) };
+            }
+
             consoleHost.WriteScrollable($"[dataset] scanning {roots.Length} root(s) for raw lights ...");
             var (sessions, stats) = await SessionDiscovery.DiscoverAsync(options, logger, ct);
 
             consoleHost.WriteScrollable(
                 $"[dataset] scanned {stats.Scanned} FITS: {stats.Sessions} sessions / {stats.Lights} lights kept; " +
                 $"dropped {stats.NotLight} non-light, {stats.ExposureOutOfRange} exposure-out-of-range, " +
-                $"{stats.InstrumentExcluded} excluded-instrument, {stats.PathExcluded} excluded-path, " +
+                $"{stats.InstrumentExcluded} excluded-instrument, {stats.ObjectExcluded} excluded-object, " +
+                $"{stats.PathExcluded} excluded-path, " +
                 $"{stats.ProductExcluded} products, {stats.Duplicates} duplicates, " +
                 $"{stats.SessionsTooSmall} too-small sessions");
             foreach (var session in sessions)
