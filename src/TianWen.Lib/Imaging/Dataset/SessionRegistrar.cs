@@ -266,11 +266,20 @@ public static class SessionRegistrar
         // 7. Integrate the session master from the scratch warped subs. Reuses the stacker's
         //    rejector selection + streaming float16-staged integrator (bounded RAM regardless
         //    of sub count). The producer re-reads each warped FITS one at a time.
+        //
+        //    ApplyNormalization is OFF (unlike a display stack): the dataset master must be a
+        //    plain linear combine on the SAME scale as the warped subs. The tiler (#40) runs both
+        //    the master and the subs through the identical inference pre-stretch (auto-detect ->
+        //    MtfStretch to median 0.25), which is only scale-consistent if the master is a genuine
+        //    linear frame like the subs -- a median-normalised master (→0.5) could trip the
+        //    auto-detect differently and land the master and its own subs at different medians,
+        //    breaking N2N pair comparability + sub-vs-master eval. A quality-gated session already
+        //    has consistent sky levels, so per-frame normalisation buys the rejector little here.
         var integrateScratch = Path.Combine(sessionScratch, "_integrate");
         var job = new IntegrationJob(
             WarpedFrames: WarpedProducer,
             ExpectedFrameCount: subsList.Length,
-            Options: new IntegrationOptions(Rejector: StackingPipeline.BuildRejector(subsList.Length)),
+            Options: new IntegrationOptions(Rejector: StackingPipeline.BuildRejector(subsList.Length), ApplyNormalization: false),
             StagingDir: integrateScratch,
             StatsRect: statsRect,
             FrameFootprints: footprints,

@@ -87,23 +87,7 @@ public static class ChunkedNafnetRunner
         //    redundant round-trip there amplifies per-channel noise around
         //    bright stars (the artefact reported on the first
         //    Skull-and-Crossbones run).
-        var stretchApplied = NeedsStretch(input);
-        Image stretched;
-        float[]? origMin = null;
-        double[]? balances = null;
-        if (stretchApplied)
-        {
-            stretched = input.MtfStretch(AiNafnetInputs.TargetMedian, out var min, out var bal);
-            origMin = min;
-            balances = bal;
-        }
-        else
-        {
-            // Pass the source through to the network verbatim. The forward
-            // pad/split/inference/stitch loop operates on `stretched` as if
-            // nothing happened; we skip the MtfUnstretch at the end too.
-            stretched = input;
-        }
+        var (stretched, stretchApplied, origMin, balances) = ApplyInputStretch(input);
         var stretchMs = phaseSw.ElapsedMilliseconds; phaseSw.Restart();
         ct.ThrowIfCancellationRequested();
 
@@ -286,6 +270,30 @@ public static class ChunkedNafnetRunner
 
         return new ChunkedNafnetResult(
             output, chunkCount, stretchMs, prepMs, inferMs, stitchMs, unstretchMs, totalMs, stretchApplied);
+    }
+
+    /// <summary>
+    /// The exact NAFNet input pre-stretch this runner applies before inference: the SAS Pro
+    /// auto-detect (<see cref="NeedsStretch"/>) gating an <see cref="Image.MtfStretch"/> to
+    /// <see cref="AiNafnetInputs.TargetMedian"/>. Returns the (possibly identical) image to feed
+    /// the network plus the inverse-transform state (<paramref name="OrigMin"/> /
+    /// <paramref name="Balances"/> are non-null only when <paramref name="Applied"/> is true, and
+    /// are what <see cref="Image.MtfUnstretch"/> needs to map the network output back to source
+    /// units). Exposed so the dataset tile exporter bakes its training tiles with byte-identical
+    /// preprocessing to inference (zero train/inference skew, plan §2.4) — the single source of
+    /// truth for "how a linear frame becomes a NAFNet input".
+    /// </summary>
+    internal static (Image Stretched, bool Applied, float[]? OrigMin, double[]? Balances) ApplyInputStretch(Image input)
+    {
+        if (!NeedsStretch(input))
+        {
+            // Already in (or near) the NAFNet training distribution — feed it verbatim and skip
+            // the inverse round-trip. Critical for pre-stretched inputs (GHS/ABE), where the MTF
+            // nonlinearity near saturation amplifies per-channel noise around bright stars.
+            return (input, false, null, null);
+        }
+        var stretched = input.MtfStretch(AiNafnetInputs.TargetMedian, out var origMin, out var balances);
+        return (stretched, true, origMin, balances);
     }
 
     /// <summary>
