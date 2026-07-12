@@ -4,6 +4,7 @@ using System.Collections.Immutable;
 using System.CommandLine;
 using System.IO;
 using System.Linq;
+using TianWen.AI.Imaging;
 using TianWen.Lib.Imaging.Dataset;
 using TianWen.UI.Abstractions;
 
@@ -66,6 +67,11 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, ILogger<Datase
             Description = "Sub tiles exported per sampled cell (any two form a Noise2Noise pair).",
             DefaultValueFactory = _ => 8,
         };
+        var testFractionOpt = new Option<double>("--test-fraction")
+        {
+            Description = "Fraction of sessions held out as the pinned TEST split (by session, never by tile).",
+            DefaultValueFactory = _ => 0.15d,
+        };
         var discoverOnlyOpt = new Option<bool>("--discover-only")
         {
             Description = "Stop after session discovery and print the inventory (no tiles written).",
@@ -77,7 +83,7 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, ILogger<Datase
             {
                 archiveRootOpt, outOpt,
                 minExposureOpt, maxExposureOpt, excludeInstrumeOpt, minSubsOpt,
-                tileSizeOpt, cellsOpt, subsPerCellOpt, discoverOnlyOpt,
+                tileSizeOpt, cellsOpt, subsPerCellOpt, testFractionOpt, discoverOnlyOpt,
             },
         };
         buildCommand.SetAction(async (parseResult, ct) =>
@@ -111,6 +117,7 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, ILogger<Datase
                 TileSize = parseResult.GetValue(tileSizeOpt),
                 CellsPerSession = parseResult.GetValue(cellsOpt),
                 SubsPerCell = parseResult.GetValue(subsPerCellOpt),
+                TestFraction = parseResult.GetValue(testFractionOpt),
             };
 
             consoleHost.WriteScrollable($"[dataset] scanning {roots.Length} root(s) for raw lights ...");
@@ -135,10 +142,22 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, ILogger<Datase
                 return 0;
             }
 
-            // Later P0 stages (quality gate -> calibrate -> register -> integrate -> tile export ->
-            // stats -> split) attach here as they land; until then be explicit rather than silent.
-            consoleHost.WriteScrollable("[dataset] tile export stages are not implemented yet — run with --discover-only for the inventory.");
-            return 2;
+            // Full build: scan -> sessions + calibration groups -> pinned split -> per session
+            // (resolve calibrator -> register -> export tiles) -> parity gate -> PSF/noise report.
+            var progress = new Progress<string>(s => consoleHost.WriteScrollable(s));
+            var result = await DatasetBuildRunner.RunAsync(options, logger, progress, ct);
+
+            consoleHost.WriteScrollable(
+                $"[dataset] {result.Registered}/{result.Sessions} sessions -> {result.TotalTiles} tiles; " +
+                $"{result.TestSessions} test sessions held out; " +
+                $"parity {(result.ParityChecked ? result.ParityMaxDiff == 0d ? "OK" : $"DIFF {result.ParityMaxDiff}" : "n/a")}");
+            consoleHost.WriteScrollable($"[dataset] manifest: {result.ManifestPath}");
+            consoleHost.WriteScrollable($"[dataset] split:    {result.SplitPath}");
+            consoleHost.WriteScrollable($"[dataset] report:   {result.ReportPath}");
+
+            // A non-zero parity diff means the stored tiles no longer equal the C# stretch of their
+            // source -- train/inference skew. Fail the command so CI catches it.
+            return result.ParityChecked && result.ParityMaxDiff != 0d ? 1 : 0;
         });
 
         return new Command("dataset", "Training-dataset tooling (see docs/plans/ai-denoise-deconv.md).")

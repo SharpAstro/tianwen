@@ -62,4 +62,8 @@ public sealed record DatasetBuildOptions
     /// <summary>Sub tiles exported per sampled cell (bounds dataset size; any two subs of a
     /// cell form a Noise2Noise pair).</summary>
     public int SubsPerCell { get; init; } = 8;
+
+    /// <summary>Fraction of sessions held out as the pinned TEST split (<see cref="DatasetSplitWriter"/>).
+    /// By session, never by tile. Default 0.15.</summary>
+    public double TestFraction { get; init; } = 0.15;
 }
