@@ -25,8 +25,93 @@ namespace TianWen.Lib.Imaging.Dataset;
 /// </summary>
 public static class CalibrationResolver
 {
-    /// <summary>A set of calibration frames that combine into one master.</summary>
-    public sealed record CalGroup(MasterGroupKey Key, ImmutableArray<FrameInfo> Frames);
+    /// <summary>A set of calibration frames that combine into one master, scoped both to their
+    /// sensor-config <see cref="MasterGroupKey"/> and to the optical train (<see cref="CalTrain"/>)
+    /// they were captured through.</summary>
+    public sealed record CalGroup(MasterGroupKey Key, CalTrain Train, ImmutableArray<FrameInfo> Frames);
+
+    /// <summary>
+    /// Optical-train identity a light and its calibration must share, ON TOP of the sensor-config
+    /// <see cref="MasterGroupKey"/>. The dataset builder is the one context that scans a whole
+    /// MULTI-camera archive in a single pass, so -- unlike the single-capture stacker, which only
+    /// ever sees one camera -- it can be handed two bodies that share a sensor model (e.g. an IMX533
+    /// in both a ZWO ASI533MC Pro and an SVBONY SV605CC): identical dimensions + Bayer pattern, yet
+    /// their darks (amp glow + unit-to-unit fixed pattern) and especially their flats (vignetting +
+    /// dust of a DIFFERENT scope) are NOT interchangeable. Darks/bias are scoped to the CAMERA (the
+    /// sensor sees no optics); flats to the full optical train (camera + telescope + focal length) --
+    /// which is also the grain at which the PSF / field-radius profile is characterised, since a
+    /// Newtonian's coma grows with field radius while a refractor's does not, so their profiles must
+    /// never be merged. Comparisons treat an unknown (empty / non-positive) field as a WILDCARD, so a
+    /// missing FITS header never wrongly drops otherwise-matching calibration.
+    /// </summary>
+    public readonly record struct CalTrain(string Instrument, string Telescope, int FocalLength)
+    {
+        /// <summary>Camera-only scope: darks, bias, dark-flats -- captured with no light path, so the
+        /// telescope + focal length are irrelevant to the fixed pattern they carry.</summary>
+        public static CalTrain Camera(FrameInfo frame) => new(Norm(frame.Meta.Instrument), "", -1);
+
+        /// <summary>Full optical-train scope: flats + the PSF field-radius profile (vignetting, dust,
+        /// and off-axis aberrations are all optics-specific).</summary>
+        public static CalTrain OpticalTrain(FrameInfo frame) =>
+            new(Norm(frame.Meta.Instrument), Norm(frame.Meta.Telescope), frame.Meta.FocalLength);
+
+        /// <summary>The scope a calibration frame was captured through: a flat sees the whole optical
+        /// train, every other calibration type (dark / bias / dark-flat) only the camera.</summary>
+        public static CalTrain ForFrame(FrameInfo frame) =>
+            frame.FrameType is FrameType.Flat ? OpticalTrain(frame) : Camera(frame);
+
+        /// <summary>Two KNOWN instruments that differ is a hard mismatch (the cross-camera bug); an
+        /// unknown instrument on either side is a wildcard. The gate a dark/bias must pass.</summary>
+        public bool CameraCompatibleWith(CalTrain light) => !KnownAndDiffer(Instrument, light.Instrument);
+
+        /// <summary>Same camera AND telescope AND focal length (each lenient on unknown) -- the gate a
+        /// flat must pass against its light so one scope's vignetting/dust is never borrowed for another.</summary>
+        public bool TrainCompatibleWith(CalTrain light) =>
+            !KnownAndDiffer(Instrument, light.Instrument)
+            && !KnownAndDiffer(Telescope, light.Telescope)
+            && !KnownAndDiffer(FocalLength, light.FocalLength);
+
+        /// <summary>Filename-safe suffix appended to the master slug so two trains that share a
+        /// <see cref="MasterGroupKey"/> (same sensor/gain/temp/filter) never collide on the shared
+        /// cache path or in the in-flight build map. Empty when the camera is unknown (preserves the
+        /// legacy single-camera master filename for header-less archives).</summary>
+        public string SlugSuffix()
+        {
+            if (Instrument.Length == 0) return "";
+            var sb = new System.Text.StringBuilder(32);
+            sb.Append('_').Append(Sanitize(Instrument));
+            if (Telescope.Length > 0) sb.Append('_').Append(Sanitize(Telescope));
+            if (FocalLength > 0) sb.Append('_').Append(FocalLength.ToString(System.Globalization.CultureInfo.InvariantCulture)).Append("mm");
+            return sb.ToString();
+        }
+
+        /// <summary>Human label for the PSF/noise report, e.g. "ZWO ASI533MC Pro / Askar @ 1000mm".</summary>
+        public string Describe()
+        {
+            var sb = new System.Text.StringBuilder(Instrument.Length > 0 ? Instrument : "unknown camera");
+            if (Telescope.Length > 0) sb.Append(" / ").Append(Telescope);
+            if (FocalLength > 0) sb.Append(" @ ").Append(FocalLength.ToString(System.Globalization.CultureInfo.InvariantCulture)).Append("mm");
+            return sb.ToString();
+        }
+
+        private static string Norm(string? s) => s?.Trim() ?? "";
+
+        private static bool KnownAndDiffer(string a, string b) =>
+            a.Length > 0 && b.Length > 0 && !string.Equals(a, b, StringComparison.OrdinalIgnoreCase);
+
+        private static bool KnownAndDiffer(int a, int b) => a > 0 && b > 0 && a != b;
+
+        private static string Sanitize(string raw)
+        {
+            var sb = new System.Text.StringBuilder(raw.Length);
+            foreach (var c in raw)
+            {
+                if (char.IsLetterOrDigit(c)) sb.Append(c);
+                else if (c is '+' or '-') sb.Append(c);
+            }
+            return sb.Length > 0 ? sb.ToString() : "cam";
+        }
+    }
 
     /// <summary>Groups the calibration frames (Bias / Dark / DarkFlat / Flat) among
     /// <paramref name="frames"/> by <see cref="MasterGroupKey"/>. Lights and anything else are
@@ -34,29 +119,31 @@ public static class CalibrationResolver
     /// <see cref="SessionDiscovery.GroupSessions"/>).</summary>
     public static IReadOnlyDictionary<FrameType, List<CalGroup>> GroupCalibration(IEnumerable<FrameInfo> frames)
     {
-        var byKey = new Dictionary<MasterGroupKey, List<FrameInfo>>();
+        // Compose the sensor-config key with the optical train so two cameras that share a sensor
+        // model never fold their calibration into one master (their dark/flat patterns differ).
+        var byKey = new Dictionary<(MasterGroupKey Key, CalTrain Train), List<FrameInfo>>();
         foreach (var frame in frames)
         {
             if (frame.FrameType is not (FrameType.Bias or FrameType.Dark or FrameType.DarkFlat or FrameType.Flat))
             {
                 continue;
             }
-            var key = MasterGroupKey.FromFrame(frame);
-            if (!byKey.TryGetValue(key, out var list))
+            var composite = (MasterGroupKey.FromFrame(frame), CalTrain.ForFrame(frame));
+            if (!byKey.TryGetValue(composite, out var list))
             {
-                byKey[key] = list = new List<FrameInfo>();
+                byKey[composite] = list = new List<FrameInfo>();
             }
             list.Add(frame);
         }
 
         var byType = new Dictionary<FrameType, List<CalGroup>>();
-        foreach (var (key, list) in byKey)
+        foreach (var ((key, train), list) in byKey)
         {
             if (!byType.TryGetValue(key.Type, out var groups))
             {
                 byType[key.Type] = groups = new List<CalGroup>();
             }
-            groups.Add(new CalGroup(key, [.. list]));
+            groups.Add(new CalGroup(key, train, [.. list]));
         }
         return byType;
     }
@@ -74,10 +161,11 @@ public static class CalibrationResolver
         ILogger? logger = null,
         CancellationToken cancellationToken = default)
     {
-        var lightKey = MasterGroupKey.FromFrame(session.Lights[0]);
+        var light = session.Lights[0];
+        var lightKey = MasterGroupKey.FromFrame(light);
 
-        var darkGroup = BestDark(calGroups.GetValueOrDefault(FrameType.Dark), lightKey);
-        var flatGroup = BestFlat(calGroups.GetValueOrDefault(FrameType.Flat), lightKey);
+        var darkGroup = BestDark(calGroups.GetValueOrDefault(FrameType.Dark), light);
+        var flatGroup = BestFlat(calGroups.GetValueOrDefault(FrameType.Flat), light);
 
         // A gain/offset-mismatched dark is only ever picked when no same-gain library exists (the
         // penalty guarantees a matching one wins) -- but it mis-scales the fixed pattern that dark
@@ -94,8 +182,8 @@ public static class CalibrationResolver
                 session.Id, darkGroup.Key.Slug(), darkGroup.Key.Gain, darkGroup.Key.Offset, lightKey.Gain, lightKey.Offset);
         }
 
-        var dark = darkGroup is null ? null : await masterCache.GetOrBuildAsync(darkGroup.Key, darkGroup.Frames, cancellationToken);
-        var flat = flatGroup is null ? null : await masterCache.GetOrBuildAsync(flatGroup.Key, flatGroup.Frames, cancellationToken);
+        var dark = darkGroup is null ? null : await masterCache.GetOrBuildAsync(darkGroup.Key, darkGroup.Train, darkGroup.Frames, cancellationToken);
+        var flat = flatGroup is null ? null : await masterCache.GetOrBuildAsync(flatGroup.Key, flatGroup.Train, flatGroup.Frames, cancellationToken);
 
         logger?.LogInformation("  [{Session}] calibration: dark={Dark} flat={Flat}",
             session.Id, darkGroup is null ? "NONE" : darkGroup.Key.Slug(), flatGroup is null ? "NONE" : flatGroup.Key.Slug());
@@ -127,23 +215,27 @@ public static class CalibrationResolver
     private const double OffsetMismatchPenalty = 50.0;
     private const double OffsetUnknownPenalty = 25.0;
 
-    /// <summary>Best dark for a light: dimension/sensor-compatible, ranked by closest temperature,
-    /// closest exposure (dark current scales with both), then matching gain/offset (a wrong-gain
-    /// dark mis-scales the fixed pattern; see <see cref="GainMismatchPenalty"/>). Score ties break
-    /// by ordinal <see cref="MasterGroupKey.Slug"/> so the pick never depends on dictionary /
-    /// filesystem enumeration order (the build's determinism claim).</summary>
-    internal static CalGroup? BestDark(List<CalGroup>? darks, MasterGroupKey light)
+    /// <summary>Best dark for a light: same CAMERA (a dark is the body's own fixed pattern -- amp
+    /// glow, unit-to-unit variation -- so it is never borrowed across bodies even when they share a
+    /// sensor model), dimension/sensor-compatible, ranked by closest temperature, closest exposure
+    /// (dark current scales with both), then matching gain/offset (a wrong-gain dark mis-scales the
+    /// fixed pattern; see <see cref="GainMismatchPenalty"/>). Score ties break by ordinal
+    /// <see cref="MasterGroupKey.Slug"/> so the pick never depends on dictionary / filesystem
+    /// enumeration order (the build's determinism claim).</summary>
+    internal static CalGroup? BestDark(List<CalGroup>? darks, FrameInfo light)
     {
         if (darks is null) return null;
+        var lightKey = MasterGroupKey.FromFrame(light);
+        var lightCamera = CalTrain.Camera(light);
         CalGroup? best = null;
         var bestScore = double.PositiveInfinity;
         foreach (var g in darks)
         {
-            if (!DimensionCompatible(g.Key, light)) continue;
-            var score = TempPenalty(g.Key, light) * 10.0
-                + Math.Abs((g.Key.Exposure - light.Exposure).TotalSeconds)
-                + GainPenalty(g.Key, light)
-                + OffsetPenalty(g.Key, light);
+            if (!DimensionCompatible(g.Key, lightKey) || !g.Train.CameraCompatibleWith(lightCamera)) continue;
+            var score = TempPenalty(g.Key, lightKey) * 10.0
+                + Math.Abs((g.Key.Exposure - lightKey.Exposure).TotalSeconds)
+                + GainPenalty(g.Key, lightKey)
+                + OffsetPenalty(g.Key, lightKey);
             if (score < bestScore || (score == bestScore && SlugBefore(g, best)))
             {
                 bestScore = score;
@@ -153,21 +245,24 @@ public static class CalibrationResolver
         return best;
     }
 
-    /// <summary>Best flat for a light: dimension/sensor-compatible, preferring the same filter
-    /// (Name + Bandpass), then closest temperature, then matching gain (flat division normalises
-    /// most of the gain away, but same-gain is still the better master when both exist). Exposure
-    /// is irrelevant for flats; offset cancels in the flat normalisation. Ties break by ordinal
-    /// slug, as for darks.</summary>
-    internal static CalGroup? BestFlat(List<CalGroup>? flats, MasterGroupKey light)
+    /// <summary>Best flat for a light: same OPTICAL TRAIN (camera + telescope + focal length -- a
+    /// flat encodes this train's vignetting + dust, so a different scope / body / focal length flat
+    /// is simply wrong), dimension/sensor-compatible, preferring the same filter (Name + Bandpass),
+    /// then closest temperature, then matching gain (flat division normalises most of the gain away,
+    /// but same-gain is still the better master when both exist). Exposure is irrelevant for flats;
+    /// offset cancels in the flat normalisation. Ties break by ordinal slug, as for darks.</summary>
+    internal static CalGroup? BestFlat(List<CalGroup>? flats, FrameInfo light)
     {
         if (flats is null) return null;
+        var lightKey = MasterGroupKey.FromFrame(light);
+        var lightTrain = CalTrain.OpticalTrain(light);
         CalGroup? best = null;
         var bestScore = double.PositiveInfinity;
         foreach (var g in flats)
         {
-            if (!DimensionCompatible(g.Key, light)) continue;
-            var filterMismatch = g.Key.FilterName == light.FilterName && g.Key.FilterBandpass == light.FilterBandpass ? 0.0 : 1000.0;
-            var score = filterMismatch + TempPenalty(g.Key, light) * 10.0 + GainPenalty(g.Key, light);
+            if (!DimensionCompatible(g.Key, lightKey) || !g.Train.TrainCompatibleWith(lightTrain)) continue;
+            var filterMismatch = g.Key.FilterName == lightKey.FilterName && g.Key.FilterBandpass == lightKey.FilterBandpass ? 0.0 : 1000.0;
+            var score = filterMismatch + TempPenalty(g.Key, lightKey) * 10.0 + GainPenalty(g.Key, lightKey);
             if (score < bestScore || (score == bestScore && SlugBefore(g, best)))
             {
                 bestScore = score;

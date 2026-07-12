@@ -16,17 +16,18 @@ namespace TianWen.Lib.Tests
     /// </summary>
     public class CalibrationResolverTests
     {
-        private static FrameInfo Cal(FrameType type, double expoSec, float tempC, short gain = 100)
+        private static FrameInfo Cal(FrameType type, double expoSec, float tempC, short gain = 100,
+            string instrument = "TestCam", string telescope = "T", int focalLength = 135)
         {
             var meta = new ImageMeta(
-                Instrument: "TestCam",
+                Instrument: instrument,
                 ExposureStartTime: new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero),
                 ExposureDuration: TimeSpan.FromSeconds(expoSec),
                 FrameType: type,
-                Telescope: "T",
+                Telescope: telescope,
                 PixelSizeX: 3.76f,
                 PixelSizeY: 3.76f,
-                FocalLength: 135,
+                FocalLength: focalLength,
                 FocusPos: -1,
                 Filter: Filter.None,
                 BinX: 1,
@@ -43,11 +44,16 @@ namespace TianWen.Lib.Tests
             return new FrameInfo("x.fits", 100, 100, 1, BitDepth.Int16, meta);
         }
 
-        private static CalibrationResolver.CalGroup Group(FrameType type, double expoSec, float tempC, short gain = 100)
-            => new(MasterGroupKey.FromFrame(Cal(type, expoSec, tempC, gain)), []);
+        private static CalibrationResolver.CalGroup Group(FrameType type, double expoSec, float tempC, short gain = 100,
+            string instrument = "TestCam", string telescope = "T", int focalLength = 135)
+        {
+            var f = Cal(type, expoSec, tempC, gain, instrument, telescope, focalLength);
+            return new(MasterGroupKey.FromFrame(f), CalibrationResolver.CalTrain.ForFrame(f), [f]);
+        }
 
-        private static MasterGroupKey LightKey(double expoSec, float tempC, short gain)
-            => MasterGroupKey.FromFrame(Cal(FrameType.Light, expoSec, tempC, gain));
+        private static FrameInfo Light(double expoSec, float tempC, short gain,
+            string instrument = "TestCam", string telescope = "T", int focalLength = 135)
+            => Cal(FrameType.Light, expoSec, tempC, gain, instrument, telescope, focalLength);
 
         [Fact]
         public void GroupCalibration_BucketsByTypeAndKey_IgnoresLights()
@@ -89,7 +95,7 @@ namespace TianWen.Lib.Tests
             // exists it must win — regardless of input order.
             var wrongGain = Group(FrameType.Dark, 60, -5, gain: 212);
             var sameGain = Group(FrameType.Dark, 60, -5, gain: 121);
-            var light = LightKey(60, -5, gain: 121);
+            var light = Light(60, -5, gain: 121);
 
             CalibrationResolver.BestDark([wrongGain, sameGain], light).ShouldBe(sameGain);
             CalibrationResolver.BestDark([sameGain, wrongGain], light).ShouldBe(sameGain);
@@ -104,7 +110,7 @@ namespace TianWen.Lib.Tests
             // essentially none of the lights' dark-current pattern. Pins the penalty sizing.
             var wrongGainRightDark = Group(FrameType.Dark, 60, -5, gain: 212);
             var sameGainUselessDark = Group(FrameType.Dark, 4.5, 22, gain: 121);
-            var light = LightKey(60, -5, gain: 121);
+            var light = Light(60, -5, gain: 121);
 
             CalibrationResolver.BestDark([sameGainUselessDark, wrongGainRightDark], light).ShouldBe(wrongGainRightDark);
         }
@@ -117,7 +123,7 @@ namespace TianWen.Lib.Tests
             // filesystem enumeration order, breaking the build's re-run determinism claim.
             var unknownGain = Group(FrameType.Dark, 60, -5, gain: -1);   // slug "dark_60s_-5C"
             var tempOff = Group(FrameType.Dark, 60, -15, gain: 121);     // slug "dark_60s_-15C_g121"
-            var light = LightKey(60, -5, gain: 121);
+            var light = Light(60, -5, gain: 121);
 
             // Ordinal: '1' < '5' at the temp digit, so "dark_60s_-15C_g121" sorts first.
             CalibrationResolver.BestDark([unknownGain, tempOff], light).ShouldBe(tempOff);
@@ -129,10 +135,62 @@ namespace TianWen.Lib.Tests
         {
             var wrongGain = Group(FrameType.Flat, 3, -5, gain: 212);
             var sameGain = Group(FrameType.Flat, 3, -5, gain: 121);
-            var light = LightKey(60, -5, gain: 121);
+            var light = Light(60, -5, gain: 121);
 
             CalibrationResolver.BestFlat([wrongGain, sameGain], light).ShouldBe(sameGain);
             CalibrationResolver.BestFlat([sameGain, wrongGain], light).ShouldBe(sameGain);
+        }
+
+        [Fact]
+        public void BestDark_RejectsDarkFromADifferentCamera_EvenWhenSensorGainTempExposureMatch()
+        {
+            // Two IMX533 bodies share dimensions + Bayer + gain + temp, but a dark is the CAMERA's own
+            // fixed pattern (amp glow, unit-to-unit variation) -- never interchangeable across bodies.
+            // Its own gain/temp/exposure are a perfect match; only the instrument differs.
+            var foreign = Group(FrameType.Dark, 60, -5, gain: 121, instrument: "SVBONY SV605CC", telescope: "SV", focalLength: 400);
+            var light = Light(60, -5, gain: 121, instrument: "ZWO ASI533MC Pro", telescope: "Askar", focalLength: 400);
+
+            CalibrationResolver.BestDark([foreign], light).ShouldBeNull();
+        }
+
+        [Fact]
+        public void BestFlat_RejectsFlatFromADifferentCamera_EvenWhenSensorMatches()
+        {
+            // Same sensor, different body -> a DIFFERENT scope's vignetting + dust. Wrong flat.
+            var foreign = Group(FrameType.Flat, 3, -5, gain: 121, instrument: "SVBONY SV605CC", telescope: "Askar", focalLength: 400);
+            var light = Light(60, -5, gain: 121, instrument: "ZWO ASI533MC Pro", telescope: "Askar", focalLength: 400);
+
+            CalibrationResolver.BestFlat([foreign], light).ShouldBeNull();
+        }
+
+        [Fact]
+        public void BestFlat_RejectsFlatFromTheSameCameraButADifferentFocalLength()
+        {
+            // Same camera + scope, but a focal reducer changes the illumination cone -> wrong flat.
+            var reduced = Group(FrameType.Flat, 3, -5, gain: 121, instrument: "ZWO ASI533MC Pro", telescope: "Askar", focalLength: 300);
+            var light = Light(60, -5, gain: 121, instrument: "ZWO ASI533MC Pro", telescope: "Askar", focalLength: 400);
+
+            CalibrationResolver.BestFlat([reduced], light).ShouldBeNull();
+        }
+
+        [Fact]
+        public void BestFlat_MatchesFlatFromTheSameOpticalTrain()
+        {
+            var ok = Group(FrameType.Flat, 3, -5, gain: 121, instrument: "ZWO ASI533MC Pro", telescope: "Askar", focalLength: 400);
+            var light = Light(60, -5, gain: 121, instrument: "ZWO ASI533MC Pro", telescope: "Askar", focalLength: 400);
+
+            CalibrationResolver.BestFlat([ok], light).ShouldBe(ok);
+        }
+
+        [Fact]
+        public void BestFlat_UnknownTelescopeOnEitherSide_IsAWildcard_NotADrop()
+        {
+            // A missing TELESCOP/FOCALLEN header must not wrongly drop an otherwise-matching flat
+            // (same camera) -- unknown fields are lenient, only two KNOWN differing values reject.
+            var flatNoScope = Group(FrameType.Flat, 3, -5, gain: 121, instrument: "ZWO ASI533MC Pro", telescope: "", focalLength: -1);
+            var light = Light(60, -5, gain: 121, instrument: "ZWO ASI533MC Pro", telescope: "Askar", focalLength: 400);
+
+            CalibrationResolver.BestFlat([flatNoScope], light).ShouldBe(flatNoScope);
         }
     }
 }
