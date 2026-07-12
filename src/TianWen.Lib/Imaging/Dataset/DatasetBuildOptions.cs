@@ -29,6 +29,13 @@ public sealed record DatasetBuildOptions
     /// a real N.I.N.A. "Camera V3 simulator" session was found in the reference archive).</summary>
     public string ExcludeInstrumePattern { get; init; } = "*simulator*";
 
+    /// <summary>Case-insensitive wildcard on OBJECT; matching lights are excluded. Empty (the
+    /// default) disables the gate. Sessions are grouped by target (see
+    /// <see cref="ImagingSession.Target"/>), so this drops one target cleanly even when it shares
+    /// a dated LIGHT folder with other pointings — e.g. <c>*vela*</c> removes the Vela SNR frames
+    /// that live alongside HD 71272 + RCW 27 in one N.I.N.A. night.</summary>
+    public string ExcludeObjectPattern { get; init; } = "";
+
     /// <summary>Case-insensitive wildcards matched against each PATH SEGMENT; a frame under a
     /// matching directory is excluded. Belt-and-braces on top of the header gates for
     /// processed-data directories whose frames still carry Light-like headers

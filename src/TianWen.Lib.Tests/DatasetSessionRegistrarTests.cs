@@ -47,7 +47,7 @@ namespace TianWen.Lib.Tests
             var lightsDir = Path.Combine(_dir, "LIGHT");
             Directory.CreateDirectory(lightsDir);
             RgbBayerSyntheticFixture.WriteSyntheticLights(lightsDir);
-            return new ImagingSession(lightsDir, "synth/rggb", "SynthBayer", [.. ReadFrames(lightsDir, "light_*.fits")]);
+            return new ImagingSession(lightsDir, "synth/rggb", "SynthBayer", "SynthRgb", [.. ReadFrames(lightsDir, "light_*.fits")]);
         }
 
         private async Task<Calibrator> BuildDarkCalibratorAsync(CancellationToken ct)

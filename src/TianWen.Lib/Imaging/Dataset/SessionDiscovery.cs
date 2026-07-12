@@ -35,6 +35,7 @@ public static class SessionDiscovery
         int NotLight,
         int ExposureOutOfRange,
         int InstrumentExcluded,
+        int ObjectExcluded,
         int PathExcluded,
         int ProductExcluded,
         int Duplicates,
@@ -63,9 +64,12 @@ public static class SessionDiscovery
     public static (ImmutableArray<ImagingSession> Sessions, DiscoveryStats Stats) GroupSessions(
         IReadOnlyList<(FrameInfo Frame, string Root)> frames, DatasetBuildOptions options)
     {
-        int notLight = 0, exposureOut = 0, instrumentExcluded = 0, pathExcluded = 0, productExcluded = 0, duplicates = 0;
+        int notLight = 0, exposureOut = 0, instrumentExcluded = 0, objectExcluded = 0, pathExcluded = 0, productExcluded = 0, duplicates = 0;
         var seen = new HashSet<(string Camera, DateTimeOffset Start, TimeSpan Exposure, int Width, int Height)>();
-        var bySession = new Dictionary<(string SessionDir, string Camera), (string Root, List<FrameInfo> Lights)>();
+        // Grouped per target as well as per directory + camera: a single dated LIGHT folder
+        // routinely holds several pointings distinguished only by OBJECT, and mixing them would
+        // both break registration and poison the session-relative star-count gate.
+        var bySession = new Dictionary<(string SessionDir, string Camera, string Target), (string Root, List<FrameInfo> Lights)>();
 
         foreach (var (frame, root) in frames)
         {
@@ -74,6 +78,7 @@ public static class SessionDiscovery
                 case LightGate.NotLight: notLight++; continue;
                 case LightGate.ExposureOutOfRange: exposureOut++; continue;
                 case LightGate.InstrumentExcluded: instrumentExcluded++; continue;
+                case LightGate.ObjectExcluded: objectExcluded++; continue;
                 case LightGate.Product: productExcluded++; continue;
             }
             if (IsUnderExcludedPath(frame.Path, root, options))
@@ -91,7 +96,7 @@ public static class SessionDiscovery
                 pathExcluded++;
                 continue;
             }
-            var key = (sessionDir, frame.Meta.Instrument);
+            var key = (sessionDir, frame.Meta.Instrument, TargetOf(frame));
             if (!bySession.TryGetValue(key, out var entry))
             {
                 bySession[key] = entry = (root, new List<FrameInfo>());
@@ -101,7 +106,7 @@ public static class SessionDiscovery
 
         int tooSmall = 0, lightCount = 0;
         var sessions = ImmutableArray.CreateBuilder<ImagingSession>();
-        foreach (var ((sessionDir, camera), (root, lights)) in bySession)
+        foreach (var ((sessionDir, camera, target), (root, lights)) in bySession)
         {
             if (lights.Count < options.MinSubsPerSession)
             {
@@ -110,19 +115,22 @@ public static class SessionDiscovery
             }
             lights.Sort(static (a, b) => a.Meta.ExposureStartTime.CompareTo(b.Meta.ExposureStartTime));
             var relative = Path.GetRelativePath(root, sessionDir).Replace(Path.DirectorySeparatorChar, '/');
-            sessions.Add(new ImagingSession(sessionDir, relative, camera, [.. lights]));
+            sessions.Add(new ImagingSession(sessionDir, relative, camera, target, [.. lights]));
             lightCount += lights.Count;
         }
         // Deterministic order regardless of dictionary iteration: by portable id.
         sessions.Sort(static (a, b) => string.CompareOrdinal(a.Id, b.Id));
 
         var stats = new DiscoveryStats(
-            frames.Count, notLight, exposureOut, instrumentExcluded, pathExcluded,
+            frames.Count, notLight, exposureOut, instrumentExcluded, objectExcluded, pathExcluded,
             productExcluded, duplicates, tooSmall, sessions.Count, lightCount);
         return (sessions.ToImmutable(), stats);
     }
 
-    private enum LightGate { Pass, NotLight, ExposureOutOfRange, InstrumentExcluded, Product }
+    /// <summary>The session-grouping target key: the trimmed OBJECT header, or empty when unset.</summary>
+    private static string TargetOf(FrameInfo frame) => frame.Meta.ObjectName?.Trim() ?? "";
+
+    private enum LightGate { Pass, NotLight, ExposureOutOfRange, InstrumentExcluded, ObjectExcluded, Product }
 
     private static LightGate ClassifyLight(FrameInfo frame, DatasetBuildOptions options)
     {
@@ -141,6 +149,13 @@ public static class SessionDiscovery
         if (FileSystemName.MatchesSimpleExpression(options.ExcludeInstrumePattern, frame.Meta.Instrument, ignoreCase: true))
         {
             return LightGate.InstrumentExcluded;
+        }
+        // Empty pattern disables the gate (MatchesSimpleExpression("", x) only matches empty x,
+        // which would never fire on a real OBJECT, but guard explicitly for clarity).
+        if (options.ExcludeObjectPattern.Length > 0
+            && FileSystemName.MatchesSimpleExpression(options.ExcludeObjectPattern, TargetOf(frame), ignoreCase: true))
+        {
+            return LightGate.ObjectExcluded;
         }
         return LightGate.Pass;
     }

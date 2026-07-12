@@ -33,6 +33,7 @@ namespace TianWen.Lib.Tests
             int stackedFrameCount = 0,
             int width = 3008,
             int height = 3008,
+            string objectName = "",
             string root = "")
         {
             var meta = new ImageMeta(
@@ -55,6 +56,7 @@ namespace TianWen.Lib.Tests
                 RowOrder: RowOrder.TopDown,
                 Latitude: float.NaN,
                 Longitude: float.NaN,
+                ObjectName: objectName,
                 SWCreator: swCreator);
             var fullPath = Path.Combine(root.Length > 0 ? root : Root, relativePath.Replace('/', Path.DirectorySeparatorChar));
             return new FrameInfo(fullPath, width, height, 1, BitDepth.Int16, meta, stackedFrameCount);
@@ -80,6 +82,45 @@ namespace TianWen.Lib.Tests
             helixColor.Lights.Length.ShouldBe(2);
             helixColor.Id.ShouldBe("2025/2025-08-20 - Helix|ZWO ASI533MC Pro");
             stats.Lights.ShouldBe(3);
+        }
+
+        [Fact]
+        public void GivenOneLightFolderWithSeveralTargets_WhenGrouping_ThenOneSessionPerTarget()
+        {
+            // A single dated N.I.N.A. LIGHT folder holding three pointings (the real
+            // 2026-01-23 shape: HD 71272 + RCW 27 + Vela SNR), distinguished only by OBJECT.
+            var (sessions, stats) = Group(Options(),
+            [
+                (Frame("2026-01-23/LIGHT/a1.fits", objectName: "HD 71272", start: T(0)), Root),
+                (Frame("2026-01-23/LIGHT/a2.fits", objectName: "HD 71272", start: T(1)), Root),
+                (Frame("2026-01-23/LIGHT/b1.fits", objectName: "RCW 27", start: T(2)), Root),
+                (Frame("2026-01-23/LIGHT/v1.fits", objectName: "Vela SNR", start: T(3)), Root),
+            ]);
+
+            sessions.Length.ShouldBe(3);
+            sessions.Select(s => s.Target).ShouldBe(["HD 71272", "RCW 27", "Vela SNR"], ignoreOrder: true);
+            var vela = sessions.Single(s => s.Target == "Vela SNR");
+            vela.RelativeDir.ShouldBe("2026-01-23");
+            vela.Id.ShouldBe("2026-01-23|ZWO ASI533MC Pro|Vela SNR");
+            sessions.Single(s => s.Target == "HD 71272").Lights.Length.ShouldBe(2);
+            stats.Lights.ShouldBe(4);
+        }
+
+        [Fact]
+        public void GivenExcludeObjectPattern_WhenGrouping_ThenMatchingTargetIsDroppedAndCounted()
+        {
+            var options = Options() with { ExcludeObjectPattern = "*vela*" };
+            var (sessions, stats) = Group(options,
+            [
+                (Frame("2026-01-23/LIGHT/a1.fits", objectName: "HD 71272", start: T(0)), Root),
+                (Frame("2026-01-23/LIGHT/b1.fits", objectName: "RCW 27", start: T(1)), Root),
+                (Frame("2026-01-23/LIGHT/v1.fits", objectName: "Vela SNR", start: T(2)), Root),
+                (Frame("2026-01-23/LIGHT/v2.fits", objectName: "Vela SNR", start: T(3)), Root),
+            ]);
+
+            sessions.Select(s => s.Target).ShouldBe(["HD 71272", "RCW 27"], ignoreOrder: true);
+            stats.ObjectExcluded.ShouldBe(2);
+            stats.Lights.ShouldBe(2);
         }
 
         [Fact]

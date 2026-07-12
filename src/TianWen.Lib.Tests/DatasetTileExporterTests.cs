@@ -55,7 +55,7 @@ namespace TianWen.Lib.Tests
             RgbBayerSyntheticFixture.WriteSyntheticDarks(darksDir);
 
             var calibrator = new Calibrator(Dark: await MasterFrameBuilder.BuildDarkMasterAsync(ReadFrames(darksDir, "dark_*.fits"), ct));
-            var session = new ImagingSession(lightsDir, "synth/rggb", "SynthBayer", [.. ReadFrames(lightsDir, "light_*.fits")]);
+            var session = new ImagingSession(lightsDir, "synth/rggb", "SynthBayer", "SynthRgb", [.. ReadFrames(lightsDir, "light_*.fits")]);
             var registered = await SessionRegistrar.RegisterAsync(
                 session, calibrator, Path.Combine(_dir, "scratch"), minSubs: 4, cancellationToken: ct);
             registered.ShouldNotBeNull();
