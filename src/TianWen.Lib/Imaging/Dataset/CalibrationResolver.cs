@@ -215,13 +215,26 @@ public static class CalibrationResolver
     private const double OffsetMismatchPenalty = 50.0;
     private const double OffsetUnknownPenalty = 25.0;
 
-    /// <summary>Best dark for a light: same CAMERA (a dark is the body's own fixed pattern -- amp
-    /// glow, unit-to-unit variation -- so it is never borrowed across bodies even when they share a
-    /// sensor model), dimension/sensor-compatible, ranked by closest temperature, closest exposure
-    /// (dark current scales with both), then matching gain/offset (a wrong-gain dark mis-scales the
-    /// fixed pattern; see <see cref="GainMismatchPenalty"/>). Score ties break by ordinal
-    /// <see cref="MasterGroupKey.Slug"/> so the pick never depends on dictionary / filesystem
-    /// enumeration order (the build's determinism claim).</summary>
+    /// <summary>A light-dark must fall within this factor of the light's exposure to be a candidate.
+    /// Dark current + amp glow scale with exposure and this pipeline does NOT dark-scale, so a dark
+    /// far from the light's exposure is not a valid subtraction. Load-bearing: N.I.N.A. writes
+    /// <b>dark-flats</b> (short darks matched to the FLAT exposure, e.g. 4.6s/6.7s) with
+    /// <c>IMAGETYP=DARK</c> — only their <c>DARKFLAT\</c> folder distinguishes them — so without this
+    /// gate a 6.7s dark-flat out-scores the matched-exposure 60s light-dark once gain is weighted, and
+    /// silently calibrates 60s lights with a 9x-too-short frame. The stack pipeline sidesteps this by
+    /// weighting exposure over gain in its matcher; the gate makes it explicit (and, with
+    /// RequireDarkCalibration, a session whose only "dark" is a dark-flat is correctly skipped).</summary>
+    private const double ExposureCompatibleLow = 0.5;
+    private const double ExposureCompatibleHigh = 2.0;
+
+    /// <summary>Best dark for a light: EXPOSURE-compatible first (see <see cref="ExposureCompatibleLow"/>
+    /// — excludes dark-flats), same CAMERA (a dark is the body's own fixed pattern -- amp glow,
+    /// unit-to-unit variation -- never borrowed across bodies even when they share a sensor model),
+    /// dimension/sensor-compatible, then ranked by closest temperature, closest exposure (dark current
+    /// scales with both), then matching gain/offset (a wrong-gain dark mis-scales the fixed pattern;
+    /// see <see cref="GainMismatchPenalty"/>). Score ties break by ordinal <see cref="MasterGroupKey.Slug"/>
+    /// so the pick never depends on dictionary / filesystem enumeration order (the build's determinism
+    /// claim).</summary>
     internal static CalGroup? BestDark(List<CalGroup>? darks, FrameInfo light)
     {
         if (darks is null) return null;
@@ -234,7 +247,10 @@ public static class CalibrationResolver
             // A group with <2 frames can never build a master (the median needs >=2), so it is not a
             // valid candidate -- selecting it would resolve to a null dark and, under
             // RequireDarkCalibration, wrongly skip a session that had a buildable (if worse-scoring) dark.
-            if (g.Frames.Length < 2 || !DimensionCompatible(g.Key, lightKey) || !g.Train.CameraCompatibleWith(lightCamera)) continue;
+            if (g.Frames.Length < 2
+                || !ExposureCompatible(g.Key.Exposure, lightKey.Exposure)
+                || !DimensionCompatible(g.Key, lightKey)
+                || !g.Train.CameraCompatibleWith(lightCamera)) continue;
             var score = TempPenalty(g.Key, lightKey) * 10.0
                 + Math.Abs((g.Key.Exposure - lightKey.Exposure).TotalSeconds)
                 + GainPenalty(g.Key, lightKey)
@@ -275,6 +291,17 @@ public static class CalibrationResolver
             }
         }
         return best;
+    }
+
+    /// <summary>True when a dark's exposure is within <see cref="ExposureCompatibleLow"/>..
+    /// <see cref="ExposureCompatibleHigh"/> of the light's — i.e. a plausible light-dark, not a
+    /// dark-flat. A non-positive light exposure (unknown) disables the gate (accept any).</summary>
+    private static bool ExposureCompatible(TimeSpan dark, TimeSpan light)
+    {
+        var l = light.TotalSeconds;
+        if (l <= 0) return true;
+        var ratio = dark.TotalSeconds / l;
+        return ratio >= ExposureCompatibleLow && ratio <= ExposureCompatibleHigh;
     }
 
     private static bool DimensionCompatible(MasterGroupKey g, MasterGroupKey light) =>
