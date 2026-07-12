@@ -1,6 +1,8 @@
 using Shouldly;
 using System;
 using System.Collections.Generic;
+using System.Collections.Immutable;
+using System.Linq;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Calibration;
 using TianWen.Lib.Imaging.Dataset;
@@ -45,10 +47,13 @@ namespace TianWen.Lib.Tests
         }
 
         private static CalibrationResolver.CalGroup Group(FrameType type, double expoSec, float tempC, short gain = 100,
-            string instrument = "TestCam", string telescope = "T", int focalLength = 135)
+            string instrument = "TestCam", string telescope = "T", int focalLength = 135, int frameCount = 2)
         {
             var f = Cal(type, expoSec, tempC, gain, instrument, telescope, focalLength);
-            return new(MasterGroupKey.FromFrame(f), CalibrationResolver.CalTrain.ForFrame(f), [f]);
+            // Default 2 frames = buildable (a master needs >= 2); pass frameCount: 1 to model an
+            // unbuildable singleton. The frames' content is irrelevant to Best* (they read Key + Train).
+            var frames = Enumerable.Repeat(f, frameCount).ToImmutableArray();
+            return new(MasterGroupKey.FromFrame(f), CalibrationResolver.CalTrain.ForFrame(f), frames);
         }
 
         private static FrameInfo Light(double expoSec, float tempC, short gain,
@@ -180,6 +185,31 @@ namespace TianWen.Lib.Tests
             var light = Light(60, -5, gain: 121, instrument: "ZWO ASI533MC Pro", telescope: "Askar", focalLength: 400);
 
             CalibrationResolver.BestFlat([ok], light).ShouldBe(ok);
+        }
+
+        [Fact]
+        public void BestDark_SkipsUnbuildableSingleton_EvenWithAPerfectScore()
+        {
+            // A 1-frame group can never build a master (median needs >= 2). If Best* returned it, the
+            // resolved dark would be null and RequireDarkCalibration would wrongly skip a session that
+            // DID have a buildable dark. So the buildable short dark must win over the perfect singleton.
+            var perfectSingleton = Group(FrameType.Dark, 60, -5, gain: 121, frameCount: 1); // score 0, unbuildable
+            var buildableShort = Group(FrameType.Dark, 6.68, -5, gain: 121, frameCount: 2);
+            var light = Light(60, -5, gain: 121);
+
+            CalibrationResolver.BestDark([perfectSingleton, buildableShort], light).ShouldBe(buildableShort);
+        }
+
+        [Fact]
+        public void BestFlat_SkipsUnbuildableSingleton_ForABuildableGroup()
+        {
+            // Real archive: a lone 0.21s flat frame (slug sorts first) was out-ranking the multi-frame
+            // 4.61s flat and leaving the session with no flat at all.
+            var singleton = Group(FrameType.Flat, 0.21, -5, gain: 121, frameCount: 1);
+            var buildable = Group(FrameType.Flat, 4.61, -5, gain: 121, frameCount: 2);
+            var light = Light(60, -5, gain: 121);
+
+            CalibrationResolver.BestFlat([singleton, buildable], light).ShouldBe(buildable);
         }
 
         [Fact]

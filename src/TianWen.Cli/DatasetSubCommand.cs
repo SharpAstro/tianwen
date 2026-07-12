@@ -87,6 +87,13 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, ILogger<Datase
             Description = "Fraction of sessions held out as the pinned TEST split (by session, never by tile).",
             DefaultValueFactory = _ => 0.15d,
         };
+        var requireDarkOpt = new Option<bool>("--require-dark")
+        {
+            Description = "Skip any session that resolves no master dark (instead of registering it " +
+                          "uncalibrated). An uncalibrated N2N pair shares the sensor's fixed-pattern " +
+                          "dark signal, so it is not a valid training sample — use this to drop e.g. a " +
+                          "camera whose dark library is missing from the archive.",
+        };
         var discoverOnlyOpt = new Option<bool>("--discover-only")
         {
             Description = "Stop after session discovery and print the inventory (no tiles written).",
@@ -98,7 +105,7 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, ILogger<Datase
             {
                 archiveRootOpt, outOpt,
                 minExposureOpt, maxExposureOpt, excludeInstrumeOpt, excludeObjectOpt, excludePathOpt, minSubsOpt,
-                tileSizeOpt, cellsOpt, subsPerCellOpt, testFractionOpt, discoverOnlyOpt,
+                tileSizeOpt, cellsOpt, subsPerCellOpt, testFractionOpt, requireDarkOpt, discoverOnlyOpt,
             },
         };
         buildCommand.SetAction(async (parseResult, ct) =>
@@ -134,6 +141,7 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, ILogger<Datase
                 CellsPerSession = parseResult.GetValue(cellsOpt),
                 SubsPerCell = parseResult.GetValue(subsPerCellOpt),
                 TestFraction = parseResult.GetValue(testFractionOpt),
+                RequireDarkCalibration = parseResult.GetValue(requireDarkOpt),
             };
 
             // User path exclusions append to the built-in processed-data defaults (never replace them).
@@ -173,7 +181,8 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, ILogger<Datase
 
             consoleHost.WriteScrollable(
                 $"[dataset] {result.Registered}/{result.Sessions} sessions -> {result.TotalTiles} tiles" +
-                $"{(result.Failed > 0 ? $" ({result.Failed} FAILED, see log)" : "")}; " +
+                $"{(result.Failed > 0 ? $" ({result.Failed} FAILED, see log)" : "")}" +
+                $"{(result.SkippedNoDark > 0 ? $" ({result.SkippedNoDark} skipped: no dark calibration)" : "")}; " +
                 $"{result.TestSessions} test sessions held out; " +
                 $"parity {(result.ParityChecked ? result.ParityMaxDiff == 0d ? "OK" : $"DIFF {result.ParityMaxDiff}" : "n/a")}");
             consoleHost.WriteScrollable($"[dataset] manifest: {result.ManifestPath}");

@@ -73,4 +73,14 @@ public sealed record DatasetBuildOptions
     /// <summary>Fraction of sessions held out as the pinned TEST split (<see cref="DatasetSplitWriter"/>).
     /// By session, never by tile. Default 0.15.</summary>
     public double TestFraction { get; init; } = 0.15;
+
+    /// <summary>When true, a session that resolves NO master dark is skipped rather than registered
+    /// uncalibrated. An uncalibrated N2N pair shares the sensor's fixed-pattern dark signal, which
+    /// correlates between the two subs and violates the noise-independence assumption — so it is not
+    /// a valid training sample. Drops e.g. a camera with no matching dark library in the archive (a
+    /// Newtonian rig whose darks were never shot). A resolved dark that is only an imperfect match
+    /// (wrong gain, or a shorter exposure than the light) still counts as calibrated — this gate is
+    /// about the presence of a dark, not its quality. Default false (preserve the prior
+    /// register-everything behaviour + existing tests).</summary>
+    public bool RequireDarkCalibration { get; init; } = false;
 }

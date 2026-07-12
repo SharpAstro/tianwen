@@ -231,7 +231,10 @@ public static class CalibrationResolver
         var bestScore = double.PositiveInfinity;
         foreach (var g in darks)
         {
-            if (!DimensionCompatible(g.Key, lightKey) || !g.Train.CameraCompatibleWith(lightCamera)) continue;
+            // A group with <2 frames can never build a master (the median needs >=2), so it is not a
+            // valid candidate -- selecting it would resolve to a null dark and, under
+            // RequireDarkCalibration, wrongly skip a session that had a buildable (if worse-scoring) dark.
+            if (g.Frames.Length < 2 || !DimensionCompatible(g.Key, lightKey) || !g.Train.CameraCompatibleWith(lightCamera)) continue;
             var score = TempPenalty(g.Key, lightKey) * 10.0
                 + Math.Abs((g.Key.Exposure - lightKey.Exposure).TotalSeconds)
                 + GainPenalty(g.Key, lightKey)
@@ -260,7 +263,9 @@ public static class CalibrationResolver
         var bestScore = double.PositiveInfinity;
         foreach (var g in flats)
         {
-            if (!DimensionCompatible(g.Key, lightKey) || !g.Train.TrainCompatibleWith(lightTrain)) continue;
+            // Skip unbuildable singletons (see BestDark): a lone flat frame can't build a master, so
+            // it must not out-rank a multi-frame flat and leave the session with no flat at all.
+            if (g.Frames.Length < 2 || !DimensionCompatible(g.Key, lightKey) || !g.Train.TrainCompatibleWith(lightTrain)) continue;
             var filterMismatch = g.Key.FilterName == lightKey.FilterName && g.Key.FilterBandpass == lightKey.FilterBandpass ? 0.0 : 1000.0;
             var score = filterMismatch + TempPenalty(g.Key, lightKey) * 10.0 + GainPenalty(g.Key, lightKey);
             if (score < bestScore || (score == bestScore && SlugBefore(g, best)))

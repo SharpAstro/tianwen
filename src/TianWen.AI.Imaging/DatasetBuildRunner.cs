@@ -37,10 +37,16 @@ public static class DatasetBuildRunner
     /// surfaces here, at register time — fault-isolated per session so one bad frame can never
     /// abort a multi-hour archive bake. Failures are logged per session; a crashed-then-restarted
     /// run starts fresh (the manifest is regenerated), so partial output never needs repairing.</param>
+    /// <param name="SkippedNoDark">Sessions skipped because no master dark could be resolved and
+    /// <see cref="DatasetBuildOptions.RequireDarkCalibration"/> is set — an uncalibrated N2N pair
+    /// shares the sensor's fixed-pattern dark signal (correlated between subs), so it is not a valid
+    /// training sample. Distinct from <paramref name="Failed"/> (an error), and from the silent
+    /// too-few-subs skip.</param>
     public sealed record RunResult(
         int Sessions,
         int Registered,
         int Failed,
+        int SkippedNoDark,
         int TotalTiles,
         int TestSessions,
         bool ParityChecked,
@@ -95,6 +101,7 @@ public static class DatasetBuildRunner
         var reportAcc = new DatasetPsfNoiseReport.Accumulator();
         var registered = 0;
         var failed = 0;
+        var skippedNoDark = 0;
         var totalTiles = 0;
         var parityChecked = false;
         var parityMaxDiff = 0.0;
@@ -111,6 +118,19 @@ public static class DatasetBuildRunner
             try
             {
                 var calibrator = await CalibrationResolver.ResolveAsync(session, calGroups, masterCache, logger, cancellationToken);
+
+                // A training sample needs dark subtraction: an uncalibrated N2N pair shares the
+                // sensor's fixed-pattern dark signal (correlated between the two subs), so skip a
+                // session with no resolved dark rather than poison the set. Opt-in so the prior
+                // register-everything behaviour + existing tests are unchanged.
+                if (options.RequireDarkCalibration && calibrator?.Dark is null)
+                {
+                    skippedNoDark++;
+                    logger?.LogWarning("  [{Session}] SKIPPED -- no master dark resolved (RequireDarkCalibration)", session.Id);
+                    progress?.Report($"[dataset] ({idx}/{sessions.Length}) {session.Id} SKIPPED: no dark calibration");
+                    continue;
+                }
+
                 var reg = await SessionRegistrar.RegisterAsync(
                     session, calibrator, scratchRoot,
                     options.QualityRejectSigma, options.QualityMaxRejectFraction, options.MinSubsPerSession,
@@ -155,10 +175,11 @@ public static class DatasetBuildRunner
 
         TryDelete(scratchRoot);
         progress?.Report(
-            $"[dataset] done: {registered}/{sessions.Length} sessions -> {totalTiles} tiles ({failed} failed); " +
+            $"[dataset] done: {registered}/{sessions.Length} sessions -> {totalTiles} tiles " +
+            $"({failed} failed, {skippedNoDark} skipped-no-dark); " +
             $"parity {(parityChecked ? parityMaxDiff == 0.0 ? "OK" : $"DIFF {parityMaxDiff}" : "n/a")}");
         return new RunResult(
-            sessions.Length, registered, failed, totalTiles, testSessions.Length,
+            sessions.Length, registered, failed, skippedNoDark, totalTiles, testSessions.Length,
             parityChecked, parityMaxDiff, manifestPath, splitPath, reportPath);
     }
 
