@@ -35,6 +35,11 @@ public sealed record FrameInfo(
     /// <summary>Convenience accessor — <c>Meta.FrameType</c>.</summary>
     public FrameType FrameType => Meta.FrameType;
 
+    /// <summary>Convenience accessor — <c>Meta.IsMaster</c>: this frame is an already-integrated
+    /// MASTER calibration frame (e.g. IMAGETYP=MASTERDARK), not a raw sub. Its <see cref="FrameType"/>
+    /// still reports the underlying type (Dark / Flat / Bias).</summary>
+    public bool IsMaster => Meta.IsMaster;
+
     /// <summary>
     /// Loads the full pixel data from disk via <see cref="Image.TryReadFitsFile"/>.
     /// Runs the synchronous FITS read on the thread pool. Caller releases the

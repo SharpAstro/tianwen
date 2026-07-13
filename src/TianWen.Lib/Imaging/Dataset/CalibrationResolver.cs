@@ -27,8 +27,13 @@ public static class CalibrationResolver
 {
     /// <summary>A set of calibration frames that combine into one master, scoped both to their
     /// sensor-config <see cref="MasterGroupKey"/> and to the optical train (<see cref="CalTrain"/>)
-    /// they were captured through.</summary>
-    public sealed record CalGroup(MasterGroupKey Key, CalTrain Train, ImmutableArray<FrameInfo> Frames);
+    /// they were captured through. <paramref name="IsMaster"/> marks a group of already-integrated
+    /// FOREIGN masters (IMAGETYP=MASTER*): such a group is served by loading the master file directly
+    /// (a single frame is enough — no &gt;=2-raw median), whereas a raw group builds its master by
+    /// combination. Raw and master frames of the same sensor-config + train are kept in SEPARATE
+    /// groups (the flag is part of the grouping key), so a camera whose dark library survives only as
+    /// a master still resolves while raw libraries build normally.</summary>
+    public sealed record CalGroup(MasterGroupKey Key, CalTrain Train, ImmutableArray<FrameInfo> Frames, bool IsMaster = false);
 
     /// <summary>
     /// Optical-train identity a light and its calibration must share, ON TOP of the sensor-config
@@ -120,15 +125,17 @@ public static class CalibrationResolver
     public static IReadOnlyDictionary<FrameType, List<CalGroup>> GroupCalibration(IEnumerable<FrameInfo> frames)
     {
         // Compose the sensor-config key with the optical train so two cameras that share a sensor
-        // model never fold their calibration into one master (their dark/flat patterns differ).
-        var byKey = new Dictionary<(MasterGroupKey Key, CalTrain Train), List<FrameInfo>>();
+        // model never fold their calibration into one master (their dark/flat patterns differ), and
+        // with the master flag so a foreign already-integrated master is never medianed together with
+        // raw subs of the same config (it is loaded directly, they are combined).
+        var byKey = new Dictionary<(MasterGroupKey Key, CalTrain Train, bool IsMaster), List<FrameInfo>>();
         foreach (var frame in frames)
         {
             if (frame.FrameType is not (FrameType.Bias or FrameType.Dark or FrameType.DarkFlat or FrameType.Flat))
             {
                 continue;
             }
-            var composite = (MasterGroupKey.FromFrame(frame), CalTrain.ForFrame(frame));
+            var composite = (MasterGroupKey.FromFrame(frame), CalTrain.ForFrame(frame), frame.IsMaster);
             if (!byKey.TryGetValue(composite, out var list))
             {
                 byKey[composite] = list = new List<FrameInfo>();
@@ -137,13 +144,13 @@ public static class CalibrationResolver
         }
 
         var byType = new Dictionary<FrameType, List<CalGroup>>();
-        foreach (var ((key, train), list) in byKey)
+        foreach (var ((key, train, isMaster), list) in byKey)
         {
             if (!byType.TryGetValue(key.Type, out var groups))
             {
                 byType[key.Type] = groups = new List<CalGroup>();
             }
-            groups.Add(new CalGroup(key, train, [.. list]));
+            groups.Add(new CalGroup(key, train, [.. list], isMaster));
         }
         return byType;
     }
@@ -158,13 +165,14 @@ public static class CalibrationResolver
         ImagingSession session,
         IReadOnlyDictionary<FrameType, List<CalGroup>> calGroups,
         MasterCache masterCache,
+        bool requireGainMatch = false,
         ILogger? logger = null,
         CancellationToken cancellationToken = default)
     {
         var light = session.Lights[0];
         var lightKey = MasterGroupKey.FromFrame(light);
 
-        var darkGroup = BestDark(calGroups.GetValueOrDefault(FrameType.Dark), light);
+        var darkGroup = BestDark(calGroups.GetValueOrDefault(FrameType.Dark), light, requireGainMatch);
         var flatGroup = BestFlat(calGroups.GetValueOrDefault(FrameType.Flat), light);
 
         // A gain/offset-mismatched dark is only ever picked when no same-gain library exists (the
@@ -182,8 +190,16 @@ public static class CalibrationResolver
                 session.Id, darkGroup.Key.Slug(), darkGroup.Key.Gain, darkGroup.Key.Offset, lightKey.Gain, lightKey.Offset);
         }
 
-        var dark = darkGroup is null ? null : await masterCache.GetOrBuildAsync(darkGroup.Key, darkGroup.Train, darkGroup.Frames, cancellationToken);
-        var flat = flatGroup is null ? null : await masterCache.GetOrBuildAsync(flatGroup.Key, flatGroup.Train, flatGroup.Frames, cancellationToken);
+        // The domain a normalised foreign master (dark/bias) must be rescaled INTO is the lights' own
+        // storage full-scale: N.I.N.A. left-aligns the camera's ADC output into the light's integer
+        // container (Int16 -> [0, 65535]), and a tool normalises a master by that same full-scale, so
+        // rescaling by it recovers the ADU domain the lights live in. Derived from the light's bit
+        // depth, never hard-coded -- a light stored at a different depth would carry a different scale
+        // (null for a float light: no fixed container, so a normalised master can't be reconciled).
+        var normalizedAduScale = light.BitDepth.UnsignedFullScale is { } fullScale ? (float)fullScale : (float?)null;
+
+        var dark = darkGroup is null ? null : await masterCache.GetOrBuildAsync(darkGroup.Key, darkGroup.Train, darkGroup.Frames, darkGroup.IsMaster, normalizedAduScale, cancellationToken);
+        var flat = flatGroup is null ? null : await masterCache.GetOrBuildAsync(flatGroup.Key, flatGroup.Train, flatGroup.Frames, flatGroup.IsMaster, normalizedAduScale, cancellationToken);
 
         logger?.LogInformation("  [{Session}] calibration: dark={Dark} flat={Flat}",
             session.Id, darkGroup is null ? "NONE" : darkGroup.Key.Slug(), flatGroup is null ? "NONE" : flatGroup.Key.Slug());
@@ -235,7 +251,7 @@ public static class CalibrationResolver
     /// see <see cref="GainMismatchPenalty"/>). Score ties break by ordinal <see cref="MasterGroupKey.Slug"/>
     /// so the pick never depends on dictionary / filesystem enumeration order (the build's determinism
     /// claim).</summary>
-    internal static CalGroup? BestDark(List<CalGroup>? darks, FrameInfo light)
+    internal static CalGroup? BestDark(List<CalGroup>? darks, FrameInfo light, bool requireGainMatch = false)
     {
         if (darks is null) return null;
         var lightKey = MasterGroupKey.FromFrame(light);
@@ -244,13 +260,17 @@ public static class CalibrationResolver
         var bestScore = double.PositiveInfinity;
         foreach (var g in darks)
         {
-            // A group with <2 frames can never build a master (the median needs >=2), so it is not a
-            // valid candidate -- selecting it would resolve to a null dark and, under
-            // RequireDarkCalibration, wrongly skip a session that had a buildable (if worse-scoring) dark.
-            if (g.Frames.Length < 2
+            // A raw group with <2 frames can never build a master (the median needs >=2), so it is
+            // not a valid candidate -- selecting it would resolve to a null dark and, under
+            // RequireDarkCalibration, wrongly skip a session that had a buildable (if worse-scoring)
+            // dark. A foreign master group is exempt (a single already-integrated frame is served
+            // directly). With requireGainMatch on, a KNOWN gain mismatch is a hard reject (not just a
+            // score penalty) -- the "be strict" gate, so a wrong-gain dark is never silently used.
+            if (!Buildable(g)
                 || !ExposureCompatible(g.Key.Exposure, lightKey.Exposure)
                 || !DimensionCompatible(g.Key, lightKey)
-                || !g.Train.CameraCompatibleWith(lightCamera)) continue;
+                || !g.Train.CameraCompatibleWith(lightCamera)
+                || !GainCompatible(g.Key, lightKey, requireGainMatch)) continue;
             var score = TempPenalty(g.Key, lightKey) * 10.0
                 + Math.Abs((g.Key.Exposure - lightKey.Exposure).TotalSeconds)
                 + GainPenalty(g.Key, lightKey)
@@ -279,9 +299,10 @@ public static class CalibrationResolver
         var bestScore = double.PositiveInfinity;
         foreach (var g in flats)
         {
-            // Skip unbuildable singletons (see BestDark): a lone flat frame can't build a master, so
-            // it must not out-rank a multi-frame flat and leave the session with no flat at all.
-            if (g.Frames.Length < 2 || !DimensionCompatible(g.Key, lightKey) || !g.Train.TrainCompatibleWith(lightTrain)) continue;
+            // Skip unbuildable singletons (see BestDark): a lone raw flat frame can't build a master,
+            // so it must not out-rank a multi-frame flat and leave the session with no flat at all. A
+            // foreign master flat is exempt (loaded directly).
+            if (!Buildable(g) || !DimensionCompatible(g.Key, lightKey) || !g.Train.TrainCompatibleWith(lightTrain)) continue;
             var filterMismatch = g.Key.FilterName == lightKey.FilterName && g.Key.FilterBandpass == lightKey.FilterBandpass ? 0.0 : 1000.0;
             var score = filterMismatch + TempPenalty(g.Key, lightKey) * 10.0 + GainPenalty(g.Key, lightKey);
             if (score < bestScore || (score == bestScore && SlugBefore(g, best)))
@@ -303,6 +324,20 @@ public static class CalibrationResolver
         var ratio = dark.TotalSeconds / l;
         return ratio >= ExposureCompatibleLow && ratio <= ExposureCompatibleHigh;
     }
+
+    /// <summary>A group can serve a master when it is a foreign already-integrated master (a single
+    /// frame is loaded directly) or it holds &gt;= 2 raw frames to combine. Guards the Best* candidate
+    /// filters so an unbuildable raw singleton is never selected (which would resolve to a null master
+    /// and, under RequireDarkCalibration, wrongly skip a session).</summary>
+    private static bool Buildable(CalGroup g) => g.Frames.Length >= (g.IsMaster ? 1 : 2);
+
+    /// <summary>The strict gain gate (opt-in via RequireGainMatch): when on, a dark whose gain is
+    /// KNOWN and differs from the light's is rejected outright, so a wrong-gain dark can never be
+    /// silently substituted. An unknown gain on either side stays a wildcard (a header-less library
+    /// is not dropped) -- the same lenient-on-unknown policy the optical-train comparisons use. When
+    /// off, gain only weights the score (see <see cref="GainPenalty"/>).</summary>
+    private static bool GainCompatible(MasterGroupKey g, MasterGroupKey light, bool requireGainMatch) =>
+        !requireGainMatch || !(g.Gain >= 0 && light.Gain >= 0 && g.Gain != light.Gain);
 
     private static bool DimensionCompatible(MasterGroupKey g, MasterGroupKey light) =>
         g.SensorType == light.SensorType

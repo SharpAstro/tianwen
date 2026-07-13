@@ -83,4 +83,22 @@ public sealed record DatasetBuildOptions
     /// about the presence of a dark, not its quality. Default false (preserve the prior
     /// register-everything behaviour + existing tests).</summary>
     public bool RequireDarkCalibration { get; init; } = false;
+
+    /// <summary>When true, a dark whose gain is KNOWN and differs from the session's lights is
+    /// rejected outright (not merely score-penalised), so a wrong-gain dark is never silently
+    /// substituted — the fixed-pattern amplitude a dark subtracts is gain-dependent, so a
+    /// mismatched-gain dark mis-scales it and weakens N2N validity. An unknown gain on either side
+    /// stays a wildcard (a header-less library is not dropped). Pairs naturally with
+    /// <see cref="RequireDarkCalibration"/>: strict-gain narrows the candidates, require-dark then
+    /// skips a session left with none. Flats are unaffected (flat division normalises gain away).
+    /// Default false.</summary>
+    public bool RequireGainMatch { get; init; } = false;
+
+    /// <summary>Case-insensitive wildcard on the SWCREATE header; when non-empty, only LIGHTS whose
+    /// creating software matches are kept (e.g. <c>*N.I.N.A.*</c> to exclude SharpCap planetary/EAA
+    /// captures that carry Light-like headers but were never meant for deep-sky training).
+    /// <b>Applies to lights only</b> — calibration frames are matched by sensor/optics headers
+    /// regardless of authoring software, so a master dark authored by any tool still resolves. Empty
+    /// (the default) disables the gate.</summary>
+    public string SoftwareIncludePattern { get; init; } = "";
 }

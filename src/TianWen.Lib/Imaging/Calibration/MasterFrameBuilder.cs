@@ -207,8 +207,12 @@ public static class MasterFrameBuilder
     /// frame this is per-Bayer-quadrant — the four CFA positions are scaled
     /// independently so the mosaic's R/G/G/B balance is preserved. Operates
     /// in place; the input image's pixel data is mutated.
+    /// <para>Internal so the dataset builder's <c>MasterCache</c> can put a FOREIGN
+    /// master flat (whose scale is arbitrary — a [0,1] Astro Pixel Processor export
+    /// or raw ADU) through the SAME normalization as a built one, so both satisfy the
+    /// <see cref="Calibrator"/>'s "flat divided, mean ~ 1.0" contract identically.</para>
     /// </summary>
-    private static void NormalizeFlatInPlace(Image image)
+    internal static void NormalizeFlatInPlace(Image image)
     {
         if (image.ChannelCount == 1 && image.ImageMeta.SensorType is SensorType.RGGB)
         {
