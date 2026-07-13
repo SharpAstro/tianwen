@@ -155,7 +155,9 @@ public partial class Image
         var sensorModel = hdu.Header.GetStringValue("SENSOR") ?? "";
         var ccdTemp = hdu.Header.GetFloatValue("CCD-TEMP", float.NaN);
         var rowOrder = RowOrder.FromFITSValue(hdu.Header.GetStringValue("ROWORDER")) ?? RowOrder.TopDown;
-        var frameType = FrameType.FromFITSValue(hdu.Header.GetStringValue("FRAMETYP") ?? hdu.Header.GetStringValue("IMAGETYP")) ?? FrameType.None;
+        var frameTypeRaw = hdu.Header.GetStringValue("FRAMETYP") ?? hdu.Header.GetStringValue("IMAGETYP");
+        var frameType = FrameType.FromFITSValue(frameTypeRaw) ?? FrameType.None;
+        var isMaster = FrameType.IsMasterFITSValue(frameTypeRaw);
         var filter = Filter.FromName(filterClassName) is var f && f != Filter.Unknown
             ? f : Filter.FromName(filterName);
         filter = filter with { RawName = filterName };
@@ -211,7 +213,8 @@ public partial class Image
             TargetRA: targetRa,
             TargetDec: targetDec,
             PierSide: pierSide
-        );
+        )
+        { IsMaster = isMaster };
     }
 
     /// <summary>
@@ -318,7 +321,9 @@ public partial class Image
         var sensorModel = hdu.Header.GetStringValue("SENSOR") ?? "";
         var ccdTemp = hdu.Header.GetFloatValue("CCD-TEMP", float.NaN);
         var rowOrder = RowOrder.FromFITSValue(hdu.Header.GetStringValue("ROWORDER")) ?? RowOrder.TopDown;
-        var frameType = FrameType.FromFITSValue(hdu.Header.GetStringValue("FRAMETYP") ?? hdu.Header.GetStringValue("IMAGETYP")) ?? FrameType.None;
+        var frameTypeRaw = hdu.Header.GetStringValue("FRAMETYP") ?? hdu.Header.GetStringValue("IMAGETYP");
+        var frameType = FrameType.FromFITSValue(frameTypeRaw) ?? FrameType.None;
+        var isMaster = FrameType.IsMasterFITSValue(frameTypeRaw);
         // Prefer FILTCLAS for coarse classification; fall back to parsing FILTER (backward compat)
         var filter = Filter.FromName(filterClassName) is var f && f != Filter.Unknown
             ? f : Filter.FromName(filterName);
@@ -449,7 +454,8 @@ public partial class Image
             TargetRA: targetRa,
             TargetDec: targetDec,
             PierSide: pierSide
-        );
+        )
+        { IsMaster = isMaster };
         image = new Image(imgChannels, bitDepth, maxValue, minValue, pedestal, imageMeta);
         wcs = WCS.FromHeader(hdu.Header);
         return true;

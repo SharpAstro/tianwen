@@ -222,6 +222,25 @@ namespace TianWen.Lib.Tests
             sessions[1].Lights[1].Path.ShouldEndWith("late.fits");
         }
 
+        [Fact]
+        public void GivenSoftwareIncludePattern_WhenGrouping_ThenOnlyMatchingLightsKept_AndCountedSeparately()
+        {
+            // Widening the archive to a second year pulls in non-N.I.N.A. captures: SharpCap
+            // planetary/EAA frames carry Light-like headers but must not train the deep-sky denoiser.
+            // --software "*N.I.N.A.*" keeps only NINA lights; the SharpCap one is dropped + counted.
+            var options = Options() with { SoftwareIncludePattern = "*N.I.N.A.*" };
+            var (sessions, stats) = Group(options,
+            [
+                (Frame("s/LIGHT/n1.fits", swCreator: "N.I.N.A. 3.2.0.9001", start: T(0)), Root),
+                (Frame("s/LIGHT/n2.fits", swCreator: "N.I.N.A. 3.2.0.9001", start: T(1)), Root),
+                (Frame("s/LIGHT/sc1.fits", swCreator: "SharpCap 4.1.11976.0", start: T(2)), Root),
+            ]);
+
+            sessions.ShouldHaveSingleItem().Lights.Length.ShouldBe(2);
+            stats.SoftwareExcluded.ShouldBe(1);
+            stats.Lights.ShouldBe(2);
+        }
+
         private static DateTimeOffset T(int minutes) => new DateTimeOffset(2025, 8, 20, 12, 0, 0, TimeSpan.Zero).AddMinutes(minutes);
     }
 }

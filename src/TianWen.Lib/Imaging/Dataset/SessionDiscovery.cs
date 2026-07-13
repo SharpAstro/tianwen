@@ -35,6 +35,7 @@ public static class SessionDiscovery
         int NotLight,
         int ExposureOutOfRange,
         int InstrumentExcluded,
+        int SoftwareExcluded,
         int ObjectExcluded,
         int PathExcluded,
         int ProductExcluded,
@@ -64,7 +65,7 @@ public static class SessionDiscovery
     public static (ImmutableArray<ImagingSession> Sessions, DiscoveryStats Stats) GroupSessions(
         IReadOnlyList<(FrameInfo Frame, string Root)> frames, DatasetBuildOptions options)
     {
-        int notLight = 0, exposureOut = 0, instrumentExcluded = 0, objectExcluded = 0, pathExcluded = 0, productExcluded = 0, duplicates = 0;
+        int notLight = 0, exposureOut = 0, instrumentExcluded = 0, softwareExcluded = 0, objectExcluded = 0, pathExcluded = 0, productExcluded = 0, duplicates = 0;
         var seen = new HashSet<(string Camera, DateTimeOffset Start, TimeSpan Exposure, int Width, int Height)>();
         // Grouped per target as well as per directory + camera: a single dated LIGHT folder
         // routinely holds several pointings distinguished only by OBJECT, and mixing them would
@@ -78,6 +79,7 @@ public static class SessionDiscovery
                 case LightGate.NotLight: notLight++; continue;
                 case LightGate.ExposureOutOfRange: exposureOut++; continue;
                 case LightGate.InstrumentExcluded: instrumentExcluded++; continue;
+                case LightGate.SoftwareExcluded: softwareExcluded++; continue;
                 case LightGate.ObjectExcluded: objectExcluded++; continue;
                 case LightGate.Product: productExcluded++; continue;
             }
@@ -122,7 +124,7 @@ public static class SessionDiscovery
         sessions.Sort(static (a, b) => string.CompareOrdinal(a.Id, b.Id));
 
         var stats = new DiscoveryStats(
-            frames.Count, notLight, exposureOut, instrumentExcluded, objectExcluded, pathExcluded,
+            frames.Count, notLight, exposureOut, instrumentExcluded, softwareExcluded, objectExcluded, pathExcluded,
             productExcluded, duplicates, tooSmall, sessions.Count, lightCount);
         return (sessions.ToImmutable(), stats);
     }
@@ -130,7 +132,7 @@ public static class SessionDiscovery
     /// <summary>The session-grouping target key: the trimmed OBJECT header, or empty when unset.</summary>
     private static string TargetOf(FrameInfo frame) => frame.Meta.ObjectName?.Trim() ?? "";
 
-    private enum LightGate { Pass, NotLight, ExposureOutOfRange, InstrumentExcluded, ObjectExcluded, Product }
+    private enum LightGate { Pass, NotLight, ExposureOutOfRange, InstrumentExcluded, SoftwareExcluded, ObjectExcluded, Product }
 
     private static LightGate ClassifyLight(FrameInfo frame, DatasetBuildOptions options)
     {
@@ -149,6 +151,15 @@ public static class SessionDiscovery
         if (FileSystemName.MatchesSimpleExpression(options.ExcludeInstrumePattern, frame.Meta.Instrument, ignoreCase: true))
         {
             return LightGate.InstrumentExcluded;
+        }
+        // SWCREATE include-filter (lights only): keep only lights authored by matching software. An
+        // empty pattern disables it; a set pattern (e.g. "*N.I.N.A.*") drops SharpCap/other captures
+        // that carry Light-like headers. Calibration frames are never filtered here (GroupCalibration
+        // ignores authoring software), so a master dark from any tool still resolves.
+        if (options.SoftwareIncludePattern.Length > 0
+            && !FileSystemName.MatchesSimpleExpression(options.SoftwareIncludePattern, frame.Meta.SWCreator, ignoreCase: true))
+        {
+            return LightGate.SoftwareExcluded;
         }
         // Empty pattern disables the gate (MatchesSimpleExpression("", x) only matches empty x,
         // which would never fire on a real OBJECT, but guard explicitly for clarity).

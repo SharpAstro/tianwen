@@ -113,6 +113,17 @@ public record struct ImageMeta(
     public float[]? CameraToSrgbMatrix { get; init; } = null;
 
     /// <summary>
+    /// True when this frame's FITS IMAGETYP / FRAMETYP denoted an already-integrated MASTER
+    /// calibration frame (e.g. N.I.N.A. "MASTERDARK", Astro Pixel Processor master), as opposed to
+    /// a raw sub. <see cref="FrameType"/> already carries the underlying type (a "MASTERDARK" reads
+    /// as <see cref="Imaging.FrameType.Dark"/>); this flag preserves the master-vs-raw distinction
+    /// that the type alone loses. The dataset builder uses it to ingest a foreign master directly
+    /// (a single-file group needs no &gt;=2-raw median rebuild); the stacking pipeline uses it to
+    /// skip masters entirely and stay raw-only. Default false.
+    /// </summary>
+    public bool IsMaster { get; init; } = false;
+
+    /// <summary>
     /// Pixel scale in arcsec/pixel, derived from pixel size and focal length.
     /// Returns NaN if either value is unavailable.
     /// </summary>

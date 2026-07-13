@@ -88,21 +88,21 @@ namespace TianWen.Lib.Tests
             var train = CalibrationResolver.CalTrain.ForFrame(frames[0]);
             var mastersDir = Path.Combine(_dir, "masters");
 
-            var built = await new MasterCache(mastersDir).GetOrBuildAsync(key, train, frames, ct);
+            var built = await new MasterCache(mastersDir).GetOrBuildAsync(key, train, frames, cancellationToken: ct);
             built.ShouldNotBeNull();
             var masterPath = Directory.GetFiles(mastersDir, "master_*.fits").ShouldHaveSingleItem();
             var mtimeAfterBuild = File.GetLastWriteTimeUtc(masterPath);
 
             // A fresh cache instance over the same dir + same inputs must NOT rewrite the file.
             await Task.Delay(20, ct);
-            var cached = await new MasterCache(mastersDir).GetOrBuildAsync(key, train, frames, ct);
+            var cached = await new MasterCache(mastersDir).GetOrBuildAsync(key, train, frames, cancellationToken: ct);
             cached.ShouldNotBeNull();
             File.GetLastWriteTimeUtc(masterPath).ShouldBe(mtimeAfterBuild);
 
             // Growing the library (a 4th bias) changes the fingerprint -> rebuild.
             frames.Add(WriteBias(biasDir, 3, 103));
             await Task.Delay(20, ct);
-            var rebuilt = await new MasterCache(mastersDir).GetOrBuildAsync(key, train, frames, ct);
+            var rebuilt = await new MasterCache(mastersDir).GetOrBuildAsync(key, train, frames, cancellationToken: ct);
             rebuilt.ShouldNotBeNull();
             File.GetLastWriteTimeUtc(masterPath).ShouldBeGreaterThan(mtimeAfterBuild);
         }
@@ -113,8 +113,89 @@ namespace TianWen.Lib.Tests
             var ct = TestContext.Current.CancellationToken;
             var frames = new List<FrameInfo> { WriteBias(Path.Combine(_dir, "one"), 0, 100) };
             var master = await new MasterCache(Path.Combine(_dir, "masters")).GetOrBuildAsync(
-                MasterGroupKey.FromFrame(frames[0]), CalibrationResolver.CalTrain.ForFrame(frames[0]), frames, ct);
+                MasterGroupKey.FromFrame(frames[0]), CalibrationResolver.CalTrain.ForFrame(frames[0]), frames, cancellationToken: ct);
             master.ShouldBeNull();
+        }
+
+        [Fact]
+        public async Task GetOrBuild_ForeignMaster_LoadsFileDirectly_NoRebuild_NoCacheCopy()
+        {
+            // A camera's proper dark can survive only as an already-integrated MASTER (raw subs long
+            // deleted). Modelled as a single-frame group with the master flag: the cache loads the
+            // file directly (no >=2-raw median) and writes NO master_*.fits copy.
+            var ct = TestContext.Current.CancellationToken;
+            var raw = WriteBias(Path.Combine(_dir, "master"), 0, 500); // a valid ADU-scale FITS on disk
+            var masterFrame = raw with { Meta = raw.Meta with { IsMaster = true } };
+            var mastersDir = Path.Combine(_dir, "masters");
+
+            var loaded = await new MasterCache(mastersDir).GetOrBuildAsync(
+                MasterGroupKey.FromFrame(masterFrame), CalibrationResolver.CalTrain.ForFrame(masterFrame),
+                [masterFrame], isMaster: true, cancellationToken: ct);
+
+            loaded.ShouldNotBeNull();
+            loaded.MaxValue.ShouldBeGreaterThan(1.5f); // raw ADU, not normalised
+            (Directory.Exists(mastersDir) ? Directory.GetFiles(mastersDir, "master_*.fits") : [])
+                .ShouldBeEmpty();
+        }
+
+        /// <summary>Writes a [0,1]-normalised subtractive master (how Astro Pixel Processor stores
+        /// them) and returns a FrameInfo flagged IsMaster.</summary>
+        private FrameInfo WriteNormalisedMaster(string dir)
+        {
+            Directory.CreateDirectory(dir);
+            var data = Image.CreateChannelData(1, 8, 8);
+            for (var y = 0; y < 8; y++)
+            {
+                for (var x = 0; x < 8; x++)
+                {
+                    data[0][y, x] = 0.2f + 0.01f * ((x + y) % 3); // normalised [0,1] domain
+                }
+            }
+            var image = new Image(data, BitDepth.Float32, maxValue: 1f, minValue: 0f, pedestal: 0,
+                imageMeta: BiasMeta(new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero)));
+            var path = Path.Combine(dir, "master_norm.fits");
+            image.WriteToFitsFile(path);
+            image.Release();
+            Image.TryReadFitsFile(path, out var reread).ShouldBeTrue();
+            return new FrameInfo(path, reread!.Width, reread.Height, reread.ChannelCount,
+                reread.BitDepth, reread.ImageMeta with { IsMaster = true });
+        }
+
+        [Fact]
+        public async Task GetOrBuild_ForeignSubtractiveMaster_RescalesNormalisedScaleToAdu()
+        {
+            // A subtractive master (dark/bias) normalised to [0,1] -- how Astro Pixel Processor stores
+            // them -- would subtract essentially nothing from a raw-ADU light. So it is rescaled by
+            // the lights' storage full-scale (derived from bit depth; 16-bit lights -> 65535, verified
+            // against the archive: master_median x 65535 == raw dark median), NOT rejected -- these
+            // masters are recoverable and are the only dark some sessions have.
+            var ct = TestContext.Current.CancellationToken;
+            var masterFrame = WriteNormalisedMaster(Path.Combine(_dir, "norm"));
+
+            var loaded = await new MasterCache(Path.Combine(_dir, "masters")).GetOrBuildAsync(
+                MasterGroupKey.FromFrame(masterFrame), CalibrationResolver.CalTrain.ForFrame(masterFrame),
+                [masterFrame], isMaster: true, normalizedAduScale: 65535f, cancellationToken: ct);
+
+            loaded.ShouldNotBeNull();
+            // Rescaled to ADU: the ~0.2 normalised floor is now ~0.2 x 65535 ~= 13107.
+            loaded.MaxValue.ShouldBeGreaterThan(1.5f);
+            loaded.GetChannelSpan(0)[0].ShouldBeGreaterThan(1.5f);
+        }
+
+        [Fact]
+        public async Task GetOrBuild_ForeignSubtractiveMaster_SkipsNormalisedWhenScaleUnknown()
+        {
+            // If the lights' ADU full-scale can't be determined (a float light -> null scale), a
+            // normalised subtractive master can't be reconciled and is skipped rather than
+            // mis-subtracted (subtracting a [0,1] master from ADU lights would be a near no-op).
+            var ct = TestContext.Current.CancellationToken;
+            var masterFrame = WriteNormalisedMaster(Path.Combine(_dir, "norm2"));
+
+            var loaded = await new MasterCache(Path.Combine(_dir, "masters")).GetOrBuildAsync(
+                MasterGroupKey.FromFrame(masterFrame), CalibrationResolver.CalTrain.ForFrame(masterFrame),
+                [masterFrame], isMaster: true, normalizedAduScale: null, cancellationToken: ct);
+
+            loaded.ShouldBeNull();
         }
 
         [Fact]
@@ -140,8 +221,8 @@ namespace TianWen.Lib.Tests
             keyA.ShouldBe(keyB); // same sensor config -> identical key; only the train differs
 
             var cache = new MasterCache(mastersDir);
-            var a = await cache.GetOrBuildAsync(keyA, CalibrationResolver.CalTrain.ForFrame(camA[0]), camA, ct);
-            var b = await cache.GetOrBuildAsync(keyB, CalibrationResolver.CalTrain.ForFrame(camB[0]), camB, ct);
+            var a = await cache.GetOrBuildAsync(keyA, CalibrationResolver.CalTrain.ForFrame(camA[0]), camA, cancellationToken: ct);
+            var b = await cache.GetOrBuildAsync(keyB, CalibrationResolver.CalTrain.ForFrame(camB[0]), camB, cancellationToken: ct);
 
             a.ShouldNotBeNull();
             b.ShouldNotBeNull();

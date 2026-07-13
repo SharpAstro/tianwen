@@ -19,7 +19,7 @@ namespace TianWen.Lib.Tests
     public class CalibrationResolverTests
     {
         private static FrameInfo Cal(FrameType type, double expoSec, float tempC, short gain = 100,
-            string instrument = "TestCam", string telescope = "T", int focalLength = 135)
+            string instrument = "TestCam", string telescope = "T", int focalLength = 135, bool isMaster = false)
         {
             var meta = new ImageMeta(
                 Instrument: instrument,
@@ -42,18 +42,21 @@ namespace TianWen.Lib.Tests
                 Latitude: float.NaN,
                 Longitude: float.NaN,
                 Gain: gain,
-                Offset: 25);
+                Offset: 25)
+            { IsMaster = isMaster };
             return new FrameInfo("x.fits", 100, 100, 1, BitDepth.Int16, meta);
         }
 
         private static CalibrationResolver.CalGroup Group(FrameType type, double expoSec, float tempC, short gain = 100,
-            string instrument = "TestCam", string telescope = "T", int focalLength = 135, int frameCount = 2)
+            string instrument = "TestCam", string telescope = "T", int focalLength = 135, int frameCount = 2, bool isMaster = false)
         {
-            var f = Cal(type, expoSec, tempC, gain, instrument, telescope, focalLength);
-            // Default 2 frames = buildable (a master needs >= 2); pass frameCount: 1 to model an
-            // unbuildable singleton. The frames' content is irrelevant to Best* (they read Key + Train).
+            var f = Cal(type, expoSec, tempC, gain, instrument, telescope, focalLength, isMaster);
+            // Default 2 frames = buildable (a raw master needs >= 2); pass frameCount: 1 to model an
+            // unbuildable singleton, or isMaster: true for a foreign master (a single frame IS
+            // buildable -- loaded directly). The frames' content is irrelevant to Best* (they read
+            // Key + Train + the master flag).
             var frames = Enumerable.Repeat(f, frameCount).ToImmutableArray();
-            return new(MasterGroupKey.FromFrame(f), CalibrationResolver.CalTrain.ForFrame(f), frames);
+            return new(MasterGroupKey.FromFrame(f), CalibrationResolver.CalTrain.ForFrame(f), frames, isMaster);
         }
 
         private static FrameInfo Light(double expoSec, float tempC, short gain,
@@ -237,6 +240,68 @@ namespace TianWen.Lib.Tests
             var light = Light(60, -5, gain: 121);
 
             CalibrationResolver.BestFlat([singleton, buildable], light).ShouldBe(buildable);
+        }
+
+        [Fact]
+        public void GroupCalibration_KeepsAForeignMasterSeparateFromRawSubsOfTheSameConfig()
+        {
+            // A camera's proper dark can survive only as a MASTER sitting alongside raw darks of the
+            // SAME sensor config. They must NOT fold into one group (a master is loaded directly, raws
+            // are medianed), so the master flag is part of the grouping key -> two distinct Dark groups.
+            var frames = new List<FrameInfo>
+            {
+                Cal(FrameType.Dark, 60, -5, gain: 121),                    // raw
+                Cal(FrameType.Dark, 60, -5, gain: 121),                    // raw (same group)
+                Cal(FrameType.Dark, 60, -5, gain: 121, isMaster: true),    // master (separate group)
+            };
+
+            var groups = CalibrationResolver.GroupCalibration(frames);
+
+            groups.TryGetValue(FrameType.Dark, out var darks).ShouldBeTrue();
+            darks!.Count.ShouldBe(2);
+            darks.Count(g => g.IsMaster).ShouldBe(1);
+            darks.Single(g => g.IsMaster).Frames.Length.ShouldBe(1);
+            darks.Single(g => !g.IsMaster).Frames.Length.ShouldBe(2);
+        }
+
+        [Fact]
+        public void BestDark_SelectsSingleFrameForeignMaster_ExemptFromTheBuildableFloor()
+        {
+            // A foreign master is a single already-integrated frame -- exempt from the >=2 buildable
+            // floor that filters raw singletons, because it is loaded directly rather than medianed. So
+            // the gain-perfect master wins over a buildable wrong-gain raw dark (a raw singleton would
+            // still lose -- see BestDark_SkipsUnbuildableSingleton).
+            var master = Group(FrameType.Dark, 60, -5, gain: 121, frameCount: 1, isMaster: true);
+            var rawWrongGain = Group(FrameType.Dark, 60, -5, gain: 212, frameCount: 2);
+            var light = Light(60, -5, gain: 121);
+
+            CalibrationResolver.BestDark([master, rawWrongGain], light).ShouldBe(master);
+        }
+
+        [Fact]
+        public void BestDark_RequireGainMatch_RejectsAKnownWrongGainDark_ButKeepsSameGain()
+        {
+            // Strict gain: a KNOWN gain mismatch is a hard reject, not a penalty. With only a g212 dark
+            // for g121 lights -> null (so RequireDarkCalibration then skips the session); add a g121
+            // dark and it is chosen.
+            var wrongGain = Group(FrameType.Dark, 60, -5, gain: 212);
+            var light = Light(60, -5, gain: 121);
+
+            CalibrationResolver.BestDark([wrongGain], light, requireGainMatch: true).ShouldBeNull();
+
+            var sameGain = Group(FrameType.Dark, 60, -5, gain: 121);
+            CalibrationResolver.BestDark([wrongGain, sameGain], light, requireGainMatch: true).ShouldBe(sameGain);
+        }
+
+        [Fact]
+        public void BestDark_RequireGainMatch_UnknownGainStaysAWildcard()
+        {
+            // A header-less dark library (gain -1) must not be dropped by strict gain -- unknown is
+            // lenient on either side, mirroring the optical-train comparisons.
+            var unknownGain = Group(FrameType.Dark, 60, -5, gain: -1);
+            var light = Light(60, -5, gain: 121);
+
+            CalibrationResolver.BestDark([unknownGain], light, requireGainMatch: true).ShouldBe(unknownGain);
         }
 
         [Fact]

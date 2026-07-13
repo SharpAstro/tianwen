@@ -159,6 +159,7 @@ public sealed class StackingPipeline(
         var integrationSkipped = 0;
         var rejectionMapSkipped = 0;
         var integrationKept = 0;
+        var masterSkipped = 0;
         await foreach (var frame in source.EnumerateAsync(ct))
         {
             // Skip anything under outputDir -- masters and previous-run
@@ -178,6 +179,19 @@ public sealed class StackingPipeline(
                 frame.Path.EndsWith(IntegrationFitsWriter.RejectionMapSuffix + ".gz", StringComparison.OrdinalIgnoreCase))
             {
                 rejectionMapSkipped++;
+                continue;
+            }
+            // A foreign MASTER calibration frame (IMAGETYP=MASTERDARK / MASTERFLAT /
+            // MASTERBIAS) now parses to its underlying FrameType (Dark / Flat / Bias)
+            // so the dataset builder can ingest it directly -- but the stacker builds
+            // masters ONLY from raw subs whose provenance it controls (the "never
+            // ingest foreign masters" invariant). Feeding a pre-integrated master into
+            // BuildMastersAsync would fold a whole master in as if it were one raw
+            // frame. Skip masters here to keep the stacker raw-only (before master
+            // parsing was added these were inert FrameType.None frames anyway).
+            if (frame.Meta.IsMaster)
+            {
+                masterSkipped++;
                 continue;
             }
             // Two markers identify a TianWen-produced FITS that must not be
@@ -212,6 +226,10 @@ public sealed class StackingPipeline(
         if (rejectionMapSkipped > 0)
         {
             logger.LogInformation("[scan] ignored {Count} rejection map(s)", rejectionMapSkipped);
+        }
+        if (masterSkipped > 0)
+        {
+            logger.LogInformation("[scan] ignored {Count} foreign master frame(s) (IMAGETYP=MASTER*); stacker builds masters from raw subs only", masterSkipped);
         }
         if (integrationSkipped > 0)
         {

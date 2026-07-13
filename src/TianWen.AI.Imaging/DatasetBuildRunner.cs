@@ -117,7 +117,7 @@ public static class DatasetBuildRunner
             // into an archive bake. Log + count + move on; cancellation still propagates.
             try
             {
-                var calibrator = await CalibrationResolver.ResolveAsync(session, calGroups, masterCache, logger, cancellationToken);
+                var calibrator = await CalibrationResolver.ResolveAsync(session, calGroups, masterCache, options.RequireGainMatch, logger, cancellationToken);
 
                 // A training sample needs dark subtraction: an uncalibrated N2N pair shares the
                 // sensor's fixed-pattern dark signal (correlated between the two subs), so skip a

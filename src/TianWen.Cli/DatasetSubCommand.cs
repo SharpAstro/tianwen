@@ -94,6 +94,22 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, ILogger<Datase
                           "dark signal, so it is not a valid training sample — use this to drop e.g. a " +
                           "camera whose dark library is missing from the archive.",
         };
+        var requireGainMatchOpt = new Option<bool>("--require-gain-match")
+        {
+            Description = "Reject a dark whose gain is known and differs from the lights (not just " +
+                          "score-penalise it). The fixed-pattern amplitude a dark subtracts is gain-" +
+                          "dependent, so a wrong-gain dark mis-scales it. Pairs with --require-dark to " +
+                          "skip a session left with no same-gain dark. Unknown gain stays a wildcard; " +
+                          "flats are unaffected.",
+        };
+        var softwareOpt = new Option<string>("--software")
+        {
+            Description = "Case-insensitive wildcard on SWCREATE; only LIGHTS authored by matching " +
+                          "software are kept (e.g. '*N.I.N.A.*' to exclude SharpCap planetary/EAA " +
+                          "captures). Applies to lights only — calibration frames resolve regardless " +
+                          "of authoring tool. Empty = no filter.",
+            DefaultValueFactory = _ => "",
+        };
         var discoverOnlyOpt = new Option<bool>("--discover-only")
         {
             Description = "Stop after session discovery and print the inventory (no tiles written).",
@@ -105,7 +121,7 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, ILogger<Datase
             {
                 archiveRootOpt, outOpt,
                 minExposureOpt, maxExposureOpt, excludeInstrumeOpt, excludeObjectOpt, excludePathOpt, minSubsOpt,
-                tileSizeOpt, cellsOpt, subsPerCellOpt, testFractionOpt, requireDarkOpt, discoverOnlyOpt,
+                tileSizeOpt, cellsOpt, subsPerCellOpt, testFractionOpt, requireDarkOpt, requireGainMatchOpt, softwareOpt, discoverOnlyOpt,
             },
         };
         buildCommand.SetAction(async (parseResult, ct) =>
@@ -142,6 +158,8 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, ILogger<Datase
                 SubsPerCell = parseResult.GetValue(subsPerCellOpt),
                 TestFraction = parseResult.GetValue(testFractionOpt),
                 RequireDarkCalibration = parseResult.GetValue(requireDarkOpt),
+                RequireGainMatch = parseResult.GetValue(requireGainMatchOpt),
+                SoftwareIncludePattern = parseResult.GetValue(softwareOpt)!,
             };
 
             // User path exclusions append to the built-in processed-data defaults (never replace them).
@@ -157,7 +175,8 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, ILogger<Datase
             consoleHost.WriteScrollable(
                 $"[dataset] scanned {stats.Scanned} FITS: {stats.Sessions} sessions / {stats.Lights} lights kept; " +
                 $"dropped {stats.NotLight} non-light, {stats.ExposureOutOfRange} exposure-out-of-range, " +
-                $"{stats.InstrumentExcluded} excluded-instrument, {stats.ObjectExcluded} excluded-object, " +
+                $"{stats.InstrumentExcluded} excluded-instrument, {stats.SoftwareExcluded} excluded-software, " +
+                $"{stats.ObjectExcluded} excluded-object, " +
                 $"{stats.PathExcluded} excluded-path, " +
                 $"{stats.ProductExcluded} products, {stats.Duplicates} duplicates, " +
                 $"{stats.SessionsTooSmall} too-small sessions");
