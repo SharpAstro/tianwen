@@ -458,6 +458,44 @@ public static class DatasetTileExporter
         return fwhm[fwhm.Length / 2];
     }
 
+    /// <summary>Reads the shared JSONL manifest back into per-session tile counts — the resume
+    /// checkpoint (<see cref="DatasetBuildOptions.Resume"/>). A session listed here was FULLY
+    /// exported: its rows are appended in one block as the last step of its export, after every
+    /// tile file is on disk. Unparseable lines (a torn tail from a killed run — the same case
+    /// <see cref="AppendManifestAsync"/> self-heals on the next append) are skipped, never fatal;
+    /// a missing file yields an empty map (resume of a fresh output degrades to a normal run).</summary>
+    public static async Task<Dictionary<string, int>> ReadManifestSessionTileCountsAsync(string manifestPath, CancellationToken ct)
+    {
+        var counts = new Dictionary<string, int>(StringComparer.Ordinal);
+        if (!File.Exists(manifestPath))
+        {
+            return counts;
+        }
+        await foreach (var line in File.ReadLinesAsync(manifestPath, ct))
+        {
+            if (string.IsNullOrWhiteSpace(line))
+            {
+                continue;
+            }
+            TileManifestRow? row;
+            // Resilience over untrusted tail bytes (killed mid-append): there is no TryDeserialize,
+            // so the torn-line skip has to be exception-based, mirroring TryReadFitsHeader's contract.
+            try
+            {
+                row = JsonSerializer.Deserialize(line, DatasetManifestJsonContext.Default.TileManifestRow);
+            }
+            catch (JsonException)
+            {
+                continue;
+            }
+            if (row is not null)
+            {
+                counts[row.SessionId] = counts.TryGetValue(row.SessionId, out var n) ? n + 1 : 1;
+            }
+        }
+        return counts;
+    }
+
     /// <summary>Appends this session's rows to the shared JSONL manifest. Self-healing: a torn
     /// last line (a previous session's append interrupted mid-write — reachable because the build
     /// runner fault-isolates per session and keeps going) is truncated back to the last complete
