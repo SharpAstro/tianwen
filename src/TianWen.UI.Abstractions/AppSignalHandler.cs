@@ -1560,8 +1560,7 @@ namespace TianWen.UI.Abstractions
                 }
                 if (target.ExpectedDeviceType != DeviceType.CoverCalibrator)
                 {
-                    appState.AppendNotification(_timeProvider.GetUtcNow(),
-                        NotificationSeverity.Warning, "Select an OTA's Cover slot first, then add the Manual Light Panel");
+                    Notify(NotificationSeverity.Warning, "Select an OTA's Cover slot first, then add the Manual Light Panel");
                     return;
                 }
 
@@ -1572,8 +1571,7 @@ namespace TianWen.UI.Abstractions
                 appState.ActiveProfile = updated;
                 appState.NeedsRedraw = true;
                 await updated.SaveAsync(external, cts.Token);
-                appState.AppendNotification(_timeProvider.GetUtcNow(),
-                    NotificationSeverity.Info, "Manual Light Panel assigned - switch it on before capturing flats");
+                Notify(NotificationSeverity.Info, "Manual Light Panel assigned - switch it on before capturing flats");
             });
 
             bus.Subscribe<ConnectAllDevicesSignal>(_ =>
@@ -2164,22 +2162,15 @@ namespace TianWen.UI.Abstractions
 
             bus.Subscribe<StartFlatsSignal>(async sig =>
             {
-                if (liveSessionState.IsRunning)
-                {
-                    appState.AppendNotification(_timeProvider.GetUtcNow(),
-                        NotificationSeverity.Warning, "Session is running \u2014 flats unavailable");
-                    return;
-                }
+                if (!EnsureSessionIdle("Session is running \u2014 flats unavailable")) return;
                 if (liveSessionState.FlatsCts is not null)
                 {
-                    appState.AppendNotification(_timeProvider.GetUtcNow(),
-                        NotificationSeverity.Warning, "Flat run already running");
+                    Notify(NotificationSeverity.Warning, "Flat run already running");
                     return;
                 }
                 if (appState.ActiveProfile is not { Data: { } profileData } profile || profileData.OTAs.Length == 0)
                 {
-                    appState.AppendNotification(_timeProvider.GetUtcNow(),
-                        NotificationSeverity.Warning, "No profile / OTA configured");
+                    Notify(NotificationSeverity.Warning, "No profile / OTA configured");
                     return;
                 }
 
