@@ -101,4 +101,14 @@ public sealed record DatasetBuildOptions
     /// regardless of authoring software, so a master dark authored by any tool still resolves. Empty
     /// (the default) disables the gate.</summary>
     public string SoftwareIncludePattern { get; init; } = "";
+
+    /// <summary>When true, a stopped run continues where it left off: the existing manifest is the
+    /// checkpoint (kept, not regenerated), and any session whose tiles are already listed in it is
+    /// skipped wholesale — a session's rows are appended in one block as the LAST step of its
+    /// export, so "rows present" means "fully exported". The session a stop interrupted mid-export
+    /// has no rows and re-runs cleanly (deterministic tile names overwrite its partial files).
+    /// Assumes the SAME archive roots and gates as the interrupted run — changed options make the
+    /// checkpoint's session set stale. The PSF/noise report of a resumed run covers only the
+    /// sessions registered in that run. Default false (fresh manifest, prior behaviour).</summary>
+    public bool Resume { get; init; } = false;
 }

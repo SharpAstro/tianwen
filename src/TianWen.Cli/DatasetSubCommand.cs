@@ -114,6 +114,12 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, ILogger<Datase
         {
             Description = "Stop after session discovery and print the inventory (no tiles written).",
         };
+        var resumeOpt = new Option<bool>("--resume")
+        {
+            Description = "Continue a stopped run: keep the existing manifest as the checkpoint and " +
+                          "skip every session already fully exported to it (the interrupted session " +
+                          "re-runs cleanly). Use the SAME roots and gates as the stopped run.",
+        };
 
         var buildCommand = new Command("build", "Build the training tile set from raw archive lights.")
         {
@@ -121,7 +127,7 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, ILogger<Datase
             {
                 archiveRootOpt, outOpt,
                 minExposureOpt, maxExposureOpt, excludeInstrumeOpt, excludeObjectOpt, excludePathOpt, minSubsOpt,
-                tileSizeOpt, cellsOpt, subsPerCellOpt, testFractionOpt, requireDarkOpt, requireGainMatchOpt, softwareOpt, discoverOnlyOpt,
+                tileSizeOpt, cellsOpt, subsPerCellOpt, testFractionOpt, requireDarkOpt, requireGainMatchOpt, softwareOpt, discoverOnlyOpt, resumeOpt,
             },
         };
         buildCommand.SetAction(async (parseResult, ct) =>
@@ -160,6 +166,7 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, ILogger<Datase
                 RequireDarkCalibration = parseResult.GetValue(requireDarkOpt),
                 RequireGainMatch = parseResult.GetValue(requireGainMatchOpt),
                 SoftwareIncludePattern = parseResult.GetValue(softwareOpt)!,
+                Resume = parseResult.GetValue(resumeOpt),
             };
 
             // User path exclusions append to the built-in processed-data defaults (never replace them).
@@ -199,7 +206,8 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, ILogger<Datase
             var result = await DatasetBuildRunner.RunAsync(options, logger, progress, ct);
 
             consoleHost.WriteScrollable(
-                $"[dataset] {result.Registered}/{result.Sessions} sessions -> {result.TotalTiles} tiles" +
+                $"[dataset] {result.Registered}/{result.Sessions} sessions" +
+                $"{(result.Resumed > 0 ? $" (+{result.Resumed} resumed)" : "")} -> {result.TotalTiles} tiles" +
                 $"{(result.Failed > 0 ? $" ({result.Failed} FAILED, see log)" : "")}" +
                 $"{(result.SkippedNoDark > 0 ? $" ({result.SkippedNoDark} skipped: no dark calibration)" : "")}; " +
                 $"{result.TestSessions} test sessions held out; " +

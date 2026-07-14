@@ -2,6 +2,7 @@ using Shouldly;
 using System;
 using System.IO;
 using System.Linq;
+using System.Text.Json;
 using System.Threading.Tasks;
 using TianWen.AI.Imaging;
 using TianWen.Lib.Imaging.Dataset;
@@ -180,6 +181,82 @@ namespace TianWen.Lib.Tests
             result.SkippedNoDark.ShouldBe(1);
             result.TotalTiles.ShouldBe(0);
             File.Exists(result.ManifestPath).ShouldBeFalse();
+        }
+
+        /// <summary>Full-file copies with shifted DATE-OBS — a second VALID session (unlike
+        /// <see cref="WriteTruncatedCopies"/>, whose copies explode at register time), so the
+        /// resume test has two completed sessions to checkpoint.</summary>
+        private static void WriteShiftedCopies(string srcDir, string dstDir)
+        {
+            Directory.CreateDirectory(dstDir);
+            foreach (var src in Directory.GetFiles(srcDir, "light_*.fits"))
+            {
+                var bytes = File.ReadAllBytes(src);
+                PatchAscii(bytes, "T00:00:0", "T00:59:0");
+                File.WriteAllBytes(Path.Combine(dstDir, Path.GetFileName(src)), bytes);
+            }
+        }
+
+        [Fact]
+        public async Task Run_Resume_SkipsCheckpointedSessions_AndCompletesTheInterruptedOne()
+        {
+            var ct = TestContext.Current.CancellationToken;
+            var root = Path.Combine(_dir, "archive");
+            var m42 = Path.Combine(root, "M42", "LIGHT");
+            Directory.CreateDirectory(m42);
+            Directory.CreateDirectory(Path.Combine(root, "DARK"));
+            RgbBayerSyntheticFixture.WriteSyntheticLights(m42);
+            RgbBayerSyntheticFixture.WriteSyntheticDarks(Path.Combine(root, "DARK"));
+            WriteShiftedCopies(m42, Path.Combine(root, "N43", "LIGHT"));
+
+            var outDir = Path.Combine(_dir, "out");
+            var options = new DatasetBuildOptions
+            {
+                ArchiveRoots = [root],
+                OutputDir = outDir,
+                MinExposure = TimeSpan.FromSeconds(0.5),
+                MaxExposure = TimeSpan.FromMinutes(5),
+                MinSubsPerSession = 4,
+                TileSize = 64,
+                CellsPerSession = 20,
+                SubsPerCell = 3,
+            };
+
+            var first = await DatasetBuildRunner.RunAsync(options, cancellationToken: ct);
+            first.Registered.ShouldBe(2);
+
+            // Simulate a stop that landed AFTER M42's export and DURING N43's: rows append as the
+            // LAST step of an export, so the interrupted N43 has none — plus the torn half-row the
+            // kill left behind.
+            var rows = File.ReadAllLines(first.ManifestPath).Where(l => l.Trim().Length > 0).ToArray();
+            var m42Rows = rows.Where(l =>
+                JsonSerializer.Deserialize(l, DatasetManifestJsonContext.Default.TileManifestRow)!
+                    .SessionId.StartsWith("M42|", StringComparison.Ordinal)).ToArray();
+            m42Rows.Length.ShouldBeInRange(1, rows.Length - 1); // both sessions really are in the manifest
+            File.WriteAllText(first.ManifestPath, string.Join('\n', m42Rows) + "\n{\"tile\":\"torn-mid-wr");
+
+            var resumedRun = await DatasetBuildRunner.RunAsync(options with { Resume = true }, cancellationToken: ct);
+
+            // M42 checkpointed, N43 re-exported; totals line up with the uninterrupted run.
+            resumedRun.Resumed.ShouldBe(1);
+            resumedRun.Registered.ShouldBe(1);
+            resumedRun.TotalTiles.ShouldBe(first.TotalTiles);
+            resumedRun.ParityChecked.ShouldBeTrue(); // the re-exported session fed the parity gate
+
+            // Manifest healed + complete: every row parseable, per-session counts match the
+            // uninterrupted run — M42's rows were neither dropped nor duplicated.
+            var counts = await DatasetTileExporter.ReadManifestSessionTileCountsAsync(first.ManifestPath, ct);
+            counts.Values.Sum().ShouldBe(first.TotalTiles);
+            counts.Single(kv => kv.Key.StartsWith("M42|", StringComparison.Ordinal)).Value.ShouldBe(m42Rows.Length);
+
+            // Resume again with everything complete: nothing re-runs, manifest byte-identical.
+            var manifestBytes = File.ReadAllBytes(first.ManifestPath);
+            var third = await DatasetBuildRunner.RunAsync(options with { Resume = true }, cancellationToken: ct);
+            third.Resumed.ShouldBe(2);
+            third.Registered.ShouldBe(0);
+            third.TotalTiles.ShouldBe(first.TotalTiles);
+            third.ParityChecked.ShouldBeFalse(); // nothing exported this run to gate
+            File.ReadAllBytes(first.ManifestPath).ShouldBe(manifestBytes);
         }
 
         [Fact]

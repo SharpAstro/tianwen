@@ -36,17 +36,23 @@ public static class DatasetBuildRunner
     /// and were skipped. Discovery only validates HEADERS, so a truncated file with a clean header
     /// surfaces here, at register time — fault-isolated per session so one bad frame can never
     /// abort a multi-hour archive bake. Failures are logged per session; a crashed-then-restarted
-    /// run starts fresh (the manifest is regenerated), so partial output never needs repairing.</param>
+    /// run starts fresh (the manifest is regenerated) unless <see cref="DatasetBuildOptions.Resume"/>
+    /// checkpoints it, so partial output never needs repairing.</param>
     /// <param name="SkippedNoDark">Sessions skipped because no master dark could be resolved and
     /// <see cref="DatasetBuildOptions.RequireDarkCalibration"/> is set — an uncalibrated N2N pair
     /// shares the sensor's fixed-pattern dark signal (correlated between subs), so it is not a valid
     /// training sample. Distinct from <paramref name="Failed"/> (an error), and from the silent
     /// too-few-subs skip.</param>
+    /// <param name="Resumed">Sessions skipped wholesale because their tiles were already in the
+    /// manifest (<see cref="DatasetBuildOptions.Resume"/>) — their prior tile counts fold into
+    /// <paramref name="TotalTiles"/> but they are NOT re-registered, so the PSF/noise report of a
+    /// resumed run covers only the sessions registered in THAT run.</param>
     public sealed record RunResult(
         int Sessions,
         int Registered,
         int Failed,
         int SkippedNoDark,
+        int Resumed,
         int TotalTiles,
         int TestSessions,
         bool ParityChecked,
@@ -86,9 +92,16 @@ public static class DatasetBuildRunner
         var testSessions = await DatasetSplitWriter.WriteAsync(sessions.Select(s => s.Id), options.TestFraction, splitPath, cancellationToken);
         progress?.Report($"[dataset] pinned test split: {testSessions.Length}/{sessions.Length} sessions held out");
 
-        // Fresh manifest per run (the exporter appends per session).
+        // Fresh manifest per run (the exporter appends per session) -- UNLESS resuming, where the
+        // existing manifest IS the checkpoint: a session's rows are appended in one block as the
+        // LAST step of its export, so "rows present" == "session fully exported". The in-flight
+        // session a stop interrupted has no rows and re-runs cleanly (tile names are deterministic,
+        // so its partial files are simply overwritten).
         var manifestPath = Path.Combine(outDir, DatasetTileExporter.ManifestFileName);
-        if (File.Exists(manifestPath))
+        var priorTiles = options.Resume
+            ? await DatasetTileExporter.ReadManifestSessionTileCountsAsync(manifestPath, cancellationToken)
+            : new Dictionary<string, int>(StringComparer.Ordinal);
+        if (!options.Resume && File.Exists(manifestPath))
         {
             File.Delete(manifestPath);
         }
@@ -102,6 +115,7 @@ public static class DatasetBuildRunner
         var registered = 0;
         var failed = 0;
         var skippedNoDark = 0;
+        var resumed = 0;
         var totalTiles = 0;
         var parityChecked = false;
         var parityMaxDiff = 0.0;
@@ -110,6 +124,13 @@ public static class DatasetBuildRunner
         {
             cancellationToken.ThrowIfCancellationRequested();
             idx++;
+            if (priorTiles.TryGetValue(session.Id, out var tiles))
+            {
+                resumed++;
+                totalTiles += tiles;
+                progress?.Report($"[dataset] ({idx}/{sessions.Length}) {session.Id} resumed ({tiles} tiles already exported)");
+                continue;
+            }
             progress?.Report($"[dataset] ({idx}/{sessions.Length}) {session.Id} ...");
 
             // Fault-isolated per session: discovery validated only HEADERS, so a truncated /
@@ -174,12 +195,20 @@ public static class DatasetBuildRunner
         await DatasetPsfNoiseReport.WriteMarkdownAsync(reportAcc.Build(), reportPath, cancellationToken);
 
         TryDelete(scratchRoot);
+        if (resumed > 0)
+        {
+            // The report accumulator only sees sessions registered THIS run -- a resumed session's
+            // registration scratch is long gone, so its PSF stats cannot be re-measured cheaply.
+            logger?.LogWarning(
+                "Resume: PSF/noise report covers only the {Registered} session(s) registered in this run; {Resumed} resumed session(s) are not re-measured.",
+                registered, resumed);
+        }
         progress?.Report(
-            $"[dataset] done: {registered}/{sessions.Length} sessions -> {totalTiles} tiles " +
+            $"[dataset] done: {registered}/{sessions.Length} sessions{(resumed > 0 ? $" (+{resumed} resumed)" : "")} -> {totalTiles} tiles " +
             $"({failed} failed, {skippedNoDark} skipped-no-dark); " +
             $"parity {(parityChecked ? parityMaxDiff == 0.0 ? "OK" : $"DIFF {parityMaxDiff}" : "n/a")}");
         return new RunResult(
-            sessions.Length, registered, failed, skippedNoDark, totalTiles, testSessions.Length,
+            sessions.Length, registered, failed, skippedNoDark, resumed, totalTiles, testSessions.Length,
             parityChecked, parityMaxDiff, manifestPath, splitPath, reportPath);
     }
 
