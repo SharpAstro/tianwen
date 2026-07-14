@@ -34,7 +34,8 @@ namespace TianWen.Lib.Tests
             int width = 3008,
             int height = 3008,
             string objectName = "",
-            string root = "")
+            string root = "",
+            bool isMaster = false)
         {
             var meta = new ImageMeta(
                 Instrument: instrument,
@@ -57,7 +58,8 @@ namespace TianWen.Lib.Tests
                 Latitude: float.NaN,
                 Longitude: float.NaN,
                 ObjectName: objectName,
-                SWCreator: swCreator);
+                SWCreator: swCreator)
+            { IsMaster = isMaster };
             var fullPath = Path.Combine(root.Length > 0 ? root : Root, relativePath.Replace('/', Path.DirectorySeparatorChar));
             return new FrameInfo(fullPath, width, height, 1, BitDepth.Int16, meta, stackedFrameCount);
         }
@@ -157,13 +159,16 @@ namespace TianWen.Lib.Tests
                 (Frame("s/LIGHT/livestack.fits", exposureSeconds: 8280, start: T(4)), Root),
                 (Frame("s/LIGHT/master.fits", stackedFrameCount: 50, start: T(5)), Root),
                 (Frame("s/LIGHT/enhanced.fits", swCreator: "TianWen.Lib 1.0", start: T(6)), Root),
+                // A FOREIGN integration (PixInsight IMAGETYP='Master Light': FrameType.Light +
+                // IsMaster, no STACK_N / TianWen SWCREATE) is a product, never a raw sub.
+                (Frame("s/LIGHT/masterLight_pi.fits", isMaster: true, swCreator: "", start: T(7)), Root),
             ]);
 
             sessions.ShouldHaveSingleItem().Lights.Length.ShouldBe(1);
             stats.NotLight.ShouldBe(1);
             stats.InstrumentExcluded.ShouldBe(1);
             stats.ExposureOutOfRange.ShouldBe(2);
-            stats.ProductExcluded.ShouldBe(2);
+            stats.ProductExcluded.ShouldBe(3);
         }
 
         [Fact]
