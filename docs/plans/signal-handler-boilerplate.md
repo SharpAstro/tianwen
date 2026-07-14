@@ -1,6 +1,17 @@
 # Signal-Handler Boilerplate Reduction (`AppSignalHandler`)
 
-**Status: NOT STARTED** (plan drafted 2026-07-03, after the two "route, don't implement" passes: PR #68 + PR #70)
+**Status: DONE** (Phases 1-3, branch `refactor/signal-handler-boilerplate`; plan drafted 2026-07-03
+after the two "route, don't implement" passes PR #68 + PR #70). Three private instance helpers
+landed on `AppSignalHandler` -- `Notify(severity, message)` (all `AppendNotification` + redraw
+sites), the guard helpers (`EnsureSessionIdle` / `TryGetConnected<T>` / `TryResolveIdleOtaFocuser`),
+and `RunTracked` over the upstreamed `DIR.Lib.BackgroundTaskTracker.RunGuarded` -- and were extended
+to the handlers added since the draft (Flats mode, manual cover, comets). Bespoke error sites
+(Recompute, SkyMap slew/solve, DiscoverDevices, async device connects, StartPolarAlignment) were
+deliberately left untouched. **Tier 4 (`Wire<T>`) assessed post-sweep and DROPPED by its own kill
+criterion**: the three cooler handlers alone need three shapes (payload-interpolated ok message,
+silent-vs-notifying guard, pre-work confirm-state clear + OCE branch + finally redraw), so the
+table would grow escape hatches until it is just code again. The by-area partial split (Phase 5)
+stays an optional organizational follow-up. `AppSignalHandler.cs` ~2687 -> ~2566 lines.
 
 ## Context
 
