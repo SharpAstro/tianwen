@@ -10,8 +10,14 @@ to the handlers added since the draft (Flats mode, manual cover, comets). Bespok
 deliberately left untouched. **Tier 4 (`Wire<T>`) assessed post-sweep and DROPPED by its own kill
 criterion**: the three cooler handlers alone need three shapes (payload-interpolated ok message,
 silent-vs-notifying guard, pre-work confirm-state clear + OCE branch + finally redraw), so the
-table would grow escape hatches until it is just code again. The by-area partial split (Phase 5)
-stays an optional organizational follow-up. `AppSignalHandler.cs` ~2687 -> ~2566 lines.
+table would grow escape hatches until it is just code again. **Phase 5 (by-area partial split)
+SHIPPED in the same PR**: the ctor's subscription groups moved verbatim into per-concern
+`Subscribe*` methods across `AppSignalHandler.Planner/.SkyMap/.Equipment/.LiveSession/.Polar/
+.Flats.cs` (the ImageRendererBase treatment) — each opens with `var x = _x;` field aliases so the
+closures' captured-parameter names keep resolving, the ctor calls them in the original order
+(SignalBus invokes subscribers in registration order, so the call order is load-bearing), and the
+two cross-section couplings were promoted (`autoCompleteCache` -> the `_autoCompleteCache` field;
+`shutdownToken` -> a `SubscribePreview` parameter). Core file 2566 -> ~860 lines.
 
 ## Context
 
