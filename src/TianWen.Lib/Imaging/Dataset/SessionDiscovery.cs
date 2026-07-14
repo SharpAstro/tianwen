@@ -140,7 +140,11 @@ public static class SessionDiscovery
         {
             return LightGate.NotLight;
         }
-        if (frame.StackedFrameCount > 0 || IntegrationFitsWriter.IsTianWenProduct(frame.Meta.SWCreator))
+        // A stacked product is never a raw sub, whatever tool authored it: TianWen's own outputs
+        // carry STACK_N / SWCREATE markers, but a FOREIGN integration (e.g. PixInsight's
+        // IMAGETYP='Master Light', which parses as FrameType.Light + IsMaster) has neither --
+        // gate on the master flag itself so it can't be ingested as a session frame.
+        if (frame.IsMaster || frame.StackedFrameCount > 0 || IntegrationFitsWriter.IsTianWenProduct(frame.Meta.SWCreator))
         {
             return LightGate.Product;
         }

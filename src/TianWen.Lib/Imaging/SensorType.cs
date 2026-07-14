@@ -30,12 +30,21 @@ public static class SensorTypeEx
 {
     extension(SensorType)
     {
-        public static (SensorType SensorType, int X, int Y) FromFITSValue(bool? hasCFA, int channelCount, int fileOffsetX, int fileOffsetY, params string[] patterns)
+        public static (SensorType SensorType, int X, int Y) FromFITSValue(bool? hasCFA, int channelCount, int fileOffsetX, int fileOffsetY, params string?[] patterns)
         {
+            // A 3-plane image is already debayered -- it cannot be a CFA mosaic, whatever stale
+            // CFAIMAGE/BAYERPAT provenance tags it still carries (e.g. Astro Pixel Processor keeps
+            // them on its RGB integrations). Classifying it by pattern would route it through a
+            // real debayer pass downstream, which reads only channel 0 and discards the other two.
+            if (channelCount is 3)
+            {
+                return (SensorType.Color, 0, 0);
+            }
+
             var firstNonNull = patterns.FirstOrDefault(pattern => !string.IsNullOrWhiteSpace(pattern));
             if (hasCFA is false || firstNonNull is null)
             {
-                return (channelCount is 3 ? SensorType.Color : SensorType.Monochrome, 0, 0);
+                return (SensorType.Monochrome, 0, 0);
             }
 
             var (sensorType, sensorOffsetX, sensorOffsetY) = firstNonNull.ToUpperInvariant() switch
@@ -53,6 +62,13 @@ public static class SensorTypeEx
             // TODO: not sure if this is true?
             return (sensorType, offsetX, offsetY);
         }
+
+        /// <summary>True when <paramref name="value"/> is one of the four 2x2 Bayer pattern strings
+        /// (case-insensitive, whitespace-tolerant). The gate for treating a free-form header token
+        /// (e.g. Astro Pixel Processor's CFAIMAGE, which holds the pattern rather than a T/F flag)
+        /// as a pattern candidate -- so boolean or garbage values never reach the pattern switch.</summary>
+        public static bool IsKnownBayerPattern(string? value) =>
+            value?.Trim().ToUpperInvariant() is "RGGB" or "GRBG" or "GBRG" or "BGGR";
     }
 
     extension(SensorType sensorType)

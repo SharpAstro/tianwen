@@ -127,6 +127,53 @@ public partial class Image
         return (double.NaN, double.NaN);
     }
 
+    /// <summary>Interprets the string form of the CFAIMAGE card, which capture/processing tools write
+    /// inconsistently: N.I.N.A. omits it, some tools write a quoted <c>'T'</c>/<c>'F'</c>, and Astro
+    /// Pixel Processor writes the Bayer PATTERN string (e.g. <c>'RGGB'</c>) — reading that as a boolean
+    /// yields <c>false</c> and wrongly forces <see cref="SensorType.Monochrome"/>, which drops an
+    /// otherwise-matching Bayer master from calibration selection. A KNOWN pattern string therefore
+    /// means the frame IS a CFA image; any other non-boolean token ("NONE", a corrupted card, a future
+    /// sentinel) keeps the old GetBooleanValue-era safe default of NOT-CFA rather than guessing.
+    /// Absent/empty → <c>null</c> (defer to BAYERPAT / COLORTYP).</summary>
+    internal static bool? ParseCfaImageFlag(string? cfaImage)
+    {
+        if (string.IsNullOrWhiteSpace(cfaImage)) return null;
+        var v = cfaImage.Trim();
+        if (bool.TryParse(v, out var parsed)) return parsed;   // "True" / "False"
+        if (v is "T" or "t" or "1") return true;
+        if (v is "F" or "f" or "0") return false;
+        return SensorType.IsKnownBayerPattern(v);              // "RGGB" => CFA; anything else => not
+    }
+
+    /// <summary>Reads the CFAIMAGE card in either of its wire encodings: a quoted STRING card (see
+    /// <see cref="ParseCfaImageFlag"/>) via <c>GetStringValue</c>, or a genuine FITS LOGICAL card
+    /// (unquoted <c>T</c>/<c>F</c>, the ASCOM form) — which <c>GetStringValue</c> cannot see (it
+    /// returns null for any non-string card), so that form falls back to <c>GetBooleanValue</c>.
+    /// Returns the CFA flag plus the Bayer-pattern candidate when (and only when) the card itself
+    /// carried a known pattern, so a boolean-form value can never masquerade as a pattern downstream.</summary>
+    private static (bool? IsCfa, string? PatternCandidate) ParseCfaImageCard(Header header)
+    {
+        if (header.GetStringValue("CFAIMAGE") is { } cfaImage)
+        {
+            var v = cfaImage.Trim();
+            return (ParseCfaImageFlag(v), SensorType.IsKnownBayerPattern(v) ? v : null);
+        }
+        return (header.ContainsKey("CFAIMAGE") ? header.GetBooleanValue("CFAIMAGE", false) : null as bool?, null);
+    }
+
+    /// <summary>Reads an integer-valued camera register card (GAIN / OFFSET / …) that some tools write
+    /// as a FLOAT — Astro Pixel Processor masters carry <c>GAIN = 121.0</c> — which <c>GetIntValue</c>
+    /// cannot coerce (Int64.Parse fails → silently returns its default, so the value reads "unknown"
+    /// and e.g. a matching foreign master drops out of gain-scored calibration). Reads as double and
+    /// rounds, exactly as FOCALLEN does for the same float-card reason. Absent or non-finite
+    /// (<c>"NaN"</c>/<c>"Infinity"</c> parse as valid doubles but are meaningless register values,
+    /// and must not collapse to gain 0) → <c>null</c>.</summary>
+    private static int? ReadIntegerLikeCard(Header header, string key)
+    {
+        var value = header.GetDoubleValue(key, double.NaN);
+        return double.IsNaN(value) || double.IsInfinity(value) ? null : (int)Math.Round(value);
+    }
+
     // Shared metadata parse — pulled out of TryReadFitsFile so the header-only
     // path uses the same logic. Min/max value computation stays in the pixel
     // read path because the header DATAMIN/DATAMAX fields are often missing or
@@ -161,18 +208,20 @@ public partial class Image
         var filter = Filter.FromName(filterClassName) is var f && f != Filter.Unknown
             ? f : Filter.FromName(filterName);
         filter = filter with { RawName = filterName };
-        var isCFA = hdu.Header.ContainsKey("CFAIMAGE") ? hdu.Header.GetBooleanValue("CFAIMAGE", false) : null as bool?;
+        var (isCFA, cfaPattern) = ParseCfaImageCard(hdu.Header);
         var (sensorType, bayerOffsetX, bayerOffsetY) = SensorType.FromFITSValue(
             isCFA,
             channelCount,
             hdu.Header.GetIntValue("BAYOFFX", 0), hdu.Header.GetIntValue("BAYOFFY", 0),
-            [hdu.Header.GetStringValue("BAYERPAT"), hdu.Header.GetStringValue("COLORTYP")]
+            [hdu.Header.GetStringValue("BAYERPAT"), hdu.Header.GetStringValue("COLORTYP"), cfaPattern]
         );
         var latitude = hdu.Header.GetFloatValue("SITELAT", float.NaN);
         var longitude = hdu.Header.GetFloatValue("SITELONG", float.NaN);
         var objectName = hdu.Header.GetStringValue("OBJECT") ?? "";
-        var gain = (short)hdu.Header.GetIntValue("GAIN", -1);
-        var camOffset = hdu.Header.GetIntValue("OFFSET", hdu.Header.GetIntValue("BLKLEVEL", hdu.Header.GetIntValue("CAMOFFS", -1)));
+        // GAIN/OFFSET are int cards in N.I.N.A. files but float cards in e.g. Astro Pixel Processor
+        // masters -- ReadIntegerLikeCard coerces both forms (and rejects NaN/Infinity as unknown).
+        var gain = (short)(ReadIntegerLikeCard(hdu.Header, "GAIN") ?? -1);
+        var camOffset = ReadIntegerLikeCard(hdu.Header, "OFFSET") ?? ReadIntegerLikeCard(hdu.Header, "BLKLEVEL") ?? ReadIntegerLikeCard(hdu.Header, "CAMOFFS") ?? -1;
         var setCCDTemp = hdu.Header.GetFloatValue("SET-TEMP", float.NaN);
         var egain = hdu.Header.GetFloatValue("EGAIN", float.NaN);
         var swCreator = hdu.Header.GetStringValue("SWCREATE") ?? "";
@@ -331,18 +380,20 @@ public partial class Image
         filter = filter with { RawName = filterName };
         var bzero = (float)hdu.BZero;
         var bscale = (float)hdu.BScale;
-        var isCFA = hdu.Header.ContainsKey("CFAIMAGE") ? hdu.Header.GetBooleanValue("CFAIMAGE", false) : null as bool?;
+        var (isCFA, cfaPattern) = ParseCfaImageCard(hdu.Header);
         var (sensorType, bayerOffsetX, bayerOffsetY) = SensorType.FromFITSValue(
             isCFA,
             channelCount,
             hdu.Header.GetIntValue("BAYOFFX", 0), hdu.Header.GetIntValue("BAYOFFY", 0),
-            [hdu.Header.GetStringValue("BAYERPAT"), hdu.Header.GetStringValue("COLORTYP")]
+            [hdu.Header.GetStringValue("BAYERPAT"), hdu.Header.GetStringValue("COLORTYP"), cfaPattern]
         );
         var latitude = hdu.Header.GetFloatValue("SITELAT", float.NaN);
         var longitude = hdu.Header.GetFloatValue("SITELONG", float.NaN);
         var objectName = hdu.Header.GetStringValue("OBJECT") ?? "";
-        var gain = (short)hdu.Header.GetIntValue("GAIN", -1);
-        var camOffset = hdu.Header.GetIntValue("OFFSET", hdu.Header.GetIntValue("BLKLEVEL", hdu.Header.GetIntValue("CAMOFFS", -1)));
+        // GAIN/OFFSET are int cards in N.I.N.A. files but float cards in e.g. Astro Pixel Processor
+        // masters -- ReadIntegerLikeCard coerces both forms (and rejects NaN/Infinity as unknown).
+        var gain = (short)(ReadIntegerLikeCard(hdu.Header, "GAIN") ?? -1);
+        var camOffset = ReadIntegerLikeCard(hdu.Header, "OFFSET") ?? ReadIntegerLikeCard(hdu.Header, "BLKLEVEL") ?? ReadIntegerLikeCard(hdu.Header, "CAMOFFS") ?? -1;
         var setCCDTemp = hdu.Header.GetFloatValue("SET-TEMP", float.NaN);
         var egain = hdu.Header.GetFloatValue("EGAIN", float.NaN);
         var swCreator = hdu.Header.GetStringValue("SWCREATE") ?? "";
