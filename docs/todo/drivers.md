@@ -5,18 +5,20 @@ Part of the TianWen TODO set. See [TODO.md](../../TODO.md) for the index and the
 ## Camera / ICameraDriver
 
 - [ ] Consider using external temp sensor if no heatsink temp is available (`ICameraDriver.cs:314`)
-- [ ] **QHY native ADC bits: query `OutputDataActualBits`/`OutputDataAlignment` in QHYCCD.SDK.**
-      `QHYCCD_CAMERA_INFO.BitDepth` reports `GetQHYCCDChipInfo`'s `bpp` = the TRANSFER/container bits
-      (8/16), not the ADC resolution — so `DALCameraDriver.AdcDepth` for QHY resolves to 16 bits and
-      `MaxADU`/`ImageMeta.SensorFullScaleAdu` stamp 65535 (numerically the same as the pre-`AdcResolution`
-      fallback, so no regression, but wrong-high for e.g. the 14-bit QHY294 / 12-bit PROC mode if the SDK
-      delivers low-aligned native values). The wrapper's `CONTROL_ID` enum already declares the two
-      controls that resolve this properly (`OutputDataActualBits` = true ADC bits,
-      `OutputDataAlignment` = low/high alignment in the container; `QHYCamera.cs:630-631`) but nothing
-      queries them. Fix in the `../QHYCCD.SDK` sibling (populate native bits + alignment on `Open`),
-      then TianWen's `AdcDepth` is correct for QHY with no changes here. Sibling NuGet release dance
-      (`/release-lib QHYCCD.SDK`); verify against real QHY294 hardware which alignment the SDK actually
-      delivers. ZWO needs nothing (`ASI_CAMERA_INFO.BitDepth` is the true ADC depth, e.g. 14 for ASI533).
+- [~] **QHY native ADC bits: query `OutputDataActualBits` in QHYCCD.SDK** — implemented in
+      [QHYCCD.SDK#3](https://github.com/SharpAstro/QHYCCD.SDK/pull/3) (`fix/qhy-adc-actual-bits`), NOT yet
+      merged/released. `QHYCCD_CAMERA_INFO.BitDepth` reported `GetQHYCCDChipInfo`'s `bpp` = the
+      TRANSFER/container bits (8/16), not the ADC resolution — so `DALCameraDriver.AdcDepth` for QHY
+      resolved to 16 bits and `MaxADU`/`ImageMeta.SensorFullScaleAdu` stamped 65535 (numerically the same
+      as the pre-`AdcResolution` fallback, so no regression, but wrong-high for the 14-bit QHY294). The PR
+      refines `BitDepth` post-init from `CONTROL_ID.OutputDataActualBits` into a separate `_adcBitDepth`
+      field (guarded no-regression). Once merged + on NuGet, TianWen's `1.0.*` pin auto-picks it (no re-pin)
+      and `AdcDepth` is correct for QHY with no changes here. **Still open:** (1) merge + release the sibling
+      (`/release-lib QHYCCD.SDK`), gated on PR #96 landing first (one-PR-in-flight); (2) **hardware-verify on
+      a real QHY294** whether the SDK delivers native LSB-aligned data (max ~16383) as assumed, or
+      MSB-aligned/left-shifted (max ~65532) — `OutputDataAlignment` is the hook, deliberately not acted on
+      without hardware (a wrong guess over-scales → clips highlights). ZWO needs nothing
+      (`ASI_CAMERA_INFO.BitDepth` is the true ADC depth, e.g. 14 for ASI533).
 
 ## Cover / Calibrator (`ICoverDriver`)
 
