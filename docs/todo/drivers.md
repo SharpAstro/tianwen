@@ -5,6 +5,18 @@ Part of the TianWen TODO set. See [TODO.md](../../TODO.md) for the index and the
 ## Camera / ICameraDriver
 
 - [ ] Consider using external temp sensor if no heatsink temp is available (`ICameraDriver.cs:314`)
+- [ ] **QHY native ADC bits: query `OutputDataActualBits`/`OutputDataAlignment` in QHYCCD.SDK.**
+      `QHYCCD_CAMERA_INFO.BitDepth` reports `GetQHYCCDChipInfo`'s `bpp` = the TRANSFER/container bits
+      (8/16), not the ADC resolution — so `DALCameraDriver.AdcDepth` for QHY resolves to 16 bits and
+      `MaxADU`/`ImageMeta.SensorFullScaleAdu` stamp 65535 (numerically the same as the pre-`AdcResolution`
+      fallback, so no regression, but wrong-high for e.g. the 14-bit QHY294 / 12-bit PROC mode if the SDK
+      delivers low-aligned native values). The wrapper's `CONTROL_ID` enum already declares the two
+      controls that resolve this properly (`OutputDataActualBits` = true ADC bits,
+      `OutputDataAlignment` = low/high alignment in the container; `QHYCamera.cs:630-631`) but nothing
+      queries them. Fix in the `../QHYCCD.SDK` sibling (populate native bits + alignment on `Open`),
+      then TianWen's `AdcDepth` is correct for QHY with no changes here. Sibling NuGet release dance
+      (`/release-lib QHYCCD.SDK`); verify against real QHY294 hardware which alignment the SDK actually
+      delivers. ZWO needs nothing (`ASI_CAMERA_INFO.BitDepth` is the true ADC depth, e.g. 14 for ASI533).
 
 ## Cover / Calibrator (`ICoverDriver`)
 
