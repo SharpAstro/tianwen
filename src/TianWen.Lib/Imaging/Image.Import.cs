@@ -212,6 +212,28 @@ public partial class Image
         try
         {
             var bytes = File.ReadAllBytes(fileName);
+            return TryDecodeRaster(bytes, out image);
+        }
+        catch
+        {
+            image = null;
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Decode an in-memory raster buffer (PNG / JPEG / JPEG XR / OpenEXR / JPEG XL) the
+    /// <c>SharpAstro.Codecs</c> facade recognises into a mono or RGB float <see cref="Image"/>,
+    /// normalised to [0, 1]. The byte-buffer core of <see cref="TryReadViaCodecs"/> (which reads a
+    /// file then delegates here). The Canon Live View path decodes each EVF JPEG frame straight from
+    /// the SDK <c>byte[]</c> through this — a per-frame temp-file round-trip would dominate a
+    /// 15-30 fps stream. A camera-processed EVF JPEG is demosaiced RGB, so it decodes to a
+    /// 3-channel <see cref="Image"/> the live-stack pipeline consumes as a colour master.
+    /// </summary>
+    internal static bool TryDecodeRaster(byte[] bytes, [NotNullWhen(true)] out Image? image)
+    {
+        try
+        {
             if (!ImageCodecs.TryDecode(bytes, out var decoded))
             {
                 image = null;

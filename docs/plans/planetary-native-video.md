@@ -254,6 +254,18 @@ publish latency.
 
 # Phase E -- Canon Live View (JPEG)
 
+> **Status (2026-07-16): E core SHIPPED; EVF-zoom-pan DEFERRED.** `CanonCameraDriver` implements
+> `IVideoCameraDriver` -- full-frame Live View streaming (EVF JPEG -> 3-channel [0,1] `Image` via the new
+> in-memory `Image.TryDecodeRaster`, no temp-file round-trip), single-stream gate + mutual exclusion with the
+> single-shot CR2 path, and ISO live-tuning. Shipped as a **pure TianWen commit** against the already-published
+> FC.SDK 1.4. `CanJogRoi` is **false** (recenter falls back to mount jog, which `PlanetaryRecenterController`
+> already handles). **The 5x/10x EVF-zoom planetary regime (E.3) is deferred**: the plan below claimed it was
+> reachable via the generic property accessors with no SDK release, but that is only true for the zoom *level*
+> (`Evf_Zoom`, a `uint`). The pannable crop actuator `Evf_ZoomPosition` (0x508) and the `Evf_ZoomRect` (0x541)
+> read that `VideoRoi` needs are **POINT/RECT** properties (8+ bytes), and FC.SDK exposes only a `uint32`
+> property accessor -- so EVF-zoom-pan needs an **FC.SDK point/rect property accessor** (a 1.4 -> 1.5 release),
+> not a single in-tree commit. Follow-up tracked below and in `docs/todo/drivers.md`.
+
 Canon EOS bodies stream a live host feed only one way through FC.SDK: **Live View (EVF) JPEG**. That feed has
 two regimes -- full-frame (downscaled, framing quality) and **5x/10x zoom** (a near-1:1-pixel crop of a small
 region). The zoom regime is the real planetary mode for a DSLR and is what this phase targets (E.3); the
@@ -321,9 +333,17 @@ This is the heart of Phase E for planets. Setting `Evf_Zoom` (`0x507`, `EdsPrope
 makes the Live View feed a **near-1:1-pixel magnified crop** of a small sensor region -- exactly what DSLR
 planetary shooters use for Jupiter / Saturn. `Evf_ZoomPosition` (`0x508`, `:60`) / `Evf_ZoomRect` (`0x541`,
 `:70`) move that crop across the sensor; `CanonZoom` (PTP op `0x9158`, `PtpOperationCode.cs:47`) is the
-underlying operation. All three exist as property IDs / op codes but have **no typed wrappers** on
-`CanonCamera` today -- they are reachable via the generic `GetPropertyAsync`/`SetPropertyAsync`, so Phase E
-adds thin `SetEvfZoomAsync` / `SetEvfZoomPositionAsync` helpers (or drives the generics directly).
+underlying operation.
+
+**Correction (why this needs an FC.SDK release, not a single in-tree commit):** only the zoom *level*
+`Evf_Zoom` is a plain `uint` reachable via the generic `SetPropertyAsync`. `Evf_ZoomPosition` (the actual
+pan actuator) is an `EdsPoint` (two int32s) and `Evf_ZoomRect` is an `EdsRect` -- 8+ byte payloads. FC.SDK's
+only generic accessor is `GetPropertyUInt32Async` / the 4-byte `SetPropValue` (verified in
+`CanonPtpSession.cs`), which reads/writes just the first uint32, so it cannot round-trip a point/rect. So the
+deferred EVF-zoom-pan work is: (1) **FC.SDK 1.5** -- add typed `SetEvfZoomAsync` + `SetEvfZoomPositionAsync`
+(byte[]-payload `SetPropValue`, mirroring the existing `SetCustomFunctionBlockAsync`) and an `Evf_ZoomRect`
+read; wait for NuGet; then (2) TianWen -- set the zoom in `CaptureVideoAsync`, wire `JogRoiAsync` ->
+`SetEvfZoomPositionAsync`, report the zoom rect from `VideoRoi`, flip `CanJogRoi` to true when zoomed.
 
 Because the zoom crop is pannable, it **is** the Canon ROI jog:
 - **`CanJogRoi` -> true** (when zoomed). `JogRoiAsync(dx, dy)` writes a new `Evf_ZoomPosition` -- the same
@@ -394,7 +414,8 @@ proven end to end.
 
 | Phase | Scope | SDK/DAL release? | Risk |
 |---|---|:--:|:--:|
-| E | `CanonCameraDriver : IVideoCameraDriver` via FC.SDK Live View + EVF zoom (JPEG) | no | Low |
+| E core (**DONE**) | `CanonCameraDriver : IVideoCameraDriver` full-frame Live View (JPEG); `CanJogRoi=false` | no | Low |
+| E zoom-pan (deferred) | 5x/10x EVF zoom + `Evf_ZoomPosition` ROI jog + `Evf_ZoomRect` `VideoRoi` | yes (FC.SDK 1.5 point/rect accessor -> TianWen) | Medium |
 | D | `ICMOSNativeInterface` video verbs + ZWO/QHY native + `DALCameraDriver : IVideoCameraDriver` | yes (DAL -> 2 SDKs -> TianWen) | High |
 
 # Docs to ship with the feature
