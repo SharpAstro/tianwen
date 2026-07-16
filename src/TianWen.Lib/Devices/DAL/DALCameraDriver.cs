@@ -319,9 +319,14 @@ internal abstract class DALCameraDriver<TDevice, TDeviceInfo> : DALDeviceDriverB
                 return bitSize switch
                 {
                     8 => byte.MaxValue,
-                    // Native ADC resolution (e.g. 14-bit for the ASI533MC Pro) determines the true
-                    // saturation point, not the 16-bit container the pixels are stored in.
-                    16 => AdcDepth is { } adcDepth ? (int)adcDepth.FullScaleAdu : ushort.MaxValue,
+                    // Native ADC full-scale (16383 for the 14-bit ASI533MC Pro): the vendor SDK hands
+                    // TianWen native-scale values -- TianWen does NOT left-shift them into the 16-bit
+                    // container on capture. (N.I.N.A.'s FITS files from the same cameras span [0, 65532]
+                    // only because N.I.N.A. multiplies on recording; do not infer the SDK's delivered
+                    // scale from N.I.N.A. files -- for those, the container full-scale
+                    // BitDepthEx.UnsignedFullScale is the right divisor, see the dataset builder.)
+                    // Bits <= 16 also guards the (int) cast against a nonsense >16-bit ADC report.
+                    16 => AdcDepth is { Bits: <= 16 } adcDepth ? (int)adcDepth.FullScaleAdu : ushort.MaxValue,
                     _ => int.MinValue
                 };
             }

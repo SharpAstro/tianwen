@@ -17,7 +17,10 @@ public partial class Image
             return Task.FromResult(normalizeToUnit ? ScaleFloatValuesToUnitInPlace() : this);
         }
 
-        var scale = normalizeToUnit && MaxValue > 1.0f ? 1.0f / MaxValue : 1.0f;
+        // Canonical divisor (sensor full-scale when known, else observed peak) -- keeps the Bayer
+        // normalisation consistent with ScaleFloatValuesToUnit(InPlace), which the mono path above
+        // already delegates to.
+        var scale = normalizeToUnit && MaxValue > 1.0f ? 1.0f / UnitScaleDivisor : 1.0f;
 
         return debayerAlgorithm switch
         {
@@ -112,7 +115,7 @@ public partial class Image
         if (imageMeta.SensorType is SensorType.Monochrome or SensorType.Color)
         {
             // Copy (+ normalize) into destination channels
-            var scale = normalizeToUnit && MaxValue > 1.0f + float.Epsilon ? 1.0f / MaxValue : 1.0f;
+            var scale = normalizeToUnit && MaxValue > 1.0f + float.Epsilon ? 1.0f / UnitScaleDivisor : 1.0f;
             for (var c = 0; c < Math.Min(ChannelCount, destination.Length); c++)
             {
                 var src = GetChannelSpan(c);
@@ -127,15 +130,14 @@ public partial class Image
                 }
             }
 
-            var normalized = scale < 1.0f;
             return new Image(destArrays, BitDepth.Float32,
-                normalized ? 1.0f : MaxValue,
-                normalized ? MinValue / MaxValue : MinValue,
-                normalized ? pedestal / MaxValue : pedestal,
-                imageMeta);
+                MaxValue * scale,
+                MinValue * scale,
+                pedestal * scale,
+                RescaleMeta(scale));
         }
 
-        var s = normalizeToUnit && MaxValue > 1.0f ? 1.0f / MaxValue : 1.0f;
+        var s = normalizeToUnit && MaxValue > 1.0f ? 1.0f / UnitScaleDivisor : 1.0f;
 
         return debayerAlgorithm switch
         {
@@ -194,12 +196,11 @@ public partial class Image
         // last pixel
         dstChannel[h1, w1] = (float)(0.25d * s * ((double)srcChannel[h1, w1] + srcChannel[h1 - 1, w1 - 1] + srcChannel[h1, w1 - 1] + srcChannel[h1 - 1, w1]));
 
-        var normalized = scale < 1.0f;
         return new Image(debayered, BitDepth.Float32,
-            normalized ? 1.0f : MaxValue,
-            normalized ? MinValue / MaxValue : MinValue,
-            normalized ? pedestal / MaxValue : pedestal,
-            imageMeta with
+            MaxValue * scale,
+            MinValue * scale,
+            pedestal * scale,
+            RescaleMeta(scale) with
             {
                 SensorType = SensorType.Monochrome,
                 BayerOffsetX = 0,
@@ -276,12 +277,11 @@ public partial class Image
             }
         });
 
-        var normalized = scale < 1.0f;
         return new Image(debayered, BitDepth.Float32,
-            normalized ? 1.0f : MaxValue,
-            normalized ? MinValue / MaxValue : MinValue,
-            normalized ? pedestal / MaxValue : pedestal,
-            imageMeta with
+            MaxValue * scale,
+            MinValue * scale,
+            pedestal * scale,
+            RescaleMeta(scale) with
             {
                 SensorType = SensorType.Color,
                 BayerOffsetX = 0,
@@ -421,12 +421,11 @@ public partial class Image
         // Process edge pixels with simpler bilinear interpolation (not parallelized - small portion)
         ProcessEdgePixels(debayered, width, height, radius, bayerPattern, scale);
 
-        var normalized = scale < 1.0f;
         return new Image(debayered, BitDepth.Float32,
-            normalized ? 1.0f : MaxValue,
-            normalized ? MinValue / MaxValue : MinValue,
-            normalized ? pedestal / MaxValue : pedestal,
-            imageMeta with
+            MaxValue * scale,
+            MinValue * scale,
+            pedestal * scale,
+            RescaleMeta(scale) with
             {
                 SensorType = SensorType.Color,
                 BayerOffsetX = 0,
@@ -990,12 +989,11 @@ public partial class Image
             }
         });
 
-        var normalized = scale < 1.0f;
         return new Image(filtered, BitDepth.Float32,
-            normalized ? 1.0f : MaxValue,
-            normalized ? MinValue / MaxValue : MinValue,
-            normalized ? pedestal / MaxValue : pedestal,
-            imageMeta with
+            MaxValue * scale,
+            MinValue * scale,
+            pedestal * scale,
+            RescaleMeta(scale) with
             {
                 SensorType = SensorType.Color,
                 BayerOffsetX = 0,

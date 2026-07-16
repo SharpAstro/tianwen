@@ -1038,22 +1038,33 @@ Camera → `ChannelBuffer` → `Image` → consumer → `image.Release()` → ca
 - **`Channel.MaxValue`/`Image.MaxValue` is the peak pixel actually OBSERVED in that specific frame**
   (rescanned per capture by `DALCameraDriver.DownloadImage`, ASCOM's `Channel.FromWxHImageData`,
   Alpaca's `AlpacaImageBytes.DecodeChannel`) — it intentionally varies frame to frame with scene
-  brightness/seeing/hot pixels. It is **NOT** the sensor's fixed ADC full-scale (2^14-1 for a 14-bit
-  sensor like the ASI533MC Pro, distinct again from the FITS/BITPIX container width — see
-  `AdcResolution` + `BitDepthEx.UnsignedFullScale`'s doc comment). The fixed value travels separately
-  as the optional `ImageMeta.SensorFullScaleAdu`, populated once at the `ICameraDriver.GetImageAsync`
-  choke point from `ICameraDriver.MaxADU`, null for anything without live camera-driver provenance
-  (file imports, calibration masters, stacking output).
-  **`Image.ScaleFloatValuesToUnit(InPlace)` prefers `SensorFullScaleAdu` over `MaxValue` as the
-  normalisation divisor when it's known** (clamped to never go below the observed peak, so a hot
-  pixel/calibration artifact above nominal full-scale can't push the result above 1.0) — an
-  under-exposed live capture then correctly lands below 1.0 instead of always stretching its own peak
-  to exactly 1.0, and every downstream consumer of `Image.MaxValue` (`Image.Histogram`, the stretch
-  pipeline, `AstroImageDocument.AdoptImageAsync`, the planetary live-stack accumulator
-  `Planetary.LiveCameraFrameStream.DeepCopy`) sees the ACCURATE post-scale max because both methods
-  stamp `MaxValue * invMax` on the result — never a hardcoded `1.0f` (that hardcoding was the original
-  bug: it was only valid back when the divisor was always the observed peak itself). A source without
-  `SensorFullScaleAdu` (file imports, ...) falls back to the prior observed-peak behaviour unchanged.
+  brightness/seeing/hot pixels. It is **NOT** the sensor's saturation level. That fixed value travels
+  separately as the optional `ImageMeta.SensorFullScaleAdu`, populated (a) at the
+  `ICameraDriver.GetImageAsync` choke point from `ICameraDriver.MaxADU` for live captures, and (b) from
+  a FITS `SATURATE` card on read (the astrometry.net/SExtractor/PixInsight convention; TianWen writes
+  it back out, so it round-trips — but neither N.I.N.A. nor SharpCap emits it, verified empirically).
+  Null when neither source applies (most file imports, calibration masters, stacking output).
+  **Two "full scale" numbers exist and must not be conflated:** (1) the FITS/BITPIX *container*
+  width (`BitDepth`, `BitDepthEx.UnsignedFullScale` = 65535 for Int16) — the right divisor for
+  **N.I.N.A.-recorded files**, because *N.I.N.A. multiplies the native ADC output on recording*
+  (its ASI533 lights span [0, 65532], 100% of values divisible by 4 — that combing is N.I.N.A.'s
+  recording-time scaling, NOT SDK behaviour; never infer the SDK's delivered scale from third-party
+  capture files); (2) the *native ADC* resolution (`AdcResolution`, 2^14−1 = 16383 for the ASI533MC
+  Pro) — **the scale the vendor SDK actually hands TianWen, which does NOT left-shift on capture**,
+  so `DALCameraDriver.MaxADU`/`SensorFullScaleAdu` report the native value for live TW captures.
+  A native ADC depth (10/12/14-bit) is never a valid `BitDepth` member — routing it through
+  `BitDepthEx.FromValue` silently falls back to the container width (the original bug).
+  **`Image.UnitScaleDivisor` is the single source of truth for [0,1] normalisation** —
+  `SensorFullScaleAdu` when known (clamped to never go below the observed peak, so a hot pixel above
+  nominal full-scale can't map above 1.0), else `MaxValue`. Used by `ScaleFloatValuesToUnit(InPlace)`
+  AND the TIFF export; a private `1/MaxValue` in any normalisation path diverges the moment
+  `SensorFullScaleAdu` is present (`TiffRoundTripTests` is the regression guard — the
+  `PlateSolveTestFile` fixture genuinely carries `SATURATE = 255`). `SensorFullScaleAdu` rescales
+  with the pixels through every rescale (`Image.RescaleMeta`, like `Pedestal`), so after
+  normalisation it reads 1.0 and a written SATURATE stays unit-consistent with the stored data; the
+  post-scale `MaxValue` stamp is `MaxValue * invMax` — never a hardcoded `1.0f` (an under-exposed
+  live frame correctly lands below 1.0). A source without `SensorFullScaleAdu` falls back to the
+  prior observed-peak behaviour unchanged.
 
 ### Image Mutability — Almost-Immutable with In-Place Escape Hatches
 

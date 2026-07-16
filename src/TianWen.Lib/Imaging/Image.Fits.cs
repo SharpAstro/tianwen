@@ -224,6 +224,11 @@ public partial class Image
         var camOffset = ReadIntegerLikeCard(hdu.Header, "OFFSET") ?? ReadIntegerLikeCard(hdu.Header, "BLKLEVEL") ?? ReadIntegerLikeCard(hdu.Header, "CAMOFFS") ?? -1;
         var setCCDTemp = hdu.Header.GetFloatValue("SET-TEMP", float.NaN);
         var egain = hdu.Header.GetFloatValue("EGAIN", float.NaN);
+        // SATURATE (astrometry.net / SExtractor / PixInsight convention): the ADU level at which the
+        // sensor saturates, in the same units as the stored pixel data -> maps directly onto
+        // ImageMeta.SensorFullScaleAdu. Written by TianWen itself (round-trip) and some third-party
+        // tools; neither N.I.N.A. nor SharpCap emits it. NaN > 0 is false, so absent -> null.
+        var saturate = hdu.Header.GetFloatValue("SATURATE", float.NaN);
         var swCreator = hdu.Header.GetStringValue("SWCREATE") ?? "";
         // PIERSIDE: N.I.N.A. + most modern capture software write a string ("East"
         // / "West" / "pierEast" / "pierWest"). ASCOM also defines numeric variants
@@ -261,7 +266,8 @@ public partial class Image
             SensorModel: sensorModel,
             TargetRA: targetRa,
             TargetDec: targetDec,
-            PierSide: pierSide
+            PierSide: pierSide,
+            SensorFullScaleAdu: saturate > 0 ? saturate : null
         )
         { IsMaster = isMaster };
     }
@@ -396,6 +402,9 @@ public partial class Image
         var camOffset = ReadIntegerLikeCard(hdu.Header, "OFFSET") ?? ReadIntegerLikeCard(hdu.Header, "BLKLEVEL") ?? ReadIntegerLikeCard(hdu.Header, "CAMOFFS") ?? -1;
         var setCCDTemp = hdu.Header.GetFloatValue("SET-TEMP", float.NaN);
         var egain = hdu.Header.GetFloatValue("EGAIN", float.NaN);
+        // SATURATE: saturation level in stored-pixel units -> ImageMeta.SensorFullScaleAdu (see the
+        // twin comment in ReadImageMetaFromFitsHeader above).
+        var saturate = hdu.Header.GetFloatValue("SATURATE", float.NaN);
         var swCreator = hdu.Header.GetStringValue("SWCREATE") ?? "";
         var pierSide = ParsePierSide(hdu.Header.GetStringValue("PIERSIDE"));
 
@@ -504,7 +513,8 @@ public partial class Image
             SensorModel: sensorModel,
             TargetRA: targetRa,
             TargetDec: targetDec,
-            PierSide: pierSide
+            PierSide: pierSide,
+            SensorFullScaleAdu: saturate > 0 ? saturate : null
         )
         { IsMaster = isMaster };
         image = new Image(imgChannels, bitDepth, maxValue, minValue, pedestal, imageMeta);
@@ -692,6 +702,14 @@ public partial class Image
             AddHeaderValueIfHasValue("OFFSET", imageMeta.Offset, "camera offset");
         }
         AddHeaderValueIfHasValue("EGAIN", imageMeta.ElectronsPerADU, "e-/ADU");
+        // SATURATE (astrometry.net / SExtractor / PixInsight convention): saturation level in the
+        // same units as the stored pixel data. Round-trips ImageMeta.SensorFullScaleAdu; also lets
+        // third-party tools reject saturated stars. DATAMAX above stays the OBSERVED frame peak --
+        // the two are deliberately different keywords for deliberately different concepts.
+        if (imageMeta.SensorFullScaleAdu is { } fullScaleAdu and > 0)
+        {
+            AddHeaderValueIfHasValue("SATURATE", fullScaleAdu, "[adu] saturation level (sensor full scale)");
+        }
         AddHeaderValueIfHasValue("BAYOFFX", imageMeta.BayerOffsetX, "");
         AddHeaderValueIfHasValue("BAYOFFY", imageMeta.BayerOffsetY, "");
         AddHeaderValueIfHasValue("SITELAT", imageMeta.Latitude, "degrees");

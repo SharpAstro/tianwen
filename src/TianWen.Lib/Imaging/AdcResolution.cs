@@ -10,9 +10,13 @@ namespace TianWen.Lib.Imaging;
 /// while a camera's true saturation point is set by its ADC, which almost never matches one of those
 /// widths (10/12/14/16/18-bit are the common real values). A 14-bit sensor's pixels still land in a
 /// 16-bit (Int16) container, but normalising by the container's full scale (65535) instead of the
-/// ADC's (16383) silently overstates the sensor's dynamic range. Keeping this as a distinct type --
-/// rather than an int that also happens to be called "bit depth" -- stops the two concepts being
-/// passed to each other by accident.
+/// ADC's (16383) silently overstates the sensor's dynamic range. This does NOT contradict
+/// <see cref="BitDepthEx.UnsignedFullScale"/>'s "N.I.N.A. left-aligns into the container" note: the
+/// vendor SDK hands TianWen NATIVE-scale values and TianWen never left-shifts on capture -- it is
+/// N.I.N.A. that multiplies at recording time, so the container full-scale applies to
+/// N.I.N.A.-written FILES while this native full-scale applies to live TianWen captures. Keeping
+/// this as a distinct type -- rather than an int that also happens to be called "bit depth" --
+/// stops the two concepts being passed to each other by accident.
 /// </summary>
 public readonly record struct AdcResolution(int Bits)
 {

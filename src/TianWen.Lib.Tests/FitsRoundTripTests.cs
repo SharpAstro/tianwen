@@ -138,7 +138,8 @@ public class FitsRoundTripTests(ITestOutputHelper testOutput)
             TargetRA: 5.5883,
             TargetDec: -5.3911,
             ElectronsPerADU: 1.2f,
-            SWCreator: "TianWen"
+            SWCreator: "TianWen",
+            SensorFullScaleAdu: 16383f // native 14-bit ADC full-scale (SATURATE round-trip)
         );
 
         var image = new Image(
@@ -189,6 +190,9 @@ public class FitsRoundTripTests(ITestOutputHelper testOutput)
         rt.SetCCDTemperature.ShouldBe(-15.0f, 0.1f);
         rt.ElectronsPerADU.ShouldBe(1.2f, 0.01f);
         rt.SWCreator.ShouldBe("TianWen");
+        // SATURATE round-trip: native 14-bit sensor full-scale
+        rt.SensorFullScaleAdu.ShouldNotBeNull();
+        rt.SensorFullScaleAdu.Value.ShouldBe(16383f, 0.5f);
 
         // DerivedPixelScale should be consistent
         rt.DerivedPixelScale.ShouldBe(imageMeta.DerivedPixelScale, 0.001);
