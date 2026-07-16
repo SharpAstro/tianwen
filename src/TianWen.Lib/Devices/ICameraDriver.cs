@@ -346,11 +346,9 @@ public interface ICameraDriver : IDeviceDriver
                 ElectronsPerADU: egain,
                 SWCreator: External.SWCreator,
                 Aperture: Aperture ?? -1,
-                SensorModel: SensorModelName ?? ""
+                SensorModel: SensorModelName ?? "",
+                SensorFullScaleAdu: sensorFullScaleAdu
             )
-            {
-                SensorFullScaleAdu = sensorFullScaleAdu
-            }
         );
 
         // Ownership of the channel buffer transferred to the consumer (no AddRef — the camera's
