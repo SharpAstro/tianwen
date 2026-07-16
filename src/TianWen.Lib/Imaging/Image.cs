@@ -376,7 +376,12 @@ public partial class Image(ImmutableArray<Channel> channels, BitDepth bitDepth, 
     }
 
     /// <summary>
-    /// Divides image by <see cref="MaxValue"/>, thus scaling the floating-point values to a maximum of 1.0.
+    /// Divides image by the sensor's fixed ADU full-scale when known (<see cref="ImageMeta.SensorFullScaleAdu"/>),
+    /// otherwise by <see cref="MaxValue"/> -- scaling the floating-point values into <c>[0, 1]</c>. A live
+    /// camera capture normalises against its sensor's true saturation point rather than its own observed
+    /// peak, so an under-exposed frame correctly lands below 1.0 instead of always stretching its own max
+    /// to exactly 1.0; a source without that metadata (file imports, calibration masters, ...) falls back
+    /// to the prior observed-peak behaviour unchanged.
     /// </summary>
     /// <param name="missingValue">Use this value for missing pixels</param>
     /// <returns></returns>
@@ -390,7 +395,11 @@ public partial class Image(ImmutableArray<Channel> channels, BitDepth bitDepth, 
 
         var (channelCount, width, height) = Shape;
         var normalized = CreateChannelData(channelCount, height, width);
-        var invMax = 1.0f / MaxValue;
+        // Never let the divisor be smaller than the observed peak -- a hot pixel or calibration
+        // artifact occasionally reads above the nominal full-scale, and dividing by less than the
+        // true max would push the result above 1.0.
+        var fullScale = imageMeta.SensorFullScaleAdu is { } adu ? MathF.Max(adu, MaxValue) : MaxValue;
+        var invMax = 1.0f / fullScale;
 
         for (var c = 0; c < channelCount; c++)
         {
@@ -399,11 +408,12 @@ public partial class Image(ImmutableArray<Channel> channels, BitDepth bitDepth, 
             MultiplyScalar(src, invMax, dst);
         }
 
-        return new Image(normalized, BitDepth.Float32, 1.0f, MinValue / MaxValue, pedestal / MaxValue, imageMeta);
+        return new Image(normalized, BitDepth.Float32, MaxValue * invMax, MinValue * invMax, pedestal * invMax, imageMeta);
     }
 
     /// <summary>
-    /// In-place version of <see cref="ScaleFloatValuesToUnit"/>: divides all pixel values by <see cref="MaxValue"/>,
+    /// In-place version of <see cref="ScaleFloatValuesToUnit"/>: divides all pixel values by the sensor's
+    /// fixed ADU full-scale when known, otherwise by <see cref="MaxValue"/> (see <see cref="ScaleFloatValuesToUnit"/>),
     /// mutating the underlying channel arrays. Returns a new <see cref="Image"/> wrapping the same arrays.
     /// </summary>
     /// <remarks>Internal only — callers must ensure the source image is not retained elsewhere.</remarks>
@@ -414,7 +424,8 @@ public partial class Image(ImmutableArray<Channel> channels, BitDepth bitDepth, 
             return this;
         }
 
-        var invMax = 1.0f / MaxValue;
+        var fullScale = imageMeta.SensorFullScaleAdu is { } adu ? MathF.Max(adu, MaxValue) : MaxValue;
+        var invMax = 1.0f / fullScale;
 
         for (var c = 0; c < ChannelCount; c++)
         {
@@ -433,12 +444,12 @@ public partial class Image(ImmutableArray<Channel> channels, BitDepth bitDepth, 
         {
             rescaled.Add(channel with
             {
-                MinValue = channel.MinValue / MaxValue,
-                MaxValue = channel.MaxValue / MaxValue,
+                MinValue = channel.MinValue * invMax,
+                MaxValue = channel.MaxValue * invMax,
                 Buffer = null,
             });
         }
 
-        return new Image(rescaled.MoveToImmutable(), BitDepth.Float32, pedestal / MaxValue, imageMeta);
+        return new Image(rescaled.MoveToImmutable(), BitDepth.Float32, pedestal * invMax, imageMeta);
     }
 }
