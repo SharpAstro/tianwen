@@ -308,7 +308,32 @@ internal class AscomCameraDriver : AscomDeviceDriverBase, ICameraDriver
         _imageData = null;
     }
 
-    public int MaxADU => Connected ? SafeGet(() => _camera.MaxADU, 0) : throw new InvalidOperationException("Camera is not connected");
+    /// <summary>
+    /// The camera's reported full-scale ADU, with the SharpCap-ported QHYCCD correction applied AT THE
+    /// SOURCE: the ASCOM QHYCCD driver misreports MaxADU as 255 on 16-bit cameras while carrying the
+    /// true ADU ceiling in <see cref="FullWellCapacity"/>. Correcting here (rather than locally inside
+    /// <see cref="GetBitDepthAsync"/>, where the hack originally lived) means EVERY consumer sees the
+    /// corrected value -- bit-depth derivation and the <c>ImageMeta.SensorFullScaleAdu</c> stamp in
+    /// <see cref="ICameraDriver.GetImageAsync"/> alike.
+    /// </summary>
+    public int MaxADU
+    {
+        get
+        {
+            if (!Connected)
+            {
+                throw new InvalidOperationException("Camera is not connected");
+            }
+            var maxADU = SafeGet(() => _camera.MaxADU, 0);
+            if (maxADU == byte.MaxValue
+                && FullWellCapacity is var fullWell && !double.IsNaN(fullWell) && maxADU < fullWell
+                && Name.Contains("QHYCCD", StringComparison.OrdinalIgnoreCase))
+            {
+                return (int)fullWell;
+            }
+            return maxADU;
+        }
+    }
 
     public double FullWellCapacity => SafeGet(() => _camera.FullWellCapacity, double.NaN);
 
@@ -323,15 +348,11 @@ internal class AscomCameraDriver : AscomDeviceDriverBase, ICameraDriver
 
     public ValueTask<BitDepth?> GetBitDepthAsync(CancellationToken cancellationToken = default)
     {
+        // MaxADU already carries the SharpCap-ported QHYCCD 255-misreport correction (see there).
         var maxADU = MaxADU;
         if (maxADU is <= 0 || double.IsNaN(FullWellCapacity))
         {
             return ValueTask.FromResult<BitDepth?>(null);
-        }
-
-        if (maxADU == byte.MaxValue && MaxADU < FullWellCapacity && Name.Contains("QHYCCD", StringComparison.OrdinalIgnoreCase))
-        {
-            maxADU = (int)FullWellCapacity;
         }
 
         int log2 = (int)MathF.Ceiling(MathF.Log(maxADU) / MathF.Log(2.0f));
