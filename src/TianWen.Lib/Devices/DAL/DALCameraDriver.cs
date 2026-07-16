@@ -49,7 +49,7 @@ internal abstract class DALCameraDriver<TDevice, TDeviceInfo> : DALDeviceDriverB
         DeviceConnectedEvent += DALCameraDriver_DeviceConnectedEvent;
     }
 
-    private int ADCBitDepth { get; set; } = int.MinValue;
+    private Imaging.AdcResolution? AdcDepth { get; set; }
 
     public bool CanGetCoolerPower { get; private set; }
 
@@ -319,8 +319,9 @@ internal abstract class DALCameraDriver<TDevice, TDeviceInfo> : DALDeviceDriverB
                 return bitSize switch
                 {
                     8 => byte.MaxValue,
-                    // return true ADC size if available
-                    16 => BitDepthEx.FromValue(ADCBitDepth) is { } adcBitDepth && adcBitDepth.MaxIntValue is { } maxADCBitDepth ? maxADCBitDepth : ushort.MaxValue,
+                    // Native ADC resolution (e.g. 14-bit for the ASI533MC Pro) determines the true
+                    // saturation point, not the 16-bit container the pixels are stored in.
+                    16 => AdcDepth is { } adcDepth ? (int)adcDepth.FullScaleAdu : ushort.MaxValue,
                     _ => int.MinValue
                 };
             }
@@ -493,7 +494,7 @@ internal abstract class DALCameraDriver<TDevice, TDeviceInfo> : DALDeviceDriverB
         _cameraSettings = new CameraSettings(0, 0, CameraXSize  = _deviceInfo.MaxWidth, CameraYSize = _deviceInfo.MaxHeight, 1, 1, highestPossibleBitDepth, false);
         PixelSizeX = PixelSizeY = _deviceInfo.PixelSize;
         ElectronsPerADU = _deviceInfo.ElectronPerADU is var elecPerADU and > 0f ? elecPerADU : double.NaN;
-        ADCBitDepth = _deviceInfo.BitDepth;
+        AdcDepth = _deviceInfo.BitDepth is > 0 and <= 32 ? new Imaging.AdcResolution(_deviceInfo.BitDepth) : null;
 
         CanFastReadout = _deviceInfo.TryGetControlRange(CMOSControlType.HighSpeedMode, out _, out _);
 

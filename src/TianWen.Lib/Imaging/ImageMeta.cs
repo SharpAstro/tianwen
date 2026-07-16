@@ -124,6 +124,19 @@ public record struct ImageMeta(
     public bool IsMaster { get; init; } = false;
 
     /// <summary>
+    /// The sensor's fixed ADC full-scale ADU (e.g. 16383 for a 14-bit CMOS sensor) at capture time --
+    /// DISTINCT from <see cref="Image.MaxValue"/> / <see cref="Channel.MaxValue"/>, which is the actual
+    /// peak pixel OBSERVED in this specific frame and varies frame to frame with scene brightness,
+    /// seeing, hot pixels, etc. Populated from <see cref="Devices.ICameraDriver.MaxADU"/> for live
+    /// camera captures; null when the sensor's true full-scale isn't known (file imports, calibration
+    /// masters, debayer/stacking output, ...). A consumer that needs a STABLE ADU-to-[0,1] conversion
+    /// across frames (e.g. the planetary live-stack accumulator, <see cref="Planetary.LiveCameraFrameStream"/>)
+    /// should use this instead of <see cref="Image.MaxValue"/>; a consumer that wants to auto-stretch a
+    /// single frame to its own dynamic range should keep using MaxValue.
+    /// </summary>
+    public float? SensorFullScaleAdu { get; init; } = null;
+
+    /// <summary>
     /// Pixel scale in arcsec/pixel, derived from pixel size and focal length.
     /// Returns NaN if either value is unavailable.
     /// </summary>

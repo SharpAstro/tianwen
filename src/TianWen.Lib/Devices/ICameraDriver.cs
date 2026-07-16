@@ -307,6 +307,8 @@ public interface ICameraDriver : IDeviceDriver
         var setCCDTemp = CanSetCCDTemperature ? (float)await Logger.CatchAsync(GetSetCCDTemperatureAsync, cancellationToken, double.NaN) : float.NaN;
         float egain;
         try { egain = (float)ElectronsPerADU; } catch { egain = float.NaN; }
+        float? sensorFullScaleAdu;
+        try { sensorFullScaleAdu = MaxADU is > 0 and var maxAdu ? maxAdu : null; } catch { sensorFullScaleAdu = null; }
 
         // Single typed hand-off: the driver's Channel travels whole (per-channel min/max, filter,
         // and — for buffer-recycling drivers — its ref-counted ChannelBuffer) into the Image,
@@ -346,6 +348,9 @@ public interface ICameraDriver : IDeviceDriver
                 Aperture: Aperture ?? -1,
                 SensorModel: SensorModelName ?? ""
             )
+            {
+                SensorFullScaleAdu = sensorFullScaleAdu
+            }
         );
 
         // Ownership of the channel buffer transferred to the consumer (no AddRef — the camera's

@@ -1637,7 +1637,16 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver, IV
             meta = new Imaging.ImageMeta { SensorType = Imaging.SensorType.Monochrome };
         }
 
-        return new Image([array], Imaging.BitDepth.Int16, maxValue: MaxADU, minValue: 0f, pedestal: 0f, meta);
+        // MaxValue is the peak pixel actually observed in this frame (mirrors what a real driver
+        // reports — see DALCameraDriver.DownloadImage), NOT the sensor's fixed ADC full-scale: bodyLevel
+        // is clamped well below 1.0 for a realistic short-exposure preview, so the true max is usually
+        // far under MaxADU. The fixed full-scale still travels separately via ImageMeta.SensorFullScaleAdu
+        // (mirrors ICameraDriver.GetImageAsync's wiring) so LiveCameraFrameStream.DeepCopy normalises the
+        // fake exactly the way it would a real ZWO/QHY/ASCOM/Alpaca capture.
+        var maxValue = 0f;
+        foreach (var v in array) maxValue = MathF.Max(maxValue, v);
+
+        return new Image([array], Imaging.BitDepth.Int16, maxValue, minValue: 0f, pedestal: 0f, meta with { SensorFullScaleAdu = MaxADU });
     }
 
     private static double NextGaussian(Random rng)
