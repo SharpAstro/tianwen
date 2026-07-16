@@ -19,6 +19,19 @@ Part of the TianWen TODO set. See [TODO.md](../../TODO.md) for the index and the
       MSB-aligned/left-shifted (max ~65532) — `OutputDataAlignment` is the hook, deliberately not acted on
       without hardware (a wrong guess over-scales → clips highlights). ZWO needs nothing
       (`ASI_CAMERA_INFO.BitDepth` is the true ADC depth, e.g. 14 for ASI533).
+- [~] **Canon Live View video: EVF-zoom planetary regime + host-side ROI jog (Phase E zoom-pan).** Phase E
+      *core* shipped 2026-07-16 (`CanonCameraDriver : IVideoCameraDriver`, full-frame EVF JPEG streaming,
+      `CanJogRoi=false` → recenter falls back to mount jog). The 5x/10x zoom crop — the DSLR planetary regime
+      and its pannable host-side ROI jog — is deferred because it needs an **FC.SDK 1.5** addition: the zoom
+      *level* `Evf_Zoom` (0x507) is a plain `uint` (reachable today via the generic accessor), but the pan
+      actuator `Evf_ZoomPosition` (0x508) is an `EdsPoint` and `Evf_ZoomRect` (0x541) an `EdsRect` (8+ byte
+      payloads), and FC.SDK exposes only `GetPropertyUInt32Async` / a 4-byte `SetPropValue`. Work: (1) FC.SDK
+      1.5 — typed `SetEvfZoomAsync` + `SetEvfZoomPositionAsync` (byte[]-payload `SetPropValue`, mirroring
+      `SetCustomFunctionBlockAsync`) + an `Evf_ZoomRect` read; wait for NuGet; (2) TianWen — set zoom in
+      `CaptureVideoAsync`, wire `JogRoiAsync` → `SetEvfZoomPositionAsync`, report the rect from `VideoRoi`,
+      flip `CanJogRoi` to true when zoomed. Per-body zoom-position units vary → verify on hardware (the Phase C
+      per-axis cap bounds a wrong guess to a small mis-pan). Detail:
+      [../plans/planetary-native-video.md](../plans/planetary-native-video.md) Phase E.
 
 ## Cover / Calibrator (`ICoverDriver`)
 

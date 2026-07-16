@@ -20,7 +20,7 @@ namespace TianWen.Lib.Devices.Canon;
 /// and <see cref="CanonCamera.BulbStartAsync"/>/<see cref="CanonCamera.BulbEndAsync"/> for longer exposures.
 /// Images are downloaded as CR2 and decoded via Magick.NET.
 /// </summary>
-internal sealed class CanonCameraDriver : ICameraDriver
+internal sealed class CanonCameraDriver : ICameraDriver, IVideoCameraDriver
 {
     /// <summary>Canon Tv codes for standard shutter speeds up to 30s.</summary>
     private static readonly (uint Code, TimeSpan Duration)[] TvTable =
@@ -152,6 +152,10 @@ internal sealed class CanonCameraDriver : ICameraDriver
     private bool _bulbActive;
     private TaskCompletionSource<uint>? _objectAddedTcs;
     private Task? _downloadTask;
+
+    // Live View (IVideoCameraDriver) single-stream gate: 0/1. Streaming and single-shot StartExposureAsync
+    // are mutually exclusive (the camera is in one mode), mirroring FakeCameraDriver's "stream OR expose" rule.
+    private int _videoActive;
 
     // Image state
     private Channel? _lastImageData;
@@ -502,6 +506,12 @@ internal sealed class CanonCameraDriver : ICameraDriver
             throw new InvalidOperationException("Camera not connected");
         }
 
+        if (Volatile.Read(ref _videoActive) == 1)
+        {
+            throw new InvalidOperationException(
+                "Cannot start a single-shot exposure while a Canon Live View video stream is running.");
+        }
+
         var startTime = TimeProvider.GetUtcNow();
         _lastExposureStartTime = startTime;
         _lastExposureDuration = duration;
@@ -698,6 +708,176 @@ internal sealed class CanonCameraDriver : ICameraDriver
         }
 
         return bestCode;
+    }
+
+    // ── Live View video (IVideoCameraDriver) ─────────────────────────────────────
+    // Canon EOS bodies stream a host feed only as Live View (EVF) JPEG: a camera-processed
+    // (demosaiced + white-balanced + tone-mapped) RGB frame, ~1024x680, at the EVF's own ~15-30 fps.
+    // We decode each frame straight from the SDK byte[] into a 3-channel [0,1] Image (Image.TryDecodeRaster,
+    // no temp-file round-trip) and yield it; the planetary live-stack pipeline consumes it as a colour master.
+    //
+    // Core (this build): full-frame framing / EAA streaming, mutually exclusive with single-shot capture.
+    // Deferred (needs an FC.SDK point/rect property accessor): the 5x/10x EVF-zoom planetary regime + its
+    // pannable zoom crop as the host-side ROI jog. Evf_Zoom (the magnification level) is a plain uint and is
+    // reachable today, but Evf_ZoomPosition (0x508) / Evf_ZoomRect (0x541) are POINT/RECT properties (8+ bytes)
+    // and FC.SDK only exposes a uint32 property accessor -- so CanJogRoi is false here and the recenter loop
+    // falls back to mount jog (PlanetaryRecenterController already degrades cleanly). EVF exposure is also
+    // EVF-auto, not a true integration time (ISO/gain tuning still works via ApplyVideoControlsAsync).
+
+    /// <summary>EVF poll cadence floor -- the feed runs at its own fps; we treat the requested exposure as a
+    /// poll interval clamped to this range so a large "exposure" can't stall the feed to one frame per minute.</summary>
+    private static readonly TimeSpan MinVideoPace = TimeSpan.FromMilliseconds(15);
+    private static readonly TimeSpan MaxVideoPace = TimeSpan.FromMilliseconds(500);
+
+    /// <inheritdoc/>
+    public bool CanVideoCapture => Connected;
+
+    /// <inheritdoc/>
+    // Canon EVF has no host-side ROI pan through the currently-published FC.SDK (see the region banner);
+    // the recenter loop falls back to mount jog. Promote to true once EVF-zoom-pan lands.
+    public bool CanJogRoi => false;
+
+    /// <inheritdoc/>
+    public int DroppedFrames => 0; // EVF has no drop counter.
+
+    /// <inheritdoc/>
+    // Full-frame window: without an FC.SDK zoom-rect read we can't report a magnified EVF crop's origin/size,
+    // and CanJogRoi is false so the recenter loop never reads this for panning. Sensor-sized default.
+    public RoiRect VideoRoi => new(0, 0, CameraXSize, CameraYSize);
+
+    /// <inheritdoc/>
+    public async IAsyncEnumerable<Image> CaptureVideoAsync(
+        VideoCaptureOptions options,
+        [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
+    {
+        if (_camera is not { } camera || !Connected)
+        {
+            throw new InvalidOperationException("Camera is not connected");
+        }
+
+        if (Interlocked.CompareExchange(ref _videoActive, 1, 0) != 0)
+        {
+            throw new InvalidOperationException("A video capture is already running on this camera.");
+        }
+
+        try
+        {
+            if (options.Gain is { } gain)
+            {
+                await SetGainAsync(gain, cancellationToken);
+            }
+
+            var startErr = await camera.StartLiveViewAsync(cancellationToken);
+            if (startErr is not EdsError.OK)
+            {
+                throw new CanonDriverException(startErr, "Failed to start Canon Live View");
+            }
+
+            // Requested exposure as a poll-cadence floor (EVF has no true integration time), clamped so a huge
+            // value can't stall the feed. Live-tunable exposure is not modelled on EVF; ISO is (ApplyVideoControls).
+            var pace = options.Exposure <= TimeSpan.Zero ? MinVideoPace
+                : options.Exposure < MinVideoPace ? MinVideoPace
+                : options.Exposure > MaxVideoPace ? MaxVideoPace
+                : options.Exposure;
+
+            while (!cancellationToken.IsCancellationRequested)
+            {
+                // Disconnect out from under an active stream (app shutdown) is a stop signal too.
+                if (!Connected)
+                {
+                    yield break;
+                }
+
+                // Fetch the next EVF JPEG. The await carries no yield, so its OCE is caught here and turned
+                // into a clean stop (yield return / yield break inside a try/catch is a compile error).
+                EdsError err = EdsError.OK;
+                byte[] jpeg = [];
+                var cancelled = false;
+                try
+                {
+                    (err, jpeg) = await camera.GetLiveViewFrameAsync(cancellationToken);
+                }
+                catch (OperationCanceledException)
+                {
+                    cancelled = true;
+                }
+                if (cancelled)
+                {
+                    yield break;
+                }
+
+                if (err is not EdsError.OK || jpeg.Length == 0)
+                {
+                    // EVF frame not ready yet (ObjectNotReady / DeviceBusy): brief back-off, keep streaming.
+                    if (await PaceAsync(MinVideoPace, cancellationToken))
+                    {
+                        yield break;
+                    }
+                    continue;
+                }
+
+                if (!Image.TryDecodeRaster(jpeg, out var frame))
+                {
+                    Logger.LogDebug("Canon EVF JPEG frame ({Bytes} bytes) failed to decode", jpeg.Length);
+                    if (await PaceAsync(MinVideoPace, cancellationToken))
+                    {
+                        yield break;
+                    }
+                    continue;
+                }
+
+                yield return frame;
+
+                if (await PaceAsync(pace, cancellationToken))
+                {
+                    yield break;
+                }
+            }
+        }
+        finally
+        {
+            // Best-effort stop on CancellationToken.None so the EVF is always torn down even on a cancelled stream.
+            try
+            {
+                await camera.StopLiveViewAsync(CancellationToken.None);
+            }
+            catch (Exception ex)
+            {
+                Logger.LogDebug(ex, "Canon Live View stop failed");
+            }
+            Interlocked.Exchange(ref _videoActive, 0);
+        }
+    }
+
+    /// <summary>Sleeps the poll interval; returns true if the wait was cancelled (the stream should stop).</summary>
+    private async ValueTask<bool> PaceAsync(TimeSpan interval, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await TimeProvider.SleepAsync(interval, cancellationToken);
+            return false;
+        }
+        catch (OperationCanceledException)
+        {
+            return true;
+        }
+    }
+
+    /// <inheritdoc/>
+    public ValueTask JogRoiAsync(int dxPixels, int dyPixels, CancellationToken cancellationToken = default)
+        => throw new InvalidOperationException(
+            "Canon Live View does not support host-side ROI jog (EVF zoom pan needs an FC.SDK point-property "
+            + "accessor); CanJogRoi is false and the recenter loop uses mount jog instead.");
+
+    /// <inheritdoc/>
+    public async ValueTask ApplyVideoControlsAsync(VideoCaptureOptions controls, CancellationToken cancellationToken = default)
+    {
+        // Live-tune the running stream. ISO (gain) is a real EVF control; exposure on EVF is auto (not a true
+        // integration time), so it is intentionally not applied -- see the region banner. No-op gain when null.
+        if (controls.Gain is { } gain)
+        {
+            await SetGainAsync(gain, cancellationToken);
+        }
     }
 
     // --- IDisposable ---

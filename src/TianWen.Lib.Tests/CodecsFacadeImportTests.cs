@@ -98,6 +98,61 @@ public class CodecsFacadeImportTests(ITestOutputHelper testOutput)
     }
 
     [Fact]
+    public void GivenRgb8RasterBytesWhenDecodedInMemoryThenThreeChannelUnitRangeImage()
+    {
+        // Pins the Canon Live View decode contract: the EVF path decodes each JPEG frame straight from the
+        // SDK byte[] via Image.TryDecodeRaster (no temp-file round-trip). Exercised losslessly with PNG here
+        // (format sniffing is SharpAstro.Codecs' job); a camera-processed frame is demosaiced RGB, so the
+        // decoded Image must be 3-channel and normalised to [0,1].
+        const int w = 8, h = 6;
+        var rgba = new byte[w * h * 4];
+        for (var y = 0; y < h; y++)
+        for (var x = 0; x < w; x++)
+        {
+            var i = (y * w + x) * 4;
+            rgba[i] = (byte)(x * 30);     // R ramps with x
+            rgba[i + 1] = (byte)(y * 40); // G ramps with y
+            rgba[i + 2] = 100;            // B constant
+            rgba[i + 3] = 255;            // A opaque, dropped on decode
+        }
+        var bytes = PngWriter.Encode(rgba, w, h);
+
+        // when — decoded from the in-memory buffer, NOT a file (the EVF-frame path)
+        var ok = Image.TryDecodeRaster(bytes, out var image);
+
+        // then
+        ok.ShouldBeTrue("an in-memory raster buffer should decode through the facade");
+        image.ShouldNotBeNull();
+        image.Width.ShouldBe(w);
+        image.Height.ShouldBe(h);
+        image.ChannelCount.ShouldBe(3); // alpha dropped -> colour master
+
+        var r = image.GetChannelSpan(0);
+        var g = image.GetChannelSpan(1);
+        var b = image.GetChannelSpan(2);
+        const float tol = 1f / 255f;
+        for (var y = 0; y < h; y++)
+        for (var x = 0; x < w; x++)
+        {
+            var p = y * w + x;
+            r[p].ShouldBeInRange(0f, 1f);
+            r[p].ShouldBe((x * 30) / 255f, tol);
+            g[p].ShouldBe((y * 40) / 255f, tol);
+            b[p].ShouldBe(100 / 255f, tol);
+        }
+        testOutput.WriteLine($"in-memory RGB raster decoded: {w}x{h}, 3 channels, [0,1]");
+    }
+
+    [Fact]
+    public void GivenGarbageBytesWhenDecodedInMemoryThenReturnsFalse()
+    {
+        // The EVF path relies on TryDecodeRaster failing softly (no throw) on a malformed frame so the
+        // capture loop can back off and keep streaming rather than tear down on one bad JPEG.
+        Image.TryDecodeRaster([0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07], out var image).ShouldBeFalse();
+        image.ShouldBeNull();
+    }
+
+    [Fact]
     public void GivenUndecodableContentWhenReadViaFacadeThenReturnsFalse()
     {
         // A .png the facade routes to but cannot sniff/decode returns false (no throw,

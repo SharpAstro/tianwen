@@ -909,6 +909,17 @@ A CPU-first planetary stacker, **completely separate** from the deep-sky `Imagin
   (Debug + WARN): live-control-applied, a capture heartbeat (every 250 frames), and per-stack start/done +
   duration with a long-running-stack WARN — the trail to diagnose a future stall (pair with the inspector
   `render_liveness` watchdog above).
+- **Concrete `IVideoCameraDriver` implementers.** `FakeCameraDriver` (synthetic drifting disk, full ROI-jog).
+  `CanonCameraDriver` (**Phase E core, shipped**): FC.SDK Live View (EVF) streaming — each EVF JPEG frame
+  decodes straight from the SDK `byte[]` via `Image.TryDecodeRaster` (the in-memory core of
+  `TryReadViaCodecs`, no temp-file round-trip) into a **3-channel [0,1] RGB `Image`** (EVF is camera-processed,
+  not raw CFA), single-stream gated + mutually exclusive with the single-shot CR2 path, ISO live-tunable via
+  `ApplyVideoControlsAsync`. `CanVideoCapture => Connected`; **`CanJogRoi => false`** — Canon EVF has no
+  host-side ROI pan through the published FC.SDK 1.4 (`Evf_ZoomPosition`/`Evf_ZoomRect` are POINT/RECT
+  properties but FC.SDK exposes only a `uint32` accessor), so the recenter loop falls back to mount jog. The
+  5x/10x EVF-zoom planetary regime + zoom-crop ROI-jog is **deferred** pending an FC.SDK 1.5 point/rect
+  property accessor (see [`docs/plans/planetary-native-video.md`](docs/plans/planetary-native-video.md)
+  Phase E). `DALCameraDriver` (ZWO/QHY native raw video) is Phase D — not yet implemented.
 - **COM recenter loop** (Phase C — hold the planet centred): `PlanetaryRecenterController.Decide` (pure, in
   `TianWen.Lib/Imaging/Planetary/`) takes the disk centre of mass + the readout-window geometry and returns a
   `RecenterDecision` — a **per-axis-deadband** (not distance — a big offset on one axis must not drag the other

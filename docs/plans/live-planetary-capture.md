@@ -59,7 +59,7 @@ seam, a controller + tab on top, and a recenter controller.
 | B | rapid-exposure fallback + Fake video (`SyntheticPlanetRenderer`) + `PlanetaryCaptureController` + 🪐 tab + signals | no | backend DONE; GUI tab remaining |
 | C | `PlanetaryRecenterController` (ROI auto + mount opt-in) + `JogMountSignal` + manual nudge | no | DONE 2026-06-28 |
 | D | native ZWO + QHY raw video (DAL `ICMOSNativeInterface` + ring buffer + ROI-jog bypass) | **yes (DAL -> 2 SDKs -> TianWen)** | TODO -- detailed plan: [planetary-native-video.md](planetary-native-video.md) |
-| E | Canon Live View `IVideoCameraDriver` (JPEG) via FC.SDK | no | TODO -- detailed plan: [planetary-native-video.md](planetary-native-video.md) |
+| E | Canon Live View `IVideoCameraDriver` (JPEG) via FC.SDK | core: no / zoom-pan: yes | **core DONE 2026-07-16** (full-frame stream, `CanJogRoi=false`); EVF-zoom-pan deferred (needs FC.SDK 1.5 point/rect accessor). Detail: [planetary-native-video.md](planetary-native-video.md) |
 
 > **Phases D + E are fleshed out in [`planetary-native-video.md`](planetary-native-video.md)** (the two
 > real-hardware phases behind the same `IVideoCameraDriver` contract; grounded in the actual sibling-SDK
