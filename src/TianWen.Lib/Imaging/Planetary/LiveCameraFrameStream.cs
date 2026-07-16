@@ -200,11 +200,9 @@ public sealed class LiveCameraFrameStream : IPlanetaryFrameStream
         // correctly reflecting how exposed it actually was).
         var bitDepth = scale == 1f ? src.BitDepth : BitDepth.Float32;
         var maxValue = src.MaxValue * scale;
-        // Keep SensorFullScaleAdu in the same units as the (rescaled) pixels, mirroring
-        // Image.RescaleMeta -- after a divide-by-full-scale it reads 1.0.
-        var meta = src.ImageMeta.SensorFullScaleAdu is { } srcAdu
-            ? src.ImageMeta with { SensorFullScaleAdu = srcAdu * scale }
-            : src.ImageMeta;
+        // Keep SensorFullScaleAdu in the same units as the (rescaled) pixels -- after a
+        // divide-by-full-scale it reads 1.0. Single implementation: ImageMeta.Rescale.
+        var meta = src.ImageMeta.Rescale(scale);
         return new Image(dst, bitDepth, maxValue, src.MinValue * scale, src.Pedestal * scale, meta);
     }
 

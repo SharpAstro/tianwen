@@ -134,6 +134,22 @@ public record struct ImageMeta(
     public bool IsMaster { get; init; } = false;
 
     /// <summary>
+    /// Rescales the scale-dependent metadata by the same factor applied to the pixel values, keeping
+    /// the invariant that <see cref="SensorFullScaleAdu"/> is always in the SAME units as the pixel
+    /// data (mirroring how <see cref="Image.Pedestal"/> travels through every rescale). After a
+    /// divide-by-full-scale normalisation it lands at 1.0 -- still meaningful: a pixel at 1.0 is
+    /// saturated, a frame peaking at 0.5 sits at half well. Single implementation shared by
+    /// <see cref="Image"/>'s rescale paths and <see cref="Planetary.LiveCameraFrameStream"/> --
+    /// a re-inlined copy at any consumer drifts the moment this logic changes.
+    /// </summary>
+    internal readonly ImageMeta Rescale(float pixelScaleFactor)
+    {
+        return SensorFullScaleAdu is { } adu
+            ? this with { SensorFullScaleAdu = adu * pixelScaleFactor }
+            : this;
+    }
+
+    /// <summary>
     /// Pixel scale in arcsec/pixel, derived from pixel size and focal length.
     /// Returns NaN if either value is unavailable.
     /// </summary>

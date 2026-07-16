@@ -426,17 +426,14 @@ public partial class Image(ImmutableArray<Channel> channels, BitDepth bitDepth, 
     internal float UnitScaleDivisor => imageMeta.SensorFullScaleAdu is { } adu ? MathF.Max(adu, MaxValue) : MaxValue;
 
     /// <summary>
-    /// Rescales the scale-dependent metadata by the same factor applied to the pixel values, keeping
-    /// the invariant that <see cref="ImageMeta.SensorFullScaleAdu"/> is always in the SAME units as
-    /// the pixel data (mirroring how <see cref="Pedestal"/> travels through every rescale). After a
-    /// divide-by-full-scale normalisation it lands at 1.0 -- still meaningful: a pixel at 1.0 is
-    /// saturated, a frame peaking at 0.5 sits at half well. Without this, writing a normalised image
-    /// to FITS would stamp a stale ADU-scale SATURATE against [0,1] data.
+    /// Convenience over <see cref="ImageMeta.Rescale"/> (the single implementation): rescales the
+    /// scale-dependent metadata by the same factor applied to the pixel values. Without this,
+    /// writing a normalised image to FITS would stamp a stale ADU-scale SATURATE against [0,1] data.
     /// </summary>
     private ImageMeta RescaleMeta(float pixelScaleFactor)
-        => imageMeta.SensorFullScaleAdu is { } adu
-            ? imageMeta with { SensorFullScaleAdu = adu * pixelScaleFactor }
-            : imageMeta;
+    {
+        return imageMeta.Rescale(pixelScaleFactor);
+    }
 
     /// <summary>
     /// In-place version of <see cref="ScaleFloatValuesToUnit"/>: divides all pixel values by the sensor's

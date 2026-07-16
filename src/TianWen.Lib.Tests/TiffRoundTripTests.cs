@@ -94,4 +94,30 @@ public class TiffRoundTripTests(ITestOutputHelper testOutput)
         testOutput.WriteLine($"Median-based pre-stretch detection: {isPreStretched}");
         isPreStretched.ShouldBe(expectedPreStretched);
     }
+
+    [Fact]
+    public async Task GivenUnitRangeImageWithStaleAduFullScaleWhenSavedAsTiffThenValuesAreNotDividedAgain()
+    {
+        var cancellationToken = TestContext.Current.CancellationToken;
+        // given -- an already-[0,1] image (e.g. a third-party float FITS) that still carries an
+        // ADU-domain SensorFullScaleAdu (a SATURATE card that was never rescaled with the data).
+        // The write-side gate must key on the ACTUAL pixel range (MaxValue <= 1 -> no scaling),
+        // mirroring ScaleFloatValuesToUnit's early-return -- otherwise the stale divisor would
+        // turn the TIFF near-black (0.9 -> 0.9 / 65535).
+        var data = new float[2, 2] { { 0.1f, 0.25f }, { 0.5f, 0.9f } };
+        var meta = new ImageMeta { SensorFullScaleAdu = ushort.MaxValue };
+        var original = new Image([new Channel(data, default, 0.1f, 0.9f, 0)], BitDepth.Float32, 0f, meta);
+
+        // when
+        var testDir = SharedTestData.CreateTempTestOutputDir();
+        var tiffPath = Path.Combine(testDir, "unit_range_stale_adu.tiff");
+        await original.WriteTiffAsync(tiffPath, DebayerAlgorithm.None, cancellationToken);
+
+        // then -- values round-trip verbatim (within Q16 quantisation), not divided by the stale full-scale
+        Image.TryReadImageFile(tiffPath, out var reloaded).ShouldBeTrue();
+        reloaded.ShouldNotBeNull();
+        var tolerance = 2f / 65535f;
+        reloaded[0, 0, 0].ShouldBe(0.1f, tolerance);
+        reloaded[0, 1, 1].ShouldBe(0.9f, tolerance);
+    }
 }
