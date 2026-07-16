@@ -1035,6 +1035,20 @@ Camera → `ChannelBuffer` → `Image` → consumer → `image.Release()` → ca
   `ImageArray` marshal once per exposure — cleared on `ReleaseImageData`/`StartExposureAsync`).
   Canon wraps its RAW decode output (no recycle, deliberate). Coverage matrix + the by-design
   consumer copies: [docs/architecture/image-pipeline.md](docs/architecture/image-pipeline.md).
+- **`Channel.MaxValue`/`Image.MaxValue` is the peak pixel actually OBSERVED in that specific frame**
+  (rescanned per capture by `DALCameraDriver.DownloadImage`, ASCOM's `Channel.FromWxHImageData`,
+  Alpaca's `AlpacaImageBytes.DecodeChannel`) — it intentionally varies frame to frame with scene
+  brightness/seeing/hot pixels, and is what `ScaleFloatValuesToUnit(InPlace)`/histogram/auto-stretch
+  code wants. It is **NOT** the sensor's fixed ADC full-scale (2^14-1 for a 14-bit sensor like the
+  ASI533MC Pro, distinct again from the FITS/BITPIX container width — see `AdcResolution` +
+  `BitDepthEx.UnsignedFullScale`'s doc comment). A consumer that needs a STABLE ADU→[0,1] conversion
+  across frames (the planetary live-stack rolling-window accumulator,
+  `Planetary.LiveCameraFrameStream.DeepCopy`) must use the separate, optional
+  `ImageMeta.SensorFullScaleAdu` instead — populated once at the `ICameraDriver.GetImageAsync` choke
+  point from `ICameraDriver.MaxADU`, null for anything without live camera-driver provenance (file
+  imports, calibration masters, stacking output). Conflating the two (normalising by the observed
+  peak in a context that needs a stable scale) silently corrupts cross-frame photometric consistency
+  — a dim frame and a saturated frame both stretch their own peak to 1.0.
 
 ### Image Mutability — Almost-Immutable with In-Place Escape Hatches
 

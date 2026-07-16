@@ -9,9 +9,10 @@ The image pipeline manages `float[,]` pixel data from camera capture through sta
 | Type | Kind | Purpose |
 |------|------|---------|
 | `float[,]` | Raw array | Pixel data in H×W layout. The actual memory being managed. |
-| `Channel` | `readonly record struct` | Typed view over a `float[,]` with `Filter`, `MinValue`, `MaxValue`, `Index`, and an optional internal `Buffer` (the ref-counted owner travels WITH the channel). Zero overhead. Returned by `ICameraDriver.ImageData`. |
+| `Channel` | `readonly record struct` | Typed view over a `float[,]` with `Filter`, `MinValue`, `MaxValue`, `Index`, and an optional internal `Buffer` (the ref-counted owner travels WITH the channel). Zero overhead. Returned by `ICameraDriver.ImageData`. `MinValue`/`MaxValue` are rescanned from the actual pixel data on every capture — they are the observed extent of *this* frame, not the sensor's fixed ADC capacity. |
 | `ChannelBuffer` | `sealed class` (internal) | Ref-counted owner of a `float[,]`. When refcount reaches zero, `onRelease` fires → camera recycles the buffer. |
 | `Image` | `partial class` | Wraps `ImmutableArray<Channel>` + `ImageMeta` (primary ctor; a legacy `float[][,]` overload stamps image-wide min/max on every channel). Image-wide `MaxValue`/`MinValue` are the derived extrema across channels; per-channel values via `GetChannel`. The ctor harvests each channel's `Buffer` — call `Release()` when done. Used by star detection, FITS write, plate solve. |
+| `ImageMeta.SensorFullScaleAdu` | `float?` | The sensor's FIXED ADC full-scale (e.g. 16383 for a 14-bit sensor), distinct from `Image.MaxValue` above. Populated once from `ICameraDriver.MaxADU` at the `GetImageAsync` choke point; null for file imports / calibration masters / stacking output. Consumers needing a stable ADU→[0,1] conversion across frames (`Planetary.LiveCameraFrameStream.DeepCopy`) use this instead of `MaxValue`. |
 
 ## Data Flow (Live Session)
 
