@@ -170,7 +170,10 @@ public sealed class LiveCameraFrameStream : IPlanetaryFrameStream
         // frame both stretch their own peak to 1.0), corrupting the photometric consistency the rolling
         // accumulator assumes. Fall back to MaxValue only when the fixed full-scale isn't known (e.g. a
         // source with no camera-driver provenance). Already-[0,1] sources (SER) pass through unscaled.
-        var fullScale = src.ImageMeta.SensorFullScaleAdu ?? src.MaxValue;
+        // Never let the divisor be smaller than the observed peak -- a hot pixel or calibration
+        // artifact occasionally reads above the nominal full-scale, and dividing by less than the
+        // true max would push the result above 1.0.
+        var fullScale = src.ImageMeta.SensorFullScaleAdu is { } adu ? MathF.Max(adu, src.MaxValue) : src.MaxValue;
         var scale = fullScale > 1f ? 1f / fullScale : 1f;
         for (var c = 0; c < channels; c++)
         {
@@ -191,9 +194,13 @@ public sealed class LiveCameraFrameStream : IPlanetaryFrameStream
             }
         }
 
-        // After scaling, the data is fractional [0,1] floats regardless of the source bit depth.
+        // After scaling, the data is fractional [0,1] floats regardless of the source bit depth. The
+        // resulting max is the observed peak scaled down by the SAME factor applied to the pixels --
+        // NOT necessarily 1.0 now that the divisor can be the fixed full-scale rather than the observed
+        // peak itself (an unsaturated frame normalised by its sensor's full-scale stays below 1.0,
+        // correctly reflecting how exposed it actually was).
         var bitDepth = scale == 1f ? src.BitDepth : BitDepth.Float32;
-        var maxValue = scale == 1f ? src.MaxValue : 1f;
+        var maxValue = src.MaxValue * scale;
         return new Image(dst, bitDepth, maxValue, src.MinValue * scale, src.Pedestal * scale, src.ImageMeta);
     }
 
