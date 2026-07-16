@@ -346,14 +346,18 @@ public partial class Image(ImmutableArray<Channel> channels, BitDepth bitDepth, 
     }
 
     /// <summary>
-    /// Scales the floating-point values of the image data to a specified maximum value.
+    /// Scales the floating-point values of the image data so the unit-space FULL SCALE (1.0) maps to
+    /// <paramref name="newMaxValue"/>.
     /// </summary>
     /// <param name="missingValue">Use this value for missing pixels</param>
     /// <remarks>This method is intended for images that have been obtained via <see cref="ScaleFloatValuesToUnit"/> floating-point data (i.e., Float32 bit
-    /// depth and a maximum value of 1.0). If the image is already denormalized or uses a different bit depth, no
-    /// scaling is performed.</remarks>
-    /// <param name="newMaxValue">The new maximum value to which the floating-point values will be scaled. Must be greater than zero.</param>
-    /// <returns>An Image instance containing the denormalized data, with values scaled to the specified maximum value. If the
+    /// depth and values in [0, 1]). If the image is already denormalized or uses a different bit depth, no
+    /// scaling is performed. Note the mapping is full-scale-to-full-scale, not peak-to-peak: a
+    /// full-scale-normalised image (see <see cref="UnitScaleDivisor"/>) whose observed peak sits below 1.0
+    /// lands with its peak proportionally below <paramref name="newMaxValue"/> -- which round-trips the
+    /// original ADU values, rather than stretching the frame's own peak to <paramref name="newMaxValue"/>.</remarks>
+    /// <param name="newMaxValue">The value the unit-space full scale (1.0) is mapped to. Must be greater than zero.</param>
+    /// <returns>An Image instance containing the denormalized data. If the
     /// image is already denormalized or not in Float32 bit depth, the original image is returned unchanged.</returns>
     public Image ScaleFloatValues(float newMaxValue, float missingValue = float.NaN)
     {
@@ -372,7 +376,9 @@ public partial class Image(ImmutableArray<Channel> channels, BitDepth bitDepth, 
             MultiplyScalar(src, newMaxValue, dst);
         }
 
-        return new Image(denormalized, BitDepth.Float32, newMaxValue, MinValue * newMaxValue, pedestal * newMaxValue, imageMeta);
+        // The stamped MaxValue is the OBSERVED peak scaled by the same factor as the pixels (for a
+        // legacy peak-normalised input MaxValue == 1 this is exactly newMaxValue, as before).
+        return new Image(denormalized, BitDepth.Float32, MaxValue * newMaxValue, MinValue * newMaxValue, pedestal * newMaxValue, RescaleMeta(newMaxValue));
     }
 
     /// <summary>
@@ -395,11 +401,7 @@ public partial class Image(ImmutableArray<Channel> channels, BitDepth bitDepth, 
 
         var (channelCount, width, height) = Shape;
         var normalized = CreateChannelData(channelCount, height, width);
-        // Never let the divisor be smaller than the observed peak -- a hot pixel or calibration
-        // artifact occasionally reads above the nominal full-scale, and dividing by less than the
-        // true max would push the result above 1.0.
-        var fullScale = imageMeta.SensorFullScaleAdu is { } adu ? MathF.Max(adu, MaxValue) : MaxValue;
-        var invMax = 1.0f / fullScale;
+        var invMax = 1.0f / UnitScaleDivisor;
 
         for (var c = 0; c < channelCount; c++)
         {
@@ -408,8 +410,33 @@ public partial class Image(ImmutableArray<Channel> channels, BitDepth bitDepth, 
             MultiplyScalar(src, invMax, dst);
         }
 
-        return new Image(normalized, BitDepth.Float32, MaxValue * invMax, MinValue * invMax, pedestal * invMax, imageMeta);
+        return new Image(normalized, BitDepth.Float32, MaxValue * invMax, MinValue * invMax, pedestal * invMax, RescaleMeta(invMax));
     }
+
+    /// <summary>
+    /// The divisor the canonical [0, 1] normalisation uses: the sensor's fixed ADU full-scale when
+    /// known (<see cref="ImageMeta.SensorFullScaleAdu"/>, e.g. from a live camera's MaxADU or a FITS
+    /// SATURATE card) so the conversion is stable across frames, otherwise the observed peak
+    /// (<see cref="MaxValue"/>). Never below the observed peak -- a hot pixel or calibration artifact
+    /// above the nominal full-scale must not map above 1.0. Single source of truth shared by
+    /// <see cref="ScaleFloatValuesToUnit"/>, <see cref="ScaleFloatValuesToUnitInPlace"/>, and the
+    /// TIFF export normalisation (a private divisor in any one of them drifts out of agreement with
+    /// the others -- the TiffRoundTripTests comparison is the regression guard).
+    /// </summary>
+    internal float UnitScaleDivisor => imageMeta.SensorFullScaleAdu is { } adu ? MathF.Max(adu, MaxValue) : MaxValue;
+
+    /// <summary>
+    /// Rescales the scale-dependent metadata by the same factor applied to the pixel values, keeping
+    /// the invariant that <see cref="ImageMeta.SensorFullScaleAdu"/> is always in the SAME units as
+    /// the pixel data (mirroring how <see cref="Pedestal"/> travels through every rescale). After a
+    /// divide-by-full-scale normalisation it lands at 1.0 -- still meaningful: a pixel at 1.0 is
+    /// saturated, a frame peaking at 0.5 sits at half well. Without this, writing a normalised image
+    /// to FITS would stamp a stale ADU-scale SATURATE against [0,1] data.
+    /// </summary>
+    private ImageMeta RescaleMeta(float pixelScaleFactor)
+        => imageMeta.SensorFullScaleAdu is { } adu
+            ? imageMeta with { SensorFullScaleAdu = adu * pixelScaleFactor }
+            : imageMeta;
 
     /// <summary>
     /// In-place version of <see cref="ScaleFloatValuesToUnit"/>: divides all pixel values by the sensor's
@@ -424,8 +451,7 @@ public partial class Image(ImmutableArray<Channel> channels, BitDepth bitDepth, 
             return this;
         }
 
-        var fullScale = imageMeta.SensorFullScaleAdu is { } adu ? MathF.Max(adu, MaxValue) : MaxValue;
-        var invMax = 1.0f / fullScale;
+        var invMax = 1.0f / UnitScaleDivisor;
 
         for (var c = 0; c < ChannelCount; c++)
         {
@@ -450,6 +476,6 @@ public partial class Image(ImmutableArray<Channel> channels, BitDepth bitDepth, 
             });
         }
 
-        return new Image(rescaled.MoveToImmutable(), BitDepth.Float32, pedestal * invMax, imageMeta);
+        return new Image(rescaled.MoveToImmutable(), BitDepth.Float32, pedestal * invMax, RescaleMeta(invMax));
     }
 }

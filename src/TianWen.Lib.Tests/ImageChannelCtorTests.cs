@@ -112,4 +112,39 @@ public class ImageChannelCtorTests
         Should.Throw<ArgumentException>(() => new Image([a, mismatched], BitDepth.Float32, 0f, new ImageMeta()));
         Should.Throw<ArgumentException>(() => new Image(ImmutableArray<Channel>.Empty, BitDepth.Float32, 0f, new ImageMeta()));
     }
+
+    [Fact]
+    public void ScaleFloatValuesToUnit_DividesBySensorFullScaleWhenKnown_AndRescalesTheMeta()
+    {
+        // Native 14-bit full-scale (ASI533MC Pro: the SDK hands TianWen native-scale values,
+        // 2^14-1 = 16383), frame's observed peak well below it (an under-exposed live frame).
+        var data = new float[2, 2] { { 400f, 2000f }, { 4000f, 8000f } };
+        var meta = new ImageMeta { SensorFullScaleAdu = 16383f };
+        var original = new Image([new Channel(data, default, 400f, 8000f, 0)], BitDepth.Int16, 0f, meta);
+
+        var unit = original.ScaleFloatValuesToUnit();
+
+        // Pixels divide by the FIXED full-scale, not the observed peak ...
+        unit[0, 0, 0].ShouldBe(400f / 16383f, 1e-7f);
+        unit[0, 1, 1].ShouldBe(8000f / 16383f, 1e-7f);
+        // ... so MaxValue is the observed peak in unit space (NOT stretched to 1.0) ...
+        unit.MaxValue.ShouldBe(8000f / 16383f, 1e-7f);
+        // ... and the full-scale metadata rescales with the pixels (saturation now = 1.0).
+        unit.ImageMeta.SensorFullScaleAdu.ShouldNotBeNull();
+        unit.ImageMeta.SensorFullScaleAdu.Value.ShouldBe(1f, 1e-6f);
+    }
+
+    [Fact]
+    public void ScaleFloatValuesToUnit_FallsBackToObservedPeakWithoutSensorFullScale()
+    {
+        var data = new float[2, 2] { { 400f, 8000f }, { 16000f, 32000f } };
+        var original = new Image([new Channel(data, default, 400f, 32000f, 0)], BitDepth.Int16, 0f, new ImageMeta());
+
+        var unit = original.ScaleFloatValuesToUnit();
+
+        // No fixed full-scale known (e.g. a file import) -> prior behaviour: peak stretches to 1.0.
+        unit.MaxValue.ShouldBe(1f, 1e-6f);
+        unit[0, 1, 1].ShouldBe(1f, 1e-6f);
+        unit.ImageMeta.SensorFullScaleAdu.ShouldBeNull();
+    }
 }

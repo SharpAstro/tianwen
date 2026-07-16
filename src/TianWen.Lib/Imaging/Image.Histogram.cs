@@ -245,10 +245,16 @@ public partial class Image
         var maxValueFactor = 1f / (stats.RescaledMaxValue ?? MaxValue);
 
         // The histogram with removePedestral:true subtracted the rescaled image's MinValue.
-        // The pedestal must be expressed in the [0,1] (unit-scaled) coordinate space that the
-        // stretch formula operates in. MinValue / MaxValue always gives us this, regardless of
-        // whether the histogram rescaled the data or not.
-        var pedestral = MinValue / MaxValue;
+        // The pedestal must land in the SAME space as the median above. When the histogram was
+        // computed on the face-value rescale (Float32 data already in [0,1]: bins = value*65535,
+        // median/65535 = raw pixel space; the shader consumes such an image with NormFactor = 1,
+        // see StretchSolver), the pedestal is MinValue verbatim. Dividing by MaxValue there was
+        // only a no-op while a normalised image's peak was guaranteed to be exactly 1.0 -- with
+        // full-scale normalisation (SensorFullScaleAdu) the observed peak can sit below 1.0 and
+        // MinValue/MaxValue would inflate the pedestal relative to the median's space. The
+        // un-rescaled (ADU, MaxValue > 1) path keeps MinValue/MaxValue, matching median/MaxValue
+        // and the shader's NormFactor = 1/MaxValue.
+        var pedestral = stats.RescaledMaxValue is not null ? MinValue : MinValue / MaxValue;
 
         // Guard against MAD=0 (happens when the distribution is narrower than one histogram bin).
         // Use a minimum of half a bin width in the unit-scaled space.
@@ -337,7 +343,14 @@ public partial class Image
             throw new ArgumentOutOfRangeException(nameof(channel));
         }
 
-        var pedestal = MinValue / MaxValue;
+        // Same space convention as GetPedestralMedianAndMADScaledToUnit and StretchSolver's
+        // NormFactor: an already-normalised image (MaxValue <= 1, shader NormFactor = 1) is
+        // consumed at face value -- do NOT re-expand by 1/MaxValue, which was only a no-op while
+        // a normalised peak was guaranteed to be exactly 1.0 (full-scale normalisation via
+        // SensorFullScaleAdu can leave the observed peak below 1.0). ADU images (MaxValue > 1)
+        // keep the observed-peak divisor, matching the shader's NormFactor = 1/MaxValue.
+        var unitDivisor = MaxValue > 1f ? MaxValue : 1f;
+        var pedestal = MinValue / unitDivisor;
         var maxSamples = ((width / pixelStride) + 1) * ((height / pixelStride) + 1);
         var samples = new float[maxSamples];
         var count = 0;
@@ -372,7 +385,7 @@ public partial class Image
         Array.Sort(madSamples);
         var mad = madSamples[count / 2];
 
-        var invMax = 1f / MaxValue;
+        var invMax = 1f / unitDivisor;
         // Return median in pedestal-subtracted unit-scaled space, matching
         // GetPedestralMedianAndMADScaledToUnit's convention. The stretch loop computes
         // `norm = raw * normFactor - pedestal` and then `rescaled = (norm - shadows) * rescale`,

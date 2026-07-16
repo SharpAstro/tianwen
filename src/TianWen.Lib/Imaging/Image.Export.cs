@@ -55,10 +55,12 @@ public partial class Image
         var byteBuffer = new byte[pixelCount * outChannels * 4];
         var floats = MemoryMarshal.Cast<byte, float>(byteBuffer.AsSpan());
 
-        // Normalize source values to [0, 1]. If MaxValue is already 1.0 (or below)
-        // this is a no-op scale; for unnormalized FITS data (MaxValue=65535 etc.)
-        // it brings the file into the [0, 1] convention.
-        var scale = source.MaxValue > 0f ? 1f / source.MaxValue : 1f;
+        // Normalize source values to [0, 1] using the canonical divisor (the sensor's fixed
+        // full-scale when known -- e.g. a FITS SATURATE card -- else the observed peak), so the
+        // written TIFF agrees with ScaleFloatValuesToUnit; a private 1/MaxValue here diverges the
+        // moment SensorFullScaleAdu is present. If the divisor is already 1.0 (or below) this is a
+        // no-op scale; for unnormalized FITS data it brings the file into the [0, 1] convention.
+        var scale = source.UnitScaleDivisor > 0f ? 1f / source.UnitScaleDivisor : 1f;
 
         // Interleave channel-planar → pixel-interleaved for the TIFF strip. Each
         // pixel is `outChannels` consecutive floats; readers expecting RGB-RGB-RGB

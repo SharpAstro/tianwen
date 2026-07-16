@@ -163,18 +163,17 @@ public sealed class LiveCameraFrameStream : IPlanetaryFrameStream
         // coverage-normalised master keeps ADU values while declaring MaxValue = 1, and the viewer clamps
         // every pixel to white -> a flat, structureless frame.
         //
-        // Divide by the sensor's FIXED full-scale ADU (ImageMeta.SensorFullScaleAdu, e.g. 16383 for a
-        // 14-bit sensor) rather than src.MaxValue -- MaxValue is the peak pixel actually OBSERVED in this
-        // specific frame, which varies frame to frame with scene brightness/seeing/hot pixels. Using it as
-        // the divisor would give every accumulated frame its own scale factor (a dim frame and a saturated
-        // frame both stretch their own peak to 1.0), corrupting the photometric consistency the rolling
-        // accumulator assumes. Fall back to MaxValue only when the fixed full-scale isn't known (e.g. a
-        // source with no camera-driver provenance). Already-[0,1] sources (SER) pass through unscaled.
-        // Never let the divisor be smaller than the observed peak -- a hot pixel or calibration
-        // artifact occasionally reads above the nominal full-scale, and dividing by less than the
-        // true max would push the result above 1.0.
-        var fullScale = src.ImageMeta.SensorFullScaleAdu is { } adu ? MathF.Max(adu, src.MaxValue) : src.MaxValue;
-        var scale = fullScale > 1f ? 1f / fullScale : 1f;
+        // Divide by the canonical Image.UnitScaleDivisor (the sensor's FIXED full-scale ADU when known --
+        // e.g. 16383 for a 14-bit sensor -- else the observed peak): src.MaxValue is the peak pixel
+        // actually OBSERVED in this specific frame, which varies frame to frame with scene
+        // brightness/seeing/hot pixels; using it as the divisor gives every accumulated frame its own
+        // scale factor (a dim frame and a saturated frame both stretch their own peak to 1.0),
+        // corrupting the photometric consistency the rolling accumulator assumes.
+        //
+        // The scale-at-all gate stays keyed on the frame's ACTUAL pixel range (MaxValue > 1), not the
+        // metadata: an already-[0,1] source (SER, or a frame normalised upstream that still carries a
+        // stale ADU-domain SensorFullScaleAdu) must pass through unscaled rather than be divided again.
+        var scale = src.MaxValue > 1f ? 1f / src.UnitScaleDivisor : 1f;
         for (var c = 0; c < channels; c++)
         {
             var plane = src.GetChannelArray(c);
@@ -201,7 +200,12 @@ public sealed class LiveCameraFrameStream : IPlanetaryFrameStream
         // correctly reflecting how exposed it actually was).
         var bitDepth = scale == 1f ? src.BitDepth : BitDepth.Float32;
         var maxValue = src.MaxValue * scale;
-        return new Image(dst, bitDepth, maxValue, src.MinValue * scale, src.Pedestal * scale, src.ImageMeta);
+        // Keep SensorFullScaleAdu in the same units as the (rescaled) pixels, mirroring
+        // Image.RescaleMeta -- after a divide-by-full-scale it reads 1.0.
+        var meta = src.ImageMeta.SensorFullScaleAdu is { } srcAdu
+            ? src.ImageMeta with { SensorFullScaleAdu = srcAdu * scale }
+            : src.ImageMeta;
+        return new Image(dst, bitDepth, maxValue, src.MinValue * scale, src.Pedestal * scale, meta);
     }
 
     /// <inheritdoc/>
