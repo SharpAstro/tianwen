@@ -228,6 +228,12 @@ public partial class Image
         // sensor saturates, in the same units as the stored pixel data -> maps directly onto
         // ImageMeta.SensorFullScaleAdu. Written by TianWen itself (round-trip) and some third-party
         // tools; neither N.I.N.A. nor SharpCap emits it. NaN > 0 is false, so absent -> null.
+        // Deliberately trusted as written -- no container-bit-depth plausibility gate like
+        // ICameraDriver.GetImageAsync's live-path guard: a file-level SATURATE is an assertion by the
+        // producing software, and 8-bit-origin data legitimately lands in 16-bit containers
+        // (SATURATE=255 + BITPIX=16 is self-consistent, e.g. the PlateSolveTestFile fixture). A
+        // genuinely tainted too-LOW claim is defused by the UnitScaleDivisor clamp (never below the
+        // observed peak), which degrades exactly to the pre-SATURATE observed-peak behaviour.
         var saturate = hdu.Header.GetFloatValue("SATURATE", float.NaN);
         var swCreator = hdu.Header.GetStringValue("SWCREATE") ?? "";
         // PIERSIDE: N.I.N.A. + most modern capture software write a string ("East"

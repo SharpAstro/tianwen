@@ -308,6 +308,15 @@ internal class AscomCameraDriver : AscomDeviceDriverBase, ICameraDriver
         _imageData = null;
     }
 
+    // Cached on first successful read (ASCOM defines MaxADU as a fixed sensor property, so it cannot
+    // change while the driver maps the same device): ICameraDriver.GetImageAsync reads MaxADU twice
+    // per frame (inside GetBitDepthAsync + for the SensorFullScaleAdu stamp), and the planetary
+    // rapid-exposure fallback loop calls GetImageAsync per video frame -- uncached, that is 1-2 COM
+    // round-trips (plus a FullWellCapacity read on the QHYCCD path) per millisecond-scale frame.
+    // 0 = not read yet; only positive reads are cached so a transient SafeGet failure can never pin
+    // a bogus value. The int write is atomic; a benign race just recomputes the same value.
+    private int _maxAduCached;
+
     /// <summary>
     /// The camera's reported full-scale ADU, with the SharpCap-ported QHYCCD correction applied AT THE
     /// SOURCE: the ASCOM QHYCCD driver misreports MaxADU as 255 on 16-bit cameras while carrying the
@@ -315,6 +324,16 @@ internal class AscomCameraDriver : AscomDeviceDriverBase, ICameraDriver
     /// <see cref="GetBitDepthAsync"/>, where the hack originally lived) means EVERY consumer sees the
     /// corrected value -- bit-depth derivation and the <c>ImageMeta.SensorFullScaleAdu</c> stamp in
     /// <see cref="ICameraDriver.GetImageAsync"/> alike.
+    /// <para>
+    /// <b>Units caveat (inherited from SharpCap's workaround):</b> the ASCOM spec defines
+    /// <see cref="FullWellCapacity"/> in ELECTRONS, but the correction -- like SharpCap's original --
+    /// treats the QHYCCD driver's value as ADU-comparable, because that driver populates it with the
+    /// delivered full-scale (which is what makes the workaround function at all). Should a QHYCCD
+    /// driver ever report true electrons here, the stamped <c>SensorFullScaleAdu</c> would be off by
+    /// the e-/ADU factor; <c>Image.UnitScaleDivisor</c>'s clamp (never below the observed peak)
+    /// bounds the damage to a too-dim -- never clipped -- normalisation. Only reachable on cameras
+    /// already misreporting MaxADU as 255.
+    /// </para>
     /// </summary>
     public int MaxADU
     {
@@ -324,12 +343,20 @@ internal class AscomCameraDriver : AscomDeviceDriverBase, ICameraDriver
             {
                 throw new InvalidOperationException("Camera is not connected");
             }
+            if (_maxAduCached > 0)
+            {
+                return _maxAduCached;
+            }
             var maxADU = SafeGet(() => _camera.MaxADU, 0);
             if (maxADU == byte.MaxValue
                 && FullWellCapacity is var fullWell && !double.IsNaN(fullWell) && maxADU < fullWell
                 && Name.Contains("QHYCCD", StringComparison.OrdinalIgnoreCase))
             {
-                return (int)fullWell;
+                maxADU = (int)fullWell;
+            }
+            if (maxADU > 0)
+            {
+                _maxAduCached = maxADU;
             }
             return maxADU;
         }
