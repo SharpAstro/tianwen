@@ -159,11 +159,19 @@ public sealed class LiveCameraFrameStream : IPlanetaryFrameStream
 
         // The planetary stack pipeline operates in [0,1] (PlanetaryMaster.NormalizeInPlace declares the
         // master MaxValue = 1, and the SER bridge decodes raw frames straight to [0,1]). A live camera,
-        // however, delivers ADU (MaxValue = sensor full-scale), so normalise the owned copy to [0,1] here.
-        // Without this the coverage-normalised master keeps ADU values while declaring MaxValue = 1, and the
-        // viewer clamps every pixel to white -> a flat, structureless frame. Already-[0,1] sources (SER,
-        // MaxValue <= 1) pass through unscaled (scale == 1).
-        var scale = src.MaxValue > 1f ? 1f / src.MaxValue : 1f;
+        // however, delivers ADU, so normalise the owned copy to [0,1] here. Without this the
+        // coverage-normalised master keeps ADU values while declaring MaxValue = 1, and the viewer clamps
+        // every pixel to white -> a flat, structureless frame.
+        //
+        // Divide by the sensor's FIXED full-scale ADU (ImageMeta.SensorFullScaleAdu, e.g. 16383 for a
+        // 14-bit sensor) rather than src.MaxValue -- MaxValue is the peak pixel actually OBSERVED in this
+        // specific frame, which varies frame to frame with scene brightness/seeing/hot pixels. Using it as
+        // the divisor would give every accumulated frame its own scale factor (a dim frame and a saturated
+        // frame both stretch their own peak to 1.0), corrupting the photometric consistency the rolling
+        // accumulator assumes. Fall back to MaxValue only when the fixed full-scale isn't known (e.g. a
+        // source with no camera-driver provenance). Already-[0,1] sources (SER) pass through unscaled.
+        var fullScale = src.ImageMeta.SensorFullScaleAdu ?? src.MaxValue;
+        var scale = fullScale > 1f ? 1f / fullScale : 1f;
         for (var c = 0; c < channels; c++)
         {
             var plane = src.GetChannelArray(c);
