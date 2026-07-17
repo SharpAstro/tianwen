@@ -1,0 +1,438 @@
+@page "/"
+@implements IDisposable
+@using DIR.Lib
+@using TianWen.Lib.Astrometry.Catalogs
+@using TianWen.Lib.Astrometry.Comets
+@using TianWen.Lib.Astrometry.SOFA
+@using TianWen.Lib.Devices
+@using TianWen.UI.Abstractions
+@using WebGl.Renderer
+@inject ICelestialObjectDB Db
+@inject ICometRepository Comets
+@inject ITimeProvider Time
+@inject HttpClient Http
+@inject IJSRuntime JS
+
+<PageTitle>🔭 TianWen</PageTitle>
+
+<div class="app">
+    <div class="titlebar">
+        <span class="title">🔭 TianWen</span>
+        <span class="subtitle">Planner</span>
+        <span class="spacer"></span>
+        <span class="status" aria-live="polite">@_status</span>
+    </div>
+
+    <div class="toolbar">
+        <label>Lat <input type="number" step="0.1" @bind="_lat" /></label>
+        <label>Lon <input type="number" step="0.1" @bind="_lon" /></label>
+        <button @onclick="RecomputeAsync" disabled="@_busy">Recompute</button>
+        <button @onclick="RelocateAsync" disabled="@_busy" title="Plan for my current location">📍 Locate</button>
+    </div>
+
+    <div class="canvas-host">
+        <canvas id="planner" tabindex="0" width="@_w" height="@_h"
+                @onmousedown="OnMouseDown" @onmousemove="OnMouseMove" @onmouseup="OnMouseUp"
+                @onwheel="OnWheel" @onkeydown="OnKeyDown"></canvas>
+    </div>
+</div>
+
+@code {
+    static readonly RGBAColor32 Background = new(0x10, 0x10, 0x18, 0xff);
+
+    WebGlRenderer? _webGl;
+    PlannerTab<WebGlContext>? _tab;
+    PlannerState _state = new();
+    DotNetObjectReference<Planner>? _selfRef;
+    string _fontPath = "monospace";
+    string _status = "Loading…";
+    (float X, float Y) _mouse;
+    bool _ready;
+    bool _busy;
+    bool _resizePending;
+
+    // Canvas drawing-buffer size in device pixels (kept = CSS size x devicePixelRatio so the UI is
+    // crisp on hi-dpi displays); _dpr doubles as the tab's dpiScale and the mouse-coordinate scale.
+    int _w = 1280;
+    int _h = 800;
+    float _dpr = 1f;
+
+    // Sensible default dark-ish mid-northern site; geolocation / manual entry override it.
+    double _lat = 47.5;
+    double _lon = 11.0;
+    const double SiteElevationMeters = 500d;
+
+    protected override async Task OnInitializedAsync()
+    {
+        // Stage the UI font into the WASM in-memory FS so ManagedFontRasterizer's file loader finds
+        // it. The await here also yields once so Blazor performs the first render (mounting the
+        // <canvas>) BEFORE we measure it / WebGlRenderer.CreateAsync runs getElementById on it.
+        await LoadFontAsync();
+
+        // Site resolution, two-phase: if geolocation is ALREADY granted, fetch it now (no prompt,
+        // fast) so the first compute uses the real site. If it would prompt, don't block init -
+        // compute with the default site and apply the position in the background whenever the user
+        // answers (see ApplyGeolocationLaterAsync).
+        var geoGranted = await JS.InvokeAsync<string>("tianwenGeoState") == "granted";
+        if (geoGranted)
+        {
+            await TryGeolocateAsync(waitForPrompt: false);
+        }
+
+        // Size the drawing buffer to the element's real on-screen size before creating the GL
+        // surface, so the first frame is already full-viewport + hi-dpi crisp.
+        await MeasureCanvasAsync();
+        StateHasChanged();
+        await Task.Delay(1); // let Blazor apply the width/height attributes
+
+        try
+        {
+            _webGl = await WebGlRenderer.CreateAsync("planner", (uint)_w, (uint)_h);
+            _tab = new PlannerTab<WebGlContext>(_webGl);
+        }
+        catch (Exception ex)
+        {
+            _status = $"WebGL2 unavailable: {ex.Message}";
+            return;
+        }
+
+        await ComputeAsync();
+        _ready = true;
+        // Paint explicitly: Blazor's firstRender already happened way back during the font fetch
+        // (the first await in OnInitializedAsync yields to the renderer), so an
+        // `if (firstRender && _ready)` guard in OnAfterRender never fires - the classic
+        // "board/menu doesn't show until the first click" init-ordering bug.
+        RenderFrame();
+        StateHasChanged();
+
+        // Window-resize tracking + keyboard focus on the canvas.
+        _selfRef = DotNetObjectReference.Create(this);
+        await JS.InvokeVoidAsync("tianwenWatchResize", _selfRef);
+        await JS.InvokeVoidAsync("tianwenFocus", "planner");
+
+        // Comets load after first paint, off the critical path (fire-and-forget; logs its own failures).
+        _ = LoadCometsInBackgroundAsync();
+
+        // First visit (permission prompt pending): wait for the user's decision in the background
+        // and recompute for their real site once granted.
+        if (!geoGranted)
+        {
+            _ = ApplyGeolocationLaterAsync();
+        }
+    }
+
+    protected override void OnAfterRender(bool firstRender)
+    {
+        // Deferred resize: the new canvas width/height attributes must be applied to the DOM before
+        // the GL viewport/projection switch, or one frame renders into a stale drawing buffer.
+        if (_resizePending && _webGl is not null)
+        {
+            _resizePending = false;
+            _webGl.Resize((uint)_w, (uint)_h);
+            RenderFrame();
+        }
+    }
+
+    [JSInvokable]
+    public async Task OnBrowserResize()
+    {
+        if (await MeasureCanvasAsync())
+        {
+            _resizePending = true;
+            StateHasChanged();
+        }
+    }
+
+    async Task<bool> MeasureCanvasAsync()
+    {
+        var m = await JS.InvokeAsync<double[]?>("tianwenCanvasMetrics", "planner");
+        if (m is not { Length: 3 } || m[0] <= 0 || m[1] <= 0)
+        {
+            return false;
+        }
+        var dpr = (float)m[2];
+        var w = (int)Math.Round(m[0] * dpr);
+        var h = (int)Math.Round(m[1] * dpr);
+        if (w == _w && h == _h && dpr == _dpr)
+        {
+            return false;
+        }
+        (_w, _h, _dpr) = (w, h, dpr);
+        return true;
+    }
+
+    async Task LoadFontAsync()
+    {
+        var dir = System.IO.Path.Combine(AppContext.BaseDirectory, "Fonts");
+        System.IO.Directory.CreateDirectory(dir);
+        _fontPath = System.IO.Path.Combine(dir, "DejaVuSans.ttf");
+        if (!System.IO.File.Exists(_fontPath))
+        {
+            var bytes = await Http.GetByteArrayAsync("Fonts/DejaVuSans.ttf");
+            await System.IO.File.WriteAllBytesAsync(_fontPath, bytes);
+        }
+    }
+
+    // Best-effort browser geolocation: if granted, use the real lat/lon instead of the default.
+    // Denied / unavailable / dismissed -> keep the default. A manual lat/lon edit + Recompute
+    // overrides this for the session (cross-reload persistence is a follow-up - localStorage).
+    // Returns true when a position was applied.
+    async Task<bool> TryGeolocateAsync(bool waitForPrompt)
+    {
+        try
+        {
+            var pos = await JS.InvokeAsync<double[]?>("tianwenGeo", waitForPrompt);
+            if (pos is { Length: 2 } && !double.IsNaN(pos[0]) && !double.IsNaN(pos[1]))
+            {
+                _lat = Math.Round(pos[0], 4);
+                _lon = Math.Round(pos[1], 4);
+                return true;
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[tianwen-web] geolocation unavailable, using default site: {ex.Message}");
+        }
+        return false;
+    }
+
+    // First-visit path: the permission prompt is open (or about to be). Wait for the user's
+    // decision with NO timeout - the initial plan for the default site renders meanwhile - and when
+    // a position arrives, recompute for the real site. Runs strictly after the initial compute
+    // (single-threaded WASM queues the continuation), so it never races _busy.
+    async Task ApplyGeolocationLaterAsync()
+    {
+        if (await TryGeolocateAsync(waitForPrompt: true))
+        {
+            Console.WriteLine($"[tianwen-web] geolocation granted late - recomputing for {_lat}, {_lon}");
+            StateHasChanged();
+            await RecomputeAsync();
+        }
+    }
+
+    // Toolbar 📍: re-fetch the current position on demand (prompting if needed) and recompute.
+    async Task RelocateAsync()
+    {
+        if (_busy) return;
+        if (await TryGeolocateAsync(waitForPrompt: true))
+        {
+            StateHasChanged();
+            await RecomputeAsync();
+        }
+        else
+        {
+            await SetStatusAsync("Location unavailable - enter Lat/Lon manually");
+        }
+    }
+
+    // Builds the night window + tonight's-best plan for the current site. The catalog DB is embedded
+    // (InitDBAsync is idempotent). Comets are deliberately NOT passed here: ComputeTonightsBestAsync
+    // awaits the JPL SBDB fetch inline when a repository is given, which would put a multi-MB (or
+    // CORS-failing) network call on the first-paint critical path; they load in the background below.
+    async Task ComputeAsync()
+    {
+        _state.ObjectDb = Db;
+        _state.Comets = Comets;
+        _state.SiteLatitude = _lat;
+        _state.SiteLongitude = _lon;
+
+        var transform = new Transform(Time);
+        transform.SiteLatitude = _lat;
+        transform.SiteLongitude = _lon;
+        transform.SiteElevation = SiteElevationMeters;
+        // CalculateNightWindow (inside ComputeTonightsBestAsync) reads transform.DateTimeOffset, whose
+        // getter needs the Julian date initialised - an unset JD maps to year -4712 and throws
+        // Arg_OleAutDateInvalid via DateTime.FromOADate. Seed the clock from the time provider first
+        // (the public equivalent of the Lib-internal Transform.RefreshDateTimeFromTimeProvider).
+        transform.DateTime = Time.GetUtcNow().UtcDateTime;
+
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        await SetStatusAsync("Reading the star catalog…");
+        await Db.InitDBAsync();
+        Console.WriteLine($"[tianwen-web] catalog init: {sw.ElapsedMilliseconds} ms");
+
+        // The catalog sweep + altitude profiles are one long synchronous block; on the single
+        // browser thread nothing repaints while it runs. SetStatusAsync yields first so the status
+        // above actually paints before the block starts.
+        sw.Restart();
+        await SetStatusAsync("Scanning the sky for tonight's best…");
+        await PlannerActions.ComputeTonightsBestAsync(
+            _state, Db, transform, _state.MinHeightAboveHorizon, CancellationToken.None,
+            onProgress: msg => Console.WriteLine($"[tianwen-web] {msg}"));
+        Console.WriteLine($"[tianwen-web] tonight's best: {sw.ElapsedMilliseconds} ms");
+
+        // Resolve the display timezone AFTER the plan computes: CalculateNightWindow initialises the
+        // transform's Julian date (via EventTimes), so the DateTime/FromOADate read inside
+        // TryGetSiteTimeZone is valid. Any residual failure - e.g. an IANA zone id TimeZoneInfo can't
+        // resolve under InvariantGlobalization - falls back to UTC.
+        try
+        {
+            _state.SiteTimeZone = transform.TryGetSiteTimeZone(out var tz, out _) ? tz : TimeSpan.Zero;
+        }
+        catch (Exception ex)
+        {
+            _state.SiteTimeZone = TimeSpan.Zero;
+            Console.WriteLine($"[tianwen-web] timezone resolution failed, using UTC: {ex.Message}");
+        }
+
+        _state.SelectedTargetIndex = 0;
+        _status = $"{_state.TonightsBest.Length} targets · {_lat:0.0}°, {_lon:0.0}°";
+    }
+
+    // Sets the status line and yields long enough for Blazor + the browser to actually paint it
+    // before a following synchronous compute block freezes the single thread.
+    async Task SetStatusAsync(string status)
+    {
+        _status = status;
+        StateHasChanged();
+        await Task.Delay(30);
+    }
+
+    // Comet ephemerides load off the critical path (mirrors the desktop, where the tracker loads
+    // them in the background and markers appear when ready). Best-effort: CORS/network failure
+    // leaves the session DSO-only.
+    async Task LoadCometsInBackgroundAsync()
+    {
+        try
+        {
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            await Comets.EnsureLoadedAsync();
+            Console.WriteLine($"[tianwen-web] comets loaded: {sw.ElapsedMilliseconds} ms");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[tianwen-web] comets unavailable (DSO-only session): {ex.Message}");
+        }
+    }
+
+    async Task RecomputeAsync()
+    {
+        if (_busy || _webGl is null) return;
+        _busy = true;
+        try
+        {
+            await ComputeAsync();
+            RenderFrame();
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    void RenderFrame()
+    {
+        if (_webGl is null || _tab is null) return;
+        _webGl.Clear(Background);
+        var content = new RectF32(0f, 0f, _w, _h);
+        _tab.Render(_state, content, _dpr, _fontPath, Time, _mouse, emojiFontPath: null);
+        _webGl.Present();
+    }
+
+    // --- Input: routed through the tab's InputEvent handler, mirroring the desktop host ---------
+    // Browser mouse coordinates are CSS pixels; the drawing buffer is device pixels (x _dpr).
+
+    (float X, float Y) ToCanvas(MouseEventArgs e) => ((float)(e.OffsetX * _dpr), (float)(e.OffsetY * _dpr));
+
+    void OnMouseDown(MouseEventArgs e)
+    {
+        if (!_ready || _tab is null || e.Button != 0) return;
+        var (x, y) = ToCanvas(e);
+        var mods = ToModifiers(e);
+        if (!_tab.HandleInput(new InputEvent.MouseDown(x, y, Modifiers: mods, ClickCount: (int)e.Detail)))
+        {
+            _tab.HitTestAndDispatch(x, y, mods);
+        }
+        RenderFrame();
+    }
+
+    void OnMouseMove(MouseEventArgs e)
+    {
+        if (!_ready || _tab is null) return;
+        _mouse = ToCanvas(e);
+        _tab.HandleInput(new InputEvent.MouseMove(_mouse.X, _mouse.Y));
+        RenderFrame(); // mouse-follower on the altitude chart
+    }
+
+    void OnMouseUp(MouseEventArgs e)
+    {
+        if (!_ready || _tab is null) return;
+        var (x, y) = ToCanvas(e);
+        _tab.HandleInput(new InputEvent.MouseUp(x, y));
+        RenderFrame();
+    }
+
+    void OnWheel(WheelEventArgs e)
+    {
+        if (!_ready || _tab is null) return;
+        // Browser deltaY > 0 = wheel down; the tab uses the SDL convention (positive = up).
+        var scrollY = (float)(-e.DeltaY / 100.0);
+        _tab.HandleInput(new InputEvent.Scroll(scrollY, _mouse.X, _mouse.Y));
+        RenderFrame();
+    }
+
+    void OnKeyDown(KeyboardEventArgs e)
+    {
+        if (!_ready || _tab is null) return;
+        var mods = (e.ShiftKey ? InputModifier.Shift : 0) | (e.CtrlKey ? InputModifier.Ctrl : 0) | (e.AltKey ? InputModifier.Alt : 0);
+
+        var key = MapKey(e.Key);
+        var handled = key != InputKey.None && _tab.HandleInput(new InputEvent.KeyDown(key, mods));
+
+        // Printable characters additionally flow as text (the SDL host sends both KeyDown +
+        // TextInput too; the tab's focused-text-input handling sorts out which one applies).
+        if (e.Key.Length == 1 && !e.CtrlKey && !e.AltKey)
+        {
+            handled |= _tab.HandleInput(new InputEvent.TextInput(e.Key));
+        }
+
+        if (handled)
+        {
+            RenderFrame();
+        }
+    }
+
+    static InputModifier ToModifiers(MouseEventArgs e)
+        => (e.ShiftKey ? InputModifier.Shift : 0) | (e.CtrlKey ? InputModifier.Ctrl : 0) | (e.AltKey ? InputModifier.Alt : 0);
+
+    // Browser KeyboardEvent.Key -> the platform-agnostic InputKey (the web analogue of the SDL
+    // scancode map in TianWen.UI.Shared).
+    static InputKey MapKey(string key) => key switch
+    {
+        "ArrowUp" => InputKey.Up,
+        "ArrowDown" => InputKey.Down,
+        "ArrowLeft" => InputKey.Left,
+        "ArrowRight" => InputKey.Right,
+        "Home" => InputKey.Home,
+        "End" => InputKey.End,
+        "PageUp" => InputKey.PageUp,
+        "PageDown" => InputKey.PageDown,
+        "Enter" => InputKey.Enter,
+        "Escape" => InputKey.Escape,
+        "Tab" => InputKey.Tab,
+        " " => InputKey.Space,
+        "Backspace" => InputKey.Backspace,
+        "Delete" => InputKey.Delete,
+        "+" => InputKey.Plus,
+        "-" => InputKey.Minus,
+        "." => InputKey.Period,
+        "," => InputKey.Comma,
+        "/" => InputKey.Slash,
+        "\\" => InputKey.Backslash,
+        ";" => InputKey.Semicolon,
+        "'" => InputKey.Quote,
+        "[" => InputKey.BracketLeft,
+        "]" => InputKey.BracketRight,
+        "`" => InputKey.Grave,
+        ['F', var d] when d is >= '1' and <= '9' => InputKey.F1 + (d - '1'),
+        "F10" => InputKey.F10,
+        "F11" => InputKey.F11,
+        "F12" => InputKey.F12,
+        [var c] when c is >= 'a' and <= 'z' => InputKey.A + (c - 'a'),
+        [var c] when c is >= 'A' and <= 'Z' => InputKey.A + (c - 'A'),
+        [var c] when c is >= '0' and <= '9' => InputKey.D0 + (c - '0'),
+        _ => InputKey.None,
+    };
+
+    public void Dispose() => _selfRef?.Dispose();
+}

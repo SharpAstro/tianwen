@@ -1,0 +1,59 @@
+<Project Sdk="Microsoft.NET.Sdk.BlazorWebAssembly">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <OverrideHtmlAssetPlaceholders>true</OverrideHtmlAssetPlaceholders>
+    <!-- The in-browser app is a consumer of TianWen.Lib / TianWen.UI.Abstractions, not a shipped
+         package and not part of the desktop test/release chain. It lives OUTSIDE TianWen.slnx and
+         opts out of Central Package Management so the Blazor deps carry their own versions without
+         touching Directory.Packages.props. Mirrors ../../sebgod/chess/Chess.Web. -->
+    <ManagePackageVersionsCentrally>false</ManagePackageVersionsCentrally>
+    <IsPackable>false</IsPackable>
+    <!-- No culture data needed; dropping ICU trims the payload. Site timezone resolves via the
+         bundled wasm tzdata (TimeZoneInfo), which is independent of ICU; the planner falls back to
+         UTC if a zone id cannot be resolved (Transform.TryGetSiteTimeZone). -->
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <!-- Default (full) trimming: TianWen.Lib is IsTrimmable + IsAotCompatible (the native binaries
+         already publish AOT), and embedded catalog resources survive trimming regardless (they are
+         resources, not IL), so the catalog DB + planner load fine under a trimmed build - no
+         TrimmerRootAssembly rooting needed. Keeps the WASM download small. -->
+    <!-- This is a lightweight build: the ~30 MB Tycho-2 catalog is dropped via the GLOBAL publish
+         property -p:Lightweight=true (see TianWen.Lib.csproj) - the pages.yml deploy passes it, same
+         slot as -p:UseLocalSiblings=false. A property set HERE would not flow across the
+         ProjectReference into TianWen.Lib's own build, so it must ride the publish command line. -->
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly" Version="10.0.9" />
+    <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly.DevServer" Version="10.0.9" PrivateAssets="all" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\TianWen.UI.Abstractions\TianWen.UI.Abstractions.csproj" />
+  </ItemGroup>
+
+  <!-- AOT (RunAOTCompilation=true on the deploy publish): the mono AOT cross-compiler fail-fasts
+       (sgen assertion, 0xC0000409) on these P/Invoke-dense vendor SDK assemblies - and they are
+       dead weight in a browser anyway (no native device I/O). Keep them interpreted; the rest of
+       the app AOTs. Item identity must be the .dll name so MSBuild's %(Filename) batching matches
+       the aot-in file names. Why the trimmer keeps them in the bundle at all is a tracked
+       follow-up - once they trim away, this list can go. -->
+  <ItemGroup>
+    <_AOT_InternalForceInterpretAssemblies Include="ZWOptical.SDK.dll" />
+    <_AOT_InternalForceInterpretAssemblies Include="QHYCCD.SDK.dll" />
+    <_AOT_InternalForceInterpretAssemblies Include="LibUsbDotNet.LibUsbDotNet.dll" />
+  </ItemGroup>
+
+  <!-- WebGL backend: sibling working copy for local iteration, NuGet in CI (same UseLocalSiblings
+       switch the desktop projects use; the web project opts out of CPM so the version rides inline). -->
+  <ItemGroup Condition="'$(UseLocalSiblings)' == 'true'">
+    <ProjectReference Include="..\..\..\WebGl.Renderer\src\WebGl.Renderer\WebGl.Renderer.csproj" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(UseLocalSiblings)' != 'true'">
+    <PackageReference Include="WebGl.Renderer" Version="1.0.*" />
+  </ItemGroup>
+
+
+</Project>

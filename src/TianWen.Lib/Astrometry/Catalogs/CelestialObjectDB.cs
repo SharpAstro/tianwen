@@ -612,10 +612,21 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
         }
         else if (!await TryApplyHdHipCrossSnapshotFromEmbeddedAsync(assembly, manifestNames))
         {
-            // Snapshot stale/missing/malformed -> fall back to live compute, which needs the
-            // full Tycho-2 binary. Block here until the background bulk decode finishes.
-            await EnsureTycho2DataLoadedAsync(cancellationToken);
-            BuildHdHipCrossIndicesViaTyc();
+            if (manifestNames.Any(n => n.EndsWith(".tyc2.bin.lz", StringComparison.Ordinal)))
+            {
+                // Snapshot stale/missing/malformed -> fall back to live compute, which needs the
+                // full Tycho-2 binary. Block here until the background bulk decode finishes.
+                await EnsureTycho2DataLoadedAsync(cancellationToken);
+                BuildHdHipCrossIndicesViaTyc();
+            }
+            else
+            {
+                // Lightweight build (tyc2 stripped) with no usable snapshot: the live compute is
+                // impossible without the Tycho-2 binary. Degrade to no HD<->HIP cross-indices
+                // (bright-star lookups still resolve via their direct HR/HD identities) rather
+                // than failing init.
+                _lastInitPhaseTimings.Add(("hd-hip-cross:skipped-lightweight", phaseSw.Elapsed));
+            }
         }
         _lastInitPhaseTimings.Add(("hd-hip-cross", phaseSw.Elapsed));
 
@@ -1004,11 +1015,19 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
             return false;
         }
 
+        // A Lightweight build (-p:Lightweight=true, e.g. the browser/WASM app) strips tyc2.bin.lz,
+        // which is one of the hash-guard's inputs - verification is then IMPOSSIBLE, not merely
+        // stale (HdHipCrossInputHasher.Compute throws on the missing input). The guard protects a
+        // dev-time invariant (rebake the snapshot when inputs change) that every full build + CI
+        // still enforce, and the lightweight artifact embeds the very same snapshot bytes, so
+        // apply it unverified instead of failing init.
+        var canVerify = manifestNames.Any(n => n.EndsWith(".tyc2.bin.lz", StringComparison.Ordinal));
+
         // Compute the input hash in parallel with snapshot read+decode: both touch ~22 MB of
         // embedded resource data and SHA-256 is CPU-bound enough to saturate a core. On a
         // representative cold start the snapshot read takes ~50 ms and the hash ~50 ms;
         // overlapping them shaves ~30-40 ms off the apply path.
-        var hashTask = Task.Run(() => HdHipCrossInputHasher.Compute(assembly, manifestNames));
+        var hashTask = canVerify ? Task.Run(() => HdHipCrossInputHasher.Compute(assembly, manifestNames)) : null;
 
         HdHipCrossSnapshot snapshot;
         byte[] storedHash;
@@ -1023,18 +1042,28 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
             // Treat any decode failure as "stale": fall back to live compute. Debug-time safety
             // net; in CI the snapshot is rebuilt so a malformed embedded resource is a packaging bug.
             _lastInitPhaseTimings.Add(("hd-hip-cross-snapshot:malformed", subSw.Elapsed));
-            await hashTask;  // observe to avoid unobserved-task warnings
+            if (hashTask is not null)
+            {
+                await hashTask;  // observe to avoid unobserved-task warnings
+            }
             return false;
         }
         var readElapsed = subSw.Elapsed;
         _lastInitPhaseTimings.Add(("hd-hip-cross-snapshot:read", readElapsed));
 
-        var expectedHash = await hashTask;
-        _lastInitPhaseTimings.Add(("hd-hip-cross-snapshot:hash", subSw.Elapsed - readElapsed));
-        if (!storedHash.AsSpan().SequenceEqual(expectedHash))
+        if (hashTask is not null)
         {
-            _lastInitPhaseTimings.Add(("hd-hip-cross-snapshot:stale", subSw.Elapsed));
-            return false;
+            var expectedHash = await hashTask;
+            _lastInitPhaseTimings.Add(("hd-hip-cross-snapshot:hash", subSw.Elapsed - readElapsed));
+            if (!storedHash.AsSpan().SequenceEqual(expectedHash))
+            {
+                _lastInitPhaseTimings.Add(("hd-hip-cross-snapshot:stale", subSw.Elapsed));
+                return false;
+            }
+        }
+        else
+        {
+            _lastInitPhaseTimings.Add(("hd-hip-cross-snapshot:unverified-lightweight", subSw.Elapsed));
         }
 
         var beforeApply = subSw.Elapsed;

@@ -1,0 +1,162 @@
+/* Chrome styled after the desktop SDL GUI: dark slate panels (#1a1a22 header, #101018 content),
+   teal accent (#66ddcc - the GUI's pinned-target colour), minimal text. The app is a fixed
+   full-viewport layout like a native window: no page scroll, no overscroll bounce, no text
+   selection dragging the document around while interacting with the canvas. */
+:root {
+    color-scheme: dark;
+    --bg: #101018;
+    --chrome: #1a1a22;
+    --border: #26263a;
+    --text: #dddddd;
+    --dim: #9a9aab;
+    --accent: #66ddcc;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+    margin: 0;
+    height: 100%;
+    overflow: hidden;            /* the app IS the window - never scroll the document */
+    overscroll-behavior: none;   /* no rubber-band bounce when drags hit the edge */
+    background: var(--bg);
+    color: var(--text);
+    font-family: system-ui, "Segoe UI", Roboto, sans-serif;
+}
+
+#app { height: 100%; }
+
+.app {
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+/* Title bar - mirrors the desktop window chrome. */
+.titlebar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: var(--chrome);
+    border-bottom: 1px solid var(--border);
+    padding: 8px 14px;
+    flex: none;
+}
+
+.titlebar .title {
+    font-size: 1.05rem;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+}
+
+.titlebar .subtitle {
+    color: var(--accent);
+    font-size: 0.85rem;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 1px 8px;
+}
+
+.titlebar .spacer { flex: 1; }
+
+.titlebar .status {
+    color: var(--dim);
+    font-size: 0.85rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* Toolbar - site entry + recompute, styled like a GUI panel row. */
+.toolbar {
+    display: flex;
+    gap: 14px;
+    align-items: center;
+    flex-wrap: wrap;
+    background: var(--chrome);
+    border-bottom: 1px solid var(--border);
+    padding: 6px 14px;
+    flex: none;
+}
+
+.toolbar label {
+    color: var(--dim);
+    font-size: 0.85rem;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.toolbar input {
+    width: 6.5rem;
+    background: var(--bg);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 4px 6px;
+    font-size: 0.85rem;
+}
+
+.toolbar button {
+    background: var(--bg);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 4px 14px;
+    font-size: 0.85rem;
+    cursor: pointer;
+}
+
+.toolbar button:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+.toolbar button:disabled { opacity: 0.5; cursor: default; }
+
+/* The planner surface fills everything below the chrome. The canvas element is sized by CSS;
+   the drawing buffer is set to element-size x devicePixelRatio from the app (hi-dpi crisp). */
+.canvas-host {
+    flex: 1;
+    min-height: 0;
+}
+
+canvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+    background: var(--bg);
+    user-select: none;        /* a list-drag must never start a document text selection */
+    touch-action: none;       /* pointer gestures belong to the app, not the browser */
+    outline: none;            /* focus ring off - the canvas is the whole workspace */
+}
+
+/* Boot splash shown until Blazor mounts the app. */
+.boot {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100vh;
+    gap: 16px;
+    color: var(--dim);
+}
+
+.boot-spinner {
+    width: 36px;
+    height: 36px;
+    border: 3px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.9s linear infinite;
+}
+
+@keyframes spin { to { transform: rotate(360deg); } }
+
+#blazor-error-ui {
+    display: none;
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    padding: 10px 16px;
+    background: #7a1f1f;
+    color: #fff;
+}
