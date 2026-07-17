@@ -173,9 +173,7 @@ namespace TianWen.UI.Abstractions
                 return false;
             }
 
-            target.InsertText(text);
-            target.OnTextChanged?.Invoke(target.Text);
-            return true;
+            return TextInputInteraction.HandleText(target, text);
         }
 
         private bool HandleMouseMove(float px, float py)
@@ -313,134 +311,22 @@ namespace TianWen.UI.Abstractions
         private void DeactivateTextInput()
             => _chrome.Bus?.Post(new DeactivateTextInputSignal());
 
+        // The key machinery lives in the host-agnostic TextInputInteraction (shared with the
+        // web host); this supplies the desktop-flavoured context (signal-based focus release,
+        // SDL clipboard delegates, GuiAppState redraw flag).
         private bool HandleTextInputKey(TextInputState activeInput, InputKey key, InputModifier modifiers)
         {
-            // Autocomplete arrow navigation
-            if (activeInput == _plannerState.SearchInput && _plannerState.Suggestions.Count > 0)
-            {
-                if (key == InputKey.Down)
-                {
-                    _plannerState.SuggestionIndex = Math.Min(
-                        _plannerState.SuggestionIndex + 1, _plannerState.Suggestions.Count - 1);
-                    _appState.NeedsRedraw = true;
-                    return true;
-                }
-
-                if (key == InputKey.Up && _plannerState.SuggestionIndex >= 0)
-                {
-                    _plannerState.SuggestionIndex--;
-                    _appState.NeedsRedraw = true;
-                    return true;
-                }
-            }
-
-            // Sky-map F3 search: arrow keys navigate the result list. The tab's own
-            // TryHandleSearchKey only runs when NO text input is active, but the search input IS
-            // active here -- and this method swallows all keys (see the final return) -- so the
-            // navigation has to happen here too, mirroring the planner block above. Without this,
-            // Up/Down never reach the result list while the user is typing in the search box.
-            var skySearch = _chrome.SkyMapState.Search;
-            if (activeInput == skySearch.SearchInput && skySearch.Results.Length > 0)
-            {
-                if (key == InputKey.Down)
-                {
-                    skySearch.SelectedResultIndex = Math.Min(
-                        skySearch.SelectedResultIndex + 1, skySearch.Results.Length - 1);
-                    _appState.NeedsRedraw = true;
-                    return true;
-                }
-                if (key == InputKey.Up)
-                {
-                    skySearch.SelectedResultIndex = Math.Max(
-                        skySearch.SelectedResultIndex - 1, 0);
-                    _appState.NeedsRedraw = true;
-                    return true;
-                }
-            }
-
-            var textKey = key.ToTextInputKey(modifiers);
-
-            // Tab cycling through text inputs on the active tab
-            if (key == InputKey.Tab)
-            {
-                var shift = (modifiers & InputModifier.Shift) != 0;
-                var inputs = _chrome.ActiveTab?.GetRegisteredTextInputs();
-                if (inputs is { Count: > 1 } && _appState.ActiveTextInput is { } current)
-                {
-                    var idx = inputs.IndexOf(current);
-                    if (idx >= 0)
-                    {
-                        var next = shift
-                            ? inputs[(idx - 1 + inputs.Count) % inputs.Count]
-                            : inputs[(idx + 1) % inputs.Count];
-                        current.Deactivate();
-                        next.Activate();
-                        _appState.ActiveTextInput = next;
-                        _appState.NeedsRedraw = true;
-                        return true;
-                    }
-                }
-            }
-
-            // Let the input's OnKeyOverride handle it first (autocomplete, etc.)
-            if (textKey.HasValue && activeInput.OnKeyOverride?.Invoke(textKey.Value) == true)
-            {
-                _appState.NeedsRedraw = true;
-                return true;
-            }
-
-            // Handle Ctrl+V paste via platform clipboard
-            if (textKey == TextInputKey.Paste)
-            {
-                var clipboardText = GetClipboardText?.Invoke();
-                if (!string.IsNullOrEmpty(clipboardText))
-                {
-                    activeInput.InsertText(clipboardText);
-                    activeInput.OnTextChanged?.Invoke(activeInput.Text);
-                }
-                _appState.NeedsRedraw = true;
-                return true;
-            }
-
-            // Handle Ctrl+C copy via platform clipboard
-            if (textKey == TextInputKey.Copy)
-            {
-                if (activeInput.HasSelection)
-                {
-                    SetClipboardText?.Invoke(activeInput.Text[activeInput.SelectionStart..activeInput.SelectionEnd]);
-                }
-                return true;
-            }
-
-            if (textKey.HasValue && activeInput.HandleKey(textKey.Value))
-            {
-                // Notify text change on modifying keys
-                if (textKey.Value is TextInputKey.Backspace or TextInputKey.Delete)
-                {
-                    activeInput.OnTextChanged?.Invoke(activeInput.Text);
-                }
-
-                if (activeInput.IsCommitted)
-                {
-                    if (activeInput.OnCommit is { } onCommit)
-                    {
-                        var text = activeInput.Text;
-                        _tracker.Run(() => onCommit(text), "Text input commit");
-                    }
-                    activeInput.IsCommitted = false;
-                }
-                else if (activeInput.IsCancelled)
-                {
-                    activeInput.OnCancel?.Invoke();
-                    activeInput.IsCancelled = false;
-                    DeactivateTextInput();
-                }
-
-                _appState.NeedsRedraw = true;
-                return true;
-            }
-
-            return true; // Swallow all keys when text input active
+            return TextInputInteraction.HandleKey(activeInput, key, modifiers,
+                new TextInputInteraction.KeyContext(
+                    Tracker: _tracker,
+                    Deactivate: DeactivateTextInput,
+                    SetActive: next => _appState.ActiveTextInput = next,
+                    RequestRedraw: () => _appState.NeedsRedraw = true,
+                    Planner: _plannerState,
+                    SkySearch: _chrome.SkyMapState.Search,
+                    ActiveTab: _chrome.ActiveTab,
+                    GetClipboardText: GetClipboardText,
+                    SetClipboardText: SetClipboardText));
         }
     }
 }
