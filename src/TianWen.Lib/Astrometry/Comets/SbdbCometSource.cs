@@ -43,7 +43,7 @@ internal sealed class SbdbCometSource : ISbdbCometSource
     // sb-kind=c: comets only. `prefix` carries the orbit-type letter (C/P/D/X/A/I) that `pdes` omits for
     // provisional comets, so the two together reconstruct the canonical designation. Fields are requested
     // in a fixed order but the parser maps by name defensively.
-    private const string QueryUrl =
+    internal const string DefaultQueryUrl =
         "https://ssd-api.jpl.nasa.gov/sbdb_query.api?sb-kind=c&fields=prefix,pdes,name,M1,K1,e,q,i,om,w,tp,epoch";
 
     private static readonly HttpClient s_httpClient = new()
@@ -52,25 +52,41 @@ internal sealed class SbdbCometSource : ISbdbCometSource
     };
 
     private readonly HttpClient _httpClient;
+    private readonly Uri _queryUri;
     private readonly ILogger _logger;
 
     public SbdbCometSource(ILogger<SbdbCometSource> logger)
-        : this(s_httpClient, logger)
+        : this(s_httpClient, queryUri: null, logger)
     {
     }
 
     // Test seam: inject an HttpClient wrapping a canned-response handler.
     internal SbdbCometSource(HttpClient httpClient, ILogger logger)
+        : this(httpClient, queryUri: null, logger)
+    {
+    }
+
+    // Endpoint-override seam over the shared client (see queryUri remarks on the primary ctor).
+    internal SbdbCometSource(Uri? queryUri, ILogger logger)
+        : this(s_httpClient, queryUri, logger)
+    {
+    }
+
+    // queryUri overrides the live SBDB endpoint with a snapshot of the SAME query response - e.g. the
+    // browser host points it at a CI-baked same-origin static file, because JPL sends no CORS headers
+    // and a cross-origin fetch can never succeed from a browser. Null = the live JPL API.
+    internal SbdbCometSource(HttpClient httpClient, Uri? queryUri, ILogger logger)
     {
         _httpClient = httpClient;
+        _queryUri = queryUri ?? new Uri(DefaultQueryUrl);
         _logger = logger;
     }
 
     public async Task<IReadOnlyList<CometElements>> FetchAsync(CancellationToken cancellationToken)
     {
-        _logger.LogDebug("Fetching comet elements from SBDB: {Url}", QueryUrl);
+        _logger.LogDebug("Fetching comet elements from SBDB: {Url}", _queryUri);
 
-        using var response = await _httpClient.GetAsync(QueryUrl, cancellationToken);
+        using var response = await _httpClient.GetAsync(_queryUri, cancellationToken);
         response.EnsureSuccessStatusCode();
 
         using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);

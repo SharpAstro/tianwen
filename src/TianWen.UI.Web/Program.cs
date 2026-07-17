@@ -21,6 +21,11 @@ builder.Services.AddScoped(sp => new HttpClient { BaseAddress = new Uri(builder.
 builder.Services.AddLogging();
 builder.Services.AddTimeProvider();
 builder.Services.AddSingleton<IExternal, BrowserExternal>();
-builder.Services.AddAstrometry();
+// JPL sends no CORS headers, so the live SBDB API is permanently unreachable from a browser
+// origin. The Pages deploy bakes the SAME query response as a same-origin static asset
+// (comets-sbdb.json, curled in CI) and the comet source fetches that instead - the response
+// shape, parser, and cache layers are all unchanged. On a dev server without the baked file the
+// fetch 404s and the repository degrades to a DSO-only session exactly like the CORS failure did.
+builder.Services.AddAstrometry(cometQueryUri: new Uri(new Uri(builder.HostEnvironment.BaseAddress), "comets-sbdb.json"));
 
 await builder.Build().RunAsync();

@@ -1,0 +1,115 @@
+name: pages
+
+# Deploy the TianWen.UI.Web in-browser planner to GitHub Pages.
+#
+# TianWen.UI.Web is a standalone Blazor WebAssembly app hosting PlannerTab<WebGlContext>
+# (WebGl.Renderer) - a fully static site, no server. It lives OUTSIDE TianWen.slnx + CPM,
+# so the PR `dotnet.yml` loop never builds it; this workflow is its sole CI and publishes
+# to https://sharpastro.github.io/tianwen/. Design + findings: docs/plans/web-showcase.md.
+#
+# Two deploy-only concerns handled here (neither applies to local dev on :5099):
+#  - Mono WASM AOT (RunAOTCompilation=true): measured 24-42x on the catalog init + planner
+#    sweep - the interpreted build is unshippable. ubuntu-x64 runs the mainstream AOT
+#    toolchain, so no WasmDedup=false / extra interpret-excludes beyond the csproj's
+#    P/Invoke-dense vendor SDKs (those crash the WIN-ARM64 cross-compiler; see the csproj).
+#  - comets-sbdb.json bake: JPL's SBDB API sends no CORS headers, so the app can never
+#    fetch it from a browser origin. The runner curls the exact query the desktop uses and
+#    ships the response as a same-origin static asset; AddAstrometry(cometQueryUri: ...)
+#    points the UNCHANGED source/parser/cache stack at it. Weekly schedule keeps it fresh
+#    (the app-side cache TTL is also 7 days).
+#
+# NOTE: Pages must be enabled once with build type "workflow" (Settings -> Pages ->
+# Source: "GitHub Actions", or `gh api -X POST repos/{owner}/{repo}/pages -f build_type=workflow`).
+
+on:
+  push:
+    branches: [main, feat/web-showcase] # TODO drop feat/web-showcase after merge
+    paths:
+      - 'src/TianWen.UI.Web/**'
+      - 'src/TianWen.UI.Abstractions/**'
+      - 'src/TianWen.Lib/**'
+      - '.github/workflows/pages.yml'
+  schedule:
+    # Weekly redeploy purely to re-bake comets-sbdb.json (orbit solutions update on
+    # new observation arcs; the cache TTL is 7 days). Mondays 03:17 UTC.
+    - cron: '17 3 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# One deploy at a time; let an in-flight deploy finish rather than cancelling it.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      # AOT compilation (and the Release relink) need the Emscripten/LLVM toolchain.
+      - name: Install wasm-tools workload
+        run: dotnet workload install wasm-tools
+
+      # Bake the comet snapshot BEFORE publish so it rides the static-web-assets pipeline.
+      # Same query string as SbdbCometSource.DefaultQueryUrl - keep them in sync.
+      - name: Bake comets-sbdb.json (JPL SBDB has no CORS headers)
+        run: |
+          set -euo pipefail
+          curl -sf --retry 3 --retry-delay 10 \
+            'https://ssd-api.jpl.nasa.gov/sbdb_query.api?sb-kind=c&fields=prefix,pdes,name,M1,K1,e,q,i,om,w,tp,epoch' \
+            -o src/TianWen.UI.Web/wwwroot/comets-sbdb.json
+          # Shape check: the parser needs fields+data; a JPL error page must fail the build,
+          # not deploy as a corrupt asset the app then chokes on.
+          jq -e '.fields and .data and (.count | tonumber > 0)' src/TianWen.UI.Web/wwwroot/comets-sbdb.json > /dev/null
+          echo "baked $(jq -r '.count' src/TianWen.UI.Web/wwwroot/comets-sbdb.json) comets"
+
+      # No sibling checkouts in CI: WebGl.Renderer + DIR.Lib resolve from NuGet
+      # (UseLocalSiblings=false). Lightweight strips the 30 MB tyc2 catalog; AOT is the
+      # measured 24-42x compute win (docs/plans/web-showcase.md).
+      - name: Publish TianWen.UI.Web (Release, Lightweight, AOT)
+        run: dotnet publish src/TianWen.UI.Web/TianWen.UI.Web.csproj -c Release -o publish -p:UseLocalSiblings=false -p:Lightweight=true -p:RunAOTCompilation=true --nologo
+
+      - name: Rewrite base href for the /tianwen/ project-site subpath
+        run: |
+          set -euo pipefail
+          idx="publish/wwwroot/index.html"
+          # github.io serves this project site under /tianwen/, not root. Local dev
+          # keeps <base href="/" />; patch only the published copy.
+          sed -i 's|<base href="/" />|<base href="/tianwen/" />|' "$idx"
+          grep -q '<base href="/tianwen/" />' "$idx" || { echo "base href not rewritten"; exit 1; }
+
+      - name: SPA 404 fallback + .nojekyll
+        run: |
+          set -euo pipefail
+          # Jekyll strips _framework/ (leading underscore) - .nojekyll disables Jekyll.
+          touch publish/wwwroot/.nojekyll
+          # Static hosts 404 on client-side deep links; GitHub Pages serves 404.html
+          # for unknown paths, so a copy of index.html makes routes resolve.
+          cp publish/wwwroot/index.html publish/wwwroot/404.html
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: publish/wwwroot
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
