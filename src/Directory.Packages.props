@@ -104,10 +104,13 @@
          with Console.Lib 3.3 + SdlVulkan.Renderer 6.7.
          6.3 bumped alongside SdlVulkan.Renderer 6.10 (which requires DIR.Lib >= 6.3.1201).
          6.4-6.6 continue the lockstep with SdlVulkan.Renderer 6.11-6.15 + Console.Lib 3.5.
-         6.8 is the current pin; DIR.Lib.Shaping 6.8 rebuilt against SharpAstro.Fonts.Shaping 1.5.551
-         (F6+F7: ~3-4x faster, zero-alloc shaping), but TianWen does not reference the shaping satellite,
-         so this bump only lifts the core off the stale 6.4 line (lockstep with SdlVulkan.Renderer 6.16). -->
-    <PackageVersion Include="DIR.Lib" Version="6.8.*" />
+         6.8 lifted the core off the stale 6.4 line; DIR.Lib.Shaping 6.8 rebuilt against
+         SharpAstro.Fonts.Shaping 1.5.551 (F6+F7: ~3-4x faster, zero-alloc shaping), but TianWen does
+         not reference the shaping satellite (lockstep with SdlVulkan.Renderer 6.16).
+         6.11 is the current pin: adds SdfGlyphDiskCache's read-only mode (what single-threaded
+         browser WASM needs) and is WebGl.Renderer 1.1+'s floor - TianWen.UI.Web's package graph was
+         already unifying up to 6.11 via WebGl.Renderer, so this keeps desktop + web on one version. -->
+    <PackageVersion Include="DIR.Lib" Version="6.11.*" />
     <!-- DIR.Lib 3.0 extracted its codec layer to these sibling packages, which
          ship as a lockstep family from the Codecs repo. 3.0 brought a
          binary-breaking SharpAstro.Tiff change (TiffPageOptions.IccProfile is
