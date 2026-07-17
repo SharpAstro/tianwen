@@ -1,4 +1,5 @@
 @page "/"
+@page "/{ViewSlug}"
 @using System.Globalization
 @using DIR.Lib
 @using TianWen.Lib.Astrometry.Catalogs
@@ -13,21 +14,22 @@
 @inject ITimeProvider Time
 @inject HttpClient Http
 @inject IJSRuntime JS
+@inject NavigationManager Nav
 @inject ILogger<Planner> Logger
 
 @* The favicon is already the 🔭 emoji (inline SVG data URI in index.html) - keep the tab
    title text-only or the emoji shows twice next to the tab label. Web titles follow
-   "Astro - <view>" per view (Planner now; Sky Map etc. later). *@
-<PageTitle>@(_view == View.SkyMap ? "Astro - Sky Map" : "Astro - Planner")</PageTitle>
+   "Astro - <view>" per view. *@
+<PageTitle>@(_view == View.SkyMap ? "Astro - Sky Atlas" : "Astro - Planner")</PageTitle>
 
 <div class="app">
     <div class="titlebar">
-        <span class="title">🔭 TianWen</span>
-        <button class="subtitle chip @(_view == View.Planner ? "active" : null)" @onclick="() => SwitchView(View.Planner)">Planner</button>
+        <span class="title" title="tiānwén">🔭 天文</span>
+        <button class="subtitle chip @(_view == View.Planner ? "active" : null)" @onclick="() => SwitchView(View.Planner)">📅 Planner</button>
         @* Grayed out until the planner's catalog init + first compute finish - the sky map
            renders an empty "catalog loading" placeholder before that, which reads as broken. *@
         <button class="subtitle chip @(_view == View.SkyMap ? "active" : null)" disabled="@(!_ready)"
-                title="@(_ready ? null : "Loading catalog…")" @onclick="() => SwitchView(View.SkyMap)">Sky Map</button>
+                title="@(_ready ? null : "Loading catalog…")" @onclick="() => SwitchView(View.SkyMap)">🌌 Sky Atlas</button>
         <span class="spacer"></span>
         <span class="status" aria-live="polite">@_status</span>
     </div>
@@ -55,6 +57,12 @@
 
     enum View { Planner, SkyMap }
 
+    /// <summary>Deep-linkable views: "/" or "/planner", and "/sky-atlas" (aliases: skymap, sky).
+    /// The URL is the source of truth for the active view - the chips navigate, and
+    /// OnParametersSet syncs, which also covers browser back/forward for free.</summary>
+    [Parameter]
+    public string? ViewSlug { get; set; }
+
     WebGlRenderer? _webGl;
     PlannerTab<WebGlContext>? _tab;
     WebSkyMapTab? _skyTab;
@@ -77,6 +85,13 @@
     (float X, float Y) _mouse;
     bool _ready;
     bool _busy;
+    // Focused canvas text input - the web counterpart of GuiAppState.ActiveTextInput (the
+    // desktop tracks it via Activate/DeactivateTextInputSignal + SDL StartTextInput; the
+    // browser needs no platform IME step, so a field suffices).
+    TextInputState? _activeInput;
+    // Planner search autocomplete candidates; built after catalog init and rebuilt with comet
+    // designations once they load (mirrors AppSignalHandler.SetAutoCompleteCache on desktop).
+    string[]? _autoComplete;
 
     // Sensible default dark-ish mid-northern site; geolocation / manual entry override it.
     double _lat = 47.5;
@@ -127,6 +142,19 @@
             _status = $"WebGL2 unavailable: {ex.Message}";
             return;
         }
+
+        // Search wiring - the same shared interaction bodies AppSignalHandler wires on desktop,
+        // with web-flavoured context: transform from the lat/lon fields, focus release via the
+        // _activeInput field. requestRedraw paints directly because a committed search finishes
+        // on a task continuation AFTER the triggering event's RenderFrame already ran.
+        PlannerSearchInteraction.Wire(
+            _state, Db,
+            createTransform: CreateSiteTransform,
+            autoComplete: () => _autoComplete,
+            ensureVisible: idx => _tab?.EnsureVisible(idx),
+            deactivate: DeactivateTextInput,
+            requestRedraw: RenderFrame);
+        WireSkyMapSearch(_skyTab);
 
         await ComputeAsync();
         _ready = true;
@@ -233,15 +261,7 @@
         _state.SiteLatitude = _lat;
         _state.SiteLongitude = _lon;
 
-        var transform = new Transform(Time);
-        transform.SiteLatitude = _lat;
-        transform.SiteLongitude = _lon;
-        transform.SiteElevation = SiteElevationMeters;
-        // CalculateNightWindow (inside ComputeTonightsBestAsync) reads transform.DateTimeOffset, whose
-        // getter needs the Julian date initialised - an unset JD maps to year -4712 and throws
-        // Arg_OleAutDateInvalid via DateTime.FromOADate. Seed the clock from the time provider first
-        // (the public equivalent of the Lib-internal Transform.RefreshDateTimeFromTimeProvider).
-        transform.DateTime = Time.GetUtcNow().UtcDateTime;
+        var transform = CreateSiteTransform();
 
         var sw = System.Diagnostics.Stopwatch.StartNew();
         await SetStatusAsync("Reading the star catalog…");
@@ -351,6 +371,95 @@
         }
     }
 
+    // Site-initialised transform for the current lat/lon fields - the web analogue of the
+    // desktop's TransformFactory.FromProfile (there is no profile in the browser). Used by the
+    // planner compute AND the search interaction (createTransform).
+    // CalculateNightWindow (inside ComputeTonightsBestAsync) reads transform.DateTimeOffset, whose
+    // getter needs the Julian date initialised - an unset JD maps to year -4712 and throws
+    // Arg_OleAutDateInvalid via DateTime.FromOADate. Seed the clock from the time provider first
+    // (the public equivalent of the Lib-internal Transform.RefreshDateTimeFromTimeProvider).
+    Transform CreateSiteTransform()
+    {
+        var transform = new Transform(Time);
+        transform.SiteLatitude = _lat;
+        transform.SiteLongitude = _lon;
+        transform.SiteElevation = SiteElevationMeters;
+        transform.DateTime = Time.GetUtcNow().UtcDateTime;
+        return transform;
+    }
+
+    // --- Canvas text-input focus (web counterpart of the Activate/DeactivateTextInputSignal
+    // flow; the shared TextInputInteraction supplies the per-keystroke machinery) -----------
+
+    void ActivateTextInput(TextInputState input, int clicks)
+    {
+        if (_activeInput is { } prev && prev != input)
+        {
+            prev.Deactivate();
+        }
+        input.Activate();
+        _activeInput = input;
+        if (clicks >= 2 && input.Text.Length > 0)
+        {
+            input.SelectAll();
+        }
+    }
+
+    void DeactivateTextInput()
+    {
+        if (_activeInput is { IsActive: true } active)
+        {
+            active.Deactivate();
+        }
+        _activeInput = null;
+    }
+
+    // Sky-map F3 search: the tab posts Open/Close/Commit signals; route them to the same shared
+    // SkyMapSearchActions the desktop AppSignalHandler uses. Subscribers run inside RenderFrame's
+    // bus pump (before the paint), so they mutate state only - never re-enter RenderFrame.
+    void WireSkyMapSearch(WebSkyMapTab skyTab)
+    {
+        var skyState = skyTab.State;
+        var skySearch = skyState.Search;
+
+        skySearch.SearchInput.OnTextChanged = _ =>
+        {
+            SkyMapSearchActions.FilterResults(skySearch, Db);
+            skyState.NeedsRedraw = true;
+        };
+        skySearch.SearchInput.OnCommit = _ =>
+        {
+            _bus.Post(new SkyMapSearchCommitSignal());
+            return Task.CompletedTask;
+        };
+        skySearch.SearchInput.OnCancel = () => _bus.Post(new CloseSkyMapSearchSignal());
+
+        _bus.Subscribe<OpenSkyMapSearchSignal>(_ =>
+        {
+            SkyMapSearchActions.OpenSearch(skySearch, Db, _state.Comets);
+            ActivateTextInput(skySearch.SearchInput, clicks: 1);
+            skyState.NeedsRedraw = true;
+        });
+        _bus.Subscribe<CloseSkyMapSearchSignal>(_ =>
+        {
+            SkyMapSearchActions.CloseSearch(skySearch);
+            DeactivateTextInput();
+            skyState.NeedsRedraw = true;
+        });
+        _bus.Subscribe<SkyMapSearchCommitSignal>(_ =>
+        {
+            // Same viewing-time rule as the desktop handler: planning date (or now) + scrub offset,
+            // so a commit resolves the position the map is actually showing.
+            var viewingUtc = (_state.PlanningDate?.ToUniversalTime() ?? Time.GetUtcNow()) + skyState.TimeOffset;
+            var site = SiteContext.Create(_state.SiteLatitude, _state.SiteLongitude, viewingUtc);
+            SkyMapSearchActions.CommitResult(
+                skySearch, skyState, Db, _state.SiteLatitude, _state.SiteLongitude,
+                viewingUtc, site, _state.Comets);
+            DeactivateTextInput();
+            skyState.NeedsRedraw = true;
+        });
+    }
+
     // Sets the status line and yields long enough for Blazor + the browser to actually paint it
     // before a following synchronous compute block freezes the single thread.
     async Task SetStatusAsync(string status)
@@ -360,15 +469,27 @@
         await Task.Delay(30);
     }
 
-    // Comet ephemerides load off the critical path (mirrors the desktop, where the tracker loads
-    // them in the background and markers appear when ready). Best-effort: CORS/network failure
-    // leaves the session DSO-only.
+    // Comet ephemerides + the search autocomplete cache load off the critical path (mirrors the
+    // desktop, where the tracker loads them in the background and markers appear when ready).
+    // Best-effort: CORS/network failure leaves the session DSO-only. The autocomplete build walks
+    // every catalog designation (interpreter-expensive on a dev run), so it must never sit on the
+    // first-paint path; search commit works without it, suggestions just come online later.
     async Task LoadCometsInBackgroundAsync()
     {
         try
         {
+            // This "background" task runs inline on the single browser thread until its first
+            // await - yield so the first paint lands before the heavy build below.
+            await Task.Delay(30);
             var sw = System.Diagnostics.Stopwatch.StartNew();
+            _autoComplete = PlannerActions.BuildAutoCompleteList(Db, null);
+            Console.WriteLine($"[tianwen-web] search autocomplete: {sw.ElapsedMilliseconds} ms");
+
+            sw.Restart();
             await Comets.EnsureLoadedAsync();
+            // Fold comet designations/names into the search autocomplete (desktop parity:
+            // AppSignalHandler rebuilds the cache on comet load).
+            _autoComplete = PlannerActions.BuildAutoCompleteList(Db, Comets);
             Console.WriteLine($"[tianwen-web] comets loaded: {sw.ElapsedMilliseconds} ms");
         }
         catch (Exception ex)
@@ -416,11 +537,28 @@
     // Active view's widget for generic input routing (both are PixelWidgetBase<WebGlContext>).
     DIR.Lib.IPixelWidget? ActiveTab => _view == View.SkyMap ? _skyTab : _tab;
 
+    // All three routes map to this same component, so the router updates ViewSlug in place
+    // (no re-init); this runs both on the initial deep link and on every chip / back / forward
+    // navigation. RenderFrame is a safe no-op until the renderer exists - the init path paints
+    // explicitly once ready.
+    protected override void OnParametersSet()
+    {
+        var view = ViewSlug?.ToLowerInvariant() switch
+        {
+            "sky-atlas" or "skymap" or "sky" => View.SkyMap,
+            _ => View.Planner,
+        };
+        if (view != _view)
+        {
+            _view = view;
+            RenderFrame();
+        }
+    }
+
     void SwitchView(View view)
     {
         if (_view == view || !_ready) return;
-        _view = view;
-        RenderFrame();
+        Nav.NavigateTo(view == View.SkyMap ? "sky-atlas" : "planner");
     }
 
     // --- Input: routed through the tab's InputEvent handler, mirroring the desktop host ---------
@@ -436,9 +574,28 @@
         // HandleInput (drag-pan, scrollbar). The sky map's HandleInput consumes EVERY press for
         // drag tracking, so hit-testing last would make all its labels unclickable.
         var hit = tab.HitTestAndDispatch(e.X, e.Y, mods);
+
+        // Text-input focus management (desktop: GuiEventHandlerBase's TextInputHit branch).
+        if (hit is HitResult.TextInputHit { Input: { } clickedInput })
+        {
+            ActivateTextInput(clickedInput, (int)e.Original.Detail);
+            RenderFrame();
+            return;
+        }
+
         var sliderHandled = _view == View.Planner && _tab is not null
             && PlannerSliderInteraction.HandleMouseDown(_state, hit, _tab.ChartRect, e.X, e.Y);
-        if (hit is null && !sliderHandled)
+        if (sliderHandled)
+        {
+            RenderFrame();
+            return;
+        }
+
+        // Clicking outside a text input releases focus (after the slider branch, mirroring the
+        // desktop order - a slider grab keeps the focused input).
+        DeactivateTextInput();
+
+        if (hit is null)
         {
             tab.HandleInput(new InputEvent.MouseDown(e.X, e.Y, Modifiers: mods, ClickCount: (int)e.Original.Detail));
         }
@@ -483,8 +640,34 @@
     {
         if (!_ready || ActiveTab is not { } tab) return;
         var mods = (e.ShiftKey ? InputModifier.Shift : 0) | (e.CtrlKey ? InputModifier.Ctrl : 0) | (e.AltKey ? InputModifier.Alt : 0);
-
         var key = MapKey(e.Key);
+
+        // A focused text input swallows every key first (desktop: GuiEventHandlerBase's
+        // active-input branch). Printable characters then insert as text - the browser keydown
+        // carries the character itself, where the SDL host gets a separate TextInput event.
+        // Clipboard delegates stay null for now: the browser clipboard API is async-only, so
+        // Ctrl+V paste into canvas inputs is a deferred follow-up.
+        if (_activeInput is { IsActive: true } active)
+        {
+            if (key != InputKey.None)
+            {
+                TextInputInteraction.HandleKey(active, key, mods, new TextInputInteraction.KeyContext(
+                    Tracker: _tracker,
+                    Deactivate: DeactivateTextInput,
+                    SetActive: next => _activeInput = next,
+                    RequestRedraw: () => { }, // the RenderFrame below covers this event
+                    Planner: _state,
+                    SkySearch: _skyTab?.State.Search,
+                    ActiveTab: tab));
+            }
+            if (e.Key.Length == 1 && !e.CtrlKey && !e.AltKey)
+            {
+                TextInputInteraction.HandleText(active, e.Key);
+            }
+            RenderFrame();
+            return;
+        }
+
         var handled = key != InputKey.None && tab.HandleInput(new InputEvent.KeyDown(key, mods));
 
         // Printable characters additionally flow as text (the SDL host sends both KeyDown +

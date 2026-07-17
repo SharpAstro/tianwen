@@ -288,6 +288,39 @@ read-only `SdfGlyphDiskCache` mode (the single-threaded-WASM-friendly variant).
   via OverlayEngine), schedule/mount/fixed-point marker overlays, Milky Way texture, F3 search
   index wiring, comet markers (repo loads; markers draw via base labels only).
 
+## Deep links + text-input/search round (2026-07-17, third session)
+
+- **Deep-linkable views**: `/` or `/planner`, and `/sky-atlas` (aliases `skymap`, `sky`). All
+  routes map to the same `Planner` component, so the router updates the route param in place
+  (no re-init/recompute); `OnParametersSet` syncs the view, the chips navigate via
+  `NavigationManager`, and browser back/forward works for free. Pages' SPA 404 fallback serves
+  deep loads under the `/tianwen/` subpath.
+- **Branding**: titlebar `🔭 天文` with pinyin tooltip (`tiānwén`); chips carry the GUI tab
+  emoji (`📅 Planner`, `🌌 Sky Atlas`, from the `VkGuiRenderer` registry).
+- **Text input + search are host-shared code now** (the second instance of the
+  GuiEventHandlerBase-invisible-to-web rule; the planner search box was inert in the browser):
+  - `TextInputInteraction` (Abstractions): the per-keystroke machinery moved verbatim out of
+    `GuiEventHandlerBase` (suggestion/result arrow nav, Tab cycling, OnKeyOverride, clipboard,
+    commit/cancel dispatch). Desktop delegates with its signal-based context; the web page
+    calls it with a field-based one. Focus BOOKKEEPING stays host-owned by design (SDL needs
+    StartTextInput; the browser doesn't).
+  - `PlannerSearchInteraction` (Abstractions): the search-input callback wiring moved out of
+    `AppSignalHandler.Planner`, parameterized on transform creation (desktop: active profile;
+    web: lat/lon fields).
+  - Sky-atlas F3 search wired on the web bus to the shared `SkyMapSearchActions`
+    (open/filter/commit/close).
+  - Web keydown nuance: the browser's keydown carries the printable character itself, so the
+    page inserts it via `HandleText` after `HandleKey`; the SDL host gets a separate TextInput
+    event instead. Ctrl+V paste into canvas inputs is a web no-op for now (browser clipboard
+    API is async-only) - deferred.
+- **Autocomplete cache must stay off the first-paint path**: `BuildAutoCompleteList` walks every
+  catalog designation (x2 canonical forms) + sorts - measured 7.4 s INTERPRETED on :5099 (fine
+  under AOT). It builds in the background task after first paint (search commit works without
+  it) and rebuilds with comet designations once comets load.
+- **Local dev comets**: `wwwroot/comets-sbdb.json` is CI-baked and gitignored, so :5099 404s it
+  by default (comet-less dev session). Bake it locally with the same curl as pages.yml when
+  comets are needed in dev; the dev server serves the source wwwroot directly, no rebuild.
+
 ## Deferred
 
 - Full Tycho-2 catalog in the browser (the 30 MB payload; drops into the P2/P3 pipeline as a data

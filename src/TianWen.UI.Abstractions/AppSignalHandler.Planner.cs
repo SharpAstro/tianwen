@@ -37,115 +37,24 @@ namespace TianWen.UI.Abstractions
         /// shared with the search closures before the by-area split.</summary>
         private string[]? _autoCompleteCache;
 
-        /// <summary>Wires the planner search input callbacks (autocomplete, suggestion commit).</summary>
+        /// <summary>Wires the planner search input callbacks (autocomplete, suggestion commit).
+        /// The callback bodies live in the host-agnostic <see cref="PlannerSearchInteraction"/>
+        /// (shared with the web host); this method supplies the desktop-flavoured context
+        /// (profile-derived transform, signal-based focus release).</summary>
         private void SubscribePlannerSearch(SignalBus bus)
         {
-            // Aliases over the injected fields keep the moved handler bodies verbatim
-            // (the closures captured the ctor's parameters before the by-area split).
             var appState = _appState;
-            var plannerState = _plannerState;
-            var sp = _sp;
+            var db = _sp.GetRequiredService<TianWen.Lib.Astrometry.Catalogs.ICelestialObjectDB>();
 
-            // ---------------------------------------------------------------
-            // Wire planner search input callbacks
-            // ---------------------------------------------------------------
-
-            plannerState.SearchInput.OnCommit = text =>
-            {
-                plannerState.Suggestions.Clear();
-                plannerState.SuggestionIndex = -1;
-                plannerState.LastSuggestionQuery = "";
-
-                if (appState.ActiveProfile is not null && text.Length > 0)
-                {
-                    var transform = TransformFactory.FromProfile(appState.ActiveProfile, _timeProvider, out _);
-                    if (transform is not null)
-                    {
-                        var db = sp.GetRequiredService<TianWen.Lib.Astrometry.Catalogs.ICelestialObjectDB>();
-                        var resultIdx = PlannerActions.SearchTargets(plannerState, db, transform, text, plannerState.Comets);
-                        if (resultIdx >= 0)
-                        {
-                            plannerState.SelectedTargetIndex = resultIdx;
-                            OnPlannerEnsureVisible?.Invoke(resultIdx);
-                        }
-                    }
-                }
-                return Task.CompletedTask;
-            };
-
-            plannerState.SearchInput.OnCancel = () =>
-            {
-                plannerState.SearchInput.Clear();
-                plannerState.SearchResults = [];
-                plannerState.Suggestions.Clear();
-                plannerState.SuggestionIndex = -1;
-                plannerState.LastSuggestionQuery = "";
-                bus.Post(new DeactivateTextInputSignal());
-                plannerState.NeedsRedraw = true;
-            };
-
-            plannerState.SearchInput.OnTextChanged = text =>
-            {
-                if (_autoCompleteCache is not null)
-                {
-                    PlannerActions.UpdateSuggestions(plannerState, _autoCompleteCache, text);
-                }
-            };
-
-            // Autocomplete navigation: Up/Down/Return/Escape when suggestions are visible
-            plannerState.SearchInput.OnKeyOverride = key =>
-            {
-                if (plannerState.Suggestions.Count == 0)
-                {
-                    return false;
-                }
-
-                switch (key)
-                {
-                    case TextInputKey.Backspace or TextInputKey.Delete:
-                        return false; // Let the text input handle it, OnTextChanged will update suggestions
-
-                    case TextInputKey.Enter when plannerState.SuggestionIndex >= 0:
-                        CommitSuggestion(plannerState.Suggestions[plannerState.SuggestionIndex]);
-                        return true;
-
-                    case TextInputKey.Escape:
-                        plannerState.Suggestions.Clear();
-                        plannerState.SuggestionIndex = -1;
-                        plannerState.LastSuggestionQuery = "";
-                        appState.NeedsRedraw = true;
-                        return true;
-
-                    default:
-                        return false;
-                }
-            };
-
-            // Local helper captured by the search-input closures above.
-            void CommitSuggestion(string suggestion)
-            {
-                plannerState.SearchInput.Text = suggestion;
-                plannerState.SearchInput.CursorPos = suggestion.Length;
-                plannerState.Suggestions.Clear();
-                plannerState.SuggestionIndex = -1;
-                plannerState.LastSuggestionQuery = suggestion;
-
-                if (appState.ActiveProfile is not null)
-                {
-                    var transform = TransformFactory.FromProfile(appState.ActiveProfile, _timeProvider, out _);
-                    if (transform is not null)
-                    {
-                        var db = sp.GetRequiredService<TianWen.Lib.Astrometry.Catalogs.ICelestialObjectDB>();
-                        var resultIdx = PlannerActions.CommitSuggestion(plannerState, db, transform, suggestion, plannerState.Comets);
-                        if (resultIdx >= 0)
-                        {
-                            plannerState.SelectedTargetIndex = resultIdx;
-                            OnPlannerEnsureVisible?.Invoke(resultIdx);
-                        }
-                    }
-                }
-                appState.NeedsRedraw = true;
-            }
+            PlannerSearchInteraction.Wire(
+                _plannerState, db,
+                createTransform: () => appState.ActiveProfile is { } profile
+                    ? TransformFactory.FromProfile(profile, _timeProvider, out _)
+                    : null,
+                autoComplete: () => _autoCompleteCache,
+                ensureVisible: idx => OnPlannerEnsureVisible?.Invoke(idx),
+                deactivate: () => bus.Post(new DeactivateTextInputSignal()),
+                requestRedraw: () => appState.NeedsRedraw = true);
         }
 
         /// <summary>Wires schedule building (shared between planner preview and session start).</summary>
