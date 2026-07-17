@@ -24,7 +24,6 @@ SOFTWARE.
 
 */
 
-using DotNext.Threading;
 using System;
 using System.Buffers;
 using System.Collections.Concurrent;
@@ -56,8 +55,14 @@ internal sealed class JsonRpcClient(
     Func<JsonDocument, CancellationToken, ValueTask>? onNotification = null,
     Action<Exception, string>? onError = null) : IDisposable
 {
-    private readonly ConcurrentDictionary<long, JsonDocument> _responses = [];
-    private readonly AsyncManualResetEvent _responseSignal = new(false);
+    // Correlation is one TaskCompletionSource per in-flight id, registered BEFORE the request is
+    // written. The previous design (a responses-by-id dictionary + a shared auto-reset event) had
+    // a lost-wakeup race: DotNext's AsyncManualResetEvent.Set(autoReset: true) does NOT latch when
+    // no waiter is suspended yet, so a response landing between the caller's dictionary miss and
+    // its WaitAsync stranded the call forever (the CI linux-arm hang in
+    // JsonRpcServerTests.GivenServerAndClientOverNamedPipe...). With a pre-registered TCS the
+    // receive loop always finds the waiter, whatever the interleaving.
+    private readonly ConcurrentDictionary<long, TaskCompletionSource<JsonDocument>> _pending = [];
     private long _messageId;
 
     /// <summary>
@@ -109,13 +114,12 @@ internal sealed class JsonRpcClient(
                     && idProp.ValueKind is JsonValueKind.Number
                     && idProp.TryGetInt64(out var id))
                 {
-                    // Response: store by id (disposing any superseded doc) and wake awaiting callers.
-                    _ = _responses.AddOrUpdate(id, message, (_, old) =>
+                    // Response: hand the document to the awaiting caller. No caller (cancelled and
+                    // already cleaned up, or an id the peer invented) -> the document is ours to drop.
+                    if (!_pending.TryRemove(id, out var pending) || !pending.TrySetResult(message))
                     {
-                        old.Dispose();
-                        return message;
-                    });
-                    _responseSignal.Set(true);
+                        message.Dispose();
+                    }
                 }
                 else if (onNotification is { } handler)
                 {
@@ -132,6 +136,24 @@ internal sealed class JsonRpcClient(
         {
             onError?.Invoke(ex, $"processing: {line}");
         }
+        finally
+        {
+            // The loop is the only response producer - once it ends (peer disconnect, fault,
+            // cancellation), an in-flight CallAsync could never complete. Fail them all instead of
+            // letting them hang.
+            FailAllPending(new JsonRpcException("Connection closed before a response arrived"));
+        }
+    }
+
+    private void FailAllPending(Exception reason)
+    {
+        foreach (var kv in _pending)
+        {
+            if (_pending.TryRemove(kv.Key, out var pending))
+            {
+                pending.TrySetException(reason);
+            }
+        }
     }
 
     /// <summary>
@@ -143,10 +165,9 @@ internal sealed class JsonRpcClient(
     public async ValueTask<JsonDocument> CallAsync(string method, Action<Utf8JsonWriter>? writeParams, CancellationToken cancellationToken)
     {
         var buffer = new ArrayBufferWriter<byte>(128);
-        long id;
+        var id = Interlocked.Increment(ref _messageId);
         using (var req = new Utf8JsonWriter(buffer, new JsonWriterOptions { Indented = false }))
         {
-            id = Interlocked.Increment(ref _messageId);
             req.WriteStartObject();
             req.WriteString("method", method);
             req.WriteNumber("id", id);
@@ -158,15 +179,28 @@ internal sealed class JsonRpcClient(
             req.WriteEndObject();
         }
 
-        if (!await connection.WriteLineAsync(buffer.WrittenMemory, cancellationToken).ConfigureAwait(false))
+        // Register BEFORE sending: however fast the response races back, the receive loop finds
+        // the completion source. RunContinuationsAsynchronously keeps the loop off our stack.
+        var pending = new TaskCompletionSource<JsonDocument>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _pending[id] = pending;
+        JsonDocument response;
+        try
         {
-            throw new JsonRpcException($"Failed to send request '{method}'");
-        }
+            if (!await connection.WriteLineAsync(buffer.WrittenMemory, cancellationToken).ConfigureAwait(false))
+            {
+                throw new JsonRpcException($"Failed to send request '{method}'");
+            }
 
-        JsonDocument? response;
-        while (!_responses.TryRemove(id, out response))
+            using var reg = cancellationToken.Register(
+                static state => ((TaskCompletionSource<JsonDocument>)state!).TrySetCanceled(), pending);
+            response = await pending.Task.ConfigureAwait(false);
+        }
+        finally
         {
-            await _responseSignal.WaitAsync(cancellationToken).ConfigureAwait(false);
+            // Cancel/fault path: withdraw the registration so a late response is disposed by the
+            // receive loop instead of completing an abandoned source. No-op on success (the loop
+            // already removed it).
+            _pending.TryRemove(id, out _);
         }
 
         if (response.RootElement.TryGetProperty("error", out var errorEl))
@@ -181,22 +215,11 @@ internal sealed class JsonRpcClient(
             throw new JsonRpcException(message ?? "error response did not contain a message", code);
         }
 
-        if (!response.RootElement.TryGetProperty("id", out var respId) || !respId.TryGetInt64(out var rid) || rid != id)
-        {
-            var actual = response.RootElement.ToString();
-            response.Dispose();
-            throw new JsonRpcException($"Response id was not {id}: {actual}");
-        }
-
         return response;
     }
 
     public void Dispose()
     {
-        foreach (var kv in _responses)
-        {
-            kv.Value.Dispose();
-        }
-        _responses.Clear();
+        FailAllPending(new JsonRpcException("Client disposed"));
     }
 }

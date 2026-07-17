@@ -36,7 +36,9 @@ public class JsonRpcServerTests
         return ValueTask.CompletedTask;
     };
 
-    [Fact]
+    // Timeout (not the blame-hang 5 min): a lost response must fail THIS test fast, with its
+    // name attached - the CI hang that motivated it surfaced as a whole-run abort instead.
+    [Fact(Timeout = 30_000)]
     public async Task GivenServerAndClientOverNamedPipeWhenCallingThenResultsErrorsAndVoidsRoundTrip()
     {
         var ct = TestContext.Current.CancellationToken;
@@ -84,5 +86,47 @@ public class JsonRpcServerTests
         var ex = await Should.ThrowAsync<JsonRpcException>(async () => await client.CallAsync("boom", null, ct));
         ex.Message.ShouldBe("kaboom");
         ex.Code.ShouldBe(-7);
+    }
+
+    /// <summary>
+    /// Regression for the CI linux-arm hang: the old correlation (responses dictionary + shared
+    /// auto-reset event) lost the wakeup when a response landed between the caller's dictionary
+    /// miss and its wait - a pure timing race, so hammer many sequential round-trips to open the
+    /// window repeatedly. With the pre-registered per-call completion source this cannot hang;
+    /// before the fix this test wedged within a few hundred iterations on a loaded machine.
+    /// </summary>
+    [Fact(Timeout = 60_000)]
+    public async Task GivenManySequentialCallsWhenRacingTheReceiveLoopThenNoCallHangs()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var pipeName = $"tianwen-test-{Guid.NewGuid():N}";
+
+        var serverPipe = new NamedPipeServerStream(pipeName, PipeDirection.InOut, 1, PipeTransmissionMode.Byte, PipeOptions.Asynchronous);
+        var clientPipe = new NamedPipeClientStream(".", pipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
+
+        var waitForConnect = serverPipe.WaitForConnectionAsync(ct);
+        await clientPipe.ConnectAsync(ct);
+        await waitForConnect;
+
+        var server = new JsonRpcServer(MakeHandler());
+        using var serverConnection = new NamedPipeConnection(serverPipe);
+        _ = server.ServeAsync(serverConnection, ct);
+
+        using var clientConnection = new NamedPipeConnection(clientPipe);
+        using var client = new JsonRpcClient(clientConnection);
+        _ = client.ReceiveLoopAsync(ct);
+
+        for (var i = 0; i < 500; i++)
+        {
+            var captured = i;
+            using var r = await client.CallAsync("add", w =>
+            {
+                w.WriteStartArray();
+                w.WriteNumberValue(captured);
+                w.WriteNumberValue(1);
+                w.WriteEndArray();
+            }, ct);
+            r.RootElement.GetProperty("result").GetInt32().ShouldBe(captured + 1);
+        }
     }
 }
