@@ -203,6 +203,14 @@ public class PlannerState
     }
     private bool _isDirty;
 
+    /// <summary>
+    /// Clears the dirty flag once the host has persisted the session. The flag's setter is
+    /// internal (mutations go through <see cref="PlannerActions"/>), so out-of-assembly hosts —
+    /// e.g. the browser host's localStorage store — call this from their
+    /// <see cref="SavePlannerSessionSignal"/> subscriber, mirroring the desktop handler.
+    /// </summary>
+    public void MarkSessionSaved() => _isDirty = false;
+
     /// <summary>Whether the display needs a redraw.</summary>
     public bool NeedsRedraw { get; set; }
 

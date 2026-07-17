@@ -205,10 +205,46 @@ lands; **P2 -> P3** then adds the atlas. P2 gates P3 across the NuGet release bo
   into `CometRepository`'s cache path in MEMFS (the repo's own TTL/stale logic then applies;
   weekly redeploys keep it fresh). Zero Lib changes.
 - **Caching layers**: browser HTTP cache already covers the payload (fingerprinted assets); the
-  `IExternal` JSON caches (planner pins, comets) need a localStorage/IndexedDB-backed
-  `BrowserExternal` for cross-reload persistence (P1 polish); a decoded-DB snapshot (generalize
-  the hd-hip-cross snapshot pattern to the whole DB, IndexedDB-stored) stays deferred unless
-  AOT'd init is still too slow.
+  site + planner-session persistence SHIPPED via localStorage (see the interaction round below);
+  the comets cache stays MEMFS pending the CI bake; a decoded-DB snapshot (generalize the
+  hd-hip-cross snapshot pattern to the whole DB, IndexedDB-stored) stays deferred unless AOT'd
+  init is still too slow.
+
+## P1 interaction + persistence round (2026-07-17, second session)
+
+- **Handoff-divider drag is host-shared code now.** The slider state machine (SliderHit grab,
+  click-to-place, XToTime move, release) lived only in `GuiEventHandlerBase` - the SDL host's
+  event router, which the web host does not use - so divider clicks silently no-op'd in the
+  browser (`Planner.razor` discarded the `HitTestAndDispatch` result). Extracted to
+  `PlannerSliderInteraction` (Abstractions); the desktop handler delegates (semantics preserved,
+  incl. the active-tab gate on click-to-place) and `Planner.razor` feeds it the hit result / the
+  moves / the release. **Rule for future tab ports: interaction logic in `GuiEventHandlerBase`
+  is INVISIBLE to the web host** - anything a ported tab needs must live in a shared
+  Abstractions helper, so audit `GuiEventHandlerBase` for tab-specific blocks when porting.
+- **Pointer capture** (`tianwenDragCapture` in index.html): `setPointerCapture` on pointerdown
+  retargets the compatibility mousemove/mouseup back to the canvas, so drags keep tracking after
+  the pointer leaves the canvas (the SDL mouse-capture analogue). Without it a swipe-style
+  divider drag drops mid-gesture and can wedge in the dragging state.
+- **localStorage persistence shipped** (was the P1-polish open item):
+  - Last-used site (`tianwen.site`): loaded as the FIRST init step (kills the default-site flash
+    on F5), saved after every compute. Geolocation / manual entry refine and overwrite it.
+  - Planner session (`tianwen.planner`): pins + handoff sliders + settings. Reuses the desktop
+    DTO + restore logic - `PlannerPersistence` split so `TryRestoreFromDto` (site invalidation,
+    target matching, slider-window checks) is public with `SerializeToJson`/`TryRestoreFromJson`
+    wrappers; the file-store `TryLoadAsync` delegates to it. The save trigger is the SAME wiring
+    as desktop: `PlannerState.Bus` gets a `SignalBus`, the `IsDirty` setter auto-posts
+    `SavePlannerSessionSignal`, the razor host subscribes (new public
+    `PlannerState.MarkSessionSaved()` clears the assembly-internal flag) and the bus is pumped in
+    `RenderFrame` - every event ends in one; the web host has no frame loop. Restore runs after
+    EVERY compute, deliberately: the first compute may run before geolocation lands (saved pins
+    get site-invalidated at >1 deg drift) and the post-geolocation recompute then restores them.
+- **One local server.** The dual dev(:5099)/AOT-static(:5100) setup existed only for the A/B
+  benchmark; a stale second copy cost a full debugging round ("the fix doesn't work" = testing
+  yesterday's publish). Local dev = `dotnet run` on :5099 (always interpreted -
+  `RunAOTCompilation` has NO effect on `dotnet run`); the AOT publish is CI's artifact (P5).
+  Don't resurrect the second local server.
+- Tab title is text-only ("TianWen") in both `<PageTitle>` and the index.html fallback: the
+  favicon IS the telescope emoji (inline SVG data URI), so a title emoji renders twice.
 
 ## Deferred
 

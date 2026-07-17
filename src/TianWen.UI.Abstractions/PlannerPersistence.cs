@@ -84,6 +84,45 @@ public static class PlannerPersistence
 
         logger.LogInformation("PlannerPersistence: loaded {Count} proposals from {FilePath}", dto.Proposals.Length, loadedFromPath);
 
+        return TryRestoreFromDto(state, dto, logger);
+    }
+
+    /// <summary>
+    /// Serializes the current planner session (pins, sliders, settings, site) to JSON using the
+    /// same DTO the file store writes. Storage-agnostic counterpart of <see cref="SaveAsync"/> for
+    /// hosts without a profile/file store (the browser host persists this string to localStorage).
+    /// </summary>
+    public static string SerializeToJson(PlannerState state)
+        => System.Text.Json.JsonSerializer.Serialize(CreateDto(state), PlannerJsonContext.Default.PlannerSessionDto);
+
+    /// <summary>
+    /// Restores a planner session from a JSON string produced by <see cref="SerializeToJson"/>.
+    /// Returns true if state was restored. Storage-agnostic counterpart of <see cref="TryLoadAsync"/>.
+    /// </summary>
+    public static bool TryRestoreFromJson(PlannerState state, string json, ILogger logger)
+    {
+        PlannerSessionDto? dto;
+        try
+        {
+            dto = System.Text.Json.JsonSerializer.Deserialize(json, PlannerJsonContext.Default.PlannerSessionDto);
+        }
+        catch (System.Text.Json.JsonException ex)
+        {
+            logger.LogWarning(ex, "PlannerPersistence: discarding unparseable saved session");
+            return false;
+        }
+
+        return dto is not null && TryRestoreFromDto(state, dto, logger);
+    }
+
+    /// <summary>
+    /// Applies a loaded session DTO to the planner state: validates the site, matches saved
+    /// proposals against the current target lists / object DB, and restores slider positions
+    /// that still fall inside tonight's window. Requires <see cref="PlannerState.TonightsBest"/>
+    /// and the night window to be computed first. Returns true if state was restored.
+    /// </summary>
+    public static bool TryRestoreFromDto(PlannerState state, PlannerSessionDto dto, ILogger logger)
+    {
         // Site invalidation: if saved site differs by >1° from current, discard
         if (Math.Abs(dto.SiteLatitude - state.SiteLatitude) > SiteInvalidationThreshold
             || Math.Abs(dto.SiteLongitude - state.SiteLongitude) > SiteInvalidationThreshold)
