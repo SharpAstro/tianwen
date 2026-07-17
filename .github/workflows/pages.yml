@@ -50,10 +50,29 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
+        with:
+          lfs: false
+
+      # Catalog .lz sources, prebaked .bin.gz snapshots, and the wwwroot .ttf font are git-LFS
+      # objects; without this pull the checkout leaves pointer text and the managed lzip
+      # preprocess fails ("Invalid lzip magic bytes" - the first deploy run's failure) or, worse,
+      # pointer text gets embedded/served. Narrow include + object cache mirrors dotnet.yml
+      # (skips the ~120 MB of test fixtures a full LFS pull would drag in).
+      - name: Compute LFS cache key
+        id: lfs-key
+        run: |
+          HASH=$(git ls-files '*.lz' '*.ttf' '*.bin.gz' | xargs cat | sha256sum | cut -c1-16)
+          echo "key=lfs-pages-${HASH}" >> $GITHUB_OUTPUT
+      - uses: actions/cache@v5
+        with:
+          path: .git/lfs
+          key: ${{ steps.lfs-key.outputs.key }}
+      - name: Fetch required LFS objects
+        run: git lfs pull --include="*.lz,*.ttf,*.bin.gz"
 
       - name: Setup .NET
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@v5
         with:
           dotnet-version: '10.0.x'
 
