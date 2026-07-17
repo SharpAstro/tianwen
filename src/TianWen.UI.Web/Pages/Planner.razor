@@ -6,6 +6,7 @@
 @using TianWen.Lib.Astrometry.SOFA
 @using TianWen.Lib.Devices
 @using TianWen.UI.Abstractions
+@using TianWen.UI.Web.SkyMap
 @using WebGl.Renderer
 @inject ICelestialObjectDB Db
 @inject ICometRepository Comets
@@ -17,12 +18,16 @@
 @* The favicon is already the 🔭 emoji (inline SVG data URI in index.html) - keep the tab
    title text-only or the emoji shows twice next to the tab label. Web titles follow
    "Astro - <view>" per view (Planner now; Sky Map etc. later). *@
-<PageTitle>Astro - Planner</PageTitle>
+<PageTitle>@(_view == View.SkyMap ? "Astro - Sky Map" : "Astro - Planner")</PageTitle>
 
 <div class="app">
     <div class="titlebar">
         <span class="title">🔭 TianWen</span>
-        <span class="subtitle">Planner</span>
+        <button class="subtitle chip @(_view == View.Planner ? "active" : null)" @onclick="() => SwitchView(View.Planner)">Planner</button>
+        @* Grayed out until the planner's catalog init + first compute finish - the sky map
+           renders an empty "catalog loading" placeholder before that, which reads as broken. *@
+        <button class="subtitle chip @(_view == View.SkyMap ? "active" : null)" disabled="@(!_ready)"
+                title="@(_ready ? null : "Loading catalog…")" @onclick="() => SwitchView(View.SkyMap)">Sky Map</button>
         <span class="spacer"></span>
         <span class="status" aria-live="polite">@_status</span>
     </div>
@@ -48,8 +53,12 @@
 @code {
     static readonly RGBAColor32 Background = new(0x10, 0x10, 0x18, 0xff);
 
+    enum View { Planner, SkyMap }
+
     WebGlRenderer? _webGl;
     PlannerTab<WebGlContext>? _tab;
+    WebSkyMapTab? _skyTab;
+    View _view = View.Planner;
     // The state's IsDirty setter auto-posts SavePlannerSessionSignal on this bus (same wiring as
     // the desktop host); the subscriber below persists to localStorage. Pumped in RenderFrame.
     // The tracker is mandatory: ProcessPending THROWS on an async handler without one (the
@@ -111,6 +120,7 @@
         {
             _webGl = await WebGlRenderer.CreateAsync("planner", _metrics.BackingWidth, _metrics.BackingHeight);
             _tab = new PlannerTab<WebGlContext>(_webGl) { Bus = _bus };
+            _skyTab = new WebSkyMapTab(_webGl) { Bus = _bus };
         }
         catch (Exception ex)
         {
@@ -392,8 +402,25 @@
         _tracker.ProcessCompletions(Logger);
         _webGl.Clear(Background);
         var content = new RectF32(0f, 0f, _metrics.BackingWidth, _metrics.BackingHeight);
-        _tab.Render(_state, content, (float)_metrics.DevicePixelRatio, _fontPath, Time, _mouse, emojiFontPath: null);
+        if (_view == View.SkyMap && _skyTab is not null)
+        {
+            _skyTab.Render(_state, content, (float)_metrics.DevicePixelRatio, _fontPath, Time);
+        }
+        else
+        {
+            _tab.Render(_state, content, (float)_metrics.DevicePixelRatio, _fontPath, Time, _mouse, emojiFontPath: null);
+        }
         _webGl.Present();
+    }
+
+    // Active view's widget for generic input routing (both are PixelWidgetBase<WebGlContext>).
+    DIR.Lib.IPixelWidget? ActiveTab => _view == View.SkyMap ? _skyTab : _tab;
+
+    void SwitchView(View view)
+    {
+        if (_view == view || !_ready) return;
+        _view = view;
+        RenderFrame();
     }
 
     // --- Input: routed through the tab's InputEvent handler, mirroring the desktop host ---------
@@ -401,61 +428,70 @@
 
     void OnPointerDown(CanvasPointerEventArgs e)
     {
-        if (!_ready || _tab is null || e.Original.Button != 0) return;
+        if (!_ready || ActiveTab is not { } tab || e.Original.Button != 0) return;
         var mods = ToModifiers(e.Original);
-        if (!_tab.HandleInput(new InputEvent.MouseDown(e.X, e.Y, Modifiers: mods, ClickCount: (int)e.Original.Detail)))
+        // Desktop order (GuiEventHandlerBase): hit-test the registered clickable regions FIRST
+        // (planet/comet labels, reticles, planner rows), then feed the result to the shared
+        // handoff-divider interaction, and only forward an unclaimed press to the tab's
+        // HandleInput (drag-pan, scrollbar). The sky map's HandleInput consumes EVERY press for
+        // drag tracking, so hit-testing last would make all its labels unclickable.
+        var hit = tab.HitTestAndDispatch(e.X, e.Y, mods);
+        var sliderHandled = _view == View.Planner && _tab is not null
+            && PlannerSliderInteraction.HandleMouseDown(_state, hit, _tab.ChartRect, e.X, e.Y);
+        if (hit is null && !sliderHandled)
         {
-            // Mirrors GuiEventHandlerBase: the hit result feeds the shared handoff-divider
-            // interaction (grab a handle / click-to-place the nearest one / deselect).
-            var hit = _tab.HitTestAndDispatch(e.X, e.Y, mods);
-            PlannerSliderInteraction.HandleMouseDown(_state, hit, _tab.ChartRect, e.X, e.Y);
+            tab.HandleInput(new InputEvent.MouseDown(e.X, e.Y, Modifiers: mods, ClickCount: (int)e.Original.Detail));
         }
         RenderFrame();
     }
 
     void OnPointerMove(CanvasPointerEventArgs e)
     {
-        if (!_ready || _tab is null) return;
+        if (!_ready || ActiveTab is not { } tab) return;
         _mouse = (e.X, e.Y);
         // An active divider drag consumes the move (shared state machine with the desktop
-        // event handler); otherwise the tab gets it for hover / scrollbar handling.
-        if (!PlannerSliderInteraction.HandleMouseMove(_state, _tab.ChartRect, e.X))
+        // event handler); otherwise the tab gets it for hover / drag / scrollbar handling.
+        if (_view != View.Planner || _tab is null
+            || !PlannerSliderInteraction.HandleMouseMove(_state, _tab.ChartRect, e.X))
         {
-            _tab.HandleInput(new InputEvent.MouseMove(e.X, e.Y));
+            tab.HandleInput(new InputEvent.MouseMove(e.X, e.Y));
         }
-        RenderFrame(); // mouse-follower on the altitude chart
+        RenderFrame(); // mouse-follower / sky-map drag pan
     }
 
     void OnPointerUp(CanvasPointerEventArgs e)
     {
-        if (!_ready || _tab is null) return;
-        _tab.HandleInput(new InputEvent.MouseUp(e.X, e.Y));
-        PlannerSliderInteraction.HandleMouseUp(_state);
+        if (!_ready || ActiveTab is not { } tab) return;
+        tab.HandleInput(new InputEvent.MouseUp(e.X, e.Y));
+        if (_view == View.Planner)
+        {
+            PlannerSliderInteraction.HandleMouseUp(_state);
+        }
         RenderFrame();
     }
 
     void OnWheel(CanvasWheelEventArgs e)
     {
-        if (!_ready || _tab is null) return;
+        if (!_ready || ActiveTab is not { } tab) return;
         // Browser deltaY > 0 = wheel down; the tab uses the SDL convention (positive = up).
         var scrollY = (float)(-e.DeltaY / 100.0);
-        _tab.HandleInput(new InputEvent.Scroll(scrollY, e.X, e.Y));
+        tab.HandleInput(new InputEvent.Scroll(scrollY, e.X, e.Y));
         RenderFrame();
     }
 
     void OnKeyDown(KeyboardEventArgs e)
     {
-        if (!_ready || _tab is null) return;
+        if (!_ready || ActiveTab is not { } tab) return;
         var mods = (e.ShiftKey ? InputModifier.Shift : 0) | (e.CtrlKey ? InputModifier.Ctrl : 0) | (e.AltKey ? InputModifier.Alt : 0);
 
         var key = MapKey(e.Key);
-        var handled = key != InputKey.None && _tab.HandleInput(new InputEvent.KeyDown(key, mods));
+        var handled = key != InputKey.None && tab.HandleInput(new InputEvent.KeyDown(key, mods));
 
         // Printable characters additionally flow as text (the SDL host sends both KeyDown +
         // TextInput too; the tab's focused-text-input handling sorts out which one applies).
         if (e.Key.Length == 1 && !e.CtrlKey && !e.AltKey)
         {
-            handled |= _tab.HandleInput(new InputEvent.TextInput(e.Key));
+            handled |= tab.HandleInput(new InputEvent.TextInput(e.Key));
         }
 
         if (handled)

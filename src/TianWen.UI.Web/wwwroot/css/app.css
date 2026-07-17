@@ -111,6 +111,24 @@ html, body {
 .toolbar button:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
 .toolbar button:disabled { opacity: 0.5; cursor: default; }
 
+/* View-switcher chips in the titlebar (Planner / Sky Map). */
+button.chip {
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 2px 10px;
+    cursor: pointer;
+}
+
+button.chip.active {
+    border-color: var(--accent, #66ddcc);
+}
+
+button.chip:disabled {
+    opacity: 0.4;
+    cursor: default;
+}
+
 /* The planner surface fills everything below the chrome. The canvas element is sized by CSS;
    the drawing buffer is set to element-size x devicePixelRatio from the app (hi-dpi crisp). */
 .canvas-host {

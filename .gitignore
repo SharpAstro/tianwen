@@ -31,3 +31,6 @@ LavapipeMinRepro.zip
 __pycache__/
 # CI-baked comet snapshot (pages.yml curls JPL SBDB into wwwroot on the runner)
 src/TianWen.UI.Web/wwwroot/comets-sbdb.json
+# Isolated AOT-publish output (local :5100 perf builds; keeps the dev server's obj/bin unclobbered)
+bin-aot/
+obj-aot/
