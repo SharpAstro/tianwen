@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>🔭 TianWen</title>
+    <base href="/" />
+    <!-- Publish-time fingerprinting (OverrideHtmlAssetPlaceholders): the preload id, the importmap
+         element, and the #[.{fingerprint}] marker below are rewritten to the hashed asset names.
+         Without them the published page 404s on _framework/blazor.webassembly.js (only the
+         fingerprinted file exists). Mirrors Chess.Web. -->
+    <link rel="preload" id="webassembly" />
+    <link rel="stylesheet" href="css/app.css" />
+    <!-- Zero-asset favicon: the 🔭 the app is named for, as an inline SVG data URI. -->
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🔭</text></svg>" />
+    <script type="importmap"></script>
+</head>
+
+<body>
+    <div id="app">
+        <div class="boot">
+            <div class="boot-spinner"></div>
+            <div class="boot-text">Loading TianWen...</div>
+        </div>
+    </div>
+
+    <div id="blazor-error-ui">
+        An unhandled error has occurred.
+        <a href="." class="reload">Reload</a>
+        <span class="dismiss">&#x1F5D9;</span>
+    </div>
+
+    <!-- The WebGl.Renderer JS module (_content/WebGl.Renderer/webgl-renderer.js) is imported by the
+         library itself via JSHost.ImportAsync - no script tag needed here. -->
+
+    <!-- Best-effort browser geolocation for the observing site.
+         tianwenGeoState: the Permissions-API state ('granted' | 'prompt' | 'denied' | 'unknown') so
+         the app can decide whether a position fetch is instant or will open a permission prompt.
+         tianwenGeo(waitForPrompt): resolves [lat, lon] or null. With waitForPrompt=true there is NO
+         timeout - the promise waits for the user's prompt decision (a fixed timeout here is exactly
+         what made "Allow" appear dead: it expired while the prompt was still open, so the grant
+         landed after the app had given up until the next refresh). -->
+    <script>
+        window.tianwenGeoState = function () {
+            if (!navigator.permissions || !navigator.geolocation) return Promise.resolve("unknown");
+            return navigator.permissions.query({ name: "geolocation" })
+                .then(function (s) { return s.state; })
+                .catch(function () { return "unknown"; });
+        };
+        // Canvas sizing: CSS-pixel size of the element + devicePixelRatio, so the app can size the
+        // drawing buffer to the real device pixels (crisp on hi-dpi) and scale mouse coordinates.
+        window.tianwenCanvasMetrics = function (id) {
+            var el = document.getElementById(id);
+            if (!el) return null;
+            var r = el.getBoundingClientRect();
+            return [r.width, r.height, window.devicePixelRatio || 1];
+        };
+        // Debounced window-resize notifications into .NET.
+        window.tianwenWatchResize = function (ref) {
+            var t = null;
+            window.addEventListener('resize', function () {
+                clearTimeout(t);
+                t = setTimeout(function () { ref.invokeMethodAsync('OnBrowserResize'); }, 150);
+            });
+        };
+        // Give the canvas keyboard focus (it carries tabindex="0").
+        window.tianwenFocus = function (id) {
+            var el = document.getElementById(id);
+            if (el) el.focus();
+        };
+        window.tianwenGeo = function (waitForPrompt) {
+            return new Promise(function (resolve) {
+                if (!navigator.geolocation) { resolve(null); return; }
+                var opts = waitForPrompt
+                    ? { maximumAge: 600000 }
+                    : { timeout: 10000, maximumAge: 600000 };
+                navigator.geolocation.getCurrentPosition(
+                    function (p) { resolve([p.coords.latitude, p.coords.longitude]); },
+                    function () { resolve(null); },
+                    opts);
+            });
+        };
+    </script>
+
+    <script src="_framework/blazor.webassembly#[.{fingerprint}].js"></script>
+</body>
+
+</html>

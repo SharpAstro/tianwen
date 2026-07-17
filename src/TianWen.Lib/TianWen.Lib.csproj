@@ -19,6 +19,19 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 
+  <!-- Lightweight build gate. A "lightweight" build drops heavy, deep-field data a small-payload
+       host does not need (today: the ~30 MB Tycho-2 star catalog, tyc2.bin.lz) - the browser/WASM
+       app turns it on. Set as a GLOBAL property on the publish command: `dotnet publish ...
+       -p:Lightweight=true`. A global property flows into every project in the build graph, including
+       this one built as a transitive ProjectReference; a property set only on the consuming Blazor
+       project does NOT reach here (and the target RID is not browser-wasm during a ProjectReference
+       build either). ReadTycho2Bulk no-ops gracefully when the manifest entry is absent, so no code
+       change is needed. Default (false) = full build, everything embedded. The Tycho-dependent
+       cross-ref maps (hip_to_tyc/hd_to_tyc, dead without tyc2) are candidates to join this gate. -->
+  <PropertyGroup>
+    <Lightweight Condition="'$(Lightweight)' == ''">false</Lightweight>
+  </PropertyGroup>
+
   <ItemGroup>
     <Compile Remove="MAttiaverga.OpenNGC/**" />
     <Compile Remove="OpenNGC/**" />
@@ -33,6 +46,12 @@
     <None Remove="Astrometry/Catalogs/tmp-data/**" />
     <EmbeddedResource Remove="Astrometry/Catalogs/*.json" />
     <EmbeddedResource Include="Astrometry/Catalogs/*.lz" WithCulture="false" />
+    <!-- A lightweight build (-p:Lightweight=true, e.g. the browser/WASM app) gates off the ~30 MB
+         Tycho-2 star catalog (tyc2.bin.lz), keeping the download small: the WebGL atlas uses the
+         bright-star (HR) set and the planner is DSO-only. ReadTycho2Bulk (CelestialObjectDB) already
+         no-ops gracefully when the tyc2 manifest entry is absent, so this needs no code change. The
+         tiny GSC-bounds + pm-sidecar companions stay embedded but unread (harmless). Default keeps it. -->
+    <EmbeddedResource Remove="Astrometry/Catalogs/tyc2.bin.lz" Condition="'$(Lightweight)' == 'true'" />
     <!-- Tracked .gz/.bin.gz catalog files: committed in git (filter_curves,
          hd_hip_cross, pickles_sed, sensor_qe, simbad_merge), so they exist at
          project-evaluation time. Listed explicitly because the previous
