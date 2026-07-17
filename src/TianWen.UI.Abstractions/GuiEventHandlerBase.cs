@@ -138,43 +138,16 @@ namespace TianWen.UI.Abstractions
                 return true;
             }
 
-            // Slider drag start + selection (clicked directly on a slider handle)
-            if (hit is HitResult.SliderHit { SliderIndex: var sliderIdx })
+            // Handoff-slider drag start / click-to-place / deselect - shared with the web host
+            // (replaces the old click-empty-chart-to-deselect). Click-to-place is gated on the
+            // planner tab being active so a stray press elsewhere can't move a slider through a
+            // stale chart rect.
+            if (PlannerSliderInteraction.HandleMouseDown(
+                    _plannerState, hit, _chrome.PlannerChartRect, px, py,
+                    allowClickToPlace: _appState.ActiveTab == GuiTab.Planner))
             {
-                _plannerState.DraggingSliderIndex = sliderIdx;
-                PlannerActions.SelectSlider(_plannerState, sliderIdx);
+                _appState.NeedsRedraw = true;
                 return true;
-            }
-
-            // Click-to-place: a click anywhere in the planner chart (but not directly on a
-            // slider handle) moves the nearest handoff slider to that time and begins a drag,
-            // so the same press can refine it. Selecting it also makes Left/Right step the
-            // slider (which trumps date-switching). Replaces the old click-empty-chart-to-deselect.
-            if (hit is null
-                && _appState.ActiveTab == GuiTab.Planner
-                && _plannerState.HandoffSliders.Length > 0)
-            {
-                var chartRect = _chrome.PlannerChartRect;
-                var (tStart, tEnd, plotX, plotY, plotW, plotH) = AltitudeChartRenderer.GetChartPlotLayout(
-                    _plannerState, (int)chartRect.X, (int)chartRect.Y, (int)chartRect.Width, (int)chartRect.Height);
-                // Only inside the PLOT area -- a click on the weather band / icons above the plot
-                // (or the legend / axis below it) must NOT move a handoff divider.
-                if (px >= plotX && px <= plotX + plotW && py >= plotY && py <= plotY + plotH)
-                {
-                    var clickedTime = AltitudeChartRenderer.XToTime(px, tStart, tEnd, plotX, plotW);
-                    if (PlannerActions.PlaceNearestSlider(_plannerState, clickedTime) is var moved && moved >= 0)
-                    {
-                        _plannerState.DraggingSliderIndex = moved;
-                        _appState.NeedsRedraw = true;
-                        return true;
-                    }
-                }
-            }
-
-            // Clicking outside a slider and outside the chart → deselect
-            if (_plannerState.SelectedSliderIndex >= 0)
-            {
-                PlannerActions.SelectSlider(_plannerState, -1);
             }
 
             // Clicking outside text input → deactivate
@@ -221,26 +194,14 @@ namespace TianWen.UI.Abstractions
                 _appState.NeedsRedraw = true;
             }
 
-            var idx = _plannerState.DraggingSliderIndex;
-            if (idx < 0)
+            // Active slider drag consumes the move; otherwise forward to the active tab
+            // (e.g. live session drag pan).
+            if (PlannerSliderInteraction.HandleMouseMove(_plannerState, _chrome.PlannerChartRect, px))
             {
-                // Forward to active tab (e.g. live session drag pan)
-                return _chrome.ActiveTab?.HandleInput(new InputEvent.MouseMove(px, py)) ?? false;
+                return true;
             }
 
-            if (idx >= _plannerState.HandoffSliders.Length)
-            {
-                _plannerState.DraggingSliderIndex = -1;
-                return false;
-            }
-
-            var chartRect = _chrome.PlannerChartRect;
-            var (tStart, tEnd, plotX, plotW) = AltitudeChartRenderer.GetChartTimeLayout(
-                _plannerState, (int)chartRect.X, (int)chartRect.Width);
-
-            var newTime = AltitudeChartRenderer.XToTime(px, tStart, tEnd, plotX, plotW);
-            PlannerActions.MoveSlider(_plannerState, idx, newTime);
-            return true;
+            return _chrome.ActiveTab?.HandleInput(new InputEvent.MouseMove(px, py)) ?? false;
         }
 
         private bool HandleMouseUp(float x, float y)
@@ -248,9 +209,8 @@ namespace TianWen.UI.Abstractions
             // Forward to active tab first (e.g. live session drag pan release, sky-map click-select)
             _chrome.ActiveTab?.HandleInput(new InputEvent.MouseUp(x, y));
 
-            if (_plannerState.DraggingSliderIndex >= 0)
+            if (PlannerSliderInteraction.HandleMouseUp(_plannerState))
             {
-                _plannerState.DraggingSliderIndex = -1;
                 _appState.NeedsRedraw = true;
                 return true;
             }

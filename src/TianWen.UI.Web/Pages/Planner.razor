@@ -1,5 +1,6 @@
 @page "/"
 @implements IDisposable
+@using System.Globalization
 @using DIR.Lib
 @using TianWen.Lib.Astrometry.Catalogs
 @using TianWen.Lib.Astrometry.Comets
@@ -12,8 +13,11 @@
 @inject ITimeProvider Time
 @inject HttpClient Http
 @inject IJSRuntime JS
+@inject ILogger<Planner> Logger
 
-<PageTitle>🔭 TianWen</PageTitle>
+@* The favicon is already the 🔭 emoji (inline SVG data URI in index.html) - keep the tab
+   title text-only or the emoji shows twice next to the tab label. *@
+<PageTitle>TianWen</PageTitle>
 
 <div class="app">
     <div class="titlebar">
@@ -42,6 +46,12 @@
 
     WebGlRenderer? _webGl;
     PlannerTab<WebGlContext>? _tab;
+    // The state's IsDirty setter auto-posts SavePlannerSessionSignal on this bus (same wiring as
+    // the desktop host); the subscriber below persists to localStorage. Pumped in RenderFrame.
+    // The tracker is mandatory: ProcessPending THROWS on an async handler without one (the
+    // localStorage save is async), and ProcessCompletions reaps + logs the finished saves.
+    readonly SignalBus _bus = new SignalBus();
+    readonly BackgroundTaskTracker _tracker = new BackgroundTaskTracker();
     PlannerState _state = new();
     DotNetObjectReference<Planner>? _selfRef;
     string _fontPath = "monospace";
@@ -64,6 +74,10 @@
 
     protected override async Task OnInitializedAsync()
     {
+        // Last-used site loads first (localStorage) so a reload shows it immediately instead of
+        // flashing the built-in default while geolocation resolves.
+        await LoadSavedSiteAsync();
+
         // Stage the UI font into the WASM in-memory FS so ManagedFontRasterizer's file loader finds
         // it. The await here also yields once so Blazor performs the first render (mounting the
         // <canvas>) BEFORE we measure it / WebGlRenderer.CreateAsync runs getElementById on it.
@@ -85,10 +99,19 @@
         StateHasChanged();
         await Task.Delay(1); // let Blazor apply the width/height attributes
 
+        // Dirty-flag driven persistence, mirroring AppSignalHandler's subscriber on desktop.
+        _state.Bus = _bus;
+        _bus.Subscribe<SavePlannerSessionSignal>(async _ =>
+        {
+            if (!_state.IsDirty) return;
+            _state.MarkSessionSaved();
+            await SavePlannerSessionAsync();
+        });
+
         try
         {
             _webGl = await WebGlRenderer.CreateAsync("planner", (uint)_w, (uint)_h);
-            _tab = new PlannerTab<WebGlContext>(_webGl);
+            _tab = new PlannerTab<WebGlContext>(_webGl) { Bus = _bus };
         }
         catch (Exception ex)
         {
@@ -105,10 +128,12 @@
         RenderFrame();
         StateHasChanged();
 
-        // Window-resize tracking + keyboard focus on the canvas.
+        // Window-resize tracking + keyboard focus on the canvas + pointer capture (keeps a
+        // divider/scrollbar drag alive when the pointer leaves the canvas, like SDL's capture).
         _selfRef = DotNetObjectReference.Create(this);
         await JS.InvokeVoidAsync("tianwenWatchResize", _selfRef);
         await JS.InvokeVoidAsync("tianwenFocus", "planner");
+        await JS.InvokeVoidAsync("tianwenDragCapture", "planner");
 
         // Comets load after first paint, off the critical path (fire-and-forget; logs its own failures).
         _ = LoadCometsInBackgroundAsync();
@@ -277,6 +302,81 @@
 
         _state.SelectedTargetIndex = 0;
         _status = $"{_state.TonightsBest.Length} targets · {_lat:0.0}°, {_lon:0.0}°";
+
+        // Re-apply the saved session (pins + handoff sliders) against the freshly computed
+        // TonightsBest. Runs after EVERY compute: the first compute may run on the default site
+        // (saved pins get site-invalidated), and the geolocation recompute then restores them.
+        await TryRestorePlannerSessionAsync();
+
+        // Remember the site this plan was computed for, so the next reload starts from it.
+        await SaveSiteAsync();
+    }
+
+    // --- Planner session persistence: pins + sliders survive F5 via localStorage --------------
+    // The web analogue of the desktop's PlannerPersistence file store (AppData/Planner/...):
+    // same DTO + restore logic (SerializeToJson / TryRestoreFromJson), different storage.
+
+    async Task TryRestorePlannerSessionAsync()
+    {
+        try
+        {
+            if (await JS.InvokeAsync<string?>("localStorage.getItem", "tianwen.planner") is { Length: > 0 } json
+                && PlannerPersistence.TryRestoreFromJson(_state, json, Logger))
+            {
+                _state.MarkSessionSaved(); // freshly restored == already persisted
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[tianwen-web] saved planner session unavailable: {ex.Message}");
+        }
+    }
+
+    async Task SavePlannerSessionAsync()
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("localStorage.setItem", "tianwen.planner",
+                PlannerPersistence.SerializeToJson(_state));
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[tianwen-web] planner session save failed: {ex.Message}");
+        }
+    }
+
+    // --- Site persistence: last-used lat/lon survives F5 via localStorage --------------------
+
+    async Task LoadSavedSiteAsync()
+    {
+        try
+        {
+            var saved = await JS.InvokeAsync<string?>("localStorage.getItem", "tianwen.site");
+            if (saved?.Split(',') is [var lat, var lon]
+                && double.TryParse(lat, CultureInfo.InvariantCulture, out var la)
+                && double.TryParse(lon, CultureInfo.InvariantCulture, out var lo))
+            {
+                (_lat, _lon) = (la, lo);
+            }
+        }
+        catch (Exception ex)
+        {
+            // Best-effort: localStorage can throw in private-browsing / storage-blocked modes.
+            Console.WriteLine($"[tianwen-web] saved site unavailable: {ex.Message}");
+        }
+    }
+
+    async Task SaveSiteAsync()
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("localStorage.setItem", "tianwen.site",
+                FormattableString.Invariant($"{_lat},{_lon}"));
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[tianwen-web] site save failed: {ex.Message}");
+        }
     }
 
     // Sets the status line and yields long enough for Blazor + the browser to actually paint it
@@ -323,6 +423,11 @@
     void RenderFrame()
     {
         if (_webGl is null || _tab is null) return;
+        // Web has no per-frame loop; every event ends in a RenderFrame, so this is the bus pump
+        // (delivers the auto-posted SavePlannerSessionSignal after pin/slider mutations) and the
+        // completion reaper for the tracked async saves.
+        _bus.ProcessPending(_tracker);
+        _tracker.ProcessCompletions(Logger);
         _webGl.Clear(Background);
         var content = new RectF32(0f, 0f, _w, _h);
         _tab.Render(_state, content, _dpr, _fontPath, Time, _mouse, emojiFontPath: null);
@@ -341,7 +446,10 @@
         var mods = ToModifiers(e);
         if (!_tab.HandleInput(new InputEvent.MouseDown(x, y, Modifiers: mods, ClickCount: (int)e.Detail)))
         {
-            _tab.HitTestAndDispatch(x, y, mods);
+            // Mirrors GuiEventHandlerBase: the hit result feeds the shared handoff-divider
+            // interaction (grab a handle / click-to-place the nearest one / deselect).
+            var hit = _tab.HitTestAndDispatch(x, y, mods);
+            PlannerSliderInteraction.HandleMouseDown(_state, hit, _tab.ChartRect, x, y);
         }
         RenderFrame();
     }
@@ -350,7 +458,12 @@
     {
         if (!_ready || _tab is null) return;
         _mouse = ToCanvas(e);
-        _tab.HandleInput(new InputEvent.MouseMove(_mouse.X, _mouse.Y));
+        // An active divider drag consumes the move (shared state machine with the desktop
+        // event handler); otherwise the tab gets it for hover / scrollbar handling.
+        if (!PlannerSliderInteraction.HandleMouseMove(_state, _tab.ChartRect, _mouse.X))
+        {
+            _tab.HandleInput(new InputEvent.MouseMove(_mouse.X, _mouse.Y));
+        }
         RenderFrame(); // mouse-follower on the altitude chart
     }
 
@@ -359,6 +472,7 @@
         if (!_ready || _tab is null) return;
         var (x, y) = ToCanvas(e);
         _tab.HandleInput(new InputEvent.MouseUp(x, y));
+        PlannerSliderInteraction.HandleMouseUp(_state);
         RenderFrame();
     }
 

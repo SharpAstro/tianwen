@@ -4,7 +4,9 @@
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>🔭 TianWen</title>
+    <!-- Text-only: the favicon below is already the telescope emoji, so an emoji here would
+         show twice next to the tab label. -->
+    <title>TianWen</title>
     <base href="/" />
     <!-- Publish-time fingerprinting (OverrideHtmlAssetPlaceholders): the preload id, the importmap
          element, and the #[.{fingerprint}] marker below are rewritten to the hashed asset names.
@@ -68,6 +70,18 @@
         window.tianwenFocus = function (id) {
             var el = document.getElementById(id);
             if (el) el.focus();
+        };
+        // Capture the pointer on press so drags (handoff divider, list scrollbar) keep receiving
+        // mousemove/mouseup after the pointer leaves the canvas - capturing retargets the
+        // compatibility mouse events back to the capturing element, mirroring SDL's mouse capture.
+        window.tianwenDragCapture = function (id) {
+            var el = document.getElementById(id);
+            if (!el || !el.setPointerCapture) return;
+            el.addEventListener('pointerdown', function (e) {
+                if (e.button === 0) {
+                    try { el.setPointerCapture(e.pointerId); } catch (ignored) { }
+                }
+            });
         };
         window.tianwenGeo = function (waitForPrompt) {
             return new Promise(function (resolve) {
