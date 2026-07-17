@@ -27,4 +27,24 @@
       AND Exists('$(MSBuildThisFileDirectory)..\..\Lzip.Lib\src\Lzip.Lib\Lzip.Lib.csproj')">true</UseLocalSiblings>
   </PropertyGroup>
 
+  <!--
+    Local AOT publishes of the browser app (perf-comparison builds served on :5100) get their
+    own obj/bin so they never regenerate the fingerprinted framework assets underneath a running
+    `dotnet run` dev server (the boot script then 404s on the replaced dotnet.*.js). Scoped to
+    THIS project only and set here (not in the csproj) because MSBuildProjectExtensionsPath
+    derives from BaseIntermediateOutputPath at import time. A global
+    -p:BaseIntermediateOutputPath would leak into every sibling project in the graph and poison
+    root-level-csproj siblings' source globs with stale generated files (CS0579).
+  -->
+  <PropertyGroup Condition="'$(MSBuildProjectName)' == 'TianWen.UI.Web' AND '$(RunAOTCompilation)' == 'true'">
+    <BaseIntermediateOutputPath>obj-aot\</BaseIntermediateOutputPath>
+    <BaseOutputPath>bin-aot\</BaseOutputPath>
+  </PropertyGroup>
+  <!-- Whichever mode is building, the OTHER mode's build tree is not this build's
+       BaseIntermediateOutputPath and so is not auto-excluded from the default source globs -
+       its generated files would compile in twice (CS0579). Exclude all four unconditionally. -->
+  <PropertyGroup Condition="'$(MSBuildProjectName)' == 'TianWen.UI.Web'">
+    <DefaultItemExcludes>$(DefaultItemExcludes);obj\**;bin\**;obj-aot\**;bin-aot\**</DefaultItemExcludes>
+  </PropertyGroup>
+
 </Project>

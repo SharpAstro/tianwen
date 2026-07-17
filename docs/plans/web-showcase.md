@@ -238,11 +238,12 @@ lands; **P2 -> P3** then adds the atlas. P2 gates P3 across the NuGet release bo
     `RenderFrame` - every event ends in one; the web host has no frame loop. Restore runs after
     EVERY compute, deliberately: the first compute may run before geolocation lands (saved pins
     get site-invalidated at >1 deg drift) and the post-geolocation recompute then restores them.
-- **One local server.** The dual dev(:5099)/AOT-static(:5100) setup existed only for the A/B
-  benchmark; a stale second copy cost a full debugging round ("the fix doesn't work" = testing
-  yesterday's publish). Local dev = `dotnet run` on :5099 (always interpreted -
-  `RunAOTCompilation` has NO effect on `dotnet run`); the AOT publish is CI's artifact (P5).
-  Don't resurrect the second local server.
+- **Local servers.** Local dev = `dotnet run` on :5099 (always interpreted - `RunAOTCompilation`
+  has NO effect on `dotnet run`); the AOT publish is CI's artifact (P5). A second local AOT
+  instance on :5100 is legitimate for realistic perf comparison, but ONLY brought up together
+  with a fresh publish and torn down afterwards - the trap is STALENESS, not the port: a
+  left-running stale copy cost a full debugging round ("the fix doesn't work" = testing
+  yesterday's publish).
 - Tab title is text-only ("TianWen") in both `<PageTitle>` and the index.html fallback: the
   favicon IS the telescope emoji (inline SVG data URI), so a title emoji renders twice.
 
@@ -260,6 +261,32 @@ in `WebGl.Renderer/docs/plans/webglcanvas-1.2-input.md`; then
 Planner.razor's `tianwenCanvasMetrics`/`tianwenWatchResize`/`tianwenDragCapture` helpers and the
 resize plumbing all delete in favour of `OnReady`/`OnResized`. Also in 1.1: DIR.Lib 6.11's
 read-only `SdfGlyphDiskCache` mode (the single-threaded-WASM-friendly variant).
+
+## P2+P3 findings (2026-07-17, sky map SHIPPED)
+
+- **P2 shipped as WebGl.Renderer 1.3**: RegisterPipeline (custom GLSL ES 3.00, split
+  vertex/instance layouts, topology, additive blend, per-pipeline std140 UBO binding points),
+  persistent buffers, DrawBuffer/DrawInstanced opcodes, attributeless (gl_VertexID) pipelines.
+  Attribute-state hygiene matters: divisors are context-global per location (explicit reset per
+  draw), stale enabled arrays disabled, dynamic VBO re-bound after custom draws.
+- **P3 shipped**: `WebGlSkyMapPipeline` + `WebSkyMapTab` (TianWen.UI.Web/SkyMap) over the new
+  shared `SkyMapGpuGeometry` + `SkyMapUbo` (TianWen.UI.Abstractions) - the Vulkan pipeline now
+  delegates to the same builders (one geometry path). Star field = the HR catalog (~8.6k stars,
+  enumeration only); `TryGetHipStarLite` gained the HR/HD cross-ref fallback (Lightweight has no
+  Tycho-2, so the O(1) HIP path misses for every figure star). Horizon ground fill ported
+  (attributeless full-screen inverse-projection pass). Validated interpreted AND AOT.
+- **Port gotchas (browser GPU)**: GLSL ES defaults `int` to highp in VS but mediump in FS - a
+  uniform block used in BOTH stages fails to LINK on an int member unless `precision highp int;`
+  is declared (the fill pass was the first two-stage block). GL NDC Y is up (negate vs Vulkan in
+  the final mapping; gl_VertexIndex -> gl_VertexID). Input ordering is load-bearing: hit-test
+  clickable regions BEFORE HandleInput (the sky map consumes every press for drag tracking).
+- **Local AOT publishes are isolated** (`obj-aot`/`bin-aot` via a project-scoped
+  Directory.Build.props block + symmetric DefaultItemExcludes): a publish sharing the dev obj/bin
+  regenerates fingerprinted assets under the running dev server (404s), and a GLOBAL
+  -p:BaseIntermediateOutputPath poisons sibling root-csproj globs (CS0579).
+- **Deferred from the sky map v1**: `RenderObjectOverlay` port (DSO/star markers + click-select
+  via OverlayEngine), schedule/mount/fixed-point marker overlays, Milky Way texture, F3 search
+  index wiring, comet markers (repo loads; markers draw via base labels only).
 
 ## Deferred
 

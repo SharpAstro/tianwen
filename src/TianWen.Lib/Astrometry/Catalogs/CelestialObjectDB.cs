@@ -2090,7 +2090,12 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
             }
         }
 
-        return false;
+        // Tier 2 (a Lightweight build ships no Tycho-2, so the O(1) path above misses for
+        // EVERY star): the same bright-star fallback chain TryLookupHIP uses (cross-reference
+        // -> HR/HD). On a full build this only runs for the handful of HIP stars without a
+        // Tycho-2 counterpart; on Lightweight it resolves the whole ~1000-star figure seed --
+        // without it the browser sky map renders zero stars.
+        return TryLookupHIP(hipNumber, out ra, out dec, out vMag, out bv);
     }
 
     /// <summary>

@@ -1031,55 +1031,12 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
         Lib.Astrometry.SOFA.SiteContext site,
         int frameIndex)
     {
-        // Compute LST trig + zenith direction in J2000 for Alt/Az mode
-        var (fSinLST, fCosLST) = site.IsValid
-            ? Math.SinCos(site.LST * (Math.PI / 12.0))
-            : (0.0, 1.0);
-        float zenithX = (float)(site.CosLat * fCosLST);
-        float zenithY = (float)(site.CosLat * fSinLST);
-        float zenithZ = (float)site.SinLat;
-        var viewMatrix = state.ComputeViewMatrix(zenithX, zenithY, zenithZ);
-        state.CurrentViewMatrix = viewMatrix;
-        var ppr = (float)SkyMapProjection.PixelsPerRadian(viewportHeight, state.FieldOfViewDeg);
-
+        // Composition (incl. the CurrentViewMatrix stamp) lives in the shared SkyMapUbo writer
+        // (one layout for both GPU backends); this method only targets the mapped frame slot.
         _currentUboFrame = frameIndex;
-        var p = _uboMapped[frameIndex];
-
-        // mat4 viewMatrix at offset 0 (64 bytes) — Matrix4x4 is row-major in memory,
-        // but GLSL mat4 expects column-major. Transpose before writing.
-        var transposed = Matrix4x4.Transpose(viewMatrix);
-        Unsafe.CopyBlock(p, Unsafe.AsPointer(ref transposed), 64);
-
-        // vec2 viewportCenter at offset 64
-        WriteFloat(p, 64, offsetX + viewportWidth * 0.5f);
-        WriteFloat(p, 68, offsetY + viewportHeight * 0.5f);
-
-        // float pixelsPerRadian at offset 72
-        WriteFloat(p, 72, ppr);
-
-        // float magnitudeLimit at offset 76 — use the FOV-aware effective limit so
-        // zooming in automatically reveals fainter stars (Stellarium computeRCMag idea).
-        WriteFloat(p, 76, state.EffectiveMagnitudeLimit);
-
-        // float fovDeg at offset 80
-        WriteFloat(p, 80, (float)state.FieldOfViewDeg);
-
-        // float sinLat at offset 84
-        WriteFloat(p, 84, (float)site.SinLat);
-
-        // vec2 viewportSize at offset 88
-        WriteFloat(p, 88, viewportWidth);
-        WriteFloat(p, 92, viewportHeight);
-
-        // float cosLat at offset 96
-        WriteFloat(p, 96, (float)site.CosLat);
-
-        // float sinLST, cosLST at offset 100, 104
-        WriteFloat(p, 100, (float)fSinLST);
-        WriteFloat(p, 104, (float)fCosLST);
-
-        // int horizonClip at offset 108
-        WriteInt(p, 108, state.ShowHorizon && site.IsValid ? 1 : 0);
+        Span<byte> block = stackalloc byte[SkyMapUbo.Size];
+        SkyMapUbo.Write(block, state, viewportWidth, viewportHeight, offsetX, offsetY, site);
+        block.CopyTo(new Span<byte>(_uboMapped[frameIndex], SkyMapUbo.Size));
     }
 
     /// <summary>
@@ -1292,15 +1249,9 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
 
     // ────────────────────────────────────────────────── Grid drawing
 
-    // Grid scale definitions: (raStepHours, decStepDeg, minFov, maxFov)
-    private static readonly (double RaStep, double DecStep, double MinFov, double MaxFov)[] GridScales =
-    [
-        (6.0,  30.0,  30.0, 999.0),
-        (3.0,  15.0,  10.0, 120.0),
-        (1.0,  10.0,   3.0,  40.0),
-        (0.5,   5.0,   1.0,  15.0),
-        (10.0 / 60.0, 1.0, 0.2, 5.0),
-    ];
+    // Grid scale definitions live in the shared SkyMapGpuGeometry (one source for both backends).
+    private static (double RaStep, double DecStep, double MinFov, double MaxFov)[] GridScales
+        => SkyMapGpuGeometry.GridScales;
 
     private void DrawGrid(VkCommandBuffer cmd, SkyMapState state)
     {
@@ -1597,85 +1548,21 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
     /// cost ~hundreds of ms; ~1000 lookups is a couple ms. The async build swaps in the full
     /// ~2.5M-star Tycho-2 catalogue a beat later (<see cref="StartStarBufferRebuildAsync"/>).
     /// </summary>
+    // Geometry math lives in the backend-agnostic SkyMapGpuGeometry (shared with the WebGL
+    // pipeline); these methods only upload the built float lists into Vulkan buffers.
+
     private void BuildStarBufferFromHip(ICelestialObjectDB db)
     {
-        var hipNumbers = ConstellationFigures.AllFigureStarHipNumbers;
-        var floats = new List<float>(hipNumbers.Count * 5);
-
-        foreach (var hip in hipNumbers)
-        {
-            // Lite lookup: ra/dec/mag/bv straight from the Tycho-2 array, skipping the per-star
-            // constellation polygon test + cross-ref/type machinery that TryLookupHIP runs. A
-            // plotted seed dot needs none of it.
-            if (!db.TryGetHipStarLite(hip, out var ra, out var dec, out var vMag, out var bv))
-            {
-                continue;
-            }
-
-            if (float.IsNaN(vMag))
-            {
-                continue;
-            }
-
-            var (x, y, z) = SkyMapState.RaDecToUnitVec(ra, dec);
-            floats.Add(x);
-            floats.Add(y);
-            floats.Add(z);
-            floats.Add(vMag);
-            floats.Add(float.IsNaN(bv) ? 0.65f : bv); // default to solar B-V if unknown
-        }
-
-        _starCount = (uint)(floats.Count / 5);
+        var floats = SkyMapGpuGeometry.BuildFigureStarInstances(db);
+        _starCount = (uint)(floats.Count / SkyMapState.FloatsPerStar);
         var floatsSpan = System.Runtime.InteropServices.CollectionsMarshal.AsSpan(floats);
-        _starChunks = ChunkAndSortStars(floatsSpan, 5);
+        _starChunks = ChunkAndSortStars(floatsSpan, SkyMapState.FloatsPerStar);
         (_starBuffer, _starMemory) = _ctx.CreatePersistentVertexBuffer(floatsSpan);
     }
 
     private void BuildConstellationFigureBuffer(ICelestialObjectDB db)
     {
-        var floats = new List<float>(4096);
-
-        foreach (var constellation in Enum.GetValues<Constellation>())
-        {
-            if (constellation is Constellation.SerpensCaput or Constellation.SerpensCauda)
-            {
-                continue;
-            }
-
-            var figure = constellation.Figure;
-            if (figure.IsDefaultOrEmpty)
-            {
-                continue;
-            }
-
-            foreach (var polyline in figure)
-            {
-                float prevX = 0, prevY = 0, prevZ = 0;
-                var hasPrev = false;
-
-                foreach (var hip in polyline)
-                {
-                    if (!db.TryLookupHIP(hip, out var ra, out var dec, out _, out _))
-                    {
-                        hasPrev = false;
-                        continue;
-                    }
-
-                    var (x, y, z) = SkyMapState.RaDecToUnitVec(ra, dec);
-
-                    if (hasPrev)
-                    {
-                        // Emit line segment: prev → current
-                        floats.Add(prevX); floats.Add(prevY); floats.Add(prevZ);
-                        floats.Add(x); floats.Add(y); floats.Add(z);
-                    }
-
-                    prevX = x; prevY = y; prevZ = z;
-                    hasPrev = true;
-                }
-            }
-        }
-
+        var floats = SkyMapGpuGeometry.BuildConstellationFigureLines(db);
         _figureVertexCount = (uint)(floats.Count / 3);
         if (_figureVertexCount > 0)
         {
@@ -1686,54 +1573,7 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
 
     private void BuildConstellationBoundaryBuffer()
     {
-        var floats = new List<float>(65536);
-
-        // IAU constellation boundaries are defined in B1875 (Delporte 1930 standard).
-        // Our stars + RA/Dec grid are J2000. Without precession the boundaries sit
-        // ~1.74 degrees offset from the stars they delimit, and the stereographic
-        // projection amplifies that offset non-uniformly across the screen — which
-        // the user perceives as boundaries and stars moving at different speeds
-        // during pan. Precess each tessellated point from B1875 -> J2000.
-        const double FromEpoch = 1875.0;
-        const double ToEpoch = 2000.0;
-
-        static (double RA, double Dec) Precess1875ToJ2000(double ra, double dec)
-            => CoordinateUtils.Precess(ra, dec, FromEpoch, ToEpoch);
-
-        foreach (var edge in ConstellationEdges.Edges)
-        {
-            if (edge.Type == ConstellationEdges.EdgeType.Parallel)
-            {
-                // Constant B1875 Dec arc from RA1 to RA2. We tessellate in B1875
-                // (the shape is correct there) and precess each point to J2000
-                // before mapping to the unit sphere.
-                var raRange = edge.RA2 - edge.RA1;
-                if (raRange < -12) raRange += 24;
-                if (raRange > 12) raRange -= 24;
-                var steps = Math.Max(5, (int)(Math.Abs(raRange) * 8));
-                TessellateArc(floats, steps, i =>
-                    Precess1875ToJ2000(edge.RA1 + i * raRange / steps, edge.Dec1));
-            }
-            else if (edge.Type == ConstellationEdges.EdgeType.Meridian)
-            {
-                // Constant B1875 RA arc from Dec1 to Dec2 — precessed per step.
-                var decRange = edge.Dec2 - edge.Dec1;
-                var steps = Math.Max(5, (int)(Math.Abs(decRange) / 2));
-                TessellateArc(floats, steps, i =>
-                    Precess1875ToJ2000(edge.RA1, edge.Dec1 + i * decRange / steps));
-            }
-            else
-            {
-                // Straight segment: just two endpoints, both precessed.
-                var (p1RA, p1Dec) = Precess1875ToJ2000(edge.RA1, edge.Dec1);
-                var (p2RA, p2Dec) = Precess1875ToJ2000(edge.RA2, edge.Dec2);
-                var (x1, y1, z1) = SkyMapState.RaDecToUnitVec(p1RA, p1Dec);
-                var (x2, y2, z2) = SkyMapState.RaDecToUnitVec(p2RA, p2Dec);
-                floats.Add(x1); floats.Add(y1); floats.Add(z1);
-                floats.Add(x2); floats.Add(y2); floats.Add(z2);
-            }
-        }
-
+        var floats = SkyMapGpuGeometry.BuildConstellationBoundaryLines();
         _boundaryVertexCount = (uint)(floats.Count / 3);
         if (_boundaryVertexCount > 0)
         {
@@ -1746,33 +1586,7 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
     {
         for (var i = 0; i < GridScales.Length; i++)
         {
-            var (raStep, decStep, _, _) = GridScales[i];
-            var floats = new List<float>(32768);
-
-            // RA lines (constant RA, varying Dec — great circles)
-            // Skip values already drawn by coarser scales
-            var lineSteps = Math.Max(60, Math.Min(200, (int)(180.0 / decStep * 2)));
-            for (var ra = 0.0; ra < 24.0; ra += raStep)
-            {
-                if (IsCoarserRaLine(ra, i))
-                {
-                    continue;
-                }
-                TessellateArc(floats, lineSteps, j => (ra, -90.0 + j * 180.0 / lineSteps));
-            }
-
-            // Dec lines (constant Dec, varying RA — small circles)
-            // Skip values already drawn by coarser scales
-            var raSteps = Math.Max(60, Math.Min(200, (int)(24.0 / raStep * 2)));
-            for (var dec = -90.0 + decStep; dec < 90.0; dec += decStep)
-            {
-                if (IsCoarserDecLine(dec, i))
-                {
-                    continue;
-                }
-                TessellateArc(floats, raSteps, j => (j * 24.0 / raSteps, dec));
-            }
-
+            var floats = SkyMapGpuGeometry.BuildGridLines(i);
             var vertexCount = (uint)(floats.Count / 3);
             if (vertexCount > 0)
             {
@@ -1783,178 +1597,26 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
         }
     }
 
-    /// <summary>True if this RA value is already drawn by a coarser grid scale.</summary>
-    private static bool IsCoarserRaLine(double ra, int scaleIndex)
-    {
-        for (var j = 0; j < scaleIndex; j++)
-        {
-            var coarserStep = GridScales[j].RaStep;
-            // Check if ra is an exact multiple of the coarser step (within tolerance)
-            var remainder = ra % coarserStep;
-            if (remainder < 1e-9 || coarserStep - remainder < 1e-9)
-            {
-                return true;
-            }
-        }
-        return false;
-    }
+    // Dynamic-line builders + Alt/Az conversion moved to the shared SkyMapGpuGeometry;
+    // thin delegating wrappers keep VkSkyMapTab's existing call sites stable.
 
-    /// <summary>True if this Dec value is already drawn by a coarser grid scale.</summary>
-    private static bool IsCoarserDecLine(double dec, int scaleIndex)
-    {
-        for (var j = 0; j < scaleIndex; j++)
-        {
-            var coarserStep = GridScales[j].DecStep;
-            var remainder = Math.Abs(dec) % coarserStep;
-            if (remainder < 1e-9 || coarserStep - remainder < 1e-9)
-            {
-                return true;
-            }
-        }
-        return false;
-    }
+    /// <inheritdoc cref="SkyMapGpuGeometry.BuildHorizonLine"/>
+    public static void BuildHorizonLine(Lib.Astrometry.SOFA.SiteContext site, List<float> floats)
+        => SkyMapGpuGeometry.BuildHorizonLine(site, floats);
 
-    /// <summary>
-    /// Tessellate an arc into line segments (line list topology: 2 vertices per segment).
-    /// </summary>
-    private static void TessellateArc(List<float> floats, int steps, Func<int, (double RA, double Dec)> coordFunc)
-    {
-        float prevX = 0, prevY = 0, prevZ = 0;
-        var hasPrev = false;
-
-        for (var i = 0; i <= steps; i++)
-        {
-            var (ra, dec) = coordFunc(i);
-            var (x, y, z) = SkyMapState.RaDecToUnitVec(ra, dec);
-
-            if (hasPrev)
-            {
-                floats.Add(prevX); floats.Add(prevY); floats.Add(prevZ);
-                floats.Add(x); floats.Add(y); floats.Add(z);
-            }
-
-            prevX = x; prevY = y; prevZ = z;
-            hasPrev = true;
-        }
-    }
-
-    /// <summary>
-    /// Build dynamic line geometry for the horizon curve. Returns floats for a line list
-    /// of unit vectors. Caller writes these to the ring buffer via <c>ctx.WriteVertices</c>.
-    /// </summary>
-    public static void BuildHorizonLine(
-        Lib.Astrometry.SOFA.SiteContext site,
-        List<float> floats)
-    {
-        if (!site.IsValid)
-        {
-            return;
-        }
-
-        const int steps = 120;
-        float prevX = 0, prevY = 0, prevZ = 0;
-        var hasPrev = false;
-
-        for (var i = 0; i <= steps; i++)
-        {
-            var ra = i * 24.0 / steps;
-            var decHorizon = site.HorizonDec(ra);
-            var (x, y, z) = SkyMapState.RaDecToUnitVec(ra, decHorizon);
-
-            if (hasPrev)
-            {
-                floats.Add(prevX); floats.Add(prevY); floats.Add(prevZ);
-                floats.Add(x); floats.Add(y); floats.Add(z);
-            }
-
-            prevX = x; prevY = y; prevZ = z;
-            hasPrev = true;
-        }
-    }
-
-    /// <summary>
-    /// Build dynamic line geometry for the meridian (LST great circle).
-    /// </summary>
+    /// <inheritdoc cref="SkyMapGpuGeometry.BuildMeridianLine"/>
     public static void BuildMeridianLine(double lst, List<float> floats)
-    {
-        const int steps = 200;
-        var antiLst = (lst + 12.0) % 24.0;
+        => SkyMapGpuGeometry.BuildMeridianLine(lst, floats);
 
-        // First half: LST line from south pole to north pole
-        TessellateArc(floats, steps / 2, i => (lst, -90.0 + i * 180.0 / (steps / 2)));
-        // Second half: anti-LST line from north pole to south pole
-        TessellateArc(floats, steps / 2, i => (antiLst, 90.0 - i * 180.0 / (steps / 2)));
-    }
+    /// <inheritdoc cref="SkyMapGpuGeometry.BuildAltAzGrid"/>
+    public static void BuildAltAzGrid(Lib.Astrometry.SOFA.SiteContext site, List<float> floats)
+        => SkyMapGpuGeometry.BuildAltAzGrid(site, floats);
 
-    /// <summary>
-    /// Build dynamic Alt/Az grid lines. Altitude circles at 10/20/30/45/60/80 degrees,
-    /// azimuth lines every 30 degrees. Converts (Alt, Az) to J2000 unit vectors using
-    /// the observer's latitude and LST.
-    /// </summary>
-    public static void BuildAltAzGrid(
-        Lib.Astrometry.SOFA.SiteContext site,
-        List<float> floats)
-    {
-        if (!site.IsValid)
-        {
-            return;
-        }
-
-        // Altitude circles: constant altitude, sweep azimuth 0..360
-        double[] altitudes = [10, 20, 30, 45, 60, 80];
-        const int azSteps = 120;
-
-        foreach (var alt in altitudes)
-        {
-            TessellateArc(floats, azSteps, i =>
-            {
-                var az = i * 360.0 / azSteps;
-                AltAzToRaDec(alt, az, site, out var ra, out var dec);
-                return (ra, dec);
-            });
-        }
-
-        // Azimuth lines: constant azimuth, sweep altitude 0..89
-        const int altSteps = 60;
-        for (var az = 0.0; az < 360.0; az += 30.0)
-        {
-            TessellateArc(floats, altSteps, i =>
-            {
-                var a = i * 89.0 / altSteps;
-                AltAzToRaDec(a, az, site, out var ra, out var dec);
-                return (ra, dec);
-            });
-        }
-    }
-
-    /// <summary>
-    /// Convert horizontal coordinates (Alt, Az in degrees) to equatorial (RA in hours, Dec in degrees).
-    /// </summary>
+    /// <inheritdoc cref="SkyMapGpuGeometry.AltAzToRaDec"/>
     public static void AltAzToRaDec(
-        double altDeg, double azDeg,
-        Lib.Astrometry.SOFA.SiteContext site,
+        double altDeg, double azDeg, Lib.Astrometry.SOFA.SiteContext site,
         out double raHours, out double decDeg)
-    {
-        var (sinAlt, cosAlt) = Math.SinCos(double.DegreesToRadians(altDeg));
-        var (sinAz, cosAz) = Math.SinCos(double.DegreesToRadians(azDeg));
-
-        var sinDec = site.SinLat * sinAlt + site.CosLat * cosAlt * cosAz;
-        decDeg = double.RadiansToDegrees(Math.Asin(sinDec));
-
-        var cosDec = Math.Cos(Math.Asin(sinDec));
-        if (Math.Abs(cosDec) < 1e-12)
-        {
-            raHours = site.LST;
-            return;
-        }
-
-        var sinHA = -sinAz * cosAlt / cosDec;
-        var cosHA = (sinAlt - site.SinLat * sinDec) / (site.CosLat * cosDec);
-        var ha = Math.Atan2(sinHA, cosHA); // radians
-
-        raHours = (site.LST - ha / (Math.PI / 12.0)) % 24.0;
-        if (raHours < 0) raHours += 24.0;
-    }
+        => SkyMapGpuGeometry.AltAzToRaDec(altDeg, azDeg, site, out raHours, out decDeg);
 
     // ────────────────────────────────────────────────── Vulkan setup
 
