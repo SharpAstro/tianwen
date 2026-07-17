@@ -29,3 +29,5 @@ src/TianWen.Lib/Astrometry/Catalogs/*.gs.gz
 # Lavapipe min-repro zip (built artifact for upstream bug filing)
 LavapipeMinRepro.zip
 __pycache__/
+# CI-baked comet snapshot (pages.yml curls JPL SBDB into wwwroot on the runner)
+src/TianWen.UI.Web/wwwroot/comets-sbdb.json
