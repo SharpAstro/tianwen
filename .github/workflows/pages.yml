@@ -62,8 +62,11 @@ jobs:
       - name: Compute LFS cache key
         id: lfs-key
         run: |
+          # Same include set AND same key prefix as dotnet.yml's build job, deliberately: caches
+          # are repo-scoped, so this restores the entry dotnet.yml already populated from main
+          # instead of storing a byte-identical duplicate.
           HASH=$(git ls-files '*.lz' '*.ttf' '*.bin.gz' | xargs cat | sha256sum | cut -c1-16)
-          echo "key=lfs-pages-${HASH}" >> $GITHUB_OUTPUT
+          echo "key=lfs-build-${HASH}" >> $GITHUB_OUTPUT
       - uses: actions/cache@v5
         with:
           path: .git/lfs
