@@ -49,6 +49,11 @@
                      OnReady="OnCanvasReady" OnResized="OnCanvasResized"
                      OnPointerDown="OnPointerDown" OnPointerMove="OnPointerMove"
                      OnPointerUp="OnPointerUp" OnWheel="OnWheel" OnKeyDown="OnKeyDown" />
+        @* A REAL focusable input floated over the active canvas text widget: native IME /
+           clipboard / autocorrect and the mobile soft keyboard, none of which a canvas-drawn
+           widget can provide. Shown/hidden by the ActivateTextInput/DeactivateTextInput flow. *@
+        <CanvasTextOverlay @ref="_textOverlay" Class="canvas-text-input"
+                           OnInput="OnOverlayInput" OnSpecialKey="OnOverlayKey" OnBlurred="OnOverlayBlurred" />
     </div>
 </div>
 
@@ -87,8 +92,15 @@
     bool _busy;
     // Focused canvas text input - the web counterpart of GuiAppState.ActiveTextInput (the
     // desktop tracks it via Activate/DeactivateTextInputSignal + SDL StartTextInput; the
-    // browser needs no platform IME step, so a field suffices).
+    // browser's platform step is the CanvasTextOverlay below).
     TextInputState? _activeInput;
+    // The real HTML <input> floated over the active widget (IME / clipboard / mobile keyboard).
+    CanvasTextOverlay? _textOverlay;
+    // Last CSS rect pushed to the overlay, so the per-frame sync only calls into JS on a move.
+    RectF32 _overlayRect;
+    // Bumped on every overlay Show; the deferred blur handler compares epochs so a blur that
+    // was immediately followed by a re-activation (click from one input to another) is ignored.
+    int _overlayEpoch;
     // Planner search autocomplete candidates; built after catalog init and rebuilt with comet
     // designations once they load (mirrors AppSignalHandler.SetAutoCompleteCache on desktop).
     string[]? _autoComplete;
@@ -403,6 +415,7 @@
         {
             input.SelectAll();
         }
+        ShowOverlayFor(input);
     }
 
     void DeactivateTextInput()
@@ -412,6 +425,131 @@
             active.Deactivate();
         }
         _activeInput = null;
+        if (_textOverlay is { IsVisible: true } overlay)
+        {
+            _tracker.Run(() => overlay.HideAsync().AsTask(), "Hide text overlay");
+        }
+    }
+
+    // The active view's widget as the concrete pixel-widget base, for the region-rect scan
+    // (GetRegisteredRegions is not on the IPixelWidget interface).
+    PixelWidgetBase<WebGlContext>? ActivePixelTab => _view == View.SkyMap ? _skyTab : _tab;
+
+    // The arranged rect of the widget's clickable region, converted backing px -> CSS px
+    // (the overlay positions in CSS space). Null when the widget didn't render this frame.
+    RectF32? FindInputRectCss(TextInputState input)
+    {
+        if (ActivePixelTab is not { } tab)
+        {
+            return null;
+        }
+        foreach (var region in tab.GetRegisteredRegions())
+        {
+            if (region.Result is HitResult.TextInputHit { Input: { } i } && ReferenceEquals(i, input))
+            {
+                var dpr = (float)(_metrics.DevicePixelRatio > 0 ? _metrics.DevicePixelRatio : 1);
+                return new RectF32(region.X / dpr, region.Y / dpr, region.Width / dpr, region.Height / dpr);
+            }
+        }
+        return null;
+    }
+
+    void ShowOverlayFor(TextInputState input)
+    {
+        if (_textOverlay is not { } overlay || FindInputRectCss(input) is not { } r)
+        {
+            return;
+        }
+        _overlayEpoch++;
+        _overlayRect = r;
+        var (text, caret) = (input.Text, input.CursorPos);
+        _tracker.Run(() => overlay.ShowAsync(text, caret, r.X, r.Y, r.Width, r.Height).AsTask(), "Show text overlay");
+    }
+
+    // Called at the end of RenderFrame: the tab re-registers its regions every paint, so a
+    // layout move (panel resize, dropdown reflow) re-anchors the overlay.
+    void SyncOverlayRect()
+    {
+        if (_activeInput is not { IsActive: true } active || _textOverlay is not { IsVisible: true } overlay)
+        {
+            return;
+        }
+        if (FindInputRectCss(active) is not { } r || r.Equals(_overlayRect))
+        {
+            return;
+        }
+        _overlayRect = r;
+        _tracker.Run(() => overlay.SetRectAsync(r.X, r.Y, r.Width, r.Height).AsTask(), "Sync text overlay rect");
+    }
+
+    // --- CanvasTextOverlay callbacks: the browser input owns the text while editing ---------
+
+    Task OnOverlayInput(CanvasOverlayInputArgs e)
+    {
+        if (_activeInput is not { IsActive: true } active)
+        {
+            return Task.CompletedTask;
+        }
+        active.Text = e.Value;
+        active.CursorPos = e.SelectionStart;
+        active.OnTextChanged?.Invoke(active.Text);
+        RenderFrame(); // suggestions dropdown updates under the overlay
+        return Task.CompletedTask;
+    }
+
+    Task OnOverlayKey(CanvasOverlayKeyArgs e)
+    {
+        if (_activeInput is not { IsActive: true } active)
+        {
+            return Task.CompletedTask;
+        }
+        var key = e.Key switch
+        {
+            "ArrowUp" => InputKey.Up,
+            "ArrowDown" => InputKey.Down,
+            "Enter" => InputKey.Enter,
+            "Escape" => InputKey.Escape,
+            "Tab" => InputKey.Tab,
+            _ => InputKey.None,
+        };
+        if (key == InputKey.None)
+        {
+            return Task.CompletedTask;
+        }
+        var mods = (e.Shift ? InputModifier.Shift : 0) | (e.Ctrl ? InputModifier.Ctrl : 0) | (e.Alt ? InputModifier.Alt : 0);
+        var before = active.Text;
+        TextInputInteraction.HandleKey(active, key, mods, new TextInputInteraction.KeyContext(
+            Tracker: _tracker,
+            Deactivate: DeactivateTextInput,
+            SetActive: next => { _activeInput = next; ShowOverlayFor(next); }, // Tab cycling re-anchors
+            RequestRedraw: () => { }, // the RenderFrame below covers this event
+            Planner: _state,
+            SkySearch: _skyTab?.State.Search,
+            ActiveTab: ActiveTab));
+        // A canvas-side rewrite (suggestion committed on Enter) pushes back into the input.
+        if (_activeInput is { IsActive: true } current && ReferenceEquals(current, active) && current.Text != before)
+        {
+            var (text, caret) = (current.Text, current.CursorPos);
+            _tracker.Run(() => _textOverlay is { } o ? o.SetValueAsync(text, caret).AsTask() : Task.CompletedTask,
+                "Sync text overlay value");
+        }
+        RenderFrame();
+        return Task.CompletedTask;
+    }
+
+    async Task OnOverlayBlurred()
+    {
+        // Deferred + epoch-guarded: when focus moves because the user clicked ANOTHER canvas
+        // input, the pointer handler re-shows the overlay (bumping the epoch) around the same
+        // time this blur arrives - deactivating here would kill the new focus. Only a blur that
+        // stays unanswered (tap on the toolbar, browser chrome, page background) deactivates.
+        var epoch = _overlayEpoch;
+        await Task.Delay(100);
+        if (epoch == _overlayEpoch && _activeInput is { IsActive: true })
+        {
+            DeactivateTextInput();
+            RenderFrame();
+        }
     }
 
     // Sky-map F3 search: the tab posts Open/Close/Commit signals; route them to the same shared
@@ -532,6 +670,7 @@
             _tab.Render(_state, content, (float)_metrics.DevicePixelRatio, _fontPath, Time, _mouse, emojiFontPath: null);
         }
         _webGl.Present();
+        SyncOverlayRect(); // regions were re-registered by the Render above
     }
 
     // Active view's widget for generic input routing (both are PixelWidgetBase<WebGlContext>).

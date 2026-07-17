@@ -311,8 +311,34 @@ read-only `SdfGlyphDiskCache` mode (the single-threaded-WASM-friendly variant).
     (open/filter/commit/close).
   - Web keydown nuance: the browser's keydown carries the printable character itself, so the
     page inserts it via `HandleText` after `HandleKey`; the SDL host gets a separate TextInput
-    event instead. Ctrl+V paste into canvas inputs is a web no-op for now (browser clipboard
-    API is async-only) - deferred.
+    event instead. (This canvas keydown path is now the FALLBACK - while the CanvasTextOverlay
+    below holds focus, editing is native and the canvas never sees the keys.)
+
+## CanvasTextOverlay round (2026-07-17, fourth session)
+
+- **Native text entry over canvas widgets** (WebGl.Renderer 1.4 `CanvasTextOverlay`): a REAL
+  focusable `<input>` floated over the active canvas text widget - the standard canvas-UI
+  companion (Figma / Docs / xterm.js all do this) - so the web app gets IME composition, native
+  clipboard (Ctrl+V works), autocorrect, and the mobile soft keyboard (the driver: no mobile
+  app yet, so the web build IS the mobile story). v1 is a visible, theme-styled input covering
+  the widget (robust for every input source), not the invisible-mirror caret-fidelity variant.
+- **Host wiring** (`Planner.razor` + `.canvas-text-input` in app.css; `.canvas-host` is now
+  `position:relative`): `ActivateTextInput` shows the overlay over the widget's clickable-region
+  rect (a `GetRegisteredRegions()` scan, backing px -> CSS px via dpr; the accessor is not on
+  `IPixelWidget`, so the host types the active tab as `PixelWidgetBase<WebGlContext>`). While
+  editing, the browser input owns the TEXT: `OnInput` mirrors value+caret into `TextInputState`
+  and fires `OnTextChanged` (autocomplete); ArrowUp/Down/Enter/Escape/Tab are intercepted
+  JS-side (preventDefault, never during IME composition) and routed into the shared
+  `TextInputInteraction.HandleKey`, so suggestion nav / commit / cancel are the same code path
+  as desktop; a canvas-side rewrite (suggestion Enter-commit) pushes back via `SetValueAsync`;
+  `SyncOverlayRect` re-anchors after every RenderFrame (regions re-register per paint).
+- **Blur deactivation is deferred + epoch-guarded**: a blur caused by clicking ANOTHER canvas
+  input arrives around the same time as the re-activation - deactivating immediately would kill
+  the new focus. Only a blur that stays unanswered for ~100 ms (tap on toolbar/browser chrome)
+  deactivates.
+- **Known caveat**: iOS Safari may need a second tap for the soft keyboard on first activation
+  (focus() runs on an async continuation of the pointer gesture; Chrome/Android honour the
+  transient-activation window). Hardware-verify on a phone against the live site.
 - **Autocomplete cache must stay off the first-paint path**: `BuildAutoCompleteList` walks every
   catalog designation (x2 canonical forms) + sorts - measured 7.4 s INTERPRETED on :5099 (fine
   under AOT). It builds in the background task after first paint (search commit works without

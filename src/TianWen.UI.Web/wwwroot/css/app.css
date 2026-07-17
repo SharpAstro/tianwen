@@ -130,10 +130,26 @@ button.chip:disabled {
 }
 
 /* The planner surface fills everything below the chrome. The canvas element is sized by CSS;
-   the drawing buffer is set to element-size x devicePixelRatio from the app (hi-dpi crisp). */
+   the drawing buffer is set to element-size x devicePixelRatio from the app (hi-dpi crisp).
+   position:relative anchors the CanvasTextOverlay input, which is absolutely positioned over
+   the active canvas text widget's rect. */
 .canvas-host {
     flex: 1;
     min-height: 0;
+    position: relative;
+}
+
+/* The CanvasTextOverlay input - a real focusable <input> covering the active canvas text
+   widget (native IME / clipboard / mobile keyboard). Styled to sit flush with the dark canvas
+   chrome; mechanics (absolute positioning, show/hide) are inline in the component. */
+.canvas-text-input {
+    background: var(--bg);
+    color: var(--text);
+    border: 1px solid var(--accent);
+    border-radius: 2px;
+    padding: 0 6px;
+    font-family: system-ui, "Segoe UI", Roboto, sans-serif;
+    outline: none;
 }
 
 canvas {
