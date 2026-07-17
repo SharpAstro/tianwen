@@ -246,6 +246,21 @@ lands; **P2 -> P3** then adds the atlas. P2 gates P3 across the NuGet release bo
 - Tab title is text-only ("TianWen") in both `<PageTitle>` and the index.html fallback: the
   favicon IS the telescope emoji (inline SVG data URI), so a title emoji renders twice.
 
+## WebGlCanvas 1.1 assessment (2026-07-17, do NOT migrate yet)
+
+WebGl.Renderer 1.1 ships `<WebGlCanvas>` - the reusable hi-dpi canvas host that folds in the
+metrics/resize/dpr pattern this repo pioneered (see `webglcanvas-1.1-findings.md`, uncommitted).
+Chess.Web migrated; **TianWen.UI.Web must NOT migrate onto 1.1**: the component only binds
+`@onclick` (fires on RELEASE - cannot start a drag) + `@onkeydown`, with no pointer-move/up, no
+wheel, no text input, and no attribute splatting - the planner would lose the divider drag, hover
+follower, and list scroll. Migration is gated on a WebGl.Renderer 1.2 that adds true
+`pointerdown`/`pointermove`/`pointerup`/`wheel` callbacks (backing-space mapped like
+`OnPointerDown`) + built-in `setPointerCapture` on press (subsumes `tianwenDragCapture`) — planned
+in `WebGl.Renderer/docs/plans/webglcanvas-1.2-input.md`; then
+Planner.razor's `tianwenCanvasMetrics`/`tianwenWatchResize`/`tianwenDragCapture` helpers and the
+resize plumbing all delete in favour of `OnReady`/`OnResized`. Also in 1.1: DIR.Lib 6.11's
+read-only `SdfGlyphDiskCache` mode (the single-threaded-WASM-friendly variant).
+
 ## Deferred
 
 - Full Tycho-2 catalog in the browser (the 30 MB payload; drops into the P2/P3 pipeline as a data

@@ -50,39 +50,8 @@
                 .then(function (s) { return s.state; })
                 .catch(function () { return "unknown"; });
         };
-        // Canvas sizing: CSS-pixel size of the element + devicePixelRatio, so the app can size the
-        // drawing buffer to the real device pixels (crisp on hi-dpi) and scale mouse coordinates.
-        window.tianwenCanvasMetrics = function (id) {
-            var el = document.getElementById(id);
-            if (!el) return null;
-            var r = el.getBoundingClientRect();
-            return [r.width, r.height, window.devicePixelRatio || 1];
-        };
-        // Debounced window-resize notifications into .NET.
-        window.tianwenWatchResize = function (ref) {
-            var t = null;
-            window.addEventListener('resize', function () {
-                clearTimeout(t);
-                t = setTimeout(function () { ref.invokeMethodAsync('OnBrowserResize'); }, 150);
-            });
-        };
-        // Give the canvas keyboard focus (it carries tabindex="0").
-        window.tianwenFocus = function (id) {
-            var el = document.getElementById(id);
-            if (el) el.focus();
-        };
-        // Capture the pointer on press so drags (handoff divider, list scrollbar) keep receiving
-        // mousemove/mouseup after the pointer leaves the canvas - capturing retargets the
-        // compatibility mouse events back to the capturing element, mirroring SDL's mouse capture.
-        window.tianwenDragCapture = function (id) {
-            var el = document.getElementById(id);
-            if (!el || !el.setPointerCapture) return;
-            el.addEventListener('pointerdown', function (e) {
-                if (e.button === 0) {
-                    try { el.setPointerCapture(e.pointerId); } catch (ignored) { }
-                }
-            });
-        };
+        // Canvas metrics / resize watching / focus / drag pointer-capture all moved into
+        // WebGl.Renderer 1.2's <WebGlCanvas> component - only the geolocation helpers remain.
         window.tianwenGeo = function (waitForPrompt) {
             return new Promise(function (resolve) {
                 if (!navigator.geolocation) { resolve(null); return; }

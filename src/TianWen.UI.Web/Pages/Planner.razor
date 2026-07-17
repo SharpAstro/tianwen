@@ -1,5 +1,4 @@
 @page "/"
-@implements IDisposable
 @using System.Globalization
 @using DIR.Lib
 @using TianWen.Lib.Astrometry.Catalogs
@@ -35,9 +34,13 @@
     </div>
 
     <div class="canvas-host">
-        <canvas id="planner" tabindex="0" width="@_w" height="@_h"
-                @onmousedown="OnMouseDown" @onmousemove="OnMouseMove" @onmouseup="OnMouseUp"
-                @onwheel="OnWheel" @onkeydown="OnKeyDown"></canvas>
+        @* WebGlCanvas (1.2) owns the hi-dpi plumbing: backing-buffer sizing, resize/dpr watching,
+           backing-space input mapping, pointer capture (drags survive leaving the canvas), and
+           focus - the JS helpers this host used to carry. *@
+        <WebGlCanvas Id="planner" TabIndex="0" AutoFocus="true"
+                     OnReady="OnCanvasReady" OnResized="OnCanvasResized"
+                     OnPointerDown="OnPointerDown" OnPointerMove="OnPointerMove"
+                     OnPointerUp="OnPointerUp" OnWheel="OnWheel" OnKeyDown="OnKeyDown" />
     </div>
 </div>
 
@@ -53,19 +56,17 @@
     readonly SignalBus _bus = new SignalBus();
     readonly BackgroundTaskTracker _tracker = new BackgroundTaskTracker();
     PlannerState _state = new();
-    DotNetObjectReference<Planner>? _selfRef;
+    // First-metrics gate: WebGlCanvas's OnReady can fire while OnInitializedAsync is still staging
+    // the font, so init awaits this instead of racing the component (the Chess.Web pattern).
+    readonly TaskCompletionSource<CanvasMetrics> _firstMetrics = new();
+    // Latest canvas metrics: backing size feeds the GL projection + content rect,
+    // DevicePixelRatio is the tab's dpiScale. Input arrives pre-mapped to backing space.
+    CanvasMetrics _metrics;
     string _fontPath = "monospace";
     string _status = "Loading…";
     (float X, float Y) _mouse;
     bool _ready;
     bool _busy;
-    bool _resizePending;
-
-    // Canvas drawing-buffer size in device pixels (kept = CSS size x devicePixelRatio so the UI is
-    // crisp on hi-dpi displays); _dpr doubles as the tab's dpiScale and the mouse-coordinate scale.
-    int _w = 1280;
-    int _h = 800;
-    float _dpr = 1f;
 
     // Sensible default dark-ish mid-northern site; geolocation / manual entry override it.
     double _lat = 47.5;
@@ -93,12 +94,6 @@
             await TryGeolocateAsync(waitForPrompt: false);
         }
 
-        // Size the drawing buffer to the element's real on-screen size before creating the GL
-        // surface, so the first frame is already full-viewport + hi-dpi crisp.
-        await MeasureCanvasAsync();
-        StateHasChanged();
-        await Task.Delay(1); // let Blazor apply the width/height attributes
-
         // Dirty-flag driven persistence, mirroring AppSignalHandler's subscriber on desktop.
         _state.Bus = _bus;
         _bus.Subscribe<SavePlannerSessionSignal>(async _ =>
@@ -108,9 +103,12 @@
             await SavePlannerSessionAsync();
         });
 
+        // The canvas is laid out + measured once WebGlCanvas reports (canvas-in-DOM gate).
+        _metrics = await _firstMetrics.Task;
+
         try
         {
-            _webGl = await WebGlRenderer.CreateAsync("planner", (uint)_w, (uint)_h);
+            _webGl = await WebGlRenderer.CreateAsync("planner", _metrics.BackingWidth, _metrics.BackingHeight);
             _tab = new PlannerTab<WebGlContext>(_webGl) { Bus = _bus };
         }
         catch (Exception ex)
@@ -128,13 +126,6 @@
         RenderFrame();
         StateHasChanged();
 
-        // Window-resize tracking + keyboard focus on the canvas + pointer capture (keeps a
-        // divider/scrollbar drag alive when the pointer leaves the canvas, like SDL's capture).
-        _selfRef = DotNetObjectReference.Create(this);
-        await JS.InvokeVoidAsync("tianwenWatchResize", _selfRef);
-        await JS.InvokeVoidAsync("tianwenFocus", "planner");
-        await JS.InvokeVoidAsync("tianwenDragCapture", "planner");
-
         // Comets load after first paint, off the critical path (fire-and-forget; logs its own failures).
         _ = LoadCometsInBackgroundAsync();
 
@@ -146,44 +137,14 @@
         }
     }
 
-    protected override void OnAfterRender(bool firstRender)
-    {
-        // Deferred resize: the new canvas width/height attributes must be applied to the DOM before
-        // the GL viewport/projection switch, or one frame renders into a stale drawing buffer.
-        if (_resizePending && _webGl is not null)
-        {
-            _resizePending = false;
-            _webGl.Resize((uint)_w, (uint)_h);
-            RenderFrame();
-        }
-    }
+    void OnCanvasReady(CanvasMetrics m) => _firstMetrics.TrySetResult(m);
 
-    [JSInvokable]
-    public async Task OnBrowserResize()
+    void OnCanvasResized(CanvasMetrics m)
     {
-        if (await MeasureCanvasAsync())
-        {
-            _resizePending = true;
-            StateHasChanged();
-        }
-    }
-
-    async Task<bool> MeasureCanvasAsync()
-    {
-        var m = await JS.InvokeAsync<double[]?>("tianwenCanvasMetrics", "planner");
-        if (m is not { Length: 3 } || m[0] <= 0 || m[1] <= 0)
-        {
-            return false;
-        }
-        var dpr = (float)m[2];
-        var w = (int)Math.Round(m[0] * dpr);
-        var h = (int)Math.Round(m[1] * dpr);
-        if (w == _w && h == _h && dpr == _dpr)
-        {
-            return false;
-        }
-        (_w, _h, _dpr) = (w, h, dpr);
-        return true;
+        _metrics = m;
+        if (_webGl is null) return;
+        _webGl.Resize(m.BackingWidth, m.BackingHeight);
+        RenderFrame();
     }
 
     async Task LoadFontAsync()
@@ -429,59 +390,55 @@
         _bus.ProcessPending(_tracker);
         _tracker.ProcessCompletions(Logger);
         _webGl.Clear(Background);
-        var content = new RectF32(0f, 0f, _w, _h);
-        _tab.Render(_state, content, _dpr, _fontPath, Time, _mouse, emojiFontPath: null);
+        var content = new RectF32(0f, 0f, _metrics.BackingWidth, _metrics.BackingHeight);
+        _tab.Render(_state, content, (float)_metrics.DevicePixelRatio, _fontPath, Time, _mouse, emojiFontPath: null);
         _webGl.Present();
     }
 
     // --- Input: routed through the tab's InputEvent handler, mirroring the desktop host ---------
-    // Browser mouse coordinates are CSS pixels; the drawing buffer is device pixels (x _dpr).
+    // WebGlCanvas delivers coordinates pre-mapped to backing space; no dpr scaling here.
 
-    (float X, float Y) ToCanvas(MouseEventArgs e) => ((float)(e.OffsetX * _dpr), (float)(e.OffsetY * _dpr));
-
-    void OnMouseDown(MouseEventArgs e)
+    void OnPointerDown(CanvasPointerEventArgs e)
     {
-        if (!_ready || _tab is null || e.Button != 0) return;
-        var (x, y) = ToCanvas(e);
-        var mods = ToModifiers(e);
-        if (!_tab.HandleInput(new InputEvent.MouseDown(x, y, Modifiers: mods, ClickCount: (int)e.Detail)))
+        if (!_ready || _tab is null || e.Original.Button != 0) return;
+        var mods = ToModifiers(e.Original);
+        if (!_tab.HandleInput(new InputEvent.MouseDown(e.X, e.Y, Modifiers: mods, ClickCount: (int)e.Original.Detail)))
         {
             // Mirrors GuiEventHandlerBase: the hit result feeds the shared handoff-divider
             // interaction (grab a handle / click-to-place the nearest one / deselect).
-            var hit = _tab.HitTestAndDispatch(x, y, mods);
-            PlannerSliderInteraction.HandleMouseDown(_state, hit, _tab.ChartRect, x, y);
+            var hit = _tab.HitTestAndDispatch(e.X, e.Y, mods);
+            PlannerSliderInteraction.HandleMouseDown(_state, hit, _tab.ChartRect, e.X, e.Y);
         }
         RenderFrame();
     }
 
-    void OnMouseMove(MouseEventArgs e)
+    void OnPointerMove(CanvasPointerEventArgs e)
     {
         if (!_ready || _tab is null) return;
-        _mouse = ToCanvas(e);
+        _mouse = (e.X, e.Y);
         // An active divider drag consumes the move (shared state machine with the desktop
         // event handler); otherwise the tab gets it for hover / scrollbar handling.
-        if (!PlannerSliderInteraction.HandleMouseMove(_state, _tab.ChartRect, _mouse.X))
+        if (!PlannerSliderInteraction.HandleMouseMove(_state, _tab.ChartRect, e.X))
         {
-            _tab.HandleInput(new InputEvent.MouseMove(_mouse.X, _mouse.Y));
+            _tab.HandleInput(new InputEvent.MouseMove(e.X, e.Y));
         }
         RenderFrame(); // mouse-follower on the altitude chart
     }
 
-    void OnMouseUp(MouseEventArgs e)
+    void OnPointerUp(CanvasPointerEventArgs e)
     {
         if (!_ready || _tab is null) return;
-        var (x, y) = ToCanvas(e);
-        _tab.HandleInput(new InputEvent.MouseUp(x, y));
+        _tab.HandleInput(new InputEvent.MouseUp(e.X, e.Y));
         PlannerSliderInteraction.HandleMouseUp(_state);
         RenderFrame();
     }
 
-    void OnWheel(WheelEventArgs e)
+    void OnWheel(CanvasWheelEventArgs e)
     {
         if (!_ready || _tab is null) return;
         // Browser deltaY > 0 = wheel down; the tab uses the SDL convention (positive = up).
         var scrollY = (float)(-e.DeltaY / 100.0);
-        _tab.HandleInput(new InputEvent.Scroll(scrollY, _mouse.X, _mouse.Y));
+        _tab.HandleInput(new InputEvent.Scroll(scrollY, e.X, e.Y));
         RenderFrame();
     }
 
@@ -547,6 +504,4 @@
         [var c] when c is >= '0' and <= '9' => InputKey.D0 + (c - '0'),
         _ => InputKey.None,
     };
-
-    public void Dispose() => _selfRef?.Dispose();
 }
