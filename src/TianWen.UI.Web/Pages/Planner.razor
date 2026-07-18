@@ -725,6 +725,13 @@
     {
         try
         {
+            // Existence check first, so a miss never opens a zero-length stream (Blazor's
+            // OpenReadStreamAsync throws ArgumentOutOfRangeException "Length must be positive" on 0).
+            if (!await JS.InvokeAsync<bool>("tyc2Cache.has", Tyc2CacheVersion))
+            {
+                return null;
+            }
+
             var streamRef = await JS.InvokeAsync<IJSStreamReference>("tyc2Cache.load", Tyc2CacheVersion);
             await using var s = await streamRef.OpenReadStreamAsync(maxAllowedSize: 128L * 1024 * 1024);
             using var ms = new System.IO.MemoryStream();

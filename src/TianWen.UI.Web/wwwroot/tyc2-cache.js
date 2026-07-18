@@ -22,10 +22,27 @@ window.tyc2Cache = (function () {
     }
 
     return {
-        // Returns the cached bytes as a Uint8Array (Blazor hands it to C# as an IJSStreamReference)
-        // when a record for `version` exists, otherwise an EMPTY array -- the C# side reads a
-        // zero-length stream as a miss and falls back to fetch+decode. Returning empty rather than
-        // null keeps the return type a plain stream (no nullable-marshaling ambiguity).
+        // Cheap existence + version check. The C# side calls this BEFORE opening the stream, so a
+        // miss never produces a zero-length stream (Blazor's OpenReadStreamAsync rejects length 0).
+        has: async function (version) {
+            try {
+                const db = await openDb();
+                const rec = await new Promise(function (resolve, reject) {
+                    const req = db.transaction(STORE, "readonly").objectStore(STORE).get(KEY);
+                    req.onsuccess = function () { resolve(req.result); };
+                    req.onerror = function () { reject(req.error); };
+                });
+                db.close();
+                return !!(rec && rec.version === version && rec.bytes && rec.bytes.byteLength > 0);
+            } catch (e) {
+                console.warn("[tianwen-web] tyc2 cache has() failed:", e);
+                return false;
+            }
+        },
+
+        // Returns the cached bytes as a Uint8Array (Blazor hands it to C# as an IJSStreamReference).
+        // Only called after has() reports a hit, so the record exists; on a defensive miss it still
+        // returns an empty array (the C# side treats a zero read as a miss).
         load: async function (version) {
             try {
                 const db = await openDb();
