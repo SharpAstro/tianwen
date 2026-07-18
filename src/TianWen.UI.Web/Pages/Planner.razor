@@ -659,9 +659,10 @@
     // HR field untouched - the atlas is a fine showcase either way. On single-threaded WASM the
     // decode + flatten are synchronous stalls, but they run after the atlas has already painted;
     // measuring the AOT wall-time here is what gates the P2 parallel-decode work (web-tycho2.md).
-    // Bump when tyc2.bin.lz content OR the float-instance layout (FloatsPerStar) changes, so a
-    // stale IndexedDB snapshot is discarded rather than rendering the wrong stars.
-    const string Tyc2CacheVersion = "tyc2-v1-5f";
+    // Bump when tyc2.bin.lz content OR the cached buffer format changes, so a stale IndexedDB
+    // snapshot is discarded rather than fed to the DB. v2 = raw decompressed bytes (v1 cached the
+    // flattened float buffer; raw enables clickable stars, which need the DB records + spatial index).
+    const string Tyc2CacheVersion = "tyc2-v2-raw";
 
     async Task EnsureTycho2AtlasAsync()
     {
@@ -671,38 +672,33 @@
             // paints before the heavy work below (mirrors LoadCometsInBackgroundAsync).
             await Task.Delay(30);
 
-            // Fast path: a decoded buffer cached in IndexedDB from a prior visit skips BOTH the
-            // ~30 MB fetch and the ~1.8 s decode/flatten. Streamed back (no JSON marshaling).
-            if (await TryLoadTycho2FromCacheAsync())
+            // Warm path: the raw decompressed catalog cached from a prior visit skips BOTH the
+            // ~30 MB fetch and the lzip decompress. It feeds the SAME DB path as the cold decode
+            // (records + spatial index), so click-to-identify works identically on a cached load.
+            var cachedRaw = await TryReadTycho2CacheAsync();
+            if (cachedRaw is { Length: > 0 } && Db.TryLoadTycho2BulkFromDecoded(cachedRaw))
             {
+                FlattenAndSubmitTycho2("IndexedDB cache");
                 return;
             }
 
-            // Cold path: fetch the compressed catalog, decode + flatten, then cache for next time.
+            // Cold path: fetch the compressed catalog, decompress, wire the DB + spatial index,
+            // flatten to the GPU, then cache the raw decompressed bytes for next time.
             var sw = System.Diagnostics.Stopwatch.StartNew();
-            var bytes = await Http.GetByteArrayAsync("tyc2.bin.lz");
-            Console.WriteLine($"[tianwen-web] tyc2 fetch: {bytes.Length / (1024 * 1024)} MB in {sw.ElapsedMilliseconds} ms");
+            var lz = await Http.GetByteArrayAsync("tyc2.bin.lz");
+            Console.WriteLine($"[tianwen-web] tyc2 fetch: {lz.Length / (1024 * 1024)} MB in {sw.ElapsedMilliseconds} ms");
 
             sw.Restart();
-            if (!Db.TryLoadTycho2BulkFromCompressed(bytes))
+            var raw = SharpAstro.Lzip.LzipDecoder.Decompress(lz);
+            if (!Db.TryLoadTycho2BulkFromDecoded(raw))
             {
                 Console.WriteLine("[tianwen-web] tyc2 decode produced no catalog; keeping the HR field");
                 return;
             }
+            Console.WriteLine($"[tianwen-web] tyc2 decompress: {raw.Length / (1024 * 1024)} MB in {sw.ElapsedMilliseconds} ms");
 
-            // Flatten to 5-float star instances via the shared builder the desktop pipeline uses
-            // (dt=0: render at J2000, no pm propagation - a plotted dot doesn't need it).
-            var count = Db.Tycho2StarCount;
-            var verts = new float[count * SkyMapState.FloatsPerStar];
-            var written = SkyMapState.FillTycho2StarVertices(Db, dtJulianYears: 0.0, verts);
-            Console.WriteLine($"[tianwen-web] tyc2 decode+flatten: {written} stars in {sw.ElapsedMilliseconds} ms");
-
-            _skyTab?.SubmitTycho2Stars(verts, written);
-            RenderFrame(); // swap it in on the next paint
-
-            // Persist the flattened buffer so the next visit takes the fast path (fire-and-forget;
-            // a cache-write failure is non-fatal).
-            _ = SaveTycho2ToCacheAsync(verts, written);
+            FlattenAndSubmitTycho2("decode");
+            _ = SaveTycho2ToCacheAsync(raw); // persist the raw buffer (fire-and-forget; non-fatal)
         }
         catch (Exception ex)
         {
@@ -710,10 +706,22 @@
         }
     }
 
-    // Reads the decoded float buffer from IndexedDB (a JS-to-.NET stream) and swaps it straight in,
-    // skipping the fetch + decode + flatten. Returns false on a miss / version mismatch / any error
-    // (an empty stream = miss), so the caller falls back to the cold path.
-    async Task<bool> TryLoadTycho2FromCacheAsync()
+    // Flattens the loaded Tycho-2 records to 5-float star instances (shared desktop builder, dt=0)
+    // and hands them to the GPU pipeline for the render-thread swap over the HR seed.
+    void FlattenAndSubmitTycho2(string source)
+    {
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        var count = Db.Tycho2StarCount;
+        var verts = new float[count * SkyMapState.FloatsPerStar];
+        var written = SkyMapState.FillTycho2StarVertices(Db, dtJulianYears: 0.0, verts);
+        Console.WriteLine($"[tianwen-web] tyc2 flatten ({source}): {written} stars in {sw.ElapsedMilliseconds} ms");
+        _skyTab?.SubmitTycho2Stars(verts, written);
+        RenderFrame(); // swap it in on the next paint
+    }
+
+    // Reads the raw decompressed catalog from IndexedDB (a JS-to-.NET stream). Returns null on a
+    // miss / version mismatch / any error (an empty stream = miss) so the caller fetches + decodes.
+    async Task<byte[]?> TryReadTycho2CacheAsync()
     {
         try
         {
@@ -722,41 +730,24 @@
             using var ms = new System.IO.MemoryStream();
             await s.CopyToAsync(ms);
             var bytes = ms.ToArray();
-
-            const int bytesPerStar = SkyMapState.FloatsPerStar * sizeof(float);
-            if (bytes.Length == 0 || bytes.Length % bytesPerStar != 0)
-            {
-                return false; // miss, or a corrupt/partial snapshot -> re-fetch
-            }
-
-            var floats = System.Runtime.InteropServices.MemoryMarshal.Cast<byte, float>(bytes).ToArray();
-            var starCount = bytes.Length / bytesPerStar;
-            Console.WriteLine($"[tianwen-web] tyc2 from IndexedDB cache: {starCount} stars ({bytes.Length / (1024 * 1024)} MB)");
-
-            _skyTab?.SubmitTycho2Stars(floats, starCount);
-            RenderFrame();
-            return true;
+            return bytes.Length == 0 ? null : bytes;
         }
         catch (Exception ex)
         {
             Console.WriteLine($"[tianwen-web] tyc2 cache read failed, will fetch: {ex.Message}");
-            return false;
+            return null;
         }
     }
 
-    // Streams the flattened float buffer into IndexedDB (a .NET-to-JS stream) under the version key.
-    async Task SaveTycho2ToCacheAsync(float[] verts, int written)
+    // Streams the raw decompressed catalog into IndexedDB (a .NET-to-JS stream) under the version key.
+    async Task SaveTycho2ToCacheAsync(byte[] raw)
     {
         try
         {
-            var byteLength = written * SkyMapState.FloatsPerStar * sizeof(float);
-            var bytes = new byte[byteLength];
-            System.Buffer.BlockCopy(verts, 0, bytes, 0, byteLength);
-
-            using var ms = new System.IO.MemoryStream(bytes, writable: false);
+            using var ms = new System.IO.MemoryStream(raw, writable: false);
             using var streamRef = new DotNetStreamReference(ms, leaveOpen: false);
             await JS.InvokeVoidAsync("tyc2Cache.save", Tyc2CacheVersion, streamRef);
-            Console.WriteLine($"[tianwen-web] tyc2 cached to IndexedDB ({byteLength / (1024 * 1024)} MB)");
+            Console.WriteLine($"[tianwen-web] tyc2 cached to IndexedDB ({raw.Length / (1024 * 1024)} MB)");
         }
         catch (Exception ex)
         {

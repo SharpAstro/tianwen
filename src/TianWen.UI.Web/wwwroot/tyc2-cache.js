@@ -1,8 +1,9 @@
-// IndexedDB cache for the decoded Tycho-2 star buffer (~50 MB of float instances). Keyed by a
-// catalog version so a catalog change invalidates it. On a repeat visit this skips BOTH the ~30 MB
-// fetch AND the ~1.8 s decode/flatten -- the app reads the ready-to-upload float buffer straight
-// back. The 50 MB crosses the JS<->.NET boundary via Blazor's stream interop
-// (IJSStreamReference on load, DotNetStreamReference on save), never slow JSON marshaling.
+// IndexedDB cache for the RAW DECOMPRESSED Tycho-2 catalog (~42 MB). Keyed by a catalog version so
+// a catalog change invalidates it. On a repeat visit this skips BOTH the ~30 MB fetch AND the lzip
+// decompress -- the app feeds the cached bytes straight into the DB (star records + spatial index)
+// and re-flattens to the GPU, so clicking a star to identify it works on a cached load too. The
+// bytes cross the JS<->.NET boundary via Blazor's stream interop (IJSStreamReference on load,
+// DotNetStreamReference on save), never slow JSON marshaling.
 //
 // localStorage is unusable here (~5-10 MB, strings only); IndexedDB holds hundreds of MB async and
 // survives reloads/redeploys/eviction far better than the HTTP cache.

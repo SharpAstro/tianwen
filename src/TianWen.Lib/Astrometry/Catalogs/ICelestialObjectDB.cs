@@ -164,20 +164,30 @@ public interface ICelestialObjectDB
 
     /// <summary>
     /// Injects an externally-fetched, still-lzip-compressed <c>tyc2.bin.lz</c> payload,
-    /// decompressing it and wiring the bulk Tycho-2 star data so <see cref="Tycho2StarCount"/> /
-    /// <see cref="CopyTycho2Stars"/> return the full catalog. This is the browser/Lightweight
-    /// path: the ~30 MB catalog is stripped from the WASM bundle (the embedded manifest entry is
-    /// absent), so the atlas fetches <c>tyc2.bin.lz</c> as a same-origin static asset and feeds
-    /// the bytes here. Idempotent (a no-op returning <c>true</c> once bulk data is present) and
-    /// deliberately <b>display-only</b>: it builds only the flat star records, NOT the searchable
-    /// spatial index or the HD/HIP cross maps (a plotted star dot needs neither). The default is a
-    /// no-op for hosts that never inject (the embedded desktop build, tests) - only
-    /// <c>CelestialObjectDB</c> performs the decode.
+    /// decompressing it (then delegating to <see cref="TryLoadTycho2BulkFromDecoded"/>). This is
+    /// the browser/Lightweight path: the ~30 MB catalog is stripped from the WASM bundle (the
+    /// embedded manifest entry is absent), so the atlas fetches <c>tyc2.bin.lz</c> as a same-origin
+    /// static asset and feeds the bytes here. Idempotent (a no-op returning <c>true</c> once bulk
+    /// data is present). The default is a no-op for hosts that never inject (the embedded desktop
+    /// build, tests) - only <c>CelestialObjectDB</c> performs the decode.
     /// </summary>
     /// <param name="compressedLz">The raw <c>tyc2.bin.lz</c> bytes as fetched over HTTP.</param>
     /// <returns><c>true</c> when the Tycho-2 catalog is available after the call
     /// (freshly injected, or already loaded); <c>false</c> on empty input or a no-op host.</returns>
     bool TryLoadTycho2BulkFromCompressed(byte[] compressedLz) => false;
+
+    /// <summary>
+    /// Injects an already-decompressed Tycho-2 bulk buffer (the plain byte[], no lzip layer) and
+    /// wires the star records + the GSC-bounds spatial index, so <see cref="Tycho2StarCount"/> /
+    /// <see cref="CopyTycho2Stars"/> return the full catalog AND <see cref="CoordinateGrid"/>
+    /// answers FOV queries against Tycho-2 (the click-to-identify / overlay-label path). The
+    /// browser caches this decompressed buffer (e.g. IndexedDB) so a repeat visit skips both the
+    /// download and the lzip decode. Idempotent; the default is a no-op for hosts that never inject.
+    /// </summary>
+    /// <param name="decodedData">The decompressed <c>tyc2.bin</c> bytes (the output of the lzip decode).</param>
+    /// <returns><c>true</c> when the Tycho-2 catalog is available after the call; <c>false</c> on
+    /// empty input or a no-op host.</returns>
+    bool TryLoadTycho2BulkFromDecoded(byte[] decodedData) => false;
 
     /// <summary>
     /// Single-star lookup by Tycho-2 catalog index. One walk through the

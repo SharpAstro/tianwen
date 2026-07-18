@@ -751,13 +751,60 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
             return false;
         }
 
-        // Display-only: the GSC-bounds spatial index (_tycho2RaDecIndex) and the high-pm sidecar
-        // (~11 stars, still embedded on the Lightweight build) are intentionally NOT wired here -
-        // the atlas plots dots, which need neither; CopyTycho2Stars falls back to the inline pm
-        // rail value for the handful of sidecar stars, invisible at plot scale. WireTycho2BulkData
-        // handles the decompress-buffer publish (torn-free) shared with the embedded path.
-        WireTycho2BulkData(LzipDecoder.Decompress(compressedLz));
+        return TryLoadTycho2BulkFromDecoded(LzipDecoder.Decompress(compressedLz));
+    }
+
+    /// <inheritdoc/>
+    public bool TryLoadTycho2BulkFromDecoded(byte[] decodedData)
+    {
+        // Already loaded (embedded desktop path, or a prior injection) - nothing to do.
+        if (_tycho2Data is not null)
+        {
+            return true;
+        }
+        if (decodedData is null || decodedData.Length < 4)
+        {
+            return false;
+        }
+
+        // Publish the bulk star records (torn-free), then build the GSC-bounds spatial index so the
+        // composite CoordinateGrid answers FOV queries against Tycho-2 - the click-to-identify /
+        // overlay-label path resolves individual TYC stars. The high-pm sidecar (~11 stars) is still
+        // NOT wired: it only refines proper motion, which a plotted/clicked dot doesn't need
+        // (CopyTycho2Stars falls back to the inline rail value for those).
+        WireTycho2BulkData(decodedData);
+        BuildTycho2SpatialIndexFromEmbeddedBounds();
         return true;
+    }
+
+    /// <summary>
+    /// Builds the Tycho-2 spatial index (<see cref="_tycho2RaDecIndex"/>) from the embedded
+    /// GSC-region bounds (<c>tyc2_gsc_bounds.bin.lz</c>, still embedded on the Lightweight build).
+    /// Requires <see cref="_tycho2Data"/> already set. Cheap: it indexes the ~9.5k GSC region
+    /// bounding boxes, not the 2.5M stars. Idempotent + a no-op when the bounds resource is absent.
+    /// </summary>
+    private void BuildTycho2SpatialIndexFromEmbeddedBounds()
+    {
+        var data = _tycho2Data;
+        if (data is null || _tycho2RaDecIndex is not null)
+        {
+            return;
+        }
+
+        var assembly = typeof(CelestialObjectDB).Assembly;
+        var boundsManifest = assembly.GetManifestResourceNames()
+            .FirstOrDefault(n => n.EndsWith(".tyc2_gsc_bounds.bin.lz", StringComparison.Ordinal));
+        if (boundsManifest is null)
+        {
+            return;
+        }
+        using var boundsStream = assembly.GetManifestResourceStream(boundsManifest);
+        if (boundsStream is null)
+        {
+            return;
+        }
+        var boundsData = LzipDecoder.Decompress(boundsStream);
+        _tycho2RaDecIndex = new Tycho2RaDecIndex(data, _tycho2StreamCount, boundsData);
     }
 
     /// <summary>
