@@ -110,6 +110,11 @@
     // Planner search autocomplete candidates; built after catalog init and rebuilt with comet
     // designations once they load (mirrors AppSignalHandler.SetAutoCompleteCache on desktop).
     string[]? _autoComplete;
+    // One-shot guard: the full ~2.5M-star Tycho-2 catalog is fetched + decoded the first time the
+    // Sky Atlas actually renders (deep-link or chip). ~30 MB static asset, stripped from the WASM
+    // bundle - the atlas shows the HR bright-star seed until it lands (and stays HR-only if the
+    // fetch 404s, e.g. a dev server without the CI-baked asset).
+    bool _tycho2Requested;
 
     // Sensible default dark-ish mid-northern site; geolocation / manual entry override it.
     double _lat = 47.5;
@@ -647,6 +652,48 @@
         }
     }
 
+    // First Sky-Atlas open: fetch the full ~30 MB Tycho-2 catalog (stripped from the WASM bundle),
+    // then decode + flatten it to star instances OFF the first-paint path and hand the buffer to
+    // the sky pipeline for a render-thread swap. The HR bright-star seed stays on screen until it
+    // lands. Best-effort: a 404 (dev server without the CI-baked asset) or any failure leaves the
+    // HR field untouched - the atlas is a fine showcase either way. On single-threaded WASM the
+    // decode + flatten are synchronous stalls, but they run after the atlas has already painted;
+    // measuring the AOT wall-time here is what gates the P2 parallel-decode work (web-tycho2.md).
+    async Task EnsureTycho2AtlasAsync()
+    {
+        try
+        {
+            // This "background" task runs inline until its first await; yield so the HR atlas
+            // paints before the heavy fetch/decode below (mirrors LoadCometsInBackgroundAsync).
+            await Task.Delay(30);
+
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            var bytes = await Http.GetByteArrayAsync("tyc2.bin.lz");
+            Console.WriteLine($"[tianwen-web] tyc2 fetch: {bytes.Length / (1024 * 1024)} MB in {sw.ElapsedMilliseconds} ms");
+
+            sw.Restart();
+            if (!Db.TryLoadTycho2BulkFromCompressed(bytes))
+            {
+                Console.WriteLine("[tianwen-web] tyc2 decode produced no catalog; keeping the HR field");
+                return;
+            }
+
+            // Flatten to 5-float star instances via the shared builder the desktop pipeline uses
+            // (dt=0: render at J2000, no pm propagation - a plotted dot doesn't need it).
+            var count = Db.Tycho2StarCount;
+            var verts = new float[count * SkyMapState.FloatsPerStar];
+            var written = SkyMapState.FillTycho2StarVertices(Db, dtJulianYears: 0.0, verts);
+            Console.WriteLine($"[tianwen-web] tyc2 decode+flatten: {written} stars in {sw.ElapsedMilliseconds} ms");
+
+            _skyTab?.SubmitTycho2Stars(verts, written);
+            RenderFrame(); // swap it in on the next paint
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[tianwen-web] Tycho-2 catalog unavailable (HR-only atlas): {ex.Message}");
+        }
+    }
+
     async Task RecomputeAsync()
     {
         if (_busy || _webGl is null) return;
@@ -674,6 +721,15 @@
         var content = new RectF32(0f, 0f, _metrics.BackingWidth, _metrics.BackingHeight);
         if (_view == View.SkyMap && _skyTab is not null)
         {
+            // First atlas paint: kick the lazy Tycho-2 fetch (once). Triggering here - rather than
+            // in ApplyViewFromLocation - guarantees the pipeline exists (a deep-link resolves the
+            // view before the renderer/tabs are created), and it naturally covers chip switches +
+            // browser back/forward too.
+            if (!_tycho2Requested)
+            {
+                _tycho2Requested = true;
+                _ = EnsureTycho2AtlasAsync();
+            }
             _skyTab.Render(_state, content, (float)_metrics.DevicePixelRatio, _fontPath, Time);
         }
         else
