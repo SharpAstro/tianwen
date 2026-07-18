@@ -7,33 +7,26 @@ using static Vortice.Vulkan.Vulkan;
 namespace TianWen.Lib.Tests;
 
 /// <summary>
-/// xUnit class fixture that owns a single offscreen Vulkan stack (VkInstance +
+/// Base xUnit fixture that owns a single offscreen Vulkan stack (VkInstance +
 /// <see cref="VulkanContext"/> + <see cref="VkRenderer"/> + <see cref="VkFitsImagePipeline"/>)
-/// shared across every test in <see cref="GpuStretchPipelineTests"/>. Created once, disposed
-/// once. Mirrors docs/plans/gpu-stretch-tests.md Phase 1's "Class fixture so all theory cases share
-/// one context" recommendation.
+/// at a fixed size, created once and disposed once. Concrete size-specific fixtures derive from
+/// it (see <see cref="OffscreenGpuFixture"/>, <see cref="VkPrimitiveGpuFixture"/>,
+/// <see cref="VkHistogramGpuFixture"/>); each is wired as an <c>IClassFixture&lt;T&gt;</c> so a
+/// GPU test class creates its Vulkan stack ONCE, not per test method.
 ///
-/// Why: without this, every [Theory] case (and every [Fact]) used to call vkInitialize +
-/// vkCreateInstance + vkCreateDebugUtilsMessengerEXT and tear it all down again. Mesa lavapipe
-/// + the Khronos validation layer + libvulkan loader accumulate enough TLS / process-global
-/// state across repeated init/destroy that the runtime SIGSEGVs during process exit (xUnit
-/// reports "Catastrophic failure: Test process crashed with exit code 139"). The accumulation
-/// is the antipattern; this fixture removes it.
+/// Why this must be a fixture, not per-test setup: xUnit constructs a fresh test-class instance
+/// per test method, so any Vulkan init in a test method's body (or the class ctor) runs on EVERY
+/// method. Repeated vkInitialize + vkCreateInstance + vkCreateDebugUtilsMessengerEXT + teardown
+/// makes Mesa lavapipe + the Khronos validation layer + the libvulkan loader accumulate enough
+/// TLS / process-global state that the runtime SIGSEGVs during process exit -- xUnit reports
+/// "Catastrophic failure: Test process crashed with exit code 139". Hoisting the stack into a
+/// class fixture removes the churn (one init/destroy per class instead of per method).
 ///
-/// The framebuffer is sized to the largest expected test image (Vela_SNR_Panel = 1310x1291).
-/// Smaller tests (Phase 1 synthetic SPCC field, 1280x1024) render into the top-left
-/// sub-rectangle and the helper extracts the meaningful slice from the readback.
-///
-/// Channel textures inside <see cref="VkFitsImagePipeline"/> resize automatically per upload
-/// (<see cref="VkFitsImagePipeline.UploadChannelTexture"/> calls DestroyChannelTexture +
-/// CreateChannelTexture when dimensions change), so the shared pipeline handles arbitrary
-/// per-test image dimensions transparently.
+/// Channel/histogram textures inside <see cref="VkFitsImagePipeline"/> resize automatically per
+/// upload, so the shared pipeline handles arbitrary per-test image dimensions transparently.
 /// </summary>
-public sealed unsafe class OffscreenGpuFixture : IDisposable
+public abstract unsafe class OffscreenGpuFixtureBase : IDisposable
 {
-    public const int Width = 1310;
-    public const int Height = 1291;
-
     public bool VulkanAvailable { get; }
     public string? UnavailableReason { get; }
 
@@ -43,7 +36,7 @@ public sealed unsafe class OffscreenGpuFixture : IDisposable
     public VkRenderer? Renderer { get; }
     public VkFitsImagePipeline? Pipeline { get; }
 
-    public OffscreenGpuFixture()
+    protected OffscreenGpuFixtureBase(int width, int height)
     {
         try
         {
@@ -54,8 +47,8 @@ public sealed unsafe class OffscreenGpuFixture : IDisposable
             // VulkanContext.Dispose() destroys the instance at teardown, so the fixture
             // doesn't separately track it -- Ctx.Dispose() in the fixture's Dispose covers
             // both the device + instance lifecycle.
-            Ctx = VulkanContext.CreateOffscreen(instance, Width, Height);
-            Renderer = new VkRenderer(Ctx, Width, Height);
+            Ctx = VulkanContext.CreateOffscreen(instance, (uint)width, (uint)height);
+            Renderer = new VkRenderer(Ctx, (uint)width, (uint)height);
             Pipeline = new VkFitsImagePipeline(Ctx);
             VulkanAvailable = true;
         }
@@ -73,4 +66,31 @@ public sealed unsafe class OffscreenGpuFixture : IDisposable
         Renderer?.Dispose();
         Ctx?.Dispose();
     }
+}
+
+/// <summary>
+/// Offscreen Vulkan stack sized to the largest expected stacking/stretch test image
+/// (Vela_SNR_Panel = 1310x1291); shared across every test in <see cref="GpuStretchPipelineTests"/>.
+/// Smaller tests render into the top-left sub-rectangle and the helper extracts the meaningful
+/// slice from the readback. The <see cref="Width"/> / <see cref="Height"/> consts stay so callers
+/// keep referencing <c>OffscreenGpuFixture.Width</c> unchanged.
+/// </summary>
+public sealed class OffscreenGpuFixture : OffscreenGpuFixtureBase
+{
+    public const int Width = 1310;
+    public const int Height = 1291;
+
+    public OffscreenGpuFixture() : base(Width, Height) { }
+}
+
+/// <summary>Offscreen Vulkan stack sized for <see cref="VkRendererPrimitiveTests"/> (256x256).</summary>
+public sealed class VkPrimitiveGpuFixture : OffscreenGpuFixtureBase
+{
+    public VkPrimitiveGpuFixture() : base(256, 256) { }
+}
+
+/// <summary>Offscreen Vulkan stack sized for <see cref="VkHistogramPipelineTests"/> (512x64).</summary>
+public sealed class VkHistogramGpuFixture : OffscreenGpuFixtureBase
+{
+    public VkHistogramGpuFixture() : base(512, 64) { }
 }
