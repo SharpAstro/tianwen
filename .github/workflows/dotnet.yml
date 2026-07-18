@@ -99,8 +99,12 @@ jobs:
     # whenever this package list changes -- it controls the apt cache key.
     - uses: SharpAstro/cache-apt-pkgs-action@v1
       with:
-        packages: ghostscript fonts-urw-base35 fontconfig mesa-vulkan-drivers libvulkan1 vulkan-tools vulkan-validationlayers
-        version: 1.3
+        # lldb: on a native testhost crash, symbolicate the runtime minidump on THIS runner (where
+        # the crashed process's .so files still exist) so the "Symbolicate crash dump" step below
+        # resolves module names -- the offline analyze-crash-dump workflow can't (a fresh runner
+        # lacks those .so, hence lldb's "no associated executable images").
+        packages: ghostscript fonts-urw-base35 fontconfig mesa-vulkan-drivers libvulkan1 vulkan-tools vulkan-validationlayers lldb
+        version: 1.4
     - name: Rebuild fontconfig cache
       run: fc-cache -f
     # Sanity-check that the Vulkan loader can enumerate at least one ICD before
@@ -175,6 +179,30 @@ jobs:
         DOTNET_DbgMiniDumpName: /tmp/coredump-%e-%p-%t.dmp
       run: dotnet test TianWen.Lib.Tests -c $BUILD_CONF --no-build --logger "console;verbosity=detailed" --blame-crash --blame-hang --blame-hang-timeout 5min --results-directory test-results/
       working-directory: src
+    # On a native testhost crash (SIGSEGV -> exit 139), symbolicate the runtime minidump HERE, on
+    # the same runner, while the crashed process's shared libraries are still on disk -- lldb reads
+    # the minidump's module list and loads those .so from their recorded paths, so the backtrace
+    # names the culprit (e.g. the lavapipe software-Vulkan .so) directly in this run's log. The
+    # offline analyze-crash-dump workflow only gets bare addresses (its runner lacks the .so).
+    # Best-effort + capped: never let analysis failure mask the real test failure.
+    - name: Symbolicate crash dump (native stacks)
+      if: failure()
+      run: |
+        set +e
+        shopt -s nullglob
+        dumps=(/tmp/coredump-*.dmp)
+        if [ ${#dumps[@]} -eq 0 ]; then
+          echo "no runtime minidump (/tmp/coredump-*.dmp) -- the failure was not a native crash"
+          exit 0
+        fi
+        for d in "${dumps[@]}"; do
+          echo "==== lldb backtrace ($d, $(du -h "$d" | cut -f1)) ===="
+          lldb --batch -c "$d" \
+            -o "thread backtrace all" \
+            -o "image list" \
+            -o "quit" 2>&1 | head -c 500000
+          echo "(lldb exit $?)"
+        done
     # Upload test temp output (cpu.tiff / gpu.tiff / diff.tiff and other test
     # fixtures) when tests fail, so CPU/GPU divergences in GpuStretchPipelineTests
     # can be diagnosed without re-running CI to add diagnostics.
