@@ -127,17 +127,27 @@ path already runs on bare `[JSImport]`/`[JSExport]` in WebGl.Renderer. So droppi
 
 ## Relevance to Tycho-2 (the deferred web catalog)
 
-The Tycho-2 bulk decode (lzip + parse ~2.5M records) is the archetypal threading candidate — serial,
-GPU-hostile (so GPU compute can't help it), and it's literally the workload that *wedged the
-interpreted page* and motivated `Lightweight=true` stripping `tyc2.bin.lz`. Option A (wasm-threads,
-shared heap) would decode it off the UI thread straight into the shared DB; Option B could decode in
-a worker and transfer a flat star buffer back. **But two caveats blunt the case:** (a) cooperative
-**chunking** (decode N stars → yield → repeat) avoids the wedge with no threads / no COOP/COEP, just
-slower wall-time; (b) AOT makes the decode far faster, likely sub-second, so the wedge may be moot.
-And the dominant Tycho-2 cost — the **~30 MB download** — is orthogonal to threading entirely; that's
-a data-delivery problem (lazy fetch / decoded IndexedDB snapshot / spatial tiling), not a parallelism
-one. Net: threading is a *possible but not the cleanest* lever for Tycho-2, and it doesn't touch the
-real blocker. See web-webgpu.md and web-showcase.md's deferred item.
+The Tycho-2 bulk decode is a **stronger** threading candidate than "serial" implies: the lzip
+decompression is data-parallel across members and **Lzip.Lib already implements it** —
+`LzipDecoder.Decompress` splits a multi-member file and runs `Parallel.For` across the independent
+members (single-member falls back to serial `DecompressSingleMember`). The WASM wrinkle:
+`Parallel.For` needs a real thread pool, so on single-threaded WASM it **silently degrades to serial**
+(runs, no speedup); it parallelizes only under `WasmEnableThreads`. That makes the parallel decoder a
+**ready-made consumer of Option A** — flip `WasmEnableThreads` and the tyc2 decompress parallelizes
+across cores with *zero new code*, the strongest concrete wasm-threads win in this investigation.
+
+Prerequisites: (1) bake `tyc2.bin.lz` **multi-member** (`LzipEncoder` + `LzipOptions.MemberSize` in the
+preprocess step; default is single-member → no parallelism); (2) the coi-serviceworker shim on Pages
+for SharedArrayBuffer. **Trade-off tension:** multi-member slightly worsens the compression ratio
+(each member resets the LZMA dictionary), and the payload is Tycho-2's dominant cost — so pick a
+`MemberSize` large enough that the ratio loss is negligible.
+
+What threading still does **not** fix: the ~30 MB **download** (orthogonal — lazy fetch / decoded
+IndexedDB snapshot / spatial tiling), and the record **parse** into the DB dictionaries
+(per-record-parallel only if you build a flat star buffer, not the hashmaps). And GPU compute still
+can't touch the decompress — LZMA range-decoding is sequential-*within*-member + branch-heavy, so the
+parallelism is across-member CPU threads, not GPU lanes. See web-webgpu.md + web-showcase.md's
+deferred item.
 
 ## Facts / invariants for a future implementer
 

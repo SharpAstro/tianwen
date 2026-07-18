@@ -363,9 +363,11 @@ read-only `SdfGlyphDiskCache` mode (the single-threaded-WASM-friendly variant).
   this is a data + payload change, not a code change. But it's a **data-delivery problem, not a
   compute/GPU one** (evaluated 2026-07-18 in [web-multithreading.md](web-multithreading.md) +
   [web-webgpu.md](web-webgpu.md)): the ~30 MB payload is the real blocker (untouched by threads or
-  WebGPU), the lzip+parse decode is serial (GPU compute is the wrong tool; threading or cooperative
-  chunking avoids the wedge, likely AOT-moot). Levers: lazy fetch (on atlas open / zoom past HR
-  density) / decoded IndexedDB snapshot / spatial tiling.
+  WebGPU); the lzip decompress is parallel across members (Lzip.Lib `LzipDecoder` `Parallel.For`) but
+  only speeds up under **wasm-threads** + a **multi-member bake** (`LzipOptions.MemberSize`) — a
+  ready-made wasm-threads consumer, zero new code (GPU compute is still the wrong tool: LZMA is
+  sequential-within-member). Payload levers: lazy fetch (on atlas open / zoom past HR density) /
+  decoded IndexedDB snapshot / spatial tiling.
 - Milky Way texture underlay (needs the general texture path from P2; cosmetic).
 - FITS viewer / Planetary / Guider preview (image-raster GPU pipeline, no WebGl.Renderer analog).
 - Equipment / Session / LiveSession tabs in the browser (portable but device-control-oriented,

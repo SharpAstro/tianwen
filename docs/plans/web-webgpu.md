@@ -127,9 +127,11 @@ WebGPU **does not unlock Tycho-2**. The web atlas already built the real instanc
 (web-showcase.md); the ~8.6k HR-star limit is `Lightweight=true` stripping `tyc2.bin.lz`, not a
 render-capability limit. Rendering 2.5M instanced point-sprites is one draw call WebGL2 eats easily
 (the desktop Vulkan proves the scale; ~50 MB VRAM instance buffer is fine) — so the render side is
-the part that's *ready*, and WebGPU adds only marginal draw-call overhead there. The Tycho-2
-*decode* (lzip + parse 2.5M records) is serial and GPU-hostile, so GPU compute is the wrong tool for
-it too. **Tycho-2 is a data-delivery problem (30 MB payload + decode), not a GPU problem** — see
+the part that's *ready*, and WebGPU adds only marginal draw-call overhead there. The Tycho-2 lzip
+*decode* is GPU-hostile — LZMA range-decoding is sequential-*within*-member + branch-heavy, so its
+parallelism is across-member CPU threads (Lzip.Lib's `Parallel.For`, unlocked by wasm-threads — see
+web-multithreading.md), not GPU lanes; GPU compute is the wrong tool for it either way. **Tycho-2 is
+a data-delivery problem (30 MB payload + decode), not a GPU problem** — see
 web-multithreading.md and web-showcase.md's deferred item. The only speculative WebGPU-compute angle
 is per-star *CPU-side* results over all 2.5M (proper-motion-to-epoch, pick/search), which is niche
 (the vertex shader already computes per-star position + mag fade every frame for display).
