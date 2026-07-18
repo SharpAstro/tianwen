@@ -22,7 +22,8 @@ namespace TianWen.Lib.Tests;
 /// clear color.
 /// </summary>
 [Collection("Imaging")]
-public sealed class VkHistogramPipelineTests(ITestOutputHelper output)
+public sealed class VkHistogramPipelineTests(VkHistogramGpuFixture gpuFixture, ITestOutputHelper output)
+    : IClassFixture<VkHistogramGpuFixture>
 {
     // Match the pipeline's HistogramBins constant so each pixel column corresponds to one
     // bin (no linear-interpolation noise from sub-texel sampling).
@@ -44,17 +45,13 @@ public sealed class VkHistogramPipelineTests(ITestOutputHelper output)
         hist1[250] = 0.5f;  // G: half-height bar
         hist2[400] = 0.25f; // B: quarter-height bar
 
-        byte[] gpu;
-        try
+        if (!gpuFixture.VulkanAvailable)
         {
-            gpu = RenderHistogramGpu(hist0, hist1, hist2);
-        }
-        catch (Exception ex) when (IsVulkanInitFailure(ex))
-        {
-            output.WriteLine($"Vulkan unavailable, skipping: {ex.GetType().Name}: {ex.Message}");
-            Assert.Skip($"Vulkan runtime not available ({ex.Message})");
+            output.WriteLine($"Vulkan unavailable, skipping: {gpuFixture.UnavailableReason}");
+            Assert.Skip($"Vulkan runtime not available ({gpuFixture.UnavailableReason})");
             return;
         }
+        var gpu = RenderHistogramGpu(hist0, hist1, hist2);
 
         // Spike columns: the column containing the spike should have a colored bar of the
         // right height (h * H rows tall, anchored at the bottom of the framebuffer because
@@ -76,16 +73,12 @@ public sealed class VkHistogramPipelineTests(ITestOutputHelper output)
         // All zeros -> shader sees scaled=0 for every column -> no fragment is coloured ->
         // framebuffer stays at the clear color everywhere.
         var empty = new float[HistogramBins];
-        byte[] gpu;
-        try
+        if (!gpuFixture.VulkanAvailable)
         {
-            gpu = RenderHistogramGpu(empty, empty, empty);
-        }
-        catch (Exception ex) when (IsVulkanInitFailure(ex))
-        {
-            Assert.Skip($"Vulkan runtime not available ({ex.Message})");
+            Assert.Skip($"Vulkan runtime not available ({gpuFixture.UnavailableReason})");
             return;
         }
+        var gpu = RenderHistogramGpu(empty, empty, empty);
 
         // Every pixel should be the clear color (0, 0, 0, 255).
         var firstDiff = -1;
@@ -107,13 +100,10 @@ public sealed class VkHistogramPipelineTests(ITestOutputHelper output)
 
     private unsafe byte[] RenderHistogramGpu(float[] hist0, float[] hist1, float[] hist2)
     {
-        vkInitialize().CheckResult();
-        VkInstanceCreateInfo ici = new();
-        vkCreateInstance(&ici, null, out var instance).CheckResult();
-
-        using var ctx = VulkanContext.CreateOffscreen(instance, Width, Height);
-        using var renderer = new VkRenderer(ctx, Width, Height);
-        using var pipeline = new VkFitsImagePipeline(ctx);
+        // Reuse the class fixture's single Vulkan stack (created once; see VkHistogramGpuFixture).
+        var ctx = gpuFixture.Ctx!;
+        var renderer = gpuFixture.Renderer!;
+        var pipeline = gpuFixture.Pipeline!;
 
         ctx.InstanceApi.vkGetPhysicalDeviceProperties(ctx.PhysicalDevice, out var props);
         var deviceName = System.Text.Encoding.UTF8.GetString(
@@ -182,16 +172,5 @@ public sealed class VkHistogramPipelineTests(ITestOutputHelper output)
             rgba[i + 2].ShouldBe((byte)0, $"{label} py={py}: B should be clear");
             rgba[i + 3].ShouldBe((byte)255, $"{label} py={py}: A should stay opaque");
         }
-    }
-
-    private static bool IsVulkanInitFailure(Exception ex)
-    {
-        return ex is DllNotFoundException
-            || ex is TypeInitializationException
-            || ex.Message.Contains("vkCreateInstance", StringComparison.OrdinalIgnoreCase)
-            || ex.Message.Contains("vkInitialize", StringComparison.OrdinalIgnoreCase)
-            || ex.Message.Contains("Vulkan", StringComparison.OrdinalIgnoreCase)
-            || ex.Message.Contains("VK_ERROR", StringComparison.Ordinal)
-            || ex.Message.Contains("ICD", StringComparison.Ordinal);
     }
 }

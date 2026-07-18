@@ -27,7 +27,8 @@ namespace TianWen.Lib.Tests;
 /// Skips when Vulkan is unavailable (no driver / no ICD).
 /// </summary>
 [Collection("Imaging")]
-public sealed class VkRendererPrimitiveTests(ITestOutputHelper output)
+public sealed class VkRendererPrimitiveTests(VkPrimitiveGpuFixture gpuFixture, ITestOutputHelper output)
+    : IClassFixture<VkPrimitiveGpuFixture>
 {
     private const int Width = 256;
     private const int Height = 256;
@@ -160,35 +161,26 @@ public sealed class VkRendererPrimitiveTests(ITestOutputHelper output)
         using var cpu = new RgbaImageRenderer((uint)Width, (uint)Height);
         cpu.Surface.Clear(Black);
 
-        // GPU side -- pay Vulkan init cost per test (~200ms). If init fails (no ICD, etc.)
-        // skip the comparison.
-        byte[]? gpuRgba;
-        try
+        // GPU side -- the shared class fixture creates the Vulkan stack once (see
+        // VkPrimitiveGpuFixture). When init failed (no ICD, etc.) still run the CPU side so a
+        // CPU-only regression stays visible, then skip the parity check.
+        if (!gpuFixture.VulkanAvailable)
         {
-            gpuRgba = RenderViaOffscreenGpu(gpuR =>
-            {
-                draw(cpu, gpuR);
-            });
-        }
-        catch (Exception ex) when (IsVulkanInitFailure(ex))
-        {
-            output.WriteLine($"Vulkan unavailable, skipping GPU comparison: {ex.GetType().Name}: {ex.Message}");
-            // Still run the CPU side so any CPU-only regression is visible, then skip the
-            // parity check.
-            Assert.Skip($"Vulkan runtime not available on this host ({ex.Message})");
+            output.WriteLine($"Vulkan unavailable, skipping GPU comparison: {gpuFixture.UnavailableReason}");
+            Assert.Skip($"Vulkan runtime not available on this host ({gpuFixture.UnavailableReason})");
             return (cpu.Surface.Pixels, null);
         }
+
+        var gpuRgba = RenderViaOffscreenGpu(gpuR => draw(cpu, gpuR));
         return (cpu.Surface.Pixels, gpuRgba);
     }
 
     private unsafe byte[] RenderViaOffscreenGpu(Action<VkRenderer> draw)
     {
-        vkInitialize().CheckResult();
-        VkInstanceCreateInfo ici = new();
-        vkCreateInstance(&ici, null, out var instance).CheckResult();
-
-        using var ctx = VulkanContext.CreateOffscreen(instance, Width, Height);
-        using var renderer = new VkRenderer(ctx, Width, Height);
+        // Reuse the class fixture's single Vulkan stack -- BeginOffscreenFrame clears to Black on
+        // every call, so tests never leak state into one another.
+        var ctx = gpuFixture.Ctx!;
+        var renderer = gpuFixture.Renderer!;
 
         ctx.InstanceApi.vkGetPhysicalDeviceProperties(ctx.PhysicalDevice, out var props);
         var deviceName = System.Text.Encoding.UTF8.GetString(
@@ -255,16 +247,5 @@ public sealed class VkRendererPrimitiveTests(ITestOutputHelper output)
             diff[i + 3] = 255;
         }
         return DisplayImageWriter.WriteTiffAsync(diff, width, height, path);
-    }
-
-    private static bool IsVulkanInitFailure(Exception ex)
-    {
-        return ex is DllNotFoundException
-            || ex is TypeInitializationException
-            || ex.Message.Contains("vkCreateInstance", StringComparison.OrdinalIgnoreCase)
-            || ex.Message.Contains("vkInitialize", StringComparison.OrdinalIgnoreCase)
-            || ex.Message.Contains("Vulkan", StringComparison.OrdinalIgnoreCase)
-            || ex.Message.Contains("VK_ERROR", StringComparison.Ordinal)
-            || ex.Message.Contains("ICD", StringComparison.Ordinal);
     }
 }
