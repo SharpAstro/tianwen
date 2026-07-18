@@ -347,6 +347,15 @@ read-only `SdfGlyphDiskCache` mode (the single-threaded-WASM-friendly variant).
   by default (comet-less dev session). Bake it locally with the same curl as pages.yml when
   comets are needed in dev; the dev server serves the source wwwroot directly, no rebuild.
 
+## Related research plans
+
+- [web-multithreading.md](web-multithreading.md) — real browser parallelism (wasm-threads / Web
+  Workers / second-runtime), the GitHub-Pages COOP/COEP wall, and the "do we still need Blazor"
+  question. Verdict: AOT already fixed the freeze; build none now.
+- [web-webgpu.md](web-webgpu.md) — a WebGPU render backend + shader reuse (GLSL→WGSL) + GPU compute
+  to parallelize the sweep without the SharedArrayBuffer wall. Verdict: defer until interactive
+  re-scoring (or a heavier GPU workload) justifies it.
+
 ## Deferred
 
 - Full Tycho-2 catalog in the browser (the 30 MB payload; drops into the P2/P3 pipeline as a data
