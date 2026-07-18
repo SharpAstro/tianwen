@@ -288,25 +288,45 @@
     {
         _state.ObjectDb = Db;
         _state.Comets = Comets;
-        _state.SiteLatitude = _lat;
-        _state.SiteLongitude = _lon;
 
         var transform = CreateSiteTransform();
+
+        // Full-sweep gate, mirroring the desktop host (AppSignalHandler.CheckRecompute): the broad
+        // RA/Dec catalog scan (ObservationScheduler.TonightsBest) is only needed on the FIRST compute
+        // (no ranked list yet) or when the site moves >1°. Otherwise a Recompute / 📍 Locate at
+        // essentially the same site just re-scores the EXISTING TonightsBest for the current time via
+        // the synchronous RecomputeForDate fast path - no catalog scan, a fraction of the sweep cost.
+        // Compare BEFORE overwriting the state's site (its previous value is the baseline; NaN on the
+        // first run -> full sweep).
+        var siteChanged = double.IsNaN(_state.SiteLatitude)
+            || Math.Abs(transform.SiteLatitude - _state.SiteLatitude) > 1.0
+            || Math.Abs(transform.SiteLongitude - _state.SiteLongitude) > 1.0;
+        _state.SiteLatitude = _lat;
+        _state.SiteLongitude = _lon;
 
         var sw = System.Diagnostics.Stopwatch.StartNew();
         await SetStatusAsync("Reading the star catalog…");
         await Db.InitDBAsync();
         Console.WriteLine($"[tianwen-web] catalog init: {sw.ElapsedMilliseconds} ms");
 
-        // The catalog sweep + altitude profiles are one long synchronous block; on the single
-        // browser thread nothing repaints while it runs. SetStatusAsync yields first so the status
-        // above actually paints before the block starts.
+        // The catalog sweep (or the lighter same-site rescore) + altitude profiles are one long
+        // synchronous block; on the single browser thread nothing repaints while it runs.
+        // SetStatusAsync yields first so the status above actually paints before the block starts.
         sw.Restart();
-        await SetStatusAsync("Scanning the sky for tonight's best…");
-        await PlannerActions.ComputeTonightsBestAsync(
-            _state, Db, transform, _state.MinHeightAboveHorizon, CancellationToken.None,
-            onProgress: msg => Console.WriteLine($"[tianwen-web] {msg}"));
-        Console.WriteLine($"[tianwen-web] tonight's best: {sw.ElapsedMilliseconds} ms");
+        if (_state.TonightsBest.Length > 0 && !siteChanged)
+        {
+            await SetStatusAsync("Refreshing tonight's best…");
+            PlannerActions.RecomputeForDate(_state, transform);
+            Console.WriteLine($"[tianwen-web] tonight's best (rescore, same site): {sw.ElapsedMilliseconds} ms");
+        }
+        else
+        {
+            await SetStatusAsync("Scanning the sky for tonight's best…");
+            await PlannerActions.ComputeTonightsBestAsync(
+                _state, Db, transform, _state.MinHeightAboveHorizon, CancellationToken.None,
+                onProgress: msg => Console.WriteLine($"[tianwen-web] {msg}"));
+            Console.WriteLine($"[tianwen-web] tonight's best (full sweep): {sw.ElapsedMilliseconds} ms");
+        }
 
         // Resolve the display timezone AFTER the plan computes: CalculateNightWindow initialises the
         // transform's Julian date (via EventTimes), so the DateTime/FromOADate read inside
