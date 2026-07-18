@@ -10,7 +10,8 @@ namespace TianWen.UI.Web.E2E;
 /// into a &lt;canvas&gt;, so these tests never read pixels — they assert on the observable chrome
 /// DOM the unit tests can't reach: the titlebar view chips (<c>[data-view]</c> + the
 /// <c>active</c> class), the address bar (there is no Blazor Router — chips navigate via
-/// NavigationManager and the component parses the path itself), the document title
+/// NavigationManager to a <c>?view=sky</c> query string, and the component parses the URL itself),
+/// the document title
 /// (<c>&lt;PageTitle&gt;</c>), the aria-live status line, and the catalog-loading indicator.
 ///
 /// This suite exists because the exact same bug shipped three times in one session: chip clicks
@@ -92,14 +93,15 @@ public sealed class NavigationTests(TianWenWebFixture fixture)
         await SkyChip(page).ClickAsync();
 
         // URL is the source of truth; the component parses it and flips the active chip + title.
-        await Expect(page).ToHaveURLAsync(new Regex("/sky-atlas$"));
+        // Query form ("?view=sky"), not a "/sky-atlas" path, so a refresh/share is 404-safe on Pages.
+        await Expect(page).ToHaveURLAsync(new Regex(@"[?&]view=sky$"));
         await Expect(SkyChip(page)).ToHaveClassAsync(ActiveClass);
         await Expect(PlannerChip(page)).Not.ToHaveClassAsync(ActiveClass);
         await Expect(page).ToHaveTitleAsync("Astro - Sky Atlas");
 
-        // ...and back to the planner.
+        // ...and back to the planner: the default view drops the query for a clean root URL.
         await PlannerChip(page).ClickAsync();
-        await Expect(page).ToHaveURLAsync(new Regex("/planner$"));
+        await Expect(page).Not.ToHaveURLAsync(new Regex("view="));
         await Expect(PlannerChip(page)).ToHaveClassAsync(ActiveClass);
         await Expect(SkyChip(page)).Not.ToHaveClassAsync(ActiveClass);
     }

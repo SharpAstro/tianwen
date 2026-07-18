@@ -1,8 +1,10 @@
 @* No @page routes: this app mounts Planner DIRECTLY as the root component (Program.cs
    RootComponents.Add<Planner>("#app")) - there is no Blazor Router, so route templates and
-   route parameters would be inert. Deep links + chip navigation are handled by parsing the
-   location ourselves (ApplyViewFromLocation + NavigationManager.LocationChanged, which also
-   covers browser back/forward). *@
+   route parameters would be inert. Deep links + chip navigation carry the active view in a
+   "?view=sky" query string (refresh-safe on GitHub Pages - the path stays at the app root, so a
+   share/refresh serves index.html instead of 404-ing on a "/sky-atlas" path segment), parsed
+   ourselves (ApplyViewFromLocation + NavigationManager.LocationChanged, which also covers browser
+   back/forward). *@
 @using System.Globalization
 @using Microsoft.AspNetCore.Components.Routing
 @implements IDisposable
@@ -811,23 +813,49 @@
     // Active view's widget for generic input routing (both are PixelWidgetBase<WebGlContext>).
     DIR.Lib.IPixelWidget? ActiveTab => _view == View.SkyMap ? _skyTab : _tab;
 
-    // Maps the base-relative path to a view: "/" or "/planner" -> Planner, "/sky-atlas"
-    // (aliases: skymap, sky) -> Sky Atlas. RenderFrame is a safe no-op until the renderer
-    // exists - the init path paints explicitly once ready.
+    // Resolves the active view from the current URL. Canonical form is the "?view=sky" query string
+    // (aliases sky-atlas/skymap/atlas -> Sky Atlas; anything else, incl. no query -> Planner). Query
+    // form - not a "/sky-atlas" PATH segment - so a shared link / browser refresh keeps the path at
+    // the app root and GitHub Pages serves index.html rather than 404-ing (a project-site SPA has no
+    // server-side rewrite for path segments). A legacy "/sky-atlas" path still resolves via the path
+    // fallback below, so pre-query bookmarks (served through the 404.html SPA fallback) keep working.
+    // RenderFrame is a safe no-op until the renderer exists - the init path paints explicitly once ready.
     void ApplyViewFromLocation()
     {
-        var path = Nav.ToBaseRelativePath(Nav.Uri).TrimEnd('/').ToLowerInvariant();
-        var view = path switch
-        {
-            "sky-atlas" or "skymap" or "sky" => View.SkyMap,
-            _ => View.Planner,
-        };
+        var view = ParseViewFromQuery(Nav.ToAbsoluteUri(Nav.Uri).Query)
+            ?? ParseViewFromPath(Nav.ToBaseRelativePath(Nav.Uri));
         if (view != _view)
         {
             _view = view;
             RenderFrame();
         }
     }
+
+    // "?view=<alias>" -> the view; null when the query carries no view key (so the caller falls back
+    // to the legacy path form).
+    static View? ParseViewFromQuery(string query)
+    {
+        foreach (var part in query.TrimStart('?').Split('&', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var eq = part.IndexOf('=');
+            if (eq < 0 || !part.AsSpan(0, eq).Equals("view", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+            return MapViewToken(Uri.UnescapeDataString(part[(eq + 1)..]));
+        }
+        return null;
+    }
+
+    // Legacy path form ("/sky-atlas", "/skymap", "/sky") - kept so pre-query bookmarks still land on
+    // the atlas. New navigation (SwitchView) only ever produces the query form.
+    static View ParseViewFromPath(string path) => MapViewToken(path.TrimEnd('/'));
+
+    static View MapViewToken(string token) => token.ToLowerInvariant() switch
+    {
+        "sky" or "sky-atlas" or "skymap" or "atlas" => View.SkyMap,
+        _ => View.Planner,
+    };
 
     void OnLocationChanged(object? sender, LocationChangedEventArgs e)
     {
@@ -838,9 +866,13 @@
     void SwitchView(View view)
     {
         if (_view == view) return;
-        // The URL is the source of truth for the active view; OnLocationChanged syncs it back
-        // (and browser back/forward goes through the same path).
-        Nav.NavigateTo(view == View.SkyMap ? "sky-atlas" : "planner");
+        // The URL is the source of truth for the active view; OnLocationChanged syncs it back (and
+        // browser back/forward goes through the same path). Query form ("?view=sky") rather than a
+        // "/sky-atlas" path segment, so a refresh/share stays refresh-safe on GitHub Pages (see
+        // ApplyViewFromLocation). Planner is the default, so it drops the query for a clean root URL.
+        Nav.NavigateTo(view == View.SkyMap
+            ? Nav.GetUriWithQueryParameter("view", "sky")
+            : Nav.GetUriWithQueryParameter("view", (string?)null));
     }
 
     public void Dispose()
