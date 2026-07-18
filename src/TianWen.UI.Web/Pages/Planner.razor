@@ -659,14 +659,26 @@
     // HR field untouched - the atlas is a fine showcase either way. On single-threaded WASM the
     // decode + flatten are synchronous stalls, but they run after the atlas has already painted;
     // measuring the AOT wall-time here is what gates the P2 parallel-decode work (web-tycho2.md).
+    // Bump when tyc2.bin.lz content OR the float-instance layout (FloatsPerStar) changes, so a
+    // stale IndexedDB snapshot is discarded rather than rendering the wrong stars.
+    const string Tyc2CacheVersion = "tyc2-v1-5f";
+
     async Task EnsureTycho2AtlasAsync()
     {
         try
         {
             // This "background" task runs inline until its first await; yield so the HR atlas
-            // paints before the heavy fetch/decode below (mirrors LoadCometsInBackgroundAsync).
+            // paints before the heavy work below (mirrors LoadCometsInBackgroundAsync).
             await Task.Delay(30);
 
+            // Fast path: a decoded buffer cached in IndexedDB from a prior visit skips BOTH the
+            // ~30 MB fetch and the ~1.8 s decode/flatten. Streamed back (no JSON marshaling).
+            if (await TryLoadTycho2FromCacheAsync())
+            {
+                return;
+            }
+
+            // Cold path: fetch the compressed catalog, decode + flatten, then cache for next time.
             var sw = System.Diagnostics.Stopwatch.StartNew();
             var bytes = await Http.GetByteArrayAsync("tyc2.bin.lz");
             Console.WriteLine($"[tianwen-web] tyc2 fetch: {bytes.Length / (1024 * 1024)} MB in {sw.ElapsedMilliseconds} ms");
@@ -687,10 +699,68 @@
 
             _skyTab?.SubmitTycho2Stars(verts, written);
             RenderFrame(); // swap it in on the next paint
+
+            // Persist the flattened buffer so the next visit takes the fast path (fire-and-forget;
+            // a cache-write failure is non-fatal).
+            _ = SaveTycho2ToCacheAsync(verts, written);
         }
         catch (Exception ex)
         {
             Console.WriteLine($"[tianwen-web] Tycho-2 catalog unavailable (HR-only atlas): {ex.Message}");
+        }
+    }
+
+    // Reads the decoded float buffer from IndexedDB (a JS-to-.NET stream) and swaps it straight in,
+    // skipping the fetch + decode + flatten. Returns false on a miss / version mismatch / any error
+    // (an empty stream = miss), so the caller falls back to the cold path.
+    async Task<bool> TryLoadTycho2FromCacheAsync()
+    {
+        try
+        {
+            var streamRef = await JS.InvokeAsync<IJSStreamReference>("tyc2Cache.load", Tyc2CacheVersion);
+            await using var s = await streamRef.OpenReadStreamAsync(maxAllowedSize: 128L * 1024 * 1024);
+            using var ms = new System.IO.MemoryStream();
+            await s.CopyToAsync(ms);
+            var bytes = ms.ToArray();
+
+            const int bytesPerStar = SkyMapState.FloatsPerStar * sizeof(float);
+            if (bytes.Length == 0 || bytes.Length % bytesPerStar != 0)
+            {
+                return false; // miss, or a corrupt/partial snapshot -> re-fetch
+            }
+
+            var floats = System.Runtime.InteropServices.MemoryMarshal.Cast<byte, float>(bytes).ToArray();
+            var starCount = bytes.Length / bytesPerStar;
+            Console.WriteLine($"[tianwen-web] tyc2 from IndexedDB cache: {starCount} stars ({bytes.Length / (1024 * 1024)} MB)");
+
+            _skyTab?.SubmitTycho2Stars(floats, starCount);
+            RenderFrame();
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[tianwen-web] tyc2 cache read failed, will fetch: {ex.Message}");
+            return false;
+        }
+    }
+
+    // Streams the flattened float buffer into IndexedDB (a .NET-to-JS stream) under the version key.
+    async Task SaveTycho2ToCacheAsync(float[] verts, int written)
+    {
+        try
+        {
+            var byteLength = written * SkyMapState.FloatsPerStar * sizeof(float);
+            var bytes = new byte[byteLength];
+            System.Buffer.BlockCopy(verts, 0, bytes, 0, byteLength);
+
+            using var ms = new System.IO.MemoryStream(bytes, writable: false);
+            using var streamRef = new DotNetStreamReference(ms, leaveOpen: false);
+            await JS.InvokeVoidAsync("tyc2Cache.save", Tyc2CacheVersion, streamRef);
+            Console.WriteLine($"[tianwen-web] tyc2 cached to IndexedDB ({byteLength / (1024 * 1024)} MB)");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[tianwen-web] tyc2 cache write failed (non-fatal): {ex.Message}");
         }
     }
 

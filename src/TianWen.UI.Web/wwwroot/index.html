@@ -78,6 +78,10 @@
         }, { capture: true });
 </script>
 
+    <!-- IndexedDB cache for the decoded Tycho-2 star buffer (window.tyc2Cache). Loaded before
+         Blazor so it's defined by the time the atlas first opens. -->
+    <script src="tyc2-cache.js"></script>
+
     <script src="_framework/blazor.webassembly#[.{fingerprint}].js"></script>
 </body>
 
