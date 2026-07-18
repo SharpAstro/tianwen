@@ -106,6 +106,27 @@ public sealed class NavigationTests(TianWenWebFixture fixture)
         await Expect(SkyChip(page)).Not.ToHaveClassAsync(ActiveClass);
     }
 
+    // Regression: arriving on the atlas via the LEGACY "/sky-atlas" PATH (an old bookmark, or a URL
+    // carried over from the pre-query deploy) must NOT leave the Planner chip dead. SwitchView builds
+    // its target from the app root, so switching to Planner clears the /sky-atlas path instead of
+    // trying (and failing) to remove a non-existent "view" query param off the path.
+    [Fact]
+    public async Task LegacySkyPath_PlannerChip_StillNavigatesHome()
+    {
+        var page = await OpenAsync("sky-atlas");
+        await WaitReadyAsync(page);
+        await Expect(SkyChip(page)).ToHaveClassAsync(ActiveClass);
+
+        await PlannerChip(page).ClickAsync();
+
+        // The /sky-atlas path is gone (cleared to the clean root, no leftover view query) and the
+        // Planner is active.
+        await Expect(page).Not.ToHaveURLAsync(new Regex("sky-atlas|view="));
+        await Expect(PlannerChip(page)).ToHaveClassAsync(ActiveClass);
+        await Expect(SkyChip(page)).Not.ToHaveClassAsync(ActiveClass);
+        await Expect(page).ToHaveTitleAsync("Astro - Planner");
+    }
+
     [Fact]
     public async Task DeepLink_SkyAtlas_OpensWithSkyActive()
     {
@@ -138,16 +159,16 @@ public sealed class NavigationTests(TianWenWebFixture fixture)
         await SkyChip(page).ClickAsync();
         await Expect(SkyChip(page)).ToHaveClassAsync(ActiveClass);
 
-        // Back -> planner; the LocationChanged subscription re-parses the path, so the chip and
-        // title follow browser history without a reload.
+        // Back -> planner; the LocationChanged subscription re-parses the URL, so the chip and
+        // title follow browser history without a reload. Back lands on the clean root (no view query).
         await page.GoBackAsync();
-        await Expect(page).ToHaveURLAsync(new Regex("/(planner)?$"));
+        await Expect(page).Not.ToHaveURLAsync(new Regex("view="));
         await Expect(PlannerChip(page)).ToHaveClassAsync(ActiveClass);
         await Expect(SkyChip(page)).Not.ToHaveClassAsync(ActiveClass);
 
-        // Forward -> sky again.
+        // Forward -> sky again (?view=sky).
         await page.GoForwardAsync();
-        await Expect(page).ToHaveURLAsync(new Regex("/sky-atlas$"));
+        await Expect(page).ToHaveURLAsync(new Regex(@"[?&]view=sky$"));
         await Expect(SkyChip(page)).ToHaveClassAsync(ActiveClass);
     }
 }
