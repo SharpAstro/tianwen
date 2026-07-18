@@ -1,0 +1,107 @@
+name: Analyze crash dump
+
+# Reusable, on-demand analyzer for the crash dumps the test jobs capture.
+#
+# The unit-test job (dotnet.yml) runs with --blame-crash + DOTNET_DbgEnableMiniDump and, on
+# failure, uploads a `test-blame-<runner>` artifact holding the runtime minidump(s) + the blame
+# Sequence_*.xml (the last test executed per thread before a crash). Those dumps are architecture-
+# and OS-specific: a linux-x64 dump can only be analyzed with a matching x64 runtime + DAC, which is
+# exactly what `ubuntu-latest` provides here -- so a dev on a different arch (e.g. win-arm64) can get
+# the native stack without a local x64 box.
+#
+# Trigger: gh workflow run analyze-crash-dump.yml -f run_id=<failed-run-id> [-f artifact=test-blame-ubuntu-latest]
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: 'Workflow run ID that produced the crash-dump artifact'
+        required: true
+        type: string
+      artifact:
+        description: 'Artifact name to analyze (default: the x64 unit-test blame bundle)'
+        required: false
+        default: 'test-blame-ubuntu-latest'
+        type: string
+
+permissions:
+  actions: read      # download-artifact from another run
+  contents: read
+
+jobs:
+  analyze:
+    # x64 Linux so the DAC/runtime matches the ubuntu-latest test host that produced the dump.
+    runs-on: ubuntu-latest
+    steps:
+      # Match the runtime the crashed test host ran on, so dotnet-dump resolves the right DAC.
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Install native + managed dump tooling
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y lldb
+          dotnet tool install -g dotnet-dump
+          echo "$HOME/.dotnet/tools" >> "$GITHUB_PATH"
+
+      - name: Download the crash-dump artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh run download "${{ inputs.run_id }}" -R "${{ github.repository }}" -n "${{ inputs.artifact }}" -D dump
+          echo "== downloaded files =="
+          find dump -type f -printf '%s\t%p\n' | sort -n
+
+      - name: Blame Sequence (last test per thread before the crash)
+        run: |
+          set -euo pipefail
+          shopt -s globstar nullglob
+          seqs=(dump/**/Sequence_*.xml)
+          if [ ${#seqs[@]} -eq 0 ]; then
+            echo "no Sequence_*.xml in the artifact (crash may have been outside a test, e.g. host teardown)"
+          else
+            for s in "${seqs[@]}"; do echo "== $s =="; cat "$s"; echo; done
+          fi
+
+      - name: Locate the dump
+        id: dump
+        run: |
+          set -euo pipefail
+          shopt -s globstar nullglob
+          # Prefer the runtime minidump (DOTNET_DbgEnableMiniDump) over the blame testhost dump.
+          cands=(dump/**/coredump-*.dmp dump/**/*.dmp)
+          if [ ${#cands[@]} -eq 0 ]; then
+            echo "no .dmp found in the artifact" >&2
+            exit 1
+          fi
+          echo "path=${cands[0]}" >> "$GITHUB_OUTPUT"
+          echo "analyzing ${cands[0]} ($(du -h "${cands[0]}" | cut -f1))"
+
+      # Native backtrace of every thread + the loaded module list. This is the signal for a native
+      # SIGSEGV (e.g. a teardown crash inside libSkiaSharp / libMagickNative / onnxruntime / a
+      # Vulkan .so): the faulting thread's frames name the .so, and `image list` maps addresses to
+      # modules even without symbols. Output is capped so the run log stays readable.
+      - name: lldb - native stacks + modules
+        run: |
+          set +e
+          lldb --batch \
+            -o "settings set interpreter.stop-command-source-on-error false" \
+            -c "${{ steps.dump.outputs.path }}" \
+            -o "thread list" \
+            -o "thread backtrace all" \
+            -o "image list" \
+            -o "quit" 2>&1 | head -c 400000
+          echo "(lldb exit $?)"
+
+      # Managed parallel stacks + thread list, for the case where the crash still has managed frames.
+      - name: dotnet-dump - managed stacks
+        run: |
+          set +e
+          dotnet-dump analyze "${{ steps.dump.outputs.path }}" \
+            -c "clrthreads" \
+            -c "pstacks" \
+            -c "exit" 2>&1 | head -c 300000
+          echo "(dotnet-dump exit $?)"
