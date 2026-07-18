@@ -321,6 +321,18 @@ namespace TianWen.UI.Web.SkyMap
         private GpuBufferHandle _cornerQuad;
         private GpuBufferHandle _stars;
         private int _starCount;
+
+        // The full ~2.5M-star Tycho-2 field, lazily fetched + decoded on first atlas-open (the
+        // ~30 MB catalog is stripped from the WASM bundle, so the browser host fetches it as a
+        // static asset and hands the built instance buffer to SubmitTycho2Stars). Until it lands
+        // the HR bright-star seed above IS the field; once applied it replaces HR in the star draw
+        // - the browser analogue of the desktop VkSkyMapPipeline's HIP-seed -> Tycho-2 swap. The
+        // HR buffer stays allocated (~180 KB) as the bootstrap/fallback rather than being freed.
+        private GpuBufferHandle _tycho2Stars;
+        private int _tycho2StarCount;
+        private bool _tycho2Applied;
+        private float[]? _pendingTycho2Verts;
+        private int _pendingTycho2Count;
         private GpuBufferHandle _figures;
         private int _figureVertexCount;
         private GpuBufferHandle _boundaries;
@@ -409,6 +421,42 @@ namespace TianWen.UI.Web.SkyMap
             _geometryBuilt = true;
         }
 
+        /// <summary>
+        /// Hands the pipeline a fetched + decoded Tycho-2 star-instance buffer (5 floats/star, the
+        /// same <see cref="SkyMapState.FloatsPerStar"/> layout as the HR seed) built by the browser
+        /// host's fetch task. Only stashes it - the GPU upload + draw swap happens on the next
+        /// render frame in <see cref="ApplyPendingTycho2"/> (buffer creation must be on the render
+        /// thread). Safe to call off the render loop; it stores references only.
+        /// </summary>
+        public void SubmitTycho2Stars(float[] verts, int starCount)
+        {
+            _pendingTycho2Verts = verts;
+            _pendingTycho2Count = starCount;
+        }
+
+        /// <summary>Render-thread swap-in of a submitted Tycho-2 build: uploads the instance buffer
+        /// once and flips the star draw over to it. Cheap no-op until a build is submitted (and once
+        /// applied). Called every frame from <see cref="Draw"/>.</summary>
+        private void ApplyPendingTycho2()
+        {
+            if (_pendingTycho2Verts is not { } verts)
+            {
+                return;
+            }
+            _pendingTycho2Verts = null;
+
+            if (_pendingTycho2Count <= 0)
+            {
+                _tycho2Applied = true; // nothing to draw; keep the HR seed on screen
+                return;
+            }
+
+            _tycho2Stars = _renderer.CreateBuffer(verts.AsSpan(0, _pendingTycho2Count * SkyMapState.FloatsPerStar));
+            _tycho2StarCount = _pendingTycho2Count;
+            _tycho2Applied = true;
+            Console.WriteLine($"[tianwen-web] sky geometry: upgraded to Tycho-2 ({_tycho2StarCount} stars)");
+        }
+
         /// <summary>Uploads the shared 112-byte view block to both pipelines (each has its own
         /// UBO binding point) and refreshes the site/time-dependent line sets when LST/latitude
         /// moved. Call once per frame before <see cref="Draw"/>.</summary>
@@ -474,6 +522,9 @@ namespace TianWen.UI.Web.SkyMap
                 return;
             }
 
+            // Swap in a lazily-fetched Tycho-2 field the frame after the host submits it.
+            ApplyPendingTycho2();
+
             // Ground shading first, so lines/stars draw on top of it (the desktop order).
             if (state.ShowHorizon && site.IsValid)
             {
@@ -534,7 +585,15 @@ namespace TianWen.UI.Web.SkyMap
                 _renderer.DrawBuffer(_horizon, 0, _horizonVertexCount);
             }
 
-            if (_starCount > 0)
+            // Star field on top: the full Tycho-2 catalog once it has been fetched + swapped in,
+            // otherwise the HR bright-star seed (the bundle bootstrap). Never both - additive blend
+            // would double every star the two share, so this is a switch, not an overlay.
+            if (_tycho2Applied && _tycho2StarCount > 0)
+            {
+                _renderer.UsePipeline(_starPipeline);
+                _renderer.DrawInstanced(_cornerQuad, 6, _tycho2Stars, _tycho2StarCount);
+            }
+            else if (_starCount > 0)
             {
                 _renderer.UsePipeline(_starPipeline);
                 _renderer.DrawInstanced(_cornerQuad, 6, _stars, _starCount);

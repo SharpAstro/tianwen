@@ -722,6 +722,33 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
         }
     }
 
+    /// <inheritdoc/>
+    public bool TryLoadTycho2BulkFromCompressed(byte[] compressedLz)
+    {
+        // Already loaded (the embedded desktop path, or a prior injection) - nothing to do.
+        if (_tycho2Data is not null)
+        {
+            return true;
+        }
+        if (compressedLz is null || compressedLz.Length == 0)
+        {
+            return false;
+        }
+
+        // Decompress into a local and publish `_tycho2Data` LAST: Tycho2StarCount / CopyTycho2Stars
+        // guard on `_tycho2Data != null`, so the stream count must already be set when the field
+        // they key off becomes visible. (Single-threaded on WASM today, but this ordering keeps the
+        // reader correct if a wasm-threads build ever injects off the render thread.) Display-only:
+        // the GSC-bounds spatial index (_tycho2RaDecIndex) and the high-pm sidecar (~11 stars,
+        // still embedded on the Lightweight build) are intentionally NOT wired here - the atlas
+        // plots dots, which need neither; CopyTycho2Stars falls back to the inline pm rail value
+        // for the handful of sidecar stars, invisible at plot scale.
+        var data = LzipDecoder.Decompress(compressedLz);
+        _tycho2StreamCount = BinaryPrimitives.ReadInt32LittleEndian(data);
+        _tycho2Data = data;
+        return true;
+    }
+
     /// <summary>
     /// Awaits the background Tycho-2 bulk load (<c>tyc2.bin.lz</c> + GSC bounds + spatial
     /// index). Callers that read <see cref="CoordinateGrid"/>, <see cref="CopyTycho2Stars"/>,

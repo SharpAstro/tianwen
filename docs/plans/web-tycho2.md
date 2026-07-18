@@ -1,11 +1,43 @@
 # Tycho-2 in the Browser Atlas (plan)
 
-**Status: NOT STARTED (design captured, 2026-07-18).** Bring the full ~2.5M-star Tycho-2 catalog to
-the web sky atlas, which today shows only the ~8.6k HR bright stars (`Lightweight=true` strips
-`tyc2.bin.lz` from the WASM bundle). Grew out of the threading/WebGPU investigation
+**Status: P1 SHIPPED (2026-07-18); P2-P4 measurement-gated.** Bring the full ~2.5M-star Tycho-2
+catalog to the web sky atlas, which used to show only the ~8.6k HR bright stars (`Lightweight=true`
+strips `tyc2.bin.lz` from the WASM bundle). Grew out of the threading/WebGPU investigation
 ([web-multithreading.md](web-multithreading.md), [web-webgpu.md](web-webgpu.md)), which established
 that **this is a data-delivery problem, not a compute/GPU one**. Companion to
 [web-showcase.md](web-showcase.md).
+
+## What P1 shipped (2026-07-18)
+
+- **Injection seam (Lib):** `ICelestialObjectDB.TryLoadTycho2BulkFromCompressed(byte[])` — default
+  no-op (embedded/desktop hosts, test stubs), overridden by `CelestialObjectDB` to `LzipDecoder`-
+  decompress the fetched bytes and publish `_tycho2Data`/`_tycho2StreamCount` (idempotent; publishes
+  `_tycho2Data` last so `Tycho2StarCount`/`CopyTycho2Stars` never see a torn state). **Display-only:**
+  it wires ONLY the flat star records, not the GSC-bounds spatial index (`_tycho2RaDecIndex`) or the
+  HD/HIP cross-maps or the high-pm sidecar (~11 stars, rail-clamped pm — invisible at plot scale).
+  Pinned by `Tycho2BulkInjectionTests` (fresh-DB inject → count > 2M + decoded records sane;
+  idempotent re-inject; empty-input false).
+- **Lazy fetch (web host, `Planner.razor`):** `EnsureTycho2AtlasAsync` fires once, on the **first
+  Sky-Atlas paint** (guard set in `RenderFrame`'s SkyMap branch — not `ApplyViewFromLocation`, so the
+  pipeline is guaranteed to exist even for a deep-link; covers chip + back/forward too). Yields, then
+  `Http.GetByteArrayAsync("tyc2.bin.lz")`, `Db.TryLoadTycho2BulkFromCompressed`, flatten via the
+  shared `SkyMapState.FillTycho2StarVertices` (dt=0), `_skyTab.SubmitTycho2Stars`, `RenderFrame`.
+  Best-effort: a 404 (dev server without the CI-baked asset) or any failure leaves the HR field.
+- **Swap-in (web pipeline, `WebGlSkyMapPipeline`):** `SubmitTycho2Stars` stashes the built buffer;
+  `ApplyPendingTycho2` (called each frame from `Draw`) does the render-thread `CreateBuffer` + flips
+  the star draw over to it — a **switch, not an overlay** (additive blend would double every shared
+  star), the browser analogue of the desktop `VkSkyMapPipeline` HIP-seed → Tycho-2 swap. HR stays
+  allocated (~180 KB) as the bootstrap/fallback.
+- **Delivery (`pages.yml` + `.gitignore`):** a CI step copies the LFS `tyc2.bin.lz` into `wwwroot/`
+  before publish (mirrors the comet-JSON bake; guards against a stale LFS pointer); the staged asset
+  is gitignored so it never lands in the source tree.
+- **Reuse, not new code:** the flatten is the desktop's `SkyMapState.FillTycho2StarVertices` (NOT a
+  new `BuildTycho2StarInstances` — one path); the zoom-aware mag limit is the shared `SkyMapUbo`
+  (already wired for the HR field), so nothing new was needed there.
+
+**Not yet measured:** the AOT decode+flatten wall-time (gates whether P2 is worth it) needs a
+*published* Lightweight+AOT build — dev is interpreted (slow) and 404s the asset (HR-only). See the
+open questions.
 
 ## Where we are
 
@@ -40,7 +72,7 @@ per-record-parallel and avoids the serial dictionary-build. Searching individual
 
 | Phase | Scope | Risk | Ships |
 |-------|-------|------|-------|
-| **P1** | **Lazy-fetch + serial decode.** Un-embed tyc2 for web; ship `tyc2.bin.lz` as a same-origin static asset (the baked-comet-JSON model); fetch on **first atlas-open** (not startup); decode serial+chunked (progress bar); flatten to star instances; append to the atlas buffer. Measure AOT decode wall-time. | Med | Full-density atlas, no first-load bloat |
+| **P1 ✅ DONE** | **Lazy-fetch + serial decode.** tyc2 stays un-embedded for web (`Lightweight`); shipped as a same-origin static asset (CI-staged into wwwroot); fetched on **first atlas-open**; serial decode + flatten off the first-paint path; swapped over the HR seed. AOT decode wall-time still to measure. | Med | Full-density atlas, no first-load bloat |
 | **P2** | **Parallel decode** (gated on P1 decode being too slow). Bake tyc2 **multi-member**; `WasmEnableThreads`; `coi-serviceworker` shim; COEP subresource audit; marshal decode off the Blazor main thread. `LzipDecoder.Parallel.For` then parallelizes for free. | High | Faster decode |
 | **P3** | **IndexedDB decoded-snapshot cache** (gated on repeat-visit UX). Cache the decoded flat buffer; later visits skip download + decode. | Med | Instant repeat visits |
 | **P4** | **Spatial tiling** (deferred). Pre-tile tyc2 by sky region, fetch tiles on pan/zoom. Progressive/instant load, smallest incremental download. | High | Progressive load |

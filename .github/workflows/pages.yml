@@ -96,6 +96,18 @@ jobs:
           jq -e '.fields and .data and (.count | tonumber > 0)' src/TianWen.UI.Web/wwwroot/comets-sbdb.json > /dev/null
           echo "baked $(jq -r '.count' src/TianWen.UI.Web/wwwroot/comets-sbdb.json) comets"
 
+      # Stage the full Tycho-2 catalog as a same-origin static asset. Lightweight strips the ~30 MB
+      # tyc2.bin.lz from the WASM bundle (keeps the bundle small); the atlas fetches it on first
+      # open and decodes it in-browser (web-tycho2.md). The .lz source is an LFS object pulled above.
+      - name: Stage tyc2.bin.lz for the Sky Atlas (fetched at runtime, not bundled)
+        run: |
+          set -euo pipefail
+          src="src/TianWen.Lib/Astrometry/Catalogs/tyc2.bin.lz"
+          # Guard against a stale LFS pointer sneaking through (a pointer is <200 bytes of text).
+          [ "$(stat -c%s "$src")" -gt 1000000 ] || { echo "tyc2.bin.lz looks like an LFS pointer, not the object"; exit 1; }
+          cp "$src" src/TianWen.UI.Web/wwwroot/tyc2.bin.lz
+          echo "staged tyc2.bin.lz ($(du -h src/TianWen.UI.Web/wwwroot/tyc2.bin.lz | cut -f1))"
+
       # No sibling checkouts in CI: WebGl.Renderer + DIR.Lib resolve from NuGet
       # (UseLocalSiblings=false). Lightweight strips the 30 MB tyc2 catalog; AOT is the
       # measured 24-42x compute win (docs/plans/web-showcase.md).

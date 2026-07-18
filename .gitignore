@@ -31,6 +31,9 @@ LavapipeMinRepro.zip
 __pycache__/
 # CI-baked comet snapshot (pages.yml curls JPL SBDB into wwwroot on the runner)
 src/TianWen.UI.Web/wwwroot/comets-sbdb.json
+# CI-staged Tycho-2 catalog (pages.yml copies the LFS .lz into wwwroot on the runner; the atlas
+# fetches it at runtime - it must never be committed into the source tree's wwwroot)
+src/TianWen.UI.Web/wwwroot/tyc2.bin.lz
 # Isolated AOT-publish output (local :5100 perf builds; keeps the dev server's obj/bin unclobbered)
 bin-aot/
 obj-aot/

@@ -17,6 +17,11 @@ namespace TianWen.UI.Web.SkyMap
     {
         private readonly WebGlSkyMapPipeline _pipeline = new(renderer);
 
+        /// <summary>Hands a fetched + decoded full Tycho-2 star buffer to the GPU pipeline; it
+        /// swaps over the HR seed on the next render frame. See
+        /// <see cref="WebGlSkyMapPipeline.SubmitTycho2Stars"/>.</summary>
+        public void SubmitTycho2Stars(float[] verts, int starCount) => _pipeline.SubmitTycho2Stars(verts, starCount);
+
         protected override void RenderSkyMap(
             ICelestialObjectDB db, RectF32 contentRect, string fontPath,
             System.DateTimeOffset viewingTime, double siteLat, double siteLon, SiteContext site)

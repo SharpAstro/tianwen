@@ -163,6 +163,23 @@ public interface ICelestialObjectDB
     int CopyTycho2Stars(Span<Tycho2StarLite> destination, int startIndex = 0);
 
     /// <summary>
+    /// Injects an externally-fetched, still-lzip-compressed <c>tyc2.bin.lz</c> payload,
+    /// decompressing it and wiring the bulk Tycho-2 star data so <see cref="Tycho2StarCount"/> /
+    /// <see cref="CopyTycho2Stars"/> return the full catalog. This is the browser/Lightweight
+    /// path: the ~30 MB catalog is stripped from the WASM bundle (the embedded manifest entry is
+    /// absent), so the atlas fetches <c>tyc2.bin.lz</c> as a same-origin static asset and feeds
+    /// the bytes here. Idempotent (a no-op returning <c>true</c> once bulk data is present) and
+    /// deliberately <b>display-only</b>: it builds only the flat star records, NOT the searchable
+    /// spatial index or the HD/HIP cross maps (a plotted star dot needs neither). The default is a
+    /// no-op for hosts that never inject (the embedded desktop build, tests) - only
+    /// <c>CelestialObjectDB</c> performs the decode.
+    /// </summary>
+    /// <param name="compressedLz">The raw <c>tyc2.bin.lz</c> bytes as fetched over HTTP.</param>
+    /// <returns><c>true</c> when the Tycho-2 catalog is available after the call
+    /// (freshly injected, or already loaded); <c>false</c> on empty input or a no-op host.</returns>
+    bool TryLoadTycho2BulkFromCompressed(byte[] compressedLz) => false;
+
+    /// <summary>
     /// Single-star lookup by Tycho-2 catalog index. One walk through the
     /// catalog byte[] produces RA/Dec/photometry/pm all at once -- use this
     /// in SPCC matching and plate-solving where you need both position and
