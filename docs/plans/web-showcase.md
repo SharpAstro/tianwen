@@ -349,9 +349,13 @@ read-only `SdfGlyphDiskCache` mode (the single-threaded-WASM-friendly variant).
 
 ## Related research plans
 
+- [web-tycho2.md](web-tycho2.md) — the concrete implementation plan for full Tycho-2 in the atlas
+  (the "data source swap" the deferred item below promises), phased P1 lazy-fetch+serial-decode →
+  P2 wasm-threads parallel decode → P3 IndexedDB cache → P4 tiling.
 - [web-multithreading.md](web-multithreading.md) — real browser parallelism (wasm-threads / Web
   Workers / second-runtime), the GitHub-Pages COOP/COEP wall, and the "do we still need Blazor"
-  question. Verdict: AOT already fixed the freeze; build none now.
+  question. Verdict: AOT already fixed the freeze; build none now (except the tyc2 parallel-decode
+  consumer in web-tycho2).
 - [web-webgpu.md](web-webgpu.md) — a WebGPU render backend + shader reuse (GLSL→WGSL) + GPU compute
   to parallelize the sweep without the SharedArrayBuffer wall. Verdict: defer until interactive
   re-scoring (or a heavier GPU workload) justifies it.

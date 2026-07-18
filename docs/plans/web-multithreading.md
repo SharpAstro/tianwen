@@ -147,7 +147,8 @@ IndexedDB snapshot / spatial tiling), and the record **parse** into the DB dicti
 (per-record-parallel only if you build a flat star buffer, not the hashmaps). And GPU compute still
 can't touch the decompress — LZMA range-decoding is sequential-*within*-member + branch-heavy, so the
 parallelism is across-member CPU threads, not GPU lanes. See web-webgpu.md + web-showcase.md's
-deferred item.
+deferred item. **The concrete implementation plan is [web-tycho2.md](web-tycho2.md)** — this
+parallel-decode is its P2, gated on P1's serial-decode measurement.
 
 ## Facts / invariants for a future implementer
 
