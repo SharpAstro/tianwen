@@ -64,7 +64,19 @@
                     opts);
             });
         };
-    </script>
+
+        // F3 opens the in-app catalog search (the sky atlas). The <canvas> keydown handler runs
+        // our search, but the browser ALSO fires its native find-in-page for F3 -- so both open at
+        // once. Cancel the browser default here (capture phase, so it wins before anything else);
+        // the canvas keydown listener still fires, so our search opens and the browser bar does
+        // not. The whole page is one canvas app, so there is nothing for browser find to match
+        // anyway. Blazor's plain @onkeydown can't preventDefault after the fact, hence this listener.
+        window.addEventListener("keydown", function (e) {
+            if (e.key === "F3") {
+                e.preventDefault();
+            }
+        }, { capture: true });
+</script>
 
     <script src="_framework/blazor.webassembly#[.{fingerprint}].js"></script>
 </body>
