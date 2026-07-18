@@ -120,6 +120,20 @@ Branch-only, measure before committing:
 - Keep the shared-geometry / shader-duplicated split (`SkyMapGpuGeometry`/`SkyMapUbo` stay the single
   geometry source; each backend interprets the same std140 byte layout).
 
+## Relevance to Tycho-2 (the deferred web catalog)
+
+WebGPU **does not unlock Tycho-2**. The web atlas already built the real instanced pipeline
+(`DrawInstanced`) precisely so full Tycho-2 is "a data + payload change, not a code change"
+(web-showcase.md); the ~8.6k HR-star limit is `Lightweight=true` stripping `tyc2.bin.lz`, not a
+render-capability limit. Rendering 2.5M instanced point-sprites is one draw call WebGL2 eats easily
+(the desktop Vulkan proves the scale; ~50 MB VRAM instance buffer is fine) — so the render side is
+the part that's *ready*, and WebGPU adds only marginal draw-call overhead there. The Tycho-2
+*decode* (lzip + parse 2.5M records) is serial and GPU-hostile, so GPU compute is the wrong tool for
+it too. **Tycho-2 is a data-delivery problem (30 MB payload + decode), not a GPU problem** — see
+web-multithreading.md and web-showcase.md's deferred item. The only speculative WebGPU-compute angle
+is per-star *CPU-side* results over all 2.5M (proper-motion-to-epoch, pick/search), which is niche
+(the vertex shader already computes per-star position + mag fade every frame for display).
+
 ## Facts / invariants for a future implementer
 
 - Browser WebGPU is **WGSL-only** (no SPIR-V ingestion) — reuse needs transpile or WGSL twins.

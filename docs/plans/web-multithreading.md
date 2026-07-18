@@ -125,6 +125,20 @@ path already runs on bare `[JSImport]`/`[JSExport]` in WebGl.Renderer. So droppi
 | GPU compute (C) | spike-worthy | You want the sweep re-scored *interactively* (time-scrub). Header-free + a real feature — see web-webgpu.md. |
 | de-Blazor | keep | Payload becomes a measured problem, or the leanest threading substrate is a goal in itself. |
 
+## Relevance to Tycho-2 (the deferred web catalog)
+
+The Tycho-2 bulk decode (lzip + parse ~2.5M records) is the archetypal threading candidate — serial,
+GPU-hostile (so GPU compute can't help it), and it's literally the workload that *wedged the
+interpreted page* and motivated `Lightweight=true` stripping `tyc2.bin.lz`. Option A (wasm-threads,
+shared heap) would decode it off the UI thread straight into the shared DB; Option B could decode in
+a worker and transfer a flat star buffer back. **But two caveats blunt the case:** (a) cooperative
+**chunking** (decode N stars → yield → repeat) avoids the wedge with no threads / no COOP/COEP, just
+slower wall-time; (b) AOT makes the decode far faster, likely sub-second, so the wedge may be moot.
+And the dominant Tycho-2 cost — the **~30 MB download** — is orthogonal to threading entirely; that's
+a data-delivery problem (lazy fetch / decoded IndexedDB snapshot / spatial tiling), not a parallelism
+one. Net: threading is a *possible but not the cleanest* lever for Tycho-2, and it doesn't touch the
+real blocker. See web-webgpu.md and web-showcase.md's deferred item.
+
 ## Facts / invariants for a future implementer
 
 - Live Pages site sends **no COOP/COEP** and Pages can't add them — any shared-memory path needs a

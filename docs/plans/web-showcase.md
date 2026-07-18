@@ -358,8 +358,14 @@ read-only `SdfGlyphDiskCache` mode (the single-threaded-WASM-friendly variant).
 
 ## Deferred
 
-- Full Tycho-2 catalog in the browser (the 30 MB payload; drops into the P2/P3 pipeline as a data
-  source swap once shipped).
+- Full Tycho-2 catalog in the browser. The render pipeline is **ready** — the instanced
+  `DrawInstanced` path renders 2.5M stars fine (WebGL2; the desktop Vulkan proves the scale), so
+  this is a data + payload change, not a code change. But it's a **data-delivery problem, not a
+  compute/GPU one** (evaluated 2026-07-18 in [web-multithreading.md](web-multithreading.md) +
+  [web-webgpu.md](web-webgpu.md)): the ~30 MB payload is the real blocker (untouched by threads or
+  WebGPU), the lzip+parse decode is serial (GPU compute is the wrong tool; threading or cooperative
+  chunking avoids the wedge, likely AOT-moot). Levers: lazy fetch (on atlas open / zoom past HR
+  density) / decoded IndexedDB snapshot / spatial tiling.
 - Milky Way texture underlay (needs the general texture path from P2; cosmetic).
 - FITS viewer / Planetary / Guider preview (image-raster GPU pipeline, no WebGl.Renderer analog).
 - Equipment / Session / LiveSession tabs in the browser (portable but device-control-oriented,
