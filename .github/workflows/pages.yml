@@ -23,7 +23,7 @@ name: pages
 
 on:
   push:
-    branches: [main, feat/web-showcase] # TODO drop feat/web-showcase after merge
+    branches: [main]
     paths:
       - 'src/TianWen.UI.Web/**'
       - 'src/TianWen.UI.Abstractions/**'
