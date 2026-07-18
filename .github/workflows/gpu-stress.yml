@@ -1,0 +1,93 @@
+name: GPU stress test
+
+# Soak the Vulkan/GPU comp tests against Mesa lavapipe (software Vulkan) on the x64 runner --
+# the exact environment where the exit-139 (SIGSEGV) flake shows up -- to validate a flake fix or
+# flush out an intermittent native crash. Loops the GPU test set N times in fresh processes and
+# fails on the first non-zero exit, symbolicating the dump on the runner where the .so still exist.
+#
+# Dispatch-only (no push/PR cost). Doubles as an A/B validator: run it against the suspected-bad
+# commit (expect a crash within N) and the fixed commit (expect N clean).
+#   gh workflow run gpu-stress.yml -f ref=<branch-or-sha> -f iterations=30
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Branch/SHA whose code to stress'
+        required: false
+        default: 'main'
+        type: string
+      iterations:
+        description: 'How many times to run the GPU test set'
+        required: false
+        default: '20'
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  stress:
+    runs-on: ubuntu-latest
+    steps:
+      # Same lavapipe software-Vulkan stack (+ lldb) as the unit-test job -- reproduce the exact
+      # environment where the flake occurs.
+      - uses: SharpAstro/cache-apt-pkgs-action@v1
+        with:
+          packages: ghostscript fonts-urw-base35 fontconfig mesa-vulkan-drivers libvulkan1 vulkan-tools vulkan-validationlayers lldb
+          version: 1.4
+      - name: Rebuild fontconfig cache
+        run: fc-cache -f
+      - name: Vulkan ICD summary
+        run: vulkaninfo --summary || true
+
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.ref }}     # the code under stress -- decoupled from this workflow file (on main)
+          submodules: recursive
+          lfs: false
+      - name: Fetch required LFS objects
+        run: git lfs pull --include="*.lz,*.ttf,*.bin.gz,*.fits.gz"
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.0.x
+          cache: true
+          cache-dependency-path: src/Directory.Packages.props
+
+      - name: Build test project (Release, matches CI)
+        run: dotnet build TianWen.Lib.Tests -c Release
+        working-directory: src
+
+      - name: Stress-loop the GPU tests
+        working-directory: src
+        env:
+          # Capture a runtime minidump on a native crash so the failing iteration can be symbolicated.
+          DOTNET_DbgEnableMiniDump: "1"
+          DOTNET_DbgMiniDumpType: "2"
+          DOTNET_DbgMiniDumpName: /tmp/coredump-%e-%p-%t.dmp
+        run: |
+          set -uo pipefail
+          N="${{ inputs.iterations }}"
+          filter="FullyQualifiedName~VkRendererPrimitive|FullyQualifiedName~VkHistogramPipeline|FullyQualifiedName~GpuStretchPipeline"
+          echo "GPU stress: $N iterations on lavapipe (ref=${{ inputs.ref }})"
+          for i in $(seq 1 "$N"); do
+            echo "==== iteration $i / $N ===="
+            dotnet test TianWen.Lib.Tests -c Release --no-build \
+              --filter "$filter" \
+              --blame-crash --blame-hang --blame-hang-timeout 5min \
+              --results-directory "test-results-$i/" > "/tmp/iter-$i.log" 2>&1
+            rc=$?
+            if [ "$rc" -ne 0 ]; then
+              echo "::error::iteration $i FAILED (exit $rc)"
+              echo "---- last 80 log lines ----"
+              tail -n 80 "/tmp/iter-$i.log"
+              shopt -s nullglob
+              for d in /tmp/coredump-*.dmp; do
+                echo "---- lldb backtrace ($d) ----"
+                lldb --batch -c "$d" -o "thread backtrace all" -o "image list" -o "quit" 2>&1 | head -c 300000
+              done
+              exit "$rc"
+            fi
+            grep -hE "Passed!|Failed!|Skipped" "/tmp/iter-$i.log" | tail -n 1
+          done
+          echo "SURVIVED all $N iterations with no crash."
