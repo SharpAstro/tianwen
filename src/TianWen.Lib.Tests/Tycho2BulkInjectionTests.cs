@@ -13,7 +13,14 @@ namespace TianWen.Lib.Tests;
 /// runtime, then fed in as raw bytes. Exercised against a FRESH, un-initialised DB so the decode +
 /// wiring path runs (the shared cached DB in <see cref="CelestialObjectDBTests"/> already has the
 /// bulk data from the embedded path, which would short-circuit the idempotent guard).
+/// <para>
+/// In <c>[Collection("Catalog")]</c> like the other full-catalog tests
+/// (<see cref="Tycho2SupplementRenderTests"/>, <c>Tycho2PhotometryTests</c>): these fresh-DB
+/// decodes each hold the ~42 MB Tycho-2 buffer, so they serialize with the other heavy catalog
+/// tests instead of piling a concurrent large-allocation spike onto the parallel pool.
+/// </para>
 /// </summary>
+[Collection("Catalog")]
 public class Tycho2BulkInjectionTests
 {
     // The raw compressed tyc2.bin.lz embedded in TianWen.Lib. Present in the test build; the
