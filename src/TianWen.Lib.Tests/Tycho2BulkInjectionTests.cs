@@ -91,4 +91,42 @@ public class Tycho2BulkInjectionTests
         db.TryLoadTycho2BulkFromCompressed(Array.Empty<byte>()).ShouldBeFalse();
         ((ICelestialObjectDB)db).Tycho2StarCount.ShouldBe(0);
     }
+
+    [Fact]
+    public void GivenAlreadyDecompressedBytesWhenInjectedThenCatalogIsAvailable()
+    {
+        // The browser caches the DECOMPRESSED buffer (IndexedDB); a repeat visit feeds it back
+        // through this path to skip the lzip decode. Exercise it with the raw bytes directly.
+        var raw = SharpAstro.Lzip.LzipDecoder.Decompress(ReadEmbeddedTyc2Lz());
+
+        var db = new CelestialObjectDB();
+        ((ICelestialObjectDB)db).Tycho2StarCount.ShouldBe(0);
+
+        db.TryLoadTycho2BulkFromDecoded(raw).ShouldBeTrue();
+        ((ICelestialObjectDB)db).Tycho2StarCount.ShouldBeGreaterThan(2_000_000);
+    }
+
+    [Fact]
+    public void GivenInjectedDBWhenQueryingCoordinateGridThenTychoStarsResolve()
+    {
+        // Injection now wires the GSC-bounds spatial index, so the composite CoordinateGrid answers
+        // FOV queries against Tycho-2 -- the exact path click-to-identify uses (SkyMapSearchActions).
+        var db = new CelestialObjectDB();
+        db.TryLoadTycho2BulkFromCompressed(ReadEmbeddedTyc2Lz()).ShouldBeTrue();
+        ICelestialObjectDB idb = db;
+
+        // Probe the spatial index at a real star's position (RA hours, Dec degrees).
+        var chunk = new Tycho2StarLite[256];
+        var n = db.CopyTycho2Stars(chunk, 0);
+        var star = chunk.Take(n).First(s => !float.IsNaN(s.VMag));
+
+        var cell = idb.CoordinateGrid[star.RaHours, star.DecDeg];
+        cell.ShouldContain(i => i.ToCatalog() == Catalog.Tycho2,
+            "the wired spatial index must surface Tycho-2 stars for the click-to-identify path");
+
+        // And a returned tyc2 index resolves to a real position (the identify step).
+        var tycIdx = cell.First(i => i.ToCatalog() == Catalog.Tycho2);
+        idb.TryLookupByIndex(tycIdx, out var o).ShouldBeTrue();
+        double.IsNaN(o.RA).ShouldBeFalse();
+    }
 }
