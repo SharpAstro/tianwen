@@ -83,6 +83,15 @@ public interface ICelestialObjectDB
     Task InitDBAsync(bool waitForTycho2BulkLoad = false, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// True once <see cref="InitDBAsync"/> has completed at least once (the main catalogs are
+    /// queryable; the background Tycho-2 bulk load may still be running). Consumers that build
+    /// one-shot caches from the DB (e.g. the GPU sky-map geometry) must gate on this so a
+    /// render racing the init doesn't latch an empty catalog. Default true: test stubs are
+    /// born initialised.
+    /// </summary>
+    bool IsInitialized => true;
+
+    /// <summary>
     /// Awaits the background Tycho-2 bulk-load task started by <see cref="InitDBAsync"/>.
     /// Cheap to call repeatedly — the underlying decode runs at most once per instance.
     /// </summary>

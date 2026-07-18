@@ -91,6 +91,9 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
     private volatile bool _isInitialized;
     private readonly SemaphoreSlim _initLock = new(1, 1);
 
+    /// <inheritdoc/>
+    public bool IsInitialized => _isInitialized;
+
     /// <summary>
     /// Background bake of the sorted ordinal-ignore-case auto-complete list, kicked off
     /// during init as soon as <see cref="_objectsByIndex"/>, <see cref="_crossIndexLookuptable"/>,

@@ -366,10 +366,12 @@ namespace TianWen.UI.Web.SkyMap
         }
 
         /// <summary>Builds the persistent static geometry once (bright stars + figures +
-        /// boundaries + grid scales + ecliptic). Cheap no-op afterwards.</summary>
+        /// boundaries + grid scales + ecliptic). Cheap no-op afterwards. Waits for the catalog:
+        /// the atlas is reachable while InitDBAsync still runs (the view chips don't block on
+        /// the load), and building here pre-init would LATCH an empty star field forever.</summary>
         public void EnsureGeometry(ICelestialObjectDB db)
         {
-            if (_geometryBuilt)
+            if (_geometryBuilt || !db.IsInitialized)
             {
                 return;
             }

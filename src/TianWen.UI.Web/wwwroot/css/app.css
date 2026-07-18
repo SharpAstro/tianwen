@@ -129,6 +129,20 @@ button.chip:disabled {
     cursor: default;
 }
 
+/* Catalog-load hint beside the view chips (the chips themselves never block - both views
+   wait on the same catalog, and the atlas draws sky + planets before the stars land). */
+.catalog-loading {
+    color: var(--dim);
+    font-size: 0.8rem;
+    white-space: nowrap;
+    animation: chip-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes chip-pulse {
+    0%, 100% { opacity: 0.4; }
+    50% { opacity: 0.9; }
+}
+
 /* The planner surface fills everything below the chrome. The canvas element is sized by CSS;
    the drawing buffer is set to element-size x devicePixelRatio from the app (hi-dpi crisp).
    position:relative anchors the CanvasTextOverlay input, which is absolutely positioned over
