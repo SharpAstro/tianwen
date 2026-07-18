@@ -689,8 +689,7 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
             return;
         }
 
-        _tycho2Data = LzipDecoder.Decompress(tyc2Stream);
-        _tycho2StreamCount = BinaryPrimitives.ReadInt32LittleEndian(_tycho2Data);
+        WireTycho2BulkData(LzipDecoder.Decompress(tyc2Stream));
 
         var boundsManifest = manifestNames.FirstOrDefault(p => p.EndsWith(".tyc2_gsc_bounds.bin.lz"));
         if (boundsManifest is not null && assembly.GetManifestResourceStream(boundsManifest) is Stream boundsStream)
@@ -722,6 +721,23 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
         }
     }
 
+    /// <summary>
+    /// Publishes the decompressed Tycho-2 bulk buffer + its stream count. Shared by the embedded
+    /// path (<see cref="ReadTycho2Bulk"/>) and the byte[] injection path
+    /// (<see cref="TryLoadTycho2BulkFromCompressed"/>) so the "read stream count, then publish the
+    /// data" wiring lives in one place. Takes the array by reference (no copy) and assigns
+    /// <see cref="_tycho2Data"/> LAST: <see cref="Tycho2StarCount"/> / <see cref="CopyTycho2Stars"/>
+    /// guard on <c>_tycho2Data != null</c>, so the stream count must already be set when the field
+    /// they key off becomes visible (single-threaded on WASM today, but the ordering keeps the
+    /// reader correct if a wasm-threads build ever injects off the render thread).
+    /// </summary>
+    [MemberNotNull(nameof(_tycho2Data))]
+    private void WireTycho2BulkData(byte[] decompressed)
+    {
+        _tycho2StreamCount = BinaryPrimitives.ReadInt32LittleEndian(decompressed);
+        _tycho2Data = decompressed;
+    }
+
     /// <inheritdoc/>
     public bool TryLoadTycho2BulkFromCompressed(byte[] compressedLz)
     {
@@ -735,17 +751,12 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
             return false;
         }
 
-        // Decompress into a local and publish `_tycho2Data` LAST: Tycho2StarCount / CopyTycho2Stars
-        // guard on `_tycho2Data != null`, so the stream count must already be set when the field
-        // they key off becomes visible. (Single-threaded on WASM today, but this ordering keeps the
-        // reader correct if a wasm-threads build ever injects off the render thread.) Display-only:
-        // the GSC-bounds spatial index (_tycho2RaDecIndex) and the high-pm sidecar (~11 stars,
-        // still embedded on the Lightweight build) are intentionally NOT wired here - the atlas
-        // plots dots, which need neither; CopyTycho2Stars falls back to the inline pm rail value
-        // for the handful of sidecar stars, invisible at plot scale.
-        var data = LzipDecoder.Decompress(compressedLz);
-        _tycho2StreamCount = BinaryPrimitives.ReadInt32LittleEndian(data);
-        _tycho2Data = data;
+        // Display-only: the GSC-bounds spatial index (_tycho2RaDecIndex) and the high-pm sidecar
+        // (~11 stars, still embedded on the Lightweight build) are intentionally NOT wired here -
+        // the atlas plots dots, which need neither; CopyTycho2Stars falls back to the inline pm
+        // rail value for the handful of sidecar stars, invisible at plot scale. WireTycho2BulkData
+        // handles the decompress-buffer publish (torn-free) shared with the embedded path.
+        WireTycho2BulkData(LzipDecoder.Decompress(compressedLz));
         return true;
     }
 
