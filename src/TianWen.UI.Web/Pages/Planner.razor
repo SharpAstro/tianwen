@@ -62,7 +62,8 @@
         <WebGlCanvas Id="planner" TabIndex="0" AutoFocus="true"
                      OnReady="OnCanvasReady" OnResized="OnCanvasResized"
                      OnPointerDown="OnPointerDown" OnPointerMove="OnPointerMove"
-                     OnPointerUp="OnPointerUp" OnWheel="OnWheel" OnKeyDown="OnKeyDown" />
+                     OnPointerUp="OnPointerUp" OnWheel="OnWheel" OnKeyDown="OnKeyDown"
+                     OnPinch="OnPinch" OnPinchEnd="OnPinchEnd" />
         @* A REAL focusable input floated over the active canvas text widget: native IME /
            clipboard / autocorrect and the mobile soft keyboard, none of which a canvas-drawn
            widget can provide. Shown/hidden by the ActivateTextInput/DeactivateTextInput flow. *@
@@ -974,6 +975,25 @@
         // Browser deltaY > 0 = wheel down; the tab uses the SDL convention (positive = up).
         var scrollY = (float)(-e.DeltaY / 100.0);
         tab.HandleInput(new InputEvent.Scroll(scrollY, e.X, e.Y));
+        RenderFrame();
+    }
+
+    // Two-finger pinch (touchscreen): drive the shared sky-map zoom the same way the desktop SDL host
+    // does (TianWen.UI.Gui Program.cs OnPinch). WebGlCanvas already anchors at the finger midpoint in
+    // backing space; Source=Touchscreen tells SkyMapTab to zoom around that point (not the view centre).
+    // SINGLE-finger pan needs no handler here - WebGlCanvas bridges a lone finger to OnPointerDown/Move/Up,
+    // so the existing drag-pan handles it for free.
+    void OnPinch(CanvasPinchEventArgs e)
+    {
+        if (ActiveTab is not { } tab) return;
+        tab.HandleInput(new InputEvent.Pinch((float)e.Scale, e.X, e.Y) { Source = PinchSource.Touchscreen });
+        RenderFrame();
+    }
+
+    void OnPinchEnd()
+    {
+        if (ActiveTab is not { } tab) return;
+        tab.HandleInput(new InputEvent.PinchEnd());
         RenderFrame();
     }
 
