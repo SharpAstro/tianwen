@@ -82,10 +82,15 @@ public sealed class TianWenWebFixture : IAsyncLifetime
         // collides with one a developer already has up.
         const string url = "http://127.0.0.1:5188";
 
+        // --no-launch-profile is load-bearing: TianWen.UI.Web's launchSettings.json pins
+        // applicationUrl to :5099, and `dotnet run` applies that OVER our ASPNETCORE_URLS/--urls, so
+        // without this the dev server comes up on :5099 while WaitForServerAsync polls :5188 -> a
+        // guaranteed 5-minute timeout. Skipping the profile lets the explicit --urls (passed as an app
+        // arg after --) win. ASPNETCORE_URLS is kept as a belt-and-suspenders fallback.
         _server = new Process
         {
             StartInfo = new ProcessStartInfo("dotnet",
-                $"run --project \"{Path.Combine(repoRoot, "src", "TianWen.UI.Web")}\" -c Release -p:Lightweight=true")
+                $"run --project \"{Path.Combine(repoRoot, "src", "TianWen.UI.Web")}\" -c Release -p:Lightweight=true --no-launch-profile -- --urls {url}")
             {
                 WorkingDirectory = repoRoot,
                 UseShellExecute = false,
@@ -94,9 +99,32 @@ public sealed class TianWenWebFixture : IAsyncLifetime
             },
         };
         _server.StartInfo.Environment["ASPNETCORE_URLS"] = url;
-        _server.Start();
 
-        await WaitForServerAsync(url, TimeSpan.FromMinutes(5));
+        // Drain stdout+stderr. RedirectStandard* fills a ~4 KB OS pipe buffer and then BLOCKS the child
+        // until someone reads it; a WASM `dotnet run` prints far more than that during its build, so an
+        // undrained pipe wedges the server before it ever listens -> the other way this used to time out.
+        // Keep a bounded tail so a genuine startup failure surfaces in the exception, not a bare timeout.
+        var tail = new System.Collections.Concurrent.ConcurrentQueue<string>();
+        void Capture(string? line)
+        {
+            if (line is null) return;
+            tail.Enqueue(line);
+            while (tail.Count > 80) tail.TryDequeue(out _);
+        }
+        _server.OutputDataReceived += (_, e) => Capture(e.Data);
+        _server.ErrorDataReceived += (_, e) => Capture(e.Data);
+        _server.Start();
+        _server.BeginOutputReadLine();
+        _server.BeginErrorReadLine();
+
+        try
+        {
+            await WaitForServerAsync(url, TimeSpan.FromMinutes(5));
+        }
+        catch (TimeoutException ex)
+        {
+            throw new TimeoutException($"{ex.Message}\n--- last dev server output ---\n{string.Join('\n', tail)}", ex);
+        }
         return url;
     }
 
