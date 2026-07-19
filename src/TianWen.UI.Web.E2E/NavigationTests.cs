@@ -99,9 +99,9 @@ public sealed class NavigationTests(TianWenWebFixture fixture)
         await Expect(PlannerChip(page)).Not.ToHaveClassAsync(ActiveClass);
         await Expect(page).ToHaveTitleAsync("Astro - Sky Atlas");
 
-        // ...and back to the planner: the default view drops the query for a clean root URL.
+        // ...and back to the planner: an explicit ?view=planner (symmetric with ?view=sky).
         await PlannerChip(page).ClickAsync();
-        await Expect(page).Not.ToHaveURLAsync(new Regex("view="));
+        await Expect(page).ToHaveURLAsync(new Regex(@"[?&]view=planner$"));
         await Expect(PlannerChip(page)).ToHaveClassAsync(ActiveClass);
         await Expect(SkyChip(page)).Not.ToHaveClassAsync(ActiveClass);
     }
@@ -119,9 +119,8 @@ public sealed class NavigationTests(TianWenWebFixture fixture)
 
         await PlannerChip(page).ClickAsync();
 
-        // The /sky-atlas path is gone (cleared to the clean root, no leftover view query) and the
-        // Planner is active.
-        await Expect(page).Not.ToHaveURLAsync(new Regex("sky-atlas|view="));
+        // The /sky-atlas path is gone (cleared to an explicit ?view=planner) and the Planner is active.
+        await Expect(page).ToHaveURLAsync(new Regex(@"[?&]view=planner$"));
         await Expect(PlannerChip(page)).ToHaveClassAsync(ActiveClass);
         await Expect(SkyChip(page)).Not.ToHaveClassAsync(ActiveClass);
         await Expect(page).ToHaveTitleAsync("Astro - Planner");
