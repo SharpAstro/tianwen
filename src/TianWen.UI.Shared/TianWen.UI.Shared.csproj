@@ -23,4 +23,28 @@
     <ProjectReference Include="..\TianWen.UI.Abstractions\TianWen.UI.Abstractions.csproj" />
   </ItemGroup>
 
+  <!-- Shaders are authored as GLSL 450 in Shaders/*.vert|*.frag and pre-baked to SPIR-V under
+       Shaders/spirv/*.spv by the tools/BakeShaders tool (committed). VkFitsImagePipeline /
+       VkSkyMapPipeline embed the .spv and load it at runtime (LoadShaderModule) - NO runtime
+       GLSL->SPIR-V compilation, so the shipped assembly carries no shaderc (SdlVulkan.Renderer 6.23
+       dropped the runtime shaderc it used to transit; this removes the dependency for real, which is
+       what makes an Android build possible - shaderc ships no android RID - and trims AOT/startup).
+       Re-bake and commit the .spv when a shader changes (see the TWSH0001 warning below). -->
+  <ItemGroup>
+    <None Remove="Shaders\spirv\*.spv" />
+    <EmbeddedResource Include="Shaders\spirv\*.spv">
+      <LogicalName>TianWen.UI.Shared.Shaders.%(Filename)%(Extension)</LogicalName>
+    </EmbeddedResource>
+    <ShaderSource Include="Shaders\*.vert;Shaders\*.frag" />
+  </ItemGroup>
+
+  <!-- Warn (never fail) when a shader source is newer than its baked .spv, so an edit that forgets to
+       re-bake is caught in the build log instead of silently shipping stale bytecode. -->
+  <Target Name="WarnStaleBakedShaders" BeforeTargets="CoreCompile"
+          Inputs="@(ShaderSource)"
+          Outputs="@(ShaderSource->'Shaders\spirv\%(Filename)%(Extension).spv')">
+    <Warning Code="TWSH0001"
+             Text="Shader source(s) newer than baked SPIR-V; re-run 'dotnet run --project tools/BakeShaders -c Release -- src/TianWen.UI.Shared/Shaders' and commit Shaders/spirv/*.spv. Stale: @(ShaderSource)" />
+  </Target>
+
 </Project>

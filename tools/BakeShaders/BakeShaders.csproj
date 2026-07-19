@@ -1,0 +1,23 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <!-- Build-host tool: bakes TianWen.UI.Shared's GLSL 450 shaders to SPIR-V so the Vk*Pipeline
+         classes load pre-compiled bytecode instead of running shaderc at runtime. Runtime shaderc
+         (Vortice.ShaderCompiler / Silk.NET.Shaderc.Native) ships NO android RID and adds AOT +
+         first-frame startup cost, so baking removes it from TianWen.UI.Shared entirely. Run when a
+         shader source changes, then commit the .spv. Never referenced by the app; lives under tools/
+         (outside src/'s central package management), so it pins its own Vortice.ShaderCompiler. -->
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- The same shaderc wrapper TianWen.UI.Shared used at runtime, but here it runs only on the
+         build host (win/linux/osx RIDs ship the native), so the shipped assembly needs no shaderc. -->
+    <PackageReference Include="Vortice.ShaderCompiler" Version="1.9.0" />
+  </ItemGroup>
+
+</Project>

@@ -1201,11 +1201,26 @@ frame and draw any reticle/rings on top after `Render` returns. **`LiveFramePrev
 must be non-empty + channel-sized** -- the renderer's `ComputePostStretchBackground` indexes `[0]`
 unconditionally (an empty array crashed the GUI; pinned by `LiveFramePreviewSourceTests`).
 
-### Sky Map / FITS Viewer GLSL
+### Sky Map / FITS Viewer GLSL (pre-baked SPIR-V, no runtime shaderc)
 
-The Vortice.ShaderCompiler GLSL-to-SPIR-V compiler does **not** handle non-ASCII characters, even
-in comments. Never use Unicode (em dashes, arrows, math symbols) inside GLSL raw string literals —
-ASCII only.
+TianWen.UI.Shared's Vulkan shaders (`VkFitsImagePipeline`, `VkSkyMapPipeline`) are authored as GLSL
+450 **files** under `src/TianWen.UI.Shared/Shaders/*.vert|*.frag` and **pre-baked to SPIR-V at
+build-host time** (`Shaders/spirv/*.spv`, committed + embedded) by `tools/BakeShaders`. The pipelines
+load the embedded `.spv` at runtime (`LoadShaderModule`) — there is **no runtime shaderc**. This was
+forced when SdlVulkan.Renderer 6.23 dropped the transitive `Vortice.ShaderCompiler` it used to
+provide, and is required for **Android** (shaderc ships no android RID) + trims AOT / first-frame cost.
+Mirrors SdlVkR's own `tools/BakeShaders`.
+
+- **Edit a shader → re-bake → commit the `.spv`.** After changing any `Shaders/*.vert|*.frag`, run
+  `dotnet run --project tools/BakeShaders -c Release -- src/TianWen.UI.Shared/Shaders` and commit
+  `Shaders/spirv/*.spv`. The build emits **warning TWSH0001** when a source is newer than its baked
+  `.spv` (never fails), so a forgotten re-bake is caught.
+- **ASCII only.** shaderc's lexer rejects non-ASCII bytes even inside `//` comments (a stray em dash
+  reports as "unexpected end of file"). BakeShaders warns on non-ASCII; keep shader files ASCII.
+- The stereographic-projection GLSL (`stereoProject`) is currently **inlined** into
+  `skymap_star.vert` / `skymap_line.vert` / `skymap_overlay.vert` (it was a shared C# const
+  substituted at runtime via a `PROJECTION_PLACEHOLDER` token; the bake inlined it). Restoring a single
+  source (a BakeShaders placeholder / `#include` step) is a deferred cleanup.
 
 `Image.StretchValue()` is the single source of truth for the scalar stretch math (normalize → subtract
 pedestal → rescale → MTF). Don't reimplement it.
