@@ -253,8 +253,7 @@ internal class PlanSubCommand(
         var scored = targets[idx];
         var isPinned = plannerState.Proposals.Any(p => p.Target == scored.Target);
         var pin = isPinned ? "\u2605" : " ";
-        var details = PlannerDetails.GetLines(plannerState, targets);
-        var coordLine = details.Count >= 2 ? $"  {details[1]}" : "";
+        var coordLine = $"  {PlannerDetails.FormatCoordinateLine(plannerState, scored)}";
 
         terminal.WriteInPlace($"> [{idx + 1}] {pin} {scored.Target.Name}{coordLine}");
     }

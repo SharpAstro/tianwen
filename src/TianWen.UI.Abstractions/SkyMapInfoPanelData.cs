@@ -28,6 +28,10 @@ public readonly record struct SkyMapInfoPanelData(
     double? AngularSizeDeg,
     CelestialObjectShape? Shape,
     CatalogIndex? Index,
+    // Surface brightness in mag/arcsec² (OpenNGC), NaN when unknown or not applicable (positions,
+    // planets, comets). Trailing-optional so only FromCatalogObject sets it; every other builder
+    // gets NaN and the panel simply omits the row.
+    float SurfaceBrightness = float.NaN,
     bool IsMount = false,
     // Which fixed reference point (if any) this selection is. SkyFixedPoint.Zenith flags the
     // panel as horizon-relative so the renderer re-resolves it to the current overhead point each
@@ -81,7 +85,8 @@ public readonly record struct SkyMapInfoPanelData(
             NeverRises: neverRises,
             AngularSizeDeg: angularSizeDeg,
             Shape: shape,
-            Index: obj.Index);
+            Index: obj.Index,
+            SurfaceBrightness: (float)obj.SurfaceBrightness);
     }
 
     /// <summary>

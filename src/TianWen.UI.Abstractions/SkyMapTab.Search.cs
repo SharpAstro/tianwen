@@ -293,8 +293,8 @@ namespace TianWen.UI.Abstractions
             // constellation, so an empty designation must NOT suppress those (nor show the misleading
             // "(no designation)" placeholder when there's still real info to show).
             var canon = info.Canonical ?? "";
-            var constell = info.Constellation != default ? info.Constellation.ToString() : "";
-            var objType = info.ObjType != ObjectType.Unknown ? info.ObjType.ToString() : "";
+            var constell = info.Constellation != default ? info.Constellation.ToIAUAbbreviation() : "";
+            var objType = info.ObjType != ObjectType.Unknown ? info.ObjType.ToName() : "";
             var subtitle = canon;
             if (constell.Length > 0) subtitle = subtitle.Length > 0 ? $"{subtitle}  {constell}" : constell;
             if (objType.Length > 0) subtitle = subtitle.Length > 0 ? $"{subtitle}  {objType}" : objType;
@@ -309,13 +309,15 @@ namespace TianWen.UI.Abstractions
                 textX, py + row, textW, rowH, fontSize, SearchText, TextAlign.Near, TextAlign.Center);
             row += rowH;
 
-            // Magnitude + B-V + size
+            // Magnitude + surface brightness + B-V + size (SB compact, no unit -- the panel is narrow
+            // and mag/arcsec² is the astronomer default; the planner details panel spells the unit out).
             var magPart = float.IsNaN(info.VMag) ? "mag -" : $"mag {info.VMag:F2}";
+            var sbPart = float.IsNaN(info.SurfaceBrightness) ? "" : $"   SB {info.SurfaceBrightness:F2}";
             var bvPart = float.IsNaN(info.BMinusV) ? "" : $"   B-V {info.BMinusV:F2}";
             var sizePart = info.AngularSizeDeg is { } s
                 ? $"   size {s * 60:F1}'"
                 : "";
-            DrawText($"{magPart}{bvPart}{sizePart}".AsSpan(), fontPath,
+            DrawText($"{magPart}{sbPart}{bvPart}{sizePart}".AsSpan(), fontPath,
                 textX, py + row, textW, rowH, fontSize, SearchText, TextAlign.Near, TextAlign.Center);
             row += rowH;
 
