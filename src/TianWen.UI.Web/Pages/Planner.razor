@@ -118,6 +118,9 @@
     // bundle - the atlas shows the HR bright-star seed until it lands (and stays HR-only if the
     // fetch 404s, e.g. a dev server without the CI-baked asset).
     bool _tycho2Requested;
+    // E2E-only view-state hook (activated by ?e2e=1). Held so it can be disposed; null in a
+    // normal session (the hook is never registered).
+    DotNetObjectReference<Planner>? _testRef;
 
     // Sensible default dark-ish mid-northern site; geolocation / manual entry override it.
     double _lat = 47.5;
@@ -186,6 +189,16 @@
             deactivate: DeactivateTextInput,
             requestRedraw: RenderFrame);
         WireSkyMapSearch(_skyTab);
+
+        // E2E-only: when the app is opened with ?e2e=1, hand a .NET ref to the index.html shim so
+        // browser tests can read LIVE sky-map view state (FOV/centre) via window.__tianwenTest -
+        // the "assert canvas state without pixels" hook (a single WebGL canvas has no DOM to inspect).
+        // Inert in a normal session: the shim's getSkyView is never wired unless the flag is present.
+        if (IsE2ETestMode())
+        {
+            _testRef = DotNetObjectReference.Create(this);
+            await JS.InvokeVoidAsync("__tianwenTestInit", _testRef);
+        }
 
         await ComputeAsync();
         _ready = true;
@@ -898,9 +911,34 @@
         Nav.NavigateTo($"{Nav.BaseUri}?view={(view == View.SkyMap ? "sky" : "planner")}");
     }
 
+    // --- E2E view-state inspection hook (activated by ?e2e=1) --------------------------------
+    // The sky atlas is a single WebGL canvas with no DOM to inspect, so a browser test can't read
+    // zoom/pan the way a DOM-mirrored canvas app (e.g. Drawboard) can. This hook exposes the live
+    // view state to window.__tianwenTest.getSkyView() (wired by the index.html shim), gated on a URL
+    // flag so it is inert in a normal session. Read-only - it never mutates state.
+
+    bool IsE2ETestMode()
+        => Nav.ToAbsoluteUri(Nav.Uri).Query.Contains("e2e=1", StringComparison.OrdinalIgnoreCase);
+
+    // Live sky-map view state as JSON (fov + centre), invoked from the index.html test shim. Returns
+    // "null" before the sky tab exists. Hand-built JSON (no JsonSerializerContext) keeps it AOT-trivial.
+    [JSInvokable]
+    public string GetSkyViewJson()
+    {
+        if (_skyTab is not { State: { } s })
+        {
+            return "null";
+        }
+        var ci = CultureInfo.InvariantCulture;
+        return "{\"fovDeg\":" + s.FieldOfViewDeg.ToString(ci)
+            + ",\"centerRA\":" + s.CenterRA.ToString(ci)
+            + ",\"centerDec\":" + s.CenterDec.ToString(ci) + "}";
+    }
+
     public void Dispose()
     {
         Nav.LocationChanged -= OnLocationChanged;
+        _testRef?.Dispose();
     }
 
     // --- Input: routed through the tab's InputEvent handler, mirroring the desktop host ---------
