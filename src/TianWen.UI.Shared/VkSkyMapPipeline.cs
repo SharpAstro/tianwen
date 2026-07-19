@@ -7,7 +7,6 @@ using SdlVulkan.Renderer;
 using TianWen.Lib.Astrometry;
 using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.UI.Abstractions;
-using Vortice.ShaderCompiler;
 using Vortice.Vulkan;
 using static Vortice.Vulkan.Vulkan;
 
@@ -43,241 +42,10 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
 
     // ────────────────────────────────────────────────── Shader sources
 
-    /// <summary>
-    /// Shared GLSL functions for stereographic projection used by both star and line shaders.
-    /// </summary>
-    private const string ProjectionGlsl = """
-        // Stereographic projection: camera-space unit vector to screen pixel position.
-        // Returns vec3(screenX, screenY, cosD) where cosD <= -0.99 means antipode.
-        vec3 stereoProject(vec3 camPos) {
-            float cosD = -camPos.z;  // camera looks along -Z
-            if (cosD <= -0.99) return vec3(0.0, 0.0, -2.0);
-            float k = 2.0 / (1.0 + cosD);
-            // View matrix right vector already points toward decreasing RA (leftward),
-            // so camPos.x is positive rightward on screen -- no extra negation needed.
-            float sx = ubo.viewportCenter.x + camPos.x * k * ubo.pixelsPerRadian;
-            float sy = ubo.viewportCenter.y - camPos.y * k * ubo.pixelsPerRadian;
-            return vec3(sx, sy, cosD);
-        }
-        """;
 
-    private const string StarVertexSource = """
-        #version 450
 
-        // Per-vertex (quad corners)
-        layout(location = 0) in vec2 aCorner;      // (-1,-1)..(1,1)
-        // Per-instance (star data)
-        layout(location = 1) in vec3 aUnitPos;      // J2000 unit vector
-        layout(location = 2) in float aMagnitude;
-        layout(location = 3) in float aBvColor;
 
-        layout(set = 0, binding = 0, std140) uniform SkyMapUBO {
-            mat4  viewMatrix;
-            vec2  viewportCenter;
-            float pixelsPerRadian;
-            float magnitudeLimit;
-            float fovDeg;
-            float sinLat;
-            vec2  viewportSize;
-            float cosLat;
-            float sinLST;
-            float cosLST;
-            int   horizonClip;
-        } ubo;
 
-        layout(location = 0) out vec2 vCorner;       // for radial falloff in FS
-        layout(location = 1) out vec3 vColor;         // B-V to RGB
-        layout(location = 2) out float vAlpha;
-
-        // Stereographic projection
-        PROJECTION_PLACEHOLDER
-
-        // B-V color index to approximate RGB (piecewise linear, matches SkyMapProjection.StarColor)
-        vec3 bvToRgb(float bv) {
-            bv = clamp(bv, -0.4, 2.0);
-            if (bv < 0.0) {
-                float t = (bv + 0.4) / 0.4;
-                return vec3(155.0 + 100.0 * t, 175.0 + 80.0 * t, 255.0) / 255.0;
-            } else if (bv < 0.4) {
-                float t = bv / 0.4;
-                return vec3(255.0, 255.0 - 25.0 * t, 255.0 - 55.0 * t) / 255.0;
-            } else if (bv < 0.8) {
-                float t = (bv - 0.4) / 0.4;
-                return vec3(255.0, 230.0 - 40.0 * t, 200.0 - 80.0 * t) / 255.0;
-            } else if (bv < 1.2) {
-                float t = (bv - 0.8) / 0.4;
-                return vec3(255.0, 190.0 - 50.0 * t, 120.0 - 60.0 * t) / 255.0;
-            } else {
-                float t = min((bv - 1.2) / 0.8, 1.0);
-                return vec3(255.0, 140.0 - 40.0 * t, 60.0 - 40.0 * t) / 255.0;
-            }
-        }
-
-        // Raw (un-clamped) star radius in pixels, derived from magnitude and FOV.
-        // Matches SkyMapProjection.StarRadius pre-clamp. We clamp in main() so the
-        // fragment path can apply a Stellarium-style cubic sub-pixel fade.
-        float rawStarRadius(float vMag, float fovDeg) {
-            float r = 4.0 * pow(10.0, -0.14 * vMag);
-            float zoomScale = sqrt(60.0 / max(1.0, fovDeg));
-            return min(r * zoomScale, 15.0);
-        }
-
-        void main() {
-            // Skip stars beyond magnitude limit
-            if (aMagnitude > ubo.magnitudeLimit) {
-                gl_Position = vec4(0.0, 0.0, 0.0, 0.0);
-                return;
-            }
-
-            // Skip stars below the horizon:
-            // sin(alt) = sinLat*z + cosLat*(cosLST*x + sinLST*y)
-            if (ubo.horizonClip != 0) {
-                float sinAlt = ubo.sinLat * aUnitPos.z
-                    + ubo.cosLat * (ubo.cosLST * aUnitPos.x + ubo.sinLST * aUnitPos.y);
-                if (sinAlt < 0.0) {
-                    gl_Position = vec4(0.0, 0.0, 0.0, 0.0);
-                    return;
-                }
-            }
-
-            // Rotate to camera space and project
-            vec3 camPos = (ubo.viewMatrix * vec4(aUnitPos, 1.0)).xyz;
-            vec3 proj = stereoProject(camPos);
-            if (proj.z <= -0.99) {
-                gl_Position = vec4(0.0, 0.0, 0.0, 0.0);
-                return;
-            }
-
-            // Two-part gradual reveal so stars appear smoothly as zoom widens the
-            // effective magnitude limit:
-            //
-            //   1. Sub-pixel fade: stars with rawR < 1.0 px get clamped to 1.0 px
-            //      with a mild linear luminance drop (no harsh cubic, without eye
-            //      adaptation that just blacks out the sky).
-            //   2. Magnitude-edge fade: the last 0.8 mag below the effective limit
-            //      fades linearly from 1.0 to 0.0. When the limit rises (zoom in)
-            //      new stars bloom gently instead of popping in at full brightness.
-            float rawR = rawStarRadius(aMagnitude, ubo.fovDeg);
-            float kMin = 1.0;
-            float subPixelFade = clamp(rawR / kMin, 0.35, 1.0);
-            float radius = max(rawR, kMin);
-
-            float magFadeWidth = 0.8;
-            float magFade = clamp((ubo.magnitudeLimit - aMagnitude) / magFadeWidth, 0.0, 1.0);
-
-            // Expand quad generously - analytic Gaussian PSF in the FS needs headroom
-            // for the soft halo. +3 matches Stellarium's pre-baked 16x16 halo texture.
-            vec2 screenPos = proj.xy + aCorner * (radius + 3.0);
-
-            // Map ABSOLUTE-window screen pixels to Vulkan NDC: x in [-1,1], y in [-1,1].
-            // screenPos is in window-absolute coords because viewportCenter encodes the
-            // sky map area's centre in window pixels (offsetX + width/2). The viewport
-            // command (vkCmdSetViewport with x=offsetX, y=offsetY, w/h=mapSize) maps
-            // NDC=0 to that centre, so we must translate screenPos to viewport-relative
-            // coords first by subtracting viewportCenter, then divide by viewport half-size.
-            // Without the subtraction, GPU-rendered geometry shifts right/down by offsetX/Y
-            // relative to the CPU-drawn labels (which use the same SkyMapProjection but
-            // already work in window-absolute coords).
-            gl_Position = vec4(
-                (screenPos.x - ubo.viewportCenter.x) / (ubo.viewportSize.x * 0.5),
-                (screenPos.y - ubo.viewportCenter.y) / (ubo.viewportSize.y * 0.5),
-                0.0, 1.0);
-
-            vCorner = aCorner;
-            vColor = bvToRgb(aBvColor);
-
-            // Final alpha = base magnitude brightness * sub-pixel fade * edge fade.
-            // The edge fade is what produces the "gradual reveal" as zoom rises the limit.
-            float brightness = clamp(1.0 - aMagnitude / ubo.magnitudeLimit, 0.0, 1.0);
-            vAlpha = (0.75 + 0.25 * brightness) * subPixelFade * magFade;
-        }
-        """;
-
-    private const string StarFragmentSource = """
-        #version 450
-
-        layout(location = 0) in vec2 vCorner;
-        layout(location = 1) in vec3 vColor;
-        layout(location = 2) in float vAlpha;
-
-        layout(location = 0) out vec4 FragColor;
-
-        void main() {
-            // Radial distance from quad center [0, sqrt(2)]
-            float dist = length(vCorner);
-
-            // Analytic PSF - soft halo without a bound texture.
-            //   core  : wide flat disc at full brightness (covers the visible star body).
-            //           With the quad expanded by +3 px, the star's nominal radius sits
-            //           near dist ~ r/(r+3), so the core must stay flat into that range.
-            //   halo  : Gaussian-like falloff for the glow.
-            // Numbers tuned so small stars stay bright near the center and dim stars
-            // aren't washed out by the Gaussian shoulder.
-            float core  = 1.0 - smoothstep(0.32, 0.55, dist);
-            float halo  = exp(-dist * dist * 3.2);
-            float alpha = max(core, halo);
-            if (alpha < 0.005) discard;
-
-            FragColor = vec4(vColor * alpha * vAlpha, alpha * vAlpha);
-        }
-        """;
-
-    private const string LineVertexSource = """
-        #version 450
-
-        layout(location = 0) in vec3 aUnitPos;
-
-        layout(set = 0, binding = 0, std140) uniform SkyMapUBO {
-            mat4  viewMatrix;
-            vec2  viewportCenter;
-            float pixelsPerRadian;
-            float magnitudeLimit;
-            float fovDeg;
-            float sinLat;
-            vec2  viewportSize;
-            float cosLat;
-            float sinLST;
-            float cosLST;
-            int   horizonClip;
-        } ubo;
-
-        layout(push_constant) uniform PC {
-            vec4 color;
-        } pc;
-
-        layout(location = 0) out vec4 vColor;
-
-        PROJECTION_PLACEHOLDER
-
-        void main() {
-            vec3 camPos = (ubo.viewMatrix * vec4(aUnitPos, 1.0)).xyz;
-            vec3 proj = stereoProject(camPos);
-            if (proj.z <= -0.99) {
-                // Move to clip-space boundary so the line segment is clipped
-                gl_Position = vec4(2.0, 2.0, 0.0, 1.0);
-                vColor = vec4(0.0);
-                return;
-            }
-
-            // Same NDC-from-absolute-pixel mapping as the star shader -- see comment there.
-            gl_Position = vec4(
-                (proj.x - ubo.viewportCenter.x) / (ubo.viewportSize.x * 0.5),
-                (proj.y - ubo.viewportCenter.y) / (ubo.viewportSize.y * 0.5),
-                0.0, 1.0);
-            vColor = pc.color;
-        }
-        """;
-
-    private const string LineFragmentSource = """
-        #version 450
-
-        layout(location = 0) in vec4 vColor;
-        layout(location = 0) out vec4 FragColor;
-
-        void main() {
-            FragColor = vColor;
-        }
-        """;
 
     // ────────────────────────────────────────────────── Overlay ellipse (DSO markers)
     //
@@ -300,303 +68,17 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
     //   offset 20 : float aPaFromNorth   radians CCW from celestial north
     //   offset 24 : float aThickness     stroke width in pixels
     //   offset 28 : vec4  aColor         RGBA
-    private const string OverlayEllipseVertexSource = """
-        #version 450
 
-        layout(location = 0) in vec2  aCorner;       // per-vertex unit quad, [-1, 1]
-        layout(location = 1) in vec3  aUnitVec;      // per-instance J2000 unit vec
-        layout(location = 2) in vec2  aSizeArcmin;   // per-instance semi-axes (arcmin)
-        layout(location = 3) in float aPaFromNorth;  // per-instance PA from north (rad)
-        layout(location = 4) in float aThickness;    // per-instance stroke (px)
-        layout(location = 5) in vec4  aColor;        // per-instance color
-
-        layout(set = 0, binding = 0, std140) uniform SkyMapUBO {
-            mat4  viewMatrix;
-            vec2  viewportCenter;
-            float pixelsPerRadian;
-            float magnitudeLimit;
-            float fovDeg;
-            float sinLat;
-            vec2  viewportSize;
-            float cosLat;
-            float sinLST;
-            float cosLST;
-            int   horizonClip;
-        } ubo;
-
-        layout(location = 0) out vec2  vLocal;    // ellipse-local px (pre-rotation)
-        layout(location = 1) out vec2  vSize;     // semi-axes in px (for the SDF)
-        layout(location = 2) out float vThickness;
-        layout(location = 3) out vec4  vColor;
-
-        PROJECTION_PLACEHOLDER
-
-        void main() {
-            // 1. Project center through view matrix + stereographic (shared with star + line shaders).
-            vec3 camPos = (ubo.viewMatrix * vec4(aUnitVec, 1.0)).xyz;
-            vec3 proj = stereoProject(camPos);
-            if (proj.z <= -0.99) {
-                // Anti-hemisphere: emit a degenerate vertex so the whole instance is culled.
-                gl_Position = vec4(0.0, 0.0, 0.0, 0.0);
-                vLocal = vec2(0.0);
-                vSize = vec2(1.0);
-                vThickness = 0.0;
-                vColor = vec4(0.0);
-                return;
-            }
-            vec2 center = proj.xy;
-
-            // 2. Local north tangent from the unit vector alone. Clamped cosDec avoids the
-            //    pole singularity where cosDec -> 0 would blow up the division.
-            float cosDec = sqrt(max(1e-6, 1.0 - aUnitVec.z * aUnitVec.z));
-            vec3 nTangent = vec3(-aUnitVec.z * aUnitVec.x / cosDec,
-                                 -aUnitVec.z * aUnitVec.y / cosDec,
-                                  cosDec);
-
-            // 3. Project a tip one arcmin north and measure the screen-space angle to it.
-            //    Stellarium uses the same finite-difference trick on the CPU.
-            float stepRad = 2.908882e-4; // 1 arcmin in radians (1 / (60 * 180 / PI))
-            vec3 tipUnit = normalize(aUnitVec + nTangent * stepRad);
-            vec3 tipProj = stereoProject((ubo.viewMatrix * vec4(tipUnit, 1.0)).xyz);
-            vec2 north2d = tipProj.xy - center;
-            // Screen-space angle of celestial north, measured from screen +x (right).
-            // Hand-maintained mirror of OverlayEngine.ComputeEllipseScreenAxes (the CPU
-            // selection marker shares the same convention): the major axis points along
-            // (cos(totalAngle), sin(totalAngle)) with totalAngle = northAngle - PA, so a
-            // positive PA rotates the major axis from north toward east. The sky map is
-            // east-left, so this is true sky position angle (PA = 0 -> major along north).
-            float screenNorthAngle = atan(north2d.y, north2d.x);
-            float totalAngle = screenNorthAngle - aPaFromNorth;
-
-            // 4. Convert arcmin -> pixels using the UBO's pixelsPerRadian.
-            float arcminToPx = ubo.pixelsPerRadian * 0.00029088820866;  // pi / (180 * 60)
-            vec2 sizePx = aSizeArcmin * arcminToPx;
-
-            // 5. Pad quad for the ring SDF antialias + rotate + expand.
-            float pad = max(aThickness * 0.75 + 1.0, 1.5);
-            vec2 local = aCorner * (sizePx + vec2(pad));
-            float cs = cos(totalAngle);
-            float sn = sin(totalAngle);
-            vec2 rotated = vec2(local.x * cs - local.y * sn,
-                                local.x * sn + local.y * cs);
-            vec2 screenPos = center + rotated;
-
-            // 6. Same NDC-from-absolute-pixel mapping as the star / line shaders.
-            gl_Position = vec4(
-                (screenPos.x - ubo.viewportCenter.x) / (ubo.viewportSize.x * 0.5),
-                (screenPos.y - ubo.viewportCenter.y) / (ubo.viewportSize.y * 0.5),
-                0.0, 1.0);
-
-            vLocal = local;
-            vSize = sizePx;
-            vThickness = aThickness;
-            vColor = aColor;
-        }
-        """;
-
-    private const string OverlayEllipseFragmentSource = """
-        #version 450
-
-        layout(location = 0) in vec2  vLocal;
-        layout(location = 1) in vec2  vSize;
-        layout(location = 2) in float vThickness;
-        layout(location = 3) in vec4  vColor;
-
-        layout(location = 0) out vec4 FragColor;
-
-        void main() {
-            // Axis-aligned ellipse SDF: (x/a)^2 + (y/b)^2 = 1 on the boundary.
-            // Scale by the mean semi-axis to convert the normalised distance back
-            // to an approximate pixel distance from the ring -- good enough for
-            // typical DSO aspect ratios (eccentric shapes get a slightly uneven
-            // stroke, still visually clean at overlay marker sizes).
-            vec2 s = max(vSize, vec2(0.5));
-            vec2 n = vLocal / s;
-            float normDist = sqrt(dot(n, n));
-            float avgR = (s.x + s.y) * 0.5;
-            float pixelDist = abs(normDist - 1.0) * avgR;
-
-            float halfT = max(vThickness * 0.5, 0.5);
-            // Antialiased ring: full alpha inside halfT, fade to 0 over 1 px.
-            float alpha = 1.0 - smoothstep(halfT, halfT + 1.0, pixelDist);
-            if (alpha < 0.01) discard;
-
-            FragColor = vec4(vColor.rgb * alpha, vColor.a * alpha);
-        }
-        """;
 
     // Full-screen quad vertex shader (no vertex input, generates 2 triangles from gl_VertexIndex)
-    private const string HorizonFillVertexSource = """
-        #version 450
 
-        layout(location = 0) out vec2 vScreenPos;
-
-        layout(set = 0, binding = 0, std140) uniform SkyMapUBO {
-            mat4  viewMatrix;
-            vec2  viewportCenter;
-            float pixelsPerRadian;
-            float magnitudeLimit;
-            float fovDeg;
-            float sinLat;
-            vec2  viewportSize;
-            float cosLat;
-            float sinLST;
-            float cosLST;
-            int   horizonClip;
-        } ubo;
-
-        void main() {
-            // Generate full-screen triangle strip from vertex index (0..5 = 2 triangles)
-            vec2 pos;
-            if (gl_VertexIndex == 0)      pos = vec2(0.0, 0.0);
-            else if (gl_VertexIndex == 1) pos = vec2(ubo.viewportSize.x, 0.0);
-            else if (gl_VertexIndex == 2) pos = vec2(0.0, ubo.viewportSize.y);
-            else if (gl_VertexIndex == 3) pos = vec2(ubo.viewportSize.x, 0.0);
-            else if (gl_VertexIndex == 4) pos = vec2(ubo.viewportSize.x, ubo.viewportSize.y);
-            else                          pos = vec2(0.0, ubo.viewportSize.y);
-
-            // Output screen-pixel position for the fragment shader
-            vScreenPos = pos + vec2(ubo.viewportCenter.x - ubo.viewportSize.x * 0.5,
-                                    ubo.viewportCenter.y - ubo.viewportSize.y * 0.5);
-
-            // Map to NDC
-            gl_Position = vec4(
-                pos.x / ubo.viewportSize.x * 2.0 - 1.0,
-                pos.y / ubo.viewportSize.y * 2.0 - 1.0,
-                0.0, 1.0);
-        }
-        """;
-
-    private const string HorizonFillFragmentSource = """
-        #version 450
-
-        layout(location = 0) in vec2 vScreenPos;
-        layout(location = 0) out vec4 FragColor;
-
-        layout(set = 0, binding = 0, std140) uniform SkyMapUBO {
-            mat4  viewMatrix;
-            vec2  viewportCenter;
-            float pixelsPerRadian;
-            float magnitudeLimit;
-            float fovDeg;
-            float sinLat;
-            vec2  viewportSize;
-            float cosLat;
-            float sinLST;
-            float cosLST;
-            int   horizonClip;
-        } ubo;
-
-        void main() {
-            // Inverse stereographic projection: screen pixel -> camera-space unit vector
-            float x = (vScreenPos.x - ubo.viewportCenter.x) / ubo.pixelsPerRadian;
-            float y = -(vScreenPos.y - ubo.viewportCenter.y) / ubo.pixelsPerRadian;
-
-            // Warm earthy-brown tint for the below-horizon region. Mixed on top of
-            // the sky background with depth-scaled alpha so pixels just below the
-            // horizon are lightly hazed, and pixels deep below are mostly ground.
-            vec3 groundTint = vec3(0.18, 0.11, 0.06);
-
-            float rho = length(vec2(x, y));
-            if (rho < 0.00001) {
-                vec3 j2000 = transpose(mat3(ubo.viewMatrix)) * vec3(0.0, 0.0, -1.0);
-                float sinAlt = ubo.sinLat * j2000.z
-                    + ubo.cosLat * (ubo.cosLST * j2000.x + ubo.sinLST * j2000.y);
-                if (sinAlt >= 0.0) discard;
-                FragColor = vec4(groundTint, 0.85);
-                return;
-            }
-
-            float c = 2.0 * atan(rho * 0.5);
-            float sinC = sin(c);
-            float cosC = cos(c);
-
-            // Camera-space unit vector
-            vec3 camDir = vec3(
-                sinC * x / rho,
-                sinC * y / rho,
-                -cosC
-            );
-
-            // Rotate back to J2000 (view matrix is orthogonal, inverse = transpose)
-            vec3 j2000 = transpose(mat3(ubo.viewMatrix)) * camDir;
-
-            // Compute altitude: sin(alt) = sinLat*z + cosLat*(cosLST*x + sinLST*y)
-            float sinAlt = ubo.sinLat * j2000.z
-                + ubo.cosLat * (ubo.cosLST * j2000.x + ubo.sinLST * j2000.y);
-
-            if (sinAlt >= 0.0) discard;
-
-            // Fade from 0.45 at horizon to 0.88 at -10 degrees (sin(10deg) ~ 0.17)
-            float depth = clamp(-sinAlt / 0.17, 0.0, 1.0);
-            float alpha = 0.45 + 0.43 * depth;
-            FragColor = vec4(groundTint, alpha);
-        }
-        """;
 
     // ────────────────────────────────────────────────── Milky Way fragment shader
     //
     // Full-screen quad: inverse stereographic -> J2000 unit vector -> equirectangular UV -> texture sample.
-    // Vertex shader reuses HorizonFillVertexSource. Push constant controls brightness (sun altitude fade).
+    // Vertex shader is skymap_mw.vert (identical GLSL to skymap_hzfill.vert). Push constant controls
+    // brightness (sun altitude fade).
 
-    private const string MilkyWayFragmentSource = """
-        #version 450
-
-        layout(location = 0) in vec2 vScreenPos;
-        layout(location = 0) out vec4 FragColor;
-
-        layout(set = 0, binding = 0, std140) uniform SkyMapUBO {
-            mat4  viewMatrix;
-            vec2  viewportCenter;
-            float pixelsPerRadian;
-            float magnitudeLimit;
-            float fovDeg;
-            float sinLat;
-            vec2  viewportSize;
-            float cosLat;
-            float sinLST;
-            float cosLST;
-            int   horizonClip;
-        } ubo;
-
-        layout(set = 1, binding = 0) uniform sampler2D milkyWayTex;
-
-        layout(push_constant) uniform PushConstants {
-            float alpha;
-        } pc;
-
-        const float PI    = 3.14159265358979;
-        const float TWO_PI = 6.28318530717959;
-
-        void main() {
-            // Inverse stereographic projection: screen pixel -> camera-space direction
-            float x = (vScreenPos.x - ubo.viewportCenter.x) / ubo.pixelsPerRadian;
-            float y = -(vScreenPos.y - ubo.viewportCenter.y) / ubo.pixelsPerRadian;
-
-            float rho = length(vec2(x, y));
-            vec3 camDir;
-            if (rho < 0.00001) {
-                camDir = vec3(0.0, 0.0, -1.0);
-            } else {
-                float c = 2.0 * atan(rho * 0.5);
-                float sinC = sin(c);
-                float cosC = cos(c);
-                camDir = vec3(sinC * x / rho, sinC * y / rho, -cosC);
-            }
-
-            // Rotate back to J2000 (view matrix is orthogonal, inverse = transpose)
-            vec3 j2000 = transpose(mat3(ubo.viewMatrix)) * camDir;
-
-            // J2000 unit vector -> equirectangular UV
-            float ra = atan(j2000.y, j2000.x);       // [-PI, PI]
-            float u = ra / TWO_PI + 0.5;              // [0, 1]
-            float dec = asin(clamp(j2000.z, -1.0, 1.0)); // [-PI/2, PI/2]
-            float v = 0.5 - dec / PI;                 // [0, 1], north at top
-
-            vec4 mw = texture(milkyWayTex, vec2(u, v));
-            FragColor = vec4(mw.rgb, mw.a * pc.alpha);
-        }
-        """;
 
     // ────────────────────────────────────────────────── Fields
 
@@ -1310,7 +792,7 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
     /// <summary>
     /// Draws <paramref name="instanceCount"/> DSO overlay ellipses from an instance buffer
     /// that the caller has populated via <c>ctx.WriteVertices</c>. Each instance is 10
-    /// floats (see <c>OverlayEllipseVertexSource</c>). Binds its own viewport/scissor
+    /// floats (see <c>Shaders/skymap_overlay.vert</c>). Binds its own viewport/scissor
     /// to the sky-map content rect so the NDC math in the vertex shader lines up with
     /// the UBO's viewportCenter / viewportSize.
     /// </summary>
@@ -1781,16 +1263,13 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
 
     private void CreatePipelines()
     {
-        using var compiler = new Compiler();
 
         // Inject shared projection code into shaders
-        var starVert = StarVertexSource.Replace("PROJECTION_PLACEHOLDER", ProjectionGlsl);
-        var lineVert = LineVertexSource.Replace("PROJECTION_PLACEHOLDER", ProjectionGlsl);
 
-        var starVertModule = CompileShaderModule(compiler, starVert, "skymap_star.vert", ShaderKind.VertexShader);
-        var starFragModule = CompileShaderModule(compiler, StarFragmentSource, "skymap_star.frag", ShaderKind.FragmentShader);
-        var lineVertModule = CompileShaderModule(compiler, lineVert, "skymap_line.vert", ShaderKind.VertexShader);
-        var lineFragModule = CompileShaderModule(compiler, LineFragmentSource, "skymap_line.frag", ShaderKind.FragmentShader);
+        var starVertModule = LoadShaderModule("skymap_star.vert");
+        var starFragModule = LoadShaderModule("skymap_star.frag");
+        var lineVertModule = LoadShaderModule("skymap_line.vert");
+        var lineFragModule = LoadShaderModule("skymap_line.frag");
 
         try
         {
@@ -1843,8 +1322,8 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
                 additive: false);
 
             // ── Horizon fill pipeline: full-screen quad, no vertex input ──
-            var hzFillVertModule = CompileShaderModule(compiler, HorizonFillVertexSource, "skymap_hzfill.vert", ShaderKind.VertexShader);
-            var hzFillFragModule = CompileShaderModule(compiler, HorizonFillFragmentSource, "skymap_hzfill.frag", ShaderKind.FragmentShader);
+            var hzFillVertModule = LoadShaderModule("skymap_hzfill.vert");
+            var hzFillFragModule = LoadShaderModule("skymap_hzfill.frag");
 
             _horizonFillPipeline = CreateGraphicsPipeline(
                 hzFillVertModule, hzFillFragModule,
@@ -1856,8 +1335,8 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
             _ctx.DeviceApi.vkDestroyShaderModule(hzFillFragModule);
 
             // ── Milky Way pipeline: full-screen quad + texture, own layout ──
-            var mwVertModule = CompileShaderModule(compiler, HorizonFillVertexSource, "skymap_mw.vert", ShaderKind.VertexShader);
-            var mwFragModule = CompileShaderModule(compiler, MilkyWayFragmentSource, "skymap_mw.frag", ShaderKind.FragmentShader);
+            var mwVertModule = LoadShaderModule("skymap_mw.vert");
+            var mwFragModule = LoadShaderModule("skymap_mw.frag");
 
             _milkyWayPipeline = CreateGraphicsPipeline(
                 mwVertModule, mwFragModule,
@@ -1872,9 +1351,8 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
             // ── Overlay ellipse pipeline: instanced quads, GPU projection + ring SDF ──
             // Binding 0: quad corners (per-vertex, same buffer as star pipeline), stride 8
             // Binding 1: ellipse instance data (per-instance), stride 44 bytes (11 floats)
-            var ovVert = OverlayEllipseVertexSource.Replace("PROJECTION_PLACEHOLDER", ProjectionGlsl);
-            var ovVertModule = CompileShaderModule(compiler, ovVert, "skymap_overlay.vert", ShaderKind.VertexShader);
-            var ovFragModule = CompileShaderModule(compiler, OverlayEllipseFragmentSource, "skymap_overlay.frag", ShaderKind.FragmentShader);
+            var ovVertModule = LoadShaderModule("skymap_overlay.vert");
+            var ovFragModule = LoadShaderModule("skymap_overlay.frag");
 
             var ovBindings = stackalloc VkVertexInputBindingDescription[2];
             ovBindings[0] = new VkVertexInputBindingDescription
@@ -2051,23 +1529,21 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
         return pipeline;
     }
 
-    private VkShaderModule CompileShaderModule(Compiler compiler, string source, string fileName, ShaderKind kind)
+    // Loads a pre-baked SPIR-V shader (Shaders/spirv/<shaderName>.spv, embedded by the csproj) and
+    // creates a VkShaderModule. GLSL is compiled to SPIR-V at build time by tools/BakeShaders, so there
+    // is no runtime shaderc (SdlVulkan.Renderer 6.23 dropped the transitive dependency; baking is what
+    // makes an Android build possible - shaderc ships no android RID - and trims AOT/first-frame cost).
+    // Re-bake and commit the .spv on a shader edit (the TWSH0001 build warning flags a stale bake).
+    private VkShaderModule LoadShaderModule(string shaderName)
     {
         var api = _ctx.DeviceApi;
-        var options = new CompilerOptions
-        {
-            TargetEnv = TargetEnvironmentVersion.Vulkan_1_0,
-            ShaderStage = kind
-        };
+        var resource = $"TianWen.UI.Shared.Shaders.{shaderName}.spv";
+        using var stream = typeof(VkSkyMapPipeline).Assembly.GetManifestResourceStream(resource)
+            ?? throw new InvalidOperationException(
+                $"Embedded shader '{resource}' not found -- run tools/BakeShaders and commit Shaders/spirv/*.spv.");
 
-        var result = compiler.Compile(source, fileName, options);
-        if (result.Status != CompilationStatus.Success)
-        {
-            throw new InvalidOperationException(
-                $"Shader compilation failed ({fileName}): {result.ErrorMessage}");
-        }
-
-        var spirv = result.Bytecode;
+        var spirv = new byte[stream.Length];
+        stream.ReadExactly(spirv);
         fixed (byte* pSpirv = spirv)
         {
             VkShaderModuleCreateInfo createInfo = new()

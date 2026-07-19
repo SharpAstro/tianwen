@@ -204,12 +204,17 @@
          DIR.Lib pin above sits at 6.8.* in lockstep.
          6.17 hardens GPU-wedge recovery: stuck-fence recovery runs on a sacrificial background task the
          render thread only polls (a truly hung driver can block inside teardown), + SDF atlas hazard fixes.
-         6.18 is the current pin: idles the render loop while a window is minimized. A minimized window
+         6.18 idles the render loop while a window is minimized. A minimized window
          reports a non-zero pixel size on Windows, so the old size guard missed it and the loop busy-spun
          through swapchain recreation (~270ms/frame) for invisible frames; now gated on the SDL minimized
          flag (~0% CPU while minimized, instant repaint on restore). Also DEBUG-only inspector additions
-         (minimize/maximize/restore + a per-iteration command pump). No DIR.Lib floor change. -->
-    <PackageVersion Include="SdlVulkan.Renderer" Version="6.18.*" />
+         (minimize/maximize/restore + a per-iteration command pump). No DIR.Lib floor change.
+         6.23 is the current pin: adds the net10.0-android target + an SDL Vulkan host (Org.Libsdl.App.
+         SDLActivity, immersive-fullscreen default, swapchain recover-on-resume) so the renderer can run on
+         Android, plus the 6.22->6.23 atlas-backend reshape. Multi-targets net10.0;net10.0-android; a
+         net10.0 consumer (every current TianWen project) restores the net10.0 asset with NO Android
+         workload, so CI stays green. Requires DIR.Lib >= 6.10 (satisfied by the 6.11.* pin above). -->
+    <PackageVersion Include="SdlVulkan.Renderer" Version="6.23.*" />
     <PackageVersion Include="SDL3-CS" Version="3.5.0-preview.20260213-150035" />
     <PackageVersion Include="SDL3-CS.Native" Version="3.5.0-preview.20260205-174353" />
     <!-- Canon DSLR -->
