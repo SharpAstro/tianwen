@@ -53,17 +53,22 @@
         <label>Lon <input type="number" step="0.1" @bind="_lon" /></label>
         <button @onclick="RecomputeAsync" disabled="@_busy">Recompute</button>
         <button @onclick="RelocateAsync" disabled="@_busy" title="Plan for my current location">📍 Locate</button>
+        <button @onclick="ToggleFullscreenAsync" title="Fullscreen (Esc to exit)">⛶</button>
     </div>
 
     <div class="canvas-host">
         @* WebGlCanvas (1.2) owns the hi-dpi plumbing: backing-buffer sizing, resize/dpr watching,
            backing-space input mapping, pointer capture (drags survive leaving the canvas), and
            focus - the JS helpers this host used to carry. *@
-        <WebGlCanvas Id="planner" TabIndex="0" AutoFocus="true"
+        <WebGlCanvas @ref="_canvas" Id="planner" TabIndex="0" AutoFocus="true"
                      OnReady="OnCanvasReady" OnResized="OnCanvasResized"
                      OnPointerDown="OnPointerDown" OnPointerMove="OnPointerMove"
                      OnPointerUp="OnPointerUp" OnWheel="OnWheel" OnKeyDown="OnKeyDown"
                      OnPinch="OnPinch" OnPinchEnd="OnPinchEnd" />
+        @* Read-only selectable text (planner detail lines): the canvas skips rasterizing
+           DrawSelectableText runs (HostRendersSelectableText) and this layer paints them as real
+           DOM spans over the same rects — native browser selection/copy/find, zero widget rewrite. *@
+        <CanvasTextLayer Runs="_textRuns" FontFamily="'DejaVu Sans', system-ui, sans-serif" />
         @* A REAL focusable input floated over the active canvas text widget: native IME /
            clipboard / autocorrect and the mobile soft keyboard, none of which a canvas-drawn
            widget can provide. Shown/hidden by the ActivateTextInput/DeactivateTextInput flow. *@
@@ -78,6 +83,7 @@
     enum View { Planner, SkyMap }
 
     WebGlRenderer? _webGl;
+    WebGlCanvas? _canvas;
     PlannerTab<WebGlContext>? _tab;
     WebSkyMapTab? _skyTab;
     View _view = View.Planner;
@@ -168,6 +174,9 @@
         try
         {
             _webGl = await WebGlRenderer.CreateAsync("planner", _metrics.BackingWidth, _metrics.BackingHeight);
+            // This host mounts a <CanvasTextLayer>, so DrawSelectableText runs skip the glyph raster
+            // and surface as real, selectable DOM spans instead (see SyncSelectableTextLayer).
+            _webGl.HostRendersSelectableText = true;
             _tab = new PlannerTab<WebGlContext>(_webGl) { Bus = _bus };
             _skyTab = new WebSkyMapTab(_webGl) { Bus = _bus };
         }
@@ -842,6 +851,48 @@
         }
         _webGl.Present();
         SyncOverlayRect(); // regions were re-registered by the Render above
+        SyncSelectableTextLayer();
+    }
+
+    // ── Selectable-text DOM layer ─────────────────────────────────────────────
+    // Mirrors the active tab's DrawSelectableText regions (backing px) into <CanvasTextLayer> runs
+    // (CSS px) after every frame. Double-buffered: build into a scratch list (capacity reused, no
+    // per-frame allocation), swap + StateHasChanged only when something actually changed — pointer
+    // moves that repaint the canvas without touching the details text cost no Blazor re-render.
+    List<OverlayTextRun> _textRuns = [];
+    List<OverlayTextRun> _textRunsScratch = [];
+
+    void SyncSelectableTextLayer()
+    {
+        if (ActivePixelTab is not { } tab) return;
+        var regions = tab.SelectableTextRegions;
+        var dpr = (float)(_metrics.DevicePixelRatio > 0 ? _metrics.DevicePixelRatio : 1);
+
+        _textRunsScratch.Clear();
+        var changed = regions.Length != _textRuns.Count;
+        for (var i = 0; i < regions.Length; i++)
+        {
+            ref readonly var r = ref regions[i];
+            var run = new OverlayTextRun(
+                r.X / dpr, r.Y / dpr, r.Width / dpr, r.Height / dpr,
+                r.Text, r.FontSize / dpr, r.Color, r.HorizontalAlign, r.VerticalAlign);
+            if (!changed && run != _textRuns[i]) changed = true;
+            _textRunsScratch.Add(run);
+        }
+
+        if (changed)
+        {
+            (_textRuns, _textRunsScratch) = (_textRunsScratch, _textRuns);
+            StateHasChanged();
+        }
+    }
+
+    // Fullscreen via the Fullscreen API on the canvas's host container (F11 is browser-reserved and
+    // unobservable by the page, so an edge-to-edge sky needs this in-app entry point; the titlebar +
+    // toolbar sit outside the fullscreened subtree and vanish automatically).
+    async Task ToggleFullscreenAsync()
+    {
+        if (_canvas is { } c) await c.ToggleFullscreenAsync();
     }
 
     // Active view's widget for generic input routing (both are PixelWidgetBase<WebGlContext>).

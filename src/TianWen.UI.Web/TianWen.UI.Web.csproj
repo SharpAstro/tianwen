@@ -52,7 +52,7 @@
     <ProjectReference Include="..\..\..\WebGl.Renderer\src\WebGl.Renderer\WebGl.Renderer.csproj" />
   </ItemGroup>
   <ItemGroup Condition="'$(UseLocalSiblings)' != 'true'">
-    <PackageReference Include="WebGl.Renderer" Version="1.5.*" />
+    <PackageReference Include="WebGl.Renderer" Version="1.6.*" />
   </ItemGroup>
 
 

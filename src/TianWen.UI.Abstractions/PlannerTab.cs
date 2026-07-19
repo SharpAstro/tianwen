@@ -476,7 +476,10 @@ namespace TianWen.UI.Abstractions
                         : line.StartsWith("Also:") ? DimText
                         : DetailsInfoText;
 
-                DrawText(line.AsSpan(), fontPath,
+                // Selectable: these are the stable, copy-worthy detail lines (designations, coords,
+                // photometry). Rasters exactly like DrawText on desktop; on the web a DOM text layer
+                // renders them as real selectable text instead (Renderer.HostRendersSelectableText).
+                DrawSelectableText(line, fontPath,
                     rect.X + padding, y, rect.Width - padding * 2f, lineH,
                     fs, color, TextAlign.Near, TextAlign.Center);
             }

@@ -12,6 +12,15 @@
     --accent: #66ddcc;
 }
 
+/* The SAME font file the canvas glyph atlas rasterizes (fetched by LoadFontAsync), exposed as a
+   web font so the CanvasTextLayer's selectable DOM spans match the canvas-drawn text. The browser
+   reuses the HTTP-cached bytes — no second download. */
+@font-face {
+    font-family: "DejaVu Sans";
+    src: url("../Fonts/DejaVuSans.ttf") format("truetype");
+    font-display: swap;
+}
+
 * { box-sizing: border-box; }
 
 html, body {

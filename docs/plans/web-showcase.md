@@ -347,6 +347,42 @@ read-only `SdfGlyphDiskCache` mode (the single-threaded-WASM-friendly variant).
   by default (comet-less dev session). Bake it locally with the same curl as pages.yml when
   comets are needed in dev; the dev server serves the source wwwroot directly, no rebuild.
 
+## Selectable text + fullscreen round (2026-07-20, fifth session)
+
+- **Details enrichment first** (all surfaces, not web-specific): `PlannerDetails.GetLines` now
+  appends the full catalog record for the selected target - object type + constellation (friendly
+  names), V mag, surface brightness (mag/arcsec^2), B-V, and size via
+  `ICelestialObjectDB.TryGetShape` (Stellarium-parity for the IC 1297 style panel).
+  `SkyMapInfoPanelData` carries `SurfaceBrightness` into the atlas info panel + F3 search line.
+  Pinned by `PlannerDetailsTests`.
+- **Selectable DOM text over the canvas** (DIR.Lib 6.12 + WebGl.Renderer 1.6): the browser renders
+  the planner details panel's text as REAL selectable DOM spans instead of rastered glyphs. Seam:
+  `PixelWidgetBase.DrawSelectableText` registers a `SelectableTextRegion` per frame (zero-copy
+  `CollectionsMarshal.AsSpan` view over the frame list, mirroring the clickable tracker's
+  lifecycle - and kept OUT of it so text never shadows click hit-testing);
+  `Renderer.HostRendersSelectableText = true` (set once in `Planner.razor`) makes the widget skip
+  the glyph raster so the DOM copy is the only text on screen. `CanvasTextLayer` (WebGl.Renderer)
+  is the retained span layer: pure Blazor, no JS interop; pointer-events:none container with
+  pointer-events:auto runs so canvas drags pass through everywhere except over text; Near/Center/Far
+  -> flex mapping; invariant-culture inline styles. Host sync (`SyncSelectableTextLayer`)
+  double-buffers two run lists and only calls StateHasChanged when the runs actually changed, so
+  pointer-move repaints cost no Blazor re-render. An `@font-face` for DejaVu Sans points at the
+  SAME ttf the glyph atlas fetches (browser reuses the HTTP-cached bytes) so DOM text matches
+  canvas text metrics. Desktop GUI/TUI stay byte-identical (flag default-off: DrawSelectableText
+  rasters exactly like DrawText). Deliberately NOT used for high-churn scene labels (sky-map
+  star/constellation names) - stable info/detail panels only.
+- **Fullscreen (the F11 finding)**: plain F11 is browser-reserved and unobservable by the page (no
+  event, no API) - its viewport resize is already handled by the ResizeObserver like any window
+  resize, which is why F11 "works" but can't be intercepted or improved. For a real edge-to-edge
+  mode the toolbar gains a fullscreen button -> `WebGlCanvas.ToggleFullscreenAsync()` ->
+  Fullscreen API on the canvas's PARENT (`.canvas-host`), so DOM overlays (text layer, text input)
+  stay anchored and the UA's :fullscreen object-fit letterboxing of a bare canvas never applies;
+  an attach()-installed `fullscreenchange` listener re-measures immediately (no stale frame while
+  the ResizeObserver waits for its next rAF tick).
+- **Console follow-up idea** (from the same seam, deferred): a terminal host can walk the same
+  `SelectableTextRegions` to register native drag-select / double-click word-select + OSC-52
+  auto-yank in Console.Lib.
+
 ## Related research plans
 
 - [web-tycho2.md](web-tycho2.md) — the concrete implementation plan for full Tycho-2 in the atlas
