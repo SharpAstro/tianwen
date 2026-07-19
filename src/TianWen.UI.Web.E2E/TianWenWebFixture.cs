@@ -65,6 +65,10 @@ public sealed class TianWenWebFixture : IAsyncLifetime
             // position so the tests are deterministic and never hit a permission prompt.
             Permissions = ["geolocation"],
             Geolocation = new Geolocation { Latitude = 47.5f, Longitude = 11.0f },
+            // Enable touch so the canvas gesture tests can synthesize touch events over CDP
+            // (the canvas touch listeners only fire when the browser reports touch support). The
+            // app doesn't branch on touch capability, so the mouse/DOM tests are unaffected.
+            HasTouch = true,
         });
         return await context.NewPageAsync();
     }
