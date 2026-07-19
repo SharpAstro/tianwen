@@ -886,15 +886,15 @@
     void SwitchView(View view)
     {
         if (_view == view) return;
-        // Build the target from the app ROOT (Nav.BaseUri), NEVER from the current URI. A legacy
-        // "/sky-atlas" PATH deep-link (an old bookmark, or a URL carried over from the pre-query
-        // deploy) can't be cleared by REMOVING a "view" query param - there is no query to remove, so
-        // GetUriWithQueryParameter returns the /sky-atlas path unchanged, NavigateTo no-ops, and the
-        // Planner chip looks dead. Building from BaseUri clears BOTH the path and any query. Planner
-        // (the default view) = the clean root; Sky = root + "?view=sky". Both keep the path at the app
-        // root, so a refresh/share stays 404-safe on GitHub Pages (see ApplyViewFromLocation).
+        // Build the target from the app ROOT (Nav.BaseUri), NEVER from the current URI, and always
+        // stamp an EXPLICIT "?view=" - "?view=planner" as well as "?view=sky" (symmetric + shareable).
+        // Deriving the Planner URL from the current one (removing the "view" query param) left a legacy
+        // "/sky-atlas" PATH deep-link unchanged -> NavigateTo no-op'd -> the Planner chip looked dead;
+        // a root-built explicit query clears BOTH the path and any old query every time. Both forms
+        // keep the path at the app root, so a refresh/share stays 404-safe on GitHub Pages (see
+        // ApplyViewFromLocation, which also treats a bare root as the Planner default).
         // OnLocationChanged syncs the URL back to the active view + chips.
-        Nav.NavigateTo(view == View.SkyMap ? $"{Nav.BaseUri}?view=sky" : Nav.BaseUri);
+        Nav.NavigateTo($"{Nav.BaseUri}?view={(view == View.SkyMap ? "sky" : "planner")}");
     }
 
     public void Dispose()
