@@ -90,7 +90,13 @@
          session because Planner only calls __tianwenTestInit behind the ?e2e=1 gate. -->
     <script>
         window.__tianwenTestInit = function (ref) {
-            window.__tianwenTest = { getSkyView: function () { return ref.invokeMethodAsync('GetSkyViewJson'); } };
+            window.__tianwenTest = {
+                getSkyView: function () { return ref.invokeMethodAsync('GetSkyViewJson'); },
+                // Canvas-drawn planner search box + autocomplete row rects (CSS px), so an E2E can click
+                // the canvas at the exact target (there is no DOM for these). Return "null" when absent.
+                getPlannerSearchRect: function () { return ref.invokeMethodAsync('GetPlannerSearchRectJson'); },
+                getPlannerSuggestionRect: function (i) { return ref.invokeMethodAsync('GetPlannerSuggestionRectJson', i); },
+            };
         };
     </script>
 

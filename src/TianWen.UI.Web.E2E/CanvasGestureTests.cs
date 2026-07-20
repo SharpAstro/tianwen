@@ -17,15 +17,28 @@ namespace TianWen.UI.Web.E2E;
 /// hook plus a CDP multi-touch helper.
 /// </summary>
 [Collection(TianWenWebCollection.Name)]
-public sealed class CanvasGestureTests(TianWenWebFixture fixture)
+public sealed class CanvasGestureTests(TianWenWebFixture fixture) : IAsyncDisposable
 {
     private const float BootTimeout = 120_000;
+
+    // Per-test context teardown -- see the NavigationTests field of the same name for why
+    // (leaked live app instances starve later boots in the shared browser).
+    private readonly List<IBrowserContext> _contexts = [];
+
+    public async ValueTask DisposeAsync()
+    {
+        foreach (var context in _contexts)
+        {
+            await context.CloseAsync();
+        }
+    }
 
     // Opens the sky atlas directly (?view=sky) with the E2E view-state hook on (?e2e=1) and waits for
     // the catalog to finish loading (the same readiness gate NavigationTests uses).
     private async Task<IPage> OpenSkyAtlasAsync()
     {
         var page = await fixture.NewPageAsync();
+        _contexts.Add(page.Context);
         await page.GotoAsync(fixture.BaseUrl + "?view=sky&e2e=1",
             new PageGotoOptions { WaitUntil = WaitUntilState.DOMContentLoaded });
         await Expect(page.Locator("[data-view=sky]")).ToBeVisibleAsync(new() { Timeout = BootTimeout });

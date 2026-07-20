@@ -19,7 +19,7 @@ namespace TianWen.UI.Web.E2E;
 /// being blocked while the shared catalog loaded. Each of the tests below fails on that regression.
 /// </summary>
 [Collection(TianWenWebCollection.Name)]
-public sealed class NavigationTests(TianWenWebFixture fixture)
+public sealed class NavigationTests(TianWenWebFixture fixture) : IAsyncDisposable
 {
     // Interpreted-WASM cold boot + the catalog init (~23 s) + tonight's-best sweep (~26 s) on the
     // dev server dwarf any DOM settle time. The deployed AOT build does all of this in ~1 s, but
@@ -27,6 +27,20 @@ public sealed class NavigationTests(TianWenWebFixture fixture)
     private const float BootTimeout = 120_000;
 
     private static readonly Regex ActiveClass = new(@"\bactive\b");
+
+    // Contexts this test opened, closed in DisposeAsync (xUnit news a class instance PER TEST, so
+    // this is per-test teardown). Without it every finished test left its live WASM app running in
+    // the shared browser -- by the tail of the suite a dozen accumulated instances starved each new
+    // boot past BootTimeout (9/12 cascade failure on the first full-suite run).
+    private readonly List<IBrowserContext> _contexts = [];
+
+    public async ValueTask DisposeAsync()
+    {
+        foreach (var context in _contexts)
+        {
+            await context.CloseAsync();
+        }
+    }
 
     private ILocator PlannerChip(IPage page) => page.Locator("[data-view=planner]");
     private ILocator SkyChip(IPage page) => page.Locator("[data-view=sky]");
@@ -36,6 +50,7 @@ public sealed class NavigationTests(TianWenWebFixture fixture)
     private async Task<IPage> OpenAsync(string path)
     {
         var page = await fixture.NewPageAsync();
+        _contexts.Add(page.Context);
         await page.GotoAsync(fixture.BaseUrl + path, new PageGotoOptions
         {
             WaitUntil = WaitUntilState.DOMContentLoaded,

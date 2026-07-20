@@ -487,7 +487,12 @@
             active.Deactivate();
         }
         _activeInput = null;
-        if (_textOverlay is { IsVisible: true } overlay)
+        // NO IsVisible guard here: a native blur (clicking a DOM chip / another element while the
+        // input is focused) clears IsVisible BEFORE this runs, but the <input> is still display:block
+        // until HideAsync's JS hide() -- guarding would skip the hide and strand a visible orphaned
+        // input over the canvas (the same race fixed inside HideAsync itself, WebGl.Renderer 1.9).
+        // HideAsync is idempotent, so calling it "already hidden" is a cheap no-op.
+        if (_textOverlay is { } overlay)
         {
             _tracker.Run(() => overlay.HideAsync().AsTask(), "Hide text overlay");
         }
@@ -1055,6 +1060,41 @@
         return "{\"fovDeg\":" + s.FieldOfViewDeg.ToString(ci)
             + ",\"centerRA\":" + s.CenterRA.ToString(ci)
             + ",\"centerDec\":" + s.CenterDec.ToString(ci) + "}";
+    }
+
+    // The planner search box + autocomplete rows are canvas-drawn, so a browser E2E has no DOM to click
+    // to reach them. These return the arranged clickable rects (CSS px, relative to the canvas host) so a
+    // Playwright test can click the canvas at the exact spot -- the "assert canvas state without pixels"
+    // pattern GetSkyViewJson uses, applied to interaction targets. Read-only; wired only under ?e2e=1.
+    [JSInvokable]
+    public string GetPlannerSearchRectJson()
+        => RegionRectCssJson(r => r.Result is HitResult.TextInputHit { Input: { } i } && ReferenceEquals(i, _state.SearchInput));
+
+    [JSInvokable]
+    public string GetPlannerSuggestionRectJson(int index)
+        => RegionRectCssJson(r => r.Result is HitResult.ListItemHit { ListId: "Suggestion", Index: var idx } && idx == index);
+
+    // Finds the first registered clickable matching the predicate and returns its rect as CSS px, or
+    // "null" when absent (widget not rendered / dropdown not shown). Regions are re-registered every
+    // frame, so this reflects the last painted layout.
+    string RegionRectCssJson(Func<ClickableRegion, bool> match)
+    {
+        if (ActivePixelTab is { } tab)
+        {
+            var dpr = (float)(_metrics.DevicePixelRatio > 0 ? _metrics.DevicePixelRatio : 1);
+            var ci = CultureInfo.InvariantCulture;
+            foreach (var region in tab.GetRegisteredRegions())
+            {
+                if (match(region))
+                {
+                    return "{\"x\":" + (region.X / dpr).ToString(ci)
+                        + ",\"y\":" + (region.Y / dpr).ToString(ci)
+                        + ",\"w\":" + (region.Width / dpr).ToString(ci)
+                        + ",\"h\":" + (region.Height / dpr).ToString(ci) + "}";
+                }
+            }
+        }
+        return "null";
     }
 
     public void Dispose()
