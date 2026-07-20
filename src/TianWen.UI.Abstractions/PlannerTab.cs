@@ -584,9 +584,12 @@ namespace TianWen.UI.Abstractions
             _ => false
         };
 
+        // Fractional wheel carry for the target list (trackpad / precision-wheel deltas below one row).
+        private float _targetListWheelAccum;
+
         private bool HandleTargetListScroll(float scrollY)
         {
-            ScrollOffset = ScrollBar.HandleWheel(scrollY, ScrollOffset, _lastFilteredTargets.Count, VisibleRows);
+            ScrollOffset = ScrollBar.HandleWheel(scrollY, ScrollOffset, _lastFilteredTargets.Count, VisibleRows, ref _targetListWheelAccum);
             if (_state is not null)
             {
                 _state.NeedsRedraw = true;

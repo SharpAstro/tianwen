@@ -54,11 +54,22 @@ namespace TianWen.UI.Abstractions
         /// <summary>
         /// Clamp a wheel delta into a new row-indexed scroll offset.
         /// Positive <paramref name="scrollY"/> scrolls up (toward the list start).
+        /// <para>
+        /// <paramref name="accum"/> is a per-list fractional carry the caller stores and passes by
+        /// <c>ref</c>. A precision trackpad (and the browser wheel bridge's <c>deltaY / 100</c>
+        /// conversion) emits <c>|scrollY| &lt; 1</c>, so the old <c>(int)scrollY * WheelStep</c> truncated
+        /// EVERY such event to zero and the list never moved. Scaling into the accumulator and consuming
+        /// only whole rows -- keeping the remainder -- lets many small deltas add up to a scroll, while a
+        /// full mouse-wheel notch (<c>|scrollY| ~= 1</c>) still steps <see cref="WheelStep"/> rows at once.
+        /// </para>
         /// </summary>
-        public static int HandleWheel(float scrollY, int offset, int totalItems, int visibleRows)
+        public static int HandleWheel(float scrollY, int offset, int totalItems, int visibleRows, ref float accum)
         {
             var maxOffset = Math.Max(0, totalItems - visibleRows);
-            return Math.Clamp(offset - (int)scrollY * WheelStep, 0, maxOffset);
+            accum += scrollY * WheelStep;
+            var steps = (int)accum; // truncates toward zero; the fractional part carries to the next event
+            accum -= steps;
+            return Math.Clamp(offset - steps, 0, maxOffset);
         }
 
         /// <summary>

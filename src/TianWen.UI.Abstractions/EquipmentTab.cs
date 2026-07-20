@@ -98,10 +98,13 @@ namespace TianWen.UI.Abstractions
             _ => base.HandleInput(evt)
         };
 
+        // Fractional wheel carry for the device list (trackpad / precision-wheel deltas below one row).
+        private float _deviceListWheelAccum;
+
         private bool HandleDeviceListScroll(float scrollY)
         {
             var next = ScrollBar.HandleWheel(scrollY, State.DeviceScrollOffset,
-                State.DiscoveredDevices.Count, _deviceListVisibleRows);
+                State.DiscoveredDevices.Count, _deviceListVisibleRows, ref _deviceListWheelAccum);
             if (next == State.DeviceScrollOffset) return false;
             State.DeviceScrollOffset = next;
             return true;
