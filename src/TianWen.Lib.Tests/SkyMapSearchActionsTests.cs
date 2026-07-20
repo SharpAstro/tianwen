@@ -1,8 +1,11 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.Immutable;
+using DIR.Lib;
 using Shouldly;
 using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Astrometry.SOFA;
+using TianWen.Lib.Sequencing;
 using TianWen.UI.Abstractions;
 using Xunit;
 
@@ -159,6 +162,58 @@ public class SkyMapSearchActionsTests
             starX, starY, viewMatrix, ppr, cx, cy, preferPointSource: true).ShouldBeTrue();
         var ctrlInfo = ctrl.InfoPanel.ShouldNotBeNull();
         ctrlInfo.Name.ShouldBe("TestStar");
+    }
+
+    // SelectAtScreenPoint is the shared entry the desktop AppSignalHandler AND the browser Planner both
+    // call: it derives the viewport projection (ppr, centre) from SkyMapState.LastContentRect +
+    // CurrentViewMatrix and preferPointSource from the Ctrl modifier, then delegates to
+    // SelectObjectByClick. Pins that boilerplate so the web (which has no AppSignalHandler) resolves a
+    // sky-map click identically to desktop — the exact path wired in Planner.razor's WireSkyMapInteractions.
+    [Fact]
+    public void SelectAtScreenPoint_DerivesViewportAndCtrlFromState()
+    {
+        var nebula = new CelestialObject(CatalogIndex.NGC7331, ObjectType.HIIReg,
+            12.0, 0.0, Constellation.Pegasus, Half.NaN, Half.NaN, Half.NaN,
+            new HashSet<string> { "TestNebula" });
+        var star = new CelestialObject(CatalogIndex.HIP025281, ObjectType.Star,
+            12.0, 0.1, Constellation.Pegasus,
+            Half.NaN, Half.NaN, Half.NaN, new HashSet<string> { "TestStar" });
+        var nebulaShape = new CelestialObjectShape((Half)60.0, (Half)60.0, (Half)0.0);
+        var db = new ClickPickDb(nebula, star, nebulaShape);
+
+        const float height = 1000f;
+        var skyMap = new SkyMapState
+        {
+            Mode = SkyMapMode.Equatorial,
+            CenterRA = 12.0,
+            CenterDec = 0.0,
+            FieldOfViewDeg = 2.0,
+            ShowObjectOverlay = true,
+            // The helper reads the viewport off state — a 1000x1000 content rect at the origin, so the
+            // derived centre is (500, 500) exactly like the SelectObjectByClick test above.
+            LastContentRect = new RectF32(0f, 0f, 1000f, height),
+        };
+        skyMap.CurrentViewMatrix = skyMap.ComputeViewMatrix();
+
+        var ppr = SkyMapProjection.PixelsPerRadian(height, skyMap.FieldOfViewDeg);
+        SkyMapProjection.ProjectWithMatrix(star.RA, star.Dec, skyMap.CurrentViewMatrix, ppr, 500f, 500f,
+            out var starX, out var starY).ShouldBeTrue();
+
+        var viewingUtc = DateTimeOffset.UtcNow;
+        var noProposals = ImmutableArray<ProposedObservation>.Empty;
+
+        // Plain click -> nebula (the ellipse swallows the click); proves ppr/centre were derived from
+        // LastContentRect (no ppr/cx/cy passed in).
+        skyMap.Search.InfoPanel = null;
+        SkyMapSearchActions.SelectAtScreenPoint(
+            skyMap, db, 0, 0, viewingUtc, starX, starY, InputModifier.None, noProposals).ShouldBeTrue();
+        skyMap.Search.InfoPanel.ShouldNotBeNull().Name.ShouldBe("TestNebula");
+
+        // Ctrl click -> the star underneath (preferPointSource derived from the modifier bit).
+        skyMap.Search.InfoPanel = null;
+        SkyMapSearchActions.SelectAtScreenPoint(
+            skyMap, db, 0, 0, viewingUtc, starX, starY, InputModifier.Ctrl, noProposals).ShouldBeTrue();
+        skyMap.Search.InfoPanel.ShouldNotBeNull().Name.ShouldBe("TestStar");
     }
 
     // Dark nebulae follow the [D] layer. The click resolver must honour that: a hidden dark

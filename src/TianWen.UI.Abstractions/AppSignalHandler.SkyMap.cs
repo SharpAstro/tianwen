@@ -258,29 +258,19 @@ namespace TianWen.UI.Abstractions
 
             bus.Subscribe<SkyMapClickSelectSignal>(sig =>
             {
-                var rect = skyMapState.LastContentRect;
-                if (rect.Width <= 0 || rect.Height <= 0) return;
-
                 var db = sp.GetRequiredService<ICelestialObjectDB>();
-                var ppr = SkyMapProjection.PixelsPerRadian(rect.Height, skyMapState.FieldOfViewDeg);
-                var cx = rect.X + rect.Width * 0.5f;
-                var cy = rect.Y + rect.Height * 0.5f;
                 // Match the render's viewing instant: base date/now PLUS the sky-map scrub offset
                 // (State.TimeOffset), via SkyMapViewingUtc. Planet positions are ephemeris-computed
                 // and move with time, so hit-testing them (and the panel's alt/az) must use the same
-                // instant the renderer drew -- otherwise a scrubbed planet dot is unclickable.
-                var viewingUtc = SkyMapViewingUtc();
-                var site = SiteContext.Create(plannerState.SiteLatitude, plannerState.SiteLongitude, viewingUtc);
-
-                SkyMapSearchActions.SelectObjectByClick(
-                    skySearch, skyMapState, db,
+                // instant the renderer drew -- otherwise a scrubbed planet dot is unclickable. The
+                // projection + pinned-set boilerplate lives in the shared SelectAtScreenPoint so the
+                // web Planner goes through the identical path.
+                SkyMapSearchActions.SelectAtScreenPoint(
+                    skyMapState, db,
                     plannerState.SiteLatitude, plannerState.SiteLongitude,
-                    viewingUtc, site,
-                    sig.ScreenX, sig.ScreenY,
-                    skyMapState.CurrentViewMatrix, ppr, cx, cy,
-                    preferPointSource: (sig.Modifiers & InputModifier.Ctrl) != 0,
-                    pinnedCatalogIndices: PlannerActions.GetPinnedCatalogIndices(plannerState.Proposals),
-                    comets: plannerState.Comets);
+                    SkyMapViewingUtc(),
+                    sig.ScreenX, sig.ScreenY, sig.Modifiers,
+                    plannerState.Proposals, plannerState.Comets);
 
                 skyMapState.NeedsRedraw = true;
                 appState.NeedsRedraw = true;

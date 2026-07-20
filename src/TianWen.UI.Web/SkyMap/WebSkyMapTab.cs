@@ -10,8 +10,10 @@ namespace TianWen.UI.Web.SkyMap
     /// The browser sky map: <see cref="SkyMapTab{TSurface}"/> (all labels, search, info panel,
     /// input, planet/comet markers - drawn via the generic renderer primitives) over
     /// <see cref="WebGlSkyMapPipeline"/> for the GPU star field + line work, mirroring
-    /// VkSkyMapTab's split on desktop. v1 scope: stars (HR/HIP bright seed) + lines; the
-    /// object-overlay / mount / schedule-marker hooks stay at their no-op base until needed.
+    /// VkSkyMapTab's split on desktop. The [O]/[D] object overlay is drawn via the shared
+    /// CPU-primitive path (<see cref="SkyMapTab{TSurface}.RenderObjectOverlayPrimitive"/>) since
+    /// WebGL has no instanced overlay-ellipse pipeline; mount / schedule-marker hooks stay at their
+    /// no-op base until needed.
     /// </summary>
     internal sealed class WebSkyMapTab(WebGlRenderer renderer) : SkyMapTab<WebGlContext>(renderer)
     {
@@ -35,5 +37,15 @@ namespace TianWen.UI.Web.SkyMap
             _pipeline.UpdateFrame(State, contentRect.Width, contentRect.Height, site);
             _pipeline.Draw(State, site);
         }
+
+        /// <summary>Draws the [O] catalog overlay + [D] dark nebulae + pinned-target landmarks via the
+        /// shared CPU-primitive path (WebGL has no instanced overlay pipeline). Same candidate gather /
+        /// projection / label placement as desktop; only the rasterisation is CPU DrawLine/DrawCircle.</summary>
+        protected override void RenderObjectOverlay(
+            ICelestialObjectDB db, RectF32 contentRect, float dpiScale, string fontPath,
+            float baseFontSize, SiteContext site, bool dimBelowHorizon, PlannerState plannerState,
+            bool showAllOverlays)
+            => RenderObjectOverlayPrimitive(db, contentRect, dpiScale, fontPath, baseFontSize,
+                site, dimBelowHorizon, plannerState, showAllOverlays);
     }
 }

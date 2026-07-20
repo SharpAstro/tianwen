@@ -3,9 +3,12 @@ using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Globalization;
 using System.Numerics;
+using DIR.Lib;
+using TianWen.Lib.Astrometry;
 using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Astrometry.Comets;
 using TianWen.Lib.Astrometry.SOFA;
+using TianWen.Lib.Sequencing;
 
 namespace TianWen.UI.Abstractions;
 
@@ -355,6 +358,49 @@ public static class SkyMapSearchActions
 
         CloseSearch(search);
         return true;
+    }
+
+    /// <summary>
+    /// Resolve a sky-map click at a screen pixel to the nearest catalog object / planet / comet and
+    /// populate <see cref="SkyMapSearchState.InfoPanel"/>, deriving the viewport projection
+    /// (pixels-per-radian, centre) from the tab's <see cref="SkyMapState.LastContentRect"/> and the
+    /// pinned-target set from the planner proposals. This is the boilerplate the desktop
+    /// <c>AppSignalHandler</c> and the browser <c>Planner</c> both need around
+    /// <see cref="SelectObjectByClick"/> — hoisted here so the two go through ONE path (the caller
+    /// supplies only <paramref name="viewingUtc"/>, computed identically on both as
+    /// <c>(PlanningDate ?? now) + sky-map scrub offset</c>). Ctrl in <paramref name="modifiers"/>
+    /// forces a point-source pick (a star under an enclosing DSO ellipse). Returns true when
+    /// something was selected.
+    /// </summary>
+    public static bool SelectAtScreenPoint(
+        SkyMapState skyMap,
+        ICelestialObjectDB db,
+        double siteLat, double siteLon,
+        DateTimeOffset viewingUtc,
+        float screenX, float screenY,
+        InputModifier modifiers,
+        ImmutableArray<ProposedObservation> proposals,
+        ICometRepository? comets = null)
+    {
+        var rect = skyMap.LastContentRect;
+        if (rect.Width <= 0 || rect.Height <= 0)
+        {
+            return false;
+        }
+
+        var ppr = SkyMapProjection.PixelsPerRadian(rect.Height, skyMap.FieldOfViewDeg);
+        var cx = rect.X + rect.Width * 0.5f;
+        var cy = rect.Y + rect.Height * 0.5f;
+        var site = SiteContext.Create(siteLat, siteLon, viewingUtc);
+
+        return SelectObjectByClick(
+            skyMap.Search, skyMap, db,
+            siteLat, siteLon, viewingUtc, site,
+            screenX, screenY,
+            skyMap.CurrentViewMatrix, ppr, cx, cy,
+            preferPointSource: (modifiers & InputModifier.Ctrl) != 0,
+            pinnedCatalogIndices: PlannerActions.GetPinnedCatalogIndices(proposals),
+            comets: comets);
     }
 
     /// <summary>

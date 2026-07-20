@@ -198,6 +198,7 @@
             deactivate: DeactivateTextInput,
             requestRedraw: RenderFrame);
         WireSkyMapSearch(_skyTab);
+        WireSkyMapInteractions(_skyTab);
 
         // E2E-only: when the app is opened with ?e2e=1, hand a .NET ref to the index.html shim so
         // browser tests can read LIVE sky-map view state (FOV/centre) via window.__tianwenTest -
@@ -656,6 +657,72 @@
                 viewingUtc, site, _state.Comets);
             DeactivateTextInput();
             skyState.NeedsRedraw = true;
+        });
+    }
+
+    // Sky-map interactions beyond search: click-to-select (map clicks + planet/comet label clicks;
+    // Ctrl forces a point-source pick), pin-from-atlas, and view-in-planner. There is no AppSignalHandler
+    // in the browser, so this wires the SAME shared helpers (SkyMapSearchActions / PlannerActions) the
+    // desktop handler uses to the web bus - the info panel (with its Pin / View in Planner / Goto buttons)
+    // is drawn by the shared SkyMapTab base, so once a click populates it the buttons are already live.
+    // Subscribers run inside RenderFrame's bus pump, so they only mutate state (never re-enter RenderFrame).
+    void WireSkyMapInteractions(WebSkyMapTab skyTab)
+    {
+        var skyState = skyTab.State;
+
+        _bus.Subscribe<SkyMapClickSelectSignal>(sig =>
+        {
+            // Match the render's viewing instant (planning date or now + the sky-map scrub offset) so a
+            // scrubbed planet/comet dot hit-tests where it was drawn. All the projection + pinned-set
+            // boilerplate lives in the shared SelectAtScreenPoint - the identical path the desktop uses.
+            var viewingUtc = (_state.PlanningDate?.ToUniversalTime() ?? Time.GetUtcNow()) + skyState.TimeOffset;
+            SkyMapSearchActions.SelectAtScreenPoint(
+                skyState, Db, _state.SiteLatitude, _state.SiteLongitude, viewingUtc,
+                sig.ScreenX, sig.ScreenY, sig.Modifiers, _state.Proposals, _state.Comets);
+            skyState.NeedsRedraw = true;
+        });
+
+        _bus.Subscribe<SkyMapPinObjectSignal>(sig =>
+        {
+            // Pin/unpin the atlas selection into the planner. TogglePinFromExternal scores + profiles the
+            // target (so the planner list can show it) and recomputes handoff sliders; the posted Save is
+            // drained in this same pump (ProcessPending loops until the queue is empty).
+            var target = new Target(sig.RA, sig.Dec, sig.Name, sig.Index);
+            PlannerActions.TogglePinFromExternal(_state, Db, CreateSiteTransform(), target, sig.ObjectType);
+            _bus.Post(new SavePlannerSessionSignal());
+            skyState.NeedsRedraw = true;
+        });
+
+        _bus.Subscribe<ViewInPlannerSignal>(sig =>
+        {
+            // Score the target into the planner list (if not already), select + scroll it into view, then
+            // switch to the Planner. The view switch is DEFERRED via InvokeAsync: SwitchView navigates,
+            // which raises LocationChanged -> RenderFrame, and that would re-enter the bus pump we're in.
+            var target = new Target(sig.RA, sig.Dec, sig.Name, sig.Index);
+            if (!_state.ScoredTargets.ContainsKey(target))
+            {
+                PlannerActions.CommitSuggestion(_state, Db, CreateSiteTransform(), sig.Name, _state.Comets);
+            }
+            var filtered = PlannerActions.GetFilteredTargets(_state);
+            for (var i = 0; i < filtered.Count; i++)
+            {
+                if (filtered[i].Target == target)
+                {
+                    _state.SelectedTargetIndex = i;
+                    _tab?.EnsureVisible(i);
+                    break;
+                }
+            }
+            _ = InvokeAsync(() => SwitchView(View.Planner));
+        });
+
+        _bus.Subscribe<SkyMapSlewToObjectSignal>(sig =>
+        {
+            // Goto commands a connected mount - a desktop / hosted-server action. The browser has no
+            // device layer, so surface a note rather than leaving the panel's Goto button silently dead.
+            _ = sig;
+            _status = "Goto needs a connected mount — not available in the browser.";
+            _ = InvokeAsync(StateHasChanged);
         });
     }
 

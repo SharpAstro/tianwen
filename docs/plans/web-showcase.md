@@ -412,9 +412,50 @@ portrait-resized desktop SDL window. Fixed once in the shared widget, so GUI + w
   (collapse case), plus an offline `RgbaImageRenderer` pixel render on both orientations asserting
   <2% of a magenta sentinel prefill survives (catches the zero-width-region-paints-nothing class);
   PNGs dumped beside the test binary for eyeballing. `PlannerDetailsTests` pins the shed order.
-- **Not yet**: list fling/momentum scrolling on touch (named cost, shared-code addable); sky-map
-  object overlay + click-select on web (separate task - overlay hook is no-op in `WebSkyMapTab`,
-  click signal has no subscriber on the web).
+- **Not yet**: list fling/momentum scrolling on touch (named cost, shared-code addable).
+
+## Sky-atlas interactions round (2026-07-20, seventh session)
+
+The atlas shipped with stars + lines + F3 search but no object overlay and no way to select/pin from
+the map (the click-select + pin/view signals had no subscriber on web, and `RenderObjectOverlay` was
+the no-op base). All three now work on web, built by SHARING the desktop logic, not copying it:
+
+- **Object overlay ([O] catalog markers + [D] dark nebulae + pinned landmarks)**: new shared
+  `SkyMapTab.RenderObjectOverlayPrimitive` (base partial `SkyMapTab.ObjectOverlay.cs`) draws the
+  overlay with the surface-agnostic `DrawLine`/`DrawCircle`/`DrawText` primitives over the SAME shared
+  `OverlayEngine` gather/project/place-labels the desktop GPU path uses — only the rasterisation
+  differs (CPU primitives vs the Vulkan instanced-ellipse pipeline, which WebGL has no analogue for; a
+  hand-maintained mirror exactly like `TryDrawShapeMarker` mirrors the GPU selection ellipse). Ellipses
+  are traced via `OverlayEngine.ComputeEllipseScreenAxes` (true sky PA, from the candidate — the
+  projected `OverlayItem` drops PA), stars as crosses, labels via `PlaceLabelsBestEffort`. Candidate
+  gather is cached on a quantized-centre/FOV/layer/pins key (synchronous — single-threaded WASM has no
+  background thread, so unlike VkSkyMapTab's async gather it walks inline, but only on a meaningful view
+  change; panning within a cell just re-projects). `WebSkyMapTab` overrides `RenderObjectOverlay` to
+  call it; TUI + GUI unchanged (base virtual stays no-op, VkSkyMapTab keeps its GPU override).
+- **Click + Ctrl-click select**: `SkyMapClickSelectSignal` (posted by `TryEmitClickSelect` on map
+  mouse-up + by planet/comet label clicks, carrying the Ctrl modifier the web already plumbs through
+  `RememberMouseDown`) now has a web subscriber. The desktop handler's projection/pinned-set boilerplate
+  was EXTRACTED to the shared `SkyMapSearchActions.SelectAtScreenPoint` (derives ppr/centre from
+  `SkyMapState.LastContentRect` + `CurrentViewMatrix`, preferPointSource from the modifier) — both
+  `AppSignalHandler` (desktop, rewired, verified unchanged) and `Planner.razor` call the one path. Ctrl
+  picks a star under an enclosing DSO ellipse. Populates `State.Search.InfoPanel`.
+- **Pin from atlas + view-in-planner**: `Planner.razor`'s new `WireSkyMapInteractions` subscribes
+  `SkyMapPinObjectSignal` (`PlannerActions.TogglePinFromExternal` + re-posted `SavePlannerSessionSignal`,
+  drained in the same pump), `ViewInPlannerSignal` (`CommitSuggestion` + select + a DEFERRED
+  `InvokeAsync(SwitchView)` — SwitchView navigates -> re-enters the pump otherwise), and
+  `SkyMapSlewToObjectSignal` (no browser mount -> a status note, not a dead button). The info panel with
+  its Pin / View in Planner / Goto buttons is drawn by the shared `DrawInfoPanel`, so once a click
+  populates `InfoPanel` the buttons are already live — the only gap was the missing subscribers.
+- **Tests**: `SkyMapSearchActionsTests.SelectAtScreenPoint_DerivesViewportAndCtrlFromState` pins the
+  extracted helper (nebula vs Ctrl-star pick via `LastContentRect`); `SkyMapObjectOverlayRenderTests`
+  offline-renders the primitive overlay over the Sagittarius Milky Way on the CPU `RgbaImageRenderer`
+  and diffs overlay-off vs overlay-on (the diff IS the overlay footprint), PNG dumped for eyeballing.
+- **Fourth GuiEventHandlerBase-invisible-to-web incident** (after divider drag, TextInputInteraction,
+  planner search): the sky-map signal subscribers lived only in the desktop-only `AppSignalHandler`.
+  Resolved by the same rule — extract the pure body to a shared helper, re-wire on web.
+- **Still deferred on web**: mount reticle, schedule-target markers, NCP/SCP/Zenith fixed-point
+  clickable markers, Milky Way texture (all `RenderMountOverlay`/`RenderFixedPointMarkers`/etc. no-op
+  overrides — no device layer / cosmetic); the sky-flat sky-map group-frame rendering.
 
 ## Related research plans
 
