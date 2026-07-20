@@ -113,10 +113,14 @@
          6.12 added the selectable-text channel (DrawSelectableText registers a SelectableTextRegion
          per frame; Renderer.HostRendersSelectableText lets the web host swap the raster for a
          selectable DOM span layer). PlannerTab's details panel opts in.
-         6.13 is the current pin: per-instance SdfFontAtlas raster size + page cap (the large-text
-         atlas tier); SdfFontAtlas.GetGlyphScale/ScreenPxHalfBand are now instance methods. Lockstep
-         with SdlVulkan.Renderer 6.24 + WebGl.Renderer 1.7 (both rebuilt against it). -->
-    <PackageVersion Include="DIR.Lib" Version="6.13.*" />
+         6.13 added per-instance SdfFontAtlas raster size + page cap (the large-text
+         atlas tier); SdfFontAtlas.GetGlyphScale/ScreenPxHalfBand became instance methods.
+         6.14 is the current pin: the responsive layout primitives (Sizing Min/Max clamps on
+         Auto/Star, Node.CollapseBelow, Node.Wrap flow container) that PlannerTab's portrait
+         reflow builds on. The Sizing ctor/Star/WStar signatures gained optional parameters
+         (binary-breaking), so the whole sibling family rebuilt: lockstep with Console.Lib 3.8 +
+         SdlVulkan.Renderer 6.25 + WebGl.Renderer 1.8. -->
+    <PackageVersion Include="DIR.Lib" Version="6.14.*" />
     <!-- DIR.Lib 3.0 extracted its codec layer to these sibling packages, which
          ship as a lockstep family from the Codecs repo. 3.0 brought a
          binary-breaking SharpAstro.Tiff change (TiffPageOptions.IccProfile is
@@ -177,8 +181,10 @@
          3.2 is a no-code lockstep rebuild against DIR.Lib 5.2.
          3.3 is a no-code lockstep rebuild against DIR.Lib 6.0 (layout namespace + Layout.Builder DSL).
          3.4-3.5 continue the lockstep rebuilds against DIR.Lib 6.x; 3.5 also carries the codecs-facade
-         migration (Console.Lib references SharpAstro.Codecs for image decode). Current pin 3.5.*. -->
-    <PackageVersion Include="Console.Lib" Version="3.5.*" />
+         migration (Console.Lib references SharpAstro.Codecs for image decode). 3.8 is the current
+         pin: the no-code lockstep rebuild against DIR.Lib 6.14 (its Sizing/Star signatures are
+         binary-breaking, so the 3.5 binary would MissingMethodException at runtime). -->
+    <PackageVersion Include="Console.Lib" Version="3.8.*" />
     <!-- SdlVulkan.Renderer 5.0 adds a multi-page SDF glyph atlas (no more grow
          stall / Adreno submit-wedge) on top of 4.1's SetSystemCursor + anisotropic
          glyph xScale. 5.1 implements DIR.Lib 4.4's PushClip/PopClip via Vulkan
@@ -220,9 +226,10 @@
          Android, plus the 6.22->6.23 atlas-backend reshape. Multi-targets net10.0;net10.0-android; a
          net10.0 consumer (every current TianWen project) restores the net10.0 asset with NO Android
          workload, so CI stays green. Requires DIR.Lib >= 6.10 (satisfied by the 6.11.* pin above).
-         6.24 is the current pin: the large-text SDF atlas tier (a second atlas + tier-select +
-         fallback) on DIR.Lib 6.13's per-instance SdfFontAtlas. Lockstep with DIR.Lib 6.13. -->
-    <PackageVersion Include="SdlVulkan.Renderer" Version="6.24.*" />
+         6.24 added the large-text SDF atlas tier (a second atlas + tier-select + fallback) on
+         DIR.Lib 6.13's per-instance SdfFontAtlas. 6.25 is the current pin: the no-code lockstep
+         rebuild against DIR.Lib 6.14 (binary-breaking Sizing/Star signatures). -->
+    <PackageVersion Include="SdlVulkan.Renderer" Version="6.25.*" />
     <PackageVersion Include="SDL3-CS" Version="3.5.0-preview.20260213-150035" />
     <PackageVersion Include="SDL3-CS.Native" Version="3.5.0-preview.20260205-174353" />
     <!-- Canon DSLR -->
