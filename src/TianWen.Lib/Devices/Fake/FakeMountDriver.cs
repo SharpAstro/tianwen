@@ -233,6 +233,18 @@ internal sealed class FakeMountDriver(FakeDevice fakeDevice, IServiceProvider se
     /// </summary>
     internal AlignmentMode Alignment { get; set; } = AlignmentMode.GermanPolar;
 
+    /// <summary>
+    /// Hour angle (hours, LST − target RA, conditioned to ±12) of the most recent
+    /// <see cref="BeginSlewRaDecAsync"/> command, captured at command time. Lets tests pin WHERE a
+    /// routine slewed relative to the meridian without racing the fake clock: the mount's LIVE hour
+    /// angle keeps growing as fake time advances (HA = LST − RA), and on the auto-advancing
+    /// <c>FakeTimeProvider</c> any concurrent poll loop advances fake time by its sleep interval per
+    /// iteration — unbounded in real time — so an assertion on the live HA after a multi-step routine
+    /// is CI-load-dependent (the guider-calibration east-of-meridian test measured +0.94h on a slew
+    /// that correctly targeted −0.5h). NaN until the first slew command.
+    /// </summary>
+    internal double LastCommandedHourAngle { get; private set; } = double.NaN;
+
     public ValueTask<AlignmentMode> GetAlignmentAsync(CancellationToken cancellationToken)
         => ValueTask.FromResult(Alignment);
 
@@ -509,6 +521,7 @@ internal sealed class FakeMountDriver(FakeDevice fakeDevice, IServiceProvider se
             _targetDec = dec;
             _isSlewing = true;
             _isTracking = true;
+            LastCommandedHourAngle = CoordinateUtils.ConditionHA(LocalSiderealTime() - ra);
         }
 
         // Start slew timer (outside lock)

@@ -157,14 +157,19 @@ public class SessionLifecycleTests(ITestOutputHelper output)
         await calibrateTask; // propagate any exceptions
 
         // The calibration target must sit EAST of the meridian (HA < 0): it is approaching the
-        // meridian but has not crossed it, so the mount stays on its pre-flip pier side. The slew
-        // lands at HA = -0.5h and tracking only drifts it UP toward 0 (it stays negative for ~30
-        // min), so HA in (-0.7, 0) confirms east. The old +0.5h bug landed WEST (~+0.5h) -- past
-        // the meridian on the opposite pier side -- which would fail this in BOTH hemispheres.
-        var ha = await mount.GetHourAngleAsync(ct);
-        output.WriteLine($"Hour angle after calibration slew: {ha:F3}h ({(ha < 0 ? "EAST, before crossing" : "WEST, after crossing")}) at lat={latitude}");
-        ha.ShouldBeLessThan(0.0, $"calibration must slew EAST of the meridian (HA < 0, before crossing), but HA={ha:F3}h");
-        ha.ShouldBeGreaterThan(-0.7, $"calibration target should be ~30 min east of the meridian, but HA={ha:F3}h");
+        // meridian but has not crossed it, so the mount stays on its pre-flip pier side. Assert the
+        // COMMANDED hour angle the fake mount captured at slew time -- NOT the live HA read back
+        // after calibration. The live read is clock-drift-exposed: HA = LST - RA grows with fake
+        // time, and on this auto-advancing FakeTimeProvider the concurrent GuideStatsPoller
+        // free-spins while the guider settle task waits for thread-pool scheduling, advancing fake
+        // time 2s per iteration bounded only by CI load -- a loaded runner measured +0.94h (1.44h
+        // of drift, ~2600 poller iterations) on a slew that correctly targeted -0.5h. The commanded
+        // value is drift-immune and still pins the exact regression: the old bug commanded +0.5h,
+        // WEST -- past the meridian on the opposite pier side -- failing this in BOTH hemispheres.
+        var commandedHa = ((FakeMountDriver)ctx.Mount).LastCommandedHourAngle;
+        output.WriteLine($"Commanded calibration hour angle: {commandedHa:F3}h ({(commandedHa < 0 ? "EAST, before crossing" : "WEST, after crossing")}) at lat={latitude}");
+        commandedHa.ShouldBeLessThan(0.0, $"calibration must slew EAST of the meridian (HA < 0, before crossing), but commanded HA={commandedHa:F3}h");
+        commandedHa.ShouldBe(-0.5, 0.1, $"calibration target should be ~30 min east of the meridian, but commanded HA={commandedHa:F3}h");
 
         // After calibration, guider should be guiding
         var guider = (FakeGuider)ctx.Session.Setup.Guider.Driver;
