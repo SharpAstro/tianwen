@@ -18,7 +18,7 @@ namespace TianWen.Lib.Devices.Canon;
 /// Canon DSLR camera driver via FC.SDK (PTP over USB or WiFi).
 /// Uses <see cref="CanonCamera.TakePictureAsync"/> for exposures ≤30s (Tv mode)
 /// and <see cref="CanonCamera.BulbStartAsync"/>/<see cref="CanonCamera.BulbEndAsync"/> for longer exposures.
-/// Images are downloaded as CR2 and decoded via Magick.NET.
+/// Images are downloaded as CR2 and decoded via the SharpAstro codecs facade (FC.SDK.Raw).
 /// </summary>
 internal sealed class CanonCameraDriver : ICameraDriver, IVideoCameraDriver
 {

@@ -130,7 +130,7 @@ will still pull from nuget.org and a local-only nupkg will mask version-skew bug
 | DI / Logging | Microsoft.Extensions.* |
 | CLI | System.CommandLine v2 + Pastel |
 | Testing | xUnit v3 + Shouldly + NSubstitute |
-| Imaging | Magick.NET, FITS.Lib |
+| Imaging | SharpAstro codecs facade + DIR.Lib Tiff/Png, FITS.Lib (Magick.NET removed) |
 | UI / GPU | SDL3 + Vulkan (SdlVulkan.Renderer) |
 | Hosting | ASP.NET Core Minimal API, StbImageWriteSharp |
 | Astronomy | ASCOM, ZWOptical.SDK, QHYCCD.SDK, IAU SOFA (C# port) |
@@ -1106,44 +1106,33 @@ not reintroduce an `Image`-keyed cache. Two parallel collections passing the sam
 flake — the `Background()` histogram peak drifts off scale once the data has been rescaled
 to `[0, 1]` while `MaxValue` still reads the original.
 
-### Float TIFF Convention (Magick.NET ↔ DIR.Lib swap)
+### Float TIFF Convention (DIR.Lib Tiff I/O; Magick.NET fully removed)
 
-Float32 TIFF I/O has two competing readers in the wild and the swap from Magick.NET to
-`DIR.Lib.Tiff.TiffWriter` (planned) must respect both:
+**Magick.NET is no longer a dependency anywhere in this repo** (no PackageReference in any
+project incl. tests; remaining "Magick" strings are historical comments). Float32 TIFF I/O goes
+through `DIR.Lib.Tiff.TiffWriter`/`TiffReader` (`Image.Export.cs` / `Image.Import.cs`); imports
+route through the SharpAstro codecs facade (extension-based, no Magick fallback; CR2/CR3 →
+FC.SDK.Raw, FITS → FITS.Lib).
 
-- **Magick.NET / libtiff-HDRI**: stores file values normalised to `[0, 1]` and writes
-  `SMinSampleValue=0` / `SMaxSampleValue=Quantum.Max` (tags 340/341) as the dynamic-range
-  declaration. On read, libtiff multiplies file values by `SMaxSampleValue` to restore the
-  in-memory `[0, Quantum.Max]` range. This is non-standard per the TIFF 6.0 spec, which
-  treats SMin/SMax as informational only.
-- **Scientific tools** (`tifffile`, PixInsight, ImageJ, FITS-aware viewers): treat float
-  TIFFs as the literal data. SMin/SMax tags are read into metadata but **never used** to
-  rescale pixels. Verified empirically with `tifffile` against the same files Magick.NET
-  produces — it returns `[0, 1]` floats verbatim.
+The **on-disk convention** predates the swap and must not regress, because two reader families
+disagree about float TIFFs:
 
-**The `[0, 1]` file convention works for both** — Magick.NET multiplies by `Quantum.Max`
-(its convention), scientific readers get linear scene-light values. Writing
-`[0, Quantum.Max]` literally would round-trip via Magick.NET but Magick.NET would re-scale
-on read to `[0, Quantum.Max²]` ≈ 4.3 × 10⁹ — broken.
+- **libtiff-HDRI readers** (ImageMagick-based tools): expect file values normalised to `[0, 1]`
+  with `SMinSampleValue=0` / `SMaxSampleValue=65535` (tags 340/341) as a dynamic-range
+  declaration they multiply by on read. Non-standard per TIFF 6.0 (SMin/SMax are informational),
+  but widespread.
+- **Scientific tools** (`tifffile`, PixInsight, ImageJ, FITS-aware viewers): read float TIFFs
+  verbatim; SMin/SMax never rescale pixels.
 
-**Migration recipe** for swapping `Image.Export.cs` from Magick.NET to DIR.Lib:
-
-1. Drop the `× Quantum.Max` hop in `DoToMagickImage` — write the source `[0, 1]` floats
-   directly into the TIFF byte buffer.
-2. Emit a `TiffPageOptions` with `SampleFormat = TiffSampleFormat.IeeeFloat`,
-   `SMinSampleValue = 0f`, `SMaxSampleValue = Quantum.Max`. (Tag 339 is mandatory — without
-   it readers misinterpret the float bits as uint. Tags 340/341 are required to keep
-   Magick.NET reading back at `[0, Quantum.Max]`.)
-3. Result is byte-equivalent to today's Magick.NET output → `TiffRoundTripTests` keeps
-   passing, and PixInsight/ImageJ/`tifffile` see literal `[0, 1]` linear values.
-
-The Q16-HDRI `× Quantum.Max` scaling sprinkled through `Image.Export.cs` / `Image.Import.cs`
-is purely an in-memory hop to satisfy Magick.NET's `GetArea` / `SetPixels` range — it does
-**not** affect on-disk bytes. When porting reads off Magick.NET, do the same: read file
-floats as-is and trust `[0, 1]` as the canonical internal range.
+**The `[0, 1]` file convention satisfies both** — HDRI readers rescale to their quantum,
+scientific readers get linear scene-light values. So `Image.Export.cs` writes `[0, 1]` floats
+with `SampleFormat = IeeeFloat` (tag 339 mandatory — without it readers misinterpret the float
+bits as uint) + `SMinSampleValue = 0` / `SMaxSampleValue = 65535` (the `Q16HdriQuantumMax`
+const, kept so ImageMagick-based tools read back at their expected `[0, 65535]`). `[0, 1]` is
+the canonical in-memory range on read as well.
 
 See `DIR.Lib.Tests/TiffWriterRoundTripTests.cs` for the byte-level reader probe and
-`TianWen.Lib.Tests/TiffWriterMagickDiffTests.cs` for the cross-library diff suite.
+`TianWen.Lib.Tests/TiffRoundTripTests.cs` for the round-trip + SATURATE/unit-scale guard.
 
 **DIR.Lib Phase-1.5 additions** (available as of DIR.Lib 2.14.x):
 
