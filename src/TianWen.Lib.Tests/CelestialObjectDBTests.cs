@@ -753,6 +753,24 @@ public class CelestialObjectDBTests
         bv.ShouldBe(expectedBv, 0.15f, $"HIP {hip} ({name}) B-V");
     }
 
+    [Theory]
+    [InlineData("HIP 85622")]  // HD 158463 / HR 6512 in Oph -- the reported case: a SIMBAD "**" double whose
+                               // merge entry carried a null combined V, so TryLookupByIndex returned mag NaN
+    [InlineData("HIP 80763")]  // Antares
+    [InlineData("HIP 85927")]  // Shaula
+    public async Task GivenBrightDoubleStarWhenLookingUpByIndexThenVMagIsRecovered(string designation)
+    {
+        // Regression for the sky-map info-panel / F3-search "mag -" bug: TryLookupByIndex (the click +
+        // panel path) short-circuited on the mag-less merge entry before the Tycho-2 / HR-HD magnitude
+        // recovery that TryLookupHIP already reached. This is the TryLookupByIndex counterpart of
+        // GivenBrightDoubleStarWhenLookingUpHIPThenVMagAndBVAreValid.
+        var db = await InitDBAsync();
+
+        db.TryLookupByIndex(designation, out var obj).ShouldBeTrue($"{designation} should resolve via TryLookupByIndex");
+        Half.IsNaN(obj.V_Mag).ShouldBeFalse(
+            $"{designation} V_Mag via TryLookupByIndex must not be NaN -- the info-panel 'mag -' bug");
+    }
+
     [Fact]
     public async Task GivenCarbonStarWhenLookingUpByHRThenColorIsDeepRed()
     {

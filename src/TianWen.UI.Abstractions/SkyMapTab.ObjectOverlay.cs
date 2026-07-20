@@ -175,11 +175,33 @@ namespace TianWen.UI.Abstractions
                     var col = item.IsPinned
                         ? new RGBAColor32(0xFF, 0x90, 0x50, (byte)(a * 255f))
                         : RGBAColor32.FromFloat(r, g, b, a);
+                    var maxLineW = 0f;
                     for (var i = 0; i < item.LabelLines.Count; i++)
                     {
                         DrawText(item.LabelLines[i].AsSpan(), fontPath,
                             lx, ly + i * lineH, 220f, lineH,
                             labelSize, col, TextAlign.Near, TextAlign.Near);
+                        var w = measureText(item.LabelLines[i], labelSize);
+                        if (w > maxLineW) { maxLineW = w; }
+                    }
+
+                    // Make the LABEL itself clickable -> selects the same object its marker would (desktop
+                    // parity: VkSkyMapTab.RenderObjectOverlay registers the identical bridge on the GPU path;
+                    // the shared base already does it for planet/comet labels). Object selection is a
+                    // GEOMETRIC nearest-object search at the click point, and the label is drawn OFFSET from
+                    // the marker, so without a bridge a label click lands too far from the marker's screen
+                    // position to hit -- "clicking the label doesn't select" (web-only, since only the CPU
+                    // primitive path lacked it). Re-synthesize the click at the object's own screen position
+                    // so the existing resolver (SkyMapClickSelectSignal -> SelectObjectByClick) runs
+                    // unchanged. Skip nearly-faded labels so there are no phantom hit targets.
+                    if (a > 0.15f && maxLineW > 0f && item.LabelLines.Count > 0)
+                    {
+                        var labelH = item.LabelLines.Count * lineH;
+                        var objX = item.ScreenX;
+                        var objY = item.ScreenY;
+                        RegisterClickable(lx, ly, maxLineW, labelH,
+                            new HitResult.ButtonHit($"SkyMapObjectLabel:{item.LabelLines[0]}"),
+                            _ => PostSignal(new SkyMapClickSelectSignal(objX, objY, InputModifier.None)));
                     }
                 });
         }

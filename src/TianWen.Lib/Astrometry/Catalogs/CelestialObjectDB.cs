@@ -197,6 +197,23 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
 
         if (_objectsByIndex.TryGetValue(index, out celestialObject))
         {
+            // A HIP entry created by the SIMBAD merge for a double/multiple star ("**") often carries a
+            // NaN V_Mag (SIMBAD has no combined-system V for the resolved pair). This dictionary hit would
+            // otherwise short-circuit BEFORE the Tycho-2 / HR-HD cross-reference magnitude recovery in the
+            // branch just below -- so TryLookupByIndex (the sky-map click + info-panel + F3-search path)
+            // renders "mag -" even though the photometry is recoverable (it is via TryLookupHIP, which the
+            // dictionary miss never blocks -- the source of the divergence). Recover it here, only when the
+            // magnitude is actually missing (no cost for the common case), grafting just the magnitude
+            // (+ B-V) onto the merged entry so its identity / ObjectType / names are preserved.
+            if (cat is Catalog.HIP && !msbSet && Half.IsNaN(celestialObject.V_Mag)
+                && TryLookupHIPCore(index, value, out var enriched) && !Half.IsNaN(enriched.V_Mag))
+            {
+                celestialObject = celestialObject with
+                {
+                    V_Mag = enriched.V_Mag,
+                    BMinusV = Half.IsNaN(celestialObject.BMinusV) ? enriched.BMinusV : celestialObject.BMinusV
+                };
+            }
             return true;
         }
         else if (cat is Catalog.HIP && !msbSet && TryLookupHIPCore(index, value, out celestialObject))

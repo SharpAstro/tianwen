@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using Microsoft.Playwright;
 using Xunit;
+using static Microsoft.Playwright.Assertions;
 
 namespace TianWen.UI.Web.E2E;
 
@@ -26,6 +27,16 @@ public sealed class TianWenWebFixture : IAsyncLifetime
     public IBrowser Browser { get; private set; } = null!;
     public string BaseUrl { get; private set; } = null!;
 
+    // Shared "warm" page: booted ONCE (interpreted-WASM cold boot + catalog load ~50s) and reused by
+    // interaction tests that reach their state via IN-APP navigation (chip clicks / gestures), which do
+    // NOT reload -> no re-boot. The collection runs sequentially, so access is single-threaded; each warm
+    // test arranges its own start state (active view, dismiss any stray overlay) to stay order-independent.
+    // Closed with its context at fixture teardown. Load-behaviour tests (first-load / URL-parse asserts)
+    // still take a fresh NewPageAsync() per test.
+    private IPage? _warmPage;
+    private IBrowserContext? _warmContext;
+    private const float ReadyTimeoutMs = 120_000;
+
     public async ValueTask InitializeAsync()
     {
         BaseUrl = (Environment.GetEnvironmentVariable("TIANWEN_WEB_BASEURL") ?? await StartServerAsync())
@@ -44,6 +55,7 @@ public sealed class TianWenWebFixture : IAsyncLifetime
 
     public async ValueTask DisposeAsync()
     {
+        if (_warmContext is not null) await _warmContext.CloseAsync();
         if (Browser is not null) await Browser.CloseAsync();
         _playwright?.Dispose();
 
@@ -53,6 +65,27 @@ public sealed class TianWenWebFixture : IAsyncLifetime
             catch { /* already gone — nothing to clean up */ }
             _server.Dispose();
         }
+    }
+
+    /// <summary>
+    /// The shared warm page, booted once (see the <c>_warmPage</c> field). Use for interaction tests
+    /// that reach their state via in-app navigation; do NOT use for tests that assert first-load /
+    /// URL-parse behaviour (those need a fresh <see cref="NewPageAsync"/> with a specific initial URL).
+    /// Loaded with <c>?e2e=1</c> so the read-only view-state / rect hooks are registered (they persist
+    /// across in-app navs regardless of later query strings).
+    /// </summary>
+    public async Task<IPage> WarmPageAsync()
+    {
+        if (_warmPage is not null) return _warmPage;
+
+        var page = await NewPageAsync();
+        _warmContext = page.Context;
+        await page.GotoAsync(BaseUrl + "?e2e=1",
+            new PageGotoOptions { WaitUntil = WaitUntilState.DOMContentLoaded });
+        await Expect(page.Locator("[data-view=planner]")).ToBeVisibleAsync(new() { Timeout = ReadyTimeoutMs });
+        await Expect(page.Locator(".catalog-loading")).ToHaveCountAsync(0, new() { Timeout = ReadyTimeoutMs });
+        _warmPage = page;
+        return _warmPage;
     }
 
     /// <summary>Opens a fresh, isolated context (own storage) and a blank page.</summary>

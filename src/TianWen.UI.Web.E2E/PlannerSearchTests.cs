@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using Microsoft.Playwright;
 using Xunit;
 using static Microsoft.Playwright.Assertions;
@@ -17,33 +18,26 @@ namespace TianWen.UI.Web.E2E;
 /// spots, and asserts on the one real DOM element in play -- the .canvas-text-input overlay.
 /// </summary>
 [Collection(TianWenWebCollection.Name)]
-public sealed class PlannerSearchTests(TianWenWebFixture fixture) : IAsyncDisposable
+public sealed class PlannerSearchTests(TianWenWebFixture fixture)
 {
     // Interpreted-WASM cold boot + catalog init + the autocomplete-cache build (walks every catalog
     // designation -- interpreter-slow on the dev server) dwarf any DOM settle. The deployed AOT build
     // does it in ~1 s; the tests run against the dev server, so the ceiling is generous.
     private const float BootTimeout = 120_000;
+    private static readonly Regex ActiveClass = new(@"\bactive\b");
 
-    // Per-test context teardown -- see the NavigationTests field of the same name for why
-    // (leaked live app instances starve later boots in the shared browser).
-    private readonly List<IBrowserContext> _contexts = [];
-
-    public async ValueTask DisposeAsync()
+    // Reuses the shared warm page (booted once by the fixture) instead of a fresh boot per test.
+    // Arranges a clean planner state: switch to the planner view via an IN-APP chip nav (no reload)
+    // and dismiss any stray floating search overlay a prior warm test left, so each test stays
+    // order-independent. Clicking the planner chip also unconditionally hides an open overlay (the
+    // view-switch behaviour SwitchViewWhileSearchFocused pins), so the Escape is belt-and-suspenders.
+    private async Task<IPage> WarmPlannerAsync()
     {
-        foreach (var context in _contexts)
-        {
-            await context.CloseAsync();
-        }
-    }
-
-    private async Task<IPage> OpenPlannerAsync()
-    {
-        var page = await fixture.NewPageAsync();
-        _contexts.Add(page.Context);
-        await page.GotoAsync(fixture.BaseUrl + "?e2e=1",
-            new PageGotoOptions { WaitUntil = WaitUntilState.DOMContentLoaded });
-        await Expect(page.Locator("[data-view=planner]")).ToBeVisibleAsync(new() { Timeout = BootTimeout });
-        await Expect(page.Locator(".catalog-loading")).ToHaveCountAsync(0, new() { Timeout = BootTimeout });
+        var page = await fixture.WarmPageAsync();
+        await page.Locator("[data-view=planner]").ClickAsync();
+        await Expect(page.Locator("[data-view=planner]")).ToHaveClassAsync(ActiveClass, new() { Timeout = BootTimeout });
+        await page.Keyboard.PressAsync("Escape");
+        await Expect(page.Locator(".canvas-text-input")).ToBeHiddenAsync(new() { Timeout = BootTimeout });
         return page;
     }
 
@@ -79,7 +73,7 @@ public sealed class PlannerSearchTests(TianWenWebFixture fixture) : IAsyncDispos
     [Fact]
     public async Task ClickSuggestion_CommitsHidesOverlay_AndSearchStaysUsable()
     {
-        var page = await OpenPlannerAsync();
+        var page = await WarmPlannerAsync();
         var canvas = page.Locator("#planner");
         var input = page.Locator(".canvas-text-input");
 
@@ -116,7 +110,7 @@ public sealed class PlannerSearchTests(TianWenWebFixture fixture) : IAsyncDispos
     [Fact]
     public async Task SwitchViewWhileSearchFocused_HidesOverlay()
     {
-        var page = await OpenPlannerAsync();
+        var page = await WarmPlannerAsync();
         var canvas = page.Locator("#planner");
         var input = page.Locator(".canvas-text-input");
 

@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Linq;
 using System.Threading.Tasks;
 using DIR.Lib;
 using SharpAstro.Png;
@@ -99,5 +100,13 @@ public sealed class SkyMapObjectOverlayRenderTests
         // "nothing changed" (the pre-wiring web behaviour, where the base RenderObjectOverlay is a no-op).
         changed.ShouldBeGreaterThan(500,
             "enabling the [O] overlay drew too few pixels — the primitive overlay path may not be rendering");
+
+        // The overlay-on render must ALSO register clickable label regions, so a click on a label selects
+        // the object (the web-only "clicking the label doesn't select" bug: the CPU/primitive path drew the
+        // label text but registered no hit region, unlike the desktop GPU path). See SkyMapTab.ObjectOverlay.
+        var labelRegions = tab.GetRegisteredRegions()
+            .Count(r => r.Result is HitResult.ButtonHit { Action: { } act } && act.StartsWith("SkyMapObjectLabel:"));
+        labelRegions.ShouldBeGreaterThan(0,
+            "the [O] overlay should register clickable label regions so label clicks select the object");
     }
 }

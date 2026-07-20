@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using Microsoft.Playwright;
 using Xunit;
 using static Microsoft.Playwright.Assertions;
@@ -17,32 +18,21 @@ namespace TianWen.UI.Web.E2E;
 /// hook plus a CDP multi-touch helper.
 /// </summary>
 [Collection(TianWenWebCollection.Name)]
-public sealed class CanvasGestureTests(TianWenWebFixture fixture) : IAsyncDisposable
+public sealed class CanvasGestureTests(TianWenWebFixture fixture)
 {
     private const float BootTimeout = 120_000;
+    private static readonly Regex ActiveClass = new(@"\bactive\b");
 
-    // Per-test context teardown -- see the NavigationTests field of the same name for why
-    // (leaked live app instances starve later boots in the shared browser).
-    private readonly List<IBrowserContext> _contexts = [];
-
-    public async ValueTask DisposeAsync()
+    // Reuses the shared warm page (booted once by the fixture) and arranges the sky atlas via an
+    // IN-APP chip nav (no reload -> no re-boot). Safe to share: the pinch assertions are RELATIVE
+    // (after vs before), so a FOV left by a prior warm test is irrelevant. The ?e2e=1 view-state hook
+    // was registered on the warm page's initial load and persists across the in-app nav.
+    private async Task<IPage> WarmSkyAtlasAsync()
     {
-        foreach (var context in _contexts)
-        {
-            await context.CloseAsync();
-        }
-    }
-
-    // Opens the sky atlas directly (?view=sky) with the E2E view-state hook on (?e2e=1) and waits for
-    // the catalog to finish loading (the same readiness gate NavigationTests uses).
-    private async Task<IPage> OpenSkyAtlasAsync()
-    {
-        var page = await fixture.NewPageAsync();
-        _contexts.Add(page.Context);
-        await page.GotoAsync(fixture.BaseUrl + "?view=sky&e2e=1",
-            new PageGotoOptions { WaitUntil = WaitUntilState.DOMContentLoaded });
-        await Expect(page.Locator("[data-view=sky]")).ToBeVisibleAsync(new() { Timeout = BootTimeout });
-        await Expect(page.Locator(".catalog-loading")).ToHaveCountAsync(0, new() { Timeout = BootTimeout });
+        var page = await fixture.WarmPageAsync();
+        await page.Locator("[data-view=sky]").ClickAsync();
+        await Expect(page.Locator("[data-view=sky]")).ToHaveClassAsync(ActiveClass, new() { Timeout = BootTimeout });
+        await WaitForFovToSettleAsync(page);
         return page;
     }
 
@@ -70,7 +60,7 @@ public sealed class CanvasGestureTests(TianWenWebFixture fixture) : IAsyncDispos
     [Fact]
     public async Task PinchOut_ZoomsIn_ShrinksFieldOfView()
     {
-        var page = await OpenSkyAtlasAsync();
+        var page = await WarmSkyAtlasAsync();
         var canvas = page.Locator("#planner");
 
         var before = await GetFovAsync(page);
@@ -84,7 +74,7 @@ public sealed class CanvasGestureTests(TianWenWebFixture fixture) : IAsyncDispos
     [Fact]
     public async Task PinchIn_ZoomsOut_GrowsFieldOfView()
     {
-        var page = await OpenSkyAtlasAsync();
+        var page = await WarmSkyAtlasAsync();
         var canvas = page.Locator("#planner");
 
         var before = await GetFovAsync(page);
