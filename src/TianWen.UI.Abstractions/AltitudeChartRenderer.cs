@@ -436,8 +436,17 @@ public static class AltitudeChartRenderer
                 continue;
             }
 
-            // Determine this target's time window from sliders
-            var windowStart = i == 0 ? state.AstroDark : state.HandoffSliders[i - 1];
+            // Determine this target's time window from sliders. Both bounds are guarded against
+            // HandoffSliders being shorter than pinnedCount - 1: PinnedCount is recomputed on EVERY
+            // render (GetFilteredTargets), but HandoffSliders only in RecomputeHandoffSliders, so a
+            // proposal that becomes resolvable between the two (e.g. CommitSuggestion adds a scored
+            // entry that resolves a previously-unmatched restored pin) transiently grows PinnedCount
+            // past the slider count. windowEnd already guarded this; windowStart must too, or the
+            // ImmutableArray index throws (the sky-map "View in Planner" crash). The array self-heals
+            // on the next proposal mutation; until then a desynced pin renders over the full night.
+            var windowStart = i == 0 || i - 1 >= state.HandoffSliders.Length
+                ? state.AstroDark
+                : state.HandoffSliders[i - 1];
             var windowEnd = i >= pinnedCount - 1 || i >= state.HandoffSliders.Length
                 ? state.AstroTwilight
                 : state.HandoffSliders[i];

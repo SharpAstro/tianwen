@@ -190,5 +190,55 @@ namespace TianWen.Lib.Tests
             sentinelFraction.ShouldBeLessThan(0.02,
                 $"{label} ({width}x{height}) left unpainted regions; PNG at {pngPath}");
         }
+
+        /// <summary>
+        /// Regression for the sky-map "View in Planner" browser crash: the chart must not throw when
+        /// <see cref="PlannerState.PinnedCount"/> transiently exceeds <see cref="PlannerState.HandoffSliders"/>
+        /// length. PinnedCount is recomputed on EVERY render (GetFilteredTargets), but HandoffSliders only in
+        /// RecomputeHandoffSliders -- so a proposal that becomes resolvable between the two (CommitSuggestion
+        /// scoring a previously-unmatched restored pin) grows PinnedCount by one with the sliders still short.
+        /// The pinned-window draw used to index HandoffSliders[i-1] unguarded and threw IndexOutOfRangeException.
+        /// </summary>
+        [Fact]
+        public void Chart_PinnedCountExceedsSliders_DoesNotThrow()
+        {
+            var state = new PlannerState
+            {
+                AstroDark = NightStart,
+                AstroTwilight = NightEnd,
+                MinHeightAboveHorizon = 0,
+            };
+
+            // Two resolvable pinned proposals -> GetFilteredTargets computes PinnedCount = 2, but sliders are
+            // left empty (the desync). A consistent state would have HandoffSliders length 1.
+            var scoredBuilder = ImmutableDictionary.CreateBuilder<Target, ScoredTarget>();
+            var profilesBuilder = ImmutableDictionary.CreateBuilder<Target, List<(DateTimeOffset Time, double Alt)>>();
+            var proposalsBuilder = ImmutableArray.CreateBuilder<ProposedObservation>();
+            for (var i = 0; i < 2; i++)
+            {
+                var target = new Target(i * 2.0, 45, $"Pin{i}", null);
+                var peak = NightStart + TimeSpan.FromHours(3 + i * 2);
+                scoredBuilder[target] = new ScoredTarget(target, (Half)1.0, (Half)1.0,
+                    new Dictionary<RaDecEventTime, RaDecEventInfo>(),
+                    OptimalStart: NightStart + TimeSpan.FromHours(1 + i), OptimalDuration: TimeSpan.FromHours(1),
+                    OptimalAltitude: 60.0);
+                profilesBuilder[target] = [(NightStart, 0), (peak, 80), (NightEnd, 0)];
+                proposalsBuilder.Add(new ProposedObservation(target));
+            }
+            state.ScoredTargets = scoredBuilder.ToImmutable();
+            state.AltitudeProfiles = profilesBuilder.ToImmutable();
+            state.Proposals = proposalsBuilder.ToImmutable();
+            state.HandoffSliders = []; // deliberately short: PinnedCount resolves to 2, sliders stay 0
+
+            using var renderer = new RgbaImageRenderer(800, 600);
+            var fontPath = FontResolver.ResolveSystemFont();
+
+            Should.NotThrow(() => AltitudeChartRenderer.Render(renderer, state, fontPath, 0, 0, 800, 600));
+
+            // Prove the desync was actually exercised (PinnedCount grew past the sliders while the pinned-window
+            // loop ran), so this isn't a vacuous pass where the missing slider was never reached.
+            state.PinnedCount.ShouldBe(2);
+            state.HandoffSliders.Length.ShouldBe(0);
+        }
     }
 }
