@@ -149,6 +149,17 @@ public class PlannerState
     /// <summary>Index of the highlighted suggestion (-1 = none).</summary>
     public int SuggestionIndex { get; set; } = -1;
 
+    /// <summary>
+    /// Commits the autocomplete suggestion at a dropdown index -- the MOUSE-click counterpart of the
+    /// keyboard Enter-on-highlighted-suggestion path. Both route through the SAME CommitSuggestion in
+    /// <see cref="PlannerSearchInteraction"/>, so a dropdown click and a keypress land identically.
+    /// Set by <see cref="PlannerSearchInteraction.Wire"/>; null until a host wires the search box (the
+    /// standalone <c>plan</c> CLI never does). The dropdown row's OnClick invokes this -- before it was
+    /// wired the suggestion click had no handler, so only the keyboard could commit a suggestion (the
+    /// "arrow+enter works, mouse doesn't" bug).
+    /// </summary>
+    public Action<int>? CommitSuggestionAt { get; set; }
+
     /// <summary>The query that produced the current <see cref="Suggestions"/> list (avoids re-scanning on arrow keys).</summary>
     public string LastSuggestionQuery { get; set; } = "";
 

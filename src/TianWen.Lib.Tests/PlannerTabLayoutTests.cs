@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.IO;
+using System.Linq;
 using DIR.Lib;
 using SharpAstro.Png;
 using Shouldly;
@@ -239,6 +240,40 @@ namespace TianWen.Lib.Tests
             // loop ran), so this isn't a vacuous pass where the missing slider was never reached.
             state.PinnedCount.ShouldBe(2);
             state.HandoffSliders.Length.ShouldBe(0);
+        }
+
+        /// <summary>
+        /// Regression for "arrow+enter on the search box works, mouse+click doesn't": the autocomplete
+        /// dropdown row is clickable but had NO OnClick, so only the keyboard could commit a suggestion.
+        /// The row now dispatches to <see cref="PlannerState.CommitSuggestionAt"/> (wired by
+        /// <see cref="PlannerSearchInteraction"/> to the same commit path the keyboard uses), so a click
+        /// commits identically. Asserts a click on the dropdown row invokes it with the row's index.
+        /// </summary>
+        [Fact]
+        public void SuggestionDropdown_MouseClick_CommitsTheClickedSuggestion()
+        {
+            using var renderer = new RgbaImageRenderer(1600, 1000);
+            var tab = new PlannerTab<RgbaImage>(renderer);
+            var state = BuildState();
+            // The dropdown only renders when the search input is active with suggestions present.
+            state.SearchInput.Activate();
+            state.Suggestions.Add("M31");
+            state.Suggestions.Add("M42");
+            var committed = new List<int>();
+            state.CommitSuggestionAt = i => committed.Add(i);
+
+            var time = new FakeTimeProviderWrapper(new DateTimeOffset(2025, 12, 15, 22, 0, 0, TimeSpan.Zero));
+            var fontPath = FontResolver.ResolveSystemFont();
+            tab.Render(state, new RectF32(0, 0, 1600, 1000), 1f, fontPath, time);
+
+            // The dropdown is painted last, so its rows are the topmost regions at their pixels -- a click
+            // on the second row's centre dispatches that row (HitTestAndDispatch returns topmost-first).
+            var region = tab.GetRegisteredRegions()
+                .First(r => r.Result is HitResult.ListItemHit { ListId: "Suggestion", Index: 1 });
+            var hit = tab.HitTestAndDispatch(region.X + region.Width / 2f, region.Y + region.Height / 2f);
+
+            hit.ShouldBeOfType<HitResult.ListItemHit>().Index.ShouldBe(1);
+            committed.ShouldBe([1]);
         }
     }
 }

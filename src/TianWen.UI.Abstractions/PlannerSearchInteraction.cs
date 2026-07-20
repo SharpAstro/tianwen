@@ -101,6 +101,18 @@ namespace TianWen.UI.Abstractions
                 }
             };
 
+            // Mouse counterpart of the keyboard Enter-on-highlighted-suggestion path (OnKeyOverride
+            // above): the dropdown row's OnClick calls this so a click commits IDENTICALLY. Before this
+            // the suggestion click had no handler at all -- only the keyboard could commit a suggestion
+            // ("arrow+enter works, mouse doesn't"). Routes through the same local CommitSuggestion.
+            plannerState.CommitSuggestionAt = index =>
+            {
+                if (index >= 0 && index < plannerState.Suggestions.Count)
+                {
+                    CommitSuggestion(plannerState.Suggestions[index]);
+                }
+            };
+
             // Local helper captured by the search-input closures above.
             void CommitSuggestion(string suggestion)
             {

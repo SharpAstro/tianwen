@@ -506,8 +506,15 @@ namespace TianWen.UI.Abstractions
                     _searchBarLeft + padding, rowY, _searchBarWidth - padding * 2f, itemHeight,
                     fontSize * 0.9f, isHighlighted ? SelectedText : ItemText, TextAlign.Near, TextAlign.Center);
 
+                // Commit the suggestion on click -- the mouse counterpart of the keyboard
+                // Enter-on-highlighted-suggestion path. Both go through PlannerState.CommitSuggestionAt
+                // (wired by PlannerSearchInteraction to the same CommitSuggestion), so a click and a
+                // keypress land identically. Without this OnClick the click had no handler at all and
+                // only the keyboard could commit ("arrow+enter works, mouse doesn't").
+                var capturedSuggestion = i;
                 RegisterClickable(_searchBarLeft, rowY, _searchBarWidth, itemHeight,
-                    new HitResult.ListItemHit("Suggestion", i));
+                    new HitResult.ListItemHit("Suggestion", i),
+                    _ => state.CommitSuggestionAt?.Invoke(capturedSuggestion));
             }
         }
 
