@@ -249,25 +249,25 @@ namespace TianWen.UI.Abstractions
             var paRad = Half.IsNaN(e.PositionAngle) ? 0f : (float)((double)e.PositionAngle * Math.PI / 180.0);
             var (majorX, majorY, minorX, minorY) = OverlayEngine.ComputeEllipseScreenAxes(dnx, dny, paRad);
 
-            const int segments = 32;
-            var prevValid = false;
-            float prevX = 0f, prevY = 0f;
+            // Adaptive tessellation: a small marker looks round with far fewer than 32 segments, so scale
+            // the count with on-screen radius -- clamp(radiusPx/2, 8, 32). The whole ring is then ONE
+            // batched Renderer.DrawPolyline (a single GPU draw on the Vk/WebGL backends) instead of
+            // `segments` separate DrawLine calls; the wide-FOV [O] overlay traces hundreds of these per
+            // frame, so this is the dominant browser draw-call win. Called on Renderer directly -- there is
+            // no DrawPolyline forwarder on PixelWidgetBase and adding one would force a DIR.Lib release; the
+            // batched override lives on the GPU renderers, the CPU RgbaImageRenderer keeps the base loop.
+            var screenRadiusPx = MathF.Max(semiMajorPx, semiMinorPx);
+            var segments = Math.Clamp((int)(screenRadiusPx * 0.5f), 8, 32);
+            Span<(float X, float Y)> ring = stackalloc (float X, float Y)[segments + 1];
             for (var i = 0; i <= segments; i++)
             {
                 var theta = i * (2.0 * Math.PI / segments);
                 var (sinT, cosT) = Math.SinCos(theta);
                 var ex = (float)(semiMajorPx * cosT);
                 var ey = (float)(semiMinorPx * sinT);
-                var plotX = centerX + ex * majorX + ey * minorX;
-                var plotY = centerY + ex * majorY + ey * minorY;
-                if (prevValid)
-                {
-                    DrawLine(prevX, prevY, plotX, plotY, color);
-                }
-                prevX = plotX;
-                prevY = plotY;
-                prevValid = true;
+                ring[i] = (centerX + ex * majorX + ey * minorX, centerY + ex * majorY + ey * minorY);
             }
+            Renderer.DrawPolyline(ring, color);
         }
 
         // A star cross: two short arms. Mirrors VkOverlayShapes.DrawCross on the GPU side.

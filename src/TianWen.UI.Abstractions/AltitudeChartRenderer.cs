@@ -1,6 +1,8 @@
 using System;
+using System.Buffers;
 using System.Collections.Generic;
 using System.Linq;
+using System.Runtime.InteropServices;
 using DIR.Lib;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Devices.Weather;
@@ -428,6 +430,12 @@ public static class AltitudeChartRenderer
         var minAlt = (double)state.MinHeightAboveHorizon;
         var minAltY = altToY(minAlt);
 
+        // Accumulate every target's per-column fill rectangles and emit them in ONE FillRectangles call
+        // (batched into one GPU draw per same-color run) instead of a FillRectangle per pixel column --
+        // the web planner chart re-renders every frame, and each pinned window was hundreds of draws.
+        // List/draw order is preserved (target 0 first), so the alpha=45 overlap blending is unchanged.
+        var columnRects = new List<(RectInt Rect, RGBAColor32 Color)>();
+
         for (var i = 0; i < pinnedCount && i < allTargets.Length; i++)
         {
             var target = allTargets[i];
@@ -476,10 +484,15 @@ public static class AltitudeChartRenderer
                     var fillH = minAltY - curveY;
                     if (fillH > 0)
                     {
-                        FillRect(renderer, px, curveY, 1, fillH, fillColor);
+                        columnRects.Add((MakeRect(px, curveY, 1, fillH), fillColor));
                     }
                 }
             }
+        }
+
+        if (columnRects.Count > 0)
+        {
+            renderer.FillRectangles(CollectionsMarshal.AsSpan(columnRects));
         }
 
         // Draw handoff slider lines
@@ -937,6 +950,9 @@ public static class AltitudeChartRenderer
         (double X, double Y)[] points,
         RGBAColor32 color, int dotSize, int dashLen, int gapLen)
     {
+        // Collect the "on" dots and emit them as one batched FillRectangles (single-color → one GPU draw)
+        // instead of a FillRectangle per dot.
+        var dots = new List<(RectInt Rect, RGBAColor32 Color)>();
         var accumulated = 0.0;
         for (var i = 0; i < points.Length; i++)
         {
@@ -947,10 +963,14 @@ public static class AltitudeChartRenderer
                 accumulated += Math.Sqrt(dx * dx + dy * dy);
             }
             var cycle = (int)accumulated % (dashLen + gapLen);
-            if (cycle < dashLen)
+            if (cycle < dashLen && dotSize > 0)
             {
-                FillRect(renderer, (int)points[i].X, (int)points[i].Y, dotSize, dotSize, color);
+                dots.Add((MakeRect((int)points[i].X, (int)points[i].Y, dotSize, dotSize), color));
             }
+        }
+        if (dots.Count > 0)
+        {
+            renderer.FillRectangles(CollectionsMarshal.AsSpan(dots));
         }
     }
 
@@ -1149,13 +1169,21 @@ public static class AltitudeChartRenderer
         RGBAColor32 color,
         int lineWidth)
     {
-        for (var i = 0; i < points.Length - 1; i++)
+        if (points.Length < 2)
         {
-            renderer.DrawLine(
-                (float)points[i].X, (float)points[i].Y,
-                (float)points[i + 1].X, (float)points[i + 1].Y,
-                color, lineWidth);
+            return;
         }
+
+        // One batched DrawPolyline instead of points.Length-1 separate DrawLine calls (each its own GPU
+        // draw on the Vk/WebGL backends). The Catmull-Rom-smoothed curve is hundreds of segments; the web
+        // planner chart re-renders every frame, so this collapses each altitude curve to a single draw.
+        var buffer = ArrayPool<(float X, float Y)>.Shared.Rent(points.Length);
+        for (var i = 0; i < points.Length; i++)
+        {
+            buffer[i] = ((float)points[i].X, (float)points[i].Y);
+        }
+        renderer.DrawPolyline(buffer.AsSpan(0, points.Length), color, lineWidth);
+        ArrayPool<(float X, float Y)>.Shared.Return(buffer);
     }
 
 

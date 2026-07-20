@@ -227,9 +227,12 @@
          net10.0 consumer (every current TianWen project) restores the net10.0 asset with NO Android
          workload, so CI stays green. Requires DIR.Lib >= 6.10 (satisfied by the 6.11.* pin above).
          6.24 added the large-text SDF atlas tier (a second atlas + tier-select + fallback) on
-         DIR.Lib 6.13's per-instance SdfFontAtlas. 6.25 is the current pin: the no-code lockstep
-         rebuild against DIR.Lib 6.14 (binary-breaking Sizing/Star signatures). -->
-    <PackageVersion Include="SdlVulkan.Renderer" Version="6.25.*" />
+         DIR.Lib 6.13's per-instance SdfFontAtlas. 6.25 was the no-code lockstep rebuild against
+         DIR.Lib 6.14 (binary-breaking Sizing/Star signatures). 6.26 made the Khronos validation layer
+         opt-in even in Debug (CompiledDebug and SDLVK_VALIDATION=1). 6.27 is the current pin: batched
+         DrawPolyline/DrawPolylineDashed overrides (whole polyline into one Flat-pipeline draw); see
+         docs/plans/render-batching.md. -->
+    <PackageVersion Include="SdlVulkan.Renderer" Version="6.27.*" />
     <PackageVersion Include="SDL3-CS" Version="3.5.0-preview.20260213-150035" />
     <PackageVersion Include="SDL3-CS.Native" Version="3.5.0-preview.20260205-174353" />
     <!-- Canon DSLR -->
