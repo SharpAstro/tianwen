@@ -82,4 +82,29 @@ public class PlannerDetailsTests
         lines.ShouldNotContain(l => l.StartsWith("size "));
         lines.ShouldNotContain(l => l.Contains("mag "));
     }
+
+    [Fact]
+    public async Task GivenLineBudgetWhenOverThenLeastImportantLinesShedFirst()
+    {
+        var db = await SharedCatalogDB.InitAsync(TestContext.Current.CancellationToken);
+        db.TryLookupByIndex("M31", out var obj).ShouldBeTrue();
+        var target = new Target(obj.RA, obj.Dec, obj.DisplayName, obj.Index);
+        var state = BuildState(Scored(target, obj.ObjectType), db);
+
+        // Unbudgeted baseline: name + subtitle + photometry + size + coords + rating = 6 lines for M 31.
+        var full = PlannerDetails.GetLines(state, [Scored(target, obj.ObjectType)]);
+        full.Count.ShouldBe(6);
+
+        // Portrait's compact strip: catalog niceties (size, photometry, type/constellation) shed
+        // first, the observability essentials (name, coords, rating) survive in display order.
+        var budgeted = PlannerDetails.GetLines(state, [Scored(target, obj.ObjectType)], maxLines: 3);
+        budgeted.Count.ShouldBe(3);
+        budgeted[0].ShouldBe(obj.DisplayName);
+        budgeted[1].ShouldStartWith("RA ");
+        budgeted[2].ShouldStartWith("Rating");
+
+        // The name never drops, even under an absurd budget.
+        var one = PlannerDetails.GetLines(state, [Scored(target, obj.ObjectType)], maxLines: 1);
+        one.ShouldBe([obj.DisplayName]);
+    }
 }

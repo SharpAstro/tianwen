@@ -1308,6 +1308,16 @@ construction; no second hit-rect arithmetic that can drift). The full engine + D
   `if (cond) n = n.Bg(color);` — never `.Bg(default)` (paints transparent, not null).
 - **Interactive sub-widgets** (text inputs, charts, sky map) emit a `Layout.Builder.Fill(key: "...")` leaf
   and draw into its rect via `PaintLayout`'s `drawFill` callback.
+- **Responsive primitives (DIR.Lib 6.14):** `Sizing.Star(weight, min, max)` clamps
+  (`.WStar/.HStar(w, min, max)`, `.WClamp/.HClamp`) -- a min-clamped Star holds its floor and overflows
+  *visibly* instead of starving to zero when Fixed siblings eat the container, a max-clamped Star's
+  surplus redistributes to its Star siblings; `.CollapseBelow(u)` drops a Stack child entirely (no paint,
+  no hit, no gap) when its arranged main extent lands under the threshold; `Layout.Builder.WrapH/WrapV`
+  flow containers wrap children into new lines when out of extent (toolbars/chip rows). The tree is
+  rebuilt per frame, so orientation is a plain C# branch -- no media-query machinery. Canonical consumer:
+  `PlannerTab.BuildFrameLayout` (landscape = left-list dock, portrait = chart / collapsible compact
+  details / list stack), pinned by `PlannerTabLayoutTests` (arranged rects + an offline `RgbaImageRenderer`
+  pixel render at phone + desktop resolutions, the chess `PixelGameDisplayLayoutTests` pattern).
 - Engine geometry is headless-testable (stub `Layout.IMeasureContext`); `EquipmentPanelLayoutTests` /
   `SessionConfigLayoutTests` pin arranged rects. Shipped DIR.Lib 6.0 / Console.Lib 3.3 / SdlVulkan.Renderer 6.7.
 

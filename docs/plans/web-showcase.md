@@ -383,6 +383,39 @@ read-only `SdfGlyphDiskCache` mode (the single-threaded-WASM-friendly variant).
   `SelectableTextRegions` to register native drag-select / double-click word-select + OSC-52
   auto-yank in Console.Lib.
 
+## Portrait reflow round (2026-07-20, sixth session)
+
+The iPhone-portrait finding (chart squashed beside the fixed 330-unit list) root-caused NOT to
+Blazor/web but to `PlannerTab`'s landscape-only top-level layout - the same squash reproduces in a
+portrait-resized desktop SDL window. Fixed once in the shared widget, so GUI + web + any host get it:
+
+- **DIR.Lib 6.14 layout primitives** (built for this, generic to every consumer - tianwen, chess,
+  PTV): `Sizing.Star(weight, min, max)` clamps with iterative-freeze redistribution (a min-clamped
+  Star overflows visibly instead of starving to zero - the negative-width bug class chess hit;
+  a max-clamped Star's surplus flows to its siblings), `.CollapseBelow(u)` (a Stack drops a child
+  arranged under its threshold and redistributes - the declarative form of chess's manual
+  "history strip only if >= min height" gate), and `Node.Wrap` / `Builder.WrapH/WrapV` flow
+  containers (toolbar/chip-row wrapping; Auto-height reflows as the container narrows).
+- **`PlannerTab.BuildFrameLayout`**: the top-level frame migrated from `PixelLayout` cursor docks to
+  a `Layout.Builder` tree branched on the content rect's aspect (immediate mode: the tree rebuilds
+  every frame, so the "media query" is a C# `if`). Landscape keeps the shipped geometry (left list -
+  now capped at 42% width so tiny windows can't starve the chart - bottom-right details, chart
+  fill). Portrait stacks: full-width chart at natural aspect (`min(0.72 x W, 0.45 x H)`), a compact
+  details strip under it (max-clamped star, `CollapseBelow(48)` when squeezed), target list fills
+  the rest (min-clamped). Region rects come off the arranged tree via keyed `Fill` leaves - and the
+  frame tree is now visible to the DEBUG inspector's `describe_layout`.
+- **`PlannerDetails.GetLines(maxLines:)` line budget**: portrait's compact strip sheds lines
+  least-important-first (size, photometry, alias, type/constellation, rating, imaging, coords - the
+  name never drops) instead of cramming all 8 into unreadable rows. Content selection, not truncation.
+- **Tests** (`PlannerTabLayoutTests`, the chess `PixelGameDisplayLayoutTests` pattern): arranged-rect
+  assertions at 1600x1000 / 600x400 / 390x844 (iPhone 12 Pro logical) / 780x1688@2x / 200x260
+  (collapse case), plus an offline `RgbaImageRenderer` pixel render on both orientations asserting
+  <2% of a magenta sentinel prefill survives (catches the zero-width-region-paints-nothing class);
+  PNGs dumped beside the test binary for eyeballing. `PlannerDetailsTests` pins the shed order.
+- **Not yet**: list fling/momentum scrolling on touch (named cost, shared-code addable); sky-map
+  object overlay + click-select on web (separate task - overlay hook is no-op in `WebSkyMapTab`,
+  click signal has no subscriber on the web).
+
 ## Related research plans
 
 - [web-tycho2.md](web-tycho2.md) — the concrete implementation plan for full Tycho-2 in the atlas

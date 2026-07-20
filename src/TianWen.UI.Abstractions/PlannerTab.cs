@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.Linq;
 using DIR.Lib;
 using TianWen.Lib.Astrometry.Catalogs;
@@ -9,8 +10,11 @@ using TianWen.Lib.Sequencing;
 namespace TianWen.UI.Abstractions
 {
     /// <summary>
-    /// Renderer-agnostic Planner tab. Layout: altitude chart fills the full renderer (drawn first),
-    /// then target list and details panel are painted on top with opaque backgrounds.
+    /// Renderer-agnostic Planner tab. The top-level frame is a declarative layout tree branched on
+    /// aspect (see <see cref="BuildFrameLayout"/>): landscape docks the target list left with the
+    /// details strip bottom-right and the chart filling the remainder; portrait (phones, narrow
+    /// windows) stacks chart / compact details / list vertically instead. All three regions paint
+    /// with opaque backgrounds into rects sourced from the same arranged tree hit-testing uses.
     /// </summary>
     public class PlannerTab<TSurface>(Renderer<TSurface> renderer) : PixelWidgetBase<TSurface>(renderer)
     {
@@ -22,6 +26,19 @@ namespace TianWen.UI.Abstractions
         private static readonly float BaseHeaderHeight = GuiTheme.Metrics.HeaderHeight;
         private const float BaseItemHeight         = 22f;
         private const float BasePadding            = 6f;
+
+        // Portrait (H > W: phones, narrow windows) reflow constants. The landscape left-list dock
+        // would eat most of a narrow screen and squash the chart to a sliver, so portrait stacks
+        // chart / details / list vertically instead (see BuildFrameLayout).
+        private const float PortraitChartAspect       = 0.72f; // chart height as a fraction of the full width (natural plot aspect)
+        private const float PortraitChartMaxFraction  = 0.45f; // ...but never more than this fraction of the content height
+        private const float PortraitDetailsCollapse   = 48f;   // an info strip shorter than this is unreadable -> collapses away
+        private const float PortraitDetailsLineHeight = 1.5f;  // min readable line height (x fontSize) driving the portrait line budget
+        private const float LandscapeListMaxFraction  = 0.42f; // cap the fixed list width on small landscape windows
+        // Keyed Fill leaves routing the three custom-painted regions out of the arranged frame tree.
+        private const string ChartFillKey   = "chart";
+        private const string ListFillKey    = "list";
+        private const string DetailsFillKey = "details";
 
         // Colors
         private static readonly RGBAColor32 PanelBgOpaque   = new RGBAColor32(0x1a, 0x1a, 0x22, 0xff);
@@ -95,8 +112,8 @@ namespace TianWen.UI.Abstractions
         }
 
         /// <summary>
-        /// Renders the planner tab into the given content area.
-        /// The altitude chart is drawn to fill the full renderer; all panels paint on top.
+        /// Renders the planner tab into the given content area. The frame layout (chart / target
+        /// list / details) branches on the content rect's aspect -- see <see cref="BuildFrameLayout"/>.
         /// </summary>
         public void Render(
             PlannerState state,
@@ -108,8 +125,6 @@ namespace TianWen.UI.Abstractions
             string? emojiFontPath = null)
         {
             _state = state;
-            var targetListWidth  = BaseTargetListWidth * dpiScale;
-            var detailsHeight    = BaseDetailsPanelHeight * dpiScale;
             var headerHeight     = BaseHeaderHeight * dpiScale;
             var itemHeight       = BaseItemHeight * dpiScale;
             var fontSize         = BaseFontSize * dpiScale;
@@ -124,11 +139,18 @@ namespace TianWen.UI.Abstractions
             var filteredTargets = PlannerActions.GetFilteredTargets(state);
             _lastFilteredTargets = filteredTargets;
 
-            // Layout: target list left, details bottom-right, chart fills remainder
-            var layout = new PixelLayout(contentRect);
-            _targetListRect = layout.Dock(PixelDockStyle.Left, targetListWidth);
-            var detailsRect = layout.Dock(PixelDockStyle.Bottom, detailsHeight);
-            _chartRect = layout.Fill();
+            // Top-level frame: a declarative Layout.Builder tree branched on aspect (the immediate-mode
+            // media query -- the tree is rebuilt every frame, so orientation is just a C# branch).
+            // RenderLayout paints nothing here (the frame tree is pure keyed Fill leaves) but captures
+            // the arranged tree for the DEBUG inspector's describe_layout; the regions themselves render
+            // below in explicit order with opaque backgrounds.
+            var portrait = contentRect.Height > contentRect.Width;
+            var arranged = RenderLayout(
+                BuildFrameLayout(contentRect.Width / dpiScale, contentRect.Height / dpiScale, portrait),
+                contentRect, fontPath, dpiScale);
+            _targetListRect = RectOfFill(arranged, ListFillKey);
+            var detailsRect = RectOfFill(arranged, DetailsFillKey);
+            _chartRect = RectOfFill(arranged, ChartFillKey);
 
             // --- 1. Altitude chart ---
             var selectedIndex = state.SelectedTargetIndex >= 0
@@ -159,13 +181,65 @@ namespace TianWen.UI.Abstractions
             // Register slider hit regions for drag interaction
             RegisterSliderHitRegions(state, dpiScale);
 
-            // --- 2. Target list panel (opaque background, left side of content area) ---
+            // --- 2. Target list panel (opaque background; left dock in landscape, bottom fill in portrait) ---
             RenderTargetList(
                 state, fontPath, dpiScale, _targetListRect,
                 headerHeight, itemHeight, fontSize, padding);
 
-            // --- 3. Details panel (opaque background, bottom-right of content area) ---
-            RenderDetailsPanel(state, fontPath, detailsRect, fontSize, padding);
+            // --- 3. Details panel (opaque background). In a squeezed portrait the strip collapses away
+            // entirely (CollapseBelow) -- its Fill leaf is then absent from the arranged tree and the
+            // rect comes back empty. Portrait also gets a line budget so the compact strip shows the
+            // most important lines at a readable size instead of cramming all of them.
+            if (detailsRect.Width > 0f && detailsRect.Height > 0f)
+            {
+                var maxLines = portrait
+                    ? Math.Max(2, (int)(detailsRect.Height / (fontSize * PortraitDetailsLineHeight)))
+                    : int.MaxValue;
+                RenderDetailsPanel(state, fontPath, detailsRect, fontSize, padding, maxLines);
+            }
+        }
+
+        /// <summary>
+        /// The top-level frame tree (design units; the engine applies dpiScale). Landscape: target list
+        /// docked left (capped so a small window can never starve the chart), details strip docked
+        /// bottom-right, chart fills the remainder -- the geometry the tab has always had. Portrait:
+        /// chart spans the full width on top at a natural aspect, a compact details strip sits under it
+        /// (max-clamped star that collapses entirely when too short to read), and the target list fills
+        /// the rest (min-clamped so it can never be squeezed to nothing).
+        /// </summary>
+        private static Layout.Node BuildFrameLayout(float contentWDesign, float contentHDesign, bool portrait)
+        {
+            if (portrait)
+            {
+                var chartH = MathF.Min(contentWDesign * PortraitChartAspect, contentHDesign * PortraitChartMaxFraction);
+                return Layout.Builder.VStack(
+                    Layout.Builder.Fill(key: ChartFillKey).WStar().HFixed(chartH),
+                    Layout.Builder.Fill(key: DetailsFillKey).WStar()
+                        .HStar(1f, max: BaseDetailsPanelHeight)
+                        .CollapseBelow(PortraitDetailsCollapse),
+                    Layout.Builder.Fill(key: ListFillKey).WStar().HStar(2f, min: BaseItemHeight * 4f));
+            }
+
+            var listW = MathF.Min(BaseTargetListWidth, contentWDesign * LandscapeListMaxFraction);
+            return Layout.Builder.Dock(
+                Layout.Builder.Fill(key: ChartFillKey).Stretch(),
+                Layout.Builder.Left(Layout.Builder.Fill(key: ListFillKey), listW),
+                Layout.Builder.Bottom(Layout.Builder.Fill(key: DetailsFillKey), BaseDetailsPanelHeight));
+        }
+
+        /// <summary>Arranged rect of the keyed <see cref="Layout.Content.Fill"/> leaf, or an empty rect
+        /// when the leaf collapsed out of the arrangement (portrait details under pressure).</summary>
+        private static RectF32 RectOfFill(ImmutableArray<Layout.ArrangedNode<float>> arranged, string key)
+        {
+            foreach (var a in arranged)
+            {
+                if (a.Node is Layout.Node.Leaf { Content: Layout.Content.Fill fill } && fill.Key == key)
+                {
+                    return new RectF32(a.Bounds.X, a.Bounds.Y, a.Bounds.Width, a.Bounds.Height);
+                }
+            }
+
+            return default;
         }
 
         /// <summary>Chart rect from last render (for slider drag coordinate conversion).</summary>
@@ -445,14 +519,15 @@ namespace TianWen.UI.Abstractions
             PlannerState state,
             string fontPath,
             RectF32 rect,
-            float fontSize, float padding)
+            float fontSize, float padding,
+            int maxLines = int.MaxValue)
         {
             FillRect(rect.X, rect.Y, rect.Width, rect.Height, DetailsBg);
 
             // Separator line at top
             FillRect(rect.X, rect.Y, rect.Width, 1f, SeparatorColor);
 
-            var lines = PlannerDetails.GetLines(state, _lastFilteredTargets, _currentTime);
+            var lines = PlannerDetails.GetLines(state, _lastFilteredTargets, _currentTime, maxLines);
             if (lines.Count == 0)
             {
                 DrawText("Select a target to see details.".AsSpan(), fontPath,

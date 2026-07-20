@@ -12,14 +12,30 @@ namespace TianWen.UI.Abstractions;
 /// </summary>
 public static class PlannerDetails
 {
+    // Drop ranks for the line-budget: when the panel has fewer rows than lines (portrait's compact
+    // strip), lines shed least-important-first -- highest rank goes first, the name (rank 0) never
+    // drops, and the survivors keep their display order. Content *selection*, not truncation.
+    private const int RankName = 0;
+    private const int RankCoords = 1;
+    private const int RankImaging = 2;
+    private const int RankRating = 3;
+    private const int RankSubtitle = 4;
+    private const int RankAlias = 5;
+    private const int RankPhotometry = 6;
+    private const int RankSize = 7;
+
     /// <summary>
     /// Returns display lines for the selected target's details panel.
-    /// Returns an empty list if no target is selected.
+    /// Returns an empty list if no target is selected. <paramref name="maxLines"/> is a line budget
+    /// for space-starved panels (portrait phones): over budget, lines shed least-important-first
+    /// (size, photometry, alias, type/constellation, rating, imaging window, coordinates -- the name
+    /// never drops) while the survivors keep their display order.
     /// </summary>
     public static List<string> GetLines(
         PlannerState state,
         IReadOnlyList<ScoredTarget> filteredTargets,
-        DateTimeOffset? currentTime = null)
+        DateTimeOffset? currentTime = null,
+        int maxLines = int.MaxValue)
     {
         var idx = state.SelectedTargetIndex;
         if (idx < 0 || idx >= filteredTargets.Count)
@@ -30,20 +46,20 @@ public static class PlannerDetails
         var scored = filteredTargets[idx];
         var isProposed = state.Proposals.Any(p => p.Target == scored.Target);
         var pinnedCount = state.PinnedCount;
-        var lines = new List<string>();
+        var entries = new List<(int Rank, string Line)>();
 
         // Line 1: target name
         var statusSuffix = isProposed ? " [Proposed]" : "";
-        lines.Add(scored.Target.Name + statusSuffix);
+        entries.Add((RankName, scored.Target.Name + statusSuffix));
 
         // Physical catalog properties (type, constellation, magnitude, surface brightness, colour
         // index, angular size) for a catalogued target. Resolved live from the immutable
         // ICelestialObjectDB via the target's catalog index -- comets/planets (not in the DB) and
         // bare positions simply skip these lines. One O(1) lookup for the single selected target.
-        AddCatalogLines(state, scored, lines);
+        AddCatalogLines(state, scored, entries);
 
         // Line 2: coordinates + altitude + peak time + window
-        lines.Add(FormatCoordinateLine(state, scored));
+        entries.Add((RankCoords, FormatCoordinateLine(state, scored)));
 
         // Line 3: allocated imaging time (for pinned targets)
         if (isProposed && idx < pinnedCount)
@@ -65,19 +81,46 @@ public static class PlannerDetails
             var durationStr = imgDuration.TotalHours >= 1.0
                 ? $"{(int)imgDuration.TotalHours}h {imgDuration.Minutes:D2}m"
                 : $"{(int)imgDuration.TotalMinutes}m";
-            lines.Add($"Imaging: {imgStartStr}\u2013{imgEndStr} ({durationStr})");
+            entries.Add((RankImaging, $"Imaging: {imgStartStr}\u2013{imgEndStr} ({durationStr})"));
         }
 
         // Aliases
         if (state.TargetAliases.TryGetValue(scored.Target, out var alias))
         {
-            lines.Add($"Also: {alias}");
+            entries.Add((RankAlias, $"Also: {alias}"));
         }
 
         // Rating
         var maxScore = state.TonightsBest.Length > 0 ? state.TonightsBest[0].CombinedScore : 1.0;
         var rating = PlannerActions.ScoreToRating(scored.CombinedScore, maxScore);
-        lines.Add($"Rating: {rating:F1}\u2605");
+        entries.Add((RankRating, $"Rating: {rating:F1}\u2605"));
+
+        // Over budget: repeatedly shed the highest-ranked (least important) survivor. The name is
+        // rank 0 and can never be the strict maximum, so at least one line always remains.
+        while (entries.Count > maxLines)
+        {
+            var worstIdx = 0;
+            for (var i = 1; i < entries.Count; i++)
+            {
+                if (entries[i].Rank > entries[worstIdx].Rank)
+                {
+                    worstIdx = i;
+                }
+            }
+
+            if (entries[worstIdx].Rank == RankName)
+            {
+                break; // only the never-drop name left
+            }
+
+            entries.RemoveAt(worstIdx);
+        }
+
+        var lines = new List<string>(entries.Count);
+        foreach (var (_, line) in entries)
+        {
+            lines.Add(line);
+        }
 
         return lines;
     }
@@ -101,7 +144,7 @@ public static class PlannerDetails
     // index, angular size) for a catalogued target, resolved live from the immutable object DB.
     // Anything not in the DB (comets, planets, bare positions) or without a catalog index adds no
     // lines, leaving the panel byte-identical to the pre-enrichment output.
-    private static void AddCatalogLines(PlannerState state, ScoredTarget scored, List<string> lines)
+    private static void AddCatalogLines(PlannerState state, ScoredTarget scored, List<(int Rank, string Line)> entries)
     {
         if (state.ObjectDb is not { } db || scored.Target.CatalogIndex is not { } index)
         {
@@ -122,7 +165,7 @@ public static class PlannerDetails
         }
         if (subtitle.Length > 0)
         {
-            lines.Add(subtitle);
+            entries.Add((RankSubtitle, subtitle));
         }
 
         // Magnitude + surface brightness + colour index -- each part only when the catalog holds it,
@@ -144,7 +187,7 @@ public static class PlannerDetails
         }
         if (photometry.Length > 0)
         {
-            lines.Add(photometry);
+            entries.Add((RankPhotometry, photometry));
         }
 
         // Angular size from the shape catalog: arcseconds for sub-arcminute objects (small planetary
@@ -154,7 +197,7 @@ public static class PlannerDetails
             var major = (double)shape.MajorAxis;
             if (!double.IsNaN(major) && major > 0)
             {
-                lines.Add(FormatSize(major, (double)shape.MinorAxis));
+                entries.Add((RankSize, FormatSize(major, (double)shape.MinorAxis)));
             }
         }
     }
