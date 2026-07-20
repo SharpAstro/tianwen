@@ -113,15 +113,14 @@ namespace TianWen.UI.Abstractions
                 }
             };
 
-            // Local helper captured by the search-input closures above.
+            // Local helper captured by the search-input closures above (keyboard Enter-on-suggestion
+            // AND the dropdown mouse-click, via CommitSuggestionAt -- one path, so both behave identically).
             void CommitSuggestion(string suggestion)
             {
-                plannerState.SearchInput.Text = suggestion;
-                plannerState.SearchInput.CursorPos = suggestion.Length;
-                plannerState.Suggestions.Clear();
-                plannerState.SuggestionIndex = -1;
-                plannerState.LastSuggestionQuery = suggestion;
-
+                // Resolve + select the target first (it needs the suggestion text), then RESET the box:
+                // clear the text, drop the dropdown, and release focus. Without the reset the search input
+                // lingered showing the committed name and -- on the web -- the floating <input> overlay
+                // stayed visible (it only hides on deactivate), including after switching to the sky atlas.
                 if (createTransform() is { } transform)
                 {
                     var resultIdx = PlannerActions.CommitSuggestion(
@@ -132,6 +131,12 @@ namespace TianWen.UI.Abstractions
                         ensureVisible?.Invoke(resultIdx);
                     }
                 }
+
+                plannerState.SearchInput.Clear();
+                plannerState.Suggestions.Clear();
+                plannerState.SuggestionIndex = -1;
+                plannerState.LastSuggestionQuery = "";
+                deactivate();
                 requestRedraw();
             }
         }

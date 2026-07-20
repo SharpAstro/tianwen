@@ -978,6 +978,10 @@
             ?? ParseViewFromPath(Nav.ToBaseRelativePath(Nav.Uri));
         if (view != _view)
         {
+            // Leaving a view: release any focused canvas text input so its floating <input> overlay
+            // doesn't linger over the next view (the chip is a DOM button, so no canvas pointer event
+            // fires to deactivate it -- this is the single choke point for chip / back-forward / deep link).
+            DeactivateTextInput();
             _view = view;
             RenderFrame();
         }
