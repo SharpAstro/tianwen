@@ -84,3 +84,9 @@ chromeless Live Session / polar / guide-cam previews (`ViewerState.HideChrome`).
 4. **Hosts route, apps wire one callback**: pointer wiring goes through `SdlWindowView.OnPointerInput`
    (never four hand-wired lambdas), and any new inspector input command must go through
    `SdlWindowView.DispatchPointer*`.
+5. **Place by arrangement, not arithmetic** (goal: ~99% layout-driven,
+   [../plans/layout-driven-ui.md](../plans/layout-driven-ui.md)): chrome geometry comes from an
+   arranged `Layout` tree; hand-computed `pad * dpiScale` offsets and `cursor +=` stitching are the
+   placement-layer analogue of rule 1's inline scroll math. Direct pixel drawing is reserved for
+   raster content inside keyed `Fill` leaves (charts, histogram, image, sky map, on-image overlays)
+   and control internals.
