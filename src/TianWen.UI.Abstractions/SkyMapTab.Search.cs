@@ -173,11 +173,13 @@ namespace TianWen.UI.Abstractions
             var visibleRows = Math.Max(0, (int)(resultsDesignH / SearchRowHeight));
 
             // Body: search input (keyed Fill = the interactive text-input control) + results list, padded.
+            // MUST be .Stretch() -- an Auto-width/height VStack collapses to intrinsic (the input + rows
+            // starve to their text width instead of filling the panel).
             var body = Layout.Builder.VStack(
                     Layout.Builder.Fill(key: "searchInput").RowH(inputHDesign),
                     Layout.Builder.Spacer().RowH(inputGap),
                     BuildSearchResults(State.Search.Results, State.Search.SelectedResultIndex, visibleRows).Stretch())
-                .Pad(bodyPad);
+                .Stretch().Pad(bodyPad);
 
             // Panel (bg) inside a 1px border frame (an outer Box.Bg + Pad(1)); the whole card is ONE tree.
             var panel = Layout.Builder.VStack(titleBar, body).Bg(SearchPanelBg);
