@@ -125,8 +125,13 @@ stay pixel, and trying to force them into the DSL is a mistake:
    rect the drag math reads back), and the **transport scrub**. These are `TrackSlider`/toolbar
    controls, the same "control internals" bucket as `ListScrollController.DrawScrollBar`.
 
-Also intentionally pixel: hairline separators (a single `FillRect` line) and fractional progress-bar
-gauges (fill width = w x fraction) -- not worth an Overlay + star-weight tree.
+**Update (2026-07-22):** hairline separators and fractional progress-bar gauges are **no longer
+pixel** -- both are now declarative nodes. A separator is a coloured `Box`/`Spacer().Bg(...)` leaf
+(the engine paints any node's `Background`); a progress bar is `FormRowLayout.ProgressBar(fraction,
+track, fill, label?)` -- a track `Box` overlaid with a fractional-width fill (two `Star`-weighted
+spacers) plus an optional centred label, composed from `Box`/`Overlay`/`HStack` with no `Fill`
+painter. Both render on every surface and are `describe_layout`-visible. `ProgressBar` is a
+promotion candidate for `DIR.Lib.Layout.Builder` (recorded in `controls-upstreaming.md`).
 
 ## Non-goals
 
@@ -193,24 +198,38 @@ resists the DSL. Pairs with `docs/plans/controls-upstreaming.md` U1 (TrackSlider
   for ~10 individual buttons (device-list Connect/Disconnect, strips ABORT, a few in Planner / SkyMap /
   Flats). Converting these to `Text.Bg.Clickable` nodes is cosmetic-only; low priority.
 
-**Bucket 3 -- convertible chrome NOT yet converted (the real remaining work), highest value first:**
-- **`LiveSessionTab.Panels.cs` (16 FillRect / 30 DrawText) -- the RUNNING-session `RenderOTAPanels` body**
-  (per-OTA exposure countdown, camera states, cooling mini-sparkline [raster], exposure log). The
-  *preview* path is done; the running path is still a `y += rowH` cursor walk. **Largest remaining
-  convertible chunk.**
-- `LiveSessionTab.Strips.cs` (13 / 10 / 3 RenderButton) -- control strips: guide-graph strip (raster) +
-  RMS readout + ABORT button.
-- `LiveSessionTab.Polar.cs` (5 / 14) -- RUNNING polar-align readouts (error gauges stay raster; the
-  status/step readout `DrawText`s are convertible). Setup panel already ONE tree.
-- `SessionTab.cs` (16 / 19) -- config panel converted; remaining session chrome.
+**Bucket 3 -- convertible chrome. The whole LiveSession family + SessionTab are now DONE (2026-07-22);
+what remains is SkyMap/Planner/Equipment chrome.**
+- **DONE** `LiveSessionTab.Panels.cs` -- the RUNNING-session `RenderOTAPanels` is ONE
+  `Dock(HStack(per-OTA columns), Bottom(mount))` (mirrors the preview path): each column a padded VStack
+  (name, temp + cooling sparkline [keyed Fill raster], focuser/filter, exposure state [label +
+  `ProgressBar`], V-curve [keyed Fill raster, `.Stretch()`]); mount docked full-width; dividers are `Box`
+  nodes. `_previewFills` renamed `_otaPanelFills` (shared preview+running). Inspector-verified.
+- **DONE** `LiveSessionTab.Strips.cs` -- top strip (phase pill + activity + progress = one HStack) and
+  bottom strip (`VStack(Box hairline, HStack[guide-graph Fill * | RMS | ABORT node])`); guide graph stays
+  a keyed Fill. Inspector-verified.
+- **DONE** `LiveSessionTab.Polar.cs` -- RUNNING polar readouts are `Dock(content VStack, Bottom(Cancel/
+  Done))`; the Az/Alt error needles + LEDs stay a raster `polarGauges` Fill. Setup panel was already one tree.
+- **DONE** `SessionTab.cs` -- Camera Settings + Observations panels + Start button are trees (the config
+  panel was already the gold standard). The per-row exposure value cell stays a keyed Fill (double-click
+  edit region preserved); dropped the `MeasureValueColumnWidth` pre-pass (Star cells self-align).
+  Inspector-verified.
 - `SkyMapTab.Search.cs` (5 / 6 / 16 line / 4 RenderButton) -- F3 modal chrome + results rows (the
-  sky lines/circles are raster).
-- `PlannerTab.cs` (8 / 4 / 1) -- planner chart (raster) + list rows.
+  sky lines/circles are raster). **REMAINING.**
+- `PlannerTab.cs` (8 / 4 / 1) -- planner chart (raster) + list rows. **REMAINING.**
 - `EquipmentTab.DeviceList.cs` (4 / 6 / 2) -- device-list ROW body + Connect/Disconnect. **Deferred by
   design** (badge/name/status columns tangled with reachability/confirm-strip/segment business logic +
   inset badge pill + status-dot square -- poor reduction-per-risk).
 - `EquipmentTab.cs` (6 / 5 / 2) -- tab-level chrome: panel backgrounds + 1px separators (minimal cases)
-  + the ConnectAll top-bar button.
+  + the ConnectAll top-bar button. **REMAINING (minimal).**
+
+**New reusable control:** `FormRowLayout.ProgressBar(fraction, track, fill, label?)` -- declarative
+fractional bar (Box + Overlay + Star-weighted fill + optional centred label), pinned by
+`ProgressBarLayoutTests` (7). Replaced the hand-drawn two-`FillRect` gauges in the preview capture bar +
+the running exposure bar. Bucket 2's remaining genuinely-pixel controls (viewer Toolbar hover, the
+`TrackSlider` drag family, the SER Transport scrub) are the DIR.Lib-upstreaming items (U1) in
+`controls-upstreaming.md`, not tianwen chrome; the standalone `RenderButton` sites converted opportunistically
+(ABORT, Start Session) as their panels were rewritten.
 
 ## Definition of done
 
