@@ -139,16 +139,22 @@ gauges (fill width = w x fraction) -- not worth an Overlay + star-weight tree.
 
 ## Status (2026-07-21)
 
-The convertible static chrome is converted; ~12 commits, full unit suite 3394/0, full solution
-0-warning, live-verified across Equipment (connected fakes), SkyMap (info panel + search modal),
-Notifications, LiveSession preview, Guider. **Done / mostly-done:** L1 GuiderTab (full), L2 Equipment
-(telemetry, cooler controls, device settings, filter rows -- net ~-136), L3 LiveSession (mount block,
-preview jog row; capture/gain steppers were already trees), L5 Notifications rows + SkyMap object info
-panel (the F3 search modal was already tree-driven). **Intentionally NOT converted** (the two stay-pixel
-categories above + genuinely-minimal cases): the viewer chrome (L4 -- interactive toolbar/sliders/
-transport + histogram), all charts/timelines/guide-graphs/sparklines, the device-list row (business-
-logic-tangled), and lone single-`DrawText`-into-a-given-rect cases + hairline separators + modal-card
-overlays + fractional progress gauges, which carry no hand-positioning math worth a tree.
+The convertible chrome is converted; ~16 commits, full unit suite green, full solution 0-warning,
+live-verified across Equipment (connected fakes), SkyMap (info panel + search modal), Notifications,
+LiveSession (preview + Polar/Flats setup panels, connected fakes), Guider. **Done / mostly-done:**
+L1 GuiderTab (full); L2 Equipment (telemetry, cooler controls, device settings, filter rows -- net
+~-136); L3 LiveSession (running + preview mount blocks, preview jog row, **Polar setup panel as ONE
+tree** net -94, **Flats setup panel as ONE tree** net -30, phase pills / source toggle / Cancel-Done);
+L5 Notifications rows + SkyMap object info panel. The Polar + Flats setup panels are the reference
+implementation of the endpoint pattern (one `Dock(contentVStack, Bottom(buttons))` per panel, no
+internal cursor). **Intentionally NOT converted** (the two stay-pixel categories above + genuinely-
+minimal cases): the viewer chrome (L4 -- interactive toolbar/sliders/transport + histogram); all
+charts/timelines/guide-graphs/sparklines/error-gauges; the device-list row (business-logic-tangled);
+lone single-`DrawText`-into-a-rect cases + hairline separators + modal-card overlays + fractional
+progress gauges. **Remaining true cursor-stitch** (deferred -- large orchestrators over heterogeneous
+variable-height sections, higher risk): the Equipment `RenderProfilePanel` section walk and the
+LiveSession preview per-OTA panel walk. Each section already emits its own sub-tree; pulling the walk
+itself to one VStack is a focused follow-up.
 
 ## Definition of done
 
