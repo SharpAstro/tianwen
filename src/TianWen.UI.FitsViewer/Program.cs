@@ -194,7 +194,14 @@ var loop = new SdlEventLoop(sdlWindow, renderer)
 
     OnMouseMove = (x, y) => imageRenderer.HandleInput(new InputEvent.MouseMove(x, y)),
 
-    OnMouseUp = (button) => imageRenderer.HandleInput(new InputEvent.MouseUp(0, 0)),
+    // SDL's OnMouseUp callback delivers only the button — coords come from the last MouseMove/Down,
+    // cached on state. The tap-on-release file-list select (and the gesture's tap-vs-drag slop check)
+    // needs the real release position, so (0, 0) is not an option here.
+    OnMouseUp = (button) =>
+    {
+        var (mx, my) = state.MouseScreenPosition;
+        imageRenderer.HandleInput(new InputEvent.MouseUp(mx, my));
+    },
 
     OnMouseWheel = (scrollY, mouseX, mouseY) =>
     {
@@ -332,12 +339,6 @@ void HandleMouseDown(byte button, float px, float py)
             return;
         }
 
-        if (hit is HitResult.ListItemHit { ListId: "FileList", Index: var fileIndex })
-        {
-            ViewerActions.SelectFile(state, fileIndex);
-            return;
-        }
-
         if (hit is ResizeHandleHit { Id: "FileList" })
         {
             state.IsResizingFileList = true;
@@ -366,6 +367,13 @@ void HandleMouseDown(byte button, float px, float py)
         if (hit is not null)
         {
             return; // OnClick already handled it (e.g. HistogramLog, PlayPause)
+        }
+
+        // Unclaimed left press over the file list arms the scroll controller (drag-to-scroll / thumb
+        // grab); select fires on the tap release, routed through HandleViewerMouseUp via OnMouseUp.
+        if (button == 1 && imageRenderer.HandleFileListInput(new InputEvent.MouseDown(px, py)))
+        {
+            return;
         }
     }
 

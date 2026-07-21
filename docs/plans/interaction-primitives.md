@@ -131,7 +131,7 @@ public sealed class PanZoomController
 | P1 | DIR.Lib 6.15 | **✅ DONE (2026-07-21).** `TapOrDragGesture` + `ListScrollController` + `PanZoomController` + headless unit tests (accumulate/clamp/snap, slop arm->tap vs arm->drag + suppression, EnsureVisible+margin, thumb grip math -- unify with Console.Lib `ScrollableList`'s structurally-identical formula, bottom-anchor mode, clip-only degenerate mode, axis parameter). API frozen only after every inventory row maps onto it on paper. 36 new tests green; full DIR.Lib suite 507/0. See "P1 shipped" below. |
 | P2 | Console.Lib 3.9, SdlVulkan.Renderer 6.28, WebGl.Renderer 1.11 | Lockstep no-code rebuilds (standing rule on a DIR.Lib minor). |
 | P3 | tianwen wave 1 | **CORE DONE (2026-07-21):** Planner + Equipment lists -> controller (touch/mouse drag-to-scroll + tap-on-release select + trackpad wheel accumulator); `ScrollBar.cs`/`ScrollBarTests.cs` deleted (coverage in DIR.Lib); `EquipmentTabState.DeviceScrollOffset` removed (now in the controller); offline `RgbaImageRenderer` input-sequence tests shipped (`PlannerTabScrollTests`: drag scrolls w/o selecting, tap selects w/o scrolling, sub-unit wheel accumulates, row-body-unclaimed/pin-button-registered). Full solution builds 0-warning; DIR.Lib 507/0, tianwen unit 3386/0. **Remaining:** warm-page web E2E touch-scroll (CDP one-finger drag via `CanvasGestures`) + `getPlannerListState ?e2e=1` hook; the four-lib repin (batches with the P2 release). Migration was gated on verified host routing = HitTestAndDispatch-first then HandleInput-on-miss (desktop `GuiEventHandlerBase` + web `Planner.razor`, both mirror). **Live GUI smoke (inspector, 2026-07-21) PASSED:** Planner wheel-scroll (pinned rows scroll off the top), drag-scroll, and tap-select (selected a row -> chart + details followed); Equipment 104-device list renders + scrolls with the On|Off segments intact; render thread stayed ALIVE, no exceptions in gui-stderr. |
-| P4 | tianwen wave 2 | **DONE (2026-07-21), all four lists migrated.** **Notifications** (`1af0e38b`) -- smooth (non-snap) controller, decorative scrollbar, `VisibleRows()` smooth path; fixes the wheel truncation + missing handler upper-clamp; public pixel `ScrollOffset` removed. **FITS FileList** (`674996b0`) -- the entangled one, untangled: the controller owns the fractional offset (trackpad accumulator survives frames; `MaxOffset = Count - visible` fixes the wrong `Count-1` bound), `ScanFolder` requests its initial top via a one-shot `ViewerState.PendingFileListScrollTop` (never a per-frame int mirror, which would reset the accumulator), dead `HitTestFileList` deleted; `Decorative` not `Interactive` (see the inventory-mapping note). **Session config** (`f8e38ee6`) -- `ConfigScrollOffset` becomes canonical atoms in BOTH hosts (the TUI needed zero changes: its `ScrollableList` rows already ARE atoms), dissolving the px-vs-rows unit mismatch. **LiveSession exposure log** (`7bcc481c`) -- `{Anchor=Bottom}` tail-follow: pinned to the newest entry until the user wheels up into history, re-pinned automatically when a session restart clears the log (DIR.Lib's fits-again rule, sibling `3d2f273`); the wheel is now viewport-gated by the controller (the old code scrolled the log from anywhere on the tab); both `LiveSessionState.*ScrollOffset` fields deleted (focus history clips and never scrolled). |
+| P4 | tianwen wave 2 | **DONE (2026-07-21), all four lists migrated.** **Notifications** (`1af0e38b`) -- smooth (non-snap) controller, decorative scrollbar, `VisibleRows()` smooth path; fixes the wheel truncation + missing handler upper-clamp; public pixel `ScrollOffset` removed. **FITS FileList** (`674996b0`) -- the entangled one, untangled: the controller owns the fractional offset (trackpad accumulator survives frames; `MaxOffset = Count - visible` fixes the wrong `Count-1` bound), `ScanFolder` requests its initial top via a one-shot `ViewerState.PendingFileListScrollTop` (never a per-frame int mirror, which would reset the accumulator), dead `HitTestFileList` deleted; `Decorative` not `Interactive` (see the inventory-mapping note). **Session config** (`f8e38ee6`) -- `ConfigScrollOffset` becomes canonical atoms in BOTH hosts (the TUI needed zero changes: its `ScrollableList` rows already ARE atoms), dissolving the px-vs-rows unit mismatch. **LiveSession exposure log** (`7bcc481c`) -- `{Anchor=Bottom}` tail-follow: pinned to the newest entry until the user wheels up into history, re-pinned automatically when a session restart clears the log (DIR.Lib's fits-again rule, sibling `3d2f273`); the wheel is now viewport-gated by the controller (the old code scrolled the log from anywhere on the tab); both `LiveSessionState.*ScrollOffset` fields deleted (focus history clips and never scrolled). **Interactive-everywhere follow-up** (same day, user-ruled: "a list should be interactive" -- no wheel-only lists remain): FileList flipped `{Interactive}` with tap-on-release select routed in both viewer hosts (kills the mouse-down `ListItemHit`; fixes the standalone's `MouseUp(0, 0)`); Notifications flipped `{Interactive}` + body drag (tap discarded); LiveSession log gains body drag (Mode stays `None`), with the log press tried BEFORE the preview pan so a press on the log can no longer grab a zoomed preview. Live-verified via inspector: drag scrolls with zero file loads, tap loads exactly one. |
 | P5 | tianwen wave 3 | `PanZoomController` adoption in `ImageRendererBase` + `LiveSessionTab` (delete the duplicated zoom formula); optionally `VkPlanetaryTab` PiP drag onto `TapOrDragGesture`. |
 
 ## P1 shipped (DIR.Lib 6.15) — frozen API + inventory mapping
@@ -167,21 +167,33 @@ Three new files in `../DIR.Lib/src/DIR.Lib/` (`TapOrDragGesture.cs`, `ListScroll
   `ZoomByFactor(factor,cx,cy,viewport)` · `Reset`/`FitToView` · `event Changed`.
 
 **Every inventory row maps** (the freeze gate): #1 Planner + #2 Equipment -> `{SnapToAtom, Interactive, Top}`
-+ `TakeAtomTap` (sub-buttons stay registered clickables); #3 Notifications -> `{Decorative}`, no tap; #4
-Session config -> `{None}`, field becomes canonical atoms via `AtomOffset` (dissolves the TUI/GUI px-vs-rows
-mismatch); #5 LiveSession log -> `{Anchor=Bottom}` (tail-follow); #6 FITS FileList -> `{SnapToAtom,
-Decorative}` (fractional `Offset` fixes trackpad truncation, `MaxOffset = total-visible` fixes the wrong
-bound; NOT `Interactive` as originally planned -- the viewer's bespoke self-dispatch input model has no
-unclaimed-press fall-through, so the controller's tap-on-release never fired and select silently broke;
-the viewer keeps its historical click-to-select via an immediate `ListItemHit` on mouse-down, and the
-controller drives only scroll: wheel + placement + decorative scrollbar); #7 dead `HitTestFileList` ->
-delete; degenerate F3/dropdown -> `total <= visible` clips zero-config.
++ `TakeAtomTap` (sub-buttons stay registered clickables); #3 Notifications -> `{Interactive}`, tap discarded
+(no row action); #4 Session config -> `{None}`, field becomes canonical atoms via `AtomOffset` (dissolves
+the TUI/GUI px-vs-rows mismatch); #5 LiveSession log -> `{Anchor=Bottom, None}` (tail-follow; body drag +
+wheel viewport-gated); #6 FITS FileList -> `{SnapToAtom, Interactive}` + tap-on-release select via
+`TakeAtomTap` (fractional `Offset` fixes trackpad truncation, `MaxOffset = total-visible` fixes the wrong
+bound). The first FileList migration shipped `{Decorative}` keeping the historical mouse-down `ListItemHit`
+select, because the viewer's bespoke self-dispatch input model has no unclaimed-press fall-through and a
+bare mode flip silently broke select; the interactive-everywhere pass (below) then routed
+press/move/release to the controller in BOTH viewer hosts -- the embedded `HandleViewerMouse*` path and the
+standalone's `Program.cs` via the public `HandleFileListInput` -- and fixed the standalone's synthesized
+`MouseUp(0, 0)` (release coords now come from the cached mouse position, the trick the GUI host had
+documented but the FitsViewer never replicated); #7 dead `HitTestFileList` -> delete; degenerate
+F3/dropdown -> `total <= visible` clips zero-config.
+Mode gates ONLY the thumb: body drag-to-scroll, wheel, and tap detection work in any mode PROVIDED the
+host routes MouseDown/Move/Up to `HandleInput` -- a "Decorative" list that only routes the wheel is
+wheel-only in practice, which is what the interactive-everywhere pass eliminated.
 Drag machines: `ScrollBarDragState`->controller thumb; SkyMap tap-vs-drag->`TapOrDragGesture`; viewer +
 LiveSession pan/zoom->`PanZoomController` (dedupes the byte-for-byte copy). Slider / split-divider / PiP
 stay out of scope.
 
 ## Out of scope / deferred
 
+- **Host default input wiring** (user suggestion, 2026-07-21): the SdlVulkan.Renderer loop should cache
+  the last pointer position and offer a synthesized-`InputEvent` callback, so every consumer `Program.cs`
+  stops hand-wiring the OnMouseDown/Move/Up/Wheel lambdas. Motivating bug class: the FitsViewer shipped
+  `MouseUp(0, 0)` for months because the GUI's cached-position trick was never replicated. Rides a future
+  SdlVulkan.Renderer minor (candidate for the pending release chain).
 - `TrackSlider` (already unified; continuous-value family, not row scroll).
 - Momentum/inertia scrolling (needs animation ticks; pairs with the redraw-abstraction backlog item in `docs/todo/`).
 - F3-results / dropdown scroll adoption (clip-only today by design; degenerate mode keeps the door open).

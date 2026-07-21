@@ -124,20 +124,46 @@ namespace TianWen.UI.Abstractions
                     }
                     return false;
 
-                // Preview viewer mouse drag for panning
-                case InputEvent.MouseDown(var mx, var my, _, _, _) when PreviewView is not null && !_previewState.ZoomToFit:
-                    _dragStart = (mx, my);
-                    return true;
+                case InputEvent.MouseDown(var mx, var my, _, _, _):
+                    // Exposure-log body drag-to-scroll, tried first (the controller viewport-gates the
+                    // press) so a press on the log never grabs the preview pan while zoomed.
+                    if (_logScroll.HandleInput(evt))
+                    {
+                        state.NeedsRedraw = true;
+                        return true;
+                    }
+                    // Preview viewer mouse drag for panning
+                    if (PreviewView is not null && !_previewState.ZoomToFit)
+                    {
+                        _dragStart = (mx, my);
+                        return true;
+                    }
+                    return false;
 
-                case InputEvent.MouseMove(var mx, var my) when _dragStart is { } drag && PreviewView is not null:
-                    var dx = mx - drag.X;
-                    var dy = my - drag.Y;
-                    _previewState.PanOffset = (_previewState.PanOffset.X + dx, _previewState.PanOffset.Y + dy);
-                    _dragStart = (mx, my);
-                    state.NeedsRedraw = true;
-                    return true;
+                case InputEvent.MouseMove(var mx, var my):
+                    if (_logScroll.HandleInput(evt)) // false when its gesture is idle
+                    {
+                        state.NeedsRedraw = true;
+                        return true;
+                    }
+                    if (_dragStart is { } drag && PreviewView is not null)
+                    {
+                        var dx = mx - drag.X;
+                        var dy = my - drag.Y;
+                        _previewState.PanOffset = (_previewState.PanOffset.X + dx, _previewState.PanOffset.Y + dy);
+                        _dragStart = (mx, my);
+                        state.NeedsRedraw = true;
+                        return true;
+                    }
+                    return false;
 
                 case InputEvent.MouseUp(_, _, _):
+                    if (_logScroll.HandleInput(evt))
+                    {
+                        _logScroll.TakeAtomTap(); // log rows have no tap action -- discard
+                        state.NeedsRedraw = true;
+                        return true;
+                    }
                     if (_dragStart is not null)
                     {
                         _dragStart = null;

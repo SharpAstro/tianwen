@@ -355,8 +355,9 @@ namespace TianWen.UI.Abstractions
         /// tail-follow — pinned to the newest entry until the user wheels up into history, and
         /// re-pinned automatically when the log resets (a session restart clears it, the content
         /// fits again, and the controller's fits-again rule restores the pin — no bootstrapper
-        /// reset needed). Mode=None keeps the historical no-scrollbar look; the wheel is
-        /// viewport-gated by the controller (the old code scrolled the log from anywhere on the tab).
+        /// reset needed). Mode=None keeps the historical no-scrollbar look; wheel AND body
+        /// drag-to-scroll are viewport-gated by the controller (the old code scrolled the log from
+        /// anywhere on the tab, and a press on the log could grab the preview pan).
         /// </summary>
         private readonly ListScrollController _logScroll = new ListScrollController
         {

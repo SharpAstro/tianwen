@@ -21,9 +21,9 @@ namespace TianWen.UI.Abstractions
         public override bool HandleInput(InputEvent evt) => evt switch
         {
             InputEvent.KeyDown(var key, var modifiers) => HandleViewerKey(key, modifiers),
-            InputEvent.MouseDown(var px, var py, _, _, _) => HandleViewerMouseDown(px, py),
-            InputEvent.MouseMove(var px, var py) => HandleViewerMouseMove(px, py),
-            InputEvent.MouseUp(_, _, _) => HandleViewerMouseUp(),
+            InputEvent.MouseDown(var px, var py, _, _, _) => HandleViewerMouseDown(px, py, evt),
+            InputEvent.MouseMove(var px, var py) => HandleViewerMouseMove(px, py, evt),
+            InputEvent.MouseUp(_, _, _) => HandleViewerMouseUp(evt),
             InputEvent.Scroll(var delta, var mx, var my, _) => HandleViewerScroll(delta, mx, my),
             _ => false
         };
@@ -312,7 +312,7 @@ namespace TianWen.UI.Abstractions
         /// if panning was started (caller may need to handle toolbar actions via
         /// <see cref="ViewerActions.HandleToolbarAction"/>).
         /// </summary>
-        private bool HandleViewerMouseDown(float px, float py)
+        private bool HandleViewerMouseDown(float px, float py, InputEvent evt)
         {
             if (_state is not { } state)
             {
@@ -335,12 +335,6 @@ namespace TianWen.UI.Abstractions
                 {
                     TryToggleBackgroundNeutralization(state);
                 }
-                return true;
-            }
-
-            if (hit is HitResult.ListItemHit { ListId: "FileList", Index: var fileIndex })
-            {
-                ViewerActions.SelectFile(state, fileIndex);
                 return true;
             }
 
@@ -374,6 +368,15 @@ namespace TianWen.UI.Abstractions
                 return true; // OnClick already handled it (e.g. HistogramLog, PlayPause)
             }
 
+            // Unclaimed press over the file list falls through to the scroll controller (viewport-gated):
+            // arms drag-to-scroll / grabs the thumb. Select fires on the tap RELEASE (TakeAtomTap in
+            // HandleViewerMouseUp), so a touch drag scrolls instead of selecting the row under the finger.
+            if (_fileListScroll.HandleInput(evt))
+            {
+                state.NeedsRedraw = true;
+                return true;
+            }
+
             // No hit — start panning, but ONLY when the press is inside the image viewport. Otherwise a press
             // in the side panels / toolbar gaps / letterbox would grab the image and pan it (e.g. clicking the
             // planetary control panel must not drag the stream). Confines the drag to its viewport.
@@ -387,7 +390,7 @@ namespace TianWen.UI.Abstractions
             return false;
         }
 
-        private bool HandleViewerMouseMove(float px, float py)
+        private bool HandleViewerMouseMove(float px, float py, InputEvent evt)
         {
             if (_state is not { } state)
             {
@@ -395,6 +398,14 @@ namespace TianWen.UI.Abstractions
             }
 
             state.MouseScreenPosition = (px, py);
+
+            // File-list drag-to-scroll / thumb drag in progress (returns false when its gesture is idle,
+            // so ordinary moves fall through to the branches below).
+            if (_fileListScroll.HandleInput(evt))
+            {
+                state.NeedsRedraw = true;
+                return true;
+            }
 
             // Transport scrub drag: continuously seek to the dragged frame (decoded off the render thread).
             if (state.IsScrubbing)
@@ -441,10 +452,23 @@ namespace TianWen.UI.Abstractions
             return state.CursorImagePosition != prevPos;
         }
 
-        private bool HandleViewerMouseUp()
+        private bool HandleViewerMouseUp(InputEvent evt)
         {
             if (_state is { } state)
             {
+                // File-list gesture release: a tap selects the row (the Planner/Equipment tap-on-release
+                // model); a drag release just ends the scroll. Consumed releases skip the branches below
+                // (no pan/scrub was active — the press went to the controller).
+                if (_fileListScroll.HandleInput(evt))
+                {
+                    if (_fileListScroll.TakeAtomTap() is { } tappedRow && tappedRow < state.ImageFileNames.Count)
+                    {
+                        ViewerActions.SelectFile(state, tappedRow);
+                    }
+                    state.NeedsRedraw = true;
+                    return true;
+                }
+
                 if (state.IsScrubbing)
                 {
                     state.IsScrubbing = false;
