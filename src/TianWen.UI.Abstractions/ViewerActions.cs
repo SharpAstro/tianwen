@@ -179,7 +179,7 @@ public static class ViewerActions
     {
         state.CurrentFolder = folderPath;
         state.ImageFileNames.Clear();
-        state.FileListScrollOffset = 0;
+        state.PendingFileListScrollTop = 0;
 
         if (!Directory.Exists(folderPath))
         {
@@ -200,10 +200,10 @@ public static class ViewerActions
             ? files.FindIndex(f => string.Equals(f, currentFileName, StringComparison.OrdinalIgnoreCase))
             : -1;
 
-        // Ensure the selected file is visible
+        // Ensure the selected file is visible (applied to the scroll controller on the next render).
         if (state.SelectedFileIndex >= 0)
         {
-            state.FileListScrollOffset = Math.Max(0, state.SelectedFileIndex - 5);
+            state.PendingFileListScrollTop = Math.Max(0, state.SelectedFileIndex - 5);
         }
     }
 
@@ -267,15 +267,6 @@ public static class ViewerActions
         state.ZoomToFit = false;
         state.Zoom = MathF.Max(0.01f, state.Zoom / ZoomStepFactor);
         state.NeedsRedraw = true;
-    }
-
-    /// <summary>
-    /// Scrolls the file list by the given number of items.
-    /// </summary>
-    public static void ScrollFileList(ViewerState state, int delta)
-    {
-        var maxScroll = Math.Max(0, state.ImageFileNames.Count - 1);
-        state.FileListScrollOffset = Math.Clamp(state.FileListScrollOffset + delta, 0, maxScroll);
     }
 
     /// <summary>

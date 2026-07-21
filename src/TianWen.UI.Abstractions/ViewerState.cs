@@ -283,8 +283,10 @@ public sealed class ViewerState
     /// <summary>Whether the file list sidebar is visible.</summary>
     public bool ShowFileList { get; set; } = true;
 
-    /// <summary>Scroll offset (in items) for the file list.</summary>
-    public int FileListScrollOffset { get; set; }
+    /// <summary>One-shot requested top file-list index, set by ScanFolder and applied to the renderer's
+    /// scroll controller once after the next layout (then cleared). The continuous scroll offset lives in
+    /// the controller, not here, so the trackpad wheel accumulator is never reset frame-to-frame.</summary>
+    public int? PendingFileListScrollTop { get; set; }
 
     /// <summary>User-adjusted file list panel width in DPI-independent units. Default 300px;
     /// the actual rendered width is this value multiplied by the DPI scale. Clamped to

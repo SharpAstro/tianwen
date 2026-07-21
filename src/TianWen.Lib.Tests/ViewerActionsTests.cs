@@ -404,21 +404,7 @@ public class ViewerActionsTests
         state.IsPanning.ShouldBeFalse();
     }
 
-    // --- ScrollFileList ---
-
-    [Fact]
-    public void ScrollFileList_ClampsToValidRange()
-    {
-        var state = new ViewerState
-        {
-            ImageFileNames = ["a.fits", "b.fits", "c.fits"],
-            FileListScrollOffset = 1
-        };
-
-        ViewerActions.ScrollFileList(state, 100);
-        state.FileListScrollOffset.ShouldBe(2);
-
-        ViewerActions.ScrollFileList(state, -100);
-        state.FileListScrollOffset.ShouldBe(0);
-    }
+    // File-list scroll clamping / wheel accumulation now lives in the DIR.Lib ListScrollController (the
+    // renderer owns the offset); ScrollFileList + FileListScrollOffset were removed, and the clamp/accumulate
+    // coverage moved to DIR.Lib.Tests.ListScrollControllerTests.
 }

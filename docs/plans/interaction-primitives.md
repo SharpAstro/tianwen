@@ -170,8 +170,12 @@ Three new files in `../DIR.Lib/src/DIR.Lib/` (`TapOrDragGesture.cs`, `ListScroll
 + `TakeAtomTap` (sub-buttons stay registered clickables); #3 Notifications -> `{Decorative}`, no tap; #4
 Session config -> `{None}`, field becomes canonical atoms via `AtomOffset` (dissolves the TUI/GUI px-vs-rows
 mismatch); #5 LiveSession log -> `{Anchor=Bottom}` (tail-follow); #6 FITS FileList -> `{SnapToAtom,
-Interactive}` (fractional `Offset` fixes trackpad truncation, `MaxOffset = total-visible` fixes the wrong
-bound); #7 dead `HitTestFileList` -> delete; degenerate F3/dropdown -> `total <= visible` clips zero-config.
+Decorative}` (fractional `Offset` fixes trackpad truncation, `MaxOffset = total-visible` fixes the wrong
+bound; NOT `Interactive` as originally planned -- the viewer's bespoke self-dispatch input model has no
+unclaimed-press fall-through, so the controller's tap-on-release never fired and select silently broke;
+the viewer keeps its historical click-to-select via an immediate `ListItemHit` on mouse-down, and the
+controller drives only scroll: wheel + placement + decorative scrollbar); #7 dead `HitTestFileList` ->
+delete; degenerate F3/dropdown -> `total <= visible` clips zero-config.
 Drag machines: `ScrollBarDragState`->controller thumb; SkyMap tap-vs-drag->`TapOrDragGesture`; viewer +
 LiveSession pan/zoom->`PanZoomController` (dedupes the byte-for-byte copy). Slider / split-divider / PiP
 stay out of scope.

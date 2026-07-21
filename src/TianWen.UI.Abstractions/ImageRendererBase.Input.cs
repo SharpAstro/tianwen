@@ -478,12 +478,14 @@ namespace TianWen.UI.Abstractions
                 return false;
             }
 
-            // Scroll file list when hovering over it (pane rect from the single arranged layout).
+            // Scroll file list when hovering over it (pane rect from the single arranged layout). The wheel
+            // goes through the controller, whose fractional offset accumulates sub-1.0 trackpad deltas
+            // instead of truncating them to zero, and whose bound is Count-visible (not the old Count-1).
             var fileListPane = _layout.FileList;
-            if (state.ShowFileList && mouseX >= fileListPane.X && mouseX < fileListPane.X + fileListPane.Width
-                && mouseY > fileListPane.Y)
+            if (state.ShowFileList && fileListPane.Contains(mouseX, mouseY))
             {
-                ViewerActions.ScrollFileList(state, -(int)scrollY * 3);
+                _fileListScroll.HandleInput(new InputEvent.Scroll(scrollY, mouseX, mouseY));
+                state.NeedsRedraw = true;
                 return true;
             }
 
