@@ -87,105 +87,76 @@ namespace TianWen.UI.Abstractions
                 return cursor;
             }
 
-            var labelW = w * 0.45f;
-            var controlX = x + padding * 2f + labelW;
-            var controlW = w - padding * 4f - labelW;
-            var labelX = x + padding * 2f;
-            var stepBtnW = 24f * dpiScale;
-
-            // Local row renderer shared by the basic pass and the advanced sub-section.
+            // Local row renderer shared by the basic pass and the advanced sub-section. Each row is one
+            // tree: [pad | label | control | pad] with an alternating background. The control is a cycle
+            // button, a [- value +] stepper, or a string editor (inline text-input Fill / click-to-edit
+            // button) -- was ~90 lines of FillRect + per-control DrawText/RenderButton at computed x.
             var rowIndex = 0;
             float RenderSettingRow(DeviceSettingDescriptor desc, float rowCursor)
             {
                 var rowBg = rowIndex++ % 2 == 0 ? FilterTableBg : FilterRowAlt;
-                FillRect(x + padding, rowCursor, w - padding * 2f, rowH, rowBg);
-
-                // StringEditor uses a narrower label to give more space to the text input
-                var rowLabelW = desc.Kind == DeviceSettingKind.StringEditor ? w * 0.25f : labelW;
-                var rowControlX = x + padding * 2f + rowLabelW;
-                var rowControlW = w - padding * 4f - rowLabelW;
-                DrawText($"{desc.Label}:".AsSpan(), fontPath, labelX, rowCursor, rowLabelW, rowH, fontSize * 0.85f, DimText, TextAlign.Near, TextAlign.Center);
-
                 var capturedDesc = desc;
+                // StringEditor uses a narrower label to give the text input more room.
+                var labelWeight = desc.Kind == DeviceSettingKind.StringEditor ? 0.25f : 0.45f;
+
+                Layout.Node Btn(string label, string action, RGBAColor32 bg, Action<InputModifier> onClick) =>
+                    Layout.Builder.Text(label, BaseFontSize * 0.85f, BodyText, TextAlign.Center, TextAlign.Center)
+                        .Bg(bg).Clickable(new HitResult.ButtonHit(action), onClick);
+
+                Layout.Node control;
                 switch (desc.Kind)
                 {
                     case DeviceSettingKind.BoolToggle:
                     case DeviceSettingKind.EnumCycle:
-                    {
-                        var valueLabel = desc.FormatValue(editingUri);
-                        RenderButton(valueLabel, controlX, rowCursor, controlW, rowH, fontPath, fontSize * 0.85f, EditButtonBg, BodyText, $"Cycle_{desc.Key}",
-                            _ =>
-                            {
-                                State.EditingDeviceUri = capturedDesc.Increment(editingUri);
-                                State.DeviceSettingsDirty = true;
-                            });
+                        control = Btn(desc.FormatValue(editingUri), $"Cycle_{desc.Key}", EditButtonBg,
+                            _ => { State.EditingDeviceUri = capturedDesc.Increment(editingUri); State.DeviceSettingsDirty = true; });
                         break;
-                    }
 
                     case DeviceSettingKind.IntStepper:
                     case DeviceSettingKind.FloatStepper:
                     case DeviceSettingKind.PercentStepper:
-                    {
-                        // [-] button
-                        if (desc.Decrement is { } decrement)
-                        {
-                            RenderButton("-", controlX, rowCursor, stepBtnW, rowH, fontPath, fontSize * 0.85f, EditButtonBg, BodyText, $"Dec_{desc.Key}",
-                                _ =>
-                                {
-                                    State.EditingDeviceUri = decrement(editingUri);
-                                    State.DeviceSettingsDirty = true;
-                                });
-                        }
-
-                        // Value label
-                        var valueText = desc.FormatValue(editingUri);
-                        var valueW = controlW - stepBtnW * 2f;
-                        DrawText(valueText.AsSpan(), fontPath, controlX + stepBtnW, rowCursor, valueW, rowH, fontSize * 0.85f, BodyText, TextAlign.Center, TextAlign.Center);
-
-                        // [+] button
-                        RenderButton("+", controlX + controlW - stepBtnW, rowCursor, stepBtnW, rowH, fontPath, fontSize * 0.85f, EditButtonBg, BodyText, $"Inc_{desc.Key}",
-                            _ =>
-                            {
-                                State.EditingDeviceUri = capturedDesc.Increment(editingUri);
-                                State.DeviceSettingsDirty = true;
-                            });
+                        control = Layout.Builder.HStack(
+                            desc.Decrement is { } decrement
+                                ? Btn("-", $"Dec_{desc.Key}", EditButtonBg, _ => { State.EditingDeviceUri = decrement(editingUri); State.DeviceSettingsDirty = true; }).WFixed(24f).HStar()
+                                : Layout.Builder.Spacer().WFixed(24f).HStar(),
+                            Layout.Builder.Text(desc.FormatValue(editingUri), BaseFontSize * 0.85f, BodyText, TextAlign.Center, TextAlign.Center).Stretch(),
+                            Btn("+", $"Inc_{desc.Key}", EditButtonBg, _ => { State.EditingDeviceUri = capturedDesc.Increment(editingUri); State.DeviceSettingsDirty = true; }).WFixed(24f).HStar());
                         break;
-                    }
+
+                    case DeviceSettingKind.StringEditor when State.EditingStringSettingKey == desc.Key:
+                        if (desc.Placeholder is { } placeholder) State.StringSettingInput.Placeholder = placeholder;
+                        control = Layout.Builder.Fill(key: $"setting:{desc.Key}");
+                        break;
 
                     case DeviceSettingKind.StringEditor:
                     {
-                        var isEditing = State.EditingStringSettingKey == desc.Key;
-                        if (isEditing)
-                        {
-                            // Active text input
-                            if (desc.Placeholder is { } placeholder)
-                            {
-                                State.StringSettingInput.Placeholder = placeholder;
-                            }
-                            RenderTextInput(State.StringSettingInput, (int)rowControlX, (int)rowCursor, (int)rowControlW, (int)rowH, fontPath, fontSize * 0.85f);
-                        }
-                        else
-                        {
-                            // Display current value (masked if configured) with click-to-edit
-                            var rawValue = desc.FormatValue(editingUri);
-                            var displayValue = desc.Mask && rawValue.Length > 0
-                                ? new string('*', Math.Min(rawValue.Length, 8)) + rawValue[Math.Max(0, rawValue.Length - 4)..]
-                                : rawValue;
-                            if (displayValue.Length == 0)
-                            {
-                                displayValue = desc.Placeholder ?? "(empty)";
-                            }
-                            RenderButton(displayValue, rowControlX, rowCursor, rowControlW, rowH, fontPath, fontSize * 0.85f, EditButtonBg, BodyText, $"Edit_{desc.Key}",
-                                _ =>
-                                {
-                                    State.EditingStringSettingKey = capturedDesc.Key;
-                                    State.StringSettingInput.Activate(capturedDesc.FormatValue(editingUri));
-                                });
-                        }
+                        var rawValue = desc.FormatValue(editingUri);
+                        var displayValue = desc.Mask && rawValue.Length > 0
+                            ? new string('*', Math.Min(rawValue.Length, 8)) + rawValue[Math.Max(0, rawValue.Length - 4)..]
+                            : rawValue;
+                        if (displayValue.Length == 0) displayValue = desc.Placeholder ?? "(empty)";
+                        control = Btn(displayValue, $"Edit_{desc.Key}", EditButtonBg,
+                            _ => { State.EditingStringSettingKey = capturedDesc.Key; State.StringSettingInput.Activate(capturedDesc.FormatValue(editingUri)); });
                         break;
                     }
+
+                    default:
+                        control = Layout.Builder.Spacer();
+                        break;
                 }
 
+                var row = Layout.Builder.HStack(
+                        Layout.Builder.Spacer().WFixed(BasePadding).HStar(),
+                        Layout.Builder.Text($"{desc.Label}:", BaseFontSize * 0.85f, DimText).WStar(labelWeight).HStar(),
+                        control.WStar(1f - labelWeight).HStar(),
+                        Layout.Builder.Spacer().WFixed(BasePadding).HStar())
+                    .RowH(BaseItemHeight * 0.9f).Bg(rowBg);
+                RenderLayout(row, new RectF32(x + padding, rowCursor, w - padding * 2f, rowH), fontPath, dpiScale,
+                    drawFill: (fill, r) =>
+                    {
+                        if (fill.Key == $"setting:{capturedDesc.Key}")
+                            RenderTextInput(State.StringSettingInput, (int)r.X, (int)r.Y, (int)r.Width, (int)r.Height, fontPath, fontSize * 0.85f);
+                    });
                 return rowCursor + rowH;
             }
 
