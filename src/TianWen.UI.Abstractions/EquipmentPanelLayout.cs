@@ -125,7 +125,8 @@ namespace TianWen.UI.Abstractions
         /// </summary>
         public static Layout.Node SlotRow(
             DeviceSlotRow slot, EquipmentPanelStyle style, AssignTarget? activeSlot,
-            Func<AssignTarget, Action<InputModifier>?>? onSlotClick)
+            Func<AssignTarget, Action<InputModifier>?>? onSlotClick,
+            string? indicatorFillKey = null)
         {
             var palette = style.Theme.Palette;
             var metrics = style.Theme.Metrics;
@@ -136,7 +137,7 @@ namespace TianWen.UI.Abstractions
             var pad = Layout.Builder.Spacer().ColW(metrics.Padding);
             var label = Layout.Builder.Text(slot.Label, metrics.BaseFontSize * 0.9f, palette.DimText).WStar(LabelShare).HStar();
             var name = Layout.Builder.Text(slot.DeviceName, metrics.BaseFontSize, palette.BodyText).WStar(1f - LabelShare).HStar();
-            var indicator = Layout.Builder.Fill().ColW(ArrowWidth);
+            var indicator = Layout.Builder.Fill(key: indicatorFillKey).ColW(ArrowWidth);
 
             // The whole row is clickable (Hit on the Stack), so a click anywhere toggles assignment.
             return Layout.Builder.HStack(pad, label, name, indicator)

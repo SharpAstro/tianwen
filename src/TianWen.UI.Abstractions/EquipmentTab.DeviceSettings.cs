@@ -20,52 +20,46 @@ namespace TianWen.UI.Abstractions
         // -----------------------------------------------------------------------
 
         /// <summary>
-        /// Renders device settings for a device URI if the device declares any <see cref="DeviceSettingDescriptor"/>s.
-        /// Returns the updated cursor Y. No-ops if the device has no settings.
+        /// Builds device settings for a device URI as one profile-panel section node if the device
+        /// declares any <see cref="DeviceSettingDescriptor"/>s (else null = no section).
         /// </summary>
-        private float RenderDeviceSettingsIfAny(
-            GuiAppState appState,
-            ProfileData pd,
-            Uri? deviceUri,
-            string sectionLabel,
-            float x, float cursor, float w, float itemH,
-            float dpiScale, string fontPath, float fontSize, float padding)
+        private Layout.Node? BuildDeviceSettingsIfAny(
+            GuiAppState appState, ProfileData pd, Uri? deviceUri, string sectionLabel,
+            float dpiScale, string fontPath)
         {
             if (deviceUri is null || deviceUri == NoneDevice.Instance.DeviceUri)
             {
-                return cursor;
+                return null;
             }
 
             var device = EquipmentActions.TryDeviceFromUri(deviceUri);
             if (device is null || device.Settings.IsDefaultOrEmpty)
             {
-                return cursor;
+                return null;
             }
 
-            return RenderDeviceSettings(appState, pd, deviceUri, device.Settings, sectionLabel,
-                x, cursor, w, itemH, dpiScale, fontPath, fontSize, padding);
+            return BuildDeviceSettings(appState, pd, deviceUri, device.Settings, sectionLabel, dpiScale, fontPath);
         }
 
         /// <summary>
-        /// Renders the expandable settings pane for a device. Iterates <see cref="DeviceSettingDescriptor"/>s
-        /// and dispatches on <see cref="DeviceSettingKind"/> to render the appropriate control.
+        /// Builds the expandable settings pane for a device as one section node. Iterates
+        /// <see cref="DeviceSettingDescriptor"/>s and dispatches on <see cref="DeviceSettingKind"/> to
+        /// the appropriate control. String-editor inputs are keyed <c>Fill</c> leaves painted through
+        /// <see cref="_profilePanelFills"/> from the single panel RenderLayout.
         /// </summary>
-        private float RenderDeviceSettings(
-            GuiAppState appState,
-            ProfileData pd,
-            Uri savedDeviceUri,
-            ImmutableArray<DeviceSettingDescriptor> settings,
-            string sectionLabel,
-            float x, float cursor, float w, float itemH,
-            float dpiScale, string fontPath, float fontSize, float padding)
+        private Layout.Node BuildDeviceSettings(
+            GuiAppState appState, ProfileData pd, Uri savedDeviceUri,
+            ImmutableArray<DeviceSettingDescriptor> settings, string sectionLabel,
+            float dpiScale, string fontPath)
         {
             var deviceKey = savedDeviceUri.GetLeftPart(UriPartial.Path);
             var isExpanded = State.ExpandedDeviceSettingsUri == deviceKey;
-            var rowH = itemH * 0.9f;
+            var fontSize = BaseFontSize * dpiScale;
+            float rowH = BaseItemHeight * 0.9f;   // design units
 
             // Toggle header
             var headerLabel = isExpanded ? $"    {sectionLabel} [-]" : $"    {sectionLabel} [+]";
-            var devToggle = FormRowLayout.ToggleHeaderRow(
+            var toggle = FormRowLayout.ToggleHeaderRow(
                 headerLabel, rowH, FilterTableBg, HeaderText, BaseFontSize * 0.85f,
                 new HitResult.ButtonHit($"Toggle_{deviceKey}"),
                 _ =>
@@ -79,20 +73,19 @@ namespace TianWen.UI.Abstractions
                         State.BeginEditingDeviceSettings(savedDeviceUri);
                     }
                 });
-            RenderLayout(devToggle, new RectF32(x + padding, cursor, w - padding * 2f, rowH), fontPath, dpiScale);
-            cursor += rowH;
 
             if (!isExpanded || State.EditingDeviceUri is not { } editingUri)
             {
-                return cursor;
+                return toggle;
             }
 
-            // Local row renderer shared by the basic pass and the advanced sub-section. Each row is one
+            var rows = new List<Layout.Node> { toggle };
+
+            // Local row builder shared by the basic pass and the advanced sub-section. Each row is one
             // tree: [pad | label | control | pad] with an alternating background. The control is a cycle
-            // button, a [- value +] stepper, or a string editor (inline text-input Fill / click-to-edit
-            // button) -- was ~90 lines of FillRect + per-control DrawText/RenderButton at computed x.
+            // button, a [- value +] stepper, or a string editor (inline text-input Fill / click-to-edit button).
             var rowIndex = 0;
-            float RenderSettingRow(DeviceSettingDescriptor desc, float rowCursor)
+            Layout.Node SettingRow(DeviceSettingDescriptor desc)
             {
                 var rowBg = rowIndex++ % 2 == 0 ? FilterTableBg : FilterRowAlt;
                 var capturedDesc = desc;
@@ -125,7 +118,10 @@ namespace TianWen.UI.Abstractions
 
                     case DeviceSettingKind.StringEditor when State.EditingStringSettingKey == desc.Key:
                         if (desc.Placeholder is { } placeholder) State.StringSettingInput.Placeholder = placeholder;
-                        control = Layout.Builder.Fill(key: $"setting:{desc.Key}");
+                        var editFillKey = $"setting:{desc.Key}";
+                        _profilePanelFills[editFillKey] =
+                            r => RenderTextInput(State.StringSettingInput, (int)r.X, (int)r.Y, (int)r.Width, (int)r.Height, fontPath, fontSize * 0.85f);
+                        control = Layout.Builder.Fill(key: editFillKey);
                         break;
 
                     case DeviceSettingKind.StringEditor:
@@ -145,19 +141,12 @@ namespace TianWen.UI.Abstractions
                         break;
                 }
 
-                var row = Layout.Builder.HStack(
+                return Layout.Builder.HStack(
                         Layout.Builder.Spacer().WFixed(BasePadding).HStar(),
                         Layout.Builder.Text($"{desc.Label}:", BaseFontSize * 0.85f, DimText).WStar(labelWeight).HStar(),
                         control.WStar(1f - labelWeight).HStar(),
                         Layout.Builder.Spacer().WFixed(BasePadding).HStar())
-                    .RowH(BaseItemHeight * 0.9f).Bg(rowBg);
-                RenderLayout(row, new RectF32(x + padding, rowCursor, w - padding * 2f, rowH), fontPath, dpiScale,
-                    drawFill: (fill, r) =>
-                    {
-                        if (fill.Key == $"setting:{capturedDesc.Key}")
-                            RenderTextInput(State.StringSettingInput, (int)r.X, (int)r.Y, (int)r.Width, (int)r.Height, fontPath, fontSize * 0.85f);
-                    });
-                return rowCursor + rowH;
+                    .RowH(rowH).Bg(rowBg);
             }
 
             // Basic rows first; advanced rows are deferred to a collapsed-by-default sub-section.
@@ -177,7 +166,7 @@ namespace TianWen.UI.Abstractions
                     continue;
                 }
 
-                cursor = RenderSettingRow(desc, cursor);
+                rows.Add(SettingRow(desc));
             }
 
             // Advanced sub-section: expert knobs with sensible defaults, collapsed by default.
@@ -185,12 +174,10 @@ namespace TianWen.UI.Abstractions
             {
                 var advancedExpanded = State.AdvancedDeviceSettingsExpanded;
                 var advancedLabel = advancedExpanded ? "      Advanced [-]" : "      Advanced [+]";
-                var advancedToggle = FormRowLayout.ToggleHeaderRow(
+                rows.Add(FormRowLayout.ToggleHeaderRow(
                     advancedLabel, rowH, FilterTableBg, DimText, BaseFontSize * 0.85f,
                     new HitResult.ButtonHit($"ToggleAdvanced_{deviceKey}"),
-                    _ => State.AdvancedDeviceSettingsExpanded = !advancedExpanded);
-                RenderLayout(advancedToggle, new RectF32(x + padding, cursor, w - padding * 2f, rowH), fontPath, dpiScale);
-                cursor += rowH;
+                    _ => State.AdvancedDeviceSettingsExpanded = !advancedExpanded));
 
                 if (advancedExpanded)
                 {
@@ -202,7 +189,7 @@ namespace TianWen.UI.Abstractions
                             continue;
                         }
 
-                        cursor = RenderSettingRow(desc, cursor);
+                        rows.Add(SettingRow(desc));
                     }
                 }
             }
@@ -216,35 +203,33 @@ namespace TianWen.UI.Abstractions
                 State.EditingStringSettingKey = null;
             }
 
-            // Save / Cancel buttons (only when dirty)
+            // Save / Cancel buttons (only when dirty), right-aligned.
             if (State.DeviceSettingsDirty)
             {
-                var btnW = 60f * dpiScale;
-                var gap = padding;
-                var saveBtnX = x + w - padding - btnW * 2f - gap;
-                var cancelBtnX = x + w - padding - btnW;
+                Layout.Node ActionBtn(string label, RGBAColor32 bg, RGBAColor32 textColor, string action, Action<InputModifier> onClick) =>
+                    Layout.Builder.Text(label, BaseFontSize * 0.85f, textColor, TextAlign.Center, TextAlign.Center)
+                        .WFixed(60f).HStar().Bg(bg).Clickable(new HitResult.ButtonHit(action), onClick);
 
-                RenderButton("Save", saveBtnX, cursor, btnW, rowH, fontPath, fontSize * 0.85f, CreateButton, BodyText, $"SaveSettings_{deviceKey}",
-                    _ =>
-                    {
-                        if (appState.ActiveProfile is { Data: { } data } && State.EditingDeviceUri is { } newUri)
-                        {
-                            var newData = EquipmentActions.UpdateDeviceUri(data, savedDeviceUri, newUri);
-                            PostSignal(new UpdateProfileSignal(newData));
-                            State.BeginEditingDeviceSettings(newUri);
-                        }
-                    });
-
-                RenderButton("Cancel", cancelBtnX, cursor, btnW, rowH, fontPath, fontSize * 0.85f, EditButtonBg, DimText, $"CancelSettings_{deviceKey}",
-                    _ =>
-                    {
-                        State.BeginEditingDeviceSettings(savedDeviceUri);
-                    });
-
-                cursor += rowH;
+                rows.Add(Layout.Builder.HStack(
+                        Layout.Builder.Spacer().Stretch(),
+                        ActionBtn("Save", CreateButton, BodyText, $"SaveSettings_{deviceKey}",
+                            _ =>
+                            {
+                                if (appState.ActiveProfile is { Data: { } data } && State.EditingDeviceUri is { } newUri)
+                                {
+                                    var newData = EquipmentActions.UpdateDeviceUri(data, savedDeviceUri, newUri);
+                                    PostSignal(new UpdateProfileSignal(newData));
+                                    State.BeginEditingDeviceSettings(newUri);
+                                }
+                            }),
+                        Layout.Builder.Spacer().WFixed(BasePadding).HStar(),
+                        ActionBtn("Cancel", EditButtonBg, DimText, $"CancelSettings_{deviceKey}",
+                            _ => State.BeginEditingDeviceSettings(savedDeviceUri)),
+                        Layout.Builder.Spacer().WFixed(BasePadding).HStar())
+                    .RowH(rowH));
             }
 
-            return cursor;
+            return Layout.Builder.VStack([.. rows]).WStar();
         }
 
     }

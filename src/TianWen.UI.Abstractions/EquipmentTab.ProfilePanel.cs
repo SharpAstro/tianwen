@@ -11,7 +11,8 @@ namespace TianWen.UI.Abstractions
 {
     /// <summary>
     /// Left profile panel: the data-driven section walk (profile header, device slots, site,
-    /// guide focal length, OTA headers/properties) dispatched from RenderProfilePanel.
+    /// guide focal length, OTA headers/properties) built into ONE arranged <see cref="Layout.Node"/>
+    /// tree by RenderProfilePanel -- no per-section pixel cursor.
     /// </summary>
     partial class EquipmentTab<TSurface>
     {
@@ -19,6 +20,25 @@ namespace TianWen.UI.Abstractions
         // Left panel: profile summary
         // -----------------------------------------------------------------------
 
+        // Per-frame Fill-leaf painter dispatch for the profile panel's single RenderLayout. Keyed by the
+        // Fill leaf's key; populated while building section nodes and drained by DispatchProfilePanelFill.
+        // Render-thread-only (RenderProfilePanel runs on the paint path), so a plain Dictionary is safe.
+        private readonly Dictionary<string, Action<RectF32>> _profilePanelFills = new();
+
+        private void DispatchProfilePanelFill(Layout.Content.Fill fill, RectF32 r)
+        {
+            if (fill.Key is { } k && _profilePanelFills.TryGetValue(k, out var painter)) painter(r);
+        }
+
+        /// <summary>
+        /// The whole profile panel is one arranged tree: a <see cref="Layout.Builder.VStack(System.ReadOnlySpan{Layout.Node})"/>
+        /// of section nodes (from <see cref="EquipmentContent.GetProfilePanelSections"/>), padded once and
+        /// rendered by a single <see cref="PixelWidgetBase{TSurface}.RenderLayout"/>. The engine stacks the
+        /// sections (no <c>cursor +=</c>); text-inputs, the cooler sparkline, and the slot reachability dots
+        /// are keyed <see cref="Layout.Content.Fill"/> leaves painted through <see cref="_profilePanelFills"/>.
+        /// Runtime-conditional sections (mount/camera telemetry, device settings) self-gate to null (no node)
+        /// when their device isn't hub-connected / declares no settings, exactly as the inline calls did.
+        /// </summary>
         private void RenderProfilePanel(
             GuiAppState appState,
             RectF32 rect,
@@ -26,181 +46,161 @@ namespace TianWen.UI.Abstractions
             string? emojiFontPath = null,
             LiveSessionState? liveSessionState = null)
         {
-            var fontSize   = BaseFontSize * dpiScale;
-            var padding    = BasePadding * dpiScale;
-            var itemH      = BaseItemHeight * dpiScale;
-            var arrowW     = BaseArrowWidth * dpiScale;
-            var headerH    = BaseHeaderHeight * dpiScale;
-            var buttonH    = BaseButtonHeight * dpiScale;
-
-            var x = rect.X;
-            var y = rect.Y;
-            var w = rect.Width;
-            var h = rect.Height;
+            var padding = BasePadding * dpiScale;
+            var innerX = rect.X + padding;
+            var innerW = rect.Width - padding * 2f;
 
             var profile = appState.ActiveProfile!;
             var data = profile.Data;
 
-            var cursor = y + padding;
+            _profilePanelFills.Clear();
 
+            Layout.Node tree;
             if (data is { } pd)
             {
-                // The panel's vertical flow is a data-driven section list (TODO.md:57): the order lives in
-                // EquipmentContent.GetProfilePanelSections, not in a hardcoded cursor walk. Each section is
-                // dispatched to its renderer (which advances the cursor); runtime-conditional sections
-                // (mount/camera telemetry, device settings) self-gate to a no-op when their device isn't
-                // hub-connected / declares no settings, exactly as the inline calls did before.
+                var sections = new List<Layout.Node>();
+                var idx = 0;
                 foreach (var section in _content.GetProfilePanelSections(pd))
                 {
-                    cursor = RenderSection(section, appState, pd, profile, liveSessionState,
-                        x, cursor, w, y, h, dpiScale, fontPath, emojiFontPath,
-                        fontSize, padding, itemH, arrowW, headerH, buttonH);
+                    var node = BuildSection(section, appState, pd, profile, liveSessionState,
+                        innerX, innerW, dpiScale, fontPath, idx++);
+                    if (node is { } n) sections.Add(n);
                 }
+                tree = Layout.Builder.VStack([.. sections]).Pad(BasePadding);
             }
             else
             {
-                cursor = RenderProfileHeaderSection(profile, x, cursor, w, fontPath, fontSize, padding, headerH);
-                FillRect(x + padding, cursor, w - padding * 2f, 1f, SeparatorColor);
-                cursor += padding;
-                DrawText(
-                    "Profile has no data.".AsSpan(),
-                    fontPath,
-                    x + padding, cursor, w - padding * 2f, itemH,
-                    fontSize, DimText, TextAlign.Near, TextAlign.Center);
+                const string sepKey = "sepNoData";
+                _profilePanelFills[sepKey] = r => FillRect(r.X, r.Y, r.Width, 1f, SeparatorColor);
+                tree = Layout.Builder.VStack(
+                        Layout.Builder.Text($"Profile: {profile.DisplayName}", BaseFontSize * 1.1f, HeaderText).RowH(BaseHeaderHeight),
+                        Layout.Builder.Fill(key: sepKey).RowH(BasePadding),
+                        Layout.Builder.Text("Profile has no data.", BaseFontSize, DimText).RowH(BaseItemHeight))
+                    .Pad(BasePadding);
             }
+
+            // Clip overflow to the panel so a tall profile can't overdraw the neighbouring device list /
+            // bottom bar (this replaces the old "draw the Add OTA button only if it fits" cursor check).
+            Renderer.PushClip(new RectInt(
+                new PointInt((int)(rect.X + rect.Width), (int)(rect.Y + rect.Height)),
+                new PointInt((int)rect.X, (int)rect.Y)));
+            RenderLayout(tree, rect, fontPath, dpiScale, drawFill: DispatchProfilePanelFill);
+            Renderer.PopClip();
         }
 
         /// <summary>
-        /// Dispatches one <see cref="PanelSection"/> to its renderer at the current cursor Y, returning the
-        /// new cursor. Static rows (slots / header / separator) go through the engine-backed helpers;
-        /// interactive + variable-height widgets stay as imperative section helpers. This is the single
-        /// switch the data-driven section loop (<see cref="EquipmentContent.GetProfilePanelSections"/>) walks,
-        /// replacing the old hardcoded cursor sequence.
+        /// Builds one <see cref="PanelSection"/> as a <see cref="Layout.Node"/> (or null for a no-op /
+        /// hidden section). This is the single switch the data-driven section list walks -- each case
+        /// returns a self-contained sub-tree, so RenderProfilePanel just stacks them.
         /// </summary>
-        private float RenderSection(PanelSection section, GuiAppState appState, ProfileData pd, Profile profile,
-            LiveSessionState? liveSessionState, float x, float cursor, float w, float y, float h,
-            float dpiScale, string fontPath, string? emojiFontPath,
-            float fontSize, float padding, float itemH, float arrowW, float headerH, float buttonH)
+        private Layout.Node? BuildSection(PanelSection section, GuiAppState appState, ProfileData pd, Profile profile,
+            LiveSessionState? liveSessionState, float innerX, float innerW, float dpiScale, string fontPath, int idx)
         {
             switch (section)
             {
                 case PanelSection.ProfileHeader:
-                    return RenderProfileHeaderSection(profile, x, cursor, w, fontPath, fontSize, padding, headerH);
+                    return Layout.Builder.Text($"Profile: {profile.DisplayName}", BaseFontSize * 1.1f, HeaderText)
+                        .RowH(BaseHeaderHeight);
 
                 case PanelSection.Separator:
-                    FillRect(x + padding, cursor, w - padding * 2f, 1f, SeparatorColor);
-                    return cursor + padding;
+                {
+                    var sepKey = $"sep{idx}";
+                    _profilePanelFills[sepKey] = r => FillRect(r.X, r.Y, r.Width, 1f, SeparatorColor);
+                    return Layout.Builder.Fill(key: sepKey).RowH(BasePadding);
+                }
 
                 case PanelSection.Spacer spacer:
-                    return cursor + (spacer.Gap == PanelGap.Full ? padding : padding / 2f);
+                    return Layout.Builder.Spacer().RowH(spacer.Gap == PanelGap.Full ? BasePadding : BasePadding / 2f);
 
                 case PanelSection.Slot slot:
-                    return RenderProfileSlot(slot.Row.Label, EquipmentActions.GetAssignedDevice(pd, slot.Row.Slot), slot.Row.Slot,
-                        x, cursor, w, itemH, dpiScale, fontPath, fontSize, padding, arrowW, appState, pd, emojiFontPath);
+                    return BuildProfileSlot(slot.Row.Label, EquipmentActions.GetAssignedDevice(pd, slot.Row.Slot), slot.Row.Slot,
+                        appState, pd, innerX, innerW, dpiScale, fontPath);
 
                 case PanelSection.MountTelemetry:
-                    return RenderMountTelemetryIfAny(appState, pd.Mount, liveSessionState,
-                        x, cursor, w, itemH, dpiScale, fontPath, fontSize, padding);
+                    return BuildMountTelemetry(appState, pd.Mount, liveSessionState, innerW, dpiScale, fontPath);
 
                 case PanelSection.DeviceSettings ds:
-                    return RenderDeviceSettingsIfAny(appState, pd, ds.Device, ds.Label,
-                        x, cursor, w, itemH, dpiScale, fontPath, fontSize, padding);
+                    return BuildDeviceSettingsIfAny(appState, pd, ds.Device, ds.Label, dpiScale, fontPath);
 
                 case PanelSection.Site:
-                    return RenderSiteSection(pd, x, cursor, w, dpiScale, fontPath, fontSize, padding, itemH, buttonH, arrowW);
+                    return BuildSite(pd, dpiScale, fontPath);
 
                 case PanelSection.GuideFocalLength:
-                    return RenderGuideFocalLengthSection(pd, x, cursor, w, dpiScale, fontPath, fontSize, padding, itemH);
+                    return BuildGuideFocalLength(pd, innerW, dpiScale, fontPath);
 
                 case PanelSection.CameraTelemetry ct:
-                    return RenderCameraTelemetryIfAny(appState, ct.Camera,
-                        x, cursor, w, itemH, dpiScale, fontPath, fontSize, padding);
+                    return BuildCameraTelemetry(appState, ct.Camera, innerW, dpiScale, fontPath);
 
                 case PanelSection.OtaHeader oh:
-                    return RenderOtaHeaderSection(appState, pd, oh.Index, x, cursor, w, dpiScale, fontPath, fontSize, padding, itemH);
+                    return BuildOtaHeader(appState, pd, oh.Index);
 
                 case PanelSection.OtaProps op:
                 {
                     var otaData = pd.OTAs[op.Index];
                     return State.EditingOtaIndex == op.Index
-                        ? RenderOtaPropertyEditors(appState, op.Index, otaData, x, cursor, w, itemH, dpiScale, fontPath, fontSize, padding, buttonH)
-                        : RenderOtaPropertiesSummary(otaData, x, cursor, w, itemH, fontPath, fontSize, padding);
+                        ? BuildOtaPropertyEditors(appState, op.Index, otaData, dpiScale, fontPath)
+                        : BuildOtaPropertiesSummary(otaData);
                 }
 
                 case PanelSection.FilterTable ft:
-                    return RenderFilterTable(appState, ft.OtaIndex, pd, x, cursor, w, itemH, dpiScale, fontPath, fontSize, padding, buttonH);
+                    return BuildFilterTable(appState, ft.OtaIndex, pd, dpiScale, fontPath);
 
                 case PanelSection.AddOta:
-                    return RenderAddOtaSection(appState, pd, x, cursor, w, y, h, dpiScale, fontPath, fontSize, padding, buttonH);
+                    return BuildAddOtaSection();
 
                 default:
-                    return cursor;
+                    return null;
             }
         }
 
-        /// <summary>Profile-name header row. Returns the new cursor Y.</summary>
-        private float RenderProfileHeaderSection(Profile profile, float x, float cursor, float w,
-            string fontPath, float fontSize, float padding, float headerH)
+        /// <summary>Site latitude/longitude/elevation block: edit fields, a display row, or a "set site" button.</summary>
+        private Layout.Node BuildSite(ProfileData pd, float dpiScale, string fontPath)
         {
-            DrawText(
-                $"Profile: {profile.DisplayName}".AsSpan(),
-                fontPath,
-                x + padding, cursor, w - padding * 2f, headerH,
-                fontSize * 1.1f, HeaderText, TextAlign.Near, TextAlign.Center);
-            return cursor + headerH;
-        }
-
-        /// <summary>Site latitude/longitude/elevation block (edit fields, display row, or "set site" button). Returns the new cursor Y.</summary>
-        private float RenderSiteSection(ProfileData pd, float x, float cursor, float w, float dpiScale,
-            string fontPath, float fontSize, float padding, float itemH, float buttonH, float arrowW)
-        {
-            // Site info -- clickable to edit
+            var fontSize = BaseFontSize * dpiScale;
             var site = EquipmentActions.GetSiteFromProfile(pd);
+
             if (State.IsEditingSite)
             {
-                // Show editable lat/lon/elevation fields
-                var fieldH = (int)(itemH * 1.2f);
-                var fieldW = (int)(w - padding * 2f);
-                var fieldX = (int)(x + padding);
+                float fieldH = BaseItemHeight * 1.2f;
+                const float labelW = 50f;
 
-                var labelW_site = 50f * dpiScale;
-                var rowW_site = w - padding * 2f;
+                Layout.Node InputRow(string label, string key, TextInputState input)
+                {
+                    _profilePanelFills[key] = r => RenderTextInput(input, (int)r.X, (int)r.Y, (int)r.Width, (int)r.Height, fontPath, fontSize * 0.9f);
+                    return FormRowLayout.LabeledInputRow(label, labelW, fieldH, 0f, BaseFontSize * 0.85f, DimText, fillKey: key);
+                }
 
-                var latRow = FormRowLayout.LabeledInputRow("  Lat:", labelW_site, fieldH, padding, BaseFontSize * 0.85f, DimText);
-                RenderLayout(latRow, new RectF32(x + padding, cursor, rowW_site, fieldH), fontPath, dpiScale,
-                    drawFill: (_, r) => RenderTextInput(State.LatitudeInput, (int)r.X, (int)r.Y, (int)r.Width, (int)r.Height, fontPath, fontSize * 0.9f));
-                cursor += fieldH + 2;
-
-                var lonRow = FormRowLayout.LabeledInputRow("  Lon:", labelW_site, fieldH, padding, BaseFontSize * 0.85f, DimText);
-                RenderLayout(lonRow, new RectF32(x + padding, cursor, rowW_site, fieldH), fontPath, dpiScale,
-                    drawFill: (_, r) => RenderTextInput(State.LongitudeInput, (int)r.X, (int)r.Y, (int)r.Width, (int)r.Height, fontPath, fontSize * 0.9f));
-                cursor += fieldH + 2;
-
-                var elevRow = FormRowLayout.LabeledInputRow("  Elev:", labelW_site, fieldH, padding, BaseFontSize * 0.85f, DimText);
-                RenderLayout(elevRow, new RectF32(x + padding, cursor, rowW_site, fieldH), fontPath, dpiScale,
-                    drawFill: (_, r) => RenderTextInput(State.ElevationInput, (int)r.X, (int)r.Y, (int)r.Width, (int)r.Height, fontPath, fontSize * 0.9f));
-                cursor += fieldH + 2;
-
-                // Tie-breaker selector: which side wins on mount connect when both have a site?
-                DrawText("  Tie:".AsSpan(), fontPath, x + padding, cursor, 50f * dpiScale, itemH, fontSize * 0.85f, DimText, TextAlign.Near, TextAlign.Center);
-                var tbX = fieldX + (int)(50f * dpiScale);
-                var tbW = (fieldW - (int)(50f * dpiScale)) / 2 - 2;
                 var isMountWins = pd.SiteTieBreaker == SiteTieBreaker.Mount;
-                RenderButton("Mount", tbX, cursor, tbW, buttonH, fontPath, fontSize,
-                    isMountWins ? SlotActive : CreateButton, BodyText, "TieMount",
-                    _ => PostSignal(new UpdateProfileSignal(EquipmentActions.SetSiteTieBreaker(pd, SiteTieBreaker.Mount))));
-                RenderButton("Profile", tbX + tbW + 4, cursor, tbW, buttonH, fontPath, fontSize,
-                    !isMountWins ? SlotActive : CreateButton, BodyText, "TieProfile",
-                    _ => PostSignal(new UpdateProfileSignal(EquipmentActions.SetSiteTieBreaker(pd, SiteTieBreaker.Profile))));
-                cursor += buttonH + 2;
+                Layout.Node TieBtn(string label, bool active, SiteTieBreaker tb, string hit) =>
+                    Layout.Builder.Text(label, BaseFontSize, BodyText, TextAlign.Center, TextAlign.Center)
+                        .WStar().HStar().Bg(active ? SlotActive : CreateButton)
+                        .Clickable(new HitResult.ButtonHit(hit), _ => PostSignal(new UpdateProfileSignal(EquipmentActions.SetSiteTieBreaker(pd, tb))));
 
-                // Save button
-                var saveBtnW = Renderer.MeasureText("Save Site".AsSpan(), fontPath, fontSize).Width + padding * 4f;
-                RenderButton("Save Site", x + padding, cursor, saveBtnW, buttonH, fontPath, fontSize, CreateButton, BodyText, "SaveSite",
-                    _ => State.LatitudeInput.OnCommit?.Invoke(State.LatitudeInput.Text));
-                cursor += buttonH + padding;
+                // Tie-breaker: which side wins on mount connect when both have a site?
+                var tieRow = Layout.Builder.HStack(
+                        Layout.Builder.Text("  Tie:", BaseFontSize * 0.85f, DimText).WFixed(labelW).HStar(),
+                        TieBtn("Mount", isMountWins, SiteTieBreaker.Mount, "TieMount"),
+                        Layout.Builder.Spacer().WFixed(4f).HStar(),
+                        TieBtn("Profile", !isMountWins, SiteTieBreaker.Profile, "TieProfile"))
+                    .RowH(BaseButtonHeight);
+
+                var saveRow = Layout.Builder.HStack(
+                        Layout.Builder.Text("Save Site", BaseFontSize, BodyText, TextAlign.Center, TextAlign.Center)
+                            .WFixed(72f).HStar().Bg(CreateButton)
+                            .Clickable(new HitResult.ButtonHit("SaveSite"), _ => State.LatitudeInput.OnCommit?.Invoke(State.LatitudeInput.Text)),
+                        Layout.Builder.Spacer().Stretch())
+                    .RowH(BaseButtonHeight);
+
+                return Layout.Builder.VStack(
+                        InputRow("  Lat:", "siteLat", State.LatitudeInput),
+                        InputRow("  Lon:", "siteLon", State.LongitudeInput),
+                        InputRow("  Elev:", "siteElev", State.ElevationInput),
+                        tieRow,
+                        saveRow)
+                    .WithGap(2f).WStar();
             }
-            else if (site.HasValue)
+
+            if (site.HasValue)
             {
                 var (lat, lon, elev) = site.Value;
                 var latStr = lat >= 0 ? $"{lat:F1}\u00b0N" : $"{-lat:F1}\u00b0S";
@@ -208,36 +208,28 @@ namespace TianWen.UI.Abstractions
                 var elevStr = elev.HasValue ? $", {elev.Value:F0}m" : "";
                 var siteStr = $"  Site: {latStr}, {lonStr}{elevStr}";
 
-                var siteBtnW = w - padding * 2f;
-                var siteRow = Layout.Builder.HStack(
-                    Layout.Builder.Text(siteStr, BaseFontSize * 0.9f, SiteText).Stretch(),
-                    Layout.Builder.Text("[>]", BaseFontSize * 0.85f, DimText, TextAlign.Center, TextAlign.Center).WFixed(arrowW).HStar())
-                    .WFixed(siteBtnW).HFixed(itemH)
-                    .Bg(SlotNormal)
+                return Layout.Builder.HStack(
+                        Layout.Builder.Text(siteStr, BaseFontSize * 0.9f, SiteText).Stretch(),
+                        Layout.Builder.Text("[>]", BaseFontSize * 0.85f, DimText, TextAlign.Center, TextAlign.Center).WFixed(BaseArrowWidth).HStar())
+                    .RowH(BaseItemHeight).Bg(SlotNormal)
                     .Clickable(new HitResult.ButtonHit("EditSite"), _ => PostSignal(new EditSiteSignal()));
-                RenderLayout(siteRow, new RectF32(x + padding, cursor, siteBtnW, itemH), fontPath, dpiScale);
-                cursor += itemH;
             }
-            else
-            {
-                // No site configured -- show "Set Site" button
-                var setSiteBtnW = Renderer.MeasureText("Set Site".AsSpan(), fontPath, fontSize).Width + padding * 4f;
-                var setSiteLeaf = Layout.Builder.Text("Set Site", BaseFontSize, BodyText, TextAlign.Center, TextAlign.Center)
-                    .WFixed(setSiteBtnW).HFixed(buttonH)
-                    .Bg(CreateButton)
-                    .Clickable(new HitResult.ButtonHit("EditSite"), _ => PostSignal(new EditSiteSignal()));
-                RenderLayout(setSiteLeaf, new RectF32(x + padding, cursor, setSiteBtnW, buttonH), fontPath, dpiScale);
-                cursor += buttonH;
-            }
-            return cursor;
+
+            // No site configured -- show "Set Site" button
+            return Layout.Builder.HStack(
+                    Layout.Builder.Text("Set Site", BaseFontSize, BodyText, TextAlign.Center, TextAlign.Center)
+                        .WFixed(64f).HStar().Bg(CreateButton)
+                        .Clickable(new HitResult.ButtonHit("EditSite"), _ => PostSignal(new EditSiteSignal())),
+                    Layout.Builder.Spacer().Stretch())
+                .RowH(BaseButtonHeight);
         }
 
-        /// <summary>Guide-scope focal-length input row. Returns the new cursor Y.</summary>
-        private float RenderGuideFocalLengthSection(ProfileData pd, float x, float cursor, float w, float dpiScale,
-            string fontPath, float fontSize, float padding, float itemH)
+        /// <summary>Guide-scope focal-length input row.</summary>
+        private Layout.Node BuildGuideFocalLength(ProfileData pd, float innerW, float dpiScale, string fontPath)
         {
-            var labelW = w * 0.35f;
-            var fieldH = (int)(itemH * 0.9f);
+            var fontSize = BaseFontSize * dpiScale;
+            var labelWDesign = innerW * 0.35f / dpiScale;
+            float fieldH = BaseItemHeight * 0.9f;
 
             // Initialize from profile if not already set
             if (State.GuiderFocalLengthInput.Text.Length == 0 && pd.GuiderFocalLength is > 0)
@@ -246,24 +238,16 @@ namespace TianWen.UI.Abstractions
                 State.GuiderFocalLengthInput.CursorPos = State.GuiderFocalLengthInput.Text.Length;
             }
 
-            var guideRow = FormRowLayout.LabeledInputRow("Guide FL (mm):", labelW, fieldH, padding, BaseFontSize * 0.85f, DimText);
-            RenderLayout(guideRow, new RectF32(x + padding, cursor, w - padding * 2f, fieldH), fontPath, dpiScale,
-                drawFill: (_, r) => RenderTextInput(State.GuiderFocalLengthInput, (int)r.X, (int)r.Y, (int)r.Width, (int)r.Height, fontPath, fontSize * 0.9f));
-            cursor += fieldH + 2;
-            return cursor;
+            _profilePanelFills["guideFl"] =
+                r => RenderTextInput(State.GuiderFocalLengthInput, (int)r.X, (int)r.Y, (int)r.Width, (int)r.Height, fontPath, fontSize * 0.9f);
+            return FormRowLayout.LabeledInputRow("Guide FL (mm):", labelWDesign, fieldH, 0f, BaseFontSize * 0.85f, DimText, fillKey: "guideFl");
         }
 
-        /// <summary>OTA section header with the Remove / Edit buttons. Returns the new cursor Y.</summary>
-        private float RenderOtaHeaderSection(GuiAppState appState, ProfileData pd, int index, float x, float cursor, float w,
-            float dpiScale, string fontPath, float fontSize, float padding, float itemH)
+        /// <summary>OTA section header with the Remove / Edit buttons.</summary>
+        private Layout.Node BuildOtaHeader(GuiAppState appState, ProfileData pd, int index)
         {
             var ota = pd.OTAs[index];
-
-            // OTA header with [Remove] + [Edit] buttons
             var isEditingOta = State.EditingOtaIndex == index;
-            var editBtnW = 50f * dpiScale;
-            var removeBtnW = 74f * dpiScale;
-            var btnGap = 4f * dpiScale;
             var capturedI = index;
 
             var hub = appState.DeviceHub;
@@ -280,7 +264,7 @@ namespace TianWen.UI.Abstractions
             if (otaHasConnectedDevice)
             {
                 removeLeaf = Layout.Builder.Text("Remove", BaseFontSize * 0.85f, DimmedText, TextAlign.Center, TextAlign.Center)
-                    .WFixed(removeBtnW).HStar()
+                    .WFixed(74f).HStar()
                     .Bg(SegmentDisabled);
                     // No Hit, no OnClick -- disabled
             }
@@ -288,7 +272,7 @@ namespace TianWen.UI.Abstractions
             {
                 var armed = State.PendingRemoveOtaIndex == index;
                 removeLeaf = Layout.Builder.Text(armed ? "Confirm?" : "Remove", BaseFontSize * 0.85f, BodyText, TextAlign.Center, TextAlign.Center)
-                    .WFixed(removeBtnW).HStar()
+                    .WFixed(74f).HStar()
                     .Bg(armed ? ConfirmDangerBg : RemoveButtonBg)
                     .Clickable(new HitResult.ButtonHit($"RemoveOta{index}"), _ =>
                     {
@@ -308,13 +292,10 @@ namespace TianWen.UI.Abstractions
                     });
             }
 
-            // Gap leaf between Remove and Edit
-            var gapLeaf = Layout.Builder.Spacer().WFixed(btnGap).HStar();
-
             // [Edit]/[Save] toggle button leaf
             var editLabel = isEditingOta ? "Save" : "Edit";
             var editLeaf = Layout.Builder.Text(editLabel, BaseFontSize * 0.85f, BodyText, TextAlign.Center, TextAlign.Center)
-                .WFixed(editBtnW).HStar()
+                .WFixed(50f).HStar()
                 .Bg(EditButtonBg)
                 .Clickable(new HitResult.ButtonHit($"EditOta{index}"), _ =>
                 {
@@ -338,80 +319,87 @@ namespace TianWen.UI.Abstractions
                     }
                 });
 
-            // Build the full header row as a horizontal Stack
-            var headerRow = Layout.Builder.HStack(titleLeaf, removeLeaf, gapLeaf, editLeaf)
-                .WFixed(w).HFixed(itemH)
-                .Bg(OtaHeaderBg);
-            RenderLayout(headerRow, new RectF32(x, cursor, w, itemH), fontPath, dpiScale);
-            return cursor + itemH;
+            return Layout.Builder.HStack(
+                    titleLeaf,
+                    removeLeaf,
+                    Layout.Builder.Spacer().WFixed(4f).HStar(),
+                    editLeaf)
+                .RowH(BaseItemHeight).Bg(OtaHeaderBg);
         }
 
-        /// <summary>Add-OTA action row (drawn only if it fits before the panel bottom). Returns the new cursor Y.</summary>
-        private float RenderAddOtaSection(GuiAppState appState, ProfileData pd, float x, float cursor, float w, float y, float h,
-            float dpiScale, string fontPath, float fontSize, float padding, float buttonH)
-        {
-            // [+ Add OTA] button. "Connect All" used to share this row but now lives in the app
-            // chrome (top bar) so it is reachable from every tab — see VkGuiRenderer.RenderStatusBar
-            // + EquipmentActions.ComputeConnectAllStatus.
-            var addOtaBtnY = cursor;
-            var addOtaBtnW = 120f * dpiScale;
-            if (addOtaBtnY + buttonH < y + h - padding)
-            {
-                RenderButton("+ Add OTA", x + padding, addOtaBtnY, addOtaBtnW, buttonH, fontPath, fontSize, CreateButton, BodyText, "AddOta",
-                    _ => PostSignal(new AddOtaSignal()));
-            }
-            return cursor;
-        }
+        /// <summary>Add-OTA action row. "Connect All" lives in the app chrome (top bar), not here.</summary>
+        private Layout.Node BuildAddOtaSection() =>
+            Layout.Builder.HStack(
+                    Layout.Builder.Text("+ Add OTA", BaseFontSize, BodyText, TextAlign.Center, TextAlign.Center)
+                        .WFixed(120f).HStar().Bg(CreateButton)
+                        .Clickable(new HitResult.ButtonHit("AddOta"), _ => PostSignal(new AddOtaSignal())),
+                    Layout.Builder.Spacer().Stretch())
+                .RowH(BaseButtonHeight);
 
         /// <summary>
-        /// Renders a single profile slot row. Returns the new cursor Y.
+        /// Builds a single profile slot row: <c>[pad | label | name | indicator]</c> (via the shared
+        /// <see cref="EquipmentPanelLayout.SlotRow"/>) plus its reachability-dot / arrow indicator and the
+        /// bottom separator, both painted through the keyed indicator <see cref="Layout.Content.Fill"/>.
         /// </summary>
-        private float RenderProfileSlot(
-            string label,
-            Uri? deviceUri,
-            AssignTarget slot,
-            float x, float y, float w, float itemH,
-            float dpiScale, string fontPath,
-            float fontSize, float padding, float arrowW,
-            GuiAppState? appState = null,
-            ProfileData? profileData = null,
-            string? emojiFontPath = null)
+        private Layout.Node BuildProfileSlot(
+            string label, Uri? deviceUri, AssignTarget slot,
+            GuiAppState appState, ProfileData pd, float innerX, float innerW,
+            float dpiScale, string fontPath)
         {
+            var fontSize = BaseFontSize * dpiScale;
+            var padding = BasePadding * dpiScale;
+            var arrowW = BaseArrowWidth * dpiScale;
             var isActive = State.ActiveAssignment == slot;
 
             // Device name -- pre-truncate to the name column width (the engine's Text leaf doesn't clip).
-            // Name column = (1 - LabelShare) of the space left after the lead pad + indicator, matching
-            // EquipmentPanelLayout.SlotRow's [pad | label .35 | name * | indicator] split.
-            var nameW = (1f - EquipmentPanelLayout.LabelShare) * (w - padding - arrowW);
+            var nameW = (1f - EquipmentPanelLayout.LabelShare) * (innerW - padding - arrowW);
             var deviceLabel = EquipmentActions.DeviceLabel(deviceUri, registry: null);
             var truncated = TruncateToWidth(deviceLabel, fontPath, fontSize, nameW);
 
-            // Right-edge indicator. When a device is assigned and we have access to the live
-            // hub + discovery snapshot, draw a coloured square via FillRect (font-independent)
-            // so the user sees per-slot reachability without leaving the profile panel.
-            // Active assignment-mode highlight always wins and shows the original [>] arrow.
+            // Right-edge indicator. When a device is assigned + we have the live hub + discovery snapshot,
+            // draw a coloured reachability square; the active-assignment highlight always wins and shows [>].
             EquipmentActions.DeviceReachability? slotReach = null;
-            if (!isActive && deviceUri is not null && deviceUri != NoneDevice.Instance.DeviceUri
-                && profileData is { } pd && appState is { })
+            if (!isActive && deviceUri is not null && deviceUri != NoneDevice.Instance.DeviceUri)
             {
-                var reach0 = EquipmentActions.GetReachability(pd, appState.DeviceHub,
-                    State.DiscoveredDevices, deviceUri);
+                var reach0 = EquipmentActions.GetReachability(pd, appState.DeviceHub, State.DiscoveredDevices, deviceUri);
                 if (reach0 != EquipmentActions.DeviceReachability.NotAssigned)
                 {
                     slotReach = reach0;
                 }
             }
 
-            // Build the row through the SHARED EquipmentPanelLayout.SlotRow so the live GPU panel and the
-            // (eventual) TUI panel render the exact same structure -- one path, guarded by the bridge's tests.
-            // SlotRow works in design units, so we render it at the real DpiScale; its indicator is a Fill
-            // slot we paint below (reachability dot, or the [>] arrow when unassigned / in assignment mode).
             var capturedSlot = slot;
             var capturedAppState = appState;
             var arrowColor = isActive ? AccentInstruct : DimText;
             var isAssigned = deviceUri is not null && deviceUri != NoneDevice.Instance.DeviceUri;
+            var indKey = $"slotInd:{slot}";
 
-            var row = EquipmentPanelLayout.SlotRow(
+            _profilePanelFills[indKey] = r =>
+            {
+                if (slotReach is { } reach)
+                {
+                    var dotColor = reach switch
+                    {
+                        EquipmentActions.DeviceReachability.Connected    => ReachConnected,
+                        EquipmentActions.DeviceReachability.Disconnected => ReachDisconnected,
+                        EquipmentActions.DeviceReachability.Offline      => ReachOffline,
+                        _                                                => DimText
+                    };
+                    var dotSize = MathF.Min(r.Height * 0.45f, arrowW * 0.55f);
+                    var dotX = r.X + (r.Width - padding / 2f - dotSize) * 0.5f;
+                    var dotY = r.Y + (r.Height - dotSize) * 0.5f;
+                    FillRect(dotX, dotY, dotSize, dotSize, dotColor);
+                }
+                else
+                {
+                    DrawText(">".AsSpan(), fontPath, r.X, r.Y, r.Width - padding / 2f, r.Height,
+                        fontSize, arrowColor, TextAlign.Center, TextAlign.Center);
+                }
+                // Separator line at the bottom of the slot (row spans the panel inner width).
+                FillRect(innerX, r.Y + r.Height - 1f, innerW, 1f, SeparatorColor);
+            };
+
+            return EquipmentPanelLayout.SlotRow(
                 new DeviceSlotRow(label, truncated, isAssigned, slot),
                 EquipmentPanelStyle.Default,
                 activeSlot: isActive ? slot : null,
@@ -419,117 +407,74 @@ namespace TianWen.UI.Abstractions
                 {
                     var nowActive = State.ActiveAssignment != capturedSlot;
                     State.ActiveAssignment = nowActive ? capturedSlot : null;
-                    if (nowActive && capturedAppState is not null) ScrollActiveSlotDeviceIntoView(capturedAppState);
-                    if (capturedAppState is not null) capturedAppState.NeedsRedraw = true;
-                });
-
-            RenderLayout(row, new RectF32(x, y, w, itemH), fontPath, dpiScale,
-                drawFill: (_, r) =>
-                {
-                    if (slotReach is { } reach)
-                    {
-                        var dotColor = reach switch
-                        {
-                            EquipmentActions.DeviceReachability.Connected    => ReachConnected,
-                            EquipmentActions.DeviceReachability.Disconnected => ReachDisconnected,
-                            EquipmentActions.DeviceReachability.Offline      => ReachOffline,
-                            _                                                => DimText
-                        };
-                        var dotSize = MathF.Min(r.Height * 0.45f, arrowW * 0.55f);
-                        var dotX = r.X + (r.Width - padding / 2f - dotSize) * 0.5f;
-                        var dotY = r.Y + (r.Height - dotSize) * 0.5f;
-                        FillRect(dotX, dotY, dotSize, dotSize, dotColor);
-                    }
-                    else
-                    {
-                        DrawText(">".AsSpan(), fontPath, r.X, r.Y, r.Width - padding / 2f, r.Height,
-                            fontSize, arrowColor, TextAlign.Center, TextAlign.Center);
-                    }
-                });
-
-            // Separator line at bottom of slot (painted on top of the row background).
-            FillRect(x, y + itemH - 1f, w, 1f, SeparatorColor);
-
-            return y + itemH;
+                    if (nowActive) ScrollActiveSlotDeviceIntoView(capturedAppState);
+                    capturedAppState.NeedsRedraw = true;
+                },
+                indicatorFillKey: indKey);
         }
 
         // -----------------------------------------------------------------------
         // OTA property editors
         // -----------------------------------------------------------------------
 
-        private float RenderOtaPropertiesSummary(
-            OTAData ota,
-            float x, float cursor, float w, float itemH,
-            string fontPath, float fontSize, float padding)
+        private Layout.Node? BuildOtaPropertiesSummary(OTAData ota)
         {
             var fRatio = ota.Aperture is > 0 ? $"f/{(double)ota.FocalLength / ota.Aperture.Value:F1}" : "";
             var designStr = ota.OpticalDesign != OpticalDesign.Unknown ? ota.OpticalDesign.ToString() : "";
-            var parts = new List<string>(3);
+            var parts = new List<string>(4);
             if (ota.FocalLength > 0) parts.Add($"{ota.FocalLength}mm");
             if (ota.Aperture is > 0) parts.Add($"\u00d8{ota.Aperture}mm");
             if (fRatio.Length > 0) parts.Add(fRatio);
             if (designStr.Length > 0) parts.Add(designStr);
 
-            if (parts.Count > 0)
-            {
-                var summary = string.Join("  ", parts);
-                DrawText(
-                    summary.AsSpan(),
-                    fontPath,
-                    x + padding * 2f, cursor, w - padding * 3f, itemH * 0.8f,
-                    fontSize * 0.8f, DimText, TextAlign.Near, TextAlign.Center);
-                cursor += itemH * 0.8f;
-            }
+            if (parts.Count == 0) return null;
 
-            return cursor;
+            var summary = string.Join("  ", parts);
+            // Indented one extra pad relative to the panel's own inset (was x + padding * 2f).
+            return Layout.Builder.HStack(
+                    Layout.Builder.Spacer().WFixed(BasePadding).HStar(),
+                    Layout.Builder.Text(summary, BaseFontSize * 0.8f, DimText).Stretch())
+                .RowH(BaseItemHeight * 0.8f);
         }
 
-        private float RenderOtaPropertyEditors(
-            GuiAppState appState,
-            int otaIndex, OTAData ota,
-            float x, float cursor, float w, float itemH,
-            float dpiScale, string fontPath, float fontSize, float padding, float buttonH)
+        private Layout.Node BuildOtaPropertyEditors(
+            GuiAppState appState, int otaIndex, OTAData ota, float dpiScale, string fontPath)
         {
-            var fieldH = (int)(itemH * 1.1f);
-            var labelW = 80f * dpiScale;
-            var rowW_ota = w - padding * 2f;
+            var fontSize = BaseFontSize * dpiScale;
+            float fieldH = BaseItemHeight * 1.1f;
+            const float labelW = 80f;
 
-            // Name
-            var nameRow = FormRowLayout.LabeledInputRow("  Name:", labelW, fieldH, padding, BaseFontSize * 0.85f, DimText);
-            RenderLayout(nameRow, new RectF32(x + padding, cursor, rowW_ota, fieldH), fontPath, dpiScale,
-                drawFill: (_, r) => RenderTextInput(State.OtaNameInput, (int)r.X, (int)r.Y, (int)r.Width, (int)r.Height, fontPath, fontSize * 0.9f));
-            cursor += fieldH + 2;
+            Layout.Node InputRow(string label, string key, TextInputState input)
+            {
+                _profilePanelFills[key] = r => RenderTextInput(input, (int)r.X, (int)r.Y, (int)r.Width, (int)r.Height, fontPath, fontSize * 0.9f);
+                return FormRowLayout.LabeledInputRow(label, labelW, fieldH, 0f, BaseFontSize * 0.85f, DimText, fillKey: key);
+            }
 
-            // Focal length
-            var flRow = FormRowLayout.LabeledInputRow("  FL (mm):", labelW, fieldH, padding, BaseFontSize * 0.85f, DimText);
-            RenderLayout(flRow, new RectF32(x + padding, cursor, rowW_ota, fieldH), fontPath, dpiScale,
-                drawFill: (_, r) => RenderTextInput(State.FocalLengthInput, (int)r.X, (int)r.Y, (int)r.Width, (int)r.Height, fontPath, fontSize * 0.9f));
-            cursor += fieldH + 2;
-
-            // Aperture
-            var apRow = FormRowLayout.LabeledInputRow("  Aper (mm):", labelW, fieldH, padding, BaseFontSize * 0.85f, DimText);
-            RenderLayout(apRow, new RectF32(x + padding, cursor, rowW_ota, fieldH), fontPath, dpiScale,
-                drawFill: (_, r) => RenderTextInput(State.ApertureInput, (int)r.X, (int)r.Y, (int)r.Width, (int)r.Height, fontPath, fontSize * 0.9f));
-            cursor += fieldH + 2;
-
-            // Optical design cycle button
-            var designLabel = $"  Design: {ota.OpticalDesign}";
-            var designBtnW = Renderer.MeasureText(designLabel.AsSpan(), fontPath, fontSize * 0.9f).Width + padding * 4f;
             var capturedIdx = otaIndex;
-            RenderButton(designLabel, x + padding, cursor, designBtnW, buttonH, fontPath, fontSize * 0.9f, EditButtonBg, BodyText, $"CycleDesign{otaIndex}",
-                _ =>
-                {
-                    if (appState.ActiveProfile is { } prof && prof.Data is { } data)
-                    {
-                        var currentOta = data.OTAs[capturedIdx];
-                        var nextDesign = (OpticalDesign)(((int)currentOta.OpticalDesign + 1) % 8);
-                        var newData = EquipmentActions.UpdateOTA(data, capturedIdx, opticalDesign: nextDesign);
-                        PostSignal(new UpdateProfileSignal(newData));
-                    }
-                });
-            cursor += buttonH + padding;
+            var designLabel = $"  Design: {ota.OpticalDesign}";
+            var designBtnW = Renderer.MeasureText(designLabel.AsSpan(), fontPath, BaseFontSize * 0.9f).Width + BasePadding * 4f;
+            var designRow = Layout.Builder.HStack(
+                    Layout.Builder.Text(designLabel, BaseFontSize * 0.9f, BodyText, TextAlign.Center, TextAlign.Center)
+                        .WFixed(designBtnW).HStar().Bg(EditButtonBg)
+                        .Clickable(new HitResult.ButtonHit($"CycleDesign{otaIndex}"), _ =>
+                        {
+                            if (appState.ActiveProfile is { } prof && prof.Data is { } data)
+                            {
+                                var currentOta = data.OTAs[capturedIdx];
+                                var nextDesign = (OpticalDesign)(((int)currentOta.OpticalDesign + 1) % 8);
+                                var newData = EquipmentActions.UpdateOTA(data, capturedIdx, opticalDesign: nextDesign);
+                                PostSignal(new UpdateProfileSignal(newData));
+                            }
+                        }),
+                    Layout.Builder.Spacer().Stretch())
+                .RowH(BaseButtonHeight);
 
-            return cursor;
+            return Layout.Builder.VStack(
+                    InputRow("  Name:", "otaName", State.OtaNameInput),
+                    InputRow("  FL (mm):", "otaFl", State.FocalLengthInput),
+                    InputRow("  Aper (mm):", "otaAper", State.ApertureInput),
+                    designRow)
+                .WithGap(2f).WStar();
         }
 
     }

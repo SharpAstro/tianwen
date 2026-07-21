@@ -19,22 +19,27 @@ namespace TianWen.UI.Abstractions
         // Filter table
         // -----------------------------------------------------------------------
 
-        private float RenderFilterTable(
-            GuiAppState appState,
-            int otaIndex, ProfileData pd,
-            float x, float cursor, float w, float itemH,
-            float dpiScale, string fontPath, float fontSize, float padding, float buttonH)
+        /// <summary>
+        /// Builds the per-OTA installed-filter table as one profile-panel section node: collapsible
+        /// header -> column header -> per-filter rows (name dropdown / custom-name input + offset
+        /// steppers) -> dirty-gated Save/Cancel. The custom-name input and the clickable name cell are
+        /// keyed <c>Fill</c> leaves painted through <see cref="_profilePanelFills"/>; the name cell's
+        /// painter stashes its arranged rect so the name dropdown anchors from the real layout position.
+        /// </summary>
+        private Layout.Node BuildFilterTable(
+            GuiAppState appState, int otaIndex, ProfileData pd, float dpiScale, string fontPath)
         {
             var savedFilters = EquipmentActions.GetFilterConfig(pd, otaIndex);
             var isExpanded = State.ExpandedFilterOtaIndex == otaIndex;
-            var rowH = itemH * 0.9f;
+            var fontSize = BaseFontSize * dpiScale;
+            float rowH = BaseItemHeight * 0.9f;   // design units
             var capturedOtaIdx = otaIndex;
 
             // Toggle header -- clicking expands/collapses and loads/discards editing state
             var headerLabel = isExpanded
                 ? $"    Filters ({savedFilters.Count}) [-]"
                 : $"    Filters ({savedFilters.Count}) [+]";
-            var toggleHeader = FormRowLayout.ToggleHeaderRow(
+            var toggle = FormRowLayout.ToggleHeaderRow(
                 headerLabel, rowH, FilterTableBg, HeaderText, BaseFontSize * 0.85f,
                 new HitResult.ButtonHit($"ToggleFilters{otaIndex}"),
                 _ =>
@@ -50,51 +55,58 @@ namespace TianWen.UI.Abstractions
                         State.BeginEditingFilters(savedFilters);
                     }
                 });
-            RenderLayout(toggleHeader, new RectF32(x + padding, cursor, w - padding * 2f, rowH), fontPath, dpiScale);
-            cursor += rowH;
 
             if (!isExpanded || State.EditingFilters is not { } filters)
             {
-                return cursor;
+                return toggle;
             }
 
-            // Layout columns: [#][Name                ][- offset +]
-            var slotNumW = 20f * dpiScale;
-            var contentW = w - padding * 4f;
-            var offsetGroupW = 100f * dpiScale;  // [-] value [+] grouped
-            var nameColW = contentW - slotNumW - offsetGroupW;
-            var colStartX = x + padding * 2f;
+            var rows = new List<Layout.Node> { toggle };
 
             // Column headers as one HStack (lead/trail pad keeps the columns aligned with the rows below).
-            var header = Layout.Builder.HStack(
+            rows.Add(Layout.Builder.HStack(
                     Layout.Builder.Spacer().WFixed(BasePadding).HStar(),
                     Layout.Builder.Text("#", BaseFontSize * 0.75f, DimText, TextAlign.Center, TextAlign.Center).WFixed(20f).HStar(),
                     Layout.Builder.Text("Name", BaseFontSize * 0.75f, DimText).WStar().HStar(),
                     Layout.Builder.Text("Offset", BaseFontSize * 0.75f, DimText, TextAlign.Center, TextAlign.Center).WFixed(100f).HStar(),
                     Layout.Builder.Spacer().WFixed(BasePadding).HStar())
-                .RowH(BaseItemHeight * 0.9f).Bg(FilterTableBg);
-            RenderLayout(header, new RectF32(x + padding, cursor, w - padding * 2f, rowH), fontPath, dpiScale);
-            cursor += rowH;
+                .RowH(rowH).Bg(FilterTableBg));
 
-            // Filter rows: [pad | # | name | [- offset +] | pad], one tree each. Was a FillRect + slot
-            // DrawText + name button/input + three offset controls at hand-computed x per row.
+            // Filter rows: [pad | # | name | [- offset +] | pad], one tree each.
             for (var f = 0; f < filters.Count; f++)
             {
                 var filter = filters[f];
                 var rowBg = f % 2 == 0 ? FilterTableBg : FilterRowAlt;
                 var capturedF = f;
-                // Dropdown anchors below the name cell -- the lead pad puts the name column at colStartX + slotNumW.
-                var nameCellX = colStartX + slotNumW;
-                var nameCellY = cursor;
 
-                Layout.Node nameCell = State.CustomFilterSlotIndex == f
-                    ? Layout.Builder.Fill(key: $"filterName{f}")
-                    : Layout.Builder.Text(EquipmentActions.FilterDisplayName(filter), BaseFontSize * 0.8f, BodyText)
+                Layout.Node nameCell;
+                if (State.CustomFilterSlotIndex == f)
+                {
+                    var inputKey = $"filterNameInput:{otaIndex}:{f}";
+                    _profilePanelFills[inputKey] =
+                        r => RenderTextInput(State.CustomFilterNameInput, (int)r.X, (int)r.Y, (int)r.Width, (int)r.Height, fontPath, fontSize * 0.8f);
+                    nameCell = Layout.Builder.Fill(key: inputKey);
+                }
+                else
+                {
+                    // Clickable name cell -- the painter draws the label AND stashes the cell's arranged
+                    // rect so the dropdown (opened on the click that fires a later frame) anchors from the
+                    // real layout position rather than a hand-computed x/y.
+                    var anchor = new RectF32[1];
+                    var textKey = $"filterNameText:{otaIndex}:{f}";
+                    var display = EquipmentActions.FilterDisplayName(filter);
+                    _profilePanelFills[textKey] = r =>
+                    {
+                        anchor[0] = r;
+                        DrawText(display.AsSpan(), fontPath, r.X, r.Y, r.Width, r.Height, fontSize * 0.8f, BodyText, TextAlign.Near, TextAlign.Center);
+                    };
+                    nameCell = Layout.Builder.Fill(key: textKey)
                         .Clickable(new HitResult.ButtonHit($"FilterName{otaIndex}_{f}"), _ =>
                         {
                             var existingCustom = capturedF < filters.Count ? filters[capturedF].CustomName : null;
+                            var a = anchor[0];
                             State.FilterNameDropdown.Open(
-                                nameCellX, nameCellY + rowH, nameColW,
+                                a.X, a.Y + a.Height, a.Width,
                                 EquipmentActions.CommonFilterNames,
                                 (idx, name) =>
                                 {
@@ -115,6 +127,7 @@ namespace TianWen.UI.Abstractions
                                 },
                                 customEntryLabel: existingCustom is { Length: > 0 } ? $"Custom: {existingCustom}" : null);
                         });
+                }
 
                 Layout.Node OffBtn(string glyph, string action, int delta) =>
                     Layout.Builder.Text(glyph, BaseFontSize * 0.8f, BodyText, TextAlign.Center, TextAlign.Center)
@@ -136,47 +149,40 @@ namespace TianWen.UI.Abstractions
                         OffBtn("+", $"FilterOffInc{otaIndex}_{f}", +1))
                     .WFixed(100f).HStar();
 
-                var row = Layout.Builder.HStack(
+                rows.Add(Layout.Builder.HStack(
                         Layout.Builder.Spacer().WFixed(BasePadding).HStar(),
                         Layout.Builder.Text((f + 1).ToString(), BaseFontSize * 0.8f, DimText, TextAlign.Center, TextAlign.Center).WFixed(20f).HStar(),
                         nameCell.WStar().HStar(),
                         offsetGroup,
                         Layout.Builder.Spacer().WFixed(BasePadding).HStar())
-                    .RowH(BaseItemHeight * 0.9f).Bg(rowBg);
-                RenderLayout(row, new RectF32(x + padding, cursor, w - padding * 2f, rowH), fontPath, dpiScale,
-                    drawFill: (fill, r) =>
-                    {
-                        if (fill.Key == $"filterName{capturedF}")
-                            RenderTextInput(State.CustomFilterNameInput, (int)r.X, (int)r.Y, (int)r.Width, (int)r.Height, fontPath, fontSize * 0.8f);
-                    });
-                cursor += rowH;
+                    .RowH(rowH).Bg(rowBg));
             }
 
-            // Save / Cancel buttons (only shown when dirty)
+            // Save / Cancel buttons (only shown when dirty), left-aligned under the rows.
             if (State.FiltersDirty)
             {
-                var saveBtnW = Renderer.MeasureText("Save".AsSpan(), fontPath, fontSize * 0.85f).Width + padding * 3f;
-                var cancelBtnW = Renderer.MeasureText("Cancel".AsSpan(), fontPath, fontSize * 0.85f).Width + padding * 3f;
+                Layout.Node ActionBtn(string label, RGBAColor32 bg, string action, Action<InputModifier> onClick) =>
+                    Layout.Builder.Text(label, BaseFontSize * 0.85f, BodyText, TextAlign.Center, TextAlign.Center)
+                        .WFixed(60f).HStar().Bg(bg).Clickable(new HitResult.ButtonHit(action), onClick);
 
-                RenderButton("Save", x + padding * 2f, cursor, saveBtnW, buttonH * 0.85f, fontPath, fontSize * 0.85f, CreateButton, BodyText, $"SaveFilters{otaIndex}",
-                    _ =>
-                    {
-                        if (appState.ActiveProfile is { } prof && prof.Data is { } data && State.EditingFilters is { } editFilters)
-                        {
-                            var newData = EquipmentActions.SetFilterConfig(data, capturedOtaIdx, editFilters);
-                            PostSignal(new UpdateProfileSignal(newData));
-                            State.FiltersDirty = false;
-                        }
-                    });
-
-                RenderButton("Cancel", x + padding * 2f + saveBtnW + padding, cursor, cancelBtnW, buttonH * 0.85f, fontPath, fontSize * 0.85f, EditButtonBg, BodyText, $"CancelFilters{otaIndex}",
-                    _ =>
-                    {
-                        // Reload from profile
-                        State.BeginEditingFilters(savedFilters);
-                    });
-
-                cursor += buttonH * 0.85f + padding / 2f;
+                rows.Add(Layout.Builder.HStack(
+                        Layout.Builder.Spacer().WFixed(BasePadding * 2f).HStar(),
+                        ActionBtn("Save", CreateButton, $"SaveFilters{otaIndex}",
+                            _ =>
+                            {
+                                if (appState.ActiveProfile is { } prof && prof.Data is { } data && State.EditingFilters is { } editFilters)
+                                {
+                                    var newData = EquipmentActions.SetFilterConfig(data, capturedOtaIdx, editFilters);
+                                    PostSignal(new UpdateProfileSignal(newData));
+                                    State.FiltersDirty = false;
+                                }
+                            }),
+                        Layout.Builder.Spacer().WFixed(BasePadding).HStar(),
+                        ActionBtn("Cancel", EditButtonBg, $"CancelFilters{otaIndex}",
+                            _ => State.BeginEditingFilters(savedFilters)),
+                        Layout.Builder.Spacer().Stretch())
+                    .RowH(BaseButtonHeight * 0.85f));
+                rows.Add(Layout.Builder.Spacer().RowH(BasePadding * 0.5f));
             }
 
             // Wire commit for custom filter name -- on Enter, apply the name.
@@ -198,7 +204,7 @@ namespace TianWen.UI.Abstractions
                 State.CustomFilterSlotIndex = -1;
             };
 
-            return cursor;
+            return Layout.Builder.VStack([.. rows]).WStar();
         }
 
     }
