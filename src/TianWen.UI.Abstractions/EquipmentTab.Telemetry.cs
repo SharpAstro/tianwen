@@ -52,34 +52,22 @@ namespace TianWen.UI.Abstractions
             State.CameraTelemetry.TryGetValue(key, out var buffer);
             var latest = buffer?.Latest;
 
-            // ---- Readout row: 4 fixed-share cells so labels never overflow ----
-            var readoutH = rowH;
-            var readoutBg = FilterRowAlt;
-            var rowX = x + padding;
-            var rowW = w - padding * 2f;
-            FillRect(rowX, cursor, rowW, readoutH, readoutBg);
-
-            string Cell(double? v, string suffix) => v is { } d ? $"{d:F1}{suffix}" : "--";
-            var cellW = rowW / 4f;
-            var cellPad = padding;
+            // ---- Readout row: 4 equal cells (CCD / setpoint / power / state) as one HStack. Was a
+            // FillRect + four hand-positioned, per-cell-truncated DrawText calls; cells stay truncated. ----
+            string Fmt(double? v, string suffix) => v is { } d ? $"{d:F1}{suffix}" : "--";
+            var cellW = (w - padding * 2f) / 4f - padding;
             var cellFs = fontSize * 0.85f;
-            var tempStr = $"CCD: {Cell(latest?.CcdTempC, "\u00b0C")}";
-            var setStr  = $"Set: {Cell(latest?.SetpointC, "\u00b0C")}";
-            var pwrStr  = latest?.CoolerPowerPct is { } p ? $"Power: {p:F0}%" : "Power: --";
-            var stateStr = latest is null ? "\u2026"
-                : (latest.Value.CoolerOn ? "Cooler ON" : "Cooler OFF");
+            Layout.Node Cell(string s) =>
+                Layout.Builder.Text(TruncateToWidth(s, fontPath, cellFs, cellW), BaseFontSize * 0.85f, BodyText).WStar().HStar();
 
-            // Belt-and-suspenders: still ellipsize per cell in case the panel shrinks below threshold.
-            var inner = cellW - cellPad;
-            var t = TruncateToWidth(tempStr,  fontPath, cellFs, inner);
-            var s = TruncateToWidth(setStr,   fontPath, cellFs, inner);
-            var pw = TruncateToWidth(pwrStr,   fontPath, cellFs, inner);
-            var st = TruncateToWidth(stateStr, fontPath, cellFs, inner);
-            DrawText(t.AsSpan(),  fontPath, rowX + cellPad,                 cursor, inner, readoutH, cellFs, BodyText, TextAlign.Near, TextAlign.Center);
-            DrawText(s.AsSpan(),  fontPath, rowX + cellW + cellPad,         cursor, inner, readoutH, cellFs, BodyText, TextAlign.Near, TextAlign.Center);
-            DrawText(pw.AsSpan(), fontPath, rowX + cellW * 2f + cellPad,    cursor, inner, readoutH, cellFs, BodyText, TextAlign.Near, TextAlign.Center);
-            DrawText(st.AsSpan(), fontPath, rowX + cellW * 3f + cellPad,    cursor, inner, readoutH, cellFs, BodyText, TextAlign.Near, TextAlign.Center);
-            cursor += readoutH;
+            var readout = Layout.Builder.HStack(
+                    Cell($"CCD: {Fmt(latest?.CcdTempC, "\u00b0C")}"),
+                    Cell($"Set: {Fmt(latest?.SetpointC, "\u00b0C")}"),
+                    Cell(latest?.CoolerPowerPct is { } p ? $"Power: {p:F0}%" : "Power: --"),
+                    Cell(latest is null ? "\u2026" : latest.Value.CoolerOn ? "Cooler ON" : "Cooler OFF"))
+                .Bg(FilterRowAlt);
+            RenderLayout(readout, new RectF32(x + padding, cursor, w - padding * 2f, rowH), fontPath, dpiScale);
+            cursor += rowH;
 
             // ---- Controls row: setpoint input + [Cool to Setpoint] + [Cooler Off] ----
             var controlsH = rowH;
@@ -211,42 +199,34 @@ namespace TianWen.UI.Abstractions
             // Snapshot the mount state once -- the field is published atomically via Interlocked.Exchange.
             var ms = liveSessionState.MountState;
 
-            // ---- Status badge row: Slewing | Tracking | Idle, colour-coded.
-            var badgeRowH = rowH;
-            var rowX = x + padding;
-            var rowW = w - padding * 2f;
-            FillRect(rowX, cursor, rowW, badgeRowH, FilterRowAlt);
+            var (statusLabel, statusColor) =
+                  ms.IsSlewing  ? ("Slewing",  new RGBAColor32(0xff, 0xc8, 0x66, 0xff))  // amber
+                : ms.IsTracking ? ("Tracking", new RGBAColor32(0x66, 0xdd, 0x66, 0xff))  // green
+                :                 ("Idle",     DimText);
 
-            string statusLabel;
-            RGBAColor32 statusColor;
-            if (ms.IsSlewing)
-            {
-                statusLabel = "Slewing";
-                statusColor = new RGBAColor32(0xff, 0xc8, 0x66, 0xff); // amber
-            }
-            else if (ms.IsTracking)
-            {
-                statusLabel = "Tracking";
-                statusColor = new RGBAColor32(0x66, 0xdd, 0x66, 0xff); // green
-            }
-            else
-            {
-                statusLabel = "Idle";
-                statusColor = DimText;
-            }
+            // Status badge row + RA/Dec/HA readout as one tree (was two FillRect + hand-positioned
+            // DrawText blocks with per-cell width/pad math). Cells stay truncated so a long coord can't
+            // bleed into the next; everything else is the engine's job now.
+            var cellW = (w - padding * 2f) / 3f - padding;
+            var cellFs = fontSize * 0.85f;
+            Layout.Node Coord(string s) =>
+                Layout.Builder.Text(TruncateToWidth(s, fontPath, cellFs, cellW), BaseFontSize * 0.85f, BodyText).WStar().HStar();
 
-            var labelW = 80f * dpiScale;
-            DrawText("    Status:".AsSpan(), fontPath,
-                rowX, cursor, labelW, badgeRowH,
-                fontSize * 0.85f, DimText, TextAlign.Near, TextAlign.Center);
-            DrawText(statusLabel.AsSpan(), fontPath,
-                rowX + labelW, cursor, rowW - labelW, badgeRowH,
-                fontSize * 0.95f, statusColor, TextAlign.Near, TextAlign.Center);
-            cursor += badgeRowH;
+            var readout = Layout.Builder.VStack(
+                Layout.Builder.HStack(
+                        Layout.Builder.Text("    Status:", BaseFontSize * 0.85f, DimText).WFixed(80f).HStar(),
+                        Layout.Builder.Text(statusLabel, BaseFontSize * 0.95f, statusColor).Stretch())
+                    .RowH(BaseItemHeight * 0.9f).Bg(FilterRowAlt),
+                Layout.Builder.HStack(
+                        Coord($"RA: {FormatRa(ms.RightAscension)}"),
+                        Coord($"Dec: {FormatDec(ms.Declination)}"),
+                        Coord($"HA: {FormatHa(ms.HourAngle)}"))
+                    .RowH(BaseItemHeight * 0.9f).Bg(FilterTableBg));
 
-            // ---- Coordinate readout row: 3 cells (RA / Dec / HA) ----
-            var coordRowH = rowH;
-            FillRect(rowX, cursor, rowW, coordRowH, FilterTableBg);
+            var readoutH = rowH * 2f;
+            RenderLayout(readout, new RectF32(x + padding, cursor, w - padding * 2f, readoutH), fontPath, dpiScale);
+            cursor += readoutH + padding * 0.5f;
+            return cursor;
 
             string FormatRa(double hours)
             {
@@ -277,23 +257,6 @@ namespace TianWen.UI.Abstractions
                 var m = (int)((hours - h) * 60.0);
                 return $"{sign}{h:00}h{m:00}m";
             }
-
-            var raStr = $"RA: {FormatRa(ms.RightAscension)}";
-            var decStr = $"Dec: {FormatDec(ms.Declination)}";
-            var haStr = $"HA: {FormatHa(ms.HourAngle)}";
-            var cellW = rowW / 3f;
-            var cellPad = padding;
-            var cellFs = fontSize * 0.85f;
-            var inner = cellW - cellPad;
-            var ra = TruncateToWidth(raStr, fontPath, cellFs, inner);
-            var dc = TruncateToWidth(decStr, fontPath, cellFs, inner);
-            var ha = TruncateToWidth(haStr, fontPath, cellFs, inner);
-            DrawText(ra.AsSpan(), fontPath, rowX + cellPad,                  cursor, inner, coordRowH, cellFs, BodyText, TextAlign.Near, TextAlign.Center);
-            DrawText(dc.AsSpan(), fontPath, rowX + cellW + cellPad,          cursor, inner, coordRowH, cellFs, BodyText, TextAlign.Near, TextAlign.Center);
-            DrawText(ha.AsSpan(), fontPath, rowX + cellW * 2f + cellPad,     cursor, inner, coordRowH, cellFs, BodyText, TextAlign.Near, TextAlign.Center);
-            cursor += coordRowH + padding * 0.5f;
-
-            return cursor;
         }
 
         /// <summary>
