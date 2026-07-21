@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Numerics;
 using DIR.Lib;
@@ -155,40 +156,41 @@ namespace TianWen.UI.Abstractions
             var py = contentRect.Y + (contentRect.Height - ph) * 0.35f;
             var fontSize = 14f * dpiScale;
 
-            FillRect(px - 1, py - 1, pw + 2, ph + 2, SearchPanelBorder);
-            FillRect(px, py, pw, ph, SearchPanelBg);
+            const float headerHDesign = 32f;
+            const float inputHDesign = 30f;
+            const float bodyPad = 12f;
+            const float inputGap = 8f;
 
-            // Title bar
-            var headerH = 32f * dpiScale;
-            FillRect(px, py, pw, headerH, SearchHeaderBg);
-            DrawText("Search window".AsSpan(), fontPath,
-                px, py, pw, headerH, fontSize, SearchText, TextAlign.Center, TextAlign.Center);
+            // Title bar: centred label + a right-pinned close X (draw==hit leaf), full panel width.
+            var titleBar = Layout.Builder.HStack(
+                    Layout.Builder.Text("Search window", 14f, SearchText, TextAlign.Center, TextAlign.Center).WStar().HStar(),
+                    Layout.Builder.Text("X", 14f, SearchText, TextAlign.Center, TextAlign.Center).WFixed(headerHDesign).HStar()
+                        .Clickable(new HitResult.ButtonHit("SearchClose"), _ => PostSignal(new CloseSkyMapSearchSignal())))
+                .RowH(headerHDesign).Bg(SearchHeaderBg);
 
-            // Close X button -- draw==hit Text leaf (the "X" glyph box and the click
-            // surface are the same arranged rect). Font is a raw design unit
-            // (fontSize / dpiScale); RenderLayout re-applies dpiScale.
-            var closeW = headerH;
-            RenderLayout(
-                Layout.Builder.Text("X", fontSize / dpiScale, SearchText, TextAlign.Center, TextAlign.Center)
-                    .Stretch()
-                    .Clickable(new HitResult.ButtonHit("SearchClose"), _ => PostSignal(new CloseSkyMapSearchSignal())),
-                new RectF32(px + pw - closeW, py, closeW, headerH), fontPath, dpiScale);
+            // Results area design height (panel minus title + body padding + input + gap), for the row cap.
+            var resultsDesignH = SearchPanelHeight - headerHDesign - bodyPad * 2f - inputHDesign - inputGap;
+            var visibleRows = Math.Max(0, (int)(resultsDesignH / SearchRowHeight));
 
-            // Search input
-            var inputY = py + headerH + 12f * dpiScale;
-            var inputH = 30f * dpiScale;
-            var inputPadX = 12f * dpiScale;
-            RenderTextInput(State.Search.SearchInput,
-                (int)(px + inputPadX), (int)inputY,
-                (int)(pw - inputPadX * 2f), (int)inputH,
-                fontPath, fontSize);
+            // Body: search input (keyed Fill = the interactive text-input control) + results list, padded.
+            var body = Layout.Builder.VStack(
+                    Layout.Builder.Fill(key: "searchInput").RowH(inputHDesign),
+                    Layout.Builder.Spacer().RowH(inputGap),
+                    BuildSearchResults(State.Search.Results, State.Search.SelectedResultIndex, visibleRows).Stretch())
+                .Pad(bodyPad);
 
-            // Results list
-            var listY = inputY + inputH + 8f * dpiScale;
-            var listH = py + ph - listY - 12f * dpiScale;
-            DrawResults(State.Search.Results, State.Search.SelectedResultIndex,
-                px + inputPadX, listY, pw - inputPadX * 2f, listH,
-                SearchRowHeight * dpiScale, fontPath, fontSize, dpiScale);
+            // Panel (bg) inside a 1px border frame (an outer Box.Bg + Pad(1)); the whole card is ONE tree.
+            var panel = Layout.Builder.VStack(titleBar, body).Bg(SearchPanelBg);
+            var framed = Layout.Builder.VStack(panel.Stretch()).Bg(SearchPanelBorder).Pad(1f);
+
+            RenderLayout(framed, new RectF32(px - 1, py - 1, pw + 2, ph + 2), fontPath, dpiScale,
+                drawFill: (fill, r) =>
+                {
+                    if (fill.Key == "searchInput")
+                    {
+                        RenderTextInput(State.Search.SearchInput, (int)r.X, (int)r.Y, (int)r.Width, (int)r.Height, fontPath, fontSize);
+                    }
+                });
 
             // db + site are passed to keep the hot path closure-free; right now they
             // are only needed for click-to-select on the map, not inside the modal.
@@ -197,56 +199,52 @@ namespace TianWen.UI.Abstractions
             _ = site;
         }
 
-        private void DrawResults(
-            ImmutableArray<SkyMapSearchResult> results,
-            int selectedIndex,
-            float x, float y, float w, float h,
-            float rowH, string fontPath, float fontSize, float dpiScale)
+        /// <summary>
+        /// Builds the search results list as a VStack of draw==hit rows (or the empty-state hint), capped to
+        /// <paramref name="visibleRows"/>. Each row's selected-highlight, name + optional V-mag, and click
+        /// surface are the same arranged rect. Was a <c>y + i*rowH</c> per-row cursor.
+        /// </summary>
+        private Layout.Node BuildSearchResults(
+            ImmutableArray<SkyMapSearchResult> results, int selectedIndex, int visibleRows)
         {
             if (results.IsDefaultOrEmpty)
             {
-                DrawText("Type to search catalog...".AsSpan(), fontPath,
-                    x, y, w, h, fontSize, SearchDimText, TextAlign.Center, TextAlign.Center);
-                return;
+                return Layout.Builder.Text("Type to search catalog...", 14f, SearchDimText, TextAlign.Center, TextAlign.Center).Stretch();
             }
 
-            var visibleRows = (int)(h / rowH);
             var count = Math.Min(results.Length, visibleRows);
-
-            // Raw design-unit fonts; RenderLayout re-applies dpiScale to the row tree.
-            var nameFont = fontSize / dpiScale;
-            var magFont = nameFont * 0.9f;
             var selectedTextColor = new RGBAColor32(0x00, 0x00, 0x00, 0xFF);
+            var rows = new List<Layout.Node>(count);
 
             for (var i = 0; i < count; i++)
             {
-                var rowY = y + i * rowH;
                 var entry = results[i];
                 var isSelected = i == selectedIndex;
                 var capturedIndex = i;
 
-                // Each row is one draw==hit Stack: the selected-row highlight, the name +
-                // optional V-mag text, and the click surface are all the same arranged rect,
-                // so the hit region can no longer drift away from what's drawn.
-                var rowChildren = ImmutableArray.CreateBuilder<Layout.Node>();
-                rowChildren.Add(Layout.Builder.Spacer().ColW(12f).HStar());
-                rowChildren.Add(Layout.Builder.Text(entry.Display, nameFont, isSelected ? selectedTextColor : SearchText).Stretch());
+                var rowChildren = new List<Layout.Node>
+                {
+                    Layout.Builder.Spacer().ColW(12f),
+                    Layout.Builder.Text(entry.Display, 14f, isSelected ? selectedTextColor : SearchText).Stretch(),
+                };
                 if (!float.IsNaN(entry.VMag))
                 {
-                    rowChildren.Add(Layout.Builder.Text($"{entry.VMag:F1}m", magFont, isSelected ? selectedTextColor : SearchDimText, TextAlign.Far).WFixed(52f).HStar());
+                    rowChildren.Add(Layout.Builder.Text($"{entry.VMag:F1}m", 14f * 0.9f, isSelected ? selectedTextColor : SearchDimText, TextAlign.Far).WFixed(52f).HStar());
                 }
-                rowChildren.Add(Layout.Builder.Spacer().ColW(10f).HStar());
+                rowChildren.Add(Layout.Builder.Spacer().ColW(10f));
 
-                var rowNode = Layout.Builder.HStack(rowChildren.ToImmutable().AsSpan())
-                    .Stretch()
+                var rowNode = Layout.Builder.HStack([.. rowChildren])
+                    .RowH(SearchRowHeight)
                     .Clickable(new HitResult.ListItemHit("SearchResult", capturedIndex), _ =>
                     {
                         State.Search.SelectedResultIndex = capturedIndex;
                         PostSignal(new SkyMapSearchCommitSignal());
                     });
                 if (isSelected) rowNode = rowNode.Bg(SearchRowHover);
-                RenderLayout(rowNode, new RectF32(x, rowY, w, rowH), fontPath, dpiScale);
+                rows.Add(rowNode);
             }
+
+            return Layout.Builder.VStack([.. rows]);
         }
 
         private void DrawInfoPanel(
