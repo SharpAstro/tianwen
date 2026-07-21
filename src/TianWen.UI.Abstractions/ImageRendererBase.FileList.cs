@@ -18,6 +18,16 @@ namespace TianWen.UI.Abstractions
         // File list sidebar
         // -----------------------------------------------------------------------
 
+        // File-list scroll controller (DIR.Lib atom model): row-snapped. It owns the continuous scroll
+        // offset (so the trackpad wheel accumulator survives frame-to-frame) + the correct Count-visible
+        // bound; ScanFolder requests an initial top via ViewerState.PendingFileListScrollTop, applied once
+        // below. NOTE: the viewer keeps its historical click-to-select (an immediate ListItemHit dispatched
+        // on mouse-down) rather than the controller's tap-on-release, because the viewer's bespoke input
+        // model (raw self-dispatch, no unclaimed-press fall-through) does not carry the release cleanly. So
+        // the controller here drives ONLY the scroll (wheel + placement + decorative scrollbar), not select.
+        private readonly ListScrollController _fileListScroll =
+            new ListScrollController { SnapToAtom = true, Mode = ScrollBarMode.Decorative };
+
         private void RenderFileList(ViewerState state)
         {
             // Pane geometry from the single arranged layout (the Split's first pane), not re-derived from
@@ -42,84 +52,60 @@ namespace TianWen.UI.Abstractions
             y += 3f;
 
             var itemHeight = FontSize + 4f;
-            var visibleCount = (int)((listHeight - (y - listTop)) / itemHeight);
+
+            // Hand the controller this frame's geometry (viewport = the items area below the header, one atom
+            // = one file row); it owns the offset + wheel/drag/thumb math and reserves the scrollbar column,
+            // and VisibleRows() owns row placement + the overflow cutoff (fixing the old Count-1 bound).
+            var itemsRect = new RectF32(lx, y, FileListWidth, listTop + listHeight - y);
+            _fileListScroll.SetExtent(itemsRect, itemHeight, state.ImageFileNames.Count, DpiScale);
+
+            // Apply ScanFolder's one-shot requested top (clamped to the current geometry), then clear it. This
+            // is a single jump, never a per-frame write, so it does not reset the controller's fractional offset.
+            if (state.PendingFileListScrollTop is { } top)
+            {
+                _fileListScroll.AtomOffset = top;
+                state.PendingFileListScrollTop = null;
+            }
+
             var mouseX = state.MouseScreenPosition.X;
             var mouseY = state.MouseScreenPosition.Y;
 
-            for (var i = 0; i < visibleCount && i + state.FileListScrollOffset < state.ImageFileNames.Count; i++)
+            foreach (var (fileIndex, rowRect) in _fileListScroll.VisibleRows())
             {
-                var fileIndex = i + state.FileListScrollOffset;
                 var fileName = state.ImageFileNames[fileIndex];
-                var itemY = y + i * itemHeight;
 
                 var isSelected = fileIndex == state.SelectedFileIndex;
                 // Suppress hover highlight while a dropdown overlay is open: the pointer is captured
                 // by the dropdown, so the list underneath must not react to it. Selection (the loaded
                 // file) is NOT gated -- it should stay highlighted regardless.
-                var isHovered = !state.ToolbarDropdown.IsOpen
-                    && mouseX >= lx && mouseX < lx + FileListWidth
-                    && mouseY >= itemY && mouseY < itemY + itemHeight;
+                var isHovered = !state.ToolbarDropdown.IsOpen && rowRect.Contains(mouseX, mouseY);
 
                 if (isSelected)
                 {
-                    FillRect(lx + 2, itemY, FileListWidth - 4, itemHeight, ViewerTheme.Palette.Selection);
+                    FillRect(rowRect.X + 2, rowRect.Y, rowRect.Width - 4, rowRect.Height, ViewerTheme.Palette.Selection);
                 }
                 else if (isHovered)
                 {
-                    FillRect(lx + 2, itemY, FileListWidth - 4, itemHeight, FileListHoverBg);
+                    FillRect(rowRect.X + 2, rowRect.Y, rowRect.Width - 4, rowRect.Height, FileListHoverBg);
                 }
 
-                var maxChars = (int)((FileListWidth - PanelPadding * 2) / (FontSize * 0.6f));
+                var maxChars = (int)((rowRect.Width - PanelPadding * 2) / (FontSize * 0.6f));
                 var displayName = fileName.Length > maxChars ? fileName[..(maxChars - 2)] + ".." : fileName;
 
-                DrawText(displayName, lx + PanelPadding, itemY + 2f, FontSize,
+                DrawText(displayName, rowRect.X + PanelPadding, rowRect.Y + 2f, FontSize,
                     isSelected ? FileListItemTextSelected : FileListItemText);
 
-                RegisterClickable(lx, itemY, FileListWidth, itemHeight, new HitResult.ListItemHit("FileList", fileIndex));
+                // Click-to-select: an immediate ListItemHit dispatched by HandleViewerMouseDown (the
+                // historical, proven viewer path). Registered on the controller's per-row rect.
+                RegisterClickable(rowRect.X, rowRect.Y, rowRect.Width, rowRect.Height,
+                    new HitResult.ListItemHit("FileList", fileIndex));
             }
 
-            if (state.ImageFileNames.Count > visibleCount)
-            {
-                var scrollFraction = (float)state.FileListScrollOffset / Math.Max(1, state.ImageFileNames.Count - visibleCount);
-                var scrollBarH = Math.Max(20f, listHeight * visibleCount / state.ImageFileNames.Count);
-                var scrollBarY = listTop + scrollFraction * (listHeight - scrollBarH);
-                FillRect(lx + FileListWidth - 4, scrollBarY, 3, scrollBarH, ScrollBarColor);
-            }
+            // Decorative scrollbar (no-op when the list fits).
+            _fileListScroll.DrawScrollBar(FillRect);
 
-            // The resize divider between the file list and the content area is now the Split's
-            // draw==hit divider node, painted once in Render() from the single layout pass -- no
-            // more hand-rolled FillRect handle + widened RegisterClickable straddling the boundary.
+            // The resize divider between the file list and the content area is the Split's draw==hit divider
+            // node, painted once in Render() from the single layout pass.
         }
-
-        /// <summary>
-        /// Hit-tests the file list sidebar and returns the file index, or -1.
-        /// </summary>
-        public int HitTestFileList(float screenX, float screenY, ViewerState state)
-        {
-            var fl = _layout.FileList;
-            if (!state.ShowFileList || screenX < fl.X || screenX >= fl.X + FileListWidth)
-            {
-                return -1;
-            }
-
-            var listTop = fl.Y;
-            var headerOffset = PanelPadding + FontSize + 4f + 3f;
-            var itemHeight = FontSize + 4f;
-            var relY = screenY - listTop - headerOffset;
-
-            if (relY < 0)
-            {
-                return -1;
-            }
-
-            var itemIndex = (int)(relY / itemHeight) + state.FileListScrollOffset;
-            if (itemIndex >= 0 && itemIndex < state.ImageFileNames.Count)
-            {
-                return itemIndex;
-            }
-
-            return -1;
-        }
-
     }
 }
