@@ -187,13 +187,27 @@ Drag machines: `ScrollBarDragState`->controller thumb; SkyMap tap-vs-drag->`TapO
 LiveSession pan/zoom->`PanZoomController` (dedupes the byte-for-byte copy). Slider / split-divider / PiP
 stay out of scope.
 
+## Host default input wiring (user suggestion, SHIPPED 2026-07-21)
+
+SdlVulkan.Renderer 6.28 (`72ae0d2`, rides the pending release chain): the loop synthesizes DIR.Lib
+`InputEvent`s for mouse down/move/up/wheel and delivers them through ONE optional
+`SdlWindowView.OnPointerInput` callback, so every consumer `Program.cs` stops hand-wiring the four
+mouse lambdas. Motivating bug class: the FitsViewer shipped `MouseUp(0, 0)` for months because the
+GUI's cached-position trick was never replicated -- and it turns out SDL's button-up event carries
+real X/Y all along (only the legacy `Action<byte>` callback signature dropped them), so the
+synthesized `MouseUp` is strictly better than any cached position.
+`SdlWindowView.DispatchPointer{Down,Move,Up,Wheel}` is the single fan-out to legacy callbacks +
+`OnPointerInput`, used by BOTH the SDL pump and the DebugInspector's synthesized input
+(click/drag/scroll/press_hold) -- without that, apps on `OnPointerInput` would be invisible to the
+inspector (its click/drag invoked the raw callbacks directly), silently breaking the unattended
+GUI-testing workflow. Inspector releases now carry real coordinates too (drag ends at x2/y2, hold at
+the press point), so tap-vs-drag classification works for synthesized gestures. Both tianwen hosts
+(GUI + FitsViewer) rewired to one `OnPointerInput` switch; keyboard/text stay on
+`OnKeyDown`/`OnTextInput` (app-level chords, no synthesis pitfalls). Re-verified live through the
+new path: inspector drag = scroll with zero file loads, tap = exactly one load.
+
 ## Out of scope / deferred
 
-- **Host default input wiring** (user suggestion, 2026-07-21): the SdlVulkan.Renderer loop should cache
-  the last pointer position and offer a synthesized-`InputEvent` callback, so every consumer `Program.cs`
-  stops hand-wiring the OnMouseDown/Move/Up/Wheel lambdas. Motivating bug class: the FitsViewer shipped
-  `MouseUp(0, 0)` for months because the GUI's cached-position trick was never replicated. Rides a future
-  SdlVulkan.Renderer minor (candidate for the pending release chain).
 - `TrackSlider` (already unified; continuous-value family, not row scroll).
 - Momentum/inertia scrolling (needs animation ticks; pairs with the redraw-abstraction backlog item in `docs/todo/`).
 - F3-results / dropdown scroll adoption (clip-only today by design; degenerate mode keeps the door open).
