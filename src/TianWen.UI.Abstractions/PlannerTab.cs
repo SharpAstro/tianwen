@@ -309,29 +309,28 @@ namespace TianWen.UI.Abstractions
             // Opaque background covers the chart behind the list
             FillRect(rect.X, rect.Y, rect.Width, rect.Height, PanelBgOpaque);
 
-            // Header row with clickable filter button
+            // Header: full-width bg (panel chrome) behind a [title * | filter button] HStack. The filter
+            // button is a declarative node (was a RenderButton); the title is the star cell.
             FillRect(headerRect.X, headerRect.Y, headerRect.Width, headerRect.Height, HeaderBg);
-            DrawText("Tonight's Best".AsSpan(), fontPath,
-                headerRect.X + padding, headerRect.Y, contentW * 0.6f, headerRect.Height,
-                fontSize, HeaderText, TextAlign.Near, TextAlign.Center);
 
-            // Filter button on the right side of header
             var filterBtnLabel = state.MinRatingFilter > 0f
                 ? $"\u2605{state.MinRatingFilter:F0}+"
                 : "All";
-            var filterBtnW = MeasureButtonWidth(filterBtnLabel, fontPath, fontSize * 0.9f, padding * 1.5f);
-            var filterBtnH = headerRect.Height * 0.75f;
-            var filterBtnX = headerRect.X + contentW - filterBtnW - padding;
-            var filterBtnY = headerRect.Y + (headerRect.Height - filterBtnH) / 2f;
             var filterBtnBg = state.MinRatingFilter > 0f ? ActiveFilterBg : FilterBtnBg;
-            RenderButton(filterBtnLabel, filterBtnX, filterBtnY, filterBtnW, filterBtnH,
-                fontPath, fontSize * 0.9f, filterBtnBg, FilterBtnText, "CycleFilter",
-                _ =>
-                {
-                    PlannerActions.CycleRatingFilter(state);
-                    state.SelectedTargetIndex = 0;
-                    ScrollOffset = 0;
-                });
+            var headerContent = Layout.Builder.HStack(
+                    Layout.Builder.Text("Tonight's Best", BaseFontSize, HeaderText).WStar().HStar(),
+                    Layout.Builder.Text(filterBtnLabel, BaseFontSize * 0.9f, FilterBtnText, TextAlign.Center, TextAlign.Center)
+                        .WFixed(60f).HStar().Bg(filterBtnBg)
+                        .Clickable(new HitResult.ButtonHit("CycleFilter"), _ =>
+                        {
+                            PlannerActions.CycleRatingFilter(state);
+                            state.SelectedTargetIndex = 0;
+                            ScrollOffset = 0;
+                        }))
+                .WithGap(BasePadding);
+            RenderLayout(headerContent,
+                new RectF32(headerRect.X + padding, headerRect.Y, contentW - padding * 2f, headerRect.Height),
+                fontPath, dpiScale);
 
             // Search input below header (within the search strip, with 2px top gap)
             RenderTextInput(state.SearchInput,
@@ -466,38 +465,33 @@ namespace TianWen.UI.Abstractions
                 dropdownH = maxH;
             }
 
-            // Background + border
-            FillRect(_searchBarLeft - 1f, dropdownY - 1f, _searchBarWidth + 2f, dropdownH + 2f, DropdownBorder);
-            FillRect(_searchBarLeft, dropdownY, _searchBarWidth, dropdownH, DropdownBg);
-
-            for (var i = 0; i < suggestions.Count; i++)
+            // The dropdown is ONE arranged tree: a bordered panel (outer Box.Bg + Pad(1)) over a VStack of
+            // draw==hit suggestion rows -- each row's highlight, indented label, and click surface are the
+            // same arranged rect (was a FillRect border/bg + per-row FillRect/DrawText + a separate
+            // RegisterClickable whose rect could drift). Sizes here are already device px, so the tree is
+            // arranged at dpiScale 1 (design unit == device px). Commit on click is the mouse counterpart of
+            // the keyboard Enter-on-highlighted path -- both go through PlannerState.CommitSuggestionAt.
+            var rowFs = fontSize * 0.9f;
+            var maxRows = itemHeight > 0 ? (int)(dropdownH / itemHeight) : 0;
+            var rows = new List<Layout.Node>(Math.Min(suggestions.Count, maxRows));
+            for (var i = 0; i < suggestions.Count && i < maxRows; i++)
             {
-                var rowY = dropdownY + i * itemHeight;
-                if (rowY + itemHeight > dropdownY + dropdownH)
-                {
-                    break;
-                }
-
                 var isHighlighted = i == state.SuggestionIndex;
-                if (isHighlighted)
-                {
-                    FillRect(_searchBarLeft, rowY, _searchBarWidth, itemHeight, DropdownSelBg);
-                }
-
-                DrawText(suggestions[i].AsSpan(), fontPath,
-                    _searchBarLeft + padding, rowY, _searchBarWidth - padding * 2f, itemHeight,
-                    fontSize * 0.9f, isHighlighted ? SelectedText : ItemText, TextAlign.Near, TextAlign.Center);
-
-                // Commit the suggestion on click -- the mouse counterpart of the keyboard
-                // Enter-on-highlighted-suggestion path. Both go through PlannerState.CommitSuggestionAt
-                // (wired by PlannerSearchInteraction to the same CommitSuggestion), so a click and a
-                // keypress land identically. Without this OnClick the click had no handler at all and
-                // only the keyboard could commit ("arrow+enter works, mouse doesn't").
                 var capturedSuggestion = i;
-                RegisterClickable(_searchBarLeft, rowY, _searchBarWidth, itemHeight,
-                    new HitResult.ListItemHit("Suggestion", i),
-                    _ => state.CommitSuggestionAt?.Invoke(capturedSuggestion));
+                var row = Layout.Builder.HStack(
+                        Layout.Builder.Spacer().WFixed(padding).HStar(),
+                        Layout.Builder.Text(suggestions[i], rowFs, isHighlighted ? SelectedText : ItemText).Stretch(),
+                        Layout.Builder.Spacer().WFixed(padding).HStar())
+                    .RowH(itemHeight)
+                    .Clickable(new HitResult.ListItemHit("Suggestion", capturedSuggestion),
+                        _ => state.CommitSuggestionAt?.Invoke(capturedSuggestion));
+                if (isHighlighted) row = row.Bg(DropdownSelBg);
+                rows.Add(row);
             }
+
+            var panel = Layout.Builder.VStack([.. rows]).Bg(DropdownBg);
+            var framed = Layout.Builder.VStack(panel.Stretch()).Bg(DropdownBorder).Pad(1f);
+            RenderLayout(framed, new RectF32(_searchBarLeft - 1f, dropdownY - 1f, _searchBarWidth + 2f, dropdownH + 2f), fontPath, dpiScale: 1f);
         }
 
         // -----------------------------------------------------------------------
