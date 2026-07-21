@@ -28,9 +28,9 @@ namespace TianWen.UI.Abstractions
         private const float BasePadding   = 10f;
 
         // Atom-model scroll controller (DIR.Lib): one notification row is one atom. Smooth (pixel-precise)
-        // sub-row scrolling with a decorative scrollbar; owns the offset + wheel accumulator + clamp, and
-        // VisibleRows() owns row placement.
-        private readonly ListScrollController _scroll = new ListScrollController { Mode = ScrollBarMode.Decorative };
+        // sub-row scrolling with an interactive (grabbable-thumb) scrollbar + body drag-to-scroll; owns
+        // the offset + wheel accumulator + clamp, and VisibleRows() owns row placement.
+        private readonly ListScrollController _scroll = new ListScrollController { Mode = ScrollBarMode.Interactive };
 
         private RectF32 _listRect;
 
@@ -135,14 +135,27 @@ namespace TianWen.UI.Abstractions
                     msgX, rowY, msgW, rowH, fontSize, BodyText, TextAlign.Near, TextAlign.Center);
             }
 
-            // Decorative scrollbar at the right edge (no-op when the list fits).
+            // Interactive scrollbar at the right edge (hidden when the list fits).
             _scroll.DrawScrollBar(FillRect);
         }
 
         public override bool HandleInput(InputEvent evt) => evt switch
         {
             InputEvent.Scroll(_, var mx, var my, _) when _listRect.Contains(mx, my) => _scroll.HandleInput(evt),
+            // Unclaimed presses (the host dispatches registered clickables first) arm body drag-to-scroll
+            // or grab the thumb; move/up continue the gesture (false when idle, so they fall through).
+            InputEvent.MouseDown or InputEvent.MouseMove or InputEvent.MouseUp => HandleListMouse(evt),
             _ => false
         };
+
+        private bool HandleListMouse(InputEvent evt)
+        {
+            if (!_scroll.HandleInput(evt))
+            {
+                return false;
+            }
+            _scroll.TakeAtomTap(); // rows have no tap action -- discard so a tap never lingers
+            return true;
+        }
     }
 }

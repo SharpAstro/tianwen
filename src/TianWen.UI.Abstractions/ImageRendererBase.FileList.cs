@@ -18,15 +18,23 @@ namespace TianWen.UI.Abstractions
         // File list sidebar
         // -----------------------------------------------------------------------
 
-        // File-list scroll controller (DIR.Lib atom model): row-snapped. It owns the continuous scroll
-        // offset (so the trackpad wheel accumulator survives frame-to-frame) + the correct Count-visible
-        // bound; ScanFolder requests an initial top via ViewerState.PendingFileListScrollTop, applied once
-        // below. NOTE: the viewer keeps its historical click-to-select (an immediate ListItemHit dispatched
-        // on mouse-down) rather than the controller's tap-on-release, because the viewer's bespoke input
-        // model (raw self-dispatch, no unclaimed-press fall-through) does not carry the release cleanly. So
-        // the controller here drives ONLY the scroll (wheel + placement + decorative scrollbar), not select.
+        // File-list scroll controller (DIR.Lib atom model): row-snapped, fully interactive. It owns the
+        // continuous scroll offset (so the trackpad wheel accumulator survives frame-to-frame) + the
+        // correct Count-visible bound; ScanFolder requests an initial top via
+        // ViewerState.PendingFileListScrollTop, applied once below. Rows are NOT registered clickables:
+        // both viewer hosts route the press/move/release to the controller (the embedded path via
+        // HandleViewerMouse*, the standalone via HandleFileListInput), so drag-to-scroll and the
+        // grabbable thumb work, and select fires on the tap RELEASE (TakeAtomTap) like Planner/Equipment
+        // -- a touch drag over the list scrolls it instead of selecting the row under the finger.
         private readonly ListScrollController _fileListScroll =
-            new ListScrollController { SnapToAtom = true, Mode = ScrollBarMode.Decorative };
+            new ListScrollController { SnapToAtom = true, Mode = ScrollBarMode.Interactive };
+
+        /// <summary>
+        /// File-list scroll surface for hosts with bespoke mouse dispatch (the standalone viewer's
+        /// <c>Program.cs</c> mouse-down handler); the embedded <see cref="HandleInput"/> path routes
+        /// internally. Viewport-gated by the controller -- returns <c>false</c> for presses elsewhere.
+        /// </summary>
+        public bool HandleFileListInput(InputEvent evt) => _fileListScroll.HandleInput(evt);
 
         private void RenderFileList(ViewerState state)
         {
@@ -94,14 +102,9 @@ namespace TianWen.UI.Abstractions
 
                 DrawText(displayName, rowRect.X + PanelPadding, rowRect.Y + 2f, FontSize,
                     isSelected ? FileListItemTextSelected : FileListItemText);
-
-                // Click-to-select: an immediate ListItemHit dispatched by HandleViewerMouseDown (the
-                // historical, proven viewer path). Registered on the controller's per-row rect.
-                RegisterClickable(rowRect.X, rowRect.Y, rowRect.Width, rowRect.Height,
-                    new HitResult.ListItemHit("FileList", fileIndex));
             }
 
-            // Decorative scrollbar (no-op when the list fits).
+            // Interactive scrollbar (grabbable thumb; no-op when the list fits).
             _fileListScroll.DrawScrollBar(FillRect);
 
             // The resize divider between the file list and the content area is the Split's draw==hit divider
