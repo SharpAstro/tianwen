@@ -568,42 +568,16 @@ namespace TianWen.UI.Abstractions
         private void RenderPreviewMountSection(LiveSessionState state, RectF32 rect,
             string fontPath, float fontSize, float dpiScale, float pad, float rowH)
         {
-            var smallFs = fontSize * 0.85f;
             var mountY = rect.Y + rect.Height - rowH * 4 - pad;
             if (mountY <= rect.Y + rect.Height * 0.35f)
             {
                 return;
             }
 
-            FillRect(rect.X, mountY, rect.Width, 1, SeparatorColor);
-            mountY += pad;
+            FillRect(rect.X, mountY, rect.Width, 1, SeparatorColor); // hairline divider stays a 1px line
 
             var ms = state.MountState;
-            var dotColor = ms.IsSlewing ? StatusSlewing
-                : ms.IsTracking ? StatusTracking
-                : DimText;
-            var dotSize = rowH * 0.4f;
-            FillRect(rect.X + pad, mountY + (rowH - dotSize) / 2, dotSize, dotSize, dotColor);
-
-            var mountName = state.MountDisplayName ?? "Mount";
-            DrawText(mountName, fontPath,
-                rect.X + pad + dotSize + pad, mountY, rect.Width - pad * 3 - dotSize, rowH,
-                smallFs, HeaderText, TextAlign.Near, TextAlign.Center);
-            mountY += rowH;
-
-            // RA / Dec
-            var raHms = $"RA {ms.RightAscension:F4}h";
-            var decDms = $"Dec {ms.Declination:F3}\u00B0";
-            DrawText(raHms, fontPath,
-                rect.X + pad, mountY, rect.Width - pad * 2, rowH,
-                smallFs, BodyText, TextAlign.Near, TextAlign.Center);
-            mountY += rowH;
-            DrawText(decDms, fontPath,
-                rect.X + pad, mountY, rect.Width - pad * 2, rowH,
-                smallFs, BodyText, TextAlign.Near, TextAlign.Center);
-            mountY += rowH;
-
-            // Status line
+            var dotColor = ms.IsSlewing ? StatusSlewing : ms.IsTracking ? StatusTracking : DimText;
             var statusText = ms.IsSlewing ? "Slewing" : ms.IsTracking ? "Tracking" : "Idle";
             var pierLabel = ms.PierSide switch
             {
@@ -612,9 +586,18 @@ namespace TianWen.UI.Abstractions
                 _ => "?"
             };
             statusText += $"  Pier: {pierLabel}  HA: {ms.HourAngle:F2}h";
-            DrawText(statusText, fontPath,
-                rect.X + pad, mountY, rect.Width - pad * 2, rowH,
-                smallFs, ms.IsSlewing ? StatusSlewing : DimText, TextAlign.Near, TextAlign.Center);
+
+            // Name row (dot + name), RA, Dec, status as one padded VStack (was a mountY cursor).
+            var mountTree = Layout.Builder.VStack(
+                    Layout.Builder.HStack(
+                            Layout.Builder.Text("\u25CF", BaseFontSize * 0.7f, dotColor, TextAlign.Center, TextAlign.Center).WFixed(BaseRowHeight * 0.6f).HStar(),
+                            Layout.Builder.Text(state.MountDisplayName ?? "Mount", BaseFontSize * 0.85f, HeaderText).WStar().HStar())
+                        .RowH(BaseRowHeight),
+                    Layout.Builder.Text($"RA {ms.RightAscension:F4}h", BaseFontSize * 0.85f, BodyText).RowH(BaseRowHeight),
+                    Layout.Builder.Text($"Dec {ms.Declination:F3}\u00B0", BaseFontSize * 0.85f, BodyText).RowH(BaseRowHeight),
+                    Layout.Builder.Text(statusText, BaseFontSize * 0.85f, ms.IsSlewing ? StatusSlewing : DimText).RowH(BaseRowHeight))
+                .Pad(BasePadding);
+            RenderLayout(mountTree, new RectF32(rect.X, mountY, rect.Width, rect.Y + rect.Height - mountY), fontPath, dpiScale);
         }
 
         // -----------------------------------------------------------------------
