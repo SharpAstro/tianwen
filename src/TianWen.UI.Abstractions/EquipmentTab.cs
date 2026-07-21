@@ -259,25 +259,24 @@ namespace TianWen.UI.Abstractions
             RectF32 rect,
             float dpiScale, string fontPath)
         {
-            var fontSize    = BaseFontSize * dpiScale;
-            var padding     = BasePadding * dpiScale;
-            var buttonH     = BaseButtonHeight * dpiScale;
-            var buttonW     = 160f * dpiScale;
+            // Message + Create button vertically centred by equal star spacers; the button is
+            // centred horizontally by star spacers around a fixed-width cell. No manual centre math.
+            const float buttonW = 160f;
+            var tree = Layout.Builder.VStack(
+                Layout.Builder.Spacer().Stretch(),
+                Layout.Builder.Text("No equipment profile configured.", BaseFontSize, DimText, TextAlign.Center, TextAlign.Center)
+                    .RowH(BaseItemHeight * 1.5f),
+                Layout.Builder.Spacer().RowH(BasePadding),
+                Layout.Builder.HStack(
+                        Layout.Builder.Spacer().WStar(),
+                        Layout.Builder.Text("Create Profile", BaseFontSize, BodyText, TextAlign.Center, TextAlign.Center)
+                            .WFixed(buttonW).HStar().Bg(CreateButton)
+                            .Clickable(new HitResult.ButtonHit("CreateProfile"), _ => PostSignal(new CreateProfileSignal())),
+                        Layout.Builder.Spacer().WStar())
+                    .RowH(BaseButtonHeight),
+                Layout.Builder.Spacer().Stretch());
 
-            var centerX = rect.X + rect.Width / 2f;
-            var centerY = rect.Y + rect.Height / 2f;
-
-            DrawText(
-                "No equipment profile configured.".AsSpan(),
-                fontPath,
-                rect.X, rect.Y, rect.Width, rect.Height - buttonH - padding * 2f,
-                fontSize, DimText, TextAlign.Center, TextAlign.Far);
-
-            var btnX = centerX - buttonW / 2f;
-            var btnY = centerY + padding;
-
-            RenderButton("Create Profile", btnX, btnY, buttonW, buttonH, fontPath, fontSize, CreateButton, BodyText, "CreateProfile",
-                _ => PostSignal(new CreateProfileSignal()));
+            RenderLayout(tree, rect, fontPath, dpiScale);
         }
 
         // -----------------------------------------------------------------------
@@ -288,50 +287,48 @@ namespace TianWen.UI.Abstractions
             RectF32 rect,
             float dpiScale, string fontPath)
         {
-            var fontSize    = BaseFontSize * dpiScale;
-            var padding     = BasePadding * dpiScale;
-            var fieldH      = BaseItemHeight * dpiScale * 1.4f;
-            var buttonH     = BaseButtonHeight * dpiScale;
-            var bottomBarH  = BaseBottomBarHeight * dpiScale;
+            // The creation form is ONE arranged tree: header + label + name input (keyed Fill) +
+            // Create button stack from the top of the Dock fill (padded VStack), with a hint status
+            // bar docked to the bottom. The input's arranged rect drives RenderTextInput; the button
+            // is a Clickable Text node. No field cursor -- only the host rect is constructed.
+            var content = Layout.Builder.VStack(
+                    Layout.Builder.Text("New Equipment Profile", BaseFontSize * 1.2f, HeaderText).RowH(BaseHeaderHeight),
+                    Layout.Builder.Spacer().RowH(BasePadding),
+                    Layout.Builder.Text("Profile name:", BaseFontSize, BodyText).RowH(BaseItemHeight),
+                    Layout.Builder.HStack(
+                            Layout.Builder.Fill(key: "profileNameInput").WStar(1f, 0f, 360f).HStar(),
+                            Layout.Builder.Spacer().WStar())
+                        .RowH(BaseItemHeight * 1.4f),
+                    Layout.Builder.Spacer().RowH(BasePadding),
+                    Layout.Builder.HStack(
+                            Layout.Builder.Text("Create", BaseFontSize, BodyText, TextAlign.Center, TextAlign.Center)
+                                .WFixed(120f).HStar().Bg(CreateButton)
+                                .Clickable(new HitResult.ButtonHit("CreateProfile"), _ =>
+                                {
+                                    if (State.ProfileNameInput.Text.Length > 0)
+                                        State.ProfileNameInput.OnCommit?.Invoke(State.ProfileNameInput.Text);
+                                }),
+                            Layout.Builder.Spacer().WStar())
+                        .RowH(BaseButtonHeight),
+                    Layout.Builder.Spacer().Stretch())
+                .Pad(BasePadding);
 
-            var layout = new PixelLayout(rect);
-            var bottomBarRect = layout.Dock(PixelDockStyle.Bottom, bottomBarH);
-            var mainRect = layout.Fill();
+            var tree = Layout.Builder.Dock(
+                content,
+                Layout.Builder.Bottom(
+                    Layout.Builder.HStack(
+                            Layout.Builder.Text("Enter a name for the new profile and press Create or Enter.",
+                                BaseFontSize, DimText, TextAlign.Near, TextAlign.Center).Stretch())
+                        .Bg(BottomBarBg).Pad(BasePadding),
+                    BaseBottomBarHeight));
 
-            // Header
-            DrawText(
-                "New Equipment Profile".AsSpan(),
-                fontPath,
-                mainRect.X + padding, mainRect.Y + padding, mainRect.Width - padding * 2f, BaseHeaderHeight * dpiScale,
-                fontSize * 1.2f, HeaderText, TextAlign.Near, TextAlign.Center);
-
-            // Name input field
-            var fieldY = mainRect.Y + padding + BaseHeaderHeight * dpiScale + padding;
-            var fieldW = Math.Min(360f * dpiScale, mainRect.Width - padding * 2f);
-            var fieldX = mainRect.X + padding;
-
-            DrawText(
-                "Profile name:".AsSpan(),
-                fontPath,
-                fieldX, fieldY, fieldW, fontSize * 1.5f,
-                fontSize, BodyText, TextAlign.Near, TextAlign.Near);
-
-            var inputY = (int)(fieldY + fontSize * 1.6f);
-            RenderTextInput(State.ProfileNameInput, (int)fieldX, inputY, (int)fieldW, (int)fieldH, fontPath, fontSize);
-
-            // Create button
-            var btnY = inputY + (int)fieldH + (int)padding;
-            var btnW = 120f * dpiScale;
-            RenderButton("Create", fieldX, btnY, btnW, buttonH, fontPath, fontSize, CreateButton, BodyText, "CreateProfile",
-                _ => { if (State.ProfileNameInput.Text.Length > 0) State.ProfileNameInput.OnCommit?.Invoke(State.ProfileNameInput.Text); });
-
-            // Bottom status
-            FillRect(bottomBarRect.X, bottomBarRect.Y, bottomBarRect.Width, bottomBarRect.Height, BottomBarBg);
-            DrawText(
-                "Enter a name for the new profile and press Create or Enter.".AsSpan(),
-                fontPath,
-                bottomBarRect.X + padding, bottomBarRect.Y, bottomBarRect.Width - padding * 2f, bottomBarRect.Height,
-                fontSize, DimText, TextAlign.Near, TextAlign.Center);
+            RenderLayout(tree, rect, fontPath, dpiScale, drawFill: (fill, r) =>
+            {
+                if (fill.Key == "profileNameInput")
+                {
+                    RenderTextInput(State.ProfileNameInput, r, fontPath, BaseFontSize * dpiScale);
+                }
+            });
         }
 
         // -----------------------------------------------------------------------
@@ -345,28 +342,33 @@ namespace TianWen.UI.Abstractions
             string? emojiFontPath = null,
             LiveSessionState? liveSessionState = null)
         {
-            var profilePanelW = BaseProfilePanelWidth * dpiScale;
-            var bottomBarH    = BaseBottomBarHeight * dpiScale;
+            // The whole view is ONE arranged tree: a bottom-docked hint bar over a body row of
+            // [profile panel | 1px separator | device list]. Each region is a keyed Fill leaf whose
+            // arranged rect drives the existing sub-renderer; the backgrounds ride on the nodes. The
+            // only constructed rect is the host content rect -- no PixelLayout docking cursor.
+            var tree = Layout.Builder.Dock(
+                Layout.Builder.HStack(
+                    Layout.Builder.Fill(key: "profilePanel").WFixed(BaseProfilePanelWidth).HStar().Bg(ProfilePanelBg),
+                    Layout.Builder.Spacer().WFixed(1f).HStar().Bg(SeparatorColor),
+                    Layout.Builder.Fill(key: "deviceList").WStar().HStar().Bg(DeviceListBg)),
+                Layout.Builder.Bottom(
+                    Layout.Builder.Fill(key: "bottomBar").Bg(BottomBarBg), BaseBottomBarHeight));
 
-            var layout = new PixelLayout(contentRect);
-            var bottomBarRect = layout.Dock(PixelDockStyle.Bottom, bottomBarH);
-            var profileRect = layout.Dock(PixelDockStyle.Left, profilePanelW);
-            var deviceListRect = layout.Fill();
-
-            // Left: profile panel
-            FillRect(profileRect.X, profileRect.Y, profileRect.Width, profileRect.Height, ProfilePanelBg);
-            RenderProfilePanel(appState, profileRect, dpiScale, fontPath, emojiFontPath, liveSessionState);
-
-            // Vertical separator
-            FillRect(deviceListRect.X, deviceListRect.Y, 1f, deviceListRect.Height, SeparatorColor);
-
-            // Right: device list
-            FillRect(deviceListRect.X, deviceListRect.Y, deviceListRect.Width, deviceListRect.Height, DeviceListBg);
-            RenderDeviceList(appState, deviceListRect, dpiScale, fontPath, emojiFontPath);
-
-            // Bottom bar
-            FillRect(bottomBarRect.X, bottomBarRect.Y, bottomBarRect.Width, bottomBarRect.Height, BottomBarBg);
-            RenderBottomBar(appState, bottomBarRect, dpiScale, fontPath);
+            RenderLayout(tree, contentRect, fontPath, dpiScale, drawFill: (fill, r) =>
+            {
+                switch (fill.Key)
+                {
+                    case "profilePanel":
+                        RenderProfilePanel(appState, r, dpiScale, fontPath, emojiFontPath, liveSessionState);
+                        break;
+                    case "deviceList":
+                        RenderDeviceList(appState, r, dpiScale, fontPath, emojiFontPath);
+                        break;
+                    case "bottomBar":
+                        RenderBottomBar(appState, r, dpiScale, fontPath);
+                        break;
+                }
+            });
         }
 
         /// <summary>

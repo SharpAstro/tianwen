@@ -520,7 +520,7 @@ namespace TianWen.UI.Abstractions
                 {
                     if (State.EditingExposureIndex == capturedI)
                     {
-                        RenderTextInput(State.ExposureInput, (int)r.X, (int)r.Y, (int)r.Width, (int)r.Height, fontPath, BaseFontSize * 0.9f * dpiScale);
+                        RenderTextInput(State.ExposureInput, r, fontPath, BaseFontSize * 0.9f * dpiScale);
                     }
                     else
                     {

@@ -220,8 +220,15 @@ what remains is SkyMap/Planner/Equipment chrome.**
 - `EquipmentTab.DeviceList.cs` (4 / 6 / 2) -- device-list ROW body + Connect/Disconnect. **Deferred by
   design** (badge/name/status columns tangled with reachability/confirm-strip/segment business logic +
   inset badge pill + status-dot square -- poor reduction-per-risk).
-- `EquipmentTab.cs` (6 / 5 / 2) -- tab-level chrome: panel backgrounds + 1px separators (minimal cases)
-  + the ConnectAll top-bar button. **REMAINING (minimal).**
+- **DONE** `EquipmentTab.cs` -- tab-level chrome. `RenderProfileView` (the always-visible split) is now
+  ONE `Dock(HStack[profilePanel Fill | 1px Box separator | deviceList Fill], Bottom(bottomBar Fill))` --
+  each region a keyed Fill whose arranged rect drives the existing sub-renderer, backgrounds on the nodes,
+  no `PixelLayout` docking cursor. `RenderProfileCreation` (form: header + name input keyed Fill + Create
+  Clickable + docked hint bar) and `RenderNoProfile` (centred message + Create via star spacers) also
+  converted. **Nested `RenderLayout` inside a `drawFill` verified re-entrancy-safe** (PaintLayout iterates
+  a local immutable array; only appends to the region tracker + `_capturedLayout`) -- the profile panel's
+  own tree paints correctly inside the outer view tree. Screenshot-verified. The device-list ROW body
+  stays deferred (below).
 
 **New reusable control:** `FormRowLayout.ProgressBar(fraction, track, fill, label?)` -- declarative
 fractional bar (Box + Overlay + Star-weighted fill + optional centred label), pinned by

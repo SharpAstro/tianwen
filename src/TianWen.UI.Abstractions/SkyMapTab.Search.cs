@@ -190,7 +190,7 @@ namespace TianWen.UI.Abstractions
                 {
                     if (fill.Key == "searchInput")
                     {
-                        RenderTextInput(State.Search.SearchInput, (int)r.X, (int)r.Y, (int)r.Width, (int)r.Height, fontPath, fontSize);
+                        RenderTextInput(State.Search.SearchInput, r, fontPath, fontSize);
                     }
                 });
 
