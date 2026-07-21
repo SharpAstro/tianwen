@@ -100,39 +100,27 @@ namespace TianWen.UI.Abstractions
             foreach (var (i, rowRect) in _scroll.VisibleRows())
             {
                 var entry = entries[i];
-                var rowY = rowRect.Y;
 
-                // Alternating row background
-                if ((i & 1) == 1)
-                {
-                    FillRect(rowRect.X, rowY, rowRect.Width, rowH, RowAltBg);
-                }
-
-                // Severity stripe on the left
+                // One row tree: [severity stripe | gap | timestamp | message] with an alternating
+                // background. Was a FillRect bg + FillRect stripe + two hand-positioned DrawTexts.
                 var stripeColor = entry.Severity switch
                 {
                     NotificationSeverity.Error   => ErrorStripe,
                     NotificationSeverity.Warning => WarnStripe,
                     _                            => InfoStripe
                 };
-                FillRect(rowRect.X, rowY, 3f * dpiScale, rowH, stripeColor);
-
-                // Timestamp (HH:mm:ss) in the single app-wide site timezone -- never the
-                // machine TZ (.ToLocalTime would show UTC on a UTC-set machine).
+                // Timestamp (HH:mm:ss) in the single app-wide site timezone -- never the machine TZ.
                 var tsText = entry.When.ToOffset(appState.SiteTimeZone).ToString("HH:mm:ss");
-                var tsX = rowRect.X + 10f * dpiScale;
-                var tsW = 70f * dpiScale;
-                DrawText(tsText.AsSpan(), fontPath,
-                    tsX, rowY, tsW, rowH, fontSize * 0.9f, DimText, TextAlign.Near, TextAlign.Center);
 
-                // Message — fills the remaining width. Long messages wrap on the
-                // fly would require line splitting; for now we render in one line
-                // (info panel status is always one line anyway) and the row widens
-                // horizontally via the renderer's own glyph clipping at edge.
-                var msgX = tsX + tsW + 8f * dpiScale;
-                var msgW = rowRect.Right - msgX - pad;
-                DrawText(entry.Message.AsSpan(), fontPath,
-                    msgX, rowY, msgW, rowH, fontSize, BodyText, TextAlign.Near, TextAlign.Center);
+                var row = Layout.Builder.HStack(
+                        Layout.Builder.Box(3f, 0f, stripeColor).WFixed(3f).HStar(),
+                        Layout.Builder.Spacer().WFixed(7f).HStar(),
+                        Layout.Builder.Text(tsText, BaseFontSize * 0.9f, DimText).WFixed(70f).HStar(),
+                        Layout.Builder.Spacer().WFixed(8f).HStar(),
+                        Layout.Builder.Text(entry.Message, BaseFontSize, BodyText).WStar().HStar(),
+                        Layout.Builder.Spacer().WFixed(BasePadding).HStar());
+                if ((i & 1) == 1) row = row.Bg(RowAltBg);
+                RenderLayout(row, rowRect, fontPath, dpiScale);
             }
 
             // Interactive scrollbar at the right edge (hidden when the list fits).
