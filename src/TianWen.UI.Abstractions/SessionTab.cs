@@ -54,11 +54,12 @@ namespace TianWen.UI.Abstractions
         /// <summary>Per-observation exposure value hit regions for double-click-to-edit.</summary>
         private readonly List<(RectF32 Rect, int ProposalIndex)> _exposureValueRegions = [];
 
+        /// <summary>Per-frame Fill-leaf painter dispatch for the observation list's single RenderLayout
+        /// (the per-row exposure value cell). Render-thread-only, so a plain Dictionary is safe.</summary>
+        private readonly Dictionary<string, Action<RectF32>> _obsFills = new();
+
         /// <summary>Reused scratch buffer for measuring the shared stepper value-column width (no per-frame alloc).</summary>
         private readonly List<string> _stepperValueScratch = [];
-
-        /// <summary>Reused scratch buffer for measuring the shared per-OTA camera-settings value-column width.</summary>
-        private readonly List<string> _cameraValueScratch = [];
 
         /// <summary>Cached reference to planner state for HandleInput access.</summary>
         private PlannerState? _plannerState;
@@ -69,7 +70,7 @@ namespace TianWen.UI.Abstractions
         /// <summary>Tab state (configuration values, per-OTA camera settings, scroll offset).</summary>
         public SessionTabState State { get; } = new SessionTabState();
 
-        /// <summary>Scroll line height in pixels — the config panel's atom extent (one BaseItemHeight line).</summary>
+        /// <summary>Scroll line height in pixels \u2014 the config panel's atom extent (one BaseItemHeight line).</summary>
         public float ScrollLineHeight { get; private set; }
 
         /// <summary>
@@ -145,7 +146,7 @@ namespace TianWen.UI.Abstractions
                     // the config rect from the last render, so right-panel input falls through untouched;
                     // before the first frame the extent is empty and every event is ignored). Field rows +
                     // stepper buttons are registered clickables the host dispatches BEFORE HandleInput, so
-                    // only unclaimed presses land here — an empty-space tap selects nothing, hence the
+                    // only unclaimed presses land here \u2014 an empty-space tap selects nothing, hence the
                     // pending tap is drained and dropped.
                     if (_configScroll.HandleInput(evt))
                     {
@@ -199,7 +200,7 @@ namespace TianWen.UI.Abstractions
         private void EnsureFieldVisible()
         {
             // Fields are not atom-aligned (group headers + gaps shift them off the BaseItemHeight grid),
-            // so ensure both atoms the field's pixel span touches — they are adjacent, so the second call
+            // so ensure both atoms the field's pixel span touches \u2014 they are adjacent, so the second call
             // moves at most one more line and the whole field lands inside the viewport. _fieldYPositions
             // is from the last render, same as the controller's geometry.
             if (State.SelectedFieldIndex >= 0 && _fieldYPositions.Count > State.SelectedFieldIndex)
@@ -322,32 +323,19 @@ namespace TianWen.UI.Abstractions
 
             if (hasPinned)
             {
-                var btnH = 36f * dpiScale;
-                var btnRect = rightLayout.Dock(PixelDockStyle.Bottom, btnH + padding * 2);
-                var btnW = btnRect.Width - padding * 4;
-                var btnX = btnRect.X + padding * 2;
-                var btnY = btnRect.Y + padding;
-                var fs = BaseFontSize * dpiScale;
+                var btnRect = rightLayout.Dock(PixelDockStyle.Bottom, 36f * dpiScale + padding * 2);
 
-                if (State.IsSessionRunning)
-                {
-                    FillRect(btnX, btnY, btnW, btnH, DisabledBtnBg);
-                    DrawText("Session running\u2026", fontPath,
-                        btnX, btnY, btnW, btnH,
-                        fs, DisabledBtnText, TextAlign.Center, TextAlign.Center);
-                }
-                else if (isTonight)
-                {
-                    RenderButton("\u25B6 Start Session", btnX, btnY, btnW, btnH,
-                        fontPath, fs, StartBtnBg, StartBtnText, "StartSession",
-                        _ => PostSignal(new StartSessionSignal()));
-                }
-                else
-                {
-                    FillRect(btnX, btnY, btnW, btnH, DisabledBtnBg);
-                    DrawText("Start (tonight only)", fontPath,
-                        btnX, btnY, btnW, btnH, fs, DisabledBtnText, TextAlign.Center, TextAlign.Center);
-                }
+                // Start button as a declarative node (was a RenderButton + two disabled FillRect/DrawText
+                // branches): running -> disabled label, tonight -> clickable Start, other date -> disabled hint.
+                var btnNode = State.IsSessionRunning
+                    ? Layout.Builder.Text("Session running\u2026", BaseFontSize, DisabledBtnText, TextAlign.Center, TextAlign.Center).Bg(DisabledBtnBg)
+                    : isTonight
+                        ? Layout.Builder.Text("\u25B6 Start Session", BaseFontSize, StartBtnText, TextAlign.Center, TextAlign.Center)
+                            .Bg(StartBtnBg)
+                            .Clickable(new HitResult.ButtonHit("StartSession"), _ => PostSignal(new StartSessionSignal()))
+                        : Layout.Builder.Text("Start (tonight only)", BaseFontSize, DisabledBtnText, TextAlign.Center, TextAlign.Center).Bg(DisabledBtnBg);
+
+                RenderLayout(Layout.Builder.VStack(btnNode.Stretch()).Pad(BasePadding), btnRect, fontPath, dpiScale);
             }
 
             var obsRect = rightLayout.Fill();
@@ -365,134 +353,81 @@ namespace TianWen.UI.Abstractions
             float dpiScale,
             string fontPath)
         {
-            var fontSize = BaseFontSize * dpiScale;
-            var padding = BasePadding * dpiScale;
-            var itemH = BaseItemHeight * dpiScale;
-            var headerH = BaseHeaderHeight * dpiScale;
-            var stepperBtnW = BaseStepperBtnW * dpiScale;
-            var labelW = 80f * dpiScale;
-
-            var camLayout = new PixelLayout(rect);
-            var headerRect = camLayout.Dock(PixelDockStyle.Top, headerH);
-
-            FillRect(headerRect.X, headerRect.Y, headerRect.Width, headerRect.Height, HeaderBg);
-            DrawText("Camera Settings", fontPath,
-                headerRect.X + padding, headerRect.Y, headerRect.Width - padding * 2, headerRect.Height,
-                fontSize, HeaderText, TextAlign.Near, TextAlign.Center);
-
-            var listRect = camLayout.Fill();
+            // ONE arranged tree: "Camera Settings" header + per-OTA (name header, optional setpoint row,
+            // gain row). The stepper value cells are Star, so every row is the same width and the value
+            // columns align with no measured-width pass. Was a cursor walk with a MeasureValueColumnWidth
+            // pre-pass. Label column fixed; the stepper fills the rest.
+            const float labelW = 80f;
+            var rows = new List<Layout.Node>
+            {
+                Layout.Builder.Text("Camera Settings", BaseFontSize, HeaderText).RowH(BaseHeaderHeight).Bg(HeaderBg),
+            };
 
             if (State.CameraSettings.Count == 0)
             {
-                DrawText("No cameras configured.", fontPath,
-                    listRect.X + padding, listRect.Y, listRect.Width - padding * 2, itemH,
-                    fontSize * 0.9f, HintText, TextAlign.Center, TextAlign.Center);
+                rows.Add(Layout.Builder.Text("No cameras configured.", BaseFontSize * 0.9f, HintText, TextAlign.Center, TextAlign.Center)
+                    .RowH(BaseItemHeight));
+                RenderLayout(Layout.Builder.VStack([.. rows]), rect, fontPath, dpiScale);
                 return;
             }
 
-            var controlX = listRect.X + padding + labelW;
-
-            // Measurement-driven value column shared across every OTA's setpoint/gain row so long
-            // gain-mode names fit and all steppers stay aligned (see PixelWidgetBase.MeasureValueColumnWidth).
-            // Mode cameras contribute all mode names (not just the current one) so the column does not
-            // reflow as the user cycles modes.
-            _cameraValueScratch.Clear();
             for (var i = 0; i < State.CameraSettings.Count; i++)
-            {
-                var cam = State.CameraSettings[i];
-                if (cam.HasCooling)
-                {
-                    _cameraValueScratch.Add($"{cam.SetpointTempC}°C");
-                }
-
-                if (cam.UsesGainMode && cam.GainModes.Count > 0)
-                {
-                    for (var m = 0; m < cam.GainModes.Count; m++)
-                    {
-                        _cameraValueScratch.Add(cam.GainModes[m]);
-                    }
-                }
-                else
-                {
-                    _cameraValueScratch.Add($"{cam.Gain}");
-                }
-            }
-
-            var valueW = MeasureValueColumnWidth(
-                _cameraValueScratch, fontPath, fontSize,
-                minWidth: BaseValueW * dpiScale * 0.75f,
-                maxWidth: listRect.Width - padding * 2f - labelW - stepperBtnW * 2f,
-                horizontalPadding: padding);
-
-            var cursor = listRect.Y;
-
-            for (var i = 0; i < State.CameraSettings.Count && cursor + itemH * 2 <= listRect.Y + listRect.Height; i++)
             {
                 var cam = State.CameraSettings[i];
                 var capturedI = i;
 
                 // OTA header: name + f-ratio
-                FillRect(listRect.X, cursor, listRect.Width, itemH, OtaHeaderBg);
                 var fRatioStr = !double.IsNaN(cam.FRatio) ? $"  f/{cam.FRatio:0.#}" : "";
-                DrawText($"{cam.OtaName}{fRatioStr}", fontPath,
-                    listRect.X + padding, cursor, listRect.Width - padding * 2, itemH,
-                    fontSize, BodyText, TextAlign.Near, TextAlign.Center);
-                cursor += itemH;
+                rows.Add(Layout.Builder.Text($"{cam.OtaName}{fRatioStr}", BaseFontSize, BodyText).RowH(BaseItemHeight).Bg(OtaHeaderBg));
 
                 // Setpoint row (hidden for uncooled cameras like DSLRs)
                 if (cam.HasCooling)
                 {
-                    FillRect(listRect.X, cursor, listRect.Width, itemH, PanelBg);
-                    DrawText("Setpoint", fontPath,
-                        listRect.X + padding, cursor, labelW, itemH,
-                        fontSize * 0.9f, DimText, TextAlign.Near, TextAlign.Center);
-
                     var setCtrl = FormRowLayout.StepperControl(SessionStepperStyle,
                         "\u2212", $"Dec:Setpoint:{i}",
                         _ => { State.CameraSettings[capturedI].SetpointTempC = (sbyte)Math.Max(State.CameraSettings[capturedI].SetpointTempC - 1, -40); State.IsDirty = true; State.NeedsRedraw = true; },
                         "+", $"Inc:Setpoint:{i}",
                         _ => { State.CameraSettings[capturedI].SetpointTempC = (sbyte)Math.Min(State.CameraSettings[capturedI].SetpointTempC + 1, 30); State.IsDirty = true; State.NeedsRedraw = true; },
-                        $"{cam.SetpointTempC}°C", BaseFontSize, BodyText, enabled: true);
-                    RenderLayout(setCtrl, new RectF32(controlX, cursor, stepperBtnW + valueW + stepperBtnW, itemH), fontPath, dpiScale);
-                    cursor += itemH;
+                        $"{cam.SetpointTempC}\u00b0C", BaseFontSize, BodyText, enabled: true);
+                    rows.Add(Layout.Builder.HStack(
+                            Layout.Builder.Text("Setpoint", BaseFontSize * 0.9f, DimText).WFixed(labelW).HStar(),
+                            setCtrl.Stretch())
+                        .RowH(BaseItemHeight).Bg(PanelBg));
                 }
 
-                // Gain row
-                FillRect(listRect.X, cursor, listRect.Width, itemH, RowAltBg);
-                DrawText("Gain", fontPath,
-                    listRect.X + padding, cursor, labelW, itemH,
-                    fontSize * 0.9f, DimText, TextAlign.Near, TextAlign.Center);
-
+                // Gain row: mode camera (< label >) or numeric (- value +)
+                Layout.Node gainCtrl;
                 if (cam.UsesGainMode && cam.GainModes.Count > 0)
                 {
-                    // Mode camera: ◀ label ▶
                     var modeName = cam.Gain >= 0 && cam.Gain < cam.GainModes.Count
                         ? cam.GainModes[cam.Gain]
                         : $"Mode {cam.Gain}";
-                    var modeCtrl = FormRowLayout.StepperControl(SessionStepperStyle,
-                        "\u25C0", $"Dec:Gain:{i}",
+                    gainCtrl = FormRowLayout.StepperControl(SessionStepperStyle,
+                        "\u25c0", $"Dec:Gain:{i}",
                         _ => { var c = State.CameraSettings[capturedI]; c.Gain = (c.Gain - 1 + c.GainModes.Count) % c.GainModes.Count; State.IsDirty = true; State.NeedsRedraw = true; },
-                        "\u25B6", $"Inc:Gain:{i}",
+                        "\u25b6", $"Inc:Gain:{i}",
                         _ => { var c = State.CameraSettings[capturedI]; c.Gain = (c.Gain + 1) % c.GainModes.Count; State.IsDirty = true; State.NeedsRedraw = true; },
                         modeName, BaseFontSize * 0.9f, BodyText, enabled: true);
-                    RenderLayout(modeCtrl, new RectF32(controlX, cursor, stepperBtnW + valueW + stepperBtnW, itemH), fontPath, dpiScale);
                 }
                 else
                 {
-                    // Numeric gain
-                    var gainCtrl = FormRowLayout.StepperControl(SessionStepperStyle,
+                    gainCtrl = FormRowLayout.StepperControl(SessionStepperStyle,
                         "\u2212", $"Dec:Gain:{i}",
                         _ => { State.CameraSettings[capturedI].Gain = Math.Max(State.CameraSettings[capturedI].Gain - 10, 0); State.IsDirty = true; State.NeedsRedraw = true; },
                         "+", $"Inc:Gain:{i}",
                         _ => { State.CameraSettings[capturedI].Gain = Math.Min(State.CameraSettings[capturedI].Gain + 10, 600); State.IsDirty = true; State.NeedsRedraw = true; },
                         $"{cam.Gain}", BaseFontSize, BodyText, enabled: true);
-                    RenderLayout(gainCtrl, new RectF32(controlX, cursor, stepperBtnW + valueW + stepperBtnW, itemH), fontPath, dpiScale);
                 }
-                cursor += itemH;
+                rows.Add(Layout.Builder.HStack(
+                        Layout.Builder.Text("Gain", BaseFontSize * 0.9f, DimText).WFixed(labelW).HStar(),
+                        gainCtrl.Stretch())
+                    .RowH(BaseItemHeight).Bg(RowAltBg));
 
                 // Gap between OTAs
-                cursor += padding * 0.5f;
+                rows.Add(Layout.Builder.Spacer().RowH(BasePadding * 0.5f));
             }
+
+            RenderLayout(Layout.Builder.VStack([.. rows]), rect, fontPath, dpiScale);
         }
 
         // -----------------------------------------------------------------------
@@ -505,71 +440,65 @@ namespace TianWen.UI.Abstractions
             float dpiScale,
             string fontPath)
         {
-            var fontSize = BaseFontSize * dpiScale;
-            var padding = BasePadding * dpiScale;
-            var rowH = BaseObsRowHeight * dpiScale;
-            var headerH = BaseHeaderHeight * dpiScale;
-            var stepperBtnW = BaseStepperBtnW * dpiScale * 0.85f;
+            _obsFills.Clear();
 
-            var obsLayout = new PixelLayout(rect);
-            var headerRect = obsLayout.Dock(PixelDockStyle.Top, headerH);
+            const float colNumW = 22f;
+            const float colExpW = 100f;
+            const float colFrameW = 50f;
+            var expBtnW = BaseStepperBtnW * 0.85f;
 
-            FillRect(headerRect.X, headerRect.Y, headerRect.Width, headerRect.Height, HeaderBg);
-            DrawText("Observations", fontPath,
-                headerRect.X + padding, headerRect.Y, headerRect.Width - padding * 2, headerRect.Height,
-                fontSize, HeaderText, TextAlign.Near, TextAlign.Center);
-
-            var listRect = obsLayout.Fill();
+            // "Observations" header + column headers, then per-proposal (row1: # / target / exposure stepper /
+            // frames, row2: time window) as ONE arranged tree. The exposure value cell stays a keyed Fill --
+            // its painter shows the value text (+ registers the double-click-to-edit region) or the inline
+            // text input while editing -- dispatched through _obsFills. Was a y += rowH cursor walk.
+            var rows = new List<Layout.Node>
+            {
+                Layout.Builder.Text("Observations", BaseFontSize, HeaderText).RowH(BaseHeaderHeight).Bg(HeaderBg),
+            };
 
             if (plannerState.Proposals.Length == 0)
             {
-                DrawText("No targets pinned.", fontPath,
-                    listRect.X + padding, listRect.Y, listRect.Width - padding * 2, rowH,
-                    fontSize * 0.9f, HintText, TextAlign.Center, TextAlign.Center);
-                DrawText("Use the Planner tab to add targets.", fontPath,
-                    listRect.X + padding, listRect.Y + rowH, listRect.Width - padding * 2, rowH,
-                    fontSize * 0.9f, HintText, TextAlign.Center, TextAlign.Center);
+                rows.Add(Layout.Builder.Text("No targets pinned.", BaseFontSize * 0.9f, HintText, TextAlign.Center, TextAlign.Center).RowH(BaseObsRowHeight));
+                rows.Add(Layout.Builder.Text("Use the Planner tab to add targets.", BaseFontSize * 0.9f, HintText, TextAlign.Center, TextAlign.Center).RowH(BaseObsRowHeight));
+                RenderLayout(Layout.Builder.VStack([.. rows]), rect, fontPath, dpiScale);
                 return;
             }
 
-            // Column layout
-            var colNumW = 22f * dpiScale;
-            var colExpW = 100f * dpiScale;
-            var colFrameW = 50f * dpiScale;
-            var colNumX = listRect.X + padding;
-            var colTargetX = colNumX + colNumW;
-            var colExpX = listRect.X + listRect.Width - colExpW - colFrameW - padding;
-            var colFrameX = listRect.X + listRect.Width - colFrameW - padding;
-            var colTargetW = colExpX - colTargetX - padding;
-
-            // Column headers
-            var cursor = listRect.Y;
-            DrawText("#", fontPath, colNumX, cursor, colNumW, rowH, fontSize * 0.85f, DimText, TextAlign.Near, TextAlign.Center);
-            DrawText("Target", fontPath, colTargetX, cursor, colTargetW, rowH, fontSize * 0.85f, DimText, TextAlign.Near, TextAlign.Center);
-            DrawText("Exp", fontPath, colExpX, cursor, colExpW, rowH, fontSize * 0.85f, DimText, TextAlign.Center, TextAlign.Center);
-            DrawText("~N", fontPath, colFrameX, cursor, colFrameW, rowH, fontSize * 0.85f, DimText, TextAlign.Center, TextAlign.Center);
-            cursor += rowH;
-
-            FillRect(listRect.X, cursor, listRect.Width, BaseSeparatorW * dpiScale, SeparatorColor);
-            cursor += BaseSeparatorW * dpiScale;
+            // Column header row
+            rows.Add(Layout.Builder.HStack(
+                    Layout.Builder.Text("#", BaseFontSize * 0.85f, DimText, TextAlign.Near, TextAlign.Center).WFixed(colNumW).HStar(),
+                    Layout.Builder.Text("Target", BaseFontSize * 0.85f, DimText, TextAlign.Near, TextAlign.Center).WStar(),
+                    Layout.Builder.Text("Exp", BaseFontSize * 0.85f, DimText, TextAlign.Center, TextAlign.Center).WFixed(colExpW).HStar(),
+                    Layout.Builder.Text("~N", BaseFontSize * 0.85f, DimText, TextAlign.Center, TextAlign.Center).WFixed(colFrameW).HStar())
+                .RowH(BaseObsRowHeight));
+            rows.Add(Layout.Builder.Spacer().RowH(BaseSeparatorW).Bg(SeparatorColor));
 
             var proposals = plannerState.Proposals;
             var sliders = plannerState.HandoffSliders;
             var dark = plannerState.AstroDark;
             var twilight = plannerState.AstroTwilight;
-
-            // Default exposure from first OTA's f-ratio
             var defaultExpSec = State.CameraSettings.Count > 0
                 ? SessionTabState.DefaultExposureFromFRatio(State.CameraSettings[0].FRatio)
                 : 120;
 
-            for (var i = 0; i < proposals.Length && cursor + rowH * 2 <= listRect.Y + listRect.Height; i++)
+            // Build only the rows that fit the panel (mirrors the old cursor viewport guard); clip the rest.
+            var availDesign = rect.Height / dpiScale;
+            var usedDesign = BaseHeaderHeight + BaseObsRowHeight + BaseSeparatorW;
+            var perProposalDesign = BaseObsRowHeight + BaseObsRowHeight * 0.8f + BaseSeparatorW;
+
+            for (var i = 0; i < proposals.Length; i++)
             {
+                if (usedDesign + perProposalDesign > availDesign)
+                {
+                    break;
+                }
+                usedDesign += perProposalDesign;
+
                 var proposal = proposals[i];
                 var capturedI = i;
                 var bgColor = i % 2 == 0 ? PanelBg : RowAltBg;
 
-                // Compute remaining window (clipped to now)
+                // Remaining window (clipped to now)
                 var windowStart = i > 0 && i - 1 < sliders.Length ? sliders[i - 1] : dark;
                 var windowEnd = i < sliders.Length ? sliders[i] : twilight;
                 var effectiveStart = windowStart;
@@ -582,77 +511,60 @@ namespace TianWen.UI.Abstractions
                     ? windowEnd - effectiveStart
                     : TimeSpan.Zero;
 
-                // Current sub-exposure (per-target or default from f-ratio)
                 var subExp = proposal.SubExposure ?? TimeSpan.FromSeconds(defaultExpSec);
-
-                // Row 1: # / target / exposure stepper / frame count
-                FillRect(listRect.X, cursor, listRect.Width, rowH, bgColor);
-
-                DrawText($"{i + 1}", fontPath, colNumX, cursor, colNumW, rowH,
-                    fontSize * 0.85f, DimText, TextAlign.Near, TextAlign.Center);
-                DrawText(proposal.Target.Name, fontPath, colTargetX, cursor, colTargetW, rowH,
-                    fontSize, BodyText, TextAlign.Near, TextAlign.Center);
-
-                // Exposure stepper: [-] value [+]. The value cell is a Fill leaf so the engine positions it;
-                // the drawFill closure renders a text input while editing, otherwise the value text plus the
-                // double-click-to-edit region taken from the arranged rect (imperative pixel font sizes, as before).
                 var expStr = SessionContent.FormatExposure(subExp);
-                var expBtnW = stepperBtnW;
-                var expValW = colExpW - expBtnW * 2;
+
+                // Exposure value cell: keyed Fill -> text + double-click region, or the inline editor.
+                var expKey = $"exp:{i}";
+                _obsFills[expKey] = r =>
+                {
+                    if (State.EditingExposureIndex == capturedI)
+                    {
+                        RenderTextInput(State.ExposureInput, (int)r.X, (int)r.Y, (int)r.Width, (int)r.Height, fontPath, BaseFontSize * 0.9f * dpiScale);
+                    }
+                    else
+                    {
+                        DrawText(expStr, fontPath, r.X, r.Y, r.Width, r.Height, BaseFontSize * 0.9f * dpiScale, BodyText, TextAlign.Center, TextAlign.Center);
+                        _exposureValueRegions.Add((r, capturedI));
+                    }
+                };
 
                 Layout.Node ExpButton(string glyph, string hit, Action<InputModifier> onClick) =>
                     Layout.Builder.Text(glyph, BaseFontSize * 0.85f, BodyText, TextAlign.Center, TextAlign.Center)
-                        .WFixed(BaseStepperBtnW * 0.85f).HStar().Bg(StepperBg)
+                        .WFixed(expBtnW).HStar().Bg(StepperBg)
                         .Clickable(new HitResult.ButtonHit(hit), onClick);
 
-                var expRow = Layout.Builder.HStack(
+                var expStepper = Layout.Builder.HStack(
                     ExpButton("\u2212", $"Dec:Exp:{i}",
                         _ =>
                         {
                             var p = plannerState.Proposals[capturedI];
                             var cur = p.SubExposure ?? TimeSpan.FromSeconds(defaultExpSec);
-                            plannerState.Proposals = plannerState.Proposals.SetItem(
-                                capturedI, p with { SubExposure = SessionTabState.StepExposure(cur, false) });
+                            plannerState.Proposals = plannerState.Proposals.SetItem(capturedI, p with { SubExposure = SessionTabState.StepExposure(cur, false) });
                             State.NeedsRedraw = true;
                         }),
-                    Layout.Builder.Fill(key: "exp").Stretch(),
+                    Layout.Builder.Fill(key: expKey).Stretch(),
                     ExpButton("+", $"Inc:Exp:{i}",
                         _ =>
                         {
                             var p = plannerState.Proposals[capturedI];
                             var cur = p.SubExposure ?? TimeSpan.FromSeconds(defaultExpSec);
-                            plannerState.Proposals = plannerState.Proposals.SetItem(
-                                capturedI, p with { SubExposure = SessionTabState.StepExposure(cur, true) });
+                            plannerState.Proposals = plannerState.Proposals.SetItem(capturedI, p with { SubExposure = SessionTabState.StepExposure(cur, true) });
                             State.NeedsRedraw = true;
                         }));
 
-                RenderLayout(expRow, new RectF32(colExpX, cursor, expBtnW + expValW + expBtnW, rowH), fontPath, dpiScale,
-                    drawFill: (_, r) =>
-                    {
-                        if (State.EditingExposureIndex == capturedI)
-                        {
-                            RenderTextInput(State.ExposureInput, (int)r.X, (int)r.Y, (int)r.Width, (int)r.Height, fontPath, fontSize * 0.9f);
-                        }
-                        else
-                        {
-                            DrawText(expStr, fontPath, r.X, r.Y, r.Width, r.Height, fontSize * 0.9f, BodyText, TextAlign.Center, TextAlign.Center);
-                            _exposureValueRegions.Add((r, capturedI));
-                        }
-                    });
+                var frameCount = window > TimeSpan.Zero ? SessionTabState.EstimateFrameCount(window, subExp) : 0;
+                var frameStr = frameCount > 0 ? $"~{frameCount}" : "\u2014";
 
-                // Frame estimate
-                var frameCount = window > TimeSpan.Zero
-                    ? SessionTabState.EstimateFrameCount(window, subExp)
-                    : 0;
-                var frameStr = frameCount > 0 ? $"~{frameCount}" : "—";
-                DrawText(frameStr, fontPath, colFrameX, cursor, colFrameW, rowH,
-                    fontSize * 0.9f, FrameCountText, TextAlign.Center, TextAlign.Center);
+                // Row 1: # | target | exposure stepper | frames
+                rows.Add(Layout.Builder.HStack(
+                        Layout.Builder.Text($"{i + 1}", BaseFontSize * 0.85f, DimText, TextAlign.Near, TextAlign.Center).WFixed(colNumW).HStar(),
+                        Layout.Builder.Text(proposal.Target.Name, BaseFontSize, BodyText, TextAlign.Near, TextAlign.Center).WStar(),
+                        expStepper.WFixed(colExpW).HStar(),
+                        Layout.Builder.Text(frameStr, BaseFontSize * 0.9f, FrameCountText, TextAlign.Center, TextAlign.Center).WFixed(colFrameW).HStar())
+                    .RowH(BaseObsRowHeight).Bg(bgColor));
 
-                cursor += rowH;
-
-                // Row 2: time window + duration
-                FillRect(listRect.X, cursor, listRect.Width, rowH * 0.8f, bgColor);
-
+                // Row 2: time window + duration (indented past the # column), or an empty bg row
                 if (window > TimeSpan.Zero)
                 {
                     var tz = plannerState.SiteTimeZone;
@@ -662,18 +574,26 @@ namespace TianWen.UI.Abstractions
                     var durStr = window.TotalHours >= 1
                         ? $"{(int)window.TotalHours}h {window.Minutes:D2}m"
                         : $"{(int)window.TotalMinutes}m";
-
-                    DrawText($"  {startStr}-{endStr}  ({durStr})", fontPath,
-                        colTargetX, cursor, listRect.Width - colNumW - padding * 2, rowH * 0.8f,
-                        fontSize * 0.85f, durColor, TextAlign.Near, TextAlign.Center);
+                    rows.Add(Layout.Builder.HStack(
+                            Layout.Builder.Spacer().WFixed(colNumW).HStar(),
+                            Layout.Builder.Text($"{startStr}-{endStr}  ({durStr})", BaseFontSize * 0.85f, durColor, TextAlign.Near, TextAlign.Center).WStar())
+                        .RowH(BaseObsRowHeight * 0.8f).Bg(bgColor));
+                }
+                else
+                {
+                    rows.Add(Layout.Builder.Spacer().RowH(BaseObsRowHeight * 0.8f).Bg(bgColor));
                 }
 
-                cursor += rowH * 0.8f;
-
                 // Thin separator
-                FillRect(listRect.X + padding, cursor, listRect.Width - padding * 2, BaseSeparatorW * dpiScale, SeparatorColor);
-                cursor += BaseSeparatorW * dpiScale;
+                rows.Add(Layout.Builder.Spacer().RowH(BaseSeparatorW).Bg(SeparatorColor));
             }
+
+            Renderer.PushClip(new RectInt(
+                new PointInt((int)(rect.X + rect.Width), (int)(rect.Y + rect.Height)),
+                new PointInt((int)rect.X, (int)rect.Y)));
+            RenderLayout(Layout.Builder.VStack([.. rows]), rect, fontPath, dpiScale,
+                drawFill: (fill, r) => { if (fill.Key is { } k && _obsFills.TryGetValue(k, out var painter)) painter(r); });
+            Renderer.PopClip();
         }
 
         // -----------------------------------------------------------------------
@@ -747,7 +667,7 @@ namespace TianWen.UI.Abstractions
 
             // Hand the controller this frame's geometry: one atom = one BaseItemHeight line, total in
             // lines rounded UP so the last partial line stays reachable (the whole-atom bound can
-            // over-scroll by under two line heights past the exact pixel bottom — accepted slack of the
+            // over-scroll by under two line heights past the exact pixel bottom \u2014 accepted slack of the
             // atom model). SetExtent re-clamps the offset; the state field then mirrors the snapped
             // canonical atom offset for the TUI's benefit.
             _configScroll.SetExtent(rect, ScrollLineHeight,
