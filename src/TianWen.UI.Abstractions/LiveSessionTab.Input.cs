@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Immutable;
+using System.Numerics;
 using System.Threading.Tasks;
 using DIR.Lib;
 using TianWen.Lib.Devices;
@@ -94,23 +95,17 @@ namespace TianWen.UI.Abstractions
 
                 case InputEvent.Scroll(var scrollY, var mx, var my, _) when PreviewView is not null && !_previewState.ZoomToFit:
                 {
+                    // Cursor-anchored zoom via the shared controller (was a copy of the viewer's
+                    // formula): seed the transform from the preview state, zoom, write back.
                     var vs = _previewState;
-                    // Center-point zoom toward cursor position
-                    var zoomFactor = scrollY > 0 ? 1.15f : 1f / 1.15f;
-                    var oldZoom = vs.Zoom;
-                    var newZoom = MathF.Max(0.1f, MathF.Min(oldZoom * zoomFactor, 16f));
-
-                    // Cursor position relative to viewer center + pan offset
-                    var cx = mx - _viewerImageRect.X - _viewerImageRect.Width * 0.5f - vs.PanOffset.X;
-                    var cy = my - _viewerImageRect.Y - _viewerImageRect.Height * 0.5f - vs.PanOffset.Y;
-
-                    // Adjust pan so the image point under the cursor stays fixed
-                    vs.PanOffset = (
-                        vs.PanOffset.X - cx * (newZoom / oldZoom - 1f),
-                        vs.PanOffset.Y - cy * (newZoom / oldZoom - 1f)
-                    );
-                    vs.Zoom = newZoom;
-                    state.NeedsRedraw = true;
+                    _previewPanZoom.Zoom = vs.Zoom;
+                    _previewPanZoom.PanOffset = new Vector2(vs.PanOffset.X, vs.PanOffset.Y);
+                    if (_previewPanZoom.ZoomAtCursor(scrollY, mx, my, _viewerImageRect))
+                    {
+                        vs.Zoom = _previewPanZoom.Zoom;
+                        vs.PanOffset = (_previewPanZoom.PanOffset.X, _previewPanZoom.PanOffset.Y);
+                        state.NeedsRedraw = true;
+                    }
                     return true;
                 }
 
@@ -135,7 +130,8 @@ namespace TianWen.UI.Abstractions
                     // Preview viewer mouse drag for panning
                     if (PreviewView is not null && !_previewState.ZoomToFit)
                     {
-                        _dragStart = (mx, my);
+                        _previewPanZoom.PanOffset = new Vector2(_previewState.PanOffset.X, _previewState.PanOffset.Y);
+                        _previewPanZoom.BeginPan(mx, my);
                         return true;
                     }
                     return false;
@@ -146,12 +142,9 @@ namespace TianWen.UI.Abstractions
                         state.NeedsRedraw = true;
                         return true;
                     }
-                    if (_dragStart is { } drag && PreviewView is not null)
+                    if (_previewPanZoom.UpdatePan(mx, my))
                     {
-                        var dx = mx - drag.X;
-                        var dy = my - drag.Y;
-                        _previewState.PanOffset = (_previewState.PanOffset.X + dx, _previewState.PanOffset.Y + dy);
-                        _dragStart = (mx, my);
+                        _previewState.PanOffset = (_previewPanZoom.PanOffset.X, _previewPanZoom.PanOffset.Y);
                         state.NeedsRedraw = true;
                         return true;
                     }
@@ -164,9 +157,9 @@ namespace TianWen.UI.Abstractions
                         state.NeedsRedraw = true;
                         return true;
                     }
-                    if (_dragStart is not null)
+                    if (_previewPanZoom.IsPanning)
                     {
-                        _dragStart = null;
+                        _previewPanZoom.EndPan();
                         return true;
                     }
                     return false;

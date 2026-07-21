@@ -57,8 +57,13 @@ namespace TianWen.UI.Abstractions
         /// <summary>Tracks which image reference is currently displayed to avoid redundant uploads.</summary>
         private Image? _displayedImage;
 
-        /// <summary>Last mouse position for drag panning.</summary>
-        private (float X, float Y)? _dragStart;
+        /// <summary>
+        /// Preview pan + cursor-anchored zoom (DIR.Lib): the controller owns the gesture and the zoom
+        /// math (this used to be a byte-for-byte copy of the viewer's formula); the display transform
+        /// stays on <see cref="_previewState"/>, seeded per gesture and written back. Clamps match the
+        /// historical preview behaviour ([0.1, 16]).
+        /// </summary>
+        private readonly PanZoomController _previewPanZoom = new PanZoomController { MinZoom = 0.1f, MaxZoom = 16f };
 
         /// <summary>Cached mini viewer image rect for center-point zoom.</summary>
         private RectF32 _viewerImageRect;

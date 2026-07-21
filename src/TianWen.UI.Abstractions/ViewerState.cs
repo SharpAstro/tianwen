@@ -179,14 +179,9 @@ public sealed class ViewerState
     /// <summary>Zoom as actual display scale: 1.0 = 100% (1 image pixel = 1 screen pixel).</summary>
     public float Zoom { get; set; } = 1.0f;
 
-    /// <summary>Pan offset in screen pixels.</summary>
+    /// <summary>Pan offset in screen pixels. The pan-drag gesture itself lives on the renderer's
+    /// DIR.Lib <c>PanZoomController</c>; only the resulting offset is written back here.</summary>
     public (float X, float Y) PanOffset { get; set; }
-
-    /// <summary>Whether a mouse drag (pan) is in progress.</summary>
-    public bool IsPanning { get; set; }
-
-    /// <summary>Last mouse position during panning.</summary>
-    public (float X, float Y) PanStart { get; set; }
 
     // --- Frame playback (multi-frame sources: SER planetary video; later a live camera stream) ---
 

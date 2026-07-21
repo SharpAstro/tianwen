@@ -55,6 +55,7 @@ namespace TianWen.UI.Abstractions
         private float _contentX;
         private float _contentY;
         private float _contentWidth;
+        private float _lastDpiScale = 1f;
         private double _lastSiteLat = double.NaN;
         private double _lastSiteLon = double.NaN;
 
@@ -123,6 +124,7 @@ namespace TianWen.UI.Abstractions
             _contentWidth = contentRect.Width;
             _contentX = contentRect.X;
             _contentY = contentRect.Y;
+            _lastDpiScale = dpiScale; // cached for input-time use (the tap-vs-drag slop is DPI-scaled)
             State.LastContentRect = contentRect;
             var siteLat = plannerState.SiteLatitude;
             var siteLon = plannerState.SiteLongitude;
@@ -884,8 +886,10 @@ namespace TianWen.UI.Abstractions
             _sincePinch.Restart(); // keep the wheel-dedup grace window fresh for the whole gesture
             if (!State.IsPinching)
             {
-                // Pinch start — suppress drag, undo any drag the first finger caused
+                // Pinch start — suppress drag, undo any drag the first finger caused, and cancel the
+                // click-vs-drag gesture (the first finger's release must not fire a click-select).
                 State.IsPinching = true;
+                _mapGesture.Cancel();
                 if (State.IsDragging)
                 {
                     var (startRA, startDec) = State.DragStartCenter;
@@ -1043,6 +1047,9 @@ namespace TianWen.UI.Abstractions
 
         private bool HandleDrag(float x, float y)
         {
+            // Latch the click-vs-drag gesture (a pan that wanders back over its start stays a drag).
+            _mapGesture.Update(x, y);
+
             // Great-circle drag: compute the rotation that maps the current mouse sky position
             // back to the drag-start sky position, and apply it to the view center.
             // This gives a natural "grab and drag" feel in any projection mode.

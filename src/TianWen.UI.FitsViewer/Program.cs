@@ -367,10 +367,11 @@ bool HandleMouseDown(InputEvent.MouseDown down)
         }
     }
 
-    // Left or middle mouse button starts panning
+    // Left or middle mouse button starts panning (the PanZoomController gesture on the renderer;
+    // move/release continue through imageRenderer.HandleInput)
     if (down.Button is MouseButton.Left or MouseButton.Middle)
     {
-        ViewerActions.BeginPan(state, px, py);
+        imageRenderer.BeginViewportPan(px, py);
     }
     return true; // every press consumed (matches the old always-true OnMouseDown lambda)
 }

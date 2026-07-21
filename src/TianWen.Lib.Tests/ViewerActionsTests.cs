@@ -360,49 +360,10 @@ public class ViewerActionsTests
         state.ZoomToFit.ShouldBeFalse();
     }
 
-    // --- Pan operations ---
-
-    [Fact]
-    public void BeginPan_SetsIsPanningAndPanStart()
-    {
-        var state = new ViewerState();
-
-        ViewerActions.BeginPan(state, 100f, 200f);
-
-        state.IsPanning.ShouldBeTrue();
-        state.PanStart.ShouldBe((100f, 200f));
-    }
-
-    [Fact]
-    public void UpdatePan_WhenPanning_UpdatesPanOffset()
-    {
-        var state = new ViewerState { IsPanning = true, PanStart = (100f, 100f), PanOffset = (0f, 0f) };
-
-        ViewerActions.UpdatePan(state, 110f, 120f);
-
-        state.PanOffset.ShouldBe((10f, 20f));
-        state.PanStart.ShouldBe((110f, 120f));
-    }
-
-    [Fact]
-    public void UpdatePan_WhenNotPanning_DoesNothing()
-    {
-        var state = new ViewerState { IsPanning = false, PanOffset = (5f, 5f) };
-
-        ViewerActions.UpdatePan(state, 999f, 999f);
-
-        state.PanOffset.ShouldBe((5f, 5f));
-    }
-
-    [Fact]
-    public void EndPan_ClearsIsPanning()
-    {
-        var state = new ViewerState { IsPanning = true };
-
-        ViewerActions.EndPan(state);
-
-        state.IsPanning.ShouldBeFalse();
-    }
+    // The pan gesture (Begin/Update/EndPan + IsPanning/PanStart) and the cursor-anchored wheel zoom now
+    // live in the DIR.Lib PanZoomController (the renderer seeds it from ViewerState and writes the
+    // display transform back); begin/update/end + anchor math coverage moved to
+    // DIR.Lib.Tests.PanZoomControllerTests.
 
     // File-list scroll clamping / wheel accumulation now lives in the DIR.Lib ListScrollController (the
     // renderer owns the offset); ScrollFileList + FileListScrollOffset were removed, and the clamp/accumulate

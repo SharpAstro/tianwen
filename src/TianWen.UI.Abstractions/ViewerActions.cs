@@ -292,38 +292,9 @@ public static class ViewerActions
         state.NeedsRedraw = true;
     }
 
-    /// <summary>
-    /// Begins a pan drag at the given screen position.
-    /// </summary>
-    public static void BeginPan(ViewerState state, float px, float py)
-    {
-        state.IsPanning = true;
-        state.PanStart = (px, py);
-    }
-
-    /// <summary>
-    /// Updates pan offset during a drag.
-    /// </summary>
-    public static void UpdatePan(ViewerState state, float px, float py)
-    {
-        if (!state.IsPanning)
-        {
-            return;
-        }
-
-        var dx = px - state.PanStart.X;
-        var dy = py - state.PanStart.Y;
-        state.PanOffset = (state.PanOffset.X + dx, state.PanOffset.Y + dy);
-        state.PanStart = (px, py);
-    }
-
-    /// <summary>
-    /// Ends a pan drag.
-    /// </summary>
-    public static void EndPan(ViewerState state)
-    {
-        state.IsPanning = false;
-    }
+    // The viewport pan drag (Begin/Update/EndPan + ViewerState.IsPanning/PanStart) moved onto the
+    // renderer's DIR.Lib PanZoomController — the gesture state lives on the controller, and only the
+    // resulting display transform (Zoom/PanOffset/ZoomToFit) is written back to ViewerState.
 
     /// <summary>
     /// Updates cursor pixel info from a screen position, converting to image coordinates.

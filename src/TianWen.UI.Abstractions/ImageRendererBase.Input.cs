@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
+using System.Numerics;
 using System.Threading;
 using System.Threading.Tasks;
 using DIR.Lib;
@@ -17,6 +18,27 @@ namespace TianWen.UI.Abstractions
         // -----------------------------------------------------------------------
         // Input handling
         // -----------------------------------------------------------------------
+
+        // Viewport pan + cursor-anchored wheel zoom (DIR.Lib): the controller owns the gesture; the
+        // display transform stays on ViewerState (render/persistence/toolbar contracts untouched), so
+        // each gesture seeds the controller from state and writes the result back. Defaults match the
+        // viewer's historical behaviour (floor 0.01, step 1.15, no upper clamp).
+        private readonly PanZoomController _panZoom = new PanZoomController();
+
+        /// <summary>
+        /// Begin a viewport pan drag. Public for hosts with bespoke press dispatch (the standalone
+        /// viewer's <c>Program.cs</c>); the embedded <see cref="HandleInput"/> path calls it internally.
+        /// Move/release continue through <see cref="HandleInput"/> in both hosts.
+        /// </summary>
+        public void BeginViewportPan(float x, float y)
+        {
+            if (_state is not { } state)
+            {
+                return;
+            }
+            _panZoom.PanOffset = new Vector2(state.PanOffset.X, state.PanOffset.Y);
+            _panZoom.BeginPan(x, y);
+        }
 
         public override bool HandleInput(InputEvent evt) => evt switch
         {
@@ -385,7 +407,7 @@ namespace TianWen.UI.Abstractions
                           && py >= imgArea.Y && py < imgArea.Y + imgArea.Height;
             if (inViewport)
             {
-                ViewerActions.BeginPan(state, px, py);
+                BeginViewportPan(px, py);
             }
             return false;
         }
@@ -438,9 +460,9 @@ namespace TianWen.UI.Abstractions
             }
 
             // Panning always needs a redraw (image position changes)
-            if (state.IsPanning)
+            if (_panZoom.UpdatePan(px, py))
             {
-                ViewerActions.UpdatePan(state, px, py);
+                state.PanOffset = (_panZoom.PanOffset.X, _panZoom.PanOffset.Y);
                 return true;
             }
 
@@ -489,7 +511,7 @@ namespace TianWen.UI.Abstractions
                     state.IsResizingFileList = false;
                     state.NeedsRedraw = true;
                 }
-                ViewerActions.EndPan(state);
+                _panZoom.EndPan();
                 return true;
             }
             return false;
@@ -520,20 +542,17 @@ namespace TianWen.UI.Abstractions
 
             if (inImageViewport)
             {
-                var zoomFactor = scrollY > 0 ? 1.15f : 1f / 1.15f;
-                var oldZoom = state.Zoom;
-                var newZoom = MathF.Max(0.01f, oldZoom * zoomFactor);
-
-                var cx = mouseX - area.X - area.Width / 2f - state.PanOffset.X;
-                var cy = mouseY - area.Y - area.Height / 2f - state.PanOffset.Y;
-
-                state.PanOffset = (
-                    state.PanOffset.X - cx * (newZoom / oldZoom - 1f),
-                    state.PanOffset.Y - cy * (newZoom / oldZoom - 1f)
-                );
-
-                state.ZoomToFit = false;
-                state.Zoom = newZoom;
+                // Cursor-anchored zoom via the shared controller: seed the display transform from state,
+                // run the zoom, write the result back. A clamped no-op (already at the floor) changes
+                // nothing — including ZoomToFit, which only clears when the zoom actually moves.
+                _panZoom.Zoom = state.Zoom;
+                _panZoom.PanOffset = new Vector2(state.PanOffset.X, state.PanOffset.Y);
+                if (_panZoom.ZoomAtCursor(scrollY, mouseX, mouseY, area))
+                {
+                    state.Zoom = _panZoom.Zoom;
+                    state.PanOffset = (_panZoom.PanOffset.X, _panZoom.PanOffset.Y);
+                    state.ZoomToFit = false;
+                }
                 return true;
             }
 
