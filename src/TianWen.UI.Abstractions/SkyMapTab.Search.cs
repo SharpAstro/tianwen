@@ -33,18 +33,14 @@ namespace TianWen.UI.Abstractions
         private const float SearchPanelHeight = 500f;
         private const float SearchRowHeight   = 28f;
 
-        // Click-vs-drag threshold in screen pixels. Under this = click (select an
-        // object); over this = drag-pan. Matches Stellarium and OS conventions.
-        private const float ClickDragThresholdPx = 4f;
-
-        // Saved mouse-down position for click-vs-drag detection, plus a flag that
-        // records whether the MouseDown actually reached this tab. Without the flag
-        // a sidebar click (chrome consumes MouseDown) followed by chrome forwarding
-        // MouseUp(0,0) to the now-active tab would fire a spurious click-select on
-        // the top-left corner of the sky map.
-        private float _mouseDownX, _mouseDownY;
-        private bool _mouseDownOnMap;
-        private InputModifier _mouseDownModifiers;
+        // Click-vs-drag classification (DIR.Lib TapOrDragGesture, 4px slop at 1x -- the Stellarium/OS
+        // convention -- now DPI-scaled). Arming only when the MouseDown actually reached this tab
+        // replaces the old _mouseDownOnMap flag: a sidebar click (chrome consumes MouseDown) followed
+        // by chrome forwarding MouseUp to the now-active tab releases an IDLE gesture -> None, never a
+        // spurious click-select. Update() latches a drag, so a pan that wanders back over its start no
+        // longer misclassifies as a click (the old total-displacement check did). The press modifiers
+        // ride on the gesture (MouseUp doesn't carry them; click-select fires on release).
+        private TapOrDragGesture _mapGesture;
 
         /// <summary>
         /// Draws the search modal and/or the info panel. Called last in <see cref="Render"/>
@@ -782,37 +778,26 @@ namespace TianWen.UI.Abstractions
         {
             if (State.Search.IsOpen) return false;
             if (State.IsPinching) return false;
-            // Gate: only treat this MouseUp as a click if the matching MouseDown
-            // landed on the map. Sidebar / tab-switch clicks don't qualify.
-            var hadDown = _mouseDownOnMap;
-            _mouseDownOnMap = false; // consume the flag regardless of outcome
 
-            if (!hadDown) return false;
-
-            var dx = upX - _mouseDownX;
-            var dy = upY - _mouseDownY;
-            if (dx * dx + dy * dy > ClickDragThresholdPx * ClickDragThresholdPx)
+            // Modifiers must be read BEFORE Release resets the gesture to idle.
+            var downModifiers = _mapGesture.DownModifiers;
+            if (_mapGesture.Release(upX, upY) != GestureOutcome.Tap)
             {
-                return false;
+                return false; // never armed (press didn't reach the map) or classified as a drag-pan
             }
 
-            PostSignal(new SkyMapClickSelectSignal(upX, upY, _mouseDownModifiers));
+            PostSignal(new SkyMapClickSelectSignal(upX, upY, downModifiers));
             return true;
         }
 
         /// <summary>
-        /// Remember the mouse-down location (and modifiers) for click-vs-drag detection.
+        /// Arm the click-vs-drag gesture at the mouse-down location (and modifiers).
         /// Call from the tab's <c>MouseDown</c> handler. The modifiers are captured here
         /// because <see cref="InputEvent.MouseUp"/> does not carry them — only
         /// <see cref="InputEvent.MouseDown"/> does — and the click-select fires on mouse-up.
         /// </summary>
         protected void RememberMouseDown(float x, float y, InputModifier modifiers = InputModifier.None)
-        {
-            _mouseDownX = x;
-            _mouseDownY = y;
-            _mouseDownModifiers = modifiers;
-            _mouseDownOnMap = true;
-        }
+            => _mapGesture.Arm(x, y, modifiers, _lastDpiScale);
 
         /// <summary>
         /// Project ppr for click-handling code outside this partial.
