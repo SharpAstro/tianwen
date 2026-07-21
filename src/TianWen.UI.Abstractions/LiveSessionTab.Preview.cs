@@ -327,45 +327,24 @@ namespace TianWen.UI.Abstractions
                         // Go button below.
                         var capturedI = i;
 
-                        // Jog buttons row: [<<] [<] position [>] [>>]
+                        // Jog buttons row: [<<] [<] "10 | 100" [>] [>>] as one HStack (was five
+                        // hand-positioned RenderButton/DrawText calls advancing a jogX cursor).
                         if (y < maxY)
                         {
                             var jogBg = new RGBAColor32(0x2a, 0x2a, 0x3a, 0xff);
-                            var jogBtnW = 32f * dpiScale;
-                            var jogBtnH = rowH * 0.85f;
-                            var jogBtnY2 = y + (rowH - jogBtnH) / 2;
-                            var jogX = px + pad;
+                            Layout.Node JogBtn(string glyph, string action, int delta) =>
+                                Layout.Builder.Text(glyph, BaseFontSize * 0.85f, BodyText, TextAlign.Center, TextAlign.Center)
+                                    .WFixed(32f).HStar().Bg(jogBg)
+                                    .Clickable(new HitResult.ButtonHit(action), _ => PostSignal(new JogFocuserSignal(capturedI, delta)));
 
-                            // Coarse in (<<)
-                            RenderButton("\u00AB", jogX, jogBtnY2, jogBtnW, jogBtnH,
-                                fontPath, smallFs, jogBg, BodyText, $"FocCoarseIn{capturedI}",
-                                _ => PostSignal(new JogFocuserSignal(capturedI, -100)));
-                            jogX += jogBtnW + 2;
-
-                            // Fine in (<)
-                            RenderButton("\u2039", jogX, jogBtnY2, jogBtnW, jogBtnH,
-                                fontPath, smallFs, jogBg, BodyText, $"FocFineIn{capturedI}",
-                                _ => PostSignal(new JogFocuserSignal(capturedI, -10)));
-                            jogX += jogBtnW + 2;
-
-                            // Step size labels
-                            var labelW = textW - (jogBtnW * 4 + 6);
-                            DrawText("10 | 100", fontPath,
-                                jogX, y, labelW, rowH,
-                                smallFs * 0.85f, DimText, TextAlign.Center, TextAlign.Center);
-                            jogX += labelW + 2;
-
-                            // Fine out (>)
-                            RenderButton("\u203A", jogX, jogBtnY2, jogBtnW, jogBtnH,
-                                fontPath, smallFs, jogBg, BodyText, $"FocFineOut{capturedI}",
-                                _ => PostSignal(new JogFocuserSignal(capturedI, 10)));
-                            jogX += jogBtnW + 2;
-
-                            // Coarse out (>>)
-                            RenderButton("\u00BB", jogX, jogBtnY2, jogBtnW, jogBtnH,
-                                fontPath, smallFs, jogBg, BodyText, $"FocCoarseOut{capturedI}",
-                                _ => PostSignal(new JogFocuserSignal(capturedI, 100)));
-
+                            var jogRow = Layout.Builder.HStack(
+                                    JogBtn("\u00AB", $"FocCoarseIn{capturedI}", -100),
+                                    JogBtn("\u2039", $"FocFineIn{capturedI}", -10),
+                                    Layout.Builder.Text("10 | 100", BaseFontSize * 0.85f * 0.85f, DimText, TextAlign.Center, TextAlign.Center).WStar().HStar(),
+                                    JogBtn("\u203A", $"FocFineOut{capturedI}", 10),
+                                    JogBtn("\u00BB", $"FocCoarseOut{capturedI}", 100))
+                                .WithGap(2f).RowH(BaseRowHeight);
+                            RenderLayout(jogRow, new RectF32(px + pad, y, textW, rowH), fontPath, dpiScale);
                             y += rowH;
                         }
 
