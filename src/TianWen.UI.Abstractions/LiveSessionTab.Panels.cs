@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Threading.Tasks;
 using DIR.Lib;
@@ -34,224 +35,218 @@ namespace TianWen.UI.Abstractions
                 return;
             }
 
-            var telescopes = session.Setup.Telescopes;
-            var cameraStates = state.CameraStates;
-            var otaCount = telescopes.Length;
-
+            var otaCount = session.Setup.Telescopes.Length;
             if (otaCount == 0)
             {
                 return;
             }
 
-            // Split horizontally for multiple OTAs
-            var panelW = rect.Width / otaCount;
-            var progressH = BaseProgressBarH * dpiScale;
-            var smallFs = fontSize * 0.85f;
+            _otaPanelFills.Clear();
 
+            // Columns: one VStack per OTA, 1px full-height dividers between them (a coloured Box node, not a
+            // Fill painter). Mirrors RenderPreviewOTAPanels.
+            var columns = new List<Layout.Node>(otaCount * 2);
             for (var i = 0; i < otaCount; i++)
             {
-                var ota = telescopes[i];
-                var px = rect.X + i * panelW;
-
-                // Separator between OTAs
                 if (i > 0)
                 {
-                    FillRect(px, rect.Y, 1, rect.Height, SeparatorColor);
+                    columns.Add(Layout.Builder.Spacer().WFixed(1f).HStar().Bg(SeparatorColor));
                 }
-
-                var y = rect.Y + pad;
-                var textW = panelW - pad * 2;
-                // Mount status is pinned to the bottom; stop rendering OTA items before they overlap
-                var maxY = rect.Y + rect.Height - rowH * 6;
-
-                // OTA header (camera name)
-                DrawText(ota.Camera.Device.DisplayName, fontPath,
-                    px + pad, y, textW, rowH,
-                    fontSize, HeaderText, TextAlign.Near, TextAlign.Center);
-                y += rowH;
-
-                // Temperature + power from latest cooling sample for this camera
-                var lastTemp = double.NaN;
-                var lastPower = double.NaN;
-                var lastSetpoint = double.NaN;
-                var coolingSamples = state.CoolingSamples;
-                for (var j = coolingSamples.Length - 1; j >= 0; j--)
-                {
-                    if (coolingSamples[j].CameraIndex == i)
-                    {
-                        lastTemp = coolingSamples[j].TemperatureC;
-                        lastPower = coolingSamples[j].CoolerPowerPercent;
-                        lastSetpoint = coolingSamples[j].SetpointTempC;
-                        break;
-                    }
-                }
-
-                if (!double.IsNaN(lastTemp))
-                {
-                    var tempColor = CameraTempColors[i % CameraTempColors.Length];
-                    var tempText = $"{lastTemp:F0}\u00B0C  {lastPower:F0}%";
-                    if (!double.IsNaN(lastSetpoint))
-                    {
-                        tempText += $"  \u2192 {lastSetpoint:F0}\u00B0C";
-                    }
-                    DrawText(tempText, fontPath,
-                        px + pad, y, textW, rowH,
-                        smallFs, tempColor, TextAlign.Near, TextAlign.Center);
-                    y += rowH;
-
-                    // Mini cooling sparkline (last 20 samples for this camera)
-                    var sparkH = 60f * dpiScale;
-                    RenderMiniSparkline(coolingSamples, i, new RectF32(px + pad, y, textW, sparkH), tempColor, dpiScale);
-                    y += sparkH + pad;
-                }
-                else
-                {
-                    y += pad;
-                }
-
-                // Focuser position + temperature + moving state
-                if (y < maxY && ota.Focuser is not null && i < cameraStates.Length)
-                {
-                    var cs = cameraStates[i];
-                    var focLabel = $"Foc: {cs.FocusPosition}";
-                    if (!double.IsNaN(cs.FocuserTemperature))
-                    {
-                        focLabel += $"  {cs.FocuserTemperature:F1}\u00B0C";
-                    }
-                    if (cs.FocuserIsMoving)
-                    {
-                        focLabel += "  \u21C4 Moving";
-                    }
-                    var focColor = cs.FocuserIsMoving ? StatusSlewing : BodyText;
-                    DrawText(focLabel, fontPath,
-                        px + pad, y, textW, rowH,
-                        fontSize, focColor, TextAlign.Near, TextAlign.Center);
-                    y += rowH;
-                }
-
-                // Filter
-                if (y < maxY && ota.FilterWheel is not null)
-                {
-                    var filterName = i < cameraStates.Length ? LiveSessionActions.FilterDisplayLabel(cameraStates[i].FilterName, "--") : "--";
-                    DrawText($"FW: {filterName}", fontPath,
-                        px + pad, y, textW, rowH,
-                        smallFs, BodyText, TextAlign.Near, TextAlign.Center);
-                    y += rowH;
-                }
-
-                // Exposure state + progress bar
-                y += pad;
-                if (y < maxY && i < cameraStates.Length)
-                {
-                    var cs = cameraStates[i];
-                    RenderExposureState(cs, px + pad, y, textW, progressH, rowH, fontPath, fontSize, smallFs, dpiScale, timeProvider);
-                    y += rowH + progressH + pad;
-                }
-                else if (y < maxY)
-                {
-                    DrawText("Idle", fontPath,
-                        px + pad, y, textW, rowH,
-                        smallFs, DimText, TextAlign.Near, TextAlign.Center);
-                    y += rowH;
-                }
-
-                // V-curve chart for this OTA (below its exposure state)
-                var activeSamples = state.ActiveFocusSamples;
-                var lastFocusRun = state.FocusHistory is { Length: > 0 } fh ? fh[^1] : default(FocusRunRecord?);
-                var showVCurve = y < maxY
-                    && (activeSamples.Length >= 2
-                        || (lastFocusRun?.Curve.Length >= 2
-                            && state.Phase is SessionPhase.AutoFocus or SessionPhase.CalibratingGuider or SessionPhase.RoughFocus));
-                if (showVCurve)
-                {
-                    var chartSamples = activeSamples.Length >= 2 ? activeSamples : lastFocusRun!.Value.Curve;
-                    var chartH = maxY - y - pad;
-                    if (chartH > 40)
-                    {
-                        RenderVCurveChart(chartSamples, lastFocusRun, new RectF32(px + pad, y, textW, chartH), fontPath, smallFs, dpiScale);
-                    }
-                }
+                columns.Add(BuildRunningOtaColumn(state, session, i, fontSize, dpiScale, fontPath, timeProvider).WStar());
             }
+            var columnsRow = Layout.Builder.HStack([.. columns]);
 
-            // Mount status section (below OTAs, full width) as one padded VStack: name row (status dot +
-            // name), status+pier, RA/HA, Dec, and an optional target row. Was six hand-positioned draws.
-            var mountY = rect.Y + rect.Height - rowH * 6 - pad;
-            if (mountY > rect.Y + rect.Height * 0.35f) // only show if there's room
-            {
-                FillRect(rect.X, mountY, rect.Width, 1, SeparatorColor); // hairline divider stays a single pixel line
+            // Mount status docked to the bottom (full width), gated on enough vertical room (mirrors the old
+            // "only show if there's room" guard against the rowH*6 reservation). Up to five rows (incl. the
+            // optional target line) + padding + the hairline divider.
+            const float mountHDesign = BaseRowHeight * 5 + BasePadding * 2 + 1f;
+            var mountHpx = mountHDesign * dpiScale;
+            var showMount = rect.Y + rect.Height - mountHpx > rect.Y + rect.Height * 0.35f;
 
-                var ms = state.MountState;
-                var dotColor = ms.IsSlewing ? StatusSlewing : ms.IsTracking ? StatusTracking : DimText;
-                var pierLabel = ms.PierSide is Lib.Devices.PointingState.Normal ? "E" : ms.PierSide is Lib.Devices.PointingState.ThroughThePole ? "W" : "";
-                var mountStatus = ms.IsSlewing ? "Slewing" : ms.IsTracking ? "Tracking" : "Idle";
-                var statusColor = ms.IsSlewing ? StatusSlewing : ms.IsTracking ? StatusTracking : DimText;
-                var raStr = Lib.Astrometry.CoordinateUtils.HoursToHMS(ms.RightAscension, withFrac: false);
-                var haStr = $"HA {ms.HourAngle:+0.00;-0.00}h";
-                var decStr = Lib.Astrometry.CoordinateUtils.DegreesToDMS(ms.Declination, withFrac: false);
+            var tree = showMount
+                ? Layout.Builder.Dock(columnsRow, Layout.Builder.Bottom(BuildRunningMountSection(state, session), mountHDesign))
+                : columnsRow;
 
-                var nameRow = Layout.Builder.HStack(
-                        Layout.Builder.Text("\u25cf", BaseFontSize * 0.7f, dotColor, TextAlign.Center, TextAlign.Center).WFixed(BaseRowHeight * 0.6f).HStar(),
-                        Layout.Builder.Text(session.Setup.Mount.Device.DisplayName, BaseFontSize * 0.85f, HeaderText).WStar().HStar())
-                    .RowH(BaseRowHeight);
-                var statusRow = Layout.Builder.Text($"{mountStatus}  {pierLabel}", BaseFontSize * 0.85f, statusColor).RowH(BaseRowHeight);
-                var raHaRow = Layout.Builder.Text($"RA {raStr}  {haStr}", BaseFontSize * 0.85f, BodyText).RowH(BaseRowHeight);
-                var decRow = Layout.Builder.Text($"Dec {decStr}", BaseFontSize * 0.85f, BodyText).RowH(BaseRowHeight);
-
-                var mountTree = state.ActiveObservation is { Target: var target }
-                    ? Layout.Builder.VStack(nameRow, statusRow, raHaRow, decRow,
-                        Layout.Builder.Text($"\u2609 {target.Name}", BaseFontSize * 0.85f, DimText).RowH(BaseRowHeight)).Pad(BasePadding)
-                    : Layout.Builder.VStack(nameRow, statusRow, raHaRow, decRow).Pad(BasePadding);
-                RenderLayout(mountTree, new RectF32(rect.X, mountY, rect.Width, rect.Y + rect.Height - mountY), fontPath, dpiScale);
-            }
+            Renderer.PushClip(new RectInt(
+                new PointInt((int)(rect.X + rect.Width), (int)(rect.Y + rect.Height)),
+                new PointInt((int)rect.X, (int)rect.Y)));
+            RenderLayout(tree, rect, fontPath, dpiScale, drawFill: DispatchOtaPanelFill);
+            Renderer.PopClip();
         }
 
-        private void RenderExposureState(CameraExposureState cs, float x, float y, float w, float progressH, float rowH,
-            string fontPath, float fontSize, float smallFs, float dpiScale, ITimeProvider timeProvider)
+        /// <summary>
+        /// Builds one running-session per-OTA column as a padded VStack: camera name, temperature + cooling
+        /// sparkline (a keyed <see cref="Layout.Content.Fill"/> raster), focuser + filter readouts, the
+        /// exposure state (label + progress bar), and the V-curve chart (raster) filling the remaining height
+        /// during focus phases.
+        /// </summary>
+        private Layout.Node BuildRunningOtaColumn(LiveSessionState state, ISession session, int i,
+            float fontSize, float dpiScale, string fontPath, ITimeProvider timeProvider)
+        {
+            var ota = session.Setup.Telescopes[i];
+            var cameraStates = state.CameraStates;
+            var coolingSamples = state.CoolingSamples;
+            var smallFsDevice = fontSize * 0.85f; // device px for the V-curve raster painter
+            var rows = new List<Layout.Node>();
+
+            // OTA header (camera name)
+            rows.Add(Layout.Builder.Text(ota.Camera.Device.DisplayName, BaseFontSize, HeaderText).RowH(BaseRowHeight));
+
+            // Temperature + power from the latest cooling sample for this camera + a mini sparkline.
+            var lastTemp = double.NaN;
+            var lastPower = double.NaN;
+            var lastSetpoint = double.NaN;
+            for (var j = coolingSamples.Length - 1; j >= 0; j--)
+            {
+                if (coolingSamples[j].CameraIndex == i)
+                {
+                    lastTemp = coolingSamples[j].TemperatureC;
+                    lastPower = coolingSamples[j].CoolerPowerPercent;
+                    lastSetpoint = coolingSamples[j].SetpointTempC;
+                    break;
+                }
+            }
+
+            if (!double.IsNaN(lastTemp))
+            {
+                var tempColor = CameraTempColors[i % CameraTempColors.Length];
+                var tempText = $"{lastTemp:F0}\u00b0C  {lastPower:F0}%";
+                if (!double.IsNaN(lastSetpoint))
+                {
+                    tempText += $"  \u2192 {lastSetpoint:F0}\u00b0C";
+                }
+                rows.Add(Layout.Builder.Text(tempText, BaseFontSize * 0.85f, tempColor).RowH(BaseRowHeight));
+
+                var sparkKey = $"otaSpark:{i}";
+                _otaPanelFills[sparkKey] = r => RenderMiniSparkline(coolingSamples, i, r, tempColor, dpiScale);
+                rows.Add(Layout.Builder.Fill(key: sparkKey).RowH(60f));
+            }
+            rows.Add(Layout.Builder.Spacer().RowH(BasePadding));
+
+            // Focuser position + temperature + moving state
+            if (ota.Focuser is not null && i < cameraStates.Length)
+            {
+                var cs = cameraStates[i];
+                var focLabel = $"Foc: {cs.FocusPosition}";
+                if (!double.IsNaN(cs.FocuserTemperature))
+                {
+                    focLabel += $"  {cs.FocuserTemperature:F1}\u00b0C";
+                }
+                if (cs.FocuserIsMoving)
+                {
+                    focLabel += "  \u21c4 Moving";
+                }
+                rows.Add(Layout.Builder.Text(focLabel, BaseFontSize, cs.FocuserIsMoving ? StatusSlewing : BodyText).RowH(BaseRowHeight));
+            }
+
+            // Filter
+            if (ota.FilterWheel is not null)
+            {
+                var filterName = i < cameraStates.Length
+                    ? LiveSessionActions.FilterDisplayLabel(cameraStates[i].FilterName, "--")
+                    : "--";
+                rows.Add(Layout.Builder.Text($"FW: {filterName}", BaseFontSize * 0.85f, BodyText).RowH(BaseRowHeight));
+            }
+
+            // Exposure state (label + progress bar) or Idle
+            rows.Add(Layout.Builder.Spacer().RowH(BasePadding));
+            rows.Add(i < cameraStates.Length
+                ? BuildExposureState(cameraStates[i], fontSize, timeProvider)
+                : Layout.Builder.Text("Idle", BaseFontSize * 0.85f, DimText).RowH(BaseRowHeight));
+
+            // V-curve chart (fills the remaining column height) during focus phases.
+            var activeSamples = state.ActiveFocusSamples;
+            var lastFocusRun = state.FocusHistory is { Length: > 0 } fh ? fh[^1] : default(FocusRunRecord?);
+            var showVCurve = activeSamples.Length >= 2
+                || (lastFocusRun?.Curve.Length >= 2
+                    && state.Phase is SessionPhase.AutoFocus or SessionPhase.CalibratingGuider or SessionPhase.RoughFocus);
+            if (showVCurve)
+            {
+                var chartSamples = activeSamples.Length >= 2 ? activeSamples : lastFocusRun!.Value.Curve;
+                var vcurveKey = $"otaVCurve:{i}";
+                _otaPanelFills[vcurveKey] = r =>
+                {
+                    if (r.Height > 40)
+                    {
+                        RenderVCurveChart(chartSamples, lastFocusRun, r, fontPath, smallFsDevice, dpiScale);
+                    }
+                };
+                rows.Add(Layout.Builder.Fill(key: vcurveKey).Stretch());
+            }
+
+            return Layout.Builder.VStack([.. rows]).Pad(BasePadding);
+        }
+
+        /// <summary>
+        /// Builds the exposure-state node for one OTA: "Idle" / "Downloading #n" text, or (while exposing) a
+        /// VStack of a countdown label + a <see cref="FormRowLayout.ProgressBar"/> with the remaining seconds
+        /// centred on it. The bar is a declarative node (track + fractional fill + label), not a hand-drawn
+        /// FillRect gauge.
+        /// </summary>
+        private Layout.Node BuildExposureState(CameraExposureState cs, float fontSize, ITimeProvider timeProvider)
         {
             if (cs.State == CameraState.Idle)
             {
-                DrawText("Idle", fontPath,
-                    x, y, w, rowH, smallFs, DimText, TextAlign.Near, TextAlign.Center);
-                return;
+                return Layout.Builder.Text("Idle", BaseFontSize * 0.85f, DimText).RowH(BaseRowHeight);
             }
 
             if (cs.State == CameraState.Download || cs.State == CameraState.Reading)
             {
-                DrawText($"Downloading #{cs.FrameNumber}\u2026", fontPath,
-                    x, y, w, rowH, smallFs, HeaderText, TextAlign.Near, TextAlign.Center);
-                return;
+                return Layout.Builder.Text($"Downloading #{cs.FrameNumber}\u2026", BaseFontSize * 0.85f, HeaderText).RowH(BaseRowHeight);
             }
 
-            // Exposing — show countdown + progress bar
+            // Exposing -- countdown label + progress bar with the remaining time overlaid.
             var elapsed = timeProvider.GetUtcNow() - cs.ExposureStart;
             var totalSec = cs.SubExposure.TotalSeconds;
             var elapsedSec = Math.Min(elapsed.TotalSeconds, totalSec);
             var fraction = totalSec > 0 ? (float)(elapsedSec / totalSec) : 0f;
 
-            // Filter + frame label
             var filterLabel = LiveSessionActions.FilterDisplayLabel(cs.FilterName, "L");
             var expLabel = $"{filterLabel} #{cs.FrameNumber} ({elapsedSec:F0}/{totalSec:F0}s)";
-            DrawText(expLabel, fontPath,
-                x, y, w, rowH, smallFs, BodyText, TextAlign.Near, TextAlign.Center);
-            y += rowH;
-
-            // Progress bar
-            FillRect(x, y, w, progressH, ProgressBg);
-            var fillW = w * Math.Clamp(fraction, 0f, 1f);
-            if (fillW > 0)
-            {
-                FillRect(x, y, fillW, progressH, ProgressFill);
-            }
-
-            // Remaining time overlay on bar
             var remaining = cs.SubExposure - elapsed;
-            if (remaining.TotalSeconds > 0)
-            {
-                var remText = $"{remaining.TotalSeconds:F0}s";
-                DrawText(remText, fontPath,
-                    x, y, w, progressH,
-                    fontSize * 0.65f, BrightText, TextAlign.Center, TextAlign.Center);
-            }
+            var remText = remaining.TotalSeconds > 0 ? $"{remaining.TotalSeconds:F0}s" : null;
+
+            return Layout.Builder.VStack(
+                    Layout.Builder.Text(expLabel, BaseFontSize * 0.85f, BodyText).RowH(BaseRowHeight),
+                    FormRowLayout.ProgressBar(fraction, ProgressBg, ProgressFill, remText, BaseFontSize * 0.65f, BrightText)
+                        .RowH(BaseProgressBarH))
+                .WStar();
+        }
+
+        /// <summary>
+        /// Builds the bottom-pinned mount status block for a running session (dot + name, status/pier, RA/HA,
+        /// Dec, and an optional target row) as a padded VStack, prefixed by a full-width hairline divider (a
+        /// coloured Box node, not a Fill painter). Docked full-width at the panel bottom by
+        /// <see cref="RenderOTAPanels"/>.
+        /// </summary>
+        private Layout.Node BuildRunningMountSection(LiveSessionState state, ISession session)
+        {
+            var ms = state.MountState;
+            var dotColor = ms.IsSlewing ? StatusSlewing : ms.IsTracking ? StatusTracking : DimText;
+            var pierLabel = ms.PierSide is Lib.Devices.PointingState.Normal ? "E" : ms.PierSide is Lib.Devices.PointingState.ThroughThePole ? "W" : "";
+            var mountStatus = ms.IsSlewing ? "Slewing" : ms.IsTracking ? "Tracking" : "Idle";
+            var statusColor = ms.IsSlewing ? StatusSlewing : ms.IsTracking ? StatusTracking : DimText;
+            var raStr = Lib.Astrometry.CoordinateUtils.HoursToHMS(ms.RightAscension, withFrac: false);
+            var haStr = $"HA {ms.HourAngle:+0.00;-0.00}h";
+            var decStr = Lib.Astrometry.CoordinateUtils.DegreesToDMS(ms.Declination, withFrac: false);
+
+            var nameRow = Layout.Builder.HStack(
+                    Layout.Builder.Text("\u25cf", BaseFontSize * 0.7f, dotColor, TextAlign.Center, TextAlign.Center).WFixed(BaseRowHeight * 0.6f).HStar(),
+                    Layout.Builder.Text(session.Setup.Mount.Device.DisplayName, BaseFontSize * 0.85f, HeaderText).WStar().HStar())
+                .RowH(BaseRowHeight);
+            var statusRow = Layout.Builder.Text($"{mountStatus}  {pierLabel}", BaseFontSize * 0.85f, statusColor).RowH(BaseRowHeight);
+            var raHaRow = Layout.Builder.Text($"RA {raStr}  {haStr}", BaseFontSize * 0.85f, BodyText).RowH(BaseRowHeight);
+            var decRow = Layout.Builder.Text($"Dec {decStr}", BaseFontSize * 0.85f, BodyText).RowH(BaseRowHeight);
+
+            var content = state.ActiveObservation is { Target: var target }
+                ? Layout.Builder.VStack(nameRow, statusRow, raHaRow, decRow,
+                    Layout.Builder.Text($"\u2609 {target.Name}", BaseFontSize * 0.85f, DimText).RowH(BaseRowHeight)).Pad(BasePadding)
+                : Layout.Builder.VStack(nameRow, statusRow, raHaRow, decRow).Pad(BasePadding);
+
+            // Full-width hairline divider above the block (a coloured Box node, not a Fill painter).
+            return Layout.Builder.VStack(
+                Layout.Builder.Spacer().RowH(1f).Bg(SeparatorColor),
+                content);
         }
 
         /// <summary>Tiny sparkline of temperature + power for a single camera.</summary>
@@ -330,9 +325,9 @@ namespace TianWen.UI.Abstractions
 
         /// <summary>
         /// Exposure-log scroll (DIR.Lib atom model, one atom = one log row): bottom-anchored
-        /// tail-follow — pinned to the newest entry until the user wheels up into history, and
+        /// tail-follow -- pinned to the newest entry until the user wheels up into history, and
         /// re-pinned automatically when the log resets (a session restart clears it, the content
-        /// fits again, and the controller's fits-again rule restores the pin — no bootstrapper
+        /// fits again, and the controller's fits-again rule restores the pin -- no bootstrapper
         /// reset needed). Mode=None keeps the historical no-scrollbar look; wheel AND body
         /// drag-to-scroll are viewport-gated by the controller (the old code scrolled the log from
         /// anywhere on the tab, and a press on the log could grab the preview pan).
@@ -383,7 +378,7 @@ namespace TianWen.UI.Abstractions
                             rect.X + pad, solveY, rect.Width - pad * 2, rowH,
                             fontSize * 0.8f, BodyText, TextAlign.Near, TextAlign.Center);
                         solveY += rowH;
-                        DrawText($"Dec {wcs.CenterDec:F3}\u00B0", fontPath,
+                        DrawText($"Dec {wcs.CenterDec:F3}\u00b0", fontPath,
                             rect.X + pad, solveY, rect.Width - pad * 2, rowH,
                             fontSize * 0.8f, BodyText, TextAlign.Near, TextAlign.Center);
                         solveY += rowH;
@@ -410,7 +405,7 @@ namespace TianWen.UI.Abstractions
                 rect.X + pad, rect.Y, rect.Width - pad * 2, rowH,
                 fontSize * 0.85f, HeaderText, TextAlign.Near, TextAlign.Center);
 
-            // Column layout — fixed pixel positions for alignment with proportional fonts
+            // Column layout -- fixed pixel positions for alignment with proportional fonts
             var colY = rect.Y + rowH;
             var x0 = rect.X + pad;
             var w = rect.Width;

@@ -16,14 +16,16 @@ namespace TianWen.UI.Abstractions
     /// </summary>
     public partial class LiveSessionTab<TSurface>
     {
-        // Per-frame Fill-leaf painter dispatch for the preview per-OTA panels' single RenderLayout. Keyed by
-        // the Fill leaf's key; populated while building the column nodes and drained by DispatchPreviewFill.
-        // Render-thread-only (RenderPreviewOTAPanels runs on the paint path), so a plain Dictionary is safe.
-        private readonly Dictionary<string, Action<RectF32>> _previewFills = new();
+        // Per-frame Fill-leaf painter dispatch for the OTA-panels' single RenderLayout -- shared by BOTH the
+        // preview path (RenderPreviewOTAPanels) and the running path (RenderOTAPanels), which are mutually
+        // exclusive per frame. Keyed by the Fill leaf's key; populated while building the column nodes and
+        // drained by DispatchOtaPanelFill. Render-thread-only (both run on the paint path), so a plain
+        // Dictionary is safe.
+        private readonly Dictionary<string, Action<RectF32>> _otaPanelFills = new();
 
-        private void DispatchPreviewFill(Layout.Content.Fill fill, RectF32 r)
+        private void DispatchOtaPanelFill(Layout.Content.Fill fill, RectF32 r)
         {
-            if (fill.Key is { } k && _previewFills.TryGetValue(k, out var painter)) painter(r);
+            if (fill.Key is { } k && _otaPanelFills.TryGetValue(k, out var painter)) painter(r);
         }
 
         /// <summary>
@@ -263,8 +265,9 @@ namespace TianWen.UI.Abstractions
         /// (1px dividers between) with the mount status docked to the bottom (full width). The engine lays
         /// the columns + rows out (no <c>px = i * panelW</c> column cursor, no <c>y += rowH</c> row cursor,
         /// no <c>maxY</c> reservation -- Dock.Bottom gives the columns the area above the mount strip and the
-        /// panel clips overflow). Text inputs (focuser goto) and the capture progress bar are keyed
-        /// <see cref="Layout.Content.Fill"/> leaves painted through <see cref="_previewFills"/>.
+        /// panel clips overflow). The focuser-goto text input is a keyed <see cref="Layout.Content.Fill"/>
+        /// leaf painted through <see cref="_otaPanelFills"/>; the capture progress bar is a declarative
+        /// <see cref="FormRowLayout.ProgressBar"/> node.
         /// </summary>
         private void RenderPreviewOTAPanels(LiveSessionState state, RectF32 rect, string fontPath,
             float fontSize, float dpiScale, float pad, float rowH, ITimeProvider timeProvider)
@@ -279,7 +282,7 @@ namespace TianWen.UI.Abstractions
                 return;
             }
 
-            _previewFills.Clear();
+            _otaPanelFills.Clear();
 
             // Columns: one VStack per OTA, 1px full-height dividers between them.
             var columns = new List<Layout.Node>(otaCount * 2);
@@ -306,7 +309,7 @@ namespace TianWen.UI.Abstractions
             Renderer.PushClip(new RectInt(
                 new PointInt((int)(rect.X + rect.Width), (int)(rect.Y + rect.Height)),
                 new PointInt((int)rect.X, (int)rect.Y)));
-            RenderLayout(tree, rect, fontPath, dpiScale, drawFill: DispatchPreviewFill);
+            RenderLayout(tree, rect, fontPath, dpiScale, drawFill: DispatchOtaPanelFill);
             Renderer.PopClip();
         }
 
@@ -389,7 +392,7 @@ namespace TianWen.UI.Abstractions
                     };
 
                     var gotoKey = $"focGoto:{capturedI}";
-                    _previewFills[gotoKey] = r => RenderTextInput(input, (int)r.X, (int)r.Y, (int)r.Width, (int)r.Height, fontPath, smallFs);
+                    _otaPanelFills[gotoKey] = r => RenderTextInput(input, (int)r.X, (int)r.Y, (int)r.Width, (int)r.Height, fontPath, smallFs);
                     rows.Add(Layout.Builder.HStack(
                             Layout.Builder.Fill(key: gotoKey).Stretch(),
                             Layout.Builder.Spacer().WFixed(4f).HStar(),
@@ -447,13 +450,7 @@ namespace TianWen.UI.Abstractions
                 rows.Add(Layout.Builder.Text($"Capturing {elapsed.TotalSeconds:F0}/{dur.TotalSeconds:F0}s",
                     BaseFontSize * 0.85f, HeaderText).RowH(BaseRowHeight));
 
-                var progKey = $"capProg:{otaIndex}";
-                _previewFills[progKey] = r =>
-                {
-                    FillRect(r.X, r.Y, r.Width, r.Height, ProgressBg);
-                    FillRect(r.X, r.Y, r.Width * fraction, r.Height, ProgressFill);
-                };
-                rows.Add(Layout.Builder.Fill(key: progKey).RowH(BaseProgressBarH));
+                rows.Add(FormRowLayout.ProgressBar(fraction, ProgressBg, ProgressFill).RowH(BaseProgressBarH));
                 return Layout.Builder.VStack([.. rows]).WStar();
             }
 
@@ -583,9 +580,10 @@ namespace TianWen.UI.Abstractions
                     Layout.Builder.Text(statusText, BaseFontSize * 0.85f, ms.IsSlewing ? StatusSlewing : DimText).RowH(BaseRowHeight))
                 .Pad(BasePadding);
 
-            const string sepKey = "previewMountSep";
-            _previewFills[sepKey] = r => FillRect(r.X, r.Y, r.Width, 1f, SeparatorColor);
-            return Layout.Builder.VStack(Layout.Builder.Fill(key: sepKey).RowH(1f), content);
+            // Full-width hairline divider above the block (a coloured Box node, not a Fill painter).
+            return Layout.Builder.VStack(
+                Layout.Builder.Spacer().RowH(1f).Bg(SeparatorColor),
+                content);
         }
 
         // -----------------------------------------------------------------------
