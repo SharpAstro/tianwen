@@ -40,11 +40,11 @@ DebugInspector routes through the same methods -- synthesized input can never dr
 | `PlannerTab` | UI.Abstractions | target list, handoff sliders, search box + autocomplete, chart (display) | none (sliders/search are controls) |
 | `EquipmentTab` | UI.Abstractions | device list, segment buttons, confirm strips | none |
 | `SessionTab` | UI.Abstractions | config panel, text inputs | none |
-| `LiveSessionTab` | UI.Abstractions | exposure log, preview pan/zoom, charts (display) | **preview pan/zoom** (duplicate of viewer's -- P5) |
+| `LiveSessionTab` | UI.Abstractions | exposure log, preview pan/zoom, charts (display) | none (log P4, preview `PanZoomController` P5) |
 | `NotificationsTab` | UI.Abstractions | list | none |
 | `GuiderTab` | UI.Abstractions | none (`HandleInput => false`) | none |
-| `SkyMapTab` | UI.Abstractions | map pan + click-vs-drag, wheel/pinch FOV zoom, F3 search modal | **tap-vs-drag slop** (`Search.cs` `ClickDragThresholdPx` -- P5); FOV zoom stays custom (unproject-based, not pixel pan-zoom) |
-| `ImageRendererBase` -> `VkImageRenderer` | UI.Abstractions -> UI.Shared | file list, WB/wavelet/scrub sliders, viewport pan/zoom, resize divider, toolbar dropdown, histogram | **viewport pan + cursor-anchored zoom** (P5) |
+| `SkyMapTab` | UI.Abstractions | map pan + click-vs-drag, wheel/pinch FOV zoom, F3 search modal | none (click-vs-drag on `TapOrDragGesture`, P5); FOV zoom stays custom by design (unproject-based, not pixel pan-zoom) |
+| `ImageRendererBase` -> `VkImageRenderer` | UI.Abstractions -> UI.Shared | file list, WB/wavelet/scrub sliders, viewport pan/zoom, resize divider, toolbar dropdown, histogram | none (pan/zoom on `PanZoomController`, P5) |
 | `VkPlanetaryTab` (extends `VkImageRenderer`) | UI.Gui | PiP ROI drag + inherited viewer surfaces | PiP drag (drag-to-position; gesture adoption optional) |
 | `PixelMenuWidget` | DIR.Lib | dropdown menu list | clip-only by design |
 | `TuiPlanner/Equipment/Session/LiveSession/Notifications/GuiderTab`, `TuiTabBar` | Cli/Tui | keyboard | n/a (pointer primitives do not apply) |
@@ -57,8 +57,8 @@ chromeless Live Session / polar / guide-cam previews (`ViewerState.HideChrome`).
 | Control | Lives in | Used by | Notes |
 |---|---|---|---|
 | `ListScrollController` | DIR.Lib | Planner, Equipment, Notifications, Session config, LiveSession log, FITS FileList | the "atom" scroll model; fully adopted (6/6 lists) |
-| `TapOrDragGesture` | DIR.Lib | inside `ListScrollController` only | direct widget adoption pending (SkyMap, P5) |
-| `PanZoomController` | DIR.Lib | none yet | adopters pending (viewer + LiveSession preview, P5) |
+| `TapOrDragGesture` | DIR.Lib | `ListScrollController` (internal), `SkyMapTab` click-vs-drag | adopted (P5) |
+| `PanZoomController` | DIR.Lib | `ImageRendererBase` viewport, `LiveSessionTab` preview | adopted (P5); gesture on the controller, display transform stays on `ViewerState` (seed per gesture, write back) |
 | `ClickableRegion` / `HitResult` + Layout `.Clickable` | DIR.Lib | everything | the universal button/row primitive |
 | `TextInputState` | DIR.Lib | planner search, sky-map F3, session config, equipment | state + callback contract (`OnCommit/OnCancel/OnTextChanged/OnKeyOverride`) |
 | `DropdownMenuState` | DIR.Lib | viewer toolbar dropdowns, `PixelMenuWidget` | clip-only; controller adoption deferred until a menu overflows |
