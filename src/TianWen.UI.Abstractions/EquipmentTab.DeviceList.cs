@@ -257,15 +257,15 @@ namespace TianWen.UI.Abstractions
 
         /// <summary>
         /// Stage-1 cooler-off confirmation strip (camera stays connected). [Warm up &amp; Off]
-        /// (green), [Force] (amber, escalates), [Cancel] (neutral).
+        /// (green), [Force] (amber, escalates), [Cancel] (neutral). Returns the strip node (one
+        /// telemetry-panel row); the caller sizes its row height.
         /// </summary>
-        private float RenderCoolerOffConfirmStrip(
-            Uri cameraUri, float x, float y, float w, float h, string fontPath, float dpiScale)
+        private Layout.Node BuildCoolerOffConfirmStrip(Uri cameraUri)
         {
             var capUri = cameraUri;
             const float font = 0.78f;
             // Three equal inset pills; gap is a design unit (2 du) so it scales with DPI.
-            var strip = Layout.Builder.HStack(
+            return Layout.Builder.HStack(
                 FormRowLayout.InsetPillButton("Warm up & Off", BaseFontSize * font, ConfirmWarmBg, BodyText,
                     new HitResult.ButtonHit("WarmCoolerOff"), _ => PostSignal(new WarmAndCoolerOffSignal(capUri))),
                 FormRowLayout.InsetPillButton("Force", BaseFontSize * font, ConfirmForceBg, BodyText,
@@ -283,21 +283,17 @@ namespace TianWen.UI.Abstractions
                         State.PendingCoolerOffForceConfirm = null;
                     }))
                 .WithGap(2f);
-            RenderLayout(strip, new RectF32(x, y, w, h), fontPath, dpiScale);
-
-            return y + h;
         }
 
         /// <summary>
         /// Stage-2 force-cooler-off confirmation. Same anti-double-click position swap as
-        /// the disconnect force flow: [Cancel] LEFT, [REALLY FORCE] RIGHT.
+        /// the disconnect force flow: [Cancel] LEFT, [REALLY FORCE] RIGHT. Returns the strip node.
         /// </summary>
-        private float RenderCoolerOffForceStrip(
-            Uri cameraUri, float x, float y, float w, float h, string fontPath, float dpiScale)
+        private Layout.Node BuildCoolerOffForceStrip(Uri cameraUri)
         {
             var capUri = cameraUri;
             // [Cancel] LEFT, destructive [REALLY FORCE] RIGHT (anti-double-click position swap); two pills, gap 4 du.
-            var strip = Layout.Builder.HStack(
+            return Layout.Builder.HStack(
                 FormRowLayout.InsetPillButton("Cancel", BaseFontSize * 0.8f, ConfirmCancelBg, BodyText,
                     new HitResult.ButtonHit("CancelForceCoolerOff"),
                     _ =>
@@ -313,9 +309,6 @@ namespace TianWen.UI.Abstractions
                         PostSignal(new SetCoolerOffSignal(capUri));
                     }))
                 .WithGap(4f);
-            RenderLayout(strip, new RectF32(x, y, w, h), fontPath, dpiScale);
-
-            return y + h;
         }
 
         /// <summary>

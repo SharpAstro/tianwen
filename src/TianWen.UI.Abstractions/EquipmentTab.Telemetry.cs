@@ -16,21 +16,21 @@ namespace TianWen.UI.Abstractions
     partial class EquipmentTab<TSurface>
     {
         /// <summary>
-        /// Renders the camera cooler control + telemetry sparkline panel for the given URI,
-        /// but only when the camera is currently connected via the device hub. Hidden otherwise.
-        /// Layout: collapsible header -> readout row -> setpoint input + buttons -> temp sparkline.
+        /// Builds the camera cooler control + telemetry sparkline as one profile-panel section node,
+        /// but only when the camera is currently connected via the device hub (else null = no section).
+        /// Layout: collapsible header -> readout row -> setpoint input + buttons -> optional confirm
+        /// strip -> temp sparkline. The setpoint text-input and the sparkline are keyed <c>Fill</c>
+        /// leaves painted through <see cref="_profilePanelFills"/> from the single panel RenderLayout.
         /// </summary>
-        private float RenderCameraTelemetryIfAny(
-            GuiAppState appState,
-            Uri? cameraUri,
-            float x, float cursor, float w, float itemH,
-            float dpiScale, string fontPath, float fontSize, float padding)
+        private Layout.Node? BuildCameraTelemetry(
+            GuiAppState appState, Uri? cameraUri, float innerW, float dpiScale, string fontPath)
         {
-            if (cameraUri is null || cameraUri == NoneDevice.Instance.DeviceUri) return cursor;
-            if (appState.DeviceHub is not { } hub || !hub.IsConnected(cameraUri)) return cursor;
+            if (cameraUri is null || cameraUri == NoneDevice.Instance.DeviceUri) return null;
+            if (appState.DeviceHub is not { } hub || !hub.IsConnected(cameraUri)) return null;
 
             var key = cameraUri.GetLeftPart(UriPartial.Path);
-            var rowH = itemH * 0.9f;
+            var fontSize = BaseFontSize * dpiScale;
+            float rowH = BaseItemHeight * 0.9f;   // design units
             var headerKey = $"CamCool_{key}";
 
             // Toggle header -- independent of the device-settings expand state.
@@ -39,35 +39,33 @@ namespace TianWen.UI.Abstractions
             var isOpen = State.ExpandedDeviceSettingsUri == paneKey;
             var headerLabel = isOpen ? "    Cooler Control [-]" : "    Cooler Control [+]";
 
-            var camToggle = FormRowLayout.ToggleHeaderRow(
+            var toggle = FormRowLayout.ToggleHeaderRow(
                 headerLabel, rowH, FilterTableBg, HeaderText, BaseFontSize * 0.85f,
                 new HitResult.ButtonHit(headerKey),
                 _ => State.ExpandedDeviceSettingsUri = isOpen ? null : paneKey);
-            RenderLayout(camToggle, new RectF32(x + padding, cursor, w - padding * 2f, rowH), fontPath, dpiScale);
-            cursor += rowH;
 
-            if (!isOpen) return cursor;
+            if (!isOpen) return toggle;
+
+            var rows = new List<Layout.Node> { toggle };
 
             // Latest sample (may be null on first frame after connect)
             State.CameraTelemetry.TryGetValue(key, out var buffer);
             var latest = buffer?.Latest;
 
-            // ---- Readout row: 4 equal cells (CCD / setpoint / power / state) as one HStack. Was a
-            // FillRect + four hand-positioned, per-cell-truncated DrawText calls; cells stay truncated. ----
+            // ---- Readout row: 4 equal cells (CCD / setpoint / power / state) as one HStack. Cells stay
+            // truncated so a long coord can't bleed into the next cell (the engine's Text leaf never clips). ----
             string Fmt(double? v, string suffix) => v is { } d ? $"{d:F1}{suffix}" : "--";
-            var cellW = (w - padding * 2f) / 4f - padding;
+            var cellW = innerW / 4f;
             var cellFs = fontSize * 0.85f;
             Layout.Node Cell(string s) =>
                 Layout.Builder.Text(TruncateToWidth(s, fontPath, cellFs, cellW), BaseFontSize * 0.85f, BodyText).WStar().HStar();
 
-            var readout = Layout.Builder.HStack(
+            rows.Add(Layout.Builder.HStack(
                     Cell($"CCD: {Fmt(latest?.CcdTempC, "\u00b0C")}"),
                     Cell($"Set: {Fmt(latest?.SetpointC, "\u00b0C")}"),
                     Cell(latest?.CoolerPowerPct is { } p ? $"Power: {p:F0}%" : "Power: --"),
                     Cell(latest is null ? "\u2026" : latest.Value.CoolerOn ? "Cooler ON" : "Cooler OFF"))
-                .Bg(FilterRowAlt);
-            RenderLayout(readout, new RectF32(x + padding, cursor, w - padding * 2f, rowH), fontPath, dpiScale);
-            cursor += rowH;
+                .RowH(rowH).Bg(FilterRowAlt));
 
             // ---- Controls row: [Setpoint: | input | Cool to Setpoint | Cooler Off] as one HStack. ----
             var capUri = cameraUri;
@@ -82,10 +80,13 @@ namespace TianWen.UI.Abstractions
             // Safety: tint the Cooler Off button red when the cooler is on, and route the click to the
             // confirmation strip instead of immediate cooler-off (condensation/thermal-shock concern).
             var coolerUnsafe = latest is { } l && l.CoolerOn;
+            var setpointFillKey = $"coolerSetpoint:{key}";
+            _profilePanelFills[setpointFillKey] =
+                r => RenderTextInput(setpointInput, (int)r.X, (int)r.Y, (int)r.Width, (int)r.Height, fontPath, fontSize * 0.85f);
 
-            var controls = Layout.Builder.HStack(
+            rows.Add(Layout.Builder.HStack(
                     Layout.Builder.Text("    Setpoint:", BaseFontSize * 0.85f, DimText).WFixed(80f).HStar(),
-                    Layout.Builder.Fill(key: "coolerSetpoint").WFixed(70f).HStar(),
+                    Layout.Builder.Fill(key: setpointFillKey).WFixed(70f).HStar(),
                     Layout.Builder.Text("Cool to Setpoint", BaseFontSize * 0.78f, BodyText, TextAlign.Center, TextAlign.Center)
                         .WFixed(110f).HStar().Bg(CreateButton)
                         .Clickable(new HitResult.ButtonHit($"CoolTo_{key}"), _ =>
@@ -103,76 +104,71 @@ namespace TianWen.UI.Abstractions
                             if (coolerUnsafe) { State.PendingCoolerOffConfirm = capUri; State.PendingCoolerOffForceConfirm = null; }
                             else PostSignal(new SetCoolerOffSignal(capUri));
                         }))
-                .WithGap(4f).Bg(FilterTableBg);
-            RenderLayout(controls, new RectF32(x + padding, cursor, w - padding * 2f, rowH), fontPath, dpiScale,
-                drawFill: (_, r) => RenderTextInput(setpointInput, (int)r.X, (int)r.Y, (int)r.Width, (int)r.Height, fontPath, fontSize * 0.85f));
-            cursor += rowH;
+                .WithGap(4f).RowH(rowH).Bg(FilterTableBg));
 
             // Confirmation strip -- appears under the controls row when the user clicked
             // Cooler Off on a cooled camera. Two stages, mirror of the disconnect flow.
             if (DeviceBase.SameDevice(State.PendingCoolerOffForceConfirm, cameraUri))
             {
-                cursor = RenderCoolerOffForceStrip(cameraUri, x + padding, cursor, w - padding * 2f, rowH, fontPath, dpiScale);
+                rows.Add(BuildCoolerOffForceStrip(cameraUri).RowH(rowH));
             }
             else if (DeviceBase.SameDevice(State.PendingCoolerOffConfirm, cameraUri))
             {
-                cursor = RenderCoolerOffConfirmStrip(cameraUri, x + padding, cursor, w - padding * 2f, rowH, fontPath, dpiScale);
+                rows.Add(BuildCoolerOffConfirmStrip(cameraUri).RowH(rowH));
             }
 
-            // ---- Sparkline graph ----
-            var graphH = 60f * dpiScale;
-            var graphX = x + padding;
-            var graphW = w - padding * 2f;
-            FillRect(graphX, cursor, graphW, graphH, FilterTableBg);
-            if (buffer is not null && buffer.Count >= 2)
+            // ---- Sparkline graph (keyed Fill leaf; raster painter draws the graph or the sampling hint) ----
+            var graphFs = fontSize;
+            var sparkKey = $"camSpark:{key}";
+            _profilePanelFills[sparkKey] = r =>
             {
-                RenderTemperatureSparkline(buffer, graphX, cursor, graphW, graphH, fontPath, fontSize);
-            }
-            else
-            {
-                DrawText("(sampling -- graph appears after a few seconds)".AsSpan(), fontPath,
-                    graphX, cursor, graphW, graphH,
-                    fontSize * 0.8f, DimText, TextAlign.Center, TextAlign.Center);
-            }
-            cursor += graphH + padding * 0.5f;
+                FillRect(r.X, r.Y, r.Width, r.Height, FilterTableBg);
+                if (buffer is not null && buffer.Count >= 2)
+                {
+                    RenderTemperatureSparkline(buffer, r.X, r.Y, r.Width, r.Height, fontPath, graphFs);
+                }
+                else
+                {
+                    DrawText("(sampling -- graph appears after a few seconds)".AsSpan(), fontPath,
+                        r.X, r.Y, r.Width, r.Height, graphFs * 0.8f, DimText, TextAlign.Center, TextAlign.Center);
+                }
+            };
+            rows.Add(Layout.Builder.Fill(key: sparkKey).RowH(60f));
+            rows.Add(Layout.Builder.Spacer().RowH(BasePadding * 0.5f));
 
-            return cursor;
+            return Layout.Builder.VStack([.. rows]).WStar();
         }
 
         /// <summary>
-        /// Renders the mount status panel (RA/Dec/Slewing/Tracking) for the given mount URI,
-        /// but only when the mount is currently hub-connected. Hidden otherwise.
+        /// Builds the mount status section (RA/Dec/Slewing/Tracking) for the given mount URI as one
+        /// profile-panel node, but only when the mount is currently hub-connected (else null).
         /// State comes from the single canonical <see cref="LiveSessionState.MountState"/>, populated
         /// by <c>AppSignalHandler.PollPreviewTelemetry</c> while idle (equipment / sky-map / live-session
         /// tabs visible) and by the running session's poll otherwise. The expander gives the user a
         /// visible answer to "is the mount tracking?" without having to leave the equipment tab.
         /// </summary>
-        private float RenderMountTelemetryIfAny(
-            GuiAppState appState,
-            Uri? mountUri,
-            LiveSessionState? liveSessionState,
-            float x, float cursor, float w, float itemH,
-            float dpiScale, string fontPath, float fontSize, float padding)
+        private Layout.Node? BuildMountTelemetry(
+            GuiAppState appState, Uri? mountUri, LiveSessionState? liveSessionState,
+            float innerW, float dpiScale, string fontPath)
         {
-            if (mountUri is null || mountUri == NoneDevice.Instance.DeviceUri) return cursor;
-            if (appState.DeviceHub is not { } hub || !hub.IsConnected(mountUri)) return cursor;
-            if (liveSessionState is null) return cursor;
+            if (mountUri is null || mountUri == NoneDevice.Instance.DeviceUri) return null;
+            if (appState.DeviceHub is not { } hub || !hub.IsConnected(mountUri)) return null;
+            if (liveSessionState is null) return null;
 
             var key = mountUri.GetLeftPart(UriPartial.Path);
-            var rowH = itemH * 0.9f;
+            var fontSize = BaseFontSize * dpiScale;
+            float rowH = BaseItemHeight * 0.9f;   // design units
             var headerKey = $"MountStatus_{key}";
             var paneKey = $"MountStatusPane:{key}";
             var isOpen = State.ExpandedDeviceSettingsUri == paneKey;
             var headerLabel = isOpen ? "    Mount Status [-]" : "    Mount Status [+]";
 
-            var mountToggle = FormRowLayout.ToggleHeaderRow(
+            var toggle = FormRowLayout.ToggleHeaderRow(
                 headerLabel, rowH, FilterTableBg, HeaderText, BaseFontSize * 0.85f,
                 new HitResult.ButtonHit(headerKey),
                 _ => State.ExpandedDeviceSettingsUri = isOpen ? null : paneKey);
-            RenderLayout(mountToggle, new RectF32(x + padding, cursor, w - padding * 2f, rowH), fontPath, dpiScale);
-            cursor += rowH;
 
-            if (!isOpen) return cursor;
+            if (!isOpen) return toggle;
 
             // Snapshot the mount state once -- the field is published atomically via Interlocked.Exchange.
             var ms = liveSessionState.MountState;
@@ -182,29 +178,26 @@ namespace TianWen.UI.Abstractions
                 : ms.IsTracking ? ("Tracking", new RGBAColor32(0x66, 0xdd, 0x66, 0xff))  // green
                 :                 ("Idle",     DimText);
 
-            // Status badge row + RA/Dec/HA readout as one tree (was two FillRect + hand-positioned
-            // DrawText blocks with per-cell width/pad math). Cells stay truncated so a long coord can't
-            // bleed into the next; everything else is the engine's job now.
-            var cellW = (w - padding * 2f) / 3f - padding;
+            // Status badge row + RA/Dec/HA readout. Cells stay truncated so a long coord can't bleed.
+            var cellW = innerW / 3f;
             var cellFs = fontSize * 0.85f;
             Layout.Node Coord(string s) =>
                 Layout.Builder.Text(TruncateToWidth(s, fontPath, cellFs, cellW), BaseFontSize * 0.85f, BodyText).WStar().HStar();
 
             var readout = Layout.Builder.VStack(
+                toggle,
                 Layout.Builder.HStack(
                         Layout.Builder.Text("    Status:", BaseFontSize * 0.85f, DimText).WFixed(80f).HStar(),
                         Layout.Builder.Text(statusLabel, BaseFontSize * 0.95f, statusColor).Stretch())
-                    .RowH(BaseItemHeight * 0.9f).Bg(FilterRowAlt),
+                    .RowH(rowH).Bg(FilterRowAlt),
                 Layout.Builder.HStack(
                         Coord($"RA: {FormatRa(ms.RightAscension)}"),
                         Coord($"Dec: {FormatDec(ms.Declination)}"),
                         Coord($"HA: {FormatHa(ms.HourAngle)}"))
-                    .RowH(BaseItemHeight * 0.9f).Bg(FilterTableBg));
+                    .RowH(rowH).Bg(FilterTableBg),
+                Layout.Builder.Spacer().RowH(BasePadding * 0.5f)).WStar();
 
-            var readoutH = rowH * 2f;
-            RenderLayout(readout, new RectF32(x + padding, cursor, w - padding * 2f, readoutH), fontPath, dpiScale);
-            cursor += readoutH + padding * 0.5f;
-            return cursor;
+            return readout;
 
             string FormatRa(double hours)
             {

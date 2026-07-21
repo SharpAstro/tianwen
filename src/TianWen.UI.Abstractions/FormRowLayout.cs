@@ -100,14 +100,16 @@ namespace TianWen.UI.Abstractions
 
         /// <summary>
         /// Builds a horizontal labeled-input row: [label fixed-labelW | Fill *].
-        /// The Fill is the escape hatch for the caller's RenderTextInput call (one per RenderLayout).
+        /// The Fill is the escape hatch for the caller's RenderTextInput call. Pass <paramref name="fillKey"/>
+        /// when several such rows share one <c>RenderLayout</c> (a single-tree panel), so the one
+        /// <c>drawFill</c> dispatcher can route each input by key.
         /// </summary>
         public static Layout.Node LabeledInputRow(
             string label, float labelW, float rowH, float padding, float fontSize,
-            RGBAColor32 textColor, RGBAColor32? bg = null)
+            RGBAColor32 textColor, RGBAColor32? bg = null, string? fillKey = null)
         {
             var labelLeaf = Layout.Builder.Text(label, fontSize, textColor).WFixed(labelW).HStar();
-            var fillLeaf = Layout.Builder.Fill().Stretch();
+            var fillLeaf = Layout.Builder.Fill(key: fillKey).Stretch();
             var row = Layout.Builder.HStack(labelLeaf, fillLeaf).WStar().HFixed(rowH);
             return bg is { } b ? row.Bg(b) : row;
         }
