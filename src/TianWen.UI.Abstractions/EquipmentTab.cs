@@ -76,67 +76,39 @@ namespace TianWen.UI.Abstractions
         /// <summary>Background task tracker for async operations. Set by the host.</summary>
         public BackgroundTaskTracker? Tracker { get; set; }
 
-        // Last-rendered device-list rect + visible row count, captured during render so
-        // the Scroll handler knows whether the wheel is over the list and how far it can
-        // scroll before hitting the end.
+        // Last-rendered device-list rect, captured during render so the Scroll handler knows whether the
+        // wheel is over the list. The atom-model controller (DIR.Lib) owns the offset + wheel/drag/thumb
+        // math; the device list is row-snapped with an interactive scrollbar.
         private RectF32 _deviceListRect;
-        private RectF32 _scrollBarTrackRect;    // captured during render for HandleMouseDown
-        private float _scrollBarDpiScale;
-        private int _deviceListVisibleRows;
-        private ScrollBarDragState _deviceScrollDrag;
+        private readonly ListScrollController _deviceScroll = new ListScrollController { SnapToAtom = true };
 
         public override bool HandleInput(InputEvent evt) => evt switch
         {
             InputEvent.KeyDown(var key, _) when State.FilterNameDropdown.HandleKeyDown(key) => true,
             // ESC dismisses any active selection/confirmation before bubbling to quit
             InputEvent.KeyDown(InputKey.Escape, _) => DismissActiveState(),
-            InputEvent.Scroll(var scrollY, var mouseX, var mouseY, _)
-                when _deviceListRect.Contains(mouseX, mouseY) => HandleDeviceListScroll(scrollY),
-            InputEvent.MouseDown(var mx, var my, _, _, _) => HandleDeviceListMouseDown(mx, my),
-            InputEvent.MouseMove(_, var my) when _deviceScrollDrag.IsDragging => HandleDeviceListMouseMove(my),
-            InputEvent.MouseUp(_, _, _) when _deviceScrollDrag.IsDragging => HandleDeviceListMouseUp(),
+            // Wheel over the list scrolls it; the controller keeps the fractional trackpad carry.
+            InputEvent.Scroll(_, var mouseX, var mouseY, _)
+                when _deviceListRect.Contains(mouseX, mouseY) => _deviceScroll.HandleInput(evt),
+            // Unclaimed left press (the On|Off segments + confirm strips are registered clickables that
+            // win first via HitTestAndDispatch): arm the surface tap-or-drag / grab the scrollbar thumb.
+            InputEvent.MouseDown(_, _, MouseButton.Left, _, _) => _deviceScroll.HandleInput(evt),
+            // A drag consumes moves; when idle the controller no-ops (returns false) and moves fall through.
+            InputEvent.MouseMove(_, _) when _deviceScroll.HandleInput(evt) => true,
+            InputEvent.MouseUp(_, _, MouseButton.Left) => HandleDeviceListRelease(evt),
             _ => base.HandleInput(evt)
         };
 
-        // Fractional wheel carry for the device list (trackpad / precision-wheel deltas below one row).
-        private float _deviceListWheelAccum;
-
-        private bool HandleDeviceListScroll(float scrollY)
+        private bool HandleDeviceListRelease(InputEvent evt)
         {
-            var next = ScrollBar.HandleWheel(scrollY, State.DeviceScrollOffset,
-                State.DiscoveredDevices.Count, _deviceListVisibleRows, ref _deviceListWheelAccum);
-            if (next == State.DeviceScrollOffset) return false;
-            State.DeviceScrollOffset = next;
-            return true;
-        }
-
-        private bool HandleDeviceListMouseDown(float mx, float my)
-        {
-            var next = ScrollBar.HandleMouseDown(
-                ref _deviceScrollDrag, mx, my,
-                _scrollBarTrackRect.X, _scrollBarTrackRect.Y, _scrollBarTrackRect.Height,
-                State.DiscoveredDevices.Count, _deviceListVisibleRows,
-                State.DeviceScrollOffset, _scrollBarDpiScale);
-            if (next is not { } offset) return false;
-            State.DeviceScrollOffset = offset;
-            return true;
-        }
-
-        private bool HandleDeviceListMouseMove(float my)
-        {
-            var next = ScrollBar.HandleMouseMove(
-                in _deviceScrollDrag, my,
-                _scrollBarTrackRect.Y, _scrollBarTrackRect.Height,
-                State.DiscoveredDevices.Count, _deviceListVisibleRows, _scrollBarDpiScale);
-            if (next is not { } offset || offset == State.DeviceScrollOffset) return false;
-            State.DeviceScrollOffset = offset;
-            return true;
-        }
-
-        private bool HandleDeviceListMouseUp()
-        {
-            ScrollBar.HandleMouseUp(ref _deviceScrollDrag);
-            return true;
+            var consumed = _deviceScroll.HandleInput(evt);
+            // Tap-on-release selects the device row: post the same assignment signal the old row-click did
+            // (a no-op unless a profile slot is armed for assignment).
+            if (_deviceScroll.TakeAtomTap() is { } atom && atom < State.DiscoveredDevices.Count)
+            {
+                PostSignal(new AssignDeviceSignal(atom));
+            }
+            return consumed;
         }
 
         /// <summary>
@@ -175,12 +147,9 @@ namespace TianWen.UI.Abstractions
             }
             if (target < 0) return;
 
-            var visibleRows = Math.Max(1, _deviceListVisibleRows);
-            // Already on-screen -> don't jump.
-            if (target >= State.DeviceScrollOffset && target < State.DeviceScrollOffset + visibleRows) return;
-
-            var maxOffset = Math.Max(0, devices.Count - visibleRows);
-            State.DeviceScrollOffset = Math.Clamp(target, 0, maxOffset);
+            // Minimal scroll to bring the target row into view (no-op if already visible), against the
+            // controller's geometry from the last render.
+            _deviceScroll.EnsureVisible(target);
         }
 
         /// <summary>
@@ -876,10 +845,8 @@ namespace TianWen.UI.Abstractions
             var listBottom = y + h - buttonH - padding;  // top of [Discover] button strip
             var listH      = listBottom - listTop;        // usable list height
 
-            // Capture the list rect + visible row count so the Scroll handler can
-            // detect wheel-over-list and bound DeviceScrollOffset to the last page.
+            // Capture the list rect so the Scroll handler knows whether the wheel is over the list.
             _deviceListRect = new RectF32(x, listTop, w, listH);
-            _deviceListVisibleRows = Math.Max(1, (int)(listH / itemH));
 
             var devices  = State.DiscoveredDevices;
             var data     = appState.ActiveProfile?.Data;
@@ -890,18 +857,17 @@ namespace TianWen.UI.Abstractions
                 ? EquipmentActions.GetAssignedDevice(slotData, activeSlot)
                 : null;
 
-            // Reserve a narrow column on the right for the scrollbar whenever the list
-            // overflows, so row content never overlaps the thumb.
             var totalItems = devices.Count;
-            var rowW       = ScrollBar.ContentWidth(w, totalItems, _deviceListVisibleRows, dpiScale);
 
-            for (var i = State.DeviceScrollOffset; i < devices.Count; i++)
+            // Hand the controller this frame's geometry (viewport = list rect, one atom = one row); it owns
+            // the offset + wheel/drag/thumb math, and VisibleRows() yields each visible device row's rect
+            // (scrollbar column reserved, overflow clipped) -- no hand-rolled rowY / width / break here.
+            _deviceScroll.SetExtent(_deviceListRect, itemH, totalItems, dpiScale);
+
+            foreach (var (i, rowRect) in _deviceScroll.VisibleRows())
             {
-                var rowY = listTop + (i - State.DeviceScrollOffset) * itemH;
-                if (rowY + itemH > listBottom)
-                {
-                    break;
-                }
+                var rowY = rowRect.Y;     // re-bind so the row body's existing rowY / rowW references stand
+                var rowW = rowRect.Width;
 
                 var device  = devices[i];
                 var isAssigned = data is { } assignData && EquipmentActions.IsDeviceAssigned(assignData, device.DeviceUri);
@@ -912,12 +878,12 @@ namespace TianWen.UI.Abstractions
                 // Row background -- alternate odd/even rows for readability so the On|Off
                 // buttons line up visually with their device. Active-slot highlight wins.
                 var baseBg = (i & 1) == 0 ? DeviceRowBg : DeviceRowBgAlt;
-                var capturedIdx = i;
-                // Row background + whole-row select hit as one draw==hit leaf; the badge/name/status/segment
-                // content draws on top below (later registrations win, so the segment beats the row hit).
+                // Row background as a draw-only leaf; the badge/name/status/segment content draws on top.
+                // Row select is no longer a registered clickable -- a press on the row body falls through to
+                // the controller (tap-on-release posts AssignDeviceSignal, drag scrolls); the On|Off segments
+                // + confirm strips stay registered clickables and win first via HitTestAndDispatch.
                 var rowLeaf = Layout.Builder.Spacer()
-                    .Bg(isCurrentForSlot ? SlotActive : baseBg)
-                    .Clickable(new HitResult.ListItemHit("Devices", i), _ => PostSignal(new AssignDeviceSignal(capturedIdx)));
+                    .Bg(isCurrentForSlot ? SlotActive : baseBg);
                 RenderLayout(rowLeaf, new RectF32(x, rowY, rowW, itemH), fontPath, dpiScale);
                 FillRect(x, rowY + itemH - 1f, rowW, 1f, SeparatorColor);
 
@@ -1055,11 +1021,9 @@ namespace TianWen.UI.Abstractions
                 }
             }
 
-            var sbX = x + w - ScrollBar.Width(dpiScale);
-            _scrollBarTrackRect = new RectF32(sbX, listTop, ScrollBar.Width(dpiScale), listH);
-            _scrollBarDpiScale = dpiScale;
-            ScrollBar.Draw(FillRect, sbX, listTop, listH,
-                totalItems, _deviceListVisibleRows, State.DeviceScrollOffset, dpiScale);
+            // Scrollbar: the controller draws its own track + thumb at the right edge of its viewport
+            // (no-op when the list fits).
+            _deviceScroll.DrawScrollBar(FillRect);
 
             // [Discover] button at the bottom of the list area
             var discoverBtnY = y + h - buttonH - padding;

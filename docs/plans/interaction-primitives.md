@@ -1,6 +1,8 @@
 # Interaction primitives: ListScrollController + TapOrDragGesture + PanZoomController (DIR.Lib 6.15)
 
-**Status: PLANNED, design approved (2026-07-20). Implementation starts 2026-07-21.**
+**Status: P1 SHIPPED + P3 CORE DONE (local working copy, 2026-07-21). Design approved 2026-07-20.
+P2 (NuGet lockstep release) + P4-P5 pending. P3 remainder: web E2E touch-scroll test + the four-lib
+repin (repin batches with P2).**
 
 Trigger: "planner target list doesn't scroll with touch or trackpad" + the observation that the
 scroll wiring is verbose, duplicated per list instance, and "unworthy of a GUI library -- a list
@@ -126,11 +128,53 @@ public sealed class PanZoomController
 
 | Phase | Repo / release | Content |
 |-------|----------------|---------|
-| P1 | DIR.Lib 6.15 | `TapOrDragGesture` + `ListScrollController` + `PanZoomController` + headless unit tests (accumulate/clamp/snap, slop arm->tap vs arm->drag + suppression, EnsureVisible+margin, thumb grip math -- unify with Console.Lib `ScrollableList`'s structurally-identical formula, bottom-anchor mode, clip-only degenerate mode, axis parameter). API frozen only after every inventory row maps onto it on paper. |
+| P1 | DIR.Lib 6.15 | **✅ DONE (2026-07-21).** `TapOrDragGesture` + `ListScrollController` + `PanZoomController` + headless unit tests (accumulate/clamp/snap, slop arm->tap vs arm->drag + suppression, EnsureVisible+margin, thumb grip math -- unify with Console.Lib `ScrollableList`'s structurally-identical formula, bottom-anchor mode, clip-only degenerate mode, axis parameter). API frozen only after every inventory row maps onto it on paper. 36 new tests green; full DIR.Lib suite 507/0. See "P1 shipped" below. |
 | P2 | Console.Lib 3.9, SdlVulkan.Renderer 6.28, WebGl.Renderer 1.11 | Lockstep no-code rebuilds (standing rule on a DIR.Lib minor). |
-| P3 | tianwen wave 1 | Planner + Equipment lists -> controller; touch drag-to-scroll + tap-on-release select; delete `TianWen.UI.Abstractions/ScrollBar.cs`; repin all four libs; warm-page E2E touch-scroll test (CDP one-finger drag via `CanvasGestures`) + `getPlannerListState` `?e2e=1` hook (scrollOffset/selectedIndex); offline `RgbaImageRenderer` input-sequence tests (drag scrolls without selecting; tap selects without scrolling; sub-1.0 wheel deltas scroll). |
+| P3 | tianwen wave 1 | **CORE DONE (2026-07-21):** Planner + Equipment lists -> controller (touch/mouse drag-to-scroll + tap-on-release select + trackpad wheel accumulator); `ScrollBar.cs`/`ScrollBarTests.cs` deleted (coverage in DIR.Lib); `EquipmentTabState.DeviceScrollOffset` removed (now in the controller); offline `RgbaImageRenderer` input-sequence tests shipped (`PlannerTabScrollTests`: drag scrolls w/o selecting, tap selects w/o scrolling, sub-unit wheel accumulates, row-body-unclaimed/pin-button-registered). Full solution builds 0-warning; DIR.Lib 507/0, tianwen unit 3386/0. **Remaining:** warm-page web E2E touch-scroll (CDP one-finger drag via `CanvasGestures`) + `getPlannerListState ?e2e=1` hook; the four-lib repin (batches with the P2 release). Migration was gated on verified host routing = HitTestAndDispatch-first then HandleInput-on-miss (desktop `GuiEventHandlerBase` + web `Planner.razor`, both mirror). **Live GUI smoke (inspector, 2026-07-21) PASSED:** Planner wheel-scroll (pinned rows scroll off the top), drag-scroll, and tap-select (selected a row -> chart + details followed); Equipment 104-device list renders + scrolls with the On|Off segments intact; render thread stayed ALIVE, no exceptions in gui-stderr. |
 | P4 | tianwen wave 2 | Notifications (atom = line height), Session config (**field becomes canonical atoms**, TUI unit mismatch resolved), LiveSession log (Anchor.Bottom), FITS FileList (fixes its live trackpad bug, interactive scrollbar for free, delete dead `HitTestFileList`); `ViewerActionsTests` updated deliberately. |
 | P5 | tianwen wave 3 | `PanZoomController` adoption in `ImageRendererBase` + `LiveSessionTab` (delete the duplicated zoom formula); optionally `VkPlanetaryTab` PiP drag onto `TapOrDragGesture`. |
+
+## P1 shipped (DIR.Lib 6.15) — frozen API + inventory mapping
+
+Three new files in `../DIR.Lib/src/DIR.Lib/` (`TapOrDragGesture.cs`, `ListScrollController.cs`,
+`PanZoomController.cs`); `VersionPrefix` 6.14.0 -> 6.15.0. Tests in `../DIR.Lib/src/DIR.Lib.Tests/`.
+
+**Two faithful corrections to the sketch (recorded so the intent is clear):**
+
+1. `HandleInput` is **by value** (`bool HandleInput(InputEvent evt)`), not `in InputEvent` — DIR.Lib's
+   existing `IWidget`/`PixelWidgetBase` convention, and `InputEvent` is a reference-type record so `in`
+   buys nothing.
+2. `TapOrDragGesture`'s slop radius is passed through `Arm(x, y, mods, dpiScale, slopPx = 4f)`, **not** a
+   struct property initializer. A `private TapOrDragGesture _gesture;` field is `default`-initialized,
+   which bypasses initializers — a `SlopPx = 4f` initializer would silently be `0`, and a zero slop
+   classifies **every** press as a drag (taps would never register). Method defaults are always honored,
+   so the slop lives there. (This is the `record struct default-ctor` gotcha applied to a plain struct.)
+
+**Frozen surface:**
+
+- `TapOrDragGesture` (struct): `Arm` / `Update(x,y)->bool isDragging` / `Release(x,y)->GestureOutcome` /
+  `Cancel`; `State`/`IsArmed`/`IsDragging`/`DownModifiers`/`DownPosition`. `Release` re-checks slop so a
+  host that never pumps `Update` still classifies; `Update` latches drag so a wander-back stays a drag.
+- `ListScrollController` (class): `SetExtent(RectF32, atomExtentPx, totalAtoms, dpiScale)` (silent,
+  per-frame) · `Offset`/`FirstVisibleAtom`/`SubAtomPx`/`AtomOffset`/`VisibleAtoms`/`MaxOffset`/`TotalAtoms`
+  · `Anchor`(Top|Bottom) · `Mode`(None|Decorative|Interactive) · `Axis`(Vertical|Horizontal) · `SnapToAtom`
+  · `WheelStepAtoms` · `HandleInput` · `EnsureVisible(atom, margin)` · `TakeAtomTap` · `DrawScrollBar(fillRect)`
+  · `ContentCrossExtentPx` · `event Changed` · **`ContentArea`** + **`VisibleRows()`** (added in P3: the
+  scrollbar-reserved content rect + a zero-alloc `foreach (atom, rect)` struct enumerator, so consumers own
+  NO row-placement / content-width / overflow math -- just the per-row content build).
+- `PanZoomController` (class): `PanOffset`/`Zoom`/`ZoomToFit` · `MinZoom`/`MaxZoom`/`ZoomStep` ·
+  `BeginPan`/`UpdatePan`/`EndPan`/`IsPanning` · `ZoomAtCursor(delta,cx,cy,viewport)` /
+  `ZoomByFactor(factor,cx,cy,viewport)` · `Reset`/`FitToView` · `event Changed`.
+
+**Every inventory row maps** (the freeze gate): #1 Planner + #2 Equipment -> `{SnapToAtom, Interactive, Top}`
++ `TakeAtomTap` (sub-buttons stay registered clickables); #3 Notifications -> `{Decorative}`, no tap; #4
+Session config -> `{None}`, field becomes canonical atoms via `AtomOffset` (dissolves the TUI/GUI px-vs-rows
+mismatch); #5 LiveSession log -> `{Anchor=Bottom}` (tail-follow); #6 FITS FileList -> `{SnapToAtom,
+Interactive}` (fractional `Offset` fixes trackpad truncation, `MaxOffset = total-visible` fixes the wrong
+bound); #7 dead `HitTestFileList` -> delete; degenerate F3/dropdown -> `total <= visible` clips zero-config.
+Drag machines: `ScrollBarDragState`->controller thumb; SkyMap tap-vs-drag->`TapOrDragGesture`; viewer +
+LiveSession pan/zoom->`PanZoomController` (dedupes the byte-for-byte copy). Slider / split-divider / PiP
+stay out of scope.
 
 ## Out of scope / deferred
 
