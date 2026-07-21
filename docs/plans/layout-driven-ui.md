@@ -78,8 +78,8 @@ UI-refactor bar is "all elements present + similar footprint", not pixel-perfect
 | Phase | Scope | Notes |
 |---|---|---|
 | L1 | **GuiderTab** full conversion -- **DONE 2026-07-21** | The whole tab is ONE tree (`BuildFrameTree`: header HStack, stats VStack via list-building instead of cursor arithmetic, panel titles, empty-state Text leaves); the four raster panes (camera / profile plot / target scatter / graph) paint inside keyed Fill leaves via the `drawFill` callback, with pane backgrounds on the nodes. Placeholder states are their own tree. 70 raw draw sites -> 0 outside the Fill painters. New `GuiderTabLayoutTests` (6: arranged-rect pins at 1x + 2x DPI, placeholder, sentinel paint sweep at 3 sizes) + `InternalsVisibleTo` for UI.Abstractions (rect test seams stay internal). Live-smoked: tab now appears in `describe_layout` (was invisible -- no DSL usage before); frame_stats 2.1 ms avg (floor 40). Guiding-state layout pinned offline (needs a running session to live-smoke). |
-| L2 | **EquipmentTab cursor-kill** -- **MOSTLY DONE 2026-07-21** | Prep: 2220-line `EquipmentTab.cs` split into 6 concern partials (core / ProfilePanel / DeviceList / Telemetry / DeviceSettings / FilterTable). Converted (all live-verified with connected fakes): mount-status + camera-cooler readout rows, cooler-controls row, device-settings rows (cycle / stepper / string editor), filter-table header + rows -> HStack/VStack trees (net ~-136 across commits). **Remaining (intentionally deferred):** the device-list ROW body (badge/name/status columns interleaved with reachability/confirm-strip/segment business logic + inset badge pill + status-dot square -- poor reduction-per-risk, stays); the `RenderProfilePanel` section-walk cursor is now a thin orchestrator (bulk moved into per-section trees), left as-is. |
-| L3 | **LiveSessionTab side panels + strips** -- **PARTIAL 2026-07-21** | Converted: running-session mount block, preview focuser jog row (preview capture/gain steppers were already `FormRowLayout.StepperControl`). Remaining: preview per-OTA text rows (name/temp/foc/filter -- lone `DrawText`s into given rects, minimal math, low value), strips/flats/polar side panels. Charts + preview image stay Fill leaves; image-aligned overlays (reticle, ROI) stay pixel. |
+| L2 | **EquipmentTab cursor-kill** -- **MOSTLY DONE 2026-07-21** | Prep: 2220-line `EquipmentTab.cs` split into 6 concern partials (core / ProfilePanel / DeviceList / Telemetry / DeviceSettings / FilterTable). Converted (all live-verified with connected fakes): mount-status + camera-cooler readout rows, cooler-controls row, device-settings rows (cycle / stepper / string editor), filter-table header + rows -> HStack/VStack trees (net ~-136 across commits). **`RenderProfilePanel` section walk DONE 2026-07-21:** every `PanelSection` returns a `Layout.Node?` and the panel is ONE `VStack(sections).Pad` + a single `RenderLayout` with a `_profilePanelFills` dispatch table (site/guide-FL/OTA/cooler-setpoint/device-string text inputs, cooler sparkline, slot reachability dot + row separator, section hairlines); `SlotRow(indicatorFillKey)` + `LabeledInputRow(fillKey)` added so multiple Fills route through one dispatcher; overflow clipped (replaces the "Add OTA if it fits" check); net -75, inspector-verified. **Remaining (intentionally deferred):** the device-list ROW body (badge/name/status columns interleaved with reachability/confirm-strip/segment business logic + inset badge pill + status-dot square -- poor reduction-per-risk, stays). |
+| L3 | **LiveSessionTab side panels + strips** -- **PARTIAL 2026-07-21** | Converted: running-session mount block; **preview per-OTA panels DONE** -- `RenderPreviewOTAPanels` is ONE `Dock(HStack(columns), Bottom(mount))` (each column a padded `VStack` of name/temp/focuser-jog/goto/filter/capture-controls; capture controls their own `VStack`), killing the `px = i*panelW` column cursor + per-column `y += rowH` + the `maxY` mount reservation; `_previewFills` dispatch for the goto text-input + capture progress bar + mount hairline; net -12, inspector-verified. Polar + Flats setup panels already ONE tree. Remaining: control strips (`Strips.cs`). Charts + preview image stay Fill leaves; image-aligned overlays (reticle, ROI) stay pixel. |
 | L4 | **Viewer chrome** -- **MINIMAL, mostly intentionally-pixel 2026-07-21** | Finding: the viewer chrome is dominated by **interactive controls** (Toolbar with per-button hover hit-testing + `_toolbarButtonBounds` dropdown anchors + a separate `HitTestToolbar`; WB / wavelet / transport-scrub **drag sliders** via `DrawTrackSlider`) and **raster** (histogram) -- all the intentionally-pixel categories, NOT static chrome. StatusBar is already a single joined-text `RenderTextBar` (no positioning math). FileList already on `ListScrollController`. So L4 has almost nothing to convert -- the plan overestimated it. `TrackSlider` promotion is U1 of [controls-upstreaming.md](controls-upstreaming.md). |
 | L5 | **SkyMap F3 modal, Notifications, Planner rows** -- **PARTIAL 2026-07-21** | Notifications rows -> tree (done, live-verified). Remaining: SkyMap F3 search modal (has an interactive text input; the results-list rows are convertible) + Planner rows/details (chart + list already largely tree-driven from P3). Pairs with U2 (`SearchInteraction` base) but doesn't depend on it. |
 
@@ -133,9 +133,10 @@ gauges (fill width = w x fraction) -- not worth an Overlay + star-weight tree.
 - The two categories above (raster + interactive controls) -- forcing them into the DSL is the mistake.
 - The TUI (`Console.Lib` widgets are a different, already-declarative model).
 - A DIR.Lib list *widget* (heterogeneous rows decision stands; row templates stay consumer-owned).
-- A blind atomic rewrite of a whole tab's panel into one VStack when the sections are already thin
-  orchestrators over per-section trees (Equipment `RenderProfilePanel`) -- the cursor stitch that
-  remains is a handful of lines, not the bulk.
+- A blind atomic rewrite of a whole tab's panel where the sections are heterogeneous *interactive*
+  content is fine WHEN each section returns its own `Layout.Node` and a single `RenderLayout` stacks
+  them (done for Equipment `RenderProfilePanel` + LiveSession preview) -- what to avoid is a monolithic
+  hand-built tree that re-inlines the section bodies instead of keeping them as node-returning builders.
 
 ## Status (2026-07-21)
 
@@ -150,11 +151,19 @@ implementation of the endpoint pattern (one `Dock(contentVStack, Bottom(buttons)
 internal cursor). **Intentionally NOT converted** (the two stay-pixel categories above + genuinely-
 minimal cases): the viewer chrome (L4 -- interactive toolbar/sliders/transport + histogram); all
 charts/timelines/guide-graphs/sparklines/error-gauges; the device-list row (business-logic-tangled);
-lone single-`DrawText`-into-a-rect cases + hairline separators + modal-card overlays + fractional
-progress gauges. **Remaining true cursor-stitch** (deferred -- large orchestrators over heterogeneous
-variable-height sections, higher risk): the Equipment `RenderProfilePanel` section walk and the
-LiveSession preview per-OTA panel walk. Each section already emits its own sub-tree; pulling the walk
-itself to one VStack is a focused follow-up.
+lone single-`DrawText`-into-a-rect cases + hairline separators (now keyed 1px Fill leaves inside the
+one-tree panels) + modal-card overlays + fractional progress gauges (keyed Fill leaves). **Both
+remaining cursor-stitch orchestrators are now DONE (2026-07-21):** the Equipment `RenderProfilePanel`
+section walk -- every `PanelSection` returns a `Layout.Node?` (or null when hidden) and the panel is one
+`VStack(sections).Pad` rendered by a single `RenderLayout` with a `_profilePanelFills` dispatch table
+for the text-input / sparkline / slot-dot / hairline Fill leaves (net -75); and the LiveSession preview
+per-OTA panel walk -- `RenderPreviewOTAPanels` is one `Dock(HStack(columns), Bottom(mount))` (each column
+a padded `VStack`, capture controls their own `VStack`), killing the `px = i*panelW` column cursor + the
+per-column `y += rowH` + the `maxY` mount reservation, with a `_previewFills` dispatch table (net -12).
+Both inspector-verified with connected fakes (all sub-panels expand + reflow correctly; the exposure/gain
+steppers stretch, Capture right-anchored). **Load-bearing gotcha:** a returned multi-row section `VStack`
+must be `.WStar()` -- an Auto-width VStack collapses to its intrinsic width (starved the exposure stepper
+to w=0), caught via the live `describe_layout` tree.
 
 ## Definition of done
 
