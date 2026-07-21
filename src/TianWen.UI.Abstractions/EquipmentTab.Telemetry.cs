@@ -69,16 +69,8 @@ namespace TianWen.UI.Abstractions
             RenderLayout(readout, new RectF32(x + padding, cursor, w - padding * 2f, rowH), fontPath, dpiScale);
             cursor += rowH;
 
-            // ---- Controls row: setpoint input + [Cool to Setpoint] + [Cooler Off] ----
-            var controlsH = rowH;
-            FillRect(x + padding, cursor, w - padding * 2f, controlsH, FilterTableBg);
-            var labelW = 80f * dpiScale;
-            DrawText("    Setpoint:".AsSpan(), fontPath,
-                x + padding, cursor, labelW, controlsH,
-                fontSize * 0.85f, DimText, TextAlign.Near, TextAlign.Center);
-
-            var inputX = x + padding + labelW;
-            var inputW = 70f * dpiScale;
+            // ---- Controls row: [Setpoint: | input | Cool to Setpoint | Cooler Off] as one HStack. ----
+            var capUri = cameraUri;
             // Lazy-init the setpoint input for this URI; default text from the latest sample.
             if (!State.CameraSetpointInputs.TryGetValue(key, out var setpointInput))
             {
@@ -86,59 +78,45 @@ namespace TianWen.UI.Abstractions
                 if (latest?.SetpointC is { } sp) setpointInput.Text = sp.ToString("F1", System.Globalization.CultureInfo.InvariantCulture);
                 State.CameraSetpointInputs[key] = setpointInput;
             }
-            RenderTextInput(setpointInput,
-                (int)inputX, (int)cursor,
-                (int)inputW, (int)controlsH,
-                fontPath, fontSize * 0.85f);
 
-            var btnGap = 4f * dpiScale;
-            var coolBtnX = inputX + inputW + btnGap;
-            var coolBtnW = 110f * dpiScale;
-            var capUri = cameraUri;
-            RenderButton("Cool to Setpoint", coolBtnX, cursor, coolBtnW, controlsH, fontPath, fontSize * 0.78f,
-                CreateButton, BodyText, $"CoolTo_{key}",
-                _ =>
-                {
-                    var txt = setpointInput.Text;
-                    if (double.TryParse(txt, System.Globalization.NumberStyles.Float,
-                            System.Globalization.CultureInfo.InvariantCulture, out var v))
-                    {
-                        PostSignal(new SetCoolerSetpointSignal(capUri, v));
-                    }
-                });
-
-            var offBtnX = coolBtnX + coolBtnW + btnGap;
-            var offBtnW = 80f * dpiScale;
-            // Safety: tint the Cooler Off button red when the cooler is on, and route
-            // the click to the confirmation strip instead of immediate cooler-off
-            // (same condensation/thermal-shock concern as disconnect).
+            // Safety: tint the Cooler Off button red when the cooler is on, and route the click to the
+            // confirmation strip instead of immediate cooler-off (condensation/thermal-shock concern).
             var coolerUnsafe = latest is { } l && l.CoolerOn;
-            var offBg = coolerUnsafe ? ConfirmDangerBg : EditButtonBg;
-            RenderButton("Cooler Off", offBtnX, cursor, offBtnW, controlsH, fontPath, fontSize * 0.78f,
-                offBg, BodyText, $"CoolerOff_{key}",
-                _ =>
-                {
-                    if (coolerUnsafe)
-                    {
-                        State.PendingCoolerOffConfirm = capUri;
-                        State.PendingCoolerOffForceConfirm = null;
-                    }
-                    else
-                    {
-                        PostSignal(new SetCoolerOffSignal(capUri));
-                    }
-                });
-            cursor += controlsH;
+
+            var controls = Layout.Builder.HStack(
+                    Layout.Builder.Text("    Setpoint:", BaseFontSize * 0.85f, DimText).WFixed(80f).HStar(),
+                    Layout.Builder.Fill(key: "coolerSetpoint").WFixed(70f).HStar(),
+                    Layout.Builder.Text("Cool to Setpoint", BaseFontSize * 0.78f, BodyText, TextAlign.Center, TextAlign.Center)
+                        .WFixed(110f).HStar().Bg(CreateButton)
+                        .Clickable(new HitResult.ButtonHit($"CoolTo_{key}"), _ =>
+                        {
+                            if (double.TryParse(setpointInput.Text, System.Globalization.NumberStyles.Float,
+                                    System.Globalization.CultureInfo.InvariantCulture, out var v))
+                            {
+                                PostSignal(new SetCoolerSetpointSignal(capUri, v));
+                            }
+                        }),
+                    Layout.Builder.Text("Cooler Off", BaseFontSize * 0.78f, BodyText, TextAlign.Center, TextAlign.Center)
+                        .WFixed(80f).HStar().Bg(coolerUnsafe ? ConfirmDangerBg : EditButtonBg)
+                        .Clickable(new HitResult.ButtonHit($"CoolerOff_{key}"), _ =>
+                        {
+                            if (coolerUnsafe) { State.PendingCoolerOffConfirm = capUri; State.PendingCoolerOffForceConfirm = null; }
+                            else PostSignal(new SetCoolerOffSignal(capUri));
+                        }))
+                .WithGap(4f).Bg(FilterTableBg);
+            RenderLayout(controls, new RectF32(x + padding, cursor, w - padding * 2f, rowH), fontPath, dpiScale,
+                drawFill: (_, r) => RenderTextInput(setpointInput, (int)r.X, (int)r.Y, (int)r.Width, (int)r.Height, fontPath, fontSize * 0.85f));
+            cursor += rowH;
 
             // Confirmation strip -- appears under the controls row when the user clicked
             // Cooler Off on a cooled camera. Two stages, mirror of the disconnect flow.
             if (DeviceBase.SameDevice(State.PendingCoolerOffForceConfirm, cameraUri))
             {
-                cursor = RenderCoolerOffForceStrip(cameraUri, x + padding, cursor, w - padding * 2f, controlsH, fontPath, dpiScale);
+                cursor = RenderCoolerOffForceStrip(cameraUri, x + padding, cursor, w - padding * 2f, rowH, fontPath, dpiScale);
             }
             else if (DeviceBase.SameDevice(State.PendingCoolerOffConfirm, cameraUri))
             {
-                cursor = RenderCoolerOffConfirmStrip(cameraUri, x + padding, cursor, w - padding * 2f, controlsH, fontPath, dpiScale);
+                cursor = RenderCoolerOffConfirmStrip(cameraUri, x + padding, cursor, w - padding * 2f, rowH, fontPath, dpiScale);
             }
 
             // ---- Sparkline graph ----

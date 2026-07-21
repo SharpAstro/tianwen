@@ -63,104 +63,92 @@ namespace TianWen.UI.Abstractions
             var contentW = w - padding * 4f;
             var offsetGroupW = 100f * dpiScale;  // [-] value [+] grouped
             var nameColW = contentW - slotNumW - offsetGroupW;
-            var stepBtnW = 24f * dpiScale;
-            var offsetValueW = offsetGroupW - stepBtnW * 2f;
             var colStartX = x + padding * 2f;
 
-            // Column headers
-            FillRect(x + padding, cursor, w - padding * 2f, rowH, FilterTableBg);
-            DrawText("#".AsSpan(), fontPath, colStartX, cursor, slotNumW, rowH, fontSize * 0.75f, DimText, TextAlign.Center, TextAlign.Center);
-            DrawText("Name".AsSpan(), fontPath, colStartX + slotNumW, cursor, nameColW, rowH, fontSize * 0.75f, DimText, TextAlign.Near, TextAlign.Center);
-            DrawText("Offset".AsSpan(), fontPath, colStartX + slotNumW + nameColW, cursor, offsetGroupW, rowH, fontSize * 0.75f, DimText, TextAlign.Center, TextAlign.Center);
+            // Column headers as one HStack (lead/trail pad keeps the columns aligned with the rows below).
+            var header = Layout.Builder.HStack(
+                    Layout.Builder.Spacer().WFixed(BasePadding).HStar(),
+                    Layout.Builder.Text("#", BaseFontSize * 0.75f, DimText, TextAlign.Center, TextAlign.Center).WFixed(20f).HStar(),
+                    Layout.Builder.Text("Name", BaseFontSize * 0.75f, DimText).WStar().HStar(),
+                    Layout.Builder.Text("Offset", BaseFontSize * 0.75f, DimText, TextAlign.Center, TextAlign.Center).WFixed(100f).HStar(),
+                    Layout.Builder.Spacer().WFixed(BasePadding).HStar())
+                .RowH(BaseItemHeight * 0.9f).Bg(FilterTableBg);
+            RenderLayout(header, new RectF32(x + padding, cursor, w - padding * 2f, rowH), fontPath, dpiScale);
             cursor += rowH;
 
-            // Filter rows
+            // Filter rows: [pad | # | name | [- offset +] | pad], one tree each. Was a FillRect + slot
+            // DrawText + name button/input + three offset controls at hand-computed x per row.
             for (var f = 0; f < filters.Count; f++)
             {
                 var filter = filters[f];
                 var rowBg = f % 2 == 0 ? FilterTableBg : FilterRowAlt;
-                FillRect(x + padding, cursor, w - padding * 2f, rowH, rowBg);
-
-                // Slot number
-                DrawText(
-                    (f + 1).ToString().AsSpan(),
-                    fontPath,
-                    colStartX, cursor, slotNumW, rowH,
-                    fontSize * 0.8f, DimText, TextAlign.Center, TextAlign.Center);
-
-                // Filter name -- inline text input if custom editing, otherwise clickable to open dropdown
                 var capturedF = f;
+                // Dropdown anchors below the name cell -- the lead pad puts the name column at colStartX + slotNumW.
                 var nameCellX = colStartX + slotNumW;
                 var nameCellY = cursor;
 
-                if (State.CustomFilterSlotIndex == f)
-                {
-                    RenderTextInput(State.CustomFilterNameInput, (int)nameCellX, (int)cursor, (int)nameColW, (int)rowH, fontPath, fontSize * 0.8f);
-                }
-                else
-                {
-                RenderButton(EquipmentActions.FilterDisplayName(filter), nameCellX, cursor, nameColW, rowH, fontPath, fontSize * 0.8f, rowBg, BodyText, $"FilterName{otaIndex}_{f}",
-                    _ =>
-                    {
-                        var existingCustom = capturedF < filters.Count ? filters[capturedF].CustomName : null;
-                        State.FilterNameDropdown.Open(
-                            nameCellX, nameCellY + rowH, nameColW,
-                            EquipmentActions.CommonFilterNames,
-                            (idx, name) =>
-                            {
-                                if (capturedF < filters.Count)
+                Layout.Node nameCell = State.CustomFilterSlotIndex == f
+                    ? Layout.Builder.Fill(key: $"filterName{f}")
+                    : Layout.Builder.Text(EquipmentActions.FilterDisplayName(filter), BaseFontSize * 0.8f, BodyText)
+                        .Clickable(new HitResult.ButtonHit($"FilterName{otaIndex}_{f}"), _ =>
+                        {
+                            var existingCustom = capturedF < filters.Count ? filters[capturedF].CustomName : null;
+                            State.FilterNameDropdown.Open(
+                                nameCellX, nameCellY + rowH, nameColW,
+                                EquipmentActions.CommonFilterNames,
+                                (idx, name) =>
                                 {
-                                    filters[capturedF] = new InstalledFilter(name, filters[capturedF].Position);
-                                    State.FiltersDirty = true;
-                                }
-                            },
-                            hasCustomEntry: true,
-                            onCustom: () =>
+                                    if (capturedF < filters.Count)
+                                    {
+                                        filters[capturedF] = new InstalledFilter(name, filters[capturedF].Position);
+                                        State.FiltersDirty = true;
+                                    }
+                                },
+                                hasCustomEntry: true,
+                                onCustom: () =>
+                                {
+                                    State.CustomFilterSlotIndex = capturedF;
+                                    var preservedName = capturedF < filters.Count && filters[capturedF].CustomName is { } cn ? cn : "";
+                                    State.CustomFilterNameInput.Text = preservedName;
+                                    State.CustomFilterNameInput.CursorPos = preservedName.Length;
+                                    PostSignal(new ActivateTextInputSignal(State.CustomFilterNameInput));
+                                },
+                                customEntryLabel: existingCustom is { Length: > 0 } ? $"Custom: {existingCustom}" : null);
+                        });
+
+                Layout.Node OffBtn(string glyph, string action, int delta) =>
+                    Layout.Builder.Text(glyph, BaseFontSize * 0.8f, BodyText, TextAlign.Center, TextAlign.Center)
+                        .WFixed(24f).HStar().Bg(EditButtonBg)
+                        .Clickable(new HitResult.ButtonHit(action), _ =>
+                        {
+                            if (capturedF < filters.Count)
                             {
-                                State.CustomFilterSlotIndex = capturedF;
-                                // Preserve existing custom name if re-selecting Custom...
-                                var preservedName = capturedF < filters.Count && filters[capturedF].CustomName is { } cn ? cn : "";
-                                State.CustomFilterNameInput.Text = preservedName;
-                                State.CustomFilterNameInput.CursorPos = preservedName.Length;
-                                // Signal deferred text input activation (processed in OnPostFrame)
-                                PostSignal(new ActivateTextInputSignal(State.CustomFilterNameInput));
-                            },
-                            customEntryLabel: existingCustom is { Length: > 0 } ? $"Custom: {existingCustom}" : null);
-                    });
-                }
+                                var cur = filters[capturedF];
+                                filters[capturedF] = new InstalledFilter(cur.Filter.Name, cur.Position + delta);
+                                State.FiltersDirty = true;
+                            }
+                        });
 
-                // Offset group: [-] value [+]
-                var offsetX = colStartX + slotNumW + nameColW;
                 var offsetStr = filter.Position >= 0 ? $"+{filter.Position}" : filter.Position.ToString();
+                var offsetGroup = Layout.Builder.HStack(
+                        OffBtn("-", $"FilterOffDec{otaIndex}_{f}", -1),
+                        Layout.Builder.Text(offsetStr, BaseFontSize * 0.8f, BodyText, TextAlign.Center, TextAlign.Center).Stretch(),
+                        OffBtn("+", $"FilterOffInc{otaIndex}_{f}", +1))
+                    .WFixed(100f).HStar();
 
-                RenderButton("-", offsetX, cursor, stepBtnW, rowH, fontPath, fontSize * 0.8f, EditButtonBg, BodyText, $"FilterOffDec{otaIndex}_{f}",
-                    _ =>
+                var row = Layout.Builder.HStack(
+                        Layout.Builder.Spacer().WFixed(BasePadding).HStar(),
+                        Layout.Builder.Text((f + 1).ToString(), BaseFontSize * 0.8f, DimText, TextAlign.Center, TextAlign.Center).WFixed(20f).HStar(),
+                        nameCell.WStar().HStar(),
+                        offsetGroup,
+                        Layout.Builder.Spacer().WFixed(BasePadding).HStar())
+                    .RowH(BaseItemHeight * 0.9f).Bg(rowBg);
+                RenderLayout(row, new RectF32(x + padding, cursor, w - padding * 2f, rowH), fontPath, dpiScale,
+                    drawFill: (fill, r) =>
                     {
-                        if (capturedF < filters.Count)
-                        {
-                            var cur = filters[capturedF];
-                            filters[capturedF] = new InstalledFilter(cur.Filter.Name, cur.Position - 1);
-                            State.FiltersDirty = true;
-                        }
+                        if (fill.Key == $"filterName{capturedF}")
+                            RenderTextInput(State.CustomFilterNameInput, (int)r.X, (int)r.Y, (int)r.Width, (int)r.Height, fontPath, fontSize * 0.8f);
                     });
-
-                DrawText(
-                    offsetStr.AsSpan(),
-                    fontPath,
-                    offsetX + stepBtnW, cursor, offsetValueW, rowH,
-                    fontSize * 0.8f, BodyText, TextAlign.Center, TextAlign.Center);
-
-                RenderButton("+", offsetX + stepBtnW + offsetValueW, cursor, stepBtnW, rowH, fontPath, fontSize * 0.8f, EditButtonBg, BodyText, $"FilterOffInc{otaIndex}_{f}",
-                    _ =>
-                    {
-                        if (capturedF < filters.Count)
-                        {
-                            var cur = filters[capturedF];
-                            filters[capturedF] = new InstalledFilter(cur.Filter.Name, cur.Position + 1);
-                            State.FiltersDirty = true;
-                        }
-                    });
-
                 cursor += rowH;
             }
 
