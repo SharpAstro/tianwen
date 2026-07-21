@@ -278,13 +278,10 @@ namespace TianWen.UI.Abstractions
             var rowH = fontSize * 1.35f;
             var textX = px + 10f;
             var textW = pw - 40f;
-            var row = 0f;
+            const float dFont = 12f; // design font (fontSize = 12 * dpiScale here); RenderLayout re-applies dpiScale
+            var dRow = dFont * 1.35f;
 
-            DrawText(info.Name.AsSpan(), fontPath,
-                textX, py + row, textW, rowH, fontSize * 1.1f, SearchText, TextAlign.Near, TextAlign.Near);
-            row += rowH * 1.15f;
-
-            // Designation + constellation + type — show whichever pieces are known, joined by two
+            // Designation + constellation + type -- show whichever pieces are known, joined by two
             // spaces. Planets carry no catalog designation but DO have a type (Planet) and a current
             // constellation, so an empty designation must NOT suppress those (nor show the misleading
             // "(no designation)" placeholder when there's still real info to show).
@@ -295,44 +292,38 @@ namespace TianWen.UI.Abstractions
             if (constell.Length > 0) subtitle = subtitle.Length > 0 ? $"{subtitle}  {constell}" : constell;
             if (objType.Length > 0) subtitle = subtitle.Length > 0 ? $"{subtitle}  {objType}" : objType;
             if (subtitle.Length == 0) subtitle = "(no designation)";
-            DrawText(subtitle.AsSpan(), fontPath,
-                textX, py + row, textW, rowH, fontSize * 0.9f, SearchDimText, TextAlign.Near, TextAlign.Center);
-            row += rowH;
 
-            // RA / Dec line
             var raDec = $"RA {CoordinateUtils.HoursToHMS(info.RA)}   Dec {CoordinateUtils.DegreesToDMS(info.Dec)}";
-            DrawText(raDec.AsSpan(), fontPath,
-                textX, py + row, textW, rowH, fontSize, SearchText, TextAlign.Near, TextAlign.Center);
-            row += rowH;
 
             // Magnitude + surface brightness + B-V + size (SB compact, no unit -- the panel is narrow
             // and mag/arcsec² is the astronomer default; the planner details panel spells the unit out).
             var magPart = float.IsNaN(info.VMag) ? "mag -" : $"mag {info.VMag:F2}";
             var sbPart = float.IsNaN(info.SurfaceBrightness) ? "" : $"   SB {info.SurfaceBrightness:F2}";
             var bvPart = float.IsNaN(info.BMinusV) ? "" : $"   B-V {info.BMinusV:F2}";
-            var sizePart = info.AngularSizeDeg is { } s
-                ? $"   size {s * 60:F1}'"
-                : "";
-            DrawText($"{magPart}{sbPart}{bvPart}{sizePart}".AsSpan(), fontPath,
-                textX, py + row, textW, rowH, fontSize, SearchText, TextAlign.Near, TextAlign.Center);
-            row += rowH;
+            var sizePart = info.AngularSizeDeg is { } s ? $"   size {s * 60:F1}'" : "";
+            var magLine = $"{magPart}{sbPart}{bvPart}{sizePart}";
 
-            // Alt / Az
             var altAz = double.IsNaN(info.AltDeg)
                 ? "Alt -  Az -"
-                : $"Alt {info.AltDeg:+0.0;-0.0}\u00B0   Az {info.AzDeg:F1}\u00B0";
-            DrawText(altAz.AsSpan(), fontPath,
-                textX, py + row, textW, rowH, fontSize, SearchText, TextAlign.Near, TextAlign.Center);
-            row += rowH;
+                : $"Alt {info.AltDeg:+0.0;-0.0}°   Az {info.AzDeg:F1}°";
 
-            // Rise / Transit / Set — three lines or one combined line when space is tight.
+            // Rise / Transit / Set -- three fields or one combined line when space is tight.
             var tz = plannerState.SiteTimeZone;
             var rtsLine = info.NeverRises ? "Never rises (below horizon)"
                         : info.Circumpolar ? $"Circumpolar   Transit {FormatHHMM(info.TransitTime, tz)}"
                         : $"Rise {FormatHHMM(info.RiseTime, tz)}   Transit {FormatHHMM(info.TransitTime, tz)}   Set {FormatHHMM(info.SetTime, tz)}";
-            DrawText(rtsLine.AsSpan(), fontPath,
-                textX, py + row, textW, rowH, fontSize, SearchText, TextAlign.Near, TextAlign.Center);
-            row += rowH;
+
+            // The six text rows as one VStack (was a `row +=` cursor threaded through six DrawTexts).
+            var textTree = Layout.Builder.VStack(
+                Layout.Builder.Text(info.Name, dFont * 1.1f, SearchText, TextAlign.Near, TextAlign.Near).RowH(dRow * 1.15f),
+                Layout.Builder.Text(subtitle, dFont * 0.9f, SearchDimText).RowH(dRow),
+                Layout.Builder.Text(raDec, dFont, SearchText).RowH(dRow),
+                Layout.Builder.Text(magLine, dFont, SearchText).RowH(dRow),
+                Layout.Builder.Text(altAz, dFont, SearchText).RowH(dRow),
+                Layout.Builder.Text(rtsLine, dFont, SearchText).RowH(dRow));
+            var textBlockH = rowH * 1.15f + rowH * 5f;
+            RenderLayout(textTree, new RectF32(textX, py, textW, textBlockH), fontPath, dpiScale);
+            var row = textBlockH;
 
             // Comet vmag sparkline (brighter = up), auto-scaled to the sampled +/-45-day window. The "now"
             // sample (window centre) is dotted, so the user reads the current trend at a glance.
