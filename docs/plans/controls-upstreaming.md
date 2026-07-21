@@ -69,6 +69,18 @@ controller explicitly supports zero-config). When a menu first outgrows its view
 internal `ListScrollController` inside DIR.Lib -- zero consumer change. Not scheduled; recorded so
 the door stays marked.
 
+## U4 -- `ProgressBar` node factory -> `DIR.Lib.Layout.Builder` (opportunistic)
+
+`FormRowLayout.ProgressBar(fraction, track, fill, label?, labelFontSize?, labelColor?)` (tianwen,
+added 2026-07-22) is a declarative fractional progress bar composed purely from existing primitives --
+a track `Box` overlaid with a fractional-width fill (two `Star`-weighted spacers) plus an optional
+centred label, via `Box`/`Overlay`/`HStack`. Zero domain dependency, zero engine/painter change (it is
+pure `Builder` sugar over records the engine already measures/arranges/paints), so it belongs next to
+`Builder.Split`/`Builder.Dock` in `DIR.Lib.Layout.Builder` as `Builder.Progress(...)`. Moving it there
+lets every `DIR.Lib.Layout` consumer (incl. the web port) drop hand-drawn gauge painters. Pinned by
+tianwen `ProgressBarLayoutTests`; the same arrange assertions move to DIR.Lib headless tests on promotion.
+No behaviour change, pixel-identical. Not scheduled; recorded so the door stays marked.
+
 ## Explicit non-moves
 
 - `PlannerSliderInteraction` -- click-to-place semantics are planner-domain; stays.
