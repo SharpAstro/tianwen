@@ -81,6 +81,21 @@ lets every `DIR.Lib.Layout` consumer (incl. the web port) drop hand-drawn gauge 
 tianwen `ProgressBarLayoutTests`; the same arrange assertions move to DIR.Lib headless tests on promotion.
 No behaviour change, pixel-identical. Not scheduled; recorded so the door stays marked.
 
+## U5 -- `RenderTextInput(RectF32)` overload (DONE in branch, rides 6.16)
+
+The layout-driven refactor left every arranged-rect text-input call site repeating a four-way
+`(int)r.X, (int)r.Y, (int)r.Width, (int)r.Height` cast because `PixelWidgetBase.RenderTextInput` was
+`int`-only (its `TextInputRenderer.Render` is genuinely integer-grid -- builds `RectInt`/`PointInt`).
+`RegisterClickable` on the same class already took `float`, so the base was already mixed; the int
+input was just never given a float sibling. Added (2026-07-22) a `protected void
+RenderTextInput(TextInputState, RectF32, string, float)` overload that `MathF.Round`s once at the
+boundary and forwards to the int path -- rounding, not truncating, so a fractional arranged rect keeps
+the 1px border centred on the intended edge. tianwen: the four arranged-rect callers (SkyMap F3 search,
+Session exposure editor, LiveSession focuser goto, Equipment create-profile) drop the cast and pass the
+Fill rect directly; PlannerTab's search strip stays on the int signature (still hand-computed cursor
+code, not an arranged Fill). Already in the DIR.Lib branch -- rides the same 6.16 release + tianwen
+repin; "no push before NuGet" applies.
+
 ## Explicit non-moves
 
 - `PlannerSliderInteraction` -- click-to-place semantics are planner-domain; stays.

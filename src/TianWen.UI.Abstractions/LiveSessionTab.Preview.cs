@@ -392,7 +392,7 @@ namespace TianWen.UI.Abstractions
                     };
 
                     var gotoKey = $"focGoto:{capturedI}";
-                    _otaPanelFills[gotoKey] = r => RenderTextInput(input, (int)r.X, (int)r.Y, (int)r.Width, (int)r.Height, fontPath, smallFs);
+                    _otaPanelFills[gotoKey] = r => RenderTextInput(input, r, fontPath, smallFs);
                     rows.Add(Layout.Builder.HStack(
                             Layout.Builder.Fill(key: gotoKey).Stretch(),
                             Layout.Builder.Spacer().WFixed(4f).HStar(),
