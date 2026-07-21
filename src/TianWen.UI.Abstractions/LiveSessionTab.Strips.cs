@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Threading.Tasks;
 using DIR.Lib;
@@ -161,22 +162,13 @@ namespace TianWen.UI.Abstractions
                 return;
             }
 
+            // Running: phase pill + activity text + obs/frame/exposure progress, as ONE arranged row.
+            // The strip background is already filled above; the pill's own colour is on its leaf. Was a
+            // hand-placed FillRect pill + three absolutely-positioned DrawText columns.
             var pillColor = LiveSessionActions.PhaseColor(state.Phase);
             var label = LiveSessionActions.PhaseLabel(state.Phase);
+            var activityText = LiveSessionActions.PhaseStatusText(state, timeProvider);
 
-            // Phase pill
-            FillRect(rect.X + pad, rect.Y + pad, pillW, pillH, pillColor);
-            DrawText(label, fontPath,
-                rect.X + pad, rect.Y, pillW, rect.Height,
-                fontSize * 0.9f, AbortText, TextAlign.Center, TextAlign.Center);
-
-            // Activity text
-            var targetLabel = LiveSessionActions.PhaseStatusText(state, timeProvider);
-            DrawText(targetLabel, fontPath,
-                rect.X + pillW + pad * 2, rect.Y, rect.Width * 0.45f, rect.Height,
-                fontSize, BodyText, TextAlign.Near, TextAlign.Center);
-
-            // Obs / frame count / exposure time (top right)
             var obsIdx = state.CurrentObservationIndex;
             var obsCount = state.ActiveSession?.Observations.Count ?? 0;
             var obsDisplay = obsCount > 0 ? Math.Clamp(obsIdx + 1, 0, obsCount) : 0;
@@ -188,9 +180,14 @@ namespace TianWen.UI.Abstractions
                 progressParts += $"  Frames: {state.TotalFramesWritten}/~{estimatedFrames}";
             }
             progressParts += $"  Exp: {LiveSessionActions.FormatDuration(state.TotalExposureTime)}";
-            DrawText(progressParts, fontPath,
-                rect.X + rect.Width * 0.5f, rect.Y, rect.Width * 0.45f, rect.Height,
-                fontSize, DimText, TextAlign.Far, TextAlign.Center);
+
+            var runTree = Layout.Builder.HStack(
+                    Layout.Builder.Text(label, BaseFontSize * 0.9f, AbortText, TextAlign.Center, TextAlign.Center)
+                        .WFixed(140f).HStar().Bg(pillColor),
+                    Layout.Builder.Text(activityText, BaseFontSize, BodyText, TextAlign.Near, TextAlign.Center).WStar(),
+                    Layout.Builder.Text(progressParts, BaseFontSize, DimText, TextAlign.Far, TextAlign.Center).WStar())
+                .WithGap(BasePadding).Pad(BasePadding);
+            RenderLayout(runTree, rect, fontPath, dpiScale);
         }
 
         // -----------------------------------------------------------------------
@@ -295,37 +292,32 @@ namespace TianWen.UI.Abstractions
             }
         }
 
-        private void RenderBottomStrip(LiveSessionState state, RectF32 rect, string fontPath, float fontSize, float dpiScale, float pad, ITimeProvider timeProvider)
+        private void RenderBottomStrip(LiveSessionState state, RectF32 rect, string fontPath, float dpiScale)
         {
-            FillRect(rect.X, rect.Y, rect.Width, rect.Height, HeaderBg);
-            FillRect(rect.X, rect.Y, rect.Width, 1, SeparatorColor);
-
-            var abortW = state.IsRunning ? 80f * dpiScale : 0;
-            var rmsW = 220f * dpiScale;
-            var guideW = rect.Width - rmsW - abortW - pad * (state.IsRunning ? 5 : 3);
-
-            // Mini guide graph (left portion)
-            if (guideW > 40)
-            {
-                var guideRect = new RectF32(rect.X + pad, rect.Y + 2, guideW, rect.Height - 4);
-                RenderCompactGuideGraph(state, guideRect, dpiScale);
-            }
-
-            // RMS stats (between graph and abort)
-            var rmsX = rect.X + guideW + pad * 2;
+            // One arranged row over the header background with a 1px top hairline:
+            // [mini guide graph (raster Fill) * | RMS stats | ABORT]. Was a hand-computed
+            // guideW/rmsX/abortX split with a RenderButton.
             var rmsText = LiveSessionActions.FormatGuideRms(state.LastGuideStats);
-            DrawText(rmsText, fontPath,
-                rmsX, rect.Y, rmsW, rect.Height,
-                fontSize * 0.9f, BodyText, TextAlign.Near, TextAlign.Center);
 
-            // ABORT button (right, after RMS)
+            var children = new List<Layout.Node>
+            {
+                Layout.Builder.Fill(key: "bottomGuide").Stretch(),
+                Layout.Builder.Text(rmsText, BaseFontSize * 0.9f, BodyText, TextAlign.Near, TextAlign.Center).WFixed(220f).HStar(),
+            };
             if (state.IsRunning)
             {
-                var abortX = rmsX + rmsW + pad;
-                RenderButton("ABORT", abortX, rect.Y + 4 * dpiScale, abortW, rect.Height - 8 * dpiScale,
-                    fontPath, fontSize, AbortBg, AbortText, "AbortSession",
-                    _ => { state.ShowAbortConfirm = true; state.NeedsRedraw = true; });
+                children.Add(Layout.Builder.Text("ABORT", BaseFontSize, AbortText, TextAlign.Center, TextAlign.Center)
+                    .WFixed(80f).HStar().Bg(AbortBg)
+                    .Clickable(new HitResult.ButtonHit("AbortSession"),
+                        _ => { state.ShowAbortConfirm = true; state.NeedsRedraw = true; }));
             }
+
+            var root = Layout.Builder.VStack(
+                    Layout.Builder.Spacer().RowH(1f).Bg(SeparatorColor),
+                    Layout.Builder.HStack([.. children]).WithGap(BasePadding).Stretch().Pad(2f))
+                .Bg(HeaderBg);
+            RenderLayout(root, rect, fontPath, dpiScale,
+                drawFill: (fill, r) => { if (fill.Key == "bottomGuide") RenderCompactGuideGraph(state, r, dpiScale); });
         }
 
         private void RenderAbortConfirm(RectF32 contentRect, string fontPath, float fontSize, float dpiScale)

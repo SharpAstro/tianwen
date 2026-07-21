@@ -211,7 +211,7 @@ namespace TianWen.UI.Abstractions
 
             // Bottom strip: compact guide graph + RMS + ABORT
             var botRect = new RectF32(contentRect.X, contentRect.Y + contentRect.Height - botH, contentRect.Width, botH);
-            RenderBottomStrip(state, botRect, fontPath, fs, dpiScale, pad, timeProvider);
+            RenderBottomStrip(state, botRect, fontPath, dpiScale);
 
             // Main area between timeline and bottom strip
             var mainY = contentRect.Y + topH + timelineH;

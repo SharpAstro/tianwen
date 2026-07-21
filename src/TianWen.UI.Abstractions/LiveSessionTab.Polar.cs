@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Threading.Tasks;
 using DIR.Lib;
@@ -17,7 +18,7 @@ namespace TianWen.UI.Abstractions
     {
         /// <summary>
         /// Surface-level precondition check for the toolbar PA button. Mirrors the
-        /// authoritative check in <c>AppSignalHandler.StartPolarAlignmentSignal</c> —
+        /// authoritative check in <c>AppSignalHandler.StartPolarAlignmentSignal</c> --
         /// the handler re-validates and returns its own notifications so this is
         /// purely a UX hint about whether the click will succeed.
         /// </summary>
@@ -58,20 +59,10 @@ namespace TianWen.UI.Abstractions
                 return;
             }
 
-            var x0 = rect.X + pad;
-            var w = rect.Width - pad * 2;
-
-            // Header
-            DrawText("Polar Alignment", fontPath,
-                x0, rect.Y, w, rowH,
-                fontSize, HeaderText, TextAlign.Near, TextAlign.Center);
-
-            // Source toggle (greyed while running -- switching mid-run would invalidate the anchor frame).
-            var sourceY = rect.Y + rowH;
-            RenderLayout(PolarSourceRow(state), new RectF32(x0, sourceY, w, rowH), fontPath, dpiScale);
-
-            // Phase pill
-            var phaseY = sourceY + rowH + pad;
+            // Running phase: header + source toggle + phase pill + status + phase-A readout + error gauges
+            // as ONE arranged tree, with Cancel / Done docked to the bottom. The error gauges stay a raster
+            // block (needles + LEDs) painted into a keyed Fill; everything else is declarative. Was a
+            // y += rowH cursor with per-row RenderLayout / DrawText calls.
             var (phaseLabel, phaseColor) = state.PolarPhase switch
             {
                 PolarAlignmentPhase.Idle => ("IDLE", DimText),
@@ -84,58 +75,52 @@ namespace TianWen.UI.Abstractions
                 PolarAlignmentPhase.Failed => ("FAILED", AbortBg),
                 _ => ("?", DimText)
             };
-            RenderLayout(
-                Layout.Builder.Text(phaseLabel, BaseFontSize * 0.95f, BrightText, TextAlign.Center, TextAlign.Center).Bg(phaseColor),
-                new RectF32(x0, phaseY, w, rowH), fontPath, dpiScale);
 
-            var y = phaseY + rowH + pad;
+            var rows = new List<Layout.Node>
+            {
+                Layout.Builder.Text("Polar Alignment", BaseFontSize, HeaderText).RowH(BaseRowHeight),
+                PolarSourceRow(state),
+                Layout.Builder.Spacer().RowH(BasePadding),
+                Layout.Builder.Text(phaseLabel, BaseFontSize * 0.95f, BrightText, TextAlign.Center, TextAlign.Center)
+                    .RowH(BaseRowHeight).Bg(phaseColor),
+                Layout.Builder.Spacer().RowH(BasePadding),
+            };
 
-            // Status message
             if (state.PolarStatusMessage is { Length: > 0 } status)
             {
-                var statusH = rowH * 2;
-                DrawText(status, fontPath,
-                    x0, y, w, statusH,
-                    fontSize * 0.8f, BodyText, TextAlign.Near, TextAlign.Near);
-                y += statusH + pad;
+                rows.Add(Layout.Builder.Text(status, BaseFontSize * 0.8f, BodyText, TextAlign.Near, TextAlign.Near).RowH(BaseRowHeight * 2f));
+                rows.Add(Layout.Builder.Spacer().RowH(BasePadding));
             }
 
-            // Phase A info: locked exposure + chord-angle sanity readout
             if (state.PolarPhaseAResult is { Success: true } phaseA)
             {
                 var lockedMs = phaseA.LockedExposure.TotalMilliseconds;
-                DrawText(
-                    $"Locked: {lockedMs:F0}ms  ({phaseA.StarsMatchedFrame1}/{phaseA.StarsMatchedFrame2} stars)",
-                    fontPath,
-                    x0, y, w, rowH,
-                    fontSize * 0.78f, DimText, TextAlign.Near, TextAlign.Center);
-                y += rowH;
+                rows.Add(Layout.Builder.Text(
+                        $"Locked: {lockedMs:F0}ms  ({phaseA.StarsMatchedFrame1}/{phaseA.StarsMatchedFrame2} stars)",
+                        BaseFontSize * 0.78f, DimText)
+                    .RowH(BaseRowHeight));
 
                 var chordObsArcsec = phaseA.ChordAngleObservedRad * 180.0 / Math.PI * 3600.0;
                 var chordPredArcsec = phaseA.ChordAnglePredictedRad * 180.0 / Math.PI * 3600.0;
                 var chordDiff = Math.Abs(chordObsArcsec - chordPredArcsec);
                 var chordColor = chordDiff < 5 ? StatusTracking : chordDiff < 30 ? StatusSlewing : AbortBg;
-                DrawText($"Chord \u0394: {chordDiff:F1}\u2033", fontPath,
-                    x0, y, w, rowH,
-                    fontSize * 0.78f, chordColor, TextAlign.Near, TextAlign.Center);
-                y += rowH + pad;
+                rows.Add(Layout.Builder.Text($"Chord \u0394: {chordDiff:F1}\u2033", BaseFontSize * 0.78f, chordColor).RowH(BaseRowHeight));
+                rows.Add(Layout.Builder.Spacer().RowH(BasePadding));
             }
 
-            // Live solve gauges (Az / Alt error needles)
-            if (state.LastPolarSolve is { } solve)
+            // Live solve gauges (Az / Alt error needles + Settled/Aligned LEDs) as a raster Fill that fills
+            // the remaining height above the docked buttons.
+            if (state.LastPolarSolve is not null)
             {
-                y = RenderPolarErrorGauges(state, solve, x0, y, w, rowH, fontPath, fontSize, pad);
+                rows.Add(Layout.Builder.Fill(key: "polarGauges").Stretch());
             }
 
-            // Cancel / Done buttons (bottom of panel). The Cancel button gates on
-            // three states: idle (greyed), active (red, clickable), and
-            // cancellation-in-flight (amber, disabled, "Cancelling..." label).
-            // The intermediate state covers the gap between the user's click and
-            // the session's RestoringMount cleanup completing -- otherwise a
-            // mash of repeated clicks could fire multiple Cancel signals or the
-            // user wouldn't know the request was actually picked up.
-            var buttonY = rect.Y + rect.Height - rowH * 2 - pad * 2;
-            var halfW = (w - pad) / 2;
+            var content = Layout.Builder.VStack([.. rows]);
+
+            // Cancel / Done buttons. The Cancel button gates on three states: idle (greyed), active (red,
+            // clickable), and cancellation-in-flight (amber, disabled, "Cancelling..."). The intermediate
+            // state covers the gap between the user's click and the session's RestoringMount cleanup
+            // completing -- otherwise a mash of repeated clicks could fire multiple Cancel signals.
             var cancelInFlight = state.PolarAlignmentCts is { IsCancellationRequested: true };
             var canCancel = state.Mode == LiveSessionMode.PolarAlign
                 && state.PolarPhase != PolarAlignmentPhase.Idle
@@ -143,8 +128,6 @@ namespace TianWen.UI.Abstractions
             var canDone = state.PolarPhase == PolarAlignmentPhase.Aligned
                 || (state.PolarPhase == PolarAlignmentPhase.Refining && state.LastPolarSolve is { IsSettled: true, IsAligned: true });
 
-            // Amber for "in progress" -- distinct from the active red and the
-            // disabled grey so the state is unambiguous at a glance.
             var cancellingBg = new RGBAColor32(0xc4, 0x8a, 0x2c, 0xff);
             var (cancelLabel, cancelBg, cancelFg) = cancelInFlight
                 ? ("Cancelling\u2026", cancellingBg, BrightText)
@@ -152,7 +135,6 @@ namespace TianWen.UI.Abstractions
                     ? ("Cancel", AbortBg, AbortText)
                     : ("Cancel", new RGBAColor32(0x33, 0x33, 0x3a, 0xff), DimText);
 
-            // [Cancel | Done] as one HStack (was two RenderButtons bracketing a pad gap).
             var buttonRow = Layout.Builder.HStack(
                     Layout.Builder.Text(cancelLabel, BaseFontSize * 0.9f, cancelFg, TextAlign.Center, TextAlign.Center)
                         .WStar().HStar().Bg(cancelBg)
@@ -161,7 +143,15 @@ namespace TianWen.UI.Abstractions
                         .WStar().HStar().Bg(canDone ? new RGBAColor32(0x44, 0xaa, 0x66, 0xff) : new RGBAColor32(0x33, 0x33, 0x3a, 0xff))
                         .Clickable(new HitResult.ButtonHit("PolarDone"), _ => { if (canDone) PostSignal(new DonePolarAlignmentSignal()); }))
                 .WithGap(BasePadding);
-            RenderLayout(buttonRow, new RectF32(x0, buttonY, w, rowH * 1.5f), fontPath, dpiScale);
+
+            var tree = Layout.Builder.Dock(content, Layout.Builder.Bottom(buttonRow, BaseRowHeight * 1.5f + BasePadding)).Pad(BasePadding);
+            RenderLayout(tree, rect, fontPath, dpiScale, drawFill: (fill, r) =>
+            {
+                if (fill.Key == "polarGauges" && state.LastPolarSolve is { } solve)
+                {
+                    RenderPolarErrorGauges(state, solve, r.X, r.Y, r.Width, rowH, fontPath, fontSize, pad);
+                }
+            });
         }
 
         /// <summary>
@@ -211,13 +201,13 @@ namespace TianWen.UI.Abstractions
             var content = Layout.Builder.VStack(
                 Layout.Builder.Text("Polar Alignment", BaseFontSize, HeaderText).RowH(BaseRowHeight),
                 PolarSourceRow(state),
-                ConfigRow("Rotation", $"{cfg.RotationDeg:F0}°",
+                ConfigRow("Rotation", $"{cfg.RotationDeg:F0}\u00b0",
                     "PolarSetupRotMinus", () => { state.PolarSetupConfig = state.PolarSetupConfig with { RotationDeg = Math.Max(15.0, state.PolarSetupConfig.RotationDeg - 15.0) }; state.NeedsRedraw = true; },
                     "PolarSetupRotPlus", () => { state.PolarSetupConfig = state.PolarSetupConfig with { RotationDeg = Math.Min(180.0, state.PolarSetupConfig.RotationDeg + 15.0) }; state.NeedsRedraw = true; }),
                 ConfigRow("Settle", $"{cfg.SettleSeconds:F0}s",
                     "PolarSetupSettleMinus", () => { state.PolarSetupConfig = state.PolarSetupConfig with { SettleSeconds = Math.Max(0.0, state.PolarSetupConfig.SettleSeconds - 1.0) }; state.NeedsRedraw = true; },
                     "PolarSetupSettlePlus", () => { state.PolarSetupConfig = state.PolarSetupConfig with { SettleSeconds = Math.Min(30.0, state.PolarSetupConfig.SettleSeconds + 1.0) }; state.NeedsRedraw = true; }),
-                ConfigRow("Target acc", $"{cfg.TargetAccuracyArcmin:F1}′",
+                ConfigRow("Target acc", $"{cfg.TargetAccuracyArcmin:F1}\u2032",
                     "PolarSetupAccMinus", () => { state.PolarSetupConfig = state.PolarSetupConfig with { TargetAccuracyArcmin = Math.Max(0.5, state.PolarSetupConfig.TargetAccuracyArcmin - 0.5) }; state.NeedsRedraw = true; },
                     "PolarSetupAccPlus", () => { state.PolarSetupConfig = state.PolarSetupConfig with { TargetAccuracyArcmin = Math.Min(10.0, state.PolarSetupConfig.TargetAccuracyArcmin + 0.5) }; state.NeedsRedraw = true; }),
                 ConfigRow("Min stars", $"{cfg.MinStarsForSolve}",
