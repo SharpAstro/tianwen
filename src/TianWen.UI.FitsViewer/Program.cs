@@ -186,27 +186,15 @@ var loop = new SdlEventLoop(sdlWindow, renderer)
         imageRenderer.Resize(rw, rh);
     },
 
-    OnMouseDown = (button, x, y, clicks, _) =>
+    // One pointer callback: the loop synthesizes the InputEvents (real release coordinates on
+    // MouseUp — the previous hand-wired OnMouseUp had to reconstruct them from a cached position,
+    // and before that shipped MouseUp(0, 0)). Presses go through the bespoke dispatch below
+    // (toolbar dropdowns + DI-dependent actions); move/release/wheel flow straight into the
+    // shared viewer input path.
+    OnPointerInput = evt => evt switch
     {
-        HandleMouseDown(button, x, y);
-        return true;
-    },
-
-    OnMouseMove = (x, y) => imageRenderer.HandleInput(new InputEvent.MouseMove(x, y)),
-
-    // SDL's OnMouseUp callback delivers only the button — coords come from the last MouseMove/Down,
-    // cached on state. The tap-on-release file-list select (and the gesture's tap-vs-drag slop check)
-    // needs the real release position, so (0, 0) is not an option here.
-    OnMouseUp = (button) =>
-    {
-        var (mx, my) = state.MouseScreenPosition;
-        imageRenderer.HandleInput(new InputEvent.MouseUp(mx, my));
-    },
-
-    OnMouseWheel = (scrollY, mouseX, mouseY) =>
-    {
-        imageRenderer.HandleInput(new InputEvent.Scroll(scrollY, mouseX, mouseY));
-        return true;
+        InputEvent.MouseDown down => HandleMouseDown(down),
+        _ => imageRenderer.HandleInput(evt),
     },
 
     OnDropFile = (path) => { if (path is not null) ViewerActions.HandleFileDrop(state, path); },
@@ -309,11 +297,12 @@ return 0;
 
 // --- Event handlers ---
 
-void HandleMouseDown(byte button, float px, float py)
+bool HandleMouseDown(InputEvent.MouseDown down)
 {
+    var (px, py) = (down.X, down.Y);
     state.MouseScreenPosition = (px, py);
 
-    if (button is 1 or 3)
+    if (down.Button is MouseButton.Left or MouseButton.Right)
     {
         // Hit test — base class handles pure state actions (file list, toggles)
         var hit = imageRenderer.HitTestAndDispatch(px, py);
@@ -321,65 +310,67 @@ void HandleMouseDown(byte button, float px, float py)
         if (hit is HitResult.ButtonHit { Action: var action } && Enum.TryParse<ToolbarAction>(action, out var toolbarAction))
         {
             // Left-click on any dropdown-capable toolbar button opens the
-            // overlay; right-click (button == 3) falls through so power users
+            // overlay; right-click falls through so power users
             // can still reverse-cycle without summoning the popup. The set of
             // dropdown actions is encoded in OpenToolbarDropdown's switch —
             // it returns false for non-dropdown actions so we never need a
             // parallel "is dropdown action" list here.
-            if (button == 1 && imageRenderer.OpenToolbarDropdown(state, toolbarAction))
+            if (down.Button == MouseButton.Left && imageRenderer.OpenToolbarDropdown(state, toolbarAction))
             {
-                return;
+                return true;
             }
 
             // Base handles pure state; controller handles DI-dependent actions
-            if (!ViewerActions.HandleToolbarAction(state, controller.Document, toolbarAction, reverse: button == 3))
+            var reverse = down.Button == MouseButton.Right;
+            if (!ViewerActions.HandleToolbarAction(state, controller.Document, toolbarAction, reverse))
             {
-                controller.HandleToolbarAction(toolbarAction, reverse: button == 3, cts.Token);
+                controller.HandleToolbarAction(toolbarAction, reverse, cts.Token);
             }
-            return;
+            return true;
         }
 
         if (hit is ResizeHandleHit { Id: "FileList" })
         {
             state.IsResizingFileList = true;
             state.NeedsRedraw = true;
-            return;
+            return true;
         }
 
         if (hit is TransportScrubHit)
         {
             imageRenderer.BeginScrubAt(px);
-            return;
+            return true;
         }
 
         if (hit is WhiteBalanceSliderHit { Channel: var wbChannel })
         {
             imageRenderer.BeginWhiteBalanceDragAt(wbChannel, px);
-            return;
+            return true;
         }
 
         if (hit is WaveletSliderHit { Band: var waveletBand })
         {
             imageRenderer.BeginWaveletDragAt(waveletBand, px);
-            return;
+            return true;
         }
 
         if (hit is not null)
         {
-            return; // OnClick already handled it (e.g. HistogramLog, PlayPause)
+            return true; // OnClick already handled it (e.g. HistogramLog, PlayPause)
         }
 
         // Unclaimed left press over the file list arms the scroll controller (drag-to-scroll / thumb
-        // grab); select fires on the tap release, routed through HandleViewerMouseUp via OnMouseUp.
-        if (button == 1 && imageRenderer.HandleFileListInput(new InputEvent.MouseDown(px, py)))
+        // grab); select fires on the tap release, routed through HandleViewerMouseUp via OnPointerInput.
+        if (down.Button == MouseButton.Left && imageRenderer.HandleFileListInput(down))
         {
-            return;
+            return true;
         }
     }
 
     // Left or middle mouse button starts panning
-    if (button is 1 or 2) // SDL: 1=left, 2=middle, 3=right
+    if (down.Button is MouseButton.Left or MouseButton.Middle)
     {
         ViewerActions.BeginPan(state, px, py);
     }
+    return true; // every press consumed (matches the old always-true OnMouseDown lambda)
 }

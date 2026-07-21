@@ -232,27 +232,14 @@ var loop = new SdlEventLoop(sdlWindow, renderer)
             $"Display recovered from a GPU stall on the {wasTab} view (sky-map FOV was {fovAtStall:F0} deg) - switched to a safe view and reset the zoom. Hardware and session control were unaffected.");
     },
 
-    OnMouseDown = (button, x, y, clicks, mods) =>
+    // One pointer callback: the loop synthesizes the InputEvents with the real release coordinates
+    // on MouseUp (the previous hand-wired OnMouseUp reconstructed them from a cached position —
+    // without them the click-vs-drag detection in SkyMapTab compared (0, 0) to the real mouse-down
+    // position). Presses route left-button only, as before; everything else flows through.
+    OnPointerInput = evt => evt switch
     {
-        if (button == 1) handlers.HandleInput(new InputEvent.MouseDown(x, y, Modifiers: mods, ClickCount: clicks));
-        return true;
-    },
-
-    OnMouseMove = (x, y) => handlers.HandleInput(new InputEvent.MouseMove(x, y)),
-
-    // SDL's OnMouseUp callback delivers only the button — coords come from the
-    // last MouseMove, cached on appState. Without this the click-vs-drag
-    // detection in SkyMapTab compares (0, 0) to the real mouse-down position.
-    OnMouseUp = (button) =>
-    {
-        var (mx, my) = appState.MouseScreenPosition;
-        handlers.HandleInput(new InputEvent.MouseUp(mx, my));
-    },
-
-    OnMouseWheel = (scrollY, mx, my) =>
-    {
-        handlers.HandleInput(new InputEvent.Scroll(scrollY, mx, my));
-        return true;
+        InputEvent.MouseDown { Button: not MouseButton.Left } => true,
+        _ => handlers.HandleInput(evt),
     },
 
     OnPinch = (scale, mx, my, source) =>
