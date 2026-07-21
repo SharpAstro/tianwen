@@ -333,11 +333,9 @@ namespace TianWen.UI.Abstractions
         /// <summary>Whether the abort confirmation strip is showing.</summary>
         public bool ShowAbortConfirm { get; set; }
 
-        /// <summary>Scroll offset for the exposure log list.</summary>
-        public int ExposureLogScrollOffset { get; set; }
-
-        /// <summary>Scroll offset for the focus history list.</summary>
-        public int FocusHistoryScrollOffset { get; set; }
+        // Exposure-log scroll now lives on LiveSessionTab's ListScrollController (bottom-anchored
+        // tail-follow); the focus-history list clips to the remaining space and never scrolled, so
+        // both former *ScrollOffset fields are gone.
 
         /// <summary>
         /// Ensures all per-OTA preview arrays match the given OTA count.

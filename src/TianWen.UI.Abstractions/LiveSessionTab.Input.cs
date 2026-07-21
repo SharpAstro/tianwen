@@ -114,10 +114,15 @@ namespace TianWen.UI.Abstractions
                     return true;
                 }
 
-                case InputEvent.Scroll(var scrollY2, _, _, _):
-                    state.ExposureLogScrollOffset = Math.Max(0, state.ExposureLogScrollOffset + (scrollY2 > 0 ? -1 : 1));
-                    state.NeedsRedraw = true;
-                    return true;
+                case InputEvent.Scroll(_, _, _, _):
+                    // Exposure-log tail-follow scroll, viewport-gated by the controller (scrolling
+                    // elsewhere on the tab falls through instead of moving the log).
+                    if (_logScroll.HandleInput(evt))
+                    {
+                        state.NeedsRedraw = true;
+                        return true;
+                    }
+                    return false;
 
                 // Preview viewer mouse drag for panning
                 case InputEvent.MouseDown(var mx, var my, _, _, _) when PreviewView is not null && !_previewState.ZoomToFit:

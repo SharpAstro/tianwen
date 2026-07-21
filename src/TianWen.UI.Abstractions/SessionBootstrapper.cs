@@ -40,8 +40,8 @@ namespace TianWen.UI.Abstractions
                 liveSessionState.IsRunning = true;
                 liveSessionState.Phase = SessionPhase.NotStarted;
                 liveSessionState.ShowAbortConfirm = false;
-                liveSessionState.ExposureLogScrollOffset = 0;
-                liveSessionState.FocusHistoryScrollOffset = 0;
+                // Exposure-log view resets itself: the new session's empty log re-establishes the
+                // scroll controller's tail pin (the fits-again rule), so no offset reset here.
                 appState.ActiveTab = GuiTab.LiveSession;
                 appState.StatusMessage = "Building schedule\u2026";
                 appState.NeedsRedraw = true;

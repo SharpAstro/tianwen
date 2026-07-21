@@ -350,6 +350,21 @@ namespace TianWen.UI.Abstractions
         // Preview mode: OTA panels from profile + hub telemetry
         // -----------------------------------------------------------------------
 
+        /// <summary>
+        /// Exposure-log scroll (DIR.Lib atom model, one atom = one log row): bottom-anchored
+        /// tail-follow — pinned to the newest entry until the user wheels up into history, and
+        /// re-pinned automatically when the log resets (a session restart clears it, the content
+        /// fits again, and the controller's fits-again rule restores the pin — no bootstrapper
+        /// reset needed). Mode=None keeps the historical no-scrollbar look; the wheel is
+        /// viewport-gated by the controller (the old code scrolled the log from anywhere on the tab).
+        /// </summary>
+        private readonly ListScrollController _logScroll = new ListScrollController
+        {
+            Anchor = ScrollAnchor.Bottom,
+            SnapToAtom = true,
+            Mode = ScrollBarMode.None,
+        };
+
         private void RenderExposureLog(LiveSessionState state, RectF32 rect, string fontPath,
             float fontSize, float dpiScale, float pad, float rowH)
         {
@@ -436,6 +451,15 @@ namespace TianWen.UI.Abstractions
             DrawText("\u2605", fontPath, colStars, colY, rect.X + rect.Width - colStars - pad, rowH, smallFs, DimText, TextAlign.Near, TextAlign.Center);
 
             var log = state.ExposureLog;
+
+            // Hand the controller this frame's rows viewport (below the two header rows). Geometry
+            // refreshes even when the log is empty so a stale viewport can never eat wheel input;
+            // the bottom anchor + fits-again re-pin do the tail-follow (see the field doc).
+            var rowsTop = colY + rowH + pad;
+            _logScroll.SetExtent(
+                new RectF32(rect.X, rowsTop, rect.Width, rect.Height - rowH * 2 - pad * 2),
+                rowH, log.Length, dpiScale);
+
             if (log.Length == 0)
             {
                 DrawText("No frames yet", fontPath,
@@ -444,25 +468,13 @@ namespace TianWen.UI.Abstractions
                 return;
             }
 
-            var y = colY + rowH + pad;
-            var visibleRows = (int)((rect.Height - rowH * 2 - pad * 2) / rowH);
-
-            if (state.ExposureLogScrollOffset < 0)
-            {
-                state.ExposureLogScrollOffset = 0;
-            }
-
-            var startIdx = Math.Max(0, log.Length - visibleRows - state.ExposureLogScrollOffset);
-            if (startIdx < 0)
-            {
-                startIdx = 0;
-            }
-
-            for (var i = startIdx; i < log.Length && y < rect.Y + rect.Height - rowH; i++)
+            var y = rowsTop;
+            foreach (var (i, rowRect) in _logScroll.VisibleRows())
             {
                 var entry = log[i];
+                var rowY = rowRect.Y;
                 var bg = (i % 2 == 0) ? PanelBg : RowAltBg;
-                FillRect(rect.X, y, rect.Width, rowH, bg);
+                FillRect(rowRect.X, rowY, rowRect.Width, rowRect.Height, bg);
 
                 var target = entry.TargetName.Length > 10 ? entry.TargetName[..10] : entry.TargetName;
                 var filterRaw = LiveSessionActions.FilterDisplayLabel(entry.FilterName, "L");
@@ -470,12 +482,12 @@ namespace TianWen.UI.Abstractions
                 var hfd = entry.MedianHfd > 0 ? $"{entry.MedianHfd:F1}\"" : "--";
                 var stars = entry.StarCount > 0 ? $"{entry.StarCount}" : "--";
 
-                DrawText(entry.Timestamp.ToOffset(state.SiteTimeZone).ToString("HH:mm"), fontPath, colTime, y, colTarget - colTime, rowH, rowFs, DimText, TextAlign.Near, TextAlign.Center);
-                DrawText(target, fontPath, colTarget, y, colFilter - colTarget, rowH, rowFs, BodyText, TextAlign.Near, TextAlign.Center);
-                DrawText(filter, fontPath, colFilter, y, colHfd - colFilter, rowH, rowFs, DimText, TextAlign.Near, TextAlign.Center);
-                DrawText(hfd, fontPath, colHfd, y, colStars - colHfd, rowH, rowFs, BodyText, TextAlign.Far, TextAlign.Center);
-                DrawText(stars, fontPath, colStars, y, rect.X + rect.Width - colStars - pad, rowH, rowFs, BodyText, TextAlign.Far, TextAlign.Center);
-                y += rowH;
+                DrawText(entry.Timestamp.ToOffset(state.SiteTimeZone).ToString("HH:mm"), fontPath, colTime, rowY, colTarget - colTime, rowH, rowFs, DimText, TextAlign.Near, TextAlign.Center);
+                DrawText(target, fontPath, colTarget, rowY, colFilter - colTarget, rowH, rowFs, BodyText, TextAlign.Near, TextAlign.Center);
+                DrawText(filter, fontPath, colFilter, rowY, colHfd - colFilter, rowH, rowFs, DimText, TextAlign.Near, TextAlign.Center);
+                DrawText(hfd, fontPath, colHfd, rowY, colStars - colHfd, rowH, rowFs, BodyText, TextAlign.Far, TextAlign.Center);
+                DrawText(stars, fontPath, colStars, rowY, rect.X + rect.Width - colStars - pad, rowH, rowFs, BodyText, TextAlign.Far, TextAlign.Center);
+                y = rowY + rowH;
             }
 
             // Focus history below exposure log if space allows
