@@ -165,6 +165,53 @@ steppers stretch, Capture right-anchored). **Load-bearing gotcha:** a returned m
 must be `.WStar()` -- an Auto-width VStack collapses to its intrinsic width (starved the exposure stepper
 to w=0), caught via the live `describe_layout` tree.
 
+## Remaining direct-draw inventory (audit 2026-07-21)
+
+Per-file grep of `FillRect` / `DrawText` / line-circle / `RenderButton` across the tab + viewer files,
+sorted into the three buckets. Buckets 1-2 are **by design** (see the taxonomy above); bucket 3 is the
+actual remaining convertible work.
+
+**Bucket 1 -- raster inside `Fill`-leaf painters / scene render (STAYS, correct):** these draw into a
+rect the layout tree already arranged, they are not chrome.
+- `GuiderTab.cs` (33 FillRect / 14 DrawText / 9 line-circle) -- the 4 panes (camera / profile plot /
+  target scatter / graph) painted in the `drawFill` callback.
+- `LiveSessionTab.Charts.cs` (20 FillRect) -- guide graph.
+- `EquipmentTab.Telemetry.cs` line-circle -- cooler sparkline (in its Fill painter).
+- `ImageRendererBase.Histogram.cs`, `.Overlays.cs` (grid / star / WCS on the image), `SkyMapTab.cs` +
+  `SkyMapTab.ObjectOverlay.cs` (star/line/marker render) -- the image + sky-map scene.
+
+**Bucket 2 -- interactive controls that intentionally stay pixel (per-element rect coupling):** `.Bg`
+is set at tree-build time (pre-arrange), so a control whose look/behaviour needs its OWN arranged rect
+resists the DSL. Pairs with `docs/plans/controls-upstreaming.md` U1 (TrackSlider) / U2 (Search).
+- `ImageRendererBase.Toolbar.cs` (6 FillRect) -- viewer toolbar buttons (hover from mouseXY-vs-rect +
+  `_toolbarButtonBounds` dropdown anchors + separate `HitTestToolbar`).
+- `ImageRendererBase.TrackSlider.cs` (3) -- WB / wavelet / transport drag sliders (capture a hit-band
+  the drag reads back).
+- `ImageRendererBase.Transport.cs` (3) -- SER scrub. `ImageRendererBase.FileList.cs` -- file-list rows
+  (on `ListScrollController`, drawn into row rects).
+- `RenderButton(...)` is itself a direct-draw helper (FillRect + DrawText + register-click), still used
+  for ~10 individual buttons (device-list Connect/Disconnect, strips ABORT, a few in Planner / SkyMap /
+  Flats). Converting these to `Text.Bg.Clickable` nodes is cosmetic-only; low priority.
+
+**Bucket 3 -- convertible chrome NOT yet converted (the real remaining work), highest value first:**
+- **`LiveSessionTab.Panels.cs` (16 FillRect / 30 DrawText) -- the RUNNING-session `RenderOTAPanels` body**
+  (per-OTA exposure countdown, camera states, cooling mini-sparkline [raster], exposure log). The
+  *preview* path is done; the running path is still a `y += rowH` cursor walk. **Largest remaining
+  convertible chunk.**
+- `LiveSessionTab.Strips.cs` (13 / 10 / 3 RenderButton) -- control strips: guide-graph strip (raster) +
+  RMS readout + ABORT button.
+- `LiveSessionTab.Polar.cs` (5 / 14) -- RUNNING polar-align readouts (error gauges stay raster; the
+  status/step readout `DrawText`s are convertible). Setup panel already ONE tree.
+- `SessionTab.cs` (16 / 19) -- config panel converted; remaining session chrome.
+- `SkyMapTab.Search.cs` (5 / 6 / 16 line / 4 RenderButton) -- F3 modal chrome + results rows (the
+  sky lines/circles are raster).
+- `PlannerTab.cs` (8 / 4 / 1) -- planner chart (raster) + list rows.
+- `EquipmentTab.DeviceList.cs` (4 / 6 / 2) -- device-list ROW body + Connect/Disconnect. **Deferred by
+  design** (badge/name/status columns tangled with reachability/confirm-strip/segment business logic +
+  inset badge pill + status-dot square -- poor reduction-per-risk).
+- `EquipmentTab.cs` (6 / 5 / 2) -- tab-level chrome: panel backgrounds + 1px separators (minimal cases)
+  + the ConnectAll top-bar button.
+
 ## Definition of done
 
 Direct `Renderer` draw calls in widget code appear only inside Fill-leaf painters, interactive-control
