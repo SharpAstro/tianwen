@@ -181,8 +181,9 @@ namespace TianWen.UI.Abstractions
                 SessionPhase.Failed => ("FAILED", AbortBg),
                 _ => (state.Phase.ToString().ToUpperInvariant(), DimText)
             };
-            FillRect(x0, y, w, rowH, phaseColor);
-            DrawText(phaseLabel, fontPath, x0, y, w, rowH, fontSize * 0.95f, BrightText, TextAlign.Center, TextAlign.Center);
+            RenderLayout(
+                Layout.Builder.Text(phaseLabel, BaseFontSize * 0.95f, BrightText, TextAlign.Center, TextAlign.Center).Bg(phaseColor),
+                new RectF32(x0, y, w, rowH), fontPath, dpiScale);
             y += rowH + pad;
 
             // Source line
