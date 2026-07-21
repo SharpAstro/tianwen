@@ -197,6 +197,61 @@ namespace TianWen.Lib.Tests
         }
 
         [Fact]
+        public void WheelScroll_AccumulatesTrackpadDeltas_AndMirrorsAtomOffset()
+        {
+            // Arrange — short viewport so the config form overflows and the panel scrolls.
+            var tab = CreateTab(out var state, width: 800, height: 200);
+            var appState = new GuiAppState();
+            var plannerState = new PlannerState();
+            var contentRect = new RectF32(0, 0, 800, 200);
+            tab.Render(appState, plannerState, contentRect, 1f, "");
+
+            state.ConfigScrollOffset.ShouldBe(0);
+
+            // Act — one full wheel notch toward the end (negative delta): 3 atoms per notch.
+            tab.HandleInput(new InputEvent.Scroll(-1f, 50f, 100f)).ShouldBeTrue();
+            tab.Render(appState, plannerState, contentRect, 1f, "");
+
+            // Assert — the state mirror carries the snapped canonical atom offset.
+            state.ConfigScrollOffset.ShouldBe(3);
+
+            // Act — ten sub-1.0 trackpad deltas: the fractional carry accumulates into a full notch
+            // instead of truncating to zero (the bug the atom model exists to fix).
+            for (var i = 0; i < 10; i++)
+            {
+                tab.HandleInput(new InputEvent.Scroll(-0.1f, 50f, 100f)).ShouldBeTrue();
+            }
+            tab.Render(appState, plannerState, contentRect, 1f, "");
+
+            state.ConfigScrollOffset.ShouldBe(6);
+        }
+
+        [Fact]
+        public void KeyboardDown_ScrollsSelectedFieldIntoView()
+        {
+            // Arrange — short viewport; walking the selection to the last field must scroll the panel.
+            var tab = CreateTab(out var state, width: 800, height: 200);
+            var appState = new GuiAppState();
+            var plannerState = new PlannerState();
+            var contentRect = new RectF32(0, 0, 800, 200);
+            tab.Render(appState, plannerState, contentRect, 1f, "");
+
+            state.FieldCount.ShouldBeGreaterThan(1);
+            state.SelectedFieldIndex = 0;
+
+            // Act — walk the selection to the bottom of the form.
+            for (var i = 0; i < state.FieldCount - 1; i++)
+            {
+                tab.HandleInput(new InputEvent.KeyDown(InputKey.Down)).ShouldBeTrue();
+            }
+            tab.Render(appState, plannerState, contentRect, 1f, "");
+
+            // Assert — EnsureFieldVisible drove the controller past the top.
+            state.SelectedFieldIndex.ShouldBe(state.FieldCount - 1);
+            state.ConfigScrollOffset.ShouldBeGreaterThan(0);
+        }
+
+        [Fact]
         public void KeyboardUpDown_NavigatesFields()
         {
             // Arrange

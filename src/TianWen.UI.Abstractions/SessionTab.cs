@@ -69,11 +69,18 @@ namespace TianWen.UI.Abstractions
         /// <summary>Tab state (configuration values, per-OTA camera settings, scroll offset).</summary>
         public SessionTabState State { get; } = new SessionTabState();
 
-        /// <summary>Bounding rect of the scrollable config panel (set during render).</summary>
-        public RectF32 ConfigPanelRect { get; private set; }
-
-        /// <summary>Scroll line height in pixels (for mouse wheel step size).</summary>
+        /// <summary>Scroll line height in pixels — the config panel's atom extent (one BaseItemHeight line).</summary>
         public float ScrollLineHeight { get; private set; }
+
+        /// <summary>
+        /// Config-panel scroll (DIR.Lib atom model): one atom = one <see cref="ScrollLineHeight"/> line,
+        /// <see cref="ScrollBarMode.None"/> keeps the historical clip-only look (no scrollbar). It owns
+        /// the continuous fractional offset (the trackpad wheel carry) and the clamp;
+        /// <see cref="SessionTabState.ConfigScrollOffset"/> is the canonical-atom mirror shared with the
+        /// TUI (whose Console.Lib ScrollableList rows are the same unit).
+        /// </summary>
+        private readonly ListScrollController _configScroll =
+            new ListScrollController { Mode = ScrollBarMode.None };
 
 
         // -----------------------------------------------------------------------
@@ -114,7 +121,6 @@ namespace TianWen.UI.Abstractions
 
             // Left panel: config form (fills remaining)
             var configRect = layout.Fill();
-            ConfigPanelRect = configRect;
 
             RenderConfigForm(configRect, dpiScale, fontPath);
             RenderRightPanel(plannerState, obsRect, dpiScale, fontPath);
@@ -124,28 +130,31 @@ namespace TianWen.UI.Abstractions
         // Input handling
         // -----------------------------------------------------------------------
 
-        public override bool HandleInput(InputEvent evt) => evt switch
+        public override bool HandleInput(InputEvent evt)
         {
-            InputEvent.Scroll(var scrollY, var mouseX, var mouseY, _)
-                when ConfigPanelRect.Contains(mouseX, mouseY) => HandleConfigScroll(scrollY),
-            InputEvent.MouseDown(var px, var py, _, _, var clicks) when clicks >= 2
-                => HandleDoubleClick(px, py),
-            InputEvent.KeyDown(var key, _) => HandleConfigKey(key),
-            _ => false
-        };
+            switch (evt)
+            {
+                case InputEvent.MouseDown(var px, var py, _, _, var clicks) when clicks >= 2:
+                    return HandleDoubleClick(px, py);
 
-        private bool HandleConfigScroll(float scrollY)
-        {
-            // Clamp to the actual scrollable range so the wheel is a no-op when the form fits
-            // (maxScroll == 0). The upper clamp at the end of RenderConfigForm runs only AFTER the
-            // content is painted, so without clamping here each wheel tick would paint one scrolled
-            // frame and then snap back. _totalConfigHeight + ConfigPanelRect are from the last render
-            // (both 0 before the first frame, where maxScroll is also 0, so the wheel stays inert).
-            var maxScroll = Math.Max(0, (int)(_totalConfigHeight - ConfigPanelRect.Height));
-            State.ConfigScrollOffset = Math.Clamp(
-                State.ConfigScrollOffset - (int)(scrollY * ScrollLineHeight), 0, maxScroll);
-            State.NeedsRedraw = true;
-            return true;
+                case InputEvent.KeyDown(var key, _):
+                    return HandleConfigKey(key);
+
+                default:
+                    // Wheel + touch/mouse drag over the config panel via the controller (its viewport is
+                    // the config rect from the last render, so right-panel input falls through untouched;
+                    // before the first frame the extent is empty and every event is ignored). Field rows +
+                    // stepper buttons are registered clickables the host dispatches BEFORE HandleInput, so
+                    // only unclaimed presses land here — an empty-space tap selects nothing, hence the
+                    // pending tap is drained and dropped.
+                    if (_configScroll.HandleInput(evt))
+                    {
+                        _configScroll.TakeAtomTap();
+                        State.NeedsRedraw = true;
+                        return true;
+                    }
+                    return false;
+            }
         }
 
         private bool HandleConfigKey(InputKey key)
@@ -189,21 +198,16 @@ namespace TianWen.UI.Abstractions
         /// </summary>
         private void EnsureFieldVisible()
         {
-            // Approximate: each field is one row, groups add header + gap
-            // Use the stored _fieldYPositions if available, otherwise estimate
+            // Fields are not atom-aligned (group headers + gaps shift them off the BaseItemHeight grid),
+            // so ensure both atoms the field's pixel span touches — they are adjacent, so the second call
+            // moves at most one more line and the whole field lands inside the viewport. _fieldYPositions
+            // is from the last render, same as the controller's geometry.
             if (State.SelectedFieldIndex >= 0 && _fieldYPositions.Count > State.SelectedFieldIndex)
             {
                 var fieldY = _fieldYPositions[State.SelectedFieldIndex];
-                var scaledItemH = ScrollLineHeight;
-
-                if (fieldY < State.ConfigScrollOffset)
-                {
-                    State.ConfigScrollOffset = (int)fieldY;
-                }
-                else if (fieldY + scaledItemH > State.ConfigScrollOffset + ConfigPanelRect.Height)
-                {
-                    State.ConfigScrollOffset = (int)(fieldY + scaledItemH - ConfigPanelRect.Height);
-                }
+                var ext = ScrollLineHeight;
+                _configScroll.EnsureVisible((int)MathF.Floor(fieldY / ext));
+                _configScroll.EnsureVisible((int)MathF.Floor((fieldY + ext - 0.001f) / ext));
             }
         }
 
@@ -741,9 +745,14 @@ namespace TianWen.UI.Abstractions
 
             _totalConfigHeight = yDesign * dpiScale;
 
-            // Clamp scroll to the scrollable range before painting.
-            var maxScroll = Math.Max(0, (int)(_totalConfigHeight - rect.Height));
-            State.ConfigScrollOffset = Math.Clamp(State.ConfigScrollOffset, 0, maxScroll);
+            // Hand the controller this frame's geometry: one atom = one BaseItemHeight line, total in
+            // lines rounded UP so the last partial line stays reachable (the whole-atom bound can
+            // over-scroll by under two line heights past the exact pixel bottom — accepted slack of the
+            // atom model). SetExtent re-clamps the offset; the state field then mirrors the snapped
+            // canonical atom offset for the TUI's benefit.
+            _configScroll.SetExtent(rect, ScrollLineHeight,
+                (int)MathF.Ceiling(_totalConfigHeight / ScrollLineHeight), dpiScale);
+            State.ConfigScrollOffset = _configScroll.AtomOffset;
 
             // --- One tree for the whole form; scroll via the root-bounds Y offset, clipped to the panel ---
             var tree = SessionConfigLayout.Build(
@@ -753,7 +762,7 @@ namespace TianWen.UI.Abstractions
                 onDecrement: field => _ => { State.Configuration = field.Decrement(State.Configuration); State.IsDirty = true; State.NeedsRedraw = true; },
                 onIncrement: field => _ => { State.Configuration = field.Increment(State.Configuration); State.IsDirty = true; State.NeedsRedraw = true; });
 
-            var contentTop = rect.Y - State.ConfigScrollOffset;
+            var contentTop = rect.Y - _configScroll.Offset * ScrollLineHeight;
             var arranged = ArrangeLayout(tree, new RectF32(rect.X, contentTop, rect.Width, _totalConfigHeight), fontPath, dpiScale);
 
             // A single tree arranges every row at an absolute rect -- including rows scrolled off the top
