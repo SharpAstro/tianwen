@@ -63,43 +63,30 @@ namespace TianWen.UI.Abstractions
             // buttons are inert (DimText) while polar is actually running; users can
             // still preview which source is active.
             var sourceY = rect.Y + rowH;
-            var sourceLabelW = w * 0.30f;
-            var srcBtnW = (w - sourceLabelW) / 2f;
             var canSwitchSource = state.PolarPhase == PolarAlignmentPhase.Idle
                 || state.PolarPhase == PolarAlignmentPhase.Failed;
-            DrawText("Source", fontPath,
-                x0, sourceY, sourceLabelW, rowH,
-                fontSize * 0.8f, DimText, TextAlign.Near, TextAlign.Center);
             var activeSrcBg = new RGBAColor32(0x44, 0x66, 0x99, 0xff);
             var inactiveSrcBg = new RGBAColor32(0x2a, 0x2a, 0x35, 0xff);
             var srcFg = canSwitchSource ? BodyText : DimText;
 
-            RenderButton("Main",
-                x0 + sourceLabelW, sourceY + 2, srcBtnW - 2, rowH - 4,
-                fontPath, fontSize * 0.85f,
-                state.PolarAlignUseGuider ? inactiveSrcBg : activeSrcBg,
-                srcFg, "PolarSrcMain",
-                _ =>
-                {
-                    if (canSwitchSource && state.PolarAlignUseGuider)
-                    {
-                        state.PolarAlignUseGuider = false;
-                        state.NeedsRedraw = true;
-                    }
-                });
-            RenderButton("Guider",
-                x0 + sourceLabelW + srcBtnW, sourceY + 2, srcBtnW - 2, rowH - 4,
-                fontPath, fontSize * 0.85f,
-                state.PolarAlignUseGuider ? activeSrcBg : inactiveSrcBg,
-                srcFg, "PolarSrcGuider",
-                _ =>
-                {
-                    if (canSwitchSource && !state.PolarAlignUseGuider)
-                    {
-                        state.PolarAlignUseGuider = true;
-                        state.NeedsRedraw = true;
-                    }
-                });
+            // Source toggle: [Source | Main | Guider] as one HStack (was a label DrawText + two
+            // RenderButtons at computed x). Switching is inert while a run is in flight (canSwitchSource).
+            var sourceRow = Layout.Builder.HStack(
+                    Layout.Builder.Text("Source", BaseFontSize * 0.8f, DimText).WStar(0.30f).HStar(),
+                    Layout.Builder.Text("Main", BaseFontSize * 0.85f, srcFg, TextAlign.Center, TextAlign.Center)
+                        .WStar(0.35f).HStar().Bg(state.PolarAlignUseGuider ? inactiveSrcBg : activeSrcBg)
+                        .Clickable(new HitResult.ButtonHit("PolarSrcMain"), _ =>
+                        {
+                            if (canSwitchSource && state.PolarAlignUseGuider) { state.PolarAlignUseGuider = false; state.NeedsRedraw = true; }
+                        }),
+                    Layout.Builder.Text("Guider", BaseFontSize * 0.85f, srcFg, TextAlign.Center, TextAlign.Center)
+                        .WStar(0.35f).HStar().Bg(state.PolarAlignUseGuider ? activeSrcBg : inactiveSrcBg)
+                        .Clickable(new HitResult.ButtonHit("PolarSrcGuider"), _ =>
+                        {
+                            if (canSwitchSource && !state.PolarAlignUseGuider) { state.PolarAlignUseGuider = true; state.NeedsRedraw = true; }
+                        }))
+                .WithGap(2f).RowH(BaseRowHeight);
+            RenderLayout(sourceRow, new RectF32(x0, sourceY, w, rowH), fontPath, dpiScale);
 
             // Setup phase: routine not yet started -> render the configuration
             // form + Start button instead of the running-phase status / gauges.
@@ -125,10 +112,9 @@ namespace TianWen.UI.Abstractions
                 PolarAlignmentPhase.Failed => ("FAILED", AbortBg),
                 _ => ("?", DimText)
             };
-            FillRect(x0, phaseY, w, rowH, phaseColor);
-            DrawText(phaseLabel, fontPath,
-                x0, phaseY, w, rowH,
-                fontSize * 0.95f, BrightText, TextAlign.Center, TextAlign.Center);
+            RenderLayout(
+                Layout.Builder.Text(phaseLabel, BaseFontSize * 0.95f, BrightText, TextAlign.Center, TextAlign.Center).Bg(phaseColor),
+                new RectF32(x0, phaseY, w, rowH), fontPath, dpiScale);
 
             var y = phaseY + rowH + pad;
 
@@ -194,18 +180,16 @@ namespace TianWen.UI.Abstractions
                     ? ("Cancel", AbortBg, AbortText)
                     : ("Cancel", new RGBAColor32(0x33, 0x33, 0x3a, 0xff), DimText);
 
-            RenderButton(cancelLabel, x0, buttonY, halfW, rowH * 1.5f,
-                fontPath, fontSize * 0.9f,
-                cancelBg, cancelFg,
-                "PolarCancel",
-                _ => { if (canCancel) PostSignal(new CancelPolarAlignmentSignal()); });
-
-            RenderButton("Done", x0 + halfW + pad, buttonY, halfW, rowH * 1.5f,
-                fontPath, fontSize * 0.9f,
-                canDone ? new RGBAColor32(0x44, 0xaa, 0x66, 0xff) : new RGBAColor32(0x33, 0x33, 0x3a, 0xff),
-                canDone ? BrightText : DimText,
-                "PolarDone",
-                _ => { if (canDone) PostSignal(new DonePolarAlignmentSignal()); });
+            // [Cancel | Done] as one HStack (was two RenderButtons bracketing a pad gap).
+            var buttonRow = Layout.Builder.HStack(
+                    Layout.Builder.Text(cancelLabel, BaseFontSize * 0.9f, cancelFg, TextAlign.Center, TextAlign.Center)
+                        .WStar().HStar().Bg(cancelBg)
+                        .Clickable(new HitResult.ButtonHit("PolarCancel"), _ => { if (canCancel) PostSignal(new CancelPolarAlignmentSignal()); }),
+                    Layout.Builder.Text("Done", BaseFontSize * 0.9f, canDone ? BrightText : DimText, TextAlign.Center, TextAlign.Center)
+                        .WStar().HStar().Bg(canDone ? new RGBAColor32(0x44, 0xaa, 0x66, 0xff) : new RGBAColor32(0x33, 0x33, 0x3a, 0xff))
+                        .Clickable(new HitResult.ButtonHit("PolarDone"), _ => { if (canDone) PostSignal(new DonePolarAlignmentSignal()); }))
+                .WithGap(BasePadding);
+            RenderLayout(buttonRow, new RectF32(x0, buttonY, w, rowH * 1.5f), fontPath, dpiScale);
         }
 
         /// <summary>
