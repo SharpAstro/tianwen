@@ -80,9 +80,9 @@ namespace TianWen.UI.Abstractions
         private float _searchBarBottom;
         private float _searchBarLeft;
         private float _searchBarWidth;
-        private RectF32 _scrollBarTrackRect;    // captured during render for drag hit-testing
-        private float _scrollBarDpiScale;
-        private ScrollBarDragState _targetScrollDrag;
+        // Atom-model scroll controller for the target list (DIR.Lib). Row-snapped selection list with an
+        // interactive scrollbar; replaces the hand-rolled ScrollBar + fractional wheel-accumulator wiring.
+        private readonly ListScrollController _targetScroll = new ListScrollController { SnapToAtom = true };
 
         /// <summary>The filtered target list from the last render pass.</summary>
         public IReadOnlyList<ScoredTarget> FilteredTargets => _lastFilteredTargets;
@@ -90,26 +90,17 @@ namespace TianWen.UI.Abstractions
         /// <summary>The target list panel rect from the last render pass (for scroll wheel detection).</summary>
         public RectF32 TargetListRect => _targetListRect;
 
-        /// <summary>Current scroll offset (in items) for the target list.</summary>
-        public int ScrollOffset { get; set; }
+        /// <summary>Current scroll offset (in whole items) for the target list, backed by the atom controller.</summary>
+        public int ScrollOffset { get => _targetScroll.AtomOffset; set => _targetScroll.AtomOffset = value; }
 
-        /// <summary>Number of visible rows in the last render (set during RenderTargetList).</summary>
-        public int VisibleRows { get; private set; }
+        /// <summary>Number of visible rows from the last render (the controller's visible-atom count).</summary>
+        public int VisibleRows => _targetScroll.VisibleAtoms;
 
         /// <summary>
-        /// Adjusts ScrollOffset so that the item at <paramref name="index"/> is visible.
+        /// Adjusts the scroll offset so that the item at <paramref name="index"/> is visible
+        /// (delegates to the controller's minimal-scroll EnsureVisible).
         /// </summary>
-        public void EnsureVisible(int index)
-        {
-            if (index < ScrollOffset)
-            {
-                ScrollOffset = index;
-            }
-            else if (VisibleRows > 0 && index >= ScrollOffset + VisibleRows)
-            {
-                ScrollOffset = index - VisibleRows + 1;
-            }
-        }
+        public void EnsureVisible(int index) => _targetScroll.EnsureVisible(index);
 
         /// <summary>
         /// Renders the planner tab into the given content area. The frame layout (chart / target
@@ -293,8 +284,6 @@ namespace TianWen.UI.Abstractions
             RectF32 rect,
             float headerHeight, float itemHeight, float fontSize, float padding)
         {
-            var scrollBarWidth = ScrollBar.Width(dpiScale);
-            var listW = rect.Width - scrollBarWidth;
             var searchH = (int)(itemHeight * 1.1f);
 
             // Sub-layout: header top, search strip below, items fill remainder
@@ -303,10 +292,19 @@ namespace TianWen.UI.Abstractions
             var searchStripRect = listLayout.Dock(PixelDockStyle.Top, searchH + 4f);
             _listItemsRect = listLayout.Fill();
 
+            // Hand the controller this frame's geometry (viewport = the items rect, one atom = one row) up
+            // front, so ContentArea -- the width with the scrollbar column reserved -- drives the header and
+            // row widths. The controller owns the offset + wheel/drag/thumb math + the trackpad carry, and
+            // VisibleRows() below owns per-row placement; the consumer keeps no scrollbar-width math.
+            var filtered = _lastFilteredTargets;
+            var totalItems = filtered.Count;
+            _targetScroll.SetExtent(_listItemsRect, itemHeight, totalItems, dpiScale);
+            var contentW = _targetScroll.ContentArea.Width;
+
             // Save search bar geometry for dropdown overlay
             _searchBarBottom = searchStripRect.Bottom;
             _searchBarLeft = rect.X + padding;
-            _searchBarWidth = listW - padding * 2f;
+            _searchBarWidth = contentW - padding * 2f;
 
             // Opaque background covers the chart behind the list
             FillRect(rect.X, rect.Y, rect.Width, rect.Height, PanelBgOpaque);
@@ -314,7 +312,7 @@ namespace TianWen.UI.Abstractions
             // Header row with clickable filter button
             FillRect(headerRect.X, headerRect.Y, headerRect.Width, headerRect.Height, HeaderBg);
             DrawText("Tonight's Best".AsSpan(), fontPath,
-                headerRect.X + padding, headerRect.Y, listW * 0.6f, headerRect.Height,
+                headerRect.X + padding, headerRect.Y, contentW * 0.6f, headerRect.Height,
                 fontSize, HeaderText, TextAlign.Near, TextAlign.Center);
 
             // Filter button on the right side of header
@@ -323,7 +321,7 @@ namespace TianWen.UI.Abstractions
                 : "All";
             var filterBtnW = MeasureButtonWidth(filterBtnLabel, fontPath, fontSize * 0.9f, padding * 1.5f);
             var filterBtnH = headerRect.Height * 0.75f;
-            var filterBtnX = headerRect.X + listW - filterBtnW - padding;
+            var filterBtnX = headerRect.X + contentW - filterBtnW - padding;
             var filterBtnY = headerRect.Y + (headerRect.Height - filterBtnH) / 2f;
             var filterBtnBg = state.MinRatingFilter > 0f ? ActiveFilterBg : FilterBtnBg;
             RenderButton(filterBtnLabel, filterBtnX, filterBtnY, filterBtnW, filterBtnH,
@@ -338,35 +336,20 @@ namespace TianWen.UI.Abstractions
             // Search input below header (within the search strip, with 2px top gap)
             RenderTextInput(state.SearchInput,
                 (int)(rect.X + padding), (int)(searchStripRect.Y + 2),
-                (int)(listW - padding * 2f), searchH, fontPath, fontSize * 0.9f);
-
-            var filtered = _lastFilteredTargets;
-            var totalItems = filtered.Count;
-            var visibleRows  = Math.Max(1, (int)(_listItemsRect.Height / itemHeight));
-            VisibleRows = visibleRows;
-            var maxScroll    = Math.Max(0, totalItems - visibleRows);
-
-            // Clamp scroll
-            if (ScrollOffset < 0)       ScrollOffset = 0;
-            if (ScrollOffset > maxScroll) ScrollOffset = maxScroll;
+                (int)(contentW - padding * 2f), searchH, fontPath, fontSize * 0.9f);
 
             var pinnedCount = state.PinnedCount;
             var drawnSeparator = false;
 
-            for (var i = ScrollOffset; i < totalItems; i++)
+            // VisibleRows() yields each visible atom with its content rect (scrollbar column reserved,
+            // overflow clipped) -- no hand-rolled rowY / content width / break here.
+            foreach (var (i, rowRect) in _targetScroll.VisibleRows())
             {
-                var rowY = _listItemsRect.Y + (i - ScrollOffset) * itemHeight;
-
                 // Draw separator line between pinned and unpinned sections
                 if (!drawnSeparator && i >= pinnedCount && pinnedCount > 0)
                 {
-                    FillRect(rect.X + padding, rowY - 1f, listW - padding * 2f, 1f, SeparatorColor);
+                    FillRect(rowRect.X + padding, rowRect.Y - 1f, rowRect.Width - padding * 2f, 1f, SeparatorColor);
                     drawnSeparator = true;
-                }
-
-                if (rowY + itemHeight > _listItemsRect.Bottom)
-                {
-                    break;
                 }
 
                 var scored     = filtered[i];
@@ -379,8 +362,6 @@ namespace TianWen.UI.Abstractions
                 var rowTextColor = isSelected ? SelectedText
                                  : isPinned   ? PinnedText
                                               : ItemText;
-
-                var capturedIdx = i;
 
                 // Altitude / peak time shown right-aligned (start time for pinned, peak altitude otherwise).
                 string infoStr;
@@ -432,13 +413,17 @@ namespace TianWen.UI.Abstractions
                 }
 
                 // Whole row: [pad | name * | type | info | pad | pin]. Column widths + fonts are raw design
-                // units (the engine applies dpiScale); the bounds rect is listW px wide so the Star name cell
-                // fills exactly what the old nameW computed. The row carries the select hit; pinLeaf its own.
+                // units (the engine applies dpiScale); the row is arranged into rowRect (the controller's
+                // per-atom content rect) so the Star name cell fills the remaining width. Only pinLeaf carries
+                // a hit; the row body is unclaimed so a press falls through to the controller (tap selects).
                 Layout.Node Spacer() => Layout.Builder.Spacer().ColW(BasePadding);
                 Layout.Node Cell(string text, float fontMul, RGBAColor32 color, TextAlign halign, float widthDesign) =>
                     widthDesign > 0f
                         ? Layout.Builder.Text(text, BaseFontSize * fontMul, color, halign, TextAlign.Center).WFixed(widthDesign).HStar()
                         : Layout.Builder.Text(text, BaseFontSize * fontMul, color, halign, TextAlign.Center).Stretch();
+                // Row select is no longer a registered clickable: a press on the row body falls through to
+                // the controller (tap-on-release selects, drag scrolls). The pin button stays a registered
+                // clickable and wins first via HitTestAndDispatch (topmost / later-registration).
                 var row = Layout.Builder.HStack(
                     Spacer(),
                     Cell(scored.Target.Name, 1f, rowTextColor, TextAlign.Near, 0f),
@@ -446,16 +431,13 @@ namespace TianWen.UI.Abstractions
                     Cell(infoStr, 1f, isSelected ? SelectedText : DimText, TextAlign.Far, BaseFontSize * 3.5f),
                     Spacer(),
                     pinLeaf)
-                    .Bg(rowBg)
-                    .Clickable(new HitResult.ListItemHit("TargetList", i), _ => { state.SelectedTargetIndex = capturedIdx; state.NeedsRedraw = true; });
-                RenderLayout(row, new RectF32(rect.X, rowY, listW, itemHeight), fontPath, dpiScale);
+                    .Bg(rowBg);
+                RenderLayout(row, rowRect, fontPath, dpiScale);
             }
 
-            var sbX = rect.X + listW;
-            _scrollBarTrackRect = new RectF32(sbX, _listItemsRect.Y, scrollBarWidth, _listItemsRect.Height);
-            _scrollBarDpiScale = dpiScale;
-            ScrollBar.Draw(FillRect, sbX, _listItemsRect.Y, _listItemsRect.Height,
-                totalItems, visibleRows, ScrollOffset, dpiScale);
+            // Scrollbar: the controller draws its own track + thumb at the right edge of its viewport
+            // (no-op when the list fits).
+            _targetScroll.DrawScrollBar(FillRect);
 
             // Autocomplete dropdown (overlay, painted last so it's on top)
             if (state.Suggestions.Count > 0 && state.SearchInput.IsActive)
@@ -571,60 +553,62 @@ namespace TianWen.UI.Abstractions
         // Input handling
         // -----------------------------------------------------------------------
 
-        public override bool HandleInput(InputEvent evt) => evt switch
+        public override bool HandleInput(InputEvent evt)
         {
-            InputEvent.Scroll(var scrollY, var mouseX, var mouseY, _)
-                when _targetListRect.Contains(mouseX, mouseY) => HandleTargetListScroll(scrollY),
-            InputEvent.MouseDown(var dx, var dy, _, _, _) when HandleTargetListMouseDown(dx, dy) => true,
-            // Mouse move consumed while dragging the scrollbar, otherwise flags redraw for follower overlay.
-            InputEvent.MouseMove(_, var my) when _targetScrollDrag.IsDragging && HandleTargetListMouseMove(my) => true,
-            InputEvent.MouseMove(var mx, var my) => _chartRect.Contains(mx, my),
-            InputEvent.MouseUp(_, _, _) when _targetScrollDrag.IsDragging => HandleTargetListMouseUp(),
-            InputEvent.KeyDown(var key, var modifiers) => HandlePlannerKey(key, modifiers),
-            _ => false
-        };
+            switch (evt)
+            {
+                // Wheel over the list panel scrolls the target list. The controller gates on the items
+                // rect and keeps the fractional trackpad carry in its offset (the old ref-float accum).
+                case InputEvent.Scroll(_, var sx, var sy, _) when _targetListRect.Contains(sx, sy):
+                    if (_targetScroll.HandleInput(evt) && _state is not null) _state.NeedsRedraw = true;
+                    return true;
 
-        // Fractional wheel carry for the target list (trackpad / precision-wheel deltas below one row).
-        private float _targetListWheelAccum;
+                // Unclaimed left press (row sub-buttons are registered clickables that win first via
+                // HitTestAndDispatch): arm the surface tap-or-drag, or grab the scrollbar thumb/track.
+                case InputEvent.MouseDown(_, _, MouseButton.Left, _, _):
+                    return ForwardTargetListInput(evt);
 
-        private bool HandleTargetListScroll(float scrollY)
+                // Drag scrolls; otherwise flag a redraw for the chart's mouse follower.
+                case InputEvent.MouseMove(var mx, var my):
+                    if (_targetScroll.HandleInput(evt))
+                    {
+                        if (_state is not null) _state.NeedsRedraw = true;
+                        return true;
+                    }
+                    return _chartRect.Contains(mx, my);
+
+                // Release: end a drag, or select the tapped row (tap-on-release).
+                case InputEvent.MouseUp(_, _, MouseButton.Left):
+                    return HandleTargetListRelease(evt);
+
+                case InputEvent.KeyDown(var key, var modifiers):
+                    return HandlePlannerKey(key, modifiers);
+
+                default:
+                    return false;
+            }
+        }
+
+        private bool ForwardTargetListInput(InputEvent evt)
         {
-            ScrollOffset = ScrollBar.HandleWheel(scrollY, ScrollOffset, _lastFilteredTargets.Count, VisibleRows, ref _targetListWheelAccum);
-            if (_state is not null)
+            var consumed = _targetScroll.HandleInput(evt);
+            if (consumed && _state is not null) _state.NeedsRedraw = true;
+            return consumed;
+        }
+
+        private bool HandleTargetListRelease(InputEvent evt)
+        {
+            var consumed = _targetScroll.HandleInput(evt);
+            if (_targetScroll.TakeAtomTap() is { } atom && _state is { } state && atom < _lastFilteredTargets.Count)
+            {
+                state.SelectedTargetIndex = atom;
+                state.NeedsRedraw = true;
+            }
+            else if (consumed && _state is not null)
             {
                 _state.NeedsRedraw = true;
             }
-            return true;
-        }
-
-        private bool HandleTargetListMouseDown(float mx, float my)
-        {
-            var next = ScrollBar.HandleMouseDown(
-                ref _targetScrollDrag, mx, my,
-                _scrollBarTrackRect.X, _scrollBarTrackRect.Y, _scrollBarTrackRect.Height,
-                _lastFilteredTargets.Count, VisibleRows, ScrollOffset, _scrollBarDpiScale);
-            if (next is not { } offset) return false;
-            ScrollOffset = offset;
-            if (_state is not null) _state.NeedsRedraw = true;
-            return true;
-        }
-
-        private bool HandleTargetListMouseMove(float my)
-        {
-            var next = ScrollBar.HandleMouseMove(
-                in _targetScrollDrag, my,
-                _scrollBarTrackRect.Y, _scrollBarTrackRect.Height,
-                _lastFilteredTargets.Count, VisibleRows, _scrollBarDpiScale);
-            if (next is not { } offset || offset == ScrollOffset) return false;
-            ScrollOffset = offset;
-            if (_state is not null) _state.NeedsRedraw = true;
-            return true;
-        }
-
-        private bool HandleTargetListMouseUp()
-        {
-            ScrollBar.HandleMouseUp(ref _targetScrollDrag);
-            return true;
+            return consumed;
         }
 
         private bool HandlePlannerKey(InputKey key, InputModifier modifiers)

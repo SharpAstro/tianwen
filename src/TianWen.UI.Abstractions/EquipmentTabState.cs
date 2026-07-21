@@ -84,8 +84,7 @@ public class EquipmentTabState
     // Assignment mode: when non-null, clicking a device in the list assigns it to this slot
     public AssignTarget? ActiveAssignment { get; set; }
 
-    // Scrolling
-    public int DeviceScrollOffset { get; set; }
+    // Scrolling (device-list scroll offset now lives in EquipmentTab's ListScrollController)
     public int ProfileScrollOffset { get; set; }
 
     // Profile list (for multi-profile picker)
