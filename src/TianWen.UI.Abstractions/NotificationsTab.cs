@@ -27,11 +27,12 @@ namespace TianWen.UI.Abstractions
         private const float BaseFontSize  = 13f;
         private const float BasePadding   = 10f;
 
-        /// <summary>Scroll offset in pixels (top of list).</summary>
-        public int ScrollOffset { get; set; }
+        // Atom-model scroll controller (DIR.Lib): one notification row is one atom. Smooth (pixel-precise)
+        // sub-row scrolling with a decorative scrollbar; owns the offset + wheel accumulator + clamp, and
+        // VisibleRows() owns row placement.
+        private readonly ListScrollController _scroll = new ListScrollController { Mode = ScrollBarMode.Decorative };
 
         private RectF32 _listRect;
-        private float _totalContentHeight;
 
         public void Render(
             GuiAppState appState,
@@ -88,29 +89,23 @@ namespace TianWen.UI.Abstractions
                 DrawText("No notifications yet.".AsSpan(), fontPath,
                     _listRect.X, _listRect.Y, _listRect.Width, _listRect.Height,
                     fontSize, EmptyText, TextAlign.Center, TextAlign.Center);
-                _totalContentHeight = 0;
                 return;
             }
 
-            _totalContentHeight = entries.Length * rowH;
-            var maxScroll = Math.Max(0, (int)(_totalContentHeight - _listRect.Height));
-            ScrollOffset = Math.Clamp(ScrollOffset, 0, maxScroll);
+            // Hand the controller this frame's geometry (viewport = list rect, one atom = one row). It owns
+            // the offset + wheel accumulator (a trackpad delta no longer truncates to zero) + clamp;
+            // VisibleRows() places each row with the smooth sub-row shift and reserves the scrollbar column.
+            _scroll.SetExtent(_listRect, rowH, entries.Length, dpiScale);
 
-            // Render visible rows only.
-            var firstVisible = Math.Max(0, (int)(ScrollOffset / rowH));
-            var lastVisible = Math.Min(entries.Length - 1,
-                (int)Math.Ceiling((ScrollOffset + _listRect.Height) / rowH));
-
-            for (var i = firstVisible; i <= lastVisible; i++)
+            foreach (var (i, rowRect) in _scroll.VisibleRows())
             {
                 var entry = entries[i];
-                var rowY = _listRect.Y + i * rowH - ScrollOffset;
-                if (rowY + rowH < _listRect.Y || rowY > _listRect.Y + _listRect.Height) continue;
+                var rowY = rowRect.Y;
 
                 // Alternating row background
                 if ((i & 1) == 1)
                 {
-                    FillRect(_listRect.X, rowY, _listRect.Width, rowH, RowAltBg);
+                    FillRect(rowRect.X, rowY, rowRect.Width, rowH, RowAltBg);
                 }
 
                 // Severity stripe on the left
@@ -120,12 +115,12 @@ namespace TianWen.UI.Abstractions
                     NotificationSeverity.Warning => WarnStripe,
                     _                            => InfoStripe
                 };
-                FillRect(_listRect.X, rowY, 3f * dpiScale, rowH, stripeColor);
+                FillRect(rowRect.X, rowY, 3f * dpiScale, rowH, stripeColor);
 
                 // Timestamp (HH:mm:ss) in the single app-wide site timezone -- never the
                 // machine TZ (.ToLocalTime would show UTC on a UTC-set machine).
                 var tsText = entry.When.ToOffset(appState.SiteTimeZone).ToString("HH:mm:ss");
-                var tsX = _listRect.X + 10f * dpiScale;
+                var tsX = rowRect.X + 10f * dpiScale;
                 var tsW = 70f * dpiScale;
                 DrawText(tsText.AsSpan(), fontPath,
                     tsX, rowY, tsW, rowH, fontSize * 0.9f, DimText, TextAlign.Near, TextAlign.Center);
@@ -135,35 +130,19 @@ namespace TianWen.UI.Abstractions
                 // (info panel status is always one line anyway) and the row widens
                 // horizontally via the renderer's own glyph clipping at edge.
                 var msgX = tsX + tsW + 8f * dpiScale;
-                var msgW = _listRect.X + _listRect.Width - msgX - pad;
+                var msgW = rowRect.Right - msgX - pad;
                 DrawText(entry.Message.AsSpan(), fontPath,
                     msgX, rowY, msgW, rowH, fontSize, BodyText, TextAlign.Near, TextAlign.Center);
             }
 
-            // Scrollbar on the right edge, if content exceeds viewport.
-            if (_totalContentHeight > _listRect.Height)
-            {
-                var trackW = 4f * dpiScale;
-                var trackX = _listRect.X + _listRect.Width - trackW - 2f * dpiScale;
-                FillRect(trackX, _listRect.Y, trackW, _listRect.Height, new RGBAColor32(0x22, 0x22, 0x2c, 0xff));
-                var thumbH = Math.Max(20f * dpiScale, _listRect.Height * (_listRect.Height / _totalContentHeight));
-                var thumbY = _listRect.Y + (ScrollOffset / _totalContentHeight) * _listRect.Height;
-                FillRect(trackX, thumbY, trackW, thumbH, new RGBAColor32(0x55, 0x55, 0x66, 0xff));
-            }
+            // Decorative scrollbar at the right edge (no-op when the list fits).
+            _scroll.DrawScrollBar(FillRect);
         }
 
         public override bool HandleInput(InputEvent evt) => evt switch
         {
-            InputEvent.Scroll(var scrollY, var mx, var my, _) when _listRect.Contains(mx, my)
-                => HandleScroll(scrollY),
+            InputEvent.Scroll(_, var mx, var my, _) when _listRect.Contains(mx, my) => _scroll.HandleInput(evt),
             _ => false
         };
-
-        private bool HandleScroll(float scrollY)
-        {
-            var delta = (int)(scrollY * BaseRowHeight);
-            ScrollOffset = Math.Clamp(ScrollOffset - delta, 0, int.MaxValue);
-            return true;
-        }
     }
 }
