@@ -78,10 +78,10 @@ UI-refactor bar is "all elements present + similar footprint", not pixel-perfect
 | Phase | Scope | Notes |
 |---|---|---|
 | L1 | **GuiderTab** full conversion -- **DONE 2026-07-21** | The whole tab is ONE tree (`BuildFrameTree`: header HStack, stats VStack via list-building instead of cursor arithmetic, panel titles, empty-state Text leaves); the four raster panes (camera / profile plot / target scatter / graph) paint inside keyed Fill leaves via the `drawFill` callback, with pane backgrounds on the nodes. Placeholder states are their own tree. 70 raw draw sites -> 0 outside the Fill painters. New `GuiderTabLayoutTests` (6: arranged-rect pins at 1x + 2x DPI, placeholder, sentinel paint sweep at 3 sizes) + `InternalsVisibleTo` for UI.Abstractions (rect test seams stay internal). Live-smoked: tab now appears in `describe_layout` (was invisible -- no DSL usage before); frame_stats 2.1 ms avg (floor 40). Guiding-state layout pinned offline (needs a running session to live-smoke). |
-| L2 | **EquipmentTab cursor-kill + SessionTab leftovers** -- **IN PROGRESS 2026-07-21** | Prep: 2220-line `EquipmentTab.cs` split into 6 concern partials (core / ProfilePanel / DeviceList / Telemetry / DeviceSettings / FilterTable). Converted: mount-status + camera-cooler readout rows -> HStack-of-cells trees (net -37; live-verified with connected fakes). **Remaining:** the per-section cursor-stitch walk in `RenderProfilePanel` -> one arranged VStack (each section returns a `Layout.Node`, raster/text-input escape hatches as keyed Fills dispatched by a `_panelFills` table); device-list row body; device-settings + filter-table row loops. The connected-device panels need live-smoke (ConnectAllDevices signal + expand the pane) since they don't render offline. |
-| L3 | **LiveSessionTab side panels + strips** | Panels/Strips/Flats/Polar; `FormRowLayout` already provides steppers/pills/labeled rows. Charts + preview stay Fill leaves; image-aligned overlays stay pixel. Second perf checkpoint. |
-| L4 | **Viewer chrome content** | Toolbar buttons, InfoPanel line stack, Transport buttons, StatusBar, FileList row template. `TrackSlider` stays a control (U1 of [controls-upstreaming.md](controls-upstreaming.md) promotes it). |
-| L5 | **SkyMap F3 modal + object info panel, Notifications rows, Planner rows/details** | Pairs naturally with U2 (`SearchInteraction` base) but doesn't depend on it. |
+| L2 | **EquipmentTab cursor-kill** -- **MOSTLY DONE 2026-07-21** | Prep: 2220-line `EquipmentTab.cs` split into 6 concern partials (core / ProfilePanel / DeviceList / Telemetry / DeviceSettings / FilterTable). Converted (all live-verified with connected fakes): mount-status + camera-cooler readout rows, cooler-controls row, device-settings rows (cycle / stepper / string editor), filter-table header + rows -> HStack/VStack trees (net ~-136 across commits). **Remaining (intentionally deferred):** the device-list ROW body (badge/name/status columns interleaved with reachability/confirm-strip/segment business logic + inset badge pill + status-dot square -- poor reduction-per-risk, stays); the `RenderProfilePanel` section-walk cursor is now a thin orchestrator (bulk moved into per-section trees), left as-is. |
+| L3 | **LiveSessionTab side panels + strips** -- **PARTIAL 2026-07-21** | Converted: running-session mount block, preview focuser jog row (preview capture/gain steppers were already `FormRowLayout.StepperControl`). Remaining: preview per-OTA text rows (name/temp/foc/filter -- lone `DrawText`s into given rects, minimal math, low value), strips/flats/polar side panels. Charts + preview image stay Fill leaves; image-aligned overlays (reticle, ROI) stay pixel. |
+| L4 | **Viewer chrome** -- **MINIMAL, mostly intentionally-pixel 2026-07-21** | Finding: the viewer chrome is dominated by **interactive controls** (Toolbar with per-button hover hit-testing + `_toolbarButtonBounds` dropdown anchors + a separate `HitTestToolbar`; WB / wavelet / transport-scrub **drag sliders** via `DrawTrackSlider`) and **raster** (histogram) -- all the intentionally-pixel categories, NOT static chrome. StatusBar is already a single joined-text `RenderTextBar` (no positioning math). FileList already on `ListScrollController`. So L4 has almost nothing to convert -- the plan overestimated it. `TrackSlider` promotion is U1 of [controls-upstreaming.md](controls-upstreaming.md). |
+| L5 | **SkyMap F3 modal, Notifications, Planner rows** -- **PARTIAL 2026-07-21** | Notifications rows -> tree (done, live-verified). Remaining: SkyMap F3 search modal (has an interactive text input; the results-list rows are convertible) + Planner rows/details (chart + list already largely tree-driven from P3). Pairs with U2 (`SearchInteraction` base) but doesn't depend on it. |
 
 ## Perf note
 
@@ -91,12 +91,34 @@ Trees are per-frame allocated records; Planner (frame), Session (whole form), an
 (`frame_stats`, `TianWen.UI.Benchmarks` if suspicious) before optimizing. Contingency (only if
 measured): a pooled/arena `Layout.Builder` in DIR.Lib -- a 6.16+ item, do not pre-build it.
 
+## What stays pixel by design (the refined taxonomy)
+
+The L1-L4 conversions surfaced a sharper rule than "raster stays pixel": layout conversion applies to
+**static chrome** (labels, rows, panels, buttons, status text, steppers). Two categories legitimately
+stay pixel, and trying to force them into the DSL is a mistake:
+
+1. **Raster content** -- charts (altitude, guide graph, star profile, target scatter, V-curve),
+   histogram, sky-map star field, cooling sparklines, the image itself (`ConfineToViewport`), and
+   on-image overlays (guide reticle, planetary ROI). Keyed `Fill` leaves are their correct form; the
+   painter draws inside the arranged rect.
+2. **Interactive controls with per-element rect coupling** -- a `.Bg` is set at tree-BUILD time, before
+   arrange, so anything whose appearance/behaviour depends on its own arranged rect resists the tree:
+   the viewer **Toolbar** (per-button hover highlight from mouseX/Y vs the button rect + dropdown
+   anchoring off `_toolbarButtonBounds`), the **drag sliders** (`DrawTrackSlider` captures a hit-band
+   rect the drag math reads back), and the **transport scrub**. These are `TrackSlider`/toolbar
+   controls, the same "control internals" bucket as `ListScrollController.DrawScrollBar`.
+
+Also intentionally pixel: hairline separators (a single `FillRect` line) and fractional progress-bar
+gauges (fill width = w x fraction) -- not worth an Overlay + star-weight tree.
+
 ## Non-goals
 
-- Charts, histogram, sky-map star field, image placement (`ConfineToViewport`), and on-image
-  overlays to the DSL -- they ARE raster content; keyed Fill leaves are their correct form.
+- The two categories above (raster + interactive controls) -- forcing them into the DSL is the mistake.
 - The TUI (`Console.Lib` widgets are a different, already-declarative model).
 - A DIR.Lib list *widget* (heterogeneous rows decision stands; row templates stay consumer-owned).
+- A blind atomic rewrite of a whole tab's panel into one VStack when the sections are already thin
+  orchestrators over per-section trees (Equipment `RenderProfilePanel`) -- the cursor stitch that
+  remains is a handful of lines, not the bulk.
 
 ## Definition of done
 
