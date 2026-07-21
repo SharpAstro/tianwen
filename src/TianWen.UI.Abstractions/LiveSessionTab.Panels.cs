@@ -173,57 +173,35 @@ namespace TianWen.UI.Abstractions
                 }
             }
 
-            // Mount status section (below OTAs, full width)
+            // Mount status section (below OTAs, full width) as one padded VStack: name row (status dot +
+            // name), status+pier, RA/HA, Dec, and an optional target row. Was six hand-positioned draws.
             var mountY = rect.Y + rect.Height - rowH * 6 - pad;
             if (mountY > rect.Y + rect.Height * 0.35f) // only show if there's room
             {
-                FillRect(rect.X, mountY, rect.Width, 1, SeparatorColor);
-                mountY += pad;
+                FillRect(rect.X, mountY, rect.Width, 1, SeparatorColor); // hairline divider stays a single pixel line
 
-                // Mount name row
-                var mountName = session.Setup.Mount.Device.DisplayName;
                 var ms = state.MountState;
-                var dotColor = ms.IsSlewing ? StatusSlewing
-                    : ms.IsTracking ? StatusTracking
-                    : DimText;
-                var dotSize = rowH * 0.4f;
-                FillRect(rect.X + pad, mountY + (rowH - dotSize) / 2, dotSize, dotSize, dotColor);
-                DrawText(mountName, fontPath,
-                    rect.X + pad + dotSize + pad, mountY, rect.Width - pad * 3 - dotSize, rowH,
-                    smallFs, HeaderText, TextAlign.Near, TextAlign.Center);
-                mountY += rowH;
-
-                // Status + pier side row
+                var dotColor = ms.IsSlewing ? StatusSlewing : ms.IsTracking ? StatusTracking : DimText;
                 var pierLabel = ms.PierSide is Lib.Devices.PointingState.Normal ? "E" : ms.PierSide is Lib.Devices.PointingState.ThroughThePole ? "W" : "";
                 var mountStatus = ms.IsSlewing ? "Slewing" : ms.IsTracking ? "Tracking" : "Idle";
                 var statusColor = ms.IsSlewing ? StatusSlewing : ms.IsTracking ? StatusTracking : DimText;
-                DrawText($"{mountStatus}  {pierLabel}", fontPath,
-                    rect.X + pad, mountY, rect.Width - pad * 2, rowH,
-                    smallFs, statusColor, TextAlign.Near, TextAlign.Center);
-                mountY += rowH;
-
-                // RA + HA on one row
                 var raStr = Lib.Astrometry.CoordinateUtils.HoursToHMS(ms.RightAscension, withFrac: false);
                 var haStr = $"HA {ms.HourAngle:+0.00;-0.00}h";
-                DrawText($"RA {raStr}  {haStr}", fontPath,
-                    rect.X + pad, mountY, rect.Width - pad * 2, rowH,
-                    smallFs, BodyText, TextAlign.Near, TextAlign.Center);
-                mountY += rowH;
-
-                // Dec on separate row
                 var decStr = Lib.Astrometry.CoordinateUtils.DegreesToDMS(ms.Declination, withFrac: false);
-                DrawText($"Dec {decStr}", fontPath,
-                    rect.X + pad, mountY, rect.Width - pad * 2, rowH,
-                    smallFs, BodyText, TextAlign.Near, TextAlign.Center);
-                mountY += rowH;
 
-                // Target name (if observing)
-                if (state.ActiveObservation is { Target: var target })
-                {
-                    DrawText($"\u2609 {target.Name}", fontPath,
-                        rect.X + pad, mountY, rect.Width - pad * 2, rowH,
-                        smallFs, DimText, TextAlign.Near, TextAlign.Center);
-                }
+                var nameRow = Layout.Builder.HStack(
+                        Layout.Builder.Text("\u25cf", BaseFontSize * 0.7f, dotColor, TextAlign.Center, TextAlign.Center).WFixed(BaseRowHeight * 0.6f).HStar(),
+                        Layout.Builder.Text(session.Setup.Mount.Device.DisplayName, BaseFontSize * 0.85f, HeaderText).WStar().HStar())
+                    .RowH(BaseRowHeight);
+                var statusRow = Layout.Builder.Text($"{mountStatus}  {pierLabel}", BaseFontSize * 0.85f, statusColor).RowH(BaseRowHeight);
+                var raHaRow = Layout.Builder.Text($"RA {raStr}  {haStr}", BaseFontSize * 0.85f, BodyText).RowH(BaseRowHeight);
+                var decRow = Layout.Builder.Text($"Dec {decStr}", BaseFontSize * 0.85f, BodyText).RowH(BaseRowHeight);
+
+                var mountTree = state.ActiveObservation is { Target: var target }
+                    ? Layout.Builder.VStack(nameRow, statusRow, raHaRow, decRow,
+                        Layout.Builder.Text($"\u2609 {target.Name}", BaseFontSize * 0.85f, DimText).RowH(BaseRowHeight)).Pad(BasePadding)
+                    : Layout.Builder.VStack(nameRow, statusRow, raHaRow, decRow).Pad(BasePadding);
+                RenderLayout(mountTree, new RectF32(rect.X, mountY, rect.Width, rect.Y + rect.Height - mountY), fontPath, dpiScale);
             }
         }
 
