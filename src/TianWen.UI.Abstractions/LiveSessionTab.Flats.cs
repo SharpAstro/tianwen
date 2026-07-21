@@ -51,74 +51,19 @@ namespace TianWen.UI.Abstractions
         private void RenderFlatsSidePanel(LiveSessionState state, RectF32 rect, string fontPath,
             float fontSize, float dpiScale, float pad, float rowH)
         {
-            var x0 = rect.X + pad;
-            var w = rect.Width - pad * 2;
-
-            DrawText("Flat Capture", fontPath,
-                x0, rect.Y, w, rowH,
-                fontSize, HeaderText, TextAlign.Near, TextAlign.Center);
-
-            // A run is in flight iff a CTS is live (mirrors PolarAlignmentCts). No run -> setup form.
-            if (state.FlatsCts is null)
+            // A run is in flight iff a CTS is live (mirrors PolarAlignmentCts). Running -> phase/status/Cancel.
+            if (state.FlatsCts is not null)
             {
-                RenderFlatsSetupRows(state, rect, x0, rect.Y + rowH + pad, w, rowH, fontPath, fontSize, dpiScale, pad);
+                DrawText("Flat Capture", fontPath,
+                    rect.X + pad, rect.Y, rect.Width - pad * 2, rowH, fontSize, HeaderText, TextAlign.Near, TextAlign.Center);
+                RenderFlatsRunningRows(state, rect, rect.X + pad, rect.Y + rowH + pad, rect.Width - pad * 2, rowH, fontPath, fontSize, dpiScale, pad);
                 return;
             }
 
-            RenderFlatsRunningRows(state, rect, x0, rect.Y + rowH + pad, w, rowH, fontPath, fontSize, dpiScale, pad);
-        }
-
-        /// <summary>
-        /// Setup-phase rendering: source selector (3-way cycle), flats-per-filter stepper, a prominent
-        /// Start button, and a Cancel-back-to-Preview. Posts <c>StartFlatsSignal</c> with the working-copy
-        /// source + count when the user clicks Start.
-        /// </summary>
-        private void RenderFlatsSetupRows(
-            LiveSessionState state, RectF32 rect,
-            float x0, float y, float w, float rowH, string fontPath, float fontSize, float dpiScale, float pad)
-        {
-            var labelW = w * 0.42f;
-            var btnW = (w - labelW) / 4f;
-            var valW = (w - labelW) / 2f;
-            var smallFs = fontSize * 0.78f;
-
-            // ---- Illumination source (3-way cycle) ---------------------------
-            DrawText("Source", fontPath, x0, y, labelW, rowH, smallFs, DimText, TextAlign.Near, TextAlign.Center);
-            var srcBtn = Layout.Builder.Text(FlatSourceLabel(state.FlatSetupSource), smallFs / dpiScale, BodyText, TextAlign.Center, TextAlign.Center)
-                .Stretch().Bg(new RGBAColor32(0x44, 0x66, 0x99, 0xff))
-                .Clickable(new HitResult.ButtonHit("FlatsSetupSource"), _ =>
-                {
-                    state.FlatSetupSource = state.FlatSetupSource switch
-                    {
-                        FlatIlluminationChoice.Calibrator => FlatIlluminationChoice.SkyDusk,
-                        FlatIlluminationChoice.SkyDusk => FlatIlluminationChoice.SkyDawn,
-                        _ => FlatIlluminationChoice.Calibrator,
-                    };
-                    state.NeedsRedraw = true;
-                });
-            RenderLayout(srcBtn, new RectF32(x0 + labelW, y, w - labelW, rowH), fontPath, dpiScale);
-            y += rowH;
-
-            // ---- Flats per filter --------------------------------------------
-            y = RenderConfigRow(
-                "Per filter", $"{state.FlatSetupPerFilter}",
-                x0, y, labelW, btnW, valW, rowH, fontPath, smallFs, dpiScale, pad,
-                "FlatsSetupCountMinus",
-                () =>
-                {
-                    state.FlatSetupPerFilter = Math.Max(1, state.FlatSetupPerFilter - 1);
-                    state.NeedsRedraw = true;
-                },
-                "FlatsSetupCountPlus",
-                () =>
-                {
-                    state.FlatSetupPerFilter = Math.Min(100, state.FlatSetupPerFilter + 1);
-                    state.NeedsRedraw = true;
-                });
-
-            y += pad;
-
-            // ---- Source hint -------------------------------------------------
+            // SETUP: the WHOLE panel is ONE tree rooted at the host-provided rect -- there is no internal
+            // x0/y cursor and no per-row `new RectF32`. Header + source + count + hint stack from the top
+            // (the Dock fill); Cancel/Start pin to the bottom (Dock.Bottom). Every sub-rect the panel draws
+            // comes from the arrangement, not hand-computed pixels; the only rect passed is the panel's own.
             var hint = state.FlatSetupSource switch
             {
                 FlatIlluminationChoice.Calibrator => "Uses the OTA's cover/calibrator (flip-flat, panel, or manual light panel). Converge once, then shoot.",
@@ -126,39 +71,64 @@ namespace TianWen.UI.Abstractions
                 FlatIlluminationChoice.SkyDawn => "Slews near the anti-solar zenith (tracking off) and re-meters each frame as the sky brightens.",
                 _ => ""
             };
-            DrawText(hint, fontPath, x0, y, w, rowH * 3, smallFs, DimText, TextAlign.Near, TextAlign.Near);
-
-            // ---- Start / Cancel (anchored at panel bottom) -------------------
-            var buttonY = rect.Y + rect.Height - rowH * 3 - pad * 3;
-            RenderButton("Cancel", x0, buttonY, w, rowH * 1.2f,
-                fontPath, fontSize * 0.85f,
-                new RGBAColor32(0x33, 0x33, 0x3a, 0xff), DimText,
-                "FlatsSetupBack",
-                _ =>
-                {
-                    state.Mode = LiveSessionMode.Preview;
-                    state.FlatStatusMessage = "";
-                    state.NeedsRedraw = true;
-                });
-            buttonY += rowH * 1.2f + pad;
-
             var (canStart, reason) = EvaluateFlatsPreconditions(state);
-            var startBg = canStart ? new RGBAColor32(0x44, 0xaa, 0x66, 0xff) : new RGBAColor32(0x33, 0x33, 0x3a, 0xff);
-            var startFg = canStart ? BrightText : DimText;
-            RenderButton("Start", x0, buttonY, w, rowH * 1.6f,
-                fontPath, fontSize,
-                startBg, startFg,
-                "FlatsSetupStart",
-                _ =>
-                {
-                    if (!canStart)
+
+            Layout.Node LabeledRow(string label, Layout.Node control) =>
+                Layout.Builder.HStack(
+                        Layout.Builder.Text(label, BaseFontSize * 0.78f, DimText).WStar(0.42f).HStar(),
+                        control.WStar(0.58f).HStar())
+                    .RowH(BaseRowHeight);
+
+            Layout.Node CountStep(string glyph, string action, Action onClick) =>
+                Layout.Builder.Text(glyph, BaseFontSize * 0.78f, BodyText, TextAlign.Center, TextAlign.Center)
+                    .WFixed(24f).HStar().Bg(new RGBAColor32(0x2a, 0x2a, 0x35, 0xff))
+                    .Clickable(new HitResult.ButtonHit(action), _ => { onClick(); });
+
+            Layout.Node Button(string label, string action, float rowScale, RGBAColor32 bg, RGBAColor32 fg, Action<InputModifier> onClick) =>
+                Layout.Builder.Text(label, BaseFontSize * (rowScale > 1.4f ? 1f : 0.85f), fg, TextAlign.Center, TextAlign.Center)
+                    .RowH(BaseRowHeight * rowScale).Bg(bg)
+                    .Clickable(new HitResult.ButtonHit(action), onClick);
+
+            var content = Layout.Builder.VStack(
+                Layout.Builder.Text("Flat Capture", BaseFontSize, HeaderText).RowH(BaseRowHeight),
+                Layout.Builder.Spacer().RowH(BasePadding),
+                LabeledRow("Source",
+                    Layout.Builder.Text(FlatSourceLabel(state.FlatSetupSource), BaseFontSize * 0.78f, BodyText, TextAlign.Center, TextAlign.Center)
+                        .Bg(new RGBAColor32(0x44, 0x66, 0x99, 0xff))
+                        .Clickable(new HitResult.ButtonHit("FlatsSetupSource"), _ =>
+                        {
+                            state.FlatSetupSource = state.FlatSetupSource switch
+                            {
+                                FlatIlluminationChoice.Calibrator => FlatIlluminationChoice.SkyDusk,
+                                FlatIlluminationChoice.SkyDusk => FlatIlluminationChoice.SkyDawn,
+                                _ => FlatIlluminationChoice.Calibrator,
+                            };
+                            state.NeedsRedraw = true;
+                        })),
+                LabeledRow("Per filter",
+                    Layout.Builder.HStack(
+                        CountStep("-", "FlatsSetupCountMinus", () => { state.FlatSetupPerFilter = Math.Max(1, state.FlatSetupPerFilter - 1); state.NeedsRedraw = true; }),
+                        Layout.Builder.Text($"{state.FlatSetupPerFilter}", BaseFontSize * 0.78f, BrightText, TextAlign.Center, TextAlign.Center).Stretch(),
+                        CountStep("+", "FlatsSetupCountPlus", () => { state.FlatSetupPerFilter = Math.Min(100, state.FlatSetupPerFilter + 1); state.NeedsRedraw = true; }))),
+                Layout.Builder.Spacer().RowH(BasePadding),
+                Layout.Builder.Text(hint, BaseFontSize * 0.78f, DimText, TextAlign.Near, TextAlign.Near).RowH(BaseRowHeight * 3f));
+
+            var buttons = Layout.Builder.VStack(
+                Button("Cancel", "FlatsSetupBack", 1.2f, new RGBAColor32(0x33, 0x33, 0x3a, 0xff), DimText,
+                    _ => { state.Mode = LiveSessionMode.Preview; state.FlatStatusMessage = ""; state.NeedsRedraw = true; }),
+                Layout.Builder.Spacer().RowH(BasePadding),
+                Button("Start", "FlatsSetupStart", 1.6f,
+                    canStart ? new RGBAColor32(0x44, 0xaa, 0x66, 0xff) : new RGBAColor32(0x33, 0x33, 0x3a, 0xff),
+                    canStart ? BrightText : DimText,
+                    _ =>
                     {
-                        state.FlatStatusMessage = reason;
-                        state.NeedsRedraw = true;
-                        return;
-                    }
-                    PostSignal(new StartFlatsSignal(state.FlatSetupSource, state.FlatSetupPerFilter));
-                });
+                        if (!canStart) { state.FlatStatusMessage = reason; state.NeedsRedraw = true; return; }
+                        PostSignal(new StartFlatsSignal(state.FlatSetupSource, state.FlatSetupPerFilter));
+                    }));
+
+            var bottomH = BaseRowHeight * 1.2f + BasePadding + BaseRowHeight * 1.6f;
+            var tree = Layout.Builder.Dock(content, Layout.Builder.Bottom(buttons, bottomH)).Pad(BasePadding);
+            RenderLayout(tree, rect, fontPath, dpiScale);
         }
 
         /// <summary>
