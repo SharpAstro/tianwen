@@ -91,6 +91,23 @@ Trees are per-frame allocated records; Planner (frame), Session (whole form), an
 (`frame_stats`, `TianWen.UI.Benchmarks` if suspicious) before optimizing. Contingency (only if
 measured): a pooled/arena `Layout.Builder` in DIR.Lib -- a 6.16+ item, do not pre-build it.
 
+## The endpoint: ONE tree per panel, not per-row rects (user, 2026-07-21)
+
+A per-row `RenderLayout(rowTree, new RectF32(x0, y, w, rowH))` with a `y += rowH` cursor between
+rows is **pixel calc in disguise** -- it kills the *within-row* math but keeps the *between-row*
+placement as hand-computed pixels. It's the halfway house, not the goal. The endpoint is **one
+`RenderLayout(panelTree, rect)` per panel**, where `rect` is the ONLY constructed RectF32 (the
+arrangement boundary the host hands the tab): rows stack via `VStack`, bottom-pinned buttons via
+`Dock.Bottom`, raster regions via keyed `Fill` leaves. No internal cursor, no per-row rect.
+Canonical example: `LiveSessionTab.Flats.cs` `RenderFlatsSidePanel` -- a `Dock(contentVStack,
+Bottom(buttonsVStack))` rooted at the panel rect; Start/Cancel are placed by the Dock, not a
+computed `buttonY`. The earlier per-row-rect conversions (mount block, telemetry rows, settings/
+filter rows) are a step short and get pulled to this shape as they're revisited.
+
+Legitimate constructed rects: (1) the panel's own rect from the host chrome arrangement; (2) a
+keyed `Fill` leaf's arranged rect handed back to a raster painter via `drawFill`. Anything else --
+a rect built from `x0 + something`, `y`, a `rowH` cursor -- is the smell.
+
 ## What stays pixel by design (the refined taxonomy)
 
 The L1-L4 conversions surfaced a sharper rule than "raster stays pixel": layout conversion applies to
@@ -120,9 +137,23 @@ gauges (fill width = w x fraction) -- not worth an Overlay + star-weight tree.
   orchestrators over per-section trees (Equipment `RenderProfilePanel`) -- the cursor stitch that
   remains is a handful of lines, not the bulk.
 
+## Status (2026-07-21)
+
+The convertible static chrome is converted; ~12 commits, full unit suite 3394/0, full solution
+0-warning, live-verified across Equipment (connected fakes), SkyMap (info panel + search modal),
+Notifications, LiveSession preview, Guider. **Done / mostly-done:** L1 GuiderTab (full), L2 Equipment
+(telemetry, cooler controls, device settings, filter rows -- net ~-136), L3 LiveSession (mount block,
+preview jog row; capture/gain steppers were already trees), L5 Notifications rows + SkyMap object info
+panel (the F3 search modal was already tree-driven). **Intentionally NOT converted** (the two stay-pixel
+categories above + genuinely-minimal cases): the viewer chrome (L4 -- interactive toolbar/sliders/
+transport + histogram), all charts/timelines/guide-graphs/sparklines, the device-list row (business-
+logic-tangled), and lone single-`DrawText`-into-a-given-rect cases + hairline separators + modal-card
+overlays + fractional progress gauges, which carry no hand-positioning math worth a tree.
+
 ## Definition of done
 
-Direct `Renderer` draw calls in widget code appear ONLY inside Fill-leaf painters and controls.
-Everything else flows through `RenderLayout`/`PaintLayout`, which also buys: draw==hit everywhere,
-complete `describe_layout` inspector coverage (unattended tests can see every label), DPI applied
-once by the engine, and web-port reuse of the same trees.
+Direct `Renderer` draw calls in widget code appear only inside Fill-leaf painters, interactive-control
+internals (toolbar/sliders/scrollbar), and the minimal cases above; all cursor-stitched / hand-computed
+`x/y/w/h` chrome flows through `RenderLayout`/`PaintLayout`, which also buys: draw==hit everywhere,
+`describe_layout` inspector coverage (unattended tests can see every label), DPI applied once by the
+engine, and web-port reuse of the same trees. **Reached** for the convertible chrome.
