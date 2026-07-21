@@ -49,6 +49,15 @@ namespace TianWen.UI.Abstractions
         private void RenderPolarSidePanel(LiveSessionState state, RectF32 rect, string fontPath,
             float fontSize, float dpiScale, float pad, float rowH)
         {
+            // Setup phase: routine not yet started -> the whole panel is ONE arranged tree (header +
+            // source + config + bottom-pinned Cancel/Start). The running phase keeps its status/gauge
+            // flow (raster gauges) below.
+            if (state.PolarPhase == PolarAlignmentPhase.Idle && state.PolarAlignmentCts is null)
+            {
+                RenderPolarSetupPanel(state, rect, fontPath, dpiScale);
+                return;
+            }
+
             var x0 = rect.X + pad;
             var w = rect.Width - pad * 2;
 
@@ -57,46 +66,9 @@ namespace TianWen.UI.Abstractions
                 x0, rect.Y, w, rowH,
                 fontSize, HeaderText, TextAlign.Near, TextAlign.Center);
 
-            // Source toggle: [Main | Guider] -- moved here from the toolbar G button
-            // so the choice lives next to its consumers (the polar side panel).
-            // Switching mid-run would invalidate the Phase A v1 anchor frame, so the
-            // buttons are inert (DimText) while polar is actually running; users can
-            // still preview which source is active.
+            // Source toggle (greyed while running -- switching mid-run would invalidate the anchor frame).
             var sourceY = rect.Y + rowH;
-            var canSwitchSource = state.PolarPhase == PolarAlignmentPhase.Idle
-                || state.PolarPhase == PolarAlignmentPhase.Failed;
-            var activeSrcBg = new RGBAColor32(0x44, 0x66, 0x99, 0xff);
-            var inactiveSrcBg = new RGBAColor32(0x2a, 0x2a, 0x35, 0xff);
-            var srcFg = canSwitchSource ? BodyText : DimText;
-
-            // Source toggle: [Source | Main | Guider] as one HStack (was a label DrawText + two
-            // RenderButtons at computed x). Switching is inert while a run is in flight (canSwitchSource).
-            var sourceRow = Layout.Builder.HStack(
-                    Layout.Builder.Text("Source", BaseFontSize * 0.8f, DimText).WStar(0.30f).HStar(),
-                    Layout.Builder.Text("Main", BaseFontSize * 0.85f, srcFg, TextAlign.Center, TextAlign.Center)
-                        .WStar(0.35f).HStar().Bg(state.PolarAlignUseGuider ? inactiveSrcBg : activeSrcBg)
-                        .Clickable(new HitResult.ButtonHit("PolarSrcMain"), _ =>
-                        {
-                            if (canSwitchSource && state.PolarAlignUseGuider) { state.PolarAlignUseGuider = false; state.NeedsRedraw = true; }
-                        }),
-                    Layout.Builder.Text("Guider", BaseFontSize * 0.85f, srcFg, TextAlign.Center, TextAlign.Center)
-                        .WStar(0.35f).HStar().Bg(state.PolarAlignUseGuider ? activeSrcBg : inactiveSrcBg)
-                        .Clickable(new HitResult.ButtonHit("PolarSrcGuider"), _ =>
-                        {
-                            if (canSwitchSource && !state.PolarAlignUseGuider) { state.PolarAlignUseGuider = true; state.NeedsRedraw = true; }
-                        }))
-                .WithGap(2f).RowH(BaseRowHeight);
-            RenderLayout(sourceRow, new RectF32(x0, sourceY, w, rowH), fontPath, dpiScale);
-
-            // Setup phase: routine not yet started -> render the configuration
-            // form + Start button instead of the running-phase status / gauges.
-            // The Start button posts StartPolarAlignmentSignal with a snapshot
-            // of state.PolarSetupConfig as the captured Configuration.
-            if (state.PolarPhase == PolarAlignmentPhase.Idle && state.PolarAlignmentCts is null)
-            {
-                RenderPolarSetupRows(state, rect, x0, sourceY + rowH + pad, w, rowH, fontPath, fontSize, dpiScale, pad);
-                return;
-            }
+            RenderLayout(PolarSourceRow(state), new RectF32(x0, sourceY, w, rowH), fontPath, dpiScale);
 
             // Phase pill
             var phaseY = sourceY + rowH + pad;
@@ -193,134 +165,69 @@ namespace TianWen.UI.Abstractions
         }
 
         /// <summary>
-        /// Setup-phase rendering: numeric +/- rows for the headline polar-align
-        /// tunables, an "On done" cycle button, a "Save frames" toggle, and a
-        /// prominent Start button. Posts <c>StartPolarAlignmentSignal</c> with
-        /// the captured <c>state.PolarSetupConfig</c> when the user clicks Start.
+        /// Setup-phase panel as ONE arranged tree: header + source toggle + five numeric config rows +
+        /// an On-done cycle + Save-frames / Incremental toggles stack from the top (the Dock fill), and
+        /// Cancel / Start pin to the bottom (Dock.Bottom). No internal cursor -- the only constructed rect
+        /// is the panel rect. Start posts StartPolarAlignmentSignal with a snapshot of PolarSetupConfig.
         /// </summary>
-        private void RenderPolarSetupRows(
-            LiveSessionState state, RectF32 rect,
-            float x0, float y, float w, float rowH, string fontPath, float fontSize, float dpiScale, float pad)
+        private void RenderPolarSetupPanel(LiveSessionState state, RectF32 rect, string fontPath, float dpiScale)
         {
-            var labelW = w * 0.42f;
-            var btnW = (w - labelW) / 4f;
-            var valW = (w - labelW) / 2f;
-            var smallFs = fontSize * 0.78f;
+            var (canStart, _) = EvaluatePolarPreconditions(state);
+            var cfg = state.PolarSetupConfig;
+            var toggleActiveBg = new RGBAColor32(0x44, 0x66, 0x99, 0xff);
+            var toggleInactiveBg = new RGBAColor32(0x2a, 0x2a, 0x35, 0xff);
 
-            // ---- Rotation (DeltaRaDeg) ---------------------------------------
-            y = RenderConfigRow(
-                "Rotation", $"{state.PolarSetupConfig.RotationDeg:F0}\u00B0",
-                x0, y, labelW, btnW, valW, rowH, fontPath, smallFs, dpiScale, pad,
-                "PolarSetupRotMinus",
-                () =>
-                {
-                    var v = state.PolarSetupConfig.RotationDeg - 15.0;
-                    state.PolarSetupConfig = state.PolarSetupConfig with { RotationDeg = Math.Max(15.0, v) };
-                    state.NeedsRedraw = true;
-                },
-                "PolarSetupRotPlus",
-                () =>
-                {
-                    var v = state.PolarSetupConfig.RotationDeg + 15.0;
-                    state.PolarSetupConfig = state.PolarSetupConfig with { RotationDeg = Math.Min(180.0, v) };
-                    state.NeedsRedraw = true;
-                });
+            Layout.Node ConfigRow(string label, string valueText, string minusAction, Action onMinus, string plusAction, Action onPlus)
+            {
+                var btnBg = new RGBAColor32(0x2a, 0x2a, 0x35, 0xff);
+                var style = new FormRowLayout.StepperStyle(btnBg, BodyText, btnBg, DimText, BaseFontSize * 0.78f, 34f);
+                var stepper = FormRowLayout.StepperControl(style,
+                    "-", minusAction, _ => onMinus(),
+                    "+", plusAction, _ => onPlus(),
+                    valueText, BaseFontSize * 0.78f, BrightText, enabled: true);
+                return Layout.Builder.HStack(
+                        Layout.Builder.Text(label, BaseFontSize * 0.78f, DimText).WStar(0.42f).HStar(),
+                        stepper.WStar(0.58f).HStar())
+                    .RowH(BaseRowHeight);
+            }
 
-            // ---- Settle (SettleSeconds) --------------------------------------
-            y = RenderConfigRow(
-                "Settle", $"{state.PolarSetupConfig.SettleSeconds:F0}s",
-                x0, y, labelW, btnW, valW, rowH, fontPath, smallFs, dpiScale, pad,
-                "PolarSetupSettleMinus",
-                () =>
-                {
-                    var v = state.PolarSetupConfig.SettleSeconds - 1.0;
-                    state.PolarSetupConfig = state.PolarSetupConfig with { SettleSeconds = Math.Max(0.0, v) };
-                    state.NeedsRedraw = true;
-                },
-                "PolarSetupSettlePlus",
-                () =>
-                {
-                    var v = state.PolarSetupConfig.SettleSeconds + 1.0;
-                    state.PolarSetupConfig = state.PolarSetupConfig with { SettleSeconds = Math.Min(30.0, v) };
-                    state.NeedsRedraw = true;
-                });
+            Layout.Node ChoiceRow(string label, string valueText, RGBAColor32 bg, string action, Action onClick) =>
+                Layout.Builder.HStack(
+                        Layout.Builder.Text(label, BaseFontSize * 0.78f, DimText).WStar(0.42f).HStar(),
+                        Layout.Builder.Text(valueText, BaseFontSize * 0.78f, BodyText, TextAlign.Center, TextAlign.Center)
+                            .WStar(0.58f).HStar().Bg(bg)
+                            .Clickable(new HitResult.ButtonHit(action), _ => { onClick(); }))
+                    .RowH(BaseRowHeight);
 
-            // ---- Target accuracy (TargetAccuracyArcmin) ----------------------
-            y = RenderConfigRow(
-                "Target acc", $"{state.PolarSetupConfig.TargetAccuracyArcmin:F1}\u2032",
-                x0, y, labelW, btnW, valW, rowH, fontPath, smallFs, dpiScale, pad,
-                "PolarSetupAccMinus",
-                () =>
-                {
-                    var v = state.PolarSetupConfig.TargetAccuracyArcmin - 0.5;
-                    state.PolarSetupConfig = state.PolarSetupConfig with { TargetAccuracyArcmin = Math.Max(0.5, v) };
-                    state.NeedsRedraw = true;
-                },
-                "PolarSetupAccPlus",
-                () =>
-                {
-                    var v = state.PolarSetupConfig.TargetAccuracyArcmin + 0.5;
-                    state.PolarSetupConfig = state.PolarSetupConfig with { TargetAccuracyArcmin = Math.Min(10.0, v) };
-                    state.NeedsRedraw = true;
-                });
-
-            // ---- Min stars for solve -----------------------------------------
-            y = RenderConfigRow(
-                "Min stars", $"{state.PolarSetupConfig.MinStarsForSolve}",
-                x0, y, labelW, btnW, valW, rowH, fontPath, smallFs, dpiScale, pad,
-                "PolarSetupMinStarsMinus",
-                () =>
-                {
-                    var v = state.PolarSetupConfig.MinStarsForSolve - 5;
-                    state.PolarSetupConfig = state.PolarSetupConfig with { MinStarsForSolve = Math.Max(5, v) };
-                    state.NeedsRedraw = true;
-                },
-                "PolarSetupMinStarsPlus",
-                () =>
-                {
-                    var v = state.PolarSetupConfig.MinStarsForSolve + 5;
-                    state.PolarSetupConfig = state.PolarSetupConfig with { MinStarsForSolve = Math.Min(100, v) };
-                    state.NeedsRedraw = true;
-                });
-
-            // ---- Re-seed interval (RefineFullSolveInterval) ------------------
-            // 0 reads as "off" -- the orchestrator skips the periodic full-solve
-            // re-seed and relies entirely on the residual-spike fallback.
-            var reseedText = state.PolarSetupConfig.RefineFullSolveInterval <= 0
-                ? "off"
-                : $"{state.PolarSetupConfig.RefineFullSolveInterval}";
-            y = RenderConfigRow(
-                "Re-seed every", reseedText,
-                x0, y, labelW, btnW, valW, rowH, fontPath, smallFs, dpiScale, pad,
-                "PolarSetupReseedMinus",
-                () =>
-                {
-                    var v = state.PolarSetupConfig.RefineFullSolveInterval - 10;
-                    state.PolarSetupConfig = state.PolarSetupConfig with { RefineFullSolveInterval = Math.Max(0, v) };
-                    state.NeedsRedraw = true;
-                },
-                "PolarSetupReseedPlus",
-                () =>
-                {
-                    var v = state.PolarSetupConfig.RefineFullSolveInterval + 10;
-                    state.PolarSetupConfig = state.PolarSetupConfig with { RefineFullSolveInterval = Math.Min(200, v) };
-                    state.NeedsRedraw = true;
-                });
-
-            y += pad;
-
-            // ---- On-done cycle (ReverseAxisBack / Park / LeaveInPlace) -------
-            var onDoneLabel = state.PolarSetupConfig.OnDone switch
+            var onDoneLabel = cfg.OnDone switch
             {
                 PolarAlignmentOnDone.ReverseAxisBack => "Reverse",
                 PolarAlignmentOnDone.Park => "Park",
                 PolarAlignmentOnDone.LeaveInPlace => "Leave",
                 _ => "?"
             };
-            DrawText("On done", fontPath, x0, y, labelW, rowH, smallFs, DimText, TextAlign.Near, TextAlign.Center);
-            var onDoneBtn = Layout.Builder.Text(onDoneLabel, smallFs / dpiScale, BodyText, TextAlign.Center, TextAlign.Center)
-                .Stretch().Bg(new RGBAColor32(0x44, 0x66, 0x99, 0xff))
-                .Clickable(new HitResult.ButtonHit("PolarSetupOnDone"), _ =>
+            var reseedText = cfg.RefineFullSolveInterval <= 0 ? "off" : $"{cfg.RefineFullSolveInterval}";
+
+            var content = Layout.Builder.VStack(
+                Layout.Builder.Text("Polar Alignment", BaseFontSize, HeaderText).RowH(BaseRowHeight),
+                PolarSourceRow(state),
+                ConfigRow("Rotation", $"{cfg.RotationDeg:F0}°",
+                    "PolarSetupRotMinus", () => { state.PolarSetupConfig = state.PolarSetupConfig with { RotationDeg = Math.Max(15.0, state.PolarSetupConfig.RotationDeg - 15.0) }; state.NeedsRedraw = true; },
+                    "PolarSetupRotPlus", () => { state.PolarSetupConfig = state.PolarSetupConfig with { RotationDeg = Math.Min(180.0, state.PolarSetupConfig.RotationDeg + 15.0) }; state.NeedsRedraw = true; }),
+                ConfigRow("Settle", $"{cfg.SettleSeconds:F0}s",
+                    "PolarSetupSettleMinus", () => { state.PolarSetupConfig = state.PolarSetupConfig with { SettleSeconds = Math.Max(0.0, state.PolarSetupConfig.SettleSeconds - 1.0) }; state.NeedsRedraw = true; },
+                    "PolarSetupSettlePlus", () => { state.PolarSetupConfig = state.PolarSetupConfig with { SettleSeconds = Math.Min(30.0, state.PolarSetupConfig.SettleSeconds + 1.0) }; state.NeedsRedraw = true; }),
+                ConfigRow("Target acc", $"{cfg.TargetAccuracyArcmin:F1}′",
+                    "PolarSetupAccMinus", () => { state.PolarSetupConfig = state.PolarSetupConfig with { TargetAccuracyArcmin = Math.Max(0.5, state.PolarSetupConfig.TargetAccuracyArcmin - 0.5) }; state.NeedsRedraw = true; },
+                    "PolarSetupAccPlus", () => { state.PolarSetupConfig = state.PolarSetupConfig with { TargetAccuracyArcmin = Math.Min(10.0, state.PolarSetupConfig.TargetAccuracyArcmin + 0.5) }; state.NeedsRedraw = true; }),
+                ConfigRow("Min stars", $"{cfg.MinStarsForSolve}",
+                    "PolarSetupMinStarsMinus", () => { state.PolarSetupConfig = state.PolarSetupConfig with { MinStarsForSolve = Math.Max(5, state.PolarSetupConfig.MinStarsForSolve - 5) }; state.NeedsRedraw = true; },
+                    "PolarSetupMinStarsPlus", () => { state.PolarSetupConfig = state.PolarSetupConfig with { MinStarsForSolve = Math.Min(100, state.PolarSetupConfig.MinStarsForSolve + 5) }; state.NeedsRedraw = true; }),
+                ConfigRow("Re-seed every", reseedText,
+                    "PolarSetupReseedMinus", () => { state.PolarSetupConfig = state.PolarSetupConfig with { RefineFullSolveInterval = Math.Max(0, state.PolarSetupConfig.RefineFullSolveInterval - 10) }; state.NeedsRedraw = true; },
+                    "PolarSetupReseedPlus", () => { state.PolarSetupConfig = state.PolarSetupConfig with { RefineFullSolveInterval = Math.Min(200, state.PolarSetupConfig.RefineFullSolveInterval + 10) }; state.NeedsRedraw = true; }),
+                Layout.Builder.Spacer().RowH(BasePadding),
+                ChoiceRow("On done", onDoneLabel, toggleActiveBg, "PolarSetupOnDone", () =>
                 {
                     var next = state.PolarSetupConfig.OnDone switch
                     {
@@ -330,105 +237,73 @@ namespace TianWen.UI.Abstractions
                     };
                     state.PolarSetupConfig = state.PolarSetupConfig with { OnDone = next };
                     state.NeedsRedraw = true;
-                });
-            RenderLayout(onDoneBtn, new RectF32(x0 + labelW, y, w - labelW, rowH), fontPath, dpiScale);
-            y += rowH;
-
-            // ---- Save frames toggle ------------------------------------------
-            var saveLabel = state.PolarSetupConfig.SaveFrames ? "On" : "Off";
-            var saveBg = state.PolarSetupConfig.SaveFrames
-                ? new RGBAColor32(0x44, 0x66, 0x99, 0xff)
-                : new RGBAColor32(0x2a, 0x2a, 0x35, 0xff);
-            DrawText("Save frames", fontPath, x0, y, labelW, rowH, smallFs, DimText, TextAlign.Near, TextAlign.Center);
-            var saveBtn = Layout.Builder.Text(saveLabel, smallFs / dpiScale, BodyText, TextAlign.Center, TextAlign.Center)
-                .Stretch().Bg(saveBg)
-                .Clickable(new HitResult.ButtonHit("PolarSetupSaveFrames"), _ =>
+                }),
+                ChoiceRow("Save frames", cfg.SaveFrames ? "On" : "Off", cfg.SaveFrames ? toggleActiveBg : toggleInactiveBg, "PolarSetupSaveFrames", () =>
                 {
                     state.PolarSetupConfig = state.PolarSetupConfig with { SaveFrames = !state.PolarSetupConfig.SaveFrames };
                     state.NeedsRedraw = true;
-                });
-            RenderLayout(saveBtn, new RectF32(x0 + labelW, y, w - labelW, rowH), fontPath, dpiScale);
-            y += rowH;
-
-            // ---- Incremental-solver toggle (diagnostic / safe fallback) ------
-            var incLabel = state.PolarSetupConfig.UseIncrementalSolver ? "On" : "Off";
-            var incBg = state.PolarSetupConfig.UseIncrementalSolver
-                ? new RGBAColor32(0x44, 0x66, 0x99, 0xff)
-                : new RGBAColor32(0x2a, 0x2a, 0x35, 0xff);
-            DrawText("Incremental", fontPath, x0, y, labelW, rowH, smallFs, DimText, TextAlign.Near, TextAlign.Center);
-            var incBtn = Layout.Builder.Text(incLabel, smallFs / dpiScale, BodyText, TextAlign.Center, TextAlign.Center)
-                .Stretch().Bg(incBg)
-                .Clickable(new HitResult.ButtonHit("PolarSetupUseIncremental"), _ =>
+                }),
+                ChoiceRow("Incremental", cfg.UseIncrementalSolver ? "On" : "Off", cfg.UseIncrementalSolver ? toggleActiveBg : toggleInactiveBg, "PolarSetupUseIncremental", () =>
                 {
                     state.PolarSetupConfig = state.PolarSetupConfig with { UseIncrementalSolver = !state.PolarSetupConfig.UseIncrementalSolver };
                     state.NeedsRedraw = true;
-                });
-            RenderLayout(incBtn, new RectF32(x0 + labelW, y, w - labelW, rowH), fontPath, dpiScale);
+                }));
 
-            // ---- Start button (anchored at panel bottom, full width) ---------
-            // Cancel-back-to-Preview lives above Start so the Start button sits
-            // in the muscle-memory location for "primary action" (bottom).
-            var buttonY = rect.Y + rect.Height - rowH * 3 - pad * 3;
-            RenderButton("Cancel", x0, buttonY, w, rowH * 1.2f,
-                fontPath, fontSize * 0.85f,
-                new RGBAColor32(0x33, 0x33, 0x3a, 0xff), DimText,
-                "PolarSetupBack",
-                _ =>
-                {
-                    state.Mode = LiveSessionMode.Preview;
-                    state.PolarStatusMessage = "";
-                    state.NeedsRedraw = true;
-                });
-            buttonY += rowH * 1.2f + pad;
+            var buttons = Layout.Builder.VStack(
+                Layout.Builder.Text("Cancel", BaseFontSize * 0.85f, DimText, TextAlign.Center, TextAlign.Center)
+                    .RowH(BaseRowHeight * 1.2f).Bg(new RGBAColor32(0x33, 0x33, 0x3a, 0xff))
+                    .Clickable(new HitResult.ButtonHit("PolarSetupBack"), _ =>
+                    {
+                        state.Mode = LiveSessionMode.Preview;
+                        state.PolarStatusMessage = "";
+                        state.NeedsRedraw = true;
+                    }),
+                Layout.Builder.Spacer().RowH(BasePadding),
+                Layout.Builder.Text("Start", BaseFontSize, canStart ? BrightText : DimText, TextAlign.Center, TextAlign.Center)
+                    .RowH(BaseRowHeight * 1.6f).Bg(canStart ? new RGBAColor32(0x44, 0xaa, 0x66, 0xff) : new RGBAColor32(0x33, 0x33, 0x3a, 0xff))
+                    .Clickable(new HitResult.ButtonHit("PolarSetupStart"), _ =>
+                    {
+                        if (!canStart) return;
+                        var miniIdx = PreviewView is not null ? _previewState.SelectedCameraIndex : -1;
+                        var otaIdx = miniIdx >= 0 ? miniIdx : 0;
+                        PostSignal(new StartPolarAlignmentSignal(
+                            OtaIndex: otaIdx,
+                            DeltaRaDeg: state.PolarSetupConfig.RotationDeg,
+                            UseGuider: state.PolarAlignUseGuider,
+                            Configuration: state.PolarSetupConfig));
+                    }));
 
-            // Authoritative pre-flight check mirrors EvaluatePolarPreconditions;
-            // disabled-grey button gives the user a hint without burying them
-            // in the side panel's status line.
-            var (canStart, _) = EvaluatePolarPreconditions(state);
-            var startBg = canStart ? new RGBAColor32(0x44, 0xaa, 0x66, 0xff) : new RGBAColor32(0x33, 0x33, 0x3a, 0xff);
-            var startFg = canStart ? BrightText : DimText;
-            RenderButton("Start", x0, buttonY, w, rowH * 1.6f,
-                fontPath, fontSize,
-                startBg, startFg,
-                "PolarSetupStart",
-                _ =>
-                {
-                    if (!canStart) return;
-                    var miniIdx = PreviewView is not null ? _previewState.SelectedCameraIndex : -1;
-                    var otaIdx = miniIdx >= 0 ? miniIdx : 0;
-                    PostSignal(new StartPolarAlignmentSignal(
-                        OtaIndex: otaIdx,
-                        DeltaRaDeg: state.PolarSetupConfig.RotationDeg,
-                        UseGuider: state.PolarAlignUseGuider,
-                        Configuration: state.PolarSetupConfig));
-                });
+            var bottomH = BaseRowHeight * 1.2f + BasePadding + BaseRowHeight * 1.6f;
+            var tree = Layout.Builder.Dock(content, Layout.Builder.Bottom(buttons, bottomH)).Pad(BasePadding);
+            RenderLayout(tree, rect, fontPath, dpiScale);
         }
 
         /// <summary>
-        /// One row of the polar-align setup form: dim label + [-] + value display +
-        /// [+]. Returns the y-cursor advanced past the row.
+        /// The [Source | Main | Guider] toggle as a Layout.Node, shared by the setup tree and the running
+        /// panel. Switching is inert while a run is in flight (only Idle / Failed can switch source).
         /// </summary>
-        private float RenderConfigRow(
-            string label, string valueText,
-            float x0, float y, float labelW, float btnW, float valW, float rowH,
-            string fontPath, float fontSize, float dpiScale, float pad,
-            string minusAction, Action onMinus,
-            string plusAction, Action onPlus)
+        private Layout.Node PolarSourceRow(LiveSessionState state)
         {
-            // Caller draws the dim label cell; the [-] value [+] control is one declarative stepper
-            // node (each cell its own draw==hit leaf) instead of two RenderButton calls bracketing a
-            // hand-positioned value DrawText. The bounds rect spans btnW+valW+btnW so the Star value
-            // cell exactly fills the original value column; font / button width convert back to design
-            // units (the engine re-applies dpiScale). pad is kept for signature stability (unused).
-            DrawText(label, fontPath, x0, y, labelW, rowH, fontSize, DimText, TextAlign.Near, TextAlign.Center);
-            var btnBg = new RGBAColor32(0x2a, 0x2a, 0x35, 0xff);
-            var style = new FormRowLayout.StepperStyle(btnBg, BodyText, btnBg, DimText, fontSize / dpiScale, btnW / dpiScale);
-            var ctrl = FormRowLayout.StepperControl(style,
-                "-", minusAction, _ => onMinus(),
-                "+", plusAction, _ => onPlus(),
-                valueText, fontSize / dpiScale, BrightText, enabled: true);
-            RenderLayout(ctrl, new RectF32(x0 + labelW, y, btnW + valW + btnW, rowH), fontPath, dpiScale);
-            return y + rowH;
+            var canSwitchSource = state.PolarPhase == PolarAlignmentPhase.Idle
+                || state.PolarPhase == PolarAlignmentPhase.Failed;
+            var activeSrcBg = new RGBAColor32(0x44, 0x66, 0x99, 0xff);
+            var inactiveSrcBg = new RGBAColor32(0x2a, 0x2a, 0x35, 0xff);
+            var srcFg = canSwitchSource ? BodyText : DimText;
+            return Layout.Builder.HStack(
+                    Layout.Builder.Text("Source", BaseFontSize * 0.8f, DimText).WStar(0.30f).HStar(),
+                    Layout.Builder.Text("Main", BaseFontSize * 0.85f, srcFg, TextAlign.Center, TextAlign.Center)
+                        .WStar(0.35f).HStar().Bg(state.PolarAlignUseGuider ? inactiveSrcBg : activeSrcBg)
+                        .Clickable(new HitResult.ButtonHit("PolarSrcMain"), _ =>
+                        {
+                            if (canSwitchSource && state.PolarAlignUseGuider) { state.PolarAlignUseGuider = false; state.NeedsRedraw = true; }
+                        }),
+                    Layout.Builder.Text("Guider", BaseFontSize * 0.85f, srcFg, TextAlign.Center, TextAlign.Center)
+                        .WStar(0.35f).HStar().Bg(state.PolarAlignUseGuider ? activeSrcBg : inactiveSrcBg)
+                        .Clickable(new HitResult.ButtonHit("PolarSrcGuider"), _ =>
+                        {
+                            if (canSwitchSource && !state.PolarAlignUseGuider) { state.PolarAlignUseGuider = true; state.NeedsRedraw = true; }
+                        }))
+                .WithGap(2f).RowH(BaseRowHeight);
         }
 
         private float RenderPolarErrorGauges(
