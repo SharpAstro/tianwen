@@ -76,7 +76,13 @@ namespace TianWen.UI.Abstractions
         /// <summary>Tracks the OTA count to detect profile structure changes.</summary>
         private int _lastOtaCount;
 
-        /// <summary>Scroll offset in pixels for the configuration form panel.</summary>
+        /// <summary>
+        /// Config-panel scroll offset in canonical <b>atoms</b> (one atom = one config line: a
+        /// <c>BaseItemHeight</c> row in the GUI, one cell row in the TUI) — never pixels. Each host's
+        /// scroll controller is authoritative and mirrors its snapped atom offset here
+        /// (<c>ListScrollController.AtomOffset</c> in the GUI, <c>ScrollableList.ScrollOffset</c> in
+        /// the TUI), so the shared field always carries the same unit across hosts.
+        /// </summary>
         public int ConfigScrollOffset { get; set; }
 
         /// <summary>Currently selected config field index (-1 = none).</summary>
