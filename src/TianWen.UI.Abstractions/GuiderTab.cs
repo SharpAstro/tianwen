@@ -1,5 +1,6 @@
 using System;
-using System.Collections.Immutable;
+using System.Collections.Generic;
+using System.Runtime.InteropServices;
 using DIR.Lib;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Devices.Guider;
@@ -11,15 +12,30 @@ namespace TianWen.UI.Abstractions
     /// <summary>
     /// Renderer-agnostic guider tab. Shows guide error graph (RA/Dec polylines),
     /// RMS stats panel, and placeholder states when not guiding.
+    /// <para>
+    /// Layout-driven (see <c>docs/plans/layout-driven-ui.md</c>): the whole frame + chrome (header,
+    /// stats rows, panel titles, empty-state labels) is ONE <c>Layout</c> tree per frame; only the
+    /// four raster panes (guide camera, star-profile plot, target scatter, error graph) draw pixels,
+    /// each inside its keyed <c>Fill</c> leaf via the <c>drawFill</c> callback.
+    /// </para>
     /// </summary>
     public class GuiderTab<TSurface>(Renderer<TSurface> renderer) : PixelWidgetBase<TSurface>(renderer)
     {
-        // Layout constants (at 1x scale)
+        // Layout constants (design units at 1x scale; the engine applies dpiScale)
         private static readonly float BaseFontSize = GuiTheme.Metrics.BaseFontSize;
         private static readonly float BasePadding = GuiTheme.Metrics.Padding;
         private const float BaseHeaderHeight = 32f;
         private const float BaseStatsWidth = 220f;
-        private const float BaseCameraFraction = 0.4f; // guide camera gets 40% of width
+        private const float BaseProfileWidth = 120f;     // star-profile pane; right column = this + BaseStatsWidth
+        private const float BaseGuiderLabelWidth = 200f; // header "[Guiding ...]" column
+        private const float BaseStatsLabelWidth = 90f;   // stats-row label column
+        private static readonly float BaseStatsLineH = BaseFontSize * 1.6f;
+
+        // Fill keys routing the raster panes to their painters in the drawFill callback.
+        private const string CameraFillKey = "guideCamera";
+        private const string ProfileFillKey = "starProfile";
+        private const string TargetFillKey = "targetView";
+        private const string GraphFillKey = "guideGraph";
 
         // Colors
         private static readonly RGBAColor32 ContentBg = GuiTheme.Palette.ContentBg;
@@ -57,6 +73,14 @@ namespace TianWen.UI.Abstractions
         private Image? _displayedGuideFrame;
         private int _guideFrameCount;
 
+        /// <summary>Arranged raster-pane rects from the last render, captured in the drawFill callback
+        /// (default/empty when that pane showed its empty-state text leaf instead). Internal: the
+        /// layout pins in <c>GuiderTabLayoutTests</c> read these instead of reflecting.</summary>
+        internal RectF32 CameraRect { get; private set; }
+        internal RectF32 ProfilePlotRect { get; private set; }
+        internal RectF32 TargetViewRect { get; private set; }
+        internal RectF32 GraphRect { get; private set; }
+
         public override bool HandleInput(InputEvent evt) => false;
 
         public void Render(
@@ -68,78 +92,186 @@ namespace TianWen.UI.Abstractions
         {
             BeginFrame();
             State.PollFromLiveState(liveState);
+            CameraRect = ProfilePlotRect = TargetViewRect = GraphRect = default;
 
-            var fontSize = BaseFontSize * dpiScale;
-            var padding = BasePadding * dpiScale;
-            var headerH = BaseHeaderHeight * dpiScale;
-            var statsW = BaseStatsWidth * dpiScale;
-
-            FillRect(contentRect.X, contentRect.Y, contentRect.Width, contentRect.Height, ContentBg);
-
-            // Header strip
-            var headerRect = new RectF32(contentRect.X, contentRect.Y, contentRect.Width, headerH);
-            FillRect(headerRect.X, headerRect.Y, headerRect.Width, headerRect.Height, HeaderBg);
-
-            var placeholder = State.PlaceholderReason;
-            if (placeholder is { } reason)
+            if (State.PlaceholderReason is { } reason)
             {
-                DrawText(GuiderActions.PlaceholderText(reason), fontPath,
-                    headerRect.X + padding, headerRect.Y, headerRect.Width - padding * 2, headerRect.Height,
-                    fontSize, PlaceholderText, TextAlign.Near, TextAlign.Center);
-
-                // Large centered placeholder
-                var bodyY = contentRect.Y + headerH;
-                var bodyH = contentRect.Height - headerH;
-                DrawText(GuiderActions.PlaceholderText(reason), fontPath,
-                    contentRect.X, bodyY, contentRect.Width, bodyH,
-                    fontSize * 1.5f, PlaceholderText, TextAlign.Center, TextAlign.Center);
+                RenderLayout(BuildPlaceholderTree(GuiderActions.PlaceholderText(reason)),
+                    contentRect, fontPath, dpiScale);
                 return;
             }
 
-            // Header: guider state + RMS. A lost guide star renders in alert red — a silent
+            // Feed a new guide frame to the shared viewer if changed. State sync, done BEFORE the
+            // tree is built so the camera pane knows whether it has an image to show.
+            if (GuideCameraViewer is not null && State.LastGuideFrame is { } frame
+                && !ReferenceEquals(frame, _displayedGuideFrame))
+            {
+                _displayedGuideFrame = frame;
+                _guideFrameCount++;
+                _guideSource.AcceptFrame(frame, freezeStats: false);
+                _guideState.NeedsTextureUpdate = true;
+            }
+
+            var fontSize = BaseFontSize * dpiScale;
+            RenderLayout(BuildFrameTree(contentRect.Height / dpiScale), contentRect, fontPath, dpiScale,
+                (fill, rect) =>
+                {
+                    switch (fill.Key)
+                    {
+                        case CameraFillKey:
+                            CameraRect = rect;
+                            RenderGuideCamera(rect, dpiScale, fontPath, fontSize);
+                            break;
+                        case ProfileFillKey:
+                            ProfilePlotRect = rect;
+                            RenderStarProfilePlot(rect, dpiScale, fontPath, fontSize);
+                            break;
+                        case TargetFillKey:
+                            TargetViewRect = rect;
+                            RenderTargetView(rect, dpiScale, fontPath, fontSize);
+                            break;
+                        case GraphFillKey:
+                            GraphRect = rect;
+                            RenderGraph(rect, dpiScale, fontPath, fontSize);
+                            break;
+                    }
+                });
+        }
+
+        /// <summary>
+        /// The whole tab as one design-unit tree:
+        /// <code>
+        /// ┌─────────────────┬──────────┬────────┐
+        /// │  Guide Camera   │ Profile  │ Stats  │  top half of right panel
+        /// │  (large left)   ├──────────┴────────┤
+        /// │                 │   Target View     │  bottom half of right panel
+        /// ├─────────────────┴───────────────────┤
+        /// │        Guide Error Graph            │
+        /// └─────────────────────────────────────┘
+        /// </code>
+        /// Raster panes are keyed Fill leaves (painted in the drawFill callback); a pane with no
+        /// data yet becomes a centred Text leaf instead, so empty states are layout too.
+        /// </summary>
+        private Layout.Node BuildFrameTree(float contentHDesign)
+        {
+            // Header: guider state + RMS. A lost guide star renders in alert red -- a silent
             // flatline with a healthy-looking header is how star loss went unnoticed before.
-            var guiderLabel = FormatGuiderStateLabel();
             var guiderLabelColor = State.GuiderState is "LostLock" ? AlertText : HeaderText;
-            DrawText($"[{guiderLabel}]", fontPath,
-                headerRect.X + padding, headerRect.Y, 200 * dpiScale, headerRect.Height,
-                fontSize, guiderLabelColor, TextAlign.Near, TextAlign.Center);
-            DrawText(GuiderActions.FormatRmsSummary(State.LastGuideStats), fontPath,
-                headerRect.X + padding + 200 * dpiScale, headerRect.Y,
-                headerRect.Width - 200 * dpiScale - padding * 2, headerRect.Height,
-                fontSize * 0.9f, BodyText, TextAlign.Far, TextAlign.Center);
+            var header = Layout.Builder.HStack(
+                    Layout.Builder.Text($"[{FormatGuiderStateLabel()}]", BaseFontSize, guiderLabelColor)
+                        .ColW(BaseGuiderLabelWidth),
+                    Layout.Builder.Text(GuiderActions.FormatRmsSummary(State.LastGuideStats),
+                        BaseFontSize * 0.9f, BodyText, TextAlign.Far).Stretch())
+                .Pad(BasePadding).Bg(HeaderBg);
 
-            // Layout:
-            // ┌─────────────────┬──────────┬────────┐
-            // │  Guide Camera   │ Profile  │ Stats  │  top half of right panel
-            // │  (large left)   ├──────────┴────────┤
-            // │                 │   Target View      │  bottom half of right panel
-            // └─────────────────┴───────────────────┘
-            // │        Guide Error Graph             │
-            // └──────────────────────────────────────┘
-            var bodyTop = contentRect.Y + headerH;
-            var bodyHeight = contentRect.Height - headerH;
-            var graphH = Math.Max(bodyHeight * 0.2f, 80f * dpiScale);
-            var mainH = bodyHeight - graphH;
-            var rightW = statsW + 120f * dpiScale; // profile + stats width
-            var cameraW = contentRect.Width - rightW;
-            var rightX = contentRect.X + cameraW;
+            var camera = (GuideCameraViewer is not null && _displayedGuideFrame is not null
+                    ? Layout.Builder.Fill(key: CameraFillKey)
+                    : Layout.Builder.Text(State.IsRunning ? "Waiting for guide frame…" : "No guide camera",
+                        BaseFontSize, DimText, TextAlign.Center, TextAlign.Center))
+                .Stretch().Bg(CameraBg);
 
-            // Right panel: top half = profile + stats, bottom half = target view
-            var rightTopH = mainH * 0.5f;
-            var rightBotH = mainH - rightTopH;
-            var profileW = rightW - statsW;
+            var profilePlot = (State.GuideStarProfile is not null
+                    ? Layout.Builder.Fill(key: ProfileFillKey)
+                    : Layout.Builder.Text("Awaiting data…", BaseFontSize * 0.85f, DimText,
+                        TextAlign.Center, TextAlign.Center))
+                .Stretch();
+            var profile = Layout.Builder.VStack(
+                    Layout.Builder.Text("Star Profile", BaseFontSize * 0.85f, HeaderText,
+                        TextAlign.Near, TextAlign.Near).RowH(BaseFontSize * 1.4f),
+                    profilePlot)
+                .Stretch().Pad(BasePadding).Bg(ProfileBg);
 
-            var cameraRect = new RectF32(contentRect.X, bodyTop, cameraW, mainH);
-            var profileRect = new RectF32(rightX, bodyTop, profileW, rightTopH);
-            var statsRect = new RectF32(rightX + profileW, bodyTop, statsW, rightTopH);
-            var targetRect = new RectF32(rightX, bodyTop + rightTopH, rightW, rightBotH);
-            var graphRect = new RectF32(contentRect.X, bodyTop + mainH, contentRect.Width, graphH);
+            var samples = State.GuideSamples;
+            var target = (samples.Length < 2 && State.CalibrationOverlay is null
+                    ? Layout.Builder.Text("Target View", BaseFontSize, DimText, TextAlign.Center, TextAlign.Center)
+                    : Layout.Builder.Fill(key: TargetFillKey))
+                .Stretch().Bg(TargetBg);
 
-            RenderGuideCamera(cameraRect, dpiScale, fontPath, fontSize);
-            RenderStarProfile(profileRect, dpiScale, fontPath, fontSize);
-            RenderStats(statsRect, dpiScale, fontPath, fontSize, padding);
-            RenderTargetView(targetRect, dpiScale, fontPath, fontSize);
-            RenderGraph(graphRect, dpiScale, fontPath, fontSize);
+            // Right panel: top half = profile + stats, bottom half = target view.
+            var right = Layout.Builder.VStack(
+                Layout.Builder.HStack(profile, BuildStatsPanel().ColW(BaseStatsWidth)).Stretch(),
+                target);
+
+            var graph = samples.Length < 2
+                ? Layout.Builder.Text("Waiting for guide data…", BaseFontSize, DimText,
+                    TextAlign.Center, TextAlign.Center)
+                : Layout.Builder.Fill(key: GraphFillKey).Bg(GuideGraphRenderer.GraphBg);
+
+            var bodyH = contentHDesign - BaseHeaderHeight;
+            var graphH = MathF.Max(bodyH * 0.2f, 80f);
+
+            return Layout.Builder.VStack(
+                    header.RowH(BaseHeaderHeight),
+                    Layout.Builder.HStack(camera, right.ColW(BaseProfileWidth + BaseStatsWidth)).Stretch(),
+                    graph.RowH(graphH))
+                .Bg(ContentBg);
+        }
+
+        /// <summary>Placeholder chrome: the reason in the header strip plus a large centred copy in
+        /// the body, as one tree.</summary>
+        private static Layout.Node BuildPlaceholderTree(string text)
+            => Layout.Builder.Dock(
+                    Layout.Builder.Text(text, BaseFontSize * 1.5f, PlaceholderText,
+                        TextAlign.Center, TextAlign.Center).Stretch(),
+                    Layout.Builder.Top(
+                        Layout.Builder.HStack(
+                                Layout.Builder.Text(text, BaseFontSize, PlaceholderText).Stretch())
+                            .Pad(BasePadding).Bg(HeaderBg),
+                        BaseHeaderHeight))
+                .Bg(ContentBg);
+
+        /// <summary>
+        /// The "Guide Stats" panel as a tree: header + label/value rows with group gaps. Rows whose
+        /// data is absent (no last error, no exposure, settle done) simply don't join the tree --
+        /// the old cursor arithmetic becomes list building.
+        /// </summary>
+        private Layout.Node BuildStatsPanel()
+        {
+            var rows = new List<Layout.Node>
+            {
+                Layout.Builder.Text("Guide Stats", BaseFontSize, HeaderText).RowH(BaseStatsLineH),
+                Layout.Builder.Spacer().RowH(BaseStatsLineH * 0.2f),
+            };
+
+            if (State.LastGuideStats is not { } stats)
+            {
+                rows.Add(Layout.Builder.Text("No data", BaseFontSize * 0.9f, DimText).RowH(BaseStatsLineH));
+            }
+            else
+            {
+                rows.Add(StatsRow("Total RMS:", $"{stats.TotalRMS:F2}\""));
+                rows.Add(StatsRow("RA RMS:", $"{stats.RaRMS:F2}\"", GuideGraphRenderer.RaColor));
+                rows.Add(StatsRow("Dec RMS:", $"{stats.DecRMS:F2}\"", GuideGraphRenderer.DecColor));
+                rows.Add(Layout.Builder.Spacer().RowH(BaseStatsLineH * 0.3f));
+                rows.Add(StatsRow("Peak RA:", $"{stats.PeakRa:F2}\""));
+                rows.Add(StatsRow("Peak Dec:", $"{stats.PeakDec:F2}\""));
+                rows.Add(Layout.Builder.Spacer().RowH(BaseStatsLineH * 0.3f));
+
+                if (stats.LastRaErr.HasValue)
+                {
+                    rows.Add(StatsRow("Last RA:", $"{stats.LastRaErr.Value:+0.00;-0.00}\"", GuideGraphRenderer.RaColor));
+                    rows.Add(StatsRow("Last Dec:", $"{stats.LastDecErr ?? 0:+0.00;-0.00}\"", GuideGraphRenderer.DecColor));
+                    rows.Add(Layout.Builder.Spacer().RowH(BaseStatsLineH * 0.3f));
+                }
+
+                if (State.GuideExposure > TimeSpan.Zero)
+                {
+                    rows.Add(StatsRow("Exposure:", $"{State.GuideExposure.TotalSeconds:F1}s"));
+                }
+
+                if (State.GuiderSettleProgress is { Done: false } settle)
+                {
+                    rows.Add(StatsRow("Settle:", $"{settle.Distance:F2}\" / {settle.SettlePx:F2}\""));
+                }
+            }
+
+            return Layout.Builder.VStack(CollectionsMarshal.AsSpan(rows)).Pad(BasePadding).Bg(PanelBg);
+
+            static Layout.Node StatsRow(string label, string value, RGBAColor32? valueColor = null)
+                => Layout.Builder.HStack(
+                        Layout.Builder.Text(label, BaseFontSize * 0.9f, DimText).ColW(BaseStatsLabelWidth),
+                        Layout.Builder.Text(value, BaseFontSize * 0.9f, valueColor ?? BodyText).Stretch())
+                    .RowH(BaseStatsLineH);
         }
 
         private static readonly RGBAColor32 CrosshairColor = new RGBAColor32(0x00, 0xff, 0x00, 0xaa);
@@ -150,92 +282,70 @@ namespace TianWen.UI.Abstractions
 
         private void RenderGuideCamera(RectF32 rect, float dpiScale, string fontPath, float fontSize)
         {
-            FillRect(rect.X, rect.Y, rect.Width, rect.Height, CameraBg);
-
-            var image = State.LastGuideFrame;
-
-            // Feed a new guide frame to the shared viewer if changed
-            if (GuideCameraViewer is { } viewer)
+            // The frame tree only emits this Fill leaf when both are present (else the pane is a
+            // centred empty-state Text leaf), so this is a belt-and-braces guard.
+            if (GuideCameraViewer is not { } viewer || _displayedGuideFrame is not { } image)
             {
-                if (image is not null && !ReferenceEquals(image, _displayedGuideFrame))
+                return;
+            }
+
+            viewer.SetSurfaceSize((uint)Renderer.Width, (uint)Renderer.Height);
+            viewer.SetContentRegion(rect);
+            if (_guideState.NeedsTextureUpdate && _guideSource.Width > 0)
+            {
+                viewer.UploadDocumentTextures(_guideSource, _guideState);
+            }
+            viewer.Render(_guideSource, _guideState);
+
+            // Compute image→screen transform for overlays
+            var imgW = image.Width;
+            var imgH = image.Height;
+            var fitScale = Math.Min(rect.Width / imgW, rect.Height / imgH);
+            var drawW = imgW * fitScale;
+            var drawH = imgH * fitScale;
+            var offsetX = rect.X + (rect.Width - drawW) / 2;
+            var offsetY = rect.Y + (rect.Height - drawH) / 2;
+
+            // Guide-star overlay. During guiding, draw a full RA/Dec-aligned
+            // reticle (orange RA / blue Dec) spanning the frame with a centre gap
+            // so the star stays visible; before guiding, the small fixed crosshair.
+            if (State.GuideStarPosition is var (starX, starY))
+            {
+                var cx = (int)(offsetX + starX * fitScale);
+                var cy = (int)(offsetY + starY * fitScale);
+
+                if (State.GuideSamples.Length >= 2 && State.CalibrationOverlay is { } reticleCal)
                 {
-                    _displayedGuideFrame = image;
-                    _guideFrameCount++;
-                    _guideSource.AcceptFrame(image, freezeStats: false);
-                    _guideState.NeedsTextureUpdate = true;
+                    RenderGuidingReticle(reticleCal, cx, cy, rect, dpiScale);
                 }
-
-                if (_displayedGuideFrame is not null)
+                else
                 {
-                    viewer.SetSurfaceSize((uint)Renderer.Width, (uint)Renderer.Height);
-                    viewer.SetContentRegion(rect);
-                    if (_guideState.NeedsTextureUpdate && _guideSource.Width > 0)
-                    {
-                        viewer.UploadDocumentTextures(_guideSource, _guideState);
-                    }
-                    viewer.Render(_guideSource, _guideState);
+                    var crossLen = (int)(15 * dpiScale);
+                    var crossGap = (int)(4 * dpiScale);
 
-                    // Compute image→screen transform for overlays
-                    if (image is not null)
-                    {
-                        var imgW = image.Width;
-                        var imgH = image.Height;
-                        var fitScale = Math.Min(rect.Width / imgW, rect.Height / imgH);
-                        var drawW = imgW * fitScale;
-                        var drawH = imgH * fitScale;
-                        var offsetX = rect.X + (rect.Width - drawW) / 2;
-                        var offsetY = rect.Y + (rect.Height - drawH) / 2;
-
-                        // Guide-star overlay. During guiding, draw a full RA/Dec-aligned
-                        // reticle (orange RA / blue Dec) spanning the frame with a centre gap
-                        // so the star stays visible; before guiding, the small fixed crosshair.
-                        if (State.GuideStarPosition is var (starX, starY))
-                        {
-                            var cx = (int)(offsetX + starX * fitScale);
-                            var cy = (int)(offsetY + starY * fitScale);
-
-                            if (State.GuideSamples.Length >= 2 && State.CalibrationOverlay is { } reticleCal)
-                            {
-                                RenderGuidingReticle(reticleCal, cx, cy, rect, dpiScale);
-                            }
-                            else
-                            {
-                                var crossLen = (int)(15 * dpiScale);
-                                var crossGap = (int)(4 * dpiScale);
-
-                                FillRect(cx - crossLen, cy, crossLen - crossGap, 1, CrosshairColor);
-                                FillRect(cx + crossGap, cy, crossLen - crossGap, 1, CrosshairColor);
-                                FillRect(cx, cy - crossLen, 1, crossLen - crossGap, CrosshairColor);
-                                FillRect(cx, cy + crossGap, 1, crossLen - crossGap, CrosshairColor);
-                            }
-                        }
-
-                        // L-shaped calibration overlay: auto-scaled, centered on image.
-                        // Hide once guiding is active (guide samples accumulating).
-                        if (State.CalibrationOverlay is { } cal && State.GuideSamples.Length < 2)
-                        {
-                            RenderCalibrationOverlayOnCamera(cal,
-                                offsetX + drawW / 2, offsetY + drawH / 2, dpiScale);
-                        }
-                    }
-
-                    // SNR + frame count in corner
-                    var infoText = State.GuideStarSNR is { } snr
-                        ? $"SNR: {snr:F0}  #{_guideFrameCount}"
-                        : $"#{_guideFrameCount}";
-                    DrawText(infoText, fontPath,
-                        rect.X + 4 * dpiScale, rect.Y + rect.Height - fontSize * 1.4f,
-                        200 * dpiScale, fontSize * 1.2f,
-                        fontSize * 0.8f, BodyText, TextAlign.Near, TextAlign.Far);
-
-                    return;
+                    FillRect(cx - crossLen, cy, crossLen - crossGap, 1, CrosshairColor);
+                    FillRect(cx + crossGap, cy, crossLen - crossGap, 1, CrosshairColor);
+                    FillRect(cx, cy - crossLen, 1, crossLen - crossGap, CrosshairColor);
+                    FillRect(cx, cy + crossGap, 1, crossLen - crossGap, CrosshairColor);
                 }
             }
 
-            // Fallback: no viewer or no image
-            DrawText(State.IsRunning ? "Waiting for guide frame\u2026" : "No guide camera",
-                fontPath, rect.X, rect.Y, rect.Width, rect.Height,
-                fontSize, DimText, TextAlign.Center, TextAlign.Center);
+            // L-shaped calibration overlay: auto-scaled, centered on image.
+            // Hide once guiding is active (guide samples accumulating).
+            if (State.CalibrationOverlay is { } cal && State.GuideSamples.Length < 2)
+            {
+                RenderCalibrationOverlayOnCamera(cal,
+                    offsetX + drawW / 2, offsetY + drawH / 2, dpiScale);
+            }
+
+            // SNR + frame count in corner
+            var infoText = State.GuideStarSNR is { } snr
+                ? $"SNR: {snr:F0}  #{_guideFrameCount}"
+                : $"#{_guideFrameCount}";
+            DrawText(infoText, fontPath,
+                rect.X + 4 * dpiScale, rect.Y + rect.Height - fontSize * 1.4f,
+                200 * dpiScale, fontSize * 1.2f,
+                fontSize * 0.8f, BodyText, TextAlign.Near, TextAlign.Far);
         }
 
         /// <summary>
@@ -384,8 +494,8 @@ namespace TianWen.UI.Abstractions
             }
             if (state is "Guiding" && State.LastGuideStats is { } gs)
             {
-                var ra = FormatPulse(gs.LastRaPulseMs, "\u2190", "\u2192"); // ← West, → East
-                var dec = FormatPulse(gs.LastDecPulseMs, "\u2193", "\u2191"); // ↓ South, ↑ North
+                var ra = FormatPulse(gs.LastRaPulseMs, "←", "→"); // ← West, → East
+                var dec = FormatPulse(gs.LastDecPulseMs, "↓", "↑"); // ↓ South, ↑ North
                 if (ra.Length > 0 || dec.Length > 0)
                 {
                     return $"Guiding {ra}{(ra.Length > 0 && dec.Length > 0 ? " " : "")}{dec}";
@@ -420,10 +530,10 @@ namespace TianWen.UI.Abstractions
             // Build lines bottom-up so they sit above the ±12" label
             var lines = new (string Label, string Value, RGBAColor32 Color)[]
             {
-                ("Angle:", $"{cal.CameraAngleDeg:F1}\u00b0", BodyText),
+                ("Angle:", $"{cal.CameraAngleDeg:F1}°", BodyText),
                 ("RA rate:", $"{cal.RaRateArcsecPerSec:F2}\"/s", CalRaColor),
                 ("Dec rate:", $"{cal.DecRateArcsecPerSec:F2}\"/s", CalDecColor),
-                ("Ortho err:", $"{cal.OrthoErrorDeg:F1}\u00b0", cal.OrthoErrorDeg > 5 ? CalRaColor : BodyText),
+                ("Ortho err:", $"{cal.OrthoErrorDeg:F1}°", cal.OrthoErrorDeg > 5 ? CalRaColor : BodyText),
                 ("BL RA:", cal.BacklashClearingStepsRa > 0 ? $"{cal.BacklashClearingStepsRa} steps" : "off", DimText),
                 ("BL Dec:", cal.BacklashClearingStepsDec > 0 ? $"{cal.BacklashClearingStepsDec} steps" : "off", DimText),
             };
@@ -453,31 +563,20 @@ namespace TianWen.UI.Abstractions
         /// <summary>
         /// Star profile: 1D intensity cross-section through the guide star center.
         /// Shows horizontal (green) and vertical (cyan) profiles overlaid.
+        /// Receives the PLOT rect (the pane's padding + title row are layout); the FWHM readout and
+        /// the legend draw over the plot's top and bottom bands.
         /// </summary>
-        private void RenderStarProfile(RectF32 rect, float dpiScale, string fontPath, float fontSize)
+        private void RenderStarProfilePlot(RectF32 rect, float dpiScale, string fontPath, float fontSize)
         {
-            FillRect(rect.X, rect.Y, rect.Width, rect.Height, ProfileBg);
-
-            var padding = BasePadding * dpiScale;
-            var headerH = fontSize * 1.4f;
-
-            DrawText("Star Profile", fontPath,
-                rect.X + padding, rect.Y + padding,
-                rect.Width - padding * 2, headerH,
-                fontSize * 0.85f, HeaderText, TextAlign.Near, TextAlign.Near);
-
             if (State.GuideStarProfile is not var (hProfile, vProfile))
             {
-                DrawText("Awaiting data\u2026", fontPath,
-                    rect.X, rect.Y, rect.Width, rect.Height,
-                    fontSize * 0.85f, DimText, TextAlign.Center, TextAlign.Center);
-                return;
+                return; // the frame tree only emits this Fill leaf with profile data present
             }
 
-            var plotX = rect.X + padding;
-            var plotY = rect.Y + padding + headerH;
-            var plotW = rect.Width - padding * 2;
-            var plotH = rect.Height - padding * 2 - headerH;
+            var plotX = rect.X;
+            var plotY = rect.Y;
+            var plotW = rect.Width;
+            var plotH = rect.Height;
 
             if (plotW < 10 || plotH < 10) return;
 
@@ -517,18 +616,17 @@ namespace TianWen.UI.Abstractions
             if (fwhmText.Length > 0)
             {
                 DrawText(fwhmText, fontPath,
-                    rect.X + padding, rect.Y + padding + headerH,
-                    plotW, fontSize,
+                    plotX, plotY, plotW, fontSize,
                     fontSize * 0.75f, BodyText, TextAlign.Far, TextAlign.Near);
             }
 
             // Legend
-            var legendY = rect.Y + rect.Height - padding - fontSize;
-            FillRect((int)(rect.X + padding), (int)legendY, (int)(6 * dpiScale), (int)(2 * dpiScale), ProfileLineColor);
-            DrawText("H", fontPath, rect.X + padding + 8 * dpiScale, legendY - fontSize * 0.2f, 15 * dpiScale, fontSize,
+            var legendY = rect.Y + rect.Height - fontSize;
+            FillRect((int)plotX, (int)legendY, (int)(6 * dpiScale), (int)(2 * dpiScale), ProfileLineColor);
+            DrawText("H", fontPath, plotX + 8 * dpiScale, legendY - fontSize * 0.2f, 15 * dpiScale, fontSize,
                 fontSize * 0.7f, ProfileLineColor, TextAlign.Near, TextAlign.Center);
-            FillRect((int)(rect.X + padding + 25 * dpiScale), (int)legendY, (int)(6 * dpiScale), (int)(2 * dpiScale), ProfileVLineColor);
-            DrawText("V", fontPath, rect.X + padding + 33 * dpiScale, legendY - fontSize * 0.2f, 15 * dpiScale, fontSize,
+            FillRect((int)(plotX + 25 * dpiScale), (int)legendY, (int)(6 * dpiScale), (int)(2 * dpiScale), ProfileVLineColor);
+            DrawText("V", fontPath, plotX + 33 * dpiScale, legendY - fontSize * 0.2f, 15 * dpiScale, fontSize,
                 fontSize * 0.7f, ProfileVLineColor, TextAlign.Near, TextAlign.Center);
         }
 
@@ -625,8 +723,6 @@ namespace TianWen.UI.Abstractions
         /// </summary>
         private void RenderTargetView(RectF32 rect, float dpiScale, string fontPath, float fontSize)
         {
-            FillRect(rect.X, rect.Y, rect.Width, rect.Height, TargetBg);
-
             var padding = BasePadding * dpiScale;
             var side = Math.Min(rect.Width, rect.Height) - padding * 2;
             var cx = rect.X + rect.Width / 2;
@@ -634,13 +730,6 @@ namespace TianWen.UI.Abstractions
             var halfSide = side / 2;
 
             var samples = State.GuideSamples;
-            if (samples.Length < 2 && State.CalibrationOverlay is null)
-            {
-                DrawText("Target View", fontPath,
-                    rect.X, rect.Y, rect.Width, rect.Height,
-                    fontSize, DimText, TextAlign.Center, TextAlign.Center);
-                return;
-            }
 
             // Fixed scale: rings at 3", 6", 9", 12" (outer ring = 12")
             const double targetScaleArcsec = 12.0;
@@ -671,7 +760,7 @@ namespace TianWen.UI.Abstractions
                 labelSize, GuideGraphRenderer.DecColor, TextAlign.Near, TextAlign.Near);
 
             // Scale label
-            DrawText($"\u00b1{targetScaleArcsec:F0}\"", fontPath,
+            DrawText($"±{targetScaleArcsec:F0}\"", fontPath,
                 rect.X + padding, rect.Y + rect.Height - labelSize * 1.5f, 50 * dpiScale, labelSize,
                 labelSize, GuideGraphRenderer.ZeroLineColor, TextAlign.Near, TextAlign.Far);
 
@@ -725,14 +814,8 @@ namespace TianWen.UI.Abstractions
             var samples = State.GuideSamples;
             if (samples.Length < 2)
             {
-                FillRect(rect.X, rect.Y, rect.Width, rect.Height, ContentBg);
-                DrawText("Waiting for guide data\u2026", fontPath,
-                    rect.X, rect.Y, rect.Width, rect.Height,
-                    fontSize, DimText, TextAlign.Center, TextAlign.Center);
-                return;
+                return; // the frame tree shows the "Waiting for guide data…" text leaf instead
             }
-
-            FillRect(rect.X, rect.Y, rect.Width, rect.Height, GuideGraphRenderer.GraphBg);
 
             var padding = BasePadding * dpiScale;
             var halfH = rect.Height / 2;
@@ -845,68 +928,6 @@ namespace TianWen.UI.Abstractions
             DrawText("Dec", fontPath,
                 rect.X + padding + 60 * dpiScale, legendY - fontSize * 0.3f, 30 * dpiScale, fontSize,
                 fontSize * 0.8f, GuideGraphRenderer.DecColor, TextAlign.Near, TextAlign.Center);
-        }
-
-        private void RenderStats(RectF32 rect, float dpiScale, string fontPath, float fontSize, float padding)
-        {
-            FillRect(rect.X, rect.Y, rect.Width, rect.Height, PanelBg);
-
-            var stats = State.LastGuideStats;
-            var cursor = rect.Y + padding;
-            var lineH = fontSize * 1.6f;
-            var labelW = 90f * dpiScale;
-            var valueX = rect.X + padding + labelW;
-            var valueW = rect.Width - padding * 2 - labelW;
-
-            // Header
-            DrawText("Guide Stats", fontPath,
-                rect.X + padding, cursor, rect.Width - padding * 2, lineH,
-                fontSize, HeaderText, TextAlign.Near, TextAlign.Center);
-            cursor += lineH * 1.2f;
-
-            if (stats is null)
-            {
-                DrawText("No data", fontPath,
-                    rect.X + padding, cursor, rect.Width - padding * 2, lineH,
-                    fontSize * 0.9f, DimText, TextAlign.Near, TextAlign.Center);
-                return;
-            }
-
-            // Stats rows
-            void DrawRow(string label, string value, RGBAColor32? valueColor = null)
-            {
-                DrawText(label, fontPath, rect.X + padding, cursor, labelW, lineH,
-                    fontSize * 0.9f, DimText, TextAlign.Near, TextAlign.Center);
-                DrawText(value, fontPath, valueX, cursor, valueW, lineH,
-                    fontSize * 0.9f, valueColor ?? BodyText, TextAlign.Near, TextAlign.Center);
-                cursor += lineH;
-            }
-
-            DrawRow("Total RMS:", $"{stats.TotalRMS:F2}\"");
-            DrawRow("RA RMS:", $"{stats.RaRMS:F2}\"", GuideGraphRenderer.RaColor);
-            DrawRow("Dec RMS:", $"{stats.DecRMS:F2}\"", GuideGraphRenderer.DecColor);
-            cursor += lineH * 0.3f;
-            DrawRow("Peak RA:", $"{stats.PeakRa:F2}\"");
-            DrawRow("Peak Dec:", $"{stats.PeakDec:F2}\"");
-            cursor += lineH * 0.3f;
-
-            if (stats.LastRaErr.HasValue)
-            {
-                DrawRow("Last RA:", $"{stats.LastRaErr.Value:+0.00;-0.00}\"", GuideGraphRenderer.RaColor);
-                DrawRow("Last Dec:", $"{stats.LastDecErr ?? 0:+0.00;-0.00}\"", GuideGraphRenderer.DecColor);
-                cursor += lineH * 0.3f;
-            }
-
-            if (State.GuideExposure > TimeSpan.Zero)
-            {
-                DrawRow("Exposure:", $"{State.GuideExposure.TotalSeconds:F1}s");
-            }
-
-            var settle = State.GuiderSettleProgress;
-            if (settle is { Done: false })
-            {
-                DrawRow("Settle:", $"{settle.Distance:F2}\" / {settle.SettlePx:F2}\"");
-            }
         }
     }
 }
