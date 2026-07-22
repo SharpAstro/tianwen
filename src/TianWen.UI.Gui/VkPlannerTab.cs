@@ -96,9 +96,8 @@ public sealed class VkPlannerTab : PlannerTab<VulkanContext>, IDisposable
         _pendingPixels = null;
     }
 
-    protected override void RenderChart(PlannerState state, RectF32 chartRect, string fontPath,
-        int? selectedIndex, DateTimeOffset? chartCurrentTime, (float, float)? mousePos,
-        string? emojiFontPath = null)
+    protected override void RenderChart(PlannerState state, RectF32 chartRect,
+        int? selectedIndex, DateTimeOffset? chartCurrentTime, (float, float)? mousePos)
     {
         var chartW = (int)chartRect.Width;
         var chartH = (int)chartRect.Height;
@@ -143,10 +142,12 @@ public sealed class VkPlannerTab : PlannerTab<VulkanContext>, IDisposable
 
             // Render chart to CPU pixel buffer at (0,0) — no overlays. Output is RGBA;
             // the GPU upload uses VkFormat.R8G8B8A8Unorm so no byte-swap is needed.
-            AltitudeChartRenderer.Render(_chartRenderer, state, fontPath,
+            // AltitudeChartRenderer is a static (non-widget) helper -- it keeps its font params, fed here
+            // from the inherited FontPath / EmojiFontPath (host-set) properties.
+            AltitudeChartRenderer.Render(_chartRenderer, state, FontPath,
                 0, 0, chartW, chartH,
                 selectedIndex, currentTime: null, mouseScreenPosition: null,
-                emojiFontPath);
+                EmojiFontPath);
 
             // Copy to a detached buffer — the upload happens next frame, and by
             // then _chartRenderer.Surface.Pixels may have been overwritten.
@@ -171,9 +172,9 @@ public sealed class VkPlannerTab : PlannerTab<VulkanContext>, IDisposable
                     (int)chartRect.X, (int)chartRect.Y, chartW, chartH);
 
             DrawTimeOverlay(chartCurrentTime, tStart, tEnd, plotX, plotY, plotW, plotH);
-            DrawMouseFollower(mousePos, state, tStart, tEnd, plotX, plotY, plotW, plotH, fontPath, chartH);
+            DrawMouseFollower(mousePos, state, tStart, tEnd, plotX, plotY, plotW, plotH, chartH);
             DrawWeatherTooltip(mousePos, state, tStart, tEnd, plotX, plotW,
-                (int)chartRect.X, (int)chartRect.Y, chartW, chartH, fontPath);
+                (int)chartRect.X, (int)chartRect.Y, chartW, chartH);
         }
     }
 
@@ -205,13 +206,15 @@ public sealed class VkPlannerTab : PlannerTab<VulkanContext>, IDisposable
     private void DrawMouseFollower((float, float)? mousePos, PlannerState state,
         DateTimeOffset tStart, DateTimeOffset tEnd,
         int plotX, int plotY, int plotW, int plotH,
-        string fontPath, int chartH)
+        int chartH)
     {
         if (mousePos is not var (mx, my) || mx < plotX || mx > plotX + plotW
             || my < plotY || my > plotY + plotH)
         {
             return;
         }
+
+        var fontPath = FontPath;
 
         // Vertical line
         _renderer.FillRectangle(
@@ -236,8 +239,9 @@ public sealed class VkPlannerTab : PlannerTab<VulkanContext>, IDisposable
     /// </summary>
     private void DrawWeatherTooltip((float, float)? mousePos, PlannerState state,
         DateTimeOffset tStart, DateTimeOffset tEnd, int plotX, int plotW,
-        int areaX, int areaY, int chartW, int chartH, string fontPath)
+        int areaX, int areaY, int chartW, int chartH)
     {
+        var fontPath = FontPath;
         if (mousePos is not var (mx, my))
         {
             return;

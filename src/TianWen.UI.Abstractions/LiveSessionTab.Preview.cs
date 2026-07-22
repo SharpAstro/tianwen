@@ -45,7 +45,7 @@ namespace TianWen.UI.Abstractions
             };
         }
 
-        private void RenderMiniViewerToolbar(ViewerState vs, RectF32 rect, string fontPath, float fontSize)
+        private void RenderMiniViewerToolbar(ViewerState vs, RectF32 rect, float fontSize)
         {
             FillRect(rect.X, rect.Y, rect.Width, rect.Height, HeaderBg);
 
@@ -133,15 +133,16 @@ namespace TianWen.UI.Abstractions
 
             // Inset the row 2px vertically (the old btnY/btnH) inside the already-painted HeaderBg strip.
             var inner = new RectF32(rect.X + pad, rect.Y + 2f * dpiScale, rect.Width - pad * 2f, rect.Height - 4f * dpiScale);
-            RenderLayout(Layout.Builder.HStack([.. nodes]).WithGap(pad), inner, fontPath, dpiScale: 1f);
+            RenderLayout(Layout.Builder.HStack([.. nodes]).WithGap(pad), inner, dpiScale: 1f);
         }
 
         /// <summary>
         /// Preview mode timeline: twilight bands + now needle.
         /// Shows civil/nautical/astronomical twilight zones so the user knows when dark arrives.
         /// </summary>
-        private void RenderPreviewTimeline(LiveSessionState state, RectF32 rect, string fontPath, float fontSize, ITimeProvider timeProvider)
+        private void RenderPreviewTimeline(LiveSessionState state, RectF32 rect, float fontSize, ITimeProvider timeProvider)
         {
+            var fontPath = FontPath;
             if (state.AstroDark == default)
             {
                 DrawText("Twilight data loading\u2026", fontPath,
@@ -252,9 +253,10 @@ namespace TianWen.UI.Abstractions
         /// leaf painted through <see cref="_otaPanelFills"/>; the capture progress bar is a declarative
         /// <see cref="FormRowLayout.ProgressBar"/> node.
         /// </summary>
-        private void RenderPreviewOTAPanels(LiveSessionState state, RectF32 rect, string fontPath,
+        private void RenderPreviewOTAPanels(LiveSessionState state, RectF32 rect,
             float fontSize, float pad, float rowH, ITimeProvider timeProvider)
         {
+            var fontPath = FontPath;
             var dpiScale = DpiScale;
             var preview = state.PreviewOTATelemetry;
             var otaCount = preview.Length;
@@ -276,7 +278,7 @@ namespace TianWen.UI.Abstractions
                 {
                     columns.Add(Layout.Builder.Spacer().WFixed(1f).HStar().Bg(SeparatorColor));
                 }
-                columns.Add(BuildPreviewOtaColumn(state, i, fontSize, fontPath, timeProvider).WStar());
+                columns.Add(BuildPreviewOtaColumn(state, i, fontSize, timeProvider).WStar());
             }
             var columnsRow = Layout.Builder.HStack([.. columns]);
 
@@ -293,7 +295,7 @@ namespace TianWen.UI.Abstractions
             Renderer.PushClip(new RectInt(
                 new PointInt((int)(rect.X + rect.Width), (int)(rect.Y + rect.Height)),
                 new PointInt((int)rect.X, (int)rect.Y)));
-            RenderLayout(tree, rect, fontPath, drawFill: DispatchOtaPanelFill);
+            RenderLayout(tree, rect, drawFill: DispatchOtaPanelFill);
             Renderer.PopClip();
         }
 
@@ -303,8 +305,9 @@ namespace TianWen.UI.Abstractions
         /// their own click hits; the goto text-input is a keyed Fill.
         /// </summary>
         private Layout.Node BuildPreviewOtaColumn(LiveSessionState state, int i,
-            float fontSize, string fontPath, ITimeProvider timeProvider)
+            float fontSize, ITimeProvider timeProvider)
         {
+            var fontPath = FontPath;
             var tel = state.PreviewOTATelemetry[i];
             var smallFs = fontSize * 0.85f;
             var rows = new List<Layout.Node>();
@@ -404,7 +407,7 @@ namespace TianWen.UI.Abstractions
 
             // Capture controls
             rows.Add(Layout.Builder.Spacer().RowH(BasePadding));
-            rows.Add(BuildPreviewCaptureControls(state, i, fontSize, fontPath, timeProvider));
+            rows.Add(BuildPreviewCaptureControls(state, i, fontSize, timeProvider));
 
             return Layout.Builder.VStack([.. rows]).Pad(BasePadding);
         }
@@ -416,7 +419,7 @@ namespace TianWen.UI.Abstractions
         /// Fill leaf; everything else is declarative).
         /// </summary>
         private Layout.Node BuildPreviewCaptureControls(LiveSessionState state, int otaIndex,
-            float fontSize, string fontPath, ITimeProvider timeProvider)
+            float fontSize, ITimeProvider timeProvider)
         {
             var smallFs = fontSize * 0.85f;
             var rows = new List<Layout.Node>();

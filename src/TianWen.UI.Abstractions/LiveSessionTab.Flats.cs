@@ -48,15 +48,16 @@ namespace TianWen.UI.Abstractions
         /// <see cref="LiveSessionMode.Flats"/> is active. Setup form when idle, phase + status + Cancel
         /// while a run is in flight.
         /// </summary>
-        private void RenderFlatsSidePanel(LiveSessionState state, RectF32 rect, string fontPath,
+        private void RenderFlatsSidePanel(LiveSessionState state, RectF32 rect,
             float fontSize, float pad, float rowH)
         {
+            var fontPath = FontPath;
             // A run is in flight iff a CTS is live (mirrors PolarAlignmentCts). Running -> phase/status/Cancel.
             if (state.FlatsCts is not null)
             {
                 DrawText("Flat Capture", fontPath,
                     rect.X + pad, rect.Y, rect.Width - pad * 2, rowH, fontSize, HeaderText, TextAlign.Near, TextAlign.Center);
-                RenderFlatsRunningRows(state, rect, rect.X + pad, rect.Y + rowH + pad, rect.Width - pad * 2, rowH, fontPath, fontSize, pad);
+                RenderFlatsRunningRows(state, rect, rect.X + pad, rect.Y + rowH + pad, rect.Width - pad * 2, rowH, fontSize, pad);
                 return;
             }
 
@@ -128,7 +129,7 @@ namespace TianWen.UI.Abstractions
 
             var bottomH = BaseRowHeight * 1.2f + BasePadding + BaseRowHeight * 1.6f;
             var tree = Layout.Builder.Dock(content, Layout.Builder.Bottom(buttons, bottomH)).Pad(BasePadding);
-            RenderLayout(tree, rect, fontPath);
+            RenderLayout(tree, rect);
         }
 
         /// <summary>
@@ -138,8 +139,9 @@ namespace TianWen.UI.Abstractions
         /// </summary>
         private void RenderFlatsRunningRows(
             LiveSessionState state, RectF32 rect,
-            float x0, float y, float w, float rowH, string fontPath, float fontSize, float pad)
+            float x0, float y, float w, float rowH, float fontSize, float pad)
         {
+            var fontPath = FontPath;
             var (phaseLabel, phaseColor) = state.Phase switch
             {
                 SessionPhase.Initialising => ("CONNECTING", StatusSlewing),
@@ -153,7 +155,7 @@ namespace TianWen.UI.Abstractions
             };
             RenderLayout(
                 Layout.Builder.Text(phaseLabel, BaseFontSize * 0.95f, BrightText, TextAlign.Center, TextAlign.Center).Bg(phaseColor),
-                new RectF32(x0, y, w, rowH), fontPath);
+                new RectF32(x0, y, w, rowH));
             y += rowH + pad;
 
             // Source line
@@ -187,7 +189,7 @@ namespace TianWen.UI.Abstractions
             var cancelNode = Layout.Builder.Text(cancelLabel, fontSize * 0.9f, cancelFg, TextAlign.Center, TextAlign.Center)
                 .Stretch().Bg(cancelBg)
                 .Clickable(new HitResult.ButtonHit("FlatsCancel"), _ => { if (canCancel) PostSignal(new CancelFlatsSignal()); });
-            RenderLayout(cancelNode, new RectF32(x0, buttonY, w, rowH * 1.6f), fontPath, dpiScale: 1f);
+            RenderLayout(cancelNode, new RectF32(x0, buttonY, w, rowH * 1.6f), dpiScale: 1f);
         }
     }
 }

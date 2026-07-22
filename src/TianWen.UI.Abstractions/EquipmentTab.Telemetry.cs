@@ -23,12 +23,13 @@ namespace TianWen.UI.Abstractions
         /// leaves painted through <see cref="_profilePanelFills"/> from the single panel RenderLayout.
         /// </summary>
         private Layout.Node? BuildCameraTelemetry(
-            GuiAppState appState, Uri? cameraUri, float innerW, string fontPath)
+            GuiAppState appState, Uri? cameraUri, float innerW)
         {
             if (cameraUri is null || cameraUri == NoneDevice.Instance.DeviceUri) return null;
             if (appState.DeviceHub is not { } hub || !hub.IsConnected(cameraUri)) return null;
 
             var dpiScale = DpiScale;
+            var fontPath = FontPath;
             var key = cameraUri.GetLeftPart(UriPartial.Path);
             var fontSize = BaseFontSize * dpiScale;
             float rowH = BaseItemHeight * 0.9f;   // design units
@@ -59,7 +60,7 @@ namespace TianWen.UI.Abstractions
             var cellW = innerW / 4f;
             var cellFs = fontSize * 0.85f;
             Layout.Node Cell(string s) =>
-                Layout.Builder.Text(TruncateToWidth(s, fontPath, cellFs, cellW), BaseFontSize * 0.85f, BodyText).WStar().HStar();
+                Layout.Builder.Text(TruncateToWidth(s, cellFs, cellW), BaseFontSize * 0.85f, BodyText).WStar().HStar();
 
             rows.Add(Layout.Builder.HStack(
                     Cell($"CCD: {Fmt(latest?.CcdTempC, "\u00b0C")}"),
@@ -126,7 +127,7 @@ namespace TianWen.UI.Abstractions
                 FillRect(r.X, r.Y, r.Width, r.Height, FilterTableBg);
                 if (buffer is not null && buffer.Count >= 2)
                 {
-                    RenderTemperatureSparkline(buffer, r.X, r.Y, r.Width, r.Height, fontPath, graphFs);
+                    RenderTemperatureSparkline(buffer, r.X, r.Y, r.Width, r.Height, graphFs);
                 }
                 else
                 {
@@ -150,7 +151,7 @@ namespace TianWen.UI.Abstractions
         /// </summary>
         private Layout.Node? BuildMountTelemetry(
             GuiAppState appState, Uri? mountUri, LiveSessionState? liveSessionState,
-            float innerW, string fontPath)
+            float innerW)
         {
             if (mountUri is null || mountUri == NoneDevice.Instance.DeviceUri) return null;
             if (appState.DeviceHub is not { } hub || !hub.IsConnected(mountUri)) return null;
@@ -184,7 +185,7 @@ namespace TianWen.UI.Abstractions
             var cellW = innerW / 3f;
             var cellFs = fontSize * 0.85f;
             Layout.Node Coord(string s) =>
-                Layout.Builder.Text(TruncateToWidth(s, fontPath, cellFs, cellW), BaseFontSize * 0.85f, BodyText).WStar().HStar();
+                Layout.Builder.Text(TruncateToWidth(s, cellFs, cellW), BaseFontSize * 0.85f, BodyText).WStar().HStar();
 
             var readout = Layout.Builder.VStack(
                 toggle,
@@ -239,8 +240,10 @@ namespace TianWen.UI.Abstractions
         private void RenderTemperatureSparkline(
             CameraTelemetryBuffer buffer,
             float x, float y, float w, float h,
-            string fontPath, float fontSize)
+            float fontSize)
         {
+            var fontPath = FontPath;
+
             // Collect points
             var samples = new List<CameraTelemetrySample>(buffer.Count);
             foreach (var s in buffer.InOrder()) samples.Add(s);

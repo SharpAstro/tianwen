@@ -65,14 +65,13 @@ namespace TianWen.Lib.Tests
         private static PlannerTab<RgbaImage> RenderTab(RgbaImageRenderer renderer, float dpiScale = 1f)
         {
             // DPI is the widget-owned property now (host-set), not a Render argument.
-            var tab = new PlannerTab<RgbaImage>(renderer) { DpiScale = dpiScale };
+            // A real font: the chart's axis labels rasterize glyphs on the CPU renderer (an empty
+            // path throws in OpenTypeFont), same as ObservationScheduleVisualizationTests. DPI + font
+            // are widget-owned properties now (host-set), not Render arguments.
+            var tab = new PlannerTab<RgbaImage>(renderer) { DpiScale = dpiScale, FontPath = FontResolver.ResolveSystemFont() };
             // 22:00 is inside the displayed night, so the elapsed-time shade paints too.
             var time = new FakeTimeProviderWrapper(new DateTimeOffset(2025, 12, 15, 22, 0, 0, TimeSpan.Zero));
-            // A real font: the chart's axis labels rasterize glyphs on the CPU renderer (an empty
-            // path throws in OpenTypeFont), same as ObservationScheduleVisualizationTests.
-            var fontPath = FontResolver.ResolveSystemFont();
-            tab.Render(BuildState(), new RectF32(0, 0, renderer.Width, renderer.Height),
-                fontPath, time);
+            tab.Render(BuildState(), new RectF32(0, 0, renderer.Width, renderer.Height), time);
             return tab;
         }
 
@@ -254,7 +253,7 @@ namespace TianWen.Lib.Tests
         public void SuggestionDropdown_MouseClick_CommitsTheClickedSuggestion()
         {
             using var renderer = new RgbaImageRenderer(1600, 1000);
-            var tab = new PlannerTab<RgbaImage>(renderer);
+            var tab = new PlannerTab<RgbaImage>(renderer) { FontPath = FontResolver.ResolveSystemFont() };
             var state = BuildState();
             // The dropdown only renders when the search input is active with suggestions present.
             state.SearchInput.Activate();
@@ -264,8 +263,7 @@ namespace TianWen.Lib.Tests
             state.CommitSuggestionAt = i => committed.Add(i);
 
             var time = new FakeTimeProviderWrapper(new DateTimeOffset(2025, 12, 15, 22, 0, 0, TimeSpan.Zero));
-            var fontPath = FontResolver.ResolveSystemFont();
-            tab.Render(state, new RectF32(0, 0, 1600, 1000), fontPath, time);
+            tab.Render(state, new RectF32(0, 0, 1600, 1000), time);
 
             // The dropdown is painted last, so its rows are the topmost regions at their pixels -- a click
             // on the second row's centre dispatches that row (HitTestAndDispatch returns topmost-first).

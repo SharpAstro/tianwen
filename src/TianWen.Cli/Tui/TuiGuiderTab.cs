@@ -57,7 +57,8 @@ internal sealed class TuiGuiderTab(
             var canvasPixelSize = fillVp.PixelSize;
             _canvasRenderer = new SixelRgbaImageRenderer((uint)canvasPixelSize.Width, (uint)canvasPixelSize.Height);
             _canvas = new Canvas(fillVp, _canvasRenderer);
-            _guiderWidget = new GuiderTab<RgbaImage>(_canvasRenderer);
+            // The widget owns its font path (host-set once); a terminal Sixel canvas has no emoji font.
+            _guiderWidget = new GuiderTab<RgbaImage>(_canvasRenderer) { FontPath = fontPath };
 
             panel.Add(_topBar).Add(_statusBar).Add(_canvas);
         }
@@ -118,7 +119,8 @@ internal sealed class TuiGuiderTab(
         var contentRect = new RectF32(0, 0, canvasPixelSize.Width, canvasPixelSize.Height);
 
         // A terminal Sixel canvas has no DPI scaling; the widget's DpiScale stays at its default 1.
-        guiderWidget.Render(liveState, contentRect, fontPath, timeProvider);
+        // FontPath was set on the widget in CreateWidgets, so it is not passed per-render any more.
+        guiderWidget.Render(liveState, contentRect, timeProvider);
     }
 
     private void RenderTextContent(GuiderPlaceholder? placeholder,

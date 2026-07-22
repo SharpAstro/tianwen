@@ -127,7 +127,7 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
     protected override bool FullStarsLoading => _pipeline is { GeometryReady: true, FullStarsReady: false };
 
     protected override void RenderSkyMap(
-        ICelestialObjectDB db, RectF32 contentRect, string fontPath,
+        ICelestialObjectDB db, RectF32 contentRect,
         DateTimeOffset viewingTime, double siteLat, double siteLon, SiteContext site)
     {
         var mapW = contentRect.Width;
@@ -274,11 +274,12 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
     /// the treatment applied to constellation and planet labels.
     /// </summary>
     protected override void RenderObjectOverlay(
-        ICelestialObjectDB db, RectF32 contentRect, string fontPath,
+        ICelestialObjectDB db, RectF32 contentRect,
         float baseFontSize, SiteContext site, bool dimBelowHorizon, PlannerState plannerState,
         bool showAllOverlays)
     {
         var dpiScale = DpiScale;
+        var fontPath = FontPath;
         var proposals = plannerState.Proposals;
         var viewMatrix = State.CurrentViewMatrix;
         var fov = State.FieldOfViewDeg;
@@ -381,7 +382,7 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
 
         // Reserve the mount reticle's label footprint (drawn later, in RenderMountOverlay) so
         // an object name never renders on top of it when the mount sits on a catalogued target.
-        var mountLabelReservation = BuildMountLabelReservation(contentRect, dpiScale, fontPath, baseFontSize);
+        var mountLabelReservation = BuildMountLabelReservation(contentRect, dpiScale, baseFontSize);
         if (_useCollisionPlacement)
         {
             OverlayEngine.PlaceLabels(_overlayItems, placementLabelSize, 4f, measureText, record,
@@ -701,7 +702,7 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
     /// </summary>
     protected override void RenderMountOverlay(
         SkyMapMountOverlay mountOverlay, RectF32 contentRect,
-        string fontPath, float baseFontSize, double ppr, float cx, float cy)
+        float baseFontSize, double ppr, float cx, float cy)
     {
         var dpiScale = DpiScale;
         if (!SkyMapProjection.ProjectWithMatrix(
@@ -715,7 +716,7 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
         // Destination marker + ETA for an in-flight slew. Drawn before the mount's own
         // off-screen early-return so the user still sees where it is heading even when the
         // reticle itself ends up just outside the viewport during a long slew.
-        RenderSlewTarget(contentRect, dpiScale, fontPath, baseFontSize, ppr, cx, cy, screenX, screenY);
+        RenderSlewTarget(contentRect, dpiScale, baseFontSize, ppr, cx, cy, screenX, screenY);
 
         // Skip if the mount is projected well off-screen — no point drawing a reticle
         // we can't see, and it keeps the label clutter off the info strip.
@@ -750,9 +751,9 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
         var lineH = fontSize * 1.2f;
         var (nameText, coordsText) = MountLabelLines(mountOverlay);
 
-        DrawReticleLabel(nameText, fontPath, fontSize, color,
+        DrawReticleLabel(nameText, fontSize, color,
             screenX, screenY + 20f * dpiScale, lineH);
-        DrawReticleLabel(coordsText, fontPath, fontSize * 0.9f,
+        DrawReticleLabel(coordsText, fontSize * 0.9f,
             new RGBAColor32(color.Red, color.Green, color.Blue, (byte)(color.Alpha * 0.8f)),
             screenX, screenY + 20f * dpiScale + lineH, lineH);
 
@@ -777,7 +778,7 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
     /// skipped (no duplicate) and only the line + ETA augment that existing marker.
     /// </summary>
     private void RenderSlewTarget(
-        RectF32 contentRect, float dpiScale, string fontPath, float baseFontSize,
+        RectF32 contentRect, float dpiScale, float baseFontSize,
         double ppr, float cx, float cy, float mountScreenX, float mountScreenY)
     {
         if (State.ActiveSlewTarget is not { } target)
@@ -814,14 +815,14 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
         if (!alreadyMarked)
         {
             DrawCircle(tx, ty, 12f * dpiScale, amber, 1.5f);
-            DrawReticleLabel(target.Name, fontPath, fontSize, amber, tx, labelTopY, lineH);
+            DrawReticleLabel(target.Name, fontSize, amber, tx, labelTopY, lineH);
             labelTopY += lineH;
         }
 
         var eta = State.SlewEtaSeconds;
         if (!double.IsNaN(eta))
         {
-            DrawReticleLabel(FormatEta(eta), fontPath, fontSize * 0.9f,
+            DrawReticleLabel(FormatEta(eta), fontSize * 0.9f,
                 new RGBAColor32(amber.Red, amber.Green, amber.Blue, 0xCC), tx, labelTopY, lineH);
         }
     }
@@ -871,7 +872,7 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
     /// mount reticle); the rest are pale green. Below-horizon targets are dimmed.
     /// </summary>
     protected override void RenderScheduleTargets(
-        RectF32 contentRect, string fontPath, float baseFontSize,
+        RectF32 contentRect, float baseFontSize,
         double ppr, float cx, float cy, SiteContext site, bool dimBelowHorizon)
     {
         var dpiScale = DpiScale;
@@ -901,14 +902,15 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
             VkOverlayShapes.DrawReticle(renderer, dpiScale,
                 sx, sy, radius: 9f, armLength: 14f, gap: 4f,
                 color: color, thickness: 1.5f);
-            DrawReticleLabel(name, fontPath, fontSize * 0.9f, color,
+            DrawReticleLabel(name, fontSize * 0.9f, color,
                 sx, sy + 14f * dpiScale, lineH);
         }
     }
 
-    private void DrawReticleLabel(string text, string fontPath, float fontSize, RGBAColor32 color,
+    private void DrawReticleLabel(string text, float fontSize, RGBAColor32 color,
         float centerX, float topY, float lineH)
     {
+        var fontPath = FontPath;
         var (textW, _) = Renderer.MeasureText(text.AsSpan(), fontPath, fontSize);
         Renderer.DrawText(text.AsSpan(), fontPath, fontSize, color,
             new RectInt(
@@ -942,8 +944,9 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
     /// each <see cref="DrawReticleLabel"/> block padded ±4px horizontally).
     /// </summary>
     private IReadOnlyList<(float X, float Y, float W, float H)>? BuildMountLabelReservation(
-        RectF32 contentRect, float dpiScale, string fontPath, float baseFontSize)
+        RectF32 contentRect, float dpiScale, float baseFontSize)
     {
+        var fontPath = FontPath;
         if (!State.ShowMountOverlay || State.MountOverlay is not { } mountOverlay)
         {
             return null;
@@ -984,7 +987,7 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
     /// always shown since they are frame-independent.
     /// </summary>
     protected override void RenderFixedPointMarkers(
-        RectF32 contentRect, string fontPath, float baseFontSize,
+        RectF32 contentRect, float baseFontSize,
         double ppr, float cx, float cy, SiteContext site)
     {
         var dpiScale = DpiScale;
@@ -994,13 +997,13 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
 
         // North Celestial Pole (Dec=+90). Use Dec slightly off 90 for slew to dodge
         // mount drivers that reject exactly-polar targets; RA is arbitrary at the pole.
-        DrawFixedMarker(contentRect, dpiScale, fontPath, fontSize, lineH, ppr, cx, cy,
+        DrawFixedMarker(contentRect, dpiScale, fontSize, lineH, ppr, cx, cy,
             ux: 0.0, uy: 0.0, uz: 1.0, label: "NCP", color: _poleColor,
             slewName: "North Celestial Pole", slewRA: 0.0, slewDec: 89.999, hitTag: "NCP",
             fixedPoint: SkyFixedPoint.NorthCelestialPole);
 
         // South Celestial Pole (Dec=-90).
-        DrawFixedMarker(contentRect, dpiScale, fontPath, fontSize, lineH, ppr, cx, cy,
+        DrawFixedMarker(contentRect, dpiScale, fontSize, lineH, ppr, cx, cy,
             ux: 0.0, uy: 0.0, uz: -1.0, label: "SCP", color: _poleColor,
             slewName: "South Celestial Pole", slewRA: 0.0, slewDec: -89.999, hitTag: "SCP",
             fixedPoint: SkyFixedPoint.SouthCelestialPole);
@@ -1018,20 +1021,20 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
         var zy = site.CosLat * sinLST;
         var zz = site.SinLat;
         // Zenith RA=LST, Dec=latitude (Alt=90 degenerate case collapses to these).
-        DrawFixedMarker(contentRect, dpiScale, fontPath, fontSize, lineH, ppr, cx, cy,
+        DrawFixedMarker(contentRect, dpiScale, fontSize, lineH, ppr, cx, cy,
             ux: zx, uy: zy, uz: zz, label: "Zenith", color: _zenithColor,
             slewName: "Zenith", slewRA: site.LST, slewDec: double.RadiansToDegrees(Math.Asin(site.SinLat)),
             hitTag: "Zenith", fixedPoint: SkyFixedPoint.Zenith);
 
         // N/S/E/W horizon labels - orientation only, no slew handler. Skip the reticle
         // circle, just drop a letter at the projected horizon point.
-        DrawHorizonCardinalLabel(contentRect, fontPath, fontSize * 1.1f, ppr, cx, cy, site,
+        DrawHorizonCardinalLabel(contentRect, fontSize * 1.1f, ppr, cx, cy, site,
             azDeg: 0.0, label: "N", color: _cardinalNorthColor);
-        DrawHorizonCardinalLabel(contentRect, fontPath, fontSize * 1.1f, ppr, cx, cy, site,
+        DrawHorizonCardinalLabel(contentRect, fontSize * 1.1f, ppr, cx, cy, site,
             azDeg: 90.0, label: "E", color: _cardinalColor);
-        DrawHorizonCardinalLabel(contentRect, fontPath, fontSize * 1.1f, ppr, cx, cy, site,
+        DrawHorizonCardinalLabel(contentRect, fontSize * 1.1f, ppr, cx, cy, site,
             azDeg: 180.0, label: "S", color: _cardinalColor);
-        DrawHorizonCardinalLabel(contentRect, fontPath, fontSize * 1.1f, ppr, cx, cy, site,
+        DrawHorizonCardinalLabel(contentRect, fontSize * 1.1f, ppr, cx, cy, site,
             azDeg: 270.0, label: "W", color: _cardinalColor);
     }
 
@@ -1044,7 +1047,7 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
     /// is the only path to a slew.
     /// </summary>
     private void DrawFixedMarker(
-        RectF32 contentRect, float dpiScale, string fontPath, float fontSize, float lineH,
+        RectF32 contentRect, float dpiScale, float fontSize, float lineH,
         double ppr, float cx, float cy,
         double ux, double uy, double uz,
         string label, RGBAColor32 color,
@@ -1069,7 +1072,7 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
             sx, sy, radius: 10f, armLength: 16f, gap: 5f,
             color: color, thickness: 1.5f);
 
-        DrawReticleLabel(label, fontPath, fontSize, color, sx, sy + 14f * dpiScale, lineH);
+        DrawReticleLabel(label, fontSize, color, sx, sy + 14f * dpiScale, lineH);
 
         // 36x36 clickable box centered on the reticle. Open the info panel rather than
         // slewing directly — same UX rule as the rest of the map (click selects, Goto
@@ -1090,10 +1093,11 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
     /// Non-clickable - slewing to a point on the horizon isn't a useful goto target.
     /// </summary>
     private void DrawHorizonCardinalLabel(
-        RectF32 contentRect, string fontPath, float fontSize,
+        RectF32 contentRect, float fontSize,
         double ppr, float cx, float cy, SiteContext site,
         double azDeg, string label, RGBAColor32 color)
     {
+        var fontPath = FontPath;
         // Convert Alt=0, Az=azDeg to RA/Dec, then to a J2000 unit vector for projection.
         VkSkyMapPipeline.AltAzToRaDec(altDeg: 0.0, azDeg: azDeg, site, out var raHours, out var decDeg);
         var (ux, uy, uz) = SkyMapState.RaDecToUnitVec(raHours, decDeg);

@@ -24,8 +24,7 @@ namespace TianWen.UI.Abstractions
         /// declares any <see cref="DeviceSettingDescriptor"/>s (else null = no section).
         /// </summary>
         private Layout.Node? BuildDeviceSettingsIfAny(
-            GuiAppState appState, ProfileData pd, Uri? deviceUri, string sectionLabel,
-            string fontPath)
+            GuiAppState appState, ProfileData pd, Uri? deviceUri, string sectionLabel)
         {
             if (deviceUri is null || deviceUri == NoneDevice.Instance.DeviceUri)
             {
@@ -38,7 +37,7 @@ namespace TianWen.UI.Abstractions
                 return null;
             }
 
-            return BuildDeviceSettings(appState, pd, deviceUri, device.Settings, sectionLabel, fontPath);
+            return BuildDeviceSettings(appState, pd, deviceUri, device.Settings, sectionLabel);
         }
 
         /// <summary>
@@ -49,10 +48,10 @@ namespace TianWen.UI.Abstractions
         /// </summary>
         private Layout.Node BuildDeviceSettings(
             GuiAppState appState, ProfileData pd, Uri savedDeviceUri,
-            ImmutableArray<DeviceSettingDescriptor> settings, string sectionLabel,
-            string fontPath)
+            ImmutableArray<DeviceSettingDescriptor> settings, string sectionLabel)
         {
             var dpiScale = DpiScale;
+            var fontPath = FontPath;
             var deviceKey = savedDeviceUri.GetLeftPart(UriPartial.Path);
             var isExpanded = State.ExpandedDeviceSettingsUri == deviceKey;
             var fontSize = BaseFontSize * dpiScale;

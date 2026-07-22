@@ -21,11 +21,10 @@ namespace TianWen.UI.Abstractions
 
         private void RenderDeviceList(
             GuiAppState appState,
-            RectF32 rect,
-            string fontPath,
-            string? emojiFontPath = null)
+            RectF32 rect)
         {
             var dpiScale   = DpiScale;
+            var fontPath   = FontPath;
             var fontSize   = BaseFontSize * dpiScale;
             var padding    = BasePadding * dpiScale;
             var itemH      = BaseItemHeight * dpiScale;
@@ -93,7 +92,7 @@ namespace TianWen.UI.Abstractions
                 // + confirm strips stay registered clickables and win first via HitTestAndDispatch.
                 var rowLeaf = Layout.Builder.Spacer()
                     .Bg(isCurrentForSlot ? SlotActive : baseBg);
-                RenderLayout(rowLeaf, new RectF32(x, rowY, rowW, itemH), fontPath);
+                RenderLayout(rowLeaf, new RectF32(x, rowY, rowW, itemH));
                 FillRect(x, rowY + itemH - 1f, rowW, 1f, SeparatorColor);
 
                 // Type badge
@@ -201,14 +200,13 @@ namespace TianWen.UI.Abstractions
                             // Stage 2: force-disconnect confirmation. [Cancel] on left,
                             // destructive [REALLY FORCE] on the right -- opposite side from
                             // where Force Off was clicked, to defeat muscle-memory escalation.
-                            RenderForceConfirmStrip(connectUri, stripX, rowY, stripW, itemH,
-                                fontPath);
+                            RenderForceConfirmStrip(connectUri, stripX, rowY, stripW, itemH);
                         }
                         else if (DeviceBase.SameDevice(State.PendingDisconnectConfirm, connectUri))
                         {
                             // Stage 1: warm-or-force confirmation.
                             RenderDisconnectConfirmStrip(connectUri, stripX, rowY, stripW, itemH,
-                                fontPath, State.PendingDisconnectSafety);
+                                State.PendingDisconnectSafety);
                         }
                         else
                         {
@@ -224,7 +222,7 @@ namespace TianWen.UI.Abstractions
                             }
                             // Segmented On|Off button (encodes current state + available transition).
                             RenderConnectSegment(connectUri, btnColX, rowY, connBtnW, itemH,
-                                fontPath, reach, pending, offIsUnsafe: unsafeOff);
+                                reach, pending, offIsUnsafe: unsafeOff);
                         }
                     }
                 }
@@ -320,7 +318,6 @@ namespace TianWen.UI.Abstractions
         /// </summary>
         private void RenderDisconnectConfirmStrip(
             Uri deviceUri, float x, float y, float w, float h,
-            string fontPath,
             EquipmentActions.DisconnectSafety safety)
         {
             var safetyLabel = safety switch
@@ -352,7 +349,7 @@ namespace TianWen.UI.Abstractions
                         State.PendingForceConfirm = null;
                     }))
                 .WithGap(2f);
-            RenderLayout(strip, new RectF32(x, y, w, h), fontPath);
+            RenderLayout(strip, new RectF32(x, y, w, h));
         }
 
         /// <summary>
@@ -361,8 +358,7 @@ namespace TianWen.UI.Abstractions
         /// and vice-versa -- defeats the user's muscle memory for "click the same spot twice".
         /// </summary>
         private void RenderForceConfirmStrip(
-            Uri deviceUri, float x, float y, float w, float h,
-            string fontPath)
+            Uri deviceUri, float x, float y, float w, float h)
         {
             var capUri = deviceUri;
             // [Cancel] LEFT (where [Warm & Off] was), destructive [REALLY FORCE] RIGHT (where [Cancel] was):
@@ -384,7 +380,7 @@ namespace TianWen.UI.Abstractions
                         PostSignal(new ForceDisconnectDeviceSignal(capUri));
                     }))
                 .WithGap(4f);
-            RenderLayout(strip, new RectF32(x, y, w, h), fontPath);
+            RenderLayout(strip, new RectF32(x, y, w, h));
         }
 
         /// <summary>
@@ -395,7 +391,6 @@ namespace TianWen.UI.Abstractions
         private void RenderConnectSegment(
             Uri deviceUri,
             float x, float y, float w, float h,
-            string fontPath,
             EquipmentActions.DeviceReachability reach,
             bool pending,
             bool offIsUnsafe = false)
@@ -427,7 +422,7 @@ namespace TianWen.UI.Abstractions
                 FormRowLayout.InsetPillButton(offLabel, BaseFontSize * 0.85f, offBg, BodyText,
                     pending ? null : new HitResult.ButtonHit("Disconnect"), pending ? null : offAction))
                 .WithGap(1f);
-            RenderLayout(seg, new RectF32(x, y, w, h), fontPath);
+            RenderLayout(seg, new RectF32(x, y, w, h));
         }
 
     }

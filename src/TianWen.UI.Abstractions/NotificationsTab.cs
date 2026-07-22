@@ -36,11 +36,12 @@ namespace TianWen.UI.Abstractions
 
         public void Render(
             GuiAppState appState,
-            RectF32 contentRect,
-            string fontPath)
+            RectF32 contentRect)
         {
-            // DPI comes from the inherited DpiScale (host-set); local alias keeps the px math unchanged.
+            // DPI + font come from the inherited DpiScale / FontPath (host-set); local aliases keep the
+            // px math + draw calls unchanged.
             var dpiScale = DpiScale;
+            var fontPath = FontPath;
             var rowH = BaseRowHeight * dpiScale;
             var fontSize = BaseFontSize * dpiScale;
             var pad = BasePadding * dpiScale;
@@ -75,7 +76,7 @@ namespace TianWen.UI.Abstractions
                         appState.ClearNotifications();
                         appState.NeedsRedraw = true;
                     });
-                RenderLayout(clearBtn, new RectF32(btnX, btnY, btnW, btnH), fontPath, dpiScale);
+                RenderLayout(clearBtn, new RectF32(btnX, btnY, btnW, btnH));
             }
 
             // List area
@@ -121,7 +122,7 @@ namespace TianWen.UI.Abstractions
                         Layout.Builder.Text(entry.Message, BaseFontSize, BodyText).WStar().HStar(),
                         Layout.Builder.Spacer().WFixed(BasePadding).HStar());
                 if ((i & 1) == 1) row = row.Bg(RowAltBg);
-                RenderLayout(row, rowRect, fontPath, dpiScale);
+                RenderLayout(row, rowRect);
             }
 
             // Interactive scrollbar at the right edge (hidden when the list fits).

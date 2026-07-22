@@ -47,7 +47,7 @@ namespace TianWen.UI.Abstractions
         /// Done buttons. Replaces the right-hand exposure-log panel while
         /// <see cref="LiveSessionMode.PolarAlign"/> is active.
         /// </summary>
-        private void RenderPolarSidePanel(LiveSessionState state, RectF32 rect, string fontPath,
+        private void RenderPolarSidePanel(LiveSessionState state, RectF32 rect,
             float fontSize, float pad, float rowH)
         {
             // Setup phase: routine not yet started -> the whole panel is ONE arranged tree (header +
@@ -55,7 +55,7 @@ namespace TianWen.UI.Abstractions
             // flow (raster gauges) below.
             if (state.PolarPhase == PolarAlignmentPhase.Idle && state.PolarAlignmentCts is null)
             {
-                RenderPolarSetupPanel(state, rect, fontPath);
+                RenderPolarSetupPanel(state, rect);
                 return;
             }
 
@@ -145,11 +145,11 @@ namespace TianWen.UI.Abstractions
                 .WithGap(BasePadding);
 
             var tree = Layout.Builder.Dock(content, Layout.Builder.Bottom(buttonRow, BaseRowHeight * 1.5f + BasePadding)).Pad(BasePadding);
-            RenderLayout(tree, rect, fontPath, drawFill: (fill, r) =>
+            RenderLayout(tree, rect, drawFill: (fill, r) =>
             {
                 if (fill.Key == "polarGauges" && state.LastPolarSolve is { } solve)
                 {
-                    RenderPolarErrorGauges(state, solve, r.X, r.Y, r.Width, rowH, fontPath, fontSize, pad);
+                    RenderPolarErrorGauges(state, solve, r.X, r.Y, r.Width, rowH, fontSize, pad);
                 }
             });
         }
@@ -160,7 +160,7 @@ namespace TianWen.UI.Abstractions
         /// Cancel / Start pin to the bottom (Dock.Bottom). No internal cursor -- the only constructed rect
         /// is the panel rect. Start posts StartPolarAlignmentSignal with a snapshot of PolarSetupConfig.
         /// </summary>
-        private void RenderPolarSetupPanel(LiveSessionState state, RectF32 rect, string fontPath)
+        private void RenderPolarSetupPanel(LiveSessionState state, RectF32 rect)
         {
             var (canStart, _) = EvaluatePolarPreconditions(state);
             var cfg = state.PolarSetupConfig;
@@ -265,7 +265,7 @@ namespace TianWen.UI.Abstractions
 
             var bottomH = BaseRowHeight * 1.2f + BasePadding + BaseRowHeight * 1.6f;
             var tree = Layout.Builder.Dock(content, Layout.Builder.Bottom(buttons, bottomH)).Pad(BasePadding);
-            RenderLayout(tree, rect, fontPath);
+            RenderLayout(tree, rect);
         }
 
         /// <summary>
@@ -299,8 +299,9 @@ namespace TianWen.UI.Abstractions
         private float RenderPolarErrorGauges(
             LiveSessionState state,
             LiveSolveResult solve,
-            float x0, float y, float w, float rowH, string fontPath, float fontSize, float pad)
+            float x0, float y, float w, float rowH, float fontSize, float pad)
         {
+            var fontPath = FontPath;
             const double radToArcmin = 60.0 * 180.0 / Math.PI;
             // Use raw (per-frame) errors on the gauge so the user sees their
             // knob nudges land within one solve cycle (~250ms). The smoothed
@@ -328,13 +329,13 @@ namespace TianWen.UI.Abstractions
             DrawText("Az error", fontPath,
                 x0, y, w, rowH,
                 fontSize * 0.8f, DimText, TextAlign.Near, TextAlign.Center);
-            y = RenderErrorBar(azArcmin, x0, y + rowH, w, rowH * 0.6f, fontPath, fontSize);
+            y = RenderErrorBar(azArcmin, x0, y + rowH, w, rowH * 0.6f, fontSize);
             y += pad;
 
             DrawText("Alt error", fontPath,
                 x0, y, w, rowH,
                 fontSize * 0.8f, DimText, TextAlign.Near, TextAlign.Center);
-            y = RenderErrorBar(altArcmin, x0, y + rowH, w, rowH * 0.6f, fontPath, fontSize);
+            y = RenderErrorBar(altArcmin, x0, y + rowH, w, rowH * 0.6f, fontSize);
             y += pad;
 
             // Direction hint badges (where to push the knobs).
@@ -375,8 +376,9 @@ namespace TianWen.UI.Abstractions
             return ledY + rowH;
         }
 
-        private float RenderErrorBar(double arcmin, float x, float y, float w, float h, string fontPath, float fontSize)
+        private float RenderErrorBar(double arcmin, float x, float y, float w, float h, float fontSize)
         {
+            var fontPath = FontPath;
             // Centred zero-line bar; needle position scaled to a +/- 30' span (clamped).
             FillRect(x, y, w, h, GraphBg);
             var midX = x + w / 2;

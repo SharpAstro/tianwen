@@ -44,11 +44,12 @@ namespace TianWen.UI.Abstractions
         /// targets survive both gates and render as orange landmarks with a halo.
         /// </summary>
         protected void RenderObjectOverlayPrimitive(
-            ICelestialObjectDB db, RectF32 contentRect, string fontPath,
+            ICelestialObjectDB db, RectF32 contentRect,
             float baseFontSize, SiteContext site, bool dimBelowHorizon, PlannerState plannerState,
             bool showAllOverlays)
         {
             var dpiScale = DpiScale;
+            var fontPath = FontPath;
             if (contentRect.Width <= 0 || contentRect.Height <= 0)
             {
                 return;

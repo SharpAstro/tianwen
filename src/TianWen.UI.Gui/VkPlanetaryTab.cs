@@ -150,12 +150,14 @@ public sealed class VkPlanetaryTab : VkImageRenderer, IPlanetaryViewWidget
     /// wavelet-slider changes in the info panel reach the capture loop's sharpen).
     /// </summary>
     public void RenderPlanetary(PlanetaryCaptureController? controller, PreviewOTATelemetry focuser,
-        RectF32 contentRect, string fontPath)
+        RectF32 contentRect)
     {
         _focuser = focuser;
-        // DPI comes from the inherited DpiScale, pushed by the hosting chrome (VkGuiRenderer) at
-        // startup/resize; the local alias keeps the existing px math below unchanged.
+        // DPI + font come from the inherited DpiScale / FontPath -- this tab is a VkImageRenderer that
+        // self-resolved its font in its ctor (the hosting chrome does not push it here); the local aliases
+        // keep the existing px math + draw calls below unchanged.
         var dpiScale = DpiScale;
+        var fontPath = FontPath;
 
         // Keep the GPU projection full-surface: the placement rects are full-surface pixel coords, and the
         // base maps [0, Width] x [0, Height] -> NDC over the whole window. Set the dimensions directly (not
@@ -218,10 +220,10 @@ public sealed class VkPlanetaryTab : VkImageRenderer, IPlanetaryViewWidget
         // so the ROI rect maps to the whole displayed image (clamped to the viewer area when zoomed in).
         if (_roiOverlay && source is not null)
         {
-            DrawRoiOnStream(dpiScale, fontPath);
+            DrawRoiOnStream(dpiScale);
         }
 
-        RenderControlPanel(controller, panelRect, dpiScale, fontPath);
+        RenderControlPanel(controller, panelRect, dpiScale);
     }
 
     private void SyncSurfaceSize()
@@ -238,7 +240,7 @@ public sealed class VkPlanetaryTab : VkImageRenderer, IPlanetaryViewWidget
     // Builds + paints the left control panel as one Layout.Builder tree (a VStack of fixed-height rows). The
     // base viewer already cleared + re-armed the clickable tracker in Render(); the layout's .Clickable leaves
     // register here, after that, so they survive. Design-unit sizes/fonts are scaled by RenderLayout(dpiScale).
-    private void RenderControlPanel(PlanetaryCaptureController controller, RectF32 panel, float dpiScale, string fontPath)
+    private void RenderControlPanel(PlanetaryCaptureController controller, RectF32 panel, float dpiScale)
     {
         var capturing = controller.IsCapturing;
         // Exposure / gain / ROI size + pan are all live-tunable WHILE capturing now (just like a real
@@ -376,8 +378,8 @@ public sealed class VkPlanetaryTab : VkImageRenderer, IPlanetaryViewWidget
         var panelTree = Layout.Builder.VStack(rows.ToArray())
             .Pad(BasePanelPad).WithGap(BaseGap).Bg(PanelBg);
         // The panel's only Fill leaf is the ROI PiP, so the draw callback unconditionally paints it.
-        RenderLayout(panelTree, panel, fontPath, dpiScale,
-            drawFill: (_, r) => DrawRoiPip(r, dpiScale, fontPath));
+        RenderLayout(panelTree, panel, dpiScale: dpiScale,
+            drawFill: (_, r) => DrawRoiPip(r, dpiScale));
     }
 
     private static Layout.Node SectionHeader(string text)
@@ -527,7 +529,7 @@ public sealed class VkPlanetaryTab : VkImageRenderer, IPlanetaryViewWidget
 
     // The PiP: a sensor-proportioned thumbnail (dark box) with the red ROI rectangle drawn at its mapped
     // position -- the primary "where on the sensor does my high-speed crop sit" visualisation.
-    private void DrawRoiPip(RectF32 area, float dpiScale, string fontPath)
+    private void DrawRoiPip(RectF32 area, float dpiScale)
     {
         var inset = 4f * dpiScale;
         var availW = area.Width - 2f * inset;
@@ -559,8 +561,9 @@ public sealed class VkPlanetaryTab : VkImageRenderer, IPlanetaryViewWidget
     // The on-stream overlay: outline the displayed frame (= the ROI crop) + a "ROI WxH" tag, clamped to the
     // IMAGE AREA (between the toolbar and the right info panel), so a zoomed-in image's overflow -- or a
     // letterboxed fit -- never paints over the WB / wavelet / controls panel or the chrome.
-    private void DrawRoiOnStream(float dpiScale, string fontPath)
+    private void DrawRoiOnStream(float dpiScale)
     {
+        var fontPath = FontPath;
         var ir = CurrentImageRect;
         if (ir.Width <= 1f || ir.Height <= 1f)
         {

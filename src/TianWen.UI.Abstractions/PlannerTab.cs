@@ -109,10 +109,8 @@ namespace TianWen.UI.Abstractions
         public void Render(
             PlannerState state,
             RectF32 contentRect,
-            string fontPath,
             ITimeProvider timeProvider,
-            (float X, float Y) mouseScreenPosition = default,
-            string? emojiFontPath = null)
+            (float X, float Y) mouseScreenPosition = default)
         {
             _state = state;
             // DPI comes from the inherited DpiScale (host-set); local alias keeps the px math unchanged.
@@ -139,7 +137,7 @@ namespace TianWen.UI.Abstractions
             var portrait = contentRect.Height > contentRect.Width;
             var arranged = RenderLayout(
                 BuildFrameLayout(contentRect.Width / dpiScale, contentRect.Height / dpiScale, portrait),
-                contentRect, fontPath);
+                contentRect);
             _targetListRect = RectOfFill(arranged, ListFillKey);
             var detailsRect = RectOfFill(arranged, DetailsFillKey);
             _chartRect = RectOfFill(arranged, ChartFillKey);
@@ -168,14 +166,14 @@ namespace TianWen.UI.Abstractions
                 mousePos = (mx, my);
             }
 
-            RenderChart(state, _chartRect, fontPath, selectedIndex, chartCurrentTime, mousePos, emojiFontPath);
+            RenderChart(state, _chartRect, selectedIndex, chartCurrentTime, mousePos);
 
             // Register slider hit regions for drag interaction
             RegisterSliderHitRegions(state);
 
             // --- 2. Target list panel (opaque background; left dock in landscape, bottom fill in portrait) ---
             RenderTargetList(
-                state, fontPath, _targetListRect,
+                state, _targetListRect,
                 headerHeight, itemHeight, fontSize, padding);
 
             // --- 3. Details panel (opaque background). In a squeezed portrait the strip collapses away
@@ -187,7 +185,7 @@ namespace TianWen.UI.Abstractions
                 var maxLines = portrait
                     ? Math.Max(2, (int)(detailsRect.Height / (fontSize * PortraitDetailsLineHeight)))
                     : int.MaxValue;
-                RenderDetailsPanel(state, fontPath, detailsRect, fontSize, padding, maxLines);
+                RenderDetailsPanel(state, detailsRect, fontSize, padding, maxLines);
             }
         }
 
@@ -241,13 +239,14 @@ namespace TianWen.UI.Abstractions
         /// Renders the altitude chart. Override in GPU-backed subclasses to use cached textures.
         /// Default implementation renders directly via the renderer.
         /// </summary>
-        protected virtual void RenderChart(PlannerState state, RectF32 chartRect, string fontPath,
-            int? selectedIndex, DateTimeOffset? chartCurrentTime, (float, float)? mousePos,
-            string? emojiFontPath = null)
+        protected virtual void RenderChart(PlannerState state, RectF32 chartRect,
+            int? selectedIndex, DateTimeOffset? chartCurrentTime, (float, float)? mousePos)
         {
-            AltitudeChartRenderer.Render(Renderer, state, fontPath,
+            // AltitudeChartRenderer is a static (non-widget) helper, so it keeps its font params -- fed here
+            // from the inherited FontPath / EmojiFontPath (host-set) properties.
+            AltitudeChartRenderer.Render(Renderer, state, FontPath,
                 (int)chartRect.X, (int)chartRect.Y, (int)chartRect.Width, (int)chartRect.Height,
-                selectedIndex, chartCurrentTime, mousePos, emojiFontPath);
+                selectedIndex, chartCurrentTime, mousePos, EmojiFontPath);
         }
 
         private void RegisterSliderHitRegions(PlannerState state)
@@ -281,11 +280,11 @@ namespace TianWen.UI.Abstractions
 
         private void RenderTargetList(
             PlannerState state,
-            string fontPath,
             RectF32 rect,
             float headerHeight, float itemHeight, float fontSize, float padding)
         {
             var dpiScale = DpiScale;
+            var fontPath = FontPath;
             var searchH = (int)(itemHeight * 1.1f);
 
             // Sub-layout: header top, search strip below, items fill remainder
@@ -331,8 +330,7 @@ namespace TianWen.UI.Abstractions
                         }))
                 .WithGap(BasePadding);
             RenderLayout(headerContent,
-                new RectF32(headerRect.X + padding, headerRect.Y, contentW - padding * 2f, headerRect.Height),
-                fontPath);
+                new RectF32(headerRect.X + padding, headerRect.Y, contentW - padding * 2f, headerRect.Height));
 
             // Search input below header (within the search strip, with 2px top gap)
             RenderTextInput(state.SearchInput,
@@ -433,7 +431,7 @@ namespace TianWen.UI.Abstractions
                     Spacer(),
                     pinLeaf)
                     .Bg(rowBg);
-                RenderLayout(row, rowRect, fontPath);
+                RenderLayout(row, rowRect);
             }
 
             // Scrollbar: the controller draws its own track + thumb at the right edge of its viewport
@@ -443,7 +441,7 @@ namespace TianWen.UI.Abstractions
             // Autocomplete dropdown (overlay, painted last so it's on top)
             if (state.Suggestions.Count > 0 && state.SearchInput.IsActive)
             {
-                RenderSuggestionDropdown(state, fontPath, itemHeight, fontSize, padding);
+                RenderSuggestionDropdown(state, itemHeight, fontSize, padding);
             }
         }
 
@@ -453,7 +451,6 @@ namespace TianWen.UI.Abstractions
 
         private void RenderSuggestionDropdown(
             PlannerState state,
-            string fontPath,
             float itemHeight, float fontSize, float padding)
         {
             var suggestions = state.Suggestions;
@@ -493,7 +490,7 @@ namespace TianWen.UI.Abstractions
 
             var panel = Layout.Builder.VStack([.. rows]).Bg(DropdownBg);
             var framed = Layout.Builder.VStack(panel.Stretch()).Bg(DropdownBorder).Pad(1f);
-            RenderLayout(framed, new RectF32(_searchBarLeft - 1f, dropdownY - 1f, _searchBarWidth + 2f, dropdownH + 2f), fontPath, dpiScale: 1f);
+            RenderLayout(framed, new RectF32(_searchBarLeft - 1f, dropdownY - 1f, _searchBarWidth + 2f, dropdownH + 2f), dpiScale: 1f);
         }
 
         // -----------------------------------------------------------------------
@@ -502,11 +499,11 @@ namespace TianWen.UI.Abstractions
 
         private void RenderDetailsPanel(
             PlannerState state,
-            string fontPath,
             RectF32 rect,
             float fontSize, float padding,
             int maxLines = int.MaxValue)
         {
+            var fontPath = FontPath;
             FillRect(rect.X, rect.Y, rect.Width, rect.Height, DetailsBg);
 
             // Separator line at top
