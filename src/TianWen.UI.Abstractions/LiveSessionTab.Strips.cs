@@ -18,7 +18,7 @@ namespace TianWen.UI.Abstractions
     {
         private void RenderTopStrip(LiveSessionState state, RectF32 rect, float fontSize, ITimeProvider timeProvider)
         {
-            FillRect(rect.X, rect.Y, rect.Width, rect.Height, HeaderBg);
+            RenderLayout(Layout.Builder.Spacer().Bg(HeaderBg), rect);
 
             var dpiScale = DpiScale;
             var pad = BasePadding * dpiScale;
@@ -195,105 +195,17 @@ namespace TianWen.UI.Abstractions
         // Timeline: phase bars + now needle + time axis
         // -----------------------------------------------------------------------
 
+        /// <summary>
+        /// Session timeline strip. Delegates to the paint-owning <see cref="SessionTimelineRenderer"/>:
+        /// the running session shows phase bars, the pre-session preview shows twilight bands.
+        /// </summary>
         private void RenderTimeline(LiveSessionState state, RectF32 rect, float fontSize, ITimeProvider timeProvider)
         {
-            FillRect(rect.X, rect.Y, rect.Width, rect.Height, TimelineBg);
-
-            if (!state.IsRunning)
-            {
-                RenderPreviewTimeline(state, rect, fontSize, timeProvider);
-                return;
-            }
-
-            var fontPath = FontPath;
-            var dpiScale = DpiScale;
-
-            var timeline = state.PhaseTimeline;
-            if (timeline.Length == 0)
-            {
-                DrawText("No timeline data", fontPath,
-                    rect.X, rect.Y, rect.Width, rect.Height,
-                    fontSize * 0.85f, DimText, TextAlign.Center, TextAlign.Center);
-                return;
-            }
-
-            var pad = BasePadding * dpiScale;
-            var barH = 24f * dpiScale;
-            var barY = rect.Y + pad;
-            var axisY = barY + barH + 2 * dpiScale;
-            var axisH = rect.Height - barH - pad * 2 - 2 * dpiScale;
-
-            // Time range: session start to now + 30min lookahead
-            var timeStart = timeline[0].StartTime;
             var now = timeProvider.GetUtcNow();
-            var sessionEnd = now + TimeSpan.FromMinutes(30);
-
-            // Don't let range be too narrow (10 minutes minimum)
-            var totalSeconds = Math.Max((sessionEnd - timeStart).TotalSeconds, 600);
-
-            float TimeToX(DateTimeOffset t)
-            {
-                var frac = (float)((t - timeStart).TotalSeconds / totalSeconds);
-                return rect.X + pad + frac * (rect.Width - pad * 2);
-            }
-
-            // Draw phase bars
-            for (var i = 0; i < timeline.Length; i++)
-            {
-                var phaseStart = timeline[i].StartTime;
-                var phaseEnd = i + 1 < timeline.Length ? timeline[i + 1].StartTime : now;
-                var color = LiveSessionActions.PhaseColor(timeline[i].Phase);
-
-                var x1 = Math.Max(TimeToX(phaseStart), rect.X + pad);
-                var x2 = Math.Min(TimeToX(phaseEnd), rect.X + rect.Width - pad);
-                var w = x2 - x1;
-                if (w > 0)
-                {
-                    FillRect(x1, barY, w, barH, color);
-
-                    // Label if wide enough
-                    if (w > 40 * dpiScale)
-                    {
-                        var phaseLabel = LiveSessionActions.PhaseLabel(timeline[i].Phase);
-                        // Shorten long labels
-                        if (phaseLabel.Length > 8 && w < 80 * dpiScale)
-                        {
-                            phaseLabel = phaseLabel[..7] + "\u2026";
-                        }
-                        DrawText(phaseLabel, fontPath,
-                            x1 + 2, barY, w - 4, barH,
-                            fontSize * 0.8f, BrightText, TextAlign.Center, TextAlign.Center);
-                    }
-                }
-            }
-
-            // Now needle
-            if (now >= timeStart && now <= sessionEnd)
-            {
-                var nowX = TimeToX(now);
-                FillRect(nowX, barY - 2 * dpiScale, 2 * dpiScale, barH + axisH + 4 * dpiScale, NowNeedleColor);
-            }
-
-            // Time axis ticks (every 30 min)
-            if (axisH > 4)
-            {
-                // Adaptive tick interval: 5min if range < 30min, 10min if < 2h, 30min otherwise
-                var rangeMins = totalSeconds / 60.0;
-                var tickMins = rangeMins < 30 ? 5 : rangeMins < 120 ? 10 : 30;
-                var tickStart = new DateTimeOffset(timeStart.Year, timeStart.Month, timeStart.Day,
-                    timeStart.Hour, (int)(timeStart.Minute / tickMins) * (int)tickMins, 0, timeStart.Offset);
-                for (var t = tickStart; t <= sessionEnd; t = t.AddMinutes(tickMins))
-                {
-                    if (t < timeStart) continue;
-                    var tx = TimeToX(t);
-                    if (tx < rect.X + pad || tx > rect.X + rect.Width - pad) continue;
-
-                    FillRect(tx, axisY, 1, axisH * 0.5f, TimelineTickColor);
-                    DrawText(t.ToOffset(state.SiteTimeZone).ToString("HH:mm"), fontPath,
-                        tx - 25 * dpiScale, axisY + axisH * 0.4f, 50 * dpiScale, axisH * 0.6f,
-                        fontSize * 0.8f, DimText, TextAlign.Center, TextAlign.Center);
-                }
-            }
+            if (state.IsRunning)
+                SessionTimelineRenderer.RenderPhaseTimeline(Renderer, rect, state, now, DpiScale, FontPath, fontSize);
+            else
+                SessionTimelineRenderer.RenderTwilightTimeline(Renderer, rect, state, now, DpiScale, FontPath, fontSize);
         }
 
         private void RenderBottomStrip(LiveSessionState state, RectF32 rect)
@@ -326,20 +238,18 @@ namespace TianWen.UI.Abstractions
 
         private void RenderAbortConfirm(RectF32 contentRect, float fontSize)
         {
-            var fontPath = FontPath;
-            var dpiScale = DpiScale;
-            var stripH = 40f * dpiScale;
-            var stripY = contentRect.Y + (contentRect.Height - stripH) / 2;
-
-            // Semi-transparent backdrop (darken)
-            FillRect(contentRect.X, contentRect.Y, contentRect.Width, contentRect.Height,
-                new RGBAColor32(0x00, 0x00, 0x00, 0x88));
-
-            // Confirm strip
-            FillRect(contentRect.X, stripY, contentRect.Width, stripH, ConfirmStripBg);
-            DrawText("Abort session? Press Enter to confirm, Escape to cancel", fontPath,
-                contentRect.X, stripY, contentRect.Width, stripH,
-                fontSize, AbortText, TextAlign.Center, TextAlign.Center);
+            var stripH = 40f * DpiScale;
+            // Dim backdrop (root .Bg) + a vertically-centred confirm strip, as one layout tree -- was two
+            // hand-placed FillRects + a DrawText. Enter/Escape are handled in .Input. Device-px tree
+            // (dpiScale: 1f) so the already-scaled fontSize / stripH pass through unchanged.
+            var tree = Layout.Builder.VStack(
+                    Layout.Builder.Spacer().Stretch(),
+                    Layout.Builder.Text("Abort session? Press Enter to confirm, Escape to cancel",
+                            fontSize, AbortText, TextAlign.Center, TextAlign.Center)
+                        .RowH(stripH).Bg(ConfirmStripBg),
+                    Layout.Builder.Spacer().Stretch())
+                .Bg(new RGBAColor32(0x00, 0x00, 0x00, 0x88));
+            RenderLayout(tree, contentRect, dpiScale: 1f);
         }
 
         /// <summary>
@@ -360,11 +270,10 @@ namespace TianWen.UI.Abstractions
             var cardX = contentRect.X + (contentRect.Width - cardW) / 2f;
             var cardY = contentRect.Y + (contentRect.Height - cardH) / 2f;
 
-            // Dim backdrop + card.
-            FillRect(contentRect.X, contentRect.Y, contentRect.Width, contentRect.Height,
-                new RGBAColor32(0x00, 0x00, 0x00, 0xaa));
-            FillRect(cardX, cardY, cardW, cardH, PanelBg);
-            FillRect(cardX, cardY, cardW, 2f, StatusSlewing); // accent bar
+            // Dim backdrop + card (layout-DSL nodes, not hand-drawn FillRects).
+            RenderLayout(Layout.Builder.Spacer().Bg(new RGBAColor32(0x00, 0x00, 0x00, 0xaa)), contentRect);
+            RenderLayout(Layout.Builder.Spacer().Bg(PanelBg), new RectF32(cardX, cardY, cardW, cardH));
+            RenderLayout(Layout.Builder.Spacer().Bg(StatusSlewing), new RectF32(cardX, cardY, cardW, 2f)); // accent bar
 
             var innerX = cardX + pad;
             var innerW = cardW - pad * 2f;

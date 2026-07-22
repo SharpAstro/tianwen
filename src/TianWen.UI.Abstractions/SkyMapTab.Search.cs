@@ -275,8 +275,8 @@ namespace TianWen.UI.Abstractions
             var py = contentRect.Y + contentRect.Height - ph - 32f * dpiScale; // above status strip
             var fontSize = 12f * dpiScale;
 
-            FillRect(px - 1, py - 1, pw + 2, ph + 2, SearchPanelBorder);
-            FillRect(px, py, pw, ph, InfoPanelBg);
+            RenderLayout(Layout.Builder.Spacer().Bg(SearchPanelBorder), new RectF32(px - 1, py - 1, pw + 2, ph + 2));
+            RenderLayout(Layout.Builder.Spacer().Bg(InfoPanelBg), new RectF32(px, py, pw, ph));
 
             var rowH = fontSize * 1.35f;
             var textX = px + 10f;

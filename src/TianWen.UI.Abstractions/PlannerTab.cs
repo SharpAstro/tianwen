@@ -308,11 +308,11 @@ namespace TianWen.UI.Abstractions
             _searchBarWidth = contentW - padding * 2f;
 
             // Opaque background covers the chart behind the list
-            FillRect(rect.X, rect.Y, rect.Width, rect.Height, PanelBgOpaque);
+            RenderLayout(Layout.Builder.Spacer().Bg(PanelBgOpaque), rect);
 
             // Header: full-width bg (panel chrome) behind a [title * | filter button] HStack. The filter
             // button is a declarative node (was a RenderButton); the title is the star cell.
-            FillRect(headerRect.X, headerRect.Y, headerRect.Width, headerRect.Height, HeaderBg);
+            RenderLayout(Layout.Builder.Spacer().Bg(HeaderBg), headerRect);
 
             var filterBtnLabel = state.MinRatingFilter > 0f
                 ? $"\u2605{state.MinRatingFilter:F0}+"
@@ -347,7 +347,8 @@ namespace TianWen.UI.Abstractions
                 // Draw separator line between pinned and unpinned sections
                 if (!drawnSeparator && i >= pinnedCount && pinnedCount > 0)
                 {
-                    FillRect(rowRect.X + padding, rowRect.Y - 1f, rowRect.Width - padding * 2f, 1f, SeparatorColor);
+                    RenderLayout(Layout.Builder.Spacer().Bg(SeparatorColor),
+                        new RectF32(rowRect.X + padding, rowRect.Y - 1f, rowRect.Width - padding * 2f, 1f));
                     drawnSeparator = true;
                 }
 
@@ -504,10 +505,10 @@ namespace TianWen.UI.Abstractions
             int maxLines = int.MaxValue)
         {
             var fontPath = FontPath;
-            FillRect(rect.X, rect.Y, rect.Width, rect.Height, DetailsBg);
+            RenderLayout(Layout.Builder.Spacer().Bg(DetailsBg), rect);
 
             // Separator line at top
-            FillRect(rect.X, rect.Y, rect.Width, 1f, SeparatorColor);
+            RenderLayout(Layout.Builder.Spacer().Bg(SeparatorColor), new RectF32(rect.X, rect.Y, rect.Width, 1f));
 
             var lines = PlannerDetails.GetLines(state, _lastFilteredTargets, _currentTime, maxLines);
             if (lines.Count == 0)

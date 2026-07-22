@@ -124,7 +124,8 @@ namespace TianWen.UI.Abstractions
             var sparkKey = $"camSpark:{key}";
             _profilePanelFills[sparkKey] = r =>
             {
-                FillRect(r.X, r.Y, r.Width, r.Height, FilterTableBg);
+                // Background is the Fill leaf's own .Bg (painted by the engine before this callback);
+                // never FillRect it here -- RenderLayout/paint must not re-enter inside a drawFill callback.
                 if (buffer is not null && buffer.Count >= 2)
                 {
                     RenderTemperatureSparkline(buffer, r.X, r.Y, r.Width, r.Height, graphFs);
@@ -135,7 +136,7 @@ namespace TianWen.UI.Abstractions
                         r.X, r.Y, r.Width, r.Height, graphFs * 0.8f, DimText, TextAlign.Center, TextAlign.Center);
                 }
             };
-            rows.Add(Layout.Builder.Fill(key: sparkKey).RowH(60f));
+            rows.Add(Layout.Builder.Fill(key: sparkKey).RowH(60f).Bg(FilterTableBg));
             rows.Add(Layout.Builder.Spacer().RowH(BasePadding * 0.5f));
 
             return Layout.Builder.VStack([.. rows]).WStar();

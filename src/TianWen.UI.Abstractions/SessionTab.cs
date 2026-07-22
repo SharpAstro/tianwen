@@ -100,7 +100,7 @@ namespace TianWen.UI.Abstractions
             _plannerState = plannerState;
             _timeProvider = timeProvider;
             _exposureValueRegions.Clear();
-            FillRect(contentRect.X, contentRect.Y, contentRect.Width, contentRect.Height, ContentBg);
+            RenderLayout(Layout.Builder.Spacer().Bg(ContentBg), contentRect);
 
             ScrollLineHeight = BaseItemHeight * dpiScale;
 
@@ -118,7 +118,7 @@ namespace TianWen.UI.Abstractions
 
             // Vertical separator
             var sepRect = layout.Dock(PixelDockStyle.Right, BaseSeparatorW * dpiScale);
-            FillRect(sepRect.X, sepRect.Y, sepRect.Width, sepRect.Height, SeparatorColor);
+            RenderLayout(Layout.Builder.Spacer().Bg(SeparatorColor), sepRect);
 
             // Left panel: config form (fills remaining)
             var configRect = layout.Fill();
@@ -300,7 +300,7 @@ namespace TianWen.UI.Abstractions
             RectF32 rect)
         {
             var dpiScale = DpiScale;
-            FillRect(rect.X, rect.Y, rect.Width, rect.Height, PanelBg);
+            RenderLayout(Layout.Builder.Spacer().Bg(PanelBg), rect);
 
             var rightLayout = new PixelLayout(rect);
             var headerH = BaseHeaderHeight * dpiScale;
@@ -314,7 +314,7 @@ namespace TianWen.UI.Abstractions
 
             var cameraRect = rightLayout.Dock(PixelDockStyle.Top, cameraSectionH);
             var sepRect = rightLayout.Dock(PixelDockStyle.Top, BaseSeparatorW * dpiScale);
-            FillRect(sepRect.X, sepRect.Y, sepRect.Width, sepRect.Height, SeparatorColor);
+            RenderLayout(Layout.Builder.Spacer().Bg(SeparatorColor), sepRect);
 
             // Start Session button: enabled when proposals exist and date is tonight
             var hasPinned = plannerState.Proposals.Length > 0;
@@ -607,7 +607,7 @@ namespace TianWen.UI.Abstractions
         {
             var dpiScale = DpiScale;
             var fontPath = FontPath;
-            FillRect(rect.X, rect.Y, rect.Width, rect.Height, ContentBg);
+            RenderLayout(Layout.Builder.Spacer().Bg(ContentBg), rect);
 
             var groups = SessionConfigGroups.Groups;
 

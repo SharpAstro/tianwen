@@ -227,7 +227,7 @@ namespace TianWen.UI.Abstractions
             var fontPath = FontPath;
 
             // Clear the whole content area first
-            FillRect(contentRect.X, contentRect.Y, contentRect.Width, contentRect.Height, ContentBg);
+            RenderLayout(Layout.Builder.Spacer().Bg(ContentBg), contentRect);
 
             if (appState.ActiveProfile is null && !State.IsCreatingProfile)
             {

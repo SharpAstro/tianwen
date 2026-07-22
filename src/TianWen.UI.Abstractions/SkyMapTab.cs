@@ -101,8 +101,7 @@ namespace TianWen.UI.Abstractions
             var db = plannerState.ObjectDb;
             if (db is null)
             {
-                FillRect(contentRect.X, contentRect.Y, contentRect.Width, contentRect.Height,
-                    new RGBAColor32(0x06, 0x06, 0x10, 0xFF));
+                RenderLayout(Layout.Builder.Spacer().Bg(new RGBAColor32(0x06, 0x06, 0x10, 0xFF)), contentRect);
 
                 // Distinguish "catalog is loading" from "catalog isn't loading because
                 // we have no site coordinates". The latter is blocked until the user
@@ -336,8 +335,7 @@ namespace TianWen.UI.Abstractions
             DateTimeOffset viewingTime, double siteLat, double siteLon, SiteContext site)
         {
             double sunAltDeg = State.GetSunAltitudeDegCached(viewingTime, siteLat, siteLon);
-            FillRect(contentRect.X, contentRect.Y, contentRect.Width, contentRect.Height,
-                SkyMapState.SkyBackgroundColorForSunAltitude(sunAltDeg));
+            RenderLayout(Layout.Builder.Spacer().Bg(SkyMapState.SkyBackgroundColorForSunAltitude(sunAltDeg)), contentRect);
         }
 
         // ── Text overlay methods (use native GPU DrawText, drawn on top of cached texture) ──
@@ -735,7 +733,7 @@ namespace TianWen.UI.Abstractions
             var fontPath = FontPath;
             var stripH = 24f * dpiScale;
             var stripY = rect.Y + rect.Height - stripH;
-            FillRect(rect.X, stripY, rect.Width, stripH, InfoPanelBg);
+            RenderLayout(Layout.Builder.Spacer().Bg(InfoPanelBg), new RectF32(rect.X, stripY, rect.Width, stripH));
 
             var localTime = viewingTime.ToOffset(siteTimeZone);
             var timeText = isTimeShifted

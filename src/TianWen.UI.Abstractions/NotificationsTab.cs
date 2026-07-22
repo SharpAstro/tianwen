@@ -47,10 +47,10 @@ namespace TianWen.UI.Abstractions
             var pad = BasePadding * dpiScale;
             var headerH = 28f * dpiScale;
 
-            FillRect(contentRect.X, contentRect.Y, contentRect.Width, contentRect.Height, ContentBg);
+            RenderLayout(Layout.Builder.Spacer().Bg(ContentBg), contentRect);
 
             // Header
-            FillRect(contentRect.X, contentRect.Y, contentRect.Width, headerH, HeaderBg);
+            RenderLayout(Layout.Builder.Spacer().Bg(HeaderBg), new RectF32(contentRect.X, contentRect.Y, contentRect.Width, headerH));
             var entries = appState.Notifications;
             var headerLabel = $"Notifications ({entries.Length})";
             DrawText(headerLabel.AsSpan(), fontPath,

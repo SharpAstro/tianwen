@@ -98,16 +98,11 @@ namespace TianWen.UI.Abstractions
         private static readonly RGBAColor32 RowAltBg         = new RGBAColor32(0x1a, 0x1a, 0x24, 0xff);
         private static readonly RGBAColor32 ProgressBg       = new RGBAColor32(0x2a, 0x2a, 0x3a, 0xff);
         private static readonly RGBAColor32 ProgressFill     = new RGBAColor32(0x30, 0x88, 0x30, 0xff);
-        private static readonly RGBAColor32 NowNeedleColor   = new RGBAColor32(0xff, 0xff, 0xff, 0xcc);
-        private static readonly RGBAColor32 TimelineBg       = new RGBAColor32(0x18, 0x18, 0x22, 0xff);
-        private static readonly RGBAColor32 TimelineTickColor = new RGBAColor32(0x55, 0x55, 0x66, 0xff);
+        // Timeline colours (bg, tick, now-needle) now live in SessionTimelineRenderer (the paint-owning control).
         private static readonly RGBAColor32 StatusSlewing    = new RGBAColor32(0xcc, 0xcc, 0x44, 0xff); // yellow
         private static readonly RGBAColor32 StatusSolving    = new RGBAColor32(0x44, 0xaa, 0xcc, 0xff); // cyan
         private static readonly RGBAColor32 StatusTracking   = new RGBAColor32(0x44, 0xcc, 0x44, 0xff); // green
-        private static readonly RGBAColor32 VCurveDotColor   = new RGBAColor32(0x44, 0xcc, 0xff, 0xff); // cyan dots
-        private static readonly RGBAColor32 VCurveFitColor   = new RGBAColor32(0xff, 0x66, 0x33, 0xcc); // orange-red fit curve
-        private static readonly RGBAColor32 VCurveBestColor  = new RGBAColor32(0x44, 0xff, 0x44, 0xaa); // green best-focus line
-        private static readonly RGBAColor32 VCurveAxisColor  = new RGBAColor32(0x44, 0x44, 0x55, 0xff); // dim axis lines
+        // V-curve chart colours now live in VCurveChartRenderer (the paint-owning control).
 
         // Per-camera color palette (temp = solid, power = same hue lighter)
         private static readonly RGBAColor32[] CameraTempColors =
@@ -153,8 +148,8 @@ namespace TianWen.UI.Abstractions
             var pad = BasePadding * dpiScale;
             var rowH = BaseRowHeight * dpiScale;
 
-            // Background
-            FillRect(contentRect.X, contentRect.Y, contentRect.Width, contentRect.Height, ContentBg);
+            // Background (layout-DSL node, not a hand-drawn FillRect -- the DeviceList row-leaf idiom)
+            RenderLayout(Layout.Builder.Spacer().Bg(ContentBg), contentRect);
 
             // Top strip: phase pill + activity + clock
             var topRect = new RectF32(contentRect.X, contentRect.Y, contentRect.Width, topH);
@@ -179,7 +174,7 @@ namespace TianWen.UI.Abstractions
                 }
                 else
                 {
-                    FillRect(planetaryRect.X, planetaryRect.Y, planetaryRect.Width, planetaryRect.Height, GraphBg);
+                    RenderLayout(Layout.Builder.Spacer().Bg(GraphBg), planetaryRect);
                     DrawText("Planetary view unavailable", fontPath,
                         planetaryRect.X, planetaryRect.Y, planetaryRect.Width, planetaryRect.Height,
                         fs, DimText, TextAlign.Center, TextAlign.Center);
@@ -322,7 +317,7 @@ namespace TianWen.UI.Abstractions
             }
             else if (viewerW > 0)
             {
-                FillRect(viewerX, mainY, viewerW, mainH, GraphBg);
+                RenderLayout(Layout.Builder.Spacer().Bg(GraphBg), new RectF32(viewerX, mainY, viewerW, mainH));
                 var placeholderText = state.IsRunning && state.Phase is SessionPhase.Observing
                     ? "Waiting for first frame\u2026"
                     : !state.IsRunning

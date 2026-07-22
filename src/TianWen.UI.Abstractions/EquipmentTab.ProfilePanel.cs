@@ -69,11 +69,9 @@ namespace TianWen.UI.Abstractions
             }
             else
             {
-                const string sepKey = "sepNoData";
-                _profilePanelFills[sepKey] = r => FillRect(r.X, r.Y, r.Width, 1f, SeparatorColor);
                 tree = Layout.Builder.VStack(
                         Layout.Builder.Text($"Profile: {profile.DisplayName}", BaseFontSize * 1.1f, HeaderText).RowH(BaseHeaderHeight),
-                        Layout.Builder.Fill(key: sepKey).RowH(BasePadding),
+                        SeparatorRow(),
                         Layout.Builder.Text("Profile has no data.", BaseFontSize, DimText).RowH(BaseItemHeight))
                     .Pad(BasePadding);
             }
@@ -86,6 +84,13 @@ namespace TianWen.UI.Abstractions
             RenderLayout(tree, rect, drawFill: DispatchProfilePanelFill);
             Renderer.PopClip();
         }
+
+        /// <summary>A 1px separator line at the top of a <see cref="BasePadding"/>-tall band -- the
+        /// layout-node replacement for the old keyed-Fill + hand-drawn FillRect separator.</summary>
+        private static Layout.Node SeparatorRow()
+            => Layout.Builder.VStack(
+                    Layout.Builder.Spacer().RowH(1f).Bg(SeparatorColor),
+                    Layout.Builder.Spacer().RowH(BasePadding - 1f));
 
         /// <summary>
         /// Builds one <see cref="PanelSection"/> as a <see cref="Layout.Node"/> (or null for a no-op /
@@ -102,11 +107,7 @@ namespace TianWen.UI.Abstractions
                         .RowH(BaseHeaderHeight);
 
                 case PanelSection.Separator:
-                {
-                    var sepKey = $"sep{idx}";
-                    _profilePanelFills[sepKey] = r => FillRect(r.X, r.Y, r.Width, 1f, SeparatorColor);
-                    return Layout.Builder.Fill(key: sepKey).RowH(BasePadding);
-                }
+                    return SeparatorRow();
 
                 case PanelSection.Spacer spacer:
                     return Layout.Builder.Spacer().RowH(spacer.Gap == PanelGap.Full ? BasePadding : BasePadding / 2f);
@@ -399,7 +400,11 @@ namespace TianWen.UI.Abstractions
                     DrawText(">".AsSpan(), fontPath, r.X, r.Y, r.Width - padding / 2f, r.Height,
                         fontSize, arrowColor, TextAlign.Center, TextAlign.Center);
                 }
-                // Separator line at the bottom of the slot (row spans the panel inner width).
+                // Slot bottom-border: intentionally a raw FillRect, not a layout node. It (a) runs inside
+                // this drawFill callback, where RenderLayout must not re-enter, and (b) spans the full panel
+                // inner width (innerX/innerW) while overlaying only the row's last pixel row -- a sibling
+                // separator node would add 1px/slot and shift the EquipmentPanelLayoutTests-pinned geometry.
+                // The clean layout-DSL fix is a bottom-border option on EquipmentPanelLayout.SlotRow (deferred).
                 FillRect(innerX, r.Y + r.Height - 1f, innerW, 1f, SeparatorColor);
             };
 
