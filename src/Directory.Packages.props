@@ -120,7 +120,7 @@
          reflow builds on. The Sizing ctor/Star/WStar signatures gained optional parameters
          (binary-breaking), so the whole sibling family rebuilt: lockstep with Console.Lib 3.8 +
          SdlVulkan.Renderer 6.25 + WebGl.Renderer 1.8. -->
-    <PackageVersion Include="DIR.Lib" Version="6.14.*" />
+    <PackageVersion Include="DIR.Lib" Version="6.15.*" />
     <!-- DIR.Lib 3.0 extracted its codec layer to these sibling packages, which
          ship as a lockstep family from the Codecs repo. 3.0 brought a
          binary-breaking SharpAstro.Tiff change (TiffPageOptions.IccProfile is
@@ -184,7 +184,7 @@
          migration (Console.Lib references SharpAstro.Codecs for image decode). 3.8 is the current
          pin: the no-code lockstep rebuild against DIR.Lib 6.14 (its Sizing/Star signatures are
          binary-breaking, so the 3.5 binary would MissingMethodException at runtime). -->
-    <PackageVersion Include="Console.Lib" Version="3.8.*" />
+    <PackageVersion Include="Console.Lib" Version="3.9.*" />
     <!-- SdlVulkan.Renderer 5.0 adds a multi-page SDF glyph atlas (no more grow
          stall / Adreno submit-wedge) on top of 4.1's SetSystemCursor + anisotropic
          glyph xScale. 5.1 implements DIR.Lib 4.4's PushClip/PopClip via Vulkan
@@ -232,7 +232,7 @@
          opt-in even in Debug (CompiledDebug and SDLVK_VALIDATION=1). 6.27 is the current pin: batched
          DrawPolyline/DrawPolylineDashed overrides (whole polyline into one Flat-pipeline draw); see
          docs/plans/render-batching.md. -->
-    <PackageVersion Include="SdlVulkan.Renderer" Version="6.27.*" />
+    <PackageVersion Include="SdlVulkan.Renderer" Version="6.28.*" />
     <PackageVersion Include="SDL3-CS" Version="3.5.0-preview.20260213-150035" />
     <PackageVersion Include="SDL3-CS.Native" Version="3.5.0-preview.20260205-174353" />
     <!-- Canon DSLR -->
