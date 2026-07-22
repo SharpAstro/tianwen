@@ -218,31 +218,30 @@ namespace TianWen.UI.Abstractions
         public void Render(
             GuiAppState appState,
             RectF32 contentRect,
-            string fontPath,
-            string? emojiFontPath = null,
             LiveSessionState? liveSessionState = null)
         {
             // Clear clickable regions from previous frame
             BeginFrame();
 
             var dpiScale = DpiScale;
+            var fontPath = FontPath;
 
             // Clear the whole content area first
             FillRect(contentRect.X, contentRect.Y, contentRect.Width, contentRect.Height, ContentBg);
 
             if (appState.ActiveProfile is null && !State.IsCreatingProfile)
             {
-                RenderNoProfile(contentRect, fontPath);
+                RenderNoProfile(contentRect);
                 return;
             }
 
             if (State.IsCreatingProfile)
             {
-                RenderProfileCreation(contentRect, fontPath);
+                RenderProfileCreation(contentRect);
                 return;
             }
 
-            RenderProfileView(appState, contentRect, fontPath, emojiFontPath, liveSessionState);
+            RenderProfileView(appState, contentRect, liveSessionState);
 
             // Dropdown overlay -- rendered absolutely last so it paints on top of everything
             var fontSize = BaseFontSize * dpiScale;
@@ -257,8 +256,7 @@ namespace TianWen.UI.Abstractions
         // -----------------------------------------------------------------------
 
         private void RenderNoProfile(
-            RectF32 rect,
-            string fontPath)
+            RectF32 rect)
         {
             // Message + Create button vertically centred by equal star spacers; the button is
             // centred horizontally by star spacers around a fixed-width cell. No manual centre math.
@@ -277,7 +275,7 @@ namespace TianWen.UI.Abstractions
                     .RowH(BaseButtonHeight),
                 Layout.Builder.Spacer().Stretch());
 
-            RenderLayout(tree, rect, fontPath);
+            RenderLayout(tree, rect);
         }
 
         // -----------------------------------------------------------------------
@@ -285,10 +283,10 @@ namespace TianWen.UI.Abstractions
         // -----------------------------------------------------------------------
 
         private void RenderProfileCreation(
-            RectF32 rect,
-            string fontPath)
+            RectF32 rect)
         {
             var dpiScale = DpiScale;
+            var fontPath = FontPath;
 
             // The creation form is ONE arranged tree: header + label + name input (keyed Fill) +
             // Create button stack from the top of the Dock fill (padded VStack), with a hint status
@@ -325,7 +323,7 @@ namespace TianWen.UI.Abstractions
                         .Bg(BottomBarBg).Pad(BasePadding),
                     BaseBottomBarHeight));
 
-            RenderLayout(tree, rect, fontPath, drawFill: (fill, r) =>
+            RenderLayout(tree, rect, drawFill: (fill, r) =>
             {
                 if (fill.Key == "profileNameInput")
                 {
@@ -341,8 +339,6 @@ namespace TianWen.UI.Abstractions
         private void RenderProfileView(
             GuiAppState appState,
             RectF32 contentRect,
-            string fontPath,
-            string? emojiFontPath = null,
             LiveSessionState? liveSessionState = null)
         {
             // The whole view is ONE arranged tree: a bottom-docked hint bar over a body row of
@@ -357,18 +353,18 @@ namespace TianWen.UI.Abstractions
                 Layout.Builder.Bottom(
                     Layout.Builder.Fill(key: "bottomBar").Bg(BottomBarBg), BaseBottomBarHeight));
 
-            RenderLayout(tree, contentRect, fontPath, drawFill: (fill, r) =>
+            RenderLayout(tree, contentRect, drawFill: (fill, r) =>
             {
                 switch (fill.Key)
                 {
                     case "profilePanel":
-                        RenderProfilePanel(appState, r, fontPath, emojiFontPath, liveSessionState);
+                        RenderProfilePanel(appState, r, liveSessionState);
                         break;
                     case "deviceList":
-                        RenderDeviceList(appState, r, fontPath, emojiFontPath);
+                        RenderDeviceList(appState, r);
                         break;
                     case "bottomBar":
-                        RenderBottomBar(appState, r, fontPath);
+                        RenderBottomBar(appState, r);
                         break;
                 }
             });
@@ -379,9 +375,10 @@ namespace TianWen.UI.Abstractions
         /// fits within <paramref name="maxWidth"/>. Returns the original string when it already fits.
         /// Falls back gracefully on tiny widths by clipping characters until just the ellipsis remains.
         /// </summary>
-        private string TruncateToWidth(string text, string fontPath, float fontSize, float maxWidth)
+        private string TruncateToWidth(string text, float fontSize, float maxWidth)
         {
             if (text.Length == 0 || maxWidth <= 0f) return text;
+            var fontPath = FontPath;
             if (Renderer.MeasureText(text.AsSpan(), fontPath, fontSize).Width <= maxWidth) return text;
 
             const string ellipsis = "\u2026";
@@ -412,10 +409,10 @@ namespace TianWen.UI.Abstractions
 
         private void RenderBottomBar(
             GuiAppState appState,
-            RectF32 rect,
-            string fontPath)
+            RectF32 rect)
         {
             var dpiScale = DpiScale;
+            var fontPath = FontPath;
             var fontSize = BaseFontSize * dpiScale;
             var padding  = BasePadding * dpiScale;
 

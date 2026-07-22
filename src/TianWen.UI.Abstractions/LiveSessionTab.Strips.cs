@@ -16,7 +16,7 @@ namespace TianWen.UI.Abstractions
     /// </summary>
     public partial class LiveSessionTab<TSurface>
     {
-        private void RenderTopStrip(LiveSessionState state, RectF32 rect, string fontPath, float fontSize, ITimeProvider timeProvider)
+        private void RenderTopStrip(LiveSessionState state, RectF32 rect, float fontSize, ITimeProvider timeProvider)
         {
             FillRect(rect.X, rect.Y, rect.Width, rect.Height, HeaderBg);
 
@@ -156,7 +156,7 @@ namespace TianWen.UI.Abstractions
                             });
                         state.NeedsRedraw = true;
                     });
-                RenderLayout(modeLeaf, new RectF32(pillX, pillY, pillW, pillH), fontPath);
+                RenderLayout(modeLeaf, new RectF32(pillX, pillY, pillW, pillH));
 
                 // Current time is shown by the global status-bar clock (top-right on every
                 // tab) -- no separate in-content clock here, to avoid a duplicate display.
@@ -188,23 +188,24 @@ namespace TianWen.UI.Abstractions
                     Layout.Builder.Text(activityText, BaseFontSize, BodyText, TextAlign.Near, TextAlign.Center).WStar(),
                     Layout.Builder.Text(progressParts, BaseFontSize, DimText, TextAlign.Far, TextAlign.Center).WStar())
                 .WithGap(BasePadding).Pad(BasePadding);
-            RenderLayout(runTree, rect, fontPath);
+            RenderLayout(runTree, rect);
         }
 
         // -----------------------------------------------------------------------
         // Timeline: phase bars + now needle + time axis
         // -----------------------------------------------------------------------
 
-        private void RenderTimeline(LiveSessionState state, RectF32 rect, string fontPath, float fontSize, ITimeProvider timeProvider)
+        private void RenderTimeline(LiveSessionState state, RectF32 rect, float fontSize, ITimeProvider timeProvider)
         {
             FillRect(rect.X, rect.Y, rect.Width, rect.Height, TimelineBg);
 
             if (!state.IsRunning)
             {
-                RenderPreviewTimeline(state, rect, fontPath, fontSize, timeProvider);
+                RenderPreviewTimeline(state, rect, fontSize, timeProvider);
                 return;
             }
 
+            var fontPath = FontPath;
             var dpiScale = DpiScale;
 
             var timeline = state.PhaseTimeline;
@@ -295,7 +296,7 @@ namespace TianWen.UI.Abstractions
             }
         }
 
-        private void RenderBottomStrip(LiveSessionState state, RectF32 rect, string fontPath)
+        private void RenderBottomStrip(LiveSessionState state, RectF32 rect)
         {
             // One arranged row over the header background with a 1px top hairline:
             // [mini guide graph (raster Fill) * | RMS stats | ABORT]. Was a hand-computed
@@ -319,12 +320,13 @@ namespace TianWen.UI.Abstractions
                     Layout.Builder.Spacer().RowH(1f).Bg(SeparatorColor),
                     Layout.Builder.HStack([.. children]).WithGap(BasePadding).Stretch().Pad(2f))
                 .Bg(HeaderBg);
-            RenderLayout(root, rect, fontPath,
+            RenderLayout(root, rect,
                 drawFill: (fill, r) => { if (fill.Key == "bottomGuide") RenderCompactGuideGraph(state, r); });
         }
 
-        private void RenderAbortConfirm(RectF32 contentRect, string fontPath, float fontSize)
+        private void RenderAbortConfirm(RectF32 contentRect, float fontSize)
         {
+            var fontPath = FontPath;
             var dpiScale = DpiScale;
             var stripH = 40f * dpiScale;
             var stripY = contentRect.Y + (contentRect.Height - stripH) / 2;
@@ -347,8 +349,9 @@ namespace TianWen.UI.Abstractions
         /// is non-null, in any mode, so a future dark-frame cover-close prompt reuses it unchanged.
         /// </summary>
         private void RenderSessionPrompt(RectF32 contentRect, SessionPromptEventArgs prompt,
-            string fontPath, float fontSize)
+            float fontSize)
         {
+            var fontPath = FontPath;
             var dpiScale = DpiScale;
             var pad = BasePadding * dpiScale;
             var rowH = BaseRowHeight * dpiScale;
@@ -386,7 +389,7 @@ namespace TianWen.UI.Abstractions
                         .WStar().HStar().Bg(new RGBAColor32(0x44, 0xaa, 0x66, 0xff))
                         .Clickable(new HitResult.ButtonHit("SessionPromptContinue"), _ => PostSignal(new RespondSessionPromptSignal(true))))
                 .WithGap(pad);
-            RenderLayout(btnRow, new RectF32(innerX, btnY, innerW, btnH), fontPath, dpiScale: 1f);
+            RenderLayout(btnRow, new RectF32(innerX, btnY, innerW, btnH), dpiScale: 1f);
         }
 
         // -----------------------------------------------------------------------

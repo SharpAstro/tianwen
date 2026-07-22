@@ -42,8 +42,6 @@ namespace TianWen.UI.Abstractions
         private void RenderProfilePanel(
             GuiAppState appState,
             RectF32 rect,
-            string fontPath,
-            string? emojiFontPath = null,
             LiveSessionState? liveSessionState = null)
         {
             var dpiScale = DpiScale;
@@ -64,7 +62,7 @@ namespace TianWen.UI.Abstractions
                 foreach (var section in _content.GetProfilePanelSections(pd))
                 {
                     var node = BuildSection(section, appState, pd, profile, liveSessionState,
-                        innerX, innerW, fontPath, idx++);
+                        innerX, innerW, idx++);
                     if (node is { } n) sections.Add(n);
                 }
                 tree = Layout.Builder.VStack([.. sections]).Pad(BasePadding);
@@ -85,7 +83,7 @@ namespace TianWen.UI.Abstractions
             Renderer.PushClip(new RectInt(
                 new PointInt((int)(rect.X + rect.Width), (int)(rect.Y + rect.Height)),
                 new PointInt((int)rect.X, (int)rect.Y)));
-            RenderLayout(tree, rect, fontPath, drawFill: DispatchProfilePanelFill);
+            RenderLayout(tree, rect, drawFill: DispatchProfilePanelFill);
             Renderer.PopClip();
         }
 
@@ -95,7 +93,7 @@ namespace TianWen.UI.Abstractions
         /// returns a self-contained sub-tree, so RenderProfilePanel just stacks them.
         /// </summary>
         private Layout.Node? BuildSection(PanelSection section, GuiAppState appState, ProfileData pd, Profile profile,
-            LiveSessionState? liveSessionState, float innerX, float innerW, string fontPath, int idx)
+            LiveSessionState? liveSessionState, float innerX, float innerW, int idx)
         {
             switch (section)
             {
@@ -115,22 +113,22 @@ namespace TianWen.UI.Abstractions
 
                 case PanelSection.Slot slot:
                     return BuildProfileSlot(slot.Row.Label, EquipmentActions.GetAssignedDevice(pd, slot.Row.Slot), slot.Row.Slot,
-                        appState, pd, innerX, innerW, fontPath);
+                        appState, pd, innerX, innerW);
 
                 case PanelSection.MountTelemetry:
-                    return BuildMountTelemetry(appState, pd.Mount, liveSessionState, innerW, fontPath);
+                    return BuildMountTelemetry(appState, pd.Mount, liveSessionState, innerW);
 
                 case PanelSection.DeviceSettings ds:
-                    return BuildDeviceSettingsIfAny(appState, pd, ds.Device, ds.Label, fontPath);
+                    return BuildDeviceSettingsIfAny(appState, pd, ds.Device, ds.Label);
 
                 case PanelSection.Site:
-                    return BuildSite(pd, fontPath);
+                    return BuildSite(pd);
 
                 case PanelSection.GuideFocalLength:
-                    return BuildGuideFocalLength(pd, innerW, fontPath);
+                    return BuildGuideFocalLength(pd, innerW);
 
                 case PanelSection.CameraTelemetry ct:
-                    return BuildCameraTelemetry(appState, ct.Camera, innerW, fontPath);
+                    return BuildCameraTelemetry(appState, ct.Camera, innerW);
 
                 case PanelSection.OtaHeader oh:
                     return BuildOtaHeader(appState, pd, oh.Index);
@@ -139,12 +137,12 @@ namespace TianWen.UI.Abstractions
                 {
                     var otaData = pd.OTAs[op.Index];
                     return State.EditingOtaIndex == op.Index
-                        ? BuildOtaPropertyEditors(appState, op.Index, otaData, fontPath)
+                        ? BuildOtaPropertyEditors(appState, op.Index, otaData)
                         : BuildOtaPropertiesSummary(otaData);
                 }
 
                 case PanelSection.FilterTable ft:
-                    return BuildFilterTable(appState, ft.OtaIndex, pd, fontPath);
+                    return BuildFilterTable(appState, ft.OtaIndex, pd);
 
                 case PanelSection.AddOta:
                     return BuildAddOtaSection();
@@ -155,9 +153,10 @@ namespace TianWen.UI.Abstractions
         }
 
         /// <summary>Site latitude/longitude/elevation block: edit fields, a display row, or a "set site" button.</summary>
-        private Layout.Node BuildSite(ProfileData pd, string fontPath)
+        private Layout.Node BuildSite(ProfileData pd)
         {
             var dpiScale = DpiScale;
+            var fontPath = FontPath;
             var fontSize = BaseFontSize * dpiScale;
             var site = EquipmentActions.GetSiteFromProfile(pd);
 
@@ -227,9 +226,10 @@ namespace TianWen.UI.Abstractions
         }
 
         /// <summary>Guide-scope focal-length input row.</summary>
-        private Layout.Node BuildGuideFocalLength(ProfileData pd, float innerW, string fontPath)
+        private Layout.Node BuildGuideFocalLength(ProfileData pd, float innerW)
         {
             var dpiScale = DpiScale;
+            var fontPath = FontPath;
             var fontSize = BaseFontSize * dpiScale;
             var labelWDesign = innerW * 0.35f / dpiScale;
             float fieldH = BaseItemHeight * 0.9f;
@@ -346,10 +346,10 @@ namespace TianWen.UI.Abstractions
         /// </summary>
         private Layout.Node BuildProfileSlot(
             string label, Uri? deviceUri, AssignTarget slot,
-            GuiAppState appState, ProfileData pd, float innerX, float innerW,
-            string fontPath)
+            GuiAppState appState, ProfileData pd, float innerX, float innerW)
         {
             var dpiScale = DpiScale;
+            var fontPath = FontPath;
             var fontSize = BaseFontSize * dpiScale;
             var padding = BasePadding * dpiScale;
             var arrowW = BaseArrowWidth * dpiScale;
@@ -358,7 +358,7 @@ namespace TianWen.UI.Abstractions
             // Device name -- pre-truncate to the name column width (the engine's Text leaf doesn't clip).
             var nameW = (1f - EquipmentPanelLayout.LabelShare) * (innerW - padding - arrowW);
             var deviceLabel = EquipmentActions.DeviceLabel(deviceUri, registry: null);
-            var truncated = TruncateToWidth(deviceLabel, fontPath, fontSize, nameW);
+            var truncated = TruncateToWidth(deviceLabel, fontSize, nameW);
 
             // Right-edge indicator. When a device is assigned + we have the live hub + discovery snapshot,
             // draw a coloured reachability square; the active-assignment highlight always wins and shows [>].
@@ -442,9 +442,10 @@ namespace TianWen.UI.Abstractions
         }
 
         private Layout.Node BuildOtaPropertyEditors(
-            GuiAppState appState, int otaIndex, OTAData ota, string fontPath)
+            GuiAppState appState, int otaIndex, OTAData ota)
         {
             var dpiScale = DpiScale;
+            var fontPath = FontPath;
             var fontSize = BaseFontSize * dpiScale;
             float fieldH = BaseItemHeight * 1.1f;
             const float labelW = 80f;

@@ -49,7 +49,7 @@ namespace TianWen.UI.Abstractions
         /// </summary>
         protected void DrawSearchAndInfoPanel(
             PlannerState plannerState,
-            RectF32 contentRect, string fontPath,
+            RectF32 contentRect,
             ICelestialObjectDB db,
             double siteLat, double siteLon,
             DateTimeOffset viewingTime,
@@ -124,32 +124,33 @@ namespace TianWen.UI.Abstractions
                     info = info.WithLiveHorizontal(site);
                 }
 
-                DrawInfoPanel(plannerState, info, contentRect, fontPath,
+                DrawInfoPanel(plannerState, info, contentRect,
                     viewingTime, pixelsPerRadian, cx, cy);
             }
 
             if (State.Search.IsOpen)
             {
-                DrawSearchModal(contentRect, fontPath, db,
+                DrawSearchModal(contentRect, db,
                     siteLat, siteLon, viewingTime, site);
             }
         }
 
         private void DrawSearchModal(
-            RectF32 contentRect, string fontPath,
+            RectF32 contentRect,
             ICelestialObjectDB db,
             double siteLat, double siteLon,
             DateTimeOffset viewingTime,
             in SiteContext site)
         {
             var dpiScale = DpiScale;
+            var fontPath = FontPath;
             // Full-content backdrop -- swallows clicks outside the panel. One draw==hit Box
             // leaf (fill and hit are the same arranged rect) instead of a FillRect +
             // RegisterClickable pair whose rects could silently drift apart.
             RenderLayout(
                 Layout.Builder.Spacer().Stretch().Bg(SearchBackdrop)
                     .Clickable(new HitResult.ButtonHit("SearchBackdrop"), _ => PostSignal(new CloseSkyMapSearchSignal())),
-                contentRect, fontPath, dpiScale);
+                contentRect, dpiScale: dpiScale);
 
             var pw = SearchPanelWidth * dpiScale;
             var ph = SearchPanelHeight * dpiScale;
@@ -186,7 +187,7 @@ namespace TianWen.UI.Abstractions
             var panel = Layout.Builder.VStack(titleBar, body).Bg(SearchPanelBg);
             var framed = Layout.Builder.VStack(panel.Stretch()).Bg(SearchPanelBorder).Pad(1f);
 
-            RenderLayout(framed, new RectF32(px - 1, py - 1, pw + 2, ph + 2), fontPath, dpiScale,
+            RenderLayout(framed, new RectF32(px - 1, py - 1, pw + 2, ph + 2), dpiScale: dpiScale,
                 drawFill: (fill, r) =>
                 {
                     if (fill.Key == "searchInput")
@@ -253,7 +254,7 @@ namespace TianWen.UI.Abstractions
         private void DrawInfoPanel(
             PlannerState plannerState,
             in SkyMapInfoPanelData info,
-            RectF32 contentRect, string fontPath,
+            RectF32 contentRect,
             DateTimeOffset viewingTime,
             double pixelsPerRadian, float cx, float cy)
         {
@@ -324,7 +325,7 @@ namespace TianWen.UI.Abstractions
                 Layout.Builder.Text(altAz, dFont, SearchText).RowH(dRow),
                 Layout.Builder.Text(rtsLine, dFont, SearchText).RowH(dRow));
             var textBlockH = rowH * 1.15f + rowH * 5f;
-            RenderLayout(textTree, new RectF32(textX, py, textW, textBlockH), fontPath, dpiScale);
+            RenderLayout(textTree, new RectF32(textX, py, textW, textBlockH), dpiScale: dpiScale);
             var row = textBlockH;
 
             // Comet vmag sparkline (brighter = up), auto-scaled to the sampled +/-45-day window. The "now"
@@ -333,7 +334,7 @@ namespace TianWen.UI.Abstractions
             {
                 DrawMagnitudeSparkline(magCurve,
                     textX, py + row + 2f * dpiScale, textW, 30f * dpiScale,
-                    fontPath, fontSize);
+                    fontSize);
             }
 
             // Action buttons along the bottom of the panel, as ONE right-aligned HStack tree (was a
@@ -413,7 +414,7 @@ namespace TianWen.UI.Abstractions
                     Layout.Builder.Spacer().WFixed(10f).HStar());
             }
 
-            RenderLayout(buttonRow, new RectF32(px, btnY, pw, btnH), fontPath, dpiScale);
+            RenderLayout(buttonRow, new RectF32(px, btnY, pw, btnH), dpiScale: dpiScale);
 
             // Close button -- top-right of the info panel. Draw==hit Text leaf so the
             // glyph box and the click surface are the same arranged rect.
@@ -426,12 +427,12 @@ namespace TianWen.UI.Abstractions
                         State.Search.InfoPanel = null;
                         State.NeedsRedraw = true;
                     }),
-                new RectF32(px + pw - closeSize, py, closeSize, closeSize), fontPath, dpiScale);
+                new RectF32(px + pw - closeSize, py, closeSize, closeSize), dpiScale: dpiScale);
 
             // Path across the sky for a selected solar-system body (planet / comet): a thin polyline of its
             // motion over a body-appropriate window + labelled event markers (stations, elongation,
             // perihelion), drawn UNDER the reticle so "now" stays on top.
-            DrawSelectedObjectPath(info, plannerState, viewingTime, pixelsPerRadian, cx, cy, contentRect, fontPath);
+            DrawSelectedObjectPath(info, plannerState, viewingTime, pixelsPerRadian, cx, cy, contentRect);
 
             // Selection marker on the map itself. For objects with a known shape
             // (nebulae, galaxies, clusters) we trace the projected ellipse so the
@@ -461,9 +462,10 @@ namespace TianWen.UI.Abstractions
 
         private void DrawSelectedObjectPath(
             in SkyMapInfoPanelData info, PlannerState plannerState, DateTimeOffset viewingTime,
-            double pixelsPerRadian, float cx, float cy, RectF32 contentRect, string fontPath)
+            double pixelsPerRadian, float cx, float cy, RectF32 contentRect)
         {
             var dpiScale = DpiScale;
+            var fontPath = FontPath;
             if (info.Index is not { } idx || !idx.IsSolarSystemObject)
             {
                 return;
@@ -632,9 +634,10 @@ namespace TianWen.UI.Abstractions
         /// </summary>
         private void DrawMagnitudeSparkline(
             ReadOnlySpan<float> mags, float x, float y, float w, float h,
-            string fontPath, float fontSize)
+            float fontSize)
         {
             var dpiScale = DpiScale;
+            var fontPath = FontPath;
             var min = float.MaxValue;
             var max = float.MinValue;
             var finite = 0;

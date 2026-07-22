@@ -25,11 +25,11 @@ namespace TianWen.UI.Web.SkyMap
         public void SubmitTycho2Stars(float[] verts, int starCount) => _pipeline.SubmitTycho2Stars(verts, starCount);
 
         protected override void RenderSkyMap(
-            ICelestialObjectDB db, RectF32 contentRect, string fontPath,
+            ICelestialObjectDB db, RectF32 contentRect,
             System.DateTimeOffset viewingTime, double siteLat, double siteLon, SiteContext site)
         {
             // Sun-altitude-tinted sky background (the base implementation).
-            base.RenderSkyMap(db, contentRect, fontPath, viewingTime, siteLat, siteLon, site);
+            base.RenderSkyMap(db, contentRect, viewingTime, siteLat, siteLon, site);
 
             _pipeline.EnsureGeometry(db);
             // The web map draws full-canvas: viewport == canvas == contentRect (the razor host
@@ -42,10 +42,10 @@ namespace TianWen.UI.Web.SkyMap
         /// shared CPU-primitive path (WebGL has no instanced overlay pipeline). Same candidate gather /
         /// projection / label placement as desktop; only the rasterisation is CPU DrawLine/DrawCircle.</summary>
         protected override void RenderObjectOverlay(
-            ICelestialObjectDB db, RectF32 contentRect, string fontPath,
+            ICelestialObjectDB db, RectF32 contentRect,
             float baseFontSize, SiteContext site, bool dimBelowHorizon, PlannerState plannerState,
             bool showAllOverlays)
-            => RenderObjectOverlayPrimitive(db, contentRect, fontPath, baseFontSize,
+            => RenderObjectOverlayPrimitive(db, contentRect, baseFontSize,
                 site, dimBelowHorizon, plannerState, showAllOverlays);
     }
 }

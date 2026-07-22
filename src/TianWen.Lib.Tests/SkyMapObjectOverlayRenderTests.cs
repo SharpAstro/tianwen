@@ -28,18 +28,18 @@ public sealed class SkyMapObjectOverlayRenderTests
     private sealed class OverlayTestSkyMapTab(RgbaImageRenderer renderer) : SkyMapTab<RgbaImage>(renderer)
     {
         protected override void RenderSkyMap(
-            ICelestialObjectDB db, RectF32 contentRect, string fontPath,
+            ICelestialObjectDB db, RectF32 contentRect,
             DateTimeOffset viewingTime, double siteLat, double siteLon, SiteContext site)
         {
-            base.RenderSkyMap(db, contentRect, fontPath, viewingTime, siteLat, siteLon, site); // background fill
+            base.RenderSkyMap(db, contentRect, viewingTime, siteLat, siteLon, site); // background fill
             State.CurrentViewMatrix = State.ComputeViewMatrix();
         }
 
         protected override void RenderObjectOverlay(
-            ICelestialObjectDB db, RectF32 contentRect, string fontPath,
+            ICelestialObjectDB db, RectF32 contentRect,
             float baseFontSize, SiteContext site, bool dimBelowHorizon, PlannerState plannerState,
             bool showAllOverlays)
-            => RenderObjectOverlayPrimitive(db, contentRect, fontPath, baseFontSize,
+            => RenderObjectOverlayPrimitive(db, contentRect, baseFontSize,
                 site, dimBelowHorizon, plannerState, showAllOverlays);
     }
 
@@ -50,8 +50,8 @@ public sealed class SkyMapObjectOverlayRenderTests
 
         const int w = 900, h = 900;
         using var renderer = new RgbaImageRenderer(w, h);
-        var tab = new OverlayTestSkyMapTab(renderer);
-        var fontPath = FontResolver.ResolveSystemFont();
+        // Font is a widget-owned property now (host-set), not a Render argument.
+        var tab = new OverlayTestSkyMapTab(renderer) { FontPath = FontResolver.ResolveSystemFont() };
 
         // A fixed winter night at a mid-northern site so the sky is dark and positions are deterministic.
         var state = new PlannerState
@@ -68,19 +68,19 @@ public sealed class SkyMapObjectOverlayRenderTests
         // First render initialises the view to the celestial pole; then aim at the Sagittarius Milky Way
         // (RA 18h, Dec -24 deg) — packed with Messier nebulae / clusters — at a wide FOV, overlay OFF.
         tab.State.ShowObjectOverlay = false;
-        tab.Render(state, content, fontPath, time);
+        tab.Render(state, content, time);
 
         tab.State.CenterRA = 18.0;
         tab.State.CenterDec = -24.0;
         tab.State.FieldOfViewDeg = 30.0;
 
-        tab.Render(state, content, fontPath, time);
+        tab.Render(state, content, time);
         var off = (byte[])renderer.Surface.Pixels.Clone();
 
         // Same view, overlay ON. Only the [O] catalog markers + labels differ between the two frames,
         // so the pixel diff IS the overlay footprint.
         tab.State.ShowObjectOverlay = true;
-        tab.Render(state, content, fontPath, time);
+        tab.Render(state, content, time);
         var on = renderer.Surface.Pixels;
 
         File.WriteAllBytes(Path.Combine(AppContext.BaseDirectory, "skymap-overlay-on.png"),

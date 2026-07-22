@@ -87,13 +87,14 @@ namespace TianWen.UI.Abstractions
         public void Render(
             PlannerState plannerState,
             RectF32 contentRect,
-            string fontPath,
             ITimeProvider timeProvider)
         {
             BeginFrame();
-            // DPI comes from the inherited DpiScale (host-set); the input path (tap-vs-drag slop) reads
-            // the same property directly, which retires the old render-time _lastDpiScale cache.
+            // DPI + font come from the inherited DpiScale / FontPath (host-set); the input path
+            // (tap-vs-drag slop) reads DpiScale directly, which retired the old render-time
+            // _lastDpiScale cache.
             var dpiScale = DpiScale;
+            var fontPath = FontPath;
             _plannerState = plannerState;
             _timeProvider = timeProvider;
 
@@ -163,7 +164,7 @@ namespace TianWen.UI.Abstractions
             // Pass the already-built SiteContext so the override does not rebuild it — the two
             // callers (this + VkSkyMapTab.RenderSkyMap) previously produced the same SiteContext
             // from the same inputs on every frame.
-            RenderSkyMap(db, contentRect, fontPath, viewingTime, siteLat, siteLon, site);
+            RenderSkyMap(db, contentRect, viewingTime, siteLat, siteLon, site);
 
             // Draw text overlays natively (GPU text rendering on top of cached texture)
             var ppr = SkyMapProjection.PixelsPerRadian(contentRect.Height, State.FieldOfViewDeg);
@@ -173,7 +174,7 @@ namespace TianWen.UI.Abstractions
 
             if (State.ShowGrid)
             {
-                DrawGridLabels(contentRect, fontPath, fontSize * 0.8f, ppr, cx, cy);
+                DrawGridLabels(contentRect, fontSize * 0.8f, ppr, cx, cy);
             }
 
             // Horizon dimming: when the user has horizon clipping on, sub-horizon labels
@@ -182,22 +183,22 @@ namespace TianWen.UI.Abstractions
             var dimBelowHorizon = State.ShowHorizon && site.IsValid;
 
             // Constellation names at boundary centroids (always shown)
-            DrawConstellationNames(contentRect, fontPath, fontSize * 0.85f, ppr, cx, cy, site, dimBelowHorizon);
+            DrawConstellationNames(contentRect, fontSize * 0.85f, ppr, cx, cy, site, dimBelowHorizon);
 
-            DrawPlanetLabels(db, viewingTime, siteLat, siteLon, contentRect, fontPath, fontSize, ppr, cx, cy, site, dimBelowHorizon);
+            DrawPlanetLabels(db, viewingTime, siteLat, siteLon, contentRect, fontSize, ppr, cx, cy, site, dimBelowHorizon);
 
             // Ephemeris-computed JPL comet markers (candidate set filtered to the zoom-aware magnitude
             // limit). Drawn after planets so a bright comet's label sits above the planet layer.
             if (State.ShowComets)
             {
-                DrawCometLabels(viewingTime, contentRect, fontPath, fontSize, ppr, cx, cy, site, dimBelowHorizon);
+                DrawCometLabels(viewingTime, contentRect, fontSize, ppr, cx, cy, site, dimBelowHorizon);
             }
 
             // Always render the object overlay pass — when [O] is off, only pinned
             // planner targets are drawn (the user's planned observations should always
             // be visible as landmarks on the sky map). The showAll flag tells the engine
             // whether to include non-pinned catalog objects in the result.
-            RenderObjectOverlay(db, contentRect, fontPath, BaseFontSize, site, dimBelowHorizon, plannerState, State.ShowObjectOverlay);
+            RenderObjectOverlay(db, contentRect, BaseFontSize, site, dimBelowHorizon, plannerState, State.ShowObjectOverlay);
 
             // Mosaic panel grid — drawn BEHIND the mount reticle but ON TOP of catalog
             // overlays so panel outlines don't get buried under catalog markers but the
@@ -211,22 +212,22 @@ namespace TianWen.UI.Abstractions
             // mount reticle so the reticle stays the topmost element when it overlaps a target.
             if (State.ScheduleTargets.Length > 0)
             {
-                RenderScheduleTargets(contentRect, fontPath, BaseFontSize, ppr, cx, cy, site, dimBelowHorizon);
+                RenderScheduleTargets(contentRect, BaseFontSize, ppr, cx, cy, site, dimBelowHorizon);
             }
 
             // Mount reticle on top of everything catalog-related so it's never buried.
             if (State.ShowMountOverlay && State.MountOverlay is { } mountOverlay)
             {
-                RenderMountOverlay(mountOverlay, contentRect, fontPath, BaseFontSize, ppr, cx, cy);
+                RenderMountOverlay(mountOverlay, contentRect, BaseFontSize, ppr, cx, cy);
             }
 
             // NCP/SCP/Zenith reticles (clickable goto targets) and N/S/E/W horizon
             // cardinal labels. Drawn on top of the mount reticle so the user can always
             // click a pole or zenith to slew, even if the mount happens to overlap.
-            RenderFixedPointMarkers(contentRect, fontPath, BaseFontSize, ppr, cx, cy, site);
+            RenderFixedPointMarkers(contentRect, BaseFontSize, ppr, cx, cy, site);
 
             var isTimeShifted = plannerState.PlanningDate.HasValue || State.TimeOffset != TimeSpan.Zero;
-            DrawInfoStrip(contentRect, fontPath, fontSize, cx, cy,
+            DrawInfoStrip(contentRect, fontSize, cx, cy,
                 viewingTime, plannerState.SiteTimeZone, isTimeShifted);
 
             // Crosshair
@@ -249,7 +250,7 @@ namespace TianWen.UI.Abstractions
 
             // Search modal + info panel — drawn LAST so their clickable regions win
             // hit testing (paint order = z-order).
-            DrawSearchAndInfoPanel(plannerState, contentRect, fontPath, db,
+            DrawSearchAndInfoPanel(plannerState, contentRect, db,
                 siteLat, siteLon, viewingTime, site, ppr, cx, cy);
         }
 
@@ -272,7 +273,7 @@ namespace TianWen.UI.Abstractions
         /// placement, both shared with the FITS viewer.
         /// </summary>
         protected virtual void RenderObjectOverlay(
-            ICelestialObjectDB db, RectF32 contentRect, string fontPath,
+            ICelestialObjectDB db, RectF32 contentRect,
             float baseFontSize, SiteContext site, bool dimBelowHorizon, PlannerState plannerState,
             bool showAllOverlays)
         {
@@ -285,7 +286,7 @@ namespace TianWen.UI.Abstractions
         /// software / TUI fallback does not render shape markers.
         /// </summary>
         protected virtual void RenderScheduleTargets(
-            RectF32 contentRect, string fontPath, float baseFontSize,
+            RectF32 contentRect, float baseFontSize,
             double ppr, float cx, float cy, SiteContext site, bool dimBelowHorizon)
         {
         }
@@ -308,7 +309,7 @@ namespace TianWen.UI.Abstractions
         /// </summary>
         protected virtual void RenderMountOverlay(
             SkyMapMountOverlay mountOverlay, RectF32 contentRect,
-            string fontPath, float baseFontSize, double ppr, float cx, float cy)
+            float baseFontSize, double ppr, float cx, float cy)
         {
         }
 
@@ -321,7 +322,7 @@ namespace TianWen.UI.Abstractions
         /// Base implementation is a no-op.
         /// </summary>
         protected virtual void RenderFixedPointMarkers(
-            RectF32 contentRect, string fontPath, float baseFontSize,
+            RectF32 contentRect, float baseFontSize,
             double ppr, float cx, float cy, SiteContext site)
         {
         }
@@ -331,7 +332,7 @@ namespace TianWen.UI.Abstractions
         /// Base implementation fills background only.
         /// </summary>
         protected virtual void RenderSkyMap(
-            ICelestialObjectDB db, RectF32 contentRect, string fontPath,
+            ICelestialObjectDB db, RectF32 contentRect,
             DateTimeOffset viewingTime, double siteLat, double siteLon, SiteContext site)
         {
             double sunAltDeg = State.GetSunAltitudeDegCached(viewingTime, siteLat, siteLon);
@@ -345,8 +346,9 @@ namespace TianWen.UI.Abstractions
         /// Place grid labels where grid lines intersect the viewport edges,
         /// matching the FITS viewer WCS overlay approach.
         /// </summary>
-        private void DrawGridLabels(RectF32 rect, string fontPath, float fontSize, double ppr, float cx, float cy)
+        private void DrawGridLabels(RectF32 rect, float fontSize, double ppr, float cx, float cy)
         {
+            var fontPath = FontPath;
             var fov = State.FieldOfViewDeg;
             var viewMatrix = State.CurrentViewMatrix;
 
@@ -534,9 +536,10 @@ namespace TianWen.UI.Abstractions
             return result;
         }
 
-        private void DrawConstellationNames(RectF32 rect, string fontPath, float fontSize, double ppr, float cx, float cy,
+        private void DrawConstellationNames(RectF32 rect, float fontSize, double ppr, float cx, float cy,
             SiteContext site, bool dimBelowHorizon)
         {
+            var fontPath = FontPath;
             var fov = State.FieldOfViewDeg;
             var viewMatrix = State.CurrentViewMatrix;
 
@@ -550,7 +553,7 @@ namespace TianWen.UI.Abstractions
 
             if (!cacheHit)
             {
-                RebuildConstellationNamesCache(rect, fontPath, fontSize, ppr, cx, cy);
+                RebuildConstellationNamesCache(rect, fontSize, ppr, cx, cy);
                 _constellNamesViewKey = viewMatrix;
                 _constellNamesFovKey = fov;
                 _constellNamesRectXKey = rect.X;
@@ -569,8 +572,9 @@ namespace TianWen.UI.Abstractions
             }
         }
 
-        private void RebuildConstellationNamesCache(RectF32 rect, string fontPath, float fontSize, double ppr, float cx, float cy)
+        private void RebuildConstellationNamesCache(RectF32 rect, float fontSize, double ppr, float cx, float cy)
         {
+            var fontPath = FontPath;
             _constellNamesCache.Clear();
             foreach (var (_, avgRA, avgDec, name) in GetConstellationCentroids())
             {
@@ -587,9 +591,10 @@ namespace TianWen.UI.Abstractions
 
         private void DrawPlanetLabels(
             ICelestialObjectDB db, DateTimeOffset viewingTime, double siteLat, double siteLon,
-            RectF32 rect, string fontPath, float fontSize, double ppr, float cx, float cy,
+            RectF32 rect, float fontSize, double ppr, float cx, float cy,
             SiteContext site, bool dimBelowHorizon)
         {
+            var fontPath = FontPath;
 
             foreach (var (planetIdx, ra, dec) in State.GetPlanetPositionsCached(viewingTime))
             {
@@ -640,9 +645,10 @@ namespace TianWen.UI.Abstractions
         /// (routing through the same <see cref="SkyMapClickSelectSignal"/> resolver the planet labels use).
         /// </summary>
         private void DrawCometLabels(
-            DateTimeOffset viewingTime, RectF32 rect, string fontPath, float fontSize,
+            DateTimeOffset viewingTime, RectF32 rect, float fontSize,
             double ppr, float cx, float cy, SiteContext site, bool dimBelowHorizon)
         {
+            var fontPath = FontPath;
             var comets = _plannerState?.Comets;
             if (comets is null)
             {
@@ -722,10 +728,11 @@ namespace TianWen.UI.Abstractions
 
         private static readonly RGBAColor32 TimeShiftColor = new(0x88, 0xCC, 0xFF, 0xFF);
 
-        private void DrawInfoStrip(RectF32 rect, string fontPath, float fontSize,
+        private void DrawInfoStrip(RectF32 rect, float fontSize,
             float cx, float cy, DateTimeOffset viewingTime, TimeSpan siteTimeZone, bool isTimeShifted)
         {
             var dpiScale = DpiScale;
+            var fontPath = FontPath;
             var stripH = 24f * dpiScale;
             var stripY = rect.Y + rect.Height - stripH;
             FillRect(rect.X, stripY, rect.Width, stripH, InfoPanelBg);

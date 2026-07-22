@@ -24,10 +24,11 @@ namespace TianWen.UI.Abstractions
         /// changes round-trip to the live stack. <paramref name="focuser"/> is the active OTA's focuser
         /// telemetry (<see cref="PreviewOTATelemetry.Unknown"/> when none), driving the panel's focuser
         /// readout + jog row -- the jog buttons post the same <c>JogFocuserSignal</c> the Live Session OTA
-        /// panel uses (one focuser-control path, shared via the signal).
+        /// panel uses (one focuser-control path, shared via the signal). Font comes from the implementer's
+        /// own inherited <c>FontPath</c> (host-set), not a parameter.
         /// </summary>
         void RenderPlanetary(PlanetaryCaptureController? controller, PreviewOTATelemetry focuser,
-            RectF32 contentRect, string fontPath);
+            RectF32 contentRect);
 
         /// <summary>Forwards a raw input event to the view's own hit dispatch (toolbar / sliders / strip).</summary>
         bool HandleInput(InputEvent evt);

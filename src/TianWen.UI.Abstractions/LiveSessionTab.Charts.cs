@@ -103,8 +103,9 @@ namespace TianWen.UI.Abstractions
         private void RenderVCurveChart(
             ImmutableArray<(int Position, float Hfd)> samples,
             FocusRunRecord? completedRun,
-            RectF32 rect, string fontPath, float fontSize)
+            RectF32 rect, float fontSize)
         {
+            var fontPath = FontPath;
             var dpiScale = DpiScale;
             FillRect(rect.X, rect.Y, rect.Width, rect.Height, GraphBg);
 
