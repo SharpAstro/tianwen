@@ -14,20 +14,27 @@ input + suggestion-list + key-nav + commit machinery around `TextInputState`.
 the P2 release -- 6.15 is frozen (primitives + fits-again re-pin) and tianwen is already stacked on
 it. Each U-phase below is independently shippable.
 
-## U1 -- `TrackSlider` -> DIR.Lib
+## U1 -- `TrackSlider` -> DIR.Lib  **(DONE in branch, rides 6.16)**
 
-`ImageRendererBase.TrackSlider.cs` is ~50 lines with zero domain dependencies: `DrawTrackSlider`
-uses `FillRect`/`RegisterClickable`/`DpiScale` (all `PixelWidgetBase` members) + `RectF32`/
-`RGBAColor32`/`HitResult` (all DIR.Lib); `TrackFrac` is pure math. Only the `TransportTrackBg`/
-`TransportHandle` chrome colours are tianwen's.
+`ImageRendererBase.TrackSlider.cs` was ~50 lines with zero domain dependencies: `DrawTrackSlider`
+uses `FillRect`/`RegisterClickable` (`PixelWidgetBase` members) + `RectF32`/`RGBAColor32`/`HitResult`
+(all DIR.Lib); `TrackFrac` is pure math. Only the `TransportTrackBg`/`TransportHandle` chrome colours
+were tianwen's.
 
-- Move both methods onto `PixelWidgetBase<TSurface>` as `protected` helpers; the track + handle
-  colours become parameters with the current values as defaults (or a small `TrackSliderChrome`
-  record). `TrackFrac` becomes `protected static`.
-- tianwen: delete `ImageRendererBase.TrackSlider.cs`, pass its chrome at the three call sites
-  (WB / wavelet / scrub). Zero behaviour change; pixel-identical.
-- Tests: the slider maths gets DIR.Lib headless tests (fraction clamp, sliver-track handle clamp --
-  the minimize-to-sliver crash guard).
+- **DONE (2026-07-22):** both methods moved onto `PixelWidgetBase<TSurface>` as `protected` helpers.
+  The track + handle colours arrive as a `TrackSliderChrome` record (a new top-level DIR.Lib type);
+  `dpiScale` is now an **explicit param** (the plan assumed `DpiScale` was a base member -- it is a
+  tianwen `ImageRendererBase` property, so the generic control cannot read it). `TrackFrac` is
+  `protected static`.
+- tianwen: deleted `ImageRendererBase.TrackSlider.cs`; the three call sites (WB / wavelet / scrub)
+  pass a shared static `TrackChrome` (`TransportTrackBg`, `TransportHandle`) + `DpiScale`.
+  Pixel-identical; zero behaviour change; build 0/0.
+- Two overloads: the full one takes an explicit `barCenterY` (the scrub bar centres on the tall strip
+  while its handle spans the shorter button band); a convenience overload derives
+  `barCenterY = handleY + handleH/2` (bar centred in the handle -- the WB/wavelet case), so those call
+  sites pass the handle band once instead of repeating `FontSize` as both `handleH` and `barCenterY`.
+- Tests: DIR.Lib headless tests for the slider maths (fraction clamp, sliver-track handle clamp --
+  the minimize-to-sliver crash guard) still **TODO** on promotion.
 
 ## U2 -- `SearchInteraction` base -> DIR.Lib, tianwen searches become subclasses
 
