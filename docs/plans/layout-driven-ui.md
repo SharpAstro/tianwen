@@ -185,18 +185,26 @@ rect the layout tree already arranged, they are not chrome.
 - `ImageRendererBase.Histogram.cs`, `.Overlays.cs` (grid / star / WCS on the image), `SkyMapTab.cs` +
   `SkyMapTab.ObjectOverlay.cs` (star/line/marker render) -- the image + sky-map scene.
 
-**Bucket 2 -- interactive controls that intentionally stay pixel (per-element rect coupling):** `.Bg`
-is set at tree-build time (pre-arrange), so a control whose look/behaviour needs its OWN arranged rect
-resists the DSL. Pairs with `docs/plans/controls-upstreaming.md` U1 (TrackSlider) / U2 (Search).
-- `ImageRendererBase.Toolbar.cs` (6 FillRect) -- viewer toolbar buttons (hover from mouseXY-vs-rect +
-  `_toolbarButtonBounds` dropdown anchors + separate `HitTestToolbar`).
-- `ImageRendererBase.TrackSlider.cs` (3) -- WB / wavelet / transport drag sliders (capture a hit-band
-  the drag reads back).
-- `ImageRendererBase.Transport.cs` (3) -- SER scrub. `ImageRendererBase.FileList.cs` -- file-list rows
-  (on `ListScrollController`, drawn into row rects).
-- `RenderButton(...)` is itself a direct-draw helper (FillRect + DrawText + register-click), still used
-  for ~10 individual buttons (device-list Connect/Disconnect, strips ABORT, a few in Planner / SkyMap /
-  Flats). Converting these to `Text.Bg.Clickable` nodes is cosmetic-only; low priority.
+**Bucket 2 -- interactive controls (per-element rect coupling).** `.Bg` is set at tree-build time
+(pre-arrange), so a control whose look/behaviour needs its OWN arranged rect resists the DSL. Pairs with
+`docs/plans/controls-upstreaming.md`. Status after the 2026-07-22 pass:
+- **DONE (U1)** `ImageRendererBase.TrackSlider.cs` -- `DrawTrackSlider` + `TrackFrac` PROMOTED to DIR.Lib
+  `PixelWidgetBase` (chrome via `TrackSliderChrome`, `dpiScale` param, a bar-centred-in-handle convenience
+  overload). The tianwen partial is deleted; WB / wavelet / scrub call the base helper. Pixel-identical.
+- **DONE** `RenderButton(...)` sweep -- it is just FillRect + DrawText + register-click (no hover), so a
+  `Text.Bg.Clickable` node is lossless. Converted the preview mini-toolbar (`x +=` cursor -> HStack), the
+  session-prompt Cancel/Continue, and the flats Cancel. Only the **deferred** `EquipmentTab.DeviceList.cs`
+  Discover / AddManualCover buttons remain (that row body is deferred by design).
+- **STAYS (control internals, DoD-accepted):** `ImageRendererBase.Toolbar.cs` (viewer toolbar -- hover
+  from mouseXY-vs-rect + `_toolbarButtonBounds` dropdown anchors + separate `HitTestToolbar`),
+  `ImageRendererBase.FileList.cs` (file-list rows on `ListScrollController`), the SER transport
+  play/step buttons, and `ListScrollController.DrawScrollBar` (already a DIR.Lib control). These draw
+  into their own arranged/managed rects by design; the DoD explicitly allows control internals.
+- **U2 (Search -> DIR.Lib) -- scoped follow-on, NOT done.** A large LAYERING refactor (abstract
+  `SearchInteraction<TResult>` + planner/skymap subclasses; domain resolve threaded through the ~789-line
+  `SkyMapSearchActions` + ~990-line `SkyMapState`). The searches WORK today -- this only moves generic
+  interaction state into DIR.Lib -- so it is deferred to its own focused session with before/after search
+  tests, not rushed into this pass.
 
 **Bucket 3 -- convertible chrome. The whole LiveSession family + SessionTab are now DONE (2026-07-22);
 what remains is SkyMap/Planner/Equipment chrome.**
@@ -239,10 +247,12 @@ what remains is SkyMap/Planner/Equipment chrome.**
 **New reusable control:** `FormRowLayout.ProgressBar(fraction, track, fill, label?)` -- declarative
 fractional bar (Box + Overlay + Star-weighted fill + optional centred label), pinned by
 `ProgressBarLayoutTests` (7). Replaced the hand-drawn two-`FillRect` gauges in the preview capture bar +
-the running exposure bar. Bucket 2's remaining genuinely-pixel controls (viewer Toolbar hover, the
-`TrackSlider` drag family, the SER Transport scrub) are the DIR.Lib-upstreaming items (U1) in
-`controls-upstreaming.md`, not tianwen chrome; the standalone `RenderButton` sites converted opportunistically
-(ABORT, Start Session) as their panels were rewritten.
+the running exposure bar. Bucket 2 (2026-07-22): the `TrackSlider` drag family is now PROMOTED to
+DIR.Lib (U1); the SER Transport scrub rides it; the standalone `RenderButton` sites are converted to
+`Text.Bg.Clickable` nodes (lossless -- RenderButton has no hover) except the deferred device-list row.
+What legitimately stays pixel is the control-internal set (viewer Toolbar hover + dropdown anchors,
+FileList rows, transport play/step buttons, scrollbar) -- the DoD explicitly allows these. The one
+open item is U2 (Search -> DIR.Lib), a scoped layering follow-on in `controls-upstreaming.md`.
 
 ## Definition of done
 
