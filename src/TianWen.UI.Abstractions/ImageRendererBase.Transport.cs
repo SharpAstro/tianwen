@@ -116,7 +116,7 @@ namespace TianWen.UI.Abstractions
             // strip; the handle spans the button-height content band.
             _scrubTrackRect = new RectF32(trackX, btnY, trackW, contentH);
             DrawTrackSlider(trackX, trackW, r.Y + r.Height / 2f, btnY, contentH, frac,
-                TransportTrackFill, _scrubTrackRect, new TransportScrubHit());
+                TransportTrackFill, _scrubTrackRect, new TransportScrubHit(), TrackChrome, DpiScale);
         }
 
         /// <summary>

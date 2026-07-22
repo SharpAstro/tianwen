@@ -228,6 +228,9 @@ namespace TianWen.UI.Abstractions
         private static readonly RGBAColor32 TransportTrackBg = RGBAColor32.FromFloat(0.30f, 0.30f, 0.34f, 1f);
         private static readonly RGBAColor32 TransportTrackFill = RGBAColor32.FromFloat(0.30f, 0.50f, 0.80f, 1f);
         private static readonly RGBAColor32 TransportHandle = RGBAColor32.FromFloat(0.85f, 0.85f, 0.90f, 1f);
+        // Shared chrome for every track slider (WB / wavelet / scrub) -- identical at all call sites; the
+        // DrawTrackSlider control lives in DIR.Lib PixelWidgetBase and takes these two colours as a param.
+        private static readonly TrackSliderChrome TrackChrome = new TrackSliderChrome(TransportTrackBg, TransportHandle);
 
         // Histogram LOG-scale toggle button: log-on (blue) and log-off (grey) families,
         // each with a hover-brightened variant. Alpha 0.9 (the histogram is an overlay).

@@ -204,8 +204,8 @@ namespace TianWen.UI.Abstractions
                     // bar centres on the row; the handle is one font-line tall at the row top.
                     var hitBand = new RectF32(trackX, rowY - gap / 2f, trackW, FontSize + gap);
                     _wbTrackRects[ch] = hitBand;
-                    DrawTrackSlider(trackX, trackW, rowY + FontSize / 2f, rowY, FontSize, frac,
-                        fill, hitBand, new WhiteBalanceSliderHit(ch));
+                    DrawTrackSlider(trackX, trackW, rowY, FontSize, frac,
+                        fill, hitBand, new WhiteBalanceSliderHit(ch), TrackChrome, DpiScale);
                 }
                 else
                 {
@@ -360,8 +360,8 @@ namespace TianWen.UI.Abstractions
                     var frac = Math.Clamp(gains[b] / WaveletGainMax, 0f, 1f);
                     var hitBand = new RectF32(trackX, rowY - gap / 2f, trackW, FontSize + gap);
                     _waveletTrackRects[b] = hitBand;
-                    DrawTrackSlider(trackX, trackW, rowY + FontSize / 2f, rowY, FontSize, frac,
-                        fill, hitBand, new WaveletSliderHit(b));
+                    DrawTrackSlider(trackX, trackW, rowY, FontSize, frac,
+                        fill, hitBand, new WaveletSliderHit(b), TrackChrome, DpiScale);
                 }
                 else
                 {
