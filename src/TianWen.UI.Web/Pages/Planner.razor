@@ -954,7 +954,7 @@
             ref readonly var r = ref regions[i];
             var run = new OverlayTextRun(
                 r.X / dpr, r.Y / dpr, r.Width / dpr, r.Height / dpr,
-                r.Text, r.FontSize / dpr, r.Color, r.HorizontalAlign, r.VerticalAlign);
+                r.Text, r.FontSize / dpr, r.Color, r.HorizontalAlign, r.VerticalAlign, r.Href);
             if (!changed && run != _textRuns[i]) changed = true;
             _textRunsScratch.Add(run);
         }

@@ -153,6 +153,21 @@ bus.Subscribe<DeactivateTextInputSignal>(_ =>
         appState.NeedsRedraw = true;
     }
 });
+// Open an external URL in the OS default browser (planner details -> Wikipedia link). Host-level +
+// desktop-only on purpose: UseShellExecute routes a URL through the shell (ShellExecute on Windows,
+// xdg-open/open on Linux/macOS), which the WASM-shared abstraction layer cannot do. Best-effort.
+bus.Subscribe<OpenUrlSignal>(sig =>
+{
+    try
+    {
+        using var _ = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(sig.Url) { UseShellExecute = true });
+    }
+    catch (Exception ex)
+    {
+        logger.LogWarning(ex, "Failed to open URL {Url}", sig.Url);
+    }
+});
+
 // BuildScheduleSignal is now handled inside AppSignalHandler — no host-level subscription needed
 
 // Load saved session configuration + initialize planner (shared logic in AppSignalHandler)
@@ -236,10 +251,23 @@ var loop = new SdlEventLoop(sdlWindow, renderer)
     // on MouseUp (the previous hand-wired OnMouseUp reconstructed them from a cached position —
     // without them the click-vs-drag detection in SkyMapTab compared (0, 0) to the real mouse-down
     // position). Presses route left-button only, as before; everything else flows through.
-    OnPointerInput = evt => evt switch
+    OnPointerInput = evt =>
     {
-        InputEvent.MouseDown { Button: not MouseButton.Left } => true,
-        _ => handlers.HandleInput(evt),
+        // Hand cursor over a hyperlink (planner details -> Wikipedia). Non-dispatching HitTest against
+        // the last frame's regions (active tab, then chrome) so hover never fires a click handler. Cheap
+        // and idempotent -- SetSystemCursor no-ops when the cursor is unchanged, so this is safe per move.
+        if (evt is InputEvent.MouseMove(var mx, var my))
+        {
+            var overLink = guiRenderer.ActiveTab?.HitTest(mx, my) is HitResult.LinkHit
+                || guiRenderer.HitTest(mx, my) is HitResult.LinkHit;
+            sdlWindow.SetSystemCursor(overLink ? SystemCursor.Pointer : SystemCursor.Default);
+        }
+
+        return evt switch
+        {
+            InputEvent.MouseDown { Button: not MouseButton.Left } => true,
+            _ => handlers.HandleInput(evt),
+        };
     },
 
     OnPinch = (scale, mx, my, source) =>

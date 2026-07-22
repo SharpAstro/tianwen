@@ -65,6 +65,13 @@ public readonly record struct BuildScheduleSignal;
 /// <summary>Toggle fullscreen mode.</summary>
 public readonly record struct ToggleFullscreenSignal;
 
+/// <summary>
+/// Open an external URL in the user's default browser. Posted by desktop (SDL/Vulkan) hosts, which have
+/// no DOM and handle it through the OS shell; the web host renders links as real &lt;a&gt; elements and
+/// never posts this. A host with no subscriber simply drops it (no-op), so it is safe to post anywhere.
+/// </summary>
+public readonly record struct OpenUrlSignal(string Url);
+
 /// <summary>Request plate solving the current image.</summary>
 public readonly record struct PlateSolveSignal;
 

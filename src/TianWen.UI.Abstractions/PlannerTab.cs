@@ -521,6 +521,11 @@ namespace TianWen.UI.Abstractions
 
             var lineH = rect.Height / lines.Count;
 
+            // The name line links to the object's Wikipedia article (built from its MAIN catalog
+            // designation). Web-only affordance: the DOM text layer renders it as a real <a href>; the
+            // desktop raster path ignores the href and draws the name as before. Null for bare positions.
+            var nameHref = PlannerDetails.GetWikipediaUrl(state, _lastFilteredTargets);
+
             for (var i = 0; i < lines.Count; i++)
             {
                 var line = lines[i];
@@ -536,10 +541,23 @@ namespace TianWen.UI.Abstractions
 
                 // Selectable: these are the stable, copy-worthy detail lines (designations, coords,
                 // photometry). Rasters exactly like DrawText on desktop; on the web a DOM text layer
-                // renders them as real selectable text instead (Renderer.HostRendersSelectableText).
+                // renders them as real selectable text instead (Renderer.HostRendersSelectableText). The
+                // name line additionally carries the Wikipedia href -> a real <a> on the web host.
                 DrawSelectableText(line, fontPath,
                     rect.X + padding, y, rect.Width - padding * 2f, lineH,
-                    fs, color, TextAlign.Near, TextAlign.Center);
+                    fs, color, TextAlign.Near, TextAlign.Center,
+                    i == 0 ? nameHref : null);
+
+                // Desktop realization of the same link: register the name as a LinkHit region. The host
+                // owns what a link does -- the SDL/Vulkan chrome opens the OS browser on click and shows a
+                // pointer cursor on hover; on the web the DOM <a> sits on top and intercepts the click, so
+                // this canvas region never dispatches there (no double open). No per-region OnClick: the
+                // host's central dispatch maps LinkHit uniformly, so every link behaves the same.
+                if (i == 0 && nameHref is { } href)
+                {
+                    RegisterClickable(rect.X + padding, y, rect.Width - padding * 2f, lineH,
+                        new HitResult.LinkHit(href));
+                }
             }
         }
 

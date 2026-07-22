@@ -107,4 +107,36 @@ public class PlannerDetailsTests
         var one = PlannerDetails.GetLines(state, [Scored(target, obj.ObjectType)], maxLines: 1);
         one.ShouldBe([obj.DisplayName]);
     }
+
+    [Fact]
+    public async Task GivenCataloguedTargetWhenGetWikipediaUrlThenLinksMainCatalogName()
+    {
+        var db = await SharedCatalogDB.InitAsync(TestContext.Current.CancellationToken);
+        db.TryLookupByIndex("M31", out var obj).ShouldBeTrue();
+
+        var target = new Target(obj.RA, obj.Dec, obj.DisplayName, obj.Index);
+        var scored = Scored(target, obj.ObjectType);
+
+        var url = PlannerDetails.GetWikipediaUrl(BuildState(scored, db), [scored]);
+
+        // The link points at en.wikipedia.org and uses the MAIN catalog designation, NOT the display
+        // name: decoding the path (and '_' -> ' ') must reproduce Index.ToCanonical(). No raw spaces.
+        url.ShouldNotBeNull();
+        url.ShouldStartWith("https://en.wikipedia.org/wiki/");
+        url.ShouldNotContain(" ");
+        var slug = url["https://en.wikipedia.org/wiki/".Length..];
+        Uri.UnescapeDataString(slug).Replace('_', ' ').ShouldBe(obj.Index.ToCanonical());
+    }
+
+    [Fact]
+    public void GivenNoCatalogIndexOrNoSelectionWhenGetWikipediaUrlThenNull()
+    {
+        // Bare position (no catalog index) -> nothing to link.
+        var bare = new Target(1.23, 45.6, "Custom position", null);
+        var scored = Scored(bare);
+        PlannerDetails.GetWikipediaUrl(BuildState(scored, db: null), [scored]).ShouldBeNull();
+
+        // Selection out of range (empty filtered list) -> null.
+        PlannerDetails.GetWikipediaUrl(BuildState(scored, db: null), []).ShouldBeNull();
+    }
 }
