@@ -334,85 +334,84 @@ namespace TianWen.UI.Abstractions
                     fontPath, fontSize, dpiScale);
             }
 
-            // Action buttons along the bottom of the panel.
-            // Copy the in-parameter fields into locals so the click lambda can capture
-            // them (can't close over 'in' parameters directly).
+            // Action buttons along the bottom of the panel, as ONE right-aligned HStack tree (was a
+            // per-button `x -= btnW + gap` right-to-left cursor). Leading Star spacer pushes the row
+            // right; a trailing fixed spacer holds the 10px right margin; buttons are Clickable Text
+            // nodes (draw == hit). Widths/gaps are DESIGN units (RenderLayout re-applies dpiScale).
+            // Copy the in-parameter fields into locals so the click lambdas can capture them (can't
+            // close over 'in' parameters directly).
             var pinName = info.Name;
             var pinRA = info.RA;
             var pinDec = info.Dec;
             var pinIndex = info.Index;
             var pinType = info.ObjType;
             var isPinned = pinIndex is { } catIdx && IsPinned(plannerState, catIdx);
-            var btnW = 90f * dpiScale;
             var btnH = 24f * dpiScale;
             var btnY = py + ph - btnH - 8f * dpiScale;
 
+            Layout.Node buttonRow;
             if (info.IsMount)
             {
-                // Mount entry: the one meaningful action is Solve & Sync (a goto to
-                // the mount's own reported position is a no-op, and pinning it makes
-                // no sense). The handler is the source of truth for the session /
-                // camera / CanSync gates. While a solve is in flight the button shows
-                // "Solving ..." (dimmed, no click handler) so it reads as busy and can't
-                // be re-triggered mid-solve.
+                // Mount entry: the one meaningful action is Solve & Sync (a goto to the mount's own
+                // reported position is a no-op, and pinning it makes no sense). The handler is the
+                // source of truth for the session / camera / CanSync gates. While a solve is in flight
+                // the button shows "Solving ..." (dimmed, no click handler) so it reads as busy and
+                // can't be re-triggered mid-solve.
                 var solving = State.SolveSyncInProgress;
-                var ssBtnW = 110f * dpiScale;
-                var ssBtnX = px + pw - ssBtnW - 10f * dpiScale;
-                Action<InputModifier>? ssOnClick = null;
+                var ssNode = Layout.Builder.Text(solving ? "Solving ..." : "Solve & Sync", dFont, SearchText,
+                        TextAlign.Center, TextAlign.Center)
+                    .WFixed(110f).HStar().Bg(solving ? GotoDisabledBg : GotoButtonBg);
                 if (!solving)
                 {
-                    ssOnClick = _ => PostSignal(new SkyMapSolveSyncSignal());
+                    ssNode = ssNode.Clickable(new HitResult.ButtonHit("SkyMapSolveSync"),
+                        _ => PostSignal(new SkyMapSolveSyncSignal()));
                 }
-                RenderButton(
-                    solving ? "Solving ..." : "Solve & Sync",
-                    ssBtnX, btnY, ssBtnW, btnH, fontPath, fontSize,
-                    solving ? GotoDisabledBg : GotoButtonBg,
-                    SearchText,
-                    "SkyMapSolveSync",
-                    ssOnClick);
+                buttonRow = Layout.Builder.HStack(
+                    Layout.Builder.Spacer().WStar(),
+                    ssNode,
+                    Layout.Builder.Spacer().WFixed(10f).HStar());
             }
             else
             {
-                // Pin / Unpin (right edge).
-                var pinBtnX = px + pw - btnW - 10f * dpiScale;
-                RenderButton(
-                    isPinned ? "Unpin" : "Pin",
-                    pinBtnX, btnY, btnW, btnH, fontPath, fontSize,
-                    isPinned ? UnpinButtonBg : PinButtonBg,
-                    SearchText,
-                    "SkyMapPinToggle",
-                    _ => PostSignal(new SkyMapPinObjectSignal(
-                        pinName, pinRA, pinDec, pinIndex, pinType)));
-
-                // View-in-Planner (left of the Pin button). Jumps to the planner tab
-                // with this target scored, selected, and scrolled into view. Wider than
-                // the short Goto / Pin buttons so the longer label doesn't clip.
-                var viewBtnW = 116f * dpiScale;
-                var viewBtnX = pinBtnX - viewBtnW - 8f * dpiScale;
-                RenderButton(
-                    "View in Planner",
-                    viewBtnX, btnY, viewBtnW, btnH, fontPath, fontSize * 0.9f,
-                    ViewButtonBg,
-                    SearchText,
-                    "SkyMapViewInPlanner",
-                    _ => PostSignal(new ViewInPlannerSignal(
-                        pinName, pinRA, pinDec, pinIndex, pinType)));
-
-                // Goto (left of View-in-Planner). Slews the connected mount to the
-                // object. Grayed when the target never rises from the current site;
-                // the handler is still the source of truth for the actual horizon /
-                // connection gate.
-                var gotoBtnX = viewBtnX - btnW - 8f * dpiScale;
+                // Goto (leftmost). Slews the connected mount to the object. Grayed when the target
+                // never rises from the current site; the handler is still the source of truth for the
+                // actual horizon / connection gate.
                 var canGoto = !info.NeverRises;
-                RenderButton(
-                    "Goto",
-                    gotoBtnX, btnY, btnW, btnH, fontPath, fontSize,
-                    canGoto ? GotoButtonBg : GotoDisabledBg,
-                    SearchText,
-                    "SkyMapGoto",
-                    _ => PostSignal(new SkyMapSlewToObjectSignal(
-                        pinName, pinRA, pinDec, pinIndex, pinType)));
+                var gotoNode = Layout.Builder.Text("Goto", dFont, SearchText, TextAlign.Center, TextAlign.Center)
+                    .WFixed(90f).HStar().Bg(canGoto ? GotoButtonBg : GotoDisabledBg);
+                if (canGoto)
+                {
+                    gotoNode = gotoNode.Clickable(new HitResult.ButtonHit("SkyMapGoto"),
+                        _ => PostSignal(new SkyMapSlewToObjectSignal(pinName, pinRA, pinDec, pinIndex, pinType)));
+                }
+
+                // View-in-Planner (middle). Jumps to the planner tab with this target scored, selected,
+                // and scrolled into view. Wider than the short Goto / Pin buttons so the longer label
+                // doesn't clip (and a smaller font).
+                var viewNode = Layout.Builder.Text("View in Planner", dFont * 0.9f, SearchText,
+                        TextAlign.Center, TextAlign.Center)
+                    .WFixed(116f).HStar().Bg(ViewButtonBg)
+                    .Clickable(new HitResult.ButtonHit("SkyMapViewInPlanner"),
+                        _ => PostSignal(new ViewInPlannerSignal(pinName, pinRA, pinDec, pinIndex, pinType)));
+
+                // Pin / Unpin (right edge).
+                var pinNode = Layout.Builder.Text(isPinned ? "Unpin" : "Pin", dFont, SearchText,
+                        TextAlign.Center, TextAlign.Center)
+                    .WFixed(90f).HStar().Bg(isPinned ? UnpinButtonBg : PinButtonBg)
+                    .Clickable(new HitResult.ButtonHit("SkyMapPinToggle"),
+                        _ => PostSignal(new SkyMapPinObjectSignal(pinName, pinRA, pinDec, pinIndex, pinType)));
+
+                buttonRow = Layout.Builder.HStack(
+                    Layout.Builder.Spacer().WStar(),
+                    gotoNode,
+                    Layout.Builder.Spacer().WFixed(8f).HStar(),
+                    viewNode,
+                    Layout.Builder.Spacer().WFixed(8f).HStar(),
+                    pinNode,
+                    Layout.Builder.Spacer().WFixed(10f).HStar());
             }
+
+            RenderLayout(buttonRow, new RectF32(px, btnY, pw, btnH), fontPath, dpiScale);
 
             // Close button -- top-right of the info panel. Draw==hit Text leaf so the
             // glyph box and the click surface are the same arranged rect.
