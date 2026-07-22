@@ -27,8 +27,9 @@ namespace TianWen.UI.Abstractions
         /// painter stashes its arranged rect so the name dropdown anchors from the real layout position.
         /// </summary>
         private Layout.Node BuildFilterTable(
-            GuiAppState appState, int otaIndex, ProfileData pd, float dpiScale, string fontPath)
+            GuiAppState appState, int otaIndex, ProfileData pd, string fontPath)
         {
+            var dpiScale = DpiScale;
             var savedFilters = EquipmentActions.GetFilterConfig(pd, otaIndex);
             var isExpanded = State.ExpandedFilterOtaIndex == otaIndex;
             var fontSize = BaseFontSize * dpiScale;

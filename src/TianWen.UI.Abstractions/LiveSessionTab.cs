@@ -138,13 +138,13 @@ namespace TianWen.UI.Abstractions
         public void Render(
             LiveSessionState state,
             RectF32 contentRect,
-            float dpiScale,
             string fontPath,
             ITimeProvider timeProvider)
         {
             State = state;
             BeginFrame();
 
+            var dpiScale = DpiScale;
             var fs = BaseFontSize * dpiScale;
             var topH = BaseTopStripHeight * dpiScale;
             var timelineH = BaseTimelineHeight * dpiScale;
@@ -158,7 +158,7 @@ namespace TianWen.UI.Abstractions
 
             // Top strip: phase pill + activity + clock
             var topRect = new RectF32(contentRect.X, contentRect.Y, contentRect.Width, topH);
-            RenderTopStrip(state, topRect, fontPath, fs, dpiScale, timeProvider);
+            RenderTopStrip(state, topRect, fontPath, fs, timeProvider);
 
             // Planetary mode: the full image viewer + capture strip own everything below the top strip and
             // reuse the focuser/mount controls via signals -- the session timeline / OTA / exposure-log panels
@@ -175,7 +175,7 @@ namespace TianWen.UI.Abstractions
                     var focuser = state.PreviewOTATelemetry.Length > 0
                         ? state.PreviewOTATelemetry[0]
                         : PreviewOTATelemetry.Unknown;
-                    planetaryView.RenderPlanetary(PlanetaryCapture, focuser, planetaryRect, dpiScale, fontPath);
+                    planetaryView.RenderPlanetary(PlanetaryCapture, focuser, planetaryRect, fontPath);
                 }
                 else
                 {
@@ -200,18 +200,18 @@ namespace TianWen.UI.Abstractions
                 // path doesn't swallow it (future dark-frame flows).
                 if (state.PendingPrompt is { } planetaryPrompt)
                 {
-                    RenderSessionPrompt(contentRect, planetaryPrompt, fontPath, fs, dpiScale);
+                    RenderSessionPrompt(contentRect, planetaryPrompt, fontPath, fs);
                 }
                 return;
             }
 
             // Timeline: phase bars + observation segments + now needle
             var timelineRect = new RectF32(contentRect.X, contentRect.Y + topH, contentRect.Width, timelineH);
-            RenderTimeline(state, timelineRect, fontPath, fs, dpiScale, timeProvider);
+            RenderTimeline(state, timelineRect, fontPath, fs, timeProvider);
 
             // Bottom strip: compact guide graph + RMS + ABORT
             var botRect = new RectF32(contentRect.X, contentRect.Y + contentRect.Height - botH, contentRect.Width, botH);
-            RenderBottomStrip(state, botRect, fontPath, dpiScale);
+            RenderBottomStrip(state, botRect, fontPath);
 
             // Main area between timeline and bottom strip
             var mainY = contentRect.Y + topH + timelineH;
@@ -338,14 +338,14 @@ namespace TianWen.UI.Abstractions
 
             // Left: per-OTA panels (paints over viewer overflow on the left)
             var otaRect = new RectF32(contentRect.X, mainY, otaTotalW, mainH);
-            RenderOTAPanels(state, otaRect, fontPath, fs, dpiScale, pad, rowH, timeProvider);
+            RenderOTAPanels(state, otaRect, fontPath, fs, pad, rowH, timeProvider);
 
             // Right: exposure log (paints over viewer overflow on the right)
             var logX = contentRect.X + contentRect.Width - logW;
             if (logW > 0)
             {
                 var rightRect = new RectF32(logX, mainY, logW, mainH);
-                RenderExposureLog(state, rightRect, fontPath, fs, dpiScale, pad, rowH);
+                RenderExposureLog(state, rightRect, fontPath, fs, pad, rowH);
             }
 
             // Preview toolbar (on top of the image, after panels)
@@ -353,13 +353,13 @@ namespace TianWen.UI.Abstractions
             {
                 var toolbarH = BaseRowHeight * dpiScale;
                 var toolbarRect = new RectF32(viewerX, mainY, viewerW, toolbarH);
-                RenderMiniViewerToolbar(_previewState, toolbarRect, fontPath, fs, dpiScale);
+                RenderMiniViewerToolbar(_previewState, toolbarRect, fontPath, fs);
             }
 
             // Abort confirmation overlay
             if (state.ShowAbortConfirm)
             {
-                RenderAbortConfirm(contentRect, fontPath, fs * 1.1f, dpiScale);
+                RenderAbortConfirm(contentRect, fontPath, fs * 1.1f);
             }
 
             // Mode dropdown overlay -- rendered LAST so its hit regions win paint-order
@@ -383,7 +383,7 @@ namespace TianWen.UI.Abstractions
             // buttons win paint-order hit testing over everything below.
             if (state.PendingPrompt is { } pendingPrompt)
             {
-                RenderSessionPrompt(contentRect, pendingPrompt, fontPath, fs, dpiScale);
+                RenderSessionPrompt(contentRect, pendingPrompt, fontPath, fs);
             }
         }
 

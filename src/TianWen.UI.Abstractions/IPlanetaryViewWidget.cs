@@ -27,7 +27,7 @@ namespace TianWen.UI.Abstractions
         /// panel uses (one focuser-control path, shared via the signal).
         /// </summary>
         void RenderPlanetary(PlanetaryCaptureController? controller, PreviewOTATelemetry focuser,
-            RectF32 contentRect, float dpiScale, string fontPath);
+            RectF32 contentRect, string fontPath);
 
         /// <summary>Forwards a raw input event to the view's own hit dispatch (toolbar / sliders / strip).</summary>
         bool HandleInput(InputEvent evt);

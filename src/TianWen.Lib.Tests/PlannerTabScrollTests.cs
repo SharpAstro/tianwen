@@ -61,7 +61,7 @@ namespace TianWen.Lib.Tests
         private static void RenderInto(PlannerTab<RgbaImage> tab, RgbaImageRenderer r, PlannerState state)
         {
             var time = new FakeTimeProviderWrapper(new DateTimeOffset(2025, 12, 15, 22, 0, 0, TimeSpan.Zero));
-            tab.Render(state, new RectF32(0, 0, r.Width, r.Height), 1f, FontResolver.ResolveSystemFont(), time);
+            tab.Render(state, new RectF32(0, 0, r.Width, r.Height), FontResolver.ResolveSystemFont(), time);
         }
 
         // Mirror the GUI/web host: on a press, dispatch registered clickables first; only forward the

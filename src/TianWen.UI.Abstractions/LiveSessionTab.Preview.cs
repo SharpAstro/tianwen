@@ -45,10 +45,11 @@ namespace TianWen.UI.Abstractions
             };
         }
 
-        private void RenderMiniViewerToolbar(ViewerState vs, RectF32 rect, string fontPath, float fontSize, float dpiScale)
+        private void RenderMiniViewerToolbar(ViewerState vs, RectF32 rect, string fontPath, float fontSize)
         {
             FillRect(rect.X, rect.Y, rect.Width, rect.Height, HeaderBg);
 
+            var dpiScale = DpiScale;
             var pad = BasePadding * dpiScale;
             var btnW = 36f * dpiScale;
             var btnFs = fontSize * 0.8f;
@@ -139,7 +140,7 @@ namespace TianWen.UI.Abstractions
         /// Preview mode timeline: twilight bands + now needle.
         /// Shows civil/nautical/astronomical twilight zones so the user knows when dark arrives.
         /// </summary>
-        private void RenderPreviewTimeline(LiveSessionState state, RectF32 rect, string fontPath, float fontSize, float dpiScale, ITimeProvider timeProvider)
+        private void RenderPreviewTimeline(LiveSessionState state, RectF32 rect, string fontPath, float fontSize, ITimeProvider timeProvider)
         {
             if (state.AstroDark == default)
             {
@@ -149,6 +150,7 @@ namespace TianWen.UI.Abstractions
                 return;
             }
 
+            var dpiScale = DpiScale;
             var pad = BasePadding * dpiScale;
             var barH = 24f * dpiScale;
             var now = timeProvider.GetUtcNow();
@@ -251,8 +253,9 @@ namespace TianWen.UI.Abstractions
         /// <see cref="FormRowLayout.ProgressBar"/> node.
         /// </summary>
         private void RenderPreviewOTAPanels(LiveSessionState state, RectF32 rect, string fontPath,
-            float fontSize, float dpiScale, float pad, float rowH, ITimeProvider timeProvider)
+            float fontSize, float pad, float rowH, ITimeProvider timeProvider)
         {
+            var dpiScale = DpiScale;
             var preview = state.PreviewOTATelemetry;
             var otaCount = preview.Length;
             if (otaCount == 0)
@@ -273,7 +276,7 @@ namespace TianWen.UI.Abstractions
                 {
                     columns.Add(Layout.Builder.Spacer().WFixed(1f).HStar().Bg(SeparatorColor));
                 }
-                columns.Add(BuildPreviewOtaColumn(state, i, fontSize, dpiScale, fontPath, timeProvider).WStar());
+                columns.Add(BuildPreviewOtaColumn(state, i, fontSize, fontPath, timeProvider).WStar());
             }
             var columnsRow = Layout.Builder.HStack([.. columns]);
 
@@ -290,7 +293,7 @@ namespace TianWen.UI.Abstractions
             Renderer.PushClip(new RectInt(
                 new PointInt((int)(rect.X + rect.Width), (int)(rect.Y + rect.Height)),
                 new PointInt((int)rect.X, (int)rect.Y)));
-            RenderLayout(tree, rect, fontPath, dpiScale, drawFill: DispatchOtaPanelFill);
+            RenderLayout(tree, rect, fontPath, drawFill: DispatchOtaPanelFill);
             Renderer.PopClip();
         }
 
@@ -300,7 +303,7 @@ namespace TianWen.UI.Abstractions
         /// their own click hits; the goto text-input is a keyed Fill.
         /// </summary>
         private Layout.Node BuildPreviewOtaColumn(LiveSessionState state, int i,
-            float fontSize, float dpiScale, string fontPath, ITimeProvider timeProvider)
+            float fontSize, string fontPath, ITimeProvider timeProvider)
         {
             var tel = state.PreviewOTATelemetry[i];
             var smallFs = fontSize * 0.85f;
@@ -401,7 +404,7 @@ namespace TianWen.UI.Abstractions
 
             // Capture controls
             rows.Add(Layout.Builder.Spacer().RowH(BasePadding));
-            rows.Add(BuildPreviewCaptureControls(state, i, fontSize, dpiScale, fontPath, timeProvider));
+            rows.Add(BuildPreviewCaptureControls(state, i, fontSize, fontPath, timeProvider));
 
             return Layout.Builder.VStack([.. rows]).Pad(BasePadding);
         }
@@ -413,7 +416,7 @@ namespace TianWen.UI.Abstractions
         /// Fill leaf; everything else is declarative).
         /// </summary>
         private Layout.Node BuildPreviewCaptureControls(LiveSessionState state, int otaIndex,
-            float fontSize, float dpiScale, string fontPath, ITimeProvider timeProvider)
+            float fontSize, string fontPath, ITimeProvider timeProvider)
         {
             var smallFs = fontSize * 0.85f;
             var rows = new List<Layout.Node>();

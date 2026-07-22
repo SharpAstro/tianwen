@@ -95,14 +95,15 @@ internal sealed class TuiGuiderTab(
             _topBar.RightText(GuiderActions.FormatRmsSummary(_state.LastGuideStats));
         }
 
-        // Main content
-        if (UseSixel && _canvas is not null && _canvasRenderer is not null && _guiderWidget is not null)
+        // Main content. The null-checked widgets flow into the helpers as parameters so the
+        // non-null guarantee travels with them -- no null-forgiving '!' re-derefs inside.
+        if (UseSixel && _canvas is { } canvas && _guiderWidget is { } guiderWidget)
         {
-            RenderSixelContent();
+            RenderSixelContent(canvas, guiderWidget);
         }
-        else
+        else if (_graphPanel is { } graphPanel && _targetPanel is { } targetPanel && _statsPanel is { } statsPanel)
         {
-            RenderTextContent(placeholder);
+            RenderTextContent(placeholder, graphPanel, targetPanel, statsPanel);
         }
 
         // Status bar
@@ -111,25 +112,27 @@ internal sealed class TuiGuiderTab(
         _statusBar.RightText(appState.StatusMessage ?? "");
     }
 
-    private void RenderSixelContent()
+    private void RenderSixelContent(Canvas canvas, GuiderTab<RgbaImage> guiderWidget)
     {
-        var canvasPixelSize = _canvas!.PixelSize;
+        var canvasPixelSize = canvas.PixelSize;
         var contentRect = new RectF32(0, 0, canvasPixelSize.Width, canvasPixelSize.Height);
 
-        _guiderWidget!.Render(liveState, contentRect, 1.0f, fontPath, timeProvider);
+        // A terminal Sixel canvas has no DPI scaling; the widget's DpiScale stays at its default 1.
+        guiderWidget.Render(liveState, contentRect, fontPath, timeProvider);
     }
 
-    private void RenderTextContent(GuiderPlaceholder? placeholder)
+    private void RenderTextContent(GuiderPlaceholder? placeholder,
+        MarkdownWidget graphPanel, MarkdownWidget targetPanel, MarkdownWidget statsPanel)
     {
         // Graph panel (left) — sparklines
         if (placeholder is not null)
         {
-            _graphPanel!.Markdown($"## Guider\n\n{GuiderActions.PlaceholderText(placeholder.Value)}");
+            graphPanel.Markdown($"## Guider\n\n{GuiderActions.PlaceholderText(placeholder.Value)}");
         }
         else
         {
             var (raSpark, decSpark, raRange, decRange) = GuiderActions.BuildGuideSparklines(_state.GuideSamples, SparklineWidth);
-            _graphPanel!.Markdown(
+            graphPanel.Markdown(
                 $"## RA Error ({raRange})\n\n" +
                 $"{raSpark}\n\n" +
                 $"## Dec Error ({decRange})\n\n" +
@@ -139,21 +142,21 @@ internal sealed class TuiGuiderTab(
         // Target view (center)
         if (placeholder is not null)
         {
-            _targetPanel!.Markdown("");
+            targetPanel.Markdown("");
         }
         else
         {
-            _targetPanel!.Markdown(GuiderActions.BuildTargetView(_state.GuideSamples));
+            targetPanel.Markdown(GuiderActions.BuildTargetView(_state.GuideSamples));
         }
 
         // Stats panel (right)
         if (placeholder is not null)
         {
-            _statsPanel!.Markdown("");
+            statsPanel.Markdown("");
         }
         else
         {
-            _statsPanel!.Markdown($"## Stats\n\n{GuiderActions.FormatStatsBlock(_state)}");
+            statsPanel.Markdown($"## Stats\n\n{GuiderActions.FormatStatsBlock(_state)}");
         }
     }
 

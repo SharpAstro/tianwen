@@ -555,18 +555,20 @@ namespace TianWen.UI.Gui
             switch (appState.ActiveTab)
             {
                 case GuiTab.Planner:
-                    _plannerTab.Render(plannerState, contentRect, DpiScale,
+                    // Tabs read the DpiScale property (pushed by this chrome's setter override at
+                    // startup/resize) -- no per-Render dpi argument any more.
+                    _plannerTab.Render(plannerState, contentRect,
                         _fontPath ?? "monospace", timeProvider, appState.MouseScreenPosition,
                         _emojiFontPath);
                     break;
 
                 case GuiTab.Equipment:
-                    _equipmentTab.Render(appState, contentRect, DpiScale,
+                    _equipmentTab.Render(appState, contentRect,
                         _fontPath ?? "monospace", _emojiFontPath, LiveSessionState);
                     break;
 
                 case GuiTab.Session:
-                    _sessionTab.Render(appState, plannerState, contentRect, DpiScale,
+                    _sessionTab.Render(appState, plannerState, contentRect,
                         _fontPath ?? "monospace", timeProvider);
                     break;
 
@@ -579,7 +581,7 @@ namespace TianWen.UI.Gui
                     PopulateSkyMapMountOverlay(appState, timeProvider);
                     PopulateSkyMapMosaicPanels(appState, plannerState);
                     PopulateSkyMapScheduleTargets();
-                    _skyMapTab.Render(plannerState, contentRect, DpiScale,
+                    _skyMapTab.Render(plannerState, contentRect,
                         _fontPath ?? "monospace", timeProvider);
                     break;
 
@@ -594,17 +596,17 @@ namespace TianWen.UI.Gui
                         LiveSessionState.NauticalSet = plannerState.NauticalSet;
                         LiveSessionState.NauticalRise = plannerState.NauticalRise;
                     }
-                    _liveSessionTab.Render(LiveSessionState, contentRect, DpiScale,
+                    _liveSessionTab.Render(LiveSessionState, contentRect,
                         _fontPath ?? "monospace", timeProvider);
                     break;
 
                 case GuiTab.Guider:
-                    _guiderTab.Render(LiveSessionState, contentRect, DpiScale,
+                    _guiderTab.Render(LiveSessionState, contentRect,
                         _fontPath ?? "monospace", timeProvider);
                     break;
 
                 case GuiTab.Notifications:
-                    _notificationsTab.Render(appState, contentRect, DpiScale,
+                    _notificationsTab.Render(appState, contentRect,
                         _fontPath ?? "monospace");
                     break;
 

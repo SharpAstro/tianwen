@@ -64,13 +64,14 @@ namespace TianWen.Lib.Tests
 
         private static PlannerTab<RgbaImage> RenderTab(RgbaImageRenderer renderer, float dpiScale = 1f)
         {
-            var tab = new PlannerTab<RgbaImage>(renderer);
+            // DPI is the widget-owned property now (host-set), not a Render argument.
+            var tab = new PlannerTab<RgbaImage>(renderer) { DpiScale = dpiScale };
             // 22:00 is inside the displayed night, so the elapsed-time shade paints too.
             var time = new FakeTimeProviderWrapper(new DateTimeOffset(2025, 12, 15, 22, 0, 0, TimeSpan.Zero));
             // A real font: the chart's axis labels rasterize glyphs on the CPU renderer (an empty
             // path throws in OpenTypeFont), same as ObservationScheduleVisualizationTests.
             var fontPath = FontResolver.ResolveSystemFont();
-            tab.Render(BuildState(), new RectF32(0, 0, renderer.Width, renderer.Height), dpiScale,
+            tab.Render(BuildState(), new RectF32(0, 0, renderer.Width, renderer.Height),
                 fontPath, time);
             return tab;
         }
@@ -264,7 +265,7 @@ namespace TianWen.Lib.Tests
 
             var time = new FakeTimeProviderWrapper(new DateTimeOffset(2025, 12, 15, 22, 0, 0, TimeSpan.Zero));
             var fontPath = FontResolver.ResolveSystemFont();
-            tab.Render(state, new RectF32(0, 0, 1600, 1000), 1f, fontPath, time);
+            tab.Render(state, new RectF32(0, 0, 1600, 1000), fontPath, time);
 
             // The dropdown is painted last, so its rows are the topmost regions at their pixels -- a click
             // on the second row's centre dispatches that row (HitTestAndDispatch returns topmost-first).

@@ -1,9 +1,28 @@
 # DPI scale: one owner, stop the parameter threading
 
-**Status: PLANNED (2026-07-22).** Follow-on to [layout-driven-ui.md](layout-driven-ui.md) (the
-engine applies DPI once) and [controls-upstreaming.md](controls-upstreaming.md) (U1 exposed the
-seam: `DrawTrackSlider` promoted to DIR.Lib had to take `dpiScale` as a parameter because the
-DIR.Lib base has no `DpiScale` while tianwen's `ImageRendererBase` does).
+**Status: DONE (2026-07-22, same day as planned).** D1 + D2 + D3 all landed. Follow-on to
+[layout-driven-ui.md](layout-driven-ui.md) (the engine applies DPI once) and
+[controls-upstreaming.md](controls-upstreaming.md) (U1 exposed the seam: `DrawTrackSlider`
+promoted to DIR.Lib had to take `dpiScale` as a parameter because the DIR.Lib base had no
+`DpiScale` while tianwen's `ImageRendererBase` did).
+
+**Outcome:** `PixelWidgetBase.DpiScale` (virtual, default 1) is the single owner; the GUI's
+`VkGuiRenderer` overrides the setter to propagate to its ten child widgets at startup/resize; the
+web sets it per frame from `devicePixelRatio`; the TUI stays at the default 1. All 74 widget-method
+`float dpiScale` parameters are gone (only the 3 by-design non-widget helpers keep one:
+`GuideGraphRenderer.ComputeWindow`, `OverlayEngine` x2); `SkyMapTab._lastDpiScale` is retired
+(input reads the property). Methods that still need the value locally open with
+`var dpiScale = DpiScale;` so the ~170 px multiplications were untouched. The `dpiScale: 1f`
+device-px escape hatch survives (explicit arg overrides the property; pinned by a DIR.Lib test).
+Verified: full solution + web build 0/0; 122 layout/tab/skymap tests green (incl. the dpiScale=2
+pixel renders, now property-driven); live GUI smoke at the real DisplayScale (Planner + Equipment
+render identically to pre-sweep screenshots).
+
+**Follow-on (F1, recorded not started): `fontPath` has the same shape** -- a per-window value
+(host resolves the font once) threaded through every widget signature identically, plus a nullable
+`emojiFontPath` twin. The same treatment applies: a `FontPath` property on `PixelWidgetBase`
+(host-set), DIR.Lib helpers defaulting `fontPath: null -> FontPath`, then a signature sweep.
+Deferred to its own pass so the churn waves don't overlap (user suggestion, 2026-07-22).
 
 ## Sweep: where DPI lives today
 

@@ -109,13 +109,14 @@ namespace TianWen.UI.Abstractions
         public void Render(
             PlannerState state,
             RectF32 contentRect,
-            float dpiScale,
             string fontPath,
             ITimeProvider timeProvider,
             (float X, float Y) mouseScreenPosition = default,
             string? emojiFontPath = null)
         {
             _state = state;
+            // DPI comes from the inherited DpiScale (host-set); local alias keeps the px math unchanged.
+            var dpiScale = DpiScale;
             var headerHeight     = BaseHeaderHeight * dpiScale;
             var itemHeight       = BaseItemHeight * dpiScale;
             var fontSize         = BaseFontSize * dpiScale;
@@ -138,7 +139,7 @@ namespace TianWen.UI.Abstractions
             var portrait = contentRect.Height > contentRect.Width;
             var arranged = RenderLayout(
                 BuildFrameLayout(contentRect.Width / dpiScale, contentRect.Height / dpiScale, portrait),
-                contentRect, fontPath, dpiScale);
+                contentRect, fontPath);
             _targetListRect = RectOfFill(arranged, ListFillKey);
             var detailsRect = RectOfFill(arranged, DetailsFillKey);
             _chartRect = RectOfFill(arranged, ChartFillKey);
@@ -170,11 +171,11 @@ namespace TianWen.UI.Abstractions
             RenderChart(state, _chartRect, fontPath, selectedIndex, chartCurrentTime, mousePos, emojiFontPath);
 
             // Register slider hit regions for drag interaction
-            RegisterSliderHitRegions(state, dpiScale);
+            RegisterSliderHitRegions(state);
 
             // --- 2. Target list panel (opaque background; left dock in landscape, bottom fill in portrait) ---
             RenderTargetList(
-                state, fontPath, dpiScale, _targetListRect,
+                state, fontPath, _targetListRect,
                 headerHeight, itemHeight, fontSize, padding);
 
             // --- 3. Details panel (opaque background). In a squeezed portrait the strip collapses away
@@ -249,12 +250,13 @@ namespace TianWen.UI.Abstractions
                 selectedIndex, chartCurrentTime, mousePos, emojiFontPath);
         }
 
-        private void RegisterSliderHitRegions(PlannerState state, float dpiScale)
+        private void RegisterSliderHitRegions(PlannerState state)
         {
             if (state.HandoffSliders.Length == 0)
             {
                 return;
             }
+            var dpiScale = DpiScale;
 
             var (tStart, tEnd, plotX, plotY, plotW, plotH) = AltitudeChartRenderer.GetChartPlotLayout(
                 state, (int)_chartRect.X, (int)_chartRect.Y, (int)_chartRect.Width, (int)_chartRect.Height);
@@ -280,10 +282,10 @@ namespace TianWen.UI.Abstractions
         private void RenderTargetList(
             PlannerState state,
             string fontPath,
-            float dpiScale,
             RectF32 rect,
             float headerHeight, float itemHeight, float fontSize, float padding)
         {
+            var dpiScale = DpiScale;
             var searchH = (int)(itemHeight * 1.1f);
 
             // Sub-layout: header top, search strip below, items fill remainder
@@ -330,7 +332,7 @@ namespace TianWen.UI.Abstractions
                 .WithGap(BasePadding);
             RenderLayout(headerContent,
                 new RectF32(headerRect.X + padding, headerRect.Y, contentW - padding * 2f, headerRect.Height),
-                fontPath, dpiScale);
+                fontPath);
 
             // Search input below header (within the search strip, with 2px top gap)
             RenderTextInput(state.SearchInput,
@@ -431,7 +433,7 @@ namespace TianWen.UI.Abstractions
                     Spacer(),
                     pinLeaf)
                     .Bg(rowBg);
-                RenderLayout(row, rowRect, fontPath, dpiScale);
+                RenderLayout(row, rowRect, fontPath);
             }
 
             // Scrollbar: the controller draws its own track + thumb at the right edge of its viewport

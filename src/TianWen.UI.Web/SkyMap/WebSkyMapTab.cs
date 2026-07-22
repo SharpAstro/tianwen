@@ -42,10 +42,10 @@ namespace TianWen.UI.Web.SkyMap
         /// shared CPU-primitive path (WebGL has no instanced overlay pipeline). Same candidate gather /
         /// projection / label placement as desktop; only the rasterisation is CPU DrawLine/DrawCircle.</summary>
         protected override void RenderObjectOverlay(
-            ICelestialObjectDB db, RectF32 contentRect, float dpiScale, string fontPath,
+            ICelestialObjectDB db, RectF32 contentRect, string fontPath,
             float baseFontSize, SiteContext site, bool dimBelowHorizon, PlannerState plannerState,
             bool showAllOverlays)
-            => RenderObjectOverlayPrimitive(db, contentRect, dpiScale, fontPath, baseFontSize,
+            => RenderObjectOverlayPrimitive(db, contentRect, fontPath, baseFontSize,
                 site, dimBelowHorizon, plannerState, showAllOverlays);
     }
 }

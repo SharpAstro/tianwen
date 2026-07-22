@@ -55,7 +55,6 @@ namespace TianWen.UI.Abstractions
         private float _contentX;
         private float _contentY;
         private float _contentWidth;
-        private float _lastDpiScale = 1f;
         private double _lastSiteLat = double.NaN;
         private double _lastSiteLon = double.NaN;
 
@@ -88,11 +87,13 @@ namespace TianWen.UI.Abstractions
         public void Render(
             PlannerState plannerState,
             RectF32 contentRect,
-            float dpiScale,
             string fontPath,
             ITimeProvider timeProvider)
         {
             BeginFrame();
+            // DPI comes from the inherited DpiScale (host-set); the input path (tap-vs-drag slop) reads
+            // the same property directly, which retires the old render-time _lastDpiScale cache.
+            var dpiScale = DpiScale;
             _plannerState = plannerState;
             _timeProvider = timeProvider;
 
@@ -124,7 +125,6 @@ namespace TianWen.UI.Abstractions
             _contentWidth = contentRect.Width;
             _contentX = contentRect.X;
             _contentY = contentRect.Y;
-            _lastDpiScale = dpiScale; // cached for input-time use (the tap-vs-drag slop is DPI-scaled)
             State.LastContentRect = contentRect;
             var siteLat = plannerState.SiteLatitude;
             var siteLon = plannerState.SiteLongitude;
@@ -197,36 +197,36 @@ namespace TianWen.UI.Abstractions
             // planner targets are drawn (the user's planned observations should always
             // be visible as landmarks on the sky map). The showAll flag tells the engine
             // whether to include non-pinned catalog objects in the result.
-            RenderObjectOverlay(db, contentRect, dpiScale, fontPath, BaseFontSize, site, dimBelowHorizon, plannerState, State.ShowObjectOverlay);
+            RenderObjectOverlay(db, contentRect, fontPath, BaseFontSize, site, dimBelowHorizon, plannerState, State.ShowObjectOverlay);
 
             // Mosaic panel grid — drawn BEHIND the mount reticle but ON TOP of catalog
             // overlays so panel outlines don't get buried under catalog markers but the
             // reticle crosshair remains the topmost element.
             if (State.MosaicPanels.Length > 0 && State.MountOverlay is { SensorFovDeg: not null })
             {
-                RenderMosaicPanels(contentRect, dpiScale, ppr, cx, cy);
+                RenderMosaicPanels(contentRect, ppr, cx, cy);
             }
 
             // Committed plan target markers (where tonight's targets are). Drawn under the
             // mount reticle so the reticle stays the topmost element when it overlaps a target.
             if (State.ScheduleTargets.Length > 0)
             {
-                RenderScheduleTargets(contentRect, dpiScale, fontPath, BaseFontSize, ppr, cx, cy, site, dimBelowHorizon);
+                RenderScheduleTargets(contentRect, fontPath, BaseFontSize, ppr, cx, cy, site, dimBelowHorizon);
             }
 
             // Mount reticle on top of everything catalog-related so it's never buried.
             if (State.ShowMountOverlay && State.MountOverlay is { } mountOverlay)
             {
-                RenderMountOverlay(mountOverlay, contentRect, dpiScale, fontPath, BaseFontSize, ppr, cx, cy);
+                RenderMountOverlay(mountOverlay, contentRect, fontPath, BaseFontSize, ppr, cx, cy);
             }
 
             // NCP/SCP/Zenith reticles (clickable goto targets) and N/S/E/W horizon
             // cardinal labels. Drawn on top of the mount reticle so the user can always
             // click a pole or zenith to slew, even if the mount happens to overlap.
-            RenderFixedPointMarkers(contentRect, dpiScale, fontPath, BaseFontSize, ppr, cx, cy, site);
+            RenderFixedPointMarkers(contentRect, fontPath, BaseFontSize, ppr, cx, cy, site);
 
             var isTimeShifted = plannerState.PlanningDate.HasValue || State.TimeOffset != TimeSpan.Zero;
-            DrawInfoStrip(contentRect, fontPath, fontSize, dpiScale, cx, cy,
+            DrawInfoStrip(contentRect, fontPath, fontSize, cx, cy,
                 viewingTime, plannerState.SiteTimeZone, isTimeShifted);
 
             // Crosshair
@@ -249,7 +249,7 @@ namespace TianWen.UI.Abstractions
 
             // Search modal + info panel — drawn LAST so their clickable regions win
             // hit testing (paint order = z-order).
-            DrawSearchAndInfoPanel(plannerState, contentRect, fontPath, dpiScale, db,
+            DrawSearchAndInfoPanel(plannerState, contentRect, fontPath, db,
                 siteLat, siteLon, viewingTime, site, ppr, cx, cy);
         }
 
@@ -272,7 +272,7 @@ namespace TianWen.UI.Abstractions
         /// placement, both shared with the FITS viewer.
         /// </summary>
         protected virtual void RenderObjectOverlay(
-            ICelestialObjectDB db, RectF32 contentRect, float dpiScale, string fontPath,
+            ICelestialObjectDB db, RectF32 contentRect, string fontPath,
             float baseFontSize, SiteContext site, bool dimBelowHorizon, PlannerState plannerState,
             bool showAllOverlays)
         {
@@ -285,7 +285,7 @@ namespace TianWen.UI.Abstractions
         /// software / TUI fallback does not render shape markers.
         /// </summary>
         protected virtual void RenderScheduleTargets(
-            RectF32 contentRect, float dpiScale, string fontPath, float baseFontSize,
+            RectF32 contentRect, string fontPath, float baseFontSize,
             double ppr, float cx, float cy, SiteContext site, bool dimBelowHorizon)
         {
         }
@@ -296,7 +296,7 @@ namespace TianWen.UI.Abstractions
         /// rectangle at the panel's RA/Dec, sized by the sensor FOV.
         /// </summary>
         protected virtual void RenderMosaicPanels(
-            RectF32 contentRect, float dpiScale, double ppr, float cx, float cy)
+            RectF32 contentRect, double ppr, float cx, float cy)
         {
         }
 
@@ -307,7 +307,7 @@ namespace TianWen.UI.Abstractions
         /// markers — the mount position should never be buried under label clutter.
         /// </summary>
         protected virtual void RenderMountOverlay(
-            SkyMapMountOverlay mountOverlay, RectF32 contentRect, float dpiScale,
+            SkyMapMountOverlay mountOverlay, RectF32 contentRect,
             string fontPath, float baseFontSize, double ppr, float cx, float cy)
         {
         }
@@ -321,7 +321,7 @@ namespace TianWen.UI.Abstractions
         /// Base implementation is a no-op.
         /// </summary>
         protected virtual void RenderFixedPointMarkers(
-            RectF32 contentRect, float dpiScale, string fontPath, float baseFontSize,
+            RectF32 contentRect, string fontPath, float baseFontSize,
             double ppr, float cx, float cy, SiteContext site)
         {
         }
@@ -722,9 +722,10 @@ namespace TianWen.UI.Abstractions
 
         private static readonly RGBAColor32 TimeShiftColor = new(0x88, 0xCC, 0xFF, 0xFF);
 
-        private void DrawInfoStrip(RectF32 rect, string fontPath, float fontSize, float dpiScale,
+        private void DrawInfoStrip(RectF32 rect, string fontPath, float fontSize,
             float cx, float cy, DateTimeOffset viewingTime, TimeSpan siteTimeZone, bool isTimeShifted)
         {
+            var dpiScale = DpiScale;
             var stripH = 24f * dpiScale;
             var stripY = rect.Y + rect.Height - stripH;
             FillRect(rect.X, stripY, rect.Width, stripH, InfoPanelBg);

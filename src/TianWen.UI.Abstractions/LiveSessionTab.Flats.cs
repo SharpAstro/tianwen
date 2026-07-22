@@ -49,14 +49,14 @@ namespace TianWen.UI.Abstractions
         /// while a run is in flight.
         /// </summary>
         private void RenderFlatsSidePanel(LiveSessionState state, RectF32 rect, string fontPath,
-            float fontSize, float dpiScale, float pad, float rowH)
+            float fontSize, float pad, float rowH)
         {
             // A run is in flight iff a CTS is live (mirrors PolarAlignmentCts). Running -> phase/status/Cancel.
             if (state.FlatsCts is not null)
             {
                 DrawText("Flat Capture", fontPath,
                     rect.X + pad, rect.Y, rect.Width - pad * 2, rowH, fontSize, HeaderText, TextAlign.Near, TextAlign.Center);
-                RenderFlatsRunningRows(state, rect, rect.X + pad, rect.Y + rowH + pad, rect.Width - pad * 2, rowH, fontPath, fontSize, dpiScale, pad);
+                RenderFlatsRunningRows(state, rect, rect.X + pad, rect.Y + rowH + pad, rect.Width - pad * 2, rowH, fontPath, fontSize, pad);
                 return;
             }
 
@@ -128,7 +128,7 @@ namespace TianWen.UI.Abstractions
 
             var bottomH = BaseRowHeight * 1.2f + BasePadding + BaseRowHeight * 1.6f;
             var tree = Layout.Builder.Dock(content, Layout.Builder.Bottom(buttons, bottomH)).Pad(BasePadding);
-            RenderLayout(tree, rect, fontPath, dpiScale);
+            RenderLayout(tree, rect, fontPath);
         }
 
         /// <summary>
@@ -138,7 +138,7 @@ namespace TianWen.UI.Abstractions
         /// </summary>
         private void RenderFlatsRunningRows(
             LiveSessionState state, RectF32 rect,
-            float x0, float y, float w, float rowH, string fontPath, float fontSize, float dpiScale, float pad)
+            float x0, float y, float w, float rowH, string fontPath, float fontSize, float pad)
         {
             var (phaseLabel, phaseColor) = state.Phase switch
             {
@@ -153,7 +153,7 @@ namespace TianWen.UI.Abstractions
             };
             RenderLayout(
                 Layout.Builder.Text(phaseLabel, BaseFontSize * 0.95f, BrightText, TextAlign.Center, TextAlign.Center).Bg(phaseColor),
-                new RectF32(x0, y, w, rowH), fontPath, dpiScale);
+                new RectF32(x0, y, w, rowH), fontPath);
             y += rowH + pad;
 
             // Source line
