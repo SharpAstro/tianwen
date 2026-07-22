@@ -76,6 +76,20 @@
                 e.preventDefault();
             }
         }, { capture: true });
+
+        // A trackpad pinch-zoom (and ctrl+scroll) reaches the page as ctrl+wheel; the browser's native
+        // default zooms the WHOLE PAGE (chrome and all). This showcase owns zoom itself -- the canvas
+        // pinch-zoom + the sky-map wheel-zoom -- so cancel the browser default page-wide. window-level +
+        // non-passive + capture so it wins over EVERY region (toolbar / title / the selectable-text DOM
+        // overlay), not just the canvas -- a canvas-only guard leaves a pinch over the chrome still zooming.
+        // preventDefault does not stop propagation, so the canvas's @onwheel still routes the delta to the
+        // app (SkyMap zooms toward the cursor). Keyboard ctrl +/-/0 is deliberately left alone (accessibility
+        // zoom). Same reason as the F3 guard above: a passive Blazor @onwheel can't preventDefault this.
+        window.addEventListener("wheel", function (e) {
+            if (e.ctrlKey) {
+                e.preventDefault();
+            }
+        }, { passive: false, capture: true });
 </script>
 
     <!-- IndexedDB cache for the decoded Tycho-2 star buffer (window.tyc2Cache). Loaded before
