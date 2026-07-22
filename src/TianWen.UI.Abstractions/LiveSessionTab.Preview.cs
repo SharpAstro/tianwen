@@ -51,27 +51,19 @@ namespace TianWen.UI.Abstractions
 
             var pad = BasePadding * dpiScale;
             var btnW = 36f * dpiScale;
-            var btnH = rect.Height - 4 * dpiScale;
-            var btnY = rect.Y + 2 * dpiScale;
             var btnFs = fontSize * 0.8f;
-            var x = rect.X + pad;
 
             var activeBg = new RGBAColor32(0x44, 0x66, 0x99, 0xff);
             var inactiveBg = new RGBAColor32(0x2a, 0x2a, 0x35, 0xff);
 
-            // [Fit] \u2014 zoom to fit
-            RenderButton("Fit", x, btnY, btnW, btnH, fontPath, btnFs,
-                vs.ZoomToFit ? activeBg : inactiveBg, BodyText, "ViewerFit",
-                _ => { vs.ZoomToFit = true; });
-            x += btnW + pad;
+            // The whole strip is ONE HStack of Clickable button nodes (was an `x += btnW + pad` cursor +
+            // per-button RenderButton). Sizes are already device px, so the tree renders at dpiScale:1f.
+            // A status Text takes the middle Star cell, which naturally right-aligns the OTA buttons.
+            Layout.Node Btn(string label, float w, RGBAColor32 bg, RGBAColor32 fg, string action, Action<InputModifier> onClick) =>
+                Layout.Builder.Text(label, btnFs, fg, TextAlign.Center, TextAlign.Center)
+                    .WFixed(w).HStar().Bg(bg)
+                    .Clickable(new HitResult.ButtonHit(action), onClick);
 
-            // [1:1] \u2014 actual pixels
-            RenderButton("1:1", x, btnY, btnW, btnH, fontPath, btnFs,
-                !vs.ZoomToFit && MathF.Abs(vs.Zoom - 1f) < 0.01f ? activeBg : inactiveBg, BodyText, "Viewer1to1",
-                _ => { vs.ZoomToFit = false; vs.Zoom = 1f; vs.PanOffset = (0, 0); });
-            x += btnW + pad;
-
-            // [T] \u2014 cycle stretch mode
             var stretchLabel = vs.StretchMode switch
             {
                 StretchMode.None => "Raw",
@@ -80,37 +72,34 @@ namespace TianWen.UI.Abstractions
                 StretchMode.Luma => "Lum",
                 _ => "T"
             };
-            RenderButton(stretchLabel, x, btnY, btnW, btnH, fontPath, btnFs,
-                vs.StretchMode is not StretchMode.None ? activeBg : inactiveBg, BodyText, "ViewerStretch",
-                _ => { CyclePreviewStretch(vs); });
-            x += btnW + pad;
 
-            // [S] \u2014 cycle stretch preset
-            var presetLabel = $"{vs.StretchParameters}";
-            RenderButton("S", x, btnY, btnW * 0.8f, btnH, fontPath, btnFs,
-                inactiveBg, BodyText, "ViewerPreset",
-                _ => { ViewerActions.CycleStretchPreset(vs); });
-            x += btnW * 0.8f + pad;
+            var nodes = new List<Layout.Node>
+            {
+                // [Fit] zoom to fit
+                Btn("Fit", btnW, vs.ZoomToFit ? activeBg : inactiveBg, BodyText, "ViewerFit",
+                    _ => { vs.ZoomToFit = true; }),
+                // [1:1] actual pixels
+                Btn("1:1", btnW, !vs.ZoomToFit && MathF.Abs(vs.Zoom - 1f) < 0.01f ? activeBg : inactiveBg, BodyText, "Viewer1to1",
+                    _ => { vs.ZoomToFit = false; vs.Zoom = 1f; vs.PanOffset = (0, 0); }),
+                // [T] cycle stretch mode
+                Btn(stretchLabel, btnW, vs.StretchMode is not StretchMode.None ? activeBg : inactiveBg, BodyText, "ViewerStretch",
+                    _ => { CyclePreviewStretch(vs); }),
+                // [S] cycle stretch preset
+                Btn("S", btnW * 0.8f, inactiveBg, BodyText, "ViewerPreset",
+                    _ => { ViewerActions.CycleStretchPreset(vs); }),
+                // [B] cycle boost
+                Btn("B", btnW * 0.8f, vs.CurvesBoost > 0 ? activeBg : inactiveBg, BodyText, "ViewerBoost",
+                    _ => { ViewerActions.CycleCurvesBoost(vs); }),
+            };
 
-            // [B] \u2014 cycle boost
-            var boostActive = vs.CurvesBoost > 0;
-            RenderButton("B", x, btnY, btnW * 0.8f, btnH, fontPath, btnFs,
-                boostActive ? activeBg : inactiveBg, BodyText, "ViewerBoost",
-                _ => { ViewerActions.CycleCurvesBoost(vs); });
-            x += btnW * 0.8f + pad;
-
-            // [G] -- WCS coordinate grid overlay. Enabled only once the preview frame
-            // has been plate-solved (we need a WCS to project RA/Dec lines). Lit when
-            // active. Polar-alignment mode switching now lives on the top-strip mode
-            // pill dropdown -- the toolbar stays focused on viewer chrome.
+            // [G] -- WCS coordinate grid overlay. Enabled only once the preview frame has been plate-solved
+            // (we need a WCS to project RA/Dec lines). Lit when active. Polar-alignment mode switching now
+            // lives on the top-strip mode pill dropdown -- the toolbar stays focused on viewer chrome.
             if (State is { } liveState)
             {
                 var hasWcs = liveState.PreviewPlateSolveResult?.Solution is not null;
-                var gridActive = vs.ShowGrid;
-                var gridBg = gridActive ? activeBg : inactiveBg;
-                var gridFg = hasWcs || gridActive ? BodyText : DimText;
-                RenderButton("G", x, btnY, btnW * 0.6f, btnH, fontPath, btnFs,
-                    gridBg, gridFg, "ViewerGrid",
+                var gridFg = hasWcs || vs.ShowGrid ? BodyText : DimText;
+                nodes.Add(Btn("G", btnW * 0.6f, vs.ShowGrid ? activeBg : inactiveBg, gridFg, "ViewerGrid",
                     _ =>
                     {
                         if (hasWcs)
@@ -118,40 +107,32 @@ namespace TianWen.UI.Abstractions
                             vs.ShowGrid = !vs.ShowGrid;
                             liveState.NeedsRedraw = true;
                         }
-                    });
-                x += btnW * 0.6f + pad;
+                    }));
             }
 
-            // OTA selector buttons (right-aligned) \u2014 works in both session and preview mode
-            var otaButtonCount = State?.OtaCount ?? 0;
-            if (otaButtonCount > 1)
-            {
-                var otaBtnX = rect.X + rect.Width - (btnW * 0.8f + pad) * otaButtonCount - pad;
-                for (var oi = 0; oi < otaButtonCount; oi++)
-                {
-                    var idx = oi; // capture
-                    var isSelected = vs.SelectedCameraIndex == idx;
-                    RenderButton($"#{idx + 1}", otaBtnX, btnY, btnW * 0.8f, btnH, fontPath, btnFs,
-                        isSelected ? activeBg : inactiveBg, BodyText, $"ViewerOTA{idx}",
-                        _ => { vs.SelectedCameraIndex = vs.SelectedCameraIndex == idx ? -1 : idx; });
-                    otaBtnX += btnW * 0.8f + pad;
-                }
-            }
-
-            // Status text: stretch info
+            // Status text (stretch info) fills the middle Star cell, pushing the OTA buttons to the right edge.
             var infoText = $"{vs.StretchMode} {vs.StretchParameters}";
             if (vs.CurvesBoost > 0)
             {
                 infoText += $" Boost:{vs.CurvesBoost:F2}";
             }
-            var infoW = rect.X + rect.Width - x - pad;
+            nodes.Add(Layout.Builder.Text(infoText, fontSize * 0.7f, DimText, TextAlign.Near, TextAlign.Center).WStar().HStar());
+
+            // OTA selector buttons (right-aligned) -- works in both session and preview mode.
+            var otaButtonCount = State?.OtaCount ?? 0;
             if (otaButtonCount > 1)
             {
-                infoW -= (btnW * 0.8f + pad) * otaButtonCount;
+                for (var oi = 0; oi < otaButtonCount; oi++)
+                {
+                    var idx = oi; // capture
+                    nodes.Add(Btn($"#{idx + 1}", btnW * 0.8f, vs.SelectedCameraIndex == idx ? activeBg : inactiveBg, BodyText, $"ViewerOTA{idx}",
+                        _ => { vs.SelectedCameraIndex = vs.SelectedCameraIndex == idx ? -1 : idx; }));
+                }
             }
-            DrawText(infoText, fontPath,
-                x, rect.Y, infoW, rect.Height,
-                fontSize * 0.7f, DimText, TextAlign.Near, TextAlign.Center);
+
+            // Inset the row 2px vertically (the old btnY/btnH) inside the already-painted HeaderBg strip.
+            var inner = new RectF32(rect.X + pad, rect.Y + 2f * dpiScale, rect.Width - pad * 2f, rect.Height - 4f * dpiScale);
+            RenderLayout(Layout.Builder.HStack([.. nodes]).WithGap(pad), inner, fontPath, dpiScale: 1f);
         }
 
         /// <summary>

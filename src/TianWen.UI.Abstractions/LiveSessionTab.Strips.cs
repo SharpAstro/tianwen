@@ -369,20 +369,19 @@ namespace TianWen.UI.Abstractions
                 innerX, cardY + pad + rowH, innerW, rowH * 2.4f,
                 fontSize, BodyText, TextAlign.Near, TextAlign.Near);
 
-            // Buttons: [Cancel] left, [Continue] right (primary in the muscle-memory spot).
+            // Buttons: [Cancel] left, [Continue] right (primary in the muscle-memory spot). One HStack of
+            // two equal Star cells (was two RenderButton calls placed by hand); device-px -> dpiScale:1f.
             var btnH = rowH * 1.3f;
-            var btnW = (innerW - pad) / 2f;
             var btnY = cardY + cardH - btnH - pad;
-            RenderButton(prompt.CancelLabel, innerX, btnY, btnW, btnH,
-                fontPath, fontSize,
-                new RGBAColor32(0x33, 0x33, 0x3a, 0xff), BodyText,
-                "SessionPromptCancel",
-                _ => PostSignal(new RespondSessionPromptSignal(false)));
-            RenderButton(prompt.ContinueLabel, innerX + btnW + pad, btnY, btnW, btnH,
-                fontPath, fontSize,
-                new RGBAColor32(0x44, 0xaa, 0x66, 0xff), BrightText,
-                "SessionPromptContinue",
-                _ => PostSignal(new RespondSessionPromptSignal(true)));
+            var btnRow = Layout.Builder.HStack(
+                    Layout.Builder.Text(prompt.CancelLabel, fontSize, BodyText, TextAlign.Center, TextAlign.Center)
+                        .WStar().HStar().Bg(new RGBAColor32(0x33, 0x33, 0x3a, 0xff))
+                        .Clickable(new HitResult.ButtonHit("SessionPromptCancel"), _ => PostSignal(new RespondSessionPromptSignal(false))),
+                    Layout.Builder.Text(prompt.ContinueLabel, fontSize, BrightText, TextAlign.Center, TextAlign.Center)
+                        .WStar().HStar().Bg(new RGBAColor32(0x44, 0xaa, 0x66, 0xff))
+                        .Clickable(new HitResult.ButtonHit("SessionPromptContinue"), _ => PostSignal(new RespondSessionPromptSignal(true))))
+                .WithGap(pad);
+            RenderLayout(btnRow, new RectF32(innerX, btnY, innerW, btnH), fontPath, dpiScale: 1f);
         }
 
         // -----------------------------------------------------------------------
