@@ -47,7 +47,7 @@ namespace TianWen.UI.Abstractions
 
         private void RenderMiniViewerToolbar(ViewerState vs, RectF32 rect, float fontSize)
         {
-            FillRect(rect.X, rect.Y, rect.Width, rect.Height, HeaderBg);
+            RenderLayout(Layout.Builder.Spacer().Bg(HeaderBg), rect);
 
             var dpiScale = DpiScale;
             var pad = BasePadding * dpiScale;
@@ -136,109 +136,8 @@ namespace TianWen.UI.Abstractions
             RenderLayout(Layout.Builder.HStack([.. nodes]).WithGap(pad), inner, dpiScale: 1f);
         }
 
-        /// <summary>
-        /// Preview mode timeline: twilight bands + now needle.
-        /// Shows civil/nautical/astronomical twilight zones so the user knows when dark arrives.
-        /// </summary>
-        private void RenderPreviewTimeline(LiveSessionState state, RectF32 rect, float fontSize, ITimeProvider timeProvider)
-        {
-            var fontPath = FontPath;
-            if (state.AstroDark == default)
-            {
-                DrawText("Twilight data loading\u2026", fontPath,
-                    rect.X, rect.Y, rect.Width, rect.Height,
-                    fontSize * 0.85f, DimText, TextAlign.Center, TextAlign.Center);
-                return;
-            }
-
-            var dpiScale = DpiScale;
-            var pad = BasePadding * dpiScale;
-            var barH = 24f * dpiScale;
-            var now = timeProvider.GetUtcNow();
-
-            // Time range: 15 min before civil set \u2192 15 min after civil rise
-            var tStart = (state.CivilSet ?? state.AstroDark - TimeSpan.FromHours(1)) - TimeSpan.FromMinutes(15);
-            var tEnd = (state.CivilRise ?? state.AstroTwilight + TimeSpan.FromHours(1)) + TimeSpan.FromMinutes(15);
-            var totalSeconds = Math.Max((tEnd - tStart).TotalSeconds, 600);
-            var barY = rect.Y + pad;
-
-            float TimeToX(DateTimeOffset t) =>
-                rect.X + pad + (float)((t - tStart).TotalSeconds / totalSeconds) * (rect.Width - pad * 2);
-
-            // Twilight zone colors
-            var civilColor = new RGBAColor32(0x44, 0x44, 0x22, 0x88);
-            var nautColor = new RGBAColor32(0x22, 0x33, 0x55, 0x88);
-            var astroColor = new RGBAColor32(0x11, 0x22, 0x44, 0x88);
-            var nightColor = new RGBAColor32(0x00, 0x00, 0x22, 0xcc);
-
-            // Fill the twilight bands
-            if (state.CivilSet is { } cs)
-            {
-                FillRect(TimeToX(tStart), barY, TimeToX(cs) - TimeToX(tStart), barH, civilColor);
-            }
-            if (state.NauticalSet is { } ns)
-            {
-                var nsX = TimeToX(ns);
-                var fromX = state.CivilSet is { } cs2 ? TimeToX(cs2) : TimeToX(tStart);
-                FillRect(fromX, barY, nsX - fromX, barH, nautColor);
-            }
-            {
-                var astroStartX = state.NauticalSet is { } ns2 ? TimeToX(ns2) : (state.CivilSet is { } cs3 ? TimeToX(cs3) : TimeToX(tStart));
-                var darkX = TimeToX(state.AstroDark);
-                FillRect(astroStartX, barY, darkX - astroStartX, barH, astroColor);
-            }
-            // Night (dark)
-            {
-                var darkX = TimeToX(state.AstroDark);
-                var dawnX = TimeToX(state.AstroTwilight);
-                FillRect(darkX, barY, dawnX - darkX, barH, nightColor);
-            }
-            // Dawn side: astro \u2192 nautical \u2192 civil (mirror)
-            {
-                var dawnX = TimeToX(state.AstroTwilight);
-                var astroEndX = state.NauticalRise is { } nr ? TimeToX(nr) : (state.CivilRise is { } cr ? TimeToX(cr) : TimeToX(tEnd));
-                FillRect(dawnX, barY, astroEndX - dawnX, barH, astroColor);
-            }
-            if (state.NauticalRise is { } nRise)
-            {
-                var nrX = TimeToX(nRise);
-                var toX = state.CivilRise is { } cr2 ? TimeToX(cr2) : TimeToX(tEnd);
-                FillRect(nrX, barY, toX - nrX, barH, nautColor);
-            }
-            if (state.CivilRise is { } cRise)
-            {
-                FillRect(TimeToX(cRise), barY, TimeToX(tEnd) - TimeToX(cRise), barH, civilColor);
-            }
-
-            // Now needle
-            if (now >= tStart && now <= tEnd)
-            {
-                var nowX = TimeToX(now);
-                FillRect(nowX, barY - 2, 2 * dpiScale, barH + 4, NowNeedleColor);
-            }
-
-            // Time axis ticks
-            var axisY = barY + barH + 2;
-            var axisH = rect.Height - barH - pad * 2 - 2;
-            if (axisH > 4)
-            {
-                var rangeMins = totalSeconds / 60.0;
-                var tickMins = rangeMins < 120 ? 10 : 30;
-                var tickStart = new DateTimeOffset(tStart.Year, tStart.Month, tStart.Day,
-                    tStart.Hour, (int)(tStart.Minute / tickMins) * (int)tickMins, 0, tStart.Offset);
-                for (var t = tickStart; t <= tEnd; t = t.AddMinutes(tickMins))
-                {
-                    if (t < tStart) continue;
-                    var tx = TimeToX(t);
-                    if (tx < rect.X + pad || tx > rect.X + rect.Width - pad) continue;
-
-                    FillRect(tx, axisY, 1, axisH * 0.5f, TimelineTickColor);
-                    DrawText(t.ToOffset(state.SiteTimeZone).ToString("HH:mm"), fontPath,
-                        tx - 25 * dpiScale, axisY + axisH * 0.4f, 50 * dpiScale, axisH * 0.6f,
-                        fontSize * 0.8f, DimText, TextAlign.Center, TextAlign.Center);
-                }
-            }
-        }
+        // Preview-mode twilight timeline moved to the paint-owning SessionTimelineRenderer
+        // (RenderTwilightTimeline); RenderTimeline dispatches to it.
 
         // -----------------------------------------------------------------------
         // Bottom strip: per-OTA capture controls + mount section (ONE arranged tree)

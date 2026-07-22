@@ -38,6 +38,17 @@ internal static class Profiling
         }
 
         var fmt = format.ToLowerInvariant();
+
+        // `tabrender` mode measures the per-frame cost of a full layout-driven tab render
+        // (GuiderTab: builds the frame layout tree + arranges + paints, plus the paint-owning
+        // guide-graph / scatter / star-profile chart controls) versus a chart control alone. It
+        // reports us/frame AND bytes/frame, so the "does per-frame layout-tree building cost us?"
+        // question gets a number instead of a guess.
+        if (fmt == "tabrender")
+        {
+            ProfileTabRender(seconds);
+            return;
+        }
         // `ljpeg` mode is a different shape from the file-decode modes:
         // we extract the lossless-JPEG strip from a CR2 once, then loop
         // StbImageSharp directly so the trace shows pure Huffman/predictor
@@ -255,6 +266,128 @@ internal static class Profiling
         Console.WriteLine($"  dotnet-trace collect --process-id {Environment.ProcessId} --profile dotnet-sampled-thread-time --duration 00:00:{seconds - 2:D2} --format Speedscope");
         Console.WriteLine();
         Console.WriteLine("Looping decode...");
+    }
+
+    /// <summary>
+    /// Times a full layout-driven tab render vs. a single paint-owning chart control, over the CPU
+    /// <see cref="DIR.Lib.RgbaImageRenderer"/> (no GPU). Font is left empty so text draws no-op --
+    /// glyph rasterisation is identical before/after the refactor, so isolating the layout-tree build +
+    /// arrange + fill cost is what answers the perf question. Prints us/frame and bytes/frame for each.
+    /// </summary>
+    private static void ProfileTabRender(int seconds)
+    {
+        var state = BuildGuidingLiveState();
+        var timeProvider = new BenchTimeProvider();
+        using var renderer = new DIR.Lib.RgbaImageRenderer(1280, 800);
+        var tab = new TianWen.UI.Abstractions.GuiderTab<DIR.Lib.RgbaImage>(renderer)
+        {
+            DpiScale = 1f,
+            FontPath = string.Empty,
+        };
+        var fullRect = new DIR.Lib.RectF32(0, 0, renderer.Width, renderer.Height);
+        var graphRect = new DIR.Lib.RectF32(0, 640, renderer.Width, 160);
+
+        // Warm up (JIT + first-frame allocations).
+        for (var i = 0; i < 50; i++)
+        {
+            tab.Render(state, fullRect, timeProvider);
+            TianWen.UI.Abstractions.GuideGraphRenderer.Render(renderer, graphRect,
+                state.GuideSamples, state.LastGuideStats, 1f, string.Empty, 13f, showAxisLabels: true, showLegend: true);
+        }
+
+        Console.WriteLine($"Tab-render profile (1280x800 CPU, empty font): looping for {seconds}s each...");
+        Console.WriteLine();
+
+        Measure("GuiderTab.Render  (full frame: layout tree build+arrange+paint + all charts)",
+            seconds, () => tab.Render(state, fullRect, timeProvider));
+
+        Measure("GuideGraphRenderer.Render  (chart control only: direct pixel draw, no tree)",
+            seconds, () => TianWen.UI.Abstractions.GuideGraphRenderer.Render(renderer, graphRect,
+                state.GuideSamples, state.LastGuideStats, 1f, string.Empty, 13f, showAxisLabels: true, showLegend: true));
+
+        static void Measure(string label, int seconds, Action frame)
+        {
+            // Allocation: a fixed-count loop with a GC-quiesced baseline.
+            const int allocIters = 2000;
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+            GC.Collect();
+            var before = GC.GetAllocatedBytesForCurrentThread();
+            for (var i = 0; i < allocIters; i++) frame();
+            var bytesPerFrame = (GC.GetAllocatedBytesForCurrentThread() - before) / (double)allocIters;
+
+            // Throughput: loop until the wall-clock budget elapses.
+            var sw = Stopwatch.StartNew();
+            var frames = 0L;
+            var budget = TimeSpan.FromSeconds(seconds);
+            while (sw.Elapsed < budget)
+            {
+                frame();
+                frames++;
+            }
+            sw.Stop();
+            var usPerFrame = sw.Elapsed.TotalMilliseconds * 1000.0 / frames;
+
+            Console.WriteLine($"  {label}");
+            Console.WriteLine($"    {frames:N0} frames in {sw.Elapsed.TotalSeconds:F1}s  ->  {usPerFrame:F1} us/frame,  {bytesPerFrame:N0} bytes/frame");
+            Console.WriteLine();
+        }
+    }
+
+    /// <summary>Mid-guiding <see cref="TianWen.UI.Abstractions.LiveSessionState"/> (60 samples, stats,
+    /// star profile) -- the same shape as GuiderTabLayoutTests, so the tab paints real chart content.</summary>
+    private static TianWen.UI.Abstractions.LiveSessionState BuildGuidingLiveState()
+    {
+        var start = new DateTimeOffset(2025, 12, 15, 22, 0, 0, TimeSpan.Zero);
+        var samples = System.Collections.Immutable.ImmutableArray.CreateBuilder<TianWen.Lib.Sequencing.GuideErrorSample>(60);
+        for (var i = 0; i < 60; i++)
+        {
+            samples.Add(new TianWen.Lib.Sequencing.GuideErrorSample(
+                start + TimeSpan.FromSeconds(i * 2),
+                RaError: Math.Sin(i * 0.3) * 0.8,
+                DecError: Math.Cos(i * 0.2) * 0.5,
+                RaCorrectionMs: i % 5 == 0 ? 120 : 0,
+                DecCorrectionMs: i % 7 == 0 ? -90 : 0,
+                IsDither: i == 30,
+                IsSettling: i is > 30 and < 35));
+        }
+
+        var h = new float[21];
+        var v = new float[21];
+        for (var i = 0; i < h.Length; i++)
+        {
+            var d = i - 10;
+            h[i] = 1000f * MathF.Exp(-d * d / 8f);
+            v[i] = 900f * MathF.Exp(-d * d / 10f);
+        }
+
+        return new TianWen.UI.Abstractions.LiveSessionState
+        {
+            IsRunning = true,
+            Phase = TianWen.Lib.Sequencing.SessionPhase.Observing,
+            GuiderState = "Guiding",
+            GuideSamples = samples.MoveToImmutable(),
+            LastGuideStats = new TianWen.Lib.Devices.Guider.GuideStats
+            {
+                TotalRMS = 0.82, RaRMS = 0.55, DecRMS = 0.61, PeakRa = 1.6, PeakDec = 1.3,
+                LastRaErr = 0.31, LastDecErr = -0.22,
+            },
+            GuideExposure = TimeSpan.FromSeconds(2),
+            GuideStarProfile = (h, v),
+        };
+    }
+
+    /// <summary>Minimal <see cref="TianWen.Lib.Devices.ITimeProvider"/> for the render loop (no timers /
+    /// sleeps are exercised during a paint).</summary>
+    private sealed class BenchTimeProvider : TianWen.Lib.Devices.ITimeProvider
+    {
+        public DateTimeOffset GetUtcNow() => DateTimeOffset.UtcNow;
+        public long GetTimestamp() => Stopwatch.GetTimestamp();
+        public long TimestampFrequency => Stopwatch.Frequency;
+        public System.Threading.ITimer CreateTimer(System.Threading.TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)
+            => throw new NotSupportedException();
+        public ValueTask SleepAsync(TimeSpan duration, System.Threading.CancellationToken cancellationToken = default) => ValueTask.CompletedTask;
+        public TimeProvider System => TimeProvider.System;
     }
 
     /// <summary>Returns the path to a synthetic TIFF used by the TIFF

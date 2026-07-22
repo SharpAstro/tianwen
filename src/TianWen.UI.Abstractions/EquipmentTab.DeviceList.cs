@@ -47,7 +47,7 @@ namespace TianWen.UI.Abstractions
                 x + padding, y, w - padding * 2f, headerH,
                 fontSize * 1.05f, HeaderText, TextAlign.Near, TextAlign.Center);
 
-            FillRect(x + padding, y + headerH - 1f, w - padding * 2f, 1f, SeparatorColor);
+            RenderLayout(Layout.Builder.Spacer().Bg(SeparatorColor), new RectF32(x + padding, y + headerH - 1f, w - padding * 2f, 1f));
 
             var listTop    = y + headerH + padding / 2f;
             var listBottom = y + h - buttonH - padding;  // top of [Discover] button strip
@@ -93,13 +93,13 @@ namespace TianWen.UI.Abstractions
                 var rowLeaf = Layout.Builder.Spacer()
                     .Bg(isCurrentForSlot ? SlotActive : baseBg);
                 RenderLayout(rowLeaf, new RectF32(x, rowY, rowW, itemH));
-                FillRect(x, rowY + itemH - 1f, rowW, 1f, SeparatorColor);
+                RenderLayout(Layout.Builder.Spacer().Bg(SeparatorColor), new RectF32(x, rowY + itemH - 1f, rowW, 1f));
 
                 // Type badge
                 var badgeText = DeviceTypeBadge(device.DeviceType);
                 var textColor = isWrongType ? DimmedText : BodyText;
 
-                FillRect(x + padding, rowY + itemH * 0.15f, badgeW - padding, itemH * 0.7f, BadgeBg);
+                RenderLayout(Layout.Builder.Spacer().Bg(BadgeBg), new RectF32(x + padding, rowY + itemH * 0.15f, badgeW - padding, itemH * 0.7f));
                 DrawText(
                     badgeText,
                     fontPath,

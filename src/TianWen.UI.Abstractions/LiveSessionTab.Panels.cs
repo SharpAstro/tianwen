@@ -19,7 +19,7 @@ namespace TianWen.UI.Abstractions
         private void RenderOTAPanels(LiveSessionState state, RectF32 rect,
             float fontSize, float pad, float rowH, ITimeProvider timeProvider)
         {
-            FillRect(rect.X, rect.Y, rect.Width, rect.Height, PanelBg);
+            RenderLayout(Layout.Builder.Spacer().Bg(PanelBg), rect);
 
             if (!state.IsRunning)
             {
@@ -121,7 +121,8 @@ namespace TianWen.UI.Abstractions
                 rows.Add(Layout.Builder.Text(tempText, BaseFontSize * 0.85f, tempColor).RowH(BaseRowHeight));
 
                 var sparkKey = $"otaSpark:{i}";
-                _otaPanelFills[sparkKey] = r => RenderMiniSparkline(coolingSamples, i, r, tempColor);
+                _otaPanelFills[sparkKey] = r => CoolingSparklineRenderer.Render(Renderer, r, coolingSamples, i, DpiScale,
+                    tempColor, CameraPowerColors[i % CameraPowerColors.Length]);
                 rows.Add(Layout.Builder.Fill(key: sparkKey).RowH(60f));
             }
             rows.Add(Layout.Builder.Spacer().RowH(BasePadding));
@@ -171,7 +172,7 @@ namespace TianWen.UI.Abstractions
                 {
                     if (r.Height > 40)
                     {
-                        RenderVCurveChart(chartSamples, lastFocusRun, r, smallFsDevice);
+                        VCurveChartRenderer.Render(Renderer, r, chartSamples, lastFocusRun, DpiScale, FontPath, smallFsDevice);
                     }
                 };
                 rows.Add(Layout.Builder.Fill(key: vcurveKey).Stretch());
@@ -252,76 +253,7 @@ namespace TianWen.UI.Abstractions
                 content);
         }
 
-        /// <summary>Tiny sparkline of temperature + power for a single camera.</summary>
-        private void RenderMiniSparkline(ImmutableArray<CoolingSample> allSamples, int cameraIndex, RectF32 rect, RGBAColor32 tempColor)
-        {
-            var dpiScale = DpiScale;
-            FillRect(rect.X, rect.Y, rect.Width, rect.Height, GraphBg);
-
-            var powerColor = CameraPowerColors[cameraIndex % CameraPowerColors.Length];
-
-            // Collect last N samples for this camera
-            const int maxPoints = 20;
-            Span<float> temps = stackalloc float[maxPoints];
-            Span<float> powers = stackalloc float[maxPoints];
-            var count = 0;
-            for (var i = allSamples.Length - 1; i >= 0 && count < maxPoints; i--)
-            {
-                if (allSamples[i].CameraIndex == cameraIndex)
-                {
-                    temps[maxPoints - 1 - count] = (float)allSamples[i].TemperatureC;
-                    powers[maxPoints - 1 - count] = (float)allSamples[i].CoolerPowerPercent;
-                    count++;
-                }
-            }
-
-            if (count < 2)
-            {
-                return;
-            }
-
-            var start = maxPoints - count;
-            var tempSlice = temps.Slice(start, count);
-            var powerSlice = powers.Slice(start, count);
-
-            // Find temp range
-            var minT = float.MaxValue;
-            var maxT = float.MinValue;
-            for (var i = 0; i < count; i++)
-            {
-                if (tempSlice[i] < minT) minT = tempSlice[i];
-                if (tempSlice[i] > maxT) maxT = tempSlice[i];
-            }
-            var range = Math.Max(maxT - minT, 2f);
-            minT -= 1;
-            maxT = minT + range + 2;
-
-            var stepX = rect.Width / Math.Max(count - 1, 1);
-
-            // Draw power line first (behind temp)
-            for (var i = 1; i < count; i++)
-            {
-                var x1 = rect.X + (i - 1) * stepX;
-                var x2 = rect.X + i * stepX;
-                var y1 = rect.Y + rect.Height - (powerSlice[i - 1] / 100f) * rect.Height;
-                var y2 = rect.Y + rect.Height - (powerSlice[i] / 100f) * rect.Height;
-
-                FillRect(x1, y1, x2 - x1, Math.Max(1, dpiScale), powerColor);
-                FillRect(x2, Math.Min(y1, y2), Math.Max(1, dpiScale), Math.Abs(y2 - y1) + dpiScale, powerColor);
-            }
-
-            // Draw temp line on top
-            for (var i = 1; i < count; i++)
-            {
-                var x1 = rect.X + (i - 1) * stepX;
-                var x2 = rect.X + i * stepX;
-                var y1 = rect.Y + rect.Height - ((tempSlice[i - 1] - minT) / (maxT - minT)) * rect.Height;
-                var y2 = rect.Y + rect.Height - ((tempSlice[i] - minT) / (maxT - minT)) * rect.Height;
-
-                FillRect(x1, y1, x2 - x1, Math.Max(1, dpiScale), tempColor);
-                FillRect(x2, Math.Min(y1, y2), Math.Max(1, dpiScale), Math.Abs(y2 - y1) + dpiScale, tempColor);
-            }
-        }
+        // Tiny temperature + power cooling sparkline moved to the paint-owning CoolingSparklineRenderer.
 
         // -----------------------------------------------------------------------
         // Preview mode: OTA panels from profile + hub telemetry
@@ -346,10 +278,10 @@ namespace TianWen.UI.Abstractions
         private void RenderExposureLog(LiveSessionState state, RectF32 rect,
             float fontSize, float pad, float rowH)
         {
-            FillRect(rect.X, rect.Y, rect.Width, rect.Height, PanelBg);
+            RenderLayout(Layout.Builder.Spacer().Bg(PanelBg), rect);
 
             // Separator on left edge
-            FillRect(rect.X, rect.Y, 1, rect.Height, SeparatorColor);
+            RenderLayout(Layout.Builder.Spacer().Bg(SeparatorColor), new RectF32(rect.X, rect.Y, 1, rect.Height));
 
             if (!state.IsRunning && state.Mode == LiveSessionMode.PolarAlign)
             {
@@ -423,7 +355,7 @@ namespace TianWen.UI.Abstractions
             var smallFs = fontSize * 0.75f;
             var rowFs = fontSize * 0.8f;
 
-            FillRect(rect.X, colY, rect.Width, rowH, HeaderBg);
+            RenderLayout(Layout.Builder.Spacer().Bg(HeaderBg), new RectF32(rect.X, colY, rect.Width, rowH));
             DrawText("Time", fontPath, colTime, colY, colTarget - colTime, rowH, smallFs, DimText, TextAlign.Near, TextAlign.Center);
             DrawText("Target", fontPath, colTarget, colY, colFilter - colTarget, rowH, smallFs, DimText, TextAlign.Near, TextAlign.Center);
             DrawText("Filter", fontPath, colFilter, colY, colHfd - colFilter, rowH, smallFs, DimText, TextAlign.Near, TextAlign.Center);
@@ -454,7 +386,7 @@ namespace TianWen.UI.Abstractions
                 var entry = log[i];
                 var rowY = rowRect.Y;
                 var bg = (i % 2 == 0) ? PanelBg : RowAltBg;
-                FillRect(rowRect.X, rowY, rowRect.Width, rowRect.Height, bg);
+                RenderLayout(Layout.Builder.Spacer().Bg(bg), new RectF32(rowRect.X, rowY, rowRect.Width, rowRect.Height));
 
                 var target = entry.TargetName.Length > 10 ? entry.TargetName[..10] : entry.TargetName;
                 var filterRaw = LiveSessionActions.FilterDisplayLabel(entry.FilterName, "L");
@@ -474,7 +406,7 @@ namespace TianWen.UI.Abstractions
             var remainH = rect.Y + rect.Height - y;
             if (remainH > rowH * 3 && state.FocusHistory.Length > 0)
             {
-                FillRect(rect.X, y, rect.Width, 1, SeparatorColor);
+                RenderLayout(Layout.Builder.Spacer().Bg(SeparatorColor), new RectF32(rect.X, y, rect.Width, 1));
                 y += pad;
 
                 DrawText("Focus History", fontPath,
@@ -488,7 +420,7 @@ namespace TianWen.UI.Abstractions
                 {
                     var row = LiveSessionActions.FormatFocusHistoryRow(history[i], state.SiteTimeZone);
                     var bg = (i % 2 == 0) ? PanelBg : RowAltBg;
-                    FillRect(rect.X, y, rect.Width, rowH, bg);
+                    RenderLayout(Layout.Builder.Spacer().Bg(bg), new RectF32(rect.X, y, rect.Width, rowH));
                     DrawText(row, fontPath,
                         rect.X + pad, y, rect.Width - pad * 2, rowH,
                         fontSize * 0.75f, BodyText, TextAlign.Near, TextAlign.Center);
