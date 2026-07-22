@@ -214,8 +214,14 @@ what remains is SkyMap/Planner/Equipment chrome.**
   panel was already the gold standard). The per-row exposure value cell stays a keyed Fill (double-click
   edit region preserved); dropped the `MeasureValueColumnWidth` pre-pass (Star cells self-align).
   Inspector-verified.
-- `SkyMapTab.Search.cs` (5 / 6 / 16 line / 4 RenderButton) -- F3 modal chrome + results rows (the
-  sky lines/circles are raster). **REMAINING.**
+- **DONE** `SkyMapTab.Search.cs` -- F3 modal (chrome + results rows) was already one tree; the
+  selection **info panel** is now fully declarative too: its six text rows are a VStack, the close
+  button + action buttons are Clickable nodes. The four `RenderButton` action buttons (Goto / View in
+  Planner / Pin, or the mount branch's Solve & Sync) became ONE right-aligned HStack of Clickable Text
+  nodes (leading Star spacer + trailing fixed margin), killing the right-to-left `x -= btnW + gap`
+  cursor. What stays raster: the floating panel's own bg+border FillRects (minimal), the on-map
+  crosshair / shape marker, the sky-path polyline + event labels, and the comet vmag sparkline (all
+  primitive-based overlays). Screenshot-verified (mount + DSO panels, commit -> centre -> panel flow).
 - `PlannerTab.cs` (8 / 4 / 1) -- planner chart (raster) + list rows. **REMAINING.**
 - `EquipmentTab.DeviceList.cs` (4 / 6 / 2) -- device-list ROW body + Connect/Disconnect. **Deferred by
   design** (badge/name/status columns tangled with reachability/confirm-strip/segment business logic +
