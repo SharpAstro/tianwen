@@ -44,10 +44,11 @@ namespace TianWen.UI.Abstractions
         /// targets survive both gates and render as orange landmarks with a halo.
         /// </summary>
         protected void RenderObjectOverlayPrimitive(
-            ICelestialObjectDB db, RectF32 contentRect, float dpiScale, string fontPath,
+            ICelestialObjectDB db, RectF32 contentRect, string fontPath,
             float baseFontSize, SiteContext site, bool dimBelowHorizon, PlannerState plannerState,
             bool showAllOverlays)
         {
+            var dpiScale = DpiScale;
             if (contentRect.Width <= 0 || contentRect.Height <= 0)
             {
                 return;
@@ -141,7 +142,7 @@ namespace TianWen.UI.Abstractions
                 switch (cand.Marker)
                 {
                     case OverlayCandidateMarker.Ellipse e:
-                        DrawOverlayEllipse(cand.RA, cand.Dec, e, arcminToPixels, ppr, cxView, cyView, sx, sy, color, dpiScale);
+                        DrawOverlayEllipse(cand.RA, cand.Dec, e, arcminToPixels, ppr, cxView, cyView, sx, sy, color);
                         break;
                     case OverlayCandidateMarker.Cross c:
                         DrawOverlayCross(sx, sy, c.ArmPxAtDpi1 * dpiScale, color);
@@ -252,7 +253,7 @@ namespace TianWen.UI.Abstractions
         private void DrawOverlayEllipse(
             double raHours, double decDeg, OverlayCandidateMarker.Ellipse e,
             float arcminToPixels, double ppr, float cxView, float cyView,
-            float centerX, float centerY, RGBAColor32 color, float dpiScale)
+            float centerX, float centerY, RGBAColor32 color)
         {
             var semiMajorPx = MathF.Max(e.SemiMajArcmin * arcminToPixels, 1f);
             var semiMinorPx = MathF.Max(e.SemiMinArcmin * arcminToPixels, 0.5f);

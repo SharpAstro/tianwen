@@ -17,15 +17,17 @@ namespace TianWen.UI.Abstractions
     public partial class LiveSessionTab<TSurface>
     {
         private void RenderOTAPanels(LiveSessionState state, RectF32 rect, string fontPath,
-            float fontSize, float dpiScale, float pad, float rowH, ITimeProvider timeProvider)
+            float fontSize, float pad, float rowH, ITimeProvider timeProvider)
         {
             FillRect(rect.X, rect.Y, rect.Width, rect.Height, PanelBg);
 
             if (!state.IsRunning)
             {
-                RenderPreviewOTAPanels(state, rect, fontPath, fontSize, dpiScale, pad, rowH, timeProvider);
+                RenderPreviewOTAPanels(state, rect, fontPath, fontSize, pad, rowH, timeProvider);
                 return;
             }
+
+            var dpiScale = DpiScale;
 
             if (state.ActiveSession is not { } session)
             {
@@ -52,7 +54,7 @@ namespace TianWen.UI.Abstractions
                 {
                     columns.Add(Layout.Builder.Spacer().WFixed(1f).HStar().Bg(SeparatorColor));
                 }
-                columns.Add(BuildRunningOtaColumn(state, session, i, fontSize, dpiScale, fontPath, timeProvider).WStar());
+                columns.Add(BuildRunningOtaColumn(state, session, i, fontSize, fontPath, timeProvider).WStar());
             }
             var columnsRow = Layout.Builder.HStack([.. columns]);
 
@@ -70,7 +72,7 @@ namespace TianWen.UI.Abstractions
             Renderer.PushClip(new RectInt(
                 new PointInt((int)(rect.X + rect.Width), (int)(rect.Y + rect.Height)),
                 new PointInt((int)rect.X, (int)rect.Y)));
-            RenderLayout(tree, rect, fontPath, dpiScale, drawFill: DispatchOtaPanelFill);
+            RenderLayout(tree, rect, fontPath, drawFill: DispatchOtaPanelFill);
             Renderer.PopClip();
         }
 
@@ -81,7 +83,7 @@ namespace TianWen.UI.Abstractions
         /// during focus phases.
         /// </summary>
         private Layout.Node BuildRunningOtaColumn(LiveSessionState state, ISession session, int i,
-            float fontSize, float dpiScale, string fontPath, ITimeProvider timeProvider)
+            float fontSize, string fontPath, ITimeProvider timeProvider)
         {
             var ota = session.Setup.Telescopes[i];
             var cameraStates = state.CameraStates;
@@ -118,7 +120,7 @@ namespace TianWen.UI.Abstractions
                 rows.Add(Layout.Builder.Text(tempText, BaseFontSize * 0.85f, tempColor).RowH(BaseRowHeight));
 
                 var sparkKey = $"otaSpark:{i}";
-                _otaPanelFills[sparkKey] = r => RenderMiniSparkline(coolingSamples, i, r, tempColor, dpiScale);
+                _otaPanelFills[sparkKey] = r => RenderMiniSparkline(coolingSamples, i, r, tempColor);
                 rows.Add(Layout.Builder.Fill(key: sparkKey).RowH(60f));
             }
             rows.Add(Layout.Builder.Spacer().RowH(BasePadding));
@@ -168,7 +170,7 @@ namespace TianWen.UI.Abstractions
                 {
                     if (r.Height > 40)
                     {
-                        RenderVCurveChart(chartSamples, lastFocusRun, r, fontPath, smallFsDevice, dpiScale);
+                        RenderVCurveChart(chartSamples, lastFocusRun, r, fontPath, smallFsDevice);
                     }
                 };
                 rows.Add(Layout.Builder.Fill(key: vcurveKey).Stretch());
@@ -250,8 +252,9 @@ namespace TianWen.UI.Abstractions
         }
 
         /// <summary>Tiny sparkline of temperature + power for a single camera.</summary>
-        private void RenderMiniSparkline(ImmutableArray<CoolingSample> allSamples, int cameraIndex, RectF32 rect, RGBAColor32 tempColor, float dpiScale)
+        private void RenderMiniSparkline(ImmutableArray<CoolingSample> allSamples, int cameraIndex, RectF32 rect, RGBAColor32 tempColor)
         {
+            var dpiScale = DpiScale;
             FillRect(rect.X, rect.Y, rect.Width, rect.Height, GraphBg);
 
             var powerColor = CameraPowerColors[cameraIndex % CameraPowerColors.Length];
@@ -340,7 +343,7 @@ namespace TianWen.UI.Abstractions
         };
 
         private void RenderExposureLog(LiveSessionState state, RectF32 rect, string fontPath,
-            float fontSize, float dpiScale, float pad, float rowH)
+            float fontSize, float pad, float rowH)
         {
             FillRect(rect.X, rect.Y, rect.Width, rect.Height, PanelBg);
 
@@ -349,7 +352,7 @@ namespace TianWen.UI.Abstractions
 
             if (!state.IsRunning && state.Mode == LiveSessionMode.PolarAlign)
             {
-                RenderPolarSidePanel(state, rect, fontPath, fontSize, dpiScale, pad, rowH);
+                RenderPolarSidePanel(state, rect, fontPath, fontSize, pad, rowH);
                 return;
             }
 
@@ -358,7 +361,7 @@ namespace TianWen.UI.Abstractions
             // session snapshot mirrored by PollSession.
             if (state.Mode == LiveSessionMode.Flats)
             {
-                RenderFlatsSidePanel(state, rect, fontPath, fontSize, dpiScale, pad, rowH);
+                RenderFlatsSidePanel(state, rect, fontPath, fontSize, pad, rowH);
                 return;
             }
 
@@ -432,7 +435,7 @@ namespace TianWen.UI.Abstractions
             var rowsTop = colY + rowH + pad;
             _logScroll.SetExtent(
                 new RectF32(rect.X, rowsTop, rect.Width, rect.Height - rowH * 2 - pad * 2),
-                rowH, log.Length, dpiScale);
+                rowH, log.Length, DpiScale);
 
             if (log.Length == 0)
             {

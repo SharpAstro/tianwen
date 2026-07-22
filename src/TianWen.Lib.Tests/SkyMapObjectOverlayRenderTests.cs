@@ -36,10 +36,10 @@ public sealed class SkyMapObjectOverlayRenderTests
         }
 
         protected override void RenderObjectOverlay(
-            ICelestialObjectDB db, RectF32 contentRect, float dpiScale, string fontPath,
+            ICelestialObjectDB db, RectF32 contentRect, string fontPath,
             float baseFontSize, SiteContext site, bool dimBelowHorizon, PlannerState plannerState,
             bool showAllOverlays)
-            => RenderObjectOverlayPrimitive(db, contentRect, dpiScale, fontPath, baseFontSize,
+            => RenderObjectOverlayPrimitive(db, contentRect, fontPath, baseFontSize,
                 site, dimBelowHorizon, plannerState, showAllOverlays);
     }
 
@@ -68,19 +68,19 @@ public sealed class SkyMapObjectOverlayRenderTests
         // First render initialises the view to the celestial pole; then aim at the Sagittarius Milky Way
         // (RA 18h, Dec -24 deg) — packed with Messier nebulae / clusters — at a wide FOV, overlay OFF.
         tab.State.ShowObjectOverlay = false;
-        tab.Render(state, content, 1f, fontPath, time);
+        tab.Render(state, content, fontPath, time);
 
         tab.State.CenterRA = 18.0;
         tab.State.CenterDec = -24.0;
         tab.State.FieldOfViewDeg = 30.0;
 
-        tab.Render(state, content, 1f, fontPath, time);
+        tab.Render(state, content, fontPath, time);
         var off = (byte[])renderer.Surface.Pixels.Clone();
 
         // Same view, overlay ON. Only the [O] catalog markers + labels differ between the two frames,
         // so the pixel diff IS the overlay footprint.
         tab.State.ShowObjectOverlay = true;
-        tab.Render(state, content, 1f, fontPath, time);
+        tab.Render(state, content, fontPath, time);
         var on = renderer.Surface.Pixels;
 
         File.WriteAllBytes(Path.Combine(AppContext.BaseDirectory, "skymap-overlay-on.png"),

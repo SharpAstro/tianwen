@@ -42,10 +42,11 @@ namespace TianWen.UI.Abstractions
         private void RenderProfilePanel(
             GuiAppState appState,
             RectF32 rect,
-            float dpiScale, string fontPath,
+            string fontPath,
             string? emojiFontPath = null,
             LiveSessionState? liveSessionState = null)
         {
+            var dpiScale = DpiScale;
             var padding = BasePadding * dpiScale;
             var innerX = rect.X + padding;
             var innerW = rect.Width - padding * 2f;
@@ -63,7 +64,7 @@ namespace TianWen.UI.Abstractions
                 foreach (var section in _content.GetProfilePanelSections(pd))
                 {
                     var node = BuildSection(section, appState, pd, profile, liveSessionState,
-                        innerX, innerW, dpiScale, fontPath, idx++);
+                        innerX, innerW, fontPath, idx++);
                     if (node is { } n) sections.Add(n);
                 }
                 tree = Layout.Builder.VStack([.. sections]).Pad(BasePadding);
@@ -84,7 +85,7 @@ namespace TianWen.UI.Abstractions
             Renderer.PushClip(new RectInt(
                 new PointInt((int)(rect.X + rect.Width), (int)(rect.Y + rect.Height)),
                 new PointInt((int)rect.X, (int)rect.Y)));
-            RenderLayout(tree, rect, fontPath, dpiScale, drawFill: DispatchProfilePanelFill);
+            RenderLayout(tree, rect, fontPath, drawFill: DispatchProfilePanelFill);
             Renderer.PopClip();
         }
 
@@ -94,7 +95,7 @@ namespace TianWen.UI.Abstractions
         /// returns a self-contained sub-tree, so RenderProfilePanel just stacks them.
         /// </summary>
         private Layout.Node? BuildSection(PanelSection section, GuiAppState appState, ProfileData pd, Profile profile,
-            LiveSessionState? liveSessionState, float innerX, float innerW, float dpiScale, string fontPath, int idx)
+            LiveSessionState? liveSessionState, float innerX, float innerW, string fontPath, int idx)
         {
             switch (section)
             {
@@ -114,22 +115,22 @@ namespace TianWen.UI.Abstractions
 
                 case PanelSection.Slot slot:
                     return BuildProfileSlot(slot.Row.Label, EquipmentActions.GetAssignedDevice(pd, slot.Row.Slot), slot.Row.Slot,
-                        appState, pd, innerX, innerW, dpiScale, fontPath);
+                        appState, pd, innerX, innerW, fontPath);
 
                 case PanelSection.MountTelemetry:
-                    return BuildMountTelemetry(appState, pd.Mount, liveSessionState, innerW, dpiScale, fontPath);
+                    return BuildMountTelemetry(appState, pd.Mount, liveSessionState, innerW, fontPath);
 
                 case PanelSection.DeviceSettings ds:
-                    return BuildDeviceSettingsIfAny(appState, pd, ds.Device, ds.Label, dpiScale, fontPath);
+                    return BuildDeviceSettingsIfAny(appState, pd, ds.Device, ds.Label, fontPath);
 
                 case PanelSection.Site:
-                    return BuildSite(pd, dpiScale, fontPath);
+                    return BuildSite(pd, fontPath);
 
                 case PanelSection.GuideFocalLength:
-                    return BuildGuideFocalLength(pd, innerW, dpiScale, fontPath);
+                    return BuildGuideFocalLength(pd, innerW, fontPath);
 
                 case PanelSection.CameraTelemetry ct:
-                    return BuildCameraTelemetry(appState, ct.Camera, innerW, dpiScale, fontPath);
+                    return BuildCameraTelemetry(appState, ct.Camera, innerW, fontPath);
 
                 case PanelSection.OtaHeader oh:
                     return BuildOtaHeader(appState, pd, oh.Index);
@@ -138,12 +139,12 @@ namespace TianWen.UI.Abstractions
                 {
                     var otaData = pd.OTAs[op.Index];
                     return State.EditingOtaIndex == op.Index
-                        ? BuildOtaPropertyEditors(appState, op.Index, otaData, dpiScale, fontPath)
+                        ? BuildOtaPropertyEditors(appState, op.Index, otaData, fontPath)
                         : BuildOtaPropertiesSummary(otaData);
                 }
 
                 case PanelSection.FilterTable ft:
-                    return BuildFilterTable(appState, ft.OtaIndex, pd, dpiScale, fontPath);
+                    return BuildFilterTable(appState, ft.OtaIndex, pd, fontPath);
 
                 case PanelSection.AddOta:
                     return BuildAddOtaSection();
@@ -154,8 +155,9 @@ namespace TianWen.UI.Abstractions
         }
 
         /// <summary>Site latitude/longitude/elevation block: edit fields, a display row, or a "set site" button.</summary>
-        private Layout.Node BuildSite(ProfileData pd, float dpiScale, string fontPath)
+        private Layout.Node BuildSite(ProfileData pd, string fontPath)
         {
+            var dpiScale = DpiScale;
             var fontSize = BaseFontSize * dpiScale;
             var site = EquipmentActions.GetSiteFromProfile(pd);
 
@@ -225,8 +227,9 @@ namespace TianWen.UI.Abstractions
         }
 
         /// <summary>Guide-scope focal-length input row.</summary>
-        private Layout.Node BuildGuideFocalLength(ProfileData pd, float innerW, float dpiScale, string fontPath)
+        private Layout.Node BuildGuideFocalLength(ProfileData pd, float innerW, string fontPath)
         {
+            var dpiScale = DpiScale;
             var fontSize = BaseFontSize * dpiScale;
             var labelWDesign = innerW * 0.35f / dpiScale;
             float fieldH = BaseItemHeight * 0.9f;
@@ -344,8 +347,9 @@ namespace TianWen.UI.Abstractions
         private Layout.Node BuildProfileSlot(
             string label, Uri? deviceUri, AssignTarget slot,
             GuiAppState appState, ProfileData pd, float innerX, float innerW,
-            float dpiScale, string fontPath)
+            string fontPath)
         {
+            var dpiScale = DpiScale;
             var fontSize = BaseFontSize * dpiScale;
             var padding = BasePadding * dpiScale;
             var arrowW = BaseArrowWidth * dpiScale;
@@ -438,8 +442,9 @@ namespace TianWen.UI.Abstractions
         }
 
         private Layout.Node BuildOtaPropertyEditors(
-            GuiAppState appState, int otaIndex, OTAData ota, float dpiScale, string fontPath)
+            GuiAppState appState, int otaIndex, OTAData ota, string fontPath)
         {
+            var dpiScale = DpiScale;
             var fontSize = BaseFontSize * dpiScale;
             float fieldH = BaseItemHeight * 1.1f;
             const float labelW = 80f;

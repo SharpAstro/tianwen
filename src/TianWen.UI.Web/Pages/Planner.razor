@@ -915,11 +915,15 @@
                 _tycho2Requested = true;
                 _ = EnsureTycho2AtlasAsync();
             }
-            _skyTab.Render(_state, content, (float)_metrics.DevicePixelRatio, _fontPath, Time);
+            // DPI has one owner: the widget's DpiScale property (the browser's devicePixelRatio,
+            // re-read per frame since the JS resize observer updates _metrics out of band).
+            _skyTab.DpiScale = (float)_metrics.DevicePixelRatio;
+            _skyTab.Render(_state, content, _fontPath, Time);
         }
         else
         {
-            _tab.Render(_state, content, (float)_metrics.DevicePixelRatio, _fontPath, Time, _mouse, emojiFontPath: null);
+            _tab.DpiScale = (float)_metrics.DevicePixelRatio;
+            _tab.Render(_state, content, _fontPath, Time, _mouse, emojiFontPath: null);
         }
         _webGl.Present();
         SyncOverlayRect(); // regions were re-registered by the Render above

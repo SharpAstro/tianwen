@@ -49,7 +49,7 @@ namespace TianWen.UI.Abstractions
         /// </summary>
         protected void DrawSearchAndInfoPanel(
             PlannerState plannerState,
-            RectF32 contentRect, string fontPath, float dpiScale,
+            RectF32 contentRect, string fontPath,
             ICelestialObjectDB db,
             double siteLat, double siteLon,
             DateTimeOffset viewingTime,
@@ -124,24 +124,25 @@ namespace TianWen.UI.Abstractions
                     info = info.WithLiveHorizontal(site);
                 }
 
-                DrawInfoPanel(plannerState, info, contentRect, fontPath, dpiScale,
+                DrawInfoPanel(plannerState, info, contentRect, fontPath,
                     viewingTime, pixelsPerRadian, cx, cy);
             }
 
             if (State.Search.IsOpen)
             {
-                DrawSearchModal(contentRect, fontPath, dpiScale, db,
+                DrawSearchModal(contentRect, fontPath, db,
                     siteLat, siteLon, viewingTime, site);
             }
         }
 
         private void DrawSearchModal(
-            RectF32 contentRect, string fontPath, float dpiScale,
+            RectF32 contentRect, string fontPath,
             ICelestialObjectDB db,
             double siteLat, double siteLon,
             DateTimeOffset viewingTime,
             in SiteContext site)
         {
+            var dpiScale = DpiScale;
             // Full-content backdrop -- swallows clicks outside the panel. One draw==hit Box
             // leaf (fill and hit are the same arranged rect) instead of a FillRect +
             // RegisterClickable pair whose rects could silently drift apart.
@@ -252,10 +253,11 @@ namespace TianWen.UI.Abstractions
         private void DrawInfoPanel(
             PlannerState plannerState,
             in SkyMapInfoPanelData info,
-            RectF32 contentRect, string fontPath, float dpiScale,
+            RectF32 contentRect, string fontPath,
             DateTimeOffset viewingTime,
             double pixelsPerRadian, float cx, float cy)
         {
+            var dpiScale = DpiScale;
             // A comet carries a vmag sparkline under the text rows; fetch the state-cached curve (recomputed
             // only when the comet / viewing day changes) and grow the panel to make room for it.
             var isComet = info.Index is { } ci && ci.ToCatalog() == Catalog.Comet;
@@ -331,7 +333,7 @@ namespace TianWen.UI.Abstractions
             {
                 DrawMagnitudeSparkline(magCurve,
                     textX, py + row + 2f * dpiScale, textW, 30f * dpiScale,
-                    fontPath, fontSize, dpiScale);
+                    fontPath, fontSize);
             }
 
             // Action buttons along the bottom of the panel, as ONE right-aligned HStack tree (was a
@@ -429,7 +431,7 @@ namespace TianWen.UI.Abstractions
             // Path across the sky for a selected solar-system body (planet / comet): a thin polyline of its
             // motion over a body-appropriate window + labelled event markers (stations, elongation,
             // perihelion), drawn UNDER the reticle so "now" stays on top.
-            DrawSelectedObjectPath(info, plannerState, viewingTime, pixelsPerRadian, cx, cy, contentRect, fontPath, dpiScale);
+            DrawSelectedObjectPath(info, plannerState, viewingTime, pixelsPerRadian, cx, cy, contentRect, fontPath);
 
             // Selection marker on the map itself. For objects with a known shape
             // (nebulae, galaxies, clusters) we trace the projected ellipse so the
@@ -440,7 +442,7 @@ namespace TianWen.UI.Abstractions
                 && sx >= contentRect.X && sx < contentRect.X + contentRect.Width
                 && sy >= contentRect.Y && sy < contentRect.Y + contentRect.Height)
             {
-                if (!TryDrawShapeMarker(info, pixelsPerRadian, sx, sy, dpiScale))
+                if (!TryDrawShapeMarker(info, pixelsPerRadian, sx, sy))
                 {
                     DrawCircle(sx, sy, 14f * dpiScale, SelectionMarker, 1.5f);
                     DrawLine(sx - 18f * dpiScale, sy, sx - 8f * dpiScale, sy, SelectionMarker);
@@ -459,8 +461,9 @@ namespace TianWen.UI.Abstractions
 
         private void DrawSelectedObjectPath(
             in SkyMapInfoPanelData info, PlannerState plannerState, DateTimeOffset viewingTime,
-            double pixelsPerRadian, float cx, float cy, RectF32 contentRect, string fontPath, float dpiScale)
+            double pixelsPerRadian, float cx, float cy, RectF32 contentRect, string fontPath)
         {
+            var dpiScale = DpiScale;
             if (info.Index is not { } idx || !idx.IsSolarSystemObject)
             {
                 return;
@@ -531,9 +534,10 @@ namespace TianWen.UI.Abstractions
         // That stays correct under view rotation (Horizon mode, near-pole pointing)
         // and under stereographic distortion at edges of the viewport.
         private bool TryDrawShapeMarker(in SkyMapInfoPanelData info, double pixelsPerRadian,
-            float centerX, float centerY, float dpiScale)
+            float centerX, float centerY)
         {
             if (info.Shape is not { } shape) return false;
+            var dpiScale = DpiScale;
 
             // A star can carry a stray/cross-linked shape (e.g. Antares sits inside the
             // rho-Oph dark-cloud complex), but it must still draw as the crosshair, never
@@ -628,8 +632,9 @@ namespace TianWen.UI.Abstractions
         /// </summary>
         private void DrawMagnitudeSparkline(
             ReadOnlySpan<float> mags, float x, float y, float w, float h,
-            string fontPath, float fontSize, float dpiScale)
+            string fontPath, float fontSize)
         {
+            var dpiScale = DpiScale;
             var min = float.MaxValue;
             var max = float.MinValue;
             var finite = 0;
@@ -787,7 +792,7 @@ namespace TianWen.UI.Abstractions
         /// <see cref="InputEvent.MouseDown"/> does — and the click-select fires on mouse-up.
         /// </summary>
         protected void RememberMouseDown(float x, float y, InputModifier modifiers = InputModifier.None)
-            => _mapGesture.Arm(x, y, modifiers, _lastDpiScale);
+            => _mapGesture.Arm(x, y, modifiers, DpiScale);
 
         /// <summary>
         /// Project ppr for click-handling code outside this partial.

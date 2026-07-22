@@ -92,11 +92,12 @@ namespace TianWen.UI.Abstractions
             GuiAppState appState,
             PlannerState plannerState,
             RectF32 contentRect,
-            float dpiScale,
             string fontPath,
             ITimeProvider? timeProvider = null)
         {
             BeginFrame();
+            // DPI comes from the inherited DpiScale (host-set); local alias keeps the px math unchanged.
+            var dpiScale = DpiScale;
             _plannerState = plannerState;
             _timeProvider = timeProvider;
             _exposureValueRegions.Clear();
@@ -123,8 +124,8 @@ namespace TianWen.UI.Abstractions
             // Left panel: config form (fills remaining)
             var configRect = layout.Fill();
 
-            RenderConfigForm(configRect, dpiScale, fontPath);
-            RenderRightPanel(plannerState, obsRect, dpiScale, fontPath);
+            RenderConfigForm(configRect, fontPath);
+            RenderRightPanel(plannerState, obsRect, fontPath);
         }
 
         // -----------------------------------------------------------------------
@@ -298,9 +299,9 @@ namespace TianWen.UI.Abstractions
         private void RenderRightPanel(
             PlannerState plannerState,
             RectF32 rect,
-            float dpiScale,
             string fontPath)
         {
+            var dpiScale = DpiScale;
             FillRect(rect.X, rect.Y, rect.Width, rect.Height, PanelBg);
 
             var rightLayout = new PixelLayout(rect);
@@ -335,13 +336,13 @@ namespace TianWen.UI.Abstractions
                             .Clickable(new HitResult.ButtonHit("StartSession"), _ => PostSignal(new StartSessionSignal()))
                         : Layout.Builder.Text("Start (tonight only)", BaseFontSize, DisabledBtnText, TextAlign.Center, TextAlign.Center).Bg(DisabledBtnBg);
 
-                RenderLayout(Layout.Builder.VStack(btnNode.Stretch()).Pad(BasePadding), btnRect, fontPath, dpiScale);
+                RenderLayout(Layout.Builder.VStack(btnNode.Stretch()).Pad(BasePadding), btnRect, fontPath);
             }
 
             var obsRect = rightLayout.Fill();
 
-            RenderCameraSettings(cameraRect, dpiScale, fontPath);
-            RenderObservationList(plannerState, obsRect, dpiScale, fontPath);
+            RenderCameraSettings(cameraRect, fontPath);
+            RenderObservationList(plannerState, obsRect, fontPath);
         }
 
         // -----------------------------------------------------------------------
@@ -350,7 +351,6 @@ namespace TianWen.UI.Abstractions
 
         private void RenderCameraSettings(
             RectF32 rect,
-            float dpiScale,
             string fontPath)
         {
             // ONE arranged tree: "Camera Settings" header + per-OTA (name header, optional setpoint row,
@@ -367,7 +367,7 @@ namespace TianWen.UI.Abstractions
             {
                 rows.Add(Layout.Builder.Text("No cameras configured.", BaseFontSize * 0.9f, HintText, TextAlign.Center, TextAlign.Center)
                     .RowH(BaseItemHeight));
-                RenderLayout(Layout.Builder.VStack([.. rows]), rect, fontPath, dpiScale);
+                RenderLayout(Layout.Builder.VStack([.. rows]), rect, fontPath);
                 return;
             }
 
@@ -427,7 +427,7 @@ namespace TianWen.UI.Abstractions
                 rows.Add(Layout.Builder.Spacer().RowH(BasePadding * 0.5f));
             }
 
-            RenderLayout(Layout.Builder.VStack([.. rows]), rect, fontPath, dpiScale);
+            RenderLayout(Layout.Builder.VStack([.. rows]), rect, fontPath);
         }
 
         // -----------------------------------------------------------------------
@@ -437,9 +437,9 @@ namespace TianWen.UI.Abstractions
         private void RenderObservationList(
             PlannerState plannerState,
             RectF32 rect,
-            float dpiScale,
             string fontPath)
         {
+            var dpiScale = DpiScale;
             _obsFills.Clear();
 
             const float colNumW = 22f;
@@ -460,7 +460,7 @@ namespace TianWen.UI.Abstractions
             {
                 rows.Add(Layout.Builder.Text("No targets pinned.", BaseFontSize * 0.9f, HintText, TextAlign.Center, TextAlign.Center).RowH(BaseObsRowHeight));
                 rows.Add(Layout.Builder.Text("Use the Planner tab to add targets.", BaseFontSize * 0.9f, HintText, TextAlign.Center, TextAlign.Center).RowH(BaseObsRowHeight));
-                RenderLayout(Layout.Builder.VStack([.. rows]), rect, fontPath, dpiScale);
+                RenderLayout(Layout.Builder.VStack([.. rows]), rect, fontPath);
                 return;
             }
 
@@ -591,7 +591,7 @@ namespace TianWen.UI.Abstractions
             Renderer.PushClip(new RectInt(
                 new PointInt((int)(rect.X + rect.Width), (int)(rect.Y + rect.Height)),
                 new PointInt((int)rect.X, (int)rect.Y)));
-            RenderLayout(Layout.Builder.VStack([.. rows]), rect, fontPath, dpiScale,
+            RenderLayout(Layout.Builder.VStack([.. rows]), rect, fontPath,
                 drawFill: (fill, r) => { if (fill.Key is { } k && _obsFills.TryGetValue(k, out var painter)) painter(r); });
             Renderer.PopClip();
         }
@@ -606,9 +606,9 @@ namespace TianWen.UI.Abstractions
 
         private void RenderConfigForm(
             RectF32 rect,
-            float dpiScale,
             string fontPath)
         {
+            var dpiScale = DpiScale;
             FillRect(rect.X, rect.Y, rect.Width, rect.Height, ContentBg);
 
             var groups = SessionConfigGroups.Groups;

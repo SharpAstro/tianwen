@@ -23,11 +23,12 @@ namespace TianWen.UI.Abstractions
         /// leaves painted through <see cref="_profilePanelFills"/> from the single panel RenderLayout.
         /// </summary>
         private Layout.Node? BuildCameraTelemetry(
-            GuiAppState appState, Uri? cameraUri, float innerW, float dpiScale, string fontPath)
+            GuiAppState appState, Uri? cameraUri, float innerW, string fontPath)
         {
             if (cameraUri is null || cameraUri == NoneDevice.Instance.DeviceUri) return null;
             if (appState.DeviceHub is not { } hub || !hub.IsConnected(cameraUri)) return null;
 
+            var dpiScale = DpiScale;
             var key = cameraUri.GetLeftPart(UriPartial.Path);
             var fontSize = BaseFontSize * dpiScale;
             float rowH = BaseItemHeight * 0.9f;   // design units
@@ -149,12 +150,13 @@ namespace TianWen.UI.Abstractions
         /// </summary>
         private Layout.Node? BuildMountTelemetry(
             GuiAppState appState, Uri? mountUri, LiveSessionState? liveSessionState,
-            float innerW, float dpiScale, string fontPath)
+            float innerW, string fontPath)
         {
             if (mountUri is null || mountUri == NoneDevice.Instance.DeviceUri) return null;
             if (appState.DeviceHub is not { } hub || !hub.IsConnected(mountUri)) return null;
             if (liveSessionState is null) return null;
 
+            var dpiScale = DpiScale;
             var key = mountUri.GetLeftPart(UriPartial.Path);
             var fontSize = BaseFontSize * dpiScale;
             float rowH = BaseItemHeight * 0.9f;   // design units

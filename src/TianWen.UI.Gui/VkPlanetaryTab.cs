@@ -150,10 +150,12 @@ public sealed class VkPlanetaryTab : VkImageRenderer, IPlanetaryViewWidget
     /// wavelet-slider changes in the info panel reach the capture loop's sharpen).
     /// </summary>
     public void RenderPlanetary(PlanetaryCaptureController? controller, PreviewOTATelemetry focuser,
-        RectF32 contentRect, float dpiScale, string fontPath)
+        RectF32 contentRect, string fontPath)
     {
         _focuser = focuser;
-        DpiScale = dpiScale;
+        // DPI comes from the inherited DpiScale, pushed by the hosting chrome (VkGuiRenderer) at
+        // startup/resize; the local alias keeps the existing px math below unchanged.
+        var dpiScale = DpiScale;
 
         // Keep the GPU projection full-surface: the placement rects are full-surface pixel coords, and the
         // base maps [0, Width] x [0, Height] -> NDC over the whole window. Set the dimensions directly (not

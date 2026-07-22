@@ -86,18 +86,19 @@ namespace TianWen.UI.Abstractions
         public void Render(
             LiveSessionState liveState,
             RectF32 contentRect,
-            float dpiScale,
             string fontPath,
             ITimeProvider timeProvider)
         {
             BeginFrame();
+            // DPI comes from the inherited DpiScale (host-set); local alias keeps the px math unchanged.
+            var dpiScale = DpiScale;
             State.PollFromLiveState(liveState);
             CameraRect = ProfilePlotRect = TargetViewRect = GraphRect = default;
 
             if (State.PlaceholderReason is { } reason)
             {
                 RenderLayout(BuildPlaceholderTree(GuiderActions.PlaceholderText(reason)),
-                    contentRect, fontPath, dpiScale);
+                    contentRect, fontPath);
                 return;
             }
 
@@ -113,26 +114,26 @@ namespace TianWen.UI.Abstractions
             }
 
             var fontSize = BaseFontSize * dpiScale;
-            RenderLayout(BuildFrameTree(contentRect.Height / dpiScale), contentRect, fontPath, dpiScale,
-                (fill, rect) =>
+            RenderLayout(BuildFrameTree(contentRect.Height / dpiScale), contentRect, fontPath,
+                drawFill: (fill, rect) =>
                 {
                     switch (fill.Key)
                     {
                         case CameraFillKey:
                             CameraRect = rect;
-                            RenderGuideCamera(rect, dpiScale, fontPath, fontSize);
+                            RenderGuideCamera(rect, fontPath, fontSize);
                             break;
                         case ProfileFillKey:
                             ProfilePlotRect = rect;
-                            RenderStarProfilePlot(rect, dpiScale, fontPath, fontSize);
+                            RenderStarProfilePlot(rect, fontPath, fontSize);
                             break;
                         case TargetFillKey:
                             TargetViewRect = rect;
-                            RenderTargetView(rect, dpiScale, fontPath, fontSize);
+                            RenderTargetView(rect, fontPath, fontSize);
                             break;
                         case GraphFillKey:
                             GraphRect = rect;
-                            RenderGraph(rect, dpiScale, fontPath, fontSize);
+                            RenderGraph(rect, fontPath, fontSize);
                             break;
                     }
                 });
@@ -280,8 +281,9 @@ namespace TianWen.UI.Abstractions
         private static readonly RGBAColor32 CalOriginColor = new RGBAColor32(0xff, 0xff, 0xff, 0xcc);
         private static readonly RGBAColor32 CameraBg = new RGBAColor32(0x0a, 0x0a, 0x0a, 0xff);
 
-        private void RenderGuideCamera(RectF32 rect, float dpiScale, string fontPath, float fontSize)
+        private void RenderGuideCamera(RectF32 rect, string fontPath, float fontSize)
         {
+            var dpiScale = DpiScale;
             // The frame tree only emits this Fill leaf when both are present (else the pane is a
             // centred empty-state Text leaf), so this is a belt-and-braces guard.
             if (GuideCameraViewer is not { } viewer || _displayedGuideFrame is not { } image)
@@ -316,7 +318,7 @@ namespace TianWen.UI.Abstractions
 
                 if (State.GuideSamples.Length >= 2 && State.CalibrationOverlay is { } reticleCal)
                 {
-                    RenderGuidingReticle(reticleCal, cx, cy, rect, dpiScale);
+                    RenderGuidingReticle(reticleCal, cx, cy, rect);
                 }
                 else
                 {
@@ -335,7 +337,7 @@ namespace TianWen.UI.Abstractions
             if (State.CalibrationOverlay is { } cal && State.GuideSamples.Length < 2)
             {
                 RenderCalibrationOverlayOnCamera(cal,
-                    offsetX + drawW / 2, offsetY + drawH / 2, dpiScale);
+                    offsetX + drawW / 2, offsetY + drawH / 2);
             }
 
             // SNR + frame count in corner
@@ -355,8 +357,9 @@ namespace TianWen.UI.Abstractions
         /// the whole guiding session as an orientation reference (the calibration L-shape only
         /// shows before guiding starts).
         /// </summary>
-        private void RenderGuidingReticle(CalibrationOverlayData cal, int starCx, int starCy, RectF32 rect, float dpiScale)
+        private void RenderGuidingReticle(CalibrationOverlayData cal, int starCx, int starCy, RectF32 rect)
         {
+            var dpiScale = DpiScale;
             var theta = cal.CameraAngleRad;
             var raUx = (float)Math.Cos(theta);
             var raUy = (float)Math.Sin(theta);
@@ -413,8 +416,9 @@ namespace TianWen.UI.Abstractions
         /// </summary>
         private void RenderCalibrationOverlayOnCamera(
             CalibrationOverlayData cal,
-            double centerX, double centerY, float dpiScale)
+            double centerX, double centerY)
         {
+            var dpiScale = DpiScale;
             var scx = (int)centerX;
             var scy = (int)centerY;
 
@@ -516,9 +520,9 @@ namespace TianWen.UI.Abstractions
         /// </summary>
         private void RenderCalibrationText(
             CalibrationOverlayData cal,
-            RectF32 rect, float dpiScale, string fontPath, float fontSize)
+            RectF32 rect, string fontPath, float fontSize)
         {
-            var padding = BasePadding * dpiScale;
+            var padding = BasePadding * DpiScale;
             var lineH = fontSize * 1.3f;
             var labelW = rect.Width * 0.55f;
             var valueW = rect.Width * 0.4f;
@@ -566,8 +570,9 @@ namespace TianWen.UI.Abstractions
         /// Receives the PLOT rect (the pane's padding + title row are layout); the FWHM readout and
         /// the legend draw over the plot's top and bottom bands.
         /// </summary>
-        private void RenderStarProfilePlot(RectF32 rect, float dpiScale, string fontPath, float fontSize)
+        private void RenderStarProfilePlot(RectF32 rect, string fontPath, float fontSize)
         {
+            var dpiScale = DpiScale;
             if (State.GuideStarProfile is not var (hProfile, vProfile))
             {
                 return; // the frame tree only emits this Fill leaf with profile data present
@@ -721,8 +726,9 @@ namespace TianWen.UI.Abstractions
         /// <summary>
         /// PHD2-style target view: 2D scatter of RA (X) vs Dec (Y) error with RMS circle.
         /// </summary>
-        private void RenderTargetView(RectF32 rect, float dpiScale, string fontPath, float fontSize)
+        private void RenderTargetView(RectF32 rect, string fontPath, float fontSize)
         {
+            var dpiScale = DpiScale;
             var padding = BasePadding * dpiScale;
             var side = Math.Min(rect.Width, rect.Height) - padding * 2;
             var cx = rect.X + rect.Width / 2;
@@ -804,13 +810,14 @@ namespace TianWen.UI.Abstractions
             // Calibration data text (angle, rates, backlash) — hide once guiding starts
             if (State.CalibrationOverlay is { } cal && samples.Length < 2)
             {
-                RenderCalibrationText(cal, rect, dpiScale, fontPath, fontSize);
+                RenderCalibrationText(cal, rect, fontPath, fontSize);
             }
         }
 
 
-        private void RenderGraph(RectF32 rect, float dpiScale, string fontPath, float fontSize)
+        private void RenderGraph(RectF32 rect, string fontPath, float fontSize)
         {
+            var dpiScale = DpiScale;
             var samples = State.GuideSamples;
             if (samples.Length < 2)
             {

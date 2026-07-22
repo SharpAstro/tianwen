@@ -48,14 +48,14 @@ namespace TianWen.UI.Abstractions
         /// <see cref="LiveSessionMode.PolarAlign"/> is active.
         /// </summary>
         private void RenderPolarSidePanel(LiveSessionState state, RectF32 rect, string fontPath,
-            float fontSize, float dpiScale, float pad, float rowH)
+            float fontSize, float pad, float rowH)
         {
             // Setup phase: routine not yet started -> the whole panel is ONE arranged tree (header +
             // source + config + bottom-pinned Cancel/Start). The running phase keeps its status/gauge
             // flow (raster gauges) below.
             if (state.PolarPhase == PolarAlignmentPhase.Idle && state.PolarAlignmentCts is null)
             {
-                RenderPolarSetupPanel(state, rect, fontPath, dpiScale);
+                RenderPolarSetupPanel(state, rect, fontPath);
                 return;
             }
 
@@ -145,7 +145,7 @@ namespace TianWen.UI.Abstractions
                 .WithGap(BasePadding);
 
             var tree = Layout.Builder.Dock(content, Layout.Builder.Bottom(buttonRow, BaseRowHeight * 1.5f + BasePadding)).Pad(BasePadding);
-            RenderLayout(tree, rect, fontPath, dpiScale, drawFill: (fill, r) =>
+            RenderLayout(tree, rect, fontPath, drawFill: (fill, r) =>
             {
                 if (fill.Key == "polarGauges" && state.LastPolarSolve is { } solve)
                 {
@@ -160,7 +160,7 @@ namespace TianWen.UI.Abstractions
         /// Cancel / Start pin to the bottom (Dock.Bottom). No internal cursor -- the only constructed rect
         /// is the panel rect. Start posts StartPolarAlignmentSignal with a snapshot of PolarSetupConfig.
         /// </summary>
-        private void RenderPolarSetupPanel(LiveSessionState state, RectF32 rect, string fontPath, float dpiScale)
+        private void RenderPolarSetupPanel(LiveSessionState state, RectF32 rect, string fontPath)
         {
             var (canStart, _) = EvaluatePolarPreconditions(state);
             var cfg = state.PolarSetupConfig;
@@ -265,7 +265,7 @@ namespace TianWen.UI.Abstractions
 
             var bottomH = BaseRowHeight * 1.2f + BasePadding + BaseRowHeight * 1.6f;
             var tree = Layout.Builder.Dock(content, Layout.Builder.Bottom(buttons, bottomH)).Pad(BasePadding);
-            RenderLayout(tree, rect, fontPath, dpiScale);
+            RenderLayout(tree, rect, fontPath);
         }
 
         /// <summary>

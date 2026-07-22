@@ -37,9 +37,10 @@ namespace TianWen.UI.Abstractions
         public void Render(
             GuiAppState appState,
             RectF32 contentRect,
-            float dpiScale,
             string fontPath)
         {
+            // DPI comes from the inherited DpiScale (host-set); local alias keeps the px math unchanged.
+            var dpiScale = DpiScale;
             var rowH = BaseRowHeight * dpiScale;
             var fontSize = BaseFontSize * dpiScale;
             var pad = BasePadding * dpiScale;

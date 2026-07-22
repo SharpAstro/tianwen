@@ -18,8 +18,9 @@ namespace TianWen.UI.Abstractions
         /// <summary>
         /// PHD2-style guide graph using shared <see cref="GuideGraphRenderer"/> helpers.
         /// </summary>
-        private void RenderCompactGuideGraph(LiveSessionState state, RectF32 rect, float dpiScale)
+        private void RenderCompactGuideGraph(LiveSessionState state, RectF32 rect)
         {
+            var dpiScale = DpiScale;
             FillRect(rect.X, rect.Y, rect.Width, rect.Height, GuideGraphRenderer.GraphBg);
 
             var samples = state.GuideSamples;
@@ -102,8 +103,9 @@ namespace TianWen.UI.Abstractions
         private void RenderVCurveChart(
             ImmutableArray<(int Position, float Hfd)> samples,
             FocusRunRecord? completedRun,
-            RectF32 rect, string fontPath, float fontSize, float dpiScale)
+            RectF32 rect, string fontPath, float fontSize)
         {
+            var dpiScale = DpiScale;
             FillRect(rect.X, rect.Y, rect.Width, rect.Height, GraphBg);
 
             if (samples.Length < 2) return;

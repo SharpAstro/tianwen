@@ -274,10 +274,11 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
     /// the treatment applied to constellation and planet labels.
     /// </summary>
     protected override void RenderObjectOverlay(
-        ICelestialObjectDB db, RectF32 contentRect, float dpiScale, string fontPath,
+        ICelestialObjectDB db, RectF32 contentRect, string fontPath,
         float baseFontSize, SiteContext site, bool dimBelowHorizon, PlannerState plannerState,
         bool showAllOverlays)
     {
+        var dpiScale = DpiScale;
         var proposals = plannerState.Proposals;
         var viewMatrix = State.CurrentViewMatrix;
         var fov = State.FieldOfViewDeg;
@@ -699,9 +700,10 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
     /// mount is tracking where.
     /// </summary>
     protected override void RenderMountOverlay(
-        SkyMapMountOverlay mountOverlay, RectF32 contentRect, float dpiScale,
+        SkyMapMountOverlay mountOverlay, RectF32 contentRect,
         string fontPath, float baseFontSize, double ppr, float cx, float cy)
     {
+        var dpiScale = DpiScale;
         if (!SkyMapProjection.ProjectWithMatrix(
                 mountOverlay.RaJ2000, mountOverlay.DecJ2000,
                 State.CurrentViewMatrix, ppr, cx, cy,
@@ -869,9 +871,10 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
     /// mount reticle); the rest are pale green. Below-horizon targets are dimmed.
     /// </summary>
     protected override void RenderScheduleTargets(
-        RectF32 contentRect, float dpiScale, string fontPath, float baseFontSize,
+        RectF32 contentRect, string fontPath, float baseFontSize,
         double ppr, float cx, float cy, SiteContext site, bool dimBelowHorizon)
     {
+        var dpiScale = DpiScale;
         var fontSize = baseFontSize * dpiScale;
         var lineH = fontSize * 1.2f;
         const float margin = 100f;
@@ -981,9 +984,10 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
     /// always shown since they are frame-independent.
     /// </summary>
     protected override void RenderFixedPointMarkers(
-        RectF32 contentRect, float dpiScale, string fontPath, float baseFontSize,
+        RectF32 contentRect, string fontPath, float baseFontSize,
         double ppr, float cx, float cy, SiteContext site)
     {
+        var dpiScale = DpiScale;
         var fontSize = baseFontSize * dpiScale;
         var lineH = fontSize * 1.2f;
         var viewMatrix = State.CurrentViewMatrix;

@@ -218,7 +218,6 @@ namespace TianWen.UI.Abstractions
         public void Render(
             GuiAppState appState,
             RectF32 contentRect,
-            float dpiScale,
             string fontPath,
             string? emojiFontPath = null,
             LiveSessionState? liveSessionState = null)
@@ -226,22 +225,24 @@ namespace TianWen.UI.Abstractions
             // Clear clickable regions from previous frame
             BeginFrame();
 
+            var dpiScale = DpiScale;
+
             // Clear the whole content area first
             FillRect(contentRect.X, contentRect.Y, contentRect.Width, contentRect.Height, ContentBg);
 
             if (appState.ActiveProfile is null && !State.IsCreatingProfile)
             {
-                RenderNoProfile(contentRect, dpiScale, fontPath);
+                RenderNoProfile(contentRect, fontPath);
                 return;
             }
 
             if (State.IsCreatingProfile)
             {
-                RenderProfileCreation(contentRect, dpiScale, fontPath);
+                RenderProfileCreation(contentRect, fontPath);
                 return;
             }
 
-            RenderProfileView(appState, contentRect, dpiScale, fontPath, emojiFontPath, liveSessionState);
+            RenderProfileView(appState, contentRect, fontPath, emojiFontPath, liveSessionState);
 
             // Dropdown overlay -- rendered absolutely last so it paints on top of everything
             var fontSize = BaseFontSize * dpiScale;
@@ -257,7 +258,7 @@ namespace TianWen.UI.Abstractions
 
         private void RenderNoProfile(
             RectF32 rect,
-            float dpiScale, string fontPath)
+            string fontPath)
         {
             // Message + Create button vertically centred by equal star spacers; the button is
             // centred horizontally by star spacers around a fixed-width cell. No manual centre math.
@@ -276,7 +277,7 @@ namespace TianWen.UI.Abstractions
                     .RowH(BaseButtonHeight),
                 Layout.Builder.Spacer().Stretch());
 
-            RenderLayout(tree, rect, fontPath, dpiScale);
+            RenderLayout(tree, rect, fontPath);
         }
 
         // -----------------------------------------------------------------------
@@ -285,8 +286,10 @@ namespace TianWen.UI.Abstractions
 
         private void RenderProfileCreation(
             RectF32 rect,
-            float dpiScale, string fontPath)
+            string fontPath)
         {
+            var dpiScale = DpiScale;
+
             // The creation form is ONE arranged tree: header + label + name input (keyed Fill) +
             // Create button stack from the top of the Dock fill (padded VStack), with a hint status
             // bar docked to the bottom. The input's arranged rect drives RenderTextInput; the button
@@ -322,7 +325,7 @@ namespace TianWen.UI.Abstractions
                         .Bg(BottomBarBg).Pad(BasePadding),
                     BaseBottomBarHeight));
 
-            RenderLayout(tree, rect, fontPath, dpiScale, drawFill: (fill, r) =>
+            RenderLayout(tree, rect, fontPath, drawFill: (fill, r) =>
             {
                 if (fill.Key == "profileNameInput")
                 {
@@ -338,7 +341,7 @@ namespace TianWen.UI.Abstractions
         private void RenderProfileView(
             GuiAppState appState,
             RectF32 contentRect,
-            float dpiScale, string fontPath,
+            string fontPath,
             string? emojiFontPath = null,
             LiveSessionState? liveSessionState = null)
         {
@@ -354,18 +357,18 @@ namespace TianWen.UI.Abstractions
                 Layout.Builder.Bottom(
                     Layout.Builder.Fill(key: "bottomBar").Bg(BottomBarBg), BaseBottomBarHeight));
 
-            RenderLayout(tree, contentRect, fontPath, dpiScale, drawFill: (fill, r) =>
+            RenderLayout(tree, contentRect, fontPath, drawFill: (fill, r) =>
             {
                 switch (fill.Key)
                 {
                     case "profilePanel":
-                        RenderProfilePanel(appState, r, dpiScale, fontPath, emojiFontPath, liveSessionState);
+                        RenderProfilePanel(appState, r, fontPath, emojiFontPath, liveSessionState);
                         break;
                     case "deviceList":
-                        RenderDeviceList(appState, r, dpiScale, fontPath, emojiFontPath);
+                        RenderDeviceList(appState, r, fontPath, emojiFontPath);
                         break;
                     case "bottomBar":
-                        RenderBottomBar(appState, r, dpiScale, fontPath);
+                        RenderBottomBar(appState, r, fontPath);
                         break;
                 }
             });
@@ -410,8 +413,9 @@ namespace TianWen.UI.Abstractions
         private void RenderBottomBar(
             GuiAppState appState,
             RectF32 rect,
-            float dpiScale, string fontPath)
+            string fontPath)
         {
+            var dpiScale = DpiScale;
             var fontSize = BaseFontSize * dpiScale;
             var padding  = BasePadding * dpiScale;
 

@@ -74,11 +74,12 @@ namespace TianWen.Lib.Tests
 
         private static GuiderTab<RgbaImage> RenderTab(RgbaImageRenderer renderer, LiveSessionState live, float dpiScale = 1f)
         {
-            var tab = new GuiderTab<RgbaImage>(renderer);
+            // DPI is the widget-owned property now (host-set), not a Render argument.
+            var tab = new GuiderTab<RgbaImage>(renderer) { DpiScale = dpiScale };
             var time = new FakeTimeProviderWrapper(SampleStart);
             // A real font: the header/stats/axis labels rasterize glyphs on the CPU renderer.
             var fontPath = FontResolver.ResolveSystemFont();
-            tab.Render(live, new RectF32(0, 0, renderer.Width, renderer.Height), dpiScale, fontPath, time);
+            tab.Render(live, new RectF32(0, 0, renderer.Width, renderer.Height), fontPath, time);
             return tab;
         }
 
