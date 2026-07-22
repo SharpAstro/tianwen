@@ -127,6 +127,17 @@ namespace TianWen.UI.Abstractions
                 hit = _chrome.ActiveTab?.HitTestAndDispatch(px, py, modifiers);
             }
 
+            // A hyperlink (planner details -> Wikipedia): open it via the host. Centralized here so every
+            // LinkHit behaves identically, with no per-region wiring. The desktop host subscribes to
+            // OpenUrlSignal and opens the OS browser; on the web the DOM <a> handles the click before the
+            // canvas ever sees it, so this path is desktop-only in practice (and a no-op with no subscriber).
+            if (hit is HitResult.LinkHit { Url: var url })
+            {
+                _chrome.Bus?.Post(new OpenUrlSignal(url));
+                _appState.NeedsRedraw = true;
+                return true;
+            }
+
             // Text input focus management (via ActivateTextInputSignal/DeactivateTextInputSignal)
             if (hit is HitResult.TextInputHit { Input: { } clickedInput })
             {

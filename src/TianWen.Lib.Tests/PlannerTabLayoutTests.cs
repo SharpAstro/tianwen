@@ -6,6 +6,7 @@ using System.Linq;
 using DIR.Lib;
 using SharpAstro.Png;
 using Shouldly;
+using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Astrometry.SOFA;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Sequencing;
@@ -29,8 +30,9 @@ namespace TianWen.Lib.Tests
         private static readonly DateTimeOffset NightEnd = new(2025, 12, 16, 6, 0, 0, TimeSpan.Zero);
 
         /// <summary>A planner state with two selectable targets so the chart, list rows, and details
-        /// panel all have real content to paint.</summary>
-        private static PlannerState BuildState()
+        /// panel all have real content to paint. <paramref name="firstIndex"/> optionally gives the first
+        /// target a catalog index (so the details name line becomes a Wikipedia link).</summary>
+        private static PlannerState BuildState(CatalogIndex? firstIndex = null)
         {
             var state = new PlannerState
             {
@@ -45,7 +47,7 @@ namespace TianWen.Lib.Tests
             var tonightsBuilder = ImmutableArray.CreateBuilder<ScoredTarget>();
             for (var i = 0; i < 2; i++)
             {
-                var target = new Target(i * 2.0, 45, $"T{i}", null);
+                var target = new Target(i * 2.0, 45, $"T{i}", i == 0 ? firstIndex : null);
                 var peak = NightStart + TimeSpan.FromHours(3 + i * 2);
                 var scored = new ScoredTarget(target, (Half)1.0, (Half)1.0,
                     new Dictionary<RaDecEventTime, RaDecEventInfo>(),
@@ -273,6 +275,33 @@ namespace TianWen.Lib.Tests
 
             hit.ShouldBeOfType<HitResult.ListItemHit>().Index.ShouldBe(1);
             committed.ShouldBe([1]);
+        }
+
+        /// <summary>
+        /// The details name line for a catalogued target is a Wikipedia link: it registers a
+        /// <see cref="HitResult.LinkHit"/> carrying the article URL built from the MAIN catalog
+        /// designation. The host decides what a link does (the SDL/Vulkan chrome maps LinkHit ->
+        /// open the OS browser + a pointer cursor on hover; the web renders a real &lt;a&gt;), so this
+        /// pins only the tab's contract -- that the region exists with the right URL.
+        /// </summary>
+        [Fact]
+        public void DetailsName_ForCataloguedTarget_RegistersWikipediaLinkHit()
+        {
+            using var renderer = new RgbaImageRenderer(1600, 1000);
+            var tab = new PlannerTab<RgbaImage>(renderer) { FontPath = FontResolver.ResolveSystemFont() };
+
+            // A catalogued selected target (IC 1000) -> the name line carries the link.
+            var state = BuildState(CatalogIndex.IC1000);
+
+            var time = new FakeTimeProviderWrapper(new DateTimeOffset(2025, 12, 15, 22, 0, 0, TimeSpan.Zero));
+            tab.Render(state, new RectF32(0, 0, 1600, 1000), time);
+
+            // The name registers a LinkHit; a click on it returns that hit with the article URL built
+            // from the canonical designation (IC 1000 -> IC_1000), spaces mapped to '_'.
+            var region = tab.GetRegisteredRegions().First(r => r.Result is HitResult.LinkHit);
+            var hit = tab.HitTestAndDispatch(region.X + region.Width / 2f, region.Y + region.Height / 2f);
+
+            hit.ShouldBeOfType<HitResult.LinkHit>().Url.ShouldBe("https://en.wikipedia.org/wiki/IC_1000");
         }
     }
 }

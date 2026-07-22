@@ -125,6 +125,36 @@ public static class PlannerDetails
         return lines;
     }
 
+    private const string WikipediaArticleBase = "https://en.wikipedia.org/wiki/";
+
+    /// <summary>
+    /// The Wikipedia article URL for the currently selected target, built from its MAIN catalog
+    /// designation (e.g. "NGC 6523" -> https://en.wikipedia.org/wiki/NGC_6523). Returns null when nothing
+    /// is selected or the target carries no catalog index (bare positions). Spaces map to '_' (the
+    /// MediaWiki title convention) and the rest is percent-encoded -- MediaWiki decodes encoded titles, so
+    /// the link stays correct even for designations containing '/', '(' or an en-dash (comets, named DSOs).
+    /// The name line rendered in the details panel is the display name; the LINK deliberately uses the
+    /// canonical catalog designation so it resolves regardless of which common name we happen to show.
+    /// </summary>
+    public static string? GetWikipediaUrl(PlannerState state, IReadOnlyList<ScoredTarget> filteredTargets)
+    {
+        var idx = state.SelectedTargetIndex;
+        if (idx < 0 || idx >= filteredTargets.Count)
+        {
+            return null;
+        }
+        if (filteredTargets[idx].Target.CatalogIndex is not { } index)
+        {
+            return null;
+        }
+        var name = index.ToCanonical();
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            return null;
+        }
+        return WikipediaArticleBase + Uri.EscapeDataString(name.Replace(' ', '_'));
+    }
+
     /// <summary>
     /// Formats the coordinate + altitude + peak-time + window line for a scored target. Extracted
     /// so the CLI inline prompt can render exactly this line without depending on its positional
