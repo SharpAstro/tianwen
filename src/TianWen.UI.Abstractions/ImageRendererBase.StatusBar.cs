@@ -20,7 +20,7 @@ namespace TianWen.UI.Abstractions
 
         private void RenderStatusBar(AstroImageDocument? document, ViewerState state)
         {
-            if (_fontPath is null)
+            if (string.IsNullOrEmpty(FontPath))
             {
                 return;
             }
@@ -55,7 +55,7 @@ namespace TianWen.UI.Abstractions
             }
 
             var statusText = string.Join("  |  ", statusParts);
-            RenderTextBar(statusText.AsSpan(), _fontPath!, sb.X, sb.Y, sb.Width, sb.Height,
+            RenderTextBar(statusText.AsSpan(), FontPath, sb.X, sb.Y, sb.Width, sb.Height,
                 FontSize, ViewerTheme.StatusBarBg, ViewerTheme.Palette.BodyText,
                 horizontalPadding: PanelPadding, alignX: TextAlign.Near, alignY: TextAlign.Near);
         }

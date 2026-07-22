@@ -1310,6 +1310,36 @@ construction; no second hit-rect arithmetic that can drift). The full engine + D
 - Engine geometry is headless-testable (stub `Layout.IMeasureContext`); `EquipmentPanelLayoutTests` /
   `SessionConfigLayoutTests` pin arranged rects. Shipped DIR.Lib 6.0 / Console.Lib 3.3 / SdlVulkan.Renderer 6.7.
 
+### Per-Window Widget State: `DpiScale` / `FontPath` / `EmojiFontPath` are properties, not parameters
+
+A value that is **constant for the whole window** and would otherwise be threaded identically through
+every widget `Render`/helper signature lives as a **`virtual` property on `PixelWidgetBase<TSurface>`**
+(DIR.Lib), owned per widget instance (a widget belongs to exactly one window):
+
+- `DpiScale` (float, default 1), `FontPath` (string, default `string.Empty`), `EmojiFontPath` (string?,
+  null = fall back to `FontPath`). Empty/absent font = the text helpers no-op (never throw), so an
+  unconfigured widget just draws no text.
+- **The host sets them once**, at startup + on resize -- SDL `DisplayScale` + the resolved bundled/system
+  font (GUI/FitsViewer), `devicePixelRatio` + font per frame (web); a terminal leaves the defaults.
+- **A composite chrome widget propagates them to its children** by overriding the setter: `VkGuiRenderer`
+  pushes `DpiScale`/`FontPath`/`EmojiFontPath` to its child tabs (the embedded `VkImageRenderer` viewers +
+  the planetary tab self-resolve their own font, so they are deliberately not pushed).
+- **DIR.Lib layout helpers default to the property**: `RenderLayout`/`ArrangeLayout`/`PaintLayout` take
+  `float? dpiScale = null` / `string? fontPath = null` and resolve `?? DpiScale` / `?? FontPath`, so a call
+  omits them entirely. `dpiScale: 1f` is the explicit **device-px escape hatch** (a sub-tree already sized
+  in device px). Widget methods that draw open with `var dpiScale = DpiScale;` / `var fontPath = FontPath;`
+  (an alias, so the px + `DrawText` calls below are unchanged); input handlers read the property directly
+  (input events carry no DPI/font -- this is why the old `_lastDpiScale` render-time cache is gone).
+
+**Do NOT reintroduce these as `Render`/helper parameters.** Rule of thumb: a per-window *constant* ->
+property; a per-call *derived* value stays a parameter. `fontSize` is the canonical parameter -- it varies
+per region (`base*dpi`, headers `*1.3`, emoji size, value cells `*0.9`) and is computed inside each tab,
+so it is NEVER a per-window property (bundling it with the font paths into a record would re-couple a
+varying value to constants and reintroduce the threading). The two **static, non-widget** renderers
+(`AltitudeChartRenderer`, `SkyMapRenderer`) are not `PixelWidgetBase` subclasses, so they KEEP their
+`fontFamily`/`fontPath`/`emojiFontPath` parameters and are fed the caller's `FontPath`/`EmojiFontPath`.
+Plan + full breakdown: [`docs/plans/dpi-scale.md`](docs/plans/dpi-scale.md).
+
 ### Signal Handler Pattern — Route, Don't Implement
 
 The lightweight `SignalBus` is our alternative to MediatR/MVVM. `AppSignalHandler.cs` subscribe

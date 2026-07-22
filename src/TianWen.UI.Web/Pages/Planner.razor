@@ -915,15 +915,18 @@
                 _tycho2Requested = true;
                 _ = EnsureTycho2AtlasAsync();
             }
-            // DPI has one owner: the widget's DpiScale property (the browser's devicePixelRatio,
-            // re-read per frame since the JS resize observer updates _metrics out of band).
+            // DPI + font each have one owner: the widget's DpiScale / FontPath properties (the browser's
+            // devicePixelRatio + resolved font, re-set per frame since the JS resize observer updates
+            // _metrics / _fontPath out of band). The web host has no emoji font.
             _skyTab.DpiScale = (float)_metrics.DevicePixelRatio;
-            _skyTab.Render(_state, content, _fontPath, Time);
+            _skyTab.FontPath = _fontPath;
+            _skyTab.Render(_state, content, Time);
         }
         else
         {
             _tab.DpiScale = (float)_metrics.DevicePixelRatio;
-            _tab.Render(_state, content, _fontPath, Time, _mouse, emojiFontPath: null);
+            _tab.FontPath = _fontPath;
+            _tab.Render(_state, content, Time, _mouse);
         }
         _webGl.Present();
         SyncOverlayRect(); // regions were re-registered by the Render above

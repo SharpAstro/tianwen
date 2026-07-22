@@ -18,11 +18,37 @@ Verified: full solution + web build 0/0; 122 layout/tab/skymap tests green (incl
 pixel renders, now property-driven); live GUI smoke at the real DisplayScale (Planner + Equipment
 render identically to pre-sweep screenshots).
 
-**Follow-on (F1, recorded not started): `fontPath` has the same shape** -- a per-window value
-(host resolves the font once) threaded through every widget signature identically, plus a nullable
-`emojiFontPath` twin. The same treatment applies: a `FontPath` property on `PixelWidgetBase`
-(host-set), DIR.Lib helpers defaulting `fontPath: null -> FontPath`, then a signature sweep.
-Deferred to its own pass so the churn waves don't overlap (user suggestion, 2026-07-22).
+**Follow-on F1 (`fontPath`/`emojiFontPath`): DONE (2026-07-22).** Same shape as DPI -- a per-window
+value (host resolves the font once) threaded through every widget signature, plus the nullable
+`emojiFontPath` twin. Landed as the direct `DpiScale` mirror the user chose (two plain properties, not
+a bundling record):
+
+- **F1a (DIR.Lib):** `PixelWidgetBase.FontPath { get; set; } = string.Empty` (non-null; empty = the
+  text helpers no-op, no throw) + `EmojiFontPath { get; set; }` (nullable), both `virtual`. The layout
+  helpers (`RenderLayout`/`ArrangeLayout`/`PaintLayout`) took `string fontPath` -> `string? fontPath =
+  null` resolving `?? FontPath`. Pinned by two `LayoutPainterTests` (omitted arg uses the property; an
+  explicit `fontPath` overrides it -- the emoji-run escape hatch).
+- **F1b (wiring):** deleted `ImageRendererBase._fontPath` + its `FontPath` property (now inherited;
+  rewrote ~12 `_fontPath is null` guards to `string.IsNullOrEmpty(FontPath)` and dropped a
+  null-forgiving `_fontPath!`); `VkGuiRenderer` overrides `FontPath`/`EmojiFontPath` to propagate to
+  its 7 plain child tabs (the 2 embedded `VkImageRenderer` viewers + the `VkPlanetaryTab` self-resolve
+  their font, deliberately not pushed) and reads its own sidebar/status chrome from the properties; web
+  `Planner.razor` sets them per frame.
+- **F1c (sweep):** removed the `string fontPath` + `string? emojiFontPath` parameters from every widget
+  `Render`/helper across Equipment, LiveSession, SkyMap, Guider, Session, Planner, Notifications,
+  `IPlanetaryViewWidget`, `ImageRendererBase.Layout`, `VkPlannerTab`, `VkPlanetaryTab`, `VkSkyMapTab`,
+  `WebSkyMapTab` + tests. Methods that draw open with `var fontPath = FontPath;` (mirroring
+  `var dpiScale = DpiScale;`); pure pass-throughs just drop the param. **fontSize stays a per-call
+  parameter** -- it is a derived, per-region value (base * dpi, headers * 1.3, emoji size ...), never a
+  per-window constant, so bundling it (the record idea) would have re-coupled a varying value to the two
+  constants and reintroduced the threading. The two static NON-widget renderers (`AltitudeChartRenderer`,
+  `SkyMapRenderer`) keep their font params and are fed `FontPath`/`EmojiFontPath`.
+
+Verified: full solution + web 0/0; 95 layout/tab/skymap tests + 7 DIR.Lib LayoutPainter tests; GUI smoke
+at DisplayScale != 1 (Planner labels + weather-emoji glyphs, SkyMap constellation/grid/status labels,
+sidebar tooltip all render). `emojiFontPath` turned out to be vestigial dead pass-through in the Equipment
+family (never reached a `DrawText`) -- removed outright, no consumer lost. Rides the same unreleased
+DIR.Lib 6.16 as DPI/U1/U5; "no push before NuGet" still applies.
 
 ## Sweep: where DPI lives today
 

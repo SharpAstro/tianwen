@@ -79,7 +79,7 @@ namespace TianWen.UI.Abstractions
         /// <summary>Design-unit thickness of the file-list resize divider (the Split divider IS the grab bar).</summary>
         private const float BaseFileListDividerWidth = 6f;
 
-        private void ComputeLayout(ViewerState state, string fontPath)
+        private void ComputeLayout(ViewerState state)
         {
             Layout.Node content = state.ShowInfoPanel
                 ? Layout.Builder.Dock(
@@ -110,7 +110,7 @@ namespace TianWen.UI.Abstractions
                     Layout.Builder.Top(Layout.Builder.Fill(key: "toolbar"), BaseToolbarHeight),
                     Layout.Builder.Bottom(Layout.Builder.Fill(key: "statusBar"), BaseStatusBarHeight));
 
-            _layoutArranged = ArrangeLayout(root, ContentRegion, fontPath, DpiScale);
+            _layoutArranged = ArrangeLayout(root, ContentRegion);
 
             RectF32 toolbar = default, fileList = default, image = default, infoPanel = default, statusBar = default;
             foreach (var (node, b) in _layoutArranged)

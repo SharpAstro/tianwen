@@ -33,8 +33,6 @@ namespace TianWen.UI.Gui
         private readonly VkPlanetaryTab _planetaryTab;
         private ScheduledObservationTree? _cachedSchedule;
         private Target? _cachedActiveTarget;
-        private string? _fontPath;
-        private string? _emojiFontPath;
         private uint _width;
         private uint _height;
 
@@ -60,6 +58,50 @@ namespace TianWen.UI.Gui
                 _guiderViewer.DpiScale = value;
                 _previewViewer.DpiScale = value;
                 _planetaryTab.DpiScale = value;
+            }
+        }
+
+        /// <summary>
+        /// The window's primary text font, resolved once by this chrome (<see cref="ResolveFontPath"/>).
+        /// Overrides the <see cref="PixelWidgetBase{T}.FontPath"/> setter to push the font to the seven plain
+        /// child tabs, so their layout + text math all read one owner -- no per-Render fontPath argument.
+        /// The two embedded image viewers and the planetary tab are <see cref="VkImageRenderer"/>s that
+        /// self-resolve their own font in their ctor, so they are deliberately not pushed here (unchanged).
+        /// </summary>
+        public override string FontPath
+        {
+            get => base.FontPath;
+            set
+            {
+                base.FontPath = value;
+                _plannerTab.FontPath = value;
+                _equipmentTab.FontPath = value;
+                _sessionTab.FontPath = value;
+                _skyMapTab.FontPath = value;
+                _liveSessionTab.FontPath = value;
+                _guiderTab.FontPath = value;
+                _notificationsTab.FontPath = value;
+            }
+        }
+
+        /// <summary>
+        /// Optional emoji/symbol fallback font, propagated to the same seven tabs as <see cref="FontPath"/>.
+        /// Only the Planner + Equipment tabs consume it today (planet/weather glyphs on the altitude chart);
+        /// the others ignore it harmlessly.
+        /// </summary>
+        public override string? EmojiFontPath
+        {
+            get => base.EmojiFontPath;
+            set
+            {
+                base.EmojiFontPath = value;
+                _plannerTab.EmojiFontPath = value;
+                _equipmentTab.EmojiFontPath = value;
+                _sessionTab.EmojiFontPath = value;
+                _skyMapTab.EmojiFontPath = value;
+                _liveSessionTab.EmojiFontPath = value;
+                _guiderTab.EmojiFontPath = value;
+                _notificationsTab.EmojiFontPath = value;
             }
         }
 
@@ -315,8 +357,8 @@ namespace TianWen.UI.Gui
                 var textColor = isLocked ? LockedIcon
                               : isActive ? ActiveIcon
                                          : IconColor;
-                var iconFont = _emojiFontPath ?? _fontPath;
-                if (iconFont is not null)
+                var iconFont = EmojiFontPath ?? FontPath;
+                if (!string.IsNullOrEmpty(iconFont))
                 {
                     _renderer.DrawText(icon.AsSpan(), iconFont, FontSize * 1.3f,
                         textColor, new RectInt(new PointInt((int)sw, (int)(btnY + buttonSize)), new PointInt(0, (int)btnY)),
@@ -339,7 +381,7 @@ namespace TianWen.UI.Gui
                 }
             }
 
-            if (hoverTooltip is not null && _fontPath is not null)
+            if (hoverTooltip is not null && !string.IsNullOrEmpty(FontPath))
             {
                 DrawTooltip(hoverTooltip, sw + 6f, hoverY);
             }
@@ -350,10 +392,10 @@ namespace TianWen.UI.Gui
         // called at the end of RenderSidebar (paint-last = top).
         private void DrawTooltip(string text, float anchorX, float anchorY)
         {
-            if (_fontPath is null) return;
+            if (string.IsNullOrEmpty(FontPath)) return;
             var pad = 6f * DpiScale;
             var fontSize = FontSize;
-            var (tw, th) = _renderer.MeasureText(text.AsSpan(), _fontPath, fontSize);
+            var (tw, th) = _renderer.MeasureText(text.AsSpan(), FontPath, fontSize);
             var w = tw + pad * 2f;
             var h = th + pad;
             var x = anchorX;
@@ -362,7 +404,7 @@ namespace TianWen.UI.Gui
             // Border + fill
             FillRect(x - 1, y - 1, w + 2, h + 2, new RGBAColor32(0x50, 0x50, 0x60, 0xFF));
             FillRect(x, y, w, h, new RGBAColor32(0x22, 0x22, 0x2C, 0xF0));
-            _renderer.DrawText(text.AsSpan(), _fontPath, fontSize,
+            _renderer.DrawText(text.AsSpan(), FontPath, fontSize,
                 new RGBAColor32(0xE6, 0xE6, 0xE6, 0xFF),
                 new RectInt(new PointInt((int)(x + w), (int)(y + h)), new PointInt((int)(x + pad), (int)y)),
                 TextAlign.Near, TextAlign.Center);
@@ -379,7 +421,7 @@ namespace TianWen.UI.Gui
 
             FillRect(0, 0, w, sbh, StatusBarBg);
 
-            if (_fontPath is null)
+            if (string.IsNullOrEmpty(FontPath))
             {
                 return;
             }
@@ -428,7 +470,7 @@ namespace TianWen.UI.Gui
                 // Truncation needs a target width (intrinsic to ellipsising). Estimate the status cell as
                 // the left third (each zone is 1/3 of the content area) minus the profile name + gap.
                 var contentW = w - (SidebarWidth + 6f) - 4f;
-                var profW = _renderer.MeasureText(profileName.AsSpan(), _fontPath, FontSize).Width;
+                var profW = _renderer.MeasureText(profileName.AsSpan(), FontPath, FontSize).Width;
                 var msgCellW = Math.Max(contentW / 3f - profW - gapDu * DpiScale, 40f);
                 var displayMsg = TruncateToFit(msg, msgCellW, FontSize * 0.85f);
                 statusNode = Layout.Builder.Text(displayMsg, BaseFontSize * 0.85f, new RGBAColor32(0xff, 0xcc, 0x66, 0xff), TextAlign.Near, TextAlign.Center)
@@ -506,15 +548,15 @@ namespace TianWen.UI.Gui
 
             // Arrange + paint the bar over the content area (right of the sidebar gutter, small right margin).
             var bar = Layout.Builder.HStack(leftZone, centreZone, rightZone);
-            RenderLayout(bar, new RectF32(SidebarWidth + 6f, 0f, w - (SidebarWidth + 6f) - 4f, sbh), _fontPath, DpiScale);
+            RenderLayout(bar, new RectF32(SidebarWidth + 6f, 0f, w - (SidebarWidth + 6f) - 4f, sbh));
         }
 
         // Truncate with ellipsis so the string fits within maxWidth at the given font size.
         // Binary-search the longest prefix that, with the ellipsis appended, still fits.
         private string TruncateToFit(string text, float maxWidth, float fontSize)
         {
-            if (_fontPath is null) return text;
-            var (fullWidth, _) = _renderer.MeasureText(text.AsSpan(), _fontPath, fontSize);
+            if (string.IsNullOrEmpty(FontPath)) return text;
+            var (fullWidth, _) = _renderer.MeasureText(text.AsSpan(), FontPath, fontSize);
             if (fullWidth <= maxWidth) return text;
 
             const string Ellipsis = "\u2026";
@@ -524,7 +566,7 @@ namespace TianWen.UI.Gui
             {
                 var mid = (lo + hi + 1) / 2;
                 var candidate = string.Concat(text.AsSpan(0, mid), Ellipsis);
-                var (cw, _) = _renderer.MeasureText(candidate.AsSpan(), _fontPath, fontSize);
+                var (cw, _) = _renderer.MeasureText(candidate.AsSpan(), FontPath, fontSize);
                 if (cw <= maxWidth) lo = mid;
                 else hi = mid - 1;
             }
@@ -555,21 +597,18 @@ namespace TianWen.UI.Gui
             switch (appState.ActiveTab)
             {
                 case GuiTab.Planner:
-                    // Tabs read the DpiScale property (pushed by this chrome's setter override at
-                    // startup/resize) -- no per-Render dpi argument any more.
+                    // Tabs read the DpiScale + FontPath + EmojiFontPath properties (pushed by this chrome's
+                    // setter overrides at startup/resize) -- no per-Render dpi/font arguments any more.
                     _plannerTab.Render(plannerState, contentRect,
-                        _fontPath ?? "monospace", timeProvider, appState.MouseScreenPosition,
-                        _emojiFontPath);
+                        timeProvider, appState.MouseScreenPosition);
                     break;
 
                 case GuiTab.Equipment:
-                    _equipmentTab.Render(appState, contentRect,
-                        _fontPath ?? "monospace", _emojiFontPath, LiveSessionState);
+                    _equipmentTab.Render(appState, contentRect, LiveSessionState);
                     break;
 
                 case GuiTab.Session:
-                    _sessionTab.Render(appState, plannerState, contentRect,
-                        _fontPath ?? "monospace", timeProvider);
+                    _sessionTab.Render(appState, plannerState, contentRect, timeProvider);
                     break;
 
                 case GuiTab.SkyMap:
@@ -581,8 +620,7 @@ namespace TianWen.UI.Gui
                     PopulateSkyMapMountOverlay(appState, timeProvider);
                     PopulateSkyMapMosaicPanels(appState, plannerState);
                     PopulateSkyMapScheduleTargets();
-                    _skyMapTab.Render(plannerState, contentRect,
-                        _fontPath ?? "monospace", timeProvider);
+                    _skyMapTab.Render(plannerState, contentRect, timeProvider);
                     break;
 
                 case GuiTab.LiveSession:
@@ -596,18 +634,15 @@ namespace TianWen.UI.Gui
                         LiveSessionState.NauticalSet = plannerState.NauticalSet;
                         LiveSessionState.NauticalRise = plannerState.NauticalRise;
                     }
-                    _liveSessionTab.Render(LiveSessionState, contentRect,
-                        _fontPath ?? "monospace", timeProvider);
+                    _liveSessionTab.Render(LiveSessionState, contentRect, timeProvider);
                     break;
 
                 case GuiTab.Guider:
-                    _guiderTab.Render(LiveSessionState, contentRect,
-                        _fontPath ?? "monospace", timeProvider);
+                    _guiderTab.Render(LiveSessionState, contentRect, timeProvider);
                     break;
 
                 case GuiTab.Notifications:
-                    _notificationsTab.Render(appState, contentRect,
-                        _fontPath ?? "monospace");
+                    _notificationsTab.Render(appState, contentRect);
                     break;
 
                 default:
@@ -830,10 +865,10 @@ namespace TianWen.UI.Gui
         {
             FillRect(rect.X, rect.Y, rect.Width, rect.Height, ContentBg);
 
-            if (_fontPath is not null)
+            if (!string.IsNullOrEmpty(FontPath))
             {
                 var msg = $"{tab} — Coming soon";
-                DrawText(msg.AsSpan(), _fontPath,
+                DrawText(msg.AsSpan(), FontPath,
                     rect.X, rect.Y, rect.Width, rect.Height,
                     FontSize * 1.5f, PlaceholderText, TextAlign.Center, TextAlign.Center);
             }
@@ -845,22 +880,26 @@ namespace TianWen.UI.Gui
 
         private void ResolveFontPath()
         {
+            // Assigning FontPath / EmojiFontPath goes through the overridden setters above, which push the
+            // resolved fonts to the child tabs (one set-point). The preview + guide-cam viewers and the
+            // planetary tab self-resolve their font in their VkImageRenderer ctor, so they are not pushed.
+
             // Emoji font: bundled Noto COLRv1 (uses COLRv1 paint tree, rendered by DIR.Lib)
             var emojiPath = Path.Combine(AppContext.BaseDirectory, "Fonts", "Noto-COLRv1.ttf");
             if (File.Exists(emojiPath))
             {
-                _emojiFontPath = emojiPath;
+                EmojiFontPath = emojiPath;
             }
             else if (OperatingSystem.IsWindows() && File.Exists(@"C:\Windows\Fonts\seguiemj.ttf"))
             {
-                _emojiFontPath = @"C:\Windows\Fonts\seguiemj.ttf";
+                EmojiFontPath = @"C:\Windows\Fonts\seguiemj.ttf";
             }
 
             // Prefer bundled DejaVu Sans for regular text
             var bundled = Path.Combine(AppContext.BaseDirectory, "Fonts", "DejaVuSans.ttf");
             if (File.Exists(bundled))
             {
-                _fontPath = bundled;
+                FontPath = bundled;
             }
             else
             {
@@ -868,12 +907,9 @@ namespace TianWen.UI.Gui
                 var resolved = FontResolver.ResolveSystemFont();
                 if (resolved.Length > 0)
                 {
-                    _fontPath = resolved;
+                    FontPath = resolved;
                 }
             }
-
-            // The preview + guide-cam viewers self-resolve their font in their ctor
-            // (VkImageRenderer -> ResolveFontPath), so no propagation is needed here.
         }
     }
 }

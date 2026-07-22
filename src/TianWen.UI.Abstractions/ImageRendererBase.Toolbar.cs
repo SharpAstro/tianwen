@@ -76,7 +76,7 @@ namespace TianWen.UI.Abstractions
             // (e.g. "Stars" -> "Stars: 5893") which shifts later buttons.
             _toolbarButtonBounds.Clear();
 
-            if (_fontPath is null)
+            if (string.IsNullOrEmpty(FontPath))
             {
                 return;
             }
@@ -501,7 +501,7 @@ namespace TianWen.UI.Abstractions
         public ToolbarAction? HitTestToolbar(float screenX, float screenY, AstroImageDocument? document, ViewerState state)
         {
             var tb = _layout.Toolbar;
-            if (screenY < tb.Y + ButtonSpacing || screenY >= tb.Y + tb.Height - ButtonSpacing || _fontPath is null)
+            if (screenY < tb.Y + ButtonSpacing || screenY >= tb.Y + tb.Height - ButtonSpacing || string.IsNullOrEmpty(FontPath))
             {
                 return null;
             }
