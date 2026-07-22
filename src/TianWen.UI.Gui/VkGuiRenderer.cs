@@ -38,8 +38,30 @@ namespace TianWen.UI.Gui
         private uint _width;
         private uint _height;
 
-        /// <summary>DPI scale factor. Set from framebuffer size / window size ratio.</summary>
-        public float DpiScale { get; set; } = 1f;
+        /// <summary>
+        /// DPI scale factor, set by the host from the SDL window's DisplayScale (startup + resize).
+        /// Overrides the <see cref="PixelWidgetBase{T}.DpiScale"/> setter to propagate the new scale to
+        /// every child widget this chrome hosts, so tab layout + input math all read one owner -- no
+        /// per-Render parameter threading.
+        /// </summary>
+        public override float DpiScale
+        {
+            get => base.DpiScale;
+            set
+            {
+                base.DpiScale = value;
+                _plannerTab.DpiScale = value;
+                _equipmentTab.DpiScale = value;
+                _sessionTab.DpiScale = value;
+                _skyMapTab.DpiScale = value;
+                _liveSessionTab.DpiScale = value;
+                _guiderTab.DpiScale = value;
+                _notificationsTab.DpiScale = value;
+                _guiderViewer.DpiScale = value;
+                _previewViewer.DpiScale = value;
+                _planetaryTab.DpiScale = value;
+            }
+        }
 
         /// <summary>Exposes the planner tab for external scroll control.</summary>
         public VkPlannerTab PlannerTab => _plannerTab;

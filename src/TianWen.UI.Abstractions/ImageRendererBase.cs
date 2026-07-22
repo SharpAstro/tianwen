@@ -119,8 +119,8 @@ namespace TianWen.UI.Abstractions
             _ => 1,                             // MHC colour (AHD falls back to MHC)
         };
 
-        /// <summary>DPI scale factor. Set from framebuffer size / window size ratio.</summary>
-        public float DpiScale { get; set; } = 1f;
+        // DPI scale is the inherited PixelWidgetBase.DpiScale -- set by the host (SDL DisplayScale) at
+        // startup + resize; layout helpers and the ~16 derived px properties below all read it.
 
         /// <summary>
         /// Lazy-initialized celestial object database used for object overlays.
