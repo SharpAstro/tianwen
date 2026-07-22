@@ -35,7 +35,7 @@ namespace TianWen.UI.Abstractions
         /// </summary>
         private void RenderGridLabels(ViewerState state, WCS wcs)
         {
-            if (_fontPath is null || ImageWidth <= 0 || ImageHeight <= 0)
+            if (string.IsNullOrEmpty(FontPath) || ImageWidth <= 0 || ImageHeight <= 0)
             {
                 return;
             }
@@ -332,7 +332,7 @@ namespace TianWen.UI.Abstractions
 
         private void RenderOverlays(ViewerState state, WCS wcs, ICelestialObjectDB db)
         {
-            if (_fontPath is null || ImageWidth <= 0 || ImageHeight <= 0)
+            if (string.IsNullOrEmpty(FontPath) || ImageWidth <= 0 || ImageHeight <= 0)
             {
                 return;
             }

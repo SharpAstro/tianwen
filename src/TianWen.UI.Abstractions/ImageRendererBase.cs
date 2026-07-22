@@ -60,8 +60,6 @@ namespace TianWen.UI.Abstractions
     /// </summary>
     public abstract partial class ImageRendererBase<TSurface>(Renderer<TSurface> renderer) : PixelWidgetBase<TSurface>(renderer), ISelfDispatchingInputWidget
     {
-        private string? _fontPath;
-
         /// <summary>Reference to the viewer state from the last Render call.</summary>
         private ViewerState? _state;
 
@@ -416,15 +414,9 @@ namespace TianWen.UI.Abstractions
             var resolved = FontResolver.ResolveSystemFont();
             if (resolved.Length > 0)
             {
-                _fontPath = resolved;
+                // FontPath is the inherited PixelWidgetBase owner (the layout helpers default to it).
+                FontPath = resolved;
             }
-        }
-
-        /// <summary>Gets or sets the font path used for text rendering.</summary>
-        protected string? FontPath
-        {
-            get => _fontPath;
-            set => _fontPath = value;
         }
 
         // -----------------------------------------------------------------------
@@ -474,7 +466,7 @@ namespace TianWen.UI.Abstractions
 
             // Single layout pass: every pane rect (file list / image / info panel) and the image
             // placement below derive from this ONE arrangement -- no per-consumer recomputation.
-            ComputeLayout(state, _fontPath ?? string.Empty);
+            ComputeLayout(state);
             ComputeImagePlacement(state);
 
             // Draw image FIRST so UI chrome paints on top of it
@@ -510,7 +502,7 @@ namespace TianWen.UI.Abstractions
             // Paint + hit-bind the file-list resize divider (the Split's draw==hit node) from the
             // single layout pass -- the grab region is exactly the drawn bar. No-op when there is no
             // file list (no divider node was arranged).
-            PaintLayout(_layoutArranged, _fontPath ?? string.Empty, DpiScale);
+            PaintLayout(_layoutArranged);
 
             if (state.ShowGrid && document?.Wcs is { HasCDMatrix: true } wcs)
             {
@@ -564,9 +556,9 @@ namespace TianWen.UI.Abstractions
             // Dropdown overlays — rendered last so their clickables win z-order
             // (RegisterClickable resolves by paint order). RenderDropdownMenu is
             // a no-op when the state is closed. Toolbar-driven, so skipped with the chrome.
-            if (!state.HideChrome && _fontPath is { } fontPath)
+            if (!state.HideChrome && !string.IsNullOrEmpty(FontPath))
             {
-                RenderDropdownMenu(state.ToolbarDropdown, fontPath, ToolbarFontSize,
+                RenderDropdownMenu(state.ToolbarDropdown, FontPath, ToolbarFontSize,
                     bgColor: new RGBAColor32(0x33, 0x33, 0x38, 0xff),
                     highlightColor: new RGBAColor32(0x33, 0x4d, 0x80, 0xff),
                     textColor: new RGBAColor32(0xe6, 0xe6, 0xe6, 0xff),
@@ -596,7 +588,8 @@ namespace TianWen.UI.Abstractions
         {
             // Canonical RGBAColor32 path (the inherited PixelWidgetBase.DrawText), fed from ViewerTheme.
             // Near/Near + a generous width preserves the old left-aligned, non-clipped behaviour.
-            DrawText(text.AsSpan(), _fontPath!, x, y, Width - x, FontSize * 1.3f, FontSize, color, TextAlign.Near, TextAlign.Near);
+            // The inherited DrawText no-ops on an empty FontPath, so no null-forgiving is needed.
+            DrawText(text.AsSpan(), FontPath, x, y, Width - x, FontSize * 1.3f, FontSize, color, TextAlign.Near, TextAlign.Near);
             y += FontSize + 2f;
         }
 
@@ -664,12 +657,12 @@ namespace TianWen.UI.Abstractions
         /// </summary>
         protected float MeasureText(string text, float fontSize)
         {
-            if (_fontPath is null)
+            if (string.IsNullOrEmpty(FontPath))
             {
                 return text.Length * fontSize * 0.6f;
             }
 
-            return Renderer.MeasureText(text.AsSpan(), _fontPath, fontSize).Width;
+            return Renderer.MeasureText(text.AsSpan(), FontPath, fontSize).Width;
         }
 
         /// <summary>
@@ -681,7 +674,7 @@ namespace TianWen.UI.Abstractions
         /// </summary>
         protected void DrawText(string text, float screenX, float screenY, float fontSize, RGBAColor32 color)
         {
-            if (_fontPath is null)
+            if (string.IsNullOrEmpty(FontPath))
             {
                 return;
             }
@@ -690,7 +683,7 @@ namespace TianWen.UI.Abstractions
             var rect = new RectInt(
                 new PointInt((int)(screenX + Width), (int)screenY + lh),
                 new PointInt((int)screenX, (int)screenY));
-            Renderer.DrawText(text.AsSpan(), _fontPath, fontSize, color, rect, TextAlign.Near, TextAlign.Near);
+            Renderer.DrawText(text.AsSpan(), FontPath, fontSize, color, rect, TextAlign.Near, TextAlign.Near);
         }
 
     }

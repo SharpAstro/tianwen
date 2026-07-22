@@ -37,7 +37,7 @@ namespace TianWen.UI.Abstractions
 
         private void RenderInfoPanel(IPreviewSource source, ViewerState state)
         {
-            if (_fontPath is null)
+            if (string.IsNullOrEmpty(FontPath))
             {
                 return;
             }

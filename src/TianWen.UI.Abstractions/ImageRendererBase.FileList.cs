@@ -47,7 +47,7 @@ namespace TianWen.UI.Abstractions
 
             FillRect(lx, listTop, FileListWidth, listHeight, ViewerTheme.FileListBg);
 
-            if (_fontPath is null)
+            if (string.IsNullOrEmpty(FontPath))
             {
                 return;
             }

@@ -75,7 +75,7 @@ namespace TianWen.UI.Abstractions
                 histLeft, histTop, histLeft + histW, histTop + histH, Width, Height);
 
             // Draw LOG button in upper-right corner of histogram
-            if (_fontPath is not null)
+            if (!string.IsNullOrEmpty(FontPath))
             {
                 var (bx, by, bw, bh) = GetHistogramLogButtonRect(state);
                 var mouseX = state.MouseScreenPosition.X;

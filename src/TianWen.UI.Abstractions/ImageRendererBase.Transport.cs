@@ -31,7 +31,7 @@ namespace TianWen.UI.Abstractions
         private void RenderTransportBar(ViewerState state)
         {
             var r = _transportRect;
-            if (r.Width <= 0 || r.Height <= 0 || _fontPath is null)
+            if (r.Width <= 0 || r.Height <= 0 || string.IsNullOrEmpty(FontPath))
             {
                 _scrubTrackRect = default;
                 return;
