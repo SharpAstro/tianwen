@@ -184,11 +184,10 @@ namespace TianWen.UI.Abstractions
                 : canCancel
                     ? ("Cancel", AbortBg, AbortText)
                     : ("Cancel", new RGBAColor32(0x33, 0x33, 0x3a, 0xff), DimText);
-            RenderButton(cancelLabel, x0, buttonY, w, rowH * 1.6f,
-                fontPath, fontSize * 0.9f,
-                cancelBg, cancelFg,
-                "FlatsCancel",
-                _ => { if (canCancel) PostSignal(new CancelFlatsSignal()); });
+            var cancelNode = Layout.Builder.Text(cancelLabel, fontSize * 0.9f, cancelFg, TextAlign.Center, TextAlign.Center)
+                .Stretch().Bg(cancelBg)
+                .Clickable(new HitResult.ButtonHit("FlatsCancel"), _ => { if (canCancel) PostSignal(new CancelFlatsSignal()); });
+            RenderLayout(cancelNode, new RectF32(x0, buttonY, w, rowH * 1.6f), fontPath, dpiScale: 1f);
         }
     }
 }
