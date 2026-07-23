@@ -1,6 +1,6 @@
 # Controls upstreaming: promote generic controls to DIR.Lib
 
-**Status: U1 + U5 SHIPPED; U2 DESIGN SIGNED OFF (2026-07-23), implementation next.** Follow-on to
+**Status: U1 + U2 + U5 SHIPPED (2026-07-23); U3/U4/U6 deferred.** Follow-on to
 [interaction-primitives.md](interaction-primitives.md); taxonomy + inventory in
 [../architecture/widgets-and-controls.md](../architecture/widgets-and-controls.md).
 
@@ -43,14 +43,16 @@ were tianwen's.
 
 ## U2 -- `SearchInteraction` base -> DIR.Lib, tianwen searches become subclasses
 
-**Status: IMPLEMENTED locally + smoke-verified (2026-07-23); pending release + commit.** On uncommitted
-branches `feat/search-interaction` (DIR.Lib) + `feat/controls-upstreaming-u2` (tianwen). DIR.Lib suite
-549/0 (20 new `SearchInteractionTests`); tianwen solution builds 0/0, 128 Planner/SkyMap/TextInput/
-Equipment tests green. Live GUI smoke (inspector): planner autocomplete (type -> dropdown -> Down -> Enter
-commits + resets, no auto-highlight) and sky-map F3 (open -> results with first auto-highlighted -> Escape
-closes) both behave per their preserved policies; no stderr exceptions. Remaining: the DIR.Lib release
-chain (next minor after DeviceTransform's 6.17) + lockstep rebuilds + tianwen repin, then commit/PR
-("no push before NuGet"). The 6 U5 residue casts are an easy tail to fold into the tianwen repin.
+**Status: SHIPPED (2026-07-23).** DIR.Lib #25 -> **6.18.1581** (`SearchInteraction<TResult>` base);
+lockstep **Console.Lib 3.11.1181** + **SdlVulkan.Renderer 6.31.1771**; tianwen **PR #113 merged to main**
+(the repin also folded in the already-published DeviceTransform DIR.Lib 6.17 / SdlVkR 6.30 that main had
+not yet consumed -- tianwen jumped 6.16->6.18 / 6.29->6.31; the 6 U5 residue casts rode along). WebGl.Renderer
+stayed at 1.11 (its packed DIR 6.14.* floats to a `>=min` transitive dep, satisfied by 6.18 -- no rebuild).
+DIR.Lib suite 549/0 (20 new `SearchInteractionTests`); tianwen solution 0/0, 128 Planner/SkyMap/TextInput/
+Equipment tests green, and full tianwen CI green on #113 (build + functional + unit x2 -- the only leg that
+restores the repin from NuGet). Live GUI smoke (inspector): planner autocomplete (type -> dropdown -> Down ->
+Enter commits + resets, no auto-highlight) and sky-map F3 (open -> results with first auto-highlighted ->
+Escape closes) both behave per their preserved policies; no stderr exceptions.
 
 The planner search (`PlannerSearchInteraction` + suggestion state spread over `PlannerState`) and the
 sky-map F3 search (`SkyMapSearchState` + inline key-nav in `SkyMapTab.Search.cs:762-768`) are the
