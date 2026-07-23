@@ -183,7 +183,7 @@ namespace TianWen.UI.Abstractions
 
         /// <summary>
         /// Builds the exposure-state node for one OTA: "Idle" / "Downloading #n" text, or (while exposing) a
-        /// VStack of a countdown label + a <see cref="FormRowLayout.ProgressBar"/> with the remaining seconds
+        /// VStack of a countdown label + a <see cref="Layout.Builder.Progress"/> with the remaining seconds
         /// centred on it. The bar is a declarative node (track + fractional fill + label), not a hand-drawn
         /// FillRect gauge.
         /// </summary>
@@ -212,7 +212,7 @@ namespace TianWen.UI.Abstractions
 
             return Layout.Builder.VStack(
                     Layout.Builder.Text(expLabel, BaseFontSize * 0.85f, BodyText).RowH(BaseRowHeight),
-                    FormRowLayout.ProgressBar(fraction, ProgressBg, ProgressFill, remText, BaseFontSize * 0.65f, BrightText)
+                    Layout.Builder.Progress(fraction, ProgressBg, ProgressFill, remText, BaseFontSize * 0.65f, BrightText)
                         .RowH(BaseProgressBarH))
                 .WStar();
         }

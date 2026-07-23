@@ -1,6 +1,6 @@
 # Controls upstreaming: promote generic controls to DIR.Lib
 
-**Status: U1 + U2 + U5 SHIPPED (2026-07-23); U3/U4/U6 deferred.** Follow-on to
+**Status: U1 + U2 + U3 + U4 + U5 SHIPPED (2026-07-23); U6 deferred.** Follow-on to
 [interaction-primitives.md](interaction-primitives.md); taxonomy + inventory in
 [../architecture/widgets-and-controls.md](../architecture/widgets-and-controls.md).
 
@@ -159,14 +159,22 @@ promotion candidate -- key routing + clipboard + Tab-cycling over `TextInputStat
 keep U2 focused: promote it as a separate follow-on once `SearchInteraction` has proven out, cutting the
 `IPixelWidget`/`BackgroundTaskTracker`/clipboard seams carefully. Rides its own DIR.Lib minor.
 
-## U3 -- `DropdownMenuState` overflow scrolling (opportunistic)
+## U3 -- `DropdownMenuState` overflow scrolling (DONE + SHIPPED, DIR.Lib 6.19)
 
 `PixelMenuWidget`/`DropdownMenuState` clip at `visibleRows` by design (the degenerate mode the
 controller explicitly supports zero-config). When a menu first outgrows its viewport, adopt an
 internal `ListScrollController` inside DIR.Lib -- zero consumer change. Not scheduled; recorded so
 the door stays marked.
 
-## U4 -- `ProgressBar` node factory -> `DIR.Lib.Layout.Builder` (opportunistic)
+- **DONE (2026-07-23, DIR.Lib 6.19):** `DropdownMenuState.Scroll` is a row-snapped decorative
+  `ListScrollController`; `RenderDropdownMenu` clamps the menu to the space below its anchor and
+  feeds the scroll extent, keyboard nav scrolls via `EnsureVisible`, and `HandleScrollInput` is the
+  opt-in wheel path (wired in tianwen `EquipmentTab` for the filter-name dropdown). A menu that fits
+  resolves to MaxOffset 0 -- no scrollbar, byte-identical rows. `ListScrollController.VisibleAtoms`
+  gained an `AtomFitEpsilon` so an exact-fit last row no longer drops to float rounding (the
+  atom-model successor to the per-list +0.5px epsilon). Pinned by DIR.Lib `DropdownMenuStateTests`.
+
+## U4 -- `ProgressBar` node factory -> `DIR.Lib.Layout.Builder` (DONE + SHIPPED, DIR.Lib 6.19)
 
 `FormRowLayout.ProgressBar(fraction, track, fill, label?, labelFontSize?, labelColor?)` (tianwen,
 added 2026-07-22) is a declarative fractional progress bar composed purely from existing primitives --
@@ -177,6 +185,11 @@ pure `Builder` sugar over records the engine already measures/arranges/paints), 
 lets every `DIR.Lib.Layout` consumer (incl. the web port) drop hand-drawn gauge painters. Pinned by
 tianwen `ProgressBarLayoutTests`; the same arrange assertions move to DIR.Lib headless tests on promotion.
 No behaviour change, pixel-identical. Not scheduled; recorded so the door stays marked.
+
+- **DONE (2026-07-23, DIR.Lib 6.19):** promoted verbatim to `Layout.Builder.Progress(...)`;
+  tianwen's `FormRowLayout.ProgressBar` + `ProgressBarLayoutTests` deleted, both call sites
+  (LiveSessionTab exposure-state + OTA capture rows) re-pointed. DIR.Lib `LayoutProgressTests` carries
+  the arrange assertions.
 
 ## U5 -- `RenderTextInput(RectF32)` overload (DONE + SHIPPED, DIR.Lib 6.15/6.16; small residue)
 

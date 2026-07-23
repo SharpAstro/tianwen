@@ -150,7 +150,7 @@ namespace TianWen.UI.Abstractions
         /// no <c>maxY</c> reservation -- Dock.Bottom gives the columns the area above the mount strip and the
         /// panel clips overflow). The focuser-goto text input is a keyed <see cref="Layout.Content.Fill"/>
         /// leaf painted through <see cref="_otaPanelFills"/>; the capture progress bar is a declarative
-        /// <see cref="FormRowLayout.ProgressBar"/> node.
+        /// <see cref="Layout.Builder.Progress"/> node.
         /// </summary>
         private void RenderPreviewOTAPanels(LiveSessionState state, RectF32 rect,
             float fontSize, float pad, float rowH, ITimeProvider timeProvider)
@@ -336,7 +336,7 @@ namespace TianWen.UI.Abstractions
                 rows.Add(Layout.Builder.Text($"Capturing {elapsed.TotalSeconds:F0}/{dur.TotalSeconds:F0}s",
                     BaseFontSize * 0.85f, HeaderText).RowH(BaseRowHeight));
 
-                rows.Add(FormRowLayout.ProgressBar(fraction, ProgressBg, ProgressFill).RowH(BaseProgressBarH));
+                rows.Add(Layout.Builder.Progress(fraction, ProgressBg, ProgressFill).RowH(BaseProgressBarH));
                 return Layout.Builder.VStack([.. rows]).WStar();
             }
 

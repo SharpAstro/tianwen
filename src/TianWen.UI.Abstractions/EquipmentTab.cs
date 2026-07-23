@@ -87,6 +87,9 @@ namespace TianWen.UI.Abstractions
             InputEvent.KeyDown(var key, _) when State.FilterNameDropdown.HandleKeyDown(key) => true,
             // ESC dismisses any active selection/confirmation before bubbling to quit
             InputEvent.KeyDown(InputKey.Escape, _) => DismissActiveState(),
+            // An open, overflowing filter-name dropdown claims the wheel first (no-op when closed / fits /
+            // wheel outside its overlay); returning true redraws, mirroring the device-list wheel path.
+            InputEvent.Scroll when State.FilterNameDropdown.HandleScrollInput(evt) => true,
             // Wheel over the list scrolls it; the controller keeps the fractional trackpad carry.
             InputEvent.Scroll(_, var mouseX, var mouseY, _)
                 when _deviceListRect.Contains(mouseX, mouseY) => _deviceScroll.HandleInput(evt),

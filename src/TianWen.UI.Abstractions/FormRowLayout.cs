@@ -144,40 +144,5 @@ namespace TianWen.UI.Abstractions
 
             return Layout.Builder.HStack(labelLeaf, decLeaf, valueLeaf, incLeaf).RowH(rowH).Bg(rowBg);
         }
-
-        /// <summary>
-        /// A declarative fractional progress bar: a coloured <paramref name="track"/> with a
-        /// <paramref name="fill"/> spanning [0, 1] of the width, plus an optional centred
-        /// <paramref name="label"/> (e.g. remaining time). Composed purely from Box/Overlay/HStack
-        /// primitives -- no <c>Fill</c> escape hatch and no bespoke draw closure -- so it is draw==hit,
-        /// DPI-scaled by the engine, visible in <c>describe_layout</c>, and renders identically on every
-        /// surface. The fractional split is two <c>Star</c>-weighted spacers, so the fill stays a true
-        /// fraction of the bar at any width/DPI with no pixel arithmetic. Size it at the call site with
-        /// <c>.RowH(barHeight)</c> (or any sizing) -- the returned node fills whatever rect it is given.
-        /// </summary>
-        public static Layout.Node ProgressBar(
-            float fraction, RGBAColor32 track, RGBAColor32 fill,
-            string? label = null, float labelFontSize = 14f, RGBAColor32 labelColor = default)
-        {
-            fraction = Math.Clamp(fraction, 0f, 1f);
-
-            // A full/empty bar is a single coloured box; a partial bar overlays a fractional-width fill (two
-            // Star-weighted spacers) on the track. In the partial branch both weights are > 0, so the weight
-            // split never divides by a zero total.
-            var bar = fraction <= 0f
-                ? Layout.Builder.Spacer().Stretch().Bg(track)
-                : fraction >= 1f
-                    ? Layout.Builder.Spacer().Stretch().Bg(fill)
-                    : Layout.Builder.Overlay(
-                        Layout.Builder.Spacer().Stretch().Bg(track),
-                        Layout.Builder.HStack(
-                            Layout.Builder.Spacer().WStar(fraction).HStar().Bg(fill),
-                            Layout.Builder.Spacer().WStar(1f - fraction).HStar()));
-
-            return label is { Length: > 0 }
-                ? Layout.Builder.Overlay(bar,
-                    Layout.Builder.Text(label, labelFontSize, labelColor, TextAlign.Center, TextAlign.Center))
-                : bar;
-        }
     }
 }
