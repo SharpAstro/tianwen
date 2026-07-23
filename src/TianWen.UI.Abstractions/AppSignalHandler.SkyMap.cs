@@ -63,21 +63,20 @@ namespace TianWen.UI.Abstractions
             // ---------------------------------------------------------------
             var skySearch = skyMapState.Search;
 
-            skySearch.SearchInput.OnTextChanged = _ =>
-            {
-                var db = sp.GetRequiredService<ICelestialObjectDB>();
-                SkyMapSearchActions.FilterResults(skySearch, db);
-                skyMapState.NeedsRedraw = true;
-                appState.NeedsRedraw = true;
-            };
-
-            skySearch.SearchInput.OnCommit = _ =>
-            {
-                bus.Post(new SkyMapSearchCommitSignal());
-                return Task.CompletedTask;
-            };
-
-            skySearch.SearchInput.OnCancel = () => bus.Post(new CloseSkyMapSearchSignal());
+            // The search-box interaction (input wiring + Up/Down/Enter/Escape protocol + the result list) is
+            // the shared DIR.Lib SearchInteraction; construct it with the desktop-flavoured dispatch. Commit
+            // + close go through the signal bus so the per-invocation DI context (catalog / comets / viewing
+            // time / site) resolves in the handlers below. Replaces the three SearchInput.On* assignments.
+            skySearch.Interaction = new SkyMapSearchInteraction(
+                skySearch,
+                sp.GetRequiredService<ICelestialObjectDB>(),
+                commit: () => bus.Post(new SkyMapSearchCommitSignal()),
+                close: () => bus.Post(new CloseSkyMapSearchSignal()),
+                requestRedraw: () =>
+                {
+                    skyMapState.NeedsRedraw = true;
+                    appState.NeedsRedraw = true;
+                });
 
             bus.Subscribe<OpenSkyMapSearchSignal>(_ =>
             {
@@ -98,6 +97,14 @@ namespace TianWen.UI.Abstractions
 
             bus.Subscribe<SkyMapSearchCommitSignal>(_ =>
             {
+                // The interaction holds the highlighted row (keyboard Enter or a CommitAt mouse click set
+                // SelectedIndex before posting this); resolve it and hand it to the commit helper.
+                if (skySearch.Interaction is not { } interaction
+                    || interaction.SelectedIndex < 0
+                    || interaction.SelectedIndex >= interaction.Results.Length)
+                {
+                    return;
+                }
                 var db = sp.GetRequiredService<ICelestialObjectDB>();
                 // Include the sky-map scrub offset so a planet commit resolves the SAME live position
                 // the map is showing (and reads the render's planet cache without thrashing it).
@@ -105,6 +112,7 @@ namespace TianWen.UI.Abstractions
                 var site = SiteContext.Create(plannerState.SiteLatitude, plannerState.SiteLongitude, viewingUtc);
                 SkyMapSearchActions.CommitResult(
                     skySearch, skyMapState, db,
+                    interaction.Results[interaction.SelectedIndex],
                     plannerState.SiteLatitude, plannerState.SiteLongitude,
                     viewingUtc, site, plannerState.Comets);
                 bus.Post(new DeactivateTextInputSignal());

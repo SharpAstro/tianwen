@@ -18,18 +18,17 @@ namespace TianWen.UI.Abstractions
     public static class TextInputInteraction
     {
         /// <summary>Host callbacks + optional per-app state <see cref="HandleKey"/> needs.
-        /// <see cref="Planner"/>/<see cref="SkySearch"/> enable the suggestion/result arrow
-        /// navigation when the respective search input is the active one; either may be null.
-        /// <see cref="Deactivate"/> must clear the host's active-input tracking (desktop posts
-        /// DeactivateTextInputSignal); <see cref="SetActive"/> must update it to an
-        /// already-activated input (Tab cycling).</summary>
+        /// <see cref="ActiveSearch"/> is the search interaction whose input is currently active (planner
+        /// autocomplete or sky-map F3), enabling Up/Down result navigation; null when no search box is
+        /// active. <see cref="Deactivate"/> must clear the host's active-input tracking (desktop posts
+        /// DeactivateTextInputSignal); <see cref="SetActive"/> must update it to an already-activated input
+        /// (Tab cycling).</summary>
         public readonly record struct KeyContext(
             BackgroundTaskTracker Tracker,
             Action Deactivate,
             Action<TextInputState> SetActive,
             Action RequestRedraw,
-            PlannerState? Planner = null,
-            SkyMapSearchState? SkySearch = null,
+            SearchInteraction? ActiveSearch = null,
             IPixelWidget? ActiveTab = null,
             Func<string?>? GetClipboardText = null,
             Action<string>? SetClipboardText = null);
@@ -52,48 +51,14 @@ namespace TianWen.UI.Abstractions
         public static bool HandleKey(
             TextInputState activeInput, InputKey key, InputModifier modifiers, in KeyContext ctx)
         {
-            // Autocomplete arrow navigation (planner search box)
-            if (ctx.Planner is { } planner
-                && activeInput == planner.SearchInput && planner.Suggestions.Count > 0)
+            // Result-list navigation (planner autocomplete / sky-map F3) while its search box is the active
+            // input. The Up/Down protocol lives ONCE in SearchInteraction.HandleNavKey -- arrow keys are not
+            // TextInputKeys, so they cannot ride OnKeyOverride, and this method swallows all keys (see the
+            // final return), so the nav has to happen here before the key is consumed.
+            if (ctx.ActiveSearch is { } search && activeInput == search.Input && search.HandleNavKey(key))
             {
-                if (key == InputKey.Down)
-                {
-                    planner.SuggestionIndex = Math.Min(
-                        planner.SuggestionIndex + 1, planner.Suggestions.Count - 1);
-                    ctx.RequestRedraw();
-                    return true;
-                }
-
-                if (key == InputKey.Up && planner.SuggestionIndex >= 0)
-                {
-                    planner.SuggestionIndex--;
-                    ctx.RequestRedraw();
-                    return true;
-                }
-            }
-
-            // Sky-map F3 search: arrow keys navigate the result list. The tab's own
-            // TryHandleSearchKey only runs when NO text input is active, but the search input IS
-            // active here -- and this method swallows all keys (see the final return) -- so the
-            // navigation has to happen here too, mirroring the planner block above. Without this,
-            // Up/Down never reach the result list while the user is typing in the search box.
-            if (ctx.SkySearch is { } skySearch
-                && activeInput == skySearch.SearchInput && skySearch.Results.Length > 0)
-            {
-                if (key == InputKey.Down)
-                {
-                    skySearch.SelectedResultIndex = Math.Min(
-                        skySearch.SelectedResultIndex + 1, skySearch.Results.Length - 1);
-                    ctx.RequestRedraw();
-                    return true;
-                }
-                if (key == InputKey.Up)
-                {
-                    skySearch.SelectedResultIndex = Math.Max(
-                        skySearch.SelectedResultIndex - 1, 0);
-                    ctx.RequestRedraw();
-                    return true;
-                }
+                ctx.RequestRedraw();
+                return true;
             }
 
             var textKey = key.ToTextInputKey(modifiers);

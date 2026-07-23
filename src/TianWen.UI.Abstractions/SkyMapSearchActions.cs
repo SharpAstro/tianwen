@@ -86,25 +86,21 @@ public static class SkyMapSearchActions
     }
 
     /// <summary>
-    /// Recompute <see cref="SkyMapSearchState.Results"/> from the current
-    /// <see cref="SkyMapSearchState.SearchInput"/> text. With Tycho-2 in the
-    /// catalog the index is ~2.5M entries; we exploit the fact that
-    /// <see cref="ICelestialObjectDB.CreateAutoCompleteList"/> returns its
-    /// entries sorted ordinal-ignore-case to binary-search the prefix
-    /// range in O(log N), then scan the contiguous prefix run for matches.
-    /// A substring fallback runs only when the prefix scan returns nothing,
-    /// keeping the steady-state hot path off the full-array scan that used
-    /// to fire on every keystroke.
+    /// Resolve the search results for <paramref name="query"/> from the catalog + comet index. With
+    /// Tycho-2 in the catalog the index is ~2.5M entries; we exploit the fact that
+    /// <see cref="ICelestialObjectDB.CreateAutoCompleteList"/> returns its entries sorted
+    /// ordinal-ignore-case to binary-search the prefix range in O(log N), then scan the contiguous prefix
+    /// run for matches. A substring fallback runs only when the prefix scan returns nothing, keeping the
+    /// steady-state hot path off the full-array scan. Pure with respect to <paramref name="search"/> (reads
+    /// its index + comet map, returns the array) so it can back
+    /// <see cref="SkyMapSearchInteraction.Query"/>; the shared <see cref="DIR.Lib.SearchInteraction{TResult}"/>
+    /// owns the result list, selected index, and scroll reset.
     /// </summary>
-    public static void FilterResults(SkyMapSearchState search, ICelestialObjectDB db)
+    public static ImmutableArray<SkyMapSearchResult> FilterResults(SkyMapSearchState search, ICelestialObjectDB db, string query)
     {
-        var query = search.SearchInput.Text;
-
         if (string.IsNullOrWhiteSpace(query) || query.Length < 2)
         {
-            search.Results = [];
-            search.SelectedResultIndex = -1;
-            return;
+            return [];
         }
 
         // Virtual TYC path: the ~2.5M Tycho-2 stars deliberately don't appear in
@@ -112,9 +108,9 @@ public static class SkyMapSearchActions
         // of string allocations). Instead, queries that look like "TYC <digits>..."
         // are served by a direct byte[] walk over the catalogue, which decodes a
         // small destination buffer on-the-fly without materialising any noise stars.
-        if (TryHandleTycPrefix(search, db, query))
+        if (TryHandleTycPrefix(db, query, out var tycResults))
         {
-            return;
+            return tycResults;
         }
 
         var index = search.SearchIndex;
@@ -209,9 +205,7 @@ public static class SkyMapSearchActions
             }
         }
 
-        search.Results = results.ToImmutable();
-        search.SelectedResultIndex = search.Results.Length > 0 ? 0 : -1;
-        search.ResultsScrollOffset = 0;
+        return results.ToImmutable();
     }
 
     /// <summary>
@@ -242,12 +236,13 @@ public static class SkyMapSearchActions
     /// <summary>
     /// Detect a "TYC ..." (or "TYC..." / "TYC-...") query, strip the catalog tag,
     /// and route to <see cref="ICelestialObjectDB.FindTycho2ByCanonicalPrefix"/>.
-    /// Returns true when the query was TYC-shaped (results written to
-    /// <paramref name="search"/>); false to let the caller continue with the
+    /// Returns true when the query was TYC-shaped (results in <paramref name="results"/>);
+    /// false (with empty <paramref name="results"/>) to let the caller continue with the
     /// general autocomplete-list scan.
     /// </summary>
-    private static bool TryHandleTycPrefix(SkyMapSearchState search, ICelestialObjectDB db, string query)
+    private static bool TryHandleTycPrefix(ICelestialObjectDB db, string query, out ImmutableArray<SkyMapSearchResult> results)
     {
+        results = [];
         var trimmed = query.AsSpan().Trim();
         if (trimmed.Length < 4) return false;  // need at least "TYC" + 1 digit
         if (!trimmed.StartsWith("TYC", StringComparison.OrdinalIgnoreCase)) return false;
@@ -268,7 +263,7 @@ public static class SkyMapSearchActions
         var count = db.FindTycho2ByCanonicalPrefix(rest, buf);
 
         var take = Math.Min(count, MaxResults);
-        var results = ImmutableArray.CreateBuilder<SkyMapSearchResult>(take);
+        var builder = ImmutableArray.CreateBuilder<SkyMapSearchResult>(take);
         for (var i = 0; i < take; i++)
         {
             var m = buf[i];
@@ -281,38 +276,33 @@ public static class SkyMapSearchActions
             var display = string.Create(CultureInfo.InvariantCulture, $"TYC {m.Tyc1}-{m.Tyc2}-{m.Tyc3}");
             var encoded = CatalogUtils.EncodeTyc2CatalogIndex(Catalog.Tycho2, m.Tyc1, m.Tyc2, m.Tyc3);
             var idx = CatalogUtils.AbbreviationToCatalogIndex(encoded, isBase91Encoded: true);
-            results.Add(new SkyMapSearchResult(
+            builder.Add(new SkyMapSearchResult(
                 Display: display,
                 Index: idx,
                 ObjType: ObjectType.Star,
                 VMag: m.VMag));
         }
 
-        search.Results = results.ToImmutable();
-        search.SelectedResultIndex = search.Results.Length > 0 ? 0 : -1;
-        search.ResultsScrollOffset = 0;
+        results = builder.ToImmutable();
         return true;
     }
 
     /// <summary>
-    /// Commit the currently-selected result: slew the sky map to the object,
-    /// populate the info panel, and close the modal. Returns true on success.
+    /// Commit a chosen <paramref name="result"/>: slew the sky map to the object, populate the info panel,
+    /// and close the modal. Returns true on success. The caller (the commit-signal handler) resolves the
+    /// result from the search interaction's highlighted row; taking it explicitly keeps this helper
+    /// directly testable without an interaction.
     /// </summary>
     public static bool CommitResult(
         SkyMapSearchState search,
         SkyMapState skyMap,
         ICelestialObjectDB db,
+        SkyMapSearchResult result,
         double siteLat, double siteLon,
         DateTimeOffset viewingUtc,
         in SiteContext site,
         ICometRepository? comets = null)
     {
-        if (search.SelectedResultIndex < 0 || search.SelectedResultIndex >= search.Results.Length)
-        {
-            return false;
-        }
-
-        var result = search.Results[search.SelectedResultIndex];
         if (result.Index is not { } catIdx) return false;
 
         // Comet: resolve the LIVE ephemeris position + magnitude (it is not in the object DB), slew there,

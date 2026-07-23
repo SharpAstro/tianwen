@@ -168,7 +168,7 @@ namespace TianWen.UI.Abstractions
 
                 Layout.Node InputRow(string label, string key, TextInputState input)
                 {
-                    _profilePanelFills[key] = r => RenderTextInput(input, (int)r.X, (int)r.Y, (int)r.Width, (int)r.Height, fontPath, fontSize * 0.9f);
+                    _profilePanelFills[key] = r => RenderTextInput(input, r, fontPath, fontSize * 0.9f);
                     return FormRowLayout.LabeledInputRow(label, labelW, fieldH, 0f, BaseFontSize * 0.85f, DimText, fillKey: key);
                 }
 
@@ -243,7 +243,7 @@ namespace TianWen.UI.Abstractions
             }
 
             _profilePanelFills["guideFl"] =
-                r => RenderTextInput(State.GuiderFocalLengthInput, (int)r.X, (int)r.Y, (int)r.Width, (int)r.Height, fontPath, fontSize * 0.9f);
+                r => RenderTextInput(State.GuiderFocalLengthInput, r, fontPath, fontSize * 0.9f);
             return FormRowLayout.LabeledInputRow("Guide FL (mm):", labelWDesign, fieldH, 0f, BaseFontSize * 0.85f, DimText, fillKey: "guideFl");
         }
 
@@ -457,7 +457,7 @@ namespace TianWen.UI.Abstractions
 
             Layout.Node InputRow(string label, string key, TextInputState input)
             {
-                _profilePanelFills[key] = r => RenderTextInput(input, (int)r.X, (int)r.Y, (int)r.Width, (int)r.Height, fontPath, fontSize * 0.9f);
+                _profilePanelFills[key] = r => RenderTextInput(input, r, fontPath, fontSize * 0.9f);
                 return FormRowLayout.LabeledInputRow(label, labelW, fieldH, 0f, BaseFontSize * 0.85f, DimText, fillKey: key);
             }
 

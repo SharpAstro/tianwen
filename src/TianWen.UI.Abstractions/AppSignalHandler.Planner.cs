@@ -46,7 +46,7 @@ namespace TianWen.UI.Abstractions
             var appState = _appState;
             var db = _sp.GetRequiredService<TianWen.Lib.Astrometry.Catalogs.ICelestialObjectDB>();
 
-            PlannerSearchInteraction.Wire(
+            _plannerState.Search = new PlannerSearchInteraction(
                 _plannerState, db,
                 createTransform: () => appState.ActiveProfile is { } profile
                     ? TransformFactory.FromProfile(profile, _timeProvider, out _)

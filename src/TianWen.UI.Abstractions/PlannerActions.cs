@@ -959,21 +959,18 @@ public static class PlannerActions
     /// Updates the autocomplete suggestions based on the current search query.
     /// Runs synchronously — ~200K string comparisons takes ~2ms.
     /// </summary>
-    public static void UpdateSuggestions(PlannerState state, string[] autoCompleteList, string query)
+    /// <summary>
+    /// Pure autocomplete resolve: fuzzy-scores <paramref name="autoCompleteList"/> against
+    /// <paramref name="query"/> and returns up to <see cref="PlannerState.MaxSuggestions"/> best matches,
+    /// score DESC. Returns empty for a query under 2 characters. Extracted from the old state-mutating
+    /// <c>UpdateSuggestions</c> so it can back <c>PlannerSearchInteraction.Query</c> (the shared
+    /// <see cref="DIR.Lib.SearchInteraction{TResult}"/> owns the result list + last-query dedup + redraw).
+    /// </summary>
+    public static ImmutableArray<string> ComputeSuggestions(string[] autoCompleteList, string query)
     {
-        if (query == state.LastSuggestionQuery)
-        {
-            return;
-        }
-
-        state.LastSuggestionQuery = query;
-        state.Suggestions.Clear();
-        state.SuggestionIndex = -1;
-
         if (query.Length < 2)
         {
-            state.NeedsRedraw = true;
-            return;
+            return [];
         }
 
         var candidates = new List<(string Entry, int Score)>();
@@ -1002,12 +999,12 @@ public static class PlannerActions
         candidates.Sort(static (a, b) => b.Score.CompareTo(a.Score));
 
         var count = Math.Min(candidates.Count, PlannerState.MaxSuggestions);
+        var builder = ImmutableArray.CreateBuilder<string>(count);
         for (var i = 0; i < count; i++)
         {
-            state.Suggestions.Add(candidates[i].Entry);
+            builder.Add(candidates[i].Entry);
         }
-
-        state.NeedsRedraw = true;
+        return builder.MoveToImmutable();
     }
 
     private static int FuzzyMatchScore(string query, string entry)

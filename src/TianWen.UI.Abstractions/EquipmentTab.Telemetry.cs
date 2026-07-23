@@ -84,7 +84,7 @@ namespace TianWen.UI.Abstractions
             var coolerUnsafe = latest is { } l && l.CoolerOn;
             var setpointFillKey = $"coolerSetpoint:{key}";
             _profilePanelFills[setpointFillKey] =
-                r => RenderTextInput(setpointInput, (int)r.X, (int)r.Y, (int)r.Width, (int)r.Height, fontPath, fontSize * 0.85f);
+                r => RenderTextInput(setpointInput, r, fontPath, fontSize * 0.85f);
 
             rows.Add(Layout.Builder.HStack(
                     Layout.Builder.Text("    Setpoint:", BaseFontSize * 0.85f, DimText).WFixed(80f).HStar(),

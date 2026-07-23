@@ -86,7 +86,7 @@ namespace TianWen.UI.Abstractions
                 {
                     var inputKey = $"filterNameInput:{otaIndex}:{f}";
                     _profilePanelFills[inputKey] =
-                        r => RenderTextInput(State.CustomFilterNameInput, (int)r.X, (int)r.Y, (int)r.Width, (int)r.Height, fontPath, fontSize * 0.8f);
+                        r => RenderTextInput(State.CustomFilterNameInput, r, fontPath, fontSize * 0.8f);
                     nameCell = Layout.Builder.Fill(key: inputKey);
                 }
                 else

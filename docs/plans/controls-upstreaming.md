@@ -1,6 +1,6 @@
 # Controls upstreaming: promote generic controls to DIR.Lib
 
-**Status: PLANNED (2026-07-21).** Follow-on to
+**Status: U1 + U5 SHIPPED; U2 DESIGN SIGNED OFF (2026-07-23), implementation next.** Follow-on to
 [interaction-primitives.md](interaction-primitives.md); taxonomy + inventory in
 [../architecture/widgets-and-controls.md](../architecture/widgets-and-controls.md).
 
@@ -10,11 +10,16 @@ belong in DIR.Lib next to `PixelWidgetBase`/`TextInputState`. Two of them (the s
 a duplication: the planner autocomplete and the sky-map F3 modal hand-roll the same
 input + suggestion-list + key-nav + commit machinery around `TextInputState`.
 
-**Release vehicle: DIR.Lib 6.16 (a minor AFTER the pending 6.15 lockstep chain ships).** Do NOT grow
-the P2 release -- 6.15 is frozen (primitives + fits-again re-pin) and tianwen is already stacked on
-it. Each U-phase below is independently shippable.
+**Release-slot history (IMPORTANT -- the 6.16 earmark is stale):** U1 + U5 shipped as part of the
+DIR.Lib **6.15/6.16** line (they landed on `feat/interaction-primitives`, released with the P2 chain and
+consumed by tianwen PR #110). The 6.16 minor this plan originally earmarked for U2 was then **consumed
+by an unrelated feature** (the planner Wikipedia-link channel, tianwen PR #111). DIR.Lib `main` is now at
+**6.17.0** (an in-progress `DeviceTransform` feature). So **U2 rides the next DIR.Lib minor after
+DeviceTransform's 6.17** -- 6.17 if that isn't published to NuGet yet, else 6.18 -- + the Console.Lib /
+SdlVulkan.Renderer / WebGl lockstep rebuilds + a tianwen repin. Each U-phase is independently shippable;
+"no push before NuGet" applies.
 
-## U1 -- `TrackSlider` -> DIR.Lib  **(DONE in branch, rides 6.16)**
+## U1 -- `TrackSlider` -> DIR.Lib  **(DONE + SHIPPED, DIR.Lib 6.15/6.16)**
 
 `ImageRendererBase.TrackSlider.cs` was ~50 lines with zero domain dependencies: `DrawTrackSlider`
 uses `FillRect`/`RegisterClickable` (`PixelWidgetBase` members) + `RectF32`/`RGBAColor32`/`HitResult`
@@ -38,6 +43,15 @@ were tianwen's.
 
 ## U2 -- `SearchInteraction` base -> DIR.Lib, tianwen searches become subclasses
 
+**Status: IMPLEMENTED locally + smoke-verified (2026-07-23); pending release + commit.** On uncommitted
+branches `feat/search-interaction` (DIR.Lib) + `feat/controls-upstreaming-u2` (tianwen). DIR.Lib suite
+549/0 (20 new `SearchInteractionTests`); tianwen solution builds 0/0, 128 Planner/SkyMap/TextInput/
+Equipment tests green. Live GUI smoke (inspector): planner autocomplete (type -> dropdown -> Down -> Enter
+commits + resets, no auto-highlight) and sky-map F3 (open -> results with first auto-highlighted -> Escape
+closes) both behave per their preserved policies; no stderr exceptions. Remaining: the DIR.Lib release
+chain (next minor after DeviceTransform's 6.17) + lockstep rebuilds + tianwen repin, then commit/PR
+("no push before NuGet"). The 6 U5 residue casts are an easy tail to fold into the tianwen repin.
+
 The planner search (`PlannerSearchInteraction` + suggestion state spread over `PlannerState`) and the
 sky-map F3 search (`SkyMapSearchState` + inline key-nav in `SkyMapTab.Search.cs:762-768`) are the
 same control with different domain resolution:
@@ -50,24 +64,98 @@ same control with different domain resolution:
 | commit-identical mouse path (`CommitSuggestionAt(index)` == keyboard Enter) | deactivate via `DeactivateTextInputSignal` | close modal |
 | clear/dismiss reset (text, list, index, focus release) | | |
 
-Design: `DIR.Lib.SearchInteraction<TResult>` (abstract class next to `TextInputState`):
+### Design (SIGNED OFF 2026-07-23)
 
-- Owns `TextInputState Input`, `ImmutableArray<TResult> Results`, `int SelectedIndex`,
-  `string LastQuery`; wires the four `TextInputState` callbacks in its ctor.
-- Abstract seams: `UpdateResults(string query)` (domain resolve), `CommitResult(TResult)`,
-  `DisplayText(TResult)`; virtual `OnDismissed()`. Host callbacks (`deactivateFocus`,
-  `requestRedraw`) passed in, like `PlannerSearchInteraction.Wire` today.
-- The key-nav protocol lives ONCE in the base (today it is split three ways:
-  `TextInputInteraction`'s suggestion cycling, `PlannerSearchInteraction.OnKeyOverride`, and the
-  sky map's inline Up/Down).
-- tianwen: `PlannerSearchInteraction : SearchInteraction<string>`,
-  `SkyMapSearchInteraction : SearchInteraction<SkyMapSearchResult>`; the per-widget rendering
-  (dropdown rows vs modal rows) stays in the widgets -- the base is interaction state, not paint.
-- Evaluate during U2: `TextInputInteraction` itself (key routing + clipboard over `TextInputState`,
-  `TextInputKey` is DIR.Lib) looks promotable wholesale -- decide when the seams are cut; anything
-  signal-bus-flavoured stays behind the host callbacks.
-- Web note: the `CanvasTextOverlay` binds to `TextInputState` and already serves both searches --
-  unchanged by this refactor.
+**Two-level base in DIR.Lib.** `TextInputKey` has no Up/Down (verified), and mapping arrows into
+`ToTextInputKey` would change key routing for *every* text input (incl. the TUI equipment tab) -- too
+broad. So Up/Down nav stays an explicit `InputKey` seam the host key-router calls, which means the host
+needs a `TResult`-free handle. Hence a non-generic base carrying the protocol + selected-index, and a
+generic subclass carrying the typed results:
+
+```csharp
+namespace DIR.Lib;
+
+// TResult-free: input wiring + key-nav protocol + selected-index. Hosts (KeyContext) hold THIS.
+public abstract class SearchInteraction
+{
+    protected SearchInteraction(TextInputState input, Action requestRedraw, Action? releaseFocus = null);
+    public TextInputState Input { get; }
+    public int SelectedIndex { get; set; } = -1;
+    public string LastQuery { get; protected set; } = "";
+    public abstract int ResultCount { get; }
+    public bool HandleNavKey(InputKey key);   // Up/Down over [0, ResultCount); replaces the 2 KeyContext blocks
+    public void CommitAt(int index);          // mouse click == keyboard Enter-on-highlight
+    protected abstract void Requery(string text);        // OnTextChanged -> resolve results
+    protected abstract void CommitSelected();            // Enter-on-highlight / CommitAt
+    protected abstract void CommitRawQuery(string text); // Enter with no highlight
+    protected virtual  void Dismiss();                   // Escape / OnCancel cleanup
+}
+
+// Adds typed results; seals Requery/CommitSelected onto the typed seams.
+public abstract class SearchInteraction<TResult> : SearchInteraction
+{
+    public ImmutableArray<TResult> Results { get; protected set; } = [];
+    public sealed override int ResultCount => Results.Length;
+    protected sealed override void Requery(string t) => Results = Query(t);
+    protected sealed override void CommitSelected() => Commit(Results[SelectedIndex]);
+    protected abstract ImmutableArray<TResult> Query(string text);
+    protected abstract void Commit(TResult result);
+}
+```
+
+The ctor wires all four `TextInputState` callbacks **once**: `OnTextChanged` -> set `LastQuery` +
+`Requery` + redraw; `OnCommit` (Enter, no highlight) -> `CommitRawQuery`; `OnCancel` -> `Dismiss` +
+releaseFocus + redraw; `OnKeyOverride` -> Enter-on-highlight -> `CommitSelected`, Escape -> `Dismiss`,
+Backspace/Delete -> `false` (fall through to text edit, `Requery` fires via `OnTextChanged`).
+
+**Host key-router change (one struct field, one production site).** `TextInputInteraction.KeyContext`
+drops `PlannerState? Planner` + `SkyMapSearchState? SkySearch`, gains `SearchInteraction? ActiveSearch`.
+The two hardcoded Up/Down blocks (`HandleKey` L55-97) collapse to one polymorphic call:
+
+```csharp
+if (ctx.ActiveSearch is { } s && activeInput == s.Input && s.HandleNavKey(key)) { ctx.RequestRedraw(); return true; }
+```
+
+`TextInputInteraction` thereby loses its `PlannerState`/`SkyMapSearchState` dependency entirely. The only
+production `KeyContext` site is `GuiEventHandlerBase:331` (resolve `ActiveSearch` = whichever search's
+`Input` is the active one, else null); verify the web host key path (`Planner.razor`) builds the same
+context. `SkyMapTab.TryHandleSearchKey`'s Up/Down fallback (L753-767) is already dead while the modal's
+input is active (`HandleKey` swallows all keys) -- delete it, keep the F3 toggle.
+
+**tianwen subclasses (thin: protocol in the base, domain callbacks injected).** Commit needs
+per-invocation host context (planner: transform/db/ensureVisible; sky: db/site/viewingUtc/comets, resolved
+in the signal handler with DI), so the subclasses hold host-supplied callbacks and forward -- exactly the
+shape `PlannerSearchInteraction.Wire` + `AppSignalHandler.SkyMap` already inject:
+
+- `PlannerSearchInteraction : SearchInteraction<string>` -- `Query` = the pure part of
+  `PlannerActions.UpdateSuggestions` (extract `ComputeSuggestions(cache, text)`); `Commit` =
+  `CommitSuggestion`; `CommitRawQuery` = `SearchTargets`; `Dismiss` = clear + deactivate. ctor takes
+  today's `Wire` params (db, createTransform, autoComplete, ensureVisible, deactivate, requestRedraw).
+- `SkyMapSearchInteraction : SearchInteraction<SkyMapSearchResult>` -- `Query` = pure `FilterResults`;
+  `Commit`/`CommitRawQuery` post `SkyMapSearchCommitSignal` (DI/context resolution stays in the handler);
+  `Dismiss` = `CloseSearch` + deactivate. `AppSignalHandler.SkyMap`'s three `SearchInput.On*` assignments
+  disappear (ctor-wired); the Open/Close/Commit signal subscribers stay.
+
+**State migration = FULL (decision A, 2026-07-23).** The base OWNS `Results`/`SelectedIndex`/`LastQuery`;
+`PlannerState`/`SkyMapSearchState` expose the interaction instance and the old fields go away rather than
+becoming shims (shims would perpetuate the split U2 exists to remove). Blast radius is bounded:
+`PlannerState.Suggestions`/`SuggestionIndex`/`LastSuggestionQuery`/`CommitSuggestionAt` -> `Search.Results`
+(`ImmutableArray<string>`)/`Search.SelectedIndex`/`Search.LastQuery`/`Search.CommitAt`, read by
+`PlannerTab.cs:443/457/479`; `SkyMapSearchState.Results`/`SelectedResultIndex` -> `Search.Results`/
+`.SelectedIndex`, read across `SkyMapTab.Search.cs`. Test updates: `PlannerSearchInteractionTests`,
+`SkyMapSearchActionsTests`, `PlannerTabLayoutTests`.
+
+- Web note: the `CanvasTextOverlay` binds to `TextInputState` (which the base still owns as `Input`) and
+  already serves both searches -- unchanged by this refactor.
+
+## U6 -- `TextInputInteraction` -> DIR.Lib (DEFERRED, decision 2026-07-23)
+
+After U2, `TextInputInteraction` has NO TianWen-domain deps left (the `PlannerState`/`SkyMapSearchState`
+special-cases become the single `SearchInteraction? ActiveSearch` seam), so it becomes a clean DIR.Lib
+promotion candidate -- key routing + clipboard + Tab-cycling over `TextInputState`, with `IPixelWidget`
+(`GetRegisteredTextInputs`) + `BackgroundTaskTracker` already DIR.Lib types. **Deliberately deferred** to
+keep U2 focused: promote it as a separate follow-on once `SearchInteraction` has proven out, cutting the
+`IPixelWidget`/`BackgroundTaskTracker`/clipboard seams carefully. Rides its own DIR.Lib minor.
 
 ## U3 -- `DropdownMenuState` overflow scrolling (opportunistic)
 
@@ -88,7 +176,7 @@ lets every `DIR.Lib.Layout` consumer (incl. the web port) drop hand-drawn gauge 
 tianwen `ProgressBarLayoutTests`; the same arrange assertions move to DIR.Lib headless tests on promotion.
 No behaviour change, pixel-identical. Not scheduled; recorded so the door stays marked.
 
-## U5 -- `RenderTextInput(RectF32)` overload (DONE in branch, rides 6.16)
+## U5 -- `RenderTextInput(RectF32)` overload (DONE + SHIPPED, DIR.Lib 6.15/6.16; small residue)
 
 The layout-driven refactor left every arranged-rect text-input call site repeating a four-way
 `(int)r.X, (int)r.Y, (int)r.Width, (int)r.Height` cast because `PixelWidgetBase.RenderTextInput` was
@@ -100,8 +188,14 @@ boundary and forwards to the int path -- rounding, not truncating, so a fraction
 the 1px border centred on the intended edge. tianwen: the four arranged-rect callers (SkyMap F3 search,
 Session exposure editor, LiveSession focuser goto, Equipment create-profile) drop the cast and pass the
 Fill rect directly; PlannerTab's search strip stays on the int signature (still hand-computed cursor
-code, not an arranged Fill). Already in the DIR.Lib branch -- rides the same 6.16 release + tianwen
-repin; "no push before NuGet" applies.
+code, not an arranged Fill). Shipped in the DIR.Lib 6.15/6.16 line with a tianwen repin.
+
+- **Residue (2026-07-23):** 6 MORE arranged-Fill callers -- all in `EquipmentTab.*` (`DeviceSettings.cs:123`,
+  `FilterTable.cs:89`, `ProfilePanel.cs:171/246/460`, `Telemetry.cs:87`) -- still do the four-way
+  `(int)r.X, (int)r.Y, (int)r.Width, (int)r.Height` cast. They were added later, during the
+  layout-driven-ui L2 EquipmentTab split, after the U5 cut. Each takes a `RectF32 r` inside a Fill
+  dispatch lambda, so they qualify for the same overload. Pure tianwen-only cleanup (no DIR.Lib release);
+  drop the casts, pass `r` directly. Fold in as the tail of the U2 tianwen repin, or a standalone commit.
 
 ## Explicit non-moves
 
@@ -117,4 +211,5 @@ repin; "no push before NuGet" applies.
 - U2: DIR.Lib headless tests for the key-nav protocol (cycle/commit/dismiss/backspace-passthrough,
   mouse-commit == keyboard-commit); tianwen planner + F3 behaviour pinned by existing search tests
   before the cut, re-run after; web overlay smoke (planner search + F3 through `CanvasTextOverlay`).
-- Both ride DIR.Lib 6.16 + a tianwen repin; "no push before NuGet" applies as usual.
+- U1 + U5 shipped in the DIR.Lib 6.15/6.16 line. U2 rides the next DIR.Lib minor after DeviceTransform's
+  6.17 (6.17 if unpublished, else 6.18) + a tianwen repin; "no push before NuGet" applies as usual.
