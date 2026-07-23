@@ -190,7 +190,7 @@
         // with web-flavoured context: transform from the lat/lon fields, focus release via the
         // _activeInput field. requestRedraw paints directly because a committed search finishes
         // on a task continuation AFTER the triggering event's RenderFrame already ran.
-        PlannerSearchInteraction.Wire(
+        _state.Search = new PlannerSearchInteraction(
             _state, Db,
             createTransform: CreateSiteTransform,
             autoComplete: () => _autoComplete,
@@ -564,6 +564,13 @@
         return Task.CompletedTask;
     }
 
+    // The active search interaction (planner autocomplete / sky-map F3) when `active` is one of their
+    // boxes -- feeds TextInputInteraction the Up/Down result nav (mirrors the desktop GuiEventHandlerBase).
+    SearchInteraction? ResolveActiveSearch(TextInputState active)
+        => active == _state.SearchInput ? _state.Search
+        : _skyTab is { } st && active == st.State.Search.SearchInput ? st.State.Search.Interaction
+        : null;
+
     Task OnOverlayKey(CanvasOverlayKeyArgs e)
     {
         if (_activeInput is not { IsActive: true } active)
@@ -590,8 +597,7 @@
             Deactivate: DeactivateTextInput,
             SetActive: next => { _activeInput = next; ShowOverlayFor(next); }, // Tab cycling re-anchors
             RequestRedraw: () => { }, // the RenderFrame below covers this event
-            Planner: _state,
-            SkySearch: _skyTab?.State.Search,
+            ActiveSearch: ResolveActiveSearch(active),
             ActiveTab: ActiveTab));
         // A canvas-side rewrite (suggestion committed on Enter) pushes back into the input.
         if (_activeInput is { IsActive: true } current && ReferenceEquals(current, active) && current.Text != before)
@@ -627,17 +633,14 @@
         var skyState = skyTab.State;
         var skySearch = skyState.Search;
 
-        skySearch.SearchInput.OnTextChanged = _ =>
-        {
-            SkyMapSearchActions.FilterResults(skySearch, Db);
-            skyState.NeedsRedraw = true;
-        };
-        skySearch.SearchInput.OnCommit = _ =>
-        {
-            _bus.Post(new SkyMapSearchCommitSignal());
-            return Task.CompletedTask;
-        };
-        skySearch.SearchInput.OnCancel = () => _bus.Post(new CloseSkyMapSearchSignal());
+        // The F3 search-box interaction (shared DIR.Lib SearchInteraction) with web-flavoured dispatch:
+        // commit + close post signals so the DI context resolves in the handlers below. Replaces the three
+        // SearchInput.On* assignments.
+        skySearch.Interaction = new SkyMapSearchInteraction(
+            skySearch, Db,
+            commit: () => _bus.Post(new SkyMapSearchCommitSignal()),
+            close: () => _bus.Post(new CloseSkyMapSearchSignal()),
+            requestRedraw: () => skyState.NeedsRedraw = true);
 
         _bus.Subscribe<OpenSkyMapSearchSignal>(_ =>
         {
@@ -653,12 +656,19 @@
         });
         _bus.Subscribe<SkyMapSearchCommitSignal>(_ =>
         {
+            if (skySearch.Interaction is not { } interaction
+                || interaction.SelectedIndex < 0
+                || interaction.SelectedIndex >= interaction.Results.Length)
+            {
+                return;
+            }
             // Same viewing-time rule as the desktop handler: planning date (or now) + scrub offset,
             // so a commit resolves the position the map is actually showing.
             var viewingUtc = (_state.PlanningDate?.ToUniversalTime() ?? Time.GetUtcNow()) + skyState.TimeOffset;
             var site = SiteContext.Create(_state.SiteLatitude, _state.SiteLongitude, viewingUtc);
             SkyMapSearchActions.CommitResult(
-                skySearch, skyState, Db, _state.SiteLatitude, _state.SiteLongitude,
+                skySearch, skyState, Db, interaction.Results[interaction.SelectedIndex],
+                _state.SiteLatitude, _state.SiteLongitude,
                 viewingUtc, site, _state.Comets);
             DeactivateTextInput();
             skyState.NeedsRedraw = true;
@@ -1224,8 +1234,7 @@
                     Deactivate: DeactivateTextInput,
                     SetActive: next => _activeInput = next,
                     RequestRedraw: () => { }, // the RenderFrame below covers this event
-                    Planner: _state,
-                    SkySearch: _skyTab?.State.Search,
+                    ActiveSearch: ResolveActiveSearch(active),
                     ActiveTab: tab));
             }
             if (e.Key.Length == 1 && !e.CtrlKey && !e.AltKey)

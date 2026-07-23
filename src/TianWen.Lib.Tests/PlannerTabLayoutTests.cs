@@ -247,9 +247,11 @@ namespace TianWen.Lib.Tests
         /// <summary>
         /// Regression for "arrow+enter on the search box works, mouse+click doesn't": the autocomplete
         /// dropdown row is clickable but had NO OnClick, so only the keyboard could commit a suggestion.
-        /// The row now dispatches to <see cref="PlannerState.CommitSuggestionAt"/> (wired by
-        /// <see cref="PlannerSearchInteraction"/> to the same commit path the keyboard uses), so a click
-        /// commits identically. Asserts a click on the dropdown row invokes it with the row's index.
+        /// The row now dispatches to <see cref="DIR.Lib.SearchInteraction.CommitAt"/> on
+        /// <see cref="PlannerState.Search"/> (the same commit path the keyboard Enter-on-highlight uses),
+        /// so a click commits identically. Asserts a click on the second dropdown row reaches the commit
+        /// (box reset + focus released); the index->suggestion binding is unit-pinned in DIR.Lib's
+        /// SearchInteractionTests.
         /// </summary>
         [Fact]
         public void SuggestionDropdown_MouseClick_CommitsTheClickedSuggestion()
@@ -257,24 +259,32 @@ namespace TianWen.Lib.Tests
             using var renderer = new RgbaImageRenderer(1600, 1000);
             var tab = new PlannerTab<RgbaImage>(renderer) { FontPath = FontResolver.ResolveSystemFont() };
             var state = BuildState();
-            // The dropdown only renders when the search input is active with suggestions present.
-            state.SearchInput.Activate();
-            state.Suggestions.Add("M31");
-            state.Suggestions.Add("M42");
-            var committed = new List<int>();
-            state.CommitSuggestionAt = i => committed.Add(i);
+            // The dropdown only renders when the search input is active with suggestions present. A null
+            // transform makes the commit skip DB resolution and just reset the box (the observable effect).
+            state.SearchInput.Activate("M3");
+            var deactivated = 0;
+            state.Search = new PlannerSearchInteraction(
+                state, db: null!, createTransform: () => null,
+                autoComplete: () => ["M31", "M32"],
+                ensureVisible: null, deactivate: () => deactivated++, requestRedraw: () => { });
+            state.SearchInput.OnTextChanged!("M3"); // populate the dropdown (2 rows) the way a keystroke would
+            state.Search.Results.Length.ShouldBe(2);
 
             var time = new FakeTimeProviderWrapper(new DateTimeOffset(2025, 12, 15, 22, 0, 0, TimeSpan.Zero));
             tab.Render(state, new RectF32(0, 0, 1600, 1000), time);
 
             // The dropdown is painted last, so its rows are the topmost regions at their pixels -- a click
-            // on the second row's centre dispatches that row (HitTestAndDispatch returns topmost-first).
+            // on the second row's centre dispatches that row (HitTestAndDispatch returns topmost-first),
+            // invoking search.CommitAt(1).
             var region = tab.GetRegisteredRegions()
                 .First(r => r.Result is HitResult.ListItemHit { ListId: "Suggestion", Index: 1 });
             var hit = tab.HitTestAndDispatch(region.X + region.Width / 2f, region.Y + region.Height / 2f);
 
             hit.ShouldBeOfType<HitResult.ListItemHit>().Index.ShouldBe(1);
-            committed.ShouldBe([1]);
+            // CommitAt(1) reached the commit path: the box reset (text + dropdown cleared) and focus released.
+            deactivated.ShouldBe(1);
+            state.SearchInput.Text.ShouldBe("");
+            state.Search.Results.ShouldBeEmpty();
         }
 
         /// <summary>

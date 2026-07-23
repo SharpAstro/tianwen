@@ -120,7 +120,7 @@ namespace TianWen.UI.Abstractions
                         if (desc.Placeholder is { } placeholder) State.StringSettingInput.Placeholder = placeholder;
                         var editFillKey = $"setting:{desc.Key}";
                         _profilePanelFills[editFillKey] =
-                            r => RenderTextInput(State.StringSettingInput, (int)r.X, (int)r.Y, (int)r.Width, (int)r.Height, fontPath, fontSize * 0.85f);
+                            r => RenderTextInput(State.StringSettingInput, r, fontPath, fontSize * 0.85f);
                         control = Layout.Builder.Fill(key: editFillKey);
                         break;
 

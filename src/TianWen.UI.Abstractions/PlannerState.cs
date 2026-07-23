@@ -143,25 +143,17 @@ public class PlannerState
     /// <see cref="ImmutableArray{T}.Add"/> and replace the property atomically.</summary>
     public ImmutableArray<ScoredTarget> SearchResults { get; set; } = [];
 
-    /// <summary>Current autocomplete suggestions for the search bar (max <see cref="MaxSuggestions"/>).</summary>
-    public List<string> Suggestions { get; } = [];
-
-    /// <summary>Index of the highlighted suggestion (-1 = none).</summary>
-    public int SuggestionIndex { get; set; } = -1;
-
     /// <summary>
-    /// Commits the autocomplete suggestion at a dropdown index -- the MOUSE-click counterpart of the
-    /// keyboard Enter-on-highlighted-suggestion path. Both route through the SAME CommitSuggestion in
-    /// <see cref="PlannerSearchInteraction"/>, so a dropdown click and a keypress land identically.
-    /// Set by <see cref="PlannerSearchInteraction.Wire"/>; null until a host wires the search box (the
-    /// standalone <c>plan</c> CLI never does). The dropdown row's OnClick invokes this -- before it was
-    /// wired the suggestion click had no handler, so only the keyboard could commit a suggestion (the
-    /// "arrow+enter works, mouse doesn't" bug).
+    /// The planner search-box interaction (autocomplete + target search / commit): a
+    /// <see cref="PlannerSearchInteraction"/> over <see cref="SearchInput"/>. Owns the suggestion list
+    /// (<c>Search.Results</c>), the highlighted index (<c>Search.SelectedIndex</c>), and the last-query
+    /// dedup -- state that used to live directly on this type (Suggestions / SuggestionIndex /
+    /// LastSuggestionQuery / CommitSuggestionAt). Set by the host (desktop <see cref="AppSignalHandler"/> /
+    /// web Planner.razor); null in the standalone <c>plan</c> CLI, where the search box is inert -- the
+    /// same nullable contract the old CommitSuggestionAt carried. The dropdown's mouse-click commit goes
+    /// through <c>Search.CommitAt(index)</c>, identical to the keyboard Enter-on-highlighted path.
     /// </summary>
-    public Action<int>? CommitSuggestionAt { get; set; }
-
-    /// <summary>The query that produced the current <see cref="Suggestions"/> list (avoids re-scanning on arrow keys).</summary>
-    public string LastSuggestionQuery { get; set; } = "";
+    public PlannerSearchInteraction? Search { get; set; }
 
     /// <summary>Maximum number of autocomplete suggestions to show.</summary>
     public const int MaxSuggestions = 8;

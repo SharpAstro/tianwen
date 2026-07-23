@@ -31,13 +31,14 @@ public class SkyMapSearchState
     public TextInputState SearchInput { get; } = new() { Placeholder = "Type object name..." };
 
     /// <summary>
-    /// Live-filtered results for the current <see cref="SearchInput"/> text.
-    /// Atomically replaced on each query — readers snapshot into a local.
+    /// The F3 search interaction (input wiring + Up/Down/Enter/Escape protocol + the typed result list): a
+    /// <see cref="SkyMapSearchInteraction"/> over <see cref="SearchInput"/>. Owns the results
+    /// (<c>Interaction.Results</c>) and the highlighted index (<c>Interaction.SelectedIndex</c>) -- state
+    /// that used to live directly on this type. Set by the host (desktop <see cref="AppSignalHandler"/> /
+    /// web Planner.razor); the sky map only appears in those hosts, so it is non-null whenever the modal is
+    /// used (readers still null-guard defensively).
     /// </summary>
-    public ImmutableArray<SkyMapSearchResult> Results { get; set; } = [];
-
-    /// <summary>Index of the keyboard-highlighted row, -1 = none.</summary>
-    public int SelectedResultIndex { get; set; } = -1;
+    public SkyMapSearchInteraction? Interaction { get; set; }
 
     /// <summary>
     /// Flat prefix/substring search index built lazily on first open from

@@ -1,5 +1,5 @@
 using System;
-using System.Threading.Tasks;
+using System.Collections.Immutable;
 using DIR.Lib;
 using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Astrometry.SOFA;
@@ -7,138 +7,109 @@ using TianWen.Lib.Astrometry.SOFA;
 namespace TianWen.UI.Abstractions
 {
     /// <summary>
-    /// Wires the planner search-input callbacks (search commit, autocomplete suggestions,
-    /// suggestion commit) onto <see cref="PlannerState.SearchInput"/>. Shared by
-    /// <see cref="AppSignalHandler"/> (desktop/TUI hosts) and the web host - the callback
-    /// bodies used to live only in AppSignalHandler, which the web host never constructs
-    /// (it has no device stack), so the search box was inert in the browser.
+    /// The planner search box as a <see cref="SearchInteraction{TResult}"/> (TResult = a suggestion
+    /// string): input wiring + the Up/Down/Enter/Escape protocol + the suggestion list all come from the
+    /// DIR.Lib base; this subclass supplies only the domain resolution (autocomplete + target search /
+    /// commit). It replaces the old static <c>Wire</c> helper, which spread the same machinery across
+    /// <see cref="PlannerState"/> fields + <c>TextInputInteraction</c>'s arrow-nav block.
+    ///
+    /// <para>Behaviour preserved from the old wiring, via base policy overrides: no auto-highlight (Enter
+    /// searches the raw text until the user arrows down -> <see cref="AutoSelectFirstResult"/> false), Up at
+    /// index 0 deselects back to raw-query mode (<see cref="AllowDeselectOnUp"/>), and the first Escape
+    /// collapses the dropdown while a second cancels the box (<see cref="CollapseResultsOnEscape"/>).</para>
+    ///
+    /// Constructed by the host (desktop <see cref="AppSignalHandler"/> / web Planner.razor) with
+    /// host-flavoured context (profile/site transform, focus release, redraw). The standalone <c>plan</c>
+    /// CLI never constructs one, so <see cref="PlannerState.Search"/> stays null there and the box is inert
+    /// -- the same contract the old nullable <c>CommitSuggestionAt</c> carried.
     /// </summary>
-    public static class PlannerSearchInteraction
+    public sealed class PlannerSearchInteraction : SearchInteraction<string>
     {
-        /// <summary>
-        /// <paramref name="createTransform"/> returns a site-initialised transform, or null when
-        /// no site is configured yet (desktop: from the active profile; web: from the lat/lon
-        /// fields). <paramref name="autoComplete"/> returns the candidate cache - null until the
-        /// host finishes the catalog load (see <see cref="PlannerActions.BuildAutoCompleteList"/>).
-        /// <paramref name="deactivate"/> releases input focus the host's way (desktop posts
-        /// DeactivateTextInputSignal). <paramref name="ensureVisible"/> scrolls the target list.
-        /// </summary>
-        public static void Wire(
-            PlannerState plannerState,
+        private readonly PlannerState _state;
+        private readonly ICelestialObjectDB _db;
+        private readonly Func<Transform?> _createTransform;
+        private readonly Func<string[]?> _autoComplete;
+        private readonly Action<int>? _ensureVisible;
+
+        /// <param name="state">The planner state; the box wraps <see cref="PlannerState.SearchInput"/>.</param>
+        /// <param name="db">Catalog DB for target resolution.</param>
+        /// <param name="createTransform">Site-initialised transform, or null when no site is configured yet.</param>
+        /// <param name="autoComplete">The candidate cache, or null until the host finishes the catalog load.</param>
+        /// <param name="ensureVisible">Scrolls the resolved target into the planner list.</param>
+        /// <param name="deactivate">Releases input focus the host's way (desktop posts DeactivateTextInputSignal).</param>
+        /// <param name="requestRedraw">Marks the host surface dirty.</param>
+        public PlannerSearchInteraction(
+            PlannerState state,
             ICelestialObjectDB db,
             Func<Transform?> createTransform,
             Func<string[]?> autoComplete,
             Action<int>? ensureVisible,
             Action deactivate,
             Action requestRedraw)
+            : base(state.SearchInput, requestRedraw, releaseFocus: deactivate)
         {
-            plannerState.SearchInput.OnCommit = text =>
+            _state = state;
+            _db = db;
+            _createTransform = createTransform;
+            _autoComplete = autoComplete;
+            _ensureVisible = ensureVisible;
+        }
+
+        protected override bool AutoSelectFirstResult => false;
+        protected override bool AllowDeselectOnUp => true;
+        protected override bool CollapseResultsOnEscape => true;
+
+        protected override ImmutableArray<string> Query(string text)
+            => _autoComplete() is { } cache ? PlannerActions.ComputeSuggestions(cache, text) : [];
+
+        // Enter on a highlighted suggestion (or a dropdown click via CommitAt): resolve + select WITHOUT
+        // re-searching, then reset the box (clear text, drop the dropdown, release focus).
+        protected override void Commit(string suggestion)
+        {
+            if (_createTransform() is { } transform)
             {
-                plannerState.Suggestions.Clear();
-                plannerState.SuggestionIndex = -1;
-                plannerState.LastSuggestionQuery = "";
-
-                if (text.Length > 0 && createTransform() is { } transform)
+                var idx = PlannerActions.CommitSuggestion(_state, _db, transform, suggestion, _state.Comets);
+                if (idx >= 0)
                 {
-                    var resultIdx = PlannerActions.SearchTargets(
-                        plannerState, db, transform, text, plannerState.Comets);
-                    if (resultIdx >= 0)
-                    {
-                        plannerState.SelectedTargetIndex = resultIdx;
-                        ensureVisible?.Invoke(resultIdx);
-                    }
+                    _state.SelectedTargetIndex = idx;
+                    _ensureVisible?.Invoke(idx);
                 }
-                requestRedraw();
-                return Task.CompletedTask;
-            };
-
-            plannerState.SearchInput.OnCancel = () =>
-            {
-                plannerState.SearchInput.Clear();
-                plannerState.SearchResults = [];
-                plannerState.Suggestions.Clear();
-                plannerState.SuggestionIndex = -1;
-                plannerState.LastSuggestionQuery = "";
-                deactivate();
-                plannerState.NeedsRedraw = true;
-                requestRedraw();
-            };
-
-            plannerState.SearchInput.OnTextChanged = text =>
-            {
-                if (autoComplete() is { } cache)
-                {
-                    PlannerActions.UpdateSuggestions(plannerState, cache, text);
-                }
-            };
-
-            // Autocomplete navigation: Up/Down/Return/Escape when suggestions are visible
-            plannerState.SearchInput.OnKeyOverride = key =>
-            {
-                if (plannerState.Suggestions.Count == 0)
-                {
-                    return false;
-                }
-
-                switch (key)
-                {
-                    case TextInputKey.Backspace or TextInputKey.Delete:
-                        return false; // Let the text input handle it, OnTextChanged will update suggestions
-
-                    case TextInputKey.Enter when plannerState.SuggestionIndex >= 0:
-                        CommitSuggestion(plannerState.Suggestions[plannerState.SuggestionIndex]);
-                        return true;
-
-                    case TextInputKey.Escape:
-                        plannerState.Suggestions.Clear();
-                        plannerState.SuggestionIndex = -1;
-                        plannerState.LastSuggestionQuery = "";
-                        requestRedraw();
-                        return true;
-
-                    default:
-                        return false;
-                }
-            };
-
-            // Mouse counterpart of the keyboard Enter-on-highlighted-suggestion path (OnKeyOverride
-            // above): the dropdown row's OnClick calls this so a click commits IDENTICALLY. Before this
-            // the suggestion click had no handler at all -- only the keyboard could commit a suggestion
-            // ("arrow+enter works, mouse doesn't"). Routes through the same local CommitSuggestion.
-            plannerState.CommitSuggestionAt = index =>
-            {
-                if (index >= 0 && index < plannerState.Suggestions.Count)
-                {
-                    CommitSuggestion(plannerState.Suggestions[index]);
-                }
-            };
-
-            // Local helper captured by the search-input closures above (keyboard Enter-on-suggestion
-            // AND the dropdown mouse-click, via CommitSuggestionAt -- one path, so both behave identically).
-            void CommitSuggestion(string suggestion)
-            {
-                // Resolve + select the target first (it needs the suggestion text), then RESET the box:
-                // clear the text, drop the dropdown, and release focus. Without the reset the search input
-                // lingered showing the committed name and -- on the web -- the floating <input> overlay
-                // stayed visible (it only hides on deactivate), including after switching to the sky atlas.
-                if (createTransform() is { } transform)
-                {
-                    var resultIdx = PlannerActions.CommitSuggestion(
-                        plannerState, db, transform, suggestion, plannerState.Comets);
-                    if (resultIdx >= 0)
-                    {
-                        plannerState.SelectedTargetIndex = resultIdx;
-                        ensureVisible?.Invoke(resultIdx);
-                    }
-                }
-
-                plannerState.SearchInput.Clear();
-                plannerState.Suggestions.Clear();
-                plannerState.SuggestionIndex = -1;
-                plannerState.LastSuggestionQuery = "";
-                deactivate();
-                requestRedraw();
             }
+            ResetBox();
+            ReleaseFocus?.Invoke();
+            RequestRedraw();
+        }
+
+        // Enter with no highlighted suggestion: search targets by the raw text. Matches the old OnCommit,
+        // which cleared only the dropdown state (not the text) and left the box active.
+        protected override void CommitRawQuery(string text)
+        {
+            if (text.Length > 0 && _createTransform() is { } transform)
+            {
+                var idx = PlannerActions.SearchTargets(_state, _db, transform, text, _state.Comets);
+                if (idx >= 0)
+                {
+                    _state.SelectedTargetIndex = idx;
+                    _ensureVisible?.Invoke(idx);
+                }
+            }
+            CollapseResults(); // clears Results + SelectedIndex + LastQuery; leaves the text
+            RequestRedraw();
+        }
+
+        // Escape with nothing to collapse, or the field's own cancel: clear the box + release focus.
+        protected override void Dismiss()
+        {
+            ResetBox();
+            base.Dismiss(); // ReleaseFocus?.Invoke()
+        }
+
+        private void ResetBox()
+        {
+            Input.Clear();
+            Results = [];
+            SelectedIndex = -1;
+            LastQuery = "";
         }
     }
 }

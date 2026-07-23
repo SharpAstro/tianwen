@@ -180,7 +180,9 @@ namespace TianWen.UI.Abstractions
             var body = Layout.Builder.VStack(
                     Layout.Builder.Fill(key: "searchInput").RowH(inputHDesign),
                     Layout.Builder.Spacer().RowH(inputGap),
-                    BuildSearchResults(State.Search.Results, State.Search.SelectedResultIndex, visibleRows).Stretch())
+                    BuildSearchResults(
+                        State.Search.Interaction?.Results ?? [],
+                        State.Search.Interaction?.SelectedIndex ?? -1, visibleRows).Stretch())
                 .Stretch().Pad(bodyPad);
 
             // Panel (bg) inside a 1px border frame (an outer Box.Bg + Pad(1)); the whole card is ONE tree.
@@ -239,11 +241,10 @@ namespace TianWen.UI.Abstractions
 
                 var rowNode = Layout.Builder.HStack([.. rowChildren])
                     .RowH(SearchRowHeight)
-                    .Clickable(new HitResult.ListItemHit("SearchResult", capturedIndex), _ =>
-                    {
-                        State.Search.SelectedResultIndex = capturedIndex;
-                        PostSignal(new SkyMapSearchCommitSignal());
-                    });
+                    // Mouse commit == keyboard Enter-on-highlight: CommitAt sets the selected index AND
+                    // commits through the same base path (which posts SkyMapSearchCommitSignal).
+                    .Clickable(new HitResult.ListItemHit("SearchResult", capturedIndex),
+                        _ => State.Search.Interaction?.CommitAt(capturedIndex));
                 if (isSelected) rowNode = rowNode.Bg(SearchRowHover);
                 rows.Add(rowNode);
             }
@@ -746,25 +747,10 @@ namespace TianWen.UI.Abstractions
                 return true;
             }
 
-            // Arrow key navigation inside the result list (only when modal open and text
-            // input hasn't already handled the key — i.e. this is a fallback).
-            if (!State.Search.IsOpen) return false;
-
-            switch (key)
-            {
-                case InputKey.Down when State.Search.Results.Length > 0:
-                    State.Search.SelectedResultIndex = Math.Min(
-                        State.Search.SelectedResultIndex + 1, State.Search.Results.Length - 1);
-                    State.NeedsRedraw = true;
-                    return true;
-                case InputKey.Up when State.Search.Results.Length > 0:
-                    State.Search.SelectedResultIndex = Math.Max(
-                        State.Search.SelectedResultIndex - 1, 0);
-                    State.NeedsRedraw = true;
-                    return true;
-                default:
-                    return false;
-            }
+            // Up/Down over the result list is handled by SearchInteraction.HandleNavKey while the modal's
+            // input is active (the host key router routes it) -- the modal always activates the input on
+            // open, so the old "fallback" arrow-nav here was unreachable and has been removed.
+            return false;
         }
 
         /// <summary>

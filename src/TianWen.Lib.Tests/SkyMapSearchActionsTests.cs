@@ -22,15 +22,13 @@ public class SkyMapSearchActionsTests
     public void FilterResultsWithEmptyIndexReturnsEmpty()
     {
         var search = new SkyMapSearchState();
-        search.SearchInput.Text = "M31";
         // No SearchIndex set — simulating "catalog not loaded yet".
         search.SearchIndex = [];
 
         // Should not throw, just return no results.
-        SkyMapSearchActions.FilterResults(search, new EmptyDb());
+        var results = SkyMapSearchActions.FilterResults(search, new EmptyDb(), "M31");
 
-        search.Results.ShouldBeEmpty();
-        search.SelectedResultIndex.ShouldBe(-1);
+        results.ShouldBeEmpty();
     }
 
     [Fact]
@@ -39,10 +37,9 @@ public class SkyMapSearchActionsTests
         var search = new SkyMapSearchState();
         search.SearchIndex = ["M31", "Andromeda"];
 
-        search.SearchInput.Text = "M";
-        SkyMapSearchActions.FilterResults(search, new EmptyDb());
+        var results = SkyMapSearchActions.FilterResults(search, new EmptyDb(), "M");
 
-        search.Results.ShouldBeEmpty();
+        results.ShouldBeEmpty();
     }
 
     [Fact]
@@ -59,14 +56,15 @@ public class SkyMapSearchActionsTests
     }
 
     [Fact]
-    public void CommitResultWithNoSelectionReturnsFalse()
+    public void CommitResultWithNoIndexReturnsFalse()
     {
         var search = new SkyMapSearchState();
         var skyMap = new SkyMapState();
-        search.SelectedResultIndex = -1;
 
+        // A result carrying no catalog index cannot resolve to a position -> false.
         var ok = SkyMapSearchActions.CommitResult(
             search, skyMap, new EmptyDb(),
+            new SkyMapSearchResult("nothing", Index: null, ObjType: default, VMag: float.NaN),
             siteLat: 0, siteLon: 0,
             viewingUtc: DateTimeOffset.UtcNow,
             site: default);
@@ -338,15 +336,11 @@ public class SkyMapSearchActionsTests
 
         // The catalog returns the planet as a NaN-coord solar-system stub (as the real DB does).
         var db = new PlanetStubDb(planetIdx, "TestPlanet");
-        var search = new SkyMapSearchState
-        {
-            IsOpen = true,
-            Results = [new SkyMapSearchResult(Display: "TestPlanet", Index: planetIdx, ObjType: ObjectType.Unknown, VMag: float.NaN)],
-            SelectedResultIndex = 0,
-        };
+        var search = new SkyMapSearchState { IsOpen = true };
+        var result = new SkyMapSearchResult(Display: "TestPlanet", Index: planetIdx, ObjType: ObjectType.Unknown, VMag: float.NaN);
 
         var site = SiteContext.Create(0, 0, viewingUtc);
-        SkyMapSearchActions.CommitResult(search, skyMap, db, 0, 0, viewingUtc, site).ShouldBeTrue();
+        SkyMapSearchActions.CommitResult(search, skyMap, db, result, 0, 0, viewingUtc, site).ShouldBeTrue();
 
         var info = search.InfoPanel.ShouldNotBeNull();
         info.Name.ShouldBe("TestPlanet");

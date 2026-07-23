@@ -440,7 +440,7 @@ namespace TianWen.UI.Abstractions
             _targetScroll.DrawScrollBar(FillRect);
 
             // Autocomplete dropdown (overlay, painted last so it's on top)
-            if (state.Suggestions.Count > 0 && state.SearchInput.IsActive)
+            if (state.Search is { Results.Length: > 0 } && state.SearchInput.IsActive)
             {
                 RenderSuggestionDropdown(state, itemHeight, fontSize, padding);
             }
@@ -454,8 +454,14 @@ namespace TianWen.UI.Abstractions
             PlannerState state,
             float itemHeight, float fontSize, float padding)
         {
-            var suggestions = state.Suggestions;
-            var dropdownH = suggestions.Count * itemHeight;
+            // Guarded by the caller (state.Search is { Results.Length: > 0 }); re-checked so this method is
+            // safe to call standalone. Suggestion list + highlight now live on the DIR.Lib SearchInteraction.
+            if (state.Search is not { } search)
+            {
+                return;
+            }
+            var suggestions = search.Results;
+            var dropdownH = suggestions.Length * itemHeight;
             var dropdownY = _searchBarBottom;
 
             // Clamp to not extend past the target list panel
@@ -473,10 +479,10 @@ namespace TianWen.UI.Abstractions
             // the keyboard Enter-on-highlighted path -- both go through PlannerState.CommitSuggestionAt.
             var rowFs = fontSize * 0.9f;
             var maxRows = itemHeight > 0 ? (int)(dropdownH / itemHeight) : 0;
-            var rows = new List<Layout.Node>(Math.Min(suggestions.Count, maxRows));
-            for (var i = 0; i < suggestions.Count && i < maxRows; i++)
+            var rows = new List<Layout.Node>(Math.Min(suggestions.Length, maxRows));
+            for (var i = 0; i < suggestions.Length && i < maxRows; i++)
             {
-                var isHighlighted = i == state.SuggestionIndex;
+                var isHighlighted = i == search.SelectedIndex;
                 var capturedSuggestion = i;
                 var row = Layout.Builder.HStack(
                         Layout.Builder.Spacer().WFixed(padding).HStar(),
@@ -484,7 +490,7 @@ namespace TianWen.UI.Abstractions
                         Layout.Builder.Spacer().WFixed(padding).HStar())
                     .RowH(itemHeight)
                     .Clickable(new HitResult.ListItemHit("Suggestion", capturedSuggestion),
-                        _ => state.CommitSuggestionAt?.Invoke(capturedSuggestion));
+                        _ => search.CommitAt(capturedSuggestion));
                 if (isHighlighted) row = row.Bg(DropdownSelBg);
                 rows.Add(row);
             }

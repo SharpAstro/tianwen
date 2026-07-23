@@ -327,14 +327,21 @@ namespace TianWen.UI.Abstractions
         // SDL clipboard delegates, GuiAppState redraw flag).
         private bool HandleTextInputKey(TextInputState activeInput, InputKey key, InputModifier modifiers)
         {
+            // The active search interaction (planner autocomplete or sky-map F3) when the active input is
+            // one of their boxes -- gives TextInputInteraction the Up/Down result nav without knowing the
+            // concrete search types.
+            SearchInteraction? activeSearch =
+                activeInput == _plannerState.SearchInput ? _plannerState.Search
+                : activeInput == _chrome.SkyMapState.Search.SearchInput ? _chrome.SkyMapState.Search.Interaction
+                : null;
+
             return TextInputInteraction.HandleKey(activeInput, key, modifiers,
                 new TextInputInteraction.KeyContext(
                     Tracker: _tracker,
                     Deactivate: DeactivateTextInput,
                     SetActive: next => _appState.ActiveTextInput = next,
                     RequestRedraw: () => _appState.NeedsRedraw = true,
-                    Planner: _plannerState,
-                    SkySearch: _chrome.SkyMapState.Search,
+                    ActiveSearch: activeSearch,
                     ActiveTab: _chrome.ActiveTab,
                     GetClipboardText: GetClipboardText,
                     SetClipboardText: SetClipboardText));
