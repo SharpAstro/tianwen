@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
@@ -96,15 +96,4 @@ internal static class ProfileEndpoints
 
         return group;
     }
-}
-
-public sealed class CreateProfileRequest
-{
-    public required string Name { get; init; }
-}
-
-public sealed class ProfileSummaryDto
-{
-    public required Guid ProfileId { get; init; }
-    public required string Name { get; init; }
 }

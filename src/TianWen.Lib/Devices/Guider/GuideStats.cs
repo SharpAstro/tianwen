@@ -43,4 +43,22 @@ public class GuideStats
     public double? LastDecPulseMs { get; internal set; }
 
     public GuideStats Clone() => (GuideStats)MemberwiseClone();
+
+    /// <summary>
+    /// Builds a stats snapshot from the five RMS/peak figures alone. Exists so a consumer OUTSIDE this
+    /// assembly can reconstruct stats it received over a wire (<c>RemoteSessionMirror</c> mapping a
+    /// node's <c>GuiderStateDto</c>) without opening every setter up: the per-sample fields
+    /// (<see cref="LastRaErr"/>, <see cref="LastRaPulseMs"/>, ...) stay null because they are not part
+    /// of the transported summary, which is exactly what a local guider reports before its first
+    /// correction too.
+    /// </summary>
+    public static GuideStats FromRms(double totalRms, double raRms, double decRms, double peakRa, double peakDec) =>
+        new GuideStats
+        {
+            TotalRMS = totalRms,
+            RaRMS = raRms,
+            DecRMS = decRms,
+            PeakRa = peakRa,
+            PeakDec = peakDec,
+        };
 }

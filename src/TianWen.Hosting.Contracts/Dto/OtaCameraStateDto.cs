@@ -10,6 +10,19 @@ namespace TianWen.Hosting.Dto;
 public sealed class OtaCameraStateDto
 {
     public required int OtaIndex { get; init; }
+
+    /// <summary>Camera display label, and whether this OTA has a focuser / filter wheel fitted.
+    /// Sourced from <see cref="ISessionTelemetry.TelescopeDisplays"/>: without them a mirroring client
+    /// cannot label an OTA column or decide whether to draw the focus / filter rows, and would have to
+    /// infer "fitted" from whether a numeric field happens to be non-zero.</summary>
+    public required string CameraName { get; init; }
+
+    /// <inheritdoc cref="CameraName"/>
+    public required bool HasFocuser { get; init; }
+
+    /// <inheritdoc cref="CameraName"/>
+    public required bool HasFilterWheel { get; init; }
+
     public required string State { get; init; }
     public required DateTimeOffset ExposureStart { get; init; }
     public required double SubExposureSeconds { get; init; }
@@ -24,9 +37,13 @@ public sealed class OtaCameraStateDto
     public required float MedianHfd { get; init; }
     public required float MedianFwhm { get; init; }
 
-    public static OtaCameraStateDto FromState(int otaIndex, CameraExposureState camera, FrameMetrics metrics) => new()
+    public static OtaCameraStateDto FromState(int otaIndex, CameraExposureState camera, FrameMetrics metrics,
+        TelescopeDisplayInfo display) => new()
     {
         OtaIndex = otaIndex,
+        CameraName = display.CameraName,
+        HasFocuser = display.HasFocuser,
+        HasFilterWheel = display.HasFilterWheel,
         State = camera.State.ToString(),
         ExposureStart = camera.ExposureStart,
         SubExposureSeconds = camera.SubExposure.TotalSeconds,

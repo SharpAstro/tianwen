@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Immutable;
 using System.Linq;
 using System.Threading;
@@ -342,9 +342,4 @@ internal static class SessionEndpoints
 
         return group;
     }
-}
-
-public sealed class SetProfileRequest
-{
-    public required Guid ProfileId { get; init; }
 }

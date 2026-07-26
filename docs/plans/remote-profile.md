@@ -336,19 +336,58 @@ plain interfaces, so remote implementations slot in without tab changes.
    context and asserts the local session's run state survives) + 311 functional green, 0 warnings, plus
    the same live fake-device session as P3.1 -- identical rendering, Equipment tab + planner date nav
    correctly locked during the run and released after, clean `Finalising -> Aborted`, exit 0.
-2. **`TianWen.RemoteClient`** (new project, net10.0, AOT-safe): typed client for the native v1
-   API (HttpClient + ClientWebSocket, source-gen JSON). DTOs move to a shared
-   **`TianWen.Hosting.Contracts`** project (DTO classes + their `JsonSerializerContext`)
-   referenced by both Hosting and the client -- one source of truth, two AOT contexts chained.
-   (Fallback if the contracts split proves churn-y: client-side DTO copies, JSON-shape pinned.)
-3. **`RemoteSessionMirror : ISessionTelemetry`** (in RemoteClient): polls `/session/state`
-   (1 Hz idle / 2 Hz active), subscribes the WS event stream and raises the telemetry events
-   (`PhaseChanged`, `FrameWritten`, `PromptRequested`, ...) so `AppSignalHandler` works
-   untouched; fetches preview JPEGs on `FRAME-WRITTEN` + change-counter and decodes via the
-   codecs facade into `LastCapturedImages`; responds to prompts via the new endpoint. Exposure
-   countdowns stay local (computed from `ExposureStart` + `SubExposure`, same as today).
-   Session lifecycle routes to the API: `RunAsync` -> `POST /session/start` (with the
-   schedule DTO, Part 2.8), `RunFlatsOnlyAsync` -> `POST /session/flats`, abort likewise.
+2. **`TianWen.Hosting.Contracts` + `TianWen.RemoteClient`** -- **DONE (2026-07-26)**.
+   <br>**Contracts split:** the native-v1 DTOs, `ResponseEnvelope<T>`, the three profile request types
+   (previously declared inside endpoint files) and `HostingJsonContext` (now `public`) moved to
+   `TianWen.Hosting.Contracts`, referenced by both Hosting and the client, so server and client
+   serialize the same contract through the same generated metadata. **Namespaces were deliberately
+   kept** (`TianWen.Hosting.Dto` / `.Api` now span two assemblies) so no endpoint using-directive had to
+   change. The ninaAPI shim's `NinaApiJsonContext` + its DTOs stay in Hosting -- no client of ours
+   speaks PascalCase single-OTA.
+   <br>**`TianWenNodeClient`:** transport only, no state. Wraps an `HttpClient` (caller sets
+   `BaseAddress`, so it composes with `IHttpClientFactory` and tests against a scripted
+   `HttpMessageHandler`), always passes an explicit `JsonTypeInfo`, and returns `NodeResult<T>` --
+   payload or the server's own error text. Failure is data, not an exception, because "no session"
+   (404) and "already running" (409) are normal states of a rig. **404 is distinguished from a
+   transport failure** (`IsNotFound`), which is what lets a UI say "idle" instead of "offline". A
+   gate 409 surfaces `ProfileSwitchGate.Describe()` verbatim rather than a reinvented message.
+   <br>**`TianWenEventStream`:** `ClientWebSocket` to `/api/v1/events` with a capped-backoff reconnect
+   loop driven by `ITimeProvider.SleepAsync`. The stream is a **latency optimisation, never the source
+   of truth** -- which is exactly why it needs no replay, sequence numbers or resync handshake.
+   <br>**Two things the split immediately paid for.** (1) A latent contract bug: several DTO properties
+   were `required` *and* nullable, while the context serializes `WhenWritingNull` -- so the server's own
+   output was undeserializable (a healthy session with `FailureReason = null` threw "missing required
+   properties" on read). Invisible for as long as nothing ever read a response. Fixed by dropping
+   `required` from the 18 nullable wire properties, with the rule written into `SessionStateDto`'s doc.
+   (2) The mandatory AOT-publish smoke test found a **pre-existing** ninaAPI 500: `NinaCameraInfoDto`
+   and friends write `double.NaN`, which is not valid JSON (native v1 already guards this via
+   `MountStateDto.NanToZero`). Logged in `docs/todo/infra.md`, not fixed here.
+3. **`RemoteSessionMirror : ISessionTelemetry`** -- **DONE (2026-07-26)**, tier 1 + part of tier 2.
+   Polls `/session/state` (2 Hz active / 0.5 Hz idle) and swaps in the whole immutable DTO by a single
+   reference write, so a render-thread reader always sees one internally consistent snapshot with no
+   lock and no torn mix of two polls. **Polling is authoritative; events only notify** -- so a missed
+   event costs a moment of staleness, never a wrong screen.
+   <br>Faithful today: phase, activity, failure reason, counters, mount pointing + display name, per-OTA
+   camera/focus/filter state **including the display facts** (`CameraName`/`HasFocuser`/`HasFilterWheel`
+   added to `OtaCameraStateDto` from P3.1's `TelescopeDisplays`, plus `MountDisplayName` on
+   `SessionStateDto` -- without them a client cannot label an OTA column or decide whether to draw the
+   focus/filter rows), guide stats + sample ring, schedule, phase timeline.
+   `PhaseChanged` and `GuiderStateChanged` are **derived from consecutive polls** (the node has no
+   guider broadcast yet, and a phase change must survive a dropped frame); `FrameWritten` +
+   `PlateSolveCompleted` come from the WS stream, which also **event-sources** `ExposureLog` and
+   `PlateSolveHistory` (the state DTO carries neither history). Fields with no wire representation
+   return empty rather than guessing, each documented with which Part 2 item unblocks it;
+   `ScoutCompleted` / `PromptRequested` use explicit accessors so subscriptions are retained rather
+   than silently dropped.
+   <br>Still to do here: preview JPEGs into `LastCapturedImages` (Part 2.1), prompt round-trip
+   (Part 2.2), and routing session lifecycle through the mirror (`POST /session/start` with the
+   schedule DTO of Part 2.8, `/session/flats`, abort) -- the client methods exist, the wiring is P4.
+   <br>Verified: 18 `RemoteSessionMirrorTests` against a scripted `HttpMessageHandler`, including a
+   **round-trip through the real server-side projection** (`SessionStateDto.FromSession` over a
+   substituted telemetry, serialized and read back) -- the test that would have caught the `required`
+   bug. Full suites 3448 unit + 311 functional green; AOT publish clean apart from the 2 known
+   LibUsbDotNet rollups, with the published binary smoke-tested (GET, complex-body POST, the
+   formerly-`object` endpoint, and the nina shim).
 4. **`RemoteDeviceHub : IDeviceHub`** (in RemoteClient, over Part 2.9): driver proxies
    (`RemoteCameraDriver` etc.) so preview telemetry/capture, equipment connect/cool/jog,
    and sky-map slew/sync compile and behave unchanged. Precedent: the Alpaca backend already
@@ -373,7 +412,7 @@ plain interfaces, so remote implementations slot in without tab changes.
 |-------|-------------|------------|
 | P1 | DONE -- `LAN.Lib` sibling published to NuGet; server + GUI both announce/discover; GUI profile-switcher dropdown (local profiles + discovered rigs, reshaped from the original read-only-list plan) | new repo + `UseLocalSiblings` extension |
 | P2 | Server session-mirror surface: preview endpoint, prompt bridging, 3 new WS broadcasts, structured devices, notification ring, telemetry depth, schedule-fidelity target DTO (2.1-2.6, 2.8) | -- |
-| P3 | `TianWen.Hosting.Contracts` split + `TianWen.RemoteClient` + `ISessionTelemetry` extraction + `RemoteSessionMirror`; Live Session tab at tier-2 fidelity in mirror mode | P2 |
+| P3 | **MOSTLY DONE (2026-07-26)** -- `ISessionTelemetry` extraction, per-view-context `LiveSessionState`, `TianWen.Hosting.Contracts` split, `TianWen.RemoteClient` (`TianWenNodeClient` + `TianWenEventStream`) and `RemoteSessionMirror` all landed. Remaining: preview images, prompt round-trip and lifecycle routing, which are the parts that genuinely need P2 | P2 (for the remainder only) |
 | P4 | Binding UX + drive mode (fetch profile, local planner, push `ScheduledObservationDto` schedule, remote start/stop/abort) | P1, P3 |
 | P5 | Out-of-session remote device control: **either** the bespoke hub API (2.9) + `RemoteDeviceHub` + driver proxies, **or** an Alpaca server on the node consumed by the existing `AddAlpaca()` (see the 2.9 candidate above -- strongly preferred; no client-side code, ImageBytes free). Preview mode + Equipment tab remote control | P3 (the Alpaca-server route needs only P1, so it can land earlier) |
 | Deferred | Hosted polar-alignment/planetary modes (server-side orchestration), profile editing, guide-cam image stream, auth/TLS, WAN relay, multi-rig dashboard | -- |

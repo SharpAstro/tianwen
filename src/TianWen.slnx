@@ -1,4 +1,4 @@
-<Solution>
+﻿<Solution>
   <Configurations>
     <Platform Name="Any CPU" />
     <Platform Name="x64" />
@@ -17,6 +17,8 @@
   <Project Path="TianWen.AscomHost/TianWen.AscomHost.csproj" />
   <Project Path="TianWen.Cli/TianWen.Cli.csproj" />
   <Project Path="TianWen.Hosting/TianWen.Hosting.csproj" />
+  <Project Path="TianWen.Hosting.Contracts/TianWen.Hosting.Contracts.csproj" />
+  <Project Path="TianWen.RemoteClient/TianWen.RemoteClient.csproj" />
   <Project Path="TianWen.Server/TianWen.Server.csproj" />
   <Project Path="TianWen.Lib.SourceGenerators/TianWen.Lib.SourceGenerators.csproj" />
   <Project Path="TianWen.Lib.Tests.Functional/TianWen.Lib.Tests.Functional.csproj" />

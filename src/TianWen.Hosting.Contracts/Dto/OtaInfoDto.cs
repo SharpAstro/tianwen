@@ -1,4 +1,4 @@
-using TianWen.Lib.Sequencing;
+﻿using TianWen.Lib.Sequencing;
 
 namespace TianWen.Hosting.Dto;
 
@@ -10,12 +10,12 @@ public sealed class OtaInfoDto
     public required int Index { get; init; }
     public required string Name { get; init; }
     public required int FocalLength { get; init; }
-    public required int? Aperture { get; init; }
+    public int? Aperture { get; init; }
     public required string OpticalDesign { get; init; }
     public required string CameraName { get; init; }
-    public required string? FocuserName { get; init; }
-    public required string? FilterWheelName { get; init; }
-    public required string? CoverName { get; init; }
+    public string? FocuserName { get; init; }
+    public string? FilterWheelName { get; init; }
+    public string? CoverName { get; init; }
 
     public static OtaInfoDto FromOta(int index, OTA ota) => new()
     {
